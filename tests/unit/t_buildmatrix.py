@@ -3,17 +3,22 @@
 
     python3 tests/unit/t_buildmatrix.py [-j N]
 
-`all` builds ONE kernel.  The tree has eighteen more, and nothing builds them
-until somebody types the knob by hand:
+`all` builds ONE kernel.  The tree has two dozen more (KNOBS below is the
+roster, and the count in this sentence went stale twice before it stopped
+naming one), and nothing builds them until somebody types the knob by hand:
 
   * `kern_small` - the 128-256KB machine's kernel (SPEC.md 62.9.15), a
     genuinely different binary with its own `KERN_BUDGET`, its own driver set
     and whole features compiled out behind `%ifdef KERN_BIG`. `make small` is
     a separate target and `all` does not depend on it, so a change that breaks
     it is invisible until a release.
-  * the fifteen testing knobs CLAUDE.md documents - `VIDEO=`, `RTC=`,
+  * the testing knobs - `VIDEO=`, `RTC=`,
     `RAMKB=`, `FLOPPY1=`, `DISKCNT=`, `DIRTYRAM=`, `FSNOSTAMP=`, `DISKAL=`,
-    `REDRAWFULL=`, `HEAPCOMPACT=`, `FDDPROBE=`, `SNAPAUDIT=`. Each one is
+    `BOOTDIAG=`,
+    `REDRAWFULL=`, `HEAPCOMPACT=`, `FDDPROBE=`, `SNAPAUDIT=`, `BOOTPROF=`,
+    `MOUIDSLOW=`, `TRACKRUN=`, `QUANTUM=`, `SBDRAGOFF=`/`SBRATE=`,
+    `DIRW1=`, `PICOMEM=`, `BOOTMARK=`/`BOOTHALT=`/`BOOTSTOP=`, `NOPS2=`.
+    Each one is
     `%ifdef`'d code that no ordinary build compiles, so it rots in silence -
     and every one of them is the A/B half of a gate somewhere in `tests/`.
     A knob that no longer assembles takes its gate with it, and the gate is
@@ -50,9 +55,18 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from harness import check, done                           # noqa: E402
 
-# (name, [make variables]). The target is that build's own kernel unless the
-# row says otherwise - `small` has a target of its own because it is a whole
-# second tree (its own drivers, its own Control Panel).
+# (name, [make variables]) or (name, [make variables], target). The target is
+# that build's own kernel unless the row names another - `small` has a target of
+# its own because it is a whole second tree (its own drivers, its own Control
+# Panel), and the rows below that say `boot360.bin` are the ones whose %ifdef
+# arms are in the BOOT SECTOR.
+#
+# A boot-sector row is not the same question as a kernel row and asking the
+# kernel one is how four broken knobs shipped: `make FLOPPY1=1 kernel.bin`
+# succeeds while `make FLOPPY1=1 boot360.bin` dies with `TIMES value -3 is
+# negative`, because 510 bytes is a budget and every one of these spends some of
+# it. boot360.bin DEPENDS on kernel.bin, so a boot row still covers the kernel
+# and costs nothing extra.
 KNOBS = [
     ("video-cga",   ["VIDEO=cga"]),
     ("video-herc",  ["VIDEO=herc", "HERCSEG=0x7000"]),
@@ -61,9 +75,9 @@ KNOBS = [
     ("rtc-ns",      ["RTC=ns"]),
     ("ramkb-128",   ["RAMKB=128"]),
     ("ramkb-104",   ["RAMKB=104"]),
-    ("floppy1",     ["FLOPPY1=1"]),
+    ("floppy1",     ["FLOPPY1=1"], "boot360.bin"),
     ("diskcnt",     ["DISKCNT=1"]),
-    ("diskal",      ["DISKAL=1"]),
+    ("diskal",      ["DISKAL=1"], "boot360.bin"),
     ("dirtyram",    ["DIRTYRAM=1"]),
     ("fsnostamp",   ["FSNOSTAMP=1"]),
     ("redrawfull",  ["REDRAWFULL=1"]),
@@ -72,6 +86,37 @@ KNOBS = [
     ("snapaudit",   ["SNAPAUDIT=1"]),
     ("dirw1",       ["DIRW1=1"]),
     ("picomem",     ["PICOMEM=1"]),
+    ("bootprof",    ["BOOTPROF=1"]),
+    ("mouidslow",   ["MOUIDSLOW=1"]),
+    ("trackrun",    ["TRACKRUN=1"], "boot360.bin"),
+    # SPEC.md 18.93.1/18.93.2's instruments. BOOTMARK= puts a MARK expansion
+    # into ~60 places in kmain that expand to NOTHING in every other build, so
+    # nothing else assembles them; BOOTHALT= is the arm inside that macro;
+    # BOOTSTOP= and NOPS2= are the boot sector's and mouse_init's own %ifdefs.
+    # A boot that stops is exactly when these get reached for, which is the
+    # worst moment to find out one of them no longer assembles.
+    #
+    # BOOTSTOP takes BOTH its arms, because they are not the same build: =2
+    # defines BOOT_NOSPLASH and so compiles the splash call OUT, which pays for
+    # itself, while =1 is pure addition to a sector that is already nearly full.
+    # BOOTDIAG= is the diagnostic disk's (`make field`), and it is the largest
+    # single spender in the sector.
+    ("bootmark",    ["BOOTMARK=1"]),
+    ("boothalt",    ["BOOTMARK=1", "BOOTHALT=20"]),
+    ("bootstop",    ["BOOTSTOP=2"], "boot360.bin"),
+    ("bootstop1",   ["BOOTSTOP=1"], "boot360.bin"),
+    ("bootdiag",    ["BOOTDIAG=1"], "boot360.bin"),
+    ("nops2",       ["NOPS2=1"]),
+    # QUANTUM= is stamp-tracked (SPEC.md 53.2.1's sub-tick) and its
+    # %ifdef SCH_QUANTUM arm compiles in no other configuration - the same
+    # sentence as every row above. 4 is the deepest setting, so it is the
+    # one that keeps the divider arithmetic honest too.
+    ("quantum",     ["QUANTUM=4"]),
+    # SPEC.md 13.10.5's thumb drag SHIPS, so what needs keeping alive is the
+    # configuration nobody builds: the reference kernel WITHOUT it, and the
+    # rate constant, which only the second of these reaches.
+    ("sbdragoff",   ["SBDRAGOFF=1"]),
+    ("sbrate",      ["SBRATE=2"]),
 ]
 
 
@@ -80,13 +125,13 @@ def md5(p):
         return hashlib.md5(f.read()).hexdigest()
 
 
-def build(name, variables):
+def build(name, variables, target="kernel.bin"):
     out = os.path.join(ROOT, "build", "bm-" + name)
     cmd = ["make", "BUILD=" + os.path.relpath(out, ROOT)] + variables + \
-          [os.path.relpath(os.path.join(out, "kernel.bin"), ROOT)]
+          [os.path.relpath(os.path.join(out, target), ROOT)]
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=300)
-    ok = r.returncode == 0 and os.path.exists(os.path.join(out, "kernel.bin"))
-    size = os.path.getsize(os.path.join(out, "kernel.bin")) if ok else 0
+    ok = r.returncode == 0 and os.path.exists(os.path.join(out, target))
+    size = os.path.getsize(os.path.join(out, target)) if ok else 0
     err = "" if ok else "\n".join((r.stdout + r.stderr).strip().splitlines()[-6:])
     shutil.rmtree(out, ignore_errors=True)
     return name, ok, size, err
@@ -139,7 +184,7 @@ def main():
               "adapter on top of the shipped one, and nothing afterwards says so "
               "(CLAUDE.md's cgak note)")
 
-    print("t_buildmatrix: %d knob kernels + kern_small" % len(sizes))
+    print("t_buildmatrix: %d knob builds + kern_small" % len(sizes))
     done("t_buildmatrix")
 
 

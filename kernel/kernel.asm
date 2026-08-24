@@ -196,12 +196,141 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_THEME 1
 %endif
 
+; SPEC.md 13.10.5's thumb DRAG is kern_big's and SHIPS - `make SBDRAGOFF=1`
+; compiles it out, which is WM_ANIM's shape one section up and exists to be
+; diffed against rather than because anybody should build it.
+;
+; The symbol is resolved HERE rather than beside the %include that pulls
+; os88ui.inc in - which is fdlg.inc, and fdlg.inc is included AFTER files.inc.
+; A %ifdef is a PREPROCESSOR test and is answered in file order, so a define
+; made down there is not made yet up here: the element assembled, the Disk
+; window's whole wiring vanished, and the only tell was that adding 17 bytes
+; to files.inc moved .cold by zero. It cost nothing to build and would have
+; cost a session to explain from the screen.
 %ifdef KERN_BIG
-KERN_BUDGET equ 114176          ; kern_big's FOOTPRINT guard, and the SHIPPED
+  %ifndef SBDRAGOFF
+    %define OS88UI_SBDRAG 1
+  %endif
+%endif
+
+%ifdef KERN_BIG
+KERN_BUDGET equ 117248          ; kern_big's FOOTPRINT guard, and the SHIPPED
                                 ; one: big is the default build. Free to move
                                 ; on its own terms - it has a machine with RAM
                                 ; behind it - where KERN_SMALL_BUDGET below is
                                 ; the one that has to be defended.
+                                ;
+                                ; THE THIRTY-FIRST MOVE, 116,224 -> 117,248,
+                                ; 1KB, one step of spare - ATTRIBUTED TO THE
+                                ; PS/2 MOUSE BACKEND SWAP at the squash with
+                                ; upstream: the twenty-ninth move funded a
+                                ; 376-byte backend, upstream wrote the same
+                                ; feature at ~690 bytes (SPEC.md 9.9, the one
+                                ; that ships), and keeping theirs over ours
+                                ; crossed the image rung the union had left
+                                ; 398 bytes from. A MERGE for the FIFTH move
+                                ; running - move 28's sentence yet again. 1KB
+                                ; and not 512 because 512 lands at ZERO spare,
+                                ; which is moves 22/23/24's rule; one step is
+                                ; left for ordinary growth, not an invitation.
+                                ;
+                                ; THE THIRTIETH MOVE, 115,200 -> 116,224,
+                                ; ASKED FOR AND GRANTED, 1KB, two steps -
+                                ; ATTRIBUTED TO THE ANIMATED SCREEN SAVER
+                                ; (SPEC.md 79) MEETING SPEC.md 18.99's DISK
+                                ; CLONE. kern_big's ALONE: kern_small filters
+                                ; SAVER.DRV out and does not get the feature.
+                                ;
+                                ; WHAT IT IS FOR is a MERGE, which makes it
+                                ; the twenty-eighth move's sentence again and
+                                ; the FOURTH time that has been the reason -
+                                ; feature branches are long, each is measured
+                                ; against the guard alone, and the guard is
+                                ; crossed by the union. Measured against the
+                                ; merge base (109,522 bytes of kernel-full):
+                                ; the integration branch's eleven commits are
+                                ; +4,279 and the screen saver is +135. The
+                                ; saver ALONE would have moved nothing; what
+                                ; it did was spend the last of two rungs that
+                                ; were both nearly full - the image rung had
+                                ; 398 bytes left and .cold had 466 - so the
+                                ; union crossed BOTH at once, which is why
+                                ; this is 1KB and not 512.
+                                ;
+                                ; THE ONE RECLAIM WAS SIZED AND REFUSED, and
+                                ; is written down so it is not re-proposed:
+                                ; gfx_line_fast (SPEC.md 5.6.6) is 647 bytes
+                                ; and every one of them is .text, so dropping
+                                ; it clears the IMAGE rung and leaves .cold's
+                                ; 466 exactly where they were. It buys one
+                                ; step of the two, costs a measured 5x on
+                                ; every line the system draws - including the
+                                ; saver's own geometry mode, which IS a
+                                ; resumable line walk - and the budget still
+                                ; has to move 512. Half the win for all of
+                                ; the cost.
+                                ;
+                                ; THIS MOVE LANDS AT ZERO SPARE, deliberately
+                                ; and against moves 22/23/24's rule, because
+                                ; the owner asked for 1KB with a separate
+                                ; hunt for savings already planned (.cold's
+                                ; disk-clone code is where it is aimed). Zero
+                                ; spare is less brittle here than the rule's
+                                ; wording implies: KERN_SIZE only moves when a
+                                ; RUNG crosses, and after this merge there are
+                                ; 398 bytes of image-rung slack and 466 of
+                                ; .cold to absorb ordinary growth first. The
+                                ; guard fires on the next CROSSING, which is
+                                ; the conversation it exists to force.
+                                ;
+                                ; THE TWENTY-NINTH MOVE, 114,176 -> 115,200,
+                                ; ASKED FOR AND GRANTED, 1KB, two steps -
+                                ; ATTRIBUTED TO THE PS/2 MOUSE. kern_big's
+                                ; ALONE: kern_small does not take a byte of
+                                ; it and does not get the feature, for the
+                                ; reason written beside its own figure.
+                                ;
+                                ; WHAT IT IS FOR is the second mouse backend -
+                                ; an 8042 auxiliary device on IRQ12. The move
+                                ; was granted against a 376-byte draft; the
+                                ; backend that ships is SPEC.md 9.9's, written
+                                ; upstream in parallel and kept when the two
+                                ; met (this ledger keeps the move because the
+                                ; feature it funds is the same one): ~690
+                                ; bytes of .text inside mouse.inc, probe and
+                                ; decode both, ending in mou_apply. It is
+                                ; the FIRST move at the 1KB unit since the
+                                ; twenty-fifth, and 1KB and not 512 is moves
+                                ; 22/23/24's rule again: 114,688 assembles and
+                                ; is ZERO spare, which hands the next byte
+                                ; added anywhere the failure the move exists
+                                ; to repair.
+                                ;
+                                ; THE FEATURE IS RESIDENT ON A MACHINE THAT
+                                ; CANNOT USE IT, and that is stated here
+                                ; rather than discovered later. The 8088 is
+                                ; this project's primary target and an IBM
+                                ; PC/XT has an 8255 PPI - no auxiliary
+                                ; device, no IRQ12 - so mou_p2_init reads
+                                ; [cpu_tier], finds CPU_8086 and returns
+                                ; having done nothing, and every resident byte
+                                ; sits in the field 5150's RAM unreachable
+                                ; (SPEC.md 9.9.2's first gate). What
+                                ; buys them is that big is ALSO the 286 and
+                                ; 386 build, and by the time those were the
+                                ; machine on the desk the PS/2 port was the
+                                ; standard one - a mouse on those machines is
+                                ; likelier to be PS/2 than serial. It is the
+                                ; twenty-seventh move's wake-mechanism shape
+                                ; (resident everywhere for a machine that is
+                                ; not everywhere) taken deliberately and with
+                                ; a user-visible feature at the end of it,
+                                ; rather than noticed afterwards. If this
+                                ; guard ever has to be DEFENDED rather than
+                                ; raised, this is the second thing to weigh -
+                                ; behind the wake mechanism, because unlike
+                                ; the wake mechanism something ships that
+                                ; uses it.
                                 ;
                                 ; THE TWENTY-EIGHTH MOVE, 112,128 -> 114,176,
                                 ; ASKED FOR AND GRANTED, 2KB, three steps
@@ -607,9 +736,90 @@ KERN_BUDGET equ 114176          ; kern_big's FOOTPRINT guard, and the SHIPPED
                                 ; the two by 2KB, which is the direction it
                                 ; should drift from here.
 %else
-KERN_BUDGET equ 105984          ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 107008          ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
+                                ;
+                                ; THE THIRTY-SECOND MOVE, 106,496 -> 107,008,
+                                ; ASKED FOR AND GRANTED, 512 BYTES, ONE STEP,
+                                ; ATTRIBUTED TO THE HEAD-SWITCH BOOT FIX -
+                                ; SPEC.md 18.93.1's canary and 18.93.2's
+                                ; per-track read, which is the last commit of
+                                ; this round and the one that crossed the
+                                ; rung. kern_big does NOT move for it: the
+                                ; thirty-first move left that figure a step,
+                                ; and the same code sits inside it.
+                                ;
+                                ; THE NUMBERING IS THE TABLE'S, not this
+                                ; arm's own count - the paragraphs below run
+                                ; on a local sequence that has collided with
+                                ; itself twice, and docs/KERNEL-MEMORY.md's
+                                ; ledger is the copy that file says to trust.
+                                ;
+                                ; THE OVERRUN WAS SIX BYTES and the grant is
+                                ; a whole rung, which is the shape moves 22
+                                ; and 23 of the ledger both had before it:
+                                ; `.text` + `.bss` came to
+                                ; 55,814 against a rung top of 55,808, so the
+                                ; footprint stepped 106,496 -> 107,008 and
+                                ; `make small` stopped assembling. Trimming
+                                ; the six was costed and REFUSED by the owner:
+                                ; every candidate is a feature this round
+                                ; landed deliberately on the 128KB build -
+                                ; wm.inc's right-click side table says in its
+                                ; own comment that it is in kern_small on
+                                ; purpose, and vga12.inc's `gfx_lm_pre` is
+                                ; SPEC.md 5.6.4.3's correctness fix - so the
+                                ; six bytes would come out of shipped
+                                ; behaviour rather than out of slack.
+                                ;
+                                ; IT LANDS AT ZERO SPARE, and that is the
+                                ; second half of the decision rather than an
+                                ; oversight: the rung has 506 bytes of slack
+                                ; inside it, so what fails next is the next
+                                ; CROSSING, which is the conversation this
+                                ; guard exists to force. The next ask is 1KB
+                                ; again unless somebody says otherwise.
+                                ;
+                                ; THE TWENTY-SECOND MOVE, 105,984 -> 106,496,
+                                ; ASKED FOR AND GRANTED, 512 BYTES, ONE STEP,
+                                ; ATTRIBUTED TO DISK IMG WRITE - SPEC.md
+                                ; 18.99.8's `IMG` target and `Write Img...`.
+                                ; kern_big does NOT move for it: that figure
+                                ; had a step in hand and still has 512 spare
+                                ; after the same code, so this is the small
+                                ; build alone catching up to a feature both
+                                ; builds carry.
+                                ;
+                                ; WHAT IT BUYS is 110 bytes, and the shape of
+                                ; that number is the argument. The feature's
+                                ; whole TRANSFER is in CLONE.DRV, which costs
+                                ; this figure nothing (SPEC.md 2.8); what is
+                                ; resident is the menu item, `fm_c_wimg`, and
+                                ; the dialog's completion proc - 208 bytes of
+                                ; `.cold` against the 98 the rung had left.
+                                ;
+                                ; MOVING THE COMPLETION PROC INTO THE IMAGE
+                                ; WAS TRIED FIRST AND IS REFUSED BY THE
+                                ; ARCHITECTURE, which is worth writing down
+                                ; because it looks obvious and is not:
+                                ; `fm_clone_res` calls `fm_edit_end`, and
+                                ; fm_edit_end is what DROPS CLONE.DRV
+                                ; (SPEC.md 2.8.3). A body living in the image
+                                ; that called it would free the code it was
+                                ; about to return through. The split that
+                                ; avoids that - the image runs the verb, a
+                                ; resident tail runs the teardown - leaves
+                                ; most of the bytes resident anyway: measured
+                                ; at ~50 of the 110, for two new far entries
+                                ; and a second boundary on the one path in
+                                ; this feature that is already the fiddliest.
+                                ; The rung was crossed either way.
+                                ;
+                                ; What WAS taken instead is the honest 30:
+                                ; `fm_clone_bad` is now one proc rather than
+                                ; two copies, and `fm_img_done`'s two halves
+                                ; share one repaint tail. Both builds keep it.
                                 ;
                                 ; THE TWENTY-FIRST MOVE, 105,472 -> 105,984,
                                 ; ASKED FOR AND GRANTED, 512 BYTES, ONE STEP,
@@ -1216,7 +1426,7 @@ KERN_BUDGET equ 105984          ; the whole kernel's FOOTPRINT. Growing past
                                 ; machine can still install, just slowly.
 %endif                          ; KERN_BIG
 
-KERN_SMALL_BUDGET equ 105984    ; ...and kern_small's, named separately so it
+KERN_SMALL_BUDGET equ 107008    ; ...and kern_small's, named separately so it
                                 ; can be REPORTED on a big build rather than
                                 ; only enforced on a small one: the %else arm
                                 ; above is not taken on a kern_big assembly, so
@@ -1231,6 +1441,23 @@ KERN_SMALL_BUDGET equ 105984    ; ...and kern_small's, named separately so it
                                 ; written for, and nothing may be added to
                                 ; kern_small without the conversation every
                                 ; budget move so far has had.
+                                ;
+                                ; It last moved at the THIRTY-SECOND, 106,496
+                                ; -> 107,008, 512 bytes, one step, attributed
+                                ; to THE HEAD-SWITCH BOOT FIX (SPEC.md
+                                ; 18.93.1/18.93.2) - and kern_big did not move
+                                ; with it. The overrun was SIX bytes past a
+                                ; rung top and the trim was costed and refused
+                                ; by the owner; the full account is beside the
+                                ; KERN_BUDGET figure this one mirrors.
+                                ;
+                                ; Before that, at the TWENTY-SECOND, 105,984
+                                ; -> 106,496, 512 bytes, one step, attributed
+                                ; to DISK IMG WRITE - and kern_big did not
+                                ; move with it either. The full account,
+                                ; including why the completion proc cannot go
+                                ; into CLONE.DRV to avoid it, is beside the
+                                ; KERN_BUDGET figure this one mirrors.
                                 ;
                                 ; It moved at the seventeenth, 94,208 ->
                                 ; 96,256, and at the TWENTY-FIRST, 96,256 ->
@@ -1480,6 +1707,7 @@ section .ovl     start=OVL_START vstart=0
 ; byte for byte the kernel.bin that would have been emitted without them.
 section .modc    start=MODC_START vstart=0
 section .modf    start=MODF_START vstart=0
+section .modl    start=MODL_START vstart=0
 section .modmap  start=MODMAP_START vstart=0
 section .text
 
@@ -1544,6 +1772,7 @@ DBG_TAG_CLOCK equ 0x4B43          ; 'CK' - SPEC.md 37.92
 DBG_TAG_VIDEO equ 0x4456          ; 'VD' - SPEC.md 57.4
 DBG_TAG_FDD   equ 0x4446          ; 'FD' - SPEC.md 57.5
 DBG_TAG_BUILD equ 0x4449          ; 'ID' - SPEC.md 57.6
+DBG_TAG_BPROF equ 0x5042          ; 'BP' - SPEC.md 15.5, BOOTPROF=1
 
 ; =============================================================================
 ; Fixed entry points
@@ -1551,10 +1780,26 @@ DBG_TAG_BUILD equ 0x4449          ; 'ID' - SPEC.md 57.6
 cold_entry:
     jmp kmain
 
-    times 0x08 - ($ - $$) db 0   ; 0x03..0x07 are free again: the mouse
-                                ; instrument used to have a fixed word of its
-                                ; own at 0x0006 and is now an entry in the
-                                ; registry at 0x000E (SPEC.md 57)
+    times 0x04 - ($ - $$) db 0
+boot_cylrun:                    ; 0060:0004 - THE BOOT SECTOR'S FINDING about
+    dw 0                        ; this machine's FDC (SPEC.md 18.93.1): NON-ZERO
+                                ; means a transfer run crossed a head and came
+                                ; back RIGHT, so dsk_xfer may do the same. The
+                                ; loader writes it on that one path and on no
+                                ; other, so ZERO - the image's own value - is
+                                ; every other case at once: it fell back, it was
+                                ; too small to have crossed, it was built
+                                ; TRACKRUN=1, the machine is not an XT, or the
+                                ; boot sector predates the canary. All of them
+                                ; want the cautious answer and all of them get
+                                ; it. **Do not turn this back into a compare
+                                ; against a volume's spt** - the loader loaded
+                                ; from ONE volume and the kernel mounts others.
+                                ;
+                                ; 0x06..0x07 stay free: the mouse instrument
+                                ; used to have a fixed word at 0x0006 and is
+                                ; now an entry in the registry at 0x000E (57)
+    times 0x08 - ($ - $$) db 0
     jmp near spl_tick           ; 0800:0008 - boot splash tick (SPEC.md 15)
 
     times 0x0C - ($ - $$) db 0
@@ -2546,7 +2791,36 @@ osapi_table:
                                   ;   SI = the first usable row, DL = kind, DH =
                                   ;   bpp - OSAPI_VIDEO for the display THIS
                                   ;   WINDOW is on (SPEC.md 39.16.4)
-osapi_table_end:                  ; 0x0490
+    OSAPI_SLOT wm_onrclick        ; 0x0490 - BX = window, AX = a near proc in
+                                  ;          YOUR segment (0 clears it): the
+                                  ;          RIGHT-CLICK handler (SPEC.md
+                                  ;          13.11). Called CX = x, DX = y,
+                                  ;          SI = your window, on the UI task,
+                                  ;          gfx lock HELD - W_ONCLICK's
+                                  ;          environment exactly - when the
+                                  ;          RIGHT button is pressed in the
+                                  ;          content of your FRONTMOST window.
+                                  ;          Press edge only; there is no
+                                  ;          release half. Install it after
+                                  ;          OSAPI_WM_CREATE like
+                                  ;          OSAPI_WM_ONWAKE - a side table,
+                                  ;          not a template word
+    OSAPI_JSLOT api_file_rmdir    ; 0x0498  N: SI = a NUL 8.3 name, AL = 0 an
+                                  ;         EMPTY folder only / non-zero the
+                                  ;         whole tree under it (SPEC.md 18.6).
+                                  ;         The AL survives the N stub because
+                                  ;         api_copyname banks AX
+    OSAPI_SLOT drv_pkg_call_x     ; 0x04A0 - OSAPI_DRV_CALL WITH ES LEFT ALONE
+                                  ;          (SPEC.md 20.11.2). The same
+                                  ;          routine behind the same fence: the
+                                  ;          only difference is the stub. The
+                                  ;          ordinary SLOT does not touch ES,
+                                  ;          where the X stub overwrites it
+                                  ;          with the caller's DS - so a buffer
+                                  ;          in a heap claim is reachable and a
+                                  ;          package stops having to grow its
+                                  ;          own segment to feed a driver
+osapi_table_end:                  ; 0x04A8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -2554,8 +2828,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 144 * 8
-%error "os8088 API jump table must be exactly 144 8-byte slots"
+%if OSAPI_TABLE_LEN != 147 * 8
+%error "os8088 API jump table must be exactly 147 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -2586,6 +2860,12 @@ dbg_reg:
                                     ; contest is a question about a REAL card,
                                     ; so it has to be in the build the field
                                     ; machine is actually sent
+%ifdef BOOT_PROFILE
+    dw DBG_TAG_BPROF, bprof_dbg_blk  ; SPEC.md 15.5 - `make BOOTPROF=1`, and
+                                    ; knob-built under SPEC.md 57.2's rule: it
+                                    ; COUNTS, which is work a kernel has no
+                                    ; other reason to do
+%endif
     dw DBG_TAG_CLOCK, clk_dbg_blk   ; SPEC.md 37.92 - unconditional for the
                                     ; same reason: an RTC ladder is a question
                                     ; about silicon nobody here has, and the
@@ -2712,6 +2992,7 @@ dbg_reg:
     OSAPI_NSTUB api_file_append, dskw_append, 1
     OSAPI_NSTUB api_file_read_at, dskw_read_at, 1
     OSAPI_NSTUB api_file_mkdir,  dskw_mkdir,  1
+    OSAPI_NSTUB api_file_rmdir,  dskw_rmany,  1
 
 ; -----------------------------------------------------------------------------
 ; api_fdlg_open - slot 0x0150. The N stub's shape with ONE difference, and it
@@ -2978,17 +3259,68 @@ api_sysap:  db 0                ; which verb the shared fenced cell runs:
 ; =============================================================================
 ; Boot (SPEC.md 15)
 ; =============================================================================
+
+; BPMARK - one phase boundary of the boot profile (SPEC.md 15.5). Nothing at
+; all without `make BOOTPROF=1`, which is what lets the marks sit in kmain's
+; own line-by-line order instead of in a table somewhere else that has to be
+; kept in step with it. bprof_mark preserves the flags as well as every
+; register, so a mark may go between any two calls here without changing what
+; either of them did.
+
+%macro MARK 1
+%ifdef BOOT_MARK
+%if ((%1) % 5) == 0
+    mov al, (%1) | 0x80
+%else
+    mov al, (%1)
+%endif
+    call mark_stamp
+%ifdef BOOT_HALT
+%if (%1) == BOOT_HALT
+    cli                         ; `make BOOTHALT=n`: STOP here, so a machine
+%%hlt:                          ; that would otherwise reset or loop cannot -
+    hlt                         ; the screen stays up to be read, and a boot
+    jmp short %%hlt             ; that still goes round proves this was never
+%endif                          ; reached
+%endif
+%endif
+%endmacro
+
+
+%macro BPMARK 1
+%ifdef BOOT_PROFILE
+    mov al, %1
+    call bprof_mark
+%endif
+%endmacro
+
 kmain:
     cli
+%ifdef BOOT_MARK
+    call mark_beacon            ; BEFORE anything: no state of ours is needed
+%endif
     mov ax, KERNEL_SEG          ; the boot sector jumped here with its own
     mov ds, ax                  ; segments; setting ours up is our job
     mov es, ax
+%ifdef BOOT_MARK
+    MARK 50                     ; ...and the first one down the ORDINARY path,
+                                ; while SS is still the boot sector's. A corner
+                                ; with no 50 beside it means the drawing helpers
+                                ; are what is broken, not the boot
+%endif
     mov ax, LOW_SEG             ; SS is NOT KERNEL_SEG (SPEC.md 2.1): the task
     mov ss, ax                  ; stacks sit in their own segment just above
     mov sp, STK0_TOP            ; the image, so a stack offset stays small and
     sti                         ; the kernel's own 64KB window stays for code
     cld
 
+%ifdef BOOT_MARK
+    call mark_prev              ; what the PREVIOUS boot reached, if this machine
+                                ; went round rather than stopping...
+    call mark_hook              ; ...and take the fault vectors, so the next one
+                                ; stops with its number up instead of resetting
+%endif
+    MARK 0
     call dsk_boot_from          ; WHICH VOLUME DID WE COME OFF? (SPEC.md
                                 ; 52.10.3) DL and BX:CX are the boot sector's
                                 ; handoff and nothing above touches them - the
@@ -3001,6 +3333,7 @@ kmain:
                                 ; what lets the kernel read SYSTEM.CFG and
                                 ; load HDD.DRV off the volume that driver
                                 ; would otherwise have been needed to reach
+    MARK 1
 
     call FAT_SEG:ovl_cpu_detect ; CPU tier + memory above 1MB (SPEC.md 41),
                                 ; here and nowhere else: BEFORE sched_init,
@@ -3011,6 +3344,7 @@ kmain:
                                 ; that may fire in it are the BIOS's own, and
                                 ; a tick lost here costs nothing ([ticks] is
                                 ; zeroed by sched_init anyway)
+    MARK 2
 %ifdef KERN_BIG                 ; the store above 1MB is kern_big's alone
                                 ; (SPEC.md 41.11). kern_small is the
                                 ; 128KB-floor product and neither sniffs nor
@@ -3034,22 +3368,36 @@ kmain:
                                 ; for D1h/DFh to be told there was nothing up
                                 ; there. AH=88h reads CMOS and needs no gate
 %endif
+    MARK 3
 
     call dsk_dpt_init           ; int 1Eh becomes ours (SPEC.md 18.92) before
                                 ; any transfer: the ROM's EOT is 8, and every
                                 ; multi-sector read past it silently returns
                                 ; the OTHER HEAD's sectors
+    MARK 4
     call sched_init             ; pre-emption live from here on
+    MARK 5
+%ifdef SCH_QUANTUM
+    mov al, SCH_QUANTUM         ; `make QUANTUM=` - SPEC.md 53.2.1's sub-tick,
+    call sch_fast_on            ; armed system-wide instead of per bracket
+%endif                          ; (docs/FIELD-NOTES.md 27.4). OFF by default
+    BPMARK 0                    ; SPEC.md 15.5: the PIT clock is ours from
+                                ; here, and this also closes the ticks-only
+                                ; era - the boot sector's load and the three
+                                ; calls above it
     call evq_init
+    MARK 6
     call FAT_SEG:ovl_clk_init   ; system clock (SPEC.md 37): probe the RTC,
                                 ; or fall back to the fixed date - before the
                                 ; mode set, so the very first menu bar paint
                                 ; already carries a valid clock
+    MARK 7
     call vid_init               ; video adapter (SPEC.md 39): probe, publish
                                 ; the runtime geometry. Re-runs what the
                                 ; splash already did, EXCEPT the mode set -
                                 ; the loading screen stays up and keeps
                                 ; ticking until spl_finish below (15.3)
+    MARK 8
 %ifdef KERN_BIG
     call vid_ctx_init           ; ...and bank that geometry as display 0's
                                 ; (SPEC.md 39.12). AFTER vid_apply and never
@@ -3058,6 +3406,7 @@ kmain:
                                 ; the floppy, and a call from there into
                                 ; vidsel.inc executes what has not loaded yet
 %endif
+    MARK 9
     call vid_probe_avail        ; ...and which OTHER adapters this machine has
                                 ; (SPEC.md 39.11.1). AFTER the mode is set, and
                                 ; that is the whole correctness argument: a VGA
@@ -3067,6 +3416,7 @@ kmain:
                                 ; came up in mono text answers at B000 as
                                 ; ITSELF and reports a Hercules that is not
                                 ; there
+    MARK 10
 %ifdef KERN_BIG
     call vid_disp_init          ; ...and if it has BOTH mono cards, programme
                                 ; the second one too (SPEC.md 39.13). Here
@@ -3075,9 +3425,12 @@ kmain:
                                 ; and draws nothing, so the second monitor comes
                                 ; up scanning our raster and black
 %endif
+    MARK 11
     call mem_init               ; the claim heap (SPEC.md 50): int 12h, the
                                 ; empty map. FIRST of the memory users -
                                 ; every claim below goes through it
+    MARK 12
+    BPMARK 1                    ; ...the clock, the adapter and the heap
 %ifdef DIRTYRAM
     ; --- DIAGNOSTIC ONLY (make DIRTYRAM=1): fill the heap with a pattern -----
     ; QEMU hands the guest zeroed RAM and a real machine does not, so a read
@@ -3122,6 +3475,8 @@ kmain:
                                 ; table itself, and the rule for a thing that
                                 ; makes a jump target safe is that it cannot
                                 ; be after anything that could jump
+    MARK 13
+    BPMARK 2                    ; ...the claim heap and the module table
 %ifdef BAKED_FONT
     call FAT_SEG:ovl_font_init  ; the typeface this BUILD carries (SPEC.md
                                 ; 6.2), out of the overlay - so it needs no
@@ -3130,24 +3485,41 @@ kmain:
 %else
     call font_init              ; needs int 10h, so after the mode is set
 %endif
+    MARK 14
+    BPMARK 3                    ; ...the typeface
     call wm_init
+    MARK 15
     call menu_init              ; menu bar owner (SPEC.md 12): Locator, so
                                 ; the first wm_paint_all already has a bar
+    MARK 16
     call inst_init              ; instance table (SPEC.md 29) - clean boot:
                                 ; no app instances exist until launched
+    MARK 17
+    BPMARK 4                    ; ...the window manager, the bar, the table
     call spl_step               ; a notch: the mode set and the font are done
+    MARK 18
     call mouse_init             ; IRQ4 live; cursor stays hidden until shown
+    MARK 19
+    BPMARK 5                    ; ...and SPEC.md 9.4.1's two waits, which are
+                                ; the largest phase of a boot that is not
+                                ; the disk
     call spl_step               ; ...and another: the serial reset holds
                                 ; DTR/RTS low for MOU_RSTLOW ticks (~165ms),
                                 ; which is the only non-I/O phase up here
                                 ; long enough to see (SPEC.md 15.3)
+    MARK 20
     call FAT_SEG:ovl_desk_init  ; volume zones for the desktop (SPEC.md 26.1)
+    MARK 21
     call dock_init              ; dock strip scratch (SPEC.md 30)
+    MARK 22
     call files_init             ; Disk module state (no window at boot)
+    MARK 23
     call loader_init            ; package loader state
+    MARK 24
     call drv_init               ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
                                 ; published service table on its first tick
+    MARK 25
     call FAT_SEG:drv_snd_sniff  ; is there an FM chip at 388h? (SPEC.md
                                 ; 51.3.1) If so, row 0 becomes WANTED by
                                 ; DEFAULT - which a SYSTEM.CFG that says
@@ -3156,14 +3528,18 @@ kmain:
                                 ; been asked. HERE and not inside drv_boot,
                                 ; because the overlay this lives in is dead by
                                 ; then: drv_boot's own mount writes over it
+    MARK 26
     call FAT_SEG:ovl_snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
                                 ; boot bits, stores its .bss state, publishes
                                 ; snd_live LAST - snd_tick has been running
                                 ; gated since sched_init hooked int 08h
+    MARK 27
+    BPMARK 6                    ; ...the desktop, the dock, the driver table
 
     call spl_step               ; a notch, and the last one kmain spends by
                                 ; hand: everything below is sectors, and
                                 ; dsk_xfer ticks the bar itself (SPEC 15.3)
+    MARK 28
 
     call drv_boot               ; ...and load what SYSTEM.CFG asks for
                                 ; (SPEC.md 51.3). Before the first paint, so
@@ -3172,6 +3548,8 @@ kmain:
                                 ; can stop the boot. NOTHING loads that the
                                 ; settings file did not ask for - a driver is
                                 ; several seconds of floppy on this machine
+    MARK 29
+    BPMARK 7                    ; ...SYSTEM.CFG and whatever it asked for
 
 %ifdef KERN_BIG
     call xm_boot                ; ...and the store above 1MB, if xm_sniff
@@ -3184,6 +3562,7 @@ kmain:
                                 ; still before the first paint. A failure is
                                 ; silent by design (SPEC.md 41.12.4)
 %endif
+    MARK 30
 
 %ifdef OS88_THEME
     mov al, [thm_kind]          ; RESOLVE THE PALETTE FROM THE KIND, once, before
@@ -3199,14 +3578,18 @@ kmain:
                                 ; from a VGA machine to this one, [vid_kind]
                                 ; being long since probed
 %endif
+    MARK 31
 
     call spl_finish             ; the bar to 100% and the screen handed back:
                                 ; the paint below covers every pixel of it,
                                 ; so the loading screen needs no erase
+    MARK 32
+    BPMARK 8                    ; ...the store above 1MB, the palette, the bar
 
     call gfx_lock
     call wm_paint_all
     call gfx_unlock
+    BPMARK 9                    ; ...and the first desktop frame
 
     ; --- stop the boot timer (SPEC.md 15.4) ----------------------------------
     ; HERE, not after cursor_show: the question is when the first desktop
@@ -3227,6 +3610,15 @@ kmain:
 
     call drv_notice             ; ...and only NOW say what did not load: a
                                 ; window needs a screen that has been painted
+    BPMARK 10                   ; ...the cursor and the driver notice
+
+%ifdef BOOT_PROFILE
+    call COLD_SEG:bpf_bprof_show ; SPEC.md 15.5: the table on the glass, LAST,
+                                ; so nothing above paints over it. It draws on
+                                ; the DESKTOP rather than into a window - a
+                                ; window is wm state the user then has to
+                                ; close, and this should go on the first repaint
+%endif
 
     jmp ui_task                 ; task 0 becomes the UI task; never returns
 
@@ -3261,7 +3653,7 @@ osapi_set_color:
 ; keyboard latched can never be released and the UI task never comes back
 ; (SPEC.md 9.6.1). One compare on every machine that has a mouse.
 osapi_mouse:
-    cmp byte [mou_seen], 0
+    cmp byte [mou_ptr], 0
     jne .live
     call kbm_poll
 .live:
@@ -3637,6 +4029,10 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %include "softgfx.inc"
 %include "font.inc"
 %include "mouse.inc"
+%include "bootprof.inc"       ; the boot phase table (SPEC.md 15.5), BOOTPROF=1
+                              ; only: after sched.inc, whose PIT programming its
+                              ; clock depends on, and before nothing - kmain
+                              ; forward-references bprof_mark through the macro
 %include "sched.inc"
 %include "events.inc"
 %include "clock.inc"            ; the system clock (SPEC.md 37): after
@@ -3678,6 +4074,9 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %include "disk.inc"
 %include "diskw.inc"          ; the FAT write path (SPEC.md 18.4): after
                                 ; disk.inc, whose constants and layout it uses
+%include "clone.inc"          ; the disk cloner (SPEC.md 18.99): after
+                                ; diskw.inc, whose FERR_* neighbours its own
+                                ; CERR_*, and before files.inc, which arms it
 %include "loader.inc"
 %include "files.inc"
 %include "filecp.inc"        ; Cut/Copy/Paste and the recursive paste
@@ -3696,6 +4095,279 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
                                 ; sched.inc (the freeze bytes), instance.inc
                                 ; (the fence), snd.inc (the release walk)
                                 ; and viddet.inc (the mode leaves)
+
+; =============================================================================
+; BOOTMARK=1's blocks (see the MARK macro above)
+;
+; DOWN HERE for the shims' reason, which the block below spells out: this is
+; .text, and .text above the %includes pushes splash.inc out of the image's
+; first SPL_RESIDENT sectors. Putting it here cost one build to learn and the
+; error names splash rather than this.
+; =============================================================================
+%ifdef BOOT_MARK
+; -----------------------------------------------------------------------------
+; MARK / mark_stamp - `make BOOTMARK=1`: stamp one block into the bottom of the
+;                     screen for a call in kmain that RETURNED
+;
+; in:  AL = the block's index, bit 7 set for a tall one
+; out: nothing - every register and the flags preserved, for BPMARK's reason:
+;      a mark may go between any two calls below without changing what either
+;      of them did
+;
+; It is for ONE question, and it is the question no other instrument here can
+; answer: a machine that reaches the loading screen and then STOPS. The splash
+; bar cannot say where - it is one number, and kmain only moves it three times
+; - BOOTPROF's phase table needs a boot that reaches a desktop to print it on,
+; and 86Box has no debugger to attach to the machine that shows the fault.
+;
+; Nothing in here reads state the boot could already have broken: the geometry
+; is the SPLASH's, published before the handoff and known good because the bar
+; is on screen, and the fill is spl_bar's own routine. A marker that needed a
+; working kernel would not survive the boot it exists to diagnose.
+;
+; The blocks are COUNTED, not read: N blocks means N calls returned, so the
+; freeze is in call N+1 of the table in the commit message.
+; -----------------------------------------------------------------------------
+MARK_X0     equ 4               ; the first block's byte column - 32 pixels in,
+                                ; which clears the dialog on every adapter
+MARK_UP     equ 14              ; rows up from the bottom of WHATEVER screen we
+                                ; got: 466 on VGA, 334 on Hercules, and the
+                                ; loading screen draws on neither
+MARK_H      equ 6               ; a block...
+MARK_H5     equ 12              ; ...and every fifth, so thirty of them are
+                                ; countable without a ruler
+MARK_PREVUP equ MARK_UP + 10     ; ...and ten rows above that, the mark the
+                                ; PREVIOUS boot reached - the row that answers a
+                                ; machine which RESETS instead of stopping
+MARK_MAXIDX equ 67              ; the largest index any MARK uses
+MARK_SLOT   equ 0x0590          ; 0000:0590 - beside the boot sector's own DPT
+                                ; copy at 0x0580 and inside the same page it
+                                ; already argues is free (boot/boot.asm), which
+                                ; is below the kernel and above the BIOS data
+                                ; area, so nothing here or in the BIOS owns it
+MARK_MAGIC  equ 0x8088          ; ...and a signature, because a BIOS that
+                                ; cleared RAM on the way round must read as NO
+                                ; answer rather than as marker zero
+mark_stamp:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov bx, MARK_H
+    test al, 0x80               ; bit 7: one of the tall every-fifth ones
+    jz .plain
+    mov bx, MARK_H5
+.plain:
+    and ax, 0x007F              ; ...and the rest of it is the index
+    mov si, ax                  ; banked: gfx_rowbase spends AX, CX and DX
+    mov ax, [vid_seg]
+    mov es, ax
+    mov ax, [vid_h]             ; the LIVE height (SPEC.md 39), never a
+    sub ax, MARK_UP             ; reference constant - this runs on all three
+    call gfx_rowbase            ; adapters and two of them are not 640x480
+    add ax, si
+    add ax, MARK_X0
+    mov di, ax
+    mov cx, 1                   ; one byte = eight pixels
+    mov al, 0xFF
+    cld
+    call spl_fill
+    call mark_note              ; SI is still the index: nothing above spends it
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; mark_note - bank the index in SI where a RESET cannot reach it
+; -----------------------------------------------------------------------------
+mark_note:
+    push ax
+    push es
+    xor ax, ax
+    mov es, ax
+    mov word [es:MARK_SLOT], MARK_MAGIC
+    mov [es:MARK_SLOT+2], si
+    pop es
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mark_prev - stamp what the previous boot reached, one row above this one
+;
+; A machine that RESETS rather than stops erases the whole band on its way
+; round, so the run of blocks says nothing: every cycle starts from none. This
+; is the one block that survives it, and in a boot LOOP it is the answer -
+; it settles on the same column every cycle, and that column is the call.
+; -----------------------------------------------------------------------------
+mark_prev:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    xor ax, ax
+    mov es, ax
+    cmp word [es:MARK_SLOT], MARK_MAGIC
+    jne .out                    ; never written, or a POST that cleared it
+    mov ax, [es:MARK_SLOT+2]
+    cmp ax, MARK_MAXIDX
+    ja .out
+    mov si, ax
+    mov ax, [vid_seg]
+    mov es, ax
+    mov ax, [vid_h]
+    sub ax, MARK_PREVUP
+    call gfx_rowbase
+    add ax, si
+    add ax, MARK_X0
+    mov di, ax
+    mov cx, 1
+    mov bx, MARK_H5             ; always tall: there is only ever one of these
+    mov al, 0xFF
+    cld
+    call spl_fill
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; mark_hook / mark_faulted - take the CPU's own exception vectors, so a fault
+;                            STOPS with its number on screen instead of
+;                            cascading to a shutdown and resetting the machine
+;
+; A 286 answers a fault it cannot deliver with a shutdown cycle, and the board
+; wires that to RESET - so the defect erases its own evidence. These stubs stop
+; instead, and the block they leave in the 60..67 band names the vector.
+;
+; NOT vector 2: that is NMI and a parity report is not ours to swallow. Not 8
+; upwards either - on a PC those are the remapped IRQs, so the machine's timer
+; and its sound card own them, not the CPU.
+; -----------------------------------------------------------------------------
+%macro MARKFSTUB 1
+    mov al, (%1) | 0x80
+    jmp short mark_faulted
+%endmacro
+
+mark_fstubs:                    ; FOUR BYTES each, indexed by vector number -
+    MARKFSTUB 60                ; which is the IVT's stride too, so the same
+    MARKFSTUB 61                ; multiply lands in both tables
+    MARKFSTUB 62
+    MARKFSTUB 63
+    MARKFSTUB 64
+    MARKFSTUB 65
+    MARKFSTUB 66
+    MARKFSTUB 67
+
+; -----------------------------------------------------------------------------
+; mark_beacon - the crudest "we got here" this machine can be asked for
+;
+; It depends on NOTHING: not DS, not [vid_seg], not [vid_h], not gfx_rowbase,
+; not spl_fill, not a mode set. Four bytes at offset 0 of all three framebuffer
+; segments, so whichever one this adapter answers at gets a short white run in
+; the TOP-LEFT CORNER and the other two write to RAM nobody reads.
+;
+; It exists because the band at the bottom said nothing, and a marker that says
+; nothing has two readings - the code never ran, or the marker never drew. This
+; separates them: corner AND band = both work; corner ALONE = kmain is running
+; and the drawing path is what is broken; NEITHER = kmain was never entered and
+; the fault is above it, in the loader's tail or the far jump itself.
+;
+; Needs a stack for the call, and at the top of kmain that is still the BOOT
+; SECTOR's - which the loader has been running on all along, so it is known
+; good at exactly the moment this is asked.
+; -----------------------------------------------------------------------------
+mark_beacon:
+    push ax
+    push cx
+    push di
+    push es
+    mov ax, 0xA000              ; VGA planar FIRST, and the order is the point:
+    call .one                   ; a VGA in mode 12h decodes A000 alone, so the
+    mov ax, 0xB000              ; other two are writes onto a bus with nothing
+    call .one                   ; on it. Harmless on every machine seen here -
+    mov ax, 0xB800              ; but if one of them ever is not, the corner is
+    call .one                   ; already drawn by the time we find out
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+.one:
+    mov es, ax
+    xor di, di
+    mov cx, 4
+    mov al, 0xFF
+    cld
+    rep stosb
+    ret
+
+mark_faulted:
+    cli
+    push cs
+    pop ds
+    call mark_stamp
+.h:
+    hlt                         ; and STAY here: the screen is the report
+    jmp short .h
+
+mark_hook:
+    pushf
+    cli
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    xor ax, ax
+    mov es, ax
+    mov si, mark_fvec
+    mov cx, MARK_FNVEC
+.v:
+    lodsb                       ; AL = the vector to take
+    xor ah, ah
+    mov di, ax
+    shl di, 1
+    shl di, 1                   ; DI = vector * 4: the IVT slot...
+    mov bx, di
+    add bx, mark_fstubs         ; ...and its stub, at the same stride
+    mov [es:di], bx
+    mov [es:di+2], cs
+    loop .v
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+mark_fvec   db 0, 1, 3, 4, 5, 6, 7
+MARK_FNVEC  equ $ - mark_fvec
+%endif
 
 ; =============================================================================
 ; The cold segment's shims (SPEC.md 2.6)
@@ -3736,9 +4408,21 @@ cw_clk_snapshot:        call clk_snapshot
 %ifdef KERN_BIG                 ; the four shims gfx_blit1_x needs (SPEC.md
 cw_cur_unlazy:          call cur_unlazy     ; 5.4.2) are its only callers, and
                     retf                    ; its body is kern_big's alone -
+; ...and the REFCOUNTED pair (SPEC.md 7.1), which the screen saver's cold half
+; brackets a session with: the arrow has to be off the glass for as long as
+; something is drawing over it, and every gfx_lock/gfx_unlock inside a frame
+; then nests underneath and draws nothing (SPEC.md 79.6). kern_big's, like the
+; saver itself.
+cw_cursor_hide:         call cursor_hide
+                    retf
+cw_cursor_show:         call cursor_show
+                    retf
 %endif                                      ; so kern_small pays for none of
 cw_evq_pop:             call evq_pop        ; them out of its 75-byte rung
                     retf
+cw_wm_wake_eaten:       call wm_wake_eaten  ; every drain owes this per record
+                    retf                    ; it discards (SPEC.md 74.1.1) -
+                                            ; the .cold drains too
 cw_font_run:            call font_run
                     retf
 cw_font_str:            call font_str
@@ -3769,6 +4453,18 @@ cw_thm_desk:            call thm_desk
 cw_thm_set:             call thm_set
                     retf
 %endif
+; THE SCREEN SAVER'S WAY BACK (SPEC.md 79.6), and it is THREE calls behind one
+; shim rather than three shims, because the image rung it comes out of has
+; single-figure bytes left in it (docs/KERNEL-MEMORY.md). wm_paint_all deliberately forces NEITHER
+; the bar nor the strip - the dither it lays starts at MBAR_H and stops above
+; the dock, so nothing in it has ever been able to touch either (SPEC.md 12.9,
+; 30.3.2) - and a saver session has drawn over both. fsx_restore is the other
+; caller that has to say so, and for the identical reason: an app that owned
+; the whole screen really did overdraw them.
+cw_blk_relit:           call menu_force
+                    call dock_force
+                    call wm_paint_all
+                    retf
 cw_gfx_frame:           call gfx_frame
                     retf
 cw_gfx_hline:           call gfx_hline
@@ -4059,11 +4755,15 @@ dskw_write_sys:       call COLD_SEG:dwf_dskw_write_sys
                     ret
 dskw_mkdir:           call COLD_SEG:dwf_dskw_mkdir
                     ret
+dskw_rmany:           call COLD_SEG:dwf_dskw_rmany
+                    ret
 dskw_read_at:         call COLD_SEG:dwf_dskw_read_at
                     ret
 dskw_append:          call COLD_SEG:dwf_dskw_append
                     ret
 dskw_append_sys:      call COLD_SEG:dwf_dskw_append_sys
+                    ret
+dskw_stat:            call COLD_SEG:dwf_dskw_stat
                     ret
 files_init:           call COLD_SEG:fmf_files_init
                     ret
@@ -4097,7 +4797,7 @@ fm_rclick:            call COLD_SEG:fmf_fm_rclick
                     ret
 fm_rcmd:              call COLD_SEG:fmf_fm_rcmd
                     ret
-ld_run_body:          call COLD_SEG:ldf_ld_run_body
+ld_run_name:          call COLD_SEG:ldf_ld_run_name
                     ret
 mod_init:             call COLD_SEG:modf_mod_init
                     ret
@@ -4145,8 +4845,6 @@ osapi_assoc_set:      call COLD_SEG:acf_osapi_assoc_set
 ; far call is ~6us against a sector's ~24ms. dsk_xfer's per-sector spl_step
 ; goes out through a cw_ shim and stays flag-transparent, which it must be
 ; (SPEC.md 15.3) - call and retf touch no flags.
-disk_mount:       call COLD_SEG:dkf_disk_mount
-              ret
 dsk_batch_begin:  call COLD_SEG:dkf_dsk_batch_begin
               ret
 dsk_batch_end:    call COLD_SEG:dkf_dsk_batch_end
@@ -4162,8 +4860,6 @@ dsk_copy_seg:     call COLD_SEG:dkf_dsk_copy_seg
 dsk_dpt_init:     call COLD_SEG:dkf_dsk_dpt_init
               ret
 dsk_find:         call COLD_SEG:dkf_dsk_find
-              ret
-dsk_find_name:    call COLD_SEG:dkf_dsk_find_name
               ret
 dsk_flop_add:     call COLD_SEG:dkf_dsk_flop_add
               ret
@@ -4215,6 +4911,12 @@ osapi_drv_dlg: call COLD_SEG:dvf_osapi_drv_dlg
 ; has to be: fdlg_commit dispatches a kernel window's completion proc through
 ; wm_pkgcall, which for W_SEG 0 is a NEAR call in KERNEL_SEG, so the offset
 ; handed to fdlg_open cannot be a cold one.
+; The file dialog's completion proc for the DISK WINDOW's image commands
+; (SPEC.md 18.99.8), resident for drv_dlg_done's reason immediately below: a
+; kernel window's callback is dispatched as a near call in KERNEL_SEG, and
+; files.inc is `.cold`.
+fm_img_done:   call COLD_SEG:fmf_fm_img_done
+                  ret
 drv_dlg_done:  call COLD_SEG:dvf_drv_dlg_done
            ret
 
@@ -4360,7 +5062,8 @@ OVL_SIZE equ ovl_end - $$
 ; byte for byte. tools/os88mod.py proves that rather than trusting it.
 MODC_START   equ OVL_START + OVL_SIZE
 MODF_START   equ MODC_START + MODC_SIZE
-MODMAP_START equ MODF_START + MODF_SIZE
+MODL_START   equ MODF_START + MODF_SIZE
+MODMAP_START equ MODL_START + MODL_SIZE
 
 section .modc
 modc_end:
@@ -4369,6 +5072,10 @@ MODC_SIZE equ modc_end - $$
 section .modf
 modf_end:
 MODF_SIZE equ modf_end - $$
+
+section .modl
+modl_end:
+MODL_SIZE equ modl_end - $$
 
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
 ; (mod.inc) is a RUN-TIME test - a module over it is refused cleanly, the
@@ -4380,6 +5087,9 @@ MODF_SIZE equ modf_end - $$
 %endif
 %if MODF_SIZE > MOD_MAX_KB*1024
 %error "the format module is over MOD_MAX_KB - mod_need would refuse it at run time"
+%endif
+%if MODL_SIZE > MOD_MAX_KB*1024
+%error "the clone module is over MOD_MAX_KB - mod_need would refuse it at run time"
 %endif
 
 ; --- the split table, which is HOST-SIDE ONLY --------------------------------
@@ -4403,6 +5113,7 @@ mod_map:
                                 ; assembles as a silent truncation under any
                                 ; flags but this tree's -w+error
     dd MODF_START, MODF_SIZE
+    dd MODL_START, MODL_SIZE
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
 modmap_end:
@@ -4469,11 +5180,40 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 ;    `make KFZ=1` 512 over the guard in the DEFAULT kern_big configuration - so
 ;    the one build that could answer the field freeze it was written for was
 ;    the one build that would not assemble.
+;    SNAPAUDIT is the third, and it arrived the way the other two did: SPEC.md
+;    7.3's lock handover is ~35 bytes of .text that every machine needs, and
+;    the build it stopped was the glyph-alignment histogram - which nobody
+;    ships, which exists to answer a question about a RUNNING machine, and
+;    which had simply never been named here. A diagnostic knob is not what
+;    KERN_BUDGET is steering.
+;    BOOT_PROFILE is the fourth, and it is the same sentence again: SPEC.md
+;    15.5's phase table is ~1KB of a build nobody ships, and what stopped it
+;    was SPEC.md 18.99's disk clone growing the resident image by a rung.
+;    Neither of those is the other's problem and the guard cannot say so - it
+;    sees one number. The one build that can profile a boot on IRON was the
+;    one build that would not assemble.
+;    DIRTYRAM is the fifth, and it is the sharpest illustration of the rule:
+;    it was FIVE BYTES under the guard, and the five that tipped it are
+;    SPEC.md 18.91.1's cylinder bound and 9.4.4's early close - which between
+;    them are 2.8 seconds of a 12-second boot. Measured, not estimated:
+;    kernel-full.bin is 113,796 bytes with those two compiled out and 113,801
+;    with them in. A heap-poisoning diagnostic nobody ships is not what
+;    KERN_BUDGET is steering, and it should have been named here before it
+;    was ever this close.
 %ifdef DISK_COUNTERS
 %define KERN_INSTR                  ; one name for "this is an instrument", so
 %endif                              ; the exemption below is written once
 %ifdef KFZTRACE                     ; (NASM has no defined() to say it in one
 %define KERN_INSTR                  ; %if)
+%endif
+%ifdef SNAPAUDIT
+%define KERN_INSTR
+%endif
+%ifdef BOOT_PROFILE
+%define KERN_INSTR
+%endif
+%ifdef DIRTYRAM
+%define KERN_INSTR
 %endif
 %ifdef KERN_INSTR
 KERN_CEIL equ KERN_BUDGET + 4096    ; ...and a BOUND, not a free hand: four

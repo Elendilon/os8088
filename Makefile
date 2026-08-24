@@ -177,6 +177,28 @@ ifneq ($(SCROLLROW),)
 VIDDEF += -DSCROLL_ROWBASE
 endif
 
+# QUANTUM=2|3|4 arms SPEC.md 53.2.1's sub-tick SYSTEM-WIDE, so IRQ0 arrives N
+# times a system tick and the round-robin quantum drops from 55 ms to 27/18/14.
+# [ticks] does not change rate - the ISR divides - so every timeout, the
+# double-click window and the BIOS clock are untouched by construction.
+#
+# ui_task yields the moment its pass is done and a drawing worker spends its
+# whole slice, so the UI task gets exactly one pass per tick - 18 a second, for
+# all three of apps/wire's draw orders, which is why the number IS the tick.
+# Measured on os8088_5150_herc: 18 -> 54 passes a second at N=3, for 6-12% of
+# wire's frame rate.
+#
+# It is NOT the fix for docs/FIELD-NOTES.md 27 - SPEC.md 7.3's lock handover is
+# (27.4), and on top of that this measures inside the noise. Off by default for
+# that reason and because 53.2.1 armed the sub-tick for a small, known task set;
+# widening that to every machine is a decision with a field run behind it.
+ifneq ($(QUANTUM),)
+ifeq ($(filter $(QUANTUM),2 3 4),)
+$(error QUANTUM must be one of: 2 3 4)
+endif
+VIDDEF += -DSCH_QUANTUM=$(QUANTUM)
+endif
+
 # SNAPAUDIT=1 histograms the x & 7 of every glyph the machine draws, into
 # snap_hchar/snap_hrun (SPEC.md 11.94.1, kernel/font.inc). It answers "which
 # app does not align its text" off a RUNNING machine, which is the only way to
@@ -204,6 +226,42 @@ VIDDEF += -DDISK_COUNTERS
 # side alone and the drive is invisible; the driver's own hook is the other
 # half. A shipped HDD.DRV carries none of it.
 DRVDEF += -DINSTBENCH
+endif
+
+# BOOTPROF=1 compiles in SPEC.md 15.5's boot phase table - eleven PIT stamps
+# through kmain, drawn on the desktop when the first frame is up and published
+# in SPEC.md 57's registry as 'BP'. tools/os88boot.py answers the same question
+# on an emulator and cannot answer it on IRON: it wants a debug socket, a cycle
+# counter and a symbol map, and a 5150 has none of the three. This is the
+# version the field machine can run, and the screen is the delivery mechanism -
+# boot it, photograph the numbers, and the first repaint takes them away.
+#
+# It REFUSES to coexist with QUANTUM=, and that is the one interlock this knob
+# needs: SPEC.md 53.2.1 reprograms the PIT divisor, which is the very period
+# the stamps are built on - the same reason sch_account pauses while sch_fast
+# is armed. Built together they would produce a table that is wrong by a
+# ratio, which is the shape nobody notices.
+ifneq ($(BOOTPROF),)
+ifneq ($(QUANTUM),)
+$(error BOOTPROF=1 and QUANTUM= cannot be built together: QUANTUM reprograms \
+the PIT divisor (SPEC.md 53.2.1) and the phase stamps are counted against it)
+endif
+VIDDEF += -DBOOT_PROFILE
+endif
+
+# MOUIDSLOW=1 always spends the whole of SPEC.md 9.4.1's identify window,
+# instead of closing it as soon as a port has answered LIKE A MOUSE and gone
+# quiet (SPEC.md 9.4.5). The pre-9.4.5 mouse_init - 1,200 ms rather than
+# 596 - and the bracket for the case the shortened window could hurt: a MODEM
+# on the other port, whose banner the window's other job is to drain before
+# the ISR reads it as packet headers (SPEC.md 9.5.1).
+#
+# THAT CASE IS NOT TESTED HERE and cannot be: no emulator in this tree has a
+# modem, which is why SPEC.md 9.5's modem cases are on docs/TESTING.md's QEMU
+# list. It is a Compaq Portable III with a modem in it that settles this, and
+# this knob is what that machine is A/B'd with.
+ifneq ($(MOUIDSLOW),)
+VIDDEF += -DMOU_ID_SLOW
 endif
 
 # INSTCHUNK=1 puts the TOP of the hard-disk installer's copy-buffer ladder at
@@ -261,9 +319,11 @@ BOOTDEF += -DDISK_TRUST_AL
 endif
 
 # BOOTDIAG=1 makes the boot sector print int 13h's STATUS as two hex digits
-# instead of 'os8088: disk error'. The sector has four spare bytes, so this
-# is a knob and not a default: the message is worth more on a machine that
-# boots and the status is worth more on one that does not.
+# instead of 'DSK'. It is a knob and not a default because 510 bytes will not
+# hold both: the message is worth more on a machine that boots and the status is
+# worth more on one that does not, and this build also gives up SPEC.md
+# 18.93.1's canary to pay for the hex digits. What it keeps is 18.93's
+# shorten-on-error fallback, which is the half a disk that will not boot meets.
 ifneq ($(BOOTDIAG),)
 BOOTDEF += -DBOOT_DIAG
 endif
@@ -272,6 +332,105 @@ ifneq ($(FLOPPY1),)
 VIDDEF += -DFLOPPY_ONE
 BOOTDEF += -DFLOPPY_ONE
 endif
+
+# TRACKRUN=1 puts a transfer run's bound back at the end of the TRACK instead
+# of the end of the cylinder (SPEC.md 18.91.1) - 9 sectors a call on a
+# two-headed floppy instead of 18, so KERNEL.SYS comes off in 24 int 13h reads
+# instead of 12. The pre-18.91.1 transfer, and the A/B bracket for it, exactly
+# as FLOPPY1=1 brackets 18.91.
+#
+# ONE knob, BOTH transfer loops, for FLOPPY1's reason: it is the same question
+# in boot/boot.asm's read_run and in dsk_xfer, and answering it in one place
+# only would make an A/B mean two things at once.
+ifneq ($(TRACKRUN),)
+VIDDEF += -DTRACK_RUN
+BOOTDEF += -DTRACK_RUN
+endif
+
+# BOOTMARK=1 stamps a block into the bottom row of the screen after every call
+# in kmain, from the boot sector's handoff to spl_finish (SPEC.md 15.3). It is
+# for ONE question: a machine that reaches the loading screen and then stops,
+# where the splash bar cannot say which call it stopped in and no emulator
+# under this tree can be attached to the machine that shows it.
+#
+# The blocks are counted, not read: each is 8 pixels wide on the row 14 up from
+# the bottom, laid left to right in kmain's own order, and every fifth is drawn
+# tall so a run of thirty is countable without a ruler. The last block on
+# screen is the last call that RETURNED, so the freeze is in the one after it.
+#
+# Deliberately NOT a superset of BOOTPROF=1: that publishes a phase TABLE on
+# the desktop and so needs a boot that reaches one. This needs nothing but a
+# framebuffer the splash has already set up, which is why it can answer where
+# the profile cannot.
+ifneq ($(BOOTMARK),)
+VIDDEF += -DBOOT_MARK
+endif
+
+# NOPS2=1 leaves SPEC.md 9.9's auxiliary-port probe out of the build entirely,
+# so mouse_init ends at the serial half exactly as it did before 9.9 landed.
+#
+# It is the A/B for the one machine class nothing here can host: a NON-XT whose
+# keyboard controller has NO aux port. MartyPC is an 8088, so mou_p2_init
+# returns at its first compare and the probe never runs; QEMU's i8042 always
+# HAS an aux port with a mouse on it; and an 86Box machine that offers a PS/2
+# mouse in its settings has one too. A board that is neither - a 286 clone whose
+# 8042 never heard of 0xA8/0xA9 - reaches every write in that routine and is
+# tested by nothing in this tree.
+ifneq ($(NOPS2),)
+VIDDEF += -DNO_PS2
+endif
+
+# BOOTHALT=<n> stops the boot dead the instant BOOTMARK's marker <n> is drawn:
+# cli, then hlt in a loop. It is for a machine that RESETS or LOOPS rather than
+# stopping, where the band is erased on the way round and every reading of it is
+# "nothing". Halted, the screen keeps whatever was drawn up to n - and a machine
+# that STILL goes round has proved that marker n was never reached, which is the
+# one thing an empty band on its own cannot say.
+ifneq ($(BOOTHALT),)
+VIDDEF += -DBOOT_HALT=$(BOOTHALT)
+endif
+
+# BOOTSTOP=1 halts the BOOT SECTOR one instruction short of the handoff jump.
+# Four bytes - which is exactly what the sector has spare - and it splits the
+# one question BOOTHALT cannot: a machine that never reaches kmain either failed
+# ON the far jump, or failed DURING the load and never got that far. Halted, the
+# splash stays up; still looping, the fault is inside the load.
+ifneq ($(BOOTSTOP),)
+BOOTDEF += -DBOOT_STOP=$(BOOTSTOP)
+endif
+
+# THE CANARY (SPEC.md 18.93.1). The boot sector cannot verify that the machine
+# HONOURS the diskette parameter table it patched - reading the table back
+# proves only that our own write to our own RAM worked - so it verifies the
+# TRANSFER instead, against a word the build reads out of the image itself.
+#
+# THE OFFSET MUST NAME A SECTOR THAT CROSSES A HEAD, and "past the first flip"
+# is NOT the same thing - that was the first version of this and it read the one
+# part of the disk that is always right. A run reads correctly up to the head
+# boundary and only goes wrong after it, so a canary in a run's FIRST half is
+# loaded correctly on exactly the machine it exists to catch.
+#
+# File sector 36 crosses in all three shipped geometries - 360KB (data at LBA
+# 12), 720KB (LBA 14) and 1.44MB (LBA 33) - and sits in the middle of the common
+# band 33..38, so it keeps three sectors of margin if a BPB ever moves. It is
+# inside the first 64KB, so the compare reuses the ES the handoff already loads,
+# and the word is the same for every geometry because KERNEL.SYS is one file.
+# tests/suite.py's `canary` row is what keeps all of that true.
+KSIG_OFF := 18432
+#
+# A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
+# whole of this line's second job. It used to answer 0, and a fabricated zero is
+# worse than no signature: boot/boot.asm's %error only fires when KSIG is
+# UNDEFINED, so a 0 sails straight through it, and uninitialised RAM at that
+# offset reading back as 0 then makes the canary PASS - which publishes
+# `boot_cylrun` for a head crossing that nothing ever verified. Omitting the
+# -D instead routes the impossible case (an image long enough to compile the
+# canary in, short enough to have no word there) to that %error, and leaves the
+# ORDINARY short payload - comscan, lptlink - building silently, because the
+# sector's own gate compiles no canary for it to need. The gate is the other
+# half of the same fence: KERNEL_SECTORS > KSIG_OFF/512, not > 32, so the
+# compare is only assembled when the sector it names was loaded.
+KSIGDEF = -DKSIG_OFF=$(KSIG_OFF) $$(python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); o = $(KSIG_OFF); print('-DKSIG=%d' % int.from_bytes(d[o:o+2], 'little')) if len(d) > o + 1 else None" $(1))
 
 # DIRW1=1 never takes SPEC.md 18.95's sector cache, so every read moves exactly
 # the sectors asked for again - the pre-18.95 behaviour, reached through the
@@ -509,6 +668,59 @@ ifneq ($(ANIMOFF),)
 VIDDEF += -DANIMOFF
 endif
 
+# SBDRAGOFF=1 compiles SPEC.md 13.10.5's thumb GESTURE out. It SHIPS - press
+# the thumb on any scroll bar in the system and drag it - and this knob exists
+# to be DIFFED against, which is ANIMOFF's shape and ANIMOFF's reason: the
+# gesture is a redraw path, and "the picture is the same, only something moved
+# under the hand" is a claim one build cannot check.
+#
+# It reaches the package builds too, through $(PKGSBDEF) below, because a
+# package's copy of os88ui.inc is its own (13.10.6.2). A package needs no knob
+# in the KERNEL for its own bar: what it needs is OSAPI_WM_ONDRAG, an ordinary
+# slot in every kern_big, and each of the five tests for it at install time and
+# leaves its thumb inert on kern_small (13.10.7.1).
+#
+#   make                          the thumb drags, everywhere
+#   make SBRATE=2                 ...and the VIEW follows it, ~9 times a
+#                                 second. 0 - the default - means the view
+#                                 waits for the release (13.10.5.4)
+#   make SBDRAGOFF=1              the reference build, with none of it
+#
+# Both are in $(VIDSTAMP) below, for NOSPLIT's reason: a knob outside the
+# stamp does not rebuild the kernel, so an A/B drives the same build twice and
+# comes back null.
+ifneq ($(SBDRAGOFF),)
+VIDDEF += -DSBDRAGOFF
+endif
+ifneq ($(SBRATE),)
+VIDDEF += -DFM_SBRATE=$(SBRATE) -DFD_SBRATE=$(SBRATE)
+endif
+
+# ...AND THE PACKAGES GET IT TOO (SPEC.md 13.10.7). Note Pad, TexPad and the
+# Browser draw the shared bar, so the same three knobs reach their builds
+# through $(PKGSBDEF) - a package's copy of os88ui.inc is its own (13.10.6.2),
+# so this is the only way the gesture gets into one.
+#
+# A PACKAGE'S DRAG DOES NOT NEED THE KERNEL'S KNOB, and that is worth stating
+# because the shared name hides it: what a package needs is OSAPI_WM_ONDRAG,
+# an ordinary slot present in every kern_big whatever the kernel was built
+# with. The knob is here so that the whole feature is one A/B rather than
+# because a package could not have it alone.
+PKGSBDEF := $(if $(SBDRAGOFF),-DSBDRAGOFF)$(if $(SBRATE), -DSB_RATE=$(SBRATE))
+
+# ...AND A STAMP FILE, for exactly VIDSTAMP's and DSSTAMP's reason: none of
+# the three is a prerequisite of anything, so `make SBDRAGOFF=1` after a plain
+# `make` saw three up-to-date .bin files and rebuilt none of them - the disks
+# then carried packages WITHOUT the gesture beside a kernel that had it, which
+# reads exactly like the feature not working in an app.
+#
+# THE VARIABLE IS HERE AND THE RULE IS DOWN WITH THE PACKAGES, and that is not
+# tidiness: `all:` is not defined until line 867, so an explicit rule written
+# HERE becomes make's DEFAULT GOAL. A plain `make` then built the stamp, said
+# "'build/.sbpkg' is up to date", and stopped - no kernel, no floppies, no
+# error, exit 0.
+SBSTAMP := $(BUILD)/.sbpkg$(if $(SBDRAGOFF),-off$(SBDRAGOFF))$(if $(SBRATE),-r$(SBRATE))
+
 # CURFIX=1 turns ON the two cursor-hide changes, and they are OFF BY DEFAULT.
 # SPEC.md 7.1.4.2 makes cur_lazyck test the ARMED REGION rather than the
 # window's frame, so a pointer parked over a window IN FRONT of an updating
@@ -703,24 +915,28 @@ endif
 # second build CLAUDE.md asks for after every change, and it exited 1.
 KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              KFZ DIRW1 INSTRO KEEPH STRAD DIRTYRAM HEAPCOMPACT HEAPPARK HEAPPARKLK FDDPROBE FDDABSENT REDRAWFULL NOSPLIT NOSUOCCL SNDSNIFF RAMKB DRAGCACHE \
-                             SNAPAUDIT SCROLLROW \
+                             SNAPAUDIT SCROLLROW QUANTUM \
                              CURFIX \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
+                             BOOTPROF BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW TRACKRUN SBDRAGOFF SBRATE \
+                             ETHPROF FTPDSLOW FTPDBG \
                              KERN_SMALL FSNOSTAMP THEMEDARK,\
                              $(if $($(k)),$(k)=$($(k)))))
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
                                       $(BUILD)/ctrl.drv $(BUILD)/format.drv \
+                                      $(BUILD)/clone.drv \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin \
                                       $(BUILD)/hdd.bin $(BUILD)/hdd.drv \
-                                      $(BUILD)/hddtool.bin $(BUILD)/hddtool.drv; \
+                                      $(BUILD)/hddtool.bin $(BUILD)/hddtool.drv \
+                                      $(BUILD)/saver.bin $(BUILD)/saver.drv; \
                                 touch $(VIDSTAMP); })
 # kernel-full.bin AND the two on-demand modules are on that list, and for most
 # of this Makefile's life they were not - which made the whole stamp ineffective
 # for the kernel that actually SHIPS. kernel.bin is not assembled from source:
-# os88mod.py splits it, ctrl.drv and format.drv out of kernel-full.bin (SPEC.md
+# os88mod.py splits it, ctrl.drv, format.drv and clone.drv out of kernel-full.bin (SPEC.md
 # 2.8), and kernel-full.bin depends on the SOURCES alone. A knob changes the
 # command line and no source, so deleting only kernel.bin re-ran the split on
 # the PREVIOUS knob's kernel-full.bin - so `make VIDEO=cga` after a plain build
@@ -806,7 +1022,12 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc
 # in the list and is the whole of what the default build says about C - one
 # paragraph, only when the compiler is absent, never an error.
 all: checkdocs $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360) \
-     $(MEDIAIMG360) cc-note test-fast
+     $(MEDIAIMG360) $(BUILD)/wire.o88 cc-note test-fast
+# wire.o88 is named here and NOWHERE else in `all`, because WIREFRAME is built
+# but does not ship (SPEC.md 78.9, `make wiredisk`). Keeping it in the default
+# build is the whole point of the arrangement: it is the bench for 78.5's draw
+# orders and for 5.6.4.1, and a package that only an on-demand target compiles
+# is a package that stops compiling without anybody noticing.
 
 # The regression suite (tools/os88test.py, tests/suite.py). Three tiers:
 #
@@ -820,7 +1041,7 @@ all: checkdocs $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360)
 #               every test in tests/ is registered somewhere.
 #
 #   test-full   ~2 minutes, and THE ONE TO RUN BEFORE A MERGE. Adds the
-#               eighteen knob kernels and kern_small - every configuration
+#               knob kernels and kern_small - every configuration
 #               `all` does not build - and the emulator smoke test.
 #
 #   test-soak   No budget. The other sixty-odd gates in tests/, which are one
@@ -913,8 +1134,9 @@ $(FONTINC): $(FONTSRC) tools/os88font.py | $(BUILD)
 # (SPEC.md 2.8.2), so shipping the wrong one is refused rather than executed;
 # this is what stops it happening in the first place.
 KMODDIR = $(BUILD)
-KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv
-KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv
+KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv
+KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
+           -m 2=$(BUILD)/clone.drv
 
 # THE KERNEL IS ASSEMBLED WHOLE AND THEN CUT UP (SPEC.md 2.8). Everything
 # from .modc onward is an on-demand module: kernel code that ships as a file
@@ -964,9 +1186,15 @@ $(KMODS): $(BUILD)/kernel.bin ;
 # The boot sector needs to know how many sectors to read, so we measure the
 # kernel at build time and assemble the count in. Reading exactly what exists
 # means a short kernel never waits on phantom sectors.
-$(BUILD)/boot.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
+# EVERY boot.asm rule depends on the MAKEFILE, and that is not tidiness. The
+# sector's KSIG_OFF, KSIG and KERNEL_SECTORS are injected on the command line
+# and appear nowhere in boot/boot.asm, so moving the canary (SPEC.md 18.93.1)
+# left `make` looking at an up-to-date boot360.bin and shipping the OLD offset.
+# It reads exactly like the canary not working, and cost a test round to find.
+$(BUILD)/boot.bin: boot/boot.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
 	$(NASM) -f bin $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/kernel.bin) + 511 ) / 512 )) \
+		$(call KSIGDEF,$(BUILD)/kernel.bin) \
 		-o $@ boot/boot.asm
 	@test $(call FILESIZE,$@) -eq 512 || { echo "boot sector is not 512 bytes"; exit 1; }
 
@@ -983,11 +1211,49 @@ $(BUILD)/boot.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
 # bytes when it builds the image. A boot720.bin would therefore be a
 # byte-identical second artifact that can only ever say what this one already
 # says.
-$(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
+$(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
 	$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/kernel.bin) + 511 ) / 512 )) \
+		$(call KSIGDEF,$(BUILD)/kernel.bin) \
 		-o $@ boot/boot.asm
 	@test $(call FILESIZE,$@) -eq 512 || { echo "boot sector is not 512 bytes"; exit 1; }
+
+# rdiag (SPEC.md 18.93.1) - WHICH sectors landed wrong, not whether one did
+#
+# The canary asks one question at one offset, and picking that offset wrongly is
+# silent: a canary in a transfer run's FIRST half is loaded correctly on exactly
+# the machine it exists to catch. This is the instrument for when that is still
+# in doubt. The payload is the SAME SECTOR COUNT as KERNEL.SYS, so boot.asm cuts
+# it into exactly the same runs, and every sector past the first carries its own
+# index. Sector 0 - always ahead of any head boundary, so always correct - walks
+# the rest and draws a map: '.' arrived, 'X' did not.
+#
+# The shape of the X's is the diagnosis. In the tail of every run: the BIOS
+# transferred short and answered CF=0 for the whole request (18.91). Holding
+# index+1: the flip is off by a sector. Holding the other head's index: EOT was
+# ignored (18.92). ON DEMAND - nothing in `all` builds it.
+$(BUILD)/rdiag.bin: tests/rdiag.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DSECS=207 -o $(BUILD)/rdiag0.bin tests/rdiag.asm
+	@python3 -c "import sys; o = bytearray(open('$(BUILD)/rdiag0.bin','rb').read()); \
+	  [o.extend(k.to_bytes(2,'little') * 256) for k in range(1, 207)]; \
+	  open('$@','wb').write(o); \
+	  print('rdiag: %d sectors, every one of them named' % (len(o) // 512))"
+
+# ...and its boot sector, with the canary aimed at SECTOR 0 - which always loads
+# correctly - so it can never fire and hide the very corruption being mapped.
+$(BUILD)/rdboot360.bin: boot/boot.asm $(BUILD)/rdiag.bin Makefile | $(BUILD)
+	$(NASM) -f bin -w+error -DSPT=9 -DHEADS=2 $(BOOTDEF) \
+		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/rdiag.bin) + 511 ) / 512 )) \
+		-DKSIG_OFF=2 -DKSIG=$$(python3 -c "print(int.from_bytes(open('$(BUILD)/rdiag.bin','rb').read()[2:4],'little'))") \
+		-o $@ boot/boot.asm
+
+rdiag: $(BUILD)/rdiag360.img
+$(BUILD)/rdiag360.img: $(BUILD)/rdboot360.bin $(BUILD)/rdiag.bin
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/rdboot360.bin --kernel $(BUILD)/rdiag.bin
+	@echo "rdiag: $@ - boot it. '.' is a sector that arrived, 'X' one that did"
+	@echo "       not; the tail line gives the count, the first bad sector and"
+	@echo "       what it held instead."
 
 # The system disk is a FAT12 volume with the kernel in its RESERVED AREA
 # (SPEC.md 19.3). The boot sector still reads LBA 1..K raw - reserved sectors
@@ -1042,6 +1308,15 @@ DRIVERS += $(BUILD)/hddtool.drv
 # because SPEC.md 41.11 took the whole feature out of that kernel and nothing
 # in it can name, read or load the file
 DRIVERS += $(BUILD)/xmem.drv
+# ...and the animated screen saver (SPEC.md 79), which is an overlay for the
+# same reasons and rides every KERN_BIG disk the same way: no drv_tab row, no
+# Drivers-page tick, no SYSTEM.CFG bit of its own. blank.inc reads it when the
+# idle period runs out and frees it when the session ends, and a machine that
+# cannot read it blanks the video signal instead - so a disk without this file
+# is a working machine with the old screen blanker on it. kern_small filters it
+# back out ($(SMALLDRIVERS) below): drv_load_at, its only loader, is inside
+# %ifdef KERN_BIG and nothing on that kernel can name the file
+DRIVERS += $(BUILD)/saver.drv
 # ...and the ON-DEMAND KERNEL MODULES (SPEC.md 2.8), which are neither a driver
 # nor an overlay. Both of those are SELF-CONTAINED images with a dispatcher and
 # an ABI; a module is this kernel's OWN CODE, cut out of the assembled binary by
@@ -1258,6 +1533,28 @@ $(BUILD)/xmem.bin: drivers/xmem/xmem.asm drivers/os88drv.inc apps/os88api.inc \
 $(BUILD)/xmem.drv: $(BUILD)/xmem.bin tools/os88drv.py
 	python3 tools/os88drv.py $(BUILD)/xmem.bin -o $@
 
+# The animated screen saver (SPEC.md 79). An OVERLAY for XMEM.DRV's reason and
+# one of its own: a screen saver is mostly DATA - a sine table, four mode state
+# blocks, two vertex lists and eleven strings - and an on-demand kernel module
+# (SPEC.md 2.8) would have to keep all of it in the kernel's own `.text`. Here
+# it is on the floppy and the kernel spends 126 bytes.
+#
+# -I apps/wire/ IS NOT A CONVENIENCE: sv_sintab %includes wiresin.inc, the same
+# generated 256-byte table WIREFRAME uses (SPEC.md 78.2), so there is one
+# amplitude in the tree rather than two that can be regenerated apart. That is
+# also why it is a prerequisite below.
+$(BUILD)/saver.bin: drivers/saver/saver.asm drivers/saver/svcube.inc \
+                    drivers/saver/svstars.inc drivers/saver/svshape.inc \
+                    drivers/saver/svfish.inc drivers/saver/svcfg.inc \
+                    apps/wire/wiresin.inc drivers/os88drv.inc apps/os88api.inc \
+                    apps/os88ui.inc apps/os88line.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/ -I apps/ -I drivers/saver/ \
+		-I apps/wire/ -o $@ drivers/saver/saver.asm
+	@echo "saver:  $(call FILESIZE,$@) bytes"
+
+$(BUILD)/saver.drv: $(BUILD)/saver.bin tools/os88drv.py
+	python3 tools/os88drv.py $(BUILD)/saver.bin -o $@
+
 # The MBR's 446 bytes of boot code (SPEC.md 52.10.1). Assembled on its own and
 # incbin'ed by drivers/hdd/part.inc, which is why the driver gets -I $(BUILD):
 # a chain-loader is too much to write as a `db` list and far too much to
@@ -1470,16 +1767,37 @@ ifneq ($(ETHIP),)
 ETHDEF += -DETH_IP=$(ETHIP) -DETH_MASK=$(ETHMASK) -DETH_GW=$(ETHGW) \
           -DETH_DNS=$(ETHDNS)
 endif
-ETHSTAMP := $(BUILD)/.ether-$(if $(ETHBASE),$(ETHBASE),auto)-$(if $(ETHIP),$(ETHIP),dhcp)
+# ETHPROF=1 compiles SPEC.md 72.15's stage profiler IN. It is OUT by default,
+# and the reason is the stack rather than the size: `prof_end` sits at the
+# bottom of the wire path with `pit_now` under it, and each of the ten stages
+# is a wrapper with a call level of its own, so the instrument costs TWELVE
+# BYTES on the deepest chain a 256-byte task slice ever carries
+# (docs/KERNEL-MEMORY.md, "Task stacks"). `make netbench` turns it on for
+# itself, so NETBENCH.O88 always reads a driver that has one; every other
+# build answers NETV_PROF with NETE_VERB.
+ifeq ($(ETHPROF),1)
+ETHDEF += -DETHPROF
+endif
+# There WAS an ETHPUMP=1 here - a driver-side worker that drained the ring
+# instead of every socket verb draining it on the caller's task. It was built,
+# measured on the 5150 and removed: SPEC.md 72.19 is the record.
+ETHSTAMP := $(BUILD)/.ether-$(if $(ETHBASE),$(ETHBASE),auto)-$(if $(ETHIP),$(ETHIP),dhcp)-$(if $(ETHPROF),prof,noprof)
 $(shell mkdir -p $(BUILD); \
         [ -f $(ETHSTAMP) ] || { rm -f $(BUILD)/.ether-* $(BUILD)/ether.bin \
                                       $(BUILD)/ether.drv; \
                                 touch $(ETHSTAMP); })
 
+# **EVERY %include, and four of them were missing** - ethprof, ethstate,
+# ethsock and ethusr. Editing one of those left `make` looking at an
+# up-to-date ether.bin and rebuilding nothing, which reads as a change that
+# did nothing; the profiler's own symbol reader is what caught it, because it
+# re-assembles the source and refuses a build/ether.bin that does not match.
 $(BUILD)/ether.bin: drivers/ether/ether.asm drivers/ether/ne2000.inc \
                     drivers/ether/inet.inc drivers/ether/tcp.inc \
                     drivers/ether/dns.inc drivers/ether/etherui.inc \
-                    drivers/ether/ethcfg.inc \
+                    drivers/ether/ethcfg.inc drivers/ether/ethprof.inc \
+                    drivers/ether/ethstate.inc drivers/ether/ethsock.inc \
+                    drivers/ether/ethusr.inc \
                     drivers/net/netpkg.inc drivers/os88drv.inc \
                     apps/os88api.inc apps/os88ui.inc apps/os88line.inc \
                     | $(BUILD)
@@ -1560,6 +1878,103 @@ $(BUILD)/ether360.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYS
 		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
 		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/system.cfg
+
+# FTPDTEST: the FTP SERVER's gate disk (SPEC.md 77, docs/NET-STACK-PLAN.md
+# stage F). Two images, and each answers a different half.
+#
+# The SYSTEM disk is ether360.img's - a SYSTEM.CFG that already asks for
+# ETHER.DRV, so the card is up and DHCP has bound before the first paint and
+# the gate never touches the Control Panel (SPEC.md 72.9's reasoning exactly).
+#
+# The DATA disk is its own, and FTPD.O88 sits in its ROOT rather than in APPS/
+# because **the server serves the folder it was launched from** (SPEC.md 77.6):
+# put it under APPS/ and every assertion below is about a directory holding
+# nothing but packages. The three files beside it are what the gate fetches,
+# renames and lists, and DEEP/ is what proves CWD walks.
+FTPDFILES := $(BUILD)/ftpd.o88 $(BUILD)/FTPHELLO.TXT $(BUILD)/FTPBIN.DAT
+
+$(BUILD)/FTPHELLO.TXT: | $(BUILD)
+	printf 'hello from os8088\r\n' > $@
+
+# EVERY BYTE VALUE, so a transfer that is clean for text and wrong for binary
+# cannot pass: 0x00 and 0x1A are the two that a translating path eats.
+$(BUILD)/FTPBIN.DAT: | $(BUILD)
+	python3 -c "import sys; sys.stdout.buffer.write(bytes(range(256))*8)" > $@
+
+.PHONY: ftpdtest
+ftpdtest: $(BUILD)/ether360.img $(BUILD)/ftpapps.img
+	@echo "ftpdtest: build/ether360.img + build/ftpapps.img"
+	@echo "          Run it with: python3 tests/ftpd.py"
+
+# NETBENCH: the stage profiler's window (SPEC.md 72.15), on a disk WITH the FTP
+# server, because the two are used together - start the profiler, run a
+# transfer from a real client, stop, read. Three geometries like everything
+# else, and the 360KB one is the point: the machine the 7 KB/s came off is a
+# 5150 with a 5.25" drive.
+#
+# It rides its OWN disk and not build/bench.img: that disk is the drawing and
+# CPU harnesses, has no FTP server on it and no reason to gain one, and the
+# apps disks' directory order is pinned (SPEC.md 24) so nothing under tests/
+# may go near them.
+NETBENCHFILES := $(BUILD)/netbench.o88 $(FTPDFILES)
+
+# RECURSIVE, and it has to be: the profiler is compiled OUT of the shipped
+# ETHER.DRV (see ETHPROF above), so the one target whose whole purpose is to
+# read it turns it back on for itself. Everything under build/ is then the
+# profiled configuration until the next plain `make` - the ETHSTAMP carries
+# prof/noprof, so that switch rebuilds the driver rather than shipping the
+# instrumented one by accident.
+.PHONY: netbench
+netbench:
+	@$(MAKE) --no-print-directory ETHPROF=1 netbench-img
+
+.PHONY: netbench-img
+# **AND THE SYSTEM DISKS, which is not obvious and cost a round.** ETHER.DRV
+# ships on the SYSTEM disk, so building netbench's B: disk against a profiled
+# driver and then booting a system disk somebody built earlier gets you the
+# SHIPPING driver and NETV_PROF answering NETE_VERB - a profiler that refuses,
+# for no visible reason. Both halves of the pair are built here.
+netbench-img: $(IMG) $(IMG720) $(IMG360) $(BUILD)/netbench.img $(BUILD)/netbench720.img $(BUILD)/netbench360.img
+	@echo "netbench: build/netbench{,720,360}.img - NETBENCH.O88 with FTPD.O88"
+	@echo "          S start, X stop, R read, W write. SPEC.md 72.15."
+	@echo "          BOOT THE build/os8088*.img BUILT ALONGSIDE THEM: they carry"
+	@echo "          ETHER.DRV with ETHPROF=1, and a system disk without it"
+	@echo "          answers NETV_PROF with NETE_VERB. A plain \`make\` puts the"
+	@echo "          shipping driver back."
+
+$(BUILD)/netbench.bin: tests/netbench/netbench.asm tests/benchlib.inc apps/os88api.inc apps/os88sock.inc drivers/net/netpkg.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/netbench/netbench.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -I drivers/net/ -o $@ tests/netbench/netbench.asm
+	@echo "netbench: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/netbench.o88: $(BUILD)/netbench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/netbench.bin -o $@
+
+$(BUILD)/netbench.img: $(NETBENCHFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(NETBENCHFILES) \
+		--folder SYSTEM/APPDATA
+
+$(BUILD)/netbench720.img: $(NETBENCHFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(NETBENCHFILES) \
+		--folder SYSTEM/APPDATA
+
+$(BUILD)/netbench360.img: $(NETBENCHFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(NETBENCHFILES) \
+		--folder SYSTEM/APPDATA
+
+# SYSTEM/APPDATA IS BUILT, NOT CREATED ON DEMAND (SPEC.md 19.9), and leaving
+# it off this disk is what hid the persistence half of SPEC.md 77.12 for a
+# run: fd_data_enter refuses a volume without it and the save says nothing, so
+# the setting worked all session and was gone on the next launch. The shipped
+# apps disks have carried it all along - this one is the odd disk out.
+$(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
+	@mkdir -p $(BUILD)/ftpbig
+	@python3 -c "import pathlib; [pathlib.Path('$(BUILD)/ftpbig/F%03d.TXT' % i).write_text('row %d\n' % i) for i in range(150)]"
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		$(FTPDFILES) DEEP:$(BUILD)/FTPHELLO.TXT \
+		$$(for f in $(BUILD)/ftpbig/F*.TXT; do printf 'BIG:%s ' $$f; done) \
+		--deep-folders \
+		--folder SYSTEM/APPDATA
 
 $(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
@@ -1722,9 +2137,52 @@ $(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/hello.bin -o $@
 
+# WIREFRAME (SPEC.md 78): a rotating solid drawn with nothing but
+# OSAPI_GFX_LINE, and a frame-rate readout, so 5.6.4.1's walk can be SEEN
+# rather than only measured. wiresin.inc is a generated constant table and is
+# committed - there is no sine in NASM and no float on the target.
+$(BUILD)/wire.bin: apps/wire/wire.asm apps/wire/wiresin.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/wire/ -o $@ apps/wire/wire.asm
+	@echo "wire:   $(call FILESIZE,$@) bytes"
+
+$(BUILD)/wire.o88: $(BUILD)/wire.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/wire.bin -o $@
+
+# --- WIREFRAME's own disk (ON DEMAND: `make wiredisk`) -----------------------
+# WIREFRAME DOES NOT SHIP (SPEC.md 78.9). It is an instrument - it exists to
+# say out loud what SPEC.md 5.6.4.1's line walk is worth and to be the bench
+# for 78.5's draw orders - and the screen saver (SPEC.md 79) is where that
+# concept reached a user-facing form. A person who has both has no reason to
+# open this one, and a menu of draw orders is a question about the renderer
+# rather than about anything they came here to do.
+#
+# It is still BUILT, and built by `all`, because three registered tests drive
+# it and because the next round of work on the composite starts from it. What
+# changed is only which floppy it lands on.
+#
+#   make wiredisk
+#   python3 tests/wireflick.py            # 78.5/78.8's draw orders as ink
+#   python3 tests/wirefps.py              # what 5.6.4.1 is worth to a program
+#   python3 tests/uilat.py                # 7.3's click latency under a worker
+wiredisk: $(BUILD)/wire.img $(BUILD)/wire360.img
+
+$(BUILD)/wire.img: $(BUILD)/wire.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 APPS:$(BUILD)/wire.o88
+
+$(BUILD)/wire360.img: $(BUILD)/wire.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 APPS:$(BUILD)/wire.o88
+
+# The scroll-bar knob's package stamp (SPEC.md 13.10.7), DSSTAMP's shape and
+# DSSTAMP's reason. It lives here, below `all:`, because an explicit rule above
+# it would be the default goal.
+$(SBSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.sbpkg*
+	@touch $@
+
 # Note Pad, formerly the built-in KIND_NOTE app (SPEC.md 27).
-$(BUILD)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc apps/os88ui.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/notepad/notepad.asm
+$(BUILD)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc apps/os88ui.inc \
+                     $(SBSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ $(PKGSBDEF) -o $@ apps/notepad/notepad.asm
 	@echo "notepad: $(call FILESIZE,$@) bytes"
 
 
@@ -1749,9 +2207,9 @@ $(BUILD)/calc.o88: $(BUILD)/calc.bin tools/os88pkg.py
 $(BUILD)/browser.bin: apps/browser/browser.asm apps/browser/brnet.inc \
                       apps/os88api.inc \
                       apps/os88ui.inc apps/os88line.inc \
-                      drivers/net/netpkg.inc | $(BUILD)
+                      drivers/net/netpkg.inc $(SBSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/browser/ -I drivers/net/ \
-	        -o $@ apps/browser/browser.asm
+	        $(PKGSBDEF) -o $@ apps/browser/browser.asm
 	@echo "browser: $(call FILESIZE,$@) bytes"
 
 # TELNET (docs/NET-STACK-PLAN.md stage C, SPEC.md 67). The -I drivers/net is
@@ -1766,6 +2224,43 @@ $(BUILD)/telnet.bin: apps/telnet/telnet.asm apps/telnet/tetxt.inc \
 
 $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/telnet.bin -o $@
+
+# THE FTP SERVER (SPEC.md 77) - docs/NET-STACK-PLAN.md stage F, and the first
+# thing here that SERVES. Same include set as Telnet's for the same reason:
+# netpkg.inc is the DRIVER's own ABI header, included by both ends so the two
+# cannot drift (SPEC.md 20.11).
+# FTPDSLOW=1 builds SPEC.md 77.14's REFERENCE face: every change redraws the
+# whole content box, which is what the window did before the dirty mask and the
+# scrolled log. It is the A/B for "the picture is the same, only the number of
+# times it was drawn changed" - a claim no screenshot of one build can check.
+# RAMPAGE.DRV's RPSLOW is the precedent (SPEC.md 62.9.11.1). It is STAMPED, so
+# flipping the knob rebuilds: a knob outside the stamp drives the previous
+# build, which is the Makefile's own documented trap.
+FTPDSLOWDEF :=
+ifneq ($(FTPDSLOW),)
+FTPDSLOWDEF += -DFTPDSLOW
+endif
+# FTPDBG=1 brings back the transfer SPLIT - `disk net draw`, `wait wake idle
+# pass`, `dfree glass wk`, and the `gap Ns` on the rate line - plus the
+# brackets and counters behind them (SPEC.md 77.43). OFF in a shipping build:
+# it is six lines of instrumentation under every transfer, and the numbers it
+# was written to find have been found.
+ifneq ($(FTPDBG),)
+FTPDSLOWDEF += -DFTPDBG
+endif
+FTPDSTAMP := $(BUILD)/.ftpd-$(if $(FTPDSLOW),slow,fast)-$(if $(FTPDBG),dbg,plain)
+$(FTPDSTAMP): | $(BUILD)
+	rm -f $(BUILD)/.ftpd-*
+	touch $@
+
+$(BUILD)/ftpd.bin: apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
+                   apps/os88line.inc apps/os88sock.inc \
+                   drivers/net/netpkg.inc $(FTPDSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(FTPDSLOWDEF) -I apps/ -I apps/ftpd/ -I drivers/net/ -o $@ apps/ftpd/ftpd.asm
+	@echo "ftpd:   $(call FILESIZE,$@) bytes"
+
+$(BUILD)/ftpd.o88: $(BUILD)/ftpd.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/ftpd.bin -o $@
 
 $(BUILD)/browser.o88: $(BUILD)/browser.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/browser.bin -o $@
@@ -1802,8 +2297,8 @@ $(BUILD)/calcref.img: $(BUILD)/calcref.o88 tools/os88disk.py
 # exactly like the layout being wrong.
 $(BUILD)/texpad.bin: apps/texpad/texpad.asm apps/texpad/tpparse.inc \
                      apps/texpad/tpexport.inc apps/os88api.inc \
-                     apps/os88ui.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/texpad/texpad.asm
+                     apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ $(PKGSBDEF) -o $@ apps/texpad/texpad.asm
 	@echo "texpad: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/texpad.o88: $(BUILD)/texpad.bin tools/os88pkg.py
@@ -2787,8 +3282,8 @@ FROTZSRC := apps/frotz/frotz.asm apps/frotz/zbss.inc apps/frotz/zmem.inc \
             apps/frotz/zwin.inc apps/frotz/zwin6.inc apps/frotz/zpic.inc \
             apps/frotz/zsnd.inc apps/frotz/zio.inc apps/frotz/zexec.inc
 
-$(BUILD)/frotz.bin: $(FROTZSRC) apps/os88api.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/frotz/ -o $@ apps/frotz/frotz.asm
+$(BUILD)/frotz.bin: $(FROTZSRC) apps/os88api.inc $(SBSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(PKGSBDEF) -I apps/ -I apps/frotz/ -o $@ apps/frotz/frotz.asm
 	@echo "frotz:  $(call FILESIZE,$@) bytes"
 
 $(BUILD)/frotz.o88: $(BUILD)/frotz.bin tools/os88pkg.py
@@ -2911,8 +3406,8 @@ $(BUILD)/WELCOME.DOC: tools/os88doc.py apps/word/welcome.wtx | $(BUILD)
 	python3 tools/os88doc.py apps/word/welcome.wtx -o $@
 	@echo "welcome: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/word.bin: $(WORDSRC) apps/os88api.inc apps/os88ui.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/word/ -o $@ apps/word/word.asm
+$(BUILD)/word.bin: $(WORDSRC) apps/os88api.inc apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(PKGSBDEF) -I apps/ -I apps/word/ -o $@ apps/word/word.asm
 	@echo "word:   $(call FILESIZE,$@) bytes"
 
 # WORD.OVL is cut off the assembled image before it is packaged (SPEC.md
@@ -3710,6 +4205,7 @@ SMALLDIR := $(BUILD)/smallk
 # RECURSIVE, like $(DRIVERS) itself: $(KMODS) inside it still reads the
 # per-target KMODDIR.
 SMALLDRIVERS = $(filter-out $(BUILD)/xmem.drv $(BUILD)/ramdisk.drv \
+                            $(BUILD)/saver.drv \
                             $(BUILD)/rampage.drv,$(DRIVERS))
 
 small: $(BUILD)/small360.img $(BUILD)/small.img
@@ -3843,7 +4339,7 @@ field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img
 # FIELD kernel's modules - and this sub-make builds into the default $(BUILD),
 # where no rule can make them. They are not skipped: the sub-make on the next
 # line of each rule builds <dir>/kernel.bin, whose own recipe cuts <dir>'s
-# ctrl.drv and format.drv out of it (SPEC.md 2.8).
+# ctrl.drv, format.drv and clone.drv out of it (SPEC.md 2.8).
 FIELDDRV = @$(MAKE) $(FIELDKNOBS) $(filter-out $(KMODS),$(DRIVERS))
 
 # its kernel is $(HERCDIR)'s, so its modules are too
@@ -3927,12 +4423,12 @@ $(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 # and do again on a different floppy.
 #
 # ...and the DIAGNOSTIC disk, for a machine that will not boot. BOOTDIAG=1
-# trades the boot sector's 'os8088: disk error' for int 13h's STATUS as two
-# hex digits, which is the whole diagnosis in one boot instead of a bisect:
-# 0C is a media type the drive could not identify (a 360KB disk in a 1.2MB
-# drive), 04 a sector the FDC never found (EOT / the multi-track flip), 09 a
-# transfer that crossed a 64KB DMA page, 80 a drive that never answered.
-# The sector has four spare bytes, which is why this is a knob.
+# trades the boot sector's 'DSK' for int 13h's STATUS as two hex digits, which
+# is the whole diagnosis in one boot instead of a bisect: 0C is a media type
+# the drive could not identify (a 360KB disk in a 1.2MB drive), 04 a sector the
+# FDC never found (EOT / the multi-track flip), 09 a transfer that crossed a
+# 64KB DMA page, 80 a drive that never answered. 510 bytes will not hold that
+# and SPEC.md 18.93.1's canary as well, which is why this is a knob.
 # its kernel is $(CQDIR)'s, so its modules are too
 $(BUILD)/cqdiag.img: KMODDIR := $(CQDIR)
 
@@ -3998,14 +4494,16 @@ $(BUILD)/comscan.bin: tests/comscan/comscan.asm | $(BUILD)
 
 # Its own boot sectors, because the count of sectors to read is assembled in
 # and comscan is a great deal smaller than the kernel.
-$(BUILD)/csboot360.bin: boot/boot.asm $(BUILD)/comscan.bin | $(BUILD)
+$(BUILD)/csboot360.bin: boot/boot.asm $(BUILD)/comscan.bin Makefile | $(BUILD)
 	$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/comscan.bin) + 511 ) / 512 )) \
+		$(call KSIGDEF,$(BUILD)/comscan.bin) \
 		-o $@ boot/boot.asm
 
-$(BUILD)/csboot144.bin: boot/boot.asm $(BUILD)/comscan.bin | $(BUILD)
+$(BUILD)/csboot144.bin: boot/boot.asm $(BUILD)/comscan.bin Makefile | $(BUILD)
 	$(NASM) -f bin $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/comscan.bin) + 511 ) / 512 )) \
+		$(call KSIGDEF,$(BUILD)/comscan.bin) \
 		-o $@ boot/boot.asm
 
 $(BUILD)/comscan.img: $(BUILD)/csboot360.bin $(BUILD)/comscan.bin \
@@ -4051,14 +4549,16 @@ $(BUILD)/lptlink.bin: tests/lptlink/lptlink.asm drivers/net/lplink.inc | $(BUILD
 
 # Its own boot sectors, because the sector count is assembled in and lptlink
 # is a great deal smaller than the kernel.
-$(BUILD)/llboot360.bin: boot/boot.asm $(BUILD)/lptlink.bin | $(BUILD)
+$(BUILD)/llboot360.bin: boot/boot.asm $(BUILD)/lptlink.bin Makefile | $(BUILD)
 	$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/lptlink.bin) + 511 ) / 512 )) \
+		$(call KSIGDEF,$(BUILD)/lptlink.bin) \
 		-o $@ boot/boot.asm
 
-$(BUILD)/llboot144.bin: boot/boot.asm $(BUILD)/lptlink.bin | $(BUILD)
+$(BUILD)/llboot144.bin: boot/boot.asm $(BUILD)/lptlink.bin Makefile | $(BUILD)
 	$(NASM) -f bin $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/lptlink.bin) + 511 ) / 512 )) \
+		$(call KSIGDEF,$(BUILD)/lptlink.bin) \
 		-o $@ boot/boot.asm
 
 # THE DOS-LITE HARNESS (tests/dosstub): a bootable floppy that runs
@@ -4121,9 +4621,10 @@ $(DSSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.dosstub-*
 	@touch $@
 
-$(BUILD)/dsboot.bin: boot/boot.asm $(BUILD)/dosstub.bin | $(BUILD)
+$(BUILD)/dsboot.bin: boot/boot.asm $(BUILD)/dosstub.bin Makefile | $(BUILD)
 	$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/dosstub.bin) + 511 ) / 512 )) \
+		$(call KSIGDEF,$(BUILD)/dosstub.bin) \
 		-o $@ boot/boot.asm
 
 $(BUILD)/dosstub.img: $(BUILD)/dsboot.bin $(BUILD)/dosstub.bin tools/os88disk.py
@@ -4175,7 +4676,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/fractal.o88 \
               $(BUILD)/hello.o88 $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 $(BUILD)/recorder.o88 \
-              $(BUILD)/telnet.o88 \
+              $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/cyclone.o88 $(BUILD)/mines.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
@@ -4851,11 +5352,34 @@ endif
 # for this driver the way the QMP counter read is for the kernel: a stack that
 # is silent and a stack that is talking nonsense look identical from inside the
 # guest, and one `tcpdump -r` says which.
+#
+# ETHFWD=1 IS THE OTHER DIRECTION, and the paragraph above used to end "this
+# test never needs it". SPEC.md 77's FTP server is the case that does: it
+# LISTENS, so a client on the host has to be able to reach INTO the guest, and
+# slirp gives a guest no inbound route without a hostfwd. It forwards the
+# control port (host 2121 -> guest 21, unprivileged so the gate needs no root)
+# and the whole of the server's passive range, because a PASV transfer is a
+# SECOND inbound connection to a port the server picks - and it rotates them
+# (fd_pasv_port), so forwarding one is a gate that passes once and then fails.
+#
+# The client is ftplib, which since Python 3.11 ignores the address in a 227
+# reply and dials the one it is already connected to - so it comes back to
+# 127.0.0.1:<port> and the forward catches it. That is a SECURITY default
+# doing us a favour rather than something the test arranges.
+ETHCOMMA := ,
+ETHSP := $(subst ,, )
+ifneq ($(ETHFWD),)
+FTPPASV := 2048 2049 2050 2051 2052 2053 2054 2055
+# ONE LINE AND NO CONTINUATION: a `\` inside a := becomes a SPACE, which splits
+# the -netdev argument in two and silently forwards only the control port -
+# so PASV connects to nothing and the gate reads as a server bug.
+ETHFWDS := $(ETHCOMMA)hostfwd=tcp::2121-:21$(subst $(ETHSP),,$(foreach p,$(FTPPASV),$(ETHCOMMA)hostfwd=tcp::$(p)-:$(p)))
+endif
+
 ifneq ($(ETHER),)
-ETHERDEV = -netdev user,id=n0 -device ne2k_isa,netdev=n0,iobase=0x300,irq=3 \
+ETHERDEV = -netdev user,id=n0$(ETHFWDS) -device ne2k_isa,netdev=n0,iobase=0x300,irq=3 \
            $(if $(ETHDUMP),-object filter-dump$(ETHCOMMA)id=fdump$(ETHCOMMA)netdev=n0$(ETHCOMMA)file=$(ETHDUMP))
 endif
-ETHCOMMA := ,
 
 test: $(TESTIMG) $(TESTAPPS) $(HDDIMG)
 	$(QEMU) -drive file=$(TESTIMG),format=raw,if=floppy -boot a $(MOUSE) \

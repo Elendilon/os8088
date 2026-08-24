@@ -476,6 +476,17 @@ as it applies between iron and an emulator.
 | floppy | **one 1.2MB 5.25"**, and it boots the **360KB** images — so `make field`'s disks and `make comscan`'s `comscan.img` are the ones to send, not the 1.44MB pair |
 | everything else | **not recorded, because it has not been measured.** Do not fill this table in from what a Portable III generally has — ask, or read it off `comscan` |
 
+**IT OWES ONE MEASUREMENT, and it is the only machine that can take it.**
+SPEC.md §9.4.4 closes the mouse identify window as soon as a port has answered
+like a mouse and gone quiet — 1,200 ms of `mouse_init` down to 596 — and that
+window's *other* job is draining a modem's banner before the ISR reads it as
+packet headers (§9.5.1). **A 1200 baud modem on COM1 with the mouse on the
+other port is exactly the case**, and no emulator in this tree has a modem at
+all. The run is two boots of the `BOOTPROF=1` disks, `MOUIDSLOW=1` against
+the default, checking that the mouse still comes up and that nothing phantom
+arrives from the modem side; the numbers are on the screen. Until it has been
+done, §9.4.4's three fences are an argument.
+
 **A 1.2MB drive writing a 360KB disk is a known hazard and the owner is
 handling it by keeping those disks separate** — a 1.2M drive's head is
 narrower than a 360K drive's track, so a disk it has *written* may be
@@ -791,7 +802,7 @@ job. Reach for this set when the request is one of these:
 |---|---|
 | `cga720.img` | the **Toshiba T1100 Plus**, which takes 720KB media (below). A geometry, not an adapter — `combo.img` is 360KB and that machine cannot read it |
 | `flop1.img` | `FLOPPY1=1`, one sector per `int 13h` — the A/B for docs/FIELD-NOTES.md 7, where the batched transfer measured *slower* on the iron. A knob kernel, so it must be a disk of its own |
-| `cqdiag.img` | `BOOTDIAG=1`, which trades the boot sector's `os8088: disk error` for int 13h's status as two hex digits — one boot instead of a bisect on a machine that will not start |
+| `cqdiag.img` | `BOOTDIAG=1`, which trades the boot sector's `DSK` for int 13h's status as two hex digits — one boot instead of a bisect on a machine that will not start |
 | `herc.img` / `cga.img` | a run that must pin the adapter at BOOT rather than switch to it, or a comparison against an older set that was taken on them. `cga.img`'s kernel is built in `build/cgak/`, never in `build/` |
 
 **`bigfile.dat` shrank from 170KB to 104KB to make room, and that was overdue

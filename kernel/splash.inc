@@ -117,9 +117,13 @@ spl_tick:
     push cs
     pop ds                      ; our data lives in the kernel segment
 
-    mov [spl_done], ax
     add dx, SPL_POST            ; kmain's tail is on this bar too (SPEC 15.3)
     mov [spl_total], dx
+    cmp ax, dx                  ; ...and CLAMP: a bound on what a CALLER may
+    jbe .cnt                    ; pass, nothing more. The loader may load the
+    mov ax, dx                  ; kernel TWICE (SPEC.md 18.93/18.93.1) and the
+.cnt:                           ; bar climbs from 0 again when it does - the
+    mov [spl_done], ax          ; sector derives the count from what is LEFT
 
     cmp byte [spl_on], 0
     jne .running
