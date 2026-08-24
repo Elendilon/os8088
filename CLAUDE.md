@@ -29,6 +29,7 @@ nothing here duplicates it — a second copy is a copy that goes stale.
 | **[docs/FIELD-MACHINES.md](docs/FIELD-MACHINES.md)** | asking for a field run — who has the hardware, what is in it, what a run costs them, and the two rules that bind whoever reads a result |
 | **[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)** | a bug that reproduces on hardware and not here — open, reproduced, unfixed, with what has already been ruled out for each |
 | **[docs/FTP-PERF.md](docs/FTP-PERF.md)** | picking the FTP server's speed back up (§77, §72.15) — what moved it from 7 to 15 KB/s, the four things that did NOT work, where the time goes now (57% of it is ABOVE the driver), and the next five candidates in the order the evidence ranks them |
+| **[docs/LIVE-MEDIA.md](docs/LIVE-MEDIA.md)** | answering any user-facing "how do I write, burn or boot the live USB/CD" — it is the reader's guide (dd, Rufus, BIOS settings, troubleshooting) and the README links it; §80 stays the design record and this file must follow it, never lead |
 
 ## Commands
 
@@ -132,7 +133,24 @@ make allapps  # build/apps-all.img (§19.10): ONE 1.44MB floppy with every app
               #   on it, Frotz, both Words and RunCPM (with its drive A)
               #   included, for a release page. Needs the C toolchain and
               #   the RunCPM fetch, so it is on demand like cworddisk —
-              #   it is the only target outside §73/§74 that does
+              #   it and the live media below are the only targets outside
+              #   §73/§74 that do
+make usb      # THE LIVE MEDIA (§80): build/os8088-usb.img is §52.10's
+make iso      #   hard-disk boot built into an image — system disk contents
+make live     #   plus the allapps payload on one FAT16 partition that the
+              #   kernel adopts as C:. Written raw to a stick it boots a
+              #   legacy-BIOS machine; `iso` wraps the SAME image in an El
+              #   Torito hard-disk-emulation CD, `live` builds both. On
+              #   demand for allapps' reason and needing the same fetch
+              #   (`make runcpm-src` once, first). A CD cannot write, and
+              #   §80.3 says what that costs; QEMU boots them with
+              #   `-drive file=build/os8088-usb.img,format=raw -boot c` /
+              #   `-cdrom build/os8088.iso -boot d`
+make burn     # the macOS guide onto REAL media (§80.4, tools/os88burn.py):
+              #   lists the attached USB flash drives (USB + external +
+              #   never the boot disk), typed-identifier confirmation,
+              #   read-back SHA-256 verify; burns the CD when drutil sees
+              #   a burner. Interactive; --scan just lists and exits
 make clean
 ```
 
@@ -186,7 +204,9 @@ and in raw QEMU). **`make wiredisk`** is the same shape for a package that
 DOES NOT SHIP: WIREFRAME is an instrument rather than an application (§78.9),
 so `all` builds `wire.o88` and no shipped floppy carries it, and the three
 tests that drive it — `wireflick`, `wirefps`, `uilat` — default to that disk.
-`make allapps` collapses all of them onto one 1.44MB floppy (§19.10).
+`make allapps` collapses all of them onto one 1.44MB floppy (§19.10), and
+`make live` puts that same payload plus the system on the bootable live
+USB image and live CD (§80).
 
 **`RESET=` clears a machine's non-volatile state on the way in**, and it
 reaches every one of those targets because they all launch through the same
