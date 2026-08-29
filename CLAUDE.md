@@ -454,12 +454,15 @@ in docs/TESTING.md, per capability.
 
 ## Layout
 
-- `boot/boot.asm` — 512-byte boot sector; geometry and kernel size injected by
-  the Makefile. It relocates itself, because the kernel lands where it runs.
+- `boot/boot.asm` — the 512-byte boot sector, which now does one thing: read
+  `boot/boot2.asm`'s blob, check it, and enter it (§2.9). The loader proper is
+  in the blob, because 512 bytes stopped being enough. Geometry and kernel size
+  are injected by the Makefile, and stage 1 relocates itself.
 - `kernel/kernel.asm` — constants, the memory ladder and its guards, boot
   sequence, the API jump table, `%include`s of every module, size assertions.
-  Which `.inc` owns what is the table in §4. `video.inc`, `keyboard.inc`,
-  `string.inc` and `gfx.inc` are dead — still in the tree, no longer included.
+  Which `.inc` owns what is the table in §4. The pre-GUI shell's unincluded
+  leftovers — `video.inc`, `keyboard.inc`, `string.inc`, `gfx.inc` — are gone
+  (§4); `softgfx.inc` is what replaced the last of them.
 - `apps/` — loadable packages; **everything here ships**. `os88api.inc` is the
   SDK, and each package's design notes are its SPEC.md section. `apps/cc/` is
   the **C** SDK (§73): `os88.h`, the runtime `crt0.asm`/`os88thunk.asm`, the

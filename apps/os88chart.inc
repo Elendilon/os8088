@@ -1544,13 +1544,13 @@ ch_draw:
 ; TEXT INTO THE CANVAS - the prerequisite for every label.
 ;
 ; THE GLYPHS COME FROM THE KERNEL, via OSAPI_FONT_GLYPHS (slot 0x0218), and
-; that is worth saying because the obvious move is wrong. OSAPI_FONT_CHAR draws
+; that is worth saying because the obvious move is wrong. OSAPI_FONT_CHAR_XPARENT draws
 ; to the SCREEN; this canvas is a private 4bpp buffer that is blitted later, so
 ; a drawn character cannot help. The tempting answer is to lift a glyph table
 ; out of apps/paint, which keeps its own - but the kernel publishes ITS table
 ; for exactly this case: "for an app that needs the BITMAP of a character
 ; rather than a drawn one - scaling it, stamping it into a canvas". Same table
-; OSAPI_FONT_CHAR uses, so a label here and a label on screen are one typeface
+; OSAPI_FONT_CHAR_XPARENT uses, so a label here and a label on screen are one typeface
 ; on all three adapters, and no second copy can drift.
 ;
 ; ES is DX, not KERNEL_SEG - the table lives elsewhere and the slot's own note

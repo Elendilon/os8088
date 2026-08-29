@@ -127,7 +127,7 @@ fpt_paint:
     mov dx, [fpt_oy]
     add dx, 2
     mov si, fpt_s_hdr
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 
     mov byte [fpt_draw], 1
     mov byte [fp_hw], 0               ; --- pass 1: the software path, always,
@@ -160,7 +160,7 @@ fpt_paint:
     add cx, 60
     mov dx, [fpt_oy]
     add dx, 2
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 
     mov di, fpt_line                  ; "soft 0  8087 0", or "8087 -" when
     mov ax, [fpt_badsoft]             ; there is no part in the socket
@@ -173,7 +173,7 @@ fpt_paint:
     mov dx, [fpt_oy]
     add dx, 2
     mov si, fpt_line
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 
     pop bp
     pop di
@@ -237,13 +237,13 @@ fpt_appn:                             ; AX -> decimal at DI, or '-' if -1
     pop si
     ret
 
-; fpt_row - OSAPI_FONT_STR, unless this pass is the silent one. Every per-case
+; fpt_row - OSAPI_FONT_STR_XPARENT, unless this pass is the silent one. Every per-case
 ; row in fpt_runall goes through here; the COUNTING does not, because a pass
 ; that does not draw still has to fail when it is wrong.
 fpt_row:
     cmp byte [fpt_draw], 0
     je .skip
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 .skip:
     ret
 

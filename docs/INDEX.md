@@ -77,8 +77,10 @@ Read first: [§5 vga12.inc](../SPEC.md#5-vga12inc); [§32 softgfx.inc — the so
 | `0x0048` | `OSAPI_GFX_FILL_GRAY` | AX=x1, BX=y1, CX=x2, DX=y2 (50% dither) |
 | `0x0050` | `OSAPI_GFX_XOR_RECT` | AX=x1, BX=y1, CX=x2, DX=y2 |
 | `0x0058` | `OSAPI_GFX_XOR_FILL` | AX=x1, BX=y1, CX=x2, DX=y2 |
+| `0x04A8` | `OSAPI_GFX_BLIT1_PEN` | AL = ink (what a SET bit in the next OSAPI_GFX_BLIT1's band becomes), AH = paper (a CLEAR one). SPEC.md 5.4.2.2... |
 | `0x00C0` | `OSAPI_SET_COLOR` | AL -> [gfx_color] |
 | `0x01F8` | `OSAPI_GFX_SCROLL` | move a rect's contents up or down instead of redrawing them (SPEC.md 5.5): AX/BX/CX/DX = x1/y1/x2/y2 inclusive ABSOLUTE screen coords, SI = signed... |
+| `0x04C0` | `OSAPI_GFX_BLITP` | ES:SI = plane 0's first row, DI = the step to the next plane, BP = the row stride inside one, AX = x (A MULTIPLE OF 8), BX = y, CX = width in pixels,... |
 | `0x01D8` | `OSAPI_GFX_BLIT4` | ES:SI = packed 4bpp pixels (two per byte, high nibble leftmost), BP = source stride in BYTES, AX/BX = destination x/y, CX/DX = width/height in... |
 | `0x0418` | `OSAPI_GFX_BLIT1` | ES:SI = a 1bpp BAND in the framebuffer's own bit order (row-major, bit 7 leftmost, 1 = a LIT pixel), BP = its stride in BYTES per row, AX =... |
 | `0x02B0` | `OSAPI_GFX_FILL_PAT` | AX/BX/CX/DX = the rect, SI = 8 pattern bytes in YOUR segment: row y takes byte [SI + (y & 7)], a set bit is WHITE and bit 7 is the leftmost pixel of... |
@@ -94,8 +96,8 @@ Read first: [§6 font.inc](../SPEC.md#6-fontinc); [§83 Text input for packages 
 
 | slot | call | takes |
 |---|---|---|
-| `0x0060` | `OSAPI_FONT_CHAR` | CX=x, DX=y, AL=char |
-| `0x0068` | `OSAPI_FONT_STR` | CX=x, DX=y, SI=NUL string |
+| `0x0060` | `OSAPI_FONT_CHAR_XPARENT` | CX=x, DX=y, AL=char |
+| `0x0068` | `OSAPI_FONT_STR_XPARENT` | CX=x, DX=y, SI=NUL string |
 | `0x0070` | `OSAPI_FONT_WIDTH` | SI=NUL string; out AX = pixel width |
 | `0x0218` | `OSAPI_FONT_GLYPHS` | out DX:SI = the kernel's 8x8 glyph table, AL = first character code it covers, AH = last, CX = bytes per glyph (8)... |
 | `0x0258` | `OSAPI_FONT_RUN` | CX=x, DX=y, SI=NUL string, AL=ink, AH=background. ONE OPAQUE text run (SPEC.md 6.1): the cells' background and their glyphs in a single pass, which... |
@@ -149,6 +151,8 @@ Read first: [§2 Memory map](../SPEC.md#2-memory-map); [§41 xmem.inc — memory
 |---|---|---|
 | `0x0200` | `OSAPI_MEM_CLAIM` | the claim heap (SPEC.md 50.3): AX = KB wanted; out CF=0 and DX = the base segment, CF=1 refused... |
 | `0x0250` | `OSAPI_MEM_CLAIM_DMA` | the same claim, for a buffer an ISA DMA CONTROLLER will read or write: AX = KB wanted, CX = KB of the block's HEAD that must not cross a 64KB... |
+| `0x04C8` | `OSAPI_MEM_CLAIM_HI` | AX = KB; out CF, DX = segment |
+| `0x04D0` | `OSAPI_MEM_CLAIM_DMA_HI` | ...and CX = the page-safe HEAD |
 | `0x0208` | `OSAPI_MEM_FREE` | DX = the segment you were given; out CF=0 released, CF=1 not yours |
 | `0x0210` | `OSAPI_MEM_AVAIL` | out AX = largest free run in KB, BX = total free KB... |
 | `0x02A0` | `OSAPI_CLAIM_SNAPSHOT` | ES:DI = a CLAIM_SNAPSHOT_SIZE buffer; out AX = MEM_MAX... |
@@ -233,6 +237,8 @@ Read first: [§84 Software floating point (`apps/os88fp.inc`)](../SPEC.md#84-sof
 
 | slot | call | takes |
 |---|---|---|
+| `0x04B0` | `OSAPI_ICON_PEN` | AL = the colour the next OSAPI_ICON_DRAW's MASK rows lay down, AH = the colour its DATA rows draw over them... |
+| `0x04B8` | `OSAPI_ICON_DRAW` | CX = x, DX = y, SI -> the record. out CF = 1 refused (a record wider than one word a row, or taller than 16) |
 | `0x00B8` | `OSAPI_GET_TICKS` | out AX = [ticks] |
 | `0x0110` | `OSAPI_FULLSCREEN` | AL = 1 enter (BX=win ptr) / 0 exit; caller holds the gfx lock (window callbacks do); out CF=1 enter refused (screen already owned)... |
 | `0x03C0` | `OSAPI_FS_ENT` | ES:SI -> a DSK_DE_SIZE-byte staged SPEC.md 19.1 entry in YOUR OWN segment: name at 0 (NUL-terminated 8.3), type at 16 (0 file / 1 package / 2 folder... |
@@ -353,7 +359,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 55 | clip.inc — the system clipboard |
 | 56 | ModPlug Player — the fourteenth package (apps/modplug/modplug.asm) |
 | 57 | The debug registry — how a test package reads kernel state |
-| 58 | debug.inc — DEBUG.DRV, the serial monitor (`drivers/debug/debug.asm`) |
+| 58 | (retired) `DEBUG.DRV`, the serial monitor |
 | 59 | toast.inc — the transient one-line message |
 | 60 | cpudet.inc — the CPU tier |
 | 61 | Frotz — the fifteenth package (`apps/frotz/frotz.asm`) |
@@ -385,7 +391,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 
 **`*-PLAN.md` files are DESIGN RECORDS, not descriptions of what shipped.** They record what was considered, including options that were rejected. SPEC.md is the current state; these are how it got there.
 
-*Design records (34):* `ASSOC-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SPLIT-PLAN.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `ONDEMAND-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `SOUND-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `TRACKER-PLAN.md`, `UIHELPERS-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
+*Design records (37):* `ASSOC-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `GFX-REWORK-PLAN.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SPLIT-PLAN.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `ONDEMAND-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SCHED-IDLE-PLAN.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `SOUND-PLAN.md`, `TEXT-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `TRACKER-PLAN.md`, `UIHELPERS-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
 
-*Notes and reference (23):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `DUAL-DISPLAY-BUG2.md`, `DUAL-DISPLAY-VGA.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `FTP-PERF.md`, `HANDOFF-DISK-IO.md`, `HANDOFF-REDRAW.md`, `HANDOFF-SOUND-MEMORY.md`, `HANDOFF.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `KERNEL-MEMORY.md`, `LAST-DROP.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `NOTEPAD-NOTES.md`, `PAINT-NOTES.md`, `TESTING.md`, `UPSTREAM.md`, `WM-ARTIFACTS.md`
+*Notes and reference (24):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `DUAL-DISPLAY-BUG2.md`, `DUAL-DISPLAY-VGA.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `FTP-PERF.md`, `HANDOFF-DISK-IO.md`, `HANDOFF-REDRAW.md`, `HANDOFF-SOUND-MEMORY.md`, `HANDOFF.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `KERNEL-MEMORY.md`, `LAST-DROP.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `NOTEPAD-NOTES.md`, `PAINT-NOTES.md`, `SETTINGS-COST.md`, `TESTING.md`, `UPSTREAM.md`, `WM-ARTIFACTS.md`
 

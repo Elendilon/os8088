@@ -3164,7 +3164,7 @@ sh_drawbar:
     mov dx, [sh_goy]
     add dx, 4
     mov si, sh_tbuf
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 
     ; --- while EDITING, the content box is a real text field: os88line owns
     ; the box, the text, the caret and the horizontal scroll, so this path
@@ -3252,7 +3252,7 @@ sh_drawbar:
                                         ; (LN_INSET), so the field covers this
                                         ; text exactly when an edit begins
     mov si, sh_tbuf + 16
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 .done:
     pop di
     pop si
@@ -3311,7 +3311,7 @@ sh_drawstatus:
     add dx, [sh_ch]
     sub dx, SH_SB_H
     add dx, 4
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 
     ; The right-hand indicator block, which real Excel uses for NUM/CAPS/SCRL
     ; and for the word CALCULATE when Manual mode has left the sheet stale.
@@ -3329,7 +3329,7 @@ sh_drawstatus:
     add dx, [sh_ch]
     sub dx, SH_SB_H
     add dx, 4
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 
     pop si
     pop dx
@@ -3372,7 +3372,7 @@ sh_drawcolhdrs:
     mov dx, [sh_goy]
     add dx, SH_FB_H
     mov si, sh_colbuf
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
     mov bx, [sh_wcol]
     inc bx
     mov [sh_wcol], bx
@@ -3417,7 +3417,7 @@ sh_drawrowhdrs:
     add ax, SH_FB_H + SH_CH_H
     mov dx, ax
     mov si, sh_numbuf
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
     mov bx, [sh_wrow]
     inc bx
     mov [sh_wrow], bx
@@ -3583,7 +3583,7 @@ sh_drawgrid:
     pop cx
     mov al, CBLACK
     call OSAPI_SET_COLOR
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
     jmp .aftertext
 .noshade:
     mov al, CBLACK
@@ -3597,7 +3597,7 @@ sh_drawgrid:
     inc cx
     mov al, CBLACK
     mov ah, CWHITE
-    call OSAPI_FONT_STR                ; a 1px-right overprint - the same
+    call OSAPI_FONT_STR_XPARENT                ; a 1px-right overprint - the same
                                         ; double-strike trick texpad uses
                                         ; for bold on this same 8x8 font
     pop dx
@@ -4133,7 +4133,7 @@ sh_mbar_draw:
     add cx, SH_MPAD
     mov dx, [sh_oy]
     add dx, 3
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
     mov al, CBLACK
     call OSAPI_SET_COLOR
     mov ax, [sh_mto]
@@ -4389,7 +4389,7 @@ sh_mdrop_draw:
     mov cx, [sh_mrx1]
     add cx, SH_MPAD + SH_MCHKW
     mov dx, [sh_mry_row]
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
     mov ax, [sh_mli]
     inc ax
     mov [sh_mli], ax
@@ -7653,7 +7653,7 @@ sh_bdlg_paint:
     mov dx, [sh_bdlg_oy]
     add dx, SH_BDLG_GY1 - 4
     mov si, sh_s_bdlg_title
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
     mov word [sh_bdlg_ri], 0
 .rowloop:
     mov ax, [sh_bdlg_ri]
@@ -8025,7 +8025,7 @@ sh_idlg_paint:
     add cx, SH_IDLG_FX1
     mov dx, [sh_idlg_oy]
     add dx, 8
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 
     mov si, sh_idlg_line               ; the field's rect from the LIVE origin
     mov ax, [sh_idlg_ox]               ; every paint - the window moves
@@ -8836,7 +8836,7 @@ sh_ldlg_paint:
     xor bh, bh
     shl bx, 1
     mov si, [sh_ld_prompts + bx]
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 
     mov ax, [sh_ldlg_ox]              ; the list box's own frame
     add ax, SH_LDLG_LX1
@@ -8855,7 +8855,7 @@ sh_ldlg_paint:
     mov dx, [sh_ldlg_oy]
     add dx, SH_LDLG_LY1 + 4
     mov si, sh_s_ld_none
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
     jmp .buttons
 .rows:
     mov word [sh_ldlg_i], 0
@@ -8904,7 +8904,7 @@ sh_ldlg_paint:
     add cx, SH_LDLG_LX1 + 4
     mov dx, [sh_ldlg_rowy]
     add dx, 2
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
     mov al, CBLACK
     call OSAPI_SET_COLOR
     mov ax, [sh_ldlg_i]
@@ -9419,7 +9419,7 @@ sh_ndlg_paint:
     mov al, CBLACK
     call OSAPI_SET_COLOR
     mov si, sh_s_ndlg_cell
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
     mov di, sh_tbuf                     ; the reference, built the same way the
     mov ax, [sh_notecol]                ; formula bar's own name box builds it
     call sh_colname
@@ -9435,7 +9435,7 @@ sh_ndlg_paint:
     mov dx, [sh_ndlg_oy]
     add dx, 6
     mov si, sh_tbuf
-    call OSAPI_FONT_STR
+    call OSAPI_FONT_STR_XPARENT
 
     mov si, sh_notebox                  ; the field's rect is refreshed from
     mov ax, [sh_ndlg_ox]                ; the LIVE content origin every paint,

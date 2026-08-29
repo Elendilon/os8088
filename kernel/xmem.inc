@@ -298,8 +298,6 @@ xmf_xm_boot:        call xm_boot_x
 
 section .text
 
-xm_boot:            call COLD_SEG:xmf_xm_boot
-                    ret
 
 ; -----------------------------------------------------------------------------
 ; xm_dsp - dispatch one of the overlay's service procs
@@ -457,8 +455,8 @@ xm_free:
 ; against re-entry.
 ;
 ; [sch_lock] IS RAISED HERE and no longer inside the transports, because a
-; loaded image cannot reach it - there is no API slot, and drivers/debug's
-; header records what that costs it. dsk_xfer raises it before dispatching
+; loaded image cannot reach it: there is no API slot that publishes it, so a
+; driver that needs the scheduler held cannot ask. dsk_xfer raises it before dispatching
 ; DSV_BLK for the same reason and hands a block driver a locked scheduler;
 ; this is that, and it is strictly wider than the two windows it replaces.
 ;
