@@ -37296,7 +37296,7 @@ criteria in §17 record which apps it affects.
 
 ### 39.8 The package ABI
 
-`OSAPI_VIDEO` (slot **0x0158**; the table publishes 143 slots today) — no
+`OSAPI_VIDEO` (slot **0x0158**; the table publishes 149 slots today) — no
 inputs;
 out AX = width, BX = height, CX = the first row the dock owns (so the usable
 desktop is rows `MBAR_H`..CX-1), DL = `vid_kind`, DH = bits per pixel (4 or
@@ -53365,6 +53365,13 @@ need four bits), which is what stops §54.6's declaration taking it back.
 3-byte extensions, uppercase and space-padded. `OS88_ASSOC16` /
 `OS88_ASSOC_EXT` / `OS88_ASSOC16_END` bracket it and assert both offsets, so a
 miscounted `db` fails at assembly rather than at mount.
+
+**A C package declares the same way** (§73): `%define CC_ASSOC "<file>.inc"`
+in the shim names a file holding the count byte and the `OS88_ASSOC_EXT`
+lines, and `apps/cc/crt0.asm` writes the bracket itself — the same two macros,
+not a copy of them — so the offsets and the pad are not the author's to
+remember. Its flags byte is computed as the OR of the icon bit and this one,
+which is the *first* trap below said as code rather than as a warning.
 
 **The format version stays 3.** An old kernel loading a new package works —
 everything it reads is unmoved (magic, flags, the dispatcher at 12, the name
