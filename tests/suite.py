@@ -107,6 +107,12 @@ FAST = [
     Row("wakedrain", "fast", py("tests/unit/t_wakedrain.py"), 0.3,
         "every event-queue drain gives a package's wake back - one that eats "
         "it deafens the window for the rest of its life (SPEC.md 74.1.1)"),
+    Row("wab", "fast", py("tests/unit/t_wab.py"), 0.3,
+        "the demo bundles `all` just packed, read back by an independent "
+        "second reader of the .WAB format - weavesim and t_wab are two "
+        "implementations written from WEAVE-SPEC that can disagree, and "
+        "until the 8086 runtime lands this row is the disagreement's only "
+        "audience"),
     Row("textrules", "fast", py("tests/unit/t_textrules.py"), 0.4,
         "SPEC.md 6.6's ratchet: transparent text (font_char/font_str) draws every "
         "pixel twice and flashes on the target machine, so every call site is "
