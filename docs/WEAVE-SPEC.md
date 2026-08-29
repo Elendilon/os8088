@@ -1545,9 +1545,11 @@ are derived and checkable rather than measured:
 ```
 frame:   x = 0                       y = MBAR_H
          w = [vid_w]                 h = [vid_dock_y0] - MBAR_H - 1
-content: width  = w - 1              (a window spanning the screen has no
-                                      LEFT border, SPEC.md 11.95.2, so
-                                      wm_geom answers w-1 and not w-2)
+content: width  = w                  (a window spanning the screen has
+                                      NEITHER side border - SPEC.md 11.95.2
+                                      for the left and 11.95.3 for the
+                                      right - so wm_geom answers w, not
+                                      w-1 and not w-2)
          height = h - (TITLE_H + 1)   (wm_geom, SPEC.md 11)
 ```
 

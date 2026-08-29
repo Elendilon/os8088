@@ -18,7 +18,7 @@ naming one), and nothing builds them until somebody types the knob by hand:
     `REDRAWFULL=`, `HEAPCOMPACT=`, `FDDPROBE=`, `SNAPAUDIT=`, `BOOTPROF=`,
     `MOUIDSLOW=`, `TRACKRUN=`, `QUANTUM=`, `SBDRAGOFF=`/`SBRATE=`,
     `DIRW1=`, `PICOMEM=`, `BOOTMARK=`/`BOOTHALT=`/`BOOTSTOP=`, `NOPS2=`,
-    `BAND=`, `TITLESNAP=`, `NOUNAL=`.
+    `BAND=`, `TITLESNAP=`, `SPLSTARS=`, `NOUNAL=`.
     Each one is
     `%ifdef`'d code that no ordinary build compiles, so it rots in silence -
     and every one of them is the A/B half of a gate somewhere in `tests/`.
@@ -133,6 +133,15 @@ KNOBS = [
     # pass for a configuration nobody assembled.
     ("band",        ["BAND=1"]),
     ("titlesnap",   ["TITLESNAP=1"]),
+    # SPLSTARS= is TITLESNAP's sentence one screen along - the loading screen's
+    # animation A/B (SPEC.md 15.3.7) - and it carries a second reason this
+    # roster is the only thing watching: it is the ONE configuration that
+    # re-splits the blob, moving OVL_AT to 2704 so the twinkle fits `.boot2`.
+    # That leaves 34 bytes on one side of the split and 30 on the other, so the
+    # next byte spent in EITHER section breaks this arm and nothing else - and
+    # it breaks it at `nasm`, naming which half ran out, which is exactly the
+    # failure a build matrix is for.
+    ("splstars",    ["SPLSTARS=1"]),
     ("nounal",      ["NOUNAL=1"]),
     # NOPLANE= is the same sentence as BAND one polarity over, and the
     # Makefile says so at its definition: it is "the only thing keeping the
