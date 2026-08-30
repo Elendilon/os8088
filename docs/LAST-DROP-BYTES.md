@@ -135,7 +135,7 @@ column to rank by for footprint. `Δ.text` on its own is the **segment** column
 | 7 | **`font_init`** (`Fmisc-33`) | `.text` | 80 | **−72** | 0 | **+80** | **72** | 1 `SPLSTUB`; zero outbound |
 | 8 | `drv_init_x` + `drv_svc_clear_all` | `.cold` | 80 | +6 | −76 | +82 | 70 | 1 `.cold` far shim |
 | 9 | `dsk_flop_add_x` | `.cold` | 70 | +6 | −70 | +70 | 64 | 1 `SPLSTUB` (see note) |
-| 10 | `vid_detect` | `.text` | 67 | −57 | 0 | +67 | 57 | 1 `SPLSTUB`; `spw_vid_detect` re-pointed |
+| 10 | ~~`vid_detect`~~ | `.text` | 67 | — | — | — | — | **REFUSED — SPL_RESIDENT, see §2.4** |
 | 11 | `mem_init_x` | `.cold` | 62 | +6 | −58 | +64 | 52 | 1 `.cold` far shim |
 | 12 | `dsk_dpt_init_x` | `.cold` | 60 | +6 | −60 | +60 | 54 | 1 `SPLSTUB`; zero outbound |
 | 13 | `vid_ctx_init` | `.text` | 50 | −34 | 0 | +54 | 34 | 2 new `cw_` shims |
@@ -147,7 +147,7 @@ column to rank by for footprint. `Δ.text` on its own is the **segment** column
 | 19 | `loader_init_x` | `.cold` | 24 | +6 | −24 | +24 | 18 | 1 `SPLSTUB`; zero outbound |
 | 20 | `mod_init_x` | `.cold` | 24 | +6 | −16 | +28 | 10 | 2 `.cold` far shims |
 | 21 | `evq_init` | `.text` | 22 | −14 | 0 | +22 | 14 | 1 `SPLSTUB` — **and a test edit, §7.3** |
-| 22 | `vid_init` | `.text` | 17 | −9 | 0 | +23 | 9 | the three `spw_*` shims already exist |
+| 22 | ~~`vid_init`~~ | `.text` | 17 | — | — | — | — | **REFUSED with row 10** |
 | — | *(10 + 22 taken as a PAIR)* | `.text` | 84 | −68 | 0 | +88 | 68 | one fewer crossing than taken apart |
 | **Σ** | **the whole register, measured as ONE build** | | **1,793** | **−666** | **−915** | **+1,766** | **1,581** | |
 
@@ -249,9 +249,25 @@ Both gate OK.
 needs `vid_detect` to be *aboard* from `.text`, which is what `SPL_RESIDENT` measures;
 in `.ovl` it is aboard before stage 1 jumps, by construction.
 
-**What would flip it.** The blob grows. It is also the row most improved by the
-owner's unlock (b) — consolidating `.ovl` and `.boot2` — since `.boot2` could then
-call it directly and the `SPLSTUB` disappears.
+**REFUSED, and the bonus above is exactly the trap.** `vid_detect` in `.ovl`
+*is* aboard before stage 1 jumps. **The path to it is not.** `spw_vid_detect`
+lives in `.text` at offset 0x0C14 and is called on the splash's FIRST TICK,
+when only `SPL_RESIDENT` = 9 sectors of the image have landed; any route from
+`.text` into `.ovl` goes through `spl_gate`, which is at `.text` 0xD0CC —
+**sector 104 of 119**. The call would enter memory the floppy has not delivered:
+no fault, no message, whatever the machine left there.
+
+Nothing would have caught it. SPEC.md §15 says the residency assertion "is on
+`spw_resident_end`", and that label was **referenced by nothing in the tree** —
+the guard had been lost. It is a `%if` at the foot of `kernel.asm` again, and it
+is what these two rows are refused by rather than by an argument. **68 resident
+bytes is not worth a boot that dies on one machine class and not on the
+emulator.**
+
+The rows stay here because the *bodies* are still boot-only and the finding is
+about the route: an `.ovl`/`.boot2` consolidation (the owner's unlock (b)) would
+let `.boot2` near-call `vid_detect` directly, no `spl_gate` and no `.text` on the
+path, and these two become takeable in the same edit.
 
 ### 2.5 The `.cold` rows as a class — rows 1, 4, 5, 6, 8, 9, 11, 12, 19, 20
 

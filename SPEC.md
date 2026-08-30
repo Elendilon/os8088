@@ -1215,6 +1215,19 @@ because `kernel.asm`'s `cw_` block is at the end of `.text` and a gate on
 *that* would be the last sector of the image — and the assertion is on
 `spw_resident_end`.
 
+**And that assertion had no code behind it.** The label was defined in
+`viddet.inc` and referenced by nothing else in the tree — one line, and a
+constant three sections and two documents call binding was measuring nothing at
+all. It is a `%if` at the foot of `kernel.asm` now, beside the other size
+guards, because `SPL_RESIDENT` is `splash.inc`'s and `splash.inc` is included
+*after* `viddet.inc`; by the foot of the file both are settled. It passes with
+about 1,500 bytes to spare, and what it refuses is one specific tempting shape:
+routing `spw_vid_detect` into the boot overlay. `.ovl` is aboard before stage 1
+jumps, and `vid_detect` in it would be too — but the route from `.text` runs
+through `spl_gate`, which is at the far end of `.text`, so the **path** is not
+aboard even where the destination is. §2.5.2's register refuses `vid_detect` and
+`vid_init` on that, and without this line nothing in the tree would have said so.
+
 Three consequences of the move, and they are the boot overlay's word for word
 (§2.5) one section along:
 

@@ -6059,6 +6059,32 @@ KBLD_DBG_SPAN equ ($ - kbld_dbg_span)
 kernel_text_end:
 KTEXT_SIZE equ kernel_text_end - $$
 
+; ...AND THE ONE SPEC.md 15 SAYS IS "on spw_resident_end", WHICH HAD NO CODE.
+; The label was defined in viddet.inc and referenced by nothing in the tree -
+; grep answered one line - so a constant three sections and two documents call
+; binding was measuring nothing at all. It is here rather than beside the label
+; because SPL_RESIDENT is splash.inc's and splash.inc is included after
+; viddet.inc; by the foot of the file both are settled.
+;
+; WHAT IT GUARDS. Stage 2 ticks the loading screen once the image's first
+; SPL_RESIDENT sectors are aboard, and the first tick PROBES THE ADAPTER -
+; vid_detect, vid_apply, vid_setmode, gfx_rowbase, reached through the four far
+; shims that end at this label. Everything the first tick can reach has to be
+; below the line, and a call that leaves it is a call into sectors the floppy
+; has not delivered yet: no fault, no message, whatever the machine left in
+; that memory.
+;
+; It is also what refuses the ONE tempting shape here: routing spw_vid_detect
+; into the boot overlay through spl_gate. `.ovl` is aboard before stage 1 jumps
+; and vid_detect would be too, which reads as free - but spl_gate is at the far
+; end of `.text` (sector 104 of 119), so the PATH is not aboard even though the
+; destination is. docs/LAST-DROP-BYTES.md rows 10 and 22 are refused on this,
+; and without this line nothing in the tree would have said so.
+SPL_RES_SIZE equ spw_resident_end - $$
+%if SPL_RES_SIZE > SPL_RESIDENT * 512
+%error "the splash's first tick reaches code outside the sectors stage 2 waits for - raise SPL_RESIDENT in BOTH kernel/splash.inc and boot/boot2.asm, or move what grew (SPEC.md 15)"
+%endif
+
 section .lowbss
 kernel_low_end:
 KLOW_SIZE equ kernel_low_end - $$
