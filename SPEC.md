@@ -52121,6 +52121,14 @@ means.
    (§11.3): it is valid for exactly one lock hold, so a site that forgets
    `gfx_pen_live` cannot leak dithered text into whatever draws next.
 
+   **`gfx_color`, `gfx_dis` and `gfx_disink` are declared as three
+   consecutive bytes**, so "together" is one word store rather than a
+   convention: `gfx_pen_live` writes `[gfx_color]` and `[gfx_dis]` in one
+   instruction and `gfx_pen_dis`'s tail writes `[gfx_dis]` and
+   `[gfx_disink]` in one. A `%if` in `vga12.inc` fails the build if the
+   three ever drift apart, which is why `gfx_color` sits down beside the
+   flag rather than up beside `[gfx_mono1]` where it began.
+
    `CLGRAY` remains a *decoration* colour — Minesweeper's covered cells,
    Arkanoid's rails, Recorder's centre line — and is never a disabled state.
 

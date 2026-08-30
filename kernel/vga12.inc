@@ -25,7 +25,6 @@
 VGA_GC      equ 0x3CE           ; Graphics Controller index port (data +1)
 VGA_SEQ     equ 0x3C4           ; Sequencer index port (data +1)
 
-gfx_color       db CBLACK       ; current drawing color for every solid op
 gfx_mono1       dw 0            ; THE WINDOW BEING DRAWN HAS DECLARED ITS
                                 ; CONTENT TWO COLOURS (SPEC.md 11.96.17.1), so
                                 ; font_ink takes its mono path here as well -
@@ -135,6 +134,11 @@ thm_tab:
 
 %endif
 
+gfx_color       db CBLACK       ; current drawing color for every solid op.
+                                ; IT LIVES HERE, not up beside gfx_mono1,
+                                ; because the pen setters write it and the
+                                ; two bytes below it TOGETHER - see the
+                                ; adjacency guard under gfx_disink
 gfx_dis         db 0            ; 1 = what is being drawn is a DISABLED
                                 ; control (SPEC.md 47). It is a FLAG and not
                                 ; a colour because the renderer has to do
@@ -172,6 +176,9 @@ gfx_disink      db CBLACK       ; ...and WHICH DIRECTION a disabled GLYPH
                                 ; [gfx_dis]'s reason one line up: nothing
                                 ; zeroes .bss, and CBLACK is the answer for
                                 ; every caller that never touches it.
+%if gfx_dis - gfx_color != 1 || gfx_disink - gfx_dis != 1
+  %error "gfx_color/gfx_dis/gfx_disink must stay adjacent: gfx_pen_live and gfx_pen_dis each set a PAIR of them in one word store"
+%endif
 gfx_pat         dw 0            ; gfx_fill_pat: near ptr to 8 row bytes,
                                 ; set by the caller before every call
 gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); 0 = free.
@@ -5368,8 +5375,7 @@ gfx_blit1_pen:
 gfx_pen_cf:
     jc gfx_pen_dis
 gfx_pen_live:
-    mov byte [gfx_color], CBLACK
-    mov byte [gfx_dis], 0
+    mov word [gfx_color], CBLACK | (0 << 8)   ; ...and [gfx_dis] with it
     ret
 gfx_pen_dis:
     mov byte [gfx_color], CDGRAY
@@ -5392,9 +5398,9 @@ gfx_pen_dis:
                                     ; font_run lays the checkerboard on every
                                     ; adapter. The stipple carries the signal,
                                     ; so the colour no longer has to
-    mov byte [gfx_dis], 1
-    mov byte [gfx_disink], CBLACK   ; content is white in both themes, so a
-    ret                             ; greyed caption stipples in black
+    mov word [gfx_dis], 1 | (CBLACK << 8)   ; ...and [gfx_disink] with it:
+    ret                             ; content is white in both themes, so a
+                                    ; greyed caption stipples in black
 
 ; ...and the CHROME's pair, for menu_drop's items (SPEC.md 76.6). Same shape,
 ; same [gfx_dis] contract - only the two colours come from the theme, so on
