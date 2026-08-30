@@ -635,8 +635,8 @@ task_yield:
     push bp
     push es
     push ds
-    mov ax, KERNEL_SEG          ; caller's DS is on the stack; we need ours
-    mov ds, ax
+    push cs                     ; caller's DS is on the stack; we need ours
+    pop ds
                                 ; NO sch_account HERE (SPEC.md 8.1.1). It used
                                 ; to charge the slice unconditionally, and on a
                                 ; machine with one runnable task that is 500
@@ -1214,8 +1214,8 @@ sch_isr:
     push bp
     push es
     push ds
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
 
 %ifdef KFZTRACE
     ; --- the heartbeat (SPEC.md 7/8, KFZ only) -------------------------------
@@ -1700,8 +1700,8 @@ sch_stkdie:
     ; reports. Silent, it is indistinguishable from a wild jump; one solid bar
     ; and a task number turn it into a diagnosis a photograph can carry.
     ; Registers are free: the next instruction halts for ever.
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     mov bx, [vid_rseg]
     or bx, bx
     jz .nomark                  ; no adapter yet: nothing to say it on

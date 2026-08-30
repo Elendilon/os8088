@@ -418,8 +418,8 @@ vid_apply:
     push di
     push es
 
-    mov ax, KERNEL_SEG          ; rep movsw writes through ES, and we may be
-    mov es, ax                  ; called from the splash, where ES is the
+    push cs                     ; rep movsw writes through ES, and we may be
+    pop es                      ; called from the splash, where ES is the
                                 ; boot sector's
 
     mov al, [vid_kind]          ; AL * 18 -> the record

@@ -5714,8 +5714,8 @@ vgas_lincopy:
     pop ds                      ; DS = ES = the target for the movs
     cld
     rep movsb
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     add bx, [vgas_step]
     dec word [vgas_left]
     jnz .r
@@ -5755,8 +5755,8 @@ vgas_lincopy:
     push es
     pop ds                      ; DS = ES = the target for the movs
     rep movsb
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     add di, bx
     dec word [vgas_left]
     jnz .r
@@ -5807,8 +5807,8 @@ vgas_bankcopy:
     push es
     pop ds
     rep movsb
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     sub di, [vgas_nb]           ; back to the row's own byte: rep movsb left DI
                                 ; nb past it, and the advance below is
                                 ; column-preserving, so it has to start from
@@ -5824,8 +5824,8 @@ vgas_bankcopy:
     push es
     pop ds
     rep movsb
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     sub di, [vgas_nb]           ; back to the row's own byte: rep movsb left DI
                                 ; nb past it, and the advance below is
                                 ; column-preserving, so it has to start from
@@ -5851,8 +5851,8 @@ vgas_bankcopy:
     pop ds
     cld
     rep movsb
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     add bx, [vgas_step]
     dec word [vgas_left]
     jnz .r

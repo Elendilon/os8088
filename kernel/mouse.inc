@@ -1576,8 +1576,8 @@ mou_p2_isr:
     push bp
     push ds
     push es
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     cld
 %ifdef MOU_DIAG
     inc word [mou_p2irq]        ; COUNTED BEFORE THE TESTS BELOW: "the line
@@ -2151,8 +2151,8 @@ KBM_5SCAN   equ 0x4C            ; the keypad's centre key, make code
 kbm_isr:
     push ax
     push ds
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     call sch_wake_ui            ; A KEYSTROKE WAKES THE UI TASK (SPEC.md
                                 ; 8.1.2.2). Here at the head and not after the
                                 ; chain below, because the chain is a `jmp far`
@@ -2736,8 +2736,8 @@ mou_isr_body:
     push bp
     push ds
     push es
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     mov [mou_lfired], bl        ; BL survives the pushes above; AX does not, so
     cld                         ; this is the first instruction that can store
 

@@ -1272,11 +1272,11 @@ blocks with `SPLCALL splf_fill`, so once the guard is in place every mark from
 lose. `mark_fill` is nine instructions of its own and owes the blob nothing.
 Field-reported as a run of blocks ending at 31 on a machine frozen past it.
 
-##### 2.9.5.2 …and the guard costs 19 bytes a site, so `.text` shares one
+##### 2.9.5.2 …and the guard costs 20 bytes a site, so `.text` shares one
 
-`SPLCALL`/`OVLCALL` expand to **19 bytes**, measured, not counted by eye:
-`pushf` 1, `cmp byte [spl_live], 0` 5, `je` 2, `mov word [spl_fp], imm16` 6,
-`call far [spl_fp]` 4, `popf` 1. There are **19 sites**, so §2.9.5.1's fix
+`SPLCALL`/`OVLCALL` expand to **20 bytes**, measured, not counted by eye:
+`pushf` 1, `cmp word [spl_fseg], COLD_SEG` 6, `jbe` 2, `mov word [spl_fp],
+imm16` 6, `call far [spl_fp]` 4, `popf` 1. There are **19 sites**, so §2.9.5.1's fix
 costs **361 bytes** of a kernel whose whole reason for existing this branch was
 to give 1,024 back.
 
@@ -1323,8 +1323,20 @@ bytes and put a register clobber at eleven sites — which is the failure class
 that produced two of this branch's four field bugs (§15.3.1's `spl_tick`,
 §18.93.3's run bound). Not a trade worth making for 20 bytes.
 
-**And the name is the link.** `SPLGATE x` emits `call splg_x`; `SPLSTUB x`
-emits `splg_x`. A site whose stub is missing is an **undefined symbol**, and so
+**A STUB ONLY PAYS WHEN IT IS SHARED, and ten of the twelve were not.**
+A single-site target costs 3 at the site plus 8 for its stub = **11**;
+written at the site as `mov word [spl_fp], X` / `call spl_gate` it is **9**.
+So the stub survives for exactly the two targets with more than one site —
+`splf_step` (three, all in `kmain`) and `splf_stepq` (two, both in
+`mouse.inc`) — and the other ten use `OVLGATE1`/`SPLGATE1`, which is the same
+call through the same gate with the immediate at the site. Nine of the ten
+assemble in a shipped kernel; **−18**. The ten per-stub `%ifdef`s go with
+them, because the site already carries the one that matters.
+
+**And the name is the link either way.** `SPLGATE x` emits `call splg_x` and
+`SPLSTUB x` emits `splg_x`; `OVLGATE1 x` writes `x` as an immediate at the
+site. Both spell the target once and neither can name a routine that is not
+there. A site whose stub is missing is an **undefined symbol**, and so
 is a stub for a target *this configuration does not assemble* — which is not
 theoretical. Two of the nine needed their site's own `%ifdef` and both said so
 within a minute: `ovl_font_init` exists only under `BAKED_FONT` (§6.2, the ROM

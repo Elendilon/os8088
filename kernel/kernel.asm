@@ -3777,8 +3777,13 @@ api_file_rename:
 ; -----------------------------------------------------------------------------
 ; api_copyname - stage a NUL 8.3 name across the segment boundary
 ; in:  DS:SI = the caller's name, ES:DI = kernel scratch (13 bytes)
-; out: nothing (all registers preserved); the copy is NUL-terminated even if
-;      the source was not - a package cannot make this run on
+; out: nothing; the copy is NUL-terminated even if the source was not - a
+;      package cannot make this run on
+; clobbers: SI and DI, which the copy spends and does NOT put back. AX and CX
+;      come back the caller's, because both are still ARGUMENTS at every one
+;      of the four call sites; SI and DI are dead at all four - each
+;      overwrites both on the instruction after the call, and each banked the
+;      caller's pair in its own prologue. A FIFTH call site has to read this.
 
 ; --- resident shims the overlay far-calls (see the contract above) ----------
 ; Four bytes each. A routine gets one only because an overlay entry needs it
@@ -3821,11 +3826,14 @@ cw_clk_tobcd:       call clk_tobcd
                     retf
 ; -----------------------------------------------------------------------------
 api_copyname:
-    push ax
-    push cx
-    push si
-    push di
-    cld
+    push ax                     ; AX and CX ONLY, and both are arguments the
+    push cx                     ; caller is still carrying: AX is DX:AX's low
+    cld                         ; half for READ_AT and AL for RMDIR, CX the
+                                ; byte count for WRITE/READ/APPEND. SI and DI
+                                ; are SPENT - all four call sites overwrite
+                                ; both on the instruction after the call, and
+                                ; all four already banked the caller's pair in
+                                ; their own prologue
     mov cx, 13
 .c:
     lodsb
@@ -3835,8 +3843,6 @@ api_copyname:
     loop .c
     mov byte [es:di-1], 0
 .done:
-    pop di
-    pop si
     pop cx
     pop ax
     ret
@@ -3948,7 +3954,8 @@ api_sysap:  db 0                ; which verb the shared fenced cell runs:
 ; `SPLCALL splf_step` runs for the life of the machine, so that was every disk
 ; access after the first desktop frame.
 ;
-; **NINETEEN bytes a site**, and the flags are banked across them because the
+; **TWENTY bytes a site** (pushf 1 + cmp word 6 + jbe 2 + mov word 6 + call far
+; 4 + popf 1), and the flags are banked across them because the
 ; busiest caller is inside dsk_xfer's run loop with its own CF in flight. That
 ; count is why SPLGATE below exists, and why this form still does too: nothing
 ; in here is a CODE reference - only DS-relative data - so it drops into
@@ -4017,7 +4024,27 @@ api_sysap:  db 0                ; which verb the shared fenced cell runs:
     call splg_%1
 %endmacro
 
-; SPLSTUB - one three-instruction landing per target, emitted at the gate
+; ...and the SINGLE-SITE form, which is the one most targets want. A stub only
+; pays when it is SHARED: 3 at the site + 8 for the stub is 11 against 9
+; written out here, so the two forms cross over at two sites. splf_step (three
+; sites, all in kmain) and splf_stepq (two, both in mouse.inc) keep their
+; stubs; the other ten targets use these. The NAME is still the link - it is
+; written at the site and nowhere else, so a target this configuration does not
+; assemble is an undefined symbol exactly as a stub for one would be, and the
+; per-stub %ifdefs are gone because the site already carries the one that
+; matters. Using the shared form without a SPLSTUB is a build error; using this
+; form where a stub exists costs 2 bytes and nothing else.
+%macro SPLGATE1 1
+    mov word [spl_fp], %1
+    call spl_gate
+%endmacro
+
+%macro OVLGATE1 1
+    mov word [spl_fp], %1
+    call spl_gate
+%endmacro
+
+; SPLSTUB - one three-instruction landing per SHARED target, emitted at the gate
 %macro SPLSTUB 1
 splg_%1:
     mov word [spl_fp], %1
@@ -4065,7 +4092,7 @@ kmain:
                                 ; would otherwise have been needed to reach
     MARK 1
 
-    OVLGATE ovl_cpu_detect      ; CPU tier + memory above 1MB (SPEC.md 41),
+    OVLGATE1 ovl_cpu_detect      ; CPU tier + memory above 1MB (SPEC.md 41),
                                 ; here and nowhere else: BEFORE sched_init,
                                 ; because this is the last moment at which no
                                 ; kernel ISR is installed - the unreal-mode
@@ -4081,7 +4108,7 @@ kmain:
                                 ; loads. The tier is still detected above, in
                                 ; both builds: it is a fact about the CPU that
                                 ; packages read
-    OVLGATE ovl_xm_sniff        ; IS there memory above 1MB? ONE int 15h
+    OVLGATE1 ovl_xm_sniff        ; IS there memory above 1MB? ONE int 15h
                                 ; AH=88h, and on tier 0 one compare (SPEC.md
                                 ; 41.12.1). The gate, the sizing, the
                                 ; allocator and both transports are XMEM.DRV
@@ -4124,7 +4151,7 @@ kmain:
                                 ; table is cleared
     call evq_init
     MARK 6
-    OVLGATE ovl_clk_init        ; system clock (SPEC.md 37): probe the RTC,
+    OVLGATE1 ovl_clk_init        ; system clock (SPEC.md 37): probe the RTC,
                                 ; or fall back to the fixed date - before the
                                 ; mode set, so the very first menu bar paint
                                 ; already carries a valid clock
@@ -4215,7 +4242,7 @@ kmain:
     MARK 13
     BPMARK 2                    ; ...the claim heap and the module table
 %ifdef BAKED_FONT
-    OVLGATE ovl_font_init  ; the typeface this BUILD carries (SPEC.md
+    OVLGATE1 ovl_font_init  ; the typeface this BUILD carries (SPEC.md
                                 ; 6.2), out of the overlay - so it needs no
                                 ; int 10h and no F000:FA6E, and the machine's
                                 ; own ROM font is not consulted at all
@@ -4250,7 +4277,7 @@ kmain:
     mov [mdg_n0], ax
 %endif
     MARK 18
-    OVLGATE ovl_spl_msg_mouse   ; ...and SAY SO (SPEC.md 15.6.4). AFTER the
+    OVLGATE1 ovl_spl_msg_mouse   ; ...and SAY SO (SPEC.md 15.6.4). AFTER the
                                 ; notch, which is what raises [spl_live]:
                                 ; composed before it, the line is never drawn
     call mouse_init             ; IRQ4 live; cursor stays hidden until shown
@@ -4267,13 +4294,13 @@ kmain:
     mov [mdg_n1], ax
 %endif
     MARK 20
-    OVLGATE ovl_spl_msg_fdd     ; ...and the SECOND stall the hard disk exposed
+    OVLGATE1 ovl_spl_msg_fdd     ; ...and the SECOND stall the hard disk exposed
                                 ; (SPEC.md 15.6.4): desk_init asks SPEC.md
                                 ; 18.97's TRACK 0 question about unit 1, and a
                                 ; drive heading for the absent verdict costs
                                 ; FDD_MOTORW + FDD_SEEKW - 32 ticks, 1.76 s,
                                 ; the longest single wait in the whole boot
-    OVLGATE ovl_desk_init  ; volume zones for the desktop (SPEC.md 26.1)
+    OVLGATE1 ovl_desk_init  ; volume zones for the desktop (SPEC.md 26.1)
     MARK 21
     call dock_init              ; dock strip scratch (SPEC.md 30)
     MARK 22
@@ -4285,7 +4312,7 @@ kmain:
                                 ; snd_init, whose tone route reads the
                                 ; published service table on its first tick
     MARK 25
-    OVLGATE drv_snd_sniff  ; is there an FM chip at 388h? (SPEC.md
+    OVLGATE1 drv_snd_sniff  ; is there an FM chip at 388h? (SPEC.md
                                 ; 51.3.1) If so, row 0 becomes WANTED by
                                 ; DEFAULT - which a SYSTEM.CFG that says
                                 ; otherwise then overwrites, so this is only
@@ -4294,7 +4321,7 @@ kmain:
                                 ; because the overlay this lives in is dead by
                                 ; then: drv_boot's own mount writes over it
     MARK 26
-    OVLGATE ovl_snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
+    OVLGATE1 ovl_snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
                                 ; boot bits, stores its .bss state, publishes
                                 ; snd_live LAST - snd_tick has been running
                                 ; gated since sched_init hooked int 08h
@@ -4356,7 +4383,7 @@ kmain:
 %endif
     MARK 31
 
-    SPLGATE splf_finish         ; the bar to 100% and the screen handed back:
+    SPLGATE1 splf_finish         ; the bar to 100% and the screen handed back:
                                 ; the paint below covers every pixel of it,
                                 ; so the loading screen needs no erase
 
@@ -4569,12 +4596,11 @@ osapi_file_here:
     mov bl, [inst_fdrv+si]      ; the instance's drive...
     shl si, 1
     mov dx, [inst_fcwd+si]      ; ...and its directory
-    pop si
-    pop cx
-    ret
+    jmp short .out
 .global:
     mov dx, [dsk_cwd]           ; no instance behind this call: the machine's
     mov bl, [disk_drive]        ; own position, exactly as before
+.out:
     pop si
     pop cx
     ret
@@ -4664,27 +4690,24 @@ osapi_file_goto_q:
     ja .bad
 .quiet:
     mov [dsk_cwd], dx
-    pop dx
-    xor ax, ax
-    clc
-    ret
+    jmp short .ok               ; ...and .full's own success falls into it
 .bad:
     mov ax, FERR_IO
-    pop dx
-    stc
-    ret
+    jmp short .err              ; ...and .ferr's failure falls into that
 .full:
     push dx
     mov dl, bl
     pop ax                      ; AX = the cluster, DL = the volume
     call dsk_chdir_q
     jc .ferr
+.ok:
     pop dx
     xor ax, ax
     clc
     ret
 .ferr:
     mov ax, FERR_NODISK
+.err:
     pop dx
     stc
     ret
@@ -4970,34 +4993,19 @@ section .text
 ; than in AX, which is what keeps this a size change and not a register-
 ; discipline change.
 ; =============================================================================
-; EVERY STUB CARRIES ITS SITE'S OWN %ifdef, and the two that need one are the
-; reason this block is worth reading rather than skimming. A stub names a
-; target, so a stub for a target this CONFIGURATION does not assemble is an
-; undefined symbol - which is the property that makes a missing pairing a build
-; error and not a wrong address, and it is not theoretical: both of these were
-; found by the assembler within a minute of each other, one by `make` and one
-; by test-full's kern_small row.
+; TWO STUBS, because two targets have more than one site: splf_step is three
+; of kmain's and splf_stepq is both of mouse.inc's. Every other target is
+; called once and writes its own immediate at that one site (SPLGATE1 /
+; OVLGATE1 above) - a stub for it would be 11 bytes where the site alone is 9,
+; and it would carry a %ifdef the site already has. That took ovl_font_init's
+; BAKED_FONT arm and ovl_xm_sniff's KERN_BIG arm out of this block, and with
+; them the one snag worth remembering: a stub names a target, so a stub for a
+; target this CONFIGURATION does not assemble is an undefined symbol - which is
+; the property that makes a missing pairing a build error and not a wrong
+; address, and it is not theoretical. Both were found by the assembler within a
+; minute of each other, one by `make` and one by test-full's kern_small row.
     SPLSTUB splf_stepq
-    SPLSTUB ovl_cpu_detect
-%ifdef KERN_BIG
-    SPLSTUB ovl_xm_sniff        ; the store above 1MB is kern_big's alone
-%endif                          ; (SPEC.md 41.11) - and so is the shim
-    SPLSTUB ovl_clk_init
-%ifdef BAKED_FONT
-    SPLSTUB ovl_font_init       ; without BAKED_FONT the typeface comes from
-%endif                          ; the ROM through a NEAR font_init and
-                                ; ovl_font_init is not assembled (SPEC.md 6.2)
-    SPLSTUB ovl_desk_init
-    SPLSTUB ovl_spl_msg_mouse   ; SPEC.md 15.6.4's two lines. They are kmain's
-    SPLSTUB ovl_spl_msg_fdd     ; and not the phase's, because the phase
-                                ; boundary is legible HERE and a reader of the
-                                ; boot sequence sees the line beside the call
-                                ; it names - drv_boot's three are composed the
-                                ; same way
-    SPLSTUB drv_snd_sniff
-    SPLSTUB ovl_snd_init
     SPLSTUB splf_step
-    SPLSTUB splf_finish
 spl_gate:
     pushf
     cmp word [spl_fseg], COLD_SEG
