@@ -140,26 +140,9 @@ fcp_arm:
     stc
     ret
 
-; -----------------------------------------------------------------------------
-; fcp_ncopy - CX bytes from DS:SI to DS:DI (module-internal)
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-fcp_ncopy:
-    push ax
-    push cx
-    push si
-    push di
-.b:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    loop .b
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+; fcp_ncopy - CX bytes from DS:SI to DS:DI. disk.inc's dsk_ncopy is this
+; body to the instruction, and both are `.cold` = COLD_SEG.
+fcp_ncopy   equ dsk_ncopy
 
 ; -----------------------------------------------------------------------------
 ; fcp_goto - make (AL = drive, BX = folder cluster) the current directory

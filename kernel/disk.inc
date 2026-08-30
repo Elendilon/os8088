@@ -5779,6 +5779,38 @@ dsk_copy_low:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_ncopy - CX bytes from DS:SI to DS:DI, one at a time (SPEC.md 4)
+; in:       SI = source, DI = destination, CX = count
+; out:      nothing (all registers preserved)
+;
+; The .cold segment's counted copy, and the reason it is a byte loop rather
+; than `rep movsb` is at dskw_copy11: ES belongs to the caller's buffer at
+; three of the sites and must not be reloaded to move eleven bytes.
+;
+; It lives HERE because disk.inc is the first `.cold` %include, so every one
+; of the thirteen sites in diskw.inc, filecp.inc, files.inc and fdlg.inc is a
+; BACKWARD near reference inside one section. It was four separate copies of
+; this body, one per file. NOT to be confused with fm_ncpy, which is a
+; NUL-stopping bounded copy and answers a different question.
+; -----------------------------------------------------------------------------
+dsk_ncopy:
+    push ax
+    push cx
+    push si
+    push di
+.b:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    loop .b
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_copy_out - copy CX bytes from LOW_SEG:SI into an arbitrary segment
 ;
 ; The file manager's cache filler (SPEC.md 22.1): disk_dir / disk_icons live

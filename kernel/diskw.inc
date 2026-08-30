@@ -934,8 +934,7 @@ dskw_rtbody:
 .named:
     mov si, dskw_rt_name        ; dskw_find matches through dskw_n83
     mov di, dskw_n83
-    mov cx, 11
-    call dskw_rt_copy
+    call dskw_copy11
     call dskw_find
     jc .out                     ; AX = FERR_NOENT / FERR_IO already
     jc .out
@@ -998,8 +997,7 @@ dskw_rtbody:
     jc .ioerr
     mov si, dskw_rt_name
     mov di, dskw_n83
-    mov cx, 11
-    call dskw_rt_copy
+    call dskw_copy11
     call dskw_rmbody_n83        ; the target itself, from where we began
     ret
 
@@ -1064,27 +1062,6 @@ dskw_rt_clchk:
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_rt_copy - CX bytes from DS:SI to DS:DI (module-internal)
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-dskw_rt_copy:
-    push ax
-    push cx
-    push si
-    push di
-.b:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    loop .b
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; dskw_rt_scan - the first entry of the CURRENT directory that is not '.',
 ;                '..' or free
 ; out: CF=0 with dskw_n83 = its 11 raw name bytes, [dskw_rt_attr] = its
@@ -1142,8 +1119,7 @@ dskw_rt_scan:
     mov [dskw_dsec], ax
     mov si, dskw_raw
     mov di, dskw_n83
-    mov cx, 11
-    call dskw_rt_copy
+    call dskw_copy11
     mov al, [dskw_raw+DSK_R_ATTR]
     mov [dskw_rt_attr], al
     mov ax, [dskw_raw+DSK_R_CLUS]
@@ -1212,8 +1188,7 @@ dskw_rt_byclus:
     call dsk_copy_in_x
     mov si, dskw_raw
     mov di, dskw_n83
-    mov cx, 11
-    call dskw_rt_copy
+    call dskw_copy11
     clc
     jmp short .out
 .next:
@@ -2282,7 +2257,6 @@ dskw_nbody:
     push si
     mov si, dskw_n83            ; keep it: dskw_find works out of dskw_n83,
     mov di, dskw_n83b           ; which the old-name lookup is about to reuse
-    mov cx, 11
     call dskw_copy11
     pop si
     call dskw_find
@@ -2312,7 +2286,6 @@ dskw_nbody:
     push si
     mov si, dskw_n83b
     mov di, dskw_raw            ; patch the 11 name bytes in the staged copy
-    mov cx, 11
     call dskw_copy11
     pop si
     mov byte [dskw_zapnext], 0
@@ -2888,7 +2861,6 @@ dskw_commit:
     loop .zero
     mov si, dskw_n83
     mov di, dskw_raw
-    mov cx, 11
     call dskw_copy11
     mov byte [dskw_raw+DSK_R_ATTR], DSKW_ARCH
     cmp byte [dskw_syswr], 0    ; ...or hidden + system, if the kernel is
@@ -3070,28 +3042,24 @@ dskw_cmp:
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_copy11 - copy CX bytes inside the kernel segment (name fields)
-; in:  SI = source, DI = destination, CX = count
+; dskw_copy11 - copy an 11-byte raw name inside the kernel segment
+; in:  SI = source, DI = destination
 ; out: nothing; preserves all registers
 ;
+; THE COUNT IS IN HERE, not at the seven call sites: every one of them moves
+; a raw 8.3 name and every one of them used to spell `mov cx, 11` first. That
+; also makes CX genuinely preserved, where before the sites left it holding
+; 11 - two of the seven are inside a loop whose counter that was.
+;
 ; A plain byte loop, not movsb: ES belongs to the caller's buffer here and
-; must not be reloaded just to move eleven bytes.
+; must not be reloaded just to move eleven bytes. disk.inc's dsk_ncopy is the
+; loop, and it is the same body four files each used to carry.
 ; -----------------------------------------------------------------------------
 dskw_copy11:
-    push ax
     push cx
-    push si
-    push di
-.loop:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    loop .loop
-    pop di
-    pop si
+    mov cx, 11
+    call dsk_ncopy
     pop cx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------

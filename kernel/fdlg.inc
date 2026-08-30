@@ -2087,21 +2087,10 @@ fdlg_unfold:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 fdlg_ncopy:
-    push ax
-    push cx
-    push si
-    push di
-    mov cx, 16
-.b:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    loop .b
-    pop di
-    pop si
-    pop cx
-    pop ax
+    push cx                     ; CX and not just the loop: fdlg_unfold banks
+    mov cx, 16                  ; AX, SI and DI while documenting "all
+    call dsk_ncopy              ; registers preserved", so this is where CX
+    pop cx                      ; has to be kept. disk.inc owns the loop
     ret
 
 ; -----------------------------------------------------------------------------
