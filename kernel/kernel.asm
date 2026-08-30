@@ -3836,6 +3836,23 @@ ovw_mark_stamp:     call mark_stamp     ; SPEC.md 15.5's marker, reached from
 %endif
 ovw_desk_rowcalc:   call desk_rowcalc
                     retf
+; ...and the MOUSE's five (SPEC.md 9.4.7). mouse_init's boot half is in the
+; overlay and everything mou_hotplug or mouse_unhook can reach stayed resident,
+; so these are the five edges that now cross: the port writers the probe uses
+; and the round counter it resets. Four bytes each, and the 22 sites that call
+; them pay two apiece for the far form.
+ovw_mou_pall:       call mou_pall
+                    retf
+ovw_mou_newround:   call mou_newround
+                    retf
+%ifdef KERN_BIG                 ; the PS/2 half is kern_small's absent one
+ovw_mou_p2cw:       call mou_p2cw
+                    retf
+ovw_mou_p2dw:       call mou_p2dw
+                    retf
+ovw_mou_p2wcmd:     call mou_p2wcmd
+                    retf
+%endif
 ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
                     retf                ; into the OVERLAY, so its string is
                                         ; reached ES:CS and not through DS -
@@ -3935,6 +3952,46 @@ api_sysap:  db 0                ; which verb the shared fenced cell runs:
 ; kept in step with it. bprof_mark preserves the flags as well as every
 ; register, so a mark may go between any two calls here without changing what
 ; either of them did.
+
+; OVLMARK - MARK's twin for a body that lives in the BLOB (SPEC.md 9.4.7)
+;
+; MARK puts the index BYTE IN THE INSTRUCTION STREAM and mark_here reads it
+; `cs:` - which is KERNEL_SEG inside mark_here and the BLOB's segment at an
+; overlay call site, so the plain macro reads the wrong memory from `.ovl` and
+; then returns to the wrong place. The index goes in AL here and mark_stamp is
+; reached through ovw_mark_stamp, which is a far shim.
+;
+; It lived in clock.inc while clk_init was its only user. mouse_init's eight
+; sites joined it, and mouse.inc is %included first - so it is here, beside the
+; macro it is the twin of, which is where it should have been anyway.
+;
+; NOTHING WITHOUT `make BOOTMARK=1`, like every other MARK - and it carries
+; BOOTHALT's arm too, which it did not while it had one user: markers 40-47 are
+; mouse_init's, and a machine that hangs in the mouse probe is exactly what
+; BOOTHALT= is reached for.
+%ifdef BOOT_MARK
+%macro OVLMARK 1
+    push ax
+%if ((%1) % 5) == 0
+    mov al, (%1) | 0x80         ; every fifth block is the tall one
+%else
+    mov al, (%1)
+%endif
+    call KERNEL_SEG:ovw_mark_stamp
+    pop ax
+%ifdef BOOT_HALT
+%if (%1) == BOOT_HALT
+    cli                         ; `make BOOTHALT=n`, exactly as MARK below
+%%hlt:
+    hlt
+    jmp short %%hlt
+%endif
+%endif
+%endmacro
+%else
+%macro OVLMARK 1
+%endmacro
+%endif
 
 %macro MARK 1
 %ifdef BOOT_MARK
@@ -4317,7 +4374,7 @@ kmain:
     OVLGATE1 ovl_spl_msg_mouse   ; ...and SAY SO (SPEC.md 15.6.4). AFTER the
                                 ; notch, which is what raises [spl_live]:
                                 ; composed before it, the line is never drawn
-    call mouse_init             ; IRQ4 live; cursor stays hidden until shown
+    OVLGATE1 mouse_init         ; IRQ4 live; cursor stays hidden until shown
     MARK 19
     BPMARK 5                    ; ...and SPEC.md 9.4.1's two waits, which are
                                 ; the largest phase of a boot that is not
@@ -5030,18 +5087,22 @@ section .text
 ; than in AX, which is what keeps this a size change and not a register-
 ; discipline change.
 ; =============================================================================
-; TWO STUBS, because two targets have more than one site: splf_step is three
-; of kmain's and splf_stepq is both of mouse.inc's. Every other target is
-; called once and writes its own immediate at that one site (SPLGATE1 /
-; OVLGATE1 above) - a stub for it would be 11 bytes where the site alone is 9,
-; and it would carry a %ifdef the site already has. That took ovl_font_init's
-; BAKED_FONT arm and ovl_xm_sniff's KERN_BIG arm out of this block, and with
-; them the one snag worth remembering: a stub names a target, so a stub for a
-; target this CONFIGURATION does not assemble is an undefined symbol - which is
-; the property that makes a missing pairing a build error and not a wrong
-; address, and it is not theoretical. Both were found by the assembler within a
-; minute of each other, one by `make` and one by test-full's kern_small row.
-    SPLSTUB splf_stepq
+; ONE STUB, because one target has more than one site: splf_step, three times
+; in kmain. Every other target is called once and writes its own immediate at
+; that one site (SPLGATE1 / OVLGATE1 above) - a stub for it would be 11 bytes
+; where the site alone is 9, and it would carry a %ifdef the site already has.
+; That took ovl_font_init's BAKED_FONT arm and ovl_xm_sniff's KERN_BIG arm out
+; of this block, and with them the one snag worth remembering: a stub names a
+; target, so a stub for a target this CONFIGURATION does not assemble is an
+; undefined symbol - which is the property that makes a missing pairing a build
+; error and not a wrong address, and it is not theoretical. Both were found by
+; the assembler within a minute of each other, one by `make` and one by
+; test-full's kern_small row.
+;
+; **splf_stepq's stub is gone with its sites** (SPEC.md 9.4.7). Both were in
+; mouse_init's identify window, which is in the blob now: a SPLGATE is a NEAR
+; call to a `.text` stub and `.ovl` cannot make one, so both became the inline
+; SPLCALL form and the 8-byte landing pad had nothing left to land.
     SPLSTUB splf_step
 spl_gate:
     pushf

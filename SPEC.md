@@ -8591,6 +8591,48 @@ Ruled out on the way, and worth keeping: `mdg_tpl` padded its buffer with
 a real defect in a routine that runs at the end of `kmain` where ES is whatever
 the desktop paint left, now written one segment throughout. It was not this.
 
+#### 9.4.7 The probe is in the boot overlay, and the split is a LIFETIME split
+
+`mouse_init` and everything only it reaches — `mou_uart`, `mou_idbyte`,
+`mou_idquiet`, `mou_idjudge`, and on the PS/2 side `mou_p2rd`, `mou_p2dev`,
+`mou_p2flush`, `mou_p2_init` — are **1,024 bytes** that run once, from `kmain`,
+about a hundred lines above `spl_finish`. They are in `.ovl` (§2.5.2), so they
+stop costing RAM the moment the blob goes back to the heap.
+
+**What did NOT go is the whole design.** Everything `mou_hotplug` or
+`mouse_unhook` can reach stays resident: `mou_pall`, `mou_pout`,
+`mou_newround`, `mou_lockon`, `mouse_unhook` itself, `mou_p2_off` and the four
+8042 writers. A mouse unplugged and plugged back in (§9.5.3) and Chip →
+Restart both run for the life of the machine, and the register's rule is a
+lifetime rule rather than a "looks like setup" one. The one that most looks
+like setup and is not is `mou_p2_off`, whose own header says it: *"NOTHING HERE
+READS 60h. This is the one PS/2 routine that runs on the UI task."*
+
+Three things the move changed inside the moved range, each of which is a rule
+rather than a detail:
+
+- **The three vector installs may not store CS.** `mouse.inc` hooks the two
+  UART lines, `int 09h` and `int 74h` with `mov [es:si+2], cs`. In `.ovl` CS is
+  the *blob's*, and the blob becomes somebody's heap claim at `spl_finish`, so
+  the machine would die later at a vector with no connection to this file. All
+  three name `KERNEL_SEG` now. Before `os88ovlchk.py` rule 2b, nasm, the gate
+  and a boot to a desktop all passed in silence.
+- **`MARK` becomes `OVLMARK`.** `MARK n` is a near `call mark_here` with the
+  index **in the instruction stream**, read `cs:` — the kernel's segment inside
+  `mark_here` and the blob's at the site. `OVLMARK` puts the index in AL and
+  goes through `ovw_mark_stamp`. Eight sites, `BOOTMARK=1` only, and the macro
+  moved from `clock.inc` to `kernel.asm` because `mouse.inc` is included first.
+  It gained `BOOTHALT`'s arm on the way: markers 40–47 are the mouse probe's,
+  and a machine that hangs there is exactly what that knob is reached for.
+- **`SPLGATE` becomes `SPLCALL`.** The gate form is a near call to a `.text`
+  landing pad, which `.ovl` cannot make; the inline form is DS-relative data and
+  an indirect far call, so it drops into any section. 17 bytes a site, twice —
+  and `splf_stepq`'s `SPLSTUB` went with them, both its sites having been these.
+
+Twenty-two outbound calls widen to the far form through five `ovw_` shims. The
+whole move is `.text` **−1,006** for `.ovl` **+1,110**, and the `.ovl` bytes are
+not footprint.
+
 ### 9.5 COM1 or COM2 — the port is not asked and not configured
 
 A serial card is jumpered to a base address, and the mouse goes on whichever

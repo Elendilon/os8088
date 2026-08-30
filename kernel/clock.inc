@@ -71,21 +71,10 @@ CLK_AT_DAT  equ 0x71
 ; So the index goes in AL and mark_stamp is reached through a far shim.
 ;
 ; NOTHING WITHOUT `make BOOTMARK=1`, like every other MARK.
-%ifdef BOOT_MARK
-%macro OVLMARK 1
-    push ax
-%if ((%1) % 5) == 0
-    mov al, (%1) | 0x80         ; every fifth block is the tall one
-%else
-    mov al, (%1)
-%endif
-    call KERNEL_SEG:ovw_mark_stamp
-    pop ax
-%endmacro
-%else
-%macro OVLMARK 1
-%endmacro
-%endif
+; **THE MACRO ITSELF HAS MOVED to kernel.asm, beside MARK** (SPEC.md 9.4.7).
+; It was here because clk_init was its only user; mouse_init joined it in the
+; overlay, and mouse.inc is %included BEFORE this file - so a macro defined
+; here would not exist at its sites. Nothing else changed and no byte moved.
 
 CLK_XT_BASE equ 0x2C0           ; where an XT add-on clock lives - BOTH chips
 CLK_UIP_MAX equ 4000            ; bounded UIP poll: never spin on a stuck bit.
