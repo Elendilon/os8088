@@ -3957,18 +3957,18 @@ fm_c_open:                      ; File > Open - the selection, if any
     jae .none
     call fm_open_sel
     jc .out                     ; a folder re-listed us and owes the whole
-    mov byte [fm_cmdchg], FMD_NONE  ; window; a package or a DOCUMENT opened
-.out:                           ; somebody else's and changed NOTHING on this
-    ret                         ; one - fm_open_sel's own answer, which is the
-                                ; same one fm_onclick reads on a double-click
-                                ; (SPEC.md 22.13.2). It was the [ld_pending]
-                                ; word here too, so File > Open on a document
-                                ; carried the identical wasted repaint; and
-                                ; FMD_LINE before that, while the line still
-                                ; said 'Loading...' (SPEC.md 22.17)
-.none:
-    mov byte [fm_cmdchg], FMD_NONE  ; nothing selected: a no-op, and a no-op
-    ret                             ; draws nothing
+.none:                          ; window; a package or a DOCUMENT opened
+    mov byte [fm_cmdchg], FMD_NONE  ; somebody else's and changed NOTHING on
+.out:                           ; this one - fm_open_sel's own answer, which
+    ret                         ; is the same one fm_onclick reads on a
+                                ; double-click (SPEC.md 22.13.2). It was the
+                                ; [ld_pending] word here too, so File > Open
+                                ; on a document carried the identical wasted
+                                ; repaint; and FMD_LINE before that, while the
+                                ; line still said 'Loading...' (SPEC.md 22.17)
+                                ; NOTHING SELECTED lands on the same store: a
+                                ; no-op draws nothing, which is what .none was
+                                ; its own copy of
 
 fm_c_mkdir:                     ; File > New Folder... - arm the editor
     mov di, [fm_vp]
@@ -4726,12 +4726,17 @@ fm_nw_none:                     ; we hold. The NEW window is what draws; this
     ret                             ; redrawn (SPEC.md 22.13)
 fm_nw_full:
     call KERNEL_SEG:cw_snd_beep ; at the cap app_launch would front an
-    mov byte [fm_cmdchg], FMD_NONE  ; existing window and silently drop the
-    ret                         ; seed, which reads as "the menu did nothing"
+    jmp short fm_nw_none        ; existing window and silently drop the seed,
+                                ; which reads as "the menu did nothing". The
+                                ; window is untouched either way, so the beep
+                                ; joins the no-op above rather than carrying a
+                                ; second copy of it
 
-fm_c_nop:                       ; the File menu's separator (SPEC.md 22.12)
-    mov byte [fm_cmdchg], FMD_NONE  ; - MENU_DIS, so nothing can select it
-    ret
+fm_c_nop equ fm_nw_none         ; the File menu's separator (SPEC.md 22.12)
+                                ; - MENU_DIS, so nothing can select it, and
+                                ; its body was fm_nw_none's to the byte. It is
+                                ; only ever named by fm_jmp's dw table, which
+                                ; an equ serves exactly as a label does
 
 ; Builtins (SPEC.md 12.3.1) - all three launch a DIFFERENT application, and
 ; all three only post, because app_launch and ui_cmd take the lock we hold
@@ -4751,9 +4756,8 @@ fm_c_timer:                     ; Builtins > Timer
 fm_c_bounce:                    ; Builtins > Bounce
     mov al, KIND_BOUNCE
     call KERNEL_SEG:inst_launch_post
-fm_c_elsewhere:
-    mov byte [fm_cmdchg], FMD_NONE
-    ret
+fm_c_elsewhere:                 ; a builtin opened SOMEBODY ELSE'S window,
+    jmp short fm_nw_none        ; so this one is untouched - the same no-op
 
 fm_c_refresh:                   ; Nav > Refresh
     jmp fm_reload

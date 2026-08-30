@@ -2523,10 +2523,13 @@ disk_mount_x:
     mov bl, dl
     call dsk_vol_row_x
     jc .kindok
-    mov al, [bx+DV_KIND]
-    mov [dsk_vkind], al
+    ; DV_SECS is loaded FIRST and DV_KIND LAST, because `mov ax, [bx+DV_SECS]`
+    ; writes AL and the floppy test below reads it. The other order assembles
+    ; to the same twelve bytes and asks `is DV_SECS's low byte zero?`.
     mov ax, [bx+DV_SECS]
     mov [dsk_vsecs], ax
+    mov al, [bx+DV_KIND]
+    mov [dsk_vkind], al
     ; --- IS IT A FLOPPY? which is not the same question as DV_KIND ----------
     ; Four of the BPB rules below are floppy limits - a FAT of at most
     ; DSK_FAT_SECS, the two geometry whitelists, and the total-sectors bound -

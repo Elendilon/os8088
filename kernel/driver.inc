@@ -2170,6 +2170,10 @@ drv_svc_clear:
     push bx
     push cx
     push di
+    push si                     ; drv_cp_name_x's OUTPUT is SI, and the three
+                                ; headers here promise it back unchanged; the
+                                ; two callers that survive today do so by
+                                ; banking it themselves
     push es
     push ds
     pop es
@@ -2193,6 +2197,7 @@ drv_svc_clear:
     mov byte [si], 0            ; this class
 .out:
     pop es
+    pop si
     pop di
     pop cx
     pop bx
