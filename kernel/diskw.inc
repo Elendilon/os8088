@@ -230,6 +230,13 @@ dskw_write_x:
     push bx
     push cx
     push dx
+    mov ax, dskw_wbody          ; THE BODY IN AX, and dskw_append_x arrives at
+                                ; dskw_wrp with dskw_apbody in it: AX is an
+                                ; OUTPUT of both and an input to neither, and
+                                ; everything between here and the call is the
+                                ; same for the two. `call ax` is 16 clocks
+                                ; against `call rel16`'s 19
+dskw_wrp:
     push si
     push di
     push bp
@@ -238,7 +245,7 @@ dskw_write_x:
     mov [dskw_src], bx          ; loop (which re-loads ES per transfer)
     mov [dskw_len], cx
     mov [dskw_lenhi], dx
-    call dskw_wbody             ; out: CF + AX (pops do not touch flags)
+    call ax                     ; out: CF + AX (pops do not touch flags)
     call KERNEL_SEG:fpg_end     ; the ONE place the widget is given back,
                                 ; however many ways the body returned - and it
                                 ; preserves CF and AX too (SPEC.md 12.8)
@@ -318,22 +325,8 @@ dskw_read_x:
 ; clobbers: AX (the output), CF
 ; -----------------------------------------------------------------------------
 dskw_delete_x:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
-    call dskw_dbody
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    mov ax, dskw_dbody
+    jmp short dskw_wrap7
 
 ; -----------------------------------------------------------------------------
 ; dskw_rename - rename a file in place (SPEC.md 18.4, slot 0x0138)
@@ -342,6 +335,15 @@ dskw_delete_x:
 ; clobbers: AX (the output), CF
 ; -----------------------------------------------------------------------------
 dskw_rename_x:
+    mov ax, dskw_nbody
+                                ; ...and THE LADDER, once. Three public
+                                ; wrappers differ only in the body they call;
+                                ; each of them takes SI (rename SI and DI) and
+                                ; answers in AX, so AX is free to carry the
+                                ; address in. dskw_rmtree is 500 lines below
+                                ; and reaches this with a near jmp rather than
+                                ; being moved up to it
+dskw_wrap7:
     push bx
     push cx
     push dx
@@ -349,7 +351,7 @@ dskw_rename_x:
     push di
     push bp
     push es
-    call dskw_nbody
+    call ax
     pop es
     pop bp
     pop di
@@ -409,13 +411,16 @@ dskw_dfree_x:
 ; clobbers: nothing else
 ; -----------------------------------------------------------------------------
 dskw_mkdir_x:
+    mov ax, dskw_mkbody         ; dskw_wrap7's argument, one push shorter:
+                                ; neither of these two spends BP
+dskw_wrap6:
     push bx
     push cx
     push dx
     push si
     push di
     push es
-    call dskw_mkbody
+    call ax
     pop es
     pop di
     pop si
@@ -666,20 +671,8 @@ dskw_dotent:
 ; clobbers: nothing else
 ; -----------------------------------------------------------------------------
 dskw_rmdir:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    call dskw_rmbody
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    mov ax, dskw_rmbody
+    jmp dskw_wrap6
 
 ; -----------------------------------------------------------------------------
 ; dskw_rmbody - the rmdir pipeline (module-internal)
@@ -820,22 +813,8 @@ DSKW_RT_MAX equ 4096            ; iterations: one per entry removed or level
                                 ; forever without it
 
 dskw_rmtree:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
-    call dskw_rtbody
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    mov ax, dskw_rtbody
+    jmp dskw_wrap7
 
 ; -----------------------------------------------------------------------------
 ; dskw_rtbody - the recursive-delete pipeline (module-internal)
@@ -1496,6 +1475,8 @@ dskw_wbody:
 ; written needs unwriting.
 ; -----------------------------------------------------------------------------
 dskw_wdata:
+    mov byte [dskw_fop], 1      ; the direction, set ONCE for the body rather
+                                ; than three bytes ahead of every flush
     mov word [dskw_first], 0
     mov word [dskw_prev], 0
     mov word [dskw_rlen], 0     ; no data run pending
@@ -1555,42 +1536,10 @@ dskw_wdata:
     mov ax, [dskw_lba]          ; the cursor, set BEFORE the count is tested:
     mov [dskw_clba], ax         ; a take that is nothing but a partial sector
                                 ; skips the walk and .tail still reads it
-    or cx, cx                   ; (not jcxz: .tail is out of its reach now)
-    jnz .sect
-    jmp .tail
-.sect:
-    cmp word [dskw_rlen], 0
-    je .newrun
-    mov ax, [dskw_rlba]         ; does this sector continue the pending run?
-    add ax, [dskw_rlen]
-    cmp ax, [dskw_clba]
-    jne .breakrun
-    mov ax, [dskw_rcap]         ; ...and is there room left in it?
-    cmp ax, [dskw_rlen]
-    ja .append
-.breakrun:
-    call dskw_wflush            ; no: spend it and start again here
-    jc .ioerr
-    jmp .sect
-.newrun:
-    call dskw_runmax            ; AX = the cap, from the CURRENT wseg:src -
-    or ax, ax                   ; which is where this run's first byte is
-    jz .stg                     ; not even one sector fits its DMA page
-    mov [dskw_rcap], ax
-    mov ax, [dskw_clba]
-    mov [dskw_rlba], ax         ; ([dskw_rlen] is already 0)
-.append:
-    mov ax, [dskw_rcap]
-    sub ax, [dskw_rlen]         ; room in the run...
-    cmp ax, cx
-    jbe .grow
-    mov ax, cx                  ; ...and what is left of this cluster's take
-.grow:
-    add [dskw_rlen], ax
-    add [dskw_clba], ax
-    sub cx, ax
-    jnz .sect
-    jmp short .tail
+.addrun:
+    call dskw_runadd            ; the whole sectors of this take, appended to
+    jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
+    jcxz .tail                  ; back non-zero when the run cap said 0
 .jioerr:
     jmp .ioerr
 .stg:                           ; one sector the 8237 cannot carry, alone,
@@ -1611,7 +1560,7 @@ dskw_wdata:
     add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on
     dec cx
     jz .tail
-    jmp .sect
+    jmp .addrun
 
     ; the partial final sector: staged zero-filled, so nothing of the
     ; caller's neighbourhood past EOF ever reaches the disk. The run goes
@@ -1620,7 +1569,7 @@ dskw_wdata:
 .tail:
     call dskw_last_p
     jnz .advance
-    call dskw_wflush
+    call dskw_flushrun
     jc .ioerr
     mov es, [dskw_wseg]
     mov si, [dskw_src]
@@ -1639,25 +1588,85 @@ dskw_wdata:
     jz .done
     jmp .clus                   ; (near: the loop body outruns a short jump)
 .done:
-    call dskw_wflush            ; the last run of the file
+    call dskw_flushrun            ; the last run of the file
     jc .ioerr
     clc
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_wflush - spend the pending data run (module-internal)
+; dskw_runadd - append CX whole sectors at [dskw_clba] to the pending run
+; in:  CX = sectors, [dskw_clba] = the first of them, [dskw_fop] = direction
+; out: CF=1 = I/O error, AX = FERR_*.  CF=0 with CX=0 = all of them are in the
+;      run.  CF=0 with CX != 0 = dskw_runmax answered 0, so not even one
+;      sector fits this DMA page: the caller stages that one and calls again
+; clobbers: AX, CX (an output), flags
+;
+; THE RUN ARITHMETIC, ONCE. dskw_wdata and dskw_rdata carried a copy each and
+; they were identical to the instruction bar the flush they called - which is
+; the same thing [dskw_fop] and dskw_flushrun were introduced to stop (SPEC.md
+; 18.4.2): only the flush had been unified, and the arithmetic around it was
+; still two copies free to drift.
+;
+; The entry `jcxz` is the callers' own `or cx,cx / jz .tail`, moved in. It
+; matters: a take that is nothing but a partial sector arrives here with CX=0
+; and a run possibly pending, and going round the loop with CX=0 would flush
+; that run one boundary early.
+; -----------------------------------------------------------------------------
+dskw_runadd:
+    jcxz .done
+.sect:
+    cmp word [dskw_rlen], 0
+    je .newrun
+    mov ax, [dskw_rlba]         ; does this sector continue the pending run?
+    add ax, [dskw_rlen]
+    cmp ax, [dskw_clba]
+    jne .breakrun
+    mov ax, [dskw_rcap]         ; ...and is there room left in it?
+    cmp ax, [dskw_rlen]
+    ja .append
+.breakrun:
+    call dskw_flushrun          ; no: spend it and start again here
+    jc .out
+    jmp short .sect
+.newrun:
+    call dskw_runmax            ; AX = the cap, from the CURRENT wseg:src -
+    or ax, ax                   ; which is where this run's first byte is
+    jz .out                     ; not even one sector fits its DMA page, and
+                                ; `or` clears CF: CX != 0 is the answer
+    mov [dskw_rcap], ax
+    mov ax, [dskw_clba]
+    mov [dskw_rlba], ax         ; ([dskw_rlen] is already 0)
+.append:
+    mov ax, [dskw_rcap]
+    sub ax, [dskw_rlen]         ; room in the run...
+    cmp ax, cx
+    jbe .grow
+    mov ax, cx                  ; ...and what is left of this cluster's take
+.grow:
+    add [dskw_rlen], ax
+    add [dskw_clba], ax
+    sub cx, ax
+    jnz .sect
+.done:
+    clc
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_flushrun - spend the pending data run (module-internal)
 ; in:  [dskw_rlba]/[dskw_rlen], the source at [dskw_wseg]:[dskw_src]
 ; out: CF=0 and [dskw_rlen] = 0, [dskw_wseg] advanced past it; CF=1 = I/O
 ; clobbers: flags
 ;
 ; A no-op with nothing pending, which is what lets every path out of the
 ; cluster loop call it without asking.
+;
+; [dskw_fop] is set ONCE at the top of dskw_wdata / dskw_rdata now rather than
+; three bytes ahead of each flush. That is a weaker invariant than it was:
+; it holds because this routine has exactly two callers' worth of call sites
+; and nothing in either body's call tree re-enters the other (dsk_rah_fill
+; and the FAT window both go through disk_read, not through here).
 ; -----------------------------------------------------------------------------
-dskw_rflush:
-    mov byte [dskw_fop], 0      ; ...and dskw_rdata's, which is the same run
-    jmp short dskw_flushrun     ; arithmetic over the same words (SPEC.md
-dskw_wflush:                    ; 18.4.2) - one body, the disk_read/disk_write
-    mov byte [dskw_fop], 1      ; idiom, so the two cannot drift apart
 dskw_flushrun:
     push ax
     push bx
@@ -1868,6 +1877,7 @@ dskw_rbody:
 ; zero, because the buffer is the caller's.
 ; -----------------------------------------------------------------------------
 dskw_rdata:
+    mov byte [dskw_fop], 0      ; the direction, set ONCE for the body
     mov word [dskw_rlen], 0     ; no data run pending
     mov ax, [dskw_seg]
     mov [dskw_wseg], ax         ; the ADVANCING destination segment
@@ -1902,42 +1912,10 @@ dskw_rdata:
     mov ax, [dskw_lba]          ; the cursor, set BEFORE the count is tested:
     mov [dskw_clba], ax         ; a take that is nothing but a partial sector
                                 ; skips the walk and .tail still reads it
-    or cx, cx                   ; (not jcxz: .tail is out of its reach now)
-    jnz .sect
-    jmp .tail
-.sect:
-    cmp word [dskw_rlen], 0
-    je .newrun
-    mov ax, [dskw_rlba]         ; does this sector continue the pending run?
-    add ax, [dskw_rlen]
-    cmp ax, [dskw_clba]
-    jne .breakrun
-    mov ax, [dskw_rcap]         ; ...and is there room left in it?
-    cmp ax, [dskw_rlen]
-    ja .append
-.breakrun:
-    call dskw_rflush            ; no: spend it and start again here
-    jc .ioerr
-    jmp .sect
-.newrun:
-    call dskw_runmax            ; AX = the cap, from the CURRENT wseg:src -
-    or ax, ax                   ; which is where this run's first byte is
-    jz .stg                     ; not even one sector fits its DMA page
-    mov [dskw_rcap], ax
-    mov ax, [dskw_clba]
-    mov [dskw_rlba], ax         ; ([dskw_rlen] is already 0)
-.append:
-    mov ax, [dskw_rcap]
-    sub ax, [dskw_rlen]         ; room in the run...
-    cmp ax, cx
-    jbe .grow
-    mov ax, cx                  ; ...and what is left of this cluster's take
-.grow:
-    add [dskw_rlen], ax
-    add [dskw_clba], ax
-    sub cx, ax
-    jnz .sect
-    jmp short .tail
+.addrun:
+    call dskw_runadd            ; the whole sectors of this take, appended to
+    jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
+    jcxz .tail                  ; back non-zero when the run cap said 0
 .jioerr:
     jmp .ioerr
 .stg:                           ; one sector the 8237 cannot carry, alone,
@@ -1960,7 +1938,7 @@ dskw_rdata:
     add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on
     dec cx
     jz .tail
-    jmp .sect
+    jmp .addrun
 
     ; the partial final sector: only its live bytes reach the caller. The run
     ; goes first - its bytes come BEFORE these, and flushing it is also what
@@ -1968,7 +1946,7 @@ dskw_rdata:
 .tail:
     call dskw_last_p
     jnz .advance
-    call dskw_rflush
+    call dskw_flushrun
     jc .ioerr
     mov ax, LOW_SEG
     mov es, ax
@@ -1991,7 +1969,7 @@ dskw_rdata:
     mov [dskw_cur], ax
     jmp .clus                   ; (near: the loop body outruns a short jump)
 .rdone:
-    call dskw_rflush            ; the last run of the file
+    call dskw_flushrun            ; the last run of the file
     jc .ioerr
     clc
     ret
@@ -2669,26 +2647,11 @@ dskw_append_x:
     push bx
     push cx
     push dx
-    push si
-    push di
-    push bp
-    push es
-    mov [dskw_seg], es
-    mov [dskw_src], bx
-    mov [dskw_len], cx
-    mov word [dskw_lenhi], 0    ; a chunk is 16-bit by contract, above
-    call dskw_apbody
-    call KERNEL_SEG:fpg_end     ; SPEC.md 12.8, as the other two pipelines
-    mov byte [dskw_syswr], 0    ; one shot, dskw_write_x's rule: it can never
-                                ; leak into the next caller's append
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    xor dx, dx                  ; a chunk is 16-bit by contract, above - and
+                                ; this is AFTER `push dx`, so the caller's own
+                                ; DX is still banked and restored
+    mov ax, dskw_apbody         ; dskw_write_x's frame, which is this one to
+    jmp dskw_wrp                ; the instruction once the body is a register
 
 dskw_apbody:
     call dskw_mounted
