@@ -712,6 +712,12 @@ drv_t_eth:   db 'Ethernet', 0    ; a RAM disk is made of is what kern_small has
 DRV_FPSZ    equ 4               ; bytes per class: offset + segment
 DRV_CPNSZ   equ 12              ; a staged Control Panel page name: the list
                                 ; column is 9 glyphs wide (SPEC.md 31.1)
+; THE OFFSET WORDS ARE NEVER WRITTEN. drv_publish writes [di+2] and
+; drv_release writes `word [di+2], 0` - the SEGMENT half, both of them - so
+; every drv_fptrN below holds PKG_DISP for the life of the machine.
+; drv_pkg_disp depends on that: it takes the offset from drv_fptr whatever
+; class it is dispatching. A write to one of these words would break it
+; silently.
 drv_fptr:    dw PKG_DISP        ; class 1 (DRVC_SOUND)
 drv_fseg:    dw 0
 drv_fptr2:   dw PKG_DISP        ; class 2 (DRVC_DISK)
@@ -4345,28 +4351,14 @@ drv_pkg_call_x:
                                 ; these same pairs from fixed sites for the
                                 ; same reason, and through CS because DS has
                                 ; just gone (SPEC.md 20.11)
-    cmp bh, DRVC_SOUND
-    je .c1
-    cmp bh, DRVC_DISK
-    je .c2
-    cmp bh, DRVC_RETIRED3       ; nothing publishes class 3 any more, so this
-    je .c3                      ; arm dispatches the never-armed PKG_DISP and
-                                ; is here to keep the ladder's shape (SPEC.md 58)
-    cmp bh, DRVC_NET
-    je .c4
-    call far [cs:drv_fptr5]     ; DRVC_FILE: the class was range-checked above,
-    jmp short .done             ; so the fall-through is the last of the five
-.c1:
-    call far [cs:drv_fptr]
-    jmp short .done
-.c2:
-    call far [cs:drv_fptr2]
-    jmp short .done
-.c3:
-    call far [cs:drv_fptr3]
-    jmp short .done
-.c4:
-    call far [cs:drv_fptr4]
+                                ; ...AND THE FIVE SITES ARE ONE, because what
+                                ; differed between them was only the SEGMENT
+                                ; and DS is already holding it. Every row's
+                                ; OFFSET half is PKG_DISP and stays PKG_DISP -
+                                ; drv_publish writes [di+2] and drv_release
+                                ; writes word [di+2], 0, both the segment half
+                                ; and nothing else (see drv_fptr's declaration)
+    call KERNEL_SEG:drv_pkg_disp
 .done:
     pop bp
     pop ds
@@ -4379,6 +4371,36 @@ drv_pkg_call_x:
     xor ax, ax
     stc
     ret
+
+; -----------------------------------------------------------------------------
+; drv_pkg_disp - drv_pkg_call_x's far call, synthesised on the CALLER'S STACK
+; in:  DS = the driver's segment
+; out: whatever the driver's dispatcher answers
+;
+; The class ladder above it was five `call far [cs:drv_fptrN]` sites, 53 bytes,
+; and the header's reason for refusing a staged pointer was right: a shared
+; word is one a second task can rewrite between the store and the call. THE
+; STACK IS PER TASK, so a frame built here is re-entrant where a word is not.
+; DS is the driver's segment by the time the ladder is reached and PKG_DISP is
+; every row's offset, so the two halves of the far pointer are in hand without
+; naming a class at all.
+;
+; A TOP-LEVEL LABEL and reached by a real `call KERNEL_SEG:`, not a local one
+; inside drv_pkg_call_x. That is not decoration: os88ovlchk classifies a
+; routine by the return instructions inside its extent, and a `retf` inside
+; drv_pkg_call_x would make that extent {ret, retf} and retire the return-kind
+; check on the routine FOR EVER. Split this way each is judged - the caller
+; near, this far - and the far call costs nothing over the `jmp short .done`
+; the inline form would have needed, because the far call's return address IS
+; the next instruction.
+;
+; Peak stack is 4 bytes deeper than a real `call far` for the length of the
+; two pushes.
+; -----------------------------------------------------------------------------
+drv_pkg_disp:
+    push ds                     ; the TARGET segment: DS is the driver's
+    push word [cs:drv_fptr]     ; ...and PKG_DISP, which nothing writes
+    retf
 
 section .text                   ; ...and the file ends in .text, where it began
                                 ; (SPEC.md 2.6 rule 1). There is no staged far
