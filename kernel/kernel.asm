@@ -5623,6 +5623,11 @@ cw_mem_disp:            call bp
                     retf
 cw_menu_activate:       call menu_activate
                     retf
+; ...and menu_kbnav's two, which went cold with it (SPEC.md 12.10)
+cw_menu_item_dis:       call menu_item_dis
+                    retf
+cw_mou_clamp:           call mou_clamp
+                    retf
 ; ...and the BOOT OVERLAY's two (docs/LAST-DROP-BYTES.md rows 15 and 17):
 ; dock_init and menu_init moved into `.ovl` and each has exactly one outbound
 ; call left, the other having been small enough to inline.

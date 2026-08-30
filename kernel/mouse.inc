@@ -1982,7 +1982,7 @@ mou_clamp:
 ; gap and starts fresh at KBM_MIN, which is what it should do anyway.
 kbm_move:
     mov al, [bx+2]              ; dy: the axis a menu is a list along
-    call menu_kbnav
+    call COLD_SEG:menu_kbnav    ; FAR: it is cold (SPEC.md 12.10)
     jnc .paint                  ; placed - the repaint below is all that is left
     call kbm_accel              ; DL = px this press is worth, and imul does
     mov al, [bx+1]              ; not disturb it, so it serves both axes

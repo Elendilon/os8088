@@ -2156,6 +2156,16 @@ menu_dropd  db 0                ; a pull-down is on the screen (SPEC.md 9.6.3).
 ; would restart at the end of the menu every time the pointer was parked on a
 ; separator.
 ; -----------------------------------------------------------------------------
+section .cold                   ; COLD (SPEC.md 2.6): the keyboard mouse's menu
+                                ; step. It is 177 bytes of the 64KB segment for
+                                ; a path that runs when somebody drives a
+                                ; dropped menu from the keypad - once a
+                                ; keystroke, never per pixel and never from an
+                                ; ISR: kbm_move's caller is kbm_key, which
+                                ; mouse.inc names "the UI task's keystroke".
+                                ; Its two outbound calls go through cw_ shims
+                                ; and it keeps the CF it answers with, `retf`
+                                ; touching no flags
 menu_kbnav:
     cmp byte [menu_dropd], 0
     je .no                      ; nothing is dropped: an ordinary pointer
@@ -2210,7 +2220,7 @@ menu_kbnav:
     jmp short .place            ; dismisses (SPEC.md 9.6.3)
 .live:
     mov ax, di
-    call menu_item_dis          ; a greyed item or a separator is not a place
+    call KERNEL_SEG:cw_menu_item_dis          ; a greyed item or a separator is not a place
     jc .step                    ; to stop. DI only ever moves one way, so this
                                 ; walks off an end rather than looping
 
@@ -2231,7 +2241,7 @@ menu_kbnav:
     mov ax, [menu_x1]
     add ax, 8                   ; ...and otherwise where the item text starts
 .xok:
-    call mou_clamp              ; the clamp the ISR itself uses, so the
+    call KERNEL_SEG:cw_mou_clamp              ; the clamp the ISR itself uses, so the
     mov [mouse_x], ax           ; two-display seam is honoured by construction
     mov [mouse_y], bx           ; rather than by a rectangle known here
     mov byte [cur_shchk], 1     ; ...and the pointer MOVED (SPEC.md 7.2.1.1)
@@ -2242,10 +2252,11 @@ menu_kbnav:
     pop cx
     pop bx
     clc
-    ret
-.no:
-    stc
-    ret
+    retf                        ; FAR: kbm_move reaches this across the segment
+.no:                            ; boundary now, and no thunk stands in between
+    stc                         ; (SPEC.md 2.6.1)
+    retf
+section .text
 
 ; -----------------------------------------------------------------------------
 ; menu_hover - which item cell is the mouse inside right now?

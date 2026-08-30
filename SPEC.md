@@ -17548,6 +17548,22 @@ pixels were destroyed*, is rare, and is the one flag in the module that
 erases. A caller that overdrew part of the bar and reached for `menu_force`
 because it was the only thing available is the bug §12.8 had.
 
+### 12.10 `menu_kbnav` is cold
+
+The keyboard mouse's menu step (§9.6.3) is 177 bytes of the 64KB code+data
+segment for a path that runs when somebody drives a *dropped* menu from the
+numeric keypad. It is `.cold`.
+
+The edge that decides it is `kbm_move`, and it is worth naming because it is the
+one that would make this wrong: `kbm_move ← kbm_key`, which `mouse.inc` calls
+*"the UI task's keystroke"* — **not an ISR**. So the far call `.cold` costs owes
+no interrupt discipline, and it is paid once per arrow press rather than per
+pixel or per packet.
+
+It keeps the CF it answers with — `retf` touches no flags — and its two outbound
+calls, `menu_item_dis` and `mou_clamp`, go through `cw_` shims like every other
+cold body's.
+
 ## 13. ui.inc — the UI task (task 0)
 
 Loop forever:
