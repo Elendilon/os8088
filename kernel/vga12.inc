@@ -179,6 +179,24 @@ gfx_disink      db CBLACK       ; ...and WHICH DIRECTION a disabled GLYPH
 %if gfx_dis - gfx_color != 1 || gfx_disink - gfx_dis != 1
   %error "gfx_color/gfx_dis/gfx_disink must stay adjacent: gfx_pen_live and gfx_pen_dis each set a PAIR of them in one word store"
 %endif
+; THE EDGE MASKS, AND THE GC INDEX THAT ALWAYS GOES WITH THEM. Every site
+; that uses one does `mov ah,[mask] / mov al,8 / out dx,ax` - the Bit Mask
+; register's index is 8 and never anything else - so the literal lives in
+; front of the mask and the pair is ONE word load. That is 3 bytes and 4
+; clocks a site, in the hot fills, and it is CLAUDE.md's prefetch-floor case:
+; `mov ax,[m]` is the 3-byte accumulator form.
+;
+; In .text rather than .bss for the same reason gfx_dis is: -f bin initialises
+; .text, so the two 8s are real bytes in the image. vga_rect_setup writes both
+; masks as BYTES and softgfx.inc reads them as bytes; nothing addresses the
+; pair from the other end.
+vga_m8l         db 8
+vga_lmsk        db 0            ; rect: left edge bit mask
+vga_m8r         db 8
+vga_rmsk        db 0            ; rect: right edge bit mask
+%if vga_lmsk - vga_m8l != 1 || vga_rmsk - vga_m8r != 1
+  %error "vga_m8l/vga_lmsk and vga_m8r/vga_rmsk must stay adjacent: the fills load each pair as one word"
+%endif
 gfx_pat         dw 0            ; gfx_fill_pat: near ptr to 8 row bytes,
                                 ; set by the caller before every call
 gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); 0 = free.
@@ -3915,9 +3933,8 @@ vga_solid_rect:
     mov ax, VGA_SEG
     mov es, ax
     mov dx, VGA_GC
-    mov ah, [vga_lmsk]          ; left edge column (whole rect if 1 byte wide)
-    mov al, 8
-    out dx, ax
+    mov ax, [vga_m8l]           ; left edge column (whole rect if 1 byte
+    out dx, ax                  ; wide): AL = 8, AH = the mask, one word
     mov di, [vga_off]
     mov si, [vga_rows]
 .lcol:
@@ -3929,8 +3946,7 @@ vga_solid_rect:
     mov bx, [vga_span]
     or bx, bx
     jz .reset
-    mov ah, [vga_rmsk]          ; right edge column
-    mov al, 8
+    mov ax, [vga_m8r]           ; right edge column
     out dx, ax
     mov di, [vga_off]
     add di, bx
@@ -4334,8 +4350,7 @@ gfx_fill_pat_vga:               ; ...and gfx_fill_gray_raw's VGA arm arrives
     mov ax, VGA_SEG
     mov es, ax
     mov dx, VGA_GC
-    mov ah, [vga_lmsk]          ; left edge column
-    mov al, 8
+    mov ax, [vga_m8l]           ; left edge column: AL = 8, AH = the mask
     out dx, ax
     mov di, [vga_off]
     mov si, [vga_rows]
@@ -4353,8 +4368,7 @@ gfx_fill_pat_vga:               ; ...and gfx_fill_gray_raw's VGA arm arrives
     mov cx, [vga_span]
     or cx, cx
     jz .reset
-    mov ah, [vga_rmsk]          ; right edge column
-    mov al, 8
+    mov ax, [vga_m8r]           ; right edge column
     out dx, ax
     mov di, [vga_off]
     add di, cx
@@ -5689,8 +5703,6 @@ vga_xorm        resb 1          ; vga_solid_rect: 0 = replace, 1 = XOR. The
                                 ; body and gfx_xor_fill_raw's, and both heads
                                 ; write it before the body reads it, so .bss's
                                 ; guaranteed zero is not being relied on
-vga_lmsk        resb 1          ; rect: left edge bit mask
-vga_rmsk        resb 1          ; rect: right edge bit mask
 vga_y1          resw 1          ; rect: clipped top row (dither parity)
 vga_rows        resw 1          ; rect: clipped row count
 vga_span        resw 1          ; rect: right byte - left byte
