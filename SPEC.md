@@ -70432,9 +70432,22 @@ The target is PERFORMANCE.md's 8088. What follows from it, beyond §69.1's
   nothing there. The file name and the page number cannot move without a
   full repaint.
 - **A focus ring is drawn one pixel OUTSIDE its pane**, so the ring being
-  erased takes the splitter and the status rule with it; `tp_draw_frames`
-  puts both back. Neither is its own - that is the price of a ring that
-  lives outside the frame it rings.
+  erased takes the splitter, the status rule and the PREVIEW BAR's left frame
+  column with it; `tp_draw_frames` puts all three back. None of them is its
+  own - that is the price of a ring that lives outside the frame it rings.
+
+  **THE TWO PANES ARE NOT SYMMETRIC HERE, and that is what hid the third
+  one.** The source pane's frame ends at `tp_r_ssb+4` — its own scroll bar's
+  x2 — so the source ring falls one pixel BEYOND that bar, onto the splitter,
+  which is why the splitter was the one anybody noticed. The preview's frame
+  ends at `tp_px2`, which stops SHORT of its bar, so the preview ring falls
+  ON `tp_r_psb`: the bar's left frame column, for the bar's whole height.
+  Measured by `tests/tpdraw.py` on a 626px window as **344 pixels at x 617,
+  y 63..406** — a white ring 346 rows tall over a bar frame 344 rows tall,
+  which is the overlap exactly. It fires ONLY on a preview -> source focus
+  change: a pane GAINING focus draws its ring black, which is the colour the
+  bar's own frame wanted there anyway, so the defect is invisible in the
+  other direction and invisible until something takes focus back.
 - **The blit's two edges round the same way and for opposite reasons.** It is
   byte-column granular (§5.5), so `x1` and `x2+1` are multiples of 8 and the
   rect only moves in whole cells. The text pen is `tp_ex1 + 3`, off a byte
