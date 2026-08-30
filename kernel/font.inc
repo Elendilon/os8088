@@ -328,7 +328,7 @@ font_char:
     mov ax, 0xFF08
     out dx, ax                  ; GC8 Bit Mask = FF (default)
 .done:
-    GFXDLEAVE
+    GFXDLEAVEI
     pop es
     pop di
     pop si
@@ -1360,7 +1360,7 @@ font_run_x:
     pop ax
 .outd:
 %endif
-    GFXDLEAVE
+    GFXDLEAVEI
     pop bp
     pop di
     pop si

@@ -579,6 +579,51 @@ gfx_disp_enter_cd:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; gfx_denter / gfx_denter_rect / gfx_dleave - what GFXDENTER, GFXDORG and
+; GFXDLEAVE used to expand INTO at every site (SPEC.md 39.14.2)
+;
+; The three macros were 10, 15 and 13 bytes at 7, 5 and 11 sites. Every
+; GFXDENTER/GFXDORG site is a WHOLE-SHAPE primitive - gfx_line, gfx_blit4,
+; gfx_blitp, gfx_xor_rect, gfx_save, gfx_restore, gfx_scroll - whose own
+; arrival is hundreds of microseconds, so a near call+ret at 43 clocks is
+; under half a percent of any of them. font_char's and font_run's leaves stay
+; INLINE, for the reason the macro banner gives: a glyph cell is ~1ms and 11us
+; is 1.2% of every character in the system.
+;
+; gfx_denter_rect does NOT call gfx_denter - it inlines the two instructions.
+; That is +7 bytes once and removes a nested call from all five rect sites,
+; which is the whole of what the conversion would otherwise have cost them.
+; The one-display skip is shared: on a machine with one card [gfx_dnest] never
+; leaves 0, so GFXDORG's own `cmp/jne` would have skipped anyway.
+; -----------------------------------------------------------------------------
+gfx_denter:
+    cmp byte [vid_ndisp], 1
+    jbe .one
+    jmp gfx_disp_enter          ; a tail jump: it returns to OUR caller
+.one:
+    ret
+
+gfx_denter_rect:
+    cmp byte [vid_ndisp], 1
+    jbe .one
+    call gfx_disp_enter
+    cmp byte [gfx_dnest], 1     ; gated on the nest count being exactly 1, not
+    jne .one                    ; on non-zero: nested, an OUTER hook did the
+    sub cx, [vid_ox]            ; translation and [vid_ox] is that hook's
+    sub dx, [vid_oy]            ; origin, so subtracting it again would move
+.one:                           ; the shape twice
+    ret
+
+gfx_dleave:
+    pushf                       ; the FLAGS, because more than one of these
+    cmp byte [vid_ndisp], 1     ; routines answers in CF and a leave is the
+    jbe .one                    ; last thing before its `ret` - and `dec`
+    dec byte [gfx_dnest]        ; sets them
+.one:
+    popf
+    ret
+
 %endif
 
 ; GFXDENTER / GFXDLEAVE - the two above, with their one-display test inlined
@@ -588,10 +633,18 @@ gfx_disp_enter_cd:
 ; branch that is never taken on any machine but one.
 %macro GFXDENTER 0
 %ifdef KERN_BIG
-    cmp byte [vid_ndisp], 1
-    jbe %%one
-    call gfx_disp_enter
-%%one:
+    call gfx_denter
+%endif
+%endmacro
+
+; ...and the RECT spelling: the enter above plus what GFXDORG used to be, for
+; a routine holding a rect rather than a point. The enter translated the
+; anchor; this translates the far corner in CX/DX. Every GFXDORG site in the
+; tree was `GFXDENTER` / `GFXDORG cx, dx` on consecutive lines, so the pair is
+; one call and GFXDORG no longer exists on its own.
+%macro GFXDENTERR 0
+%ifdef KERN_BIG
+    call gfx_denter_rect
 %endif
 %endmacro
 
@@ -606,23 +659,6 @@ gfx_disp_enter_cd:
 %endif
 %endmacro
 
-; GFXDORG - move two more of the caller's coordinates into the display the
-; enter above chose. For a routine holding a RECT rather than a point: the
-; enter translated the anchor, this translates the far corner.
-;
-; Gated on the nest count being exactly 1, not on it being non-zero: nested,
-; an OUTER hook did the translation and [vid_ox] is that hook's origin, so
-; subtracting it again would move the shape twice.
-%macro GFXDORG 2
-%ifdef KERN_BIG
-    cmp byte [gfx_dnest], 1
-    jne %%skip
-    sub %1, [vid_ox]
-    sub %2, [vid_oy]
-%%skip:
-%endif
-%endmacro
-
 ; ...and GFXDLEAVE is only the count coming down, because NOTHING RESTORES
 ; THE DISPLAY any more (SPEC.md 39.14.3): the last one drawn on stays current
 ; until gfx_unlock, so a burst of primitives in one place pays one swap
@@ -630,6 +666,16 @@ gfx_disp_enter_cd:
 ; routines answers in CF and a leave is the last thing before its `ret`, and
 ; `dec` sets them.
 %macro GFXDLEAVE 0
+%ifdef KERN_BIG
+    call gfx_dleave
+%endif
+%endmacro
+
+; ...and the INLINE spelling, for font_char and font_run_x alone. The banner
+; above is the reason: a glyph cell is ~1ms on the target and a call/ret is
+; ~11us, which is 1.2% of every character in the system for a branch no
+; single-card machine ever takes.
+%macro GFXDLEAVEI 0
 %ifdef KERN_BIG
     pushf
     cmp byte [vid_ndisp], 1
@@ -1630,8 +1676,8 @@ gfx_line:
     push di
     push bp                     ; 5.6.6's three-column walk uses it as a plain
     push es                     ; register - never as an address base
-    GFXDENTER                   ; the walk goes onto the display holding the
-    GFXDORG cx, dx              ; FIRST endpoint and is cut at that display's
+    GFXDENTERR                  ; the walk goes onto the display holding the
+                                ; FIRST endpoint and is cut at that display's
                                 ; edge, exactly as it is cut at a screen edge
                                 ; (SPEC.md 39.14.2). Above the axis-aligned
                                 ; dispatch, so .hline/.vline reach gfx_fill
@@ -4230,84 +4276,21 @@ gfx_fill_gray_d:
     GFXDISP gfx_fill_gray_raw
 gfx_fill_gray_raw:
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_fill_gray
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    call vga_rect_setup
-    jc .done
-    mov bl, 0xAA                ; pattern for the top clipped row
-    test byte [vga_y1], 1
-    jz .parity
-    mov bl, 0x55
-.parity:
-    mov ax, VGA_SEG
-    mov es, ax
-    mov dx, VGA_GC
-    mov ah, [vga_lmsk]          ; left edge column
-    mov al, 8
-    out dx, ax
-    mov di, [vga_off]
-    mov si, [vga_rows]
-    mov bh, bl
-.lcol:
-    mov al, [es:di]             ; load latches for the masked write
-    mov [es:di], bh
-    not bh                      ; AA <-> 55 each row
-    add di, ROW_BYTES
-    dec si
-    jnz .lcol
-    mov cx, [vga_span]
-    or cx, cx
-    jz .reset
-    mov ah, [vga_rmsk]          ; right edge column
-    mov al, 8
-    out dx, ax
-    mov di, [vga_off]
-    add di, cx
-    mov si, [vga_rows]
-    mov bh, bl
-.rcol:
-    mov al, [es:di]
-    mov [es:di], bh
-    not bh
-    add di, ROW_BYTES
-    dec si
-    jnz .rcol
-    dec cx                      ; interior bytes per row
-    jz .reset
-    mov ax, 0xFF08              ; full bytes: latches irrelevant
-    out dx, ax
-    mov di, [vga_off]
-    inc di
-    mov si, [vga_rows]
-    mov ah, bl                  ; the row pattern moves to AH so BX can carry
-    mov bx, cx                  ; the count the rep destroys, and DX the row
-    mov dx, ROW_BYTES           ; step less that count (SPEC.md 5.7.1)
-    sub dx, bx
-.irow:
-    mov al, ah
-    mov cx, bx
-    rep stosb
-    add di, dx
-    not ah
-    dec si
-    jnz .irow
-.reset:
-    call vga_gc_reset
-.done:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jne sw_fill_gray            ; the renderer, and its arm is UNCHANGED -
+                                ; byte for byte the path both mono adapters
+                                ; already took
+    mov word [gfx_pat], vga_graytab ; ...and on VGA the 50% dither IS an 8x8
+    jmp gfx_fill_pat_vga        ; PATTERN. gfx_fill_pat_raw's body is this one
+                                ; with the row byte read out of a table where
+                                ; this read it off `not bh` - so with the eight
+                                ; bytes below it is the same function, and it
+                                ; was written out twice (SPEC.md 5).
+                                ;
+                                ; [gfx_pat] IS SPENDABLE: osapi_gfx_fill_pat
+                                ; sets it on every API call and files.inc sets
+                                ; it immediately before its own gfx_fill_pat.
+                                ; Nothing carries it across another primitive
+vga_graytab: db 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55
 
 ; -----------------------------------------------------------------------------
 ; gfx_fill_pat - 8x8 dither pattern fill, screen-aligned (SPEC.md 5)
@@ -4375,7 +4358,8 @@ gfx_fill_pat_d:
 gfx_fill_pat_raw:
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
     jne sw_fill_pat
-    push ax
+gfx_fill_pat_vga:               ; ...and gfx_fill_gray_raw's VGA arm arrives
+    push ax                     ; HERE, with [gfx_pat] pointed at vga_graytab
     push bx
     push cx
     push dx
@@ -4626,8 +4610,7 @@ gfx_xor_rect_d:
     push bx
     push cx
     push dx
-    GFXDENTER
-    GFXDORG cx, dx
+    GFXDENTERR
     call gfx_xor_rect_raw
     GFXDLEAVE
     pop dx
@@ -4847,8 +4830,8 @@ gfx_bank_ok:                    ; unlocked caller banks the arrow and nothing
     push bx                     ; translates it and never puts it back - DI is
     push cx                     ; NOT, because DI advancing is this routine's
     push dx                     ; documented answer
-    GFXDENTER                   ; ...and it reads it off ONE CARD (SPEC.md
-    GFXDORG cx, dx              ; 39.14.8): a save is pixels, and pixels live
+    GFXDENTERR                  ; ...and it reads it off ONE CARD (SPEC.md
+                                ; 39.14.8): a save is pixels, and pixels live
     call vga_save_vram          ; on a card rather than in a coordinate space,
     GFXDLEAVE                   ; so this is whole-shape like gfx_scroll and
     call gfx_1bpp_off           ; ...and a ONE-PLANE arm is spent (11.96.17)
@@ -5103,8 +5086,8 @@ gfx_restore:
     push bx                     ; it for the same reason: SI advancing is what
     push cx                     ; this routine answers
     push dx
-    GFXDENTER                   ; ...onto the card it came off (SPEC.md
-    GFXDORG cx, dx              ; 39.14.8) - gfx_save's twin, and it has to be
+    GFXDENTERR                  ; ...onto the card it came off (SPEC.md
+                                ; 39.14.8) - gfx_save's twin, and it has to be
     call vga_restore_vram       ; the same hook or a rect banked on one display
     GFXDLEAVE                   ; could be put back on the other
     call gfx_1bpp_off           ; ...and a ONE-PLANE arm is spent (11.96.17)
@@ -5600,8 +5583,8 @@ gfx_scroll:
     push dx
     push si
     push di
-    GFXDENTER                   ; a blit cannot take a sub-rect (SPEC.md 11.3),
-    GFXDORG cx, dx              ; so it goes onto the display holding its top
+    GFXDENTERR                  ; a blit cannot take a sub-rect (SPEC.md 11.3),
+                                ; so it goes onto the display holding its top
                                 ; left - and the two edge tests below then
                                 ; REFUSE a rect that reaches past that display,
                                 ; which is 39.14.2's straddle rule for free
