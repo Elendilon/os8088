@@ -43045,19 +43045,18 @@ no mark at all, so the **bank** put back what the *preference* was forbidden to.
 So the size the hand chose is banked **before** `wm_land_fit`, where the take
 reads it: the take becomes a no-op and the clamp still bounds the result.
 
-**It is an ADDITION and not a move, and that distinction cost a row to learn.**
-The first version also made the bank *after* the fit `wm_nat_bank_xy`, on the
-reasoning that banking behind a clamp banks the cut (§11.100.3 — a clamp may not
-become its own source — which is the care `ui_drag`'s own release takes). That
-is sound for a straddle and wrong to impose on everything else: on a **single
-display** `wm_land_fit` returns at its first compare, so the only thing the
-reorder changed there was the banked size becoming the pre-`wm_snap_win` one.
-`tests/deskbench.py` failed on it — a scene laid out from banked sizes came up a
-few pixels different, and a measured redraw fell under the harness's own
-threshold, which surfaces as `IndexError` rather than as a geometry complaint.
-Adding a bank in front of a no-op is free; reordering the one behind it is not.
-So the post-fit bank stands exactly as it was, and a machine that cannot
-straddle sees the sequence it always saw.
+**It is an ADDITION and not a move**, and the bank *after* the fit stands
+exactly as it was. A first version also made that one `wm_nat_bank_xy`, on the
+reasoning that banking behind a clamp banks the cut — §11.100.3, a clamp may not
+become its own source, which is the care `ui_drag`'s own release takes at this
+same point. That argument is sound and it is **not made here**, because it is
+not needed to fix anything: on a single display `wm_land_fit` returns at its
+first compare, so the reorder's only effect there was the banked size becoming
+the pre-`wm_snap_win` one — a change to every machine in service of a rule about
+the seam. Adding a bank in front of a no-op leaves the final banked state
+identical on such a machine; reordering the one behind it does not. So a machine
+that cannot straddle sees the sequence it always saw, and whether the grow path
+should also stop banking its own clamp is left as the separate question it is.
 
 `tests/dispnp.py` is the row. It had never reached its own assertion — it fails
 at *"it does not straddle the seam"*, because the window it is trying to make

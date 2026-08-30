@@ -1973,17 +1973,17 @@ ui_grow:
                                 ;
                                 ; LEFT EXACTLY AS IT WAS, and the bank above is
                                 ; an ADDITION rather than a move. Making this
-                                ; one xy-only cost tests/deskbench.py: on a
+                                ; one xy-only is arguable on 11.100.3 - banking
+                                ; behind a clamp banks the cut, which is why
+                                ; ui_drag's release uses wm_nat_bank_xy here -
+                                ; but it is not needed to fix anything: on a
                                 ; SINGLE display wm_land_fit returns at its
-                                ; first compare, so the only thing that changed
-                                ; there was the banked size becoming the
-                                ; PRE-snap one - and a scene built from banked
-                                ; sizes came up a few pixels different, which is
-                                ; enough to take a measured redraw under the
-                                ; harness threshold. Adding a bank in front of a
-                                ; no-op is free; reordering the one behind it is
-                                ; not, so a machine that cannot straddle now
-                                ; sees the sequence it always saw
+                                ; first compare, so the reorder's only effect
+                                ; there is the banked size becoming the PRE-snap
+                                ; one, a change to every machine for a rule
+                                ; about the seam. The added bank leaves the
+                                ; final banked state identical on such a
+                                ; machine; reordering this one does not
 
     ; --- A PURE SHRINK OWES ITS CONTENT NOTHING (SPEC.md 11.90.3) ----------
     ; Every pixel inside the new content rect is still what the application
