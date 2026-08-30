@@ -149,21 +149,24 @@ MOU_P2BAT   equ 5               ; ...and the reset's self-test, which the part
                                 ; wait RETRIED this many times rather than a
                                 ; second timeout to size
 
-CUR_W       equ 16              ; cursor cell size, px - the size of the two
-CUR_H       equ 16              ; bitmap TABLES, and nothing else
-
-; The arrow inside that cell (SPEC.md 7.1). The tables are 16 rows of 16 bits
-; because that is the classic shape; the ARROW is 8 pixels wide and 12 rows
-; tall, and for years every save, every restore and both draw passes walked
-; the whole 16x16 - a quarter of the rows and a third of the bytes per row of
-; work on empty bits, on every gfx_lock and every gfx_unlock in the machine.
+; The arrow (SPEC.md 7.1) is 8 pixels wide and 12 rows tall. The tables used
+; to be 16 rows of 16 bits because that is the classic cell, and for years
+; every save, every restore and both draw passes walked the whole 16x16 - a
+; quarter of the rows and a third of the bytes per row of work on empty bits,
+; on every gfx_lock and every gfx_unlock in the machine.
 ;
-; Both are ASSERTED against the tables at the bottom of this file rather than
-; trusted, so a redrawn arrow that outgrows either one fails the build instead
-; of quietly losing its right-hand column. The width is what retires the cell's
-; THIRD byte: a 16-bit row whose low byte is zero cannot reach one however far
-; it is shifted, so `row << (8-shift)` was a byte that was always 0 and a
-; branch that was never taken, once per row per pass.
+; Both bounds are ASSERTED against the tables at the bottom of this file rather
+; than trusted, so a redrawn arrow that outgrows either one fails the build
+; instead of quietly losing its right-hand column. The width is what retires
+; the cell's THIRD byte: a 16-bit row whose low byte is zero cannot reach one
+; however far it is shifted, so `row << (8-shift)` was a byte that was always 0
+; and a branch that was never taken, once per row per pass.
+;
+; ...and it is now what retires the row's SECOND byte from the TABLE as well.
+; The assertion forbids a low-byte bit, so there is nothing there to store: a
+; row is one byte and the three readers widen it with `xor ax,ax / mov ah,[si]`.
+; The pictures below are still written as 16-bit words - CUR_ROW takes the top
+; byte - so nothing about reading them changed.
 CUR_MVGRACE equ 6               ; ticks since the last movement packet within
                                 ; which the pointer counts as MOVING (SPEC.md
                                 ; 7.1.4.3). ~330ms, and it is MEASURED rather
@@ -183,8 +186,9 @@ CUR_GW      equ 8               ; the arrow's own width, px...
 CUR_GH      equ 12              ; ...and height, rows
 CUR_SPAN    equ 2               ; ...and the framebuffer bytes it spans once
                                 ; shifted by x & 7, which CUR_GW <= 8 bounds
-CUR_TABSZ   equ CUR_H * 2       ; cur_data is exactly one table past cur_and,
-                                ; so one SI walks both (asserted below)
+CUR_TABSZ   equ CUR_GH          ; one BYTE a row, CUR_GH rows: cur_data is
+                                ; exactly one table past cur_and, so one SI
+                                ; walks both (asserted below)
 CUR_SAVE_SZ equ CUR_SPAN * CUR_GH * 4       ; ...x four planes, for VGA
 
 ; --- the shapes (SPEC.md 7.2) ------------------------------------------------
@@ -3261,8 +3265,8 @@ cur_saveu:
 
 ; cur_rect - the cell the two above save and restore, as a rect. ONE place,
 ; because a save and a restore that disagree about it by a byte smear the
-; cursor across the screen. CUR_GW/CUR_GH, not CUR_W/CUR_H: the tables are
-; 16x16 and the arrow is not.
+; cursor across the screen. CUR_GW/CUR_GH bound it, and the tables are cut to
+; the same 8x12 - there is no larger cell left to walk by accident.
 ; out: AX/BX/CX/DX = x1/y1/x2/y2
 cur_rect:
     mov ax, [cur_drawn_x]
@@ -3387,9 +3391,11 @@ cur_put_mono:
     mov si, [cur_tabp]
     mov bp, [cur_sptr]          ; the live save buffer (SPEC.md 7.1.2)
 .row:
-    mov ax, [si]                ; the white pass's row...
-    mov dx, [si+CUR_TABSZ]      ; ...and the black one's, one table along
-    add si, 2
+    xor ax, ax                  ; the white pass's row, widened from the
+    mov ah, [si]                ; byte the table stores...
+    xor dx, dx                  ; ...and the black one's, one table along
+    mov dh, [si+CUR_TABSZ]
+    inc si
     shr ax, cl                  ; AH:AL = white bits, byte 0 : byte 1
     shr dx, cl                  ; DH:DL = black bits, likewise...
     not dx                      ; ...as an AND mask, so the body clears to 0
@@ -4048,9 +4054,11 @@ cur_move_mono:
 .p2row:
     call cur_mvrow              ; [mv_orp] = this row's slot in the OLD save,
                                 ; or 0 if the old cell does not reach it
-    mov ax, [si]                ; the white row...
-    mov dx, [si+CUR_TABSZ]      ; ...and the black one, one table along
-    add si, 2
+    xor ax, ax                  ; the white row, widened from the byte...
+    mov ah, [si]
+    xor dx, dx                  ; ...and the black one, one table along
+    mov dh, [si+CUR_TABSZ]
+    inc si
     shr ax, cl
     shr dx, cl
     not dx                      ; DH:DL = the black body as an AND mask
@@ -4196,9 +4204,11 @@ cur_draw:
     mov si, [cur_tabp]
     mov dx, VGA_GC              ; the INDEX port: index and data go as one word
 .row:
-    mov ax, [si]                ; AX = white: every pixel the arrow touches...
-    mov bx, [si+CUR_TABSZ]      ; ...and BX = the black body inside it
-    add si, 2
+    xor ax, ax                  ; AX = white: every pixel the arrow touches,
+    mov ah, [si]                ; widened from the byte the table stores...
+    xor bx, bx                  ; ...and BX = the black body inside it
+    mov bh, [si+CUR_TABSZ]
+    inc si
     not bx
     and bx, ax                  ; BX = white & ~black = the pixels that go WHITE
     shr ax, cl                  ; AX = the Bit Mask, shifted into place
@@ -4258,7 +4268,7 @@ cur_draw:
 %assign cur_hi   0              ; ...and one past the last one that sets any
 %macro CUR_ROW 2                ; white row, black row
   %if cur_tab == 0
-    dw %1
+    db (%1) >> 8                ; the low byte is what CUR_SHAPE_END forbids
     %assign cur_bits cur_bits | (%1)
     %if (%1) != 0
       %if cur_row_i + 1 > cur_hi
@@ -4275,7 +4285,7 @@ cur_draw:
       %error "mouse: a black cursor row escapes its white row - cur_draw's fused write would drop those pixels"
     %endif
   %else
-    dw %2
+    db (%2) >> 8
   %endif
   %assign cur_row_i cur_row_i + 1
 %endmacro
@@ -4294,10 +4304,6 @@ cur_draw:
     CUR_ROW 0xFE00,             0x8C00      ; *******.  #...##..
     CUR_ROW 0xDE00,             0x0C00      ; **.****.  ....##..
     CUR_ROW 0x1E00,             0x0000      ; ...****.  ........
-    CUR_ROW 0x0000,             0x0000
-    CUR_ROW 0x0000,             0x0000
-    CUR_ROW 0x0000,             0x0000
-    CUR_ROW 0x0000,             0x0000
 %endmacro
 
 ; The crosshair (SPEC.md 7.2), hot spot at its centre. A 1px cross dilated by
@@ -4325,11 +4331,7 @@ cur_draw:
     CUR_ROW 0x3800,             0x1000
     CUR_ROW 0x3800,             0x1000
     CUR_ROW 0x3800,             0x1000
-    CUR_ROW 0x0000,             0x0000
-    CUR_ROW 0x0000,             0x0000
-    CUR_ROW 0x0000,             0x0000
-    CUR_ROW 0x0000,             0x0000
-    CUR_ROW 0x0000,             0x0000
+    CUR_ROW 0x0000,             0x0000      ; CUR_GH is 12 and the cross is 11
 %endmacro
 
 ; --- the shape table (SPEC.md 7.2) -------------------------------------------
@@ -4392,7 +4394,7 @@ cur_shhot   db 0, 0,          CUR_XHX, CUR_XHY
   %error "mouse: cur_data must sit exactly one table past cur_and - cur_put_mono reads the black row at [si+CUR_TABSZ]"
 %endif
 %if cur_tabend - cur_data != CUR_TABSZ
-  %error "mouse: a cursor table is not CUR_H rows"
+  %error "mouse: a cursor table is not CUR_GH rows of one byte"
 %endif
 %if cur_cross_data - cur_cross_and != CUR_TABSZ
   %error "mouse: a shape's black table must sit exactly one table past its white one"

@@ -6337,16 +6337,24 @@ halves cannot be separated from a package because they must alternate.
 
 Four things make the pair what it is.
 
-- **The arrow is 8x12, and the tables are 16x16.** `cur_and`'s widest row is
+- **The arrow is 8x12, and so are the tables.** `cur_and`'s widest row is
   `0xFF00` and its last non-zero row is 11, so `CUR_GW`/`CUR_GH` bound every
-  walk instead of `CUR_W`/`CUR_H` — a quarter of the rows and a third of the
-  bytes per row that used to be saved, restored, drawn and erased on empty
-  bits. Both are **asserted against the tables at assembly time**, because
+  walk. Both are **asserted against the tables at assembly time**, because
   both fail silently: a wider arrow loses its right-hand column on the two
   mono adapters, a taller one leaves its bottom rows on the screen for the
   rest of the session, and neither shows up anywhere but on the glass. The
-  rows go in through a `CUR_ROW` macro that emits the same word and
-  accumulates the two facts.
+  rows go in through a `CUR_ROW` macro that accumulates the two facts.
+
+  **The tables were 16x16 and are now 12x8**, `CUR_TABSZ` = `CUR_GH` = 12
+  bytes a shape-plane. Rows 12–15 were zero and provably unread; and the
+  low byte of every row is what the width assertion already forbids, so a
+  row is stored as its high byte alone and the reader widens it —
+  `xor ax,ax / mov ah,[si]` in place of `mov ax,[si]`, two instructions a
+  row against 80 bytes of `.text`. The assertion stops being
+  belt-and-braces and becomes the thing that keeps the format legal, which
+  is the right place for it. The pictures in the comments are unchanged:
+  the source rows are still written `0xE000`, and `CUR_ROW` takes the top
+  byte.
 - **The width is what retires the cell's third byte.** A 16-bit row whose low
   byte is zero cannot reach a third framebuffer byte however far it is
   shifted, so `row << (8-shift)` was a byte that was always 0, guarding a
