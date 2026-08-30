@@ -659,6 +659,44 @@ def main():
                  "near-returning body - use call + ret" % len(t_bad))
     print("os88ovlchk: no far tail jump enters a retf body without a far frame")
 
+    # --- and a BLOB entry ends in retf, whichever macro names it ------------
+    # The rule above judges a call it can SEE. The blob's entries are reached
+    # by an indirect far call - `mov word [spl_fp], X` / `call far [spl_fp]`,
+    # inside SPLCALL / OVLCALL / OVLCALLC / SPLGATE1 / OVLGATE1 / SPLSTUB - and
+    # the only textual trace of X at the site is an operand of a `mov`. So
+    # FARC never matched one, and an entry that kept its near `ret` popped IP,
+    # left CS on the stack, and returned into whatever the word above it named.
+    #
+    # Every entry in the tree happened to be a `call body / retf` trampoline,
+    # so the hole was invisible until SPEC.md 2.5.2 started moving BODIES into
+    # `.ovl` and naming them directly - which is the right shape (SPEC.md
+    # 2.6.1: the body owns the far return and the thunk in the middle is
+    # deleted) and is one keystroke from a wild return. It was written wrong
+    # here first, twice, and neither nasm nor any other check in this file said
+    # anything.
+    #
+    # The macro name is the whole signal and that is deliberate: a site says
+    # `OVLGATE1 sched_init` and nothing else in the line is a call, so this is
+    # the one place the target can be read at all.
+    BLOBCALL = re.compile(r'^\s*(?:SPL|OVL)(?:CALL|CALLC|GATE|GATE1|STUB)\s+'
+                          r'([A-Za-z_]\w*)\s*$')
+    b_bad = []
+    for f in files:
+        for sect, n, line in sections(f):
+            m = BLOBCALL.match(line)
+            if not m:
+                continue
+            if 'near' in kinds(m.group(1)):
+                b_bad.append((f, n, m.group(1)))
+    for f, n, lab in b_bad:
+        print("%s:%d: %s is reached through `call far [spl_fp]` and ends in a "
+              "NEAR ret" % (f, n, lab), file=sys.stderr)
+    if b_bad:
+        sys.exit("os88ovlchk: %d blob entry(ies) end in a near ret - every "
+                 "SPLCALL/OVLCALL/OVLGATE target is entered with a FAR call, "
+                 "so it ends in retf (SPEC.md 2.5.2, 2.6.1)" % len(b_bad))
+    print("os88ovlchk: every blob entry ends in retf")
+
 
 
 if __name__ == '__main__':

@@ -488,7 +488,20 @@ naming the caller. The list may shrink freely; a row whose reference has gone is
 itself a build failure, so it cannot rot into a list of names nobody can account
 for.
 
-Two mechanical rules the same move made worth stating as rules:
+**A body moved here ends in `retf`, and that is a third gate rule.** Everything
+in the blob is entered through `call far [spl_fp]` — that is what `SPLCALL`,
+`OVLCALL`, `OVLGATE1` and `SPLSTUB` all expand to — so an entry that keeps its
+near `ret` pops IP, leaves CS on the stack and returns into whatever the word
+above it names. Until §2.5.2 every entry happened to be a `call body / retf`
+trampoline and the hole was invisible; naming a body directly is the right shape
+(§2.6.1: the body owns the far return and the thunk in the middle is deleted)
+and is one keystroke from a wild return. Nothing saw it — the return-kind rule
+judges a call it can *read*, and the only textual trace of the target at one of
+these sites is an operand of a `mov`. `os88ovlchk.py` reads the macro name
+instead, which is the one place the target can be found at all. **It was written
+wrong here first, twice, before the rule existed.**
+
+Two more mechanical rules the same move made worth stating as rules:
 
 - **`.ovl` may not store CS** (`os88ovlchk.py` rule 2b). Reading through CS is
   correct there — the overlay's data rides with it — but a stored CS is the

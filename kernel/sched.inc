@@ -221,7 +221,12 @@ sched_init:
     pop cx
     pop bx
     pop ax
-    ret
+    retf                        ; FAR, and it has to be: everything in the blob
+                                ; is reached through `call far [spl_fp]`, so an
+                                ; entry that kept its near `ret` would pop IP
+                                ; and leave CS on the stack. SPEC.md 2.6.1's
+                                ; rule, one section along - the body owns the
+                                ; far return and there is no thunk in between
 section .text
 
 ; -----------------------------------------------------------------------------
@@ -463,7 +468,9 @@ sch_idle_start:
     pop dx
     pop cx
     pop bx
-    ret
+    retf                        ; FAR - see sched_init above. `retf` pops IP:CS
+                                ; and leaves the flags alone, so the CF this
+                                ; answers with survives it
 section .text
 
 ; -----------------------------------------------------------------------------
