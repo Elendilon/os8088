@@ -5399,22 +5399,29 @@ fm_samename:
 ; out: CF=1 if it does; all registers preserved
 ; -----------------------------------------------------------------------------
 fm_hasdot:
-    push si
-    mov si, fm_ebuf
-.scan:
-    cmp byte [si], 0
-    je .no
-    cmp byte [si], '.'
-    je .yes
-    inc si
-    jmp short .scan
-.yes:
-    pop si
+    push si                     ; BANKED BY THE ENTRY, not by the body: both
+    mov si, fm_ebuf             ; callers here and fdlg_onkey_x take no
+                                ; argument and promise SI back, and the load
+                                ; below would clobber it before any push
+                                ; inside could protect it
+
+; fm_dotin - the body, shared with fdlg_hasdot. in: SI -> a NUL string, SI
+; already on the stack; out: CF=1 = it holds a '.'. lodsb wants DF=0 (SPEC.md 1)
+fm_dotin:
+    push ax
+.s:
+    lodsb
+    or al, al
+    jz .no
+    cmp al, '.'
+    jne .s
     stc
-    ret
+    jmp short .o
 .no:
-    pop si
     clc
+.o:
+    pop ax
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------
