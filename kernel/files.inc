@@ -693,29 +693,49 @@ fmv_get_icon:
 ; VISIBLE window - and it went with files_poster, its only caller (SPEC.md
 ; 22.17), so there is one answer to "which window owns this block" again.
 ; -----------------------------------------------------------------------------
-fmv_winof:
-    push cx
-    push si
-    mov si, inst_tab
-    mov cx, INST_MAX
-.scan:
+; fmv_ifirst / fmv_inext - walk the LIVE Disk-window instance records
+; in:  ifirst nothing; inext SI = the record it last answered
+; out: CF=0 and SI -> the next record whose I_STATE is 1 and whose I_KIND is
+;      KIND_FILES; CF=1 = there is no such record left. SI and the flags are
+;      the only things touched - CX is NOT the counter any more
+;
+; Seven routines in this file carried this eight-instruction scaffold. It is
+; NOT fm_count's: that one asks I_STATE != 0, live OR dying, which is a
+; different question about a different set.
+; -----------------------------------------------------------------------------
+fmv_ifirst:
+    mov si, inst_tab-I_RECSZ
+fmv_inext:
+    add si, I_RECSZ
+    cmp si, inst_tab+INST_MAX*I_RECSZ
+    jae .eot
     cmp byte [si+I_STATE], 1
-    jne .next
+    jne fmv_inext
     cmp byte [si+I_KIND], KIND_FILES
-    jne .next
+    jne fmv_inext
+    clc
+    ret
+.eot:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+fmv_winof:
+    push si
+    call fmv_ifirst
+    jc .none
+.scan:
     cmp di, [si+I_SPTR]
     je .found
-.next:
-    add si, I_RECSZ
-    loop .scan
+    call fmv_inext
+    jnc .scan
+.none:
     pop si
-    pop cx
     stc
     ret
 .found:
     mov bx, [si+I_WIN]
     pop si
-    pop cx
     clc
     ret
 
@@ -1131,17 +1151,12 @@ fmv_sync_x:
 ; -----------------------------------------------------------------------------
 fmv_mark:
     push ax
-    push cx
     push dx
     push si
     push di
-    mov si, inst_tab
-    mov cx, INST_MAX
+    call fmv_ifirst
+    jc .done
 .scan:
-    cmp byte [si+I_STATE], 1
-    jne .next
-    cmp byte [si+I_KIND], KIND_FILES
-    jne .next
     mov di, [si+I_SPTR]
     mov al, [di+FS_DRV]
     cmp al, [disk_drive]
@@ -1167,12 +1182,12 @@ fmv_mark:
                                 ; would mean waiting for a click that never
                                 ; comes
 .next:
-    add si, I_RECSZ
-    loop .scan
+    call fmv_inext
+    jnc .scan
+.done:
     pop di
     pop si
     pop dx
-    pop cx
     pop ax
     ret
 
@@ -1332,13 +1347,9 @@ fmv_bcast:
                                 ; Disk window redrew it as 'Drive B: 0 files'.
                                 ; dsk_relist is idempotent and costs nothing
                                 ; when nothing is owed.
-    mov si, inst_tab
-    mov cx, INST_MAX
+    call fmv_ifirst
+    jc .done
 .scan:
-    cmp byte [si+I_STATE], 1
-    jne .next
-    cmp byte [si+I_KIND], KIND_FILES
-    jne .next
     mov di, [si+I_SPTR]
     mov al, [di+FS_DRV]
     cmp al, [disk_drive]
@@ -1354,8 +1365,9 @@ fmv_bcast:
                                 ; and keeps the debt: nothing redraws it, so
                                 ; its pixels are still the folder as it was
 .next:
-    add si, I_RECSZ
-    loop .scan
+    call fmv_inext
+    jnc .scan
+.done:
     pop di
     pop si
     pop dx
@@ -1846,15 +1858,10 @@ fm_choose:
 ; -----------------------------------------------------------------------------
 fm_find_view:
     push ax
-    push cx
     push si
-    mov si, inst_tab
-    mov cx, INST_MAX
+    call fmv_ifirst
+    jc .none
 .scan:
-    cmp byte [si+I_STATE], 1
-    jne .next
-    cmp byte [si+I_KIND], KIND_FILES
-    jne .next
     mov di, [si+I_SPTR]
     cmp al, [di+FS_DRV]
     jne .next
@@ -1864,12 +1871,12 @@ fm_find_view:
     clc                         ; I_WIN and I_FLAGS
     jmp short .out
 .next:
-    add si, I_RECSZ
-    loop .scan
+    call fmv_inext
+    jnc .scan
+.none:
     stc
 .out:
     pop si
-    pop cx
     pop ax
     ret
 
@@ -4178,13 +4185,9 @@ fm_fmt_home:
     push si
     push di
     mov dl, al
-    mov si, inst_tab
-    mov cx, INST_MAX
+    call fmv_ifirst
+    jc .done
 .scan:
-    cmp byte [si+I_STATE], 1
-    jne .next
-    cmp byte [si+I_KIND], KIND_FILES
-    jne .next
     mov di, [si+I_SPTR]
     cmp di, [fm_vp]
     je .next                    ; the acting window: its caller owns it
@@ -4225,8 +4228,9 @@ fm_fmt_home:
     pop si
     pop cx
 .next:
-    add si, I_RECSZ
-    loop .scan
+    call fmv_inext
+    jnc .scan
+.done:
     pop di
     pop si
     pop dx
@@ -6018,14 +6022,9 @@ fmv_reload_all:
     push dx
     push si
     push di
-    mov si, inst_tab
-    mov cx, INST_MAX
+    call fmv_ifirst
+    jc .done
 .scan:
-    cmp byte [si+I_STATE], 1
-    jne .next
-    cmp byte [si+I_KIND], KIND_FILES
-    jne .next
-    push cx
     push si
     mov di, [si+I_SPTR]
     mov al, [di+FS_DRV]
@@ -6037,8 +6036,9 @@ fmv_reload_all:
                                 ; half of this pass and puts every visible
                                 ; window's pixels where its cache now is
 .next:
-    add si, I_RECSZ
-    loop .scan
+    call fmv_inext
+    jnc .scan
+.done:
     pop di
     pop si
     pop dx
@@ -8184,10 +8184,10 @@ fm_reloc:
     push cx
     push si
     push di
-    mov si, inst_tab
-    mov cx, INST_MAX
-.scan:
-    cmp byte [si+I_STATE], 1
+    mov si, inst_tab            ; ITS OWN WALK, and it stays that way: this
+    mov cx, INST_MAX            ; routine is `.text` and fmv_ifirst is `.cold`,
+.scan:                          ; so the near call the other six make is a
+    cmp byte [si+I_STATE], 1    ; jump into another address space
     jne .next
     cmp byte [si+I_KIND], KIND_FILES
     jne .next
