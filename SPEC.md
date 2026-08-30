@@ -10171,6 +10171,39 @@ ran — the arm flag is what pairs them, not queue adjacency.
 that the sixteen records left are the sixteen most recent pushes, and that a
 wake at the head is preserved.
 
+#### 10.1.1 The ring is in `LOW_SEG`, and the copies say so three different ways
+
+`evq_buf` is 128 bytes and the 64KB code+data segment is the scarcer of the two
+budgets, so the ring lives in `.lowbss` (§2.1). The three indices —
+`evq_head`, `evq_tail`, `evq_count` — stay in `.bss`: they are read and written
+everywhere as ordinary DS words, and moving them would put a prefix on every
+one of those for six bytes.
+
+The three reaches into the ring are each spelled differently and the difference
+is the whole content of this section:
+
+- **The WAKE test in `evq_push`** — the full-ring path reads the oldest record's
+  type before deciding what to discard. That is an ordinary read, so it names
+  **`ss:`**: SS is `LOW_SEG` for every kernel task, and `evq_push` runs in the
+  mouse ISR, which runs on the interrupted task's stack.
+- **The push copy** — the source is the *caller's* record and stays DS-relative;
+  the destination is the ring, so **ES** becomes `LOW_SEG` instead of a copy of
+  DS. One byte.
+- **The pop copy** — the other way round, and the one that cannot use a prefix.
+  The source is the ring, and `rep movsw` reads it through DS: **the 8086 loses
+  a segment prefix when a string instruction restarts after an interrupt**, and
+  NMI reaches inside the `cli` this runs under. So DS is *banked* around the
+  copy and restored, which is the rule §2.1 states and the only shape that is
+  correct on the target.
+
+`.lowbss` is guaranteed nothing at boot, and the ring needs no guarantee:
+`evq_init` clears the three indices, and no record is ever read that a push did
+not write.
+
+**`events.inc` is `%include`d after `sched.inc`**, so this block lands *below*
+`sch_stacks` and cannot move its 256-alignment pad — which is the one thing
+adding `.lowbss` can break at a distance, and it is checked rather than assumed.
+
 ### 10.2 The UI task DRAINS the ring; it does not sip
 
 `ui_task` popped exactly one record per pass. On an idle desktop that is

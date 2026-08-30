@@ -87,7 +87,11 @@ evq_push:
     ; --- SPEC.md 10.1: full, so something is lost. Lose the OLDEST ----------
     mov di, [evq_head]          ; ...unless the oldest is a WAKE, which is a
     add di, evq_buf             ; PROMISE and not a sample: wm_wake coalesces
-    cmp word [di + EV_TYPE], EVT_WAKE   ; on a per-window flag that only a
+    cmp word [ss:di + EV_TYPE], EVT_WAKE ; on a per-window flag that only a
+                                ; DISPATCH clears - and `ss:` because the ring
+                                ; is in LOW_SEG now (SPEC.md 10.1.1), which SS
+                                ; names for every kernel task and every ISR
+                                ; that runs on one
     je .full                    ; DISPATCH clears, so discarding one hangs
                                 ; that window's handshake for the session.
                                 ; A ring full of input has input at its head,
@@ -99,10 +103,10 @@ evq_push:
     mov [evq_head], ax
     dec word [evq_count]        ; ...and the copy below puts it straight back
 .room:
-    mov ax, ds                  ; copy runs DS:SI -> ES:DI within the kernel
-    mov es, ax
-    mov di, [evq_tail]
-    add di, evq_buf
+    mov ax, LOW_SEG             ; copy runs DS:SI -> ES:DI, and ES is LOW_SEG
+    mov es, ax                  ; rather than the kernel's since SPEC.md 10.1.1
+    mov di, [evq_tail]          ; put the ring there: the SOURCE is the caller's
+    add di, evq_buf             ; record and stays DS-relative
     cld
     mov cx, EVQ_RECSIZE / 2
     rep movsw
@@ -143,13 +147,18 @@ evq_pop:
     cmp word [evq_count], 0
     je .empty
 
-    mov ax, ds                  ; copy runs DS:SI -> ES:DI within the kernel
-    mov es, ax
+    mov ax, ds                  ; copy runs DS:SI -> ES:DI: the DESTINATION is
+    mov es, ax                  ; the caller's buffer and is still the kernel's
     mov si, [evq_head]
     add si, evq_buf
     cld
     mov cx, EVQ_RECSIZE / 2
-    rep movsw
+    push ds                     ; ...and the SOURCE is the ring, in LOW_SEG
+    mov ax, LOW_SEG             ; since SPEC.md 10.1.1. DS is BANKED rather than
+    mov ds, ax                  ; the copy wearing a segment prefix: the 8086
+    rep movsw                   ; LOSES the prefix when a string op restarts
+    pop ds                      ; after an interrupt, and NMI reaches inside the
+                                ; cli above
 
     mov ax, [evq_head]
     add ax, EVQ_RECSIZE
@@ -199,9 +208,26 @@ evq_pending:
     ret                             ; NEAR - the OSAPI_SLOT cell owns the retf
 
 ; -----------------------------------------------------------------------------
-section .bss
-
+section .lowbss                 ; LOW_SEG (SPEC.md 2.1, 10.1.1): 128 bytes of
+                                ; ring out of the 64KB segment, which is the
+                                ; scarce one, for nine bytes of code and no
+                                ; footprint at all - the block lands inside
+                                ; `.lowbss`'s existing rung.
+                                ;
+                                ; It is reached through SS (the WAKE test, which
+                                ; is an ordinary read) and through ES and a
+                                ; banked DS (the two copies). `.lowbss` does not
+                                ; arrive zeroed and does not need to: evq_init
+                                ; clears the three indices below, and no record
+                                ; is ever read that a push did not write.
+                                ;
+                                ; events.inc is %included AFTER sched.inc, so
+                                ; this cannot move sch_stacks' 256-alignment pad
+                                ; - which is the one thing adding `.lowbss` can
+                                ; break at a distance.
 evq_buf:    resb EVQ_RECSIZE * EVQ_CAP  ; the ring itself (128 bytes)
+
+section .bss
 evq_head:   resw 1                      ; byte offset of the oldest record
 evq_tail:   resw 1                      ; byte offset of the next free slot
 evq_count:  resw 1                      ; records currently queued (0..EVQ_CAP)
