@@ -634,6 +634,64 @@ gfx_disp_enter_cd:
 %endmacro
 
 ; -----------------------------------------------------------------------------
+; gfx_rect_isect - AX/BX/CX/DX intersected with the rect at DS:SI
+; in:       AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); SI = a four-word
+;           block laid out x1, y1, x2, y2 - the WCR_* order, which every rect
+;           in the window manager and every clip rect here already uses
+; out:      the same four registers, clipped. Flags are `cmp dx, [si+6]`'s,
+;           which is what the open-coded copies left too
+; clobbers: nothing else
+;
+; SIGNED compares, and they have to be: wm_paint_dmg's clamp takes screen
+; coordinates negative.
+;
+; **THE RECT IS ADDRESSED THROUGH DS**, so a rect this serves may never move
+; to `.lowbss`. All of them are `.text` or `.bss` today.
+;
+; It is HERE, in the lowest layer, rather than in wm.inc: this file is
+; %included first, so the five sites up there are backward references and a
+; gfx_* primitive is not left forward near-calling a wm_* helper. Eight blocks
+; of these four compares existed - five intersections and, with the store form
+; below, three unions - and every one of them already did `mov si, <rect>`
+; first, which is why sharing this pays: the marshalling does not grow.
+; -----------------------------------------------------------------------------
+gfx_rect_isect:
+    cmp ax, [si]
+    jge .a
+    mov ax, [si]
+.a:
+    cmp bx, [si+2]
+    jge .b
+    mov bx, [si+2]
+.b:
+    cmp cx, [si+4]
+    jle .c
+    mov cx, [si+4]
+.c:
+    cmp dx, [si+6]
+    jle .d
+    mov dx, [si+6]
+.d:
+    ret
+
+; -----------------------------------------------------------------------------
+; gfx_rect_isectcf - gfx_rect_isect, and CF = 1 if the answer is EMPTY
+; in/out:   as above, plus CF = 1 -> x1 > x2 or y1 > y2, i.e. nothing left
+; clobbers: nothing else
+; -----------------------------------------------------------------------------
+gfx_rect_isectcf:
+    call gfx_rect_isect
+    cmp ax, cx
+    jg .no
+    cmp bx, dx
+    jg .no
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
 ; gfx_clip_run - internal: run a rect primitive once per visible fragment
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2, DI = near ptr to the raw body
 ;           (the entry just below that primitive's GFXCLIP); clip is armed
@@ -669,30 +727,15 @@ gfx_clip_run:
     mov si, wm_clip_tab
     mov di, [wm_clip_n]
 .frag:
-    mov ax, [si+WCR_X1]         ; AX/CX = the fragment's x span, clipped to
-    cmp ax, [gfx_cl_x1]         ; the primitive's
-    jge .x1
-    mov ax, [gfx_cl_x1]
-.x1:
-    mov cx, [si+WCR_X2]
-    cmp cx, [gfx_cl_x2]
-    jle .x2
-    mov cx, [gfx_cl_x2]
-.x2:
-    cmp ax, cx
-    jg .next
-    mov bx, [si+WCR_Y1]
-    cmp bx, [gfx_cl_y1]
-    jge .y1
-    mov bx, [gfx_cl_y1]
-.y1:
-    mov dx, [si+WCR_Y2]
-    cmp dx, [gfx_cl_y2]
-    jle .y2
-    mov dx, [gfx_cl_y2]
-.y2:
-    cmp bx, dx
-    jg .next
+    mov ax, [si+WCR_X1]         ; the fragment, clipped to the primitive's own
+    mov bx, [si+WCR_Y1]         ; rect - and gfx_cl_x1..y2 is laid out in the
+    mov cx, [si+WCR_X2]         ; same WCR order, so the helper reads it as
+    mov dx, [si+WCR_Y2]         ; one block
+    push si
+    mov si, gfx_cl_x1
+    call gfx_rect_isectcf
+    pop si
+    jc .next                    ; nothing of this fragment is inside
 %ifdef KERN_BIG
     cmp byte [gfx_dnest], 0     ; ...and the fragment back into the display the
     je .lv                      ; body is going to draw on. The loop re-reads

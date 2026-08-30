@@ -1987,7 +1987,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/kernel.asm` | entry, constants, init order, includes, .bss layout, **os8088 API jump table at 0x0010** (§20.3) + osapi helper routines, **boot splash entry at 0x0008** (§15) |
 | `kernel/viddet.inc` | video adapters (§39): the boot probe, the live geometry block, mode set/teardown (`vid_setmode`/`vid_text`/`vid_init`), the shared addressing helpers `gfx_rowbase`/`gfx_nextrow`, the 1bpp colour map `gfx_ink` — prefix `vid_`; included **before** `splash.inc`, and all its data lives in `.text` |
 | `kernel/splash.inc` | boot-time loading screen (§15): the first adapter probe and mode set, welcome dialog, pixel progress bar, spinning vector "8088" — on a 1bpp adapter the progress bar alone (§39.6); far-ticked by the boot sector per sector read; self-contained, no .bss |
-| `kernel/vga12.inc`  | mode 12h planar primitives, save/restore, gfx lock, `gfx_scroll` (§5.5); the coordinate core `vga_rect_setup` that both renderers share (§39.3) — the mode set left for `viddet.inc` |
+| `kernel/vga12.inc`  | mode 12h planar primitives, save/restore, gfx lock, `gfx_scroll` (§5.5); the coordinate core `vga_rect_setup` that both renderers share (§39.3) — the mode set left for `viddet.inc`; and `gfx_rect_isect`/`gfx_rect_isectcf`, the **four-edge rect intersect the whole kernel shares** (§5.11), hosted in the lowest layer so `wm.inc`'s five sites are backward references |
 | `kernel/softgfx.inc`  | the software renderer (§32/§39.3): the software planar primitives, and the only video driver on a 1bpp adapter |
 | `kernel/font.inc`   | 8x8 font (copied at init from the BIOS ROM set, or the IBM ROM's own on a pre-EGA machine), text draw |
 | `kernel/mouse.inc`  | COM1/COM2 UARTs, IRQ4/IRQ3 ISRs, the 8042 auxiliary port and its IRQ12 ISR (§9.9), both packet decoders and the `mou_apply` back end they share, the keyboard mouse (§9.6), cursor (save-under) |
@@ -1995,7 +1995,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/events.inc` | 8-byte event records (`EVT_MDOWN`/`MUP`/`RDOWN`, and `EVT_WAKE` — a package's own kick, §71.1), system event ring queue |
 | `kernel/clock.inc`  | system clock (§37): the RTC ladder (§37.90 — MC146818 at 70h/71h, MM58167 and RP5C01 at 2C0h, int 1Ah last), the wall-clock date + time advanced from `[ticks]`, and formatting — prefix `clk_`. **Neither the field editor nor the RTC WRITE half is here**: `clk_fld_str`/`clk_fld_adj`/`clk_step` (§37.93) and the four rungs' writers (§37.94) are §37's code hosted in `CTRL.DRV`. What stays is the tick, the snapshot, the menu bar's formatter and the six port helpers **both** the boot overlay and that module need |
 | `kernel/clockw.inc` | §37's RTC **write** half (§37.94): `clk_rtc_write` and the four rungs' writers, `%include`d from `ctrl.inc`'s `.modc` so it ships in `CTRL.DRV` and is in RAM only while the Control Panel is open. Still `clk_`, still §37's contract — a file of its own so that `ctrl.inc` is not 600 lines of MC146818 |
-| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; the per-slot handler side tables `wm_about`/`wm_onsz`/`wm_onwk`/`wm_oncl`, the wake post/dispatch `wm_wake`/`wm_wake_disp` (§71.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
+| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; `wm_runion`, `gfx_rect_isect`'s union twin (§5.11); the per-slot handler side tables `wm_about`/`wm_onsz`/`wm_onwk`/`wm_oncl`, the wake post/dispatch `wm_wake`/`wm_wake_disp` (§71.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
 | `kernel/instance.inc` | instance table: records, kind descriptors, launch/close lifecycle (§29) |
 | `kernel/memory.inc` | the claim heap (§50): the map, `mem_claim`/`mem_free`/`mem_avail`, the teardown fence — prefix `mem_`; and `mem_bytes_kb`, the **bytes → whole-KB round-up every caller that sizes a claim from a byte count needs** (§50.3), which three `.text` sites each spelled out |
 | `kernel/menu.inc`   | menu bar (System menu + the active application's name and menus), runtime bar layout, pull-down tracking, Locator's own menu set (§12/§12.2/§12.3) |
@@ -4615,6 +4615,41 @@ intervals on one row — a torus, a glyph with a counter — makes two calls, on
 per interval column, and pays two row bases. A list of `{y, x1, x2}` triples
 would serve that in one call and would give up the incremental row base, which
 is the thing being bought.
+
+### 5.11 `gfx_rect_isect` — the four-edge clamp, once
+
+```
+gfx_rect_isect      in  AX,BX,CX,DX = x1,y1,x2,y2 (inclusive), SI -> a rect
+                    out the same four, clipped to [SI]
+gfx_rect_isectcf    ...and CF = 1 if the answer is EMPTY (x1 > x2 or y1 > y2)
+wm_runion           the rect at [SI] grown to cover AX,BX,CX,DX  (wm.inc)
+```
+
+**A rect is four adjacent words in `x1, y1, x2, y2` order** — the `WCR_*`
+layout — and every rect in the window manager and every clip rect in
+`vga12.inc` was already declared that way. Eight blocks of the same four
+compares existed against them: five intersections and three unions. They are
+these three routines now.
+
+The compares are **signed**, and must stay so: `wm_paint_dmg`'s clamp takes
+screen coordinates negative.
+
+Two rules travel with the pair, and neither is optional:
+
+* **The rect is addressed through `DS`.** A rect either helper serves may
+  therefore never move to `.lowbss` (§2.1), where `SS` addresses it. All of
+  them are `.text` or `.bss` today.
+* **`gfx_line_flush` is not a site.** Its clamp is the same four compares, but
+  it is called from `gfx_line_runs`' Bresenham loop **once per run** — and a
+  minor-axis step ends a run, so on a 45° line that is once per pixel. A
+  `call`/`ret` there is +34 clocks a pixel on a primitive with its own §5.6.4
+  budget. `gfx_clip_run` is a site because it is once per clip FRAGMENT, which
+  PERFORMANCE.md prices at ~9 µs of a 528 µs difference.
+
+The intersect lives in `vga12.inc` rather than `wm.inc` because `vga12.inc` is
+`%include`d first: the window manager's five sites are then backward
+references, and a `gfx_*` primitive is not left forward near-calling a `wm_*`
+helper. The union has only window-manager callers and stays there.
 
 ## 6. font.inc
 

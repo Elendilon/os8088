@@ -1233,22 +1233,10 @@ wm_dmg_bands:
     mov cx, [vid_wm1]
     mov dx, [vid_hm1]
 %endif
-    cmp ax, [wm_db_r+0]                 ; ...intersected with the damage
-    jge .x1
-    mov ax, [wm_db_r+0]
-.x1:
-    cmp cx, [wm_db_r+4]
-    jle .x2
-    mov cx, [wm_db_r+4]
-.x2:
-    cmp bx, [wm_db_r+2]
-    jge .y1
-    mov bx, [wm_db_r+2]
-.y1:
-    cmp dx, [wm_db_r+6]
-    jle .y2
-    mov dx, [wm_db_r+6]
-.y2:
+    push si                             ; ...intersected with the damage
+    mov si, wm_db_r
+    call gfx_rect_isect
+    pop si
     or si, si                           ; ...and the CHROME is display 0's
     jnz .band                           ; alone (SPEC.md 39.16.2)
     cmp bx, MBAR_H
@@ -1275,22 +1263,10 @@ wm_dmg_bands:
     call wm_clip_add                    ; WM_CLIP_MAX is 16 and this appends at
                                         ; most VID_NDISP_MAX, so the full case
                                         ; is unreachable rather than handled
-    cmp ax, [wm_db_b+0]
-    jge .b1
-    mov [wm_db_b+0], ax
-.b1:
-    cmp bx, [wm_db_b+2]
-    jge .b2
-    mov [wm_db_b+2], bx
-.b2:
-    cmp cx, [wm_db_b+4]
-    jle .b3
-    mov [wm_db_b+4], cx
-.b3:
-    cmp dx, [wm_db_b+6]
-    jle .b4
-    mov [wm_db_b+6], dx
-.b4:
+    push si
+    mov si, wm_db_b
+    call wm_runion
+    pop si
 .next:
     inc si
     jmp .disp                   ; NEAR: the body outgrew a short jump
@@ -5370,23 +5346,10 @@ wm_dmg_stale:
     push cx
     push dx
     push si
-    mov si, [wm_dmg_stwin]
-    cmp ax, [wm_dmg_st1]        ; clip this window to the vacated rect: that
-    jge .ox1                    ; intersection is the only part of it the
-    mov ax, [wm_dmg_st1]        ; move can have touched
-.ox1:
-    cmp bx, [wm_dmg_sy1]
-    jge .oy1
-    mov bx, [wm_dmg_sy1]
-.oy1:
-    cmp cx, [wm_dmg_st2]
-    jle .ox2
-    mov cx, [wm_dmg_st2]
-.ox2:
-    cmp dx, [wm_dmg_sy2]
-    jle .oy2
-    mov dx, [wm_dmg_sy2]
-.oy2:
+    mov si, wm_dmg_st1          ; clip this window to the vacated rect: that
+    call gfx_rect_isect         ; intersection is the only part of it the
+                                ; move can have touched
+    mov si, [wm_dmg_stwin]      ; (loaded AFTER, the helper wanting SI)
     cmp ax, [si+W_X]            ; ...and ask whether THAT is inside the new
     jl .exposed                 ; FRAME - x .. x+w-1, y .. y+h-1
     cmp bx, [si+W_Y]
@@ -5431,22 +5394,40 @@ wm_dmg_stale:
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 wm_dmg_add:
-    cmp ax, [wm_dmg_x1]
-    jge .x1
-    mov [wm_dmg_x1], ax
-.x1:
-    cmp bx, [wm_dmg_y1]
-    jge .y1
-    mov [wm_dmg_y1], bx
-.y1:
-    cmp cx, [wm_dmg_x2]
-    jle .x2
-    mov [wm_dmg_x2], cx
-.x2:
-    cmp dx, [wm_dmg_y2]
-    jle .y2
-    mov [wm_dmg_y2], dx
-.y2:
+    push si                     ; "all registers preserved", and cw_wm_dmg_add
+    mov si, wm_dmg_x1           ; publishes that to a package
+    call wm_runion
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_runion - the rect at DS:SI grown to cover AX/BX/CX/DX as well
+; in:  AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); SI = a four-word block
+;      in x1,y1,x2,y2 order
+; out: the block updated. Flags are `cmp dx, [si+6]`'s; every register is
+;      preserved
+;
+; gfx_rect_isect's twin (vga12.inc) with the stores the other way round, and
+; the same rule travels with it: THE RECT IS ADDRESSED THROUGH DS, so a rect
+; either helper serves may never move to `.lowbss`.
+; -----------------------------------------------------------------------------
+wm_runion:
+    cmp ax, [si]
+    jge .a
+    mov [si], ax
+.a:
+    cmp bx, [si+2]
+    jge .b
+    mov [si+2], bx
+.b:
+    cmp cx, [si+4]
+    jle .c
+    mov [si+4], cx
+.c:
+    cmp dx, [si+6]
+    jle .d
+    mov [si+6], dx
+.d:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -7357,8 +7338,13 @@ wm_clip_rows:
 ; -----------------------------------------------------------------------------
 ; wm_ptr2idx - window record pointer to index (public, SPEC.md 11)
 ; in:  BX = window ptr (record-aligned)
-; out: AL = window index, AH = 0
-; clobbers: nothing else
+; out: AL = window index, AH = 0. **AH = 0 IS A GUARANTEE**, not an inference
+;      from a record-aligned input - see the comment on the `xor ah, ah` below,
+;      which is there because it was once the other thing.
+; clobbers: nothing else. **CX AND SI ARE PRESERVED and callers rely on it**:
+;      three separate places walk the z-order or a slot table holding one of
+;      them across this call, and widening the clobber list breaks them
+;      silently rather than loudly.
 ; -----------------------------------------------------------------------------
 wm_ptr2idx:
     push cx
@@ -8658,22 +8644,10 @@ wm_damage:
 %endif
     cmp word [wm_su_son], 0
     je .nosub                   ; nobody named one
-    cmp ax, [wm_su_sx1]
-    jge .x1
-    mov ax, [wm_su_sx1]
-.x1:
-    cmp bx, [wm_su_sy1]
-    jge .y1
-    mov bx, [wm_su_sy1]
-.y1:
-    cmp cx, [wm_su_sx2]
-    jle .x2
-    mov cx, [wm_su_sx2]
-.x2:
-    cmp dx, [wm_su_sy2]
-    jle .y2
-    mov dx, [wm_su_sy2]
-.y2:
+    push si
+    mov si, wm_su_sx1
+    call gfx_rect_isect
+    pop si
     clc
     pop di
     pop si
@@ -9418,41 +9392,13 @@ wm_su_srect:
     cmp word [wm_su_son], 0     ; EACH named rect is intersected only if it is
     je .vis                     ; armed - the two are independent one-shots and
                                 ; either may be the only one set
-    cmp ax, [wm_su_sx1]
-    jge .x1
-    mov ax, [wm_su_sx1]
-.x1:
-    cmp bx, [wm_su_sy1]
-    jge .y1
-    mov bx, [wm_su_sy1]
-.y1:
-    cmp cx, [wm_su_sx2]
-    jle .x2
-    mov cx, [wm_su_sx2]
-.x2:
-    cmp dx, [wm_su_sy2]
-    jle .y2
-    mov dx, [wm_su_sy2]
-.y2:
+    mov si, wm_su_sx1
+    call gfx_rect_isect
 .vis:
     cmp word [wm_su_von], 0     ; ...and then what is actually ON THE GLASS
     je .isect                   ; (SPEC.md 11.96.14)
-    cmp ax, [wm_su_vx1]
-    jge .vx1
-    mov ax, [wm_su_vx1]
-.vx1:
-    cmp bx, [wm_su_vy1]
-    jge .vy1
-    mov bx, [wm_su_vy1]
-.vy1:
-    cmp cx, [wm_su_vx2]
-    jle .vx2
-    mov cx, [wm_su_vx2]
-.vx2:
-    cmp dx, [wm_su_vy2]
-    jle .vy2
-    mov dx, [wm_su_vy2]
-.vy2:
+    mov si, wm_su_vx1
+    call gfx_rect_isect
 .isect:
     cmp ax, cx
     jg .none
