@@ -1272,7 +1272,8 @@ vid_ctx_ptr:
     push ax
     push dx
     mov dl, VID_CTX_SZ
-    mul dl                      ; AX = index * 40 (not a power of two)
+    mul dl                      ; AX = index * VID_CTX_SZ, which is not a
+                                ; power of two and has GROWN twice
     mov di, vid_ctx
     add di, ax
     pop dx
