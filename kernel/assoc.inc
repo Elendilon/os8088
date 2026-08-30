@@ -2031,18 +2031,6 @@ asc_note:
 ; and these near-call the bodies above - so every routine here keeps its
 ; ordinary near `ret`.
 ; =============================================================================
-acf_assoc_post:     call assoc_post_x
-                retf
-acf_assoc_docicon:  call assoc_docicon_x
-                retf
-acf_assoc_note_app: call assoc_note_app_x
-                retf
-acf_asc_use:        call asc_use_x
-                retf
-acf_asc_lookup:     call asc_lookup_x
-                retf
-acf_asc_take:       call asc_take_x
-                retf
 
 section .text                   ; DATA, so back to the kernel segment
 asc_s_name: db 'ASSOC   DAT'    ; the RAW 8.3 form: this walks directory

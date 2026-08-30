@@ -6029,53 +6029,15 @@ dsk_get_icon_x:
 ; and these near-call the bodies above, so every routine here keeps its
 ; ordinary near `ret`.
 ; =============================================================================
-dkf_disk_read:       call disk_read_x
-                 retf
-dkf_disk_write:      call disk_write_x
-                 retf
 dkf_dsk_batch_begin: call dsk_batch_begin_x
                  retf
 dkf_dsk_chdir:       call dsk_chdir_x
                  retf
 dkf_dsk_chdir_q:     call dsk_chdir_q_x
                  retf
-dkf_dsk_clus2lba:    call dsk_clus2lba_x
-                 retf
-dkf_dsk_copy_in:     call dsk_copy_in_x
-                 retf
 dkf_dsk_copy_seg:    call dsk_copy_seg_x
                  retf
-dkf_dsk_dirw_get:    call dsk_dirw_get_x
-                 retf
-dkf_dsk_dirw_next:   call dsk_dirw_next_x
-                 retf
-dkf_dsk_dirw_start:  call dsk_dirw_start_x
-                 retf
-dkf_dsk_dotdot:      call dsk_dotdot_x
-                 retf
-dkf_dsk_fat_ofs:     call dsk_fat_ofs_x
-                 retf
-dkf_dsk_free_clus:   call dsk_free_clus_x
-                 retf
-dkf_dsk_get_dir:     call dsk_get_dir_x
-                 retf
-dkf_dsk_get_icon:    call dsk_get_icon_x
-                 retf
-dkf_dsk_next_clus:   call dsk_next_clus_x
-                 retf
-dkf_dsk_put_icon_k:  call dsk_put_icon_k_x
-                 retf
-dkf_dsk_read_chain:  call dsk_read_chain_x
-                 retf
-dkf_dsk_relist:      call dsk_relist_x
-                 retf
-dkf_dsk_synth:       call dsk_synth_x
-                 retf
-dkf_dsk_vol_drop_drv:call dsk_vol_drop_drv_x
-                 retf
 dkf_dsk_vol_fixed:   call dsk_vol_fixed_x
-                 retf
-dkf_dsk_vol_row:     call dsk_vol_row_x
                  retf
 dkf_dsk_vol_slot:    call dsk_vol_slot_x
                  retf

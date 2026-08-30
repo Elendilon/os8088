@@ -4766,17 +4766,11 @@ dwf_dskw_delete:        call dskw_delete_x
                     retf
 dwf_dskw_dfree:         call dskw_dfree_x
                     retf
-dwf_dskw_flush:         call dskw_flush_x
-                    retf
 dwf_dskw_read:          call dskw_read_x
-                    retf
-dwf_dskw_remount:       call dskw_remount_x
                     retf
 dwf_dskw_rename:        call dskw_rename_x
                     retf
 dwf_dskw_stat:          call dskw_stat_x
-                    retf
-dwf_dskw_sync:          call dskw_sync_x
                     retf
 dwf_dskw_write:         call dskw_write_x
                     retf

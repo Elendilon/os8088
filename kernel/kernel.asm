@@ -2661,9 +2661,9 @@ osapi_table:
     OSAPI_SLOT osapi_claim_snapshot   ; 0x02A0 - the claim table (SPEC.md 50.5),
                                   ;          all MEM_MAX records into ES:DI
                                   ;          as CLS_RECSZ triples; out AX =
-                                  ;          MEM_MAX. A cell over
-                                  ;          mem_claim_get, whole rather than
-                                  ;          per record: the memory map walks
+                                  ;          MEM_MAX. WHOLE-TABLE rather than
+                                  ;          per record, and it steps mem_tab
+                                  ;          itself: the memory map walks
                                   ;          every record to draw it and
                                   ;          hashes every record to decide
                                   ;          whether to

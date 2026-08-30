@@ -5696,11 +5696,10 @@ cpf_cp_tick:
 .t_gone:
     retf
 
-; ...and the two that never leave. cp_tick_due runs once a second forever and
-; cp_drv_gone runs on a driver detach, including during shutdown - so both are
-; resident bodies with the plain thunk they always had.
-cpf_cp_drv_gone:       call cp_drv_gone_x
-                    retf
+; ...and the one that never leaves: cp_tick_due runs once a second forever, so
+; it is a resident body with the plain thunk it always had. cp_drv_gone was
+; the second of a pair here and its far entry had no caller - the body is
+; `.cold` and so is drv_release, its only caller, which reaches it near.
 cpf_cp_tick_due:       call cp_tick_due_x
                     retf
 cpf_cp_open:           call cp_open_x

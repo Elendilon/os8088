@@ -2227,50 +2227,6 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
     jmp short .out
 
 ; -----------------------------------------------------------------------------
-; mem_claim_get - read one claim record by index (SPEC.md 50.6)
-; in:  AX = record index (0..MEM_MAX-1)
-; out: CF = 0 and DX = base segment, CX = paragraphs, BX = owner word;
-;      CF = 1 if that record is free
-; clobbers: BX/CX/DX (outputs) and the flags
-;
-; The Task Manager's memory map walks these to draw every live claim at its
-; real address - the one thing the old map could not do, because the blocks
-; it drew were constants and there was nothing to walk.
-;
-; This is the ONLY place in the module that turns a record INDEX into an
-; address; every other loop steps by MC_SIZE and cannot drift. It used to
-; open-code the stride as an add-chain commented "*6 = MC_SIZE", and when
-; MC_DMA widened the record to 8 the comment stayed true and the code did
-; not: every record after the first was read straddling two, so the map drew
-; claims at invented addresses and invented sizes - one of them across nearly
-; the whole of conventional memory - while every figure in the window, which
-; comes from the stepping loops, stayed correct. It multiplies by the
-; constant now.
-; -----------------------------------------------------------------------------
-mem_claim_get:
-    push si
-    cmp ax, MEM_MAX
-    jae .none
-    push ax
-    mov si, MC_SIZE
-    mul si                      ; DX:AX = index * MC_SIZE, both small
-    mov si, ax
-    pop ax
-    add si, mem_tab
-    cmp word [ss:si+MC_SEG], 0
-    je .none
-    mov dx, [ss:si+MC_SEG]
-    mov cx, [ss:si+MC_PARA]
-    mov bx, [ss:si+MC_OWN]
-    clc
-    pop si
-    ret
-.none:
-    stc
-    pop si
-    ret
-
-; -----------------------------------------------------------------------------
 ; mem_owned_kb - how many KB does one owner hold? (SPEC.md 50.6)
 ; in:  BX = owner word
 ; out: AX = KB claimed by that owner (0 if none)
@@ -2888,25 +2844,15 @@ osapi_sys_kb_x:
 ; =============================================================================
 mmf_mem_avail:            call mem_avail_x
                       retf
-mmf_mem_avail_lvl:        call mem_avail_lvl_x
-                      retf
 mmf_mem_claim:            call mem_claim_x
-                      retf
-mmf_mem_claim_dma:        call mem_claim_dma_x
                       retf
 mmf_osapi_mem_claim_hi:   call osapi_mem_claim_hi_x
                           retf
 mmf_osapi_mem_claim_dma_hi: call osapi_mem_claim_dma_hi_x
                           retf
-mmf_mem_claim_hi:         call mem_claim_hi_x
-                      retf
 mmf_mem_free:             call mem_free_x
                       retf
-mmf_mem_free_owner:       call mem_free_owner_x
-                      retf
 mmf_mem_movable:          call mem_movable_x
-                      retf
-mmf_mem_owner_of:         call mem_owner_of_x
                       retf
 mmf_osapi_claim_snapshot: call osapi_claim_snapshot_x
                       retf

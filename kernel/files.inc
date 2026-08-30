@@ -8154,10 +8154,6 @@ fmf_fm_utoa:            call fm_utoa
                     retf
 fmf_files_open:         call files_open_x
                     retf
-fmf_files_open_drive:   call files_open_drive_x
-                    retf
-fmf_files_refresh:      call files_refresh_x
-                    retf
                                         ; `call` nor `retf` touches it
 fmf_fm_onclick:         call fm_onclick_x
                     retf
@@ -8165,8 +8161,6 @@ fmf_fm_onclick:         call fm_onclick_x
 fmf_fm_ondrag:          call fm_ondrag_x
                     retf
 %endif
-fmf_fmv_sync:           call fmv_sync_x
-                    retf
 
 section .text
 

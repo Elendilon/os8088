@@ -1127,8 +1127,6 @@ section .cold                   ; ...and back to cold code for the far entries
 ; Far entries (SPEC.md 2.6): the resident thunks in kernel.asm far-call these,
 ; and these near-call the bodies above.
 ; =============================================================================
-dkz_desk_zmark:       call desk_zmark_x
-                  retf
 dkz_desk_zones_paint: call desk_zones_paint_x
                   retf
 
