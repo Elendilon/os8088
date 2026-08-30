@@ -2275,9 +2275,18 @@ ui_pcmd:    dw 0                ; posted CMD_*, 0 = none (see above)
 ; on TASKMGR.O88 in a Disk window is unaffected and still opens as many as
 ; you like - that is the package rule, and this is the menu item's rule.
 ; =============================================================================
-ui_s_tmdir:  db 'SYSTEM', 0      ; the folder it lives in (SPEC.md 28.3), on
-                                 ; the system disk and the apps disk alike -
-                                 ; the menu cannot know which is in the drive
+ui_s_nofile: db 'TASKMGR.O88 is not in '   ; ONE 'SYSTEM',0 serves both the
+ui_s_tmdir:  db 'SYSTEM', 0      ; folder name and the tail of the notice that
+                                 ; says the file is not in it - two labels
+                                 ; over one `db`, so nothing may be inserted
+                                 ; between these two lines. The folder it
+                                 ; lives in (SPEC.md 28.3), on the system disk
+                                 ; and the apps disk alike - the menu cannot
+                                 ; know which is in the drive. The message
+                                 ; fits the 288px notice window, which a path
+                                 ; spelled out in full would not:
+                                 ; app_about_center centres it and font_str
+                                 ; stops at the SCREEN edge, not the window's
 ui_s_tmfile: db 'TASKMGR.O88', 0
 ui_s_tmname: db 'TaskMgr', 0     ; the 16-byte header name inst_set_name_x
                                  ; copied into the record - what identifies
@@ -2480,11 +2489,6 @@ ui_s_nodisk_l: db 'A:', 0       ; the LETTER, stamped once by dsk_boot_from
                                 ; (SPEC.md 52.10.3) - a label rather than an
                                 ; offset, so rewording the message cannot
                                 ; leave the stamp pointing at a space
-ui_s_nofile: db 'TASKMGR.O88 is not in SYSTEM', 0    ; ...and it fits the
-                                 ; 288px notice window, which a path spelled
-                                 ; out in full would not: app_about_center
-                                 ; centres it and font_str stops at the SCREEN
-                                 ; edge, not the window's
 ui_s_dskerr: db 'Disk error reading it', 0
 ui_s_badpkg: db 'TASKMGR.O88 is not a valid package', 0
 ui_s_toobig: db 'TASKMGR.O88 is too large', 0

@@ -147,7 +147,9 @@ fdlg_paper:    db CWHITE
 fdlg_s_open    equ fdlg_s_topen  ; the button and the title are one string
 fdlg_s_save:   db 'Save', 0
 fdlg_s_cancel: db 'Cancel', 0
-fdlg_s_drive:  db 'Drive', 0
+                                ; fdlg_s_drive is DEFINED IN driver.inc, as
+                                ; the tail of drv_t_hdd's 'Hard Drive' - a
+                                ; forward reference, and .text either side
 fdlg_s_newf:   db 'New', 0      ; the two-line New Folder button (FD_BH2)
 fdlg_s_newf2   equ fm_s_folder  ; ...whose second line, the Disk window's
                                 ; derived title and this module's own

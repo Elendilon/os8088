@@ -667,9 +667,18 @@ DRV_BLOBE   equ 4               ; bytes per row above
 ; =============================================================================
 
 drv_f_sound: db 'SOUND.DRV', 0
-drv_t_sound: db 'Sound', 0
+drv_t_sound  equ cp_s_snd       ; the Control Panel's Sound page is named for
+                                ; the class, so its heading is this row's
+                                ; title to the byte (ctrl.inc)
 drv_f_hdd:   db 'HDD.DRV', 0
-drv_t_hdd:   db 'Hard Drive', 0
+drv_t_hdd:   db 'Hard '         ; TWO LABELS OVER ONE `db`, and the second of
+fdlg_s_drive: db 'Drive', 0     ; them belongs to fdlg.inc - the Standard File
+                                ; dialog's Drive button. Nothing may be
+                                ; inserted between these two lines; the tail
+                                ; is here rather than there because this is
+                                ; the longer string, and both are .text =
+                                ; KERNEL_SEG so the offset means the same
+                                ; thing in each
                                 ; DEBUG.DRV's pair went with its row, and the
                                 ; monitor itself is gone now too (SPEC.md 58):
                                 ; nothing in the kernel named it and nothing
