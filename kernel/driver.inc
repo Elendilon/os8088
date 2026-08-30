@@ -2086,9 +2086,9 @@ drv_cp_name_x:
     push dx
     mov ah, DRV_CPNSZ
     mul ah
-    sub ax, DRV_CPNSZ           ; class 1 is slot 0
-    add ax, drv_cpname
-    mov si, ax
+    add ax, drv_cpname - DRV_CPNSZ  ; class 1 is slot 0, and the two adds fold:
+    mov si, ax                  ; drv_cpname is a `.bss` address well above 12,
+                                ; so the link-time constant cannot underflow
     pop dx
     pop ax
     ret

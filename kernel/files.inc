@@ -3100,15 +3100,27 @@ fm_onkey_x:
                                 ; ON this very key is '.' and a typed dot must
                                 ; never arm a delete (the SPEC.md 38 name box
                                 ; makes the same test for the same reason)
-    cmp ah, 0x48                ; Up
-    je .scr_up
-    cmp ah, 0x50                ; Down
-    je .scr_dn
-    cmp ah, 0x49                ; PgUp
-    je .scr_pgup
-    cmp ah, 0x51                ; PgDn
-    je .scr_pgdn
-    jmp .out
+    ; THE FOUR SCROLL KEYS ARE ONE EXPRESSION. Up is 0x48, PgUp 0x49, Down
+    ; 0x50, PgDn 0x51 - subtract 0x48 and the residues are 0, 1, 8 and 9, so
+    ; bit 0 says "a PAGE" and bit 3 says "DOWNWARD", and every other scan code
+    ; leaves a bit outside {1,8} set (checked over all 256). DL is free here:
+    ; the .mount path's `mov dl,` are earlier branches that never fall through,
+    ; fm_onkey_x pushes DX, and fm_layout preserves DX and AX
+    mov dl, ah
+    sub dl, 0x48
+    test dl, 0xF6
+    jnz .out
+    mov bx, si                  ; the scroll keys clamp against the live
+    call fm_layout              ; layout (fm_fit/fm_total); fm_scroll_by
+    mov ax, 1                   ; commits the mirror and draws what moved
+    test dl, 1                  ; ...a page, or one row
+    jz .scr_one
+    mov ax, [fm_fit]
+.scr_one:
+    test dl, 8                  ; ...downward, or up
+    jnz .scr_move
+    neg ax
+    jmp short .scr_move
 
 .editing:
     or al, al
@@ -3205,26 +3217,6 @@ fm_onkey_x:
     pop si
     jmp .out                    ; fm_docmd has already repainted
 
-.scr_up:
-    mov bx, si                  ; the scroll keys clamp against the live
-    call fm_layout              ; layout (fm_fit/fm_total); fm_scroll_by
-    mov ax, -1                  ; commits the mirror and draws what moved
-    jmp short .scr_move
-.scr_dn:
-    mov bx, si
-    call fm_layout
-    mov ax, 1
-    jmp short .scr_move
-.scr_pgup:
-    mov bx, si
-    call fm_layout
-    mov ax, [fm_fit]
-    neg ax
-    jmp short .scr_move
-.scr_pgdn:
-    mov bx, si
-    call fm_layout
-    mov ax, [fm_fit]
 .scr_move:                      ; SPEC.md 22.11, the fm_onclick .sb_move path
     call fm_scroll_by
     jc .redraw
@@ -6870,8 +6862,9 @@ fm_more_mark:
 ; -----------------------------------------------------------------------------
 ; fm_2line - does this editor mode put a line UP IN THE ROW AREA? (22.20.1)
 ; in:  AL = an FS_EDIT mode
-; out: CF = 1 if it draws a first line above the status line; all registers
-;      preserved
+; out: CF = 1 if it draws a first line above the status line. AL IS SPENT -
+;      4..7 is one range, so one unsigned compare answers it and the mode is
+;      what pays. Both callers overwrite AL on the next instruction
 ;
 ; ONE description, because two things have to agree about it and they are in
 ; different routines: fm_draw_status, which draws that line, and
@@ -6880,15 +6873,10 @@ fm_more_mark:
 ; 1, 2 and 3 are prompts that fit the status line itself.
 ; -----------------------------------------------------------------------------
 fm_2line:
-    cmp al, 4
-    jb .no
-    cmp al, 7                   ; 4..7: replace, format, the module swap and
-    ja .no                      ; the clone (SPEC.md 22.21.1)
-    stc
-    ret
-.no:
-    clc
-    ret
+    sub al, 4                   ; 4..7: replace, format, the module swap and
+    cmp al, 4                   ; the clone (SPEC.md 22.21.1). 0 -> 0xFC and
+    ret                         ; 8 -> 4 both leave CF=0; 4 -> 0 and 7 -> 3
+                                ; both leave CF=1
 
 ; -----------------------------------------------------------------------------
 ; fm_draw_lrows - the list rows [fm_rlo, fm_rhi), and nothing around them

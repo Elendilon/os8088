@@ -30997,7 +30997,8 @@ above it until something forced a whole repaint. Patching that one caller
 would have left the next one to find, so the refusal is in `fm_status_only`
 itself, at **both** edges: `[fm_2up]` says one is on the glass, and
 `fm_2line` — one description of which modes are two-line, shared with
-`fm_draw_status` — says one is about to be. Either way it answers `CF = 1`,
+`fm_draw_status`, and one unsigned compare rather than a range ladder, so it
+**clobbers AL** and answers in CF alone — says one is about to be. Either way it answers `CF = 1`,
 which its contract already means "the caller must repaint the whole window",
 and the whole window is the only thing that can erase a row-area line.
 

@@ -220,7 +220,7 @@ fdlg_open_x:
     push di
 
     cmp word [fdlg_win], 0
-    jne .refuse                 ; the gate is a single word on purpose: no
+    jne .ref                    ; the gate is a single word on purpose: no
                                 ; dialog ever opens on top of another
     mov [fdlg_rqcb], di
     mov [fdlg_rqwin], bx
@@ -228,9 +228,12 @@ fdlg_open_x:
 
     call KERNEL_SEG:cw_inst_win_owner ; DI = the owning record, or 0; BX preserved
     or di, di
-    jz .refuse
+    jz .ref
     cmp byte [di+I_STATE], 1
-    jne .refuse
+    je .okrq                    ; ...and all three refusals land on ONE near
+.ref:                           ; jmp: .refuse is 155..186 bytes away and the
+    jmp .refuse                 ; 8086 has no near `jcc`
+.okrq:
     mov [fdlg_rqrec], di
     mov ax, [di+I_SPTR]
     mov [fdlg_rqsp], ax
@@ -275,13 +278,13 @@ fdlg_open_x:
     call KERNEL_SEG:cw_wm_onmouseup ; 13.8.3) and follows the pointer between
     mov ax, fdlg_ondrag         ; the two edges - both are .text thunks,
     call KERNEL_SEG:cw_wm_ondrag ; because this module is .cold and wm_pkgcall
-                                ; dispatches a W_SEG-0 window NEAR
-    mov ax, fdlg_s_topen        ; (AX was the title and is spent above; it is
-    cmp byte [fdlg_mode], 0     ; rebuilt here rather than banked because the
-    je .rt                      ; two stores below want it and a push/pop
-    mov ax, fdlg_s_tsave        ; across two far calls is longer)
-.rt:
-    mov [bx+W_TITLE], ax
+                                ; dispatches a W_SEG-0 window NEAR. NO SECOND
+                                ; W_TITLE store: it used to re-derive the title
+                                ; from [fdlg_mode] and write it again here, and
+                                ; the two calls in between are the whole gap -
+                                ; wm_onmouseup and wm_ondrag are one store and
+                                ; a `ret` each, neither touches W_TITLE and
+                                ; both preserve BX
 %endif
 %ifdef WM_ANIM
     or word [bx+W_FLAGS], WF_NOANIM  ; SPEC.md 11.99.2: modal, and put up and
@@ -1267,10 +1270,9 @@ fdlg_defbtn:
     mov si, fdlg_s_save
 .lbl:
     call fdlg_actok
-    mov al, 0
-    adc al, 0                   ; AL = 1 refused, 0 live - and note ADC WRITES
-    mov [fdlg_actl], al         ; CF, so the carry the gate answered in is
-    mov ah, al                  ; gone by here, which is why the answer is
+    sbb al, al                  ; AL = 0xFF refused, 0 live - and note SBB
+    mov [fdlg_actl], al         ; WRITES CF, so the carry the gate answered in
+    mov ah, al                  ; is gone by here, which is why the answer is
                                 ; carried as a VALUE from here on rather than
                                 ; re-read from the flag (it used to be passed
                                 ; to gfx_pen_cf and drew the button live every
@@ -1489,9 +1491,8 @@ fdlg_paint_x:
     jne .hdr                    ; an empty folder that is not empty
     mov si, fdlg_s_nodisk
 .hdr:
-    mov cx, 30
-    mov dx, 6
-    call fdlg_text
+    mov cx, 30                  ; DX is still 6, from the drive letter sixteen
+    call fdlg_text              ; lines up - a real coupling, said out loud
 
     ; --- the list frame ---
     mov ax, FD_LX1
@@ -1592,9 +1593,11 @@ fdlg_draw_name:
     call KERNEL_SEG:cw_gfx_fill
     call fdlg_name_body
     call fdlg_actok             ; typing the first character, or deleting the
-    mov al, 0                   ; last one, makes the default button live or
-    adc al, 0                   ; dead - and this is the only path a keystroke
-    cmp al, [fdlg_actl]         ; takes. Redrawn on the EDGE only: every caret
+    sbb al, al                  ; last one, makes the default button live or
+                                ; dead - and this is the only path a keystroke
+    cmp al, [fdlg_actl]         ; takes. THE SAME ENCODING as fdlg_defbtn's,
+                                ; which is what this compares against.
+                                ; Redrawn on the EDGE only: every caret
     je .out                     ; move comes through here too, and a frame
     call fdlg_defbtn            ; plus a label per keypress is real money on
 .out:                           ; the machines this has to run on
@@ -2882,10 +2885,10 @@ fdlg_onclick_x:
     jmp short .out
 .rname:                         ; only the caret in the box moved
     call fdlg_draw_name
-    jmp short .out
-.redraw:
-    call fdlg_repaint           ; SI is still the window ptr
-.out:
+.out:                           ; (no `.redraw` arm here: nothing in this
+                                ; routine jumped to it. fdlg_onkey_x has its
+                                ; own live one, which is where it was copied
+                                ; from)
     pop di
     pop dx
     pop cx
