@@ -4431,7 +4431,7 @@ kmain:
 %endif
     MARK 28
 
-    call drv_boot               ; ...and load what SYSTEM.CFG asks for
+    OVLGATE1 drv_boot_x         ; ...and load what SYSTEM.CFG asks for
                                 ; (SPEC.md 51.3). Before the first paint, so
                                 ; a machine whose sound driver loads has
                                 ; sound from the first frame; nothing here
@@ -6017,8 +6017,9 @@ osapi_vol_paint:  call COLD_SEG:osapi_vol_paint_x
 ; drv_svc_call is called by snd_tick inside IRQ0, so it pays a far call 18.2
 ; times a second (54.6 under 53.2.1 FSXF_FASTTICK) - ~6us on a tick that has
 ; a whole 55ms, and it does nothing at all when no driver publishes a stream.
-drv_boot:      call COLD_SEG:drv_boot_x
-           ret
+; drv_boot's thunk is GONE (SPEC.md 2.5.2): the body is in the overlay and
+; kmain's one call site reaches it through OVLGATE1, which is the crossing the
+; thunk used to be.
 drv_svc_call:  call COLD_SEG:drv_svc_call_x
            ret
 drv_task:      call COLD_SEG:drv_task_x

@@ -50,6 +50,7 @@ drv_snd_sniff       kmain only (kernel.asm:4306) - what card is at 388h, SPEC.md
 # caller for every row and the closure walk that proved there is no other; what
 # is repeated here is the answer to this file's one question.
 sched_init          kmain only (kernel.asm:4170) - the task table and the int 08h hook, SPEC.md 8. Nothing re-initialises the scheduler: the reboot path is sched_unhook (a different routine, which RESTORES the vector) and sch_fast_on/sch_fast_off re-programme the PIT without reaching this body
+drv_boot_x          kmain only (kernel.asm) - SPEC.md 51.3: mount the settings volume, read SYSTEM.CFG, apply the adapter, load each wanted driver. Its `.text` thunk is deleted with the move, so this site is the only edge; drv_notice_x, which runs AFTER the first desktop paint and opens the Control Panel, stayed in `.cold`
 dsk_boot_from_x     kmain only (kernel.asm) - which volume the machine came off, SPEC.md 18.96, read out of the registers the boot sector left. dsk_bootltr moves with it and is named nowhere else: it stamps the letter into three fixed messages, once, and it stays stamped
 dsk_dpt_init_x      kmain only (kernel.asm) - int 1Eh becomes ours, SPEC.md 18.92. dsk_xfer READS the parameter table for the life of the machine; nothing rebuilds it
 dsk_flop_add_x      dsk_flop_add (kernel.asm) only, and that thunk's only caller is desk_init - which is ITSELF in `.ovl` already (ovl_desk_init above). SPEC.md 18.98: the BIOS floppies beyond A: and B:, counted once
@@ -70,15 +71,14 @@ sch_idle_start      kmain only (kernel.asm:4182) - spawns the idle task, docs/SC
 # released by the same spl_finish.  These are the phase captions, SPEC.md 15.6.
 ovl_spl_msg_mouse   kmain only (kernel.asm:4271) - "Mouse" caption
 ovl_spl_msg_fdd     kmain only (kernel.asm:4288) - "Drives" caption
-ovl_spl_msg_cfg     drv_boot_x only (driver.inc:3950) - "Settings" caption
-ovl_spl_msg_drv     drv_boot_x only (driver.inc:4047) - "Drivers" caption
-ovl_spl_msg_boot    drv_boot_x only (driver.inc:4057) - the final caption
+# ...and the three drv_boot_x reaches are GONE from this list, not deleted from
+# the kernel: drv_boot_x is inside `.ovl` now (SPEC.md 2.5.2), so the calls no
+# longer cross and there is nothing here to account for.
 ovl_spl_redraw      spl_reset only (splash.inc:488) - repaint after a mode set
 
 # --- the settings parser, SPEC.md 51.5 / docs/SETTINGS-COST.md -------------
-# Its whole reason for being in `.ovl` is that SYSTEM.CFG is read once, at
-# boot, by drv_boot_x - which is itself only reached from kmain.
-ovl_cfg_load        drv_boot_x only (driver.inc:3955) - reads SYSTEM.CFG once
+# ovl_cfg_load was here for the same reason and has left for the same one: its
+# only caller moved into the section with it.
 
 # --- not a call at all ------------------------------------------------------
 # kernel.asm:6008 `kbld_ovl: dw ovl_end` is the overlay's LENGTH, resolved by

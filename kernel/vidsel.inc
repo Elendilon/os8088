@@ -588,22 +588,30 @@ SPL_MSG_Y     equ 288           ; VGA: under the bar trough (rows 262..281) and
                                 ; computes its own from the live geometry
 
 ; -----------------------------------------------------------------------------
-; The three entries drv_boot reaches through OVLCALL, and the one spl_reset
-; does. Every one of them preserves every register and the flags.
+; The three drv_boot reaches, and the one spl_reset does. Every one of them
+; preserves every register and the flags.
+;
+; **THE FIRST THREE ARE NEAR NOW** (SPEC.md 2.5.2): drv_boot_x moved into this
+; same section, and it is their only caller, so what used to be a 20-byte
+; OVLCALL through spl_fp is three bytes of near call in one address space and
+; the `retf` they answered it with is a `ret`. That collapse is most of why
+; docs/LAST-DROP-BYTES.md row 1 is the only row in the register that returns
+; more than it spends. ovl_spl_redraw below keeps its `retf` - spl_reset is in
+; `.boot2` and reaches it through OVLCALL still.
 ; -----------------------------------------------------------------------------
 ovl_spl_msg_cfg:                ; 'Loading SYSTEM.CFG'
     push si
     mov si, spl_s_cfg
     call spl_msg_cs
     pop si
-    retf
+    ret
 
 ovl_spl_msg_boot:               ; 'Starting os8088'
     push si
     mov si, spl_s_boot
     call spl_msg_cs
     pop si
-    retf
+    ret
 
 ; ...and the two kmain reaches, for the phases that are NOT disk and are the
 ; longest things on a hard-disk boot's bar (SPEC.md 15.6.4). Each is composed
@@ -626,8 +634,8 @@ ovl_spl_msg_fdd:                ; 'Looking for Drives' - SPEC.md 18.97's TRACK
     retf
 
 ovl_spl_msg_drv:                ; AL = ordinal, AH = total, DS:SI = DRVR_TITLE
-    call spl_msg_drv
-    retf
+    call spl_msg_drv            ; ...and near too - see above
+    ret
 
 ovl_spl_redraw:                 ; put the composed line back after a mode set
     call spl_mdraw

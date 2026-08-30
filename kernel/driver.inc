@@ -3717,8 +3717,12 @@ CFG_BOOT   ovc
 ; is where the gate is given something to look at.
 ; -----------------------------------------------------------------------------
 ovl_cfg_load:
-    call ovc_load
-    retf
+    call ovc_load               ; NEAR, since SPEC.md 2.5.2: drv_boot_x is its
+    ret                         ; only caller and is in this section now, so the
+                                ; OVLCALLC that used to reach it - the one form
+                                ; that does NOT bank the flags, because this
+                                ; answers in CF - is three bytes of near call
+                                ; that never touched them
 
 ; -----------------------------------------------------------------------------
 ; drv_snd_sniff - is there an FM chip in this machine? (SPEC.md 51.3.1)
@@ -3902,6 +3906,28 @@ section .cold                   ; ...and back to cold code: drv_boot and
                                 ; drv_notice are the boot-time half, run once
                                 ; from kmain, and could not be more cold
 
+; =============================================================================
+; THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 1)
+;
+; drv_boot_x is the best row in the register and the only one better than 1:1,
+; because moving it COLLAPSES four gates rather than adding any. Four of its
+; five overlay entries - ovl_spl_msg_cfg, ovl_cfg_load, ovl_spl_msg_drv,
+; ovl_spl_msg_boot - have this body as their ONLY caller, so once the caller is
+; inside `.ovl` they are near calls in one address space and four 20-byte
+; OVLCALL/OVLCALLC sites become three bytes each. Their `retf` becomes `ret` in
+; the same edit, which is what SPEC.md 2.6.1 says about a thunk with nothing
+; left to thunk.
+;
+; The fifth, SPLCALL splf_reset, points into `.boot2` and stays as it is: the
+; two sections are one segment in practice and the gate refuses the crossing
+; anyway, deliberately (docs/LAST-DROP-BYTES.md 6.1).
+;
+; Outbound it needs NO new shim. drvf_drv_row, drvf_drv_load and
+; drvf_drv_mounted are already in `.cold` below, built for CTRL.DRV, and a far
+; call from the overlay is the same instruction the module makes.
+; =============================================================================
+section .ovl
+
 ; -----------------------------------------------------------------------------
 ; drv_boot - load every driver the settings file asks for
 ; in:  nothing
@@ -3924,12 +3950,12 @@ drv_boot_x:
     ; settings read are one phase from the user's side, so they get one line;
     ; it goes up BEFORE drv_mounted rather than after, because the mount is
     ; most of what it is announcing.
-    OVLCALL ovl_spl_msg_cfg
+    call ovl_spl_msg_cfg
 
     xor ch, ch                  ; CH = 1 once a settings RECORD has been read
-    call drv_mounted
+    call COLD_SEG:drvf_drv_mounted
     jc .nodisk
-    OVLCALLC ovl_cfg_load       ; CF = 1: no file, so every default stands -
+    call ovl_cfg_load       ; CF = 1: no file, so every default stands -
     jc .load                    ; and every default is now "not wanted", so
     mov ch, 1                   ; the loop below correctly loads nothing.
                                 ; OVLCALLC and never OVLCALL: the plain form
@@ -3997,7 +4023,7 @@ drv_boot_x:
     xor cl, cl
 .count:
     mov al, cl
-    call drv_row_x
+    call COLD_SEG:drvf_drv_row
     cmp word [bx+DRVR_FILE], 0
     je .cskip
     cmp byte [bx+DRVR_WANT], 0
@@ -4012,7 +4038,7 @@ drv_boot_x:
     xor cl, cl
 .next:
     mov al, cl
-    call drv_row_x
+    call COLD_SEG:drvf_drv_row
     cmp word [bx+DRVR_FILE], 0
     je .skip
     cmp byte [bx+DRVR_WANT], 0
@@ -4021,9 +4047,9 @@ drv_boot_x:
     mov al, dl
     mov ah, dh
     mov si, [bx+DRVR_TITLE]
-    OVLCALL ovl_spl_msg_drv
+    call ovl_spl_msg_drv
     mov al, cl
-    call drv_load_x
+    call COLD_SEG:drvf_drv_load
     jnc .skip
     mov byte [drv_nerr], 1      ; something to say once there is a screen
 .skip:
@@ -4031,7 +4057,7 @@ drv_boot_x:
     cmp cl, DRV_MAX
     jb .next
 
-    OVLCALL ovl_spl_msg_boot    ; the loads are done and the desktop is not up
+    call ovl_spl_msg_boot    ; the loads are done and the desktop is not up
                                 ; yet: xm_boot, the palette and the first
                                 ; wm_paint_all are still to come, and a line
                                 ; left naming a driver it has finished with is
@@ -4055,7 +4081,7 @@ drv_boot_x:
     xor cx, cx
 .dnext:
     mov al, cl
-    call drv_row_x
+    call COLD_SEG:drvf_drv_row
     cmp word [bx+DRVR_FILE], 0
     je .dskip
     cmp byte [bx+DRVR_WANT], 0
@@ -4090,6 +4116,9 @@ drv_boot_x:
 ; (SPEC.md 31.5): app_launch takes its own locks, so this must run with none
 ; held - which is why it is the last thing kmain does before ui_task.
 ; -----------------------------------------------------------------------------
+section .cold                   ; ...and back: drv_notice_x runs AFTER the first
+                                ; desktop paint and opens the Control Panel, so
+                                ; it is resident cold code and not this
 drv_notice_x:
     push ax
     cmp byte [drv_nerr], 0
