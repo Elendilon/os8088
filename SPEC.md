@@ -55936,7 +55936,8 @@ therefore name two drivers, and would hand each of them the other's settings
 the first time the cable wanted any. That is §18.7.3's `DV_CLASS` bug exactly:
 a structure that is one-of-a-kind by accident, meeting its second instance with
 no diagnostic between the cause and the symptom. `drv_row_ix_of` answers the
-question `drv_seg_scan` was already asking and throwing away.
+question `drv_seg_scan` was already asking and throwing away — so `drv_seg_scan`
+is gone, and `drv_owns_seg` walks `drv_tab` through this one.
 
 A published driver whose row is not in the map is **refused**, which is what
 every driver but the hard disk already got.
