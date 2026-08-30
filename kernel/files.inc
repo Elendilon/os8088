@@ -2009,6 +2009,29 @@ fm_bar_gate_x:
     retf
 
 ; -----------------------------------------------------------------------------
+; fm_ncpy - copy a NUL string into a bounded field, always NUL-terminated
+; in:  SI -> the string, DI -> the field, CX = the most characters it holds
+; out: DI at the stored NUL on the early-NUL path, AT the bound otherwise -
+;      which is what all five sites it replaces already did, and none of them
+;      reads DI afterwards. AX and CX clobbered
+;
+; lodsb needs DF=0, which SPEC.md 1 guarantees. NOT dsk_ncopy: that is a FLAT
+; COUNTED move and this stops at a NUL, which is a different question and
+; deliberately a different name.
+; -----------------------------------------------------------------------------
+fm_ncpy:
+.c:
+    lodsb
+    mov [di], al
+    inc di
+    or al, al
+    jz .d
+    loop .c
+    mov byte [di], 0
+.d:
+    ret
+
+; -----------------------------------------------------------------------------
 ; fm_seed - park a target directory for the next fm_kinit (SPEC.md 22.1)
 ; in:  AL = drive, DX = first cluster, SI = a NUL display name or 0
 ; out: nothing (all registers preserved)
@@ -2032,14 +2055,7 @@ fm_seed:
     mov di, fm_snam
     mov [fm_seed_nam], di
     mov cx, 16
-.cp:
-    lodsb                       ; DF=0 per SPEC.md 1
-    mov [di], al
-    inc di
-    or al, al
-    jz .out
-    loop .cp
-    mov byte [di], 0
+    call fm_ncpy                ; DF=0 per SPEC.md 1
 .out:
     pop di
     pop si
@@ -2521,6 +2537,26 @@ fm_paint_x:
     retf
 
 ; -----------------------------------------------------------------------------
+; fm_relayout - a SCREEN point, made content-relative, with the layout run
+; in:  BX = the window, CX = absolute x, DX = absolute y
+; out: CX = content-relative y, DX = content-relative x, and fm_layout's
+;      mirrors published. AX clobbered
+;
+; Three sites made this same conversion and then called fm_layout - a click, a
+; right-press and a drag drop. fm_layout preserves CX and DX, which is what
+; lets the answer come back in them.
+; -----------------------------------------------------------------------------
+fm_relayout:
+    push cx                     ; save the x...
+    mov cx, dx                  ; ...CX = the y
+    call KERNEL_SEG:cw_wm_content   ; AX = content left, DX = content top
+    sub cx, dx                  ; CX = content-relative y
+    pop dx
+    sub dx, ax                  ; DX = content-relative x
+    call fm_layout              ; BX = window ptr
+    ret
+
+; -----------------------------------------------------------------------------
 ; fm_onclick - W_ONCLICK for the Disk window
 ; in:  CX = x, DX = y (absolute), SI = window ptr (gfx lock held by caller)
 ; out: nothing
@@ -2585,13 +2621,8 @@ fm_onclick_x:
                                 ; screen coordinates and may end in another
                                 ; window entirely (SPEC.md 22.4)
     mov bx, si
-    push cx                     ; save click x
-    mov cx, dx                  ; CX = click y
-    call KERNEL_SEG:cw_wm_content ; AX = content left, DX = content top
-    sub cx, dx                  ; CX = content-relative y
-    pop dx
-    sub dx, ax                  ; DX = content-relative x
-    call fm_layout              ; BX = window ptr
+    call fm_relayout            ; CX = content-relative y, DX = x, and the
+                                ; layout mirrors published
 
 %ifdef KERN_BIG
     ; --- the two header buttons: the press ARMS and DRAWS, nothing more ---
@@ -3695,14 +3726,7 @@ fm_settitle:
     mov si, fm_s_folder
 .copy:
     mov cx, 15                  ; I_NAME is 16 bytes with a permanent NUL
-.ch:                            ; at byte 15 (SPEC.md 29.1)
-    lodsb                       ; DF=0 per SPEC.md 1
-    mov [di], al
-    inc di
-    or al, al
-    jz .out
-    loop .ch
-    mov byte [di], 0
+    call fm_ncpy                ; at byte 15 (SPEC.md 29.1)
 .out:
     pop di
     pop si
@@ -4214,14 +4238,7 @@ fm_fmt_home:
     mov di, si                  ; the Task Manager row all point at (29.1)
     mov si, fm_s_root
     mov cx, 15
-.ch:
-    lodsb                       ; DF=0 per SPEC.md 1
-    mov [di], al
-    inc di
-    or al, al
-    jz .titled
-    loop .ch
-    mov byte [di], 0
+    call fm_ncpy
 .titled:
     xor ax, ax
     call KERNEL_SEG:cw_wm_title_set
@@ -4577,16 +4594,10 @@ fm_img_done_x:
                                 ; refused as 'Not a disk image'
     mov si, fdlg_name           ; the name goes where the file API can read it
     mov di, clo_fnbuf           ; (SPEC.md 18.99.8): DS-relative, resident, and
-    mov cx, 13                  ; the one thing about this feature that is not
-.cp:                            ; in the image
-    mov bl, [si]                ; mov/inc, never movsb: wm_pkgcall does not
-    mov [di], bl                ; point ES anywhere for a KERNEL window's
-    or bl, bl                   ; callback - it is the PACKAGE path that does
-    jz .named                   ; (SPEC.md 38.6)
-    inc si
-    inc di
-    loop .cp
-    mov byte [di], 0
+    push ax                     ; the one thing about this feature that is not
+    mov cx, 13                  ; in the image. AL is the Open/Save flag and
+    call fm_ncpy                ; fm_ncpy walks with lodsb, so it is banked
+    pop ax
 .named:
     pop dx                      ; ...and the size back
     pop cx
@@ -4954,13 +4965,7 @@ fm_rclick_x:
                                 ; works in content coordinates
 
     mov bx, si                  ; the same content-relative transform
-    push cx                     ; fm_onclick makes: save press x...
-    mov cx, dx                  ; CX = press y
-    call KERNEL_SEG:cw_wm_content ; AX = content left, DX = content top
-    sub cx, dx                  ; CX = content-relative y
-    pop dx
-    sub dx, ax                  ; DX = content-relative x
-    call fm_layout              ; BX = window ptr; publishes the mirrors
+    call fm_relayout            ; fm_onclick makes, publishing the mirrors
                                 ; fm_hit reads
 
     call fm_hit                 ; AX = directory index, CF = 1 = not a row
@@ -5783,19 +5788,12 @@ fm_dgdrop:
     cmp byte [di+I_KIND], KIND_FILES
     jne .out
 
-    push cx                     ; content-relative, for fm_hit
-    push dx
-    call KERNEL_SEG:cw_wm_content ; AX = content left, DX = content top
-    pop cx                      ; CX = click y
-    sub cx, dx
-    pop dx                      ; DX = click x
-    sub dx, ax
-    push cx
-    push dx
-    call fm_vp_set              ; BX is still the window: publish it, so
-    call fm_layout              ; fm_hit reads THAT window's mirrors
-    pop dx
-    pop cx
+    call fm_relayout            ; content-relative, for fm_hit - and BX is
+                                ; still the window, so fm_layout's own first
+                                ; act (fm_vp_set) publishes THAT window's
+                                ; mirrors. This site called fm_vp_set itself
+                                ; immediately beforehand, which was the same
+                                ; call twice
 
     mov di, [fm_vp]
     mov al, [di+FS_DRV]
@@ -6066,14 +6064,7 @@ fm_stage_onam:
     mov si, fm_name
     mov di, fm_onam
     mov cx, 12                  ; a display name is 12 chars at most (19)
-.cp:
-    lodsb                       ; DF=0 per SPEC.md 1
-    mov [di], al
-    inc di
-    or al, al
-    jz .typed
-    loop .cp
-    mov byte [di], 0
+    call fm_ncpy
 .typed:
     mov byte [fm_odir], 0
     cmp word [fm_ftype], 2
@@ -7611,11 +7602,7 @@ fm_draw_status:
     mov si, fm_s_repq
     call fm_scat
     mov byte [di], 0
-    mov dx, [fm_cy]
-    add dx, [fm_staty]
-    sub dx, FM_STAT2_DY
-    call fm_stat_row
-    mov di, fm_hdrbuf           ; ...and line two, the answers, where every
+    call fm_staty2              ; ...and line two, the answers, where every
     mov si, fm_s_repk           ; other status line goes
     jmp .fs_stat                ; NEAR: the format question below sits between
                                 ; here and .fs_stat
@@ -7633,11 +7620,7 @@ fm_draw_status:
 .fs_st_fmt:
     xor al, al                  ; line one, in the row area
     call dskw_fmt_line
-    mov dx, [fm_cy]
-    add dx, [fm_staty]
-    sub dx, FM_STAT2_DY
-    call fm_stat_row
-    mov di, fm_hdrbuf           ; ...and line two, the answers, where every
+    call fm_staty2              ; ...and line two, the answers, where every
     mov al, 1                   ; other status line goes
     call dskw_fmt_line
     jmp .fs_stat_drawn
@@ -7666,11 +7649,7 @@ fm_draw_status:
     call fm_scat
 .fs_swaprow:
     mov byte [di], 0
-    mov dx, [fm_cy]
-    add dx, [fm_staty]
-    sub dx, FM_STAT2_DY
-    call fm_stat_row
-    mov di, fm_hdrbuf
+    call fm_staty2
     mov si, fm_s_swapk
     jmp .fs_stat
 
@@ -7684,11 +7663,7 @@ fm_draw_status:
 .fs_st_clone:
     xor al, al                  ; line one, in the row area
     call fm_cloline             ; ...and an EMPTY line, never the previous
-    mov dx, [fm_cy]             ; one, if the image cannot be re-read
-    add dx, [fm_staty]
-    sub dx, FM_STAT2_DY
-    call fm_stat_row
-    mov di, fm_hdrbuf           ; ...and line two, the keys, where every other
+    call fm_staty2              ; ...and line two, the keys, where every other
     mov al, 1                   ; status line goes
     call fm_cloline
     jmp short .fs_stat_drawn
@@ -7759,6 +7734,23 @@ fm_draw_status:
 ; safe answer left was to repaint the whole window. font_run takes both
 ; decisions per cell at once, so the caller cannot produce that failure and
 ; needs no gate.
+; -----------------------------------------------------------------------------
+; fm_staty2 - draw the FIRST of a two-line prompt, and re-stage the buffer
+; in:  fm_hdrbuf holds line one; [fm_cy]/[fm_staty] locate the status area
+; out: DI = fm_hdrbuf, ready for line two. DX clobbered
+;
+; Every two-line prompt - replace, format, disk swap, clone - drew line one in
+; the row area and then restaged, in the same five instructions. fm_stat_row
+; never writes DI (it walks fm_hdrbuf with BX), and this reloads it anyway.
+; -----------------------------------------------------------------------------
+fm_staty2:
+    mov dx, [fm_cy]
+    add dx, [fm_staty]
+    sub dx, FM_STAT2_DY
+    call fm_stat_row
+    mov di, fm_hdrbuf
+    ret
+
 ; -----------------------------------------------------------------------------
 ; fm_stat_row is the same line drawn UP IN THE ROW AREA - line one of a
 ; two-line prompt (SPEC.md 22.20.1) - and the whole difference is that the
@@ -7878,33 +7870,15 @@ fm_kbfig:
 ; Digits are pushed least-significant first, then popped in print order.
 ; -----------------------------------------------------------------------------
 fm_utoa:
-    push ax
-    push bx
-    push cx
-    push dx
-
-    mov bx, 10
-    xor cx, cx                  ; CX = digit count
-.div:
-    xor dx, dx
-    div bx                      ; AX = quotient, DX = remainder
-    add dl, '0'
-    push dx
-    inc cx
-    test ax, ax
-    jnz .div
-.emit:
-    pop ax
-    mov [di], al
-    inc di
-    loop .emit
-    mov byte [di], 0
-
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    push dx                     ; ...and fm_ultoa's own header already says it
+    xor dx, dx                  ; is "fm_utoa's shape with the 32-bit divide
+    call fm_ultoa_x             ; done in two steps". This makes that literal:
+    pop dx                      ; a word IS a dword with a zero high half. The
+    ret                         ; push is what keeps "clobbers DI only" true -
+                                ; fm_ultoa_x preserves DX, but the zero here
+                                ; is this routine's own. Five digits cost five
+                                ; extra `div r16` (~168 us) against a repaint
+                                ; whose single text row is 71 ms
 
 ; -----------------------------------------------------------------------------
 ; fm_ultoa - unsigned dword to decimal ASCII, no leading zeros
