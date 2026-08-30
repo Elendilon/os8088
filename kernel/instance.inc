@@ -837,6 +837,27 @@ inst_ptr:
     ret
 
 ; -----------------------------------------------------------------------------
+; inst_idx - inst_ptr's inverse (SPEC.md 29.4)
+; in:  DI = record ptr
+; out: AX = the instance index, AH = 0
+; clobbers: nothing else - CX INCLUDED, because five of the sites this
+;           replaces banked CX only for the shift count
+;
+; I_RECSZ is a power of two by construction and this is where that is spelled.
+; Six routines in five files wrote the same four instructions out - and three
+; of them carried the same `; I_RECSZ = 32` comment, which is a duplicate
+; asking to be one.
+; -----------------------------------------------------------------------------
+inst_idx:
+    push cx
+    mov ax, di
+    sub ax, inst_tab
+    mov cl, 5
+    shr ax, cl
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
 ; inst_of_win - find the instance owning a window
 ; in:  BX = window ptr (record-aligned)
 ; out: CF = 0, DI = instance record ptr; CF = 1 if the window is unowned
@@ -1194,10 +1215,7 @@ inst_bind_win:
     push cx
     push si
     mov [di+I_WIN], bx
-    mov ax, di                  ; record index = (DI - inst_tab) / 32
-    sub ax, inst_tab
-    mov cl, 5
-    shr ax, cl
+    call inst_idx               ; AX = this record's instance index
     push ax
     call wm_ptr2idx             ; AL = window index, AH = 0
     mov si, ax
@@ -1632,10 +1650,7 @@ inst_an_tile:
     push bx
     push cx
     push dx
-    mov ax, di                  ; slot = (record - inst_tab) / I_RECSZ, which
-    sub ax, inst_tab            ; is a shift: I_RECSZ is 32 by construction
-    mov cl, 5
-    shr ax, cl
+    call inst_idx               ; AX = this record's instance index
     mov cx, ax
     call dock_tile_rect         ; AX/BX/CX/DX
     mov [wm_an_d], ax

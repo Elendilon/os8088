@@ -606,21 +606,16 @@ toast_owner_gone:
                                 ; the instance compare must not race a fresh
                                 ; toast_show from another task
     push ax
-    push cx
     cmp byte [toast_on], 0
     jne .chk
     cmp byte [toast_want], 0
     je .out
 .chk:
-    mov ax, di
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl
+    call inst_idx               ; AL = this record's instance index
     cmp al, [toast_inst]
     jne .out
-    call toast_kill
-.out:
-    pop cx
+    call toast_kill             ; ...which preserves every register and the
+.out:                           ; flags, so CX needs no banking here either
     pop ax
     popf
     ret

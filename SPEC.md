@@ -36362,6 +36362,7 @@ init-less:
 |--------|----------|
 | `inst_init` | zero `inst_tab` + `inst_launch`. From kmain, after wm_init. |
 | `inst_ptr` | in AL = instance index; out DI = record ptr. |
+| `inst_idx` | its inverse: in DI = record ptr; out AX = instance index (AH = 0 — the table is `INST_MAX` records of `I_RECSZ`, so the quotient never leaves a byte). Preserves every other register including CX, because five of its callers banked CX only for the shift count the open-coded form needed. `I_RECSZ` is a power of two by construction and this is the one place that fact is spelled. |
 | `inst_of_win` | in BX = window ptr; out CF=0 + DI = record (via `wm_ptr2idx` + `wm_owner`), CF=1 if unowned. Preserves BX. |
 | `inst_win_owner` | in BX = window ptr; out DI = record ptr, or **0** if unowned. `inst_of_win` with the CF case folded into the result, so a caller can stash one word across a callback. Preserves BX. |
 | `inst_charge` | in DI = record (non-zero), DX:AX = a `task_cycles` stamp (§8.1): `task_debit`, then add the returned cycles to I_CYC. Preserves all registers. Called only by the W_PAINT / W_ONKEY / W_ONCLICK dispatch sites (§11/§13), which hold the gfx lock — and a task-owned instance destroys its window, clearing `wm_owner`, under that same lock before its record is freed (29.2), so the record named by wm_owner stays live for the whole charged stretch. |

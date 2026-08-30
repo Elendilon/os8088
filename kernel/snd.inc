@@ -655,11 +655,8 @@ snd_release_inst:
 snd_release_rec:
     push ax
     push cx
-    mov ax, di
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl
-    call snd_release_inst       ; in: AL = instance slot
+    call inst_idx               ; AL = instance slot
+    call snd_release_inst
     pop cx
     pop ax
     ret
@@ -681,21 +678,16 @@ snd_release_rec:
 ; -----------------------------------------------------------------------------
 snd_disp_set:
     push ax
-    push cx
-    mov ax, di
-    or ax, ax
+    or di, di
     jz .none
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl
-    jmp .store
+    call inst_idx               ; AL = instance slot; CX comes back ours
+    jmp short .store
 .none:
     mov al, 0xFF
 .store:
     mov ah, [sch_cur]           ; ...and WHICH TASK stamped it, so that a
     mov [snd_inst], ax          ; worker pre-empting this callback mid-flight
-    pop cx                      ; cannot inherit the stamp (SPEC.md 34.3)
-    pop ax
+    pop ax                      ; cannot inherit the stamp (SPEC.md 34.3)
     ret
 
 ; =============================================================================

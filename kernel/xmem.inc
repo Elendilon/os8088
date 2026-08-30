@@ -550,10 +550,7 @@ xm_release_rec:
     push bx
     push cx
     push bp
-    mov ax, di
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl                  ; AL = the instance slot
+    call inst_idx               ; AL = the instance slot
     mov bp, [xm_svc+XMV_RELINST]
     call xm_dsp
     pop bp
