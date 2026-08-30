@@ -374,7 +374,7 @@ ui_task:
     cmp al, ah
     jne .yield                  ; ...or the other box on the same title bar
     call gfx_lock
-    test word [si + W_FLAGS], 2 ; the window can have gone between the two
+    test byte [si + W_FLAGS], 2 ; the window can have gone between the two
     jz .mup_done                ; passes - a package worker reaching
                                 ; inst_task_die, or a command off its own bar.
                                 ; wm_hit has answered already, so this is the
@@ -394,7 +394,7 @@ ui_task:
 
 .mup_pkg:                       ; SPEC.md 13.7 - the package's release
     call gfx_lock
-    test word [si + W_FLAGS], 2 ; ...unless the window went away between the
+    test byte [si + W_FLAGS], 2 ; ...unless the window went away between the
     jz .mup_pdone               ; two passes, which a worker can do
     mov bp, [si + W_ONMOUSEUP]
     or bp, bp
@@ -412,7 +412,7 @@ ui_task:
     mov si, bx                  ; keep the hit window; wm_top returns in BX
     call ui_tdbl                ; the second press on THIS title bar inside
     jnc .tb_raise               ; UI_TDBLT ticks ZOOMS it (SPEC.md 11.95)
-    test word [si+W_FLAGS], WF_SIZABLE
+    test byte [si+W_FLAGS], WF_SIZABLE
     jz .tb_raise                ; ...if it is resizable. A fixed-layout window
                                 ; has nothing to zoom into, so the press stays
                                 ; an ordinary one and drags as before
@@ -849,7 +849,7 @@ ui_timer_pass:
     mov si, wm_wins
     mov cx, MAX_WIN
 .next:
-    test word [si+W_FLAGS], 1   ; used? a destroyed record is skipped before
+    test byte [si+W_FLAGS], 1   ; used? a destroyed record is skipped before
     jz .step                    ; its handler word is even read
     mov ax, [si+W_TIMER]
     or ax, ax
@@ -961,7 +961,7 @@ ui_arm_trk:
     push bp
     push di                     ; ui_ptcall leaves the owning record here
     mov si, [ui_armw]
-    test word [si + W_FLAGS], 2 ; the window can have gone between two passes -
+    test byte [si + W_FLAGS], 2 ; the window can have gone between two passes -
     jz .pout                    ; a package worker reaching inst_task_die, or a
                                 ; second window destroyed inside W_ONCLICK.
                                 ; wm_destroy does not clear W_ONDRAG any more
@@ -1023,7 +1023,7 @@ ui_lit_go:
     jz .none
     cmp byte [ui_armr], 0
     je .none                    ; region 0: nothing was ever drawn
-    test word [si+W_FLAGS], 2
+    test byte [si+W_FLAGS], 2
     jz .none                    ; the window has gone, and its pixels with it
     cmp al, [ui_armlit]
     je .out                     ; already in that state
@@ -2128,7 +2128,7 @@ ui_dispatch:
     mov bx, [menu_win]          ; the lock dropped between menu_track and
     or bx, bx                   ; here, so the window that owned the bar may
     jz .apc_done                ; be gone: the same re-check .app makes below,
-    test word [bx + W_FLAGS], 2 ; and for the same reasons
+    test byte [bx + W_FLAGS], 2 ; and for the same reasons
     jz .apc_done
     call app_close_win          ; in: BX; lock held, UI task (SPEC.md 29.4).
                                 ; Unbilled, like the close box - and here it
@@ -2151,7 +2151,7 @@ ui_dispatch:
     mov bx, [menu_win]          ; the lock dropped between menu_track and
     or bx, bx                   ; here, so re-check the owner before calling
     jz .app_done                ; into it. This guard used to be unreachable
-    test word [bx + W_FLAGS], 2 ; insurance once - the old reasoning was
+    test byte [bx + W_FLAGS], 2 ; insurance once - the old reasoning was
     jz .app_done                ; "only packages reach this path, and
                                 ; packages had no tasks then", false twice
                                 ; over now. Locator's fm_menus made it

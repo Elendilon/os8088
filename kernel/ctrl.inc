@@ -894,7 +894,7 @@ cp_tick_due_x:
     call KERNEL_SEG:cw_inst_find_kind         ; CF = 1: no live Control Panel
     jc .no
     mov bx, [di+I_WIN]
-    test word [bx+W_FLAGS], 2   ; visible?
+    test byte [bx+W_FLAGS], 2   ; visible?
     jz .no
     stc
     jmp .out
@@ -3426,7 +3426,7 @@ cp_tick_x:
     call KERNEL_SEG:cw_inst_find_kind         ; CF = 1: no live Control Panel
     jc .out
     mov bx, [di+I_WIN]
-    test word [bx+W_FLAGS], 2   ; visible?
+    test byte [bx+W_FLAGS], 2   ; visible?
     jz .out
     call KERNEL_SEG:cw_wm_obscured
     jc .out

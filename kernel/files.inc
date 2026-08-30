@@ -1930,7 +1930,7 @@ fm_front_win:
     dec si                      ; front to back (SPEC.md 11)
     mov al, [si]
     call KERNEL_SEG:cw_wm_idx2ptr ; BX = window ptr
-    test word [bx+W_FLAGS], 2   ; visible?
+    test byte [bx+W_FLAGS], 2   ; visible?
     jz .cont
     cmp word [bx+W_MENUS], fm_menus
     je .found
@@ -5933,7 +5933,7 @@ fmv_repaint_all:
     push cx
     push si
     call KERNEL_SEG:cw_wm_idx2ptr ; BX = the window record
-    test word [bx+W_FLAGS], 2   ; hidden windows have no pixels to correct
+    test byte [bx+W_FLAGS], 2   ; hidden windows have no pixels to correct
     jz .next
     call KERNEL_SEG:cw_inst_win_owner ; DI = its instance, 0 = unowned
     or di, di

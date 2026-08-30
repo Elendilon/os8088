@@ -440,7 +440,7 @@ menu_check:
     mov bx, [menu_win]
     or bx, bx
     jz .out
-    test word [bx + W_FLAGS], 2 ; still visible?
+    test byte [bx + W_FLAGS], 2 ; still visible?
     jnz .out
     call wm_top                 ; BX = the window promoted in its place, or
     call menu_activate          ; 0 = nothing visible = Locator (CF ignored:
