@@ -4200,7 +4200,7 @@ kmain:
                                 ; ticking until spl_finish below (15.3)
     MARK 8
 %ifdef KERN_BIG
-    call vid_ctx_init           ; ...and bank that geometry as display 0's
+    OVLGATE1 vid_ctx_init       ; ...and bank that geometry as display 0's
                                 ; (SPEC.md 39.12). AFTER vid_apply and never
                                 ; FROM it: vid_apply runs from the splash while
                                 ; the rest of the kernel is still coming off
@@ -4208,7 +4208,7 @@ kmain:
                                 ; vidsel.inc executes what has not loaded yet
 %endif
     MARK 9
-    call vid_probe_avail        ; ...and which OTHER adapters this machine has
+    OVLGATE1 vid_probe_avail    ; ...and which OTHER adapters this machine has
                                 ; (SPEC.md 39.11.1). AFTER the mode is set, and
                                 ; that is the whole correctness argument: a VGA
                                 ; in mode 12h decodes A000 only, so B000 and
@@ -5613,6 +5613,15 @@ cw_vid_disp_init:       call vid_disp_init
 cw_vid_dual_ok:         call vid_dual_ok
                     retf
 cw_vid_span_one:        call vid_span_one
+                    retf
+; ...and these two are the BOOT OVERLAY's, not cold code's: vid_ctx_init went
+; into `.ovl` (docs/LAST-DROP-BYTES.md row 13) and calls both. They are `cw_`
+; rather than `ovw_` for the reason the clock's pair is - `ovw_` names the
+; overlay, and what these actually name is "resident, reached from another
+; address space", which is the same shim whichever side asks.
+cw_vid_ctx_ptr:         call vid_ctx_ptr
+                    retf
+cw_vid_ctx_capture:     call vid_ctx_capture
                     retf
 %endif
 cw_wm_clip_clear:        call wm_clip_clear
