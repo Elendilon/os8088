@@ -1,0 +1,66 @@
+# tests/ovlrefs.txt - every reference from outside `.ovl` INTO it, and the
+# reason each one is safe.  Enforced by tools/os88ovlchk.py rule 2c.
+#
+# WHY THIS FILE EXISTS
+#
+# `.ovl` is the boot overlay.  It rides inside the stage-2 blob and is GIVEN
+# BACK TO THE HEAP at spl_finish (kernel/kernel.asm: "It costs no RAM after
+# that at all, and - this is the point -").  That is what makes it the right
+# home for boot-only code: those bytes stop costing anything the moment the
+# desktop is up, where the same code in `.cold` is resident for the life of
+# the machine.
+#
+# The price is that a body in `.ovl` is correct only as long as EVERY path
+# that reaches it runs before spl_finish.  Add one runtime caller and the
+# call lands in whatever the heap handed out instead - so the routine appears
+# to work until the machine is busy enough for that claim to be something
+# else.  No crash, no message, and nothing in this tree caught it: the
+# assembler is happy, `dispcold` byte-compares `.cold` and has no `.ovl`
+# counterpart, and a screenshot shows a working desktop.
+#
+# So the surface is registered rather than trusted, the way SPEC.md 6.6's
+# transparent-text sites are.  A NEW reference fails the build until somebody
+# writes down the answer to one question:
+#
+#     WHAT GUARANTEES THIS RUNS BEFORE spl_finish?
+#
+# "It looks like boot code" is not an answer.  Name the caller.
+#
+# The list may shrink freely - delete the row with the code.  A row here that
+# no longer has a reference is itself a build failure, so the file cannot rot
+# into a list of names nobody can account for.
+#
+# FORMAT: <symbol>   <the guarantee>
+
+# --- reached from kmain, which runs once and returns into the scheduler -----
+# kernel/kernel.asm:4086-4315.  kmain IS the boot path; there is no second
+# entry to it, and every one of these is called before spl_finish releases the
+# blob a few hundred lines later in the same routine.
+ovl_cpu_detect      kmain only (kernel.asm:4086) - CPU tier + A20, SPEC.md 41.1-41.3
+ovl_xm_sniff        kmain only (kernel.asm:4102) - the XMS probe, SPEC.md 41.4
+ovl_clk_init        kmain only (kernel.asm:4145) - the clock ladder's boot rung, SPEC.md 37
+ovl_font_init       kmain only (kernel.asm:4236) - builds the glyph tables, SPEC.md 6
+ovl_desk_init       kmain only (kernel.asm:4294) - first desktop paint, SPEC.md 14
+ovl_snd_init        kmain only (kernel.asm:4315) - sound layer bring-up, SPEC.md 34
+drv_snd_sniff       kmain only (kernel.asm:4306) - what card is at 388h, SPEC.md 51.3.1
+
+# --- the loading screen's own captions, drawn while the blob is still live --
+# The splash is IN the blob (`.boot2`), so it cannot outlive `.ovl`: both are
+# released by the same spl_finish.  These are the phase captions, SPEC.md 15.6.
+ovl_spl_msg_mouse   kmain only (kernel.asm:4271) - "Mouse" caption
+ovl_spl_msg_fdd     kmain only (kernel.asm:4288) - "Drives" caption
+ovl_spl_msg_cfg     drv_boot_x only (driver.inc:3950) - "Settings" caption
+ovl_spl_msg_drv     drv_boot_x only (driver.inc:4047) - "Drivers" caption
+ovl_spl_msg_boot    drv_boot_x only (driver.inc:4057) - the final caption
+ovl_spl_redraw      spl_reset only (splash.inc:488) - repaint after a mode set
+
+# --- the settings parser, SPEC.md 51.5 / docs/SETTINGS-COST.md -------------
+# Its whole reason for being in `.ovl` is that SYSTEM.CFG is read once, at
+# boot, by drv_boot_x - which is itself only reached from kmain.
+ovl_cfg_load        drv_boot_x only (driver.inc:3955) - reads SYSTEM.CFG once
+
+# --- not a call at all ------------------------------------------------------
+# kernel.asm:6008 `kbld_ovl: dw ovl_end` is the overlay's LENGTH, resolved by
+# the assembler and consumed by the build.  No code reaches it and none can:
+# it is a number in a table, not an entry point.
+ovl_end             kernel.asm:6008 - a build-time size constant, never called
