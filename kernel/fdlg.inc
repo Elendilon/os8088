@@ -898,48 +898,21 @@ fdlg_rows:
 ; -----------------------------------------------------------------------------
 fdlg_sizeof:
     push ax
-    push bx
     push si
     push di
     xor cx, cx                  ; the not-found answer
     xor dx, dx
-    call fdlg_rows              ; AX = how many entries this listing has
-    or ax, ax
-    jz .out
-    mov bx, ax
-    xor ax, ax
-.each:
-    call fdlg_stage             ; fdlg_row / fdlg_type / fdlg_size
-    cmp word [fdlg_type], 2     ; a folder has no size to report
-    jae .next
-    push ax
-    mov si, fdlg_row            ; case-sensitive is right: both sides are the
-    mov di, fdlg_name           ; mount's own 8.3 display form (SPEC.md 19)
-.cmp:
-    mov al, [si]
-    cmp al, [di]
-    jne .nomatch
-    or al, al
-    jz .match
-    inc si
-    inc di
-    jmp short .cmp
-.nomatch:
-    pop ax
-    jmp short .next
-.match:
-    pop ax
-    mov cx, [fdlg_size]
-    mov dx, [fdlg_sizeh]
-    jmp short .out
-.next:
-    inc ax
-    cmp ax, bx
-    jb .each
+    mov si, fdlg_name           ; case-sensitive is right: both sides are the
+    call dsk_find_name_x        ; mount's own 8.3 display form (SPEC.md 19),
+    jc .out                     ; and THIS IS THE SAME LISTING WALK the module
+    call dsk_get_dir_x          ; already borrows for fdlg_findname - it was
+    cmp word [si+16], 2         ; fdlg_rows, fdlg_stage per entry and a compare
+    jae .out                    ; loop, to read a size out of the entry it had
+    mov cx, [si+20]             ; just staged. A folder has no size to report;
+    mov dx, [si+22]             ; the size dword is at offsets 20/22
 .out:
     pop di
     pop si
-    pop bx
     pop ax
     ret
 
@@ -1850,17 +1823,15 @@ fdlg_sel_bar:
 ; -----------------------------------------------------------------------------
 fdlg_sbset:
     push ax
-    mov ax, [fdlg_cx]
-    add ax, FD_SBX
-    mov [os88ui_ksb+0], ax
-    mov ax, [fdlg_cx]
-    add ax, FD_LX2
+    mov ax, [fdlg_cx]           ; the second corner CHAINS off the first: both
+    add ax, FD_SBX              ; deltas are imm8, so the add stays three
+    mov [os88ui_ksb+0], ax      ; bytes where the reload was six
+    add ax, FD_LX2-FD_SBX
     mov [os88ui_ksb+4], ax
     mov ax, [fdlg_cy]
     add ax, FD_LY1
     mov [os88ui_ksb+2], ax
-    mov ax, [fdlg_cy]
-    add ax, FD_LY2
+    add ax, FD_LY2-FD_LY1
     mov [os88ui_ksb+6], ax
     call fdlg_rows
     mov [os88ui_ksb+8], ax      ; total
@@ -1907,18 +1878,8 @@ fdlg_repaint:
     push bx
     push cx
     push dx
-    mov bx, si
-    call KERNEL_SEG:cw_wm_content ; AX = x1, DX = y1
-    mov cx, [bx+W_X]
-    add cx, [bx+W_W]
-    sub cx, 2                   ; CX = x2
-    push dx
-    mov dx, [bx+W_Y]
-    add dx, [bx+W_H]
-    sub dx, 2                   ; DX = y2
-    pop bx                      ; BX = y1
-    mov byte [gfx_color], CWHITE
-    call KERNEL_SEG:cw_gfx_fill
+    call fm_cfill               ; files.inc's, and this was its twelve
+                                ; instructions to the byte (the Note Pad idiom)
     call fdlg_paint_x           ; SI is still the window
     pop dx
     pop cx
@@ -2106,33 +2067,9 @@ fdlg_findname:
     stc                         ; the folder with dskw_mkdir_x and remounted
     jmp short .out
 
-; -----------------------------------------------------------------------------
-; fdlg_streq - do the NUL strings at DS:SI and DS:DI match? (internal)
-; out: CF=0 = equal; preserves all registers
-; -----------------------------------------------------------------------------
-fdlg_streq:
-    push ax
-    push si
-    push di
-.c:
-    mov al, [si]
-    cmp al, [di]
-    jne .no
-    or al, al
-    jz .yes
-    inc si
-    inc di
-    jmp short .c
-.no:
-    stc
-    jmp short .out
-.yes:
-    clc
-.out:
-    pop di
-    pop si
-    pop ax
-    ret
+; dsk_streq is disk.inc's, and it is the body this used to carry: three
+; modules compare two NUL strings in the kernel segment and disk.inc is the
+; first `.cold` %include, so every one of them reaches it backwards.
 
 ; -----------------------------------------------------------------------------
 ; fdlg_dive - enter the staged row's directory and repaint (internal)

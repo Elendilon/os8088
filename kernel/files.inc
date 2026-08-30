@@ -5378,7 +5378,7 @@ fm_editkey:
 ; -----------------------------------------------------------------------------
 ; fm_samename - is the typed name the one it already has? (SPEC.md 22.10)
 ; in:  fm_ebuf, fm_onam
-; out: CF = 0 if identical - fdlg_streq's polarity, which is the body it now
+; out: CF = 0 if identical - dsk_streq's polarity, which is the body it now
 ;      IS. SI and DI are the ones it was GIVEN, so the caller's are gone; its
 ;      one caller reloads both two instructions later
 ;
@@ -5389,9 +5389,9 @@ fm_editkey:
 ; Uppercase-exact: both sides are 19.1 display names, sanitized alike.
 ; -----------------------------------------------------------------------------
 fm_samename:
-    mov si, fm_ebuf             ; ...which is fdlg_streq with its two operands
+    mov si, fm_ebuf             ; ...which is dsk_streq with its two operands
     mov di, fm_onam             ; hardwired, byte for byte (fdlg.inc)
-    jmp fdlg_streq
+    jmp dsk_streq
 
 ; -----------------------------------------------------------------------------
 ; fm_hasdot - does the name being typed already carry a '.'? (internal)
@@ -6262,6 +6262,31 @@ fm_edit_end:
     ret
 
 ; -----------------------------------------------------------------------------
+; fm_cfill - white-fill SI's own content box (the Note Pad idiom, SPEC.md 11)
+; in:  SI = the window; the gfx lock held
+; out: nothing useful; AX, BX, CX and DX clobbered - both callers bank all four
+;      and both re-set BX immediately afterwards
+;
+; A SELF-INITIATED repaint has to do this because wm_paint_all is not doing it.
+; fdlg_repaint's copy was these twelve instructions to the byte, comments and
+; all.
+; -----------------------------------------------------------------------------
+fm_cfill:
+    mov bx, si
+    call KERNEL_SEG:cw_wm_content ; AX = x1, DX = y1
+    mov cx, [bx+W_X]
+    add cx, [bx+W_W]
+    sub cx, 2                   ; CX = x2
+    push dx
+    mov dx, [bx+W_Y]
+    add dx, [bx+W_H]
+    sub dx, 2                   ; DX = y2
+    pop bx                      ; BX = y1
+    mov byte [gfx_color], CWHITE
+    call KERNEL_SEG:cw_gfx_fill
+    ret
+
+; -----------------------------------------------------------------------------
 ; fm_repaint - white-fill own content, then redraw everything
 ; in:  SI = window ptr (gfx lock held by caller)
 ; out: nothing
@@ -6303,18 +6328,7 @@ fm_repaint:
 
     call fm_title_flush
 
-    mov bx, si
-    call KERNEL_SEG:cw_wm_content ; AX = x1, DX = y1
-    mov cx, [bx+W_X]
-    add cx, [bx+W_W]
-    sub cx, 2                   ; CX = x2
-    push dx
-    mov dx, [bx+W_Y]
-    add dx, [bx+W_H]
-    sub dx, 2                   ; DX = y2
-    pop bx                      ; BX = y1
-    mov byte [gfx_color], CWHITE
-    call KERNEL_SEG:cw_gfx_fill ; white-fill content
+    call fm_cfill               ; white-fill content (the Note Pad idiom)
 
     mov bx, si
     call fm_draw_core

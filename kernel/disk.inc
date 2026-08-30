@@ -5767,6 +5767,39 @@ dsk_copy_low:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_streq - do the NUL strings at DS:SI and DS:DI match? (SPEC.md 4)
+; out: CF=0 = equal; every register preserved
+;
+; The `.cold` segment's string compare, beside its counted copy and for the
+; same reason: this file is the first `.cold` %include, so fdlg.inc, files.inc
+; and dsk_find_name below all reach it with a backward near call. It was
+; fdlg_streq, which is what kept the other three writing it out again.
+; -----------------------------------------------------------------------------
+dsk_streq:
+    push ax
+    push si
+    push di
+.c:
+    mov al, [si]
+    cmp al, [di]
+    jne .no
+    or al, al
+    jz .yes
+    inc si
+    inc di
+    jmp short .c
+.no:
+    stc
+    jmp short .out
+.yes:
+    clc
+.out:
+    pop di
+    pop si
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_ncopy - CX bytes from DS:SI to DS:DI, one at a time (SPEC.md 4)
 ; in:       SI = source, DI = destination, CX = count
 ; out:      nothing (all registers preserved)
@@ -5875,16 +5908,9 @@ dsk_find_name_x:
     mov ax, bx
     call dsk_get_dir_x            ; SI -> dsk_ent, in our own segment
     mov di, dx
-.cmp:
-    mov al, [si]
-    mov ah, [di]
-    cmp al, ah
-    jne .nextent
-    inc si
-    inc di
-    or al, al
-    jnz .cmp
-    mov ax, bx                  ; matched to the NUL
+    call dsk_streq              ; CF=0 = the same name, to the NUL - a FOURTH
+    jc .nextent                 ; copy of this compare until it had a home
+    mov ax, bx
     pop di
     pop si
     pop dx
