@@ -3935,7 +3935,32 @@ gfx_fill_d:
     GFXDISP gfx_fill_raw
 gfx_fill_raw:
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_fill
+    jne sw_fill                 ; the renderer - and the flag store is BELOW
+    mov byte [vga_xorm], 0      ; this jump, so the 1bpp arm is byte-identical
+
+; -----------------------------------------------------------------------------
+; vga_solid_rect - the VGA rect body, for gfx_fill_raw AND gfx_xor_fill_raw
+;
+; in:  AX/BX/CX/DX = the rect; [vga_xorm] = 0 replace, 1 XOR
+;
+; The two differed in exactly two places: which routine arms the GC, and
+; whether the interior is `rep stosb` or a byte-at-a-time read-then-write
+; (the XOR ALU needs fresh latches per byte). The seven pushes, vga_rect_setup,
+; the `jc`, the ES/DX setup, BOTH masked edge column loops, the span tests, the
+; 0FF08h interior mask, vga_gc_reset and the seven pops were the same 138 and
+; 155 bytes twice.
+;
+; THE EDGE LOOPS SHARE VERBATIM, which is the fact that makes this a merge and
+; not a rewrite: with Set/Reset enabled on all four planes the CPU byte is
+; IGNORED, so `mov al,[es:di] / mov [es:di],al` means the same thing in both
+; modes - a latch load and a masked write-back.
+;
+; PERFORMANCE (SPEC.md 5.7.1, PERFORMANCE.md Set 93.1): this adds one flag
+; store and two compares to the VGA arm of the most-called drawing routine in
+; the system - about 50 clocks against a 2,405-cycle floor, +2.1%, PREDICTED.
+; The 1bpp arm pays nothing.
+; -----------------------------------------------------------------------------
+vga_solid_rect:
     push ax
     push bx
     push cx
@@ -3945,7 +3970,13 @@ gfx_fill_raw:
     push es
     call vga_rect_setup
     jc .done
+    cmp byte [vga_xorm], 0
+    jne .armx
     call vga_set_color
+    jmp short .armed
+.armx:
+    call vga_set_xor
+.armed:
     mov ax, VGA_SEG
     mov es, ax
     mov dx, VGA_GC
@@ -3984,12 +4015,24 @@ gfx_fill_raw:
     mov si, [vga_rows]
     mov dx, ROW_BYTES           ; DX = the row step LESS what the rep advances
     sub dx, bx                  ; DI by, so one add ends the row (SPEC.md 5.7.1)
+    cmp byte [vga_xorm], 0
+    jne .xrow
 .irow:
     mov cx, bx
     rep stosb
     add di, dx
     dec si
     jnz .irow
+    jmp short .reset
+.xrow:                          ; XOR: every interior byte read before write,
+    mov cx, bx                  ; because the ALU works off the latches
+.xbyte:
+    mov al, [es:di]
+    stosb
+    loop .xbyte
+    add di, dx
+    dec si
+    jnz .xrow
 .reset:
     call vga_gc_reset
 .done:
@@ -4729,77 +4772,14 @@ gfx_xor_fill_raw:
 vga_xor_fill_vram:
     call cur_unlazy              ; ...and the menu highlights with it. VRAM
                                 ; body under its own name (see
-                                ; vga_xor_rect_vram)
+                                ; vga_xor_rect_vram). The re-test below is
+                                ; NOT redundant: this label is entered
+                                ; directly by menu.inc and by kernel.asm's
+                                ; thunk, so it owes its own adapter check
     cmp byte [vid_mono], 0
     jne sw_xor_fill
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    call vga_rect_setup
-    jc .done
-    call vga_set_xor
-    mov ax, VGA_SEG
-    mov es, ax
-    mov dx, VGA_GC
-    mov ah, [vga_lmsk]          ; left edge column
-    mov al, 8
-    out dx, ax
-    mov di, [vga_off]
-    mov si, [vga_rows]
-.lcol:
-    mov al, [es:di]             ; read-before-write
-    mov [es:di], al
-    add di, ROW_BYTES
-    dec si
-    jnz .lcol
-    mov bx, [vga_span]
-    or bx, bx
-    jz .reset
-    mov ah, [vga_rmsk]          ; right edge column
-    mov al, 8
-    out dx, ax
-    mov di, [vga_off]
-    add di, bx
-    mov si, [vga_rows]
-.rcol:
-    mov al, [es:di]
-    mov [es:di], al
-    add di, ROW_BYTES
-    dec si
-    jnz .rcol
-    dec bx                      ; interior bytes per row
-    jz .reset
-    mov ax, 0xFF08
-    out dx, ax
-    mov di, [vga_off]
-    inc di
-    mov si, [vga_rows]
-    mov dx, ROW_BYTES           ; the row step less what the byte loop advances
-    sub dx, bx                  ; DI by (SPEC.md 5.7.1)
-.irow:
-    mov cx, bx
-.ibyte:
-    mov al, [es:di]             ; every interior byte too
-    stosb
-    loop .ibyte
-    add di, dx
-    dec si
-    jnz .irow
-.reset:
-    call vga_gc_reset
-.done:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    mov byte [vga_xorm], 1      ; ...and the body is gfx_fill_raw's, which is
+    jmp vga_solid_rect          ; the same 155 bytes with two differences
 
 ; -----------------------------------------------------------------------------
 ; gfx_save - copy a screen region to a buffer, plane by plane
@@ -5884,6 +5864,11 @@ gfx_bp_hk:   resb 1             ; ...and did THIS gfx_blitp take the whole-shape
 %endif
 
 vga_plane       resb 1          ; save/restore plane counter / mask bit
+vga_xorm        resb 1          ; vga_solid_rect: 0 = replace, 1 = XOR. The
+                                ; ONE difference between gfx_fill_raw's VGA
+                                ; body and gfx_xor_fill_raw's, and both heads
+                                ; write it before the body reads it, so .bss's
+                                ; guaranteed zero is not being relied on
 vga_lmsk        resb 1          ; rect: left edge bit mask
 vga_rmsk        resb 1          ; rect: right edge bit mask
 vga_y1          resw 1          ; rect: clipped top row (dither parity)
