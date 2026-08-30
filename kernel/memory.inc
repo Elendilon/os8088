@@ -2996,3 +2996,31 @@ mem_cp_key:  resw 1             ; the compaction walk's cursor: the ORIGINAL
 mem_top:  resw 1                  ; one past the last, from int 12h
 
 section .text
+
+; -----------------------------------------------------------------------------
+; mem_bytes_kb - a byte count as whole kilobytes, rounded UP and never 0
+; in:       AX = bytes
+; out:      AX = kilobytes, at least 1
+; clobbers: flags
+;
+; The claim heap's unit is the kilobyte, so every caller of mem_claim that
+; starts from a byte count spells this out; three of them did, in .text alone.
+; CX is banked because one of the three carries the byte count in it, and a
+; helper that clobbers a caller's register is worth less than the two bytes.
+;
+; **A zero answer is refused**, which is the merged form of two shapes that
+; differed: a claim of 0 KB gets no memory and the caller has nowhere to put
+; what it asked about. The site that had no clamp cannot reach 0 either - its
+; count is already past a `jcxz` - so the answer is the same at all three.
+; -----------------------------------------------------------------------------
+mem_bytes_kb:
+    push cx
+    add ax, 1023
+    mov cl, 10
+    shr ax, cl
+    or ax, ax
+    jnz .out
+    inc ax
+.out:
+    pop cx
+    ret

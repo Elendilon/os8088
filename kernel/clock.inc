@@ -1749,8 +1749,7 @@ clk_snapshot:
 clk_fmt:
     push ax
     push bx
-    push cx
-    push dx
+    push dx                     ; NOT CX: the length is an OUTPUT now
     call clk_snapshot
     mov bx, clk_str
     mov al, [clk_sn_mon]
@@ -1807,10 +1806,35 @@ clk_fmt:
 .end:
     mov byte [bx], 0
     mov si, clk_str
+    mov cx, bx                  ; ...and the LENGTH, which is free here: BX is
+    sub cx, si                  ; the pointer the NUL just went through, and
+                                ; both callers walked the string again for it
     pop dx
-    pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; str_len - the length of an ASCIIZ string in the kernel segment
+; in:  SI = the string
+; out: CX = its length, NUL excluded; SI and everything else preserved
+;
+; The kernel's only strlen, and it is here rather than anywhere else because
+; clk_fmt above is what created it. `.text` sites ONLY: a caller in `.modc` or
+; `.cold` is in another segment and needs a cw_ shim, which costs more than
+; the six-instruction loop it would be replacing.
+; -----------------------------------------------------------------------------
+str_len:
+    push si
+    xor cx, cx
+.l:
+    cmp byte [si], 0
+    je .d
+    inc si
+    inc cx
+    jmp short .l
+.d:
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------

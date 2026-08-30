@@ -10465,13 +10465,7 @@ wm_su_kb:
     jc .big
     cmp ax, 0xFC00
     ja .big                     ; ...nor could the rounding below survive it
-    add ax, 1023
-    mov cl, 10
-    shr ax, cl
-    or ax, ax
-    jnz .out
-    inc ax
-.out:
+    call mem_bytes_kb           ; rounded UP, and never 0 (memory.inc)
     clc
     pop di
     pop si

@@ -1447,11 +1447,6 @@ menu_draw_clock:
     push di
     push es
 
-    call clk_fmt                ; SI = the line in its live form (SPEC.md 37),
-                                ; ALWAYS - a toast covers only the cells it
-                                ; needs and the rest of the field is still the
-                                ; clock, so there is no branch to take here
-
     mov bx, [vid_wm8]           ; --- the field, in whole cells
     sub bx, [vid_clk_hx]
     mov cl, 3
@@ -1465,17 +1460,14 @@ menu_draw_clock:
                                 ; Unreachable - the field is 25 cells on every
                                 ; width, both ends being derived from it - but
                                 ; this is the only routine that would find out
-.len:
-    mov di, si                  ; --- the clock's length, clamped to the field
-    xor cx, cx
-.cl:
-    cmp byte [di], 0
-    je .cld
-    inc di
-    inc cx
-    jmp short .cl
-.cld:
-    cmp cx, bx
+    call clk_fmt                ; SI = the line in its live form and CX = its
+                                ; length (SPEC.md 37), ALWAYS - a toast covers
+                                ; only the cells it needs and the rest of the
+                                ; field is still the clock, so there is no
+                                ; branch to take here. It is below the field
+                                ; arithmetic and not above it because that
+                                ; arithmetic needs CL for its shift
+    cmp cx, bx                  ; --- the clock's length, clamped to the field
     jbe .stage
     mov cx, bx                  ; a form wider than the field cannot happen
                                 ; (24 glyphs into 25 cells), but it must not
@@ -1510,14 +1502,7 @@ menu_draw_clock:
                                 ; covered at all. One flag, read by the two
                                 ; painters, written by toast_place alone
     mov si, toast_buf           ; ...its length, plus the inverted space at
-    xor cx, cx                  ; each end
-.tl:
-    cmp byte [si], 0
-    je .tld
-    inc si
-    inc cx
-    jmp short .tl
-.tld:
+    call str_len                ; each end
     inc cx                      ; the gap cell plus n glyph cells (SPEC.md
                                 ; 59.8.1) - where this was n+2, one whole
                                 ; inverted cell of padding at each end
@@ -1905,13 +1890,8 @@ menu_save_kb:
                                 ; half of this very variable with it - 0x0404,
                                 ; a thousand planes, and a claim bigger than
                                 ; the fixed one it replaced
-    add ax, 1023
-    mov cl, 10
-    shr ax, cl                  ; ...as KB, rounded UP
-    or ax, ax
-    jnz .out
-    inc ax                      ; a 0 KB claim is refused, and a rect this
-.out:                           ; small still needs somewhere to go
+    call mem_bytes_kb           ; ...as KB, rounded UP, and never 0: a rect
+                                ; this small still needs somewhere to go
     pop dx
     pop cx
     pop bx
