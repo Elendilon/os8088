@@ -9910,7 +9910,7 @@ window slot (`wm_wkq`), the flag cleared by the dispatch before the handler
 runs — so a package that kicks from every callback cannot fill the ring and
 drop the mouse; the answer to a second post while one waits is the same CF=0
 promise. It is the ONE event `ui_task` dispatches with no lock held: the
-handler is `ui_ptcall`'s environment minus the lock (billed, stamped, so its
+handler is `ui_bill`'s environment minus the lock (billed, stamped, so its
 file calls resolve in its own instance's folder), and it takes the lock
 itself for whatever it draws.
 
@@ -17448,7 +17448,7 @@ Loop forever:
      lock) and stop. A right-click brings a window forward but opens
      nothing: the popup always belongs to the window you can see.
    - the frontmost window, region 0 (content), that installed a
-     **`W_ONRCLICK`** (§13.11) → gfx_lock, `ui_ptcall` on that handler with
+     **`W_ONRCLICK`** (§13.11) → gfx_lock, `ui_bill` on that handler with
      CX=x, DX=y, SI=window, gfx_unlock, and **nothing below is reached**:
      a window that takes the right button takes it whole.
    - failing that, the frontmost window, region 0, with `W_MENUS` =
@@ -17685,7 +17685,10 @@ past every existing package's template. `wm_create` zeroes it, as it does
 It is called with **CX = x, DX = y, SI = window**, in `W_ONCLICK`'s
 environment exactly: the UI task, under the gfx lock, billed to the owning
 instance with the dispatched instance stamped for sound grants (§34.3). The
-two share one dispatcher, `ui_ptcall`, so their environments cannot drift.
+two share one dispatcher, `ui_bill`, so their environments cannot drift.
+(It was `ui_ptcall` and served W_ONCLICK and W_ONMOUSEUP alone; it serves
+`W_ONKEY` and the app menu's `AM_ONCMD` too now, and the payload it banks
+is no longer only a point — hence the name.)
 
 Two rules, and they are the whole of it:
 
@@ -17829,7 +17832,7 @@ The kernel can track because it has a pass, and this section used to say a
 package could not: it has `W_ONCLICK` and `W_ONMOUSEUP` and nothing in
 between, and §13.7 forbids mixing them with a polling loop. It said the fix
 would be *"a third edge, the pointer moved while your press was armed,
-delivered from `ui_arm_trk` through `ui_ptcall` to the same owner — one word
+delivered from `ui_arm_trk` through `ui_bill` to the same owner — one word
 in the record and one call"*, and that it should wait until a package asked
 for it.
 
@@ -17858,7 +17861,7 @@ the kernel and nothing outside `kernel/` strides the table.
 
 It is called with **CX = x, DX = y, SI = window**, in `W_ONCLICK`'s
 environment exactly — the UI task, under the gfx lock, billed to the owning
-instance — through the same `ui_ptcall` as the other two, so the three
+instance — through the same `ui_bill` as the other two, so the three
 cannot drift.
 
 Three rules, and the middle one is what keeps it free:
@@ -18184,7 +18187,7 @@ Everything else in those windows fires on the release.
 now, 0 cancels) arms one; `W_ONTIMER` — installed with `OSAPI_WM_ONTIMER`
 after `wm_create`, not a template word — is what runs when it expires, in
 `W_ONCLICK`'s environment exactly: the UI task, under the gfx lock, billed to
-the owning instance, through the same `ui_ptcall`. `CX`/`DX` are **0**: a
+the owning instance, through the same `ui_bill`. `CX`/`DX` are **0**: a
 timer has no point, and the dispatcher is shared rather than copied because a
 second billing wrapper is a second thing to keep in step. Both slots, and
 `W_ONTIMER`'s two record words, are **`kern_big`'s alone** on §13.8.2's terms:
@@ -19055,7 +19058,7 @@ window that never installed anything.
 
 It is called with **CX = x, DX = y, SI = window**, in `W_ONCLICK`'s
 environment exactly: the UI task, under the gfx lock, billed to the owning
-instance through the same `ui_ptcall`. Three rules bound it:
+instance through the same `ui_bill`. Three rules bound it:
 
 - **Press edge only.** There is no release half. The mouse ISR queues
   `EVT_RDOWN` on the right button's press and *nothing* on its release, and
@@ -74271,7 +74274,7 @@ free list of §20.3.1 being empty), and their contracts, which
 `ui_task` pops `EVT_WAKE` in order with the mouse events (`ui.inc`, `.wake`)
 and calls `wm_wake_disp` (`wm.inc`): the slot's flag is cleared first so the
 handler may re-post from inside itself; a record whose window died is
-skipped; the call is `ui_ptcall`'s — `inst_win_owner`, `snd_disp_set`,
+skipped; the call is `ui_bill`'s — `inst_win_owner`, `snd_disp_set`,
 `task_cycles`, `wm_pkgcall`, `inst_charge` — with no `gfx_lock` around it.
 The C side is `CC_HAS_ONWAKE` → `cc_onwake` in `crt0.asm`, and the thunks
 `os88_wm_onwake(win)`, `int os88_wm_wake(win)`,
@@ -75079,7 +75082,7 @@ would come back holding the package's leftovers and the fence would never read
 because closing a *different* window of your own from inside a negotiator is
 legal and the outer fence has to survive it.
 
-**The answer rides in CF, which is why the dispatch is not `ui_ptcall`.**
+**The answer rides in CF, which is why the dispatch is not `ui_bill`.**
 That routine ends in `or di, di` and `inst_charge`, both of which write the
 flags; `wm_ask_close` calls `wm_pkgcall` itself, with nothing between the call
 and the branch that touches them. `POP` does not, which is the same property

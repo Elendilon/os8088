@@ -76,7 +76,7 @@ W_ONDRAG equ 28                 ; word: near ptr or 0 - the pointer MOVED while
                                 ; this window's press was armed (SPEC.md
                                 ; 13.8.2). CX = x, DX = y, SI = window, the
                                 ; same environment as W_ONCLICK and
-                                ; W_ONMOUSEUP, through the same ui_ptcall.
+                                ; W_ONMOUSEUP, through the same ui_bill.
                                 ; Delivered between the two edges of ONE
                                 ; gesture, only when the point CHANGED, and
                                 ; outside the window as freely as the release
@@ -89,7 +89,7 @@ W_ONDRAG equ 28                 ; word: near ptr or 0 - the pointer MOVED while
 W_ONTIMER equ 30                ; word: near ptr or 0 - the one-shot timer's
                                 ; handler (SPEC.md 13.9). CX = DX = 0,
                                 ; SI = window; W_ONCLICK's environment, through
-                                ; the same ui_ptcall. NOT a template word:
+                                ; the same ui_bill. NOT a template word:
                                 ; wm_create zeroes it, wm_ontimer sets it
 W_TIMER  equ 32                 ; word: the deadline in [ticks], 0 = DISARMED.
                                 ; wm_timer writes it; the scan clears it
@@ -2914,14 +2914,14 @@ wm_wake_redo:
 ; wm_wake_disp - dispatch one EVT_WAKE (SPEC.md 74.1); called by ui_task
 ; in:  SI = the window ptr the record carried; the UI task, gfx lock NOT held
 ; out: nothing
-; clobbers: AX, BX, CX, DX, SI, DI, BP (a dispatch site, like ui_ptcall's)
+; clobbers: AX, BX, CX, DX, SI, DI, BP (a dispatch site, like ui_bill's)
 ;
 ; The slot's flag is cleared FIRST, so the handler may re-post from inside
 ; itself. A window that died between the post and the pop is a record with
 ; bit 0 clear, and nothing is called; a slot reused by a new tenant since the
 ; post gets one early wake, which a wake handler must be indifferent to by
 ; construction (it is a KICK, not a message). Billed to the owning instance
-; and stamped for it - ui_ptcall's environment minus the lock - so the file
+; and stamped for it - ui_bill's environment minus the lock - so the file
 ; slots the handler is entitled to call (SPEC.md 74.1) resolve in the
 ; handler's own instance's folder, not the machine's.
 ; -----------------------------------------------------------------------------
@@ -2965,7 +2965,7 @@ wm_wk_go:
     or bp, bp
     jz wm_wk_none               ; never asked to be woken
     mov si, bx
-    call ui_ptcall              ; SI = window, BP = the handler; CX/DX are
+    call ui_bill              ; SI = window, BP = the handler; CX/DX are
                                 ; carried and meaningless here
 wm_wk_none:
     ret
