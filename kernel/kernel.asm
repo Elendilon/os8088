@@ -6287,7 +6287,7 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 ; 3b. menu_bar is a LITERAL byte count (.bss may not forward-reference), so
 ;    nothing makes it follow MENU_BARMAX. It gained a cell the day the app
 ;    name became a pull-down (SPEC.md 12.2); this is what catches the next one.
-%if MENU_BARMAX * MB_ENTSZ > 98
+%if MENU_BARMAX * MB_ENTSZ > 84
 %error "menu_bar is too small for MENU_BARMAX cells - raise the resb in menu.inc"
 %endif
 ; 4. the menu save-under (SPEC.md 2.2/12.4) must fit MENU_SAVE_KB. gfx_save

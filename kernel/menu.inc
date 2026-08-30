@@ -94,8 +94,7 @@ MB_ITEMS    equ 2               ; word: near ptr to array of item string ptrs
 MB_NITEM    equ 4               ; word: item count
 MB_XL       equ 6               ; word: bar hit range, left x (inclusive)
 MB_XR       equ 8               ; word: bar hit range, right x (inclusive)
-MB_TX       equ 10              ; word: title text / glyph left x
-MB_SEG      equ 12              ; word: the SEGMENT this cell's title and
+MB_SEG      equ 10              ; word: the SEGMENT this cell's title and
                                 ; item strings live in, 0 = the kernel's own
                                 ; (SPEC.md 12.2/20.1). Per CELL and not per
                                 ; SET, because cell 0 is the System menu and
@@ -103,7 +102,12 @@ MB_SEG      equ 12              ; word: the SEGMENT this cell's title and
                                 ; foreign the rest of the bar is - reading
                                 ; them through a package's segment lands on
                                 ; the .o88 header and every item draws "O8"
-MB_ENTSZ    equ 14
+MB_ENTSZ    equ 12               ; there is no MB_TX: a cell's pen x is
+                                ; MB_XL + MENU_TITLE_PAD/2 for every cell
+                                ; that has text, and menu_bent - the one
+                                ; reader - does the addition. Cell 0 has no
+                                ; text (MB_TITLE 0 = the logo glyph, drawn
+                                ; from the literal MENU_SYS_TX)
 MENU_APPMAX equ 5               ; app menus the bar can host. It was 4 until
                                 ; SPEC.md 22.12 split the Disk window's File
                                 ; menu and gave Cut/Copy/Paste an Edit menu -
@@ -525,7 +529,6 @@ menu_relayout:
     mov word [ss:di + MB_NITEM], MENU_LOGO_N
     mov word [ss:di + MB_XL], 0
     mov word [ss:di + MB_XR], MENU_SYS_XR
-    mov word [ss:di + MB_TX], MENU_SYS_TX
     mov word [ss:di + MB_SEG], 0   ; the System menu is the kernel's, always
     mov word [menu_nbar], 1
     add di, MB_ENTSZ
@@ -570,12 +573,10 @@ menu_relayout:
     mov [ss:di + MB_NITEM], ax
     mov ax, [menu_seg]          ; ...and these are the owner's
     mov [ss:di + MB_SEG], ax
-    mov [ss:di + MB_XL], bx
-    mov ax, bx
-    add ax, MENU_TITLE_PAD / 2  ; the text is centred - and 8-aligned, since
-                                ; BX is and a glyph width is a multiple of 8,
-                                ; so every cell after this one is too
-    mov [ss:di + MB_TX], ax
+    mov [ss:di + MB_XL], bx     ; the text is centred at XL + PAD/2 - and
+                                ; 8-aligned, since BX is and a glyph width
+                                ; is a multiple of 8, so every cell after
+                                ; this one is too. menu_bent re-derives it
     mov ax, dx
     dec ax
     mov [ss:di + MB_XR], ax        ; xr = left + width - 1
@@ -685,8 +686,9 @@ menu_ab_cell:
     mov word [ss:di + MB_XL], MENU_NAME_X - MENU_TITLE_PAD / 2
     add ax, MENU_NAME_X + MENU_TITLE_PAD / 2 - 1
     mov [ss:di + MB_XR], ax     ; ...so this cell is 8-aligned and a whole
-    mov word [ss:di + MB_TX], MENU_NAME_X   ; number of cells wide, like the
-                                            ; app's own (SPEC.md 12.9)
+                                ; number of cells wide, like the app's own
+                                ; (SPEC.md 12.9), and its pen x comes back
+                                ; out of MB_XL as MENU_NAME_X exactly
     mov word [ss:di + MB_SEG], 0   ; every string it names is kernel data
     mov ax, [menu_nbar]
     mov [menu_abcell], ax
@@ -1213,7 +1215,8 @@ menu_bent:
     jz .out                     ; the logo cell has no text
     mov cx, [ss:si + MB_SEG]
     push ax
-    mov ax, [ss:si + MB_TX]
+    mov ax, [ss:si + MB_XL]
+    add ax, MENU_TITLE_PAD / 2  ; the cell's pen x (SPEC.md 12.2: no MB_TX)
     call menu_bpad              ; spaces up to this cell's pen
     pop ax
     push cs
@@ -2585,7 +2588,7 @@ section .lowbss                 ; LOW_SEG (SPEC.md 2.1): the runtime bar is
                                 ; never addressed by name outside this module,
                                 ; so it costs one ss: prefix per field access
                                 ; and nothing in the kernel's 64KB segment
-menu_bar:   resb 98             ; MENU_BARMAX x MB_ENTSZ (7 x 14; a literal
+menu_bar:   resb 84             ; MENU_BARMAX x MB_ENTSZ (7 x 12; a literal
                                 ; per the no-forward-ref-in-bss rule; guard 3b
                                 ; in kernel.asm catches the next cell - and
                                 ; caught THIS one, when MENU_APPMAX went 4 to

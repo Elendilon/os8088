@@ -13011,9 +13011,9 @@ MENU_BARMAX  equ MENU_APPMAX+2  ; + the System cell, which is always cell 0,
                                 ; bar index == set index + 1
 MENU_SYS_XR  equ 29             ; System cell: x 0..29, glyph at MENU_SYS_TX
 MENU_SYS_TX  equ 10
-MENU_NAME_X  equ 38             ; app-name label pen x
+MENU_NAME_X  equ 40             ; app-name label pen x
 MENU_NAME_PAD equ 16            ; gap after the name, before the first menu
-MENU_TITLE_PAD equ 12           ; per-title cell padding (6px each side)
+MENU_TITLE_PAD equ 16           ; per-title cell padding (8px each side)
 
 ; one bar cell (menu_bar[], rebuilt by menu_layout):
 MB_TITLE equ 0   ; word: NUL title ptr, 0 = draw the logo glyph
@@ -13021,11 +13021,18 @@ MB_ITEMS equ 2   ; word: array of near ptrs to NUL item strings
 MB_NITEM equ 4   ; word: item count
 MB_XL    equ 6   ; word: bar hit range, left x (inclusive)
 MB_XR    equ 8   ; word: bar hit range, right x (inclusive)
-MB_TX    equ 10  ; word: title text / glyph left x
-MB_SEG   equ 12  ; word: the segment this cell's strings live in (§12.2),
+MB_SEG   equ 10  ; word: the segment this cell's strings live in (§12.2),
                  ; 0 = the kernel's own
-MB_ENTSZ equ 14
+MB_ENTSZ equ 12
 ```
+
+**There is no `MB_TX` field**, and the reason is worth stating because the
+field existed and was removed: a cell's pen x is `MB_XL + MENU_TITLE_PAD/2`
+for *every* cell that has text. The app cells are laid out that way by
+construction; the name cell's `MB_XL` is `MENU_NAME_X - MENU_TITLE_PAD/2`,
+so it is the same relation read backwards; and cell 0 has no text at all
+(`MB_TITLE` = 0 selects the logo glyph, drawn by `menu_furniture` from the
+literal `MENU_SYS_TX`). One reader, `menu_bent`, does the addition.
 
 **The active application is a window**, tracked in the word `[menu_win]`
 (0 = no window owns the bar). Transitions, all of them one-liners at the
@@ -16109,7 +16116,7 @@ words alone did unreliably. Paint does both (§46.3).
 **Every string in a set is an offset in the OWNING WINDOW'S segment**
 (§11's W_SEG, §20.1) — the app name, the menu titles and every item. So the
 bar's runtime table `menu_bar` carries a **`MB_SEG`** word per cell
-(`MB_ENTSZ` = 14) and `menu_layout` fills it in: the System menu's cell
+(`MB_ENTSZ` = 12) and `menu_layout` fills it in: the System menu's cell
 carries KERNEL_SEG, the owner's cells carry the owner's. `[menu_dseg]` is
 the same thing for the menu currently dropped, read by `menu_drop` and the
 item-highlight loop. One cell, one segment — and the reason it has to be
@@ -17264,7 +17271,7 @@ and the first and last cells that differ bound exactly one `font_run`.
 Four things hold it up, and three of them are somebody else's rule first.
 
 - **Spaces are content.** The segment is composed *whole* — the name at
-  `MENU_NAME_X`, each title at its `MB_TX`, and **spaces everywhere else**,
+  `MENU_NAME_X`, each title at its own pen x, and **spaces everywhere else**,
   out to the clock. So a bar that lost its longest menu blanks the cells it
   gave up inside the same opaque pass that letters the ones it kept. There is
   no fill in this path at all, which is what removes the flash rather than

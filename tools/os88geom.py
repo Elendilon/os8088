@@ -170,6 +170,11 @@ _MIRROR = {
     "MBAR_H": ("kernel/kernel.asm", 20),
     "TITLE_H": ("kernel/kernel.asm", 18),
     "MENU_ITEM_H": ("kernel/menu.inc", 16),
+    # ...and the bar cell's STRIDE, which four harness scripts wrote down by
+    # hand and which moved 14 -> 12 the day MB_TX was dropped (SPEC.md 12.2).
+    # Two of the four are registered rows and two are not, so without this the
+    # unregistered pair would have gone on reading cell 2 as cell 1's tail.
+    "MB_ENTSZ": ("kernel/menu.inc", 12),
     # kernel/mouse.inc - the pointer's CELL and the worst hot spot in it
     # (SPEC.md 7.1/7.2.2). A shape's cell starts at (pointer - hot), so a
     # harness masking the arrow's 8x12 at the published position misses the
