@@ -56,49 +56,59 @@ in this register lies between `kernel.asm:4072` and `:4349`, comfortably inside 
 
 ---
 
-## 1. The blob after D8 — the arithmetic, derived from the source
+## 1. The blob at nineteen sectors — the arithmetic, derived from the source
 
 `kernel/kernel.asm` sets three constants and asserts two bounds at its own foot:
 
 ```
-BOOT2_SECS  equ 15            ; D8: was 13
-OVL_AT      equ 2560          ; where `.ovl` starts inside the blob
-BOOT2_PAD   equ BOOT2_SECS * 512                       =  7,680
+BOOT2_SECS  equ 19            ; SPEC.md 2.9.12: was 13
+OVL_AT      equ 2560          ; where `.ovl` starts inside the blob - UNCHANGED
+BOOT2_PAD   equ BOOT2_SECS * 512                       =  9,728
 
 %if BOOT2_SIZE > OVL_AT            -> "the loader has outgrown its share"   (:6068)
 %if OVL_AT + OVL_SIZE > BOOT2_PAD  -> "the boot overlay does not fit"       (:6087)
 ```
 
-Measured on this tree (commit `950c967`, clean): `.boot2` **2,494**, `.ovl` **3,969**.
-Applying this pass's own donations and D8:
+**THIS SECTION SUPERSEDES THE ONE THAT SAID 194 BYTES AND `BOOT2_SECS` 15.** That
+arithmetic was D8's, before this register was merged into the pass; it priced the
+mouse cluster alone and nothing else. 194 bytes takes `sched_init` and stops.
+
+Measured on the tree this landed on: `.boot2` **2,469**, `.ovl` **3,969**.
 
 ```
-blob      BOOT2_SECS 15 sectors = 7,680 bytes
-  .boot2  2,494 - 34 (Fkernel-08/-09/-10)                    = 2,460   of OVL_AT 2,560   ->  100 free
-  .ovl    3,969 - 55 (this pass's .ovl donations)
-                + 1,112 (D8's Fmouse-01 boot-only subset)    = 5,026   of 5,120          ->   94 free
-                                                               TOTAL BLOB SLACK             194 bytes
+blob      BOOT2_SECS 19 sectors = 9,728 bytes
+  .boot2  2,469                                                of OVL_AT 2,560   ->    91 free
+  .ovl    3,969                                                of 7,168          -> 3,199 free
+                                                               TOTAL BLOB SLACK    3,290 bytes
 ```
 
-**Those 194 bytes are ONE POOL.** `OVL_AT` is a byte offset with no alignment
-requirement — the only constraints are the two `%if`s above — and moving it costs
-nothing at all: `kernel.asm:2136` says so in the file's own words, *"the blob is
-BOOT2_SECS sectors either way, so no image byte, no RAM and no extra int 13h changes
-— only the split."* So the correct way to read the pair is a single figure:
+**Those bytes are ONE POOL.** `OVL_AT` is a byte offset with no alignment requirement
+— the only constraints are the two `%if`s above — and moving it costs nothing at all:
+`kernel.asm` says so in the file's own words, *"the blob is BOOT2_SECS sectors either
+way, so no image byte, no RAM and no extra int 13h changes — only the split."* So the
+correct way to read the pair is a single figure:
 
-> **`.ovl` may grow by 194 bytes today without touching a sector, an `int 13h`, or
-> one byte of any image.** (206 if `G3-N1` lands and `.boot2` donates 46 rather
-> than 34.)
+> **`.ovl` may grow by 3,290 bytes today without touching a sector, an `int 13h`, or
+> one byte of any image.** The whole register is +1,766 of that and D8's mouse subset
+> +1,112, which is 2,878 — so the merged pass lands with roughly 410 bytes still in
+> the pool, and §4 is what the next claim after that costs.
 
 Two standing caveats on that number. `.boot2`'s share is not freely tradable *down*:
 its fifth sector is SPEC.md §15.3.4's row composer, which ships, so `OVL_AT` cannot
 go to 2,048. And the free figure is **not** the one in the tree's own prose: D3/D4
 record `kernel.asm:~2137` saying 159 and `docs/SETTINGS-COST.md` §7.1 saying ~738,
-against a measured 127 pre-D8. **A wrong headroom number in the one section with
-double-digit slack is how a design gets approved that does not fit** — quote this
-section, and re-derive it after any change to either side.
+against a measured 127 before any of this. **A wrong headroom number in the one
+section with double-digit slack is how a design gets approved that does not fit** —
+quote this section, and re-derive it after any change to either side.
 
----
+**One constant moves WITH `BOOT2_SECS` and is not in the list above**: `KSIG_OFF`
+(the Makefile and `boot/boot2.asm`, one number typed twice). It is a *memory* offset
+and SPEC.md §18.93.1's canary is a question about a *file sector*, so growing the blob
+slides the probe six sectors further into the file — out of the band where it lands in
+a transfer run's second half, and into the half that loads correctly on exactly the
+machine the canary exists to catch. It went 11,776 → **8,704** here, which puts the
+file sector back at 36. `tests/unit/t_canary.py` is the fast-tier row that refuses the
+build otherwise, and it is what found this.
 
 ## 2. The register, ranked
 
@@ -356,21 +366,23 @@ before deciding those bytes are spare.
 `tests/unit/t_blobruns.py --sectors N` prices this host-side in 0.1 s, per geometry,
 against the images already in `build/`. Run afresh, this tree:
 
-| `BOOT2_SECS` | blob | 360KB | 720KB | 1.44MB | `.ovl` free over 5,026 |
+| `BOOT2_SECS` | blob | 360KB | 720KB | 1.44MB | `.ovl` free over 3,969 |
 |---:|---:|---:|---:|---:|---:|
-| 13 (pre-D8) | 6,656 | 2 | 2 | 2 | — |
-| 14 | 7,168 | 2 | **3** | 2 | −318 |
-| **15 (D8, today)** | **7,680** | **2** | **3** | **2** | **194** |
-| 16 | 8,192 | **3** | 3 | 2 | 706 |
-| 17 | 8,704 | 3 | 3 | 2 | 1,218 |
-| 18 | 9,216 | 3 | 3 | 2 | 1,730 |
-| 19 | 9,728 | 3 | 3 | 2 | **2,242** |
-| 20 | 10,240 | 3 | 3 | 2 | 2,754 |
-| 21 | 10,752 | 3 | 3 | 2 | 3,266 |
-| 22 | 11,264 | 3 | 3 | **3** | 3,778 |
+| 13 (pre-2.9.12) | 6,656 | 2 | 2 | 2 | 218 |
+| 14 | 7,168 | 2 | **3** | 2 | 730 |
+| 15 (D8's) | 7,680 | 2 | 3 | 2 | 1,242 |
+| 16 | 8,192 | **3** | 3 | 2 | 1,754 |
+| 17 | 8,704 | 3 | 3 | 2 | 2,266 |
+| 18 | 9,216 | 3 | 3 | 2 | 2,778 |
+| **19 (SHIPPED)** | **9,728** | **3** | **3** | **2** | **3,290** |
+| 20 (`SPLSTARS`) | 10,240 | 3 | 3 | 2 | 3,802 |
+| 21 | 10,752 | 3 | 3 | 2 | 4,314 |
+| 22 | 11,264 | 3 | 3 | **3** | 4,826 |
+| 23 | 11,776 | 3 | **4** | 3 | 5,338 |
 
-("free" = `BOOT2_PAD − .boot2` 2,460 − `.ovl` 5,026, `OVL_AT` set wherever the split
-needs to be; the two sides are one pool, §1.)
+("free" = `BOOT2_PAD − .boot2` 2,469 − `.ovl` 3,969, `OVL_AT` set wherever the split
+needs to be; the two sides are one pool, §1. The 23 row was measured here and is not
+in any earlier copy of this table.)
 
 **Read the call columns and not the sector numbers.** A run is bounded by the TRACK
 and `KERNEL.SYS` starts wherever each BPB puts the data area, so the boundary is in a
@@ -379,48 +391,65 @@ moves** — 199 ms for one sector and 384 ms for a nine-sector track on the fiel
 (PERFORMANCE.md Part 2, Sets 14/22), and SPEC.md §15.3.8.5 prices the marginal sector
 at "near enough 400 ms". A sector *inside* an existing run is ~24 ms.
 
-So the ladder has exactly **three prices**, and everything in between is free:
+So the ladder has exactly **four prices**, and everything in between is free:
 
 | step | what it costs | what it admits |
 |---|---|---|
-| 13 → 15 | one extra `int 13h`, **720KB only** — already paid by D8 | 194 bytes: `sched_init`, or the §3 combinations |
-| **15 → 16..21** | one extra `int 13h`, **360KB only** (~400 ms on the field XT; 1.44MB unaffected) | **706 bytes at 16** — `drv_boot_x` **and** the vidsel trio together, with 215 to spare. **2,242 at 19 — the entire register (1,766) with 476 left.** 20 and 21 are free after that |
-| 21 → 22 | a third `int 13h` on **1.44MB** as well | 3,778 bytes; nothing here needs it |
+| 13 → 14 | one extra `int 13h`, **720KB only** | 730 bytes |
+| 14 → 15 | nothing | 1,242 |
+| **15 → 16..21** | one extra `int 13h`, **360KB only** (~400 ms on the field XT) | **3,290 at the shipped 19 — the entire register (1,766) and D8's mouse subset (1,112) with ~410 left.** 20 and 21 are free after that |
+| 21 → 22 | a third `int 13h` on **1.44MB** — the release geometry, and the one most tests boot | 4,826 |
+| 22 → 23 | a **fourth** on 720KB | 5,338 |
 
-> **The load-bearing line: 16 through 21 all cost the same single extra call.**
-> Exactly as 14 and 15 did on the 720KB side, the sixth sector after the first is
-> free once the first is bought. **If the blob is ever taken to 16 for any reason,
-> take it to 19 and the whole of this file lands with it.**
+> **The load-bearing line: 16 through 21 all cost the same single extra call**, and
+> the shipped blob sits at 19 of them. **The next claim of any size has 1,024 free
+> bytes behind it and then hits a price that has not been approved** — 22 buys 1.44MB
+> its third call. That is the conversation to have before spending sector 22, not
+> after.
 
-**`tests/blobruns` is the gate and must be re-blessed per geometry** — `MAX_RUNS`
-moves from 2 to 3 with a reason beside it, which is what that file says it exists
-for. `tests/unit/t_buildmatrix.py` gains rows for whatever per-knob blob sizes result.
+**What the call table hides, and it is not small.** The in-run sectors land on
+**every** geometry, including the one that pays no call: 13 → 19 is six more sectors
+inside an existing run on 1.44MB, ~144 ms at 24 ms each, with nothing in the call
+column to show for it. All of it is pre-splash — stage 1 reads the blob before the
+first splash pixel — so it is time on a blank screen rather than a slower-looking
+boot, and `docs/BOOT-PERF-PLAN.md`'s phase tables want re-taking because of it.
+
+**`tests/unit/t_blobruns.py`'s ratchet is PER GEOMETRY now**, which is what that file
+says it exists for: 3 on 360KB, 3 on 720KB, **2 on 1.44MB**, each with its reason
+beside it. One number for all three was the shape of the original mistake.
+`tests/unit/t_buildmatrix.py` gained a `MOUDIAG` row in the same commit — it had none,
+and a knob whose blob nothing measures is how the last break went unfound.
 
 ---
 
-## 5. What each knob would then need — D5, not a new rule
+## 5. What each knob needs at nineteen sectors — D5, not a new rule
 
 A knob is bound by physics, never by a documented limit, and *"all knobs together
 fit"* is not required. `SPLSTARS=1` is the model already in the tree:
-`BOOT2_SECS_STARS equ 14` sits beside the shipped value and the Makefile's `sed` is
+`BOOT2_SECS_STARS` sits beside the shipped value and the Makefile's `sed` is
 deliberately anchored to find only the shipped one.
 
-Measured `.ovl` with the whole register moved, before D8's mouse subset and the
-pass's donations are applied:
+Measured on the tree the blob resize landed on, before any body has moved:
 
-| build | `.ovl` | `.boot2` |
-|---|---:|---:|
-| shipped | 5,735 | 2,494 |
-| `KERN_SMALL=1` | 5,457 | 2,494 |
-| `BOOTMARK=1` | 5,826 | 2,494 |
-| `SPLSTARS=1` | 5,735 | **2,823** |
-| `MOUDIAG=1` / `BOOTPROF=1` / `NOPS2=1` / `MOUIDSLOW=1` | 5,735 | 2,494–2,500 |
+| build | `.ovl` | `.boot2` | its `OVL_AT` | fits the 19-sector blob? |
+|---|---:|---:|---:|---|
+| shipped (kern_big) | 3,969 | 2,469 | 2,560 | ✔ 3,290 free |
+| `KERN_SMALL=1` | 3,886 | 2,469 | 2,560 | ✔ 3,373 free |
+| `BOOTMARK=1` | 4,060 | 2,469 | 2,560 | ✔ 3,199 free |
+| `MOUDIAG=1` | 3,969 | 2,475 | 2,560 | ✔ 3,284 free |
+| `SPLSTARS=1` | 3,969 | **2,798** | **3,072** | **only at 20** — its `.boot2` is 329 bytes over the shipped split and it is over *wherever* `OVL_AT` falls |
 
-`BOOTMARK` and `SPLSTARS` each want roughly one sector more than the shipped blob at
-any given register subset. **Each takes its own `BOOT2_SECS_<KNOB>`.** They do not
-shape the shipped layout, and they are not shrunk to fit. `MOUDIAG` still has **no
-`t_buildmatrix.py` row**, which is how D8's short-jump break went unfound; add one
-whenever the blob next moves.
+**At 19, `SPLSTARS` is the only knob that still needs a `BOOT2_SECS` of its own**
+(`BOOT2_SECS_STARS equ 20`). At D8's 15, `BOOTMARK` and `MOUDIAG` needed one each as
+well. That is D5 honoured with *less* machinery rather than more — and it is a
+maintenance risk in the same breath, because a mechanism with one user is a mechanism
+nobody notices breaking. `tests/unit/t_buildmatrix.py` is what watches it, and it now
+carries a `MOUDIAG` row: it had none, which is how D8's short-jump break went
+unfound.
+
+**Do not lower the shipped `OVL_AT` to make `SPLSTARS` fit 19.** It would work and it
+costs the shipped side nothing, but it is a shipped constant re-tuned for a knob's
+overflow, which is the shape D5 refuses. The knob has a sector.
 
 ---
 

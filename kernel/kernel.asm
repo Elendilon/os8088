@@ -2106,22 +2106,43 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; override is a deliberate second lookup rather than an accident of ordering.
 ; See SPEC.md 15.3.8.5 for why the knob arm needs it and the shipped one does
 ; not.
-BOOT2_SECS_STARS equ 14
+BOOT2_SECS_STARS equ 20
 
 %ifdef SPLSTARS
 BOOT2_SECS  equ BOOT2_SECS_STARS
 %else
-BOOT2_SECS  equ 13              ; sectors stage 1 reads before it jumps.
-                                ; THIRTEEN: four for the loader and its screen,
-                                ; NINE for the overlay - which is 4,608 bytes,
-                                ; exactly what the FAT window used to give it,
-                                ; so nothing that fits today stops fitting. It
-                                ; was 4 with the overlay in the image; the disk
-                                ; is unchanged, the sectors having left there,
-                                ; and the cost is 9 more read BEFORE the first
-                                ; splash pixel - about 216 ms at
-                                ; PERFORMANCE.md's measured 24 ms a sector, on
-                                ; a load that is 206 of them
+BOOT2_SECS  equ 19              ; sectors stage 1 reads before it jumps.
+                                ; NINETEEN: five for the loader and its screen,
+                                ; FOURTEEN for the overlay. It was THIRTEEN,
+                                ; and before that 4 with the overlay in the
+                                ; image; the disk is unchanged either time, the
+                                ; sectors having left there.
+                                ;
+                                ; The six that took it from 13 are SPEC.md
+                                ; 2.9.12's, and they are not for a feature:
+                                ; they are the room to move twenty-five
+                                ; BOOT-ONLY bodies out of `.text` and `.cold`
+                                ; into `.ovl`, where mem_unblob gives them back
+                                ; to the heap at the end of kmain.
+                                ; docs/LAST-DROP-BYTES.md is the register of
+                                ; them and names the caller that makes each one
+                                ; boot-only. 18 is 36 bytes short of the whole
+                                ; register; 19 takes it with room over.
+                                ;
+                                ; WHAT IT COST, measured off the images by
+                                ; tests/unit/t_blobruns.py and not reasoned
+                                ; from one geometry: ONE extra int 13h on 360KB
+                                ; and one on 720KB, none on 1.44MB, plus the
+                                ; six in-run sectors - which land on EVERY
+                                ; geometry, ~144 ms at PERFORMANCE.md's 24 ms a
+                                ; sector, and are the half a call table hides.
+                                ; All of it before the first splash pixel.
+                                ;
+                                ; 20 and 21 change no call on any geometry and
+                                ; are deliberately NOT taken - they are there
+                                ; when something needs them. 22 buys 1.44MB a
+                                ; third call and 23 buys 720KB a fourth, and
+                                ; that is where the next conversation is
 %endif
 ; OVL_AT is where `.ovl` begins inside the blob, and the value is at the FOOT
 ; of this comment rather than the head of it because SPLSTARS gives it a second
@@ -2134,10 +2155,16 @@ BOOT2_SECS  equ 13              ; sectors stage 1 reads before it jumps.
 ; the readability of the one routine in this tree that draws an animation.
 ;
 ; IT COSTS NOTHING TO MOVE: the blob is BOOT2_SECS sectors either way, so no
-; image byte, no RAM and no extra int 13h changes - only the split. What it
-; does spend is the blob's last slack: `.ovl` ends 159 bytes short of
-; BOOT2_PAD, so the NEXT claim on this file is BOOT2_SECS, and that one is a
-; real ~24 ms on every boot.
+; image byte, no RAM and no extra int 13h changes - only the split. That is
+; what makes `.boot2`'s slack and `.ovl`'s ONE pool rather than two budgets:
+; whatever the loader is not using below OVL_AT the overlay can have for the
+; cost of moving this line, and the two assertions at the foot of the file
+; still say which half ran out if one ever does.
+;
+; The sentence that used to end here - "the NEXT claim on this file is
+; BOOT2_SECS, and that one is a real ~24 ms on every boot" - was right, and
+; SPEC.md 2.9.12 is that claim being taken: 13 sectors to 19, for the boot-only
+; bodies in docs/LAST-DROP-BYTES.md.
 %ifdef SPLSTARS
 OVL_AT      equ 3072            ; ...AND SPLSTARS=1 IS THAT CLAIM, arriving as a
                                 ; KNOB rather than as a shipped feature (SPEC.md
@@ -2146,11 +2173,19 @@ OVL_AT      equ 3072            ; ...AND SPLSTARS=1 IS THAT CLAIM, arriving as a
                                 ; is 6,754 of a 6,656-byte blob - so it is over
                                 ; by 98 WHEREVER the split falls, and moving
                                 ; OVL_AT alone cannot pay for it. The knob build
-                                ; therefore takes the 14th sector this file's
-                                ; comment above has been predicting, and takes
-                                ; it ALONE: the shipped blob is 13 sectors, its
-                                ; `.boot2` is where it was, and the ~24 ms is
-                                ; not spent by anybody who boots this.
+                                ; therefore takes a sector the shipped blob does
+                                ; not, and takes it ALONE: BOOT2_SECS_STARS is
+                                ; one above BOOT2_SECS, its `.boot2` is where it
+                                ; was, and the ~24 ms is not spent by anybody
+                                ; who boots this.
+                                ;
+                                ; SINCE SPEC.md 2.9.12 IT IS THE ONLY KNOB THAT
+                                ; STILL NEEDS ONE. At 19 sectors BOOTMARK=1 and
+                                ; MOUDIAG=1 both fit the shipped blob, where at
+                                ; 15 neither did - so this pair of `sed`
+                                ; lookups now has exactly one user, and
+                                ; t_buildmatrix.py is what stops a mechanism
+                                ; with one user rotting unnoticed.
                                 ;
                                 ; Six sectors for `.boot2` and eight for `.ovl`
                                 ; leaves 248 bytes on one side and 166 on the

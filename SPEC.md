@@ -1945,6 +1945,70 @@ and §18.93.2's gate is what makes it harmless — the CPU reports 286, the load
 takes the track bound from the start, and `[boot_cylrun]` stays 0 so `dsk_xfer`
 stays careful for the rest of the session.
 
+#### 2.9.12 The blob is nineteen sectors, because `.ovl` is where boot-only code stops costing RAM
+
+§2.9.6 made `.ovl` the blob's second section and said the next claim on this
+file would be `BOOT2_SECS`. **This is that claim**, and what it buys is not a
+feature: it is the room to move **twenty-five boot-only bodies out of `.text`
+and `.cold` into `.ovl`**, where `mem_unblob` gives them back to the heap at
+the end of `kmain`. `docs/LAST-DROP-BYTES.md` is the register of them, row by
+row, with the caller that makes each one boot-only named beside it.
+
+`BOOT2_SECS` **13 → 19** and `OVL_AT` stays at **2,560**. Six extra sectors is
+3,072 more bytes of blob, of which `.boot2` needs none — so the whole of it,
+plus whatever `.boot2` is not using below `OVL_AT`, is one pool for the
+overlay. **`OVL_AT` moves for nothing** (§15.3.4.2), so the split is not a
+budget either half has to be argued for; the two assertions at the foot of
+`kernel.asm` still say which half ran out if one ever does.
+
+**What it costs, measured rather than reasoned** — `tests/unit/t_blobruns.py
+--sectors 19`, walked off the images `make` built:
+
+| `BOOT2_SECS` | 360KB | 720KB | 1.44MB |
+|---|---|---|---|
+| 13 | 2 calls — 6 + 7 | 2 calls — 4 + 9 | 2 calls — 3 + 10 |
+| **19** | **3 calls — 6 + 9 + 4** | **3 calls — 4 + 9 + 6** | 2 calls — 3 + 16 |
+| 22 | 3 — 6 + 9 + 7 | 3 — 4 + 9 + 9 | **3 — 3 + 18 + 1** |
+| 23 | 3 — 6 + 9 + 8 | **4 — 4 + 9 + 9 + 1** | 3 — 3 + 18 + 2 |
+
+**One extra `int 13h` on the two 9-sector geometries and none on the release
+one**, plus the in-run sectors, which land on *every* geometry and are the half
+the call table hides: at PERFORMANCE.md Part 2's ~24 ms a sector inside a run,
+1.44MB pays ~144 ms and no call at all. It is all pre-splash time — stage 1
+reads the blob before the first splash pixel — so it is time on a blank screen
+rather than a slower-looking boot.
+
+**19 is the smallest count that takes the whole register.** 18 is 36 bytes
+short of it. The two above it are genuinely free (20 and 21 change no call on
+any geometry) and are deliberately **not** taken: per CLAUDE.md's "design for
+bytes, never for rungs" they are there when something needs them. **22 and 23
+are not free and are outside what was approved** — 22 costs 1.44MB its third
+call and 23 costs 720KB a fourth, which is the row the growth table did not
+carry until it was measured here.
+
+`SPLSTARS=1` keeps its own count, one sector up: `BOOT2_SECS_STARS` **14 → 20**.
+Its `.boot2` is 2,824 against the shipped 2,460, so it does not fit the shipped
+blob at its own `OVL_AT` of 3,072 — the same arithmetic §15.3.8.5 records, one
+rung along. **Every other knob now fits the shipped blob**, `BOOTMARK=1` and
+`MOUDIAG=1` included, which at 15 sectors they did not: that is §15.3.8.5's
+per-knob mechanism honoured with *less* machinery rather than more, and it is
+also why `tests/unit/t_buildmatrix.py` gains a `MOUDIAG` row — a knob whose
+blob nothing measures is how the last one went unfound.
+
+**`t_blobruns.py`'s ratchet moves from 2 to per-geometry**, because the whole
+point of it is that the three geometries do not share an answer: 3 on 360KB, 3
+on 720KB, **2 on 1.44MB** — and the last of those is the one that still refuses,
+so the release geometry cannot silently take a third call.
+
+**Neither guard 5 nor guard 5c binds.** Guard 5 was measured on both shipped
+kernels rather than derived: `kern_small` is the binding configuration and
+passes to **40** sectors, `kern_big` to 149, so 19 clears with 21 sectors of
+margin on the tighter of the two. Guard 5c is *invariant* to `BOOT2_SECS` by
+construction — `COLD_START` carries `BOOT2_PAD`, so `MODC_START` grows by
+exactly the 512 per sector that moves the right-hand side's 32 paragraphs, and
+both sides move together. It is sensitive to `.lowbss` growing, which is a
+different question and its own comment says so.
+
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
 ```nasm
@@ -20625,10 +20689,20 @@ disk, the boot sector and stage 1's flat 13-sector read all unchanged**.
 The `SPLSTARS` arm does not fit, and no amount of moving the split helps: it
 wants **2,824 bytes of `.boot2` and 3,930 of `.ovl`, which is 6,754 of a
 6,656-byte blob**. It is over by 98 *wherever* `OVL_AT` falls. So that arm —
-and nothing else — takes `BOOT2_SECS` = **14**, which is the claim the comment
-above `OVL_AT` has been predicting since §2.9.6. Six sectors for `.boot2` and
-eight for `.ovl` leaves 248 bytes and 166, which is about the room the shipped
-split has, so the knob arm stops being the one that breaks first.
+and nothing else — takes a sector the shipped kernel does not, which is the
+claim the comment above `OVL_AT` has been predicting since §2.9.6. Six sectors
+for `.boot2` and eight for `.ovl` leaves 248 bytes and 166, which is about the
+room the shipped split had, so the knob arm stops being the one that breaks
+first.
+
+**Both counts have since moved one rung apiece and the mechanism is unchanged**
+(§2.9.12): the shipped blob is **19** sectors and `BOOT2_SECS_STARS` is
+**20**. What that changed is the *roster* rather than the shape — at 19 the
+shipped blob has room for `BOOTMARK=1` and `MOUDIAG=1` as well, so `SPLSTARS`
+is now the only knob in the tree with a `BOOT2_SECS` of its own, and the two
+`sed` lookups below exist for one user. A mechanism with one user is one
+nobody notices breaking, which is why `t_buildmatrix.py` carries a row per
+knob whose blob differs at all.
 
 **And the 14th sector is NOT free, which was asserted here before it was
 measured.** The reasoning was 360KB's alone — nine sectors a track, the blob
@@ -20642,6 +20716,9 @@ Read off the loader's own registers at its `int 13h`, on the guest:
 |---|---|---|---|
 | 13 | 2 calls — 6 + 7 | 2 calls — 4 + 9 | 2 calls — 3 + 10 |
 | **14** | 2 calls — 6 + 8 | **3 calls — 4 + 9 + 1** | 2 calls — 3 + 11 |
+| 19 (shipped, §2.9.12) | 3 — 6 + 9 + 4 | 3 — 4 + 9 + 6 | 2 — 3 + 16 |
+| **20** (`SPLSTARS`) | 3 — 6 + 9 + 5 | 3 — 4 + 9 + 7 | 2 — 3 + 17 |
+| 23 | 3 — 6 + 9 + 8 | **4 — 4 + 9 + 9 + 1** | 3 — 3 + 18 + 2 |
 
 **720KB is the tight one, and 13 is exactly its last sector.** The 14th costs a
 whole extra `int 13h` to move **one** sector — 1–2 revolutions, near enough
@@ -20655,8 +20732,13 @@ The boundary is worth carrying forward, because the *shipped* blob sits on it:
 | | last size that is two calls |
 |---|---|
 | 360KB | 15 |
-| **720KB** | **13 — where the blob is now** |
-| 1.44MB | 17 or more |
+| **720KB** | **13 — where the blob was** |
+| **1.44MB** | **21 — where the shipped blob's next price is** |
+
+Since §2.9.12 the two 9-sector geometries have spent their third call and the
+1.44MB one has not, so the boundary that binds now is the last row: **21 is the
+largest blob that is two calls on the release geometry**, and 22 is where the
+next `int 13h` gets bought.
 
 `tests/unit/t_blobruns.py` is the ratchet, in the fast tier, and it exists
 because nothing here could have caught this: it walks the runs out of the
@@ -20669,9 +20751,10 @@ cannot disagree, and it now reads **two** constants: `BOOT2_SECS_STARS` for
 the knob and `BOOT2_SECS` for everything else. The pattern anchors on
 `^BOOT2_SECS  *equ  *<digits>`, which the knob's own line misses on the
 underscore and the `%ifdef`'s line misses on the value not being a number — so
-the shipped 13 stays the one the pattern finds and the override is deliberate
-rather than an accident of ordering. **A boot sector told to fetch 13 sectors
-for a 14-sector stage 2 jumps into a blob whose last sector never landed**,
+the shipped count stays the one the pattern finds and the override is
+deliberate rather than an accident of ordering. **A boot sector told to fetch
+19 sectors for a 20-sector stage 2 jumps into a blob whose last sector never
+landed**,
 which is why the two lookups are worth the ugliness.
 
 ### 15.4 The boot timer

@@ -51,7 +51,7 @@ DPT_AT      equ 0x0580          ; 0000:0580 - our copy of the diskette
                                 ; KERNEL_SEG, so nothing the kernel or its heap
                                 ; can claim reaches it and it needs no restore
 B2_STACK    equ 0x7C00          ; stage 1's STACK_TOP, which is still ours
-KSIG_OFF    equ 11776           ; SPEC.md 18.93.1's probe, as a MEMORY offset
+KSIG_OFF    equ 8704            ; SPEC.md 18.93.1's probe, as a MEMORY offset
                                 ; from KERNEL_SEG - the Makefile reads the same
                                 ; bytes out of the file at KSIG_OFF + BOOT2_PAD,
                                 ; which is FILE SECTOR 36 and has to be: the
@@ -59,7 +59,15 @@ KSIG_OFF    equ 11776           ; SPEC.md 18.93.1's probe, as a MEMORY offset
                                 ; tests/unit/t_canary.py re-derives that from
                                 ; every shipped image's BPB. This equ and the
                                 ; Makefile's KSIG_OFF are one number typed
-                                ; twice; that row checks they agree
+                                ; twice; that row checks they agree.
+                                ;
+                                ; IT MOVES WITH BOOT2_SECS, which is why it is
+                                ; 8704 and not the 11776 it was: SPEC.md 2.9.12
+                                ; grew the blob by six sectors and slid the same
+                                ; memory offset from file sector 36 to 42 - a
+                                ; run's FIRST half on all three geometries, the
+                                ; half that loads correctly on exactly the
+                                ; machine this exists to catch
 B2_KSECS    equ ((MODC_START + 511) / 512) - BOOT2_SECS  ; what is left to read
 
 boot2_entry:

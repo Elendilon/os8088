@@ -498,15 +498,31 @@ BOOT2_SECS := $(shell sed -n 's/^BOOT2_SECS_STARS  *equ  *\([0-9][0-9]*\).*/\1/p
 endif
 BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 
-# IT IS A MEMORY OFFSET, AND THE FILE SECTOR IS 13 FURTHER IN (SPEC.md 2.9).
-# Stage 2 sits in front of the image now, so the sector this names in KERNEL.SYS
-# is KSIG_OFF/512 + BOOT2_SECS - which is why KSIGDEF2 below adds BOOT2_PAD to
-# read the word out. The number was left at the one that used to put it on file
-# sector 36, and that moved the probe to file sector 49: a run's FIRST HALF on
-# 360KB and on 1.44MB, the half that loads correctly on exactly the machine the
-# canary exists to catch. 11776 puts it back on 36 - the same sector the
-# argument above is about, still in the middle of the common band 33..38.
-KSIG_OFF := 11776
+# IT IS A MEMORY OFFSET, AND THE FILE SECTOR IS BOOT2_SECS FURTHER IN (SPEC.md
+# 2.9). Stage 2 sits in front of the image now, so the sector this names in
+# KERNEL.SYS is KSIG_OFF/512 + BOOT2_SECS - which is why KSIGDEF2 below adds
+# BOOT2_PAD to read the word out. The number was once left at the one that used
+# to put it on file sector 36, and that moved the probe to file sector 49: a
+# run's FIRST HALF on 360KB and on 1.44MB, the half that loads correctly on
+# exactly the machine the canary exists to catch.
+#
+# **THIS CONSTANT IS TIED TO BOOT2_SECS AND HAS TO MOVE WITH IT.** SPEC.md
+# 2.9.12 took the blob from 13 sectors to 19, which slid the same memory offset
+# six sectors further into the file and straight out of the band - 11776 landed
+# on file sector 42, a first half on all three geometries. 8704 puts it back on
+# **36**, the same sector the argument above is about and the middle of the
+# common band 33..38, and it is 37 under SPLSTARS' 20-sector blob, which is
+# still in it. tests/unit/t_canary.py re-derives the band from every shipped
+# image's own BPB and is what caught this - it is in the FAST tier, so a blob
+# resize that forgets this line stops the build rather than shipping a canary
+# that cannot fire.
+#
+# It stays BELOW the 24,576-byte bootdiag payload (SPEC.md 2.9.10) on purpose:
+# the gate below is KERNEL_SECTORS > KSIG_OFF/512, so a bigger offset would
+# quietly stop compiling the canary into the one disk built for a machine whose
+# FDC is under suspicion. 17 sectors clears bootdiag's 48 and comscan's 8 stays
+# below both, exactly as it was.
+KSIG_OFF := 8704
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is
