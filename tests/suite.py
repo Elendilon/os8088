@@ -509,9 +509,29 @@ SOAK = [
         "The field's browser report: a drag that does not move it, and a"
         "width cut on a card wide enough to hold it",
         needs=("marty",), serial=True),
-    Row("dispcalc", "soak", py("tests/dispcalc.py"), 60.0,
+    # THE THREE ROWS BELOW DECLARED 60s AND TAKE FOUR TO NINE TIMES THAT.
+    # `secs` derives the kill timeout (`max(60, secs*4+30)` = 270s), so all
+    # three were being killed MID-RUN and reported as TIMEOUT - which reads
+    # like a hung emulator and is not one. Measured on this container, each
+    # run directly and to completion, every assertion passing:
+    #
+    #     dispsize    295 s        dispcalc    406 s        dispprefer  546 s
+    #
+    # Nothing stalls. dispsize profiled with `settle` instrumented: 61 calls,
+    # 153.4 s of a 311.6 s wall inside settle (49.2%), and the LONGEST single
+    # settle is 11.4 s against settle's own 120 s limit. Half of one of these
+    # rows is the harness's screen-polling floor - `settle(quiet=1.0,
+    # stable=2)` cannot return in under ~2 s and dispprefer alone makes 16
+    # adapter switches at four settles each - so the wall time is sampling
+    # cost, not the guest being slow and not the guest being stuck.
+    #
+    # The `secs` below is therefore what the row COSTS, and the explicit
+    # timeout is ~2x that: enough that container jitter cannot kill a healthy
+    # run, small enough that a genuinely hung emulator is still caught in
+    # minutes rather than tens of them.
+    Row("dispcalc", "soak", py("tests/dispcalc.py"), 420.0,
         "Does the Calculator add up, fold cleanly and redraw nothing spare?",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, timeout=900),
     Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 60.0,
         "Does the Calculator re-fold cleanly when its box moves under it?",
         needs=("marty",), serial=True),
@@ -549,10 +569,12 @@ SOAK = [
         "Is changing adapter and changing back the IDENTITY on every window"
         "rect?",
         needs=("marty",), serial=True),
-    Row("dispprefer", "soak", py("tests/dispprefer.py"), 60.0,
+    # 546 s measured - the longest of the three, 16 adapter switches at four
+    # settles each. See the note above `dispcalc`.
+    Row("dispprefer", "soak", py("tests/dispprefer.py"), 560.0,
         "Does a package's PER-ADAPTER preference and floor survive a drag"
         "across the seam, and does a USER outrank it? (SPEC.md 11.100)",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, timeout=1200),
     Row("disptitle", "soak", py("tests/disptitle.py"), 150.0,
         "Does a title bar STRADDLING the seam have one polarity? (SPEC.md"
         "5.4.2.4) - it builds `make BAND=1` itself, the composer being a knob"
@@ -562,10 +584,12 @@ SOAK = [
         "Does SPEC.md 76's theme meet the extended desktop honestly? Color is"
         "a fact about the PRIMARY and a window can be on the other card",
         needs=("marty",), serial=True),
-    Row("dispsize", "soak", py("tests/dispsize.py"), 60.0,
+    # 295 s measured, and the row the settle profile above was taken on.
+    # See the note above `dispcalc`.
+    Row("dispsize", "soak", py("tests/dispsize.py"), 320.0,
         "What size is a window given when it lands on the other card?"
         "(SPEC.md 11.100.3/11.100.4)",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, timeout=900),
     Row("dispfrac", "soak", py("tests/dispfrac.py"), 60.0,
         "Does apps/fractal's restore cache survive an adapter change?"
         "(SPEC.md 40.1)",
