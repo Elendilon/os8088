@@ -2695,7 +2695,7 @@ osapi_table:
                                   ;          never-written blob reads back as
                                   ;          zeroes and the driver's own version
                                   ;          byte is what recognises it
-    OSAPI_SLOT osapi_sys_snapshot     ; 0x0298 - the scheduler AND the instance
+    OSAPI_JSLOT api_sys_snapshot      ; 0x0298 - the scheduler AND the instance
                                   ;          table, in ONE cli window
                                   ;          (SPEC.md 28.2). in ES:DI = a
                                   ;          SYS_SNAPSHOT_SIZE buffer; out AX =
@@ -3773,6 +3773,19 @@ api_file_sysc:
     retf                        ; and from out there that is the whole truth
 
 ; ...and the two-name case, which needs DI as well and so is written out
+; api_sys_snapshot - slot 0x0298's stub, because the body is COLD (SPEC.md
+; 29.9.1). An OSAPI_SLOT cell is eight bytes exactly and `call %1` is near, so a
+; cold body cannot be reached from one; the JSLOT + stub pattern is what the
+; five below already do, and this is a sixth of the same shape. Ten bytes, and
+; it is where the DS switch lives now.
+api_sys_snapshot:
+    push ds
+    push cs
+    pop ds                      ; DS = KERNEL_SEG, as the cell used to set it
+    call COLD_SEG:osapi_sys_snapshot
+    pop ds
+    retf
+
 api_file_rename:
     push ds
     push si

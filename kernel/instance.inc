@@ -2023,6 +2023,15 @@ inst_launch_post:
 ; INST_MAX scans of MEM_MAX records - four hundred iterations that have no
 ; business running with interrupts off.
 ; =============================================================================
+section .cold                   ; COLD (SPEC.md 2.6, 29.9.1): 258 bytes of the
+                                ; 64KB segment for a slot the Task Manager asks
+                                ; about once a second. The API cell above it is
+                                ; an OSAPI_JSLOT into a ten-byte `.text` stub
+                                ; that owns the DS switch and the far call, so
+                                ; the published offset does not move and no
+                                ; caller changes. Zero new cw_ shims: its one
+                                ; outbound is already `call COLD_SEG:` and stays
+                                ; exactly as it is
 osapi_sys_snapshot:
     push cx
     push dx
@@ -2143,7 +2152,10 @@ osapi_sys_snapshot:
     pop si
     pop dx
     pop cx
-    ret
+    retf                        ; FAR: api_sys_snapshot is the only entry and it
+                                ; far-calls (SPEC.md 2.6.1 - the body owns the
+                                ; return and there is no thunk in between)
+section .text
 
 ; -----------------------------------------------------------------------------
 section .bss

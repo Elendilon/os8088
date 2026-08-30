@@ -36716,6 +36716,25 @@ worker is safe to close mid-tone.
 none, else kind + 1), plus module scratch (template copy buffer, pool-slot
 cursor — UI task only). All zeroed by `inst_init`.
 
+### 29.9 `osapi_sys_snapshot` is cold, behind a `JSLOT`
+
+Slot 0x0298 fills the Task Manager's whole table in one interrupts-off window
+(§20.9). It is 258 bytes and the Task Manager asks about **once a second**, so
+the body is `.cold`.
+
+An `OSAPI_SLOT` cell is **eight bytes exactly** and its `call %1` is near, so a
+cold body cannot be reached from one at all — the cell cannot grow, because the
+next cell's published offset is the ABI. What replaces it is the pattern five
+other slots already use: **`OSAPI_JSLOT` into a ten-byte `.text` stub**
+(`api_sys_snapshot`) that owns the `push ds / push cs / pop ds`, far-calls the
+body and returns `retf`. The published offset does not move and no caller
+changes.
+
+**Zero new `cw_` shims.** Its one outbound call is `call COLD_SEG:mem_owned_kb_x`
+and it was already spelled that way — the deliberate exclusion §29.9's own
+comment describes, `mem_owned_kb` being four hundred iterations that have no
+business inside the window.
+
 ## 30. dock.inc — the dock strip
 
 A taskbar-style strip along the bottom of the screen showing one tile per
