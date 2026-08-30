@@ -44,6 +44,14 @@ ovl_desk_init       kmain only (kernel.asm:4294) - first desktop paint, SPEC.md 
 ovl_snd_init        kmain only (kernel.asm:4315) - sound layer bring-up, SPEC.md 34
 drv_snd_sniff       kmain only (kernel.asm:4306) - what card is at 388h, SPEC.md 51.3.1
 
+# --- the boot-only bodies of docs/LAST-DROP-BYTES.md -----------------------
+# Each one is a routine kmain runs ONCE, moved out of `.text` or `.cold` into
+# the blob so that it stops costing RAM at spl_finish.  The register names the
+# caller for every row and the closure walk that proved there is no other; what
+# is repeated here is the answer to this file's one question.
+sched_init          kmain only (kernel.asm:4170) - the task table and the int 08h hook, SPEC.md 8. Nothing re-initialises the scheduler: the reboot path is sched_unhook (a different routine, which RESTORES the vector) and sch_fast_on/sch_fast_off re-programme the PIT without reaching this body
+sch_idle_start      kmain only (kernel.asm:4182) - spawns the idle task, docs/SCHED-IDLE-PLAN.md 6.2. The TASK outlives the blob and the spawner does not: its entry is sch_idle_body, a `.text` label, which is what the BX = 0 (KERNEL_SEG) argument names
+
 # --- the loading screen's own captions, drawn while the blob is still live --
 # The splash is IN the blob (`.boot2`), so it cannot outlive `.ovl`: both are
 # released by the same spl_finish.  These are the phase captions, SPEC.md 15.6.

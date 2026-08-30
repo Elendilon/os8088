@@ -4167,7 +4167,9 @@ kmain:
                                 ; multi-sector read past it silently returns
                                 ; the OTHER HEAD's sectors
     MARK 4
-    call sched_init             ; pre-emption live from here on
+    OVLGATE1 sched_init         ; pre-emption live from here on. IN THE BLOB
+                                ; (docs/LAST-DROP-BYTES.md row 3) - one
+                                ; caller, and this is it
     MARK 5
 %ifdef SCH_QUANTUM
     mov al, SCH_QUANTUM         ; `make QUANTUM=` - SPEC.md 53.2.1's sub-tick,
@@ -4177,7 +4179,7 @@ kmain:
                                 ; here, and this also closes the ticks-only
                                 ; era - the boot sector's load and the three
                                 ; calls above it
-    call sch_idle_start         ; PROBE (docs/SCHED-IDLE-PLAN.md 6.2): the idle
+    OVLGATE1 sch_idle_start     ; PROBE (docs/SCHED-IDLE-PLAN.md 6.2): the idle
                                 ; task. Inert while ui_task never sleeps - the
                                 ; scan skips its slot, so it is reached only
                                 ; where sch_switch used to resume the outgoing

@@ -460,6 +460,47 @@ that floor by what it saved, one 512-byte rung at a time. That is the trade and
 it is accepted: the bytes come off every machine that runs, and the machines it
 excludes are ones that could not reach a desktop.
 
+#### 2.5.2 The register — what is in the overlay, and the one question a new row answers
+
+§2.5.1 bought the *lifetime*; §2.9.12 bought the *room*. What went in with it is
+`docs/LAST-DROP-BYTES.md`, a register of boot-only bodies moved out of `.text`
+and `.cold` — `sched_init`, `font_init`, `wm_init`, `dock_init`, `menu_init`,
+`inst_init`, `vid_detect`/`vid_init`/`vid_ctx_init`, the vidsel probe trio,
+`sch_idle_start`, `drv_boot_x` and the `_x` initialisers of the disk, driver,
+memory, loader, module and file layers. Each row carries the caller that makes
+it boot-only, the closure walk that proved there is no other, and its measured
+size.
+
+**The whole class fails silently and that is what the registry is for.** A body
+here is correct exactly as long as every path to it runs before `spl_finish`.
+Add one runtime caller and the call reaches `spl_gate`, which tests `[spl_fseg]`
+and *returns* — no crash, no message, a working-looking desktop with one
+initialiser that quietly did nothing. `dispcold` byte-compares `.cold` against
+the built image on a live guest and there is no `.ovl` counterpart, because the
+blob is gone by the time a desktop exists.
+
+So `tests/ovlrefs.txt` is the registry, in the shape §6.6's transparent-text
+sites are: **every reference into `.ovl` from outside it is listed with the
+reason it is boot-only**, and `tools/os88ovlchk.py` rule 2c fails the build on
+one that is not. The question a new row answers is not "does this look like boot
+code" — it is **what guarantees this runs before `spl_finish`**, answered by
+naming the caller. The list may shrink freely; a row whose reference has gone is
+itself a build failure, so it cannot rot into a list of names nobody can account
+for.
+
+Two mechanical rules the same move made worth stating as rules:
+
+- **`.ovl` may not store CS** (`os88ovlchk.py` rule 2b). Reading through CS is
+  correct there — the overlay's data rides with it — but a stored CS is the
+  blob's segment written into something that outlives the blob. `mouse_init`
+  installs the mouse and int 09h vectors that way, and three such sites were
+  inside the moved range; they name `KERNEL_SEG` now. Before the rule, nasm,
+  the gate and a boot to a desktop all passed in silence.
+- **An `.ovl` body may take the address of a `.text` label freely** — `.text` has
+  `vstart=0` and the consumer supplies `KERNEL_SEG` — **but the address of an
+  `.ovl` label stored anywhere that outlives the blob is a pointer into freed
+  heap.**
+
 ### 2.6 Cold code — resident, but not in the segment
 
 `section .cold start=COLD_START vstart=0`, same contract as the overlay —
