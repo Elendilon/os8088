@@ -792,7 +792,7 @@ fcp_step:
 ;
 ; Two things make it cheap. dskw_raw still holds the SOURCE's thirty-two
 ; bytes when the destination's lookup fails - dskw_stat bails inside
-; dskw_find, before dskw_ent_load could overwrite them - so the entry that
+; dskw_find, which is the only thing that writes them - so the entry that
 ; lands in the destination carries the real 32-bit size AND the original
 ; timestamps, which building a fresh one through dskw_commit would not.
 ; And [dskw_zapnext] is consumed by dskw_ent_store, not by dskw_commit, so

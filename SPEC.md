@@ -21685,7 +21685,8 @@ file are contiguous and a whole chunk is one transfer — 383 sectors in 57
 calls on the reference copy, against 383 in 217 when the run stopped at each
 cluster.
 
-`dskw_runmax` is `dskw_cross`'s question asked of a **run**: how many sectors
+`dskw_runmax` asks the 64KB-page question of a **run** rather than of one
+sector: how many sectors
 may go in one transfer from the current `[dskw_wseg]:[dskw_src]`, bounded by
 the 64KB DMA page the 8237 cannot carry out of, and by 127 — the most that
 cannot overflow the BX `dsk_xfer` walks from an offset of 0..15.
@@ -21929,7 +21930,8 @@ gone nothing on the volume names them any more.
 **Commit order (binding — it is `dskw_delete`'s, and for `dskw_delete`'s
 reason).**
 
-1. `dskw_find` + `dskw_ent_load` the parent's entry; run the checks above.
+1. `dskw_find` the parent's entry — which takes its 32 bytes with it
+   (§18.4.3); run the checks above.
 2. Write `0xE5` into that entry — one sector, **the commit point**.
 3. `dskw_free_chain` the directory's own cluster chain, then `dskw_flush`.
 
@@ -23325,9 +23327,20 @@ with file corruption as the failure mode instead of a clipped rectangle.
 Copying inside `dskw_find` leaves no window in which the buffer could be
 reused, so there is no invalidation for anyone to forget.
 
-`dskw_ent_load` stays, for the two callers that reach it *without* a
-preceding `dskw_find` (`dskw_rt_zap`, and the replace path in the write
-pipeline) and may legitimately find the buffer holding something else.
+**`dskw_ent_load` is gone too, and that was the same read one more time.** It
+was kept for "the two callers that reach it without a preceding `dskw_find`" —
+and neither of them does. `dskw_wbody`'s `.replace` is entered by `jnc
+.replace` immediately after `call dskw_find`, with one byte store between;
+`dskw_rt_zap` is called from `dskw_rtbody`'s `.lfn` immediately after
+`dskw_rt_scan`, which stages the same 32 bytes into `dskw_raw` and publishes
+`[dskw_dsec]`/`[dskw_doff]` exactly as `dskw_find` does. So both were reading
+back over bytes they already held, at **one whole revolution each**: a
+replacing write and an LFN removal were paying an `int 13h` — ~400 ms on a
+5150 — for nothing at all. Nothing between the find and the use writes
+`dskw_raw`: `dskw_pmask` reads it, and `dskw_wdata`/`dskw_alloc`/`dskw_setfat`/
+`dskw_flush` work in `dsk_secbuf` and the FAT window, which is why
+`dskw_commit` can still read it at the end of the same pipeline.
+`dskw_ent_store` re-reads its sector itself, by design and for its own reason.
 
 Measured, one 16 KB `OSAPI_FILE_READ`: **6 int 13h calls → 5**, and a
 one-sector file **3 → 2**. `tests/filetest` passes all 25 checks and
@@ -30332,8 +30345,8 @@ no changes at all.
 Two things make it cheap enough to be worth having:
 
 - **`dskw_raw` still holds the SOURCE's thirty-two bytes** when the
-  destination's lookup fails — `dskw_stat` bails inside `dskw_find`, before
-  `dskw_ent_load` could overwrite them. So the entry that lands in the
+  destination's lookup fails — `dskw_stat` bails inside `dskw_find`, which is
+  the only thing that writes them (§18.4.3). So the entry that lands in the
   destination is the source's, carrying its real 32-bit size *and* its
   original timestamps. Building a fresh one through `dskw_commit` would have
   given neither: that path writes the size from the 16-bit `[dskw_len]`.
