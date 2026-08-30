@@ -47100,16 +47100,15 @@ dragged once — is entitled to exactly `cw + 48` and has no slack at all.
 466-wide `OS8088.GIF` leaves `[pt_cw]` at 466, it has been correctly red since
 §11.94.5 landed, and it now reads 466.
 
-**The row loop below that assertion is still red, for a reason of its own**,
-and it is worth being precise about which half passes. The width is right; what
-fails is the rig that steps `pt_line_get` a row at a time through five bytes
-written over `pt_blit`'s entry — it does not survive its second call, the guest
-spins in the patched loop rather than hanging, and the symptom reads as the
-routine under test never returning. That rig has not executed since §11.94.5
-either, because the width assertion exits before it. What has been ruled out is
-written down at `call_line_get`; the remaining suspect is `patch_caller`'s own
-warning, that MartyPC's `pc` is the **fetch** pointer and `pt_blit+3` sits
-inside the prefetch window of the `call` at `pt_blit+0`.
+**The row loop below that assertion had never executed at all**, because the
+width assertion exits first — so §42.13.1.2's unrolled reader has been
+untested for as long as this row has been red. It runs now, and it passes on
+every row: `pt_line_get` was right the whole time and the rig was fighting the
+debugger. What it took is written down at `patch_caller`, and it is worth
+knowing in general — **the first exec breakpoint after a fresh run fires, and
+no breakpoint armed after that stop fires again**, at any address, while `run`
+is provably resuming. A rig that stops, re-arms and resumes cannot work here;
+this one writes an immediate into the patched loop and advances instead.
 
 ### 42.13 The canvas is stored the way the CARD wants it
 
