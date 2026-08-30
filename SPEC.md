@@ -2220,7 +2220,7 @@ across a 3.6x range of run density, which is the design property rather than a
 happy accident. Against §5.4.1's span writer that is **4.7x** on a picture and
 **16.2x** on detailed art, and against the run path it replaced, 10.7x and 36.3x.
 
-**There is no hybrid**, and docs/LAST-DROP.md 3 is the costing. The run path
+**There is no hybrid**, and docs/LAST-DROP-PERF.md 3 is the costing. The run path
 stays cheaper below ~10 runs a row, and nothing anyone waits on draws flat art
 through this: the consumers are Paint's canvas, Solitaire's lattice card backs
 and **ArtfulType's line of text per keystroke**. The price is a blank canvas
@@ -5092,7 +5092,7 @@ deciding. Measured over two scripted sessions, 34% and 28% of the cells
 (§27.2), `tui_str` draws Tracker's FT2 screen, ModPlug composes four LCD lines
 a frame (§56.12). §28's Task Manager is the one that will show it least — it
 already skips rows that have not moved — and most packages have not been
-converted to `font_run` at all. docs/LAST-DROP.md records the candidate that
+converted to `font_run` at all. docs/LAST-DROP-PERF.md records the candidate that
 was measured against this one and shelved.
 
 #### 6.1.10 VGA gets the single-store path too — the planes are grouped once a run

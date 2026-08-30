@@ -4025,7 +4025,7 @@ since there the padding IS the erase. It needs a per-run array of glyph
 pointers (80 cells × 2 bytes of `.bss`) or 8x the glyph-address lookups, so it
 is a real trade rather than a free one.
 
-**docs/LAST-DROP.md carries the rejected one in full** — the patch, the
+**docs/LAST-DROP-PERF.md carries the rejected one in full** — the patch, the
 figures, the price and what would have to change for the answer to flip — so
 the next session that has this idea can read it instead of building it.
 
@@ -5468,7 +5468,7 @@ same window, one pixel over, **508.3 ms against 259.1**. The odd body is 52
 bytes per eight pixels against the even one's 37, the carry epilogue being the
 whole difference, and it takes the spread down to 15%.
 
-**The crossover moved with it, and docs/LAST-DROP.md 3 is re-costed**: the run
+**The crossover moved with it, and docs/LAST-DROP-PERF.md 3 is re-costed**: the run
 path is still `830 + 371 x runs` µs a row and the decoder is now 1,948, so the
 hybrid's band is **~3 runs a row** rather than Set 44's ~10, and what it buys
 on flat art is 1.96x rather than 3.9x. Same verdict, less of it.
@@ -9824,7 +9824,7 @@ what the gate reads and the screen is not.
 
 #### Why this one has a hybrid where Set 44's did not
 
-Set 44 took the row outright on 1bpp, and the costing was docs/LAST-DROP.md 3:
+Set 44 took the row outright on 1bpp, and the costing was docs/LAST-DROP-PERF.md 3:
 the crossover is ~1.84 runs a row and nothing anyone waits on is below it.
 Both halves of that move here. The transpose is **four planes deep**, and the
 run it replaces is a direct framebuffer write rather than a `gfx_hline` —

@@ -1,5 +1,10 @@
 # The Last Drop Of Performance
 
+> Companion: **docs/LAST-DROP-BYTES.md** is the same idea for BYTES - code whose
+> lifetime is boot-only and which could move into `.ovl` (released at `spl_finish`,
+> so it costs nothing after boot) the next time the blob grows. This file is
+> CYCLES; that one is BYTES.
+
 **Optimisations that were built, measured, and found CORRECT — and shelved
 anyway, because they did not clear the price of their own footprint.**
 
