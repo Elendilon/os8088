@@ -228,7 +228,7 @@ the first sweep here did — marks the whole splash chain live and loses this bo
 `spl_isr` is in fact the *pre-`kmain`* `int 08h` handler, replaced by `sched_init`,
 so everything reached only from it is boot-only too.
 
-**Measurement.** Alone: `.text` −57 · `.ovl` +67. Paired with `vid_init` (§2.22),
+**Measurement.** Alone: `.text` −57 · `.ovl` +67. Paired with `vid_init` (§39, viddet.inc),
 which is its other caller: `.text` −68 · `.ovl` +88 — better than the two taken
 separately, because `vid_init → vid_detect` becomes a near call inside `.ovl`.
 Both gate OK.
