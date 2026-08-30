@@ -2268,7 +2268,6 @@ section .text
 ; routine that moved keep its near `ret` and change in no other way.
 ; =============================================================================
 section .ovl
-ovl_base:
 ; THE FIVE SHIMS THAT USED TO BE HERE ARE GONE (SPEC.md 2.6.1, 2.5.2). Each was
 ; `call <body> / retf` for a body that is ALSO in `.ovl`, in cpudet.inc,
 ; xmem.inc, desk.inc, snd.inc and clock.inc - four bytes apiece to own a far
@@ -2277,8 +2276,9 @@ ovl_base:
 ; body directly now and nothing near-calls any of them, which is what
 ; os88ovlchk's return-kind and blob-entry rules check.
 ;
-; `ovl_base` stays: it is what the guard at the foot of this file measures the
-; overlay's existence by, and it is a label rather than code.
+; `ovl_base` went with them, and the guard at the foot of this file did not
+; want it: 4b measures OVL_SIZE, which is `ovl_end - $$`, and $$ is the
+; section's own base. Nothing else in the tree ever named it.
 
 section .text
 
