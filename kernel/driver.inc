@@ -3927,7 +3927,7 @@ section .cold                   ; ...and back to cold code: drv_boot and
 ; the same edit, which is what SPEC.md 2.6.1 says about a thunk with nothing
 ; left to thunk.
 ;
-; The fifth, SPLCALL splf_reset, points into `.boot2` and stays as it is: the
+; The fifth, SPLCALL spl_reset, points into `.boot2` and stays as it is: the
 ; two sections are one segment in practice and the gate refuses the crossing
 ; anyway, deliberately (docs/LAST-DROP-BYTES.md 6.1).
 ;
@@ -4011,7 +4011,7 @@ drv_boot_x:
     cmp ah, [vid_kind]
     je .vnosw                   ; already that adapter: nothing was cleared
 %endif
-    SPLCALL splf_reset                 ; ...otherwise redraw the loading screen onto
+    SPLCALL spl_reset                 ; ...otherwise redraw the loading screen onto
     jmp short .load             ; the framebuffer the mode set just wiped
 .vnosw:
 %ifdef KERN_BIG

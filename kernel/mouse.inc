@@ -485,7 +485,7 @@ mouse_init:
     cmp al, [mou_splt]          ; a notch a tick, and nothing to lose by it:
     je .rstheld                 ; the mouse has no power during these three
     mov [mou_splt], al
-    SPLCALL splf_stepq
+    SPLCALL spl_stepq
 .rstheld:
     cmp ax, MOU_RSTLOW
     jb .rstlow
@@ -536,7 +536,7 @@ mouse_init:
     mov [mou_splt], al          ; mouse spends MOU_IDWIN and holds for the
     cmp al, MOU_IDFLOOR         ; difference rather than jumping at the end.
     ja .idheld                  ; splf_stepq and not splf_step: 3.7 ms against
-    SPLCALL splf_stepq          ; 32.4, and a 1200-baud 7N1 byte is 7.5 ms of
+    SPLCALL spl_stepq          ; 32.4, and a 1200-baud 7N1 byte is 7.5 ms of
 .idheld:                        ; line time (15.3.3.1)
 %ifndef MOU_ID_SLOW
     cmp ax, MOU_IDWIN           ; the ceiling is unchanged: nothing waits longer

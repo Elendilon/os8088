@@ -4482,7 +4482,7 @@ kmain:
 %endif
     MARK 31
 
-    SPLGATE1 splf_finish         ; the bar to 100% and the screen handed back:
+    SPLGATE1 spl_finish         ; the bar to 100% and the screen handed back:
                                 ; the paint below covers every pixel of it,
                                 ; so the loading screen needs no erase
 

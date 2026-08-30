@@ -20922,6 +20922,22 @@ deliberate rather than an accident of ordering. **A boot sector told to fetch
 landed**,
 which is why the two lookups are worth the ugliness.
 
+#### 15.3.9 Three of the `splf_` shims own a far return their bodies can own
+
+`spl_stepq`, `spl_finish` and `spl_reset` each have exactly one `ret` and **no
+near caller anywhere in `.boot2`**, so each body owns its own far return and the
+four-byte `call X / retf` in the middle is deleted — §2.6.1's rule, which the
+`.cold` side made eighty-four times and this section had made none.
+
+`splf_step` **keeps its shim**, and the reason is the test: `spl_stepq`
+near-calls `spl_step` two screens down, so a `retf` on that body would return
+into nowhere from there. That is the whole of what decides one of these, and
+`os88ovlchk.py`'s return-kind rule is what checks it.
+
+Twelve bytes of `.boot2`, which is worth stating as a gain rather than a
+rounding: since §2.9.12 the loader's slack and the overlay's are **one pool**,
+`OVL_AT` moving for nothing — so what `.boot2` gives back, `.ovl` can have.
+
 ### 15.4 The boot timer
 
 **How long this machine took to boot, in system ticks**, from the boot

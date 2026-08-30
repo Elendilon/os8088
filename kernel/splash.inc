@@ -172,13 +172,17 @@ SPL_PCTC    equ 4
 ; `ret` and changed in no other way.
 ; -----------------------------------------------------------------------------
 splf_step:      call spl_step
-                retf
-splf_stepq:     call spl_stepq
-                retf
-splf_finish:    call spl_finish
-                retf
-splf_reset:     call spl_reset
-                retf
+                retf            ; ...and spl_step KEEPS its shim, because
+                                ; spl_stepq near-calls the body two screens
+                                ; down: a `retf` on it would return into
+                                ; nowhere from there
+;
+; THE OTHER THREE HAVE NO SHIM ANY MORE (SPEC.md 2.6.1, 15.3.9). spl_stepq,
+; spl_finish and spl_reset have exactly one `ret` apiece and NO near caller
+; anywhere in this section, so each body owns its own far return and the four
+; bytes in the middle are deleted. Twelve bytes of `.boot2`, which is the same
+; pool the boot overlay draws from (SPEC.md 2.9.12) - `OVL_AT` moves for
+; nothing, so what the loader gives back the overlay can have.
 splf_anim:      call spl_anim
                 retf            ; ...and SPEC.md 15.3.8.2's: sch_isr owns int
                                 ; 08h for the second half of the loading
@@ -335,7 +339,7 @@ spl_stepq:
     mov byte [cs:spl_quiet], 1
     call spl_step
     mov byte [cs:spl_quiet], 0
-    ret
+    retf                        ; FAR: SPEC.md 15.3.9 deleted the splf_ shim
 
 spl_step:
     pushf
@@ -441,7 +445,7 @@ spl_finish:
     pop ax
 .out:
     popf
-    ret
+    retf                        ; FAR: SPEC.md 15.3.9 deleted the splf_ shim
 
 ; -----------------------------------------------------------------------------
 ; spl_reset - put the loading screen back after a mode switch (SPEC.md 39.11.3)
@@ -506,7 +510,7 @@ spl_reset:
     pop bx
     pop ax
 .out:
-    ret
+    retf                        ; FAR: SPEC.md 15.3.9 deleted the splf_ shim
 
 ; -----------------------------------------------------------------------------
 ; spl_chrome - first tick only: mode 12h, the double-framed welcome dialog,
