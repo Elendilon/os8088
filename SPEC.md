@@ -10554,7 +10554,7 @@ rectangle vocabulary is one choke point. The clipped set is seven:
 | `gfx_fill_gray` | per fragment (the dither is screen-parity, so fragments align) |
 | `gfx_fill_pat` | per fragment (the pattern is screen-aligned for the same reason: the row byte is `y & 7` off a table staged from `[gfx_pat]` on every call, so a fragment starting at any y picks the byte the whole rect would have) |
 | `gfx_xor_fill` | per fragment |
-| `gfx_xor_rect` | **decomposed first**: an outline is not the intersection of its bounding rect with anything, so it becomes four `gfx_xor_fill` strips (the same decomposition `sw_xor_rect` uses, each pixel touched once, still self-inverting) |
+| `gfx_xor_rect` | **decomposed first**: an outline is not the intersection of its bounding rect with anything, so it becomes four `gfx_xor_fill` strips (each pixel touched once, still self-inverting). `gfx_xor_strips` is that decomposition, written ONCE and given the fill to draw a strip with in `BP` — `gfx_frame` is the same four strips with `gfx_fill`, and the software renderer reaches it through `gfx_xor_fill`'s own `[vid_mono]` dispatch rather than through a twin of its own |
 | `font_char` | whole-cell; covers `font_str` |
 | `icon_draw16` | whole-icon; covers `icon_draw` and `ico_core` |
 
@@ -38453,10 +38453,12 @@ and offsets serve this module and the planar one alike; every solid and XOR
 primitive funnels through `sw_rect`. Pixel, hline and vline are degenerate
 fills — a rect setup costs one `mul`, the same as a dedicated loop would.
 
-`sw_fill` / `sw_fill_gray` / `sw_xor_fill` / `sw_fill_pat` / `sw_xor_rect` /
-`sw_save` / `sw_restore` are the software twins of the `gfx_*` primitives with
-identical register contracts, reached through the `[vid_mono]` dispatch at
-each public entry (§39.5). `sw_xfer` is the save/restore worker;
+`sw_fill` / `sw_fill_gray` / `sw_xor_fill` / `sw_fill_pat` / `sw_save` /
+`sw_restore` are the software twins of the `gfx_*` primitives with identical
+register contracts, reached through the `[vid_mono]` dispatch at each public
+entry (§39.5). **There is no `sw_xor_rect`**: an outline has one
+decomposition (§5's `gfx_xor_strips`) and it reaches this renderer through
+`gfx_xor_fill`'s own dispatch, one strip at a time. `sw_xfer` is the save/restore worker;
 `sw_ink`/`sw_col`/`sw_parity`/`sw_patcol`/`sw_plane_op` are its internals.
 
 **Concurrency.** Every routine here runs with the gfx lock held (§1.6), so
@@ -41851,11 +41853,14 @@ handful of pixels, and the erase — a replay whose call boundaries need not
 match the draw's — can strand that handful rather than clearing it.
 
 **`gfx_xor_rect`'s unclipped path on a 1bpp adapter.** `gfx_xor_rect` with no
-clip region jumps to `sw_xor_rect`, which decomposes into `sw_xor_fill` —
-the software renderer's body, *below* the public `gfx_xor_fill` where the hook
-sits. So the drag outline and Missile's crosshair drew into the primary at the
-other display's coordinates. The clipped path was always safe, because it
-decomposes into the public entry instead. **The field data caught this before
+clip region used to jump to a software twin of its own, `sw_xor_rect`, which
+decomposed into `sw_xor_fill` — the software renderer's body, *below* the
+public `gfx_xor_fill` where the hook sits. So the drag outline and Missile's
+crosshair drew into the primary at the other display's coordinates. The
+clipped path was always safe, because it decomposes into the public entry
+instead. (The twin is gone: `gfx_xor_strips` is the one decomposition and the
+unclipped path passes it `gfx_xor_fill_raw`, which is inside the hook because
+`gfx_xor_rect_d` took it.) **The field data caught this before
 anybody reported it**: `gfxbench`'s `GFX_XOR_RECT 64x64` row reads 673us with
 its sandbox on the CGA against ~5,000us straddling — and 673us is not a fast
 rectangle, it is four strips clipped away to nothing.

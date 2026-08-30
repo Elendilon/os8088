@@ -812,54 +812,6 @@ sw_patcol:
     pop bx
     ret
 
-; -----------------------------------------------------------------------------
-; sw_xor_rect - software twin of gfx_xor_rect: 1px outline, XOR 0Fh.
-;               Same edge decomposition as the VRAM version - each pixel
-;               XORed exactly once, degenerate rects collapse - built from
-;               four sw_xor_fill strips.
-; in:       AX = x1, BX = y1, CX = x2, DX = y2  (x1<=x2, y1<=y2)
-; clobbers: flags
-; -----------------------------------------------------------------------------
-sw_xor_rect:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov si, bx                  ; SI = y1
-    mov di, dx                  ; DI = y2
-    mov dx, si
-    call sw_xor_fill            ; top row (x1,y1)-(x2,y1)
-    cmp di, si
-    je .out                     ; y1 = y2: one line, done
-    mov bx, di
-    mov dx, di
-    call sw_xor_fill            ; bottom row (x1,y2)-(x2,y2)
-    mov bx, si                  ; verticals span y1+1 .. y2-1
-    inc bx
-    mov dx, di
-    dec dx
-    cmp dx, bx
-    jl .out                     ; only two rows: no vertical part
-    push cx
-    mov cx, ax
-    call sw_xor_fill            ; left column (x1,y1+1)-(x1,y2-1)
-    pop cx
-    cmp cx, ax
-    je .out                     ; x1 = x2: one column, done
-    push ax
-    mov ax, cx
-    call sw_xor_fill            ; right column
-    pop ax
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; sw_save / sw_restore - software twins of gfx_save / gfx_restore, same

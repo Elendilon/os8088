@@ -3840,72 +3840,6 @@ gfx_blit_run:
     ret
 
 
-; -----------------------------------------------------------------------------
-; vga_vline_core - internal: vertical run of masked byte writes
-;
-; Shared by gfx_pixel / gfx_vline / gfx_xor_rect: the caller has already
-; armed GC0/GC1 (and GC3 for XOR). Reads each byte before writing, which
-; both loads the latches for the masked write and feeds the XOR ALU.
-; in:       AX = x, BX = y1, DX = y2
-; out:      GC8 left set to the column mask (caller resets)
-; clobbers: flags only
-; -----------------------------------------------------------------------------
-vga_vline_core:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    cmp ax, SCREEN_W            ; catches x < 0 too (unsigned)
-    jae .done
-    or bx, bx
-    jns .y1ok
-    xor bx, bx
-.y1ok:
-    cmp dx, SCREEN_H
-    jl .y2ok
-    mov dx, SCREEN_H-1
-.y2ok:
-    cmp dx, bx
-    jl .done
-    mov si, dx                  ; si = row count
-    sub si, bx
-    inc si
-    push ax
-    mov ax, ROW_BYTES
-    mul bx                      ; ax = y1 * 80
-    mov di, ax
-    pop ax
-    mov cx, ax                  ; bh = 80h >> (x & 7)
-    and cl, 7
-    mov bh, 0x80
-    shr bh, cl
-    mov cl, 3
-    shr ax, cl
-    add di, ax                  ; di = VRAM offset of top byte
-    mov dx, VGA_GC
-    mov ah, bh
-    mov al, 8
-    out dx, ax                  ; GC8 = column mask
-    mov ax, VGA_SEG
-    mov es, ax
-.row:
-    mov al, [es:di]             ; load latches
-    mov [es:di], al
-    add di, ROW_BYTES
-    dec si
-    jnz .row
-.done:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; gfx_vline - vertical line in [gfx_color], inclusive endpoints
@@ -3914,7 +3848,8 @@ vga_vline_core:
 ; clobbers: flags
 ;
 ; A 1-column solid rect via gfx_fill (which clips and adapter-
-; dispatches itself); vga_vline_core stays for gfx_xor_rect's verticals.
+; dispatches itself). vga_vline_core used to live above this for
+; gfx_xor_rect's verticals; gfx_xor_strips draws them as fills now.
 ; -----------------------------------------------------------------------------
 gfx_vline:
     push cx
@@ -4052,29 +3987,13 @@ vga_solid_rect:
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 gfx_frame:
-    push bx
-    push dx
-    push si
-    push di
-    mov si, bx                  ; si = y1
-    mov di, dx                  ; di = y2
-    mov bx, cx                  ; hline wants BX = x2
-    mov dx, si
-    call gfx_hline              ; top
-    mov dx, di
-    call gfx_hline              ; bottom
-    mov bx, si                  ; vline wants BX = y1, DX = y2
-    mov dx, di
-    call gfx_vline              ; left  (replace mode: corner overlap is fine)
-    push ax
-    mov ax, cx
-    call gfx_vline              ; right
-    pop ax
-    pop di
-    pop si
-    pop dx
-    pop bx
-    ret
+    push bp                     ; the SAME four strips gfx_xor_rect draws, and
+    mov bp, gfx_fill            ; the same pixels this drew with two hlines and
+    call gfx_xor_strips         ; two vlines: the strips' top and bottom are
+    pop bp                      ; full width, so they cover the corners the
+    ret                         ; verticals used to draw twice. Four calls
+                                ; either way, and gfx_fill is one wrapper
+                                ; frame shallower than gfx_hline/gfx_vline
 
 ; =============================================================================
 ; SPEC.md 5.10 - gfx_spans: a RUN OF SCAN LINES, one call
@@ -4501,96 +4420,6 @@ vga_pat_stage:
     movsw
     ret
 
-; -----------------------------------------------------------------------------
-; vga_xor_hline - internal: horizontal XOR line
-;
-; Caller has armed the XOR state (vga_set_xor). Every byte - edges AND
-; interior - is read immediately before the write so the ALU XORs against
-; fresh latches. No rep stosb here (SPEC.md 5).
-; in:       AX = x1, BX = x2, DX = y  (x1 <= x2)
-; out:      GC8 left set (caller resets)
-; clobbers: flags only
-; -----------------------------------------------------------------------------
-vga_xor_hline:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push es
-    cmp dx, SCREEN_H
-    jae .done
-    or ax, ax
-    jns .x1ok
-    xor ax, ax
-.x1ok:
-    cmp bx, SCREEN_W
-    jl .x2ok
-    mov bx, SCREEN_W-1
-.x2ok:
-    cmp bx, ax
-    jl .done
-    push ax
-    mov ax, ROW_BYTES
-    mul dx                      ; ax = y * 80
-    mov di, ax
-    pop ax
-    mov si, ax                  ; si = left byte
-    mov cl, 3
-    shr si, cl
-    mov dx, bx                  ; dx = right byte
-    shr dx, cl
-    sub dx, si
-    add di, si
-    mov si, dx                  ; si = span
-    mov cl, al                  ; ch = left mask
-    and cl, 7
-    mov ch, 0xFF
-    shr ch, cl
-    mov cl, bl                  ; bh = right mask
-    and cl, 7
-    xor cl, 7
-    mov bh, 0xFF
-    shl bh, cl
-    mov ax, VGA_SEG
-    mov es, ax
-    mov dx, VGA_GC
-    or si, si
-    jnz .edge
-    and ch, bh                  ; one byte: combine the masks
-.edge:
-    mov ah, ch
-    mov al, 8
-    out dx, ax
-    mov al, [es:di]             ; read-before-write: loads the latches
-    stosb
-    or si, si
-    jz .done
-    dec si
-    jz .right
-    mov ax, 0xFF08              ; interior: full mask, still byte-by-byte
-    out dx, ax
-    mov cx, si
-.interior:
-    mov al, [es:di]
-    stosb
-    loop .interior
-.right:
-    mov ah, bh
-    mov al, 8
-    out dx, ax
-    mov al, [es:di]
-    stosb
-.done:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; gfx_xor_rect - 1px outline rectangle, XOR 0Fh (drag outline)
@@ -4653,69 +4482,60 @@ gfx_xor_rect_d:
     push bx
     push cx
     push dx
+    push bp
+    mov bp, gfx_xor_fill_raw    ; already inside the display hook and past the
+                                ; clip, so the strips take the RAW entry
     GFXDENTERR
-    call gfx_xor_rect_raw
+    call gfx_xor_strips
     GFXDLEAVE
+    pop bp
     pop dx
     pop cx
     pop bx
     pop ax
     ret
 
-; gfx_xor_rect_raw - internal: the outline, in the ACTIVE display's own
-;                    coordinates and on whichever renderer that display wants
-; clobbers: flags
-gfx_xor_rect_raw:
-    cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_xor_rect             ; the direct path (SPEC.md 39.5), and it banks
-                                ; its own registers
-    push bx
-    push dx
-    push si
-    push di
-    call vga_set_xor
-    mov si, bx                  ; si = y1
-    mov di, dx                  ; di = y2
-    mov bx, cx                  ; xor_hline wants BX = x2
-    mov dx, si
-    call vga_xor_hline          ; top
-    cmp di, si
-    je .reset                   ; y1 = y2: one line, done
-    mov dx, di
-    call vga_xor_hline          ; bottom
-    mov bx, si                  ; verticals span y1+1 .. y2-1
-    inc bx
-    mov dx, di
-    dec dx
-    cmp dx, bx
-    jl .reset                   ; only two rows: no vertical part
-    call vga_vline_core         ; left (AX = x1; reads before writes)
-    cmp cx, ax
-    je .reset                   ; x1 = x2: one column, done
-    push ax
-    mov ax, cx
-    call vga_vline_core         ; right
-    pop ax
-.reset:
-    call vga_gc_reset
-    pop di
-    pop si
-    pop dx
-    pop bx
+; -----------------------------------------------------------------------------
+; gfx_xor_strips - AN OUTLINE AS FOUR FILLED STRIPS, once (SPEC.md 5)
+; in:       AX = x1, BX = y1, CX = x2, DX = y2; BP = the FILL to draw each
+;           strip with
+; out:      -
+; clobbers: flags. Every register including BP comes back the caller's.
+;
+; This decomposition was written out THREE times - here, in gfx_xor_rect_raw
+; (VGA, through hand-rolled vga_xor_hline and vga_vline_core, all three now
+; deleted), and in softgfx.inc's sw_xor_rect (deleted with them). gfx_frame was a FOURTH of the same rectangle with
+; overlapping corners, which in replace mode draws the identical pixels: the
+; top and bottom strips are full width, so they cover the corners the
+; verticals used to draw twice. The degenerate cases are the same three tests
+; in all four.
+;
+; Each pixel is touched exactly ONCE, which is what keeps the XOR forms
+; self-inverting.
+;
+; BP CARRIES THE FILL, which is how gfx_line already uses it in this file. It
+; survives every callee: gfx_fill and gfx_xor_fill document "clobbers: flags";
+; vga_solid_rect names no BP at all; gfx_clip_run, gfx_disp_run,
+; vga_rect_setup, vga_set_color, vga_set_xor and vga_gc_reset name none
+; either; sw_rect brackets push bp/pop bp around sw_plane_op, whose own header
+; declares it clobbers BP; and cur_unlazy's cursor_hide pushes it.
+; gfx_fill_pat_raw's "BP is not ours to spend" is the same invariant from the
+; other side.
+;
+; The three heads: gfx_xor_rect_d passes gfx_xor_fill_raw (already hooked and
+; past the clip), gfx_xor_rect's clipped arm passes the PUBLIC gfx_xor_fill so
+; each strip meets GFXCLIP itself (SPEC.md 11.3 - an OUTLINE is not the
+; intersection of its bounding rect with anything), and gfx_frame passes
+; gfx_fill.
+; -----------------------------------------------------------------------------
+gfx_xor_rect_clip:              ; the clipped head: each strip meets GFXCLIP
+    push bp
+    mov bp, gfx_xor_fill
+    call gfx_xor_strips
+    pop bp
     ret
 
-; -----------------------------------------------------------------------------
-; gfx_xor_rect_clip - internal: the outline as four filled strips
-; in:       AX = x1, BX = y1, CX = x2, DX = y2; the clip is armed
-; out:      -
-; clobbers: flags
-;
-; The same decomposition sw_xor_rect uses, with the same degenerate cases -
-; each pixel is touched exactly once, so the result is still self-inverting.
-; Every strip goes through the PUBLIC gfx_xor_fill, which is where it meets
-; the clip region (SPEC.md 11.3).
-; -----------------------------------------------------------------------------
-gfx_xor_rect_clip:
+gfx_xor_strips:
     push ax
     push bx
     push cx
@@ -4725,12 +4545,12 @@ gfx_xor_rect_clip:
     mov si, bx                  ; SI = y1, DI = y2
     mov di, dx
     mov dx, si
-    call gfx_xor_fill           ; top row
+    call bp                     ; top row
     cmp di, si
     je .out                     ; y1 = y2: one line, done
     mov bx, di
     mov dx, di
-    call gfx_xor_fill           ; bottom row
+    call bp                     ; bottom row
     mov bx, si                  ; verticals span y1+1 .. y2-1
     inc bx
     mov dx, di
@@ -4739,12 +4559,12 @@ gfx_xor_rect_clip:
     jl .out                     ; only two rows: no vertical part
     push cx
     mov cx, ax
-    call gfx_xor_fill           ; left column
+    call bp                     ; left column
     pop cx
     cmp cx, ax
     je .out                     ; x1 = x2: one column, done
     mov ax, cx
-    call gfx_xor_fill           ; right column
+    call bp                     ; right column
 .out:
     pop di
     pop si
