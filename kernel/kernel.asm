@@ -4284,7 +4284,7 @@ kmain:
                                 ; up scanning our raster and black
 %endif
     MARK 11
-    call COLD_SEG:mem_init_x    ; the claim heap (SPEC.md 50): int 12h, the
+    OVLGATE1 mem_init_x         ; the claim heap (SPEC.md 50): int 12h, the
                                 ; empty map. FIRST of the memory users -
                                 ; every claim below goes through it
     MARK 12
@@ -4402,7 +4402,7 @@ kmain:
     MARK 23
     OVLGATE1 loader_init_x      ; package loader state
     MARK 24
-    call COLD_SEG:drv_init_x    ; the driver table (SPEC.md 51) - BEFORE
+    OVLGATE1 drv_init_x         ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
                                 ; published service table on its first tick
     MARK 25
@@ -4449,7 +4449,7 @@ kmain:
     BPMARK 7                    ; ...SYSTEM.CFG and whatever it asked for
 
 %ifdef KERN_BIG
-    call COLD_SEG:xmf_xm_boot   ; ...and the store above 1MB, if xm_sniff
+    OVLGATE1 xm_boot_x          ; ...and the store above 1MB, if xm_sniff
                                 ; found any (SPEC.md 41.12). Here rather than
                                 ; inside drv_boot because XMEM.DRV is an
                                 ; OVERLAY and not a driver: no drv_tab row, no

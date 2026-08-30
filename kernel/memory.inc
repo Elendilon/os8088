@@ -266,6 +266,12 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; Runs on task 0 before any other task exists, so it needs no critical
 ; section (SPEC.md 7's only-the-UI-task-calls-BIOS rule holds here).
 ; -----------------------------------------------------------------------------
+section .ovl                    ; THE BOOT OVERLAY (SPEC.md 2.5.2,
+                                ; docs/LAST-DROP-BYTES.md row 11): kmain sizes
+                                ; the heap once. mem_unblob_x, which runs LATER
+                                ; and gives the blob back, is a different body
+                                ; and stays resident - it has to, because it
+                                ; runs at the moment this section stops existing
 mem_init_x:
     push ax
     push cx
@@ -280,7 +286,7 @@ mem_init_x:
     cld
     rep stosb
 
-    call mem_floor_ax           ; THE FLOOR (SPEC.md 39.22), and it is a proc
+    call COLD_SEG:memf_mem_floor_ax           ; THE FLOOR (SPEC.md 39.22), and it is a proc
                                 ; rather than eight instructions here because
                                 ; mem_unblob below has to arrive at the same
                                 ; answer - two copies of a conditional whose
@@ -355,6 +361,10 @@ mem_init_x:
 ; first place, so [mem_floor] equals [mem_base], the store is a no-op and
 ; mem_compact finds every claim already at its fill point.
 ; -----------------------------------------------------------------------------
+section .cold                   ; ...and back, and mem_unblob_x is exactly why
+                                ; the line is here: it is the routine that frees
+                                ; the blob, so it is the one body in this file
+                                ; that could not live in it
 mem_unblob_x:
     push ax
     call mem_floor_ax
@@ -383,6 +393,12 @@ mem_unblob_x:
 ; vid_probe_avail runs before mem_init in kmain, which is what makes the bit
 ; readable at all.
 ; -----------------------------------------------------------------------------
+; ...and the far entry the BOOT OVERLAY reaches it through (SPEC.md 2.5.2):
+; mem_init_x is in the blob and mem_floor_ax is not, mem_unblob_x still
+; near-calling it from `.cold`.
+memf_mem_floor_ax:  call mem_floor_ax
+                    retf
+
 mem_floor_ax:
     mov ax, HEAP_SEG
 %if VGABUF_PARA

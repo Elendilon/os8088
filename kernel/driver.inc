@@ -965,6 +965,12 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+section .ovl                    ; THE BOOT OVERLAY (SPEC.md 2.5.2,
+                                ; docs/LAST-DROP-BYTES.md row 8): kmain seeds
+                                ; the driver table once and nothing re-seeds it
+                                ; - drv_unload clears ONE row. drv_svc_clear_all
+                                ; goes with it, being this body's only callee
+                                ; that is not shared and having no other caller
 drv_init_x:
     push ax
     push bx
@@ -1006,6 +1012,7 @@ drv_init_x:
 ;      CF = 1 and DI = 0 if the class is out of range (an empty table row)
 ; clobbers: DI (the output), flags
 ; -----------------------------------------------------------------------------
+section .cold                   ; ...and back to resident cold code
 drv_cls_fp_x:
     push ax
     call drv_cls_idx            ; DI = class-1, CF set if bad - and DI is
@@ -2186,11 +2193,12 @@ drv_svc_clear:
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+section .ovl                    ; ...and its one callee, row 8's other half
 drv_svc_clear_all:
     push ax
     mov al, 1
 .next:
-    call drv_svc_clear
+    call COLD_SEG:drvf_drv_svc_clear
     inc al
     cmp al, DRVC_MAX
     jbe .next
@@ -2208,6 +2216,7 @@ drv_svc_clear_all:
 ; remount for exactly that reason (SPEC.md 18.3). A driver load is not the
 ; place to invent a caching rule.
 ; -----------------------------------------------------------------------------
+section .cold                   ; ...and back: drv_mounted is CTRL.DRV's too
 drv_mounted:
     push ax
     push dx
@@ -4229,6 +4238,16 @@ section .cold                   ; ...the far entries themselves live HERE, or
 ; each because the bodies keep the near `ret` they have always had.
 ; -----------------------------------------------------------------------------
 drvf_drv_row:            call drv_row_x
+                    retf
+; ...and three the BOOT OVERLAY needs (SPEC.md 2.5.2): xm_boot_x moved into the
+; blob and reaches the driver layer exactly as a module does.
+drvf_drv_load_at:        call drv_load_at
+                    retf
+drvf_drv_svc_clear:      call drv_svc_clear
+                    retf
+drvf_drv_call:           call drv_call
+                    retf
+drvf_drv_release:        call drv_release
                     retf
 drvf_drv_cp_call:        call drv_cp_call_x
                     retf

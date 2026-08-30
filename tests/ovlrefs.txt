@@ -50,6 +50,9 @@ drv_snd_sniff       kmain only (kernel.asm:4306) - what card is at 388h, SPEC.md
 # caller for every row and the closure walk that proved there is no other; what
 # is repeated here is the answer to this file's one question.
 sched_init          kmain only (kernel.asm:4170) - the task table and the int 08h hook, SPEC.md 8. Nothing re-initialises the scheduler: the reboot path is sched_unhook (a different routine, which RESTORES the vector) and sch_fast_on/sch_fast_off re-programme the PIT without reaching this body
+mem_init_x          kmain only (kernel.asm) - the claim heap sized and the map cleared, SPEC.md 50. mem_unblob_x is a DIFFERENT body and stayed in `.cold`: it is what frees the blob, so it is the one routine in memory.inc that could not live in it
+drv_init_x          kmain only (kernel.asm) - the driver table seeded, SPEC.md 51. Nothing re-seeds it: drv_unload clears ONE row. drv_svc_clear_all moved with it and has no other caller
+xm_boot_x           kmain only (kernel.asm) - loads and attaches the XMS overlay, SPEC.md 41.12. Its `.cold` far entry xmf_xm_boot is deleted with the move, so this is the only edge; what it attaches outlives the blob, the attaching does not
 drv_boot_x          kmain only (kernel.asm) - SPEC.md 51.3: mount the settings volume, read SYSTEM.CFG, apply the adapter, load each wanted driver. Its `.text` thunk is deleted with the move, so this site is the only edge; drv_notice_x, which runs AFTER the first desktop paint and opens the Control Panel, stayed in `.cold`
 dsk_boot_from_x     kmain only (kernel.asm) - which volume the machine came off, SPEC.md 18.96, read out of the registers the boot sector left. dsk_bootltr moves with it and is named nowhere else: it stamps the letter into three fixed messages, once, and it stays stamped
 dsk_dpt_init_x      kmain only (kernel.asm) - int 1Eh becomes ours, SPEC.md 18.92. dsk_xfer READS the parameter table for the life of the machine; nothing rebuilds it
