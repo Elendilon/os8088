@@ -4284,11 +4284,11 @@ kmain:
                                 ; int 10h and no F000:FA6E, and the machine's
                                 ; own ROM font is not consulted at all
 %else
-    call font_init              ; needs int 10h, so after the mode is set
+    OVLGATE1 font_init          ; needs int 10h, so after the mode is set
 %endif
     MARK 14
     BPMARK 3                    ; ...the typeface
-    call wm_init
+    OVLGATE1 wm_init
     MARK 15
 %ifdef BANDCOMP
     call band_init              ; SPEC.md 5.9.2: the composer's 2KB, before the
@@ -4296,10 +4296,10 @@ kmain:
                                 ; A refusal is survivable - wm_draw_title's
                                 ; fifteen-call path is what runs then
 %endif
-    call menu_init              ; menu bar owner (SPEC.md 12): Locator, so
+    OVLGATE1 menu_init          ; menu bar owner (SPEC.md 12): Locator, so
                                 ; the first wm_paint_all already has a bar
     MARK 16
-    call inst_init              ; instance table (SPEC.md 29) - clean boot:
+    OVLGATE1 inst_init          ; instance table (SPEC.md 29) - clean boot:
                                 ; no app instances exist until launched
     MARK 17
     BPMARK 4                    ; ...the window manager, the bar, the table
@@ -4339,7 +4339,7 @@ kmain:
                                 ; the longest single wait in the whole boot
     OVLGATE1 ovl_desk_init  ; volume zones for the desktop (SPEC.md 26.1)
     MARK 21
-    call dock_init              ; dock strip scratch (SPEC.md 30)
+    OVLGATE1 dock_init          ; dock strip scratch (SPEC.md 30)
     MARK 22
     call COLD_SEG:files_init_x  ; Disk module state (no window at boot)
     MARK 23
@@ -5569,6 +5569,13 @@ cw_inst_task_die:       call inst_task_die
 cw_mem_disp:            call bp
                     retf
 cw_menu_activate:       call menu_activate
+                    retf
+; ...and the BOOT OVERLAY's two (docs/LAST-DROP-BYTES.md rows 15 and 17):
+; dock_init and menu_init moved into `.ovl` and each has exactly one outbound
+; call left, the other having been small enough to inline.
+cw_dock_force:          call dock_force
+                    retf
+cw_menu_relayout:       call menu_relayout
                     retf
 cw_menu_draw_bar:       call menu_draw_bar
                     retf

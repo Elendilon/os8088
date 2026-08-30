@@ -398,6 +398,9 @@ inst_ico_ctrl:
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 18). One
+; caller, kmain:4302, and zero outbound.
+section .ovl
 inst_init:
     push ax
     push cx
@@ -414,7 +417,8 @@ inst_init:
     pop di
     pop cx
     pop ax
-    ret
+    retf                        ; FAR: kmain reaches this through OVLGATE1
+section .text
 
 ; -----------------------------------------------------------------------------
 ; inst_ptr - instance index to record pointer

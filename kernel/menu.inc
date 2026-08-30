@@ -246,21 +246,29 @@ MENU_CLKC   equ 26              ; menu_clkbuf: the field is 25 cells on both
 ; in:  nothing (called from kmain after wm_init, before the first paint)
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 17). One
+; caller, kmain:4299. menu_force is INLINED - it is the two stores below and a
+; `ret`, one of which menu_init was already making itself, so a cw_ shim would
+; have cost `.text` more than the call saved.
+section .ovl
 menu_init:
     push ax
     push bx
     push dx
-    mov byte [menu_bdirty], 1   ; .bss is not zeroed at boot (-f bin)
-    call menu_force             ; ...and the furniture has never been drawn
+    mov byte [menu_bovr], 1     ; .bss is not zeroed at boot (-f bin), and the
+    mov byte [menu_bdirty], 1   ; furniture has never been drawn: menu_force's
+                                ; whole body, and the second store is the one
+                                ; this routine used to make before calling it
     xor bx, bx
     mov [menu_win], bx
     mov word [menu_sseg], 0     ; the save-under is claimed by menu_drop for
-    call menu_relayout          ; as long as a menu is actually down, not
+    call KERNEL_SEG:cw_menu_relayout ; as long as a menu is actually down, not
                                 ; here for the session (SPEC.md 12.4/50.2)
     pop dx
     pop bx
     pop ax
-    ret
+    retf                        ; FAR: kmain reaches this through OVLGATE1
+section .text
 
 ; -----------------------------------------------------------------------------
 ; menu_force - the whole bar was PAINTED OVER and owes every segment

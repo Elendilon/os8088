@@ -340,6 +340,10 @@ wm_pkgcall:
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 14). One
+; caller, kmain:4291, and zero outbound: it is four `rep stos` runs over `.bss`
+; through ES = DS = KERNEL_SEG, which `.ovl` supplies unchanged.
+section .ovl
 wm_init:
     push ax
     push cx
@@ -372,7 +376,8 @@ wm_init:
     pop di
     pop cx
     pop ax
-    ret
+    retf                        ; FAR: kmain reaches this through OVLGATE1
+section .text
 
 ; -----------------------------------------------------------------------------
 ; wm_fit - clamp a just-created window's frame onto the live screen
