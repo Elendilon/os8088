@@ -10,6 +10,30 @@
 boot blob grows for any reason the rest can join it as a lookup rather than a fresh
 investigation.**
 
+> ## STATUS: THE BLOB GREW, AND TWENTY OF THE TWENTY-TWO ROWS HAVE LANDED
+>
+> SPEC.md §2.9.12 took `BOOT2_SECS` 13 → 19 for exactly this, and every row below
+> except three is now in `.ovl`. What that leaves this file is **the record of why
+> each body may never gain a runtime caller** — which is the half that does not
+> expire, and which `tests/ovlrefs.txt` enforces per symbol.
+>
+> | | rows | outcome |
+> |---|---|---|
+> | **landed** | 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19 | in `.ovl`; the caller that makes each boot-only is in `tests/ovlrefs.txt` |
+> | **refused, and the refusal is new** | **10 (`vid_detect`), 22 (`vid_init`)** | `SPL_RESIDENT` — §2.4 |
+> | **refused, register-internal** | 21 (`evq_init`) | §7.3's test poke, unchanged |
+> | **dropped as the worst ratio in the file** | 20 (`mod_init_x`) | 10 resident bytes for 28 of blob, and the blob became the scarcer pool |
+>
+> Beside them went **D8's 1,024-byte mouse subset** (SPEC.md §9.4.7), which this file
+> deliberately excluded from its totals. Measured end state: `.text` **−4,640**,
+> `.cold` **−1,961**, `.ovl` **+2,719**, `KERN_SIZE` **−7,168**, and the 64KB segment
+> from 2,432 bytes of headroom to **7,214**.
+>
+> **The pool left is ~416 bytes**, measured on the tightest shipped-adjacent arm
+> (`BOOTMARK=1 BOOTHALT=n`: `.ovl` 6,855 of 7,168, `.boot2` 2,457 of 2,560). §4 is
+> what the next claim costs after that, and the answer above 21 sectors is *not
+> free*.
+
 This is not a list of things that are wrong. Every body below works, is in the right
 section for the constraint that was live when it was written, and costs the machine
 exactly what a resident byte costs. What each one *also* is, is a byte the machine is
@@ -82,16 +106,26 @@ blob      BOOT2_SECS 19 sectors = 9,728 bytes
                                                                TOTAL BLOB SLACK    3,290 bytes
 ```
 
+**And what it is now, the pass having spent it** (`-DKERN_BIG`, measured):
+
+```
+  .boot2  2,457  (SPEC.md 15.3.9 gave 12 back)                  of OVL_AT 2,560   ->   103 free
+  .ovl    6,688  (the register + SPEC.md 9.4.7's mouse subset)   of 7,168          ->   480 free
+                                                                TOTAL BLOB SLACK      583 bytes
+  ...and on the TIGHTEST arm, BOOTMARK=1 BOOTHALT=n:                                  416 bytes
+```
+
 **Those bytes are ONE POOL.** `OVL_AT` is a byte offset with no alignment requirement
 — the only constraints are the two `%if`s above — and moving it costs nothing at all:
 `kernel.asm` says so in the file's own words, *"the blob is BOOT2_SECS sectors either
 way, so no image byte, no RAM and no extra int 13h changes — only the split."* So the
 correct way to read the pair is a single figure:
 
-> **`.ovl` may grow by 3,290 bytes today without touching a sector, an `int 13h`, or
-> one byte of any image.** The whole register is +1,766 of that and D8's mouse subset
-> +1,112, which is 2,878 — so the merged pass lands with roughly 410 bytes still in
-> the pool, and §4 is what the next claim after that costs.
+> **`.ovl` had 3,290 bytes to grow into without touching a sector, an `int 13h`, or
+> one byte of any image.** The register was +1,766 of that and the mouse subset
+> +1,112; the prediction was "roughly 410 bytes still in the pool" and the measured
+> answer on the tightest arm is **416**. §4 is what the next claim after that costs,
+> and it is not free above 21 sectors.
 
 Two standing caveats on that number. `.boot2`'s share is not freely tradable *down*:
 its fifth sector is SPEC.md §15.3.4's row composer, which ships, so `OVL_AT` cannot
