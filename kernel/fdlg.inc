@@ -144,19 +144,21 @@ fdlg_s_media:  db 'MEDIA', 0     ; the default location (SPEC.md 38.10).
 ; where the captions should be. In `.text` and not `.bss`: this is `nasm -f
 ; bin` and .bss is not zeroed.
 fdlg_paper:    db CWHITE
-fdlg_s_open:   db 'Open', 0
+fdlg_s_open    equ fdlg_s_topen  ; the button and the title are one string
 fdlg_s_save:   db 'Save', 0
 fdlg_s_cancel: db 'Cancel', 0
 fdlg_s_drive:  db 'Drive', 0
 fdlg_s_newf:   db 'New', 0      ; the two-line New Folder button (FD_BH2)
-fdlg_s_newf2:  db 'Folder', 0
+fdlg_s_newf2   equ fm_s_folder  ; ...whose second line, the Disk window's
+                                ; derived title and this module's own
+                                ; sub-folder label are one 'Folder',0 in
+                                ; files.inc - all three .text = KERNEL_SEG
 fdlg_s_lopen:  db 'Open:', 0
 fdlg_s_lsave:  db 'Save as:', 0
 fdlg_s_lfold:  db 'Folder:', 0 ; 8 glyphs is what fits before the box
 fdlg_s_folder: db 'folder', 0
-fdlg_s_up:     db 'up', 0
-fdlg_s_root:   db 'Disk', 0
-fdlg_s_sub:    db 'Folder', 0
+fdlg_s_root    equ fm_s_root
+fdlg_s_sub     equ fm_s_folder
 fdlg_s_nodisk: db 'no disk', 0
 fdlg_s_drv:    db 'A:', 0        ; the letter is STAMPED per paint (SPEC.md
                                  ; 38.11) - 'A' + [disk_drive], the same
@@ -3077,7 +3079,6 @@ fdlg_type:  resw 1              ; and its SPEC.md 19 type...
 fdlg_size:  resw 1              ; ...and size dword, lo...
 fdlg_sizeh: resw 1              ; ...and hi (SPEC.md 19)
 fdlg_num:   resb 11             ; the size column's digits (fm_ultoa: 10+NUL)
-fdlg_bdef:  resb 1              ; fdlg_btn: is this the default button?
 fdlg_actl:  resb 1              ; fdlg_actok's answer as last DRAWN, so a
                                 ; keystroke redraws the default button on the
                                 ; live/dead edge and not on every caret move

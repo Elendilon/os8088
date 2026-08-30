@@ -1095,7 +1095,7 @@ section .text                   ; DATA, so back to the kernel segment: cold
                                 ; still KERNEL_SEG (SPEC.md 2.6 rule 1)
 assoc_s_apps:   db 'APPS', 0
 assoc_s_games:  db 'GAMES', 0
-assoc_s_ttl:    db 'Open', 0
+assoc_s_ttl     equ fdlg_s_topen    ; the Standard File dialog's own title
 assoc_s_lead:   db 'This document opens with', 0
 assoc_s_ptail:  db '.O88 - not on this disk', 0
 ASSOC_PTAIL     equ 24          ; ...NUL included, so one rep movsb ends it

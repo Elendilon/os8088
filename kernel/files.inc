@@ -1408,7 +1408,8 @@ fm_tpl:     dw 110, 80, 320, 200, fm_ttl, fm_paint, fm_onkey, fm_onclick
                                 ; not the _x bodies: wm_draw_win and ui.inc
                                 ; dispatch through this record with a near
                                 ; call, from .text (SPEC.md 2.6)
-fm_ttl:     db 'Disk', 0
+fm_ttl      equ fm_s_root       ; the same four bytes fm_title_set letters at
+                                ; the root, and both are .text = KERNEL_SEG
 
 fm_s_drive:  db 'Drive ', 0     ; header: "Drive " letter ":  " N " files"
 fm_s_colsp:  db ':  ', 0
@@ -1447,7 +1448,15 @@ fm_l2up:      db 0                  ; FS_2UP. 1 = a two-line prompt's FIRST line
                                 ; before anything has written one
 
 fm_s_refresh: db 'Refresh', 0   ; button label, 7 chars = 56 px
+                                ; The context menu's 'as Icons' and 'as List'
+                                ; (SPEC.md 22.15) are these two with three
+                                ; bytes in front, spelled as two labels over
+                                ; one `db` - fm_s_clonex's idiom - which is
+                                ; why those two names live up here with the
+                                ; buttons rather than with the context menu
+fm_s_asicon:  db 'as '
 fm_s_icons:   db 'Icons', 0     ; view-toggle labels: the view a click
+fm_s_aslist:  db 'as '
 fm_s_list:    db 'List', 0      ; switches TO (SPEC.md 22)
 
 ; --- the two header buttons, ONE description (SPEC.md 22.18) -----------------
@@ -1528,6 +1537,7 @@ fm_s_repk:    db 'Enter=yes  A=all  Esc=stop', 0  ; three answers are 45
                                     ; the row above the status line for as
                                     ; long as it is up
 fm_s_delpr:   db 'Delete ', 0
+fm_s_delq2:   db ' +contents'       ; ...and the FOLDER form is the file's
 fm_s_delq:    db '? Del=yes Esc=no', 0   ; the DELETE key, not Enter (SPEC.md
                                     ; 22): the key that asked is the key that
                                     ; answers, and it carries no ASCII, so no
@@ -1596,11 +1606,12 @@ fm_s_clbusy:  db 'Clone already running', 0   ; ...and a SECOND one, refused
 fm_clotab:    dw fm_s_empty, fm_s_dskerr, fm_s_ewprot, fm_s_nomem
               dw fm_s_enodisk, fm_s_clsml, fm_s_efull, fm_s_notimg
               dw fm_s_clsame2, fm_s_clbusy
-fm_s_delq2:   db ' +contents? Del=yes Esc=no', 0   ; ...for a folder
 fm_s_size:    db 'Size ', 0         ; ...and the resting status line, which
 fm_s_free:    db '   Free ', 0      ; carries both figures (SPEC.md 22.7)
 fm_s_root:    db 'Disk', 0      ; window title at the root...
-fm_s_folder:  db 'Folder', 0    ; ...and in a folder we arrived at from
+fm_s_rootf:   db 'Root '        ; (the context menu's 'Root Folder' is this
+fm_s_folder:  db 'Folder', 0    ; with five bytes in front) ...and in a
+                                ; folder we arrived at from
                                 ; below, whose name would cost a second
                                 ; mount to learn (SPEC.md 22)
 
@@ -1628,7 +1639,8 @@ fm_s_mbuilt:  db 'Builtins', 0   ; the SAME menu as Locator's, with the
                                 ; 12.3.1) - which is the whole point of
                                 ; the rename
 
-fm_s_open:    db 'Open', 0
+fm_s_open     equ fdlg_s_topen   ; the Standard File dialog's title, which
+                                ; is the same four bytes (SPEC.md 38)
 fm_s_mkdir:   db 'New Folder...', 0
 fm_s_rename:  db 'Rename...', 0
 fm_s_delete:  db 'Delete', 0
@@ -1650,8 +1662,9 @@ fm_s_pastin:  db 'Paste Into', 0
 ; ui_loc_gate does for Close Window and for its reason: nothing relays the
 ; bar out when a mount verdict changes.
 fm_s_fsep:    db MENU_DIS, '--------------', 0
-fm_s_format:  db 'Format Disk...', 0
-fm_s_formatx: db MENU_DIS, 'Format Disk...', 0
+fm_s_formatx: db MENU_DIS       ; fm_s_clonex's idiom, six lines down: two
+fm_s_format:  db 'Format Disk...', 0    ; labels over one `db`, so the live
+                                ; label is the tail of the greyed one
 ; Clone's twin is the SAME BYTES with one in front of them (SPEC.md 22.21):
 ; a disabled item is MENU_DIS then the string, so the live label can be the
 ; tail of the greyed one and the pair costs fourteen bytes rather than
@@ -1662,17 +1675,18 @@ fm_s_clonex:  db MENU_DIS
 fm_s_clone:   db 'Clone Disk...', 0
 fm_s_wimgx:   db MENU_DIS       ; ...and the same pair for the WRITE side
 fm_s_wimg:    db 'Write Img...', 0
-fm_s_refr:    db 'Refresh', 0
+fm_s_refr     equ fm_s_refresh   ; the button's label and the menu item's
 fm_s_up:      db 'Up One Folder', 0
-fm_s_rootf:   db 'Root Folder', 0
 fm_s_drva:    db 'Drive A:', 0
 fm_s_drvb:    db 'Drive B:', 0
-fm_s_aslist:  db 'as List', 0    ; the context menu's now, and only its:
-fm_s_asicon:  db 'as Icons', 0   ; SPEC.md 22.15 retired the View cell, and
-                                ; the in-window toggle button is the surface
-                                ; a one-button machine reaches them by
+                                ; fm_s_aslist / fm_s_asicon / fm_s_rootf are
+                                ; heads on strings defined above: SPEC.md
+                                ; 22.15 retired the View cell, so the context
+                                ; menu is the surface a one-button machine
+                                ; reaches these by, and the labels are the
+                                ; button captions with a word in front
+fm_s_opennew: db 'Open in '
 fm_s_newwin:  db 'New Window', 0
-fm_s_opennew: db 'Open in New Window', 0
 
 fm_items_file:
     dw fm_s_open, fm_s_mkdir, fm_s_rename, fm_s_delete

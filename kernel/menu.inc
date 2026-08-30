@@ -2520,23 +2520,36 @@ menu_logo_bmp:
     dw 0x0000                   ; ...........
 
 menu_loc_name   db 'Locator', 0 ; the kernel's own application (SPEC 12.3)
-menu_s_file     db 'File', 0
-menu_s_builtin  db 'Builtins', 0    ; was 'Special', and it was the wrong word
-                                    ; twice over: it named a leftover rather
-                                    ; than a category, and the things in it
-                                    ; were somewhere ELSE on the desktop
-                                    ; (SPEC.md 12.3.1)
+                                ; SEVEN of the items below are the SAME BYTES
+                                ; as a title or a label somewhere else in the
+                                ; kernel, and every one of those is .text =
+                                ; KERNEL_SEG, so an `equ` is the whole of the
+                                ; sharing - no shim, no indirection, and the
+                                ; menu still reads as a list of its own items.
+                                ; A menu item is a window title said twice by
+                                ; construction: the item OPENS the window.
+menu_s_file     equ fm_s_mfile          ; the Disk window's own File menu
+menu_s_builtin  equ fm_s_mbuilt         ; ...and its Builtins menu, which is
+                                ; the SAME menu with the same items in the
+                                ; same order (SPEC.md 12.3.1) - it was
+                                ; 'Special', and that was the wrong word
+                                ; twice over: it named a leftover rather than
+                                ; a category, and the things in it were
+                                ; somewhere ELSE on the desktop
 
 menu_s_about    db 'About os8088...', 0
-menu_s_ctrl     db 'Control Panel', 0
-menu_s_timer    db 'Timer', 0
-menu_s_bounce   db 'Bounce', 0
-menu_s_disk     db 'Disk', 0
-menu_s_close    db 'Close Window', 0
-menu_s_closex   db MENU_DIS, 'Close Window', 0  ; ...with nothing to close;
-                                ; ui_loc_gate points the item at one or the
-                                ; other before the menu can drop (SPEC.md 47)
-menu_s_tasks    db 'Task Manager', 0
+menu_s_ctrl     equ cp_ttl              ; the Control Panel's window title
+menu_s_timer    equ app_ttl_timer       ; the two builtins' window titles
+menu_s_bounce   equ app_ttl_bounce
+menu_s_disk     equ fm_s_root           ; the Disk window's title at the root
+menu_s_closex   db MENU_DIS     ; ...with nothing to close; ui_loc_gate points
+menu_s_close    db 'Close Window', 0    ; the item at one or the other before
+                                ; the menu can drop (SPEC.md 47). Two labels
+                                ; over one `db`, fm_s_clonex's idiom: a
+                                ; disabled item is MENU_DIS then the string,
+                                ; so the live label is the tail of the greyed
+                                ; one
+menu_s_tasks    equ ui_s_tmttl          ; the Task Manager's window title
 menu_s_restart  db 'Restart', 0
 menu_s_msep     db MENU_DIS, '---------------', 0
                                 ; the rule above Restart: fifteen dashes, the

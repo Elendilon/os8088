@@ -76,7 +76,6 @@ SND_PRI_PKG equ 040h            ; documented package default priority
 snd_live:      db 0             ; the boot gate: set LAST by snd_init (34.7)
 snd_excl_ok:   db 1             ; policy: exclusive clips allowed (34.4)
 
-snd_s_spk:     db 'Speaker', 0  ; the resident sink's name (osapi_snd_caps)
 snd_route:     db SND_RT_AUTO   ; where tones go (SPEC.md 34.8). Initialised
                                 ; .text, not .bss: snd_tone_out reads it on
                                 ; the machine's first beep, and SYSTEM.CFG
