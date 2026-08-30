@@ -124,6 +124,7 @@ _MIRROR = {
     "WF_OWNBG": ("kernel/wm.inc", 64),
     "WF_KEEPH": ("kernel/wm.inc", 128),
     "WF_1BPP": ("kernel/wm.inc", 0x2000),
+    "WF_USRSZ": ("kernel/wm.inc", 0x0200),
     # kernel/instance.inc - the instance record (SPEC.md 29)
     "I_STATE": ("kernel/instance.inc", 0),
     "I_FLAGS": ("kernel/instance.inc", 1),

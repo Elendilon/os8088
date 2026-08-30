@@ -14718,8 +14718,9 @@ must mask this bit off with `WF_STALE`"*. There are three kernel bits there
 now, so the set is `WF_HIBITS` and both sites derive their mask from it —
 `wm_cursor` keeping those bits and `mou_apply`'s shape read dropping them.
 A prose rule became an expression, so the next flag in that byte cannot be
-half-added. Bits 8..12 remain the shape's, and both writers still refuse a
-shape at or past `CUR_NSHAPE`.
+half-added; §11.100.5's `WF_USRSZ` is the fourth and was added by naming it
+there and nowhere else. Bit 8 remains the shape's, and both writers still
+refuse a shape at or past `CUR_NSHAPE`.
 
 **The depth belongs in the claim's header, not in a hook.** A cache taken
 under this claim is one plane deep; withdraw the claim and the same buffer
@@ -15704,11 +15705,20 @@ which threw away every browser nobody had grown yet, i.e. all of them.
 
 #### 11.100.5 …unless a USER has sized the window, and then it is theirs
 
-**One byte per slot (`wm_usrsz`), set by `ui_grow` and `wm_zoom`, and while it
-is set no preference is applied to that window ever again.** §11.99's last
-paragraph is the rule; this is where it is enforced, inside `wm_pref_take`, so
-every path that could take a preference is covered by one test rather than by
-each of them remembering.
+**One bit in the record (`WF_USRSZ`, `W_FLAGS` bit 9), set by `ui_grow` and
+`wm_zoom`, and while it is set no preference is applied to that window ever
+again.** §11.99's last paragraph is the rule; this is where it is enforced,
+inside `wm_pref_take`, so every path that could take a preference is covered
+by one test rather than by each of them remembering.
+
+**It is a bit in `W_FLAGS` and not a side table**, which is what makes the
+next paragraph but two true for free: `wm_create` writes `W_FLAGS` = 1 and
+`wm_destroy` writes 0, so a slot arrives with it clear and needs no clear of
+its own. It lives in the high byte with §11.96.17's other kernel bits, so it
+is in `WF_HIBITS` and both sites that touch the cursor shape carry it across
+by the same expression they already use — the property that banner exists to
+give. Kernel-internal and not in `apps/os88api.inc`: a package cannot sensibly
+claim to be a user.
 
 **It replaced a `WF_SIZABLE` test and is strictly better.** §11.99.4's first
 version refused the adoption to any resizable window, which is the right answer
@@ -15722,8 +15732,9 @@ itself (§11.1), which is the same voice a preference speaks in — an app that
 calls both is not being overruled by itself. Only the grow box and the zoom box
 are a user.
 
-**It is cleared by `wm_create` and nowhere else**, which is the argument the
-preference offset and the minimum use one screen up: `wm_create` is the one
+**It is cleared by `wm_create` and nowhere else** — by the `W_FLAGS` = 1 that
+routine already writes, which is the argument the preference offset and the
+minimum use one screen up carried a step further: `wm_create` is the one
 routine that takes a slot, so no slot can be read before it has been written,
 whatever memory the machine came up holding.
 

@@ -171,6 +171,22 @@ WF_1BPP    equ 0x2000          ; W_FLAGS bit13: EVERY PIXEL OF THIS WINDOW'S
                                ; ships on. In this byte with the other two
                                ; kernel bits and not down at 8, for WF_STALE's
                                ; reason below
+WF_USRSZ   equ 0x0200          ; W_FLAGS bit9: A USER HAS SIZED THIS WINDOW
+                               ; BY HAND (SPEC.md 11.100.5), so no published
+                               ; preference is ever applied to it again. Set
+                               ; by ui_grow and wm_zoom - the only two things
+                               ; in the machine a USER sizes a window with -
+                               ; and read in one place, wm_pref_take's gate.
+                               ; wm_resize is deliberately not a writer: that
+                               ; is an APPLICATION sizing itself, the same
+                               ; voice a preference speaks in.
+                               ; A BIT AND NOT A SIDE TABLE, which is the
+                               ; whole of what makes it need no clear:
+                               ; wm_create writes W_FLAGS = 1 and wm_destroy
+                               ; writes 0, so a fresh or reused slot arrives
+                               ; with it down. In this byte with the other
+                               ; three kernel bits, so WF_HIBITS carries it
+                               ; across the shape field for free
 WF_STALE   equ 0x8000          ; W_FLAGS bit15: THE PIXELS ON THE GLASS NO
                                ; LONGER DESCRIBE THIS WINDOW'S CONTENT (SPEC.md
                                ; 11.96.16.1), so nothing may bank them until it
@@ -198,7 +214,7 @@ WF_STALE   equ 0x8000          ; W_FLAGS bit15: THE PIXELS ON THE GLASS NO
 ; and mou_apply DROPS them when it reads one, so a bit added to one mask and
 ; not the other either eats the shape or is read as one. Both derive from here
 ; now, so there is one place to add the next.
-WF_HIBITS  equ (WF_STALE | WF_NOANIM | WF_1BPP) >> 8
+WF_HIBITS  equ (WF_STALE | WF_NOANIM | WF_1BPP | WF_USRSZ) >> 8
 %if WF_HIBITS & (CUR_NSHAPE - 1)
   %error "WF_HIBITS overlaps the cursor shape field - SPEC.md 7.2.1/11.96.17"
 %endif
@@ -1682,9 +1698,10 @@ wm_create:
     mov word [wm_pref+si], 0    ; cleared HERE rather than in wm_destroy,
     mov word [wm_minw+si], 0    ; because wm_create is the one routine that
     mov word [wm_minh+si], 0    ; takes a slot - so no slot can be read before
-    shr si, 1                   ; it has been written, whatever memory the
-    mov byte [wm_usrsz+si], 0   ; machine came up holding. Nobody has sized a
-    pop si                      ; window that has just been made, either
+    pop si                      ; it has been written, whatever memory the
+                                ; machine came up holding. WF_USRSZ needs no
+                                ; line here: the `mov word [bx+W_FLAGS], 1`
+                                ; above already put it down
     call wm_fit                 ; templates are authored for 640x480; on a
                                 ; smaller screen the record, not the template,
                                 ; is the truth (SPEC.md 39.7)
@@ -1915,16 +1932,10 @@ wm_min_floor:
 ; preference speaks in.
 ; -----------------------------------------------------------------------------
 wm_usr_mark:
-    pushf
-    push ax
-    push si
-    call wm_ptr2idx
-    mov si, ax
-    mov byte [wm_usrsz+si], 1
-    pop si
-    pop ax
-    popf
-    ret
+    pushf                       ; ONE instruction, so it is atomic against
+    or byte [bx+W_FLAGS+1], WF_USRSZ >> 8   ; wm_cursor's cli-guarded
+    popf                        ; read-modify-write on the same byte from a
+    ret                         ; package task (SPEC.md 11.96.17)
 
 ; -----------------------------------------------------------------------------
 ; wm_pref_take - adopt this window's preferred size for adapter kind AL
@@ -1947,15 +1958,12 @@ wm_pref_take:
     push si
     push di
     push es
-    call wm_pm_slot
-    push si
-    shr si, 1
-    cmp byte [wm_usrsz+si], 0
-    pop si
-    jne .no                     ; A USER OUTRANKS AN APPLICATION (SPEC.md
+    test byte [bx+W_FLAGS+1], WF_USRSZ >> 8
+    jnz .no                     ; A USER OUTRANKS AN APPLICATION (SPEC.md
                                 ; 11.100.5): once somebody has sized this window
                                 ; by hand, the size it publishes is not the
                                 ; kernel's to put back
+    call wm_pm_slot
     mov si, [wm_pref+si]
     or si, si
     jz .no                      ; no table: one word, and this is the whole cost
@@ -11829,11 +11837,6 @@ wm_pref:    resw MAX_WIN            ; per slot: the OFFSET, in the window's own
                                     ; Written by wm_create for every slot it
                                     ; takes, which is what makes a reused slot
                                     ; safe without a second clear in wm_destroy
-wm_usrsz:   resb MAX_WIN            ; per slot: THE USER HAS SIZED THIS WINDOW
-                                    ; (SPEC.md 11.100.5) - set by ui_grow and
-                                    ; wm_zoom, cleared by wm_create, and the
-                                    ; one thing that stops a preference
-                                    ; overriding a size somebody chose by hand
 wm_minw:    resw MAX_WIN            ; per slot: the smallest frame this window
 wm_minh:    resw MAX_WIN            ; will accept, 0 = the system floor
                                     ; (WMIN_W/WMIN_H, SPEC.md 11.100.2)
