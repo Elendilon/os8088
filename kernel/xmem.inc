@@ -170,7 +170,10 @@ xm_sniff:
     mov byte [xm_row+DRVR_WANT], 1
 .out:
     pop ax
-    ret
+    retf                        ; FAR, and the shim that used to own this
+                                ; return is deleted (SPEC.md 2.6.1, 2.5.2):
+                                ; kmain names this body directly through
+                                ; OVLGATE1 and nothing near-calls it
 
 section .cold                   ; xm_boot is COLD, and that is not a saving:
                                 ; every routine it calls - drv_load_at,

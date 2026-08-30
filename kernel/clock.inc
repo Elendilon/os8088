@@ -127,7 +127,10 @@ clk_init:
                                 ; way. NOT 40 - mouse.inc owns 40..47, and two
                                 ; marks in one column is a row nobody can read
     pop ax
-    ret
+    retf                        ; FAR, and the shim that used to own this
+                                ; return is deleted (SPEC.md 2.6.1, 2.5.2):
+                                ; kmain names this body directly through
+                                ; OVLGATE1 and nothing near-calls it
 
 ; -----------------------------------------------------------------------------
 ; clk_probe - walk the RTC ladder, and seed the clock from whatever answers

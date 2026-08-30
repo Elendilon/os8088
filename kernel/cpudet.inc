@@ -176,7 +176,10 @@ cpu_detect:
     popf
     pop cx
     pop ax
-    ret
+    retf                        ; FAR, and the shim that used to own this
+                                ; return is deleted (SPEC.md 2.6.1, 2.5.2):
+                                ; kmain names this body directly through
+                                ; OVLGATE1 and nothing near-calls it
 
 
 ; -----------------------------------------------------------------------------

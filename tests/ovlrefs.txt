@@ -36,13 +36,16 @@
 # kernel/kernel.asm:4086-4315.  kmain IS the boot path; there is no second
 # entry to it, and every one of these is called before spl_finish releases the
 # blob a few hundred lines later in the same routine.
-ovl_cpu_detect      kmain only (kernel.asm:4086) - CPU tier + A20, SPEC.md 41.1-41.3
-ovl_xm_sniff        kmain only (kernel.asm:4102) - the XMS probe, SPEC.md 41.4
-ovl_clk_init        kmain only (kernel.asm:4145) - the clock ladder's boot rung, SPEC.md 37
-ovl_font_init       kmain only (kernel.asm:4236) - builds the glyph tables, SPEC.md 6
-ovl_desk_init       kmain only (kernel.asm:4294) - first desktop paint, SPEC.md 14
-ovl_snd_init        kmain only (kernel.asm:4315) - sound layer bring-up, SPEC.md 34
-drv_snd_sniff       kmain only (kernel.asm:4306) - what card is at 388h, SPEC.md 51.3.1
+# The five `ovl_*` shims are gone and the BODIES are named here instead
+# (SPEC.md 2.6.1): each was `call <body> / retf` for a body already in `.ovl`,
+# four bytes to own a far return the body can own itself.
+cpu_detect          kmain only (kernel.asm) - CPU tier + A20, SPEC.md 41.1-41.3
+xm_sniff            kmain only (kernel.asm) - the XMS probe, SPEC.md 41.4
+clk_init            kmain only (kernel.asm) - the clock ladder's boot rung, SPEC.md 37
+desk_init           kmain only (kernel.asm) - first desktop paint, SPEC.md 14
+snd_init            kmain only (kernel.asm) - sound layer bring-up, SPEC.md 34
+ovl_font_init       kmain only (kernel.asm) - the BAKED_FONT typeface, SPEC.md 6.2. It keeps its name and its retf: it is a BODY, not a shim
+drv_snd_sniff       kmain only (kernel.asm) - what card is at 388h, SPEC.md 51.3.1
 
 # --- the boot-only bodies of docs/LAST-DROP-BYTES.md -----------------------
 # Each one is a routine kmain runs ONCE, moved out of `.text` or `.cold` into

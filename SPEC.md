@@ -488,6 +488,13 @@ naming the caller. The list may shrink freely; a row whose reference has gone is
 itself a build failure, so it cannot rot into a list of names nobody can account
 for.
 
+**And the five shims that used to sit at the head of `.ovl` are gone with it.**
+`ovl_cpu_detect`, `ovl_xm_sniff`, `ovl_desk_init`, `ovl_snd_init` and
+`ovl_clk_init` were each `call <body> / retf` for a body **already in `.ovl`** —
+four bytes apiece to own a far return the body can own itself. That is exactly
+§2.6.1's deletion, which was made eighty-four times on the `.cold` side and had
+never been made here; `kmain` names each body directly now.
+
 **A body moved here ends in `retf`, and that is a third gate rule.** Everything
 in the blob is entered through `call far [spl_fp]` — that is what `SPLCALL`,
 `OVLCALL`, `OVLGATE1` and `SPLSTUB` all expand to — so an entry that keeps its

@@ -2269,24 +2269,16 @@ section .text
 ; =============================================================================
 section .ovl
 ovl_base:
-ovl_cpu_detect:     call cpu_detect
-                    retf
-%ifdef KERN_BIG                 ; the store above 1MB is kern_big's alone
-                                ; (SPEC.md 41.11). kmain's call to this is
-                                ; behind the same guard, so on kern_small
-                                ; neither the shim nor its caller is
-                                ; assembled - the overlay is free either way,
-                                ; but a shim to a body that does not exist
-                                ; would not assemble at all
-ovl_xm_sniff:       call xm_sniff
-                    retf
-%endif
-ovl_desk_init:      call desk_init
-                    retf
-ovl_snd_init:       call snd_init
-                    retf
-ovl_clk_init:       call clk_init
-                    retf
+; THE FIVE SHIMS THAT USED TO BE HERE ARE GONE (SPEC.md 2.6.1, 2.5.2). Each was
+; `call <body> / retf` for a body that is ALSO in `.ovl`, in cpudet.inc,
+; xmem.inc, desk.inc, snd.inc and clock.inc - four bytes apiece to own a far
+; return the body can own itself, which is the deletion 2.6.1 made eighty-four
+; times over on the `.cold` side and had never been made here. kmain names each
+; body directly now and nothing near-calls any of them, which is what
+; os88ovlchk's return-kind and blob-entry rules check.
+;
+; `ovl_base` stays: it is what the guard at the foot of this file measures the
+; overlay's existence by, and it is a label rather than code.
 
 section .text
 
@@ -4184,7 +4176,7 @@ kmain:
                                 ; would otherwise have been needed to reach
     MARK 1
 
-    OVLGATE1 ovl_cpu_detect      ; CPU tier + memory above 1MB (SPEC.md 41),
+    OVLGATE1 cpu_detect      ; CPU tier + memory above 1MB (SPEC.md 41),
                                 ; here and nowhere else: BEFORE sched_init,
                                 ; because this is the last moment at which no
                                 ; kernel ISR is installed - the unreal-mode
@@ -4200,7 +4192,7 @@ kmain:
                                 ; loads. The tier is still detected above, in
                                 ; both builds: it is a fact about the CPU that
                                 ; packages read
-    OVLGATE1 ovl_xm_sniff        ; IS there memory above 1MB? ONE int 15h
+    OVLGATE1 xm_sniff        ; IS there memory above 1MB? ONE int 15h
                                 ; AH=88h, and on tier 0 one compare (SPEC.md
                                 ; 41.12.1). The gate, the sizing, the
                                 ; allocator and both transports are XMEM.DRV
@@ -4245,7 +4237,7 @@ kmain:
                                 ; table is cleared
     call evq_init
     MARK 6
-    OVLGATE1 ovl_clk_init        ; system clock (SPEC.md 37): probe the RTC,
+    OVLGATE1 clk_init        ; system clock (SPEC.md 37): probe the RTC,
                                 ; or fall back to the fixed date - before the
                                 ; mode set, so the very first menu bar paint
                                 ; already carries a valid clock
@@ -4394,7 +4386,7 @@ kmain:
                                 ; drive heading for the absent verdict costs
                                 ; FDD_MOTORW + FDD_SEEKW - 32 ticks, 1.76 s,
                                 ; the longest single wait in the whole boot
-    OVLGATE1 ovl_desk_init  ; volume zones for the desktop (SPEC.md 26.1)
+    OVLGATE1 desk_init  ; volume zones for the desktop (SPEC.md 26.1)
     MARK 21
     OVLGATE1 dock_init          ; dock strip scratch (SPEC.md 30)
     MARK 22
@@ -4415,7 +4407,7 @@ kmain:
                                 ; because the overlay this lives in is dead by
                                 ; then: drv_boot's own mount writes over it
     MARK 26
-    OVLGATE1 ovl_snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
+    OVLGATE1 snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
                                 ; boot bits, stores its .bss state, publishes
                                 ; snd_live LAST - snd_tick has been running
                                 ; gated since sched_init hooked int 08h
