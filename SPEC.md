@@ -5075,7 +5075,7 @@ it breaks even at 2 and wins from 3.
 
 #### 6.1.9 The deferred hide is spent in `font_run_x`, not in `font_run`
 
-**`api_font_run` is an X STUB, so the API slot lands on `font_run_x` and never
+**Slot 0x0258 is an X CELL, so it lands on `font_run_x` and never
 on `font_run`** — and the `call fnt_unlazy` was on `font_run`. So every
 `OSAPI_FONT_RUN` a PACKAGE made drew with `gfx_lock`'s promised hide (§7.1.4)
 **unspent**: the run wrote its cells straight over the mouse pointer, and
@@ -26997,21 +26997,66 @@ only the header did. Register contracts are the target routines' own (§5,
 §6, §8, §11); every slot preserves everything but its documented outputs,
 and restores DS and (where a stub borrowed it) ES.
 
-Three cells in ten are too small to hold what they need, and those use
-`OSAPI_JSLOT` — `jmp near <stub>` padded to eight — to reach a longer stub
-below the table. There are two families:
+Three cells in ten are too small to hold what they need. There are two
+families, and **each family is ONE body** that every cell of it reaches with
+`BP` = the routine to call:
 
-- **X stubs** put the CALLER's DS in ES before calling, so a kernel routine
+```nasm
+%macro OSAPI_XCELL 1                ; exactly 8 bytes, like every other cell
+    push bp                         ; the CALLER's BP, under the far frame
+    mov bp, %1                      ; ...replaced by the target
+    jmp near api_x
+    db 0
+%endmacro
+
+api_x:                              ; ONE copy, for all 33 X cells
+    push ds
+    push es
+    push ds
+    pop es                          ; ES = the caller's DS
+    push cs
+    pop ds                          ; DS = KERNEL_SEG
+    call bp
+    pop es
+    pop ds
+    pop bp                          ; the caller's BP back
+    retf
+```
+
+- **X cells** put the CALLER's DS in ES before calling, so a kernel routine
   can reach package data through an `es:` override: `font_str_x`,
   `font_width_x`, `wm_create` (the template), `inst_pkg_spawn` (the
   ownership fence), `osapi_mem_claim` and `osapi_mem_free` (the owner
   identity). This is why "the string/template you pass lives in your own
   segment" needs no thought from the package author.
-- **N stubs** stage a NAME out of the package's segment into the kernel's
-  `api_name` buffer first, because the file API and the file dialog take
-  `SI` = a NUL 8.3 string and pass it on to routines that read it through
-  DS many calls deep: `dskw_write`, `dskw_read`, `dskw_delete`,
-  `fdlg_open`, plus a hand-written `api_file_rename` that stages both names.
+- **N cells** stage a NAME out of the package's segment into the kernel's
+  `api_name` buffer first, because the file API takes `SI` = a NUL 8.3
+  string and passes it on to routines that read it through DS many calls
+  deep: `dskw_write`, `dskw_read`, `dskw_delete`. Every N cell also calls
+  `inst_vol_enter` — resolving in the calling instance's own directory
+  (§19.2.1) is what an N cell *is*, not an option one of them declines.
+  `api_file_rename` and `api_fdlg_open` are hand-written `OSAPI_JSLOT`
+  stubs and NOT N cells: rename stages two names, and the dialog's name is
+  optional where every N cell's is mandatory (the stub below it says why).
+
+**`BP` is the target register, and that is the machine's existing
+convention rather than a new one.** `PKG_DISP` in every `.o88` header is
+`call bp` / `retf` — "the kernel far-calls this fixed offset with BP = the
+callback it wants" (§20.2) — and `cw_mem_disp` is the same three bytes.
+No cell takes BP as an input: the three slots that document BP as an
+argument (`OSAPI_GFX_BLIT4`, `_BLITP`, `_BLIT1`) are plain `OSAPI_SLOT`s,
+and `OSAPI_DRV_CALL` publishes "BP, DS and ES come back yours" outright.
+Seven of the forty targets use BP internally and all seven `push` it first.
+`push` and `pop` touch no flags, so a slot's CF answer still survives the
+return.
+
+**The cost is two bytes of the caller's stack for the length of the call**,
+which matters in exactly one place: `OSAPI_DRV_CALL` is an X cell, so on
+`ETHER.DRV`'s service worker the pushed BP is live under the whole driver
+call — 270 → 272 bytes of `SCH_STACK`'s 384 (§34.5, and the `sch_stkdie`
+halt photographed on the 5150 in docs/FIELD-NOTES.md). That is the deepest
+chain in the machine and it is where a change
+here is priced, not against task 0's kilobyte.
 
 The table's start (0x0010) and its span are proved by two build-time
 assertions in kernel.asm; the span is **86 × 8** today. `apps/os88api.inc`
@@ -36080,7 +36125,7 @@ run this cost:
   100, correctly. The memory page's rows are instances.
 * **A drag, not a close.** Closing the cover ends an instance, which moves the
   memory page's rows for the same reason.
-* **`font_run_x` reached through `api_font_run`.** Slot 0x0258 is an X stub
+* **`font_run_x` reached through the X cell at slot 0x0258.** That cell goes
   straight to `font_run_x`, so a breakpoint on the kernel's own `font_run`
   counts **2** calls for a whole repaint of this window; and the return
   address is what separates this window's calls from the Finder redrawing its

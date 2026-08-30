@@ -709,7 +709,7 @@ font_run:
 font_run_x:
     SNAPAUDIT_TALLY snap_hrun, snap_krun
     call fnt_unlazy             ; SPEC.md 6.1.9: HERE, not at font_run above,
-                                ; because api_font_run is an X STUB to this
+                                ; because slot 0x0258's X cell names THIS
                                 ; label - so every package's opaque run drew
                                 ; over the mouse pointer with gfx_lock's
                                 ; promised hide unspent, and gfx_unlock then

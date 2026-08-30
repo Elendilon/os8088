@@ -2367,6 +2367,31 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     times 5 db 0
 %endmacro
 
+; ...and the X and N families, whose cells differ ONLY in which routine they
+; call - so the cell carries that routine in BP and there is one body each,
+; not one per cell (SPEC.md 20.3). Still exactly 8 bytes, so no published
+; offset moves; the five spare bytes a JSLOT padded with are what pays for it.
+;
+; BP IS THE MACHINE'S EXISTING CONVENTION for "the near proc I want you to
+; call": PKG_DISP is `call bp / retf` in every .o88 header and cw_mem_disp is
+; the same three bytes. No cell takes BP as an input - the three slots that
+; document BP as an argument (OSAPI_GFX_BLIT4/_BLITP/_BLIT1) are plain
+; OSAPI_SLOTs and OSAPI_DRV_CALL publishes "BP, DS and ES come back yours".
+; Seven of the forty targets use BP internally and all seven push it first.
+%macro OSAPI_XCELL 1                ; 8 bytes exactly
+    push bp                         ; 55        the CALLER's, under the frame
+    mov bp, %1                      ; BD lo hi
+    jmp near api_x                  ; E9 lo hi
+    db 0
+%endmacro
+
+%macro OSAPI_NCELL 1                ; 8 bytes exactly
+    push bp
+    mov bp, %1
+    jmp near api_n
+    db 0
+%endmacro
+
 osapi_table:
     OSAPI_SLOT gfx_lock           ; 0x0010
     OSAPI_SLOT gfx_unlock         ; 0x0018
@@ -2379,9 +2404,9 @@ osapi_table:
     OSAPI_SLOT gfx_xor_rect       ; 0x0050
     OSAPI_SLOT gfx_xor_fill       ; 0x0058
     OSAPI_SLOT font_char          ; 0x0060
-    OSAPI_JSLOT api_font_str      ; 0x0068  X: the string is package data
-    OSAPI_JSLOT api_font_width    ; 0x0070  X
-    OSAPI_JSLOT api_wm_create     ; 0x0078  X: so is the template
+    OSAPI_XCELL font_str_x      ; 0x0068  X: the string is package data
+    OSAPI_XCELL font_width_x    ; 0x0070  X
+    OSAPI_XCELL wm_create     ; 0x0078  X: so is the template
     OSAPI_SLOT wm_show            ; 0x0080
     OSAPI_SLOT wm_hide            ; 0x0088
     OSAPI_SLOT wm_front           ; 0x0090
@@ -2397,11 +2422,11 @@ osapi_table:
     OSAPI_SLOT osapi_snd_caps     ; 0x00E0 - sound (SPEC.md 34): what the PC
     OSAPI_SLOT osapi_snd_tone     ; 0x00E8   speaker can do, a tone, and a
     OSAPI_SLOT osapi_snd_play     ; 0x00F0   clip out of the caller's buffer
-    OSAPI_JSLOT api_snd_fm        ; 0x00F8 - FM verbs (SPEC.md 34.2). X: a
+    OSAPI_XCELL osapi_snd_fm_x        ; 0x00F8 - FM verbs (SPEC.md 34.2). X: a
                                   ;          patch-load's 11 bytes are the
                                   ;          caller's, and only live while a
                                   ;          sound DRIVER is loaded (51.4)
-    OSAPI_JSLOT api_snd_stream    ; 0x0100 - PCM_BG streams (SPEC.md 34.5),
+    OSAPI_XCELL osapi_snd_stream    ; 0x0100 - PCM_BG streams (SPEC.md 34.5),
                                   ;          likewise the driver's. Both
                                   ;          answer CF=1 with no driver, which
                                   ;          is the same thing the held cells
@@ -2412,15 +2437,15 @@ osapi_table:
     OSAPI_SLOT wm_sizable         ; 0x0108 - window features (SPEC.md 11.1)
     OSAPI_SLOT wm_fullscreen      ; 0x0110 - fullscreen (SPEC.md 11.2)
     OSAPI_SLOT wm_grow_paint      ; 0x0118 - grow-box restore (SPEC.md 11.1)
-    OSAPI_JSLOT api_file_write    ; 0x0120 - files (SPEC.md 18.4/20.3): N,
-    OSAPI_JSLOT api_file_read     ; 0x0128   because ES:BX is the data buffer
+    OSAPI_NCELL dskw_write    ; 0x0120 - files (SPEC.md 18.4/20.3): N,
+    OSAPI_NCELL dskw_read     ; 0x0128   because ES:BX is the data buffer
                                   ;          - and DX:CX its 32-bit count, so
                                   ;          these two are the WHOLE read/write
                                   ;          surface (SPEC.md 18.4.1). DX is
                                   ;          an argument to both and an output
                                   ;          of the read, and the N stub keeps
                                   ;          its hands off it
-    OSAPI_JSLOT api_file_delete   ; 0x0130   and the name still has to cross
+    OSAPI_NCELL dskw_delete   ; 0x0130   and the name still has to cross
     OSAPI_JSLOT api_file_rename   ; 0x0138   (two names, this one)
     OSAPI_SLOT osapi_file_dfree   ; 0x0140 - free space on the CALLING
                                   ;          INSTANCE's volume (SPEC.md
@@ -2433,7 +2458,7 @@ osapi_table:
                                   ;          (SPEC.md 38.6): N, for the
                                   ;          default name
     OSAPI_SLOT osapi_video        ; 0x0158 - runtime screen geometry (39.2)
-    OSAPI_JSLOT api_pkg_spawn     ; 0x0160 - worker tasks (SPEC.md 20.6): X,
+    OSAPI_XCELL inst_pkg_spawn     ; 0x0160 - worker tasks (SPEC.md 20.6): X,
                                   ;          the ownership fence needs to
                                   ;          know which segment is calling
     OSAPI_SLOT inst_pkg_alive     ; 0x0168
@@ -2458,11 +2483,11 @@ osapi_table:
 ;     claim heap (osapi_cm_*, kernel/memory.inc), the six slots after them
 ;     keep their published numbers, and everything ADDED since starts at
 ;     0x0200 - the first free number above them.
-    OSAPI_JSLOT api_cm_alloc      ; 0x01B8 - the v3 arena (SPEC.md 20.8):
+    OSAPI_XCELL osapi_cm_alloc      ; 0x01B8 - the v3 arena (SPEC.md 20.8):
                                   ;          AX = PARAGRAPHS -> AX = segment.
                                   ;          X - the owner fence needs the
                                   ;          caller's segment
-    OSAPI_JSLOT api_cm_free       ; 0x01C0 - AX = a base segment you own; X
+    OSAPI_XCELL osapi_cm_free       ; 0x01C0 - AX = a base segment you own; X
     OSAPI_SLOT osapi_cm_caps      ; 0x01C8 - AX/DX = largest/total free
                                   ;          PARAGRAPHS, BL = free records
     OSAPI_SLOT wm_resize          ; 0x01D0 - resize a window (SPEC.md 11.1):
@@ -2514,8 +2539,8 @@ osapi_table:
                                   ;          SI = signed dy. The vacated rows
                                   ;          are the caller's to repaint
 ; --- and from here on, the slots added since ----------------------------------
-    OSAPI_JSLOT api_mem_claim     ; 0x0200 - the claim heap (SPEC.md 50.3):
-    OSAPI_JSLOT api_mem_free      ; 0x0208   X, same fence as the spawn
+    OSAPI_XCELL osapi_mem_claim     ; 0x0200 - the claim heap (SPEC.md 50.3):
+    OSAPI_XCELL osapi_mem_free      ; 0x0208   X, same fence as the spawn
     OSAPI_SLOT osapi_mem_avail    ; 0x0210
     OSAPI_SLOT osapi_font_glyphs  ; 0x0218 - the kernel's 8x8 glyph table
                                   ;          (SPEC.md 6): out DX:SI = the
@@ -2532,7 +2557,7 @@ osapi_table:
     OSAPI_SLOT osapi_file_here    ; 0x0228 - where the file API's names
                                   ;          resolve (SPEC.md 18.4/19.2)
     OSAPI_SLOT osapi_file_goto    ; 0x0230 - ...and how to put it back
-    OSAPI_JSLOT api_mem_regrow    ; 0x0238 - resize a claim you already hold
+    OSAPI_XCELL osapi_mem_regrow    ; 0x0238 - resize a claim you already hold
                                   ;          (SPEC.md 50.3): X, same owner
                                   ;          fence as the claim itself. In
                                   ;          place when the paragraphs above
@@ -2545,13 +2570,13 @@ osapi_table:
                                   ;          place). Not an X cell: the string
                                   ;          is read through W_SEG, which is
                                   ;          already the caller's segment
-    OSAPI_JSLOT api_drv_task      ; 0x0248 - a DRIVER's worker task (SPEC.md
+    OSAPI_XCELL drv_task      ; 0x0248 - a DRIVER's worker task (SPEC.md
                                   ;          51.7): AX = a near entry in its
                                   ;          own segment, or 0 = "this IS the
                                   ;          worker, and it is exiting". X,
                                   ;          because the fence is an identity
                                   ;          test on the caller's segment
-    OSAPI_JSLOT api_mem_claim_dma ; 0x0250 - a claim an ISA DMA controller can
+    OSAPI_XCELL osapi_mem_claim_dma ; 0x0250 - a claim an ISA DMA controller can
                                   ;          reach (SPEC.md 50.3): AX = KB,
                                   ;          CX = KB of the HEAD that must not
                                   ;          cross a 64KB physical boundary.
@@ -2560,7 +2585,7 @@ osapi_table:
                                   ;          mem_claim, because every existing
                                   ;          caller passes garbage there and
                                   ;          the failure would be silent
-    OSAPI_JSLOT api_font_run      ; 0x0258 - one OPAQUE text run (SPEC.md 6.1):
+    OSAPI_XCELL font_run_x      ; 0x0258 - one OPAQUE text run (SPEC.md 6.1):
                                   ;          CX = x, DX = y, SI = ASCIIZ,
                                   ;          AL = ink, AH = background. Draws
                                   ;          the cells' background AND their
@@ -2598,7 +2623,7 @@ osapi_table:
                                   ;          pixel. Mono only - it is a no-op
                                   ;          on VGA, so an app may set it
                                   ;          unconditionally
-    OSAPI_JSLOT api_vol_add       ; 0x0270 - X: a DRVC_DISK driver registers
+    OSAPI_XCELL osapi_vol_add       ; 0x0270 - X: a DRVC_DISK driver registers
                                   ;          one mounted volume (SPEC.md
                                   ;          18.7/51.8). in AL = its own
                                   ;          volume handle, CX = the volume's
@@ -2611,12 +2636,12 @@ osapi_table:
                                   ;          volume index, CF=1 = no free row.
                                   ;          The desktop zone and the drive
                                   ;          letter both fall out of the index
-    OSAPI_JSLOT api_vol_del       ; 0x0278 - X: in AL = a volume index this
+    OSAPI_XCELL osapi_vol_del       ; 0x0278 - X: in AL = a volume index this
                                   ;          driver registered. Drops the
                                   ;          zone, and if that volume was the
                                   ;          mounted one falls back to A: with
                                   ;          the write gate shut. Cannot fail
-    OSAPI_JSLOT api_vol_mount     ; 0x0280 - X: in AL = a volume index; mount it
+    OSAPI_XCELL osapi_vol_mount     ; 0x0280 - X: in AL = a volume index; mount it
                                   ;          and list it (SPEC.md 18.3), which
                                   ;          is what a driver's Mount button
                                   ;          does after osapi_vol_add. out
@@ -2632,7 +2657,7 @@ osapi_table:
                                   ;          that already holds it - post it
                                   ;          the way a page click posts a
                                   ;          repaint
-    OSAPI_JSLOT api_drv_cfg       ; 0x0290 - X: the driver's own settings blob
+    OSAPI_XCELL osapi_drv_cfg       ; 0x0290 - X: the driver's own settings blob
                                   ;          inside SYSTEM.CFG (SPEC.md 51.9).
                                   ;          in AL = 0 read / 1 write / 2 write
                                   ;          and flush now, ES:SI = the driver's
@@ -2675,7 +2700,7 @@ osapi_table:
                                   ;          exactly what a package cannot
                                   ;          have: the kernel's footprint
                                   ;          moves with every build
-    OSAPI_JSLOT api_gfx_fill_pat  ; 0x02B0 - a patterned fill (SPEC.md 5):
+    OSAPI_XCELL osapi_gfx_fill_pat  ; 0x02B0 - a patterned fill (SPEC.md 5):
                                   ;          AX/BX/CX/DX = the rect, SI = 8
                                   ;          row bytes. X, because those eight
                                   ;          bytes are the caller's and
@@ -2694,7 +2719,7 @@ osapi_table:
                                   ;          adapter can set, DL = vid_kind.
                                   ;          Any context - it is how an app
                                   ;          greys its mode menu (SPEC.md 47)
-    OSAPI_JSLOT api_fsx_run       ; 0x02C8 - the bracket (SPEC.md 53.1): AX =
+    OSAPI_XCELL fsx_run       ; 0x02C8 - the bracket (SPEC.md 53.1): AX =
                                   ;          near entry, BX = own window, CX =
                                   ;          flags. X - the ownership fence is
                                   ;          inst_pkg_spawn's identity test on
@@ -2721,7 +2746,7 @@ osapi_table:
                                   ;          pair OSAPI_FILE_GOTO takes.
                                   ;          READ-AND-CLEAR: a second instance
                                   ;          cannot inherit it
-    OSAPI_JSLOT api_assoc_set     ; 0x02F0 - X: claim an extension for a
+    OSAPI_XCELL osapi_assoc_set     ; 0x02F0 - X: claim an extension for a
                                   ;          program (SPEC.md 54.5). ES:SI =
                                   ;          3 extension bytes then 8 stem
                                   ;          bytes, both space-padded; out
@@ -2736,13 +2761,13 @@ osapi_table:
                                   ;          15.4): the boot sector's first
                                   ;          instruction to the first desktop
                                   ;          frame. 0xFFFF = unknown
-    OSAPI_JSLOT api_gfx_linit     ; 0x0300  X: the walk state is package data
+    OSAPI_XCELL gfx_linit     ; 0x0300  X: the walk state is package data
                                   ;          (SPEC.md 5.6.7). AX/BX = x1/y1,
                                   ;          CX/DX = x2/y2, ES:DI = a GLS_SZ
                                   ;          block. The walk runs in the
                                   ;          CALLER'S direction - order
                                   ;          matters here, unlike gfx_line
-    OSAPI_JSLOT api_gfx_lstep     ; 0x0308  X: draw the walk's next CX pixels
+    OSAPI_XCELL gfx_lstep     ; 0x0308  X: draw the walk's next CX pixels
                                   ;          in [gfx_color] and advance it.
                                   ;          N then M is exactly the N+M one
                                   ;          call would have drawn, which is
@@ -2758,7 +2783,7 @@ osapi_table:
                                   ;          unchanged - which is why this
                                   ;          needs no stub and no AL
                                   ;          argument
-    OSAPI_JSLOT api_gfx_lstepv    ; 0x0318  X: gfx_lstep for CX walks at once
+    OSAPI_XCELL gfx_lstepv    ; 0x0318  X: gfx_lstep for CX walks at once
                                   ;          (SPEC.md 5.6.8). ES:DI = an array
                                   ;          of `dw block, pixels` pairs. Same
                                   ;          pixels as CX separate calls, one
@@ -2798,18 +2823,18 @@ osapi_table:
                                   ;         way to express, so a package could
                                   ;         read a file by name and never find
                                   ;         out what was there
-    OSAPI_JSLOT api_file_append   ; 0x0350  N: SI = name, ES:BX = bytes, CX =
+    OSAPI_NCELL dskw_append   ; 0x0350  N: SI = name, ES:BX = bytes, CX =
                                   ;         count. Add to the END of a file
                                   ;         (SPEC.md 18.4.4). Its precondition
                                   ;         is the file's current size being a
                                   ;         whole number of clusters, which is
                                   ;         what a chunked write already is
-    OSAPI_JSLOT api_file_read_at  ; 0x0358  N: ...and the read half. DX:AX =
+    OSAPI_NCELL dskw_read_at  ; 0x0358  N: ...and the read half. DX:AX =
                                   ;         the byte offset, CX = capacity;
                                   ;         out DX:AX = bytes delivered, 0 at
                                   ;         the end. Stateless, so a copy loop
                                   ;         may write between two reads
-    OSAPI_JSLOT api_file_mkdir    ; 0x0360  N: SI = name. Create a folder in
+    OSAPI_NCELL dskw_mkdir    ; 0x0360  N: SI = name. Create a folder in
                                   ;         the current directory (SPEC.md
                                   ;         18.5). The routine is the file
                                   ;         manager's own - its three callers
@@ -2921,7 +2946,7 @@ osapi_table:
                                   ;          caller that promises WF_SAVEU
                                   ;          anyway has promised the thing it
                                   ;          was trying to avoid
-    OSAPI_JSLOT api_fs_ent        ; 0x03C0 - X: a DRVC_FILE driver appends ONE
+    OSAPI_XCELL osapi_fs_ent        ; 0x03C0 - X: a DRVC_FILE driver appends ONE
                                   ;          entry to the listing being built
                                   ;          (SPEC.md 62.9.1). ES:SI -> a
                                   ;          DSK_DE_SIZE-byte staged SPEC.md
@@ -3040,7 +3065,7 @@ osapi_table:
                                   ;          hard-code - and the second
                                   ;          display's own origin when the
                                   ;          bracket is over there
-    OSAPI_JSLOT api_mem_movable   ; 0x0400 - X: DX = a claim of yours, AX = a
+    OSAPI_XCELL osapi_mem_movable   ; 0x0400 - X: DX = a claim of yours, AX = a
                                   ;          near proc in YOUR segment (0 pins
                                   ;          it again). out CF = 1 = no such
                                   ;          claim, or not yours.
@@ -3064,7 +3089,7 @@ osapi_table:
                                   ;          base, not just the word you keep
                                   ;          it in, and must not claim, free or
                                   ;          resize anything (SPEC.md 66.3)
-    OSAPI_JSLOT api_mem_parksafe  ; 0x0408 - X: AL = 1 declare / 0 withdraw.
+    OSAPI_XCELL inst_parksafe_set  ; 0x0408 - X: AL = 1 declare / 0 withdraw.
                                   ;          out CF = 1 = you are not a live
                                   ;          package instance.
                                   ;          "THE KERNEL MAY PARK ME WHILE I
@@ -3124,7 +3149,7 @@ osapi_table:
                                   ;          could stand in its own folder, or
                                   ;          in one a dialog had given it, and
                                   ;          nowhere else
-    OSAPI_JSLOT api_drv_dlg       ; 0x0428 - X: the Standard File dialog, for a
+    OSAPI_XCELL osapi_drv_dlg       ; 0x0428 - X: the Standard File dialog, for a
                                   ;          DRIVER's Control Panel page
                                   ;          (SPEC.md 51.10). AL = FDLG_OPEN /
                                   ;          FDLG_SAVE, ES:SI = a default name
@@ -3166,7 +3191,7 @@ osapi_table:
                                   ;          billed to you - W_ONCLICK's
                                   ;          environment. Call it AFTER
                                   ;          wm_create
-    OSAPI_JSLOT api_drv_call      ; 0x0448 - a PACKAGE calls a DRIVER (SPEC.md
+    OSAPI_XCELL drv_pkg_call_x      ; 0x0448 - a PACKAGE calls a DRIVER (SPEC.md
                                   ;          20.11). BH = the DRVC_* class, BL
                                   ;          = a verb THAT DRIVER defines, and
                                   ;          the kernel knows nothing about
@@ -3302,7 +3327,7 @@ osapi_table:
                                   ;          OSAPI_WM_CREATE like
                                   ;          OSAPI_WM_ONWAKE - a side table,
                                   ;          not a template word
-    OSAPI_JSLOT api_file_rmdir    ; 0x0498  N: SI = a NUL 8.3 name, AL = 0 an
+    OSAPI_NCELL dskw_rmany    ; 0x0498  N: SI = a NUL 8.3 name, AL = 0 an
                                   ;         EMPTY folder only / non-zero the
                                   ;         whole tree under it (SPEC.md 18.6).
                                   ;         The AL survives the N stub because
@@ -3334,7 +3359,7 @@ osapi_table:
                                   ;          the draw puts CWHITE/CBLACK back,
                                   ;          so a site that forgets cannot
                                   ;          tint the next icon (SPEC.md 25.6)
-    OSAPI_JSLOT api_icon_draw     ; 0x04B8 - CX = x, DX = y, SI -> a masked
+    OSAPI_XCELL icon_draw_x     ; 0x04B8 - CX = x, DX = y, SI -> a masked
                                   ;          1bpp record in YOUR segment: a
                                   ;          two-byte header (words a row,
                                   ;          rows), then that many mask words
@@ -3365,7 +3390,7 @@ osapi_table:
                                   ;          the answer to every one of them is
                                   ;          OSAPI_GFX_BLIT4, which still works
                                   ;          (SPEC.md 5.4.3)
-    OSAPI_JSLOT api_mem_claim_hi  ; 0x04C8 - X: AX = KB, BX unused. THE SAME
+    OSAPI_XCELL osapi_mem_claim_hi  ; 0x04C8 - X: AX = KB, BX unused. THE SAME
                                   ;          CLAIM FROM THE OTHER END (SPEC.md
                                   ;          50.3.2), for a buffer the HARDWARE
                                   ;          holds the address of and which can
@@ -3376,10 +3401,10 @@ osapi_table:
                                   ;          splits the space a package has to
                                   ;          load into" - and this is the door
                                   ;          it lacked
-    OSAPI_JSLOT api_mem_claim_dma_hi ; 0x04D0 - ...and with CX = the 64KB
+    OSAPI_XCELL osapi_mem_claim_dma_hi ; 0x04D0 - ...and with CX = the 64KB
                                   ;          page-safe HEAD, which is what a
                                   ;          sound card's DMA ring wants
-    OSAPI_JSLOT api_gfx_spans     ; 0x04D8 - X: AX = the first row, ES:SI = CX
+    OSAPI_XCELL gfx_spans     ; 0x04D8 - X: AX = the first row, ES:SI = CX
                                   ;          records of {x1, x2} - ONE INTERVAL
                                   ;          A ROW, on CONSECUTIVE rows, x1 > x2
                                   ;          being an empty one. Fills them all
@@ -3503,65 +3528,33 @@ dbg_reg:
 ; restores every segment register it borrowed.
 ; =============================================================================
 
-; X: ES = the caller's DS, so the kernel routine can reach package data
-%macro OSAPI_XSTUB 2
-%1:
+; X: ES = the caller's DS, so the kernel routine can reach package data.
+; ONE body for all 33 X cells, entered with BP = the routine to call.
+api_x:
     push ds                     ; the caller's DS...
     push es                     ; ...and its ES
     push ds
     pop es                      ; ES = the caller's DS
     push cs
     pop ds                      ; DS = KERNEL_SEG
-    call %2
+    call bp
     pop es
     pop ds
-    retf
-%endmacro
-
-    OSAPI_XSTUB api_icon_draw,  icon_draw_x
-    OSAPI_XSTUB api_font_str,   font_str_x
-    OSAPI_XSTUB api_font_run,   font_run_x
-    OSAPI_XSTUB api_font_width, font_width_x
-    OSAPI_XSTUB api_wm_create,  wm_create
-    OSAPI_XSTUB api_pkg_spawn,  inst_pkg_spawn
-    OSAPI_XSTUB api_mem_claim,  osapi_mem_claim
-    OSAPI_XSTUB api_mem_claim_dma, osapi_mem_claim_dma
-    OSAPI_XSTUB api_mem_claim_hi, osapi_mem_claim_hi
-    OSAPI_XSTUB api_mem_claim_dma_hi, osapi_mem_claim_dma_hi
-    OSAPI_XSTUB api_mem_free,   osapi_mem_free
-    OSAPI_XSTUB api_cm_alloc,   osapi_cm_alloc
-    OSAPI_XSTUB api_cm_free,    osapi_cm_free
-    OSAPI_XSTUB api_mem_regrow, osapi_mem_regrow
-    OSAPI_XSTUB api_mem_movable, osapi_mem_movable
-    OSAPI_XSTUB api_mem_parksafe, inst_parksafe_set
-    OSAPI_XSTUB api_snd_fm,     osapi_snd_fm_x
-    OSAPI_XSTUB api_drv_task,   drv_task
-    OSAPI_XSTUB api_snd_stream, osapi_snd_stream
-    OSAPI_XSTUB api_gfx_linit,  gfx_linit
-    OSAPI_XSTUB api_gfx_lstep,  gfx_lstep
-    OSAPI_XSTUB api_gfx_lstepv, gfx_lstepv
-    OSAPI_XSTUB api_vol_add,    osapi_vol_add
-    OSAPI_XSTUB api_fs_ent,     osapi_fs_ent
-    OSAPI_XSTUB api_vol_del,    osapi_vol_del
-    OSAPI_XSTUB api_vol_mount,  osapi_vol_mount
-    OSAPI_XSTUB api_drv_cfg,    osapi_drv_cfg
-    OSAPI_XSTUB api_drv_dlg,    osapi_drv_dlg
-    OSAPI_XSTUB api_gfx_fill_pat, osapi_gfx_fill_pat
-    OSAPI_XSTUB api_fsx_run,    fsx_run
-    OSAPI_XSTUB api_assoc_set,  osapi_assoc_set
-    OSAPI_XSTUB api_drv_call,   drv_pkg_call_x
-    OSAPI_XSTUB api_gfx_spans,  gfx_spans
+    pop bp                      ; ...and the BP the cell pushed for us. POP
+    retf                        ; and RETF touch no flags, so the routine's
+                                ; CF answer still survives the return
 
 ; N: the name at the caller's DS:SI is staged into kernel scratch first,
 ; because ES:BX belongs to the caller's data buffer and cannot carry it.
+; ONE body for all 7 N cells, entered with BP = the routine to call.
 ;
-; The optional third argument is V - "resolve this in the CALLING INSTANCE's
-; directory" (SPEC.md 19.2.1). It goes on every cell that resolves a file
-; name and on nothing else. api_fdlg_open is NOT one of these cells at all -
-; see the stub below it, and the reason there is why this macro cannot serve
-; it: every one of these names is MANDATORY, so the stage is unconditional.
-%macro OSAPI_NSTUB 2-3 0
-%1:
+; inst_vol_enter - "resolve this in the CALLING INSTANCE's directory"
+; (SPEC.md 19.2.1) - used to be a per-cell argument, and all seven cells
+; passed 1. It is what an N cell IS, so it is unconditional here.
+; api_fdlg_open is NOT one of these cells - see the stub below it, and the
+; reason there is why this body cannot serve it: every one of these names is
+; MANDATORY, so the stage is unconditional too.
+api_n:
     push ds
     push si
     push di
@@ -3571,27 +3564,16 @@ dbg_reg:
     mov di, api_name
     call api_copyname           ; caller DS:SI -> ES:DI, at most 13 bytes
     pop es                      ; the caller's ES back: it is the buffer
-    pop di                      ; and its DI, which fdlg_open needs as an
-                                ; input (the completion proc's offset)
+    pop di                      ; and its DI, which the callee may need
     push cs
     pop ds                      ; DS = KERNEL
-%if %3
     call inst_vol_enter         ; this instance's own folder (SPEC.md 19.2.1);
-%endif                          ; preserves every register and the flags
-    mov si, api_name
-    call %2
+    mov si, api_name            ; preserves every register and the flags
+    call bp
     pop si
     pop ds
+    pop bp
     retf
-%endmacro
-
-    OSAPI_NSTUB api_file_write,  dskw_write,  1
-    OSAPI_NSTUB api_file_read,   dskw_read,   1
-    OSAPI_NSTUB api_file_delete, dskw_delete, 1
-    OSAPI_NSTUB api_file_append, dskw_append, 1
-    OSAPI_NSTUB api_file_read_at, dskw_read_at, 1
-    OSAPI_NSTUB api_file_mkdir,  dskw_mkdir,  1
-    OSAPI_NSTUB api_file_rmdir,  dskw_rmany,  1
 
 ; -----------------------------------------------------------------------------
 ; api_fdlg_open - slot 0x0150. The N stub's shape with ONE difference, and it
