@@ -73,6 +73,11 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+section .ovl                    ; THE BOOT OVERLAY (SPEC.md 2.5.2,
+                                ; docs/LAST-DROP-BYTES.md row 19): kmain runs
+                                ; this once. Zero outbound calls, and the
+                                ; state it clears is only ever re-cleared by
+                                ; the routines that use it
 loader_init_x:
     mov word [ld_base], 0
     mov word [ld_pending], 0
@@ -93,6 +98,7 @@ loader_init_x:
 ; segment - does not then count the region twice against the SIZE column that
 ; already reports it.
 ; -----------------------------------------------------------------------------
+section .cold                   ; ...and back to resident cold code
 ld_slot:
     push ax
     push cx

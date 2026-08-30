@@ -4170,7 +4170,7 @@ kmain:
                                 ; stops with its number up instead of resetting
 %endif
     MARK 0
-    call COLD_SEG:dsk_boot_from_x ; WHICH VOLUME DID WE COME OFF? (SPEC.md
+    OVLGATE1 dsk_boot_from_x    ; WHICH VOLUME DID WE COME OFF? (SPEC.md
                                 ; 52.10.3) DL and BX:CX are the boot sector's
                                 ; handoff and nothing above touches them - the
                                 ; segment loads spend AX alone - so this is
@@ -4219,7 +4219,7 @@ kmain:
 %endif
     MARK 3
 
-    call COLD_SEG:dsk_dpt_init_x ; int 1Eh becomes ours (SPEC.md 18.92) before
+    OVLGATE1 dsk_dpt_init_x     ; int 1Eh becomes ours (SPEC.md 18.92) before
                                 ; any transfer: the ROM's EOT is 8, and every
                                 ; multi-sector read past it silently returns
                                 ; the OTHER HEAD's sectors
@@ -4398,9 +4398,9 @@ kmain:
     MARK 21
     OVLGATE1 dock_init          ; dock strip scratch (SPEC.md 30)
     MARK 22
-    call COLD_SEG:files_init_x  ; Disk module state (no window at boot)
+    OVLGATE1 files_init_x       ; Disk module state (no window at boot)
     MARK 23
-    call COLD_SEG:loader_init_x ; package loader state
+    OVLGATE1 loader_init_x      ; package loader state
     MARK 24
     call COLD_SEG:drv_init_x    ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
@@ -5993,7 +5993,7 @@ dsk_batch_end:    call COLD_SEG:dsk_batch_end_x
               ret
 dsk_chdir_q:      call COLD_SEG:dkf_dsk_chdir_q
               ret
-dsk_flop_add:     call COLD_SEG:dsk_flop_add_x
+dsk_flop_add:     OVLGATE1 dsk_flop_add_x
               retf
 dsk_vol_fixed:    call COLD_SEG:dkf_dsk_vol_fixed
               ret

@@ -917,6 +917,12 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; machine's drives, and a Tandon TM100 is not a place to substitute guesses.
 ; Only a machine with no vector at all falls back to the values above.
 ; -----------------------------------------------------------------------------
+section .ovl                    ; THE BOOT OVERLAY (SPEC.md 2.5.2,
+                                ; docs/LAST-DROP-BYTES.md row 12): kmain runs
+                                ; this once, before the first mount, and
+                                ; nothing re-installs int 1Eh afterwards -
+                                ; dsk_xfer READS the table, it does not
+                                ; rebuild it. Zero outbound calls
 dsk_dpt_init_x:
     push ax
     push cx
@@ -952,6 +958,7 @@ dsk_dpt_init_x:
     pop ax
     retf
 
+section .cold                   ; ...and back to resident cold code
 disk_read_x:
     mov byte [dsk_op], 0x02     ; AH=02 read (mov leaves the flags alone)
     jmp short dsk_xfer
@@ -1498,6 +1505,14 @@ dsk_vol_row_x:
 ; row is describing a volume the machine has just successfully read a kernel
 ; out of, which is a stronger statement than any of the bounds would make.
 ; -----------------------------------------------------------------------------
+section .ovl                    ; THE BOOT OVERLAY (SPEC.md 2.5.2,
+                                ; docs/LAST-DROP-BYTES.md row 4): which volume
+                                ; the machine came off, asked once by kmain
+                                ; from the registers the boot sector left.
+                                ; dsk_bootltr goes with it - it is this
+                                ; body's only caller's only callee, and its
+                                ; work (stamping the letter into three fixed
+                                ; messages) is done once and stays done
 dsk_boot_from_x:
     push ax
     push bx
@@ -1699,6 +1714,10 @@ dsk_geom_pick:
 ; machine nothing has taken a row yet, so they are C: and D: - which is what
 ; DOS 4 and earlier called them, and what the drive-select lines mean.
 ; -----------------------------------------------------------------------------
+section .ovl                    ; ...and row 9, for the same reason one
+                                ; screen down: desk_init is ALREADY in the
+                                ; overlay and reaches this through a `.text`
+                                ; thunk, which is the only edge there is
 dsk_flop_add_x:
     push bx
     push cx
@@ -1771,6 +1790,7 @@ dsk_flop_add_x:
 ; One predicate, so the desktop and OSAPI_VOL_KIND cannot drift: the same
 ; question is now asked once and answered once.
 ; -----------------------------------------------------------------------------
+section .cold                   ; ...and back to resident cold code
 dsk_vol_fixed_x:
     push bx
     call dsk_vol_slot_x

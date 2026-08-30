@@ -322,6 +322,10 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; clobbers: nothing (flags only)
 ; .bss is not zeroed by the loader: every state variable is set here.
 ; -----------------------------------------------------------------------------
+section .ovl                    ; THE BOOT OVERLAY (SPEC.md 2.5.2,
+                                ; docs/LAST-DROP-BYTES.md row 6): kmain runs
+                                ; this once and no window exists yet to want
+                                ; it again. Zero outbound calls
 files_init_x:
     push ax
     push cx
@@ -368,6 +372,8 @@ files_init_x:
 ; here. KD_INIT runs on the UI task with NO lock held, which is exactly the
 ; context a mount needs.
 ; -----------------------------------------------------------------------------
+section .cold                   ; ...and back: fm_kinit_x is a KIND's, run
+                                ; whenever a Disk window opens
 fm_kinit_x:
     push ax
     push cx
