@@ -4241,8 +4241,12 @@ drvf_drv_row:            call drv_row_x
                     retf
 ; ...and three the BOOT OVERLAY needs (SPEC.md 2.5.2): xm_boot_x moved into the
 ; blob and reaches the driver layer exactly as a module does.
+%ifdef KERN_BIG                 ; drv_load_at is dual-image loading's and does
+                                ; not exist in the small kernel - and neither
+                                ; does xm_boot_x, the only thing that calls this
 drvf_drv_load_at:        call drv_load_at
                     retf
+%endif
 drvf_drv_svc_clear:      call drv_svc_clear
                     retf
 drvf_drv_call:           call drv_call
