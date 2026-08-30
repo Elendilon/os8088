@@ -23679,12 +23679,13 @@ was. The run bound below it kept reading the registers anyway:
     mov al, dh
     xor ah, ah
     mul cx                      ; heads * 0x2000
-    mov [b2_run], ax
+    mov [b2_run], ax            ; (a word that has since gone - see below)
     mov ax, cx                  ; ...and the live bound = 0x2000
     mov [b2_runmax], ax
 ```
 
-`[b2_run]` came out **16,384** on a two-headed disk and `[b2_runmax]` **8,192**.
+The cylinder bound came out **16,384** on a two-headed disk and
+`[b2_runmax]` **8,192**.
 
 **A run bound of 8,192 sectors is not a bound at all.** `read_run` takes the
 smallest of three, and the second — the sectors still wanted — is 199: so the
@@ -23714,6 +23715,14 @@ instructions and there is no marker on the one that stops being so — `int 10h`
 eats `CX`, `int 13h` eats `DX` and `AX`, and the next routine to be moved in
 front of this block will eat something new. Reading the stash costs a `mul
 word [mem]` in place of a `mul reg` and cannot be got wrong by rearrangement.
+
+**`b2_run` no longer exists**, and its going is the same rule read once more.
+It was a word that carried the cylinder bound across ten instructions to a
+branch that is taken on an 8088 and not on a 286 — and under `TRACKRUN=1` it
+was written and never read at all. The multiply now sits **on** that branch,
+where the only consumer is; the live bound still starts at `[b2_spt]` and the
+gate still widens it. One word of `.boot2`, which is the tightest section in
+the tree, and one fewer place for a value to be stale in.
 
 `tests/cylrun.py` is the gate, and it asserts the thing the boot could not say
 about itself: `boot_cylrun` at `0060:0004` is **non-zero** after a boot on an

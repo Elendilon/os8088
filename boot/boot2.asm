@@ -86,14 +86,18 @@ boot2_entry:
     ; argument as an assertion, so a kernel that grew past it fails to build
     ; rather than overwriting itself on a small machine.
     ;
-    ; CX, SI and DI are stage 1's handover and `rep movsw` wants all three,
-    ; so they go on stage 1's stack - which is where SS:SP still points and
-    ; is nowhere near either copy.
-    push cx
-    push si
-    push di
-    mov ax, cs
-    mov ds, ax
+    ; CX, SI and DI are stage 1's handover and `rep movsw` wants all three -
+    ; so they are WRITTEN DOWN FIRST and the copy delivers them. Banking them
+    ; on stage 1's stack across the movsw and unpacking at .moved was three
+    ; push/pop pairs for values the copy was going to carry anyway.
+    push cs
+    pop ds                      ; ...the ORIGINAL blob, which is what the six
+    mov [b2_drive], dl          ; stores below must land in for the copy to
+    mov [b2_heads], dh          ; take them
+    mov [b2_spt], cx            ; ...and this is BEFORE `mov cx, BOOT2_PAD/2`
+    mov [b2_lba0], si           ; overwrites CX, which is the whole order
+    mov [b2_ksig], di
+    mov [b2_t0], bp
     mov ax, HEAP_SEG
     mov es, ax
     xor si, si
@@ -106,18 +110,8 @@ boot2_entry:
     push ax                     ; constant only to the ASSEMBLER, not to a
     retf                        ; `jmp imm16:imm16` this section could encode
 .moved:
-    pop di
-    pop si
-    pop cx
-
-    mov ax, cs                  ; our data is our own; the stack stays stage 1's
-    mov ds, ax
-    mov [b2_drive], dl
-    mov [b2_heads], dh
-    mov [b2_spt], cx
-    mov [b2_lba0], si
-    mov [b2_ksig], di
-    mov [b2_t0], bp
+    push cs                     ; CS changed at the retf, so DS has to follow
+    pop ds                      ; it; the stack stays stage 1's
 
     ; --- the text screen stage 1 used to set (SPEC.md 2.9.8) ----------------
     ; It was in the sector, and the sector spent its last bytes on SPEC.md
@@ -164,15 +158,7 @@ boot2_entry:
     ; emulator errors it and 18.93's shorten-and-reload quietly rescues the
     ; boot, which is why it took a field report to find. The stash above is
     ; three words away; use it.
-%ifdef TRACK_RUN
-    mov ax, [b2_spt]
-%else
-    mov al, [b2_heads]
-    xor ah, ah
-    mul word [b2_spt]
-%endif
-    mov [b2_run], ax
-    mov ax, [b2_spt]            ; ...and the LIVE bound starts at the TRACK,
+    mov ax, [b2_spt]            ; the LIVE bound starts at the TRACK,
     mov [b2_runmax], ax         ; which the gate below widens on an 8088. That
                                 ; direction is not arbitrary and reversing it
                                 ; is silent: a 286 left on the cylinder bound
@@ -202,23 +188,23 @@ boot2_entry:
     push es
     xor ax, ax
     mov es, ax
+    mov bl, [b2_spt]            ; EOT, banked WHILE DS IS STILL OURS - the
+                                ; `lds si` below is what used to make this a
+                                ; second ES=0 window of its own. BX is free:
+                                ; stage 1 hands over DL, DH, CX, SI, DI and BP
     mov di, DPT_AT
     lds si, [es:0x0078]         ; DS:SI = the BIOS's table
     mov cx, 11
     cld
     rep movsb                   ; ...ES:DI = ours
+    mov [es:DPT_AT + 4], bl     ; EOT = this disk's sectors per track
+    mov di, 0x0078              ; ...and the VECTOR through ES, which is
+    mov ax, DPT_AT              ; already 0, rather than setting DS to 0 to
+    stosw                       ; reach it. cld is set above
     xor ax, ax
-    mov ds, ax
-    mov word [0x0078], DPT_AT
-    mov [0x007A], ax
+    stosw
     pop es
     pop ds
-    push es
-    xor ax, ax
-    mov es, ax
-    mov al, [b2_spt]
-    mov [es:DPT_AT + 4], al     ; EOT = this disk's sectors per track
-    pop es
 
 %ifndef TRACK_RUN
     ; --- may this machine's FDC cross a head? (SPEC.md 18.93.2) -------------
@@ -234,10 +220,12 @@ boot2_entry:
     pop ax
     cmp ax, sp
     je .trkbound                ; 286 and up: leave it at the TRACK
-    mov ax, [b2_run]            ; 8086/8088: the CYLINDER, which is what the
-    mov [b2_runmax], ax         ; canary below then has something to verify
-.trkbound:
-%endif
+    mov al, [b2_heads]          ; 8086/8088: the CYLINDER, which is what the
+    xor ah, ah                  ; canary below then has something to verify.
+    mul word [b2_spt]           ; COMPUTED HERE and not above, because this is
+    mov [b2_runmax], ax         ; the only branch that wants it - b2_run was a
+.trkbound:                      ; word that carried it ten instructions, and
+%endif                          ; under TRACKRUN=1 was written and never read
 
 ; -----------------------------------------------------------------------------
 ; The load. Both ways in - here, and the canary's shorten-and-reload below -
@@ -526,7 +514,6 @@ b2_msg_err:  db 'Disk error', 0
 b2_drive:    db 0
 b2_heads:    db 0
 b2_spt:      dw 0
-b2_run:      dw 0
 b2_runmax:   dw 0
 b2_runsz:    dw 0
 b2_lba0:     dw 0
