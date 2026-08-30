@@ -43043,12 +43043,21 @@ of the one the hand just dragged out"* — and §11.100.5 is enforced in
 no mark at all, so the **bank** put back what the *preference* was forbidden to.
 
 So the size the hand chose is banked **before** `wm_land_fit`, where the take
-reads it: the take becomes a no-op and the clamp still bounds the result. The
-bank that used to run after the fit becomes `wm_nat_bank_xy` — the origin only,
-which `wm_land_snap` and `wm_snap_win` can still have moved. That is the same
-care `ui_drag`'s own release already takes (§11.100.3): **a clamp may not become
-its own source**, and banking after the straddle fit is banking the cut, which
-is what §39.16.3 forbids and what cost a walked window sixty rows a trip.
+reads it: the take becomes a no-op and the clamp still bounds the result.
+
+**It is an ADDITION and not a move, and that distinction cost a row to learn.**
+The first version also made the bank *after* the fit `wm_nat_bank_xy`, on the
+reasoning that banking behind a clamp banks the cut (§11.100.3 — a clamp may not
+become its own source — which is the care `ui_drag`'s own release takes). That
+is sound for a straddle and wrong to impose on everything else: on a **single
+display** `wm_land_fit` returns at its first compare, so the only thing the
+reorder changed there was the banked size becoming the pre-`wm_snap_win` one.
+`tests/deskbench.py` failed on it — a scene laid out from banked sizes came up a
+few pixels different, and a measured redraw fell under the harness's own
+threshold, which surfaces as `IndexError` rather than as a geometry complaint.
+Adding a bank in front of a no-op is free; reordering the one behind it is not.
+So the post-fit bank stands exactly as it was, and a machine that cannot
+straddle sees the sequence it always saw.
 
 `tests/dispnp.py` is the row. It had never reached its own assertion — it fails
 at *"it does not straddle the seam"*, because the window it is trying to make

@@ -1966,21 +1966,24 @@ ui_grow:
                                 ; after both fits, for wm_fit's reason - the
                                 ; snap moves left and only stays legal once the
                                 ; right edge has been dealt with
-%ifdef KERN_BIG
-    call wm_nat_bank_xy         ; ...and the ORIGIN ONLY, which wm_land_snap and
-                                ; the snap above can still have moved. The SIZE
-                                ; is banked before the fit now, and banking it
-                                ; again HERE would bank the straddle CUT - a
-                                ; clamp becoming its own source (11.100.3), the
-                                ; defect that cost a walked window sixty rows a
-                                ; trip (39.16.3). ui_drag's own release takes
-                                ; exactly this care at exactly this point
-%else
     call wm_nat_bank            ; the size the user chose, banked AFTER the snap
-                                ; because the snap may have moved the origin.
-                                ; kern_small has no seam to cross, so the one
-                                ; call still does both halves here
-%endif
+                                ; because the snap may have moved the origin,
+                                ; and after the straddle fit for its reason
+                                ; (SPEC.md 39.11.2.1)
+                                ;
+                                ; LEFT EXACTLY AS IT WAS, and the bank above is
+                                ; an ADDITION rather than a move. Making this
+                                ; one xy-only cost tests/deskbench.py: on a
+                                ; SINGLE display wm_land_fit returns at its
+                                ; first compare, so the only thing that changed
+                                ; there was the banked size becoming the
+                                ; PRE-snap one - and a scene built from banked
+                                ; sizes came up a few pixels different, which is
+                                ; enough to take a measured redraw under the
+                                ; harness threshold. Adding a bank in front of a
+                                ; no-op is free; reordering the one behind it is
+                                ; not, so a machine that cannot straddle now
+                                ; sees the sequence it always saw
 
     ; --- A PURE SHRINK OWES ITS CONTENT NOTHING (SPEC.md 11.90.3) ----------
     ; Every pixel inside the new content rect is still what the application
