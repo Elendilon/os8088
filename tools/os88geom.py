@@ -214,14 +214,26 @@ WF_HIBITS = (0x8000 | 0x4000 | 0x2000) >> 8   # WF_STALE|WF_NOANIM|WF_1BPP: the
                                               # in the mirror table above, so a
                                               # drift there fails t_mirror
 
-# ...and the three the kernel derives from VID_CTX_W the same way. They are
+# ...and the FOUR the kernel derives from VID_CTX_W the same way. They are
 # EXPRESSIONS in vidsel.inc (`VID_CTX_W*2`, `VID_CTX_W*2+6`), which _equs
 # deliberately refuses to evaluate - so they are computed here from the word
-# count above, which IS checked. A change to the record moves all three on the
+# count above, which IS checked. A change to the record moves all four on the
 # next run of any script, which is the whole point.
 VID_CTX_VX = VID_CTX_W * 2          # the display's origin in the virtual desktop
 VID_CTX_VY = VID_CTX_W * 2 + 2
+VID_CTX_KIND = VID_CTX_W * 2 + 4    # ...WHICH ADAPTER, and not a segment
 VID_CTX_SZ = VID_CTX_W * 2 + 6      # ...the run, both origin words, and the kind
+
+# VID_CTX_KIND WAS THE ONE LEFT OUT, and leaving it out is what let the record
+# go stale a THIRD time. `scan` compares a local copy against `_KNOWN`, so a
+# name absent from `_KNOWN` is a copy the scanner walks straight past:
+# tests/dispthm.py:42 said `VID_CTX_KIND = 40` in as many words, against a
+# kernel that has said 42 since 6.1.10, and every run of the guard reported
+# "0 stale" while looking directly at it. The kind byte is the worst field to
+# read two bytes early, too, because what sits there is `vid_tseg` - so the
+# reader gets 0xB000 or 0xB800, a FRAMEBUFFER SEGMENT, which is a plausible
+# number rather than an obvious one and printed as an adapter kind or an
+# x-coordinate for a cycle (tests/dispmode.py's "put display 1 at (45056,640)").
 
 # Everything `scan` compares a local copy against: the mirrored constants AND
 # the derived ones. It used to be _MIRROR alone, and that is exactly how nine
@@ -234,7 +246,8 @@ RANK = {0xFB: "trivial", 0xFC: "low", 0xFD: "medium", 0xFE: "high"}
 
 _KNOWN = dict({k: v for k, (_, v) in _MIRROR.items()},
               VID_CTX_VX=VID_CTX_VX, VID_CTX_VY=VID_CTX_VY,
-              VID_CTX_SZ=VID_CTX_SZ, WF_USED=WF_USED, WF_VIS=WF_VIS)
+              VID_CTX_KIND=VID_CTX_KIND, VID_CTX_SZ=VID_CTX_SZ,
+              WF_USED=WF_USED, WF_VIS=WF_VIS)
 
 
 # --- the guard --------------------------------------------------------------

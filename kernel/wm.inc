@@ -967,6 +967,21 @@ wm_strad_fit:
 
     call wm_nat_take_wh         ; the size it ASKED for...
     call wm_pref_now            ; ...or the one it published for this adapter
+%ifndef NOSIZESNAP
+    pushf                       ; ...AND BACK ONTO A BYTE BOUNDARY (SPEC.md
+    mov ax, [bx+W_W]            ; 39.16.3.4). Both calls above hand back an ASK
+    call wm_snap_w              ; - a bank holds what the window wanted, never
+    mov [bx+W_W], ax            ; a snap - so the width that arrives here is
+    popf                        ; 11.94.5-unrounded. Every other path that
+%endif                          ; settles a size ends in wm_snap_win; this one
+                                ; deliberately does not call wm_fit, which is
+                                ; how it inherited the clamp and not the snap
+                                ; and landed a straddling Disk window 2px thin.
+                                ; BEFORE the clamp, so that a STACKED straddle
+                                ; can still narrow x afterwards - rounding up
+                                ; after an x clamp hands back dead zone. The
+                                ; pushf/popf is wm_pref_now's CF, which the
+                                ; jnc below owes
     jnc .clamp
 %ifndef STRAD_ALL               ; ...and `make STRAD=all` is the A/B: no test,
     call wm_reflows             ; so every straddling window is shortened,
@@ -4569,6 +4584,37 @@ wm_disp_xw:
     ret
 
 ; -----------------------------------------------------------------------------
+; wm_snap_far - AX = the far x edge wm_snap_w's candidate width may reach
+; in:       BX = the window
+; out:      AX = one past the last column the frame may legally occupy
+; clobbers: AX, CX, flags
+;
+; SPEC.md 11.95.2.1's third test is right for a frame on ONE display and cannot
+; be right for a STRADDLING one: such a frame is past its own display's edge by
+; definition, so wm_disp_xw vetoes every upward snap there and sends the width
+; DOWN instead - which is 39.16.3's FREE axis being narrowed by the one routine
+; that is not allowed to narrow it (measured: 320 becoming 314 where the record
+; held 322). A straddler is bounded by the DESKTOP, which is the union
+; (39.2.1), and hanging off that is exactly what 39.16.3 permits.
+;
+; The seam veto stays for everything else, which is what it was added for: a
+; window wholly on one display may not snap its way across the seam.
+; -----------------------------------------------------------------------------
+wm_snap_far:
+%ifdef KERN_BIG
+    call wm_strads
+    jnc .union                  ; CF = 0 is "it straddles"
+%endif
+    call wm_disp_xw             ; AX = the display's x, CX = its width
+    add ax, cx
+    ret
+%ifdef KERN_BIG
+.union:
+    mov ax, [vid_w]             ; the whole desktop (39.2.1)
+    ret
+%endif
+
+; -----------------------------------------------------------------------------
 ; wm_flush_ck - would a frame at AX of width CX reach both screen edges?
 ; in:  AX = candidate frame x, CX = candidate frame width
 ; out: CF = 1 yes; every register preserved
@@ -4726,9 +4772,12 @@ wm_snap_w:
     mov ax, [bx+W_X]            ; growing could hand back an illegal one. It
     add ax, dx                  ; reads the SNAPPED x: wm_snap_win runs that
     push ax                     ; first, precisely so this test is the truth
-    call wm_disp_xw             ; ...and it is THIS WINDOW'S DISPLAY's edge,
-    add ax, cx                  ; not the extended desktop's, which is the far
-    mov cx, ax                  ; side of the other monitor (SPEC.md 11.95.2.1)
+    call wm_snap_far            ; ...and it is THIS WINDOW'S DISPLAY's edge,
+    mov cx, ax                  ; not the extended desktop's, which is the far
+                                ; side of the other monitor (SPEC.md 11.95.2.1)
+                                ; - EXCEPT for a frame that already straddles,
+                                ; which is past that edge by definition
+                                ; (39.16.3.4)
     pop ax
     cmp ax, cx
     pop cx                      ; (pops write no flags)

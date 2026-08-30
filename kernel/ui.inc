@@ -1944,6 +1944,18 @@ ui_grow:
                                 ; its published size instead of the one the
                                 ; hand just dragged out
 %ifdef KERN_BIG
+    call wm_nat_bank            ; ...AND NEITHER MAY THE BANK (SPEC.md
+                                ; 39.16.3.5). wm_usr_mark closes the PREFERENCE
+                                ; half of 11.100.5 - wm_pref_take reads wm_usrsz
+                                ; and declines - and wm_strad_fit opens with
+                                ; wm_nat_take_wh, which consults no mark at all.
+                                ; The bank is not written until below, so a grow
+                                ; across the seam was handed the PRE-GROW size
+                                ; and the whole resize was discarded: the
+                                ; outline tracked to 946x136 and the record came
+                                ; back 266x180. Banked HERE, where the take
+                                ; reads it, that take is a no-op and the clamp
+                                ; still bounds the answer
     call wm_land_fit            ; a grow can push a frame across the seam too
 %endif                          ; (SPEC.md 39.16.3)
     call wm_snap_win            ; ...and the ALIGNED x is a question about the
@@ -1954,10 +1966,21 @@ ui_grow:
                                 ; after both fits, for wm_fit's reason - the
                                 ; snap moves left and only stays legal once the
                                 ; right edge has been dealt with
+%ifdef KERN_BIG
+    call wm_nat_bank_xy         ; ...and the ORIGIN ONLY, which wm_land_snap and
+                                ; the snap above can still have moved. The SIZE
+                                ; is banked before the fit now, and banking it
+                                ; again HERE would bank the straddle CUT - a
+                                ; clamp becoming its own source (11.100.3), the
+                                ; defect that cost a walked window sixty rows a
+                                ; trip (39.16.3). ui_drag's own release takes
+                                ; exactly this care at exactly this point
+%else
     call wm_nat_bank            ; the size the user chose, banked AFTER the snap
-                                ; because the snap may have moved the origin,
-                                ; and after the straddle fit for its reason
-                                ; (SPEC.md 39.11.2.1)
+                                ; because the snap may have moved the origin.
+                                ; kern_small has no seam to cross, so the one
+                                ; call still does both halves here
+%endif
 
     ; --- A PURE SHRINK OWES ITS CONTENT NOTHING (SPEC.md 11.90.3) ----------
     ; Every pixel inside the new content rect is still what the application
