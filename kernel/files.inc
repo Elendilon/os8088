@@ -3235,9 +3235,8 @@ fm_onkey_x:
     jmp short .out
 
 .enter:
-    mov ax, [di+FS_SEL]
-    cmp ax, [di+FS_N]           ; 0xFFFF (none) also fails this
-    jae .out
+    call fm_sel_ok              ; 0xFFFF (none) also fails this
+    jnc .out
     call fm_open_sel            ; same as a double-click - INCLUDING the
     jc .redraw                  ; answer (SPEC.md 22.13.2). This site had no
     cmp byte [fm_statowed], 0   ; test at all and fell straight into the
@@ -3959,6 +3958,22 @@ fm_oncmd_x:
 ; verdicts out to the toast, so there is no clear-at-entry left for a skipped
 ; repaint to strand on screen.
 ; -----------------------------------------------------------------------------
+; fm_sel_ok - is the acting window's selection a real row?
+; out: CF=1 yes, and AX = the index with DI = the state block; CF=0 no.
+;      AX and DI clobbered, which is what all five sites already did
+;
+; `cmp ax, [di+FS_N]` leaves CF=1 exactly when the index is BELOW the count, so
+; the answer needs no instruction of its own - only the callers' `jae` becomes
+; a `jnc`. 0xFFFF, which is "nothing selected", fails it like any other index
+; past the end.
+; -----------------------------------------------------------------------------
+fm_sel_ok:
+    mov di, [fm_vp]
+    mov ax, [di+FS_SEL]
+    cmp ax, [di+FS_N]
+    ret
+
+; -----------------------------------------------------------------------------
 fm_docmd:
     cmp bx, FMC_COUNT
     jae .out
@@ -3996,10 +4011,8 @@ fm_docmd:
 ; context menu (SPEC.md 12.4) reach every one of them.
 
 fm_c_open:                      ; File > Open - the selection, if any
-    mov di, [fm_vp]
-    mov ax, [di+FS_SEL]
-    cmp ax, [di+FS_N]           ; 0xFFFF (no selection) also fails this
-    jae .none
+    call fm_sel_ok              ; 0xFFFF (no selection) also fails this
+    jnc .none
     call fm_open_sel
     jc .out                     ; a folder re-listed us and owes the whole
 .none:                          ; window; a package or a DOCUMENT opened
@@ -4031,10 +4044,8 @@ fm_arm_sel:
     ; row the painter draws, so the confirm line could not otherwise even
     ; display the name it is asking about (SPEC.md 22).
     push ax
-    mov di, [fm_vp]
-    mov ax, [di+FS_SEL]
-    cmp ax, [di+FS_N]           ; 0xFFFF (no selection) also fails this
-    jae .none
+    call fm_sel_ok              ; 0xFFFF (no selection) also fails this
+    jnc .none
     call fm_stage_onam          ; fm_onam + [fm_odir]
     cmp word [fm_ftype], 3      ; '..' is a way out of the folder, not a
     je .none                    ; thing in it: it renames and deletes like
@@ -4379,6 +4390,39 @@ fm_clone_go:
     jmp fm_edit_arm
 
 ; -----------------------------------------------------------------------------
+; fm_toast_hdr - say what is staged in fm_hdrbuf, as a toast (SPEC.md 59)
+; out: nothing; AX and SI clobbered, which both sites already did
+;
+; NOT `push cs`: this is `.cold` (SPEC.md 2.6), so CS here is COLD_SEG and the
+; buffer is KERNEL_SEG. CX = 0 is TOAST_TICKS, the default life.
+; -----------------------------------------------------------------------------
+fm_toast_hdr:
+    push cx
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov si, fm_hdrbuf
+    xor cx, cx
+    call KERNEL_SEG:cw_toast_show
+    pop es
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_saycl - say a CLONE verdict, AL = the code (SPEC.md 18.99)
+; out: nothing (BX and CX preserved)
+; -----------------------------------------------------------------------------
+fm_saycl:
+    push bx
+    push cx
+    mov bx, fm_clotab
+    mov cx, CLO_NERR
+    call KERNEL_SEG:toast_say
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; fm_clone_bad - a cloner refusal, said and cleaned up (SPEC.md 22.21.2)
 ; in:  AX = CERR_*
 ; out: nothing; every register but AX preserved
@@ -4389,13 +4433,9 @@ fm_clone_go:
 ; kern_small's cold segment cross a rung (docs/KERNEL-MEMORY.md).
 ; -----------------------------------------------------------------------------
 fm_clone_bad:
-    push bx                     ; a verdict about what just happened, so it is
-    push cx                     ; a toast (SPEC.md 59.5) - and nothing is
-    mov bx, fm_clotab           ; armed, so the window is left as it was
-    mov cx, CLO_NERR
-    call KERNEL_SEG:toast_say
-    pop cx
-    pop bx
+    call fm_saycl               ; a verdict about what just happened, so it is
+                                ; a toast (SPEC.md 59.5) - and nothing is
+                                ; armed, so the window is left as it was
     cmp word [clo_seg], 0       ; ...and the image goes back HERE, because no
     jne .armed                  ; mode was armed and fm_edit_end will therefore
     call clo_drop               ; never be reached with one to drop it from
@@ -4483,25 +4523,15 @@ fm_clone_res:
                                 ; a verdict is a report of what happened, and
                                 ; nothing did (SPEC.md 59.5). The re-list above
                                 ; still ran, because the GEOMETRY happened
-    push bx                     ; CLA_ERR: AH is the code, and four of the six
-    push cx                     ; strings are the FERR_* table's own
-    mov al, ah
-    mov bx, fm_clotab
-    mov cx, CLO_NERR
-    call KERNEL_SEG:toast_say
-    pop cx
-    pop bx
+    mov al, ah                  ; CLA_ERR: AH is the code, and four of the six
+    call fm_saycl               ; strings are the FERR_* table's own
     jmp short .out
 .said:
-    push cx                     ; SPEC.md 59.6's reasoning at its strongest: a
-    push es                     ; clone is minutes of floppy the user stood
-    mov ax, KERNEL_SEG          ; over, sometimes with a swap in the middle, so
-    mov es, ax                  ; the success is worth saying and not only the
-    mov si, fm_hdrbuf           ; failure. NOT `push cs`: this is `.cold`
-    xor cx, cx                  ; (SPEC.md 2.6), so CS here is COLD_SEG and
-    call KERNEL_SEG:cw_toast_show   ; the buffer is KERNEL_SEG
-    pop es
-    pop cx
+    call fm_toast_hdr           ; SPEC.md 59.6's reasoning at its strongest: a
+                                ; clone is minutes of floppy the user stood
+                                ; over, sometimes with a swap in the middle, so
+                                ; the success is worth saying and not only the
+                                ; failure
 .out:
     pop di
     pop si
@@ -4703,10 +4733,8 @@ fm_selfold:
     push cx
     push si
     push di
-    mov di, [fm_vp]
-    mov ax, [di+FS_SEL]
-    cmp ax, [di+FS_N]           ; 0xFFFF (no selection) also fails this
-    jae .no
+    call fm_sel_ok              ; 0xFFFF (no selection) also fails this
+    jnc .no
     call fmv_get_dir            ; SI -> the staged entry (SPEC.md 19)
     cmp word [si+16], 2
     jb .no
@@ -4732,10 +4760,8 @@ fm_c_newwin:                    ; Nav > New Window - a second view of here
     jmp short fm_newwin
 
 fm_c_opennew:                   ; Nav > Open in New Window - the selection
-    mov di, [fm_vp]
-    mov ax, [di+FS_SEL]
-    cmp ax, [di+FS_N]
-    jae fm_nw_none              ; 0xFFFF (no selection) also fails this
+    call fm_sel_ok
+    jnc fm_nw_none              ; 0xFFFF (no selection) also fails this
     call fmv_get_dir            ; SI -> the staged entry
     cmp word [si+16], 2
     jne fm_nw_none              ; only a folder has somewhere to open INTO
@@ -5264,16 +5290,15 @@ fm_editkey:
     call mod_need               ; the system disk is in NOW - or it is not
     pop ax
     jc .swapno
-    cmp byte [fm_swapwho], 0
-    jne .swapclone              ; the cloner asks for its OWN disks itself, so
-                                ; there is no second step for it
-    mov byte [fm_fmtstep], 1
-    mov al, 6                   ; re-arm the same mode; only the line changes
-    jmp .swaparm
-.swapclone:
-    mov byte [fm_fmtstep], 1    ; ...and the cloner wants its own step 1 for
-    mov al, 6                   ; the formatter's reason: the disk in the
-    jmp .swaparm                ; drive is the SYSTEM disk now
+    mov byte [fm_fmtstep], 1    ; FORMATTER AND CLONER ALIKE: re-arm the same
+    mov al, 6                   ; mode at step 1, only the line changes. The
+    jmp .swaparm                ; cloner asks for its OWN disks itself, so it
+                                ; has no second step - and it wants step 1 for
+                                ; the formatter's reason anyway, the disk in
+                                ; the drive being the SYSTEM disk now
+                                ; (SPEC.md 22.21.4). These were two arms of a
+                                ; `cmp byte [fm_swapwho], 0` whose sides were
+                                ; identical to the byte
 .swapno:
     push bx                     ; it still could not be read: say which disk
     push cx                     ; and leave the window as it was (SPEC.md 59)
@@ -5353,7 +5378,9 @@ fm_editkey:
 ; -----------------------------------------------------------------------------
 ; fm_samename - is the typed name the one it already has? (SPEC.md 22.10)
 ; in:  fm_ebuf, fm_onam
-; out: CF = 1 if identical; all registers preserved
+; out: CF = 0 if identical - fdlg_streq's polarity, which is the body it now
+;      IS. SI and DI are the ones it was GIVEN, so the caller's are gone; its
+;      one caller reloads both two instructions later
 ;
 ; Seeding the buffer took away the "nothing typed, so Enter cancels" exit -
 ; the buffer is never empty now - and pressing Enter on an untouched prompt
@@ -5362,29 +5389,9 @@ fm_editkey:
 ; Uppercase-exact: both sides are 19.1 display names, sanitized alike.
 ; -----------------------------------------------------------------------------
 fm_samename:
-    push ax
-    push si
-    push di
-    mov si, fm_ebuf
-    mov di, fm_onam
-.cmp:
-    lodsb                       ; DF=0 per SPEC.md 1
-    cmp al, [di]
-    jne .diff
-    inc di
-    or al, al
-    jnz .cmp
-    pop di
-    pop si
-    pop ax
-    stc
-    ret
-.diff:
-    pop di
-    pop si
-    pop ax
-    clc
-    ret
+    mov si, fm_ebuf             ; ...which is fdlg_streq with its two operands
+    mov di, fm_onam             ; hardwired, byte for byte (fdlg.inc)
+    jmp fdlg_streq
 
 ; -----------------------------------------------------------------------------
 ; fm_hasdot - does the name being typed already carry a '.'? (internal)
@@ -5453,7 +5460,7 @@ fm_edit_commit:
 .ren:                           ; here and .verdict
     call fm_extkeep             ; typed no extension? keep the old one (22.10)
     call fm_samename            ; ...and a name that came back UNCHANGED is
-    jc .done                    ; Enter on an untouched prompt, which used to
+    jnc .done                   ; Enter on an untouched prompt, which used to
                                 ; be the empty buffer above and cancelled
     mov si, fm_onam             ; old name...
     mov di, fm_ebuf             ; ...new name; the eleven name bytes and
@@ -5522,15 +5529,7 @@ fm_edit_commit:
 .fmtsay:
     call dskw_fmt_line          ; and THIS is before .done's fm_edit_end, so
                                 ; the image is still loaded
-    push cx
-    push es
-    mov ax, KERNEL_SEG          ; NOT `push cs`: this is `.cold` (SPEC.md
-    mov es, ax                  ; 2.6), so CS here is COLD_SEG, and both
-    mov si, fm_hdrbuf           ; fm_hdrbuf and the string are KERNEL_SEG
-    xor cx, cx                  ; TOAST_TICKS, the default life
-    call KERNEL_SEG:cw_toast_show
-    pop es
-    pop cx
+    call fm_toast_hdr
     jmp short .bcast
 .del:
     call fmv_sync_x
@@ -6023,16 +6022,17 @@ fmv_reload_all:
     call fmv_ifirst
     jc .done
 .scan:
-    push si
     mov di, [si+I_SPTR]
     mov al, [di+FS_DRV]
     mov dx, [di+FS_CWD]
     call fmv_load               ; resets FS_SEL/FS_SCRL, which is honest:
     mov byte [di+FS_DIRTY], 0   ; every index into the old listing is
-    pop si                      ; meaningless now. The refresh debt (22.8)
-    pop cx                      ; goes with it: fmv_repaint_all is the other
+                                ; meaningless now. The refresh debt (22.8)
+                                ; goes with it: fmv_repaint_all is the other
                                 ; half of this pass and puts every visible
-                                ; window's pixels where its cache now is
+                                ; window's pixels where its cache now is.
+                                ; NO inner bank: fmv_load pushes AX, BX, CX,
+                                ; DX, SI and DI and pops all six
 .next:
     call fmv_inext
     jnc .scan
