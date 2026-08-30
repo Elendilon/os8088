@@ -1004,13 +1004,11 @@ fdlg_nextvol:
     xor dl, dl
 .test:
     mov bl, dl
-    mov bh, 0
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1
-    shl bx, 1                   ; * DV_SIZE (16), the dsk_vol_slot shift
-    cmp byte [dsk_vtab+bx+DV_KIND], DVK_FREE
+    call dsk_vol_slot_x         ; ...which IS this shift, and the one place
+    jc .skip                    ; DV_SIZE is encoded (disk.inc)
+    cmp byte [bx+DV_KIND], DVK_FREE
     jne .out
+.skip:
     dec cl
     jnz .next
     mov dl, [disk_drive]        ; unreachable while A: and B: are permanent
