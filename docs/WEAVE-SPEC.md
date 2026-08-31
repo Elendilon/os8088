@@ -52,9 +52,9 @@ whole develop–run cycle lives on the target with zero new kernel bytes.
 | **`WEAVE.O88`** | the runtime. A C package (`CC_PACKAGE(weave,weave,WEAVE.OVL)`, SPEC.md §73) with hand-written 8086 cores for the hot loops, RUNCPM's shape (SPEC.md §74). Opens one `.WAB` per instance. Resident target ≤52KB image+bss; 55,000 bytes is the overlay-split trigger (SPEC.md §73.14) |
 | **`WEAVE.OVL`** | the runtime's one overlay: refusable, UI-task-only paths — the tenant list is §1.2.1. Nothing an event handler needs mid-run lives here |
 | **`WEAVE.WSM`** | the runtime's **canvas core** (§1.2.2): a second, RESIDENT segment, read ONCE at open and only when the bundle declares a `<canvas>`, far-called from the worker as well as from the UI task. It is not an overlay and does not carry the `.OVL` extension, because an overlay is refusable and on-demand and this is neither — `cc_ovneed` refuses a worker outright (SPEC.md §73.14), and every byte in here runs per frame on one |
-| **`LOOM.O88`** | the IDE. A separate native package (the WORD/CWORD precedent: two things may not answer to one name). Note Pad's editor engine transplanted with prefix `lm_` (the SPEC.md §68 precedent), a file-list sidebar, one editor pane |
+| **`LOOM.O88`** | the IDE. A separate native package (the WORD/CWORD precedent: two things may not answer to one name). Note Pad's editor engine transplanted with prefix `lm_` — **by way of `apps/cword`'s C realisation of it, not out of `notepad.asm`** (§1.2.3 has the arithmetic) — a file-list sidebar, one editor pane |
 | **`LOOM.OVL`** | Loom's one overlay: the WML compiler, the WJS compiler, the FX pre-compiler, the atom interner, the bundle writer. Pack is a menu command and menu commands may refuse — the canonical overlay tenant |
-| **`apps/weave/*.inc`** | the shared component library: **paint and hit-test** cores as assembly source `%include`d by BOTH packages (the `apps/os88ui.inc` model, SPEC.md §20.5.1 — this platform's only code-sharing mechanism). They are assembly from wave 2 because they run under the gfx lock, once per callback, and are what LOOM's Preview (§1.7) paints with. **The flow walk (§7) is C in the runtime** and is not one of them: it emits no gfx call, runs over at most 250 records in microseconds (§7.2), and has exactly one caller until LOOM exists. When LOOM lands (wave 6) it takes the same walk — moved to a shared `.inc`, or called through one — and **never a second copy**: two layouts that must agree cell-for-cell (§12) is the failure §11's byte-identity rule exists to prevent, said about code instead of about bundles |
+| **`apps/weave/*.inc`** | the shared component library: **paint and hit-test** cores as assembly source `%include`d by BOTH packages (the `apps/os88ui.inc` model, SPEC.md §20.5.1 — this platform's only code-sharing mechanism). They are assembly from wave 2 because they run under the gfx lock, once per callback, and are what LOOM's Preview (§1.7) paints with. **The flow walk (§7) is C in the runtime** and is not one of them: it emits no gfx call, runs over at most 250 records in microseconds (§7.2), and has exactly one caller until LOOM exists. When LOOM lands (wave 6) it takes the same walk — moved to a shared `.inc`, or called through one — and **never a second copy**: two layouts that must agree cell-for-cell (§12) is the failure §11's byte-identity rule exists to prevent, said about code instead of about bundles. **Wave 6 did not need it and did not write one**: Preview shipped without its picture (§1.7.1), so LOOM lays nothing out and the walk still has exactly one caller. The rule is unbroken because there is no second copy, not because one was shared — and it binds the wave-7 row that draws the pane. What LOOM *does* share as source today is `wblob.inc` (the claim accessors), `wnum.inc` (§5.1's conversion, extracted for it), `weave.h` and — the load-bearing one — `wfxc.c`, which is LOOM's whole FX pre-compiler |
 | **`tools/weavesim.py`** | the host reference implementation, written FIRST (the `tools/htmsim.py` precedent): parser, compiler, packer (`--pack`), WVM and FX interpreters, flow-walk layout, gfx-call cost model (`--costs`, §14), `--render`, `--emit-optab`, `--emit-foldtab`, `--selfcheck`. Deterministic, byte-for-byte |
 | **`tests/unit/t_wab.py`** | the independent second reader of `.WAB`, written from THIS file, sharing no code with any packer |
 
@@ -253,6 +253,41 @@ docs/WEAVE-PLAN.md §2.9, with the arithmetic, and every one of them lost to
 either a kernel constant this project may not raise on a package's behalf or a
 refusal a running game cannot be given.
 
+#### 1.2.3 The editor transplant is `cword`'s, and §68's own sentence is why
+
+SPEC.md §68 transplanted Note Pad's text engine into Word "with prefix
+`wd_`", and this section said LOOM does the same with `lm_`. Wave 6 went to
+do it and the precedent argued the other way, in §68.10's own words: moving a
+subsystem is *"a matter of moving its text rather than rewriting every data
+reference in it — the three candidate `.inc` files carry 375 outgoing data
+references between them, and all 375 are free this way and would all break
+the other way."*
+
+That property is what made `np_` → `wd_` a rename, and **it does not survive
+a change of language.** `apps/notepad/notepad.asm` is one flat namespace of
+243 procs whose state is thirty-five hand-numbered `equ os88_image_end + N`
+offsets — the file's own comment calls renumbering them *"a large risk for no
+measurable gain"* — whose document lives in a heap claim behind a `DS` swap,
+and whose wrap and height debts are paid by a worker task that SPEC.md §20.6
+forbids from touching a file. Every field LOOM's C also reads would need a
+cdecl shim on top of that: a few hundred bytes of shim and an unbounded
+amount of risk in exactly the defect class PERFORMANCE.md says an emulator
+cannot show you.
+
+`apps/cword` is the same engine already across that boundary: SPEC.md §73.12
+carries Note Pad's architecture in C — a flat buffer with an offset caret, a
+visible-row line table rebuilt per repaint, a per-cell glass shadow driving a
+changed-column span, one opaque `font_run` per dirty row with the padding
+doing the erase, blit scrolling with the vacated row poisoned, and an XOR
+caret banked at its own position. LOOM takes THAT, with prefix `lm_`, and
+drops what a source pane has no use for: the CHP/PAP dictionaries, RTF, Page
+view, the ribbon, the ruler, and `cwtype.inc` — a monospaced pane has no
+proportional face, so there is no per-character loop left for SPEC.md §73.11
+to force into assembly (fit is width/8, pen is cell×8, hit is px/8).
+
+So the sentence in §1.2 stands as written and this section says what it
+means. The engine is Note Pad's; the transplant is `cword`'s.
+
 ### 1.3 The languages, and where compilation lives
 
 | language | what it writes | compiled to |
@@ -379,6 +414,36 @@ Loom additionally offers **Preview** — the compiled UI stream rendered in a
 child area by the SAME shared component includes WEAVE paints with; widgets
 draw and arm/fire natively but no bytecode runs, and the pane is labelled
 `Preview: layout and controls only - Run runs the app`.
+
+#### 1.7.1 What Preview is in wave 6, and the arithmetic that stopped it
+
+**Wave 6 ships Preview's PLUMBING and its LABEL, and not its picture.** The
+pane packs the project into the transient output claim, keeps the claim while
+it is up, gives it back on the way out, refuses with §10.5's sentence and
+jumps the caret to the offending line — and then says, on the glass, what it
+cannot draw. That is the whole of it, and it is stated here rather than
+discovered by somebody who opens the pane.
+
+The reason is a number and it is worth writing down, because the obvious fix
+is the one §1.2 forbids. Rendering the stream needs two things: the flow walk,
+which is `apps/weave/wflow.c` — fourteen of WEAVE's globals plus
+`w_draw_run` — and a PAINTER. The only painter is `apps/weave/wpaint.c`, 880
+lines that additionally name the per-component value arrays, the field pool,
+the grid's cell store and the canvas module's seam. LOOM closed this wave at
+**594 bytes** under SPEC.md §20.1's ceiling (§13.1), and standing wpaint.c up
+inside LOOM needs far more than that.
+
+**Writing a smaller painter is what §1.2 forbids by name** — "never a second
+copy… two layouts that must agree cell-for-cell is the failure §11's
+byte-identity rule exists to prevent, said about code instead of about
+bundles" — and a Preview that drew a *different* picture from the runtime's
+would be worse than one that draws none, because the whole point of the pane
+is to answer "what will this look like" before `^R`.
+
+So it is a wave-7 row with a price attached, and the price is the same one
+wave 5 paid: what LOOM needs is a second segment for the shared paint stack,
+or wpaint.c reached the way `WEAVE.WSM` is reached (§1.2.2). The seam is one
+function, `lm_prev_paint()`, and nothing else in LOOM has to move.
 
 ---
 
@@ -771,12 +836,18 @@ the same format as the package header icon (SPEC.md §21). Shown in the Deck
 
 ### 2.13 SOURCE — optional round-trip text
 
-Off by default; `weavesim --pack --with-source` (and Loom's matching
-checkbox) carries it, at the visible cost of bundle bytes against the 62KB
-cap. Layout: the WML text, then the WJS text, both folded and
-LF-terminated; the section's extra word is the WML length, so the reader
-splits without a scan. Loom's `File → Open` of a `.WAB` with `WABF_SOURCE`
-re-creates the project files from it.
+Off by default; `weavesim --pack --with-source` carries it, at the visible
+cost of bundle bytes against the 62KB cap. Layout: the WML text, then the
+WJS text, both folded and LF-terminated; the section's extra word is the WML
+length, so the reader splits without a scan.
+
+**LOOM HAS NEITHER HALF OF THIS YET**, and wave 6 says so rather than leaving
+the sentence standing: there is no with-source checkbox and no `File → Open`
+of a `.WAB`. Both are wave-7 rows and neither is on the byte-identity gate's
+path — the option is off by default in the host packer too, so the seven
+projects §11.1 compares are compared without it. What the pair is FOR is the
+round trip: a bundle somebody was given, opened, edited and packed again. It
+is the only thing in §2 that no shipped code reads or writes.
 
 ### 2.14 Determinism — how two packers stay byte-identical
 
@@ -936,7 +1007,7 @@ Per element:
 | | `oncollide` | fn name | — | sprite–sprite AABB overlap |
 | | `onwall` | fn name | — | sprite bounced on a wall edge |
 | | `onscore` | fn name | — | sprite left through an open edge |
-| | `ontick` | fn name | — | requires `tick` ≥ 1; handler bound by §4.11.1 |
+| | `ontick` | fn name | — | requires `tick` ≥ 1; the handler is bound by §4.11.1 and the bound BITES — 64 straight-line ops, **no backward jump and no call of any kind, builtins included**. A counter into a `<meter>` is what fits; a formatted label is not, because formatting needs `str()` and `str()` is a call |
 | `sprite` | `img` | name | required | a `.WSP` sprite name → a `PK_SPRITE` record **named by atom 11 `frame`** — no `img` atom exists; the record doubles as the `frame` property's initial value (§6.10) |
 | | `x`,`y` | px, signed | 0 | initial position |
 | | `shown` | bool | 1 | |
@@ -995,7 +1066,12 @@ sprite <name> <w_px> <h_px> [<frames>]
 ```
 
 `#` is ink, `.` is background; any other character in a row is a pack
-error. `w_px` a multiple of 8 (8–64), `h_px` 1–64, frames 1–8. The packer
+error. **There are no comments in a `.WSP`** — `#` is ink, so a comment
+character cannot be one, and the `#`-comment the `.WFX` takes (§11.2) is a
+live trap between two sibling file formats: a `#` line at the top of a
+`.WSP` refuses with `art before any sprite line`, which points at the art
+rather than at the comment. Said here because both halves of that trap are in
+this document. `w_px` a multiple of 8 (8–64), `h_px` 1–64, frames 1–8. The packer
 renders each frame to §2.11's image bytes (ink = 1, final screen polarity)
 and derives the AND mask as the bitwise NOT of coverage — a background
 pixel inside the sprite's rectangle is **transparent**, not white; a
@@ -1059,10 +1135,21 @@ primary     = number | string | "true" | "false" | "null"
             | ident | "(" expr ")" ;
 number      = decimal 0..32767, or "-" applied by unary ;
 string      = '"' chars '"'  (folded to 0x20..0x7E; \" \\ \n are the only
-                              escapes; length after escapes ≤ 255) ;
+                              escapes; length after escapes 1..255) ;
 ident       = [A-Za-z_][A-Za-z0-9_]* , ≤ 31 chars, case-sensitive ;
 comment     = "//" to end of line, or "/*" ... "*/" ;
 ```
+
+**`""` IS A PACK ERROR, and it is named here because it looks like an
+oversight and is a consequence.** Every string literal interns as an atom
+(§2.7), an atom's length byte is 1..255, and there is no zero-length atom —
+so the syntax cannot write the empty string that §4.4's truth table
+nonetheless names as a falsy value. The value exists; the literal does not.
+An author who wants one builds it: `substr(s, 0, 0)`. Found in wave 6 while
+writing a template that cleared a field, where the refusal arrived as a
+sentence about an interning table for a mistake in the author's own language;
+the sentence is `empty string: an atom is 1..255 bytes (WEAVE-SPEC 2.7)` and
+this paragraph is what it should have been able to point at.
 
 Limits, enforced at pack: ≤ 128 functions, ≤ 128 globals, ≤ 8 parameters,
 ≤ 16 locals per function (parameters included), ≤ 64 `var` initializers of
@@ -1543,6 +1630,15 @@ handler is 2 ops. A backward jump is any patched displacement that goes
 negative, which every `while` and `for` back-edge is; a `CALL` is a user call
 **or a builtin**, so `tone()` inside an `ontick` handler is a pack error and
 the sound belongs in `oncollide` where PONG puts it.
+
+**What FITS, said in one line, because the first thing an author reaches for
+does not.** A counter into a `<meter>` fits: `secs = secs + 1;
+clock.value = secs;` is five ops. A formatted label does not, at any length,
+because formatting needs `str()` and `str()` is a call — `out.text = "Hits: "
++ str(hits);` is a pack error however short it looks. Wave 6's GAME template
+was written the second way first and refused; it drives a meter now, and says
+so in a comment. Update a label from `oncollide` or `onscore`, which are
+human-rate events, and let `ontick` move numbers.
 
 **The RUNTIME does not re-check it, and wave 5 amended its own first draft
 after looking at what §4.11 actually covers.** That draft said the validator
@@ -3105,7 +3201,7 @@ one case per rule, §12):
 | trigger | message |
 |---|---|
 | unknown element | `<zap>: not a Weave element; the inventory is closed (WEAVE-SPEC 3.2)` |
-| unknown attribute | `button: no such attribute "color"; style is bold/invert/align only - two of three adapters are 1bpp` |
+| unknown attribute | `button: no such attribute "pad"; style is bold/invert/align only - two of three adapters are 1bpp` |
 | hover vocabulary | `onhover: no hover exists; pointer movement reaches a package only between press and release (SPEC.md 13.7)` |
 | color vocabulary | `color: there are no colors; grey rounds to black on 1bpp and state never rides on color (SPEC.md 39.4)` |
 | oversize bundle | `bundle is 68112 bytes; the cap is 63488 - the directory size must stand for the resident ask` |
@@ -3117,6 +3213,40 @@ one case per rule, §12):
 Unknown events, bad arity, undeclared identifiers, frame/stack overdepth
 and every §3/§4/§5 limit refuse in the same voice: what was written, the
 bound, the fact.
+
+**The unknown-attribute row illustrates itself with `pad`, and it used to
+say `color`** — which no input can reach, because the colour vocabulary is
+tested one branch earlier and answers the row above it. An example that
+cannot be produced is worse than no example: it is what a second
+implementation writes its code from. Corrected in wave 6, found by building
+`tests/weave/packerr/`.
+
+**An FX formula refuses in §6.9.2's words, not in a second set of its own.**
+That is a consequence of §1.2 rather than a style choice: LOOM's FX
+pre-compiler **is** `apps/weave/wfxc.c`, `#include`d rather than rewritten,
+because what the two packages share they share as source — and that file's
+own header says two grammars for one language is exactly the drift §11's
+byte-identity rule exists to prevent. A shared compiler has one vocabulary by
+construction, so `tools/weavesim.py` was moved onto the resident compiler's
+sentences rather than the other way round: the formula bar's wording is what
+a person already sees when a formula will not compile in a running app, and
+the family now says the same thing whether the formula was typed into a cell
+or packed out of a `.WFX`. The pack-time line is `<file>:<line>: formula: `
+followed by §6.9.2's sentence.
+
+What it costs is stated too. Those sentences are shorter and do not quote the
+offending name — `formula: SUM MIN MAX AVG COUNT IF ABS ROUND is the whole
+set.` rather than naming the function that was written. The reason is the
+size line: the resident compiler's string literals are RESIDENT bytes
+(SPEC.md §73.14 — only code moves into an overlay), and WEAVE closed wave 5
+with thirty-two of them spare (§13.1). A longer sentence is a real cost
+against a real ceiling, and this is the trade it buys.
+
+The `.WFX` LINE FORMAT keeps its own wording, and the distinction is worth
+holding: a cell's left-hand side and a plain numeric cell are §11.2's line
+grammar, not §5.1's formula grammar, so `"C9 is outside the 3x4 grid"` and
+`"1.23456: at most 4 fraction digits; 16.16 resolves to 1/65536
+(WEAVE-SPEC 5.1)"` are the sheet file's sentences and stay as they are.
 
 ### 10.6 Script errors — at run time
 
@@ -3216,6 +3346,29 @@ cells: lines `<cellref> = <formula|number|"label">`, one per cell, packed
 in file order into CELLS row-major). All 8.3 names, plain files any
 editor could touch.
 
+**The `.WFX` takes blank lines and `#` comments**, and both packers do — the
+committed `apps/weave/demos/sheet.wfx` relies on it, and until wave 6 this
+section did not say so. **The `.WSP` takes neither** (§3.6 says why), which
+is the asymmetry to know about before writing one.
+
+**The companions are found by the `.WML`'s own stem first, then by the
+spellings above**: a project whose entry file is `FORM.WML` may carry
+`FORM.WJS` / `FORM.WFX` / `FORM.WSP`, and `MAIN.WJS` / `SHEET.WFX` /
+`SPRITES.WSP` are what a folder named by §11.2 uses. The `<script src="">`
+attribute names the script outright and is authoritative for that one file.
+Both packers must agree about WHICH FILE they read or §11.1's byte-identity
+gate is comparing two different projects.
+
+**A FLAT FOLDER holding several projects is legal and slightly confusing**,
+and it is worth saying because `make loomdisk` and `make weavedisk` build one:
+the fallback spellings are per-DIRECTORY, so `FORM.WML` beside `SHEET.WFX`
+lists that sheet as its own. Nothing is miscompiled — a project with no
+`<grid>` never reads a `.WFX` at all, and both packers do the same thing for
+the same reason, so the gate is safe — but the file switcher shows a file the
+project does not use. **A folder per project is what §11.2 describes** and
+what wave 7's `PROJECTS/` will build; the flat disk is a distribution
+convenience and this paragraph is its footnote.
+
 ### 11.3 What the packer validates
 
 Everything §3, §4, §5 and §10.5 state, plus: every event names a defined
@@ -3235,6 +3388,37 @@ on the UI task, and refuses politely (toast + sidebar) when the overlay
 cannot load or the claim cannot be had — Pack is a menu command and menu
 commands may refuse (SPEC.md §73.14).
 
+**It takes TWO transient claims, not one, and both are freed when Pack ends:**
+the 62KB OUTPUT claim above, and a 50KB SCRATCH claim holding every compiler
+table. The second one exists for SPEC.md §73.14's reason rather than for
+convenience: the compilers are overlay tenants, so their CODE ships in
+`LOOM.OVL` and costs the resident image nothing, while *"every global,
+literal and bss byte it names stays resident and DS-relative"*. A 5,000-byte
+component table declared as a C array would be 5,000 bytes of `LOOM.O88`'s
+resident image for a body that runs once per Pack. So the tables are byte
+offsets into a claim and the resident cost of the whole pack step is one
+segment word. `apps/loom/loom.h` lays the regions out and each carries the
+sentence that refuses past it.
+
+**112KB of transient claim is a number, and it is stated rather than
+discovered.** §10.1's arithmetic runs before any of it is taken, and a
+machine that cannot spare it refuses with both figures in the same voice a
+bundle's refusal uses. A 640KB machine packs with room; the family's floor
+machine for LOOM is therefore the 640KB XT that `vm/xt-weave` is (§13.1's own
+note about why that machine is 640KB), and the 256KB XT of §1.4 runs bundles
+rather than building them. That is a real limit and it is where the two
+claims can be spent later: the scratch's regions are sized from stated
+bounds, not from the format's maxima, so a wave that needs the room can take
+it back region by region with a refusal sentence apiece.
+
+**The bounds, and each has a sentence.** 6,144 bytes a source file and 400
+lines; 6,144 bytes of interned string; 1,280 WJS tokens; 6,144 bytes of
+compiled bytecode; 1,024 property records; 384 starting cells; 255 formulas;
+4,096 bytes of compiled formula; 6,144 bytes of sprite art. Every one is at
+least four times the largest thing the three demo projects and the four
+templates contain, and every one refuses in §10.5's voice — what was written,
+the bound, the fact — naming §11.4 as the fact.
+
 ---
 
 ## 12. The testing contract
@@ -3249,9 +3433,11 @@ htmsim precedent, which found 3 real bugs before any 8086 existed):
 2. **The oracle**: every differential gate diffs the 8086 against it —
    end states, transcripts, layouts, recalc results.
 3. **The generator**: `--emit-optab` (the WVM jump table), 
-   `--emit-foldtab` (the Latin-1 fold, from htmsim's one definition),
-   `--costs` (§14's table), `--emit-vmcorpus` (§12.1.1) — shared tables
-   the model and the 8086 cannot drift apart on.
+   `--emit-foldtab` (the Latin-1 fold, from htmsim's one definition) and
+   `--emit-foldtab-c` (the same 128 bytes as a C initialiser, because
+   LOOM's scanners are C in an overlay and a C file cannot name an nasm
+   table), `--costs` (§14's table), `--emit-vmcorpus` (§12.1.1) — shared
+   tables the model and the 8086 cannot drift apart on.
 
 #### 12.1.1 `--emit-vmcorpus` — the differential corpus, generated
 
@@ -3377,12 +3563,35 @@ Respecting the enforced tier budgets (fast 30 s host-only; full 600 s —
 | soak | `weavecanvas` | raw-QEMU SS≠DS differential of the CANVAS core against the model's composer — sprite records, the staging ring, the dirty-band runs and the composed buffer (§12.1.3). Wave 5's FIRST gate |
 | soak | `weavegame` | wirefps/wireflick with PONG.WAB as the load |
 | soak | `weavelat` | uilat's cycle-exact bar with a Weave form as the load |
-| soak | `weavepack` | Loom's pack byte-identical to weavesim --pack, in the OS |
+| soak | `weavepack` | Loom's pack byte-identical to weavesim --pack, in the OS — every demo and every template packed ON THE MACHINE, read back off the guest's floppy and compared whole; then `tests/weave/packerr/` through LOOM for §10.5's sentence identity |
+| fast | `lmpack` | ...and its HOST half (§12.3.3), which is not the same gate and says so |
 
 Every `tests/weave*.py` is registered in `tests/suite.py` or excused in
 t_registry with the needs-make-weavedisk reason — never silently
 unregistered. `os88test.py soak -k 'weave*'` is the family's command and
 belongs in the pre-release ritual.
+
+#### 12.3.3 `lmpack` is the dev loop; `weavepack` is the gate
+
+`tests/unit/t_lmpack.py` builds LOOM's five compiler sources — the SHIPPING
+text, `#include`d by `apps/loom/hosttest/lmhost.c` and not a copy of it —
+with the host's `cc`, stands the two claims up as plain arrays, packs every
+demo and every template, and diffs each result against `weavesim --pack` byte
+for byte; then it runs `tests/weave/packerr/` and compares the two packers'
+sentences. It is four seconds, it is a FAST-tier row so it runs on every
+`make`, and it is what makes an on-machine compiler writable at all.
+
+**It is NOT the gate, and the difference is one word wide: `int` is 32 bits
+there and 16 bits here.** So the compilers are written never to depend on the
+width — every place §4.4's 16-bit wrap is the answer masks explicitly — and
+this harness proves the LOGIC while `weavepack` proves the ARITHMETIC. Two
+instruments; a wave closes on the second. Said because a green host run is
+exactly the evidence that would be mistaken for the gate.
+
+The one routine the harness re-implements rather than shares is
+`wfx_frac` — §5.1's decimal-to-16.16 conversion, ten instructions in
+`apps/weave/wnum.inc` — because nasm is not in that build. It is named here
+so that a disagreement about a fraction is looked for in the right place.
 
 #### 12.3.1 What `weavesession` actually reads, and why not a transcript
 
@@ -3589,6 +3798,40 @@ PONG came up on CGA as a black field with white paddles, on two adapters of
 three, and passed every differential. §6.10.2 now pins the buffer in the
 framebuffer's own polarity.
 
+**Wave 6 shipped LOOM** — `apps/loom/`, `LOOM.O88` + `LOOM.OVL`, the second
+package in the family and the one that closes §1.1's loop. The five compilers
+§1.2 names are in the overlay (`lmwml.c`, `lmwjs.c`, `lmsheet.c`, `lmatom.c`,
+`lmwrite.c`), the editor is `apps/cword`'s C engine with prefix `lm_`
+(§1.2.3), the sidebar is §11.3's with the pack sentence clickable and the
+caret jumping to the offending line, and the close guard runs on a
+`CC_HAS_ONCLOSE` path this wave had to add to the C SDK — SPEC.md §75.1's
+negotiator had no C door at all, so every C package that ever wanted to ask
+*"save the changes?"* had no way to be asked.
+
+`loom.o88` is **54,752 image + 6,198 bss = 60,950 resident, 490 under**
+SPEC.md §20.1's ceiling, with `LOOM.OVL` at 42,902. WEAVE did not move:
+51,124 + 9,196 = 60,320, byte for byte what wave 5 closed at, and the two
+things LOOM needed from it — `wfx_frac` extracted into `apps/weave/wnum.inc`,
+and an `#ifndef` around `wfxc.c`'s output buffer — were each checked by
+rebuilding `weave.bin` and comparing it whole.
+
+**The gate is green host-side and on the machine.** Every demo and every
+template packs byte-identically to `weavesim --pack`, and all forty cases in
+`tests/weave/packerr/` refuse with the identical sentence
+(`tests/unit/t_lmpack.py`, a fast row). `tests/weavefuzz.py` then damaged a
+thousand projects and found **no** case where the two packers disagreed about
+whether the result was a program, and none where they disagreed about its
+bytes. `tests/weavepack.py` is the on-machine half.
+
+**FX is not compiled twice on this machine**, and that is the wave's one
+structural decision: LOOM's FX pre-compiler IS `apps/weave/wfxc.c`,
+`#include`d rather than rewritten, which is §1.2's sharing rule applied to a
+grammar. It cost the pack-time sentences their old wording — §10.5 records the
+amendment and what it buys.
+
+**PREVIEW SHIPPED AS PLUMBING AND A LABEL, NOT A PICTURE**, and §1.7.1 carries
+the arithmetic rather than leaving it to be found. It is the wave's one gap.
+
 The rest, each gated before the next begins:
 
 | wave | ships | the gate |
@@ -3597,7 +3840,8 @@ The rest, each gated before the next begins:
 | 3 | interaction + the VM: widget arm/fire, os88line input, event ring, `wvm.inc` (gated FIRST by the raw-QEMU differential corpus), adaptive slices, onclick/onchange/onkey, alert/timer/tone/state builtins, `^R` Reload | `weavevm`, `weavesession`, the §7.3 bar via `weavelat` |
 | 4 | `<grid>`: cell store, `wband.inc` benched against Set 68's numbers (`make weavebandbench`), per-row damage, formula bar, `wfx.inc` + the formula compiler (§1.2.1's tenant 7, not resident — the size line decided it), sliced recalc | `weavegrid` (recalc vs model + tpdraw identity), `weavegfx`, and the FX half of `weavevm` FIRST |
 | 5 | ~~`<canvas>`/`<sprite>`~~ **SHIPPED**, above — and in `WEAVE.WSM`, a second RESIDENT segment (§1.2.2), which is the decision the wave turns on | `weavecanvas` FIRST (§12.1.3), then `weavegame`; the field run is COMMISSIONED and pending (WEAVE-PLAN §4.2) |
-| 6 | Loom: `lm_` editor transplant, project folder + file switcher, LOOM.OVL compilers + packer, Pack, Preview, templates, APPDATA prefs, W_ONCLOSE/ASAVE close guard | `weavepack` byte-identity on all templates and demos, in the OS |
+| 6 | ~~Loom~~ **SHIPPED**, above — except Preview's PICTURE (§1.7.1), which needs the shared paint stack in a segment LOOM has not got | `weavepack` byte-identity on all templates and demos, in the OS |
+| 7 | Preview's picture (§1.7.1): `wflow.c` and `wpaint.c` reachable from LOOM, the way `WEAVE.WSM` is reachable from a worker (§1.2.2) — a second segment, priced the same way | the pane draws what `weavesim --render` predicts |
 | 7 | distribution: `make weavedisk` in three geometries with cluster-fit refusal + `--verify`, writable `PROJECTS/` folder, CATALOG.TXT, `BUNDLES=` knob; ALLAPPSFILES rows (one `WEAVE/` folder — package + overlay + **`WEAVE.WSM`** + bundles share it, SPEC.md §19.10: wave 5 added the fourth file, and a canvas bundle that cannot find it refuses at open with §10.3's sentence); the 256KB one-app refusal exercised on the `xt` target, whose arithmetic §1.4 moved by one claim | the release checklist |
 
 Wave order within a wave follows the size line: `os88pkg.py`'s resident
@@ -3669,9 +3913,6 @@ been ~756 µs.
 | card | first paint, fully lettered Hercules 720x348 (35 rows x 90 cells) | 35 | ~2.88 s |
 | card | first paint, fully lettered VGA 640x480 (52 rows x 80 cells) | 52 | ~2.62 s |
 | alert | raise + dismiss | ~8 | ~30-40 ms |
-
-A change that moves a row of this table upward is a regression against a documented
-number, not a neutral refactor - PERFORMANCE.md Part 5's discipline as a table.
 
 **The canvas's two rows are now COUNTED on a machine**, which is
 `tests/weavegame`'s first job and §12.3's newest row: PONG under MartyPC,
