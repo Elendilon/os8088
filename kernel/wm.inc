@@ -6696,6 +6696,11 @@ wm_dmg_occl:
 
 ; wm_ttl_rect - DI = window -> AX/BX/CX/DX = its TITLE STRIP, inclusive
 ; (SPEC.md 11.92). wm_title_set built it three times.
+;
+; **IT SPENDS BX**, which the block it replaced did not: that one carried y1 in
+; DX and left BX alone, so wm_title_set's window pointer survived across it by
+; accident of register choice. Every caller that still owes BX to something
+; below - wm_clip_occl takes the WINDOW there - must put it back itself.
 wm_ttl_rect:
     mov ax, [di+W_X]
     mov cx, ax
@@ -8238,8 +8243,32 @@ wm_title_set:
     call wm_ttl_rect            ; the strip, and wm_clip_seed takes y1 in DX
     mov si, dx                  ; and y2 in SI (its own argument order). The
     mov dx, bx                  ; `mov word [wm_clip_n], 0` that stood above
-    call wm_clip_seed           ; this was dead - wm_clip_seed writes 1 to it
-    call wm_clip_occl           ; unconditionally           ; subtract every visible window above us
+    mov bx, di                  ; this was dead - wm_clip_seed writes 1 to it
+                                ; unconditionally.
+                                ;
+                                ; **AND BX BACK, because wm_ttl_rect SPENDS IT
+                                ; on y1** and wm_clip_occl below takes the
+                                ; WINDOW there - which is what the banner
+                                ; twelve lines up has always said. The block
+                                ; this call replaced held y1 in DX and never
+                                ; touched BX, so the window survived to
+                                ; wm_clip_occl by standing still; the helper
+                                ; does not leave it standing. Without this the
+                                ; occlusion walk asks wm_ptr2idx for the index
+                                ; of a window at offset [di+W_Y] - 20 on the
+                                ; Disk window - and wm_ptr2idx's `div cl` is an
+                                ; EIGHT-BIT divide, so a pointer that is not
+                                ; one overflows the quotient and raises INT 0.
+                                ; On an IBM 5150/5160 ROM that vector is the
+                                ; BIOS's own stub, which writes 0FFh to the
+                                ; 8259's mask and IRETs: every interrupt in the
+                                ; machine is gone, the UI task never runs
+                                ; again, and the floppy motor it left spinning
+                                ; stays on. GLaBIOS and QEMU do not mask, so
+                                ; the same defect is a wrong clip index there
+                                ; and invisible
+    call wm_clip_seed
+    call wm_clip_occl           ; subtract every visible window above us
     jc .dmg                     ; overflowed: nothing about the list is valid
     cmp word [wm_clip_n], 0
     je .clear                   ; wholly covered: not one pixel of it is ours
