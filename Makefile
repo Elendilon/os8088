@@ -159,6 +159,16 @@ VM286C64 := $(CURDIR)/vm/286-c64
 # to look at the refusal by hand before then.
 VMXTWEAVE := $(CURDIR)/vm/xt-weave
 VM386WEAVE := $(CURDIR)/vm/386-weave
+# ...and the 256KB one, which is a DIFFERENT QUESTION rather than a smaller
+# machine (WEAVE-SPEC 1.4, 13.1's wave-7 row). vm/xt-weave is 640KB because
+# that is where the family RUNS; this is vm/xt's 256KB IBM PC/XT with the
+# Weave disk in B: instead of the apps disk, because the apps floppy has no
+# room for WEAVE at 360KB and the everything disk is 1.44MB, which this
+# machine's two 360KB drives cannot read. It is MANUAL EVIDENCE and never a
+# gate (docs/TESTING.md: 86Box has no automation socket, so a session can
+# start one and cannot read the result); the ASSERTION of the same refusal is
+# tests/weaveone.py, under MartyPC.
+VMXTWEAVE256 := $(CURDIR)/vm/xt-weave-256
 
 # VIDEO=cga|herc|vga forces the adapter instead of probing for it (SPEC.md
 # 39.1). The shipped images are always built without it, so they auto-detect;
@@ -1376,7 +1386,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         allapps usb iso live burn rcbandbench \
         c64 c64disk c64rom c64bandbench c64cputest c64memtest 386-c64 xt-c64 286-c64 \
         weave weavedisk weavevm weavecanvas weavegame weavebandbench \
-        xt-weave 386-weave \
+        xt-weave 386-weave xt-weave-256 \
         loom loomdisk \
         checkdocs test-fast test-full test-soak clean clean-cc clean-marty distclean
 
@@ -4024,7 +4034,23 @@ $(eval $(call CC_PACKAGE,weave,weave,WEAVE.OVL))
 WEAVESRC := $(wildcard apps/weave/*.c apps/weave/*.h)
 WEAVEINC := $(wildcard apps/weave/*.inc)
 $(BUILD)/weave.raw.asm: $(WEAVESRC)
-$(BUILD)/weave.bin:     $(WEAVEINC) $(BUILD)/wsmsize.inc
+$(BUILD)/weave.bin:     $(WEAVEINC) $(BUILD)/wsmsize.inc $(BUILD)/wvmtab.inc
+
+# --- the WVM's dispatch table, GENERATED (WEAVE-SPEC 4.5, 12.1) --------------
+# apps/weave/wvm.inc `%include`s it so that an opcode added to the model with
+# no handler in the core is an nasm error naming the missing label rather than
+# a silent disagreement between two interpreters.
+#
+# IT HAD NO RULE UNTIL WAVE 7, and the file's own comment said it was "a
+# Makefile prerequisite of build/weave.bin" - which was true of the line above
+# and false of the generator. The only thing that wrote it was
+# apps/weave/hosttest/weavevm.sh, the soak row's script, so `make clean && make
+# weavedisk` failed on a tree where that row had never run and worked
+# everywhere else, which is the shape of bug a clean build finds and nothing
+# else does. Found by wave 7's determinism check, which is what that check is
+# for. `all` never built weave.bin, so no SHIPPED floppy was ever affected.
+$(BUILD)/wvmtab.inc: tools/weavesim.py docs/WEAVE-SPEC.md | $(BUILD)
+	python3 tools/weavesim.py --emit-optab > $@
 
 # --- WEAVE.WSM, the canvas core (WEAVE-SPEC 1.2.2) ---------------------------
 # A SEPARATE `nasm -f bin` job, not part of the package's one translation unit
@@ -4114,6 +4140,88 @@ weavegame: tests/weavegame.py
 WEAVEDISK := $(BUILD)/weave.o88 $(BUILD)/WEAVE.OVL $(BUILD)/WEAVE.WSM \
              $(WEAVEWABS)
 
+# --- WHAT WAVE 7 ADDED TO THIS DISK (WEAVE-SPEC 13.1's distribution row) -----
+#
+# THE IDE RIDES IT, and the arithmetic is why rather than a preference: LOOM is
+# 54,966 + LOOM.OVL 42,902 + LOOM.WPV 16,216 = ~114KB, the runtime's three
+# files are ~78KB, the bundles and the sources ~6KB, and the smallest geometry
+# holds 354 clusters of 1KB. So all three geometries carry the family whole -
+# edit, pack, preview and run on one floppy - and the recipe's own --verify
+# prints the cluster count that says so.
+#
+# ---------------------------------------------------------------------------
+# THE WHOLE DISK IS ONE FOLDER, AND IT IS A CORRECTNESS REQUIREMENT
+# ---------------------------------------------------------------------------
+# Wave 7 built this disk with a PROJECTS/ folder holding a folder per project,
+# which is the shape WEAVE-SPEC 11.2 describes - and then opened it on the
+# machine, which is the only reason this paragraph exists rather than that
+# layout.
+#
+# A DOUBLE-CLICK ON A SOURCE leaves the launched instance standing in the
+# DOCUMENT's directory (SPEC.md 54.9, 19.2.1), and LOOM.OVL is resolved in
+# that directory (SPEC.md 73.14). The loomdisk block below has said so since
+# wave 6. What wave 7 found is that FILE > OPEN PROJECT... IS NO DIFFERENT:
+# the standard file dialog walks the volume by moving the instance's own
+# current directory, so navigating into PROJECTS/FORM moves it there too, and
+# the very next command refuses with `LOOM.OVL is missing; a project cannot be
+# opened.` Photographed on the glass, both routes, before this was rewritten.
+#
+# And the fence cuts the other way as well: a bundle Pack writes beside its
+# sources is a bundle a double-click then opens with WEAVE, whose own two
+# modules have to be in THAT directory too (WEAVE-SPEC 10.3).
+#
+# So a disk that carries the runtime, the IDE and a project has exactly one
+# directory it can put them in. The sources ride the root, flat, the way
+# `make loomdisk` carries them - WEAVE-SPEC 11.2's own footnote calls a flat
+# folder of several projects "legal and slightly confusing" and that is
+# precisely the trade being taken. A folder per project is for a project a
+# person keeps beside a LOOM launched from ITS directory; it is not something
+# a distribution disk can build.
+#
+# SYSTEM/APPDATA is the one folder that is safe, because nothing resolves an
+# overlay in it: it is written to, never launched from (SPEC.md 19.9).
+
+WEAVELOOM := $(BUILD)/loom.o88 $(BUILD)/LOOM.OVL $(BUILD)/LOOM.WPV
+
+# The demo SOURCES, flat - one list, used by this disk, by `make loomdisk` and
+# by `make allapps`'s LOOM/ folder. It is defined HERE, above the first rule
+# that names it, because make expands a PREREQUISITE list at parse time: the
+# same list a hundred lines lower would be empty in every prerequisite and
+# correct in every recipe, which is a disk that never rebuilds when a demo
+# source changes.
+LOOMSRCS := apps/weave/demos/form.wml apps/weave/demos/form.wjs \
+            apps/weave/demos/sheet.wml apps/weave/demos/sheet.wjs \
+            apps/weave/demos/sheet.wfx \
+            apps/weave/demos/pong.wml apps/weave/demos/pong.wjs \
+            apps/weave/demos/pong.wsp
+
+# ...and your own: BUNDLES='path/to/MYAPP.WAB' puts bundles on the disk beside
+# these, unmodified - the same knob CPMSW= is for the RunCPM disks and
+# STORIES= for Frotz's, and for the same reason (a bundle this tree cannot
+# choose for you). They must already be valid 8.3 names; os88disk.py has no
+# long-name handling and fails hard rather than truncating. The geometry still
+# has to hold them, and THAT REFUSAL IS THE ROW'S OWN GATE: os88disk.py prices
+# every file and folder in clusters before it writes a byte and says
+# `packages need N clusters; disk holds M`, which is the cluster arithmetic in
+# the sentence WEAVE-SPEC 13.1 asks for.
+BUNDLES ?=
+
+# The catalogue, per geometry, because the three disks do not carry the same
+# things - GAMES.TXT on the RUNCPM disks is the precedent (SPEC.md 74.6).
+# os88disk.py takes the 8.3 name from the file's BASENAME, so the three of
+# them need three directories rather than three names; `make -j` safe, because
+# each rule creates only its own. tools/weavesim.py writes it: that program
+# already knows every bundle, because it packed them.
+$(BUILD)/wcat/360/CATALOG.TXT: tools/weavesim.py
+	@mkdir -p $(dir $@)
+	python3 tools/weavesim.py --catalog $@ --geometry 360 --with-loom
+$(BUILD)/wcat/720/CATALOG.TXT: tools/weavesim.py
+	@mkdir -p $(dir $@)
+	python3 tools/weavesim.py --catalog $@ --geometry 720 --with-loom
+$(BUILD)/wcat/1440/CATALOG.TXT: tools/weavesim.py
+	@mkdir -p $(dir $@)
+	python3 tools/weavesim.py --catalog $@ --geometry 1440 --with-loom
+
 # SYSTEM/APPDATA IS BUILT AND NOT CREATED ON DEMAND (SPEC.md 19.9), and the
 # Weave disk had no such folder until wave 6 went looking for LOOM's. The
 # effect was invisible and exactly wrong: WEAVE-SPEC 8.3's saveState() writes
@@ -4123,16 +4231,33 @@ WEAVEDISK := $(BUILD)/weave.o88 $(BUILD)/WEAVE.OVL $(BUILD)/WEAVE.WSM \
 # whole of waves 3, 4 and 5. It costs one directory cluster a disk.
 # APPDATAFOLDER GOES LAST here for the reason the note above APPSARGS gives:
 # argparse stops collecting positionals at an option that takes a value.
-$(BUILD)/weave.img: $(WEAVEDISK) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(WEAVEDISK) $(APPDATAFOLDER)
+#
+# EVERY OPTION PRECEDES THE POSITIONAL LIST for the reason APPSARGS' own note
+# gives - argparse stops collecting positionals at an option that takes a
+# value, so a --dir-slots in the middle silently swallows the rest. Wave 6 put
+# APPDATAFOLDER last and got away with it because nothing followed; wave 7
+# adds three --dir-slots and a --folder, so they all move to the front.
+WEAVEDISKOPTS = $(APPDATAFOLDER)
+
+$(BUILD)/weave.img: $(WEAVEDISK) $(WEAVELOOM) $(BUILD)/wcat/1440/CATALOG.TXT \
+                    $(LOOMSRCS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(WEAVEDISKOPTS) \
+		$(WEAVEDISK) $(WEAVELOOM) $(BUILD)/wcat/1440/CATALOG.TXT \
+		$(LOOMSRCS) $(BUNDLES)
 	@python3 tools/os88disk.py --verify $@
 
-$(BUILD)/weave720.img: $(WEAVEDISK) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 720 $(WEAVEDISK) $(APPDATAFOLDER)
+$(BUILD)/weave720.img: $(WEAVEDISK) $(WEAVELOOM) $(BUILD)/wcat/720/CATALOG.TXT \
+                       $(LOOMSRCS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(WEAVEDISKOPTS) \
+		$(WEAVEDISK) $(WEAVELOOM) $(BUILD)/wcat/720/CATALOG.TXT \
+		$(LOOMSRCS) $(BUNDLES)
 	@python3 tools/os88disk.py --verify $@
 
-$(BUILD)/weave360.img: $(WEAVEDISK) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(WEAVEDISK) $(APPDATAFOLDER)
+$(BUILD)/weave360.img: $(WEAVEDISK) $(WEAVELOOM) $(BUILD)/wcat/360/CATALOG.TXT \
+                       $(LOOMSRCS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(WEAVEDISKOPTS) \
+		$(WEAVEDISK) $(WEAVELOOM) $(BUILD)/wcat/360/CATALOG.TXT \
+		$(LOOMSRCS) $(BUNDLES)
 	@python3 tools/os88disk.py --verify $@
 
 # The two WEAVE machines (WEAVE-SPEC §13.1), with the Weave disk in B: instead
@@ -4179,6 +4304,20 @@ xt-weave: $(IMG360) $(BUILD)/weave360.img
 386-weave: $(IMG) $(BUILD)/weave.img
 	@$(UNPROTECT) $(VM386WEAVE)/86box.cfg
 	$(BOX) -P $(VM386WEAVE) -N
+
+# ...and the 256KB XT, which is WEAVE-SPEC 1.4's floor machine and the one the
+# family's whole memory argument is written about: ~140.5KB of heap, so
+# exactly ONE Weave app at a time and the second launch refuses BEFORE ANY I/O
+# with 10.1's sentence naming both figures. Open SHEET.WAB, then open FORM.WAB.
+#
+# WHAT IT IS FOR is looking at that refusal, and 86Box is the right instrument
+# for looking and the wrong one for asserting - it has no automation socket
+# (docs/TESTING.md), so nothing in this tree can rest a gate on it.
+# tests/weaveone.py asserts the same sentence on MartyPC's 256KB machine; this
+# target is where a person sees it on a period board.
+xt-weave-256: $(IMG360) $(BUILD)/weave360.img
+	@$(UNPROTECT) $(VMXTWEAVE256)/86box.cfg
+	$(BOX) -P $(VMXTWEAVE256) -N
 
 # --- LOOM, the in-OS IDE (WEAVE-SPEC 1.2, wave 6) ----------------------------
 # The C toolchain's fifth application, and the family's other half: the editor,
@@ -4255,9 +4394,60 @@ $(BUILD)/loom.o88: $(BUILD)/loom.bin tools/os88pkg.py tools/os88ovl.py
 LOOMSRC := $(wildcard apps/loom/*.c apps/loom/*.h)
 LOOMINC := $(wildcard apps/loom/*.inc)
 $(BUILD)/loom.raw.asm: $(LOOMSRC)
-$(BUILD)/loom.bin:     $(LOOMINC) $(WEAVEINC)
+$(BUILD)/loom.bin:     $(LOOMINC) $(WEAVEINC) $(BUILD)/wpvsize.inc
 
-loom: $(BUILD)/loom.o88
+# --- LOOM.WPV, the preview module (WEAVE-SPEC 1.2.4) -------------------------
+# A SECOND RESIDENT SEGMENT holding WEAVE's flow walk and WEAVE's component
+# painter, so that 1.7's Preview draws the card with the SAME code the runtime
+# draws it with (1.2: never a second copy). It is a SEPARATE compilation and a
+# separate `nasm -f bin` job, not part of LOOM's one translation unit
+# (SPEC.md 73.1), and the ORDER below is what makes its third and fourth stamp
+# words a real staleness check rather than a tautology: the module is built
+# first, its byte counts are written into build/wpvsize.inc, and the package is
+# assembled after and compares what it read off the disk against those numbers.
+#
+# IT IS NOT AN OVERLAY and does not go through tools/os88ovl.py, and the reason
+# is the one WEAVE-SPEC 1.7.1 has the arithmetic for: an overlay moves CODE and
+# leaves every global, literal and bss byte resident (SPEC.md 73.14), while
+# what does not fit here is ~4.7KB of DATA - the walk's layout table and the
+# painter's six tables keyed by comp_id - against the headroom wave 6 closed
+# with. An overlay cannot move one byte of that.
+#
+# IT IS THE FIRST C SECOND SEGMENT IN THIS TREE, which is why the compile line
+# is open-coded here rather than reached through apps/cc/Makefile.inc's
+# CC_PACKAGE: that macro builds a PACKAGE - a 32-byte OS88 header, an entry the
+# loader calls, callback trampolines - and a module has none of those. What it
+# DOES share with a package is everything that matters: the same smlrcc, the
+# same tools/cc8086.py gate (SS != DS, no &local, no movs/stos, 96-byte
+# frames), and apps/cc/os88thunk.asm.
+$(BUILD)/lmpvmod.raw.asm: apps/loom/lmpvmod.c $(CC_RUNTIME) $(LOOMSRC) \
+                          $(WEAVESRC) | $(BUILD) cc-toolchain
+	PATH="$(CURDIR)/$(CC_SC):$$PATH" $(CC_SMLRCC) -tiny -S \
+		-SI $(CC_SCINC) -I $(CC_SCINC) -I $(CC_DIR) -I $(BUILD) \
+		apps/loom/lmpvmod.c -o $@
+
+$(BUILD)/lmpvmod.gen.asm: $(BUILD)/lmpvmod.raw.asm tools/cc8086.py
+	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME)
+
+$(BUILD)/LOOM.WPV: apps/loom/lmpvmod.asm $(BUILD)/lmpvmod.gen.asm \
+                   apps/weave/wpvabi.inc $(WEAVEINC) $(LOOMINC) \
+                   $(CC_RUNTIME) apps/os88ui.inc apps/os88line.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/loom/lmpvmod.asm
+	@echo "LOOM.WPV: $(call FILESIZE,$@) bytes (resident, on demand at Preview)"
+
+# The two words the package assembles in. The bss one is what WEAVE.WSM does
+# not need: that module is hand-written assembly whose state is initialised
+# bytes inside its own image, and this one is compiled C whose .bss the file
+# does not carry - so LOOM claims image + bss and the module zeroes the tail
+# on its first entry (apps/loom/lmpvmod.asm). Read out of the header the
+# module has just written rather than recomputed here, so there is one
+# arithmetic and not two.
+$(BUILD)/wpvsize.inc: $(BUILD)/LOOM.WPV
+	@python3 -c "import struct,sys; d=open('$<','rb').read(); \
+	    s,b=struct.unpack_from('<HH',d,4); \
+	    sys.stdout.write('WPV_SIZE equ %d\nWPV_BSS  equ %d\n'%(s,b))" > $@
+
+loom: $(BUILD)/loom.o88 $(BUILD)/LOOM.WPV
 
 # --- the LOOM floppy ---------------------------------------------------------
 # All three geometries, as every disk-visible image in this tree is built
@@ -4266,7 +4456,12 @@ loom: $(BUILD)/loom.o88
 #
 # WHAT IS ON IT, AND WHY EACH FILE IS THERE:
 #
-#   LOOM.O88 + LOOM.OVL   the IDE and its compilers
+#   LOOM.O88 + LOOM.OVL   the IDE, its compilers and - wave 7 - the preview
+#   + LOOM.WPV            module (WEAVE-SPEC 1.2.4), a second RESIDENT segment
+#                         holding WEAVE's flow walk and WEAVE's component
+#                         painter, so that Preview draws the card with the
+#                         same code the runtime draws it with. All three in
+#                         one folder for the reason below
 #   WEAVE.O88 + WEAVE.OVL the runtime, so WEAVE-SPEC 1.7's edit-run loop is
 #   + WEAVE.WSM           available on the SAME disk: Pack in LOOM, click the
 #                         WEAVE window, ^R. A disk with only the IDE on it can
@@ -4298,13 +4493,8 @@ loom: $(BUILD)/loom.o88
 # here, never to drop the WEAVE half: a 360KB disk that cannot run what it
 # just packed is the geometry the edit-run loop matters most on, because that
 # is the real XT.
-LOOMSRCS := apps/weave/demos/form.wml apps/weave/demos/form.wjs \
-            apps/weave/demos/sheet.wml apps/weave/demos/sheet.wjs \
-            apps/weave/demos/sheet.wfx \
-            apps/weave/demos/pong.wml apps/weave/demos/pong.wjs \
-            apps/weave/demos/pong.wsp
 
-LOOMDISK := $(BUILD)/loom.o88 $(BUILD)/LOOM.OVL \
+LOOMDISK := $(BUILD)/loom.o88 $(BUILD)/LOOM.OVL $(BUILD)/LOOM.WPV \
             $(BUILD)/weave.o88 $(BUILD)/WEAVE.OVL $(BUILD)/WEAVE.WSM \
             $(WEAVEWABS) $(LOOMSRCS)
 
@@ -5984,9 +6174,10 @@ $(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
 # THE EVERYTHING DISK (ON DEMAND: `make allapps`) - SPEC.md 19.10
 # =============================================================================
 # build/apps-all.img: ONE 1.44MB floppy with every application this project
-# ships on it, including the five that have their own disks and therefore
+# ships on it, including the seven that have their own disks and therefore
 # never appear on the shipped apps disk - FROTZ (SPEC.md 61), WORD (SPEC.md
-# 65), CWORD (SPEC.md 73.12), RUNCPM (SPEC.md 74) and C64 (docs/C64-SPEC.md).
+# 65), CWORD (SPEC.md 73.12), RUNCPM (SPEC.md 74), C64 (docs/C64-SPEC.md) and
+# the Weave family's two, WEAVE and LOOM (WEAVE-SPEC 1.2).
 # It is a CONVENIENCE, offered beside the
 # shipped images on a release page for somebody who wants one disk rather
 # than four, and nothing in the tree boots it by default.
@@ -6014,6 +6205,17 @@ $(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
 # and are never committed (SPEC.md 61), so what rides here is the interpreter;
 # `make zdisk` is still where a story disk comes from.
 #
+# SYSTEM/APPDATA IS BUILT HERE TOO (SPEC.md 19.9), and wave 7 added it with
+# WEAVE: 19.9 says the folder is BUILT and never created on demand, and
+# WEAVE-SPEC 8.3's saveState() writes an app's .SAV into SYSTEM/APPDATA on the
+# LAUNCH volume - so without this line every bundle on this disk would refuse
+# to save its state, politely and inexplicably, exactly as they did on the
+# Weave floppies for the whole of waves 3, 4 and 5 (the note above
+# build/weave.img). The live media already passed it; this disk did not, and
+# nothing on it had wanted one before. It is counted in ALLAPPSDIRS below so
+# that RunCPM's drive-A selection is priced against the right number of
+# folders.
+#
 # RUNCPM (SPEC.md 74.5) rides the same way the Words do - a folder of its own,
 # RUNCPM\, because it too has an .OVL resolved in the launching instance's
 # folder, and the CCP it loads and the CP/M drive A\0 below it are found the
@@ -6031,8 +6233,9 @@ $(MEDIAIMG360): $(MEDIA_DISK_DATA) tools/os88disk.py
 # the tree above has besides RUNCPM\A\0, one cluster each at 1.44MB's 16
 # entries a cluster - DERIVED from ALLAPPSARGS below (ALLAPPSDIRS: every
 # DIR: prefix, each one's parent, --folder DOCS, and RUNCPM\A, the
-# selection's own parent; eleven today: APPS, GAMES, MEDIA, WORD, CWORD,
-# RUNCPM, RUNCPM\A, C64, SYSTEM, SYSTEM\DOS, DOCS), so the budget is derived
+# selection's own parent; thirteen today: APPS, GAMES, MEDIA, WORD,
+# CWORD, RUNCPM, RUNCPM\A, C64, WEAVE, LOOM, SYSTEM, SYSTEM\DOS, DOCS), so
+# the budget is derived
 # here as it is for build/runcpm.img, and a folder added to the tree above
 # is priced without anyone remembering a constant. One parent level is
 # taken (the tree nests one deep); a DIR/SUB/SUB2: entry would need its
@@ -6044,6 +6247,7 @@ ALLAPPSFILES := $(APPS) $(BUILD)/frotz.o88 \
                 $(BUILD)/cword.o88 $(BUILD)/CWORD.OVL $(BUILD)/WELCOME.RTF \
                 $(BUILD)/c64.o88 $(BUILD)/C64.OVL $(BUILD)/c64-rom/C64.ROM \
                 apps/c64/README.TXT apps/c64/COPYING \
+                $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
                 $(RUNCPMDISK)
 ALLAPPS := $(ALLAPPSFILES) $(RUNCPMDEPS)
 
@@ -6058,10 +6262,12 @@ ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(BUILD)/frotz.o88) \
                $(addprefix C64:,$(BUILD)/c64.o88 $(BUILD)/C64.OVL \
                                 $(BUILD)/c64-rom/C64.ROM \
                                 apps/c64/README.TXT apps/c64/COPYING) \
+               $(addprefix WEAVE:,$(WEAVEDISK)) \
+               $(addprefix LOOM:,$(WEAVELOOM) $(LOOMSRCS)) \
                $(SYSAPPSARGS) \
                $(addprefix SYSTEM/DOS:,$(APPS_DOS))
 ALLAPPSDIRS := $(sort $(foreach a,$(ALLAPPSARGS),$(firstword $(subst :, ,$a))) \
-                      DOCS RUNCPM/A)
+                      DOCS RUNCPM/A SYSTEM/APPDATA)
 ALLAPPSDIRS := $(sort $(ALLAPPSDIRS) \
                       $(patsubst %/,%,$(filter-out ./,$(dir $(ALLAPPSDIRS)))))
 ALLAPPSFOLDERS := $(words $(ALLAPPSDIRS))
@@ -6071,7 +6277,7 @@ allapps: $(ALLAPPSIMG)
 $(ALLAPPSIMG): $(ALLAPPS) tools/os88disk.py
 	sel="$$(python3 tools/getruncpm.py -o $(RUNCPMDIR) --select 1440 --dir-slots $(RUNCPMSLOTS) --folders $(ALLAPPSFOLDERS) --reserve $(ALLAPPSFILES) | sed 's,^,RUNCPM/A/0:,')"; \
 	[ -n "$$sel" ] || { echo "allapps: getruncpm.py --select 1440 chose nothing"; exit 1; }; \
-	python3 tools/os88disk.py -o $@ --size 1440 --deep-folders --dir-slots RUNCPM/A/0=$(RUNCPMSLOTS) --folder DOCS $(ALLAPPSARGS) $$sel
+	python3 tools/os88disk.py -o $@ --size 1440 --deep-folders --dir-slots RUNCPM/A/0=$(RUNCPMSLOTS) --folder DOCS $(APPDATAFOLDER) $(ALLAPPSARGS) $$sel
 	@python3 tools/os88disk.py --verify $@
 	@echo "allapps: $@ - every app on one 1.44MB floppy; boot the system"
 	@echo "         disk with it in B: (make run RUNAPPS=$@)"
