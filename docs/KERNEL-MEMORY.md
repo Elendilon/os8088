@@ -902,16 +902,16 @@ Three things about it:
     "cold": 38823,
     "coldpara": 2432,
     "fatpara": 288,
-    "imgpara": 3648,
-    "kend": 7168,
+    "imgpara": 3680,
+    "kend": 7200,
     "kseg": 96,
-    "ksize": 113152,
+    "ksize": 113664,
     "lowbss": 9096,
     "lowpara": 640,
     "minramkb": 196,
     "ovl": 6688,
     "stk0": 1024,
-    "text": 52538,
+    "text": 52668,
     "vgabuf": 848,
     "vgabufpara": 64
   },
@@ -1744,14 +1744,14 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 31,773 | 34.8% |
+| the file system, end to end | 31,773 | 34.7% |
 | the window system and its furniture | 25,120 | 27.5% |
-| drawing: adapters, primitives, glyphs, icons | 15,683 | 17.2% |
+| drawing: adapters, primitives, glyphs, icons | 15,813 | 17.3% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,380 | 9.2% |
 | the kernel proper: API table, heap, scheduler, events | 7,537 | 8.2% |
 | the three built-in kinds | 1,813 | 2.0% |
 | the Control Panel | 1,055 | 1.2% |
-| **total** | **91,361** | |
+| **total** | **91,491** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -1759,7 +1759,7 @@ generated in the first place.
 |---|---:|---:|---:|---:|---:|---:|
 | `wm.inc` — the window manager (§11) | 11,822 | 94 | **11,916** | 1,074 | — | — |
 | `files.inc` — the Disk window (§22) | 1,052 | 8,306 | **9,358** | 471 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 7,288 | 702 | **7,990** | 180 | 526 | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 7,418 | 702 | **8,120** | 180 | 526 | — |
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 397 | 5,797 | **6,194** | 890 | 3,584 | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 5,038 | **5,279** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,626 | **4,805** | 155 | — | — |
@@ -1799,7 +1799,7 @@ generated in the first place.
 | `bootprof.inc` — the boot phase table (§15.5), `BOOTPROF=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 3,142 | — | **3,142** | — | — | 443 |
-| **total** | **52,538** | **38,823** | **91,361** | **5,813** | **9,096** | **2,457** |
+| **total** | **52,668** | **38,823** | **91,491** | **5,813** | **9,096** | **2,457** |
 <!-- END generated table -->
 
 ### Reading it
