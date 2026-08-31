@@ -27673,7 +27673,17 @@ Two teardown corollaries, both about not trading a crash for a leak:
    `osapi_set_color`, `font_*`, `wm_content`, `wm_obscured`,
    `wm_clip_set`/`wm_clip_clear`, `osapi_video`,
    `osapi_get_ticks`, `osapi_mouse`, `osapi_srand`/`osapi_rand`,
-   `task_sleep`, `task_yield`, `OSAPI_TASK_ALIVE` and `wm_saveu`.
+   `task_sleep`, `task_yield`, `OSAPI_WM_WAKE`, `OSAPI_TASK_ALIVE` and
+   `wm_saveu`.
+   **`OSAPI_WM_WAKE` was missing from this list and is not new** — its
+   own cell has said "any context — ISR-safe and worker-safe, no lock
+   needed" since it was written (§74.1), and it is the carrier of the
+   worker-stages/UI-task-commits handshake rule 7 forces on everything a
+   worker may not do itself: `apps/ftpd`'s (§77) and now WEAVE's canvas
+   (WEAVE-SPEC §6.10.6). A list that names what a worker may call is read
+   as exhaustive, so a slot documented as worker-safe and absent from it
+   reads as forbidden by omission — which is the defect the `OSAPI_DRV_CALL`
+   paragraph below already names, found a second time by a second caller.
    **`wm_saveu` comes with `osapi_set_color`'s condition** and for a sharper
    version of its reason: the clear path calls `mem_free` on the raise cache,
    so a worker that withdraws the promise outside a lock hold can free a

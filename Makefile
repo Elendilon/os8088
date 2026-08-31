@@ -1375,7 +1375,8 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         xt-runcpm 286-runcpm \
         allapps usb iso live burn rcbandbench \
         c64 c64disk c64rom c64bandbench c64cputest c64memtest 386-c64 xt-c64 286-c64 \
-        weave weavedisk weavevm weavebandbench xt-weave 386-weave \
+        weave weavedisk weavevm weavecanvas weavegame weavebandbench \
+        xt-weave 386-weave \
         checkdocs test-fast test-full test-soak clean clean-cc clean-marty distclean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
@@ -4022,9 +4023,30 @@ $(eval $(call CC_PACKAGE,weave,weave,WEAVE.OVL))
 WEAVESRC := $(wildcard apps/weave/*.c apps/weave/*.h)
 WEAVEINC := $(wildcard apps/weave/*.inc)
 $(BUILD)/weave.raw.asm: $(WEAVESRC)
-$(BUILD)/weave.bin:     $(WEAVEINC)
+$(BUILD)/weave.bin:     $(WEAVEINC) $(BUILD)/wsmsize.inc
 
-weave: $(BUILD)/weave.o88
+# --- WEAVE.WSM, the canvas core (WEAVE-SPEC 1.2.2) ---------------------------
+# A SEPARATE `nasm -f bin` job, not part of the package's one translation unit
+# (SPEC.md 73.1), and the ORDER below is what makes its third stamp word a
+# real staleness check rather than a tautology: the module is built first, its
+# byte count is written into build/wsmsize.inc, and the package is assembled
+# after and compares what it read off the disk against that number.
+#
+# IT IS NOT AN OVERLAY and does not go through tools/os88ovl.py. An overlay is
+# cut out of the package's own image at a recorded size; this is a file of its
+# own from the first byte, because SPEC.md 73.14's loader refuses a worker and
+# every byte in here runs on one.
+$(BUILD)/WEAVE.WSM: apps/weave/wcanvas.asm apps/weave/wsmabi.inc \
+                    apps/weave/wsmdata.inc apps/weave/wspr.inc \
+                    apps/weave/wwork.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ apps/weave/wcanvas.asm
+	@echo "WEAVE.WSM: $(call FILESIZE,$@) bytes (resident, on demand at open)"
+
+$(BUILD)/wsmsize.inc: $(BUILD)/WEAVE.WSM
+	@echo "WSM_SIZE equ $(call FILESIZE,$<)" | tr -d ' \t' \
+	    | sed 's/^WSM_SIZEequ/WSM_SIZE equ /' > $@
+
+weave: $(BUILD)/weave.o88 $(BUILD)/WEAVE.WSM
 
 # All three geometries, as every disk-visible image in this tree is built
 # (CLAUDE.md): 1.44MB and 720KB for QEMU, 360KB for an 86Box XT or a real one.
@@ -4069,7 +4091,27 @@ weavevm: apps/weave/wvm.inc apps/weave/hosttest/weavevm.asm \
          docs/WEAVE-SPEC.md $(wildcard tests/weave/vmcorpus/*)
 	apps/weave/hosttest/weavevm.sh
 
-WEAVEDISK := $(BUILD)/weave.o88 $(BUILD)/WEAVE.OVL $(WEAVEWABS)
+# ...and the CANVAS core's half of the same idea (WEAVE-SPEC 12.1.3), which is
+# wave 5's FIRST gate. The difference from the row above is where the oracle
+# came from: weavevm diffs two interpreters that both had end states already,
+# and 6.10.2's composition had none - the model does not draw pixels and the
+# canvas buffer is on no card, so the model grew a composer and this is the
+# machine's half of it. The corpus is a table in weavesim rather than a
+# directory, and 12.1.3 says why.
+weavecanvas: apps/weave/wspr.inc apps/weave/wwork.inc apps/weave/wsmdata.inc \
+         apps/weave/wsmabi.inc apps/weave/hosttest/weavecv.asm \
+         apps/weave/hosttest/weavecv.sh tools/weavesim.py docs/WEAVE-SPEC.md
+	apps/weave/hosttest/weavecv.sh
+
+# ...and what the canvas COSTS on a machine, which the boot sector cannot say:
+# PONG under MartyPC, its own frames/blits counters read out of WEAVE.WSM's
+# state block, and the glass sampled once per displayed frame (WEAVE-SPEC 14,
+# SPEC.md 78.9's instruments). `make weavedisk` first - it needs the disk.
+weavegame: tests/weavegame.py
+	python3 tests/weavegame.py
+
+WEAVEDISK := $(BUILD)/weave.o88 $(BUILD)/WEAVE.OVL $(BUILD)/WEAVE.WSM \
+             $(WEAVEWABS)
 
 $(BUILD)/weave.img: $(WEAVEDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(WEAVEDISK)

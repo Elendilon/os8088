@@ -67,8 +67,29 @@ static void *w_win;                     /* our window, banked at create */
 static int   w_state;                   /* W_ST_* - and 1.5's trap 3 is that
                                          * the load CHANGES it, so nothing may
                                          * branch on it before the load runs */
-static char  w_msg[W_MSG];              /* section 10's sentence, on the glass */
-static char  w_status[W_MSG];           /* ...and the row that keeps it */
+static char  w_status[W_MSG];           /* section 10's sentence: the row that
+                                         * keeps it, AND the copy the W_ST_ERR
+                                         * screen draws on row 0.
+                                         *
+                                         * THERE USED TO BE TWO. `w_msg` held
+                                         * the same 88 bytes: w_say() is the
+                                         * only writer of either and copies
+                                         * one sentence into both, and both
+                                         * are cleared together at open. So
+                                         * the error screen drew w_msg on row
+                                         * 0 and w_status on the last row -
+                                         * the same string, twice, out of two
+                                         * arrays. Wave 5 needed the bytes and
+                                         * this was 88 of them, free.
+                                         *
+                                         * THE ONE THING THAT WOULD BREAK IT:
+                                         * a w_saysav() on the W_ST_ERR path.
+                                         * That function writes w_serr and not
+                                         * this, today - but if a later wave
+                                         * gives it the status row as well,
+                                         * the error screen's two rows stop
+                                         * agreeing and this comment is where
+                                         * to start */
 static char  w_serr[W_MSG];             /* 10.6's LAST SCRIPT ERROR, in full -
                                          * a string of its own and not
                                          * w_status, because Bundle Info is
@@ -104,7 +125,13 @@ static unsigned char w_shave[W_NSECTYPE];
 static unsigned w_lastend;
 static unsigned w_natoms, w_nfunc, w_nsprite, w_nformula;
 static unsigned w_ncomp, w_ncard;
-static unsigned char w_idseen[256];     /* comp_id uniqueness (2.5) */
+/* comp_id uniqueness (2.5) used to be a 256-byte seen[] here, and it was
+ * SUBSUMED: ovl_val_uistream refuses any record whose id is not exactly
+ * w_ncomp + 1 - ids are 1..n in document order (2.14 rule 2) - three lines
+ * below where the seen[] test stood, with the same field name in the same
+ * sentence. A duplicate id fails the sequential test first and always, so the
+ * array could never be the thing that fired. 256 bytes, free, and wave 5
+ * needed them (WEAVE-PLAN 2.9). */
 
 /* The header probe (10.1): one cluster, read before the claim exists. */
 static unsigned char w_probe[W_PROBE];
@@ -222,6 +249,16 @@ static void w_gflush(void);
 static void w_gfree(void);
 static void w_gclear(void);
 static void w_gtrigger(void);
+static void w_cpaint(int i);            /* 6.10's canvas, whose other half is
+                                         * WEAVE.WSM (1.2.2) */
+static void w_cflush(void);
+static void w_cdrain(void);
+static void w_cfree(void);
+static int  w_find_spr(int id);
+static int  w_cspr_get(int k, int atom);
+static int  w_cspr_set(int k, int atom, int v);
+static int  w_chire(void);
+static void ovl_canvasload(void);
 static int  w_gcellint(int r, int c);
 static int  w_gsetnum(int r, int c, int lo, int hi);
 static int  w_gsetstr(int r, int c, const char *s);
@@ -278,7 +315,6 @@ static void w_saysav(const char *s)
 
 static void w_say(const char *s)
 {
-    os88_strcpy(w_msg, s, sizeof(w_msg));
     os88_strcpy(w_status, s, sizeof(w_status));
     os88_toast(s, 0);
 }
@@ -350,6 +386,8 @@ static void w_menusync(void)
 #include "wval.c"                       /* the hostile-bundle reader */
 #include "wflow.c"                       /* the flow walk */
 #include "wpaint.c"                      /* ...and what it hands the cores */
+#include "wcanv.c"                       /* 6.10's canvas: the UI-task half of
+                                          * it, the other being WEAVE.WSM */
 #include "wact.c"                        /* the press, the release, the field */
 #include "wfxc.c"                        /* 9.4's one carve-out: FX text */
 #include "wgrid.c"                       /* the cell store and the bands */
@@ -400,28 +438,34 @@ static void w_wipe(void)
                   w_org.y + w_sz.h - 1);
 }
 
-/* w_ctname - 2.5.1's ctype, spelled.  Resident because the LITERALS are
- * resident whatever this function is called from (SPEC.md 73.14), so putting
- * the switch in the overlay would move nine bytes of code and no strings. */
+/* w_ctname - 2.5.1's ctype, spelled.
+ *
+ * A TABLE WALK AND NOT A SWITCH, and the difference is 420 bytes of resident
+ * image. This function's own comment used to say it was resident "because the
+ * literals are resident whatever it is called from, so putting the switch in
+ * the overlay would move nine bytes of code and no strings" - and the first
+ * half is true and the second was wrong by two orders of magnitude:
+ * SmallerC compiles a fourteen-case switch on a byte into a compare chain,
+ * which measured 161 instructions. The literals are ~80 bytes either way; the
+ * code was ~480. Wave 5 wanted them (WEAVE-PLAN 2.9).
+ */
+static const char w_ctnames[] =
+    "?\0label\0text\0rule\0box\0spacer\0meter\0button\0check\0radio\0"
+    "input\0list\0grid\0canvas\0sprite";
+
 static const char *w_ctname(unsigned ct)
 {
-    switch (ct) {
-    case WC_LABEL:  return "label";
-    case WC_TEXT:   return "text";
-    case WC_RULE:   return "rule";
-    case WC_BOX:    return "box";
-    case WC_SPACER: return "spacer";
-    case WC_METER:  return "meter";
-    case WC_BUTTON: return "button";
-    case WC_CHECK:  return "check";
-    case WC_RADIO:  return "radio";
-    case WC_INPUT:  return "input";
-    case WC_LIST:   return "list";
-    case WC_GRID:   return "grid";
-    case WC_CANVAS: return "canvas";
-    case WC_SPRITE: return "sprite";
-    default:        return "?";
+    const char *p;
+
+    p = w_ctnames;
+    if (ct > WC_MAX)
+        ct = 0;
+    while (ct--) {
+        while (*p)
+            p++;
+        p++;
     }
+    return p;
 }
 
 static void w_paint_deck(void)
@@ -477,7 +521,7 @@ static void w_repaint2(void *win, int clear)
     }
 
     if (w_state == W_ST_ERR) {
-        w_row(0, w_msg);
+        w_row(0, w_status);
         w_row(2, "File > Open Bundle... tries another one.");
     } else
         w_paint_deck();
@@ -599,6 +643,20 @@ void os88_onwake(void *win)
 {
     (void)win;
     w_wake();
+}
+
+/* os88_worker - the canvas's frame loop (WEAVE-SPEC 6.10, SPEC.md 20.6).
+ *
+ * IT DOES NOT RETURN. Every byte of the loop is in WEAVE.WSM (1.2.2), and
+ * this is the three-instruction trampoline the kernel's ownership fence
+ * requires: OSAPI_TASK_SPAWN checks that the entry lies inside the calling
+ * instance's own region and refuses otherwise, so the entry has to be here
+ * even though the body is not. If the module is not bound, wcv_run() comes
+ * back and crt0.asm's park loop takes over - which is a worker with nothing
+ * to do rather than a worker that exits, and rule 2 is the difference. */
+void os88_worker(void *win)
+{
+    wcv_run(win);
 }
 
 void os88_oncmd(int item, int menu, void *win)

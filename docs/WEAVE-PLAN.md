@@ -288,6 +288,67 @@ episode is recorded here as method: every budget number in the family is
 required to carry the multiplication that produced it, so a reviewer can
 re-run it.
 
+### 2.9 The canvas core is a SECOND SEGMENT, and the alternatives are priced
+
+**The decision wave 5 turns on, recorded here so that whoever reverses it
+starts from the arithmetic rather than from the shape of the code.** The
+contract is WEAVE-SPEC §1.2.2; this is why.
+
+**What wave 5 opened with.** `weave.o88` at 50,360 image + 10,502 bss =
+**60,862 resident** against SPEC.md §20.1's `APP_MAX_SIZE` of 0xF000 =
+61,440. **578 bytes.** §5.2 already said the pre-named overlay tenants were
+spent for the second time and that the easy structural savings had gone with
+wave 4.
+
+**What wave 5 needs resident, and why none of it can be an overlay tenant.**
+Mask composition, the dirty-band mark/compose/emit, the frame loop, AABB over
+sixteen sprites, the 37-key poll, the staging ring — measured at ~3.4KB of
+hand-written 8086 — run **on a worker task, per frame**. SPEC.md §73.14's
+overlay is loaded by `cc_ovneed`, whose *first instruction* is `call cc_iswk`
+and whose answer on a worker is a refusal: the load claims memory and reads a
+floppy, both forbidden by SPEC.md §20.6 rule 7, and the return-stash LIFO is
+correct for exactly one task. So the tenant list being spent is not what
+decides this. The tenant list is **inapplicable**, and would be at 578 bytes
+or at 5,780.
+
+**The four alternatives, each with the number that lost it.**
+
+| alternative | the arithmetic | verdict |
+|---|---|---|
+| **Raise `APP_MAX_SIZE`** | It is not a budget. A package links at `org 0` and addresses itself with 16-bit offsets (SPEC.md §33), so image + bss can never reach 64KB whatever the heap holds. 0xF000 leaves 4,096 bytes of headroom for the loader's own arithmetic; raising it to 0xF800 buys 2,048 bytes and spends a kernel constant every package in the tree is measured against, on one package's wave | **Refused, and it is not this project's to take** — CLAUDE.md: raising a budget is a decision taken with whoever asked for the feature. And 2,048 bytes buys one wave, not the family |
+| **Move bss into claims** | The three big ones are `w_lay[250]` at 2,500 bytes, `w_probe` at 1,024 and `w_gband` at 720. `w_lay` is defended in the source (an eleventh field costs 500 bytes) and every access would become a `w_w(seg,…)` far call on the layout walk's hot path; `w_probe` must be a whole cluster or §10.1's refuse-before-read guarantee degrades on every 2-sector-cluster volume; `w_gband` is reachable but needs an ES-based composer, which re-opens PERFORMANCE.md Set 111's measured file | **Refused as the ANSWER, taken as a partial** — it buys ~1KB at the cost of speed on measured paths, and wave 5 needs 3.4KB. What it did buy is §2.9's honest savings below |
+| **A second overlay** | Same mechanism, same `cc_iswk` refusal at the door. A second `.OVL` would need a second load path, a second stamp, a second claim — and would still refuse the worker | **Refused: it does not solve the problem at all** |
+| **Cut the feature** | A `<canvas>` without a worker is a canvas that draws on `WM_TIMER` at 18.2 Hz on the UI task, holding the gfx lock for the compose as well as the blit, with every keystroke and every menu track behind it. SPEC.md §20.6 rule 3 is the rule it breaks | **Refused: the windowed game IS the worker** (§4.4) |
+
+**What was taken instead**, and it is the tree's own doctrine rather than a
+new mechanism: CLAUDE.md's hard rule *a C package that does not fit gets a
+second segment, not a bigger one*, read through SPEC.md §68.10's `WORD.OVL`
+(an assembly module beside the package, DS still the package's) and
+`C64.ROM`'s lifecycle (a sidecar read at launch into a claim, never
+re-read). `WEAVE.WSM` is both: a flat `nasm -f bin` binary at `org 0`, read
+**once at open and only when the bundle declares a canvas**, resident until
+close, far-called from the worker and from the UI task alike. A bundle with
+no canvas pays nothing at all — not a claim, not a disk revolution, not a KB
+of §10.1's ask.
+
+**What it costs, and it is not free.** One more claim record: WEAVE-SPEC
+§1.4's ladder goes from six at peak to **seven against SPEC.md §50.2's cap of
+eight**, so the family has one spare rather than two, and §1.4 names the
+candidate to take back if an eighth is ever wanted. One more file on the
+disk, and one more refusal sentence at open. One more stamp to keep honest —
+and the stamp is stronger than `.OVL`'s, because a shared `%include` gives
+both assemblies an ABI number, which two size words cannot express.
+
+**And the honest savings were taken first, because a wave that reaches for a
+new mechanism without them has not earned it.** Two, both provable, both
+free: `w_idseen[256]` (the comp_id uniqueness bitmap) is **subsumed** by the
+sequential check three lines below it — a bundle whose ids are not exactly
+1..n in order is refused by `id != w_ncomp + 1` with the same field name, so
+the array can never be the thing that fires; and `w_msg[88]` was a
+byte-for-byte duplicate of `w_status[88]`, written only by `w_say()`, which
+copies the same sentence into both. **344 bytes**, which is not the wave and
+is 60% of what wave 5 opened with.
+
 ---
 
 ## 3. The platform facts that shaped everything
@@ -340,6 +401,33 @@ it is asked for and read) that converts WEAVE-SPEC §4.12 from design figure
 to measurement. If the reading lands below ~10k, handler budgets and the
 `ontick` feature shrink; no performance claim ships on emulator evidence
 alone (docs/TESTING.md).
+
+**Commissioned, and it is request W1** in docs/FIELD-MACHINES.md's "Standing
+requests, unanswered" — where a request lives until it is answered, at which
+point it moves into PERFORMANCE.md Part 9 with its provenance lines. Wave 5
+built the two things it needs, and neither existed before:
+
+- **the banner itself.** WEAVE-SPEC §4.12 said About would carry
+  `WVM: <n> ops/s (measured)` and nothing did. It does now, in About and
+  again in Bundle Info — the second is not a duplicate, because About is a
+  toast and retires itself in about three seconds, which is not long enough
+  to copy a five-digit number off a 5150's screen by hand. Only EXHAUSTED
+  slices are counted, which is WEAVE-SPEC §4.10's own rule and the only
+  honest window, and WEAVE-SPEC §4.12 pins the arithmetic so a reader can
+  re-run it.
+- **the canvas's three counters** — frames, blits and the staging ring's
+  dropped-record count — in `WEAVE.WSM`'s state block, printed by Bundle Info
+  and read by `tests/weavegame`. `blits/frames` is WEAVE-SPEC §14's row, and
+  `ovf` is input overrun, which is the only one of CLAUDE.md's three
+  emulator-invisible defects this family can turn into a number at all.
+
+**What is already settled and is NOT being asked.** MartyPC is exact about
+how much work the guest does (PERFORMANCE.md Part 4), so the CALL count is
+container evidence and needs no iron: three consecutive runs on a 5150/CGA
+gave 1.00–1.06 gfx calls a frame at 17.7–18.7 fps, and Hercules 0.95 at 18.6.
+What the 5150 is asked for is the ops/s reading, the milliseconds, and the
+two things only a person watching can answer — does the ball move smoothly,
+and does anything flicker.
 
 ### 4.3 Syntax highlighting in Loom
 
@@ -437,6 +525,47 @@ real sheet first.
 Committing over a `=?` replaces the formula, which is the operation the user
 was reaching for — so the gap costs a look, never an edit.
 
+### 4.6 The `ontick` budget at LOAD, and why the runtime does not re-check it
+
+Wave 5 drafted this as a wave-5 deliverable — WEAVE-SPEC §13.1's row says
+"ontick budget enforcement" — wrote the amendment, and then reversed it after
+reading what WEAVE-SPEC §4.11 already covers. The record is here rather than in the spec
+because it is a decision and not a contract.
+
+**The argument for a load-time check** was WEAVE-SPEC §10.4's own opening: a `.WAB` on a
+disk need never have been through a packer, so a runtime that trusts a
+pack-time refusal is trusting a file. That is right for every other WEAVE-SPEC §10.5
+rule the validator already re-checks.
+
+**What killed it** was the second half of the same argument: that WEAVE-SPEC §4.11's
+runaway alert could not reach an `ontick` handler, because the counter is
+armed per dispatch and an `ontick` is dispatched every frame. `w_startt` is
+armed at each `wvm_begin` — once per **handler invocation**, not once per
+frame — so a handler that never finishes never re-arms it and the alert fires
+at 90 ticks like any other. The hang is covered. What the pack-time bound
+protects is the frame rate: a handler that *finishes* but costs 600 ops eats a
+third of the VM's second at 18 fps, and WEAVE-SPEC §4.9 rule 3's collapse turns that into
+an app that runs slowly rather than one that falls over.
+
+**What it would cost.** An exact check needs an operand-length table for all
+38 opcodes. The runtime does not carry one and has no other use for one:
+`wvm.inc` decodes each operand inside its own op body, which is what makes the
+dispatch a two-instruction jump. Generating a second table that both cores
+have to agree about is the kind of duplication WEAVE-SPEC §12's whole differential
+apparatus exists to avoid, for a bound whose failure mode is slowness.
+
+**What was rejected along the way.** WEAVE-SPEC §2.8 packs functions contiguously, so a
+function's BYTE length is `next offset - this offset` and needs no table at
+all — and 64 ops is at most 192 bytes, so `len > 192` refuses the extreme
+cases. It also passes a hundred single-byte ops, which is enforcement in name
+only, and a check that is called enforcement and is not is worse than none.
+
+Whoever reopens this starts here, and the cheapest honest version is probably
+a **format** change rather than a runtime one: one byte of op count per
+function in the CODE table, written by both packers, checked by the validator
+in one compare. That is a `.WAB` version bump and belongs to whichever wave is
+already making one.
+
 ### 4.5 The stale slot count in os88.h
 
 `apps/cc/os88.h:141` says the C thunk layer covers "90 of the 134 slots";
@@ -482,7 +611,7 @@ every wave gated before the next begins:
 | 2 | the WEAVE viewer — Frotz accept idiom, flow walk, static components | `weavesmoke` on both 1bpp adapters |
 | 3 | interaction + the WVM — event ring, adaptive slices, Reload | the raw-QEMU differential corpus, then session replay and the SPEC.md §7.3 latency bar |
 | 4 | `<grid>` — band composer, per-row damage, FX VM, sliced recalc | recalc-vs-model and the incremental-equals-full pixel identity |
-| 5 | `<canvas>`/`<sprite>` — worker loop, masks, collision | wirefps/wireflick, and **the field run** (§4.2) |
+| 5 | `<canvas>`/`<sprite>` — worker loop, masks, collision, **and `WEAVE.WSM`, a second resident segment** (§2.9) | `weavecanvas` FIRST, then `weavegame`; the field run is COMMISSIONED (§4.2) |
 | 6 | Loom — editor transplant, overlay compilers, Pack, Preview | on-machine pack **byte-identical** to `weavesim --pack` |
 | 7 | distribution — `make weavedisk` ×3 geometries, vm targets, allapps rows | the release checklist, and the 256KB one-app refusal exercised on the `xt` target |
 
@@ -491,7 +620,36 @@ the ~52KB target, 55,000 bytes the overlay-split trigger, the OVL
 candidates pre-named (WEAVE-SPEC §1.2) so the split is a move, not a
 scramble.
 
-**As of wave 4 it is 60,862 resident against SPEC.md §20.1's 61,440 ceiling
+**As of wave 5 it is 60,320 resident against SPEC.md §20.1's 61,440 ceiling —
+1,120 bytes — and the wave that got there did it by putting its code in a
+SECOND SEGMENT** (§2.9, WEAVE-SPEC §1.2.2) rather than by finding room. Wave 5's
+first build was 62,850, 1,410 over; five structural cuts brought it under, of
+which two were the honest savings §2.9 asks a wave to take first and three
+were the wave's own C compiling fatter than it read. `WEAVE.WSM` is 4,593
+bytes and `WEAVE.OVL` 20,740.
+
+**Then the merge with `main` took the 32 bytes and 42 more — 61,514, 74
+over — and a sixth cut answered it: 51,124 + 9,196 = 60,320 resident, 1,120
+under.** The overrun is worth naming because no Weave source caused it: the
+Elendilon work `main` carried grew the SHARED SDK includes (`os88api.inc`,
+`os88ui.inc` — the scroll bar's arrow buttons and arrow-drag, which `<list>`
+and `<grid>` reach, so the feature cannot be `%define`d out), and a package
+that shares a library pays for the library's growth. **The cut is duplicated
+DATA, and it is the last cut of its kind this file knows of**: §10.4's
+validator answers with the name of the field that refused, and SmallerC emits
+a string literal once per site rather than pooling — `section table` eighteen
+times, `prop block` twenty-one — while a literal an `ovl_` function names
+stays RESIDENT even though its code does not (SPEC.md §73.14). Spelling the
+twenty-four names once each in `apps/weave/wval.c` is **1,194 bytes** with
+`.text` byte-identical, so it costs no call on any path. **Do not re-propose
+it, and do not re-propose the wave 3–5 cuts below**: `w_idseen`, `w_msg`, the
+per-component rect table, the layout record's `row` field, the dirty bitmap,
+`w_ctname`'s switch, the sprite atom map, the ops/s arithmetic, `w_gband` and
+`w_fxc_out` aliased into `w_probe`, the comp_id tables at 251, and the
+word→byte arrays are all spent. What follows is wave 4's record, kept because
+its arithmetic is what wave 5 planned against.
+
+**As of wave 4 it was 60,862 resident against SPEC.md §20.1's 61,440 ceiling
 and the pre-named list is spent for the second time.** Wave 3 spent tenants
 1–5 and wave 4 added and spent 6 and 7, which is the mechanism working as
 designed; what is left in WEAVE-SPEC §1.2.1 is two tenants that do not exist
