@@ -43447,6 +43447,96 @@ can fall in the dead zone, and so can an origin.
 `wm_zoom` uses it, and `fsx` will — so they cannot drift about which monitor an
 app is on.
 
+#### 39.16.3.5 A GROW across the seam was discarded whole, by the bank
+
+**Drag the Note Pad's grow box from the Hercules clear across onto the CGA and
+the window does not resize at all** — not cut, not clamped: *unchanged*.
+Measured on `os8088_5150_both_gla`, Hercules primary, extended Right. The
+outline tracks correctly the whole way — `ui_dragw` 266 → 946, `ui_dragh`
+180 → 136, read out of the guest mid-drag — and the release commits **266x180**,
+the size it started at.
+
+`ui_resize` writes the dragged size into the record, marks the window
+`wm_usr_mark`, and then calls `wm_land_fit`. The kind has changed (one display
+to the restrictive of two), so `wm_strad_fit` runs, and it opens with
+`wm_nat_take_wh` — which puts the **natural bank** back. On this path the bank
+has not been written yet: `wm_nat_bank` is the call *after* `wm_land_fit`. So
+the take restores the size the window had **before the grow**, and the grow is
+gone.
+
+It then hides its own tracks. The restored 266 no longer reaches the second
+display, so `wm_strads` answers *not straddling*, `wm_sf_lim` falls to the
+window's own display, and the height clamp finds nothing to cut — which is why
+the record comes back at exactly 266x180 and reads as *"the drag never
+happened"* rather than as a clamp.
+
+**`wm_usr_mark` was put ahead of the fit for this exact case and closes half of
+it.** Its own comment says so — *"a grow that crosses the seam changes the
+adapter kind, and an unmarked window would be handed its published size instead
+of the one the hand just dragged out"* — and §11.100.5 is enforced in
+`wm_pref_take`, which reads `wm_usrsz` and declines. `wm_nat_take_wh` consults
+no mark at all, so the **bank** put back what the *preference* was forbidden to.
+
+So the size the hand chose is banked **before** `wm_land_fit`, where the take
+reads it: the take becomes a no-op and the clamp still bounds the result.
+
+**It is an ADDITION and not a move**, and the bank *after* the fit stands
+exactly as it was. A first version also made that one `wm_nat_bank_xy`, on the
+reasoning that banking behind a clamp banks the cut — §11.100.3, a clamp may not
+become its own source, which is the care `ui_drag`'s own release takes at this
+same point. That argument is sound and it is **not made here**, because it is
+not needed to fix anything: on a single display `wm_land_fit` returns at its
+first compare, so the reorder's only effect there was the banked size becoming
+the pre-`wm_snap_win` one — a change to every machine in service of a rule about
+the seam. Adding a bank in front of a no-op leaves the final banked state
+identical on such a machine; reordering the one behind it does not. So a machine
+that cannot straddle sees the sequence it always saw, and whether the grow path
+should also stop banking its own clamp is left as the separate question it is.
+
+`tests/dispnp.py` is the row. It had never reached its own assertion — it fails
+at *"it does not straddle the seam"*, because the window it is trying to make
+wide is the one this discards.
+
+#### 39.16.3.4 …and the width it leaves must still be a WHOLE NUMBER OF BYTES
+
+**A window dragged across the seam came back two pixels narrower than it went,
+on the axis this rule is not allowed to touch.** Measured on
+`os8088_5150_both_gla`, Hercules primary, extended Right — the Disk window
+322x200 on the Hercules, dragged until it straddles, landing **320x140**. The
+height is §39.16.3 working; the width is not §39.16.3 at all.
+
+Two pixels is the whole tell, because two pixels is exactly what §11.94.5's
+rounding is worth on this frame: content `W_W - 2`, rounded **up** to a
+multiple of 8. `wm_strad_fit` opens by taking the size the window *asked* for
+back out of the natural bank (§11.100.3) — and a bank holds an **ask**, never a
+snap, so what comes back is 320 where the record held 322. Every other path
+that settles a size ends in `wm_snap_win` and rounds it again; this one is
+documented as *"the same sequence with the right clamp on the end"* and is the
+one path that **deliberately does not call `wm_fit`** (§39.16.3), so it
+inherited the clamp and not the snap.
+
+What that costs is not two columns. A content width off a byte boundary is the
+one thing §11.96.17's one-plane claim must not have, so the frame that lands
+also gives up its raise cache — and a straddling window is the most expensive
+one on the machine to repaint.
+
+**The snap runs after the take and BEFORE the clamp**, which is the ordering
+the free axis decides: side by side the clamp is `y`'s and cannot argue with
+it, and stacked the clamp is `x`'s and must be able to narrow what the snap
+just rounded up. Rounding up *after* an `x` clamp would hand back up to seven
+columns of the dead zone this section exists to close, so the clamp goes last.
+
+**And §11.95.2.1's third test had to learn about the seam.** `wm_snap_w` vetoes
+an upward snap whose right edge would leave the window's own display — right
+for a frame on one display, and the reason that test reads `wm_disp_xw` rather
+than `[vid_w]`. A **straddling** frame is past its own display's edge *by
+definition*, so the veto fired on every one of them and sent the width **down**
+instead: the same 320 would have become 314. A straddler is bounded by the
+desktop, and hanging off *that* is what this section permits — so the test asks
+`wm_strads` first and takes the union's far edge when it straddles.
+`tests/dispstrad.py` and `tests/dispbrow.py` are the two rows, and the second
+of them is the field's *"chopped thin in the X direction"* (§11.100.9).
+
 #### 39.17.1 §11.2's fullscreen takes that display, and the chrome survives
 
 `wm_fullscreen` sizes the window to `wm_disp_of`'s answer rather than to the

@@ -1956,6 +1956,18 @@ ui_grow:
                                 ; its published size instead of the one the
                                 ; hand just dragged out
 %ifdef KERN_BIG
+    call wm_nat_bank            ; ...AND NEITHER MAY THE BANK (SPEC.md
+                                ; 39.16.3.5). wm_usr_mark closes the PREFERENCE
+                                ; half of 11.100.5 - wm_pref_take reads wm_usrsz
+                                ; and declines - and wm_strad_fit opens with
+                                ; wm_nat_take_wh, which consults no mark at all.
+                                ; The bank is not written until below, so a grow
+                                ; across the seam was handed the PRE-GROW size
+                                ; and the whole resize was discarded: the
+                                ; outline tracked to 946x136 and the record came
+                                ; back 266x180. Banked HERE, where the take
+                                ; reads it, that take is a no-op and the clamp
+                                ; still bounds the answer
     call wm_land_fit            ; a grow can push a frame across the seam too
 %endif                          ; (SPEC.md 39.16.3)
     call wm_snap_win            ; ...and the ALIGNED x is a question about the
@@ -1970,6 +1982,20 @@ ui_grow:
                                 ; because the snap may have moved the origin,
                                 ; and after the straddle fit for its reason
                                 ; (SPEC.md 39.11.2.1)
+                                ;
+                                ; LEFT EXACTLY AS IT WAS, and the bank above is
+                                ; an ADDITION rather than a move. Making this
+                                ; one xy-only is arguable on 11.100.3 - banking
+                                ; behind a clamp banks the cut, which is why
+                                ; ui_drag's release uses wm_nat_bank_xy here -
+                                ; but it is not needed to fix anything: on a
+                                ; SINGLE display wm_land_fit returns at its
+                                ; first compare, so the reorder's only effect
+                                ; there is the banked size becoming the PRE-snap
+                                ; one, a change to every machine for a rule
+                                ; about the seam. The added bank leaves the
+                                ; final banked state identical on such a
+                                ; machine; reordering this one does not
 
     ; --- A PURE SHRINK OWES ITS CONTENT NOTHING (SPEC.md 11.90.3) ----------
     ; Every pixel inside the new content rect is still what the application
