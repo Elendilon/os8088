@@ -73,6 +73,7 @@ UNREGISTERED = {
     #     two-build session rather than a row (the knob itself is kept alive
     #     by t_buildmatrix; this is the behaviour half) ---
     "heapsame.py": "A/B gate - needs `make HEAPCOMPACT=0` as a reference build",
+    "swcolsame.py": "A/B gate - needs `make NOCOLFAST=1` as a reference build",
     # pkgthumb.py IS registered (four rows). Its `frotz` mode is not one of
     # them: a Z-machine interpreter needs a STORY, and the two ways to get one
     # are a network fetch or the Inform compiler, neither of which is a build

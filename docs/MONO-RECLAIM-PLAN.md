@@ -487,13 +487,34 @@ possible but its headroom is nothing like its share.
 
 ### 5.3 So the ranking, corrected
 
-1. **`sw_col`** — 10.0% of the machine in WIREFRAME and part of the saver's ~12%,
-   and **it has had no specialisation pass at all**. Its row body is a
+1. **`sw_col` — BUILT (SPEC.md §39.25), and it is smaller than this section
+   assumed.** 10.0% of the machine in WIREFRAME and part of the saver's ~12%,
+   and it had had no specialisation pass at all. Its row body is a
    read-modify-write pair (`and [es:di],bl` / `or [es:di],al`) plus a pattern
    `xor` plus the bank-wrap test, ~25 bytes of traffic a row on an 8088's 8-bit
    bus. A full-mask solid column is one `mov [es:di],al` — the RMW pair is ~40
    clocks of ~100 and a specialised entry does not owe it. The wrap test is
    hoistable within a bank. **This is the one with headroom and evidence both.**
+
+   **What was actually built is the first of those and only that**: the
+   whole-column store, `24 bytes of .text`, crossing no rung. The read-modify-
+   write pair goes when the mask is `FF`, which SPEC.md §11.94 makes the common
+   case rather than a lucky one — a chrome fill arrives with both edge columns
+   whole, and an 8-wide aligned rect is a single whole column with no interior.
+   Per row it is **15 bytes of 8088 traffic against 25**. Correctness is
+   `tests/swcolsame.py`: **0 differing pixels on CGA and Hercules**, with a
+   negative control that differs in 4,992 bytes.
+
+   **And it did not need the hole.** §3's whole in-place-reuse mechanism — the
+   `.ovl` decider, the blob sectors, the `tests/vgarefs.txt` ratchet — exists to
+   give a mono machine something a VGA machine does not pay for. At 24 bytes
+   that apparatus costs more than the payload. The hole is worth building when a
+   specialisation is big enough to be worth hiding from `kern_big`'s VGA
+   machines, and the first one is not: it went in as ordinary `kern_big` code
+   behind `GFX_COLFAST`, with `NOCOLFAST=1` as the A/B. **Whether the remaining
+   two are big enough is the question that decides whether §3 gets built at
+   all**, and it should be asked of each one after it is written rather than
+   before.
 2. **`sw_rect` / `sw_plane_op`** — the parameterised core, `SWM_SOLID` /
    `SWM_GRAY` / `SWM_XOR` behind a per-row `[sw_mode]` test. `sw_rect` alone
    spends **~216 clocks, about 7%, on eight pushes and eight pops** it takes only

@@ -468,6 +468,18 @@ sw_col:
     mov bp, [cs:vid_wrapbit]    ; is three instructions and the call and ret
     cmp byte [sw_mode], SWM_XOR ; around them cost as much again
     je .xrow
+%ifdef GFX_COLFAST
+    or bl, bl                   ; --- SPEC.md 39.25: A WHOLE COLUMN NEEDS NO
+    jz .frow                    ;     READ. ~mask = 0 means the byte is ours
+%endif                          ;     entire, so there is nothing under it to
+                                ;     preserve and the read-modify-write pair
+                                ;     below is doing nothing but cost. That is
+                                ;     not a rare shape: gfx_rect_setup takes
+                                ;     the left mask from x1 & 7 and the right
+                                ;     from x2 & 7, and SPEC.md 11.94 puts every
+                                ;     window's content origin on a multiple of
+                                ;     8 - so an ordinary chrome fill arrives
+                                ;     with BOTH edge columns whole
 .row:
     mov al, ch
     and al, ah                  ; AL = pattern & mask
@@ -482,6 +494,19 @@ sw_col:
     dec dx
     jnz .row
     ret
+%ifdef GFX_COLFAST
+.frow:
+    mov [es:di], ch             ; the pattern byte, whole. `and al, ah` is a
+    xor ch, cl                  ; no-op at mask FF and the read is gone with
+    add di, si                  ; it, so a row is one store where it was two
+    test di, bp                 ; accesses and two ALU ops - 15 bytes of
+    jz .fnw                     ; traffic against 25 on an 8088's 8-bit bus
+    add di, [cs:vid_wrapfix]    ; (PERFORMANCE.md Set 20's model)
+.fnw:
+    dec dx
+    jnz .frow
+    ret
+%endif
 .xrow:
     xor [es:di], ah
     add di, si

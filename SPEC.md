@@ -44992,6 +44992,45 @@ the three call sites are 3 bytes each plus `fr_emit_body`'s 5-byte compare —
 
 `tests/frpromise.py` is the gate.
 
+### 39.25 A whole column needs no read
+
+`sw_col` writes one masked byte column of a rect: `dest = (dest & ~mask) |
+(pattern & mask)`, the pattern xor-stepped per row. **When the mask is `FF` the
+byte is ours entire, so there is nothing under it to preserve** — the
+read-modify-write pair is doing nothing but cost, and the row becomes one
+store.
+
+**That is not a rare shape, which is the whole point.** `gfx_rect_setup` takes
+the left column's mask from `x1 & 7` and the right column's from `x2 & 7`, and
+§11.94 puts every window's content origin on a multiple of 8 — so an ordinary
+chrome fill arrives with **both** edge columns whole, and an 8-wide aligned
+rect is a single whole column with no interior at all.
+
+| per row, 8088 byte traffic (PERFORMANCE.md Set 20's model) | instr | data | |
+|---|---:|---:|---|
+| the general body — `mov`/`and`/`and [es:di]`/`or [es:di]`/`xor`/step/wrap/loop | 21 | 4 | **25 bytes** |
+| the whole-column body — `mov [es:di], ch`/`xor`/step/wrap/loop | 14 | 1 | **15 bytes** |
+
+**It costs 24 bytes of `.text`** and crosses no rung. `kern_small` does not get
+it (§39.24.4: that build is under a cut, and this is speed rather than
+correctness), and `NOCOLFAST=1` takes it out of `kern_big` too.
+
+**`NOCOLFAST=1` is not decoration — it is half the correctness argument.** Two
+bodies drawing "the same" column is the shape that goes wrong quietly: the
+pattern step, the row advance and the bank wrap are duplicated, and a fast body
+that dropped the `xor ch, cl` would draw a solid fill perfectly and a GREY one
+wrong on every other row. On an ordinary build almost nothing reaches the
+general body, so the knob is what exercises it. `tests/swcolsame.py` is the
+gate and it is an A/B in `heapsame.py`'s shape: an identical scripted session
+captured at every step on both 1bpp adapters, once per build, compared byte for
+byte. **0 differing pixels on CGA and on Hercules**, and the negative control
+was run — removing that `xor ch, cl` makes the comparison differ in 4,992
+bytes, which is what says the fast body is reached by an ordinary session at
+all.
+
+**The XOR mode is untouched.** `SWM_XOR` writes `dest ^= mask` and has no read
+to remove.
+
 ### 39.24 `kern_small` does not drive a VGA
 
 **A 128KB machine has no business with a VGA card in it, so `kern_small` does

@@ -284,6 +284,18 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %endif
 %endif
 
+; SPEC.md 39.25's whole-column store in sw_col, on 5.4.1.3's terms one block
+; up: kern_big gets it, kern_small does not, because that build is under a cut
+; (39.24.4) and this is 24 bytes of speed rather than of correctness. NOCOLFAST=1
+; takes it out of kern_big too - that is the A/B, and it is the only thing that
+; exercises the general body on an ordinary build, because a chrome fill is
+; byte-aligned (11.94) and never reaches it.
+%ifdef KERN_BIG
+  %ifndef NOCOLFAST
+    %define GFX_COLFAST 1
+  %endif
+%endif
+
 ; ...AND THE DECODER IS A VGA THING, so it may not outlive the card. Its three
 ; bodies (vga_p4build, vga_blit_prow, vga_prow_emit) sit inside `%ifdef
 ; GFX_PLANE` alone rather than inside both gates, which is correct only while
