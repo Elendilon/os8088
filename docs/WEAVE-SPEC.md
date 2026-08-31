@@ -50,7 +50,7 @@ whole develop–run cycle lives on the target with zero new kernel bytes.
 | piece | what it is |
 |---|---|
 | **`WEAVE.O88`** | the runtime. A C package (`CC_PACKAGE(weave,weave,WEAVE.OVL)`, SPEC.md §73) with hand-written 8086 cores for the hot loops, RUNCPM's shape (SPEC.md §74). Opens one `.WAB` per instance. Resident target ≤52KB image+bss; 55,000 bytes is the overlay-split trigger (SPEC.md §73.14) |
-| **`WEAVE.OVL`** | the runtime's one overlay: refusable, UI-task-only command paths — verbose bundle diagnostics, About, state import/export dialogs, formula-function help. Nothing an event handler needs mid-run lives here |
+| **`WEAVE.OVL`** | the runtime's one overlay: refusable, UI-task-only paths — the tenant list is §1.2.1. Nothing an event handler needs mid-run lives here |
 | **`LOOM.O88`** | the IDE. A separate native package (the WORD/CWORD precedent: two things may not answer to one name). Note Pad's editor engine transplanted with prefix `lm_` (the SPEC.md §68 precedent), a file-list sidebar, one editor pane |
 | **`LOOM.OVL`** | Loom's one overlay: the WML compiler, the WJS compiler, the FX pre-compiler, the atom interner, the bundle writer. Pack is a menu command and menu commands may refuse — the canonical overlay tenant |
 | **`apps/weave/*.inc`** | the shared component library: **paint and hit-test** cores as assembly source `%include`d by BOTH packages (the `apps/os88ui.inc` model, SPEC.md §20.5.1 — this platform's only code-sharing mechanism). They are assembly from wave 2 because they run under the gfx lock, once per callback, and are what LOOM's Preview (§1.7) paints with. **The flow walk (§7) is C in the runtime** and is not one of them: it emits no gfx call, runs over at most 250 records in microseconds (§7.2), and has exactly one caller until LOOM exists. When LOOM lands (wave 6) it takes the same walk — moved to a shared `.inc`, or called through one — and **never a second copy**: two layouts that must agree cell-for-cell (§12) is the failure §11's byte-identity rule exists to prevent, said about code instead of about bundles |
@@ -65,6 +65,67 @@ drains the ring in adaptive `OSAPI_WM_ONWAKE` slices (§4.10). One worker
 task exists only while a `<canvas>` game runs (§6.10) and obeys
 SPEC.md §20.6 to the letter — it never touches a file, a memory slot, or
 anything a worker may not.
+
+#### 1.2.1 The overlay's tenants, in the order they move
+
+The split is by **FREQUENCY** and not by size (SPEC.md §73.14): a keystroke's
+path stays resident, a once-per-open or once-per-command path can go out,
+because a menu command may refuse and a keystroke may not. The list is
+ordered, and a wave that crosses the 55,000-byte trigger moves the next
+entries until it is under with room for the wave after it — the point of
+naming them in advance is that the split is a move rather than a scramble.
+
+| # | tenant | how often it runs | shipped in |
+|---|---|---|---|
+| 1 | verbose bundle diagnostics (Bundle Info) | a menu command | wave 2 |
+| 2 | About | a menu command | wave 2 |
+| 3 | **the bundle validator** (§10.4) | once per open; the runtime's largest single body of code | wave 3 |
+| 4 | **the load path** — the size probe, the capability tests, the directory search, the claim and the read, the component birth state, the field pool's assignment, the menu build, the VM bind and §2.6.2's module-init call | once per open, and once per `^R` (§1.7), which is a COMMAND keystroke and not an editing one | wave 3 |
+| 5 | **`saveState` / `loadState`** (§8.3) | a builtin, so MID-RUN — the one stated exception, below | wave 3 |
+| 6 | state import/export dialogs | a menu command | — |
+| 7 | formula-function help | a menu command | — |
+| 8 | the flow walk's NATURAL SIZES (§7.3) | once per open and per resize — **not** movable while `app.go()` can reflow from a handler (§6.12) | — |
+
+Entries 6 and 7 do not exist yet. **Entry 8 is listed with its own
+disqualification**, because it is the obvious next thing to reach for and it
+is wrong: a card switch runs the walk from inside a handler, so the walk is
+mid-run by §6.12's own design and moving it would put a refusable call on the
+path a running script takes.
+
+**Entry 5 is the one exception to "nothing an event handler needs mid-run",
+and it is stated rather than stretched.** `saveState()` and `loadState()` are
+builtins: a script calls them from inside a slice, which is exactly the case
+the rule exists to protect. Three things make them the exception and nothing
+else is:
+
+- **The refusal already exists and is already the answer.** §8.3 says the
+  pair "returns false — never a crash — on refusal (no room, no file, no
+  `SYSTEM/APPDATA`, write-protected disk)". A module that will not load is
+  one more reason the state was not written, arriving on a path the app
+  already has to handle. Every other mid-run body would have to invent a
+  meaning for a refusal.
+- **They are already the slowest thing a handler can do.** Both take a
+  transient claim and touch a floppy — ~400 ms of `int 13h` on the target
+  (CLAUDE.md's cost table) — so one more module read is a fraction of a cost
+  the app author already chose to pay, where on any drawing or arithmetic path
+  it would be the whole cost.
+- **They cannot be called from a worker**, so the overlay's UI-task-only rule
+  (SPEC.md §73.14) is met by construction: §8.3 puts them on the UI task
+  inside the ONWAKE slice, and SPEC.md §20.6 rule 7 is why.
+
+An implementation that moves anything else mid-run has to write a paragraph
+like this one for it, and if it cannot, the body stays resident.
+
+**What a refused overlay costs, per tenant, and it must be stated rather than
+discovered.** A refused load returns 0 (`apps/cc/crt0.asm`), so every tenant
+whose natural answer is a pointer or a count has to be written to answer
+"did it run" separately from "what did it say" — the validator's `const char *`
+where 0 means VALID is the worked example (§10.4). With tenants 3 and 4 out,
+a missing or stale `WEAVE.OVL` means **no bundle opens at all**, refused with
+the sentence naming the overlay rather than the bundle. That is the price of
+the split and it is paid once, visibly, on a disk somebody has taken the
+package off without its module — which is why `make weavedisk` puts both in
+one folder and `weavesmoke` boots that folder.
 
 ### 1.3 The languages, and where compilation lives
 
@@ -160,11 +221,26 @@ wave 2 may ship File → Open only, but this is where launch-empty lands.
 
 ### 1.7 The edit–run loop
 
-Pack (Cmd-P in Loom, §11) → click the open WEAVE window → **Cmd-R Reload**.
+Pack (`^P` in Loom, §11) → click the open WEAVE window → **`^R` Reload**.
 `File → Reload` re-reads the current bundle from disk into a fresh claim,
 re-runs the flow walk, restarts the VM; the app's `.SAV` file (§8.3) is
 untouched. Two keystrokes and a click per iteration, zero kernel bytes.
 Only the first-ever run of a new bundle takes a Finder double-click.
+
+**The keystroke is `Ctrl-R`, written `^R`, and it is not a menu
+accelerator.** Earlier drafts of this section said "Cmd-R", which is the
+Macintosh spelling the whole system borrows its *look* from and not
+something this machine has: there is no command key, and no `OSAPI_*` slot
+binds a key to a menu item — `OSAPI_MENU_SET` (SPEC.md §12.2) draws and
+tracks a bar and nothing else. A package that wants a shortcut reads it in
+its own `W_ONKEY`, and the item's label says so, which is Note Pad's
+convention verbatim (`Open...  ^O`, `Replace...  ^R`). So WEAVE's File menu
+carries `Reload  ^R` and `os88_onkey` acts on **ASCII 0x12** — a control
+character, which `apps/os88line.inc` hands back to its caller rather than
+inserting (`os88line_key`'s `.ctrl` arm), so the shortcut and a focused
+`<input>` cannot fight over it. A bare `r`, which wave 2 shipped because
+nothing could type yet, would have been eaten by the first field on the
+card.
 
 Loom additionally offers **Preview** — the compiled UI stream rendered in a
 child area by the SAME shared component includes WEAVE paints with; widgets
@@ -896,6 +972,16 @@ with §10.6's sentence.
   script-error sentence (§10.6). `+` on two strings concatenates (result
   ≤ 255 bytes or script error); `+` on any other mixed pair, and every
   other arithmetic op on non-ints, is a script error.
+- **`-32768 / -1` is `-32768`**, and `-32768 % -1` is `0`. It is named
+  because it is the one arithmetic case where the machine and the model
+  part company by construction rather than by anybody's mistake: the
+  mathematical quotient is 32,768, wrapping is the rule above, and the
+  8086's `idiv` does not wrap it — it raises **INT 0**, the same vector
+  as divide-by-zero, with no handler installed in a package. So the
+  implementation tests for the pair before dividing and answers the
+  wrapped value; without that the app does not report a script error, the
+  machine hangs. (The model's `wrap16(abs(a)//abs(b))` reaches the same
+  answer by arithmetic and cannot see the trap.)
 - **Comparisons**: `==`/`!=` compare tag and payload (strings by contents,
   byte-wise); `<` `<=` `>` `>=` require two ints or two strings (bytewise
   order) — anything else is a script error.
@@ -972,6 +1058,41 @@ A function with no `return` falls off its end: the compiler emits
 `PUSHN` + `RET` there (handlers' return values are discarded). `HALT`
 appears only as the compiled body of an empty function table's guard and
 at the end of §4.11's stop path; handlers end in `RET`.
+
+#### 4.5.1 Every indexed operand is bounds-checked at dispatch
+
+**Binding, and it is a rule about hostile bytes rather than about
+correctness.** §2.8's CODE section is validated at load only as far as its
+*function table* — count, per-function offset, `nargs`, `nlocals` — because
+that is what can be checked in one pass; the bodies are a byte stream whose
+instruction boundaries are not knowable without decoding them, and a
+decoder that walks them still cannot prove that a jump lands on one. A
+`.WAB` on a disk need never have been through a packer (§10.4), so the
+guarantees §4.6's compiler makes do not travel with the file, and an
+operand believed on sight indexes a table with a number nobody wrote.
+
+The dispatcher therefore checks, per op, before it is obeyed:
+
+| operand | bound | else |
+|---|---|---|
+| the opcode byte | < 38 | `bad opcode.` |
+| `LDG` `STG` `INCG` `DECG` g8 | < 128 (§2.8's cap) | `bad opcode.` |
+| `LDL` `STL` l8 | < the current frame's `nlocals` | `bad opcode.` |
+| `CALL` f8 | < the function count | `bad opcode.` |
+| `BUILT` b8 | < 12 (§8.1) | `bad builtin.` |
+| `PUSHA` atom8 | an atom this bundle can name (§2.7) | `bad opcode.` |
+| `JMP` `JZ` `JNZ` target | inside the CODE section's body | `bad opcode.` |
+| `PUSHC` comp8, `GETP`/`SETP`/`CALLM` atom8 | — | resolved natively, which already answers `no component %d.` / `no property "%s" on a %s.` |
+
+Six compares and no table (`AGET`/`ASET` were already bounds-checked by
+§4.4, and `PUSHI`/`PUSHB`/`PUSHN`/`POP`/`DUP`/`RET`/the arithmetic take no
+index at all). The cost is under 3% of the §4.12 contract and the
+alternative is a package that writes into its own claim at an address a
+corrupt file chose. A jump that lands *inside* another instruction's
+operand is not detectable this way and is not meant to be: what these
+bounds guarantee is that such a stream can only run garbage **inside the
+VM's own claim** and will meet one of the sentences above, never that it
+runs the program its author wrote.
 
 ### 4.6 Code generation — normative templates
 
@@ -1062,6 +1183,31 @@ Eval-stack overflow (64 cells, locals included) and frame overflow (call
 depth 16) stop the handler with §10.6's sentence. The CPU stacks (1,024
 UI / 384 worker) never carry VM state.
 
+#### 4.7.2 The hot scratch, byte by byte
+
+Pinned, because "slice counter, budget, ring head/tail, GC request" names
+five things and reserves sixteen bytes, and an implementer who has to
+choose the order has to guess (this document's own rule). All offsets from
+`S−16`:
+
+| offset | size | field |
+|---|---|---|
+| +0 | 2 | `HS_BUDGET` — ops allowed in the current slice (§4.10) |
+| +2 | 2 | `HS_LEFT` — ops still owed in the current slice; 0 = exhausted |
+| +4 | 1 | `HS_RHEAD` — the ring's oldest slot, 0–15 |
+| +5 | 1 | `HS_RCOUNT` — records queued, 0–16 |
+| +6 | 1 | `HS_GCREQ` — 1 = an allocation did not fit; collect between slices |
+| +7 | 1 | `HS_STATE` — 0 idle, 1 a handler is part-run, 2 stopped by §4.11 |
+| +8 | 2 | `HS_SEED` — `rand()`'s LCG state (§8.1) |
+| +10 | 6 | 0. Reserved; a reader must not assume a meaning for them |
+
+The reason they are here rather than in the package's `.bss` is the one the
+table above gives, and it is measured rather than argued: RunCPM's own
+translated-code page cost 5× when a hot bss word shared it. `HS_LEFT` is
+the value that survives a slice; inside the dispatch loop it may be held in
+a register and written back once on the way out, which is what makes the
+budget cost one `dec`/`jnz` per op rather than a memory round trip.
+
 #### 4.7.1 Frames and locals
 
 A frame is 6 bytes: return offset word (bytecode offset of the next
@@ -1090,10 +1236,41 @@ does not fit its arena sets the GC-request scratch byte and ends the slice
 early; the wake handler collects, then resumes the handler and retries the
 allocation; if it still does not fit, the script stops with §10.6's
 out-of-space sentence. Mark roots: the 128 globals, the live eval-stack
-cells, nothing else (event records carry no handles). Sweep frees unmarked
+cells, **and the runtime's own component-string slots** (§4.8.1). Event
+records carry no handles and are not roots. Sweep frees unmarked
 non-static handles; compaction slides each arena's live objects down in
 address order and rewrites only the handle-table offsets — no other value
 in the system holds an arena address, by construction.
+
+**Retrying an allocation means re-executing the op, not resuming inside
+it.** So an allocating op reads its operands from the eval stack *without
+popping them*, and on a GC request rewinds the bytecode pointer to its own
+opcode byte and ends the slice with the stack exactly as it found it. The
+ops that can allocate are `ADD` (string concatenation), `GETP` on a
+property whose value is not already a handle, `CALLM` returning a string,
+and `BUILT` for `str`, `substr` and `array`. Nothing else touches an arena.
+
+#### 4.8.1 The component-string slots are roots
+
+A component's `text` or `label` starts as an ATOMS-pool atom and becomes,
+the first time script writes one, an ordinary arena string — so the
+runtime holds **one handle per comp_id** for it, and a `<list>` that has
+had `set(i, s)` called on it holds one per overridden item. Those handles
+are reachable from nothing the paragraph above listed, and the earlier
+version of it ("the 128 globals, the live eval-stack cells, nothing else")
+would have had the collector free the string a label is *currently
+displaying*, the moment a later handler filled the arena. They are roots,
+and they are named here rather than left to an implementer to notice,
+because the failure is a label that goes to garbage on some unrelated
+handler and never on the one that set it.
+
+The list-item overrides come out of a **64-entry pool** shared by every
+list in the bundle — `(comp_id, item index, handle)`, searched linearly and
+skipped entirely while it is empty, which is every app that never calls
+`set`. The 65th override refuses with §10.6's `out of string space.`; 64 is
+one full `<list>` (§2.6.1's own item cap), and a second list that rewrites
+all of its items is the case that pays. Recorded as a bound rather than
+discovered: an app meets a sentence that says what ran out.
 
 ### 4.9 The event ring
 
@@ -1118,6 +1295,27 @@ re-entrancy rule — no locks, no nesting.
    (`OSAPI_SND_TONE` beep — the RunCPM precedent) rather than silence, and
    the key is refused.
 
+The policy above is written about a QUEUE and the storage is a RING, and
+the two differ in exactly one place, so it is pinned here. The ring is
+`HS_RHEAD` (the oldest slot) plus `HS_RCOUNT` (§4.7.2); the *k*th oldest
+record is slot `(head + k) mod 16`. Rules 2 and 3 both replace an existing
+record, and they do not replace it in the same place:
+
+- **Rule 2 (coalesce) overwrites the record where it stands** — the queue's
+  order does not change and a click that lands twice on one button is
+  answered once, at the position of the first.
+- **Rule 3 (collapse) removes and re-appends** — the surviving `ontimer` or
+  `ontick` is the NEWEST, at the BACK. Removing from the middle of a ring
+  slides the records after it down one slot and decrements `HS_RCOUNT`;
+  at most 15 8-byte moves, on a path that fires at most 18 times a second.
+- **Rule 4** removes by the same slide, scanning from the newest end for
+  the first non-key record, then appends the key.
+
+An implementation that coalesced by remove-and-append would reorder events
+that the model keeps in order, which is invisible in every single-event
+test and is exactly the kind of difference the `weavevm` corpus (§12.3)
+exists to catch.
+
 #### 4.9.1 Handler invocation
 
 Dequeuing a record whose (comp, atom) resolves to a bound function invokes
@@ -1126,6 +1324,24 @@ that order, as ints (comp events on components the handler already knows —
 the component itself is not passed). A record with no binding is
 discarded. `ontimer`/`onalert` records invoke the function named by data1
 with data2 as the single argument (alert) or none (timer).
+
+"The record's meaningful words" is pinned as a count, because §3.4's table
+spells a word that is always zero as `0` and an implementer reading it
+cannot tell "this word means nothing" from "this word is usually nought":
+
+| event | args | event | args |
+|---|---|---|---|
+| `onclick` | 0 | `oncollide` | 2 |
+| `onchange` | 1 | `onwall` | 2 |
+| `onkey` | 2 | `onscore` | 2 |
+| `onselect` | 2 | `ontick` | 1 |
+| `onedit` | 2 | `oncommand` | 2 |
+| `oncalc` | 1 | | |
+
+and the list is then **padded with int 0 or truncated to the handler's own
+`nargs`** (§2.8), so a `function onKey(ch)` written against a two-word
+event is legal and gets the first word. Every argument arrives as an int
+(tag 0), sign-extended from the record's word.
 
 ### 4.10 The slice model
 
@@ -1150,11 +1366,22 @@ numbers:
 ### 4.11 The runaway script
 
 A handler still unfinished after **90 ticks (~4.9 s at 18.2 Hz)** raises
-the shared alert (`os88ui_ask`): **`Script is still running.`** with
-buttons `Stop` / `Wait`. Stop abandons the handler (eval and frame stacks
-cleared, ring preserved, globals as they are); Wait re-arms the counter
+the shared alert (`os88ui_ask`): **`Script is still running. Stop it?`**
+with buttons **`Yes` / `No`**. Yes abandons the handler (eval and frame
+stacks cleared, ring preserved, globals as they are); No re-arms the counter
 for another 90 ticks. The runaway loop is a designed path with a designed
 sentence, not a hang.
+
+This section asked for buttons `Stop` / `Wait` until wave 3 went to raise
+one. **The shared alert's button sets are fixed** — `OK`, `Yes`/`No`,
+`Save`/`Discard`/`Cancel`, and no more (SPEC.md §75.3, `apps/os88ui.inc`) —
+because that engine's whole argument is that it costs each package 607 bytes
+of its own image rather than the kernel 1,067, and a per-caller label table
+is the first thing that would undo it. So the choice was between inventing a
+fourth set in a shared file for one caller, or asking the question as a
+question. It is asked as a question, in 33 characters against
+`OS88UI_AMAX`'s 34. The alternative was a runtime quietly using different
+words from the ones this document pins, which is worse than either.
 
 #### 4.11.1 The `ontick` budget
 
@@ -1404,6 +1631,26 @@ Surface: `text` (get/set ≤ 255, display window scrolls), `cols` (get),
 armed input (click to arm; one armed input per card; Tab moves to the
 next input in UISTREAM order).
 
+**At most eight editable fields per bundle, over 512 bytes of text.**
+`apps/os88line.inc` declares no storage at all — every routine takes a
+block the CALLER owns, which is what lets one window have two — so the
+runtime's blocks and their buffers come out of a fixed pool, assigned in
+UISTREAM order at load. Eight blocks is eight full-width fields (`cols`
+caps at 60) or twenty typical ones. A ninth is **painted normally and
+refuses focus**: it is not a malformed bundle and not a pack error, because
+the bound is the runtime's arithmetic and not the format's, and a form is
+still readable when its last field cannot be typed in. It is stated here so
+an app author meets a number rather than a mystery.
+
+**A greyed field is drawn by the runtime's own painter and not by
+`os88line_draw`**, which forces `CBLACK` for its frame and its text: a
+disabled one would come out solid-framed with dithered letters, two halves
+of one control disagreeing, which is SPEC.md §47 rule 2's own failure. That
+is the shared file's defect and not this family's — it has no other caller
+that can grey a field — and it is recorded in docs/WEAVE-PLAN.md §4.4.2
+rather than fixed here, for the reason WEAVE-PLAN §4.4.1 gives about the
+scroll bar's missing floor.
+
 ### 6.8 `list`
 
 One `font_run` per visible row; selection is an **XOR bar** — reversible,
@@ -1507,6 +1754,15 @@ word write).
 §12.2), and the kernel draws and tracks them; `MENU_DIS` greying is free
 and SPEC.md §47-correct. An item fires `oncommand`. The kernel's own Close item
 is not the app's.
+
+**The runtime keeps ONE of the five and the app gets four**, which is the
+arithmetic §3.2's "at most 5 `<menu>`s" has to be read against.
+`MENU_APPMAX` is the bar's own bound and the runtime needs somewhere to put
+File → Open, Reload and Bundle Info; wave 2 spent two of the five on two
+pull-downs, which would have left an app three. They are folded into one
+named for the program. A bundle that declares a fifth menu gets its first
+four and a toast saying so — a menu that is silently absent is a command the
+user cannot find and cannot ask about (SPEC.md §47: refuse out loud).
 
 ### 6.12 Cards
 
@@ -1771,8 +2027,38 @@ the price is visible and honest).
 | 7 | `len` | `len(s)` → int | string or array |
 | 8 | `substr` | `substr(s, start, len)` → string | 0-based; clamped to the string |
 | 9 | `find` | `find(s, needle)` → int | first index, −1 if absent |
-| 10 | `rand` | `rand(n)` → int | uniform 0..n−1 via `OSAPI_RAND`; n ≥ 1 |
+| 10 | `rand` | `rand(n)` → int | 0..n−1 from §8.1.1's LCG; n ≥ 1 |
 | 11 | `array` | `array(n)` → array | legal only as a `var` initializer (§4.2) |
+
+`str`, `len`, `substr`, `find`, `rand` and `array` are **pure**: they read
+and write nothing outside the VM claim, and they are therefore implemented
+inside the bytecode core itself rather than reached through the runtime.
+That is not a division of labour — it is what puts them inside the
+`weavevm` differential corpus (§12.3), which runs the core in a raw boot
+sector with no OS under it and so can call nothing that draws, sounds or
+files. `alert`, `timer`, `saveState`, `loadState`, `playSound` and `tone`
+go out to the runtime and are covered by `weavesession` instead.
+
+#### 8.1.1 `rand` is a pinned LCG, seeded by `OSAPI_RAND`
+
+`rand()` is `seed = (seed × 25173 + 13849) mod 65536`, then the answer is
+`seed mod n` on the UNSIGNED seed. The state is `HS_SEED` (§4.7.2).
+
+The generator is pinned rather than delegated because the model and the
+machine have to agree op for op: `OSAPI_RAND` is the kernel's sequence and
+`weavesim` cannot reproduce it, so a corpus case containing `rand` would be
+untestable and — worse — would look like a VM defect the first time it
+disagreed. What the platform's randomness is for is the SEED: the machine
+takes `HS_SEED` from one `OSAPI_RAND` at VM start, so two runs of a game
+differ; `weavesim --run` pins it at `0x1234`, so a scripted session is
+reproducible; and the `weavevm` corpus pins it at `0x1234` too, which is
+what makes `rand` a differential row rather than an excluded one.
+
+(25173/13849 is the ZX Spectrum-era 16-bit LCG this tree already uses for
+its own throwaway sequences; the low bits of any 16-bit LCG are poor, and
+`seed mod n` therefore takes the whole word. It is a game's dice, not a
+cryptographic anything, and §8.5 is the section that says why nothing here
+is.)
 
 ### 8.2 `alert` and `timer`
 
@@ -1793,12 +2079,36 @@ The app's entire file access. State = the 128 globals, serialized:
 `'WSV',0x1A`, version word (1), then 128 tagged cells with string/array
 payloads flattened (strings length-prefixed; arrays count-prefixed;
 component handles saved as comp_id; a handle that no longer resolves loads
-as null). Written whole to **`<bundle stem>.SAV`** beside the bundle, on
+as null). Written whole to **`SYSTEM/APPDATA/<bundle stem>.SAV`**, on
 the UI task, inside the ONWAKE slice where file slots are legal, staged
 through the transient claim (§1.4). Returns false — never a crash — on
-refusal (no room, no file, write-protected disk), and the status row says
-why. There is **no other file surface**: no open, no read, no write, no
-directory listing, no path (§9.7).
+refusal (no room, no file, no `SYSTEM/APPDATA`, write-protected disk), and
+the status row says why. There is **no other file surface**: no open, no
+read, no write, no directory listing, no path (§9.7).
+
+**Not beside the bundle**, which is what this section said until wave 3
+went to write one. SPEC.md §19.9 is the platform's rule and it is not
+negotiable per family: *an application's own state goes in
+`SYSTEM/APPDATA/` rather than beside the user's documents*, and a `.WAB`
+is a user's document — wave 7 puts them in a writable `PROJECTS/` folder
+(§13.1) precisely because that is where the user keeps things. A `.SAV`
+dropped next to one would be the pattern SPEC.md §19.9 exists to prevent,
+appearing in the same folder listing the user browses for apps, and on the
+common arrangement — the bundle on a data floppy, the system on the boot
+disk — it would also be the one write that lands on the disk more likely
+to be write-protected. The path is reached with §19.9's own
+bank/`GOTO`/act/`GOTO`-back idiom, tolerating absence.
+
+The cost, named: **two bundles with the same 8.3 stem share one `.SAV`**,
+wherever they came from. That is the flat-namespace consequence of §19.9
+everywhere in this system, it is what the sentence in the status row will
+be about when it surprises somebody, and the alternative (a per-volume or
+per-directory qualifier) is a path vocabulary §9.7 does not have.
+
+`weavesim` writes `<bundle stem>.SAV` beside the bundle it was handed,
+because a host has no `SYSTEM/APPDATA` and `--run` is a single-shot
+harness; the SERIALIZED BYTES are the contract the two share, and they are
+what `weavevm` diffs (§12.3).
 
 ### 8.4 Sound
 
@@ -2005,7 +2315,8 @@ bound, the fact.
 ### 10.6 Script errors — at run time
 
 A script error stops the current handler (stacks cleared, ring kept),
-puts the sentence in the status row, and the app lives on:
+puts the sentence where the runtime has one to put (§10.6.0), and the app
+lives on:
 
 > `Script error in <fn>: divide by zero.`
 > `Script error in <fn>: out of string space.`
@@ -2017,6 +2328,60 @@ The CODE section carries no name table (§2.8), so `<fn>` is the function
 INDEX (`fn 3`) — unless the bundle carries SOURCE, in which case the
 overlay's diagnostics resolve the index to its name. Pinned so nobody
 invents a name table the format does not have.
+
+#### 10.6.0 There is no status row while a card is up
+
+"The status row" is §10.1's — the bottom row of the content area — and it is
+available exactly when a card is NOT painted over it. §7.1.1 gives the family
+no status strip of its own and §6.12 gives the card the whole content box, so
+a script error raised while an app is running has nowhere to put a line that
+is not on top of the app's own last row.
+
+It therefore goes to the **toast** (SPEC.md §59 — the platform's transient
+row, which costs this window no pixels and takes itself down) and is KEPT in
+the runtime's status string, where the overlay's Bundle Info shows it to a
+user who missed it. §8.3's refusals take the same route. The Deck and
+§10.1–§10.4's refusal screens still use the status row, because on those
+there is nothing else in the box.
+
+#### 10.6.1 The complete list
+
+Five examples were not a contract. This section opened by saying "the
+sentences are pinned so three implementations refuse identically" and then
+gave a sample — and `tools/weavesim.py` raises **eighteen** of them, of
+which the commonest by a distance (`type mismatch.`) was not among the
+five. An 8086 core written from the sample would have invented its own
+wording for every error an app actually hits. So: this is the whole set,
+and it is the set the `weavevm` corpus (§12.3) diffs.
+
+| sentence | raised by |
+|---|---|
+| `type mismatch.` | arithmetic on a non-int pair (§4.4), `NEG`, an ordered comparison that is not int-int or str-str, `GETP`/`SETP`/`CALLM` whose receiver is not a component, `INCG`/`DECG` on a non-int global, `AGET`/`ASET` on the wrong types, `str`/`len`/`substr`/`find`/`tone`/`alert`/`timer` on the wrong argument type, a string written to a numeric property or a number to `text`/`label` |
+| `divide by zero.` | `DIV` or `MOD` with a zero divisor |
+| `out of string space.` | a concatenation over 255 bytes; an arena allocation that does not fit after a collection; the 65th list-item override (§4.8.1) |
+| `too deep.` | the eval stack reaching 64 cells, or `CALL` at 16 frames |
+| `array index %d of %d.` | `AGET`/`ASET` out of range |
+| `bad opcode.` | §4.5.1's bounds, every one of them |
+| `bad builtin.` | a `BUILT` index of 12 or more |
+| `no component %d.` | a comp_id no card in this bundle declares |
+| `no property "%s" on a %s.` | an atom outside §6's get/set surface for that ctype |
+| `no method "%s" on a %s.` | ditto, for `CALLM` |
+| `no method.` | a method atom legal for the ctype that this wave does not implement |
+| `list index %d of %d.` | `list.get`/`list.set`/`.sel =` out of range |
+| `grid cell %d,%d of %dx%d.` | a grid method's 1-based row/col out of range |
+| `cell is #DIV0.` | `grid.cell()` on a cell holding the FX error value (§5.2) |
+| `cell %s is out of int range.` | a 16.16 cell whose integer part is not a signed 16-bit int |
+| `frame %d of %d.` | `sprite.frame =` past the sprite's frame count |
+| `card %s of %d.` | `app.go()` outside 1..card count |
+| `start(%s): fps is 1..18.` | `canvas.start()` |
+| `rand of %s.` | `rand(n)` with n < 1 or a non-int |
+| `grid pool full.` | the cell store cannot take another cell (§5.6) |
+
+`%d` is decimal with a leading `-` where negative; `%s` renders an int the
+way `str()` does. The sentence always ends in a full stop, and the whole
+line always begins `Script error in fn <N>: `, where N is the index of the
+function the error was raised INSIDE — the innermost frame, not the
+handler the event named.
 
 ### 10.7 The runaway alert
 
@@ -2079,8 +2444,32 @@ htmsim precedent, which found 3 real bugs before any 8086 existed):
    end states, transcripts, layouts, recalc results.
 3. **The generator**: `--emit-optab` (the WVM jump table), 
    `--emit-foldtab` (the Latin-1 fold, from htmsim's one definition),
-   `--costs` (§14's table) — shared tables the model and the 8086 cannot
-   drift apart on.
+   `--costs` (§14's table), `--emit-vmcorpus` (§12.1.1) — shared tables
+   the model and the 8086 cannot drift apart on.
+
+#### 12.1.1 `--emit-vmcorpus` — the differential corpus, generated
+
+`python3 tools/weavesim.py --emit-vmcorpus <dir> -o <out.inc>` compiles
+every `.wjs` in `<dir>` (sorted by file name — the harness has to visit the
+cases in the model's order or a comparison is not one), runs each on the
+model's own WVM, serializes the end state by §8.3's rules, and writes ONE
+nasm `%include` carrying, per case: the CODE section bytes exactly as a
+`.WAB` would carry them, the ATOMS section, the entry function index, and
+the expected end state — plus, for a case that ends in a script error, the
+expected §10.6 sentence.
+
+It is a **generator and not a test**: the file it writes is assembled into
+`apps/weave/hosttest/weavevm.asm` beside the SHIPPING `wvm.inc`, and the
+comparison happens on an 8086 in raw QEMU (§12.3). The corpus lives in
+`tests/weave/vmcorpus/`, one `.wjs` per subject, and each file's first
+comment line is the case name the harness prints.
+
+Two rules, both learned elsewhere in this tree and both load-bearing here:
+**the model must visit the cases in the harness's order** (`tools/c64dec.py`
+says so about a checksum and it is just as true of a listing), and the
+corpus carries **negative controls** — cases whose expected state is
+deliberately wrong, which the harness must FAIL. A differential that cannot
+see a broken core has proved nothing.
 
 `--selfcheck` runs its unit corpus and the pack/read round-trip;
 `build/.weave-hostchecks` stamps it as a prerequisite of the future
@@ -2108,7 +2497,7 @@ Respecting the enforced tier budgets (fast 30 s host-only; full 600 s —
 | fast | (checkdocs) | picks up WEAVE-SPEC/WEAVE-PLAN citations automatically once tracked |
 | full | `weavesmoke` | MartyPC boots, opens FORM.WAB, asserts drawn-window STRUCTURE (never a golden screenshot) on both 1bpp GLaBIOS twins; needs=(marty,), serial — the family's ONE full row, forever |
 | soak | `weavevm` | raw-QEMU SS≠DS boot-sector differential corpus vs weavesim end states (the rcz80test shape) |
-| soak | `weavesession` | COM4 0x3E8 `-DWVHARNESS` scripted replay diffed against weavesim (the zharness shape) |
+| soak | `weavesession` | MartyPC scripted replay of a real session, diffed against `weavesim --run`'s end state |
 | soak | `weavegfx` | pixels-vs-model with no goldens — transcript diffing is structurally blind to drawing defects (zgfx's whole reason) |
 | soak | `weavegrid` | recalc vs weavesim + incremental-equals-full-repaint (the tests/tpdraw.py identity gate) |
 | soak | `weavegame` | wirefps/wireflick with PONG.WAB as the load |
@@ -2119,6 +2508,53 @@ Every `tests/weave*.py` is registered in `tests/suite.py` or excused in
 t_registry with the needs-make-weavedisk reason — never silently
 unregistered. `os88test.py soak -k 'weave*'` is the family's command and
 belongs in the pre-release ritual.
+
+#### 12.3.1 What `weavesession` actually reads, and why not a transcript
+
+The row was drafted as "COM4 0x3E8 `-DWVHARNESS` scripted replay, the
+zharness shape" — a build of the runtime that prints a transcript on a
+serial port. Wave 3 does not build that, and the reason is worth writing
+down rather than quietly diverging: **a transcript is a claim the program
+makes about itself.** Frotz needs one because an interpreter's whole
+output is text and there is nothing else to compare; WEAVE's output is a
+picture and a set of component states, and a build that speaks about them
+on a wire is a second implementation of the thing under test — the
+`-DWVHARNESS` build could be right about a machine the shipping build gets
+wrong. It is also a permanent tax: every state a later wave adds has to
+learn to serialize itself.
+
+So `weavesession` drives the SHIPPING package under MartyPC and reads
+back only facts that are on the glass or in the kernel's own window table:
+
+- a `<meter>`'s fill, in pixels, which is an exact reading of the `value`
+  the VM wrote (`doGreet` sets `count.value = greets`);
+- a `<check>`'s glyph, before and after a click, which is `checked`;
+- whether an ALERT WINDOW exists — `alert()` raising and its callback
+  arriving after dismissal are two separate, structural facts;
+- that a row of the card CHANGED, where the change is a string the model
+  predicts but the reading cannot spell (§12.3.2).
+
+and diffs each against `weavesim --run` given the same event script. Every
+one of those is a value the bytecode computed, arriving through the whole
+stack — ring, slice, `SETP`, painter, primitive — with nothing in the path
+that exists only for the test.
+
+#### 12.3.2 Reading text off the glass is by CONSISTENCY, never by faith
+
+Where a session's assertion is about a string, the row reads the cells with
+`tests/rczex_ocr.py`'s harvesting reader (SPEC.md §74's own instrument) —
+the 8×8 face comes from the machine's BIOS at boot (`kernel/font.inc`) and
+is not in this tree, so there is no font to compare against and glyphs are
+LEARNED from rows whose text is already known: the card's static labels,
+which are painted from ATOMS before a line of bytecode has run, and the
+menu bar's. A character the learning rows never contained reads back as
+`?`, and the assertion is: **every learned glyph must match the model's
+string, and no learned glyph may appear where the model says another
+one does.** That catches `HELLO, x!` against `Hello, x.` on the `e`
+alone, and it never fails for a font this tree cannot see.
+
+Stated because the alternative — asserting the string outright — would
+report a machine with an unusual BIOS font as a broken VM.
 
 ### 12.4 The gates that bind
 
@@ -2173,12 +2609,37 @@ sees, which is the ALLAPPSFILES work. Both machines are manual evidence —
 `make xt-weave` launches 86Box and cannot assert that anything booted, so
 no gate in this family rests on either.
 
+**Wave 3 shipped the interaction and the VM** — `apps/weave/wvm.inc`
+(section 4's machine in assembly, on the generated dispatch table), the event
+ring with §4.9's whole policy, §4.10's adaptive slices, §6.5–§6.8's arm/fire,
+the `os88line` field and its caret, §8's builtins, §10.6's script errors and
+§4.11's runaway alert, and §1.7's `^R` Reload. It is gated FIRST by
+`weavevm`, the raw-QEMU differential (§12.3), which found its own first defect
+on its first green run: `wvm_alloc` banked an object's type in `DH` and then
+loaded `DX` with the handle, so every dynamic string and array was filed as
+free — reads worked and the next allocation quietly took the same handle,
+which is invisible until a second string is alive at once.
+
+It also **crossed §1.2's 55,000-byte split trigger**, and the body that moved
+into `WEAVE.OVL` is the bundle validator: it runs exactly once per bundle, at
+open, on the UI task, which is §1.2's own test for a tenant. The pre-named
+candidates were spent. `weave.o88` is 42,704 image + 12,674 bss = 55,378
+resident, `WEAVE.OVL` 9,518.
+
+Fifteen amendments landed in this document before the code that needed them,
+each listed in the wave's pull request; the load-bearing ones were §10.6.1
+(five example sentences were not a contract — the model raises eighteen, and
+the commonest was not among the five), §4.8.1 (the component-string slots are
+GC roots, without which the collector frees the string a label is currently
+displaying) and §4.5.1 (every indexed operand is bounds-checked, because a
+`.WAB` on a disk need never have been through a packer).
+
 The rest, each gated before the next begins:
 
 | wave | ships | the gate |
 |---|---|---|
 | 2 | WEAVE viewer: CC_PACKAGE from day one, the Frotz accept idiom verbatim (ASSOC16, ARG_FILE banking, first-paint spend, §10.1–§10.4's refusals), flow walk, static components, list with scroll | `weavesmoke` on both 1bpp adapters |
-| 3 | interaction + the VM: widget arm/fire, os88line input, event ring, `wvm.inc` (gated FIRST by the raw-QEMU differential corpus), adaptive slices, onclick/onchange/onkey, alert/timer/tone/state builtins, Cmd-R Reload | `weavevm`, `weavesession`, the §7.3 bar via `weavelat` |
+| 3 | interaction + the VM: widget arm/fire, os88line input, event ring, `wvm.inc` (gated FIRST by the raw-QEMU differential corpus), adaptive slices, onclick/onchange/onkey, alert/timer/tone/state builtins, `^R` Reload | `weavevm`, `weavesession`, the §7.3 bar via `weavelat` |
 | 4 | `<grid>`: cell store, `wband.inc` benched against Set 68's numbers (`make weavebandbench`), per-row damage, formula bar, `wfx.inc` + resident formula compiler, sliced recalc | `weavegrid` (recalc vs model + tpdraw identity), `weavegfx` |
 | 5 | `<canvas>`/`<sprite>`: `wspr.inc` mask composition, dirty-band emit, worker loop, AABB, KEY_DOWN input, worker tones, ontick budget enforcement | `weavegame` (wirefps/wireflick); **commission the field run** — 5150 fps and the XT ops/s reading that converts §4.12 to measurement |
 | 6 | Loom: `lm_` editor transplant, project folder + file switcher, LOOM.OVL compilers + packer, Pack, Preview, templates, APPDATA prefs, W_ONCLOSE/ASAVE close guard | `weavepack` byte-identity on all templates and demos, in the OS |
