@@ -1,67 +1,60 @@
 # The Last Drop Of Bytes
 
 > Companion: **docs/LAST-DROP-PERF.md** is the same idea for CYCLES — optimisations
-> built, measured, found correct, and shelved because they did not clear the price of
-> their own footprint. This file is BYTES: code whose lifetime is **boot-only**, which
-> could therefore move into `.ovl` and stop costing RAM at all, and which is not being
-> moved today only because the blob has no room for it.
+> built, measured, found correct, and priced. This file is BYTES.
 
-**Bodies that are provably boot-only, priced and ranked, so that the next time the
-boot blob grows for any reason the rest can join it as a lookup rather than a fresh
-investigation.**
+**A MENU OF BYTES THE MACHINE COULD STILL GET BACK — what is left, what each one
+costs, and why it is not taken today.**
 
-> ## STATUS: THE BLOB GREW, AND TWENTY OF THE TWENTY-TWO ROWS HAVE LANDED
+Every row here is a thing nobody has done. Read it before spending a byte, before
+proposing a footprint saving of your own, and before re-deriving anything in §7:
+that section is the list of bodies and merges that *look* available and are not,
+each with the exact reason, so that the second person to notice them spends five
+minutes rather than an afternoon.
+
+> ### What this file used to be, in one paragraph
 >
-> SPEC.md §2.9.12 took `BOOT2_SECS` 13 → 19 for exactly this, and every row below
-> except three is now in `.ovl`. What that leaves this file is **the record of why
-> each body may never gain a runtime caller** — which is the half that does not
-> expire, and which `tests/ovlrefs.txt` enforces per symbol.
+> It was written as a REGISTER of 22 boot-only bodies that could move into `.ovl`,
+> at a moment when the blob had 194 bytes free and none of them fitted. The size
+> pass then took `BOOT2_SECS` 13 → 19 (SPEC.md §2.9.12) and landed **18 of the 22**,
+> plus SPEC.md §9.4.7's 1,024-byte mouse subset; `KERN_SIZE` came down 7,168 bytes,
+> measured at `46e40a9`. What is below is the **remainder**, re-measured on this
+> tree. The roll-call of what landed is kept only because about nineteen comments
+> in `kernel/` cite these bodies by their row number and would otherwise point at
+> nothing:
 >
-> | | rows | outcome |
-> |---|---|---|
-> | **landed** | 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19 | in `.ovl`; the caller that makes each boot-only is in `tests/ovlrefs.txt` |
-> | **refused, and the refusal is new** | **10 (`vid_detect`), 22 (`vid_init`)** | `SPL_RESIDENT` — §2.4 |
-> | **refused, register-internal** | 21 (`evq_init`) | §7.3's test poke, unchanged |
-> | **dropped as the worst ratio in the file** | 20 (`mod_init_x`) | 10 resident bytes for 28 of blob, and the blob became the scarcer pool |
+> | row | body | where it is now |
+> |---:|---|---|
+> | 1 | `drv_boot_x` | `.ovl` |
+> | 2 | `vid_probe_avail` + `vid_memchk` + `vid_cga_alias` | `.ovl` |
+> | 3 | `sched_init` | `.ovl` |
+> | 4 | `dsk_boot_from_x` + `dsk_bootltr` | `.ovl` |
+> | 5 | `xm_boot_x` | `.ovl` |
+> | 6 | `files_init_x` | `.ovl` |
+> | 7 | `font_init` | `.ovl` |
+> | 8 | `drv_init_x` + `drv_svc_clear_all` | `.ovl` |
+> | 9 | `dsk_flop_add_x` | `.ovl` |
+> | **10** | **`vid_detect`** | **`.text` — §2.1** |
+> | 11 | `mem_init_x` | `.ovl` |
+> | 12 | `dsk_dpt_init_x` | `.ovl` |
+> | 13 | `vid_ctx_init` | `.ovl` |
+> | 14 | `wm_init` | `.ovl` |
+> | 15 | `dock_init` | `.ovl` |
+> | 16 | `sch_idle_start` | `.ovl` |
+> | 17 | `menu_init` | `.ovl` |
+> | 18 | `inst_init` | `.ovl` |
+> | 19 | `loader_init_x` | `.ovl` |
+> | **20** | **`mod_init_x`** | **`.cold` — §2.3** |
+> | **21** | **`evq_init`** | **`.text` — §2.2** |
+> | **22** | **`vid_init`** | **`.text` — §2.1** |
 >
-> Beside them went **D8's 1,024-byte mouse subset** (SPEC.md §9.4.7), which this file
-> deliberately excluded from its totals. Measured end state: `.text` **−4,640**,
-> `.cold` **−1,961**, `.ovl` **+2,719**, `KERN_SIZE` **−7,168**, and the 64KB segment
-> from 2,432 bytes of headroom to **7,214**.
->
-> **The pool left is ~416 bytes**, measured on the tightest shipped-adjacent arm
-> (`BOOTMARK=1 BOOTHALT=n`: `.ovl` 6,855 of 7,168, `.boot2` 2,457 of 2,560). §4 is
-> what the next claim costs after that, and the answer above 21 sectors is *not
-> free*.
-
-This is not a list of things that are wrong. Every body below works, is in the right
-section for the constraint that was live when it was written, and costs the machine
-exactly what a resident byte costs. What each one *also* is, is a byte the machine is
-paying for **for the whole session** to hold code that last executed before the
-desktop appeared. `.ovl` is handed back to the heap at `spl_finish`
-(`kernel/kernel.asm:2207` — *"It costs no RAM after that at all, and — this is the
-point —"*), so an `.ovl` byte is a footprint byte **returned** where a `.text` or
-`.cold` byte is one **kept**. Moving a boot-only body there is the only class of
-change in this tree that gives a `KERN_BUDGET` rung *back*.
-
-The reason for writing it down rather than re-deriving it is that an unmeasured
-`.ovl` candidate list is wrong in **both** directions at once, and the mouse case
-proved both in one afternoon: it was nearly disqualified wholesale by an edge that
-turned out not to reach it (`mou_hotplug`, called from `ui_task` every pass), and the
-register that nearly disqualified it had also silently **omitted 421 bytes** nobody
-had counted. Every row here was closed by reverse reachability and measured by
-whole-kernel re-assembly, and the negative results are in §7 with the killing edge
-named, so nobody derives them a second time.
-
-**Every entry carries the same five things**: the body and its bytes, the call-graph
-evidence that it is boot-only, how it was measured, the price (blob, sectors,
-`int 13h`, shims), and — the part that matters — **what would have to change for it
-to become worth taking**. For almost every row that last answer is the same:
-*the blob grows for another reason.*
+> `tests/ovlrefs.txt` is the live enforcement: every reference from outside `.ovl`
+> into it, with the reason each is safe, checked by `tools/os88ovlchk.py`. That
+> file, not this one, is what stops a landed row gaining a runtime caller.
 
 ---
 
-## 0. The rule that decides every row
+## 0. The rule that decides every `.ovl` row
 
 **`.ovl` is released at `spl_finish`, so a body with a single post-boot caller is
 disqualified completely. There is no partial credit.**
@@ -73,612 +66,492 @@ freed heap claim being executed — the `desk_pdisk`/`desk_phdd` freeze whose st
 `tools/os88ovlchk.py` carries in its own comments.
 
 The precise window: `[spl_fseg]` is published by stage 2 at `boot/boot2.asm:288`, so
-the overlay is live from `kmain`'s **first instruction**; it is retired at
-`kernel/kernel.asm:4396` (`mov word [spl_fseg], COLD_SEG`) and the memory is given
-back one instruction later at `:4397` (`call COLD_SEG:mem_unblob_x`). Every call site
-in this register lies between `kernel.asm:4072` and `:4349`, comfortably inside it.
+the overlay is live from `kmain`'s **first instruction**; it is retired when `kmain`
+sets `[spl_fseg]` to `COLD_SEG` and the memory is given back one instruction later
+by `mem_unblob_x`.
+
+An `.ovl` byte is a footprint byte **returned**, where a `.text` or `.cold` byte is
+one **kept**. Moving a boot-only body there is still the only class of change in
+this tree that gives a `KERN_BUDGET` rung back.
 
 ---
 
-## 1. The blob at nineteen sectors — the arithmetic, derived from the source
+## 1. The blob today — measured, not remembered
 
-`kernel/kernel.asm` sets three constants and asserts two bounds at its own foot:
+`kernel/kernel.asm` sets the constants and asserts the two bounds at its own foot:
 
 ```
-BOOT2_SECS  equ 19            ; SPEC.md 2.9.12: was 13
-OVL_AT      equ 2560          ; where `.ovl` starts inside the blob - UNCHANGED
+BOOT2_SECS  equ 19            ; SPEC.md 2.9.12
+OVL_AT      equ 2560          ; where `.ovl` starts inside the blob
 BOOT2_PAD   equ BOOT2_SECS * 512                       =  9,728
 
-%if BOOT2_SIZE > OVL_AT            -> "the loader has outgrown its share"   (:6068)
-%if OVL_AT + OVL_SIZE > BOOT2_PAD  -> "the boot overlay does not fit"       (:6087)
+%if BOOT2_SIZE > OVL_AT            -> "the loader has outgrown its share"
+%if OVL_AT + OVL_SIZE > BOOT2_PAD  -> "the boot overlay does not fit"
 ```
 
-**THIS SECTION SUPERSEDES THE ONE THAT SAID 194 BYTES AND `BOOT2_SECS` 15.** That
-arithmetic was D8's, before this register was merged into the pass; it priced the
-mouse cluster alone and nothing else. 194 bytes takes `sched_init` and stops.
-
-Measured on the tree this landed on: `.boot2` **2,469**, `.ovl` **3,969**.
+Measured on this tree, `nasm -DKERNSIZE` reading `kernel.asm`'s own `ks:` line:
 
 ```
 blob      BOOT2_SECS 19 sectors = 9,728 bytes
-  .boot2  2,469                                                of OVL_AT 2,560   ->    91 free
-  .ovl    3,969                                                of 7,168          -> 3,199 free
-                                                               TOTAL BLOB SLACK    3,290 bytes
+  .boot2  2,457                                       of OVL_AT 2,560   ->   103 free
+  .ovl    6,688                                       of 7,168          ->   480 free
+                                                      TOTAL BLOB SLACK      583 bytes
+  ...and on the tightest single-knob arm, BOOTMARK=1:                       420 bytes
+  ...BOOTMARK=1 MOUDIAG=1 together (not a requirement, §5):                 348 bytes
 ```
 
-**And what it is now, the pass having spent it** (`-DKERN_BIG`, measured):
+**Those bytes are ONE POOL.** `OVL_AT` is a byte offset with no alignment
+requirement — the only constraints are the two `%if`s above — and moving it costs
+nothing at all: `kernel.asm` says so in the file's own words, *"the blob is
+BOOT2_SECS sectors either way, so no image byte, no RAM and no extra int 13h
+changes — only the split."* Quote the single figure, and re-derive it after any
+change to either side rather than trusting a number in prose.
 
-```
-  .boot2  2,457  (SPEC.md 15.3.9 gave 12 back)                  of OVL_AT 2,560   ->   103 free
-  .ovl    6,688  (the register + SPEC.md 9.4.7's mouse subset)   of 7,168          ->   480 free
-                                                                TOTAL BLOB SLACK      583 bytes
-  ...and on the TIGHTEST arm, BOOTMARK=1 BOOTHALT=n:                                  416 bytes
-```
+**Nineteen sectors is now LOAD-BEARING, which it was not when this file was
+written.** The pass spent the pool: at 18 sectors the same build has **71 bytes**
+left and at 17 it **does not fit at all** (441 short). The blob cannot be given
+back, and a change that grows `.boot2` or `.ovl` by more than §1's figure is a
+`BOOT2_SECS` conversation (§4), not a build fix.
 
-**Those bytes are ONE POOL.** `OVL_AT` is a byte offset with no alignment requirement
-— the only constraints are the two `%if`s above — and moving it costs nothing at all:
-`kernel.asm` says so in the file's own words, *"the blob is BOOT2_SECS sectors either
-way, so no image byte, no RAM and no extra int 13h changes — only the split."* So the
-correct way to read the pair is a single figure:
+`.boot2`'s share is not freely tradable *down* either: its fifth sector is
+SPEC.md §15.3.4's row composer, which ships, so `OVL_AT` cannot go to 2,048.
 
-> **`.ovl` had 3,290 bytes to grow into without touching a sector, an `int 13h`, or
-> one byte of any image.** The register was +1,766 of that and the mouse subset
-> +1,112; the prediction was "roughly 410 bytes still in the pool" and the measured
-> answer on the tightest arm is **416**. §4 is what the next claim after that costs,
-> and it is not free above 21 sectors.
+**One constant moves WITH `BOOT2_SECS` and is easy to miss**: `KSIG_OFF` (the
+Makefile and `boot/boot2.asm`, one number typed twice — 8,704 today). It is a
+*memory* offset and SPEC.md §18.93.1's canary is a question about a *file sector*,
+so growing the blob slides the probe further into the file — out of the band where
+it lands in a transfer run's second half, and into the half that loads correctly on
+exactly the machine the canary exists to catch. `tests/unit/t_canary.py` is the
+fast-tier row that refuses the build otherwise, and it is what found this.
 
-Two standing caveats on that number. `.boot2`'s share is not freely tradable *down*:
-its fifth sector is SPEC.md §15.3.4's row composer, which ships, so `OVL_AT` cannot
-go to 2,048. And the free figure is **not** the one in the tree's own prose: D3/D4
-record `kernel.asm:~2137` saying 159 and `docs/SETTINGS-COST.md` §7.1 saying ~738,
-against a measured 127 before any of this. **A wrong headroom number in the one
-section with double-digit slack is how a design gets approved that does not fit** —
-quote this section, and re-derive it after any change to either side.
+---
 
-**One constant moves WITH `BOOT2_SECS` and is not in the list above**: `KSIG_OFF`
-(the Makefile and `boot/boot2.asm`, one number typed twice). It is a *memory* offset
-and SPEC.md §18.93.1's canary is a question about a *file sector*, so growing the blob
-slides the probe six sectors further into the file — out of the band where it lands in
-a transfer run's second half, and into the half that loads correctly on exactly the
-machine the canary exists to catch. It went 11,776 → **8,704** here, which puts the
-file sector back at 36. `tests/unit/t_canary.py` is the fast-tier row that refuses the
-build otherwise, and it is what found this.
+## 2. What is left — three rows, and all three fit
 
-## 2. The register, ranked
+Body sizes re-measured on this tree from a `[map all]` assembly (address to the
+next top-level label in the same section). The Δ columns are the pass's own
+whole-kernel measurements; **the bodies are unchanged since**, and none of the
+three has a caller or callee that has moved into `.ovl` in the meantime, so
+nothing has made them cheaper or dearer.
 
-Every row measured by assembling a **copy** of `kernel/` under `/tmp/lastdrop/` with
-`tools/kernsize.py`'s own flags and reading `kernel.asm`'s `ks:` line. Nothing in the
-repository was edited, `make` was not run, no emulator was launched, git was untouched.
-**All twenty-five builds pass all seven `tools/os88ovlchk.py` checks**, and so does
-the combined build of the whole register (§2.24).
+| # | body | now | bytes | Δ`.text` | Δ`.cold` | Δ`.ovl` | resident returned | blocked by |
+|---:|---|---|---:|---:|---:|---:|---:|---|
+| 10+22 | **`vid_detect` + `vid_init`** | `.text` | 84 | **−68** | 0 | **+88** | **68** | the ROUTE, not the bytes — §2.1 |
+| 21 | `evq_init` | `.text` | 22 | −14 | 0 | +22 | 14 | a host instrument — §2.2 |
+| 20 | `mod_init_x` | `.cold` | 24 | +6 | −16 | +28 | 10 | nothing; it is just a bad trade — §2.3 |
+| **Σ** | | | **130** | **−76** | **−16** | **+138** | **92** | |
 
 "Resident returned" is `−(Δ.text + Δ.cold)` — the bytes that stop existing on the
-machine after `spl_finish`. It is what D2 calls a TRUE REDUCTION, and it is the
-column to rank by for footprint. `Δ.text` on its own is the **segment** column
-(guard 2, `KERN_CODE_MAX`), which is the scarcer of the two and the one a
-`.text` → `.ovl` move buys while a `.cold` → `.ovl` move sells.
-
-| # | body | now | bytes | Δ`.text` | Δ`.cold` | Δ`.ovl` | resident returned | shims needed |
-|---:|---|---|---:|---:|---:|---:|---:|---|
-| 1 | **`drv_boot_x`** (+ the four gate collapses) | `.cold` | 288 | **+2** | **−276** | **+229** | **274** | 3 `.cold` far shims; `drv_boot` thunk deleted |
-| 2 | **`vid_probe_avail` + `vid_memchk` + `vid_cga_alias`** (`Fmisc-27`) | `.text` | 262 | **−254** | 0 | **+262** | **254** | 1 `SPLSTUB`; **zero outbound** |
-| 3 | **`sched_init`** | `.text` | 174 | **−166** | 0 | **+174** | **166** | 1 `SPLSTUB`; **zero outbound** |
-| 4 | `dsk_boot_from_x` + `dsk_bootltr` | `.cold` | 160 | +6 | −160 | +160 | 154 | 1 `SPLSTUB`; the pair moves together |
-| 5 | `xm_boot_x` | `.cold` | 100 | +6 | −92 | +106 | 86 | 3 `.cold` far shims; `xmf_xm_boot` deleted |
-| 6 | `files_init_x` | `.cold` | 83 | +6 | −83 | +83 | 77 | 1 `SPLSTUB`; zero outbound |
-| 7 | **`font_init`** (`Fmisc-33`) | `.text` | 80 | **−72** | 0 | **+80** | **72** | 1 `SPLSTUB`; zero outbound |
-| 8 | `drv_init_x` + `drv_svc_clear_all` | `.cold` | 80 | +6 | −76 | +82 | 70 | 1 `.cold` far shim |
-| 9 | `dsk_flop_add_x` | `.cold` | 70 | +6 | −70 | +70 | 64 | 1 `SPLSTUB` (see note) |
-| 10 | ~~`vid_detect`~~ | `.text` | 67 | — | — | — | — | **REFUSED — SPL_RESIDENT, see §2.4** |
-| 11 | `mem_init_x` | `.cold` | 62 | +6 | −58 | +64 | 52 | 1 `.cold` far shim |
-| 12 | `dsk_dpt_init_x` | `.cold` | 60 | +6 | −60 | +60 | 54 | 1 `SPLSTUB`; zero outbound |
-| 13 | `vid_ctx_init` | `.text` | 50 | −34 | 0 | +54 | 34 | 2 new `cw_` shims |
-| 14 | `wm_init` | `.text` | 47 | −39 | 0 | +47 | 39 | 1 `SPLSTUB`; zero outbound |
-| 15 | `dock_init` | `.text` | 35 | −19 | 0 | +39 | 19 | 2 new `cw_` shims |
-| 16 | `sch_idle_start` | `.text` | 31 | −23 | 0 | +33 | 23 | `cw_task_spawn` **already exists** |
-| 17 | `menu_init` (`Fmenu-04`'s move half) | `.text` | 30 | −14 | 0 | +34 | 14 | 2 new `cw_` shims — see note |
-| 18 | `inst_init` | `.text` | 27 | −19 | 0 | +27 | 19 | 1 `SPLSTUB`; zero outbound |
-| 19 | `loader_init_x` | `.cold` | 24 | +6 | −24 | +24 | 18 | 1 `SPLSTUB`; zero outbound |
-| 20 | `mod_init_x` | `.cold` | 24 | +6 | −16 | +28 | 10 | 2 `.cold` far shims |
-| 21 | `evq_init` | `.text` | 22 | −14 | 0 | +22 | 14 | 1 `SPLSTUB` — **and a test edit, §7.3** |
-| 22 | ~~`vid_init`~~ | `.text` | 17 | — | — | — | — | **REFUSED with row 10** |
-| — | *(10 + 22 taken as a PAIR)* | `.text` | 84 | −68 | 0 | +88 | 68 | one fewer crossing than taken apart |
-| **Σ** | **the whole register, measured as ONE build** | | **1,793** | **−666** | **−915** | **+1,766** | **1,581** | |
-
-`Fmouse-01`'s 1,024-byte subset (D8) is **not** in these totals — it is already
-committed and is what takes `BOOT2_SECS` to 15.
-
-### 2.1 `drv_boot_x` — 288 bytes, and the only row better than 1:1
-
-**What it is.** `driver.inc:3937`, the whole of SPEC.md §51.3: mount the settings
-volume, read `SYSTEM.CFG`, apply the display adapter, load each wanted driver, say
-so on the splash bar. `kmain:4331` calls it once, through a 6-byte `.text` thunk
-(`kernel.asm:5916`), and nothing else in the tree names it.
-
-**Evidence.** `drv_boot_x ← drv_boot ← kmain`, one edge each; closure §8.2 confirms
-no other inbound of any kind. It is *already* `.cold`, so it already far-calls
-everything it needs, and it already reaches the overlay five times.
-
-**Measurement.** `.text` +2 · `.cold` −276 · `.ovl` +229 · all seven gate checks pass.
-
-**Price.** 229 blob bytes. Three `.cold` far shims (`drv_mounted`, `drv_row_x`,
-`drv_load_x`, 4 bytes each) and one `SPLSTUB`; the `drv_boot` thunk is deleted.
-
-**Why it beats 1:1.** Four of its five overlay entries — `ovl_spl_msg_cfg`,
-`ovl_cfg_load`, `ovl_spl_msg_drv`, `ovl_spl_msg_boot` — have **`drv_boot_x` as their
-only caller**. Once the caller is inside `.ovl` those become plain near calls in one
-address space, and four 20-byte `OVLCALL`/`OVLCALLC` sites collapse to 3 bytes each.
-That is worth **69 bytes**, measured: `.ovl` +229 with the collapse against +298
-without. The four bodies' terminating `retf` becomes `ret` in the same edit — the
-gate checks that and is what caught it (`os88ovlchk: ... is near-called, ends in
-RETF`). The fifth, `SPLCALL splf_reset`, points into `.boot2` and stays as it is.
-
-**What would flip it.** Nothing about the body — it is the best row here on every
-axis but one. It needs **229 of a 194-byte pool**, so it is 35 bytes short of fitting
-today. A 16-sector blob takes it with 477 to spare.
-
-**Correction to carry.** `PLAN.md` §7.1 prices `drv_boot_x` at "~120". It is **288**
-— `0x9F01 − 0x9DE1 = 0x120`, a hex length read as decimal. `Fdriver-06` rejected the
-move on the real 127-byte `.ovl` headroom and was right to; at 194 bytes it is still
-right, and at 16 sectors it stops being.
-
-### 2.2 The vidsel probe trio — 262 bytes, the cleanest body in the tree
-
-**What it is.** `vidsel.inc:119–333`: which adapters this machine actually has.
-`vid_probe_avail` (136) calls `vid_memchk` (55) three times and `vid_cga_alias` (71)
-once, and calls **nothing else at all**.
-
-**Evidence.** One inbound edge tree-wide, `kmain:4165`. Zero outbound. The only other
-mentions of either name in the repository are prose in
-`tools/martypc/configs/os8088_machines.toml`.
-
-**Measurement.** `.text` −254 · `.ovl` +262 · gate OK. Independently it also crosses
-an image rung: `KERN_SIZE` 120,320 → 119,808.
-
-**Price.** 262 blob bytes, one `SPLSTUB` (8 `.text`), no shims of any kind.
-
-**What would flip it.** 262 of a 194-byte pool: **68 bytes short**. Either 68 bytes
-of blob from anywhere, or one more sector. This is the row that most nearly fits and
-is worth the most per byte of review.
-
-### 2.3 `sched_init` — 174 bytes, and a find this pass did not have
-
-**What it is.** `sched.inc:120`: seed the task table, save the BIOS `int 08h` vector,
-programme the PIT, install `sch_isr`. Once, from `kmain:4126`.
-
-**Evidence.** One inbound edge. **Zero outbound.** Nothing re-initialises the
-scheduler — the reboot path is `sched_unhook` (`sched.inc:316`), which *restores* the
-old vector and is a different routine; `sch_fast_on`/`sch_fast_off` re-programme the
-PIT without going near this body.
-
-**Measurement.** `.text` −166 · `.ovl` +174 · gate OK · `KERN_SIZE` −512 in isolation.
-
-**Safety.** It installs a vector, which is the class that nearly bit `Fmouse-01` — but
-it writes `mov word [es:0x22], KERNEL_SEG`, an explicit constant, **not `cs`**. There
-is no CS store anywhere in this register (§6.2). It carries one `%ifdef KFZTRACE` arm,
-which assembles in `.ovl` unchanged.
-
-**Price.** 174 blob bytes, one `SPLSTUB`, no shims.
-
-**What would flip it.** It **fits today**, with 20 bytes of the 194 left over. See §3.
-
-### 2.4 `vid_detect` — 67 bytes, and the one the automated sweep missed
-
-Worth its own note because of *how* it was found. `vid_detect` (`viddet.inc`, 67
-bytes) has two callers: `vid_init` (from `kmain`) and `spw_vid_detect`, the 4-byte
-`.text` far shim the **splash** calls at `splash.inc:517`. A reachability walk that
-treats the splash timer ISR as a runtime root — which is the safe default, and what
-the first sweep here did — marks the whole splash chain live and loses this body.
-`spl_isr` is in fact the *pre-`kmain`* `int 08h` handler, replaced by `sched_init`,
-so everything reached only from it is boot-only too.
-
-**Measurement.** Alone: `.text` −57 · `.ovl` +67. Paired with `vid_init` (§39, viddet.inc),
-which is its other caller: `.text` −68 · `.ovl` +88 — better than the two taken
-separately, because `vid_init → vid_detect` becomes a near call inside `.ovl`.
-Both gate OK.
-
-**Mechanism.** `spw_vid_detect` keeps its 4 bytes and becomes
-`call splg_vid_detect / retf`, so `.boot2`'s far call is unchanged and the new
-`SPLSTUB` does the crossing. **A bonus falls out**: the splash's first tick currently
-needs `vid_detect` to be *aboard* from `.text`, which is what `SPL_RESIDENT` measures;
-in `.ovl` it is aboard before stage 1 jumps, by construction.
-
-**REFUSED, and the bonus above is exactly the trap.** `vid_detect` in `.ovl`
-*is* aboard before stage 1 jumps. **The path to it is not.** `spw_vid_detect`
-lives in `.text` at offset 0x0C14 and is called on the splash's FIRST TICK,
-when only `SPL_RESIDENT` = 9 sectors of the image have landed; any route from
-`.text` into `.ovl` goes through `spl_gate`, which is at `.text` 0xD0CC —
-**sector 104 of 119**. The call would enter memory the floppy has not delivered:
-no fault, no message, whatever the machine left there.
-
-Nothing would have caught it. SPEC.md §15 says the residency assertion "is on
-`spw_resident_end`", and that label was **referenced by nothing in the tree** —
-the guard had been lost. It is a `%if` at the foot of `kernel.asm` again, and it
-is what these two rows are refused by rather than by an argument. **68 resident
-bytes is not worth a boot that dies on one machine class and not on the
-emulator.**
-
-The rows stay here because the *bodies* are still boot-only and the finding is
-about the route: an `.ovl`/`.boot2` consolidation (the owner's unlock (b)) would
-let `.boot2` near-call `vid_detect` directly, no `spl_gate` and no `.text` on the
-path, and these two become takeable in the same edit.
-
-### 2.5 The `.cold` rows as a class — rows 1, 4, 5, 6, 8, 9, 11, 12, 19, 20
-
-These behave identically to one another and the arithmetic is worth stating once,
-because it is not the same trade as a `.text` row.
-
-* A `.cold` body is called `call COLD_SEG:X` (5 bytes). In `.ovl` that becomes
-  `OVLGATE X` (3 bytes) plus one `SPLSTUB` (8): **`.text` +6, every time.**
-* `.cold` and `.ovl` have the **same calling discipline** — CS of their own,
-  `DS = KERNEL_SEG`, far calls out through `cw_` shims — so nothing inside the body
-  changes. That is why these rows are mechanically the cheapest in the register.
-* The exception is a near call to a `.cold` body that is **staying**: it becomes far
-  (+2 at the site) and wants a 4-byte `retf` shim in `.cold`. Rows 5, 8, 11 and 20
-  each pay this; rows 4, 6, 12 and 19 have no outbound calls at all.
-
-So a `.cold` row **sells 6 bytes of the 64KB segment to buy back its whole body of
-RAM.** Whether that is the right trade depends which guard is tighter when the
-question is asked — which is exactly why §2's table keeps the two columns apart.
-
-**Note on row 17.** `menu_init` measures **30 bytes**, and moving it is worth
-`.text` −14. `PLAN.md` §7.1 prices `Fmenu-04` at "~75 / `.text` −59" and
-`CONSOLIDATED.md` at −67 — those figures are the move **plus** the separate fold of
-`menu_relayout`'s constant cell 0, which is a deletion and not a section move. Only
-the move half belongs in this register. It is the weakest `.text` row here and D4's
-own verdict stands: **marginal — do not buy a sector for it.**
-
-**Note on row 9.** `dsk_flop_add_x` is reached from `desk_init`, which is *already*
-in `.ovl`, through a 6-byte `.text` thunk. Calling it directly from `.ovl` instead
-of routing through a `SPLSTUB` is worth a further **12 bytes of `.text` and 2 of
-blob** — but the gate refuses it as filed, because `dsk_flop_add_x` ends `retf` and
-would then be near-called (`os88ovlchk` says so in terms). The return kind has to be
-settled in the same edit. The table quotes the conservative route.
-
-### 2.24 The whole register measured as one build
-
-Not a sum of rows — one assembly with every body moved:
-
-| | `.text` | `.bss` | `.cold` | `.ovl` | `KERN_SIZE` |
-|---|---:|---:|---:|---:|---:|
-| baseline | 57,149 | 5,955 | 40,784 | 3,969 | 120,320 |
-| whole register in `.ovl` | 56,483 | 5,955 | 39,869 | 5,735 | **118,272** |
-| delta | **−666** | 0 | **−915** | **+1,766** | **−2,048** |
-
-**1,581 resident bytes returned for 1,766 blob bytes** — and, because `.text` and
-`.cold` each cross rungs, **four 512-byte rungs of `KERN_SIZE`**. All seven gate
-checks pass, and so does `$SCRATCH/integration/I3-os88ovlchk-fixed.py`'s eighth.
-
-The rows are additive to within **two bytes**: the individual `Δ.ovl` figures sum to
-1,768 against a measured 1,766, and `Δ.text` to −664 against −666. Those two bytes are
-the `vid_init`/`vid_detect` pairing (§2.4) and nothing else; `Δ.cold` reconciles
-exactly at −915. There is no other interaction between rows, which means **the
-register can be taken in any subset, in any order** — price a subset by summing its
-rows and it will be right.
-
-At 18 sectors the register is **36 bytes short** of fitting whole (1,730 available
-against 1,766). At 19 it fits with 476 to spare, and 19 costs exactly what 16 costs.
-
-Under every knob (measured, all assemble):
-
-| build | `.text` | `.cold` | `.ovl` | `KERN_SIZE` |
-|---|---:|---:|---:|---:|
-| plain | −666 | −915 | +1,766 | −2,048 |
-| `KERN_SMALL=1` | −614 | −776 | +1,571 | −1,536 |
-| `BOOTMARK=1` | −666 | −915 | +1,766 | −2,048 |
-| `SPLSTARS=1` | −666 | −915 | +1,766 | −2,048 |
-
----
-
-## 3. FITS NOW — what 194 bytes buys with no further growth
-
-**This is the part to act on first.** Nothing below needs a sector, an `int 13h`, or
-one byte of any image. Every option was measured; pick by which guard is tighter.
-
-**Best for the 64KB segment (guard 2 — the physics one):**
-
-> **`sched_init` alone. 174 of the 194 bytes. `.text` −166, `.ovl` +174, 20 bytes
-> left over.**
-> One body, one call site, zero outbound calls, one `SPLSTUB`, no shims, no `%if`
-> arm to reason about, no CS store, no `MARK`, no test or tool that names it. It is
-> the smallest diff per byte in the whole register.
-
-**Best for the footprint (`KERN_BUDGET`):**
-
-> **`dsk_boot_from_x` + `dsk_bootltr` (160) with `sch_idle_start` (33) = 193 bytes.
-> `.text` −17, `.cold` −160, 177 resident bytes returned, 1 byte spare.**
-
-**Other combinations that fit**, for completeness — all measured, all additive:
-
-| set | blob | Δ`.text` | Δ`.cold` | resident |
-|---|---:|---:|---:|---:|
-| `sched_init` | 174 | −166 | 0 | 166 |
-| `dsk_boot_from_x`+`dsk_bootltr` + `sch_idle_start` | 193 | −17 | −160 | 177 |
-| `dsk_boot_from_x`+`dsk_bootltr` + `inst_init` | 187 | −13 | −160 | 173 |
-| `files_init_x` + `dsk_dpt_init_x` + `wm_init` | 190 | −27 | −143 | 170 |
-| `font_init` + `wm_init` + `sch_idle_start` + `inst_init` | 187 | −153 | 0 | 153 |
-| `vid_detect` + `files_init_x` + `dock_init` | 189 | −70 | −83 | 153 |
-
-**What does NOT fit today, and by how much:**
-
-* the vidsel trio (§2.2) — 262, **68 over**
-* `drv_boot_x` (§2.1) — 229, **35 over**
-
-Both are the two largest single wins in the register, and both are within a hundred
-bytes. If any other work donates blob bytes — the `.boot2`/`.ovl` consolidation, a
-`.boot2` deletion, `Fkernel-11`/`Fmisc-29`-shaped donations — check this line again
-before deciding those bytes are spare.
-
----
-
-## 4. The growth table — what a sector costs and what it admits
-
-`tests/unit/t_blobruns.py --sectors N` prices this host-side in 0.1 s, per geometry,
-against the images already in `build/`. Run afresh, this tree:
-
-| `BOOT2_SECS` | blob | 360KB | 720KB | 1.44MB | `.ovl` free over 3,969 |
-|---:|---:|---:|---:|---:|---:|
-| 13 (pre-2.9.12) | 6,656 | 2 | 2 | 2 | 218 |
-| 14 | 7,168 | 2 | **3** | 2 | 730 |
-| 15 (D8's) | 7,680 | 2 | 3 | 2 | 1,242 |
-| 16 | 8,192 | **3** | 3 | 2 | 1,754 |
-| 17 | 8,704 | 3 | 3 | 2 | 2,266 |
-| 18 | 9,216 | 3 | 3 | 2 | 2,778 |
-| **19 (SHIPPED)** | **9,728** | **3** | **3** | **2** | **3,290** |
-| 20 (`SPLSTARS`) | 10,240 | 3 | 3 | 2 | 3,802 |
-| 21 | 10,752 | 3 | 3 | 2 | 4,314 |
-| 22 | 11,264 | 3 | 3 | **3** | 4,826 |
-| 23 | 11,776 | 3 | **4** | 3 | 5,338 |
-
-("free" = `BOOT2_PAD − .boot2` 2,469 − `.ovl` 3,969, `OVL_AT` set wherever the split
-needs to be; the two sides are one pool, §1. The 23 row was measured here and is not
-in any earlier copy of this table.)
-
-**Read the call columns and not the sector numbers.** A run is bounded by the TRACK
-and `KERNEL.SYS` starts wherever each BPB puts the data area, so the boundary is in a
-different place on each geometry. One `int 13h` is 1–2 revolutions **whatever it
-moves** — 199 ms for one sector and 384 ms for a nine-sector track on the field 5150
-(PERFORMANCE.md Part 2, Sets 14/22), and SPEC.md §15.3.8.5 prices the marginal sector
-at "near enough 400 ms". A sector *inside* an existing run is ~24 ms.
-
-So the ladder has exactly **four prices**, and everything in between is free:
-
-| step | what it costs | what it admits |
-|---|---|---|
-| 13 → 14 | one extra `int 13h`, **720KB only** | 730 bytes |
-| 14 → 15 | nothing | 1,242 |
-| **15 → 16..21** | one extra `int 13h`, **360KB only** (~400 ms on the field XT) | **3,290 at the shipped 19 — the entire register (1,766) and D8's mouse subset (1,112) with ~410 left.** 20 and 21 are free after that |
-| 21 → 22 | a third `int 13h` on **1.44MB** — the release geometry, and the one most tests boot | 4,826 |
-| 22 → 23 | a **fourth** on 720KB | 5,338 |
-
-> **The load-bearing line: 16 through 21 all cost the same single extra call**, and
-> the shipped blob sits at 19 of them. **The next claim of any size has 1,024 free
-> bytes behind it and then hits a price that has not been approved** — 22 buys 1.44MB
-> its third call. That is the conversation to have before spending sector 22, not
-> after.
-
-**What the call table hides, and it is not small.** The in-run sectors land on
-**every** geometry, including the one that pays no call: 13 → 19 is six more sectors
-inside an existing run on 1.44MB, ~144 ms at 24 ms each, with nothing in the call
-column to show for it. All of it is pre-splash — stage 1 reads the blob before the
-first splash pixel — so it is time on a blank screen rather than a slower-looking
-boot, and `docs/BOOT-PERF-PLAN.md`'s phase tables want re-taking because of it.
-
-**`tests/unit/t_blobruns.py`'s ratchet is PER GEOMETRY now**, which is what that file
-says it exists for: 3 on 360KB, 3 on 720KB, **2 on 1.44MB**, each with its reason
-beside it. One number for all three was the shape of the original mistake.
-`tests/unit/t_buildmatrix.py` gained a `MOUDIAG` row in the same commit — it had none,
-and a knob whose blob nothing measures is how the last break went unfound.
-
----
-
-## 5. What each knob needs at nineteen sectors — D5, not a new rule
-
-A knob is bound by physics, never by a documented limit, and *"all knobs together
-fit"* is not required. `SPLSTARS=1` is the model already in the tree:
-`BOOT2_SECS_STARS` sits beside the shipped value and the Makefile's `sed` is
-deliberately anchored to find only the shipped one.
-
-Measured on the tree the blob resize landed on, before any body has moved:
-
-| build | `.ovl` | `.boot2` | its `OVL_AT` | fits the 19-sector blob? |
-|---|---:|---:|---:|---|
-| shipped (kern_big) | 3,969 | 2,469 | 2,560 | ✔ 3,290 free |
-| `KERN_SMALL=1` | 3,886 | 2,469 | 2,560 | ✔ 3,373 free |
-| `BOOTMARK=1` | 4,060 | 2,469 | 2,560 | ✔ 3,199 free |
-| `MOUDIAG=1` | 3,969 | 2,475 | 2,560 | ✔ 3,284 free |
-| `SPLSTARS=1` | 3,969 | **2,798** | **3,072** | **only at 20** — its `.boot2` is 329 bytes over the shipped split and it is over *wherever* `OVL_AT` falls |
-
-**At 19, `SPLSTARS` is the only knob that still needs a `BOOT2_SECS` of its own**
-(`BOOT2_SECS_STARS equ 20`). At D8's 15, `BOOTMARK` and `MOUDIAG` needed one each as
-well. That is D5 honoured with *less* machinery rather than more — and it is a
-maintenance risk in the same breath, because a mechanism with one user is a mechanism
-nobody notices breaking. `tests/unit/t_buildmatrix.py` is what watches it, and it now
-carries a `MOUDIAG` row: it had none, which is how D8's short-jump break went
-unfound.
-
-**Do not lower the shipped `OVL_AT` to make `SPLSTARS` fit 19.** It would work and it
-costs the shipped side nothing, but it is a shipped constant re-tuned for a knob's
-overflow, which is the shape D5 refuses. The knob has a sector.
-
----
-
-## 6. Standing caveats — read before adding a row
-
-### 6.1 `.ovl` is a different address space, and the gate enforces it
-A near call from `.text` into `.ovl` (or back) is a displacement computed between two
-address spaces. `tools/os88ovlchk.py` refuses it, and that gate stays. Inbound is an
-`OVLGATE`/`SPLSTUB` pair; outbound is `call KERNEL_SEG:cw_X` / `call COLD_SEG:cwc_X`
-to a 4-byte `retf` shim.
-
-`.boot2` and `.ovl` are the exception that is *not* an exception in practice: they are
-already **one** address space (`.boot2 start=0 vstart=0`, `.ovl start=OVL_AT
-vstart=OVL_AT`, one segment), so a near call between them is already correct today and
-the gate's refusal is safe over-strictness rather than a correctness requirement. **Do
-not weaken it for bytes** — it was measured at 34 bytes on the mouse cluster and
-refused there. Do the consolidation properly or pay the gate.
-
-### 6.2 CS may never be stored from `.ovl`, and today nothing checks it
-`os88ovlchk.py` exempts `.ovl` from the `.cold` CS check **by design**, because the
-overlay's data rides with it and `[cs:si]`, `push cs` and `cs lodsw` are correct
-idioms there. **Storing CS into memory never is** — it always means "the kernel's
-segment", and in `.ovl` it is the blob's. D8 adds the check for exactly this reason.
-
-**No body in this register contains a CS store.** The only five in the kernel are
-`mouse.inc:388/410/1439` (D8's own, which is why the check is a prerequisite there),
-`splash.inc:1472` (legitimate — `spl_isr` really does live in the blob) and
-`kernel.asm:5355` (`mark_hook`, `BOOTMARK`-only, `.text`). So no row here *depends*
-on the new check — but every row here is protected by it against the next edit, and
-that is the reason to have it.
-
-The generalisation worth writing down: **an `.ovl` body may take the address of a
-`.text` label freely** — `.text` has `vstart=0` and the consumer supplies
-`KERNEL_SEG`, so `mov ax, sch_idle_body` in `.ovl` is correct — **but an address of
-an `.ovl` label stored anywhere that outlives the blob is a pointer into freed heap.**
-
-### 6.3 No `MARK` site is in this register
-`MARK n` is not textually a call — the `call mark_here` is in the macro body — so
-today's gate is blind to it in either destination, and D8 needs
-`$SCRATCH/integration/I3-os88ovlchk.patch` for the eight sites inside `mouse_init`.
-Audited: **not one body in §2 contains a `MARK` or `BPMARK`.** The I3 patch is a
-prerequisite for D8, not for this file. (Take it anyway; it is 0 bytes and it is what
-would catch the *next* one.)
-
-### 6.4 A string op in `.ovl` may not take a `cs:` source
-Seven rows contain `rep movs`/`rep stos` — `font_init`, `wm_init`, `inst_init`,
-`files_init_x`, `drv_init_x`, `mem_init_x`, `dsk_dpt_init_x`. All are correct as
-written, because they address kernel data through `DS`/`ES` and `DS = KERNEL_SEG` in
-`.ovl` exactly as it is in `.text`. The rule to preserve: the 8086 **loses the segment
-prefix when a string instruction is restarted after an interrupt**, so if an `.ovl`
-body ever grows data of its own, a block move out of it must load a segment register
-and never wear a `cs:` prefix.
-
-### 6.5 A pre-existing `section` directive inside a body's span
-`dsk_bootltr` and `mod_init_x` each have a `section` line between their label and the
-next one. A bracket placed at the "next top-level label" therefore swallows it and
-silently re-sections whatever follows — in the harness for this file it moved a
-12-byte `.text` table into `.cold` and made a clean measurement read `−6` instead of
-`+6`. Bracket to the **first section directive** inside the span, not to the next
-label, and check the map afterwards.
-
-The related rule that always applies: a NASM local `.foo` belongs to the last
-non-local label, so a `section` line inserted mid-body re-parents nothing but a
-*moved* body re-parents everything. Every measurement in this file was made by
-inserting brackets **in place**, so no body changes file position and no local label
-is re-parented.
-
-### 6.6 A knob takes its own `BOOT2_SECS` — see §5.
-
-### 6.7 `.ovl` fails silently, and that is the standing risk
-A future maintainer who adds a runtime path into any body in this register gets a
-**silent no-op**, not a crash: `spl_gate` tests `[spl_fseg]` and returns. That is a
-safe failure (no wild jump) and an invisible one. It is the strongest argument for
-keeping this file next to the code — the rows here name what may never gain a
-runtime caller.
-
----
-
-## 7. Disqualified — with the killing edge named
-
-Everything below looks boot-only and is not. Recorded so nobody derives it twice.
-
-### 7.1 Reached after the blob is retired
-
-`kmain` gives the memory back at `:4397`. Three `.cold` bodies are called at or after
-that point and can never be in it:
-
-| body | bytes | killing edge |
-|---|---:|---|
-| `mem_unblob_x` | 14 | **it is the routine that releases the blob** (`kmain:4397`) |
-| `mem_floor_ax` | 14 | called from `mem_init_x` (before) **and `mem_unblob_x`** (after) |
-| `drv_notice_x` | 23 | `kmain:4423`, after `spl_finish` — "and only NOW say what did not load" |
-
-### 7.2 Reached from `ui_task`, an ISR, or a published slot
-
-| body | bytes | killing edge |
-|---|---:|---|
-| `osapi_sys_snapshot` (`Fmisc-22`) | 258 | `osapi_table` cell — a **published slot**, called about once a second by the Task Manager |
-| `menu_kbnav` (`Fmenu-01`) | 177 | `kbm_move` (`mouse.inc:1920`) — an arrow key, for the session |
-| `ui_tm_open` + `ui_note` (`Fui-01`) | 143 + 57 | `ui_cmd ← ui_dispatch ← ui_task` — a Task Manager pick, and `cw_ui_note` besides |
-| `vid_disp_init` | 135 | called by `kmain:4176` **and** `vid_disp_relayout` — Control Panel → Display, SPEC.md §39.19.1. The largest lookalike in the tree |
-| `mou_hotplug` | 131 | `ui_task` **every pass** — the worked example, and the edge that nearly disqualified the whole mouse cluster |
-| `mouse_unhook` | 116 | `sched_unhook` ← Chip → Restart. Runs at **reboot**, when the blob is long gone |
-| `vid_apply`, `vid_setmode` | — | `vid_switch`, `fsx_enter` — a runtime mode change |
-| `mou_pall`, `mou_pout`, `mou_newround`, `mou_lockon`, `mou_p2_off` and the four `mou_p2*` writers | 339 | `mou_hotplug` / `mouse_unhook`. This is `Fmouse-01`'s remaining half, and it goes to `.cold` under D8 for exactly this reason |
-| `mou_claim` | — | `mou_isrs`, the ISR vector table |
-
-`Fui-01` and `Fmenu-01` appear in D4's own list as boot-only candidates. **They are
-not**, and `PLAN.md` §7.1 already corrects it — recorded again here because the
-correction is the useful half.
-
-### 7.3 Boot-only, but a host instrument names the symbol
-
-**`evq_init` (22 bytes) — take it only with a test edit.** `tests/evqfull.py:96` pokes
-a **near** `call evq_init` into `snd_xlat` inside `KERNEL_SEG` and executes it with
-`CS = KERNEL_SEG`:
+machine after `spl_finish`, and the column to rank by for footprint. `Δ.text` on
+its own is the **segment** column (guard 2, `KERN_CODE_MAX`), which a `.text` →
+`.ovl` move buys and a `.cold` → `.ovl` move sells. §3 is which of the two to rank
+by today.
+
+### 2.1 `vid_detect` + `vid_init` — 84 bytes, refused on the ROUTE
+
+**What it is.** `viddet.inc:313` and `:942`, 67 and 17 bytes. Which adapter this
+machine has, and the one call that sets it up. `vid_detect` has two callers:
+`vid_init` (from `kmain`) and `spw_vid_detect`, the 4-byte `.text` far shim the
+**splash** calls.
+
+**Evidence that the bodies are boot-only.** `spl_isr` is the *pre-`kmain`*
+`int 08h` handler, replaced by `sched_init`, so everything reached only from it is
+boot-only too. A reachability walk that treats the splash timer ISR as a runtime
+root — the safe default — marks the whole splash chain live and loses this pair;
+that is how the first sweep here missed it.
+
+**Measurement.** Alone, `vid_detect`: `.text` −57, `.ovl` +67. As a PAIR: `.text`
+−68, `.ovl` +88 — better than the two taken separately, because `vid_init →
+vid_detect` becomes a near call inside `.ovl`. Both gate OK.
+
+**The price, and it is not bytes.** `vid_detect` in `.ovl` *is* aboard before stage
+1 jumps. **The path to it is not.** `spw_vid_detect` lives in `.text` at 0x0C84 —
+sector 6, inside the `SPL_RESIDENT` = 9 sectors stage 2 waits for — and is called on
+the splash's FIRST TICK. Any route from `.text` into `.ovl` goes through `spl_gate`,
+which is at `.text` 0xCA18: **sector 101 of 103**. The call would enter memory the
+floppy has not delivered: no fault, no message, whatever the machine left there.
+
+Nothing would have caught it. SPEC.md §15 said the residency assertion "is on
+`spw_resident_end`", and that label was **referenced by nothing in the tree** — the
+guard had been lost. It is a `%if` at the foot of `kernel.asm` again, and these two
+rows are refused by a measurement rather than by an argument. **68 resident bytes
+is not worth a boot that dies on one machine class and not on the emulator.**
+
+**What would flip it.** An `.ovl`/`.boot2` consolidation. The two are already ONE
+address space (§6.1), so `.boot2` could near-call `vid_detect` directly — no
+`spl_gate`, no `.text` anywhere on the path, and the residency question does not
+arise because the whole blob is aboard before stage 1 jumps. That change is worth
+more than these 68 bytes on its own, and it makes them free.
+
+### 2.2 `evq_init` — 22 bytes, and a host instrument names the symbol
+
+**What it is.** `events.inc:58`. Seeds the event ring. One caller, `kmain`.
+
+**The price.** `tests/evqfull.py:96` pokes a **near** `call evq_init` into
+`snd_xlat` inside `KERNEL_SEG` and executes it:
 
 ```python
 rel = (sym["evq_init"] - (at + 3)) & 0xFFFF
 m.write((KERNEL_SEG << 4) + at, bytes([0xE8]) + rel.to_bytes(2, "little") + ...)
 ```
 
-In `.ovl`, `sym["evq_init"]` is an `OVL_AT`-relative offset in the blob's segment, so
-that near call from `KERNEL_SEG` lands somewhere arbitrary and **executes it**. This
-is the one row in the register with a cost outside the kernel, and it is 14 resident
-bytes — almost certainly not worth the edit, but recorded so the trap is seen before
-it is sprung rather than after. (`tests/unit/t_wakedrain.py` also matches on
-`call evq_init`; `OVLGATE evq_init` simply stops matching, which is harmless.)
+In `.ovl`, `sym["evq_init"]` is an `OVL_AT`-relative offset in the blob's segment,
+so that near call from `KERNEL_SEG` lands somewhere arbitrary and **executes it**.
+(`tests/unit/t_wakedrain.py` also matches on `call evq_init`; `OVLGATE evq_init`
+simply stops matching, which is harmless.)
 
-Checked and **clear**: `vid_init` (`tools/os88boot.py`, a docstring), `sch_idle_start`
-(`tests/uiblock.py`, a message string), `xm_boot_x` (`tests/dispcold.py`, its own
-maintenance history), `vid_probe_avail`/`vid_cga_alias`
-(`tools/martypc/configs/*.toml`, comments). No other candidate is named anywhere
-under `tests/` or `tools/`.
+**What would flip it.** Teaching `evqfull.py` to reach the body the way the kernel
+does. 14 resident bytes for a test edit is a bad trade on its own, but it is free
+if that test is being touched anyway — which is the only reason this row is still
+here rather than in §7.
 
-`tools/os88boot.py`'s phase table survives every row: it breaks on the **return**
-address of each `call` in `kmain`, and `OVLGATE X` is still `call splg_X` in `.text`.
-The phase label it prints changes from `X` to `splg_X`.
+### 2.3 `mod_init_x` — 24 bytes, the worst ratio in the file
 
-### 7.4 Cannot move by construction
+**What it is.** `mod.inc`, `.cold`, one caller in `kmain`.
 
-| body | bytes | why |
-|---|---:|---|
-| `kmain` | 196 | a hub of ~35 near calls plus 13 `.text`-only gate sites. In `.ovl` every gate reverts to the 20-byte inline `SPLCALL` (+208) and every call goes far. **Deeply negative** — D4's own refusal, re-confirmed |
-| the eleven `SPLSTUB`s + `spl_gate` | 103 | `.text`-only *by construction* (SPEC.md §2.9.5.2): they exist **because** a near call out of another address space is refused |
-| the `spw_*` / `cw_*` / `ovw_*` / `dkf_*` far shims | 4 each | a shim in `.ovl` is a shim that cannot be reached from `.text` |
-| `dsk_fdd_probe`, `clk_init`, `cpu_detect`, `xm_sniff`, `snd_init`, `desk_init`, `drv_snd_sniff` and the rest of `.ovl` | 3,969 | **already there** |
+**The price.** `.text` **+6** and 28 blob bytes to return **10**. A `.cold` row
+sells 6 bytes of the 64KB segment every time (§2.4), and two `.cold` far shims are
+needed besides.
 
-### 7.5 Whole modules that contribute nothing
-Closure over the entire kernel (§8) returns **59 boot-only bodies and no more**. Every
-routine in `wm.inc`, `menu.inc` (bar `menu_init`), `ui.inc`, `files.inc`, `fdlg.inc`,
-`icons.inc`, `clip.inc`, `blank.inc`, `toast.inc`, `fprog.inc`, `assoc.inc`,
-`filecp.inc`, `clone.inc`, `diskw.inc`, `fsx.inc`, `snd.inc`, `band.inc`, `font.inc`
-(bar `font_init`), `vga12.inc` and `softgfx.inc` is either session-lifetime or already
-`.cold`. **The register above is complete for this tree.**
+**What would flip it.** Nothing plausible. It is recorded so that the next sweep
+does not spend an hour rediscovering a 10-byte row; it was dropped once already,
+when the blob became scarcer than the segment.
+
+### 2.4 The `.cold` arithmetic, stated once
+
+It is not the same trade as a `.text` row, and row 20 is the only one left that
+takes it:
+
+* A `.cold` body is called `call COLD_SEG:X` (5 bytes). In `.ovl` that becomes
+  `OVLGATE X` (3 bytes) plus one `SPLSTUB` (8): **`.text` +6, every time.**
+* `.cold` and `.ovl` have the **same calling discipline** — CS of their own,
+  `DS = KERNEL_SEG`, far calls out through `cw_` shims — so nothing inside the body
+  changes. That is what makes these rows mechanically cheap.
+* A near call to a `.cold` body that is **staying** becomes far (+2 at the site) and
+  wants a 4-byte `retf` shim in `.cold`.
+
+So a `.cold` row **sells 6 bytes of the 64KB segment to buy back its whole body of
+RAM.** Which way that reads depends on which guard is tighter when the question is
+asked, which is why the table keeps the two columns apart.
 
 ---
 
-## 8. Method, and how to re-derive it
+## 3. What fits today — all of it, and that is the finding
 
-Everything here was produced from a copy of the tree at commit
-`950c9679d4157d6ed5b13606adab186a5961d8c9`, working tree clean, under `/tmp/lastdrop/`.
+The whole of §2 is **138 blob bytes** against **420 free on the tightest knob arm**
+and 583 on the shipped build. Nothing left in this file needs a sector, an
+`int 13h`, or one byte of any image. **If you came here looking for a sector, you
+do not need one** — and two of the three rows are refused for reasons that are not
+about bytes at all, so a sector would not help if you did. (This section used to be
+a menu of subsets that fitted in 194 bytes. The blob is no longer the binding
+constraint on anything in this file.)
+
+Which column to rank by, when a NEW row appears:
+
+* **Footprint (`KERN_BUDGET`, guard 1)** — rank by *resident returned*.
+  `KERN_SIZE` is 113,664 of 129,536, so 15,872 bytes spare. Not tight.
+* **The 64KB segment (guard 2, `KERN_CODE_MAX`)** — rank by `Δ.text` alone.
+  `.text`+`.bss` is 58,481 of 65,536, so **7,055 left** — it was 2,432 before the
+  size pass, and it is the looser of the two guards for the first time in a while.
+  It used to be what decided every row here; while it stays this slack, a `.cold`
+  row's standing `.text` +6 (§2.4) stops being an argument against one.
+* **The blob** — 583 bytes, §1. Only §4 changes that, and 20 and 21 are free.
+
+Quote `tools/kernsize.py`'s SUM and its ACCRUED line for both guards, never its
+step count (CLAUDE.md, "Design for BYTES, never for rungs").
+
+---
+
+## 4. The growth table — what a sector costs and what it admits
+
+`tests/unit/t_blobruns.py --sectors N` prices this host-side in 0.1 s, per geometry,
+against the images already in `build/`. Re-run on this tree:
+
+| `BOOT2_SECS` | blob | 360KB | 720KB | 1.44MB | free over today's 9,145 |
+|---:|---:|---:|---:|---:|---:|
+| 17 | 8,704 | 3 | 3 | 2 | **does not fit (−441)** |
+| 18 | 9,216 | 3 | 3 | 2 | 71 |
+| **19 (SHIPPED)** | **9,728** | **3** | **3** | **2** | **583** |
+| 20 (`SPLSTARS`) | 10,240 | 3 | 3 | 2 | 1,095 |
+| 21 | 10,752 | 3 | 3 | 2 | 1,607 |
+| 22 | 11,264 | 3 | 3 | **3** | 2,119 |
+| 23 | 11,776 | 3 | **4** | 3 | 2,631 |
+
+(The call columns are the tool's output; `t_blobruns.py` FAILS at 22 and 23 rather
+than reporting them, which is the ratchet doing its job. "free" is
+`N x 512 − .boot2 2,457 − .ovl 6,688`, `OVL_AT` set wherever the split needs to be —
+the two sides are one pool, §1.)
+
+**Read the call columns and not the sector numbers.** A run is bounded by the TRACK
+and `KERNEL.SYS` starts wherever each BPB puts the data area, so the boundary is in
+a different place on each geometry. One `int 13h` is 1–2 revolutions **whatever it
+moves** — 199 ms for one sector and 384 ms for a nine-sector track on the field 5150
+(PERFORMANCE.md Part 2, Sets 14/22). A sector *inside* an existing run is ~24 ms.
+
+So the ladder has four prices and everything in between is free:
+
+| step | what it costs | what it admits |
+|---|---|---|
+| 13 → 14 | one extra `int 13h`, **720KB only** | — historical; the blob is past it |
+| 14 → 15 | nothing | — |
+| **15 → 16..21** | one extra `int 13h`, **360KB only** (~400 ms on the field XT) | **already bought.** 19 is where the blob sits; **20 and 21 are FREE from here** |
+| 21 → 22 | a third `int 13h` on **1.44MB** — the release geometry, and the one most tests boot | 2,119 |
+| 22 → 23 | a **fourth** on 720KB | 2,631 |
+
+> **The load-bearing line: sectors 20 and 21 cost nothing that has not already been
+> paid.** 1,024 more bytes are available for the price of ~24 ms of pre-splash
+> in-run reads and no extra call on any geometry. **The next claim after that hits a
+> price nobody has approved** — 22 buys 1.44MB its third call. That is the
+> conversation to have before spending sector 22, not after.
+
+**What the call table hides, and it is not small.** The in-run sectors land on
+**every** geometry, including the one that pays no call: 13 → 19 was six more
+sectors inside an existing run on 1.44MB, ~144 ms at 24 ms each, with nothing in the
+call column to show for it. All of it is pre-splash — stage 1 reads the blob before
+the first splash pixel — so it is time on a blank screen rather than a slower-looking
+boot, and `docs/BOOT-PERF-PLAN.md`'s phase tables want re-taking because of it.
+
+`tests/unit/t_blobruns.py`'s ratchet is **per geometry**: 3 on 360KB, 3 on 720KB,
+**2 on 1.44MB**, each with its reason beside it. One number for all three was the
+shape of the original mistake.
+
+---
+
+## 5. What each knob needs at nineteen sectors
+
+A knob is bound by physics, never by a documented limit, and *"all knobs together
+fit"* is not required. `SPLSTARS=1` is the model in the tree: `BOOT2_SECS_STARS`
+sits beside the shipped value and the Makefile's `sed` is deliberately anchored to
+find only the shipped one.
+
+Measured on this tree:
+
+| build | `.ovl` | `.boot2` | its `OVL_AT` | blob free | fits 19? |
+|---|---:|---:|---:|---:|---|
+| shipped (kern_big) | 6,688 | 2,457 | 2,560 | 583 | yes |
+| `KERN_SMALL=1` | 5,959 | 2,457 | 2,560 | 1,312 | yes |
+| `BOOTPROF=1` | 6,688 | 2,457 | 2,560 | 583 | yes |
+| `BAND=1` | 6,688 | 2,457 | 2,560 | 583 | yes |
+| `MOUDIAG=1` | 6,754 | 2,463 | 2,560 | 511 | yes |
+| **`BOOTMARK=1`** | **6,851** | 2,457 | 2,560 | **420** | yes — **the tightest arm** |
+| `BOOTMARK=1 MOUDIAG=1` | 6,917 | 2,463 | 2,560 | 348 | yes |
+| `SPLSTARS=1` | 6,688 | **2,786** | **3,072** | 766 **at 20** | **only at 20** |
+
+**`SPLSTARS` is the only knob that still needs a `BOOT2_SECS` of its own**
+(`BOOT2_SECS_STARS equ 20`): its `.boot2` is 226 bytes over the shipped split and it
+is over *wherever* `OVL_AT` falls. `tests/unit/t_buildmatrix.py` is what watches all
+of this, and it carries a `MOUDIAG` row because it had none, which is how a
+short-jump break in a knob went unfound.
+
+**Do not lower the shipped `OVL_AT` to make `SPLSTARS` fit 19.** It would work and
+costs the shipped side nothing, but it is a shipped constant re-tuned for a knob's
+overflow. The knob has a sector.
+
+---
+
+## 6. Standing caveats — read before adding a row
+
+### 6.1 `.ovl` is a different address space, and the gate enforces it
+A near call from `.text` into `.ovl` (or back) is a displacement computed between
+two address spaces. `tools/os88ovlchk.py` refuses it, and that gate stays. Inbound
+is an `OVLGATE`/`SPLSTUB` pair; outbound is `call KERNEL_SEG:cw_X` /
+`call COLD_SEG:cwc_X` to a 4-byte `retf` shim.
+
+`.boot2` and `.ovl` are the exception that is *not* an exception in practice: they
+are already **one** address space (`.boot2 start=0 vstart=0`, `.ovl start=OVL_AT
+vstart=OVL_AT`, one segment), so a near call between them is already correct today
+and the gate's refusal is safe over-strictness rather than a correctness
+requirement. **Do not weaken it for bytes** — it was measured at 34 bytes on the
+mouse cluster and refused there. Do the consolidation properly (§2.1) or pay the
+gate.
+
+### 6.2 CS may never be stored from `.ovl`
+`os88ovlchk.py` exempts `.ovl` from the `.cold` CS check **by design**, because the
+overlay's data rides with it and `[cs:si]`, `push cs` and `cs lodsw` are correct
+idioms there. **Storing CS into memory never is** — it always means "the kernel's
+segment", and in `.ovl` it is the blob's. That is now its own gate check.
+
+The generalisation worth writing down: **an `.ovl` body may take the address of a
+`.text` label freely** — `.text` has `vstart=0` and the consumer supplies
+`KERNEL_SEG`, so `mov ax, sch_idle_body` in `.ovl` is correct — **but an address of
+an `.ovl` label stored anywhere that outlives the blob is a pointer into freed
+heap.**
+
+### 6.3 `MARK` is not textually a call
+`MARK n` expands to `call mark_here` inside the macro body, so a `call` scan is
+blind to it in either destination. `BOOTMARK=1` is the tightest arm in §4 for
+exactly this reason — audit a candidate for `MARK`/`BPMARK` by hand.
+
+### 6.4 A string op in `.ovl` may not take a `cs:` source
+The 8086 **loses the segment prefix when a string instruction is restarted after an
+interrupt**. An `.ovl` body that addresses kernel data through `DS`/`ES` is correct
+as written, `DS = KERNEL_SEG` there exactly as in `.text`; but if an `.ovl` body
+ever grows data of its own, a block move out of it must load a segment register and
+never wear a `cs:` prefix.
+
+### 6.5 A pre-existing `section` directive inside a body's span
+`dsk_bootltr` and `mod_init_x` each have a `section` line between their label and
+the next one. A bracket placed at the "next top-level label" therefore swallows it
+and silently re-sections whatever follows — in the harness for this file it moved a
+12-byte `.text` table into `.cold` and made a clean measurement read `−6` instead of
+`+6`. Bracket to the **first section directive** inside the span, not to the next
+label, and check the map afterwards.
+
+The related rule that always applies: a NASM local `.foo` belongs to the last
+non-local label, so a `section` line inserted mid-body re-parents nothing but a
+*moved* body re-parents everything. Insert brackets **in place** so that no body
+changes file position.
+
+### 6.6 `.ovl` fails silently, and that is the standing risk
+A future maintainer who adds a runtime path into a landed body gets a **silent
+no-op**, not a crash: `spl_gate` tests `[spl_fseg]` and returns. That is a safe
+failure and an invisible one. `tests/ovlrefs.txt` is what names, per symbol, what
+may never gain a runtime caller.
+
+---
+
+## 7. Priced and refused — do not re-derive these
+
+Two classes: bodies that look boot-only and are not (§7.1–§7.5), and changes that
+are correct, were BUILT, and cost more than they save (§7.6).
+
+### 7.1 Reached after the blob is retired
+
+`kmain` gives the memory back at `mem_unblob_x`. Three `.cold` bodies are called at
+or after that point and can never be in it:
+
+| body | bytes | killing edge |
+|---|---:|---|
+| `mem_unblob_x` | 14 | **it is the routine that releases the blob** |
+| `mem_floor_ax` | 14 | called from `mem_init_x` (before) **and `mem_unblob_x`** (after) |
+| `drv_notice_x` | 23 | after `spl_finish` — "and only NOW say what did not load" |
+
+### 7.2 Reached from `ui_task`, an ISR, or a published slot
+
+| body | bytes | killing edge |
+|---|---:|---|
+| `osapi_sys_snapshot` | 258 | `osapi_table` cell — a **published slot**, called about once a second by the Task Manager |
+| `menu_kbnav` | 177 | `kbm_move` — an arrow key, for the session |
+| `ui_tm_open` + `ui_note` | 143 + 57 | `ui_cmd ← ui_dispatch ← ui_task`, and `cw_ui_note` besides |
+| `vid_disp_init` | 135 | `kmain` **and** `vid_disp_relayout` — Control Panel → Display, SPEC.md §39.19.1. The largest lookalike in the tree |
+| `mou_hotplug` | 131 | `ui_task` **every pass** — the worked example, and the edge that nearly disqualified the whole mouse cluster |
+| `mouse_unhook` | 116 | `sched_unhook` ← Chip → Restart. Runs at **reboot**, when the blob is long gone |
+| `vid_apply`, `vid_setmode` | — | `vid_switch`, `fsx_enter` — a runtime mode change |
+| `mou_pall`, `mou_pout`, `mou_newround`, `mou_lockon`, `mou_p2_off` and the four `mou_p2*` writers | 339 | `mou_hotplug` / `mouse_unhook` |
+| `mou_claim` | — | `mou_isrs`, the ISR vector table |
+
+The `mou_*` cluster is the half of SPEC.md §9.4.7 that did **not** move: `mouse_init`
+is in `.ovl` and these are still `.text`. `.cold` is available to them and would buy
+**segment** rather than **footprint** — 339 bytes off `KERN_CODE_MAX` and nothing off
+`KERN_BUDGET`. Worth having when the segment is the tighter guard; it has 7,055 bytes
+today, so it is not.
+
+### 7.3 Cannot move by construction
+
+| body | why |
+|---|---|
+| `kmain` | a hub of ~35 near calls plus its `.text`-only gate sites. In `.ovl` every gate reverts to the 20-byte inline `SPLCALL` and every call goes far. **Deeply negative**, re-confirmed twice |
+| `spl_gate` (13 bytes) and its `splg_` thunks (8 each) | `.text`-only *by construction* (SPEC.md §2.9.5.2): they exist **because** a near call out of another address space is refused |
+| the `spw_*` / `cw_*` / `ovw_*` / `dkf_*` far shims | 4 bytes each; a shim in `.ovl` is a shim that cannot be reached from `.text` |
+| `dsk_fdd_probe`, `clk_init`, `cpu_detect`, `xm_sniff`, `snd_init`, `desk_init`, `drv_snd_sniff`, `mouse_init` and the rest of the 6,688 | **already there** |
+
+### 7.4 Two candidates that are corrections, not rows
+
+`ui_tm_open`/`ui_note` and `menu_kbnav` appear in the original planning documents as
+boot-only candidates. **They are not** (§7.2). Recorded here because the correction
+is the useful half.
+
+### 7.5 `.text` → `.cold` is not on this menu
+It is a real move and it is not a *byte* saving: a `.cold` byte is resident for the
+life of the machine exactly as a `.text` byte is. It buys the 64KB segment
+(`KERN_CODE_MAX`) and nothing else. Rank it against guard 2 when guard 2 is tight,
+and do not confuse it with a row above.
+
+### 7.6 The grey fill and the pattern fill are ONE function — 139 bytes, and they stay two
+
+**Status: BUILT, MEASURED, REVERTED.** The only row here that was in the shipped
+kernel for a cycle.
+
+**What it is.** `gfx_fill_gray_raw`'s VGA body and `gfx_fill_pat_raw`'s are the same
+masked-edge, `rep stosb`-interior fill. The only difference is where the row byte
+comes from: grey toggles `not bh` between 0AAh and 55h keyed on `[vga_y1] & 1`,
+pattern indexes `vga_patbuf[y & 7]`. With the eight bytes `AA 55 AA 55 AA 55 AA 55`
+those are the same function, so grey can point `[gfx_pat]` at a static table and jump
+into the pattern body. **139 bytes of `.text`**, and it is real duplication rather
+than a trick.
+
+**Evidence it is safe.** `[gfx_pat]` is spendable: `osapi_gfx_fill_pat` writes it on
+every API call and `files.inc` writes it immediately before its own `gfx_fill_pat`;
+nothing carries it across another primitive. And the 1bpp arm is untouched —
+`jne sw_fill_gray` stays where it is, so both mono adapters take byte for byte the
+path they already took.
+
+**Measured.** `gfxbench` on MartyPC, cycle-accurate 4.77 MHz 8088, `GFX_FILL_GRAY
+64x64`, one run per adapter:
+
+| adapter | standalone body | merged into `gfx_fill_pat` | delta |
+|---|---:|---:|---|
+| **VGA** | **4,266.31 µs** | **5,685.53** | **+1,419.22, +33.27%** |
+| CGA | 8,081.55 | 8,081.55 | ±0.00% — the 1bpp arm |
+| HERC | 7,797.61 | 7,771.56 | −0.33% — the 1bpp arm |
+
+The commit that took it predicted **+17%** and said this row was what would settle
+it. It settled it at **twice that**: `vga_pat_stage` is a call per fill and the row
+byte is a table index per row, and on a 64×64 rect neither is lost in the interior's
+`rep stosb` the way the estimate assumed.
+
+**The price, and why 33% is refused here when it would be accepted elsewhere.**
+`UI_GRAY` in `apps/os88ui.inc` is `os88ui_sbar` and `os88ui_sbmove` — **the shared
+scrollbar trough** — plus `kernel/fprog.inc`'s progress widget, and `word` ×6,
+`texpad` ×3, `sheet` ×2, `taskmgr`, `tracker`, `artful` and `apps/cc/os88thunk.asm`,
+so every C package as well. A scrollbar is on nearly every window in the system and
+redraws on every scroll. The owner's ruling, in his words: *"If I was more sure it
+was only scrollbars I would keep it — scrollbars are nowhere near the capacity of
+any machine, and the user can't scroll and drag a window at the same time. But I'm
+leery of some game wanting to use the API and finding it unperformant."* This is a
+**published `OSAPI_*` slot**, and the cost lands on code nobody in this tree has
+written yet.
+
+**What would flip it.**
+
+* **The grey fill stops being on a shared-library path.** If `UI_GRAY` were the
+  scrollbar's alone, and the scrollbar's cost were bounded by the widget rather than
+  by whoever calls the slot, 33% of 4.3 ms on a redraw nobody waits for is cheap.
+  What makes it dear is that `OSAPI_GFX_FILL_GRAY` is public.
+* **139 bytes mattering more than 33% on scrollbars.** They did not here: taking the
+  merge out cost 130 bytes (Fvga12-05's `mov ax,[vga_m8l]` word form stays at the
+  restored body's two edge columns) and crossed one image rung, `KERN_SIZE` 113,152 →
+  113,664. If the kernel were up against `KERN_BUDGET` rather than 15,872 bytes clear
+  of it, that is a different sentence.
+* **A cheaper merge.** The +33% is `vga_pat_stage` plus a per-row table index. A
+  merged body that took the row byte from a register the caller pre-loaded — grey
+  passing `not`, pattern passing a pointer — would keep most of the 139 bytes without
+  the staging call. Nobody has costed one, and it is the only version of this idea
+  worth building.
+
+The refusal is recorded **in the source as well**, above `gfx_fill_gray` in
+`kernel/vga12.inc`, because the two bodies really are the same function and the next
+size sweep will find them again.
+
+---
+
+## 8. Method, and how to re-derive any of it
 
 ### 8.1 Sizes — whole-kernel re-assembly, never fragment arithmetic
 A `[map all …]` line at the top of a **copy** of `kernel.asm` makes NASM emit every
 symbol with its section and address; a body's size is its address to the next
-**top-level** label in the same section (NASM locals appear as `parent.child` and are
-excluded). The probe is proved non-perturbing: the `ks:` line is byte-identical with
-and without it. The harness reproduces `OVL-MOUSE.md`'s nine mouse routines to
-1,024 bytes exactly, and `PLAN.md`'s `Fmisc-27` and `Fmisc-33` figures to the byte.
+**top-level** label **in the same section** (NASM locals appear as `parent.child`
+and are excluded, and sections overlap in address space, so mixing them gives
+nonsense). The probe is proved non-perturbing: the `ks:` line is byte-identical with
+and without it.
 
-Every row was then **built** — the body bracketed into `.ovl` in place, the call site
-converted, the shims added — and measured with
+Every row was then **built** — the body bracketed into `.ovl` in place, the call
+site converted, the shims added — and measured with
 `nasm -f bin -w+error -w-error=user -DKERNSIZE`, reading `kernel.asm`'s own `ks:`
-line, which is `tools/kernsize.py`'s exact procedure. Twenty-three individual variants
-plus two combined ones — twenty-five whole-kernel assemblies in all.
+line, which is `tools/kernsize.py`'s exact procedure.
 
 ### 8.2 Boot-only — closure, not inspection
-The call graph carries six edge kinds, because a plain `call` scan misses four of them:
+The call graph carries six edge kinds, because a plain `call` scan misses four:
 
 * **CALL** — `call`/`jmp`/`jcc`/`loop`, near and far
 * **CELL** — `OSAPI_SLOT`/`JSLOT`/`NSTUB`/`XSTUB` (the macro body near-calls its argument)
@@ -691,60 +564,45 @@ The call graph carries six edge kinds, because a plain `call` scan misses four o
   and nothing else, and a candidate must survive it.
 
 A body is boot-only iff **every** direct caller is boot-only, computed as a fixpoint
-from `{cold_entry, kmain, the stage-2 splash chain, everything already in `.ovl`}`,
-with three classes blocked from ever joining: `ui_task` (which `kmain` hands control
-to permanently), every ISR, and every body whose inbound edges are *only* ADDR/DATA —
-a stored pointer entered later.
+from `{cold_entry, kmain, the stage-2 splash chain, everything already in .ovl}`,
+with three classes blocked from joining: `ui_task`, every ISR, and every body whose
+inbound edges are *only* ADDR/DATA — a stored pointer entered later.
 
-Two cross-checks that make the result trustworthy:
+Closure over the whole kernel returned **59 boot-only bodies and no more**. Every
+routine in `wm.inc`, `menu.inc`, `ui.inc`, `files.inc`, `fdlg.inc`, `icons.inc`,
+`clip.inc`, `blank.inc`, `toast.inc`, `fprog.inc`, `assoc.inc`, `filecp.inc`,
+`clone.inc`, `diskw.inc`, `fsx.inc`, `snd.inc`, `band.inc`, `font.inc`, `vga12.inc`
+and `softgfx.inc` is either session-lifetime or already `.cold`. **There is no
+fourth row waiting to be found in this tree** — a new one has to come from new code.
 
-* the **near-miss list is empty** — no body is excluded by a soft ADDR/DATA edge
-  alone, so the over-broad rule costs no candidates;
-* the closure independently reproduces `OVL-MOUSE.md`'s partition, including its
-  correction of G2 (`mou_p2_init` is **not** reachable from `mou_hotplug`;
-  `mou_hotplug → mou_lockon` and `mouse_unhook` both reach `mou_p2_**off**`).
-
-Then every row was closed by hand: an exhaustive grep of each symbol across
-`kernel/ boot/ apps/ drivers/ tools/ tests/`, and a per-body audit for `MARK`, CS
-stores, string ops, `%if` arms and stray `section` directives.
-
-### 8.3 Gates
-`tools/os88ovlchk.py` (all seven checks) on every variant and on both combined builds;
-`$SCRATCH/integration/I3-os88ovlchk-fixed.py`'s eighth on the combined build. All
-green. The gate earned its place twice during this work — it caught the four
-`retf`/near-call mismatches in §2.1 and the dead `xmf_xm_boot` shim in row 5, both of
-which assemble cleanly and are wrong.
-
-### 8.4 Blob cost
-`python3 tests/unit/t_blobruns.py --sectors N` against the three images in `build/`,
-host-side, read-only, per geometry. §4's table is that tool's output, not arithmetic.
-
-### 8.5 Reproducing
+### 8.3 Reproducing
 
 ```sh
 nasm -f bin -w+error -w-error=user -DKERNSIZE \
      -I <kerneldir>/ -I apps/ -I build/ -o /dev/null <kerneldir>/kernel.asm   # read ks:
 python3 tests/unit/t_blobruns.py --sectors 19
-python3 tools/os88ovlchk.py                    # from a tree root
+python3 tools/os88ovlchk.py                    # from a tree root; 11 checks
 ```
 
 ---
 
-## 9. Evidence still owed before any of this ships
+## 9. Evidence owed by whoever takes a row
 
-Nothing static substitutes for these, and the register does not claim otherwise.
+Nothing static substitutes for these, and this file does not claim otherwise.
 
-1. **A boot.** Every row is a body that ran during boot and now runs from a different
-   segment. One MartyPC boot to a desktop settles most of them at once.
-2. **`sched_init` specifically** — it installs `int 08h`. Read `0000:0020` after boot
-   and confirm the segment word is `0x0060` (`KERNEL_SEG`) and not `[spl_fseg]`.
-3. **The vidsel trio and `vid_detect`** — the adapter probe decides the mode. Both
-   1bpp adapters (`VIDEO=cga`, `VIDEO=herc`) and the `xt-multimon` two-card XT, since
-   `vid_cga_alias` runs *only* when the mono card is primary.
-4. **`drv_boot_x`** — it mounts a volume and loads drivers from it, and the four
-   collapsed gates change how the splash bar is written. A boot with a `SYSTEM.CFG`
-   that asks for a driver, on a machine that has one.
-5. **A 720KB boot and a 360KB boot** for whichever `int 13h` step is bought.
-   **MartyPC cannot host a 720KB drive with the ROM sets in this tree**, which is
-   precisely how SPEC.md §15.3.8.5's boundary was missed the first time. 86Box, or
-   the field 5150.
+1. **A boot.** Any row is a body that ran during boot and would then run from a
+   different segment. One MartyPC boot to a desktop settles it.
+2. **`vid_detect` + `vid_init` (§2.1)** — the adapter probe decides the mode, so
+   both 1bpp adapters (`VIDEO=cga`, `VIDEO=herc`) and the `xt-multimon` two-card XT,
+   `vid_cga_alias` running *only* when the mono card is primary. And, because the
+   refusal is about the ROUTE rather than the body, a boot off a **floppy** and not
+   only off an image the emulator has entirely in RAM: the failure this row is
+   refused by is a sector that has not landed yet.
+3. **`evq_init` (§2.2)** — `tests/evqfull.py` and `tests/unit/t_wakedrain.py` in the
+   soak tier, since the edit is to them.
+4. **`tools/os88ovlchk.py`, all 11 checks**, on the build and on every knob arm in
+   §5. It has earned its place: it caught four `retf`/near-call mismatches and a
+   dead shim during the pass, all of which assemble cleanly and are wrong.
+5. **A 360KB boot** if any `int 13h` step is bought (§4). **MartyPC cannot host a
+   720KB drive with the ROM sets in this tree**, which is precisely how
+   SPEC.md §15.3.8.5's boundary was missed the first time. 86Box, or the field 5150.
