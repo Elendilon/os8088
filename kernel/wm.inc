@@ -6868,7 +6868,7 @@ wm_clip_clear:
 ; wm_draw_win puts at (+1,+1) is the caller's problem too, exactly as
 ; wm_obscured has always counted it. A fullscreen window has no shadow, but
 ; it covers the screen anyway and one row past the edge costs nothing:
-; vga_rect_setup clips.
+; gfx_rect_setup clips.
 ; -----------------------------------------------------------------------------
 ; wm_clip_subf - the FRAME rect instead: what wm_draw_win actually REPAINTS.
 ;
@@ -8608,7 +8608,7 @@ wm_keeph:
 ;      CF = 0 = draw AX/BX/CX/DX and nothing else, absolute screen coordinates,
 ;      inclusive - and possibly EMPTY (x1 > x2), which means draw nothing at all.
 ;      Either answer leaves a rect in the four registers that is safe to draw:
-;      vga_rect_setup reads an empty one as "nothing to do", so a caller that
+;      gfx_rect_setup reads an empty one as "nothing to do", so a caller that
 ;      never tests for it still cannot paint anything wrong.
 ;      Clobbers the four outputs only.
 ;
@@ -9529,7 +9529,7 @@ wm_su_eptr:
 ; ARMED PER CALL, because gfx_save and gfx_restore spend it. The window
 ; between the arm and the call belongs to the gfx lock - vga12.inc's own
 ; conventions say the mouse ISR never draws while it is held, which is the
-; same guarantee vga_plane and vga_off have always run on.
+; same guarantee vga_plane and gfx_roff have always run on.
 wm_su_arm:
     pushf
     cmp word [WM_SU_PW], 1
@@ -10361,7 +10361,7 @@ wm_su_take:
                                 ; depended on draw order
 %else
     cmp cx, [vid_cw]
-    jae .out                    ; WHOLLY ON SCREEN or no cache: vga_rect_setup
+    jae .out                    ; WHOLLY ON SCREEN or no cache: gfx_rect_setup
     cmp dx, [vid_ch]            ; CLIPS, and wm_su_edge's row count and stride
     jae .out                    ; are computed from the rect rather than read
                                 ; back out of it, so a clipped one would index
@@ -10496,7 +10496,7 @@ wm_su_kb:
 ; patch the bits OUTSIDE the rect into the buffer before restoring it. The
 ; write is then byte-for-byte what is already there wherever it overhangs.
 ;
-; vga_rect_setup's own mask tables answer which bits those are, the one-byte
+; gfx_rect_setup's own mask tables answer which bits those are, the one-byte
 ; rect included (x1 and x2 in the same byte: one column, one combined mask).
 wm_su_edge:
     mov si, [wm_su_x1]          ; A WHOLE-BYTE RECT HAS NO OVERHANG, so there
@@ -10564,11 +10564,11 @@ wm_su_edge:
 
     mov bx, [wm_su_x1]          ; the masks, from the rect primitives' tables
     and bx, 7
-    mov al, [bx + vga_lmtab]
+    mov al, [bx + gfx_lmtab]
     mov [wm_su_lm], al
     mov bx, [wm_su_x2]
     and bx, 7
-    mov al, [bx + vga_rmtab]
+    mov al, [bx + gfx_rmtab]
     mov [wm_su_rm], al
 
     ; --- which edge columns does the restore actually reach? -----------------
@@ -10770,7 +10770,7 @@ wm_su_occl:
 ; restore, which comes back as a stale sliver up to 8px wide down the join.
 ;
 ; Rounding out removes the case instead of sequencing it: an aligned edge owns
-; its whole byte, so vga_lmtab/vga_rmtab hand wm_su_edge a full mask, the merge
+; its whole byte, so gfx_lmtab/gfx_rmtab hand wm_su_edge a full mask, the merge
 ; keeps everything and writes nothing back. Two pieces may then overlap by one
 ; byte column and both put the same cached bytes there, which is idempotent.
 ;

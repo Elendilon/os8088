@@ -23,7 +23,7 @@
 ; software, one plane at a time: solid ops or/and the edge masks per the
 ; [gfx_color] plane bit (interiors are rep stosb of FF/00), XOR ops xor the
 ; edge masks and `not` whole interior bytes. Plane p lives at segment
-; [vid_rseg] + p*[vid_rpara] with the same rows as VRAM, so vga_rect_setup's
+; [vid_rseg] + p*[vid_rpara] with the same rows as VRAM, so gfx_rect_setup's
 ; masks and offsets serve both worlds; every solid/XOR primitive here funnels
 ; through it. Pixel/hline/vline are degenerate fills - a rect setup costs one
 ; mul, same as the dedicated VRAM loops.
@@ -32,12 +32,117 @@
 ; vga12.inc with the back buffer (SPEC.md 5.5), so every sw_* entry below is
 ; reached through the [vid_mono] dispatch at a public entry in another file.
 ;
+; ONE BODY HERE IS NOT A sw_* AND IS NOT THIS RENDERER'S: gfx_rect_setup, the
+; shared rect geometry, which vga_solid_rect calls as well. It is here because
+; it is not VGA-specific and so does not belong in the VGA file - see its own
+; header below.
+;
 ; Concurrency: every routine here runs with the gfx lock held (SPEC.md 1.6) -
 ; vga12's rect scratch needs no interrupt guard. The cursor does not come
 ; through here at all: mouse.inc goes through vga_save_vram/vga_restore_vram
 ; and draws straight to the framebuffer (SPEC.md 7.1).
 ; =============================================================================
 
+
+; =============================================================================
+; THE SHARED RECT GEOMETRY (SPEC.md 5.4) - clip a rect once, and hand BOTH
+; renderers the same answers.
+;
+; IT LIVES HERE AND NOT IN vga12.inc, and the reason is ownership rather than
+; tidiness: nothing in this body touches a VGA port, a latch or a plane. It
+; computes a clipped row range, a framebuffer offset and two edge bit masks,
+; and it is called by vga_solid_rect and by sw_rect alike - so it was in the
+; adapter-specific file only because that is where the code it was cut out of
+; happened to be. It was left behind at the last split of that file; this is
+; the correction. A shared body inside a file that is about to gate its
+; contents on "does this machine have a VGA" is the defect that gate would
+; otherwise ship (docs/MONO-RECLAIM-PLAN.md 1.1).
+;
+; It is HOT: PERFORMANCE.md Set 102 profiles gfx_rect_setup.x2ok at 7.3% of
+; the whole machine in the screen saver, on a CGA. Nothing here may become a
+; far call and nothing here may grow a dispatch.
+;
+; TWO OF ITS OUTPUTS STAY IN vga12.inc, deliberately - [gfx_lmsk] and
+; [gfx_rmsk] are each packed BEHIND a constant 8 so the VGA fills can load the
+; mask and the Graphics Controller's Bit Mask index as one word. The masks are
+; shared and their PACKING is VGA's; splitting the pair costs the hot fills 3
+; bytes and 4 clocks a site, which is a worse trade than a name in the wrong
+; file. See the assertion there.
+; =============================================================================
+
+; The two edge masks, by x & 7. They were computed with `shr dl,cl` / `shl
+; dl,cl`, which on an 8088 is 8 clocks plus 4 PER BIT and costs a push/pop of
+; CX to free the count register - about a fifth of gfx_rect_setup for two
+; bytes that a table answers outright (PERFORMANCE.md Part 2: the per-call
+; floor is CPU-side setup, and this is setup).
+; -----------------------------------------------------------------------------
+gfx_lmtab:  db 0xFF, 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01  ; FF >> (x1 & 7)
+gfx_rmtab:  db 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF  ; FF << 7-(x2&7)
+
+; -----------------------------------------------------------------------------
+; gfx_rect_setup - internal: clip a rect and precompute its geometry
+; in:       AX = x1, BX = y1, CX = x2, DX = y2  (x1<=x2, y1<=y2)
+; out:      CF = 1 if the clipped rect is empty (nothing else valid);
+;           else CF = 0 and gfx_ry1/gfx_rrows/gfx_roff/gfx_rspan/gfx_lmsk/
+;           gfx_rmsk hold clipped top row, row count, VRAM offset of the
+;           top-left byte, right byte - left byte, and the edge bit masks
+;           (combined into gfx_lmsk when the rect spans a single byte).
+; clobbers: AX, BX, CX, DX, flags
+; -----------------------------------------------------------------------------
+gfx_rect_setup:
+    or bx, bx                   ; y1 < 0 -> 0
+    jns .y1ok
+    xor bx, bx
+.y1ok:
+    cmp dx, [vid_ch]            ; y2 past the last row -> the last row
+    jl .y2ok
+    mov dx, [vid_chm1]
+.y2ok:
+    cmp dx, bx
+    jl .empty
+    or ax, ax                   ; x1 < 0 -> 0
+    jns .x1ok
+    xor ax, ax
+.x1ok:
+    cmp cx, [vid_cw]            ; x2 past the last column -> the last column
+    jl .x2ok
+    mov cx, [vid_cwm1]
+.x2ok:
+    cmp cx, ax
+    jl .empty
+    mov [gfx_ry1], bx            ; y1 is banked, so BX is the free register the
+    sub dx, bx                  ; mask lookups below index through - which is
+    inc dx                      ; what retires the two variable shifts and the
+    mov [gfx_rrows], dx          ; three push/pops the old sequence needed
+    mov bx, ax                  ; left mask = FF >> (x1 & 7)
+    and bx, 7                   ; (BH = 0 falls out of the AND)
+    mov dl, [bx + gfx_lmtab]
+    mov [gfx_lmsk], dl
+    mov bx, cx                  ; right mask = FF << (7 - (x2 & 7))
+    and bx, 7
+    mov dl, [bx + gfx_rmtab]
+    mov [gfx_rmsk], dl
+    mov dx, cx                  ; DX = x2; [gfx_rrows] already banked it
+    mov cl, 3
+    shr ax, cl                  ; ax = left byte  (x1 / 8)
+    mov [gfx_rlcol], ax          ; ax = left byte column
+    shr dx, cl                  ; dx = right byte (x2 / 8)
+    sub dx, ax
+    mov [gfx_rspan], dx          ; span = right byte - left byte
+    or dx, dx
+    jnz .offs
+    mov dl, [gfx_rmsk]          ; one-byte rect: combine the masks
+    and [gfx_lmsk], dl
+.offs:
+    mov ax, [gfx_ry1]            ; this one call re-bases every rect primitive
+    call gfx_rowbase            ; in BOTH renderers - on VGA it is still just
+    add ax, [gfx_rlcol]          ; y1 * 80 (SPEC.md 39.3)
+    mov [gfx_roff], ax
+    clc
+    ret
+.empty:
+    stc
+    ret
 
 ; -----------------------------------------------------------------------------
 ; sw_fill / sw_fill_gray / sw_xor_fill - software twins of gfx_fill,
@@ -81,7 +186,7 @@ sw_rect:
     push di
     push bp
     push es
-    call vga_rect_setup
+    call gfx_rect_setup
     jc .done
     call sw_rect_pl
 .done:
@@ -96,7 +201,7 @@ sw_rect:
     ret
 
 ; -----------------------------------------------------------------------------
-; sw_rect_pl - internal: the PLANE LOOP alone, for a rect vga_rect_setup has
+; sw_rect_pl - internal: the PLANE LOOP alone, for a rect gfx_rect_setup has
 ;              already described. sw_rect is its only caller that clips;
 ;              SPEC.md 5.10's gfx_spans is the other, and it fills the same
 ;              scratch a row at a time from its own leaner setup.
@@ -144,14 +249,14 @@ sw_rect_pl:
 ;
 ; So the ink, the plane and the dither's alternation are hoisted out of the
 ; loop and what is left per row is the two masked edge bytes and the interior.
-; The ink comes from sw_ink exactly as a fill's does, [vga_y1] being the FIRST
+; The ink comes from sw_ink exactly as a fill's does, [gfx_ry1] being the FIRST
 ; row when it runs, and a middle grey then alternates through [sw_altm] per row
 ; - which is what sw_col does inside a rect (SPEC.md 39.4).
 ; -----------------------------------------------------------------------------
 sw_spans:
     mov byte [sw_mode], SWM_SOLID   ; sw_ink's, and nothing else reads it here
     mov ax, [gfx_sp_y]
-    mov [vga_y1], ax                ; the first row: sw_parity's parity
+    mov [gfx_ry1], ax                ; the first row: sw_parity's parity
     mov byte [sw_altm], 0
     call sw_ink                     ; [sw_pat], and [sw_altm] if it dithers
     mov ax, [vid_rseg]              ; one plane: [vid_mono] and [vid_planes]
@@ -191,12 +296,12 @@ sw_spans:
 ; -----------------------------------------------------------------------------
 ; sw_parity - internal: [sw_pat] = the 50% dither byte for the rect's top
 ;             row, which the row loops then alternate through [sw_altm].
-; in:       [vga_y1] valid
+; in:       [gfx_ry1] valid
 ; clobbers: AL, flags
 ; -----------------------------------------------------------------------------
 sw_parity:
     mov al, 0xAA
-    test byte [vga_y1], 1
+    test byte [gfx_ry1], 1
     jz .set
     mov al, 0x55
 .set:
@@ -230,7 +335,7 @@ sw_ink:
     mov al, [gfx_color]         ; gfx_ink's table read, inlined through SI -
     and ax, 15                  ; it indexes through BX, and BX is the plane
     mov si, ax                  ; counter and the colour bits here. SI is dead
-    mov al, [si + gfx_inktab]   ; between vga_rect_setup and sw_plane_op, which
+    mov al, [si + gfx_inktab]   ; between gfx_rect_setup and sw_plane_op, which
     cmp al, 1                   ; loads it itself
     je .dither
     mov [sw_pat], al
@@ -244,7 +349,7 @@ sw_ink:
 ; sw_plane_op - internal: one plane of a sw_rect op - left/right masked
 ;               edge columns plus the whole-byte interior.
 ; in:       ES = plane segment; [sw_mode]/[sw_pat]/[sw_altm]; vga_* rect
-;           scratch from vga_rect_setup
+;           scratch from gfx_rect_setup
 ; clobbers: ax, cx, si, di, bp, flags (preserves BX, DX)
 ;
 ; It banks BX and DX ONCE per plane so that sw_col - which used to save five
@@ -257,22 +362,22 @@ sw_ink:
 sw_plane_op:
     push bx
     push dx
-    mov ah, [vga_lmsk]          ; left edge column (whole rect if 1 byte wide)
-    mov di, [vga_off]
+    mov ah, [gfx_lmsk]          ; left edge column (whole rect if 1 byte wide)
+    mov di, [gfx_roff]
     call sw_col
-    mov bp, [vga_span]
+    mov bp, [gfx_rspan]
     or bp, bp
     jz .out
-    mov ah, [vga_rmsk]          ; right edge column
-    mov di, [vga_off]
+    mov ah, [gfx_rmsk]          ; right edge column
+    mov di, [gfx_roff]
     add di, bp
     call sw_col
-    mov bp, [vga_span]          ; sw_col owns BP too (it parks the wrap bit)
+    mov bp, [gfx_rspan]          ; sw_col owns BP too (it parks the wrap bit)
     dec bp                      ; interior bytes per row
     jz .out
-    mov di, [vga_off]
+    mov di, [gfx_roff]
     inc di
-    mov si, [vga_rows]
+    mov si, [gfx_rrows]
     mov ah, [sw_pat]
     mov bx, [cs:vid_rowadd]     ; gfx_nextrow's two parameters, hoisted out of
     sub bx, bp                  ; the row loop and inlined below - the step
@@ -317,7 +422,7 @@ sw_plane_op:
     ret
 
 ; -----------------------------------------------------------------------------
-; sw_col - internal: one masked byte column of [vga_rows] rows at ES:DI.
+; sw_col - internal: one masked byte column of [gfx_rrows] rows at ES:DI.
 ;          XOR mode: dest ^= mask. Else: dest = (dest & ~mask) |
 ;          (pattern & mask), pattern xor-stepped by [sw_altm] per row.
 ; in:       AH = mask, DI = top byte, ES = plane; [sw_mode]/[sw_pat]/[sw_altm]
@@ -335,7 +440,7 @@ sw_col:
     not bl                      ; BL = ~mask
     mov ch, [sw_pat]            ; CH = running pattern
     mov cl, [sw_altm]
-    mov dx, [vga_rows]
+    mov dx, [gfx_rrows]
     mov si, [cs:vid_rowadd]     ; gfx_nextrow, hoisted and inlined - its body
     mov bp, [cs:vid_wrapbit]    ; is three instructions and the call and ret
     cmp byte [sw_mode], SWM_XOR ; around them cost as much again
@@ -724,31 +829,31 @@ sw_fill_pat:
     push di
     push bp
     push es
-    call vga_rect_setup
+    call gfx_rect_setup
     jc .done
     call vga_pat_stage          ; vga_patbuf <- the 8 bytes at [gfx_pat]
     mov dx, [vid_rseg]          ; DX = plane segment (see sw_rect)
     mov bp, [vid_planes_w]      ; BP = plane counter
 .plane:
     mov es, dx
-    mov di, [vga_off]
-    mov cl, [vga_lmsk]          ; left edge column (whole rect if 1 byte)
+    mov di, [gfx_roff]
+    mov cl, [gfx_lmsk]          ; left edge column (whole rect if 1 byte)
     call sw_patcol
-    mov si, [vga_span]
+    mov si, [gfx_rspan]
     or si, si
     jz .next
-    mov di, [vga_off]
+    mov di, [gfx_roff]
     add di, si
-    mov cl, [vga_rmsk]          ; right edge column
+    mov cl, [gfx_rmsk]          ; right edge column
     call sw_patcol
     dec si                      ; SI = interior bytes per row
     jz .next
-    mov di, [vga_off]
+    mov di, [gfx_roff]
     inc di
-    mov bx, [vga_y1]
+    mov bx, [gfx_ry1]
     and bx, 7
     push bp
-    mov bp, [vga_rows]
+    mov bp, [gfx_rrows]
 .irow:
     mov al, [vga_patbuf+bx]
     mov ah, al                  ; byte uniform across the row: stosw + odd
@@ -782,7 +887,7 @@ sw_fill_pat:
     ret
 
 ; -----------------------------------------------------------------------------
-; sw_patcol - internal: one masked byte column of [vga_rows] rows at ES:DI,
+; sw_patcol - internal: one masked byte column of [gfx_rrows] rows at ES:DI,
 ;             row byte from vga_patbuf by (y & 7):
 ;             dest = dest ^ ((dest ^ pat) & mask)
 ; in:       CL = mask, DI = top byte, ES = plane; vga_* rect scratch
@@ -792,8 +897,8 @@ sw_patcol:
     push bx
     push di
     push si
-    mov si, [vga_rows]
-    mov bx, [vga_y1]
+    mov si, [gfx_rrows]
+    mov bx, [gfx_ry1]
     and bx, 7
 .row:
     mov al, [vga_patbuf+bx]
@@ -836,7 +941,7 @@ sw_xfer:
     push cx
     push dx
     push bp
-    call vga_rect_setup
+    call gfx_rect_setup
     jc .done
     cmp byte [sw_dir], 0
     je .geom
@@ -844,12 +949,12 @@ sw_xfer:
                                 ; OUT HERE, once - .rst below runs per plane,
                                 ; and DS is still KERNEL_SEG until it does
 .geom:
-    mov bp, [vga_span]
+    mov bp, [gfx_rspan]
     inc bp                      ; BP = bytes per row
     mov bx, [vid_rseg]
 .plane:
-    mov ax, [vga_off]           ; this plane's walking offset
-    mov dx, [vga_rows]
+    mov ax, [gfx_roff]           ; this plane's walking offset
+    mov dx, [gfx_rrows]
     push ds
     push es
     cmp byte [sw_dir], 0
@@ -918,6 +1023,12 @@ sw_xfer:
 
 ; -----------------------------------------------------------------------------
 section .bss
+
+gfx_ry1          resw 1          ; rect: clipped top row (dither parity)
+gfx_rrows        resw 1          ; rect: clipped row count
+gfx_rspan        resw 1          ; rect: right byte - left byte
+gfx_roff         resw 1          ; rect: VRAM offset of top-left byte
+gfx_rlcol        resw 1          ; rect: left byte column (bb dirty union)
 
 sw_dir          resb 1          ; xfer: 0 = save, 1 = restore
 sw_mode         resb 1          ; rect core: SWM_SOLID / SWM_GRAY / SWM_XOR

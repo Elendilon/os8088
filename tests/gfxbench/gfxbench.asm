@@ -1342,7 +1342,7 @@ gb_prims:
     ; ~756 us"; it measures 118 in instructions, and ~36 instructions removed
     ; per arrival rather than 5.7's 196. The reason is structural and worth
     ; knowing: gfx_lstep is NOT a rect primitive - it never goes near
-    ; vga_rect_setup or sw_rect - so its arrival is the far-call cell and a
+    ; gfx_rect_setup or sw_rect - so its arrival is the far-call cell and a
     ; prologue, not the rect machinery 5.7 measured. 5.6.8 borrowed a floor
     ; that does not apply to it.
     ;

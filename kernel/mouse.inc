@@ -3042,7 +3042,7 @@ mou_apply:
                                 ; painter in the machine that draws with the
                                 ; lock FREE, and free is the one state this ISR
                                 ; draws in - so without this compare a fill and
-                                ; IRQ4 share vga_rect_setup's module scratch,
+                                ; IRQ4 share gfx_rect_setup's module scratch,
                                 ; the Graphics Controller's state and the glass
                                 ; itself, and what that leaves behind is an
                                 ; arrow written into somebody's window content
@@ -3451,7 +3451,7 @@ cur_geom:
 ; for the white outline, then cur_pass_mono again for the black body - read the
 ; same framebuffer byte three times and wrote it twice, each time through its
 ; own row walk, its own gfx_nextrow call and, for the save, the whole of
-; vga_rect_setup's generic clipping. They are the same bytes in the same order,
+; gfx_rect_setup's generic clipping. They are the same bytes in the same order,
 ; and the two masks compose: (under | white) & ~black is what drawing one pass
 ; on top of the other always produced. So the byte is read once, banked once,
 ; painted once and written once.
