@@ -272,6 +272,14 @@ vid_banktab:
 ; rescue the small build, and kern_small's is the figure that has to be
 ; DEFENDED (it is the 128KB machine's). It keeps the 128-row table and its
 ; budget; the feature is the fast path being wider, not the fast path existing.
+;
+; SPEC.md 39.24's RECLAIM DOES NOT CHANGE THIS, and the temptation is worth
+; naming because it is obvious and wrong: taking the VGA renderer out of
+; kern_small returned four 512-byte rungs, so widening this table there looks
+; free. It is not. Those bytes are not slack to spend - they are the first
+; instalment of a much larger cut that build is under (SPEC.md 39.24.4), and a
+; reclaim spent the moment it lands is a reclaim that never happened. This was
+; built, measured at exactly the predicted +512, and REVERTED.
 %ifdef KERN_BIG
 VID_ROWTAB  equ 348
 %else

@@ -41440,6 +41440,19 @@ that `WM_ANIM` and `OS88_THEME` use. Its low rung crosses a 512-byte step at
 *any* size above 128 — 200 crosses it too, so a smaller table would rescue
 nothing — and `KERN_SMALL_BUDGET` is the figure that has to be defended.
 
+**§39.24's reclaim does not change that, and the temptation is worth naming
+because it is obvious and wrong.** Taking the VGA renderer out of `kern_small`
+returned four 512-byte rungs, so widening this table there looks free. It is
+not: those bytes are not slack, they are the first instalment of the much
+larger cut that build is under (§39.24.4). It was built, measured at exactly
+the predicted `.lowbss` +512, and reverted.
+
+**What the wider table is worth is measured on a CGA and PREDICTED on a
+Hercules**, which matters because a Hercules is the adapter with more to gain:
+128 rows is the top 37% of its screen against a CGA's 64%, so its miss rate is
+roughly twice as high. PERFORMANCE.md Set 106's figures are CGA's, and **the
+Hercules reading has never been taken** (docs/MONO-RECLAIM-PLAN.md §4.4).
+
 #### Why 348 and not 128, and not 480
 
 Set 103 profiled four applications against the 128-row table and found that
@@ -44978,6 +44991,92 @@ the three call sites are 3 bytes each plus `fr_emit_body`'s 5-byte compare —
 `FRACTAL.O88` grows and `kernel.bin` does not.
 
 `tests/frpromise.py` is the gate.
+
+### 39.24 `kern_small` does not drive a VGA
+
+**A 128KB machine has no business with a VGA card in it, so `kern_small` does
+not carry the code to drive one.** `GFX_VGA` is `kernel.asm`'s gate, defined
+for `kern_big` and for nothing else; it is not a knob, because the bodies it
+gates are what `kern_big` exists to run.
+
+Where §41.11's extended-memory store and §5.4.1.3's decoder remove a FEATURE
+from the small build, this removes an ADAPTER — every Graphics Controller
+write, the planar span writer, the mode 12h set and its clear, `font_char`'s
+planar cell, the Set/Reset icon passes, §53.7's Mode X, and `vid_detect`'s VGA
+and EGA probes.
+
+**Measured: `.text` 44,503 → 42,698 and `KERN_SIZE` 100,864 → 98,816** — 1,805
+bytes of code and **four 512-byte rungs** off the footprint, which come
+straight off the heap floor (`kend` 6,400 → 6,272 paragraphs). §39.3.1 spends
+one of those four rungs putting the row table back to its full width.
+
+#### 39.24.1 A VGA machine still boots, as a CGA
+
+**This degrades rather than refusing, and the fallback is the CGA path already
+in the kernel.** `vid_detect`'s VGA and EGA probes are gated out, so the walk
+falls through to `int 11h`'s equipment word — bits 5:4, which a VGA in colour
+mode answers `10b` — and `[vid_kind]` comes up `VID_CGA`. The CGA arm then
+sets **BIOS mode 6** (640×200), which every VGA BIOS serves because a VGA is a
+CGA superset, and `vid_apply` loads the CGA row's geometry to match. §39.1's
+`VID_FORCE=3` has driven a real VGA that way for as long as `VIDEO=cga` has
+existed; this is the same path reached by detection rather than by a flag.
+
+So a 128KB machine with a VGA in it loses 640×480×16 and keeps a working
+desktop. Nothing refuses and nothing goes black, and `fsx_caps` (§53.8) needs
+no special case: it is indexed by `[vid_kind]`, which can never be `VID_VGA`
+here, so the VGA modes are simply never offered.
+
+**`VIDEO=vga` on `kern_small` is a BUILD ERROR** and deliberately so. Forcing
+`VID_FORCE=1` would set `[vid_kind]` to a kind `vid_setmode` has no arm for:
+the card would be programmed to mode 6 by the CGA arm while `vid_apply` loaded
+640×480-at-A000 over it, and every pixel would land somewhere else with
+nothing to say so. The *detected* case is the design; only the force lies.
+
+#### 39.24.2 `GFX_PLANE` implies `GFX_VGA`, asserted
+
+§5.4.1.3's decoder is VGA-only code and sits inside `%ifdef GFX_PLANE` alone
+rather than inside both gates. That is correct only while the one implies the
+other, and the two are set by separate blocks in `kernel.asm`, so it is
+asserted there rather than assumed.
+
+**The assertion exists because the nesting failed once, silently.** Gating
+bodies that already sat inside `%ifdef GFX_PLANE` put an `%endif` in the wrong
+place — it closed `GFX_PLANE` early and `GFX_PLANE`'s own closed `GFX_VGA`.
+`kern_big` stayed **byte-identical** (both symbols were defined, so the
+mis-paired brackets cancelled) and `kern_small` assembled and booted. Only
+`NOPLANE=1`, a knob nothing ships, pulled the two apart. **Byte-identity of
+the default build is not a check on a `%ifdef`**; `make test-full`'s
+`buildmatrix` row is, and it is the only thing in the tree that could see it.
+
+#### 39.24.3 …and `kern_small` is BOOTED now, not merely assembled
+
+`tests/smallboot.py` is the row (`make test-full`). `buildmatrix` assembles
+that kernel and stops there, which is how it has been *discovered* broken
+three times rather than reported broken (docs/KERNEL-MEMORY.md moves 22, 23
+and 32) — and it matters more now that ~1,800 bytes ride on an `%ifdef` the
+assembler proves unreferenced and nothing proves unreachable.
+
+Three machines, and the third is the point: CGA, Hercules, **and a VGA machine
+that `kern_small` has no renderer for and must come up on anyway.** The VGA
+row's lit fraction landing within 0.2% of the CGA row's — the difference is
+the menu-bar clock's digits — is what says §39.24.1's fallback is a real CGA
+path rather than a coincidence that lit up.
+
+#### 39.24.4 The four rungs are not slack, and nothing may be spent from them
+
+**`kern_small` is under a standing cut, so a reclaim there is banked and not
+budgeted.** This is the rule §39.3.1 is refused by and it applies to every
+future candidate: bytes returned to the small build stay returned. A feature
+that would be affordable on `kern_big`'s headroom is not affordable here
+merely because a reclaim has just landed — a reclaim spent the moment it lands
+is a reclaim that never happened, and the next one has to find its bytes
+somewhere harder.
+
+That is the asymmetry between the two builds and it is deliberate. `kern_big`
+carries a hole where its VGA bodies would be dead on a mono machine and can
+only ever REUSE it in place (docs/MONO-RECLAIM-PLAN.md §3); `kern_small`
+carries no hole at all, because the bytes stopped existing at assembly time.
+**Only one of the two has anything to spend, and it is not the small one.**
 
 ## 41. xmem.inc — memory above 1MB
 

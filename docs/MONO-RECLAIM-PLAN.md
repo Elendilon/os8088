@@ -15,6 +15,12 @@ the VGA-only code, and what each of the two kernels can do with it — which is
 
 **There are two questions here and they have different answers.**
 
+0. **`kern_small` is on a DIET, not a budget** (SPEC.md §39.24.4). It has
+   roughly 50KB more to find, so every byte returned to it stays returned and
+   **nothing in this file may be spent there** — not §4's row table, not §5's
+   loops. That rule arrived after §4 and §5 had been written as `kern_small`
+   proposals and it retires both; it is first here because it is what the rest
+   of the file has to be read against.
 1. **`kern_small` stops supporting VGA at all (§2) — and that is a REAL
    reclaim.** A 128KB machine has no business with a VGA card. Gated off at
    assembly time, the bytes stop existing: `.text` shrinks, the image rung
@@ -24,7 +30,7 @@ the VGA-only code, and what each of the two kernels can do with it — which is
    this file wants, and doing it in the other order means writing the gate twice.
 
 2. **`kern_big` keeps VGA, so on `kern_big` the same bytes can only be REUSED in
-   place (§3).** They cannot be given back to the heap — SPEC.md §39.22's ladder
+   place (§3) — and it is the ONLY build with anything to spend.** They cannot be given back to the heap — SPEC.md §39.22's ladder
    settles it and this file does not re-open it. So `kern_big` is the only
    consumer of the "I reserved this space and now it is dead, what do I put in
    it?" question, and §5 is the ranked answer.
@@ -49,10 +55,11 @@ because that build simply does not drive the card.
 
 **Three findings that change what should be built:**
 
-- **The row table is worth 512 bytes and step 1 pays for it three times over
-  (§4).** Measured whole-machine on a CGA 5150: the screen saver **4.69% →
-  2.85%** and Missile Command **1.66% → 0.75%**. It buys applications that draw
-  low on the screen and buys the desktop chrome nothing.
+- **The row table is REFUSED, and the reason changed under it (§4.0).** It is
+  worth 512 bytes and measures well on a CGA — the screen saver **4.69% →
+  2.85%** of the whole machine, Missile Command **1.66% → 0.75%** — and it was
+  built, measured at exactly the predicted +512, and reverted. `kern_small` may
+  not spend; `kern_big` already has all 348 rows. Nobody can buy it.
 - **`GFX_FILL_GRAY` is the wrong target for a 1bpp specialisation, and the
   biggest number is not the best target either (§5).** `sw_blit_row.abyte` is
   **27.7% of the whole machine in Paint** and it IS the mono fast path — traced,
@@ -323,6 +330,29 @@ buy, and who would use that performance?* All three are already measured —
 PERFORMANCE.md **Set 106** and **Set 102**, on a MartyPC cycle-accurate 5150
 with a CGA — so this section is arithmetic rather than a proposal.
 
+### 4.0 …and it is REFUSED on `kern_small`, which is where it was proposed
+
+**`kern_small` is under a standing cut — roughly 50KB more to find — so a
+reclaim there is banked, never budgeted.** That is SPEC.md §39.24.4's rule and
+it retires this whole section as a `kern_small` proposal. The arithmetic below
+still holds and the win is real; what is wrong is the premise, which was that
+§2's four rungs were slack. They are not. They are the first instalment.
+
+**It was built, measured and reverted**: `VID_ROWTAB` 128 → 348 on that build
+costs `.lowbss` +512 and `KERN_SIZE` +512, exactly as §4.1 predicts, and
+`kern_big` stays byte-identical because it has had the wide table since Set
+106. The revert is recorded in `kernel/viddet.inc` beside the constant and in
+SPEC.md §39.3.1, so the next person to notice the same free-looking 512 bytes
+spends a minute rather than an afternoon.
+
+**`kern_big` cannot buy it either**, and for the opposite reason: it already
+has all 348 rows. So the row table is off the table on both builds, and §5's
+1bpp loops are the only candidate left with a consumer — `kern_big`'s hole.
+
+What is below stays as the costing, because the Hercules reading (§4.4) is
+still owed for `kern_big`'s sake and the numbers are the ones it would be
+judged against.
+
 ### 4.1 What it costs: 512 bytes, once
 
 `vid_rowtab` is 128 rows on `kern_small` and 348 on `kern_big`. A Hercules is
@@ -505,19 +535,22 @@ windowed games — though Missile Command is **scheduler-bound at ~22%** before 
 is draw-bound, so a windowed real-time game is a docs/SCHED-IDLE-PLAN.md
 question first.
 
-### 5.5 The two options are not competing for the same build
+### 5.5 There is no either/or left: `kern_big`'s hole is the only buyer
 
 | | `kern_small` | `kern_big` |
 |---|---|---|
-| row table 128 → 348 | **available**, 512 B, funded by step 1 | **already 348** — nothing to buy |
-| the 1bpp loops | available from the reclaim | **the only option**, from the hole |
+| row table 128 → 348 | **refused** — §4.0, the reclaim is banked | **already 348** — nothing to buy |
+| the 1bpp loops | **refused** — same rule | **the only option**, and its only buyer |
 
-`kern_big` already carries every row of both 1bpp adapters, so on the build that
-*has* the hole the row table is not on the menu at all. **The either/or exists
-only on `kern_small`**: bank the ~1,700 reclaimed bytes, or spend 512 on the
-table and the rest on loops. On the criterion of *games and live drawing*, the
-loops win on every scenario that is measured — and on `kern_big` they win by
-default.
+The plan spent two rounds treating these as alternatives. They are not, and the
+correction came from the owner rather than from the measurements: **`kern_small`
+is on a diet, not a budget.** Bytes returned to it stay returned (SPEC.md
+§39.24.4), so nothing may be spent there at all — not the table, not the loops.
+
+`kern_big` already carries every row of both 1bpp adapters, so the table is not
+on its menu either. **What is left is one candidate with one consumer:** the
+1bpp loops, paid for out of `kern_big`'s in-place hole (§3). That also settles
+§8's step 3 — the hole has a payload now, so the consolidation is wanted.
 
 ### 5.6 What 1,581 bytes buys
 
@@ -672,8 +705,9 @@ scenarios is.
    and `tests/smallboot.py` boots it on both 1bpp adapters *and* on a VGA
    machine. What remains of this step is the SPEED half (§2.2), unmeasured. Measure it as a *speed* change as well as a size
    one (§2.2), and settle §2.4's three questions first.
-5. **The row table on `kern_small`** (§4), funded by step 4 — after the Hercules
-   reading of §4.4 is taken.
+5. ~~**The row table on `kern_small`**~~ — **REFUSED, §4.0.** Built, measured at
+   the predicted +512, reverted. The reclaim is banked, not budgeted (SPEC.md
+   §39.24.4), and `kern_big` already has all 348 rows.
 6. **`kern_big`'s reuse** (§3 mechanism, §5 payload), which is the only step that
    needs the `.ovl` decider, the blob sectors and the `tests/vgarefs.txt`
    ratchet.
