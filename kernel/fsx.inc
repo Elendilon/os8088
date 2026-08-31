@@ -422,8 +422,10 @@ fsx_mode:
     je .text
     cmp al, FSXM_HERC
     je .herc
-    cmp al, FSXM_MODEX
-    je .modex
+%ifdef GFX_VGA
+    cmp al, FSXM_MODEX          ; no VGA in the build = fsx_capstab's VGA row
+    je .modex                   ; is unreachable ([vid_kind] can never be
+%endif                          ; VID_VGA), so this id never arrives
     mov bx, fsx_bmodes          ; the plain BIOS rows
     xlatb                       ; AL = the BIOS mode number
     call fsx_setbios
@@ -434,10 +436,12 @@ fsx_mode:
 .herc:
     call vid_setmode            ; the 6845 body + the load-bearing 32KB clear
     jmp short .fill
+%ifdef GFX_VGA
 .modex:
     mov al, 0x13
     call fsx_setbios
     call fsx_modex              ; unchain + retime to 320x240 (SPEC.md 53.4)
+%endif
 .fill:
     mov al, ch                  ; DS:SI = the id's row, ES:DI = the buffer;
     mov ah, FSXR_SIZE           ; the row IS bytes 0..13 of the block
@@ -578,6 +582,7 @@ fsx_setbios:
     pop cx
     pop bx
     ret
+%ifdef GFX_VGA
 
 ; -----------------------------------------------------------------------------
 ; fsx_modex - Mode X: 13h unchained and retimed to 320x240 (SPEC.md 53.4)
@@ -641,6 +646,7 @@ fsx_modex:
 fsx_xcrtc:                      ; Mode X CRTC retiming, index in the low byte
     dw 0x0D06, 0x3E07, 0x4109, 0xEA10, 0xAC11
     dw 0xDF12, 0x0014, 0xE715, 0x0616, 0xE317
+%endif                          ; ...end of Mode X, VGA-only by definition
 
 ; -----------------------------------------------------------------------------
 ; fsx_wait - the frame clock, and the present (SPEC.md 53.5, 0x02D8)

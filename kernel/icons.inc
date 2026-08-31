@@ -274,6 +274,9 @@ ico_core:
     mov ch, 8
     sub ch, cl                  ; CH = 8 - shift
 
+%ifndef GFX_VGA
+    jmp ico_core_bb             ; no VGA: the 1bpp twin is the only pass there
+%else                           ; is, and it returns straight to the wrapper
     cmp byte [vid_mono], 0      ; 1bpp? (SPEC.md 39.5) - the software
     jne ico_core_bb             ; twin returns straight to the wrapper
 
@@ -307,9 +310,11 @@ ico_core:
     out dx, ax
     mov ax, 0xFF08
     out dx, ax
+%endif
 .none:
     ret
 
+%ifdef GFX_VGA
 ; -----------------------------------------------------------------------------
 ; ico_pass - one masked pass over [ico_rows] rows of [ico_ww] words each.
 ;            Each word lands at bit offset CL in a 3-byte window at DI+2w;
@@ -377,6 +382,7 @@ ico_pass:
 .done:
     pop di
     ret
+%endif                          ; ...end of the VGA icon pass
 
 ; -----------------------------------------------------------------------------
 ; ico_core_bb - the software renderer's icon body (SPEC.md 32/39.5): the white underlay

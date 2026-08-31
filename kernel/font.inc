@@ -278,10 +278,13 @@ font_char:
     add si, ax                  ; the glyph's row r0...
     add dx, ax                  ; ...and at the screen row it belongs on
 
+%ifdef GFX_VGA
     cmp byte [vid_mono], 0      ; 1bpp? the software renderer IS the direct
-    je .vram                    ; path there (SPEC.md 39.5)
-    call font_char_bb
-    jmp .done
+    je .vram                    ; path there (SPEC.md 39.5). Without a VGA in
+%endif                          ; the build there is nothing to ask: the call
+    call font_char_bb           ; below is the only cell writer, and `.done`
+    jmp .done                   ; still owns the frame this pushed
+%ifdef GFX_VGA
 .vram:
     mov bx, cx                  ; BX = x; free CX for the shift count
     mov ax, ROW_BYTES
@@ -337,6 +340,7 @@ font_char:
     out dx, ax                  ; GC1 enable Set/Reset = 0 (default, SPEC 1.7)
     mov ax, 0xFF08
     out dx, ax                  ; GC8 Bit Mask = FF (default)
+%endif                          ; ...end of font_char's VGA cell writer
 .done:
     GFXDLEAVEI
     pop es

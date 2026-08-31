@@ -259,6 +259,16 @@ FULL = [
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
         needs=("marty",), serial=True),
+    Row("smallboot", "full", py("tests/smallboot.py"), 110.0,
+        "does KERN_SMALL still reach a desktop - buildmatrix assembles that "
+        "build and nothing has ever booted it, which is how it has been "
+        "DISCOVERED broken three times rather than reported broken. Here "
+        "rather than soak because SPEC.md 39's VGA renderer is now gated out "
+        "of it, and an %ifdef that takes one body too many assembles "
+        "perfectly and dies at the first paint. It builds its own image "
+        "(`make small`, into build/smallk/) because there is no capability "
+        "to probe for and `all` never builds that kernel",
+        needs=("marty",), serial=True),
     Row("int0sweep", "soak", py("tests/int0sweep.py"), 180.0,
         "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
         "5150/5160 ROM the INT 0 vector is a BIOS stub that writes 0FFh to "

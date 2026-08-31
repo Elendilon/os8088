@@ -838,6 +838,7 @@ gfx_clip_run:
     pop ax
     ret
 
+%ifdef GFX_VGA
 ; -----------------------------------------------------------------------------
 ; vga_set_color - internal: arm Set/Reset with [gfx_color] on all planes
 ; in:       -
@@ -896,6 +897,7 @@ vga_gc_reset:
     pop dx
     pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; SPEC.md 5.4.1's one-shot: the pair tables are derived from gfx_inktab, so
@@ -1845,11 +1847,14 @@ gfx_lf_wide3:
 ;                box in gfx_ln_c*. The Bresenham state is already staged.
 ; clobbers: everything but the segment registers
 gfx_line_raw:
+%ifdef GFX_VGA
     cmp byte [vid_mono], 0         ; SPEC.md 5.6.4: mono IS the 4.77MHz machine
     je gfx_line_runs            ; and gets the per-pixel loop; VGA is the fast
     cmp byte [vid_planes], 1    ; one and gets major-axis runs, still fewer
     jne gfx_line_runs           ; calls than the app-side horizontal-only
-                                ; coalescing this replaces
+%endif                          ; coalescing this replaces. Both tests are
+                                ; constants without a VGA in the build - a
+                                ; 1bpp adapter is the only kind there is
 %ifdef KERN_BIG
     call gfx_line_fast          ; SPEC.md 5.6.4.1 - the same pixels, 4.9x, when
     jc gfx_line_mono            ; the line's shape lets the box be spent up
@@ -2274,6 +2279,7 @@ gfx_line_fast:
     clc
     ret
 %endif
+%ifdef GFX_VGA
 
 
 ; --- major-axis runs, one gfx_fill_raw each ----------------------------------
@@ -2331,6 +2337,7 @@ gfx_line_runs:
 .last:
     call gfx_line_flush
     ret
+%endif
 
 ; gfx_line_flush - internal: the open run, clipped to the box, as one rect.
 ; in:  SI = x, DX = y (the run's far end), [gfx_ln_rs] its near end
@@ -2600,8 +2607,10 @@ gfx_blit4:
                                 ; GFXDISP (SPEC.md 39.14.7)
 .dsp1:
 %endif
+%ifdef GFX_VGA
     cmp byte [vid_mono], 0
-    je .vga
+    je .vga                     ; (no test at all without a VGA in the build:
+%endif                          ; [vid_mono] is 1 by construction there)
     or ax, ax                   ; 1 = THE ROW DECODER (SPEC.md 5.4.1), which
     js .slow                    ; does not clip in x: a left clip advances the
     add ax, cx                  ; source by a pixel count that may be ODD, and
@@ -2612,6 +2621,7 @@ gfx_blit4:
     jne .slow
     call sw_pairbuild           ; once a boot, from gfx_inktab
     jmp short .slow
+%ifdef GFX_VGA
 .vga:
     mov byte [gfx_blit_fst], 2  ; 2 = the planar SPAN writer, whose Enable
     call vga_sr_on              ; Set/Reset is armed ONCE here and cleared at
@@ -2650,6 +2660,7 @@ gfx_blit4:
     call vga_p4build            ; once a boot, like sw_pairbuild
 .pdone:
 %endif
+%endif                          ; ...end of gfx_blit4's VGA arm
 .slow:
 .row:
     mov si, [gfx_blit_sv]       ; ES:SI = this row's first byte
@@ -2781,12 +2792,16 @@ gfx_blit4:
     add di, dx                  ; DI = the run's first x, on screen
     mov ah, [gfx_blit_c]
     mov dx, [gfx_blit_e]        ; DX = one past its last pixel, row-relative
+%ifdef GFX_VGA
     cmp byte [gfx_blit_fst], 2  ; (which is where the next run starts) 2 = the
     je .emitv                   ; planar span writer; 0 = gfx_fill as it always
-    call gfx_blit_run           ; was. 1 never gets here - the decoder above
-    jmp short .emitd            ; draws the whole row and skips the scan
+%endif                          ; was. 1 never gets here - the decoder above
+    call gfx_blit_run           ; draws the whole row and skips the scan.
+%ifdef GFX_VGA                  ; Without a VGA, 2 is unreachable and the fork
+    jmp short .emitd            ; is not a branch, it is the only arm
 .emitv:
     call vga_blit_span
+%endif
 .emitd:
     cmp dx, [gfx_blit_w]
     jb .run
@@ -2821,9 +2836,11 @@ gfx_blit4:
     dec word [gfx_blit_h]
     jnz .row
 .out:
+%ifdef GFX_VGA
     cmp byte [gfx_blit_fst], 2  ; the planar writer left Enable Set/Reset on
     jne .done                   ; for the whole call (SPEC.md 5.4.1)
     call vga_gc_reset
+%endif
 .done:
 %ifdef KERN_BIG
     cmp byte [gfx_blit_hk], 0   ; ...and the nest comes down only if this call
@@ -2958,6 +2975,7 @@ gfx_blit4:
     jmp .hkdone
 %endif
 %endif
+%ifdef GFX_VGA
 
 ; -----------------------------------------------------------------------------
 ; vga_sr_on - internal: Enable Set/Reset on all four planes, and nothing else
@@ -3080,6 +3098,7 @@ vga_blit_span:
     pop bx
     pop ax
     ret
+%endif                          ; ...end of the VGA span writer
 
 %ifdef GFX_PLANE
 ; -----------------------------------------------------------------------------
@@ -3822,6 +3841,13 @@ gfx_fill:
 gfx_fill_d:
     GFXDISP gfx_fill_raw
 gfx_fill_raw:
+%ifndef GFX_VGA
+    jmp sw_fill                 ; NO VGA IN THIS BUILD: the software renderer is
+                                ; not a branch, it is the only renderer there is.
+                                ; The `jmp` and not an `equ` because the FALL
+                                ; THROUGH below is what a VGA build takes, and
+                                ; there is nothing here to fall into any more
+%else
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
     jne sw_fill                 ; the renderer - and the flag store is BELOW
     mov byte [vga_xorm], 0      ; this jump, so the 1bpp arm is byte-identical
@@ -3930,6 +3956,7 @@ vga_solid_rect:
     pop bx
     pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_frame - 1px outline rectangle in [gfx_color]
@@ -4041,6 +4068,9 @@ gfx_spans:
     call gfx_rowbase            ; the ONE row base this call computes
     mov [gfx_sp_row], ax
     CURUNLAZY                   ; unclipped, so this may write any pixel on
+%ifndef GFX_VGA
+    jmp sw_spans                ; no VGA: softgfx.inc's row loop is the loop
+%else
     cmp byte [vid_mono], 0      ; the screen and a hide is owed (7.1.4)
     jne sw_spans                ; 1bpp: softgfx.inc's row loop, then .done
 .vga:
@@ -4076,6 +4106,7 @@ gfx_spans:
     dec word [gfx_sp_n]
     jnz .vrow
     call vga_gc_reset
+%endif
 .done:
     pop es
     pop bp
@@ -4197,7 +4228,10 @@ gfx_fill_gray:
     GFXCLIP gfx_fill_gray_d
 gfx_fill_gray_d:
     GFXDISP gfx_fill_gray_raw
-gfx_fill_gray_raw:
+%ifndef GFX_VGA
+gfx_fill_gray_raw equ sw_fill_gray      ; no VGA in this build, so the software
+%else                           ; renderer is not a branch - it is the
+gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray has
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
     jne sw_fill_gray
     push ax
@@ -4275,6 +4309,7 @@ gfx_fill_gray_raw:
     pop bx
     pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_fill_pat - 8x8 dither pattern fill, screen-aligned (SPEC.md 5)
@@ -4339,7 +4374,10 @@ gfx_fill_pat:
     GFXCLIP gfx_fill_pat_d
 gfx_fill_pat_d:
     GFXDISP gfx_fill_pat_raw
-gfx_fill_pat_raw:
+%ifndef GFX_VGA
+gfx_fill_pat_raw equ sw_fill_pat      ; no VGA in this build, so the software
+%else                           ; renderer is not a branch - it is the
+gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
     jne sw_fill_pat
     push ax
@@ -4420,6 +4458,7 @@ gfx_fill_pat_raw:
     pop bx
     pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_xor_rect - 1px outline rectangle, XOR 0Fh (drag outline)
@@ -4587,6 +4626,12 @@ gfx_xor_fill:
 gfx_xor_fill_d:
     GFXDISP gfx_xor_fill_raw
 gfx_xor_fill_raw:
+%ifndef GFX_VGA
+    jmp sw_xor_fill
+vga_xor_fill_vram:              ; ...and this one keeps its cur_unlazy: it is
+    call cur_unlazy             ; entered DIRECTLY by menu.inc and kernel.asm's
+    jmp sw_xor_fill             ; thunk, which have not hidden the arrow (7.1.4)
+%else
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
     jne sw_xor_fill
 vga_xor_fill_vram:
@@ -4600,6 +4645,7 @@ vga_xor_fill_vram:
     jne sw_xor_fill
     mov byte [vga_xorm], 1      ; ...and the body is gfx_fill_raw's, which is
     jmp vga_solid_rect          ; the same 155 bytes with two differences
+%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_save - copy a screen region to a buffer, plane by plane
@@ -4650,7 +4696,10 @@ gfx_bank_ok:                    ; unlocked caller banks the arrow and nothing
                                 ; the arrow brackets itself (39.15.2), and a
                                 ; hook here would translate a rect that
                                 ; cur_geom has already resolved.
-vga_save_vram:
+%ifndef GFX_VGA
+vga_save_vram equ sw_save      ; no VGA in this build, so the software
+%else                           ; renderer is not a branch - it is the
+vga_save_vram:                              ; only renderer gfx_save has
     cmp byte [vid_mono], 0      ; the cursor's save-under, from inside IRQ4:
     jne sw_save                 ; on mono the framebuffer IS the renderer's
                                 ; target, so one "plane" of sw_xfer is it
@@ -4698,6 +4747,7 @@ vga_save_vram:
     pop bx
     pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; --- the SUB-RECT restore (SPEC.md 5.8) --------------------------------------
@@ -4902,7 +4952,10 @@ gfx_restore:
     pop bx
     pop ax
     ret
-vga_restore_vram:
+%ifndef GFX_VGA
+vga_restore_vram equ sw_restore      ; no VGA in this build, so the software
+%else                           ; renderer is not a branch - it is the
+vga_restore_vram:                              ; only renderer gfx_restore has
     cmp byte [vid_mono], 0      ; see vga_save_vram
     jne sw_restore
     push ax
@@ -4962,6 +5015,7 @@ vga_restore_vram:
     pop bx
     pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_pen_live / gfx_pen_dis / gfx_pen_cf - the enabled and disabled pens
@@ -5447,6 +5501,7 @@ gfx_scroll:
     mov [vgas_ydst], dx          ; down: dest rows y1+|dy|..y2, walked
     mov word [vgas_step], -1     ; bottom-up (source above destination)
 .disp:
+%ifdef GFX_VGA
     cmp byte [vid_planes], 1
     je .mono
     mov dx, 0x03CE              ; VRAM, via the latches
@@ -5458,6 +5513,7 @@ gfx_scroll:
     mov ax, 0x0005              ; write mode back to 0 (SPEC.md 1 rule 7)
     out dx, ax
     jmp short .ok
+%endif
 .mono:
     call vgas_bankcopy           ; the framebuffer IS [vid_rseg] (SPEC.md 39)
 .ok:
@@ -5474,6 +5530,7 @@ gfx_scroll:
     pop bx
     pop ax
     ret
+%ifdef GFX_VGA
 
 ; -----------------------------------------------------------------------------
 ; vgas_lincopy - scroll one LINEAR segment (the VGA stride): a buffer plane,
@@ -5552,6 +5609,7 @@ vgas_lincopy:
 %endif
     pop ds
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; vgas_bankcopy - the mono twin: per-row copies through gfx_rowbase, which

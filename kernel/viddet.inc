@@ -39,6 +39,21 @@
 %define VID_FORCE 0
 %endif
 
+; ...AND `VIDEO=vga` IS A BUILD ERROR ON kern_small, not a runtime surprise.
+; That build carries no VGA renderer at all (docs/MONO-RECLAIM-PLAN.md 2), so
+; forcing VID_VGA would set [vid_kind] to a kind vid_setmode no longer has an
+; arm for: the card would be programmed to BIOS mode 6 by the CGA arm below
+; while vid_apply loaded the VGA row's geometry over it - 640x480 at A000 on a
+; card showing 640x200 at B800. Every pixel would land somewhere else, and
+; nothing would say so. The AUTO-detected case is fine and is the whole design
+; (2.4): a VGA machine falls through the gated probes to the equipment word
+; and comes up as a CGA, geometry and all. It is only the FORCE that lies.
+%if VID_FORCE == 1
+ %ifndef GFX_VGA
+%error "VIDEO=vga needs a build with a VGA renderer in it - kern_small has none (docs/MONO-RECLAIM-PLAN.md 2). Auto-detect drives a VGA card as a CGA there; VIDEO=cga forces the same thing."
+ %endif
+%endif
+
 ; Where the Hercules framebuffer lives. Overridable ONLY so the Hercules
 ; renderer can be verified without a Hercules card: no emulator this project
 ; uses outside 86Box has one, and B0000 is simply unmapped under QEMU, so
@@ -325,6 +340,7 @@ vid_detect:
     dec al                      ; 1/2/3 -> VID_VGA/VID_HERC/VID_CGA
     jmp short .set
 .probe:
+%ifdef GFX_VGA
     mov ax, 0x1A00              ; VGA/MCGA: read Display Combination Code.
     int 0x10                    ; A pre-EGA BIOS ignores AH=1Ah and leaves
     cmp al, 0x1A                ; AL as we set it, which is 00h.
@@ -334,15 +350,25 @@ vid_detect:
     int 0x10                    ; alone. An EGA does mode 12h, so it counts.
     cmp bl, 0x10
     jne .vga
+%endif                          ; WITHOUT A VGA IN THE BUILD there is nothing
+                                ; to ask: a card this kernel cannot drive is
+                                ; not a card it wants to find. The walk goes
+                                ; straight to the equipment word, which a VGA
+                                ; in colour mode answers 10b - so the machine
+                                ; comes up as a CGA and runs the card in BIOS
+                                ; mode 6, which every VGA BIOS serves
+                                ; (docs/MONO-RECLAIM-PLAN.md 2.4)
     int 0x11                    ; equipment word, bits 5:4
     and al, 0x30
     cmp al, 0x30                ; 11b = a monochrome card at B000
     mov al, VID_CGA
     jne .set
     mov al, VID_HERC
+%ifdef GFX_VGA
     jmp short .set
 .vga:
     mov al, VID_VGA
+%endif
 .set:
     mov [vid_kind], al
     pop es
@@ -733,9 +759,11 @@ vid_setmode:
                                 ; it is a no-op unless the flag says mono, which
                                 ; is why every colour-primary machine is
                                 ; unaffected by moving it up
+%ifdef GFX_VGA
     mov ax, 0x0012              ; VGA: 640x480x16 planar
     cmp byte [vid_kind], VID_CGA
     jne .bios
+%endif
 
     ; --- ZERO B800 WHILE THE CARD IS STILL IN TEXT MODE ---------------------
     ; The Hercules path below blanks the tube for its whole mode change and
@@ -764,6 +792,7 @@ vid_setmode:
     mov ax, 0x0006              ; CGA: 640x200 monochrome
 .bios:
     int 0x10
+%ifdef GFX_VGA
     cmp byte [vid_kind], VID_VGA
     jne .nowipe
 
@@ -835,6 +864,7 @@ vid_setmode:
     rep stosw                   ; ~110 ms on a 4.77MHz 8088, ONCE: vid_init
                                 ; skips the mode set while [spl_live] is up,
                                 ; and every later caller owes a full repaint
+%endif                          ; ...end of the mode 12h arm and its clear
 .nowipe:
     jmp short .done
 .herc:

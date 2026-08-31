@@ -209,13 +209,27 @@ call — which is exactly the shape SPEC.md §39.3.1 and §39.3.2 attacked and g
 as a performance change too: `tests/gfxbench` with `VIDEO=cga` and `VIDEO=herc`
 on `make small`, before and after.
 
-### 2.3 What it is worth
+### 2.3 What it is worth — BUILT AND MEASURED
 
-~1,700–1,900 bytes of `.text` is **three or four 512-byte image rungs**, which
-come straight off `KERN_SIZE` and off the heap floor with it. That is the
-figure to take to `KERN_SMALL_BUDGET`, which docs/KERNEL-MEMORY.md moves 22, 23
-and 32 record as the one nobody watches — and it is a move in the direction that
-table has never had one in.
+The estimate above was ~1,700–1,900 bytes. **Measured on the build:**
+
+| | before | after | |
+|---|---:|---:|---|
+| `kern_small` `.text` | 44,503 | **42,698** | **−1,805** |
+| `KERN_SIZE` | 100,864 | **98,816** | **−2,048 — four 512-byte rungs** |
+| slack under `KERN_SMALL_BUDGET` (107,520) | 6,656 | **8,704** | |
+
+`.bss`, `.cold` and `.lowbss` do not move: everything gated is code, and
+`.vgabuf` was already 0 on this build. The 2,048 is larger than the 1,805
+because the image rung rounds, and it comes **straight off the heap floor** —
+`kend` 6,400 → 6,272 paragraphs.
+
+**Lowering `KERN_SMALL_BUDGET` is a separate decision and is NOT taken here.**
+CLAUDE.md's rule is that a budget move is a conversation with whoever asked for
+the feature, and this one is a *reclaim*: the figure that has to be defended is
+now defended by 8,704 bytes instead of 6,656. docs/KERNEL-MEMORY.md moves 22, 23
+and 32 record that figure as the one nobody watches, and this is the first move
+in the direction that table has never had one in.
 
 ### 2.4 What has to be settled before it is built
 
@@ -644,7 +658,7 @@ scenarios is.
    section +0, and a `[map all]` comparison of all 6,198 symbols showing the same
    symbol set and zero size changes**, so no jump crossed the short-form
    threshold. Only addresses moved.
-2. **Gate the VGA-only bodies WHERE THEY ARE** (`%ifdef GFX_VGA`, on for
+2. **(DONE) Gate the VGA-only bodies WHERE THEY ARE** (`%ifdef GFX_VGA`, on for
    `kern_big`, off for `kern_small`), using `sym equ sw_x` for the handful whose
    entry is shared, so every existing caller keeps working at zero bytes.
    **Consolidate nothing yet** — §1.1's note is why: moving a body before the
@@ -654,8 +668,9 @@ scenarios is.
    contiguity buys the reclaim nothing and the reuse everything. Prove the
    grouping is **free on VGA** with `gfxbench` before anything is spent —
    PERFORMANCE.md Part 1 rule 5.
-4. **`kern_small` builds with the gate off** (§2), which is what turns step 2's
-   brackets into a measurement. Measure it as a *speed* change as well as a size
+4. **(DONE) `kern_small` builds with the gate off** (§2) — measured in §2.3,
+   and `tests/smallboot.py` boots it on both 1bpp adapters *and* on a VGA
+   machine. What remains of this step is the SPEED half (§2.2), unmeasured. Measure it as a *speed* change as well as a size
    one (§2.2), and settle §2.4's three questions first.
 5. **The row table on `kern_small`** (§4), funded by step 4 — after the Hercules
    reading of §4.4 is taken.
@@ -674,6 +689,16 @@ an fsx bracket has already crossed.
 
 ## 9. Evidence owed by whoever takes a row
 
+0. **The nesting, and `make test-full`'s `buildmatrix` row is the only thing
+   that can see it.** Gating bodies that already sit inside `%ifdef GFX_PLANE`
+   put one `%endif` in the wrong place: it closed `GFX_PLANE` early and
+   `GFX_PLANE`'s own closed `GFX_VGA`. **`kern_big` stayed byte-identical** —
+   both symbols were defined, so the two mis-paired brackets cancelled — and
+   `kern_small` assembled and booted. Only `NOPLANE=1`, a knob nothing ships,
+   pulled the two apart and produced 214 undefined symbols. **Byte-identity of
+   the default build is not a check on a `%ifdef`**; the matrix is. SPEC.md
+   §5.4.1.3's decoder now carries an assertion in `kernel.asm` that `GFX_PLANE`
+   implies `GFX_VGA`, so that pairing cannot silently part again.
 1. **A boot on both 1bpp adapters and on VGA**, plus `xt-multimon` — the two-card
    XT is the one machine where `[vid_mono]` is a property of a *display* rather
    than of the machine (SPEC.md §39.14.6), and the only configuration in which

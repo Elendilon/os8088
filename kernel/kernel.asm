@@ -248,6 +248,30 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %endif
 %endif
 
+; GFX_VGA - does this build drive a VGA at all? (docs/MONO-RECLAIM-PLAN.md 2)
+;
+; kern_big does. kern_small DOES NOT, and that is a product decision rather
+; than a size trim that happened to fit: a 128KB machine has no business with
+; a VGA card in it, so the small build carries no planar renderer, no mode 12h
+; and none of the Graphics Controller code that serves them. Where the other
+; kern_big-only symbols here buy a FEATURE, this one removes an ADAPTER.
+;
+; WHAT A kern_small MACHINE WITH A VGA CARD DOES, because that is the first
+; question anybody asks: it runs the card as a CGA at 640x200, and gracefully.
+; vid_detect's VGA and EGA probes are gated out with everything else, so the
+; walk falls through to int 11h's equipment word - which a VGA in colour mode
+; answers 10b, VID_CGA - and the CGA arm sets BIOS mode 6, which every VGA
+; BIOS serves because a VGA is a CGA superset. Measured on MartyPC's
+; os8088_xt_vga: mode 'Mode6HiResGraphics', a structural desktop at 640x200,
+; 59.6% of the screen lit. Nothing refuses and nothing goes black.
+;
+; IT IS NOT A KNOB. There is no `make NOVGA=1` for kern_big, because the
+; bodies this gates are the ones kern_big exists to run; the A/B that matters
+; is `make small`, which test-full's buildmatrix row already builds.
+%ifdef KERN_BIG
+  %define GFX_VGA 1
+%endif
+
 ; SPEC.md 5.4.1.3's planar row decoder, on the same terms as 39.3.1's row
 ; table: kern_big gets it and kern_small does not, because KERN_SMALL_BUDGET
 ; is the figure that has to be defended and this is 1,536 bytes of it. A
@@ -258,6 +282,17 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %ifndef NOPLANE
     %define GFX_PLANE 1
   %endif
+%endif
+
+; ...AND THE DECODER IS A VGA THING, so it may not outlive the card. Its three
+; bodies (vga_p4build, vga_blit_prow, vga_prow_emit) sit inside `%ifdef
+; GFX_PLANE` alone rather than inside both gates, which is correct only while
+; GFX_PLANE implies GFX_VGA. Stated rather than assumed: the two are set by
+; separate blocks and nothing else would notice them parting.
+%ifdef GFX_PLANE
+ %ifndef GFX_VGA
+%error "GFX_PLANE without GFX_VGA - the planar row decoder is VGA-only code (SPEC.md 5.4.1.3); see docs/MONO-RECLAIM-PLAN.md 2"
+ %endif
 %endif
 
 KERN_RESIDENT_KB equ 128        ; RULE 3: kern_big fully RESIDES in this once
