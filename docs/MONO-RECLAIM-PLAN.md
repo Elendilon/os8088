@@ -53,13 +53,22 @@ because that build simply does not drive the card.
   (§4).** Measured whole-machine on a CGA 5150: the screen saver **4.69% →
   2.85%** and Missile Command **1.66% → 0.75%**. It buys applications that draw
   low on the screen and buys the desktop chrome nothing.
-- **`GFX_FILL_GRAY` is the wrong target for a 1bpp specialisation and the
-  profiles say what the right ones are (§5.1):** `sw_blit_row.abyte` is **27.7%
-  of the whole machine in Paint** and `sw_col.row` **10.0% in WIREFRAME**.
+- **`GFX_FILL_GRAY` is the wrong target for a 1bpp specialisation, and the
+  biggest number is not the best target either (§5).** `sw_blit_row.abyte` is
+  **27.7% of the whole machine in Paint** and it IS the mono fast path — traced,
+  because Paint has fallbacks — but it is 27.7% *because it is the whole job done
+  well*, having already been through SPEC.md §5.4.1.1 and §5.4.1.2 (canvas blit
+  2,431 → 259 ms). **The headroom is in `sw_col`** (10.0% in WIREFRAME, no
+  specialisation pass at all) **and `sw_rect`/`sw_plane_op`**.
+- **TANK ATTACK is helped by NEITHER option (§5.4).** An fsx bracket that has set
+  a mode owns every pixel: `apps/tank/tkraster.inc` has *"not one kernel drawing
+  slot"* in it, so during play it never enters `gfx_rowbase`, `sw_col`, `sw_rect`
+  or `sw_blit_row`. If a game of that shape is the target, the work is
+  docs/GFX-FSX-PLAN.md's, not this file's.
 - **The lost character on a straddle is not a speed problem and the glyph cache
   would not fix it (§6).** The character is not drawn slowly — it is **not drawn
   at all**, by one `ja .done` in `font_char` under SPEC.md §39.14.2's whole-cell
-  rule. It is a defect with a fix, and §6 is the write-up.
+  rule. **docs/HANDOFF-FONTCHAR-SEAM.md is its standalone handoff.**
 
 ---
 
@@ -97,13 +106,18 @@ nasm -f bin -w+error -I kernel/ -I apps/ -I build/ -o /dev/null /tmp/kmap.asm
 | `vga_sr_on` | 12 | 12 | |
 | **total** | **1,771** | **~1,207** | |
 
-**`vga_rect_setup` (123 bytes) is NOT in this table and must not be moved
-anywhere.** SPEC.md §5.4's masks and offsets serve both renderers —
-`softgfx.inc` says so in its own header — so it stays on both builds, and it is
-*hot*: PERFORMANCE.md Set 102 profiles `vga_rect_setup.x2ok` at **7.3% of the
-whole machine** in the screen saver, on a CGA. Its name is the only VGA thing
-about it, and the grouping pass should move it into `softgfx.inc` and rename it
-rather than leave a shared body inside a gated region.
+**`vga_rect_setup` (123 bytes) is NOT in this table, and it is in the wrong
+file.** Its masks and offsets serve **both** renderers — `softgfx.inc` says so
+in its own header — so it stays in every build, and it is *hot*: PERFORMANCE.md
+Set 102 profiles `vga_rect_setup.x2ok` at **7.3% of the whole machine** in the
+screen saver, on a CGA. **Its name is the only VGA thing about it.** It is a
+leftover from the last split of the VGA file — a shared body that stayed behind
+in the adapter-specific one — and the grouping pass should **move it into
+`softgfx.inc` and rename it**, because a shared body sitting inside a region
+that is about to be `%ifdef`-ed out is the defect that gate would otherwise
+ship. *If it is not VGA-specific it does not belong in the VGA file*, and the
+same sweep should ask the question of every other body there rather than only
+this one.
 
 ### 1.2 The one body that is fallen into, not called
 
@@ -299,9 +313,18 @@ at the top and rows 0–127 already hit, so the desktop chrome gains nothing; th
 is not a redraw-budget item.
 
 **WIREFRAME is the counter-example and it should be quoted alongside the wins:
-1.45% → 1.46%, no gain at all**, because its window sits high. The saver gains
-1.84 points of the whole machine because it is full-screen; Missile Command
-gains 0.91 because a game's window is in the bottom third.
+1.45% → 1.46%, no gain at all.** The saver gains 1.84 points of the whole
+machine because it is full-screen; Missile Command gains 0.91 because a game's
+window is in the bottom third.
+
+**But read that counter-example correctly: it is a fact about WHERE THAT WINDOW
+WAS IN THAT RUN, not a property of WIREFRAME.** A window that opens high can be
+dragged low, and the same application then lands on the other side of the
+figure. So the honest statement is not *"WIREFRAME does not benefit"* — it is
+**the benefit is a function of the window's y, and every profile of it is a
+sample of one position.** What that costs the ranking in §5.4 is that the row
+table's win has a *floor of zero* and its quoted numbers are upper-ish samples,
+while a loop specialisation's win is the same wherever the window is.
 
 ### 4.4 The gap in the evidence, stated plainly
 
@@ -335,39 +358,113 @@ profile:
 **60–85% of every one of these four scenarios is in kernel drawing code**, which
 is Set 102's own headline.
 
-### 5.2 So the ranking is settled by evidence, not by guessing
+### 5.2 `sw_blit_row` IS the fast path on mono — checked, because it has fallbacks
 
-1. **`sw_blit_row`** — 27.7% of the machine in Paint, and a blit is what every
-   backing store repaints through. The largest single number in the whole
-   profile set.
-2. **`sw_col`** — 10.0% in WIREFRAME and part of the saver's ~12%. The column
-   writer is on the fill path *and* the line path.
-3. **`sw_rect` / `sw_plane_op`** — the parameterised core. `sw_rect` alone spends
-   **~216 clocks, about 7%, on eight pushes and eight pops** it takes only to
-   honour `gfx_fill`'s "clobbers flags" contract (PERFORMANCE.md Part 2). A
+Paint holds its canvas two ways and the layering matters, so this was traced
+rather than assumed (`apps/paint/paint.asm:3145–3175`):
+
+* **planar** — `OSAPI_GFX_BLITP`, SPEC.md §5.4.3's four-plane form;
+* **packed nibbles** — `OSAPI_GFX_BLIT4` → `gfx_blit4`.
+
+**On a 1bpp adapter the planar form is REFUSED**, and Paint's own comment says
+so: *"A 1bpp adapter under us, a canvas origin off the byte grid, a straddled
+seam: every refusal means 'you cannot hold your picture that way here'"* — so
+`pt_topacked` converts the canvas once and every repaint after it is
+`GFX_BLIT4`. Inside `gfx_blit4`, a mono block that is on screen in x sets
+`[gfx_blit_fst] = 1` and the row loop calls **`sw_blit_row` for the whole row,
+with no run scan at all** (`kernel/vga12.inc:2745`). `sw_blit_row` has exactly
+one caller in the tree and that is it.
+
+**So yes: on mono it is the fast path, not a fallback**, and Set 102's 27.7% was
+measured on a CGA — the very adapter that forces the packed form. The only way
+back off it is a blit clipped in x, which Paint, ArtfulType and Solitaire all
+avoid by clipping their own blits (`softgfx.inc`'s header says so).
+
+**…and that is also the argument against picking it first.** `sw_blit_row` is
+27.7% because it is *the whole job done well*, not because it is naive. It has
+already been through **two** optimisation passes: SPEC.md §5.4.1.1 replaced the
+run scan with a 256-byte pair table (canvas blit **2,431 → 517 ms** on CGA) and
+§5.4.1.2 gave each x-parity a body of its own (**517 → 259 ms even, 508 → 299
+odd**) — docs/HANDOFF-REDRAW.md carries both. `.abyte` is that second pass's
+aligned body, already down to **37 bytes per eight pixels**. A third pass is
+possible but its headroom is nothing like its share.
+
+### 5.3 So the ranking, corrected
+
+1. **`sw_col`** — 10.0% of the machine in WIREFRAME and part of the saver's ~12%,
+   and **it has had no specialisation pass at all**. Its row body is a
+   read-modify-write pair (`and [es:di],bl` / `or [es:di],al`) plus a pattern
+   `xor` plus the bank-wrap test, ~25 bytes of traffic a row on an 8088's 8-bit
+   bus. A full-mask solid column is one `mov [es:di],al` — the RMW pair is ~40
+   clocks of ~100 and a specialised entry does not owe it. The wrap test is
+   hoistable within a bank. **This is the one with headroom and evidence both.**
+2. **`sw_rect` / `sw_plane_op`** — the parameterised core, `SWM_SOLID` /
+   `SWM_GRAY` / `SWM_XOR` behind a per-row `[sw_mode]` test. `sw_rect` alone
+   spends **~216 clocks, about 7%, on eight pushes and eight pops** it takes only
+   to honour `gfx_fill`'s "clobbers flags" contract (PERFORMANCE.md Part 2). A
    specialised entry that does not owe that contract is bytes well spent.
+3. **`sw_blit_row`** — the largest single number in the profile set and the
+   smallest remaining headroom, for §5.2's reason. Worth revisiting only with a
+   measurement in hand.
 
 **`GFX_FILL_GRAY` is correctly refused as a target.** `UI_GRAY` is the shared
 scrollbar trough and `fprog.inc`'s progress widget — a scrollbar is nowhere near
-the capacity of any machine, and it does not appear in any of the four profiles.
-docs/LAST-DROP-BYTES.md §7 already records the owner's ruling on the same body
+the capacity of any machine, and it appears in **none** of Set 102's four
+profiles. docs/LAST-DROP-BYTES.md §7 records the owner's ruling on the same body
 from the other direction (a 33% regression refused because the slot is public);
 the two agree.
 
-### 5.3 What 1,612 bytes buys
+### 5.4 …and what neither option does: TANK ATTACK
 
-Roughly three specialised bodies, and the ranking above says which three. This
-is the only candidate in this file with **no existing code to lift**, so it has
-to be written before it can be measured — but the instrument is in place
-(`tests/gfxbench` for the primitive, Set 20's sampler for the application) and
-the baseline numbers to beat are §5.1's.
+**Neither the row table nor the 1bpp loops help TANK ATTACK, at all**, and this
+is the finding that should decide where effort goes if a game like it is the
+target. `apps/tank/tkraster.inc`, in its own header:
+
+> Three backends behind four entries … and **NOT ONE kernel drawing slot among
+> them**, because SPEC.md §53.7 makes every one of them illegal the moment
+> `fsx_mode` returns. What is here is what the kernel would have had to lend and
+> cannot.
+
+An fsx bracket that has set a mode owns every pixel: TANK ATTACK carries its own
+Bresenham, its own dirty-span tracking and its own per-adapter blit, and during
+play it never enters `gfx_rowbase`, `sw_col`, `sw_rect` or `sw_blit_row`. **The
+work that helps it is docs/GFX-FSX-PLAN.md's, not this file's** — and that file
+already names the shape of it, including a `gfx_line` batch form priced and
+deliberately not built.
+
+**What this file's options do help** is everything that draws *through the
+kernel*: the screen saver (full-screen, `sw_rect`/`sw_col`/`sw_plane_op` ~12%),
+Paint's live canvas (`sw_blit_row` 27.7%), WIREFRAME (`sw_col.row` 10.0%), and
+windowed games — though Missile Command is **scheduler-bound at ~22%** before it
+is draw-bound, so a windowed real-time game is a docs/SCHED-IDLE-PLAN.md
+question first.
+
+### 5.5 The two options are not competing for the same build
+
+| | `kern_small` | `kern_big` |
+|---|---|---|
+| row table 128 → 348 | **available**, 512 B, funded by step 1 | **already 348** — nothing to buy |
+| the 1bpp loops | available from the reclaim | **the only option**, from the hole |
+
+`kern_big` already carries every row of both 1bpp adapters, so on the build that
+*has* the hole the row table is not on the menu at all. **The either/or exists
+only on `kern_small`**: bank the ~1,700 reclaimed bytes, or spend 512 on the
+table and the rest on loops. On the criterion of *games and live drawing*, the
+loops win on every scenario that is measured — and on `kern_big` they win by
+default.
+
+### 5.6 What 1,612 bytes buys
+
+Roughly three specialised bodies, and §5.3 says which three. This is the only
+candidate in this file with **no existing code to lift**, so it has to be written
+before it can be measured — but the instrument is in place (`tests/gfxbench` for
+the primitive, PERFORMANCE.md Set 20's `flat_ip` sampler for the application,
+which costs the guest nothing) and the baseline numbers to beat are §5.1's.
 
 **One warning, and it is PERFORMANCE.md Part 1 rule 5:** the reason for these
 bodies is speed, so the measurement must show the reason survived, not the
 structure. A specialisation that emits the designed number of instructions and
 walks the plane the same way is `gfx_blit4`'s first version again.
-
----
 
 ## 6. The lost character on a straddle — a defect, and the glyph cache does not fix it
 
@@ -413,7 +510,14 @@ would not be drawn by a cache either, because the `ja .done` is above everything
 a cache would touch. **The two are unrelated, and the cache should be judged on
 its own (much reduced) merits: §7.**
 
-### 6.3 The fix, sketched
+### 6.3 The fix, sketched — and it now has a handoff of its own
+
+> **docs/HANDOFF-FONTCHAR-SEAM.md is the standalone write-up**, self-contained
+> for somebody with no context here: the mechanism, why it is exactly one
+> character, the §39.14.2/§39.14.6 history that must not be re-litigated, the
+> `TITLESNAP=1` A/B that reproduces and controls it in one knob, the fix, and
+> the evidence owed. What is below is the summary.
+
 
 The precedent is in the same routine, eight lines down. For the **clip region**
 `font_char` already degrades rather than refusing — *"a cell an edge crosses
@@ -493,9 +597,15 @@ scenarios is.
 4. **`kern_big`'s reuse** (§3 mechanism, §5 payload), which is the only step that
    needs the `.ovl` decider, the blob sectors and the `tests/vgarefs.txt`
    ratchet.
-5. **The straddle fix** (§6.3) — independent of all of the above, and worth
-   separating from it because it is a correctness change and everything else
-   here is a budget change.
+5. **The straddle fix** — **docs/HANDOFF-FONTCHAR-SEAM.md**, independent of all
+   of the above and separated from it deliberately: it is a correctness change
+   and everything else here is a budget change.
+
+**And one thing that is NOT on this list.** If the goal is a game like TANK
+ATTACK, none of steps 1–4 reaches it (§5.4). That work is
+docs/GFX-FSX-PLAN.md's, and it should be picked up there rather than smuggled
+in here — this file's options all live on the kernel's side of a boundary that
+an fsx bracket has already crossed.
 
 ## 9. Evidence owed by whoever takes a row
 
