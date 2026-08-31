@@ -894,24 +894,24 @@ Three things about it:
 ```json
 {
   "big": {
-    "boot2": 2494,
-    "bootmax": 189952,
-    "bss": 5955,
+    "boot2": 2457,
+    "bootmax": 186880,
+    "bss": 5813,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40784,
-    "coldpara": 2560,
+    "cold": 38823,
+    "coldpara": 2432,
     "fatpara": 288,
-    "imgpara": 3968,
-    "kend": 7616,
+    "imgpara": 3648,
+    "kend": 7168,
     "kseg": 96,
-    "ksize": 120320,
-    "lowbss": 8982,
+    "ksize": 113152,
+    "lowbss": 9096,
     "lowpara": 640,
     "minramkb": 196,
-    "ovl": 3969,
+    "ovl": 6688,
     "stk0": 1024,
-    "text": 57149,
+    "text": 52538,
     "vgabuf": 848,
     "vgabufpara": 64
   },
@@ -1744,62 +1744,62 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 33,609 | 34.3% |
-| the window system and its furniture | 26,209 | 26.8% |
-| drawing: adapters, primitives, glyphs, icons | 16,862 | 17.2% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 10,097 | 10.3% |
-| the kernel proper: API table, heap, scheduler, events | 8,281 | 8.5% |
-| the three built-in kinds | 1,815 | 1.9% |
-| the Control Panel | 1,060 | 1.1% |
-| **total** | **97,933** | |
+| the file system, end to end | 31,773 | 34.8% |
+| the window system and its furniture | 25,120 | 27.5% |
+| drawing: adapters, primitives, glyphs, icons | 15,683 | 17.2% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,380 | 9.2% |
+| the kernel proper: API table, heap, scheduler, events | 7,537 | 8.2% |
+| the three built-in kinds | 1,813 | 2.0% |
+| the Control Panel | 1,055 | 1.2% |
+| **total** | **91,361** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` | `.boot2` |
 |---|---:|---:|---:|---:|---:|---:|
-| `wm.inc` — the window manager (§11) | 12,522 | 95 | **12,617** | 1,086 | — | — |
-| `files.inc` — the Disk window (§22) | 1,131 | 8,747 | **9,878** | 471 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 7,991 | 702 | **8,693** | 181 | 526 | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 397 | 6,284 | **6,681** | 890 | 3,584 | — |
-| `fdlg.inc` — the Standard File dialog (§38) | 274 | 5,323 | **5,597** | 169 | — | — |
-| `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 5,067 | **5,246** | 155 | — | — |
-| `mouse.inc` — serial mouse and the cursor (§9) | 4,806 | — | **4,806** | 149 | — | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,516 | — | **3,516** | 58 | — | — |
-| `menu.inc` — the menu bar and pull-downs (§12) | 3,086 | — | **3,086** | 197 | 98 | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 543 | 2,491 | **3,034** | 348 | — | — |
-| `assoc.inc` — file type associations (§54) | 528 | 2,415 | **2,943** | 43 | — | — |
-| `memory.inc` — the claim heap (§50) | 20 | 2,765 | **2,785** | 20 | 324 | — |
-| `instance.inc` — instances and the built-in kinds (§29) | 2,452 | — | **2,452** | 694 | — | — |
-| `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,440 | **2,440** | 148 | — | — |
-| `font.inc` — the 8×8 glyph renderer (§6) | 2,167 | — | **2,167** | 218 | 768 | — |
-| `apps.inc` — the three built-in kinds (§14) | 251 | 1,564 | **1,815** | 15 | 240 | — |
-| `icons.inc` — the icon renderer (§10) | 1,686 | — | **1,686** | 100 | — | — |
-| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,541 | — | **1,541** | 88 | — | — |
-| `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,304 | — | **1,304** | 4 | — | — |
-| `sched.inc` — pre-emptive scheduling (§7–8) | 1,270 | — | **1,270** | 124 | 2,746 | — |
-| `snd.inc` — the sound layer (§34) | 1,200 | — | **1,200** | 300 | — | — |
+| `wm.inc` — the window manager (§11) | 11,822 | 94 | **11,916** | 1,074 | — | — |
+| `files.inc` — the Disk window (§22) | 1,052 | 8,306 | **9,358** | 471 | — | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 7,288 | 702 | **7,990** | 180 | 526 | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 397 | 5,797 | **6,194** | 890 | 3,584 | — |
+| `fdlg.inc` — the Standard File dialog (§38) | 241 | 5,038 | **5,279** | 168 | — | — |
+| `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,626 | **4,805** | 155 | — | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 3,701 | — | **3,701** | 149 | — | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,372 | — | **3,372** | 58 | — | — |
+| `menu.inc` — the menu bar and pull-downs (§12) | 2,758 | 181 | **2,939** | 197 | 84 | — |
+| `assoc.inc` — file type associations (§54) | 523 | 2,391 | **2,914** | 43 | — | — |
+| `memory.inc` — the claim heap (§50) | 35 | 2,645 | **2,680** | 20 | 324 | — |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 2,042 | **2,538** | 348 | — | — |
+| `instance.inc` — instances and the built-in kinds (§29) | 2,167 | 258 | **2,425** | 694 | — | — |
+| `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,423 | **2,423** | 148 | — | — |
+| `font.inc` — the 8×8 glyph renderer (§6) | 2,087 | — | **2,087** | 218 | 768 | — |
+| `apps.inc` — the three built-in kinds (§14) | 251 | 1,562 | **1,813** | 15 | 240 | — |
+| `icons.inc` — the icon renderer (§10) | 1,666 | — | **1,666** | 100 | — | — |
+| `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,243 | — | **1,243** | 4 | — | — |
+| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,229 | — | **1,229** | 88 | — | — |
+| `snd.inc` — the sound layer (§34) | 1,178 | — | **1,178** | 300 | — | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 1,122 | — | **1,122** | 9 | — | — |
-| `ctrl.inc` — the Control Panel (§31) | 778 | 282 | **1,060** | — | — | — |
-| `desk.inc` — the desktop and volume zones (§14/§26.1) | 15 | 1,040 | **1,055** | 18 | — | — |
-| `viddet.inc` — adapter detection and geometry (§39) | 1,023 | — | **1,023** | — | 696 | 3 |
-| `dock.inc` — the dock strip (§30) | 913 | — | **913** | 38 | — | — |
-| `loader.inc` — the package loader (§21) | — | 782 | **782** | 58 | — | — |
+| `sched.inc` — pre-emptive scheduling (§7–8) | 1,059 | — | **1,059** | 124 | 2,746 | — |
+| `ctrl.inc` — the Control Panel (§31) | 778 | 277 | **1,055** | — | — | — |
+| `desk.inc` — the desktop and volume zones (§14/§26.1) | 15 | 1,036 | **1,051** | 18 | — | — |
+| `viddet.inc` — adapter detection and geometry (§39) | 1,020 | — | **1,020** | — | 696 | 3 |
+| `dock.inc` — the dock strip (§30) | 878 | — | **878** | 38 | — | — |
+| `loader.inc` — the package loader (§21) | — | 758 | **758** | 58 | — | — |
+| `clock.inc` — the clock ladder (§37) | 694 | — | **694** | 89 | — | — |
 | `fprog.inc` — the file-operation progress widget (§12.8) | 682 | — | **682** | — | — | — |
-| `clock.inc` — the clock ladder (§37) | 678 | — | **678** | 89 | — | — |
-| `toast.inc` — the menu bar's transient message (§59) | 537 | — | **537** | 25 | — | — |
-| `mod.inc` — on-demand kernel modules (§2.8) | 54 | 416 | **470** | 98 | — | — |
+| `toast.inc` — the menu bar's transient message (§59) | 512 | — | **512** | 25 | — | — |
+| `mod.inc` — on-demand kernel modules (§2.8) | 54 | 420 | **474** | 98 | — | — |
 | `blank.inc` — the idle screen blanker (§64) | 208 | 240 | **448** | — | — | — |
-| `xmem.inc` — memory above 1MB (§41.4–41.5) | 263 | 104 | **367** | 22 | — | — |
-| `clip.inc` — the system clipboard (§55) | 229 | — | **229** | 6 | — | — |
-| `events.inc` — the event ring (§10) | 173 | — | **173** | 134 | — | — |
+| `xmem.inc` — memory above 1MB (§41.4–41.5) | 257 | — | **257** | 22 | — | — |
+| `clip.inc` — the system clipboard (§55) | 223 | — | **223** | 6 | — | — |
+| `events.inc` — the event ring (§10) | 182 | — | **182** | 6 | 128 | — |
 | `clone.inc` — the disk cloner (§18.99) | 15 | 27 | **42** | — | — | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 12 | — | **12** | — | — | — |
-| `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 2,023 |
+| `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 2,011 |
 | `band.inc` — the 1bpp band composer (§5.9), `BAND=1` | — | — | **0** | — | — | — |
 | `bootprof.inc` — the boot phase table (§15.5), `BOOTPROF=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,583 | — | **3,583** | — | — | 468 |
-| **total** | **57,149** | **40,784** | **97,933** | **5,955** | **8,982** | **2,494** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,142 | — | **3,142** | — | — | 443 |
+| **total** | **52,538** | **38,823** | **91,361** | **5,813** | **9,096** | **2,457** |
 <!-- END generated table -->
 
 ### Reading it
