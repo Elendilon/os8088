@@ -59,16 +59,18 @@ LIST_SCROLL_MS = (83, 90)   # PERFORMANCE.md Part 5's scroll-one-line contract
 KEYSTROKE_MS = 1.8          # the Note Pad contract (SPEC.md 27.2), ~2 cells
 
 # Content areas per adapter, derived in WEAVE-SPEC 7.1.1 from the platform's
-# own constants - CW = floor(([vid_w]-1)/8), CH = floor(([vid_h]-64)/8) over
-# SPEC.md 11.95's standard rect. NOT htmsim's viewport: the browser is not
+# own constants - CW = floor([vid_w]/8), CH = floor(([vid_h]-64)/8) over
+# SPEC.md 11.95's standard rect. The CW divisor lost its -1 at SPEC.md
+# 11.95.3: a window spanning the screen has no RIGHT border either, so the
+# last cell of the row now has somewhere to go. NOT htmsim's viewport: the browser is not
 # maximized on Hercules (it takes 90% of the band), and copying its figure
 # is where this table's herc ch=36 came from - four content pixels that do
 # not exist, and a row the 8086 would have been told to lay out on.
 # cell_us is Part 2's per-adapter glyph cost; the walk needs only cw/ch.
 ADAPTERS = {
-    "cga":  dict(name="CGA 640x200",      cell_us=918.0, cw=79, ch=17),
-    "herc": dict(name="Hercules 720x348", cell_us=905.0, cw=89, ch=35),
-    "vga":  dict(name="VGA 640x480",      cell_us=620.0, cw=79, ch=52),
+    "cga":  dict(name="CGA 640x200",      cell_us=918.0, cw=80, ch=17),
+    "herc": dict(name="Hercules 720x348", cell_us=905.0, cw=90, ch=35),
+    "vga":  dict(name="VGA 640x480",      cell_us=620.0, cw=80, ch=52),
 }
 GEOM_ALIAS = {"640x200": "cga", "720x348": "herc", "640x480": "vga"}
 
