@@ -109,11 +109,12 @@ def knob_args(nasm_args):
     return [x for x in nasm_args if x not in VARIANT_DEFS]
 
 # The sections an author can actually move a byte into, in the order the
-# ladder lays them out.  `ovl` is here because it has to be watched, not
-# because it costs anything: the boot overlay lands in the FAT window and is
-# overwritten by the first mount (SPEC.md 2.5), so its rung is somebody
-# else's.  It still has a ceiling - see the guard on OVL_SIZE.
-SECTIONS = ("text", "bss", "cold", "lowbss", "vgabuf", "ovl")
+# ladder lays them out.  The two overlay halves are here because they have to
+# be watched, not because they cost anything: `ovl` rides the boot blob and is
+# given back at spl_finish, `ovlw` lands in the FAT window and is overwritten
+# by the first mount (SPEC.md 2.5, 2.5.3), so neither has a rung of its own.
+# Each still has a ceiling - see the guards on OVL_SIZE and OVLW_SIZE.
+SECTIONS = ("text", "bss", "cold", "lowbss", "vgabuf", "ovl", "ovlw")
 
 # Which rung each section rounds into.  .text and .bss share one; that is why
 # a byte moved from .bss to .lowbss can cost 512 rather than saving anything
@@ -125,10 +126,10 @@ RUNGS = (
     ("vgabuf", ("vgabuf",), "vgabufpara"),
 )
 
-# ...and therefore the sections a rung CHARGES for, which is not SECTIONS: the
-# boot overlay lands in the FAT window and is charged to no rung at all
-# (SPEC.md 2.5), so counting `.ovl` in the spend would price a change that
-# only moved overlay code as if it had eaten the image rung's slack.  Derived
+# ...and therefore the sections a rung CHARGES for, which is not SECTIONS:
+# neither overlay half is charged to a rung at all (SPEC.md 2.5, 2.5.3), so
+# counting `.ovl` or `.ovlw` in the spend would price a change that only moved
+# overlay code as if it had eaten the image rung's slack.  Derived
 # from RUNGS rather than written out, so the two cannot drift apart.
 RUNG_SECTIONS = tuple(dict.fromkeys(
     s for _, members, _ in RUNGS for s in members))
@@ -141,7 +142,7 @@ THEMES_END = "<!-- /kernsize:themes -->"
 # The same, per module, plus `.boot2`: splash.inc has no section directive
 # of its own and takes the `.boot2` it is included at (SPEC.md 2.9.4), so
 # without it here a 967-byte module reports as costing nothing.
-MOD_SECTIONS = ("text", "bss", "lowbss", "vgabuf", "cold", "ovl", "boot2")
+MOD_SECTIONS = ("text", "bss", "lowbss", "vgabuf", "cold", "ovl", "ovlw", "boot2")
 INCLUDE = re.compile(r'^%include\s+"([\w.]+)"')
 # Column 0 only, which is where every one of kernel.asm's own switches sits -
 # a `section` inside a module is that module's business and it has to hand
@@ -163,9 +164,16 @@ THEMES = (
     # fprog.inc's reason turned around: it drives int 13h directly and knows
     # nothing about FAT, but what it IS to a reader is a File Manager command
     # on a volume, which is where disk.inc and diskw.inc already live.
+    # dskwin.inc (SPEC.md 2.1.2) is the file system's too, and it is worth
+    # saying why it is a file at all: it holds no code, only the mount-owned
+    # `.lowbss` window and the four constants that size it, and it exists
+    # because that window's ADDRESS is load-bearing - a reservation is placed
+    # by the order its file is included, so it has to be the first one. So
+    # 3,584 bytes of `.lowbss` moved off disk.inc's row and onto this one
+    # without a byte moving in the machine.
     ("the file system, end to end",
-     ("disk.inc", "diskw.inc", "files.inc", "filecp.inc", "fdlg.inc",
-      "loader.inc", "assoc.inc", "clone.inc")),
+     ("disk.inc", "dskwin.inc", "diskw.inc", "files.inc", "filecp.inc",
+      "fdlg.inc", "loader.inc", "assoc.inc", "clone.inc")),
     ("the window system and its furniture",
      ("wm.inc", "ui.inc", "menu.inc", "instance.inc", "desk.inc", "dock.inc",
       "fsx.inc", "clip.inc", "fprog.inc", "toast.inc")),
@@ -556,8 +564,9 @@ def report(cur, base, variant="big", out=sys.stdout):
           f" feature does not have to ask for. A saving is priced in bytes,"
           f" not in steps (CLAUDE.md's rung rule)")
     elif total:
-        p(f"{tag} .ovl moved and no rung did - the overlay lands in the FAT"
-          f" window and is charged to no rung at all (SPEC.md 2.5)")
+        p(f"{tag} the boot overlay moved and no rung did - .ovl rides the"
+          f" blob and .ovlw lands in the FAT window, and neither is charged"
+          f" to a rung at all (SPEC.md 2.5, 2.5.3)")
     else:
         p(f"{tag} unchanged")
     return crossed

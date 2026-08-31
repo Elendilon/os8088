@@ -28,8 +28,8 @@ half-fixed version:
     screen still never appear, because `spl_step` used to be a no-op until
     somebody else had started it and stage 2 was the only somebody there was;
  3. ...and the CLOCK IS DRAWN IN FULL. That is the boot overlay's own signature:
-    `ovl_clk_init` is an OVLGATE, so a kernel that did not get the blob skips it
-    along with ovl_cpu_detect, ovl_font_init, ovl_desk_init and ovl_cfg_load -
+    `clk_init` is an OVLGATE, so a kernel that did not get the blob skips it
+    along with cpu_detect, font_init, desk_init and the settings parse -
     and comes up looking almost right, with two glyphs where the date goes and
     no drivers configured. A boot that merely REACHES the desktop proves
     nothing here; the date string is what says the overlay ran.
@@ -137,8 +137,8 @@ def main():
     if len(clock) < MIN_CLOCK_GROUPS:
         raise SystemExit(
             "hdboot: FAIL - the desktop is up and the CLOCK is %d ink groups "
-            "wide. The boot overlay did not run: ovl_clk_init, ovl_font_init, "
-            "ovl_desk_init and ovl_cfg_load are all OVLGATEs, so a kernel that "
+            "wide. The boot overlay did not run: clk_init, font_init, "
+            "desk_init and the settings parse are all OVLGATEs, so a kernel that "
             "did not get stage 2's blob skips every one of them and boots to a "
             "desktop that looks almost right with no clock and no configured "
             "drivers (SPEC.md 2.9.5.3)." % len(clock))

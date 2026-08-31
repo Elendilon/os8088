@@ -1154,11 +1154,14 @@ MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window (18.95
 
 ; --- OSAPI_SYS_KB's buffer, all in KB ----------------------------------------
 SK_KERN    equ 0                ; word: the whole kernel span
-SK_IMG     equ 2                ; word: image + scratch + cold code
+SK_IMG     equ 2                ; word: image + scratch + cold code + the
+                                ; kernel's own tables, which are .bss in every
+                                ; sense but the segment that holds them
 SK_FAT     equ 4                ; word: the mount-time FAT window
 SK_STK     equ 6                ; word: the background task stacks
 SK_STK0    equ 8                ; word: task 0's - the UI task's
-SK_DSK     equ 10               ; word: the disk buffers
+SK_DSK     equ 10               ; word: the three disk buffers, and no longer
+                                ; whatever else shared their segment
 SK_BUF     equ 12               ; word: FAT + stacks + disk buffers together
 SK_HEAP    equ 14               ; word: the claim heap's size
 SK_CLAIM   equ 16               ; word: claimed out of it, every owner - and

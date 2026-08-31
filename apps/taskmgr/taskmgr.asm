@@ -3168,12 +3168,21 @@ tm_rows_mem:
 
     ; --- the kernel's own buffers, one row each -------------------------------
     ; Indented under System, and between them they account for every byte of
-    ; it: image + scratch + cold code, the task stacks, the disk buffers and
-    ; the FAT window are the whole of KERN_SIZE (SPEC.md 2). All four figures
-    ; come out of one osapi_sys_kb call, and they sum to the System row above
-    ; exactly - which is the property that block is built around, and which
-    ; the cold segment quietly broke while these were constants of this
-    ; module's own (SPEC.md 20.9).
+    ; it: image + scratch + cold code + the kernel's own tables, the task
+    ; stacks, the disk buffers and the FAT window are the whole of KERN_SIZE
+    ; (SPEC.md 2). All four figures come out of one osapi_sys_kb call, and
+    ; they sum to the System row above exactly - which is the property that
+    ; block is built around, and which the cold segment quietly broke while
+    ; these were constants of this module's own (SPEC.md 20.9).
+    ;
+    ; SUMMING IS NOT THE WHOLE OF BEING RIGHT, and this list is where that was
+    ; learned: `Disk bufs` totalled correctly at 6K for years while the
+    ; buffers it names are 3,584 bytes, because it was the residual the other
+    ; rows' rounding fell into. Since SPEC.md 20.9 every SK_*_KB is a declared
+    ; span rounded cumulatively, so the column still totals and no row is a
+    ; kilobyte out. Nothing here changed - the rows have read this block since
+    ; the window left the kernel, which is exactly why the fix is one file
+    ; away and not four.
     mov bx, tm_s_bimg           ; NO square: the image is drawn in the same
     mov cx, [tm_kb+SK_IMG]      ; gray as the System row above it, and a
     xor dx, dx                  ; square that repeats one is not a legend

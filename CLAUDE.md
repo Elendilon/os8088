@@ -30,12 +30,24 @@ Hercules or CGA, picked at boot.
 This file is a map. Each document below is the authority on its subject and
 nothing here duplicates it — a second copy is a copy that goes stale.
 
+**"Working in this fork" at the end is BRANCH-SPECIFIC — read it before your
+first commit and before any `git` question about ancestry.** Six rules that
+are this fork's rather than the project's, kept in one section at the bottom
+so that a PR going upstream deletes them rather than hunting for them. The
+first of them fires in the first minute of a session.
+
 | document | read it before |
 |---|---|
 | **[SPEC.md](SPEC.md)** — the binding contract | touching any interface. Every symbol name, register contract, constant and layout is pinned there. **Update it *before* the change, not after.** A bare `§` anywhere in this repo means SPEC.md; §4 is the module-ownership table |
 | **[PERFORMANCE.md](PERFORMANCE.md)** | anything that draws, lays out or loops — but the load-bearing ~200 lines are condensed below, and over half the file is a field-measurement log. Open it for the reasons listed at the end of that section, not by default |
+| **[docs/TEXT-PLAN.md](docs/TEXT-PLAN.md)** | touching how TEXT reaches the screen. **Reach for `font_run`, not `font_str`** — the transparent pair is the double-draw flash. **STAGE 4 IS DONE**: the registry is 189 → 37 sites and every line left carries a REASON rather than a queue position — four of the seventeen still spell it `backlog:`, and docs/TEXT-PLAN.md §4.4 says why none of those four is a conversion — so a NEW transparent call site is now a claim to argue rather than a queue to join |
+| **[docs/GFX-REWORK-PLAN.md](docs/GFX-REWORK-PLAN.md)** | touching the graphics layer's SHAPE rather than one routine — the per-call cost, the segment layout, and what the composer that started it is now waiting on. **Design not started**; it is a handoff, and PERFORMANCE.md Sets 88/89 are the two traps it exists to prevent: a design that removes calls without beating them, and a **ratio of totals passed off as a measurement of a design**. `gfx_hline` spends 3,235 cycles on six pixels and 4,112 on 312 — the width barely matters, and that is what the rework is for |
+| **[docs/SCHED-IDLE-PLAN.md](docs/SCHED-IDLE-PLAN.md)** | touching the scheduler, the accounting, or `ui_task`'s poll loop. **Design not started**; it is a handoff, and its §1 is the measurement that makes it one: an idle desktop has **ONE task in the table** and spends **97.7% of a 4.77 MHz 8088** going round `ui_task` 1,028 times a second at 4,536 cycles a pass, **286 of every 300 of them identical to the cycle and finding nothing to do**. The per-switch accounting nobody reads is 10.9% of that and `sch_switch`'s eight-slot scan is 32.7%. §2 is why the answer is neither a flag nor a sampler - a gate leaks 0.98% for ever because it cannot remove the CALL, and a tick sampler reads **21 points wrong** here because os8088's tasks are metronomes and the tick ALIASES against them (45.9 points of spread with the sampling phase alone). The answer is **exact and free**: on a bare desktop **0 of 400 switches changed `sch_cur`**, so accounting only on a real change is 10.9% -> 0.19% with nothing mis-attributed. **§6 is the five-stage plan and STAGES 1-4 ARE BUILT** (SPEC.md §8.1.1): stage 1 moved the charge to `sch_switch`'s `.pick` behind `cmp dl, [sch_cur]` (10.94% -> 0.18%, +10 bytes, exact) and **stage 3 is what actually gives the time back**: `ui_task` blocks, and an idle desktop is **96.9% HALTED** at 17.7 passes a second instead of 1,134. The pointer was the veto on it and the veto DID NOT FIRE - the mouse ISR draws the arrow itself, and input latency is better blocking than spinning on every statistic. What it cost was a lost wakeup the first build had, one mouse event in fourteen waiting a whole tick, which is why `tests/uiblock.py`'s last row is a MAXIMUM. Stage 4 then took the Task Manager's own **34-38% down to 8.8%**: its worker SPUN the interval because the spin WAS the load meter, and the idle bucket is what replaced it - the meter is now `100 - idle/total` off the same snapshot the rows are shares of, so **"CPU 1%" beside "TaskMgr 97%" cannot happen again** and §8 is the self-modifying option, reconsidered behind a `NOSMC=1` knob - it is the only one that costs literally zero when off, and the price is teaching `os88marty verify` the patch table, after which the field dump gains a reading it does not have today. §4 is the ten places a blocking scheduler bites, of which the first is that today's spin is a fail-safe: a machine with IRQ0 masked spins uselessly now and **hangs on `hlt`** after |
+| **[docs/BOOT-PERF-PLAN.md](docs/BOOT-PERF-PLAN.md)** | anything about how long a BOOT takes. A handoff, and measurement-led: a hard-disk boot went **3,790 -> 2,087 ms** on branch `boot-status-lines` and **47% of it was SPEC.md 18.97's floppy probe**, not the mouse everyone suspected. Carries the field 86Box's phase tables, the knobs that produced them (`MOUDIAG=1`, `FDDSLOW=1`, `BOOTPROF=1`), and five open items - of which **5.1 is a win bigger than its own change explains and must be settled before it is banked** |
+| **[docs/PAINT-STROKE-PLAN.md](docs/PAINT-STROKE-PLAN.md)** | touching how a freehand STROKE reaches the screen (§42.8.3–§42.8.8.2). The wobble was never lag: `pt_seg` kept the Bresenham denominator in **CX, which `loop` decrements**, so a wide nib drew ink where the hand never went — and a thin one was straight because §42.8's fast path is not that code. Since fixed, a 45° chord is **36.16 → 13.03 ms** and the release settle **357.9 → 113.0**. Read it before re-deriving any of it: it carries **three refusals** — block-granular undo built and measured twice before the third placement worked, and the amortisation base (calls, then calls again, then CHORDS) is the whole lesson — the costed sweep primitive that is the one thing still open, and **§7, which is why "756 µs" must not be quoted as a floor**: it is the fixed part of a small FAR call on a 1bpp adapter, §5.7 has since cut ~20% off it, and a near entry is 382 µs |
 | **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable — it is the matrix of what each emulator can and cannot do, with a recipe per capability |
 | **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory |
+| **[docs/SETTINGS-COST.md](docs/SETTINGS-COST.md)** | adding a SETTING (§51.5) — it WAS 14 resident bytes and 13 of them were the parser's; since §51.5.3 it is **2**, the parser having moved into the boot overlay and a second copy into `CTRL.DRV`. **BUILT**, and worth 1,024 bytes of every machine's RAM. Read it for the design record rather than the mechanism: SETTINGS-COST §5.1 is why the free version loses — a boot partition is a `DVK_BIOS` row at index 2 that `dsk_fatw_want` refuses, so on an INSTALLED machine the boot mount takes `FAT_SEG` every time — and §7.2 is the standing cost, that the kernel's minimum RAM now includes `.ovl`'s rung |
 | **[docs/HERCULES-TESTING.md](docs/HERCULES-TESTING.md)** | testing on Hercules — it *is* automatable, and all three ways of getting it wrong give you a black image rather than an error |
 | **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** | writing or building a package in C (§73) — how to install the compiler, the four C rules and what each refusal means, and what the language does not have here |
 | **[docs/NET-STACK-PLAN.md](docs/NET-STACK-PLAN.md)** | anything on the wire (§72) — the stack's stages, what each layer refuses, and why TLS is not on this machine |
@@ -45,6 +57,7 @@ nothing here duplicates it — a second copy is a copy that goes stale.
 | **[docs/UPSTREAM.md](docs/UPSTREAM.md)** | any claim about what is ahead, behind, merged or unrelated. **Its Rule 0: a fresh clone is SHALLOW, and git answers ancestry questions confidently and wrongly on one** |
 | **[docs/FIELD-MACHINES.md](docs/FIELD-MACHINES.md)** | asking for a field run — who has the hardware, what is in it, what a run costs them, and the two rules that bind whoever reads a result |
 | **[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)** | a bug that reproduces on hardware and not here — open, reproduced, unfixed, with what has already been ruled out for each |
+| **[docs/GFX-FSX-PLAN.md](docs/GFX-FSX-PLAN.md)** | drawing anything inside an fsx bracket that has SET A MODE (§53.7) - where no kernel drawing slot is legal and the app owns every pixel. It is what TANK ATTACK (§81) found by being a load there: **three apps now carry their own Bresenham**, and the largest finding is deliberately NOT proposed as a slot. One item is BUILT - `fsx_page` (§53.10), because `FSI_PAGES` had been published since §53.4 with no supported way to act on it and the mechanism differs in kind per adapter - and one is priced and left for whoever next touches the windowed side: **`gfx_line` has no batch form**, and the useful half of that finding is that the CHEAP version is not worth building - a loop over `gfx_line` collects the far-call cell (46.7 us) and not §5.6.8's 128.7 us arrival, because the rest of the arrival is `gfx_line`'s own prologue. Read §0 first: it carries the profile every argument in the file is against, and the measurement that the 1983 port it is compared with runs at **6 frames a second**, which is where this one is |
 | **[docs/FTP-PERF.md](docs/FTP-PERF.md)** | picking the FTP server's speed back up (§77, §72.15) — what moved it from 7 to 15 KB/s, the four things that did NOT work, where the time goes now (57% of it is ABOVE the driver), and the next five candidates in the order the evidence ranks them |
 | **[docs/LIVE-MEDIA.md](docs/LIVE-MEDIA.md)** | answering any user-facing "how do I write, burn or boot the live USB/CD" — it is the reader's guide (dd, Rufus, BIOS settings, troubleshooting) and the README links it; §80 stays the design record and this file must follow it, never lead |
 | **[docs/WEAVE-SPEC.md](docs/WEAVE-SPEC.md)** | touching anything in the Weave family (`apps/weave/`, the `.WAB` bundle, WML/WJS/FX) — the binding contract, outside SPEC.md on the C64 precedent, cited as `WEAVE-SPEC §N`; `tools/weavesim.py` is its reference implementation and `tests/unit/t_wab.py` its independent second reader |
@@ -52,9 +65,12 @@ nothing here duplicates it — a second copy is a copy that goes stale.
 
 ## Commands
 
-Needs `nasm`, `qemu-system-i386`, `python3`; `tools/setup-macos.sh` installs
-them on a Mac. No linker — everything is `nasm -f bin` flat binaries,
-deliberately, to keep Apple's Mach-O-only toolchain out of it.
+Needs `nasm`, `python3`, and **`cargo` for `make marty`** (plus `libudev-dev`
+and `pkg-config` on Linux). `qemu-system-i386` is for the short list in
+Testing and nothing else. `tools/setup-macos.sh` installs the Mac set but
+**not Rust**, so `make marty` there wants `cargo` in front of it. No linker —
+everything is `nasm -f bin` flat binaries, deliberately, to keep Apple's
+Mach-O-only toolchain out of it.
 
 ```
 make          # build every floppy image into build/ (also runs tools/checkdocs.py),
@@ -66,20 +82,49 @@ make          # build every floppy image into build/ (also runs tools/checkdocs.
 make run      # boot in QEMU with an emulated serial mouse. RUNAPPS=<img>
               # swaps the B: floppy, so a disk built on demand can be LOOKED
               # at (`make bench && make run RUNAPPS=build/bench.img`)
-make test     # boot headless, QMP socket at build/qmp.sock — this is how you drive it
+make marty    # a cycle-accurate 4.77MHz 8088 with a real period BIOS and a
+              # debugger that costs the guest nothing — the default
+              # instrument (docs/MARTYPC-DEBUG.md). Needs cargo; build it at
+              # the START of a session, not when you first need it. A RUN
+              # PAST ~180s HAS FROZEN rather than slowed — the guest runs at
+              # over 4x real time, so the overrun is the finding: diagnose it
+              # rather than raising the timeout
+make test     # boot headless, QMP socket at build/qmp.sock — the fallback (see Testing)
 make test-snd # ...plus PC speaker capture to build/snd.wav (verify: tools/sndcheck.py)
 make debug    # boot halted, waiting for gdb on :1234
 make bench    # build the tests/ apps — ON DEMAND ONLY; nothing under tests/ ships
+make bootdiag # WHY a BIOS answers `Disk error` and stops (§2.9.10). SIX
+              # images: the same payload behind TWO loaders. bootdiag<n>.img
+              # loads it through tests/bootdiag/bdboot.asm, which depends on
+              # NONE of the things under test — one sector an int 13h, no
+              # relocation, no int 1Eh patch, a DL fallback, geometry off the
+              # BPB — and bootdiagx<n>.img through the SHIPPED boot/boot.asm.
+              # THE PAIR IS THE EXPERIMENT and neither disk alone is: one
+              # booting and the other not is a one-bit answer about whether
+              # the fault is in the loader or under it. It reports the ROM's
+              # identity, the DL it handed over, its int 1Eh table and whether
+              # our copy stays installed, WHETHER THE TOP-OF-RAM STAGE 1
+              # RELOCATES INTO EXISTS AND STAYS PUT — two questions nothing
+              # else here has ever asked — and int 13h's answer to the eight
+              # read shapes the loader uses, every one checked against the
+              # DATA and not the carry flag (§18.91 and §18.93.1 are both a
+              # BIOS answering CF=0 for a transfer it did not make).
+              # BOOTDIAG.COM rides on all six for a machine that boots DOS
+              # but not this. Nothing here ever writes to a disk
 make test-fast   # THE REGRESSION SUITE (docs/TESTING.md, tools/os88test.py,
-make test-full   #   tests/suite.py). Three tiers, each with an ENFORCED
-make test-soak   #   wall-clock budget — the runner FAILS a tier that
-                 #   overruns, so a row that no longer fits is a decision
-                 #   somebody takes rather than a drift nobody notices.
+make test-full   #   tests/suite.py). Three tiers; the two that GATE carry an
+make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
+                 #   30s and full over 600s, so a row that no longer fits is
+                 #   a decision somebody takes rather than a drift nobody
+                 #   notices. SOAK HAS NONE, deliberately: it is where a test
+                 #   goes when it is worth having and does not fit the gate,
+                 #   and a budget there would only push rows out of the suite.
                  #   fast ~2s, host-side only, and it already runs as part of
                  #     `all`: the API table decoded out of kernel.bin and
                  #     compared with the SDK, a constant mirrored in two files,
                  #     every shipped floppy walked by an independent FAT12
-                 #     reader, unreachable code, the doc gate, and that every
+                 #     reader, unreachable code, SPEC.md 6.6's
+                 #     transparent-text ratchet, the doc gate, and that every
                  #     test in tests/ is registered somewhere or says why not
                  #   full ~50s, THE PRE-MERGE GATE — adds the knob kernels and
                  #     kern_small (every configuration `all` does NOT build, so
@@ -187,13 +232,23 @@ make clean
 | `ADLIB=1` / `SB16=1` | give the sound driver a card to attach to |
 | `HDD=<MB>` | give the hard-disk driver a disk |
 | `TESTAPPS=build/<x>.img` | swap the B: floppy for a scratch image |
+| `VGADIRTY=1` | fill the VGA framebuffer with 0xDB in the one window a machine cannot — after the ROM's `int 10h AX=0012h` and before `vid_setmode`'s own clear (SPEC.md §39.23). **`DIRTYRAM=1`'s shape one device along, and for its reason.** Every BIOS in this tree clears mode 12h properly, so the field's failure — a loading screen drawn over the mode 3 CHARACTER GENERATOR, which lives in plane 2 and is bitmap the instant the card is in 12h — is invisible here; it was reported off 86Box as banded dashes behind the dialog with the title text speckled by them. `tests/vgadirty.py` is the gate, and it fails with 189,952 surviving pixels if the clear is taken out |
+| `DLJUNK=<n>` | overwrite `DL` immediately before SPEC.md §2.9.11's range check, so the boot sector sees the value a BIOS that never set it would leave. **`DLJUNK=0x61` IS the Packard Bell 286** — 86Box `pb286`, which answered `Disk error` from the first commit of this repo until §2.9.11, because stage 1 believed a register the ROM never wrote (docs/FIELD-NOTES.md 36). It is the only way that check is testable here: every BIOS in this tree sets `DL`, and MartyPC cannot run a 286 at all. `tests/dljunk.py` is the row and it is an A/B — `0x61` must reach a desktop and `DLJUNK=1` must **not**, 1 being a legal unit the check has to leave alone |
 | `TRACKRUN=1` | put a transfer run's bound back at the TRACK, not the cylinder (SPEC.md §18.91.1) — 9 sectors an `int 13h` instead of 18, both loops. The pre-§18.91.1 transfer, and the bracket that **MEASURED §18.91.1's win on the 5150 at 2,197 ms** (docs/FIELD-NOTES.md §31): `boot + early init` 7,416 ms cylinder-bound against 9,613 ms track-bound, the second figure identical across two runs. The 2.2 s the emulators predicted, confirmed on iron at last |
+| `BAND=1` | draw a window's title bar with §5.9's 1bpp BAND COMPOSER — the whole bar written into a band and blitted, every pixel once (§11.101). It was kern_big's default for a cycle and §5.9.6 sent it back to a knob: what it buys is a bar that does not flash and, on both 1bpp adapters, a faster one (36.5 ms against 40.8 on Hercules, 37.1 against 42.0 on CGA; VGA is 38.3 against 30.3 and is where the trade is worst), and what it costs is **1,634 bytes** — `.text` +322, `.bss` +34, `.cold` +1,278. Nothing shipped compiles `kernel/band.inc`, so this knob is also the only thing keeping it assembling |
 | `MOUIDSLOW=1` | always spend the whole of SPEC.md §9.4.1's identify window — the pre-§9.4.5 `mouse_init`, 1,200 ms rather than 596. The bracket for the one case no emulator here can show: a MODEM on the other port |
+| `NOPS2=1` | leave SPEC.md §9.9's auxiliary-port probe out of the build, so `mouse_init` ends at the serial half. The A/B for the machine class nothing here can host: a **non-XT whose 8042 has no aux port**. MartyPC is an 8088 so the probe returns at its first compare; QEMU's i8042 always has an aux port with a mouse on it; and an 86Box machine that offers a PS/2 mouse in its settings has one too |
 | `BOOTPROF=1` | SPEC.md §15.5's boot phase table, drawn on the desktop and published as §57's `BP` — the profile a machine with **no debugger** can take. Refuses to build with `QUANTUM=` |
 | `BOOTMARK=1` | one block along the bottom of the screen per call in `kmain` that RETURNED — for a machine that reaches the loading screen and then STOPS. Count the blocks: the freeze is in the call after the last one. Where `BOOTPROF=1` needs a boot that reaches a desktop to print its table on, this needs only the framebuffer the splash already set up |
 | `BOOTHALT=<n>` | with `BOOTMARK=1`: **stop dead** at marker `n` instead of carrying on — for a machine that resets or loops rather than freezing, where the blocks scroll away before they can be read. A boot that still goes round proves marker `n` was never reached |
 | `BOOTSTOP=1\|2` | the same idea one level down, in the **boot sector**: halt one instruction short of the handoff, so "did the LOADER finish?" is answered without kmain being entered at all. `2` also skips the splash, and prints `*` on the text screen the splash never took over |
-| `NOPS2=1` | leave SPEC.md §9.9's auxiliary-port probe out of the build, so `mouse_init` ends at the serial half. The A/B for the machine class nothing here can host: a **non-XT whose 8042 has no aux port**. MartyPC is an 8088 so the probe returns at its first compare; QEMU's i8042 always has an aux port with a mouse on it; and an 86Box machine that offers a PS/2 mouse in its settings has one too |
+| `NOUNAL=1` | send an **unaligned** `font_run` back to `gfx_fill` + `font_str`, which is what it did before SPEC.md §6.1.11. The A/B for "one pass draws the pair's pixels" |
+| `NOBAND=1` | put a window's title bar back on the **fifteen primitive calls** it took before band.inc's composer became kern_big's default (SPEC.md §5.9.6, §11.101). The composed bar is ground, stripes, both boxes and the caption composed into a 1bpp band and blitted, **every pixel written once** — no double-draw anywhere in it, which is docs/TEXT-PLAN.md §1.1's whole point — and it is also the FASTER bar on both 1bpp cards: **36.5 ms against 40.8 on Hercules and 37.1 against 42.0 on CGA**. On VGA it is 38.3 against 30.3 and **ships anyway**, because a 1bpp band costs the same on every card while the primitives get VGA's planar hardware, and the flicker is worth more than the 8 ms; that is re-decidable and this knob is the A/B that measures it. It got there in four rounds and **not one of them changed the design** — each time the cost was a routine doing per-row what it could do per-shape (PERFORMANCE.md Sets 88, 89, 91, 92: 71.1 ms → 36.5), and every composed op now beats its primitive (`band_hline_x` 2,110 cycles against `gfx_hline`'s 4,112; `band_frame_x` 8,647 against `gfx_frame`'s 16,402). It cost **three 512-byte rungs** of `KERN_BUDGET` (1,625 raw bytes, attributed per routine in SPEC.md §5.9.1; the 2KB band is a heap claim, so arena rather than budget). This knob is also **the only thing that keeps the fifteen-call path assembling**, and that path is still live twice over: kern_small has no `gfx_blit1`, and a machine whose heap refuses the claim falls back to it. It earned its keep in **bugs**: SPEC.md §5.4.2.3, §5.9.3 (the composed bar was INVERTED on both 1bpp adapters) and §11.101.1 |
+| `NOPLANE=1` | take SPEC.md §5.4.1.3's **planar row decoder** out of `gfx_blit4`, so every run of a VGA blit goes back to `vga_blit_span`. A VGA run costs **~1,797 cycles whatever it covers**, so `OS8088.GIF` — whose ground is §63's 50% dither — is 18,978 of them and **7,146 ms** of one canvas on a 4.77 MHz 8088; the decoder is priced per PIXEL at 106.9 of them and draws the identical picture in **1,148**. `NOBAND`'s shape and there for the same two reasons: it is the A/B those numbers come off (PERFORMANCE.md Set 107, `tests/blitplane.py`), and it is the only thing keeping the run-only path assembling — which still matters, because that path is what a **flat** row, a clipped blit and a block hanging off the screen edge all take |
+| `NOBLITCUT=1` | put a **straddling** `gfx_blit4` back on the whole-virtual path of SPEC.md §39.14.7 — the destination stays virtual and every coalesced run splits itself through `gfx_fill`'s own `GFXDISP`. `NOPLANE`'s shape and there for the same two reasons. §39.14.7.1's gate is BINARY: a block that fits one display keeps §5.4.1's fast path and a straddling one gives it up **entirely**, on all of its pixels and not only on the ones near the seam. §39.14.7.2 cuts the block at the seam instead — displays are edge to edge, so there is exactly ONE — and runs the routine once per half, each hooked to its own display. What it buys, measured on a VGA+MDA XT with `OS8088.GIF` straddling: **625 ms against 27,859**, **44.6x** (PERFORMANCE.md Set 112, `tests/blitcut.py`). What makes it possible is that the seam is the primary's own width — 640 or 720 — and a window's content origin is a multiple of 8 (§11.94), so the second half's source starts an EVEN number of pixels along and the nibble phase does not move; an odd cut is refused and takes this knob's path anyway. It cost **199 bytes** |
+| `NOUIBLOCK=1` | put `ui_task` back on the **spin** it ran on before SPEC.md §8.1.2 - `.idle` becomes `task_yield` again instead of `task_sleep(1)`. The A/B for the whole idle design, and the only thing keeping the spinning path assembling. What the default buys: an idle desktop goes from **100% `ui_task` to 2.7%, with 96.9% HALTED**, and the loop from 1,134.6 passes a second to 17.7. **The pointer is untouched** - `mou_apply` calls `cur_move` in the ISR, so the arrow is ISR-paced and not pass-paced (112 draws against 113 over the same sweep) - and the scheduler's own share of input latency is **better blocking than spinning on every statistic**: 5.18 ms median against 5.31, worst 5.90 against 6.57, 40 samples each. Only IRQ0 falls into `sch_switch`, so the wake byte alone buys nothing and the idle task's `task_yield` after its `hlt` is what makes a wake immediate; and `sch_uiwake` is the lost-wakeup guard, which the first build did not have and paid for at **one mouse event in fourteen waiting a whole tick** |
+| `SPLSTARS=1` | swap the loading screen's ANIMATION (SPEC.md §15.3.7): the "8088" stands **still** and six **stars** twinkle around it instead — a crossed pair of lines that grows and shrinks, with rings of single-pixel clumps appearing at the peak. A **look** question, so it is a knob until somebody has looked, and the default is the spinner that ships. **Both arms take their time from §15.3.6's wall clock and are drawn by IRQ0** (§15.3.8) — an `int 13h` runs with interrupts enabled, so a frame lands in the gap the machine was going to spend idle, and every phase is drawn on time in both arms. A star is a **table, not a drawing** — five shapes of 22 bytes, blitted opaquely, so the dark one erases the last frame and nothing is written twice (§15.3.7.1). It is the one configuration that **grows the blob**: it wants 6,754 bytes of a 6,656-byte blob, over by 98 *wherever* `OVL_AT` falls, so it alone takes `BOOT2_SECS` = 14 (§15.3.8.5). The shipped kernel is 13 sectors and pays nothing |
+| `TITLESNAP=1` | centre a window title on the nearest 8px **cell** instead of the exact pixel (docs/TEXT-PLAN.md §6.1). A title moves ≤4px and `wm_draw_title` reaches §6.1's fast path. A **look** question, so it is a knob until somebody has looked — but **look at it on `NOBAND=1` or `KERN_SMALL=1`**: since §5.9.6 the composed title bar is kern_big's default and centres its own caption, so the snap sits in the FALLBACK below `wm_title_band`'s `jnc .sep` and a default build assembles it without ever reaching it. Measured, plain against `TITLESNAP=1`: **0 differing pixels of 307,200** |
 
 All are stamp-tracked, so changing one rebuilds the kernel. Without that, make
 sees an up-to-date `kernel.bin`, boots the previous configuration, and it reads
@@ -202,10 +257,13 @@ exactly like the feature being broken.
 86Box targets for period hardware, one per `vm/` directory: `xt`, `xt-640`,
 `xt-cga`, `xt-hercules`, `xt-multimon`, `xt-sound`, `xt-sound-1.44`, `286`,
 `286-sound`,
-`386sx`, `386`, `386-sound`, `486`, `pentium`, `xt-z`, `386-z`, `xt-word`,
+`386sx`, `386`, `386-sound`, `386-ps2`, `486`, `pentium`, `xt-z`, `386-z`, `xt-word`,
 `386-word`, `386-c-word`, `xt-runcpm`, `286-runcpm`, `386-runcpm`, `xt-c64`,
-`286-c64`, `386-c64`, `xt-weave`, `386-weave`;
-plus `marty` (MartyPC). `xt-multimon` is the
+`286-c64`, `386-c64`, `xt-weave`, `386-weave`; plus
+`marty` (MartyPC). **`386-ps2` is the only machine here with a PS/2 mouse** — every other config
+is `mouse_type = msserial`, which is why §9.9 shipped and went untested on
+anything but QEMU for months; it is a Packard Bell Legend 300SX, whose bus
+flags are what give 86Box's 8042 an auxiliary port at all. `xt-multimon` is the
 **two-card** XT — a CGA and a Hercules, a monitor window each — and the only
 86Box machine that can show §39.12–§39.19's extended desktop; it boots Single,
 and Control Panel → Display → Desktop is what extends it (§39.19.1). `xt-z`
@@ -278,6 +336,15 @@ binds both.
 - **Label hygiene.** One flat namespace: every module-internal label carries
   its module prefix (`vga_`, `wm_`, `menu_`, `fm_`, `dsk_`, …) or is a NASM
   local label.
+- **Text is `font_run`, not `font_str` (§6.1, §6.6).** `font_char`/`font_str`
+  are TRANSPARENT — they leave what is underneath — so a `gfx_fill` followed by
+  one of them writes every pixel twice, and the gap between the two passes is
+  *visible* on the target machine. `font_run` draws the ground and the glyph in
+  one pass. Transparent text is a **closed list of six cases** (§6.6.2) and
+  `tests/textsites.txt` is the ratchet: a new call site fails the build until it
+  is registered with a reason, and the count can only go down. **The sweep is
+  finished** (§6.6.5): 37 sites in 17 files, every one of them a case, so a new
+  transparent call is now an argument to win rather than a queue to join.
 - **Three adapters, one binary (§39).** `SCREEN_W`/`SCREEN_H`/`ROW_BYTES` are
   VGA *reference* values, not the truth — the live screen is
   `[vid_w]`/`[vid_h]`/`[vid_stride]`. Anything that clips, centres or anchors
@@ -288,11 +355,40 @@ binds both.
 - **Every disk-visible base is 512-byte aligned.** int 13h answers a transfer
   straddling a 64KB physical boundary with error 09h, and only starting
   512-aligned prevents it. The symptom is "Disk error" on a large save.
-- **Memory is two guards, not one** (docs/KERNEL-MEMORY.md): `KERN_BUDGET` is
-  the kernel's whole RAM footprint, `KERN_CODE_MAX` is `.text` + `.bss` inside
-  one 64KB window because offsets are 16 bits. They are relieved by different
-  mechanisms. **Raising either is a decision to take with whoever asked for the
-  feature, not a build fix.**
+- **Memory is THREE rules and three quantities** (docs/KERNEL-MEMORY.md):
+  **kern_small BOOTS on 128KB**, **kern_big BOOTS on 196KB** (both guard 5,
+  `MIN_RAM_KB`), and **kern_big fully RESIDES in 128KB at the desktop** — every
+  non-purgeable byte, no drivers, no XMS, on VGA (guard 1's `KERN_BUDGET`,
+  which is DERIVED from that and not chosen, plus `tests/kernresident.py` for
+  the half an assembler cannot see). `KERN_CODE_MAX` is separate and absolute:
+  `.text` + `.bss` inside one 64KB window because offsets are 16 bits.
+  **Booting on a machine and residing in one are different questions**, and one
+  constant answering both is how the binding guard became the one nobody
+  watched — measured at the rewrite, 3,584 bytes before `KERN_BUDGET` and
+  1,670 before guard 5. `kernsize` prints both lines now; quote the one you
+  mean. **None of the three binds a KNOB build** — guard 2 is the whole of what
+  bounds it, because nobody boots one and every machine here has 640KB or
+  could; a RAM-constrained test states its own constraint instead.
+  `KERN_SMALL` is not a knob for this purpose. **`make test-full`'s build
+  matrix is the only thing that builds the knob kernels.**
+- **Design for BYTES, never for rungs. Be efficient with size, always.**
+  512 bytes is a step in the FOOTPRINT, not a price on a diff: the amortised
+  price of a byte is a byte, so a change that crosses no rung has not cost
+  nothing — it spent slack belonging to whoever comes next, and the guard
+  bills them the whole 512 instead. **A rung is therefore not a design
+  input.** Do not size a feature, shave a table, or justify an addition
+  against where the next crossing falls; take a rung-shaped answer only when
+  it is the clean one anyway. Two arguments are refused outright: *"it adds
+  400 bytes and crosses no rung, so it is free"* and *"it saves 500 and
+  uncrosses no rung, so it buys nothing."* **Quote `kernsize`'s SUM and its
+  ACCRUED line, never its step count.** The one moment a rung is the point is
+  when a crossing means the kernel no longer FITS — and that is a discussion
+  to have with whoever asked for the feature, never a build fix and never a
+  reason to quietly cut the design down. (Which rung a byte lands in decides
+  where that 512 comes from; it never decides whether this change was free.)
+  The ledger in docs/KERNEL-MEMORY.md is 35 budget moves long and every one
+  is a rung that filled: slack here has never gone unspent, so its expected
+  cost is 100%.
 - **A heap claim can MOVE, and the default is that it may not** (§66). A record
   is born `MC_RLOC` = 0, PINNED; `OSAPI_MEM_MOVABLE` opts one in and takes a
   relocation **proc**, not the address of the word naming the block — a holder
@@ -345,7 +441,8 @@ how long it takes.** Estimate with these, measured on a real 5150:
 
 | | cost |
 |---|---|
-| any `gfx_*` drawing call, whatever it draws | **756 us** fixed |
+| any `gfx_*` drawing call — the FIXED PART, not the call | **756 us** (measured small: an 8px hline, a pixel. A real one is more — a 6px `gfx_hline` is 678 us and a 312px one 862; `gfx_frame` on an 11x11 box is 3.4 ms. **Never quote 756 as a floor a design must beat** — Set 89) |
+| one coalesced RUN of a 4bpp blit, VGA, direct | **~377 us** (1,797 cycles — and, like the row above, near enough flat in the run's length. A dithered picture is one run a PIXEL, which is what §5.4.1.3's decoder exists for) |
 | one 8×8 glyph cell | **~900 us** |
 | one 78-cell row of text | **~71 ms** |
 | an `OSAPI_*` far call / a near `call`+`ret` | 46.7 us / 11 us |
@@ -416,7 +513,51 @@ rows are host-side invariant checks over what `make` just built, the build
 configurations `all` never builds, and whole scripted sessions driven through
 an emulator.
 
-Everything else is still boot `make test`, then drive it over QMP.
+**MartyPC is the default instrument; QEMU is a fallback with a closed list.**
+docs/TESTING.md's opening owns the rule and the reasoning. The list is
+repeated here on purpose — one you have to go and open is one you will argue
+past:
+
+1. 286 and 386
+2. rung 1 of the hard-disk driver (§52.1) — gated on `CPU_286`
+3. §9.5's awkward mouse cases — COM2, the cross-wired IRQ4 card, a modem
+4. the PS/2 mouse (§9.9) — MartyPC is an 8088, and an XT has an 8255 PPI
+   rather than an 8042 with an aux port
+5. the Ethernet card (§72) — MartyPC has no NIC of any kind
+6. the RTC ladder's WRITE half (§37.90, §37.94) — **a 5150 has no real-time
+   clock**, the MC146818 arrived with the AT, and MartyPC models no XT clock
+   card, so all four rungs are out of its reach and `[clk_tier]` is 0 there.
+   QEMU has an MC146818 and nothing else, so rung 1 wins. The assertion is a
+   REBOOT: set the clock, close the panel (which is what writes the chip),
+   `system_reset`, read the bar. Rungs 2 and 3 are in no emulator here and
+   stay the 5150's
+
+Entries 4, 5 and 6 share the only shape that gets on this list easily —
+**MartyPC has not got the hardware at all**, so there is no "prefer MartyPC"
+to weigh. 1–3 are the harder kind.
+
+**"It is quicker to type" is not on it, and neither is "I already know the QMP
+commands."** Everything else that runs on an 8088 — all three of §39's
+adapters, input, screenshots, sound — is `make marty`, which agrees with the
+field machine to 0–4% on 45 of 47 `gfxbench` rows.
+
+**Without MartyPC the list still binds**: QEMU does not become the answer in
+its absence. QEMU counts work exactly and cannot time it; 86Box has no
+debugger and no automation socket, so a session can start one and cannot read
+the result. That leaves the table above and arithmetic — which is precisely
+rule 5's blind spot. Say when a number is predicted rather than measured, and
+get it checked on the 5150 (docs/FIELD-MACHINES.md).
+
+Driving MartyPC — **`os88mouse.py`, never `os88marty.py mouse`**: it reads the
+cursor back instead of dead-reckoning, and `dblclick` is a verb of its own.
+
+```
+python3 tools/os88mouse.py 127.0.0.1:9001 click 445 153
+python3 tools/os88mouse.py 127.0.0.1:9001 dblclick 150 90   # NOT two clicks
+python3 tools/os88marty.py 127.0.0.1:9001 shot out.png --rendered
+```
+
+Driving QEMU, for the five cases above and for a host with no MartyPC:
 
 ```
 python3 tools/mouse.py build/qmp.sock click 180 150        # absolute click
@@ -426,10 +567,6 @@ python3 tools/qmp.py build/qmp.sock 'sendkey h'
 python3 tools/shot.py build/qmp.sock out.png [--crop X,Y,W,H] [--zoom N]
 python3 tools/qmp.py build/qmp.sock 'quit'
 ```
-
-docs/TESTING.md is the authority on which emulator to reach for, and its
-opening currently argues MartyPC first — so expect it to disagree with the
-paragraph above.
 
 Three traps not written down elsewhere:
 
@@ -471,9 +608,8 @@ in docs/TESTING.md, per capability.
   are injected by the Makefile, and stage 1 relocates itself.
 - `kernel/kernel.asm` — constants, the memory ladder and its guards, boot
   sequence, the API jump table, `%include`s of every module, size assertions.
-  Which `.inc` owns what is the table in §4. The pre-GUI shell's unincluded
-  leftovers — `video.inc`, `keyboard.inc`, `string.inc`, `gfx.inc` — are gone
-  (§4); `softgfx.inc` is what replaced the last of them.
+  Which `.inc` owns what is the table in §4, and every file in `kernel/` is in
+  it: the pre-GUI text shell's five relics are deleted, not parked.
 - `apps/` — loadable packages; **everything here ships**. `os88api.inc` is the
   SDK, and each package's design notes are its SPEC.md section. `apps/cc/` is
   the **C** SDK (§73): `os88.h`, the runtime `crt0.asm`/`os88thunk.asm`, the
@@ -525,3 +661,120 @@ and is data rather than software, so at that geometry alone it rides a disk of
 its own (§24.4). The **core packages** ship on the system disk too, a second
 copy and never a move (§24.3), and an application's own state goes in
 `SYSTEM/APPDATA/` rather than beside the user's documents (§19.9).
+
+## Working in this fork — BRANCH-SPECIFIC, and the section to lift
+
+**Everything under this heading is `Elendilon/os8088`'s and stops at its
+edge.** It is the fork owner's standing preference and the mechanics of this
+fork's integration branch — not a property of the project — so a session
+working in a different fork should not assume any of it, and a PR going
+upstream should take this whole section out. It is one section, with no
+branch-specific rule anywhere else in this file, precisely so that removing it
+is a deletion rather than a search — the one other thing to take with it is
+the pointer to it, five lines under the map sentence at the top.
+
+### 1. UNSHALLOW BEFORE YOU BELIEVE ANY ANSWER ABOUT ANCESTRY
+
+A fresh session gets a **shallow clone**, and on one `git merge-base`,
+`git log A..B` and `git merge-base --is-ancestor` do not error — they return
+*confidently wrong answers*, because the graft boundary is indistinguishable
+from a set of root commits. Before any claim about what is ahead, behind,
+merged or unrelated:
+
+```sh
+git rev-parse --is-shallow-repository     # true => every answer below is a lie
+git fetch --unshallow                     # ...so do this FIRST
+git rev-list --max-parents=0 <ref> | wc -l   # >1 root = SHALLOW, not unrelated
+```
+
+That last line is the tell, and it has been visible and ignored: **this
+repository has ONE root commit**, and a shallow clone shows six. A session
+once concluded from an empty `git merge-base` that `main` and `elendilon` had
+unrelated histories and PORTED three commits it could have merged; the real
+base was exactly where the branch was cut. If you find yourself explaining an
+implausible history shape, check the clone depth before you build anything on
+it. **docs/UPSTREAM.md carries this as its Rule 0** and everything else about
+the boundary.
+
+### 2. "Merge to elendilon" means the BRANCH, not the repository
+
+`elendilon` is the integration branch this work lands on — feature branches
+merge into it and it is what gets tested on the iron; `main` is behind it and
+is not the target. The name collides with the fork's (`Elendilon/os8088`) and
+with the owner's GitHub handle, which is exactly why it needs writing down: a
+session reading "push to elendilon" can plausibly hear "push to that person's
+repository", which is where the branch already lives, and do nothing.
+`git ls-remote --heads origin` settles it in one call.
+
+### 3. SEND the 360KB set after every commit, without being asked
+
+`build/os8088-360.img`, `build/apps360.img` and `build/media360.img` — all
+three, because `BEVERLY.MOD` is 114 of a 360KB disk's 354 clusters and comes
+off the apps disk at that geometry, so two images means the module is not on
+the machine at all.
+
+**"Send" means ATTACH THE FILES.** A path into the session's own `build/` or
+scratch directory is not a delivery: those live in a container the owner
+cannot reach, and the container is reclaimed when the session ends. Use
+whatever the harness offers for attaching a file — in Claude Code, the
+`SendUserFile` tool.
+
+### 4. Do NOT boot an image after building it
+
+Not on request, not after a commit. Build it, send it, say what is in it. The
+reasoning is the trade rather than a claim that booting is worthless: by the
+time an image is being built, the change it carries has almost always just
+been driven as part of the work, so a second cycle re-establishes what the
+first already did. When the owner wants one exercised harder, they will ask.
+
+It relaxes neither the testing that earns a commit nor rule 5 below.
+
+### 5. A merge onto the integration branch rebuilds and boots first — IF it could change a shipped byte
+
+A merge combines two trees nothing has run together, so no earlier test covers
+the result. That reason does not apply to a merge that cannot reach the
+images: documentation, notes, and harness code `make` never invokes are all in
+that class. Merge them and push — but run `python3 tools/checkdocs.py`, since
+a merge that leaves a §-number pointing at nothing fails `all` on the next
+person's machine rather than yours.
+
+**The test is "could this change a byte under `build/`", and it is NOT "is it
+under `tools/`".** Five tools write shipped bytes: `os88disk.py`,
+`os88pkg.py`, `os88drv.py`, and the two least obvious, which generate
+*prerequisites of the kernel* — `os88mini.py` and `buildnum.py`. Several
+others are build GATES (`os88ovlchk.py`, `checkdocs.py`, `checkreadme.py`), so
+a change there can turn a tree that built into one that does not: run `make`
+for those too, but not the boot.
+
+**`make test-full` is the pre-merge gate** — the project's now rather than
+this branch's, having gone upstream with the squash — and it covers the knob
+kernels, `kern_small` and a boot on both 1bpp adapters.
+
+When in doubt, build and `md5sum` the images against the ones you already had.
+**Do that comparison at ONE commit, though**: the About box's build number is
+the commit count (SPEC.md §14.2), so every commit moves three bytes of `.text`
+and every image with them — which makes the shortcut answer "yes, a byte
+moved" across any commit and useless between two.
+
+**Either way the merge commits nothing under `build/`**, which is gitignored
+outright.
+
+### 6. Upstream squash-merges, and the branch is disposable
+
+`jggonz/os8088` keeps a linear, one-commit-per-feature history: every commit
+on `main` since PR #14 is a squash. A squash carries the branch's *content*
+into a brand-new commit with no ancestry link to its *commits*, so the
+integration branch is cut from `main` at a squash, lived in for one round, and
+replaced by a fresh cut. The gap self-heals at the boundary and needs no
+maintenance merge in between; what is lost at a re-cut is anything that never
+made it into the PR. **That is the CYCLE, it is deliberate, and it is not to
+be "fixed".**
+
+What does *not* self-heal is `main` moving **mid-cycle** with work of its own.
+**docs/UPSTREAM.md is the playbook**: how to tell the branch's own work coming
+home from upstream work that has to be fetched, how to adapt an incoming
+package to a kernel the branch has moved on from (the branch's SDK is normally
+a SUPERSET, so nothing fails to assemble and *every difference is silent* —
+greying, glyph tables and worker stacks have all arrived broken this way), and
+how to resolve the merge without `--ours` quietly eating something only `main`
+has.

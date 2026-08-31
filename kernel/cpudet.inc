@@ -95,7 +95,7 @@ cpu_x87sw       dw 0            ; the x87 probe's landing pad. In .text for
 ; This routine is the one place in either module that runs before the tier
 ; is known, so there is no island in it and there cannot be one.
 
-section .ovl                    ; the boot overlay (SPEC.md 2.5): runs once from
+section .ovlw                   ; the boot overlay (SPEC.md 2.5): runs once from
                                 ; kmain and is written over by the first
                                 ; mount. cpu_info stays resident below: it is
                                 ; API slot 0x0188 and answers all session
@@ -176,7 +176,10 @@ cpu_detect:
     popf
     pop cx
     pop ax
-    ret
+    retf                        ; FAR, and the shim that used to own this
+                                ; return is deleted (SPEC.md 2.6.1, 2.5.2):
+                                ; kmain names this body directly through
+                                ; OVLGATE1 and nothing near-calls it
 
 
 ; -----------------------------------------------------------------------------

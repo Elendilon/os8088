@@ -386,15 +386,8 @@ toast_gapend:
     mov ax, MENU_CLKC - 1
 .fw:
     mov dx, ax                  ; DX = the field's cells
-    call clk_fmt                ; SI = the live line (all registers but SI)
-    xor cx, cx
-.l:
-    cmp byte [si], 0
-    je .ld
-    inc si
-    inc cx
-    jmp short .l
-.ld:
+    call clk_fmt                ; SI = the live line, CX = its length (37) -
+                                ; which this used to walk the string for
     cmp cx, dx                  ; a line wider than its field cannot happen,
     jbe .pad                    ; but a negative pad below would put the gap's
     mov cx, dx                  ; end LEFT of the segment
@@ -458,15 +451,10 @@ toast_place:
     mov word [toast_scn], 0
     cmp byte [toast_on], 0
     je .out
-    mov bx, toast_buf           ; the strip's width in cells: the message, plus
-    xor cx, cx                  ; the one inverted space at each end
-.l:
-    cmp byte [bx], 0
-    je .ld
-    inc bx
-    inc cx
-    jmp short .l
-.ld:
+    push si                     ; the strip's width in cells: the message, plus
+    mov si, toast_buf           ; the one inverted space at each end. SI is
+    call str_len                ; banked because this routine does not own it
+    pop si
     jcxz .out                   ; nothing sayable. toast_show cannot stage that
     inc cx                      ; (an empty string is a retire), but reading the
                                 ; buffer rather than trusting the flag is what
@@ -618,21 +606,16 @@ toast_owner_gone:
                                 ; the instance compare must not race a fresh
                                 ; toast_show from another task
     push ax
-    push cx
     cmp byte [toast_on], 0
     jne .chk
     cmp byte [toast_want], 0
     je .out
 .chk:
-    mov ax, di
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl
+    call inst_idx               ; AL = this record's instance index
     cmp al, [toast_inst]
     jne .out
-    call toast_kill
-.out:
-    pop cx
+    call toast_kill             ; ...which preserves every register and the
+.out:                           ; flags, so CX needs no banking here either
     pop ax
     popf
     ret

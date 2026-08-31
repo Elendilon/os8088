@@ -398,6 +398,9 @@ inst_ico_ctrl:
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 18). One
+; caller, kmain:4302, and zero outbound.
+section .ovlw
 inst_init:
     push ax
     push cx
@@ -414,7 +417,8 @@ inst_init:
     pop di
     pop cx
     pop ax
-    ret
+    retf                        ; FAR: kmain reaches this through OVLGATE1
+section .text
 
 ; -----------------------------------------------------------------------------
 ; inst_ptr - instance index to record pointer
@@ -837,6 +841,27 @@ inst_ptr:
     ret
 
 ; -----------------------------------------------------------------------------
+; inst_idx - inst_ptr's inverse (SPEC.md 29.4)
+; in:  DI = record ptr
+; out: AX = the instance index, AH = 0
+; clobbers: nothing else - CX INCLUDED, because five of the sites this
+;           replaces banked CX only for the shift count
+;
+; I_RECSZ is a power of two by construction and this is where that is spelled.
+; Six routines in five files wrote the same four instructions out - and three
+; of them carried the same `; I_RECSZ = 32` comment, which is a duplicate
+; asking to be one.
+; -----------------------------------------------------------------------------
+inst_idx:
+    push cx
+    mov ax, di
+    sub ax, inst_tab
+    mov cl, 5
+    shr ax, cl
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
 ; inst_of_win - find the instance owning a window
 ; in:  BX = window ptr (record-aligned)
 ; out: CF = 0, DI = instance record ptr; CF = 1 if the window is unowned
@@ -1194,10 +1219,7 @@ inst_bind_win:
     push cx
     push si
     mov [di+I_WIN], bx
-    mov ax, di                  ; record index = (DI - inst_tab) / 32
-    sub ax, inst_tab
-    mov cl, 5
-    shr ax, cl
+    call inst_idx               ; AX = this record's instance index
     push ax
     call wm_ptr2idx             ; AL = window index, AH = 0
     mov si, ax
@@ -1632,10 +1654,7 @@ inst_an_tile:
     push bx
     push cx
     push dx
-    mov ax, di                  ; slot = (record - inst_tab) / I_RECSZ, which
-    sub ax, inst_tab            ; is a shift: I_RECSZ is 32 by construction
-    mov cl, 5
-    shr ax, cl
+    call inst_idx               ; AX = this record's instance index
     mov cx, ax
     call dock_tile_rect         ; AX/BX/CX/DX
     mov [wm_an_d], ax
@@ -2004,6 +2023,15 @@ inst_launch_post:
 ; INST_MAX scans of MEM_MAX records - four hundred iterations that have no
 ; business running with interrupts off.
 ; =============================================================================
+section .cold                   ; COLD (SPEC.md 2.6, 29.9.1): 258 bytes of the
+                                ; 64KB segment for a slot the Task Manager asks
+                                ; about once a second. The API cell above it is
+                                ; an OSAPI_JSLOT into a ten-byte `.text` stub
+                                ; that owns the DS switch and the far call, so
+                                ; the published offset does not move and no
+                                ; caller changes. Zero new cw_ shims: its one
+                                ; outbound is already `call COLD_SEG:` and stays
+                                ; exactly as it is
 osapi_sys_snapshot:
     push cx
     push dx
@@ -2124,7 +2152,10 @@ osapi_sys_snapshot:
     pop si
     pop dx
     pop cx
-    ret
+    retf                        ; FAR: api_sys_snapshot is the only entry and it
+                                ; far-calls (SPEC.md 2.6.1 - the body owns the
+                                ; return and there is no thunk in between)
+section .text
 
 ; -----------------------------------------------------------------------------
 section .bss

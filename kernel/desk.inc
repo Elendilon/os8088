@@ -72,7 +72,7 @@ DESK_DBLT   equ 9               ; double-click window, ticks
 ; ins:  none
 ; outs: none (all registers preserved)
 
-section .ovl                    ; the boot overlay (SPEC.md 2.5): counting the
+section .ovlw                  ; the boot overlay (SPEC.md 2.5): counting the
                                 ; volumes and laying their zones out happens
                                 ; once, before the first paint. desk_ord and
                                 ; desk_zone_label below are called by the
@@ -281,7 +281,10 @@ desk_init:
     pop cx
     pop bx
     pop ax
-    ret
+    retf                        ; FAR, and the shim that used to own this
+                                ; return is deleted (SPEC.md 2.6.1, 2.5.2):
+                                ; kmain names this body directly through
+                                ; OVLGATE1 and nothing near-calls it
 
 ; -----------------------------------------------------------------------------
 ; desk_ord - a volume's ORDINAL among the zones that are shown
@@ -1127,8 +1130,6 @@ section .cold                   ; ...and back to cold code for the far entries
 ; Far entries (SPEC.md 2.6): the resident thunks in kernel.asm far-call these,
 ; and these near-call the bodies above.
 ; =============================================================================
-dkz_desk_zmark:       call desk_zmark_x
-                  retf
 dkz_desk_zones_paint: call desk_zones_paint_x
                   retf
 

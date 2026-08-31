@@ -116,7 +116,23 @@ SCH_WD_TICKS equ 18             ; cooperative mode: the watchdog forces a
 ; in:       nothing
 ; out:      nothing
 ; clobbers: flags
+;
+; IT IS IN THE BOOT OVERLAY (SPEC.md 2.5, docs/LAST-DROP-BYTES.md row 3), which
+; is 166 bytes of `.text` that stop existing when kmain gives the blob back.
+; kmain:4170 is its ONE caller and there is no second entry: nothing
+; re-initialises the scheduler, the reboot path is sched_unhook - which RESTORES
+; the old vector and is a different routine - and sch_fast_on/sch_fast_off
+; re-programme the PIT without coming near this body. Zero outbound calls, so
+; the move needs no shim in either direction.
+;
+; The vector store below is what makes it safe to be here and is worth reading
+; before anything is added: `mov word [es:0x22], KERNEL_SEG` names the segment
+; as a CONSTANT. In `.ovl` CS is the BLOB's, and the blob is about to become
+; somebody's heap claim, so `mov [es:0x22], cs` would install a vector into
+; freed memory and the machine would die later at an address with no connection
+; to this file. tools/os88ovlchk.py rule 2b refuses that spelling outright now.
 ; -----------------------------------------------------------------------------
+section .ovlw
 sched_init:
     push ax
     push bx
@@ -205,7 +221,13 @@ sched_init:
     pop cx
     pop bx
     pop ax
-    ret
+    retf                        ; FAR, and it has to be: everything in the blob
+                                ; is reached through `call far [spl_fp]`, so an
+                                ; entry that kept its near `ret` would pop IP
+                                ; and leave CS on the stack. SPEC.md 2.6.1's
+                                ; rule, one section along - the body owns the
+                                ; far return and there is no thunk in between
+section .text
 
 ; -----------------------------------------------------------------------------
 ; sch_fast_on / sch_fast_off - the fsx sub-tick (SPEC.md 53.2.1)
@@ -409,6 +431,18 @@ sch_idle_body:
 
 ; in:  nothing.  out: CF=1 if no slot was free (the machine keeps the old
 ;      resume-the-outgoing fallback and nothing else changes)
+;
+; IN THE BOOT OVERLAY (docs/LAST-DROP-BYTES.md row 16). One caller, kmain:4182,
+; and the idle task it spawns outlives it by construction - a task's code is
+; sch_idle_body in `.text`, which is what BX = 0 above names. Taking the address
+; of a `.text` label from `.ovl` is correct and taking the address of an `.ovl`
+; one would not be: `.text` has vstart=0 and the consumer supplies KERNEL_SEG.
+;
+; **kmain does not read the CF this answers with**, which is what lets the site
+; use the flag-banking gate rather than OVLCALLC. If a caller ever does, the
+; call has to change with it.
+; -----------------------------------------------------------------------------
+section .ovlw
 sch_idle_start:
     push bx
     push cx
@@ -424,8 +458,8 @@ sch_idle_start:
     mov ax, sch_idle_body
     xor bx, bx                  ; KERNEL_SEG
     mov dx, 0x00FF              ; DL -> T_INST = 0xFF, "owns no instance"
-    call task_spawn
-    jc .out
+    call KERNEL_SEG:cw_task_spawn ; FAR: `.ovl` -> resident, through the shim
+    jc .out                       ; driver.inc already needed
     mov [sch_idleslot], al      ; the ONE identifier for the idle task: the
                                 ; scan skips this index and the fallback picks
                                 ; it, and both need the index anyway
@@ -434,7 +468,10 @@ sch_idle_start:
     pop dx
     pop cx
     pop bx
-    ret
+    retf                        ; FAR - see sched_init above. `retf` pops IP:CS
+                                ; and leaves the flags alone, so the CF this
+                                ; answers with survives it
+section .text
 
 ; -----------------------------------------------------------------------------
 ; task_spawn - create a task that iret-launches into a near entry point
@@ -635,8 +672,8 @@ task_yield:
     push bp
     push es
     push ds
-    mov ax, KERNEL_SEG          ; caller's DS is on the stack; we need ours
-    mov ds, ax
+    push cs                     ; caller's DS is on the stack; we need ours
+    pop ds
                                 ; NO sch_account HERE (SPEC.md 8.1.1). It used
                                 ; to charge the slice unconditionally, and on a
                                 ; machine with one runnable task that is 500
@@ -1214,8 +1251,8 @@ sch_isr:
     push bp
     push es
     push ds
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
 
 %ifdef KFZTRACE
     ; --- the heartbeat (SPEC.md 7/8, KFZ only) -------------------------------
@@ -1709,8 +1746,8 @@ sch_stkdie:
     ; reports. Silent, it is indistinguishable from a wild jump; one solid bar
     ; and a task number turn it into a diagnosis a photograph can carry.
     ; Registers are free: the next instruction halts for ever.
-    mov ax, KERNEL_SEG
-    mov ds, ax
+    push cs
+    pop ds
     mov bx, [vid_rseg]
     or bx, bx
     jz .nomark                  ; no adapter yet: nothing to say it on
@@ -1815,7 +1852,10 @@ sch_hold:   resb 1                      ; ticks the running task has held the
 sch_newseg: resw 1                      ; task_spawn scratch: the code segment
                                         ; of the task being built (IF=0, so
                                         ; it cannot race a second spawner)
-sch_uiwake: resb 1                      ; an ISR woke the UI task; spent at
+sch_uiwake: resb 1                      ; an ISR woke the UI task - or a saver
+                                        ; frame came back already due, which
+                                        ; is the same statement from inside
+                                        ; the pass (SPEC.md 8.1.2.4); spent at
                                         ; ui_task's .idle (SPEC.md 8.1.2.3)
 sch_idlewake: resb 1                    ; the same wake, for the idle task's
                                         ; halt guard; spent at sch_idle_body's

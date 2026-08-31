@@ -516,15 +516,31 @@ BOOT2_SECS := $(shell sed -n 's/^BOOT2_SECS_STARS  *equ  *\([0-9][0-9]*\).*/\1/p
 endif
 BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 
-# IT IS A MEMORY OFFSET, AND THE FILE SECTOR IS 13 FURTHER IN (SPEC.md 2.9).
-# Stage 2 sits in front of the image now, so the sector this names in KERNEL.SYS
-# is KSIG_OFF/512 + BOOT2_SECS - which is why KSIGDEF2 below adds BOOT2_PAD to
-# read the word out. The number was left at the one that used to put it on file
-# sector 36, and that moved the probe to file sector 49: a run's FIRST HALF on
-# 360KB and on 1.44MB, the half that loads correctly on exactly the machine the
-# canary exists to catch. 11776 puts it back on 36 - the same sector the
-# argument above is about, still in the middle of the common band 33..38.
-KSIG_OFF := 11776
+# IT IS A MEMORY OFFSET, AND THE FILE SECTOR IS BOOT2_SECS FURTHER IN (SPEC.md
+# 2.9). Stage 2 sits in front of the image now, so the sector this names in
+# KERNEL.SYS is KSIG_OFF/512 + BOOT2_SECS - which is why KSIGDEF2 below adds
+# BOOT2_PAD to read the word out. The number was once left at the one that used
+# to put it on file sector 36, and that moved the probe to file sector 49: a
+# run's FIRST HALF on 360KB and on 1.44MB, the half that loads correctly on
+# exactly the machine the canary exists to catch.
+#
+# **THIS CONSTANT IS TIED TO BOOT2_SECS AND HAS TO MOVE WITH IT.** SPEC.md
+# 2.9.12 took the blob from 13 sectors to 19, which slid the same memory offset
+# six sectors further into the file and straight out of the band - 11776 landed
+# on file sector 42, a first half on all three geometries. 8704 puts it back on
+# **36**, the same sector the argument above is about and the middle of the
+# common band 33..38, and it is 37 under SPLSTARS' 20-sector blob, which is
+# still in it. tests/unit/t_canary.py re-derives the band from every shipped
+# image's own BPB and is what caught this - it is in the FAST tier, so a blob
+# resize that forgets this line stops the build rather than shipping a canary
+# that cannot fire.
+#
+# It stays BELOW the 24,576-byte bootdiag payload (SPEC.md 2.9.10) on purpose:
+# the gate below is KERNEL_SECTORS > KSIG_OFF/512, so a bigger offset would
+# quietly stop compiling the canary into the one disk built for a machine whose
+# FDC is under suspicion. 17 sectors clears bootdiag's 48 and comscan's 8 stays
+# below both, exactly as it was.
+KSIG_OFF := 14336
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is
@@ -1580,8 +1596,40 @@ $(KMODS): $(BUILD)/kernel.bin ;
 # and appear nowhere in boot/boot.asm, so moving the canary (SPEC.md 18.93.1)
 # left `make` looking at an up-to-date boot360.bin and shipping the OLD offset.
 # It reads exactly like the canary not working, and cost a test round to find.
-$(BUILD)/boot.bin: boot/boot.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
-	$(NASM) -f bin $(BOOTDEF) \
+# HEAP_PARA - THE HEAP FLOOR, HANDED TO THE SECTOR (SPEC.md 2.7.1). The
+# .nomem refusal asks whether stage 2's blob fits at HEAP_SEG under the 2,560
+# bytes we keep live at the ceiling, and `kend` is that floor in paragraphs.
+# It cannot be derived from kernel.bin - LOW_PARA is a nobits size that is not
+# in the file - and it cannot be a constant in boot/boot.asm, which is
+# assembled before the kernel it boots is measured.
+#
+# This is BOOTHD_DEFS' value by another name: boot/boothd.asm has taken
+# BLOB_SEG from the same `kseg + ksize/16` since SPEC.md 2.9.9, and `kend` is
+# what kernsize calls it. Both sectors now ask one tool one question.
+#
+# TWO THINGS ARE COPIED FROM THAT RULE ON PURPOSE, both of them scars.
+# $(VIDDEF) is passed to kernsize because it re-ASSEMBLES the kernel to
+# measure it, so --json with no defines describes the SHIPPED kernel whatever
+# is in build/ - a kern_small sector would otherwise be told kern_big's floor
+# and refuse machines kern_small runs on. And the extraction is ITS OWN STEP
+# rather than a $$(python3 ...) inside the nasm line, because that throws the
+# interpreter's exit status away: a refusal arrives as an empty string and is
+# reported by the assembler, about a symbol, several lines further on.
+#
+# IT IS ONE VALUE AGAIN. A B2_TAIL rode beside it for one commit, because the
+# blob used to be read to the top of RAM and copy itself down, and the far
+# jump at the end of that copy had to survive being copied over. Reading the
+# blob to HEAP_SEG in the first place retires the copy and the constant with
+# it (SPEC.md 2.9.5).
+BOOTHEAP_DEFS = import sys, subprocess, json; \
+                k = json.loads(subprocess.check_output(['python3','tools/kernsize.py','--json','--build','$(BUILD)'] + sys.argv[1:])); \
+                print('-DHEAP_PARA=%d' % k['kend'])
+
+$(BUILD)/boot.bin: boot/boot.asm kernel/kernel.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
+	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" \
+	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
+	 echo "$(NASM) -f bin $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
+	 $(NASM) -f bin $(BOOTDEF) $$H \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/kernel.bin) + 511 ) / 512 )) \
 		-DBOOT2_SECS=$(BOOT2_SECS) $(call KSIGDEF2,$(BUILD)/kernel.bin) $(call BLOBSUMDEF,$(BUILD)/kernel.bin) \
 		-o $@ boot/boot.asm
@@ -1600,8 +1648,11 @@ $(BUILD)/boot.bin: boot/boot.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
 # bytes when it builds the image. A boot720.bin would therefore be a
 # byte-identical second artifact that can only ever say what this one already
 # says.
-$(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
-	$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) \
+$(BUILD)/boot360.bin: boot/boot.asm kernel/kernel.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
+	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" \
+	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
+	 echo "$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
+	 $(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) $$H \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/kernel.bin) + 511 ) / 512 )) \
 		-DBOOT2_SECS=$(BOOT2_SECS) $(call KSIGDEF2,$(BUILD)/kernel.bin) $(call BLOBSUMDEF,$(BUILD)/kernel.bin) \
 		-o $@ boot/boot.asm

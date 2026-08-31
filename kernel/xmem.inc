@@ -155,7 +155,7 @@ xm_kb:      dw 0                ; THE GATE. KB the pool holds, and "the
 ; mount writes over the overlay, so a probe called from there would be running
 ; FAT. The overlay costs no RAM at all, so the sniff is free of both guards.
 ; -----------------------------------------------------------------------------
-section .ovl
+section .ovlw
 
 xm_sniff:
     push ax
@@ -170,7 +170,10 @@ xm_sniff:
     mov byte [xm_row+DRVR_WANT], 1
 .out:
     pop ax
-    ret
+    retf                        ; FAR, and the shim that used to own this
+                                ; return is deleted (SPEC.md 2.6.1, 2.5.2):
+                                ; kmain names this body directly through
+                                ; OVLGATE1 and nothing near-calls it
 
 section .cold                   ; xm_boot is COLD, and that is not a saving:
                                 ; every routine it calls - drv_load_at,
@@ -202,6 +205,14 @@ section .cold                   ; xm_boot is COLD, and that is not a saving:
 ; published - the snd_live ordering of SPEC.md 34.7. Every cell below tests
 ; that one word, so it must not be visible before what it gates.
 ; -----------------------------------------------------------------------------
+section .ovl                   ; THE BOOT OVERLAY (SPEC.md 2.5.2,
+                                ; docs/LAST-DROP-BYTES.md row 5): kmain calls
+                                ; this once, right at the end, and the XMS
+                                ; driver it attaches outlives it - what does not
+                                ; is the attaching. The three drv_* edges below
+                                ; go out through the far entries in driver.inc's
+                                ; `.cold` block, which is where every other
+                                ; cross-segment caller of them already goes
 xm_boot_x:
     push ax
     push bx
@@ -214,12 +225,12 @@ xm_boot_x:
     cmp byte [xm_row+DRVR_WANT], 0
     je .out                     ; no store on this machine: not one sector
     mov bx, xm_row
-    call drv_load_at            ; loaded and validated, NOT attached
+    call COLD_SEG:drvf_drv_load_at            ; loaded and validated, NOT attached
     jc .out
     mov bp, [bx+DRVR_ENT]
     mov al, DRVV_ATTACH
     mov ah, XM_ABI_VER          ; ...which the image checks against its own
-    call drv_call               ; out: SI = the XMV table, AX = KB, DL = the
+    call COLD_SEG:drvf_drv_call               ; out: SI = the XMV table, AX = KB, DL = the
     jc .refuse                  ; CPU_F_* that actually verified
     push ax
     push dx
@@ -271,7 +282,7 @@ xm_boot_x:
     pop cx
     pop bx
     pop ax
-    ret
+    retf                        ; FAR: kmain reaches this through OVLGATE1
 .refuse:
     mov bx, xm_row              ; ...and here too, for the same reason. This
                                 ; path worked BY LUCK on the machine it was
@@ -289,12 +300,11 @@ xm_boot_x:
                                 ; but a debugger reading the row should find
                                 ; the truth rather than the DRVE_OK the load
                                 ; stamped on its way past
-    call drv_release            ; BX = the row; the claim goes back and
+    call COLD_SEG:drvf_drv_release            ; BX = the row; the claim goes back and
     jmp short .out              ; nothing was hooked
 
-; --- the far entry kmain reaches xm_boot through (SPEC.md 2.6) --------------
-xmf_xm_boot:        call xm_boot_x
-                    retf
+; The far entry kmain used to reach xm_boot through is GONE with the move: the
+; body is in the blob and OVLGATE1 is the crossing now (SPEC.md 2.5.2).
 
 section .text
 
@@ -550,10 +560,7 @@ xm_release_rec:
     push bx
     push cx
     push bp
-    mov ax, di
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl                  ; AL = the instance slot
+    call inst_idx               ; AL = the instance slot
     mov bp, [xm_svc+XMV_RELINST]
     call xm_dsp
     pop bp

@@ -376,7 +376,7 @@ app_tmr_task_x:
 .draw:
     call KERNEL_SEG:cw_gfx_lock
     mov bx, [ds:bp+I_WIN]
-    test word [bx+W_FLAGS], 2   ; re-check under the lock (SPEC.md 14)
+    test byte [bx+W_FLAGS], 2   ; re-check under the lock (SPEC.md 14)
     jz .skip
     call KERNEL_SEG:cw_wm_clip_set            ; CF = 1: not one visible pixel (SPEC 11.3)
     jc .skip
@@ -1098,7 +1098,7 @@ app_bounce_task_x:
     je .die
     call KERNEL_SEG:cw_gfx_lock
     mov bx, [ds:bp+I_WIN]
-    test word [bx+W_FLAGS], 2   ; check under the lock (SPEC.md 14)
+    test byte [bx+W_FLAGS], 2   ; check under the lock (SPEC.md 14)
     jz .blind
     call KERNEL_SEG:cw_wm_clip_set            ; CF = 1: not one visible pixel (SPEC 11.3)
     jc .blind

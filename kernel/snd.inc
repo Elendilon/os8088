@@ -76,7 +76,6 @@ SND_PRI_PKG equ 040h            ; documented package default priority
 snd_live:      db 0             ; the boot gate: set LAST by snd_init (34.7)
 snd_excl_ok:   db 1             ; policy: exclusive clips allowed (34.4)
 
-snd_s_spk:     db 'Speaker', 0  ; the resident sink's name (osapi_snd_caps)
 snd_route:     db SND_RT_AUTO   ; where tones go (SPEC.md 34.8). Initialised
                                 ; .text, not .bss: snd_tone_out reads it on
                                 ; the machine's first beep, and SYSTEM.CFG
@@ -656,11 +655,8 @@ snd_release_inst:
 snd_release_rec:
     push ax
     push cx
-    mov ax, di
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl
-    call snd_release_inst       ; in: AL = instance slot
+    call inst_idx               ; AL = instance slot
+    call snd_release_inst
     pop cx
     pop ax
     ret
@@ -682,21 +678,16 @@ snd_release_rec:
 ; -----------------------------------------------------------------------------
 snd_disp_set:
     push ax
-    push cx
-    mov ax, di
-    or ax, ax
+    or di, di
     jz .none
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl
-    jmp .store
+    call inst_idx               ; AL = instance slot; CX comes back ours
+    jmp short .store
 .none:
     mov al, 0xFF
 .store:
     mov ah, [sch_cur]           ; ...and WHICH TASK stamped it, so that a
     mov [snd_inst], ax          ; worker pre-empting this callback mid-flight
-    pop cx                      ; cannot inherit the stamp (SPEC.md 34.3)
-    pop ax
+    pop ax                      ; cannot inherit the stamp (SPEC.md 34.3)
     ret
 
 ; =============================================================================
@@ -717,7 +708,7 @@ snd_disp_set:
 ; and sets snd_live LAST: the publish that arms snd_tick and the public
 ; entry points (SPEC.md 34.7, the 29.2 publish-last idiom).
 
-section .ovl                    ; the boot overlay (SPEC.md 2.5): saving the boot
+section .ovlw                  ; the boot overlay (SPEC.md 2.5): saving the boot
                                 ; 61h bits and publishing snd_live happens
                                 ; once. snd_unhook below is the shutdown
                                 ; path and stays resident. Nothing here
@@ -754,7 +745,10 @@ snd_init:
 
     pop cx
     pop ax
-    ret
+    retf                        ; FAR, and the shim that used to own this
+                                ; return is deleted (SPEC.md 2.6.1, 2.5.2):
+                                ; kmain names this body directly through
+                                ; OVLGATE1 and nothing near-calls it
 
 ; -----------------------------------------------------------------------------
 ; snd_unhook - quiesce the sound hardware for reboot (SPEC.md 34.7)

@@ -72,6 +72,23 @@ FAST = [
         "two calls on a 720KB disk, and the 14th costs a whole revolution to "
         "move one sector",
         needs=("nasm",)),
+    Row("bootfloor", "fast", py("tests/unit/t_bootfloor.py"), 2.0,
+        "stage 1's RAM floor against the kernel's own ladder (SPEC.md 2.7.1) "
+        "- HEAP_PARA is INJECTED, so the two can disagree, and guard 5c used "
+        "to reconcile them until stage 1 started testing the exact condition "
+        "and the guard became `x > x + 160`. Also the FLAT_PAYLOAD clamp: a "
+        "small diagnostic payload bounds below RELOC_ADJ, where the `sub` "
+        "after the compare underflows and relocates the sector to the top of "
+        "a 1MB machine that is not there",
+        needs=("nasm",)),
+    Row("lowwin", "fast", py("tests/unit/t_lowwin.py"), 3.0,
+        "the mount-owned window is the BOTTOM of .lowbss (SPEC.md 2.1.2), so "
+        "that it and the FAT window under it are one contiguous 8,192-byte "
+        "region dead for the whole of kmain. It is bought by one include line "
+        "and nothing else would notice it sliding: no RAM moves, no address "
+        "any code names changes, and the kernel boots either way - only "
+        "stage C would find out, by writing the overlay over vid_rowtab",
+        needs=("nasm",)),
     Row("api-abi", "fast", py("tests/unit/t_api_abi.py"), 2.0,
         "the API table decoded from kernel.bin and compared with the SDK - the "
         "silent merge collision CLAUDE.md asks to be checked by hand"),
@@ -242,6 +259,22 @@ FULL = [
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
         needs=("marty",), serial=True),
+    Row("int0sweep", "soak", py("tests/int0sweep.py"), 180.0,
+        "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
+        "5150/5160 ROM the INT 0 vector is a BIOS stub that writes 0FFh to "
+        "the 8259 mask and IRETs, so ONE divide overflow anywhere is a dead "
+        "machine - IMR=FF, the tick stopped, the CPU parked in "
+        "sch_idle_body's hlt with IF=1 and even the ISR-paced pointer "
+        "frozen. THE POINT IS THE ROM. Every other MartyPC row in this file "
+        "runs GLaBIOS, whose INT 0 handler does not touch the PIC, so the "
+        "identical fault there is a wrong clip index and the session "
+        "carries on: wm_ttl_rect spending BX under wm_clip_occl locked the "
+        "machine hard on an IBM ROM and passed assocopen and every other "
+        "row on GLaBIOS. Worse, a machine naming an IBM romset SILENTLY "
+        "RESOLVES to glabios_pc when the ROM file is absent, so the handful "
+        "of rows that ask for one were not testing it either. Arms INT 0 "
+        "across a broad UI session and reports where it fired",
+        needs=("marty",), serial=True),
     Row("vgadrop", "soak", py("tests/vgadrop.py"), 150.0,
         "SPEC.md 39.22: the heap floor starts UNDER .vgabuf on a machine with "
         "no VGA and AT KERN_END on one that has it. Reads [mem_base] as a "
@@ -339,6 +372,18 @@ SOAK = [
         "including the bar and the dock, no block is left in the menu bar, and "
         "all three fallbacks reach the blanker with the framebuffer untouched",
         needs=("marty",), serial=True),
+    Row("saverate", "soak", py("tests/saverate.py"), 260.0,
+        "is a saver mode ASLEEP while it is behind? (SPEC.md 79.5.7, 8.1.2.4). "
+        "ui_task's task_sleep(1) quantises a deadline polled once a pass to "
+        "whole ticks, so a mode whose pass runs a millisecond into the next "
+        "one drops to the divisor below rather than to its cost - sea life "
+        "measured 12.0 fps swinging 9.2-17.8 with 37.2% of the machine "
+        "HALTED. The assertion is NOT a frame rate, which cannot tell an "
+        "expensive sea from a quantised one: it is slow AND halted, which no "
+        "content can produce. The other three modes are the control and are "
+        "counted off [sv_due], which cannot see a re-anchored mode - so they "
+        "catch a mode that stopped drawing and not one that was quantised.",
+        needs=("marty",), serial=True),
     Row("deskbench", "soak", py("tests/deskbench.py"), 330.0,
         "THE STANDARD BUSY DESKTOP, priced: what a full-screen redraw, a "
         "window move and a raise cost with four windows open (PERFORMANCE.md "
@@ -395,6 +440,14 @@ SOAK = [
         "changes, and the rate compared either side of the notch rate "
         "changing - a stopped tick parks the logo at one angle and the "
         "machine still boots, so no screendump in this tree would notice",
+        needs=("marty",), serial=True),
+    Row("bootfloor-ab", "soak", py("tests/bootfloor.py"), 300.0,
+        "SPEC.md 2.7.1's floor, both sides, both kernels: RAMKB at the floor "
+        "must reach a DESKTOP - everything the bound is computed from is "
+        "downstream of the refusal - and one KB under it must print RAM. "
+        "kern_small is the half that matters: guard 5 has asserted it boots "
+        "on 128KB since the split and stage 1 refused it at 129 until 2.7.1, "
+        "which no host-side row could have noticed",
         needs=("marty",), serial=True),
     Row("dljunk", "soak", py("tests/dljunk.py"), 150.0,
         "SPEC.md 2.9.11's DL check, both ways: a BIOS that never set DL left "
@@ -515,9 +568,29 @@ SOAK = [
         "The field's browser report: a drag that does not move it, and a"
         "width cut on a card wide enough to hold it",
         needs=("marty",), serial=True),
-    Row("dispcalc", "soak", py("tests/dispcalc.py"), 60.0,
+    # THE THREE ROWS BELOW DECLARED 60s AND TAKE FOUR TO NINE TIMES THAT.
+    # `secs` derives the kill timeout (`max(60, secs*4+30)` = 270s), so all
+    # three were being killed MID-RUN and reported as TIMEOUT - which reads
+    # like a hung emulator and is not one. Measured on this container, each
+    # run directly and to completion, every assertion passing:
+    #
+    #     dispsize    295 s        dispcalc    406 s        dispprefer  546 s
+    #
+    # Nothing stalls. dispsize profiled with `settle` instrumented: 61 calls,
+    # 153.4 s of a 311.6 s wall inside settle (49.2%), and the LONGEST single
+    # settle is 11.4 s against settle's own 120 s limit. Half of one of these
+    # rows is the harness's screen-polling floor - `settle(quiet=1.0,
+    # stable=2)` cannot return in under ~2 s and dispprefer alone makes 16
+    # adapter switches at four settles each - so the wall time is sampling
+    # cost, not the guest being slow and not the guest being stuck.
+    #
+    # The `secs` below is therefore what the row COSTS, and the explicit
+    # timeout is ~2x that: enough that container jitter cannot kill a healthy
+    # run, small enough that a genuinely hung emulator is still caught in
+    # minutes rather than tens of them.
+    Row("dispcalc", "soak", py("tests/dispcalc.py"), 420.0,
         "Does the Calculator add up, fold cleanly and redraw nothing spare?",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, timeout=900),
     Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 60.0,
         "Does the Calculator re-fold cleanly when its box moves under it?",
         needs=("marty",), serial=True),
@@ -555,10 +628,12 @@ SOAK = [
         "Is changing adapter and changing back the IDENTITY on every window"
         "rect?",
         needs=("marty",), serial=True),
-    Row("dispprefer", "soak", py("tests/dispprefer.py"), 60.0,
+    # 546 s measured - the longest of the three, 16 adapter switches at four
+    # settles each. See the note above `dispcalc`.
+    Row("dispprefer", "soak", py("tests/dispprefer.py"), 560.0,
         "Does a package's PER-ADAPTER preference and floor survive a drag"
         "across the seam, and does a USER outrank it? (SPEC.md 11.100)",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, timeout=1200),
     Row("disptitle", "soak", py("tests/disptitle.py"), 150.0,
         "Does a title bar STRADDLING the seam have one polarity? (SPEC.md"
         "5.4.2.4) - it builds `make BAND=1` itself, the composer being a knob"
@@ -568,10 +643,12 @@ SOAK = [
         "Does SPEC.md 76's theme meet the extended desktop honestly? Color is"
         "a fact about the PRIMARY and a window can be on the other card",
         needs=("marty",), serial=True),
-    Row("dispsize", "soak", py("tests/dispsize.py"), 60.0,
+    # 295 s measured, and the row the settle profile above was taken on.
+    # See the note above `dispcalc`.
+    Row("dispsize", "soak", py("tests/dispsize.py"), 320.0,
         "What size is a window given when it lands on the other card?"
         "(SPEC.md 11.100.3/11.100.4)",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, timeout=900),
     Row("dispfrac", "soak", py("tests/dispfrac.py"), 60.0,
         "Does apps/fractal's restore cache survive an adapter change?"
         "(SPEC.md 40.1)",

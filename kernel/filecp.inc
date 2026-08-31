@@ -140,26 +140,9 @@ fcp_arm:
     stc
     ret
 
-; -----------------------------------------------------------------------------
-; fcp_ncopy - CX bytes from DS:SI to DS:DI (module-internal)
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-fcp_ncopy:
-    push ax
-    push cx
-    push si
-    push di
-.b:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    loop .b
-    pop di
-    pop si
-    pop cx
-    pop ax
-    ret
+; fcp_ncopy - CX bytes from DS:SI to DS:DI. disk.inc's dsk_ncopy is this
+; body to the instruction, and both are `.cold` = COLD_SEG.
+fcp_ncopy   equ dsk_ncopy
 
 ; -----------------------------------------------------------------------------
 ; fcp_goto - make (AL = drive, BX = folder cluster) the current directory
@@ -809,7 +792,7 @@ fcp_step:
 ;
 ; Two things make it cheap. dskw_raw still holds the SOURCE's thirty-two
 ; bytes when the destination's lookup fails - dskw_stat bails inside
-; dskw_find, before dskw_ent_load could overwrite them - so the entry that
+; dskw_find, which is the only thing that writes them - so the entry that
 ; lands in the destination carries the real 32-bit size AND the original
 ; timestamps, which building a fresh one through dskw_commit would not.
 ; And [dskw_zapnext] is consumed by dskw_ent_store, not by dskw_commit, so

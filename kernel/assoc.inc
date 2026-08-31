@@ -1095,7 +1095,7 @@ section .text                   ; DATA, so back to the kernel segment: cold
                                 ; still KERNEL_SEG (SPEC.md 2.6 rule 1)
 assoc_s_apps:   db 'APPS', 0
 assoc_s_games:  db 'GAMES', 0
-assoc_s_ttl:    db 'Open', 0
+assoc_s_ttl     equ fdlg_s_topen    ; the Standard File dialog's own title
 assoc_s_lead:   db 'This document opens with', 0
 assoc_s_ptail:  db '.O88 - not on this disk', 0
 ASSOC_PTAIL     equ 24          ; ...NUL included, so one rep movsb ends it
@@ -2031,18 +2031,6 @@ asc_note:
 ; and these near-call the bodies above - so every routine here keeps its
 ; ordinary near `ret`.
 ; =============================================================================
-acf_assoc_post:     call assoc_post_x
-                retf
-acf_assoc_docicon:  call assoc_docicon_x
-                retf
-acf_assoc_note_app: call assoc_note_app_x
-                retf
-acf_asc_use:        call asc_use_x
-                retf
-acf_asc_lookup:     call asc_lookup_x
-                retf
-acf_asc_take:       call asc_take_x
-                retf
 
 section .text                   ; DATA, so back to the kernel segment
 asc_s_name: db 'ASSOC   DAT'    ; the RAW 8.3 form: this walks directory

@@ -135,7 +135,16 @@ SNAP_NCALL   equ 24             ; SPEC.md 11.94.2: off-grid callers logged per
 ; alternatives rather than a fallback pair on purpose: a probe kept behind a
 ; baked table would be dead code on every machine that ever runs it, and a
 ; baked table kept behind a probe would never be the thing being tested.
+;
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 7), where it
+; sits beside ovl_font_init - the twin it is the alternative to, which has been
+; there since SPEC.md 6.2. One caller, kmain:4287, and zero outbound. What it
+; reads is the ROM through ES:BP and what it writes is font_glyphs through
+; LOW_SEG, so DS never names the blob and the `rep movsw` wears no prefix - the
+; 8086 loses one when a string op restarts after an interrupt, and this runs
+; with interrupts on.
 ; -----------------------------------------------------------------------------
+section .ovlw
 font_init:
     push ax
     push bx
@@ -186,7 +195,8 @@ font_init:
     pop cx
     pop bx
     pop ax
-    ret
+    retf                        ; FAR: kmain reaches this through OVLGATE1
+section .text
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -328,7 +338,7 @@ font_char:
     mov ax, 0xFF08
     out dx, ax                  ; GC8 Bit Mask = FF (default)
 .done:
-    GFXDLEAVE
+    GFXDLEAVEI
     pop es
     pop di
     pop si
@@ -709,7 +719,7 @@ font_run:
 font_run_x:
     SNAPAUDIT_TALLY snap_hrun, snap_krun
     call fnt_unlazy             ; SPEC.md 6.1.9: HERE, not at font_run above,
-                                ; because api_font_run is an X STUB to this
+                                ; because slot 0x0258's X cell names THIS
                                 ; label - so every package's opaque run drew
                                 ; over the mouse pointer with gfx_lock's
                                 ; promised hide unspent, and gfx_unlock then
@@ -1360,7 +1370,7 @@ font_run_x:
     pop ax
 .outd:
 %endif
-    GFXDLEAVE
+    GFXDLEAVEI
     pop bp
     pop di
     pop si
@@ -1747,7 +1757,7 @@ font_dmask:     resb 1          ; ...and the row's half of the checkerboard
 ; data reference across that boundary, only a call, so the rule is worth
 ; keeping to rather than working around.
 ; =============================================================================
-section .ovl
+section .ovlw
 ; -----------------------------------------------------------------------------
 ; ovl_font_init - copy the baked typeface into font_glyphs
 ;

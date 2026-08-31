@@ -230,12 +230,15 @@ TK_RADR   equ 4000              ; what the radar's rim means, in world units
 
 ; --- the attract window (SPEC.md 85.10) ---------------------------------------
 ; The frame; the content is two narrower and nineteen shorter, and the window
-; manager rounds the width up so the content lands on a multiple of 8. The
-; score table sits BESIDE the logo rather than under it, which is what decides
-; the width: 258 of logo, 128 of table and the margins between them. The window
-; is not resizable, because every row below is placed off a constant rather
-; than measured.
-TK_WINW   equ 480
+; manager rounds the width up so the content lands on a multiple of 8 - so a
+; multiple of 8 here IS the content width. What decides it is the BOTTOM PAIR:
+; 8 of margin, 128 of score band, 8 of gutter, 192 of instructions and 8 of
+; margin. The logo used to share the top row with the table and set the width
+; itself at 480, which left a band of nothing under its left half; it is
+; centred over both of them now, and tkattr.inc asserts this number against the
+; columns rather than restating them. The window is not resizable, because
+; every row is placed off a constant rather than measured.
+TK_WINW   equ 344
 TK_WINH   equ 152
 
 ; --- scancodes this game reads directly (SPEC.md 9.7) -------------------------
@@ -269,6 +272,11 @@ tk_entry:
     mov byte [tk_at_scrt], TK_SCRT  ; the band's first roll is a whole interval
                                     ; away, not 256 of them: the loader zeroes
                                     ; bss and this counts DOWN
+    mov byte [tk_at_blink], 1       ; ...and the play line starts LIT, for the
+    mov byte [tk_at_blt], TK_BLINKON    ; same reason: a zeroed counter would
+                                    ; hold the first dark phase for 256 wakes
+                                    ; and a zeroed flag would open the window
+                                    ; on a panel with no play line at all
 
     ; Centre the attract window in the desktop band. It is not resizable and
     ; it never draws the game - the game is the bracket - so one size does.
@@ -780,8 +788,8 @@ tk_tpl:
     ZBYTE tk_at_lag                 ; wakes the tail still owes the head
     ZBYTE tk_at_scrt                ; wakes until the band rolls
     ZWORD tk_at_scr                 ; the table row at the top of the band
-    ZBYTE tk_atink
-    ZWORD tk_atrow
+    ZBYTE tk_at_blink               ; the play line: lit or dark, and the wakes
+    ZBYTE tk_at_blt                 ; left of that phase (SPEC.md 85.10.3)
     ZWORD tk_e1x                    ; one segment's ends, in screen coords
     ZWORD tk_e1y
     ZWORD tk_e2x

@@ -124,6 +124,11 @@ _MIRROR = {
     "WF_OWNBG": ("kernel/wm.inc", 64),
     "WF_KEEPH": ("kernel/wm.inc", 128),
     "WF_1BPP": ("kernel/wm.inc", 0x2000),
+    "WF_USRSZ": ("kernel/wm.inc", 0x0200),
+    # ...and the other two bits sharing the shape byte, mirrored for
+    # WF_HIBITS' sake - see the derivation below.
+    "WF_NOANIM": ("kernel/wm.inc", 0x4000),
+    "WF_STALE": ("kernel/wm.inc", 0x8000),
     # kernel/instance.inc - the instance record (SPEC.md 29)
     "I_STATE": ("kernel/instance.inc", 0),
     "I_FLAGS": ("kernel/instance.inc", 1),
@@ -170,6 +175,11 @@ _MIRROR = {
     "MBAR_H": ("kernel/kernel.asm", 20),
     "TITLE_H": ("kernel/kernel.asm", 18),
     "MENU_ITEM_H": ("kernel/menu.inc", 16),
+    # ...and the bar cell's STRIDE, which four harness scripts wrote down by
+    # hand and which moved 14 -> 12 the day MB_TX was dropped (SPEC.md 12.2).
+    # Two of the four are registered rows and two are not, so without this the
+    # unregistered pair would have gone on reading cell 2 as cell 1's tail.
+    "MB_ENTSZ": ("kernel/menu.inc", 12),
     # kernel/mouse.inc - the pointer's CELL and the worst hot spot in it
     # (SPEC.md 7.1/7.2.2). A shape's cell starts at (pointer - hot), so a
     # harness masking the arrow's 8x12 at the published position misses the
@@ -208,20 +218,37 @@ globals().update({k: v for k, (_, v) in _MIRROR.items()})
 
 # Derived, and not mirrored: W_FLAGS bits 0 and 1 have no names in wm.inc.
 WF_USED, WF_VIS = 1, 2
-WF_HIBITS = (0x8000 | 0x4000 | 0x2000) >> 8   # WF_STALE|WF_NOANIM|WF_1BPP: the
-                                              # kernel's bits in the shape byte
-                                              # (SPEC.md 11.96.17). WF_1BPP is
-                                              # in the mirror table above, so a
-                                              # drift there fails t_mirror
+# WF_STALE|WF_NOANIM|WF_1BPP: the kernel's bits in the shape byte (SPEC.md
+# 11.96.17), and `WF_HIBITS equ (WF_STALE | WF_NOANIM | WF_1BPP) >> 8` in
+# wm.inc is an EXPRESSION, which _equs deliberately refuses to evaluate. So it
+# is derived here from three values that ARE checked, rather than written down
+# as a literal - which is what it was, with only WF_1BPP of the three mirrored,
+# so two of its three inputs could move without a word from the guard. That is
+# VID_CTX_SZ's failure exactly: watching some of the inputs and none of the
+# answer. Getting this wrong reads a kernel bit as a cursor shape, which is the
+# defect WF_STALE's own banner records having shipped once.
+WF_HIBITS = (WF_STALE | WF_NOANIM | WF_1BPP) >> 8
 
-# ...and the three the kernel derives from VID_CTX_W the same way. They are
+# ...and the FOUR the kernel derives from VID_CTX_W the same way. They are
 # EXPRESSIONS in vidsel.inc (`VID_CTX_W*2`, `VID_CTX_W*2+6`), which _equs
 # deliberately refuses to evaluate - so they are computed here from the word
-# count above, which IS checked. A change to the record moves all three on the
+# count above, which IS checked. A change to the record moves all four on the
 # next run of any script, which is the whole point.
 VID_CTX_VX = VID_CTX_W * 2          # the display's origin in the virtual desktop
 VID_CTX_VY = VID_CTX_W * 2 + 2
+VID_CTX_KIND = VID_CTX_W * 2 + 4    # ...WHICH ADAPTER, and not a segment
 VID_CTX_SZ = VID_CTX_W * 2 + 6      # ...the run, both origin words, and the kind
+
+# VID_CTX_KIND WAS THE ONE LEFT OUT, and leaving it out is what let the record
+# go stale a THIRD time. `scan` compares a local copy against `_KNOWN`, so a
+# name absent from `_KNOWN` is a copy the scanner walks straight past:
+# tests/dispthm.py:42 said `VID_CTX_KIND = 40` in as many words, against a
+# kernel that has said 42 since 6.1.10, and every run of the guard reported
+# "0 stale" while looking directly at it. The kind byte is the worst field to
+# read two bytes early, too, because what sits there is `vid_tseg` - so the
+# reader gets 0xB000 or 0xB800, a FRAMEBUFFER SEGMENT, which is a plausible
+# number rather than an obvious one and printed as an adapter kind or an
+# x-coordinate for a cycle (tests/dispmode.py's "put display 1 at (45056,640)").
 
 # Everything `scan` compares a local copy against: the mirrored constants AND
 # the derived ones. It used to be _MIRROR alone, and that is exactly how nine
@@ -234,7 +261,8 @@ RANK = {0xFB: "trivial", 0xFC: "low", 0xFD: "medium", 0xFE: "high"}
 
 _KNOWN = dict({k: v for k, (_, v) in _MIRROR.items()},
               VID_CTX_VX=VID_CTX_VX, VID_CTX_VY=VID_CTX_VY,
-              VID_CTX_SZ=VID_CTX_SZ, WF_USED=WF_USED, WF_VIS=WF_VIS)
+              VID_CTX_KIND=VID_CTX_KIND, VID_CTX_SZ=VID_CTX_SZ,
+              WF_USED=WF_USED, WF_VIS=WF_VIS, WF_HIBITS=WF_HIBITS)
 
 
 # --- the guard --------------------------------------------------------------

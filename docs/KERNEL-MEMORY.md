@@ -61,16 +61,22 @@ instead of borrowing the shipped kernel's.
 
 **The kernel is ONE contiguous span starting at linear 0x00600, and that
 includes its buffers.** `kern_big`'s budget is 126.5KB today (129,536) and
-`kern_small`'s 105KB (107,520). **Big stands at eighteen steps and small at
-ONE.** Small's used to equal its budget exactly, which assembled only because
-the guard is `>`; the thirty-second move raised it by 512 for the head-switch
-boot fix and landed it there deliberately. Either figure is one to raise
-deliberately or to spend down, not headroom to draw on — and small's one step
-is one step: the next 512 bytes it grows is a conversation, not a build fix.
+`kern_small`'s 105KB (107,520). **Big stands at thirty-one steps and small at
+THIRTEEN**, and neither figure was granted: this cycle's performance and
+boot-ladder work SPENT DOWN, which is the one direction this table has almost
+never moved. Small's used to equal its budget exactly, which assembled only
+because the guard is `>`; the thirty-second move raised it by 512 for the
+head-switch boot fix and landed it there deliberately, and the round after
+that it was one step. Either figure is still one to raise deliberately or to
+spend down, not headroom to draw on — the difference now is that there is
+some, and it was earned rather than asked for.
 
-Big's two steps are the thirty-fifth move's, and they are **earmarked rather
-than free**: one restores the step move 34's merge spent and one is the
-cycle's bugfix headroom (`kernel.asm`'s KERN_BUDGET note). Spending them on a
+**Both figures are surplus against the four-step standard, and surplus owes a
+conversation** — the ledger's moves 17 and 21 are what happens when nobody
+has it. Big's thirty-first and thirtieth steps are still the thirty-fifth
+move's earmark (one restores the step move 34's merge spent, one is the
+cycle's bugfix headroom, `kernel.asm`'s KERN_BUDGET note); the rest of both
+figures is this cycle's saving and is not spoken for. Spending it on a
 feature is another decision, not a draw on this one.
 
 **Zero spare is not zero room, and the difference is the RUNG.** `KERN_SIZE`
@@ -895,46 +901,48 @@ Three things about it:
 ```json
 {
   "big": {
-    "boot2": 2498,
-    "bootmax": 189952,
-    "bss": 5955,
+    "boot2": 2439,
+    "bootmax": 192512,
+    "bss": 5813,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 40803,
-    "coldpara": 2560,
+    "cold": 38853,
+    "coldpara": 2432,
     "fatpara": 288,
-    "imgpara": 3968,
-    "kend": 7616,
+    "imgpara": 3680,
+    "kend": 7200,
     "kseg": 96,
-    "ksize": 120320,
-    "lowbss": 8982,
+    "ksize": 113664,
+    "lowbss": 9096,
     "lowpara": 640,
     "minramkb": 196,
-    "ovl": 3969,
+    "ovl": 1425,
+    "ovlw": 5263,
     "stk0": 1024,
-    "text": 57197,
+    "text": 52624,
     "vgabuf": 848,
     "vgabufpara": 64
   },
   "small": {
-    "boot2": 2498,
-    "bootmax": 120320,
-    "bss": 5442,
+    "boot2": 2439,
+    "bootmax": 122880,
+    "bss": 5300,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 37889,
-    "coldpara": 2400,
+    "cold": 36088,
+    "coldpara": 2272,
     "fatpara": 288,
-    "imgpara": 3392,
-    "kend": 6784,
+    "imgpara": 3136,
+    "kend": 6400,
     "kseg": 96,
-    "ksize": 107008,
-    "lowbss": 8470,
+    "ksize": 100864,
+    "lowbss": 8584,
     "lowpara": 608,
     "minramkb": 128,
-    "ovl": 3886,
+    "ovl": 1230,
+    "ovlw": 4729,
     "stk0": 1024,
-    "text": 48458,
+    "text": 44503,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -985,11 +993,14 @@ SPEC.md §18.96's floppy formatter, §39.11's dual display. Things REMOVED from
 small: SPEC.md §41.11's extended-memory store, the first of those and so far
 the only one.
 
-`kern_small` stands at **107,008 B of its own 107,520-byte budget — 512
-spare, ONE step**. Moves 21, 22 and 23 are where the surplus went, and move
-32's head-switch boot fix is what spent a step of it (the ledger row above).
-There are 372 bytes of image rung and 511 of cold rung left before the next
-crossing costs a step. It stood at seven steps then, three over the
+`kern_small` stands at **100,864 B of its own 107,520-byte budget — 6,656
+spare, THIRTEEN steps**. Moves 21, 22 and 23 are where the surplus went, and
+move 32's head-switch boot fix is what spent a step of it (the ledger row
+above); this cycle then handed **six rungs back** — the image rung uncrossed
+by four (106 → 98 steps of 512) and the cold rung by two (75 → 71), which is
+**6KB of every 128KB machine's RAM returned** rather than spent. There are
+373 bytes of image rung and 260 of cold rung left before the next crossing
+costs a step. It stood at seven steps then, three over the
 standard, which **owed a conversation rather than being headroom**: two things
 had arrived at the same figure from opposite directions and neither knew about
 the other:
@@ -1113,8 +1124,8 @@ it describe.
 
 ### What the Task Manager shows
 
-The same breakdown, live, one indented row per buffer under **System**. Read
-off a running machine, and it agrees with the ladder above to the kilobyte:
+The same breakdown, live, one indented row per buffer under **System**, and
+it agrees with the ladder above to the kilobyte:
 
 ```
 RAM   89/639K [] HEAP  10/559K       <- the map's caption, both figures
@@ -1123,23 +1134,60 @@ CPU  386+     XMS   0/64448K         <- and what it has no address for
 [==============================]
 
   NAME          ADDR  SIZE   HEAP
-[]System        0600   79K     2K
-    Code+data          66K      -
+[]System        0600  111K     2K
+    Code+data          99K      -
 []  Stacks              4K      -
 []  Disk bufs           4K      -
-[]  FAT snap            5K      -
+[]  FAT snap            4K      -
 ```
 
-`System` is `KERN_KB` = 79 (80,384 B rounded up), at `KERNEL_SEG`. Its four
-buffer rows sum to it **exactly**, and that is a property rather than a
-coincidence: every rung of the ladder is a whole number of 512-byte sectors,
-so half of them are an odd half-kilobyte and four independently rounded parts
-can lose two kilobytes against a total that rounds once — so `SK_IMG` and
-`SK_DSK` are residuals and absorb it (SPEC.md §20.9). `SK_IMG` deliberately
-covers the **cold segment** as well as the image, which is why `Code+data` is
-66K and not 46: cold code is code, it is resident, and it is inside the span
-`System` measures. Leaving it out made the parts sum three kilobytes short of
-the whole with no row saying where they went.
+The SIZE column is the only part of that a document can pin: it is derived
+from the ladder at build time down to the byte, so the five figures above are
+this tree's and not one machine's. RAM, HEAP and the map depend on the
+machine and are an example.
+
+`System` is `KERN_KB` = 111 (113,664 B, an exact 111), at `KERNEL_SEG`. Its four
+buffer rows sum to it **exactly**, and each one is within a kilobyte of the
+span it names. Those are two properties, and for a long time only the first
+held: every rung of the ladder is a whole number of 512-byte sectors, so half
+of them are an odd half-kilobyte and parts rounded one at a time gain two
+kilobytes against a total that rounds once — so `SK_IMG` and `SK_DSK` were
+made residuals and absorbed it. That totals and it does not bound: measured
+on the current build, `Disk bufs` read **6 KB for 3,584 bytes of buffer**,
+because everything the other four rows did not claim was landing in it.
+
+Since SPEC.md §20.9 nothing is a residual. Each row is a span the ladder
+declares, the kernel's own tables in `.lowbss` are billed to `Code+data`, and
+the KB figures are rounded **cumulatively** — each running boundary to the
+nearest kilobyte, each row the difference of two of them — so they telescope
+to the total whatever they are individually, and no row can drift because
+none of them is anybody's dumping ground. Guard 7 in `kernel/kernel.asm`
+proves both halves.
+
+`SK_IMG` deliberately covers the **cold segment** as well as the image, which
+is why `Code+data` is 99K and not 61: cold code is code, it is resident, and
+it is inside the span `System` measures. Leaving it out made the parts sum
+three kilobytes short of the whole with no row saying where they went. Since
+§20.9 it also covers the planar decoder's rung and the tables — `.bss`-class
+data that lives in `LOW_SEG` to buy back `KERN_CODE_MAX` and for no other
+reason, which is what "Moving data out of the segment" below is about, and
+which `Code+data` was always the true label for.
+
+Row by row, against what each one measures:
+
+| row | constant | bytes | true KB | shown |
+|---|---|---:|---:|---:|
+| `Code+data` | `SKB_IMG` | 101,760 | 99.375 | 99 |
+| `Stacks` | `SKB_STK` + `SKB_STK0` | 3,712 | 3.625 | 4 |
+| `Disk bufs` | `SKB_DSK` = `DSK_WIN_BYTES` | 3,584 | 3.5 | 4 |
+| `FAT snap` | `SKB_FAT` = `FAT_PARA`·16 | 4,608 | 4.5 | 4 |
+| **`System`** | **`KERN_SIZE`** | **113,664** | **111** | **111** |
+
+`FAT snap` is the row that shows what cumulative rounding costs and what it
+buys. 4,608 B is 4.5 KB, which rounds either way; it read 5 while it was
+rounded on its own, and the column then needed a residual to give the extra
+kilobyte back to. It reads 4 now, no further from the truth than 5 was, and
+the column totals without anything absorbing anything.
 
 The `HEAP` column beside `System` is the kernel's own claims, which is why
 the task-list view's System row reads 81K where this one reads 79K: 79 of
@@ -1548,9 +1596,12 @@ segments:
 - `dsk_secbuf`, 512 B — one sector of scratch: the directory sector being
   read-modify-written on a write, and the zero-padded final sector of a file.
 
-Together they are exactly `.lowbss` minus the eleven background stacks and
-the four tables below, which is how the Task Manager's `Disk bufs` row
-derives itself.
+Together they are `DSK_WIN_BYTES`, and since SPEC.md §20.9 that is exactly
+what the Task Manager's `Disk bufs` row reports. It used to derive itself the
+other way round — `.lowbss` minus the background stacks, and nothing else —
+which was the same number back when `.lowbss` held nothing else, and 6 KB by
+the time it held 2,824 bytes of the tables listed under "Moving data out of
+the segment" below. Those are billed to `Code+data` now.
 
 ### FAT window — 4,608 B
 
@@ -1748,62 +1799,63 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 33,628 | 34.3% |
-| the window system and its furniture | 26,227 | 26.8% |
-| drawing: adapters, primitives, glyphs, icons | 16,863 | 17.2% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 10,119 | 10.3% |
-| the kernel proper: API table, heap, scheduler, events | 8,288 | 8.5% |
-| the three built-in kinds | 1,815 | 1.9% |
-| the Control Panel | 1,060 | 1.1% |
-| **total** | **98,000** | |
+| the file system, end to end | 31,797 | 34.8% |
+| the window system and its furniture | 25,138 | 27.5% |
+| drawing: adapters, primitives, glyphs, icons | 15,821 | 17.3% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,402 | 9.2% |
+| the kernel proper: API table, heap, scheduler, events | 7,451 | 8.1% |
+| the three built-in kinds | 1,813 | 2.0% |
+| the Control Panel | 1,055 | 1.2% |
+| **total** | **91,477** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` | `.boot2` |
 |---|---:|---:|---:|---:|---:|---:|
-| `wm.inc` — the window manager (§11) | 12,531 | 95 | **12,626** | 1,086 | — | — |
-| `files.inc` — the Disk window (§22) | 1,131 | 8,744 | **9,875** | 471 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 7,991 | 702 | **8,693** | 181 | 526 | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 397 | 6,306 | **6,703** | 890 | 3,584 | — |
-| `fdlg.inc` — the Standard File dialog (§38) | 274 | 5,323 | **5,597** | 169 | — | — |
-| `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 5,067 | **5,246** | 155 | — | — |
-| `mouse.inc` — serial mouse and the cursor (§9) | 4,828 | — | **4,828** | 149 | — | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,516 | — | **3,516** | 58 | — | — |
-| `menu.inc` — the menu bar and pull-downs (§12) | 3,086 | — | **3,086** | 197 | 98 | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 543 | 2,491 | **3,034** | 348 | — | — |
-| `assoc.inc` — file type associations (§54) | 528 | 2,415 | **2,943** | 43 | — | — |
-| `memory.inc` — the claim heap (§50) | 20 | 2,765 | **2,785** | 20 | 324 | — |
-| `instance.inc` — instances and the built-in kinds (§29) | 2,452 | — | **2,452** | 694 | — | — |
-| `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,440 | **2,440** | 148 | — | — |
-| `font.inc` — the 8×8 glyph renderer (§6) | 2,167 | — | **2,167** | 218 | 768 | — |
-| `apps.inc` — the three built-in kinds (§14) | 251 | 1,564 | **1,815** | 15 | 240 | — |
-| `icons.inc` — the icon renderer (§10) | 1,686 | — | **1,686** | 100 | — | — |
-| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,541 | — | **1,541** | 88 | — | — |
-| `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,304 | — | **1,304** | 4 | — | — |
-| `sched.inc` — pre-emptive scheduling (§7–8) | 1,277 | — | **1,277** | 124 | 2,746 | — |
-| `snd.inc` — the sound layer (§34) | 1,200 | — | **1,200** | 300 | — | — |
+| `wm.inc` — the window manager (§11) | 11,831 | 94 | **11,925** | 1,074 | — | — |
+| `files.inc` — the Disk window (§22) | 1,052 | 8,303 | **9,355** | 471 | — | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 7,418 | 702 | **8,120** | 180 | 526 | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 397 | 5,824 | **6,221** | 890 | — | — |
+| `fdlg.inc` — the Standard File dialog (§38) | 241 | 5,038 | **5,279** | 168 | — | — |
+| `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,626 | **4,805** | 155 | — | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 3,723 | — | **3,723** | 149 | — | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,372 | — | **3,372** | 58 | — | — |
+| `menu.inc` — the menu bar and pull-downs (§12) | 2,758 | 181 | **2,939** | 197 | 84 | — |
+| `assoc.inc` — file type associations (§54) | 523 | 2,391 | **2,914** | 43 | — | — |
+| `memory.inc` — the claim heap (§50) | 35 | 2,648 | **2,683** | 20 | 324 | — |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 2,042 | **2,538** | 348 | — | — |
+| `instance.inc` — instances and the built-in kinds (§29) | 2,167 | 258 | **2,425** | 694 | — | — |
+| `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,423 | **2,423** | 148 | — | — |
+| `font.inc` — the 8×8 glyph renderer (§6) | 2,087 | — | **2,087** | 218 | 768 | — |
+| `apps.inc` — the three built-in kinds (§14) | 251 | 1,562 | **1,813** | 15 | 240 | — |
+| `icons.inc` — the icon renderer (§10) | 1,666 | — | **1,666** | 100 | — | — |
+| `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,243 | — | **1,243** | 4 | — | — |
+| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,229 | — | **1,229** | 88 | — | — |
+| `snd.inc` — the sound layer (§34) | 1,178 | — | **1,178** | 300 | — | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 1,131 | — | **1,131** | 9 | — | — |
-| `ctrl.inc` — the Control Panel (§31) | 778 | 282 | **1,060** | — | — | — |
-| `desk.inc` — the desktop and volume zones (§14/§26.1) | 15 | 1,040 | **1,055** | 18 | — | — |
-| `viddet.inc` — adapter detection and geometry (§39) | 1,024 | — | **1,024** | — | 696 | 3 |
-| `dock.inc` — the dock strip (§30) | 913 | — | **913** | 38 | — | — |
-| `loader.inc` — the package loader (§21) | — | 782 | **782** | 58 | — | — |
+| `sched.inc` — pre-emptive scheduling (§7–8) | 1,066 | — | **1,066** | 124 | 2,746 | — |
+| `ctrl.inc` — the Control Panel (§31) | 778 | 277 | **1,055** | — | — | — |
+| `desk.inc` — the desktop and volume zones (§14/§26.1) | 15 | 1,036 | **1,051** | 18 | — | — |
+| `viddet.inc` — adapter detection and geometry (§39) | 1,021 | — | **1,021** | — | 696 | 3 |
+| `dock.inc` — the dock strip (§30) | 878 | — | **878** | 38 | — | — |
+| `loader.inc` — the package loader (§21) | — | 758 | **758** | 58 | — | — |
+| `clock.inc` — the clock ladder (§37) | 694 | — | **694** | 89 | — | — |
 | `fprog.inc` — the file-operation progress widget (§12.8) | 682 | — | **682** | — | — | — |
-| `clock.inc` — the clock ladder (§37) | 678 | — | **678** | 89 | — | — |
-| `toast.inc` — the menu bar's transient message (§59) | 537 | — | **537** | 25 | — | — |
+| `toast.inc` — the menu bar's transient message (§59) | 512 | — | **512** | 25 | — | — |
 | `mod.inc` — on-demand kernel modules (§2.8) | 54 | 416 | **470** | 98 | — | — |
-| `blank.inc` — the idle screen blanker (§64) | 208 | 240 | **448** | — | — | — |
-| `xmem.inc` — memory above 1MB (§41.4–41.5) | 263 | 104 | **367** | 22 | — | — |
-| `clip.inc` — the system clipboard (§55) | 229 | — | **229** | 6 | — | — |
-| `events.inc` — the event ring (§10) | 173 | — | **173** | 134 | — | — |
+| `blank.inc` — the idle screen blanker (§64) | 208 | 247 | **455** | — | — | — |
+| `xmem.inc` — memory above 1MB (§41.4–41.5) | 257 | — | **257** | 22 | — | — |
+| `clip.inc` — the system clipboard (§55) | 223 | — | **223** | 6 | — | — |
+| `events.inc` — the event ring (§10) | 182 | — | **182** | 6 | 128 | — |
 | `clone.inc` — the disk cloner (§18.99) | 15 | 27 | **42** | — | — | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 12 | — | **12** | — | — | — |
-| `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 2,027 |
+| `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 2,015 |
+| `dskwin.inc` — **(undescribed)** | — | — | **0** | — | 3,584 | — |
 | `band.inc` — the 1bpp band composer (§5.9), `BAND=1` | — | — | **0** | — | — | — |
 | `bootprof.inc` — the boot phase table (§15.5), `BOOTPROF=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,583 | — | **3,583** | — | — | 468 |
-| **total** | **57,197** | **40,803** | **98,000** | **5,955** | **8,982** | **2,498** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,050 | — | **3,050** | — | — | 421 |
+| **total** | **52,624** | **38,853** | **91,477** | **5,813** | **9,096** | **2,439** |
 <!-- END generated table -->
 
 ### Reading it

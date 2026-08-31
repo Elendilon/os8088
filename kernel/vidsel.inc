@@ -89,6 +89,21 @@ vid_dbg_blk:
                                 ;     means vid_desk_union never ran, unequal
                                 ;     with one means nothing put it back
 
+; =============================================================================
+; THE ADAPTER PROBE TRIO, IN THE BOOT OVERLAY (SPEC.md 2.5.2,
+; docs/LAST-DROP-BYTES.md row 2) - 262 contiguous bytes and the cleanest body
+; in the tree to move: ONE inbound edge in the whole repository (kmain:4211),
+; ZERO outbound, and no data and no `section` line anywhere in the span.
+; vid_probe_avail calls vid_memchk three times and vid_cga_alias once and calls
+; nothing else at all, so the two below it stay near-called and keep their near
+; `ret`; only vid_probe_avail is entered from outside the blob and only it ends
+; in `retf`.
+;
+; What this buys is 256 bytes of the 64KB segment - the scarce guard - that
+; stop existing when kmain gives the blob back.
+; =============================================================================
+section .ovlw
+
 ; -----------------------------------------------------------------------------
 ; vid_memchk - is there display RAM at this segment? (SPEC.md 39.11.1)
 ;
@@ -245,7 +260,10 @@ vid_probe_avail:
     pop dx
     pop cx
     pop ax
-    ret
+    retf                        ; FAR: the trio's only entry from outside the
+                                ; blob, reached by OVLGATE1 from kmain. The two
+                                ; bodies around it are near-called from in here
+                                ; and keep their near `ret`
 
 ; -----------------------------------------------------------------------------
 ; vid_cga_alias - is B800 just the mono card's own second page?
@@ -324,6 +342,7 @@ vid_cga_alias:
     pop bx
     pop ax
     ret
+section .text                   ; ...and the overlay's three end here
 
 ; -----------------------------------------------------------------------------
 ; vid_avail_test - may this machine be driven as AL?
@@ -569,22 +588,30 @@ SPL_MSG_Y     equ 288           ; VGA: under the bar trough (rows 262..281) and
                                 ; computes its own from the live geometry
 
 ; -----------------------------------------------------------------------------
-; The three entries drv_boot reaches through OVLCALL, and the one spl_reset
-; does. Every one of them preserves every register and the flags.
+; The three drv_boot reaches, and the one spl_reset does. Every one of them
+; preserves every register and the flags.
+;
+; **THE FIRST THREE ARE NEAR NOW** (SPEC.md 2.5.2): drv_boot_x moved into this
+; same section, and it is their only caller, so what used to be a 20-byte
+; OVLCALL through spl_fp is three bytes of near call in one address space and
+; the `retf` they answered it with is a `ret`. That collapse is most of why
+; docs/LAST-DROP-BYTES.md row 1 is the only row in the register that returns
+; more than it spends. ovl_spl_redraw below keeps its `retf` - spl_reset is in
+; `.boot2` and reaches it through OVLCALL still.
 ; -----------------------------------------------------------------------------
 ovl_spl_msg_cfg:                ; 'Loading SYSTEM.CFG'
     push si
     mov si, spl_s_cfg
     call spl_msg_cs
     pop si
-    retf
+    ret
 
 ovl_spl_msg_boot:               ; 'Starting os8088'
     push si
     mov si, spl_s_boot
     call spl_msg_cs
     pop si
-    retf
+    ret
 
 ; ...and the two kmain reaches, for the phases that are NOT disk and are the
 ; longest things on a hard-disk boot's bar (SPEC.md 15.6.4). Each is composed
@@ -607,8 +634,8 @@ ovl_spl_msg_fdd:                ; 'Looking for Drives' - SPEC.md 18.97's TRACK
     retf
 
 ovl_spl_msg_drv:                ; AL = ordinal, AH = total, DS:SI = DRVR_TITLE
-    call spl_msg_drv
-    retf
+    call spl_msg_drv            ; ...and near too - see above
+    ret
 
 ovl_spl_redraw:                 ; put the composed line back after a mode set
     call spl_mdraw
@@ -1272,7 +1299,8 @@ vid_ctx_ptr:
     push ax
     push dx
     mov dl, VID_CTX_SZ
-    mul dl                      ; AX = index * 40 (not a power of two)
+    mul dl                      ; AX = index * VID_CTX_SZ, which is not a
+                                ; power of two and has GROWN twice
     mov di, vid_ctx
     add di, ax
     pop dx
@@ -1413,13 +1441,26 @@ vid_ctx_act:
 ; out:      [vid_ndisp] = 1, [vid_cur] = 0, display 0 captured at (0,0)
 ; clobbers: flags
 ;
-; Called from kmain beside vid_probe_avail, and from vid_switch, and NOT from
-; vid_apply - which is the trap this module already carries a scar from.
-; vid_apply runs from the SPLASH, on its first tick, while the rest of the
-; kernel is still coming off the floppy (SPEC.md 15.3), so a call from there
-; into this file executes whatever has not been loaded yet: black screen, no
-; clue. viddet.inc's header says so about cur_unlazy for the same reason.
+; Called from kmain beside vid_probe_avail and NOT from vid_apply - which is the
+; trap this module already carries a scar from. vid_apply runs from the SPLASH,
+; on its first tick, while the rest of the kernel is still coming off the floppy
+; (SPEC.md 15.3), so a call from there into this file executes whatever has not
+; been loaded yet: black screen, no clue. viddet.inc's header says so about
+; cur_unlazy for the same reason.
+;
+; **THE LINE ABOVE USED TO SAY "and from vid_switch" AND IT WAS NOT TRUE** -
+; vid_switch calls vid_avail_test, cur_unlazy, vid_blank, wm_su_drop_all,
+; vid_equip, vid_apply, vid_setmode, vid_disp_init and desk_rowcalc, and none of
+; them is this. kmain:4203 is the only edge in the repository, which is what
+; puts this body in the BOOT OVERLAY (SPEC.md 2.5.2,
+; docs/LAST-DROP-BYTES.md row 13) - and a stale comment naming a runtime caller
+; is exactly how a later session would add the one that breaks it silently.
+;
+; Its two outbound calls go through cw_ shims, which is `.ovl`'s discipline
+; unchanged from `.cold`'s: CS is the blob's, DS is still KERNEL_SEG, so the
+; body reads [vid_ndisp] and [vid_ox] exactly as it did.
 ; -----------------------------------------------------------------------------
+section .ovlw
 vid_ctx_init:
     push ax
     push cx
@@ -1430,19 +1471,20 @@ vid_ctx_init:
     mov byte [vid_ndisp], 1
     mov byte [vid_cur], 0
     xor al, al
-    call vid_ctx_ptr
+    call KERNEL_SEG:cw_vid_ctx_ptr
     xor ax, ax                  ; display 0 sits at the virtual origin
     mov [es:di+VID_CTX_VX], ax
     mov [es:di+VID_CTX_VY], ax
     mov [vid_ox], ax            ; ...and it is current, so vid_ctx_act - which
     mov [vid_oy], ax            ; is what normally publishes these - never runs
     xor al, al
-    call vid_ctx_capture
+    call KERNEL_SEG:cw_vid_ctx_capture
     pop es
     pop di
     pop cx
     pop ax
-    ret
+    retf                        ; FAR: kmain reaches this through OVLGATE1
+section .text
 
 ; -----------------------------------------------------------------------------
 ; vid_fsx_enter - one display, and the others dark (SPEC.md 39.18)

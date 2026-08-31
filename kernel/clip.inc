@@ -84,12 +84,11 @@ clip_put:
     cmp cx, CLIP_MAXKB * 1024
     ja .toobig                  ; the clipboard it already has is still good:
                                 ; a refused put must not destroy one
-    mov ax, cx
-    add ax, 1023
-    push cx
-    mov cl, 10
-    shr ax, cl                  ; AX = whole kilobytes, rounded up
-    pop cx
+    mov ax, cx                  ; AX = whole kilobytes, rounded up. CX carries
+    call mem_bytes_kb           ; the byte count on, which is why the helper
+                                ; banks it; and the `never 0` clamp cannot
+                                ; fire here, the jcxz above having already
+                                ; answered that case
     cmp ax, [clip_kb]
     je .room                    ; the same size: reuse the block outright
     call clip_drop              ; ...otherwise free THEN claim, because every

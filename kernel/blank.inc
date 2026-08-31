@@ -757,7 +757,23 @@ ssf_frame:      cmp byte [blk_sv], 0    ; blk_pass's gate, on this side of the
                 push ax
                 mov al, SSV_FRAME
                 call ss_call
-                pop ax
+                pop ax          ; `pop` touches no flag: the verb's CF is here
+                jnc .none       ; CF = 1: THE NEXT FRAME IS ALREADY DUE, so the
+                                ; UI task must not sleep on it (SPEC.md 79.5.7,
+                                ; 8.1.2.4). task_sleep(1) parks until [ticks]
+                                ; reaches what it holds AT THE CALL, so a frame
+                                ; that has already run into the next tick would
+                                ; be followed by a sleep through the one after
+                                ; - which is 18.2 fps or 9.1 and nothing
+                                ; between. The byte is .idle's own lost-wakeup
+                                ; guard and this is the same statement it
+                                ; already carries: something happened during
+                                ; this pass, go round again
+                mov byte [sch_uiwake], 1
+                                ; ON THIS SIDE OF THE BOUNDARY, like the gate
+                                ; above and for .up's own reason: it is bytes
+                                ; of a .cold rung rather than of a .text one,
+                                ; and the only caller is here
 .none:
                 retf
 ssf_cfg:        call ss_cfg_x

@@ -94,13 +94,22 @@ DOCK_CTX_H  equ DOCK_CTX_N * MENU_ITEM_H + 2
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 15). One
+; caller, kmain:4342. dock_px_none is INLINED rather than shimmed - it is two
+; stores and a `ret`, so a 4-byte cw_ shim in `.text` would have cost more than
+; the two instructions it saves and would have bought a far call as well.
+; dock_force is the one real outbound and goes through a shim.
+section .ovlw
 dock_init:
     push cx
     push di
     mov byte [dock_gcol], 0
     mov byte [dock_full], 0     ; .bss is not zeroed at boot (-f bin), and
-    call dock_px_none           ; the first paint owes the whole strip - and
-    call dock_force             ; nothing has been PAINTED yet (SPEC.md 30.3.3)
+    mov word [dock_px1], 07FFFh ; the first paint owes the whole strip - and
+    mov word [dock_px2], 08000h ; nothing has been PAINTED yet (SPEC.md 30.3.3).
+                                ; dock_px_none's body, inlined - see the note
+                                ; above the section line
+    call KERNEL_SEG:cw_dock_force
     mov di, dock_ck
     mov cx, INST_MAX
 .z:
@@ -110,7 +119,8 @@ dock_init:
     loop .z
     pop di
     pop cx
-    ret
+    retf                        ; FAR: kmain reaches this through OVLGATE1
+section .text
 
 ; -----------------------------------------------------------------------------
 ; dock_force   - the WHOLE strip was painted over

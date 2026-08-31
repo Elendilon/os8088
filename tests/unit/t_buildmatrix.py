@@ -136,13 +136,39 @@ KNOBS = [
     ("titlesnap",   ["TITLESNAP=1"]),
     # SPLSTARS= is TITLESNAP's sentence one screen along - the loading screen's
     # animation A/B (SPEC.md 15.3.7) - and it carries a second reason this
-    # roster is the only thing watching: it is the ONE configuration that
-    # re-splits the blob, moving OVL_AT to 2704 so the twinkle fits `.boot2`.
-    # That leaves 34 bytes on one side of the split and 30 on the other, so the
-    # next byte spent in EITHER section breaks this arm and nothing else - and
-    # it breaks it at `nasm`, naming which half ran out, which is exactly the
-    # failure a build matrix is for.
+    # roster is the only thing watching: it is the ONE configuration left that
+    # re-splits the blob. It takes an OVL_AT of its own (3,072 against the
+    # shipped 2,560) AND a BOOT2_SECS of its own, one sector up, because the
+    # twinkle wants ~330 bytes of `.boot2` that the shipped split has not got -
+    # and it is over WHEREVER OVL_AT falls, so moving the split alone cannot
+    # pay for it (SPEC.md 15.3.8.5).
+    #
+    # The margins are NOT quoted here any more and that is the fix rather than
+    # an omission: they were "34 on one side and 30 on the other" against an
+    # OVL_AT of 2704, and every one of those three numbers was stale - the
+    # constant had moved to 3072 and the two halves had moved with every commit
+    # that spent a blob byte since. A margin printed in a comment is a number
+    # nobody re-measures. What does not rot is the mechanism: BOTH halves are
+    # asserted at the foot of kernel.asm, each `%error` names which one ran
+    # out, and THIS ROW is the only thing that ever runs those assertions for
+    # the knob arm.
+    #
+    # SPEC.md 2.9.12 made it the ONLY knob that still needs its own sector: at
+    # 19 the shipped blob has room for bootmark and moudiag below, where at 13
+    # it had not. A mechanism with one user is one nobody notices breaking,
+    # which is the whole argument for the row.
     ("splstars",    ["SPLSTARS=1"]),
+    # MOUDIAG= is SPEC.md 9.9.6's identify-window table drawn on the finished
+    # desktop, and it had NO ROW HERE AT ALL until SPEC.md 2.9.12 - which is
+    # how a short jump out of range inside the moved mouse cluster went
+    # unfound. It is a knob exactly like the ones above: `%ifdef MOU_DIAG` code
+    # in mouse.inc and ui.inc plus the whole of kernel/moudiag.inc, which no
+    # ordinary build assembles, and it spends `.boot2` bytes as well as `.text`
+    # ones - so it is a blob configuration too, not only a code one.
+    #
+    # `knobhd` (soak) builds it paired with BOOTPROF=1 and is not the pre-merge
+    # gate; this row is, and it costs seconds.
+    ("moudiag",     ["MOUDIAG=1"]),
     ("nounal",      ["NOUNAL=1"]),
     # The three this PR added and nothing else names: NOFLUSHR is SPEC.md
     # 11.95.3's A/B for the right border alone, FATWGATE moves 18.8.2's heap

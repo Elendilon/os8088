@@ -230,13 +230,16 @@ CLAIM_SNAPSHOT_SIZE equ MEM_MAX * CLS_RECSZ
 ; --- osapi_sys_kb's buffer, API slot 0x02A8 (SPEC.md 20.9) --------------------
 ; The kernel's own footprint broken into its parts, then the heap's totals.
 ; The parts sum to SK_KERN exactly - see the routine at the foot of this file
-; for which two of them absorb the rounding, and why.
+; for how the rounding is arranged so that they do, and why none of them is a
+; residual any more.
 SK_KERN    equ 0                ; word: the whole span (SPEC.md 2)
-SK_IMG     equ 2                ; word: image + .bss + the cold segment
+SK_IMG     equ 2                ; word: image + .bss + the cold segment + the
+                                ; planar rung + the kernel's tables in .lowbss
 SK_FAT     equ 4                ; word: the mount-time FAT window (18.8)
 SK_STK     equ 6                ; word: the MAX_TASKS-1 background stacks
 SK_STK0    equ 8                ; word: task 0's - the UI task's
-SK_DSK     equ 10               ; word: the disk buffers, the rest of .lowbss
+SK_DSK     equ 10               ; word: the mount-owned window (2.1.2) - the
+                                ; three disk buffers and nothing else
 SK_BUF     equ 12               ; word: FAT + stacks + disk buffers together,
                                 ; the part of the kernel that is scratch
                                 ; rather than program
@@ -266,6 +269,12 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; Runs on task 0 before any other task exists, so it needs no critical
 ; section (SPEC.md 7's only-the-UI-task-calls-BIOS rule holds here).
 ; -----------------------------------------------------------------------------
+section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
+                                ; docs/LAST-DROP-BYTES.md row 11): kmain sizes
+                                ; the heap once. mem_unblob_x, which runs LATER
+                                ; and gives the blob back, is a different body
+                                ; and stays resident - it has to, because it
+                                ; runs at the moment this section stops existing
 mem_init_x:
     push ax
     push cx
@@ -280,7 +289,7 @@ mem_init_x:
     cld
     rep stosb
 
-    call mem_floor_ax           ; THE FLOOR (SPEC.md 39.22), and it is a proc
+    call COLD_SEG:memf_mem_floor_ax           ; THE FLOOR (SPEC.md 39.22), and it is a proc
                                 ; rather than eight instructions here because
                                 ; mem_unblob below has to arrive at the same
                                 ; answer - two copies of a conditional whose
@@ -355,6 +364,10 @@ mem_init_x:
 ; first place, so [mem_floor] equals [mem_base], the store is a no-op and
 ; mem_compact finds every claim already at its fill point.
 ; -----------------------------------------------------------------------------
+section .cold                   ; ...and back, and mem_unblob_x is exactly why
+                                ; the line is here: it is the routine that frees
+                                ; the blob, so it is the one body in this file
+                                ; that could not live in it
 mem_unblob_x:
     push ax
     call mem_floor_ax
@@ -383,6 +396,12 @@ mem_unblob_x:
 ; vid_probe_avail runs before mem_init in kmain, which is what makes the bit
 ; readable at all.
 ; -----------------------------------------------------------------------------
+; ...and the far entry the BOOT OVERLAY reaches it through (SPEC.md 2.5.2):
+; mem_init_x is in the blob and mem_floor_ax is not, mem_unblob_x still
+; near-calling it from `.cold`.
+memf_mem_floor_ax:  call mem_floor_ax
+                    retf
+
 mem_floor_ax:
     mov ax, HEAP_SEG
 %if VGABUF_PARA
@@ -2227,50 +2246,6 @@ mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
     jmp short .out
 
 ; -----------------------------------------------------------------------------
-; mem_claim_get - read one claim record by index (SPEC.md 50.6)
-; in:  AX = record index (0..MEM_MAX-1)
-; out: CF = 0 and DX = base segment, CX = paragraphs, BX = owner word;
-;      CF = 1 if that record is free
-; clobbers: BX/CX/DX (outputs) and the flags
-;
-; The Task Manager's memory map walks these to draw every live claim at its
-; real address - the one thing the old map could not do, because the blocks
-; it drew were constants and there was nothing to walk.
-;
-; This is the ONLY place in the module that turns a record INDEX into an
-; address; every other loop steps by MC_SIZE and cannot drift. It used to
-; open-code the stride as an add-chain commented "*6 = MC_SIZE", and when
-; MC_DMA widened the record to 8 the comment stayed true and the code did
-; not: every record after the first was read straddling two, so the map drew
-; claims at invented addresses and invented sizes - one of them across nearly
-; the whole of conventional memory - while every figure in the window, which
-; comes from the stepping loops, stayed correct. It multiplies by the
-; constant now.
-; -----------------------------------------------------------------------------
-mem_claim_get:
-    push si
-    cmp ax, MEM_MAX
-    jae .none
-    push ax
-    mov si, MC_SIZE
-    mul si                      ; DX:AX = index * MC_SIZE, both small
-    mov si, ax
-    pop ax
-    add si, mem_tab
-    cmp word [ss:si+MC_SEG], 0
-    je .none
-    mov dx, [ss:si+MC_SEG]
-    mov cx, [ss:si+MC_PARA]
-    mov bx, [ss:si+MC_OWN]
-    clc
-    pop si
-    ret
-.none:
-    stc
-    pop si
-    ret
-
-; -----------------------------------------------------------------------------
 ; mem_owned_kb - how many KB does one owner hold? (SPEC.md 50.6)
 ; in:  BX = owner word
 ; out: AX = KB claimed by that owner (0 if none)
@@ -2801,37 +2776,38 @@ osapi_claim_snapshot_x:
 ; have. They still ARE constants - this call just puts them where something
 ; else can read them.
 ;
-; SK_IMG deliberately covers the COLD SEGMENT as well as the image and .bss.
-; Cold code is code; it is resident for the whole session and it is inside
-; the span SK_KERN measures, so leaving it out made the parts sum three
-; kilobytes short of the whole and no row on any screen said where they went.
+; EVERY TERM IS A MEASURED SPAN NOW, and the arithmetic that derives them is
+; in kernel.asm beside the ladder they come off (SKB_*/SK_*_KB): the sizes are
+; not known until the foot of that file, and a constant belongs with what
+; declares it. What is worth knowing HERE is which row holds what.
 ;
-; SK_IMG and SK_DSK are RESIDUALS, and that is what makes the parts add up.
-; Every rung of the ladder is a whole number of 512-byte sectors (SPEC.md 2),
-; so half of them are an odd half-kilobyte and four independently rounded
-; parts can lose two kilobytes against a total that rounds once. So the two
-; least interesting figures absorb it: SK_IMG is the whole span less the
-; buffers, and SK_DSK is the buffers less the FAT window and the stacks -
-; which is exactly what "whatever else is in .lowbss" already meant.
+; SK_DSK is the mount-owned window and nothing else - 3,584 bytes of
+; disk_dir + disk_icons + dsk_secbuf (SPEC.md 2.1.2). It used to be "the
+; buffers less the FAT window and the stacks", which is what "whatever else is
+; in .lowbss" meant when .lowbss held nothing else; by the time it held 2,824
+; bytes of table it read 6 KB for 3.5 KB of buffer, and nothing bounded the
+; error because a residual has no size of its own.
 ;
-; That is also where SPEC.md 39.22's `.vgabuf` lands, and it lands there by
-; construction rather than by a decision anybody has to remember: those 848
-; bytes are inside SK_KERN's span and outside KBUF_KB, so the residual takes
-; them. It moves a kilobyte from SK_DSK to SK_IMG against the build before the
-; rung existed - the buffers used to be .lowbss and so used to be counted as
-; "the rest of .lowbss" - and neither row was ever the honest name for a plane
-; buffer. Adding a row of its own would change a published block that a
-; package reads (SPEC.md 28), for a figure nobody can act on.
+; SK_IMG is what is left, and it is the honest name for it: image, .bss, the
+; COLD SEGMENT (cold code is code, it is resident for the whole session and it
+; is inside the span SK_KERN measures), SPEC.md 39.22's `.vgabuf` rung, and
+; the kernel's own tables in .lowbss - glyph table, row table, pair tables,
+; claim map, event ring, menu bar, built-in state pools. Those are .bss-class
+; data living in LOW_SEG to buy back KERN_CODE_MAX and for no other reason, so
+; `Code+data` was always their label. Adding a row of their own would change a
+; published block that a package reads (SPEC.md 28) and cost the memory view
+; the one row of window height VGA has left, for a figure nobody can act on.
+;
+; The KB figures are rounded CUMULATIVELY - each part is the difference of two
+; rounded running boundaries - so they sum to SK_KERN by construction and no
+; part is a kilobyte from its true size. Guard 7 proves both.
 ; =============================================================================
-SK_STK_KB  equ ((MAX_TASKS-1) * SCH_STACK + 1023) / 1024
-SK_STK0_KB equ (STK0_SIZE + 1023) / 1024
-SK_FAT_KB  equ (FAT_PARA * 16 + 1023) / 1024
-
 osapi_sys_kb_x:
     push ax
     push bx
     push di
-    mov ax, KERN_KB             ; ...and on a machine with NO VGA the kernel is
+    mov ax, KERN_KB
+    mov bx, SK_IMG_KB           ; ...and on a machine with NO VGA the kernel is
 %if VGABUF_PARA                 ; a KB smaller, because `.vgabuf` was never
                                 ; reserved (SPEC.md 39.22). Reported and not
                                 ; hidden: the free figure comes out right by
@@ -2842,20 +2818,25 @@ osapi_sys_kb_x:
                                 ; bill a mono machine for a buffer it does not
                                 ; have. That is exactly the misreporting a
                                 ; heap claim was rejected for.
+                                ;
+                                ; It comes off SK_IMG because that is the row
+                                ; the rung is IN, and off both figures by the
+                                ; SAME amount because the parts have to go on
+                                ; summing - which they do for any SK_VGAB_KB
+                                ; at all, the two subtractions cancelling.
     test byte [vid_avail], VID_A_VGA
     jnz .kern
-    sub ax, (VGABUF_PARA * 16 + 1023) / 1024
+    sub ax, SK_VGAB_KB
+    sub bx, SK_VGAB_KB
 .kern:
 %endif
     mov [es:di+SK_KERN], ax
+    mov [es:di+SK_IMG],  bx
     mov word [es:di+SK_BUF],  KBUF_KB
-    sub ax, KBUF_KB
-    mov [es:di+SK_IMG],  ax     ; ...and the IMAGE row follows it, or the three
-                                ; would stop summing
     mov word [es:di+SK_FAT],  SK_FAT_KB
     mov word [es:di+SK_STK],  SK_STK_KB
     mov word [es:di+SK_STK0], SK_STK0_KB
-    mov word [es:di+SK_DSK],  KBUF_KB - SK_FAT_KB - SK_STK_KB - SK_STK0_KB
+    mov word [es:di+SK_DSK],  SK_DSK_KB
     push di
     call mem_total_kb           ; AX = claimed KB, BX = heap size KB
     pop di
@@ -2888,25 +2869,15 @@ osapi_sys_kb_x:
 ; =============================================================================
 mmf_mem_avail:            call mem_avail_x
                       retf
-mmf_mem_avail_lvl:        call mem_avail_lvl_x
-                      retf
 mmf_mem_claim:            call mem_claim_x
-                      retf
-mmf_mem_claim_dma:        call mem_claim_dma_x
                       retf
 mmf_osapi_mem_claim_hi:   call osapi_mem_claim_hi_x
                           retf
 mmf_osapi_mem_claim_dma_hi: call osapi_mem_claim_dma_hi_x
                           retf
-mmf_mem_claim_hi:         call mem_claim_hi_x
-                      retf
 mmf_mem_free:             call mem_free_x
                       retf
-mmf_mem_free_owner:       call mem_free_owner_x
-                      retf
 mmf_mem_movable:          call mem_movable_x
-                      retf
-mmf_mem_owner_of:         call mem_owner_of_x
                       retf
 mmf_osapi_claim_snapshot: call osapi_claim_snapshot_x
                       retf
@@ -2996,3 +2967,31 @@ mem_cp_key:  resw 1             ; the compaction walk's cursor: the ORIGINAL
 mem_top:  resw 1                  ; one past the last, from int 12h
 
 section .text
+
+; -----------------------------------------------------------------------------
+; mem_bytes_kb - a byte count as whole kilobytes, rounded UP and never 0
+; in:       AX = bytes
+; out:      AX = kilobytes, at least 1
+; clobbers: flags
+;
+; The claim heap's unit is the kilobyte, so every caller of mem_claim that
+; starts from a byte count spells this out; three of them did, in .text alone.
+; CX is banked because one of the three carries the byte count in it, and a
+; helper that clobbers a caller's register is worth less than the two bytes.
+;
+; **A zero answer is refused**, which is the merged form of two shapes that
+; differed: a claim of 0 KB gets no memory and the caller has nowhere to put
+; what it asked about. The site that had no clamp cannot reach 0 either - its
+; count is already past a `jcxz` - so the answer is the same at all three.
+; -----------------------------------------------------------------------------
+mem_bytes_kb:
+    push cx
+    add ax, 1023
+    mov cl, 10
+    shr ax, cl
+    or ax, ax
+    jnz .out
+    inc ax
+.out:
+    pop cx
+    ret

@@ -71,21 +71,10 @@ CLK_AT_DAT  equ 0x71
 ; So the index goes in AL and mark_stamp is reached through a far shim.
 ;
 ; NOTHING WITHOUT `make BOOTMARK=1`, like every other MARK.
-%ifdef BOOT_MARK
-%macro OVLMARK 1
-    push ax
-%if ((%1) % 5) == 0
-    mov al, (%1) | 0x80         ; every fifth block is the tall one
-%else
-    mov al, (%1)
-%endif
-    call KERNEL_SEG:ovw_mark_stamp
-    pop ax
-%endmacro
-%else
-%macro OVLMARK 1
-%endmacro
-%endif
+; **THE MACRO ITSELF HAS MOVED to kernel.asm, beside MARK** (SPEC.md 9.4.7).
+; It was here because clk_init was its only user; mouse_init joined it in the
+; overlay, and mouse.inc is %included BEFORE this file - so a macro defined
+; here would not exist at its sites. Nothing else changed and no byte moved.
 
 CLK_XT_BASE equ 0x2C0           ; where an XT add-on clock lives - BOTH chips
 CLK_UIP_MAX equ 4000            ; bounded UIP poll: never spin on a stuck bit.
@@ -103,7 +92,7 @@ CLK_RETRY   equ 10              ; bounded coherent-read retries
 %define CLK_FORCE 0
 %endif
 %define CLK_TRY(n) (CLK_FORCE == 0 || CLK_FORCE == n)
-section .ovl                    ; boot overlay (SPEC.md 2.5)
+section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 
 ; -----------------------------------------------------------------------------
@@ -138,7 +127,10 @@ clk_init:
                                 ; way. NOT 40 - mouse.inc owns 40..47, and two
                                 ; marks in one column is a row nobody can read
     pop ax
-    ret
+    retf                        ; FAR, and the shim that used to own this
+                                ; return is deleted (SPEC.md 2.6.1, 2.5.2):
+                                ; kmain names this body directly through
+                                ; OVLGATE1 and nothing near-calls it
 
 ; -----------------------------------------------------------------------------
 ; clk_probe - walk the RTC ladder, and seed the clock from whatever answers
@@ -321,7 +313,7 @@ clk_at_get:
                                 ; here - os88ovlchk REFUSES a near call to it, which
                                 ; is how "nothing in .text may use me" is enforced
                                 ; rather than remembered (SPEC.md 2.6.1)
-section .ovl                    ; boot overlay (SPEC.md 2.5)
+section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 
 ; -----------------------------------------------------------------------------
@@ -356,7 +348,7 @@ clk_at_done:
     pop dx
     pop ax
     retf                        ; far entry, both address spaces (SPEC.md 37.94)
-section .ovl                    ; boot overlay (SPEC.md 2.5)
+section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 
 ; -----------------------------------------------------------------------------
@@ -712,7 +704,7 @@ CLK_NS_SIG  equ 0x0D            ; RAM: no HIGH nibble - the first signature
 CLK_NS_YRB  equ 0x0E            ; RAM: year - 1980, what 86Box's cards use
 CLK_NS_STAT equ 0x14            ; D0 = a counter rolled during the read
 CLK_NS_MAGIC equ 222
-section .ovl                    ; boot overlay (SPEC.md 2.5)
+section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 
 ; -----------------------------------------------------------------------------
@@ -761,7 +753,7 @@ clk_ns_put:
     pop dx
     pop ax
     ret
-section .ovl                    ; boot overlay (SPEC.md 2.5)
+section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 
 ; -----------------------------------------------------------------------------
@@ -1162,7 +1154,7 @@ clk_rp_get:
     and al, 0x0F                ; only D0-D3 exist; the rest floats
     pop dx
     retf                        ; far entry, both address spaces (SPEC.md 37.94)
-section .ovl                    ; boot overlay (SPEC.md 2.5)
+section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 
 ; -----------------------------------------------------------------------------
@@ -1441,7 +1433,7 @@ clk_rp_year:
     pop ax
     ret
 section .text
-section .ovl                    ; boot overlay (SPEC.md 2.5)
+section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 
 ; =============================================================================
@@ -1749,8 +1741,7 @@ clk_snapshot:
 clk_fmt:
     push ax
     push bx
-    push cx
-    push dx
+    push dx                     ; NOT CX: the length is an OUTPUT now
     call clk_snapshot
     mov bx, clk_str
     mov al, [clk_sn_mon]
@@ -1807,10 +1798,35 @@ clk_fmt:
 .end:
     mov byte [bx], 0
     mov si, clk_str
+    mov cx, bx                  ; ...and the LENGTH, which is free here: BX is
+    sub cx, si                  ; the pointer the NUL just went through, and
+                                ; both callers walked the string again for it
     pop dx
-    pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; str_len - the length of an ASCIIZ string in the kernel segment
+; in:  SI = the string
+; out: CX = its length, NUL excluded; SI and everything else preserved
+;
+; The kernel's only strlen, and it is here rather than anywhere else because
+; clk_fmt above is what created it. `.text` sites ONLY: a caller in `.modc` or
+; `.cold` is in another segment and needs a cw_ shim, which costs more than
+; the six-instruction loop it would be replacing.
+; -----------------------------------------------------------------------------
+str_len:
+    push si
+    xor cx, cx
+.l:
+    cmp byte [si], 0
+    je .d
+    inc si
+    inc cx
+    jmp short .l
+.d:
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1920,7 +1936,7 @@ clk_put4:
     pop cx
     pop ax
     ret
-section .ovl                    ; boot overlay (SPEC.md 2.5)
+section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 
 ; -----------------------------------------------------------------------------

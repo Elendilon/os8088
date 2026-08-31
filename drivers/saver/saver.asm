@@ -269,6 +269,30 @@ sv_do_stop:
 ; re-anchored when the machine falls more than SV_LAG behind, which is
 ; arkanoid's rule (SPEC.md 44) and stops a long stall being repaid as a burst
 ; of frames nobody saw.
+;
+; **AND IT ANSWERS CF = 1 WHEN THE NEXT ONE IS ALREADY DUE** (SPEC.md 79.5.7),
+; which is the whole of what this verb owes a kernel whose UI task BLOCKS
+; (SPEC.md 8.1.2). `task_sleep(1)` parks until [ticks] reaches the value it
+; holds AT THE CALL, so a frame that has already run into the next tick is
+; followed by a sleep through the whole of the one after it - and a mode
+; polled once a pass therefore gets 18.2/(floor(work/54.9ms) + 1) frames a
+; second, 18.2 while it fits a tick and 9.1 the moment it does not, with
+; nothing in between.
+;
+; Sea life is the one mode that sits on the boundary: a pass with one of its
+; frames in it costs 50-106ms against a 54.9ms tick, depending on how many
+; swimmers were born at scale 2 and how many are at a screen edge - so it
+; lands either side and the mode measured 12.0 fps SWINGING between 9.2 and
+; 17.8, with 37.2% of the machine halted, asleep with a frame already overdue.
+; The other three sat on 18.2 throughout, which is why one mode was reported
+; and not four.
+;
+; Nothing is done about the COST here: an expensive sea still draws at what it
+; costs. What goes away is the step down to the divisor below it.
+;
+; The answer reaches the kernel because nothing on the way writes a flag: the
+; seven pops in sv_entry (SPEC.md 79.3) and ssf_frame's retf both leave CF
+; alone, which is the property SPEC.md 20.3's API cell is built on.
 ; -----------------------------------------------------------------------------
 SV_LAG      equ 4
 
@@ -305,6 +329,11 @@ sv_do_frame:
     call OSAPI_GFX_LOCK
     call sv_step
     call OSAPI_GFX_UNLOCK
+    call OSAPI_GET_TICKS        ; ...and RE-READ the clock: the frame above is
+    sub ax, [sv_due]            ; the thing that may have spent a whole tick,
+    js .out                     ; so the answer is worthless taken before it
+    stc                         ; the next frame is already late: SAY SO, and
+    ret                         ; the UI task goes round instead of sleeping
 .out:
     clc
     ret
