@@ -219,12 +219,39 @@ table has never had one in.
 
 ### 2.4 What has to be settled before it is built
 
-1. **What a `kern_small` machine with a VGA card actually does.** It boots today.
-   After this it must fail *legibly* rather than into a black screen —
-   `vid_detect` finding VGA and no renderer for it is a refusal, and SPEC.md
-   §39.11.1.1's `vid_hprobe` precedent is that "not detected" needs to be
-   distinguishable in the field from a screenshot. This is the one user-visible
-   decision in step 1 and it is the owner's, not the implementer's.
+1. **~~What a `kern_small` machine with a VGA card actually does.~~ ANSWERED, and
+   there is nothing to decide: it runs the card as a CGA at 640×200.** This was
+   the one user-visible question in the way of the gate, and it turned out to
+   need a measurement rather than a ruling.
+
+   The reasoning is `vid_detect`'s ladder. With the VGA probes gated out, the
+   walk falls through to `int 11h`'s equipment word, bits 5:4 — and a VGA in
+   colour mode answers `10b`, which is `VID_CGA`. The CGA arm then sets **BIOS
+   mode 6** (`int 10h AX=0006h`, 640×200) and lays the desktop out at B800,
+   and **every VGA BIOS serves mode 6** because a VGA is a CGA superset.
+
+   **Measured, not argued** (MartyPC `os8088_xt_vga`, a real VGA machine, booted
+   with a `make VIDEO=cga` kernel — which is the same instruction stream a
+   VGA-less `kern_small` would take):
+
+   ```
+   video:    mode 'Mode6HiResGraphics', type 'vga'
+   cga       640x200   lit 76,235 (59.6%)   row 4 = 640/640   row 19 = 0
+   still     0 differing px over 1.5 s; 20 px over 3 s, all in rows 6-11
+   cycles    575,124,900 -> 582,522,735
+   ```
+
+   Menu-bar field solid, the rule under it clear, the dock drawn, 59.6% of the
+   screen lit and the guest still executing — `tests/bootsmoke.py`'s structural
+   desktop, on a VGA card. **The 20 pixels are the menu-bar clock**, which
+   PERFORMANCE.md Part 4 already names as the one difference the kernel is right
+   to make; `os88marty.settle`'s boot gate reads it as "the screen is still
+   changing", so a gate for this needs `boot=<seconds>` rather than `settle`.
+
+   So no refusal path, no `vid_hprobe`-style diagnostic and no black screen: a
+   128KB machine with a VGA in it loses 640×480×16 and keeps a working desktop.
+   What is still owed is the same reading on **iron** — no emulator can show a
+   card whose BIOS serves mode 6 differently — and that is docs/FIELD-MACHINES.md's.
 2. **`make test-full` is the only thing that builds `kern_small` at all**, which
    is how that build has been *discovered* broken three times rather than
    reported broken. Every step here needs a row in it.
