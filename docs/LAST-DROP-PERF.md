@@ -1,12 +1,18 @@
 # The Last Drop Of Performance
 
-> Companion: **docs/LAST-DROP-BYTES.md** is the same idea for BYTES - code whose
-> lifetime is boot-only and which could move into `.ovl` (released at `spl_finish`,
-> so it costs nothing after boot) the next time the blob grows. This file is
-> CYCLES; that one is BYTES.
+> Companion: **docs/LAST-DROP-BYTES.md** is the same idea for BYTES — the menu of
+> footprint the machine could still get back, and the register of what is refused
+> and why. This file is CYCLES; that one is BYTES.
 
 **Optimisations that were built, measured, and found CORRECT — and shelved
 anyway, because they did not clear the price of their own footprint.**
+
+**...and, since §4, the INVERSE**: a change that was **taken**, whose price is
+recorded here so that it can be re-decided rather than rediscovered. The two
+classes belong in one file because they are one question asked from opposite
+sides — *is this trade worth it?* — and because the thing that rots is not the
+verdict, it is the arithmetic behind it. An entry marked **TAKEN** is in the
+shipped kernel today; every other entry is not in the tree at all.
 
 This is not the negative-results file. A negative result is a thing that does
 not work: SPEC.md §19.2.3.1's track alignment that was 3 calls *worse*,
@@ -252,6 +258,114 @@ a rule anybody has to remember.
 - **A budget with room in it.** The verdict above is 336 bytes against a rung;
   on a kernel with four steps spare rather than one, the same measurement
   reads very differently.
+
+---
+
+## 4. `gfx_xor_strips`: one outline decomposition instead of four — **TAKEN**
+
+**Status:** built, measured, **SHIPPED** (`d0edd73`).
+**Verdict:** **−352 bytes** for **+37% on a VGA `gfx_xor_rect`**, which is
+**+2.22 ms of a 55 ms drag tick** and could not be seen by hand. Taken — and
+written down here because the cost is real, is confined to one primitive, and is
+the entry to re-open the day something XORs rectangles faster than a drag does.
+
+### What it does
+
+The same four-strip decomposition of a rectangle outline was written out **four
+times**: `gfx_xor_rect_clip` did it through the public `gfx_xor_fill`;
+`gfx_xor_rect_raw` did it on VGA through hand-rolled `vga_xor_hline` and
+`vga_vline_core`; `softgfx.inc`'s `sw_xor_rect` did it through `sw_xor_fill`; and
+`gfx_frame` drew the same rectangle as two hlines and two vlines with overlapping
+corners — which in replace mode is the identical pixels, the strips' top and bottom
+being full width.
+
+`gfx_xor_strips` is that decomposition **once**, with the fill routine to draw a
+strip with carried in `BP`. Three heads: `gfx_xor_rect_d` passes
+`gfx_xor_fill_raw` (already inside the display hook and past the clip),
+`gfx_xor_rect`'s clipped arm passes the public `gfx_xor_fill` so each strip meets
+`GFXCLIP` itself — an outline is not the intersection of its bounding rect with
+anything — and `gfx_frame` passes `gfx_fill`. `vga_xor_hline`, `vga_vline_core` and
+`sw_xor_rect` then have no callers at all and are deleted.
+
+**−291 `.text` in `vga12.inc` and −61 in `softgfx.inc`.** It also retires the last
+uses of `SCREEN_W`/`SCREEN_H`/`ROW_BYTES` as clip BOUNDS in that file, which were
+safe only because a VGA display really is 640×480.
+
+### Measured
+
+`tests/gfxbench` on MartyPC, cycle-accurate 4.77 MHz 8088, before and after the
+same merge:
+
+| row | adapter | before | after | delta |
+|---|---|---:|---:|---|
+| `GFX_XOR_RECT 64x64` | **VGA** | 2,997.29 µs | 4,109.27 | **+1,111.98, +37.10%** |
+| `GFX_XOR_RECT 256x128` | **VGA** | 5,469.71 | 6,584.53 | **+1,114.82, +20.38%** |
+| `GFX_XOR_RECT 256x1` | **VGA** | 833.21 | 1,073.99 | +240.78, +28.90% |
+| `GFX_XOR_RECT 64x64` | HERC | 5,021.09 | 4,945.20 | −75.89, −1.51% |
+| `GFX_XOR_RECT 64x64` | CGA | 5,142.58 | 5,201.80 | +59.22, +1.15% |
+
+**The shape of the cost is the finding, not the percentage.** The absolute delta is
+**the same ~1,112 µs at 64×64 and at 256×128** — sixteen times the area, the same
+bill. It is **fixed per call**: three extra rect arrivals per outline, each paying
+its own `vga_rect_setup`, its own arming and its own `vga_gc_reset`, where the old
+VGA arm armed once and ran four hand-rolled edges. Nothing about it is per-pixel,
+which is why the percentage falls as the rect grows and why the degenerate 256×1 —
+which collapses to fewer strips — pays a fraction of it.
+
+**Both 1bpp adapters are unchanged**, and that is structural rather than lucky:
+that path already decomposed into four `sw_xor_fill` strips and always has. The
+whole cost is VGA's.
+
+### The price, in the thing that actually draws XOR rectangles
+
+`ui_drag`'s `.track` loop is paced to one tick by its `.linger`, so a held drag is
+**exactly two XOR rects a tick** — erase and redraw — inside a **held `gfx_lock`**.
+At +1,112 µs each that is **+2.22 ms of every 55 ms tick, about 4%**, and the
+window in which the outline is DARK gets longer at both ends. That second half is a
+double-draw flash, VGA only, and **invisible in every emulator in this tree**.
+
+Two things weigh against it, and both are on the record:
+
+* **The owner drove old against new by hand on a held window drag and could not
+  tell the difference.** That is the strongest evidence there is for a defect whose
+  whole class is "does not show in an emulator".
+* **`gfx_frame` got FASTER on all three adapters** in the same merge — same four
+  calls, one wrapper frame shallower: HERC 6,782.60 → 6,514.44 (**−3.95%**), CGA
+  6,944.18 → 6,752.92 (**−2.75%**), VGA 3,917.00 → 3,895.17 (−0.56%). `gfx_frame` is
+  drawn far more often than a drag outline is.
+
+**The prediction was 60% low.** The commit costed it at "+0.7 ms per XOR rect …
++1.4 ms of a 55 ms tick" and the measurement is +1.11 and +2.22. The *shape* —
+fixed per call, VGA only, 1bpp free — was right; the magnitude was not, which is
+the ordinary reason PERFORMANCE.md rule 4 says to measure.
+
+### What would flip the answer
+
+* **A consumer that XORs rectangles faster than a drag does.** A game's sprite
+  erase, a rubber-band selection updated more than once a tick, marching ants, any
+  outline drawn in a loop. Today the only consumers are `ui_drag` (two a tick) and
+  the dock's focus rect (one per focus change). At ten rects a tick this entry is
+  11 ms of a 55 ms tick and the answer is different.
+* **A drag that stops being tick-paced.** The 4% is 4% *because* `.linger` caps the
+  loop at one pass a tick. Anything that makes the drag smoother makes this dearer
+  in exact proportion.
+* **The flash being SEEN.** `gfxbench` answers the microsecond question and cannot
+  answer this one. The commit named `deskbench` on VGA and `os88marty.py flicker`
+  over one held drag as the measurement, and **neither has been taken**; `dockmark`
+  is the control and not the measurement, since one rect per focus change says
+  nothing about 36.4 a second. If a flicker run over a held drag shows transient
+  pixels it did not show before, that is a defect rather than a trade.
+* **A cheaper merge — the version to build if any of the above happens.** The
+  1,112 µs is three extra *arrivals*, not three extra decompositions.
+  `gfx_xor_strips` calls a whole rect fill per strip through `BP`, and each VGA
+  arrival re-runs setup, arming and `gc_reset`. A strip walker that armed the GC
+  **once** and drove four rect setups inside one bracket would keep all 352 bytes
+  and most of the 1,112 µs. Nobody has costed one. It is not free — the clipped arm
+  deliberately sends each strip through `GFXCLIP` separately, so the one-bracket
+  form can only serve the unclipped head — but the unclipped head is `ui_drag`'s,
+  which is the only one that pays.
+
+---
 
 ## The apparatus, so it is not rebuilt
 
