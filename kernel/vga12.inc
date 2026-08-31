@@ -4247,6 +4247,16 @@ gfx_sp_next:
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2
 ; out:      -
 ; clobbers: flags
+;
+; THE VGA BODY BELOW IS DELIBERATELY ITS OWN, and it looks like 139 bytes of
+; duplication because it nearly is: gfx_fill_pat_raw's VGA body is this one
+; with the row byte read out of a table where this toggles `not bh`, so with
+; the eight bytes AA 55 AA 55 AA 55 AA 55 they are the same function. That
+; merge was taken and MEASURED: gfxbench GFX_FILL_GRAY 64x64 on MartyPC VGA
+; went 4,266.31 -> 5,685.53 us, +33.27% for 139 bytes, and it was reverted.
+; UI_GRAY is os88ui_sbar's trough, so the bill lands on every scrollbar in
+; every package and on every C package through os88thunk.asm. Do not re-derive
+; it: docs/LAST-DROP-BYTES.md 7.6 carries the numbers and the flip condition.
 ; -----------------------------------------------------------------------------
 gfx_fill_gray:
     GFXCLIP gfx_fill_gray_d
@@ -4254,21 +4264,82 @@ gfx_fill_gray_d:
     GFXDISP gfx_fill_gray_raw
 gfx_fill_gray_raw:
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_fill_gray            ; the renderer, and its arm is UNCHANGED -
-                                ; byte for byte the path both mono adapters
-                                ; already took
-    mov word [gfx_pat], vga_graytab ; ...and on VGA the 50% dither IS an 8x8
-    jmp gfx_fill_pat_vga        ; PATTERN. gfx_fill_pat_raw's body is this one
-                                ; with the row byte read out of a table where
-                                ; this read it off `not bh` - so with the eight
-                                ; bytes below it is the same function, and it
-                                ; was written out twice (SPEC.md 5).
-                                ;
-                                ; [gfx_pat] IS SPENDABLE: osapi_gfx_fill_pat
-                                ; sets it on every API call and files.inc sets
-                                ; it immediately before its own gfx_fill_pat.
-                                ; Nothing carries it across another primitive
-vga_graytab: db 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55
+    jne sw_fill_gray
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call vga_rect_setup
+    jc .done
+    mov bl, 0xAA                ; pattern for the top clipped row
+    test byte [vga_y1], 1
+    jz .parity
+    mov bl, 0x55
+.parity:
+    mov ax, VGA_SEG
+    mov es, ax
+    mov dx, VGA_GC
+    mov ax, [vga_m8l]           ; left edge column: AL = 8, AH = the mask
+    out dx, ax
+    mov di, [vga_off]
+    mov si, [vga_rows]
+    mov bh, bl
+.lcol:
+    mov al, [es:di]             ; load latches for the masked write
+    mov [es:di], bh
+    not bh                      ; AA <-> 55 each row
+    add di, ROW_BYTES
+    dec si
+    jnz .lcol
+    mov cx, [vga_span]
+    or cx, cx
+    jz .reset
+    mov ax, [vga_m8r]           ; right edge column
+    out dx, ax
+    mov di, [vga_off]
+    add di, cx
+    mov si, [vga_rows]
+    mov bh, bl
+.rcol:
+    mov al, [es:di]
+    mov [es:di], bh
+    not bh
+    add di, ROW_BYTES
+    dec si
+    jnz .rcol
+    dec cx                      ; interior bytes per row
+    jz .reset
+    mov ax, 0xFF08              ; full bytes: latches irrelevant
+    out dx, ax
+    mov di, [vga_off]
+    inc di
+    mov si, [vga_rows]
+    mov ah, bl                  ; the row pattern moves to AH so BX can carry
+    mov bx, cx                  ; the count the rep destroys, and DX the row
+    mov dx, ROW_BYTES           ; step less that count (SPEC.md 5.7.1)
+    sub dx, bx
+.irow:
+    mov al, ah
+    mov cx, bx
+    rep stosb
+    add di, dx
+    not ah
+    dec si
+    jnz .irow
+.reset:
+    call vga_gc_reset
+.done:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; gfx_fill_pat - 8x8 dither pattern fill, screen-aligned (SPEC.md 5)
@@ -4336,8 +4407,7 @@ gfx_fill_pat_d:
 gfx_fill_pat_raw:
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
     jne sw_fill_pat
-gfx_fill_pat_vga:               ; ...and gfx_fill_gray_raw's VGA arm arrives
-    push ax                     ; HERE, with [gfx_pat] pointed at vga_graytab
+    push ax
     push bx
     push cx
     push dx
