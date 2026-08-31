@@ -192,6 +192,12 @@ KNOBS = [
     # the pre-merge gate, and an instrument that stopped assembling is found
     # at the moment somebody needs it to answer a question.
     ("gfxaudit",    ["GFXAUDIT=1"]),
+    # NOSEAMCUT= is SPEC.md 39.14.11's A/B: font_char's whole-cell drop at a
+    # display seam, which the cut replaced. Its gate (tests/dispseam.py) builds
+    # it - and that gate is on SOAK, which is not the pre-merge one, so this is
+    # NOPLANE's sentence exactly: an A/B that stopped assembling is found at
+    # the moment somebody reaches for it to tell a real fix from a null run.
+    ("noseamcut",   ["NOSEAMCUT=1"]),
 ]
 
 

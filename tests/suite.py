@@ -785,6 +785,17 @@ SOAK = [
         "mono display refuses on a different guard and leaked a display nest."
         "Needs the VGA+mono machine",
         needs=("marty",), serial=True),
+    # Two boots a machine and two machines, plus the two `make`s the A/B needs,
+    # which is what puts it at four minutes rather than one. It EARNS them: the
+    # fixed leg alone cannot tell a conserved run from a run that never crossed
+    # a cell, and this file can be null in a way that looks exactly like a pass
+    # (SPEC.md 39.14.6). `--no-build` drops to the fixed leg for a hand-built
+    # image; `--machine` picks one orientation.
+    Row("dispseam", "soak", py("tests/dispseam.py"), 600.0,
+        "Does the one cell a display SEAM crosses still reach the glass?"
+        "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
+        "and puts the default kernel back, both seam orientations",
+        needs=("marty",), serial=True),
     Row("dispstrad", "soak", py("tests/dispstrad.py"), 60.0,
         "Does a window dragged across the seam give back the rows only ONE"
         "display",

@@ -43183,6 +43183,142 @@ that no test of either routine can see. `tests/dispsave.py` asserts the
 FEATURE — is a cache taken, and are the pixels right — which is what caught
 both.
 
+#### 39.14.11 …and the CELL is a cut too — the character the seam ate
+
+§39.14.6 made a run go per cell at the seam and **left the one cell the seam
+crosses**. `font_char` enters on the display holding the cell's top-left corner
+and then asks that display's own edge test:
+
+```
+    cmp cx, [vid_cwm8]          ; unsigned: negative x fails this too
+    ja .done
+```
+
+`.done` draws nothing. The cell is not clipped to this display and it is not
+re-issued on the other one — it is dropped, whole, and §39.14.2's sentence
+*"drawn on one display and cut at its edge"* turns out to mean **cut at its
+edge to nothing** for the only shape in the system that is 8 pixels wide.
+
+**Why it is exactly one character, and only when the pen is unaligned.** The
+seam is the primary's own width — 640 or 720 — so it is a multiple of 8. Cells
+are 8 wide and a run advances 8 a cell, so every cell of a run sits at
+`x₀ + 8n`: an **aligned** `x₀` puts every cell boundary on a multiple of 8, the
+seam falls *between* two cells and nothing straddles; an **unaligned** `x₀` puts
+exactly one cell across the seam and **exactly one character disappears**.
+§11.94 snaps a window's *content* origin, which is why converted applications
+draw their text aligned and never see it — and `wm_draw_title` centres a caption
+on the exact pixel, which is why the **chrome** is where it was reported from:
+*"drag a window into a straddle and the title loses a character."*
+
+**This is §39.14.6's concession one level down, and §39.14.2's argument does not
+survive it.** A bezel between two monitors is why a missing rect edge is nothing
+to see; a missing *letter* is not a bezel, it is a bug, and the same field that
+reported the run reported this.
+
+**The cut, and why the text case is easier than §39.14.7.2's.** A cell is at
+most two byte-columns wide, and the renderers already write them as two masked
+writes with `or al, al / jz` skipping an empty one. The seam is a multiple of 8
+and the cell's top-left is left of it, so the first byte column lies **wholly**
+on this display and the second **wholly** on the other: the cut the blit has to
+compute falls exactly where the glyph loop already splits. So neither renderer
+gains an instruction. What is cut is the **glyph**, into two 8-byte scratch
+cells beside the table, and each is then drawn by an ordinary `font_char` call
+at ordinary virtual coordinates — which resolves its own display, runs its own
+edge tests, honours its own clip region and picks its own adapter, because
+§39.14.10's question is asked per display and the two cards need not be alike.
+
+| | drawn where | glyph |
+|---|---|---|
+| this display's part | in place, at `(x, y)` | the top `k` columns and the first `n` rows, the rest zeroed |
+| the spill | at the seam, on the display across it | `src << k`, or rows `n…7` lifted to the top |
+
+`k` = `[vid_cw] - x` and `n` = `[vid_ch] - y`, each capped at 8; at least one of
+them is under 8 or the cut was not entered. **Zeroing is the whole masking
+mechanism**: text is transparent, so a zero row writes nothing and a glyph whose
+spill columns are zero leaves `AL` zero after the shift and the second write is
+skipped by the test that is already there. The part on this display therefore
+draws through the ordinary body with the ordinary registers, and **nothing lands
+outside the display in either axis** — which is what makes it safe to skip the
+edge test on the way back in.
+
+**Five things are load-bearing.**
+
+- **The cost is zero when nothing straddles**, on one card and on two. The whole
+  cut hangs off the `ja` that was already there and is already not taken by
+  every cell that fits — no compare is added to the common path, in either
+  kernel. `[gfx_dnest] != 1` refuses: 0 is a one-card machine, above 1 is a
+  caller that owns the translation, and §39.14.2 stands for both.
+- **The anchor must be ON this display.** `vid_disp_of` answers with the primary
+  for a point in the **dead zone** (§39.2.1), and a cell there fails the same
+  edge test without there being anything across it. `cmp cx, [vid_cw] / jae` is
+  the difference between a straddle and a cell that is simply not here — and
+  without it the spill would resolve back to the primary at the same coordinates
+  and the cut would call itself for ever.
+- **A cut cell is re-entered by CHARACTER CODE.** The two scratch cells sit
+  immediately after `font_zero`, so `font_glyphs + (al - FONT_FIRST) * 8` — the
+  arithmetic already in the body — addresses them from codes 128 and 129 with
+  nothing added anywhere. They are private: a counter guards the one branch that
+  lets a code above `FONT_LAST` through, so `OSAPI_FONT_CHAR` with 128 draws
+  what it has always drawn, which is nothing.
+- **The spill is issued BEFORE the part in place, and the display is put back.**
+  §39.14.3 leaves the last display drawn on current, so the recursion returns
+  with the *other* card's geometry live; `vid_ctx_act` on the banked `[vid_cur]`
+  is what makes the fall-through legal. Every virtual coordinate the cut needs
+  is read before the first call for the same reason.
+- **A non-multiple-of-8 display width is REFUSED, not approximated**, exactly as
+  §39.14.7.2 refuses an odd cut. Every adapter here is 640 or 720 wide so the
+  refusal is unreachable; the property it rests on is worth one compare rather
+  than a comment.
+
+**Depth is bounded at two.** A spill is drawn at the seam, so its own local
+coordinate in the axis it crossed is 0 and it cannot cut that axis again; the
+other axis can cut once more, and that cell is at 0 in both. The corner — a cell
+crossing a display's right edge *and* its bottom — has only one real seam, since
+§39.19.2 places exactly two displays either Right or Below, and the layout picks
+which; the other overhang has nothing beyond it and is simply not drawn, which
+is what it deserves and an improvement on the cell vanishing.
+
+**What it does not fix.** `ico_core` is still whole-shape (§39.14.2) — a 32x32
+icon straddling is a bezel-sized argument the letter case is not. And a
+DISABLED cell cut in the Y axis restarts §47's checkerboard phase on the far
+side, because the phase is seeded from `[wm_clip_r0]` and the spill's is 0; the
+X axis is in step, greyed text is rare and a straddled greyed cell rarer, and a
+phase byte carried across a display boundary costs more than the seam it fixes.
+
+**Measured, and `make NOSEAMCUT=1` is the A/B** — the same kernel with the cut
+removed, which assembles **byte for byte identical** to the kernel before this
+section existed, so every byte of the change is behind the knob. The claim is a
+picture, so the assertion is a diff of one: the same window, at two positions
+whose caption pens are a multiple of 8 apart, has a title bar that is the same
+picture twice, and `tests/dispseam.py` reassembles the straddling one across
+the seam and subtracts. Both orientations, because the seam moves with the
+primary:
+
+| primary, seam | cut | `NOSEAMCUT=1` |
+|---|---|---|
+| CGA, 640 | **0 differing px** | 18 lost |
+| Hercules, 720 | **0 differing px** | 18 lost |
+
+Eighteen is the part of one glyph that falls past the seam — the caption's pen
+sits 4 px off the grid in both runs, so half a cell of `Disk`'s `k` is what
+vanishes. **A one-card machine is untouched**, which is a claim rather than an
+assertion by construction and is checked as one: an identical scripted session
+through both kernels on `os8088_5150_cga_gla` and `os8088_5150_herc_gla` —
+desktop, a Disk window, that window dragged against the right screen edge where
+the whole-cell clip lives, then grown so its pen goes off the grid there too —
+is **eight identical framebuffer hashes, 0 differing pixels**.
+
+**The case has to be ARRANGED, and a run that does not arrange it PASSES.**
+§11.94 snaps a window's origin so `W_X` is 7 modulo 8, and the caption is
+centred at `W_X + ((W_W - 8n) >> 1)` — so the pen's phase is fixed by the
+window's WIDTH and the title's LENGTH, and no drag can change it. The Disk
+window opens 322 wide under a 4-character title, which puts the pen exactly on
+the grid: the seam falls *between* two cells, nothing straddles, and **both
+kernels then draw the identical picture**. That null is what the first two runs
+of this measurement produced, and it is §39.14.6's lesson arriving a second
+time in the same file. The gate grows the window by 8 first — which moves the
+pen by 4 — and asserts the phase before it measures anything.
+
 ### 39.15 The pointer crosses; the arrow jumps (`KERN_BIG` only)
 
 **`[mouse_x]`/`[mouse_y]` are VIRTUAL desktop coordinates** — they always

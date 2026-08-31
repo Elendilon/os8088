@@ -520,6 +520,21 @@ walks the plane the same way is `gfx_blit4`'s first version again.
 
 ## 6. The lost character on a straddle — a defect, and the glyph cache does not fix it
 
+> **BUILT, and it is the one item on this page that has been.** SPEC.md
+> §39.14.11 is the contract, `make NOSEAMCUT=1` the A/B and
+> `tests/dispseam.py` the gate: **0 differing pixels straddling against 18
+> lost**, on both seam orientations. It cost 299 bytes of `.text` and nothing
+> at all when no cell straddles, the whole of it hanging off the `ja` that was
+> already there. §6.1's diagnosis below is exactly what the fix was built
+> against and stands as written; §6.3's sketch is superseded by §39.14.11, and
+> the difference is that **the glyph is masked rather than the writes** — the
+> seam is a multiple of 8, so the cut falls where the renderers already split
+> and neither of them gained an instruction.
+>
+> **This changes nothing about the rest of this page**, which is why it was
+> separated from it: §7's glyph cache still does not fix it (§6.2 is the
+> argument and is untouched), and every budget step here is still unstarted.
+
 ### 6.1 What is actually happening
 
 **Reported behaviour:** on an extended desktop, dragging a window into a
@@ -564,11 +579,12 @@ its own (much reduced) merits: §7.**
 
 ### 6.3 The fix, sketched — and it now has a handoff of its own
 
-> **docs/HANDOFF-FONTCHAR-SEAM.md is the standalone write-up**, self-contained
-> for somebody with no context here: the mechanism, why it is exactly one
-> character, the §39.14.2/§39.14.6 history that must not be re-litigated, the
-> `TITLESNAP=1` A/B that reproduces and controls it in one knob, the fix, and
-> the evidence owed. What is below is the summary.
+> **SPEC.md §39.14.11 is what was built and is the contract.**
+> docs/HANDOFF-FONTCHAR-SEAM.md is the standalone write-up it was built from,
+> self-contained for somebody with no context here: the mechanism, why it is
+> exactly one character, and the §39.14.2/§39.14.6 history that must not be
+> re-litigated. What is below is the summary, and it is the sketch rather than
+> the outcome — read §39.14.11 for that.
 
 
 The precedent is in the same routine, eight lines down. For the **clip region**
@@ -662,9 +678,10 @@ scenarios is.
 6. **`kern_big`'s reuse** (§3 mechanism, §5 payload), which is the only step that
    needs the `.ovl` decider, the blob sectors and the `tests/vgarefs.txt`
    ratchet.
-7. **The straddle fix** — **docs/HANDOFF-FONTCHAR-SEAM.md**, independent of all
-   of the above and separated from it deliberately: it is a correctness change
-   and everything else here is a budget change.
+7. **The straddle fix** — **DONE** (SPEC.md §39.14.11), independent of all of
+   the above and separated from it deliberately: it is a correctness change and
+   everything else here is a budget change. That separation is what let it ship
+   on its own while none of steps 1–6 has started.
 
 **And one thing that is NOT on this list.** If the goal is a game like TANK
 ATTACK, none of steps 1–4 reaches it (§5.4). That work is
