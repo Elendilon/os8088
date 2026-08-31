@@ -33,8 +33,8 @@ the VGA-only code, and what each of the two kernels can do with it — which is
 
 | | `kern_big` | `kern_small` |
 |---|---:|---:|
-| VGA-only `.text` in `vga12.inc` | **1,771** | **~1,207** |
-| …less `vga_solid_rect`, which is *fallen into* (§1.2) | 1,612 | ~1,048 |
+| VGA-only `.text` in `vga12.inc` | **1,740** | **~1,176** |
+| …less `vga_solid_rect`, which is *fallen into* (§1.2) | 1,581 | ~1,017 |
 | VGA-only `.text` in the rest of the kernel (§2.1) | — | **~460, estimated** |
 | the `[vid_mono]` / `[vid_planes]` dispatch that folds away (§2.2) | — | **~220, estimated** |
 | **what `kern_small` stops assembling** | — | **~1,700–1,900** |
@@ -101,12 +101,37 @@ nasm -f bin -w+error -I kernel/ -I apps/ -I build/ -o /dev/null /tmp/kmap.asm
 | `gfx_spans.vga` | 69 | ~2 | a stub on `kern_small` |
 | `gfx_blit4.vga` | 54 | ~40 | |
 | `vga_set_color` / `vga_set_xor` / `vga_gc_reset` | 59 | 59 | the three GC writers |
-| `vga_xor_fill_vram` + `vga_xor_rect_vram` | 24 | 24 | |
-| `vga_pat_stage` | 14 | 14 | |
+| `vga_xor_fill_vram`'s arm | ~7 | ~7 | the entry above it is SHARED — see the note |
 | `vga_sr_on` | 12 | 12 | |
-| **total** | **1,771** | **~1,207** | |
+| **total** | **1,740** | **~1,176** | |
 
-**`vga_rect_setup` (123 bytes) is NOT in this table, and it is in the wrong
+**TWO ROWS OF THIS TABLE WERE WRONG WHEN IT WAS FIRST WRITTEN, and how they
+were found is the method note that matters.** The first draft was built by
+reading names and dispatch sites. Bracketing the bodies for the gate then
+walked every `vga_*` label asking *does this touch a port, `VGA_SEG` or a
+latch* and *who outside this file calls it* — and two answers came back wrong:
+
+* **`vga_pat_stage` (14 B) is SHARED**, not VGA-only. It is four `movsw` that
+  stage eight pattern bytes, and `softgfx.inc`'s `sw_fill_pat` calls it as well.
+  It was in the VGA file on the strength of its old name; it is `gfx_pat_stage`
+  in `softgfx.inc` now, moved by the same commit as `gfx_rect_setup`.
+* **`vga_xor_rect_vram` (3 B) and most of `vga_xor_fill_vram` (21 B) are shared
+  ENTRIES**, not bodies: `cur_unlazy` and the `[vid_mono]` test, called from
+  `wm.inc`, `ui.inc`, `menu.inc` and a `cw_` shim. Only the two instructions
+  after the test are VGA's.
+
+**So: a body's PREFIX is not its classification, and neither is the dispatch
+site above it.** Net effect on the figures is −31 bytes, which is small; the
+method correction is not. §8's order of work is what falls out of it — gate
+first, consolidate second, because the `kern_small` build failing to assemble
+is the only classification check that cannot be fooled by a name.
+
+The rest of the sweep came back clean: `vga_p4build` and `vgas_lincopy` touch
+no port either, but the first builds a table only the planar decoder reads and
+the second is a latch copy that only means anything in VGA write mode 1 — both
+VGA-only by contract rather than by instruction.
+
+**`vga_rect_setup` (123 bytes) was NOT in this table, and it was in the wrong
 file.** Its masks and offsets serve **both** renderers — `softgfx.inc` says so
 in its own header — so it stays in every build, and it is *hot*: PERFORMANCE.md
 Set 102 profiles `vga_rect_setup.x2ok` at **7.3% of the whole machine** in the
@@ -453,7 +478,7 @@ table and the rest on loops. On the criterion of *games and live drawing*, the
 loops win on every scenario that is measured — and on `kern_big` they win by
 default.
 
-### 5.6 What 1,612 bytes buys
+### 5.6 What 1,581 bytes buys
 
 Roughly three specialised bodies, and §5.3 says which three. This is the only
 candidate in this file with **no existing code to lift**, so it has to be written
@@ -585,19 +610,32 @@ scenarios is.
 
 ## 8. Order of work
 
-1. **Group the VGA-only bodies and put them behind one gate** (`%ifdef GFX_VGA`,
-   on for `kern_big`, off for `kern_small`), moving `vga_rect_setup` into
-   `softgfx.inc` on the way and leaving `vga_solid_rect`'s fall-through alone on
-   `kern_big`. Prove the grouping is **free on VGA** with `gfxbench` before
-   anything is spent — PERFORMANCE.md Part 1 rule 5.
-2. **`kern_small` builds with the gate off** (§2). Measure it as a *speed* change
-   as well as a size one (§2.2), and settle §2.4's three questions first.
-3. **The row table on `kern_small`** (§4), funded by step 2 — after the Hercules
+1. **(DONE) The shared bodies leave the VGA file.** `gfx_rect_setup` and
+   `gfx_pat_stage`, with their tables and scratch, into `softgfx.inc`. Verified
+   in two stages, and the two stages are the method for everything below:
+   **rename only → both builds BYTE-IDENTICAL**, then **move → same size, every
+   section +0, and a `[map all]` comparison of all 6,198 symbols showing the same
+   symbol set and zero size changes**, so no jump crossed the short-form
+   threshold. Only addresses moved.
+2. **Gate the VGA-only bodies WHERE THEY ARE** (`%ifdef GFX_VGA`, on for
+   `kern_big`, off for `kern_small`), using `sym equ sw_x` for the handful whose
+   entry is shared, so every existing caller keeps working at zero bytes.
+   **Consolidate nothing yet** — §1.1's note is why: moving a body before the
+   gate has proved it dead is moving code on the strength of its name, and two
+   of the first seventeen rows were wrong that way.
+3. **Physically group what step 2 proved**, if and only if step 5 is taken —
+   contiguity buys the reclaim nothing and the reuse everything. Prove the
+   grouping is **free on VGA** with `gfxbench` before anything is spent —
+   PERFORMANCE.md Part 1 rule 5.
+4. **`kern_small` builds with the gate off** (§2), which is what turns step 2's
+   brackets into a measurement. Measure it as a *speed* change as well as a size
+   one (§2.2), and settle §2.4's three questions first.
+5. **The row table on `kern_small`** (§4), funded by step 4 — after the Hercules
    reading of §4.4 is taken.
-4. **`kern_big`'s reuse** (§3 mechanism, §5 payload), which is the only step that
+6. **`kern_big`'s reuse** (§3 mechanism, §5 payload), which is the only step that
    needs the `.ovl` decider, the blob sectors and the `tests/vgarefs.txt`
    ratchet.
-5. **The straddle fix** — **docs/HANDOFF-FONTCHAR-SEAM.md**, independent of all
+7. **The straddle fix** — **docs/HANDOFF-FONTCHAR-SEAM.md**, independent of all
    of the above and separated from it deliberately: it is a correctness change
    and everything else here is a budget change.
 

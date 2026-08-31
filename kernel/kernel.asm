@@ -2745,7 +2745,7 @@ osapi_table:
                                   ;          AX/BX/CX/DX = the rect, SI = 8
                                   ;          row bytes. X, because those eight
                                   ;          bytes are the caller's and
-                                  ;          vga_pat_stage reads them through
+                                  ;          gfx_pat_stage reads them through
                                   ;          DS
     OSAPI_SLOT menu_owner         ; 0x02B8 - out BX = the window owning the
                                   ;          menu bar, 0 = Locator. "Am I the

@@ -4284,8 +4284,8 @@ gfx_fill_gray_raw:
 ; [gfx_color] and, like gfx_fill_gray, writes only colors 0/15, so it
 ; is a pattern rather than a solid colour. Same masked-edge scheme as
 ; gfx_fill_gray, with the row byte fetched from the table instead of the
-; AA/55 toggle. The 8 pattern bytes are staged into vga_patbuf first:
-; [bp+bx] is not an 8086 addressing mode, but [vga_patbuf+bx] is (and the
+; AA/55 toggle. The 8 pattern bytes are staged into gfx_patbuf first:
+; [bp+bx] is not an 8086 addressing mode, but [gfx_patbuf+bx] is (and the
 ; bb twin shares the staging).
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2; [gfx_pat] = pattern ptr
 ; out:      -
@@ -4309,7 +4309,7 @@ gfx_fill_gray_raw:
 ; out: nothing; SI preserved
 ;
 ; The eight bytes are staged into the kernel's own segment first, the
-; dsk_get_dir idiom (SPEC.md 2.1), because vga_pat_stage reads [gfx_pat]
+; dsk_get_dir idiom (SPEC.md 2.1), because gfx_pat_stage reads [gfx_pat]
 ; through DS and DS is KERNEL_SEG by the time it runs. [gfx_pat] is a NEAR
 ; pointer and always was; giving it a segment would put one on every kernel
 ; caller of a primitive that is drawn per fragment.
@@ -4351,7 +4351,7 @@ gfx_fill_pat_raw:
     push es
     call gfx_rect_setup
     jc .done
-    call vga_pat_stage          ; vga_patbuf <- the 8 bytes at [gfx_pat]
+    call gfx_pat_stage          ; gfx_patbuf <- the 8 bytes at [gfx_pat]
     mov ax, VGA_SEG
     mov es, ax
     mov dx, VGA_GC
@@ -4362,7 +4362,7 @@ gfx_fill_pat_raw:
     mov bx, [gfx_ry1]
     and bx, 7
 .lcol:
-    mov ah, [vga_patbuf+bx]     ; row byte first: the masked write must
+    mov ah, [gfx_patbuf+bx]     ; row byte first: the masked write must
     mov al, [es:di]             ; follow the latch load immediately
     mov [es:di], ah
     inc bx
@@ -4381,7 +4381,7 @@ gfx_fill_pat_raw:
     mov bx, [gfx_ry1]
     and bx, 7
 .rcol:
-    mov ah, [vga_patbuf+bx]
+    mov ah, [gfx_patbuf+bx]
     mov al, [es:di]
     mov [es:di], ah
     inc bx
@@ -4400,7 +4400,7 @@ gfx_fill_pat_raw:
     mov bx, [gfx_ry1]            ; the pattern row and BP is not ours to spend,
     and bx, 7                   ; so the row start is unwound (SPEC.md 5.7.1)
 .irow:
-    mov al, [vga_patbuf+bx]
+    mov al, [gfx_patbuf+bx]
     mov cx, dx
     rep stosb
     sub di, dx
@@ -4420,25 +4420,6 @@ gfx_fill_pat_raw:
     pop bx
     pop ax
     ret
-
-; -----------------------------------------------------------------------------
-; vga_pat_stage - internal: copy the 8 bytes at [gfx_pat] into vga_patbuf
-;                 so the fill loops can index them ([bx+disp] addressing)
-; in:       [gfx_pat]
-; out:      vga_patbuf filled
-; clobbers: SI, DI, ES, flags
-; -----------------------------------------------------------------------------
-vga_pat_stage:
-    push ds                     ; DF=0 per SPEC.md 1
-    pop es
-    mov si, [gfx_pat]
-    mov di, vga_patbuf
-    movsw
-    movsw
-    movsw
-    movsw
-    ret
-
 
 ; -----------------------------------------------------------------------------
 ; gfx_xor_rect - 1px outline rectangle, XOR 0Fh (drag outline)
@@ -5672,7 +5653,7 @@ section .bss
 
 api_pat:     resb 8             ; osapi_gfx_fill_pat's staging slot: a
                                 ; package's eight pattern bytes, copied into
-                                ; the kernel's segment because vga_pat_stage
+                                ; the kernel's segment because gfx_pat_stage
                                 ; reads them through DS
 
 gfx_blit_x:  resw 1             ; gfx_blit4's row cursor (SPEC.md 5.4):
@@ -5722,7 +5703,6 @@ gfx_sp_row      resw 1          ; It is memory and not registers because
 gfx_sp_y        resw 1          ; the row writers keep nothing across a call
 gfx_sp_fb       resw 1          ; ...and the framebuffer ES is put back to
 %endif
-vga_patbuf      resb 8          ; gfx_fill_pat: staged pattern rows
 gfx_cl_x1       resw 1          ; gfx_clip_run: the primitive's own rect,
 gfx_cl_y1       resw 1          ; held while the raw body runs per fragment
 gfx_cl_x2       resw 1

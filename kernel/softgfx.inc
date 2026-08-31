@@ -145,6 +145,29 @@ gfx_rect_setup:
     ret
 
 ; -----------------------------------------------------------------------------
+; ...AND SO IS THE PATTERN STAGING, for the same reason and found by the same
+; sweep: gfx_pat_stage copies eight bytes and touches no card at all. Both
+; fill_pat bodies call it - gfx_fill_pat_raw's VGA loop and sw_fill_pat - and
+; it was in the VGA file on the strength of its old name.
+; -----------------------------------------------------------------------------
+; gfx_pat_stage - internal: copy the 8 bytes at [gfx_pat] into gfx_patbuf
+;                 so the fill loops can index them ([bx+disp] addressing)
+; in:       [gfx_pat]
+; out:      gfx_patbuf filled
+; clobbers: SI, DI, ES, flags
+; -----------------------------------------------------------------------------
+gfx_pat_stage:
+    push ds                     ; DF=0 per SPEC.md 1
+    pop es
+    mov si, [gfx_pat]
+    mov di, gfx_patbuf
+    movsw
+    movsw
+    movsw
+    movsw
+    ret
+
+; -----------------------------------------------------------------------------
 ; sw_fill / sw_fill_gray / sw_xor_fill - software twins of gfx_fill,
 ; gfx_fill_gray and gfx_xor_fill (same register contracts: AX = x1,
 ; BX = y1, CX = x2, DX = y2; clobbers flags). One shared core, sw_rect,
@@ -812,7 +835,7 @@ sw_blit_row:
 
 ; -----------------------------------------------------------------------------
 ; sw_fill_pat - software twin of gfx_fill_pat (SPEC.md 5/32): the 8-row
-;               pattern at [gfx_pat], staged into vga_patbuf, written
+;               pattern at [gfx_pat], staged into gfx_patbuf, written
 ;               identically to every plane (colors 0/15 per pixel bit).
 ;               sw_col's fixed-byte/xor-toggle model cannot index 8 rows,
 ;               so this brings its own column helper.
@@ -831,7 +854,7 @@ sw_fill_pat:
     push es
     call gfx_rect_setup
     jc .done
-    call vga_pat_stage          ; vga_patbuf <- the 8 bytes at [gfx_pat]
+    call gfx_pat_stage          ; gfx_patbuf <- the 8 bytes at [gfx_pat]
     mov dx, [vid_rseg]          ; DX = plane segment (see sw_rect)
     mov bp, [vid_planes_w]      ; BP = plane counter
 .plane:
@@ -855,7 +878,7 @@ sw_fill_pat:
     push bp
     mov bp, [gfx_rrows]
 .irow:
-    mov al, [vga_patbuf+bx]
+    mov al, [gfx_patbuf+bx]
     mov ah, al                  ; byte uniform across the row: stosw + odd
     mov cx, si                  ; tail via the shr carry, like sw_plane_op
     shr cx, 1
@@ -888,7 +911,7 @@ sw_fill_pat:
 
 ; -----------------------------------------------------------------------------
 ; sw_patcol - internal: one masked byte column of [gfx_rrows] rows at ES:DI,
-;             row byte from vga_patbuf by (y & 7):
+;             row byte from gfx_patbuf by (y & 7):
 ;             dest = dest ^ ((dest ^ pat) & mask)
 ; in:       CL = mask, DI = top byte, ES = plane; vga_* rect scratch
 ; clobbers: AX, flags (preserves BX, SI, DI and CX)
@@ -901,7 +924,7 @@ sw_patcol:
     mov bx, [gfx_ry1]
     and bx, 7
 .row:
-    mov al, [vga_patbuf+bx]
+    mov al, [gfx_patbuf+bx]
     mov ah, [es:di]
     xor al, ah
     and al, cl
@@ -1024,6 +1047,7 @@ sw_xfer:
 ; -----------------------------------------------------------------------------
 section .bss
 
+gfx_patbuf      resb 8          ; gfx_fill_pat: staged pattern rows
 gfx_ry1          resw 1          ; rect: clipped top row (dither parity)
 gfx_rrows        resw 1          ; rect: clipped row count
 gfx_rspan        resw 1          ; rect: right byte - left byte
