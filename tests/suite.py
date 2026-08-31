@@ -236,6 +236,22 @@ FULL = [
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
         needs=("marty",), serial=True),
+    Row("int0sweep", "soak", py("tests/int0sweep.py"), 180.0,
+        "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
+        "5150/5160 ROM the INT 0 vector is a BIOS stub that writes 0FFh to "
+        "the 8259 mask and IRETs, so ONE divide overflow anywhere is a dead "
+        "machine - IMR=FF, the tick stopped, the CPU parked in "
+        "sch_idle_body's hlt with IF=1 and even the ISR-paced pointer "
+        "frozen. THE POINT IS THE ROM. Every other MartyPC row in this file "
+        "runs GLaBIOS, whose INT 0 handler does not touch the PIC, so the "
+        "identical fault there is a wrong clip index and the session "
+        "carries on: wm_ttl_rect spending BX under wm_clip_occl locked the "
+        "machine hard on an IBM ROM and passed assocopen and every other "
+        "row on GLaBIOS. Worse, a machine naming an IBM romset SILENTLY "
+        "RESOLVES to glabios_pc when the ROM file is absent, so the handful "
+        "of rows that ask for one were not testing it either. Arms INT 0 "
+        "across a broad UI session and reports where it fired",
+        needs=("marty",), serial=True),
     Row("vgadrop", "soak", py("tests/vgadrop.py"), 150.0,
         "SPEC.md 39.22: the heap floor starts UNDER .vgabuf on a machine with "
         "no VGA and AT KERN_END on one that has it. Reads [mem_base] as a "
