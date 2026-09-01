@@ -2017,9 +2017,10 @@ fm_bar_gate_x:
 ; -----------------------------------------------------------------------------
 ; fm_ncpy - copy a NUL string into a bounded field, always NUL-terminated
 ; in:  SI -> the string, DI -> the field, CX = the most characters it holds
-; out: DI at the stored NUL on the early-NUL path, AT the bound otherwise -
-;      which is what all five sites it replaces already did, and none of them
-;      reads DI afterwards. AX and CX clobbered
+; out: DI ONE PAST the stored NUL on the early-NUL path (the `inc di` runs
+;      before the test), at the bound otherwise - which is what all five sites
+;      it replaces already did, and none of them reads DI afterwards. AX and
+;      CX clobbered
 ;
 ; lodsb needs DF=0, which SPEC.md 1 guarantees. NOT dsk_ncopy: that is a FLAT
 ; COUNTED move and this stops at a NUL, which is a different question and

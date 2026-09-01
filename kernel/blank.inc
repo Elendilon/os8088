@@ -325,10 +325,23 @@ blk_pass:
                                 ; with no record behind it, and the window -
                                 ; ftpd's, mid-transfer, first among them -
                                 ; was deaf for the rest of its life
+    ; THE BUFFER BELOW IS BORROWED, AND HERE IS THE WHOLE OF WHY IT IS SAFE.
+    ; fsx_evtmp is fsx_restore's drain scratch. Both drains run on the UI task
+    ; and can never be live at once - fsx_run refuses any other task in code
+    ; (`cmp byte [sch_cur], 0`, fsx.inc), and kmain ends by making task 0 the
+    ; UI task. That is the load-bearing sentence, and the second half of it is
+    ; written down because THE fsx FREEZE DOES NOT MAKE IT TRUE: the freeze
+    ; parks OTHER tasks, but sch_switch keeps the exclusive task's kept worker
+    ; and every TF_SERVICE task runnable right across fsx_leave's drain
+    ; (SPEC.md 53.2). So a THIRD borrower reached from a WORKER would land in
+    ; this buffer mid-drain and task 0 would resume reading the wrong record -
+    ; the "deaf for the rest of its life" failure the paragraph above
+    ; describes. A borrow here is safe because it is UI-task-only, not because
+    ; nothing else is running.
     push di
-    mov di, fsx_evtmp           ; fsx_restore's drain scratch, borrowed: both
-.dl:                            ; drains run on the UI task, so they can
-    call evq_pop                ; never be live at once
+    mov di, fsx_evtmp
+.dl:
+    call evq_pop
     jc .dend
     call wm_wake_eaten
     jmp short .dl

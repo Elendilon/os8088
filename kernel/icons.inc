@@ -167,6 +167,16 @@ icon_draw:
 ; out:      nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 icon_draw16:
+    GFXAUDIT_HOOK               ; ...and it is the SAME primitive as far as the
+                                ; audit is concerned. Missing here for as long
+                                ; as it existed, which under -DGFXAUDIT meant
+                                ; every 16x16 icon in the system - the Disk
+                                ; window's rows, the dock's tiles, every
+                                ; harvested and composed body - was drawn with
+                                ; nothing counting it, while icon_draw's
+                                ; header-carrying records were. The macro is
+                                ; empty in every shipped build, so this costs
+                                ; the machine nothing
     push ax
     push bx
     push cx

@@ -697,10 +697,12 @@ assoc_fname:
 ; -----------------------------------------------------------------------------
 ; assoc_try - is the program in THIS directory? (one rung of SPEC.md 54.4)
 ; in:  DL = volume, AX = directory cluster (0 = the root)
-; out: CF=0 and AX = its directory index, with that volume+directory CURRENT;
-;      CF=1 = not here (and the mount may have failed, which is the same
-;      answer to the caller)
-; clobbers: AX (the output), CF
+; out: CF=0 = yes, with that volume+directory CURRENT; CF=1 = not here (and
+;      the mount may have failed, which is the same answer to the caller)
+; clobbers: CF only - AX IS NOT AN OUTPUT and is restored across both exits.
+;      It used to be documented as the directory index; assoc_locate's own
+;      header forty lines below already said so, and two headers disagreeing
+;      about one routine is worse than either being wrong alone
 ;
 ; The name is re-checked on arrival every single time, which is what makes a
 ; cluster HINT safe: a cluster means nothing on a disk that has been swapped,

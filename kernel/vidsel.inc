@@ -389,8 +389,17 @@ vid_avail_test:
 ; vid_text (int 10h AX=0007h) would then have programmed the CGA instead of
 ; the MDA - a machine that reboots to a dead mono monitor.
 ;
-; Only vid_switch calls it, so the boot path is untouched: an auto-detected
-; machine still sets exactly the bits its BIOS already had.
+; TWO CALLERS, AND THE SECOND ONE RUNS AT BOOT. vid_switch is the obvious one;
+; vid_disp_init calls it too, at the foot of its two-card arrangement, and
+; kmain calls vid_disp_init. So on a VGA+Hercules machine booting with Extend
+; on, this writes 40:10 bits 5:4 where vid_cga_equip deliberately leaves them
+; alone - a claim in the BDA that the boot path was said not to make.
+;
+; The line above used to say "Only vid_switch calls it, so the boot path is
+; untouched". vid_ctx_init a few hundred lines down carries a scar of exactly
+; this shape with the polarity the other way round; this one DENIED a caller
+; that exists, which is the harder half to notice, because the code reads
+; consistent with the comment right up until you grep.
 ; -----------------------------------------------------------------------------
 vid_equip:
     push ax

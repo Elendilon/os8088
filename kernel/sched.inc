@@ -157,9 +157,13 @@ sched_init:
                                 ; .bss, and a zero here names slot 0, the UI
                                 ; task, which sch_switch's scan would then
                                 ; skip for ever
-    mov word [sch_wd_hits], 0   ; zeroed HERE by hand: nothing clears .bss at
-                                ; boot, so an uninitialised sch_coop would
-                                ; boot into a random mode
+    mov word [sch_wd_hits], 0   ; zeroed HERE by hand, like the four bytes
+                                ; above it: nothing clears .bss at boot, so
+                                ; every one of these has to be stored rather
+                                ; than assumed. (This comment used to explain
+                                ; sch_coop, which is set three lines up - and
+                                ; a store whose comment justifies a DIFFERENT
+                                ; store is a store somebody deletes)
 %ifdef KFZTRACE
     push es                     ; TASK 0 HAS NO CANARY (see sch_switch's
     push ax                     ; .nocanary) and its stack grows DOWN onto the
@@ -1742,9 +1746,16 @@ sch_resume:
 ;
 ; So it stops, loudly and reproducibly. A halted machine is a bug report; a
 ; machine that carries on is a bug that gets blamed on something else three
-; subsystems away. This is a can't-happen path - 256 bytes is 1.8x the
-; measured worst case - and it exists so that "can't" is checked rather than
-; assumed. Re-run the 0xCC fill probe (docs/KERNEL-MEMORY.md) if it ever hits.
+; subsystems away.
+;
+; IT IS NOT A CAN'T-HAPPEN PATH, and this comment said it was. It read "256
+; bytes is 1.8x the measured worst case" - a sentence about a SCH_STACK that
+; has since been 512 and is now 384, and about a margin the FIELD has since
+; spent: docs/FIELD-NOTES.md 29.6 is an overrun of 256, which is what moved
+; the constant. So the margin is a measurement that goes stale, not a proof,
+; and this is a live check. Re-run the 0xCC fill probe (docs/KERNEL-MEMORY.md,
+; tools/stkwater.py) if it ever hits, and read SCH_STACK's own header for what
+; the deepest mark actually was.
 ; -----------------------------------------------------------------------------
 sch_stkdie:
 %ifdef KFZTRACE

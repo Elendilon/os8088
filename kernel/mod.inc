@@ -129,8 +129,11 @@ MODR_SEG    equ 0               ; dw: the segment it is loaded at, 0 = not
 MODR_FILE   equ 2               ; dw: -> its NUL 8.3 file name (.text)
 MODR_KB     equ 4               ; dw: KB its claim took
 MODR_PAD    equ 6
-MODR_SIZE   equ 8               ; a power of two so mod_row is three shifts;
-                                ; two rows, so the byte it wastes is two
+MODR_SIZE   equ 8               ; a power of two so mod_row is three shifts
+                                ; (8 = 1 << 3, and mod_row unrolls them rather
+                                ; than borrowing CL). MODR_PAD is the price:
+                                ; one byte a row, so MOD_MAX rows - THREE, not
+                                ; the two this line used to count
 
 section .text
 ; DATA stays in the kernel segment, reached through DS, exactly as a cold
@@ -487,11 +490,19 @@ mod_drop:
 ; mod_init - point every slot at mod_gone before anything can call one
 ; clobbers: AX, BX, CX, DI, flags
 ;
-; .bss arrives as whatever was in memory - `-f bin` zeroes nothing - so this
-; is not tidiness: without it the first thunk to run before its own mod_need
-; would far-call a garbage address. mod_need cannot be trusted to be the only
-; door, because a thunk with the test written the wrong way round still
-; assembles.
+; WHY IT EXISTS - AND NOT FOR THE REASON THIS COMMENT USED TO GIVE. It said
+; ".bss arrives as whatever was in memory - `-f bin` zeroes nothing". That is
+; false here and clip.inc's declaration block says so from the other end:
+; `.bss` is `nobits vfollows=.text` and `.cold`'s file position is padded past
+; it, so NASM emits at least KBSS_SIZE zero bytes and stage 2's one contiguous
+; read lands them. `.bss` IS zero at boot, which is precisely why clip.inc
+; needs no init entry point.
+;
+; What this routine is for is the OTHER thing: a row's resting value is not
+; zero. Every MODR_SEG must read mod_gone before the first thunk runs, or a
+; thunk that reaches its far call ahead of its own mod_need jumps to segment
+; 0. mod_need cannot be trusted to be the only door, because a thunk with the
+; test written the wrong way round still assembles.
 ; -----------------------------------------------------------------------------
 mod_init_x:
     mov al, MOD_MAX - 1

@@ -851,6 +851,11 @@ inst_ptr:
 ; Six routines in five files wrote the same four instructions out - and three
 ; of them carried the same `; I_RECSZ = 32` comment, which is a duplicate
 ; asking to be one.
+;
+; THE SWEEP IS NOT FINISHED, and the sentence above reads as though it were.
+; Sites still compute `(ptr - inst_tab) >> 5` by hand, two of them in THIS
+; file within a few hundred lines, and two more are separate helpers doing the
+; identical thing into BX. Grep `sub .*inst_tab` before adding a seventh.
 ; -----------------------------------------------------------------------------
 inst_idx:
     push cx
