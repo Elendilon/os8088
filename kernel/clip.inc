@@ -120,12 +120,12 @@ clip_put:
     rep movsb
     push cs
     pop ds                      ; ...and back, before anything else is read
-    clc
-    jmp short .out
+    jmp short .ok
 .empty:
     call clip_drop
-    clc
-    jmp short .out
+.ok:                            ; both of these are the CF=0 answer, so one
+    clc                         ; `clc` serves them; `.toobig` still enters at
+    jmp short .out              ; its own `stc` below
 .toobig:
     stc
 .out:
@@ -205,13 +205,15 @@ clip_get:
 ; -----------------------------------------------------------------------------
 clip_size:
     mov ax, [clip_bytes]
-    or ax, ax
-    jz .empty
-    clc
-    ret
-.empty:
-    stc
-    ret
+    cmp ax, 1                   ; the answer IS the compare: `cmp ax,1` borrows
+    ret                         ; exactly when AX is 0 (the length is unsigned
+                                ; and 0 is the only empty value), and it leaves
+                                ; AX alone - which is the documented output,
+                                ; CF=1 with AX=0 when empty and CF=0 with the
+                                ; length otherwise. The other flags now say
+                                ; something different; the contract is
+                                ; "clobbers: AX (the output) and the flags",
+                                ; so no caller may read them.
 
 ; -----------------------------------------------------------------------------
 ; clip_drop - give the block back and forget it (module-internal)
@@ -222,17 +224,29 @@ clip_drop:
     push ax
     push bx
     push dx
+    xor ax, ax                  ; the zero, staged BEFORE the only branch so
+                                ; both paths reach `.out` holding it: three
+                                ; 3-byte accumulator stores instead of three
+                                ; 6-byte immediate ones. AX is already banked,
+                                ; so the "every register AND the flags
+                                ; preserved" contract is unchanged.
     cmp word [clip_seg], 0
     je .out
     mov dx, [clip_seg]
     mov bx, MEM_K_CLIP
     call mem_free               ; a refusal cannot happen (we hold it) and
                                 ; would still leave the three words below
-                                ; consistent with an empty clipboard
-    mov word [clip_seg], 0
-    mov word [clip_kb], 0
+                                ; consistent with an empty clipboard.
+                                ; It PRESERVES AX - it is a bare
+                                ; `call COLD_SEG:mmf_mem_free / ret` thunk and
+                                ; mem_free_x documents "clobbers: nothing else
+                                ; (flags)" - which is what keeps the zero.
+    mov [clip_seg], ax
+    mov [clip_kb], ax
 .out:
-    mov word [clip_bytes], 0
+    mov [clip_bytes], ax        ; ...and on the `.out` path the two above are
+                                ; already zero, so writing them was skipped
+                                ; rather than repeated
     pop dx
     pop bx
     pop ax
