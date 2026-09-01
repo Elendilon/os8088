@@ -223,6 +223,23 @@ def measure(nasm_args=()):
             os.unlink(out_path)
         except OSError:
             pass
+    # NASM EMITS `ks:` AND THEN CAN STILL FAIL.  The line comes from a
+    # `%warning` late in kernel.asm, but the guards below it - and any error in
+    # a module - fire afterwards, so a tree that does NOT ASSEMBLE still leaves
+    # a complete, plausible ks: line in stderr.  Grepping for it without
+    # checking the exit status therefore prints a confident full report for a
+    # build that does not exist, which is the worst failure mode a measurement
+    # tool has: it is not wrong loudly, it is wrong quietly and in detail.
+    #
+    # Demonstrated rather than assumed: a `%error` appended after the ks: line
+    # gives nasm rc=1 and still yields "text 52,916 cold 38,927 ksize 114,176".
+    # Found during size pass 2, where it nearly let a KERN_SMALL finding ship on
+    # numbers from a build that failed.  measure_modules() already checks.
+    if r.returncode != 0:
+        tail = (r.stderr.strip().splitlines() or ["(no stderr)"])[-1]
+        return None, ("nasm FAILED (exit %d) - any ks: line in its output "
+                      "describes a build that does not assemble: %s"
+                      % (r.returncode, tail[:160]))
     m = re.search(r"\bks: (.*?)(?: \[|$)", r.stderr, re.M)
     if not m:
         return None, (r.stderr.strip() or "nasm produced no ks: line")
@@ -809,4 +826,19 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # `kernsize.py | head` closes the pipe under us; an unhandled
+    # BrokenPipeError buries the report under a traceback.  Same cure as
+    # tools/martylock.py: die quietly the way `cat` does.
+    try:
+        import signal
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    except (ImportError, AttributeError, ValueError):
+        pass
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        try:
+            sys.stderr.close()
+        except Exception:
+            pass
+        os._exit(0)
