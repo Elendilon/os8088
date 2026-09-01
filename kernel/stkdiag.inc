@@ -87,7 +87,7 @@ SD_X       equ 12
 SD_Y       equ 20
 SD_ROW     equ 8
 SD_VALX    equ SD_X + 25*8
-SD_ROWS    equ 16
+SD_ROWS    equ 17
 
 ; ---- state ------------------------------------------------------------------
 ; In .text with real initialisers, for dsk_dpt's reason (SPEC.md 18.92):
@@ -367,6 +367,48 @@ sd_water:
     ret
 
 SPB_CC     equ 0xCC             ; task_spawn's fill (SPEC.md 8.3)
+
+%ifdef MOU_PRIV
+; -----------------------------------------------------------------------------
+; sd_mwater - how deep the mouse ISR has been on its own stack (MOUPRIV=1)
+; in:       DS = KERNEL_SEG
+; out:      AX = bytes used from the top of mou_pstack
+;
+; The stack is filled with the sentinel ONCE, by sd_start, and never again: the
+; deepest excursion leaves the lowest scrubbed byte behind it, so a cumulative
+; high water needs no per-interrupt work at all. That matters here more than it
+; did for the tick - IRQ4 arrives ~120 times a second while the hand is moving
+; (SPEC.md 9), and a fill on each one would be the instrument outweighing what
+; it measures.
+; -----------------------------------------------------------------------------
+sd_mwater:
+    push bx
+    push cx
+    push di
+    push es
+    mov ax, LOW_SEG
+    mov es, ax
+    mov di, mou_pstack + MOU_PSTK - 1
+    mov cx, MOU_PSTK
+    mov al, SD_SENT
+    std
+    repne scasb                 ; down from the top to the first survivor
+    cld
+    jne .full                   ; none left: it used the whole stack
+    inc di
+    mov ax, mou_pstack + MOU_PSTK
+    sub ax, di
+    dec ax
+    jmp short .out
+.full:
+    mov ax, MOU_PSTK
+.out:
+    pop es
+    pop di
+    pop cx
+    pop bx
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; sd_vwater - the deepest ANY slice has been: THE FLOOR
@@ -693,6 +735,13 @@ sd_paint:
     call sd_label
     mov ax, [sd_n]
     call sd_value
+%ifdef MOU_PRIV
+    add bp, SD_ROW
+    mov si, sd_s_mou
+    call sd_label
+    call sd_mwater
+    call sd_value
+%endif
 
     add bp, SD_ROW + SD_ROW     ; --- and every other slice ------------------
     mov si, sd_s_slots
@@ -805,11 +854,34 @@ sd_start:
     jc .out
     mov [sd_slot], al
     mov byte [sd_armed], 1      ; ...and only now: see sd_armed
+%ifdef MOU_PRIV
+    call sd_mfill               ; the mouse ISR's own stack, sentinelled once
+%endif
 .out:
     pop dx
     pop bx
     pop ax
     ret
+
+%ifdef MOU_PRIV
+sd_mfill:
+    push ax
+    push cx
+    push di
+    push es
+    mov ax, LOW_SEG
+    mov es, ax
+    mov di, mou_pstack
+    mov cx, MOU_PSTK
+    mov al, SD_SENT
+    cld
+    rep stosb
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+%endif
 
 sd_s_hdr:   db "os8088 TASK STACK DIAGNOSTIC",0
 sd_s_bios:  db "ROM",0
@@ -821,6 +893,7 @@ sd_s_m:     db "floor  +mouse",0
 sd_s_k:     db "floor  +keys",0
 sd_s_now:   db "FLOOR MAX  <- quote this",0
 sd_s_n:     db "chain samples taken",0
+sd_s_mou:   db "mouse ISR, own stack",0
 sd_s_slots: db "every slice, slot 1 up",0
 sd_s_sat:   db "OVER!",0
 

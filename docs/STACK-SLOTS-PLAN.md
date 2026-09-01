@@ -186,19 +186,87 @@ not equivalent:
 behaviour change somebody has to agree to.** It is the central open question
 of this plan.
 
-### 4.2 The mouse path — ~58 bytes, and it binds next
+### 4.2 The mouse ISR — 54 bytes, and it moves for 21
 
-Take the ROM chain off the task stack and the floor does not fall to 32; it
-falls to **62**, because `mou_isr` → `mou_apply` → `cur_move` becomes the
-deepest thing that can land. Measured, not predicted: the idle task read 62 on
-a `NOBIOSTICK` build with the mouse driven, against 32 with no mouse input.
+**Measured, not estimated.** `make STKDIAG=1 MOUPRIV=1` runs the whole mouse
+ISR on a stack of its own and reads its high water off it: **54 bytes**, on
+QEMU, after 45 seconds of continuous movement.
 
-**This one should be refused.** The arrow is drawn from the ISR deliberately —
-docs/SCHED-IDLE-PLAN.md's §6.3 rests on it, because it is what keeps the
-pointer ISR-paced rather than pass-paced when `ui_task` blocks. Moving
-`cur_move` out of the ISR to save stack would buy ~30 bytes and cost the thing
-that made blocking acceptable. Named here so the next sweep does not treat it
-as an oversight.
+Of those 54, only **six** have to be on the interrupted task's stack — the
+FLAGS/CS/IP the CPU pushed before we had control. Everything after that can be
+somewhere else, because the swap needs no register:
+
+```nasm
+    mov [cs:mou_psave], sp      ; 2E 89 26 xxxx   5 bytes
+    mov sp, mou_pstack + MOU_PSTK   ; BC xxxx     3 bytes
+```
+
+`mov [cs:x], sp` and `mov sp, imm16` both work with nothing to spare, which is
+what makes this possible at all at an interrupt gate where every register
+belongs to the interrupted task. CS is `KERNEL_SEG` at the gate, so the save
+slot is reached before DS is ours; SS is already `LOW_SEG` for every task
+(§1/§2.1), so the private stack lives in `.lowbss` and the swap is SP alone.
+
+**It needs no re-entrancy guard, and that is a property rather than a hope.**
+`mou_isr` runs with IF=0 from the CPU's gate to the `iret` and never `sti`s
+(§7/§9), so it cannot interrupt itself, and IRQ3 and IRQ4 cannot interrupt each
+other. §4.1's chain needs a busy flag precisely because a real BIOS `sti`s
+inside it; this one does not. `mou_eoi` is the single exit — one `iret` in the
+whole ISR — so there is exactly one place to swap back.
+
+**The cost, counted off the listing rather than estimated:**
+
+| | bytes |
+|---|---|
+| `.text` — the 8-byte entry at **both** vectors, plus a 5-byte restore | **21** |
+| `.bss` — the saved SP | 2 |
+| `.lowbss` — one shared 256-byte stack (4.4× the measured 54) | 256 |
+| **removed from every task slice** | **48** |
+
+**The entry is duplicated on purpose**, and it is the duplication this document
+was told to spend if it helped: there are two vectors and the swap has to
+happen before the first `push`, so the eight bytes are written twice. Sixteen
+bytes of `.text`, once, against 48 bytes of every task stack in the machine —
+seven times over today and seventeen under §7.
+
+### 4.2.1 The two fixes compose, and not additively
+
+The ROM's `int 08h` handler sends the EOI and then `sti`s before `int 1Ch`, so
+**IRQ4 can arrive inside the tick's chain** — and when it does, one task stack
+carries `sch_isr`'s frame *and* the ROM's chain *and* the whole mouse ISR at
+once.
+
+That is the 130-byte excursion §10.3 caught: 24 (`SCH_FRAME`) + 4 (the idle
+task's own) + ~50 (the ROM) + 54 (the mouse) ≈ 132. It is rare — three
+controlled 45-second runs since have peaked at 84, 88 and 84 — which is exactly
+why it must be designed for rather than sampled for. **Either fix removes the
+product case**, and both together leave `sch_isr`'s own 28.
+
+### 4.2.2 Why relocation and not compression
+
+Compressing the 54 in place was priced and is the worse trade:
+
+- **24 of it is the entry frame** — the CPU's 6, `push bx`, and eight more
+  registers the body genuinely uses across a call into the drawing layer.
+- **`mou_byte` already tail-`jmp`s to `mou_apply`** rather than calling it, so
+  the obvious flattening is done and cost nothing.
+- The remaining ~26 is inside `cur_move`'s drawing chain, and shortening that
+  means restructuring the graphics layer for less than the 48 that 21 bytes of
+  `.text` buys outright.
+
+**And the earlier refusal still stands, because it is a different change.**
+§4.2's predecessor refused moving `cur_move` *out* of the ISR — that would cost
+the ISR-paced pointer that docs/SCHED-IDLE-PLAN.md §6.3 rests on. Running the
+same ISR, drawing included, on a different stack changes no behaviour at all.
+
+### 4.2.3 A size pass makes this worse, not better
+
+`origin/claude/kernel-size-optimization-*` rewrites `kernel/mouse.inc` by ~500
+lines and `kernel/sched.inc` with it. **A size optimisation that factors common
+code into shared helpers makes stacks deeper** — every new call is two more
+bytes of return address on every path through it — so the 54 above is a
+measurement of the tree it was taken on and wants re-taking when that lands.
+`MOUPRIV=1` is what makes the re-take one boot rather than an argument.
 
 ### 4.3 What is not compressible
 
@@ -358,9 +426,10 @@ as a rung and the ledger position is whoever takes this on to report with
 
 ## 8. Refusals
 
-- **Moving `cur_move` out of the mouse ISR.** §4.2. It is the next floor after
-  §4.1 and it costs the pointer-latency property that made a blocking
-  `ui_task` acceptable.
+- **Moving `cur_move` out of the mouse ISR.** §4.2.2, and it still stands: it
+  costs the ISR-paced pointer that docs/SCHED-IDLE-PLAN.md §6.3 rests on.
+  Running the *same* ISR on a different stack (§4.2) is a different change and
+  is not refused — it changes no behaviour at all.
 - **Shrinking `SCH_FRAME`.** §4.3.
 - **Deleting the idle task.** It is what `sch_switch` picks where it used to
   resume the outgoing task, and with a `ui_task` that can sleep that fallback
