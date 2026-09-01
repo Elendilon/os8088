@@ -1207,11 +1207,8 @@ osapi_assoc_set_x:
     call assoc_stage
 
     mov si, assoc_stemb         ; the app slot: reuse this program's own if
-    call assoc_app_of           ; it already has one, so a program claiming
-    jnc .haveapp                ; four extensions takes one slot and not four
-    call assoc_app_new
-    jc .full
-.haveapp:
+    call assoc_app_get          ; it already has one, so a program claiming
+    jc .full                    ; four extensions takes one slot and not four
     mov dl, al                  ; DL = the app slot from here down
     mov si, assoc_extb
     call assoc_find             ; already claimed by someone?  BX = that row
@@ -1337,6 +1334,23 @@ assoc_app_new:
     pop dx
     pop cx
     pop bx
+    ret
+
+; assoc_app_get - the app slot a stem names, CREATING one if it has none
+; in:  SI -> 8 stem bytes (and assoc_stemb holds them, which assoc_app_new
+;      requires - at all three call sites SI IS assoc_stemb)
+; out: CF=0 and AL = the slot; CF=1 = every slot is taken
+; clobbers: AX (the output), CF - which is both callees' contract unchanged
+;
+; asc_seed deliberately does NOT come here: it calls assoc_app_of alone, for
+; the reason its own comment gives - twelve kernel slots against a thirty-two
+; row cache, so seeding must never spend a slot on a program the user has not
+; met.  That is the one distinction this entry point must not erase.
+assoc_app_get:
+    call assoc_app_of
+    jnc .out
+    call assoc_app_new
+.out:
     ret
 
 ; assoc_self_glyph - reduce the CALLING package's own embedded icon into an
@@ -1776,11 +1790,8 @@ asc_slot_of:
     mov cx, 8
     call assoc_stage
     mov si, assoc_stemb
-    call assoc_app_of
-    jnc .have
-    call assoc_app_new
-.have:
-    pop di
+    call assoc_app_get          ; a full table leaves AL alone and CF set, and
+    pop di                      ; this routine's caller reads neither
     pop si
     pop cx
     pop bx
@@ -1894,11 +1905,8 @@ asc_note:
     push di                     ; the icon offset: assoc_stem_of takes DI
     call assoc_stem_of
     mov si, di
-    call assoc_app_of
-    jnc .have
-    call assoc_app_new
+    call assoc_app_get
     jc .done
-.have:
     mov bl, al
     xor bh, bh
     call assoc_hint_here
