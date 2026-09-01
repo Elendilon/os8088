@@ -1341,6 +1341,20 @@ SOAK = [
     # a cell, and this file can be null in a way that looks exactly like a pass
     # (SPEC.md 39.14.6). `--no-build` drops to the fixed leg for a hand-built
     # image; `--machine` picks one orientation.
+    # THE POSITIVE CONTROL IS THE POINT OF THE ROW. Every assertion in it is
+    # "nothing outside its own columns" or "the same bytes as the unclipped
+    # draw", and all of them pass on a harness that draws nothing at all -
+    # which is what a boot-and-diff version of this would BE, since nothing on
+    # a stock desktop puts an icon off the right edge.
+    Row("icoclip", "soak", py("tests/icoclip.py"), 600.0,
+        "Does a 32-wide icon HANGING OFF THE RIGHT EDGE still clip byte for "
+        "byte? (SPEC.md 25.6) - ico_pass_bb's per-byte column test is the "
+        "only thing between an icon at x = w-8 and a write on the NEXT SCAN "
+        "LINE, and ico_core does not refuse the shape. Calls icon_draw "
+        "through the debugger at all eight shift phases and at every column "
+        "that hangs off, on BOTH strides (CGA 80, Hercules 90), over a zeroed "
+        "background so two draws are comparable.",
+        needs=("marty",), serial=True),
     Row("dispseam", "soak", py("tests/dispseam.py"), 600.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"

@@ -448,27 +448,24 @@ ico_bbop_of:
     ret
 
 ; -----------------------------------------------------------------------------
-; ico_pass_bb - one masked pass over every renderer plane: the same
+; ico_pass_bb - one masked pass over the renderer's single plane: the same
 ;               3-byte shifted window and edge clipping as ico_pass, with
 ;               [ico_bbop] picking OR (0) or AND-NOT (1) per byte.
 ; in:       SI -> word rows, DI = row offset, CL = shift, CH = 8-shift,
 ;           [ico_bbop] = 0/1, ico_* vars set
-; out:      none; preserves CX, DI; clobbers ax, bx, dx, si, bp, es
+; out:      none; preserves CX, DI; clobbers ax, bx, si, bp, es
 ; -----------------------------------------------------------------------------
 ico_pass_bb:
     push di
     cmp word [ico_rows], 0
     je .done                    ; degenerate record / fully clipped
-    mov [ico_bbsrc], si         ; per-plane restart points
-    mov [ico_bbdi], di
-    mov dx, [vid_rseg]          ; DX = plane segment - the framebuffer on
-    mov al, [vid_planes]        ; mono (SPEC.md 39.3)
-    mov [ico_bbpl], al
-.plane:
-    mov es, dx
-    mov si, [ico_bbsrc]
-    mov di, [ico_bbdi]
-    mov bp, [ico_rows]
+    mov es, [vid_rseg]          ; ONE PLANE, SO NO LOOP (SPEC.md 39.26): this
+    mov bp, [ico_rows]          ; body is only ever entered with [vid_mono]
+                                ; set, and vid_depth_set writes mono and
+                                ; planes TOGETHER - so [vid_planes] is 1 here
+                                ; and the walk never restarted. The two
+                                ; restart-point cells existed only to restart
+                                ; it, and go with it.
 .row:
     mov al, [ico_col0]          ; running byte column (right-edge clip); a
     mov [ico_bcol], al          ; byte - ico_core_bb proved it is below the
@@ -522,9 +519,6 @@ ico_pass_bb:
     call gfx_nextrow            ; scan line the adapter's way (SPEC.md 39.3)
     dec bp
     jnz .row
-    add dx, [vid_rpara]
-    dec byte [ico_bbpl]
-    jnz .plane
 .done:
     pop di
     ret
@@ -849,8 +843,5 @@ ico_lim2    resb 1              ; stride-2), which must be bytes for the same
 ico_wleft   resw 1              ; words left in the current row
 ico_x       resw 1              ; requested x
 ico_y       resw 1              ; requested y, clamped to 0 after top clip
-ico_bbsrc   resw 1              ; bb pass: row table, reloaded per plane
-ico_bbdi    resw 1              ; bb pass: row offset, reloaded per plane
 ico_bbop    resb 1              ; bb pass: 0 = or (white), 1 = and-not (black)
-ico_bbpl    resb 1              ; bb pass: plane countdown
 section .text
