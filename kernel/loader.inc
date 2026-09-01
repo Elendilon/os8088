@@ -260,6 +260,33 @@ ld_icon:
     ret
 
 ; -----------------------------------------------------------------------------
+; ld_say_status - record a load's verdict and SAY it (SPEC.md 59, 22.9)
+; in:  AL = the LD_* status
+; out: [ld_status] = AL; a toast off fm_stattab
+; clobbers: BX, CX (the table and its bound).  AX AND THE FLAGS SURVIVE,
+;      because toast_say preserves every register and the flags - loader_run_x
+;      leans on that with its `cmp al, LD_EABORT` two lines after the call,
+;      and neither caller reads BX or CX between here and its own epilogue,
+;      which is what the two inline copies already relied on
+;
+; It used to be stamped on the window that asked, because one global put
+; 'Bad package' on every open Disk window at once - a question a toast cannot
+; raise, since it belongs to no window at all and appears at the moment of
+; the act (SPEC.md 22.9).  Written out twice until size pass 2: here and in
+; assoc.inc's assoc_run_x, whose copy carried the same "...and SAY it".
+;
+; NO push bx/cx here either: the two sites this replaces did not bank them and
+; do not need them.  toast_say is `.text` and this is `.cold`, so the call to
+; it is far; both callers are `.cold`, so the calls to this are near.
+; -----------------------------------------------------------------------------
+ld_say_status:
+    mov [ld_status], al
+    mov bx, fm_stattab
+    mov cx, LD_NSTAT
+    call KERNEL_SEG:toast_say
+    ret
+
+; -----------------------------------------------------------------------------
 ; loader_run - load, relocate and launch the package at a directory index
 ; in:  AX = directory index (0-based), into the listing of the file-manager
 ;      window named by [ld_pwin] (SPEC.md 22.1) - which may not be the one
@@ -294,16 +321,7 @@ loader_run_x:
 .body:
     mov byte [ld_painted], 0
     call ld_run_body_x          ; out: AL = LD_* status
-    mov [ld_status], al
-    mov bx, fm_stattab          ; ...and SAY it (SPEC.md 59). It used to be
-    mov cx, LD_NSTAT            ; stamped on the window that asked, because
-    call KERNEL_SEG:toast_say    ; one global put 'Bad package' on every open
-                                ; Disk window at once - a question a toast
-                                ; cannot raise, since it belongs to no window
-                                ; at all and appears at the moment of the act
-                                ; (SPEC.md 22.9). NO push bx/cx: toast_say
-                                ; banks both itself (toast.inc), and
-                                ; files_refresh_x below is "clobbers: nothing"
+    call ld_say_status          ; record the verdict and SAY it (SPEC.md 59)
     cmp byte [ld_painted], 0
     jne .done                   ; the success path drew the new window itself
                                 ; (SPEC.md 11.90), so nothing is owed here

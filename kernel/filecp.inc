@@ -871,12 +871,8 @@ fcp_relink:
     je .no                      ; no reusable slot: FERR_DIRFULL is the copy
                                 ; engine's to report, with its own message
 
-    mov ax, [dskw_fsec]         ; the slot dskw_find spotted on its scan
-    mov [dskw_dsec], ax
-    mov ax, [dskw_foff]
-    mov [dskw_doff], ax
-    mov al, [dskw_fend]         ; taking the 0x00 terminator means the next
-    mov [dskw_zapnext], al      ; entry must be zeroed to remain one
+    call dskw_take_slot         ; adopt the slot dskw_find spotted - diskw.inc's,
+                                ; `.cold` like this, so the call is near
     call dskw_ent_store
     jc .no                      ; nothing written yet: still declinable
 

@@ -1137,18 +1137,8 @@ fdlg_icon:
     add cx, [fdlg_cx]           ; content-relative -> absolute
     add dx, [fdlg_cy]
     call dsk_get_icon_x ; SI -> the staged 64-byte body
-    mov bx, si
-    push cx
-    xor ax, ax
-    mov cx, 32
-.orw:
-    or ax, [bx]
-    inc bx
-    inc bx
-    loop .orw
-    pop cx
-    or ax, ax
-    jz .generic
+    call fm_icon_blank          ; ZF=1 = the 32 words OR to 0 - files.inc's,
+    jz .generic                 ; `.cold` like this, so the call is near
     call KERNEL_SEG:cw_icon_draw16 ; a harvested, folder or composed body
     jmp short .out
 .generic:

@@ -2793,12 +2793,7 @@ dskw_commit:
     mov ax, [dskw_date]
     mov [dskw_raw+DSK_R_CDATE], ax
     mov [dskw_raw+DSK_R_ADATE], ax
-    mov ax, [dskw_fsec]         ; the slot dskw_find spotted on its scan
-    mov [dskw_dsec], ax
-    mov ax, [dskw_foff]
-    mov [dskw_doff], ax
-    mov al, [dskw_fend]         ; taking the 0x00 terminator means the next
-    mov [dskw_zapnext], al      ; entry must be zeroed to remain one
+    call dskw_take_slot         ; adopt the slot dskw_find spotted
 
 .patch:
     mov ax, [dskw_first]
@@ -2977,6 +2972,29 @@ dskw_copy11:
     mov cx, 11
     call dsk_ncopy
     pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_take_slot - adopt the directory slot dskw_find spotted (SPEC.md 19.2)
+; in:  [dskw_fsec]/[dskw_foff]/[dskw_fend], as dskw_find left them
+; out: [dskw_dsec]/[dskw_doff]/[dskw_zapnext], which is what dskw_ent_store
+;      reads
+; clobbers: AX.  Both callers overwrite AX immediately - dskw_commit's
+;      `.patch` reloads it and fcp_relink's next act is dskw_ent_store, whose
+;      AX is an OUTPUT - so it is not banked
+;
+; Taking the 0x00 terminator means the next entry must be zeroed to remain
+; one, which is what [dskw_zapnext] carries.  Written out twice until size
+; pass 2: dskw_commit above and filecp.inc's fcp_relink, whose copy carried
+; these same two comments - which is the tell.  Both are `.cold`, so near.
+; -----------------------------------------------------------------------------
+dskw_take_slot:
+    mov ax, [dskw_fsec]
+    mov [dskw_dsec], ax
+    mov ax, [dskw_foff]
+    mov [dskw_doff], ax
+    mov al, [dskw_fend]
+    mov [dskw_zapnext], al
     ret
 
 ; -----------------------------------------------------------------------------

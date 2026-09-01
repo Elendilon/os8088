@@ -6416,23 +6416,47 @@ fm_nfiles:
 ; fmv_get_icon stages the entry from THIS window's cache (SPEC.md 22.1); an
 ; all-zero entry (the 32 words OR to 0) falls back to built-in ico_app16.
 ; -----------------------------------------------------------------------------
+; fm_icon_blank - is this staged icon body all zeros? (SPEC.md 25)
+; in:  SI -> a 64-byte icon body
+; out: ZF = 1 if all 32 words OR to zero, i.e. nothing earned an icon and the
+;      built-in ico_app16 is the answer
+; clobbers: nothing.  The three pops do not touch flags, so the answer rides
+;      out over them
+;
+; THE RULE LIVED IN TWO PLACES: here and fdlg.inc's fdlg_icon, each with its
+; own copy of the comment.  Both are `.cold`, so the call is near.
+;
+; It costs one near call and ret plus two extra push/pop pairs over the
+; inline loop it replaces - call it ~95 clocks, ~20 us on a 4.77 MHz 8088 -
+; against a 32-iteration `or ax,[si]` walk of ~960 and then a 16x16 icon
+; blit.  (The finding said "~35 cycles" for the call alone; adverse-R3
+; measured that shape at ~52, and the pushes are the larger half anyway.)
+; -----------------------------------------------------------------------------
+fm_icon_blank:
+    push ax
+    push cx
+    push si
+    xor ax, ax
+    mov cx, 32
+.orw:
+    or ax, [si]
+    inc si
+    inc si
+    loop .orw
+    or ax, ax                   ; `loop` leaves the flags alone but `inc si`
+    pop si                      ; does not, so the verdict is re-derived here
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 fm_draw_icon16:
     push ax
     push bx
     push cx
     push si
     call fmv_get_icon           ; SI -> staged 64-byte icon body
-    mov bx, si
-    push cx                     ; the x coordinate must survive the loop
-    xor ax, ax                  ; counter below
-    mov cx, 32
-.orwords:
-    or ax, [bx]
-    inc bx
-    inc bx
-    loop .orwords
-    pop cx
-    test ax, ax
+    call fm_icon_blank          ; ZF=1 = the 32 words OR to 0
     jz .noicon
     call KERNEL_SEG:cw_icon_draw16 ; body-only table entry (SPEC.md 25)
     jmp .done

@@ -992,11 +992,12 @@ assoc_run_x:
     mov si, assoc_fnb           ; '<STEM>.O88' - assoc_locate left us in its
     call ld_run_name_x            ; directory and the name is what it matched
                                 ; on, so no listing and no index (21.4)
-    mov byte [assoc_argp], 0    ; a package launched later, by any route,
-    mov [ld_status], al         ; must never inherit this document
-    mov bx, fm_stattab          ; ...and SAY it (SPEC.md 59/22.9). toast_say
-    mov cx, LD_NSTAT            ; preserves every register AND the flags, and
-    call KERNEL_SEG:toast_say   ; nothing between here and .out reads BX or CX
+    mov byte [assoc_argp], 0    ; a package launched later, by any route, must
+                                ; never inherit this document
+    call ld_say_status          ; record the verdict and SAY it (SPEC.md
+                                ; 59/22.9) - loader.inc's, `.cold` like this,
+                                ; so the call is near, and it preserves every
+                                ; register because toast_say does
     push ds
     pop es                      ; ld_run_body's failure exits leave ES adrift
     call assoc_back             ; the user's volume FIRST, then the window
