@@ -945,16 +945,23 @@ cp_onkey_x:
     cmp al, CP_ITEMS            ; RECORD space (SPEC.md 31.10.1), so the
     jb .out                     ; boundary is the table's LENGTH - a static
     sub al, CP_ITEMS            ; page has nothing to type into
-    call COLD_SEG:drvf_drv_cp_class   ; AL = its class; CF = 1 = it went away
+    call drv_cp_class_x         ; AL = its class; CF = 1 = it went away.
+                                ; NEAR: this body is .cold and so are all three
+                                ; of these (driver.inc:1028, :1613, :2058), so
+                                ; CS is already right and the drvf_* thunk's
+                                ; own `retf` is one nobody wanted. It is the
+                                ; same call cp_drv_gone_x makes seven lines
+                                ; below. The thunks STAY - the .modc sites
+                                ; (ctrl.inc:1573 and five more) still need them
     jc .out
     push ax
-    call COLD_SEG:drvf_drv_cls_svc    ; DI = that class's copied table
+    call drv_cls_svc_x          ; DI = that class's copied table
     pop ax
     jc .out
     mov bp, [di+DSV_CPKEY]
     or bp, bp
     jz .out                     ; ...or a driver page that takes no keys
-    call COLD_SEG:drvf_drv_cp_call   ; BX IS THE KEY AND AL IS STILL THE CLASS.
+    call drv_cp_call_x          ; BX IS THE KEY AND AL IS STILL THE CLASS.
                                 ; This dispatcher takes the class in AL
                                 ; (SPEC.md 31.9) - which is exactly why the
                                 ; key was banked into BX at the top and why
@@ -5574,15 +5581,15 @@ section .cold                   ; far entries: the resident thunks in
 ; used to be one segment away and is now none or one, depending on whether the
 ; user has opened the panel yet.
 ;
-; The shape is the same three lines each time and it is worth reading once:
+; The shape is the same two lines each time and it is worth reading once:
 ;
-;   push ax            - the caller's AL/AH may be arguments (cp_tick_x takes
-;                        none, cp_onclick_x takes CX/BX, and the next module
-;                        to use this will take something else). mod_need
-;                        preserves every other register itself.
-;   call mod_need      - a NEAR call: the loader is .cold too, so this whole
-;                        mechanism reaches nothing through .text
-;   pop ax             - `pop` does not touch CF, so mod_need's answer stands
+;   call cpf_need      - "make MOD_CTRL resident", CF = 1 if it could not be.
+;                        It banks AX because the caller's AL/AH may be
+;                        arguments (cp_tick_x takes none, cp_onclick_x takes
+;                        CX/BX, and the next module to use this will take
+;                        something else); mod_need preserves every other
+;                        register itself, and `pop` does not touch CF, so
+;                        mod_need's answer survives the unbanking.
 ;   jc  .gone
 ;   call far [mod_fp + K]
 ;
@@ -5590,14 +5597,21 @@ section .cold                   ; far entries: the resident thunks in
 ; no scratch word two callers could race for. `.gone` is a refusal and the
 ; CALLER owes the user an explanation - ui_cp_open puts up the toast for the
 ; three launch paths, which is the only place a human is waiting on one.
-cpf_cp_paint:
+;
+; cpf_need - make the Control Panel image resident. Out: CF = 1 it is not.
+; A NEAR call, and so is the mod_need inside it: the loader is .cold too, so
+; this whole mechanism reaches nothing through .text.
+cpf_need:
     push ax
     mov al, MOD_CTRL
     call mod_need
     pop ax
+    ret
+
+cpf_cp_paint:
+    call cpf_need
     jc .p_gone
     call far [CPFP + CPE_PAINT*4]
-    retf
 .p_gone:                        ; the window is up and its content cannot be
     retf                        ; drawn. ui_cp_open makes this unreachable in
                                 ; practice by loading BEFORE app_launch; it is
@@ -5613,10 +5627,7 @@ cpf_cp_onkey:          call cp_onkey_x
 %endif
 
 cpf_cp_onclick:
-    push ax
-    mov al, MOD_CTRL
-    call mod_need
-    pop ax
+    call cpf_need
     jc .c_gone
     call far [CPFP + CPE_ONCLICK*4]
 .c_gone:
@@ -5661,10 +5672,7 @@ cpf_cp_flush_close:
     je .f_drop                  ; nothing to persist - but still drop, because
                                 ; closing a panel that changed nothing is the
                                 ; commonest close there is
-    push ax
-    mov al, MOD_CTRL
-    call mod_need
-    pop ax
+    call cpf_need
     jc .f_drop                  ; the disk went away between opening the panel
                                 ; and closing it: [cp_wdirty] stays set, which
                                 ; is exactly what cp_flush_close_x's own
@@ -5687,10 +5695,7 @@ cpf_cp_flush_close:
 cpf_cp_tick:
     call cp_tick_due_x
     jnc .t_gone
-    push ax
-    mov al, MOD_CTRL
-    call mod_need
-    pop ax
+    call cpf_need
     jc .t_gone
     call far [CPFP + CPE_TICK*4]
 .t_gone:
