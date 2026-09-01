@@ -181,6 +181,17 @@ FAST = [
         "way the moment fpg_arm started reading it from OUTSIDE an fsx "
         "bracket, and the file-progress widget was refused for every file "
         "operation on the machine - which on an install reads as a lock"),
+    Row("invariants", "fast", py("tests/unit/t_invariants.py"), 0.3,
+        "three run-time facts that no %if can express, checked by WHO WRITES "
+        "the byte: [sch_cur] is never 0xFF (fsx's ownership compares refuse "
+        "[fsx_task]'s no-bracket sentinel only because of that, so a second "
+        "writer parking one there grants a bracket to nobody); "
+        "[vid_mono]/[vid_planes] are one fact written together (SPEC.md 39.26 "
+        "deleted four plane loops on it, and a writer that moves one leaves "
+        "all four drawing plane 0 alone on every adapter); and "
+        "[vid_rseg]/[vid_rpara]/[vid_rend] have one writer, which is a "
+        "DIFFERENT fact because sw_xfer ends on a segment compare",
+        needs=(), serial=False),
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
         "that stops this suite going back to a directory nobody can enumerate"),
