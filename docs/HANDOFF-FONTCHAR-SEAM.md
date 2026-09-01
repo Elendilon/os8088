@@ -1,8 +1,17 @@
 # Handoff — a straddled cell is dropped, so unaligned text loses one character
 
-**A DEFECT with a known cause, a known reason it was never noticed, and a fix
-that has to be decided rather than just written.** Nothing has been built. This
-file is self-contained: it assumes no prior context beyond SPEC.md.
+> ## BUILT. **SPEC.md §39.14.11 is the contract**; `make NOSEAMCUT=1` is the
+> A/B and `tests/dispseam.py` (soak) is the gate. The owner's call in §3 was
+> taken and it was *build it*: **0 differing pixels straddling against 18 lost,
+> on both seam orientations**, and eight identical framebuffer hashes on the
+> one-card machines. The cost was **299 bytes of `.text`, 1 of `.bss` and none
+> of `.lowbss`** — the two 8-byte scratch cells came out of the alignment pad
+> `sch_stacks` already carried.
+>
+> **This file is kept for its DIAGNOSIS, which is what was hard.** §1, §2 and
+> §4 below are exactly right and are the reason the fix took an afternoon
+> rather than a week. §5 and §6 are what changed in contact with the machine
+> and are corrected in place; §7's evidence is now in SPEC.md §39.14.11.
 
 **Reported as:** *"on an extended desktop, if you drag a window into a straddle,
 unaligned text like the title bar will lose a character."*
@@ -99,14 +108,21 @@ made against the real cause.
 
 ## 5. Reproducing it
 
-**The machine is `vm/xt-multimon`** — the two-card XT, a CGA and a Hercules with
-a monitor window each, and the only 86Box machine that can show an extended
-desktop at all (CLAUDE.md's machine list). It boots Single; **Control Panel →
-Display → Desktop is what extends it** (SPEC.md §39.19.1).
+> **CORRECTION, and it is the one thing in this file that was wrong.**
+> *"MartyPC cannot host this: it models one adapter"* is **false**, and acting
+> on it would have sent this fix to an emulator with no debugger for no reason.
+> MartyPC has had two-card machines all along and a dozen `disp*.py` rows drive
+> them: **`os8088_5150_both_gla`** is a CGA primary beside a Hercules (seam at
+> 640) and **`os8088_5150_both_gla_mono`** the same pair the other way up (seam
+> at 720), which is §7.1's "both ways round" in two machine names.
+> `tests/dispstrad.py` is the template — launch, `dispcp.set_mode(…, "right")`,
+> read `vid_ctx`. 86Box's `xt-multimon` is still the two-card *86Box* machine
+> and the rest of this section stands; it is simply not the only one, and it is
+> the one without a debugger.
 
-MartyPC cannot host this: it models one adapter. So this is an 86Box row, which
-means no debugger and no automation socket — see docs/TESTING.md. The existing
-`disp*.py` gates are the precedent for how the tree drives it anyway.
+**The 86Box machine is `vm/xt-multimon`** — the two-card XT, a CGA and a
+Hercules with a monitor window each. It boots Single; **Control Panel →
+Display → Desktop is what extends it** (SPEC.md §39.19.1).
 
 Then:
 
@@ -165,13 +181,27 @@ displays are edge to edge.
 * `font_char` **already has a masked path**: the one it takes on a planar target
   or at an unaligned x. The pass exists; only the column mask is new.
 
+> **What was actually built is one step simpler than this, and it is worth
+> saying where.** *"Only the column mask is new"* turned out to be *nothing is
+> new*: neither renderer gained an instruction. Both already compute a
+> first-byte and a second-byte mask with `shr ax, cl` and already skip an empty
+> one, so masking the **glyph** — into two 8-byte scratch cells beside
+> `font_zero` — makes each half's unwanted byte come out zero on its own. The
+> seam being a multiple of 8 is what guarantees it, and a width that is not one
+> is refused (SPEC.md §39.14.11). Each half is then an ordinary `font_char`
+> call at ordinary virtual coordinates, addressed by a reserved character code
+> so that even the glyph lookup is the arithmetic already in the body.
+
 **Two things to get right:**
 
 * **`[gfx_dnest]`.** `GFXDENTERCD` raises a nesting count and every hook under it
   is a compare and a branch (SPEC.md §39.14.2). A second enter for the second
   half must not translate twice. Read `GFXDISP`/`gfx_disp_run` in
   `kernel/vga12.inc` before writing the second pass — `gfx_blit4`'s cut is the
-  worked example of getting this right.
+  worked example of getting this right. *(It was dropped to 0 around the two
+  recursive calls, so each half takes its own enter; and §39.14.3 leaves the
+  FAR display current, so `[vid_cur]` has to be banked and re-activated before
+  the near half is drawn.)*
 * **The transparent-text ratchet.** `font_char` is one of SPEC.md §6.6's closed
   list of transparent call sites and `tests/textsites.txt` is the ratchet: the
   count can only go down. A fix that adds a *call site* has to be registered with

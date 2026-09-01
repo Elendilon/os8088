@@ -1797,10 +1797,19 @@ resb (256 - (($-$$) % 256)) % 256       ; keep the BLOCK on a 256-byte
                                         ; derive a slice base from SP's low
                                         ; bits - the canary math above and
                                         ; tests/stackprobe both work from
-                                        ; sch_stacks + slot * SCH_STACK. Free
-                                        ; today: font's 768-byte block
-                                        ; precedes this one and 768 is
-                                        ; already a multiple
+                                        ; sch_stacks + slot * SCH_STACK.
+                                        ; FONT'S BLOCK precedes this one and
+                                        ; is 768 bytes in kern_small but 784
+                                        ; in kern_big, SPEC.md 39.14.11's two
+                                        ; seam cells being the difference - so
+                                        ; it is alignment-neutral in one
+                                        ; kernel and not in the other, and the
+                                        ; pad here is 58 bytes against 42.
+                                        ; .lowbss is the same size either way,
+                                        ; which is the point: this pad is
+                                        ; already paid for, and it is the
+                                        ; first place a byte added ahead of it
+                                        ; comes out of
 sch_stacks: resb (MAX_TASKS-1) * SCH_STACK ; slots 1..MAX_TASKS-1: slot n's stack
                                         ; top at n*SCH_STACK relative to
                                         ; sch_stacks, which is NOT offset 0

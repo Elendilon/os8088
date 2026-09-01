@@ -426,6 +426,30 @@ apt-get update                       # the shipped index is stale; this is slow
 apt-get install -y --no-install-recommends libudev-dev pkg-config
 ```
 
+**...and if `apt-get update` refuses to update anything**, saying
+
+```
+E: gpgv, gpgv2 or gpgv1 required for verification, but neither seems installed
+```
+
+while `/usr/bin/gpgv --version` answers perfectly well, the missing thing is
+not gpgv: apt drops to the unprivileged `_apt` user to fetch and verify, and in
+a container whose filesystem that user cannot traverse the check fails with
+that sentence. **Run the update and the install with the sandbox off**:
+
+```sh
+apt-get -o APT::Sandbox::User=root update
+apt-get -o APT::Sandbox::User=root install -y --no-install-recommends \
+        libudev-dev pkg-config
+```
+
+The failure is worth recognising by shape rather than by text, because it does
+not look like a permissions problem from either end: the index silently stays
+stale, so the install then 404s on `…8.14` exactly as it does with no refresh
+at all, and the cure above reads as unrelated to the error it fixes. A plain
+`apt-get update` that ends in `W: Some index files failed to download` having
+touched nothing is the tell.
+
 **Do not pin a version here.** Skipping the deps entirely does not fail at apt
 at all: it fails minutes later inside cargo, on `serialport`.
 
