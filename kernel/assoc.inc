@@ -148,18 +148,15 @@ assoc_ext_of:
     loop .copy
 .done:
     mov di, assoc_extb
-    pop si
-    pop dx
-    pop cx
-    pop ax
     clc
-    ret
+    jmp short .out
 .none:
+    stc
+.out:
     pop si
     pop dx
     pop cx
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -235,18 +232,17 @@ assoc_find:
     add bx, 4
     loop .row
 .miss:
-    pop di
-    pop cx
     stc
-    ret
+    jmp short .out
 .hit:
     mov al, [bx+3]
     and al, ASSOC_IX
     cmp al, ASSOC_NAPP
     jae .miss                   ; a corrupt index names no app
+    clc
+.out:
     pop di
     pop cx
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -280,13 +276,8 @@ assoc_app_of:
     loop .cmp
     pop si
     mov al, dh                  ; all eight matched
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     clc
-    ret
+    jmp short .out
 .nomatch:
     pop si
 .next:
@@ -294,12 +285,13 @@ assoc_app_of:
     inc dh
     jmp .row
 .miss:
+    stc
+.out:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -437,18 +429,15 @@ assoc_docicon_x:
     jc .no
     mov di, dsk_ico
     call assoc_compose
-    pop di
-    pop si
-    pop bx
-    pop ax
     clc
-    ret
+    jmp short .out
 .no:
+    stc
+.out:
     pop di
     pop si
     pop bx
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -653,20 +642,17 @@ assoc_post_x:
     pop si
     pop di
     mov [assoc_pwin], di
-    pop si
-    pop cx
-    pop bx
-    pop ax
     clc
-    ret
+    jmp short .out
 .no:
     pop si
     pop di
+    stc
+.out:
     pop si
     pop cx
     pop bx
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -737,20 +723,16 @@ assoc_try:
     mov si, assoc_fnb
     call dskw_stat_x              ; ...and since 18.4.3 it costs no re-read
     jc .no
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     clc
-    ret
+    jmp short .out
 .no:
+    stc
+.out:
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -787,18 +769,15 @@ assoc_tryfold:
                                 ; register, because there is not one
     call assoc_try
     jc .no
-    pop dx
-    pop cx
-    pop di
-    pop si
     clc
-    ret
+    jmp short .out
 .no:
+    stc
+.out:
     pop dx
     pop cx
     pop di
     pop si
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -887,13 +866,8 @@ assoc_locate:
     inc cl
     cmp cl, DVOL_MAX
     jb .vol
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     stc
-    ret
+    jmp short .out
 .found:
     call asc_use_x                ; the volume that ANSWERED (SPEC.md 54.7.2):
                                 ; seed EVERY association on it, not just the
@@ -915,14 +889,16 @@ assoc_locate:
     shl bx, 1                   ; THIS program loses to where it really is
     mov ax, [dsk_cwd]
     mov [assoc_clus+bx], ax
+    clc                         ; explicit, not inherited: a slot is 0..11 so
+                                ; the shl above happens to clear CF, and that
+                                ; is an accident of the table's size
+.out:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    clc                         ; explicit, not inherited: a slot is 0..11 so
-    ret                         ; the shl above happens to clear CF, and that
-                                ; is an accident of the table's size
+    ret
 
 ; -----------------------------------------------------------------------------
 ; assoc_run - open the pending document (SPEC.md 54.4)
@@ -1269,22 +1245,17 @@ osapi_assoc_set_x:
     or al, ASSOC_STICKY         ; a runtime claim outranks a declaration
     mov [bx+3], al
     call assoc_self_glyph       ; DL = slot; take the caller's own icon
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     clc
-    retf
+    jmp short .out
 .full:
+    stc
+.out:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
-    stc
     retf
 
 ; assoc_ext_new - claim a free extension row. in: SI -> 3 ext bytes;
@@ -1299,10 +1270,8 @@ assoc_ext_new:
     je .take
     add bx, 4
     loop .row
-    pop cx
-    pop ax
     stc
-    ret
+    jmp short .out
 .take:
     mov al, [si]
     mov [bx], al
@@ -1310,9 +1279,10 @@ assoc_ext_new:
     mov [bx+1], al
     mov al, [si+2]
     mov [bx+2], al
+    clc
+.out:
     pop cx
     pop ax
-    clc
     ret
 
 ; assoc_app_new - claim a free app slot for the stem in assoc_stemb.
@@ -1362,20 +1332,16 @@ assoc_app_new:
     inc di
     loop .zap
     mov al, dh
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     clc
-    ret
+    jmp short .out
 .full:
+    stc
+.out:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    stc
     ret
 
 ; assoc_self_glyph - reduce the CALLING package's own embedded icon into an
@@ -1736,13 +1702,8 @@ asc_root_find:
     shr dx, cl
     or dx, dx
     jz .no
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
     clc
-    ret
+    jmp short .out
 .nomatch:
     pop di
     pop cx
@@ -1751,12 +1712,13 @@ asc_root_find:
     loop .entry
     jmp short .sector
 .no:
+    stc
+.out:
     pop es
     pop di
     pop si
     pop cx
     pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1907,27 +1869,22 @@ asc_lookup_x:
     cmp dx, [es:di+8]           ; the stem matches: the size must too
     jne .next
     pop cx
-    pop es
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     add di, ASC_ROWICO
     clc
-    ret
+    jmp short .out
 .next:
     pop cx
     add di, ASC_ROW
     loop .row
 .no:
+    stc
+.out:
     pop es
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
