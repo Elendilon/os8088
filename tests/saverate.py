@@ -46,6 +46,18 @@ once a frame in `sv_fish_one` and nowhere else - so a swimmer that neither
 respawned nor changed speed inside a window gives an exact count, and windows
 where none survived are dropped rather than guessed at.
 
+**A WINDOW IS GUEST TIME AND NOT WALL CLOCK, and that is not tidiness.** It
+was `time.sleep(3)`, and MartyPC runs at whatever multiple of real time the
+host manages - four times it here - so three seconds of host was twelve of
+guest: **218 frames at 18.2 fps, and every swimmer crosses a 640-pixel screen
+in 160.** Every counter then reads a swimmer that respawned mid-window, and
+what comes back is not noise, it is a plausible number that is too low. The
+window survived only while the mode was too slow to cross - at 10.75 fps the
+2-pixel swimmers just made it - so SPEC.md 79.5.8, which made the mode FASTER,
+is what broke it: 18.18 fps measured over one host second read as 8.48 over
+three. `m.advance(cycles=)` is exact in guest time and independent of the
+host, which is what a window sized against a crossing needs.
+
 **The other three modes are the CONTROL and are asserted more weakly**, which
 is worth being explicit about. They have no swimmer, so they are counted off
 `[sv_due]`, and that is a frame counter only while a mode is KEEPING UP: it
@@ -76,7 +88,11 @@ KEEPUP = 17.0       # below this a mode is not getting its frame a tick...
 HALTED = 12.0       # ...and above this the machine was asleep rather than busy.
                     # After the fix: 1.6-8.6% halted. Before it: 15.9-42.3%.
 WINDOWS = 4
-SECS = 3.0
+SECS = 2.0          # GUEST seconds a window (see the docstring). 2 s is ~36
+                    # frames at one a tick, so the fastest swimmer covers 146
+                    # of the 640 pixels it would need to cross and respawn -
+                    # and 36 ticks is plenty to divide a halt fraction by
+HZ = 4772727.0      # the 8088 this is all measured on
 
 
 def offsets():
@@ -166,7 +182,7 @@ def measure(m, o, name, bit, secs, windows):
     halt = busy = 0
     prev = sample(m, seg, o)
     for _ in range(windows):
-        time.sleep(secs)
+        m.advance(cycles=int(secs * HZ))     # GUEST seconds, not host ones
         cur = sample(m, seg, o)
         dt = (cur["t"] - prev["t"]) & 0xFFFF
         n = frames(prev, cur, dt, bit == 8, ival)
@@ -177,6 +193,8 @@ def measure(m, o, name, bit, secs, windows):
             halt, busy = halt + d[idle], busy + sum(d)
         prev = cur
 
+    m.run()                                  # advance() leaves it PAUSED, and
+                                             # the teardown below is wall clock
     m.write(m.sym("ss_idle"), b"\x00\x40")   # a quarter hour: back to a desktop
     m.key("Space")
     time.sleep(2.0)
@@ -191,7 +209,8 @@ def main():
     ap.add_argument("--machine", default="os8088_5150_cga_gla")
     ap.add_argument("--image", default="build/os8088-360.img")
     ap.add_argument("--apps", default="build/apps360.img")
-    ap.add_argument("--secs", type=float, default=SECS)
+    ap.add_argument("--secs", type=float, default=SECS,
+                    help="GUEST seconds a window")
     ap.add_argument("--windows", type=int, default=WINDOWS)
     a = ap.parse_args()
 
