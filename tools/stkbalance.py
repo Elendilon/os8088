@@ -98,6 +98,12 @@ SPADD = re.compile(r"^(add|sub)\s+sp\s*,\s*(\S+)$", re.I)
 GLOBAL = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):")
 LOCAL = re.compile(r"^(\.[A-Za-z0-9_]+):")
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+MACDEF = re.compile(r"^%macro\s+([A-Za-z_][A-Za-z0-9_]*)\s+(\d+)", re.I)
+MACEND = re.compile(r"^%endmacro\b", re.I)
+# `jmp %1` / `call %1` inside a macro body: the macro's ARGUMENT is a branch
+# target, so an invocation is control flow and not an address being taken.
+MACJMP = re.compile(r"^(?:jmp|j[a-z]{1,3})\s+(?:short\s+)?%1\s*$", re.I)
+MACCALL = re.compile(r"^call\s+%1\s*$", re.I)
 # `jmp short $+2` and friends: a jump to the very next instruction, used all
 # over this tree to let an I/O port settle.  It is not a tail call.
 SETTLE = re.compile(r"^\$\s*\+\s*2$")
@@ -112,7 +118,15 @@ DWORDS = re.compile(r"^d[wd]\s+(.*)$", re.I)
 # arm runs at +5 and exits through the shared `wsm_out` that pops them.  Read
 # as entries they each report `retf at depth -5`; followed from the dispatch,
 # they are exactly balanced.
-JMPTAB = re.compile(r"^jmp\s+(?:word\s+)?\[([A-Za-z_][A-Za-z0-9_]*)\s*[+\]]", re.I)
+#
+# The operand is matched WHOLE and then searched for a known table, because
+# the three CPU cores in this tree write the same thing four other ways:
+# `jmp [cs:bx+ed_tab]` puts a segment override in front and the table SECOND,
+# and `jmp [cs:bx+wvm_btab-12]` biases the base as well.  A regex that expects
+# the table first and no override reads every opcode handler in RunCPM's Z80,
+# the C64's 6510 and Weave's VM as a routine entered at depth 0 - which is how
+# all three came to be dispatch tables nothing had ever walked.
+JMPTAB = re.compile(r"^jmp\s+(?:word\s+)?\[([^\]]+)\]", re.I)
 
 # A walk that follows tail jumps can in principle wander a long way.  In this
 # tree it does not, but a bound keeps a pathological chain from hanging the
@@ -201,9 +215,19 @@ class Corpus(object):
     def __init__(self, files):
         self.units = [Unit(p) for p in files]
         self.gindex = {}        # "name" -> (unit, idx)
+        # A corpus spanning several TRANSLATION UNITS can define one name
+        # twice - apps/cc/crt0.asm's C runtime is copied into Loom's PV module,
+        # drivers/net and drivers/ether share `eth_*` state names. The first
+        # definition wins, which is a real inaccuracy and a small one (22 of
+        # 9,786 across apps/ and drivers/), so it is COUNTED and printed rather
+        # than left silent - the same treatment as the back edges.
+        self.dup = 0
         for u in self.units:
             for name, idx in u.glab.items():
-                self.gindex.setdefault(name, (u, idx))
+                if name in self.gindex:
+                    self.dup += 1
+                else:
+                    self.gindex[name] = (u, idx)
         self.called = {}
         self.jumped = {}
         self.addressed = {}
@@ -212,8 +236,45 @@ class Corpus(object):
         self._entries = None
         self.tables = {}        # "tab" -> [label, ...] from its dw/dd rows
         self.jumptabs = set()   # tables reached by `jmp [tab + reg]`
+        self.macro = {}         # "RAE" -> "jmp" | "call"
+        self._macros()
         self._tables()
         self._scan()
+
+    def _macros(self):
+        """Macros whose body branches to their own argument.  wvm.inc wraps
+        `je %%o / jmp %1 / %%o:` in seven of them (`RNE`, `RAE`, ...) and uses
+        them at fifty sites; read as bare mentions, every one of those targets
+        looks like an address being taken, which promotes a refusal handler to
+        a routine entered at depth 0 and walks it from there."""
+        for u in self.units:
+            cur, nargs, body = None, 0, []
+            for idx, text, _ in u.body:
+                if cur is None:
+                    m = MACDEF.match(text) if text else None
+                    if m:
+                        cur, nargs, body = m.group(1), int(m.group(2)), []
+                    continue
+                if text and MACEND.match(text):
+                    if nargs >= 1:
+                        for t in body:
+                            if MACCALL.match(t):
+                                self.macro[cur] = "call"
+                                break
+                            if MACJMP.match(t):
+                                self.macro[cur] = "jmp"
+                                break
+                    cur = None
+                    continue
+                if text:
+                    body.append(text)
+
+    def _macinvoke(self, text):
+        """(kind, target) if this line invokes a branching macro."""
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s+(\S+)\s*$", text)
+        if m and m.group(1) in self.macro:
+            return self.macro[m.group(1)], m.group(2)
+        return None, None
 
     def _tables(self):
         for u in self.units:
@@ -243,9 +304,16 @@ class Corpus(object):
                 if m:
                     self._bump(self.called, m.group(1).lstrip("["))
                     continue
+                kind, tgt = self._macinvoke(text)
+                if kind is not None:
+                    self._bump(self.called if kind == "call" else self.jumped,
+                               tgt)
+                    continue
                 m = JMPTAB.match(text)
                 if m:
-                    self.jumptabs.add(m.group(1))
+                    for w in IDENT.findall(m.group(1)):
+                        if w in self.tables:
+                            self.jumptabs.add(w)
                     continue
                 m = JMP.match(text)
                 if m:
@@ -338,13 +406,13 @@ def walk(corp, name):
                         and u.owner[j] == u.owner[src[1]]):
                     # ...and only when the edge stays INSIDE one routine. A
                     # backward edge that LEAVES the routine is a cross-jump,
-                    # not a loop back edge - and a tail merge is exactly a
+                    # not a loop back edge - and a TAIL MERGE is exactly a
                     # backward cross-jump, so without this test the gate is
-                    # blind to the commonest shape a size pass creates. Proved
-                    # both directions on one defect during size pass 2: as a
-                    # forward jump it was caught, as a backward one it was
-                    # silent, and the only visible trace was the suppression
-                    # counter moving 4 -> 6.
+                    # blind to the commonest shape a size pass creates. Found
+                    # by size pass 2's adverse review, which proved it both
+                    # directions on one defect: as a forward jump it was
+                    # caught, as a backward one it was silent, and the only
+                    # visible trace was the suppression counter moving 4 -> 6.
                     suppressed += 1
                 else:
                     findings.append((u.path, name, raw.strip(),
@@ -386,12 +454,14 @@ def walk(corp, name):
             continue
 
         m = JMPTAB.match(text)
-        if m and m.group(1) in corp.tables:
-            for t in corp.tables[m.group(1)]:
-                where = corp.gindex.get(t)
-                if where is not None:
-                    push(where[0], where[1], d, raw, (u, i))
-            continue
+        if m:
+            hit = [w for w in IDENT.findall(m.group(1)) if w in corp.tables]
+            if hit:
+                for t in corp.tables[hit[0]]:
+                    where = corp.gindex.get(t)
+                    if where is not None:
+                        push(where[0], where[1], d, raw, (u, i))
+                continue
 
         m = JMP.match(text)
         if m:
@@ -411,11 +481,19 @@ def walk(corp, name):
             continue
 
         nxts = [(u, i + 1)]
-        m = JCC.match(text)
-        if m:
-            where = corp.resolve(u, i, m.group(2))
+        kind, mtgt = corp._macinvoke(text)
+        if kind == "jmp":
+            # `RAE wvm_aoob` is `jb %%o / jmp wvm_aoob / %%o:` - a branch to
+            # the target at this depth, and a fallthrough past it.
+            where = corp.resolve(u, i, mtgt)
             if where is not None:
                 nxts.append(where)
+        else:
+            m = JCC.match(text)
+            if m:
+                where = corp.resolve(u, i, m.group(2))
+                if where is not None:
+                    nxts.append(where)
 
         dd = delta(text)
         if dd is None:
@@ -496,9 +574,10 @@ def main():
               % (os.path.relpath(path, ROOT), name, why, line))
     print("stkbalance: %d unbalanced path(s)"
           "  (%d entries walked, %d declared banking routines,"
-          " %d exempted, %d loop back-edges not reported, %d walks capped)"
+          " %d exempted, %d loop back-edges not reported, %d walks capped,"
+          " %d names defined twice)"
           % (len(all_f), len(corp.entries()), len(corp.nets),
-             len(corp.skip), sup, capped))
+             len(corp.skip), sup, capped, corp.dup))
     return 1 if all_f else 0
 
 

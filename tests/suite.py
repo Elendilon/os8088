@@ -283,6 +283,26 @@ FAST = [
         "is left and is counted in the tool's own summary line: loop back-edge "
         "conflicts are suppressed, because the count lives in a register"),
 
+    Row("stkapps", "fast", py("tests/unit/t_stkapps.py"), 3.0,
+        "every `ret` in EVERY SHIPPED PACKAGE AND DRIVER is reached at the "
+        "depth it started at. `ch_legend` pushed SI and never popped it, so its `ret` "
+        "jumped to the saved register: a black canvas and a wedged app, with "
+        "no crash and no message (SPEC.md 82.7.3). This row walked only SHEET, "
+        "CHART and four shared includes - 776 entries - until three blind "
+        "spots in the walker were closed; it walks 9,038 now, drivers/ "
+        "included - the TCP/IP stack had never been walked either. Each blind spot "
+        "hid a whole class: `apps/*/*.inc` was in no file list, so RunCPM's "
+        "Z80, the C64's 6510 and Weave's VM had never been walked by anything; "
+        "all three dispatch as `jmp [cs:bx+tab]`, which a walker looking for "
+        "`jmp [tab+reg]` reads as every opcode handler being a routine entered "
+        "at depth 0; and wvm.inc puts its branches inside macros. It found one "
+        "real defect - `op_size` in os88parts.inc returned into a saved "
+        "register on a malformed part table, in every package via "
+        "os88api.inc. The KERNEL is the `stkbalance` row above, not this one: "
+        "the two file lists have nothing in common and were arrived at from "
+        "opposite ends (docs/STKBALANCE-KERNEL.md 4)",
+        ),
+
     Row("stkwalker", "fast", py("tests/unit/t_stkbalance.py"), 2.0,
         "the stack walker itself, against eleven idioms it must stay QUIET "
         "about and six defect shapes it must catch. A gate that reports "

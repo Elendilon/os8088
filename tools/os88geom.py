@@ -212,6 +212,30 @@ _MIRROR = {
     "VID_CTX_CW": ("kernel/vidsel.inc", 14),
     "VID_CTX_CH": ("kernel/vidsel.inc", 16),
     "VID_NDISP_MAX": ("kernel/vidsel.inc", 2),
+
+    # --- found by the unmirrored() audit, not by anyone noticing -------------
+    #
+    # This record only ever held what somebody THOUGHT to add to it, and
+    # `scan` only guards a name once it is here - so a constant with seven
+    # local copies and no entry was invisible to both. These seven were
+    # exactly that: 23 copies across 15 scripts, all agreeing, none guarded.
+    #
+    # `CP_RX` is the one that says why they are here now. Seven copies is the
+    # shape of the VID_CTX_SZ incident above, which was nine - and that record
+    # did not drift until the kernel grew a field, which is not a thing a
+    # reviewer of the kernel change would think to look for.
+    #
+    # `APP_MAX_SIZE` is the one with teeth. It lives in `tools/os88pkg.py`,
+    # which is one of the five host tools that WRITE SHIPPED BYTES, so a drift
+    # there does not fail a test - it stamps a package against the wrong
+    # ceiling.
+    "APP_MAX_SIZE": ("kernel/kernel.asm", 61440),
+    "WCR_SZ": ("kernel/kernel.asm", 8),
+    "CP_RX": ("kernel/ctrl.inc", 96),
+    "CP_IDRV": ("kernel/ctrl.inc", 2),
+    "CP_ITHM": ("kernel/ctrl.inc", 5),
+    "CP_ITIME": ("kernel/ctrl.inc", 1),
+    "DSK_DE_SIZE": ("kernel/dskwin.inc", 32),
 }
 
 globals().update({k: v for k, (_, v) in _MIRROR.items()})
@@ -589,6 +613,92 @@ def row_xy(win, row=0, x=60):
 
 
 # --- and the same question asked of the harness itself ----------------------
+
+# A name a host script defines that the kernel also defines, where the two
+# mean DIFFERENT things. `unmirrored` would otherwise nominate them for ever.
+#
+# BAND_KB is the worked example and the reason this list is by NAME and not by
+# value: kernel/band.inc's is the 1bpp title-bar composer's buffer (2 KB, and
+# no shipped build even compiles that file), while tests/paintsu.py's is a
+# threshold about PAINT's band cache - "the band cache measures 3 KB, the whole
+# content 9". Same name, unrelated things, and the values differ, so a check
+# that trusted the match would report a drift that is not one.
+_COLLISIONS = {
+    "BAND_KB": "kernel/band.inc's title-bar composer buffer vs Paint's own "
+               "band-cache threshold in tests/paintsu.py - unrelated",
+}
+
+
+def unmirrored(root=None, least=2):
+    """Kernel constants host scripts hard-code that this record does NOT hold.
+
+    `scan` is the wrong way round to catch the next VID_CTX_SZ: it only looks
+    at names ALREADY in `_MIRROR`, so a constant with seven local copies and no
+    entry is invisible to it, and the record only ever held what somebody
+    thought to add. This is the other direction - every `NAME equ <int>` the
+    kernel defines, against every `NAME = <int>` a host script defines.
+
+    Returns [(name, kernel_file, kernel_value, [(script, line, value), ...])]
+    for names with at least `least` copies, worst first. `least` defaults to 2
+    because ONE copy is a script naming a thing, and two is the beginning of
+    the drift that took nine scripts down.
+    """
+    import ast
+
+    root = root or ROOT
+    kern = {}
+    equ = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+equ\s+(.+?)\s*$", re.I)
+    kdir = os.path.join(root, "kernel")
+    if os.path.isdir(kdir):
+        for fn in sorted(os.listdir(kdir)):
+            if not (fn.endswith(".inc") or fn.endswith(".asm")):
+                continue
+            rel = os.path.join("kernel", fn)
+            for line in open(os.path.join(kdir, fn), "r", errors="replace"):
+                m = equ.match(line.split(";")[0])
+                if not m:
+                    continue
+                try:
+                    kern.setdefault(m.group(1), (rel, int(m.group(2).strip(), 0)))
+                except ValueError:
+                    pass
+
+    hits = {}
+    for sub in ("tools", "tests", os.path.join("tests", "unit")):
+        d = os.path.join(root, sub)
+        if not os.path.isdir(d):
+            continue
+        for fn in sorted(os.listdir(d)):
+            if not fn.endswith(".py") or fn == "os88geom.py":
+                continue
+            try:
+                tree = ast.parse(open(os.path.join(d, fn), "r",
+                                      errors="replace").read())
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Assign):
+                    continue
+                for tgt in node.targets:
+                    if (isinstance(tgt, ast.Name)
+                            and isinstance(node.value, ast.Constant)
+                            and isinstance(node.value.value, int)):
+                        hits.setdefault(tgt.id, []).append(
+                            (os.path.join(sub, fn), node.lineno,
+                             node.value.value))
+
+    out = []
+    for name, places in hits.items():
+        if name in _MIRROR or name in _COLLISIONS or name not in kern:
+            continue
+        # A short or mixed-case name matching a kernel equ is a coincidence far
+        # more often than it is a copy.
+        if len(name) < 4 or not name.isupper() or len(places) < least:
+            continue
+        rel, val = kern[name]
+        out.append((name, rel, val, sorted(places)))
+    return sorted(out, key=lambda r: (-len(r[3]), r[0]))
+
 
 def scan(root=None):
     """Every LOCAL copy of a mirrored constant in tools/ and tests/.

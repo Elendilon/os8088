@@ -238,6 +238,29 @@ def main():
                         for p, ln, n, mine, k in stale) or "none",
           want="every copy equal to the kernel, or imported from os88geom")
 
+    # ...and the direction NEITHER of the two above looks in. `scan` only
+    # guards a name once it is in `_MIRROR`, and `_MIRROR` only ever held what
+    # somebody thought to add - so a kernel constant with SEVEN local copies
+    # and no entry was invisible to the record and to its gate alike. That is
+    # how VID_CTX_SZ got to nine copies before it drifted. `unmirrored` walks
+    # the other way: every `NAME equ <int>` the kernel defines against every
+    # `NAME = <int>` a host script does, and a second copy is the threshold
+    # because one is a script naming a thing and two is a convention forming.
+    # It found seven, 23 copies across 15 scripts, none of them guarded.
+    loose = geom.unmirrored(ROOT)
+    check(not loose,
+          "no kernel constant has copies in two host scripts without an "
+          "os88geom entry",
+          "a copy that AGREES is the seed of the next one that does not, and "
+          "the record cannot notice a name it was never told about. Add the "
+          "constant to tools/os88geom.py's _MIRROR - or, if the kernel and "
+          "the script mean different things by the same name, to _COLLISIONS "
+          "with the reason (BAND_KB is the worked example)",
+          got="; ".join("%s (%s = %d) in %s" % (n, f, v, ", ".join(
+              "%s:%d" % (pp, ll) for pp, ll, _ in pl)) for n, f, v, pl in loose)
+              or "none",
+          want="every multiply-copied kernel constant mirrored or exempted")
+
     # ...and the SDK's own namespace, which is the same shape one authority
     # along. apps/os88parts.inc publishes OP_BSS and the standard's bss chain
     # (SPEC.md 20.12), a host gate turns `os88_image_end` into the package's
