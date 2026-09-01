@@ -8503,7 +8503,7 @@ pt_urestore:
 ;
 ; Scanline seed fill (Smith's algorithm) with an explicit span stack in
 ; PT_SCSEG: 1,024 entries of (row, x1, x2, direction). Recursion is out of the
-; question - a package's stack is 1,536 bytes in LOW_SEG (SPEC.md 20.6) - and
+; question - a package's stack is 1,024 bytes in LOW_SEG (SPEC.md 20.6) - and
 ; a per-pixel stack would need four bytes for every pixel of the region.
 ;
 ; Each run is emitted to the screen the moment it is found, so the fill draws

@@ -2977,7 +2977,7 @@ per-iteration and correct: **4,608 / (us/op)**. Fixed.
 **And the block hard-froze the machine once**, on the first run after a cold
 boot, then ran normally after a reboot. docs/FIELD-NOTES.md 10: a package
 cannot make an `int 13h` safe, because the BIOS runs its disk handler and its
-IRQ6 nesting on whichever 256-byte task stack is current and the kernel's own
+IRQ6 nesting on whichever 384-byte task stack is current and the kernel's own
 `dsk_xfer` holds `sch_lock` across every call so nothing switches underneath
 one. It is kept because it answered the question and the answer was worth
 6.3x; nothing shipped may copy it.

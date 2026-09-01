@@ -855,4 +855,4 @@ kernel image changes even when nothing sound-side ships on disk).
   work.
 - **A resident sound task.** Tone expiry is a `snd_tick` leaf; stream refills are
   *transient* per-stream spawns from the existing pool that exit with their stream. A
-  permanent task would cost a 1,536-byte `.lowbss` stack for mostly-idle work.
+  permanent task would cost a `SCH_STACK`-sized `.lowbss` stack for mostly-idle work.

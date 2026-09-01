@@ -9861,8 +9861,9 @@ than the only thing standing between a held arrow key and a dead machine.
 **The beep is the bug, not the noise.** On the period IBM ROM the full-buffer
 beep is `call F000:E8C0`: two `loop $` delays run with **interrupts enabled**,
 so every IRQ1 arriving inside one nests another int 09h — and another beep —
-on whichever task stack happens to be current. A worker gets **256 bytes**
-(§8). Measured on a cycle-accurate 5150, the machine halted in `sch_stkdie`
+on whichever task stack happens to be current. A worker gets **384 bytes**
+(§8). Measured on a cycle-accurate 5150 when the slice was 256, the machine
+halted in `sch_stkdie`
 with the slice holding **seven nested copies of the same 26-byte beep frame**,
 about a second after the first held key. It is a stack overrun with no bug
 anywhere near the stack, and it reads as a hang in whatever was running.
@@ -22599,7 +22600,7 @@ no undo on this system, which is exactly why the line is a confirmation and
 not a click.
 
 **It is iterative, and the stack it does not have is the disk's own.** A
-recursive descent would need a frame per level on a 1,536-byte task stack (§8)
+recursive descent would need a frame per level on a 384-byte task stack (§8)
 and a depth bound nobody could justify. Every subdirectory records its parent
 in its `..` entry (§19.2), so the walk goes down with `dsk_chdir` and comes
 back up with `dsk_dotdot`, carrying nothing between iterations but the
@@ -24429,7 +24430,7 @@ they are per-read questions, so a reader zeroes them first.
 **`dsk_dbg_raw` is a far entry, and it is the reason this is in the kernel
 rather than in the package.** `tests/sysbench` called `int 13h` itself and
 **hard froze the 5150** (docs/FIELD-NOTES.md 11): a BIOS runs its disk
-handler and its IRQ6 nesting on whichever 256-byte task stack is current
+handler and its IRQ6 nesting on whichever 384-byte task stack is current
 (§8), on top of the harness's own frames, and every other `int 13h` in this
 system holds `sch_lock` across the call so nothing switches underneath one. A
 package can do neither. From here it is exactly as safe as `dsk_xfer`'s own
@@ -31105,7 +31106,7 @@ between two of them.
 
 Four things hold the engine up:
 
-- **The recursion has no call stack.** A task stack is 512 bytes (§2.1) and
+- **The recursion has no call stack.** A task stack is 384 bytes (§2.1) and
   a directory tree is attacker-supplied, so the walk keeps `FCP_MAXD` = 6
   frames of (source cluster, mirror cluster, entry ordinal) in `.bss` and
   iterates — `dskw_rmtree`'s discipline. What is different is that a copy
@@ -61964,9 +61965,11 @@ is also a question about *time* on a 4.77MHz machine, which the container
 cannot answer (PERFORMANCE.md Part 4) — so it is left for a field measurement
 rather than guessed at, exactly as the Disk window's was (§22).
 
-One thing that is **not** a difference: the worker's stack. It is 256 bytes
-here and 512 on `main` (§8, §20.6 rule 6), which is the one contract that got
-*tighter*. Measured statically over the worker's whole call tree, with every
+One thing that is **not** a difference: the worker's stack. It was 256 bytes
+here and 512 on `main` **when this port was done**, which is the one contract
+that got *tighter*. Both are **384** now (§8, §20.6 rule 6, `SCH_STACK`) and
+have been since #112 carried this branch's own 12x256 -> 8x384 home, so there
+is nothing left here to adapt — read the two numbers below as history. Measured statically over the worker's whole call tree, with every
 push on every path counted live: **98 bytes**, against Tracker's 92 — the app
 this one is architecturally a copy of, and the one that has run on the 5150.
 The deepest chain is `mpp_render` → `mppu_frame` → `mppu_paint` →
@@ -62114,7 +62117,7 @@ Everything past that first word belongs to the section owning the block
 5. **A far entry is published as an offset in the block**, not as a slot, and
    it is `retf`-terminated. §18.94's exists because a package *cannot* safely
    issue `int 13h` itself — the BIOS runs its disk handler on whichever
-   256-byte task stack is current and `dsk_xfer` holds `sch_lock` across every
+   384-byte task stack is current and `dsk_xfer` holds `sch_lock` across every
    call (docs/FIELD-NOTES.md 10). Anything with that shape belongs here rather
    than in the package.
 6. **Prefer publishing a POINTER to state that already exists** over copying
@@ -70280,8 +70283,8 @@ full buffer makes the BIOS beep**.
 The beep is the bug, not the noise. It is `call F000:E8C0` on this ROM: two
 `loop $` delays run with **interrupts enabled**, so every IRQ1 arriving inside
 one nests another int 09h — and another beep — on whichever task stack happens
-to be current. A worker gets **256 bytes** (§8). Measured on a cycle-accurate
-5150: the buffer went 0 → 9 → 15 pending inside one second of held
+to be current. A worker gets **384 bytes** (§8). Measured on a cycle-accurate
+5150 when the slice was 256: the buffer went 0 → 9 → 15 pending inside one second of held
 arrow-plus-fire, and the machine halted in `sch_stkdie` with the slice holding
 **seven nested copies of the same 26-byte beep frame**. It reads as a hang in
 the game and it is a keyboard buffer nobody emptied.
@@ -74090,7 +74093,7 @@ trace of why.
 **SS is `LOW_SEG` and DS is the package's segment, on every task, always.**
 That is §1's near-model rule and §2.1's memory map, and it is not negotiable
 for the sake of a compiler: SS is not part of the saved task frame (§8), the
-eleven worker stacks are one 256-aligned block in `.lowbss` whose slice top is
+seven worker stacks are one 256-aligned block in `.lowbss` whose slice top is
 derived from SP alone, and the canary check that catches an overrun reads
 through SS. **SS ≠ DS is a property of the whole operating system.** No
 kernel change was made to accommodate C and none should be proposed; the
@@ -75741,7 +75744,7 @@ prompt screen's full expose is the fill + 11 rows = **12 calls**.
 
 **No worker, no blocking, and the kernel grew a wake event for it (§74.1).**
 RunCPM blocks in the host's `getch()`; a package's worker cannot touch a file
-slot (§20.6) and has 256 bytes of stack, and W_ONKEY is dispatched under the
+slot (§20.6) and has 384 bytes of stack, and W_ONKEY is dispatched under the
 gfx lock. So the emulator runs on the **UI task in bounded slices**: a slice
 runs N instructions (N sized by `os88_cpu()`, ~50 ms on the target), services
 the trap the Z80 stopped on, drains the terminal, takes the gfx lock only
@@ -76599,7 +76602,7 @@ place it would otherwise be repeated.
 
 **`[wm_clask]` is a re-entry fence and it is not decoration.** A negotiator
 may raise a dialog, and a dialog can end up back in a close path. Asking the
-same window again would recurse on a 256-byte task stack (§8): `sch_stkdie`,
+same window again would recurse on a 384-byte task stack (§8): `sch_stkdie`,
 not a wrong answer. The fence answers REFUSED for the one window whose
 negotiator is live, so the recursion terminates at depth one and the outer ask
 still decides. It is saved **on the stack** — `wm_pkgcall` restores `DS` and
@@ -79354,13 +79357,15 @@ beside §72.17's numbers.
 levels averaging ten bytes, so there is no single cut worth much — which is why
 `SCH_STACK` is a memory decision rather than an optimisation one.
 
-#### 72.16.4 Fitting a 256-byte task slice, and the gate that keeps it fitting
+#### 72.16.4 Fitting a 384-byte task slice, and the gate that keeps it fitting
 
-A background task owns **256 bytes** (§8), and a package's worker calling a
-socket verb runs this whole stack on it. `tools/stkwater.py` measured FTPD's
-worker at 208 of 256 after one session, and `tools/stkdepth.py` prices the
-chains it goes through. Raising `SCH_STACK` costs conventional RAM against a
-128KB boot target, so the driver was made to fit instead:
+A background task owns **384 bytes** (§8), and a package's worker calling a
+socket verb runs this whole stack on it. **The fitting below was done when the
+slice was 256**: `tools/stkwater.py` measured FTPD's worker at 208 of 256 after
+one session, and `tools/stkdepth.py` prices the chains it goes through. Raising
+`SCH_STACK` costs conventional RAM against a 128KB boot target, so the driver
+was made to fit instead — and it is the reason the margin is comfortable at 384
+rather than the reason the slice grew:
 
 | | `eth_pump` | `eth_v_open` | `ec_up` |
 |---|---|---|---|

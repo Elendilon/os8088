@@ -1066,8 +1066,8 @@ the first run after a cold boot, then ran normally after a reboot and
 produced note 7's answer.
 
 **The mechanism is structural.** A BIOS runs its disk handler, and the IRQ6
-nesting inside it, on whichever **256-byte task stack** is current
-(SPEC.md §8) — here on top of the benchmark's own frame, `bl_run`'s and
+nesting inside it, on whichever **task stack** is current — 256 bytes when
+this was observed, `SCH_STACK` = 384 today (SPEC.md §8) — here on top of the benchmark's own frame, `bl_run`'s and
 benchlib's. And the kernel's `dsk_xfer` holds **`sch_lock`** across every
 `int 13h` so nothing can switch underneath one; a package has no way to ask
 for that, because there is no slot for it. Whether it dies depends on where
@@ -3302,11 +3302,12 @@ beat F7  chain F7   sch_cur 01   SP 0314   CS:IP 97:0184   stk0 bad 00
 ```
 
 ...and **eight solid black bytes at framebuffer byte 20**, which is `KHB_STK`
-and nothing else: `sch_stkdie`'s bar. **A task overran its 256-byte stack
-slice and the kernel halted itself** (`cli`/`hlt`, the only one in the tree) —
-so the timer interrupt really is gone, and every instrument with it. That is
-why the dots stopped, and it is what the field has been calling a hard freeze
-all along.
+and nothing else: `sch_stkdie`'s bar. **A task overran its stack slice and the
+kernel halted itself** (`cli`/`hlt`, the only one in the tree) — the slice was
+**256 bytes** when this was taken, which is what the arithmetic below is in;
+`SCH_STACK` is 384 today — so the timer interrupt really is gone, and every
+instrument with it. That is why the dots stopped, and it is what the field has
+been calling a hard freeze all along.
 
 The arithmetic is unambiguous. `sch_stacks` is at `0x0300` in `LOW_SEG` and
 slot 1 owns the first slice, `0x0300`–`0x03FF`. `SP` = `0x0314` is read in the

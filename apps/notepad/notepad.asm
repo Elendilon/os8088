@@ -338,7 +338,7 @@ NP_PATMAX    equ 47             ; characters a pattern or a replacement holds
 NP_RXST      equ 12             ; backtrack frames the matcher may stack. An
                                 ; EXPLICIT stack in bss, not the CPU's: a
                                 ; recursive matcher would run on the worker's
-                                ; 256-byte task stack (SPEC.md 8), and a
+                                ; 384-byte task stack (SPEC.md 8), and a
                                 ; pattern is user input
 NP_FP_ROW    equ 12             ; the panel's row pitch: an 8px line plus 4
 NP_FP_PAD    equ 2              ; ...and the border above and below it
@@ -2696,7 +2696,7 @@ np_reconcile:
 ; in:  gfx lock held (OSAPI_TASK_SPAWN requires it); preserves all registers
 ;
 ; Lazy on purpose: a Note Pad that never breaks never costs a task slot or a
-; 512-byte stack, which on a 12-slot table is worth the byte of state. A
+; 384-byte stack, which on an 8-slot table is worth the byte of state. A
 ; refusal is normal and transient (the table can be full), so nothing is
 ; latched and the next break asks again.
 ; -----------------------------------------------------------------------------
@@ -7737,7 +7737,7 @@ np_undo:
 ; textbook matcher recurses once per repeat element and once per repetition;
 ; the second is fatal on its own (`.*` over a 16KB note is 16,000 frames) and
 ; the first is fatal here too, because the match COUNT is recomputed by the
-; worker task and a worker's stack is 256 bytes (SPEC.md 8). So repetition is
+; worker task and a worker's stack is 384 bytes (SPEC.md 8). So repetition is
 ; a greedy count plus a frame that gives ground one at a time, the frames live
 ; in bss, and there are NP_RXST of them - a pattern needing more is refused
 ; whole, by np_fchk, before anything runs.

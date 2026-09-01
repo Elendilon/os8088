@@ -165,7 +165,9 @@ question rather than the particular answer:
   and `main` did not: `OSAPI_FONT_GLYPHS` answering `DX:SI` rather than `SI`
   (the glyph table is not in `KERNEL_SEG`); the file-dialog completion proc
   gaining `DX:CX` = the chosen file's size; worker task stacks halving from 512
-  bytes to 256.
+  bytes to 256. **That last one has since converged** — both trees have been
+  `SCH_STACK` = 384 since #112 — and it is left here as the SHAPE to look for,
+  not as a live difference. Check the constant, never this sentence.
 - **Greying must go through `OSAPI_GFX_PEN`** (SPEC.md §47 rule 1) wherever
   that slot exists. Code written before it greys with `CDGRAY` alone — a real
   grey on VGA and **solid black on Hercules and CGA**, pixel-identical to a
@@ -173,8 +175,11 @@ question rather than the particular answer:
   this way, and it is invisible on the adapter most people test on.
 - **Look at it on a 1bpp adapter** before believing it works: `make test
   VIDEO=cga`, and `docs/HERCULES-TESTING.md` for the other one.
-- **Check the worker's stack** if the package claims one. The slice is 256
-  bytes (SPEC.md §8, §20.6 rule 6). A static worst-case walk of the worker's
+- **Check the worker's stack** if the package claims one. A worker's stack is
+  **384** bytes today (`SCH_STACK`, SPEC.md §8, §20.6 rule 6) — and the point
+  of the check is the constant in `kernel/sched.inc`, not the number written
+  here: it has been 1,536, 512, 256 and 384, and a doc quoting the wrong one
+  is how a session concludes a contract moved when it did not. A static worst-case walk of the worker's
   call tree compared against a known-good peer is the cheap check — Tracker's
   worker measures 92 bytes, ModPlug's 98 — and `tests/stackprobe` on real iron
   is the only thing that settles the margin, because SeaBIOS hides a real

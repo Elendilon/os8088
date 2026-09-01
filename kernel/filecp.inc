@@ -16,7 +16,7 @@
 ; is a legal dskw_name83 input (SPEC.md 19) and cannot go stale the way an
 ; index can, which is the same argument fm_onam already won for Rename.
 ;
-; TWO: the recursion has NO call stack. A task stack is 512 bytes
+; TWO: the recursion has NO call stack. A task stack is 384 bytes
 ; (SPEC.md 2.1) and a directory tree is attacker-supplied, so the walk keeps
 ; its state in an explicit FCP_MAXD-deep array of frames and iterates. That
 ; is dskw_rmtree's discipline; what is different here is that a copy does

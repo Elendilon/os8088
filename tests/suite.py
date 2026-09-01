@@ -92,6 +92,16 @@ FAST = [
     Row("api-abi", "fast", py("tests/unit/t_api_abi.py"), 2.0,
         "the API table decoded from kernel.bin and compared with the SDK - the "
         "silent merge collision CLAUDE.md asks to be checked by hand"),
+    Row("stackprose", "full", py("tests/unit/t_stackprose.py"), 5.0,
+        "a doc or comment that names the task stack's SIZE names the one the "
+        "kernel has. SCH_STACK has been 1,536, 512, 256 and 384; SPEC.md 2.1 "
+        "and 20.6 rule 6 followed it every time and the forty-odd places "
+        "CITING them did not. That is not a typo class - docs/UPSTREAM.md's "
+        "stale 256 had a session report a worker-stack contract difference "
+        "between this branch and `main` that had not existed since #112, and "
+        "go looking for what to adapt. os88geom guards the copies a SCRIPT "
+        "retyped; this guards the ones a HUMAN did. FULL rather than fast: a stale comment misleads a reader, it does not break a build, and the fast tier runs on every `make` against a 30s budget this row is a sixth of",
+        needs=()),
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 1.6,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
@@ -230,7 +240,7 @@ FAST = [
     Row("stknosave", "fast",
         py("tools/stkdepth.py", "drivers/ether/ether.asm", "--check"), 1.5,
         "every `; STKDEPTH-NOSAVE:` in ETHER.DRV still holds: the routines "
-        "that stopped saving a register to fit a 256-byte task slice (SPEC.md "
+        "that stopped saving a register to fit a 384-byte task slice (SPEC.md "
         "72.16.4) still get it back from every callee. Without this the trade "
         "is a landmine for whoever edits the TCP stack next"),
     Row("stkbalance", "fast",

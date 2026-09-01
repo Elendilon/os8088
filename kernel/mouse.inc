@@ -2431,7 +2431,7 @@ kbd_down:
 ; The BIOS beeps when its 16-entry key buffer fills, and on the period IBM ROM
 ; that beep is `call F000:E8C0`: two `loop $` delays run with INTERRUPTS
 ; ENABLED. So every IRQ1 arriving inside one nests another int 09h - and
-; another beep - on whichever task stack is current, and a worker gets 256
+; another beep - on whichever task stack is current, and a worker gets 384
 ; bytes (SPEC.md 8). Measured on a 5150: seven nested copies of the same
 ; 26-byte frame and a halt in sch_stkdie, about a second after the first held
 ; key. It is a stack overrun with no bug anywhere near the stack.

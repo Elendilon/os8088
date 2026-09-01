@@ -2966,7 +2966,7 @@ sb_b_rdbig:
 ; **IT HARD FROZE THE 5150 ONCE, on the first run of a cold boot, and ran
 ; normally after a reboot** (docs/FIELD-NOTES.md 10). The hazard is real and
 ; unfixable from inside a package: the BIOS runs its disk handler and its
-; IRQ6 nesting on whichever 256-byte task stack is current (SPEC.md 8), on
+; IRQ6 nesting on whichever 384-byte task stack is current (SPEC.md 8), on
 ; top of this routine's frame and bl_run's and benchlib's, and the kernel's
 ; own dsk_xfer additionally holds sch_lock across every int 13h so nothing
 ; can switch underneath one. A package can do neither, and whether it dies

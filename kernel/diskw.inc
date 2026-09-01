@@ -769,7 +769,7 @@ dskw_rmbody_n83:                ; the same pipeline with dskw_n83 already
 ; clobbers: nothing else
 ;
 ; **Iterative, and it uses the disk's own parent links instead of a stack.**
-; A recursive descent would need one frame per level on a 1,536-byte task
+; A recursive descent would need one frame per level on a 384-byte task
 ; stack (SPEC.md 8) and a depth bound nobody could justify; but every
 ; subdirectory records its parent in its own '..' entry (SPEC.md 19.2), so
 ; the walk can go down with dsk_chdir and come back up with dsk_dotdot,

@@ -32,7 +32,7 @@
 ;    game loop. A turn is tens of thousands of instructions - seconds on a
 ;    4.77MHz 8088 - and running it in a key callback would hold the gfx lock
 ;    for those seconds and freeze the clock, the mouse and every other window.
-;    Two worker rules then shape the whole program: the 256-byte stack (so the
+;    Two worker rules then shape the whole program: the 384-byte stack (so the
 ;    VM keeps its own stack in a claim and nothing recurses), and no file slot,
 ;    no OSAPI_FILE_DLG and no OSAPI_MEM_* from a worker - which is what the
 ;    request handshake in zio.inc exists to answer.

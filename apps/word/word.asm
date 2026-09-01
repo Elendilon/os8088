@@ -5315,7 +5315,7 @@ wd_reconcile:
 ; in:  gfx lock held (OSAPI_TASK_SPAWN requires it); preserves all registers
 ;
 ; Lazy on purpose: a Note Pad that never breaks never costs a task slot or a
-; 512-byte stack, which on a 12-slot table is worth the byte of state. A
+; 384-byte stack, which on an 8-slot table is worth the byte of state. A
 ; refusal is normal and transient (the table can be full), so nothing is
 ; latched and the next break asks again.
 ; -----------------------------------------------------------------------------

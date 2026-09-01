@@ -2647,7 +2647,7 @@ wm_rch_slot:
 ; UI task, so what it may do is what W_ONCLICK may do - and that includes
 ; raising an alert (SPEC.md 75.3) or a file dialog, either of which can end
 ; up back in a close path. Asking the same window again would recurse on a
-; 256-byte task stack (SPEC.md 8): sch_stkdie, not a wrong answer. The fence
+; 384-byte task stack (SPEC.md 8): sch_stkdie, not a wrong answer. The fence
 ; answers REFUSED for the one window whose negotiator is live, so the
 ; recursion terminates at depth one and the outer ask still decides. It is
 ; SAVED AND RESTORED rather than set and cleared, because closing a DIFFERENT

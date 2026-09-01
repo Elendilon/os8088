@@ -506,7 +506,7 @@ section .text                   ; ...but NOT this one. dsk_dbg_raw is a FAR
 ;
 ; This exists because tests/sysbench called int 13h ITSELF and hard froze the
 ; 5150 (docs/FIELD-NOTES.md 10). A package cannot make that call safe: a BIOS
-; runs its disk handler and its IRQ6 nesting on whichever 256-byte task stack
+; runs its disk handler and its IRQ6 nesting on whichever 384-byte task stack
 ; is current (SPEC.md 8), on top of the harness's own frames, and every other
 ; int 13h in this system holds sch_lock across the call so nothing switches
 ; underneath one. From here it is exactly as safe as dsk_xfer's own transfer,
