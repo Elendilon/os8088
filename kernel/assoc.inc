@@ -118,6 +118,23 @@ assoc_stage:
     ret
 
 ; -----------------------------------------------------------------------------
+; assoc_glyph_di - where an app slot's 8x8 glyph lives (SPEC.md 54.3)
+; in:  BL = the app slot (BH is zeroed here, so BL alone is enough)
+; out: DI -> its eight glyph bytes. BX and CX preserved; flags are not
+; -----------------------------------------------------------------------------
+assoc_glyph_di:
+    push bx
+    push cx
+    xor bh, bh
+    mov cl, 3
+    shl bx, cl                  ; slot * 8
+    mov di, assoc_glyph
+    add di, bx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; assoc_hint_here - this app slot was just SEEN here (SPEC.md 54.4.2 rung 1)
 ; in:  BL = the app slot, BH = 0
 ; out: nothing. BX preserved; AX clobbered, which every caller already spent
@@ -409,18 +426,15 @@ assoc_compose:
     push es
     push ds
     pop es                      ; ES = DS = KERNEL_SEG for the frame copy
-    mov bl, al
-    xor bh, bh
-    mov cl, 3
-    shl bx, cl                  ; slot * 8
+    mov bl, al                  ; bank the slot: the .inset loop below spends AX
     push di
     mov si, assoc_page
     mov cx, 32
     cld
     rep movsw
-    pop di
-    mov si, assoc_glyph
-    add si, bx
+    call assoc_glyph_di         ; the app's glyph, addressed through DI...
+    mov si, di
+    pop di                      ; ...and the page frame we just laid down
     add di, ASSOC_INSET
     mov cx, 8
 .inset:
@@ -582,11 +596,9 @@ assoc_note_app_x:
     call assoc_hint_here        ; where it was seen...
     test byte [assoc_hflags], 1 ; ...and what it looks like, IF it ships an
     jz .out                     ; icon at all - an iconless package leaves
-    mov cl, 3                   ; the glyph unresolved and its documents draw
-    shl bx, cl                  ; the bare page, which is honest
-    mov di, assoc_glyph
-    add di, bx
-    mov si, dsk_secbuf+64       ; the DATA plane of the embedded icon
+    call assoc_glyph_di         ; the glyph unresolved and its documents draw
+    mov si, dsk_secbuf+64       ; the bare page, which is honest. SI = the
+                                ; DATA plane of the embedded icon
     call assoc_reduce           ; ES = LOW_SEG, per SPEC.md 2.1
 .out:
     pop di
@@ -1335,10 +1347,7 @@ assoc_app_new:
     shl bx, 1
     mov word [assoc_clus+bx], 0
     pop bx
-    mov cl, 3
-    shl bx, cl
-    mov di, assoc_glyph
-    add di, bx
+    call assoc_glyph_di
     mov cx, 8
 .zap:
     mov byte [di], 0
@@ -1372,11 +1381,7 @@ assoc_self_glyph:
     test byte [es:3], 1         ; the embedded-icon flag (SPEC.md 20.2)
     jz .out
     mov bl, dl
-    xor bh, bh
-    mov cl, 3
-    shl bx, cl
-    mov di, assoc_glyph
-    add di, bx
+    call assoc_glyph_di
     mov si, 64                  ; the DATA plane of the embedded icon
     call assoc_reduce
 .out:
@@ -1630,11 +1635,7 @@ asc_seed:
     jz .next
     sub si, 32                  ; SI walked the plane: back to its start
     mov bl, dh
-    xor bh, bh
-    mov cl, 3
-    shl bx, cl
-    mov di, assoc_glyph
-    add di, bx
+    call assoc_glyph_di
     call assoc_reduce           ; ES = [asc_seg], per this routine's contract
 .next:
     pop si
@@ -1940,10 +1941,7 @@ asc_note:
     mov bl, al
     xor bh, bh
     call assoc_hint_here
-    mov cl, 3
-    shl bx, cl
-    mov di, assoc_glyph
-    add di, bx
+    call assoc_glyph_di
     pop si
     push si
     add si, 32                  ; the cached body's DATA plane
