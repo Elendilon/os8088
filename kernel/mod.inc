@@ -127,13 +127,17 @@ MOD_STAMP   equ (KTEXT_SIZE + KBSS_SIZE + COLD_SIZE + KLOW_SIZE) & 0xFFFF
 ; --- the table row, stride MODR_SIZE -----------------------------------------
 MODR_SEG    equ 0               ; dw: the segment it is loaded at, 0 = not
 MODR_FILE   equ 2               ; dw: -> its NUL 8.3 file name (.text)
-MODR_KB     equ 4               ; dw: KB its claim took
-MODR_PAD    equ 6
+MODR_PAD    equ 4               ; ...and FOUR bytes of padding. It was two,
+                                ; plus a `dw: KB its claim took` at offset 4
+                                ; that three sites STORED and nothing ever
+                                ; read; the stores are gone and the word with
+                                ; them, so the live part of a row is now the
+                                ; first four bytes
 MODR_SIZE   equ 8               ; a power of two so mod_row is three shifts
                                 ; (8 = 1 << 3, and mod_row unrolls them rather
-                                ; than borrowing CL). MODR_PAD is the price:
-                                ; one byte a row, so MOD_MAX rows - THREE, not
-                                ; the two this line used to count
+                                ; than borrowing CL). The padding is the price
+                                ; of that: four bytes on each of MOD_MAX rows,
+                                ; which is THREE
 
 section .text
 ; DATA stays in the kernel segment, reached through DS, exactly as a cold
@@ -285,7 +289,6 @@ mod_need:
     pop bx                      ; move: top down, like a package's region
     jc .fail
     mov [bx+MODR_SEG], dx
-    mov [bx+MODR_KB], ax
 
     push bx
     mov es, dx
@@ -448,7 +451,6 @@ mod_free_row:
     call mod_disarm
     mov dx, [bx+MODR_SEG]
     mov word [bx+MODR_SEG], 0
-    mov word [bx+MODR_KB], 0
     push bx
     mov bx, MEM_K_MOD
     call mem_free_x            
@@ -511,7 +513,6 @@ mod_init_x:
     call mod_row
     call mod_disarm
     mov word [bx+MODR_SEG], 0
-    mov word [bx+MODR_KB], 0
     pop ax
     dec al
     jns .each
