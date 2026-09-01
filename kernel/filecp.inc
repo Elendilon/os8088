@@ -702,15 +702,12 @@ fcp_step:
     or ax, ax                   ; no return
     jnz .failax
 .copyit:
-    cmp word [fcp_type], 2
-    jae .tree
-
-    call fcp_file1              ; a plain file: one copy and we are done
-    jc .fail
-    cmp byte [fcp_pend], 0
-    jne .ask
-    jmp .finish
-
+    cmp word [fcp_type], 2      ; a plain file is the WALK's .plain with
+    jb .plain                   ; [fcp_depth] still 0: .walk finds nothing
+                                ; pending, .next finds depth 0 and goes to
+                                ; .finish - the same destination this arm
+                                ; jumped to, by the same route the suspend
+                                ; case already took
 .tree:
     call fcp_mkroot             ; create (or adopt) the folder in the target
     jc .fail
