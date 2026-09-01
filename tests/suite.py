@@ -38,6 +38,7 @@ first paint - so it fails for almost any serious regression, wherever it was.
 A row that can only fail for one narrowly-scoped reason belongs in `soak`,
 next to the change that would break it.
 """
+import os
 
 
 class Row:
@@ -58,6 +59,23 @@ class Row:
 
 def py(*a):
     return ["python3"] + list(a)
+
+
+def _kernel_sources():
+    """Every kernel source, ROOT-relative and sorted.
+
+    Asserted non-empty on purpose: a gate reporting 0 findings because its file
+    list came out empty is indistinguishable from a clean tree, and the whole
+    point of docs/STKBALANCE-KERNEL.md's sensitivity work is that a quiet gate
+    has to be quiet for a reason. The runner execs rows with cwd=ROOT, so these
+    stay relative.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = sorted(os.path.relpath(os.path.join(root, "kernel", f), root)
+                 for f in os.listdir(os.path.join(root, "kernel"))
+                 if f.endswith(".inc"))
+    assert len(src) >= 30, "kernel/*.inc came out as %d files" % len(src)
+    return src + [os.path.join("kernel", "kernel.asm")]
 
 
 # --------------------------------------------------------------------------
@@ -246,17 +264,22 @@ FAST = [
     Row("stkbalance", "fast",
         py("tools/stkbalance.py", "apps/sheet/sheet.asm", "apps/chart/chart.asm",
            "apps/os88chart.inc", "apps/os88fp.inc", "apps/os88text.inc",
-           "apps/os88line.inc"), 1.5,
-        "every `ret` in SHEET, CHART and the includes they share is reached at "
+           "apps/os88line.inc", *_kernel_sources()), 3.0,
+        "every `ret` in the KERNEL and in SHEET, CHART and the includes they "
+        "share is reached at "
         "the depth it started at. `ch_legend` pushed SI and never popped it, so "
         "its `ret` jumped to the saved register: a black canvas and a wedged "
         "app, with no crash and no message (SPEC.md 82.7.3). The walk is "
         "path-aware because a naive push-vs-pop count flags one routine in ten "
         "and would just be ignored. STILL SCOPED to these files, but no longer "
         "because the kernel cannot be walked: the walker follows tail jmps "
-        "across files now and `kernel/` comes out at THREE findings, all of "
-        "them sched.inc wanting a `; STKBALANCE-OK:` (docs/STKBALANCE-KERNEL.md "
-        "carries the triage and the row to swap in once those land). One gap "
+        "across files now, and the two `; STKBALANCE-OK:` in sched.inc that "
+        "cover the context switch and task_yield's fabricated int 08h frame "
+        "have landed, so the kernel measures ZERO and is GATED here from this "
+        "commit on (docs/STKBALANCE-KERNEL.md carries the triage of all 24). "
+        "Turned on DURING size pass 2 rather than after it, so an imbalance is "
+        "caught by the batch that introduces it instead of by a bisect. "
+        "One gap "
         "is left and is counted in the tool's own summary line: loop back-edge "
         "conflicts are suppressed, because the count lives in a register"),
 

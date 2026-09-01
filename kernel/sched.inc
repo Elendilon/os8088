@@ -656,6 +656,9 @@ task_spawn:
 ; clobbers: flags only (arithmetic flags; IF preserved via the frame)
 ; -----------------------------------------------------------------------------
 task_yield:
+    ; STKBALANCE-OK: fabricates the int 08h frame (pushf / push cs /
+    ; call .save), so the ret below is reached by the scheduler's iret and not
+    ; by .save returning - the depth at that ret is the frame, by design.
     pushf                       ; FLAGS slot - carries the caller's IF
     cli                         ; frame build + switch must be atomic
     push cs                     ; CS slot
@@ -1600,6 +1603,11 @@ sch_isr:
 ; manufactures no watchdog hits; and a dying task clears it for its successor.
 ; -----------------------------------------------------------------------------
 sch_switch:
+    ; STKBALANCE-OK: the context switch. Its iret restores the NEXT task and
+    ; returns onto that task's stack, so a depth measured against whatever
+    ; entry walked in here is meaningless (SPEC.md 8). The walker stops on
+    ; arrival at an exempted routine, so this one line also covers task_exit
+    ; and inst_task_die, which both reach the switch by a tail jmp.
     mov byte [sch_hold], 0      ; the outgoing task reached the switch path
     mov bl, [sch_cur]           ; park the outgoing task's SP
     xor bh, bh
