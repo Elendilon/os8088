@@ -137,14 +137,22 @@ def validate_o88(path: str) -> bytes:
     if data[2] != 3:
         fail(f"{path}: format version {data[2]}; this is the v3 toolchain "
              "(rebuild the package)")
-    if len(data) > 0xFFFF:
+    parts = bool(data[3] & 4)          # flags bit 2 (SPEC.md 20.12)
+    if len(data) > 0xFFFF and not parts:
         fail(f"{path}: {len(data)} bytes overflows the 16-bit size field")
     image = struct.unpack_from("<H", data, 8)[0]
     if not 32 <= image <= len(data):
         fail(f"{path}: header image size {image} out of range")
-    if image != len(data):
+    if image != len(data) and not parts:
         fail(f"{path}: header image size {image} != file size {len(data)}; "
              "a v3 package has no relocation table (run os88pkg.py first)")
+    # WITH flags bit 2 the file is longer than the image ON PURPOSE and the
+    # tail is the package's own (SPEC.md 20.12) - so image <= file is the
+    # whole rule, the 16-bit ceiling belongs to the IMAGE and not to the file,
+    # and the mount types such a file up to PKG_FILE_HI (SPEC.md 19.1).
+    if parts and len(data) >= (1 << 20):
+        fail(f"{path}: {len(data)} bytes; PKG_FILE_HI caps a package file at "
+             "1MB (SPEC.md 19.1)")
     hname = data[16:32].split(b"\0", 1)[0]
     if not hname:
         fail(f"{path}: empty name field in header")
@@ -602,6 +610,7 @@ def build(args) -> int:
     for folder in args.folder:
         ensure(folder_key(folder))
 
+    raw_paths = set(args.raw)
     for arg in args.packages:
         folder, path = split_spec(arg)
         key = folder_key(folder) if folder else ""
@@ -611,7 +620,7 @@ def build(args) -> int:
         # disk can carry a module, a picture or a text file next to the
         # programs that read it (SPEC.md 24). The 8.3 name, the per-directory
         # cap and the duplicate check all apply the same either way.
-        if path.lower().endswith(".o88"):
+        if path.lower().endswith(".o88") and path not in raw_paths:
             data = validate_o88(path)
         else:
             data = read_data_file(path)
@@ -1242,6 +1251,16 @@ def main() -> int:
     ap.add_argument("--mbr", metavar="MBR.bin",
                     help="with --hdd: boot/mbr.asm's 446 bytes of MBR boot "
                          "code (build/mbr.bin)")
+    ap.add_argument("--raw", metavar="PATH", action="append", default=[],
+                    help="TEST ONLY: ship this *.O88 path verbatim, with no "
+                         "package validation. A gate that needs a file the "
+                         "MOUNT will type as a package and the LOADER must "
+                         "then refuse - SPEC.md 19.1's size rule - needs a "
+                         "*.O88 that is deliberately not a package, and "
+                         "validate_o88 exists to make that unbuildable. The "
+                         "path must also appear as a positional; this flag "
+                         "only says which of them skips the check. Nothing "
+                         "shipped uses it (--scramble's precedent)")
     ap.add_argument("--scramble", action="store_true",
                     help="fragment cluster chains round-robin (test only)")
     ap.add_argument("--verify-hdd", metavar="IMG",

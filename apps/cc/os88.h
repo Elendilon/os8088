@@ -853,6 +853,35 @@ unsigned os88_mem_regrow(unsigned seg, int kb);  /* 0 = refused and the old
 unsigned os88_mem_largest_kb(void);
 unsigned os88_mem_total_kb(void);
 
+/* --- the PARTS standard (SPEC.md 20.12) ------------------------------------
+ * A package that carries more than its own segment - a second segment of
+ * code, or an asset it would otherwise trail as a SIDECAR FILE - declares its
+ * parts in the shim and the loading is its own:
+ *
+ *     %define CC_HAS_PARTS
+ *     %include "cc/crt0.asm"
+ *     CC_PARTS_BEGIN 1
+ *       OS88_PART OP_ASSET            ; ...one per part, in file order
+ *     CC_PARTS_END
+ *
+ * ...and the Makefile packs it with `--part build/THING.BIN`. The kernel
+ * learns one bit about any of it: that the FILE is longer than the image on
+ * purpose. Everything else - sizing, refusing, claiming, reading - happens in
+ * the package, after the kernel has already read the image, so a machine that
+ * cannot fit it is told so before a disk revolution is spent.
+ *
+ * crt0 calls op_load before your os88_main(), so by the time C runs the parts
+ * are here or the launch has been refused with a toast naming why. What is
+ * left is asking where they went.
+ *
+ * There is deliberately no os88_part_lin(): an OP_XMS part's base is a 32-bit
+ * linear address and this dialect has no `long` (docs/C-TOOLCHAIN.md). */
+unsigned os88_part_seg(int i);       /* base segment; 0 = it is not here */
+int os88_part_fetch(int i);          /* an OP_LAZY part, now. 0 ok, -1 refused */
+void os88_part_drop(int i);          /* ...and give it back */
+int os88_part_lazyok(int i);         /* would it fit right now? (SPEC.md 47) */
+int os88_part_optok(void);           /* were the OP_OPT scratch parts granted? */
+
 /* Reach into a claim. Two far-segment accessors, because C cannot say `es:`.
  * A byte at a time is ~11 us of near call each: fine for a header, wrong for
  * a copy. Move bulk with os88_file_read_seg() or by claiming, then blitting

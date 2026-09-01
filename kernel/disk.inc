@@ -3490,7 +3490,7 @@ dsk_synth_x:
     jmp short .typed
 .notdir:
 
-    ; --- @16: type word = 1 iff ext == "O88" AND size fits 16 bits AND
+    ; --- @16: type word = 1 iff ext == "O88" AND the file is under 1MB AND
     ;     size >= 1 AND first cluster in [2, dsk_maxclus] (SPEC.md 19) -
     ;     a garbage entry can never reach the loader as type 1
     cmp byte [es:si+DSK_R_EXT], 'O'
@@ -3499,8 +3499,17 @@ dsk_synth_x:
     jne .typed
     cmp byte [es:si+DSK_R_EXT+2], '8'
     jne .typed
-    test dx, dx                 ; size high word must be 0
-    jnz .typed
+    cmp dx, PKG_FILE_HI         ; the file must be under 1MB. It was `test dx,
+    jae .typed                  ; dx` - the file had to fit 16 bits - and what
+                                ; changed it is that APP_MAX_SIZE no longer
+                                ; bounds a FILE (SPEC.md 19.1). It bounds the
+                                ; primary segment's image+bss, which is all it
+                                ; ever meant. LIFTING THIS ALONE IS A DEFECT:
+                                ; a 70KB file's size LOW word is 4,608, a
+                                ; plausible small package, so ld_run_body step
+                                ; 1 tests the high word before it trusts the
+                                ; low one (SPEC.md 21) - the two are one
+                                ; change
     cmp word [es:si+DSK_R_SIZE], 1
     jb .typed                   ; size low word >= 1
     mov ax, [es:si+DSK_R_CLUS]

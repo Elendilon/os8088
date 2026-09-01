@@ -45,7 +45,10 @@ LD_ENOMEM   equ 5               ; instance table or pool exhausted
 ; --- staged directory entry field offsets (SPEC.md 19) ------------------------
 LD_DE_TYPE  equ 16              ; word: 1 = application package
 LD_DE_CLUS  equ 18              ; word: first cluster of the file's chain
-LD_DE_SIZE  equ 20              ; word: size in bytes
+LD_DE_SIZE  equ 20              ; the LOW word of a DWORD size (SPEC.md 19.1
+                                ; stages 32 bits at +20). The high half is at
+                                ; LD_DE_SIZE+2 and ld_run_body step 1 tests it
+                                ; BEFORE it trusts this one - see there
 
 ; --- .o88 v3 header field offsets (SPEC.md 20.2) ------------------------------
 LD_H_MAGIC  equ 0               ; word: 0x384F ('O','8')
@@ -175,8 +178,30 @@ ld_check_hdr:
     jb .bad                                 ; image smaller than the header
     cmp ax, APP_MAX_SIZE
     ja .toobig
-    cmp ax, [ld_fsz]                        ; the image IS the file now
-    jne .bad
+    mov dx, [ld_fsz+2]                      ; THE SIZE IS 32 BITS (SPEC.md
+                                            ; 19.1), and which test bounds it
+                                            ; is the flags byte's to say
+    test byte [si+LD_H_FLAGS], 4
+    jnz .imgle                              ; bit 2: the file is longer than
+                                            ; the image ON PURPOSE, and what
+                                            ; is past it is the package's own
+                                            ; (SPEC.md 20.12). One bit is the
+                                            ; whole of what the kernel learns
+    or dx, dx
+    jne .toobig                             ; ...and without it the image IS
+    cmp ax, [ld_fsz]                        ; the file, high word included. A
+    jne .bad                                ; 32-bit size with a low word that
+    jmp short .imgok                        ; happens to match the image is a
+.imgle:                                     ; truncated file, not a match - and
+                                            ; a file past 64KB with no bit 2
+                                            ; is TOO LARGE, which is the whole
+                                            ; of what SPEC.md 19.1 gave up to
+                                            ; say when the mount's rule moved
+    or dx, dx
+    jnz .imgok                              ; past 64KB is past any image
+    cmp ax, [ld_fsz]
+    ja .bad                                 ; the image runs past the file
+.imgok:
     mov [ld_img], ax
     mov dx, [si+LD_H_BSS]
     cmp dx, APP_MAX_SIZE
@@ -367,12 +392,14 @@ ld_res_name:
                                 ; loaded. READ-ONLY is deliberately allowed -
                                 ; TASKMGR.O88 is read-only and is an app
                                 ; (SPEC.md 19.6)
-    or dx, dx
-    jnz .big                    ; over 64KB before the cap is even consulted
-    or cx, cx
+    cmp dx, PKG_FILE_HI
+    jae .big                    ; past what the mount will type at all
+    mov [ld_fsz+2], dx          ; ...and the rest is ld_check_hdr's to bound,
+    or cx, cx                   ; because a package carrying parts is bigger
+    jnz .szok                   ; than its image by construction (SPEC.md
+    or dx, dx                   ; 20.12) and only the flags byte says so
     jz .bad                     ; empty file
-    cmp cx, APP_MAX_SIZE
-    ja .big
+.szok:
     mov [ld_fsz], cx
     cmp bx, 2                   ; the same range step 1 re-checks, and for the
     jb .bad                     ; same reason: it stands alone if the mount
@@ -398,11 +425,46 @@ ld_run_body_x:
                                 ; the kernel segment (SPEC.md 2.1)
     cmp word [si+LD_DE_TYPE], 1
     jne .bad1                   ; not an application package
+
+    ; --- 1b. the launching file's NAME, banked (SPEC.md 21 step 1b) --------
+    ; HERE AND NOT AT STEP 9, because dsk_get_dir stages into dsk_ent, which
+    ; is shared scratch that the icon harvest and every read below will spend.
+    ; ONE BUFFER FOR THE MACHINE and not one per instance: the kernel does not
+    ; remember where an instance came from - it says so once, at the only
+    ; moment a package needs telling, and the package copies it (SPEC.md
+    ; 20.2, 20.12.1). That is the whole of the third fact this design adds.
+    push si
+    push di
+    push cx
+    push es
+    push ds
+    pop es                      ; rep movsb wants ES:DI, and DS is the kernel's
+    mov di, ld_lname
+    mov cx, 12                  ; SPEC.md 19.1's display name: at most 12
+    cld                         ; characters in a 16-byte NUL-padded field
+    rep movsb
+    mov byte [es:di], 0         ; ...terminated here rather than trusted to be
+    pop es
+    pop cx
+    pop di
+    pop si
+    mov ax, [si+LD_DE_SIZE+2]   ; THE HIGH WORD FIRST, and it is not belt and
+    mov [ld_fsz+2], ax          ; braces: the mount types a file up to 1MB as
+    cmp ax, PKG_FILE_HI         ; a package now (SPEC.md 19.1), so a 70KB one
+    jae .big1                   ; arrives here with a LOW word of 4,608 - a
+                                ; plausible small package - and reading it
+                                ; without this is the wrap SPEC.md 21.4 warns
+                                ; about. WHAT BOUNDS IT IS THE FLAGS BYTE'S TO
+                                ; SAY (SPEC.md 20.12), so the APP_MAX_SIZE
+                                ; test is ld_check_hdr's and not this one's:
+                                ; a package carrying parts is bigger than its
+                                ; image by construction
     mov ax, [si+LD_DE_SIZE]
     or ax, ax
+    jnz .szok
+    cmp word [ld_fsz+2], 0
     jz .bad1                    ; empty file
-    cmp ax, APP_MAX_SIZE
-    ja .big1
+.szok:
     mov [ld_fsz], ax
     mov ax, [si+LD_DE_CLUS]     ; first cluster: re-check the range the
     cmp byte [dsk_vkind], DVK_FILE  ; ...unless this word is AN OPAQUE HANDLE
@@ -517,11 +579,11 @@ ld_run_body_x:
 
     ; --- 6. read the whole file into the region --------------------------------
 .read:
-    mov ax, [ld_fsz]
-    add ax, 511
-    mov cl, 9
-    shr ax, cl
-    mov dx, ax                  ; DX = ceil(fsize/512) sectors
+    mov ax, [ld_img]            ; THE IMAGE, NOT THE FILE. On a v3 package the
+    add ax, 511                 ; two are equal and always were; on one
+    mov cl, 9                   ; carrying parts the region holds the primary
+    shr ax, cl                  ; alone and the rest is the package's to read
+    mov dx, ax                  ; (SPEC.md 20.12). DX = ceil(image/512)
     mov ax, [ld_clus]
     mov es, [ld_base]           ; the package's OWN segment, offset 0
     xor bx, bx
@@ -607,6 +669,12 @@ ld_run_body_x:
                                 ; taken from DS while that still names the
                                 ; kernel, because this module is .cold and CS
                                 ; is COLD_SEG (SPEC.md 2.6)
+    mov si, ld_lname            ; SI = the file we came out of (SPEC.md 20.2's
+                                ; entry contract). It is [es:si] - an offset
+                                ; into the KERNEL's segment - and it is the
+                                ; one thing in that contract a package may
+                                ; ignore, which is what makes adding it
+                                ; compatible with every package built before
     mov ds, ax                  ; DS = the package's own segment - so the far
     call far [es:ld_fp]         ; pointer is read through ES, the only
     pop ds                      ; register still naming KERNEL_SEG here
@@ -699,7 +767,12 @@ ld_status:  resb 1              ; LD_* result of the last loader_run
 ld_painted: resb 1              ; 1 = ld_run_body already did the full pass
                                 ; (its wm_show), so loader_run must not
 ld_clus:    resw 1              ; loader_run scratch: the file's first cluster
-ld_fsz:     resw 1              ; file size, bytes (image + reloc table)
+ld_fsz:     resw 2              ; file size, BYTES, in 32 bits: a package
+                                ; that carries parts is bigger than its image
+                                ; and may be bigger than a segment (SPEC.md
+                                ; 20.12). ld_check_hdr is what bounds it, and
+                                ; which test it applies is the flags byte's
+                                ; to say
 ld_img:     resw 1              ; header: image size
 ld_bss:     resw 1              ; header: bss size
 ld_ent:     resw 1              ; header: image-relative entry
@@ -707,6 +780,11 @@ ld_base:    resw 1              ; allocated region base
 ld_need:    resw 1              ; allocated region size (512-multiple)
 ld_hdr:     resb LD_HDR_SIZE    ; the peeked .o88 header, staged out of the
                                 ; LOW_SEG sector buffer for ld_check_hdr
+ld_lname:   resb 13             ; the launching file's display name, NUL
+                                ; terminated (SPEC.md 21 step 1b). Thirteen
+                                ; bytes for the whole machine, because step 9
+                                ; hands the package a pointer and the package
+                                ; is the one that remembers
 ld_rec:     resw 1              ; the reserved instance record
 ld_fp:      resw 2              ; far pointer to the package's dispatcher
 

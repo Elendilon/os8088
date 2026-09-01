@@ -1410,7 +1410,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
         fonts fontsheets fontlist \
         stories zdisk ztest zh zhboot zcheck zgfx zpic zscreens xt-z 386-z \
         worddisk wordcheck xt-word 386-word \
-        cc-note chello covl cword cworddisk 386-c-word runcpm runcpmdisk \
+        cc-note chello covl pkgbig cword cworddisk 386-c-word runcpm runcpmdisk \
         runcpm-src cpmsw rcz80test rcmemtest rczex 386-runcpm \
         xt-runcpm 286-runcpm \
         allapps usb iso live burn rcbandbench \
@@ -3647,6 +3647,78 @@ $(BUILD)/covl360.img: $(BUILD)/covl.o88 tools/os88disk.py
 #   make test TESTAPPS=build/covl.img    boots with it in B:
 covl: $(BUILD)/covl.img $(BUILD)/covl360.img
 
+# --- PKGBIG, the package-size rule's disk (ON DEMAND: `make pkgbig`) ---------
+# SPEC.md 19.1 types a *.O88 as a package by its EXTENSION and its SIZE, before
+# a byte of it is read, so what the gate needs is a *.O88 that is deliberately
+# NOT a package - and validate_o88 exists to make exactly that unbuildable.
+# --raw is the escape (os88disk.py, --scramble's precedent) and nothing
+# shipped uses it. The pair is the experiment: 70,144 bytes must type 1 and be
+# refused Too large, 1,048,576 must type 0 and be refused Bad package.
+# 1.44MB only - the two fixtures do not fit a 360KB disk, and the rule they
+# test has no geometry in it.
+$(BUILD)/pkgbig.img: tests/pkgbig/mkfix.py tools/os88disk.py | $(BUILD)
+	python3 tests/pkgbig/mkfix.py $(BUILD)/pkgbig
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--raw $(BUILD)/pkgbig/BIGPKG.O88 --raw $(BUILD)/pkgbig/HUGE.O88 \
+		$(BUILD)/pkgbig/BIGPKG.O88 $(BUILD)/pkgbig/HUGE.O88
+	@python3 tools/os88disk.py --verify $@
+
+#   make pkgbig                          builds the fixture disk
+#   python3 tests/pkgbig.py              runs the gate on MartyPC
+pkgbig: $(BUILD)/pkgbig.img
+
+# --- MSEG, the parts standard's consumer (ON DEMAND: `make mseg`) -----------
+# SPEC.md 20.12: a package that carries its parts in its own file. It is a
+# CAPABILITY GATE and not software, so nothing shipped carries it - the same
+# standing as tests/wire (SPEC.md 78.9).
+#
+# The three modules are assembled on their own, at org 0, naming no label of
+# the package's: apps/os88parts.inc is what puts them somewhere and MSEG is
+# what checks they arrived. os88pkg.py appends them 512-aligned and fills the
+# rows MSEG reserved in its OWN table, which lives in its image - so the
+# kernel reads nothing but flags bit 2 (SPEC.md 20.12.3).
+$(BUILD)/msegp%.bin: tests/multiseg/msegp%.asm tests/multiseg/msegpart.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I tests/multiseg/ -o $@ $<
+
+$(BUILD)/mseg.bin: tests/multiseg/mseg.asm apps/os88api.inc apps/os88parts.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I tests/multiseg/ -o $@ $<
+
+$(BUILD)/mseg.o88: $(BUILD)/mseg.bin $(BUILD)/msegp0.bin $(BUILD)/msegp1.bin \
+                   $(BUILD)/msegp2.bin $(BUILD)/msegp3.bin $(BUILD)/msegp4.bin \
+                   tools/os88pkg.py apps/os88parts.inc
+	python3 tools/os88pkg.py $(BUILD)/mseg.bin -o $@ \
+		--part $(BUILD)/msegp0.bin --part $(BUILD)/msegp1.bin \
+		--part $(BUILD)/msegp2.bin --part $(BUILD)/msegp3.bin \
+		--part $(BUILD)/msegp4.bin
+
+# BOTH GEOMETRIES, and the 360KB one is not a formality: its clusters are 1KB
+# where the 1.44MB disk's are 512 bytes, so the cluster-aligned read starts
+# BELOW the run and op_claim's head slack is what makes the segments land
+# (SPEC.md 20.12.2). At 1.44MB the slack is always zero and the arithmetic
+# never runs.
+$(BUILD)/msegbig.bin: tests/multiseg/msegbig.asm apps/os88api.inc apps/os88parts.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ $<
+
+$(BUILD)/msegbig.o88: $(BUILD)/msegbig.bin $(BUILD)/msegp0.bin \
+                      $(BUILD)/msegp1.bin $(BUILD)/msegp2.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/msegbig.bin -o $@ \
+		--part $(BUILD)/msegp0.bin --part $(BUILD)/msegp1.bin \
+		--part $(BUILD)/msegp2.bin
+
+$(BUILD)/mseg.img: $(BUILD)/mseg.o88 $(BUILD)/msegbig.o88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		$(BUILD)/mseg.o88 $(BUILD)/msegbig.o88
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/mseg360.img: $(BUILD)/mseg.o88 $(BUILD)/msegbig.o88 tools/os88disk.py | $(BUILD)
+	python3 tools/os88disk.py -o $@ --size 360 \
+		$(BUILD)/mseg.o88 $(BUILD)/msegbig.o88
+	@python3 tools/os88disk.py --verify $@
+
+#   make mseg                            builds both fixture disks
+#   python3 tests/multiseg.py 1440       runs the gate on MartyPC
+mseg: $(BUILD)/mseg.img $(BUILD)/mseg360.img
+
 # --- CWORD and its document floppy (SPEC.md 73.12) ---------------------------
 # The C toolchain's demonstrator: a word processor whose UI, layout, redraw
 # and RTF engine are all C, going through the same five steps ccsmoke and
@@ -3912,7 +3984,7 @@ rczex: $(BUILD)/runcpm.img
 #
 # THE HOST CHECKS RUN FIRST AND STOP THE BUILD, through the stamp below: a
 # check that fails leaves no stamp, and the compile does not run.
-$(eval $(call CC_PACKAGE,c64,c64,C64.OVL))
+$(eval $(call CC_PACKAGE,c64,c64,C64.OVL,$(BUILD)/c64-rom/C64.ROM))
 
 # THE REST OF THE TRANSLATION UNIT (SPEC.md 73.1): c64.c #includes the parts,
 # and the shim %includes the three hand-written pieces and the icon. Every one
@@ -3962,9 +4034,14 @@ $(BUILD)/c64-rom/C64.ROM: tools/c64rom.py $(C64ROMS) | $(BUILD)
 
 c64rom: $(BUILD)/c64-rom/C64.ROM
 
-# THE DISK. C64.O88, C64.OVL and C64.ROM are THREE FILES IN ONE FOLDER on
-# every disk they share (SPEC.md 19.2.1: the .OVL is resolved in the launching
-# instance's current directory), plus a README.TXT naming the licence and
+# THE DISK. C64.O88 and C64.OVL are TWO FILES IN ONE FOLDER on every disk they
+# share (SPEC.md 19.2.1: the .OVL is resolved in the launching instance's
+# current directory). **THE ROM USED TO BE A THIRD** - C64.ROM, 20,480 bytes
+# of KERNAL, BASIC and CHARGEN that a file copy could separate from the
+# program it is useless without - and it is a PART inside C64.O88 now
+# (SPEC.md 20.12, the CC_PACKAGE call above). It is still built here, because
+# build/c64-rom/C64.ROM is what the packer appends and what c64uitest reads.
+# Plus a README.TXT naming the licence and
 # whose the ROMs are - AND COPYING, THE LICENCE ITSELF. The floppy is the
 # distributed form of a GPL-2-or-later binary and README.TXT on it says "the
 # full licence text is apps/c64/COPYING in the os8088 source tree, and it
@@ -3977,12 +4054,11 @@ c64rom: $(BUILD)/c64-rom/C64.ROM
 # folder on each - ~62KB, so even the 360KB disk carries the licence. One
 # disk per 86Box machine: c64.img for the 386, c64720.img for the 286,
 # c64360.img for the XT (runcpmdisk's arrangement, §74.5).
-C64DISK := $(BUILD)/c64.o88 $(BUILD)/C64.OVL $(BUILD)/c64-rom/C64.ROM \
+C64DISK := $(BUILD)/c64.o88 $(BUILD)/C64.OVL \
            apps/c64/COPYING apps/c64/README.TXT tools/os88disk.py
 C64IMG = python3 tools/os88disk.py -o $(1) --size $(2) \
 	    C64:$(BUILD)/c64.o88 C64:$(BUILD)/C64.OVL \
-	    C64:$(BUILD)/c64-rom/C64.ROM C64:apps/c64/README.TXT \
-	    C64:apps/c64/COPYING
+	    C64:apps/c64/README.TXT C64:apps/c64/COPYING
 c64disk: $(BUILD)/c64.img $(BUILD)/c64720.img $(BUILD)/c64360.img
 
 $(BUILD)/c64.img: $(C64DISK)
@@ -5593,6 +5669,7 @@ $(BUILD)/dosstub.img: $(BUILD)/dsboot.bin $(BUILD)/dosstub.bin tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/dsboot.bin --kernel $(BUILD)/dosstub.bin
 
+.PHONY: mseg
 .PHONY: dosstub
 dosstub: $(BUILD)/dosstub.img
 	@echo "dosstub: $(BUILD)/dosstub.img - boots and runs OS88NET.COM with no DOS"
@@ -5870,7 +5947,7 @@ ALLAPPSIMG := $(BUILD)/apps-all.img
 ALLAPPSFILES := $(APPS) $(BUILD)/frotz.o88 \
                 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC \
                 $(BUILD)/cword.o88 $(BUILD)/CWORD.OVL $(BUILD)/WELCOME.RTF \
-                $(BUILD)/c64.o88 $(BUILD)/C64.OVL $(BUILD)/c64-rom/C64.ROM \
+                $(BUILD)/c64.o88 $(BUILD)/C64.OVL \
                 apps/c64/README.TXT apps/c64/COPYING \
                 $(RUNCPMDISK)
 ALLAPPS := $(ALLAPPSFILES) $(RUNCPMDEPS)
@@ -5884,7 +5961,6 @@ ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(BUILD)/frotz.o88) \
                                   $(BUILD)/WELCOME.RTF) \
                $(addprefix RUNCPM:,$(RUNCPMDISK)) \
                $(addprefix C64:,$(BUILD)/c64.o88 $(BUILD)/C64.OVL \
-                                $(BUILD)/c64-rom/C64.ROM \
                                 apps/c64/README.TXT apps/c64/COPYING) \
                $(SYSAPPSARGS) \
                $(addprefix SYSTEM/DOS:,$(APPS_DOS))

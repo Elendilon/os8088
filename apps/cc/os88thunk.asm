@@ -1798,6 +1798,86 @@ _os88_itoa:
     pop bp
     ret
 
+%ifdef CC_HAS_PARTS
+; =============================================================================
+; THE PARTS STANDARD (SPEC.md 20.12), for C
+;
+; op_load has already run - cc_entry calls it before any C does, because the
+; kernel's name pointer arrives in SI and nothing later can recover it. What
+; is left is asking where the parts went, and fetching or dropping the lazy
+; ones.
+;
+; **os88_part_lin is NOT here, and that is a decision.** An OP_XMS part's base
+; is a 32-bit LINEAR address, and this C dialect has no `long` (SPEC.md 73,
+; docs/C-TOOLCHAIN.md) - so it cannot be returned, and a pair of unsigned
+; halves would hand a C author two numbers it has no arithmetic for. A C
+; package that wants extended memory takes it through os88_xmem_* and owns the
+; addressing itself; OP_XMS in a C package's table is refused by nothing, but
+; op_seg answers 0 for it and there is no way to reach it from here. Say so in
+; the shim rather than declaring one.
+; =============================================================================
+
+; unsigned os88_part_seg(int i) - part i's base segment; 0 = it is not here.
+; A lazy part answers 0 until os88_part_fetch(i), and 0 again after a drop.
+_os88_part_seg:
+    push bp
+    mov bp, sp
+    mov ax, [bp+4]
+    call op_seg
+    pop bp
+    ret
+
+; int os88_part_fetch(int i) - claim and read a lazy part NOW. 0 = it is here
+; (including "already was"), -1 = it could not be had and a toast has said why.
+_os88_part_fetch:
+    push bp
+    mov bp, sp
+    push si
+    push di
+    mov ax, [bp+4]
+    call op_fetch
+    mov ax, 0
+    jnc .ok
+    dec ax
+.ok:
+    pop di
+    pop si
+    pop bp
+    ret
+
+; void os88_part_drop(int i) - give a fetched lazy part back. No disk, no
+; failure path, and dropping one that is not here is a no-op.
+_os88_part_drop:
+    push bp
+    mov bp, sp
+    mov ax, [bp+4]
+    call op_drop
+    pop bp
+    ret
+
+; int os88_part_lazyok(int i) - would part i FIT right now? 1 = yes.
+; A question, asked without claiming, for SPEC.md 47's rule that a package
+; greys a fact rather than a guess. It is true of THIS INSTANT only.
+_os88_part_lazyok:
+    push bp
+    mov bp, sp
+    mov ax, [bp+4]
+    call op_lazyok
+    mov ax, 1
+    jnc .ok
+    dec ax                          ; ...to 0
+.ok:
+    pop bp
+    ret
+
+; int os88_part_optok(void) - were the OP_OPT scratch parts granted?
+; All or none (SPEC.md 20.12.4), so it is one answer for the whole table.
+_os88_part_optok:
+    mov al, [op_optok]
+    xor ah, ah
+    ret
+%endif  ; CC_HAS_PARTS
+
 ; the NUL cc_padcopy parks on once its source has run out (SPEC.md 20.2: an
 ; ordinary byte of the image, addressed DS-relative like everything else).
 cc_nul: db 0

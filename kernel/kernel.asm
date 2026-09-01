@@ -81,6 +81,18 @@ APP_MAX_SIZE equ 0xF000         ; the biggest single package: 60KB, and the
                                 ; image + bss cannot reach 64KB whatever the
                                 ; heap has free. Mirrored in apps/os88api.inc
                                 ; and tools/os88pkg.py
+PKG_FILE_HI  equ 16             ; the HIGH word of the biggest FILE the mount
+                                ; will type as a package (SPEC.md 19.1): the
+                                ; file must be under 1MB. It is deliberately
+                                ; NOT APP_MAX_SIZE - that bounds the primary
+                                ; segment's image+bss, which is all it ever
+                                ; meant, and it stopped bounding the FILE the
+                                ; moment a package could carry parts beyond
+                                ; its own segment. A decision rather than a
+                                ; derivation: far above any package this tree
+                                ; has (the largest is ~98KB) and far below
+                                ; anything that could overflow the loader's
+                                ; KB arithmetic
 PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
                                 ; .o88 header (SPEC.md 20.2): three bytes,
                                 ; `call bp / retf`. Every kernel-to-package

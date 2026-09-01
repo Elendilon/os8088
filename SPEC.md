@@ -2366,6 +2366,11 @@ APP_MAX_SIZE equ 0xF000      ; image + bss budget: 60KB. The ceiling is the
                              ; what the heap has contiguous
 PKG_DISP     equ 12          ; the dispatcher's fixed offset inside a
                              ; package's header (§20.2)
+PKG_FILE_HI  equ 16          ; the high word of the biggest FILE the mount
+                             ; will type as a package: <1MB (§19.1). It is
+                             ; NOT APP_MAX_SIZE - that bounds the primary
+                             ; segment's image+bss and stopped bounding the
+                             ; file when a package could carry parts
 ; the software renderer's plane stride (§32/§39.3)
 SW_PLANE_PARA equ 0x960      ; paragraphs per plane (0x9600 bytes = 480 rows × 80)
 ; the file manager's per-window view cache (§2.3/§22.1)
@@ -26331,11 +26336,28 @@ this order:
   loader.
 - **type 1 (loadable package)** iff ALL of: raw ext bytes 8..10 == `"O88"`
   (uppercase exact — foreign OSes uppercase short names on write); size
-  dword high word == 0; size low word ≥ 1; raw FstClusLO ∈
-  [2, `dsk_maxclus`]. A garbage entry can never reach the loader as type 1.
-  (Recorded tradeoff: a ≥64KB `*.O88` reads "Bad package" rather than "Too
-  large" — it cannot be a package (cap `APP_MAX_SIZE`), so the message is
-truthful.)
+  dword high word **< `PKG_FILE_HI`** (§3), i.e. the file is under 1MB; size
+  low word ≥ 1; raw FstClusLO ∈ [2, `dsk_maxclus`]. A garbage entry can never
+  reach the loader as type 1.
+
+  **The bound was `high word == 0`, and what changed it is that
+  `APP_MAX_SIZE` no longer bounds a FILE.** It bounds the primary segment's
+  image + bss, which is all it ever meant; a package's file may be larger
+  than its primary segment. The old rule recorded the tradeoff that *"a
+  ≥64KB `*.O88` reads 'Bad package' rather than 'Too large' — it cannot be a
+  package, so the message is truthful"*, and the second half of that sentence
+  is what stopped being true. `PKG_FILE_HI` is a **decision, not a
+  derivation**: 1MB is far above any package this tree has or plans (the
+  largest, `LOOM.O88` plus its overlay, is ~98KB) and far below anything that
+  could overflow the loader's KB arithmetic. Above it the verdict is `Bad
+  package` again, and the tradeoff is recorded in the same terms one ceiling
+  further out.
+
+  **Lifting this rule ALONE is a defect**, and §21 step 1 is the other half:
+  a 70KB file's size low word is 4,608, a perfectly plausible small package,
+  so a loader that reads the low word without testing the high one is handed
+  a wrapped length. That is §21.4's own hazard — *"a file over 64KB wraps
+  into a plausible small one"* — and the two changes are one change.
 - else **type 0**.
 
 **Type 3** is not derived from an on-disk entry at all: it is the
@@ -27442,7 +27464,7 @@ The tree, and the one part of it that is a correctness requirement:
 | `WORD/` | `WORD.O88`, `WORD.OVL`, `WELCOME.DOC` |
 | `CWORD/` | `CWORD.O88`, `CWORD.OVL`, `WELCOME.RTF` |
 | `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88`, `RUNCPM.OVL`, the CCP and its `LICENSE` — and CP/M drive A below them (§74.5) |
-| `C64/` | `C64.O88`, `C64.OVL`, `C64.ROM`, `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
+| `C64/` | `C64.O88` (the ROM is a PART of it, §20.12), `C64.OVL`, `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
 | `MEDIA/` | the module, the two `.TEX` documents and `DEMO.HTM` — where a File Open starts (§38.10) |
 | `SYSTEM/`, `SYSTEM/DOS/` | the Task Manager (§28.3) and `OS88NET.COM` (§62) |
 | `DOCS/` | empty, for the user's own saves |
@@ -27530,10 +27552,10 @@ each needed a mechanism**:
 |-----|------|------------------------------------------------------------|
 | 0   | 2    | magic: bytes `'O','8'` (word 0x384F)                      |
 | 2   | 1    | format version = 3 (segment-per-package; v1/v2 files are rejected) |
-| 3   | 1    | flags: bit 0 = embedded icon follows the header; bits 1–7 zero |
+| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; bits 3–7 zero |
 | 4   | 2    | link base — must be **0**: a v3 package links at org 0     |
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
-| 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly. |
+| 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly — **unless flags bit 2 is set, when it may be smaller and the file's tail is the package's (§20.12)**. |
 | 10  | 2    | bss size — bytes the loader zeroes after the image        |
 | 12  | 4    | **the dispatcher**: `FF D5` (`call bp`), `CB` (`retf`), `00` pad |
 | 16  | 16   | program name, printable, NUL-padded (shown by tools)      |
@@ -27563,7 +27585,18 @@ sentinel, which `apps/hello` ships deliberately to keep that path exercised.
 
 **Entry contract**: far-called by the loader at `packageseg:entry` with
 **DS = CS = the package's segment**, ES = KERNEL_SEG, IF = 1, gfx lock NOT
-held. The program creates its window(s) via the API table (wm_create is
+held, and **SI = the near offset in `KERNEL_SEG` of the NUL-terminated name
+of the file this instance was launched from** (§21 step 9). It is the §19.1
+display name — at most 12 characters, in exactly the form every file slot
+takes — and it is the only thing in this contract a package may safely
+ignore, which is what makes adding it compatible with every package built
+before it. **Copy it; do not keep the pointer**: it names one buffer the
+loader reuses on the next launch. It is `[es:si]`, not `[si]` — SI is an
+offset into the kernel's segment, not into yours.
+
+That one register is what lets a package read its own file (§20.12), and it
+is `SI` only for the ENTRY. A window callback's `SI` is its window pointer
+(§11) and always was. The program creates its window(s) via the API table (wm_create is
 lock-free) and **returns** BX = window ptr with CF clear; the loader
 registers the instance (§29) and wm_shows it. CF set = abort (loader reports
 "load failed"); on abort the loader runs `wm_destroy_seg` over the region's
@@ -28880,6 +28913,261 @@ become claimable.
 their behaviour. That is the shape for this kind of thing: the safe default
 keeps the short name, and the sharp one is opt-in and says why.
 
+### 20.12 PARTS — one file, and the loading is the package's
+
+**A package may carry more than its own segment in its own file.** Flags bit
+2 says so, `image` then names only the resident primary, and everything past
+it is the package's — read by the package, into memory the package claims,
+laid out by a table the package compiled into itself. **The kernel parses
+none of it.**
+
+`apps/os88parts.inc` is that written once (§20.12.3), and docs/O88-MULTISEG-PLAN.md
+is the design record — including §1 of it, which is the kernel-side version
+of this that was built to five waves and thrown away at 2,560 resident bytes.
+
+**The format version stays 3**, for §54.6's reason and in its words: an old
+kernel loading such a package reads nothing that has moved. It refuses it —
+because `image != file size` is the truncated-file guard and bit 2 is what
+lifts it — and that refusal is the correct outcome by the correct route. A
+version number would advertise a kernel capability that does not exist.
+
+#### 20.12.1 What the kernel does, and it is three things
+
+1. **The mount types a `*.O88` up to `PKG_FILE_HI` as a package** (§19.1),
+   because such a file is bigger than its segment by construction, and
+   `ld_run_body` step 1 tests the staged size's high word before it trusts
+   the low one (§21).
+2. **`ld_check_hdr` allows `image < file size`** when bit 2 is set. Without
+   the flag the guard is unchanged and exact.
+3. **The entry proc is told the name of the file it came from** (§20.2's
+   entry contract, §21 step 9).
+
+That is the whole of it. Everything else a package needs was already
+published, and the table in docs/O88-MULTISEG-PLAN.md §4.1 is the mapping,
+row by row: `OSAPI_FILE_READ_AT` for the bytes, `OSAPI_FILE_DFREE` for the
+cluster size the alignment needs, `OSAPI_MEM_AVAIL` to size, `OSAPI_MEM_CLAIM`
+and `_HI` to claim (both legal from the entry proc), `OSAPI_XMEM_ALLOC` and
+`_COPY` for a part above 1MB, `OSAPI_TOAST` to refuse in the package's own
+words, and `mem_free_rec` returning every claim at teardown because a
+package's claims already carry `I_SPTR`.
+
+#### 20.12.2 The file layout, and the alignment that decides it
+
+Parts follow the image, **each starting on a 512-byte boundary**, in the
+order the table declares them. `os88pkg.py` lays them out and fills the
+table's `off` and `len` — the assembler cannot know a separately assembled
+module's length.
+
+**512, and the reason is `dskw_read_at`'s preconditions** (§18.4.4): the
+offset and the capacity of a read must each be a whole number of CLUSTERS,
+and a cluster is 512 bytes to 32KB — a power of two, capped at 64 sectors by
+BPB rule 4. **A file cannot be laid out to satisfy that**, because the volume
+it will sit on is not known when it is packed, and aligning to the worst case
+would pad every part by up to 32KB.
+
+So the package reads a **cluster-aligned window that covers the run** and
+lets the head slack fall where it lands:
+
+```
+    clb    = OSAPI_FILE_DFREE's sectors-per-cluster x 512
+    start  = the first part's file offset          (a multiple of 512)
+    base   = start - (start mod clb)               (cluster-aligned)
+    slack  = start - base                          (a multiple of 512)
+```
+
+`slack` is a multiple of 512 and therefore of 16, and a heap claim is
+paragraph-aligned — so **the slack costs a segment adjustment and nothing
+else**. Part *i*'s base segment is `claim + (slack + off_i - start) / 16`,
+exact on every volume, with no copy and no second buffer. On a 1.44MB floppy
+the cluster is 512 bytes and the slack is zero.
+
+**Reads are 32,768 bytes at a time**, which is a multiple of every legal
+cluster size and safely inside one segment's 64KB. The final chunk is short
+and that is the contract: `dskw_read_at` clamps the take to what is left of
+the file and answers 0 next time.
+
+#### 20.12.3 The table lives in the IMAGE, and that is the design
+
+The part table is the package's own data, inside `[0, image)` — bytes the
+kernel has already read and already bounds by the time the entry proc runs.
+
+**Three things follow, and they are why the table is not on the disk:**
+
+- **Sizing costs no disk at all.** A package knows what it wants before it
+  has read a sector of it, so a refusal is instant rather than arriving after
+  the whole package has been read (which is what every workaround in
+  docs/O88-MULTISEG-PLAN.md §2.2 does today).
+- **It is not hostile input.** A block read off a disk must be validated as
+  hostile (§19); a table compiled into an image the kernel already bounds
+  need not be. The kernel-side design spent 542 bytes on that validator.
+- **The package chooses where it goes.** `os88pkg.py` finds it by an
+  eight-byte magic and refuses a file with none or with two, so there is no
+  placement rule to remember and no interaction with the icon or the
+  association block.
+
+```
+    +0   8   'O88PARTS'
+    +8   1   count
+    +9   1   reserved, 0
+    +10      count x 6: db kind, db flags, dw off (512-byte units), dw len
+```
+
+`kind` is 0 SEGMENT (code you far-call) or 1 ASSET (data). `off` and `len`
+are the packer's. Flags are §20.12.4's, and a part with no file bytes has
+`off` = `len` = 0.
+
+#### 20.12.4 What the standard offers a package
+
+| | |
+|---|---|
+| `OP_SEG` | code and/or data reached by far call |
+| `OP_ASSET` | data reached through a segment |
+| `OP_SCRATCH` | zero-filled working set with no file bytes at all — declared, so it is refused before a sector is read rather than after |
+| `OP_XMS` | an ASSET that ACCEPTS a placement above 1MB, and falls back to a conventional claim where there is no store — which is every 8088 (§41) |
+| `OP_OPT` | a part the package can do without: refused without refusing the launch |
+| `OP_LAZY` | not claimed and not read at load: `op_fetch` gets it when the package asks, `op_drop` gives it back |
+
+**Every one of them is package code.** `OP_XMS` is `OSAPI_XMEM_ALLOC` with a
+fallback; `OP_LAZY` is a row `op_size` steps over; `OP_OPT` is a claim the stub
+does not insist on. None of them is a kernel mechanism and none of them costs
+a kernel byte — measured: `kernsize` after `OP_ZERO`, `OP_OPT`, `OP_XMS`,
+`OP_LAZY` and the first real consumer is byte-identical to before any of them.
+
+**A C package declares parts too** (§73): `%define CC_HAS_PARTS`, a
+`CC_PARTS_BEGIN`/`CC_PARTS_END` table in the shim, and
+`os88_part_seg`/`_fetch`/`_drop`/`_lazyok`/`_optok` from `os88.h`.
+`apps/cc/crt0.asm` calls `op_load` before `os88_main`, reserves the standard's
+bss inside `.bss` (the equ chain hangs off `OP_BSS_AT`, which is a `%define`
+for exactly this) and puts the table in `.data`. There is no `os88_part_lin`:
+an `OP_XMS` part's base is a 32-bit linear address and the dialect has no
+`long`. **`apps/c64` is the worked example** — 20,480 bytes of KERNAL, BASIC
+and CHARGEN that were a sidecar file, now part 0 of `C64.O88`
+(`docs/C64-SPEC.md` §1.4).
+
+**A run that arrives SHORT is a refusal.** `op_read` knows how many bytes the
+carve needs and how many the reads delivered, so a truncated `.O88` — a bad
+copy, an interrupted write — refuses at load instead of handing the package
+segments into a claim holding whatever the heap had. That is the standard's
+job and not each package's: the first real consumer was about to grow a
+hand-written "is my asset really there" test, which is the shape that says a
+mechanism is missing one level down.
+
+**A lazy part is one `op_size` steps over, and that is the whole mechanism.**
+It is in no total, so it is not part of what a machine is asked to grant at
+launch; it is outside the carve, so the one read the carve exists to be does
+not cover it. `op_seg` answers 0 for it until `op_fetch` has run. The four
+rules that make that sound, all enforced by `os88pkg.py` at pack time:
+
+- **every lazy row comes after every part of the carve** — stepping over one
+  in the middle would leave a hole in the run, and the carve's single read
+  would fetch it anyway;
+- **no `OP_LAZY | OP_ZERO`** — a scratch part is worth declaring because it is
+  *sized before a sector is read*, and a lazy part is outside that sizing by
+  definition, so a lazy scratch part is `OSAPI_MEM_CLAIM` with extra steps.
+  That rule is also what frees the row's `zkb` word, which is **where a
+  fetched part banks its segment**: per-instance state, in the instance's own
+  image, costing no bss and needing no second array kept in step with the rows;
+- **no `OP_LAZY | OP_OPT`** — lazy already means *you may not get it*;
+- **no `OP_LAZY | OP_XMS`** — the parts above 1MB are one block claimed and
+  filled at load, so a lazy member of that span would either force the block
+  to be claimed anyway, or need a block of its own.
+
+**`op_fetch` is one claim per lazy part, and `op_drop` is what makes lazy a
+saving.** The carve is one claim for every eager part because `MEM_OWNER_MAX`
+is 8 per owner word (§50); a lazy part cannot be in it, so each one that is
+*here* spends a slot of that eight and its KB for as long as it stays. A part
+that is only ever fetched is a cost deferred, not avoided. `op_fetch` is
+idempotent, refuses for itself with a toast, and may be called from a window
+callback holding the gfx lock — though the disk read stalls drawing for its
+length, so a package fetching something large should say so first (§59.4).
+`op_lazyok` answers *would it fit right now* without claiming, because §47
+asks a package to grey a fact rather than a guess.
+
+**`OP_ZERO` costs no disk at all**, which is what makes a working set
+*declarable*: it is sized from the table with the rest, refused before a
+sector is read rather than after, and zeroed from the claim. **`OP_OPT` is
+all-or-none and only legal on a scratch part** — dropping optional parts one
+at a time is a search whose order the author cannot predict, and a file-backed
+part sits inside the carved run where dropping it would split the one read the
+carve exists to be. `os88pkg.py` and the `OS88_PART` macro both refuse the
+combination.
+
+**A refused launch does not disturb the heap.** The standard asks
+`OSAPI_MEM_AVAIL` and claims only what it can have, rather than trying a claim
+and letting `mem_claim` shed every purgeable cache before refusing it
+(§50.6.2). Measured: the claim table across a refused launch is byte-for-byte
+what it was, and a refusal moves **9 sectors against a successful launch's
+21** — the margin being the 13-sector carved run the refusal never asks for,
+measured with the refusal going first on a cold volume and the success second
+on a warm one. **In sectors and not in calls**: the driver coalesces runs, so
+the call count moves when the file's position on the disk moves — at one
+padding the two launches cost the same three calls while moving 12 sectors and
+21 — and what was *read* is the claim being made.
+
+**A package's own toast does not survive an abort.** §21 step 10 says
+`[ld_status]` for every outcome including `LD_EABORT`, and it runs after the
+entry proc returns — so a package that refuses itself is heard as `Load
+failed`, not in its own words. A package that can run degraded does not abort
+and its toast stands; one that cannot has to survive to draw a window if it
+wants to name the figure.
+
+**One claim, carved.** `MEM_OWNER_MAX` is 8 claims per owner word (§50) and a
+package's own claims carry its segment, so the standard claims the whole
+carved run once and computes each part's base inside it. A part that must be
+placed on its own — `OP_XMS`, or one the package will free early — takes its
+own claim and its own slack.
+
+**`OP_XMS` is one block for the whole span, and the package owns it.** The
+`OP_XMS` parts are laid out contiguously after the conventional ones
+(`os88pkg.py` refuses any other order), so contiguous in the file is
+contiguous above 1MB: one `OSAPI_XMEM_ALLOC` and each part's linear base is an
+offset inside it. The loader cannot read a file into extended memory, so the
+bytes climb through a **transient** conventional claim — read a bufferful,
+`OSAPI_XMEM_COPY` it up, give the claim back — which means the XMS path never
+rescues a machine that is already full at load time, only the machine
+afterwards. The block is attributed to the INSTANCE with no kernel change,
+because §21 step 9 already brackets the entry call with the instance's stamp
+(§41.5.1); a claim made outside that bracket comes back `XM_OWN_KERN` and is
+stranded for the session, which is invisible — a block nobody frees looks
+exactly like a block nobody claimed.
+
+**The block's base and the climb's cursor are two different words.** The first
+version walked the base and restored it at the end by subtracting the BLOCK's
+size, where what the cursor had advanced by was the SPAN's — so on a machine
+with a store every part came out `(block − span)` bytes low, and the failure
+path handed `OSAPI_XMEM_FREE` an address that was never claimed. It is
+invisible on every 8088, where there is no store and the fallback runs
+instead. `tests/msegxms.py` is the row that says otherwise.
+
+#### 20.12.5 Identity is unchanged (binding)
+
+**The entry proc, every window, every callback and the worker task live in
+the PRIMARY segment.** A part holds code and data reached by far call and
+**does not call the kernel's ES-fenced slots** — `OSAPI_MEM_CLAIM` and its
+relatives, `OSAPI_MEM_FREE`, `OSAPI_TASK_SPAWN`, `OSAPI_FSX_ENTER`. The
+primary claims on a part's behalf and passes it a segment.
+
+That rule is what leaves every kernel test of "the package's segment"
+untouched: `mem_own`'s fence, `mem_free_rec`, `inst_pkg_spawn`'s identity
+test and its `I_SIZE` bound, `wm_destroy_seg` at teardown, `wm_pkgcall`'s
+`W_SEG:12`, `fsx`'s ownership test and `ld_icon`. **Not one of them moves.**
+It is also not a new discipline: it is what §73.14's overlay already does,
+where only code moves and `DS` stays the package's.
+
+A part may keep `DS` = the primary's (the overlay model, code only) or switch
+`DS` to its own base for the body of a call and restore it (the
+data-carrying model). It may not hold a primary-DS pointer across a call it
+makes, and **the address of a routine in another segment is never a near call
+target** — a 16-bit offset with no segment means something else entirely in
+the primary, which assembles and runs (§73.14's own refusal).
+
+#### 20.12.6 `I_SIZE` still means the region, and only the region
+
+The region holds the primary alone; parts are claims beside it. `I_SIZE`
+keeps its unit (bytes), its meaning and both its bound tests (§20.6, §53),
+and the Task Manager's RAM column (§28) shows a package's parts the way it
+shows any package's own claims — because that is now what they are.
+
 ## 21. loader.inc
 
 State (.bss, cleared by `loader_init`): `ld_pending` (word: 0 = none, else
@@ -28922,7 +29210,9 @@ rule is enforced by os88pkg, not re-checked); image+bss ≤ APP_MAX_SIZE
 (else "Too large"); image = file size (guards truncated files and stale
 directories — sound because FAT directory sizes are byte-exact and
 os88disk.py never pads the size field, §24; cluster slack on disk is
-invisible here). **It also validates the dispatcher bytes at +12** —
+invisible here) **unless flags bit 2 is set, when the test is image ≤ file
+size** — a package carrying parts is longer than its image by construction
+(§20.12), and one bit is the whole of what the kernel learns about that. **It also validates the dispatcher bytes at +12** —
 `cmp word [si+LD_H_DISP], 0D5FFh` and `cmp byte [si+LD_H_DISP+2], 0CBh`
 (kernel/loader.inc:163 and :165) — so `FF D5 CB` is checked twice, by
 os88pkg.py when the file is stamped and by the loader when it is read. That
@@ -28939,14 +29229,31 @@ was happening anyway.
 
 `loader_run` — in AX = directory index. UI task only, gfx lock not held
 on entry. Steps:
-1. Validate the entry: index < [disk_nfiles], type = 1, size ≤
-   APP_MAX_SIZE and non-zero, and the first-cluster word at
+1. Validate the entry: index < [disk_nfiles], type = 1, **the staged size's
+   HIGH word is 0** (else status 3, `LD_EBIG`), size ≤ APP_MAX_SIZE and
+   non-zero, and the first-cluster word at
    [si+LD_DE_CLUS] ∈ [2, [dsk_maxclus]] (belt and braces under §19's
    type-word rule — this check stands alone if the mount code ever
-   changes; store it in `ld_clus`) → else status 2, step 10. **No
+   changes; store it in `ld_clus`) → else status 2, step 10.
+
+   **The high-word test is not belt and braces; it is the other half of
+   §19.1's widened type rule.** The staged entry has carried a 32-bit size
+   since §19.1 (offset 20, a dword) and `LD_DE_SIZE` names only its low
+   half, which was sound for exactly as long as the mount refused to type a
+   ≥64KB `*.O88` as a package at all. It no longer does, so a 70KB file now
+   reaches here with a low word of 4,608 — a plausible small package — and
+   without this test the loader would size a region from it, read a
+   truncated image and reject it as `Bad package`, which is the wrong
+   verdict about the right file. It is the guard `ld_res_name` has always
+   applied on the name path (§21.4's "the size is checked in 32 bits"), now
+   applied on the index path for the same reason. **No
    eviction exists** — a load never disturbs running instances; every
    failure path below frees whatever it reserved and leaves them
    untouched.
+1b. **Copy the entry's display name** into `ld_lname`, 13 bytes of `.bss`.
+   It is done here rather than at step 9 because `dsk_get_dir` stages into
+   `dsk_ent`, which is shared scratch that the icon harvest and the reads
+   below all spend. Step 9 hands the package a pointer to it (§20.12.1).
 2. Peek the header: AX = [ld_clus] → `dsk_clus2lba` (CF → status 2), then
    `disk_read` 1 sector into `dsk_secbuf` (UI-task-only shared scratch) —
    the first sector of the first cluster IS the file's first 512 bytes,
@@ -28973,7 +29280,13 @@ on entry. Steps:
 7. *(retired — v3 has no relocation, §20.2)*
 8. Zero bss-size bytes at segment:image.
 9. **Far**-call packageseg:entry (contract §20.2) with DS = CS = the
-   package's segment, ES = KERNEL_SEG, lock free. CF → the abort path (BX
+   package's segment, ES = KERNEL_SEG, **SI = `ld_lname`** and lock free.
+   That is the launching file's §19.1 display name, copied out of `dsk_ent`
+   at step 1 because `dsk_get_dir`'s buffer is shared and is spent long
+   before here. **One buffer for the machine, not one per instance**: the
+   kernel does not remember where an instance came from, it says so once at
+   the only moment a package needs telling, and the package copies it
+   (§20.2, §20.12.1). CF → the abort path (BX
    sanity-checked exactly as before: inside wm_wins, record-aligned, then
    locked wm_destroy), status 4. Else: fill the reserved instance record —
    I_KIND = KIND_PKG, I_TASK = 0xFF (a package is *born* task-less; §20.6

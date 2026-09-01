@@ -204,6 +204,9 @@ section .modc   follows=.data   align=1 vstart=0
 %ifdef CC_ASSOC
   %assign CC_FLAGS CC_FLAGS | 2
 %endif
+%ifdef CC_HAS_PARTS
+  %assign CC_FLAGS CC_FLAGS | 4     ; bit 2: the FILE is longer than the image
+%endif                              ; on purpose (SPEC.md 20.12.1)
 
 ; =============================================================================
 ; THE 32-BYTE HEADER (SPEC.md 20.2)
@@ -313,6 +316,14 @@ cc_entry:
     push di
     push es
     cld                             ; DF is ours to guarantee, not to inherit
+%ifdef CC_HAS_PARTS
+    call op_load                    ; ...FIRST, and before any C runs: SI is
+    jc .partsno                     ; still the kernel's name pointer and the
+                                    ; buffer it points into is reused on the
+                                    ; next launch (SPEC.md 20.2, rule 1). A
+                                    ; refusal has already toasted its reason,
+                                    ; and the loader unwinds the region
+%endif
     call _os88_main                 ; C: void *os88_main(void). It creates the
                                     ; window with os88_wm_create() - which is
                                     ; lock-free - and returns it; 0 = abort.
@@ -332,6 +343,14 @@ cc_entry:
 .abort:
     stc
     ret
+%ifdef CC_HAS_PARTS
+.partsno:
+    pop es                          ; op_load refused; the C never ran, so
+    pop di                          ; there is nothing of ours to unwind and
+    pop si                          ; the loader gives the region back
+    stc
+    ret
+%endif
 
 ; =============================================================================
 ; THE WINDOW CALLBACKS
@@ -979,6 +998,47 @@ cc_ovm_stale: db CC_PKG_NAME, '.OVL does not match this program', 0
 section .text
 %endif  ; CC_HAS_OVL
 
+%ifdef CC_HAS_PARTS
+; =============================================================================
+; THE PARTS STANDARD (SPEC.md 20.12)
+;
+; A C package that carries more than its own segment - a second segment of
+; code, or an asset it would otherwise trail as a sidecar file - declares
+; CC_HAS_PARTS and a table, and gets op_seg/op_fetch/op_drop through the
+; thunks below. The kernel learns one bit about any of it.
+;
+; TWO THINGS DIFFER FROM AN ASSEMBLY PACKAGE, and both are handled here so the
+; shim does not have to know:
+;
+;   * THE STANDARD'S BSS. Its words are an equ chain off OP_BSS_AT, which for
+;     an assembly package is `os88_image_end` - the bytes past the image. A C
+;     package has no such label; its bss is a real section the loader zeroes
+;     between cc_bss_beg and cc_bss_end. So OP_BSS bytes are reserved down
+;     there and OP_BSS_AT points at them.
+;
+;   * THE TABLE'S SECTION. OS88_PARTS_BEGIN emits data wherever the assembler
+;     happens to be, and in a C package that is whatever section the last
+;     %include left open. CC_PARTS_BEGIN/CC_PARTS_END put it in .data and
+;     leave the assembler back in .text, which is CLAUDE.md's section rule
+;     applied at the one place a C author would otherwise have to know it.
+;
+; And op_load is called by cc_entry, FIRST, because SI arrives holding the
+; kernel's name pointer and nothing later can recover it (SPEC.md 20.2).
+; =============================================================================
+%define OP_BSS_AT cc_parts_bss
+%include "os88parts.inc"
+
+; CC_PARTS_BEGIN n / OS88_PART ... / CC_PARTS_END - the shim's table.
+%macro CC_PARTS_BEGIN 1
+section .data
+    OS88_PARTS_BEGIN %1
+%endmacro
+%macro CC_PARTS_END 0
+    OS88_PARTS_END
+section .text
+%endmacro
+%endif  ; CC_HAS_PARTS
+
 ; =============================================================================
 ; THE API BRIDGE
 ; =============================================================================
@@ -1042,6 +1102,11 @@ cc_wksp:    resw 1                  ; SP at the top of the worker's stack
                                     ; compares against it. Defined whether or
                                     ; not this package HAS a worker, so the
                                     ; test needs no %ifdef of its own
+%ifdef CC_HAS_PARTS
+cc_parts_bss: resb OP_BSS           ; the parts standard's own words, which an
+                                    ; assembly package puts past its image and
+                                    ; a C package puts here (OP_BSS_AT above)
+%endif
 %ifdef CC_HAS_OVL
 cc_ovseg:   resw 1                  ; the claim the module was read into,
                                     ; 0 = not loaded yet (SPEC.md 73.14)

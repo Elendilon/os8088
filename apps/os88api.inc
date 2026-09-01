@@ -1882,6 +1882,13 @@ WT_SIZE    equ 16
 ; declares an embedded icon, which must follow immediately as a
 ; OS88_ICON16 .. OS88_ICON16_END block.
 ; -----------------------------------------------------------------------------
+; The header FLAGS byte, by name (SPEC.md 20.2). OS88_F_PARTS is emitted by a
+; package that carries parts and is the ONE thing the kernel learns about them
+; (SPEC.md 20.12) - apps/os88parts.inc is the rest, and it is package code.
+OS88_F_ICON   equ 1             ; an embedded 16x16 icon follows the header
+OS88_F_ASSOC  equ 2             ; ...and an association block follows that (54.6)
+OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
+
 %macro OS88_HEADER 2-3
     cpu 8086
     bits 16

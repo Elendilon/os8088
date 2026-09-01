@@ -41,6 +41,13 @@ than two.  It had no caller at all until this check acquired one, and four
 copies of `MBAR_H` had gone stale behind it.  PY_MIRROR stays for the two
 constants os88geom does not carry an authority for.
 
+`tools/os88parts.scan()` is the same arrangement for the SDK's own namespace -
+`apps/os88parts.inc`'s `OP_BSS` and the bss chain a package's parts standard
+publishes (SPEC.md 20.12) - and it is here because that one has already gone
+stale once, silently: OP_BSS moved 41 -> 65 -> 69 over three waves, a gate
+kept 65, and it then read the package's own table two entries early and
+reported the package as broken.
+
 ONE LIMITATION, stated so nobody trusts it further: a definition inside a
 `%if` is read at its first spelling, so a constant that legitimately differs
 per build would be compared at one arm.  None does today; if one ever should,
@@ -56,6 +63,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 from harness import check, done                           # noqa: E402
 import os88geom as geom                                   # noqa: E402
+import os88parts as parts                                 # noqa: E402
 
 ASM = ["kernel/kernel.asm", "kernel/splash.inc", "boot/boot.asm",
        "boot/boothd.asm", "apps/os88api.inc", "apps/os88ui.inc",
@@ -230,9 +238,34 @@ def main():
                         for p, ln, n, mine, k in stale) or "none",
           want="every copy equal to the kernel, or imported from os88geom")
 
+    # ...and the SDK's own namespace, which is the same shape one authority
+    # along. apps/os88parts.inc publishes OP_BSS and the standard's bss chain
+    # (SPEC.md 20.12), a host gate turns `os88_image_end` into the package's
+    # own words with it, and it has gone 41 -> 65 -> 69 over three waves - the
+    # second move was missed, and tests/multiseg.py then read the package's
+    # part table two entries early and reported parts as missing while the
+    # window beside it said everything was fine.
+    pall = parts.scan(ROOT) + parts.pkg_copies(ROOT)
+    pstale = [c for c in pall if c[3] != c[4]]
+    pcopies = len(pall)
+    check(not pstale,
+          "no host script carries a stale copy of an os88parts constant",
+          "import it from tools/os88parts.py, which parses "
+          "apps/os88parts.inc rather than mirroring it. A gate with a stale "
+          "OP_BSS disagrees with the package it is testing about the "
+          "package's own memory, and reports it as the package being broken. "
+          "tools/os88pkg.py's own copies are in here too, through "
+          "os88parts.PKG_MIRROR - it spells them OPF_*/PART_* so the scan "
+          "cannot find them by name, and a packer writing rows at the wrong "
+          "stride produces a table the standard reads as garbage. A mapped "
+          "name that has been RENAMED reads as stale rather than vanishing",
+          got="; ".join("%s:%d %s = %d, the include says %d" % c
+                        for c in pstale) or "none",
+          want="every copy equal to the include, or imported from os88parts")
+
     print("t_mirror: %d names mirrored across %d asm/c files, %d host-tool "
-          "copies, %d local constants scanned"
-          % (len(mirrored), len(ASM) + len(CDEF), pychecked, copies))
+          "copies, %d local constants scanned, %d os88parts copies"
+          % (len(mirrored), len(ASM) + len(CDEF), pychecked, copies, pcopies))
     done("t_mirror")
 
 
