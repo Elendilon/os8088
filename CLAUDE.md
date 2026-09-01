@@ -615,6 +615,36 @@ python3 tools/os88mouse.py 127.0.0.1:9001 dblclick 150 90   # NOT two clicks
 python3 tools/os88marty.py 127.0.0.1:9001 shot out.png --rendered
 ```
 
+**SEVERAL INSTANCES RUN AT ONCE, and nothing has to be arranged between
+them.** `os88marty.launch()` gives each one its own port, its own run
+directory and its own disks, so two terminals, two agents or two rows of the
+suite in one checkout never meet — and it reaps only ORPHANS, never another
+session's live machine. It used to sweep every `martypc_headless` on the box
+before starting its own, which is why a session's emulator would vanish
+mid-run and every symptom pointed at the guest. **Take the address off the
+object** (`m.addr`, `m.port`) rather than typing 9001; pass `addr=` only to
+pin a port on purpose.
+
+```
+python3 tools/os88marty.py launch build/os8088-360.img --apps build/apps360.img
+                                        # a BENCH: boots, prints its addr, and
+                                        # OUTLIVES the command that started it
+python3 tools/os88marty.py instances    # what is running, whose, how old
+python3 tools/os88marty.py kill <port>  # end one
+python3 tools/os88marty.py reap         # orphans only - live work is left alone
+```
+
+Three failures are now gated rather than discovered: a **second client** on
+one instance is refused in a sentence naming the holder (it used to *hang*
+until the read timed out), a **bind that fails** exits loudly instead of
+running on unreachable and holding the port against the next run, and a
+**port somebody else holds** is an error that names them. `tests/martyconc.py`
+is the gate and docs/MARTYPC-DEBUG.md's *Several at once* is the account —
+including what it costs, which is a core each: `os88test.py --marty-jobs N`
+takes the lane past 1 deliberately (four rows: 175.6s at 1, 85.9s at 3 on a
+four-core box, guest cycle counts unaffected because they are counted rather
+than timed).
+
 Driving QEMU, for the five cases above and for a host with no MartyPC:
 
 ```
