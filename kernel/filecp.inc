@@ -1112,14 +1112,11 @@ fcp_scan:
     call dsk_synth_x              ; ES:SI -> dsk_ent (SPEC.md 19): the display
                                 ; name, the type word, the cluster, the size
 .stage:                         ; ...and FSV_ENUM's answer arrives here too
-    push si
-    push di
-    mov si, dsk_ent
-    mov di, fcp_cname           ; copied out: dsk_ent is scratch every caller
-    mov cx, 13                  ; below rewrites
-    call fcp_ncopy
-    pop di
-    pop si
+    mov si, dsk_ent             ; SI and DI are dead from here to the `ret`
+    mov di, fcp_cname           ; below - every path out of .stage is this
+    mov cx, 13                  ; routine's own exit, and its outer save set
+    call fcp_ncopy              ; is what restores the caller's pair.
+                                ; (dsk_ent is scratch every caller rewrites)
     mov ax, [dsk_ent+16]
     mov [fcp_ctype], ax
     mov ax, [dsk_ent+18]
