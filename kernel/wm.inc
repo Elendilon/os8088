@@ -1254,15 +1254,9 @@ wm_dmg_bands:
     cmp si, ax
     jae .done
     mov ax, si
-    call vid_ctx_ptr                    ; DI = its record (AX preserved)
-    mov ax, [di+VID_CTX_VX]
-    mov cx, ax
-    add cx, [di+VID_CTX_CW]
-    dec cx
-    mov bx, [di+VID_CTX_VY]
-    mov dx, bx
-    add dx, [di+VID_CTX_CH]
-    dec dx
+    call vid_ctx_rect                   ; AX/BX/CX/DX = its inclusive virtual
+                                        ; rect - vidsel.inc's, and inside the
+                                        ; same %ifdef KERN_BIG as this arm
 %else
     or si, si
     jnz .done

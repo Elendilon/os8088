@@ -1342,6 +1342,31 @@ vid_ctx     resb VID_NDISP_MAX * VID_CTX_SZ
 section .text
 
 ; -----------------------------------------------------------------------------
+; vid_ctx_rect - internal: a display's INCLUSIVE virtual rect (SPEC.md 39.14)
+; in:       AL = display index (vid_ctx_ptr's own convention)
+; out:      AX/BX = the top-left, CX/DX = the bottom-right, all VIRTUAL and
+;           both ends inclusive; DI = the context record
+; clobbers: the above, and the flags
+;
+; Written out twice before this existed - vid_disp_desk below and wm.inc's
+; wm_dmg_bands, the same nine instructions in the same order, found as one
+; hash.  Both are inside this file's `%ifdef KERN_BIG`, which is where the
+; whole multi-display path lives, so this must be too: on kern_small the
+; second display does not exist and neither does vid_ctx_ptr.
+; -----------------------------------------------------------------------------
+vid_ctx_rect:
+    call vid_ctx_ptr            ; DI = the record (AX preserved)
+    mov ax, [di+VID_CTX_VX]
+    mov cx, ax
+    add cx, [di+VID_CTX_CW]
+    dec cx                      ; inclusive: a display CW wide ends at CW-1
+    mov bx, [di+VID_CTX_VY]
+    mov dx, bx
+    add dx, [di+VID_CTX_CH]
+    dec dx
+    ret
+
+; -----------------------------------------------------------------------------
 ; vid_ctx_ptr - internal: DI = the record for display AL
 ; in:       AL = display index (0..VID_NDISP_MAX-1)
 ; out:      DI = record address
@@ -1726,15 +1751,7 @@ vid_disp_desk:
                                 ; returned for [vid_ndisp] <= 1, and display 0
                                 ; is wm_paint_all's own - so the general loop
                                 ; ran exactly once by construction
-    call vid_ctx_ptr
-    mov ax, [di+VID_CTX_VX]
-    mov cx, ax
-    add cx, [di+VID_CTX_CW]
-    dec cx
-    mov bx, [di+VID_CTX_VY]
-    mov dx, bx
-    add dx, [di+VID_CTX_CH]
-    dec dx
+    call vid_ctx_rect           ; AX/BX/CX/DX = its inclusive virtual rect
     call thm_desk               ; the THEME's ground (SPEC.md 76.2), not a
                                 ; hard-coded dither
     pop di
