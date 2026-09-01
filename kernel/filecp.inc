@@ -123,21 +123,17 @@ fcp_arm:
     mov di, fcp_name            ; for every row the painter draws
     mov cx, 13
     call fcp_ncopy
-    pop di
-    pop si
-    pop cx
-    pop bx
-    pop ax
     clc
-    ret
+    jmp short .out
 .none:
     mov byte [fcp_op], FCP_NONE
+    stc
+.out:
     pop di
     pop si
     pop cx
     pop bx
     pop ax
-    stc
     ret
 
 ; fcp_ncopy - CX bytes from DS:SI to DS:DI. disk.inc's dsk_ncopy is this
@@ -208,14 +204,13 @@ fcp_goto:
     ja .bad
 .quiet:
     mov [dsk_cwd], bx
+.ok:
     pop dx
     clc
     ret
 .bad:
     mov ax, FERR_IO
-    pop dx
-    stc
-    ret
+    jmp short .eout
 
     ; --- a REDIRECTED volume: TELL THE DRIVER, do not just store the word ---
     ; The quiet path above exists precisely to avoid a mount for a move inside
@@ -241,12 +236,10 @@ fcp_goto:
     mov dl, al
     mov ax, bx
     call dsk_chdir_q_x
-    jc .ferr
-    pop dx
-    clc
-    ret
+    jnc .ok
 .ferr:
     mov ax, FERR_NODISK
+.eout:
     pop dx
     stc
     ret
@@ -412,18 +405,15 @@ fcp_selfchk:
     mov [dsk_cwd], ax
     loop .up
 .bad:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     stc
-    ret
+    jmp short .out
 .ok:
+    clc
+.out:
     pop dx
     pop cx
     pop bx
     pop ax
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -436,14 +426,9 @@ fcp_srcclus:
     call fcp_gosrc
     jc .bad
     mov si, fcp_name
-    call dskw_stat_x            ; CF=0 with BX = first cluster
-    jc .bad
+    call dskw_stat_x            ; CF=0 with BX = first cluster, and that flag
+.bad:                           ; IS this routine's answer - no second test
     pop si
-    clc
-    ret
-.bad:
-    pop si
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -492,16 +477,14 @@ fcp_clspan:
     mov ax, cx
 .have:
     mov [fcp_lclus], ax
-    pop cx
-    pop bx
-    pop ax
     clc
-    ret
+    jmp short .out
 .err:
+    stc
+.out:
     pop cx
     pop bx
     pop ax
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -885,25 +868,21 @@ fcp_relink:
     jb .done
     call fcp_rlup               ; best effort: the move has happened either
 .done:                          ; way, and a stale '..' is a wrong parent
-    pop di                      ; link, not a lost file
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    clc
-    ret
+    clc                         ; link, not a lost file
+    jmp short .pops
 .half:
     mov ax, FERR_IO             ; past the point of no return: the entry is
     jmp short .out              ; in the destination and the source still
 .no:                            ; names it. Reported, never retried.
-    xor ax, ax                  ; not attempted, nothing written
-.out:
+    xor ax, ax                  ; not attempted, nothing written - and `xor`
+.out:                           ; clears CF, so the `stc` below is the only
+    stc                         ; flag either error arm sets
+.pops:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1145,14 +1124,8 @@ fcp_scan:
     mov [fcp_ctype], ax
     mov ax, [dsk_ent+18]
     mov [fcp_csrc], ax
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     clc
-    ret
+    jmp short .out
 .next:
     add si, 32
     loop .entry
@@ -1164,13 +1137,14 @@ fcp_scan:
 .ioerr:
     mov ax, FERR_IO
 .bad:
+    stc
+.out:
     pop es
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1188,7 +1162,7 @@ fcp_mkroot:
     push cx
     push si
     call fcp_srcclus            ; BX = the source folder's own cluster
-    jc .err
+    jc .out
     mov [fcp_csrc], bx
 
     ; --- CAN this source be walked at all? (SPEC.md 62.9.7) ---------------
@@ -1209,22 +1183,18 @@ fcp_mkroot:
     jc .noenum
 .dest:
     call fcp_godst
-    jc .err
+    jc .out
     mov si, fcp_name
-    call fcp_ensure
-    jc .err
+    call fcp_ensure             ; ...whose CF is this routine's answer
+.out:
     pop si
     pop cx
-    clc
     ret
 .noenum:
     mov ax, FERR_PROT           ; the same honest refusal dskw_rmbody gives
-                                ; for the same absence (SPEC.md 62.10.4.5)
-.err:
-    pop si
-    pop cx
-    stc
-    ret
+    jmp short .out              ; for the same absence (SPEC.md 62.10.4.5).
+                                ; CF is still set by the `jc .noenum` that
+                                ; is this label's only predecessor
 
 ; -----------------------------------------------------------------------------
 ; fcp_mksub - the same, for the subdirectory fcp_scan just named
@@ -1239,16 +1209,11 @@ fcp_mksub:
     mov bx, [bx+FCP_FDST]
     call fcp_goto
     pop bx
-    jc .err
+    jc .out
     mov si, fcp_cname
-    call fcp_ensure
-    jc .err
+    call fcp_ensure             ; ...whose CF is this routine's answer
+.out:
     pop si
-    clc
-    ret
-.err:
-    pop si
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1260,19 +1225,18 @@ fcp_mksub:
 fcp_ensure:
     call dskw_stat_x            ; CF=0: it is already there
     jc .make
-    test al, DSKW_DIR
-    jz .clash                   ; a FILE of that name: mkdir cannot fix this
-    clc
-    ret
+    test al, DSKW_DIR           ; ...and `test` has cleared CF, which is this
+    jz .clash                   ; arm's whole answer: a FILE of that name is
+    ret                         ; a clash mkdir cannot fix
 .make:
     cmp ax, FERR_NOENT
     jne .fail                   ; a lookup that failed for another reason
     call dskw_mkdir_x
     jc .fail
-    call dskw_stat_x            ; the mount's own answer for where it landed
-    jc .fail
-    clc
-    ret
+    jmp dskw_stat_x             ; the mount's own answer for where it landed,
+                                ; and its CF is ours - a near tail call inside
+                                ; COLD_SEG, legal because this routine pushes
+                                ; nothing of its own
 .clash:
     mov ax, FERR_EXIST
 .fail:
@@ -1315,13 +1279,7 @@ fcp_file1:
     cmp byte [fcp_all], 0       ; file, and not something to silently remove
     jne .go                     ; "replace all" was answered earlier
     mov byte [fcp_pend], 1      ; suspend: fcp_cname is what to ask about
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    clc
-    ret
+    jmp short .ok
 .free:
     cmp ax, FERR_NOENT
     jne .err
@@ -1329,22 +1287,19 @@ fcp_file1:
     call fcp_xfer
     jc .err
     mov byte [fcp_pend], 0
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
+.ok:
     clc
-    ret
+    jmp short .out
 .clash:
     mov ax, FERR_EXIST
 .err:
+    stc
+.out:
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1557,23 +1512,18 @@ fcp_rdnext:
     mov word [fcp_rclus], 0     ; the chain ended exactly here, which for a
 .done:                          ; final chunk is what should happen
     mov ax, [fcp_rgot]
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     clc
-    ret
+    jmp short .out
 .io:
     mov ax, FERR_IO
+    stc
+.out:
     pop es
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1810,23 +1760,18 @@ fcp_xfer:
     jmp .chunk
 .fin:
     mov byte [fcp_made], 0      ; whole and committed: nothing to undo
+    clc
+    jmp short .out
+.err:
+    call fcp_undo               ; ...and a partial destination goes with it
+    stc                         ; (SPEC.md 22.5.2). It preserves AX and the
+.out:                           ; flags, the FERR_* being on its way out
     pop es
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    clc
-    ret
-.err:
-    call fcp_undo               ; ...and a partial destination goes with it
-    pop es                      ; (SPEC.md 22.5.2). It preserves AX and the
-    pop di                      ; flags, the FERR_* being on its way out
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1838,25 +1783,17 @@ fcp_srcdel:
     push bx
     push si
     call fcp_gosrc
-    jc .err
+    jc .out
     mov si, fcp_name
     cmp word [fcp_type], 2
     jae .tree
-    call dskw_delete_x
-    jc .err
-    jmp short .ok
+    call dskw_delete_x          ; ...and the callee's CF is this routine's
+    jmp short .out              ; answer on both arms
 .tree:
     call dskw_rmtree            ; the folder AND everything under it (18.6)
-    jc .err
-.ok:
+.out:
     pop si
     pop bx
-    clc
-    ret
-.err:
-    pop si
-    pop bx
-    stc
     ret
 
 ; -----------------------------------------------------------------------------
