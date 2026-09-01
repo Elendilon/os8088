@@ -683,8 +683,9 @@ os88ui_glyph:
                                 ; the CLIP's, and is why the test above stands
                                 ; where it does.
                                 ;
-                                ; icon_draw_x refuses four shapes: ww = 0,
-                                ; ww > 1, rows = 0, rows > ICO_STAGE_H.
+                                ; icon_draw_x refuses a width that is not
+                                ; ICO_STAGE_WW - ww = 0 and ww > 1 in one
+                                ; compare - and rows = 0, rows > ICO_STAGE_H.
                                 ; os88ui_grec is `db 1, OS88UI_GW` - a
                                 ; CONSTANT, one word a row and twelve rows -
                                 ; so all four are decided at assembly time and

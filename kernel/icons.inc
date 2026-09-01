@@ -55,8 +55,9 @@ ICO_STAGE_WW equ 1              ; ...and words ACROSS. It is the `1` in
 ; os88ui_glyph hands icon_draw_x the constant record `db 1, OS88UI_GW` and has
 ; NO fallback - the branch that used to stand in for one could not draw a
 ; glyph, so it went rather than being kept (SPEC.md 25.6.1). Of the four shapes
-; icon_draw_x refuses - ww = 0, ww > 1, rows = 0, rows > ICO_STAGE_H - three
-; are pinned by the literal `1`; this is the fourth, and a glyph grown past the
+; icon_draw_x refuses - a width that is not ICO_STAGE_WW (which is ww = 0 and
+; ww > 1 in one compare), rows = 0, rows > ICO_STAGE_H - the first two are
+; pinned by ICO_STAGE_WW; this is the last, and a glyph grown past the
 ; stage would otherwise turn every control in every package into nothing at
 ; all, silently.
 ; No %ifdef around it: `equ` defines an ASSEMBLER symbol and %ifdef tests the
@@ -67,7 +68,7 @@ ICO_STAGE_WW equ 1              ; ...and words ACROSS. It is the `1` in
   %error "OS88UI_GW is taller than the icon stage: icon_draw_x refuses the control-glyph record and os88ui_glyph has no fallback (SPEC.md 25.6.1)"
 %endif
 %if ICO_STAGE_WW != 1
-  %error "icon_draw_x refuses a record's width with `cmp al, ICO_STAGE_WW / ja .refuse` and `or al,al / jz .refuse` - the pair only spells 'exactly 1' while ICO_STAGE_WW is 1. A wider stage needs that pair re-read as well as the resb below re-sized"
+  %error "icon_draw_x refuses every width but ICO_STAGE_WW in ONE compare (`cmp al, ICO_STAGE_WW / jne .refuse`), which is only the same answer while the stage is ONE word across. A wider stage needs the pair back - `cmp al, ICO_STAGE_WW / ja .refuse` and `or al,al / jz .refuse` - as well as the resb below re-sized"
 %endif
 icon_draw_x:
     push ax
@@ -76,10 +77,13 @@ icon_draw_x:
     push di
     mov al, [es:si]             ; the header: words a row, then rows
     mov ah, [es:si+1]
-    cmp al, ICO_STAGE_WW
-    ja .refuse
-    or al, al
-    jz .refuse
+    cmp al, ICO_STAGE_WW        ; ONE compare, two refusals: `ja` refused
+    jne .refuse                 ; ww > 1 and `jz` refused ww = 0, so the only
+                                ; surviving value was ICO_STAGE_WW itself -
+                                ; which is what `jne` refuses the complement
+                                ; of, over the whole byte domain, AL = 0
+                                ; included (cmp 0,1 sets CF, so `ja` was
+                                ; correctly not taken there either)
     or ah, ah
     jz .refuse
     cmp ah, ICO_STAGE_H
@@ -92,16 +96,25 @@ icon_draw_x:
     xor ch, ch                  ; and h data words
     shl cx, 1
     shl cx, 1
-    add cx, 2
+    inc cx                      ; ...+ the header. Two `inc`s are 2 bytes to
+    inc cx                      ; `add cx,2`'s 3 and cost the same 6 clocks,
+                                ; so it is shorter on both terms of the 8088's
+                                ; max(clocks, 4.34 x bytes)
     mov di, ico_stage
+    push di                     ; ...and the stage base comes back off the
+                                ; stack below rather than out of an immediate
 .cp:
-    mov al, [es:si]
+    es lodsb                    ; DF = 0 is the system contract (SPEC.md 1
+                                ; rule 3, 20.2) and this path already rests
+                                ; on it:
+                                ; ico_pass/ico_pass_bb reach `lodsw` from the
+                                ; same call, and api_x does not `cld` either -
+                                ; so the dependency is pre-existing, not new
     mov [di], al                ; DS is KERNEL_SEG here - the X stub's doing
-    inc si
     inc di
     loop .cp
+    pop si                      ; the stage base...
     pop cx                      ; ...and x back
-    mov si, ico_stage
     call icon_draw
     clc
 .out:
@@ -144,6 +157,12 @@ icon_draw:
     mov al, [si+1]              ; AH still 0
     mov [ico_h], ax
     add si, 2                   ; SI -> body (mask rows first)
+
+; ico_draw_common - the tail both wrappers share, written once. Everything
+; from here down was byte-identical in icon_draw16; the only difference
+; between the two entries is how [ico_ww] and [ico_h] get set, and where SI
+; is pointing when they are.
+ico_draw_common:
     GFXDENTERCD                 ; whole-shape, like a glyph (SPEC.md 39.14.2)
     call ico_core
     mov word [ico_c1], (CBLACK << 8) | CWHITE   ; SPEC.md 25.6: ONE-SHOT
@@ -187,19 +206,8 @@ icon_draw16:
     push es
     mov word [ico_ww], 1
     mov word [ico_h], 16
-    GFXDENTERCD                 ; whole-shape, like a glyph (SPEC.md 39.14.2)
-    call ico_core
-    mov word [ico_c1], (CBLACK << 8) | CWHITE   ; SPEC.md 25.6: ONE-SHOT
-    GFXDLEAVE
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp short ico_draw_common   ; SI already points at the body: a 16x16 body
+                                ; carries no header to step over
 
 ; -----------------------------------------------------------------------------
 ; ico_core - shared body: clip, set up the GC, run the white (mask) pass and
@@ -224,9 +232,9 @@ ico_core:
     shl cx, 1
     add cx, ax
     dec cx
-    mov dx, [ico_h]
-    add dx, bx
-    dec dx
+    add dx, [ico_h]             ; DX is STILL y - nothing between the bank at
+    dec dx                      ; `mov bx,dx` and here writes it - so y2 is
+                                ; one add rather than a load and an add
     call wm_clip_test
     mov cx, [ico_x]
     mov dx, [ico_y]
@@ -243,9 +251,8 @@ ico_core:
                                 ; gfx_nextrow instead)
 
     mov [ico_maskp], si         ; mask rows first, data rows after
-    mov ax, [ico_ww]
-    mul word [ico_h]            ; AX = words per table (DX clobbered)
-    shl ax, 1
+    mov ax, [ico_rb]            ; = 2 * wwords, set three lines up, so this is
+    mul word [ico_h]            ; the table's BYTES straight off (DX clobbered)
     add ax, si
     mov [ico_datap], ax
 
@@ -261,15 +268,18 @@ ico_core:
     mul word [ico_rb]           ; AX = bytes to skip in both tables
     add [ico_maskp], ax
     add [ico_datap], ax
-    mov word [ico_y], 0
+    xor ax, ax                  ; AX is dead after the two adds, and zeroing a
+    mov [ico_y], ax             ; register to store it is a byte shorter than
+                                ; the immediate form
 .top_ok:
-    mov ax, [ico_y]
-    cmp ax, [vid_ch]
+    mov dx, [vid_ch]            ; ...held across the bottom clip rather than
+    mov ax, [ico_y]             ; read three times. DX has been scratch since
+    cmp ax, dx                  ; the `mul` above
     jae .none                   ; fully below the screen
     add ax, bx
-    cmp ax, [vid_ch]
+    cmp ax, dx
     jbe .rows_ok
-    mov bx, [vid_ch]
+    mov bx, dx
     sub bx, [ico_y]             ; hang off the bottom edge: draw what fits
 .rows_ok:
     mov [ico_rows], bx
@@ -277,17 +287,16 @@ ico_core:
     ; --- horizontal setup: byte column, shift pair, VRAM offset --------------
     ; A base column >= the row stride (x past the right edge, or negative x
     ; seen as huge unsigned) makes ico_pass skip every byte write.
-    mov bx, [ico_x]
-    mov ax, bx
+    mov ax, [ico_x]
     mov cl, 3
     shr ax, cl
     mov [ico_col0], ax          ; base byte column (x / 8)
     mov di, ax
     mov ax, [ico_y]             ; AX = the row's base offset (DX clobbered;
-    call gfx_rowbase            ; CX is loaded below, BX is preserved)
+    call gfx_rowbase            ; CX is loaded below)
     add di, ax                  ; DI = rowbase(y) + x/8
-    mov cl, bl
-    and cl, 7                   ; CL = shift (x & 7)
+    mov cl, [ico_x]             ; a second read of x is a byte cheaper than
+    and cl, 7                   ; carrying it in BX: CL = shift (x & 7)
     mov ch, 8
     sub ch, cl                  ; CH = 8 - shift
 
@@ -309,11 +318,13 @@ ico_core:
     mov al, 8                   ; leave the index at GC8 (Bit Mask)
     out dx, al
     mov si, [ico_maskp]
-    push di
-    call ico_pass               ; white underlay from the mask rows
-    pop di
-
-    mov dx, 0x3CE
+    call ico_pass               ; white underlay from the mask rows - it banks
+                                ; DI itself, on every path including the
+                                ; fully-clipped early-out
+    dec dx                      ; 0x3CF -> 0x3CE. ico_pass's DOCUMENTED output
+                                ; (see its header): the port is loaded above
+                                ; its own early-out precisely so this is true
+                                ; whether or not it drew anything
     mov ah, [ico_c2]            ; GC0: Set/Reset color = the picture's
     mov al, 0
     out dx, ax
@@ -322,11 +333,17 @@ ico_core:
     mov si, [ico_datap]
     call ico_pass               ; black pixels on top
 
-    mov dx, 0x3CE               ; back to defaults: Set/Reset off, mask FF
-    mov ax, 0x0001
-    out dx, ax
-    mov ax, 0xFF08
-    out dx, ax
+    call vga_gc_reset           ; back to SPEC.md 1 rule 7's resting state.
+                                ; The five instructions this replaces wrote
+                                ; GC1 and GC8 and left GC3 alone; the helper
+                                ; is a SUPERSET - it writes GC3 = replace too
+                                ; - so it can only move the card closer to the
+                                ; documented rest. It costs ~160-200 clocks
+                                ; (a near call/ret, two push/pop pairs and one
+                                ; more word `out`), ~35 us against a VGA icon
+                                ; of milliseconds; nine other sites in
+                                ; vga12.inc already call it, and this was the
+                                ; last hand-rolled copy.
 %endif
 .none:
     ret
@@ -340,14 +357,19 @@ ico_core:
 ; in:       SI -> word rows, DI = VRAM offset of the row's first byte,
 ;           CL = shift, CH = 8-shift, ES = VGA_SEG,
 ;           GC: Set/Reset enabled + color set, index register = 8
-; outs:     none; preserves CX, DI; clobbers ax, bx, dx, si, bp
+; outs:     DX = 0x3CF, the GC DATA port - a documented OUTPUT, not a
+;           leftover. ico_core's second pen reaches 0x3CE with `dec dx` on the
+;           strength of it, which is why the load is ABOVE the early-out
+;           below: a fully-clipped icon has to leave the same DX as one that
+;           drew.
+;           preserves CX, DI; clobbers ax, bx, dx, si, bp
 ; -----------------------------------------------------------------------------
 ico_pass:
     push di
+    mov dx, 0x3CF               ; GC data port; index already 8 (Bit Mask)
     mov bp, [ico_rows]
     or  bp, bp
     jz .done                    ; degenerate record / fully clipped
-    mov dx, 0x3CF               ; GC data port; index already 8 (Bit Mask)
 .row:
     mov ax, [ico_col0]
     mov [ico_col], ax           ; running byte column (right-edge clip)
