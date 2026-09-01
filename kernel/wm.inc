@@ -11598,7 +11598,7 @@ wm_an_xor:
 wm_an_deadline:
     push ax
     push dx
-    call wm_an_pit
+    call sch_pit_now
     add ax, WM_AN_FRAME
     adc dx, 0
     mov [wm_an_dl], ax
@@ -11622,7 +11622,7 @@ wm_an_pace:
     push dx
 .w:
     call task_yield
-    call wm_an_pit
+    call sch_pit_now
     sub ax, [wm_an_dl]
     sbb dx, [wm_an_dl+2]
     js .w
@@ -11630,41 +11630,15 @@ wm_an_pace:
     pop ax
     ret
 
-; wm_an_pit - the scheduler's clock, read and not written (SPEC.md 34.1)
-; out: DX:AX = [ticks]:phase, phase counting UP from 0 at the tick
-; clobbers: AX, DX, flags
-;
-; sch_account's own latch, minus the accounting: channel 0 is NEVER written
-; here, only latched, which 34.1 names as the non-destructive operation the
-; speaker PWM pacer already performs. **The latch+read triple runs inside one
-; pushf/cli ... popf window**, which is 34.1's binding atomicity rule: the
-; 8254 ignores a second latch while a latched value is unread, so an
-; interleave would feed one reader a stale byte.
-;
-; It does NOT re-derive sch_account's IRQ-pending coherence test, and does not
-; need to: a deadline half a tick away is compared with `js`, so a DX that is
-; one behind at the instant of a reload costs at most one extra pass round the
-; loop and never a wrong answer. This clock is a pace, not an accounting.
+; THE ANIMATION'S CLOCK IS sched.inc's sch_pit_now (SPEC.md 34.1).  It was
+; wm_an_pit here, and it was sch_account's latch with the accounting removed -
+; which is to say it was the scheduler's routine living in the window
+; manager.  sched.inc owns the PIT (SPEC.md 8.1) and now owns this too; the
+; body is byte-for-byte the one that stood here.
 ;
 ; A fullscreen bracket divides this period (53.2.1's FSXF_FASTTICK), and the
 ; animation cannot run inside one - the UI task does not run there at all
 ; (53.1) - so no gate on [sch_fast] is needed or wanted.
-wm_an_pit:
-    push cx
-    pushf
-    cli
-    mov al, 0x00                ; latch channel 0's count
-    out 0x43, al
-    in al, 0x40
-    mov cl, al
-    in al, 0x40
-    mov ch, al
-    mov dx, [ticks]
-    popf
-    neg cx                      ; phase = 65536 - count, counting up from the
-    mov ax, cx                  ; tick
-    pop cx
-    ret
 
 ; wm_an_setw - fill the rect at DI from window SI
 ; clobbers: flags

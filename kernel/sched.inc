@@ -255,6 +255,52 @@ section .text
 ; arithmetic reads the PIT counter against its own 65536 period; it pauses
 ; while armed and is re-seeded here on the way out.
 ; -----------------------------------------------------------------------------
+; sch_pit_now - channel 0's clock, LATCHED AND NEVER WRITTEN (SPEC.md 34.1)
+; in:  nothing
+; out: DX:AX = [ticks]:phase, the phase counting UP from 0 at the tick
+;      (65536 - the latched count)
+; clobbers: AX, DX, flags
+;
+; The latch, both reads AND the [ticks] read sit inside ONE pushf/cli...popf
+; window, which is SPEC.md 34.1's BINDING atomicity rule: the 8254 ignores a
+; second latch command while a latched value is unread, so an interleave
+; hands one reader a stale byte - and a phase paired with a tick from outside
+; the window can straddle a reload.
+;
+; sched.inc owns the PIT (SPEC.md 8.1), and this triple stood in FOUR places
+; before size pass 2: here in sch_fast_off's re-seed, in wm.inc's wm_an_pit
+; (which this replaces outright - it WAS this routine, in the wrong module),
+; and in snd.inc's PCM deadline prime.  Two copies are deliberately NOT
+; converted:
+;   * sched_init's seed at the top of this file is `.ovlw`, the boot overlay,
+;     and a near call from there to `.text` would assemble cleanly and run
+;     wrong;
+;   * sch_account's is on the IRQ0 path and does more (the IRR coherence
+;     test), so it is neither this body nor a place to add a call.
+;
+; It does NOT re-derive sch_account's IRQ-pending coherence test and does not
+; need to: every caller compares a deadline with `js`, so a DX one behind at
+; the instant of a reload costs at most one extra pass and never a wrong
+; answer.  This clock is a pace, not an accounting.
+; -----------------------------------------------------------------------------
+sch_pit_now:
+    push cx
+    pushf
+    cli
+    mov al, 0x00                ; latch channel 0's count
+    out 0x43, al
+    in al, 0x40
+    mov cl, al
+    in al, 0x40
+    mov ch, al
+    mov dx, [ticks]
+    popf
+    neg cx                      ; phase = 65536 - count, counting up from the
+    mov ax, cx                  ; tick
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
 sch_fast_on:
     push ax
     push bx
@@ -298,16 +344,12 @@ sch_fast_off:
     xor al, al
     out 0x40, al
     out 0x40, al
-    mov al, 0x00                ; ...and re-seed the accounting stamp, or the
-    out 0x43, al                ; first full tick after this charges a whole
-    in al, 0x40                 ; bracket's worth of garbage to somebody
-    mov cl, al
-    in al, 0x40
-    mov ch, al
-    neg cx
-    mov [sch_pit_last], cx
-    mov ax, [ticks]
-    mov [sch_pit_last+2], ax
+    call sch_pit_now            ; ...and re-seed the accounting stamp, or the
+    mov [sch_pit_last], ax      ; first full tick after this charges a whole
+    mov [sch_pit_last+2], dx    ; bracket's worth of garbage to somebody.
+                                ; Its own pushf/cli nests inside this one and
+                                ; its popf restores IF=0, which is what we are
+                                ; already in
     mov byte [sch_fast], 0
     popf
 .out:

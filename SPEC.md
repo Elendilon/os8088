@@ -15923,11 +15923,20 @@ sixth of a second with the drawing absorbed into it.
 
 **The clock is channel 0, LATCHED AND NEVER WRITTEN**, which §34.1 names as the
 non-destructive operation the speaker PWM pacer already performs on the same
-counter. `wm_an_pit` is `sch_account`'s own latch with the accounting removed,
-and it obeys §34.1's **binding atomicity rule**: the latch and both reads sit
-inside one `pushf`/`cli` … `popf` window, because the 8254 ignores a second
-latch command while a latched value is unread and an interleave would hand one
-reader a stale byte. Nothing about §8.1's radix, the tick rate, the floppy
+counter. The routine is **`sch_pit_now`** — `sch_account`'s own latch with the
+accounting removed — and it obeys §34.1's **binding atomicity rule**: the
+latch, both reads *and* the `[ticks]` read sit inside one `pushf`/`cli` …
+`popf` window, because the 8254 ignores a second latch command while a latched
+value is unread and an interleave would hand one reader a stale byte — and a
+phase paired with a tick from outside the window can straddle a reload. It
+lives in `sched.inc`, which owns the PIT (§8.1); it was `wm_an_pit` in
+`wm.inc` until size pass 2, which is to say the scheduler's routine living in
+the window manager, and the same triple stood a third time in `snd.inc`'s PCM
+deadline prime and a fourth in `sch_fast_off`'s re-seed. Those four are one
+now. **Two copies are deliberately NOT converted**: `sched_init`'s seed is in
+the boot overlay (`.ovlw`), where a near call into `.text` would assemble
+cleanly and run wrong, and `sch_account`'s own does more (the IRQ-pending
+coherence test) on the IRQ0 path. Nothing about §8.1's radix, the tick rate, the floppy
 motor countdown or any tick-denominated constant is touched, by construction.
 
 Three things about it are load-bearing:

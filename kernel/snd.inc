@@ -230,17 +230,13 @@ spk_pcm_run:
     mov bx, snd_xlat            ; BX = the rescale table, for xlat
     jcxz .done                  ; zero samples: restore idle and report ok
 
-    pushf                       ; prime the deadline: one atomic ch0
-    cli                         ; latch+read triple (SPEC.md 34.1, binding)
-    mov al, 0
-    out 0x43, al
-    in al, 0x40
-    mov dl, al
-    in al, 0x40
-    mov dh, al
-    popf
-    neg dx                      ; DX = phase; first sample is due at once
-    mov di, dx                  ; DI = deadline
+    call sch_pit_now            ; prime the deadline: one atomic ch0
+    mov di, ax                  ; latch+read triple (SPEC.md 34.1, binding),
+                                ; sched.inc's, which owns the PIT (8.1).
+                                ; DI = deadline; the first sample is due at
+                                ; once.  The `.wait` poll below keeps its own
+                                ; copy of the triple - it is the per-sample
+                                ; pacer and a call there is real money
 
 .next:
     es lodsb                    ; AL = sample from ES:SI (SPEC.md 20.3)
