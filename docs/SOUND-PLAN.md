@@ -331,7 +331,7 @@ the invariant is auditable, and it is pinned in SPEC §34, not left as folklore.
         cmp  ax, bp               ; late by more than one period?
         jbe  .emit
         mov  di, dx               ; RESYNC: drop samples, never burst catch-up writes
-        inc  word [snd_pcm_resync]; debug counter, the Phase 2 floor gate reads it
+        inc  word [snd_pcm_resync]; debug counter - NOTHING automated reads it
 .emit:  out  42h, al              ; 14 - the pulse (sample restored to AL first)
         add  di, bp               ; next deadline
         ; abort checks, on the emit path only (~45 cycles):
@@ -731,7 +731,8 @@ kernel image changes even when nothing sound-side ships on disk).
 - **Phase 2 — speaker PCM + Control Panel page.** `spk_pcm_run` (ch0-latch pacer,
   sch_lock window, resync rule, release-folding click-abort + event drain), far xlat
   builder, slot 0x0080 live, CP Sound page (route radio, excl checkbox, Test button),
-  `snd_excl_ok` policy, `snd_pcm_emitted`/`snd_pcm_resync` debug counters.
+  `snd_excl_ok` policy, `snd_pcm_emitted`/`snd_pcm_resync` debug counters
+  (nothing automated reads either; SPEC.md §34.4 used to say a gate did).
   *Test*: the CP Test button synthesises a 1.5 s 1 kHz sine into SND_SEG and plays
   it at 8,000 Hz (N = 149) through slot 0x0080. **Measured QEMU reality (11.0.2,
   worse than "imperfectly")**: the pcspk backend emits *zero* frames while ch2 is

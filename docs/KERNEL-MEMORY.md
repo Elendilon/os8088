@@ -1901,7 +1901,7 @@ generated in the first place.
 | `clone.inc` — the disk cloner (§18.99) | 15 | 27 | **42** | — | — | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 12 | — | **12** | — | — | — |
 | `splash.inc` — the boot splash (§15) | — | — | **0** | — | — | 2,015 |
-| `dskwin.inc` — **(undescribed)** | — | — | **0** | — | 3,584 | — |
+| `dskwin.inc` — the mount-owned window at the bottom of `.lowbss` (§2.1.2) | — | — | **0** | — | 3,584 | — |
 | `band.inc` — the 1bpp band composer (§5.9), `BAND=1` | — | — | **0** | — | — | — |
 | `bootprof.inc` — the boot phase table (§15.5), `BOOTPROF=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
@@ -1932,10 +1932,15 @@ moves does not drag a paragraph out of date with it.
 - **`kernel.asm`'s row is almost entirely tables of stubs**, and it is a
   RESIDUAL: whatever the per-module pass did not attribute lands there, so it
   is the row to look at first if a total ever looks wrong. The API
-  jump table, its X and N stubs, and now 91 `cw_*` shims plus 42 resident
-  thunks for the cold segment. That is the price of a package living in its
+  jump table, its X and N stubs, the `cw_*` shims and the resident thunks
+  for the cold segment. That is the price of a package living in its
   own segment (SPEC.md §20.1) and of code living outside the kernel's, and
-  both are paid once rather than at every call site.
+  both are paid once rather than at every call site. **The counts are not
+  written out here on purpose** — this line used to say "91 `cw_*` shims
+  plus 42 resident thunks" and both had drifted by tens. They are one grep
+  each and the grep cannot go stale:
+  `grep -c '^cw_' kernel/kernel.asm` and
+  `grep -cE '^[a-z_0-9]+:\s+call\s+COLD_SEG:' kernel/kernel.asm`.
 - **`font.inc`'s 760-byte glyph table left the segment** (below), so its
   `.bss` is 17 bytes of `font_run` line state and nothing else.
 - **`instance.inc` no longer keeps a copy of every package's icon.** It used

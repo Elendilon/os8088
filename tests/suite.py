@@ -363,7 +363,7 @@ FULL = [
         "(`make small`, into build/smallk/) because there is no capability "
         "to probe for and `all` never builds that kernel",
         needs=("marty",), serial=True),
-    Row("int0sweep", "soak", py("tests/int0sweep.py"), 180.0,
+    Row("int0sweep", "soak", py("tests/int0sweep.py"), 240.0,
         "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
         "5150/5160 ROM the INT 0 vector is a BIOS stub that writes 0FFh to "
         "the 8259 mask and IRETs, so ONE divide overflow anywhere is a dead "
@@ -377,7 +377,12 @@ FULL = [
         "row on GLaBIOS. Worse, a machine naming an IBM romset SILENTLY "
         "RESOLVES to glabios_pc when the ROM file is absent, so the handful "
         "of rows that ask for one were not testing it either. Arms INT 0 "
-        "across a broad UI session and reports where it fired",
+        "across a broad UI session and reports where it fired. The declared "
+        "240 is MEASURED (207-209s observed): it said 180, which was the "
+        "figure from when the row could not run at all. soak enforces no "
+        "budget, so this is a description rather than a limit - but a "
+        "description that is wrong is what makes the next person distrust "
+        "the column",
         needs=("marty",), serial=True),
     Row("vgadrop", "soak", py("tests/vgadrop.py"), 150.0,
         "SPEC.md 39.22: the heap floor starts UNDER .vgabuf on a machine with "

@@ -39803,8 +39803,13 @@ end.
   samples — `inc word [snd_pcm_resync]` — never burst catch-up writes, so
   a long interrupt becomes dropped samples, never a buzz. Jitter is ±1
   poll plus the surviving IF=0 stretches. `snd_pcm_emitted` /
-  `snd_pcm_resync` are the debug counters the Phase 2 gate reads,
-  surfaced on the §31.4 caption. Budget at N = 149: 4,772,727/8,008 ≈
+  `snd_pcm_resync` are debug counters and **nothing automated reads
+  them**: `spk_pcm_op`'s verb 2 answers `snd_pcm_emitted`, and no file
+  under `tests/`, `tools/` or `apps/` names either symbol. This line used
+  to say they were "the debug counters the Phase 2 gate reads", surfaced
+  "on the §31.4 caption" — there is no such gate, and §31.4 is *Sound
+  page — retired*. Budget at N = 149:
+  4,772,727/8,008 ≈
   **596 CPU cycles/sample**; fixed work (lodsb + xlat + out + deadline +
   abort checks + loop, with 8088 fetch stalls) ≈ 120–135, plus typically
   3–4 polls → ~450–575 total — it fits with little to spare, which is
@@ -39840,9 +39845,12 @@ end.
   mouse ISR's worst IF=0 stretch to packet decode. Cap: CX ≤ 65535 samples
   (≈ 8 s at 8 kHz); callers should chunk at ≤ 2 s, and the click-abort
   bounds the user's worst case regardless. The desktop freezes for the
-  clip; that is disclosed in the API (`PCM_EXCL`), in the §31.4 caption,
-  and gated by the user policy byte `snd_excl_ok` (default on,
-  CP-flippable) — `osapi_snd_play` returns err 3 while it is off.
+  clip; that is disclosed in the API (`PCM_EXCL`) and gated by the user
+  policy byte `snd_excl_ok` (default on, CP-flippable) —
+  `osapi_snd_play` returns err 3 while it is off. (It used to say "and in
+  the §31.4 caption"; §31.4 is *Sound page — retired* and there is no
+  caption to read it on. `checkdocs.py` cannot catch this: it checks that
+  a cited heading EXISTS, not that it still describes anything.)
 
 ### 34.5 Sound Blaster — back, as a driver
 

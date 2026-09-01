@@ -143,6 +143,14 @@ THEMES_END = "<!-- /kernsize:themes -->"
 # of its own and takes the `.boot2` it is included at (SPEC.md 2.9.4), so
 # without it here a 967-byte module reports as costing nothing.
 MOD_SECTIONS = ("text", "bss", "lowbss", "vgabuf", "cold", "ovl", "ovlw", "boot2")
+# ...AND `kernel.asm`'s OWN `.boot2` FIGURE IS ALMOST ALL boot/boot2.asm.
+# Stage 2 is `%include`d at the FOOT of kernel.asm, below the last module this
+# brackets, so it lands in the residual: of kernel.asm's `.boot2` row, all but
+# a three-byte `jmp` is the loader.  That is not a defect to fix here - the
+# bracketing is by kernel.asm's %include lines and boot2.asm has none of its
+# own - but it is worth knowing before quoting the row, because boot/boot2.asm
+# is the one file in the tree where a byte is genuinely delicate (SPEC.md
+# 2.9.6's blob ceiling) and it has no row.
 INCLUDE = re.compile(r'^%include\s+"([\w.]+)"')
 # Column 0 only, which is where every one of kernel.asm's own switches sits -
 # a `section` inside a module is that module's business and it has to hand
