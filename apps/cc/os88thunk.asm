@@ -754,6 +754,53 @@ _os88_wm_onresize:
     ret
 %endif
 
+%ifdef CC_HAS_ONTIMER
+; void os88_wm_ontimer(void *win) - BX = win, AX = the near proc (SPEC.md 13.9).
+; Call it AFTER os88_wm_create, once; os88_wm_timer() below is what arms it.
+_os88_wm_ontimer:
+    push bp
+    mov bp, sp
+    mov bx, [bp+4]
+    mov ax, cc_ontimer
+    call OSAPI_WM_ONTIMER
+    pop bp
+    ret
+
+; int os88_wm_timer(void *win, int ticks) - BX = win, AX = ticks from now, 0
+; cancels (SPEC.md 13.9). 18.2 ticks a second, the clock the system already
+; keeps. 0 = armed, -1 = REFUSED and nothing armed - a kern_small kernel
+; carries the slot and not the body, and the caller owes a second path
+; (WEAVE-SPEC 8.2's static caret, SPEC.md 13.8.2's static down state). TEST IT:
+; the refusal is the whole reason this answers anything at all.
+_os88_wm_timer:
+    push bp
+    mov bp, sp
+    mov bx, [bp+4]
+    mov ax, [bp+6]
+    call OSAPI_WM_TIMER
+    mov ax, 0                       ; MOV: CF is the answer
+    jnc .ok
+    dec ax
+.ok:
+    pop bp
+    ret
+%endif
+
+%ifdef CC_HAS_ONCLOSE
+; void os88_wm_onclose(void *win) - BX = win, AX = the near proc (SPEC.md 75.1).
+; Call it AFTER os88_wm_create, once, from os88_main(). From that moment every
+; door out of your window - the close box, the app-name menu's Close, the dock
+; tile's context menu - runs os88_onclose() first and takes its answer.
+_os88_wm_onclose:
+    push bp
+    mov bp, sp
+    mov bx, [bp+4]
+    mov ax, cc_onclose
+    call OSAPI_WM_ONCLOSE
+    pop bp
+    ret
+%endif
+
 %ifdef CC_HAS_ONWAKE
 ; void os88_wm_onwake(void *win) - BX = win, AX = the near proc (SPEC.md 74.1).
 _os88_wm_onwake:

@@ -102,7 +102,7 @@ WK = {"text": 1, "value": 2, "label": 3, "enabled": 4, "checked": 5,
       "hidden": 6, "x": 7, "y": 8, "vx": 9, "vy": 10, "frame": 11,
       "shown": 12, "min": 13, "max": 14, "rows": 15, "cols": 16, "sel": 17,
       "editing": 18, "group": 19, "card": 20, "selrow": 21, "selcol": 22,
-      "walls": 23, "tick": 24,
+      "walls": 23, "tick": 24, "color": 25, "ink": 26, "paper": 27,
       "cell": 32, "setCell": 33, "recalc": 34, "select": 35, "stop": 36,
       "go": 37, "set": 38, "get": 39, "start": 40, "clear": 41,
       "onclick": 48, "onchange": 49, "onkey": 50, "onselect": 51,
@@ -111,6 +111,24 @@ WK = {"text": 1, "value": 2, "label": 3, "enabled": 4, "checked": 5,
       "onalert": 60, "ITEMS": 61, "MENUS": 62}
 WK_NAME = {v: k for k, v in WK.items()}
 APP_ATOM0, APP_ATOM_MAX = 64, 187       # ids 64..250; the cap is 187
+
+# The canvas palette (WEAVE-SPEC 6.10.7): SPEC.md 3's own sixteen, in its
+# order, by NAME - `color="4"` is not accepted, because the reader of the WML
+# is the person who has to know that 4 is red.
+PALETTE = ["black", "blue", "green", "cyan", "red", "magenta", "brown",
+           "lightgray", "darkgray", "lightblue", "lightgreen", "lightcyan",
+           "lightred", "lightmagenta", "yellow", "white"]
+COLOR = {n: i for i, n in enumerate(PALETTE)}
+CBLACK, CWHITE = 0, 15
+
+
+def pen_legal(paper, ink):
+    """SPEC.md 5.4.2.2's fourth refusal, said the way WEAVE-SPEC 6.10.7 uses
+    it: GFX_BLIT1 takes a pair only when one colour's planes are a subset of
+    the other's. `white` paper and `black` paper are legal against all
+    sixteen, which is why no palette anyone writes meets this."""
+    return (paper & ~ink & 0x0F) == 0 or (~paper & ink & 0x0F) == 0
+
 
 # The 38 WVM opcodes, 0x00-0x25, WEAVE-SPEC 4.5. Operand spec: '' none,
 # 'b' one byte, 'w' imm16, 'r' rel16, 'bb' two bytes.
@@ -202,9 +220,9 @@ ELEM_ATTRS = {
     "input":  ["cols", "text", "onchange", "onkey"],
     "list":   ["rows", "onselect"],
     "grid":   ["cols", "rows", "onselect", "onedit", "oncalc"],
-    "canvas": ["w", "h", "walls", "tick", "onkey", "oncollide", "onwall",
-               "onscore", "ontick"],
-    "sprite": ["id", "img", "x", "y", "shown"],
+    "canvas": ["w", "h", "ink", "paper", "walls", "tick", "onkey",
+               "oncollide", "onwall", "onscore", "ontick"],
+    "sprite": ["id", "img", "x", "y", "shown", "color"],
     "menu":   ["title"],
     "item":   ["oncommand"],
     "script": ["src"],
@@ -421,9 +439,13 @@ def unknown_attr_error(fname, line, elem, attr):
                         "reaches a package only between press and release "
                         "(SPEC.md 13.7)" % attr)
     if "color" in attr or attr in ("fg", "bg", "font", "size"):
-        raise PackError(fname, line, "%s: there are no colors; grey rounds "
-                        "to black on 1bpp and state never rides on color "
-                        "(SPEC.md 39.4)" % attr)
+        # 9.2.1 amended the exclusion and the sentence had to follow it: a
+        # palette exists now, on the canvas and nowhere else, and a refusal
+        # that says "there are no colors" to somebody looking at PONG.WML is
+        # a refusal they cannot look up.
+        raise PackError(fname, line, "%s: no color here; a palette is a "
+                        "canvas's (WEAVE-SPEC 9.2.1) - grey rounds to black "
+                        "on 1bpp (SPEC.md 39.4)" % attr)
     raise PackError(fname, line, '%s: no such attribute "%s"; style is '
                     "bold/invert/align only - two of three adapters are 1bpp"
                     % (elem, attr))
@@ -522,6 +544,7 @@ class Analyzer:
         self.fname, self.atoms = fname, interner
         self.app = AppModel()
         self.next_comp = 1
+        self.canvas_ink = CBLACK        # 6.10.7: what a <sprite> inherits
 
     def err(self, line, msg):
         raise PackError(self.fname, line, msg)
@@ -805,6 +828,19 @@ class Analyzer:
         if w % 8:
             self.err(node.attrs["w"][1], 'canvas: w="%d" is not a multiple '
                      "of 8 - bands are byte-aligned (WEAVE-SPEC 3.3)" % w)
+        # 6.10.7's palette, PRESENT -> PROP: the three colour attributes emit
+        # a record whenever they are written, even at their default, which is
+        # `walls`'s rule and not `tick`'s. Two packers agree about "was it
+        # written" with no arithmetic at all, and a sprite that says
+        # color="black" under an ink="yellow" canvas needs the record to mean
+        # anything (2.14).
+        ink = self.color_attr(node, "canvas", "ink", CBLACK)
+        paper = self.color_attr(node, "canvas", "paper", CWHITE)
+        self.canvas_ink = ink           # what a <sprite> child inherits
+        if "ink" in node.attrs:
+            comp.props.append((WK["ink"], PK_INT, ink))
+        if "paper" in node.attrs:
+            comp.props.append((WK["paper"], PK_INT, paper))
         walls = "TBLR"
         if "walls" in node.attrs:
             walls, ln = node.attrs["walls"]
@@ -819,7 +855,8 @@ class Analyzer:
                              *node.attrs["tick"], 0, 255)
             if tick:
                 comp.props.append((WK["tick"], PK_INT, tick))
-        comp.canvas = dict(w=w, h=h, walls=walls, tick=tick)
+        comp.canvas = dict(w=w, h=h, walls=walls, tick=tick, ink=ink,
+                           paper=paper)
         # REC_COMP w/h carry the pixel size in cells/rows; a height not a
         # multiple of 8 rounds the buffer UP to the next band (recorded
         # interpretation - the record has no finer granularity).
@@ -836,6 +873,31 @@ class Analyzer:
         if len(comp.sprites) > 16:
             self.err(node.line, "%d sprites; a canvas composes 16 at most "
                      "(WEAVE-SPEC 6.10)" % len(comp.sprites))
+        # 6.10.7: SPEC.md 5.4.2.2's FOURTH refusal, decided here so that it is
+        # never a band that silently does not arrive. Every pair the composer
+        # can hand GFX_BLIT1 is (paper, some ink), and they are all known now.
+        self.check_pen(node, "ink", ink, paper, node.line)
+        for sp in comp.sprites:
+            self.check_pen(node, "color", sp.sprite["color"], paper,
+                           sp.sprite["line"])
+
+    def color_attr(self, node, elem, attr, default):
+        """One palette attribute, by NAME (WEAVE-SPEC 6.10.7)."""
+        if attr not in node.attrs:
+            return default
+        name, ln = node.attrs[attr]
+        if name not in COLOR:
+            self.err(ln, '%s: %s="%s" is not one of the sixteen colours '
+                     "(WEAVE-SPEC 6.10.7)" % (elem, attr, name))
+        return COLOR[name]
+
+    def check_pen(self, node, attr, ink, paper, line):
+        if pen_legal(paper, ink):
+            return
+        self.err(line, 'canvas: paper="%s" against %s="%s": the two share no '
+                 "plane either way and GFX_BLIT1 refuses the pair "
+                 "(SPEC.md 5.4.2.2)"
+                 % (PALETTE[paper], attr, PALETTE[ink]))
 
     def el_sprite(self, comp, node):
         if "img" not in node.attrs:
@@ -851,14 +913,18 @@ class Analyzer:
         if "shown" in node.attrs:
             shown = _bool_attr(self.fname, "sprite", "shown",
                                *node.attrs["shown"])
+        color = self.color_attr(node, "sprite", "color", None)
         comp.sprite = dict(img=node.attrs["img"][0].upper(), x=x, y=y,
-                           shown=shown, line=node.line)
+                           shown=shown, line=node.line,
+                           color=self.canvas_ink if color is None else color)
         if x:
             comp.props.append((WK["x"], PK_INT, x))
         if y:
             comp.props.append((WK["y"], PK_INT, y))
         if not shown:
             comp.props.append((WK["shown"], PK_INT, 0))
+        if color is not None:
+            comp.props.append((WK["color"], PK_INT, color))
         comp.w = comp.h = 0     # sprites are not flow components
 
     def menu(self, node):
@@ -1007,6 +1073,13 @@ def parse_number_16_16(tok, fname, line):
     if ip > 32767:
         raise PackError(fname, line, "%s: |value| < 32768 (WEAVE-SPEC 5.1)"
                         % tok)
+    if len(fp) > 4:
+        # WEAVE-SPEC 5.1: the fifth decimal place is below 16.16's own
+        # resolution of 1/65536, so it cannot change the value - all it could
+        # do is make two parsers disagree about the rounding.
+        raise PackError(fname, line,
+                        "%s: at most 4 fraction digits; 16.16 resolves to "
+                        "1/65536 (WEAVE-SPEC 5.1)" % tok)
     frac = 0
     if fp:
         d = 10 ** len(fp)
@@ -1115,7 +1188,17 @@ def fx_tokenize(src, fname, line):
 class FxCompiler:
     """Recursive descent per WEAVE-SPEC 5.1's grammar, emitting the RPN of
     5.3 - operand order left, right, op; function arguments in order, op
-    last - which is exactly the pinned shunting-yard output."""
+    last - which is exactly the pinned shunting-yard output.
+
+    THE REFUSAL SENTENCES ARE THE RESIDENT COMPILER'S (WEAVE-SPEC 6.9.2), and
+    that is a contract rather than a coincidence: LOOM's FX pre-compiler IS
+    apps/weave/wfxc.c, `#include`d rather than rewritten (WEAVE-SPEC 1.2's
+    rule that what the two packages share they share as source). A shared
+    compiler has one vocabulary by construction, so this one was moved onto
+    it - the family now says the same thing about a bad formula whether it
+    was typed into a cell or packed from a .WFX. WEAVE-SPEC 10.5 records the
+    amendment; tests/weave/packerr/ is what holds the two to it.
+    """
 
     CMP = {"=": "FEQ", "<>": "FNE", "<": "FLT", "<=": "FLE", ">": "FGT",
            ">=": "FGE"}
@@ -1128,14 +1211,19 @@ class FxCompiler:
     def err(self, msg):
         raise PackError(self.fname, self.line, "formula: " + msg)
 
+    def emit(self, b):
+        self.out.append(b)
+        if len(self.out) > 256:         # W_FXCMAX, wfxc.c's own cap
+            self.err("too long for one cell.")
+
     def compile(self, src):
         self.toks = fx_tokenize(src, self.fname, self.line)
         self.i = 0
         self.cmp()
         if self.i != len(self.toks):
-            self.err('unexpected "%s"' % self.toks[self.i])
-        self.out.append(FXOP["FEND"])
-        self.check_depth()
+            self.err("there is something after the formula.")
+        self.check_depth()              # ...as the resident core does, before
+        self.out.append(FXOP["FEND"])   #    the FEND
         return bytes(self.out)
 
     def peek(self):
@@ -1143,9 +1231,14 @@ class FxCompiler:
 
     def take(self):
         if self.i >= len(self.toks):
-            self.err("formula ends early")
+            self.err("a number, a cell or a function is needed.")
         self.i += 1
         return self.toks[self.i - 1]
+
+    def want(self, ch, msg):
+        if self.peek() != ch:
+            self.err(msg)
+        self.i += 1
 
     def cmp(self):
         self.sum_()
@@ -1153,90 +1246,126 @@ class FxCompiler:
         if t in self.CMP:
             self.take()
             self.sum_()
-            self.out.append(FXOP[self.CMP[t]])
+            self.emit(FXOP[self.CMP[t]])
 
     def sum_(self):
         self.term()
         while self.peek() in ("+", "-"):
             op = self.take()
             self.term()
-            self.out.append(FXOP["FADD" if op == "+" else "FSUB"])
+            self.emit(FXOP["FADD" if op == "+" else "FSUB"])
 
     def term(self):
         self.factor()
         while self.peek() in ("*", "/"):
             op = self.take()
             self.factor()
-            self.out.append(FXOP["FMUL" if op == "*" else "FDIV"])
+            self.emit(FXOP["FMUL" if op == "*" else "FDIV"])
 
     def factor(self):
         if self.peek() == "-":
             self.take()
             self.atom()
-            self.out.append(FXOP["FNEG"])
+            self.emit(FXOP["FNEG"])
         else:
             self.atom()
+
+    def number(self, tok):
+        """5.1's number, with 6.9.2's sentences. It is NOT
+        parse_number_16_16: that one is the .WFX line format's and keeps its
+        own wording, because a cell's value is not a formula."""
+        m = re.match(r"^([0-9]+)(?:\.([0-9]*))?$", tok)
+        if not m:
+            self.err("a number, a cell or a function is needed.")
+        ip = int(m.group(1))
+        fp = m.group(2)
+        if ip > 32767:
+            self.err("|value| < 32768.")
+        frac = 0
+        if fp is not None:
+            if len(fp) == 0:
+                self.err("a digit must follow the point.")
+            if len(fp) > 4:
+                self.err("at most 4 decimals - 16.16 stops there.")
+            d = 10 ** len(fp)
+            frac = (int(fp) * 65536 + d // 2) // d
+        return (ip << 16) + frac
+
+    def cellref(self, tok):
+        """...and the same for a reference: 6.9.2's two sentences, not
+        parse_cellref's."""
+        m = CELLREF_RE.match(tok)
+        if not m:
+            return None
+        r = int(m.group(2))
+        if r > 999:
+            self.err("a row is 1..256.")
+        c = ord(m.group(1).upper()) - 65
+        r -= 1
+        if not (0 <= c < self.cols and 0 <= r < self.rows):
+            self.err("that cell is outside the grid.")
+        return r, c
 
     def atom(self, range_ok=False):
         t = self.take()
         if t == "(":
             self.cmp()
-            if self.take() != ")":
-                self.err("missing ')'")
+            self.want(")", "a ')' is missing.")
             return
         if re.match(r"^[0-9]", t):
-            v = parse_number_16_16(t, self.fname, self.line)
-            self.out.append(FXOP["FNUM"])
-            self.out += struct.pack("<i", v)
+            v = self.number(t)
+            self.emit(FXOP["FNUM"])
+            for b in struct.pack("<i", v):
+                self.emit(b)
             return
-        if CELLREF_RE.match(t):
-            r, c = parse_cellref(t, self.cols, self.rows, self.fname,
-                                 self.line)
+        rc = self.cellref(t) if CELLREF_RE.match(t) else None
+        if rc is not None:
+            r, c = rc
             if self.peek() == ":":
                 if not range_ok:
-                    self.err("a range is legal only as an aggregate "
-                             "argument (WEAVE-SPEC 5.1)")
+                    self.err("a range is legal only in an aggregate.")
                 self.take()
-                r2, c2 = parse_cellref(self.take(), self.cols, self.rows,
-                                       self.fname, self.line)
-                # normalized so r1<=r2, c1<=c2 (recorded decision)
-                self.out.append(FXOP["FRANGE"])
-                self.out += bytes([min(r, r2), min(c, c2),
-                                   max(r, r2), max(c, c2)])
+                nxt = self.peek()
+                rc2 = self.cellref(nxt) if nxt and CELLREF_RE.match(nxt) \
+                    else None
+                if rc2 is None:
+                    self.err("a cell must follow the ':'.")
+                self.take()
+                r2, c2 = rc2
+                self.emit(FXOP["FRANGE"])
+                for b in (min(r, r2), min(c, c2), max(r, r2), max(c, c2)):
+                    self.emit(b)
                 return
-            self.out.append(FXOP["FCELL"])
-            self.out += bytes([r, c])       # 0-based (recorded decision)
+            self.emit(FXOP["FCELL"])
+            self.emit(r)
+            self.emit(c)
             return
-        name = t.upper()
-        if name in FX_FUNCS:
-            op, sig = FX_FUNCS[name]
-            if self.take() != "(":
-                self.err("%s( expected" % name)
-            if sig == "range":
-                # aggregates take exactly one RANGE (WEAVE-SPEC 5.4)
-                self.atom(range_ok=True)
-                if len(self.out) < 5 or self.out[-5] != FXOP["FRANGE"]:
-                    self.err("%s takes exactly one range (WEAVE-SPEC 5.4)"
-                             % name)
-                if self.take() != ")":
-                    self.err("%s takes exactly one range (WEAVE-SPEC 5.4)"
-                             % name)
-            else:
-                for k in range(sig):
-                    if k:
-                        if self.take() != ",":
-                            self.err("%s takes %d arguments" % (name, sig))
-                    self.cmp()
-                if self.take() != ")":
-                    self.err("%s takes %d arguments" % (name, sig))
-            self.out.append(FXOP[op])
-            return
-        self.err('no such function "%s"; SUM MIN MAX AVG COUNT IF ABS '
-                 "ROUND is the whole set (WEAVE-SPEC 5.4)" % t)
+        if not re.match(r"^[A-Za-z]", t):
+            self.err("a number, a cell or a function is needed.")
+        name = t.upper()[:7]            # wfxc.c reads at most seven letters
+        if name not in FX_FUNCS:
+            self.err("SUM MIN MAX AVG COUNT IF ABS ROUND is the whole set.")
+        op, sig = FX_FUNCS[name]
+        self.want("(", "a '(' must follow the function.")
+        if sig == "range":
+            k = len(self.out)
+            self.atom(range_ok=True)
+            if len(self.out) != k + 5 or self.out[k] != FXOP["FRANGE"]:
+                self.err("an aggregate takes exactly one range.")
+            self.want(")", "a ')' is missing.")
+        else:
+            for k in range(sig):
+                if k:
+                    self.want(",", "the arguments need a ',' between them.")
+                self.cmp()
+            self.want(")", "a ')' is missing.")
+        self.emit(FXOP[op])
 
     def check_depth(self):
         """FX eval slots are 16 deep (WEAVE-SPEC 5.3); a deeper formula is
-        refused at pack."""
+        refused at pack, and an incomplete one leaves a depth that is not 1.
+        The resident core checks both as it emits; this walks the finished
+        stream and reaches the same two answers."""
         depth = peak = i = 0
         b = self.out
         while i < len(b):
@@ -1252,8 +1381,9 @@ class FxCompiler:
                 depth -= 2
             peak = max(peak, depth)
         if peak > 16:
-            self.err("formula needs %d eval slots; the stack is 16 deep "
-                     "(WEAVE-SPEC 5.3)" % peak)
+            self.err("too deep - the stack is 16 slots.")
+        if depth != 1:
+            self.err("the formula is incomplete.")
 
 
 def fx_eval(rpn, read_cell):
@@ -2596,8 +2726,15 @@ def _assemble(app, prog, start_fn, atoms, formulas, cells, sprites,
     canvas_kb = 0
     cc = next((c for c in app.comps if c.canvas), None)
     if cc:
-        buf = (cc.canvas["w"] // 8) * cc.canvas["h"]
-        canvas_kb = min(8, max(2, (buf + 1023) // 1024))
+        # WEAVE-SPEC 6.10.4: the claim holds a 16-byte header, 24 bytes per
+        # sprite record and the 1bpp buffer - and the buffer's height is the
+        # ROUNDED one the runtime derives from the record byte (cc.h * 8),
+        # never the WML `h`.  Sizing it from the WML `h` under-asked by up to
+        # seven rows: a canvas of h="153" asked for 6KB and needed 6,800
+        # bytes.  The largest legal canvas, 320x160 with sixteen sprites, is
+        # 16 + 384 + 6,400 = 6,800 -> 7KB, inside the byte's 8.
+        need = 16 + 24 * len(cc.sprites) + (cc.canvas["w"] // 8) * (cc.h * 8)
+        canvas_kb = min(8, max(2, (need + 1023) // 1024))
 
     # lay the file out (rule 1)
     first = align16(32 + 8 * len(sections))
@@ -3142,13 +3279,31 @@ def wrap16(v):
     return ((v + 0x8000) & 0xFFFF) - 0x8000
 
 
+# WEAVE-SPEC 6.9.1's pinned geometry.  The column width is FIXED - a fitted
+# one would turn a one-cell edit into a re-compose of every band, and two
+# implementations would have to fit identically or the diff is noise.
+WG_GUT = 4                              # the row-number gutter, in cells
+WG_COLW = 8                             # every data column, in cells
+WG_BAR = 2                              # the formula bar, in 8-px rows
+WG_HDR = 1                              # ...and the column-header band
+
+
+def grid_geom(cols, rows, w, h):
+    """WEAVE-SPEC 6.9.1: (visible columns, visible rows) for a `w` x `h`
+    component rect."""
+    vc = max(1, min(cols, (w - WG_GUT) // WG_COLW))
+    vr = max(0, min(rows, h - (WG_BAR + WG_HDR)))
+    return vc, vr
+
+
 class GridRt:
     """The grid cell store and WEAVE-SPEC 5.5's two-pass recalc."""
 
     def __init__(self, cols, rows, bundle):
         self.cols, self.rows, self.b = cols, rows, bundle
         self.vals = {}                  # (r,c) -> ['num',v] ['label',s]
-        self.circ = set()               # ['formula',idx,cached]
+        self.circ = set()               # ['formula',idx,cached] (bundle RPN)
+        self.top = self.left = 0        # 6.9.1's scroll origin
         for r, c, kind, payload in bundle.cells:
             if kind == 1:
                 self.vals[(r, c)] = ["num", payload]
@@ -3156,7 +3311,14 @@ class GridRt:
                 self.vals[(r, c)] = ["label", bundle.atom_str(payload)]
             else:
                 self.vals[(r, c)] = ["formula", payload, 0]
+        self.dirty = set()              # 5.5.1's damage: grid ROWS
         self.recalc()                   # cached values computed at load
+
+    # -- reading ----------------------------------------------------------
+    def rpn(self, v):
+        """The RPN stream of a formula cell: the BUNDLE's for kind 4, the
+        cell's own for a runtime formula (WEAVE-SPEC 5.6 kind 6)."""
+        return v[3] if len(v) > 3 else self.b.formulas[v[1]]
 
     def read_cell(self, r, c):
         v = self.vals.get((r, c))
@@ -3174,6 +3336,81 @@ class GridRt:
             return "#CIRC"
         return fmt_16_16(v[1] if v[0] == "num" else v[2])
 
+    def is_label(self, r, c):
+        """WEAVE-SPEC 6.9.1 justifies a LABEL left and everything else -
+        a number, an empty cell, an error - right."""
+        v = self.vals.get((r, c))
+        return v is not None and v[0] == "label"
+
+    def source(self, r, c):
+        """WEAVE-SPEC 6.9.3 run backwards: what the formula bar loads.
+
+        A BUNDLE formula has no source anywhere - 2.9 carries compiled RPN
+        and no text - so it loads as `=?`, the cell's own honest answer to
+        "what is in you"."""
+        v = self.vals.get((r, c))
+        if v is None:
+            return ""
+        if v[0] == "label":
+            return v[1]
+        if v[0] == "formula":
+            return "=" + v[4] if len(v) > 4 else "=?"
+        return fmt_16_16(v[1])
+
+    def band(self, w, h, row):
+        """WEAVE-SPEC 6.9.1's band text: `row` = -1 for the header band,
+        else the BAND index 0..VR-1 (grid row `top` + row).  Exactly `w`
+        characters."""
+        vc, _ = grid_geom(self.cols, self.rows, w, h)
+        if row < 0:
+            s = " " * WG_GUT
+            for k in range(vc):
+                c = self.left + k
+                s += "   " + (chr(65 + c) if c < self.cols else " ") + "    "
+            return s[:w].ljust(w)
+        r = self.top + row
+        s = ("%3d " % (r + 1)) if r < self.rows else " " * WG_GUT
+        for k in range(vc):
+            c = self.left + k
+            if r >= self.rows or c >= self.cols:
+                s += " " * WG_COLW
+                continue
+            t = self.display(r, c)[:WG_COLW - 1]
+            s += (t.ljust(WG_COLW - 1) if self.is_label(r, c)
+                  else t.rjust(WG_COLW - 1)) + " "
+        return s[:w].ljust(w)
+
+    # -- writing (WEAVE-SPEC 6.9.3) ---------------------------------------
+    def set_num(self, r, c, v1616):
+        self.vals[(r, c)] = ["num", wrap32(v1616)]
+
+    def set_label(self, r, c, s):
+        self.vals[(r, c)] = ["label", s]
+
+    def clear_cell(self, r, c):
+        self.vals.pop((r, c), None)
+
+    def commit(self, r, c, text, fname="formula bar"):
+        """WEAVE-SPEC 6.9.3's classification, in its pinned order.  Returns
+        None, or the message a refusal shows."""
+        t = text.strip()
+        if not t:
+            self.clear_cell(r, c)
+            return None
+        if t.startswith("="):
+            try:
+                rpn = FxCompiler(self.cols, self.rows, fname, 0).compile(t[1:])
+            except PackError as e:
+                return e.args[0] if e.args else "cannot read the formula"
+            self.vals[(r, c)] = ["formula", -1, 0, rpn, t[1:]]
+            return None
+        if re.match(r"^-?[0-9]+(\.[0-9]+)?$", t):
+            self.set_num(r, c, parse_number_16_16(t, fname, 0))
+            return None
+        self.set_label(r, c, fold_text(t))
+        return None
+
+    # -- 5.5's two passes -------------------------------------------------
     def formula_cells(self):
         return sorted(k for k, v in self.vals.items() if v[0] == "formula")
 
@@ -3182,16 +3419,22 @@ class GridRt:
         pass1 = {}
         for rc in self.formula_cells():   # pass 1: current values
             v = self.vals[rc]
-            v[2] = fx_eval(self.b.formulas[v[1]], self.read_cell)
+            v[2] = fx_eval(self.rpn(v), self.read_cell)
             pass1[rc] = v[2]
         self.circ.clear()
         for rc in self.formula_cells():   # pass 2: differ -> #CIRC, pass-2
             v = self.vals[rc]             # value stands
-            v[2] = fx_eval(self.b.formulas[v[1]], self.read_cell)
+            v[2] = fx_eval(self.rpn(v), self.read_cell)
             if v[2] != pass1[rc]:
                 self.circ.add(rc)
-        return sum(1 for k in set(before) | set(self.vals)
-                   if before.get(k, "") != self.display(*k))
+        # 5.5.1's damage: a cell whose DISPLAY changed marks its grid ROW.
+        self.dirty = set()
+        n = 0
+        for k in set(before) | set(self.vals):
+            if before.get(k, "") != self.display(*k):
+                self.dirty.add(k[0])
+                n += 1
+        return n
 
 
 # ring policy classes (WEAVE-SPEC 4.9)
@@ -3262,6 +3505,8 @@ class Runtime:
         self.gfx_calls = 0
         self.comps = {}
         self.grid = None
+        self.adapter = "cga"            # the layout a scroll clamp uses
+        self._grect = None              # ...and the grid's rect on it
         self.canvas = None
         canvas_cid = None
         for comps in bundle.cards:
@@ -3326,6 +3571,7 @@ class Runtime:
             st["grid"] = self.grid
             self.grid_cid = c.comp_id
             self.grid_pending = False
+            st["barsrc"] = self.grid.source(0, 0)   # 6.9.3, run backwards
         elif t == "canvas":
             st["walls"] = g(WK["walls"], 0xF)
             st["tick"] = g(WK["tick"], 0)
@@ -3682,9 +3928,9 @@ class Runtime:
                 self.grid_pending = True    # triggers collapse to one
                 return NULL
             if name == "select":
-                st["selrow"], st["selcol"] = r + 1, c + 1
-                self.paint(cid, "%s.select(%d, %d)" % (self.cname(cid),
-                                                       r + 1, c + 1))
+                self.gselect(cid, r + 1, c + 1)   # 6.9.4: one body for the
+                self.paint(cid, "%s.select(%d, %d)"     # click, the arrow key
+                           % (self.cname(cid), r + 1, c + 1))   # and this
                 return NULL
             if name == "recalc":
                 self.grid_pending = True
@@ -3874,14 +4120,31 @@ class Runtime:
         except ScriptError as ex:
             # handler stopped, stacks cleared, ring kept, app lives on
             self.log(str(ex))
-        if self.grid and self.grid_pending:
-            self.grid_pending = False
-            changed = self.grid.recalc()
-            self.log("recalc: %d cell(s) changed" % changed)
-            self.ring.enqueue(self.grid_cid, WK["oncalc"], changed, 0)
-
     def drain(self):
-        while self.ring.q:
+        """Handlers and 5.5's recalculation, in the runtime's own priority.
+
+        THE RECALCULATION IS NOT A HANDLER'S TAIL, and wave 3's model had it
+        as one - `run_handler` ran it after the script returned. That is right
+        for `setCell()` and `recalc()` and WRONG for everything else: a cell
+        committed from the formula bar (6.9.3) sets the trigger with no
+        handler in sight, and on a bundle that binds no `onedit` the record is
+        discarded and the passes never ran at all. The sheet then showed
+        stale values with no error anywhere - found by tests/weavegrid.py's
+        first green run, where the MACHINE had recalculated and the model had
+        not.
+
+        The order is wevent.c's w_wake to the letter: a pending walk runs
+        BEFORE the next record is dequeued, because that is where w_gbusy()
+        is tested."""
+        while True:
+            if self.grid and self.grid_pending:
+                self.grid_pending = False
+                changed = self.grid.recalc()
+                self.log("recalc: %d cell(s) changed" % changed)
+                self.ring.enqueue(self.grid_cid, WK["oncalc"], changed, 0)
+                continue
+            if not self.ring.q:
+                return
             self.dispatch(self.ring.q.pop(0))
 
     def tick(self, n=1):
@@ -3910,6 +4173,7 @@ class Runtime:
             if not s["shown"]:
                 continue
             shown.append(cid)
+            outedge = -1
             # sub-pixel velocities: 1/16 px per frame, remainders kept
             s["px16"] += s["vx"]
             s["py16"] += s["vy"]
@@ -3939,26 +4203,42 @@ class Runtime:
                     s["x"], s["y"] = s["px16"] >> 4, s["py16"] >> 4
                     self.ring.enqueue(self.canvas_cid, WK["onwall"],
                                       cid, edge)
-                else:
+                elif outedge < 0:
                     # fully out an open edge: stop, onscore
                     out = ((edge == 0 and s["y"] + s["ph"] < 0)
                            or (edge == 1 and s["y"] > H)
                            or (edge == 2 and s["x"] + s["pw"] < 0)
                            or (edge == 3 and s["x"] > W))
-                    if out and not s["scored"]:
-                        s["scored"] = True
-                        s["vx"] = s["vy"] = 0
-                        self.ring.enqueue(self.canvas_cid, WK["onscore"],
-                                          cid, edge)
-        # AABB collision, once per contact, re-armed on separation
-        for i in range(len(shown)):
-            for j in range(i + 1, len(shown)):
-                a, bb = self.comps[shown[i]], self.comps[shown[j]]
-                overlap = (a["x"] < bb["x"] + bb["pw"]
+                    if out:
+                        outedge = edge
+            # WEAVE-SPEC 6.10.1: onscore fires ONCE per exit and RE-ARMS the
+            # frame the sprite is no longer fully out of any open edge.  The
+            # latch used to be permanent, which made PONG score exactly one
+            # goal per launch - doServe() put the ball back and it could never
+            # score again.  An event that fires "once per contact" needs a
+            # definition of leaving the contact, and 6.10 already had one for
+            # collisions; this is that sentence said about an edge.
+            if outedge < 0:
+                s["scored"] = False
+            elif not s["scored"]:
+                s["scored"] = True
+                s["vx"] = s["vy"] = 0
+                self.ring.enqueue(self.canvas_cid, WK["onscore"],
+                                  cid, outedge)
+        # AABB collision, once per contact, re-armed on separation - and a
+        # pair either of whose sprites is not shown counts as SEPARATED
+        # (6.10.1).  Walking `shown` alone left such a pair latched forever:
+        # hide a sprite mid-contact, unhide it, and it never collides again.
+        sprs = cv["sprites"]
+        for i in range(len(sprs)):
+            for j in range(i + 1, len(sprs)):
+                a, bb = self.comps[sprs[i]], self.comps[sprs[j]]
+                overlap = (a["shown"] and bb["shown"]
+                           and a["x"] < bb["x"] + bb["pw"]
                            and bb["x"] < a["x"] + a["pw"]
                            and a["y"] < bb["y"] + bb["ph"]
                            and bb["y"] < a["y"] + a["ph"])
-                pair = (shown[i], shown[j])
+                pair = (sprs[i], sprs[j])
                 if overlap and pair not in cv["contacts"]:
                     cv["contacts"].add(pair)
                     self.ring.enqueue(self.canvas_cid, WK["oncollide"],
@@ -3970,7 +4250,41 @@ class Runtime:
                               cv["frame"] & 0xFFFF, 0)
 
     # -- user gestures, as the scripted event file drives them --
-    def gesture(self, verb, target, a1="", a2=""):
+    def grid_rect(self):
+        """The grid's laid-out (w, h) in cells on `self.adapter` - the walk's
+        own answer, so a scroll clamp and a picture cannot disagree about how
+        much of the sheet is on screen."""
+        if self._grect is None:
+            self._grect = (1, 1)
+            for p in flow_walk(self, self.adapter)[0]:
+                if p.comp.tag == "grid":
+                    self._grect = (p.w, p.h)
+        return self._grect
+
+    def gselect(self, cid, r1, c1):
+        """WEAVE-SPEC 6.9.4: move the selection to (r1, c1), 1-based, scroll
+        by the MINIMUM that keeps it visible, reload the bar, and enqueue
+        onselect exactly once.  One body for the click, the arrow key and
+        `select()` - three copies of a scroll clamp is three places to get
+        the minimum wrong in."""
+        st = self.comps[cid]
+        g = st["grid"]
+        st["selrow"], st["selcol"] = r1, c1
+        r, c = r1 - 1, c1 - 1
+        gw, gh = self.grid_rect()
+        vc, vr = grid_geom(g.cols, g.rows, gw, gh)
+        if r < g.top:
+            g.top = r
+        elif vr and r >= g.top + vr:
+            g.top = r - vr + 1
+        if c < g.left:
+            g.left = c
+        elif c >= g.left + vc:
+            g.left = c - vc + 1
+        st["barsrc"] = g.source(r, c)
+        self.ring.enqueue(cid, WK["onselect"], r1, c1)
+
+    def gesture(self, verb, target, a1="", a2="", a3=""):
         cid = None
         if target:
             if target.startswith("#"):
@@ -4016,10 +4330,19 @@ class Runtime:
                 st["sel"] = int(a1)
                 self.ring.enqueue(cid, WK["onselect"], int(a1), 0)
             else:
-                st["selrow"], st["selcol"] = int(a1), int(a2)
-                self.ring.enqueue(cid, WK["onselect"], int(a1), int(a2))
+                self.gselect(cid, int(a1), int(a2))
         elif verb == "edit":
-            self.ring.enqueue(cid, WK["onedit"], int(a1), int(a2))
+            # 6.9.3: the bar's text is CLASSIFIED and committed, then onedit
+            # and 5.5's recalculation.  A gesture that only enqueued the
+            # event would test the ring and nothing the grid does.
+            r, c = int(a1) - 1, int(a2) - 1
+            msg = st["grid"].commit(r, c, a3)
+            if msg:
+                self.log("Formula: %s" % msg)
+            else:
+                st["barsrc"] = st["grid"].source(r, c)
+                self.ring.enqueue(cid, WK["onedit"], r + 1, c + 1)
+                self.grid_pending = True
         elif verb == "command":
             mi, ii = int(target), int(a1)
             if self.menu_fn(mi, ii) is None:
@@ -4100,11 +4423,20 @@ def natural_h(rt, comp, w, cw, ch, y):
     return 1
 
 
-def flow_walk(rt, adapter, card=None):
+def flow_walk(rt, adapter, card=None, cells=None):
     """The normative walk (WEAVE-SPEC 7.2): one pass, deterministic; hidden
-    components still take part. Returns ([Placed], total_rows)."""
+    components still take part. Returns ([Placed], total_rows).
+
+    `cells` overrides the adapter's standard content grid with a (CW, CH) the
+    caller measured. The walk reads the LIVE content box on the machine
+    (7.1.1) and there is more than one box a card can be laid out in: LOOM's
+    Preview pane is a CHILD AREA inside a window (1.7, 1.2.4), narrower than
+    the window by the sidebar and the scroll bar and shorter by the status
+    row. Nothing about the walk changes - this is the same two numbers
+    arriving from somewhere else, which is exactly what os88_wm_content()
+    does for the runtime."""
     A = ADAPTERS[adapter]
-    cw, ch = A["cw"], A["ch"]
+    cw, ch = cells if cells else (A["cw"], A["ch"])
     card = card or rt.b.entry
     comps = [c for c in rt.b.cards[card - 1] if c.tag != "sprite"]
     rows, cur, x = [], [], 0
@@ -4138,12 +4470,22 @@ def flow_walk(rt, adapter, card=None):
     return placed, y
 
 
-def render(rt, adapter, card=None, out=print):
+def render(rt, adapter, card=None, out=print, preview=False, cells=None):
     """--render: the walk drawn as text, one char per cell, one line per
-    8-px row - the htmsim --render shape."""
+    8-px row - the htmsim --render shape.
+
+    `preview` is LOOM's pane rather than the runtime's window (WEAVE-SPEC
+    1.7.1): the SAME walk and the SAME components, with <grid> and <canvas>
+    drawn as their frame and nothing inside it. That is not a second picture
+    invented for the model - it is what LOOM.WPV draws, because a grid's body
+    is the band composer over a CELL STORE and a canvas's is the sprite
+    compositor inside WEAVE.WSM, and a Preview builds neither. Everything
+    else on the card is identical, which is the point: the one flag is what
+    lets tests/weaveprev.py diff the pane against this oracle for the same
+    three demo bundles tests/weavegfx.py diffs the runtime against."""
     A = ADAPTERS[adapter]
-    cw, ch = A["cw"], A["ch"]
-    placed, total = flow_walk(rt, adapter, card)
+    cw, ch = cells if cells else (A["cw"], A["ch"])
+    placed, total = flow_walk(rt, adapter, card, cells)
     grid_h = max(total, 1)
     canvas = [[" "] * cw for _ in range(grid_h)]
 
@@ -4151,6 +4493,16 @@ def render(rt, adapter, card=None, out=print):
         for k, chr_ in enumerate(s):
             if 0 <= x + k < cw and 0 <= y < grid_h:
                 canvas[y][x + k] = chr_
+
+    def frame(p):
+        """A component's rect and nothing inside it - what wd_box() draws.
+        <box> is the component this IS (WEAVE-SPEC 6.3); a <grid> and a
+        <canvas> borrow it in `preview`, because that is the call LOOM.WPV
+        makes for them (apps/loom/lmpvmod.c's w_gframe)."""
+        put(p.x, p.y, "+" + "-" * (p.w - 2) + "+")
+        for k in range(1, p.h - 1):
+            put(p.x, p.y + k, "|" + " " * (p.w - 2) + "|")
+        put(p.x, p.y + p.h - 1, "+" + "-" * (p.w - 2) + "+")
 
     for p in placed:
         st = rt.comps[p.comp.comp_id]
@@ -4169,10 +4521,7 @@ def render(rt, adapter, card=None, out=print):
         elif t == "rule":
             put(p.x, p.y, "-" * p.w)
         elif t == "box":
-            put(p.x, p.y, "+" + "-" * (p.w - 2) + "+")
-            for k in range(1, p.h - 1):
-                put(p.x, p.y + k, "|" + " " * (p.w - 2) + "|")
-            put(p.x, p.y + p.h - 1, "+" + "-" * (p.w - 2) + "+")
+            frame(p)
         elif t == "meter":
             fill = 0 if st["max"] == 0 else \
                 (p.w - 2) * st["value"] // st["max"]
@@ -4197,31 +4546,31 @@ def render(rt, adapter, card=None, out=print):
                 else:
                     row = ""
                 put(p.x, p.y + k, row.ljust(p.w - 1) + "|")
+        elif t == "grid" and preview:
+            frame(p)                    # 1.7.1: the rect, and nothing in it
         elif t == "grid":
+            # WEAVE-SPEC 6.9.1, and the 8086 draws these same characters:
+            # the formula bar, the header band, then one data band a row.
             g = st["grid"]
-            colw = max(6, (p.w - 4) // max(1, min(g.cols, p.w // 7)))
-            ncols = min(g.cols, max(1, (p.w - 4) // colw))
-            head = "    " + "".join(chr(65 + c).center(colw)
-                                    for c in range(ncols))
-            put(p.x, p.y, head[:p.w])
-            for r in range(min(g.rows, p.h - 1)):
-                line = "%3d " % (r + 1)
-                for c in range(ncols):
-                    line += g.display(r, c)[:colw - 1].rjust(colw - 1) + " "
-                put(p.x, p.y + 1 + r, line[:p.w])
+            _, vr = grid_geom(g.cols, g.rows, p.w, p.h)
+            put(p.x, p.y, "[" + st["barsrc"][:p.w - 2].ljust(p.w - 2, "_")
+                + "]")
+            put(p.x, p.y + WG_BAR, g.band(p.w, p.h, -1))
+            for k in range(vr):
+                put(p.x, p.y + WG_BAR + WG_HDR + k, g.band(p.w, p.h, k))
         elif t == "canvas":
-            put(p.x, p.y, "+" + "-" * (p.w - 2) + "+")
-            for k in range(1, p.h - 1):
-                put(p.x, p.y + k, "|" + " " * (p.w - 2) + "|")
-            put(p.x, p.y + p.h - 1, "+" + "-" * (p.w - 2) + "+")
+            frame(p)
+            if preview:
+                continue                # ...and no sprites: they live in the
+                                        # canvas claim WEAVE.WSM composes into
             for scid in st["sprites"]:
                 s = rt.comps[scid]
                 if s["shown"]:
                     put(p.x + max(0, min(p.w - 1, s["x"] // 8)),
                         p.y + max(0, min(p.h - 1, s["y"] // 8)), "o")
-    out("%s  card %d/%d  %s  content %dx%d cells"
+    out("%s  card %d/%d  %s  content %dx%d cells%s"
         % (rt.b.app_name, card or rt.b.entry, len(rt.b.cards),
-           A["name"], cw, ch))
+           A["name"], cw, ch, "  (Preview pane)" if preview else ""))
     out("+" + "-" * cw + "+")
     for i, row in enumerate(canvas):
         mark = "|" if i < ch else ":"       # beyond the window clips
@@ -4273,11 +4622,34 @@ def costs_table(adapter="cga"):
          "~%.0f-%.0f ms" % (band_row(13), band_row(24))),
         ("grid", "selection move (2 XOR rects)", "2",
          "~%.1f ms" % ms(2 * CALL_US)),
-        ("grid", "79-cell row compose+blit", "1",
-         "~%.1f ms" % band_row(79)),
-        ("grid", "full 20-row page", "20", "~%.0f ms" % (20 * band_row(79))),
+        ("grid", "%d-cell row compose+blit" % ADAPTERS["cga"]["cw"], "1",
+         "~%.1f ms" % band_row(ADAPTERS["cga"]["cw"])),
+        ("grid", "full 20-row page", "20",
+         "~%.0f ms" % (20 * band_row(ADAPTERS["cga"]["cw"]))),
+        ("grid", "scroll one row (GFX_SCROLL + 1 composed band)", "2",
+         "~%d-%d ms" % LIST_SCROLL_MS),
+        ("canvas", "frame, 1 moving sprite (one dirty run)", "1-2",
+         "~%.0f-%.0f ms" % (ms(1 * CALL_US) + 0.3, ms(2 * CALL_US) + 1)),
         ("canvas", "frame, 2 sprites (dirty bands)", "2-4",
          "~%.0f-%.0f ms" % (ms(2 * CALL_US) + 0.5, ms(4 * CALL_US) + 2)),
+        # 6.10.7's palette: a COLOUR SPAN is a call, so the row above is what
+        # a coloured canvas pays when its sprites share a colour or are alone
+        # in the run, and this is what PONG's three-colour field pays when the
+        # ball is level with a paddle.  MEASURED off the model over a 400-frame
+        # rally against PONG.WJS's own handlers - onTick's computer paddle
+        # included - and not modelled: 1.005 calls a frame uncoloured, 2.040
+        # coloured (1 for 193 frames, 3 for 205, 4 for 2).  On any 1bpp
+        # adapter the load path leaves the palette off, so the figure there is
+        # the first one, exactly.
+        #
+        # THE MACHINE COUNTS IT TOO, over a different window: tests/weavegame
+        # reads WEAVE.WSM's own counters over the frames after Serve and gets
+        # 0.95-1.06 calls a frame on a CGA MartyPC (palette off, which is
+        # origin/main's own figure run for run) against 2.84-3.17 on a VGA one
+        # (palette on).  6.10.7 has why the two windows differ.
+        ("canvas", "frame, PONG's 3 colours, VGA (measured, 400 frames)",
+         "1-4 (mean 2.04)", "~%.0f-%.0f ms" % (ms(1 * CALL_US) + 0.3,
+                                               ms(4 * CALL_US) + 2)),
         ("card", "switch (full-card repaint, text-heavy CGA card)",
          "~1/row", "~0.3-1.2 s"),
     ]
@@ -4303,7 +4675,8 @@ def print_costs(adapter):
           "(%s exact: %d us)" % (CALL_US, GLYPH_US, A["name"],
                                  A["cell_us"]))
     print("           band composer %d us/call + %d us/cell "
-          "(PERFORMANCE.md Set 68)" % (BAND_CALL_US, BAND_CELL_US))
+          "(PERFORMANCE.md Set 68, confirmed for wband.inc by Set 114 at "
+          "915/162)" % (BAND_CALL_US, BAND_CELL_US))
     print("           field rows carried as measured: glyph toggle "
           "%d-%d ms, list scroll %d-%d ms/line,"
           % (GLYPH_TOGGLE_MS + LIST_SCROLL_MS))
@@ -4347,6 +4720,895 @@ def emit_foldtab():
     definition (WEAVE-SPEC 3.1) - the same table the browser generates as
     br_l1tab, relabelled for the Loom compilers."""
     return htmsim.emit_l1tab().replace("br_l1tab:", "wv_foldtab:")
+
+
+def emit_foldtab_c():
+    """The same 128 bytes, as a C initialiser for apps/loom's compilers
+    (WEAVE-SPEC 3.1, 12.1). LOOM's WML and WJS scanners are C in an overlay
+    and a C file cannot name an nasm table, so the ONE definition is emitted
+    twice from the same source rather than copied once by hand - which is the
+    whole of why --emit-optab exists and is the same argument said about a
+    different consumer."""
+    out = ["/* The Latin-1 fold, 0x80..0xFF (WEAVE-SPEC 3.1). GENERATED by",
+           " * `python3 tools/weavesim.py --emit-foldtab-c` out of",
+           " * tools/htmsim.py's ONE definition - do not edit, regenerate.",
+           " * A zero entry means DROP THE BYTE (lm_fold answers -1). */",
+           "static const unsigned char lm_foldtab[128] = {"]
+    for i in range(0x80, 0x100, 16):
+        row = []
+        for cp in range(i, i + 16):
+            f = fold_text(chr(cp))
+            row.append("0x%02X," % (ord(f) if f else 0))
+        out.append("    " + " ".join(row))
+    out.append("};")
+    return "\n".join(out)
+
+
+# --- the differential corpus (WEAVE-SPEC 12.1.1) -----------------------------
+#
+# The WVM's end state, per case, in a form apps/weave/hosttest/weavevm.asm can
+# assemble beside the SHIPPING wvm.inc and compare on an 8086 in raw QEMU.
+#
+# What is compared is WEAVE-SPEC 8.3's SERIALIZED GLOBALS - the bytes
+# saveState writes - and not a transcript, for two reasons that are both about
+# what a comparison can mean. The image is handle-free by construction
+# (strings are flattened, arrays counted), so the model - which has no handle
+# table at all - and the machine, which has nothing else, describe the same
+# thing. And the machine already has to produce those bytes for 8.3, so the
+# gate exercises shipping code rather than a routine written for it.
+#
+# The two rules the c64cputest gate learned, kept: the model visits the cases
+# in the harness's order (sorted by file name, and the harness walks the table
+# it is handed), and the corpus carries NEGATIVE CONTROLS - a row whose
+# expected state is deliberately one byte wrong, which the harness must FAIL.
+
+# 10.6.1's sentences, as the codes wvm.inc raises. Only the seven the CORE
+# owns appear here; the rest are the runtime's and are weavesession's.
+VMC_ERRC = [("type mismatch.", 0), ("divide by zero.", 1),
+            ("out of string space.", 2), ("too deep.", 3),
+            ("array index ", 4), ("bad opcode.", 5), ("bad builtin.", 6)]
+VMC_OK = 0xFFFF                 # the row is expected to run to completion
+
+
+def _vmc_errcode(msg):
+    for text, code in VMC_ERRC:
+        if text in msg:
+            return code
+    raise SystemExit("--emit-vmcorpus: '%s' is not one of the core's own "
+                     "sentences (WEAVE-SPEC 10.6.1) - a case that reaches a "
+                     "runtime error belongs in weavesession, not here" % msg)
+
+
+def _vmc_case(tmp, path):
+    """Compile one corpus .wjs and run it on the model's WVM.
+    Answers (name, bundle, init fn index, entry fn index, end-state bytes,
+    expected error code)."""
+    src = open(path, "r").read()
+    first = src.split("\n", 1)[0]
+    name = first.lstrip("/ ").strip() or os.path.basename(path)
+    stem = "C"
+    proj = os.path.join(tmp, os.path.basename(path)[:-4])
+    os.makedirs(proj, exist_ok=True)
+    # The smallest legal app that can carry a script: one card, one label.
+    # Components are deliberately absent - a corpus case that touched one
+    # would need wvm_native, and the harness has no runtime behind it.
+    open(os.path.join(proj, stem + ".WML"), "w").write(
+        '<app name="VMC"><card id="m"><label>x</label></card>'
+        '<script src="%s.WJS"/></app>' % stem)
+    open(os.path.join(proj, stem + ".WJS"), "w").write(src)
+    res = pack_project(os.path.join(proj, stem + ".WML"))
+    b = Bundle(res.data, "VMC.WAB")
+    init = b.app_props.get(WK["start"])
+    init_fn = init[1] if init and init[0] == PK_FUNC else 0xFFFF
+    if "main" not in res.prog.fnindex:
+        raise SystemExit("%s: a corpus case needs a function main()" % path)
+    entry = res.prog.fnindex["main"]
+    rt = Runtime(b)                     # ...which runs the init function
+    err = VMC_OK
+    try:
+        rt.invoke(entry, [])
+    except ScriptError as ex:
+        err = _vmc_errcode(str(ex))
+    rt.save_state()
+    return name, b, init_fn, entry, rt.sav_mem, err
+
+
+def _vmc_ring(path):
+    """The ring-policy cases (WEAVE-SPEC 4.9), driven through the model's own
+    Ring so the ORACLE is the policy rather than a second reading of it."""
+    cases = []
+    ops, name = None, None
+    for line in open(path):
+        line = line.split("#", 1)[0].split()
+        if not line:
+            continue
+        if line[0] == "case":
+            if ops is not None:
+                cases.append((name, ops))
+            name, ops = line[1], []
+        elif line[0] in ("enq", "deq"):
+            ops.append([line[0]] + [int(x) for x in line[1:]])
+        else:
+            raise SystemExit("%s: no ring verb '%s'" % (path, line[0]))
+    if ops is not None:
+        cases.append((name, ops))
+    out = []
+    for name, ops in cases:
+        r = Ring(lambda: None)
+        for op in ops:
+            if op[0] == "enq":
+                r.enqueue(op[1], op[2], op[3], op[4])
+            elif r.q:
+                r.q.pop(0)
+        out.append((name, ops, list(r.q)))
+    return out
+
+
+# =============================================================================
+# THE CANVAS COMPOSER (WEAVE-SPEC 6.10.2) AND ITS DIFFERENTIAL CORPUS
+#
+# The model deliberately does not draw pixels for any other component - the
+# docstring at the top of this file says so - and for the canvas it has to,
+# because 6.10.2 is the ONE part of wave 5 with no other oracle. weavegrid
+# diffs the band composer against `band()`; weavegfx diffs a card against
+# `--render`; the canvas's buffer is not on any card and its dirty-band choice
+# is not visible in a picture at all. So this is the reference implementation
+# of a thing the machine does, written from 6.10.2 and from nothing else, and
+# apps/weave/hosttest/weavecv.asm runs the SHIPPING wspr.inc against it in raw
+# QEMU with no kernel underneath (WEAVE-SPEC 12.1.3).
+# =============================================================================
+
+
+class CvSprite:
+    """One sprite record (WEAVE-SPEC 6.10.4), host-side."""
+
+    def __init__(self, desc, img, msk, wb, ph, nfr, x, y, vx, vy, shown,
+                 color=0):
+        self.desc, self.img, self.msk = desc, img, msk
+        self.wb, self.ph, self.nfr = wb, ph, nfr
+        self.pw = wb * 8
+        self.x, self.y, self.vx, self.vy = x, y, vx, vy
+        self.px16, self.py16 = x * 16, y * 16
+        self.shown, self.frame, self.scored = shown, 0, False
+        self.ox, self.oy, self.oframe, self.oshown = x, y, 0, False
+        self.color = color              # 6.10.7, flags bits 4-7 on the machine
+
+
+class CvCanvas:
+    """WEAVE-SPEC 6.10's frame, 6.10.2's composition and 6.10.6's ring."""
+
+    RING = 32
+
+    def __init__(self, w, h, walls, tick, cid, paper=CWHITE, ink=CBLACK):
+        self.w, self.h, self.walls, self.tick, self.cid = w, h, walls, tick, cid
+        # 6.10.7. `colored` is one test and false is BIT-FOR-BIT the composer
+        # wave 5 shipped; the load path forces it false on any 1bpp adapter
+        # whatever the bundle says, by not reading the three props there.
+        self.paper, self.ink = paper, ink
+        self.stride = w // 8
+        self.buf = bytearray(b"\xFF" * (self.stride * h))
+        self.spr = []
+        self.contacts = set()
+        self.dirty = [0] * (h // 8)
+        self.frame = 0
+        self.ring = []              # the STAGING ring (6.10.6), not 4.9's
+        self.tickp = False
+        self.ovf = 0
+        self.bels = 0
+        self.blits = []             # 6.10.7: (band0, nbands, col0, ncols,
+                                    # pen or None) per emitted BLIT
+
+    # --- 6.10.6: the staging ring -------------------------------------------
+    def stage(self, comp, atom, d1, d2):
+        if atom == 57:                              # ontick collapses to one
+            if self.tickp:
+                return
+            self.tickp = True
+        if len(self.ring) >= self.RING - 1:         # head == tail is empty, so
+            self.ovf += 1                           # 31 of 32 slots are usable
+            if atom != 50:
+                return
+            if self.ring and self.ring[-1][1] != 50 and len(self.ring) > 1:
+                self.ring[-1] = (comp, atom, d1 & 0xFFFF, d2 & 0xFFFF)
+                return
+            self.bels += 1
+            return
+        self.ring.append((comp, atom, d1 & 0xFFFF, d2 & 0xFFFF))
+
+    # --- 6.10.1: the frame's arithmetic -------------------------------------
+    def step(self):
+        self.frame += 1
+        W, H, walls = self.w, self.h, self.walls
+        for k, s in enumerate(self.spr):
+            if not s.shown:
+                continue
+            s.px16 = _w16(s.px16 + s.vx)
+            s.py16 = _w16(s.py16 + s.vy)
+            s.x, s.y = s.px16 >> 4, s.py16 >> 4
+            hits = ((s.y < 0), (s.y + s.ph > H), (s.x < 0), (s.x + s.pw > W))
+            outedge = -1
+            for edge in range(4):
+                if not hits[edge]:
+                    continue
+                if walls & (1 << edge):
+                    if edge == 0:
+                        s.py16 = _w16(-s.py16)
+                    elif edge == 1:
+                        s.py16 = _w16(2 * (H - s.ph) * 16 - s.py16)
+                    elif edge == 2:
+                        s.px16 = _w16(-s.px16)
+                    else:
+                        s.px16 = _w16(2 * (W - s.pw) * 16 - s.px16)
+                    if edge < 2:
+                        s.vy = _w16(-s.vy)
+                    else:
+                        s.vx = _w16(-s.vx)
+                    s.x, s.y = s.px16 >> 4, s.py16 >> 4
+                    self.stage(self.cid, 55, self.cid + 1 + k, edge)
+                elif outedge < 0:
+                    out = ((edge == 0 and s.y + s.ph < 0)
+                           or (edge == 1 and s.y > H)
+                           or (edge == 2 and s.x + s.pw < 0)
+                           or (edge == 3 and s.x > W))
+                    if out:
+                        outedge = edge
+            if outedge < 0:
+                s.scored = False
+            elif not s.scored:
+                s.scored = True
+                s.vx = s.vy = 0
+                self.stage(self.cid, 56, self.cid + 1 + k, outedge)
+        # AABB over every PAIR, hidden counting as separated (6.10.1)
+        for i in range(len(self.spr)):
+            for j in range(i + 1, len(self.spr)):
+                a, b = self.spr[i], self.spr[j]
+                ov = (a.shown and b.shown
+                      and a.x < b.x + b.pw and b.x < a.x + a.pw
+                      and a.y < b.y + b.ph and b.y < a.y + a.ph)
+                pair = (i, j)
+                if ov and pair not in self.contacts:
+                    self.contacts.add(pair)
+                    self.stage(self.cid, 54, self.cid + 1 + i, self.cid + 1 + j)
+                elif not ov:
+                    self.contacts.discard(pair)
+        self.mark()
+        self.flush()
+        if self.tick and self.frame % self.tick == 0:
+            self.stage(self.cid, 57, self.frame & 0xFFFF, 0)
+
+    # --- 6.10.2: the dirty bands --------------------------------------------
+    def markrows(self, r0, r1):
+        r0 = max(0, r0)
+        r1 = min(self.h - 1, r1)
+        if r0 > r1:
+            return
+        for b in range(r0 >> 3, (r1 >> 3) + 1):
+            self.dirty[b] = 1
+
+    def markall(self):
+        self.dirty = [1] * len(self.dirty)
+
+    def mark(self):
+        for s in self.spr:
+            if (s.shown == s.oshown and s.x == s.ox and s.y == s.oy
+                    and s.frame == s.oframe):
+                continue
+            if s.oshown:
+                self.markrows(s.oy, s.oy + s.ph - 1)
+            if s.shown:
+                self.markrows(s.y, s.y + s.ph - 1)
+
+    def compose(self, s, r0, r1):
+        """2.11's rule, complemented into the FRAMEBUFFER's polarity (6.10.2):
+
+            dst = (dst OR coverage) AND NOT image
+
+        where coverage is NOT(mask).  The buffer is 1 = LIT because on a 1bpp
+        adapter GFX_BLIT1_PEN is not read at all (SPEC.md 5.4.2.2) and two
+        adapters of three are 1bpp.
+        """
+        if not s.shown or not s.wb:
+            return
+        top = max(r0, s.y, 0)
+        bot = min(r1, s.y + s.ph - 1, self.h - 1)
+        if top > bot:
+            return
+        shift = s.x & 7
+        col0 = s.x >> 3
+        fsz = s.ph * s.wb
+        base = s.frame * fsz            # img and msk are per-frame runs here;
+                                        # 2.11 interleaves them in the SECTION
+                                        # and wsm_drawspr walks that, which is
+                                        # the machine's business and not the
+                                        # picture's
+        for r in range(top, bot + 1):
+            srow = r - s.y
+            ci = cc = 0
+            for j in range(s.wb + 1):
+                if j < s.wb:
+                    v = s.img[base + srow * s.wb + j]
+                    c = (~s.msk[base + srow * s.wb + j]) & 0xFF
+                else:
+                    v = c = 0
+                oi = (v << 8) >> shift
+                outi = ci | ((oi >> 8) & 0xFF)
+                ci = oi & 0xFF
+                oc = (c << 8) >> shift
+                outc = cc | ((oc >> 8) & 0xFF)
+                cc = oc & 0xFF
+                col = col0 + j
+                if 0 <= col < self.stride:
+                    p = r * self.stride + col
+                    self.buf[p] = (self.buf[p] | outc) & (~outi & 0xFF)
+
+    @property
+    def colored(self):
+        """WEAVE-SPEC 6.10.7, and it is the MODULE's test rather than a
+        summary of the bundle: BIND raises it for a paper that is not white,
+        and a WSMF_COLOR write raises it for any colour that is not black.
+        A canvas whose paper is white and whose sprites are all black IS the
+        default pair, and takes 6.10.2 step 3 with no pen call at all."""
+        return self.paper != CWHITE or any(s.color for s in self.spr)
+
+    def spans(self, r0, r1):
+        """6.10.7's colour map and span walk, over one composed run.
+
+        Answers a list of (col0, ncol, colour). An uncoloured canvas answers
+        the single full-width span 6.10.2 step 3 already emitted, so the two
+        paths are one algorithm and the flag is only ever a saving."""
+        if not self.colored:
+            return [(0, self.stride, None)]
+        NEUTRAL = -1
+        col = [NEUTRAL] * self.stride
+        for s in self.spr:                      # UISTREAM order: LAST wins,
+            if not s.shown or not s.wb:         # which is composition order
+                continue
+            if s.y > r1 or s.y + s.ph - 1 < r0:
+                continue
+            c0 = max(0, s.x >> 3)               # arithmetic, as everywhere
+            c1 = min(self.stride - 1, (s.x + s.pw - 1) >> 3)
+            for j in range(c0, c1 + 1):
+                col[j] = s.color
+        out, cur, start = [], None, 0
+        for j in range(self.stride):
+            if col[j] == NEUTRAL:               # every bit of it is paper, so
+                continue                        # its ink colour cannot show:
+            if cur is None:                     # it absorbs into the span to
+                cur = col[j]                    # its left
+                continue
+            if col[j] == cur:
+                continue
+            out.append((start, j - start, cur))
+            start, cur = j, col[j]
+        # A run no shown sprite reaches is all paper, so its ink is arbitrary
+        # - and CBLACK is the one colour legal against EVERY paper (0 is a
+        # subset of all sixteen, SPEC.md 5.4.2.2), which is why the fallback
+        # is pinned rather than borrowed from the canvas's `ink`. The machine
+        # pins the same constant and `col-empty` is the case that proves it.
+        out.append((start, self.stride - start, CBLACK if cur is None else cur))
+        return out
+
+    def flush(self):
+        """One GFX_BLIT1 per maximal run of dirty bands - and per COLOUR SPAN
+        of one, when the canvas has a palette (6.10.7)."""
+        self.blits = []
+        b = 0
+        n = len(self.dirty)
+        while b < n:
+            if not self.dirty[b]:
+                b += 1
+                continue
+            b0 = b
+            while b < n and self.dirty[b]:
+                b += 1
+            r0, r1 = b0 * 8, b * 8 - 1
+            for r in range(r0, r1 + 1):
+                for c in range(self.stride):
+                    self.buf[r * self.stride + c] = 0xFF   # paper is LIT
+            for s in self.spr:
+                self.compose(s, r0, r1)
+            for c0, nc, colour in self.spans(r0, r1):
+                # The pen is (AL = the canvas's paper colour, AH = this
+                # span's ink) - the names cross over because the BUFFER's
+                # set bit is the background (6.10.2). `None` records "no
+                # GFX_BLIT1_PEN call was made at all".
+                pen = None if colour is None else (self.paper, colour)
+                self.blits.append((b0, b - b0, c0, nc, pen))
+        self.dirty = [0] * n
+        for s in self.spr:
+            s.ox, s.oy, s.oframe, s.oshown = s.x, s.y, s.frame, bool(s.shown)
+
+
+def _w16(v):
+    """The 8086's word, signed: every accumulator in 6.10.1 is one."""
+    v &= 0xFFFF
+    return v - 0x10000 if v & 0x8000 else v
+
+
+def _vmc_bytes(label, data):
+    lines = ["%s:" % label]
+    for k in range(0, len(data), 16):
+        lines.append("    db " + ", ".join("0x%02X" % x
+                                           for x in data[k:k + 16]))
+    return lines
+
+
+# --- --emit-cvcorpus: the canvas differential (WEAVE-SPEC 12.1.3) ------------
+
+def _cv_spritesec(sprites):
+    """The SPRITES section (2.11) for a list of Sprite, exactly as the packer
+    lays one out - so the machine's wsm_desc reads a real section and not a
+    shape invented for the harness."""
+    sp = bytearray([len(sprites), 0])
+    at = 2 + 8 * len(sprites)
+    blobs = []
+    for s in sprites:
+        sp += bytes([s.w // 8, s.h, s.frames, 0])
+        sp += struct.pack("<H", at)
+        sp += b"\0\0"
+        blob = b"".join(i + m for i, m in zip(s.images, s.masks))
+        blobs.append(blob)
+        at += len(blob)
+    for b in blobs:
+        sp += b
+    return bytes(sp)
+
+
+# The corpus itself.  It is a TABLE and not a directory of files, which is a
+# deliberate divergence from 12.1.1's and 12.1.2's shape and is worth the
+# sentence: a WVM case is one .wjs and an FX case is one .fx, but a canvas
+# case is a canvas, a set of sprite images, an initial placement AND a frame
+# count - four kinds of thing - and a text format for it would be a fifth
+# language in a family that already has four (3, 4, 5 and the .WSP art).  The
+# art is real .WSP text, parsed by parse_wsp, so the one part that HAS a
+# language keeps it.
+_CV_ART = {
+    "BALL": "sprite BALL 8 8\n..####..\n.######.\n########\n########\n"
+            "########\n########\n.######.\n..####..\n",
+    "BAR":  "sprite BAR 8 16\n" + "########\n" * 16,
+    "DOT":  "sprite DOT 8 8\n#.......\n........\n........\n........\n"
+            "........\n........\n........\n.......#\n",
+    "WIDE": "sprite WIDE 24 8\n" + ("#" * 24 + "\n") * 8,
+    "TWO":  "sprite TWO 8 8 2\n####....\n####....\n####....\n####....\n"
+            "####....\n####....\n####....\n####....\n-\n....####\n....####\n"
+            "....####\n....####\n....####\n....####\n....####\n....####\n",
+}
+
+#  name, W, H, walls, tick, cid, [(art, x, y, vx, vy, shown, frame)],
+#  frames, negctl, hideframe (0 = never; else the sprite 0 is hidden BEFORE
+#  that frame, which is the only mid-run change a case can make)
+#
+#  ...and an OPTIONAL eleventh field, (paper, ink, [per-sprite colour]), which
+#  is 6.10.7's palette. It is optional rather than a column on every row for
+#  one reason worth the sentence: a row without it is the wave-5 case
+#  UNTOUCHED, so the seventeen that were passing before the palette existed
+#  are the same bytes of expectation afterwards, and a regression in the
+#  uncoloured path cannot hide behind an edit to its own fixture.
+_CV_PLAIN = (CWHITE, CBLACK, [])
+_CV_CASES = [
+    ("still", 64, 32, 0xF, 0, 3, [("BALL", 8, 8, 0, 0, 1, 0)], 3, 0, 0),
+    ("slide", 64, 32, 0xF, 0, 3, [("BALL", 8, 8, 32, 0, 1, 0)], 4, 0, 0),
+    ("subpixel", 64, 32, 0xF, 0, 3, [("BALL", 8, 8, 1, 0, 1, 0)], 40, 0, 0),
+    ("bounce-r", 64, 32, 0xF, 0, 3, [("BALL", 48, 8, 64, 0, 1, 0)], 6, 0, 0),
+    ("bounce-t", 64, 32, 0xF, 0, 3, [("BALL", 8, 4, 0, -48, 1, 0)], 5, 0, 0),
+    ("negx", 64, 32, 0, 0, 3, [("BALL", -3, 8, 0, 0, 1, 0)], 2, 0, 0),
+    ("shift3", 64, 32, 0, 0, 3, [("DOT", 3, 5, 0, 0, 1, 0)], 2, 0, 0),
+    ("shift7", 64, 32, 0, 0, 3, [("DOT", 57, 9, 0, 0, 1, 0)], 2, 0, 0),
+    ("overlap", 64, 32, 0xF, 0, 3,
+     [("BAR", 8, 4, 0, 0, 1, 0), ("DOT", 10, 6, 0, 0, 1, 0)], 2, 0, 0),
+    ("collide", 64, 32, 0xF, 0, 3,
+     [("BALL", 8, 8, 48, 0, 1, 0), ("BAR", 32, 8, 0, 0, 1, 0)], 8, 0, 0),
+    ("hide-separates", 64, 32, 0xF, 0, 3,
+     [("BALL", 8, 8, 0, 0, 1, 0), ("BAR", 10, 8, 0, 0, 1, 0)], 3, 0, 2),
+    ("score-open", 64, 32, 0x3, 0, 3, [("BALL", 8, 8, -48, 0, 1, 0)], 8, 0, 0),
+    ("frames", 64, 32, 0, 0, 3, [("TWO", 16, 8, 0, 0, 1, 1)], 3, 0, 0),
+    ("tick", 64, 32, 0xF, 3, 3, [("BALL", 8, 8, 16, 0, 1, 0)], 7, 0, 0),
+    # ...and the staging ring's OVERFLOW, which is where a lost event would
+    # live. A sprite crossing a 32-pixel canvas at 20 px a frame bounces every
+    # other frame, so 120 frames stage far more than 6.10.6's 31 usable slots
+    # and nothing ever drains them.
+    ("ring-flood", 64, 32, 0xF, 0, 3,
+     [("BALL", 8, 4, 0, -320, 1, 0)], 120, 0, 0),
+    # NEGATIVE CONTROLS: the expected answer is deliberately wrong and the
+    # harness must FAIL them.  A differential that cannot see a broken core
+    # has proved nothing (12.1.1's rule).
+    ("NEG-buffer", 64, 32, 0xF, 0, 3, [("BALL", 8, 8, 32, 0, 1, 0)], 4, 1, 0),
+    ("NEG-state", 64, 32, 0xF, 0, 3, [("BALL", 48, 8, 64, 0, 1, 0)], 6, 2, 0),
+
+    # --- 6.10.7's palette ---------------------------------------------------
+    # Every one of these is a SPAN question and none of them is a pixel
+    # question: the buffer these compose is byte-identical to the same case
+    # without a palette, which is the amendment's whole claim (9.2.1) and is
+    # asserted here by cmpbuf as much as by cmpblits.
+    #
+    # one colour, and the NEUTRAL columns either side of it absorb: 1 span
+    ("col-one", 64, 32, 0xF, 0, 3, [("BALL", 8, 8, 32, 0, 1, 0)], 4, 0, 0,
+     (CWHITE, CBLACK, [COLOR["red"]])),
+    # two colours, horizontally clear of each other: 2 spans, and the break is
+    # at the FIRST column of the second colour.  Both sprites MOVE, because a
+    # still frame has no dirty run and a case whose last frame emits nothing
+    # asserts nothing (which is how the first draft of these five was wrong)
+    ("col-two", 64, 32, 0xF, 0, 3,
+     [("BAR", 8, 4, 0, 16, 1, 0), ("DOT", 48, 6, 0, 16, 1, 0)], 2, 0, 0,
+     (CWHITE, CBLACK, [COLOR["red"], COLOR["cyan"]])),
+    # ...and sharing a byte column: the LAST sprite in UISTREAM order wins it,
+    # which is composition order.  WIDE holds three columns and DOT takes the
+    # last two of them back
+    ("col-share", 64, 32, 0xF, 0, 3,
+     [("WIDE", 0, 4, 0, 0, 1, 0), ("DOT", 10, 6, 0, 16, 1, 0)], 2, 0, 0,
+     (CWHITE, CBLACK, [COLOR["red"], COLOR["yellow"]])),
+    # a coloured PAPER, which is what raises `colored` with no sprite colour
+    # at all - and black paper against white ink is 5.4.2.2's COMPLEMENTED
+    # arm, the one that is a hand loop rather than a rep movsw
+    ("col-paper", 64, 32, 0xF, 0, 3, [("BALL", 8, 8, 32, 0, 1, 0)], 4, 0, 0,
+     (CBLACK, CWHITE, [CWHITE])),
+    # a hidden sprite is not in the colour map either: one span, the shown
+    # sprite's colour, and the hidden one's columns are neutral
+    ("col-hidden", 64, 32, 0xF, 0, 3,
+     [("BALL", 8, 8, 0, 0, 1, 0), ("BAR", 40, 8, 0, 16, 1, 0)], 3, 0, 2,
+     (CWHITE, CBLACK, [COLOR["red"], COLOR["green"]])),
+    # a run NO sprite reaches, which is the span walk's one fallback: the ball
+    # moves 16 px a frame, so its old band and its new band have a clean band
+    # between them and the old one composes to bare paper.  The colour it is
+    # blitted in cannot show, and both implementations have to pin the SAME
+    # arbitrary constant or the differential is a coin toss
+    ("col-empty", 64, 32, 0xF, 0, 3, [("BALL", 8, 0, 0, 256, 1, 0)], 1, 0, 0,
+     (CBLACK, CWHITE, [CWHITE])),
+    # NEGATIVE CONTROL for the span record itself: without one, a harness that
+    # compares two words of a five-word row proves nothing about the other
+    # three
+    ("NEG-span", 64, 32, 0xF, 0, 3,
+     [("BAR", 8, 4, 0, 16, 1, 0), ("DOT", 48, 6, 0, 16, 1, 0)], 2, 3, 0,
+     (CWHITE, CBLACK, [COLOR["red"], COLOR["cyan"]])),
+]
+
+
+def _cv_pal(case):
+    """The optional eleventh field, defaulted (see _CV_CASES)."""
+    return case[10] if len(case) > 10 else _CV_PLAIN
+
+
+def _cv_run(case):
+    name, w, h, walls, tick, cid, places, nframes, neg, hidef = case[:10]
+    paper, ink, colors = _cv_pal(case)
+    names = []
+    for pl in places:
+        if pl[0] not in names:
+            names.append(pl[0])
+    sprites = []
+    for n in names:
+        sprites += parse_wsp(_CV_ART[n], n + ".wsp")
+    sec = _cv_spritesec(sprites)
+    cv = CvCanvas(w, h, walls, tick, cid, paper, ink)
+    for j, (art, x, y, vx, vy, sh, fr) in enumerate(places):
+        k = names.index(art)
+        s = sprites[k]
+        cv.spr.append(CvSprite(k, b"".join(s.images), b"".join(s.masks),
+                               s.w // 8, s.h, s.frames, x, y, vx, vy, sh,
+                               colors[j] if j < len(colors) else ink))
+        cv.spr[-1].frame = fr
+    cv.markall()
+    cv.flush()                      # the birth composition, as the load does
+    for f in range(nframes):
+        if hidef and f + 1 == hidef:
+            cv.spr[0].shown = 0
+        cv.step()
+    return cv, sec, sprites, names
+
+
+def emit_cvcorpus():
+    """WEAVE-SPEC 12.1.3.  Answers the nasm text."""
+    out = ["; GENERATED by `python3 tools/weavesim.py --emit-cvcorpus` - do",
+           "; not edit. WEAVE-SPEC 12.1.3: the canvas core's differential, and",
+           "; the ONLY oracle 6.10.2's composition has.",
+           "",
+           "cv_ncase: dw %d" % len(_CV_CASES),
+           "cv_tab:"]
+    body = []
+    for k, case in enumerate(_CV_CASES):
+        name, w, h, walls, tick, cid, places, nframes, neg, hidef = case[:10]
+        paper, ink, colors = _cv_pal(case)
+        cv, sec, sprites, names = _cv_run(case)
+        out.append("    dw cvn_%d, cvs_%d, cvi_%d, cve_%d, cvr_%d, cvb_%d, "
+                   "cvx_%d" % (k, k, k, k, k, k, k))
+        out.append("    dw %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d"
+                   % (w, h, walls, tick, cid, len(places), nframes, neg,
+                      cv.ovf, cv.bels, hidef,
+                      paper | (1 if cv.colored else 0) << 8))
+        body.append('cvn_%d: db "%s", 0' % (k, name))
+        body += _vmc_bytes("cvs_%d" % k, sec)
+        init = bytearray()
+        for j, (art, x, y, vx, vy, sh, fr) in enumerate(places):
+            init += struct.pack("<8H", names.index(art), x & 0xFFFF,
+                                y & 0xFFFF, vx & 0xFFFF, vy & 0xFFFF, sh, fr,
+                                colors[j] if j < len(colors) else ink)
+        body += _vmc_bytes("cvi_%d" % k, bytes(init))
+        exp = bytearray()
+        for s in cv.spr:
+            fl = (1 if s.shown else 0) | (2 if s.scored else 0) \
+                 | (4 if s.oshown else 0)
+            exp += struct.pack("<8H", s.px16 & 0xFFFF, s.py16 & 0xFFFF,
+                               s.x & 0xFFFF, s.y & 0xFFFF, s.vx & 0xFFFF,
+                               s.vy & 0xFFFF, fl,
+                               (s.frame & 0x0F) | ((s.oframe & 0x0F) << 4))
+        if neg == 2:
+            exp[0] ^= 0x01          # the negative control's wrong end state
+        body += _vmc_bytes("cve_%d" % k, bytes(exp))
+        ring = bytearray(struct.pack("<H", len(cv.ring)))
+        for comp, atom, d1, d2 in cv.ring:
+            ring += bytes([comp & 0xFF, atom & 0xFF])
+            ring += struct.pack("<2H", d1, d2)
+        body += _vmc_bytes("cvr_%d" % k, bytes(ring))
+        bl = bytearray(struct.pack("<H", len(cv.blits)))
+        if neg == 3:
+            cv.blits = [(b0, nb, c0 ^ 1, nc, pen)          # the span's COLUMN,
+                        for b0, nb, c0, nc, pen in cv.blits]   # which two of
+                                                    # the five words are not
+        for b0, nb, c0, nc, pen in cv.blits:
+            # 6.10.7 widened this row from two words to five: the harness
+            # records the SPAN a blit put down and the pen it set for it, and
+            # 0xFFFF is "no GFX_BLIT1_PEN call".
+            bl += struct.pack("<5H", b0, nb, c0, nc,
+                              0xFFFF if pen is None
+                              else pen[0] | (pen[1] << 8))
+        body += _vmc_bytes("cvb_%d" % k, bytes(bl))
+        buf = bytes(cv.buf)
+        if neg == 1:
+            buf = bytes([buf[0] ^ 0xFF]) + buf[1:]
+        body += _vmc_bytes("cvx_%d" % k, struct.pack("<H", len(buf)) + buf)
+    return "\n".join(out + [""] + body)
+
+
+def emit_vmcorpus(dirname):
+    """WEAVE-SPEC 12.1.1.  Answers the nasm text."""
+    import tempfile
+    files = sorted(f for f in os.listdir(dirname) if f.endswith(".wjs"))
+    if not files:
+        raise SystemExit("--emit-vmcorpus: no .wjs in %s" % dirname)
+    out = ["; The WVM differential corpus (WEAVE-SPEC 12.1.1).",
+           "; GENERATED by `python3 tools/weavesim.py --emit-vmcorpus "
+           "tests/weave/vmcorpus`.",
+           "; Do not edit - regenerate. The expected states are the MODEL's,",
+           "; serialized by WEAVE-SPEC 8.3's rules, which is what makes this",
+           "; a differential rather than a second opinion.",
+           ";",
+           "; Row: name, code, codelen, nfunc, atoms, atomslen, natoms,",
+           ";      init fn, entry fn, expected, expectedlen, errcode, neg",
+           "WVC_ROW equ 26"]
+    rows, blobs, n = [], [], 0
+    tmp = tempfile.mkdtemp(prefix="wvc")
+    for f in files:
+        name, b, init_fn, entry, exp, err = _vmc_case(tmp, os.path.join(
+            dirname, f))
+        code = b.sections[SEC_CODE][0]
+        atoms = b.sections[SEC_ATOMS][0]
+        tag = "wvc%d" % n
+        rows.append("    dw %s_name, %s_code, %d, %d, %s_atoms, %d, %d, "
+                    "%d, %d, %s_exp, %d, %d, 0"
+                    % (tag, tag, len(code), len(b.functions), tag,
+                       len(atoms), len(b.atom_strings), init_fn, entry,
+                       tag, len(exp), err))
+        blobs.append("%s_name: db '%s', 0" % (tag, name.replace("'", " ")))
+        blobs += _vmc_bytes(tag + "_code", code)
+        blobs += _vmc_bytes(tag + "_atoms", atoms)
+        blobs += _vmc_bytes(tag + "_exp", exp)
+        n += 1
+        # ...and the NEGATIVE CONTROL for the same case: the identical
+        # program against an expectation one byte wrong. The harness must
+        # FAIL it, which is what proves the comparison is running at all.
+        if n == 1:
+            bad = bytearray(exp)
+            bad[6] ^= 0xFF          # the first global's tag word
+            tag2 = "wvc%d" % n
+            rows.append("    dw %s_name, %s_code, %d, %d, %s_atoms, %d, %d, "
+                        "%d, %d, %s_exp, %d, %d, 1"
+                        % (tag2, tag, len(code), len(b.functions), tag,
+                           len(atoms), len(b.atom_strings), init_fn, entry,
+                           tag2, len(bad), err))
+            blobs.append("%s_name: db 'NEG end state', 0" % tag2)
+            blobs += _vmc_bytes(tag2 + "_exp", bytes(bad))
+            n += 1
+    out.append("WVC_N equ %d" % n)
+    out.append("wvc_tab:")
+    out += rows
+    out += blobs
+
+    rp = os.path.join(dirname, "ring.txt")
+    rings = _vmc_ring(rp) if os.path.exists(rp) else []
+    out.append("WVR_ROW equ 8")
+    out.append("WVR_N equ %d" % (len(rings) + (1 if rings else 0)))
+    out.append("wvr_tab:")
+    rblob = []
+    for k, (name, ops, want) in enumerate(rings):
+        tag = "wvr%d" % k
+        out.append("    dw %s_name, %s_ops, %d, %s_exp"
+                   % (tag, tag, len(ops), tag))
+        rblob.append("%s_name: db '%s', 0" % (tag, name))
+        b = bytearray()
+        for op in ops:
+            if op[0] == "enq":
+                b += bytes([0, op[1] & 0xFF, op[2] & 0xFF, 0])
+                b += struct.pack("<hh", op[3], op[4])
+            else:
+                b += bytes([1, 0, 0, 0, 0, 0, 0, 0])
+        rblob += _vmc_bytes(tag + "_ops", bytes(b))
+        e = bytearray([len(want)])
+        for rec in want:
+            e += bytes([rec[0] & 0xFF, rec[1] & 0xFF])
+            e += struct.pack("<hh", rec[2], rec[3])
+        rblob += _vmc_bytes(tag + "_exp", bytes(e))
+    if rings:                       # the ring's negative control, same shape
+        name, ops, want = rings[0]
+        out.append("    dw wvrN_name, wvr0_ops, %d, wvrN_exp" % len(ops))
+        rblob.append("wvrN_name: db 'NEG ring', 0")
+        e = bytearray([len(want) + 1])
+        for rec in want:
+            e += bytes([rec[0] & 0xFF, rec[1] & 0xFF])
+            e += struct.pack("<hh", rec[2], rec[3])
+        e += bytes(6)
+        rblob += _vmc_bytes("wvrN_exp", bytes(e))
+    out += rblob
+    return "\n".join(out)
+
+
+# --- the FX differential corpus (WEAVE-SPEC 12.1.2) --------------------------
+def grid_image(g):
+    """A GridRt serialized as WEAVE-SPEC 5.6's cell store, exactly as the
+    grid claim holds it: the 16-byte header, the dense row-major array of
+    4-byte records, then the bump-allocated pool.
+
+    THE MODEL OWNS THESE BYTES, which is what makes 12.1.2 a differential:
+    the machine's FX VM reads an image this function wrote, so a defect in
+    how a cell is READ shows in the corpus rather than in the app. Labels
+    become kind 5 (a pool string) and formulas kind 6 (a pool RPN) so that
+    the image is self-contained - kinds 3 and 4 name a bundle, and the read
+    path for a formula is the pool slot's cached value whichever kind it is.
+    """
+    ncell = g.rows * g.cols
+    cells = bytearray(ncell * 4)
+    pool = bytearray()
+    base = 16 + ncell * 4
+
+    def alloc(b):
+        off = base + len(pool)
+        pool.extend(b)
+        if len(pool) & 1:
+            pool.append(0)              # slots stay even, as the claim's do
+        return off
+
+    for (r, c), v in sorted(g.vals.items()):
+        k = (r * g.cols + c) * 4
+        if v[0] == "num":
+            val = v[1]
+            if (val & 0xFFFF) == 0 and -32768 <= (val >> 16) <= 32767:
+                cells[k] = 1
+                struct.pack_into("<h", cells, k + 2, val >> 16)
+            else:
+                cells[k] = 2
+                struct.pack_into("<H", cells, k + 2,
+                                 alloc(struct.pack("<i", val)))
+        elif v[0] == "label":
+            s = v[1].encode("ascii", "replace")[:255]
+            cells[k] = 5
+            struct.pack_into("<H", cells, k + 2,
+                             alloc(bytes([len(s)]) + s))
+        else:
+            rpn = g.rpn(v)
+            cached = v[2]
+            body = struct.pack("<H", len(rpn))
+            body += struct.pack("<i", 0 if cached is FX_ERR else cached)
+            body += struct.pack("<i", 0)
+            body += bytes(rpn)
+            cells[k] = 6
+            if (r, c) in g.circ:
+                cells[k + 1] |= 1       # 5.6's CIRC bit
+            struct.pack_into("<H", cells, k + 2, alloc(body))
+            if cached is FX_ERR:        # the error value is a KIND, not a
+                cells[k + 1] |= 4       # number - see wfx.inc's WG_FERR
+    hdr = bytearray(16)
+    hdr[0] = g.cols
+    struct.pack_into("<H", hdr, 2, g.rows)
+    struct.pack_into("<H", hdr, 4, base + len(pool))     # pool-next
+    struct.pack_into("<H", hdr, 6, base + len(pool))     # pool-end
+    return bytes(hdr) + bytes(cells) + bytes(pool)
+
+
+def parse_fxcase(text, fname):
+    """One `tests/weave/fxcorpus/*.fx` file -> (name, GridRt, [(src, rpn,
+    expected)]).  The syntax is .WFX's (11.2) plus a `grid` line and `?`
+    lines for the expressions to evaluate."""
+    name = None
+    cols = rows = None
+    cellsrc, asks = [], []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            if name is None:
+                name = line[1:].strip()
+            continue
+        if line.startswith("grid "):
+            cols, rows = (int(x) for x in line.split()[1:3])
+            continue
+        if line.startswith("?"):
+            asks.append((line[1:].strip().lstrip("="), lineno))
+            continue
+        cellsrc.append((line, lineno))
+    if cols is None:
+        raise SystemExit("%s: no `grid <cols> <rows>` line" % fname)
+    g = GridRt.__new__(GridRt)
+    g.cols, g.rows, g.b = cols, rows, None
+    g.vals, g.circ, g.dirty = {}, set(), set()
+    g.top = g.left = 0
+    for line, lineno in cellsrc:
+        m = re.match(r"^(\S+)\s*=\s*(.+)$", line)
+        if not m:
+            raise SystemExit("%s:%d: <cellref> = <value>" % (fname, lineno))
+        r, c = parse_cellref(m.group(1), cols, rows, fname, lineno)
+        msg = g.commit(r, c, m.group(2).strip().strip('"')
+                       if m.group(2).strip().startswith('"')
+                       else m.group(2).strip(), fname)
+        if msg:
+            raise SystemExit("%s:%d: %s" % (fname, lineno, msg))
+    g.recalc()
+    out = []
+    for src, lineno in asks:
+        rpn = FxCompiler(cols, rows, fname, lineno).compile(src)
+        out.append((src, rpn, fx_eval(rpn, g.read_cell)))
+    return name or os.path.basename(fname), g, out
+
+
+def emit_fxcorpus(dirname):
+    """WEAVE-SPEC 12.1.2.  Answers the nasm text."""
+    files = sorted(f for f in os.listdir(dirname) if f.endswith(".fx"))
+    if not files:
+        raise SystemExit("--emit-fxcorpus: no .fx in %s" % dirname)
+    out = ["; The FX differential corpus (WEAVE-SPEC 12.1.2).",
+           "; GENERATED by `python3 tools/weavesim.py --emit-fxcorpus "
+           "tests/weave/fxcorpus`.",
+           "; Do not edit - regenerate. Every expected value is the MODEL's,",
+           "; computed over a 5.6 cell store the model also wrote.",
+           ";",
+           "; Row: name, store, storelen, cols, rows, rpn, rpnlen,",
+           ";      type (0 number, 2 #DIV0), value lo, value hi, neg",
+           "FXC_ROW equ 22"]
+    rows, blobs, n = [], [], 0
+    for fi, f in enumerate(files):
+        path = os.path.join(dirname, f)
+        name, g, asks = parse_fxcase(open(path).read(), path)
+        img = grid_image(g)
+        stag = "fxs%d" % fi
+        blobs += _vmc_bytes(stag, img)
+        for k, (src, rpn, want) in enumerate(asks):
+            tag = "fxc%d" % n
+            ty = 2 if want is FX_ERR else 0
+            v = 0 if want is FX_ERR else want & 0xFFFFFFFF
+            rows.append("    dw %s_name, %s, %d, %d, %d, %s_rpn, %d, "
+                        "%d, 0x%04X, 0x%04X, 0"
+                        % (tag, stag, len(img), g.cols, g.rows, tag,
+                           len(rpn), ty, v & 0xFFFF, (v >> 16) & 0xFFFF))
+            blobs.append("%s_name: db '%s: %s', 0"
+                         % (tag, name.replace("'", " ")[:20],
+                            src.replace("'", " ")[:28]))
+            blobs += _vmc_bytes(tag + "_rpn", rpn)
+            n += 1
+            # ...and the NEGATIVE CONTROL on the FIRST expression of the
+            # FIRST case: the same formula against a value one bit wrong,
+            # which the harness must FAIL (12.1.1's rule, said for FX).
+            if n == 1:
+                rows.append("    dw fxcN_name, %s, %d, %d, %d, %s_rpn, %d, "
+                            "%d, 0x%04X, 0x%04X, 1"
+                            % (stag, len(img), g.cols, g.rows, tag,
+                               len(rpn), ty, (v ^ 1) & 0xFFFF,
+                               (v >> 16) & 0xFFFF))
+                blobs.append("fxcN_name: db 'NEG fx value', 0")
+                n += 1
+    out.append("FXC_N equ %d" % n)
+    out.append("fxc_tab:")
+    out += rows
+    out += blobs
+    return "\n".join(out)
 
 
 # --- CLI verbs ---------------------------------------------------------------
@@ -4399,8 +5661,14 @@ def runtime_for(bundle_path, src=None):
     return Runtime(b, idmap=idmap, sav_path=sav)
 
 
-def cmd_run(bundle_path, events_path, src=None):
+def cmd_run(bundle_path, events_path, src=None, adapter="cga",
+            render_after=False):
+    """--run, and with --render-after the CARD as it stands when the events
+    are spent rather than a state dump. That is what a differential against
+    the glass needs: tests/weavegrid.py compares the machine's bands with the
+    model's, and a band is a line of this picture."""
     rt = runtime_for(bundle_path, src)
+    rt.adapter = adapter            # 6.9.4's scroll clamp needs a layout
     print("%s: %d cards, %d components, entry card %d"
           % (rt.b.app_name, len(rt.b.cards), len(rt.b.comps), rt.b.entry))
     for lineno, line in enumerate(open(events_path), 1):
@@ -4415,14 +5683,22 @@ def cmd_run(bundle_path, events_path, src=None):
             dump_state(rt)
         elif verb == "set":
             rt.gesture("set", parts[1], " ".join(parts[2:]))
-        elif verb in ("click", "change", "key", "select", "edit",
-                      "command"):
+        elif verb == "edit":
+            # `edit <grid> <row> <col> <text...>` - the text runs to the end
+            # of the line, because a label and a formula both have spaces in
+            # them and splitting on the fourth field would truncate both.
+            rt.gesture("edit", parts[1], parts[2], parts[3],
+                       " ".join(parts[4:]))
+        elif verb in ("click", "change", "key", "select", "command"):
             rt.gesture(verb, parts[1] if len(parts) > 1 else "",
                        parts[2] if len(parts) > 2 else "",
                        parts[3] if len(parts) > 3 else "")
         else:
             raise SystemExit("%s:%d: no such event verb '%s'"
                              % (events_path, lineno, verb))
+    if render_after:
+        render(rt, adapter)
+        return
     for line in rt.out:
         print(line)
     dump_state(rt)
@@ -4454,7 +5730,7 @@ def dump_state(rt):
     print("gfx calls this session: %d" % rt.gfx_calls)
 
 
-def cmd_render(path, adapters, card=None):
+def cmd_render(path, adapters, card=None, preview=False, cells=None):
     if path.lower().endswith(".wab"):
         rt = runtime_for(path)
     else:
@@ -4470,7 +5746,7 @@ def cmd_render(path, adapters, card=None):
                             "" if len(rt.b.cards) == 1 else "s",
                             len(rt.b.cards)))
     for ad in adapters:
-        render(rt, ad, card)
+        render(rt, ad, card, preview=preview, cells=cells)
         print()
 
 
@@ -4566,7 +5842,25 @@ def selfcheck(verbose=False):
         "unknown element sentence")
     rej('<app name="x"><card id="m"><button color="red">b</button>'
         "</card></app>",
-        'there are no colors', "color attribute sentence")
+        "no color here; a palette is a canvas's",
+        "color attribute sentence")
+    # ...and 6.10.7's own three, which is the other side of that sentence
+    rej('<app name="x"><card id="m"><canvas id="c" w="64" h="32" '
+        'paper="beige"><sprite id="s" img="B"/></canvas></card></app>',
+        'canvas: paper="beige" is not one of the sixteen colours',
+        "palette name sentence", wsp="sprite B 8 8\n" + "########\n" * 8)
+    rej('<app name="x"><card id="m"><canvas id="c" w="64" h="32" '
+        'paper="blue" ink="red"><sprite id="s" img="B"/></canvas></card>'
+        "</app>",
+        'canvas: paper="blue" against ink="red": the two share no plane '
+        "either way", "palette pair sentence",
+        wsp="sprite B 8 8\n" + "########\n" * 8)
+    rej('<app name="x"><card id="m"><canvas id="c" w="64" h="32" '
+        'paper="blue"><sprite id="s" img="B" color="red"/></canvas></card>'
+        "</app>",
+        'canvas: paper="blue" against color="red": the two share no plane '
+        "either way", "palette pair sentence, sprite",
+        wsp="sprite B 8 8\n" + "########\n" * 8)
     rej('<app name="x"><card id="m"><button zork="1">b</button>'
         "</card></app>",
         'button: no such attribute "zork"; style is bold/invert/align only',
@@ -4700,7 +5994,7 @@ def selfcheck(verbose=False):
     deep = "1" + "+(1" * 17 + ")" * 17
     ck.raises("fx depth cap", PackError,
               lambda: FxCompiler(26, 256, "t", 1).compile(deep),
-              contains="16 deep")
+              contains="the stack is 16 slots")
 
     # 6. sprites: mask = NOT(coverage)
     sp = parse_wsp("sprite B 8 2\n#.......\n.#......\n", "t.wsp")
@@ -4865,6 +6159,28 @@ def selfcheck_demos(ck, tmp):
           "pong: a ball out an open edge scored (score %r)" % score)
     ck.ok(not rt.canvas["running"], "pong: the score handler stopped the "
           "worker")
+    # 6.10.1's two re-arms, and both rows are REGRESSION guards rather than
+    # feature checks.  `scored` used to latch for the life of the instance,
+    # so a second serve could never score and PONG was a one-goal game; a
+    # contact whose sprite had been hidden was never discarded, because the
+    # AABB pass walked only the SHOWN list.  Neither is visible in a
+    # single-shot harness, which is why these rows serve twice and hide one.
+    first = rt.comps[res.app.idmap["score"]]["text"]
+    rt.gesture("click", "serve")
+    rt.tick(3000)
+    ck.ok(rt.comps[res.app.idmap["score"]]["text"] != first,
+          "pong: a SECOND ball out an open edge scores too (6.10.1)")
+    pad = rt.comps[res.app.idmap["pad"]]
+    ball["x"], ball["y"] = pad["x"], pad["y"]
+    ball["px16"], ball["py16"] = ball["x"] * 16, ball["y"] * 16
+    rt.canvas["running"] = True
+    rt.tick(1)
+    ck.ok(rt.canvas["contacts"], "pong: an overlap latches a contact")
+    ball["shown"] = 0
+    rt.tick(1)
+    ck.ok(not rt.canvas["contacts"],
+          "pong: hiding a sprite SEPARATES its contacts (6.10.1)")
+    rt.canvas["running"] = False
     return sizes
 
 
@@ -4960,6 +6276,9 @@ def selfcheck_vm(ck, tmp):
     ft = emit_foldtab()
     ck.ok(ft.startswith("wv_foldtab:") and ft.count("db ") == 8,
           "--emit-foldtab: 128 entries from htmsim's one definition")
+    ftc = emit_foldtab_c()
+    ck.ok(ftc.count("0x") == 130 and "lm_foldtab[128]" in ftc,
+          "--emit-foldtab-c: the same 128 entries, as C")
 
 
 # --- the hostile corpus (WEAVE-SPEC 2.1, 10.4) -------------------------------
@@ -5233,6 +6552,122 @@ def run_selfcheck(verbose=False):
 
 
 # --- main --------------------------------------------------------------------
+# --- the disk's own catalogue (WEAVE-SPEC 13.1's wave-7 distribution row) ----
+#
+# `make weavedisk` builds a floppy in three geometries and the three carry
+# different things, so each one says what is on it and why. GAMES.TXT on the
+# RUNCPM disks is the precedent (SPEC.md 74.6) and tools/getstories.py's
+# write_catalog() is the shape: CRLF because a .TXT on a FAT floppy is
+# expected to have it and these disks are meant to be readable on a DOS PC
+# (SPEC.md 19); Note Pad word-wraps prose (SPEC.md 27.11), so paragraphs run
+# on and only the SHAPED lines - the headings, the rules and the file list -
+# are hand-wrapped.
+#
+# IT LIVES HERE AND NOT IN THE MAKEFILE because this file already knows every
+# bundle: it packed them. A heredoc in a recipe would be a second list of what
+# the disk carries, kept in step by hand.
+
+WEAVE_CATALOG_BUNDLES = [
+    ("FORM.WAB", "a form: labels, a field, a button, a check and a meter, "
+                 "with a script behind them"),
+    ("SHEET.WAB", "a spreadsheet: a grid of formula cells and a formula bar"),
+    ("PONG.WAB", "a game: a canvas, sprites and a frame loop on a worker"),
+]
+
+WEAVE_CATALOG_SOURCES = [
+    ("FORM", "FORM.WML, FORM.WJS"),
+    ("SHEET", "SHEET.WML, SHEET.WJS, SHEET.WFX"),
+    ("PONG", "PONG.WML, PONG.WJS, PONG.WSP"),
+]
+
+
+def catalog_text(geometry, loom):
+    """The disk's own note. `loom` says whether the IDE rode this geometry."""
+    o = []
+    o.append("WEAVE DISK")
+    o.append("=" * 28)
+    o.append("")
+    o.append("Web-style applications for os8088. A .WAB bundle is a whole")
+    o.append("program - markup, script and formulas, compiled on the host or")
+    o.append("on this machine - and WEAVE.O88 is what runs one. Open the")
+    o.append("WEAVE folder and double-click a .WAB.")
+    o.append("")
+    o.append("WEAVE\\  THE RUNTIME AND THE PROGRAMS")
+    o.append("-" * 28)
+    o.append("  WEAVE.O88   the runtime itself")
+    o.append("  WEAVE.OVL   the part of it that loads on demand. Without")
+    o.append("              this file beside it, no bundle opens at all.")
+    o.append("  WEAVE.WSM   the canvas core, read only by a bundle that")
+    o.append("              draws sprites. PONG needs it; the other two do")
+    o.append("              not.")
+    for name, what in WEAVE_CATALOG_BUNDLES:
+        o.append("  %-12s%s" % (name, what))
+    o.append("")
+    if loom:
+        o.append("LOOM\\  THE EDITOR AND THE SOURCES")
+        o.append("-" * 28)
+        o.append("  LOOM.O88    edit a program and build its bundle, here, on")
+        o.append("  LOOM.OVL    this machine. Double-click a .WML below,")
+        o.append("  LOOM.WPV    press ^P to pack it and use View > Preview to")
+        o.append("              see the card before you run it. Then")
+        o.append("              double-click the .WAB it wrote, in this")
+        o.append("              folder - WEAVE's three files are here too,")
+        o.append("              so that it opens where Pack put it.")
+        o.append("  What the three programs in WEAVE\\ were built from. Pack")
+        o.append("  writes a new bundle beside its sources, in this folder,")
+        o.append("  and leaves WEAVE\\'s copy as it was.")
+        for name, files in WEAVE_CATALOG_SOURCES:
+            o.append("    %-8s%s" % (name, files))
+        o.append("")
+        o.append("WHY EACH FOLDER IS WHOLE")
+        o.append("-" * 28)
+        o.append("  A program opened by double-clicking a file looks for its")
+        o.append("  own companion files in THAT file's folder. So a bundle")
+        o.append("  lives beside the runtime, a source beside the editor,")
+        o.append("  and LOOM\\ carries a second copy of the runtime for the")
+        o.append("  bundles it builds. Sources in a folder of their own open")
+        o.append("  the editor without the half of itself that does the")
+        o.append("  work; a bundle on its own does the same to the runtime.")
+        o.append("  Both were tried. Keep your own programs in LOOM\\ too,")
+        o.append("  or copy this whole disk and edit the copy.")
+        o.append("")
+    else:
+        o.append("THE EDITOR IS NOT ON THIS DISK")
+        o.append("-" * 28)
+        o.append("  LOOM and the demo sources are on the 720KB and 1.44MB")
+        o.append("  builds of this disk; this geometry has no room for them.")
+        o.append("  `make loomdisk` builds a disk of the editor's own in all")
+        o.append("  three sizes.")
+        o.append("")
+    o.append("YOUR OWN BUNDLES")
+    o.append("-" * 28)
+    o.append("  BUNDLES='path/to/MYAPP.WAB' in the Makefile puts your own on")
+    o.append("  a disk of your own, beside these. They must already be valid")
+    o.append("  8.3 names, and the geometry still has to hold them - the")
+    o.append("  disk build says so if it does not.")
+    o.append("")
+    o.append("This is the %dKB disk." % geometry)
+    return "\r\n".join(o) + "\r\n"
+
+
+def write_catalog(path, geometry, loom):
+    """Write it only when the bytes changed, so a regenerated catalogue does
+    not force a disk rebuild that has nothing in it (tools/getcpmsw.py's
+    write_if_changed, which tools/getstories.py notably does not do)."""
+    data = catalog_text(geometry, loom).encode("ascii", "replace")
+    if os.path.exists(path):
+        with open(path, "rb") as fh:
+            if fh.read() == data:
+                return
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(data)
+    print("weavesim: catalogue for the %dKB disk -> %s (%d bytes)"
+          % (geometry, path, len(data)))
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Weave's host reference implementation "
@@ -5250,6 +6685,25 @@ def main():
                     help="the bundle's source, for the id map")
     ap.add_argument("--render", metavar="WML_OR_WAB",
                     help="draw the flow-walk layout as text")
+    ap.add_argument("--cells", metavar="CWxCH",
+                    help="--render: lay the card out in this content grid "
+                         "instead of the adapter's standard one - LOOM's "
+                         "Preview pane is a child area inside a window "
+                         "(WEAVE-SPEC 1.7.1) and tests/weaveprev.py measures "
+                         "it off the glass")
+    ap.add_argument("--catalog", metavar="FILE",
+                    help="write the Weave disk's CATALOG.TXT (CRLF) and exit; "
+                         "needs --geometry, and --with-loom when the IDE "
+                         "rides that geometry")
+    ap.add_argument("--geometry", type=int, choices=(360, 720, 1440),
+                    help="which disk --catalog is describing")
+    ap.add_argument("--with-loom", action="store_true",
+                    help="--catalog: this geometry carries LOOM and PROJECTS")
+    ap.add_argument("--preview", action="store_true",
+                    help="render LOOM's Preview pane rather than the "
+                         "runtime's window (WEAVE-SPEC 1.7.1): the same walk "
+                         "and the same components, with a <grid> and a "
+                         "<canvas> drawn as their frame")
     ap.add_argument("--card", type=int, help="card to render (default: "
                     "the entry card)")
     ap.add_argument("--adapter", default="cga",
@@ -5261,6 +6715,20 @@ def main():
                     help="print the 38-entry WVM jump table for wvm.inc")
     ap.add_argument("--emit-foldtab", action="store_true",
                     help="print the Latin-1 fold table for LOOM.OVL")
+    ap.add_argument("--emit-foldtab-c", action="store_true",
+                    help="...and the same table as a C initialiser, for "
+                         "apps/loom's compilers (WEAVE-SPEC 3.1)")
+    ap.add_argument("--emit-vmcorpus", metavar="DIR",
+                    help="the WVM differential corpus for weavevm "
+                         "(WEAVE-SPEC 12.1.1)")
+    ap.add_argument("--render-after", action="store_true",
+                    help="--run: print the CARD when the events are spent")
+    ap.add_argument("--emit-cvcorpus", action="store_true",
+                    help="the CANVAS differential corpus for weavecv "
+                         "(WEAVE-SPEC 12.1.3)")
+    ap.add_argument("--emit-fxcorpus", metavar="DIR",
+                    help="the FX differential corpus for weavevm "
+                         "(WEAVE-SPEC 12.1.2)")
     ap.add_argument("--selfcheck", action="store_true")
     ap.add_argument("--verbose", "-v", action="store_true")
     args = ap.parse_args()
@@ -5271,6 +6739,11 @@ def main():
     adapters = sorted(ADAPTERS) if args.all_adapters else [adapter]
 
     try:
+        if args.catalog:
+            if not args.geometry:
+                raise SystemExit("--catalog needs --geometry 360|720|1440")
+            write_catalog(args.catalog, args.geometry, args.with_loom)
+            return 0
         if args.selfcheck:
             return run_selfcheck(args.verbose)
         if args.emit_optab:
@@ -5278,6 +6751,29 @@ def main():
             return 0
         if args.emit_foldtab:
             print(emit_foldtab())
+        if args.emit_foldtab_c:
+            print(emit_foldtab_c())
+            return 0
+        if args.emit_vmcorpus:
+            text = emit_vmcorpus(args.emit_vmcorpus)
+            if args.o:
+                open(args.o, "w").write(text + "\n")
+            else:
+                print(text)
+            return 0
+        if args.emit_cvcorpus:
+            text = emit_cvcorpus()
+            if args.o:
+                open(args.o, "w").write(text + "\n")
+            else:
+                print(text)
+            return 0
+        if args.emit_fxcorpus:
+            text = emit_fxcorpus(args.emit_fxcorpus)
+            if args.o:
+                open(args.o, "w").write(text + "\n")
+            else:
+                print(text)
             return 0
         if args.costs:
             print_costs(adapter)
@@ -5288,10 +6784,20 @@ def main():
         if args.run:
             if not args.events:
                 ap.error("--run needs --events")
-            cmd_run(args.run, args.events, args.src)
+            cmd_run(args.run, args.events, args.src, adapter,
+                    args.render_after)
             return 0
         if args.render:
-            cmd_render(args.render, adapters, args.card)
+            cells = None
+            if args.cells:
+                try:
+                    cw, ch = (int(v) for v in args.cells.lower().split("x"))
+                except ValueError:
+                    raise SystemExit("--cells wants CWxCH, e.g. 60x15")
+                if cw < 1 or ch < 1:
+                    raise SystemExit("--cells: CW and CH are both at least 1")
+                cells = (cw, ch)
+            cmd_render(args.render, adapters, args.card, args.preview, cells)
             return 0
     except PackError as ex:
         print(ex, file=sys.stderr)

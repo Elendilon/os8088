@@ -67,8 +67,41 @@ static void *w_win;                     /* our window, banked at create */
 static int   w_state;                   /* W_ST_* - and 1.5's trap 3 is that
                                          * the load CHANGES it, so nothing may
                                          * branch on it before the load runs */
-static char  w_msg[W_MSG];              /* section 10's sentence, on the glass */
-static char  w_status[W_MSG];           /* ...and the row that keeps it */
+static char  w_status[W_MSG];           /* section 10's sentence: the row that
+                                         * keeps it, AND the copy the W_ST_ERR
+                                         * screen draws on row 0.
+                                         *
+                                         * THERE USED TO BE TWO. `w_msg` held
+                                         * the same 88 bytes: w_say() is the
+                                         * only writer of either and copies
+                                         * one sentence into both, and both
+                                         * are cleared together at open. So
+                                         * the error screen drew w_msg on row
+                                         * 0 and w_status on the last row -
+                                         * the same string, twice, out of two
+                                         * arrays. Wave 5 needed the bytes and
+                                         * this was 88 of them, free.
+                                         *
+                                         * THE ONE THING THAT WOULD BREAK IT:
+                                         * a w_saysav() on the W_ST_ERR path.
+                                         * That function writes w_serr and not
+                                         * this, today - but if a later wave
+                                         * gives it the status row as well,
+                                         * the error screen's two rows stop
+                                         * agreeing and this comment is where
+                                         * to start */
+static char  w_serr[W_MSG];             /* 10.6's LAST SCRIPT ERROR, in full -
+                                         * a string of its own and not
+                                         * w_status, because Bundle Info is
+                                         * where a user goes to READ it and
+                                         * ovl_info was overwriting w_status
+                                         * with its own line on the way in.
+                                         * Found on the glass: the toast said
+                                         * `Script error in fn 0.`, Bundle
+                                         * Info was opened to see which error,
+                                         * and the listing's last row showed
+                                         * the ask arithmetic instead */
+static char  w_infoln[W_MSG];           /* ...and ovl_info's own line */
 static char  w_line[W_MSG];             /* one line under construction */
 static char  w_num[8];
 
@@ -92,7 +125,13 @@ static unsigned char w_shave[W_NSECTYPE];
 static unsigned w_lastend;
 static unsigned w_natoms, w_nfunc, w_nsprite, w_nformula;
 static unsigned w_ncomp, w_ncard;
-static unsigned char w_idseen[256];     /* comp_id uniqueness (2.5) */
+/* comp_id uniqueness (2.5) used to be a 256-byte seen[] here, and it was
+ * SUBSUMED: ovl_val_uistream refuses any record whose id is not exactly
+ * w_ncomp + 1 - ids are 1..n in document order (2.14 rule 2) - three lines
+ * below where the seen[] test stood, with the same field name in the same
+ * sentence. A duplicate id fails the sequential test first and always, so the
+ * array could never be the thing that fired. 256 bytes, free, and wave 5
+ * needed them (WEAVE-PLAN 2.9). */
 
 /* The header probe (10.1): one cluster, read before the claim exists. */
 static unsigned char w_probe[W_PROBE];
@@ -122,11 +161,111 @@ struct w_lay {
     unsigned char ctype;
     unsigned char style;
     unsigned char cflags;
-    unsigned char row;                  /* which layout row it landed in */
-};
+};                                      /* TEN BYTES, and the tenth is not
+                                         * spare: SmallerC pads this to an even
+                                         * size, so an eleventh field would
+                                         * cost 250 x 2 bytes of bss against
+                                         * SPEC.md 20.1's 61,440 for image AND
+                                         * bss together. The `row` field wave 2
+                                         * carried is gone for exactly that
+                                         * reason - wflow.c says what replaced
+                                         * it */
 static struct w_lay w_lay[W_MAXLAY];
 static int w_nlay, w_nrow;
 static int w_lay_cw, w_lay_ch, w_lay_card;   /* what the table was built for */
+
+/* --- the VM's claim and the things that hang off it (WEAVE-SPEC 4) ------- */
+static unsigned w_vmseg;                /* 0 = no VM is bound */
+static int      w_rec[4];               /* one dequeued ring record (4.9) */
+static char     w_amsg[WD_AMAX + 2];    /* the alert's line - os88ui.inc holds
+                                         * the POINTER and letters from it when
+                                         * the alert paints, so it has to
+                                         * outlive the call */
+static int      w_alertfn = -1;         /* 8.2's callback, -1 = none */
+static int      w_alertkind;            /* 0 = alert(), 1 = 4.11's runaway */
+/* THE GRID'S FOUR CROSS-FILE WORDS (WEAVE-SPEC 6.9), and they are here rather
+ * than in wgrid.c for one reason: a C package is ONE compilation (SPEC.md
+ * 73.1), a static cannot be forward-declared where it is also defined, and
+ * these four are read by files INCLUDED BEFORE wgrid.c - wact.c owns the
+ * field pool the formula bar comes out of, so it has to come first. Every
+ * other word the grid owns lives in wgrid.c where it belongs. */
+static int      w_gsel_r = 1;           /* 6.9's selection, 1-based */
+static int      w_gsel_c = 1;
+static int      w_gid;                  /* the grid's comp_id, 0 = no grid */
+static int      w_gactive;              /* 6.9.4: was the grid last clicked? */
+static struct os88_place w_savhere2;    /* 19.9's walk, one step at a time */
+
+/* ============================================================================
+ * THE FORWARD DECLARATIONS
+ *
+ * `nasm -f bin` has no notion of an external symbol, so a C package is ONE
+ * compilation (SPEC.md 73.1) and the parts below are #included into this file
+ * in dependency order. Six of them are MUTUALLY dependent - a click enqueues
+ * an event, a handler repaints a component, a builtin writes a file, a
+ * refusal reloads - and no ordering makes all of that forward-free. These are
+ * the ones that cross backwards, and the list is deliberately short: a name
+ * here is a seam between two files, and a long list would mean the split is
+ * in the wrong place.
+ * ==========================================================================*/
+static void w_repaint2(void *win, int clear);
+static void w_reload(void *win);
+static int  w_samename(const char *a, const char *b);
+static void w_infield(int i, int x1, int y1, int x2, int y2, int dis);
+static void w_press(int i, int x, int y);
+static int  w_radio_holder(int i);
+static int  w_iblk(int id);
+static void w_enq(int comp, int atom, int d1, int d2);
+static void w_kick(void);
+static void w_gcmark(void);
+static void w_touch(int id);
+static void w_arm(void);
+static void w_caret(void *win);
+static int  w_menu_fn(int mi, int ii);
+static int  ovl_savestate(void);
+static int  ovl_loadstate(void);
+static void w_saysav(const char *s);
+static void ovl_menubuild(void *win);
+static void ovl_comp_init(void);
+static void ovl_iload(int id, unsigned props);
+static void ovl_vmstart(void *win);
+static void w_ialloc(int id, int cols);
+static void w_istate(void);
+static int  w_key(void *win, int ascii, int scan);
+static void w_release(int x, int y);
+static void w_wake(void);
+static void w_ontimer_body(void *win);
+static void w_alertdone(int button);
+static void w_gload(void);
+static void w_gpaint(int i);
+static int  w_gclick(int i, int x, int y);
+static int  w_gkey(int ascii, int scan);
+static void ovl_gcommit(void);
+static int  w_gcommitran;               /* 1.2 again: did tenant 7's body
+                                         * actually run? */
+static void w_gselect(int r1, int c1, int fire);
+static int  w_gstep(int budget);
+static int  w_gbusy(void);
+static void w_gflush(void);
+static void w_gfree(void);
+static void w_gclear(void);
+static void w_gtrigger(void);
+static void w_cpaint(int i);            /* 6.10's canvas, whose other half is
+                                         * WEAVE.WSM (1.2.2) */
+static void w_cflush(void);
+static void w_cdrain(void);
+static void w_cfree(void);
+static int  w_find_spr(int id);
+static int  w_cspr_get(int k, int atom);
+static int  w_cspr_set(int k, int atom, int v);
+static int  w_chire(void);
+static void ovl_canvasload(void);
+static int  w_gcellint(int r, int c);
+static int  w_gsetnum(int r, int c, int lo, int hi);
+static int  w_gsetstr(int r, int c, const char *s);
+static void w_growdirty(int r);
+static void ovl_gridload(void);
+static int  w_glderr;                   /* 0 fine, 1 no room, 2 the overlay
+                                         * itself did not load (1.2) */
 
 /* ============================================================================
  * SMALL HELPERS
@@ -156,9 +295,26 @@ static void w_ln(unsigned v)
  * WEAVE-SPEC 10.1's shape, which is C64-SPEC 1.4's: the window comes up, the
  * sentence is in the content area, the status row keeps it, and the toast
  * fires too - never a bare failed launch. */
+/* w_saysav - 8.3's refusal, which is a TOAST and not the status row: a card
+ * owns the whole content area (7.1.1 gives the family no status strip), so a
+ * sentence drawn there would land on the app's last row. It is kept in
+ * w_status for the overlay's diagnostics all the same. */
+static void w_saysav(const char *s)
+{
+    os88_strcpy(w_serr, s, sizeof(w_serr));
+    os88_toast("State refused - see Info", 0);   /* 24 -> clipped to 23, and
+                                                  * the word that matters is
+                                                  * the first. TOAST_MAX is 23
+                                                  * (SPEC.md 59.8) and these
+                                                  * sentences are 40+; the
+                                                  * status string keeps the
+                                                  * whole of it for Bundle
+                                                  * Info, the way a script
+                                                  * error does */
+}
+
 static void w_say(const char *s)
 {
-    os88_strcpy(w_msg, s, sizeof(w_msg));
     os88_strcpy(w_status, s, sizeof(w_status));
     os88_toast(s, 0);
 }
@@ -174,36 +330,70 @@ static void w_say(const char *s)
  * silent nonsense. The items array is not const either, because Reload greys
  * ITSELF when there is nothing to reload - SPEC.md 47's rule that a control
  * states a FACT rather than refusing after the click. */
+/* --- the menus (SPEC.md 12.2, WEAVE-SPEC 6.11) ---------------------------
+ *
+ * ONE MENU OF OUR OWN, AND THE ARITHMETIC IS WHY. `MENU_APPMAX` is 5 - the
+ * kernel's own bar bound - and WEAVE-SPEC 3.2 lets a bundle declare 5. Wave 2
+ * spent two of the five on File and Bundle, which would have left an app
+ * three. Folding WEAVE's three commands into one pull-down named for the
+ * program leaves FOUR, which is as close as the bar gets; a bundle that
+ * declares a fifth gets its first four and a toast that says so, because a
+ * menu that is silently absent is a command the user cannot find and cannot
+ * ask about. 6.11 is amended to carry that.
+ *
+ * NOT `const`: os88_menu_set() patches the set's oncmd field with the
+ * runtime's command trampoline, and a set in .rodata takes the patch as
+ * silent nonsense. The items are not const either, because Reload and Bundle
+ * Info grey THEMSELVES when there is nothing to reload - SPEC.md 47's rule
+ * that a control states a FACT rather than refusing after the click. */
 #define W_CMD_OPEN   0
 #define W_CMD_RELOAD 1
-#define W_CMD_INFO   0
+#define W_CMD_INFO   2
 
-static const char *w_file_items[2] = { "Open Bundle...", "\001Reload" };
-static const char *w_bundle_items[1] = { "\001Bundle Info" };
+#define W_APPMENUS   4          /* MENU_APPMAX 5, less the one that is ours */
+#define W_APPITEMS   8          /* 2.6.2's own per-menu bound */
+#define W_TITLEMAX   9          /* 3.3: a menu title is <= 8 characters */
+#define W_LABELMAX  26          /* ...and an item label <= 24 glyphs, plus the
+                                 * leading OS88_MENU_DIS byte a greyed one
+                                 * would carry, plus the NUL */
+
+static const char *w_wv_items[3] = { "Open Bundle...", "\001Reload  ^R",
+                                     "\001Bundle Info" };
+static char        w_mtitle[W_APPMENUS][W_TITLEMAX];
+static char        w_mlabel[W_APPMENUS][W_APPITEMS][W_LABELMAX];
+static const char *w_mitems[W_APPMENUS][W_APPITEMS];
+
 static struct os88_menuset w_menus = {
-    "Weave", 0, 2,
-    { { "File", w_file_items, 2 },
-      { "Bundle", w_bundle_items, 1 } }
+    "Weave", 0, 1,
+    { { "Bundle", w_wv_items, 3 } }
 };
 
 /* w_menusync - the two items that are only meaningful with a bundle open.
  * A leading OS88_MENU_DIS byte is what draws an item disabled (SPEC.md 47),
- * and the kernel reads these strings each time the menu drops, so swapping the
- * pointer is the whole of it. */
+ * and the kernel reads these strings each time the menu drops, so swapping
+ * the pointer is the whole of it. */
 static void w_menusync(void)
 {
     if (w_state == W_ST_RUN) {
-        w_file_items[1] = "Reload";
-        w_bundle_items[0] = "Bundle Info";
+        w_wv_items[1] = "Reload  ^R";
+        w_wv_items[2] = "Bundle Info";
     } else {
-        w_file_items[1] = "\001Reload";
-        w_bundle_items[0] = "\001Bundle Info";
+        w_wv_items[1] = "\001Reload  ^R";
+        w_wv_items[2] = "\001Bundle Info";
     }
 }
 
 #include "wval.c"                       /* the hostile-bundle reader */
 #include "wflow.c"                       /* the flow walk */
 #include "wpaint.c"                      /* ...and what it hands the cores */
+#include "wcanv.c"                       /* 6.10's canvas: the UI-task half of
+                                          * it, the other being WEAVE.WSM */
+#include "wact.c"                        /* the press, the release, the field */
+#include "wfxc.c"                        /* 9.4's one carve-out: FX text */
+#include "wgrid.c"                       /* the cell store and the bands */
+#include "wevent.c"                      /* the ring, the slices, the errors */
+#include "wnative.c"                     /* the component and builtin surface */
+#include "wstate.c"                      /* 8.3's .SAV, the only file surface */
 #include "wload.c"                       /* the accept idiom and the refusals */
 #include "wovl.c"                        /* WEAVE.OVL's tenants */
 
@@ -248,28 +438,34 @@ static void w_wipe(void)
                   w_org.y + w_sz.h - 1);
 }
 
-/* w_ctname - 2.5.1's ctype, spelled.  Resident because the LITERALS are
- * resident whatever this function is called from (SPEC.md 73.14), so putting
- * the switch in the overlay would move nine bytes of code and no strings. */
+/* w_ctname - 2.5.1's ctype, spelled.
+ *
+ * A TABLE WALK AND NOT A SWITCH, and the difference is 420 bytes of resident
+ * image. This function's own comment used to say it was resident "because the
+ * literals are resident whatever it is called from, so putting the switch in
+ * the overlay would move nine bytes of code and no strings" - and the first
+ * half is true and the second was wrong by two orders of magnitude:
+ * SmallerC compiles a fourteen-case switch on a byte into a compare chain,
+ * which measured 161 instructions. The literals are ~80 bytes either way; the
+ * code was ~480. Wave 5 wanted them (WEAVE-PLAN 2.9).
+ */
+static const char w_ctnames[] =
+    "?\0label\0text\0rule\0box\0spacer\0meter\0button\0check\0radio\0"
+    "input\0list\0grid\0canvas\0sprite";
+
 static const char *w_ctname(unsigned ct)
 {
-    switch (ct) {
-    case WC_LABEL:  return "label";
-    case WC_TEXT:   return "text";
-    case WC_RULE:   return "rule";
-    case WC_BOX:    return "box";
-    case WC_SPACER: return "spacer";
-    case WC_METER:  return "meter";
-    case WC_BUTTON: return "button";
-    case WC_CHECK:  return "check";
-    case WC_RADIO:  return "radio";
-    case WC_INPUT:  return "input";
-    case WC_LIST:   return "list";
-    case WC_GRID:   return "grid";
-    case WC_CANVAS: return "canvas";
-    case WC_SPRITE: return "sprite";
-    default:        return "?";
+    const char *p;
+
+    p = w_ctnames;
+    if (ct > WC_MAX)
+        ct = 0;
+    while (ct--) {
+        while (*p)
+            p++;
+        p++;
     }
+    return p;
 }
 
 static void w_paint_deck(void)
@@ -325,7 +521,7 @@ static void w_repaint2(void *win, int clear)
     }
 
     if (w_state == W_ST_ERR) {
-        w_row(0, w_msg);
+        w_row(0, w_status);
         w_row(2, "File > Open Bundle... tries another one.");
     } else
         w_paint_deck();
@@ -397,7 +593,7 @@ void os88_onclick(int x, int y, void *win)
         return;
     if (!w_layout(win))
         return;
-    i = wd_hit(w_rect, w_nlay, x, y);
+    i = w_hit(x, y);
     if (i == 0)
         return;
     i--;
@@ -408,25 +604,85 @@ void os88_onclick(int x, int y, void *win)
 
 void os88_onkey(int ascii, int scan, void *win)
 {
-    (void)scan;
-    if (ascii == 'r' || ascii == 'R') {
+    if (w_state == W_ST_RUN) {
+        w_key(win, ascii, scan);        /* wact.c: ^R, Tab, then the armed
+                                         * field (6.7, 1.7) */
+        return;
+    }
+    if (ascii == 0x12) {                /* 1.7's shortcut still works with no
+                                         * bundle open, because Reload is what
+                                         * a refused one wants next */
         w_reload(win);
         w_repaint2(win, 1);
     }
 }
 
+/* W_ONMOUSEUP - the release half of SPEC.md 13.7's gesture, and the ONLY
+ * place a button fires. The kernel guarantees exactly one of these per
+ * W_ONCLICK, which is what makes os88ui_fire's clear-on-read safe. */
+void os88_onmouseup(int x, int y, void *win)
+{
+    if (w_state != W_ST_RUN)
+        return;
+    if (!w_layout(win))
+        return;
+    w_release(x, y);
+}
+
+/* W_ONTIMER (SPEC.md 13.9) - the caret's blink and 8.2's timer(), multiplexed
+ * over the one one-shot a window gets. wevent.c's w_ontimer_body says why. */
+void os88_ontimer(void *win)
+{
+    if (w_state == W_ST_RUN)
+        w_ontimer_body(win);
+}
+
+/* W_ONWAKE (SPEC.md 74.1) - the ONE callback that runs WITHOUT the gfx lock,
+ * and therefore the only place a slice may run (WEAVE-SPEC 4.10). */
+void os88_onwake(void *win)
+{
+    (void)win;
+    w_wake();
+}
+
+/* os88_worker - the canvas's frame loop (WEAVE-SPEC 6.10, SPEC.md 20.6).
+ *
+ * IT DOES NOT RETURN. Every byte of the loop is in WEAVE.WSM (1.2.2), and
+ * this is the three-instruction trampoline the kernel's ownership fence
+ * requires: OSAPI_TASK_SPAWN checks that the entry lies inside the calling
+ * instance's own region and refuses otherwise, so the entry has to be here
+ * even though the body is not. If the module is not bound, wcv_run() comes
+ * back and crt0.asm's park loop takes over - which is a worker with nothing
+ * to do rather than a worker that exits, and rule 2 is the difference. */
+void os88_worker(void *win)
+{
+    wcv_run(win);
+}
+
 void os88_oncmd(int item, int menu, void *win)
 {
-    if (menu == 0) {
-        if (item == W_CMD_OPEN)
-            os88_file_dlg(OS88_FDLG_OPEN, win, 0);
-        else if (item == W_CMD_RELOAD && w_state == W_ST_RUN) {
-            w_reload(win);
-            w_repaint2(win, 1);
-        }
-    } else if (menu == 1) {
-        if (item == W_CMD_INFO && w_state == W_ST_RUN)
-            ovl_info();                 /* the overlay: a menu command may
+    /* MENU 0 IS OURS AND EVERY OTHER ONE IS THE BUNDLE'S (WEAVE-SPEC 6.11).
+     * The kernel numbers an app's menus from 0 in the order the set declares
+     * them, and the set is built by w_menubuild: ours first, then up to four
+     * of the bundle's. So the app's menu k is at index k, 1-based already -
+     * which is the number 2.6.2's blob and 3.4's oncommand record are both
+     * written in, and it is why the record's data1 needs no adjustment and
+     * its data2 needs exactly one. */
+    if (menu > 0) {
+        w_enq(0, WA_ONCOMMAND, menu, item + 1);
+        return;
+    }
+    if (item == W_CMD_OPEN) {
+        os88_file_dlg(OS88_FDLG_OPEN, win, 0);
+        return;
+    }
+    if (item == W_CMD_RELOAD && w_state == W_ST_RUN) {
+        w_reload(win);
+        w_repaint2(win, 1);
+        return;
+    }
+    if (item == W_CMD_INFO && w_state == W_ST_RUN)
+        ovl_info();                     /* the overlay: a menu command may
                                          * refuse, which is what makes it the
                                          * canonical tenant (SPEC.md 73.14).
                                          *
@@ -442,7 +698,6 @@ void os88_oncmd(int item, int menu, void *win)
                                          * refused load here draws nothing at
                                          * all and leaves the card alone, which
                                          * is the honest degradation */
-    }
 }
 
 /* W_ONFILE: the Standard File dialog's completion (SPEC.md 38). THE SECOND WAY
@@ -517,6 +772,21 @@ void *os88_main(void)
 
     /* ...and TELL US when the box moves without anyone proposing it. */
     os88_wm_onresize(win);
+
+    /* THE THREE THAT MAKE WAVE 3 HAPPEN, and every one of them is a template
+     * word the kernel does not fill in for you (os88.h: "call from
+     * os88_main() after os88_wm_create(); they are not template words"). A
+     * missing install is the quietest failure in this file: the C compiles,
+     * the %define in the shim is satisfied, the callback exists - and the
+     * kernel simply never calls it. Verified as exactly that: a button drew
+     * its down state on the press and stayed down for ever, because
+     * W_ONMOUSEUP was never installed and the release reached nobody. */
+    os88_wm_onmouseup(win);             /* 13.7's RELEASE - the only place a
+                                         * <button> fires (WEAVE-SPEC 6.5) */
+    os88_wm_onwake(win);                /* 74.1's kick - the only place a WVM
+                                         * slice may run (4.10) */
+    os88_wm_ontimer(win);               /* 13.9's one-shot - 6.7's caret and
+                                         * 8.2's timer(), multiplexed */
 
     /* THE LAUNCH DOCUMENT (SPEC.md 54.5). Read-and-clear, so it is banked here
      * and spent in the first paint. os88_arg_file() cannot hand back the name

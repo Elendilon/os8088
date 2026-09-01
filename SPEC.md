@@ -27434,10 +27434,11 @@ and belong exactly where the user put them.
 ### 19.10 `apps-all.img` — one floppy with everything, and why it is on demand
 
 The shipped apps floppy is built in three geometries and carries the nineteen
-packages that fit the smallest of them. Five applications are deliberately not
+packages that fit the smallest of them. Seven applications are deliberately not
 on it, each with a disk of its own and for the same reason — they are large and
 they travel with data: **Frotz** (§61), **Word** (§68.5), **cword** (§73.12),
-**RUNCPM** (§74.5) and **C64** (`docs/C64-SPEC.md` §14.2). That is right for
+**RUNCPM** (§74.5), **C64** (`docs/C64-SPEC.md` §14.2) and the Weave family's
+two, **WEAVE** and **LOOM** (`WEAVE-SPEC 1.2`). That is right for
 the machines this runs on and awkward for a person downloading it, who wants to
 try the software rather than curate a shelf of floppies.
 
@@ -27445,7 +27446,7 @@ try the software rather than curate a shelf of floppies.
 application on it, offered beside the shipped images on a release page. It is a
 convenience and nothing in the tree boots it by default.
 
-**It is 1.44MB and has no smaller variants.** The contents are ~1,230KB with
+**It is 1.44MB and has no smaller variants.** The contents are ~1,360KB with
 RUNCPM's drive A and the C64's ROM sidecar on it, so a
 720KB or 360KB build of this list does not exist rather than being declined —
 and the machines those geometries are for are already served by the shipped
@@ -27465,12 +27466,15 @@ The tree, and the one part of it that is a correctness requirement:
 | `CWORD/` | `CWORD.O88`, `CWORD.OVL`, `WELCOME.RTF` |
 | `RUNCPM/`, `RUNCPM/A/0/` | `RUNCPM.O88`, `RUNCPM.OVL`, the CCP and its `LICENSE` — and CP/M drive A below them (§74.5) |
 | `C64/` | `C64.O88` (the ROM is a PART of it, §20.12), `C64.OVL`, `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
+| `WEAVE/` | `WEAVE.O88`, `WEAVE.OVL`, `WEAVE.WSM` and the three demo bundles (`WEAVE-SPEC 1.2`) |
+| `LOOM/` | `LOOM.O88`, `LOOM.OVL`, `LOOM.WPV`, the demo sources — and a second copy of `WEAVE.O88`, `WEAVE.OVL` and `WEAVE.WSM`, so that a bundle Pack writes beside its sources opens where it was written (`WEAVE-SPEC 1.2`, `1.2.4`, `11.2`) |
 | `MEDIA/` | the module, the two `.TEX` documents and `DEMO.HTM` — where a File Open starts (§38.10) |
 | `SYSTEM/`, `SYSTEM/DOS/` | the Task Manager (§28.3) and `OS88NET.COM` (§62) |
+| `SYSTEM/APPDATA/` | empty and **built rather than made on demand** (§19.9) — a Weave bundle's `saveState` writes its `.SAV` here (`WEAVE-SPEC 8.3`) |
 | `DOCS/` | empty, for the user's own saves |
 
 **Each Word gets a folder of its own, and that is not tidiness** — and so do
-RUNCPM and the C64, for the same reason. Both Words carry an
+RUNCPM, the C64, WEAVE and LOOM, for the same reason. Both Words carry an
 overlay resolved in the launching instance's current directory (§68.10, §73.14,
 §19.2.1), and a double-click on a document leaves that directory on the
 **document's** (§54.9). Package, overlay and welcome document therefore have to
@@ -28392,7 +28396,17 @@ Two teardown corollaries, both about not trading a crash for a leak:
    `osapi_set_color`, `font_*`, `wm_content`, `wm_obscured`,
    `wm_clip_set`/`wm_clip_clear`, `osapi_video`,
    `osapi_get_ticks`, `osapi_mouse`, `osapi_srand`/`osapi_rand`,
-   `task_sleep`, `task_yield`, `OSAPI_TASK_ALIVE` and `wm_saveu`.
+   `task_sleep`, `task_yield`, `OSAPI_WM_WAKE`, `OSAPI_TASK_ALIVE` and
+   `wm_saveu`.
+   **`OSAPI_WM_WAKE` was missing from this list and is not new** — its
+   own cell has said "any context — ISR-safe and worker-safe, no lock
+   needed" since it was written (§74.1), and it is the carrier of the
+   worker-stages/UI-task-commits handshake rule 7 forces on everything a
+   worker may not do itself: `apps/ftpd`'s (§77) and now WEAVE's canvas
+   (WEAVE-SPEC §6.10.6). A list that names what a worker may call is read
+   as exhaustive, so a slot documented as worker-safe and absent from it
+   reads as forbidden by omission — which is the defect the `OSAPI_DRV_CALL`
+   paragraph below already names, found a second time by a second caller.
    **`wm_saveu` comes with `osapi_set_color`'s condition** and for a sharper
    version of its reason: the clear path calls `mem_free` on the raise cache,
    so a worker that withdraws the promise outside a lock hold can free a
@@ -74045,6 +74059,18 @@ Notes that are part of the contract, not commentary:
   the test: pops, then `or ax, ax`, then `stc`/`clc`, then `ret`. `pop` does
   not touch FLAGS, so the reverse order would also work — pinning one order
   removes the question.
+
+  **`CC_HAS_ONCLOSE` is the one that has it**, and it is the newest
+  trampoline here: §75.1's close negotiator had no C path at all until
+  `apps/loom` needed one (WEAVE-SPEC §13.1's wave-6 row asks for the guard),
+  so every C package that ever wanted to ask *"save the changes?"* had no way
+  to be asked. `int os88_onclose(void *win)` answers non-zero to let the close
+  happen and **zero to refuse it**, `os88_wm_onclose(win)` installs it from
+  `os88_main()` beside `os88_wm_onwake()`, and `os88_wm_close(win)` — which
+  already existed — is how a package that refused finishes the job once the
+  user has answered. `wm_ask_close` branches on the carry with nothing between
+  the call and the branch that writes FLAGS, so the shape above is not a
+  convention here but the whole mechanism.
 - **No thunk may `retf`** (§20.8 rule 5), and none has any reason to: the
   dispatcher owns the only one in the package.
 - **The worker entry is the exception.** It never returns (§20.6 rule 2), so

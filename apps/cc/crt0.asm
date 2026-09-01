@@ -511,6 +511,96 @@ cc_onresize:
     ret
 %endif
 
+%ifdef CC_HAS_ONTIMER
+; -----------------------------------------------------------------------------
+; cc_ontimer - W_ONTIMER (SPEC.md 13.9), installed by os88_wm_ontimer() and
+; fired by os88_wm_timer(). ONE-SHOT, and it disarms itself BEFORE this runs -
+; so re-arm inside the handler for a repeat (a blinking caret) and do nothing
+; for a single shot.
+;
+; It is W_ONCLICK's environment exactly: the UI task, the gfx lock HELD, billed
+; to the instance - which is why it may draw. It fires while the window is
+; MINIMIZED too; ask os88_wm_geom() if that matters.
+;
+; NOTHING ARRIVES WITH IT. CX and DX are 0 going in (a timer has no point), so
+; the C signature takes the window and nothing else. The first C package to
+; want either of these is WEAVE, whose <input> blinks a caret (WEAVE-SPEC 6.7);
+; the pair had no C path before that, which is why it is here and not older.
+; in:  SI = the window; the gfx lock IS held
+; out: nothing; every register the kernel cares about is preserved
+; -----------------------------------------------------------------------------
+cc_ontimer:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cld
+    push si                         ; arg 1: void *win
+    call _os88_ontimer
+    add sp, 2
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+%endif
+
+%ifdef CC_HAS_ONCLOSE
+; -----------------------------------------------------------------------------
+; cc_onclose - THE CLOSE NEGOTIATOR (SPEC.md 75.1), installed by
+; os88_wm_onclose(). The kernel asks the window before it closes it, through
+; EVERY door there is - the close box, the app-name menu's Close, the dock
+; tile's context menu - and the window may refuse.
+;
+; It is W_ONCLICK's environment: the UI task, the gfx lock HELD, SI = the
+; window. So the C may draw, may call the file slots, may raise an alert - and
+; must not take the lock and must not take long.
+;
+; THE ANSWER RIDES IN CF, which is why this is not a copy of cc_ontimer:
+; `wm_ask_close` calls us and branches on the carry with nothing in between
+; that touches the flags (SPEC.md 75.1), so the flags this `ret` leaves ARE
+; the answer. SPEC.md 73.4 pins the shape - "pops, then `or ax, ax`, then
+; stc/clc, then ret", because a `pop` does not write FLAGS and AX is the one
+; register a thunk deliberately does not save.
+;
+; The C returns non-zero to LET IT CLOSE and zero to REFUSE. A refusal now
+; owes the user a way out: put up an alert and call os88_wm_close() when it is
+; answered. A refusal with nothing behind it is a window that cannot be
+; closed, and real mode has no way to take that back.
+;
+; in:  SI = the window; the gfx lock IS held
+; out: CF = 0 close it, CF = 1 refused; every register but AX preserved
+; -----------------------------------------------------------------------------
+cc_onclose:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cld
+    push si                         ; arg 1: void *win
+    call _os88_onclose
+    add sp, 2
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    or ax, ax                       ; ...and only now, with nothing left to
+    jz .refuse                      ; restore, is FLAGS the answer
+    clc
+    ret
+.refuse:
+    stc
+    ret
+%endif
+
 %ifdef CC_HAS_ONWAKE
 ; -----------------------------------------------------------------------------
 ; cc_onwake - W_ONWAKE, the package's own kick (SPEC.md 74.1), installed by

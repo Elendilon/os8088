@@ -2463,7 +2463,14 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
 %endmacro
 
 %macro OSAPI_JSLOT 1                ; a cell that defers to a longer stub
-    jmp near %1                     ; E9 rel16 = 3 bytes
+    ; STRICT, and the whole slot depends on it. Without it NASM shortens the
+    ; jump to EB rel8 whenever the target is within 127 bytes - which
+    ; api_icon_draw became - and the slot emits 2 + 5 = SEVEN bytes. The
+    ; padding here is a fixed `times 5`, so it cannot absorb the difference:
+    ; every slot after the shortened one slides down a byte and answers at the
+    ; wrong address. That is the whole reason the length assertion below
+    ; exists, and it is what caught this.
+    jmp strict near %1              ; E9 rel16 = 3 bytes, always
     times 5 db 0
 %endmacro
 
