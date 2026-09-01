@@ -821,6 +821,19 @@ SOAK = [
         "including the bar and the dock, no block is left in the menu bar, and "
         "all three fallbacks reach the blanker with the framebuffer untouched",
         needs=("marty",), serial=True),
+    Row("fishfit", "soak", py("tests/fishfit.py"), 45.0,
+        "does the most expensive sea the generator can roll still fit ONE "
+        "TICK? (SPEC.md 79.5.8). Sea life is the one saver mode that ever "
+        "cost more than the 54.93 ms a task_sleep(1) parks for, and what that "
+        "cost is not a slow mode: 18.2 / (floor(work / 54.93) + 1) is 18.2 a "
+        "millisecond under and 9.1 a millisecond over, with nothing between. "
+        "saverate is the KERNEL half of that - a mode asleep while it is "
+        "behind - and cannot catch this half, because a sea that legitimately "
+        "costs 70 ms is slow and busy and passes it. The assertion is the "
+        "PASS, in guest cycles between two sv_step entries, with all four "
+        "swimmers forced to the larger size: one roll in sixteen, so a test "
+        "that waited for one would usually measure something cheaper.",
+        needs=("marty",), serial=True),
     Row("saverate", "soak", py("tests/saverate.py"), 260.0,
         "is a saver mode ASLEEP while it is behind? (SPEC.md 79.5.7, 8.1.2.4). "
         "ui_task's task_sleep(1) quantises a deadline polled once a pass to "

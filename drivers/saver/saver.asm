@@ -575,11 +575,12 @@ sv_clear:
 ; adapter the author is looking at. gfx_inktab (SPEC.md 39.4) rounds 1..6 to
 ; BLACK, so a mode that reaches for CBLUE on a Hercules draws nothing at all.
 ;
-; THE TWO ENTRIES EXIST BECAUSE A BLIT CARRIES ITS OWN COLOURS. Three of the
-; four modes set a pen and draw; the sea builds a 4bpp sprite in RAM and hands
-; it to OSAPI_GFX_BLIT4, which never reads [gfx_color] - the colour is IN the
-; pixels. So the table read and the SET_COLOR are separable, and a second copy
-; of the table read is exactly the thing this file must not grow.
+; THE TWO ENTRIES EXIST BECAUSE A BLIT CARRIES ITS OWN PEN. Three of the four
+; modes set a pen and draw; the sea builds a 1bpp band in RAM and hands it to
+; OSAPI_GFX_BLIT1, which never reads [gfx_color] - the colours are the pen
+; OSAPI_GFX_BLIT1_PEN sets for that one band (SPEC.md 5.4.2.2). So the table
+; read and the SET_COLOR are separable, and a second copy of the table read is
+; exactly the thing this file must not grow.
 ; -----------------------------------------------------------------------------
 sv_ink:
     push bx

@@ -81279,7 +81279,7 @@ Four rules bind every mode, and the first is the feature:
 | **Spinning cube** | 24 line calls — twelve erased, twelve drawn, edge by edge (§78.5, so the figure is never absent) | **1.06** — see §79.5.5 |
 | **Starfield** | 2 calls a star, 28 stars, **the new one drawn before the old is taken off** | 1 |
 | **Geometric shapes** | 1 `OSAPI_GFX_LSTEPV` a figure: every live edge grows a few pixels in one arrival (§79.5.4) | 1 |
-| **Sea life** | 12: **one `OSAPI_GFX_BLIT4` a swimmer**, four bubbles at two | 1 |
+| **Sea life** | 12: **one `OSAPI_GFX_BLIT1` a swimmer** (§79.5.8), four bubbles at two | 1 |
 
 The cube is WIREFRAME's maths unchanged (§78.2) — two byte-sized rotations
 with each term's two products summed at 16 bits before the shift, an
@@ -81326,8 +81326,13 @@ Four things hold it up, and each is a way to get it wrong:
   `ES = KERNEL_SEG` (§20.1), so it is set and put back around the one call.
 - **A speed is even.** The sprite is painted into the union at an x offset of
   `|dx|`, and 4bpp packs two pixels per byte — an odd offset would put every
-  row half a byte out of phase. Speeds are 2 and 4.
+  row half a byte out of phase. Speeds are 2 and 4. (§79.5.8 relaxed this to a
+  *convention*: a band is one bit a pixel and takes any offset at all.)
 - **The block is cut to the screen by the OVERLAY, not by the kernel.**
+  (§79.5.8 gave this back to the kernel: `gfx_blit1` clips in both axes and
+  does it exactly, because every extent it meets is a multiple of 8 and so is
+  the band. The paragraph below is the second draft's account and the reason
+  the cut had to exist while the block was 4bpp.)
   `gfx_blit4` clips perfectly well, and that is the problem: on 1bpp its row
   *decoder* cannot clip in x — a left cut of an odd number of pixels shifts
   the nibble phase of every pair after it — so an overhanging block falls back
@@ -81701,6 +81706,14 @@ addressable, and `sv_fish_clip` — which cuts the union block to the screen
 itself, for §79.5.1's frame-rate reason — halves the left cut to move the
 source pointer. That halving is exact only if the cut is even.
 
+**Since §79.5.8 this is a CONVENTION and not a correctness rule**, and the
+whole of the rest of this half-section is the record of what it cost while it
+was one. A band is one bit a pixel, `sv_bnd_shift` places it at any bit offset
+at all, and `sv_fish_clip` is gone — so an odd x is now merely an x. The
+rounding is kept, in `sv_fish_init` and in `sv_fish_where`, because the union
+offset, the block origin and the box banked for the next frame are all derived
+from that one word and a sea on one column grid is the sea that was measured.
+
 Every place a swimmer's x is *written* keeps it even: a birth is at −width or
 at the screen width, both even, and a speed is 2 or 4. There was one
 exception, and it was `sv_fish_init` seeding the opening four at a **random
@@ -81812,6 +81825,210 @@ more than a tick; it now runs at what it costs instead of at the divisor below
 it, which is what it did before §8.1.2 and what §79.5.1's second draft was
 measured at. Making the frame itself fit is a drawing problem (§79.5.1,
 §79.5.3) rather than a scheduling one and is not attempted here.
+
+**§79.5.8 is that drawing change**, and it is worth reading this section's
+table beside it: the fix here bought the mode its *cost* back, and the fix
+there bought it the *tick*. The two are independent and both are load-bearing
+— a frame that fits still needs the deadline not to be quantised the moment
+anything else on the machine pushes a pass over.
+
+#### 79.5.8 The sea is a 1bpp BAND now, and that is the third draft
+
+§79.5.7 ends *"what this does NOT do is make the frame fit"*, and names the
+place a fix would have to come from: the drawing, not the scheduling. This is
+that fix. **A sea-life pass is now 54.93 ms on all three adapters — one tick,
+exactly — for every sea the generator can roll, including four swimmers at the
+larger size**, which took 76.23 ms and drew at 13.12 fps before. It is flat as
+well as fast: **54.90 to 54.95 ms over 199 consecutive frames**, where the
+number the mode used to give was the number the sea happened to cost.
+
+**Where the time was, measured rather than apportioned.** On MartyPC, a
+cycle-accurate 4.77 MHz 8088 with a CGA, by breaking at a routine's entry,
+reading its return address off the guest's own stack, breaking *there*, and
+subtracting the emulator's cycle counter — so each figure is one call's own
+work with no host timing and no sampling in it:
+
+| term | before | after |
+|---|---:|---:|
+| **the PASS, four swimmers at scale 2** | **76.23 ms → 13.12 fps** | **54.93 ms → 18.21 fps** |
+| `sv_step`, four swimmers at scale 2 | **73.39 ms** | **32.76 ms** |
+| `sv_step`, three at scale 2 | 65.34 | 30.34 |
+| one swimmer at scale 2 (`sv_fish_one`) | 16.67 | **6.50** |
+| one swimmer at scale 1 | 8.51 | 3.83 |
+| ...its buffer build | 5.45 (`sv_spr_build`) | 4.16 (`sv_bnd_build`) |
+| ...its **arrival** | **10.20** (`gfx_blit4`) | **1.26** (`gfx_blit1`) |
+| four bubbles, two `gfx_fill` each | 6.70 | 6.70, unchanged |
+
+**The blit was 56% of the frame, and it was priced by the ROW.** `gfx_blit4`
+on a 1bpp adapter cost **2,863 cycles a row** for a 36-pixel row and the width
+barely entered it: `sw_blit_row` is 2,245 of those — 19 instruction bytes a
+pixel *pair* on a machine that charges 4.34 clocks a byte fetched (§5.4.1) —
+and `gfx_blit4`'s own per-row prologue is the rest, a `gfx_rowbase` multiply
+at 137 cycles, the pair-table select, and nine pushes against nine pops. The
+tell is that a scale-1 swimmer's ten rows cost 5.4 ms and a scale-2 swimmer's
+eighteen cost 10.2: **540 and 611 µs a row, which is the same number twice**,
+for rows 20 and 36 pixels wide.
+
+**The swimmers were 1bpp art the whole time.** The twelve bitmaps are one bit
+a pixel (a fish, three tail positions, two headings; a jellyfish, three bell
+positions). `sv_spr_build` expanded them to 4bpp so that `gfx_blit4` could
+reduce them back to 1bpp a pixel-pair at a time, through `gfx_pairtab`.
+`OSAPI_GFX_BLIT1` (§5.4.2) takes the 1bpp band as it is and emits it with a
+`rep movsw` a row — five or six bytes where the block was eighteen, and no
+per-pixel decode at either end. **8.1× on the arrival**, 2.24× on the frame.
+
+**Nothing about the sea changed.** Same generator, same rolls, same sizes,
+same speeds, same lanes, same bitmaps, same animation, same bubbles: the only
+thing replaced is how a swimmer reaches the glass. That is checkable and was
+checked — a fixed sea written over the rolled one at the moment `sv_fish_init`
+returns, a fixed number of frames run to `sv_step`'s own return, and the
+framebuffer compared byte for byte against the same scene on the second
+draft's binary:
+
+| scene | adapter | differing pixels |
+|---|---|---:|
+| four swimmers mid-screen, both scales, both kinds | CGA 640×200 | **0** of 128,000 |
+| the same | Hercules 720×348 | **0** of 250,560 |
+| the same | VGA 640×480, four planes | **0** of 307,200 |
+| **straddling both edges**, both scales | CGA / Hercules / VGA | **0**, **0**, **0** |
+
+The VGA row is read out of the four planes through the Graphics Controller's
+Read Map Select and **not** out of the rendered framebuffer: a machine stopped
+mid-scan answers a partial frame, and two captures of one identical binary
+differed by 176 pixels — which reads exactly like a renderer that changed.
+
+**Three things the band had to solve, and each is a way to get it wrong.**
+
+1. **A band starts on the byte grid and a swimmer does not.** `gfx_blit1`
+   refuses an x or a width off it (§5.4.2), and a swimmer moves 2 or 4 pixels
+   a frame. So the band is the union block rounded **down** to the grid and
+   widened out to it — which is why its stride carries `+ 7 + 7` and not
+   `+ 0` — and the sprite is shifted into it by whatever is left over.
+   `sv_bnd_shift` is that shift: a byte walk carrying the bits that fell off
+   the last byte, uniform over every offset from 0 to 7 because an 8086 uses
+   `CL` whole (the 5-bit mask arrived with the 186), so `shr r8, cl` with
+   CL = 0 does nothing and `shl r8, cl` with CL = 8 clears the byte, which are
+   the two answers the ends of the range want.
+
+2. **The clipping goes back to the kernel.** §79.5.1's third bullet exists
+   because `gfx_blit4`'s fast path cannot clip in x — a left cut advances a
+   4bpp source by a pixel count that may be odd, which shifts the nibble phase
+   of every pair after it — so the overlay cut the block itself and §79.5.3's
+   even-x invariant was what made that cut exact. `gfx_blit1` clips in both
+   axes and does it **exactly**: every extent it meets (`vid_cw` is 640 or
+   720) is a multiple of 8, and so is the band, so whole byte columns simply
+   drop. `sv_fish_clip` is deleted and the even-x rule is demoted to a
+   convention (§79.5.3).
+
+3. **A jellyfish is dithered and a band has no grey.** On a 1bpp adapter the
+   pen is **not read** (§5.4.2.2) — a set band bit is lit, and nothing a
+   caller does changes that — so the mono column's `CLGRAY`, which is the only
+   thing distinguishing a jellyfish from a fish on two adapters of three
+   (§39.4), cannot arrive through `OSAPI_GFX_BLIT1_PEN`. It is composed into
+   the band instead, and it has to be the *kernel's own* dither or the two
+   would disagree wherever they met: `sw_parity` lays `0xAA` on an even screen
+   row and `0x55` on an odd one, bit 7 leftmost, so a pixel is lit when
+   (x + y) is even. A band starts on the byte grid, so its rows take that mask
+   unshifted, and the two bytes being each other's complement means one XOR
+   steps from a row to the one below it. On a colour adapter the mask is
+   `0xFF` throughout and the pen carries the colour — the swimmer's own on
+   ink, `CBLACK` on paper, and `CBLACK` is 0, which is a subset of every
+   colour, so the pair is never the one §5.4.2.2 refuses.
+
+**What it cost.** `saver.drv` grows **355 bytes** — a 512-byte doubling table
+(a bitmap byte to the same eight pixels doubled, sixteen bits) against the two
+sprite painters and the clipper it deletes — and the drawing buffer *shrinks*
+from a 360-byte 4bpp block to a 120-byte band. It is an overlay, so none of
+that is resident (§79.2).
+
+**`gfx_blit1` is kern_big only** — kern_small's slot is `stc`/`retf` (§5.4.2)
+— and this file is a kern_big file by construction: the Makefile's
+`SMALLDRIVERS` filters `saver.drv` out of both small floppies, exactly as it
+filters `xmem.drv`, so no kernel that would refuse the call has the file to
+load. `sv_fish_blit` still tests `CF` and erases the swimmer's old box on a
+refusal, because *"unreachable"* and *"leaves the last frame standing for the
+rest of the session"* are a bad pair to be wrong about: an empty sea is
+recoverable and a littered one is not.
+
+**Making the mode faster broke the test that measured it, and the test was
+wrong.** `tests/saverate.py` counts sea-life frames off the swimmers' own x,
+over a window it took by `time.sleep`. MartyPC runs at whatever multiple of
+real time the host manages — four times it, here — so three host seconds were
+twelve guest ones: **218 frames at one a tick, and a swimmer at 4 px a frame
+crosses a 640-pixel screen in 160.** Every swimmer respawns inside such a
+window and the counter has nothing left it can divide, so what comes back is
+not noise but a plausible number that is too low — **8.48 fps for a mode this
+section measures at 18.21**. It was under-reading the second draft as well,
+just not far enough to fail: 10.75 fps through the old window against 15.23
+through the new one, for the same binary and the same sea. The window survived
+only while the mode was slow enough that the 2-pixel swimmers did not quite
+cross. It is now taken in **guest** time (`m.advance(cycles=)`), which is what
+a window sized against a crossing needs, and both builds read correctly
+through it: the second draft **15.23 fps, 0.0% halted** — *slow but busy*,
+which is what an expensive sea should look like — and this one **18.21 fps,
+43.5% halted**, keeping up with well over a third of the machine idle.
+
+**What is left, and it is not the blit any more.** `sv_bnd_build` is now
+**66%** of a swimmer (4.16 ms of 6.50) and the four bubbles' eight `gfx_fill`
+arrivals are 6.70 ms of a 32.76 ms frame. Neither is worth attacking: the
+frame has 22 ms of a tick spare, and the next thing to spend it on is content,
+not cycles. A *cap* on what the generator may roll — a draw budget, so that
+one large swimmer forces the other three small — was designed and is **not
+built**, because with the band there is nothing to cap: the most expensive sea
+the generator can produce is 60% of a tick.
+
+#### 79.5.9 A swimmer at the right edge and a pixel at the left, and the cut that is not a diagnosis
+
+**Reported from an 86Box IBM 5150 with a Hercules**, on the images built at
+§79.5.8: every time a swimmer enters or leaves at the *right* edge, one to
+three pixels light at the far *left*, in rows that overlap the swimmer's own —
+*"a shimmer of pixels"*. A five-second recording was supplied and read frame
+by frame; docs/FIELD-NOTES.md 38 is the full account and the list of what has
+been ruled out.
+
+**The recording establishes two things.** The mark is not another swimmer —
+at the frames where nothing else is near the left edge, its rows lie inside
+the right-hand swimmer's and outside every other object's. And **it shrinks as
+the swimmer comes further on**: fourteen rows when two pixels of the swimmer
+are showing, three rows when twenty are. That is the half still off the right
+arriving at the start of the row, which is what makes it a defect rather than
+the coincidence of two swimmers in one lane — which the same recording also
+contains, and which reads identically to the eye.
+
+**Nothing in this tree reproduces it.** Under MartyPC on a cycle-accurate
+5150: a swimmer forced to straddle the right edge continuously at every scale,
+kind, speed, alignment, direction and lane over ~2,500 frames, with the other
+three parked where `gfx_blit1` refuses them and the bubbles off the picture,
+the whole screen checked against that one swimmer's box every frame — clean.
+Unforced sessions, 700 frames Hercules and 350 CGA — clean. The **previous**
+renderer under the same sweeps — clean, so this is not something §79.5.8
+introduced, or not something it introduced here. MartyPC's own rasterised
+field against its framebuffer, column by column — they agree, so it is not
+the display path either. `vid_cw` is 720 and `vid_stride` 90; the clip cannot
+let a row overrun.
+
+**`sv_bnd_clip` is therefore not a diagnosis.** It cuts the band to the screen
+in the overlay, so the kernel is never handed one that overhangs and there is
+nothing left for its clip to get wrong — whatever `[vid_cw]` says on the
+machine in question. The second draft's `sv_fish_clip` did exactly this and
+was deleted as redundant when the band arrived (§79.5.8); what is different
+now is that a **band cannot be cut wrong**, because every extent it meets is a
+multiple of 8 and so is the band — §79.5.3's nibble-phase hazard, which made
+the even-x rule an invariant, has no analogue here.
+
+**It costs 74 bytes and draws the identical picture** where the kernel clips
+correctly: 0 differing pixels on CGA, Hercules and VGA, mid-screen and
+straddling both edges. That is also the honest limit of what can be claimed
+for it — a no-op measured on the machine that never had the symptom says
+nothing about the machine that does. **If the shimmer survives it, the
+mechanism is somewhere neither this section nor field note 38 has looked.**
+
+**One reading error is recorded because it cost the first pass entirely.** The
+supplied capture is 740×350 for a 720×348 picture, and the guest's column 0 is
+image column **9**, not 10. An analysis written against the wrong origin never
+looks at column 0 — which is the whole report — and comes back clean while
+the evidence sits in the file. The tell was there: a dim green pixel at image
+column 9 with nothing beside it, in exactly the frames the reporter circled.
 
 ### 79.6 Waking, the cursor, and the repaint
 
