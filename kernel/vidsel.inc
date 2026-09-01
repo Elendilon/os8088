@@ -1822,26 +1822,6 @@ vid_disp_planes:
     ret
 
 ; -----------------------------------------------------------------------------
-; vid_pt_local - a virtual point in the display holding it (SPEC.md 39.15)
-; in:       AX = x, BX = y, virtual
-; out:      CL = the display, AX/BX its own coordinates
-; clobbers: AX, BX, CL, flags
-; -----------------------------------------------------------------------------
-vid_pt_local:
-    push dx
-    push di
-    push ax                     ; vid_disp_of ANSWERS in AL, so x is banked
-    call vid_disp_of
-    mov cl, al
-    call vid_ctx_ptr            ; DI = its record; AX preserved
-    pop ax
-    sub ax, [di+VID_CTX_VX]
-    sub bx, [di+VID_CTX_VY]
-    pop di
-    pop dx
-    ret
-
-; -----------------------------------------------------------------------------
 ; vid_pt_clamp - the nearest virtual point inside display CL (SPEC.md 39.15.4)
 ; in:       AX = x, BX = y virtual, CL = the display to clamp into
 ; out:      AX/BX inside it
