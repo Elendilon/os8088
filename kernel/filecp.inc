@@ -139,6 +139,14 @@ fcp_arm:
 ; body to the instruction, and both are `.cold` = COLD_SEG.
 fcp_ncopy   equ dsk_ncopy
 
+; fcp_unbatch - end the write batch and pay SPEC.md 18.9's listing debt, in
+; that order: dskw_batch gates the remount dsk_relist tail-calls.  clobbers
+; AX (dsk_relist's) - fcp_stop has AX pushed and fcp_step's .ask reloads AL
+; with FCPS_ASK on the next line.
+fcp_unbatch:
+    mov byte [dskw_batch], 0
+    jmp dsk_relist_x
+
 ; fcp_n13 - ...and the length THREE of its callers pass: an 8.3 display name
 ; (SPEC.md 19.1).  Leaves CX = 13 on return, exactly as `mov cx, 13` +
 ; call did - dsk_ncopy restores CX to its OWN entry value - and no caller
@@ -628,8 +636,8 @@ fcp_stop:
     push ax
     call fcp_bufput
     mov byte [fcp_busy], 0
-    mov byte [dskw_batch], 0    ; the deferred remount is spent by the caller
-    call dsk_relist_x ; the volume switches were quiet (SPEC.md
+    call fcp_unbatch            ; the deferred remount is spent by the caller;
+                                ; the volume switches were quiet (SPEC.md
                                 ; 18.9), so the global snapshot may be this
                                 ; operation's debt - and the world is about to
                                 ; repaint. AFTER dskw_batch, which gates the
@@ -767,13 +775,13 @@ fcp_step:
     jmp fcp_stop                ; a tail call: fcp_step has nothing of its own
                                 ; on the stack here, and fcp_stop leaves AL
 .ask:
-    mov byte [dskw_batch], 0    ; the pause is a trip through the event loop,
+    call fcp_unbatch            ; the pause is a trip through the event loop,
                                 ; where anything else that writes must behave
-                                ; normally; fcp_step raises it again on the
-                                ; way back in
-    call dsk_relist_x ; ...and where the listing must be this
-                                ; volume's again (SPEC.md 18.9), for the same
-                                ; reason and at the same moment
+                                ; normally (fcp_step raises the batch again on
+                                ; the way back in) and where the listing must
+                                ; be this volume's again (SPEC.md 18.9) - the
+                                ; same pair, for the same two reasons, as the
+                                ; one in fcp_stop
     mov al, FCPS_ASK            ; the buffer and the frames stay claimed:
     ret                         ; this is a pause, not an end
 .fail:
