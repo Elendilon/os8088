@@ -1642,9 +1642,15 @@ dsk_ltrtab:                     ; every message that names the system disk
     dw cp_s_nodrv               ; ...and its OPEN refusal (SPEC.md 2.8.4), now
                                 ; that the panel's own code is a file on that
                                 ; same disk
-    dw fm_s_swapd               ; ...and the formatter's swap prompt (2.8.5),
-    dw fm_s_swapnd              ; which names it twice: the ask and the refusal
-DSK_LTRN equ 6
+    dw fm_s_swapnd              ; ...and the formatter's REFUSAL toast (2.8.5).
+                                ; Its swap PROMPT names the volume too, and is
+                                ; the one standalone 'A:' of the six - it is
+                                ; `fm_s_swapd equ ui_s_nodisk_l` now, so row 0
+                                ; above stamps both and there is no sixth row
+DSK_LTRN equ 5
+%if DSK_LTRN * 2 != $ - dsk_ltrtab
+%error "DSK_LTRN does not match the table above - the stamp loop would miss a message, or walk past the end"
+%endif
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle

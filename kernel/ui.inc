@@ -2505,7 +2505,11 @@ ui_s_nodisk: db 'No system disk in drive '
 ui_s_nodisk_l: db 'A:', 0       ; the LETTER, stamped once by dsk_boot_from
                                 ; (SPEC.md 52.10.3) - a label rather than an
                                 ; offset, so rewording the message cannot
-                                ; leave the stamp pointing at a space
+                                ; leave the stamp pointing at a space.
+                                ; TWO READERS: files.inc's fm_s_swapd is
+                                ; `equ` this, the formatter's swap prompt
+                                ; being the only standalone 'A:' of the six.
+                                ; Reword the message; do not delete the label
 ui_s_dskerr: db 'Disk error reading it', 0
 ui_s_badpkg: db 'TASKMGR.O88 is not a valid package', 0
 ui_s_toobig: db 'TASKMGR.O88 is too large', 0

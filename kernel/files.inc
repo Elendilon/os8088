@@ -1583,8 +1583,15 @@ fm_s_delq:    db '? Del=yes Esc=no', 0   ; the DELETE key, not Enter (SPEC.md
 ; in their first, they are answered by the same key, and a second FS_EDIT
 ; value would be a second thing every ladder in this file has to know about.
 fm_s_swap1:   db 'Insert the system disk in ', 0
-fm_s_swapd:   db 'A:', 0        ; stamped by dsk_bootltr like every other
-                                ; message that names the system volume
+fm_s_swapd    equ ui_s_nodisk_l ; NOT ITS OWN STRING.  The six messages that
+                                ; name the system volume are all stamped with
+                                ; the same byte by one dsk_bootltr loop, and
+                                ; five of them are the TAIL of a longer message
+                                ; with no NUL of its own.  This one is
+                                ; standalone, so it is ui.inc's - which means
+                                ; ui_s_nodisk_l ('A:', 0, ui.inc) MUST KEEP ITS
+                                ; LABEL AND ITS BYTES; a reword of the message
+                                ; around it is fine, deleting the label is not
 fm_s_swapk:   db 'Enter=ready  Esc=no', 0
 fm_s_swapno:  db 'Format needs disk '  ; ...and this one is a TOAST, so it is
 fm_s_swapnd:  db 'A:', 0        ; bounded by TOAST_MAX = 23 rather than by the
