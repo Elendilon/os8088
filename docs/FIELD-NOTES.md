@@ -4590,7 +4590,7 @@ which is where a fix for it would go.
 
 ---
 
-## 38. A swimmer at the RIGHT edge lights one to three pixels at COLUMN 0 — 86Box 5150 + Hercules (OPEN; a cut shipped that removes the only route to it, SPEC.md §79.5.9)
+## 38. A swimmer at the RIGHT edge lights a pixel at COLUMN 0 — 86Box 5150 + Hercules (CLOSED, NOT OURS: the mark is one row DOWN, which no write can reach — SPEC.md §79.5.9)
 
 **What was seen.** On an 86Box IBM 5150 with a Hercules, running the images
 built at `a4af84d`: every time a sea-life swimmer enters or leaves at the
@@ -4638,17 +4638,43 @@ it.
 - The geometry: `vid_cw` = 720 and `vid_stride` = 90 on Hercules, `640`/`80`
   on CGA. The clip cannot let a row overrun.
 
-**The standing theory** is therefore that something about `[vid_cw]` or the
-row extent differs on the reporter's machine, and that the band's off-screen
-half reaches the row's first byte through `gfx_blit1`'s right clip. Nothing
-here can see it, so the theory is unconfirmed.
+**What settled it: the mark is on row y+1.** Cross-correlating the left-hand
+mark's rows against the right-hand columns, over every frame where the mark is
+the only thing near the left edge, gives **+1 and nothing else**. The swimmer
+stands in rows 276-282; the mark stands in rows 277-283. It carries **55-73%
+of the energy** of the pixel it copies, it is at column 0 alone, and it lives
+exactly as long as the box overhangs - gone the frame the box is wholly on
+screen, which is the reporter's *"it shrinks as the sprite comes further on"*
+(the mark wears column 719's silhouette, and that thins as the tail passes).
 
-**What shipped** is not a fix for a mechanism anybody has watched run: it is
-`sv_bnd_clip`, which cuts the band to the screen in the overlay so the kernel
-is never handed one that overhangs. On a machine whose kernel clips correctly
-it is a no-op — 0 differing pixels on CGA, Hercules and VGA, mid-screen and
-straddling both edges — so it costs nothing and it removes the only route by
-which the off-screen half could arrive at column 0. **If the shimmer survives
-it, the mechanism is somewhere this note has not looked**, and the next thing
-to ask for is the reporter's `86box.cfg` and what the Control Panel's Display
-page says the screen is.
+**+1 is not reachable by a write.** Row *y* lives in bank `y & 3` at
+`(y >> 2) * 90`, so the byte after row *y*'s last is row **y+4** column 0; row
+**y+1** column 0 is in another bank, 8,103 bytes from anything a row-*y* draw
+touches. Scanlines are adjacent in the *display* and nowhere else, so the
+mark is the display's.
+
+**And the reporter's own last test named the device.** A dual-card machine
+with the Hercules as primary is clean - and that machine's card is 86Box's
+`hercules_plus`, where the failing machine's `86box.cfg` says
+`gfxcard = hercules`. Different device, different render loop. Together with MartyPC
+clean on both 1bpp adapters, in the framebuffer *and* in its rasterised field,
+and with the guest's video memory provably not containing the mark, that is
+the whole answer: **86Box's plain Hercules renderer, not this kernel.** The
+shape of it is a horizontal filter reading one pixel before a scanline starts,
+which in a contiguous line buffer is the previous scanline's last pixel; the
+specific internals have not been read and are not claimed.
+
+**Anyone can re-run the discriminator in thirty seconds**: change `gfxcard =
+hercules` to `hercules_plus` in the machine's `86box.cfg` and boot the same
+floppies. The shimmer goes and nothing else about the machine changes.
+
+**`sv_bnd_clip` has been removed** (SPEC.md §79.5.9). It was shipped as the
+removal of a route rather than a fix, the route was not the one, and what it
+left behind was a second copy of a clip the kernel performs correctly - plus
+the part worth stating, a loss of coverage: with it in place the saver never
+exercised `gfx_blit1`'s right clip at all.
+
+**The lesson that generalises** is the reading error above, not the defect. An
+origin taken by eye off a capture is a guess; calibrate it against a feature
+the guest controls - here the hard cut at the screen's right edge - before
+reading a single pixel off the file.

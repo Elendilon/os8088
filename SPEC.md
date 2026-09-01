@@ -81977,58 +81977,69 @@ one large swimmer forces the other three small — was designed and is **not
 built**, because with the band there is nothing to cap: the most expensive sea
 the generator can produce is 60% of a tick.
 
-#### 79.5.9 A swimmer at the right edge and a pixel at the left, and the cut that is not a diagnosis
+#### 79.5.9 A swimmer at the right edge and a pixel at the left: the display, one row down
 
 **Reported from an 86Box IBM 5150 with a Hercules**, on the images built at
-§79.5.8: every time a swimmer enters or leaves at the *right* edge, one to
-three pixels light at the far *left*, in rows that overlap the swimmer's own —
-*"a shimmer of pixels"*. A five-second recording was supplied and read frame
-by frame; docs/FIELD-NOTES.md 38 is the full account and the list of what has
-been ruled out.
+§79.5.8: every time a swimmer enters or leaves at the *right* edge, one to two
+pixels light at the far *left*, in rows that overlap the swimmer's own —
+*"a shimmer of pixels"*, and *"everything at pixel 0 appears to be one on, one
+off"*. **It is not this kernel's, and it is not in the framebuffer.** The
+account is kept because the negative result took a recording, two renderers
+and about five thousand straddling frames to reach, and because the
+measurement that settled it is one line long once you know to take it.
 
-**The recording establishes two things.** The mark is not another swimmer —
-at the frames where nothing else is near the left edge, its rows lie inside
-the right-hand swimmer's and outside every other object's. And **it shrinks as
-the swimmer comes further on**: fourteen rows when two pixels of the swimmer
-are showing, three rows when twenty are. That is the half still off the right
-arriving at the start of the row, which is what makes it a defect rather than
-the coincidence of two swimmers in one lane — which the same recording also
-contains, and which reads identically to the eye.
+**The measurement.** A five-second recording, read frame by frame, with the
+guest's column 0 at image column 9 (see the reading error below). Cross-
+correlating the left-hand mark's rows against what stands in the right-hand
+columns gives **+1 on every clean frame** — every frame where the mark is the
+only thing near the left edge, so that no second swimmer can be confused for
+it. The swimmer occupies rows 276–282; the mark occupies rows 277–283. The
+mark carries **55–73% of the energy** of the pixel it copies, it sits at
+column 0 alone, and it is present for exactly as long as the swimmer
+straddles: it appears when the box first overhangs and is gone the frame the
+box is wholly on screen. That last property is the reporter's *"it shrinks as
+the sprite comes further on"* — the mark is a copy of column 719, so it wears
+the swimmer's silhouette at that column and thins out as the tail passes it.
 
-**Nothing in this tree reproduces it.** Under MartyPC on a cycle-accurate
-5150: a swimmer forced to straddle the right edge continuously at every scale,
-kind, speed, alignment, direction and lane over ~2,500 frames, with the other
-three parked where `gfx_blit1` refuses them and the bubbles off the picture,
-the whole screen checked against that one swimmer's box every frame — clean.
-Unforced sessions, 700 frames Hercules and 350 CGA — clean. The **previous**
-renderer under the same sweeps — clean, so this is not something §79.5.8
-introduced, or not something it introduced here. MartyPC's own rasterised
-field against its framebuffer, column by column — they agree, so it is not
-the display path either. `vid_cw` is 720 and `vid_stride` 90; the clip cannot
-let a row overrun.
+**+1 is what rules out every write.** In the Hercules layout (§39.3) row *y*
+lives in bank `y & 3` at `(y >> 2) * 90`, so the byte *after* row *y*'s last
+is row **y+4** column 0. Row **y+1** column 0 is in a different bank — 8,103
+bytes away from anything a row-*y* draw touches. No overrun, no stride error,
+no clip fault and no bank-walk fault can reach it; there is no arithmetic in
+this kernel that turns a right-edge write into a next-row-down one. A +1
+relationship exists only where scanlines are *adjacent*, which is the
+display, not the memory.
 
-**`sv_bnd_clip` is therefore not a diagnosis.** It cuts the band to the screen
-in the overlay, so the kernel is never handed one that overhangs and there is
-nothing left for its clip to get wrong — whatever `[vid_cw]` says on the
-machine in question. The second draft's `sv_fish_clip` did exactly this and
-was deleted as redundant when the band arrived (§79.5.8); what is different
-now is that a **band cannot be cut wrong**, because every extent it meets is a
-multiple of 8 and so is the band — §79.5.3's nibble-phase hazard, which made
-the even-x rule an invariant, has no analogue here.
+**Which is where it is.** The same desktop on the same 86Box, with the
+Hercules as primary but the card configured as `hercules_plus` rather than
+`hercules`, does not show it — a different device, and a different render
+loop. MartyPC does not show it on either 1bpp adapter, in the framebuffer or
+in its own rasterised field. The guest's video memory provably does not
+contain it. The shape of the remaining explanation is a horizontal filter
+taking one pixel from before the start of a scanline, which in a contiguous
+line buffer is the previous scanline's last pixel — that would give exactly
++1, exactly column 0 and exactly an attenuated copy; the specific 86Box
+internals have not been read here and are not asserted.
 
-**It costs 74 bytes and draws the identical picture** where the kernel clips
-correctly: 0 differing pixels on CGA, Hercules and VGA, mid-screen and
-straddling both edges. That is also the honest limit of what can be claimed
-for it — a no-op measured on the machine that never had the symptom says
-nothing about the machine that does. **If the shimmer survives it, the
-mechanism is somewhere neither this section nor field note 38 has looked.**
+**`sv_bnd_clip` has been removed.** It was 74 bytes that cut the band to the
+screen in the overlay so the kernel was never handed one that overhung, and it
+was shipped explicitly as *not a diagnosis* — the removal of a route rather
+than a fix for anything anybody had watched run. The route was not the one, so
+what is left is a second copy of a clip the kernel already performs correctly:
+dead weight that can drift from `gfx_blit1_x`'s own arithmetic, and — the part
+worth stating — a **loss of coverage**, because with it in place the saver
+never exercised the kernel's right clip at all. The band goes over whole and
+`gfx_blit1` cuts it, which is what §79.5.8 designed and what the second
+draft's `sv_fish_clip` was deleted for.
 
 **One reading error is recorded because it cost the first pass entirely.** The
 supplied capture is 740×350 for a 720×348 picture, and the guest's column 0 is
 image column **9**, not 10. An analysis written against the wrong origin never
-looks at column 0 — which is the whole report — and comes back clean while
-the evidence sits in the file. The tell was there: a dim green pixel at image
-column 9 with nothing beside it, in exactly the frames the reporter circled.
+looks at column 0 — which is the whole report — and comes back clean while the
+evidence sits in the file. The tell was there: a dim pixel at image column 9
+with nothing beside it, in exactly the frames the reporter circled. **Calibrate
+an origin against a feature the guest controls** before reading anything off a
+capture; here the hard cut at the screen's right edge fixes it in one step.
 
 ### 79.6 Waking, the cursor, and the repaint
 
