@@ -540,12 +540,10 @@ inst_park_mk:
 ; none (the UI task, or a task with no record) or has not declared itself
 ; park-safe. Clobbers BX and the flags and nothing else.
 inst_park_me:
-    push ax
-    push cx
-    mov bl, [sch_cur]
-    xor bh, bh
-    mov cl, 3
-    shl bx, cl                  ; T_SIZE = 8, the snd.inc idiom
+    push ax                     ; NO push cx: sch_currec clobbers BX only, and
+                                ; CX was banked here for nothing but the
+                                ; `mov cl, 3` that has gone with it
+    call sch_currec             ; BX = the running task's record offset
     mov al, [bx+sch_tasks+T_INST]
     cmp al, INST_MAX
     jae .no
@@ -557,12 +555,10 @@ inst_park_me:
     mov bl, [sch_cur]           ; ...and the MARK is the running task's
     xor bh, bh
     add bx, sch_parked
-    pop cx
     pop ax
     clc
     ret
 .no:
-    pop cx
     pop ax
     stc
     ret
@@ -1004,12 +1000,8 @@ inst_caller:
     cmp dh, 0xFF
     jne .out
 .task:
-    mov bl, [sch_cur]           ; not our callback: the running task's
-    xor bh, bh                  ; instance (0xFF for the UI task)
-    shl bx, 1                   ; T_SIZE = 8
-    shl bx, 1
-    shl bx, 1
-    mov dh, [bx+sch_tasks+T_INST]
+    call sch_currec             ; not our callback: the running task's
+    mov dh, [bx+sch_tasks+T_INST] ; instance (0xFF for the UI task)
 .out:
     pop bx
     ret
@@ -1998,11 +1990,8 @@ inst_pkg_alive:
 .die:                           ; NEVER RETURNS - the frame above is abandoned
     cmp byte [sch_cur], 0       ; ...unless we are the UI task, which must
     je .live                    ; never exit (see the banner)
-    mov bl, [sch_cur]           ; our OWN record, via the task record's
-    xor bh, bh                  ; T_INST (T_SIZE = 8; the snd.inc idiom)
-    mov cl, 3
-    shl bx, cl
-    mov al, [bx+sch_tasks+T_INST]
+    call sch_currec             ; our OWN record, via the task record's
+    mov al, [bx+sch_tasks+T_INST] ; T_INST
     cmp al, INST_MAX
     jae .orphan                 ; no record of ours at all - cannot happen
     call inst_ptr               ; DI = inst_tab + index*32

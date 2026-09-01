@@ -740,21 +740,42 @@ task_yield:
 ; out:      nothing (returns when the deadline has passed)
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
+; sch_currec - BX = the RUNNING task's record offset ([sch_cur] * T_SIZE)
+; in:  nothing
+; out: BX = the offset, so every caller's `[bx+sch_tasks+T_*]` is unchanged
+; clobbers: BX ONLY - not CX, which is why the multiply is three open shifts
+;      rather than the `mov cl,3 / shl bx,cl` the five sites spelled it with.
+;      instance.inc's inst_ctx_inst pushes BX and nothing else, and that is
+;      the site that decides the contract
+;
+; The idiom stood in six places and was spelled three different ways.  Five
+; are now calls; THE SIXTH IS NOT AND MUST NOT BE - sch_switch's copy is on
+; the switch path, where a near call and ret (~43 clocks) is 0.05% of an idle
+; machine but ~1.4% at the 1,541 switches a second docs/SCHED-IDLE-PLAN.md
+; 6.1.2 measures with an app open.  That is why this saves what it saves.
+;
+; PLACEMENT: outside the sch_isr -> sch_switch -> sch_resume fall-through run.
+; -----------------------------------------------------------------------------
+sch_currec:
+    mov bl, [sch_cur]
+    xor bh, bh
+    shl bx, 1                   ; T_SIZE = 8, as three open shifts: CX belongs
+    shl bx, 1                   ; to the callers here
+    shl bx, 1
+    ret
+
+; -----------------------------------------------------------------------------
 task_sleep:
     push ax
     push bx
-    push cx
-
-    mov bl, [sch_cur]           ; BX = current task record
-    xor bh, bh
-    mov cl, 3
-    shl bx, cl
+                                ; NO push cx: sch_currec clobbers BX only, and
+                                ; nothing else in this body names CX
+    call sch_currec             ; BX = current task record
     add ax, [ticks]
     mov [bx+sch_tasks+T_WAKE], ax       ; deadline first...
     mov byte [bx+sch_tasks+T_STATE], 2  ; ...then state (both stores atomic)
     call task_yield             ; switch away; we resume once state -> 1
 
-    pop cx
     pop bx
     pop ax
     ret
@@ -790,10 +811,7 @@ task_exit:
     jz .norel
     mov byte [di], 0            ; release the instance record (SPEC.md 29)
 .norel:
-    mov bl, [sch_cur]           ; free our own task record
-    xor bh, bh
-    mov cl, 3
-    shl bx, cl
+    call sch_currec             ; free our own task record
     mov byte [bx+sch_tasks+T_STATE], 0
     jmp sch_switch              ; explicit jump - placement-safe
 
