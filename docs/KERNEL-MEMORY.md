@@ -903,10 +903,10 @@ Three things about it:
   "big": {
     "boot2": 2439,
     "bootmax": 192512,
-    "bss": 5813,
+    "bss": 5814,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 38853,
+    "cold": 38857,
     "coldpara": 2432,
     "fatpara": 288,
     "imgpara": 3680,
@@ -919,7 +919,7 @@ Three things about it:
     "ovl": 1425,
     "ovlw": 5263,
     "stk0": 1024,
-    "text": 52617,
+    "text": 52916,
     "vgabuf": 848,
     "vgabufpara": 64
   },
@@ -1799,14 +1799,14 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 31,797 | 34.8% |
-| the window system and its furniture | 25,138 | 27.5% |
-| drawing: adapters, primitives, glyphs, icons | 15,814 | 17.3% |
+| the file system, end to end | 31,797 | 34.6% |
+| the window system and its furniture | 25,138 | 27.4% |
+| drawing: adapters, primitives, glyphs, icons | 16,113 | 17.6% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,402 | 9.2% |
-| the kernel proper: API table, heap, scheduler, events | 7,451 | 8.1% |
+| the kernel proper: API table, heap, scheduler, events | 7,455 | 8.1% |
 | the three built-in kinds | 1,813 | 2.0% |
-| the Control Panel | 1,055 | 1.2% |
-| **total** | **91,470** | |
+| the Control Panel | 1,055 | 1.1% |
+| **total** | **91,773** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -1826,14 +1826,14 @@ generated in the first place.
 | `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 2,042 | **2,538** | 348 | — | — |
 | `instance.inc` — instances and the built-in kinds (§29) | 2,167 | 258 | **2,425** | 694 | — | — |
 | `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,423 | **2,423** | 148 | — | — |
-| `font.inc` — the 8×8 glyph renderer (§6) | 2,087 | — | **2,087** | 218 | 768 | — |
+| `font.inc` — the 8×8 glyph renderer (§6) | 2,386 | — | **2,386** | 219 | 784 | — |
 | `apps.inc` — the three built-in kinds (§14) | 251 | 1,562 | **1,813** | 15 | 240 | — |
 | `icons.inc` — the icon renderer (§10) | 1,666 | — | **1,666** | 100 | — | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,389 | — | **1,389** | 22 | — | — |
 | `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,229 | — | **1,229** | 88 | — | — |
 | `snd.inc` — the sound layer (§34) | 1,178 | — | **1,178** | 300 | — | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 1,131 | — | **1,131** | 9 | — | — |
-| `sched.inc` — pre-emptive scheduling (§7–8) | 1,066 | — | **1,066** | 124 | 2,746 | — |
+| `sched.inc` — pre-emptive scheduling (§7–8) | 1,066 | — | **1,066** | 124 | 2,730 | — |
 | `ctrl.inc` — the Control Panel (§31) | 778 | 277 | **1,055** | — | — | — |
 | `desk.inc` — the desktop and volume zones (§14/§26.1) | 15 | 1,036 | **1,051** | 18 | — | — |
 | `viddet.inc` — adapter detection and geometry (§39) | 1,021 | — | **1,021** | — | 696 | 3 |
@@ -1842,7 +1842,7 @@ generated in the first place.
 | `clock.inc` — the clock ladder (§37) | 694 | — | **694** | 89 | — | — |
 | `fprog.inc` — the file-operation progress widget (§12.8) | 682 | — | **682** | — | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 512 | — | **512** | 25 | — | — |
-| `mod.inc` — on-demand kernel modules (§2.8) | 54 | 416 | **470** | 98 | — | — |
+| `mod.inc` — on-demand kernel modules (§2.8) | 54 | 420 | **474** | 98 | — | — |
 | `blank.inc` — the idle screen blanker (§64) | 208 | 247 | **455** | — | — | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 257 | — | **257** | 22 | — | — |
 | `clip.inc` — the system clipboard (§55) | 223 | — | **223** | 6 | — | — |
@@ -1855,7 +1855,7 @@ generated in the first place.
 | `bootprof.inc` — the boot phase table (§15.5), `BOOTPROF=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 3,050 | — | **3,050** | — | — | 421 |
-| **total** | **52,617** | **38,853** | **91,470** | **5,813** | **9,096** | **2,439** |
+| **total** | **52,916** | **38,857** | **91,773** | **5,814** | **9,096** | **2,439** |
 <!-- END generated table -->
 
 ### Reading it

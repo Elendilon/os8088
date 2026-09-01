@@ -5073,6 +5073,36 @@ section .text
                                 ; hides in the rung's padding is still real)
 %include "vga12.inc"
 %include "softgfx.inc"
+
+; --- SPEC.md 39.24.5: A NO-VGA ARM THAT IS FALLEN INTO MUST EMIT CODE --------
+; Here and not at the foot of vga12.inc, which is where it belongs and where
+; the sw_* names are not defined yet - softgfx.inc is the include above.
+;
+; Four entries in vga12.inc are reached by FALL-THROUGH, from a GFXDISP that
+; expands to nothing on kern_small or from a plain label. Writing the no-VGA
+; arm as `equ sw_x` is the obvious thing and is wrong: an `equ` emits no code,
+; so the entry falls past it into the next routine. It assembles, it boots, and
+; gfx_fill_gray runs osapi_gfx_fill_pat's body - which is how it shipped, and
+; PERFORMANCE.md Set 113c is what found it, a bench row rather than a gate.
+;
+; vga12.inc's NOVGA_ARM macro carries an assertion of its own and it CANNOT
+; catch this: writing `equ` instead of the macro does not invoke the macro, so
+; the assertion goes with it. This is the check that survives that, and putting
+; the `equ` back is what tests it.
+%ifndef GFX_VGA
+ %if gfx_fill_gray_raw == sw_fill_gray
+  %error "gfx_fill_gray_raw is an `equ` - the entry above FALLS THROUGH to it and an equ emits no code (SPEC.md 39.24.5)"
+ %endif
+ %if gfx_fill_pat_raw == sw_fill_pat
+  %error "gfx_fill_pat_raw is an `equ` - see SPEC.md 39.24.5"
+ %endif
+ %if vga_save_vram == sw_save
+  %error "vga_save_vram is an `equ` - see SPEC.md 39.24.5"
+ %endif
+ %if vga_restore_vram == sw_restore
+  %error "vga_restore_vram is an `equ` - see SPEC.md 39.24.5"
+ %endif
+%endif
 %include "font.inc"
 %include "band.inc"             ; the 1bpp band composer (SPEC.md 5.9), which
                                 ; is a KNOB again since 5.9.6 (`make BAND=1`)

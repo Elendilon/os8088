@@ -401,6 +401,29 @@ gfx_aud_end:                    ; the primitive's answer is in the flags on
 ; font_run that has already translated falls back to gfx_fill + font_str, and
 ; a translated caller reaching a hooked callee would translate twice.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; NOVGA_ARM - the no-VGA arm of an entry whose VGA body is FALLEN INTO
+;
+; SPEC.md 39.24.5. Four entries in this file are reached by fall-through from a
+; GFXDISP or a plain label above them, and GFXDISP EXPANDS TO NOTHING on
+; kern_small - so on that build the entry lands on whatever the assembler put
+; next. An `equ` to the software twin is the obvious way to write the no-VGA
+; arm and it is WRONG for exactly that reason: an `equ` emits no code, so the
+; fall-through goes past it into the following routine. It assembles, it boots,
+; and gfx_fill_gray runs osapi_gfx_fill_pat's body.
+;
+; So the arm is a LABEL AND A JUMP, and the %if is what stops the next person
+; turning it back into an `equ`: an arm that emits nothing fails the build.
+; -----------------------------------------------------------------------------
+%macro NOVGA_ARM 2
+%1:
+    jmp %2
+%%armend:
+ %if %%armend - %1 < 2
+  %error "the no-VGA arm of %1 emits no code - the entry above FALLS THROUGH to it (SPEC.md 39.24.5)"
+ %endif
+%endmacro
+
 %macro GFXDISP 1
 %ifdef KERN_BIG
     cmp byte [vid_ndisp], 1
@@ -4229,7 +4252,7 @@ gfx_fill_gray:
 gfx_fill_gray_d:
     GFXDISP gfx_fill_gray_raw
 %ifndef GFX_VGA
-gfx_fill_gray_raw equ sw_fill_gray      ; no VGA in this build, so the software
+    NOVGA_ARM gfx_fill_gray_raw, sw_fill_gray
 %else                           ; renderer is not a branch - it is the
 gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray has
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
@@ -4375,7 +4398,7 @@ gfx_fill_pat:
 gfx_fill_pat_d:
     GFXDISP gfx_fill_pat_raw
 %ifndef GFX_VGA
-gfx_fill_pat_raw equ sw_fill_pat      ; no VGA in this build, so the software
+    NOVGA_ARM gfx_fill_pat_raw, sw_fill_pat
 %else                           ; renderer is not a branch - it is the
 gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
@@ -4697,7 +4720,7 @@ gfx_bank_ok:                    ; unlocked caller banks the arrow and nothing
                                 ; hook here would translate a rect that
                                 ; cur_geom has already resolved.
 %ifndef GFX_VGA
-vga_save_vram equ sw_save      ; no VGA in this build, so the software
+    NOVGA_ARM vga_save_vram, sw_save
 %else                           ; renderer is not a branch - it is the
 vga_save_vram:                              ; only renderer gfx_save has
     cmp byte [vid_mono], 0      ; the cursor's save-under, from inside IRQ4:
@@ -4953,7 +4976,7 @@ gfx_restore:
     pop ax
     ret
 %ifndef GFX_VGA
-vga_restore_vram equ sw_restore      ; no VGA in this build, so the software
+    NOVGA_ARM vga_restore_vram, sw_restore
 %else                           ; renderer is not a branch - it is the
 vga_restore_vram:                              ; only renderer gfx_restore has
     cmp byte [vid_mono], 0      ; see vga_save_vram

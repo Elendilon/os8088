@@ -820,7 +820,17 @@ scenarios is.
    PERFORMANCE.md Part 1 rule 5.
 4. **(DONE) `kern_small` builds with the gate off** (§2) — measured in §2.3,
    and `tests/smallboot.py` boots it on both 1bpp adapters *and* on a VGA
-   machine. What remains of this step is the SPEED half (§2.2), unmeasured. Measure it as a *speed* change as well as a size
+   machine. **The SPEED half of §2.2 is measured too**: PERFORMANCE.md Set 113c,
+   `GFX_LINE shallow fat` −8.7%, the thin lines −6.6%, `FONT_CHAR` −1.8 to
+   −2.3%, small fills and hlines 1–2%, on both adapters.
+
+   **That run also found a bug this gate had shipped** (SPEC.md §39.24.5): the
+   no-VGA arms of `gfx_fill_gray_raw` and `gfx_fill_pat_raw` were written as
+   `equ`, and both are *fallen into* from a `GFXDISP` that expands to nothing on
+   `kern_small` — so the entry went past the `equ`, which emits no code, into
+   the next routine. `smallboot` passed it on three machines; two impossible
+   bench numbers caught it. **A benchmark found a correctness bug the boot gate
+   could not see.** Measure it as a *speed* change as well as a size
    one (§2.2), and settle §2.4's three questions first.
 5. ~~**The row table on `kern_small`**~~ — **REFUSED, §4.0.** Built, measured at
    the predicted +512, reverted. The reclaim is banked, not budgeted (SPEC.md

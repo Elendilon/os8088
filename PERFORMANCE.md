@@ -10321,6 +10321,161 @@ FIXED's 7 clean windows against DRIFT's 50 — that is survival, not speed), and
 `cy_entry` seeds the RNG from `OSAPI_GET_TICKS`, so boot timing decides the
 whole game. Compare like with like or not at all.
 
+### Set 113 — the mono round, priced three ways (SPEC.md §39.24, §39.25, §39.26)
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150, 4.77 MHz 8088 — `os8088_5150_cga_gla` and `os8088_5150_herc_gla` |
+| harness | `tests/gfxbench`, run from a scratch APPS disk, report read back with `os88flush` |
+| method | **three A/Bs, each isolating ONE change**, same commit wherever a knob or a define allowed it |
+| date | 2026-09-01 |
+
+Counts are guest PIT counts; `N` is identical on both sides of every pair, so
+the ratio is the reading. Rows the harness flagged coarse (`t`/`w`) are
+excluded from every "moved" list below.
+
+#### 113a — `sw_col`'s whole-column store (§39.25), `NOCOLFAST=1` against the default
+
+The cleanest of the three: one knob, one commit, 24 bytes of `.text`.
+
+| row | CGA | Hercules |
+|---|---:|---:|
+| `GFX_FILL 64x64` | **−20.14%** | **−19.76%** |
+| `GFX_FILL_GRAY 64x64` | **−20.14%** | −19.76% |
+| `GFX_FILL 64x64 clipped` | −17.71% | −17.35% |
+| `GFX_FILL 256x128` | −13.65% | −13.11% |
+| `GFX_FILL 8x8` | −12.59% | −11.73% |
+| `PAIR 10 aligned` | −2.01% | −2.02% |
+| `GFX_FILL 256x1` | −1.92% | −1.93% |
+| `GFX_HLINE 256px` | −1.86% | −1.86% |
+| `GFX_HLINE 8px` | −1.22% | −1.21% |
+
+**Nine rows moved and no other row moved by 0.5%**, on either adapter.
+
+**This is far more than the design predicted**, which was a per-row saving of
+10 bytes of bus traffic out of 25 on the two edge columns. The reason it lands
+at 20% rather than a few per cent is that a fill's edge columns are
+`[gfx_rrows]` rows *each* — a 64×64 aligned rect walks `sw_col` 128 times — and
+§11.94 means both of them are whole. **The size of the win is a fact about how
+often a rect is byte-aligned**, and the answer is "nearly always".
+
+**The two mono columns agree to 0.4%**, which is the harness checking itself:
+they are the same renderer over four different numbers, so a gap between them
+would be a finding about `gfxbench` rather than about `sw_col`.
+
+#### 113b — the plane loop removed (§39.26), the pre-removal `softgfx.inc` against HEAD
+
+| row | CGA | Hercules |
+|---|---:|---:|
+| `GFX_PIXEL` | **−6.43%** | **−6.43%** |
+| `GFX_HLINE 8px` | −5.90% | −5.90% |
+| `GFX_FILL 8x8` | −5.10% | −4.87% |
+| `GFX_FILL 256x1` | −4.72% | −4.69% |
+| `GFX_VLINE 8px` | −4.46% | −4.50% |
+| `GFX_HLINE 256px` | −4.29% | −4.29% |
+| `GFX_XOR_RECT 256x1` | −2.66% | −2.67% |
+| `GFX_XOR_RECT 64x64` | −2.41% | −2.18% |
+| `GFX_FRAME 64x64` | −2.11% | −2.28% |
+| `GFX_XOR_RECT 256x128` | −1.67% | −1.60% |
+| `GFX_VLINE 128px` | −0.76% | −0.79% |
+| `GFX_FILL 64x64` | −0.54% | −0.67% |
+| `GFX_FILL 64x64 clipped` | — | −0.60% |
+
+**THE SHAPE IS THE RESULT, not the size.** This removed per-CALL work — a
+counter, a step, a branch, `sw_ink`'s dead test and a memory read — so the
+saving is a constant and the ratio is whatever that constant is against the
+shape's own cost. `GFX_PIXEL` gains 6.4% and `GFX_FILL 64x64` gains 0.5%. A
+change that had removed per-PIXEL work would produce the opposite column, and
+**reading which column you got is how you check that the reason survived**
+(Part 1 rule 5). It is §39.3.1 and §39.3.2's signature again.
+
+#### 113c — `kern_small` with the VGA renderer gated out (§39.24)
+
+The size half is `.text` −1,805 and four rungs. This is the speed half, which
+§2.2 of docs/MONO-RECLAIM-PLAN.md predicted and nothing had measured. Both
+sides carry §39.26, so the only difference is the gate.
+
+| row | CGA | Hercules |
+|---|---:|---:|
+| `GFX_LINE shallow fat` | **−8.72%** | **−8.75%** |
+| `GFX_LINE steep thin` | −6.60% | −6.60% |
+| `GFX_LINE shallow thin` | −6.57% | −6.60% |
+| `GFX_LINE steep fat` | −3.96% | −3.84% |
+| `GFX_UNLOCK+LOCK pair` | — | −2.27% |
+| `FONT_STR 10 aligned` | −1.97% | −2.16% |
+| `GFX_VLINE 8px` | −1.87% | −1.07% |
+| `FONT_RUN 10 skewed` | −1.80% | −1.64% |
+| `FONT_CHAR one cell` | −1.79% | −2.25% |
+| `PAIR 10 skewed 5` | −1.72% | −1.80% |
+| `PAIR 10 aligned` | −1.64% | −1.89% |
+| `GFX_HLINE 8px` | −1.37% | −1.96% |
+| `GFX_HLINE 256px` | −1.27% | −0.92% |
+| `GFX_FILL 256x1` | −1.03% | −0.94% |
+| `GFX_FILL 8x8` | −0.91% | −1.37% |
+| `GFX_PIXEL` | — | −0.84% |
+| `GFX_XOR_RECT 256x1` | −0.84% | −0.62% |
+| `GFX_FRAME 64x64` | −0.55% | — |
+| `GFX_XOR_RECT 64x64` | **+1.32%** | −0.62% |
+
+**The LINE rows move most and that is the prediction landing.** `gfx_line_raw`
+opened with two adapter tests — `[vid_mono]` and `[vid_planes]` — on the fixed
+cost of every line, and with no VGA in the build both are constants and both
+go. A thin line is nearly all fixed cost, which is why it gains 6.6% where a
+fat one gains 3.9%.
+
+**One row disagrees between the adapters and is reported rather than dropped**:
+`GFX_XOR_RECT 64x64` is **+1.32% on CGA and −0.62% on Hercules**. Nothing in
+the gate touches the XOR path's inner loop, the two adapters run the same code,
+and every other row agrees between them to a few tenths — so the likely reading
+is code layout, not a regression. It is the one figure here worth a second run
+before anybody quotes it.
+
+##### 113c's FIRST run found a correctness bug, and that is the finding
+
+The table above is the **second** run. The first was taken against a `kern_small`
+that was silently broken, and the numbers are how it was caught:
+
+| row, first run | before | after | |
+|---|---:|---:|---|
+| `GFX_FILL 64x64` | 230,155 | 229,929 | −0.1% |
+| `GFX_FILL_GRAY 64x64` | 230,153 | **148,447** | −35.5% |
+| `GFX_FILL_PAT 64x64` | 386,451 | **148,441** | −61.6% |
+
+**A gray fill cheaper than a solid one, and a pattern fill costing exactly what
+the gray fill costs.** Neither is possible: gray and solid share `sw_rect` and
+differ by a mode byte, and a pattern fill indexes a row byte and costs about
+2.1× a solid one on every working build. Two numbers that cannot both be right
+is what a wrong code path looks like from a bench.
+
+The cause is SPEC.md §39.24.5: the gated build wrote those two entries as
+`equ sw_fill_gray` / `equ sw_fill_pat`, and both are **fallen into** from a
+`GFXDISP` that expands to nothing on `kern_small`. An `equ` emits no code, so
+the fall-through went past it into the next routine — `gfx_fill_gray` ran
+`osapi_gfx_fill_pat`'s body.
+
+**`tests/smallboot.py` boots that kernel on three machines and passed it**, with
+the desktop's lit fraction unchanged to a tenth of a percent. **A benchmark
+found a correctness bug that the boot gate could not see**, which is worth
+remembering next time a suite looks like it is only about speed.
+
+#### The apparatus, because it did not exist
+
+`gfxbench` has always been run by hand (`make test VIDEO=… TESTAPPS=…`, then
+page the report off the screen or flush it). These runs were driven end to end
+from a script — scratch APPS disk, boot, open the package, `R`, `S`, and
+`os88flush` for the report — which is what made twelve runs affordable. Two
+things it had to learn: the report is written into the package's **launch
+folder**, so it comes back from volume 1 as `APPS/GFX<CARD>.TXT` and not from
+volume 0; and `os88sym` needs **both** `$OS88_DEFINES` and `$OS88_BUILD` to
+read a `make small` kernel, whose map and image live in `build/smallk`.
+
+**Two of the three A/Bs are same-commit**, which is worth preferring wherever a
+knob exists: 113a is `NOCOLFAST=1`, and 113c forces `GFX_VGA` on for
+`kern_small` at HEAD — verified against the recorded pre-gate figures, which it
+reproduces at `KERN_SIZE` 100,864 exactly and `.text` 44,468 against 44,503,
+the 35-byte difference being §39.26, which both sides then share. Only 113b
+needed a file from an older commit.
+
 ### Set 112 — the straddled blit, cut at the seam (SPEC.md §39.14.7.2)
 
 | | |

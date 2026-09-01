@@ -45162,6 +45162,13 @@ With no loop under it the last call becomes a **tail jump**: `sw_plane_op`'s
 (§39.24.4). Correctness is `tests/swcolsame.py`'s session, unchanged from
 §39.25's: **0 differing pixels on CGA and on Hercules**.
 
+**And it is worth 6.4% of a `GFX_PIXEL`** (PERFORMANCE.md Set 113b, both
+adapters). The shape is the confirmation rather than the size: this removed
+per-CALL work, so `GFX_PIXEL` gains 6.4%, `GFX_FILL 8x8` 5.1% and
+`GFX_FILL 64x64` 0.5% — the saving is a constant and the ratio is whatever that
+constant is against the shape. §39.3.1's signature, and Part 1 rule 5's test
+that the reason survived.
+
 ### 39.25 A whole column needs no read
 
 `sw_col` writes one masked byte column of a rect: `dest = (dest & ~mask) |
@@ -45181,7 +45188,15 @@ rect is a single whole column with no interior at all.
 | the general body — `mov`/`and`/`and [es:di]`/`or [es:di]`/`xor`/step/wrap/loop | 21 | 4 | **25 bytes** |
 | the whole-column body — `mov [es:di], ch`/`xor`/step/wrap/loop | 14 | 1 | **15 bytes** |
 
-**It costs 24 bytes of `.text`** and crosses no rung. `kern_small` does not get
+**It costs 24 bytes of `.text`**, crosses no rung, and is worth **20% of
+`GFX_FILL 64x64`** — PERFORMANCE.md Set 113a, measured on both 1bpp adapters
+with `NOCOLFAST=1` as the control: `GFX_FILL` and `GFX_FILL_GRAY` 64×64 −20.1%
+on CGA and −19.8% on Hercules, `GFX_FILL 8x8` −12.6%, and no row outside the
+fill and hline families moving at all. That is far more than the per-row
+arithmetic predicts, and the reason is that a fill walks `sw_col` once per row
+per EDGE COLUMN — a 64×64 aligned rect takes it 128 times — so the size of the
+win is really a fact about how often a rect is byte-aligned. §11.94 is the
+answer: nearly always. `kern_small` does not get
 it (§39.24.4: that build is under a cut, and this is speed rather than
 correctness), and `NOCOLFAST=1` takes it out of `kern_big` too.
 
@@ -45216,8 +45231,14 @@ and EGA probes.
 
 **Measured: `.text` 44,503 → 42,698 and `KERN_SIZE` 100,864 → 98,816** — 1,805
 bytes of code and **four 512-byte rungs** off the footprint, which come
-straight off the heap floor (`kend` 6,400 → 6,272 paragraphs). §39.3.1 spends
-one of those four rungs putting the row table back to its full width.
+straight off the heap floor (`kend` 6,400 → 6,272 paragraphs).
+
+**It is a speed change as well, and that half is measured**: the `[vid_mono]`
+and `[vid_planes]` tests that fold away sit on the fixed cost of drawing calls,
+so PERFORMANCE.md Set 113c has `GFX_LINE shallow fat` **−8.7%**, the thin lines
+−6.6%, `FONT_CHAR one cell` −1.8 to −2.3% and the small fills and hlines around
+1–2%, on both 1bpp adapters. `gfx_line_raw` opened with *both* tests, which is
+why the line rows lead.
 
 #### 39.24.1 A VGA machine still boots, as a CGA
 
@@ -45270,6 +45291,48 @@ that `kern_small` has no renderer for and must come up on anyway.** The VGA
 row's lit fraction landing within 0.2% of the CGA row's — the difference is
 the menu-bar clock's digits — is what says §39.24.1's fallback is a real CGA
 path rather than a coincidence that lit up.
+
+#### 39.24.5 A no-VGA arm that is FALLEN INTO must emit code
+
+**This shipped broken and a benchmark found it, not a gate.** It is written up
+at length because the failure is silent in every way a failure can be.
+
+Four entries in `vga12.inc` are reached by **fall-through** rather than by a
+jump — `gfx_fill_gray_raw` and `gfx_fill_pat_raw` from the `GFXDISP` above
+them, `vga_save_vram` and `vga_restore_vram` from their wrappers. **`GFXDISP`
+expands to nothing on `kern_small`** (§39.14 is `kern_big`'s), so on that build
+the entry lands on whatever the assembler put next.
+
+Writing the no-VGA arm as `label equ sw_x` is the obvious thing — it is zero
+bytes and every existing caller resolves — and it is **wrong**, because an
+`equ` emits no code. The fall-through goes straight past it into the following
+routine. It assembles without a warning, it boots to a desktop, and
+`gfx_fill_gray` runs `osapi_gfx_fill_pat`'s body.
+
+**Nothing caught it.** `tests/smallboot.py` boots that kernel on three machines
+and passed: the desktop still drew, and its lit fraction was unchanged to a
+tenth of a percent. What caught it was PERFORMANCE.md **Set 113c**, where
+`GFX_FILL_GRAY 64x64` and `GFX_FILL_PAT 64x64` came back **identical to each
+other and cheaper than a solid fill** — two numbers that cannot both be right.
+
+So the arm is a **label and a jump**, three bytes, and never an `equ`:
+
+```
+    NOVGA_ARM gfx_fill_gray_raw, sw_fill_gray
+```
+
+**The macro's own assertion cannot enforce this and the guard is in
+`kernel.asm`.** Writing `equ` instead of the macro does not *invoke* the macro,
+so an assertion inside it goes with it. The check that survives that is one
+level up, after both includes: on a build with no VGA, each of the four entries
+must be a **different address** from the software twin it forwards to. An `equ`
+makes them equal and fails the build; a label and a jump cannot. Putting the
+`equ` back is what tested it.
+
+**The general rule, which is not about VGA:** a macro that can expand to
+nothing turns the label after it into a fall-through target, and a fall-through
+target must be *code*. `%if`-ing out a body under one is a different operation
+from `%if`-ing out a body that is only ever jumped to.
 
 #### 39.24.4 The four rungs are not slack, and nothing may be spent from them
 
