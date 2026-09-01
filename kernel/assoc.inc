@@ -534,16 +534,7 @@ assoc_declare:
     mov si, assoc_extb
     cmp byte [si], ' '          ; a blank extension names nothing
     jbe .next
-    call assoc_find             ; already claimed?  BX = that row if so
-    jc .fresh
-    test byte [bx+3], ASSOC_STICKY
-    jnz .next                   ; a runtime claim outranks a declaration
-    jmp short .point
-.fresh:
-    call assoc_ext_new
-    jc .next                    ; the table is full: the rest are dropped
-.point:
-    mov [bx+3], dl              ; ...pointed here, sticky bit CLEAR
+    call assoc_point            ; ...and the table being full drops the rest
 .next:
     pop si
     pop cx
@@ -1283,6 +1274,34 @@ osapi_assoc_set_x:
     pop ax
     retf
 
+; -----------------------------------------------------------------------------
+; assoc_point - point one extension at one app slot (SPEC.md 54.6's rule)
+; in:  SI -> 3 ext bytes, DL = the app slot
+; out: nothing (BX = the row, and AX and CF are assoc_find's or
+;      assoc_ext_new's - no caller reads either)
+;
+; A DECLARATION and a CACHED row are both outranked by a runtime registration
+; (ASSOC_STICKY), and a full table drops the extension silently - which is
+; what both callers already did, spelled out twice.
+;
+; osapi_assoc_set is deliberately NOT folded in: it SETS the sticky bit and
+; skips the sticky test, which is the whole difference between a runtime claim
+; and a declaration.
+; -----------------------------------------------------------------------------
+assoc_point:
+    call assoc_find             ; already claimed?  BX = that row
+    jc .fresh
+    test byte [bx+3], ASSOC_STICKY
+    jnz .out
+    jmp short .set
+.fresh:
+    call assoc_ext_new
+    jc .out
+.set:
+    mov [bx+3], dl              ; ...pointed here, sticky bit CLEAR
+.out:
+    ret
+
 ; assoc_ext_new - claim a free extension row. in: SI -> 3 ext bytes;
 ; out: CF=0 and BX = the row with the extension written in; CF=1 = full
 assoc_ext_new:
@@ -1765,17 +1784,7 @@ asc_merge_ext:
     cmp byte [si], ' '
     jbe .next
     push di
-    call assoc_find             ; BX = the row it matched
-    jc .fresh
-    test byte [bx+3], ASSOC_STICKY
-    jnz .popnext                ; a runtime claim outranks a cached one
-    jmp short .point
-.fresh:
-    call assoc_ext_new
-    jc .popnext
-.point:
-    mov [bx+3], dl
-.popnext:
+    call assoc_point            ; a runtime claim outranks a cached one
     pop di
 .next:
     pop cx
