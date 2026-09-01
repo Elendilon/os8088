@@ -450,6 +450,15 @@ vid_equip:
 ; where the other card is given something the BIOS can honestly print on.
 ; -----------------------------------------------------------------------------
 vid_mono_text:
+%ifndef GFX_VGA                 ; NO VGA IN THE BUILD, so [vid_avail]'s VGA
+    clc                         ; bit can never be set (see vid_probe_avail:
+    ret                         ; its only writer of that bit is `shl al, cl`
+%else                           ; on [vid_kind], vid_detect's VGA/EGA probes
+                                ; are themselves %ifdef GFX_VGA, VIDEO=vga is
+                                ; a %error there (viddet.inc 51), and every
+                                ; other [vid_kind] writer is inside
+                                ; %ifdef KERN_BIG). The whole body below is
+                                ; unreachable, and this IS the answer it gives.
     test byte [vid_avail], VID_A_VGA
     jnz .mine
     clc                         ; the ROM's mode 7 is this card: let it
@@ -481,6 +490,7 @@ vid_mono_text:
     pop ax
     stc
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; vid_reboot - the text mode CMD_REBOOT wants, on every card (SPEC.md 39.20.1)
@@ -509,6 +519,10 @@ vid_mono_text:
 vid_reboot:
     push ax
     call vid_text
+%ifdef GFX_VGA                  ; without a VGA in the build the tail cannot
+                                ; run: [vid_avail]'s VGA bit is never set, so
+                                ; the test below always jumps - vid_text alone
+                                ; is already the whole of this routine there
     cmp byte [vid_kind], VID_HERC   ; the mono card is the ONLY primary int 10h
     jne .out                    ; does not drive - and on a VGA machine the CGA
                                 ; row IS the VGA doing mode 6, so vid_text has
@@ -519,6 +533,7 @@ vid_reboot:
     mov ax, 0x0003              ; refuse on a machine flagged mono
     int 0x10
 .out:
+%endif
     pop ax
     ret
 
@@ -1141,8 +1156,10 @@ vid_blank_kind:
     push es
     cmp al, VID_HERC
     je .mono
-    cmp al, VID_VGA
-    je .vga
+%ifdef GFX_VGA                  ; no VGA in the build: [vid_kind] is never
+    cmp al, VID_VGA             ; VID_VGA and vid_disp_set is inside
+    je .vga                     ; %ifdef KERN_BIG, so no caller can pass one
+%endif
     mov ax, 0x0040
     mov es, ax
     mov al, [es:0x0065]         ; the BIOS's shadow of 3D8h...
@@ -1155,9 +1172,11 @@ vid_blank_kind:
     mov al, 0x02                ; byte for byte the value vid_setmode's own
     out dx, al                  ; blank-first sequence writes (SPEC.md 39.6)
     jmp short .out
+%ifdef GFX_VGA
 .vga:
     mov al, 0x20                ; SR01 bit 5 up: Screen Off
     call vid_seq1_blank
+%endif
 .out:
     pop es
     pop dx
@@ -1170,8 +1189,10 @@ vid_unblank_kind:
     push es
     cmp al, VID_HERC
     je .mono
+%ifdef GFX_VGA                  ; the blanker's twin, gated for its reason
     cmp al, VID_VGA
     je .vga
+%endif
     mov ax, 0x0040
     mov es, ax
     mov al, [es:0x0065]         ; ...exactly what the ROM's mode set left
@@ -1186,15 +1207,19 @@ vid_unblank_kind:
     mov al, 0x0A
     out dx, al
     jmp short .out
+%ifdef GFX_VGA
 .vga:
     xor al, al                  ; SR01 bit 5 down again
     call vid_seq1_blank
+%endif
 .out:
     pop es
     pop dx
     pop ax
     ret
 
+%ifdef GFX_VGA                  ; its only two callers are the .vga arms above,
+                                ; both gated for the same reason
 ; -----------------------------------------------------------------------------
 ; vid_seq1_blank - internal: write bit 5 of the VGA's Sequencer register 1
 ;
@@ -1241,6 +1266,7 @@ vid_seq1_blank:
     pop bx
     pop ax
     ret
+%endif                          ; ...end of vid_seq1_blank
 
 %ifdef KERN_BIG
 
