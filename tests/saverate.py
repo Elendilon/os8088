@@ -53,9 +53,13 @@ guest: **218 frames at 18.2 fps, and every swimmer crosses a 640-pixel screen
 in 160.** Every counter then reads a swimmer that respawned mid-window, and
 what comes back is not noise, it is a plausible number that is too low. The
 window survived only while the mode was too slow to cross - at 10.75 fps the
-2-pixel swimmers just made it - so SPEC.md 79.5.8, which made the mode FASTER,
-is what broke it: 18.18 fps measured over one host second read as 8.48 over
-three. `m.advance(cycles=)` is exact in guest time and independent of the
+2-pixel swimmers just made it - so the change that made the mode FASTER is
+what broke it: 18.18 fps measured over one host second read as 8.48 over
+three. (That change is the 1bpp band composer on the fish-screensaver branch,
+and it carries the SPEC.md section describing it; this fix is taken WITHOUT it,
+so there is deliberately no citation here to a heading this tree has not got.
+An instrument that degrades as the machine improves is worse than none,
+which is why the fix is worth taking on its own.) `m.advance(cycles=)` is exact in guest time and independent of the
 host, which is what a window sized against a crossing needs.
 
 **The other three modes are the CONTROL and are asserted more weakly**, which
