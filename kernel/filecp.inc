@@ -121,8 +121,7 @@ fcp_arm:
     mov [fcp_cwd], ax
     mov si, fm_name             ; COPIED, not pointed at: fm_name is rewritten
     mov di, fcp_name            ; for every row the painter draws
-    mov cx, 13
-    call fcp_ncopy
+    call fcp_n13
     clc
     jmp short .out
 .none:
@@ -139,6 +138,14 @@ fcp_arm:
 ; fcp_ncopy - CX bytes from DS:SI to DS:DI. disk.inc's dsk_ncopy is this
 ; body to the instruction, and both are `.cold` = COLD_SEG.
 fcp_ncopy   equ dsk_ncopy
+
+; fcp_n13 - ...and the length THREE of its callers pass: an 8.3 display name
+; (SPEC.md 19.1).  Leaves CX = 13 on return, exactly as `mov cx, 13` +
+; call did - dsk_ncopy restores CX to its OWN entry value - and no caller
+; reads CX after the copy.
+fcp_n13:
+    mov cx, 13
+    jmp dsk_ncopy
 
 ; -----------------------------------------------------------------------------
 ; fcp_gosrc / fcp_godst / fcp_gofs / fcp_gofd - the four fcp_goto arguments
@@ -1111,8 +1118,8 @@ fcp_scan:
 .stage:                         ; ...and FSV_ENUM's answer arrives here too
     mov si, dsk_ent             ; SI and DI are dead from here to the `ret`
     mov di, fcp_cname           ; below - every path out of .stage is this
-    mov cx, 13                  ; routine's own exit, and its outer save set
-    call fcp_ncopy              ; is what restores the caller's pair.
+    call fcp_n13                ; routine's own exit, and its outer save set
+                                ; is what restores the caller's pair.
                                 ; (dsk_ent is scratch every caller rewrites)
     mov ax, [dsk_ent+16]
     mov [fcp_ctype], ax
@@ -1351,8 +1358,7 @@ fcp_fnames:
     mov [fcp_fdclus], ax
 .name:
     mov di, fcp_fname
-    mov cx, 13
-    call fcp_ncopy
+    call fcp_n13
     pop di
     pop si
     pop cx
