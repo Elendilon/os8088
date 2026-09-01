@@ -11274,7 +11274,8 @@ that is on top.
 **The renderers take it as a bias and a count, not as a test.** `font_char`
 advances the glyph pointer by `r0` and the destination y with it, and the row
 counter that was a literal 8 becomes `[wm_clip_rn]` — in `font_char`'s VRAM
-path, in `font_char_bb`'s per-plane loop, and in `font_run_cell`'s. Nothing
+path, in `font_char_bb`'s row loop (its per-plane loop went with §39.26's
+sweep), and in `font_run_cell`'s. Nothing
 else in those loops changes, and the banked mono layout (§39.3) is why
 `font_run_cell` *steps* DI down to its first row rather than multiplying: it
 arrives holding a framebuffer byte, not a y.
@@ -45565,6 +45566,30 @@ With no loop under it the last call becomes a **tail jump**: `sw_plane_op`'s
 `kern_small`**, which is the right direction for a build under a cut
 (§39.24.4). Correctness is `tests/swcolsame.py`'s session, unchanged from
 §39.25's: **0 differing pixels on CGA and on Hercules**.
+
+**THE SWEEP IS FINISHED, and the fourth body is the one that matters most.**
+The same shape stood in four places, not one: `sw_rect_pl` here,
+`sw_fill_pat` and `sw_xfer` beside it (`sw_xfer`'s terminated on a *segment
+compare* rather than the plane count, which is why `[vid_rpara]` carried a
+"MUST be nonzero" note for it), `ico_pass_bb` in `icons.inc`, and
+**`font_char_bb` in `font.inc` — the mono adapters' ONLY text renderer, and
+the innermost loop of every string os8088 draws on a Hercules or a CGA.**
+Each entry condition was re-derived on its own rather than inherited from
+this section: `font_char_bb` has exactly one caller, `font_char`'s, under
+`cmp byte [vid_mono], 0 / je .vram` on a VGA build and unconditional on one
+without. Its loop cost two `.bss` stores and two reloads **per glyph cell**
+— SI and DI parked so each plane could restart from them — plus the counter,
+the `[vid_rpara]` step and a `shr ch, 1` that stepped a colour through planes
+that were not there. `.text` −38 and `.bss` −4 on both products, the two
+cells being `font_bb_si`/`font_bb_di`.
+
+With it gone **`[vid_rpara]` and `[vid_rend]` have no reader left in the
+kernel** — only `vid_apply`'s three lines that write them. They are not
+deleted here: they sit inside the contiguous `vid_seg`..`vid_tseg` run that a
+display context copies (§39.13), whose length `vidsel.inc` asserts, so
+removing them is a change to `VID_CTX_W` and to
+`tests/unit/t_invariants.py`'s one-writer row rather than a peephole.
+`viddet.inc` records that at their declaration.
 
 **And it is worth 6.4% of a `GFX_PIXEL`** (PERFORMANCE.md Set 113b, both
 adapters). The shape is the confirmation rather than the size: this removed

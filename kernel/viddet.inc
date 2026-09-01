@@ -141,16 +141,23 @@ vid_rpara   dw SW_PLANE_PARA    ; paragraphs from one plane to the next.
                                 ; compare, and a step of 0 never terminates",
                                 ; and SPEC.md 39.26's sweep reaching sw_xfer
                                 ; deleted that loop and with it the only
-                                ; consumer of the sentence. One reader is
-                                ; left, font_char_bb's own plane loop in
-                                ; font.inc, and it steps rather than compares.
-vid_rend    dw 0                ; ...and this has NO reader at all now: it was
-                                ; sw_xfer's exclusive end. Kept, with the
-                                ; three lines of vid_apply that write it,
-                                ; because the pair is one fact and collecting
-                                ; half of it is worse than collecting neither;
-                                ; when font_char_bb is flattened too, both
-                                ; cells and that arithmetic go together
+                                ; consumer of the sentence. font.inc's
+                                ; font_char_bb was the last reader of any kind
+                                ; and its plane loop has gone the same way
+                                ; (SPEC.md 39.26), so THIS CELL NOW HAS NO
+                                ; READER EITHER - see below.
+vid_rend    dw 0                ; ...and this was sw_xfer's exclusive end.
+                                ; NEITHER CELL HAS A READER NOW, only
+                                ; vid_apply's three lines that write them, and
+                                ; they are kept anyway: they sit INSIDE the
+                                ; contiguous vid_seg..vid_tseg run a display
+                                ; context copies (SPEC.md 39.13), whose length
+                                ; vidsel.inc asserts as (VID_CTX_W-1)*2 - so
+                                ; taking them is a change to VID_CTX_W and to
+                                ; tests/unit/t_invariants.py's one-writer row,
+                                ; not a peephole. Four words and three
+                                ; instructions, for whoever next opens this
+                                ; file with that in hand
 vid_cwm1    dw SCREEN_W-1       ; the display's last legal x and y, and the
 vid_chm1    dw SCREEN_H-1       ; whole-cell limits font_char and ico_core
 vid_cwm8    dw SCREEN_W-8       ; clip against. THE LAST WORD OF THE RUN a

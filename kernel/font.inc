@@ -687,18 +687,24 @@ font_char_bb:
                                 ; x's high byte and is overwritten by
                                 ; `mov ch,[gfx_color]` below before any read
 
-    mov [font_bb_si], si        ; per-plane restart points
-    mov [font_bb_di], di
-    mov dx, [vid_rseg]          ; DX = plane segment - the framebuffer on
-    mov ch, [gfx_color]         ; mono (SPEC.md 39.3)
-    call font_ink               ; CH = colour bits, shifted right per plane;
-                                ; on mono, 00 or FF so `test ch,1` still works
-    mov bl, [vid_planes]        ; BL = plane counter: 4 or 1
-.plane:
-    mov es, dx
-    mov si, [font_bb_si]
-    mov di, [font_bb_di]
-    mov bh, [wm_clip_rn]        ; row counter - see font_char's .rows
+    mov es, [vid_rseg]          ; THE framebuffer segment - not a plane base
+                                ; (SPEC.md 39.3, 39.26).  There was a plane
+                                ; LOOP here, walking [vid_planes] passes and
+                                ; stepping [vid_rpara] between them, with SI
+                                ; and DI parked in two .bss cells so each pass
+                                ; could restart from them.  IT COULD ONLY EVER
+                                ; RUN ONCE: the only entry to this routine is
+                                ; font_char's, under `cmp byte [vid_mono],0 /
+                                ; je .vram` on a VGA build and unconditional
+                                ; on one without, so [vid_planes] is 1 here by
+                                ; vid_depth_set - the fourth and last body of
+                                ; SPEC.md 39.26's cluster.  Two stores and two
+                                ; loads off EVERY GLYPH the mono adapters draw
+    mov ch, [gfx_color]
+    call font_ink               ; CH = colour bits; on mono, 00 or FF so
+                                ; `test ch,1` still works
+    mov bh, [wm_clip_rn]        ; row counter - see font_char's .rows.  BL is
+                                ; free now: it was the plane counter
     test ch, 1                  ; this plane's ink, decided ONCE rather than
     jnz .srow                   ; once per row - and so is the disabled
     cmp byte [font_dith], 0     ; dither, which is mono-only and therefore
@@ -723,8 +729,7 @@ font_char_bb:
 .snw:
     dec bh
     jnz .srow
-    jmp .pnext                  ; NEAR: .dstart's seed put .pnext out of a
-                                ; short jump's reach from here
+    ret                         ; one plane, so the cell is finished
 .crow:
     mov ah, [ss:si]
     inc si
@@ -746,7 +751,7 @@ font_char_bb:
 .cnw:
     dec bh
     jnz .crow
-    jmp short .pnext
+    ret
 
 ; --- disabled text, mono only (SPEC.md 47) -----------------------------------
 ; .crow with the shifted glyph masked to a checkerboard. A separate loop
@@ -794,12 +799,9 @@ font_char_bb:
 .dnw:
     dec bh
     jnz .drow
-.pnext:
-    add dx, [vid_rpara]
-    shr ch, 1
-    dec bl
-    jnz .plane
-    ret
+    ret                         ; ...and the third exit.  All three were
+                                ; `jmp .pnext` into `add dx,[vid_rpara] /
+                                ; shr ch,1 / dec bl / jnz .plane / ret`
 
 ; -----------------------------------------------------------------------------
 ; font_ink - internal: font_char_bb's per-plane colour register
@@ -2098,8 +2100,6 @@ font_rn_tab:    resw FONT_RN_MAX ; a glyph pointer for each. 180 bytes, taken
                                 ; deliberately: it is what lets the drawing
                                 ; pass go ROW-major, which pays gfx_nextrow
                                 ; once a row instead of once a row per cell
-font_bb_si:     resw 1          ; bb path: glyph pointer, reloaded per plane
-font_bb_di:     resw 1          ; bb path: cell offset, reloaded per plane
 font_dith:      resb 1          ; 1 = this glyph is disabled text on a mono
                                 ; adapter (SPEC.md 47); font_ink decides it
                                 ; per glyph and writes it on every path
