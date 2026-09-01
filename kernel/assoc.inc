@@ -474,9 +474,15 @@ assoc_compose:
 ; out: CF=0 and dsk_ico holds the 64-byte body; CF=1 = no association
 ; clobbers: CF (everything else preserved)
 ;
-; dsk_ico is dsk_get_icon's staging buffer, borrowed here to save 64 bytes of
-; footprint. Safe because nothing calls dsk_get_icon during a mount, which is
-; the only place this runs - state the invariant if either ever moves.
+; dsk_ico is dsk_get_icon's staging buffer and has FIVE tenants: dsk_get_icon
+; (fdlg_icon), fmv_get_icon (fm_draw_icon16), assoc_docicon (mount pass 4b),
+; asc_take (mount pass 4a) and inst_icon_ptr (dock_draw_tile). All five run on
+; task 0 - two on the repaint path, two inside disk_mount, one in the modal
+; dialog - and NO tenant's live range contains a yield, a claim or a drawing
+; call that reaches another. disk_mount_x in particular DRAWS NOTHING AT ALL,
+; which is what makes "no tile is composed during a mount" structural rather
+; than hoped for. A sixth tenant must state which task it runs on and prove it
+; cannot be entered from inside another's stage-to-consume window.
 ; -----------------------------------------------------------------------------
 assoc_docicon_x:
     push ax

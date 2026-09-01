@@ -1269,12 +1269,12 @@ inst_icon_ptr:
     je .none                    ; not a package: I_SPTR is a state block
     mov dx, [di+I_SPTR]         ; the REGION, and byte 32 of it is the body
     mov si, LD_HDR_SIZE
-    mov di, inst_icobuf
-    mov cx, 64
-    mov ax, cs
-    call COLD_SEG:dkf_dsk_copy_seg
-    mov si, inst_icobuf
-.have:
+    mov di, dsk_ico             ; dsk_get_icon's staging slot - the FIFTH
+    mov cx, DSK_ICO_SIZE        ; tenant of it, and see assoc_docicon_x's
+    mov ax, cs                  ; header for the whole tenancy. This one runs
+    call COLD_SEG:dkf_dsk_copy_seg  ; on task 0 out of dock_draw_tile, whose
+    mov si, dsk_ico             ; reachers are exactly fm_draw_icon16's (the
+.have:                          ; wm_paint_* family), so it widens nothing
     pop di
     pop dx
     pop cx
@@ -2275,8 +2275,11 @@ inst_launch: resw 1             ; deferred launch: 0 = none, else kind + 1
 inst_knd:    resb 1             ; app_launch scratch: kind being launched
 inst_slot:   resw 1             ; app_launch scratch: state-pool slot
 inst_tplbuf: resb 16            ; app_launch scratch: cascaded template copy
-inst_icobuf: resb 64            ; ...and inst_icon_ptr's staging slot, the
-                                ; dsk_get_icon idiom (SPEC.md 25/30)
+                                ; (inst_icon_ptr's staging slot was 64 bytes
+                                ; HERE and is now dsk_ico itself - the
+                                ; dsk_get_icon idiom taken the whole way,
+                                ; SPEC.md 25/30. The tenancy is stated at
+                                ; assoc_docicon_x)
 
 
 section .text
