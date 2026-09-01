@@ -1395,13 +1395,9 @@ app_launch:
     call inst_find_kind         ; at cap: front the live instance instead
     jc .fail                    ; only dying ones exist: retry later
     call gfx_lock
-%ifdef WM_ANIM
-    call inst_unmin             ; un-minimize, and 11.99.3's other half
-%else
-    and byte [di+I_FLAGS], 0xFE ; un-minimize
-%endif
-    mov bx, [di+I_WIN]
-    call wm_show
+    call inst_restore           ; un-minimize and show, THE one copy of it -
+                                ; it banks BX, which neither this path nor
+                                ; ui_tm_open's reads afterwards
     call gfx_unlock
     jmp .ok
 

@@ -2333,14 +2333,8 @@ ui_tm_open:
     call ui_tm_find             ; already running? front it and stop
     jc .load
     call gfx_lock
-%ifdef WM_ANIM
-    call inst_unmin             ; un-minimize, the app_launch cap path's rule -
-                                ; and SPEC.md 11.100.3's other half with it
-%else
-    and byte [di+I_FLAGS], 0xFE ; un-minimize, the app_launch cap path's rule
-%endif
-    mov bx, [di+I_WIN]
-    call wm_show
+    call inst_restore           ; un-minimize and show - the app_launch cap
+                                ; path's rule, and now literally its code
     call gfx_unlock
     jmp short .out
 
