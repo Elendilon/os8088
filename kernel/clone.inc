@@ -2650,6 +2650,25 @@ clo_fnbuf:  times 13 db 0       ; the image file's 8.3 name (SPEC.md 18.99.8).
 
 section .cold
 ; -----------------------------------------------------------------------------
+; clo_need - make CLONE.DRV's image resident (SPEC.md 2.8.1)
+; out: CF = 1 it is not.  AX and every other register preserved - `pop ax` and
+;      `ret` write no flag, so mod_need's CF reaches the caller intact
+;
+; dskw_fmt_load's shape for the other on-demand module, and here for the same
+; reason: three sites in two files open-coded the bank-set-call-unbank, which
+; is seven bytes against this call's three.  `.cold` because ITS CALLERS ARE -
+; clo_call below and files.inc's two - and so is mod_need, so every edge is a
+; near call.  It is NOT in the `.modl` block above: that is the image, and a
+; routine whose whole job is to fetch the image cannot live inside it.
+; -----------------------------------------------------------------------------
+clo_need:
+    push ax
+    mov al, MOD_CLONE
+    call mod_need
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; clo_call - the whole resident dispatch (SPEC.md 18.99.7)
 ; in:  DL = CLV_*, everything else the verb's own
 ; out: the verb's; CF=1 with AX = CERR_NODISK if the image cannot be had
@@ -2661,10 +2680,7 @@ section .cold
 ; near call does).
 ; -----------------------------------------------------------------------------
 clo_call:
-    push ax
-    mov al, MOD_CLONE
-    call mod_need
-    pop ax
+    call clo_need
     jc .no
     call far [CLFP + CLE_DISP*4]
     ret

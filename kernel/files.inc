@@ -4310,11 +4310,8 @@ fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
     ; on the system disk. Where the two are the same drive - one floppy - the
     ; user is asked to swap; where they are not, or where the image is still
     ; loaded from a previous format, this is six compares and nothing is asked.
-    push ax
-    mov al, MOD_FMT
-    call mod_need
-    pop ax
-    jnc fm_fmt_go
+    call dskw_fmt_load          ; diskw.inc's own wrapper, which is this bank,
+    jnc fm_fmt_go               ; this `mov al` and this call, already written
     mov byte [fm_fmtstep], 0    ; ...and if it could not: the swap prompt
     mov byte [fm_swapwho], 0    ; on the FORMATTER's behalf (SPEC.md 22.21.4).
                                 ; .bss arrives as whatever was in memory, so
@@ -4379,10 +4376,7 @@ fm_c_clone:
                                 ; bar on FS_EDIT, so a second Disk window can
                                 ; pick this item while the first is sitting at
                                 ; a prompt with a live claim (SPEC.md 22.21.2)
-    push ax
-    mov al, MOD_CLONE
-    call mod_need
-    pop ax
+    call clo_need
     jnc fm_clone_go
     mov byte [fm_fmtstep], 0    ; ...and if it could not: the swap prompt,
     mov byte [fm_swapwho], 1    ; asking for the system disk on the CLONER's
@@ -4669,11 +4663,8 @@ fm_img_done_x:
     jnz .save
 
     ; --- the OPEN form: Write Img ------------------------------------------
-    push ax
-    mov al, MOD_CLONE
-    call mod_need               ; loaded HERE, not before the dialog: a cancel
-    pop ax                      ; never comes back to drop it
-    jc .nodrv
+    call clo_need               ; loaded HERE, not before the dialog: a cancel
+    jc .nodrv                   ; never comes back to drop it
     mov di, [fm_vp]
     mov al, [di+FS_DRV]
     mov bx, dx                  ; **BX:CX, NOT DX:CX** - DL is the verb, and

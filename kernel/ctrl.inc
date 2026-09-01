@@ -5728,10 +5728,9 @@ cpf_cp_open:           call cp_open_x
 ; the image already there and its mod_need is six compares.
 ; -----------------------------------------------------------------------------
 cp_open_x:
-    push ax
-    mov al, MOD_CTRL
-    call mod_need
-    jc .no
+    push ax                     ; the bank is the BODY's, not the load's:
+    call cpf_need               ; cpf_need banks AX itself, but `mov al,
+    jc .no                      ; KIND_CTRL` below and `mov al, 1` at .no do not
     mov al, KIND_CTRL
     call KERNEL_SEG:cw_app_launch
     jc .beep                    ; the panel itself refused - no instance slot,
