@@ -71,7 +71,7 @@
     call KERNEL_SEG:cw_font_run
   %endmacro
   %macro UI_WIDTH 0
-    call KERNEL_SEG:cw_font_width
+    call KERNEL_SEG:font_width
   %endmacro
   %macro UI_PEN 0
     call KERNEL_SEG:cw_gfx_pen_cf

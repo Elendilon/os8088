@@ -767,7 +767,7 @@ fmv_store:
     push di
     call fmv_winof              ; BEFORE the .none early-out: a window with no
     jc .nowin                   ; view claim paints from the global snapshot,
-    call KERNEL_SEG:cw_wm_su_stale  ; which is changing under it too - and it is
+    call KERNEL_SEG:wm_su_stale  ; which is changing under it too - and it is
                                 ; STALE rather than merely uncached (SPEC.md
                                 ; 11.96.16.1): this window's pixels are the
                                 ; folder as it was, and fmv_bcast leaves a
@@ -6758,7 +6758,7 @@ fm_draw_rows:
     call fm_stage_name
     mov byte [fm_name+9], 0     ; grid names: 9 chars max (SPEC.md 22)
     mov si, fm_name
-    call KERNEL_SEG:cw_font_width
+    call KERNEL_SEG:font_width
     mov cx, FMI_CELL_W
     sub cx, ax
     shr cx, 1                   ; centered under the icon
@@ -7042,7 +7042,7 @@ fm_draw_lrow:
     call fm_ultoa_x             ; the full dword: BEVERLY.MOD is 116,085
     pop di                      ; bytes, not 65,535
     mov si, fm_numbuf
-    call KERNEL_SEG:cw_font_width ; AX = string width, px
+    call KERNEL_SEG:font_width ; AX = string width, px
     mov cx, [fm_rgt]            ; right-align ending at cw-22 (clear of
     sub cx, 20                  ; the scroll bar, SPEC.md 22)
     sub cx, ax

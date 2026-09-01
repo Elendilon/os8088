@@ -350,7 +350,7 @@ app_about_paint_x:
     call app_about_center_x
     add dx, 16
     mov si, app_about_s3p       ; third line follows the live scheduler mode
-    call KERNEL_SEG:cw_sched_mode_get         ; AL = 0 pre-emptive, 1 cooperative
+    call KERNEL_SEG:sched_mode_get         ; AL = 0 pre-emptive, 1 cooperative
     or al, al
     jz .s3
     mov si, app_about_s3c
@@ -378,7 +378,7 @@ app_about_paint_x:
 ; clobbers: AX, CX (internal helper)
 ; -----------------------------------------------------------------------------
 app_about_center_x:
-    call KERNEL_SEG:cw_font_width             ; AX = string width, px
+    call KERNEL_SEG:font_width             ; AX = string width, px
     mov cx, [bx+W_W]
     dec cx                      ; content width, two bytes rather than three
     dec cx

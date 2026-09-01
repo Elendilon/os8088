@@ -637,9 +637,9 @@ INST_PARKW equ 4                ; ticks: ~220ms, long enough for a worker that
                                 ; enough not to be felt inside a claim that is
                                 ; already going to pause the machine
 
-inst_park_req:
-%ifdef NOPARK
-    ret                         ; make HEAPPARK=0: nobody is ever asked, so
+inst_park_req:                  ; FAR-ENTERED (SPEC.md 2.6.1): no near caller
+%ifdef NOPARK                   ; of its own, so BOTH exits are retf
+    retf                        ; make HEAPPARK=0: nobody is ever asked, so
                                 ; nobody ever parks and inst_seg_parked keeps
                                 ; refusing - the A/B for SPEC.md 66.5 alone,
                                 ; with the compactor itself left in place
@@ -667,7 +667,7 @@ inst_park_req:
     pop dx
     pop ax
     popf
-    ret
+    retf
 %endif
 
 ; inst_park_end - withdraw the request; every parked worker resumes
@@ -2039,7 +2039,8 @@ inst_launch_post:
     retf
 
 ; =============================================================================
-; osapi_sys_snapshot - API slot 0x0298: the scheduler and the instance table, in
+; osapi_sys_snapshot_x - API slot 0x0298's COLD body: the scheduler and the
+;                        instance table, in
 ;                  ONE cli window (SPEC.md 20.9/28.2)
 ;
 ; in:  ES:DI = a SYS_SNAPSHOT_SIZE buffer the caller owns
@@ -2088,7 +2089,7 @@ section .cold                   ; COLD (SPEC.md 2.6, 29.9.1): 236 bytes of the
                                 ; caller changes. Zero new cw_ shims: its one
                                 ; outbound is already `call COLD_SEG:` and stays
                                 ; exactly as it is
-osapi_sys_snapshot:
+osapi_sys_snapshot_x:
     push cx
     push dx
     push si
@@ -2204,7 +2205,7 @@ osapi_sys_snapshot:
     pop si
     pop dx
     pop cx
-    retf                        ; FAR: api_sys_snapshot is the only entry and it
+    retf                        ; FAR: the `.text` thunk is the only entry and
                                 ; far-calls (SPEC.md 2.6.1 - the body owns the
                                 ; return and there is no thunk in between)
 section .text

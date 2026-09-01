@@ -10062,11 +10062,15 @@ wm_su_drop:
 ; deliberately does not repaint it, so its pixels are the folder as it was,
 ; and a cache taken from them is docs/FIELD-NOTES.md 4's stale listing with a
 ; new way in. The flag is that difference, said out loud.
-wm_su_stale:
+wm_su_stale:                    ; FAR-ENTERED (SPEC.md 2.6.1): no near caller
     pushf                       ; `or` writes flags and wm_su_drop banks its
     or word [bx+W_FLAGS], WF_STALE  ; OWN caller's, which would be these - so
     popf                        ; the restore has to happen on this side of it
-    jmp wm_su_drop
+    call wm_su_drop             ; ...and this is a CALL and not the tail jump
+    retf                        ; it was: wm_su_drop has three other NEAR
+                                ; callers and must keep its near ret, so the
+                                ; far frame has to be popped here.  That is
+                                ; why this row is 2 bytes and not 4
 
 ; wm_su_ck - CF=0 if the cache describes window DI as it is right now, and
 ;            then AX = the claim's segment and wm_su_x1..y2 hold the rect it

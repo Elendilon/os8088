@@ -1850,7 +1850,7 @@ mem_compact:
     cmp byte [mem_wpin], 0
     je .undo
     dec byte [sch_lock]         ; a park needs the machine RUNNING: the workers
-    call KERNEL_SEG:cw_inst_park_req    ; have to reach OSAPI_TASK_ALIVE
+    call KERNEL_SEG:inst_park_req    ; have to reach OSAPI_TASK_ALIVE
     inc byte [sch_lock]
     inc byte [mem_parked]       ; ...and it is withdrawn on EVERY path out
     call mem_cp_plan            ; ...then ask again, with whoever parked now

@@ -1987,13 +1987,13 @@ font_run_scell:
 ; out:      AX = 8 * length
 ; clobbers: nothing else
 ; -----------------------------------------------------------------------------
-font_width:
-    push es
-    push ds
+font_width:                     ; FAR-ENTERED, no near caller of its own
+    push es                     ; (SPEC.md 2.6.1): the `cw_font_width` shim
+    push ds                     ; that used to `call` this and `retf` is gone
+    pop es                      ; and every site far-calls the body itself
+    call font_width_x           ; (font_width_x stays NEAR and is unaffected)
     pop es
-    call font_width_x
-    pop es
-    ret
+    retf
 
 ; -----------------------------------------------------------------------------
 ; font_width_x - font_width with the string at ES:SI (SPEC.md 20.1)

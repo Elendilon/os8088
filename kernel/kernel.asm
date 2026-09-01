@@ -2783,7 +2783,7 @@ osapi_table:
                                   ;          never-written blob reads back as
                                   ;          zeroes and the driver's own version
                                   ;          byte is what recognises it
-    OSAPI_JSLOT api_sys_snapshot      ; 0x0298 - the scheduler AND the instance
+    OSAPI_SLOT osapi_sys_snapshot ; 0x0298 - the scheduler AND the instance
                                   ;          table, in ONE cli window
                                   ;          (SPEC.md 28.2). in ES:DI = a
                                   ;          SYS_SNAPSHOT_SIZE buffer; out AX =
@@ -3869,19 +3869,6 @@ api_file_sysc:
     retf                        ; and from out there that is the whole truth
 
 ; ...and the two-name case, which needs DI as well and so is written out
-; api_sys_snapshot - slot 0x0298's stub, because the body is COLD (SPEC.md
-; 29.9.1). An OSAPI_SLOT cell is eight bytes exactly and `call %1` is near, so a
-; cold body cannot be reached from one; the JSLOT + stub pattern is what the
-; five below already do, and this is a sixth of the same shape. Ten bytes, and
-; it is where the DS switch lives now.
-api_sys_snapshot:
-    push ds
-    push cs
-    pop ds                      ; DS = KERNEL_SEG, as the cell used to set it
-    call COLD_SEG:osapi_sys_snapshot
-    pop ds
-    retf
-
 api_file_rename:
     push ds
     push si
@@ -5638,12 +5625,20 @@ MARK_FNVEC  equ $ - mark_fvec
 ; A SHIM IS NOT OWED (SPEC.md 2.6.1). When the body has no near caller of its
 ; own it can simply end in `retf` and the far call can land on it - 84 of them
 ; went that way, 340 bytes, and `.text`'s rung slack went 88 bytes to 162.
-; What is left here is what could not: a body with a near caller, one that
-; tail-jumps, one that near-calls a LOCAL helper (that helper's `ret` is
-; inside the same extent and has to stay near), and one whose thunk is named
-; by a dispatch table rather than by a call. os88ovlchk.py gates the
+; FOUR MORE WENT IN SIZE PASS 2 and the census above had drifted: font_width,
+; inst_park_req and sched_mode_get each had exactly ONE reference in the whole
+; tree - their own shim - and wm_su_stale is the "one that tail-jumps" this
+; paragraph named as impossible.  It is merely dearer: wm_su_drop has three
+; other NEAR callers and must keep its near `ret`, so the jump became
+; `call wm_su_drop / retf` and that row is worth 2 bytes rather than 4.
+; What is left here is what still could not: a body with a near caller, one
+; that near-calls a LOCAL helper (that helper's `ret` is inside the same
+; extent and has to stay near), and one whose thunk is named by a dispatch
+; table rather than by a call. os88ovlchk.py gates the
 ; distinction in both directions, because `ret` pops two bytes and `retf` pops
-; four and the wrong one does not fault.
+; four and the wrong one does not fault - shown to fire here by putting
+; sched_mode_get's near `ret` back, which named all four of its far call
+; sites and refused.
 ; =============================================================================
 cw_app_launch:          call app_launch
                     retf
@@ -5689,8 +5684,6 @@ cw_wm_wake_eaten:       call wm_wake_eaten  ; every drain owes this per record
                     retf                    ; it discards (SPEC.md 74.1.1) -
                                             ; the .cold drains too
 cw_font_run:            call font_run
-                    retf
-cw_font_width:          call font_width
                     retf
 cw_fpg_step:             call fpg_step
                      retf
@@ -5754,8 +5747,6 @@ cw_icon_draw16:         call icon_draw16
                     retf
 cw_inst_alloc:          call inst_alloc
                     retf
-cw_inst_park_req:       call inst_park_req
-                    retf
 cw_inst_bind_win:       call inst_bind_win
                     retf
 cw_inst_find_kind:      call inst_find_kind
@@ -5800,8 +5791,6 @@ cw_menu_popup:          call menu_popup
 cw_osapi_file_here:      call osapi_file_here
                      retf
 cw_osapi_snd_tone:      call osapi_snd_tone
-                    retf
-cw_sched_mode_get:      call sched_mode_get
                     retf
 cw_snd_beep:            call snd_beep
                     retf
@@ -5911,8 +5900,6 @@ cw_inst_unmin:          call inst_unmin
                     retf
 %endif
 cw_xm_release_rec:      call xm_release_rec
-                    retf
-cw_wm_su_stale:         call wm_su_stale
                     retf
 cw_wm_title_set:        call wm_title_set
                     retf
@@ -6233,6 +6220,17 @@ osapi_mem_regrow:     call COLD_SEG:osapi_mem_regrow_x
                   ret
 osapi_sys_kb:         call COLD_SEG:osapi_sys_kb_x
                   ret
+osapi_sys_snapshot:   call COLD_SEG:osapi_sys_snapshot_x
+                  ret               ; THE ORDINARY THUNK, not a bespoke JSLOT
+                                    ; stub.  The stub argued "an OSAPI_SLOT
+                                    ; cell is eight bytes and `call %1` is
+                                    ; near, so a cold body cannot be reached
+                                    ; from one" and stopped one step short:
+                                    ; the cell reaches a RESIDENT thunk and
+                                    ; the thunk reaches the cold body, which
+                                    ; is what 72 other slots in this file do.
+                                    ; 8 + 10 becomes 8 + 6.  The DS switch the
+                                    ; stub carried is the cell's own now
 
 ; --- ...and desk.inc's (SPEC.md 26.1). The desktop dither and the drive
 ; zones. Drawn on a mount, on a volume going away and on a click on bare

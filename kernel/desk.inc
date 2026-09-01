@@ -1058,7 +1058,7 @@ desk_draw_zone:
     mov ax, [desk_zdrv]
     call desk_zone_label        ; SI -> it, the row's or a derived 'A:'
     push si
-    call KERNEL_SEG:cw_font_width             ; AX = its pixel width
+    call KERNEL_SEG:font_width             ; AX = its pixel width
     mov cx, [desk_zx]
     add cx, DESK_ZW/2
     mov bx, ax

@@ -2634,7 +2634,7 @@ cp_sched_click:
     jc .done
     mov al, ah
 %endif
-    call KERNEL_SEG:cw_sched_mode_get         ; AL = the live mode
+    call KERNEL_SEG:sched_mode_get         ; AL = the live mode
     cmp al, ah
     je .done                    ; that row is already live: change nothing
     mov al, ah
@@ -2666,7 +2666,7 @@ cp_radios:
     push dx
     push si
 
-    call KERNEL_SEG:cw_sched_mode_get         ; AL = 0 pre-emptive, 1 cooperative
+    call KERNEL_SEG:sched_mode_get         ; AL = 0 pre-emptive, 1 cooperative
     mov bl, al                  ; BL = the row whose glyph is filled
 
     mov cx, di                  ; the pen is os88ui_glyph's now, taken from

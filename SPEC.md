@@ -28142,8 +28142,10 @@ unconditionally, so a byte there is a byte on every package — and this one is
 
 **It assembles into the kernel too, from the same text.** Define
 `OS88UI_KERNEL` before including it and its six primitive calls become the
-kernel's own cold-to-text shims (`cw_gfx_frame`, `cw_gfx_fill`, `cw_font_str`,
-`cw_font_width`, `cw_gfx_pen_cf`, and a direct `[gfx_color]` store); leave it
+kernel's own cold-to-text far calls (`cw_gfx_frame`, `cw_gfx_fill`,
+`cw_font_str`, `cw_gfx_pen_cf`, a direct `[gfx_color]` store — and
+`font_width` itself, whose shim went in size pass 2 under §2.6.1 because the
+body had no near caller of its own); leave it
 undefined and they become `OSAPI_GFX_FRAME`, `OSAPI_GFX_FILL`,
 `OSAPI_FONT_STR`, `OSAPI_FONT_WIDTH`, `OSAPI_GFX_PEN` and `OSAPI_SET_COLOR`.
 Nothing else differs. The kernel includes it **once, into `.cold`**, from
@@ -37498,19 +37500,27 @@ worker is safe to close mid-tone.
 none, else kind + 1), plus module scratch (template copy buffer, pool-slot
 cursor — UI task only). All zeroed by `inst_init`.
 
-### 29.9 `osapi_sys_snapshot` is cold, behind a `JSLOT`
+### 29.9 `osapi_sys_snapshot` is cold, behind the ordinary thunk
 
 Slot 0x0298 fills the Task Manager's whole table in one interrupts-off window
 (§20.9). It is 258 bytes and the Task Manager asks about **once a second**, so
-the body is `.cold`.
+the body is `.cold` — `osapi_sys_snapshot_x`.
 
 An `OSAPI_SLOT` cell is **eight bytes exactly** and its `call %1` is near, so a
-cold body cannot be reached from one at all — the cell cannot grow, because the
-next cell's published offset is the ABI. What replaces it is the pattern five
-other slots already use: **`OSAPI_JSLOT` into a ten-byte `.text` stub**
-(`api_sys_snapshot`) that owns the `push ds / push cs / pop ds`, far-calls the
-body and returns `retf`. The published offset does not move and no caller
-changes.
+cold body cannot be reached from one *directly* — the cell cannot grow, because
+the next cell's published offset is the ABI. That argument was once taken one
+step too far, and this slot carried a bespoke `OSAPI_JSLOT` into a ten-byte
+`.text` stub of its own that owned the `push ds / push cs / pop ds` and
+far-called the body. **The cell does not have to reach the body: it reaches a
+resident THUNK, and the thunk reaches the body** — `osapi_sys_snapshot: call
+COLD_SEG:osapi_sys_snapshot_x / ret`, which is what seventy-two other slots in
+`kernel.asm` already do, and the cell's own macro is where the DS switch lives.
+**8 + 10 becomes 8 + 6.** The published offset does not move and no caller
+changes; `tests/unit/t_api_abi.py`'s name check accepts `osapi_` + the stem
+with no ALIAS row.
+
+The other five `OSAPI_JSLOT` stubs stay: each does something a thunk cannot —
+an optional name, a two-name copy, a `drv_owns_seg` fence.
 
 **Zero new `cw_` shims.** Its one outbound call is `call COLD_SEG:mem_owned_kb_x`
 and it was already spelled that way — the deliberate exclusion §29.9's own

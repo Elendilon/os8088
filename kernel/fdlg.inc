@@ -1432,7 +1432,7 @@ fdlg_btn2:
 fdlg_blabel:
     push ax                     ; NOT SI: font_width clobbers nothing else and
     push cx                     ; fdlg_text preserves everything
-    call KERNEL_SEG:cw_font_width ; AX = 8 * length
+    call KERNEL_SEG:font_width ; AX = 8 * length
     mov cx, FD_BX2-FD_BX1+1
     sub cx, ax
     jns .pad                    ; a label wider than the button would make the
@@ -1741,7 +1741,7 @@ fdlg_draw_rows:
     pop di
     mov si, fdlg_num
 .right:
-    call KERNEL_SEG:cw_font_width ; AX = the string's width
+    call KERNEL_SEG:font_width ; AX = the string's width
     mov cx, 196
     sub cx, ax                  ; right-aligned, clear of the scroll bar
     mov dx, bp

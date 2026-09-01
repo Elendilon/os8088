@@ -1096,9 +1096,9 @@ sched_mode_set:
 ; out:      AL = 0 pre-emptive, 1 cooperative
 ; clobbers: AL (it is the output); flags untouched
 ; -----------------------------------------------------------------------------
-sched_mode_get:
-    mov al, [sch_coop]
-    ret
+sched_mode_get:                 ; FAR-ENTERED (SPEC.md 2.6.1): no near caller
+    mov al, [sch_coop]          ; of its own, so the shim that used to `call`
+    retf                        ; this and `retf` is gone
 
 ; -----------------------------------------------------------------------------
 ; sch_isr - int 08h handler (PIT, ~18.2 Hz)
