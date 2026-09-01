@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Every `ret` in every SHIPPED PACKAGE is reached at the depth it started at.
+"""Every `ret` in every SHIPPED PACKAGE AND DRIVER is reached at its entry depth.
 
     python3 tests/unit/t_stkapps.py
 
-`tests/suite.py`'s `stkbalance` row walks SHEET, CHART and four shared
-includes - 776 entries.  This walks **all of `apps/`**: 7,135 entries across
-every package, every shared SDK include and the three CPU cores.  What made
-that impossible before was not the packages, it was three blind spots in the
-walker, and each of them hid a whole class of file:
+`tests/suite.py`'s `stkbalance` row walks the kernel plus SHEET, CHART and four
+shared includes.  This walks **all of `apps/` and all of `drivers/`**: 9,038
+entries across every package, every shared SDK include, the three CPU cores and
+the loadable drivers - the TCP/IP stack among them, which nothing had walked
+either.  What made that impossible was not the code, it was three blind spots
+in the walker, and each of them hid a whole class of file:
 
   * **`apps/*/*.inc` was in nobody's file list.**  `tools/stkbalance.py`'s own
     default globs `apps/*.inc` and `apps/*/*.asm` and stops, so RunCPM's Z80
@@ -28,7 +29,11 @@ build.  Without it every WVM opcode handler is an unreferenced label and the
 walk starts each one from zero.  So this file generates it, into a temp dir,
 and a tree that has never built Weave still gets the coverage.
 
-ONE ROUTINE IS EXEMPT and it is the shape worth knowing: `wvm_exit` is the VM's
+TWO ROUTINES ARE EXEMPT.  `drivers/net`'s `hd_path` pushes one handle per path
+level, counted in CX, and gives them all back with `loop` on both its unwinds -
+the count lives in a register, so no static walk can pair them, and the two
+unwinds meet on a FORWARD edge where the walker's back-edge suppression does
+not reach.  The other is the shape worth knowing: `wvm_exit` is the VM's
 unwind.  Every refusal funnels there and leaves through `_wvm_slice.out`, which
 gives back the registers the SLICE banked rather than the ones the opcode
 handler that refused did - so a depth measured against the escaping routine is
@@ -50,12 +55,14 @@ SIM = os.path.join(ROOT, "tools", "weavesim.py")
 
 
 def main():
-    files = (sorted(glob.glob(os.path.join(ROOT, "apps", "*.inc"))) +
-             sorted(glob.glob(os.path.join(ROOT, "apps", "*", "*.asm"))) +
-             sorted(glob.glob(os.path.join(ROOT, "apps", "*", "*.inc"))))
-    h.check(len(files) > 40, "the file list found the packages",
+    files = []
+    for top in ("apps", "drivers"):
+        for pat in ("*.inc", os.path.join("*", "*.asm"), os.path.join("*", "*.inc")):
+            files += sorted(glob.glob(os.path.join(ROOT, top, pat)))
+    h.check(len(files) > 60, "the file list found the packages and drivers",
             why="a glob that silently matches nothing passes this row and "
-                "defends none of it; %d files is not a package tree" % len(files))
+                "defends none of it; %d files is not a package tree plus a "
+                "driver tree" % len(files))
 
     with tempfile.TemporaryDirectory() as d:
         tab = os.path.join(d, "wvmtab.inc")
@@ -74,14 +81,14 @@ def main():
                            capture_output=True, text=True, cwd=ROOT)
         last = r.stdout.strip().split("\n")[-1]
         n = int(last.split()[1]) if last.startswith("stkbalance:") else -1
-        h.eq(n, 0, "every ret in apps/ is reached at its entry depth",
+        h.eq(n, 0, "every ret in apps/ and drivers/ is reached at its entry depth",
              why="a `ret` at non-zero depth returns to a saved register - no "
                  "crash and no message, a black canvas and a wedged app "
                  "(SPEC.md 82.7.3, and `op_size` in os88parts.inc did it on a "
                  "malformed part table). Deliberate surgery declares itself "
                  "with `; STKBALANCE-NET:` or `; STKBALANCE-OK: <reason>`.\n"
                  + r.stdout)
-    return h.done("apps/ stack balance")
+    return h.done("apps/ and drivers/ stack balance")
 
 
 if __name__ == "__main__":
