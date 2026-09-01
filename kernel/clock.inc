@@ -1097,9 +1097,11 @@ section .text
 ; correction in clk_ns_read.
 ; -----------------------------------------------------------------------------
 clk_ns_stamp:
-    push ax
-    push bx
-    push dx
+    push ax                     ; ...and NOT BX: no form of it is named below
+    push dx                     ; any more, so the routine preserves BX by not
+                                ; writing it. It carried the year byte in BL
+                                ; until the two `clk_ns_put` calls above
+                                ; started sharing AH.
     pushf
     cli                         ; every other 2C0h burst runs guarded, and
                                 ; this one is reached from clk_probe
@@ -1112,24 +1114,25 @@ clk_ns_stamp:
     mov ax, CLK_YMAX
 .yok:
     sub ax, CLK_YMIN
-    mov bl, al                  ; BL = the year byte, both conventions
-    mov ah, bl
-    mov al, CLK_NS_YRA
-    call clk_ns_put
-    mov ah, bl
-    mov al, CLK_NS_YRB
-    call clk_ns_put
+    mov ah, al                  ; AH = the year byte, and it stays there for
+    mov al, CLK_NS_YRA          ; BOTH conventions: clk_ns_put banks AX
+    call clk_ns_put             ; (`push ax` ... `pop ax`), so the second write
+    mov al, CLK_NS_YRB          ; needs only its own register index in AL.
+    call clk_ns_put             ; If clk_ns_put ever RETURNS something in AX
+                                ; this breaks the second year byte only - the
+                                ; convention 86Box's cards read - so it would
+                                ; fail on the field machine's SixPakPlus and
+                                ; nowhere else in this tree (rung 2 is in no
+                                ; emulator here).
     mov al, dl
     call clk_tobcd
     mov ah, al
     mov al, CLK_NS_LMON
     call clk_ns_put
-    mov ah, CLK_NS_MAGIC
-    mov al, CLK_NS_OK
+    mov ax, (CLK_NS_MAGIC << 8) | CLK_NS_OK     ; one store, not two
     call clk_ns_put
     popf
     pop dx
-    pop bx
     pop ax
     retf                        ; far entry, both address spaces (SPEC.md 37.94)
 
@@ -1636,23 +1639,35 @@ clk_tick:
 ; -----------------------------------------------------------------------------
 clk_inc_sec:
     push ax
+    push bx
     pushf
     cli
-    inc byte [clk_sec]
-    cmp byte [clk_sec], 60
+    mov bx, clk_sec             ; THREE ADJACENT BYTES, walked rather than
+                                ; named: sec, min and hour are declared in
+                                ; that order and clk_snapshot already reads
+                                ; sec+min and hour+day as WORDS and says so,
+                                ; so this is a second reader of an invariant
+                                ; the file already has rather than a new one.
+                                ; `[bx]` addresses DS, which IS KERNEL_SEG
+                                ; here - this is .text and not a BP form.
+    inc byte [bx]
+    cmp byte [bx], 60
     jb .out
-    mov byte [clk_sec], 0
-    inc byte [clk_min]
-    cmp byte [clk_min], 60
+    mov byte [bx], 0
+    inc bx
+    inc byte [bx]
+    cmp byte [bx], 60
     jb .out
-    mov byte [clk_min], 0
-    inc byte [clk_hour]
-    cmp byte [clk_hour], 24
+    mov byte [bx], 0
+    inc bx
+    inc byte [bx]
+    cmp byte [bx], 24
     jb .out
-    mov byte [clk_hour], 0
+    mov byte [bx], 0
     call clk_inc_day
 .out:
     popf
+    pop bx
     pop ax
     ret
 
@@ -1754,10 +1769,9 @@ clk_fmt:
     inc bx
     mov ax, [clk_sn_year]
     call clk_put4
-    mov byte [bx], ' '
-    inc bx
-    mov byte [bx], ' '
-    inc bx
+    mov word [bx], '  '         ; the double gap, one store: clk_str is a byte
+    add bx, 2                   ; buffer and the 8086 needs no alignment for a
+                                ; word store, so BX being odd here is fine
 
     mov al, [clk_sn_hour]       ; --- the hour, in the live form ---
     cmp byte [clk_h12], 0
@@ -1883,7 +1897,7 @@ clk_put_mon:
     push cx
     push si
     dec al
-    mov ah, 0
+    cbw                         ; month-1 is 0..11, so the sign bit is clear
     mov si, ax
     add si, ax
     add si, ax                  ; SI = (month-1) * 3
@@ -1928,11 +1942,9 @@ clk_put4:
     push cx
     mov cl, 100
     div cl                      ; AL = hundreds, AH = remainder
-    push ax
-    call clk_put2               ; the century pair
-    pop ax
-    mov al, ah
-    call clk_put2               ; the pair within it
+    call clk_put2               ; the century pair - and no bank around it:
+    mov al, ah                  ; clk_put2 pushes AX itself ("clobbers:
+    call clk_put2               ; nothing else"), so AH is still the remainder
     pop cx
     pop ax
     ret
