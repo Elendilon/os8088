@@ -101,6 +101,23 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; too, so those calls are NEAR from here
 
 ; -----------------------------------------------------------------------------
+; assoc_stage - CX bytes of ES:SI into the kernel at DI (SPEC.md 20.2's
+;               staging idiom, written once)
+; in:  ES:SI -> the source, DI -> the kernel destination, CX = the count
+; out: SI and DI past the copy, CX = 0, AL = the last byte copied
+;
+; CX MUST NOT BE 0 ON ENTRY - the body ends in `loop`, so a zero count copies
+; 65,536 bytes. Every caller passes a literal 3 or 8.
+; -----------------------------------------------------------------------------
+assoc_stage:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop assoc_stage
+    ret
+
+; -----------------------------------------------------------------------------
 ; assoc_ext_of - the extension of a staged display name (SPEC.md 54.2)
 ; in:  SI -> a NUL-padded 16-byte display name (the SPEC.md 19.1 staged shape)
 ; out: CF=0 and DI -> 3 space-padded extension bytes in assoc_extb;
@@ -478,13 +495,8 @@ assoc_declare:
 .one:
     push cx
     mov di, assoc_extb          ; stage it: everything below reads through DS
-    mov al, [es:si]
-    mov [di], al
-    mov al, [es:si+1]
-    mov [di+1], al
-    mov al, [es:si+2]
-    mov [di+2], al
-    add si, 3
+    mov cx, 3
+    call assoc_stage            ; ...and SI is left past the extension
     push si
     mov si, assoc_extb
     cmp byte [si], ' '          ; a blank extension names nothing
@@ -1213,20 +1225,10 @@ osapi_assoc_set_x:
     push di
     mov di, assoc_extb          ; stage both halves into the kernel, the
     mov cx, 3                   ; dsk_get_dir idiom - everything below reads
-.cext:                          ; through DS
-    mov al, [es:si]
-    mov [di], al
-    inc si
-    inc di
-    loop .cext
+    call assoc_stage            ; through DS
     mov di, assoc_stemb
     mov cx, 8
-.cstem:
-    mov al, [es:si]
-    mov [di], al
-    inc si
-    inc di
-    loop .cstem
+    call assoc_stage
 
     mov si, assoc_stemb         ; the app slot: reuse this program's own if
     call assoc_app_of           ; it already has one, so a program claiming
@@ -1584,12 +1586,7 @@ asc_seed:
     push si
     mov di, assoc_stemb         ; stage the stem: assoc_app_of reads through DS
     mov cx, 8
-.cp:
-    mov al, [es:si]
-    mov [di], al
-    inc si
-    inc di
-    loop .cp
+    call assoc_stage
     pop si
     push si
     mov di, si                  ; bank the row: assoc_app_of clobbers SI
@@ -1755,13 +1752,13 @@ asc_merge_ext:
     pop di
     jc .next
     mov dl, al
-    mov si, assoc_extb          ; stage the extension, then the usual rules
-    mov al, [es:di]
-    mov [si], al
-    mov al, [es:di+1]
-    mov [si+1], al
-    mov al, [es:di+2]
-    mov [si+2], al
+    push di                     ; stage the extension, then the usual rules -
+    mov si, di                  ; the row is in DI here, so it goes in as the
+    mov di, assoc_extb          ; SOURCE and the row pointer is banked
+    mov cx, 3
+    call assoc_stage
+    pop di
+    mov si, assoc_extb
     cmp byte [si], ' '
     jbe .next
     push di
@@ -1809,12 +1806,7 @@ asc_slot_of:
     mov si, ax                  ; ES:SI = the cache row
     mov di, assoc_stemb         ; stage its stem into the kernel
     mov cx, 8
-.cp:
-    mov al, [es:si]
-    mov [di], al
-    inc si
-    inc di
-    loop .cp
+    call assoc_stage
     mov si, assoc_stemb
     call assoc_app_of
     jnc .have
