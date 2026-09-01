@@ -236,16 +236,15 @@ ss_row:
 ; that is dark without the user having lit it first.
 ; -----------------------------------------------------------------------------
 blk_wake:
-    push ax
-    mov ax, [ticks]
-    mov [blk_t0], ax            ; the idle period restarts from here, lit or
-    cmp byte [blk_on], 0        ; dark - this is the only place it is set
-    pop ax                      ; outside boot (pop does not touch flags)
-    jne .dark
+    push ax                     ; ONE bank, not two: the `.dark` arm keeps this
+    mov ax, [ticks]             ; one rather than popping here and pushing
+    mov [blk_t0], ax            ; again. The idle period restarts from here,
+    cmp byte [blk_on], 0        ; lit or dark - this is the only place it is
+    jne .dark                   ; set outside boot
+    pop ax
     clc                         ; already lit: an ordinary input
     ret
-.dark:
-    push ax                     ; ...and it can only have been a wake. AX is
+.dark:                          ; ...and it can only have been a wake. AX is
     xor al, al                  ; banked because this routine's contract is
     call blk_set                ; flags and nothing else: ui.inc calls it
     pop ax                      ; mid-keystroke, between int 16h's peek and

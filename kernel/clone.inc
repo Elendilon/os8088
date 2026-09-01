@@ -2680,10 +2680,19 @@ clo_call:
 ; free the code that is about to run.
 ; -----------------------------------------------------------------------------
 clo_drop:
-    push ax
-    mov al, MOD_CLONE
-    call mod_drop
-    pop ax
-    ret
+    mov al, MOD_CLONE           ; A TAIL JUMP, and it is a CONTRACT CHANGE:
+    jmp mod_drop                ; this routine now clobbers AL where it used to
+                                ; preserve AX. mod_drop preserves every
+                                ; register and takes AL as its input, so the
+                                ; bank only ever protected our own `mov al`.
+                                ; Both callers checked: files.inc's first is
+                                ; followed by `.armed: ret` and reads nothing,
+                                ; and its second has its own push/pop ax round
+                                ; the pair. A THIRD CALLER WILL NOT BE TOLD.
+                                ; The near `jmp` is legal because clone.inc and
+                                ; mod.inc are both `.cold` and mod_drop's `ret`
+                                ; is near - it lands on our caller's return
+                                ; address. It does NOT generalise to clo_call
+                                ; or to kernel.asm's far thunks.
 
 section .text
