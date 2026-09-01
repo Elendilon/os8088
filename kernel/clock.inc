@@ -2096,7 +2096,10 @@ clk_rpep:   resb 1              ; has no century, so 0 = they are year mod 100
                                 ; is a software convention, and clk_rp_probe
                                 ; settles it by asking which one agrees
 clk_rp24:   resb 1              ; ...and bit 0 = the chip is running 24-hour,
-clk_rp_pd:  resb 1              ; read at write time, never written
+                                ; read at write time by clk_rp_hour. (A
+                                ; clk_rp_pd byte used to follow, carrying THAT
+                                ; sentence as its own comment while having no
+                                ; reader, no writer and no %if of its own)
 
 clk_str:    resb 26             ; the bar's line, longest form 24 glyphs +
                                 ; NUL (drawn under the gfx lock, UI task only)
