@@ -651,7 +651,11 @@ VHD is reflinked). Going past it is slower, not broken: at eight on four cores
 each guest is still 1.66x real time, and guest CYCLE counts, `disk()` counts
 and pixel comparisons are exact at any oversubscription because they are
 counted rather than timed. What loses slack is host wall-clock — `settle`,
-`until`, a row's timeout. `os88test.py --marty-jobs N` takes the suite's
+`until`, a row's timeout — and an IDLE guest costs less than a busy one
+(96.9% halted, SPEC.md §8.1.2), so eight agents is the worst case only when
+all eight are driving. **A registry record names a PROCESS, not a PID**: with
+`pid_max` at 32,768 a busy session wraps the counter in minutes, and a stale
+record whose number got reused once had `reap` kill a live instance silently. `os88test.py --marty-jobs N` takes the suite's
 emulator lane past 1 deliberately (four rows: 175.6s at 1, 85.9s at 3).
 
 Driving QEMU, for the five cases above and for a host with no MartyPC:

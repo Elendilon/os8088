@@ -152,6 +152,57 @@ def isolation(quick):
               "...and both machines are still answering")
 
 
+def recycled_pid():
+    """A STALE RECORD NAMING A LIVE INSTANCE'S PID MUST NOT KILL IT.
+
+    This is a regression test for a bug this file's own thesis missed, found
+    by running eight instances at once. `pid_max` is 32768 on the container
+    it appeared on, so a session launching emulators steadily WRAPS the PID
+    counter in minutes - and it did: a finished row's record and a live
+    instance both named pid 1666. `reap()` read the stale record, asked "is
+    1666 a live martypc_headless" (it was - somebody ELSE's), called it an
+    orphan and killed it. Silently: no log line, no panic, nothing but a
+    socket that closed.
+
+    So a record is pinned to a PROCESS now - (pid, start time) - and the two
+    shapes below are the two ways the old code got it wrong. Both are
+    fabricated rather than waited for: reproducing a real PID wrap takes
+    32,768 processes, and the failure it produces is indistinguishable from
+    the emulator having crashed.
+    """
+    print("a recycled PID:")
+    import json
+    with M.launch(IMG, machine=MACHINE, boot=0, label="conc-victim") as v:
+        root = M._inst_root()
+        made = []
+        for name, extra in (("wrong-start", {"pid_start": "1"}),
+                            ("no-start", {})):
+            # A record from a session that died, naming the victim's PID -
+            # which is what a wrapped counter hands out.
+            d = os.path.join(root, "conc-stale-%s" % name)
+            os.makedirs(d, exist_ok=True)
+            rec = {"pid": v.pid, "port": 1, "machine": MACHINE, "label":
+                   "conc-stale-%s" % name, "owner_pid": 999999,
+                   "detached": False, "started": time.time(), "private": True,
+                   "run_dir": d, "log": os.path.join(d, "martypc.log"),
+                   "ended": False}
+            rec.update(extra)
+            with open(os.path.join(d, "instance.json"), "w") as f:
+                json.dump(rec, f)
+            made.append(d)
+        try:
+            killed, _ = M.reap()
+            check(M._is_marty(v.pid),
+                  "a stale record naming a live instance's PID does not kill it",
+                  "reap() killed %d" % killed)
+            check(v.status()["cycles"] == 0,
+                  "...and the victim is still answering")
+        finally:
+            import shutil
+            for d in made:
+                shutil.rmtree(d, ignore_errors=True)
+
+
 def orphan():
     """An emulator whose owner died is the survivor case, and reap() takes it.
 
@@ -226,6 +277,7 @@ def main():
     mine = set()
     try:
         isolation(quick)
+        recycled_pid()
         orphan()
         if not quick:
             boots()
@@ -233,7 +285,7 @@ def main():
         # Never leave one of OUR OWN behind, and never reach past them: a
         # blanket sweep here would be this file failing its own thesis.
         for d in M.instances():
-            if d["alive"] and d.get("label", "").startswith("conc-"):
+            if d["alive"] and (d.get("label") or "").startswith("conc-"):
                 mine.add(d["pid"])
                 try:
                     os.kill(d["pid"], 9)

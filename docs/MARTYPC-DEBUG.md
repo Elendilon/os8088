@@ -763,11 +763,53 @@ a core off another agent lengthens their run and cannot invalidate it.
 them thin enough to name: `tests/bouncecost.py` (`wait_stop(limit=8.0)`),
 `tests/modstr.py` (`watch_toast(limit=8.0)`) and `tests/paintcull.py`
 (`wait_stop(limit=10.0)`) each give guest work a single-figure window of host
-seconds. At the core count that window loses ~12%; at 8 instances on 4 cores
-the guest runs at 1.66x instead of 3.4x, so it loses **half**. Everything else
-has room by a wide margin — `settle` allows 120 s for a 7.6 s boot, a suite
-row's timeout is `4x` its declared seconds — so those three are where a
-tighter budget would bite first.
+seconds. All three were then run at **eight instances on four cores** — five
+detached load machines plus the three rows together — and all three passed:
+
+| row | idle box | 8 on 4 |
+|---|---|---|
+| `bouncecost` | 13.0 s | 22.2 s |
+| `modstr` | 53.3 s | 65.3 s |
+| `paintcull` | 67.9 s | 76.3 s |
+| **wall** | **134.2 s** | **76.3 s** |
+
+They survive because two of the three **retry** rather than assert on the
+window — `bouncecost` presses the menu up to six times, `paintcull` loops
+`wait_stop` — so a missed window costs a retry. `modstr` does not retry, and
+its risk runs the *other* way: a slower guest holds a toast up for longer in
+host seconds, which makes it easier to catch, not harder. Everything else has
+room by a wide margin: `settle` allows 120 s for a 7.6 s boot, and a suite
+row's timeout is `4x` its declared seconds.
+
+**Note what an IDLE guest costs**, because it changes the arithmetic above: at
+eight instances the load machines ran at **2.85x** real time, not the 1.66x
+the saturation table predicts. An idle os8088 desktop is 96.9% halted
+(SPEC.md §8.1.2), and halted cycles are cheap to emulate — so "eight agents"
+is only the worst case when all eight are actively driving their machine.
+
+#### The bug that eight-at-once found
+
+Running eight killed a load instance dead, silently: no log line, no panic,
+nothing but a socket that closed. It was **not** contention. `pid_max` on that
+container is 32,768, so a session launching emulators steadily **wraps the PID
+counter in minutes** — and it had: a finished row's registry record and a live
+instance both named pid 1666. `reap()` read the stale record, asked *"is 1666
+a live martypc_headless?"*, got **yes — somebody else's**, called it an orphan
+and killed it. That is exactly the failure this whole layer exists to remove,
+reintroduced one level down, and a PID alone cannot tell the two apart.
+
+A record is pinned to a **process** now, not a number: `(pid, start time)`,
+read from field 22 of `/proc/<pid>/stat` (after the last `)`, because the comm
+field can contain both spaces and parentheses) or from `ps -o lstart=` on
+Darwin. One predicate, `_killable`, gates every signal — the record must carry
+a start time, that PID must be a `martypc_headless` **started at that time**,
+and the record must not already be retired. A record that cannot identify its
+process is left entirely alone, record and process both: retiring one whose
+process may still be running is how a live instance becomes invisible.
+`tests/martyconc.py` fabricates both shapes (a wrong start time, and a record
+with none) against a live instance and asserts it survives — fabricated
+because reproducing a real wrap takes 32,768 processes, and the failure it
+produces is indistinguishable from the emulator having crashed.
 
 #### A bench that outlives the command
 

@@ -226,9 +226,12 @@ class Marty:
             # cheap liveness test reports a process that is already dead as
             # "still running", which is precisely the wrong thing to tell
             # somebody chasing a machine that went away.
+            rec = getattr(self, "_rec", None)
+            start = (rec or {}).get("pid_start")
             bits.append("emulator pid %d is %s" % (
                 self.pid, "still running - so this is the SOCKET rather than "
-                          "the process" if _is_marty(self.pid) else "gone"))
+                          "the process" if _is_marty(self.pid, start)
+                          else "gone"))
         rd = getattr(self, "run_dir", None)
         if rd:
             bits.append("its log: %s" % os.path.join(rd, "martypc.log"))
@@ -896,6 +899,44 @@ def _marty_pids():
     return out
 
 
+def _proc_start(pid):
+    """When this PID started, as an opaque comparable token, or None.
+
+    PIDS ARE REUSED, AND FAST. `pid_max` was 32768 on the container this bug
+    was found in, so a session that launches emulators steadily wraps the
+    counter in minutes - and it did: a finished row's record and a live
+    instance both named pid 1666. `reap()` read the stale record, asked "is
+    1666 a live martypc_headless" - it was, it was somebody ELSE's - decided
+    it was an orphan and killed it. Silently: no log line, no panic, nothing
+    but a socket that closed. That is precisely the failure this whole layer
+    exists to remove, reintroduced one level down, and a PID alone cannot
+    tell the two apart.
+
+    (pid, start time) can. On Linux it is field 22 of /proc/<pid>/stat, in
+    ticks since boot - parsed after the LAST ')' because field 2 is the comm
+    and may contain both spaces and parentheses. On Darwin, `ps -o lstart=`
+    is a second-resolution date, which is coarse but is a second the reused
+    PID would have to land in exactly.
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+    if os.path.isdir("/proc"):
+        try:
+            with open("/proc/%d/stat" % pid) as f:
+                text = f.read()
+            rest = text[text.rindex(")") + 2:].split()
+            return rest[19]                 # field 22, counting from field 3
+        except (OSError, ValueError, IndexError):
+            return None
+    import subprocess
+    try:
+        ps = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)],
+                            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return ps.stdout.strip() or None
+
+
 def _pid_alive(pid):
     """Is this PID a live process? Signal 0, which asks and does nothing."""
     if not isinstance(pid, int) or pid <= 0:
@@ -911,17 +952,22 @@ def _pid_alive(pid):
     return True
 
 
-def _is_marty(pid):
-    """Is this PID a live EMULATOR - not a recycled number?
+def _is_marty(pid, start=None):
+    """Is this PID a live EMULATOR - and, if `start` is given, THE SAME ONE?
 
-    PIDs are reused, and this is the difference between reaping an orphan and
-    killing whatever happened to inherit its number. Nothing in `reap()` sends
-    a signal without asking this first.
+    Two questions, and the second is the one that matters before a signal.
+    Without `start` this answers "some martypc_headless has this PID", which
+    is enough to say a machine is running and NOT enough to kill it: the
+    emulator holding a recycled PID is somebody else's, and it is still an
+    emulator, so the cheap test passes and the kill lands on live work. See
+    `_proc_start`.
     """
     if not _pid_alive(pid):
         return False
     cmd = _pid_cmdline(pid)
-    return cmd is not None and _keep_pid(cmd)
+    if cmd is None or not _keep_pid(cmd):
+        return False
+    return start is None or _proc_start(pid) == start
 
 
 def _port_free(host, port, tries=60, gap=0.5):
@@ -1014,12 +1060,35 @@ def instances(include_ended=False):
         except (OSError, ValueError):
             continue
         d["dir"] = os.path.join(root, name)
-        d["alive"] = _is_marty(d.get("pid", -1))
+        # `pid_start` pins the record to one PROCESS rather than one number.
+        # A record without it was written by an older build; it is reported
+        # live on the PID alone and, deliberately, can never be killed - see
+        # `_killable`.
+        d["alive"] = _is_marty(d.get("pid", -1), d.get("pid_start"))
         d["owner_alive"] = _pid_alive(d.get("owner_pid", -1))
         if d.get("ended") and not include_ended and not d["alive"]:
             continue
         out.append(d)
     return out
+
+
+def _killable(d):
+    """May this record's process be SIGNALLED? Three things must hold.
+
+    It is one function rather than a condition at each call site because
+    every one of them is a chance to kill somebody else's work, and the
+    consequence is silent - the victim sees a socket close, and nothing
+    anywhere says why.
+
+      * the record must carry `pid_start`, so the process can be identified
+        rather than merely numbered. Without it, no;
+      * that PID must currently be a martypc_headless STARTED AT THAT TIME;
+      * and the record must not already be retired. An `ended` record has
+        had its say; if its PID is live now it belongs to somebody else.
+    """
+    return (not d.get("ended")
+            and bool(d.get("pid_start"))
+            and _is_marty(d.get("pid", -1), d.get("pid_start")))
 
 
 def _write_record(d):
@@ -1073,8 +1142,11 @@ def reap(kill_orphans=True, verbose=False):
         the case the old sweep got wrong, and getting it wrong is what
         destroyed other people's runs.
       * the emulator is ALIVE and its OWNER IS GONE -> an ORPHAN. Nobody is
-        going to close it, so it is killed by PID (never by pattern, and never
-        without `_is_marty` first, because PIDs are reused).
+        going to close it, so it is killed - by PID, never by pattern, and
+        only through `_killable`, which asks WHICH PROCESS that PID is. A
+        record that cannot answer is left entirely alone, record and process
+        both: retiring one whose process may still be running is how a live
+        instance becomes invisible, and `kill-all --yes` is the way out.
 
     A DETACHED instance (`launch(detach=True)`, `os88marty.py launch`) has no
     owner ON PURPOSE and is never killed here - it is a bench somebody left
@@ -1093,16 +1165,25 @@ def reap(kill_orphans=True, verbose=False):
         if d["alive"] and not d["owner_alive"]:
             if not kill_orphans:
                 continue
-            if _is_marty(d["pid"]):
-                try:
-                    os.kill(d["pid"], 9)
-                    killed += 1
-                    if verbose:
-                        print("reap: killed orphan pid %d on port %s (owner %s "
-                              "is gone)" % (d["pid"], d.get("port"),
-                                            d.get("owner_pid")))
-                except OSError:
-                    pass
+            if not _killable(d):
+                # Cannot prove which process this PID is - a record from
+                # before `pid_start`, or one already retired whose number has
+                # been handed to somebody else. Say so and change NOTHING.
+                if verbose:
+                    print("reap: left pid %s on port %s alone - the record "
+                          "cannot identify the process, and a PID is not an "
+                          "identity (`kill-all --yes` is the hammer)"
+                          % (d.get("pid"), d.get("port")))
+                continue
+            try:
+                os.kill(d["pid"], 9)
+                killed += 1
+                if verbose:
+                    print("reap: killed orphan pid %d on port %s (owner %s "
+                          "is gone)" % (d["pid"], d.get("port"),
+                                        d.get("owner_pid")))
+            except OSError:
+                pass
             d["ended"] = True
             d["ended_reason"] = "reaped: the owning script was gone"
             _write_record(d)
@@ -1139,7 +1220,7 @@ def kill_one(which):
             "instances` lists them." % (which,))
     n = 0
     for d in rows:
-        if _is_marty(d["pid"]):          # never a recycled PID
+        if _killable(d):                 # never a recycled PID: _proc_start
             try:
                 os.kill(d["pid"], 9)
                 n += 1
@@ -1833,7 +1914,8 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
     log = open(logpath, "wb")
     proc = subprocess.Popen(cmd, cwd=run_dir, env=env, stdout=log, stderr=log)
 
-    rec = {"pid": proc.pid, "port": None, "machine": machine,
+    rec = {"pid": proc.pid, "pid_start": _proc_start(proc.pid),
+           "port": None, "machine": machine,
            "image": os.path.abspath(image) if image else None,
            "apps": os.path.abspath(apps) if apps else None,
            "run_dir": run_dir, "log": logpath, "label": label,
