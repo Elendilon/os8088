@@ -174,10 +174,12 @@ spk_tone:
 ; latch+read triple sits in its own pushf/cli..popf window (SPEC.md 34.1,
 ; binding - the 8254 ignores a second latch while one is unread), IF = 1
 ; between polls. THE RESYNC RULE: a sample late by more than one period
-; resets the deadline to now and drops samples - inc [snd_pcm_resync] -
-; never burst catch-up writes, so a long interrupt becomes dropped samples,
-; never a buzz. snd_pcm_emitted counts every pulse; both counters are the
-; Phase 2 gate's instrument, surfaced on the Control Panel caption.
+; resets the deadline to now and drops samples, never burst catch-up
+; writes, so a long interrupt becomes dropped samples, never a buzz. It
+; used to keep two counters here - emitted pulses and resyncs - which
+; nothing could read: the Control Panel Sound page they were "surfaced on"
+; is retired (SPEC.md 31.4) and no file under tests/, tools/ or apps/ ever
+; named either. Re-adding a counter is one rebuild (PERFORMANCE.md rule 4).
 ;
 ; Scheduling: executes on the caller's task with IF=1 throughout, inside
 ; inc/dec [sch_lock] - the second sanctioned raiser (SPEC.md 7), with
@@ -259,12 +261,10 @@ spk_pcm_run:
     cmp ax, bp                  ; late by more than one period?
     jbe .emit
     mov di, dx                  ; RESYNC: drop samples, never a burst
-    inc word [snd_pcm_resync]
 .emit:
     mov al, [snd_pcm_smp]
     out 0x42, al                ; the pulse: AL PIT-cycles low
     add di, bp                  ; next deadline
-    inc word [snd_pcm_emitted]
     mov al, [mouse_btn]         ; abort checks, emit path only: FOLD
     and [snd_btn0], al          ; RELEASES INTO THE BASELINE first...
     mov ah, [snd_btn0]
@@ -703,8 +703,6 @@ snd_init:
     mov byte [snd_pcm_inst], 0xFF
     mov byte [snd_pcm_smp], 0
     mov word [snd_pcm_n], 149   ; the default-rate divisor (8,008 Hz)
-    mov word [snd_pcm_emitted], 0
-    mov word [snd_pcm_resync], 0
 
     mov byte [snd_live], 1      ; publish-last (SPEC.md 34.7, binding)
 
@@ -1035,8 +1033,6 @@ osapi_snd_play:
     mov [snd_pcm_inst], bh
     mov al, [mouse_btn]         ; the click-abort baseline (SPEC.md 34.4)
     mov [snd_btn0], al
-    mov word [snd_pcm_emitted], 0
-    mov word [snd_pcm_resync], 0
     popf                        ; --- granted ------------------------------
 
     mov ax, [snd_pcm_n]         ; build the per-clip rescale table: far
@@ -1217,8 +1213,6 @@ snd_pcm_fast:  resb 1           ;   the fsx sub-tick parked across the clip
                                 ;   (SPEC.md 53.2.1); written before every
                                 ;   read, so an unzeroed .bss cannot bite
 snd_pcm_n:     resw 1           ;   the clip divisor N (74..255)
-snd_pcm_emitted: resw 1         ; debug counters (34.4), reset per clip:
-snd_pcm_resync:  resw 1         ;   pulses emitted / deadline resyncs
 snd_patch:     resb 12          ; a package's SND_PATCH_N-byte FM patch, staged into
                                 ; the kernel so the driver can read it (34.2)
 snd_evtmp:     resb 8           ; click-abort event drain scratch (evq_pop

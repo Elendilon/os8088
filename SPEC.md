@@ -39804,15 +39804,18 @@ end.
   compare is wrap-safe signed subtraction; each poll is one atomic latch
   triple (~110 cycles all-in), IF=1 between polls. **The resync rule**: a
   sample late by more than one period resets the deadline to now and drops
-  samples — `inc word [snd_pcm_resync]` — never burst catch-up writes, so
-  a long interrupt becomes dropped samples, never a buzz. Jitter is ±1
-  poll plus the surviving IF=0 stretches. `snd_pcm_emitted` /
-  `snd_pcm_resync` are debug counters **nothing can read**: the one door
-  was `spk_pcm_op`'s verb 2, itself unreachable and now deleted, and no
-  file under `tests/`, `tools/` or `apps/` names either symbol. This line used
-  to say they were "the debug counters the Phase 2 gate reads", surfaced
-  "on the §31.4 caption" — there is no such gate, and §31.4 is *Sound
-  page — retired*. Budget at N = 149:
+  samples, never burst catch-up writes, so a long interrupt becomes
+  dropped samples, never a buzz. Jitter is ±1 poll plus the surviving IF=0
+  stretches. **There are no counters on this path.** There were two —
+  `snd_pcm_emitted` and `snd_pcm_resync` — and nothing could read them:
+  this line called them "the debug counters the Phase 2 gate reads",
+  surfaced "on the §31.4 caption", and there is no such gate while §31.4
+  is *Sound page — retired*; the only door left was `spk_pcm_op`'s verb 2,
+  itself unreachable. **A future field measurement of PWM resync re-adds
+  them**, which is one rebuild (PERFORMANCE.md rule 4) and is how this
+  project pays for a field instrument — as a knob (`MOUDIAG=1`,
+  `BOOTPROF=1`, `FDDSLOW=1`) rather than as 25 resident bytes on every
+  machine, the 128KB one included. Budget at N = 149:
   4,772,727/8,008 ≈
   **596 CPU cycles/sample**; fixed work (lodsb + xlat + out + deadline +
   abort checks + loop, with 8088 fetch stalls) ≈ 120–135, plus typically
@@ -40008,10 +40011,10 @@ are byte-identical to the figures above.
   the speaker's name string. That is the whole of it.
 - **`.bss`** (~20 bytes of state + the 256-byte xlat table): the tone
   owner record, generations, the expiry deadline, `snd_ch2mode`, the saved
-  61h boot bits, `snd_btn0`/`snd_abort`, the clip's owner and divisor, and
-  the debug counters `snd_pcm_emitted` / `snd_pcm_resync`. All stored
-  explicitly by `snd_init` (§8's rule) and unreadable by the tick until
-  `snd_live` publishes.
+  61h boot bits, `snd_btn0`/`snd_abort`, and the clip's owner and divisor.
+  All stored explicitly by `snd_init` (§8's rule) and unreadable by the
+  tick until `snd_live` publishes. (It also held two debug counters no
+  reader ever existed for; §34.4 says where they went.)
 - **Buffers: none.** The layer owns no memory outside its own `.bss` —
   `osapi_snd_play` reads the caller's `ES:SI` in place. This is the whole
   reason `SND_SEG` could be deleted from §2 rather than merely shrunk.
