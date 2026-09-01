@@ -1004,7 +1004,7 @@ fcp_push:
 ; -----------------------------------------------------------------------------
 ; fcp_scan - the next usable entry of the top frame's SOURCE directory
 ; in:  BX -> the frame
-; out: CF=0 with fcp_cname / [fcp_ctype] / [fcp_csrc] / [fcp_clen] set and
+; out: CF=0 with fcp_cname / [fcp_ctype] / [fcp_csrc] set and
 ;      the frame's ordinal advanced past it; CF=1 with AX = 0 (exhausted) or
 ;      AX = FERR_IO (unreadable)
 ; clobbers: AX, flags
@@ -1128,10 +1128,6 @@ fcp_scan:
     mov [fcp_ctype], ax
     mov ax, [dsk_ent+18]
     mov [fcp_csrc], ax
-    mov ax, [dsk_ent+20]
-    mov [fcp_clen], ax
-    mov ax, [dsk_ent+22]
-    mov [fcp_clenh], ax
     pop es
     pop di
     pop si
@@ -1907,9 +1903,10 @@ fcp_sslot:  resw 1              ; ...and the slot to resume at
 fcp_cname:  resb 13             ; fcp_scan's answer: name...
 fcp_cpad:   resb 1              ; (keeps the words below even-aligned)
 fcp_ctype:  resw 1              ; ...SPEC.md 19 type word...
-fcp_csrc:   resw 1              ; ...first cluster...
-fcp_clen:   resw 1              ; ...and size, low word...
-fcp_clenh:  resw 1              ; ...and high
+fcp_csrc:   resw 1              ; ...and first cluster. NOT the size: it was
+                                ; stored in two more words here and read by
+                                ; nothing - fcp_xfer sizes the copy off the
+                                ; DESTINATION handle, not off the scan
 
 fcp_fname:  resb 13             ; the pending file: name...
 fcp_fsdrv:  resb 1              ; ...source drive...
