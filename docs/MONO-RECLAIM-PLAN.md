@@ -540,9 +540,47 @@ possible but its headroom is nothing like its share.
    **`.text` −31 on `kern_big` and −35 on `kern_small`**, which is the right
    direction for a build under a cut, and 0 differing pixels on both adapters.
    **A removal needs no hole either**, which is now two of three.
-3. **`sw_blit_row`** — the largest single number in the profile set and the
-   smallest remaining headroom, for §5.2's reason. Worth revisiting only with a
-   measurement in hand.
+3. **`sw_blit_row` — REFUSED, and this is the costed version of §5.2's
+   suspicion.** The largest single number in the profile set (27.7% of the
+   machine in Paint) and the smallest remaining headroom, because §5.4.1.1 and
+   §5.4.1.2 already took it.
+
+   `.abyte` is **37 instruction bytes and 145 execution clocks per eight
+   pixels** — measured off a `[map all]` assembly, not counted by hand. Under
+   PERFORMANCE.md Part 2's `max(execution, 4.34 × instruction bytes)` it is
+   fetch-bound at 160.6, **by 15.6 clocks**, and that gap is the whole prize:
+
+   | | instr | exec | fetch | total / 8 px | |
+   |---|---:|---:|---:|---:|---|
+   | as it ships | 37 | 145 | 160.6 | **202.6** | |
+   | `shl dl, cl` (CL=2), count in DH | 33 | 183 | 143.2 | 225.0 | **+11.1% — worse** |
+   | `xchg ax, dx` for `mov al, dl` | 36 | 146 | 156.2 | 198.2 | −2.1% |
+   | a pre-shifted table per position | 25 | 133 | 108.5 | 175.0 | −13.6%, **impossible** |
+   | *every* instruction byte, free | 0 | 145 | 0 | 187.0 | **−7.7%, the ceiling** |
+
+   (+ 4 clocks per operand byte × 9 and a queue refill, the same in every row.)
+
+   **Removing every instruction byte for nothing would buy 7.7%**, because the
+   loop goes execution-bound the moment four of them go. So:
+
+   * **The `shl dl, cl` trick is 4 bytes smaller and 11% SLOWER.** An 8088
+     charges 8 clocks plus 4 per bit for a shift by CL, so three of them add 36
+     execution clocks to save 17 of fetch. *A shorter encoding beats a cheaper
+     instruction only while the code is fetch-bound*, and this is the case that
+     crosses over — which is worth having written down, because Part 2's rule
+     reads like it always holds.
+   * **The pre-shifted table is worth 13.6% and cannot be built.** `xlat` takes
+     its base in BX, so a different table per pair costs at least 3 bytes to
+     reload it — more than the 4 bytes of shifts it removes. The idea dies on
+     the addressing mode, not on the 1,536 bytes of derived table it would need.
+   * What is left is **`xchg ax, dx` for `mov al, dl` — one byte, 2.1%** — and
+     it needs the leftover-pair count out of AH first. **Not taken**: the ratio
+     does not justify touching the hottest loop in the tree.
+
+   **This is arithmetic and says so.** What would settle it is `gfxbench`'s
+   `GFX_BLIT4` rows on `VIDEO=cga`, and the model's inputs are the two things
+   that are not modelled — the 37 bytes and the 145 clocks — both of which are
+   read off the assembly.
 
 **`GFX_FILL_GRAY` is correctly refused as a target.** `UI_GRAY` is the shared
 scrollbar trough and `fprog.inc`'s progress widget — a scrollbar is nowhere near
@@ -575,6 +613,28 @@ Paint's live canvas (`sw_blit_row` 27.7%), WIREFRAME (`sw_col.row` 10.0%), and
 windowed games — though Missile Command is **scheduler-bound at ~22%** before it
 is draw-bound, so a windowed real-time game is a docs/SCHED-IDLE-PLAN.md
 question first.
+
+### 5.4.5 …so the hole has no graphics customer, and that is the answer
+
+All three of Set 102's targets are now settled, and **not one of them wanted
+§3's in-place reuse**:
+
+| target | outcome | bytes |
+|---|---|---:|
+| `sw_col` (§39.25) | built — the whole-column store | **+24** |
+| `sw_rect` / `sw_plane_op` (§39.26) | built — a loop that ran once, removed | **−31** |
+| `sw_blit_row` | **refused, costed above** | 0 |
+
+Two were too small to be worth hiding from a VGA machine and the third has
+nothing left to take. **§3's apparatus — the `.ovl` decider, the blob sectors,
+the `tests/vgarefs.txt` ratchet, and step 3's consolidation that only exists to
+serve them — has no customer in this file.**
+
+That is a real finding rather than a shrug: the hole is ~1,581 bytes of near,
+hot, kernel-segment `.text` on a mono-only `kern_big` machine, and it is still
+there. What it needs is a payload from **outside** the graphics layer, and this
+plan is not the document that will find one. §5.6 is what the graphics side
+would have spent it on if anything had qualified.
 
 ### 5.5 There is no either/or left: `kern_big`'s hole is the only buyer
 

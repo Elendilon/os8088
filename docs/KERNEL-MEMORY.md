@@ -919,7 +919,7 @@ Three things about it:
     "ovl": 1425,
     "ovlw": 5263,
     "stk0": 1024,
-    "text": 52624,
+    "text": 52617,
     "vgabuf": 848,
     "vgabufpara": 64
   },
@@ -1801,12 +1801,12 @@ generated in the first place.
 |---|---:|---:|
 | the file system, end to end | 31,797 | 34.8% |
 | the window system and its furniture | 25,138 | 27.5% |
-| drawing: adapters, primitives, glyphs, icons | 15,821 | 17.3% |
+| drawing: adapters, primitives, glyphs, icons | 15,814 | 17.3% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,402 | 9.2% |
 | the kernel proper: API table, heap, scheduler, events | 7,451 | 8.1% |
 | the three built-in kinds | 1,813 | 2.0% |
 | the Control Panel | 1,055 | 1.2% |
-| **total** | **91,477** | |
+| **total** | **91,470** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -1814,7 +1814,7 @@ generated in the first place.
 |---|---:|---:|---:|---:|---:|---:|
 | `wm.inc` — the window manager (§11) | 11,831 | 94 | **11,925** | 1,074 | — | — |
 | `files.inc` — the Disk window (§22) | 1,052 | 8,303 | **9,355** | 471 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 7,418 | 702 | **8,120** | 180 | 526 | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 7,265 | 702 | **7,967** | 162 | 526 | — |
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 397 | 5,824 | **6,221** | 890 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 5,038 | **5,279** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,626 | **4,805** | 155 | — | — |
@@ -1829,7 +1829,7 @@ generated in the first place.
 | `font.inc` — the 8×8 glyph renderer (§6) | 2,087 | — | **2,087** | 218 | 768 | — |
 | `apps.inc` — the three built-in kinds (§14) | 251 | 1,562 | **1,813** | 15 | 240 | — |
 | `icons.inc` — the icon renderer (§10) | 1,666 | — | **1,666** | 100 | — | — |
-| `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,243 | — | **1,243** | 4 | — | — |
+| `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,389 | — | **1,389** | 22 | — | — |
 | `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,229 | — | **1,229** | 88 | — | — |
 | `snd.inc` — the sound layer (§34) | 1,178 | — | **1,178** | 300 | — | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 1,131 | — | **1,131** | 9 | — | — |
@@ -1855,7 +1855,7 @@ generated in the first place.
 | `bootprof.inc` — the boot phase table (§15.5), `BOOTPROF=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 3,050 | — | **3,050** | — | — | 421 |
-| **total** | **52,624** | **38,853** | **91,477** | **5,813** | **9,096** | **2,439** |
+| **total** | **52,617** | **38,853** | **91,470** | **5,813** | **9,096** | **2,439** |
 <!-- END generated table -->
 
 ### Reading it

@@ -779,6 +779,29 @@ sw_blit_row:
 ; --- SPEC.md 5.4.1.2's two aligned bodies. They live PAST the `ret` because
 ; `loop .pair` is a short jump and cannot reach over them, and each is entered
 ; from the store that proves its own precondition - so neither tests the phase.
+;
+; .abyte IS AT ITS FLOOR AND A THIRD PASS IS REFUSED. It is 37 instruction
+; bytes and 145 execution clocks per eight pixels, so under PERFORMANCE.md
+; Part 2's `max(execution, 4.34 x bytes)` it is fetch-bound at 160.6 - by
+; 15.6 clocks. That gap is the WHOLE prize: removing every instruction byte
+; for nothing would buy 7.7%, and the loop is execution-bound the moment four
+; of them go. Two levers were costed against that and both are recorded in
+; docs/MONO-RECLAIM-PLAN.md 5.3:
+;
+;   * the six `shl dl, 1` as three `shl dl, cl` with CL = 2 (the count moving
+;     to DH, which is free here). Four bytes smaller and 11% SLOWER: an 8088
+;     charges 8 clocks plus 4 per bit for a shift by CL, so three of them add
+;     36 execution clocks to save 17 of fetch. A shorter encoding beats a
+;     cheaper instruction only while the code is fetch-bound, and this crosses
+;     over;
+;   * a table per byte POSITION, pre-shifted, so the shifts vanish. Worth
+;     13.6% and IMPOSSIBLE as written: `xlat` takes its base in BX, so a
+;     different table per pair costs at least 3 bytes to reload it - more than
+;     the 4 bytes of shifts it removes.
+;
+; What is left is `xchg ax, dx` for `mov al, dl` - one byte, 2.1% - and it
+; needs the leftover-pair count out of AH first. Not taken; the ratio does not
+; justify touching the hottest loop in the tree.
 .esplit:
     mov ah, cl                  ; AH = the pairs the body cannot take...
     and ah, 3
