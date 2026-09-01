@@ -1462,11 +1462,9 @@ fcp_rdnext:
     call drv_fs_call
     pop bp
     jc .jio
-    mov cx, [fcp_rgot]
-    add [fcp_roff], cx
-    adc word [fcp_roff+2], 0
-    sub [fcp_rsz], cx
-    sbb word [fcp_rszh], 0
+    call fcp_took               ; ...which is what leaves CX, so the offset
+    add [fcp_roff], cx          ; update goes BELOW it.  The two are
+    adc word [fcp_roff+2], 0    ; independent, so the swap is free
     jmp short .done
 .jio:
     jmp .io
@@ -1485,9 +1483,7 @@ fcp_rdnext:
     xor bx, bx
     call dsk_read_chain_x ; AX = first cluster, DX = sectors, ES:BX
     jc .io
-    mov cx, [fcp_rgot]
-    sub [fcp_rsz], cx
-    sbb word [fcp_rszh], 0
+    call fcp_took
     mov ax, [dsk_chain_end]     ; resume past the last cluster it touched
     call dsk_next_clus_x
     jc .stop
@@ -1509,6 +1505,15 @@ fcp_rdnext:
     pop dx
     pop cx
     pop bx
+    ret
+
+; fcp_took - the chunk just read is taken off what is left (SPEC.md 22.5)
+; out: CX = the take; everything else preserved, and CX is inside
+;      fcp_rdnext's own save set, which is where both callers are
+fcp_took:
+    mov cx, [fcp_rgot]
+    sub [fcp_rsz], cx
+    sbb word [fcp_rszh], 0
     ret
 
 ; -----------------------------------------------------------------------------
