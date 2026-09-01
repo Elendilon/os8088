@@ -293,13 +293,15 @@ loader_run_x:
     mov byte [ld_painted], 0
     call ld_run_body_x          ; out: AL = LD_* status
     mov [ld_status], al
-    push bx                     ; ...and SAY it (SPEC.md 59). It used to be
-    push cx                     ; stamped on the window that asked, because
-    mov bx, fm_stattab          ; one global put 'Bad package' on every open
-    mov cx, LD_NSTAT            ; Disk window at once - a question a toast
-    call KERNEL_SEG:toast_say    ; cannot raise, since it belongs to no
-    pop cx                      ; window at all and appears at the moment of
-    pop bx                      ; the act (SPEC.md 22.9)
+    mov bx, fm_stattab          ; ...and SAY it (SPEC.md 59). It used to be
+    mov cx, LD_NSTAT            ; stamped on the window that asked, because
+    call KERNEL_SEG:toast_say    ; one global put 'Bad package' on every open
+                                ; Disk window at once - a question a toast
+                                ; cannot raise, since it belongs to no window
+                                ; at all and appears at the moment of the act
+                                ; (SPEC.md 22.9). NO push bx/cx: toast_say
+                                ; banks both itself (toast.inc), and
+                                ; files_refresh_x below is "clobbers: nothing"
     cmp byte [ld_painted], 0
     jne .done                   ; the success path drew the new window itself
                                 ; (SPEC.md 11.90), so nothing is owed here
@@ -540,9 +542,9 @@ ld_run_body_x:
     mov ax, [ld_img]            ; need = roundup512(img + bss)
     add ax, [ld_bss]
     add ax, 511                 ; <= 0xF000 + 511: no 16-bit overflow
-    mov cl, 9
-    shr ax, cl
-    shl ax, cl
+    and ax, 0FE00h              ; ...and down to the 512 boundary. `>>9 <<9`
+                                ; through CL is the same operation in six
+                                ; bytes instead of three, and clobbers CL
     cmp ax, APP_MAX_SIZE
     ja .big2
     mov [ld_need], ax
@@ -593,9 +595,9 @@ ld_run_body_x:
                                 ; corrupt is bad data, not a disk error) -
                                 ; SPEC.md 21 step 6
 
-    mov si, ld_hdr              ; re-check against the in-region header - the
-    mov di, si                  ; disk could have been swapped between the
-    push ds                     ; peek and the read. It lives in the package
+    mov di, ld_hdr              ; re-check against the in-region header - the
+    push ds                     ; disk could have been swapped between the
+                                ; peek and the read. It lives in the package
     push ds                     ; segment now, so it is staged like any other
     push es                     ; cross-segment read (SPEC.md 20.1)
     pop ds                      ; DS = the package's segment (the source)...
@@ -604,11 +606,9 @@ ld_run_body_x:
                                 ; 2.6), so CS is COLD_SEG and the staged copy
                                 ; would land in the middle of the cold code
     xor si, si
-    push cx
-    mov cx, LD_HDR_SIZE
-    cld
-    rep movsb
-    pop cx
+    mov cx, LD_HDR_SIZE         ; CX is not banked: ld_check_hdr below clobbers
+    cld                         ; AX and DX only, and the next write of CX is
+    rep movsb                   ; step 7's `mov cx, [ld_bss]`
     pop ds
     push ds
     pop es                      ; ES = KERNEL again for the zero below
