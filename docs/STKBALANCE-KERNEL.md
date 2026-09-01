@@ -10,12 +10,19 @@ Pass 1's handoff names the cost of that: *"An imbalance introduced during pass 1
 went green through `make`, the fast tier and `stkbalance`."*
 
 This file is the triage of those 24, the two annotations that turn the gate on,
-and the row to swap in when they land. It exists because the annotations belong
-in `kernel/sched.inc`, and `kernel/` was owned by the size pass when this work
-was done — so the tool change shipped and the two comment lines did not.
+and the row to add when they land. It exists because the annotations belong in
+`kernel/sched.inc`, and `kernel/` was owned by the size pass when this work was
+done — so the tool change shipped and the two comment lines did not.
 
 **Twenty-three of the 24 were the walker's own model being wrong. One was real,
 and it is fixed** (§2).
+
+**`apps/` is a different story and it is already done.** The same walker fixes
+took that row from 776 entries to **7,135** — every package, every shared SDK
+include and all three CPU cores — and it is green. What stood in the way was
+three blind spots, each hiding a whole class of file rather than a routine, and
+§6.1 is the account of them. The one real defect this whole exercise found was
+there rather than in the kernel.
 
 ---
 
@@ -150,33 +157,31 @@ Measured: with these two, `kernel/` reports **0**.
 
 ---
 
-## 4. The row to swap in
+## 4. The row to add
 
-Once the annotations land, widen the existing `stkbalance` row:
+`apps/` is already gated. The `stkbalance` row now runs
+`tests/unit/t_stkapps.py`, which walks **all of `apps/`** — 7,135 entries
+against the 776 it covered before — and it is green today (§6.1). The kernel is
+a **sibling row**, not a widening of that one, because the two need different
+file lists and the kernel's is the half that is still waiting on §3:
 
 ```python
-    Row("stkbalance", "fast",
-        py("tools/stkbalance.py", "apps/sheet/sheet.asm", "apps/chart/chart.asm",
-           "apps/os88chart.inc", "apps/os88fp.inc", "apps/os88text.inc",
-           "apps/os88line.inc",
-           *sorted(glob.glob("kernel/*.inc")), "kernel/kernel.asm"), 3.0,
-        "every `ret` in the KERNEL and in SHEET, CHART and the includes they "
-        "share is reached at the depth it started at. `ch_legend` pushed SI "
-        "and never popped it, so its `ret` jumped to the saved register: a "
-        "black canvas and a wedged app, with no crash and no message (SPEC.md "
-        "82.7.3). The kernel was ungated for this tree's whole life because a "
+    Row("stkkernel", "fast",
+        py("tools/stkbalance.py",
+           *sorted(glob.glob("kernel/*.inc")), "kernel/kernel.asm"), 1.5,
+        "every `ret` in the KERNEL is reached at the depth it started at. The "
+        "kernel was ungated for this tree's whole life because a "
         "chunk-per-global walk reported 24 findings there, 23 of them its own "
         "model (docs/STKBALANCE-KERNEL.md); the walk follows tail jmps across "
-        "files now and two `; STKBALANCE-OK:` in sched.inc cover the context "
+        "files now, and two `; STKBALANCE-OK:` in sched.inc cover the context "
         "switch and task_yield's fabricated int frame. One gap is left and is "
         "counted in the tool's own summary line: loop back-edge conflicts are "
         "suppressed, because the count lives in a register"),
 ```
 
-The whole-corpus walk is **0.6 s** for the kernel, so the fast tier absorbs it
-(it ran 12.4 s of a 30 s budget with the walker's own fixture row added).
-
----
+The whole-corpus walk is **0.6 s** for the kernel and 1.9 s for `apps/`, so the
+fast tier absorbs both — it runs 12.8 s of a 30 s budget with `apps/` and the
+walker's own fixture already in it.
 
 ## 5. What changed in the walker
 
@@ -213,8 +218,8 @@ measured on this tree.
   different number — the `filecp.inc` shape, and 11 of the 12 were cross-file
 
 **Specificity — 12/12 quiet** on balanced edits (a matched `push`/`pop` pair
-inserted at random), and 0 findings across 3,145 kernel entries and 7,800
-corpus-wide.
+inserted at random), and 0 findings across 3,145 kernel entries and 7,135 in
+`apps/`.
 
 **Regression guard.** `tests/unit/t_stkbalance.py` pins eleven idioms the walker
 must stay quiet about and six defect shapes it must catch. Against the walker as
@@ -222,7 +227,31 @@ it was, **9 of its 17 checks fail** — and one of those nine is a *LOUD* row: t
 old walk skipped a routine whose every exit was a tail jmp, so it could not see
 that defect shape at all. The gate got **more** sensitive, not less.
 
----
+**And a live negative control.** Reverting the one-character `op_size` fix makes
+`tests/unit/t_stkapps.py` fail with the finding that found it. A gate whose
+failure mode has never been observed is a gate nobody has tested.
+
+### 6.1 `apps/` was three blind spots, not three clean files
+
+Widening the row from 776 entries to 7,135 took closing three gaps, and each hid
+a whole class of file rather than a routine:
+
+* **`apps/*/*.inc` was in no file list at all.** The tool's own default globs
+  `apps/*.inc` and `apps/*/*.asm`. RunCPM's Z80 core, the C64's 6510 and
+  Weave's VM — the three largest bodies of assembly under `apps/` — had never
+  been walked by anything.
+* **All three dispatch as `jmp [cs:bx+ed_tab]`** — a segment override in front
+  and the table *second*. A matcher expecting `jmp [tab + reg]` reads every
+  opcode handler as a routine entered at depth 0.
+* **`wvm.inc` puts its branches inside macros.** Seven of them wrap
+  `je %%o / jmp %1 / %%o:` and are used at fifty sites; read as bare mentions,
+  every target looks like an address being taken.
+
+One routine is exempt and the shape is worth knowing: **`wvm_exit`** is the VM's
+unwind, and every refusal funnels through it to `_wvm_slice.out`, which gives
+back the registers the *slice* banked rather than the ones the opcode handler
+that refused did. It is `sch_switch`'s shape one layer out, and it carries the
+same `; STKBALANCE-OK:`.
 
 ## 7. What is still not covered
 

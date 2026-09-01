@@ -243,22 +243,24 @@ FAST = [
         "that stopped saving a register to fit a 384-byte task slice (SPEC.md "
         "72.16.4) still get it back from every callee. Without this the trade "
         "is a landmine for whoever edits the TCP stack next"),
-    Row("stkbalance", "fast",
-        py("tools/stkbalance.py", "apps/sheet/sheet.asm", "apps/chart/chart.asm",
-           "apps/os88chart.inc", "apps/os88fp.inc", "apps/os88text.inc",
-           "apps/os88line.inc"), 1.5,
-        "every `ret` in SHEET, CHART and the includes they share is reached at "
-        "the depth it started at. `ch_legend` pushed SI and never popped it, so "
-        "its `ret` jumped to the saved register: a black canvas and a wedged "
-        "app, with no crash and no message (SPEC.md 82.7.3). The walk is "
-        "path-aware because a naive push-vs-pop count flags one routine in ten "
-        "and would just be ignored. STILL SCOPED to these files, but no longer "
-        "because the kernel cannot be walked: the walker follows tail jmps "
-        "across files now and `kernel/` comes out at THREE findings, all of "
-        "them sched.inc wanting a `; STKBALANCE-OK:` (docs/STKBALANCE-KERNEL.md "
-        "carries the triage and the row to swap in once those land). One gap "
-        "is left and is counted in the tool's own summary line: loop back-edge "
-        "conflicts are suppressed, because the count lives in a register"),
+    Row("stkbalance", "fast", py("tests/unit/t_stkapps.py"), 3.0,
+        "every `ret` in EVERY SHIPPED PACKAGE is reached at the depth it "
+        "started at. `ch_legend` pushed SI and never popped it, so its `ret` "
+        "jumped to the saved register: a black canvas and a wedged app, with "
+        "no crash and no message (SPEC.md 82.7.3). This row walked only SHEET, "
+        "CHART and four shared includes - 776 entries - until three blind "
+        "spots in the walker were closed; it walks 7,135 now. Each blind spot "
+        "hid a whole class: `apps/*/*.inc` was in no file list, so RunCPM's "
+        "Z80, the C64's 6510 and Weave's VM had never been walked by anything; "
+        "all three dispatch as `jmp [cs:bx+tab]`, which a walker looking for "
+        "`jmp [tab+reg]` reads as every opcode handler being a routine entered "
+        "at depth 0; and wvm.inc puts its branches inside macros. It found one "
+        "real defect - `op_size` in os88parts.inc returned into a saved "
+        "register on a malformed part table, in every package via "
+        "os88api.inc. The kernel is NOT here yet: it needs two "
+        "`; STKBALANCE-OK:` in sched.inc first, and "
+        "docs/STKBALANCE-KERNEL.md carries them and the row to add",
+        ),
 
     Row("stkwalker", "fast", py("tests/unit/t_stkbalance.py"), 2.0,
         "the stack walker itself, against eleven idioms it must stay QUIET "
