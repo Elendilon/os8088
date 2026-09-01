@@ -145,6 +145,33 @@ fcp_arm:
 fcp_ncopy   equ dsk_ncopy
 
 ; -----------------------------------------------------------------------------
+; fcp_gosrc / fcp_godst / fcp_gofs / fcp_gofd - the four fcp_goto arguments
+; this module ever passes, written once each (SPEC.md 22.3)
+; out: as fcp_goto
+; clobbers: AX, BX, flags - BX is the argument, so every one of the thirteen
+;      sites was already loading it with this exact value on the line before
+;
+; The clipboard entry's folder, the paste target, and the pending file's
+; source and destination.  Thirteen sites spelled out the same three
+; instructions; the last door falls into fcp_goto rather than jumping to it.
+; -----------------------------------------------------------------------------
+fcp_gosrc:
+    mov al, [fcp_drv]
+    mov bx, [fcp_cwd]
+    jmp short fcp_goto
+fcp_godst:
+    mov al, [fcp_ddrv]
+    mov bx, [fcp_dcwd]
+    jmp short fcp_goto
+fcp_gofs:
+    mov al, [fcp_fsdrv]
+    mov bx, [fcp_fsclus]
+    jmp short fcp_goto
+fcp_gofd:
+    mov al, [fcp_fddrv]
+    mov bx, [fcp_fdclus]
+
+; -----------------------------------------------------------------------------
 ; fcp_goto - make (AL = drive, BX = folder cluster) the current directory
 ; out: CF=1 = the move failed (AX = FERR_*)
 ; clobbers: AX, flags
@@ -371,9 +398,7 @@ fcp_selfchk:
     call fcp_srcclus            ; BX = the source folder's own cluster
     jc .ok                      ; unreadable: the copy will fail honestly
     mov dx, bx
-    mov al, [fcp_ddrv]
-    mov bx, [fcp_dcwd]
-    call fcp_goto
+    call fcp_godst
     jc .ok
     mov cx, FCP_MAXD + 2        ; the walk up is bounded like every other
 .up:
@@ -408,9 +433,7 @@ fcp_selfchk:
 ; -----------------------------------------------------------------------------
 fcp_srcclus:
     push si
-    mov al, [fcp_drv]
-    mov bx, [fcp_cwd]
-    call fcp_goto
+    call fcp_gosrc
     jc .bad
     mov si, fcp_name
     call dskw_stat_x            ; CF=0 with BX = first cluster
@@ -811,9 +834,7 @@ fcp_relink:
     push si
     push di
 
-    mov al, [fcp_drv]           ; the source entry, raw
-    mov bx, [fcp_cwd]
-    call fcp_goto
+    call fcp_gosrc              ; the source entry, raw
     jc .no
     cmp byte [dsk_vkind], DVK_FILE
     je .no                      ; A REDIRECTED VOLUME DECLINES THIS WHOLE
@@ -834,9 +855,7 @@ fcp_relink:
     jc .no
     mov [fcp_rlclus], bx
 
-    mov al, [fcp_ddrv]          ; the destination must not hold that name
-    mov bx, [fcp_dcwd]
-    call fcp_goto
+    call fcp_godst              ; the destination must not hold that name
     jc .no
     mov si, fcp_name
     call dskw_stat_x
@@ -856,9 +875,7 @@ fcp_relink:
     call dskw_ent_store
     jc .no                      ; nothing written yet: still declinable
 
-    mov al, [fcp_drv]           ; ...and ONLY now unname the source
-    mov bx, [fcp_cwd]
-    call fcp_goto
+    call fcp_gosrc              ; ...and ONLY now unname the source
     jc .half
     mov si, fcp_name
     call fcp_rlzap
@@ -1191,9 +1208,7 @@ fcp_mkroot:
     pop bp
     jc .noenum
 .dest:
-    mov al, [fcp_ddrv]
-    mov bx, [fcp_dcwd]
-    call fcp_goto
+    call fcp_godst
     jc .err
     mov si, fcp_name
     call fcp_ensure
@@ -1283,9 +1298,7 @@ fcp_file1:
     mov word [fcp_ovwsz], 0     ; ...and it replaces nothing until proven
     mov word [fcp_ovwsz+2], 0   ; otherwise (SPEC.md 22.5.2)
     call fcp_fnames             ; publish this file's source and destination
-    mov al, [fcp_fddrv]         ; does the destination already hold it?
-    mov bx, [fcp_fdclus]
-    call fcp_goto
+    call fcp_gofd               ; does the destination already hold it?
     jc .err
     mov si, fcp_fname
     call dskw_stat_x
@@ -1677,9 +1690,9 @@ fcp_undo:
     je .out
     push ax                     ; **AX AND NOTHING ELSE.** Its one caller is
     mov byte [fcp_made], 0      ; fcp_xfer's `.err`, whose very next
-    mov al, [fcp_fddrv]         ; instructions pop BX, CX, DX, SI, DI and ES
-    mov bx, [fcp_fdclus]        ; off the stack and whose `stc` sets the flags
-    call fcp_goto               ; after this returns - so those are free and
+    call fcp_gofd               ; instructions pop BX, CX, DX, SI, DI and ES
+                                ; off the stack and whose `stc` sets the flags
+                                ; after this returns - so those are free and
     jc .done                    ; saving them is bytes spent to restore values
     mov si, fcp_fname           ; that are about to be overwritten. AX is not:
     call dskw_delete_x          ; it carries the FERR_* on its way out
@@ -1717,10 +1730,9 @@ fcp_xfer:
     push si
     push di
     push es
-    mov al, [fcp_fsdrv]         ; open the source stream AND take its first
-    mov bx, [fcp_fsclus]        ; chunk: we are here, and the alternative is
-    call fcp_goto               ; coming back for it
-    jc .err
+    call fcp_gofs               ; open the source stream AND take its first
+                                ; chunk: we are here, and the alternative is
+    jc .err                     ; coming back for it
 
     ; --- BOTH ENDS ON ONE REDIRECTED VOLUME: let the far side do it -------
     ; A remote-to-remote copy streamed every byte across the cable and back
@@ -1760,10 +1772,8 @@ fcp_xfer:
     jc .err                     ; a real file and creates a real empty one
     mov [fcp_flen], ax
 
-    mov al, [fcp_fddrv]         ; create (or truncate) the destination, with
-    mov bx, [fcp_fdclus]        ; its first chunk already in hand
-    call fcp_goto
-    jc .err
+    call fcp_gofd               ; create (or truncate) the destination, with
+    jc .err                     ; its first chunk already in hand
     call fcp_room               ; ...but ASK FIRST (SPEC.md 22.5.2). Here and
     jnc .create                 ; not earlier, because this is the first moment
     mov ax, FERR_FULL           ; the destination volume is current - so the
@@ -1782,18 +1792,14 @@ fcp_xfer:
     mov ax, [fcp_rsz]           ; the file itself says whether there is more,
     or ax, [fcp_rszh]           ; so finishing costs no I/O at all
     jz .fin
-    mov al, [fcp_fsdrv]
-    mov bx, [fcp_fsclus]
-    call fcp_goto
+    call fcp_gofs
     jc .err
     call fcp_rdnext             ; AX = bytes; 0 cannot happen here, but a
     jc .err                     ; chain that ended early would say it
     or ax, ax
     jz .fin
     mov [fcp_flen], ax
-    mov al, [fcp_fddrv]
-    mov bx, [fcp_fdclus]
-    call fcp_goto
+    call fcp_gofd
     jc .err
     mov es, [fcp_seg]
     xor bx, bx
@@ -1831,9 +1837,7 @@ fcp_xfer:
 fcp_srcdel:
     push bx
     push si
-    mov al, [fcp_drv]
-    mov bx, [fcp_cwd]
-    call fcp_goto
+    call fcp_gosrc
     jc .err
     mov si, fcp_name
     cmp word [fcp_type], 2
