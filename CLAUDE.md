@@ -295,6 +295,7 @@ make clean
 | `NOSEAMCUT=1` | put the one cell a display SEAM crosses back on SPEC.md 39.14.2's whole-cell **drop** — `font_char` enters on the display holding the cell's top-left, and a cell hanging past that display's edge draws nothing at all. The field reported it as *"drag a window into a straddle and unaligned text like the title bar loses a character"*, and exactly one is right: the seam is the primary's own width and so a multiple of 8, so an ALIGNED pen puts every cell boundary on the seam's own grid and an unaligned one puts **exactly one cell across it**. 39.14.11 cuts that cell instead, and the multiple-of-8 seam is what makes it nearly free — the cell's two byte-columns fall one wholly each side, which is where both renderers already split, so what is cut is the **glyph** (into two scratch cells beside `font_zero`) and neither renderer gains an instruction. **The whole thing hangs off the `ja` that was already there**, so a cell that fits pays nothing on either kernel; this knob assembles **byte for byte identical** to the kernel before it. `tests/dispseam.py` is the A/B and needs it: **0 differing pixels straddling against 18 lost**, on a CGA primary (seam 640) and a Hercules one (seam 720) alike. It is also the row's own guard against a null — §11.94 snaps a window's origin, so a caption's pen phase is fixed by the window's WIDTH and the title's LENGTH and *no drag can change it*: the Disk window's opens ON the grid, nothing straddles, and both kernels draw the identical picture. The gate grows the window by 8 first |
 | `NOUIBLOCK=1` | put `ui_task` back on the **spin** it ran on before SPEC.md §8.1.2 - `.idle` becomes `task_yield` again instead of `task_sleep(1)`. The A/B for the whole idle design, and the only thing keeping the spinning path assembling. What the default buys: an idle desktop goes from **100% `ui_task` to 2.7%, with 96.9% HALTED**, and the loop from 1,134.6 passes a second to 17.7. **The pointer is untouched** - `mou_apply` calls `cur_move` in the ISR, so the arrow is ISR-paced and not pass-paced (112 draws against 113 over the same sweep) - and the scheduler's own share of input latency is **better blocking than spinning on every statistic**: 5.18 ms median against 5.31, worst 5.90 against 6.57, 40 samples each. Only IRQ0 falls into `sch_switch`, so the wake byte alone buys nothing and the idle task's `task_yield` after its `hlt` is what makes a wake immediate; and `sch_uiwake` is the lost-wakeup guard, which the first build did not have and paid for at **one mouse event in fourteen waiting a whole tick** |
 | `SPLSTARS=1` | swap the loading screen's ANIMATION (SPEC.md §15.3.7): the "8088" stands **still** and six **stars** twinkle around it instead — a crossed pair of lines that grows and shrinks, with rings of single-pixel clumps appearing at the peak. A **look** question, so it is a knob until somebody has looked, and the default is the spinner that ships. **Both arms take their time from §15.3.6's wall clock and are drawn by IRQ0** (§15.3.8) — an `int 13h` runs with interrupts enabled, so a frame lands in the gap the machine was going to spend idle, and every phase is drawn on time in both arms. A star is a **table, not a drawing** — five shapes of 22 bytes, blitted opaquely, so the dark one erases the last frame and nothing is written twice (§15.3.7.1). It is the one configuration that **grows the blob**: it wants 6,754 bytes of a 6,656-byte blob, over by 98 *wherever* `OVL_AT` falls, so it alone takes `BOOT2_SECS` = 14 (§15.3.8.5). The shipped kernel is 13 sectors and pays nothing |
+| `NOHEDGE=1` | put sea life back on the **whole screen width** on Hercules — the saver before SPEC.md §79.5.10, and the A/B for it. The field reported a swimmer at the right edge lighting a pixel at column 0; §79.5.9 places that in **86Box's plain `hercules` renderer and not in this kernel**, because the mark is **one row DOWN** from the source and no write here can reach row *y+1* column 0 from row *y* — the byte after row *y*'s last is row *y+4*'s first. So the default reserves `SV_HEDGE` = **8 pixels** at the right and never lights them, leaving the copy nothing to carry, and the reporter confirms it clean on 86Box **and on the 5150**. What it costs the picture is eight columns of 720 the sea is already black in; what it costs the machine is **nothing measurable** — the pass is 54.93 ms median either way, exactly one tick, on both 1bpp adapters. Eight rather than one is not a performance trade in the other direction either: a **byte** column is a width cut where a single column would need a per-row bit mask. It is a knob because it is a **look question with a workaround in it** — the artifact is one emulator's, and possibly one class of monitor's, so a fork that would rather draw the whole screen than hide someone else's defect flips this and loses nothing. `tests/fishedge.py` is the behaviour gate and pokes `[sv_hlim]` at runtime rather than rebuilding; this knob is what keeps the unreserved arm **assembling**, and it is the first knob here that reaches a driver rather than the kernel, so it has the saver's own stamp and rebuilds two files |
 | `TITLESNAP=1` | centre a window title on the nearest 8px **cell** instead of the exact pixel (docs/TEXT-PLAN.md §6.1). A title moves ≤4px and `wm_draw_title` reaches §6.1's fast path. A **look** question, so it is a knob until somebody has looked — but **look at it on `NOBAND=1` or `KERN_SMALL=1`**: since §5.9.6 the composed title bar is kern_big's default and centres its own caption, so the snap sits in the FALLBACK below `wm_title_band`'s `jnc .sep` and a default build assembles it without ever reaching it. Measured, plain against `TITLESNAP=1`: **0 differing pixels of 307,200** |
 
 All are stamp-tracked, so changing one rebuilds the kernel. Without that, make
@@ -616,6 +617,49 @@ python3 tools/os88mouse.py 127.0.0.1:9001 click 445 153
 python3 tools/os88mouse.py 127.0.0.1:9001 dblclick 150 90   # NOT two clicks
 python3 tools/os88marty.py 127.0.0.1:9001 shot out.png --rendered
 ```
+
+**SEVERAL INSTANCES RUN AT ONCE, and nothing has to be arranged between
+them.** `os88marty.launch()` gives each one its own port, its own run
+directory and its own disks, so two terminals, two agents or two rows of the
+suite in one checkout never meet — and it reaps only ORPHANS, never another
+session's live machine. It used to sweep every `martypc_headless` on the box
+before starting its own, which is why a session's emulator would vanish
+mid-run and every symptom pointed at the guest. **Take the address off the
+object** (`m.addr`, `m.port`) rather than typing 9001; pass `addr=` only to
+pin a port on purpose.
+
+```
+python3 tools/os88marty.py launch build/os8088-360.img --apps build/apps360.img
+                                        # a BENCH: boots, prints its addr, and
+                                        # OUTLIVES the command that started it
+python3 tools/os88marty.py instances    # what is running, whose, how old
+python3 tools/os88marty.py kill <port>  # end one
+python3 tools/os88marty.py reap         # orphans only - live work is left alone
+```
+
+Three failures are now gated rather than discovered: a **second client** on
+one instance is refused in a sentence naming the holder (it used to *hang*
+until the read timed out), a **bind that fails** exits loudly instead of
+running on unreachable and holding the port against the next run, and a
+**port somebody else holds** is an error that names them. `tests/martyconc.py`
+is the gate and docs/MARTYPC-DEBUG.md's *Several at once* is the account.
+
+**How many is ONE PER CORE, and there is no hard cap** — only a line on stderr
+when you pass it, because a refusal would be a new way to lose work. Measured
+on a four-core box, aggregate guest speed against a real 4.77MHz 8088: **3.4x
+at one instance, 13.1x at four, 13.9x at six, 13.4x at eight** — FLAT past the
+core count, so the ninth instance does not add throughput, it slows the other
+eight. Nothing else binds first (~50-100MB RSS and ~1MB of disk each; the 32MB
+VHD is reflinked). Going past it is slower, not broken: at eight on four cores
+each guest is still 1.66x real time, and guest CYCLE counts, `disk()` counts
+and pixel comparisons are exact at any oversubscription because they are
+counted rather than timed. What loses slack is host wall-clock — `settle`,
+`until`, a row's timeout — and an IDLE guest costs less than a busy one
+(96.9% halted, SPEC.md §8.1.2), so eight agents is the worst case only when
+all eight are driving. **A registry record names a PROCESS, not a PID**: with
+`pid_max` at 32,768 a busy session wraps the counter in minutes, and a stale
+record whose number got reused once had `reap` kill a live instance silently. `os88test.py --marty-jobs N` takes the suite's
+emulator lane past 1 deliberately (four rows: 175.6s at 1, 85.9s at 3).
 
 Driving QEMU, for the five cases above and for a host with no MartyPC:
 

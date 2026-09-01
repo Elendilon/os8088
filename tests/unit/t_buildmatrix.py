@@ -158,6 +158,16 @@ KNOBS = [
     # it had not. A mechanism with one user is one nobody notices breaking,
     # which is the whole argument for the row.
     ("splstars",    ["SPLSTARS=1"]),
+    # NOHEDGE= is the first knob in this table that reaches a DRIVER and not
+    # the kernel, so it names a target of its own - SAVER.DRV - and the row
+    # costs two files instead of a tree. It is SPEC.md 79.5.10's A/B: the
+    # shipped sea reserves eight pixels at the right edge on Hercules so
+    # 86Box's plain renderer has nothing to copy onto column 0, and this is the
+    # only thing that assembles the unreserved arm. The behaviour half is
+    # tests/fishedge.py, which pokes [sv_hlim] at RUNTIME rather than
+    # rebuilding - so what is left for a build row is exactly what a build row
+    # is for: does the other arm still assemble.
+    ("nohedge",     ["NOHEDGE=1"], "saver.drv"),
     # MOUDIAG= is SPEC.md 9.9.6's identify-window table drawn on the finished
     # desktop, and it had NO ROW HERE AT ALL until SPEC.md 2.9.12 - which is
     # how a short jump out of range inside the moved mouse cluster went
