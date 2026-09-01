@@ -82021,6 +82021,34 @@ line buffer is the previous scanline's last pixel — that would give exactly
 +1, exactly column 0 and exactly an attenuated copy; the specific 86Box
 internals have not been read here and are not asserted.
 
+**Why the sea and not the rest of the desktop — it IS the rest of the desktop.**
+Read on a Hercules at the desktop, the System 1 stipple is `0x01` on an even
+row and `0x00` on an odd one, so **column 719 is lit on every odd row** (162 of
+them measured between the menu bar and the dock) and **column 0 is lit on
+none**. The +1 rule therefore predicts a faint dot at column 0 on every even
+row of a plain desktop — a permanent one-on-one-off dotted line down the left
+edge — and the reporter had already written it down without connecting it:
+*"everything at pixel 0 appears to be one on, one off"*. It is invisible as a
+defect there because it is **static and uniform**: a dotted line at the extreme
+edge of the picture reads as a border, and there is nothing beside it to
+disagree with. Over the saver's black sea the same mark is isolated, and it
+**moves with a swimmer** — which is the most visible thing a display can do
+with one pixel. The other savers agree: the starfield is black too but its
+stars are single pixels that seldom land on column 719, and the geometric mode
+never draws at an edge at all.
+
+**Why now and not before — it was there before.** Bubbles are
+`OSAPI_GFX_FILL`, a path §79.5.8 did not touch, and the reporter sees a bubble
+wrap as well; the sprites, the RNG and every position are unchanged by
+construction, and the second draft's `sv_fish_clip` cut the block so its last
+column was 719 exactly as the band's does — so a swimmer lit column 719 just
+as often on either renderer. What changed is the **cadence**. The saver ran at
+a variable 7.5–15.5 frames a second and was slowest precisely when the sea was
+busy at the sides; it now runs at a locked 18.2 (§79.5.8). An irregular
+one-pixel flicker reads as noise, a regular one reads as a *shimmer* — and a
+crossing now completes 39% sooner, so edge events arrive that much more often.
+The artifact did not appear; it acquired a rhythm.
+
 **`sv_bnd_clip` has been removed.** It was 74 bytes that cut the band to the
 screen in the overlay so the kernel was never handed one that overhung, and it
 was shipped explicitly as *not a diagnosis* — the removal of a route rather

@@ -4668,6 +4668,25 @@ specific internals have not been read and are not claimed.
 hercules` to `hercules_plus` in the machine's `86box.cfg` and boot the same
 floppies. The shimmer goes and nothing else about the machine changes.
 
+**It is on the plain desktop too, and the reporter saw it there.** On a
+Hercules at the desktop the System 1 stipple is `0x01` on an even row and
+`0x00` on an odd one, so column 719 is lit on every odd row - 162 of them
+between the menu bar and the dock - and column 0 on none. The +1 rule then
+puts a faint dot at column 0 on every even row, permanently: a one-on-one-off
+dotted line down the left edge, which is exactly the reporter's *"everything
+at pixel 0 appears to be one on, one off"*. Static and uniform at the edge of
+the picture, it reads as a border. Over the saver's black sea the same mark is
+isolated and MOVES, which is why that is where it got noticed. **A ten-second
+confirmation for anyone with the machine: look at the extreme left column of a
+plain desktop, no saver running.**
+
+**And it predates the change.** Bubbles are `OSAPI_GFX_FILL`, untouched by
+SPEC.md 79.5.8, and they wrap too; sprites, RNG and positions are unchanged by
+construction; and the previous `sv_fish_clip` cut the block so its last column
+was 719 just as the band's does. What changed is cadence - a variable 7.5-15.5
+fps became a locked 18.2 - and an irregular one-pixel flicker reads as noise
+where a regular one reads as a shimmer.
+
 **`sv_bnd_clip` has been removed** (SPEC.md §79.5.9). It was shipped as the
 removal of a route rather than a fix, the route was not the one, and what it
 left behind was a second copy of a clip the kernel performs correctly - plus
