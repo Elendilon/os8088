@@ -173,19 +173,11 @@ fsx_run:
                                 ; SPEC.md 48.13 watches for is the symptom
     cmp word [fdlg_win], 0      ; not under the modal file dialog (SPEC.md 38)
     jne .fail
-    call inst_wchk              ; the ownership fence (SPEC.md 53.1): bound
-    jc .fail                    ; the package's BX before any deref...
-    call inst_of_win            ; DI = the record owning the window
-    jc .fail
-    cmp byte [di+I_STATE], 1    ; ...live only...
-    jne .fail
-    test byte [di+I_KIND], KIND_PKG
-    jz .fail
-    mov dx, es                  ; ...a package whose segment is the caller's
-    cmp dx, [di+I_SPTR]         ; own DS (identity, not containment)...
-    jne .fail
-    cmp ax, [di+I_SIZE]         ; ...and an entry inside its image+bss
-    jae .fail
+    call inst_pkg_fence         ; the ownership fence (SPEC.md 53.1), which is
+    jc .fail                    ; inst_pkg_spawn's and now shared with it: BX
+                                ; bounded, a live package instance whose
+                                ; segment is the caller's own DS, and AX an
+                                ; entry inside its image+bss.  DI = the record
 
     mov dx, 0xFF00              ; DH = the kept worker's slot, or none; DL =
                                 ; task 0, checked above. 0xFF00 AND NOT

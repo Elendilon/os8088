@@ -1840,6 +1840,41 @@ inst_wchk:
     ret
 
 ; -----------------------------------------------------------------------------
+; inst_pkg_fence - the package ownership fence (SPEC.md 20.6, 53.1)
+;
+; in:  AX = a near entry offset inside the package image (package input)
+;      BX = the package's own window ptr (package input, never trusted)
+;      ES = the CALLER's DS, stamped by the API stub (SPEC.md 20.3)
+; out: CF = 1 refused, DI undefined.  CF = 0 and DI = the instance record
+; clobbers: DX (the ES scratch), DI (an output) and the flags
+;
+; Written out twice before this existed - inst_pkg_spawn's copy below and
+; fsx_run's (fsx.inc), which carried the comment "the fence is
+; inst_pkg_spawn's, verbatim".  Both callers write DX immediately after the
+; fence, which is why the scratch is DX and costs no bank.
+; inst_pkg_spawn keeps its own `cmp byte [di+I_TASK], 0xFF` after this: one
+; worker per instance is its rule, not the fence's.
+; -----------------------------------------------------------------------------
+inst_pkg_fence:
+    call inst_wchk              ; a package pointer: bound it before any deref
+    jc .fail
+    call inst_of_win            ; DI = the record owning BX; CF = unowned
+    jc .fail
+    cmp byte [di+I_STATE], 1    ; live only - a dying instance owns nothing
+    jne .fail
+    test byte [di+I_KIND], KIND_PKG ; a package instance...
+    jz .fail
+    mov dx, es                  ; ...whose SEGMENT is the one calling us: ES
+    cmp dx, [di+I_SPTR]         ; is the caller's DS and a package's DS is its
+    jne .fail                   ; own segment, so this is an identity test
+    cmp ax, [di+I_SIZE]         ; ...and an entry inside its own image+bss.
+    cmc                         ; CF=1 (below) is the ACCEPT here, so one cmc
+    ret                         ; is the whole answer - no clc, no branch
+.fail:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
 ; inst_pkg_spawn - give a package instance its one worker task (SPEC.md 20.6)
 ;
 ; in:  AX = near entry point inside the package image (a whole-word package
@@ -1882,24 +1917,11 @@ inst_pkg_spawn:
     push cx
     push dx
     push di
-    call inst_wchk              ; a package pointer: bound it before any deref
+    call inst_pkg_fence         ; the ownership fence, shared with fsx_run
     jc .fail
-    call inst_of_win            ; DI = the record owning BX; CF = unowned
-    jc .fail
-    cmp byte [di+I_STATE], 1    ; live only - a dying instance spawns nothing
-    jne .fail
     cmp byte [di+I_TASK], 0xFF  ; one worker per instance: I_TASK is a single
-    jne .fail                   ; byte and is never cleared once set
-    test byte [di+I_KIND], KIND_PKG ; the fence: a package instance...
-    jz .fail
-    mov cx, es                  ; ...whose SEGMENT is the one calling us.
-    cmp cx, [di+I_SPTR]         ; ES is the caller's DS, stamped by the API
-    jne .fail                   ; stub (SPEC.md 20.3), and a package's DS is
-                                ; its own segment - so this is an identity
-                                ; test, not the containment approximation it
-                                ; had to be while every package shared one
-    cmp ax, [di+I_SIZE]         ; ...and an entry inside its own image+bss
-    jae .fail
+    jne .fail                   ; byte and is never cleared once set - this is
+                                ; spawn's own rule, so it stays here
     mov ch, ah                  ; bank the caller's AH: task_spawn rebuilds
                                 ; the whole of AX but preserves CX
     mov dx, di                  ; DX = instance index = (rec - inst_tab) >> 5,
