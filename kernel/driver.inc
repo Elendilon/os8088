@@ -1940,16 +1940,8 @@ osapi_drv_dlg_x:
     or si, si                   ; file name - fdlg_setname reads through DS
     jz .named
     mov cx, 12
-.copy:
-    mov al, [es:si]
-    mov [di], al
-    or al, al
-    jz .named
-    inc si
-    inc di
-    loop .copy
-    mov byte [di], 0
-.named:
+    call fm_ncpye               ; ES:SI (the driver's) -> DS:DI (ours), NUL
+.named:                         ; either way.  files.inc is `.cold` too
     mov [drv_dlg_row], bx       ; ARMED LAST: until this store there is nothing
                                 ; for a commit to dispatch into
     mov al, KIND_CTRL
@@ -2130,16 +2122,8 @@ drv_cp_stage:
     jcxz .out                   ; no page: an empty name, and drv_cp_count
     mov si, cx                  ; then skips this class
     mov cx, DRV_CPNSZ - 1
-.copy:
-    mov al, [es:si]
-    mov [di], al
-    or al, al
-    jz .out
-    inc si
-    inc di
-    loop .copy
-    mov byte [di], 0
-.out:
+    call fm_ncpye               ; ES:SI (the driver's) -> DS:DI (ours), NUL
+.out:                           ; either way.  files.inc is `.cold` too
     pop di
     pop si
     pop cx

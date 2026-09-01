@@ -2034,9 +2034,37 @@ fm_ncpy:
     or al, al
     jz .d
     loop .c
+.t:
     mov byte [di], 0
 .d:
     ret
+
+; -----------------------------------------------------------------------------
+; fm_ncpye - fm_ncpy with the SOURCE in ES:SI (module internal)
+; in:  ES:SI -> the string, DI -> the field in DS, CX = the most it holds,
+;      CX >= 1 (a bare `loop` walks 65,536 bytes at CX = 0)
+; out: exactly fm_ncpy's: DI one past the stored NUL on the early-NUL path,
+;      at the bound otherwise; AX and CX clobbered
+;
+; It cannot be fm_ncpy with DS swapped to the source: `mov [di], al` writes
+; through DS and the field would land in the DRIVER's own image instead of
+; the kernel's. One `es` prefix on the lodsb is the whole difference, and the
+; terminator and the ret are fm_ncpy's own, shared six lines up - so an edit
+; to fm_ncpy's tail is an edit to this one's.
+;
+; Two callers, both in .cold like this one, both staging a driver-supplied
+; name into a kernel field: osapi_drv_dlg_x's default file name and
+; drv_cp_stage's Control Panel page name (SPEC.md 51).
+; -----------------------------------------------------------------------------
+fm_ncpye:
+.c:
+    es lodsb
+    mov [di], al
+    inc di
+    or al, al
+    jz fm_ncpy.d
+    loop .c
+    jmp short fm_ncpy.t
 
 ; -----------------------------------------------------------------------------
 ; fm_seed - park a target directory for the next fm_kinit (SPEC.md 22.1)

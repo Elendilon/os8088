@@ -536,16 +536,8 @@ fdlg_home_save:
     add di, ax
     mov si, fdlg_name
     mov cx, INST_FNSZ - 1
-.cp:
-    mov al, [si]
-    mov [di], al
-    or al, al
-    jz .out
-    inc si
-    inc di
-    loop .cp
-    mov byte [di], 0            ; a name that filled the row still terminates
-.out:
+    call fm_ncpy                ; bounded, always terminated (SPEC.md 4) - a
+.out:                           ; name that filled the row still ends in NUL
     pop di
     pop si
     pop cx
