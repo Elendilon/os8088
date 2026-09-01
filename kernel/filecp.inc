@@ -1305,31 +1305,14 @@ fcp_file1:
 ; clobbers: AX, flags
 ; -----------------------------------------------------------------------------
 fcp_file2:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    cmp byte [fcp_ovw], 0
-    je .skip                    ; answered 'no': leave the target alone
-    call fcp_xfer
-    jc .err
-.skip:
+    cmp byte [fcp_ovw], 0       ; answered 'no': leave the target alone.
+    je .skip                    ; NOTHING here writes BX, CX, DX, SI or DI,
+    call fcp_xfer               ; and fcp_xfer banks all five itself - so the
+    jc .out                     ; contract above is honoured directly rather
+.skip:                          ; than by saving registers nothing touches
     mov byte [fcp_pend], 0
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
     clc
-    ret
-.err:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    stc
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
