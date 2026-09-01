@@ -2357,9 +2357,14 @@ gfx_line_runs:
     je .step
     mov [gfx_ln_rs], si
     jmp short .step
-.last:
-    call gfx_line_flush
-    ret
+.last:                          ; ...AND FALLS THROUGH into gfx_line_flush,
+                                ; whose ret is gfx_line's.  It was `call
+                                ; gfx_line_flush / ret`, four bytes to reach a
+                                ; label six lines down.  The %endif below emits
+                                ; nothing, and gfx_line_flush is defined
+                                ; OUTSIDE it - so NOTHING MAY BE APPENDED TO
+                                ; THIS ARM, and nothing may go between the
+                                ; %endif and gfx_line_flush's label
 %endif
 
 ; gfx_line_flush - internal: the open run, clipped to the box, as one rect.
@@ -4390,9 +4395,11 @@ osapi_gfx_fill_pat:
     pop si
     pop cx
     pop ax
-    call gfx_fill_pat
-    ret
-
+                                ; ...AND FALLS THROUGH into gfx_fill_pat, whose
+                                ; ret is this routine's.  It was `call
+                                ; gfx_fill_pat / ret`, four bytes to reach the
+                                ; label on the next line.  NOTHING MAY BE
+                                ; INSERTED BETWEEN THESE TWO LABELS
 gfx_fill_pat:
     GFXCLIP gfx_fill_pat_d
 gfx_fill_pat_d:

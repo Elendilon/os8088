@@ -2588,8 +2588,7 @@ fm_relayout:
     sub cx, dx                  ; CX = content-relative y
     pop dx
     sub dx, ax                  ; DX = content-relative x
-    call fm_layout              ; BX = window ptr
-    ret
+    jmp fm_layout               ; BX = window ptr.  Tail call, both `.cold`
 
 ; -----------------------------------------------------------------------------
 ; fm_onclick - W_ONCLICK for the Disk window
@@ -4727,9 +4726,10 @@ fm_c_copy:                      ; File > Copy
 fm_c_clip:
     mov di, [fm_vp]
     mov bx, [di+FS_SEL]
-    call fcp_arm                ; CF=1 = nothing selected, or '..': a no-op,
-    ret                         ; like every other command with nothing to
-                                ; act on
+    jmp fcp_arm                 ; CF=1 = nothing selected, or '..': a no-op,
+                                ; like every other command with nothing to act
+                                ; on.  Tail call - filecp.inc's `.cold` is
+                                ; this file's, so it is near
 
 fm_c_paste:                     ; File > Paste - into THIS window's folder
     mov di, [fm_vp]

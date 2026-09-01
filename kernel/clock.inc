@@ -507,8 +507,8 @@ clk_at_read:
 clk_at_num:
     cmp byte [clk_rbin], 0
     jne .bin
-    call clk_bcd                ; packed BCD, and it validates both nibbles
-    ret
+    jmp clk_bcd                 ; packed BCD, and it validates both nibbles -
+                                ; a tail call, and clk_bcd is `.ovlw` like this
 .bin:
     clc
     ret

@@ -1659,8 +1659,7 @@ fdlg_draw_list:
 fdlg_list_body:
     call fdlg_clamp
     call fdlg_draw_rows
-    call fdlg_draw_sbar
-    ret
+    jmp fdlg_draw_sbar          ; tail call, both ends `.cold`
 
 ; -----------------------------------------------------------------------------
 ; fdlg_draw_both - a selection move: the listing scrolled AND the box took the
@@ -1670,8 +1669,7 @@ fdlg_list_body:
 ; -----------------------------------------------------------------------------
 fdlg_draw_both:
     call fdlg_draw_list
-    call fdlg_draw_name
-    ret
+    jmp fdlg_draw_name          ; tail call, both ends `.cold`
 
 ; -----------------------------------------------------------------------------
 ; fdlg_draw_rows - the visible rows plus the selection bar (internal)

@@ -1679,7 +1679,7 @@ ui_drag_xor:
     mov dx, bx
     add dx, [ui_dragh]
     dec dx                      ; y2 = y1 + h - 1
-    call vga_xor_rect_vram      ; clips, so off-screen edges are fine.
+    jmp vga_xor_rect_vram       ; clips, so off-screen edges are fine.
                                 ; VRAM-direct (SPEC.md 32): the outline is a
                                 ; transient overlay like the cursor - it is
                                 ; always XOR-erased before the lock drops, so
@@ -1687,7 +1687,7 @@ ui_drag_xor:
                                 ; anyone else can draw. Going through the back
                                 ; buffer instead would dirty the whole window
                                 ; rect and flush it twice per pass.
-    ret
+                                ; A TAIL CALL, both ends `.text`
 
 ; -----------------------------------------------------------------------------
 ; ui_grow - grow-box resize: XOR outline anchored at the window's top-left,

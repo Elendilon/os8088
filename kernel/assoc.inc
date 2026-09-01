@@ -1095,13 +1095,14 @@ assoc_handover:
 assoc_back:
     mov ax, [assoc_dclus]
     mov dl, [assoc_ddrv]
-    call dsk_chdir_q_x            ; QUIET (SPEC.md 18.9/54.9): this restores the
+    jmp dsk_chdir_q_x           ; QUIET (SPEC.md 18.9/54.9): this restores the
                                 ; volume so the app can READ ITS DOCUMENT, and
                                 ; a read resolves by NAME through dskw_find's
                                 ; directory walk - it never touches the global
                                 ; listing. The scan, the sort and one icon
                                 ; harvest per file were bought for nothing.
-    ret
+                                ; A TAIL CALL: its ret is this routine's, and
+                                ; disk.inc's `.cold` is this file's, so near
 
 section .text                   ; DATA, so back to the kernel segment: cold
                                 ; code addresses its data through DS, which is

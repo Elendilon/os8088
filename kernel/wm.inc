@@ -11000,8 +11000,7 @@ wm_draw_shadow:
     add bx, [di+W_W]
     mov dx, [di+W_Y]
     add dx, [di+W_H]
-    call gfx_hline
-    ret
+    jmp gfx_hline               ; tail call, both ends `.text`
 
 wm_draw_win:
     KFZ 24                      ; one window's frame and content

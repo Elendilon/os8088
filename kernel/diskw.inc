@@ -971,8 +971,8 @@ dskw_rtbody:
     mov si, dskw_rt_name
     mov di, dskw_n83
     call dskw_copy11
-    call dskw_rmbody_n83        ; the target itself, from where we began
-    ret
+    jmp dskw_rmbody_n83         ; the target itself, from where we began - a
+                                ; tail call, both ends `.cold`
 
 .corrupt_home:
     call dskw_rt_go_home
