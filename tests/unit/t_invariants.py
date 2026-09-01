@@ -32,6 +32,17 @@ compare on the strength of one of them, and nothing anywhere says so.
    [vid_mono] still 1 pointed the software renderer at rseg 0 and splattered
    0xFF across kernel .text.
 
+   **THE PAIR IS NOW ONE WORD STORE.**  vid_depth_set writes [vid_mono] and
+   [vid_planes] with a single `mov [vid_mono], ax`, so between them there is
+   ONE named writer and [vid_planes] has NONE - which is why the counts below
+   are 1, 0 and 1 rather than three 2s.  That is strictly stronger than what
+   this row used to check: an ISR cannot now observe mono = 1 beside
+   planes = 4 between two byte writes.  It rests on the two bytes staying
+   adjacent, mono first, and viddet.inc's own `%if` is what pins that.  The
+   extra row below is the other half: the writer has to stay a WORD store,
+   because a regression to `mov byte [vid_mono], 1` keeps the count at one,
+   passes the row above, and silently stops setting the plane count.
+
 3. [vid_rseg], [vid_rpara] AND [vid_rend] ARE WRITTEN ONLY BY vid_apply.
    This was checked separately from 2 because sw_xfer's pass loop terminated
    on a SEGMENT COMPARE - `add bx,[vid_rpara] / cmp bx,[vid_rend]` - and not
@@ -45,9 +56,10 @@ compare on the strength of one of them, and nothing anywhere says so.
 
 WHAT IT CANNOT SEE, and it matters that this is written down rather than
 assumed: a write through a POINTER (`mov [bx], al` where BX happens to hold
-the address), a `stos`/`movs`/`rep` that covers the byte as part of a run, and
-a write inside a macro body that names the symbol through a parameter.  It is
-a lint over `mov [sym], ...`, not a proof.  What it defends against is the
+the address), a `stos`/`movs`/`rep` that covers the byte as part of a run, a
+WORD store through the symbol BELOW it (which is exactly how [vid_planes] is
+written today - see 2), and a write inside a macro body that names the symbol
+through a parameter.  It is a lint over `mov [sym], ...`, not a proof.  What it defends against is the
 ordinary way a second writer arrives - somebody adding a line.
 """
 import os
@@ -121,16 +133,37 @@ def main():
           got=shown(bad), want="a slot index, always")
 
     # --- 2. the renderer's depth --------------------------------------------
-    for sym in ("vid_mono", "vid_planes", "vid_planes_w"):
-        one_owner(
-            sym, 2, "kernel/viddet.inc",
-            "[%s] is written only by vid_depth_set" % sym,
-            "SPEC.md 39.26 removed the software renderer's plane loop from "
+    # 1, 0 and 1: vid_depth_set sets the first two with ONE word store through
+    # [vid_mono], so [vid_planes] has no writer of its own name at all.
+    why2 = ("SPEC.md 39.26 removed the software renderer's plane loop from "
             "sw_rect_pl, sw_fill_pat, ico_pass_bb and font_char_bb on the "
             "fact that [vid_mono] and [vid_planes] are set TOGETHER - mono "
             "1 and 1, VGA 0 and 4. A writer that moves one without the "
             "other leaves every one of those bodies drawing plane 0 alone, "
-            "on every adapter, with nothing erroring")
+            "on every adapter, with nothing erroring. vid_depth_set now "
+            "writes the pair as one word through [vid_mono], so the counts "
+            "are 1, 0 and 1")
+    for sym, n_w in (("vid_mono", 1), ("vid_planes", 0), ("vid_planes_w", 1)):
+        one_owner(sym, n_w, "kernel/viddet.inc",
+                  "[%s] is written only by vid_depth_set" % sym, why2)
+
+    # ...and that one writer must stay a WORD store.  `mov byte [vid_mono], 1`
+    # would keep the count at one, pass the row above, and stop setting
+    # [vid_planes] - which is the precise failure this section exists for, so
+    # it gets a row of its own rather than a comment.
+    bytew = []
+    for path in sources():
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for ln, raw in enumerate(f.read().split("\n"), 1):
+                if re.match(r"\s*mov\s+byte\s*\[\s*(?:[a-z]{2}:)?vid_mono\s*\]",
+                            raw.split(";")[0], re.I):
+                    bytew.append((os.path.relpath(path, ROOT), ln, raw.strip()))
+    check(not bytew, "[vid_mono]'s writer is a WORD store, carrying [vid_planes]",
+          "vid_depth_set sets the pair with one `mov [vid_mono], ax`. A BYTE "
+          "store there writes mono and leaves the plane count behind, which "
+          "the writer-count row above cannot see - it would still be one "
+          "writer in the right file",
+          got=shown(bytew), want="no `mov byte [vid_mono], ...` anywhere")
 
     # --- 3. the renderer's segment walk -------------------------------------
     for sym in ("vid_rseg", "vid_rpara", "vid_rend"):
