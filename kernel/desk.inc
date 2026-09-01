@@ -382,6 +382,21 @@ desk_rowcalc_x:
     retf
 
 ; -----------------------------------------------------------------------------
+; desk_zflag - does volume BL have a desktop zone? (SPEC.md 26)
+; in:  BL = volume index
+; out: ZF = 1 no zone, ZF = 0 it has one; BX -> the volume row
+; clobbers: BX (dsk_vol_slot_x's documented output), flags
+;
+; Four sites asked this question with the same two instructions.  `pop` and
+; `ret` do not write flags, so ZF crosses the call unharmed - which is what
+; makes a helper possible at all here.
+; -----------------------------------------------------------------------------
+desk_zflag:
+    call dsk_vol_slot_x
+    test byte [bx+DV_FLAGS], 1
+    ret
+
+; -----------------------------------------------------------------------------
 desk_ord:
     push bx
     push cx
@@ -391,8 +406,7 @@ desk_ord:
     cmp cl, DVOL_MAX
     jae .no
     mov bl, cl
-    call dsk_vol_slot_x
-    test byte [bx+DV_FLAGS], 1
+    call desk_zflag
     jz .skip
     cmp cl, al
     je .hit
@@ -401,14 +415,13 @@ desk_ord:
     inc cl
     jmp short .next
 .hit:
-    pop cx
-    pop bx
     clc
-    ret
+    jmp short .out
 .no:
-    pop cx
-    pop bx
     stc
+.out:                           ; one pair of pops, not two: `pop` does not
+    pop cx                      ; write flags, so CF crosses them intact
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -459,8 +472,7 @@ desk_paint_x:
     cmp al, DVOL_MAX
     jae .done
     mov bl, al
-    call dsk_vol_slot_x
-    test byte [bx+DV_FLAGS], 1
+    call desk_zflag
     jz .skip
     call desk_draw_zone         ; AL = volume index
 .skip:
@@ -483,6 +495,11 @@ desk_paint_x:
 ; -----------------------------------------------------------------------------
 desk_zone_rect:
     call desk_zone_xy           ; AX = zone left, DX = zone top
+desk_rect_ax:                   ; ...and the arithmetic ALONE, for a caller
+                                ; that is already holding the origin. Costs
+                                ; nothing: it is a second entry point, not a
+                                ; routine. desk_zone_rect has no NASM local,
+                                ; so this label re-parents none.
     mov bx, dx
     add dx, [desk_zh1]           ; y2 = top + 43
     mov cx, ax
@@ -705,8 +722,7 @@ desk_dmg_zones_x:
     jae .done
     push bx
     mov bl, al
-    call dsk_vol_slot_x
-    test byte [bx+DV_FLAGS], 1
+    call desk_zflag
     pop bx
     jz .next
     call desk_zone_rect
@@ -818,8 +834,7 @@ desk_click_x:
     cmp cl, DVOL_MAX
     jae .miss
     mov bl, cl
-    call dsk_vol_slot_x
-    test byte [bx+DV_FLAGS], 1
+    call desk_zflag
     jz .zstep
     mov al, cl
     call desk_zone_xy           ; AX = zone left, DX = zone top
@@ -974,11 +989,9 @@ desk_zone_redraw:
 ;       dead, and this is the last thing either does
 ; -----------------------------------------------------------------------------
 desk_zone_hilite:
-    call desk_zone_xy           ; AX = zone left, DX = zone top
-    mov bx, dx
-    mov cx, ax
-    add cx, DESK_ZW-1
-    add dx, [desk_zh1]
+    call desk_zone_rect         ; the DRAWN rect...
+    add ax, DESK_ZOVER          ; ...less the label's overhang at each edge,
+    sub cx, DESK_ZOVER          ; which is the HIT rect this one wants
     call KERNEL_SEG:cw_gfx_xor_fill  ; NOT a tail call any more, and it cannot
     ret                         ; be: a cw_ shim ends in `retf`, so jumping to
                                 ; one pops this routine's NEAR return address
@@ -1010,11 +1023,12 @@ desk_draw_zone:
     mov [desk_zy], dx
 
     ; --- gray desktop under the zone + the label's 2px side overhang --------
-    mov bx, dx                  ; y1 = top
-    add dx, [desk_zh1]           ; y2 = top+43
-    sub ax, DESK_ZOVER
-    mov cx, ax
-    add cx, DESK_ZW + 2*DESK_ZOVER - 1
+    call desk_rect_ax           ; the SAME rect desk_zone_rect builds, written
+                                ; out here in a different instruction order:
+                                ; x1 = left-2, x2 = (left-2)+32+4-1 = left+33,
+                                ; y1 = top, y2 = top+[desk_zh1]. AX and DX
+                                ; still hold the origin - the two stores to
+                                ; [desk_zx]/[desk_zy] above do not touch them
     call KERNEL_SEG:cw_thm_desk
 
     ; --- the icon, which IS the zone's width now (SPEC.md 26.4) --------------
