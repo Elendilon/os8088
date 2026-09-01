@@ -236,6 +236,13 @@ _MIRROR = {
     "CP_ITHM": ("kernel/ctrl.inc", 5),
     "CP_ITIME": ("kernel/ctrl.inc", 1),
     "DSK_DE_SIZE": ("kernel/dskwin.inc", 32),
+    # ...and the STAGED LISTING's stride, which is a different constant with a
+    # different value (SPEC.md 19.1). A harness that walks `disk_dir` or a
+    # window's view cache wants THIS one; DSK_DE_SIZE is the on-disk FAT
+    # stride and the width of the record a DRVC_FILE driver hands over. Two
+    # scripts were reading the listing at 32 and would have decoded garbage
+    # from entry 1 onward the moment they diverged.
+    "DSK_DE_STRIDE": ("kernel/dskwin.inc", 24),
 }
 
 globals().update({k: v for k, (_, v) in _MIRROR.items()})

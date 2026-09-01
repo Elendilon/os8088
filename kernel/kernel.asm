@@ -6383,7 +6383,14 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 ; 2.1.2). One contiguous region, and `.ovlw` may fill it and no more - a byte
 ; past it is `vid_rowtab`, which vid_init wrote at MARK 7 and the overlay is
 ; still using.
-%if OVLW_SIZE > FAT_PARA * 16 + DSK_WIN_BYTES
+; **The overlay ARRIVES BY SECTOR**, so the ceiling is the region rounded DOWN
+; to a whole sector and the payload rounded UP to one. That was the same
+; number while the region was 8,192 - the mount window being 7 x 512 exactly -
+; and it stopped being when SPEC.md 19.1's staged listing narrowed to
+; DSK_DE_STRIDE and took `disk_dir` from 1,024 to 768. The region is 7,936
+; now, of which 7,680 is readable, and comparing against 7,936 would pass a
+; 15.5-sector overlay whose sixteenth sector lands on vid_rowtab.
+%if ((OVLW_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
 %error "the boot overlay's window half has outgrown the FAT window plus the mount buffers - see SPEC.md 2.1.2 and 2.5.3"
 %endif
 

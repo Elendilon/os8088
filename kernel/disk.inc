@@ -2172,7 +2172,22 @@ dsk_list_pick:
     jz .out                     ; no claim: the floor, and a 32-entry listing
     mov [dsk_dseg], ax
     mov word [dsk_doff], 0
-    mov word [dsk_ioff], DSK_VENT * DSK_DE_SIZE
+    mov word [dsk_ioff], DSK_VENT * DSK_DE_STRIDE   ; the LISTING's stride,
+                                ; not the record's, and THIS is the line the
+                                ; header above is about. At DSK_DE_SIZE it
+                                ; says 2,048 while the entries end at 1,536,
+                                ; so the global listing's icon base and
+                                ; fmv_iofs's (nmax * DSK_DE_STRIDE) are 512
+                                ; apart - the "one shape" fmv_store's pair of
+                                ; block copies rests on is then false and
+                                ; every icon in a driver-backed window is read
+                                ; from the wrong place. MEASURED both ways on
+                                ; an xt_hdd: 1,536 against 2,048, with the
+                                ; cache side 1,536 either way. It also puts
+                                ; the icon block's last byte ON the claim's
+                                ; last byte instead of 512 inside it, so a
+                                ; driver that funds DSK_VBYTES rather than
+                                ; rounding up to DSK_VKB overruns outright
     mov word [dsk_nmax], DSK_VENT
 .out:
     pop bx
@@ -2799,7 +2814,7 @@ disk_mount_x:
     mov cx, bp                  ; alphabetical, and BEFORE the harvest below:
     cmp word [dsk_cwd], 0       ; slot i is then filled for whatever entry
     je .sortall                 ; ended up at i, so the icons never have to be
-    add bx, DSK_DE_SIZE         ; permuted alongside the entries (19.4). The
+    add bx, DSK_DE_STRIDE       ; permuted alongside the entries (19.4). The
     dec cx                      ; parent link is not IN the sort - it is
 .sortall:                       ; always the first entry (19.5)
     call dsk_sortdir
@@ -2870,8 +2885,12 @@ disk_mount_x:
     call disk_read_x              ; ES = LOW_SEG
     jc .h_zero
     mov si, dsk_secbuf          ; stage the 32 header bytes; dsk_ent's
-    mov di, dsk_ent             ; directory copy is done with above
-    mov cx, 32
+    mov di, dsk_ent             ; directory copy is done with above.
+    mov cx, DSK_DE_SIZE         ; A PACKAGE HEADER, not a 19.1 entry - so
+                                ; DSK_DE_SIZE (dsk_ent's own width) and never
+                                ; DSK_DE_STRIDE, which would be a .bss overrun
+                                ; the moment the two diverge. It was a bare
+                                ; `32` and that is exactly why it hid
     call dsk_copy_in_x
     cmp word [dsk_ent+0], 0x384F    ; .o88 magic 'O','8'
     jne .h_zero
@@ -3627,12 +3646,15 @@ dsk_sortdir:
     cmp cx, 2
     jb .out                     ; 0 or 1 entries are already in order
     mov ax, cx
-    mov cl, 5
-    shl ax, cl                  ; count * DSK_DE_SIZE
+    mov cx, DSK_DE_STRIDE       ; count * DSK_DE_STRIDE. A MULTIPLY, because
+    mul cx                      ; the stride is no longer a power of two -
+                                ; count <= DSK_VENT so DX is 0, and DX is
+                                ; overwritten on the next line anyway. Every
+                                ; register here is banked at entry
     add ax, bx
     mov dx, ax                  ; DX = one past the last entry
     mov cx, dx
-    sub cx, DSK_DE_SIZE         ; CX = the last entry: no choice to make for
+    sub cx, DSK_DE_STRIDE       ; CX = the last entry: no choice to make for
                                 ; it once everything below is placed
 .outer:                         ; BX = the slot being filled
     cmp bx, cx
@@ -3640,7 +3662,7 @@ dsk_sortdir:
     mov di, bx                  ; DI = the smallest name seen so far
     mov si, bx
 .inner:
-    add si, DSK_DE_SIZE         ; SI = the candidate
+    add si, DSK_DE_STRIDE       ; SI = the candidate
     cmp si, dx
     jae .placed
     call dsk_ncmp
@@ -3649,11 +3671,11 @@ dsk_sortdir:
     jmp short .inner
 .placed:
     cmp di, bx
-    je .next                    ; already in place: 32 bytes not moved
+    je .next                    ; already in place: an entry not moved
     mov si, bx
     call dsk_swapent
 .next:
-    add bx, DSK_DE_SIZE
+    add bx, DSK_DE_STRIDE
     jmp short .outer
 .out:
     pop di
@@ -3733,7 +3755,7 @@ dsk_swapent:
     push cx
     push si
     push di
-    mov cx, DSK_DE_SIZE
+    mov cx, DSK_DE_STRIDE
 .next:
     mov al, [es:si]
     mov ah, [es:di]
@@ -5313,8 +5335,8 @@ dsk_find_x:
     jz .take
     dec bp                      ; still seeking: this one is somebody else's
 .skip:
-    add si, DSK_DE_SIZE         ; the on-disk stride, which is the staged
-    loop .entry                 ; one's too - both are 32 bytes
+    add si, DSK_DE_SIZE         ; the ON-DISK stride, 32 by FAT12. The staged
+    loop .entry                 ; listing's is DSK_DE_STRIDE and is narrower
     jmp short .sector
 
 .take:
@@ -5924,8 +5946,9 @@ dsk_get_dir_x:
     push di
     call dsk_ent_ofs            ; SI = the entry's offset in [dsk_dseg]
     mov di, dsk_ent
-    mov cx, DSK_DE_SIZE
-    mov dx, [dsk_dseg]
+    mov cx, DSK_DE_STRIDE       ; what the LISTING holds; dsk_ent is wider and
+    mov dx, [dsk_dseg]          ; its 24..31 are left as they were, which no
+                                ; reader of a staged entry looks at
     mov ax, KERNEL_SEG          ; ...the kernel segment, named (SPEC.md 2.6
                                 ; rule 2: CS is COLD_SEG here)
     call dsk_copy_seg_x
@@ -6005,7 +6028,7 @@ dsk_ent_ofs:
     push ax
     push cx
     push dx
-    mov cx, DSK_DE_SIZE
+    mov cx, DSK_DE_STRIDE
     mul cx
     add ax, [dsk_doff]
     mov si, ax
@@ -6041,8 +6064,8 @@ dsk_put_dir:
     call dsk_ent_ofs
     mov di, si
     mov si, dsk_ent
-    mov cx, DSK_DE_SIZE
-    mov ax, [dsk_dseg]
+    mov cx, DSK_DE_STRIDE       ; the meaningful prefix; 19.1's 24..31 are
+    mov ax, [dsk_dseg]          ; zero and the listing has no room for them
     mov dx, KERNEL_SEG          ; ...the kernel segment, named (SPEC.md 2.6
                                 ; rule 2: CS is COLD_SEG here)
     call dsk_copy_seg_x
@@ -6694,7 +6717,14 @@ dsk_bpbok:    resb DVOL_MAX     ; 0 = nothing banked, 1 = banked and good
 dsk_bpbpre:   resb 1            ; dsk_bpb already holds a banked head
 
 dsk_ent:    resb DSK_DE_SIZE    ; one staged directory entry (dsk_get_dir);
-                                ; also the mount's synthesis/harvest scratch
+                                ; also the mount's synthesis/harvest scratch.
+                                ; DSK_DE_SIZE and NOT DSK_DE_STRIDE, and the
+                                ; difference is not slack: osapi_fs_ent copies
+                                ; a driver's whole 32-byte record in here, and
+                                ; the harvest stages a package's 32-byte
+                                ; HEADER over it (a bare `mov cx, 32`, which
+                                ; no grep for the constant finds). The LISTING
+                                ; is what got narrower; this did not
 dsk_ico:    resb DSK_ICO_SIZE   ; one staged icon slot (dsk_get_icon)
 
 ; mount-derived FAT state (SPEC.md 18.1) - valid only after a successful

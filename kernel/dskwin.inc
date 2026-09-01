@@ -36,7 +36,22 @@
 ; so a segment of their own would be a code change at every access.
 ; =============================================================================
 
-DSK_DE_SIZE  equ 32              ; staged directory entry stride (SPEC.md 19)
+DSK_DE_SIZE  equ 32              ; the ON-DISK FAT stride, and the width of
+                                 ; the record a DRVC_FILE driver hands over
+                                 ; (OSAPI_FS_ENT, SPEC.md 19.1/62.9.1)
+DSK_DE_STRIDE equ 24             ; ...and the STAGED LISTING's, which is a
+                                 ; different question with a different answer.
+                                 ; SPEC.md 19.1's record is meaningful to
+                                 ; offset 23 - name 0..15, type 16, handle 18,
+                                 ; size dword 20..23 - and 24..31 are declared
+                                 ; ZERO. The arrays below stored those eight
+                                 ; zero bytes per entry for the life of the
+                                 ; machine: 256 of `.lowbss`, on the tightest
+                                 ; rung in the kernel. THE TWO ARE NOT
+                                 ; INTERCHANGEABLE and the %if below says so:
+                                 ; dsk_ent stays DSK_DE_SIZE wide because a
+                                 ; driver's record and a package HEADER are
+                                 ; both copied into it whole
 DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 
 ; How many entries a listing holds. DSK_NENT is the FLOOR - the .lowbss pair
@@ -47,20 +62,32 @@ DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 ; (SPEC.md 22.6). Both numbers are here so nothing can disagree about them.
 DSK_NENT     equ 32
 DSK_VENT     equ 64
-DSK_VBYTES   equ DSK_VENT * (DSK_DE_SIZE + DSK_ICO_SIZE)    ; 6,144 = 6KB
-DSK_VKB      equ 6
+DSK_VBYTES   equ DSK_VENT * (DSK_DE_STRIDE + DSK_ICO_SIZE)  ; 5,632
+DSK_VKB      equ 6              ; ...and the claim a driver funds is still 6KB:
+                                ; 5,632 rounds up to 6, so nothing on the
+                                ; driver side moves (drivers/os88drv.inc's
+                                ; HDD_LISTKB) and no .DRV rebuilds
 %if DSK_VBYTES > DSK_VKB * 1024
   %error "the driver-backed listing no longer fits the claim its driver funds: DSK_VKB is what is asked for and DSK_VBYTES is what disk_mount then writes into it, so the overflow lands on whatever the heap handed out next"
 %endif
 %if DSK_DE_SIZE != 32
   %error "DSK_DE_SIZE is the ON-DISK FAT directory stride, 32 by FAT12, and it is PUBLISHED to packages (apps/os88api.inc's OSAPI_FS_ENT). It is not free to change: a staged entry that wants a different width needs a stride of its own, leaving this one at 32"
 %endif
+%if DSK_DE_STRIDE > DSK_DE_SIZE
+  %error "DSK_DE_STRIDE is the MEANINGFUL PREFIX of a DSK_DE_SIZE record and cannot be wider than it: dsk_put_dir copies DSK_DE_STRIDE bytes OUT of a DSK_DE_SIZE-byte dsk_ent, and a stride past the end of it reads whatever .bss follows"
+%endif
+%if DSK_DE_STRIDE < 24
+  %error "DSK_DE_STRIDE must cover SPEC.md 19.1's meaningful prefix: name 0..15, type 16, handle 18, size dword 20..23. Below 24 an entry loses its SIZE, and the Disk window letters a stale one"
+%endif
 
 section .lowbss                 ; LOW_SEG: written by int 13h through ES:BX
                                 ; (or rep movsw/stosw from the mount), read
                                 ; only through disk.inc's dsk_get_*
 dsk_win_base:
-disk_dir:   resb DSK_NENT*DSK_DE_SIZE      ; DSK_NENT SYNTHESIZED entries,
+disk_dir:   resb DSK_NENT*DSK_DE_STRIDE    ; DSK_NENT SYNTHESIZED entries,
+                                ; DSK_DE_STRIDE apiece and not DSK_DE_SIZE:
+                                ; 19.1's bytes 24..31 are zero and no reader
+                                ; in the tree looks at them,
                                 ; built by disk_mount from the FAT directory
                                 ; (SPEC.md 19) - never a raw on-disk image.
                                 ; The FLOOR listing: a driver-backed volume

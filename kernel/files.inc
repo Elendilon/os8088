@@ -301,7 +301,7 @@ FS_SIZE     equ 24              ; = the Disk kind's KD_SSIZE
 %endif
 
 FM_MAXWIN   equ VIEW_SLOTS      ; = KD_CAP: one cache slot per window
-FV_ICONS    equ DSK_NENT*DSK_DE_SIZE    ; icon images start here inside a
+FV_ICONS    equ DSK_NENT*DSK_DE_STRIDE  ; icon images start here inside a
                                 ; FLOPPY-sized slot; a driver-backed volume's
                                 ; is [dsk_ioff], and fmv_iofs answers both
 FM_HDRMAX   equ 48              ; fm_hdrbuf's size: the header and the status
@@ -592,14 +592,15 @@ fmv_copy_in:
 ; clobbers: BX (the output), flags
 ;
 ; A slot MIRRORS the listing it was filled from, so its shape follows
-; [dsk_nmax]: 1KB of entries then 2KB of icons on a floppy, 2KB then 4KB on a
-; driver-backed volume (SPEC.md 22.6).
+; [dsk_nmax]: 768 bytes of entries then 2KB of icons on a floppy, 1,536 then
+; 4KB on a driver-backed volume (SPEC.md 22.6) - DSK_DE_STRIDE apiece, which
+; is the listing's width and not DSK_DE_SIZE's.
 ; -----------------------------------------------------------------------------
 fmv_iofs:
     push ax
     push dx
     mov ax, [dsk_nmax]
-    mov dx, DSK_DE_SIZE
+    mov dx, DSK_DE_STRIDE       ; the LISTING's stride, which a cache mirrors
     mul dx
     mov bx, ax
     pop dx
@@ -622,8 +623,8 @@ fmv_iofs:
 ; out and the base fmv_copy_in subtracts from it would be two different
 ; volumes' arithmetic.
 ; -----------------------------------------------------------------------------
-%if ((DSK_NENT * DSK_DE_SIZE) & 0xFF) || ((DSK_VENT * DSK_DE_SIZE) & 0xFF)
-%error "FS_IOFH holds an icon base in ONE byte: nmax*32 must be a multiple of 256"
+%if ((DSK_NENT * DSK_DE_STRIDE) & 0xFF) || ((DSK_VENT * DSK_DE_STRIDE) & 0xFF)
+%error "FS_IOFH holds an icon base in ONE byte: nmax*DSK_DE_STRIDE must be a multiple of 256. It is 768 and 1,536 at a stride of 24 and was 1,024 and 2,048 at 32 - a stride that is not a multiple of 8 breaks this for BOTH caps at once"
 %endif
 fmv_viofs:
     push si
@@ -638,7 +639,7 @@ fmv_viofs:
 ; -----------------------------------------------------------------------------
 ; fmv_get_dir - stage one entry out of THIS window's cache
 ; in:  AX = entry index (0..31; callers bound it by FS_N)
-; out: SI -> dsk_ent, holding that entry's 32 bytes
+; out: SI -> dsk_ent, holding that entry's DSK_DE_STRIDE meaningful bytes
 ; clobbers: SI (the output), flags
 ;
 ; Deliberately lands in disk.inc's OWN dsk_ent rather than a second buffer:
@@ -649,11 +650,13 @@ fmv_get_dir:
     push ax
     push cx
     push di
-    mov cl, 5                   ; index * 32
-    shl ax, cl
-    mov si, ax
+    push dx                     ; index * DSK_DE_STRIDE. A MULTIPLY, because
+    mov cx, DSK_DE_STRIDE       ; the stride is no longer a power of two;
+    mul cx                      ; index <= DSK_VENT so DX is 0, and it is
+    pop dx                      ; banked because this routine's contract is
+    mov si, ax                  ; "clobbers SI"
     mov di, dsk_ent
-    mov cx, DSK_DE_SIZE
+    mov cx, DSK_DE_STRIDE
     call fmv_copy_in
     pop di
     pop cx

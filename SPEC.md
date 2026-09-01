@@ -337,7 +337,7 @@ BMP hit it immediately, a Note Pad text file never would.
 
 ### 2.1.2 The mount-owned buffers are the FIRST bytes of `.lowbss`
 
-`disk_dir`, `disk_icons` and `dsk_secbuf` are 3,584 bytes with one property
+`disk_dir`, `disk_icons` and `dsk_secbuf` are 3,328 bytes with one property
 nothing else in `.lowbss` has: **they and the FAT window come alive at the
 same moment** — `drv_boot`'s first mount — and neither is touched before it.
 Put them at the bottom of the rung and the two are one contiguous region that
@@ -345,11 +345,28 @@ is dead for the whole of `kmain`:
 
 ```
   FAT_SEG   4,608   the FAT snapshot, filled at mount
-  +         1,024   disk_dir     "ALWAYS exactly a mount snapshot"
+  +           768   disk_dir     "ALWAYS exactly a mount snapshot"
   +         2,048   disk_icons   "fully rewritten every mount"
   +           512   dsk_secbuf   read by drv_boot's very first mount
-  =         8,192   and 512-aligned, LOW_SEG being a rung base (§2.1.1)
+  =         7,936   of which 7,680 is READABLE (see below)
 ```
+
+**The region was 8,192 and is 7,936, and the 256 bytes are §19.1's.**
+`disk_dir` holds `DSK_NENT` entries at `DSK_DE_STRIDE`, and that stride
+narrowed from 32 to 24 when the staged listing stopped carrying the record's
+declared-zero tail — 256 bytes of `.lowbss` back to the heap. They come out of
+*here*, and the two facts are the same 256 bytes seen from either end. It is
+worth saying which way the trade runs: the heap gains them and the boot
+overlay's window half loses them.
+
+**The base is 512-aligned and the SIZE is no longer a multiple of 512**, which
+matters because the overlay arrives on the kernel's own `int 13h` read.
+`LOW_SEG` is a rung base so §2.1.1 is satisfied at the only end that is a
+*base*; the region is 15.5 sectors, so the usable ceiling is **7,680** and not
+7,936. `kernel.asm`'s `%if` therefore rounds `OVLW_SIZE` **up** to a whole
+sector before comparing — the two were the same number while the mount window
+was 7 × 512 exactly, and a guard against 7,936 would pass a 15.5-sector
+overlay whose sixteenth sector lands on `vid_rowtab`.
 
 That is what the boot overlay is meant to land in and spill through
 (`docs/BOOT-LADDER-PLAN.md` stage B). §2.5 put `.ovl` in the FAT window on the
@@ -608,11 +625,12 @@ says `FAT_SEG` is. What §2.5.1 gave that arrangement up for was **lifetime**,
 and the split is what buys the lifetime back for the 27 bodies that need it
 instead of for all 104.
 
-**It fits because of §2.1.2.** `.ovlw` is 5,263 bytes and the FAT window is
-4,608 — the window alone stopped being enough when §2.9.12's register moved
-twenty boot-only bodies into the overlay. The mount-owned buffers sit
-immediately above it now, dead until the same instant, so the region is 8,192
-and the guard at the foot of `kernel.asm` is against that.
+**It fits because of §2.1.2.** The FAT window is 4,608 and `.ovlw` outgrew it
+when §2.9.12's register moved twenty boot-only bodies into the overlay. The
+mount-owned buffers sit immediately above it now, dead until the same instant,
+so the region is **7,936** — of which **7,680 is readable**, the region being
+15.5 sectors since §19.1's staged listing narrowed. The guard at the foot of
+`kernel.asm` is against that, with `OVLW_SIZE` rounded up to a whole sector.
 
 **The window half needs no pointer and no liveness guard.** `FAT_SEG` is a
 constant this assembly knows, so `OVWCALL` is a plain far call — nothing to
@@ -627,7 +645,7 @@ bytes are simply forfeit.
 | `BOOT2_SECS` | 19 | **8** |
 | blob `int 13h`, 360 / 720 / 1.44 | 3 / 3 / 2 | **2 / 2 / 2** |
 | sectors read before the first splash pixel | 19 | **8** |
-| overlay pool | 7,168 (480 free) | 4,096 blob + **8,192 window** (2,929 free) |
+| overlay pool | 7,168 (480 free) | 4,096 blob + **7,936 window, 7,680 readable** |
 | stage 1's floor, kern_big | 125 KB | **119 KB** |
 
 The eleven sectors that left the blob did not leave the disk: they are in the
@@ -26444,13 +26462,37 @@ Each accepted entry is synthesized into the 32-byte staged shape that
 `dsk_get_dir` serves — this layout, not any on-disk one, is the contract
 every consumer (files.inc, loader.inc) reads:
 
+**Two constants, and they are not the same number.** `DSK_DE_SIZE` = **32**
+is the width of the *record*: the on-disk FAT stride (32 by FAT12, and not
+free to change), the width of `dsk_ent`, and the width of the buffer a
+`DRVC_FILE` driver hands over through `OSAPI_FS_ENT`. `DSK_DE_STRIDE` = **24**
+is the width of an entry inside a *staged listing* — `disk_dir`, a driver's
+donated claim, and a window's view cache. The table below is why: the record
+is meaningful to offset 23 and bytes 24..31 are declared zero, so a listing
+that stored them stored eight zero bytes per entry for the life of the
+machine — **256 bytes of `.lowbss` on a floppy**, which is the tightest rung
+in the kernel. Nothing published moved and no `.DRV` rebuilds: a driver still
+stages 32 bytes, `HDD_LISTKB` is still 6 (5,632 rounds up to 6KB), and the
+kernel simply stops carrying the zeroes forward.
+
+The two are not interchangeable and three places prove it. `dsk_ent` keeps
+`DSK_DE_SIZE`, because `osapi_fs_ent` copies a driver's whole record into it
+**and** the mount's harvest stages a package's 32-byte HEADER over it — the
+latter through a bare `mov cx, 32` that no search for the constant finds.
+`dsk_ioff`, the icon block's offset inside a driver's claim, is
+`DSK_VENT * DSK_DE_STRIDE`: left at `DSK_DE_SIZE` it says 2,048 while the
+entries end at 1,536, and the last eight icons are written **512 bytes past
+the end of the claim**. And `FS_IOFH` holds a listing's icon base in one
+byte, so `nmax * DSK_DE_STRIDE` must stay a multiple of 256 — 768 and 1,536
+at a stride of 24. `kernel/dskwin.inc` carries the `%error` for each.
+
 | off | size | contents                                                    |
 |-----|------|--------------------------------------------------------------|
 | 0   | 16   | display name, NUL-padded: raw name[0..7] with trailing spaces trimmed, then '.', then ext[0..2] trimmed (dot omitted when the ext is blank); **every byte outside 0x21..0x7E replaced with '_'** (OEM-codepage bytes never reach the font renderer). Max 12 chars — fits every §22 truncation budget |
 | 16  | 2    | type: 1 = loadable package, 2 = subdirectory, 3 = the parent link (§19.5), else 0 (rules below) |
 | 18  | 2    | first cluster = raw FstClusLO (word @26), copied verbatim even when type=0 (harmless; the loader only reads it behind type==1, and `dsk_chdir` only behind type==2). FstClusHI (@20) is FAT32-only per spec — ignored |
 | 20  | 4    | size in bytes = raw size dword @28, verbatim (lo word @20, hi @22 — drawn whole by `fm_ultoa`); forced to 0 for type 2 |
-| 24  | 8    | zero                                                        |
+| 24  | 8    | zero — and **not stored in a staged listing**: `DSK_DE_STRIDE` stops at 24, `dsk_ent` is still 32 wide, and no consumer in the tree reads these eight bytes |
 
 **The type word** (binding — defense in depth with §21 step 1), tested in
 this order:
