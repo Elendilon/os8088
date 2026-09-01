@@ -251,15 +251,25 @@ a cycle-accurate 5150 in a container:
   * a MartyPC boot to a settled desktop is **7.8 seconds**;
   * the emulator tests in `tests/` are **40-75 seconds each**, because each
     one boots its own machine and then drives a session through it;
-  * and they **cannot run in parallel**. Every one drives the debug server on
-    127.0.0.1:9001 - one port, one connection, and a second client does not
-    error, it HANGS (docs/MARTYPC-DEBUG.md). The runner marks them `serial`
-    and gives them one lane behind the host-side rows.
+  * and they run in one lane by default. That used to be forced - every one
+    drove the debug server on 127.0.0.1:9001, one port, one connection, and a
+    second client did not error, it HUNG. It is not forced any more:
+    `os88marty.launch` gives every instance its own port, run directory and
+    disks (docs/MARTYPC-DEBUG.md), and `os88test.py --marty-jobs N` widens the
+    lane. What still runs alone is a row marked `builds=True`, which shells
+    out to `make` and so rewrites `build/` under anything reading it -
+    `tests/unit/t_registry.py` checks that flag against the script rather than
+    trusting it.
 
-So ten minutes is about **eight** emulator tests, not fifty. That is not a
-limitation to engineer away, it is what the machine costs. The honest response
-is to say which eight and put the rest in `soak`, where they are still one
-command away.
+So ten minutes is about **eight** emulator tests at `--marty-jobs 1`, not
+fifty. The default is 1 for arithmetic rather than caution: every instance
+runs its guest as fast as the host will let it, so N of them on an N-core box
+is the ceiling, and past it each row takes longer in HOST seconds - which is
+what a row's declared `secs`, its timeout and `settle`'s patience are all
+measured in. Guest cycle counts are unaffected, being counted rather than
+timed. Measured on a four-core container, four emulator rows: **175.6 s at
+`--marty-jobs 1`, 85.9 s at 3**, each row 6-10% slower and none of them
+failing. Raise it deliberately, with the box in mind.
 
 **What earns a `full` row is breadth per second.** `tests/bootsmoke.py` is the
 model: eight seconds, and it exercises the boot sector, FAT12, the `int 13h`
@@ -1621,7 +1631,9 @@ of a session, and none of the failures says what it is:
 - **Read the FILE, not the screen**: the report self-saves when it finishes,
   and the whole thing is forty-plus rows the screen pages through.
   `os88flush.Flush(marty=m).volume(0).read("SYSBENCH.TXT")` is it, sharing
-  the one debug connection (a second `Marty` HANGS).
+  the one debug connection an instance allows (a second `Marty` on the same
+  instance is refused, and sharing also gives `Flush` that instance's run
+  directory, which is what its mount paths are relative to).
 - **Keep the driver script OUT of the session scratchpad.** One vanished
   mid-session here and the run died with `can't open file` — which reads
   exactly like a path typo. `/tmp/<something>/` of your own is fine.
@@ -2363,8 +2375,11 @@ middle of that range.
 >
 > **One connection at a time.** The debug server accepts a single client, so a
 > script that wants both the mouse driver and the framebuffer must share one:
-> `Mouse(marty=m)`, never a second `Marty`. Opening a second one does not
-> error — it *hangs* until the read times out.
+> `Mouse(marty=m)`, never a second `Marty` on the same instance. Opening a
+> second one is refused with a sentence naming the client that holds it — it
+> used to not error at all and *hang* until the read timed out. A script that
+> wants two MACHINES launches two: instances are isolated, so that needs no
+> arrangement (docs/MARTYPC-DEBUG.md).
 
 > **And start the emulator with `os88marty.launch`, wait with `settle`, and
 > name a kernel flag with `m.sym`.** Every scripted session used to hand-roll
@@ -2378,13 +2393,18 @@ middle of that range.
 >     os88marty.settle(m)              # ...instead of time.sleep(4)
 > ```
 >
-> `launch` kills survivors **by PID out of /proc** and waits for the port —
-> a survivor keeps 9001, the new emulator cannot bind and says so only in its
-> log, and the client then drives the *stale* machine. `pkill -f
-> martypc_headless` and `pgrep -f` both match the calling shell's own command
-> line, so the first can kill the caller and the second makes `until ! pgrep`
-> loop forever. It copies each floppy into the run directory (the guest WRITES
-> to a mounted image), asserts `cycles == 0`, and owns the process so nothing
+> `launch` gives every instance its own port, its own run directory and its
+> own disks, so two sessions in one checkout never meet. It reaps **orphans**
+> by PID out of /proc — an emulator whose owning script is gone — and leaves
+> every live, owned instance alone; it used to sweep *every* martypc_headless,
+> which is what made two harnesses in one tree take turns killing each other.
+> `pkill -f martypc_headless` and `pgrep -f` both match the calling shell's own
+> command line, so the first can kill the caller and the second makes
+> `until ! pgrep` loop forever — and both would now also destroy somebody
+> else's run. `os88marty.py instances` is what to type instead. It copies each
+> floppy into that instance's run directory (the guest WRITES to a mounted
+> image), checks the emulator's **pid** as well as `cycles == 0`, and owns the
+> process so nothing
 > leaks onto the next session.
 >
 > `settle(m)` is two identical rendered frames a second apart, which an os8088

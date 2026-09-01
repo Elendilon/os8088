@@ -17,12 +17,15 @@ both the broken and the fixed case, and the difference is a directory entry.
 
     python3 tests/instdeep.py
 
-REQUIRES A DISK: os8088_xt_hdd, and a pristine VHD - the emulator writes
-through to media/hdds/default_xtide.vhd and nothing copies it per run, so the
-backup beside it is taken once and restored before each install.
+REQUIRES A DISK: os8088_xt_hdd. The emulator writes THROUGH to its VHD, so
+this used to keep a `.pristine` backup beside the shared one and restore it
+before each install. It no longer needs to: `os88marty.launch` gives every
+instance its own `media/hdds`, cloned from the staged tree's copy, which is
+therefore never written and is the pristine master by construction. That is
+also what lets two of these run at once - a shared VHD is one disk being
+installed onto twice.
 """
 import os
-import shutil
 import struct
 import sys
 import time
@@ -32,9 +35,17 @@ import os88marty as M                                      # noqa: E402
 from os88mouse import Mouse                                # noqa: E402
 
 MACHINE = "os8088_xt_hdd"
-RUN = "build/martypc/run"
-VHD = os.path.join(RUN, "media/hdds/default_xtide.vhd")
-PRISTINE = VHD + ".pristine"
+VHD_REL = "media/hdds/default_xtide.vhd"
+# The staged tree's copy: read, never run in, never written. `launch()` clones
+# it into each instance, so this is the "before" a diff is against.
+BASE_VHD = os.path.join(M.base_run_dir(), VHD_REL)
+
+
+def vhd(m):
+    """THIS run's disk. One per instance, so two runs cannot share one."""
+    return os.path.join(m.run_dir, VHD_REL)
+
+
 SECTOR = 512
 FOOTER = 512                        # the VHD footer, past the data area
 
@@ -210,14 +221,15 @@ def run_install(m, mo, ix, iy):
     # MBR is the commit (SPEC.md 52.10.4), and the apps phase runs on past it,
     # so the wait is "our boot code is in sector 0" and then "the drive went
     # quiet".
-    base = open(PRISTINE, "rb").read(446)
-    took = M.until(m, lambda _: open(VHD, "rb").read(446) != base,
+    disk = vhd(m)
+    base = open(BASE_VHD, "rb").read(446)
+    took = M.until(m, lambda _: open(disk, "rb").read(446) != base,
                    "the installer to commit its MBR", limit=600.0)
     print("  MBR committed after %.0fs" % took)
     quiet, last = 0, None
     for _ in range(120):
         time.sleep(2.0)
-        now = open(VHD, "rb").read(8 << 20)
+        now = open(disk, "rb").read(8 << 20)
         quiet = quiet + 1 if now == last else 0
         last = now
         if quiet >= 8:                          # 16s: the apps phase pauses
@@ -241,11 +253,6 @@ def main():
     for img in ("build/os8088-360.img", "build/apps360.img"):
         if not os.path.exists(img):
             sys.exit("no %s - `make` first" % img)
-    if not os.path.exists(PRISTINE):
-        shutil.copy2(VHD, PRISTINE)
-        print("  took a pristine copy of the VHD")
-    shutil.copy2(PRISTINE, VHD)
-
     with M.launch("build/os8088-360.img", apps="build/apps360.img",
                   machine=MACHINE) as m:
         M.settle(m)
@@ -254,10 +261,13 @@ def main():
         # window says `Done` in both the broken and the fixed case, so the
         # answer is not on the screen at all. It is a directory entry, and the
         # host reads it below. (A `tools/os88marty.py shot` here would also be
-        # a SECOND client on :9001, which hangs rather than erroring -
-        # docs/MARTYPC-DEBUG.md.)
-
-    v = partition(VHD)
+        # a SECOND client on this instance, which is refused rather than
+        # served - docs/MARTYPC-DEBUG.md. Share `m`, or launch a second
+        # emulator.)
+        #
+        # READ THE DISK INSIDE THE `with`. It is this instance's own copy now,
+        # and leaving the block takes the instance's media with it.
+        v = partition(vhd(m))
     tree = v.tree()
     print("  FAT%d volume, %d paths" % (v.bits, len(tree)))
     for p in sorted(tree):

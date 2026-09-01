@@ -615,6 +615,49 @@ python3 tools/os88mouse.py 127.0.0.1:9001 dblclick 150 90   # NOT two clicks
 python3 tools/os88marty.py 127.0.0.1:9001 shot out.png --rendered
 ```
 
+**SEVERAL INSTANCES RUN AT ONCE, and nothing has to be arranged between
+them.** `os88marty.launch()` gives each one its own port, its own run
+directory and its own disks, so two terminals, two agents or two rows of the
+suite in one checkout never meet — and it reaps only ORPHANS, never another
+session's live machine. It used to sweep every `martypc_headless` on the box
+before starting its own, which is why a session's emulator would vanish
+mid-run and every symptom pointed at the guest. **Take the address off the
+object** (`m.addr`, `m.port`) rather than typing 9001; pass `addr=` only to
+pin a port on purpose.
+
+```
+python3 tools/os88marty.py launch build/os8088-360.img --apps build/apps360.img
+                                        # a BENCH: boots, prints its addr, and
+                                        # OUTLIVES the command that started it
+python3 tools/os88marty.py instances    # what is running, whose, how old
+python3 tools/os88marty.py kill <port>  # end one
+python3 tools/os88marty.py reap         # orphans only - live work is left alone
+```
+
+Three failures are now gated rather than discovered: a **second client** on
+one instance is refused in a sentence naming the holder (it used to *hang*
+until the read timed out), a **bind that fails** exits loudly instead of
+running on unreachable and holding the port against the next run, and a
+**port somebody else holds** is an error that names them. `tests/martyconc.py`
+is the gate and docs/MARTYPC-DEBUG.md's *Several at once* is the account.
+
+**How many is ONE PER CORE, and there is no hard cap** — only a line on stderr
+when you pass it, because a refusal would be a new way to lose work. Measured
+on a four-core box, aggregate guest speed against a real 4.77MHz 8088: **3.4x
+at one instance, 13.1x at four, 13.9x at six, 13.4x at eight** — FLAT past the
+core count, so the ninth instance does not add throughput, it slows the other
+eight. Nothing else binds first (~50-100MB RSS and ~1MB of disk each; the 32MB
+VHD is reflinked). Going past it is slower, not broken: at eight on four cores
+each guest is still 1.66x real time, and guest CYCLE counts, `disk()` counts
+and pixel comparisons are exact at any oversubscription because they are
+counted rather than timed. What loses slack is host wall-clock — `settle`,
+`until`, a row's timeout — and an IDLE guest costs less than a busy one
+(96.9% halted, SPEC.md §8.1.2), so eight agents is the worst case only when
+all eight are driving. **A registry record names a PROCESS, not a PID**: with
+`pid_max` at 32,768 a busy session wraps the counter in minutes, and a stale
+record whose number got reused once had `reap` kill a live instance silently. `os88test.py --marty-jobs N` takes the suite's
+emulator lane past 1 deliberately (four rows: 175.6s at 1, 85.9s at 3).
+
 Driving QEMU, for the five cases above and for a host with no MartyPC:
 
 ```

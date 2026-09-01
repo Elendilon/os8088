@@ -23,6 +23,7 @@ should be able to find without running it; an unexplained exemption is how a
 test that has simply broken gets filed as one that was never meant to run.
 """
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -81,6 +82,28 @@ UNREGISTERED = {
 }
 
 
+def _invokes_make(path):
+    """Does this test shell out to `make`? Read, not guessed at.
+
+    A quoted `make` as the first element of an argv list is the only spelling
+    this tree uses - a check_call on a list whose head is the program - so the
+    check is exact for it. A test that grows a subtler one, a shell string or
+    a variable, has to be caught by its author; the point of the gate is the
+    ordinary case, which is the one that gets forgotten.
+
+    THE EXAMPLE THAT WOULD GO HERE IS DELIBERATELY NOT WRITTEN OUT: a docstring
+    quoting the pattern matches it, and this file's own row then fails the
+    check it implements. That is not a hypothetical - it is what the first
+    version of this function did.
+    """
+    try:
+        with open(path) as f:
+            body = f.read()
+    except OSError:
+        return False
+    return bool(re.search(r'\[\s*"make"|"make"\s*,', body))
+
+
 def main():
     reg = {}
     for r in suite.rows():
@@ -112,8 +135,38 @@ def main():
         check(f not in reg, "tests/%s is exempted OR registered, not both" % f,
               "two answers to one question drift apart - drop the UNREGISTERED row")
 
-    print("t_registry: %d files in tests/, %d registered, %d exempted"
-          % (found, len(reg), len(UNREGISTERED)))
+    # ...and a row that BUILDS must say so, because the runner acts on it.
+    #
+    # Emulator instances are isolated now (docs/MARTYPC-DEBUG.md), so a marty
+    # row no longer has to run alone - `tools/os88test.py --marty-jobs` puts
+    # several in one lane. What still cannot share is `build/`: a row that
+    # shells out to `make` rewrites the tree another row is reading. That is
+    # what `builds=True` marks, and it is CHECKED here rather than trusted,
+    # because getting it wrong produces the worst kind of suite - one that
+    # fails one run in five, in a different row each time, for no visible
+    # reason. Adding a `make` to a test is therefore a decision that shows up
+    # as a failing gate rather than as a flake three weeks later.
+    for r in suite.rows():
+        scripts = [c for c in r.cmd
+                   if c.startswith("tests/") and c.endswith(".py")]
+        makes = [c for c in scripts if _invokes_make(os.path.join(ROOT, c))]
+        if makes and not r.builds:
+            check(False, "row %s shells out to make and is not builds=True" % r.name,
+                  "%s invokes `make`, so this row rewrites build/ under any row "
+                  "running beside it. Mark the row builds=True and the runner "
+                  "gives it the tree to itself" % ", ".join(makes),
+                  got="builds=False", want="builds=True")
+        elif r.builds and not makes:
+            check(False, "row %s is builds=True and builds nothing" % r.name,
+                  "the flag costs the row its parallelism, so a stale one is a "
+                  "slower suite for no reason. Drop it, or say here why the row "
+                  "writes build/ without a `make`",
+                  got="builds=True", want="a `make` in %s"
+                       % (", ".join(scripts) or "its command"))
+
+    print("t_registry: %d files in tests/, %d registered, %d exempted, "
+          "%d build" % (found, len(reg), len(UNREGISTERED),
+                        sum(1 for r in suite.rows() if r.builds)))
     done("t_registry")
 
 

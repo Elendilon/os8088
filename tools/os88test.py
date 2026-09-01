@@ -45,12 +45,28 @@ WHAT A TIER MAY NOT DO.  `fast` may not build anything: it runs after `make`
 and inspects its output, so a `fast` row that shells out to `make` is
 measuring the build, not the tree.  `full` may build, and does.
 
-SERIAL ROWS.  Every emulator test in this tree drives MartyPC's debug server
-on 127.0.0.1:9001 - one port, one connection (docs/MARTYPC-DEBUG.md: a
-second client does not error, it HANGS) - so those rows carry `serial=True`
-and share one lane while the host-side rows fan out across the others.  Two
-emulator rows run in parallel would not fail, which is worse: the second
-would silently drive the FIRST one's machine.
+SERIAL ROWS.  Emulator tests carry `serial=True` and share a lane behind the
+host-side rows, which fan out across the others.  That used to be forced:
+every emulator test drove one debug server on one fixed port, and two rows in
+parallel would not fail - the second would silently drive the FIRST one's
+machine.  It is not forced any more.  `os88marty.launch` gives every instance
+its own port, its own run directory and its own disks (docs/MARTYPC-DEBUG.md),
+so `--marty-jobs N` widens that lane to N.
+
+WHAT STILL RUNS ALONE, and it is no longer about the emulator: a row marked
+`builds=True` shells out to `make`, so it rewrites `build/` under any row
+reading it.  Those keep the tree to themselves whatever `--marty-jobs` says,
+and `tests/unit/t_registry.py` checks the flag against the script rather than
+trusting it.
+
+WHY THE DEFAULT IS 1.  Not caution about the isolation - `tests/martyconc.py`
+is the gate on that - but arithmetic.  Every instance runs its guest as fast
+as the host will let it, so N of them on an N-core box is the ceiling and past
+it each row takes LONGER in host seconds.  Guest cycle counts are unaffected
+(they are counted, not timed), but a row's declared `secs`, its timeout and
+`settle`'s patience are all host seconds, so raising this trades wall-clock
+for slack that some rows have not got.  Raise it deliberately, with the box in
+mind: `--marty-jobs 3` on a four-core machine.
 
 CAPABILITIES.  A row names what it needs (`marty`, `qemu`, `cc`, `net`) and
 is SKIPPED, loudly, when the machine has not got it - a container with no
@@ -193,6 +209,13 @@ def main():
                     help="only rows whose name matches (repeatable)")
     ap.add_argument("-j", type=int, default=min(4, (os.cpu_count() or 2)),
                     help="parallel lanes for the host-side rows")
+    ap.add_argument("--marty-jobs", type=int, dest="mj",
+                    default=int(os.environ.get("OS88_MARTY_JOBS", "1")),
+                    help="how many EMULATOR rows may run at once (default 1). "
+                         "Instances are isolated, so this is a question about "
+                         "how many cores the box has, not about safety - see "
+                         "the header. Rows marked builds=True run alone "
+                         "whatever this says.")
     ap.add_argument("--list", action="store_true", help="print the registry and exit")
     ap.add_argument("--strict", action="store_true",
                     help="a missing capability is a FAILURE, not a skip")
@@ -242,6 +265,16 @@ def main():
     results = []
     par = [r for r in want if not r.serial]
     ser = [r for r in want if r.serial]
+    # THREE LANES, not two. A row that builds keeps the tree to itself; an
+    # emulator row that does not build can share the machine with another,
+    # because every instance has its own port, directory and disks now.
+    mj = max(1, a.mj)
+    conc = [r for r in ser
+            if mj > 1 and "marty" in r.needs and not r.builds]
+    ser = [r for r in ser if r not in conc]
+    if conc:
+        print("os88test: %d emulator row(s) in a lane of %d; %d run alone"
+              % (len(conc), mj, len(ser)))
 
     def report(res):
         if res.skipped:
@@ -268,6 +301,17 @@ def main():
         res = run_row(r, caps, a.strict, a.verbose)
         results.append(res)
         report(res)
+    # ...and the emulator lane LAST, never beside the builders above: a `make`
+    # halfway through rewriting build/kernel.bin is exactly what an emulator
+    # row must not be reading.
+    if conc:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=mj) as ex:
+            futs = {ex.submit(run_row, r, caps, a.strict, a.verbose): r
+                    for r in conc}
+            for f in concurrent.futures.as_completed(futs):
+                res = f.result()
+                results.append(res)
+                report(res)
 
     wall = time.time() - t0
     failed = [r for r in results if not r.ok]
