@@ -278,9 +278,17 @@ sw_rect_pl:
 ; The ink comes from sw_ink exactly as a fill's does, [gfx_ry1] being the FIRST
 ; row when it runs, and a middle grey then alternates through [sw_altm] per row
 ; - which is what sw_col does inside a rect (SPEC.md 39.4).
+;
+; IT WRITES NO [sw_mode], and a line here used to, "sw_ink's, and nothing else
+; reads it here". sw_ink does not read it: its whole body is the gfx_inktab
+; lookup and the dither fork. The complete reader set is sw_rect_pl,
+; sw_plane_op and sw_col, and none of the three is reachable from here -
+; sw_rect_pl's only caller is sw_rect, whose only entries are sw_fill's
+; fall-through and sw_fill_gray/sw_xor_fill's jumps, each of which writes
+; [sw_mode] as its FIRST instruction. So no reader can observe a value left
+; behind by this routine.
 ; -----------------------------------------------------------------------------
 sw_spans:
-    mov byte [sw_mode], SWM_SOLID   ; sw_ink's, and nothing else reads it here
     mov ax, [gfx_sp_y]
     mov [gfx_ry1], ax                ; the first row: sw_parity's parity
     mov byte [sw_altm], 0
