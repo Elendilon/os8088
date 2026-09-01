@@ -748,7 +748,7 @@ assoc_try:
     push dx
     push si
     call dsk_chdir_q_x            ; QUIET (SPEC.md 18.9): the question here is
-    jc .no                      ; whether a FILE is in this directory, and
+    jc .out                     ; whether a FILE is in this directory, and
                                 ; dskw_stat walks the directory sectors to
                                 ; answer it. A listing would be a scan, a sort
                                 ; and one icon-harvest read per file, bought
@@ -756,14 +756,9 @@ assoc_try:
                                 ; the loader takes a name (SPEC.md 21.4)
     mov si, assoc_fnb
     call dskw_stat_x              ; ...and since 18.4.3 it costs no re-read
-    jc .no
-    clc
-    jmp short .out
-.no:
-    stc
-.out:
-    pop si
-    pop dx
+.out:                           ; ...whose CF IS this routine's answer: both
+    pop si                      ; callees set it explicitly on every exit and
+    pop dx                      ; a pop touches no flag
     pop cx
     pop bx
     pop ax
@@ -801,9 +796,7 @@ assoc_tryfold:
     push dx                     ; answers DX:CX = size) - peeked back off our
                                 ; own frame rather than kept in a spare
                                 ; register, because there is not one
-    call assoc_try
-    jc .no
-    clc
+    call assoc_try              ; ...and its CF is this routine's answer too
     jmp short .out
 .no:
     stc
@@ -962,21 +955,21 @@ assoc_run_x:
     or di, di
     jz .curvol
     mov al, [di+FS_DRV]         ; the poster's OWN folder, read straight off
-    mov [assoc_ddrv], al        ; its state block. This was a fmv_sync - a
-    mov ax, [di+FS_CWD]         ; FULL mount - and all it was ever wanted for
-    mov [assoc_dclus], ax       ; was these two words, which fmv_sync itself
-    jmp short .located          ; takes from exactly here (SPEC.md 54.9.1).
+    mov dx, [di+FS_CWD]         ; its state block. This was a fmv_sync - a
+    jmp short .located          ; FULL mount - and all it was ever wanted for
+                                ; was these two words, which fmv_sync itself
+                                ; takes from exactly here (SPEC.md 54.9.1).
                                 ; Nothing downstream needs the globals to be
                                 ; this folder: assoc_locate navigates itself,
                                 ; assoc_back comes back to what is banked
                                 ; here, and files_refresh paints from the
                                 ; WINDOW's cache (SPEC.md 22.1)
 .curvol:
-    mov ax, [dsk_cwd]           ; no poster - a package's own request - so the
-    mov [assoc_dclus], ax       ; volume the machine is on IS the home
-    mov al, [disk_drive]
-    mov [assoc_ddrv], al
+    mov dx, [dsk_cwd]           ; no poster - a package's own request - so the
+    mov al, [disk_drive]        ; volume the machine is on IS the home
 .located:
+    mov [assoc_ddrv], al        ; ...banked once, whichever rung answered
+    mov [assoc_dclus], dx
 
     pop ax
     push ax
@@ -992,13 +985,9 @@ assoc_run_x:
                                 ; on, so no listing and no index (21.4)
     mov byte [assoc_argp], 0    ; a package launched later, by any route,
     mov [ld_status], al         ; must never inherit this document
-    push bx                     ; ...and SAY it (SPEC.md 59/22.9)
-    push cx
-    mov bx, fm_stattab
-    mov cx, LD_NSTAT
-    call KERNEL_SEG:toast_say
-    pop cx
-    pop bx
+    mov bx, fm_stattab          ; ...and SAY it (SPEC.md 59/22.9). toast_say
+    mov cx, LD_NSTAT            ; preserves every register AND the flags, and
+    call KERNEL_SEG:toast_say   ; nothing between here and .out reads BX or CX
     push ds
     pop es                      ; ld_run_body's failure exits leave ES adrift
     call assoc_back             ; the user's volume FIRST, then the window
@@ -1010,9 +999,6 @@ assoc_run_x:
     call assoc_handover         ; ...and the DOCUMENT is a second phase, now
     jmp short .out              ; that there is something to look at while it
                                 ; loads (SPEC.md 54.10)
-.refresh:
-    call files_refresh_x
-    jmp short .out
 
 .nofile:
     call assoc_back
@@ -1023,6 +1009,7 @@ assoc_run_x:
     mov bx, assoc_s_lead        ; wanted - which is exactly the report that
     mov di, assoc_s_ttl         ; found this (SPEC.md 54.4.1)
     call KERNEL_SEG:cw_ui_note
+.refresh:                       ; ...and both routes end at the one repaint
     call files_refresh_x
 .out:
     pop ax
@@ -1466,7 +1453,8 @@ asc_use_x:
     cmp al, [asc_vol]
     je .out                     ; already this volume's
     mov [asc_vol], al
-    mov word [asc_n], 0         ; ...and it holds nothing until proven
+    xor ax, ax
+    mov [asc_n], ax             ; ...and it holds nothing until proven
     cmp word [asc_seg], 0
     jne .haveseg
     mov ax, ASC_KB
@@ -1544,8 +1532,9 @@ asc_use_x:
     shl ax, cl                  ; AX = what the file actually is
     cmp bx, ax
     jbe .parse
-    mov word [asc_n], 0         ; short: the clean "no cache" answer, which
-    mov word [asc_ne], 0        ; every lookup already handles as a miss
+    xor ax, ax                  ; short: the clean "no cache" answer, which
+    mov [asc_n], ax             ; every lookup already handles as a miss
+    mov [asc_ne], ax
     jmp short .out
 .parse:
     call asc_merge_ext          ; the declarations this volume knows about...
