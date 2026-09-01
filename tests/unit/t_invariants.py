@@ -33,9 +33,15 @@ compare on the strength of one of them, and nothing anywhere says so.
    0xFF across kernel .text.
 
 3. [vid_rseg], [vid_rpara] AND [vid_rend] ARE WRITTEN ONLY BY vid_apply.
-   sw_xfer's pass loop terminates on a SEGMENT COMPARE - `add bx,[vid_rpara] /
-   cmp bx,[vid_rend]` - and not on the plane count, so it is a DIFFERENT fact
-   from 2 that breaks the same bodies.  Checked separately for that reason.
+   This was checked separately from 2 because sw_xfer's pass loop terminated
+   on a SEGMENT COMPARE - `add bx,[vid_rpara] / cmp bx,[vid_rend]` - and not
+   on the plane count, so it was a DIFFERENT fact that broke the same bodies.
+   That loop is gone (39.26's sweep reached it), which leaves [vid_rseg] the
+   fact worth guarding here: it is the software renderer's TARGET SEGMENT, and
+   a second writer that sets it while [vid_mono] disagrees is the 0xFF
+   splatter in 2.  The other two are kept in the check because they are
+   written in the same three lines and a guard that watches two of three is
+   the shape nobody notices going stale.
 
 WHAT IT CANNOT SEE, and it matters that this is written down rather than
 assumed: a write through a POINTER (`mov [bx], al` where BX happens to hold

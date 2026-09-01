@@ -135,10 +135,22 @@ vid_rseg    dw 0                ; the software renderer's target segment:
                                 ; software renderer; the FRAMEBUFFER itself
                                 ; on mono
 vid_rpara   dw SW_PLANE_PARA    ; paragraphs from one plane to the next.
-                                ; MUST be nonzero even at one plane -
+                                ; IT NO LONGER HAS TO BE NONZERO. This said
+                                ; "MUST be nonzero even at one plane -
                                 ; sw_xfer's loop terminates on a segment
-                                ; compare, and a step of 0 never terminates.
-vid_rend    dw 0                ; that loop's exclusive end
+                                ; compare, and a step of 0 never terminates",
+                                ; and SPEC.md 39.26's sweep reaching sw_xfer
+                                ; deleted that loop and with it the only
+                                ; consumer of the sentence. One reader is
+                                ; left, font_char_bb's own plane loop in
+                                ; font.inc, and it steps rather than compares.
+vid_rend    dw 0                ; ...and this has NO reader at all now: it was
+                                ; sw_xfer's exclusive end. Kept, with the
+                                ; three lines of vid_apply that write it,
+                                ; because the pair is one fact and collecting
+                                ; half of it is worse than collecting neither;
+                                ; when font_char_bb is flattened too, both
+                                ; cells and that arithmetic go together
 vid_cwm1    dw SCREEN_W-1       ; the display's last legal x and y, and the
 vid_chm1    dw SCREEN_H-1       ; whole-cell limits font_char and ico_core
 vid_cwm8    dw SCREEN_W-8       ; clip against. THE LAST WORD OF THE RUN a
