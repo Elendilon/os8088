@@ -1256,9 +1256,11 @@ fcp_file1:
     push bx
     push cx
     push dx
-    push si
-    push di
-    mov byte [fcp_ovw], 0
+    push si                     ; ...and NOT DI: nothing here writes it, and
+    mov byte [fcp_ovw], 0       ; every callee banks it (fcp_fnames, fcp_xfer)
+                                ; or publishes preserving it (dskw_stat_x,
+                                ; fcp_goto - which four other routines in this
+                                ; file already trust across the FSV path)
     mov word [fcp_ovwsz], 0     ; ...and it replaces nothing until proven
     mov word [fcp_ovwsz+2], 0   ; otherwise (SPEC.md 22.5.2)
     call fcp_fnames             ; publish this file's source and destination
@@ -1295,7 +1297,6 @@ fcp_file1:
 .err:
     stc
 .out:
-    pop di
     pop si
     pop dx
     pop cx
