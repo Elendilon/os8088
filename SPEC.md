@@ -35493,7 +35493,8 @@ account, and the rows partition one total.
   is no growth room in it to bill to anybody), `TM_POOL_KB` (the whole
   heap's package regions, §20.1
   — reserved from boot, so a machine with no package open still shows it
-  spoken for), and every live **heap claim** (§50, `mem_claimed_kb`). Both
+  spoken for), and every live **heap claim** (§50, `mem_sum_kb` with BX = 0).
+  Both
   the kernel's own claims (the menu save-under, the clipboard) and every
   package's are in that last term. **All three are KB from the start**: a
   package's canvas alone can exceed a 16-bit byte count. Total KB
@@ -35501,7 +35502,8 @@ account, and the rows partition one total.
   usedK·160/totalK (`mul` then `div`; totalK cannot be 0 from int 12h, but a
   0 check that skips the bar is required anyway).
   The System row's MEM cell carries `TM_KLOW_KB + TM_KSEG_KB` plus the
-  kernel's *own* claims (`mem_kernel_kb`), and a package row's carries its
+  kernel's *own* claims (`mem_sum_kb` with BX = 1), and a package row's carries
+  its
   region **plus its own claims** (§50.5) — so the rows still partition the
   bar and an app that claimed a quarter-megabyte of canvas says so.
 - History: load% scaled to 0..40 (·40 then /100), stored at
@@ -36327,9 +36329,11 @@ claim GET*, and a cache yields to any claim. **`SK_CLAIM` does not, and it is
 the kernel that fixes it**: `mem_total_kb` had a record walk of its own that
 counted every live record, so the one figure the Task Manager builds both of
 its totals from was the only place in the module that disagreed with
-`mem_sum_kb`. It calls `mem_claimed_kb` now — which is `mem_sum_kb` with
-every owner, written for exactly this and never wired up, which is why the
-duplicate walk survived being noticed. One routine decides what is in a
+`mem_sum_kb`. It calls `mem_sum_kb` now, with `BX` = 0 for every owner. (It
+went through a one-line wrapper, `mem_claimed_kb`, that had been written for
+exactly this and never wired up — which is why the duplicate walk survived
+being noticed; the wrapper and its `mem_kernel_kb` sibling are gone and both
+call sites set `BX` themselves.) One routine decides what is in a
 total, `.text` −22, and the two figures on the RAM line become the same word
 plus a constant: **`RAM used` is `SK_KERN + SK_CLAIM`, `HEAP claimed` is
 `SK_CLAIM`**, so they cannot come to disagree about what *claimed* means.
@@ -56139,9 +56143,11 @@ is owned by the Disk *instance*, and the instance's death frees it.
 
 The heap is the RAM figure's fourth term (§28), and unlike the constants it
 replaced it is *live*: open a Disk window and the figure rises, close
-Paint and it falls by whatever Paint held. `mem_claimed_kb` sums every
-claim; `mem_kernel_kb` sums only the `0xFFxx`-tagged ones, so a package's
-claim lands on the package's row rather than on System's.
+Paint and it falls by whatever Paint held. `mem_sum_kb` sums every claim with
+`BX` = 0 and only the `0xFFxx`-tagged ones with `BX` = 1, so a package's claim
+lands on the package's row rather than on System's. One routine, two owner
+sets: "of which the kernel's own" is only honest if both draw the line in the
+same place.
 
 ### 50.6 Purgeable claims
 
