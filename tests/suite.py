@@ -273,9 +273,9 @@ FAST = [
         "at depth 0; and wvm.inc puts its branches inside macros. It found one "
         "real defect - `op_size` in os88parts.inc returned into a saved "
         "register on a malformed part table, in every package via "
-        "os88api.inc. The kernel is NOT here yet: it needs two "
-        "`; STKBALANCE-OK:` in sched.inc first, and "
-        "docs/STKBALANCE-KERNEL.md carries them and the row to add",
+        "os88api.inc. The KERNEL is the `stkbalance` row above, not this one: "
+        "the two file lists have nothing in common and were arrived at from "
+        "opposite ends (docs/STKBALANCE-KERNEL.md 4)",
         ),
 
     Row("stkwalker", "fast", py("tests/unit/t_stkbalance.py"), 2.0,
