@@ -155,6 +155,29 @@ fcp_n13:
     mov cx, 13
     jmp dsk_ncopy
 
+; fcp_x6 / fcp_x5 - the two epilogues this module's six deepest routines
+; share.  fcp_scan, fcp_rdnext and fcp_xfer bank es,di,si,dx,cx,bx; fcp_paste,
+; fcp_answer and fcp_relink bank the same set without ES, so the two ladders
+; nest and the six-deep one costs one byte over the five-deep.
+;
+; Reached by `jmp`, never `call`, so SP here is exactly what it was at the
+; routine's own epilogue and the `ret` finds that routine's caller.  Each
+; site's flag is already set above its jump - F-filecp-2 is what left every
+; one of the six with exactly ONE pop run to replace, which is what makes this
+; a rewrite of six exits rather than of twelve.
+;
+; The order ENDS at bx, so it is not a suffix of any other pop ladder in the
+; kernel and the two cannot be mistaken for one another.
+fcp_x6:
+    pop es
+fcp_x5:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
 ; -----------------------------------------------------------------------------
 ; fcp_gosrc / fcp_godst / fcp_gofs / fcp_gofd - the four fcp_goto arguments
 ; this module ever passes, written once each (SPEC.md 22.3)
@@ -335,12 +358,7 @@ fcp_paste:
                                 ; what keeps "every path back to the event
                                 ; loop pays" true of the NEXT caller too
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp fcp_x5
 
 ; -----------------------------------------------------------------------------
 ; fcp_here - is the paste target the folder the clipboard entry already lives
@@ -680,12 +698,7 @@ fcp_answer:
 .idle:
     mov al, FCPS_DONE
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp fcp_x5
 
 ; -----------------------------------------------------------------------------
 ; fcp_step - run the operation until it finishes, fails or must ask
@@ -887,12 +900,7 @@ fcp_relink:
 .out:                           ; clears CF, so the `stc` below is the only
     stc                         ; flag either error arm sets
 .pops:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp fcp_x5
 
 ; -----------------------------------------------------------------------------
 ; fcp_rlzap - unname an entry WITHOUT freeing its chain (module-internal)
@@ -1153,13 +1161,7 @@ fcp_scan:
 .bad:
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp fcp_x6
 
 ; -----------------------------------------------------------------------------
 ; fcp_mkroot - create (or adopt) the pasted folder in the destination
@@ -1511,13 +1513,7 @@ fcp_rdnext:
     mov ax, FERR_IO
     stc
 .out:
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp fcp_x6
 
 ; fcp_took - the chunk just read is taken off what is left (SPEC.md 22.5)
 ; out: CX = the take; everything else preserved, and CX is inside
@@ -1762,13 +1758,7 @@ fcp_xfer:
     call fcp_undo               ; ...and a partial destination goes with it
     stc                         ; (SPEC.md 22.5.2). It preserves AX and the
 .out:                           ; flags, the FERR_* being on its way out
-    pop es
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    ret
+    jmp fcp_x6
 
 ; fcp_wprep - the four arguments dskw_write and dskw_append share
 ; out: ES:BX -> the chunk, CX = its length, SI -> the destination name.
