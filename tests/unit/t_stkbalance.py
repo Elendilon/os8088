@@ -297,6 +297,35 @@ forky:
     ret
 """},
 
+    "a BACKWARD tail-merge, which is the shape that went silent": {
+        # Size pass 2's adverse review found that the suppression rule tested
+        # only "backward, same file" - and a tail merge IS a backward
+        # cross-jump, so the gate went blind to the commonest shape a size pass
+        # creates.  It could not build a case that stayed silent (its synthetics
+        # tripped the ret-at-depth check first), so the fix rested on the
+        # reasoning alone.  This is that case, and it needs three things at
+        # once: the two depths must meet at a label rather than at a `ret`, the
+        # target must be EARLIER in the file and owned by another routine, and
+        # the BALANCED path must be walked first so the deeper one is the one
+        # suppressed.  Without the owner test this file reports 0 findings and
+        # the only trace is the back-edge counter moving to 1.
+        "a.inc": """
+victim:
+    push cx
+tail:
+    pop cx
+    ret
+
+entry:
+    push ax
+    cmp ax, 1
+    je .one
+    push bx
+    jmp tail
+.one:
+    jmp tail
+"""},
+
     "a tail `jmp` into another routine carrying depth": {
         "a.inc": """
 caller:

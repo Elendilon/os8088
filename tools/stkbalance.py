@@ -402,7 +402,17 @@ def walk(corp, name):
         key = (u.path, j)
         if key in seen:
             if seen[key] != d and not seen_conflict:
-                if src is not None and u is src[0] and j <= src[1]:
+                if (src is not None and u is src[0] and j <= src[1]
+                        and u.owner[j] == u.owner[src[1]]):
+                    # ...and only when the edge stays INSIDE one routine. A
+                    # backward edge that LEAVES the routine is a cross-jump,
+                    # not a loop back edge - and a TAIL MERGE is exactly a
+                    # backward cross-jump, so without this test the gate is
+                    # blind to the commonest shape a size pass creates. Found
+                    # by size pass 2's adverse review, which proved it both
+                    # directions on one defect: as a forward jump it was
+                    # caught, as a backward one it was silent, and the only
+                    # visible trace was the suppression counter moving 4 -> 6.
                     suppressed += 1
                 else:
                     findings.append((u.path, name, raw.strip(),

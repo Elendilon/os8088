@@ -268,9 +268,19 @@ layer out, and it carries the same `; STKBALANCE-OK:`.
 Stated so it is visible rather than assumed, and all of it is in the tool's own
 summary line:
 
-* **Loop back-edge conflicts are suppressed.** A loop that pushes N and a second
-  that pops N keeps the count in a register, and no static walk can pair them.
-  4 in the kernel, 36 corpus-wide.
+* **Loop back-edge conflicts are suppressed** — but only when the edge stays
+  inside one routine. That qualifier is not a detail: the rule first said
+  "backward, same file", and **a tail merge is a backward cross-jump**, so the
+  gate was blind to the commonest shape a size pass creates. Size pass 2's
+  adverse review found it by reasoning and could not build a case that stayed
+  silent; `tests/unit/t_stkbalance.py`'s `a BACKWARD tail-merge` fixture is
+  that case, and it needs three things at once — the two depths must meet at a
+  label rather than a `ret`, the target must be earlier in the file and owned
+  by another routine, and the balanced path must be walked first. Without the
+  owner test it reports **0 findings** and the only trace is the back-edge
+  counter moving to 1. What is left suppressed is the genuine article: a loop
+  that pushes N and a second that pops N, with the count in a register, which
+  no static walk can pair. 4 in the kernel, 71 corpus-wide.
 * **A computed jump through anything but a recognised `dw` table** ends the walk.
 * **`STKBALANCE-OK` is a full stop.** An exempted routine is not walked and is
   not walked *into*. That is what makes two annotations cover five paths, and it
