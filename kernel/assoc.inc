@@ -260,21 +260,19 @@ assoc_stem_of:
 ; -----------------------------------------------------------------------------
 assoc_find:
     push cx
-    push di
     mov bx, assoc_ext
     mov cx, ASSOC_NEXT
 .row:
     cmp byte [bx], 0
     je .next                    ; a free slot never matches
-    mov di, si
-    mov al, [bx]
-    cmp al, [di]
+    mov al, [si]                ; the key off SI and the row off BX - no third
+    cmp al, [bx]                ; register, so no DI to bank
     jne .next
-    mov al, [bx+1]
-    cmp al, [di+1]
+    mov al, [si+1]
+    cmp al, [bx+1]
     jne .next
-    mov al, [bx+2]
-    cmp al, [di+2]
+    mov al, [si+2]
+    cmp al, [bx+2]
     je .hit
 .next:
     add bx, 4
@@ -289,7 +287,6 @@ assoc_find:
     jae .miss                   ; a corrupt index names no app
     clc
 .out:
-    pop di
     pop cx
     ret
 
@@ -1586,15 +1583,13 @@ asc_seed:
     mov di, assoc_stemb         ; stage the stem: assoc_app_of reads through DS
     mov cx, 8
     call assoc_stage
-    pop si
-    push si
-    mov di, si                  ; bank the row: assoc_app_of clobbers SI
+    pop di                      ; the row start, banked on the frame above and
+    push di                     ; wanted in DI (assoc_app_of clobbers SI)
     mov si, assoc_stemb
     call assoc_app_of           ; AL = the slot, CF=1 = this program has no
     jc .next                    ; association, so there is nothing to point
     mov bl, al
     xor bh, bh
-    mov dh, al                  ; bank the slot: the glyph take below spends AX
     mov dl, [disk_drive]
     mov [assoc_drv+bx], dl
     mov ax, [es:di+ASC_ROWCLUS]
@@ -1619,7 +1614,9 @@ asc_seed:
     or ax, ax
     jz .next
     sub si, 32                  ; SI walked the plane: back to its start
-    mov bl, dh
+    shr bx, 1                   ; ...and the slot back out of BX, which the
+                                ; `shl` above left as a word index and nothing
+                                ; since has written
     call assoc_glyph_di
     call assoc_reduce           ; ES = [asc_seg], per this routine's contract
 .next:
