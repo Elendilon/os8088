@@ -1346,6 +1346,20 @@ SOAK = [
     # draw", and all of them pass on a harness that draws nothing at all -
     # which is what a boot-and-diff version of this would BE, since nothing on
     # a stock desktop puts an icon off the right edge.
+    # NOTHING ELSE IN THE TREE REACHES sw_fill_pat. A Disk listing that fits
+    # draws no chevrons and the Task Manager has to be open, so a
+    # boot-and-look version of this is a null test that reads like a pass -
+    # icoclip's problem one primitive along, and the same answer.
+    Row("fillpat", "soak", py("tests/fillpat.py"), 600.0,
+        "Does the 1bpp PATTERNED fill lay the tile down where it says? "
+        "(SPEC.md 5, 32) - gfx_fill_pat on a mono adapter is two masked edge "
+        "columns through sw_patcol plus a rep stosw interior, with the tile "
+        "row picked by (y & 7). Calls it through the debugger over rows it "
+        "zeroed itself, at four rect shapes that run every arm including the "
+        "one-byte-wide fold, and checks each byte against the kernel's OWN "
+        "staged gfx_patbuf and edge masks rather than a golden image. Both "
+        "strides.",
+        needs=("marty",), serial=True),
     Row("icoclip", "soak", py("tests/icoclip.py"), 600.0,
         "Does a 32-wide icon HANGING OFF THE RIGHT EDGE still clip byte for "
         "byte? (SPEC.md 25.6) - ico_pass_bb's per-byte column test is the "
