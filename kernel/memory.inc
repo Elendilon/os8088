@@ -2918,9 +2918,12 @@ mem_dma:  resw 1                  ; ...and mem_claim_dma's head, in paragraphs,
                                   ; for the same reason: 0 = no page constraint
 mem_base: resw 1                  ; first heap paragraph = HEAP_SEG
 mem_skip:   resw 1              ; mem_runfree: a record to ignore, 0 = none
-mem_av_pad: resb 2              ; ...and two bytes to keep the words aligned
-                                ; (one of them was [mem_av_pg], which is
-                                ; [mem_pg_rank] below now - see its header)
+                                ; (a two-byte mem_av_pad followed, claiming to
+                                ; "keep the words aligned": .bss is nobits
+                                ; vfollows=.text valign=1, so nothing here is
+                                ; aligned by anything, and an EVEN pad cannot
+                                ; change any following symbol's parity even if
+                                ; it were)
 mem_cp_busy: resb 1             ; the compactor is running (SPEC.md 66.4): a
                                 ; relocation proc that claims - which 66.3
                                 ; rule 3 forbids - would otherwise re-enter
