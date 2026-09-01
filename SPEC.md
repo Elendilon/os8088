@@ -1360,6 +1360,46 @@ when writing a string copier — which is what a module's data is *for*.
 in the tree's modules is over a heap claim or `LOW_SEG` rather than over the
 image, and refusing them would refuse correct code.
 
+**That `lods` check was the whole of the gate, and it is blind to the two
+failures that actually happen.** Both were demonstrated rather than argued:
+deleting one `call cp_stage` and one `cs:` from `ctrl.inc` left `kernsize`
+byte-for-byte identical and every check in `os88ovlchk.py` passing, while both
+defects draw rubbish on a page a user opens.
+
+* a **missing `cs:`** on a table read — `mov si, [si + cp_vidnam]` reads the
+  *kernel* image at that offset and letters whatever is there;
+* a **missing staging call** — `mov si, cp_s_vcap` hands `font_run` a pointer
+  that is correct in the image and nonsense in `KERNEL_SEG`.
+
+So the checker gained a second module-data rule, in two halves:
+
+| half | rule | scope |
+|---|---|---|
+| **1** | a **memory operand** naming module data must carry a `cs:` | every image. There is no correct way to write that operand without one, so it needs no registration and has no false positives |
+| **2** | a module-data label may appear **only** at its own definition, in another data directive or `equ` in the same image, or as an argument of one of that image's **registered** macros | per image, and the image has to be written for it |
+
+Half 2 is turned round on purpose. A pointer *load* (`mov si, <label>`) is
+indistinguishable from correct code until you know what happens to `SI`, which
+is dataflow a source scan cannot do — so instead the image registers the macro
+that **defines** a string and the macros that **read** one, and a bare
+`mov si, cp_s_*` fails the build. It is a construction rule rather than an
+analysis, which is why it is exact rather than heuristic.
+
+`.modc` (`CTRL.DRV`) registers `CPS` / `CPSTAGE` / `CPSTAGEX` and gets both
+halves. **`.modl` and `.modf` get half 1 only**: they predate this and read
+their strings with a bare `mov si, clo_s_x` / `call clo_cat` in 26 and 10
+places, in shapes no next-line rule can express — `jmp .tail` reaches the
+composer four lines later, and a conditional pair stages at the join.
+Registering them means giving them a macro of their own, which is worth doing
+and is not owed by a change to a different image.
+
+A related false positive went with it: a `%macro` **body** is not a call site,
+and scanning it reported the *definition's* section rather than the expansion's
+— so a macro written beside a file's constants and expanded only inside an
+image was reported as a `.text -> .modc` crossing that does not exist. Bodies
+are skipped; expansions were already covered and still are, which is where
+such a crossing is now named.
+
 #### 2.8.6.1 What it bought, measured
 
 `CLONE.DRV` was written with its prompts resident and then moved, and
@@ -1375,6 +1415,31 @@ Against a kernel where the whole clone feature had cost `+240` of `.text`,
 that is a feature arriving for **less `.text` than the kernel had before it**
 — and it took `kern_big` back off `KERN_BUDGET`, which the clone alone had
 reached exactly.
+
+The Control Panel's page strings followed, and are the largest single body of
+them: **443 bytes of `.text` out, 28 of `.bss` back, −415 resident**, with
+`MODC_SIZE` 6,944 → 7,502 of `MOD_MAX_KB`'s 16,384 (kern_small 5,433 → 5,858).
+The whole of what stayed is §31.9's line and it is the same line the trap is
+on: **all six list names are resident**, because a list name may equally be a
+driver's staged one and `cp_list` draws it through DS. Each of those six is
+also its page's heading, which is why they read as page strings and are not.
+What moved is page *body* text, whose only readers are the `cp_*_paint` bodies
+and their click ladders — every one inside the image, entered only through
+`call far [CPFP+…]` after `mod_need` succeeded. **The module-cannot-load path
+reads none of them**: `cp_open_x` is `.cold` and letters `cp_s_noload` /
+`cp_s_nodrv` out of `cp_opentab`, all still `.text`, so a refusal costs no
+module read.
+
+Mechanically it is `clo_cat`'s *idea* and deliberately not `clo_cat`'s
+**shape**. `clo_cat` concatenates into a caller-supplied `DI` and leaves it
+advanced; in `ctrl.inc` **`DI` is the pane's left edge at every one of the 26
+call sites**, so a composer written to that shape destroys the pane origin and
+draws every page in the wrong place — assembling cleanly and passing every
+gate. `cp_stage` therefore stages into one fixed 28-byte `.bss` buffer and
+banks `AX`, `CX` and `DI`. The 28 is not arbitrary: a page string has to fit
+the pane's 27-character limit, and both ends are guarded — `CPS` refuses a
+longer string at **assembly** time and `cp_stage` bounds the copy at **run**
+time, so a bypass truncates a caption instead of writing past the buffer.
 
 What did **not** move, and is the honest limit: `dskw_fmt_tab`, the four
 standard geometries. It is `.text` and stays there, because `dskw_fmt_row_x`
@@ -39048,7 +39113,11 @@ Three things hold it up:
   time. `cp_list` draws it with `font_str` and `font_str` reads through DS; a
   pointer into the driver's segment would render the driver's own image. It is
   the `dsk_get_dir` idiom, in the place `drv_publish`'s retired `DSV_NAME`
-  staging always belonged.
+  staging always belonged. **It is also the line the panel's own strings are
+  drawn on** (§2.8.6): one reader, two possible segments, so all six *static*
+  list names stay in `.text` while the page BODY text lives in `CTRL.DRV`'s
+  image and is staged per draw. Each of the six is its page's heading as well,
+  which is the only reason they look movable.
 - **`[cp_sel]` is clamped when a driver detaches** (`cp_drv_gone`, called from
   `drv_release`). The selection persists across opens by design, so a
   `[cp_sel]` naming a page that no longer exists would dispatch through a

@@ -86,6 +86,44 @@ CP_PRGT   equ CP_CW - CP_RX - 1 ; ...and its LAST COLUMN, as an offset from
                                 ; edge and paints the desktop
 
 ; --- Scheduler page, PANE-relative ------------------------------------------
+; The staging buffer for SPEC.md 2.8.6's page strings (see cp_stage, below).
+; **A %assign and not an `equ`**, because CPS's length guard is a preprocessor
+; `%if` and the preprocessor cannot see an `equ`. 28 is not arbitrary: a page
+; string has to fit the pane's 27-character limit (the Display caption's own
+; comment records it), so 27 + NUL is the widest string this panel can
+; usefully carry. CPS asserts every string against it at ASSEMBLY time and
+; cp_stage bounds the copy at RUN time, so neither a new string nor a
+; hand-written `db` can walk off the end of it.
+%assign CP_SBUF 28
+
+; CPS - define one image string, and refuse it if it cannot be staged
+%macro CPS 2
+%1: db %2, 0
+%strlen CPSLEN %2
+  %if CPSLEN + 1 > CP_SBUF
+    %error "ctrl: a Control Panel page string is longer than CP_SBUF - it cannot be staged, and it does not fit the pane either (SPEC.md 31.1)"
+  %endif
+%endmacro
+
+; CPSTAGE  <string>          - load an image string and stage it
+; CPSTAGEX <table>[, index]  - load one THROUGH an image table and stage it
+;
+; **These two are the only sanctioned way to name a string above**, and
+; tools/os88ovlchk.py enforces it: a `.modc` data label mentioned anywhere but
+; its own definition, another data directive in the image, or one of these
+; macros fails the build. That is what closes the hole the old gate had - it
+; could see `lodsb` in a module image and could not see a MISSING `call
+; cp_stage` or a MISSING `cs:`, both of which draw rubbish on a page a user
+; opens and neither of which moves a single byte.
+%macro CPSTAGE 1
+    mov si, %1
+    call cp_stage
+%endmacro
+%macro CPSTAGEX 1-2 si
+    mov si, [cs:%2 + %1]
+    call cp_stage
+%endmacro
+
 CP_PMX    equ 2                 ; left margin for the heading and the caption
 CP_PHY    equ 6                 ; 'Scheduler' heading text row
 CP_PGX    equ 4                 ; radio glyph left edge
@@ -402,32 +440,12 @@ cp_hide:  db 0
 ; the ground the desktop is laid with. It changes no geometry and claims no
 ; memory, so the only thing a switch owes is a repaint - which is [cp_dirty],
 ; the flag that already means "every window has to be told".
-cp_s_thm:   db 'Theme', 0       ; list name AND the page heading
-cp_s_tbrt:  db 'Bright', 0
-cp_s_tdrk:  db 'Dark', 0
-%ifdef KERN_BIG
-cp_s_tclr:  db 'Color', 0        ; ...and the third, VGA's alone (SPEC.md 76.12)
-%endif
-%ifdef WM_ANIM
-cp_s_tanim: db 'Window Animations', 0
-cp_s_ton:   db 'On', 0
-cp_s_toff:  db 'Off', 0
-%endif
-%ifdef KERN_BIG
-cp_s_tsave: db 'Screen Saver', 0    ; the button, SPEC.md 79.7. The only
-                                    ; .text this whole feature costs the
-                                    ; Control Panel: the settings window's own
-                                    ; eleven strings are in SAVER.DRV, which
-                                    ; is a segment of its own and is on the
-                                    ; disk (SPEC.md 79.2)
+cp_s_thm:   db 'Theme', 0       ; list name AND the page heading, so RESIDENT
+                                ; (SPEC.md 31.9). The page's own strings are
+                                ; in the image, at cp_modstr below
 %endif
 
-%endif
-
-cp_s_sched: db 'Scheduler', 0   ; list name AND the page heading
-cp_s_pre:   db 'Pre-emptive', 0
-cp_s_coop:  db 'Cooperative', 0
-cp_s_cap:   db 'Takes effect immediately', 0
+cp_s_sched: db 'Scheduler', 0   ; list name AND the page heading, so RESIDENT
 
 ; --- Display page (SPEC.md 31.10/39.11) --------------------------------------
 ; One radio row per adapter the machine actually HAS, and a button that moves
@@ -439,22 +457,7 @@ cp_s_cap:   db 'Takes effect immediately', 0
 ; The names are indexed by VID_* and so is everything else on this page - the
 ; kernel's own enum is the row order, which is what keeps the label, the dot,
 ; the click and vid_switch from ever disagreeing about which row is which.
-cp_s_vid:   db 'Display', 0     ; list name AND the page heading
-cp_s_vvga:  db 'Vga 640x480', 0
-cp_s_vherc: db 'Hercules 720x348', 0
-cp_s_vcga:  db 'Cga 640x200', 0
-cp_vidnam:  dw cp_s_vvga, cp_s_vherc, cp_s_vcga
-cp_s_vact:  db 'Set Primary', 0
-; The caption, inside the pane's 27-character limit. It is ONE string and the
-; page's only constant line: it says what the button does, on every state the
-; page can be in. It had three answers once - 'No other adapter found' went
-; when SPEC.md 31.10.1 stopped drawing the page at all on a machine with one
-; adapter, and 'This adapter is running' - SPEC.md 47 rule 7's say-why-not for
-; the greyed button - went at SPEC.md 31.10.3, where the room it was holding
-; paid for the desktop line's own label. So nothing here follows the
-; selection: cp_vid_click no longer redraws it, and it is drawn once, inline
-; in cp_vid_paint, on ground cp_page has already erased.
-cp_s_vcap:  db 'Switches now, and is kept', 0
+cp_s_vid:   db 'Display', 0     ; list name AND the page heading, so RESIDENT
 
 %ifdef KERN_BIG
 ; The DESKTOP line (SPEC.md 31.10.2): one row of three radios under the button.
@@ -475,14 +478,8 @@ cp_s_vcap:  db 'Switches now, and is kept', 0
 ; own words is the page heading, which is a label in exactly this position.
 ; The colon is what says it belongs to the row under it rather than being a
 ; fourth thing on the page.
-cp_s_vdesk: db 'Desktop Extension Mode:', 0
-CPV_DESKN   equ $ - cp_s_vdesk - 1   ; ...measured rather than counted, so the
-                                     ; %if guard below cannot go stale behind
-                                     ; an edit to the string above it
-cp_s_vsing: db 'Single', 0
-cp_s_vrgt:  db 'Right', 0
-cp_s_vblw:  db 'Below', 0
-cp_vmodnam: dw cp_s_vsing, cp_s_vrgt, cp_s_vblw
+; (the label, the three radio names and their table are in the image, at
+; cp_modstr below; CPV_DESKN is measured off the label there, beside it)
 %endif
 
 ; Display page geometry, PANE-relative. The Sound page's tighter 16px row
@@ -518,11 +515,9 @@ CPV_CAPY  equ 122               ; caption row, LAST as it is on every page -
 %if CPV_MLY + 8 > CPV_MY
 %error "ctrl: the Display page's desktop label runs into its radios (31.10.3)"
 %endif
-%ifdef KERN_BIG
-%if CP_PMX + CPV_DESKN*8 > CP_PRGT
-%error "ctrl: the Display page's desktop label runs past the pane (31.10.3)"
-%endif
-%endif
+                                ; (the desktop label's own width guard travels
+                                ; with CPV_DESKN, which is measured off the
+                                ; string and so lives in the image now)
 %if CP_PLX + 2*CPV_MSTEP + 5*8 > CP_PRGT
 %error "ctrl: the Display page's desktop radios run past the pane"
 %endif
@@ -631,27 +626,7 @@ CP_NOPEN  equ 2
 ; a Sound Blaster read 'Sound Blaster' with the DSP tier up and 'AdLib' with it
 ; down - the label moved as the setting moved, so the one control on the page
 ; could not be read as a choice between two things.
-cp_s_snd:   db 'Sound', 0       ; list name AND the page heading
-cp_s_sspk:  db 'PC Speaker', 0
-cp_s_sfm:   db 'AdLib', 0
-cp_s_ssb:   db 'Sound Blaster', 0
-cp_s_stest: db 'Test', 0
-; The Date/Time page names the RTC ladder tier that answered (SPEC.md 37.90),
-; not just yes/no: on a machine whose clock will not hold a setting, which of
-; the four answered is the whole diagnosis, and there is nowhere else to see
-; it. **Indexed by [clk_tier], i.e. by the CLK_T_* enum - NOT by the order
-; clk_probe tries them in, which is a different order.**
-cp_s_tnrt:  db 'Hardware clock: none', 0
-cp_s_trt1:  db 'Hardware clock: AT 70h', 0
-cp_s_trt2:  db 'Hardware clock: 58167 2C0h', 0
-cp_s_trt3:  db 'Hardware clock: 5C01 2C0h', 0
-cp_s_trt4:  db 'Hardware clock: BIOS', 0
-cp_rtcnam:  dw cp_s_tnrt, cp_s_trt1, cp_s_trt2, cp_s_trt3, cp_s_trt4
-cp_s_t12:   db '12-hour clock', 0       ; option row 0 label
-cp_s_tsec:  db 'Seconds in menu bar', 0 ; option row 1 label
-cp_s_tplus: db '+', 0
-cp_s_tminus: db '-', 0
-cp_s_tcol:  db ':', 0
+cp_s_snd:   db 'Sound', 0       ; list name AND the page heading, so RESIDENT
 cp_s_gone:  db 0                ; the empty string: what a vanished driver's
                                 ; list row letters as (cp_item_name's guard)
 
@@ -2144,21 +2119,21 @@ cp_sched_paint:
     add dx, CP_PHY
     call cp_run
 
-    mov si, cp_s_pre            ; row 0 label
+    CPSTAGE cp_s_pre            ; row 0 label
     mov cx, di
     add cx, CP_PLX
     mov dx, bp
     add dx, CP_PR0Y + CP_PLDY
     call cp_run
 
-    mov si, cp_s_coop           ; row 1 label
+    CPSTAGE cp_s_coop           ; row 1 label
     mov cx, di
     add cx, CP_PLX
     mov dx, bp
     add dx, CP_PR0Y + CP_PROWH + CP_PLDY
     call cp_run
 
-    mov si, cp_s_cap            ; caption: the flip is immediate
+    CPSTAGE cp_s_cap            ; caption: the flip is immediate
     mov cx, di
     add cx, CP_PMX
     mov dx, bp
@@ -2270,16 +2245,16 @@ cp_thm_paint:
     add dx, CP_PHY
     call cp_run
 
-    mov si, cp_s_tbrt           ; theme row 0
+    CPSTAGE cp_s_tbrt           ; theme row 0
     mov dx, bp
     add dx, CPH_R0Y + CP_PLDY
     call cp_thm_lbl
-    mov si, cp_s_tdrk           ; theme row 1
+    CPSTAGE cp_s_tdrk           ; theme row 1
     mov dx, bp
     add dx, CPH_R1Y + CP_PLDY
     call cp_thm_lbl
 %ifdef KERN_BIG
-    mov si, cp_s_tclr           ; theme row 2 - drawn on every adapter, and
+    CPSTAGE cp_s_tclr           ; theme row 2 - drawn on every adapter, and
     mov dx, bp                  ; GREYED where the machine has no colour
     add dx, CPH_R2Y + CP_PLDY   ; (SPEC.md 47 rule 3, 76.12.1)
     call cp_thm_colgrey
@@ -2289,18 +2264,18 @@ cp_thm_paint:
 %endif
 
 %ifdef WM_ANIM
-    mov si, cp_s_tanim          ; --- the second group's heading
+    CPSTAGE cp_s_tanim          ; --- the second group's heading
     mov cx, di
     add cx, CP_PMX
     mov dx, bp
     add dx, CPH_H2Y
     call cp_run
 
-    mov si, cp_s_ton            ; anim row 0
+    CPSTAGE cp_s_ton            ; anim row 0
     mov dx, bp
     add dx, CPH_A0Y + CP_PLDY
     call cp_thm_lbl
-    mov si, cp_s_toff           ; anim row 1
+    CPSTAGE cp_s_toff           ; anim row 1
     mov dx, bp
     add dx, CPH_A1Y + CP_PLDY
     call cp_thm_lbl
@@ -2350,7 +2325,7 @@ cp_thm_btn:
     add ax, CPH_BTH - 1
     mov [os88ui_krect+6], ax
     mov bx, os88ui_krect
-    mov si, cp_s_tsave
+    CPSTAGE cp_s_tsave
     mov di, OS88UI_FILL
     mov al, CPH_CSAVE
     call cp_dnbtn               ; ...pressed if it is the one down (13.8.3)
@@ -2840,7 +2815,7 @@ cp_vid_rows:
     xor ah, ah
     shl ax, 1
     mov si, ax
-    mov si, [si + cp_vidnam]
+    CPSTAGEX cp_vidnam
     mov byte [gfx_color], CBLACK
     mov cx, di
     add cx, CP_PLX
@@ -2912,7 +2887,7 @@ cp_vid_mode:
     jc .done
 
     mov byte [gfx_color], CBLACK    ; --- the row's label (SPEC.md 31.10.3).
-    mov si, cp_s_vdesk              ; No erase: cp_page has already whitened
+    CPSTAGE cp_s_vdesk              ; No erase: cp_page has already whitened
     mov cx, di                      ; the pane and nothing else ever draws
     add cx, CP_PMX                  ; here - the caption below is constant
     mov dx, bp                      ; too, so this page has no state line
@@ -2927,7 +2902,7 @@ cp_vid_mode:
     xor ah, ah                  ; the x offset: both want it
     shl ax, 1
     mov si, ax
-    mov si, [si + cp_vmodnam]
+    CPSTAGEX cp_vmodnam
 
     mov al, bl                  ; AX = this radio's x offset within the pane
     mov cl, CPV_MSTEP
@@ -3018,7 +2993,7 @@ cp_vid_btn:
     mov al, 1                   ; ...and pressed if it is being held; DIS
     call cp_dnbtn               ; outranks DOWN inside os88ui_btn
 %endif
-    mov si, cp_s_vact
+    CPSTAGE cp_s_vact
     mov bx, os88ui_krect
     call cp_bemit
     pop di
@@ -3061,7 +3036,7 @@ cp_vid_paint:
 %endif
 
     mov byte [gfx_color], CBLACK ; ...and the caption, LAST on the page as it
-    mov si, cp_s_vcap            ; is on every other one
+    CPSTAGE cp_s_vcap            ; is on every other one
     mov cx, di
     add cx, CP_PMX
     mov dx, bp
@@ -3249,13 +3224,13 @@ cp_time_paint:
     call cp_timebtn
 
     mov byte [gfx_color], CBLACK ; the two option labels; their glyphs are
-    mov si, cp_s_t12            ; drawn by cp_timechk, which is also the
+    CPSTAGE cp_s_t12            ; drawn by cp_timechk, which is also the
     mov cx, di                  ; redraw path when one is toggled
     add cx, CP_PLX
     mov dx, bp
     add dx, CPT_O0Y + CP_PLDY
     call cp_run
-    mov si, cp_s_tsec
+    CPSTAGE cp_s_tsec
     mov cx, di
     add cx, CP_PLX
     mov dx, bp
@@ -3264,16 +3239,19 @@ cp_time_paint:
     call cp_timechk
 
     mov byte [gfx_color], CBLACK
-    mov si, cp_s_tnrt           ; the caption: read live from the probe's
-    cmp byte [clk_rtc], 0       ; verdict (SPEC.md 37.90) - informative only,
-    je .cap                     ; since editing works either way
-    push bx
+    cmp byte [clk_rtc], 0       ; the caption: read live from the probe's
+    je .nort                    ; verdict (SPEC.md 37.90) - informative only,
+    push bx                     ; since editing works either way
     mov bl, [clk_tier]
     xor bh, bh
     add bx, bx
-    mov si, [cp_rtcnam+bx]
-    pop bx
-.cap:
+    CPSTAGEX cp_rtcnam, bx      ; ...and the TEST comes first now: staging the
+    pop bx                      ; default and then overwriting SI would stage
+    jmp short .cap              ; twice, and the second one is what SPEC.md
+.nort:                          ; 2.8.6 says has to happen (the old shape was
+    CPSTAGE cp_s_tnrt           ; `mov si, X` then a conditional `mov si, Y`,
+.cap:                           ; which is the one place a blanket conversion
+                                ; of this file stages the WRONG string)
     mov cx, di
     add cx, CP_PMX
     mov dx, bp
@@ -3487,7 +3465,7 @@ cp_time_rows:
     call KERNEL_SEG:cw_gfx_fill
 
     mov byte [gfx_color], CBLACK ; the time row's two ':' separators (the
-    mov si, cp_s_tcol            ; date row's gaps are simply blank)
+    CPSTAGE cp_s_tcol            ; date row's gaps are simply blank)
     mov cx, di
     add cx, CPT_FX + 16
     mov dx, bp
@@ -3725,11 +3703,11 @@ cp_timebtn:
     push si
     push di
 
-    mov si, cp_s_tplus
+    CPSTAGE cp_s_tplus
     mov dx, CPT_BUY
     or al, al
     jz .have
-    mov si, cp_s_tminus
+    CPSTAGE cp_s_tminus
     mov dx, CPT_BDY
 .have:
     mov ax, di
@@ -4204,14 +4182,14 @@ cp_snd_paint:
     call cp_snd_rowok               ; greyed rows still draw - they are what
     call KERNEL_SEG:cw_gfx_pen_cf                 ; the machine does not have, and a missing
                                     ; row would just look like a shorter list
-    mov si, cp_s_sspk               ; three fixed labels, in ladder order
-    or bl, bl
-    jz .str
-    mov si, cp_s_sfm
-    cmp bl, 1
-    je .str
-    mov si, cp_s_ssb
-.str:
+    CPSTAGE cp_s_sspk               ; three fixed labels, in ladder order. Each
+    or bl, bl                       ; arm STAGES rather than the join doing it
+    jz .str                         ; once - the join cannot, because the
+    CPSTAGE cp_s_sfm                ; selection is a pointer into the image and
+    cmp bl, 1                       ; naming one outside CPSTAGE is what the
+    je .str                         ; gate refuses. Rows 1 and 2 therefore copy
+    CPSTAGE cp_s_ssb                ; a string they discard: 6 bytes of the
+.str:                               ; image and ~30 clocks, on a page paint
     mov cx, di
     add cx, CP_PLX
     mov ax, CP_PROWH
@@ -4357,7 +4335,7 @@ cp_snd_test:
     mov ax, bp
     add ax, CPS_BTY2
     mov [os88ui_krect+6], ax
-    mov si, cp_s_stest
+    CPSTAGE cp_s_stest
     mov bx, os88ui_krect
     mov di, OS88UI_FILL             ; DI is the pane's left edge everywhere in
                                     ; this file and the flags word wants it -
@@ -5317,6 +5295,20 @@ cp_dmnw:     db 0               ; its two working maxima, in 8px cells: the
 cp_dmdg:     db 1               ; longest name in drv_tab, and the most digits
                                 ; any drv_memk figure needs
 
+section .bss                    ; ...and the one piece of ctrl.inc's data with
+                                ; no resting value: a scratch buffer belongs
+                                ; in .bss, where it costs the kernel image on
+                                ; disk nothing at all
+cp_sbuf:     resb CP_SBUF       ; cp_stage's landing ground - ONE string at a
+                                ; time. Every site stages and then draws
+                                ; before the next stage, and the panel runs on
+                                ; the UI task under the gfx lock, so it has
+                                ; exactly one user at a time (cp_dmbuf below
+                                ; is the same argument for the Drivers page's
+                                ; figure, and the two are never live together
+                                ; only because that page has no staged string)
+section .text
+
 cp_dtri_n:   db 0               ; the row counter. In memory because every
                                 ; general register is spoken for - DI is the
                                 ; centre, SI the table, BX the row, and the
@@ -5568,6 +5560,161 @@ cp_drv_wipe:
     pop bx
     pop ax
     ret
+
+
+; =============================================================================
+; THE PAGE STRINGS, IN THE IMAGE (SPEC.md 2.8.6, 31.9)
+; =============================================================================
+; 443 bytes of page-body text that used to sit in `.text` and be resident for
+; the life of the machine so that a panel nobody had opened could draw itself.
+; They are here now, in CTRL.DRV's own image, which is claimed when the panel
+; opens and given back when it closes.
+;
+; **What did NOT move, and why it is the line the trap is on.** SPEC.md 31.9's
+; `DSV_CPNAME` trap is about the ITEM LIST: a row's name may be a static kernel
+; string OR a driver's staged one, `cp_list` draws it with `font_str`, and
+; `font_str` reads through DS - so a pointer into a driver's segment would
+; render the driver's own image. All six list names therefore stay resident
+; (`cp_s_thm`, `cp_s_sched`, `cp_s_vid`, `cp_s_drv`, `cp_s_snd`, `cp_s_time`),
+; and each of them is ALSO its page's heading, which is why they read as page
+; strings and are not. What moved is page BODY text, whose only readers are
+; the `cp_*_paint` bodies and their click ladders - every one of them in this
+; image, entered only through `call far [CPFP+...]` after `mod_need` succeeded.
+;
+; The module-cannot-load path reads NONE of these: `cp_open_x` is `.cold` and
+; letters `cp_s_noload` / `cp_s_nodrv` out of `cp_opentab`, all of which stay
+; in `.text`. A refusal costs no module read and reads no moved string.
+;
+; **Every reader goes through CPSTAGE/CPSTAGEX and `tools/os88ovlchk.py`
+; refuses one that does not** - see the composer below. Do not write a bare
+; `mov si, cp_s_*` here; it assembles, it draws rubbish, and the gate is the
+; only thing between the two.
+; -----------------------------------------------------------------------------
+%ifdef OS88_THEME
+CPS cp_s_tbrt,  'Bright'
+CPS cp_s_tdrk,  'Dark'
+%ifdef KERN_BIG
+CPS cp_s_tclr,  'Color'         ; ...and the third, VGA's alone (SPEC.md 76.12)
+%endif
+%ifdef WM_ANIM
+CPS cp_s_tanim, 'Window Animations'
+CPS cp_s_ton,   'On'
+CPS cp_s_toff,  'Off'
+%endif
+%ifdef KERN_BIG
+CPS cp_s_tsave, 'Screen Saver'  ; the button, SPEC.md 79.7. The settings
+                                ; window's own eleven strings are in
+                                ; SAVER.DRV, which is a segment of its own and
+                                ; is on the disk (SPEC.md 79.2) - this is now
+                                ; the only byte the feature costs the panel,
+                                ; and it is not resident either
+%endif
+%endif
+
+CPS cp_s_pre,   'Pre-emptive'
+CPS cp_s_coop,  'Cooperative'
+CPS cp_s_cap,   'Takes effect immediately'
+
+CPS cp_s_vvga,  'Vga 640x480'
+CPS cp_s_vherc, 'Hercules 720x348'
+CPS cp_s_vcga,  'Cga 640x200'
+cp_vidnam:  dw cp_s_vvga, cp_s_vherc, cp_s_vcga
+CPS cp_s_vact,  'Set Primary'
+; The Display caption, inside the pane's 27-character limit. It is ONE string
+; and the page's only constant line: it says what the button does, on every
+; state the page can be in. It had three answers once - 'No other adapter
+; found' went when SPEC.md 31.10.1 stopped drawing the page at all on a machine
+; with one adapter, and 'This adapter is running' - SPEC.md 47 rule 7's
+; say-why-not for the greyed button - went at SPEC.md 31.10.3, where the room
+; it was holding paid for the desktop line's own label. So nothing here follows
+; the selection: cp_vid_click no longer redraws it, and it is drawn once,
+; inline in cp_vid_paint, on ground cp_page has already erased.
+CPS cp_s_vcap,  'Switches now, and is kept'
+
+%ifdef KERN_BIG
+CPS cp_s_vdesk, 'Desktop Extension Mode:'
+CPV_DESKN   equ $ - cp_s_vdesk - 1   ; ...measured rather than counted, so the
+                                     ; guard below cannot go stale behind an
+                                     ; edit to the string above it. Both moved
+                                     ; WITH the string: measured from `.text`
+                                     ; this would have subtracted two
+                                     ; different address spaces, and the guard
+                                     ; has to follow what it measures
+%if CP_PMX + CPV_DESKN*8 > CP_PRGT
+%error "ctrl: the Display page's desktop label runs past the pane (31.10.3)"
+%endif
+CPS cp_s_vsing, 'Single'
+CPS cp_s_vrgt,  'Right'
+CPS cp_s_vblw,  'Below'
+cp_vmodnam: dw cp_s_vsing, cp_s_vrgt, cp_s_vblw
+%endif
+
+CPS cp_s_sspk,  'PC Speaker'
+CPS cp_s_sfm,   'AdLib'
+CPS cp_s_ssb,   'Sound Blaster'
+CPS cp_s_stest, 'Test'
+
+; The Date/Time page names the RTC ladder tier that answered (SPEC.md 37.90),
+; not just yes/no: on a machine whose clock will not hold a setting, which of
+; the four answered is the whole diagnosis, and there is nowhere else to see
+; it. **Indexed by [clk_tier], i.e. by the CLK_T_* enum - NOT by the order
+; clk_probe tries them in, which is a different order.**
+CPS cp_s_tnrt,  'Hardware clock: none'
+CPS cp_s_trt1,  'Hardware clock: AT 70h'
+CPS cp_s_trt2,  'Hardware clock: 58167 2C0h'
+CPS cp_s_trt3,  'Hardware clock: 5C01 2C0h'
+CPS cp_s_trt4,  'Hardware clock: BIOS'
+cp_rtcnam:  dw cp_s_tnrt, cp_s_trt1, cp_s_trt2, cp_s_trt3, cp_s_trt4
+CPS cp_s_t12,   '12-hour clock'         ; option row 0 label
+CPS cp_s_tsec,  'Seconds in menu bar'   ; option row 1 label
+CPS cp_s_tplus, '+'
+CPS cp_s_tminus, '-'
+CPS cp_s_tcol,  ':'
+
+; -----------------------------------------------------------------------------
+; cp_stage - copy one of the strings above down into the KERNEL segment
+; in:  SI -> a NUL string in THIS IMAGE (CS)
+; out: SI = cp_sbuf, holding a copy of it
+; clobbers: nothing else (flags)
+;
+; `clo_cat`'s idea (SPEC.md 2.8.6) and deliberately NOT `clo_cat`'s SHAPE.
+; clo_cat concatenates into a caller-supplied DI and leaves DI advanced; in
+; this file **DI is the pane's left edge at every one of the call sites**
+; (cp_paint dispatches DI = pane left, BP = pane top), so a composer written
+; to that shape would destroy the pane origin and draw every page in the wrong
+; place - assembling cleanly and passing every gate. AX and DI are banked here
+; for exactly that reason, and CX because the copy is BOUNDED.
+;
+; The bound is the second half of the buffer's guard: CPS refuses a string
+; that will not fit at assembly time, and this refuses to write past the end
+; of cp_sbuf at run time even for a string CPS never saw. A bypass truncates a
+; caption; it does not corrupt the kernel.
+;
+; `lodsb` is not used and cannot be: it reads DS:SI, and DS is KERNEL_SEG here.
+; os88ovlchk.py refuses it in a module image for that reason.
+; -----------------------------------------------------------------------------
+cp_stage:
+    push ax
+    push cx
+    push di
+    mov di, cp_sbuf
+    mov cx, CP_SBUF - 1         ; ...so the terminator below always fits
+.c:
+    mov al, [cs:si]
+    inc si
+    mov [di], al                ; DS = KERNEL_SEG (SPEC.md 2.8), which is where
+    inc di                      ; cp_sbuf is
+    or al, al
+    jz .z
+    loop .c
+    mov byte [di], 0            ; the bound was hit: terminate what was copied
+.z:
+    mov si, cp_sbuf
+    pop di
+    pop cx
+    pop ax
+    ret
+
 
 section .cold                   ; far entries: the resident thunks in
                                 ; kernel.asm reach the bodies above through
