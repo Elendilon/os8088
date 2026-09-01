@@ -28599,14 +28599,24 @@ per-interval *diff* of a running cycle counter (§8.1), so a torn pair bills
 a real slice to the wrong row and the error stays in the percentages until
 something else disturbs them. Silently, and only while something is closing.
 So the cell holds one `cli` window across both tables, names included; it is
-about 414 bytes of copy, and because the copy is field-at-a-time loops (the
-gather is strided, so `rep movsw` cannot carry most of it) that is roughly
-**3.5–4 ms with interrupts off on a 4.77 MHz 8088** — the longest IF=0
-window in the system, and safe by about 2×, not comfortably: the 8250 holds
-exactly one mouse byte and the next arrives ~8.3 ms behind it at 1200 baud,
-and the PIT (55 ms) is merely delayed. **A caller must treat it as a
-twice-a-second call, not a per-frame one** — at that cadence the window is
+about 414 bytes of copy. **256 of those bytes move by `rep movsw`** — the
+twelve 16-byte names and the `MAX_TASKS` dword cycle counters, both of which
+are contiguous at both ends — and the rest is field-at-a-time, because the
+gather really is strided there (a task state is one byte every `T_SIZE`, and
+an instance record and its snapshot row have different layouts). That is
+roughly **2.2–2.6 ms with interrupts off on a 4.77 MHz 8088** — still the
+longest IF=0 window in the system, and safe by about 3×, not comfortably: the
+8250 holds exactly one mouse byte and the next arrives ~8.3 ms behind it at
+1200 baud, and the PIT (55 ms) is merely delayed. **A caller must treat it as
+a twice-a-second call, not a per-frame one** — at that cadence the window is
 noise, per frame it is a stall the mouse can feel.
+
+Both figures are derived rather than measured, by the same method: 8088
+clocks with EA and prefetch costs. What the string ops took out is about
+6,500 clocks — the names are ~209 clocks a record against ~700, the counters
+~409 against ~864, the task states ~312 against ~384 — and the `cld` those
+copies need sits **after** the `pushf`, so the `popf` gives the caller its own
+DF back. A package that runs with `std` is not rare (§20).
 
 `SSI_KB` is the one field filled *outside* that window, and deliberately:
 it is a scan of the claim table per instance, which is not what the window
@@ -37418,7 +37428,7 @@ init-less:
 | `inst_win_owner` | in BX = window ptr; out DI = record ptr, or **0** if unowned. `inst_of_win` with the CF case folded into the result, so a caller can stash one word across a callback. Preserves BX. |
 | `inst_charge` | in DI = record (non-zero), DX:AX = a `task_cycles` stamp (§8.1): `task_debit`, then add the returned cycles to I_CYC. Preserves all registers. Called only by the W_PAINT / W_ONKEY / W_ONCLICK dispatch sites (§11/§13), which hold the gfx lock — and a task-owned instance destroys its window, clearing `wm_owner`, under that same lock before its record is freed (29.2), so the record named by wm_owner stays live for the whole charged stretch. |
 | `inst_find_kind` | in AL = kind byte (exact match incl. bit 7); out CF=0 + DI = first record with I_STATE=1 of that kind, CF=1 none. |
-| `inst_alloc` | out CF=0 + DI = free record with I_FLAGS/I_SPTR/I_SIZE/I_ICON/I_CYC zeroed, CF=1 table full. Does NOT publish. UI task only. |
+| `inst_alloc` | out CF=0 + DI = a free record **wholly zeroed** — all `I_RECSZ` bytes, so I_NAME, I_WIN and I_TASK go with I_FLAGS/I_SPTR/I_SIZE/I_ICON/I_CYC; CF=1 table full. I_TASK therefore momentarily reads 0 rather than the last tenant's slot, which nothing can see: I_STATE is 0 across the whole gap and every walker skips a free row, and both callers write I_TASK = 0xFF before the record publishes. DF is left clear. Does NOT publish. UI task only. |
 | `inst_set_name` | in DI = record, SI = name source (NUL-terminated or NUL-padded; at most 15 chars taken). Zero-fills all 16 I_NAME bytes first. Safe on a package header's 16-byte name field. |
 | `inst_bind_win` | in DI = record, BX = window ptr: I_WIN ← BX, `wm_owner[window index]` ← record index. |
 | `app_launch` | in AL = kind (built-in). UI task only, no lock held; takes its own locks. out CF=1 failed (instance/window/task table full — silent no-op for the caller), CF=0 done. Order: cap check (at cap → gfx_lock, clear the live instance's minimized bit, wm_show it, gfx_unlock — i.e. "launch" of a full singleton fronts it; only-dying-instances → CF=1, retry after a task period) → inst_alloc → pool-slot pick (first candidate `pool + s·stride` not held by a same-kind record with I_STATE != 0) → template copied to scratch with x/y cascaded +16·s → wm_create (CF → fail; record was never published), then OR the kind's `KD_WFLAG` byte into the new window's W_FLAGS (§29.3/§11.1) → fill record (I_KIND, I_TASK=0xFF, I_ICON, name) + inst_bind_win → KD_INIT → **publish I_STATE ← 1** → if KD_TASK: task_spawn (AX = entry, DX = instance index), I_TASK ← returned slot; spawn CF → rollback (I_STATE ← 0, then locked wm_destroy) → gfx_lock, wm_show, gfx_unlock. |
