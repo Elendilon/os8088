@@ -699,31 +699,46 @@ assoc_post_x:
 ; -----------------------------------------------------------------------------
 assoc_fname:
     push ax
+    push di
+    mov di, assoc_fnb
+    call assoc_stemcpy
+    mov word [di], '.O'
+    mov word [di+2], '88'
+    mov byte [di+4], 0
+    pop di
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_stemcpy - an app slot's stem, unpadded, at DI (SPEC.md 54.2)
+; in:  AL = the app slot, DI = where it goes
+; out: DI past the bytes written; everything else preserved
+;
+; The stem is space-padded to 8, so the copy stops at the first space rather
+; than counting - a stem cannot contain one. DI is an in/out on purpose: both
+; callers go straight on to append a tail where it now points.
+; -----------------------------------------------------------------------------
+assoc_stemcpy:
+    push ax
     push bx
     push cx
     push si
-    push di
     mov bl, al
     xor bh, bh
     mov cl, 3
     shl bx, cl
     mov si, assoc_stem
     add si, bx
-    mov di, assoc_fnb
     mov cx, 8
-.stem:
+.l:
     mov al, [si]
-    cmp al, ' '                 ; the stem is space-padded; the name is not
-    je .ext
+    cmp al, ' '
+    je .o
     mov [di], al
     inc si
     inc di
-    loop .stem
-.ext:
-    mov word [di], '.O'
-    mov word [di+2], '88'
-    mov byte [di+4], 0
-    pop di
+    loop .l
+.o:
     pop si
     pop cx
     pop bx
@@ -1134,8 +1149,7 @@ section .cold                   ; ...and back to cold code
 ; out: assoc_pnbuf = 'STEM.O88 - not on this disk', NUL
 ; clobbers: nothing (all registers preserved)
 ;
-; The stem is space-padded to 8 (SPEC.md 54.2), so the copy stops at the
-; first space rather than counting - a stem cannot contain one.
+; The stem copy is assoc_stemcpy's, which assoc_fname shares.
 ; -----------------------------------------------------------------------------
 assoc_progname:
     push ax
@@ -1145,22 +1159,8 @@ assoc_progname:
     push es
     push ds
     pop es                      ; the tail lands through ES:DI
-    xor ah, ah
-    mov cl, 3
-    shl ax, cl                  ; the slot's 8-byte stride
-    mov si, assoc_stem
-    add si, ax
     mov di, assoc_pnbuf
-    mov cx, 8
-.stem:
-    mov al, [si]
-    cmp al, ' '
-    je .tail
-    mov [di], al
-    inc si
-    inc di
-    loop .stem
-.tail:
+    call assoc_stemcpy
     mov si, assoc_s_ptail
     mov cx, ASSOC_PTAIL
     cld
