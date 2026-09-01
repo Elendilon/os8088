@@ -170,26 +170,24 @@ assoc_ext_of:
     push dx
     push si
     mov di, assoc_extb
-    mov byte [di], ' '          ; a short extension pads itself, so a two-
-    mov byte [di+1], ' '        ; letter 'MD' matches a declared 'MD '
-    mov byte [di+2], ' '
-    xor ax, ax                  ; AX = the byte after the dot, 0 = none seen
-    mov cx, 16
+    mov word [di], '  '         ; a short extension pads itself, so a two-
+    mov byte [di+2], ' '        ; letter 'MD' matches a declared 'MD '
+    xor dx, dx                  ; DX = the byte after the LAST dot, 0 = none
+    mov cx, 16                  ; seen
+    cld
 .scan:
-    mov dl, [si]                ; DL, never AH: AX is holding the offset of
-    or dl, dl                   ; the dot and a byte load into AH would eat
-    jz .dot                     ; its high half on the very next pass
-    cmp dl, '.'
+    lodsb                       ; ...which is SI itself, lodsb having already
+    or al, al                   ; stepped past the dot - so no `inc`
+    jz .dot
+    cmp al, '.'
     jne .next
-    mov ax, si
-    inc ax
+    mov dx, si
 .next:
-    inc si
     loop .scan
 .dot:
-    or ax, ax
+    or dx, dx
     jz .none
-    mov si, ax
+    mov si, dx
     mov cx, 3
 .copy:
     mov al, [si]
@@ -222,27 +220,24 @@ assoc_stem_of:
     push ax
     push cx
     push si
-    push di
     mov di, assoc_stemb
     mov cx, 8
-.pad:
-    mov byte [di], ' '
-    inc di
-    loop .pad
-    mov di, assoc_stemb
-    mov cx, 8
-.copy:
-    mov al, [si]
+.copy:                          ; the copy first, then the PAD over what is
+    mov al, [si]                ; left of the SAME counter - one walk, not two
     or al, al
-    jz .done
+    jz .pad
     cmp al, '.'
-    je .done
+    je .pad
     mov [di], al
     inc si
     inc di
     loop .copy
+    jmp short .done             ; exactly 8: `loop` falls through at CX = 0 and
+.pad:                           ; entering .pad there would pad 65,536 bytes
+    mov byte [di], ' '
+    inc di
+    loop .pad
 .done:
-    pop di
     pop si
     pop cx
     pop ax
