@@ -81977,6 +81977,59 @@ one large swimmer forces the other three small — was designed and is **not
 built**, because with the band there is nothing to cap: the most expensive sea
 the generator can produce is 60% of a tick.
 
+#### 79.5.9 A swimmer at the right edge and a pixel at the left, and the cut that is not a diagnosis
+
+**Reported from an 86Box IBM 5150 with a Hercules**, on the images built at
+§79.5.8: every time a swimmer enters or leaves at the *right* edge, one to
+three pixels light at the far *left*, in rows that overlap the swimmer's own —
+*"a shimmer of pixels"*. A five-second recording was supplied and read frame
+by frame; docs/FIELD-NOTES.md 38 is the full account and the list of what has
+been ruled out.
+
+**The recording establishes two things.** The mark is not another swimmer —
+at the frames where nothing else is near the left edge, its rows lie inside
+the right-hand swimmer's and outside every other object's. And **it shrinks as
+the swimmer comes further on**: fourteen rows when two pixels of the swimmer
+are showing, three rows when twenty are. That is the half still off the right
+arriving at the start of the row, which is what makes it a defect rather than
+the coincidence of two swimmers in one lane — which the same recording also
+contains, and which reads identically to the eye.
+
+**Nothing in this tree reproduces it.** Under MartyPC on a cycle-accurate
+5150: a swimmer forced to straddle the right edge continuously at every scale,
+kind, speed, alignment, direction and lane over ~2,500 frames, with the other
+three parked where `gfx_blit1` refuses them and the bubbles off the picture,
+the whole screen checked against that one swimmer's box every frame — clean.
+Unforced sessions, 700 frames Hercules and 350 CGA — clean. The **previous**
+renderer under the same sweeps — clean, so this is not something §79.5.8
+introduced, or not something it introduced here. MartyPC's own rasterised
+field against its framebuffer, column by column — they agree, so it is not
+the display path either. `vid_cw` is 720 and `vid_stride` 90; the clip cannot
+let a row overrun.
+
+**`sv_bnd_clip` is therefore not a diagnosis.** It cuts the band to the screen
+in the overlay, so the kernel is never handed one that overhangs and there is
+nothing left for its clip to get wrong — whatever `[vid_cw]` says on the
+machine in question. The second draft's `sv_fish_clip` did exactly this and
+was deleted as redundant when the band arrived (§79.5.8); what is different
+now is that a **band cannot be cut wrong**, because every extent it meets is a
+multiple of 8 and so is the band — §79.5.3's nibble-phase hazard, which made
+the even-x rule an invariant, has no analogue here.
+
+**It costs 74 bytes and draws the identical picture** where the kernel clips
+correctly: 0 differing pixels on CGA, Hercules and VGA, mid-screen and
+straddling both edges. That is also the honest limit of what can be claimed
+for it — a no-op measured on the machine that never had the symptom says
+nothing about the machine that does. **If the shimmer survives it, the
+mechanism is somewhere neither this section nor field note 38 has looked.**
+
+**One reading error is recorded because it cost the first pass entirely.** The
+supplied capture is 740×350 for a 720×348 picture, and the guest's column 0 is
+image column **9**, not 10. An analysis written against the wrong origin never
+looks at column 0 — which is the whole report — and comes back clean while
+the evidence sits in the file. The tell was there: a dim green pixel at image
+column 9 with nothing beside it, in exactly the frames the reporter circled.
+
 ### 79.6 Waking, the cursor, and the repaint
 
 §64.2 is unchanged: the input that brings the desktop back is **consumed**,

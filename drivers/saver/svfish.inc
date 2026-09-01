@@ -474,6 +474,8 @@ sv_fish_blit:
     mov [sv_fby0], ax
 
     call sv_bnd_build
+    call sv_bnd_clip            ; ...and CUT IT TO THE SCREEN OURSELVES, which
+    jc .gone                    ; is belt and braces - see sv_bnd_clip
 
     mov al, [sv_fi + si]        ; the swimmer's colour on ink, black on paper.
     mov ah, CBLACK              ; CBLACK is 0 and 0 is a subset of every
@@ -486,7 +488,7 @@ sv_fish_blit:
     push es                     ; FILE and is the SOURCE for exactly one call
     push ds
     pop es                      ; ES:SI = OUR band (see the file header)
-    mov si, sv_bnd
+    mov si, [sv_bnp]            ; ...at the byte sv_bnd_clip cut it to
     mov ax, [sv_bnx0]
     mov bx, [sv_fby0]
     mov cx, [sv_bnw]
@@ -500,6 +502,7 @@ sv_fish_blit:
                                 ; property, and a clipped-away band is CF = 0
                                 ; ("drawn, and nothing drawn"), so this tests
                                 ; for a kernel and not for a screen edge
+.gone:
 
     mov di, si                  ; the box now on the glass, for the next frame.
     add di, di                  ; DI is RE-DERIVED: sv_bnd_build spends it
@@ -736,6 +739,69 @@ sv_bnd_build:
     pop si
     ret
 
+
+; -----------------------------------------------------------------------------
+; sv_bnd_clip - cut the band to the screen in x (module internal)
+; in:  [sv_bnx0]/[sv_bnw] = the band
+; out: those adjusted and [sv_bnp] = the band pointer to hand over;
+;      CF = 1 = nothing of it is on screen
+; clobbers: AX, CX, flags
+;
+; **gfx_blit1 CLIPS, AND THIS DOES IT ANYWAY.** SPEC.md 79.5.9 is the account;
+; the short version is that the field reported a swimmer at the RIGHT edge
+; lighting one to three pixels at COLUMN 0, in the swimmer's own rows, on an
+; 86Box 5150 with a Hercules - and that the mark SHRINKS as the swimmer comes
+; further on, which is the signature of the half still off the right arriving
+; at the start of the row. Nothing in this tree reproduces it: MartyPC is
+; clean over thousands of straddling frames, in the framebuffer AND in what
+; its card rasterises, on both 1bpp adapters, with the previous renderer as
+; well as this one.
+;
+; So this is not a fix for a mechanism anybody has seen run. It is the removal
+; of the only route by which a band's off-screen half could reach the row's
+; first byte: after this the kernel is never handed a band that overhangs, so
+; whatever `vid_cw` says on the machine in question, there is nothing left for
+; it to get wrong. The second draft's `sv_fish_clip` did exactly this for
+; exactly this reason (SPEC.md 79.5.1) and was deleted as redundant when the
+; band arrived; the difference is that a BAND cannot be cut wrong - every
+; extent it meets is a multiple of 8 and so is the band, so the cut is exact
+; and the nibble-phase hazard that made SPEC.md 79.5.3 an invariant cannot
+; exist here.
+;
+; It costs 74 bytes and no measurable time, and on a machine whose kernel
+; clips correctly it draws the identical picture - 0 differing pixels on CGA,
+; Hercules and VGA, mid-screen and straddling both edges.
+; -----------------------------------------------------------------------------
+sv_bnd_clip:
+    mov ax, sv_bnd
+    mov [sv_bnp], ax
+    mov ax, [sv_bnx0]
+    or ax, ax
+    jns .right                  ; the LEFT edge first, so the compare below
+                                ; meets a number that is not negative - `jae`
+                                ; is unsigned and would call -8 enormous
+    neg ax                      ; AX = how far off it, and a multiple of 8
+    cmp ax, [sv_bnw]
+    jae .none                   ; entirely off it
+    sub [sv_bnw], ax
+    mov word [sv_bnx0], 0
+    mov cl, 3
+    shr ax, cl                  ; ...eight pixels a byte, and exact: the band
+    add [sv_bnp], ax            ; starts on the grid and so does the cut
+.right:
+    mov ax, [sv_bnx0]
+    cmp ax, [sv_w]
+    jae .none
+    add ax, [sv_bnw]
+    sub ax, [sv_w]
+    jle .ok                     ; the last column is on screen
+    sub [sv_bnw], ax
+.ok:
+    clc
+    ret
+.none:
+    stc
+    ret
 
 ; -----------------------------------------------------------------------------
 ; sv_bnd_shift - BH source bytes at DS:SI, shifted right CL bits, into BH + 1
@@ -1085,6 +1151,7 @@ sv_fby0:    dw 0
 sv_fsrc:    dw 0                    ; sv_bnd_build's chosen bitmap
 sv_bnx0:    dw 0                    ; the BAND: where it goes and how wide it
 sv_bnw:     dw 0                    ; is, both multiples of 8 (SPEC.md 5.4.2)
+sv_bnp:     dw 0                    ; ...and the byte sv_bnd_clip cut it to
 sv_bnbo:    dw 0                    ; ...and where the sprite sits in it, as
 sv_bnsh:    db 0                    ; whole bytes plus a shift of 0..7
 sv_bnn:     db 0                    ; bytes a bitmap row becomes before the

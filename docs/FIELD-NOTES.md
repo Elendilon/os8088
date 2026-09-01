@@ -4586,3 +4586,69 @@ below the ink lands where the hand did. The step costs 2.05 ms, so the nib's
 ceiling is ~490 px/s against the width-1 pencil's ~6,000; and **63% of that
 step is `pt_rect`'s fixed preamble rather than any pixel** (SPEC.md §42.8.3),
 which is where a fix for it would go.
+
+
+---
+
+## 38. A swimmer at the RIGHT edge lights one to three pixels at COLUMN 0 — 86Box 5150 + Hercules (OPEN; a cut shipped that removes the only route to it, SPEC.md §79.5.9)
+
+**What was seen.** On an 86Box IBM 5150 with a Hercules, running the images
+built at `a4af84d`: every time a sea-life swimmer enters or leaves at the
+right edge, one to three pixels light at the far LEFT of the screen, in rows
+that overlap the swimmer's own. Reported as *"a shimmer of pixels"*. A
+five-second screen recording was supplied and analysed frame by frame.
+
+**What the recording establishes.** The mark is real and it is not another
+swimmer: at the frames where the only thing near the left edge is the mark
+itself, its rows sit inside the right-hand swimmer's rows and outside every
+other object's. **And it SHRINKS as the swimmer comes further on** — fourteen
+rows when two pixels of the swimmer are visible, three rows when twenty are.
+That is the signature of the half still off the right arriving at the start of
+the row, and it is what makes this a rendering defect rather than a
+coincidence of two swimmers in one lane, which the same recording also
+contains and which reads identically to the eye.
+
+**One reading error is recorded here because it cost the first pass.** The
+capture is 740x350 for a 720x348 picture and the guest's column 0 is image
+column **9**, not 10. An analysis written against the wrong origin never looks
+at column 0 at all — and column 0 is the whole report. The tell was in the
+data the whole time: a dim green pixel at image column 9 with nothing beside
+it.
+
+**What has been ruled out, all of it under MartyPC on a cycle-accurate 5150:**
+
+- The framebuffer. A swimmer forced to straddle the right edge continuously —
+  both scales, both kinds, all four speeds, every 8-pixel alignment, both
+  directions, every lane, ~2,500 frames — with the other three swimmers parked
+  where `gfx_blit1` refuses them and every bubble off the picture, and the
+  WHOLE screen compared against the one swimmer's own box each frame. Nothing.
+- Unforced sessions: 700 frames Hercules, 350 CGA, whole screen against every
+  swimmer's and bubble's box. Nothing.
+- **The previous renderer behaves identically** — the same sweeps against the
+  4bpp `gfx_blit4` build are equally clean, so this is not something SPEC.md
+  §79.5.8 introduced, or at least not something it introduced *here*.
+- The display path. MartyPC's own rasterised field was compared against the
+  framebuffer, column by column, for every frame of a straddle. They agree:
+  the card shows what the memory says.
+- The instrument. A pixel planted at column 0 of four rows, and a byte planted
+  one past a row's end, are both seen exactly where the Hercules bank
+  arithmetic puts them — so a negative result is a negative result.
+- `gfx_fill` at the edges: bubbles pinned at and past the right edge draw
+  nothing at the left.
+- The geometry: `vid_cw` = 720 and `vid_stride` = 90 on Hercules, `640`/`80`
+  on CGA. The clip cannot let a row overrun.
+
+**The standing theory** is therefore that something about `[vid_cw]` or the
+row extent differs on the reporter's machine, and that the band's off-screen
+half reaches the row's first byte through `gfx_blit1`'s right clip. Nothing
+here can see it, so the theory is unconfirmed.
+
+**What shipped** is not a fix for a mechanism anybody has watched run: it is
+`sv_bnd_clip`, which cuts the band to the screen in the overlay so the kernel
+is never handed one that overhangs. On a machine whose kernel clips correctly
+it is a no-op — 0 differing pixels on CGA, Hercules and VGA, mid-screen and
+straddling both edges — so it costs nothing and it removes the only route by
+which the off-screen half could arrive at column 0. **If the shimmer survives
+it, the mechanism is somewhere this note has not looked**, and the next thing
+to ask for is the reporter's `86box.cfg` and what the Control Panel's Display
+page says the screen is.
