@@ -672,7 +672,6 @@ assoc_post_x:
 ; out: assoc_fnb holds the NUL name; all registers preserved
 ; -----------------------------------------------------------------------------
 assoc_fname:
-    push ax
     push di
     mov di, assoc_fnb
     call assoc_stemcpy
@@ -680,7 +679,6 @@ assoc_fname:
     mov word [di+2], '88'
     mov byte [di+4], 0
     pop di
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1269,7 +1267,6 @@ assoc_point:
 ; assoc_ext_new - claim a free extension row. in: SI -> 3 ext bytes;
 ; out: CF=0 and BX = the row with the extension written in; CF=1 = full
 assoc_ext_new:
-    push ax
     push cx
     mov bx, assoc_ext
     mov cx, ASSOC_NEXT
@@ -1289,7 +1286,6 @@ assoc_ext_new:
     clc
 .out:
     pop cx
-    pop ax
     ret
 
 ; assoc_app_new - claim a free app slot for the stem in assoc_stemb.
@@ -1348,9 +1344,7 @@ assoc_app_new:
 ; there). Does nothing if the caller ships no icon - the document then draws
 ; the bare page, which is honest.
 assoc_self_glyph:
-    push ax
     push bx
-    push cx
     push si
     push di
     cmp word [es:0], 0x384F     ; 'O','8' - a package header, not a stray
@@ -1364,9 +1358,7 @@ assoc_self_glyph:
 .out:
     pop di
     pop si
-    pop cx
     pop bx
-    pop ax
     ret
 
 ; =============================================================================
@@ -1809,7 +1801,6 @@ asc_slot_of:
 ; -----------------------------------------------------------------------------
 asc_lookup_x:
     push ax
-    push bx
     push cx
     push dx
     push si
@@ -1848,7 +1839,6 @@ asc_lookup_x:
     pop si
     pop dx
     pop cx
-    pop bx
     pop ax
     ret
 
@@ -1898,8 +1888,6 @@ asc_take_x:
 asc_note:
     push ax
     push bx
-    push cx
-    push dx
     push si
     push di
     push es
@@ -1925,8 +1913,6 @@ asc_note:
     pop es
     pop di
     pop si
-    pop dx
-    pop cx
     pop bx
     pop ax
     ret
