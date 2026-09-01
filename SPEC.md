@@ -7674,9 +7674,15 @@ path, so the injection floor cannot enter the number.
   so DS must be theirs; the window record and every other kernel structure
   they were handed lives in the kernel's, so ES must be the kernel's
   (kernel/sched.inc:422–423 and :434). The frame carries the two
-  separately — `mov [es:di], ax` for DS from `[sch_newseg]`,
-  `mov word [es:di+2], KERNEL_SEG` for ES — which is why there is no
-  configuration in which they are the same for a package.
+  separately — the first `stosw` writes DS from the segment banked in **BP**,
+  the second writes ES from `KERNEL_SEG` — which is why there is no
+  configuration in which they are the same for a package. The whole 24-byte
+  frame is built with **twelve `stosw`** through ES = `LOW_SEG`, in the order
+  DS, ES, BP, DI, SI, BX, DX, CX, AX, IP, CS, FLAGS; DI is dead past the block
+  because the frame base is already parked in `T_SP`, and DF is 0 from the
+  slice fill's own `cld`. The new task's segment lives in BP for the length of
+  the routine rather than in a `.bss` word — as a **value**, never an address,
+  so no `[bp+…]` is introduced and the SS ≠ DS rule is untouched.
   Out: CF set if no free slot, else CF clear and **AL = slot index**
   (1..MAX_TASKS-1; the scan starts at slot 1 — slot 0 is the UI task and is
   never free). Clobbers AX. Zeroes the slot's `sch_cycles` dword **before**
@@ -7757,6 +7763,17 @@ path, so the injection floor cannot enter the number.
   elapsed = now − [sch_pit_last] (32-bit sub), store now back, add elapsed
   into `sch_cycles` + 4·[sch_cur] (add/adc). Both call sites run before
   sch_switch changes sch_cur, so the slice lands on the task that just ran.
+  **Out: SI = 4·[sch_cur], the byte offset of that slot inside `sch_cycles`,
+  on BOTH arms** — including the `sch_fast` early-out, which charges nothing
+  but still answers the question. The index is computed at the head of the
+  routine, in BX, because CX carries the latched phase further down; nothing
+  before the `out 0x43` can affect the reading, so hoisting it cannot change
+  what is measured. `task_cycles` and `task_debit` take that SI instead of
+  re-deriving it from the same `[sch_cur]` under the same `cli`. **Clobbers
+  AX, BX, CX, DX and SI on both arms** (the early-out used to clobber
+  nothing); every call site tolerates it — `sch_isr` holds a full frame,
+  `sch_switch`'s `.pick` pushes DX and BX, `task_exit` banks the record
+  pointer in DI first, and `task_cycles`/`task_debit` push BX, CX and SI.
   The timestamp scheme is exact for intervals of any length — a full-tick
   slice with no yield spans exactly one reload, which a bare mod-65536
   count delta would alias to ~0. That last sentence is what §8.1.1 rests on.
@@ -7832,7 +7849,8 @@ cheaper than the reasoning needed to remove it safely.
   the sch_isr → sch_switch → sch_resume fall-through run (same placement
   rule as sch_account):
   - `task_cycles` — out DX:AX = `sch_cycles[sch_cur]` with the pending
-    slice folded in (`pushf`/`cli`, sch_account, read, `popf`).
+    slice folded in (`pushf`/`cli`, sch_account, read **at the SI that call
+    hands back**, `popf`).
   - `task_debit` — in DX:AX = a stamp from `task_cycles` **taken on this
     task**; out DX:AX = the cycles elapsed since it, *subtracted* from
     `sch_cycles[sch_cur]` in the same cli window. Move, not copy: the
@@ -8028,8 +8046,10 @@ SCH_WD_TICKS equ 18       ; ~1s at 18.2065 Hz: forced switch after this many
 
 ; .bss (sched_init stores 0 to all three — nothing clears .bss at boot, §8)
 sch_coop     resb 1       ; 0 = pre-emptive, 1 = cooperative
-sch_hold     resb 1       ; ticks the running task has held the CPU since the
-                          ; last entry to sch_switch
+sch_hold     resb 1       ; ticks of watchdog budget LEFT to the running task:
+                          ; armed to SCH_WD_TICKS on every entry to sch_switch
+                          ; and counted DOWN, so the test is the decrement's
+                          ; own ZF and needs no second read and no compare
 sch_wd_hits  resw 1       ; diagnostic count of watchdog-forced switches;
                           ; wraps mod 65536, never reset after init, read
                           ; only by a debugger (QMP `xp` on segment 0x0800)
@@ -8051,9 +8071,8 @@ and can never trip the watchdog. The tail of the ISR is exactly:
     jne sch_resume
     cmp byte [sch_coop], 0
     je .sw                      ; pre-emptive: switch every tick
-    inc byte [sch_hold]         ; cooperative: only the watchdog switches
-    cmp byte [sch_hold], SCH_WD_TICKS
-    jb sch_resume
+    dec byte [sch_hold]         ; cooperative: only the watchdog switches
+    jnz sch_resume
     inc word [sch_wd_hits]
 .sw:
     ; fall through into sch_switch
@@ -8073,12 +8092,17 @@ before `snd_init` runs and nothing clears `.bss` at boot (§8). Idle cost
 once live is ~30 cycles; the worst case is a tone expiry, which is four
 `out`s to silence the speaker.
 
-**`sch_hold` is reset on every entry to `sch_switch`** (`mov byte
-[sch_hold], 0`, at the top of the routine). `sch_switch` is entered three
-ways — fall-through from `sch_isr`, the explicit `jmp` from `task_yield`'s
-save path, and the explicit `jmp` from `task_exit` — and all three reset
-it, because the counter's meaning is *ticks since the running task last
-reached the switch path*, not ticks since the last successful task change.
+**`sch_hold` is re-armed on every entry to `sch_switch`** (`mov byte
+[sch_hold], SCH_WD_TICKS`, at the top of the routine). `sch_switch` is
+entered three ways — fall-through from `sch_isr`, the explicit `jmp` from
+`task_yield`'s save path, and the explicit `jmp` from `task_exit` — and all
+three re-arm it, because the counter's meaning is *the budget left before
+the watchdog fires*, spent one tick at a time since the running task last
+reached the switch path, not ticks since the last successful task change.
+The only 0 it ever holds is the transient one on the tick that falls
+straight into `sch_switch` and re-arms; `sched_init` arms it **before** it
+installs the int 08h vector, so the ISR never sees `.bss`'s zero (which
+under the down-counter would be a wrap to 255 rather than a harmless 1).
 Consequences that are relied upon: a task that yields voluntarily can never
 trip the watchdog no matter how long it runs in total; the
 "nothing ready, resume the outgoing task" fallback inside `sch_switch`
@@ -8087,7 +8111,7 @@ watchdog hits; and a task that dies clears it for its successor.
 
 | symbol | contract |
 |--------|----------|
-| `sched_mode_set` | in AL = 0 pre-emptive, any non-zero = cooperative. Out: nothing; **preserves every register**, clobbers flags only. Under `pushf`/`cli` … `popf`: normalize AL to 0/1 into `[sch_coop]` and store 0 to `[sch_hold]` (the incoming mode starts with a full budget). Callable from any task at any time. |
+| `sched_mode_set` | in AL = 0 pre-emptive, any non-zero = cooperative. Out: nothing; **preserves every register**, clobbers flags only. Under `pushf`/`cli` … `popf`: normalize AL to 0/1 into `[sch_coop]` and store `SCH_WD_TICKS` to `[sch_hold]` (the incoming mode starts with a full budget). Callable from any task at any time. |
 | `sched_mode_get` | out AL = `[sch_coop]` (0 or 1); preserves every other register, clobbers flags only. Readers that only display the mode (§14 About, §28 Task Manager, §31) call this — nobody reads `sch_coop` directly. |
 
 **PLACEMENT (safety-critical).** Both routines must sit **outside** the

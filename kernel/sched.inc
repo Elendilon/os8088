@@ -151,7 +151,8 @@ sched_init:
     mov word [ticks], 0
     mov byte [sch_fast], 0      ; no sub-tick until a bracket asks (53.8)
     mov byte [sch_coop], 0      ; pre-emptive until the Control Panel says
-    mov byte [sch_hold], 0      ; otherwise (SPEC.md 8.2). All three are
+    mov byte [sch_hold], SCH_WD_TICKS
+                                ; otherwise (SPEC.md 8.2). All three are
     mov byte [sch_idleslot], 0xFF ; NO idle task yet, and this is exactly why
                                 ; it is 0xFF rather than 0 - nothing clears
                                 ; .bss, and a zero here names slot 0, the UI
@@ -370,15 +371,29 @@ sched_unhook:
 ; is already READY is a no-op.
 ; -----------------------------------------------------------------------------
 sch_wake_ui:
-    mov byte [sch_uiwake], 1    ; ...and SAY SO, for the lost-wakeup guard at
-                                ; ui_task's .idle (SPEC.md 8.1.2.3). The
-                                ; T_STATE store below is not enough on its own:
-                                ; it carries no information while the task is
-                                ; RUNNING, which is exactly when the race
-                                ; happens
-    mov byte [sch_idlewake], 1  ; ...and the same fact for the idle task's own
-                                ; halt guard (SPEC.md 8.1.2), which is spent
-                                ; there and not here
+    mov word [sch_uiwake], 0x0101
+                                ; ...and SAY SO, for the lost-wakeup guard at
+                                ; ui_task's .idle (SPEC.md 8.1.2.3) AND for
+                                ; the idle task's own halt guard (SPEC.md
+                                ; 8.1.2), spent at sch_idle_body's .rearm.
+                                ; The T_STATE store below is not enough on its
+                                ; own: it carries no information while the
+                                ; task is RUNNING, which is exactly when the
+                                ; race happens.
+                                ;
+                                ; ONE word store, not two byte stores: the two
+                                ; bytes are adjacent (the %if at the foot of
+                                ; this file makes that a build-time fact) and
+                                ; are always set together to the same value.
+                                ; 6 bytes against 10, so the 8088's fetch
+                                ; floor falls 43.4 -> 26.0 clocks - and an
+                                ; 8086 takes an interrupt only at an
+                                ; instruction boundary, so a single word store
+                                ; cannot be torn where two byte stores can,
+                                ; which is the right direction for a
+                                ; lost-wakeup guard. NOTHING ABOUT THE WAKEUP
+                                ; LOGIC CHANGES: same bytes, same values, same
+                                ; two readers, each spending its own
     mov byte [sch_tasks+T_STATE], 1
     ret
 
@@ -525,15 +540,20 @@ task_spawn:
     push si
     push di
     push es
+    push bp                     ; BP is the new task's SEGMENT below - a
+                                ; VALUE, never an address, so no [bp+..] is
+                                ; introduced and SS != DS is untouched
     pushf                       ; the caller's IF, banked across the window
     cli
     or bx, bx                   ; BX = 0 means the kernel's own segment
     jnz .haveseg
     mov bx, KERNEL_SEG
 .haveseg:
-    mov [sch_newseg], bx        ; banked: BX is the scan pointer below, and
-                                ; this whole routine runs at IF=0 so no
-                                ; second spawner can be in here with us
+    mov bp, bx                  ; banked: BX is the scan pointer below. A
+                                ; register rather than a .bss word: task_spawn
+                                ; uses BP nowhere else and makes no outbound
+                                ; call between here and the frame build, so
+                                ; the two segment stores can read it directly
 
     mov bx, sch_tasks + T_SIZE  ; scan for a free slot, from slot 1
     mov cx, 1                   ; CX = slot index
@@ -598,28 +618,37 @@ task_spawn:
     mov di, ax
     mov [bx+T_SP], di
 
-    mov ax, LOW_SEG             ; the frame lives in LOW_SEG, so it is built
-    mov es, ax                  ; through ES - DS cannot reach it. AX is dead
-                                ; here: DI already carries the frame address
-                                ; and the xor below is its next use. CX IS
+                                ; the frame lives in LOW_SEG, so it is built
+                                ; through ES - DS cannot reach it. ES IS
+                                ; ALREADY LOW_SEG, loaded for the 0xCC fill
+                                ; above, and nothing between writes it. CX IS
                                 ; NOT DEAD - it is the slot index, and it is
                                 ; still needed for the cycle counter and the
                                 ; return value below
-    mov ax, [sch_newseg]
-    mov [es:di], ax                ; DS slot = the task's own segment
-    mov word [es:di+2], KERNEL_SEG ; ES slot: the kernel, always (SPEC 20.1)
+                                ; ...and DI is dead past the block: the frame
+                                ; address is already parked in T_SP above, so
+                                ; stosw may walk it. DF is 0 from the fill's
+                                ; own cld and nothing between touches it
+    mov ax, bp
+    stosw                       ; DS  = the task's own segment
+    mov ax, KERNEL_SEG
+    stosw                       ; ES  = the kernel, always (SPEC.md 20.1)
     xor ax, ax
-    mov [es:di+4], ax           ; BP
-    mov [es:di+6], ax           ; DI
-    mov [es:di+8], ax           ; SI
-    mov [es:di+10], ax          ; BX
-    mov [es:di+12], dx          ; DX = the spawn argument
-    mov [es:di+14], ax          ; CX
-    mov [es:di+16], ax          ; AX
-    mov [es:di+18], si          ; IP = entry
-    mov ax, [sch_newseg]
-    mov [es:di+20], ax          ; CS = the task's own segment
-    mov word [es:di+22], 0x0202 ; FLAGS: IF=1, reserved bit 1 set
+    stosw                       ; BP
+    stosw                       ; DI
+    stosw                       ; SI
+    stosw                       ; BX
+    xchg ax, dx                 ; one byte each way, and DX is wanted below
+    stosw                       ; DX  = the spawn argument
+    xchg ax, dx
+    stosw                       ; CX
+    stosw                       ; AX
+    mov ax, si
+    stosw                       ; IP  = entry
+    mov ax, bp
+    stosw                       ; CS  = the task's own segment
+    mov ax, 0x0202
+    stosw                       ; FLAGS: IF=1, reserved bit 1 set
     mov [bx+T_INST], dl         ; owning instance (0xFF = none)
     mov byte [bx+T_FLAGS], 0    ; TF_SERVICE is the driver cell's to set
                                 ; (SPEC.md 53.2), never inherited
@@ -628,8 +657,13 @@ task_spawn:
     shl ax, 1                   ; publish, so a reused slot never inherits
     shl ax, 1                   ; a dead task's total (SPEC.md 8.1)
     mov di, ax
-    mov word [di+sch_cycles], 0
-    mov word [di+sch_cycles+2], 0
+    xor ax, ax                  ; through AX: mov [m],ax is 4 bytes where
+    mov [di+sch_cycles], ax     ; mov word [m],0 is 6, and AX is free here
+    mov [di+sch_cycles+2], ax   ; (it held the FLAGS word, dead, and is
+                                ; reloaded from CX two lines below).
+                                ; [di+disp] addresses DS, not SS - DI is not
+                                ; BP - which is the addressing this already
+                                ; used
 
     mov byte [bx+T_STATE], 1    ; publish - MUST be the last record write
     mov ax, cx                  ; AL = slot index (1..MAX_TASKS-1)
@@ -639,6 +673,7 @@ task_spawn:
     cmp al, 1                   ; the answer is re-derived from AL here:
                                 ; AL = 0 -> CF = 1 (table full), else CF = 0.
                                 ; The pops below touch no flags.
+    pop bp
     pop es
     pop di
     pop si
@@ -789,9 +824,40 @@ task_exit:
 ; in:       IF=0, DS=KERNEL_SEG, [sch_cur] = the task being charged. Both
 ;           call sites (sch_isr, task_yield's save path) hold a complete
 ;           saved frame, so clobbering is safe.
-; clobbers: AX, BX, CX, DX, SI
+; out:      SI = 4 * [sch_cur], the byte offset of that task's slot inside
+;           sch_cycles - ON BOTH ARMS, including the sch_fast early-out,
+;           which charges nothing but still answers the question. task_cycles
+;           and task_debit used to re-derive this from the same [sch_cur]
+;           under the same cli; now they do not.
+; clobbers: AX, BX, CX, DX, SI - on BOTH arms now; the early-out used to
+;           clobber nothing. Every call site already tolerated the list:
+;           sch_isr holds a full frame, sch_switch's .pick pushes DX and BX,
+;           task_exit banks the record pointer in DI first, task_cycles and
+;           task_debit push BX/CX/SI.
+;
+; WHAT THE MOVE COSTS, said out loud. On the charging arm it is exactly
+; neutral - the same five instructions, relocated from .cohere, which every
+; path through that arm reaches anyway. On the sch_fast EARLY-OUT arm it is
+; 12 bytes of new straight-line code: 23 clocks of execution under a 52.1
+; fetch floor, so 52.1 clocks per entry, and that arm is taken only while an
+; fsx bracket is armed (SPEC.md 53.2.1). sch_isr calls this at .full, the
+; TICK, and not on sub-ticks, so the ISR's share of that is 18.2/s = 948
+; clocks a second = 0.020% of a 4.77 MHz 8088; each additional REAL task
+; change inside the bracket adds 52.1 more (100/s would be 0.11%), and the
+; freeze leaves at most the exclusive task, its kept worker and a driver's
+; service worker eligible. Outside a bracket sch_fast is 0, this arm is not
+; taken, and the change costs nothing at all. The alternative - a second copy
+; of the index block on the early-out arm - is 12 of the 24 bytes back for
+; that 0.02%, and the bytes win.
 ; -----------------------------------------------------------------------------
 sch_account:
+    mov bl, [sch_cur]           ; SI = &sch_cycles[sch_cur] - an OUTPUT, so it
+    xor bh, bh                  ; is computed before the early-out below and
+    shl bx, 1                   ; not after the charge. In BX, because CX
+    shl bx, 1                   ; carries the latched phase further down; and
+    mov si, bx                  ; hoisting it above the latch cannot change
+                                ; the reading, because nothing before the
+                                ; `out 0x43` affects it
     cmp byte [sch_fast], 0      ; the fsx sub-tick (SPEC.md 53.2.1) divides the
     jne .idle                   ; very period this arithmetic is built on, so
                                 ; accounting PAUSES for the bracket - here
@@ -821,12 +887,7 @@ sch_account:
     sbb bx, [sch_pit_last+2]
     mov [sch_pit_last], cx
     mov [sch_pit_last+2], dx
-    mov cl, [sch_cur]           ; sch_cycles[sch_cur] += elapsed
-    xor ch, ch
-    shl cx, 1
-    shl cx, 1
-    mov si, cx
-    add [si+sch_cycles], ax
+    add [si+sch_cycles], ax     ; sch_cycles[sch_cur] += elapsed, at the SI
     adc [si+sch_cycles+2], bx
 .idle:
     ret
@@ -852,12 +913,7 @@ task_cycles:
     push si
     pushf
     cli                         ; sch_account's contract: IF=0
-    call sch_account
-    mov cl, [sch_cur]
-    xor ch, ch
-    shl cx, 1
-    shl cx, 1
-    mov si, cx
+    call sch_account            ; ...which hands back SI = the slot's offset
     mov ax, [si+sch_cycles]
     mov dx, [si+sch_cycles+2]
     popf
@@ -897,12 +953,7 @@ task_debit:
     mov di, dx                  ; clobbers AX/BX/CX/DX/SI, but not BP/DI
     pushf
     cli
-    call sch_account
-    mov cl, [sch_cur]
-    xor ch, ch
-    shl cx, 1
-    shl cx, 1
-    mov si, cx
+    call sch_account            ; ...which hands back SI = the slot's offset
     mov ax, [si+sch_cycles]
     mov dx, [si+sch_cycles+2]
     sub ax, bp                  ; DX:AX = now - start
@@ -964,7 +1015,8 @@ sched_mode_set:
     mov al, 1                   ; normalise: any non-zero means cooperative
 .store:
     mov [sch_coop], al
-    mov byte [sch_hold], 0      ; the incoming mode starts with a full budget
+    mov byte [sch_hold], SCH_WD_TICKS
+                                ; the incoming mode starts with a full budget
     popf
     pop ax
     retf
@@ -1581,9 +1633,11 @@ sch_isr:
     jne sch_resume
     cmp byte [sch_coop], 0
     je .sw                      ; pre-emptive: switch every tick
-    inc byte [sch_hold]         ; cooperative: only the watchdog switches
-    cmp byte [sch_hold], SCH_WD_TICKS
-    jb sch_resume
+    dec byte [sch_hold]         ; cooperative: only the watchdog switches.
+    jnz sch_resume              ; DOWN, not up: the decrement's own ZF is the
+                                ; test, so a second read and a compare go.
+                                ; Same 18 ticks either way - every entry to
+                                ; sch_switch re-arms the budget
     inc word [sch_wd_hits]      ; forced switch - diagnostic only
 .sw:
     ; fall through into sch_switch
@@ -1596,15 +1650,16 @@ sch_isr:
 ; record, picks the next ready task round-robin (falling back to the current
 ; task if nothing is ready), and resumes it.
 ;
-; Clearing sch_hold is the FIRST thing done here, and deliberately on the
+; RE-ARMING sch_hold is the FIRST thing done here, and deliberately on the
 ; routine's single entry point rather than at each caller: the counter means
-; "ticks since the running task last reached the switch path", so every one of
-; the three ways in - fall-through from sch_isr, the explicit jmp from
-; task_yield's save path, the explicit jmp from task_exit - must clear it
-; (SPEC.md 8.2). Hence a task that yields voluntarily can never trip the
-; watchdog however long it runs in total; the "nothing ready, resume the
-; outgoing task" fallback below clears it too, so an idle single-task system
-; manufactures no watchdog hits; and a dying task clears it for its successor.
+; "ticks of watchdog budget left since the running task last reached the switch
+; path", so every one of the three ways in - fall-through from sch_isr, the
+; explicit jmp from task_yield's save path, the explicit jmp from task_exit -
+; must re-arm it (SPEC.md 8.2). Hence a task that yields voluntarily can never
+; trip the watchdog however long it runs in total; the "nothing ready, resume
+; the outgoing task" fallback below re-arms it too, so an idle single-task
+; system manufactures no watchdog hits; and a dying task re-arms it for its
+; successor.
 ; -----------------------------------------------------------------------------
 sch_switch:
     ; STKBALANCE-OK: the context switch. Its iret restores the NEXT task and
@@ -1612,7 +1667,9 @@ sch_switch:
     ; entry walked in here is meaningless (SPEC.md 8). The walker stops on
     ; arrival at an exempted routine, so this one line also covers task_exit
     ; and inst_task_die, which both reach the switch by a tail jmp.
-    mov byte [sch_hold], 0      ; the outgoing task reached the switch path
+    mov byte [sch_hold], SCH_WD_TICKS
+                                ; the outgoing task reached the switch path,
+                                ; so its watchdog budget is full again
     mov bl, [sch_cur]           ; park the outgoing task's SP
     xor bh, bh
     mov cl, 3
@@ -1639,21 +1696,53 @@ sch_switch:
     xor bl, bl                  ; byte and nothing else. Two instructions - and
                                 ; NOT the shipping configuration since the
                                 ; 8 x 384 move: the %else below is what ships
+%elif SCH_STACK == 384
+    mov bh, bl                  ; THE SHIPPING ARM. 384 = 256 + 128, and both
+    xor bl, bl                  ; are shifts: the byte swap IS (cur-1) * 256...
+    mov ax, bx
+    shr ax, 1                   ; ...and half of that is (cur-1) * 128...
+    add bx, ax                  ; ...so the sum is (cur-1) * 384. Max 2,304,
+                                ; no overflow. 12 clocks over 10 bytes, so the
+                                ; 8088's fetch floor (43.4) binds - against
+                                ; the general arm's 121 clocks over 14 bytes,
+                                ; where `mul ah`'s 70 makes EXECUTION bind.
+                                ; ~78 clocks a switch, and this block is
+                                ; skipped for task 0, so the workload it is
+                                ; worth anything on is the one with a package
+                                ; open: 2.5% of a 4.77 MHz 8088 at
+                                ; SCHED-IDLE-PLAN 6.3's measured 1,541
+                                ; switches a second
 %else
     xor bh, bh                  ; ...and for any OTHER slice size, one 8-bit
     mov ax, bx                  ; multiply: SCH_STACK is a multiple of 128 by
     mov ah, SCH_STACK / 128     ; the guard above, so (cur-1) * (SCH_STACK/128)
     mul ah                      ; shifted left 7 is the base. AX and CX are both
     mov cl, 7                   ; free here - the outgoing task's copies are on
-    shl ax, cl                  ; the stack sch_resume pops from - and ~75
-    mov bx, ax                  ; clocks at 18.2 switches a second is 0.03% of
-%endif                          ; the machine. SCH_STACK is a CONSTANT AND A
-                                ; REBUILD now, which is what a change to it has
-                                ; to be if it is ever going to be taken
+    shl ax, cl                  ; the stack sch_resume pops from. NOT ASSEMBLED
+    mov bx, ax                  ; on any shipping kernel: %elif means only the
+%endif                          ; matching arm exists. SCH_STACK is a CONSTANT
+                                ; AND A REBUILD now, which is what a change to
+                                ; it has to be if it is ever going to be taken
     cmp word [ss:bx+sch_stacks], SCH_MAGIC
     jne sch_stkdie
 .nocanary:
 
+    mov cl, 3                   ; T_SIZE = 8, so a slot index shifts left 3.
+                                ; ***CL IS LIVE FROM HERE TO .pick*** - the
+                                ; two `shl bx, cl` below share this one load,
+                                ; which also takes it out of the up-to-8
+                                ; iteration scan body. NOTHING ADDED BETWEEN
+                                ; HERE AND .pick MAY WRITE CX: .scan would
+                                ; then shift by a wrong count, .pick would
+                                ; load SP from a mis-strided record and
+                                ; sch_resume would iret into nothing. It is
+                                ; set BELOW .nocanary and not above it because
+                                ; the canary arms are free to use CL (the
+                                ; general %else arm does, and both routes -
+                                ; fall-through and the `jz .nocanary`
+                                ; shortcut - land here).
+                                ; Past .pick, `call sch_account` clobbers CX
+                                ; and nothing reads CL again.
     mov dl, [sch_cur]           ; scan cur+1, cur+2, ... (cur itself last)
     mov dh, MAX_TASKS
 .scan:
@@ -1664,8 +1753,7 @@ sch_switch:
 .nowrap:
     mov bl, dl
     xor bh, bh
-    mov cl, 3
-    shl bx, cl
+    shl bx, cl                  ; CL = 3, set once at .nocanary
     cmp byte [bx+sch_tasks+T_STATE], 1
     jne .skip
     cmp dl, [sch_idleslot]      ; the idle task is picked at the fallback
@@ -1688,8 +1776,7 @@ sch_switch:
 .idlepick:
     mov bl, dl
     xor bh, bh
-    mov cl, 3
-    shl bx, cl
+    shl bx, cl                  ; CL = 3, set once at .nocanary
 .pick:
     ; --- charge the OUTGOING task, and ONLY on a real change (SPEC.md 8.1.1)
     ; [sch_cur] still names the task that just ran, which is what sch_account
@@ -1870,16 +1957,20 @@ sch_subs:   resw 1                      ; free-running IRQ0 entries, SUB-TICKS
                                         ; wrap at 65536 is not a case
 sch_coop:   resb 1                      ; mode (SPEC.md 8.2): 0 pre-emptive,
                                         ; 1 cooperative; sched_mode_set/_get
-sch_hold:   resb 1                      ; ticks the running task has held the
-                                        ; CPU since the last entry to
-                                        ; sch_switch; only counts up while
-                                        ; sch_coop is set and sch_lock clear,
-                                        ; and is compared against
-                                        ; SCH_WD_TICKS (18) on the tick that
-                                        ; incremented it, so it cannot pass 18
-sch_newseg: resw 1                      ; task_spawn scratch: the code segment
-                                        ; of the task being built (IF=0, so
-                                        ; it cannot race a second spawner)
+sch_hold:   resb 1                      ; ticks of watchdog budget LEFT to the
+                                        ; running task: armed to SCH_WD_TICKS
+                                        ; on every entry to sch_switch and
+                                        ; counted DOWN, only while sch_coop is
+                                        ; set and sch_lock clear. The
+                                        ; decrement's own ZF is the test, so
+                                        ; there is no second read and no
+                                        ; compare. The only 0 it holds is the
+                                        ; transient one that falls straight
+                                        ; into sch_switch and re-arms -
+                                        ; sched_init arms it BEFORE it hooks
+                                        ; int 08h, so the ISR never sees
+                                        ; .bss's zero, which here would wrap
+                                        ; to 255 rather than count as 1
 sch_uiwake: resb 1                      ; an ISR woke the UI task - or a saver
                                         ; frame came back already due, which
                                         ; is the same statement from inside
@@ -1898,5 +1989,12 @@ sch_idleslot: resb 1                    ; the idle task's slot, or 0xFF for
 sch_wd_hits: resw 1                     ; watchdog-forced switches; diagnostic
                                         ; only (QMP xp on segment 0x0800),
                                         ; wraps mod 65536, never reset
+
+; sch_wake_ui sets BOTH wake bytes with one `mov word [sch_uiwake], 0x0101`.
+; The labels cannot be folded at the store's own line, so the guard lives here,
+; after the declarations.
+%if sch_idlewake - sch_uiwake != 1
+  %error "sch_wake_ui sets both wake bytes with ONE word store (SPEC.md 8.1.2) - keep sch_uiwake and sch_idlewake adjacent, in that order"
+%endif
 
 section .text
