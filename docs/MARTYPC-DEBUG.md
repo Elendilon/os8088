@@ -744,7 +744,30 @@ of a CI runner and of the container an agent works in.
 
 Measured end to end, four emulator rows through `os88test.py`: **175.6 s at
 `--marty-jobs 1`, 85.9 s at 3**, with each row 6–10% slower and none of them
-failing.
+failing. A second sample, four soak rows drawn at random from the 79 eligible
+(soak, emulator, no `make`) and run at the core count itself:
+
+| row | solo | four at once |
+|---|---|---|
+| `sizesnap` | 25.0 s | 29.0 s (+16%) |
+| `fmthumb` | 30.1 s | 36.9 s (+23%) |
+| `drvcall` | 56.3 s | 62.7 s (+11%) |
+| `fmcommit` | 75.3 s | 83.9 s (+11%) |
+| **wall** | **186.8 s** | **83.9 s** |
+
+All four pass either way. **The cost lands on the clock and nowhere else** —
+which is the property that makes N agents on one box safe: an agent that takes
+a core off another agent lengthens their run and cannot invalidate it.
+
+**What that puts at risk is a HOST-CLOCK ASSUMPTION**, and there are three of
+them thin enough to name: `tests/bouncecost.py` (`wait_stop(limit=8.0)`),
+`tests/modstr.py` (`watch_toast(limit=8.0)`) and `tests/paintcull.py`
+(`wait_stop(limit=10.0)`) each give guest work a single-figure window of host
+seconds. At the core count that window loses ~12%; at 8 instances on 4 cores
+the guest runs at 1.66x instead of 3.4x, so it loses **half**. Everything else
+has room by a wide margin — `settle` allows 120 s for a 7.6 s boot, a suite
+row's timeout is `4x` its declared seconds — so those three are where a
+tighter budget would bite first.
 
 #### A bench that outlives the command
 
