@@ -375,7 +375,7 @@ op_size:
     push cx
     mov cx, [si+OP_R_LEN]
     add cx, 511
-    jc .ovfc
+    jc .ovfx
     push ax
     mov ax, cx
     mov cl, 9
@@ -464,6 +464,11 @@ op_size:
 .norun:
     clc
     ret
+.ovfx:                          ; the .xspan path banks AX *and* CX, so its
+    pop cx                      ; overflow exit has to give BOTH back: with
+    pop ax                      ; .ovfc's single pop it returned at depth +1
+    stc                         ; and `ret` took the saved AX for its return
+    ret                         ; address (SPEC.md 20.12)
 .ovfc:
     pop cx
     jmp short .bad
