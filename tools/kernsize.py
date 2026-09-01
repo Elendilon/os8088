@@ -755,6 +755,10 @@ def main():
     ap.add_argument("--modules", action="store_true",
                     help="the per-module attribution")
     ap.add_argument("--json", action="store_true", help="the raw figures")
+    ap.add_argument("--strict", action="store_true",
+                    help="exit 1 when the size cannot be measured. This tool "
+                         "is a REPORT and exits 0 by default even when it "
+                         "measured nothing; a gate wants the opposite.")
     ap.add_argument("--build", metavar="DIR",
                     help="where the generated includes are (default build/); "
                          "a sub-make with BUILD= set needs this")
@@ -774,7 +778,14 @@ def main():
         # reporter that can break `make` is a reporter someone will delete.
         print(f"kernsize: could not measure ({err.splitlines()[-1][:120]})",
               file=sys.stderr)
-        return 0
+        # EXIT 0 IS DELIBERATE, and it is also a trap for a GATE.  This tool is
+        # a report - the Makefile runs it with `|| true` and the guards inside
+        # kernel.asm are what refuse an overrun - so failing the build here
+        # would be wrong.  But a script that checks $? would sail straight past
+        # "could not measure" and conclude the size was fine, which is the same
+        # class of quiet wrongness as the ks:-after-a-failed-assembly bug above.
+        # --strict is how a gate asks for the other contract.
+        return 1 if a.strict else 0
 
     if a.json:
         print(json.dumps({k: cur[k] for k in sorted(cur)}, indent=2))
