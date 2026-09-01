@@ -41,11 +41,20 @@ ASSOC_DECLMAX equ 5             ; extensions one header block can declare
 ; interior holds an 8x8 inset at x=4..11, y=5..12 - one pixel clear of the
 ; border on every side. 16 mask words (the white underlay, so the page reads
 ; on the desktop dither) then 16 data words, bit 15 = leftmost.
-assoc_page:
-    dw 0x3FE0, 0x3FF0, 0x3FF8, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC
-    dw 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC
-    dw 0x3FE0, 0x2030, 0x2028, 0x203C, 0x2004, 0x2004, 0x2004, 0x2004
-    dw 0x2004, 0x2004, 0x2004, 0x2004, 0x2004, 0x2004, 0x2004, 0x3FFC
+;
+; GENERATED, not stored (SPEC.md 54.3): 24 of the 32 words are one of two
+; constants, so the image carries the SEVEN irregular ones and assoc_compose
+; lays the frame down as two runs off this seed and two runs of a constant.
+; 14 bytes of .text against 64, for 25 of .cold.
+;
+;   mask   3FE0 3FF0 3FF8         then 13 x ASSOC_PGMASK
+;   data   3FE0 2030 2028 203C    then 11 x ASSOC_PGBODY   then ASSOC_PGMASK
+assoc_pg_seed:
+    dw 0x3FE0, 0x3FF0, 0x3FF8           ; the cut corner, in the mask...
+    dw 0x3FE0, 0x2030, 0x2028, 0x203C   ; ...and the dog-ear, in the body
+
+ASSOC_PGMASK equ 0x3FFC         ; a full-width row: both side edges, ink
+ASSOC_PGBODY equ 0x2004         ; ...and the same row with a white interior
 
 ASSOC_INSET  equ 32 + 2*5       ; the first inset row's word in the body:
                                 ; past the 16 mask words, then data row 5
@@ -420,10 +429,20 @@ assoc_compose:
     pop es                      ; ES = DS = KERNEL_SEG for the frame copy
     mov bl, al                  ; bank the slot: the .inset loop below spends AX
     push di
-    mov si, assoc_page
-    mov cx, 32
-    cld
+    mov si, assoc_pg_seed       ; the page frame, composed rather than copied
+    cld                         ; (SPEC.md 54.3) - and the runs spend AX, which
+    mov cx, 3                   ; is why the slot is banked in BL two lines up
     rep movsw
+    mov ax, ASSOC_PGMASK
+    mov cx, 13
+    rep stosw
+    mov cx, 4
+    rep movsw
+    mov ax, ASSOC_PGBODY
+    mov cx, 11
+    rep stosw
+    mov ax, ASSOC_PGMASK        ; the second run left ASSOC_PGBODY in AX
+    stosw                       ; ...and the bottom edge is solid
     call assoc_glyph_di         ; the app's glyph, addressed through DI...
     mov si, di
     pop di                      ; ...and the page frame we just laid down

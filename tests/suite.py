@@ -192,6 +192,18 @@ FAST = [
         "[vid_rseg]/[vid_rpara]/[vid_rend] have one writer, which is a "
         "DIFFERENT fact because sw_xfer ends on a segment compare",
         needs=(), serial=False),
+    Row("assocpage", "fast", py("tests/unit/t_assocpage.py"), 0.2,
+        "the document page is GENERATED now (SPEC.md 54.3), so its 32 words "
+        "are replayed on the host against a golden list - the only copy of "
+        "them left in the tree. tests/assocglyph.py is the gate on the glass, "
+        "but two of its three assertions compare this kernel against ITSELF, "
+        "so a generator that composes the same WRONG page every time passes "
+        "both of them cleanly and the icon it is wrong about is on every "
+        "document in the system. Its third (--ref) closes that and needs a "
+        "capture taken BEFORE the change, on a 1bpp adapter, under an "
+        "emulator; this row is the same proof for the DATA half in a fifth of "
+        "a second, on every make",
+        needs=()),
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
         "that stops this suite going back to a directory nobody can enumerate"),

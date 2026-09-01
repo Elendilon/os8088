@@ -60600,12 +60600,34 @@ where the test sits; it is not a separate rule.
 
 ### 54.3 The icon: a page frame with the program's glyph inset
 
-`assoc_page` is a 16×16 dog-eared page in `assoc.inc`'s `.text` — the second
-icon in this kernel that is not harvested off a disk (`dsk_folder_ico` is the
-other). Its white interior holds an **8×8 inset at x=4..11, y=5..12**, one
-pixel clear of the border on every side. `assoc_compose` copies the frame and
-ORs the glyph into data rows 5..12, shifted left by 4 so a glyph byte's bit 7
-lands on x=4.
+The document page is a 16×16 dog-eared page — the second icon in this kernel
+that is not harvested off a disk (`dsk_folder_ico` is the other). Its white
+interior holds an **8×8 inset at x=4..11, y=5..12**, one pixel clear of the
+border on every side. `assoc_compose` lays the frame down and ORs the glyph
+into data rows 5..12, shifted left by 4 so a glyph byte's bit 7 lands on x=4.
+
+**The frame is GENERATED, not stored.** Twenty-four of its thirty-two words
+are one of two constants, so `assoc.inc`'s `.text` carries only the seven
+irregular ones — `assoc_pg_seed`, 14 bytes against 64 — and `assoc_compose`
+composes the rest with two `rep movsw` runs off the seed and two `rep stosw`
+runs of a constant, plus one final `stosw`:
+
+```
+mask  3FE0 3FF0 3FF8            then 13 × ASSOC_PGMASK (3FFC)
+data  3FE0 2030 2028 203C       then 11 × ASSOC_PGBODY (2004)   then 3FFC
+```
+
+That is **−50 `.text` for +25 `.cold`**, and it costs ~150 cycles an icon
+— ~31 µs, so ~3.5 ms across a full 112-entry listing, against a mount that
+is already twenty `int 13h` calls. `ES = DS` and `cld` are both established
+above the runs for the copy that was there before, and the slot index is
+banked into `BL` **before** them because the runs spend `AX`; moving that
+`mov bl, al` below them is the one edit here that would assemble cleanly and
+draw the wrong icon.
+
+Nothing outside `assoc.inc` names the page, and `tests/unit/t_assocpage.py`
+replays the five runs on the host against a golden thirty-two-word list, so a
+seed or a run length that changes fails `make` rather than the glass.
 
 **The reduction is majority-of-2×2**: a block lights if two or more of its
 four source pixels are ink. OR-of-4 turns a typical 40%-ink icon into a
