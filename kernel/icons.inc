@@ -414,14 +414,7 @@ ico_core_bb:
     mov ax, [ico_col0]
     cmp ax, [vid_stride]        ; x < 0 (huge unsigned) or entirely off the
     jae .none                   ; right edge: the passes would skip every
-                                ; byte - skip them and the dirty union too
-    mov bx, [ico_ww]            ; dirty: columns col0..col0+2*ww (the last
-    shl bx, 1                   ; word's 3-byte window), clamped to the row
-    add bx, ax
-    cmp bx, [vid_stride]
-    jb .rok
-    mov bx, [vid_strm1]
-.rok:
+                                ; byte - so skip them
     mov al, [vid_strm1]         ; the three right-edge limits ico_pass_bb
     mov [ico_lim1], al          ; needs as BYTES - see the compares there
     dec al
