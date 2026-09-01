@@ -414,14 +414,10 @@ ico_core_bb:
     mov ax, [ico_col0]
     cmp ax, [vid_stride]        ; x < 0 (huge unsigned) or entirely off the
     jae .none                   ; right edge: the passes would skip every
-                                ; byte - so skip them
-    mov al, [vid_strm1]         ; the three right-edge limits ico_pass_bb
-    mov [ico_lim1], al          ; needs as BYTES - see the compares there
-    dec al
-    mov [ico_lim2], al
-    mov al, [vid_stride]
-    mov [ico_lim0], al
-
+                                ; byte - so skip them. It is also what proves
+                                ; ico_pass_bb's byte column cannot wrap: col0
+                                ; is below the stride, the stride is 90 at
+                                ; most, and the walk adds 2*ww <= 4 to it.
     mov al, [ico_c1]            ; SPEC.md 25.6: WHITE ors the rows in and
     call ico_bbop_of            ; anything else ands them out - which is the
     mov [ico_bbop], al          ; hardcoded pair's own behaviour, and gives a
@@ -453,7 +449,9 @@ ico_bbop_of:
 ;               [ico_bbop] picking OR (0) or AND-NOT (1) per byte.
 ; in:       SI -> word rows, DI = row offset, CL = shift, CH = 8-shift,
 ;           [ico_bbop] = 0/1, ico_* vars set
-; out:      none; preserves CX, DI; clobbers ax, bx, si, bp, es
+; out:      none; preserves CX, DI; clobbers ax, bx, dx, si, bp, es
+;           (DH is the row stride and DL the running byte column, for the
+;            whole pass - gfx_nextrow and ico_bbop_byte both leave DX alone)
 ; -----------------------------------------------------------------------------
 ico_pass_bb:
     push di
@@ -466,10 +464,18 @@ ico_pass_bb:
                                 ; and the walk never restarted. The two
                                 ; restart-point cells existed only to restart
                                 ; it, and go with it.
+    mov dh, [vid_stride]        ; DH = the right-edge limit, for the whole
+                                ; pass. A BYTE READ OF A WORD: [vid_stride] is
+                                ; 80, 80 or 90 on the three adapters, so the
+                                ; high byte is zero on all of them and no %if
+                                ; can check a runtime value. A stride over 255
+                                ; needs this pair widened, not just this read.
 .row:
-    mov al, [ico_col0]          ; running byte column (right-edge clip); a
-    mov [ico_bcol], al          ; byte - ico_core_bb proved it is below the
-                                ; stride, which is 90 at most
+    mov dl, [ico_col0]          ; DL = running byte column, INCREMENTED past
+                                ; each byte instead of three limits being
+                                ; compared against a fixed column. Same
+                                ; inequality: `bcol + k >= stride` is
+                                ; `bcol >= stride - k`.
     mov ax, [ico_ww]
     mov [ico_wleft], ax
 .word:
@@ -481,38 +487,43 @@ ico_pass_bb:
     xchg cl, ch
     mov ah, al                  ; stash B2
 
-    mov al, bh                  ; --- byte 0, column [ico_col] ---
+    mov al, bh                  ; --- byte 0, column DL ---
     or  al, al
     jz .b1
-    mov bh, [ico_lim0]          ; BH is dead from here - .b1 wants only BL
-    cmp [ico_bcol], bh
+    cmp dl, dh
     jae .b1
     call ico_bbop_byte
 .b1:
-    mov al, bl                  ; --- byte 1, column +1 ---
+    inc di                      ; --- byte 1, column +1 ---
+    inc dl                      ; A SKIPPED BYTE STILL ADVANCES, which is why
+                                ; the step is here and not below the tests:
+                                ; every refusal above lands on the NEXT byte's
+                                ; label and .wnext moves neither DI nor DL any
+                                ; more. Routing one straight to .wnext puts
+                                ; the row-end `sub di,[ico_rb]` on the wrong
+                                ; byte.
+    mov al, bl
     or  al, al
     jz .b2
-    mov bl, [ico_lim1]          ; BL is dead from here - .b2 reads AH
-    cmp [ico_bcol], bl
+    cmp dl, dh
     jae .b2
-    inc di
     call ico_bbop_byte
-    dec di
 .b2:
-    mov al, ah                  ; --- byte 2, column +2 ---
+    inc di                      ; --- byte 2, column +2 ---
+    inc dl
+    mov al, ah
     or  al, al
     jz .wnext
-    mov bl, [ico_lim2]          ; BX is entirely dead from here
-    cmp [ico_bcol], bl
+    cmp dl, dh
     jae .wnext
-    inc di
-    inc di
     call ico_bbop_byte
-    dec di
-    dec di
-.wnext:
-    add di, 2                   ; next word of this row
-    add byte [ico_bcol], 2
+.wnext:                         ; NOTHING TO DO. The three-byte windows overlap
+                                ; by one - words step by two - so this word's
+                                ; byte 2 IS the next word's byte 0, and .b2's
+                                ; step already put DI and DL on it. The old
+                                ; `add di,2` was here because .b1 and .b2 each
+                                ; undid their own `inc di` before falling
+                                ; through; nothing undoes anything now.
     dec word [ico_wleft]
     jnz .word
     sub di, [ico_rb]            ; back to the row's first byte, then down one
@@ -834,12 +845,9 @@ ico_rowadv  resw 1              ; DI advance after a row (80 - 2*wwords)
 ico_maskp   resw 1              ; -> first (unclipped) mask row
 ico_datap   resw 1              ; -> first (unclipped) data row
 ico_col0    resw 1              ; base byte column (x / 8)
-ico_col     resw 1              ; running byte column inside ico_pass
-ico_bcol    resb 1              ; ...and inside ico_pass_bb, where it must be
-ico_lim0    resb 1              ; a byte; with the three right-edge limits it
-ico_lim1    resb 1              ; is compared against (stride, stride-1,
-ico_lim2    resb 1              ; stride-2), which must be bytes for the same
-                                ; reason
+ico_col     resw 1              ; running byte column inside ico_pass.
+                                ; ico_pass_bb's is DL and its limit DH, so it
+                                ; has no cell here at all
 ico_wleft   resw 1              ; words left in the current row
 ico_x       resw 1              ; requested x
 ico_y       resw 1              ; requested y, clamped to 0 after top clip
