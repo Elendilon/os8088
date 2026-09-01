@@ -44545,6 +44545,22 @@ BIOS's own shadow of 3D8h at **40:65h** — that register is write-only on the
 card, so the ROM's record is the only honest source for what its mode set
 left there.
 
+**Both directions are one body**, entered through two stubs that differ only
+in the video-enable bit, which each puts **straight into DH** after banking DX
+— never into AH, because `vid_disp_init`'s Single arm holds the primary's kind
+there across the call and stores it back three instructions later. DH is the
+register that survives the CGA arm's `mov ax, 0x0040`. The Hercules arm branches on it and
+writes exactly what each direction wrote before — 3B8h alone to blank, 3BFh
+then 3B8h to unblank — because 3BFh is the graphics *lock* and a blank that
+also locked graphics out would be a second piece of state for the unblank to
+put back, for nothing. **The CGA arm forces the bit rather than trusting the
+shadow**: it writes `(shadow & ~8) | 8` on unblank where it used to write the
+shadow unchanged. On every machine whose BIOS mode set left the enable bit up
+those are the same byte; where they differ — a shadow with bit 3 clear — the
+old form left the screen dark for ever and the forced bit lights it, so the
+force is the robust answer and not a liberty. Nothing here may write DH after
+the arm that reads it.
+
 **The two cards go dark differently, and both are correct.** A Hercules with
 3B8h bit 3 clear **stops scanning** — the CRTC is held and the card produces
 no frames at all; a CGA with 3D8h bit 3 clear **keeps scanning and gates its

@@ -56,7 +56,7 @@ though the WINDOW SYSTEM were broken, which cost a bisect across 27 commits to
 disbelieve.
 
 What let it hide is worth stating on its own: **the constant that moved was a
-DERIVED one** (`VID_CTX_SZ` is `VID_CTX_W*2+6` in vidsel.inc, an expression
+DERIVED one** (`VID_CTX_SZ` is `VID_CTX_W*2+5` in vidsel.inc, an expression
 `_equs` deliberately refuses to evaluate), and `scan` was comparing local
 copies against `_MIRROR` alone. So the guard was watching the inputs and not
 the answer. It compares against `_KNOWN` now - mirrored AND derived.
@@ -254,14 +254,17 @@ WF_USED, WF_VIS = 1, 2
 WF_HIBITS = (WF_STALE | WF_NOANIM | WF_1BPP) >> 8
 
 # ...and the FOUR the kernel derives from VID_CTX_W the same way. They are
-# EXPRESSIONS in vidsel.inc (`VID_CTX_W*2`, `VID_CTX_W*2+6`), which _equs
+# EXPRESSIONS in vidsel.inc (`VID_CTX_W*2`, `VID_CTX_W*2+5`), which _equs
 # deliberately refuses to evaluate - so they are computed here from the word
 # count above, which IS checked. A change to the record moves all four on the
 # next run of any script, which is the whole point.
 VID_CTX_VX = VID_CTX_W * 2          # the display's origin in the virtual desktop
 VID_CTX_VY = VID_CTX_W * 2 + 2
 VID_CTX_KIND = VID_CTX_W * 2 + 4    # ...WHICH ADAPTER, and not a segment
-VID_CTX_SZ = VID_CTX_W * 2 + 6      # ...the run, both origin words, and the kind
+VID_CTX_SZ = VID_CTX_W * 2 + 5      # ...the run, both origin words, and the kind
+                                    # byte, which is the record's true END: the
+                                    # +6 form left byte W*2+5 unused in every
+                                    # row, and nothing indexes past the kind
 
 # VID_CTX_KIND WAS THE ONE LEFT OUT, and leaving it out is what let the record
 # go stale a THIRD time. `scan` compares a local copy against `_KNOWN`, so a
