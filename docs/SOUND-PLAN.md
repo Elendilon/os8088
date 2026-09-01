@@ -337,7 +337,7 @@ the invariant is auditable, and it is pinned in SPEC §34, not left as folklore.
         ; abort checks, on the emit path only (~45 cycles):
         ;   mov al,[mouse_btn] / and [snd_btn0],al   <- FOLD RELEASES INTO THE BASELINE
         ;   then a bit set in AL but not in snd_btn0 -> exit CF=1 (click-to-skip)
-        ;   [snd_abort] set (snd_stop / release path) -> exit CF=1
+        ;   [snd_abort] set (snd_release_inst, its only writer) -> exit CF=1
         loop .next
 ```
 
@@ -365,7 +365,7 @@ now but clear in the baseline. The fold is what makes the canonical case work: c
 start from W_ONCLICK handlers — dispatched on EVT_MDOWN with the button *still held* —
 so the baseline starts with bit 0 set; the release retires it, and the next press
 differs from the baseline and aborts. (Without the fold, no left click could ever
-abort a click-launched clip.) `snd_abort` (set by `snd_stop` and `snd_release_inst`)
+abort a click-launched clip.) `snd_abort` (set by `snd_release_inst`, its only writer)
 is checked in the same window. On click-abort the kernel **drains the aborting
 EVT_MDOWN (and its EVT_MUP) from the event queue** before returning err 5, so the
 skip gesture cannot fire a menu, close box, or icon under the cursor. No code is added

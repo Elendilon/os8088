@@ -39692,7 +39692,11 @@ stays a superset of what the old ABI returned — a package that read
   CF = 1 on a bad voice or frequency. On: divisor = 1193182/AX, then the
   mode-3 quad (0B6h → 43h, divisor lo/hi → 42h, 61h |= 03h) under one
   `pushf`/`cli` … `popf`. Off: 61h &= 0FCh in the same kind of window.
-- `spk_pcm_op` — the PCM_EXCL clip engine of §34.4.
+- `spk_pcm_run` — the PCM_EXCL clip engine of §34.4, entered directly.
+  It used to sit behind a three-verb `spk_pcm_op` (0 start, 1 stop, 2
+  status); the router only ever asked for verb 0, so verbs 1 and 2 — and
+  with them the `snd_stop` door verb 1 called — were deleted as
+  unreachable. `snd_release_inst` is the sole writer of `snd_abort` now.
 
 Both are called directly by the router. There is no indirection to
 dispatch through, no presence flag to consult and no probe at boot: the
@@ -39803,9 +39807,9 @@ end.
   samples — `inc word [snd_pcm_resync]` — never burst catch-up writes, so
   a long interrupt becomes dropped samples, never a buzz. Jitter is ±1
   poll plus the surviving IF=0 stretches. `snd_pcm_emitted` /
-  `snd_pcm_resync` are debug counters and **nothing automated reads
-  them**: `spk_pcm_op`'s verb 2 answers `snd_pcm_emitted`, and no file
-  under `tests/`, `tools/` or `apps/` names either symbol. This line used
+  `snd_pcm_resync` are debug counters **nothing can read**: the one door
+  was `spk_pcm_op`'s verb 2, itself unreachable and now deleted, and no
+  file under `tests/`, `tools/` or `apps/` names either symbol. This line used
   to say they were "the debug counters the Phase 2 gate reads", surfaced
   "on the §31.4 caption" — there is no such gate, and §31.4 is *Sound
   page — retired*. Budget at N = 149:
@@ -39822,8 +39826,8 @@ end.
   handlers — dispatched on EVT_MDOWN with the button *still held* — so the
   baseline starts with bit 0 set; the release retires it and the next
   press differs from the baseline and aborts. (Without the fold, no left
-  click could ever abort a click-launched clip.) `snd_abort` — set by
-  `snd_stop` and `snd_release_inst` — is checked in the same window. On
+  click could ever abort a click-launched clip.) `snd_abort` — whose sole
+  writer is `snd_release_inst` — is checked in the same window. On
   click-abort the kernel **drains the aborting EVT_MDOWN (and its EVT_MUP)
   from the event queue** before returning, so the skip gesture cannot fire
   a menu, close box or icon under the cursor. The guarantee is structural,

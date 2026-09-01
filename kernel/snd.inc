@@ -157,30 +157,6 @@ spk_tone:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; spk_pcm_op - the speaker row's PCM-out op (SPEC.md 34.2)
-;
-; in:       AL = verb: 0 start (ES:SI = 8-bit unsigned mono, CX = count,
-;           DX = rate Hz; [snd_pcm_n] already validated and the ch2 grant
-;           already taken by the router), 1 stop, 2 status
-; out:      verb 0: CF = 0 clip completed, CF = 1 aborted with AL = 1 (a
-;           mouse click) or 2 (the snd_abort flag); AX clobbered.
-;           verb 1: nothing (flags). verb 2: AX = samples emitted so far.
-; clobbers: verb 0: AX; others nothing else
-;
-; Verb 0 is run-to-completion - the exclusive-clip contract (SPEC.md 34.2):
-; it returns when the clip ends or aborts, never before.
-; -----------------------------------------------------------------------------
-spk_pcm_op:
-    cmp al, 1
-    jb spk_pcm_run              ; verb 0: the clip loop below
-    je .stop
-    mov ax, [snd_pcm_emitted]   ; verb 2: status
-    ret
-.stop:
-    call snd_stop               ; verb 1: flag the running clip down
-    ret
-
-; -----------------------------------------------------------------------------
 ; spk_pcm_run - play one PWM clip, run-to-completion (SPEC.md 34.4, binding)
 ;
 ; in:       ES:SI = samples, CX = count, [snd_pcm_n] = N (74..255),
@@ -215,8 +191,8 @@ spk_pcm_op:
 ; a bit set now but clear in the baseline aborts. The fold is load-bearing:
 ; clips start from W_ONCLICK handlers - dispatched on EVT_MDOWN with the
 ; button still held - so the baseline starts with bit 0 set; the release
-; retires it and the next press differs. [snd_abort] (snd_stop /
-; snd_release_inst) is checked in the same window. No code in mou_isr.
+; retires it and the next press differs. [snd_abort] (snd_release_inst, its
+; only writer) is checked in the same window. No code in mou_isr.
 ; -----------------------------------------------------------------------------
 spk_pcm_run:
     push bx
@@ -295,7 +271,7 @@ spk_pcm_run:
     not ah
     and al, ah                  ; ...then: pressed now, not in the baseline?
     jnz .click
-    cmp byte [snd_abort], 0     ; snd_stop / snd_release_inst
+    cmp byte [snd_abort], 0     ; snd_release_inst
     jne .flag
     loop .next
 
@@ -543,24 +519,6 @@ snd_beep:
     pop dx
     pop cx
     pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; snd_stop - abort the running PCM_EXCL clip, if any (SPEC.md 34.4)
-;
-; in:       nothing
-; out:      nothing
-; clobbers: nothing (flags)
-;
-; Sets [snd_abort]; the clip loop sees it on its next emitted sample and
-; exits err 5. A single byte store: safe from any context, including under
-; IF=0 (snd_release_inst calls this pattern inline).
-; -----------------------------------------------------------------------------
-snd_stop:
-    cmp byte [snd_pcm_busy], 0
-    je .out
-    mov byte [snd_abort], 1
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1089,9 +1047,9 @@ osapi_snd_play:
                                 ; between the op's internal release and the
                                 ; drain could switch to a task that pops
                                 ; the aborting click first (SPEC.md 34.4)
-    mov al, 0                   ; verb 0: run the clip to completion; the
-    call spk_pcm_op             ; op's epilogue releases ch2 + busy. Out:
-    jc .aborted                 ; CF=1 aborted, AL = 1 click / 2 flag
+    call spk_pcm_run            ; run the clip to completion; its epilogue
+    jc .aborted                 ; releases ch2 + busy. CF=1 aborted, AL = 1
+                                ; click / 2 flag
     dec byte [sch_lock]
     xor ax, ax
     clc
@@ -1251,7 +1209,7 @@ snd_xlat:      resb 256         ; per-clip PWM rescale table (34.4), built
                                 ; by snd_xlat_build before every clip -
                                 ; write-before-read, needs no boot init
 snd_btn0:      resb 1           ; click-abort baseline; releases fold in
-snd_abort:     resb 1           ; set by snd_stop / snd_release_inst
+snd_abort:     resb 1           ; set by snd_release_inst, its only writer
 snd_pcm_busy:  resb 1           ; a PCM_EXCL clip is running (34.3)
 snd_pcm_inst:  resb 1           ;   the instance that owns it (0xFF kernel)
 snd_pcm_smp:   resb 1           ;   the sample parked across pacer polls
