@@ -82021,21 +82021,27 @@ line buffer is the previous scanline's last pixel — that would give exactly
 +1, exactly column 0 and exactly an attenuated copy; the specific 86Box
 internals have not been read here and are not asserted.
 
-**Why the sea and not the rest of the desktop — it IS the rest of the desktop.**
-Read on a Hercules at the desktop, the System 1 stipple is `0x01` on an even
-row and `0x00` on an odd one, so **column 719 is lit on every odd row** (162 of
-them measured between the menu bar and the dock) and **column 0 is lit on
-none**. The +1 rule therefore predicts a faint dot at column 0 on every even
-row of a plain desktop — a permanent one-on-one-off dotted line down the left
-edge — and the reporter had already written it down without connecting it:
-*"everything at pixel 0 appears to be one on, one off"*. It is invisible as a
-defect there because it is **static and uniform**: a dotted line at the extreme
-edge of the picture reads as a border, and there is nothing beside it to
-disagree with. Over the saver's black sea the same mark is isolated, and it
-**moves with a swimmer** — which is the most visible thing a display can do
-with one pixel. The other savers agree: the starfield is black too but its
-stars are single pixels that seldom land on column 719, and the geometric mode
-never draws at an edge at all.
+**Why the sea and not the rest of the desktop — the desktop MASKS it.** The
+desktop is §39.4's 50% dither, lit where `x + y` is even, so **column 719 is
+lit on every odd row and column 0 on every even one** — 162 of each between
+the menu bar and the dock. The mark copies column 719 of row *y* to column 0
+of row *y+1*, and *y* odd makes *y+1* even: it lands on a pixel the dither has
+**already lit at full brightness**, on **160 of those 162 rows**. There is
+nothing to see because there is nothing new. The menu bar is white at both
+edges and masks it the same way. Over the saver's black sea column 0 is black,
+so the same copy is the only thing there — and it **moves with a swimmer**,
+which is the most visible thing a display can do with one pixel. The other
+savers agree: the starfield is black too but its stars seldom land on column
+719, and the geometric mode never draws at an edge.
+
+**A measurement trap is recorded here because it produced a wrong published
+answer.** `os88marty.vram()` returns **one entry per PIXEL**, not the packed
+framebuffer bytes. Read as bytes, the dither's `1,0,1,0…` looks like a stipple
+of `0x01`/`0x00` one pixel in eight — which says column 0 is never lit and
+predicts a faint dotted line down the left edge of every desktop. That was
+published and it is wrong. `tests/smallboot.py` had the tell in it the whole
+time: it compares `sum(1 for v in rows[4] if v)` against `w * 0.9`, which no
+packed row of 90 bytes could ever reach.
 
 **Why now and not before — it was there before.** Bubbles are
 `OSAPI_GFX_FILL`, a path §79.5.8 did not touch, and the reporter sees a bubble

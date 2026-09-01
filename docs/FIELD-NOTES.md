@@ -4668,17 +4668,22 @@ specific internals have not been read and are not claimed.
 hercules` to `hercules_plus` in the machine's `86box.cfg` and boot the same
 floppies. The shimmer goes and nothing else about the machine changes.
 
-**It is on the plain desktop too, and the reporter saw it there.** On a
-Hercules at the desktop the System 1 stipple is `0x01` on an even row and
-`0x00` on an odd one, so column 719 is lit on every odd row - 162 of them
-between the menu bar and the dock - and column 0 on none. The +1 rule then
-puts a faint dot at column 0 on every even row, permanently: a one-on-one-off
-dotted line down the left edge, which is exactly the reporter's *"everything
-at pixel 0 appears to be one on, one off"*. Static and uniform at the edge of
-the picture, it reads as a border. Over the saver's black sea the same mark is
-isolated and MOVES, which is why that is where it got noticed. **A ten-second
-confirmation for anyone with the machine: look at the extreme left column of a
-plain desktop, no saver running.**
+**The desktop MASKS it, which is why it shows in the sea and nowhere else.**
+The desktop is the 50% dither, lit where x + y is even: column 719 is lit on
+every odd row and column 0 on every even one, 162 of each between the menu bar
+and the dock. The mark copies column 719 of row y to column 0 of row y+1, and
+an odd y makes y+1 even - so it lands on a pixel the dither has ALREADY lit at
+full brightness, on 160 of those 162 rows. Nothing new appears. The menu bar,
+white at both edges, masks it the same way. Over the saver's black sea column 0
+is black, the copy is the only thing there, and it MOVES with a swimmer.
+
+**A measurement trap, recorded because it produced a wrong published answer.**
+`os88marty.vram()` returns ONE ENTRY PER PIXEL, not packed framebuffer bytes.
+Read as bytes, the dither's 1,0,1,0... looks like a stipple of 0x01/0x00 one
+pixel in eight - which says column 0 is never lit and predicts a faint dotted
+line down every desktop's left edge. That was published, and it is wrong.
+tests/smallboot.py held the tell all along: it compares `sum(1 for v in
+rows[4] if v)` against `w * 0.9`, which no packed row of 90 bytes could reach.
 
 **And it predates the change.** Bubbles are `OSAPI_GFX_FILL`, untouched by
 SPEC.md 79.5.8, and they wrap too; sprites, RNG and positions are unchanged by
