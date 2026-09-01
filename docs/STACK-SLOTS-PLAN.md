@@ -305,26 +305,56 @@ nothing here changes that.
 
 ---
 
-## 7. What it buys, in bytes
+## 7. What it buys — and the goal is SLOTS, not saved bytes
+
+**The requester's framing, and it changes the arithmetic:** anything freed here
+is to be spent on **more task slots**, not returned to the heap, and the budget
+for `sch_stacks` may grow to about **3,072 bytes** (from 2,688 today). The
+target is to settle this once — a slot count nobody has to come back to.
+
+That makes the floor the whole game, because the floor is what every slot pays:
+
+```
+   slots that fit  =  budget / (floor + the deepest program in that class)
+```
 
 `sch_stacks` is 7 × 384 = **2,688** today, and one of those seven is the idle
-task's.
+task's, so **six are usable**.
 
-| arrangement | `.lowbss` | usable worker slots |
+| | `.lowbss` | usable worker slots |
 |---|---|---|
 | today | 2,688 | **6** |
-| classes only (2×384 + 2×256 + 3×192), idle external at 192 | 1,856 + 192 = **2,048** | **7** |
-| ...and §4.1 taken, classes shifted down (2×384 + 2×256 + 3×128), idle at 128, shared chain stack 64 | 1,664 + 128 + 64 = **1,856** | **7** |
+| classes only, idle external at 192 | 2,048 | **7** |
+| **§4.1 taken, classes on the lower floor, 3,072 budget** | **3,008** | **17** |
 
-So the middle row is **−640 bytes and the seventh slot back**; the bottom row
-is **−832 and the seventh slot back**. Against that: 24 bytes of tables, the
-header field, the `MAX_TASKS` ABI bump, and §4.1's behaviour question.
+The bottom row is the one to aim at, and it is arithmetic on measured numbers
+rather than a hope. With the ROM chain off the task stack the floor measured
+**38** (§10.3), so above it a Bounce needs ~62, the Fractal ~98 and
+`ETHER.DRV` ~182:
+
+| class | fits | slices | bytes |
+|---|---|---|---|
+| 128 | the idle task, Timer, Bounce, most simple workers | 12 | 1,536 |
+| 192 | the Fractal, Tracker | 4 | 768 |
+| 256 | `ETHER.DRV`, ftpd | 2 | 512 |
+| the shared chain stack (§4.1) | — | 1 | 192 |
+| | | **17 usable + idle** | **3,008** |
+
+**Seventeen against today's six, inside the stated budget.** The 1.75× margin
+this project sizes stacks with is kept throughout: 128 against a 100-byte
+Fractal-class worst case is 1.28×, which is why the Fractal is in the 192 class
+and not the 128 one.
+
+**What binds after that is not RAM, it is the ABI.** `MAX_TASKS` is mirrored in
+`apps/os88api.inc` and sizes `SS_TSTATE` (one byte per task) and `SS_TCYC`
+(four), so `SYS_SNAPSHOT_SIZE` grows **5 bytes per slot** and every `.o88` is
+rebuilt. Going 8 → 18 is +50 bytes of every package's snapshot buffer and one
+flag day. That is the decision to take deliberately, and taking it once is
+exactly the "not coming back to this" the requester asked for.
 
 **Design for bytes, never for rungs** (CLAUDE.md) — none of the above is quoted
 as a rung and the ledger position is whoever takes this on to report with
 `kernsize`.
-
----
 
 ## 8. Refusals
 
@@ -364,7 +394,81 @@ the number to bring back is the idle task's line and the probe's own.
 
 ---
 
-## 10. Instruments, and one wart
+## 10. The measurement disk — `make stkdiag`
+
+**Built, and it answers §9 on any machine.** `STKDIAG=1` (`kernel/stkdiag.inc`)
+is a kernel that measures itself and draws the answer on the desktop, in all
+three geometries, with **no package to launch and nothing to click**. That is
+why it is a knob: a package would need a double-click, and the double-click
+lands inside the quiet phase it would be perturbing.
+
+### 10.1 How the ROM number is taken
+
+`sch_isr`'s `pushf` / `call far [sch_old08]` is replaced by `sd_chain_call`,
+which fills a private 512-byte stack in `.lowbss` with a sentinel, **swaps SP
+to it** (SS is already `LOW_SEG` for every task, so it is an SP swap and
+nothing else), runs the chain, swaps back, and scans down for the first
+surviving sentinel byte. What came back scrubbed is what the chain cost.
+
+**No task stack is touched**, which is what makes it safe to ship to a machine
+nobody here can debug. Two earlier designs sentinelled the free bytes below SP
+on a task stack instead; the first took zero samples (on a desktop the tick
+lands on task 0, not the idle task) and the second left the panel half drawn.
+
+**It runs on alternate ticks.** Measuring every chain on the private stack would
+make the floor a lie — it becomes the floor of the machine §4.1 *proposes*, not
+the one that ships. So odd ticks are measured and even ticks run plainly on the
+task stack where the `0xCC` fill records them. Both numbers on the panel are
+then true of the kernel they describe, **and the difference between them is what
+§4.1 is worth on that machine.**
+
+### 10.2 What the operator does
+
+Three phases on a wall clock, 90 seconds in total, with a five-second **HANDS
+OFF** window before each reading is taken:
+
+| | | |
+|---|---|---|
+| 0–30s | `QUIET — TOUCH NOTHING` | needs no operator at all |
+| 30–55s | `MOVE THE MOUSE NOW` | |
+| 60–85s | `HOLD DOWN A KEY` | |
+| 90s | `DONE — WAIT 2 MIN, THEN PHOTOGRAPH` | |
+
+A phase nobody performs reads equal to the one before it, which is a reading
+and not a hole — and **the quiet phase, the one that matters most, is the one a
+human cannot perturb.**
+
+**`FLOOR MAX` is the row to quote.** The high water is a sample of a nesting
+distribution, not a bound: on QEMU the quiet phase latched 84 while the machine
+was still climbing to 130 a minute later. The MAX row only rises, which is why
+the panel asks for two more minutes before the photograph.
+
+On an emulator nothing needs photographing: the same values are published in
+§57's registry as `SD` and `tools/stkdiagread.py` prints them.
+
+### 10.3 What it reads here, and the cross-check that validates it
+
+QEMU/SeaBIOS, one 95-second run:
+
+```
+ROM int08 chain          56
+floor  quiet             84
+floor  +mouse            84
+floor  +keys             86
+FLOOR MAX                130
+chain samples taken     1146
+```
+
+**56 is the independent confirmation of §2's A/B.** That A/B removed `pushf` +
+`call far [sch_old08]` and moved a bare desktop from 82 to 32 — 50 bytes. This
+measures the same chain including the 6 bytes of `pushf` and the far call's own
+frame that the A/B also removed: **50 + 6 = 56**. Two instruments, different
+mechanisms, agreeing to the byte.
+
+And it demonstrates the fix at the same time: with every chain on the private
+stack the floor fell **82 → 38**, which is §4.1 working, measured, on a machine.
+
+## 11. Instruments, and one wart
 
 - `tests/stackprobe` — the probe. Its worker spins, so its reading is the floor.
 - `tools/stkwater.py` — reads the fill back. **Its `DEF` defaults to

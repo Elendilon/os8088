@@ -1484,8 +1484,16 @@ sch_isr:
     mov al, [sch_fast]
     mov [sch_fcnt], al
 .full:
+%ifdef STK_DIAG
+    call sd_chain_call          ; docs/STACK-SLOTS-PLAN.md: the same chain, run
+                                ; on a PRIVATE stack and measured. No task
+                                ; stack is touched, so this cannot corrupt a
+                                ; slice - and it is 4.1's proposed fix as well
+                                ; as the instrument for it
+%else
     pushf                       ; chain: BIOS ticks its count and sends EOI
     call far [sch_old08]
+%endif
 %ifdef KFZTRACE
     inc byte [khb_chain]        ; THE CHAIN CAME BACK. khb_beat counts entries
     call khb_paint              ; ...and the strip is painted a SECOND time, or

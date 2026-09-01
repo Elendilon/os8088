@@ -193,10 +193,13 @@ THEMES = (
     # bootprof.inc (SPEC.md 15.5) is here because what it measures is kmain's
     # own phase sequence, which lives in kernel.asm - and because it is not in
     # a shipped build at all (`make BOOTPROF=1`), so no other theme's figure
-    # should move when it is compiled in.
+    # should move when it is compiled in. stkdiag.inc
+    # (docs/STACK-SLOTS-PLAN.md 10) is here for both halves of that: what it
+    # measures is sch_isr's own chain to the ROM, and `make STKDIAG=1` is the
+    # only build that has it.
     ("the kernel proper: API table, heap, scheduler, events",
      (RESIDUAL, "memory.inc", "sched.inc", "events.inc", "mod.inc",
-      "bootprof.inc")),
+      "bootprof.inc", "stkdiag.inc")),
     ("the Control Panel", ("ctrl.inc",)),
     ("the three built-in kinds", ("apps.inc",)),
 )
