@@ -1721,12 +1721,9 @@ fcp_xfer:
     mov ax, FERR_FULL           ; the destination volume is current - so the
     jmp short .err              ; check costs no switch of its own - and it is
 .create:                        ; still before anything has been created
-    mov es, [fcp_seg]
-    xor bx, bx
-    mov cx, [fcp_flen]
-    xor dx, dx                  ; DX:CX = the chunk (SPEC.md 18.4.1)
-    mov si, fcp_fname
-    call dskw_write_x
+    call fcp_wprep
+    xor dx, dx                  ; DX:CX = the chunk (SPEC.md 18.4.1) - the one
+    call dskw_write_x           ; argument the two sites do not share
     jc .err
     mov byte [fcp_made], 1      ; ...and from HERE a failure owes a delete
 
@@ -1743,10 +1740,7 @@ fcp_xfer:
     mov [fcp_flen], ax
     call fcp_gofd
     jc .err
-    mov es, [fcp_seg]
-    xor bx, bx
-    mov cx, [fcp_flen]
-    mov si, fcp_fname
+    call fcp_wprep
     call dskw_append_x
     jc .err
     jmp .chunk
@@ -1764,6 +1758,17 @@ fcp_xfer:
     pop dx
     pop cx
     pop bx
+    ret
+
+; fcp_wprep - the four arguments dskw_write and dskw_append share
+; out: ES:BX -> the chunk, CX = its length, SI -> the destination name.
+;      All four are inside fcp_xfer's own save set, which is where both
+;      callers are; the create site's `xor dx, dx` stays at the site
+fcp_wprep:
+    mov es, [fcp_seg]
+    xor bx, bx
+    mov cx, [fcp_flen]
+    mov si, fcp_fname
     ret
 
 ; -----------------------------------------------------------------------------
