@@ -103,16 +103,14 @@ loader_init_x:
 ; -----------------------------------------------------------------------------
 section .cold                   ; ...and back to resident cold code
 ld_slot:
-    push ax
-    push cx
-    mov ax, di
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl
-    mov bx, ax
-    pop cx
-    pop ax
-    ret
+    push cx                     ; ...and no AX save: the arithmetic is done in
+    mov bx, di                  ; BX, which is the answer's own register.
+    sub bx, inst_tab            ; `sub bx, imm16` is a byte longer than the
+    mov cl, 5                   ; accumulator form, and the AX bracket it
+    shr bx, cl                  ; replaces is two - so it is still a win.
+    pop cx                      ; CX is still preserved: the header says
+    ret                         ; "clobbers: nothing else" and both callers
+                                ; are read on that.
 
 ; -----------------------------------------------------------------------------
 ; ld_unreserve - give back a region, and anything the entry proc claimed
@@ -240,8 +238,9 @@ ld_check_hdr:
 ; is the dsk_get_icon idiom and costs nothing on any path that does not draw.
 ; -----------------------------------------------------------------------------
 ld_icon:
-    push ax
-    push es
+    push es                     ; ...and NOT AX: no form of it is named below.
+                                ; `mov es, m16` does not go through it on the
+                                ; 8086.
     mov word [di+I_ICON], 0
     mov es, [ld_base]
     test byte [es:LD_H_FLAGS], 1
@@ -254,7 +253,6 @@ ld_icon:
                                 ; something actually draws a tile
 .out:
     pop es
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -365,16 +363,18 @@ loader_run_x:
 ; entry: it either exists in this directory now or it does not.
 ; -----------------------------------------------------------------------------
 ld_run_name_x:
-    call ld_res_name
+    call ld_res_name            ; ...which ends in ld_take, and ld_take leaves
+                                ; the cluster IN AX as well as in [ld_clus].
+                                ; `.peek` takes it from the register - it used
+                                ; to be an undocumented contract at a jump
+                                ; target with a `mov ax, [ld_clus]` at each of
+                                ; the two entries honouring it, which is
+                                ; exactly the kind of difference that
+                                ; assembles cleanly and runs wrong: without it
+                                ; AL was still dskw_stat's ATTRIBUTE byte and
+                                ; dsk_clus2lba was handed 0x20 as a cluster.
+                                ; One producer now, not two.
     jc .fail
-    mov ax, [ld_clus]           ; ...AND IN AX. Step 1 ends on the cluster it
-                                ; just stored, so .peek's first instruction
-                                ; takes it from the register - an undocumented
-                                ; contract at a jump target, which is exactly
-                                ; the kind of difference that assembles
-                                ; cleanly and runs wrong: without this, AL was
-                                ; still dskw_stat's ATTRIBUTE byte and
-                                ; dsk_clus2lba was handed 0x20 as a cluster
     jmp ld_run_body_x.peek      ; joins the pipeline exactly where the index
 .fail:                          ; resolver leaves it - [ld_fsz] and [ld_clus]
     ret                         ; are the rest of what step 1 produces
@@ -382,7 +382,7 @@ ld_run_name_x:
 ; -----------------------------------------------------------------------------
 ; ld_res_name - fill [ld_fsz]/[ld_clus] from a name (module internal)
 ; in:  SI -> a NUL-terminated 8.3 name
-; out: CF=0; CF=1 with AL = LD_EBAD / LD_EBIG
+; out: CF=0 and AX = the first cluster/handle; CF=1 with AL = LD_EBAD / LD_EBIG
 ; -----------------------------------------------------------------------------
 ld_res_name:
     call dskw_stat_x            ; AL = raw attribute, BX = first cluster,
@@ -394,21 +394,58 @@ ld_res_name:
                                 ; loaded. READ-ONLY is deliberately allowed -
                                 ; TASKMGR.O88 is read-only and is an app
                                 ; (SPEC.md 19.6)
+    jmp ld_take                 ; ...and the three questions themselves are
+                                ; below, shared with step 1
+.bad:
+    mov al, LD_EBAD
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; ld_take - "is this a file this loader will take?", asked ONCE (SPEC.md 21
+;           step 1).  ld_res_name and ld_run_body_x's step 1 asked the same
+;           three questions of the same three values and stored them in the
+;           same three words - and THE TWO COPIES HAD DRIFTED.  Step 1 knows
+;           that on a DVK_FILE volume the "first cluster" is an OPAQUE HANDLE
+;           (SPEC.md 62.9.1) and that [dsk_maxclus] belongs to the last FAT
+;           volume mounted; ld_res_name range-checked it anyway.  Sharing the
+;           body gives the by-NAME resolver that exception, which is a
+;           BEHAVIOUR CHANGE and the point rather than a side effect.
+; in:  DX:CX = the file's byte size, BX = its first cluster or handle
+;      (dskw_stat_x's own output registers, which is why they are these)
+; out: CF=0, [ld_fsz]/[ld_clus] filled and AX = BX for `.peek`;
+;      CF=1 with AL = LD_EBAD / LD_EBIG
+; -----------------------------------------------------------------------------
+ld_take:
     cmp dx, PKG_FILE_HI
-    jae .big                    ; past what the mount will type at all
-    mov [ld_fsz+2], dx          ; ...and the rest is ld_check_hdr's to bound,
-    or cx, cx                   ; because a package carrying parts is bigger
-    jnz .szok                   ; than its image by construction (SPEC.md
-    or dx, dx                   ; 20.12) and only the flags byte says so
+    jae .big                    ; past what the mount will type at all: a file
+                                ; up to 1MB is a package now (SPEC.md 19.1),
+                                ; so a 70KB one arrives with a LOW word of
+                                ; 4,608 - a plausible small package - and
+                                ; reading it without this is the wrap SPEC.md
+                                ; 21.4 warns about
+    mov [ld_fsz+2], dx          ; the rest is ld_check_hdr's to bound, because
+    mov [ld_fsz], cx            ; a package carrying parts is bigger than its
+    or cx, cx                   ; image by construction (SPEC.md 20.12) and
+    jnz .szok                   ; only the flags byte says so
+    or dx, dx
     jz .bad                     ; empty file
 .szok:
-    mov [ld_fsz], cx
-    cmp bx, 2                   ; the same range step 1 re-checks, and for the
-    jb .bad                     ; same reason: it stands alone if the mount
-    cmp bx, [dsk_maxclus]       ; code ever changes (SPEC.md 21 step 1)
+    cmp byte [dsk_vkind], DVK_FILE  ; ...unless the cluster word is AN OPAQUE
+    je .clusok                      ; HANDLE (SPEC.md 62.9.1), in which case
+                                    ; the kernel has no opinion about its range
+                                    ; - and [dsk_maxclus] is the LAST FAT
+                                    ; volume's, so the test is not merely wrong
+                                    ; here, it is answered by a number
+                                    ; belonging to another disk
+    cmp bx, 2                   ; mount already validated (SPEC.md 21 step 1 -
+    jb .bad                     ; this check stands alone if the mount code
+    cmp bx, [dsk_maxclus]       ; ever changes)
     ja .bad
+.clusok:
     mov [ld_clus], bx
-    clc
+    mov ax, bx                  ; ...AND IN AX: `.peek` takes the cluster (or
+    clc                         ; the handle) from the register
     ret
 .bad:
     mov al, LD_EBAD
@@ -450,44 +487,19 @@ ld_run_body_x:
     pop cx
     pop di
     pop si
-    mov ax, [si+LD_DE_SIZE+2]   ; THE HIGH WORD FIRST, and it is not belt and
-    mov [ld_fsz+2], ax          ; braces: the mount types a file up to 1MB as
-    cmp ax, PKG_FILE_HI         ; a package now (SPEC.md 19.1), so a 70KB one
-    jae .big1                   ; arrives here with a LOW word of 4,608 - a
-                                ; plausible small package - and reading it
-                                ; without this is the wrap SPEC.md 21.4 warns
-                                ; about. WHAT BOUNDS IT IS THE FLAGS BYTE'S TO
-                                ; SAY (SPEC.md 20.12), so the APP_MAX_SIZE
-                                ; test is ld_check_hdr's and not this one's:
-                                ; a package carrying parts is bigger than its
-                                ; image by construction
-    mov ax, [si+LD_DE_SIZE]
-    or ax, ax
-    jnz .szok
-    cmp word [ld_fsz+2], 0
-    jz .bad1                    ; empty file
-.szok:
-    mov [ld_fsz], ax
-    mov ax, [si+LD_DE_CLUS]     ; first cluster: re-check the range the
-    cmp byte [dsk_vkind], DVK_FILE  ; ...unless this word is AN OPAQUE HANDLE
-    je .clusok                      ; (SPEC.md 62.9.1), in which case the
-                                    ; kernel has no opinion to have about its
-                                    ; range - and [dsk_maxclus] is the LAST FAT
-                                    ; volume's, so the test is not merely
-                                    ; wrong here, it is answered by a number
-                                    ; belonging to another disk
-    cmp ax, 2                   ; mount already validated (SPEC.md 21 step
-    jb .bad1                    ; 1 - this check stands alone if the mount
-    cmp ax, [dsk_maxclus]       ; code ever changes)
-    ja .bad1
-.clusok:
-    mov [ld_clus], ax
+    mov dx, [si+LD_DE_SIZE+2]   ; the size and the cluster, in dskw_stat_x's
+    mov cx, [si+LD_DE_SIZE]     ; own registers, because ld_take answers for
+    mov bx, [si+LD_DE_CLUS]     ; both entries and that is its input shape.
+    call ld_take                ; BX, CX and DX are loader_run_x's to bank and
+    jc .ret1                    ; it does. On the error arm ld_take answers
+                                ; with CF=1 as well as AL, and CF=1 on the way
+                                ; out is already this routine's normal
+                                ; failure - ld_check_hdr's `jc .ret1` below is
+                                ; the same shape; the caller reads AL only
+                                ; (loader_run_x: `mov [ld_status], al`)
     jmp short .peek
 .bad1:
     mov al, LD_EBAD
-    ret
-.big1:
-    mov al, LD_EBIG
     ret
 
     ; --- 2. peek the header: first sector into dsk_secbuf ---------------------
@@ -564,8 +576,25 @@ ld_run_body_x:
     call mem_claim_hi_x ; from the TOP down, away from the data claims
     jc .nomem                   ; growing up from the bottom (SPEC.md 50.3)
     mov [ld_base], dx
-    mov cl, 10                  ; I_SIZE is bytes, and it is what the region
-    shl ax, cl                  ; occupies now, not what the file needed
+    shl ax, cl                  ; I_SIZE is bytes, and it is what the region
+                                ; occupies now, not what the file needed.
+                                ; **CL IS STILL 10** from the `shr` above, and
+                                ; that rests on TWO DOCUMENTED CONTRACTS:
+                                ; ld_slot preserves CX (it pushes it - and its
+                                ; header says "clobbers: nothing else") and
+                                ; mem_claim_hi_x "clobbers: DX (an output) and
+                                ; the flags - every other register preserved",
+                                ; which holds through mem_compact's far calls
+                                ; into package relocation procs. The `jc`
+                                ; between them jumps AWAY, not through.
+                                ; WHAT A WRONG SHIFT COSTS: [ld_need] becomes
+                                ; I_SIZE, and I_SIZE is the bound in two
+                                ; OWNERSHIP FENCES - fsx.inc's "an entry inside
+                                ; its image+bss" (SPEC.md 53.1) and
+                                ; instance.inc's copy on the package-entry
+                                ; path. Too large a value widens a security
+                                ; fence, silently. Loosen either contract and
+                                ; this line has to come back.
     mov [ld_need], ax
     jmp short .read
 .disk1:
