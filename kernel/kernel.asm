@@ -3762,10 +3762,18 @@ api_file_find:
     call inst_vol_enter         ; this instance's own folder; preserves
                                 ; everything including the flags
     call COLD_SEG:dvf_drv_owns_seg ; CF = 0: a loaded driver, so it may see the
-    mov al, 0                   ; system files it is going to have to copy
-    jc .nothid
-    mov al, 1
-.nothid:
+    sbb al, al                  ; system files it is going to have to copy.
+    inc al                      ; CF straight into AL without a branch: `sbb
+                                ; al,al` is 0 for CF=0 and 0xFF for CF=1
+                                ; whatever AL held, and `inc al` makes that 1
+                                ; and 0 - the same answer, two bytes shorter
+                                ; and with no jump. AL is not an input here
+                                ; (CX and ES:DI are), and CF SURVIVES: on the
+                                ; 8086 AL-AL-CF borrows exactly when CF was
+                                ; set, so `sbb al,al` gives CF back unchanged
+                                ; and `inc` does not touch it - which matters
+                                ; only in that it is dsk_find_x's OUTPUT below
+                                ; and never its input.
     pop bx
     call COLD_SEG:dsk_find_x
     pop si
@@ -4722,8 +4730,7 @@ osapi_rand:
 osapi_font_glyphs:
     mov si, font_glyphs
     mov dx, LOW_SEG
-    mov al, FONT_FIRST
-    mov ah, FONT_LAST
+    mov ax, FONT_FIRST | (FONT_LAST << 8)   ; AL and AH in one instruction
     mov cx, 8
     ret
 
