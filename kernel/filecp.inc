@@ -299,13 +299,15 @@ fcp_paste:
     mov al, FCPS_DONE           ; nothing on the clipboard is not an error,
     jmp short .out              ; it is a menu item that does nothing
 .nodisk:
-    mov byte [fcp_err], FERR_NODISK
-    jmp short .err
+    mov al, FERR_NODISK         ; AL is the courier: it is dead here, and .err
+    jmp short .seterr           ; reloads it with FCPS_ERR one line down
 .nomem:
-    mov byte [fcp_err], FERR_FULL
-    jmp short .err
+    mov al, FERR_FULL
+    jmp short .seterr
 .loop_err:
-    mov byte [fcp_err], FERR_NAME
+    mov al, FERR_NAME
+.seterr:
+    mov [fcp_err], al
 .err:
     mov al, FCPS_ERR
     call fcp_stop               ; not a bare busy=0: fcp_selfchk and
