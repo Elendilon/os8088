@@ -112,6 +112,11 @@ SETTLE = re.compile(r"^\$\s*\+\s*2$")
 # routine's `retf`.  Control flow never runs THROUGH a table, so a data
 # directive ends the walk.
 DATA = re.compile(r"^(d[bwdq]|res[bwdq]|incbin)\b", re.I)
+# A `section` directive is a HARD BARRIER: the next byte is in a different
+# address space, so nothing falls through it.  Without this a bare label at the
+# end of one section (boot2_end, modmap_end) is walked into whatever the next
+# section opens with, and the walk reports a depth no execution can reach.
+SECT = re.compile(r"^section\b", re.I)
 DWORDS = re.compile(r"^d[wd]\s+(.*)$", re.I)
 # `jmp [wsm_tab + bx]` - a jump TABLE.  Its arms are not routines entered at
 # zero: wcanvas.asm's far entry banks five registers and dispatches, so every
@@ -440,7 +445,7 @@ def walk(corp, name):
         if not text:
             push(u, i + 1, d, raw, (u, i))
             continue
-        if DATA.match(text):
+        if DATA.match(text) or SECT.match(text):
             continue
 
         if RET.match(text):

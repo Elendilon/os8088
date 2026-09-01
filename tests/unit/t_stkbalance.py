@@ -222,6 +222,38 @@ itoa:
     loop .emit
     ret
 """},
+
+    "a `section` is a HARD BARRIER - nothing falls through it": {
+        # A bare label at the END of a section - boot2_end, modmap_end, and
+        # every *_end the size ladder declares - has no instruction of its
+        # own, so the walk used to run off it into whatever the NEXT section
+        # opens with.  That is a different address space and no execution
+        # reaches it from there.  Here `sb_map_end` walked out of .modmap into
+        # .text and reported sb_tail's continuation prologue as `ret at
+        # depth -1`: a finding against a label that emits no bytes at all.
+        # The three lines are worth it because the alternative is output
+        # nobody can act on, which is how a gate stops being read.
+        #
+        # sb_tail is only ever JUMPED to, so it is a continuation and not an
+        # entry.  Without that the same `ret` is also reported under sb_tail's
+        # own name and main()'s de-duplication - keyed on (file, line, why) -
+        # hides the phantom behind the real one.
+        "a.inc": """
+section .text
+sb_caller:
+    push ax
+    jmp sb_tail
+
+section .modmap
+sb_map:
+    dw 0x384F
+sb_map_end:
+
+section .text
+sb_tail:
+    pop ax
+    ret
+"""},
 }
 
 

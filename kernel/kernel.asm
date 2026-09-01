@@ -6831,3 +6831,80 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ;    Nothing inside this assembly can see the sector's immediate.
 ;    tests/unit/t_bootfloor.py reads it back out of the built sector and
 ;    compares it against this ladder.
+
+; =============================================================================
+; NOTHING MAY LAND BELOW A SECTION'S OWN END LABEL (SPEC.md 15.1).
+;
+; Every *_SIZE above is `<section>_end - $$`, so a byte emitted into that
+; section AFTER its end label is a real byte of the image that the constant
+; does not count. That is not a build error anywhere else in this tree:
+; `-f bin` places it, `.bss` is `nobits vfollows=.text` so nothing is aliased,
+; and os88ovlchk walks SECTIONS and cannot see a same-section, wrong-side-of-
+; the-label byte. What under-reports instead is the arithmetic - KTEXT_SIZE,
+; KIMG_PARA (the FAT snapshot base), COLD_START, KERN_SIZE, the KERN_CODE_MAX
+; guard and SPEC.md 57.6's published kbld_text/kbld_cold - and for `.modc`,
+; `.modf` and `.modl` the consequence is worse than arithmetic: os88mod.py cuts
+; the module file at <sec>_end, so a byte below it is CUT OFF THE MODULE and a
+; call into it lands in unclaimed heap.
+;
+; Found during kernel size pass 2, where a transform appended a shared epilogue
+; ladder to the foot of this file: 9 bytes in `.text` and 9 in `.cold` that
+; every size constant missed, with 434 bytes of slack standing between that and
+; `.cold` being laid over the tail of `.bss`. Costs nothing: each %if is
+; assembly-time and emits no code.
+;
+; TWELVE LABELS AND NOT TWO. The `.text`/`.cold` pair is where the defect was
+; actually found, and it is the cheap half; `.modc` is the one that decides
+; the shape of this block, because the same mis-placement there is machine-
+; breaking rather than merely under-reported - and a `.modc` ladder is one
+; command line away, the section prefix already being in the transform's list.
+; =============================================================================
+section .text
+%if ($ - $$) != KTEXT_SIZE
+  %error "something landed in .text below kernel_text_end - KTEXT_SIZE, KIMG_PARA, COLD_START, the KERN_CODE_MAX guard and kbld_text all under-report it"
+%endif
+section .lowbss
+%if ($ - $$) != KLOW_SIZE
+  %error "something landed in .lowbss below kernel_low_end - KLOW_SIZE and LOW_PARA under-report it"
+%endif
+section .vgabuf
+%if ($ - $$) != KVGABUF_SIZE
+  %error "something landed in .vgabuf below kernel_vgabuf_end - KVGABUF_SIZE under-reports it"
+%endif
+section .bss
+%if ($ - $$) != KBSS_SIZE
+  %error "something landed in .bss below kernel_bss_end - KBSS_SIZE and COLD_START under-report it"
+%endif
+section .boot2
+%if ($ - $$) != BOOT2_SIZE
+  %error "something landed in .boot2 below boot2_end - BOOT2_SIZE under-reports it and the OVL_AT guard is blind to it"
+%endif
+section .cold
+%if ($ - $$) != COLD_SIZE
+  %error "something landed in .cold below cold_end - COLD_SIZE, COLD_PARA and kbld_cold under-report it"
+%endif
+section .ovl
+%if ($ - $$) != OVL_SIZE
+  %error "something landed in .ovl below ovl_end - OVL_SIZE under-reports it and the blob guard is blind to it"
+%endif
+section .ovlw
+%if ($ - $$) != OVLW_SIZE
+  %error "something landed in .ovlw below ovlw_end - OVLW_SIZE under-reports it and MODC_START with it"
+%endif
+section .modc
+%if ($ - $$) != MODC_SIZE
+  %error "something landed in .modc below modc_end - os88mod.py would CUT CTRL.DRV short of it and a call into it lands in unclaimed heap"
+%endif
+section .modf
+%if ($ - $$) != MODF_SIZE
+  %error "something landed in .modf below modf_end - os88mod.py would CUT the format module short of it"
+%endif
+section .modl
+%if ($ - $$) != MODL_SIZE
+  %error "something landed in .modl below modl_end - os88mod.py would CUT the clone module short of it"
+%endif
+section .modmap
+%if ($ - $$) != MODMAP_SIZE
+  %error "something landed in .modmap below modmap_end - the split trailer is no longer the last two bytes of the file"
+%endif
+section .text
