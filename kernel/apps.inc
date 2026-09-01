@@ -795,10 +795,8 @@ app_tmr_btn:
     call app_tmr_brect          ; AX,BX,CX,DX = its inclusive screen rect
     call KERNEL_SEG:cw_wm_clip_test
     jc .out
-    mov [os88ui_krect+0], ax
-    mov [os88ui_krect+2], bx
-    mov [os88ui_krect+4], cx
-    mov [os88ui_krect+6], dx
+    call ui_krect4              ; the rect, staged whole - fdlg.inc's, `.cold`
+                                ; like this, so the call is near
 
     mov si, bp                  ; the label for this index
     shl si, 1

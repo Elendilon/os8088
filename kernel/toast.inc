@@ -403,15 +403,8 @@ toast_gapend:
     push cx
     push dx
     push si
-    mov ax, [vid_wm8]           ; the field, in whole cells - menu_draw_clock's
-    sub ax, [vid_clk_hx]        ; own arithmetic, and clamped the same way
-    mov cl, 3
-    shr ax, cl
-    cmp ax, MENU_CLKC - 1
-    jbe .fw
-    mov ax, MENU_CLKC - 1
-.fw:
-    mov dx, ax                  ; DX = the field's cells
+    call menu_clkcells          ; the field, in whole cells - menu_draw_clock's
+    mov dx, ax                  ; own arithmetic, and now literally it
     call clk_fmt                ; SI = the live line, CX = its length (37) -
                                 ; which this used to walk the string for
     cmp cx, dx                  ; a line wider than its field cannot happen,

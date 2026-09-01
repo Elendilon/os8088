@@ -1307,6 +1307,26 @@ fdlg_defbtn:
 ; nothing can change what they say - so an erase there is a gfx_fill nobody
 ; needs. The default button is the exception because its state moves.
 ; -----------------------------------------------------------------------------
+; ui_krect4 - stage a whole inclusive rect into the kernel's ONE button rect
+; in:  AX = x1, BX = y1, CX = x2, DX = y2
+; out: os88ui_krect filled; ALL registers preserved
+;
+; os88ui_krect is declared in .bss by os88ui.inc and there is exactly one of
+; it, which is legal because every writer is on the UI task under the gfx
+; lock (SPEC.md 13).  Two callers stage a rect they already hold WHOLE - this
+; one and apps.inc's Timer button - and both follow it with
+; `mov bx, os88ui_krect / call os88ui_btn`.  The eleven OTHER krect sites
+; fill the words one at a time as they compute them and are not candidates.
+; Both callers are `.cold`, so the call is near.
+; -----------------------------------------------------------------------------
+ui_krect4:
+    mov [os88ui_krect+0], ax
+    mov [os88ui_krect+2], bx
+    mov [os88ui_krect+4], cx
+    mov [os88ui_krect+6], dx
+    ret
+
+; -----------------------------------------------------------------------------
 fdlg_btn:
     push ax                     ; NOT SI: fdlg_off writes AX..DX only and
     push bx                     ; os88ui_btn banks it
@@ -1320,10 +1340,7 @@ fdlg_btn:
     mov dx, bx
     add dx, FD_BH
     call fdlg_off               ; AX..DX = the inclusive SCREEN rect
-    mov [os88ui_krect+0], ax
-    mov [os88ui_krect+2], bx
-    mov [os88ui_krect+4], cx
-    mov [os88ui_krect+6], dx
+    call ui_krect4              ; ...staged whole
     mov ax, di
     or ah, ah                   ; AL is already the flag word; the greying is
     jz .live                    ; the one bit that arrived separately

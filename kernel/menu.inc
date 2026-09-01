@@ -1424,6 +1424,32 @@ menu_bput:
 ; the strip's WIDTH is the one thing about the field that hashing its
 ; characters cannot see. One byte, one compare.
 ; -----------------------------------------------------------------------------
+; menu_clkcells - the clock field's width, in whole glyph cells (SPEC.md 12.9)
+; in:  nothing
+; out: AX = ([vid_wm8] - [vid_clk_hx]) / 8, clamped to MENU_CLKC - 1
+; clobbers: CX (the shift count), flags
+;
+; The LIVE geometry words, never the SCREEN_W reference values (SPEC.md 39).
+; The clamp is the buffer's: menu_clkbuf is the field plus its NUL, and a
+; screen wider than any this runs on is the one thing that would notice.
+;
+; Written out twice until size pass 2 - here and toast.inc's toast_gapend,
+; whose copy already carried the comment "menu_draw_clock's own arithmetic,
+; and clamped the same way".  Both are `.text`, so the call is near.  CX is
+; spendable at both: each banks it and each loads it from clk_fmt afterwards.
+; -----------------------------------------------------------------------------
+menu_clkcells:
+    mov ax, [vid_wm8]
+    sub ax, [vid_clk_hx]
+    mov cl, 3
+    shr ax, cl
+    cmp ax, MENU_CLKC - 1
+    jbe .fw
+    mov ax, MENU_CLKC - 1
+.fw:
+    ret
+
+; -----------------------------------------------------------------------------
 ; menu_tbar_k - the toast strip's 4px black lead (SPEC.md 59.8.1)
 ; in:  AX = x1, CX = x2 (inclusive); MENU_TEXT_Y is the row
 ; out: nothing - all registers AND the flags preserved
@@ -1458,14 +1484,8 @@ menu_draw_clock:
     push di
     push es
 
-    mov bx, [vid_wm8]           ; --- the field, in whole cells
-    sub bx, [vid_clk_hx]
-    mov cl, 3
-    shr bx, cl
-    cmp bx, MENU_CLKC - 1       ; the buffer is the field plus its NUL, and a
-    jbe .fw                     ; screen wider than any this runs on is the
-    mov bx, MENU_CLKC - 1       ; one thing that would notice
-.fw:
+    call menu_clkcells          ; --- the field, in whole cells, clamped
+    mov bx, ax
     or bx, bx                   ; ...and a field of no cells has nothing to
     jz .out                     ; hash: `loop` with CX = 0 runs 65,536 times.
                                 ; Unreachable - the field is 25 cells on every
