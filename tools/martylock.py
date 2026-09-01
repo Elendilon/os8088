@@ -398,4 +398,21 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # `martylock.py status | head -3` closes the pipe under us, and an
+    # unhandled BrokenPipeError prints a traceback that reads exactly like the
+    # lock itself failing - which is the one thing this tool must never look
+    # like.  Restore the default SIGPIPE so we die quietly the way `cat` does,
+    # and keep the except for platforms that do not have it.
+    try:
+        import signal
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    except (ImportError, AttributeError, ValueError):
+        pass
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        try:
+            sys.stderr.close()
+        except Exception:
+            pass
+        os._exit(0)
