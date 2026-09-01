@@ -353,19 +353,16 @@ fcp_paste:
 ; mean something and paste there.
 ; -----------------------------------------------------------------------------
 fcp_here:
-    push ax
-    mov al, [fcp_drv]
-    cmp al, [fcp_ddrv]
-    jne .no
-    mov ax, [fcp_cwd]
-    cmp ax, [fcp_dcwd]
-    jne .no
-    pop ax
+    push ax                     ; `xor` CLEARS CF, which is the "not here"
+    mov ax, [fcp_cwd]           ; answer - so the two arms share one tail and
+    xor ax, [fcp_dcwd]          ; the folder is tested first only because it
+    jnz .no                     ; is the word.  The predicate is an AND, so
+    mov al, [fcp_drv]           ; testing it first is the same question.
+    xor al, [fcp_ddrv]          ; AH is left dirty by the second xor and is
+    jnz .no                     ; never read - the `pop` restores AX whole
     stc
-    ret
 .no:
     pop ax
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
