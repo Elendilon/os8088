@@ -5012,8 +5012,8 @@ vga_restore_vram:                              ; only renderer gfx_restore has
     inc bp                      ; bp = bytes per row
     push ds
     push es
-    mov ax, es
-    mov ds, ax                  ; movsb source = caller's buffer
+    push es
+    pop ds                      ; movsb source = caller's buffer
     mov ax, VGA_SEG
     mov es, ax                  ; movsb dest = VRAM
 .row:

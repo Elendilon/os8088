@@ -508,8 +508,8 @@ dskw_mkbody:
     mov [dskw_lba], ax
 
     call dskw_dotents           ; '.' and '..' built in dsk_secbuf
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss                     ; ES = LOW_SEG (SPEC.md 2.1), which is what SS names
+    pop es
     mov ax, [dskw_lba]
     mov cx, 1
     mov bx, dsk_secbuf
@@ -586,8 +586,8 @@ dskw_zerobuf:
     push cx
     push di
     push es
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov di, dsk_secbuf
     mov cx, 256
     xor ax, ax
@@ -615,8 +615,8 @@ dskw_dotents:
     push es
     call dskw_zerobuf
     call dskw_now               ; [dskw_date] / [dskw_time] (SPEC.md 37)
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov di, dsk_secbuf          ; '.' -> this directory
     mov ax, [dskw_first]
     call dskw_dotent
@@ -1061,8 +1061,8 @@ dskw_rt_scan:
     push di
     push es
     mov byte [dskw_rt_ioerr], 0
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov ax, [dsk_cwd]
     call dsk_dirw_start_x
 .sector:
@@ -1141,8 +1141,8 @@ dskw_rt_byclus:
     push si
     push di
     push es
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov ax, [dsk_cwd]
     call dsk_dirw_start_x
 .sector:
@@ -1227,8 +1227,8 @@ dskw_isempty:
     push cx
     push si
     push es
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov ax, [dskw_oldclus]
     call dsk_dirw_start_x
 .sector:
@@ -1548,8 +1548,8 @@ dskw_wdata:
     push cx                     ; pending here: dskw_runmax answered 0, and it
     mov cx, 512                 ; is only asked with [dskw_rlen] = 0
     call dskw_stage             ; ES:SI -> LOW_SEG:dsk_secbuf, all 512 of it
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov bx, dsk_secbuf
     mov cx, 1
     mov ax, [dskw_clba]
@@ -1575,8 +1575,8 @@ dskw_wdata:
     mov si, [dskw_src]
     mov cx, [dskw_tail]
     call dskw_stage             ; ES:SI -> LOW_SEG:dsk_secbuf, rest zeroed
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov bx, dsk_secbuf
     mov cx, 1
     mov ax, [dskw_clba]         ; the sector the whole-sector walk stopped at
@@ -1919,8 +1919,8 @@ dskw_rdata:
 .jioerr:
     jmp .ioerr
 .stg:                           ; one sector the 8237 cannot carry, alone,
-    mov ax, LOW_SEG             ; through the scratch - which is 512-aligned
-    mov es, ax                  ; and therefore never straddles. No run can be
+    push ss                     ; through the scratch - which is 512-aligned
+    pop es                      ; and therefore never straddles. No run can be
     mov bx, dsk_secbuf          ; pending here: dskw_runmax answered 0, and it
     push cx                     ; is only asked with [dskw_rlen] = 0
     mov cx, 1
@@ -1948,8 +1948,8 @@ dskw_rdata:
     jnz .advance
     call dskw_flushrun
     jc .ioerr
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov bx, dsk_secbuf
     mov cx, 1
     mov ax, [dskw_clba]         ; the sector the whole-sector walk stopped at
@@ -2841,8 +2841,8 @@ dskw_find:
     push es
     mov word [dskw_fsec], 0xFFFF
     mov byte [dskw_fend], 0
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov ax, [dsk_cwd]           ; the CURRENT directory, not the root
     call dsk_dirw_start_x ; (SPEC.md 19.2 - one walker, both shapes)
 .sector:
@@ -3015,8 +3015,8 @@ dskw_ent_store:
     push si
     push di
     push es
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov ax, [dskw_dsec]
     mov cx, 1
     mov bx, dsk_secbuf
@@ -3425,8 +3425,8 @@ dskw_stage:
     sub dx, cx                  ; DX = bytes to zero after the copy
     push es
     pop ds                      ; DS:SI = the caller's bytes
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov di, dsk_secbuf
     cld
     rep movsb
@@ -3453,8 +3453,8 @@ dskw_fetch:
     push si
     push di
     push ds
-    mov ax, LOW_SEG
-    mov ds, ax
+    push ss
+    pop ds
     mov si, dsk_secbuf
     cld
     rep movsb                   ; DS:SI -> ES:DI

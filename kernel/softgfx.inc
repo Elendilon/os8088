@@ -1109,7 +1109,7 @@ sw_xfer:
     ; With one pass the two `cmp byte [sw_dir],0` tests are four instructions
     ; apart on one straight line, so the first one goes and its body - the
     ; sub-rect skip - becomes .rst's first instruction, which is still ABOVE
-    ; the `mov ds,ax` that makes DS the caller's buffer.
+    ; the `pop ds` that makes DS the caller's buffer.
     mov bp, [gfx_rspan]
     inc bp                      ; BP = bytes per row
     mov bx, [vid_rseg]
@@ -1138,12 +1138,12 @@ sw_xfer:
 .rst:
     add si, [gfx_sub_st]        ; the SUB-RECT restore (SPEC.md 5.8), 0 at
                                 ; rest. Here, where DS is still KERNEL_SEG -
-                                ; below the `mov ds,ax` it would read the
+                                ; below the `pop ds` it would read the
                                 ; caller's buffer
     push di                     ; restore: buffer -> plane; caller DI untouched
     mov di, ax
-    mov ax, es
-    mov ds, ax                  ; movsb source = caller's buffer
+    push es
+    pop ds                      ; movsb source = caller's buffer
     mov es, bx                  ; movsb dest = this plane
 .rrow:
     mov cx, bp

@@ -4427,13 +4427,14 @@ fm_clone_go:
 ; out: nothing; AX and SI clobbered, which both sites already did
 ;
 ; NOT `push cs`: this is `.cold` (SPEC.md 2.6), so CS here is COLD_SEG and the
-; buffer is KERNEL_SEG. CX = 0 is TOAST_TICKS, the default life.
+; buffer is KERNEL_SEG - which is what DS holds (SPEC.md 2.6 rule 2), so the
+; segment copy is `push ds`. CX = 0 is TOAST_TICKS, the default life.
 ; -----------------------------------------------------------------------------
 fm_toast_hdr:
     push cx
     push es
-    mov ax, KERNEL_SEG
-    mov es, ax
+    push ds
+    pop es
     mov si, fm_hdrbuf
     xor cx, cx
     call KERNEL_SEG:cw_toast_show

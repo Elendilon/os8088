@@ -621,8 +621,8 @@ task_spawn:
     push ax                     ; seed this slice's canary before the frame:
     sub ax, SCH_STACK           ; AX is the slice TOP, so its base is one
     mov di, ax                  ; SCH_STACK below
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss                     ; ES = LOW_SEG (SPEC.md 2.1), which is what SS names
+    pop es
     ; --- THE 0xCC FILL, and it is NOT a debug build's (SPEC.md 8.3) --------
     ; Every byte of the slice, so the deepest one anything ever touched can be
     ; read back out of LOW_SEG. The canary and the frame are written OVER this,
@@ -638,8 +638,10 @@ task_spawn:
     ; EVERY task's high water on the shipping kernel, on the real machine,
     ; while the thing under suspicion is running.
     push cx                     ; CX is the slot index and is still needed
-    push di
-    push ax
+    push di                     ; (AX is NOT banked: it holds nothing live -
+                                ; the slice base went into DI above and the
+                                ; slice top is on the stack from `push ax`
+                                ; before the segment load)
 %if SCH_STACK % 2
   %error "SCH_STACK must be EVEN: the `rep stosw` below fills SCH_STACK/2 words, sch_switch's canary is a word written at the slice base, and sch_stacks' pad aligns the BLOCK to a word only - so an odd stride puts every slice above the first on an odd address and the canary straddles"
 %endif
@@ -651,7 +653,6 @@ task_spawn:
                                 ; this whole fill runs inside the spawn's cli
                                 ; (the base is even: sch_stacks is aligned
                                 ; and slices are multiples of 128)
-    pop ax
     pop di
     pop cx
     mov word [es:di], SCH_MAGIC

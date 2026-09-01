@@ -1676,8 +1676,8 @@ asc_root_find:
     push si
     push di
     push es
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss                     ; ES = LOW_SEG: dsk_secbuf is .lowbss (SPEC.md
+    pop es                      ; 2.1), which is exactly what SS names
     xor ax, ax                  ; 0 = the root
     call dsk_dirw_start_x
 .sector:

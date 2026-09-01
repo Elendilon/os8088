@@ -2625,8 +2625,8 @@ disk_mount_x:
     ; always reads, because a floppy is the thing that can be swapped.
     call dsk_bpb_bank_get
     jnc .bpb_staged
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     xor ax, ax                  ; LBA 0
     mov cx, 1
     mov bx, dsk_secbuf
@@ -2736,8 +2736,8 @@ disk_mount_x:
     ; built in dsk_ent (kernel scratch) and copied out through dsk_put_dir -
     ; which knows whether this volume's listing is the .lowbss floor or a
     ; driver's claim, so nothing below has to (SPEC.md 22.6).
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     xor bp, bp                  ; BP = accepted entry count
     cmp word [dsk_cwd], 0
     je .noup
@@ -2845,8 +2845,8 @@ disk_mount_x:
     call asc_use_x                ; this volume's ASSOC.DAT (SPEC.md 54.7), so
                                 ; the loop below can answer most of its icon
                                 ; reads without doing them
-    mov ax, LOW_SEG             ; asc_use reads the disk: put ES back
-    mov es, ax
+    push ss                     ; asc_use reads the disk: put ES back
+    pop es
     xor dx, dx                  ; DX = entry index
 .harvest:
     cmp dx, bp
@@ -3089,8 +3089,8 @@ dsk_bpb_check:
     jnz .staged
 
     ; rule 1: boot signature 0xAA55 at bytes 510..511
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     cmp word [es:dsk_secbuf+510], 0xAA55
     jne .jfail1
 
@@ -5564,8 +5564,8 @@ dsk_relist_x:
 dsk_dotdot_x:
     push si
     push es
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov ax, [dsk_cwd]
     call dsk_dirw_start_x
     call dsk_dirw_get_x         ; the directory's very first sector - the

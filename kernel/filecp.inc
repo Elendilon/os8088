@@ -932,8 +932,8 @@ fcp_rlup:
     push bx
     push cx
     push es
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss                     ; ES = LOW_SEG (SPEC.md 2.1), which is what SS names
+    pop es
     mov ax, [fcp_rlclus]
     call dsk_clus2lba_x ; AX = the folder's first sector
     jc .out
@@ -1045,8 +1045,8 @@ fcp_scan:
     push di
     push es
     mov di, bx                  ; DI -> the frame, held throughout
-    mov ax, LOW_SEG
-    mov es, ax
+    push ss
+    pop es
     mov al, [fcp_sdrv]
     mov bx, [di+FCP_FSRC]
     call fcp_goto

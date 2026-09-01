@@ -244,6 +244,22 @@ because the kernel starts as low as the BIOS lets it.
   stage one entry back into the kernel segment (§18). `dsk_secbuf` is also
   the write path's staging sector (§18.4).
 
+**`push ss / pop es` is the kernel's copy of `LOW_SEG` into a segment
+register**, and `push ss / pop ds` its DS form: SS holds `LOW_SEG` from kmain's
+third instruction to the end of the session, so the two-byte pair replaces
+`mov ax, LOW_SEG / mov es, ax`'s five and spends no register. Three conditions,
+and each has killed a site: **SS must already be `LOW_SEG`** (not in
+`boot/boot.asm`, not above kmain's `mov ss, ax`); **AX must be dead after the
+pair**, because the `mov` form leaves the segment in it and the push form does
+not — `mem_reloc_call` holds `KERNEL_SEG` in AX for eighteen lines to a later
+`mov ds, ax`; and **the pair must not be a `[dsk_dseg]` window close**, since
+`tools/dsegaudit.py` recognises only `mov es|ds, X` as one and a `pop es` leaves
+the window open across the call it was closing. In `.cold`, `.ovl` and `.modl`
+the `KERNEL_SEG` form is `push ds`, never `push cs` — CS there is `COLD_SEG`.
+**It is 5 to 12 clocks SLOWER per site**, two word stack accesses against a
+fetch-bound pair (PERFORMANCE.md Part 2): the pair is taken for the bytes, and
+never on a per-pixel or per-row path.
+
 **The stack numbers are measured, not guessed.** Every byte of the stack
 region was filled with 0xCC at the top of `kmain` and the machine driven as
 hard as it goes — Timer, two Bounces, About, the Control Panel on both its
