@@ -169,7 +169,9 @@ def _describe(meta):
     return ("held by %s  (why=%s: %s)\n"
             "  purpose : %s\n"
             "  since   : %d min ago, %s\n"
-            "  pid     : %s   port: %s" %
+            "  pid     : %s (AT ACQUIRE - NOT liveness; a holder works across\n"
+            "            many shells, so this pid is dead almost at once and\n"
+            "            its absence proves nothing) port: %s" %
             (meta["holder"], meta["why"], WHY.get(meta["why"], "?"),
              meta["purpose"] or "(none given)", held, _fmt_left(meta),
              meta["pid"], meta["port"]))
