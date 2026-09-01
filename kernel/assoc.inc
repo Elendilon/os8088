@@ -202,11 +202,18 @@ assoc_stem_of:
 ; -----------------------------------------------------------------------------
 ; assoc_find - the app an extension names (SPEC.md 54.2)
 ; in:  SI -> 3 extension bytes
-; out: CF=0 and AL = app slot index; CF=1 = no association
-; clobbers: AX (output), CF
+; out: CF=0 and AL = app slot index, BX -> the matched row; CF=1 = no
+;      association, and BX IS UNDEFINED (the corrupt-index refusal at .hit
+;      aborts the scan with BX on a row that matched the extension)
+; clobbers: AX and BX (both outputs), CF
+;
+; BX is an output because assoc_ext_row used to be a second walk of this same
+; table, run immediately after a successful call to re-find the row this one
+; had already found. Every caller that wants the row takes it from here; the
+; two published entries (assoc_docicon, assoc_post) bank BX themselves so
+; their "everything else preserved" contracts still hold.
 ; -----------------------------------------------------------------------------
 assoc_find:
-    push bx
     push cx
     push di
     mov bx, assoc_ext
@@ -230,7 +237,6 @@ assoc_find:
 .miss:
     pop di
     pop cx
-    pop bx
     stc
     ret
 .hit:
@@ -240,7 +246,6 @@ assoc_find:
     jae .miss                   ; a corrupt index names no app
     pop di
     pop cx
-    pop bx
     clc
     ret
 
@@ -422,6 +427,7 @@ assoc_compose:
 ; -----------------------------------------------------------------------------
 assoc_docicon_x:
     push ax
+    push bx                     ; assoc_find answers the matched row in BX
     push si
     push di
     call assoc_ext_of           ; DI -> assoc_extb
@@ -433,12 +439,14 @@ assoc_docicon_x:
     call assoc_compose
     pop di
     pop si
+    pop bx
     pop ax
     clc
     ret
 .no:
     pop di
     pop si
+    pop bx
     pop ax
     stc
     ret
@@ -492,9 +500,8 @@ assoc_declare:
     mov si, assoc_extb
     cmp byte [si], ' '          ; a blank extension names nothing
     jbe .next
-    call assoc_find             ; already claimed?
+    call assoc_find             ; already claimed?  BX = that row if so
     jc .fresh
-    call assoc_ext_row          ; BX = that row
     test byte [bx+3], ASSOC_STICKY
     jnz .next                   ; a runtime claim outranks a declaration
     jmp short .point
@@ -612,10 +619,14 @@ section .cold                   ; ...and back to cold code
 ; -----------------------------------------------------------------------------
 assoc_post_x:
     push ax
+    push bx                     ; assoc_find answers the matched row in BX
     push cx
     push si
     push di
-    push si                     ; the entry, for the name copy below
+    push si                     ; the entry, for the name copy below. NOTE the
+                                ; FIFTH push: the epilogues below pop si three
+                                ; times, and the new pop bx belongs after the
+                                ; LAST of them, not before
     call assoc_ext_of
     jc .no
     push si
@@ -644,6 +655,7 @@ assoc_post_x:
     mov [assoc_pwin], di
     pop si
     pop cx
+    pop bx
     pop ax
     clc
     ret
@@ -652,6 +664,7 @@ assoc_post_x:
     pop di
     pop si
     pop cx
+    pop bx
     pop ax
     stc
     ret
@@ -1247,11 +1260,8 @@ osapi_assoc_set_x:
 .haveapp:
     mov dl, al                  ; DL = the app slot from here down
     mov si, assoc_extb
-    call assoc_find             ; already claimed by someone?
-    jc .newext
-    call assoc_ext_row          ; BX = that row
-    jmp short .point
-.newext:
+    call assoc_find             ; already claimed by someone?  BX = that row
+    jnc .point
     call assoc_ext_new          ; BX = a free row, with the extension in it
     jc .full
 .point:
@@ -1276,34 +1286,6 @@ osapi_assoc_set_x:
     pop ax
     stc
     retf
-
-; assoc_ext_row - the row assoc_find just matched. in: SI -> 3 ext bytes;
-; out: BX = its row (the caller has already had CF=0 from assoc_find)
-assoc_ext_row:
-    push ax
-    push cx
-    push di
-    mov bx, assoc_ext
-    mov cx, ASSOC_NEXT
-.row:
-    mov di, si
-    mov al, [bx]
-    cmp al, [di]
-    jne .next
-    mov al, [bx+1]
-    cmp al, [di+1]
-    jne .next
-    mov al, [bx+2]
-    cmp al, [di+2]
-    je .out
-.next:
-    add bx, 4
-    loop .row
-.out:
-    pop di
-    pop cx
-    pop ax
-    ret
 
 ; assoc_ext_new - claim a free extension row. in: SI -> 3 ext bytes;
 ; out: CF=0 and BX = the row with the extension written in; CF=1 = full
@@ -1821,9 +1803,8 @@ asc_merge_ext:
     cmp byte [si], ' '
     jbe .next
     push di
-    call assoc_find
+    call assoc_find             ; BX = the row it matched
     jc .fresh
-    call assoc_ext_row
     test byte [bx+3], ASSOC_STICKY
     jnz .popnext                ; a runtime claim outranks a cached one
     jmp short .point
