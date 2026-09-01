@@ -353,7 +353,7 @@ section .text                   ; ...and the overlay's three end here
 vid_avail_test:
     push cx
     push bx
-    cmp al, VID_CGA             ; a byte from SYSTEM.CFG written by a kernel
+    cmp al, VID_KIND_MAX        ; a byte from SYSTEM.CFG written by a kernel
     ja .no                      ; that knew a fourth adapter
     mov cl, al
     mov bl, 1
@@ -913,7 +913,17 @@ section .text
 ;
 ; So the question this answers is "are these two kinds two CARDS", and the
 ; answer to "how is a card darked" belongs in one place.
+;
+; THE THREE KINDS ARE A CLOSED SET AND THIS TEST RESTS ON IT. "Exactly one of
+; them is the mono one" is decided by comparing against VID_HERC BY NAME, here
+; and in vid_blank_kind and vid_unblank_kind (39.18.1) - so a FOURTH kind is
+; silently colour to all three, and vid_avail_test would admit it on the
+; strength of one `cmp al, VID_KIND_MAX`. That is not hypothetical: that
+; routine's own comment contemplates "a kernel that knew a fourth adapter".
 ; -----------------------------------------------------------------------------
+%if VID_KIND_MAX != VID_CGA
+  %error "a fourth VID_* kind has been added: vid_blank counts the mono cards by comparing against VID_HERC by NAME, and vid_blank_kind/vid_unblank_kind branch on VID_HERC and VID_VGA and treat everything else as the CGA (SPEC.md 39.18.1). Give the new kind an arm in each of the three before raising VID_KIND_MAX"
+%endif
 vid_blank:
     push ax
     push bx
@@ -1226,6 +1236,9 @@ vid_seq1_blank:
 %ifdef KERN_BIG
 
 VID_NDISP_MAX equ 2             ; the machine this is for holds two cards
+%if VID_NDISP_MAX != 2
+  %error "the extended desktop is written for TWO displays and no more (SPEC.md 39.12): vid_ctx is sized from this, vid_disp_set stores the count as a literal 2, and wm.inc's snapshot band appends 'at most VID_NDISP_MAX' clip rects so WM_CLIP_MAX's full case is unreachable rather than handled. A third display needs each of those looked at, not this number raised"
+%endif
 VID_CTX_W    equ 19             ; words copied to and from the live block
 VID_CTX_CW   equ 14             ; ...within the run, the display's own extent -
 VID_CTX_CH   equ 16             ; word 7 and word 8, vid_cw/vid_ch (39.2.1)

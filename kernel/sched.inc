@@ -575,7 +575,7 @@ task_spawn:
     push di
     push ax
 %if SCH_STACK % 2
-  %error "the word fill below wants an even SCH_STACK"
+  %error "SCH_STACK must be EVEN: the `rep stosw` below fills SCH_STACK/2 words, sch_switch's canary is a word written at the slice base, and sch_stacks' pad aligns the BLOCK to a word only - so an odd stride puts every slice above the first on an odd address and the canary straddles"
 %endif
     mov cx, SCH_STACK / 2
     mov ax, 0xCCCC

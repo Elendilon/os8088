@@ -1460,6 +1460,15 @@ ASC_ROWICO   equ 16             ; ...the icon's offset inside a row
 ASC_NAPP     equ 32             ; was 16, and the shipped apps disk holds 15 -
 ASC_NEXT     equ 24             ; one package of headroom, with no guard
 ASC_KB       equ 3              ; 32*80 + 16 + 24*4 = 2,672 bytes
+; ...and that sum is now checked rather than kept up to date by hand. The ext
+; rows are FOUR bytes, not ASC_ROW: asc_merge_ext walks them with `add di, 4`,
+; which is the one number here that a reader is likely to get wrong, ASC_ROW
+; being the app row's stride two lines above. The counts are bounded at load
+; (asc_use caps [asc_n] at ASC_NAPP and [asc_ne] at ASC_NEXT), so this is what
+; keeps every offset those caps allow inside the claim asc_use asks for.
+%if ASC_HDR + ASC_NAPP * ASC_ROW + ASC_NEXT * 4 > ASC_KB * 1024
+  %error "the association cache no longer fits its own claim: asc_use claims ASC_KB and mem_claim does not clear the block, so a row past the end is parsed out of whatever the heap handed out last"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; asc_use - make the cache describe THIS volume (SPEC.md 54.7)

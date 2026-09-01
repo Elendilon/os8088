@@ -44,6 +44,10 @@
 ; os88ui.inc draws. A wider record is a caller error, not a shape to clip.
 ; -----------------------------------------------------------------------------
 ICO_STAGE_H equ 16              ; rows the stage holds, at one word a row
+ICO_STAGE_WW equ 1              ; ...and words ACROSS. It is the `1` in
+                                ; icon_draw_x's width refusal, named so the
+                                ; stage's size and the test that keeps records
+                                ; inside it cannot part
 ; ...and the ceiling on the SHARED control glyph, asserted here because this is
 ; the first point both constants exist: kernel.asm includes fdlg.inc (and with
 ; it apps/os88ui.inc, which sets OS88UI_GW) one line above icons.inc.
@@ -62,6 +66,9 @@ ICO_STAGE_H equ 16              ; rows the stage holds, at one word a row
 %if OS88UI_GW > ICO_STAGE_H
   %error "OS88UI_GW is taller than the icon stage: icon_draw_x refuses the control-glyph record and os88ui_glyph has no fallback (SPEC.md 25.6.1)"
 %endif
+%if ICO_STAGE_WW != 1
+  %error "icon_draw_x refuses a record's width with `cmp al, ICO_STAGE_WW / ja .refuse` and `or al,al / jz .refuse` - the pair only spells 'exactly 1' while ICO_STAGE_WW is 1. A wider stage needs that pair re-read as well as the resb below re-sized"
+%endif
 icon_draw_x:
     push ax
     push cx
@@ -69,7 +76,7 @@ icon_draw_x:
     push di
     mov al, [es:si]             ; the header: words a row, then rows
     mov ah, [es:si+1]
-    cmp al, 1
+    cmp al, ICO_STAGE_WW
     ja .refuse
     or al, al
     jz .refuse
@@ -817,7 +824,7 @@ icon_pen:
 
 
 section .bss
-ico_stage   resb 2 + ICO_STAGE_H * 4   ; SPEC.md 25.6.1: a package's record,
+ico_stage   resb 2 + ICO_STAGE_H * (ICO_STAGE_WW * 4)   ; SPEC.md 25.6.1: a package's record,
                                 ; copied where the pass can read it. One of it
                                 ; for os88ui_krect's reason - every caller is
                                 ; under the gfx lock and nothing in a drawing

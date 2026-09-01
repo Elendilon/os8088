@@ -682,6 +682,16 @@ desk_zones_dmg:
 ; rect to it is not slack: it is what makes wm_paint_dmg's marking pass notice
 ; a window sitting over that zone and redraw it too.
 ; -----------------------------------------------------------------------------
+; THE ZONE MASK IS ONE BYTE, and DVOL_MAX is exactly at its limit. The mask is
+; built here with `mov al,1 / shl al,cl` and spent by desk_paint_mask_x with
+; `shr al,cl`, cl = 0..DVOL_MAX-1. At 9 the ninth zone's bit is `shl al,8`,
+; which is 0 on an 8086 - so that zone silently stops being repainted by every
+; damage-driven path while desk_paint_x still draws it, and the symptom is a
+; drive icon that survives one repaint and not the next. disk.inc guards
+; DVOL_MAX against MEM_P_FATW_N the same way and for the same reason.
+%if DVOL_MAX > 8
+  %error "desk: the drive-zone mask is ONE BYTE (mov al,1 / shl al,cl here, shr al,cl in desk_paint_mask_x). Above 8 the top zones' bits shift out and those zones stop being repainted by every damage-driven path, silently"
+%endif
 desk_dmg_zones_x:
     push bx
     push cx

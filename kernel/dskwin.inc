@@ -49,6 +49,12 @@ DSK_NENT     equ 32
 DSK_VENT     equ 64
 DSK_VBYTES   equ DSK_VENT * (DSK_DE_SIZE + DSK_ICO_SIZE)    ; 6,144 = 6KB
 DSK_VKB      equ 6
+%if DSK_VBYTES > DSK_VKB * 1024
+  %error "the driver-backed listing no longer fits the claim its driver funds: DSK_VKB is what is asked for and DSK_VBYTES is what disk_mount then writes into it, so the overflow lands on whatever the heap handed out next"
+%endif
+%if DSK_DE_SIZE != 32
+  %error "DSK_DE_SIZE is the ON-DISK FAT directory stride, 32 by FAT12, and it is PUBLISHED to packages (apps/os88api.inc's OSAPI_FS_ENT). It is not free to change: a staged entry that wants a different width needs a stride of its own, leaving this one at 32"
+%endif
 
 section .lowbss                 ; LOW_SEG: written by int 13h through ES:BX
                                 ; (or rep movsw/stosw from the mount), read

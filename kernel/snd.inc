@@ -68,6 +68,13 @@ SND_RT_CARD equ SND_RT_FM       ; the old two-value name, kept so a SYSTEM.CFG
 SND_PRI_UI  equ 0C0h            ; kernel UI beeps (SPEC.md 34.3)
 SND_PRI_PKG equ 040h            ; documented package default priority
 
+SND_PATCH_N equ 11              ; bytes in an OPL patch (SPEC.md 34.2) - the
+                                ; length osapi_snd_fm_x stages, and the length
+                                ; the driver reads back
+%if SND_PATCH_N != 11
+  %error "SND_PATCH_N is the OPL patch's length (SPEC.md 34.2) and the driver is NOT told it: drivers/sound/sound.asm's opl_patch reads 5 modulator bytes, 5 carrier bytes and 1 feedback byte out of the staging buffer and stops. Changing this changes what is staged and not what is read"
+%endif
+
 ; =============================================================================
 ; Initialised .text data (SPEC.md 34.7): everything snd_tick or an early
 ; caller could read before snd_init has stored the .bss state.
@@ -831,7 +838,7 @@ osapi_snd_fm_x:
     push si                     ; the kernel, the dsk_get_dir idiom - the
     push di                     ; driver runs with DS = its own segment and
     mov di, snd_patch           ; cannot reach the caller's
-    mov cx, 11
+    mov cx, SND_PATCH_N
 .stage:
     mov ah, [es:si]
     mov [di], ah
@@ -1254,7 +1261,7 @@ snd_pcm_fast:  resb 1           ;   the fsx sub-tick parked across the clip
 snd_pcm_n:     resw 1           ;   the clip divisor N (74..255)
 snd_pcm_emitted: resw 1         ; debug counters (34.4), reset per clip:
 snd_pcm_resync:  resw 1         ;   pulses emitted / deadline resyncs
-snd_patch:     resb 12          ; a package's 11-byte FM patch, staged into
+snd_patch:     resb 12          ; a package's SND_PATCH_N-byte FM patch, staged into
                                 ; the kernel so the driver can read it (34.2)
 snd_evtmp:     resb 8           ; click-abort event drain scratch (evq_pop
                                 ; copies into DS memory)
