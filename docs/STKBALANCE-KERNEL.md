@@ -279,3 +279,13 @@ summary line:
 * **Depth is words, and only `push`/`pop`/`pusha`/`popa`/`add`/`sub sp, imm`
   move it.** A routine that moves SP by arithmetic through another register is
   invisible.
+* **A corpus spans several translation units and one name can be defined
+  twice** — `apps/cc/crt0.asm`'s C runtime is copied into Loom's PV module,
+  `drivers/net` and `drivers/ether` share `eth_*` state names. The first
+  definition wins. It is 22 of 9,786 across `apps/` and `drivers/`, all of them
+  deliberate copies of the same code, and the count is printed so the
+  inaccuracy is visible rather than assumed away.
+* **`boot/` is not gated.** It walks clean today (50 entries, 0 findings) and
+  is left out on purpose: four separate flat binaries that define some of the
+  same names, so unioning them is exactly the case in the line above, for
+  almost no code.

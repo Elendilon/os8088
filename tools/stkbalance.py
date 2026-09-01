@@ -215,9 +215,19 @@ class Corpus(object):
     def __init__(self, files):
         self.units = [Unit(p) for p in files]
         self.gindex = {}        # "name" -> (unit, idx)
+        # A corpus spanning several TRANSLATION UNITS can define one name
+        # twice - apps/cc/crt0.asm's C runtime is copied into Loom's PV module,
+        # drivers/net and drivers/ether share `eth_*` state names. The first
+        # definition wins, which is a real inaccuracy and a small one (22 of
+        # 9,786 across apps/ and drivers/), so it is COUNTED and printed rather
+        # than left silent - the same treatment as the back edges.
+        self.dup = 0
         for u in self.units:
             for name, idx in u.glab.items():
-                self.gindex.setdefault(name, (u, idx))
+                if name in self.gindex:
+                    self.dup += 1
+                else:
+                    self.gindex[name] = (u, idx)
         self.called = {}
         self.jumped = {}
         self.addressed = {}
@@ -554,9 +564,10 @@ def main():
               % (os.path.relpath(path, ROOT), name, why, line))
     print("stkbalance: %d unbalanced path(s)"
           "  (%d entries walked, %d declared banking routines,"
-          " %d exempted, %d loop back-edges not reported, %d walks capped)"
+          " %d exempted, %d loop back-edges not reported, %d walks capped,"
+          " %d names defined twice)"
           % (len(all_f), len(corp.entries()), len(corp.nets),
-             len(corp.skip), sup, capped))
+             len(corp.skip), sup, capped, corp.dup))
     return 1 if all_f else 0
 
 
