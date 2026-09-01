@@ -224,11 +224,19 @@ image now, not below it — there is no low memory under the kernel any more,
 because the kernel starts as low as the BIOS lets it.
 
 - `sch_stacks` — 7 × `SCH_STACK` (**384**) = 2,688 bytes, task slots 1..7
-  (§8). The **block** is 256-aligned in `.lowbss` (a `resb` pad before it)
-  and an individual slice is **not** — at 384 the odd slots sit at 128 mod
+  (§8). The **block** is **word**-aligned in `.lowbss` (a `resb` pad before
+  it) and nothing more, because a word is the whole of what is required: the
+  `SCH_MAGIC` canary is a word written at a slice base and `task_spawn` fills
+  a slice with `rep stosw`, and `SCH_STACK` is even (`sched.inc` carries the
+  `%error`), so an even block base makes every slice base even. An individual
+  slice is **not** 256-aligned either — at 384 the odd slots sit at 128 mod
   256 — so a slice top is `sch_stacks + n*SCH_STACK` and never SP's low
   bits, which is the arithmetic that read garbage in two instruments
-  (§8.4); a `SCH_MAGIC` canary word sits at the bottom of every slice (§8).
+  (§8.4). **The pad was 256 and was never asked for**: it cost 42 bytes of
+  `.lowbss` on kern_big and 0 on kern_small, on the tightest rung in the
+  kernel, and every consumer in the tree — `sch_switch`'s canary arm,
+  `task_spawn`, `tests/stackprobe`, `tools/stkwater.py`, `tools/kfzread.py`,
+  `tests/ftpd.py` — is symbol-relative and steps by `SCH_STACK`.
 - Task 0 runs on the same segment at `STK0_TOP`, growing down onto the top
   of `.lowbss` — `STK0_SIZE` = 1,024 bytes. All tasks share one SS, so a
   switch is still an SP swap and SS is not part of the saved frame. **This
@@ -7638,7 +7646,7 @@ path, so the injection floor cannot enter the number.
   an `SCH_STACK`-byte stack — **384**, measured (1.75× the 220 bytes the
   field has seen in use, docs/KERNEL-MEMORY.md "Task stacks"), not guessed:
   `sch_stacks resb (MAX_TASKS-1) * SCH_STACK` **in `.lowbss`** (§2.1),
-  the block 256-aligned and the slices themselves 128-aligned, slot n's
+  the block word-aligned and the slices themselves 128-aligned, slot n's
   stack top at `sch_stacks + n*SCH_STACK` (slot 1 owns bytes 0..383).
   **Thin is CHECKED, not trusted**: `SCH_MAGIC` (0x5A57) is written at the
   bottom word of every slice by `task_spawn`, `sch_switch` compares the
@@ -10533,8 +10541,12 @@ is the whole content of this section:
 not write.
 
 **`events.inc` is `%include`d after `sched.inc`**, so this block lands *below*
-`sch_stacks` and cannot move its 256-alignment pad — which is the one thing
-adding `.lowbss` can break at a distance, and it is checked rather than assumed.
+`sch_stacks` and cannot move its word-alignment pad — which is the one thing
+adding `.lowbss` can break at a distance, and it is checked rather than
+assumed. (The pad was 256 bytes until it was cut to a word, §2.1; a block
+*above* `sch_stacks` that changes size by an odd number now moves one byte
+rather than up to 256, and `sched.inc`'s `%if (sch_stacks - $$) % 2` is what
+refuses the case that matters.)
 
 ### 10.2 The UI task DRAINS the ring; it does not sip
 
@@ -74253,7 +74265,7 @@ trace of why.
 **SS is `LOW_SEG` and DS is the package's segment, on every task, always.**
 That is §1's near-model rule and §2.1's memory map, and it is not negotiable
 for the sake of a compiler: SS is not part of the saved task frame (§8), the
-seven worker stacks are one 256-aligned block in `.lowbss` whose slice top is
+seven worker stacks are one word-aligned block in `.lowbss` whose slice top is
 derived from SP alone, and the canary check that catches an overrun reads
 through SS. **SS ≠ DS is a property of the whole operating system.** No
 kernel change was made to accommodate C and none should be proposed; the

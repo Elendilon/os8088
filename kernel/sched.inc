@@ -1955,28 +1955,33 @@ sch_stkdie:
 ; =============================================================================
 section .lowbss                         ; LOW_SEG, reached through SS (SPEC.md 2.1)
 
-resb (256 - (($-$$) % 256)) % 256       ; keep the BLOCK on a 256-byte
-                                        ; boundary (alignb spelled out - NASM
+resb ($-$$) % 2                         ; keep the BLOCK on a WORD boundary,
+                                        ; and a word is the whole of what it
+                                        ; needs (alignb spelled out - NASM
                                         ; refuses the macro form against this
-                                        ; nobits section). The BLOCK only:
-                                        ; with SCH_STACK = 384 an individual
-                                        ; slice is 128-aligned, so nothing may
-                                        ; derive a slice base from SP's low
-                                        ; bits - the canary math above and
-                                        ; tests/stackprobe both work from
-                                        ; sch_stacks + slot * SCH_STACK.
-                                        ; FONT'S BLOCK precedes this one and
-                                        ; is 768 bytes in kern_small but 784
-                                        ; in kern_big, SPEC.md 39.14.11's two
-                                        ; seam cells being the difference - so
-                                        ; it is alignment-neutral in one
-                                        ; kernel and not in the other, and the
-                                        ; pad here is 58 bytes against 42.
-                                        ; .lowbss is the same size either way,
-                                        ; which is the point: this pad is
-                                        ; already paid for, and it is the
-                                        ; first place a byte added ahead of it
-                                        ; comes out of
+                                        ; nobits section). It was 256 for
+                                        ; twelve months and nothing ever asked
+                                        ; for 256: with SCH_STACK = 384 an
+                                        ; individual slice is 128-aligned
+                                        ; anyway, so nothing may derive a
+                                        ; slice base from SP's low bits, and
+                                        ; every consumer works from
+                                        ; sch_stacks + slot * SCH_STACK -
+                                        ; sch_switch's canary arm, task_spawn's
+                                        ; fill, tests/stackprobe (whose own
+                                        ; comment records that the high-byte
+                                        ; trick WAS the bug), tools/stkwater.py,
+                                        ; tools/kfzread.py and tests/ftpd.py.
+                                        ; WORD is required and is required by
+                                        ; two: the canary is a word written at
+                                        ; the slice base, and task_spawn fills
+                                        ; the slice with `rep stosw`. SCH_STACK
+                                        ; is even (the %error beside that fill
+                                        ; says why), so an even BLOCK base makes
+                                        ; every slice base even.
+                                        ; It cost 42 bytes of .lowbss on
+                                        ; kern_big and 0 on kern_small, which is
+                                        ; the tightest rung in the kernel.
 sch_stacks: resb (MAX_TASKS-1) * SCH_STACK ; slots 1..MAX_TASKS-1: slot n's stack
                                         ; top at n*SCH_STACK relative to
                                         ; sch_stacks, which is NOT offset 0
@@ -1985,6 +1990,9 @@ sch_stacks: resb (MAX_TASKS-1) * SCH_STACK ; slots 1..MAX_TASKS-1: slot n's stac
                                         ; the task-0 stack, SS:STK0_TOP,
                                         ; which grows down from above this
                                         ; section - it needs no reservation
+%if (sch_stacks - $$) % 2
+  %error "sch_stacks must be WORD-aligned in .lowbss: sch_switch's canary is a word written at the slice base and task_spawn fills the slice with `rep stosw`. The pad above this label is what guarantees it - do not delete it, and do not put an odd `resb` between it and this label"
+%endif
 
 section .bss
 

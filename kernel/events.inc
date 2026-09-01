@@ -286,9 +286,13 @@ section .lowbss                 ; LOW_SEG (SPEC.md 2.1, 10.1.1): 128 bytes of
                                 ; is ever read that a push did not write.
                                 ;
                                 ; events.inc is %included AFTER sched.inc, so
-                                ; this cannot move sch_stacks' 256-alignment pad
-                                ; - which is the one thing adding `.lowbss` can
-                                ; break at a distance.
+                                ; this cannot move sch_stacks' word-alignment
+                                ; pad - which is the one thing adding `.lowbss`
+                                ; can break at a distance. That pad was 256
+                                ; bytes and is now a word (SPEC.md 2.1), so a
+                                ; block ADDED ABOVE sch_stacks moves it by at
+                                ; most one byte rather than by up to 256 - and
+                                ; sched.inc's %if is what refuses the odd case.
 evq_buf:    resb EVQ_RECSIZE * EVQ_CAP  ; the ring itself (128 bytes)
 
 section .bss
