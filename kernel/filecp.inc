@@ -959,15 +959,26 @@ fcp_rlup:
 ;            source; out CF=1 = FCP_MAXD exceeded (AX = FERR_DIRFULL - the
 ;            truthful shape of "this tree is deeper than we walk")
 ; -----------------------------------------------------------------------------
+; fcp_faddr - the address of frame AX.  in: AX = the index; out: BX -> the
+; frame, AX = whatever BX held on the way in.  clobbers: AX, BX, DX, flags -
+; both callers save DX for `mul`'s sake anyway.
+;
+; The `xchg` is load-bearing at BOTH ends and must not be tidied into a `mov`:
+; fcp_push arrives with the new folder's cluster in BX and needs it back in
+; AX, and fcp_frame discards what it gets with its own `pop ax`.
+fcp_faddr:
+    mov dx, FCP_FSIZE
+    mul dx                      ; DX:AX, so DX is saved by both callers
+    add ax, fcp_stack
+    xchg ax, bx
+    ret
+
 fcp_frame:
     push ax
     push dx
     mov ax, [fcp_depth]
-    dec ax
-    mov bx, FCP_FSIZE
-    mul bx                      ; DX:AX, so DX is saved above
-    add ax, fcp_stack
-    mov bx, ax
+    dec ax                      ; the TOP frame is fcp_push's at depth-1
+    call fcp_faddr
     pop dx
     pop ax
     ret
@@ -979,10 +990,7 @@ fcp_push:
     cmp word [fcp_depth], FCP_MAXD
     jae .deep
     mov ax, [fcp_depth]
-    mov dx, FCP_FSIZE
-    mul dx
-    add ax, fcp_stack
-    xchg ax, bx                 ; BX -> the new frame, AX = its destination
+    call fcp_faddr              ; BX -> the new frame, AX = its destination
     mov [bx+FCP_FDST], ax
     mov ax, [fcp_csrc]
     mov [bx+FCP_FSRC], ax
