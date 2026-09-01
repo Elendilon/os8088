@@ -702,13 +702,49 @@ Three failures are gated rather than left to be discovered:
   checks the registry first, so pinning a port on purpose cannot silently
   attach to the wrong machine.
 
-**What it costs is a core each.** MartyPC runs the guest as fast as the host
-lets it, so N instances on an N-core box is the ceiling and `launch()` says so
-once when the count goes over. Past it, guest **cycle** counts are unchanged —
-they are counted, not timed — and everything measured in host seconds is not:
-`settle`, `until`, a suite row's timeout. Measured on this four-core container,
-four emulator rows through `os88test.py`: **175.6 s at `--marty-jobs 1`,
-85.9 s at 3**, with each row 6–10% slower and none of them failing.
+#### How many, and what stops you
+
+**There is no hard cap.** Nothing in `os88marty.py` refuses a launch — a
+refusal there would be a new way to lose work, which is the thing this layer
+exists to remove. What there is is one line on stderr when the count goes past
+the box's core count, and the ceiling is that count, measured rather than
+assumed. Aggregate guest speed against a real 4.77 MHz 8088, on a four-core
+container:
+
+| instances | per instance | aggregate |
+|---|---|---|
+| 1 | 3.42x | 3.4x |
+| 2 | 3.37–3.48x | 6.9x |
+| 4 | 2.96–3.43x | **13.1x** |
+| 6 | 1.96–2.88x | 13.9x |
+| 8 | 1.64–1.71x | 13.4x |
+
+It is **flat past the core count**. The ninth instance does not make the box
+do more work; it makes the other eight slower. That is the whole of the
+answer to "how many" — one per core, and the warning fires exactly there.
+
+Nothing else binds first. An instance is **~50–100 MB of RSS** and **~1 MB of
+disk** — the run tree symlinks everything read-only, and the 32 MB VHD is
+reflinked where the filesystem can (`cp --reflink=auto`, 3 ms against 113 for
+a real copy), so it costs nothing until something writes to it. Ports come
+from the ephemeral range, thousands of them.
+
+**Going past the ceiling is not broken, only slower.** At eight on four cores
+each guest still runs at **1.66x real time** — faster than the hardware it
+emulates — so what is lost is wall-clock and the slack in whatever is counting
+it: `settle`'s patience, an `until` limit, a suite row's timeout. Guest
+**cycle** counts, `disk()` counts and pixel comparisons are unchanged at any
+oversubscription, being counted rather than timed. `OS88_MARTY_MAX` moves the
+warning if you have decided otherwise.
+
+The core count is read as the narrowest of the hardware, this process's
+affinity **and any CFS quota** — a container can see four cores, be pinned to
+four, and be throttled to two cores' worth of time, which is the normal shape
+of a CI runner and of the container an agent works in.
+
+Measured end to end, four emulator rows through `os88test.py`: **175.6 s at
+`--marty-jobs 1`, 85.9 s at 3**, with each row 6–10% slower and none of them
+failing.
 
 #### A bench that outlives the command
 

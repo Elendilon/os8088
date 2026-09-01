@@ -1175,32 +1175,80 @@ def kill_all(verbose=True):
 
 
 def _cpu_count():
+    """How many cores this process may actually keep busy.
+
+    THREE ANSWERS, narrowest wins, because each of the wider ones is wrong on
+    a machine somebody actually runs this on. `os.cpu_count()` is the hardware;
+    `sched_getaffinity` is what this process is pinned to; and a container with
+    a CFS QUOTA has neither - it may see and be pinned to every core and still
+    be throttled to two cores' worth of time, which is the normal shape of a
+    CI runner and of the container an agent works in. A quota read as four
+    cores when it is two puts the warning below in the wrong place, which is
+    the same as not having it.
+    """
+    n = os.cpu_count() or 1
     try:
-        return len(os.sched_getaffinity(0))     # what we may actually use
+        n = min(n, len(os.sched_getaffinity(0)))
     except AttributeError:
-        return os.cpu_count() or 1
+        pass                                    # not Linux; affinity is moot
+    for path, period in (("/sys/fs/cgroup/cpu.max", None),
+                         ("/sys/fs/cgroup/cpu/cpu.cfs_quota_us",
+                          "/sys/fs/cgroup/cpu/cpu.cfs_period_us")):
+        try:
+            with open(path) as f:
+                text = f.read().split()
+            if period is None:                  # cgroup v2: "<quota> <period>"
+                quota, per = text[0], text[1]
+            else:                               # v1: two files
+                quota = text[0]
+                with open(period) as f:
+                    per = f.read().strip()
+            if quota in ("max", "-1"):
+                continue                        # no quota on this rung
+            q = max(1, int(round(float(quota) / float(per))))
+            return min(n, q)
+        except (OSError, ValueError, IndexError):
+            continue
+    return n
 
 
 def _warn_oversubscribed(about_to_start):
     """One line when the box is about to run more emulators than it has cores.
 
-    NOT an error. Refusing here would be a new way to lose work, which is the
-    thing this whole layer is for - and the honest statement is narrower than
-    "too many": MartyPC COUNTS guest cycles rather than timing them, so every
-    cycle figure, every `disk()` count and every pixel comparison is unchanged
-    by contention. What changes is anything measured in HOST seconds - a
-    `settle` that gives up, an `until` limit, a suite row's timeout - and a
-    run that would have passed can fail on the clock alone.
+    NOT an error, and there is no hard cap anywhere in this file. Refusing
+    here would be a new way to lose work, which is the thing this whole layer
+    is for - and the honest statement is narrower than "too many": MartyPC
+    COUNTS guest cycles rather than timing them, so every cycle figure, every
+    `disk()` count and every pixel comparison is unchanged by contention. What
+    changes is anything measured in HOST seconds - a `settle` that gives up,
+    an `until` limit, a suite row's timeout - and a run that would have passed
+    can fail on the clock alone.
+
+    THE CORE COUNT IS THE CEILING, AND IT IS MEASURED. On a four-core box,
+    aggregate guest speed against a real 4.77 MHz 8088: 3.4x at one instance,
+    13.1x at four, 13.9x at six, 13.4x at eight. It is FLAT past the core
+    count - the ninth instance does not make the machine do more work, it
+    makes every other instance slower - so the warning is not caution, it is
+    "you are paying and not being paid". Nothing else binds first: an instance
+    is ~50-100 MB of RSS and ~1 MB of disk (the VHD is reflinked), so a box
+    runs out of cores long before either.
+
+    What it does NOT mean is that a run past the ceiling is broken. At eight
+    on four cores each guest still runs at 1.66x real time - faster than the
+    hardware it emulates - so what is lost is wall-clock and the slack in
+    whatever is counting it.
     """
     cap = int(os.environ.get("OS88_MARTY_MAX", "0")) or _cpu_count()
     live = len([d for d in instances() if d["alive"]])
     if live + about_to_start > cap:
         sys.stderr.write(
-            "os88marty: starting emulator %d on a %d-core box. Guest CYCLE "
-            "counts stay exact (they are counted, not timed); host wall-clock "
-            "does not, so `settle`, `until` and row timeouts may give up "
-            "early. OS88_MARTY_MAX overrides this note.\n"
-            % (live + about_to_start, cap))
+            "os88marty: starting emulator %d on a %d-core box. Aggregate "
+            "guest speed is FLAT past the core count (measured), so this one "
+            "does not add throughput - it slows the other %d. Guest CYCLE "
+            "counts stay exact either way, being counted rather than timed; "
+            "host wall-clock does not, so `settle`, `until` and row timeouts "
+            "have less slack. OS88_MARTY_MAX overrides this note.\n"
+            % (live + about_to_start, cap, live))
 
 
 # --- a private run tree ------------------------------------------------------

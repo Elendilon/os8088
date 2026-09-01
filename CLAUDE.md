@@ -639,11 +639,20 @@ one instance is refused in a sentence naming the holder (it used to *hang*
 until the read timed out), a **bind that fails** exits loudly instead of
 running on unreachable and holding the port against the next run, and a
 **port somebody else holds** is an error that names them. `tests/martyconc.py`
-is the gate and docs/MARTYPC-DEBUG.md's *Several at once* is the account —
-including what it costs, which is a core each: `os88test.py --marty-jobs N`
-takes the lane past 1 deliberately (four rows: 175.6s at 1, 85.9s at 3 on a
-four-core box, guest cycle counts unaffected because they are counted rather
-than timed).
+is the gate and docs/MARTYPC-DEBUG.md's *Several at once* is the account.
+
+**How many is ONE PER CORE, and there is no hard cap** — only a line on stderr
+when you pass it, because a refusal would be a new way to lose work. Measured
+on a four-core box, aggregate guest speed against a real 4.77MHz 8088: **3.4x
+at one instance, 13.1x at four, 13.9x at six, 13.4x at eight** — FLAT past the
+core count, so the ninth instance does not add throughput, it slows the other
+eight. Nothing else binds first (~50-100MB RSS and ~1MB of disk each; the 32MB
+VHD is reflinked). Going past it is slower, not broken: at eight on four cores
+each guest is still 1.66x real time, and guest CYCLE counts, `disk()` counts
+and pixel comparisons are exact at any oversubscription because they are
+counted rather than timed. What loses slack is host wall-clock — `settle`,
+`until`, a row's timeout. `os88test.py --marty-jobs N` takes the suite's
+emulator lane past 1 deliberately (four rows: 175.6s at 1, 85.9s at 3).
 
 Driving QEMU, for the five cases above and for a host with no MartyPC:
 
