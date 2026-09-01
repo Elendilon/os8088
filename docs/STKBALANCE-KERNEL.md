@@ -229,9 +229,22 @@ that defect shape at all. The gate got **more** sensitive, not less.
 Stated so it is visible rather than assumed, and all of it is in the tool's own
 summary line:
 
-* **Loop back-edge conflicts are suppressed.** A loop that pushes N and a second
-  that pops N keeps the count in a register, and no static walk can pair them.
-  4 in the kernel, 36 corpus-wide.
+* **Loop back-edge conflicts are suppressed — but only INSIDE one routine.** A
+  loop that pushes N and a second that pops N keeps the count in a register, and
+  no static walk can pair them. 4 in the kernel, 36 corpus-wide.
+
+  **Narrowed during size pass 2, and the original rule was a real hole.** The
+  suppression tested only "backward, same file", and a **tail merge is a
+  backward cross-jump** — so the gate went silent on the commonest shape a size
+  pass creates. Adverse review proved it both directions on one defect: as a
+  forward jump it was reported, as a backward one it was not, and the only
+  visible trace was the suppression counter moving 4 → 6. The rule now also
+  requires the edge to stay within one routine (`u.owner[j] == u.owner[src[1]]`);
+  a backward edge that *leaves* the routine is reported. Pristine `kernel/` is
+  unchanged at 0 findings and 4 suppressed, and the 17-check fixture still
+  passes. **A gate's summary line is part of its output** — compare the
+  suppression count as well as the findings, because a suppressed conflict has
+  no other trace.
 * **A computed jump through anything but a recognised `dw` table** ends the walk.
 * **`STKBALANCE-OK` is a full stop.** An exempted routine is not walked and is
   not walked *into*. That is what makes two annotations cover five paths, and it
