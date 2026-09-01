@@ -114,6 +114,14 @@ SV_BNDH     equ SV_FHU * 2 + SV_FMAXD       ; ...20 rows of it
 SV_BNST     equ (SV_BNDW + 7 + 7) / 8       ; 6 bytes a row
 SV_BNSZ     equ SV_BNST * SV_BNDH           ; 120 - a THIRD of the 4bpp block
 
+; THE RESERVED STRIP AT THE RIGHT EDGE, HERCULES ONLY (SPEC.md 79.5.10). One
+; BYTE column, so the band's cut is a width and never a bit mask: the band's
+; x and width are multiples of 8 and so is this, which is the same property
+; gfx_blit1 is built on. Eight is sized from the artifact's own brightness and
+; not from the strip that hides it - see 79.5.10 - and 16 is the next step up
+; if a trace survives, at a cost nobody can see either way.
+SV_HEDGE    equ 8
+
 ; -----------------------------------------------------------------------------
 ; sv_fish_init - a fresh sea
 ; in:  the gfx lock is HELD and the screen has just been cleared
@@ -127,6 +135,16 @@ sv_fish_init:
     push di
 
     mov byte [sv_ival], SV_FIVAL
+
+    mov word [sv_hlim], 0       ; SPEC.md 79.5.10: no reserve unless this is a
+    cmp byte [sv_monoff], 0     ; HERCULES, which is 1bpp AND 720 across -
+    je .nohedge                 ; nothing else in SPEC.md 39 is that wide, and
+    mov ax, [sv_w]              ; the width is the quantity the strip is cut
+    cmp ax, 720                 ; from anyway
+    jne .nohedge
+    sub ax, SV_HEDGE
+    mov [sv_hlim], ax
+.nohedge:
 
     xor si, si
 .sw:
@@ -475,6 +493,22 @@ sv_fish_blit:
 
     call sv_bnd_build
 
+    mov ax, [sv_hlim]           ; SPEC.md 79.5.10's strip, and NOTHING on a
+    or ax, ax                   ; screen that has none: CGA and VGA hand the
+    jz .edgeok                  ; whole band over and the kernel's own right
+    mov bx, [sv_bnx0]           ; clip is still the only one that cuts it
+    cmp bx, ax
+    jge .gone                   ; wholly inside the strip - and nothing was
+                                ; ever drawn there to erase, because this cut
+                                ; has applied to every frame before it
+    mov cx, bx
+    add cx, [sv_bnw]
+    cmp cx, ax
+    jle .edgeok
+    sub ax, bx                  ; both are multiples of 8, so the width the
+    mov [sv_bnw], ax            ; blit meets still is (SPEC.md 5.4.2)
+.edgeok:
+
     mov al, [sv_fi + si]        ; the swimmer's colour on ink, black on paper.
     mov ah, CBLACK              ; CBLACK is 0 and 0 is a subset of every
     call OSAPI_GFX_BLIT1_PEN    ; colour, so the pair is never the one 5.4.2.2
@@ -501,6 +535,7 @@ sv_fish_blit:
                                 ; property, and a clipped-away band is CF = 0
                                 ; ("drawn, and nothing drawn"), so this tests
                                 ; for a kernel and not for a screen edge
+.gone:
 
     mov di, si                  ; the box now on the glass, for the next frame.
     add di, di                  ; DI is RE-DERIVED: sv_bnd_build spends it
@@ -909,7 +944,24 @@ sv_bub_blot:
     inc cx
     mov dx, bx
     inc dx
+    cmp word [sv_hlim], 0       ; SPEC.md 79.5.10 again, and a bubble needs no
+    je .fill                    ; band arithmetic: a fill takes any x, so the
+    push ax                     ; blot is simply cut at the strip
+    mov ax, [sv_hlim]
+    dec ax                      ; AX = the last column a bubble may light
+    cmp cx, ax
+    jbe .xok
+    mov cx, ax
+.xok:
+    pop ax
+    cmp ax, cx
+    ja .none                    ; ...and the whole blot is inside the strip.
+                                ; The ERASE takes this same road with the same
+                                ; numbers, so a bubble that is not drawn is not
+                                ; left behind either
+.fill:
     call OSAPI_GFX_FILL
+.none:
     pop si
     ret
 
@@ -1093,6 +1145,8 @@ sv_bnsc:    db 0                    ; shift, and band rows it then fills
 sv_bnrc:    db 0                    ; bitmap rows left
 sv_bndm:    db 0                    ; the dither mask this band row takes...
 sv_bndx:    db 0                    ; ...and the XOR that steps it to the next
+sv_hlim:    dw 0                    ; SPEC.md 79.5.10: one PAST the last column
+                                    ; this mode may light, or 0 for "all of it"
 sv_bex:     dw 0                    ; a bubble's PREVIOUS blot, banked across
 sv_bey:     dw 0                    ; the move so the erase can follow the draw
 sv_beph:    db 0

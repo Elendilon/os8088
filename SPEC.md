@@ -82075,6 +82075,54 @@ with nothing beside it, in exactly the frames the reporter circled. **Calibrate
 an origin against a feature the guest controls** before reading anything off a
 capture; here the hard cut at the screen's right edge fixes it in one step.
 
+#### 79.5.10 The reserved strip at the right edge, Hercules only
+
+§79.5.9 places the column-0 mark in 86Box's plain Hercules renderer and not in
+this kernel. That closes the *defect* and leaves a *product* question, which
+the owner answered: **an unlit column at the edge of the picture reads as the
+edge of the monitor — real displays never go clear to the glass — and a
+shimmering one does not.** So sea life reserves a strip at the right edge and
+never lights it, and the artifact has nothing to copy.
+
+**It is eight pixels — one BYTE column — and that number is a judgement, so
+here is what is behind it and what is not.** What *is* measured is the mark's
+output: **one guest pixel wide**, column 0 and not column 1, taken off the
+reporter's recording. What is **not** measured is how many source columns feed
+it — how deep the renderer reaches back across the edge — and the first
+attempt to infer that from a desktop reading was wrong for the reason §79.5.9
+now records. So the depth is unknown, and eight is chosen on cost rather than
+on evidence: it is a **byte** column, which makes the band's cut a pure width
+change with no bit mask — the band's origin and width are multiples of 8 and
+so is this, the same property §5.4.2 is built on — and it is comfortably
+deeper than any one-pixel output needs. **A single column would have been the
+minimum only if the filter reads exactly one**, which nobody here knows.
+Sixteen — a full Hercules character — is the next step if a trace survives,
+and `SV_HEDGE` is the one edit. The strip costs nothing visible either way,
+which is what makes buying the margin the right trade instead of a round trip.
+
+**Both drawing paths take the same bound and nothing else does.** A swimmer's
+band is cut in x to `[sv_hlim]` before `OSAPI_GFX_BLIT1` sees it: the band's
+origin and width are multiples of 8 and so is the strip, so the cut is exact
+and needs no bit mask — the same property §5.4.2 is built on. A bubble is an
+`OSAPI_GFX_FILL` and takes any x, so its blot is simply clamped, and the
+**erase travels the identical road with the identical numbers**, which is what
+keeps a bubble that was not drawn from being left behind. The sea itself is
+black, so the strip needs no painting: it is already the colour it has to be.
+
+**`[sv_hlim]` is 0 on every other screen and the cut is skipped whole.** The
+gate is 1bpp *and* 720 across — nothing in §39 else is that wide — so CGA and
+VGA hand the band over entire and `gfx_blit1_x`'s own right clip stays the
+only one that cuts it, which is the coverage §79.5.9 removed `sv_bnd_clip` to
+get back. Those two adapters draw the identical picture, pixel for pixel.
+
+**What it costs the picture is nothing anybody can see.** Eight columns of
+720 is 1.1%, the sea is black either side of the cut, and a swimmer slides off
+at a boundary the eye cannot locate because there is no border to locate it
+against. What it costs the machine is one compare per frame on a screen with
+no strip, and on Hercules six instructions per band plus a clamp per bubble
+blot — far inside §79.5.8's budget, which the pass still fits with the same
+margin.
+
 ### 79.6 Waking, the cursor, and the repaint
 
 §64.2 is unchanged: the input that brings the desktop back is **consumed**,

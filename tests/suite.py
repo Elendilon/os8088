@@ -834,6 +834,23 @@ SOAK = [
         "swimmers forced to the larger size: one roll in sixteen, so a test "
         "that waited for one would usually measure something cheaper.",
         needs=("marty",), serial=True),
+    Row("fishedge", "soak", py("tests/fishedge.py"), 150.0,
+        "does sea life leave the reserved strip at the right edge DARK on "
+        "Hercules? (SPEC.md 79.5.10). SPEC.md 79.5.9 places the field's "
+        "column-0 shimmer in 86Box's plain Hercules renderer rather than in "
+        "this kernel - the mark is one row DOWN from the right edge, which no "
+        "write here can reach - and 79.5.10 is the product answer to it: an "
+        "unlit column reads as the edge of the monitor and a shimmering one "
+        "does not, so the mode reserves SV_HEDGE pixels and never lights "
+        "them. THE ASSERTION IS AN A/B AND HAS TO BE: a sea whose swimmers "
+        "never went near the edge leaves the strip dark too and reads exactly "
+        "like a pass, so the same forced sweep runs twice - once as the "
+        "driver armed it, once with [sv_hlim] poked to 0, which is the state "
+        "every other adapter is in - and the strip must be clean under the "
+        "first and dirty under the second. The CGA leg asserts the strip is "
+        "NOT armed there, which is what keeps gfx_blit1's own right clip the "
+        "only cut on the two adapters with no artifact to hide.",
+        needs=("marty",), serial=True),
     Row("saverate", "soak", py("tests/saverate.py"), 260.0,
         "is a saver mode ASLEEP while it is behind? (SPEC.md 79.5.7, 8.1.2.4). "
         "ui_task's task_sleep(1) quantises a deadline polled once a pass to "
