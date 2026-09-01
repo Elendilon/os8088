@@ -1342,6 +1342,26 @@ vid_ctx     resb VID_NDISP_MAX * VID_CTX_SZ
 section .text
 
 ; -----------------------------------------------------------------------------
+; vid_kind_of - internal: WHICH ADAPTER IS DISPLAY N? (SPEC.md 39.18)
+; in:       AL = display index (vid_ctx_ptr's convention)
+; out:      AL = its VID_* kind
+; clobbers: AX (an output) and the flags.  DI IS BANKED, which is the whole
+;           difference from `call vid_ctx_ptr / mov al, [di+VID_CTX_KIND]`:
+;           eight sites wrote that pair out and five of them had to bank DI
+;           round it themselves.
+;
+; Inside this file's `%ifdef KERN_BIG` because vid_ctx_ptr is - on kern_small
+; there is one display and [vid_kind] IS the answer, which is what every one
+; of the eight sites' `%else` arm already says.
+; -----------------------------------------------------------------------------
+vid_kind_of:
+    push di
+    call vid_ctx_ptr
+    mov al, [di+VID_CTX_KIND]
+    pop di
+    ret
+
+; -----------------------------------------------------------------------------
 ; vid_ctx_rect - internal: a display's INCLUSIVE virtual rect (SPEC.md 39.14)
 ; in:       AL = display index (vid_ctx_ptr's own convention)
 ; out:      AX/BX = the top-left, CX/DX = the bottom-right, all VIRTUAL and
@@ -1614,8 +1634,7 @@ vid_fsx_enter:
     je .bnext
     push ax
     mov al, ch
-    call vid_ctx_ptr
-    mov al, [di+VID_CTX_KIND]
+    call vid_kind_of
     call vid_blank_kind
     pop ax
 .bnext:
@@ -1623,9 +1642,8 @@ vid_fsx_enter:
     cmp ch, cl
     jb .blank
 
-    call vid_ctx_ptr            ; ...and become that one
-    mov cl, [di+VID_CTX_KIND]
-    mov [vid_kind], cl
+    call vid_kind_of            ; ...and become that one
+    mov [vid_kind], al
     call vid_apply              ; the live block, the desktop words and the
                                 ; chrome, all of it that display's
     xor ax, ax                  ; consistent with the lie: one display, and
@@ -1633,7 +1651,7 @@ vid_fsx_enter:
     mov [vid_ox], ax            ; accumulator forms are 3 bytes where
     mov [vid_oy], ax            ; `mov byte [m],imm8` is 5 and
     inc ax                      ; `mov word [m],imm16` is 6. AL is spent - its
-    mov [vid_ndisp], al         ; last reader was the vid_ctx_ptr above and the
+    mov [vid_ndisp], al         ; last reader was the vid_kind_of above and the
     pop di                      ; caller's AX is on the stack
     pop cx
     pop ax
@@ -1690,8 +1708,7 @@ vid_fsx_unblank:
     cmp ch, [fsx_vdisp]
     je .next
     mov al, ch
-    call vid_ctx_ptr
-    mov al, [di+VID_CTX_KIND]
+    call vid_kind_of
     call vid_unblank_kind
 .next:
     inc ch
@@ -1864,9 +1881,9 @@ vid_disp_planes:
     push ax
     push di
     call vid_disp_of            ; AL = the display holding it...
-    call vid_ctx_ptr            ; ...DI = its record, AX preserved
+    call vid_kind_of            ; ...and AL = that display's adapter
     mov cx, 4
-    cmp byte [di+VID_CTX_KIND], VID_VGA
+    cmp al, VID_VGA
     je .out
     mov cx, 1
 .out:

@@ -165,6 +165,41 @@ evq_push:
 ; The whole read-modify (copy + index update) sits inside pushf/cli ... popf
 ; so a concurrent ISR push can never interleave with it.
 ; -----------------------------------------------------------------------------
+; evq_drain - empty the ring, owing every wake (SPEC.md 74.1.1)
+; in:  DI -> an 8-byte record buffer IN DS, PRIVATE TO THE CALLER
+; out: the ring is empty; DI preserved (evq_pop preserves it, and
+;      wm_wake_eaten preserves every register)
+; clobbers: flags
+;
+; THE BUFFER IS AN IN-PARAMETER AND THAT IS THE POINT.  Three drains had this
+; loop written out - fsx_restore's, blk_pass's and osapi_snd_play's click
+; abort - and the obvious consolidation gives them one shared buffer as well
+; as one loop.  It must not: only the snd drain is atomic (it holds sch_lock
+; across its loop), the two UI-task drains are not, and a kept worker or a
+; TF_SERVICE task calling OSAPI_SND_PLAY - which the kernel cannot refuse,
+; apps/os88api.inc says so in terms - would overwrite a record task 0 is one
+; instruction away from reading.  That turns a documented visible stall into
+; a window deaf for the rest of its life, which is the failure blank.inc's
+; own comment already records.  So each site keeps the buffer it has.
+;
+; AND NO BUFFER LIVES HERE.  events.inc's data is in TWO sections: the ring
+; in `.lowbss` (LOW_SEG, reached through SS) and the rest in `.bss`.  A
+; buffer "beside the ring" would land in LOW_SEG while evq_pop writes ES:DI
+; with ES = KERNEL_SEG.
+;
+; All three call sites are `.text` = KERNEL_SEG, like this, so the call is
+; near.
+; -----------------------------------------------------------------------------
+evq_drain:
+.dl:
+    call evq_pop
+    jc .dend
+    call wm_wake_eaten          ; a package's wake is OWED, not dropped
+    jmp short .dl
+.dend:
+    ret
+
+; -----------------------------------------------------------------------------
 evq_pop:
     push ax
     push si                     ; ...and no CX bank, for evq_push's reason

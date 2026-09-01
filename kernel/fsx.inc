@@ -97,11 +97,11 @@ fsx_caps:
     or bx, bx                   ; if nothing is visible at all
     jz .notop
 .win:
-    push di
-    call wm_disp_of             ; the CENTRE, then the origin, then the
-    call vid_ctx_ptr            ; primary (SPEC.md 39.17) - so a straddling
-    mov dl, [di+VID_CTX_KIND]   ; window belongs to the display holding more
-    pop di                      ; of it, which is the same rule wm_fullscreen
+    push di                     ; round wm_disp_of, which names DI -
+    call wm_disp_of             ; vid_kind_of banks its own.  The CENTRE, then
+    call vid_kind_of            ; the origin, then the primary (SPEC.md 39.17)
+    mov dl, al                  ; - so a straddling window belongs to the
+    pop di                      ; display holding more of it, the same rule
 .notop:                         ; and wm_zoom ask
     pop ax
 .kind:
@@ -307,13 +307,9 @@ fsx_restore:
     int 0x16
     jmp short .kd
 .kdone:
-.ed:
-    mov di, fsx_evtmp           ; drain the event queue
-    call evq_pop
-    jc .edone
-    call wm_wake_eaten          ; ...but a package's wake is OWED, not dropped
-    jmp short .ed               ; (SPEC.md 74.1.1)
-.edone:
+    mov di, fsx_evtmp           ; drain the event queue into OUR OWN buffer -
+    call evq_drain              ; the loop is shared, the buffer is not
+                                ; (SPEC.md 74.1.1)
     pushf
     cli
     mov word [fsx_task], 0xFFFF ; disarm both, one word (adjacent - the %if at
@@ -326,9 +322,9 @@ fsx_restore:
                                 ; primary's chrome - before anything draws on
                                 ; it (SPEC.md 39.18)
 %endif
-    call menu_force             ; the bar and the strip really WERE overdrawn -
-    call dock_force             ; an exclusive app owned the whole screen
-    call wm_paint_all           ; (SPEC.md 12.9/30.3), so the logo, the rule
+    call blk_relit              ; the bar and the strip really WERE overdrawn -
+                                ; an exclusive app owned the whole screen
+                                ; (SPEC.md 12.9/30.3), so the logo, the rule
                                 ; and every tile are owed. wm_paint_all does
                                 ; not force either any more, because nothing
                                 ; inside it destroys them; this is a caller
@@ -390,11 +386,10 @@ fsx_mode:
     cmp byte [vid_ndisp], 1     ; THE DISPLAY THIS BRACKET IS ON rather than
     jbe .kind                   ; the primary (SPEC.md 39.18.3/39.18.2). Once
     push ax                     ; the collapse below has run there is only one
-    push di                     ; display left and [vid_kind] IS that one, so
-    mov al, [fsx_wdisp]         ; a second fsx_mode call takes the short path
-    call vid_ctx_ptr
-    mov bl, [di+VID_CTX_KIND]
-    pop di
+    mov al, [fsx_wdisp]         ; display left and [vid_kind] IS that one, so
+    call vid_kind_of            ; a second fsx_mode call takes the short path.
+    mov bl, al                  ; NO DI BANK: vid_kind_of does its own, and
+                                ; nothing else here names DI
     pop ax
 .kind:
 %endif

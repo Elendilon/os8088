@@ -2028,10 +2028,9 @@ wm_kind_now:
 %ifdef KERN_BIG
     cmp byte [vid_ndisp], 1
     jbe .prim
-    push di
-    call wm_disp_now
-    call vid_ctx_ptr
-    mov al, [di+VID_CTX_KIND]
+    push di                     ; round wm_disp_now, whose callees name DI -
+    call wm_disp_now            ; vid_kind_of banks its own
+    call vid_kind_of
     pop di
     ret
 .prim:

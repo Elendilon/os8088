@@ -5718,9 +5718,7 @@ cw_thm_set:             call thm_set
 ; 30.3.2) - and a saver session has drawn over both. fsx_restore is the other
 ; caller that has to say so, and for the identical reason: an app that owned
 ; the whole screen really did overdraw them.
-cw_blk_relit:           call menu_force
-                    call dock_force
-                    call wm_paint_all
+cw_blk_relit:           call blk_relit
                     retf
 cw_gfx_frame:           call gfx_frame
                     retf

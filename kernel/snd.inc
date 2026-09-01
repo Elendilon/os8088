@@ -1052,13 +1052,13 @@ osapi_snd_play:
 .aborted:
     cmp al, 1
     jne .e5                     ; flag abort: nothing queued to drain
-.drain:                         ; click abort: drain the aborting mouse
-    mov di, snd_evtmp           ; events - and everything queued while the
-    call evq_pop                ; screen was frozen - before returning
-    jc .drained                 ; (SPEC.md 34.4, binding)
-    call wm_wake_eaten          ; ...a wake in there is owed back, not dropped
-    jmp short .drain            ; (SPEC.md 74.1.1)
-.drained:
+                                ; click abort: drain the aborting mouse events
+    mov di, snd_evtmp           ; - and everything queued while the screen was
+    call evq_drain              ; frozen - before returning (SPEC.md 34.4,
+                                ; binding).  OUR OWN buffer: this drain is the
+                                ; only one of the three that is atomic, and
+                                ; sharing one would let it overwrite a UI-task
+                                ; record mid-loop
 .e5:
     dec byte [sch_lock]         ; the router's raise ends here on every
     mov al, 5                   ; abort path (drained or flag)
