@@ -655,18 +655,9 @@ assoc_post_x:
     mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
     pop si                      ; the entry again
     push si
-    mov di, assoc_doc           ; stage the document's own name
-    mov cx, 12
-.copy:
-    mov al, [si]
-    mov [di], al
-    or al, al
-    jz .named
-    inc si
-    inc di
-    loop .copy
-    mov byte [di], 0
-.named:
+    mov di, assoc_doc           ; stage the document's own name - files.inc's
+    mov cx, 12                  ; bounded, always-terminated copy (SPEC.md 4),
+    call fm_ncpy                ; into a 13-byte buffer with CX = 12
     pop si
     pop di
     mov [assoc_pwin], di
@@ -1317,12 +1308,11 @@ assoc_ext_new:
     stc
     jmp short .out
 .take:
-    mov al, [si]
-    mov [bx], al
-    mov al, [si+1]
-    mov [bx+1], al
-    mov al, [si+2]
-    mov [bx+2], al
+    push di                     ; disk.inc's counted copy (SPEC.md 4), which
+    mov di, bx                  ; walks DI - and this routine does not
+    mov cx, 3                   ; otherwise touch it
+    call dsk_ncopy
+    pop di
     clc
 .out:
     pop cx
@@ -1352,12 +1342,7 @@ assoc_app_new:
     mov si, assoc_stemb
     mov di, bx
     mov cx, 8
-.copy:
-    mov al, [si]
-    mov [di], al
-    inc si
-    inc di
-    loop .copy
+    call dsk_ncopy              ; disk.inc's counted copy (SPEC.md 4)
     mov bl, dh                  ; clear the side state: a slot reused for a
     xor bh, bh                  ; different program must not inherit the
     mov byte [assoc_drv+bx], 0xFF   ; last one's hint, folder or glyph
