@@ -28384,7 +28384,13 @@ Two teardown corollaries, both about not trading a crash for a leak:
    covered pixel, which for a worker that spends minutes on a frame is the
    wrong trade. This is the §14 Bounce idiom, and `app_bounce_task` in
    `kernel/apps.inc` is the reference implementation for everything a
-   worker does.
+   worker does — with one indirection to see through: Timer and Bounce
+   ran the identical open / sleep-and-die / lock-check-clip spine, so
+   those three steps live in `app_kind_open`, `app_kind_wait` and
+   `app_kind_arm` beside them rather than twice over. Those three are
+   **kernel-private**; a package writes their bodies inline, and
+   `app_kind_arm` is exactly this rule's `gfx_lock` → `test W_FLAGS, 2`
+   → `OSAPI_WM_CLIP_SET` sequence, with the lock held on both exits.
 6. **The worker's stack is `SCH_STACK` (**384**) bytes in `LOW_SEG`, and
    SS ≠ DS** (§2.1).
    No deep recursion, no large stack buffers — the tick, mouse and any

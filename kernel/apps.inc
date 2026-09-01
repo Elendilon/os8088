@@ -100,6 +100,13 @@ app_tmr_s_start: db 'Start', 0
 app_tmr_s_stop:  db 'Stop', 0
 app_tmr_s_reset: db 'Reset', 0
 app_tmr_lbl:     dw app_tmr_s_start, app_tmr_s_stop, app_tmr_s_reset
+
+; The wrap limit of each clock field, INDEXED BY THAT FIELD'S OWN OFFSET, so
+; app_tmr_task's carry walk is one loop rather than three copies of it.
+%if TMR_HRS != 0 || TMR_MIN != 1 || TMR_SEC != 2
+%error "app_tmr_lim is indexed by TMR_HRS/MIN/SEC and needs them at 0/1/2"
+%endif
+app_tmr_lim:     db 24, 60, 60
 %ifdef KERN_BIG
 ; Which button is DRAWN pressed, 1-based so 0 can mean "none" (SPEC.md 13.8).
 ; ONE byte for the machine and not one per Timer, which is safe for the reason
@@ -166,18 +173,36 @@ section .cold
 ; run on the UI task with no lock held, window not yet visible.
 ; =============================================================================
 
+; ---- app_tmr_zero / app_tmr_stamp - put the clock back, and re-sample -------
+; in:  DI = time state ptr
+; out: nothing (ALL registers preserved - a widening: two of the three sites
+;      this replaces clobbered AX)
+;
+; TMR_RUN is deliberately NOT touched: SPEC.md 14 - a Reset while running
+; keeps running. HRS and MIN are the two bytes of one word (the %if beside
+; app_tmr_lim is what keeps them so), SEC is the byte after them, and
+; TMR_ACC is the part-second at the other end of the accumulator.
+app_tmr_zero:
+    push ax
+    xor ax, ax
+    mov [ss:di+TMR_HRS], ax     ; +0 and +1 in one store
+    mov [ss:di+TMR_SEC], al     ; +2
+    mov [ss:di+TMR_ACC], ax     ; +6
+    pop ax
+app_tmr_stamp:                  ; ...and the tick sample re-taken
+    push ax
+    mov ax, [ticks]
+    mov [ss:di+TMR_LAST], ax
+    pop ax
+    ret
+
 ; ---- app_tmr_kinit - fresh Timer: 00:00:00, seeded now, and RUNNING ---------
 ; Opening the Timer starts it (SPEC.md 14) - the buttons are there to stop it
 ; and to put it back, not to arm it.
 app_tmr_kinit_x:
     push ax
-    mov byte [ss:di+TMR_HRS], 0
-    mov byte [ss:di+TMR_MIN], 0
-    mov byte [ss:di+TMR_SEC], 0
     mov byte [ss:di+TMR_RUN], 1
-    mov ax, [ticks]
-    mov [ss:di+TMR_LAST], ax
-    mov word [ss:di+TMR_ACC], 0
+    call app_tmr_zero           ; 00:00:00, accumulator empty, seeded now
     call app_tmr_forget         ; a pool slot is REUSED (SPEC.md 29.4), so the
                                 ; previous instance's cells are sitting there
                                 ; describing a window that has been destroyed
@@ -217,6 +242,76 @@ app_bounce_kinit_x:
 apf_app_about_center:
     call app_about_center_x
     retf
+
+; -----------------------------------------------------------------------------
+; app_state_of - the instance state block for a window, in one place
+; in:  SI = window ptr
+; out: CF = 0, DI = state block ptr, BX = SI; CF = 1 if the window is unowned
+;      (DI undefined, BX still SI)
+; clobbers: BX, DI, flags
+;
+; Five event entries (W_PAINT x2, W_ONCLICK, W_ONMOUSEUP, W_ONDRAG) opened
+; with the identical four instructions. inst_of_win documents BX as preserved
+; (SPEC.md 29), which is what lets this leave the window in BX for
+; app_tmr_hit / app_tmr_setdown / app_tmr_btn / app_ball_fill - and the two
+; second `mov bx, si` reloads that relied on it implicitly are gone with it.
+; mov reg,mem writes no flag, so inst_of_win's CF reaches the caller intact.
+; -----------------------------------------------------------------------------
+app_state_of:
+    mov bx, si
+    call KERNEL_SEG:cw_inst_of_win
+    jc .no
+    mov di, [di+I_SPTR]
+.no:
+    ret
+
+; =============================================================================
+; The per-instance task spine (SPEC.md 14, 20.6, 29.3). Timer and Bounce run
+; the identical loop - open, wait, die on request, take the lock and arm the
+; clip - and differ only in what they draw inside it. These three are the
+; steps by name; a PACKAGE author writes them inline, because they are kernel-
+; private, and SPEC.md 20.6 rule 5 names the sequence app_kind_arm holds.
+; =============================================================================
+
+; ---- app_kind_open - the spawn prologue -------------------------------------
+; in:  DX = the spawn argument (the instance index)
+; out: BP = instance record, SI = state block; DI = record, AL = index
+app_kind_open:
+    mov al, dl
+    call KERNEL_SEG:cw_inst_ptr ; DI = our instance record
+    mov bp, di                  ; BP = record for life
+    mov si, [ds:bp+I_SPTR]      ; SI = state for life (ds: override: BP
+    ret                         ; addresses SS by default, SPEC.md 1)
+
+; ---- app_kind_wait - sleep, then honour a close request ---------------------
+; in:  AX = ticks to sleep, BP = instance record
+; out: returns only if the instance is still wanted; NEVER RETURNS otherwise
+;
+; inst_task_die ends in task_exit, so the return address this leaves on the
+; task stack is freed with the stack itself.
+app_kind_wait:
+    call KERNEL_SEG:cw_task_sleep
+    cmp byte [ds:bp+I_STATE], 2 ; close requested?
+    jne .on
+    mov di, bp
+    call KERNEL_SEG:cw_inst_task_die           ; never returns
+.on:
+    ret
+
+; ---- app_kind_arm - lock, re-check visibility, arm the clip -----------------
+; in:  BP = instance record
+; out: THE LOCK IS HELD ON BOTH EXITS. CF = 0, BX = window ptr, clip armed;
+;      CF = 1 = not one visible pixel, draw nothing this frame (SPEC.md 11.3)
+app_kind_arm:
+    call KERNEL_SEG:cw_gfx_lock
+    mov bx, [ds:bp+I_WIN]
+    test byte [bx+W_FLAGS], 2   ; re-check under the lock (SPEC.md 14)
+    jz .no
+    call KERNEL_SEG:cw_wm_clip_set            ; CF = 1: not one visible pixel (SPEC 11.3)
+    ret
+.no:
+    stc
+    ret
 
 ; =============================================================================
 ; About
@@ -322,16 +417,10 @@ app_about_center_x:
 ; moved it is normally ONE cell. See that routine's banner.
 ; -----------------------------------------------------------------------------
 app_tmr_task_x:
-    mov al, dl
-    call KERNEL_SEG:cw_inst_ptr               ; DI = our instance record
-    mov bp, di                  ; BP = record for life
-    mov si, [ds:bp+I_SPTR]      ; SI = time state for life (BP addresses
-                                ; SS by default - SPEC.md 1 rule 3)
+    call app_kind_open          ; BP = record, SI = time state, both for life
 .loop:
     mov ax, 9
-    call KERNEL_SEG:cw_task_sleep
-    cmp byte [ds:bp+I_STATE], 2    ; close requested?
-    je .die
+    call app_kind_wait          ; ...and never returns if the close is in
 
     ; --- time-keeping, every iteration ---
     mov ax, [ticks]
@@ -352,33 +441,21 @@ app_tmr_task_x:
 .adv:
     jcxz .draw
     dec cx
-    mov al, [ss:si+TMR_SEC]        ; + 1 second, with carries
-    inc al
-    mov [ss:si+TMR_SEC], al
-    cmp al, 60
-    jb .adv
-    mov byte [ss:si+TMR_SEC], 0
-    mov al, [ss:si+TMR_MIN]
-    inc al
-    mov [ss:si+TMR_MIN], al
-    cmp al, 60
-    jb .adv
-    mov byte [ss:si+TMR_MIN], 0
-    mov al, [ss:si+TMR_HRS]
-    inc al
-    mov [ss:si+TMR_HRS], al
-    cmp al, 24
-    jb .adv
-    mov byte [ss:si+TMR_HRS], 0
-    jmp .adv
+    mov bx, TMR_SEC             ; + 1 second, with carries: one walk from SEC
+.carry:                         ; back to HRS over three ADJACENT, DESCENDING
+    mov al, [ss:bx+si]          ; fields, each with its own wrap limit read
+    inc al                      ; out of app_tmr_lim by the same offset
+    mov [ss:bx+si], al
+    cmp al, [bx+app_tmr_lim]    ; DS = KERNEL_SEG in .cold, so the table in
+    jb .adv                     ; .text is reachable by name (SPEC.md 2.6)
+    mov byte [ss:bx+si], 0
+    dec bx                      ; 2 -> 1 -> 0 -> -1, and the sign is what ends
+    jns .carry                  ; the ladder after hours wrap
+    jmp short .adv
 
     ; --- drawing, only when the window can actually be seen ---
 .draw:
-    call KERNEL_SEG:cw_gfx_lock
-    mov bx, [ds:bp+I_WIN]
-    test byte [bx+W_FLAGS], 2   ; re-check under the lock (SPEC.md 14)
-    jz .skip
-    call KERNEL_SEG:cw_wm_clip_set            ; CF = 1: not one visible pixel (SPEC 11.3)
+    call app_kind_arm           ; lock, re-check visibility, arm the clip
     jc .skip
     mov di, si                  ; DI = time state for the renderer
     call app_tmr_digits         ; black HH:MM:SS on white - the background is
@@ -387,11 +464,6 @@ app_tmr_task_x:
 .skip:
     call KERNEL_SEG:cw_gfx_unlock
     jmp .loop
-
-.die:
-    mov di, bp
-    call KERNEL_SEG:cw_inst_task_die           ; destroys the window, frees the record,
-                                ; task_exit - never returns
 
 ; -----------------------------------------------------------------------------
 ; app_tmr_paint - W_PAINT for a Timer window
@@ -407,10 +479,8 @@ app_tmr_paint_x:
     push si
     push di
 
-    mov bx, si                  ; instance state via the owner table
-    call KERNEL_SEG:cw_inst_of_win
+    call app_state_of           ; BX = window, DI = time state
     jc .done
-    mov di, [di+I_SPTR]         ; DI = time state
     call app_tmr_forget         ; wm_draw_win has just white-filled the whole
                                 ; content, so every cell this window was
                                 ; showing is gone and the incremental redraw
@@ -449,10 +519,8 @@ app_tmr_onclick_x:
     push si
     push di
 
-    mov bx, si                  ; instance state via the owner table
-    call KERNEL_SEG:cw_inst_of_win
+    call app_state_of           ; BX = window, DI = time state
     jc .done
-    mov di, [di+I_SPTR]         ; DI = time state
     call app_tmr_hit            ; AL = button index, CF = 1: not on one
     jc .done
 %ifdef KERN_BIG
@@ -479,6 +547,47 @@ app_tmr_onclick_x:
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
+; app_tmr_track - is the pointer still on the button the press armed?
+; in:  AX = the armed control, 1-based (0 = nothing armed); CX/DX = the point,
+;      SI = window ptr; gfx lock held
+; out: CF = 0, AL = that button's 0-BASED index, BX = window, DI = time state;
+;      CF = 1 having ALREADY settled the down-state for every way of missing
+;      (a different button, none, or an unowned window - which settles nothing,
+;      exactly as the two bodies this replaces did)
+; clobbers: AX, BX, DI, flags. BP preserved.
+;
+; W_ONMOUSEUP and W_ONDRAG asked the identical question and differed only in
+; what they do when the answer is yes.
+; -----------------------------------------------------------------------------
+app_tmr_track:
+    push bp
+    or ax, ax
+    jz .no                      ; nothing armed: settle nothing, as before
+    mov bp, ax                  ; BP = the armed control, 1-based. NOT BX:
+                                ; BX is the WINDOW here, which app_tmr_hit
+                                ; needs and which app_tmr_setdown and
+                                ; app_tmr_btn need after it
+    call app_state_of           ; BX = window, DI = time state
+    jc .no
+    call app_tmr_hit            ; is the pointer STILL on it?
+    jc .off
+    inc al                      ; 1-based, to compare against the arm
+    xor ah, ah
+    cmp ax, bp
+    jne .off
+    dec al                      ; ...and back to 0-based for the caller
+    pop bp
+    clc
+    ret
+.off:
+    xor al, al                  ; a different button, or none: CANCELLED
+    call app_tmr_setdown
+.no:
+    pop bp
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
 ; app_tmr_onup - W_ONMOUSEUP (SPEC.md 13.7): a Timer button fires HERE
 ; in:  CX = x, DX = y (SCREEN, possibly outside the window), SI = window ptr;
 ;      gfx lock held
@@ -492,36 +601,13 @@ app_tmr_onup_x:
     push si
     push di
     call os88ui_fire ; AX = what the press armed, and it is CLEARED
-    or ax, ax
-    jz .out
-    push bp
-    mov bp, ax                  ; BP = the armed control, 1-based. NOT BX:
-                                ; BX is the WINDOW here, which app_tmr_hit
-                                ; needs and which app_tmr_setdown and
-                                ; app_tmr_btn need after it
-    mov bx, si
-    call KERNEL_SEG:cw_inst_of_win
-    jc .oute
-    mov di, [di+I_SPTR]
-    mov bx, si
-    call app_tmr_hit            ; is the pointer STILL on it?
-    jc .up
-    inc al
-    xor ah, ah
-    cmp ax, bp
-    jne .up
-    dec al
+    call app_tmr_track
+    jc .out
     push ax
     xor al, al
     call app_tmr_setdown        ; upright FIRST, before anything acts - and
     pop ax                      ; the act below redraws two of the three
     call app_tmr_act
-    jmp short .oute
-.up:
-    xor al, al                  ; a different button, or none: CANCELLED
-    call app_tmr_setdown
-.oute:
-    pop bp
 .out:
     pop di
     pop si
@@ -544,27 +630,10 @@ app_tmr_ondrag_x:
     push si
     push di
     call os88ui_armed ; PEEK: the arm is the release's to spend
-    or ax, ax
-    jz .out
-    push bp
-    mov bp, ax                  ; BP, for app_tmr_onup's reason: BX is the
-    mov bx, si                  ; window every routine below wants
-    call KERNEL_SEG:cw_inst_of_win
-    jc .oute
-    mov di, [di+I_SPTR]
-    mov bx, si
-    call app_tmr_hit
-    jc .off
-    inc al
-    xor ah, ah
-    cmp ax, bp
-    je .set
-.off:
-    xor al, al                  ; off it: nothing is down
-.set:
-    call app_tmr_setdown        ; ...which draws only if that CHANGED
-.oute:
-    pop bp
+    call app_tmr_track
+    jc .out
+    inc al                      ; still on it: 1-based, and setdown draws
+    call app_tmr_setdown        ; only if that CHANGED
 .out:
     pop di
     pop si
@@ -628,18 +697,14 @@ app_tmr_act:
     cmp al, APP_TMR_STOP
     je .stop
 
-    mov byte [ss:di+TMR_HRS], 0 ; --- Reset: back to 00:00:00, running or not
-    mov byte [ss:di+TMR_MIN], 0
-    mov byte [ss:di+TMR_SEC], 0
-    mov word [ss:di+TMR_ACC], 0 ; the part-second in flight goes too, at both
-    mov ax, [ticks]             ; ends of the accumulator
-    mov [ss:di+TMR_LAST], ax
+    call app_tmr_zero           ; --- Reset: back to 00:00:00, running or not,
+                                ; and the part-second in flight goes too
     call app_tmr_digits         ; only the digits moved; both pens stand
     jmp short .done
 
 .start:
-    mov ax, [ticks]             ; the stopped interval is discarded here as
-    mov [ss:di+TMR_LAST], ax    ; well as in the task: up to 9 ticks of it can
+    call app_tmr_stamp          ; the stopped interval is discarded here as
+                                ; well as in the task: up to 9 ticks of it can
     mov byte [ss:di+TMR_RUN], 1 ; be sitting unsampled at the moment of a click
     jmp short .pens
 .stop:
@@ -1086,21 +1151,11 @@ app_tmr_forget:
 ; used to look frozen.) Edges: content w = 148, h = 111.
 ; -----------------------------------------------------------------------------
 app_bounce_task_x:
-    mov al, dl
-    call KERNEL_SEG:cw_inst_ptr               ; DI = our instance record
-    mov bp, di                  ; BP = record for life
-    mov si, [ds:bp+I_SPTR]      ; SI = ball state for life (ds: override:
-                                ; BP addresses SS by default, SPEC.md 1)
+    call app_kind_open          ; BP = record, SI = ball state, both for life
 .loop:
     mov ax, 2
-    call KERNEL_SEG:cw_task_sleep
-    cmp byte [ds:bp+I_STATE], 2    ; close requested?
-    je .die
-    call KERNEL_SEG:cw_gfx_lock
-    mov bx, [ds:bp+I_WIN]
-    test byte [bx+W_FLAGS], 2   ; check under the lock (SPEC.md 14)
-    jz .blind
-    call KERNEL_SEG:cw_wm_clip_set            ; CF = 1: not one visible pixel (SPEC 11.3)
+    call app_kind_wait          ; ...and never returns if the close is in
+    call app_kind_arm           ; lock, check visibility, arm the clip
     jc .blind
 
     mov di, si                  ; DI = ball state for app_ball_fill
@@ -1119,10 +1174,6 @@ app_bounce_task_x:
 .skip:
     call KERNEL_SEG:cw_gfx_unlock             ; ...which also disarms the clip (SPEC 11.3)
     jmp .loop
-
-.die:
-    mov di, bp
-    call KERNEL_SEG:cw_inst_task_die           ; never returns
 
 ; -----------------------------------------------------------------------------
 ; app_ball_wipe - white out the part of the OLD square the new one does not
@@ -1284,10 +1335,8 @@ app_bounce_paint_x:
     push bx
     push di
 
-    mov bx, si                  ; instance state via the owner table
-    call KERNEL_SEG:cw_inst_of_win
+    call app_state_of           ; BX = window, DI = ball state
     jc .done
-    mov di, [di+I_SPTR]         ; DI = ball state
     mov byte [gfx_color], CBLACK
     call app_ball_fill
 
