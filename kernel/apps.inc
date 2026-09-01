@@ -649,16 +649,13 @@ app_tmr_setdown:
     push ax
     cmp al, [app_tmr_down]
     je .out
-    push ax
-    mov al, [app_tmr_down]      ; the one being let go, upright again
-    or al, al
-    jz .take
-    dec al
-    mov byte [app_tmr_down], 0
-    call app_tmr_btn
-.take:
-    pop ax
-    mov [app_tmr_down], al
+    xchg al, [app_tmr_down]     ; memory := the new one, AL := the old. The
+    or al, al                   ; released button then draws upright because
+    jz .take                    ; it NO LONGER MATCHES [app_tmr_down] - the
+    dec al                      ; compare above proves old != new - rather
+    call app_tmr_btn            ; than because the byte was momentarily 0.
+.take:                          ; Same two pictures, different reason.
+    mov al, [app_tmr_down]
     or al, al
     jz .out
     dec al
@@ -848,29 +845,17 @@ app_tmr_btn:
 ; clobbers: AX, BX, CX, DX (internal helper)
 ; -----------------------------------------------------------------------------
 app_tmr_brect:
-    call app_tmr_bpos           ; CX = x, DX = y
-    mov ax, cx
-    mov bx, dx
-    add cx, APP_TMR_BW - 1
-    add dx, APP_TMR_BH - 1
-    ret
-
-; -----------------------------------------------------------------------------
-; app_tmr_bpos - one button's top-left, in screen coordinates
-; in:  AL = button index, BX = window ptr
-; out: CX = x, DX = y
-; clobbers: flags (internal helper; AX is preserved - the caller's index)
-; -----------------------------------------------------------------------------
-app_tmr_bpos:
-    push ax
     mov cl, APP_TMR_BW + APP_TMR_BGAP
     mul cl                      ; AX = index * pitch (both fit a byte)
     mov cx, ax
     call KERNEL_SEG:cw_wm_content             ; AX = content left, DX = content top
     add cx, ax
-    add cx, APP_TMR_BX
+    add cx, APP_TMR_BX          ; CX = the button's x, DX = its y
     add dx, APP_TMR_BY
-    pop ax
+    mov ax, cx
+    mov bx, dx
+    add cx, APP_TMR_BW - 1
+    add dx, APP_TMR_BH - 1
     ret
 
 ; -----------------------------------------------------------------------------
@@ -879,7 +864,7 @@ app_tmr_bpos:
 ; out: AL = button index, CF = 0; CF = 1 = no button (AL undefined)
 ; clobbers: AX, flags (internal helper)
 ;
-; Derived from the same constants app_tmr_bpos draws from, so the hit-test
+; Derived from the same constants app_tmr_brect draws from, so the hit-test
 ; and the pixels cannot part company - the fm_hit argument (SPEC.md 22.2).
 ; -----------------------------------------------------------------------------
 app_tmr_hit:
@@ -1100,7 +1085,9 @@ app_tmr_span:
 ; -----------------------------------------------------------------------------
 ; app_tmr_forget - this window is no longer showing anything we know about
 ; in:  DI = time state ptr
-; out: nothing (all registers preserved)
+; out: nothing (every register preserved; clobbers FLAGS - the four `mov word
+;      imm` forms it replaced did not, and none of its three callers reads one
+;      after the call)
 ;
 ; Zero is not a character any cell can hold, so eight of them make every cell
 ; differ and the next app_tmr_span reports the whole line. Zeroing only the
@@ -1109,10 +1096,13 @@ app_tmr_span:
 ; to make unavailable to its three callers.
 ; -----------------------------------------------------------------------------
 app_tmr_forget:
-    mov word [ss:di+TMR_SHOWN+0], 0
-    mov word [ss:di+TMR_SHOWN+2], 0
-    mov word [ss:di+TMR_SHOWN+4], 0
-    mov word [ss:di+TMR_SHOWN+6], 0
+    push ax
+    xor ax, ax
+    mov [ss:di+TMR_SHOWN+0], ax
+    mov [ss:di+TMR_SHOWN+2], ax
+    mov [ss:di+TMR_SHOWN+4], ax
+    mov [ss:di+TMR_SHOWN+6], ax
+    pop ax
     ret
 
 ; =============================================================================
@@ -1212,11 +1202,16 @@ app_ball_wipe:
     mov [app_bwy], cx           ; the old square, ABSOLUTE
     pop cx
     add cx, ax
-    mov [app_bwx], cx
+    mov di, cx                  ; DI = the old x. The ball state ptr it came
+                                ; in as is dead from the two subs above, and
+                                ; a register is what the four .bss reads of it
+                                ; were paying for. app_bwy has no such spare -
+                                ; AX/BX/CX/DX are the fill rect, SI is ddx and
+                                ; BP is ddy - so it stays where it is.
 
     or si, si                   ; --- the column strip, full height ----------
     jz .rows
-    mov ax, [app_bwx]
+    mov ax, di
     mov cx, ax
     add cx, si
     dec cx                      ; moved right: from the old left edge
@@ -1227,7 +1222,7 @@ app_ball_wipe:
                                 ; that went left
     add ax, 8
     add ax, si                  ; moved left: from the far side back
-    mov cx, [app_bwx]
+    mov cx, di
     add cx, 7
 .colgo:
     mov bx, [app_bwy]
@@ -1238,7 +1233,7 @@ app_ball_wipe:
 .rows:
     or bp, bp                   ; --- the row strip, over the SHARED columns -
     jz .out
-    mov ax, [app_bwx]
+    mov ax, di
     mov cx, ax
     add cx, 7
     or si, si
@@ -1249,17 +1244,17 @@ app_ball_wipe:
 .rright:
     add ax, si                  ; moved right: they start later
 .ry:
-    mov bx, [app_bwy]
-    mov dx, bx
-    add dx, bp
-    dec dx                      ; moved down: from the old top edge
-    or bp, bp
-    jg .rowgo
-    mov bx, [app_bwy]
+    mov bx, [app_bwy]           ; the old y, read ONCE: test ddy's sign before
+    mov dx, bx                  ; the arithmetic that would overwrite the
+    or bp, bp                   ; flags, rather than computing the down case
+    jg .rdown                   ; and re-reading twice to undo it
     add bx, 8
     add bx, bp                  ; moved up: from the bottom back
-    mov dx, [app_bwy]
     add dx, 7
+    jmp short .rowgo
+.rdown:
+    add dx, bp                  ; moved down: from the old top edge
+    dec dx
 .rowgo:
     call KERNEL_SEG:cw_gfx_fill
 .out:
@@ -1374,9 +1369,10 @@ app_ball_pool:  resb 80         ; 10 x 8: BAL_X/Y/VX/VY
 section .bss
 
 app_tmr_str:    resb 9          ; "HH:MM:SS",0 scratch (drawn under the lock)
-app_bwx:        resw 1          ; app_ball_wipe's old square, absolute. Module
-app_bwy:        resw 1          ; scratch for the same reason again: it runs
-                                ; under the lock, which is what makes it safe
-                                ; with several Bounce instances live
+app_bwy:        resw 1          ; app_ball_wipe's old square's y, absolute.
+                                ; Module scratch for the same reason again: it
+                                ; runs under the lock, which is what makes it
+                                ; safe with several Bounce instances live. The
+                                ; x lives in DI - see that routine.
 
 section .text
