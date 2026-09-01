@@ -252,12 +252,29 @@ FAST = [
         "its `ret` jumped to the saved register: a black canvas and a wedged "
         "app, with no crash and no message (SPEC.md 82.7.3). The walk is "
         "path-aware because a naive push-vs-pop count flags one routine in ten "
-        "and would just be ignored. SCOPED to these files on purpose - the "
-        "kernel's ISR tails push in one global label and pop in another, which "
-        "this cannot follow, so pointing it there would report noise. Two "
-        "stated gaps, both counted in the tool's own summary line: a routine "
-        "whose every exit is a tail jmp is not walked, and loop back-edge "
-        "conflicts are suppressed"),
+        "and would just be ignored. STILL SCOPED to these files, but no longer "
+        "because the kernel cannot be walked: the walker follows tail jmps "
+        "across files now and `kernel/` comes out at THREE findings, all of "
+        "them sched.inc wanting a `; STKBALANCE-OK:` (docs/STKBALANCE-KERNEL.md "
+        "carries the triage and the row to swap in once those land). One gap "
+        "is left and is counted in the tool's own summary line: loop back-edge "
+        "conflicts are suppressed, because the count lives in a register"),
+
+    Row("stkwalker", "fast", py("tests/unit/t_stkbalance.py"), 2.0,
+        "the stack walker itself, against eleven idioms it must stay QUIET "
+        "about and six defect shapes it must catch. A gate that reports "
+        "nothing passes every build and defends nothing; one that reports a "
+        "routine in ten gets ignored and defends nothing either, which is why "
+        "the kernel went ungated for this tree's whole life. Both halves are "
+        "pinned here: the QUIET half is every idiom that was once a finding "
+        "(a continuation, a cross-file shared tail, `jmp short $+2`, `pushf` + "
+        "`call far`, `push`/`push`/`retf`, a dispatched jump table, a data "
+        "table, `owner.local`), and the LOUD half is what a size pass actually "
+        "produces - a deleted `pop`, a cross-jumped epilogue that is not a "
+        "twin, one overflow handler serving two depths. Nine of the seventeen "
+        "fail against the walker as it was, and one of those nine is a LOUD "
+        "row: the old walk skipped a routine whose every exit was a tail jmp, "
+        "so it could not see that shape at all"),
 ]
 
 # --------------------------------------------------------------------------
