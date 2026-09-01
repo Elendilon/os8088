@@ -1288,7 +1288,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG FDDSLOW TRACKRUN SBDRAGOFF SBRATE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK VGADIRTY DLJUNK,\
+                             KERN_SMALL FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOHEDGE VGADIRTY DLJUNK,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -2152,6 +2152,35 @@ $(BUILD)/xmem.drv: $(BUILD)/xmem.bin tools/os88drv.py
 # (SPEC.md 2.8) would have to keep all of it in the kernel's own `.text`. Here
 # it is on the floppy and the kernel spends 126 bytes.
 #
+# NOHEDGE=1 puts sea life back on the WHOLE screen width on Hercules - the
+# saver before SPEC.md 79.5.10, and the A/B for it. What the default buys is
+# the field's column-0 shimmer GONE, on 86Box and on the 5150 both: 86Box's
+# plain Hercules renderer copies an attenuated version of what stands at column
+# 719 onto column 0 of the row BELOW it (79.5.9 - one row down, which is why it
+# is the display's and not this kernel's), so the mode reserves SV_HEDGE = 8
+# pixels at the right edge and never lights them, leaving the copy nothing to
+# carry. What it costs the picture is eight columns of 720 that the sea is
+# already black in, and what it costs the machine is nothing measurable - the
+# pass is 54.93 ms median either way, one tick, on both 1bpp adapters.
+#
+# IT IS A KNOB BECAUSE IT IS A LOOK QUESTION WITH A WORKAROUND IN IT. The
+# artifact is one emulator's and possibly one class of monitor's, and a fork
+# that would rather draw the whole screen than hide someone else's defect
+# flips this and loses nothing else - which is the shape SPEC.md 39.4's greying
+# and 11.101's BAND are knobs for too.
+#
+# THIS IS ALSO THE ONLY THING THAT KEEPS THE UNRESERVED PATH ASSEMBLING, and
+# the stamp is the saver's own rather than $(VIDSTAMP)'s: nothing here reaches
+# the kernel, so flipping it rebuilds two files instead of the tree.
+ifneq ($(NOHEDGE),)
+SAVDEF += -DNOHEDGE
+endif
+SAVSTAMP := $(BUILD)/.saver-$(if $(NOHEDGE),nohedge,hedge)
+$(shell mkdir -p $(BUILD); \
+        [ -f $(SAVSTAMP) ] || { rm -f $(BUILD)/.saver-* $(BUILD)/saver.bin \
+                                      $(BUILD)/saver.drv; \
+                                touch $(SAVSTAMP); })
+
 # -I apps/wire/ IS NOT A CONVENIENCE: sv_sintab %includes wiresin.inc, the same
 # generated 256-byte table WIREFRAME uses (SPEC.md 78.2), so there is one
 # amplitude in the tree rather than two that can be regenerated apart. That is
@@ -2161,7 +2190,7 @@ $(BUILD)/saver.bin: drivers/saver/saver.asm drivers/saver/svcube.inc \
                     drivers/saver/svfish.inc drivers/saver/svcfg.inc \
                     apps/wire/wiresin.inc drivers/os88drv.inc apps/os88api.inc \
                     apps/os88ui.inc apps/os88line.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I drivers/ -I apps/ -I drivers/saver/ \
+	$(NASM) -f bin -w+error $(SAVDEF) -I drivers/ -I apps/ -I drivers/saver/ \
 		-I apps/wire/ -o $@ drivers/saver/saver.asm
 	@echo "saver:  $(call FILESIZE,$@) bytes"
 

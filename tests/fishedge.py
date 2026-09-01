@@ -26,6 +26,12 @@ near the right edge; `sv_fx` is written before each frame to walk all four
 across the strip at every 8-pixel alignment, which is the whole case in about
 forty frames instead of several thousand.
 
+**IT ASSERTS THE SHIPPED DEFAULT, so `make NOHEDGE=1` fails it and should.**
+That knob is the strip's build A/B and keeps the unreserved arm assembling
+(tests/unit/t_buildmatrix.py); the BEHAVIOUR A/B is the runtime poke below,
+which needs no rebuild and so cannot be run against a tree somebody left in
+the other configuration.
+
 Nothing here is timed, so the guest's speed does not matter - but it is a
 MartyPC row because Hercules is (docs/TESTING.md).
 """

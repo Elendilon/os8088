@@ -137,14 +137,16 @@ sv_fish_init:
     mov byte [sv_ival], SV_FIVAL
 
     mov word [sv_hlim], 0       ; SPEC.md 79.5.10: no reserve unless this is a
-    cmp byte [sv_monoff], 0     ; HERCULES, which is 1bpp AND 720 across -
-    je .nohedge                 ; nothing else in SPEC.md 39 is that wide, and
-    mov ax, [sv_w]              ; the width is the quantity the strip is cut
-    cmp ax, 720                 ; from anyway
-    jne .nohedge
+%ifndef NOHEDGE                 ; HERCULES, which is 1bpp AND 720 across -
+    cmp byte [sv_monoff], 0     ; nothing else in SPEC.md 39 is that wide, and
+    je .nohedge                 ; the width is the quantity the strip is cut
+    mov ax, [sv_w]              ; from anyway. NOHEDGE=1 leaves the word 0 and
+    cmp ax, 720                 ; every test of it below then costs one compare
+    jne .nohedge                ; and goes the way every other adapter goes
     sub ax, SV_HEDGE
     mov [sv_hlim], ax
 .nohedge:
+%endif
 
     xor si, si
 .sw:

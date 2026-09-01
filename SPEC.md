@@ -82115,6 +82115,21 @@ VGA hand the band over entire and `gfx_blit1_x`'s own right clip stays the
 only one that cuts it, which is the coverage §79.5.9 removed `sv_bnd_clip` to
 get back. Those two adapters draw the identical picture, pixel for pixel.
 
+**It is on a knob, and the knob is `NOHEDGE=1`.** The strip hides one
+emulator's defect — and possibly one class of monitor's, since imperfect
+horizontal blanking is a real analogue phenomenon and not only a rendering
+one — so a fork that would rather draw the whole screen than work around
+somebody else's is one make variable away from doing so, and loses nothing
+else by it. It is the first knob in this tree to reach a **driver** rather
+than the kernel: it carries `SAVER.DRV`'s own stamp instead of `VIDSTAMP`'s,
+so flipping it rebuilds two files rather than the tree, and
+`tests/unit/t_buildmatrix.py` names `saver.drv` as its target for the same
+reason. `NOHEDGE=1` leaves `[sv_hlim]` at 0, which is **exactly the state
+every CGA and VGA machine is already in**, so the knob build takes the road
+those two adapters take rather than a third one of its own — and it drops 21
+bytes, the arming block being all there is to drop. It is also the only thing
+that assembles that arm.
+
 **What it costs the picture is nothing anybody can see.** Eight columns of
 720 is 1.1%, the sea is black either side of the cut, and a swimmer slides off
 at a boundary the eye cannot locate because there is no border to locate it
