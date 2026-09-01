@@ -131,6 +131,24 @@ rungs: image 58,880 (135 left) · cold 39,424 (497 left)
        low 10,240 (120 left)   · vgabuf 1,024 (176 left)
 ```
 
+### The bench baseline's machine configs are part of the measurement
+
+The end-of-pass comparison **must use the same three configs**:
+`os8088_5150_cga_gla`, `os8088_5150_herc_gla`, `os8088_xt_vga`. Swapping in the
+IBM-ROM configs later — if somebody drops a real dump into
+`tools/martypc/roms/` — compares two different machines rather than two points
+on one.
+
+Two things fell out of taking it that are worth knowing before quoting any of
+those numbers. **There is no `os8088_5150_vga` machine in this tree at all**:
+the calibration 5150 has no VGA card, so VGA exists only on the XT-class
+machines and `os8088_xt_vga` is the only option. And because CGA and Hercules
+ran on their GLaBIOS twins, **BIOS-mediated timings — the floppy block, boot
+ms — are not period-accurate and must not be quoted as PERFORMANCE.md field
+figures.** Everything CPU-bound is unaffected: that code is os8088's own and
+the BIOS is not on its path, which is exactly the class a size pass can
+regress.
+
 Note these differ from pass 1's closing figures: the tree has moved since
 (the Weave waves merged, and the task-stack commit `ac1f74f`). **These are the
 numbers pass 2 is measured against**, not the ones in pass 1's handoff.
@@ -172,11 +190,37 @@ Ranked by value, and each is genuinely disjoint from the agent fleet:
    turned out to be double its prediction. **The Hercules reading in
    `docs/MONO-RECLAIM-PLAN.md` has never been taken and it is the adapter with
    most to gain.**
-2. **`tests/int0sweep.py` on the IBM ROM.** Pass 1's worst bug was a divide
-   overflow that hard-locks an IBM machine and is merely a wrong clip index on
-   GLaBIOS — and *every other MartyPC row in the suite runs GLaBIOS*, so the
-   whole class was invisible. Confirming what each machine config actually
-   loads is cheap and has already paid once. **This needs the lock.**
+2. **`tests/int0sweep.py` on the IBM ROM.** Pass 1's worst bug was a divide overflow that hard-locks
+   an IBM machine and is merely a wrong clip index on GLaBIOS, and every other
+   MartyPC row runs GLaBIOS, so the whole class was invisible.
+
+   **`tools/martypc/roms/` does not exist in a FRESH container** — it is
+   gitignored because IBM's ROM cannot be redistributed under this repo's MIT
+   licence (CONTRIBUTING.md), so only a dump supplied by hand backs it, and
+   because it is never committed, **every new container starts without one
+   again.** Supplying it is therefore a per-session act, not a one-off.
+
+   *In pass 2's own session the owner supplied it mid-run*, and it is
+   installed and verified: md5 `f453eb2df6daf21ec644d33663d85434`, which is
+   exactly what the pinned MartyPC's `romdef_ibm_pcxt.toml` wants for
+   `ibm5150_82_v4` chip u33 at 0xFE000. `os8088_5150_cga` and
+   `os8088_5150_herc` start on it where they previously failed rc=1, and
+   `0xFE001` reads `501476 COPR. IBM` against GLaBIOS's `GLaBIOS [`, with the
+   reset vector dated 10/27/82. **Fingerprint, never infer from the config
+   name.**
+
+   What pass 2 established about the failure mode, by reading the pinned
+   MartyPC's `rom_manager` source rather than inferring it: **a missing IBM ROM
+   is a loud immediate startup failure, not a silent substitution.**
+   `resolve_requirements` marks the alias "provided" and prints *"has resolved
+   the following ROM sets: ibm5150_82_v4"*, then `create_manifest` fails to load
+   bytes for it and the process exits rc=1. So pass 1's "silently came up as
+   `glabios_pc`" was most likely a *wrapper* retrying another config without
+   recording which one finally booted — not a MartyPC behaviour. **The cure is
+   the same either way: check what actually loaded, never infer it from the
+   config name.** `baseline/romcheck.py` and `romfingerprint.py` in the pass-2
+   scratchpad do it three independent ways (the resolved-ROM-set log line, a
+   live read of `0xFE001`, and the reset vector at `0xFFFF0`).
 3. **A push/pop balance gate for the kernel.** `tools/stkbalance.py` is scoped
    to SHEET and CHART on purpose, because the kernel's ISR tails push and pop
    under different labels. **The kernel therefore has no balance gate at all**,
