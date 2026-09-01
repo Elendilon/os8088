@@ -857,6 +857,19 @@ SOAK = [
         "SPEC.md 11.96.18: a wholly covered window keeps its raise cache when"
         "it arms a clip, and a partly covered one still loses it.",
         needs=("marty",), serial=True),
+    Row("fcpcopy", "soak", py("tests/fcpcopy.py"), 240.0,
+        "SPEC.md 22.3-22.5: Cut/Copy/Paste actually moves a file AND a folder "
+        "tree. Nothing exercised kernel/filecp.inc at all until this row - a "
+        "whole-file pass over the copy engine could be green on assembly, "
+        "stkbalance, ovlchk and every size guard while leaving a machine that "
+        "cannot copy a file. The load-bearing assertion is the THIRD one: "
+        "os88disk --verify walks the volume the engine left behind, because a "
+        "stranded cluster or a cross-linked chain looks perfectly fine in the "
+        "guest's own listing, which is drawn from the structures that are "
+        "wrong. Runs on the 1.44MB disk: the 360KB one is 354 of 354 clusters "
+        "in use after one paste, so the folder copy correctly refuses there "
+        "with FERR_FULL and the row would be measuring the geometry.",
+        needs=("marty",), serial=True),
     Row("cppromise", "soak", py("tests/cppromise.py"), 300.0,
         "SPEC.md 31.12: the Control Panel promises per PAGE, and the clock"
         "page is the one that cannot.",
