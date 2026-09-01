@@ -70,6 +70,41 @@ histories", and ported three upstream commits as new SHAs it could have merged.
 repositories.** If the histories look unrelated, the clone is shallow. That
 flag would duplicate the entire tree.
 
+## Rule 0b — a squashed branch keeps a huge merge-base diff
+
+Rule 0's sibling, and it bites in the opposite direction: there the clone hid
+history, here the history is intact and the *branch* is the illusion.
+
+Because `main` squash-merges (see the cycle above), a branch whose work has
+fully landed keeps **every one of its own commits** and therefore keeps a large
+diff against `git merge-base`. `--is-ancestor` says "not merged" about content
+that is completely merged, because the squash carried the content and not the
+commits.
+
+**So never ask what a branch changed against its merge-base. Ask what it
+changes against the branch you are actually on.**
+
+```sh
+git diff --stat origin/elendilon <branch> -- <paths>   # the real question
+git log --oneline -5 origin/elendilon -- <path>        # ...and who last touched it
+```
+
+Measured, on the two kernel-size branches:
+
+| | vs merge-base | vs `origin/elendilon` |
+|---|---|---|
+| `kernel-size-optimization-vx08di` (**done**, squashed as `2f33456`) | `mouse.inc` 497 lines | **33, and net-negative** |
+| `kernel-size-optimization-p2-zcuuac` (**running**) | `sched.inc` 481 | `sched.inc` 481, `mouse.inc` **untouched** |
+
+A session read the merge-base column and told its requester that the running
+pass was about to rewrite `mouse.inc` from under a measurement. The opposite was
+true twice over: the file's size pass was already **in** the measurement, and
+the running pass was nowhere near it. The tell is the sign — a branch whose diff
+against the integration branch is net-**negative** is *behind* it, not ahead of
+it, and content that far behind is content that already landed.
+
+**A net-negative diff is merged work, not pending work.**
+
 ## "N commits behind main" — read them before acting
 
 ```sh

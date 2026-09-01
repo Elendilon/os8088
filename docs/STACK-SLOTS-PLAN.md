@@ -259,14 +259,44 @@ Compressing the 54 in place was priced and is the worse trade:
 the ISR-paced pointer that docs/SCHED-IDLE-PLAN.md §6.3 rests on. Running the
 same ISR, drawing included, on a different stack changes no behaviour at all.
 
-### 4.2.3 A size pass makes this worse, not better
+### 4.2.3 Which size pass, and why the 54 is already safe
 
-`origin/claude/kernel-size-optimization-*` rewrites `kernel/mouse.inc` by ~500
-lines and `kernel/sched.inc` with it. **A size optimisation that factors common
-code into shared helpers makes stacks deeper** — every new call is two more
-bytes of return address on every path through it — so the 54 above is a
-measurement of the tree it was taken on and wants re-taking when that lands.
-`MOUPRIV=1` is what makes the re-take one boot rather than an argument.
+There are two, and telling them apart mattered — the first answer here was
+wrong in both directions.
+
+**The pass that rewrote `mouse.inc` is DONE, and the 54 is measured on top of
+it.** It landed as `2f33456` — *"Elendilon -> Main (Kernel Size Pass, Boot
+Overlay, Boot Ladder, Soak Harness Repairs)"* — which changed `kernel/mouse.inc`
+by 231 lines, well before this document's base. Its branch
+(`claude/kernel-size-optimization-vx08di`) still exists and still reports 497
+changed lines against the *merge-base*, which is what misled the first reading:
+**upstream squash-merges** (CLAUDE.md rule 6), so a squashed branch keeps a huge
+merge-base diff and `--is-ancestor` answers "not merged" about content that is
+fully merged. Against `origin/elendilon` it is 33 lines and net-negative — the
+branch is *behind*, not ahead.
+
+**The pass still running does not touch `mouse.inc` at all.**
+`claude/kernel-size-optimization-p2-zcuuac` against `origin/elendilon` is
+`kernel/sched.inc` and nothing else: 481 lines, 339 insertions.
+
+So the exposure is the other way round from what §4.2.3 first said:
+
+| number | at risk from the running pass? |
+|---|---|
+| the mouse ISR's **54** | **no** — `mouse.inc` is untouched by it and already carries the finished pass |
+| the ROM chain's **56**, the floor's **84** | **yes** — `sch_isr` and `sch_switch` are exactly what it is rewriting |
+
+Its diff already moves the frame those two are measured against — `push cx` and
+`push bp` appear, a `push cx` goes away with *"sch_currec clobbers BX only"*,
+and `.pick` is described as pushing DX and BX. **`sch_isr`'s frame is the floor's
+largest fixed term**, so both tick numbers want re-taking when it lands, and
+`STKDIAG=1`'s hook sits in the lines being rewritten and will conflict.
+
+The general caution still holds and is worth keeping: **a size pass that factors
+common code into shared helpers makes stacks deeper**, because every new call is
+two more bytes of return address on every path through it. That is a reason to
+re-measure after a size pass, not a reason to distrust a measurement taken after
+one — and `make stkdiag` makes the re-take one boot.
 
 ### 4.3 What is not compressible
 
