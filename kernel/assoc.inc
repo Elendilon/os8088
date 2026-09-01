@@ -1478,13 +1478,11 @@ asc_use_x:
     pop dx                      ; (pop leaves CF alone)
     jc .out
     mov es, [asc_seg]
-    cmp word [es:0], 'OS'       ; 'OS88AC' + a version we understand
-    jne .out
-    cmp word [es:2], '88'
-    jne .out
-    cmp word [es:4], 'AC'
-    jne .out
-    cmp byte [es:6], 1
+    mov si, asc_s_magic         ; 'OS88AC' + a version we understand, the
+    xor di, di                  ; dskw_cmp idiom (diskw.inc): cmpsb is DS:SI
+    mov cx, 7                   ; against ES:DI, and ES is already the claim.
+    cld                         ; The version byte is the string's 7th
+    repe cmpsb
     jne .out
     mov al, [es:7]
     cmp al, ASC_NAPP
@@ -1676,15 +1674,11 @@ asc_root_find:
     push di
     mov si, asc_s_name
     mov cx, 11
-.cmp:
-    mov al, [es:di]
-    cmp al, [si]
-    jne .nomatch
-    inc si
-    inc di
-    loop .cmp
+    cld
+    repe cmpsb                  ; the dskw_cmp idiom; pop leaves ZF alone
     pop di
     pop cx
+    jne .next
     mov ax, [es:di+26]          ; FstClusLO
     cmp word [es:di+30], 0      ; size HIGH word: without this a 66,048-byte
     jne .no                     ; ASSOC.DAT presents as one sector and the
@@ -1701,9 +1695,6 @@ asc_root_find:
     jz .no
     clc
     jmp short .out
-.nomatch:
-    pop di
-    pop cx
 .next:
     add di, 32
     loop .entry
@@ -1848,16 +1839,13 @@ asc_lookup_x:
     mov di, ASC_HDR
 .row:
     push cx
+    push di
     mov si, assoc_stemb
     mov cx, 8
-    mov bx, di
-.cmp:
-    mov al, [es:bx]
-    cmp al, [si]
+    cld
+    repe cmpsb
+    pop di                      ; (pop leaves ZF alone)
     jne .next
-    inc bx
-    inc si
-    loop .cmp
     cmp dx, [es:di+8]           ; the stem matches: the size must too
     jne .next
     pop cx
@@ -1974,6 +1962,10 @@ asc_note:
 ; =============================================================================
 
 section .text                   ; DATA, so back to the kernel segment
+asc_s_magic: db 'OS88AC', 1     ; the cache's magic and the one version this
+                                ; build understands (SPEC.md 54.7); the
+                                ; version byte joins the string so asc_use's
+                                ; whole header check is one repe cmpsb
 asc_s_name: db 'ASSOC   DAT'    ; the RAW 8.3 form: this walks directory
                                 ; sectors, not display names
 
