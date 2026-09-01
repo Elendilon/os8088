@@ -660,13 +660,16 @@ inst_park_end:
 ; inst_park_all - has every live package worker parked? (module internal)
 ; out: CF = 0 yes (or there are none), CF = 1 somebody is still running
 ; clobbers: flags
+;
+; It keeps that promise by NOT WRITING AX AT ALL, rather than by banking it:
+; the scan used to carry a `xor ax,ax` / `inc al` slot index nothing ever
+; read (the bound is CX and `loop`), and the push/pop pair existed only for
+; that. Anything added here that touches AX has to bring the pair back.
 ; -----------------------------------------------------------------------------
 inst_park_all:
-    push ax
     push cx
     push di
     mov di, inst_tab
-    xor ax, ax                  ; AL = the index
     mov cx, INST_MAX
 .scan:
     cmp byte [di+I_STATE], 0
@@ -682,18 +685,15 @@ inst_park_all:
     pop bx
     je .busy
 .next:
-    inc al
     add di, I_RECSZ
     loop .scan
     pop di
     pop cx
-    pop ax
     clc
     ret
 .busy:
     pop di
     pop cx
-    pop ax
     stc
     ret
 
@@ -706,13 +706,15 @@ inst_park_all:
 ; mem_can_move's question, asked of instance.inc because inst_tab is this
 ; module's (SPEC.md 29). A segment that matches no instance answers CF = 1:
 ; a driver's image matches none, and "I cannot tell" has to mean "it is busy".
+;
+; Like inst_park_all above, it keeps "clobbers: flags" by writing no AX at
+; all - and its one callee on the exhaust path, inst_svc_parked, banks AX on
+; both of its exits.
 ; -----------------------------------------------------------------------------
 inst_seg_parked:
-    push ax
     push cx
     push di
     mov di, inst_tab
-    xor ax, ax
     mov cx, INST_MAX
 .scan:
     cmp byte [di+I_STATE], 0
@@ -732,7 +734,6 @@ inst_seg_parked:
                                 ; loop and holds nothing derived
     jmp short .busy
 .next:
-    inc al
     add di, I_RECSZ
     loop .scan
     call inst_svc_parked        ; no instance owns it, so it is a DRIVER image
@@ -741,13 +742,11 @@ inst_seg_parked:
 .busy:
     pop di
     pop cx
-    pop ax
     stc
     retf
 .free:
     pop di
     pop cx
-    pop ax
     clc
     retf
 ; -----------------------------------------------------------------------------
