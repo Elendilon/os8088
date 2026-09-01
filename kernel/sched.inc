@@ -1930,7 +1930,18 @@ section .bss
 sch_tasks:  resb MAX_TASKS * T_SIZE     ; task records (layout above)
 sch_old08:  resb 4                      ; saved BIOS int 08h vector (off:seg)
 ticks:      resw 1                      ; public tick count, wraps at 65536
-sch_cur:    resb 1                      ; index of the running task
+sch_cur:    resb 1                      ; index of the running task. ALWAYS a
+                                        ; live slot, 0..MAX_TASKS-1: 0xFF is
+                                        ; NOT available here as a "nothing
+                                        ; running" sentinel, because fsx_mine
+                                        ; reads this byte and the one below as
+                                        ; ONE WORD and 0xFF is fsx_task's OFF
+                                        ; value - two sentinels would compare
+                                        ; equal and grant a bracket to nobody.
+                                        ; fsx_mine refuses on the RANGE for
+                                        ; that reason, so the failure is now a
+                                        ; refusal rather than a mode set; this
+                                        ; line is why the range test is there
 fsx_task:   resb 1                      ; the fsx freeze (SPEC.md 53.2):
                                         ; 0xFF off, else the exclusive
                                         ; task's slot. Scheduler state
