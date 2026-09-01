@@ -2170,12 +2170,20 @@ BOOT2_SECS_STARS equ 9
 %ifdef SPLSTARS
 BOOT2_SECS  equ BOOT2_SECS_STARS
 %else
-BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps.
-                                ; NINETEEN: five for the loader and its screen,
-                                ; FOURTEEN for the overlay. It was THIRTEEN,
-                                ; and before that 4 with the overlay in the
-                                ; image; the disk is unchanged either time, the
-                                ; sectors having left there.
+BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
+                                ; loader and its screen up to OVL_AT, then the
+                                ; boot overlay from there to BOOT2_PAD. THE
+                                ; SPLIT IS OVL_AT AND THE TOTAL IS THIS, so
+                                ; read those two rather than a number written
+                                ; out in prose: this comment used to say
+                                ; "NINETEEN: five for the loader, FOURTEEN for
+                                ; the overlay. It was THIRTEEN" against a
+                                ; constant that is 8, and SPEC.md 2.9.12 and
+                                ; 15.3.8.5 still carry the same stale count
+                                ; (2.5.3's table is the one that is right).
+                                ; Before either, it was 4 with the overlay in
+                                ; the image; the disk is unchanged every time,
+                                ; the sectors having left there.
                                 ;
                                 ; The six that took it from 13 are SPEC.md
                                 ; 2.9.12's, and they are not for a feature:
@@ -5145,7 +5153,9 @@ section .text
                                 ; sched.inc, whose [ticks] it advances from
 %include "blank.inc"            ; the idle screen blanker (SPEC.md 64): after
                                 ; sched.inc for [ticks], events.inc for the
-                                ; evq_init that drops the wake press, and
+                                ; evq_pop/wm_wake_eaten drain that spends the
+                                ; wake press (SPEC.md 74.1.1 - it was an
+                                ; evq_init, and a reset ate the wakes), and
                                 ; vidsel.inc for the vid_blank_kind pair -
                                 ; which is every module it reads, so this is
                                 ; the first place it can go with none of its
