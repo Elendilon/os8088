@@ -764,8 +764,8 @@ fcp_step:
 .ok:
 .finish2:
     mov al, FCPS_DONE
-    call fcp_stop
-    ret
+    jmp fcp_stop                ; a tail call: fcp_step has nothing of its own
+                                ; on the stack here, and fcp_stop leaves AL
 .ask:
     mov byte [dskw_batch], 0    ; the pause is a trip through the event loop,
                                 ; where anything else that writes must behave
@@ -779,8 +779,7 @@ fcp_step:
 .fail:
     mov [fcp_err], al
     mov al, FCPS_ERR
-    call fcp_stop
-    ret
+    jmp fcp_stop                ; ...and the same here
 
 ; -----------------------------------------------------------------------------
 ; fcp_relink - move an entry inside ONE volume by moving its directory entry
