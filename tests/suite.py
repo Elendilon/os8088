@@ -43,14 +43,24 @@ next to the change that would break it.
 class Row:
     """One registered test."""
 
-    __slots__ = ("name", "tier", "cmd", "secs", "needs", "serial", "why", "timeout")
+    __slots__ = ("name", "tier", "cmd", "secs", "needs", "serial", "why",
+                 "timeout", "builds")
 
     def __init__(self, name, tier, cmd, secs, why, needs=(), serial=False,
-                 timeout=None):
+                 timeout=None, builds=False):
         self.name, self.tier, self.cmd = name, tier, cmd
         self.secs, self.why = secs, why
         self.needs = tuple(needs)
         self.serial = serial
+        # BUILDS: this row shells out to `make`, so it writes build/ and
+        # cannot share the tree with anything - not with another builder, and
+        # not with a row reading what it is halfway through rewriting. It is
+        # the one thing that still forces a row to run ALONE now that
+        # emulator instances are isolated (tools/os88test.py's --marty-jobs),
+        # and `tests/unit/t_registry.py` checks the flag against the script
+        # rather than trusting it: a row that gains a `make` and not the flag
+        # would be a suite that fails one run in five for no visible reason.
+        self.builds = builds
         # A generous default: the point of the per-row timeout is to stop a
         # hung emulator eating the tier, not to police a slow machine.
         self.timeout = timeout or max(60, int(secs * 4) + 30)
@@ -266,7 +276,7 @@ FAST = [
 FULL = [
     Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 45.0,
         "the knob kernels and kern_small - every configuration `all` "
-        "does not build, and so the only thing that keeps them assembling"),
+        "does not build, and so the only thing that keeps them assembling", builds=True),
     Row("kernmods", "full", py("tests/unit/t_kernmods.py"), 7.0,
         "tools/kernsize.py's PER-MODULE pass still measures - the byte "
         "compare inside it worked and nothing ran it, so --bless returned 1 "
@@ -277,7 +287,21 @@ FULL = [
         "the C toolchain still produces a package - the OTHER thing `all` "
         "does not build, and the one that had a `cc` capability with no row "
         "behind it while no C package assembled for two releases",
-        needs=("cc",), serial=True),
+        needs=("cc",), serial=True, builds=True),
+    Row("martyconc", "full", py("tests/martyconc.py"), 20.0,
+        "TWO EMULATORS AT ONCE, and every way that used to go wrong. It is "
+        "here rather than in soak because it gates the INSTRUMENT the whole "
+        "marty tier runs on, and every failure it catches is SILENT: two "
+        "instances sharing a floppy do not error - one boots the other's "
+        "disk; two sharing a port do not error - the second attaches to the "
+        "first's machine; and a second client on one used to HANG rather "
+        "than be refused. It asserts separate ports, directories, disks and "
+        "memories, a refusal that arrives in under a second and names the "
+        "holder, and that reap() takes an orphan and leaves a live, owned "
+        "instance alone. Runs three machines and boots two, so it is also "
+        "the one row that would notice the isolation costing more than it "
+        "saves",
+        needs=("marty",), serial=True),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
@@ -291,7 +315,7 @@ FULL = [
         "perfectly and dies at the first paint. It builds its own image "
         "(`make small`, into build/smallk/) because there is no capability "
         "to probe for and `all` never builds that kernel",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("int0sweep", "soak", py("tests/int0sweep.py"), 180.0,
         "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
         "5150/5160 ROM the INT 0 vector is a BIOS stub that writes 0FFh to "
@@ -335,7 +359,7 @@ FULL = [
         "the launch after the boot costs as much again as the boot, and it "
         "went 41s -> 45s when wdraw.inc's paint core took weave.o88 from "
         "21,076 bytes to 27,020",
-        needs=("marty", "cc"), serial=True, timeout=300),
+        needs=("marty", "cc"), serial=True, timeout=300, builds=True),
 ]
 
 # --------------------------------------------------------------------------
@@ -402,7 +426,7 @@ SOAK = [
         "It is not the 90s this row was declared at before it had ever been "
         "run, and a declared figure nobody has taken is the thing this "
         "registry's budgets exist to stop drifting",
-        needs=("marty", "cc"), serial=True, timeout=360),
+        needs=("marty", "cc"), serial=True, timeout=360, builds=True),
     Row("weavegrid", "soak", py("tests/weavegrid.py"), 200.0,
         "WEAVE-SPEC 13.1's wave-4 gate: the <grid>, against the model and "
         "against itself. Three things no other row in this family can see. "
@@ -427,7 +451,7 @@ SOAK = [
         "adapters - two boots, two navigations, two launches and ~20 "
         "gestures - taken over three consecutive clean runs at 156.8, 157.4 "
         "and 156.7, with room for the demo growing",
-        needs=("marty", "cc"), serial=True, timeout=480),
+        needs=("marty", "cc"), serial=True, timeout=480, builds=True),
     Row("weavegfx", "soak", py("tests/weavegfx.py"), 240.0,
         "WEAVE-SPEC 12.3's pixels-vs-model row, zgfx's shape: every other "
         "gate in this family reads a number or a structure, and none of them "
@@ -453,7 +477,7 @@ SOAK = [
         "9-tick window is seen as two FIRST clicks, and on a loaded host "
         "that happens. The retry is weavesmoke's and is not loosened here - "
         "a gate that hid it would hide a host that had really got slower",
-        needs=("marty", "cc"), serial=True, timeout=600),
+        needs=("marty", "cc"), serial=True, timeout=600, builds=True),
     Row("weaveprev", "soak", py("tests/weaveprev.py"), 320.0,
         "WEAVE-SPEC 1.7.1 and 12.3: LOOM's PREVIEW PANE against "
         "`weavesim --render --preview`. Wave 7 draws the pane with WEAVE's "
@@ -478,7 +502,7 @@ SOAK = [
         "flakes in this family, a double-click whose two presses straddle "
         "the kernel's 9-tick window; the retry is weavesmoke's and is not "
         "loosened here",
-        needs=("marty", "cc"), serial=True, timeout=600),
+        needs=("marty", "cc"), serial=True, timeout=600, builds=True),
     Row("weaveone", "soak", py("tests/weaveone.py"), 90.0,
         "WEAVE-SPEC 1.4's 256KB machine, ASSERTED: the family's floor board "
         "holds exactly ONE Weave app, and the second launch is refused while "
@@ -499,7 +523,7 @@ SOAK = [
         "xt-weave-256` is the same question on 86Box and is manual evidence "
         "only (docs/TESTING.md). 90s is 46s measured over three consecutive "
         "runs (46.1 inside the tier, 46.0 and 45.9 standalone)",
-        needs=("marty", "cc"), serial=True, timeout=300),
+        needs=("marty", "cc"), serial=True, timeout=300, builds=True),
     Row("weavegame", "soak", py("tests/weavegame.py"), 50.0,
         "WEAVE-SPEC 6.10, 12.3, 14: PONG.WAB under MartyPC, and it asks "
         "wirefps's and wireflick's two questions of a sprite canvas "
@@ -542,7 +566,7 @@ SOAK = [
         "load - 55KB of LOOM plus 43KB of LOOM.OVL off an emulated floppy - "
         "and that read is the whole of the time. It is the price of asking "
         "the question on the target rather than on the host",
-        needs=("marty", "cc"), serial=True, timeout=3000),
+        needs=("marty", "cc"), serial=True, timeout=3000, builds=True),
     Row("weavefuzz", "soak", py("tests/weavefuzz.py"), 75.0,
         "a thousand DAMAGED projects through both packers, asking the two "
         "questions a fixture cannot: did they agree about whether it is a "
@@ -567,7 +591,7 @@ SOAK = [
         "for 51-154 ms against a 37-70 ms bar. That is invisible in every "
         "functional test in this family and it is exactly what this row is "
         "for. 120s is uilat's own figure: the same shape, one more launch",
-        needs=("marty", "cc"), serial=True, timeout=480),
+        needs=("marty", "cc"), serial=True, timeout=480, builds=True),
     Row("assocglyph", "soak", py("tests/assocglyph.py"), 62.3,
         "A DECLARED extension's icon is right from a COLD mount (SPEC.md"
         "54.7.3).",
@@ -665,7 +689,7 @@ SOAK = [
         "nothing. VERIFIED by A/B - made to try the claim instead of asking, "
         "the table goes 4 claims to 2 and this row names it. Needs `make "
         "mseg`.",
-        needs=("marty", "nasm"), serial=True),
+        needs=("marty", "nasm"), serial=True, builds=True),
     Row("c64part", "soak", py("tests/c64part.py"), 120.0,
         "THE FIRST REAL CONSUMER of the parts standard (SPEC.md 20.12, and "
         "C64-SPEC 1.4): C64.ROM - 20,480 bytes of KERNAL, BASIC and "
@@ -715,7 +739,7 @@ SOAK = [
         "assertion 1 does NOT notice, because op_seg answers a lazy row out "
         "of the row itself and that is still 0. Presence is what the package "
         "was told; the carve is what the disk did. Needs `make mseg`.",
-        needs=("marty", "nasm"), serial=True),
+        needs=("marty", "nasm"), serial=True, builds=True),
     Row("msegxms", "soak", py("tests/msegxms.py"), 150.0,
         "SPEC.md 20.12.4: an OP_XMS part really goes ABOVE 1MB. Every MartyPC "
         "row proves the FALLBACK - an 8088 has nothing up there, so the part "
@@ -744,7 +768,7 @@ SOAK = [
         "address that was never claimed; and MSEG itself passed the copy "
         "direction in DI, which is also its part-loop counter, so the entry "
         "proc never returned. Needs `make mseg`.",
-        needs=("qemu",), serial=True),
+        needs=("qemu",), serial=True, builds=True),
     Row("pkgbig", "soak", py("tests/pkgbig.py"), 60.0,
         "SPEC.md 19.1's package-size rule and the loader half that makes it "
         "safe. APP_MAX_SIZE bounds the primary SEGMENT's image+bss; it "
@@ -847,7 +871,7 @@ SOAK = [
         " Builds a disk whose SYSTEM.CFG wants two drivers, then reads the "
         "composed line out of the overlay AND hashes the pixel band under the"
         " bar, on both 1bpp adapters",
-        needs=("marty", "nasm"), serial=True),
+        needs=("marty", "nasm"), serial=True, builds=True),
     Row("blobsum", "soak", py("tests/blobsum.py"), 90.0,
         "Does a SHORT READ of stage 2's blob halt instead of executing what "
         "landed? (SPEC.md 2.9.7) Blanks one sector in the middle of it - the "
@@ -886,7 +910,7 @@ SOAK = [
         "kern_small is the half that matters: guard 5 has asserted it boots "
         "on 128KB since the split and stage 1 refused it at 129 until 2.7.1, "
         "which no host-side row could have noticed",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("dljunk", "soak", py("tests/dljunk.py"), 150.0,
         "SPEC.md 2.9.11's DL check, both ways: a BIOS that never set DL left "
         "0x61 in it and every int 13h named a unit that is not there, which "
@@ -895,7 +919,7 @@ SOAK = [
         "check must LEAVE ALONE, on a machine whose drive 1 is empty - must "
         "not: without the second half a sector that ignored DL outright "
         "would pass the first",
-        needs=("marty", "nasm"), serial=True, timeout=420),
+        needs=("marty", "nasm"), serial=True, timeout=420, builds=True),
     Row("fatwpin", "soak", py("tests/fatwpin.py"), 420.0,
         "Is the kernel's own FAT window somebody's PIN, and only ever one "
         "volume's? (SPEC.md 18.8.3) FAT_SEG used to be a fallback owned by "
@@ -911,13 +935,13 @@ SOAK = [
         "tests/heapfrag fills the heap at the ordinary rank, which outranks "
         "MEM_P_FATW's MED, and the LIVE window must come back as the pin "
         "with [dsk_fatw0] invalidated, not a pointer into freed memory",
-        needs=("marty", "nasm"), serial=True, timeout=900),
+        needs=("marty", "nasm"), serial=True, timeout=900, builds=True),
     Row("vgadirty", "soak", py("tests/vgadirty.py"), 120.0,
         "Does vid_setmode leave the VGA framebuffer black whatever the ROM "
         "did? (SPEC.md 39.23) Builds a VGADIRTY=1 kernel, which fills A0000 "
         "in the one window a machine cannot - after the ROM's mode set and "
         "before ours - and asserts the loading screen comes up on black",
-        needs=("qemu", "nasm"), serial=True, timeout=300),
+        needs=("qemu", "nasm"), serial=True, timeout=300, builds=True),
     Row("ps2mouse", "full", py("tests/ps2mouse.py"), 40.0,
         "Does the PS/2 mouse reach the pointer, and does the KEYBOARD survive "
         "the handshake? (SPEC.md 9.9) -serial none, so no UART probes present "
@@ -928,14 +952,14 @@ SOAK = [
         "the BIOS buffer by twelve bytes, because both halves of the probe are "
         "a chance to take a byte from int 09h. QEMU by name on CLAUDE.md's "
         "closed list - MartyPC is an 8088 and has no 8042 to test",
-        needs=("qemu", "nasm"), serial=True, timeout=420),
+        needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
     Row("heapmap", "soak", py("tests/heapmap.py"), 120.0,
         "What does the claim heap look like when the boot is over? (SPEC.md "
         "50, 66) Every driver attached at once on a machine WITH memory above "
         "1MB, sampled from instruction zero: the order claims are taken in, "
         "and MC_RLOC for each - which is the machine-readable answer to "
         "'can this be compacted'",
-        needs=("qemu", "nasm"), serial=True, timeout=300),
+        needs=("qemu", "nasm"), serial=True, timeout=300, builds=True),
     Row("dockmark", "soak", py("tests/dockmark.py"), 60.0,
         "Does the dock strip mark windows it did not draw under? (SPEC.md"
         "30.3.3)",
@@ -948,7 +972,7 @@ SOAK = [
         "Does ANYTHING draw with the gfx lock free - which is the one state "
         "the mouse ISR draws in? (SPEC.md 7/12.8.4, docs/FIELD-NOTES.md 34) "
         "Rebuilds the tree, because the counters are a knob kernel",
-        needs=("marty", "nasm"), serial=True),
+        needs=("marty", "nasm"), serial=True, builds=True),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 60.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",
@@ -960,7 +984,7 @@ SOAK = [
         "41.9 rule 1), which is one of docs/TESTING.md's five legitimate "
         "uses of QEMU. It also needs nasm for the OVERLAY's map - xm_tab is "
         "in XMEM.DRV now (SPEC.md 41.12), not in the kernel.",
-        needs=("qemu", "nasm"), serial=True, timeout=600),
+        needs=("qemu", "nasm"), serial=True, timeout=600, builds=True),
     Row("brpromise", "soak", py("tests/brpromise.py"), 120.0,
         "SPEC.md 71.11: the Browser's WF_SAVEU promise follows the FETCH - "
         "withdrawn when br_go starts one, back when it settles. The plain apps "
@@ -1076,7 +1100,7 @@ SOAK = [
         "Does a title bar STRADDLING the seam have one polarity? (SPEC.md"
         "5.4.2.4) - it builds `make BAND=1` itself, the composer being a knob"
         "again since SPEC.md 5.9.6, and puts the default kernel back",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("dispthm", "soak", py("tests/dispthm.py"), 60.0,
         "Does SPEC.md 76's theme meet the extended desktop honestly? Color is"
         "a fact about the PRIMARY and a window can be on the other card",
@@ -1153,13 +1177,13 @@ SOAK = [
         "sends a caller to - nine shapes including an EMPTY row, both clips"
         "and a middle grey's dither, plus the refusal itself. apps/paint only"
         "ever asks for the shapes a brush chord makes",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("spantest-vga", "soak",
         py("tests/spantest.py", "--machine", "os8088_xt_vga"), 180.0,
         "...and the same on VGA, which is gfx_spans' other row writer - the"
         "latch-and-bit-mask one, with vga_set_color and vga_gc_reset hoisted"
         "out of the span loop",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("paintundo-vga", "soak",
         py("tests/paintundo.py", "--machine", "os8088_xt_vga"), 150.0,
         "...and the same on VGA, which is where SPEC.md 5.10's gfx_spans takes"
@@ -1233,7 +1257,7 @@ SOAK = [
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
         "and puts the default kernel back, both seam orientations",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("dispstrad", "soak", py("tests/dispstrad.py"), 60.0,
         "Does a window dragged across the seam give back the rows only ONE"
         "display",
@@ -1258,7 +1282,7 @@ SOAK = [
     Row("editmove", "soak", py("tests/editmove.py", "--app", "notepad"), 60.0,
         "Compact the heap out from under a live app that is holding a big"
         "claim",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("frpromise", "soak", py("tests/frpromise.py"), 600.0,
         "SPEC.md 40.4: Fractal promises when the frame lands and takes it"
         "back when the view moves.",
@@ -1310,7 +1334,7 @@ SOAK = [
         "once, because the volume boot record is the only loader that has to "
         "be TOLD where the heap starts. REBUILDS build/ and puts it back, and "
         "erases the VHD.",
-        needs=("marty",), serial=True, timeout=2400),
+        needs=("marty",), serial=True, timeout=2400, builds=True),
     Row("hdboot", "soak", py("tests/hdboot.py"), 420.0,
         "Does os8088 BOOT from the hard disk it was installed to? (SPEC.md "
         "2.9.9) instdeep proves the bytes ARRIVE and every other boot row "
@@ -1353,7 +1377,7 @@ SOAK = [
         "SPEC.md 13.11's right button: it flags a Minesweeper cell, and it "
         "does nothing on the strip, on an open cell or on a window that was "
         "not already frontmost.",
-        needs=("qemu", "nasm"), serial=True, timeout=900),
+        needs=("qemu", "nasm"), serial=True, timeout=900, builds=True),
     Row("tmload", "soak", py("tests/tmload.py"), 150.0,
         "SPEC.md 28.7: the CPU meter and the process rows read the same "
         "numbers. The page used to show two figures that contradicted each "
@@ -1394,7 +1418,7 @@ SOAK = [
         "gfx_scroll and no full repaint, and what it leaves on the screen is "
         "byte-identical to a repaint of the same view. QEMU, because the "
         "graphics fullscreen is not what a tier-0 machine draws.",
-        needs=("qemu", "nasm"), serial=True, timeout=900),
+        needs=("qemu", "nasm"), serial=True, timeout=900, builds=True),
     Row("mouseup", "soak", py("tests/mouseup.py"), 60.0,
         "SPEC.md 13.7's release, apps/os88ui.inc's arm, and MOUSEUP-PLAN"
         "4.2's guard.",
@@ -1543,7 +1567,7 @@ SOAK = [
         "then paintbig again over it - the only kernel on which the PACKED"
         "half of pt_copy/pt_paste runs without a second monitor. Rebuilds the"
         "tree, like blitplane",
-        needs=("marty", "nasm"), serial=True),
+        needs=("marty", "nasm"), serial=True, builds=True),
     Row("bouncecost", "soak", py("tests/bouncecost.py"), 120.0,
         "SPEC.md 14/2.6: what one Bounce frame costs the machine in 8088 "
         "cycles. Its PERIOD is task_sleep's, so nothing here can move its "
@@ -1562,7 +1586,7 @@ SOAK = [
         "Paint OFF THE BYTE GRID on purpose: since SPEC.md 42.13 a canvas on "
         "the grid is four planes and repaints through gfx_blitp, so a window "
         "left where it opens does not reach this primitive at all.",
-        needs=("marty", "nasm"), serial=True, timeout=900),
+        needs=("marty", "nasm"), serial=True, timeout=900, builds=True),
     Row("blitcut", "soak", py("tests/blitcut.py"), 300.0,
         "SPEC.md 39.14.7.2: does a STRADDLING gfx_blit4 draw the same pixels "
         "cut at the seam as it does whole-virtual, and is it several times "
@@ -1572,11 +1596,11 @@ SOAK = [
         "the drag is what makes gfx_blitp refuse and Paint convert its canvas "
         "to nibbles (SPEC.md 42.13.1), which is what puts the block through "
         "gfx_blit4 at all, and a W_X written by hand would skip it.",
-        needs=("marty", "nasm"), serial=True, timeout=1800),
+        needs=("marty", "nasm"), serial=True, timeout=1800, builds=True),
     Row("paintmove", "soak", py("tests/paintmove.py"), 60.0,
         "Compact the heap out from under a LIVE Paint canvas (SPEC.md"
         "66.2/42).",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("rdmove", "soak", py("tests/rdmove.py"), 60.0,
         "Compact the heap out from under the RAM disk's store (SPEC.md"
         "66.5.10).",
@@ -1686,7 +1710,7 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("trackmove", "soak", py("tests/trackmove.py"), 60.0,
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("tpdraw", "soak", py("tests/tpdraw.py"), 300.0,
         "Does TeXPad's INCREMENTAL source redraw draw what a full repaint"
         "draws? (SPEC.md 69.8)",
