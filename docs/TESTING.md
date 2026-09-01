@@ -137,6 +137,43 @@ timing is not. docs/MARTYPC-DEBUG.md carries the per-machine table. And the
 without one in `tools/martypc/roms/` can run only the GLaBIOS twins — which
 is the class you must not take that timing from.
 
+### Which ROM did it actually load? Fingerprint it, never infer it
+
+Pass 1's worst bug was a divide overflow that hard-locks an IBM machine and is
+merely a wrong clip index on GLaBIOS, and the pass ran its whole suite without
+noticing that every MartyPC row was a GLaBIOS one. Its handoff drew the right
+lesson — *"check what the emulator actually loaded"* — and left no committed way
+to do it. This is that way: read the ROM. Chip U33 sits at `0xFE000` and the
+reset vector's date string at `0xFFFF5`.
+
+```python
+with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
+                      machine="os8088_5150_cga", boot=3) as m:
+    print(bytes(m.read(0xFE000, 24)))     # b'1501476 COPR. IBM 1982'
+    print(bytes(m.read(0xFFFF5, 8)))      # b'10/27/82'
+```
+
+Measured, on a container with the dump in place:
+
+| machine | `0xFE000` | `0xFFFF5` |
+|---|---|---|
+| `os8088_5150_cga` | `1501476 COPR. IBM 1982` | `10/27/82` |
+| `os8088_5150_cga_gla` | `GLaBIOS [.] Reboot the Past` | `07/17/25` |
+
+**The failure is LOUD, which corrects the half of pass 1's account that said it
+was silent.** With the dump moved aside, `os8088_5150_cga` does not quietly come
+up as `glabios_pc`: `martypc_headless` exits **rc=1** before the guest runs at
+all, so a container without a ROM cannot run an IBM row *or* mistake a GLaBIOS
+one for it. The monoculture was the suite choosing GLaBIOS machines, not the
+emulator substituting them. Fingerprint anyway — the config's name is an
+inference and the two reads above are a measurement.
+
+**`tests/int0sweep.py` is the row that needs the real ROM.** On an IBM 5150 the
+INT 0 vector is the BIOS stub that masks the whole 8259, so a single divide
+overflow is a dead machine where GLaBIOS gives a wrong clip index and carries
+on. Run against the ROM fingerprinted above, across both drives and the folder
+walk: **`INT 0 never fired`**.
+
 ---
 
 This document exists because the opposite keeps getting concluded about
