@@ -1422,6 +1422,9 @@ ASC_KB       equ 3              ; 32*80 + 16 + 24*4 = 2,672 bytes
 %if ASC_HDR + ASC_NAPP * ASC_ROW + ASC_NEXT * 4 > ASC_KB * 1024
   %error "the association cache no longer fits its own claim: asc_use claims ASC_KB and mem_claim does not clear the block, so a row past the end is parsed out of whatever the heap handed out last"
 %endif
+%if ASC_ROW > 255 || ASC_NAPP > 255 || (((ASC_NAPP + ASC_NEXT) * ASC_ROW) + ASC_HDR) > 0xFFFF
+  %error "asc_slot_of and asc_merge_ext use the 8-BIT `mul bl` so DX survives (asc_slot_of's header says `clobbers AX, CF`): both operands must fit a byte, and the whole cache must fit one segment"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; asc_use - make the cache describe THIS volume (SPEC.md 54.7)
@@ -1727,9 +1730,9 @@ asc_merge_ext:
     push di
     mov cx, [asc_ne]
     jcxz .out
-    mov di, [asc_n]             ; the ext rows begin past the app rows
-    mov ax, ASC_ROW
-    mul di
+    mov ax, [asc_n]             ; the ext rows begin past the app rows - the
+    mov bl, ASC_ROW             ; accumulator form and the same 8-bit multiply
+    mul bl
     add ax, ASC_HDR
     mov di, ax
 .row:
@@ -1779,11 +1782,12 @@ asc_slot_of:
     push cx
     push si
     push di
-    xor ah, ah
-    mov bx, ASC_ROW
-    mul bx
-    add ax, ASC_HDR
-    mov si, ax                  ; ES:SI = the cache row
+    mov bl, ASC_ROW             ; the 8-BIT form: `mul bl` reads AL and BL
+    mul bl                      ; only, so AH needs no clearing and DX SURVIVES
+    add ax, ASC_HDR             ; - this routine's header says it clobbers AX
+    mov si, ax                  ; and CF, and `mul bx` clobbered DX. The row
+                                ; index is < ASC_NAPP, so AL*80 <= 2,480 and
+                                ; the product cannot leave AX. ES:SI = the row
     mov di, assoc_stemb         ; stage its stem into the kernel
     mov cx, 8
     call assoc_stage
