@@ -508,9 +508,8 @@ fcp_clspan:
 ; landing exactly here turned the shrink into that empty file).
 ; -----------------------------------------------------------------------------
 fcp_floor:
-    push ax
-    push dx
-    mov ax, [fcp_lclus]         ; bytes per cluster, the LARGER of the two
+    push ax                     ; ...and NOT DX: `shr` is not `div`, and no
+    mov ax, [fcp_lclus]         ; instruction below writes DX         ; bytes per cluster, the LARGER of the two
     add ax, 1023                ; volumes (fcp_clspan) - as KB, rounded up
     mov cl, 10
     shr ax, cl
@@ -519,7 +518,6 @@ fcp_floor:
     jae .out
     mov cx, FCP_MINKB
 .out:
-    pop dx
     pop ax
     ret
 
