@@ -580,19 +580,17 @@ fcp_bufget:
     jmp short .no               ; honest answer, not a silent truncation
 .whole:
     call fcp_chunkset
-    pop dx
-    pop cx
-    pop bx
     clc
-    ret
+    jmp short .out
 .no:
     xor ax, ax                  ; AX is this routine's documented clobber, and
     mov [fcp_seg], ax           ; the accumulator store is three bytes against
     mov [fcp_raw], ax           ; six for `mov word [mem], 0`
+    stc
+.out:
     pop dx
     pop cx
     pop bx
-    stc
     ret
 
 ; fcp_bufput - give the copy buffer back.  clobbers: AX, flags - AX for the
