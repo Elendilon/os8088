@@ -118,6 +118,25 @@ assoc_stage:
     ret
 
 ; -----------------------------------------------------------------------------
+; assoc_hint_here - this app slot was just SEEN here (SPEC.md 54.4.2 rung 1)
+; in:  BL = the app slot, BH = 0
+; out: nothing. BX preserved; AX clobbered, which every caller already spent
+;
+; The hint is [disk_drive] and [dsk_cwd] - the volume and directory that are
+; CURRENT at the moment of the call - so it is only ever correct where the
+; program was actually found or read.
+; -----------------------------------------------------------------------------
+assoc_hint_here:
+    push bx
+    mov al, [disk_drive]
+    mov [assoc_drv+bx], al
+    shl bx, 1
+    mov ax, [dsk_cwd]
+    mov [assoc_clus+bx], ax
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; assoc_ext_of - the extension of a staged display name (SPEC.md 54.2)
 ; in:  SI -> a NUL-padded 16-byte display name (the SPEC.md 19.1 staged shape)
 ; out: CF=0 and DI -> 3 space-padded extension bytes in assoc_extb;
@@ -560,13 +579,7 @@ assoc_note_app_x:
     pop ax
     mov bl, al
     xor bh, bh
-    mov cl, [disk_drive]
-    mov [assoc_drv+bx], cl      ; where it was seen...
-    push bx
-    shl bx, 1
-    mov ax, [dsk_cwd]
-    mov [assoc_clus+bx], ax
-    pop bx
+    call assoc_hint_here        ; where it was seen...
     test byte [assoc_hflags], 1 ; ...and what it looks like, IF it ships an
     jz .out                     ; icon at all - an iconless package leaves
     mov cl, 3                   ; the glyph unresolved and its documents draw
@@ -896,13 +909,11 @@ assoc_locate:
                                 ; walks the ROOT directly rather than through
                                 ; dskw_stat, which is what it was written for
     mov bx, di                  ; ...then the AUTHORITATIVE hint for the one
-    mov al, [disk_drive]        ; program we actually located - AFTER the seed
-    mov [assoc_drv+bx], al      ; on purpose, so a stale cached cluster for
-    shl bx, 1                   ; THIS program loses to where it really is
-    mov ax, [dsk_cwd]
-    mov [assoc_clus+bx], ax
-    clc                         ; explicit, not inherited: a slot is 0..11 so
-                                ; the shl above happens to clear CF, and that
+    call assoc_hint_here        ; program we actually located - AFTER the seed
+                                ; on purpose, so a stale cached cluster for
+                                ; THIS program loses to where it really is
+    clc                         ; explicit, not inherited: the helper's last
+                                ; store leaves CF as the `shl` left it, which
                                 ; is an accident of the table's size
 .out:
     pop di
@@ -1928,13 +1939,7 @@ asc_note:
 .have:
     mov bl, al
     xor bh, bh
-    mov cl, [disk_drive]
-    mov [assoc_drv+bx], cl
-    push bx
-    shl bx, 1
-    mov ax, [dsk_cwd]
-    mov [assoc_clus+bx], ax
-    pop bx
+    call assoc_hint_here
     mov cl, 3
     shl bx, cl
     mov di, assoc_glyph
