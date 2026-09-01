@@ -67,6 +67,7 @@ MODULE = "build/WEAVE.WSM"
 WSS_RUN, WSS_ACK, WSS_SLEEP = 0, 1, 2
 WSS_FRAME, WSS_CVSEG, WSS_WIN = 6, 8, 10
 WSS_BLITS, WSS_FRAMES, WSS_OVF = 18, 20, 22
+WSS_PEN = 71 + 32 * 6           # 6.10.7's pen: paper colour, then `colored`
 # ...and the canvas claim's sprite records (wsmabi.inc WSC_SPR / WSR_*): the
 # records start at +16 of the claim, 24 bytes each, y at +6 of a record.
 WSC_SPR, WSR_SIZE, WSR_Y = 16, 24, 6
@@ -92,8 +93,15 @@ def find_modules(m, img):
     out = []
     for seg in range(0x0800, 0xA000, 0x40):     # a claim base is KB-aligned
         b = m.readseg(seg, 0, 8)
-        if not (b[0] == 0x57 and b[1] == 0x53 and b[2] == 1 and b[3] == 0
-                and int.from_bytes(b[4:6], "little") == len(img)):
+        # The magic, the ABI and the size, taken FROM THE IMAGE rather than
+        # spelled here: this used to hard-code ABI 1 (`b[2] == 1`), and
+        # WEAVE-SPEC 6.10.7's palette bumped WSM_ABI to 2 - so the scan
+        # matched nothing, found "0 bound of 0 image(s)", and reported a
+        # module that had loaded perfectly as one that never loaded at all.
+        # A number that is pinned in wsmabi.inc and copied into a test is a
+        # number that goes stale on the one wave that changes it; reading it
+        # out of the file the test already opened cannot.
+        if bytes(b[0:6]) != img[0:6]:
             continue
         if bytes(m.readseg(seg, len(img) - 16, 16)) != img[-16:]:
             continue
@@ -107,6 +115,14 @@ def canvas_ink(rows, x0, y0, w, h):
     The canvas's paper is white and its sprites are black (6.10.2's
     polarity), so INK is an unlit pixel - which is weavegfx's own `_ink` and
     wireflick's count, said about a sprite field instead of a wireframe.
+
+    THAT IS THE 1bpp READING AND IT IS THE ONE THAT DISCRIMINATES.  Under
+    6.10.7's palette PONG's paper is BLACK on VGA, so every pixel of the
+    field is unlit and this saturates at w x h - the half-composed check
+    below still passes but no longer tells the two apart.  It keeps its
+    meaning on the adapter the row is really for, and is left here rather
+    than made colour-aware because a second reading of the same pixels is a
+    second thing to keep true.
     """
     n = 0
     for y in range(y0, min(y0 + h, len(rows))):
@@ -218,6 +234,26 @@ def session(machine, png_dir=None):
         check(sw(WSS_OVF) == 0,
               "%s: the staging ring dropped nothing" % machine,
               "ovf = %d (6.10.6's input-overrun counter)" % sw(WSS_OVF))
+
+        # 9.2.1's sentence, ASSERTED rather than counted.  The palette is a
+        # VGA feature because OSAPI_GFX_BLIT1_PEN is not read on one plane
+        # (SPEC.md 5.4.2.2), so the load path must not read ANY of 6.10.7's
+        # three props on a 1bpp adapter - and if it reads even one of them,
+        # the sprite nibbles are set, `colored` is raised, and the composer
+        # cuts a full-width run into colour spans on an adapter that cannot
+        # show a colour: the same picture at 2.84 gfx calls a frame instead
+        # of 1.06.  That is what happened, it is invisible in a screenshot,
+        # and counting alone would not have named it - so the flag itself is
+        # the check.
+        colored = (sw(WSS_PEN) >> 8) & 0xFF
+        kind = m.video()["type"]                # 'vga', 'cga', 'mda'/'herc'
+        want = 1 if kind == "vga" else 0        # PONG.WML DOES declare one,
+        check(colored == want,                  # so on VGA it must be ON too
+              "%s: the palette is on where the pen is read and off where it "
+              "is not" % machine,
+              "`colored` = %d on a %s adapter, want %d - PONG declares "
+              "paper/ink/color, so this is both halves of 9.2.1: read on "
+              "VGA, and not read at all on one plane" % (colored, kind, want))
 
         # --- what the glass showed, frame by frame (wireflick's shape) ------
         cx, cy = ox, oy + 8             # the canvas starts on row 1 (br="1")
