@@ -707,7 +707,7 @@ fcp_step:
     call fcp_relink             ; CF=0 done; CF=1 with AX=0 not attempted;
     jnc .finish2                ; CF=1 with AX = FERR_* past the point of
     or ax, ax                   ; no return
-    jnz .failax
+    jnz .fail
 .copyit:
     cmp word [fcp_type], 2      ; a plain file is the WALK's .plain with
     jb .plain                   ; [fcp_depth] still 0: .walk finds nothing
@@ -750,7 +750,7 @@ fcp_step:
     jmp short .walk
 .updir:
     or ax, ax                   ; fcp_scan reports a read error in AX
-    jnz .failax
+    jnz .fail
     dec word [fcp_depth]
     jmp short .walk
 
@@ -774,12 +774,8 @@ fcp_step:
                                 ; reason and at the same moment
     mov al, FCPS_ASK            ; the buffer and the frames stay claimed:
     ret                         ; this is a pause, not an end
-.failax:
-    mov [fcp_err], al
-    jmp short .failed
 .fail:
     mov [fcp_err], al
-.failed:
     mov al, FCPS_ERR
     call fcp_stop
     ret
