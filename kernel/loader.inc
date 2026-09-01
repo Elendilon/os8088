@@ -109,8 +109,12 @@ ld_slot:
     mov cl, 5                   ; accumulator form, and the AX bracket it
     shr bx, cl                  ; replaces is two - so it is still a win.
     pop cx                      ; CX is still preserved: the header says
-    ret                         ; "clobbers: nothing else" and both callers
-                                ; are read on that.
+    ret                         ; "clobbers: nothing else" and all three
+                                ; callers are read on that - memory.inc's
+                                ; mem_free_rec_x is one of them and leans on
+                                ; AX being untouched as well, so this is NOT
+                                ; loader-private and must not be deleted with
+                                ; the loader.
 
 ; -----------------------------------------------------------------------------
 ; ld_unreserve - give back a region, and anything the entry proc claimed

@@ -2170,24 +2170,24 @@ mem_free_owner_x:
 ; out: nothing (all registers preserved) - the snd_release_rec twin
 ; -----------------------------------------------------------------------------
 mem_free_rec_x:
-    push ax
     push bx
-    push cx
-    mov ax, di
-    sub ax, inst_tab
-    mov cl, 5                   ; I_RECSZ = 32
-    shr ax, cl
-    mov bx, ax                  ; a built-in's claims are stamped with its
-    call mem_free_owner_x         ; instance slot (the Disk window's cache)
+    call ld_slot                ; BX = the record's slot - loader.inc's, and
+                                ; `.cold` like this, so the call is near.  It
+                                ; is the sixth site of an arithmetic that had
+                                ; six copies; this was the last one left
+    call mem_free_owner_x       ; a built-in's claims are stamped with its
+                                ; instance slot (the Disk window's cache)
     test byte [di+I_KIND], KIND_PKG
     jz .done
     mov bx, [di+I_SPTR]         ; ...and a package's with its segment, which
-    call mem_free_owner_x         ; is what it could name itself by
+    call mem_free_owner_x       ; is what it could name itself by
 .done:
-    pop cx
-    pop bx
-    pop ax
-    retf
+    pop bx                      ; NO AX OR CX BANK: the arithmetic that wrote
+    retf                        ; them has moved into ld_slot, which preserves
+                                ; both, and mem_free_owner_x banks CX/SI/flags
+                                ; and never names AX.  "All registers
+                                ; preserved" still holds - by nothing writing
+                                ; them rather than by saving them
 
 ; -----------------------------------------------------------------------------
 ; mem_avail - how much heap is there, and how much of it in one piece?
