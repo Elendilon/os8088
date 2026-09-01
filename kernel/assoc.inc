@@ -1028,7 +1028,13 @@ assoc_run_x:
 ; in:  the load succeeded ([ld_painted] != 0), so [ld_rec] is the instance
 ;      ld_run_body published and its I_WIN is the window wm_show just drew;
 ;      the UI task, gfx lock NOT held
-; out: nothing (all registers preserved)
+; out: nothing
+; clobbers: EVERYTHING. It is called from ONE place, in assoc_run_x, where the
+;      next instruction is `jmp short .out` - so no register is live across it.
+;      A SECOND CALLER, OR MOVING THIS CALL, MAKES THAT FALSE. "One caller
+;      which banks everything at entry" is NOT the invariant and would not be
+;      enough: a caller can bank at entry and still hold a live value in a
+;      register at the call site.
 ;
 ; **THE SECOND PHASE OF A DOCUMENT LAUNCH** (SPEC.md 54.10). The first is the
 ; PROGRAM: locate it, read it, run its entry proc, show its window. Everything
@@ -1056,14 +1062,6 @@ assoc_run_x:
 ; already settled by standing at this instruction.
 ; -----------------------------------------------------------------------------
 assoc_handover:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
     mov di, [ld_rec]            ; the record .reg published, and I_WIN is the
     or di, di                   ; window the entry proc answered with
     jz .out
@@ -1072,22 +1070,20 @@ assoc_handover:
     jz .out
     call KERNEL_SEG:cw_wm_wake_call
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; assoc_back - put the user's volume back where the document is. A failed
 ; remount leaves that volume mount-failed at its root with the write gate
 ; shut, which is survivable and is exactly ui_tm_back's contract.
+;
+; clobbers AX and DX. Two callers, both in assoc_run_x, and NEITHER is
+; followed by the epilogue - so this one is argued site by site rather than by
+; assoc_handover's rule: AX and DX are dead at both. After the first, the only
+; instructions before .out are `cmp byte [ld_painted],0` and a call to
+; assoc_handover (no register inputs) or files_refresh_x (takes none, clobbers
+; nothing). After the second, `pop ax` kills AX before any read, and
+; assoc_progname takes AL and preserves everything; DX is unread throughout.
 assoc_back:
-    push ax
-    push dx
     mov ax, [assoc_dclus]
     mov dl, [assoc_ddrv]
     call dsk_chdir_q_x            ; QUIET (SPEC.md 18.9/54.9): this restores the
@@ -1096,8 +1092,6 @@ assoc_back:
                                 ; directory walk - it never touches the global
                                 ; listing. The scan, the sort and one icon
                                 ; harvest per file were bought for nothing.
-    pop dx
-    pop ax
     ret
 
 section .text                   ; DATA, so back to the kernel segment: cold
