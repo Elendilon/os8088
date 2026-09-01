@@ -586,14 +586,20 @@ fcp_bufget:
     clc
     ret
 .no:
-    mov word [fcp_seg], 0
-    mov word [fcp_raw], 0
+    xor ax, ax                  ; AX is this routine's documented clobber, and
+    mov [fcp_seg], ax           ; the accumulator store is three bytes against
+    mov [fcp_raw], ax           ; six for `mov word [mem], 0`
     pop dx
     pop cx
     pop bx
     stc
     ret
 
+; fcp_bufput - give the copy buffer back.  clobbers: AX, flags - AX for the
+; same three-bytes-against-six reason, and neither caller minds: fcp_bufget's
+; alignment fallback re-zeroes AX at .no on the very next instruction, and
+; fcp_stop brackets its call with push ax / pop ax because AL carries the
+; FCPS_* it was handed.
 fcp_bufput:
     push bx
     push dx
@@ -602,8 +608,9 @@ fcp_bufput:
     jz .out
     mov bx, MEM_K_COPY          ; mem_free takes the owner word too, and
     call mem_free_x ; refuses a base that is not this owner's
-    mov word [fcp_raw], 0
-    mov word [fcp_seg], 0
+    xor ax, ax
+    mov [fcp_raw], ax
+    mov [fcp_seg], ax
 .out:
     pop dx
     pop bx
