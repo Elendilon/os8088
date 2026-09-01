@@ -44992,6 +44992,40 @@ the three call sites are 3 bytes each plus `fr_emit_body`'s 5-byte compare —
 
 `tests/frpromise.py` is the gate.
 
+### 39.26 The software renderer's plane loop is gone
+
+**`softgfx.inc` was written for a RAM back buffer — four claimed planes on a
+VGA — and §32 removed the buffer.** What was left behind was the *shape*: a
+loop over `[vid_planes]` passes, stepping `[vid_rpara]` between them, wrapped
+round the body every mono fill goes through.
+
+**That loop could only ever run once.** The software renderer is reached only
+when `[vid_mono]` is set, and `vid_depth_set` writes `[vid_mono]` and
+`[vid_planes]` **together** (§39.5): VGA gets 0 and 4, every other adapter 1
+and 1. `sw_spans` has said so in its own comment since §5.10 and does not loop;
+this applies the same fact to `sw_rect_pl`, which is what `gfx_fill`,
+`gfx_pixel`, `gfx_hline` and `gfx_vline` all arrive at on a 1bpp machine.
+
+Three things went with it, and the third is the one worth noticing:
+
+* the counter and the step — `mov bh, [vid_planes]`, `add dx, [vid_rpara]`,
+  `dec bh`, `jnz`;
+* **`sw_ink`'s `[vid_mono]` test and the four-instruction arm under it**, which
+  reduced a *plane's* colour bit. Nothing reaches this file with `[vid_mono]`
+  clear — `[vid_rseg]` is 0 on a VGA precisely so that it cannot, and
+  `viddet.inc` records what a stray write through segment zero looked like when
+  a display swap made it possible — so the test could only go one way;
+* **`mov bl, [gfx_color]`**, which existed *only* to feed that dead arm. A
+  memory read on the fixed cost of every solid fill, for an arm that never ran.
+
+With no loop under it the last call becomes a **tail jump**: `sw_plane_op`'s
+`ret` is `sw_rect_pl`'s.
+
+**It costs nothing and gives bytes back: `.text` −31 on `kern_big` and −35 on
+`kern_small`**, which is the right direction for a build under a cut
+(§39.24.4). Correctness is `tests/swcolsame.py`'s session, unchanged from
+§39.25's: **0 differing pixels on CGA and on Hercules**.
+
 ### 39.25 A whole column needs no read
 
 `sw_col` writes one masked byte column of a rect: `dest = (dest & ~mask) |

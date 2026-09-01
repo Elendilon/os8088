@@ -515,11 +515,31 @@ possible but its headroom is nothing like its share.
    two are big enough is the question that decides whether §3 gets built at
    all**, and it should be asked of each one after it is written rather than
    before.
-2. **`sw_rect` / `sw_plane_op`** — the parameterised core, `SWM_SOLID` /
-   `SWM_GRAY` / `SWM_XOR` behind a per-row `[sw_mode]` test. `sw_rect` alone
-   spends **~216 clocks, about 7%, on eight pushes and eight pops** it takes only
-   to honour `gfx_fill`'s "clobbers flags" contract (PERFORMANCE.md Part 2). A
-   specialised entry that does not owe that contract is bytes well spent.
+2. **`sw_rect` / `sw_plane_op` — BUILT, and it is a REMOVAL rather than a
+   specialisation (SPEC.md §39.26).** This row expected the eight push/pop
+   pairs — *"~216 clocks, about 7%"* — to be the target. **They are not, and
+   PERFORMANCE.md Part 2 is right to refuse them:** re-checked body by body,
+   `gfx_rect_setup` clobbers AX/BX/CX/DX and `sw_rect_pl` the rest including ES,
+   so all eight are genuinely live and the only way to stop saving them is to
+   stop honouring `gfx_fill`'s contract, which every caller and every package
+   leans on.
+
+   **What was there instead was a loop that could only run once.**
+   `softgfx.inc` was written for a RAM back buffer — four claimed planes on a
+   VGA — and §32 removed the buffer while leaving the shape: `sw_rect_pl` walked
+   `[vid_planes]` passes round the body every mono fill goes through. The
+   renderer is reached only when `[vid_mono]` is set and `vid_depth_set` writes
+   the two **together**, so the counter was always 1. `sw_spans` has said so in
+   its own comment since §5.10 and does not loop.
+
+   Gone with it: `sw_ink`'s `[vid_mono]` test and the dead four-instruction arm
+   under it, and `mov bl, [gfx_color]`, which existed *only* to feed that arm — a
+   memory read on the fixed cost of every solid fill, for a path that never ran.
+   The last call becomes a tail jump.
+
+   **`.text` −31 on `kern_big` and −35 on `kern_small`**, which is the right
+   direction for a build under a cut, and 0 differing pixels on both adapters.
+   **A removal needs no hole either**, which is now two of three.
 3. **`sw_blit_row`** — the largest single number in the profile set and the
    smallest remaining headroom, for §5.2's reason. Worth revisiting only with a
    measurement in hand.

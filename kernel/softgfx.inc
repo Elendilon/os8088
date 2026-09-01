@@ -224,10 +224,13 @@ sw_rect:
     ret
 
 ; -----------------------------------------------------------------------------
-; sw_rect_pl - internal: the PLANE LOOP alone, for a rect gfx_rect_setup has
-;              already described. sw_rect is its only caller that clips;
-;              SPEC.md 5.10's gfx_spans is the other, and it fills the same
-;              scratch a row at a time from its own leaner setup.
+; sw_rect_pl - internal: the mode staging and the pass, for a rect
+;              gfx_rect_setup has already described.
+;
+; IT WAS "the PLANE LOOP alone", and it is not one any more (SPEC.md 39.26) -
+; see the note at .planes. The header also named gfx_spans as a second caller;
+; that has not been true since SPEC.md 5.10 gave sw_spans a row walk of its
+; own, and sw_rect is the only `call sw_rect_pl` in the tree.
 ; in:       the vga_* rect scratch and [sw_mode] are set
 ; out:      -
 ; clobbers: everything but the segment registers
@@ -240,20 +243,20 @@ sw_rect_pl:
     mov byte [sw_altm], 0xFF     ; never reads [sw_pat] at all. Staging it for
 .planes:                         ; all three cost every solid fill five
                                  ; instructions it threw away
-    mov dx, [vid_rseg]          ; DX = plane segment - the framebuffer, which
-    mov bl, [gfx_color]         ; the framebuffer itself on mono (SPEC.md 39.3)
-    mov bh, [vid_planes]        ; BH = plane counter: 4 or 1
-.plane:
-    mov es, dx
+    ; --- ONE PLANE, AND NO LOOP AROUND IT (SPEC.md 39.26) -------------------
+    ; This walked [vid_planes] passes, stepping [vid_rpara] between them. That
+    ; is the RAM back buffer's shape - four claimed planes on a VGA - and
+    ; SPEC.md 32 took the buffer out; what is left is the renderer, which is
+    ; reached only when [vid_mono] is set, and vid_depth_set writes [vid_mono]
+    ; and [vid_planes] TOGETHER (39.5). So the counter was always 1 here and
+    ; the loop always exited after one pass. sw_spans two screens up already
+    ; says so in as many words and does not loop; this is the same fact
+    ; applied to the body every fill goes through.
+    mov es, [vid_rseg]          ; the framebuffer itself on mono (SPEC.md 39.3)
     cmp byte [sw_mode], SWM_SOLID
-    jne .go
-    call sw_ink                 ; solid: this pass's 00/FF byte
-.go:
-    call sw_plane_op
-    add dx, [vid_rpara]
-    dec bh
-    jnz .plane
-    ret
+    jne sw_plane_op             ; ...and with no loop under it, the last call
+    call sw_ink                 ; is a TAIL jump: sw_plane_op's `ret` is ours
+    jmp sw_plane_op
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
@@ -348,16 +351,14 @@ sw_parity:
 ; clobbers: AL, SI, flags
 ; -----------------------------------------------------------------------------
 sw_ink:
-    cmp byte [vid_mono], 0
-    jne .mono
-    shr bl, 1
-    sbb al, al
-    mov [sw_pat], al
-    ret
-.mono:
+    ; NO [vid_mono] TEST (SPEC.md 39.26). It had one, and a four-instruction
+    ; arm under it that reduced a PLANE's colour bit - the RAM back buffer's
+    ; again (SPEC.md 32). Nothing reaches this file with [vid_mono] clear:
+    ; [vid_rseg] is 0 on a VGA precisely so that it cannot, and viddet.inc
+    ; says what happens when it does. The test could only ever go one way.
     mov al, [gfx_color]         ; gfx_ink's table read, inlined through SI -
-    and ax, 15                  ; it indexes through BX, and BX is the plane
-    mov si, ax                  ; counter and the colour bits here. SI is dead
+    and ax, 15                  ; it indexes through BX, which sw_rect_pl used
+    mov si, ax                  ; to hold the plane counter in. SI is dead
     mov al, [si + gfx_inktab]   ; between gfx_rect_setup and sw_plane_op, which
     cmp al, 1                   ; loads it itself
     je .dither
