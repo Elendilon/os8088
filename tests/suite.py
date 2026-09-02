@@ -1266,7 +1266,8 @@ SOAK = [
         "SPEC.md 85.6.5's aim assists and its reticle: AIM OFF still turns"
         "TK_TURN a tick and puts no fraction in the 8.8 heading, G cycles"
         "tk_aimset, the gun corrects by tk_aimcap and no further (so TRIM stops"
-        "at half the lattice tk_lstep says the player is on), the sight closes"
+        "at half the lattice tk_lstep says the player is on, and only INSIDE the"
+        "closed sight's own box), no bearing is unreachable, the sight closes"
         "on exactly the shots that HIT - read against tk_aimq and tk_aimz, the"
         "code's own inputs - and a LOCK sweep ENDS on a tank three units ahead"
         "where an AIM OFF one finishes three units past it",

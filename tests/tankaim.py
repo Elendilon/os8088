@@ -85,6 +85,28 @@ def const(name):
     sys.exit("tankaim: tank.asm has no %s" % name)
 
 
+def reachable(boxq, turn, maxstep, grid=4096):
+    """Is there a bearing no sequence of presses can put inside the box?
+
+    THE QUESTION THIS ANSWERS IS THE ONE THAT WAS ASKED - "are there turns that
+    could skip it?" - and it is answered by enumeration rather than by the
+    algebra in SPEC.md 85.6.5.8, so that a slip in the algebra shows up here.
+
+    The player's heading moves TK_TURN * tk_lstep units a frame and tk_lstep is
+    capped at TK_MAXSTEP, so the reachable headings from wherever they start
+    are a lattice of Q = TK_MAXSTEP * TK_TURN. A tank's bearing is anywhere;
+    what matters is the WORST distance from a bearing to the nearest lattice
+    point, and whether the box admits it."""
+    q = turn * maxstep                          # the coarsest lattice, units
+    worst, at = 0.0, 0.0
+    for i in range(grid):                       # a bearing anywhere in one
+        f = q * i / float(grid)                 # lattice cell, finely walked
+        d = min(f, q - f)                       # ...to the nearer end of it
+        if d > worst:
+            worst, at = d, f
+    return worst, at, q
+
+
 def sintab():
     """tksin.inc, for placing a tank at a bearing the guest will agree with."""
     out = []
@@ -190,7 +212,30 @@ def main(argv):
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     RETQ, HITQ, HYS = const("TK_RETQ"), const("TK_HITQ"), const("TK_LOCKHYS")
-    IN = const("TK_LOCKIN")
+    IN, BOXPX = const("TK_LOCKIN"), const("TK_BOXPX")
+    BOXQ = MAXSTEP * TK_TURN * 2 + 1        # tank.asm's TK_BOXQ, derived the
+                                            # same way it is there
+
+    def fix(mode, err, cap, boxq):
+        """tk_aimfix, in Python: the correction the gun applies."""
+        if not mode & (AS_TRIM | AS_SNAP):
+            return 0
+        if not mode & AS_SNAP and abs(err) > boxq:
+            return 0                            # outside the box: aim it
+        return max(-cap, min(cap, err))         # yourself
+
+    # --- 0. the arithmetic SPEC.md 85.6.5.8 rests on, before any of it runs ---
+    worst, at, q = reachable(BOXQ, TK_TURN, MAXSTEP)
+    print("  reachability: lattice %d units, worst bearing is %.3f units off "
+          "the nearest reachable heading (at %+.3f); box is %.2f units "
+          "(%d quarters, drawn at %d px)"
+          % (q, worst, at, BOXQ / 4.0, BOXQ, BOXPX))
+    if worst > BOXQ / 4.0:
+        bad.append("a bearing %.3f units off the nearest commandable heading "
+                   "cannot be put inside a box of %.2f units: there ARE turns "
+                   "that skip it, and %.1f%% of bearings are unreachable "
+                   "(SPEC.md 85.6.5.8)"
+                   % (worst, BOXQ / 4.0, 100.0 * (worst - BOXQ / 4.0) / worst))
     SIN = sintab()
     bad = []
 
@@ -268,35 +313,46 @@ def main(argv):
                        "(over=%d dead=%d pause=%d)"
                        % (g.b("tk_over"), g.b("tk_dead"), g.b("tk_pause")))
 
-        # --- 3. the gun corrects by tk_aimcap and no further ------------------
+        # --- 3. the gun helps INSIDE THE BOX and nowhere else -----------------
+        # SPEC.md 85.6.5.8. TRIM's window is the closed sight's own box; SNAP
+        # keeps the open bracket, which is what the assist was before the box
+        # and is on the wheel as the A/B for it. So the two bearings below are
+        # the whole test: one inside the box and one outside it.
         lstep = g.b("tk_lstep")
-        for mode, tag in ((0, "OFF"), (AS_SNAP, "SNAP"), (AS_TRIM, "TRIM")):
-            g.wr("tk_aim", [mode])
-            g.quiet()
-            g.place(TK_NSTAT, 4, RANGE, SIN)
-            m.advance(frames=20)                # ...so tk_lockon measures it
-            pa, err, cap = g.b("tk_pa"), g.sw("tk_aimq"), g.cap()
-            m.type_text(" ")
-            m.advance(frames=40)
-            islot, sa = g.shell()
-            corr = max(-cap, min(cap, err))
-            want = (pa + int(math.floor((corr + 2) / 4.0))) & 0xFF
-            print("  %-4s: tank +4 units at %d out, error %d quarters, cap %d;"
-                  " shell left at %s (want %d)"
-                  % (tag, RANGE, err, cap, sa, want))
-            if sa is None:
-                bad.append("%s: no shell spawned - tk_fire refused and the "
-                           "assist was never reached" % tag)
-            elif sa != want:
-                bad.append("%s: the shell left at %d against the %d its own "
-                           "cap of %d quarters allows for an error of %d: "
-                           "tk_fire is not clamping to tk_aimcap"
-                           % (tag, sa, want, cap, err))
-            g.clear_movers()                    # ...and the gun is free again
-        if lstep < 1 or (AS_TRIM and min(TK_TURN * 2 * lstep, RETQ) >= RETQ):
-            print("  note: tk_lstep is %d, so TRIM's cap (%d quarters) is at "
-                  "the bracket and is not distinguishable from SNAP here"
-                  % (lstep, min(TK_TURN * 2 * lstep, RETQ)))
+        print("  tk_lstep %d -> lattice %d units, cap %d quarters; box %d "
+              "quarters drawn at %d px" % (lstep, TK_TURN * lstep,
+                                           g.cap() if False else
+                                           min(TK_TURN * 2 * lstep, RETQ),
+                                           BOXQ, BOXPX))
+        for e in (3.0, 4.5):
+            for mode, tag in ((0, "OFF"), (AS_TRIM, "TRIM"), (AS_SNAP, "SNAP")):
+                g.wr("tk_aim", [mode])
+                g.quiet()
+                g.place(TK_NSTAT, e, RANGE, SIN)
+                m.advance(frames=20)            # ...so tk_lockon measures it
+                pa, err, cap = g.b("tk_pa"), g.sw("tk_aimq"), g.cap()
+                m.type_text(" ")
+                m.advance(frames=40)
+                islot, sa = g.shell()
+                corr = fix(mode, err, cap, BOXQ)
+                want = (pa + int(math.floor((corr + 2) / 4.0))) & 0xFF
+                print("  %-4s: tank %+.1f units (%d quarters, %s the %d-quarter"
+                      " box); shell left at %s (want %d, a %d-quarter fix)"
+                      % (tag, e, err, "IN" if abs(err) <= BOXQ else "outside",
+                         BOXQ, sa, want, corr))
+                if sa is None:
+                    bad.append("%s at %+.1f: no shell spawned - tk_fire "
+                               "refused and the assist was never reached"
+                               % (tag, e))
+                elif sa != want:
+                    bad.append("%s at %+.1f units: the shell left at %d "
+                               "against %d. An error of %d quarters %s the "
+                               "%d-quarter box, with a cap of %d, must be "
+                               "corrected by %d (SPEC.md 85.6.5.8)"
+                               % (tag, e, sa, want, err,
+                                  "inside" if abs(err) <= BOXQ else "outside",
+                                  BOXQ, cap, corr))
+                g.clear_movers()                # ...and the gun is free again
 
         # --- 4. the reticle does not lie -------------------------------------
         # Read the code's OWN inputs back rather than assuming a geometry:
@@ -310,20 +366,21 @@ def main(argv):
                 m.advance(frames=25)            # opens and tk_lockwas clears,
                 g.place(TK_NSTAT, e, RANGE, SIN)   # so HYSTERESIS is not in play
                 m.advance(frames=25)
-                err, rng = abs(g.sw("tk_aimq")), g.w("tk_aimz")
-                win = max(HITQ // max(1, rng), g.cap())
+                err, rng = g.sw("tk_aimq"), g.w("tk_aimz")
+                err = abs(err - fix(mode, err, g.cap(), BOXQ))   # what is LEFT
+                win = HITQ // max(1, rng)
                 lock = g.b("tk_locked")
                 ok = lock == (1 if err <= win else 0)
                 got.append(lock)
-                print("  %-4s: tank %+.2f units, %d out -> error %d quarters, "
-                      "window %d, sight %s%s"
+                print("  %-4s: tank %+.2f units, %d out -> %d quarters STILL "
+                      "wrong after the gun, window %d, sight %s%s"
                       % (tag, e, rng, err, win, "CLOSED" if lock else "open",
                          "" if ok else "   <-- disagrees"))
                 if not ok and abs(err - win) > HYS:
-                    bad.append("%s at %+.2f units: the sight is %s with an "
-                               "error of %d quarters against a window of %d - "
-                               "it is promising a shot the gun does not keep, "
-                               "or hiding one it does (SPEC.md 85.6.5.7)"
+                    bad.append("%s at %+.2f units: the sight is %s with a "
+                               "residual of %d quarters against a window of "
+                               "%d - it is promising a shot the gun does not "
+                               "keep, or hiding one it does (SPEC.md 85.6.5.7)"
                                % (tag, e, "closed" if lock else "open",
                                   err, win))
         if not (any(got) and not all(got)):

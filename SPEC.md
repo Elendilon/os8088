@@ -85845,8 +85845,10 @@ routine.
 
 ##### 85.6.5.7 The sight may not lie
 
-The gunsight closes on a target — brackets in from 34 to 18 — and blips once,
-on the frame it acquires. What it closes on is the thing to get right.
+The gunsight closes on a target — brackets in from 34 to `TK_BOXPX` — and
+blips once, on the frame it acquires. What it closes on is the thing to get
+right. (`TK_BOXPX` is 22 and §85.6.5.8 derives it; it was 18 here, and 18 was
+a bug rather than a number.)
 
 **Not the brackets.** A reticle keyed to the brackets would say *on target* for
 a tank five units off at 3,900 out, where `tk_espoil`'s window is one and a
@@ -85855,10 +85857,11 @@ player cannot tell. That is worse than no reticle: it is a promise the gun does
 not keep.
 
 So it closes on **the shots that hit**: `TK_HITQ/range` is how far off a shot
-may be and still land, `tk_aimcap` is how much of an error the gun is about to
-correct, and the sight closes when the target is inside the wider of the two.
-The brackets stay as the outer gate, because a tank outside them is not one the
-player is aiming at.
+may be and still land, `tk_aimfix` is what the gun is about to correct, and the
+sight closes when what is LEFT after that correction is inside the window. One
+routine answers both, so the sight cannot drift from the gun. The open brackets
+stay as the outer gate, because a tank outside them is not one the player is
+aiming at.
 
 It follows that **AIM OFF gets a reticle too**, one that closes freely up close
 and rarely at long range — and that is not a lesser version of the feature, it
@@ -85885,6 +85888,78 @@ Three things it costs, and the first two are why it is affordable at all:
 The blip is the EDGE and not the state — `tk_lockwas` against `tk_locked` — at
 `TK_BLIPPRI`, under the muzzle's `SND_PRI_PKG`, so firing always wins the
 speaker.
+
+##### 85.6.5.8 The box the gun helps inside is DERIVED, and 18 pixels was too narrow
+
+§85.6.5.6's TRIM bounded *how far* the gun corrects. This bounds *where*: the
+correction applies only to a tank inside the box the **closed** sight draws,
+so the player has to put it there themselves. The sight shutting is the cue and
+its inner brackets are the rule, drawn.
+
+**That makes the box's width a reachability question rather than a taste one.**
+The player can only command a heading every `TK_TURN * tk_lstep` units and
+`tk_lstep` is capped at `TK_MAXSTEP`, so the coarsest lattice any machine puts
+them on is
+
+```
+Q = TK_MAXSTEP x TK_TURN = 6 units = 40.8 px of 320x200
+```
+
+and the nearest commandable heading to an arbitrary bearing is within `Q/2` =
+**3 units, 20.4 px**. A box narrower than that has bearings *nothing can
+reach*:
+
+| bracket inner edge | box | |
+|---:|---:|---|
+| 18 px | ±2.65 units | **11.8% of bearings unreachable** — as first drawn |
+| 20 px | ±2.94 | 2.0% unreachable |
+| **21 px** | **±3.09** | **the floor: none, ever** |
+| 22 px | ±3.24 | none — `TK_BOXPX`, with a pixel of margin |
+| 34 px | ±5.00 | the OPEN bracket, and `TK_RETQ`'s scan gate |
+
+One tank in nine that no sequence of presses could put in the box is §85.6.5's
+original defect in miniature, and it would have been shipped as a feature.
+
+**And `tk_aimcap` is `Q/2` too, which is what makes the pair sufficient rather
+than merely necessary.** At the nearest reachable heading the error is inside
+the box *and* inside the cap, so the correction is exact and the shot lands at
+every range — not "usually", by construction. Even at the box's very edge the
+residual is **0.24 units against a window of 1.56** at the shell's longest
+reach. The two constants are the same quantity wearing two hats, and that is
+the whole proof:
+
+> the nearest heading you can command is within `Q/2`; the box admits `Q/2`;
+> the cap covers `Q/2`.
+
+Three things follow that are worth writing down.
+
+**It is asserted at assembly, not argued here.** `TK_BOXQ < TK_MAXSTEP *
+TK_TURN * 2` fails the build, and so does a `tk_t_lock` drawn more than a pixel
+away from `TK_BOXQ` — because the number the player is told to aim inside and
+the number the gun tests must not drift apart. `tk_t_lock`'s inner edge *is*
+`TK_BOXPX`; it is not a drawing choice any more.
+
+**The box's VERTICAL half is redundant, and the arithmetic says so rather than
+taste.** A tank's origin sits `TK_EYE` below the eye, so it projects
+`60*scly/R` px below the sight centre — 10 px at R = 1,386 and more below that.
+A `|y| <= 10` gate would therefore switch the assist off **under 1,386 units**;
+and the assist is already a no-op **under 1,885**, which is where `6100/R`
+grows wider than the box itself and every shot in the box hits unaided. The
+gate would only ever forbid a correction that was not going to happen. So the
+test is horizontal, which is also the only axis this game aims on.
+
+**What changed for the player** is that the assist's window went from the open
+bracket (±5 units) to the box (±3.24). Fewer shots are helped and every helped
+shot lands — where before, a tank 5 units off got 3 units of correction and
+still missed beyond 3,050. The sight tells the truth about both, because
+`tk_aimfix` is the one routine `tk_fire` adds and `tk_lockon` subtracts.
+
+**SNAP stays on the wheel as the UNGATED arm**, and had to be given a reason
+to: box-gated it would correct fully inside ±3.24 where TRIM corrects to within
+0.24, and both land — so the two modes would have become the same mode with
+different names. It keeps the open bracket and the unbounded correction
+instead, which is what the assist was before this section, so the wheel carries
+the A/B for the gate itself rather than a duplicate.
 
 #### 85.8.1 The lettering gets a halo, because a 1bpp erase is not a colour
 

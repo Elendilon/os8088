@@ -185,7 +185,14 @@ TK_SHSEG  equ 16000             ; the CGA/Hercules shadow, in bytes
 TK_SHKB   equ 16                ; ...as a claim
 
 ; --- gameplay -----------------------------------------------------------------
-TK_TURN   equ 2                 ; angle units per frame at full lock
+TK_TURN   equ 2                 ; angle units per TICK at full lock
+TK_MAXSTEP equ 3                ; ...and the most a frame may ever spend of
+                                ; them, which tk_steps caps a stall at. It
+                                ; lives here rather than beside tk_steps
+                                ; because TK_MAXSTEP * TK_TURN is the COARSEST
+                                ; heading lattice any machine puts the player
+                                ; on, and SPEC.md 85.6.5.8 derives the aim
+                                ; box from exactly that
 TK_SPEED  equ 26                ; world units per frame, forward
 TK_RSPEED equ 16                ; ...and reversing
 TK_SHVEL  equ 130               ; a shell's speed, world units a TICK
@@ -223,6 +230,41 @@ TK_LOCKDW equ 1                 ; extra FRAMES a landing is held. Without one
                                 ; visual reaction - and the shot cannot be
                                 ; spent. 0 turns the detent off
 TK_NAIM   equ 5                 ; combinations the G key offers, in tk_aimset
+
+; --- where the auto-aim applies, DERIVED and not chosen (SPEC.md 85.6.5.8) ---
+; THE PLAYER HAS TO AIM IT THEMSELVES, so the gun only corrects a shot at a
+; tank inside the box the CLOSED sight draws. Which makes the box's width a
+; reachability question rather than a taste one: the player can only command a
+; heading every TK_TURN * tk_lstep units and tk_lstep is capped at TK_MAXSTEP,
+; so the coarsest lattice anywhere is Q = TK_MAXSTEP * TK_TURN = 6 units and
+; the nearest heading to an arbitrary bearing is within Q/2 = 3 of it.
+;
+; A BOX NARROWER THAN Q/2 THEREFORE HAS BEARINGS NOTHING CAN REACH. At the 18
+; px this was first drawn at - 2.65 units - it is 11.8% of them: one tank in
+; nine that no sequence of presses can put in the box, which is SPEC.md
+; 85.6.5's original defect in miniature. At 21 px it is none, ever, on any
+; machine.
+;
+; And tk_aimcap is Q/2 as well, which is what makes the pair sufficient rather
+; than merely necessary: at the nearest reachable heading the error is inside
+; the box AND inside the cap, so the correction is exact and the shot lands at
+; every range. At the box's EDGE the residual is 0.24 units, against a window
+; of 1.56 at the shell's longest reach.
+TK_BOXQ   equ TK_MAXSTEP * TK_TURN * 2 + 1      ; Q/2 in quarter units, plus a
+                                                ; quarter unit of margin
+TK_BOXPX  equ 22                ; ...and what that is in tk_t_lock's own
+                                ; 320x200 units: 3.25 * sclx * tan(1u) = 22.1
+
+%if TK_BOXQ < TK_MAXSTEP * TK_TURN * 2
+  %error "TK_BOXQ is under half the coarsest turn lattice: there are bearings no sequence of presses can put a tank inside the box"
+%endif
+%assign TK_BOXDRAWN (TK_BOXPX * 5882) / 10      ; the DRAWN box, quarters x1000
+%if TK_BOXDRAWN > TK_BOXQ * 1000 + 588
+  %error "tk_t_lock is drawn WIDER than the box the gun uses: the closed sight would promise a correction outside it"
+%endif
+%if TK_BOXDRAWN < TK_BOXQ * 1000 - 588
+  %error "tk_t_lock is drawn NARROWER than the box the gun uses"
+%endif
 
 TK_RETQ   equ 20                ; the gunsight's OWN half-width, in quarter
                                 ; angle units, and the outer gate on every

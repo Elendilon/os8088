@@ -129,8 +129,10 @@ tk_fsx_main:
 ; The cap is what keeps a stall from teleporting anybody: a floppy access or a
 ; long first frame can leave several ticks owing, and a shell that advances
 ; four times in one frame can pass clean through a tank it should have hit.
+; TK_MAXSTEP is declared in tank.asm beside TK_TURN, because the two multiply
+; to the coarsest heading lattice the player is ever on and SPEC.md 85.6.5.8
+; derives the aim box from it.
 ; -----------------------------------------------------------------------------
-TK_MAXSTEP equ 3
 tk_steps:
     call OSAPI_GET_TICKS
     mov bx, ax
@@ -578,18 +580,18 @@ tk_lockon:
     mov ax, TK_RETQ
     call tk_besttarget
     jc .edge
+    mov cx, ax
+    call tk_aimfix                  ; ...less whatever the gun is going to fix
+    sub cx, ax                      ; CX = what the shell is still wrong by
+    mov ax, cx
     or ax, ax
     jns .p
     neg ax
 .p:
-    mov bx, ax                      ; BX = |the error|, in quarter units
+    mov bx, ax                      ; BX = |that|, in quarter units
     mov ax, TK_HITQ                 ; ...against the window at THIS range
     xor dx, dx
     div word [tk_aimz]
-    mov cx, ax
-    call tk_aimcap                  ; ...widened by what the gun will correct
-    cmp ax, cx
-    jbe .hys
     mov cx, ax
 .hys:
     cmp byte [tk_lockwas], 0        ; a target ON the boundary would otherwise
@@ -611,6 +613,59 @@ tk_lockon:
     mov dl, TK_BLIPPRI              ; under the muzzle's, so a shot always wins
     call OSAPI_SND_TONE
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; tk_aimfix - the correction the gun applies to an error of AX quarter units
+; in:  AX = the signed error, from tk_besttarget
+; out: AX = the signed correction, 0 for none.  clobbers nothing else
+;
+; ONE ROUTINE FOR THE GUN AND THE SIGHT (SPEC.md 85.6.5.8), which is what makes
+; the closed reticle a promise rather than a decoration: tk_fire adds what this
+; returns and tk_lockon subtracts it, so the sight closes on exactly the shots
+; that land.
+;
+; THE BOX IS THE GATE, and outside it the player aims for themselves. It is
+; TK_BOXQ wide because that is half the coarsest lattice they can command, so
+; the nearest heading to any bearing is inside the box AND inside the cap -
+; the correction is exact there, and there is no bearing a sequence of presses
+; cannot reach.
+; -----------------------------------------------------------------------------
+tk_aimfix:
+    push bx
+    push cx
+    mov cx, ax                      ; CX = the error, sign and all
+    or ax, ax
+    jns .p
+    neg ax
+.p:
+    test byte [tk_aim], TK_AS_SNAP  ; SNAP IS THE UNGATED ARM - the whole
+    jnz .cap                        ; bracket and the whole correction, which
+    cmp ax, TK_BOXQ                 ; is what this was BEFORE the box, kept on
+    ja .none                        ; the wheel as the A/B for it. Under TRIM,
+.cap:                               ; outside the box the gun does nothing and
+    call tk_aimcap                  ; the player aims it themselves
+    or ax, ax
+    jz .none
+    mov bx, ax                      ; BX = the cap; clamp the error to it
+    mov ax, cx
+    cmp ax, bx
+    jle .lo
+    mov ax, bx
+    jmp short .out
+.lo:
+    neg bx
+    cmp ax, bx
+    jge .out
+    mov ax, bx
+.out:
+    pop cx
+    pop bx
+    ret
+.none:
+    xor ax, ax
+    pop cx
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1154,26 +1209,14 @@ tk_fire:
     je .out
     inc si
     loop .s
-    mov al, [tk_pa]                 ; A tank inside the brackets IS what the
-    mov [tk_aimh], al               ; player is aiming at (SPEC.md 85.6.5.1),
-    call tk_aimcap                  ; so the shell leaves at its bearing rather
-    or ax, ax                       ; than at the hull's - but by AT MOST what
-    jz .have                        ; tk_aimcap allows, which is the whole
-    push ax                         ; difference between SNAP and TRIM
-    mov ax, TK_RETQ
+    mov al, [tk_pa]                 ; A tank inside the CLOSED sight's box is
+    mov [tk_aimh], al               ; one the player has aimed at themselves
+    cmp byte [tk_aim], 0            ; (SPEC.md 85.6.5.8), and only there does
+    je .have                        ; the shell leave at its bearing rather
+    mov ax, TK_RETQ                 ; than at the hull's
     call tk_besttarget
-    pop bx                          ; BX = the cap, AX = the signed error
     jc .have
-    cmp ax, bx
-    jle .lo
-    mov ax, bx
-    jmp short .rnd
-.lo:
-    neg bx
-    cmp ax, bx
-    jge .rnd
-    mov ax, bx
-.rnd:
+    call tk_aimfix
     call tk_qround
     add [tk_aimh], al
 .have:
@@ -2338,14 +2381,19 @@ tk_t_sight:                         ; the arcade's gunsight: two stalks and a
 
 tk_t_lock:                          ; ...and CLOSED on a target (85.6.5.7).
     dw    0, -34,    0, -14         ; EIGHT SEGMENTS, the same eight, of the
-    dw    0,  14,    0,  34         ; same lengths - the brackets have come in
-    dw  -30, -10,  -18, -10         ; from 34 to 18 and the stalks have given
-    dw  -18, -10,  -18,  10         ; up two rows either side. So the sight
-    dw  -30,  10,  -18,  10         ; snapping shut is free: tk_drawtab draws
-    dw   30, -10,   18, -10         ; the identical number of identical-length
-    dw   18, -10,   18,  10         ; runs, and the frame this lands in costs
-    dw   30,  10,   18,  10         ; what every other frame costs
-    dw 0x7FFF
+    dw    0,  14,    0,  34         ; same lengths - so the sight snapping shut
+    dw  -(TK_BOXPX+12), -10,  -TK_BOXPX, -10        ; is free: tk_drawtab draws
+    dw  -TK_BOXPX, -10,  -TK_BOXPX,  10             ; the identical number of
+    dw  -(TK_BOXPX+12),  10,  -TK_BOXPX,  10        ; identical-length runs and
+    dw   TK_BOXPX+12, -10,   TK_BOXPX, -10          ; the frame a lock lands in
+    dw   TK_BOXPX, -10,   TK_BOXPX,  10             ; costs what every other
+    dw   TK_BOXPX+12,  10,   TK_BOXPX,  10          ; frame costs
+    dw 0x7FFF                       ; THE INNER EDGE IS TK_BOXPX AND NOT A
+                                    ; DRAWING CHOICE: it is the box the gun
+                                    ; corrects inside, derived in tank.asm and
+                                    ; asserted against TK_BOXQ there, so what
+                                    ; the player is told to aim inside is the
+                                    ; same number the gun tests
 
 tk_t_crack:                         ; the glass, when they get you first
     dw    0,   0,  -40, -30
