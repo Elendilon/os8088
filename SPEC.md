@@ -20384,6 +20384,146 @@ becoming `ss xlat` — the two guards are relieved by different mechanisms
 segment costs it nothing. Trimming a diagnostic is the cheaper move while a
 diagnostic is what is setting the ceiling.
 
+#### 15.1.2 The shared epilogue ladder, and the guard that keeps it inside its own section
+
+A routine that banks the canonical prologue - `push ax / bx / cx / dx / si /
+di / bp / es`, or any **suffix** of it - restores it with the mirror-image pop
+run and returns. That run is the same bytes in every routine that takes it, so
+141 copies of it were 141 copies of the same six or seven bytes. It is written
+**once** now, in `kernel.asm`, entered by a near `jmp` at the rung that pops
+first:
+
+```nasm
+kret_es:          pop es
+kret_bp:          pop bp
+kret_di:          pop di
+kret_si:          pop si
+kret_dx:          pop dx
+kret_cx:          pop cx
+                  pop bx
+                  pop ax
+                  ret
+```
+
+`jmp kret_di` **is** `pop di / pop si / pop dx / pop cx / pop bx / pop ax /
+ret`. A converted routine spends 3 bytes on the jump instead of N+1 on the run
+and its `ret`, and nothing is pushed to get there: a rung is a suffix of a
+suffix. There are **three** ladders, one per (section, terminator) pair that
+earns one - `kret_*` (`.text`, `ret`), `kretc_*` (`.cold`, `ret`) and
+`kretfc_*` (`.cold`, `retf`) - and **a rung label exists only where something
+jumps to it**, which is what keeps rungs out of `tools/stkbalance.py`'s entry
+set. `.text` holds exactly one `retf` site and a fourth ladder for it would
+lose bytes, so that site keeps its own run.
+
+**Only `.text` and `.cold` are converted.** `.modc`, `.modf` and `.modl` are
+module images that `tools/os88mod.py` cuts out of the binary, `.ovl`/`.ovlw`
+are freed at first mount and `.boot2` is the loader blob: none is resident, and
+a 9-byte ladder against their handful of sites is negative anyway.
+`kernel/clockw.inc` is excluded for a different reason and it is worth stating
+so nobody tidies it back in - it carries no `section` of its own and is
+`%include`d from `ctrl.inc`'s `.modc`, so a `jmp kret_*` from it is a jump out
+of CTRL.DRV's heap claim into the kernel's segment. The knob-only files
+(`band.inc`, `bootprof.inc`, `moudiag.inc`) stay out because a rung whose only
+caller is behind a `%ifdef` is an unreferenced global in every shipped build.
+
+**Eleven per-run and per-cell exits keep their own pop runs**, and that spare is
+the whole difference between this and taking every site: `gfx_clip_run`,
+`gfx_disp_run`, `gfx_blit_run`, `gfx_lstep`, `gfx_lstepv`, `gfx_lstep_slow`,
+`gfx_bank_ok`, `sw_pairbuild`, `font_run_scell`, `cur_lazyck`,
+`cur_shape_pass`. A taken near `jmp rel16` is ~18-22 clocks; on a routine-level
+exit that is nothing against a call already costing hundreds of microseconds,
+and on `gfx_lstep` - which draws CX pixels and may be called with CX=1 from a
+package - nobody has measured it. Taking those eleven as well is **33 bytes**,
+measured, and 33 bytes is not the place to bet against an unmeasured per-run
+path.
+
+**What it bought**, measured on the tree it landed on: 141 sites - 63 `.text`
+`ret`, 65 `.cold` `ret`, 13 `.cold` `retf` - for **`kern_big` -234 `.text` and
+-251 `.cold`, and `kern_small` -202 and -237**.
+
+**It fails closed.** Delete the last `jmp` to a rung and that rung's label
+becomes a global nothing jumps to; `stkbalance` then walks it as an **entry**,
+from depth 0, and the build goes red - measured, `kretfc_cx: ret at depth -3`.
+The cure is to delete the dead rung label, never to exempt it. While a rung
+*is* jumped to, `stkbalance` classes it a **continuation**: it inherits the
+depth of the path that arrives, so a routine leaking a word still reaches the
+ladder's `ret` at +1 and is reported. Injected leaks in three shapes over
+sixty-one injections catch exactly what the un-converted tree catches, finding
+for finding, and the walker's own counters - entries walked, exemptions,
+suppressed back edges - are identical to the tree before the ladder.
+
+**No rung carries `stkbalance`'s skip annotation and no rung may.** That pragma
+makes `walk()` stop on arrival, which would blind the gate to all 141 converted
+routines at once; it is also matched as a **substring of any comment**, so
+writing its name in the ladder's own prose exempts whatever routine owns that
+line. Both were found by doing them.
+
+**The ORDER half is `tests/unit/t_asmrules.py`.** `crossed_pops` keys on a pop
+run immediately followed by a `ret`, and the ladder deletes both - so without
+help the converted routines leave the numerator and the denominator together
+and the gate's own coverage figure stays true while they stop being checked.
+The check therefore **reads the rung -> pop map out of the ladder** rather than
+assuming it: a rung label sitting over the wrong `pop` is caught there too. On
+a tree with no ladder the map is empty and every added line is an exact no-op.
+Measured: 141 converted routines, **112 order-covered before the conversion, 0
+with the unpatched check, 112 with it** - none lost, none spuriously gained -
+and a ladder whose pop order is scrambled under two rung labels takes the check
+from **0 findings to 32** while the depth gate stays silent, which is the
+division of labour between the two.
+
+**Placement is load-bearing, and it is the part that went wrong first.** Each
+ladder sits inside the section its callers are in and **above** that section's
+own `*_end` label, after a `ret`. A ladder below the label is real image bytes
+that `KTEXT_SIZE`/`COLD_SIZE` do not count, and `KIMG_PARA`, `COLD_START`, the
+`KERN_CODE_MAX` guard and §57.6's published `kbld_text`/`kbld_cold` all
+under-report the image with them; for `.modc`/`.modf`/`.modl` the consequence is
+worse than arithmetic, because `os88mod.py` cuts the module file at `<sec>_end`
+and a call into a byte below it lands in unclaimed heap. Nothing else in the
+tree sees that: `tools/os88ovlchk.py` walks **sections**, and this is a
+same-section, wrong-side-of-the-label byte.
+
+So `kernel.asm` ends with a `%if` per section - **all twelve section-end
+labels, not the two where the defect was found** - each asserting
+`($ - $$) == <SEC>_SIZE` and naming what would under-report. It costs zero
+bytes, each `%if` being assembly-time. Measured: it passes the pristine tree,
+and the same ladder moved below the size labels fails the build by name in both
+sections.
+
+**THE CALLER'S PLACEMENT IS LOAD-BEARING TOO, and that half cost a boot.**
+`vid_pop8` - the eight-register epilogue `vid_setmode`, `vid_detect` and
+`vid_text` share - was converted like any other, and every adapter came up dead
+with no message. The three routines all run from the LOADING SCREEN, whose
+first tick is gated on `SPL_RESIDENT` sectors (§15, 9 = 4,608 bytes), and the
+`.text` ladder is at offset 0xC628 - eleven times past the window. The jump
+lands in RAM the floppy has not filled yet and the machine executes it. It is
+the same rule `vid_wipe`'s header states two routines down - *"a helper further
+down the image is not resident yet"* - and a ladder is exactly such a helper;
+it is also the shape §15's own guard already refuses for `spl_gate`, *"the PATH
+is not aboard even though the destination is"*. **So `vid_pop8` keeps its own
+pop run, and any routine the first tick can reach must.**
+
+Nothing saw it. `make`, the fast tier, `stkbalance`, `os88ovlchk`,
+`t_asmrules` and `checkdocs` were all green, because none of them boots a
+machine; `SPL_RES_SIZE` measures where the resident code ENDS and **size is not
+reach**. `tests/unit/t_resident.py` is the guard now, and it is deliberately
+narrow: **no `jmp kret*` may sit in `.text` below `spw_resident_end`.** The
+ladders are always at the far end of their sections, so a rung jump from inside
+the window is a jump into unloaded memory - always, with no benign case to
+argue. Measured: 62 rung jumps in `.text`, 0 inside the window; with `vid_pop8`
+converted, exactly 1, at 0x0AF5. Two wider rules were written first and both
+were **wrong in the loud direction** on a tree that boots - *"nothing below the
+line may transfer above it"* reports 218, and a reachability walk from the four
+shims reports 18 - and a gate that can never be green is one somebody switches
+off.
+
+**That block must stay the last thing in the file, and that is a real limit
+rather than tidiness.** A `%if` measures the section where it *sits*, so
+anything emitted below it is past the check as well as past the label:
+appending the ladder after the guard block assembles clean, leaves `stkbalance`
+green, and under-reports `.text` by 9 bytes and `.cold` by 18 with nothing said.
+Add a new section's rung to the list - never a line of anything else after the
+last `%endif`.
+
 ### 15.2 The boot sector relocates itself
 
 The BIOS loads `boot/boot.asm` to 0000:7C00 and jumps there. That code is

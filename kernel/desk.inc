@@ -373,13 +373,7 @@ desk_rowcalc_x:
     mov ax, 1
 .rows:
     mov [desk_rows], ax
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; desk_zflag - does volume BL have a desktop zone? (SPEC.md 26)
@@ -769,11 +763,7 @@ desk_zones_paint_x:
     call desk_zones_dmg
     mov byte [desk_zhw], 0
     call KERNEL_SEG:cw_wm_paint_dmg
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; desk_paint_mask - draw the drive zones named by a bitmask
@@ -799,10 +789,7 @@ desk_paint_mask_x:
     inc cl
     jmp .next
 .done:
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_cx
 
 ; -----------------------------------------------------------------------------
 ; desk_click - desktop hit test, called by ui.inc when wm_hit found no
@@ -904,13 +891,7 @@ desk_click_x:
     call KERNEL_SEG:cw_gfx_unlock
 
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; desk_zone_redraw - flip one zone's SELECTION outside wm_paint_all
@@ -972,11 +953,7 @@ desk_zone_redraw:
 .none:
     pop ax                      ; the list is already empty, i.e. disarmed
 .done:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; desk_zone_hilite - XOR one zone's hit rect: the selection highlight, and
@@ -1117,12 +1094,7 @@ desk_draw_zone:
 .done:                          ; disagree about which pixels it is
     mov al, [desk_gcol]
     mov [gfx_color], al
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 section .text                   ; DATA, so back to the kernel segment (SPEC.md
                                 ; 2.6 rule 1). These labels carry NO COLON,

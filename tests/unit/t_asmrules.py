@@ -167,6 +167,61 @@ RET = re.compile(r"^\s+ret(f)?\s*(;.*)?$", re.I)
 GAPOK = re.compile(r"^\s+(clc|stc|cmc|cld|std|sti|cli|nop)\s*(;.*)?$", re.I)
 
 
+# --- THE SHARED-EPILOGUE LADDER (SPEC.md 45.13.7) ---------------------------
+# `jmp kret_di` IS `pop di / pop si / pop dx / pop cx / pop bx / pop ax / ret`.
+# The ladder deletes the pop run AND the `ret` from every routine it converts,
+# and that pair is exactly what check 2 keys on - so without this the kernel
+# routines the ladder rewrites leave the NUMERATOR and the DENOMINATOR
+# together, and the coverage figure in this header would stay true while 123
+# routines quietly stopped being checked.  A gate whose coverage can fall
+# without its own report changing is worse than no gate.
+#
+# The rung table is READ OUT OF THE LADDER rather than assumed, so a rung
+# label sitting over the wrong `pop` is caught here too instead of trusted:
+# swap two rung labels and this goes from 0 findings to 2.  On a tree with no
+# ladder the table is empty, RUNGJMP never matches, and every line below is an
+# exact no-op.
+RUNGDEF = re.compile(r"^(kretf?c?_[a-z]{2}):\s*(?:pop\s+(\w+))?\s*(;.*)?$", re.I)
+RUNGPOP = re.compile(r"^\s*pop\s+(\w+)\s*(;.*)?$", re.I)
+RUNGEND = re.compile(r"^\s*retf?\s*(;.*)?$", re.I)
+RUNGJMP = re.compile(r"^\s*jmp\s+(kretf?c?_[a-z]{2})\s*(;.*)?$", re.I)
+_RUNGS = None
+
+
+def rungs():
+    """{rung label: [registers it pops, in order]}, read from kernel.asm."""
+    global _RUNGS
+    if _RUNGS is None:
+        _RUNGS = {}
+        path = os.path.join(ROOT, "kernel", "kernel.asm")
+        try:
+            lines = open(path, errors="replace").read().split("\n")
+        except OSError:
+            return _RUNGS
+        for i, ln in enumerate(lines):
+            m = RUNGDEF.match(ln)
+            if not m:
+                continue
+            seq = [m.group(2).lower()] if m.group(2) else []
+            for nxt in lines[i + 1:]:
+                if RUNGEND.match(nxt):
+                    break
+                d = RUNGDEF.match(nxt)
+                if d:
+                    if d.group(2):
+                        seq.append(d.group(2).lower())
+                    continue
+                p = RUNGPOP.match(nxt)
+                if p:
+                    seq.append(p.group(1).lower())
+                    continue
+                if nxt.strip() and not nxt.strip().startswith(";"):
+                    break
+            if seq:
+                _RUNGS[m.group(1)] = seq
+    return _RUNGS
+
+
 def crossed_pops(path):
     """[(line, routine, prologue, epilogue)] - a restore in the wrong order."""
     out = []
@@ -191,6 +246,14 @@ def crossed_pops(path):
                 start = n
             poprun.append(m.group(1).lower())
             continue
+        m = RUNGJMP.match(raw)
+        if m and m.group(1) in rungs():
+            # The ladder's rung IS the rest of this routine's pop run, and its
+            # `ret`.  Splice both in and fall through to the RET arm below.
+            if not poprun:
+                start = n
+            poprun = poprun + rungs()[m.group(1)]
+            raw = "    ret"
         if RET.match(raw):
             # SAME LENGTH ONLY - see the header. A shorter pop run means the
             # prologue ends in a value push, which is a different idiom.

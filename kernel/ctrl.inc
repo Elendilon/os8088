@@ -945,14 +945,7 @@ cp_onkey_x:
                                 ; AX assembles, boots, and delivers the CLASS
                                 ; to the page as a keystroke
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 %endif
 
 

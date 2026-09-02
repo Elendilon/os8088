@@ -953,6 +953,17 @@ vid_setmode:
 ; a wrong address at boot.  Nothing in the tree checks that; this comment and
 ; the two at the jump sites are the whole of the guard.  The label is BELOW
 ; `dec byte [spl_busy]`, so the splash counter is decremented once.
+;
+; IT KEEPS ITS OWN POP RUN, and SPEC.md 15.1.2's ladder may never have it.
+; `jmp kret_es` here BOOTS NOTHING: vid_setmode, vid_detect and vid_text all
+; run from the splash, whose first tick is gated on SPL_RESIDENT sectors
+; (splash.inc, 9 = 4,608 bytes), and the ladder is at the far end of `.text` -
+; ~50,700 bytes in, eleven times past the window the boot sector has read.
+; The jump lands in RAM the disk has not filled yet, the machine executes it,
+; and every adapter comes up dead with no message.  It is the same rule
+; vid_wipe's header states two routines down - "a helper further down the
+; image is not resident yet" - and the ladder is exactly such a helper.
+; tests/unit/t_asmrules.py's resident-window check is the mechanical guard.
 vid_pop8:
     pop es
     pop bp

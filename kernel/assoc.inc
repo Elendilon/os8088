@@ -399,13 +399,7 @@ assoc_reduce:
     add si, 4                   ; two source rows per output row
     dec ch
     jnz .row
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; assoc_compose - a document icon for one app slot (SPEC.md 54.3)
@@ -557,13 +551,7 @@ assoc_declare:
     pop cx
     loop .one
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; assoc_note_app - record where a program is, and what it looks like
@@ -609,13 +597,7 @@ assoc_note_app_x:
                                 ; DATA plane of the embedded icon
     call assoc_reduce           ; ES = LOW_SEG, per SPEC.md 2.1
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 section .bss
 assoc_hflags: resb 1            ; the header flags of the package the harvest
@@ -772,12 +754,7 @@ assoc_try:
     mov si, assoc_fnb
     call dskw_stat_x              ; ...and since 18.4.3 it costs no re-read
 .out:                           ; ...whose CF IS this routine's answer: both
-    pop si                      ; callees set it explicitly on every exit and
-    pop dx                      ; a pop touches no flag
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; assoc_tryfold - the same, one folder down from a volume's root
@@ -1252,13 +1229,7 @@ osapi_assoc_set_x:
 .full:
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; assoc_point - point one extension at one app slot (SPEC.md 54.6's rule)
@@ -1658,13 +1629,7 @@ asc_seed:
     add si, ASC_ROW
     loop .row
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; asc_root_find - ASSOC.DAT in the volume's ROOT (module-internal)
@@ -1787,13 +1752,7 @@ asc_merge_ext:
     add di, 4
     loop .row
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; asc_slot_of - the kernel app slot for a CACHE row (module-internal)

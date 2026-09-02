@@ -364,12 +364,7 @@ app_about_paint_x:
     mov si, [si + app_about_vid]   ; wants. cbw is safe because [vid_kind] is
     call app_about_center_x        ; 0, 1 or 2 (kernel/viddet.inc)
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_si
 
 ; -----------------------------------------------------------------------------
 ; app_about_center - draw one string centered horizontally in a window
@@ -546,13 +541,7 @@ app_tmr_onclick_x:
 ; failure - loud, not silent - if anything is ever inserted between them.
 ; -----------------------------------------------------------------------------
 app_tmr_edge_out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
@@ -708,13 +697,7 @@ app_tmr_act:
     mov al, APP_TMR_STOP
     call app_tmr_btn
 .done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; app_tmr_bok - would this button do anything? (SPEC.md 47 rule 2: the ONE
@@ -827,14 +810,7 @@ app_tmr_btn:
                                 ; the body is cold, where fdlg and ctrl are,
                                 ; and apps.inc is .text)
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; app_tmr_brect - one button's inclusive screen rect
@@ -1256,14 +1232,7 @@ app_ball_wipe:
 .rowgo:
     call KERNEL_SEG:cw_gfx_fill
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; app_ball_step - advance one instance's ball, bouncing off the content edges
@@ -1346,11 +1315,7 @@ app_ball_fill:
     add dx, 7                   ; DX = y2
     call KERNEL_SEG:cw_gfx_fill
 
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 section .lowbss                 ; LOW_SEG (SPEC.md 2.1): both state pools are

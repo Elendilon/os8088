@@ -261,13 +261,7 @@ fsx_run:
     call fsx_restore            ; SPEC.md 53.6, ordered
     clc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; fsx_restore - one path home (SPEC.md 53.6, order binding)
@@ -493,13 +487,7 @@ fsx_mode:
     mov [fsx_cur], ch
     clc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; fsx_surf - the rect this bracket owns (SPEC.md 53.7.1, slot 0x03F8)

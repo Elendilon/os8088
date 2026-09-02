@@ -862,10 +862,7 @@ mem_shed_one:
                                 ; caller's DX as [mem_dma], which is half of
                                 ; the very defect mem_claim_1's header
                                 ; describes, through a different door
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_cx
 
 ; mem_pg_forget - zero the word mem_pg_own names for owner BX
 ; preserves every register and the flags
@@ -1655,13 +1652,7 @@ mem_cp_run:
     add bx, [ss:si+MC_PARA]
     jmp short .loop
 .done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; mem_reloc_call - tell a holder its block moved (module internal)
@@ -1762,14 +1753,7 @@ mem_reloc_call:
     call far [ss:mem_fptr]
     pop es
     pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; mem_compact - close the data arena's holes (SPEC.md 66.4)

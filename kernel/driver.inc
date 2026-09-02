@@ -1683,14 +1683,7 @@ drv_cp_closed_x:
     inc cl
     cmp cl, DRVC_MAX
     jbe .cls
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_bp
 
 ; -----------------------------------------------------------------------------
 ; osapi_drv_cfg - a driver's own settings, in the kernel's file (SPEC.md 51.9)
@@ -2569,15 +2562,7 @@ drv_load_row:
 .out:
     call drv_vol_back           ; every exit, including .already, which never
                                 ; mounted - the compare makes that free. It
-    pop es                      ; preserves CF, so the result above survives
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; drv_check - validate a loaded driver image (module internal)
@@ -2873,14 +2858,7 @@ drv_unload_x:
 .free:
     call drv_release
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; drv_shutdown - take every loaded driver down, for reboot (SPEC.md 51.2)

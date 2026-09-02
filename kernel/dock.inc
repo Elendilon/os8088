@@ -401,11 +401,7 @@ dock_px_tile:
                                 ; and AX a key.
     call dock_tile_rect         ; AX = its left edge, CX its right
     call dock_px_add            ; (which reads AX and CX only)
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; dock_px_hit - does this rect overlap the strip dock_paint just painted?
@@ -558,11 +554,7 @@ dock_erase_tile:
     call dock_tile_rect         ; AX/BX/CX/DX = the whole tile
     call thm_bg                 ; ("clobbers: nothing", so the rect survives)
     call gfx_fill
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; dock_xor_ring - toggle tile CX's ACTIVE mark   (the inner frame)
@@ -596,11 +588,7 @@ dock_xor_body:
     call dock_mark_rect
     call gfx_xor_fill
 dock_xor_pop:                   ; ONE epilogue: the two routines differ in a
-    pop dx                      ; single call and their pop chains were
-    pop cx                      ; identical. Nothing but those two reaches
-    pop bx                      ; here, and both push ax/bx/cx/dx in that
-    pop ax                      ; order - which is now this label's contract.
-    ret
+    jmp kret_dx
 
 ; dock_mark_rect - the tile interior both marks live in
 ; in:  CX = instance index
@@ -673,12 +661,7 @@ dock_draw_tile:
     call gfx_xor_fill
 
 .done:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; dock_hit - which tile is under a point? (SPEC.md 30/30.2)

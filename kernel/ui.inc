@@ -1051,12 +1051,7 @@ ui_lit_go:
 .none:
     mov byte [ui_armlit], 0     ; nothing is lit and nothing can be, so the
 .out:                           ; byte must say so - it is what the next XOR
-    pop si                      ; is computed against
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 %endif                          ; KERN_BIG - SPEC.md 13.8.1/13.8.2/13.9
 
 ; -----------------------------------------------------------------------------
@@ -2408,15 +2403,7 @@ ui_tm_open:
 .back:
     call ui_tm_back
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; ui_tm_sysdir - step into SYSTEM on the volume just mounted (SPEC.md 28.3)
@@ -2646,12 +2633,7 @@ ui_note_paint:
     add dx, 16
     mov si, [ui_note_msg]
     call app_about_center
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; ui_cmd - act on one of the kernel's own menu commands

@@ -659,10 +659,7 @@ dskw_dotent:
     mov [es:bx+DSK_R_CDATE], ax
     mov [es:bx+DSK_R_WDATE], ax
     mov [es:bx+DSK_R_ADATE], ax
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_cx
 
 ; -----------------------------------------------------------------------------
 ; dskw_rmdir - remove an EMPTY subdirectory of the current directory (18.6)
@@ -3504,10 +3501,7 @@ dskw_now:
     xor bh, bh
     or ax, bx
     mov [dskw_date], ax
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_cx
 
 ; -----------------------------------------------------------------------------
 ; dskw_name83 - display name -> the raw 11-byte FAT name field

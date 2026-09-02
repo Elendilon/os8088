@@ -344,15 +344,7 @@ mod_need:
 .out_c:
     stc
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; mod_check - validate a loaded image and arm its entry slots (module internal)

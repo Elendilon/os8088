@@ -167,15 +167,7 @@ ico_draw_common:
     call ico_core
     mov word [ico_c1], (CBLACK << 8) | CWHITE   ; SPEC.md 25.6: ONE-SHOT
     GFXDLEAVE
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; icon_draw16 - draw a header-less 16x16 icon body (16 mask words + 16 data

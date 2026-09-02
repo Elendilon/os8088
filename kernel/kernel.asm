@@ -6214,6 +6214,90 @@ osapi_sys_snapshot:   call COLD_SEG:osapi_sys_snapshot_x
 desk_rowcalc:     call COLD_SEG:desk_rowcalc_x
               ret
 
+; =============================================================================
+; THE SHARED-EPILOGUE LADDER (SPEC.md 15.1.2)
+;
+; A routine that banks the canonical prologue - `push ax / bx / cx / dx / si /
+; di / bp / es`, or any SUFFIX of it - restores it with the mirror-image pop
+; run and returns.  That run is the same bytes in every routine that takes it,
+; so 150 copies of it are 150 copies of the same six or seven bytes.  Here it
+; is written ONCE, entered by `jmp` at the rung that pops first, and every
+; converted routine spends 3 bytes on the jump instead of N on the run and its
+; `ret`.  Nothing is pushed to get here and nothing is popped that the routine
+; did not push: a rung is a suffix of a suffix.
+;
+; IT COSTS THE CONVERTED ROUTINE A TAKEN NEAR `jmp` (~18-22 clocks) AND SAVES
+; IT (N+1)-3 BYTES.  So the eleven exits entered per RUN or per CELL keep their
+; own pop runs - `gfx_clip_run`, `gfx_disp_run`, `gfx_blit_run`, `gfx_lstep`,
+; `gfx_lstepv`, `gfx_lstep_slow`, `gfx_bank_ok`, `sw_pairbuild`,
+; `font_run_scell`, `cur_lazyck`, `cur_shape_pass` - and that spare is what
+; separates this from the arm that takes every site for 33 bytes more.
+;
+; PLACEMENT IS LOAD-BEARING, AND IT IS THE PART THAT WENT WRONG FIRST.  Each
+; ladder is inside the section its callers are in and ABOVE that section's own
+; `*_end` label: a ladder below the label is real image bytes that KTEXT_SIZE /
+; COLD_SIZE do not count, and everything derived from them - KIMG_PARA,
+; COLD_START, the KERN_CODE_MAX guard, SPEC.md 57.6's kbld_* - then
+; under-reports the image.  The twelve `%if`s at the foot of this file are what
+; makes that a build error rather than a silent one.
+;
+; HOW IT FAILS, AND IT FAILS CLOSED.  Delete the last `jmp` to a rung and that
+; rung's label becomes a global nothing jumps to; `tools/stkbalance.py` then
+; walks it as an ENTRY, from depth 0, and the build goes red with
+; `kret_cx: ret at depth -3`.  That is the right answer - the cure is to delete
+; the dead rung label, never to exempt it.  While a rung IS jumped to,
+; stkbalance classes it a CONTINUATION: it inherits the arriving depth, so a
+; routine that leaks a word still reaches the ladder's `ret` at +1 and is
+; reported.  NO RUNG CARRIES stkbalance's skip annotation and no rung may: it
+; makes `walk()` stop on arrival, which is the one thing that would genuinely
+; blind the gate to all 141 converted routines at once.  (Its name is not
+; spelled here either - that pragma is matched as a SUBSTRING of any comment,
+; so writing it out in this block would exempt whatever routine owns the line
+; and the gate would go from 2 exemptions to 3.  Found by doing it.)
+;
+; The ORDER half is `tests/unit/t_asmrules.py`'s `crossed_pops`, which reads the
+; rung -> pop map out of the ladder below rather than assuming it - so a rung
+; label sitting over the wrong `pop` is caught there, and a converted routine
+; keeps exactly the coverage its own pop run had.
+;
+; One known imprecision, left deliberately: stkbalance dedups on
+; (path, line, why), so two routines leaking the same amount into the same rung
+; report as one line rather than two.  Both are still reported as findings; it
+; is the count that collapses, and making it exact costs duplicate lines
+; wherever one shared tail is reached from several entries.
+; =============================================================================
+kret_es:          pop es
+kret_bp:          pop bp
+kret_di:          pop di
+kret_si:          pop si
+kret_dx:          pop dx
+kret_cx:          pop cx
+                  pop bx
+                  pop ax
+                  ret
+
+section .cold
+kretc_es:         pop es
+kretc_bp:         pop bp
+kretc_di:         pop di
+kretc_si:         pop si
+kretc_dx:         pop dx
+kretc_cx:         pop cx
+                  pop bx
+                  pop ax
+                  ret
+
+kretfc_es:        pop es
+kretfc_bp:        pop bp
+kretfc_di:        pop di
+kretfc_si:        pop si
+                  pop dx
+kretfc_cx:        pop cx
+                  pop bx
+                  pop ax
+                  retf
+section .text
+
 ; --- WHICH KERNEL IS THIS? (SPEC.md 57.6) ------------------------------------
 ; Three words that change whenever any section's length does, so a field
 ; report can name the build that produced it. They are SECTION-END LABELS, so
@@ -6828,7 +6912,7 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ;    compares it against this ladder.
 
 ; =============================================================================
-; NOTHING MAY LAND BELOW A SECTION'S OWN END LABEL (SPEC.md 15.1).
+; NOTHING MAY LAND BELOW A SECTION'S OWN END LABEL (SPEC.md 15.1.2).
 ;
 ; Every *_SIZE above is `<section>_end - $$`, so a byte emitted into that
 ; section AFTER its end label is a real byte of the image that the constant
@@ -6847,6 +6931,15 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ; every size constant missed, with 434 bytes of slack standing between that and
 ; `.cold` being laid over the tail of `.bss`. Costs nothing: each %if is
 ; assembly-time and emits no code.
+;
+; THIS BLOCK MUST STAY THE LAST THING IN THE FILE, and that is a real limit
+; rather than tidiness: a `%if` measures the section where it SITS, so anything
+; emitted BELOW here is past the check as well as past the label and is not
+; seen at all. Measured, batch 7: the same ladder appended after this block
+; assembles clean, `stkbalance` stays green at 0 findings, and `.text` and
+; `.cold` under-report by 9 and 18 bytes with nothing said. Appended ABOVE it,
+; both errors below fire by name. So: add a new section's rung to the list -
+; never a line of anything else after the last %endif.
 ;
 ; TWELVE LABELS AND NOT TWO. The `.text`/`.cold` pair is where the defect was
 ; actually found, and it is the cheap half; `.modc` is the one that decides

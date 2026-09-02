@@ -627,14 +627,7 @@ font_ch_cut:
                                 ; what keeps it off zero
 .pdone:
     clc                         ; POP leaves the flags alone, so the answer
-    pop bp                      ; can be given here
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -1702,14 +1695,7 @@ font_run_x:
 %endif
     GFXDLEAVEI
 .outp:                          ; ...and BELOW the leave, which is the whole
-    pop bp                      ; reason .cells_nx used to carry an epilogue of
-    pop di                      ; its own: the two were byte-identical apart
-    pop si                      ; from the leave, and joining here is exactly
-    pop dx                      ; what "no GFXDLEAVE, because no enter was
-    pop cx                      ; taken" asks for
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 %ifdef KERN_BIG
 .cells_nx:                      ; SPEC.md 39.14.6: per cell and UNTRANSLATED,
     mov al, [es:si]             ; so each font_char resolves its own display -

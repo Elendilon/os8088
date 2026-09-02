@@ -1030,11 +1030,7 @@ gfx_linit:
     mov [es:di + GLS_DY], dx
     sub cx, dx                  ; err = dx - dy, exactly gfx_line's
     mov [es:di + GLS_ERR], cx
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; gfx_lstep - draw the next CX pixels of the walk in [gfx_color]
@@ -1780,15 +1776,7 @@ gfx_line:
     jmp .passes
 .out:
     GFXDLEAVE
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 .hline:
     cmp ax, cx                  ; gfx_hline wants x1 <= x2 in AX/BX, y in DX
     jle .hord
@@ -2877,14 +2865,7 @@ gfx_blit4:
 .nohk:
 %endif
 .pops:                          ; ...and the CUT returns here, having had its
-    pop bp                      ; teardown done by each half (SPEC.md 39.14.7.2)
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 %ifdef KERN_BIG
 %ifndef NOBLITCUT
@@ -3402,14 +3383,7 @@ vga_blit_prow:
     call vga_sr_on
     pop es
     pop ds                      ; ovlchk: DS restored
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3710,14 +3684,7 @@ gfx_blitp:
 %endif
     pop es
     pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 %endif
 
 %ifdef GFX_PLANE
@@ -4635,13 +4602,7 @@ gfx_xor_strips:
     mov ax, cx
     call bp                     ; right column
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; gfx_xor_fill - filled rectangle, XOR 0Fh (menu highlight)
@@ -4929,14 +4890,7 @@ gfx_sub_arm:
 .no:
     stc
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 ; -----------------------------------------------------------------------------
 ; gfx_sub_off - back to restoring whole buffers
@@ -4977,11 +4931,7 @@ gfx_restore:
     call vga_restore_vram       ; the same hook or a rect banked on one display
     GFXDLEAVE                   ; could be put back on the other
     call gfx_1bpp_off           ; ...and a ONE-PLANE arm is spent (11.96.17)
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 %ifndef GFX_VGA
     NOVGA_ARM vga_restore_vram, sw_restore
 %else                           ; renderer is not a branch - it is the
@@ -5553,13 +5503,7 @@ gfx_scroll:
     stc
 .out:
     GFXDLEAVE                   ; ...and it banks CF, which is this routine's
-    pop di                      ; whole answer
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 %ifdef GFX_VGA
 
 ; -----------------------------------------------------------------------------

@@ -806,13 +806,7 @@ fmv_store:
                                 ; it next (SPEC.md 22.6.1). BL is 0 by the
                                 ; assertion at fmv_viofs
 .none:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fmv_copy_out - CX bytes from the live listing into this window's slot
@@ -873,11 +867,7 @@ fmv_fit:
 .out:
     mov bx, [di+FS_VSEG]        ; fm_vseg is what every reader looks at, and
     mov [fm_vseg], bx           ; this may just have changed it
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fmv_movable - declare the view cache at DX relocatable (SPEC.md 66.5.6)
@@ -972,13 +962,7 @@ fmv_load:
                                 ; just took, so it is read here and nowhere
                                 ; else (SPEC.md 22.7)
 
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_measure - fill one window's FS_FREE / FS_USED (SPEC.md 22.7)
@@ -1051,12 +1035,7 @@ fm_measure:
     je .out                     ; sentinel: leave it saying "not known"
     mov [di+FS_USED], ax
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fmv_sync - make the global snapshot BE this window's directory (SPEC.md 22.1)
@@ -2425,13 +2404,7 @@ fm_btn1:
     mov bx, os88ui_krect
     call os88ui_btn
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_isdown - is button AL the one drawn pressed, in THIS window?
@@ -2943,13 +2916,7 @@ fm_onup_x:
 .paint:
     call fm_repaint             ; SI still = window ptr
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_ondrag - W_ONDRAG (SPEC.md 13.8.1): the pointer moved, press still down
@@ -2999,13 +2966,7 @@ fm_ondrag_x:
 .set:
     call fm_setdown             ; ...which draws only if that CHANGED
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3959,13 +3920,7 @@ fm_oncmd_x:
                                 ; the menu's own item count, SPEC.md 12)
     call fm_docmd
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_docmd - run one FMC_* against the published window and repaint it
@@ -4295,13 +4250,7 @@ fm_fmt_home:
     call fmv_inext
     jnc .scan
 .done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
     mov di, [fm_vp]
@@ -4712,13 +4661,7 @@ fm_img_done_x:
 .bad:
     call fm_clone_bad           ; AX = CERR_*; nothing is armed, so the window
 .out:                           ; is left exactly as it was
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 fm_c_cut:                       ; File > Cut - the selection, onto the
     mov al, FCP_CUT             ; clipboard (SPEC.md 22.3)
@@ -5071,13 +5014,7 @@ fm_rclick_x:
     mov [fm_rcmdid], al
     clc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_rcmd - run the command fm_rclick latched
@@ -5100,13 +5037,7 @@ fm_rcmd_x:
     mov bl, [fm_rcmdid]
     xor bh, bh
     call fm_docmd
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; =============================================================================
 ; The status-line name editor (SPEC.md 22)
@@ -5798,11 +5729,7 @@ fm_dgxor:
     mov dx, bx                  ; as "a row", narrow enough not to swamp a
     add dx, FM_ROW_H - 1        ; 320px window
     call KERNEL_SEG:cw_vga_xor_rect_vram ; clips, so the screen edges are free
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fm_dgdrop - resolve the release point and move the dragged entry there
@@ -6003,13 +5930,7 @@ fmv_repaint_all:
     mov [wm_dmg_y2], ax
     call KERNEL_SEG:cw_wm_dmg_wins
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fmv_uadd - grow the pending union by the rect in AX/BX/CX/DX (internal)
@@ -6079,13 +6000,7 @@ fmv_reload_all:
     call fmv_inext
     jnc .scan
 .done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_stage_onam - capture the entry Rename/Delete is about to act on
@@ -6370,11 +6285,7 @@ fm_repaint:
     call KERNEL_SEG:cw_wm_grow_paint ; the white fill above erased the grow box;
                                 ; BX is still the window ptr (SPEC.md 11.1)
 .done:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fm_nfiles - the header's count: this window's listing minus its parent link
@@ -6658,14 +6569,7 @@ fm_draw_core:
                                 ; or retired - can cost one line instead of a
                                 ; whole content repaint (fm_status_only below)
 
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; fm_draw_rows - the row area, the selection and the scroll bar
@@ -6919,12 +6823,7 @@ fm_more_mark:
     pop ax
     call KERNEL_SEG:cw_gfx_fill_pat
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fm_2line - does this editor mode put a line UP IN THE ROW AREA? (22.20.1)
@@ -7154,11 +7053,7 @@ fm_sel_bar:
     add cx, FMI_CELL_W - 1
     call KERNEL_SEG:cw_gfx_xor_fill
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fm_status_only - repaint one Disk window's status line and NOTHING else
@@ -7242,13 +7137,7 @@ fm_status_only:
 .refuse:
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; =============================================================================
 ; Scrolling (SPEC.md 22.11)
@@ -7341,14 +7230,7 @@ fm_scroll_by:
 .same:
     clc
 .done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret                         ; POP does not touch flags: CF is still the
+    jmp kretc_bp
                                 ; answer
 
 ; -----------------------------------------------------------------------------
@@ -7783,13 +7665,7 @@ fm_draw_status:
     add dx, [fm_staty]
     call fm_stat_line
 .fs_done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_stat_line - draw fm_hdrbuf at (content x + 8, DX), truncated to the
@@ -7891,12 +7767,7 @@ fm_stat_line:
     mov ah, CWHITE              ; ...and the background, in one pass
     call KERNEL_SEG:cw_font_run
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fm_scat - append a NUL string to a buffer
@@ -7995,12 +7866,7 @@ fm_ultoa_x:
     loop .emit
     mov byte [di], 0
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 section .bss

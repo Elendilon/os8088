@@ -340,15 +340,7 @@ loader_run_x:
     call files_refresh_x
 .done:
 
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_es
 
 ; -----------------------------------------------------------------------------
 ; ld_run_body - the load pipeline (module-internal; loader_run saves regs)

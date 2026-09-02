@@ -2692,14 +2692,7 @@ wm_ask_close:
 .no:
     stc
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 ; -----------------------------------------------------------------------------
 ; wm_close_req - a package asks for its own window to be closed (SPEC.md 75.2)
@@ -3352,12 +3345,7 @@ wm_rz_paint:
     mov bx, si                  ; AX,BX,CX,DX = the union, shadow included
     call wm_paint_dmg
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; The zoom bank: the rect a zoomed window goes back to (SPEC.md 11.95).
@@ -3719,13 +3707,7 @@ wm_destroy:
     mov cx, [wm_hide_r+4]
     mov dx, [wm_hide_r+6]
     call wm_paint_dmg
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; wm_destroy_seg - destroy every window whose callbacks live in segment AX
@@ -3759,10 +3741,7 @@ wm_destroy_seg:
 .next:
     add bx, WIN_SIZE
     loop .scan
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 
 ; -----------------------------------------------------------------------------
 ; wm_show - make a window visible, raise it, and draw JUST it (SPEC.md 11.90)
@@ -3981,10 +3960,7 @@ wm_fs_zpos:
 .found:
     add sp, 2
 .out:
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 
 ; -----------------------------------------------------------------------------
 ; wm_raise - the paint half of "this window is coming to the front"
@@ -4234,12 +4210,7 @@ wm_hide_b:
     and word [bx+W_FLAGS], 0xFFFD
     pop bx
     call wm_paint_dmg
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; wm_fs_drop - release the fullscreen latch if BX holds it (module internal)
@@ -5692,14 +5663,7 @@ wm_paint_dmg:
     jne .out                    ; changed" - and under a fullscreen window
     call wm_paint_chrome        ; the chrome is not on screen to change
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 ; ...and the pass itself, which wm_dock_under borrows to put the windows back
 ; over a strip it has just redrawn.
@@ -5898,14 +5862,7 @@ wm_dmg_wins:
                                 ; third: wm_covered can skip the window it was
                                 ; armed for, and it must not reach the next
                                 ; wm_draw_win from anywhere in the system
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 ; -----------------------------------------------------------------------------
 ; wm_dock_under - bring the dock strip up to date, and put back whatever
@@ -6035,14 +5992,7 @@ wm_paint_all:
     call wm_draw_win
     jmp .win
 .done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 ; -----------------------------------------------------------------------------
 ; wm_content - content-area origin of a window
@@ -6485,12 +6435,7 @@ wm_clip_set:
     call cur_lazyck
     clc
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 .gone:                          ; above the pushes, so nothing to unwind - and
     mov word [wm_clip_n], 0     ; "nothing armed" is a store, not an assumption:
     stc                         ; a caller may arm twice inside one lock hold
@@ -6699,12 +6644,7 @@ wm_dmg_gray:
     call thm_desk               ; clipped to what is really being revealed
 .out:
     mov word [wm_clip_n], 0     ; ours for one call and no longer
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; wm_dmg_occl - subtract EVERY visible window from the armed list
@@ -7315,14 +7255,7 @@ wm_clip_rows:
 .none:
     stc
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 ; -----------------------------------------------------------------------------
 ; wm_ptr2idx - window record pointer to index (public, SPEC.md 11)
@@ -8351,14 +8284,7 @@ wm_title_set:
     call wm_ttl_rect
     call wm_paint_dmg
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 ; -----------------------------------------------------------------------------
 ; wm_draw_win - draw one window's frame and content (module internal)
@@ -9128,13 +9054,7 @@ wm_cov_rect:
     call wm_cov_add
     jmp short .scan
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; wm_cov_add - fold (window BX's frame INTERSECT wm_cov_c1..c4) into the box
@@ -9364,13 +9284,7 @@ wm_su_vset:
 .no:
     stc
 .out:
-    pop di                      ; a pop touches no flag, so CF survives
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 wm_su_srect:
@@ -9764,12 +9678,7 @@ wm_su_flay:
     mov si, 3
     call wm_su_fnil
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; wm_su_fnil - mark fragment SI empty (x1 > x2, which every reader already
 ;              treats as nothing to do). Preserves every register.
@@ -9855,13 +9764,7 @@ wm_su_bytes:
 .big:
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; wm_su_scrset - where the fragments end and 11.96.2's edge scratch begins
 ; out: [wm_su_scrb] = that offset, [wm_su_scrsz] = the scratch's own size;
@@ -9918,13 +9821,7 @@ wm_su_scrset:
 .big:
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; wm_su_bget - CF = 0 if DI named any band at all (SPEC.md 11.96.11)
 ; clobbers: flags only
@@ -10747,12 +10644,7 @@ wm_su_occl:
 .none:
     mov word [wm_clip_n], 0
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; wm_su_piece - name piece [wm_su_pi] as the sub-rect wm_su_srect intersects
 ; preserves every register
@@ -11185,13 +11077,7 @@ wm_draw_win:
                                 ; does not reach here at all, a window wm_covered
                                 ; skipped (SPEC.md 11.96.6/11.96.10)
 %endif
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; wm_su_bank - after drawing window DI, decide what its raise cache should be
@@ -11556,13 +11442,7 @@ wm_anim:
     inc word [wm_an_i]
     cmp word [wm_an_i], WM_ANIM_N
     jb .frame
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; wm_an_lerp - wm_an_c = s + (d - s) * i / N, four coordinates at a time
 ; N is not a power of two, so this is a real signed divide - and it cannot
@@ -11656,11 +11536,7 @@ wm_an_setw:
     mov [di+2], bx
     mov [di+4], cx
     mov [di+6], dx
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; wm_an_seed - collapse the rect at SI onto the CENTRE of the one at DI
 ; (SPEC.md 11.99.1). There is no universal source rect for a window appearing:

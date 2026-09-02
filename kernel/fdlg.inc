@@ -299,13 +299,7 @@ fdlg_open_x:
 .refuse:
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fdlg_hidx - the requesting instance's file-home row (internal, SPEC.md 38.10)
@@ -702,13 +696,7 @@ fdlg_close:
     call KERNEL_SEG:cw_menu_activate
     call KERNEL_SEG:cw_menu_draw_bar
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fdlg_commit - close, then answer the application (SPEC.md 38.6/38.7)
@@ -790,13 +778,7 @@ fdlg_commit:
     pop es
     pop word [snd_inst]         ; the outer dispatch's stamp, back
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fdlg_setname - store a name in the box (internal)
@@ -1069,11 +1051,7 @@ fdlg_setsel:
 .store:
     mov [fdlg_scrl], cx
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 .none:
     mov word [fdlg_sel], 0xFFFF
     jmp short .out
@@ -1145,12 +1123,7 @@ fdlg_icon:
     mov si, ico_app16           ; nothing earned one: the built-in
     call KERNEL_SEG:cw_icon_draw
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fdlg_text - draw a string at a content-relative point (internal)
@@ -1415,14 +1388,7 @@ fdlg_btn2:
     call fdlg_blabel
     mov byte [fdlg_paper], CWHITE   ; UNCONDITIONALLY, so the up path cannot
                                     ; leave it black for the next caller
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; fdlg_blabel - one line of button text, centred in the button column
@@ -1542,14 +1508,7 @@ fdlg_paint_x:
     call KERNEL_SEG:cw_gfx_frame
     call fdlg_name_body
 
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; =============================================================================
 ; Partial redraws - what a keystroke actually changes (SPEC.md 38.8)
@@ -1600,11 +1559,7 @@ fdlg_draw_name:
     je .out                     ; move comes through here too, and a frame
     call fdlg_defbtn            ; plus a label per keypress is real money on
 .out:                           ; the machines this has to run on
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 fdlg_name_body:
     push ax
@@ -1632,12 +1587,7 @@ fdlg_name_body:
     add dx, [fdlg_cy]
     call KERNEL_SEG:cw_gfx_vline ; AX = x, BX = y1, DX = y2
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fdlg_list_body / fdlg_draw_list - the listing and its scroll bar
@@ -1657,11 +1607,7 @@ fdlg_draw_list:
     call fdlg_off
     call KERNEL_SEG:cw_gfx_fill
     call fdlg_list_body
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 fdlg_list_body:
     call fdlg_clamp
@@ -1755,14 +1701,7 @@ fdlg_draw_rows:
     mov ax, [fdlg_sel]          ; the selection bar, drawn by the same proc a
     call fdlg_sel_bar           ; selection CHANGE uses (SPEC.md 22.2/38.3)
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; fdlg_sel_bar - XOR the selection band for ONE display row
@@ -1805,11 +1744,7 @@ fdlg_sel_bar:
     call fdlg_off
     call KERNEL_SEG:cw_gfx_xor_fill
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fdlg_sbset - fill os88ui_ksb with this dialog's bar (internal)
@@ -1881,11 +1816,7 @@ fdlg_repaint:
     call fm_cfill               ; files.inc's, and this was its twelve
                                 ; instructions to the byte (the Note Pad idiom)
     call fdlg_paint_x           ; SI is still the window
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fdlg_act - the default action: the Open/Save button, or Enter
@@ -1999,11 +1930,7 @@ fdlg_newfolder:
     pop di                      ; every other refusal in this dialog gives.
     pop si                      ; SI first: the folder work above pointed it
     call fdlg_repaint           ; at fdlg_name, and fdlg_repaint wants the
-    pop dx                      ; WINDOW - through the name it silently draws
-    pop cx                      ; nothing and the dialog shows a stale screen
-    pop bx                      ; while the volume really has moved. The
-    pop ax                      ; repaint is here and not at the call sites
-    ret                         ; because both halves of the button change
+    jmp kretc_dx
                                 ; what the box says, and one of the two ways
                                 ; in (Enter, through fdlg_act) has none
 
@@ -2305,11 +2232,7 @@ fdlg_nins:
     mov [bx+fdlg_name], dl
     inc byte [fdlg_nlen]
     inc byte [fdlg_ncur]
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fdlg_ndel - delete the character the caret sits in front of (internal)

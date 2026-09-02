@@ -530,11 +530,7 @@ toast_place:
     mov [toast_scell], ax
     mov [toast_scn], cx
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; toast_pass - put a toast up, or take an expired one down

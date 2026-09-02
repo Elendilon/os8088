@@ -218,15 +218,7 @@ sw_rect:
     jc .done
     call sw_rect_pl
 .done:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; sw_rect_pl - internal: the mode staging and the pass, for a rect
@@ -1021,15 +1013,7 @@ sw_fill_pat:
     dec bp
     jnz .irow
 .done:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; sw_patcol - internal: one masked byte column of [gfx_rrows] rows at ES:DI,

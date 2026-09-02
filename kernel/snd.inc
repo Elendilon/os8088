@@ -1158,12 +1158,7 @@ snd_xlat_build:
     mov [bx+si], al
     dec si
     jns .s                      ; SI 255..0, then 0xFFFF sets SF and exits
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 section .text
 

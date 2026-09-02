@@ -1510,15 +1510,7 @@ app_launch:
 .fail:
     stc
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; app_close_win - quit the instance owning a window (SPEC.md 29.4)
@@ -1669,11 +1661,7 @@ inst_an_tile:
     mov [wm_an_d+2], bx
     mov [wm_an_d+4], cx
     mov [wm_an_d+6], dx
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; inst_unmin - clear the minimized bit AND say where the window is coming from

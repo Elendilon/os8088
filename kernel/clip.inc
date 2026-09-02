@@ -131,14 +131,7 @@ clip_put:
 .out:
     pop es                      ; POP touches no flags, so the answer above
     pop ds                      ; rides out through all nine of them
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 ; -----------------------------------------------------------------------------
 ; clip_get - copy the clipboard into the caller's buffer (API slot 0x0318)

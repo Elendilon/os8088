@@ -1377,14 +1377,7 @@ dsk_xfer:
 .out:
     pop word [mem_pinseg]       ; the destination is nobody's again - or the
     dec byte [sch_lock]         ; outer pin's (dec and pop leave CF alone, and
-    pop bp                      ; CF is the answer)
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; dsk_runcap - cap a transfer run to what the BUFFER allows (SPEC.md 18.91)
@@ -2131,10 +2124,7 @@ dsk_vol_drop_drv_x:
     inc al
     cmp al, DVOL_MAX
     jb .next
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_cx
 
 ; -----------------------------------------------------------------------------
 ; dsk_list_floor - point the listing at the .lowbss buffers (module internal)
@@ -3059,15 +3049,7 @@ disk_mount_x:
                                 ; pointed inside a directory nothing listed
     stc
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; dsk_bpb_check - validate the boot sector's BPB (module-internal)
@@ -3678,13 +3660,7 @@ dsk_sortdir:
     add bx, DSK_DE_STRIDE
     jmp short .outer
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; dsk_ncmp - compare two synthesized entries' display names (module-internal)
@@ -4040,11 +4016,7 @@ dsk_fatw_want:
     mov word [bx+DVOL_MAX*2], FAT_SEG
     mov word [bx], 0xFFFF       ; nothing of OURS is in it yet, whatever the
 .out:                           ; bytes hold
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; dsk_fatw_pinned / dsk_fatw_evict - the kernel's own window (SPEC.md 18.8.3)
@@ -4228,11 +4200,7 @@ dsk_fatw_claim:
     pop bx
     mov word [bx], 0
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; dsk_fatw_reloc lived here: MEM_K_FATW's relocation proc, deleted with the tag
 ; (SPEC.md 18.8.4). mem_can_move refuses a purgeable cache outright, so a
@@ -5735,14 +5703,7 @@ dsk_read_chain_x:
     clc
     call KERNEL_SEG:fpg_end                   ; preserves CF, so it sits either side of the
                                 ; clc without comment (SPEC.md 12.8)
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 .fail1:
     mov byte [dsk_cherr], 1     ; disk_read failed
     jmp short .failc

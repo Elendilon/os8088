@@ -338,11 +338,7 @@ menu_inval:
     inc bx                      ; into this buffer is a printable one, so it
     loop .z                     ; can never match and the cell is redrawn
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; menu_activate - hand the menu bar to a window's application (SPEC.md 12)
@@ -846,13 +842,7 @@ menu_draw_bar:
 .clock:
     call menu_draw_clock        ; --- segment 3: the clock (SPEC.md 12.1) ---
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu_furniture - the black rule and the logo glyph, after an overdraw
@@ -1194,13 +1184,7 @@ menu_bemit:
     inc si
     mov [menu_bcell+si], al
 
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu_bent - compose bar cell BX's title at its own pen x
@@ -2359,11 +2343,7 @@ menu_item_xor:
     mov cx, [menu_x2]
     dec cx
     call vga_xor_fill_vram      ; VRAM-direct transient overlay (SPEC.md 32)
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; menu_title_xor - toggle the highlight on the tracked menu's title cell
@@ -2383,12 +2363,7 @@ menu_title_xor:
     mov cx, [ss:si + MB_XR]
     mov dx, MBAR_H - 2          ; the black rule stays black
     call gfx_xor_fill
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; menu_trunc - stage an item string, truncated to MENU_MAXCH glyphs
@@ -2513,13 +2488,7 @@ menu_logo_glyph:
     inc dx
     dec bh
     jnz .row
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu data: logo bitmap, strings, item lists, the menu table

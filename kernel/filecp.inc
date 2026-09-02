@@ -458,11 +458,7 @@ fcp_selfchk:
 .ok:
     clc
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fcp_srcclus - the clipboard entry's own first cluster
@@ -530,10 +526,7 @@ fcp_clspan:
 .err:
     stc
 .out:
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_cx
 
 ; -----------------------------------------------------------------------------
 ; fcp_floor - the smallest copy buffer this pair of volumes can be copied with
