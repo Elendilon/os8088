@@ -1073,9 +1073,13 @@ dsk_xfer:
     call drv_blk_call_x
     jnc .success
     mov [dsk_ioerr], al         ; the driver reports int 13h's status byte,
-    jmp .fail                   ; so 03h still means write-protected (a NEAR
-                                ; jump: the batching below pushed .fail out
-                                ; of short range)
+.jfail:                         ; ...AND the two range refusals in .sector, at
+    jmp .fail                   ; two bytes each rather than the five NASM
+                                ; spells an out-of-reach `jcc` as.  The jump
+                                ; itself was already here (so 03h still means
+                                ; write-protected) and is NEAR because the
+                                ; batching below pushed .fail out of short
+                                ; range
 
 .sector:
     test si, si
@@ -1143,14 +1147,14 @@ dsk_xfer:
     add ax, [dsk_base]          ; ...made absolute
     adc dx, [dsk_base+2]
     cmp dx, cx                  ; ONE div pair and no 32/16 two-step, on
-    jae .fail                   ; hd_chs's proof: the highest LBA CHS can name
+    jae .jfail                  ; hd_chs's proof: the highest LBA CHS can name
                                 ; is 1024*255*63 and the quotient - the
                                 ; cylinder - is under 1024, so DX is far below
                                 ; the divisor. A dividend that fails this is a
                                 ; corrupt LBA and must fail, not wrap
     div cx                      ; AX = cylinder, DX = rem
     cmp ax, [dsk_cylmax]        ; a corrupt LBA (bad directory entry) must
-    jae .fail                   ; fail, not truncate into CH and read the
+    jae .jfail                  ; fail, not truncate into CH and read the
                                 ; wrong sector. 80 on a floppy - all three
                                 ; geometries end at cylinder 79 or below - and
                                 ; CHS's own 1024 on a hard disk
@@ -4303,6 +4307,21 @@ dsk_fatw_drop:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_fc_bad - dsk_free_clus_x's first three refusals share this one near jump.
+; An 8086 has no near conditional jump, so NASM spells one that cannot reach as
+; `Jcc $+5 / jmp near` - five bytes instead of two - and `.bad` is past 240
+; bytes of cluster walk.  From here each is two bytes and this is the ONE near
+; jump: -6.  It sits after the routine above's `ret`, on a path nothing falls
+; into, and it is a global rather than a `.local` because a NASM local here
+; would belong to THAT routine; tools/stkbalance.py reads a global that is only
+; ever jumped to as a continuation and does not walk it from depth zero.  The
+; arms are cold: no mounted volume, a file-system driver refusing, and a FAT
+; window that would not load.
+; -----------------------------------------------------------------------------
+dsk_fc_bad:
+    jmp dsk_free_clus_x.bad
+
+; -----------------------------------------------------------------------------
 ; dsk_free_clus - count the volume's free clusters (SPEC.md 18.4)
 ; in:  nothing (a successful mount)
 ; out: CF=0, AX = free clusters; CF=1 = no mounted volume
@@ -4334,7 +4353,7 @@ dsk_free_clus_x:
     push di
     push es
     cmp byte [dsk_mntok], 1
-    jne .bad
+    jne dsk_fc_bad
     cmp byte [dsk_vkind], DVK_FILE
     jne .fat
 
@@ -4349,7 +4368,7 @@ dsk_free_clus_x:
     mov bp, FSV_DFREE           ; contract is that it clobbers AX and CF
     call drv_fs_call            ; -> DX:AX = free bytes, BX = the granule
     pop bp
-    jc .bad
+    jc dsk_fc_bad
     mov cx, 9                   ; bytes -> sectors, in 32 bits
 .fsshr:
     shr dx, 1
@@ -4361,6 +4380,9 @@ dsk_free_clus_x:
 .fsok:                          ; carry. SATURATE rather than wrap: 32MB is
     mov di, ax                  ; already past what the status line's KB
     jmp .counted                ; figure means, and a wrapped one would read
+.slowj:                         ; ...and the FAT12 fast path's two vetoes:
+    jmp .slow                   ; the window IS whole on every floppy, so
+                                ; this is the arm that does not run (-3)
                                 ; as a nearly full volume on the emptiest
                                 ; possible remote disk
 .fat:
@@ -4370,7 +4392,7 @@ dsk_free_clus_x:
     ja .counted                 ; a volume with no data clusters
     mov ax, si                  ; make the window cover cluster 2, so the
     call dsk_fat_ofs_x            ; residency test below reads a loaded window
-    jc .bad                     ; rather than the 0xFFFF of a fresh mount
+    jc dsk_fc_bad               ; rather than the 0xFFFF of a fresh mount
     cmp byte [dsk_fattype], 0
     jne .f16
 
@@ -4379,9 +4401,9 @@ dsk_free_clus_x:
     ;     that is the degenerate window every floppy has (SPEC.md 18.8) ------
     mov ax, [dsk_fatwn]
     cmp ax, [dsk_fatsz]
-    jb .slow
+    jb .slowj
     cmp word [dsk_fatw0], 0     ; ...and the window actually sitting at 0
-    jne .slow
+    jne .slowj
     mov cx, [dsk_fatseg]
     inc byte [sch_lock]         ; **THE WINDOW IS A CACHE NOW** (SPEC.md
     mov es, cx                  ; 18.8.4), and ES is banked for the whole walk

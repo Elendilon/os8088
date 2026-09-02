@@ -10189,6 +10189,12 @@ wm_dc_done:
     pop bx
     popf
     ret
+; wm_su_tkout - wm_su_take's two refusals share this one near jump: -3.  It is
+; a global rather than a `.local` because it sits after wm_dc_done's `ret` - on
+; a path nothing falls into - and a NASM local there would be wm_dc_done's.
+wm_su_tkout:
+    jmp wm_su_take.out
+
 
 wm_su_take:
     KFZ 19                      ; ...taking one cache
@@ -10201,10 +10207,10 @@ wm_su_take:
     push di
     push es
     call wm_dc_ok
-    jc .out                     ; it made no promise, so its pixels may be
+    jc wm_su_tkout              ; it made no promise, so its pixels may be
                                 ; stale by the time it is raised (11.96.1)
     test word [di+W_FLAGS], WF_STALE
-    jnz .out                    ; ...and the kernel has replaced its data
+    jnz wm_su_tkout             ; ...and the kernel has replaced its data
                                 ; without redrawing it, so the pixels are a
                                 ; picture of a folder that has moved on
                                 ; (SPEC.md 11.96.16.1). Tested HERE and in no
@@ -10704,6 +10710,22 @@ wm_su_piece:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; wm_su_tno - the refusal trampoline wm_su_try's four setup tests share.
+; An 8086 has no near conditional jump, so NASM spells one that cannot reach as
+; `Jcc $+5 / jmp near` - five bytes instead of two - and `.no` is past 180 bytes
+; of fragment walk.  From here each of the four is two bytes and this is the ONE
+; near jump: -9.  It sits after wm_su_piece's `ret`, on a path nothing falls
+; into, and it is a global rather than a `.local` because a NASM local here
+; would belong to wm_su_piece; tools/stkbalance.py reads a global that is only
+; ever jumped to as a continuation and does not walk it from depth zero.
+; The arm is cold in the sense that matters: CF = 1 is the cache MISS, and the
+; caller then spends a white fill and a W_PAINT - 578 ms of glyphs - so one
+; extra taken jump is not measurable against it.  A hit takes none of them.
+; -----------------------------------------------------------------------------
+wm_su_tno:
+    jmp wm_su_try.no
+
 wm_su_try:
     KFZ 20                      ; the reveal, answered from a cache (11.96.18)
     push ax
@@ -10714,7 +10736,7 @@ wm_su_try:
     push di
     push es
     call wm_su_ck               ; ...which lays the fragments out and checks
-    jc .no                      ; them against the claim's own header, and
+    jc wm_su_tno                ; them against the claim's own header, and
                                 ; answers AX = the claim
     mov es, ax
     mov ax, [wm_su_x1]          ; ...AND WHATEVER OF IT IS ON THE GLASS
@@ -10722,17 +10744,17 @@ wm_su_try:
     mov cx, [wm_su_x2]          ; a refusal, which is right for a rect whose
     mov dx, [wm_su_y2]          ; DISPLAY moved under it (39.14.8.1) and wrong
     call wm_su_vset             ; for a window DRAGGED off the bottom: the
-    jc .no                      ; pixels are banked and correct and only some
+    jc wm_su_tno                ; pixels are banked and correct and only some
                                 ; of them are headed off the screen, so the
                                 ; far edges clamp and the near ones still
                                 ; refuse. An empty intersection is the old
                                 ; answer, and a rect wholly on one display
                                 ; arms a clip that changes nothing
     call wm_su_ck               ; (the clip spent AX, and the claim is what the
-    jc .no                      ; restore below needs in ES)
+    jc wm_su_tno                ; restore below needs in ES)
     mov es, ax
     call wm_su_scrset           ; where 11.96.2's edge scratch lives, which is
-    jc .no                      ; past EVERY fragment (SPEC.md 11.96.11.1)
+    jc wm_su_tno                ; past EVERY fragment (SPEC.md 11.96.11.1)
     mov ax, [wm_su_sx1]         ; THE PIECES OF IT NOTHING ABOVE WILL COVER
     mov [wm_su_bx1], ax         ; (SPEC.md 11.96.15), and the caller's own rect
     mov ax, [wm_su_sy1]         ; banked across the walk: wm_damage still owes

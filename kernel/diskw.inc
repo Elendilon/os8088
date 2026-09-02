@@ -886,6 +886,11 @@ dskw_rtbody:
                                 ; is" has one answer: that body's own
                                 ; DVK_FILE arm two hundred lines up. It
                                 ; re-runs the [dsk_mntok] gate, which is free
+.protj:                         ; ...and the two attribute refusals below take
+    jmp .prot                   ; this, on a path nothing falls into: NASM
+                                ; spelt each of them as a five-byte inverted
+                                ; pair, an 8086 having no near `jcc`, and from
+                                ; here they are two bytes each (-3)
 .fsok:
     clc
     ret
@@ -910,9 +915,9 @@ dskw_rtbody:
     jc .out                     ; AX = FERR_NOENT / FERR_IO already
     mov al, [dskw_raw+DSK_R_ATTR]
     test al, DSKW_NPROT
-    jnz .prot                   ; read-only, hidden, system or volume label
+    jnz .protj                  ; read-only, hidden, system or volume label
     test al, DSKW_DIR
-    jz .prot                    ; a file: the caller wanted dskw_delete
+    jz .protj                   ; a file: the caller wanted dskw_delete
     mov ax, [dskw_raw+DSK_R_CLUS]
     call dskw_clok
     jc .corrupt
@@ -1537,8 +1542,13 @@ dskw_wdata:
     call dskw_runadd            ; the whole sectors of this take, appended to
     jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
     jcxz .tail                  ; back non-zero when the run cap said 0
-.jioerr:
-    jmp .ioerr
+.jioerr:                        ; FOUR arms share this one near jump, and it
+    jmp .ioerr                  ; was already here for the first: an 8086 has
+                                ; no near `jcc`, so each of the other three
+                                ; was NASM's five-byte inverted-short-plus-
+                                ; near-jmp before it was aimed here.  -9, with
+                                ; nothing added.  A media error is the coldest
+                                ; arm in the file
 .stg:                           ; one sector the 8237 cannot carry, alone,
     mov es, [dskw_wseg]         ; through the scratch - which is 512-aligned
     mov si, [dskw_src]          ; and therefore never straddles. No run can be
@@ -1567,7 +1577,7 @@ dskw_wdata:
     call dskw_last_p
     jnz .advance
     call dskw_flushrun
-    jc .ioerr
+    jc .jioerr
     mov es, [dskw_wseg]
     mov si, [dskw_src]
     mov cx, [dskw_tail]
@@ -1578,7 +1588,7 @@ dskw_wdata:
     mov cx, 1
     mov ax, [dskw_clba]         ; the sector the whole-sector walk stopped at
     call disk_write_x
-    jc .ioerr
+    jc .jioerr
 .advance:
     mov ax, [dskw_take]
     sub [dskw_rem], ax
@@ -1586,7 +1596,7 @@ dskw_wdata:
     jmp .clus                   ; (near: the loop body outruns a short jump)
 .done:
     call dskw_flushrun            ; the last run of the file
-    jc .ioerr
+    jc .jioerr
     clc
     ret
 
@@ -1913,7 +1923,7 @@ dskw_rdata:
     call dskw_runadd            ; the whole sectors of this take, appended to
     jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
     jcxz .tail                  ; back non-zero when the run cap said 0
-.jioerr:
+.jioerr:                        ; ...and the read path's three, the same way
     jmp .ioerr
 .stg:                           ; one sector the 8237 cannot carry, alone,
     push ss                     ; through the scratch - which is 512-aligned
@@ -1951,7 +1961,7 @@ dskw_rdata:
     mov cx, 1
     mov ax, [dskw_clba]         ; the sector the whole-sector walk stopped at
     call disk_read_x              ; the last sector, whole, into the scratch
-    jc .ioerr
+    jc .jioerr
     mov es, [dskw_wseg]
     mov di, [dskw_src]
     mov cx, [dskw_tail]
@@ -1967,7 +1977,7 @@ dskw_rdata:
     jmp .clus                   ; (near: the loop body outruns a short jump)
 .rdone:
     call dskw_flushrun            ; the last run of the file
-    jc .ioerr
+    jc .jioerr
     clc
     ret
 

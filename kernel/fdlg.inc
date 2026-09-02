@@ -2709,7 +2709,14 @@ fdlg_onclick_x:
     je .s_pgup
     cmp al, OS88UI_SBPGDN
     je .s_pgdn
-    jmp .out                    ; the thumb itself, or off the bar entirely
+.outj:                          ; ...AND THE ROWS' REFUSAL TRAMPOLINE, at no
+    jmp .out                    ; cost: this `jmp` was already here for the bar,
+                                ; and `.out` is 190 bytes further on, so the
+                                ; three tests below were NASM's five-byte
+                                ; inverted-short-plus-near-jmp (an 8086 has no
+                                ; near `jcc`).  Aimed here they are two bytes
+                                ; each: -9, nothing added.  Every arm is a
+                                ; click that lands on no row and draws nothing
 .s_up:
     dec word [fdlg_scrl]
     jmp .rlist
@@ -2726,15 +2733,15 @@ fdlg_onclick_x:
     ; --- the rows ---
 .rows:
     cmp dx, FD_LX1
-    jl .out
+    jl .outj
     cmp cx, FD_ROW0
-    jl .out
+    jl .outj
     mov ax, cx
     sub ax, FD_ROW0
     mov cl, 4
     shr ax, cl                  ; / FD_ROWH
     cmp ax, FD_ROWS
-    jae .out
+    jae .outj
     add ax, [fdlg_scrl]
     push ax
     call fdlg_rows              ; AX = total rows

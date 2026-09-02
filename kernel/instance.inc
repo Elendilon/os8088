@@ -1385,7 +1385,7 @@ app_launch:
     jb .alloc
 
     call inst_find_kind         ; at cap: front the live instance instead
-    jc .fail                    ; only dying ones exist: retry later
+    jc .failj                   ; only dying ones exist: retry later
     call gfx_lock
     call inst_restore           ; un-minimize and show, THE one copy of it -
                                 ; it banks BX, which neither this path nor
@@ -1395,7 +1395,7 @@ app_launch:
 
 .alloc:
     call inst_alloc
-    jc .fail
+    jc .failj
     mov bp, di                  ; BP = our record for the duration
 
     ; --- state-pool slot pick (SPEC.md 29.4) ---------------------------------
@@ -1427,7 +1427,16 @@ app_launch:
     xor ch, ch
     cmp [inst_slot], cx
     jb .pslot
-    jmp .fail                   ; cannot happen (count < cap); fail safe
+.failj:                         ; ...AND THE REFUSAL TRAMPOLINE, at no cost at
+    jmp .fail                   ; all: this `jmp` was already here, and `.fail`
+                                ; is past 160 bytes of pool scan, so the three
+                                ; `jc .fail` around it were NASM's five-byte
+                                ; inverted-short-plus-near-jmp (an 8086 has no
+                                ; near `jcc`).  Aimed here they are two bytes
+                                ; each and this jump does the rest: -9 with
+                                ; nothing added.  Cold by construction - the
+                                ; arms are at cap with nothing live, the heap
+                                ; refusing, and the window table full
 
 .tpl:
     ; --- window from the template, cascaded per pool slot --------------------
@@ -1448,7 +1457,7 @@ app_launch:
     mov si, inst_tplbuf
     call wm_create              ; BX = window (hidden), CF = table full
     pop si
-    jc .fail                    ; record was never published: still free
+    jc .failj                   ; record was never published: still free
     mov al, [si+KD_WFLAG]       ; the kind's feature bits (WF_SIZABLE) join
     mov ah, 0                   ; W_FLAGS right after create (SPEC.md 29.3)
     or [bx+W_FLAGS], ax

@@ -980,9 +980,9 @@ osapi_snd_play:
     ; The range checks double as the div guard: a tiny rate would overflow
     ; the 32/16 divide (quotient > 16 bits traps to int 0).
     cmp dx, 4679                ; N <= 255  <=>  rate >= 4,679 Hz
-    jb .e2
+    jb .e2j
     cmp dx, 16124               ; N >= 74   <=>  rate <= 16,124 Hz
-    ja .e2
+    ja .e2j
     mov bx, dx                  ; BX, not CX: CX is the sample count and must
     mov dx, 0x0012              ; reach spk_pcm_run untouched, and BX is not
     mov ax, 0x34DE              ; an input here (1193182 = 0x1234DE)
@@ -1004,6 +1004,8 @@ osapi_snd_play:
     jnc .grant                  ; the plain path, with no popf owed
     mov al, 1                   ; busy: a stream is open (SPEC.md 34.9).
     jmp .err                    ; AL, not AX: .err zeroes AH for all six
+.e2j:                           ; ...and the range refusal's two arms, at 2
+    jmp .e2                     ; bytes each rather than five (-3)
 .grant:
     pushf                       ; --- the grant window (SPEC.md 34.3) ------
     cli

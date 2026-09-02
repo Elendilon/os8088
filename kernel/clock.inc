@@ -513,6 +513,16 @@ clk_at_num:
     clc
     ret
 
+; clk_at_dcno - the refusal trampoline the first four of clk_at_dec's range
+; tests share (see clk_rp_dgno above for why one near jump beats four inverted
+; pairs, and why this is a global rather than a `.local`): -9.  Cold by
+; construction - a field out of range means the byte did not decode in the
+; mode Register B claims, and clk_at_probe then tries the other mode once and
+; gives the tier up.
+; -----------------------------------------------------------------------------
+clk_at_dcno:
+    jmp clk_at_dec.no
+
 ; -----------------------------------------------------------------------------
 ; clk_at_dec - decode clk_rr[] into clk_tb_*
 ; in:  AL = 0 for BCD, 4 for binary (Register B's DM bit, in place)
@@ -525,15 +535,15 @@ clk_at_dec:
     mov [clk_rbin], al
     mov al, [clk_rr+0]
     call clk_at_num
-    jc .no
+    jc clk_at_dcno
     cmp al, 59
-    ja .no
+    ja clk_at_dcno
     mov [clk_tb_s], al
     mov al, [clk_rr+1]
     call clk_at_num
-    jc .no
+    jc clk_at_dcno
     cmp al, 59
-    ja .no
+    ja clk_at_dcno
     mov [clk_tb_mi], al
 
     ; --- the hour: strip the PM bit BEFORE decoding. 1 PM in 12-hour BCD
@@ -1180,6 +1190,30 @@ clk_rp_digit:
     ret
 
 ; -----------------------------------------------------------------------------
+; clk_rp_dgno - the refusal trampoline the first five of clk_rp_digits' tests
+; share.  An 8086 has NO NEAR CONDITIONAL JUMP, so NASM spells one that cannot
+; reach as `Jcc $+5 / jmp near` - five bytes instead of two - and `.no` is 200
+; bytes past the top of a routine that tests seventeen times on the way down.
+; The five nearest the entry were the expanded form; from here they are two
+; bytes each and this is the ONE near jump: -12.
+;
+; It sits between clk_rp_digit's `ret` and the routine it serves, on a path
+; NOTHING falls into, and it is a global rather than a `.local` for the reason
+; that placement forces: a NASM local belongs to the last global above it, so
+; written `.no_t` here it would be clk_rp_digit's, not clk_rp_digits'.
+; tools/stkbalance.py reads a global that is only ever JUMPED to as a
+; continuation and never walks it from depth zero, which is what this is.
+;
+; Fragile in the way every trampoline is, and in the right way: it works
+; because all five sites are within a short jump of this point, and an edit
+; that puts one out of reach is a BUILD ERROR rather than a silent bug.  The
+; refusals are cold by construction - a digit outside its range means the port
+; is not an RP5C01 at all, and the probe is over.
+; -----------------------------------------------------------------------------
+clk_rp_dgno:
+    jmp clk_rp_digits.no
+
+; -----------------------------------------------------------------------------
 ; clk_rp_digits - the thirteen page-0 digits into clk_tb_*
 ; out: CF = 1 = a digit is outside its range; preserves all registers
 ;
@@ -1201,29 +1235,29 @@ clk_rp_digits:
     mov al, 0x01                ; 10-second
     mov ah, 5
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     mov bl, al
     mov al, 0x00                ; 1-second
     mov ah, 9
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     call clk_rp_join            ; AL = BL*10 + AL
     mov [clk_tb_s], al
     mov al, 0x03
     mov ah, 5
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     mov bl, al
     mov al, 0x02
     mov ah, 9
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     call clk_rp_join
     mov [clk_tb_mi], al
     mov al, 0x05                ; 10-hour: the chip's full 0..3, PM bit and
     mov ah, 3                   ; all (see the note above)
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     mov bl, al
     mov al, 0x04
     mov ah, 9
@@ -1438,6 +1472,15 @@ clk_rp_year:
 section .text
 section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
+; -----------------------------------------------------------------------------
+; clk_bios_dnone - the refusal trampoline the first four of clk_bios_read's
+; validations share (see clk_rp_dgno above): -9.  Cold by construction - a BIOS
+; that answers int 1Ah at all passes every one of them, and one that does not
+; costs the tier, not a redraw.
+; -----------------------------------------------------------------------------
+clk_bios_dnone:
+    jmp clk_bios_read.none
+
 
 ; =============================================================================
 ; Tier CLK_T_BIOS (4): int 1Ah, the BIOS - probed for its answer SECOND
@@ -1472,14 +1515,14 @@ clk_bios_read:
     mov ah, 0x02
     stc
     int 0x1a
-    jc .none                    ; "clock not operating"
+    jc clk_bios_dnone           ; "clock not operating"
     cmp cx, 0xFFFF
-    je .none                    ; poison survived: the call did nothing
+    je clk_bios_dnone           ; poison survived: the call did nothing
     mov al, ch
     call clk_bcd
-    jc .none
+    jc clk_bios_dnone
     cmp al, 23
-    ja .none
+    ja clk_bios_dnone
     mov [clk_tb_h], al
     mov al, cl
     call clk_bcd

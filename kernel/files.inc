@@ -3114,7 +3114,7 @@ fm_onkey_x:
     mov dl, ah
     sub dl, 0x48
     test dl, 0xF6
-    jnz .out
+    jnz .outj
     mov bx, si                  ; the scroll keys clamp against the live
     call fm_layout              ; layout (fm_fit/fm_total); fm_scroll_by
     mov ax, 1                   ; commits the mirror and draws what moved
@@ -3127,15 +3127,24 @@ fm_onkey_x:
     neg ax
     jmp short .scr_move
 
+.outj:                          ; a trampoline, on a path nothing falls into:
+    jmp .out                    ; `.out` is 160 bytes past the four tests above
+                                ; and the 8086 has no near `jcc`, so each of
+                                ; them was NASM's inverted-short-plus-near-jmp,
+                                ; five bytes.  From here they are two and this
+                                ; is the one near jump: -9.  Every arm of it
+                                ; ends the keystroke without drawing, and the
+                                ; ladder runs once per KEY, not per row
+
 .editing:
     or al, al
     jnz .edkey                  ; a bare scan code is swallowed and nothing
     cmp ax, 0x5300              ; moves - with ONE exception, because the key
-    jne .out                    ; that says yes to the delete confirmation
+    jne .outj                   ; that says yes to the delete confirmation
     cmp byte [di+FS_EDIT], 3    ; carries no ASCII. The MODE is tested HERE so
-    jne .out                    ; that every other mode's swallow stays byte
+    jne .outj                   ; that every other mode's swallow stays byte
     call fm_delrep              ; for byte what it was: mode 4 in particular
-    jc .out                     ; reads "any other key" as STOP the paste, and
+    jc .outj                    ; reads "any other key" as STOP the paste, and
                                 ; a scan code must not be able to answer that.
                                 ; CF = 1 is typematic - a repeat is not a
                                 ; press (SPEC.md 22/9.6.1), and it is
@@ -5086,7 +5095,7 @@ fm_editkey:
                                 ; there is no undo, and the operation is not
                                 ; one file but every one of them
     cmp byte [di+FS_EDIT], 3
-    je .confirm
+    je .confj
     cmp al, 13
     je .commit
     cmp al, 27
@@ -5144,6 +5153,15 @@ fm_editkey:
                                 ; every character typed after a backspace
                                 ; landed behind that NUL and never appeared
 
+.confj:                         ; a trampoline, on a path nothing falls into:
+    jmp .confirm                ; `.confirm` is past 190 bytes of edit modes and
+                                ; the 8086 has no near `jcc`, so the three arms
+                                ; aimed at it were NASM's five-byte inverted-
+                                ; short-plus-near-jmp.  From here they are two
+                                ; bytes each: -6.  Every one of them ends the
+                                ; keystroke on the confirmation line and the
+                                ; ladder runs once per KEY, not per row
+
     ; The replace question (SPEC.md 22.3). Three answers, and the default is
     ; the safe one for the same reason mode 3's is: Enter replaces THIS file,
     ; 'a' replaces every one that follows, and anything else stops the
@@ -5179,12 +5197,12 @@ fm_editkey:
     ; is not advertised must not quietly change what it used to do.
 .confirmf:
     cmp al, ' '
-    jne .confirm
+    jne .confj
     push ax
     mov al, [di+FS_DRV]
     call fm_fmt_sizeable        ; the SAME predicate the line is composed
     pop ax                      ; from, so the two cannot disagree
-    jc .confirm                 ; nothing to offer: Space still means no
+    jc .confj                   ; nothing to offer: Space still means no
     xor byte [fm_fmtrow], 1
     jmp .lineonly               ; the size on the line IS [fm_fmtrow], so the
                                 ; redraw is the one a typed rename character
@@ -5576,7 +5594,7 @@ fm_drag:
     mov [fm_starty], dx
     mov byte [fm_dgon], 0
     cmp byte [mou_ptr], 0       ; ...but there is nothing to disambiguate with
-    je .click                   ; no mouse on the machine (SPEC.md 9.6.1). The
+    je .wclick                  ; no mouse on the machine (SPEC.md 9.6.1). The
                                 ; keyboard's button is latched for the whole
                                 ; W_ONCLICK dispatch and the pointer cannot
                                 ; move until that returns, so this loop could
@@ -5597,11 +5615,11 @@ fm_drag:
                                 ; wakedrain lint could not see - and a drag
                                 ; here during an FTP transfer deafened the
                                 ; server's window for the session
-.wclick:
-    jmp .click
+.wclick:                        ; ...and the trampoline two other arms take
+    jmp .click                  ; rather than NASM's five-byte inverted pair
 .noev:
     test byte [mouse_btn], 1
-    jz .click                   ; released without moving: an ordinary click
+    jz .wclick                  ; released without moving: an ordinary click
     mov ax, [mouse_x]
     sub ax, [fm_startx]
     call fm_dgabs
@@ -7350,7 +7368,7 @@ fm_scrollpaint:
     mov cx, [fm_rgt]            ; rect, but the exposed rows below are wider
     mov dx, [fm_by2]            ; than it and are a fill plus glyphs
     call KERNEL_SEG:cw_wm_clip_test
-    jc .refuse
+    jc .refj
 
     ; --- the selection comes off where it is now ---
     mov ax, [fm_sdlt]
@@ -7369,7 +7387,7 @@ fm_scrollpaint:
     mov cx, [fm_bx2]
     mov dx, [fm_by2]
     call KERNEL_SEG:cw_gfx_scroll
-    jc .refuse                  ; it refused: fm_repaint puts the selection
+    jc .refj                    ; it refused: fm_repaint puts the selection
                                 ; back with everything else
 
     ; --- which rows it exposed ---
@@ -7381,6 +7399,8 @@ fm_scrollpaint:
     sub bx, ax
     mov [fm_rlo], bx
     jmp short .stripck
+.refj:                          ; ...and the two refusals above take it
+    jmp .refuse                 ; rather than a five-byte inverted pair: -3
 .expup:
     mov word [fm_rlo], 0        ; scrolled UP: the first |d| are
     neg ax

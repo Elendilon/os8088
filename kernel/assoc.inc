@@ -1373,6 +1373,12 @@ assoc_self_glyph:
     pop bx
     ret
 
+; asc_use_out - asc_use_x's two refusals share this one near jump: -3.  A global
+; rather than a `.local` for the reason its placement forces - it sits after the
+; routine above's `ret`, where a NASM local would belong to THAT routine.
+asc_use_out:
+    jmp asc_use_x.out
+
 ; =============================================================================
 ; ASSOC.DAT - the volume's icon and association cache (SPEC.md 54.7)
 ;
@@ -1444,7 +1450,7 @@ asc_use_x:
     push es
     mov al, [disk_drive]
     cmp al, [asc_vol]
-    je .out                     ; already this volume's
+    je asc_use_out              ; already this volume's
     mov [asc_vol], al
     xor ax, ax
     mov [asc_n], ax             ; ...and it holds nothing until proven
@@ -1453,7 +1459,7 @@ asc_use_x:
     mov ax, ASC_KB
     mov bx, MEM_K_ASC
     call mem_claim_x
-    jc .out                     ; refused: tier 2, every lookup misses
+    jc asc_use_out              ; refused: tier 2, every lookup misses
     mov [asc_seg], dx
     push ax                     ; ...and MOVABLE (SPEC.md 66.5.6). This is the
     mov ax, asc_reloc           ; claim docs/HEAP-CLAIMS.md measured acting as a

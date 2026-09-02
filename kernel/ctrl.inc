@@ -2386,18 +2386,18 @@ cp_thm_click:
     cmp dx, CPH_BTY             ; --- the Screen Saver button, tested FIRST
     jl .groups                  ; because it is the lowest band on the page
     cmp dx, CPH_BTY + CPH_BTH - 1
-    jg .done
+    jg .donej
     cmp cx, CPH_BTX
-    jl .done
+    jl .donej
     cmp cx, CPH_BTX + CPH_BTW - 1
-    jg .done
+    jg .donej
     mov al, CPH_CSAVE
     call cp_ctl                 ; ...and it FIRES ON THE RELEASE (SPEC.md
-    jc .done                    ; 13.8.3): opening a window is not a safe
+    jc .donej                   ; 13.8.3): opening a window is not a safe
                                 ; prefix action, so a mis-aimed press has to
                                 ; be cancellable by sliding off
     call COLD_SEG:ssf_cfg       ; the overlay, and then its window (79.7)
-    jnc .done
+    jnc .donej
     push bx                     ; ...and the ONE refusal on this page that the
     push cx                     ; user is standing in front of, so it is said
     mov al, 1                   ; out loud rather than swallowed the way every
@@ -2406,6 +2406,7 @@ cp_thm_click:
     call KERNEL_SEG:toast_say
     pop cx
     pop bx
+.donej:                         ; ...and the five refusals above
     jmp .done
 .groups:
 %endif
@@ -3072,31 +3073,32 @@ cp_vid_click:
     jg .mode                    ; ...and BELOW it is the desktop row now, not
                                 ; the bottom of the page
     cmp cx, CPV_BTNX
-    jl .done
+    jl .donej
     cmp cx, CPV_BTNX + CPV_BTNW - 1
-    jg .done
+    jg .donej
     call cpf_vidok              ; greyed: the dot is already on the running
-    jc .done                    ; adapter, so a refused press says nothing
+    jc .donej                   ; adapter, so a refused press says nothing
                                 ; more (SPEC.md 47 rule 5)
 %ifdef KERN_BIG
     mov al, 1                   ; the Activate button
     call cp_ctl
-    jc .done
+    jc .donej
 %endif
     mov al, [cp_vsel]
     call KERNEL_SEG:vid_switch
-    jc .done                    ; refused: the adapter went away under us
+    jc .donej                   ; refused: the adapter went away under us
     mov byte [cp_wdirty], 1     ; ...remembered on close (SPEC.md 31.8)
     mov byte [cp_dirty], 1      ; ...and the whole screen is a new shape
     mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
+.donej:                         ; ...and SEVEN refusals share it
     jmp .done                   ; NEAR: 13.8.3's probe calls grew the body past
                                 ; a short jump's reach
 .mode:                          ; --- the desktop row (SPEC.md 31.10.2) ---
 %ifdef KERN_BIG
     cmp dx, CPV_MB1
-    jl .done
+    jl .donej
     cmp dx, CPV_MB2
-    jg .done
+    jg .donej
     call KERNEL_SEG:cw_vid_dual_ok
     jc .done                    ; not drawn on this machine, so not clickable
     mov ax, cx                  ; AH = 0: cx is pane-relative and CP_PRGT is
@@ -3283,24 +3285,25 @@ cp_time_click:
     jge .btn
 
     call cp_time_pick           ; --- the field rows: which field? ---
-    jc .done
+    jc .donej
 %ifdef KERN_BIG
     push ax                     ; the field SELECTS, so it keeps the press and
     xor al, al                  ; reports nothing: id 0 (SPEC.md 13.6/13.8.3).
     call cp_ctl                 ; Without it a slide across these rows with '+'
     pop ax                      ; held re-lettered both clock rows per mouse
-    jc .done                    ; packet - PERFORMANCE.md's input overrun
+    jc .donej                   ; packet - PERFORMANCE.md's input overrun
 %endif
     cmp al, [cp_tsel]
-    je .done                    ; already selected: change nothing
+    je .donej                   ; already selected: change nothing
     mov [cp_tsel], al
     mov al, 1                   ; the SELECTION moved, so the old black box has
     call cp_time_rows           ; to come off: a full draw (SPEC.md 31.5.1)
+.donej:                         ; ...and the four refusals around it
     jmp .done
 
 .btn:                           ; --- the button column ---
     cmp cx, CPT_BX + CPT_BW - 1
-    jg .done
+    jg .donej
     mov bl, 1                   ; the '+' band
     cmp dx, CPT_BUY
     jl .done
@@ -5366,6 +5369,7 @@ cp_drv_click:
     jb .up
     cmp dx, CP_DBYN - CP_DSAH
     jae .down
+.donej:                         ; ...and the three refusals below: an 8086 has
     jmp .done                   ; between the two: there is no track to click
 .up:
     xor al, al                  ; ...in cp_drv_arrow1's own 0 = up / 1 = down,
@@ -5374,7 +5378,7 @@ cp_drv_click:
     mov al, 1
 .arrow:
     call cp_drv_arrowok
-    jc .done                    ; at that end: the arrow is already drawn
+    jc .donej                   ; at that end: the arrow is already drawn
                                 ; dithered and says so, so a refused click on
                                 ; it says nothing more (SPEC.md 47 rule 5).
                                 ; **AHEAD of cp_ctl, deliberately**: a control
@@ -5384,7 +5388,7 @@ cp_drv_click:
 %ifdef KERN_BIG
     add al, CP_DIDUP            ; **THEY ARE CONTROLS, AND THIS LADDER RUNS
     call cp_ctl                 ; TWICE** (SPEC.md 13.8.3): once at the press
-    jc .done                    ; to IDENTIFY and once at the release to act.
+    jc .donej                   ; to IDENTIFY and once at the release to act.
     sub al, CP_DIDUP            ; Without an id the scroll happened on both
 %endif                          ; passes and one click moved the list by two -
                                 ; which is what a merge does to a branch that
@@ -5403,7 +5407,7 @@ cp_drv_click:
 .rows:
     mov ax, dx                  ; which band, by division rather than by a
     sub ax, CP_DBY1             ; constant per row: DRV_MAX has changed twice
-    js .done                    ; and a hand-written ladder does not follow it
+    js .donej                   ; and a hand-written ladder does not follow it
     xor dx, dx                  ; (DX is banked on the stack above)
     mov bx, CP_DROWH
     div bx                      ; AX = the visible row, DX = where in it

@@ -1174,7 +1174,7 @@ clo_key:
     cmp al, 'Y'
     je .force
     cmp al, 13
-    jne .line
+    jne .linej
     mov byte [es:CL_STEP], CLS_TGT
     jmp .tgt                    ; NEAR: CLS_NOSRC's answers sit between here
                                 ; and it now (SPEC.md 18.99.3)
@@ -1185,10 +1185,14 @@ clo_key:
     mov al, [es:CL_TGT]
     call clo_nextvol            ; ...which walks THROUGH the image file
     mov [es:CL_TGT], al         ; (SPEC.md 18.99.8), so IMG is one more stop
-    jmp .line                   ; on the same ring rather than a mode
+.linej:                         ; ...and the two `jne` around it: NASM spelt each
+    jmp .line                   ; as a five-byte inverted pair (an 8086 has no
+                                ; near `jcc`) and from here they are two, with
+                                ; nothing added at all - this jump was here
+                                ; already.  -6 on CLONE.DRV
 .pickgo:
     cmp al, 13
-    jne .line
+    jne .linej
     cmp byte [es:CL_TGT], CLE_IMG
     jne .picdisk
     mov al, CLA_SAVE            ; the resident half owns the dialog: fdlg_open

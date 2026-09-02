@@ -2172,9 +2172,9 @@ section .cold                   ; COLD (SPEC.md 2.6): the keyboard mouse's menu
                                 ; touching no flags
 menu_kbnav:
     cmp byte [menu_dropd], 0
-    je .no                      ; nothing is dropped: an ordinary pointer
+    je .noj                     ; nothing is dropped: an ordinary pointer
     or al, al
-    jz .no                      ; Left/Right keep their pixel step, which is
+    jz .noj                     ; Left/Right keep their pixel step, which is
                                 ; how the pointer leaves a menu sideways
     push bx
     push cx
@@ -2197,6 +2197,8 @@ menu_kbnav:
     jns .step                   ; last
     mov di, [menu_cnt]
     jmp short .step
+.noj:                           ; ...and the two swallows above, at 2 bytes
+    jmp .no                     ; each instead of NASM's inverted pair (-3)
 .inx:
     mov ax, [mouse_y]
     mov bx, [menu_y1]
