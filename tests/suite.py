@@ -1491,6 +1491,16 @@ SOAK = [
         "off, the button comes up, which is what says the gesture is cancelled"
         "before the finger commits. Also checks 42.16.1's GIF default",
         needs=("marty",), serial=True),
+    Row("alertanim", "soak",
+        py("tests/alertanim.py", "--machine", "os8088_5150_herc_gla"), 300.0,
+        "SPEC.md 11.99.2.1: the 'Save changes?' alert must NOT zoom open. The"
+        "user clicked the close box and got a dialog instead, so a third of a"
+        "second of outline in front of it is the machine making a show of"
+        "getting in the way. AN A/B AND NEITHER HALF IS A ROW ALONE: a LAUNCH"
+        "must still animate, or a theme with the zoom off would pass this"
+        "trivially, and the alert must be on the glass at the end, or a dialog"
+        "that failed to open reads as one that opened quietly",
+        needs=("marty",), serial=True),
     Row("paintdirty", "soak", py("tests/paintdirty.py"), 300.0,
         "SPEC.md 42.16: does Paint ask before it throws a picture away? A"
         "FLAG and not Note Pad's checksum, so the places that set and clear it"

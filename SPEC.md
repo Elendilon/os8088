@@ -15840,13 +15840,23 @@ the same collision `WF_STALE` was moved off, arriving a second time.
 It is defined in **both** builds so a test does not need an `%ifdef` around it,
 and `kern_small` simply has no animation to opt out of.
 
-Two windows set it and both are the same argument — a third of a second is a
-lot to spend on something the user opens repeatedly and dismisses:
+Three windows set it and all three are the same argument — a third of a second
+is a lot to spend on something the user opens repeatedly and dismisses:
 
 - **the Standard File dialog** (§38), which is modal and is put up and taken
   down on every Open and every Save;
 - **the notice window** (§54.4.1), which is *reused* rather than recreated, so
-  it comes back over and over inside one session.
+  it comes back over and over inside one session;
+- **the SDK's alert** (§20.5.1, §75.3) — *"Save changes before closing?"* —
+  which five packages share and which Note Pad and Paint raise out of their
+  close negotiator, and which the argument above fits harder than either of
+  the other two, because **the user did not ask for this window**. A file
+  dialog and a notice both answer a command that was picked; the alert answers
+  a click on the CLOSE BOX and arrives *instead of* the close it was asked
+  for. Zooming it open is a third
+  of a second of ceremony in front of an interruption, which reads as the
+  machine making a show of getting in the way — and it is the reason §11.99.2.1
+  exists, because that window is package code and had no way to say so.
 
 `wm_an_ok` additionally refuses while a fullscreen window owns the screen
 (§11.2): an outline there is drawing on somebody's borrowed surface.
@@ -15864,6 +15874,58 @@ there is nothing, which is a third of a second of animation to say that
 something has stopped existing. The window vanishing IS the feedback. So the
 close path is `wm_destroy` exactly as it was before §11.99, and `wm_an_ok`'s
 `WF_NOANIM` and fullscreen tests now serve `wm_an_open` alone.
+
+#### 11.99.2.1 `OSAPI_WM_NOANIM` — how a package's own dialog declines
+
+The first two windows above are the kernel's own and set the bit with a bare
+`or word [bx+W_FLAGS], WF_NOANIM` between their `wm_create` and their
+`wm_show`. **The third could not.** The alert is package code
+(`apps/os88ui.inc`, §20.5.1), the window record lives in `KERNEL_SEG`, and
+every settable `W_FLAGS` bit the SDK publishes is a slot's to write — two of
+them, `WF_NOSNAP` and `WF_KEEPH`, saying *never by hand* at their own `equ`.
+So the opt-out was reachable from inside the kernel and from nowhere else, and
+the one window in the system whose animation nobody asked for was the one
+window that could not decline it.
+
+Slot **0x04F0**, `wm_noanim`: `BX` = the window, no other argument and no
+answer. The body is the whole of it —
+
+```nasm
+wm_noanim:
+    or word [bx+W_FLAGS], WF_NOANIM
+    ret
+```
+
+— and **that is the argument for a slot rather than for publishing the
+constant** and letting a package `or` it in through `es:`. The three settable
+bits the SDK already publishes each have a second half that makes the slot
+obviously necessary: `OSAPI_WM_SNAP` re-snaps the content origin,
+`OSAPI_WM_KEEPH` re-fits the frame, `OSAPI_WM_SIZABLE` is read by a grow box
+drawn from it. This bit has no second half at all, which makes the case for a
+cell weaker and the case against a *fourth* hand-written exception stronger —
+`apps/paint`'s `pt_wfix` is the tree's only remaining hand-write of a window
+record and it carries a paragraph explaining why it cannot be given up. One
+cell and five bytes of body is what the rule staying one rule costs.
+
+**It takes no `AL` and there is no clear**, which is a deliberate break from
+the five sibling flag slots — `wm_sizable`, `wm_snap`, `wm_keeph`, `wm_ownbg`
+and `wm_saveu` — that all take `AL` = 0 clear / non-zero set. The bit is read
+in exactly one place — `wm_an_ok`, and only on the `wm_show` of a window that
+is not yet visible — so a clear is a verb with no moment it could be called
+in, and an `AL` nobody reads is an argument a caller can pass 0 to and be
+ignored.
+
+**Call it between `OSAPI_WM_CREATE` and `OSAPI_WM_SHOW`.** That is where the
+alert calls it and it is the only window where it can matter: the flag is a
+property of a window about to appear, not a mode.
+
+**The cell is in both kernels and the body is not `%ifdef`-ed.** A slot that
+exists in one build and not another is an ABI that depends on a knob (§20.8
+rule 4), and `WF_NOANIM` is defined on `kern_small` for exactly this reason —
+there the bit is set, `WF_HIBITS` masks it out of the cursor shape as it does
+on `kern_big`, and nothing ever reads it, because that kernel has no animation
+to decline. What a `%ifdef` would save there is the `or` and not the `ret`:
+four bytes, against a second thing to keep in step with the table.
 
 ### 11.99.3 The un-minimize threw away the fact the animation needs
 
@@ -27772,7 +27834,7 @@ chain in the machine and it is where a change
 here is priced, not against task 0's kilobyte.
 
 The table's start (0x0010) and its span are proved by two build-time
-assertions in kernel.asm; the span is **86 × 8** today. `apps/os88api.inc`
+assertions in kernel.asm; the span is **157 × 8** today. `apps/os88api.inc`
 mirrors every offset as an `OSAPI_*` `%define` (§20.5).
 
 ```

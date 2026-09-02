@@ -3547,7 +3547,27 @@ osapi_table:
                                   ;          3B8h that does nothing until 3BFh
                                   ;          allows it, and neither is
                                   ;          derivable from the info block
-osapi_table_end:                  ; 0x04F0
+    OSAPI_SLOT wm_noanim          ; 0x04F0 - BX = a window of yours, between
+                                  ;          OSAPI_WM_CREATE and
+                                  ;          OSAPI_WM_SHOW: it does NOT zoom
+                                  ;          open (SPEC.md 11.99.2.1). No AL
+                                  ;          and no clear - the five sibling
+                                  ;          flag slots (wm_sizable, wm_snap,
+                                  ;          wm_keeph, wm_ownbg, wm_saveu) all
+                                  ;          take AL = 0 clear / non-zero set
+                                  ;          and this one deliberately does
+                                  ;          not, the bit
+                                  ;          being read in one place and only
+                                  ;          on the wm_show of a window that
+                                  ;          is not yet visible. THE CELL IS
+                                  ;          IN BOTH KERNELS and the body is
+                                  ;          not %ifdef'd: a slot that exists
+                                  ;          in one build and not another is
+                                  ;          an ABI that depends on a knob
+                                  ;          (SPEC.md 20.8 rule 4), and on
+                                  ;          kern_small the bit is simply set
+                                  ;          and never read
+osapi_table_end:                  ; 0x04F8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3555,8 +3575,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 156 * 8
-%error "os8088 API jump table must be exactly 156 8-byte slots"
+%if OSAPI_TABLE_LEN != 157 * 8
+%error "os8088 API jump table must be exactly 157 8-byte slots"
 %endif
 
 ; =============================================================================
