@@ -104,17 +104,94 @@ SCH_STACK   equ 384             ; per-task stack bytes. It was 1,536 when the
                                 ; hand-chained literals and was the other half
                                 ; of why nobody could; it derives now
 %if (SCH_STACK % 128) != 0
-  %error "SCH_STACK must be a multiple of 128 - sch_switch's canary base below"
+  %error "SCH_STACK must be a multiple of 128 - it is the largest class and every class is one"
 %endif
-%if (MAX_TASKS - 1) * SCH_STACK > 65535
-  %error "the task slices no longer fit one segment"
-%endif
+
+; --- what the KERNEL's own spawners ask for (SPEC.md 8.7) --------------------
+; A package says so in its header; these three have no header to say it in, so
+; they say it here, each against a measurement rather than a guess.
+SCH_IDLE_STK    equ 128         ; the idle task. Its own footprint is at most 4
+                                ; bytes - `pushf` then `cli`, then task_yield's
+                                ; own `pushf`/`cli` - so what it needs IS the
+                                ; interrupt floor, measured at 32 on QEMU and
+                                ; 40-64 on real iron (docs/STACK-SLOTS-PLAN.md
+                                ; 7.1). 128 is 2x the worst of those
+SCH_BUILTIN_STK equ 128         ; a built-in kind's task. Timer and Bounce are
+                                ; the two that take one, and six Bounces at
+                                ; once measured +10..24 over the floor
+SCH_DRV_STK     equ 192         ; a driver's worker. The only one in the tree
+                                ; is the sound driver's stream task, whose
+                                ; deepest static chain is 28 bytes
+                                ; (tools/stkdepth.py on sbl_refill_task) - so
+                                ; 64 + 28 = 92 and this is 2.1x. It is one
+                                ; number for all drivers because there is one
+                                ; caller of OSAPI_DRV_TASK in the whole tree;
+                                ; a driver that needs more is a line here with
+                                ; a reason beside it, not a new mechanism
+
 SCH_MAGIC   equ 0x5A57          ; the word at the BOTTOM of every slice. A
                                 ; stack that reaches it has overrun, and the
                                 ; next push corrupts the slice below - which
                                 ; is another task's, so the symptom would be
                                 ; arbitrary and nowhere near the cause
 SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
+
+; -----------------------------------------------------------------------------
+; SCH_PARTITION - THE SLICE LAYOUT, WRITTEN ONCE (SPEC.md 8.7)
+;
+; One SCH_SLOT line per background slot, in slot order, giving that slot's
+; stack in BYTES. Everything else about the layout is DERIVED from this list:
+; sch_stkbase's addresses, sch_stksize's sizes, the total sch_stacks reserves,
+; and the count that must agree with MAX_TASKS. Edit here and nowhere else.
+;
+; It is a FIXED PARTITION and not an allocator (docs/STACK-SLOTS-PLAN.md 6.2):
+; the slices exist from boot, a spawn takes the smallest free one that is big
+; enough, and running out is OSAPI_TASK_SPAWN's existing CF=1 - which SPEC.md
+; 20.6 already requires every package to degrade on. No compaction, no
+; fragmentation, no new failure mode.
+;
+; The list is uniform TODAY. What made it a list is that the sizes are about to
+; stop being uniform, and every reader had to stop assuming otherwise first.
+; -----------------------------------------------------------------------------
+%macro SCH_PARTITION 0
+    SCH_SLOT SCH_STACK
+    SCH_SLOT SCH_STACK
+    SCH_SLOT SCH_STACK
+    SCH_SLOT SCH_STACK
+    SCH_SLOT SCH_STACK
+    SCH_SLOT SCH_STACK
+    SCH_SLOT SCH_STACK
+%endmacro
+
+; --- and the three things counted off it, before anything can use them -------
+%assign SCH_STK_TOTAL 0
+%assign SCH_STK_N     0
+%assign SCH_STK_MAX   0
+%macro SCH_SLOT 1
+    %assign SCH_STK_TOTAL SCH_STK_TOTAL + (%1)
+    %assign SCH_STK_N     SCH_STK_N + 1
+    %if (%1) > SCH_STK_MAX
+        %assign SCH_STK_MAX (%1)
+    %endif
+    %if ((%1) % 2) != 0
+        %error "every slice must be EVEN: sch_switch's canary is a word written at the slice base and task_spawn fills with `rep stosw`, so an odd size puts every slice above it on an odd address and the canary straddles"
+    %endif
+    %if (%1) < SCH_FRAME + 2
+        %error "a slice smaller than SCH_FRAME + the canary word cannot hold a task's own parked frame, never mind an interrupt"
+    %endif
+%endmacro
+SCH_PARTITION
+%unmacro SCH_SLOT 1
+
+%if SCH_STK_N != (MAX_TASKS - 1)
+  %error "SCH_PARTITION must have exactly MAX_TASKS-1 SCH_SLOT lines: slot 0 is the UI task and owns no slice of sch_stacks"
+%endif
+%if SCH_STK_MAX != SCH_STACK
+  %error "SCH_STACK must be the LARGEST class in SCH_PARTITION - it is what a package that declares nothing is given, and what every bound in the SDK is written against"
+%endif
+%if SCH_STK_TOTAL > 65535
+  %error "the task slices no longer fit one segment"
+%endif
 
 SCH_WD_TICKS equ 18             ; cooperative mode: the watchdog forces a
                                 ; switch once the running task has held the
@@ -535,6 +612,8 @@ sch_idle_start:
                                 ; it is the one docs/FIELD-NOTES.md has seen
     mov ax, sch_idle_body
     xor bx, bx                  ; KERNEL_SEG
+    mov cx, SCH_IDLE_STK        ; the smallest class: its own footprint is 4
+                                ; bytes and the rest is the floor (SPEC.md 8.7)
     mov dx, 0x00FF              ; DL -> T_INST = 0xFF, "owns no instance"
     call KERNEL_SEG:cw_task_spawn ; FAR: `.ovl` -> resident, through the shim
     jc .out                       ; driver.inc already needed
@@ -560,6 +639,14 @@ section .text
 ; before the publish (the ISR only charges the RUNNING slot, so a
 ; pre-publish write cannot race - SPEC.md 8.1). The scan starts at slot 1:
 ; slot 0 is the UI task, never free, and runs on the boot stack.
+;
+; CX IS THE STACK THE TASK ASKS FOR, IN BYTES (SPEC.md 8.7), and the scan takes
+; the first free slot at least that big. SCH_PARTITION is written smallest
+; first, so first fit IS smallest fit and a big worker cannot be given the last
+; small slice a Timer would have fitted in. **CX = 0 means the largest class**,
+; which is what a package that declares nothing gets - so a caller that has no
+; opinion says nothing and is safe, rather than silently asking for the
+; smallest.
 ; The entry routine must never ret - it terminates only via task_exit
 ; (usually through inst_task_die, SPEC.md 29) or loops forever.
 ;
@@ -614,29 +701,41 @@ task_spawn:
                                 ; call between here and the frame build, so
                                 ; the two segment stores can read it directly
 
-    mov bx, sch_tasks + T_SIZE  ; scan for a free slot, from slot 1
-    mov cx, 1                   ; CX = slot index
+    or cx, cx                   ; CX = the stack asked for, in bytes; 0 is
+    jnz .haveask                ; "no opinion", and no opinion gets the LARGEST
+    mov cx, SCH_STACK           ; class. Zero must not fall through as a
+.haveask:                       ; request for the smallest free slice
+    mov bx, sch_tasks + T_SIZE  ; scan for a free slot BIG ENOUGH, from slot 1
+    mov si, 2                   ; SI = slot * 2, the index both tables take
 .find:
     cmp byte [bx+T_STATE], 0
-    je .found
+    jne .next
+    cmp cx, [si+sch_stksize]    ; free - but does it fit? SCH_PARTITION is
+    jbe .found                  ; written smallest first, so first fit is
+.next:                          ; SMALLEST fit and one instruction
     add bx, T_SIZE
-    inc cx
-    cmp cx, MAX_TASKS
+    add si, 2
+    cmp si, MAX_TASKS * 2
     jb .find
-    xor ax, ax                  ; table full: AL = 0, which is never a valid
-    jmp .done                   ; slot (slot 0 is the UI task) - .done turns
-                                ; it back into CF = 1 after the popf
+    xor ax, ax                  ; nothing free that is big enough: AL = 0,
+    jmp .done                   ; which is never a valid slot (slot 0 is the
+                                ; UI task) - .done turns it back into CF = 1
+                                ; after the popf, which is the refusal
+                                ; SPEC.md 20.6 already makes every package
+                                ; degrade on
 
 .found:
-    mov si, ax                  ; SI = entry (AX becomes scratch)
-    push bx                     ; the slice, THROUGH sch_stkbase - no multiply,
-    mov bx, cx                  ; and no assumption here about how the slices
-    shl bx, 1                   ; are laid out. BX is the task record and is
-    mov di, [bx+sch_stkbase]    ; needed below, so it is banked across the two
-    pop bx                      ; instructions that borrow it
-    mov ax, di                  ; DI = the slice BASE, where the canary goes...
-    add ax, SCH_STACK           ; ...and AX its TOP, one slice above
-    push ax                     ; banked: the frame is carved from the top
+    mov cx, si                  ; the scan left SI = slot * 2, which is the
+    shr cx, 1                   ; index BOTH tables take - so the slice costs
+    mov di, ax                  ; two loads and no arithmetic. CX becomes the
+    mov ax, [si+sch_stksize]    ; slot index again (AL returns it and the cycle
+    mov si, [si+sch_stkbase]    ; counter below wants it); the entry is parked
+    xchg si, di                 ; in DI and comes back as SI, where the rest of
+                                ; this routine expects it. DI = the slice BASE,
+                                ; where the canary goes, and AX = its SIZE
+    push cx                     ; ...all three banked across the fill, which
+    push di                     ; wants CX for its own count and walks DI
+    push ax
     push ss                     ; ES = LOW_SEG (SPEC.md 2.1), which is what SS names
     pop es
     ; --- THE 0xCC FILL, and it is NOT a debug build's (SPEC.md 8.3) --------
@@ -647,33 +746,34 @@ task_spawn:
     ; **UNCONDITIONAL, and that is the point.** It was `%ifdef KFZTRACE`, which
     ; meant the only kernel whose margin could be measured was one nobody runs -
     ; and the margin is the thing this project has just spent a week being
-    ; wrong about (docs/FIELD-NOTES.md 29.6). It costs ONE `rep stosb` of
-    ; SCH_STACK bytes per SPAWN - a few hundred microseconds, once, against a
-    ; launch that has already been through int 13h - and it turns
-    ; tests/stackprobe from a probe of its own slice into one that can read
-    ; EVERY task's high water on the shipping kernel, on the real machine,
-    ; while the thing under suspicion is running.
-    push cx                     ; CX is the slot index and is still needed
-    push di                     ; (AX is NOT banked: it holds nothing live -
-                                ; the slice base went into DI above and the
-                                ; slice top is on the stack from `push ax`
-                                ; before the segment load)
-%if SCH_STACK % 2
-  %error "SCH_STACK must be EVEN: the `rep stosw` below fills SCH_STACK/2 words, sch_switch's canary is a word written at the slice base, and sch_stacks' pad aligns the BLOCK to a word only - so an odd stride puts every slice above the first on an odd address and the canary straddles"
-%endif
-    mov cx, SCH_STACK / 2
+    ; wrong about (docs/FIELD-NOTES.md 29.6). It costs ONE `rep stosw` of the
+    ; slice per SPAWN - a few hundred microseconds, once, against a launch that
+    ; has already been through int 13h - and it turns tests/stackprobe from a
+    ; probe of its own slice into one that can read EVERY task's high water on
+    ; the shipping kernel, on the real machine, while the thing under suspicion
+    ; is running.
+    ;
+    ; THE FILL IS DONE FIRST, before the top is worked out, and that ordering
+    ; is what keeps this register-clean now that the size is per-slot: the
+    ; count IS the size, so taking it while AX still holds it costs one `mov`
+    ; and no second table read.
+    mov cx, ax
+    shr cx, 1                   ; ...as WORDS. SCH_SLOT's own %error is what
+                                ; keeps every size even, which this and the
+                                ; word canary below both need
     mov ax, 0xCCCC
     cld
     rep stosw                   ; ES:DI = the slice base, upwards - words,
                                 ; 12.5 clocks a byte against stosb's 17, and
                                 ; this whole fill runs inside the spawn's cli
-                                ; (the base is even: sch_stacks is aligned
-                                ; and slices are multiples of 128)
-    pop di
-    pop cx
+    pop ax                      ; the size...
+    pop di                      ; ...the base...
+    pop cx                      ; ...and the slot index, which is NOT dead: the
+                                ; cycle counter and the return value both want
+                                ; it
     mov word [es:di], SCH_MAGIC
-    pop ax
-    sub ax, SCH_FRAME           ; carve the fake frame at the very top
+    add ax, di                  ; base + size = the slice TOP...
+    sub ax, SCH_FRAME           ; ...and the fake frame is carved from it
     mov di, ax
     mov [bx+T_SP], di
 
@@ -1454,7 +1554,7 @@ sch_isr:
     xor bh, bh                  ; produced was garbage on the instrument that
     shl bx, 1                   ; aims the next stack cut. THROUGH sch_stkbase
     mov ax, [bx+sch_stkbase]    ; now, so this reader assumes nothing about the
-    add ax, SCH_STACK           ; layout: base + size is the slice TOP, and
+    add ax, [bx+sch_stksize]    ; layout OR the size: base + size is the TOP and
     sub ax, sp                  ; depth = top - SP, less this sampler's own two
     sub ax, 4                   ; pushes so it agrees with khb_spl/khb_sph
     shr ax, 1                   ; above - stored HALVED, so one byte holds
@@ -1989,12 +2089,62 @@ sch_stkdie:
 ; on every switch, where before only a KFZ build ever looked at it.
 ; -----------------------------------------------------------------------------
 sch_stkbase:
+%macro SCH_SLOT 1
+    dw sch_stacks + sch_stk_off
+    %assign sch_stk_off sch_stk_off + (%1)
+%endmacro
     dw STK0_BOT                 ; slot 0: the UI task, above .lowbss
-%assign sch_bi 0
-%rep MAX_TASKS-1
-    dw sch_stacks + sch_bi * SCH_STACK
-%assign sch_bi sch_bi+1
-%endrep
+%assign sch_stk_off 0
+    SCH_PARTITION               ; ...and slots 1 up, in SCH_PARTITION's order
+%unmacro SCH_SLOT 1
+
+; -----------------------------------------------------------------------------
+; sch_stksize - and how BIG it is, one word per slot, in bytes
+;
+; The other half of sch_stkbase, from the same list, and it exists because a
+; base alone stopped being enough the moment the slices stopped being the same
+; size. Everything that wants a slice's TOP - task_spawn's frame carve, its
+; 0xCC fill, the KFZ deep sampler, the STKDIAG panel - wants base + size, and
+; every one of them used to write `+ SCH_STACK` and be right by the luck of
+; uniformity.
+;
+; A WORD AND NOT A BYTE-IN-UNITS-OF-64, which was tried first and cost more
+; than the 14 bytes it saved: every consumer had to shift, and a shift by 6
+; wants CL, which is a register task_spawn does not have spare. Indexed by
+; slot*2 it shares sch_stkbase's own index, so the pair costs one `shl` between
+; them and the scan compares a request against a slot in one instruction.
+;
+; Slot 0 is in it for sch_stkbase's reason: a table with a hole in it is a
+; table every reader has to remember the hole in.
+; -----------------------------------------------------------------------------
+sch_stksize:
+%macro SCH_SLOT 1
+    dw %1
+%endmacro
+    dw STK0_SIZE                ; slot 0: the UI task's 1,024
+    SCH_PARTITION
+%unmacro SCH_SLOT 1
+
+; -----------------------------------------------------------------------------
+; sch_clsbytes - the CLASSES a package may ask for, by index (SPEC.md 8.7)
+;
+; A package declares one byte in its header (LD_H_CLASS) and this is what that
+; byte means. An INDEX rather than the size itself, for two reasons: a byte
+; cannot hold 384, and an index makes the set of legal answers a closed list
+; the kernel owns - so a package cannot ask for 200 and be given a slice that
+; does not exist, and the list can be re-cut without every package being wrong.
+;
+; INDEX 0 IS "NO OPINION" AND MEANS THE LARGEST, which is what makes the field
+; free to adopt: every package built before it has 0 there, and 0 gets exactly
+; the stack it always had.
+; -----------------------------------------------------------------------------
+sch_clsbytes:
+    dw SCH_STACK                ; 0: unspecified - the largest class
+    dw 128                      ; 1: a sleeper. The idle task, a C package
+    dw 192                      ;    whose worker only sleeps, a Timer, a
+    dw 256                      ;    Bounce, a driver's stream task
+    dw SCH_STACK                ; 4: the largest, asked for on purpose
+SCH_NCLASS  equ ($ - sch_clsbytes) / 2
 
 ; -----------------------------------------------------------------------------
 ; sch_switch - common switch path (module-internal)
@@ -2060,7 +2210,7 @@ sch_chstack: resb SCH_CHSTK             ; the ROM int 08h chain's own stack
                                         ; %error below is what proves that on
                                         ; every build rather than on this one
 %endif
-sch_stacks: resb (MAX_TASKS-1) * SCH_STACK ; slots 1..MAX_TASKS-1: slot n's stack
+sch_stacks: resb SCH_STK_TOTAL          ; slots 1..MAX_TASKS-1: slot n's stack
                                         ; top at n*SCH_STACK relative to
                                         ; sch_stacks, which is NOT offset 0
                                         ; of .lowbss (font_glyphs precedes

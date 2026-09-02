@@ -8519,6 +8519,86 @@ compute `sch_stacks + (n-1)*SCH_STACK` host-side. All four are correct while
 every slice is the same size, and all four are wrong the moment one is not — so
 they are the list to convert before, not after, a class scheme lands.
 
+### 8.7 Slot classes — a task asks for the stack it needs, and gets the smallest that fits
+
+Every background slice used to be `SCH_STACK` = 384 bytes, so seven slices cost
+2,688 bytes of `.lowbss` and the machine could run **six** workers at once (the
+idle task holds the seventh permanently). 384 is what the deepest tenant in the
+tree needs; it is 4× what most of them do. `docs/STACK-SLOTS-PLAN.md` §12 is the
+survey that measured all twenty.
+
+The slices are a **fixed partition** now, not a uniform array. `SCH_PARTITION`
+in `kernel/sched.inc` is one `SCH_SLOT <bytes>` line per background slot, in
+slot order, and it is the only place the layout is written:
+
+- **`sch_stkbase`** — one `dw` per slot, each slice's bottom (§8.6).
+- **`sch_stksize`** — one `dw` per slot, its size in bytes.
+- **`SCH_STK_TOTAL`** — what `sch_stacks` reserves.
+- **`SCH_STK_N`** — checked against `MAX_TASKS - 1`, so a list that does not
+  match the table is a build failure and not a silent short read.
+
+Both tables carry **slot 0**, the UI task, for §8.6's reason: a table with a
+hole in it is a table every reader has to remember the hole in.
+
+#### 8.7.1 Asking, and what happens when the answer is no
+
+`task_spawn` takes **CX = the stack the task wants, in bytes**, and its scan
+takes the first free slot at least that big. `SCH_PARTITION` is written smallest
+first, so **first fit is smallest fit**: a worker that wants 384 cannot be given
+the last small slice a Timer would have fitted into.
+
+**CX = 0 means the largest class.** A caller with no opinion says nothing and is
+safe, rather than silently asking for the smallest.
+
+Running out is the refusal that already exists: `OSAPI_TASK_SPAWN` answers CF=1,
+and §20.6 already requires every package to degrade on it and retry. There is no
+allocator, no compaction and no new failure mode — the slices exist from boot
+and never move.
+
+#### 8.7.2 Where a package says it
+
+**Byte +15 of the package header** (`LD_H_CLASS`), an index into the kernel's
+`sch_clsbytes`:
+
+| index | bytes | the tenant |
+|---|---|---|
+| 0 | *the largest* | said nothing |
+| 1 | 128 | a worker that sleeps and wakes |
+| 2 | 192 | most workers — the modal class |
+| 3 | 256 | a worker that draws through a deep chain |
+| 4 | *the largest* | asked for on purpose |
+
+**That byte padded the dispatcher to a word for three format versions and was
+always 0** — which is exactly why it could be given a meaning without moving the
+header version. An old package has 0 there and gets the stack it always had, so
+nothing has to be rebuilt to keep working, and `OSAPI_TASK_SPAWN`'s register
+contract does not change at all.
+
+An **index** rather than a size, for two reasons: a byte cannot hold 384, and an
+index makes the legal answers a closed list the kernel owns — a package cannot
+ask for 200 and be handed a slice that does not exist, and the list can be recut
+without every package becoming wrong. `ld_check_hdr` does **not** validate it:
+an out-of-range index gets the largest class and launches, where a refusal would
+be a hostile-input failure over a field nobody validated.
+
+`apps/os88api.inc` publishes `OS88_STACK_*` and `OS88_HEADER` takes the class as
+an optional 4th argument.
+
+#### 8.7.3 Where the kernel's own three say it
+
+A driver and the two kernel-side spawners have no header to declare in, so
+`sched.inc` names them, each against a measurement:
+
+| | bytes | why |
+|---|---|---|
+| `SCH_IDLE_STK` | 128 | the idle task's own footprint is ≤ 4 bytes (§8.1.2), so what it needs *is* the interrupt floor — 32 on QEMU, 40–64 on real iron |
+| `SCH_BUILTIN_STK` | 128 | Timer and Bounce are the built-in kinds that take a task; six Bounces at once measured +10…24 over the floor |
+| `SCH_DRV_STK` | 192 | the sound driver's stream task, the only driver worker in the tree, walks 28 bytes statically — 64 + 28 = 92, so 2.1× |
+
+`OSAPI_DRV_TASK` has exactly one caller in the whole tree, which is why one
+number serves every driver; a driver that needs more is a line here with a
+reason beside it, not a new mechanism.
+
 ## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 
 - **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both

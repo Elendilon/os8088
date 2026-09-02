@@ -240,17 +240,26 @@ sd_water:
     mov di, bx
     inc di
     inc di                      ; ...start above it
-    mov cx, SCH_STACK - 2
+    push si                     ; THIS SLICE's size, not SCH_STACK: since
+    xor ah, ah                  ; SPEC.md 8.7 the slices differ, and a reader
+    mov si, ax                  ; that assumes the largest walks off the end of
+    shl si, 1                   ; a small one into the next task's fill. AL is
+    mov cx, [si+sch_stksize]    ; still the slot - sd_slice_base preserves it
+    pop si                      ; and nothing since has written AX
+    push cx                     ; ...banked, for the top below
+    dec cx
+    dec cx
     mov al, SPB_CC
     cld
     repe scasb                  ; the first byte that is not the fill
+    pop cx
     jne .hit
     xor ax, ax                  ; nothing but fill: untouched
     jmp short .out
 .hit:
     dec di
     mov ax, bx
-    add ax, SCH_STACK           ; the slice top...
+    add ax, cx                  ; the slice top...
     sub ax, di                  ; ...less how far up the fill survived
     jmp short .out
 .none:
@@ -855,6 +864,11 @@ sd_start:
     push dx
     mov ax, sd_task
     xor bx, bx
+    mov cx, SCH_STACK           ; the largest class (SPEC.md 8.7): this task
+                                ; DRAWS the panel, so it is the deepest slice
+                                ; in the machine by design - and reading a
+                                ; floor off an instrument that had to refuse
+                                ; its own spawn would be worse than the bytes
     mov dx, 0x00FF
     call task_spawn
     jc .out

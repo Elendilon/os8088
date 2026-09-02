@@ -3049,6 +3049,11 @@ drv_task_x:
     jb .fail                    ; header - the ld_check_hdr test
     mov dl, 0xFF                ; DL -> T_INST: no instance (SPEC.md 8/28);
                                 ; DH is the caller's, and reaches the task
+    mov cx, SCH_DRV_STK         ; ...and the stack every driver worker gets
+                                ; (SPEC.md 8.7): a driver has no header to
+                                ; declare one in, so the kernel picks, and the
+                                ; number is cut from the only driver worker in
+                                ; the tree
     pushf
     cli                         ; count-then-spawn in one IF=0 window: counted
     inc byte [drv_wcnt]         ; BEFORE the task can run, so the count never
