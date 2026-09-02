@@ -147,6 +147,8 @@ the hypothesis it is. Someone should establish it before fixing it.
 
 ## B3. `os88layout.cold_span` measures `.cold` to EOF, and `.ovlw` sits after it
 
+**FIXED** (`e8e1110`). The span runs to `OVLW_START` now, and the two messages name what actually disagrees rather than telling the reader to rebuild a current build. Both rows pass, at 259.6s and 260.1s against a declared 60 — nobody knew what they cost because nobody had seen one finish, and the declared times are 300 now.
+
 **`dispcold` and `dispreboot`**, both:
 
 ```
@@ -180,6 +182,8 @@ very build minutes later. **A check whose failure message names the wrong cause
 is worse than one with no message.** Fix the message with the arithmetic.
 
 ## B4. The suite models TOOLS, not ARTEFACTS
+
+**FIXED** (`e8e1110`), including the half this entry did not see. `fdlggrey` and `sbar` ask for `build/muptest.img` now — verified by deleting it, after which both build it and pass. **And the helper that builds a fixture runs `make`**, which `t_registry` already requires a row to declare: THIRTEEN rows were calling it from the shareable emulator lane with `builds=False`, invisible because the detector looked for a quoted `make` at the head of an argv list and the literal is one level down. It keys on the import now.
 
 Three rows failed where they should have skipped, for one structural reason.
 `marty`, `qemu`, `nasm` and `cc` are capabilities a box either has or lacks, and
@@ -244,6 +248,8 @@ rather than pinning them serial for ever.
 
 ## B7. `trkrate` never calls `no_saver()`
 
+**FIXED** (`e8e1110`). `trkrate` passes in 106.2s. `blitcut` got the same call on `no_saver`'s own rule — it sits still for 240 HOST seconds, over thirteen guest minutes — and NOT on evidence that the saver is its current failure, which it is not. The other three are argued below and get nothing.
+
 ```
 os88marty.MartyError: the screen was still changing after 120s because
 SPEC.md 79's SCREEN SAVER IS RUNNING - [blk_on] is set.
@@ -265,12 +271,16 @@ cost one `Read`.
 
 ## B8. `tests/sbar.py` has three unguarded `live[-1]`
 
+**FIXED** (`e8e1110`). One guarded reader, naming the step that lost the window.
+
 Found while fixing `deskbench`'s crash of exactly that shape. `sbar` builds a
 window list and indexes `[-1]` three times with no emptiness check, so a window
 that fails to open dies with `IndexError` rather than a sentence. Not currently
 failing; cheap to make legible.
 
 ## B9. A failing QEMU row leaks its emulator, and an unrelated row pays
+
+**FIXED** (`a472b8e`). `tests/os88qemu.py` is the teardown written once; every one of the thirteen launchers registers it at its launch site, and `tests/unit/t_qemuown.py` in the fast tier keeps that true. Verified end to end: `trkscrl` FAILS, nothing survives it, and `ps2mouse` — the row the leak broke — passes straight afterwards.
 
 Found by the PRE-MERGE GATE rather than by the soak, which is why it is here.
 `make test-full` on the merge failed `ps2mouse`:
@@ -395,7 +405,8 @@ away. `weavesmoke._shot` is the family's helper.
 | a missing `no_saver()` call (B7) | 1 — `trkrate` |
 | found by the pre-merge gate, not the soak (B9) | 1 — a leaked QEMU breaking `ps2mouse` |
 | fixed during the pass | 3 — `deskbench`, and `weavegame`/`wireflick`'s registrations |
-| **left open here** | **13** |
+| **fixed since, in this queue** | **5** — B3, B4, B7, B8, B9 |
+| **left open** | **10** — A1–A4, B1, B2, B5, B6, C1, C2 |
 
 **The one lesson, and it is one lesson.** Not one of these was a check that
 failed. Every expensive hour went to a check that **passed for the wrong
