@@ -739,7 +739,14 @@ in docs/TESTING.md, per capability.
   `setup-cc.sh` + `cc8086.py` (the C toolchain's fetch and its gate, §73);
   `stkwater.py`/`stkdepth.py` (how deep a task stack HAS been, and which
   call chain took it there - docs/KERNEL-MEMORY.md's "Task stacks");
-  `kfzread.py` (the KFZ heartbeat out of a field screenshot).
+  `kfzread.py` (the KFZ heartbeat out of a field screenshot);
+  `os88ladder.py` (the interactive BOOT LADDER page - every discrete
+  move of memory from reset to the first desktop frame, with the
+  timeline each one costs. **ON DEMAND: nothing in `make` runs it**,
+  because it boots the tree under MartyPC through forty breakpoints and
+  that is minutes. So the page it wrote goes STALE, and
+  `--selfcheck` - a second, no emulator - is what says whether the model
+  still describes the tree. Run that first, always).
 - `docs/` — the maintained accounts. `*-PLAN.md` are design records for work
   that has landed; `FIELD-NOTES.md`/`FIELD-MACHINES.md` are what real hardware
   said.
