@@ -250,6 +250,10 @@ tk_input:
     cmp al, 'n'
     je .new
     cmp al, 'N'
+    je .new
+    cmp al, 'g'
+    je .aimmode
+    cmp al, 'G'
     jne .keys
 .new:
     mov byte [tk_over], 0
@@ -265,6 +269,21 @@ tk_input:
 .quit:
     mov byte [tk_quit], 1
     jmp .done
+
+.aimmode:                           ; SPEC.md 85.6.5: cycle the aim assist. It
+    mov al, [tk_aimi]               ; is a PROTOTYPE behind a key and OFF is
+    inc al                          ; the default, so nothing here changes the
+    cmp al, TK_NAIM                 ; game until somebody presses G
+    jb .aimset
+    xor al, al
+.aimset:
+    mov [tk_aimi], al
+    xor ah, ah
+    mov bx, ax
+    mov al, [tk_aimset + bx]
+    mov [tk_aim], al
+    mov word [tk_aimt], TK_AIMBAN
+    jmp .keys
 
 ; THE HELD KEYS ARE LATCHED HERE AND SPENT ON THE TICK (SPEC.md 85.6.4).
 ; They used to be applied right here, once per FRAME, while the world stepped
@@ -343,15 +362,232 @@ tk_input:
 tk_pmove:
     push ax
     push bx
-    mov al, [tk_kturn]
-    add [tk_pa], al
+    push cx
+    push dx
+    cmp word [tk_aimt], 0           ; the mode banner is spent on the tick like
+    je .turn                        ; everything else (SPEC.md 85.6.5.1)
+    dec word [tk_aimt]
+.turn:
+    call tk_turnstep                ; DX = what this step turns, in 1/256ths
+    or dx, dx
+    jz .drive
+    call tk_lockstep                ; ...which LOCK may replace outright
+    add [tk_paf], dl                ; the heading is 8.8 now (SPEC.md 85.6.5.4)
+    adc [tk_pa], dh                 ; and tk_pa is still the byte
+.drive:
     mov bx, [tk_kdrv]
     or bx, bx
     jz .out
     call tk_drive
 .out:
+    pop dx
+    pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tk_turnstep - what this step turns, in 1/256ths of an angle unit, signed
+; out: DX = it.  clobbers AX, BX
+;
+; With no ramp this is the latched TK_TURN shifted up a byte and nothing else,
+; so AIM OFF moves tk_pa by exactly the two units a tick SPEC.md 85.6.4 settled
+; on. FINE replaces the amount and not the path (SPEC.md 85.6.5.4).
+; -----------------------------------------------------------------------------
+tk_turnstep:
+    mov al, [tk_kturn]
+    cbw
+    or ax, ax
+    jnz .live
+    mov byte [tk_khold], 0          ; released: the next press taps again
+    xor dx, dx
+    ret
+.live:
+    mov bl, 1
+    jns .dir
+    mov bl, -1
+.dir:
+    cmp bl, [tk_kdir]               ; A REVERSAL IS A FRESH PRESS - the ramp is
+    je .held                        ; about the hand and not about the heading
+    mov [tk_kdir], bl
+    mov byte [tk_khold], 0
+.held:
+    test byte [tk_aim], TK_AS_FINE
+    jnz .ramp
+    mov dh, al                      ; whole units a tick, as a 8.8 fraction:
+    xor dl, dl                      ; the sign rides in the byte
+    ret
+.ramp:
+    mov bl, [tk_khold]
+    xor bh, bh
+    cmp bl, TK_NRAMP                ; the table HOLDS at its last entry, which
+    jb .in                          ; is TK_TURN, so a hold is unchanged
+    mov bl, TK_NRAMP - 1
+    jmp short .idx
+.in:
+    inc byte [tk_khold]
+.idx:
+    shl bx, 1
+    mov dx, [tk_ramp + bx]
+    or ax, ax                       ; the table is unsigned; the latch's sign
+    jns .out                        ; is what says which way
+    neg dx
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; tk_lockstep - LOCK: a sweep about to cross a tank lands ON it (85.6.5.3)
+; in:  DX = this step, in 1/256ths;  out: DX = it, or what centres the sights
+; clobbers AX, BX, CX
+;
+; THE WINDOW IS AN ANNULUS AND NOT A DISC. A disc contains the target just
+; centred on, so the next step centres on it again and a held key sticks to the
+; first tank for ever - the sweep could never be carried past it to the second.
+; Between one step and two: further ahead than this step lands centred, and the
+; one already under the sights is left alone.
+; -----------------------------------------------------------------------------
+tk_lockstep:
+    test byte [tk_aim], TK_AS_LOCK
+    jz .off
+    push si                         ; tk_besttarget spends both, and tk_pmove
+    push di                         ; keeps neither: pay for them HERE, so an
+    mov ax, dx                      ; OFF build pays nothing at all
+    or ax, ax
+    jns .p
+    neg ax
+.p:
+    mov cl, 6
+    shr ax, cl                      ; AX = |the step|, in quarter units
+    jz .out                         ; under a quarter unit it crosses nothing
+    mov [tk_lockr], ax              ; ...and that is the inner edge
+    shl ax, 1                       ; the outer one is two steps ahead
+    mov [tk_locks], dx
+    call tk_besttarget
+    mov dx, [tk_locks]
+    jc .out
+    mov bx, ax
+    or ax, ax
+    jns .a
+    neg ax
+.a:
+    cmp ax, [tk_lockr]              ; already inside one step: we are on it, so
+    jle .out                        ; the sweep carries on past
+    mov ax, bx
+    xor ax, dx                      ; ...and it must lie the way we are TURNING
+    js .out
+    mov dx, bx
+    mov cl, 6
+    shl dx, cl                      ; quarter units -> 1/256ths
+.out:
+    pop di
+    pop si
+.off:
+    ret
+
+; -----------------------------------------------------------------------------
+; tk_aimerr - how far off the sights the object in slot BX (a slot x 2) is
+; in:  BX = slot x 2, [tk_csin]/[tk_ccos] set for the CURRENT heading
+; out: CF=0 and AX = the error in QUARTER angle units, positive when the target
+;      is to the right, so tk_pa + AX/4 points at it; CF=1 not shootable
+; clobbers CX, DX, SI, DI.  preserves BX
+;
+; NO ARCTANGENT HERE EITHER, and this one does not need SPEC.md 85.6's cross
+; product: tk_objcam_raw already has the pair the projection divides, and over
+; the few units either side of the sights that anything asks about, THE ANGLE
+; IS ITS TANGENT. ocx/ocz = tan(err) and one unit is tan(1u) = 402/16384 -
+; tk_sintab's own first entry - so err = 40.756 * ocx/ocz. In quarters, because
+; a quarter is the ramp's step and a whole unit's rounding would cost a third
+; of the window at the shell's longest reach (SPEC.md 85.6.5.2).
+; -----------------------------------------------------------------------------
+tk_aimerr:
+    call tk_objcam_raw
+    mov cx, [tk_ocz]
+    cmp cx, TK_NEARZ                ; behind us, or close enough to ram
+    jl .no
+    cmp cx, TK_FARZ
+    jg .no
+    mov ax, [tk_ocx]                ; ...and inside 45 degrees, which is what
+    or ax, ax                       ; bounds the quotient at 163 and so the
+    jns .abs                        ; idiv itself. Everything this is asked
+    neg ax                          ; about is within a few units of the sights
+.abs:
+    cmp ax, cx
+    jg .no
+    mov ax, [tk_ocx]
+    mov si, TK_ERRK
+    imul si                         ; DX:AX, because ocx*163 leaves 16 bits
+    idiv cx
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; tk_besttarget - the live tank nearest the sights, if one is inside AX
+; in:  AX = the half-window, in quarter units, inclusive
+; out: CF=0 and AX = that tank's error in quarter units; CF=1 none
+; clobbers AX, BX, CX, DX, SI, DI
+;
+; It takes the camera's own sine and cosine first, because LOCK asks this in
+; the middle of a step and tk_camsetup last ran a frame and a heading ago.
+; -----------------------------------------------------------------------------
+tk_besttarget:
+    call tk_camsetup
+    mov [tk_aimw], ax
+    mov word [tk_aimb], 0x7FFF
+    mov bx, TK_NSTAT * 2            ; the scenery owns the first TK_NSTAT slots
+    mov cx, TK_NOBJ - TK_NSTAT      ; and tk_findfree's rule holds here too
+.o:
+    push cx
+    push bx
+    mov si, bx
+    shr si, 1
+    cmp byte [tk_otype + si], OT_TANK
+    jne .n
+    call tk_aimerr
+    jc .n
+    mov dx, ax
+    or ax, ax
+    jns .p
+    neg ax
+.p:
+    cmp ax, [tk_aimw]
+    jg .n
+    cmp ax, [tk_aimb]
+    jge .n
+    mov [tk_aimb], ax
+    mov [tk_aimq], dx
+.n:
+    pop bx
+    add bx, 2
+    pop cx
+    loop .o
+    cmp word [tk_aimb], 0x7FFF
+    je .none
+    mov ax, [tk_aimq]
+    clc
+    ret
+.none:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; tk_qround - AX = an error in quarter units; out AL = it in whole ones, ROUNDED
+; -----------------------------------------------------------------------------
+tk_qround:
+    or ax, ax
+    jns .p
+    neg ax
+    add ax, 2
+    sar ax, 1
+    sar ax, 1
+    neg ax
+    ret
+.p:
+    add ax, 2
+    sar ax, 1
+    sar ax, 1
     ret
 
 ; -----------------------------------------------------------------------------
@@ -838,7 +1074,17 @@ tk_fire:
     je .out
     inc si
     loop .s
-    mov al, [tk_pa]
+    mov al, [tk_pa]                 ; SNAP (SPEC.md 85.6.5.1): a tank inside the
+    mov [tk_aimh], al               ; brackets IS what the player is aiming at,
+    test byte [tk_aim], TK_AS_SNAP  ; so the shell leaves at its bearing rather
+    jz .have                        ; than at the hull's - which is the only
+    mov ax, TK_RETQ                 ; thing that makes a distant one hittable at
+    call tk_besttarget              ; all on a machine whose sweep steps over
+    jc .have                        ; the whole window
+    call tk_qround
+    add [tk_aimh], al
+.have:
+    mov al, [tk_aimh]
     call tk_sincos                  ; AX = sin, BX = cos
     mov cx, bx
     mov bx, 250                     ; out of the barrel, not out of the eye
@@ -854,7 +1100,7 @@ tk_fire:
     and ax, TK_WMASK
     mov [tk_sz], ax
     mov al, OT_SHELL
-    mov ah, [tk_pa]
+    mov ah, [tk_aimh]
     call tk_spawnshell
     mov ax, 900                     ; the muzzle report
     mov cx, 2
@@ -1339,6 +1585,7 @@ tk_hud:
     call tk_scores
     call tk_livesbar
     call tk_range
+    call tk_aimtag
 
     cmp byte [tk_dead], 0
     je .done
@@ -1574,6 +1821,30 @@ tk_livesbar:
     jnz .l
 .out:
     pop bx
+    ret
+
+; tk_aimtag - which assist is live (SPEC.md 85.6.5.1), top left of the panel.
+;
+; DRAWN ONLY WHEN THERE IS SOMETHING TO SAY. The banner is up while the mode is
+; not OFF, and for two seconds after any press of G so that cycling back TO OFF
+; says so too - which leaves the CONTROL arm costing exactly no glyphs. A mode
+; that paid eight a frame more than the thing it is being judged against would
+; not be being judged fairly, and on a 4.32 fps adapter that is not a rounding
+; error.
+tk_aimtag:
+    cmp byte [tk_aim], 0
+    jne .draw
+    cmp word [tk_aimt], 0
+    je .out
+.draw:
+    mov bl, [tk_aimi]
+    xor bh, bh
+    shl bx, 1
+    mov si, [tk_aimnam + bx]
+    mov cx, 8
+    mov dx, [tk_txy]
+    call tk_text
+.out:
     ret
 
 ; ENEMY IN RANGE: a tank in front of us and inside a shell's reach. It is the
