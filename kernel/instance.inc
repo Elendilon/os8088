@@ -1384,7 +1384,25 @@ app_launch:
     cmp cl, [si+KD_CAP]
     jb .alloc
 
-    call inst_find_kind         ; at cap: front the live instance instead
+    ; --- AT THE CAP (SPEC.md 29.4.1) ----------------------------------------
+    ; Fronting the existing instance instead of making a new one is SINGLETON
+    ; semantics, and only a singleton has them. "Open About" twice means show
+    ; me About, and there is one About; "open Bounce" for the eleventh time
+    ; means make me another, and fronting one of the ten already there is not
+    ; that - it is indistinguishable from nothing happening, which is exactly
+    ; how the field reported it. So a cap above one REFUSES, and ui_cmd turns
+    ; the CF into snd_beep (SPEC.md 34.3), which is what this file's caller
+    ; already believed happened.
+    ;
+    ; It reaches Timer and Bounce and nothing else: About and the Control
+    ; Panel are cap 1, and a Disk window never gets here because fm_choose
+    ; counts FM_MAXWIN itself and moves the frontmost window instead
+    ; (SPEC.md 22.1) - a documented no-failure path that this must not
+    ; disturb.
+    cmp byte [si+KD_CAP], 1
+    ja .failj
+
+    call inst_find_kind         ; a true singleton: front the live one instead
     jc .failj                   ; only dying ones exist: retry later
     call gfx_lock
     call inst_restore           ; un-minimize and show, THE one copy of it -

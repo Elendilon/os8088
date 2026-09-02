@@ -2085,9 +2085,15 @@ ui_grow:
 ;
 ; NOT called before a popup (§12.4) or from menu_relayout: this list is only
 ; ever read while a menu is dropping, and one call site is one thing to keep
-; right. The tables-full refusals below (Timer, Bounce, Disk at the instance
-; cap) stay beeps - MAX_TASKS is 12, a user reaches it about never, and the
-; predicate is per-kind rather than one word.
+; right. The tables-full refusals below (Timer and Bounce at their cap of ten)
+; stay beeps rather than greying, because the predicate is per-kind rather than
+; one word - and they ARE beeps now, which is a correction to what this
+; paragraph used to assert. app_launch fronted an existing instance at ANY cap
+; and answered CF=0, so a multi-instance kind at its cap did nothing, said
+; nothing and made nothing (SPEC.md 29.4.1). Nobody could see it until the slot
+; classes gave the machine enough workers to reach a cap of ten at all: on six
+; slices the seventh Bounce failed on the TASK table, which really did beep.
+; Disk is not in the list - fm_choose counts FM_MAXWIN itself (§22.1).
 ; -----------------------------------------------------------------------------
 ui_loc_gate:
     push ax
