@@ -270,6 +270,31 @@ window list and indexes `[-1]` three times with no emptiness check, so a window
 that fails to open dies with `IndexError` rather than a sentence. Not currently
 failing; cheap to make legible.
 
+## B9. A failing QEMU row leaks its emulator, and an unrelated row pays
+
+Found by the PRE-MERGE GATE rather than by the soak, which is why it is here.
+`make test-full` on the merge failed `ps2mouse`:
+
+```
+qemu-system-i386: Failed to get "write" lock
+Is another process using the image [build/os8088.img]?
+```
+
+Two `qemu-system-i386` processes were still alive, **five hours old**, both
+mounting `build/trkscrl.img` — left by the `trkscrl` classification runs of A1.
+`ps2mouse` passed the moment they were killed. So a row that FAILS can leave its
+emulator holding `build/os8088.img`, and the bill lands on an unrelated row much
+later, wearing a message about the wrong subject.
+
+CLAUDE.md documents the stale-QEMU trap from the other end — a previous
+session's instance still answering on `build/qmp.sock` and serving the OLD
+kernel, which reads exactly like a change that did nothing. Same leak, different
+symptom.
+
+**The fix belongs in the row, not the runner**: a QEMU row must tear its
+instance down on the failure path as well as the success path. Worth one sweep
+of every `qemu-system` launcher under `tests/` for a `finally`.
+
 ---
 
 # C. Measurement and documentation
@@ -368,8 +393,9 @@ away. `weavesmoke._shot` is the family's helper.
 | pre-existing, identical at both ends | 4 — `trkscrl`, `dispcheck`, `dispcold`, `dispreboot` |
 | missing artefact or registration (B4) | 3 — `weavegame`, `wireflick`, `fdlggrey` |
 | a missing `no_saver()` call (B7) | 1 — `trkrate` |
+| found by the pre-merge gate, not the soak (B9) | 1 — a leaked QEMU breaking `ps2mouse` |
 | fixed during the pass | 3 — `deskbench`, and `weavegame`/`wireflick`'s registrations |
-| **left open here** | **12** |
+| **left open here** | **13** |
 
 **The one lesson, and it is one lesson.** Not one of these was a check that
 failed. Every expensive hour went to a check that **passed for the wrong
