@@ -2714,7 +2714,7 @@ dskw_apbody:
     mov cx, [dskw_len]          ; ...and arm the widget the same way, so a
     mov dx, [dskw_lenhi]        ; file-manager copy reports chunk by chunk
     call KERNEL_SEG:fpg_begin
-    mov word [dskw_zapnext], 0
+    mov byte [dskw_zapnext], 0
 
     call dskw_wdata             ; the new sub-chain, allocated and written
     jc .rollback
@@ -4744,6 +4744,13 @@ dskw_fend:    resb 1            ; 1 = that free slot is the 00h terminator
 dskw_new:     resb 1            ; 1 = this write is creating the entry
 dskw_zapnext: resb 1            ; 1 = re-zero the slot after the one written
 dskw_pad2:    resb 1            ; (dskw_isdir is NOT here - see .text above)
+                                ; PURE PADDING as of this commit, and it
+                                ; was not before: :2717 was the one
+                                ; `mov word [dskw_zapnext], 0` of six
+                                ; stores, so a neighbour's WORD store
+                                ; was zeroing this byte and the pad was
+                                ; load-bearing by accident. All six are
+                                ; `mov byte` now. Nothing reads it.
 
 ; --- the transfer in progress -------------------------------------------------
 dskw_seg:     resw 1            ; the caller's buffer segment (ES at entry),

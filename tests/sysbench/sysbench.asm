@@ -1524,18 +1524,27 @@ sb_mbx:
 ; SPEC.md 39.12's context record, mirrored from kernel/vidsel.inc. Rule 3 of
 ; SPEC.md 57.3 as written: a block may change shape whenever its owner does,
 ; as long as the READERS change with it, and there are none outside this tree.
-; The first three are inside the eighteen-word run - which is the live block's
+; The first five are inside the VCTX_W-word run - which is the live block's
 ; own order, so they are viddet.inc's layout twice removed - and the last
 ; three are the fields hung off the end of it.
+;
+; THOSE THREE ARE DERIVED, not written down: vidsel.inc spells them
+; `VID_CTX_W*2`, `+2` and `+4`, so a word added to the run moves all three at
+; once. They were typed as 36/38/40 against a run that had been 19 words since
+; SPEC.md 6.1.10 added vid_tseg, which read each field one word early. Nothing
+; catches it - t_mirror walks kernel/, boot/ and apps/, os88geom.scan walks
+; .py, and an .asm under tests/ is outside both - so if VID_CTX_W moves again,
+; VCTX_W here and in tests/gfxbench are the two lines to move with it.
+VCTX_W      equ 19              ; == kernel/vidsel.inc's VID_CTX_W
 VCTX_SEG    equ 0               ; vid_seg:    the framebuffer
 VCTX_STRIDE equ 2               ; vid_stride: bytes from a row to the row one
                                 ;             bank down
 VCTX_BMASK  equ 4               ; vid_bmask:  y & this = the bank, so banks-1
 VCTX_CW     equ 14              ; vid_cw / vid_ch: THIS DISPLAY's extent, not
 VCTX_CH     equ 16              ; the desktop's (SPEC.md 39.2.1)
-VCTX_VX     equ 36              ; ...and its origin in the virtual desktop
-VCTX_VY     equ 38
-VCTX_KIND   equ 40              ; ...and which adapter it is
+VCTX_VX     equ VCTX_W*2        ; ...and its origin in the virtual desktop
+VCTX_VY     equ VCTX_W*2+2
+VCTX_KIND   equ VCTX_W*2+4      ; ...and which adapter it is
 
 ; -----------------------------------------------------------------------------
 ; sb_video - what SPEC.md 39 arranged, and on which cards (39.19, 57.4's 'VD')

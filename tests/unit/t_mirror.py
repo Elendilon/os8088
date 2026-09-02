@@ -98,6 +98,17 @@ ASM = ["kernel/kernel.asm", "kernel/splash.inc", "boot/boot.asm",
        # already promises this row keeps them honest, and until now it did
        # not name either file.
        "drivers/net/netpkg.inc", "drivers/ether/tcp.inc",
+       # The XMS store's private ABI (SPEC.md 41.12.2): the six verb numbers
+       # a caller passes in AL, the six caps-block offsets it reads the
+       # answer out of, and XM_ABI_VER, all typed out in the kernel AND in
+       # the driver because a driver cannot %include a kernel header - the
+       # same shape as drivers/saver above. It is the WORST of them to leave
+       # unwatched, because SPEC.md 41.12.4 makes the whole subsystem silent
+       # BY DESIGN: a drifted XMV_* is a wrong index into drv_call's service
+       # table, so the driver far-calls the wrong verb or a word straddling
+       # two entries, and the kernel's answer to every xmem failure is to
+       # carry on with no store and tell nobody.
+       "kernel/xmem.inc", "drivers/xmem/xmem.asm",
        # apps/c64 is a C package whose assembly half and C half type the same
        # constants out twice (docs/C64-SPEC.md, its memory and screen
        # sections): the core's scratch offsets, the composer's band stride.

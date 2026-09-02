@@ -6847,7 +6847,30 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ;    The mount-owned window is the one term that is a LABEL as much as a size:
 ;    it is `Disk bufs` on the screen, so it has to stay the three buffers of
 ;    SPEC.md 2.1.2 and not drift back into meaning "the rest of .lowbss".
-%if SKB_DSK != DSK_WIN_BYTES
+;
+;    IT IS COMPARED AGAINST AN INDEPENDENT RECOMPUTATION OF THOSE THREE, and
+;    not against DSK_WIN_BYTES. This read `%if SKB_DSK != DSK_WIN_BYTES` for
+;    the life of the tree, and the SKB_ block above defines SKB_DSK as `equ
+;    DSK_WIN_BYTES` - so it was `X != X` and no edit could make it true. The
+;    exact drift it was written for went straight through it: a fourth `resb`
+;    between dsk_win_base and dsk_win_end grows DSK_WIN_BYTES, SKB_DSK
+;    follows it, and both sides move together. A guard that cannot fail is
+;    not a weak guard, it is an absent one that reads as present.
+;    THE 512 IS A LITERAL ON PURPOSE: spelling it as a symbol that also sizes
+;    dsk_secbuf puts the same tautology back one level down.
+;    WHAT IT CATCHES (each broken on purpose): a fourth buffer inside the
+;    window, a resized dsk_secbuf, a buffer moved out of it, and padding
+;    inserted between two of them.
+;    WHAT IT STILL MISSES, said rather than assumed: a SAME-SIZE substitution
+;    - one buffer swapped for another of the same length, which leaves the
+;    row's arithmetic right and its LABEL wrong - and a change to DSK_NENT,
+;    DSK_DE_STRIDE or DSK_ICO_SIZE themselves, since both sides are written
+;    in terms of those three and move together. Elsewhere: dskwin.inc bounds
+;    DSK_DE_STRIDE at both ends and files.inc's FS_IOFH `%if` requires
+;    nmax*DSK_DE_STRIDE to be a multiple of 256, which constrains DSK_NENT
+;    too - but DSK_ICO_SIZE has NOTHING, and halving it to 32 assembles this
+;    whole kernel without a word from any guard in the tree.
+%if SKB_DSK != DSK_NENT*DSK_DE_STRIDE + DSK_NENT*DSK_ICO_SIZE + 512
 %error "sys_kb: the Disk bufs row is no longer the mount-owned window (SPEC.md 2.1.2)"
 %endif
 ;

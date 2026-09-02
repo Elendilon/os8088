@@ -811,6 +811,19 @@ def main():
     # dual-entry routine are both legitimate and neither is this rule's
     # business.  An INDIRECT call (`call bx`, a `dw` table) is invisible here
     # exactly as it is to the near-call check, and stays a review rule.
+    #
+    # A ROUTINE THAT ENDS ON THE SHARED EPILOGUE LADDER STILL RETURNS.  The
+    # ladder (kernel.asm, `kret_*` in .text, `kretc_*`/`kretfc_*` in .cold) is
+    # reached by a tail `jmp`, so its rungs' `ret`/`retf` sit outside the
+    # routine's extent and RETI saw nothing at all: 140 routines in kernel/
+    # reach a rung and 135 of them were UNCLASSIFIED, which is neither arm of
+    # the rule firing rather than the rule passing.  LADJ reads the rung's own
+    # name - `kretfc_*` is the far ladder and returns `retf`, `kret_*` and
+    # `kretc_*` are the near ones - so a converted routine keeps exactly the
+    # coverage its `ret` had.  Nothing else about the ladder is this rule's
+    # business: the DEPTH is `tools/stkbalance.py` and the pop ORDER is
+    # `t_asmrules.crossed_pops`, and neither of those can see a return KIND.
+    LADJ = re.compile(r'^\s*jmp\s+(kretf?c?_[a-z]{2})\s*(?:;.*)?$', re.I)
     RETI = re.compile(r'^\s*(?:[A-Za-z_.]\w*:\s*)?(ret|retf|retn|iret)\b', re.I)
     TOPL = re.compile(r'^([A-Za-z_]\w*):')
     FARC = re.compile(r'\bcall\s+(?:far\s+)?\w+\s*:\s*([A-Za-z_]\w*)')
@@ -840,6 +853,10 @@ def main():
             r = RETI.match(line)
             if r and cur:
                 seen.add(r.group(1).lower())
+            l = LADJ.match(line)
+            if l and cur:
+                seen.add('retf' if l.group(1).lower().startswith('kretfc_')
+                         else 'ret')
         if cur:
             rets.setdefault(cur, []).append(seen)
 

@@ -219,12 +219,39 @@ ld_check_hdr:
 .imgok:
     mov [ld_img], ax
     mov dx, [si+LD_H_BSS]
-    cmp dx, APP_MAX_SIZE
-    ja .toobig
-    mov [ld_bss], dx
-    add dx, ax                              ; img+bss <= 0x1E000: no wrap
-    cmp dx, APP_MAX_SIZE
-    ja .toobig
+    mov [ld_bss], dx                        ; stored BEFORE the fence, which is
+                                            ; free: both readers of [ld_bss]
+                                            ; (step 4's `add ax` and step 7's
+                                            ; `mov cx`) sit downstream of a
+                                            ; `jc` on this routine, so a
+                                            ; refused value is never read
+    add dx, ax                              ; THE CARRY IS THE WHOLE FENCE.
+    jc .toobig                              ; Each operand is separately <=
+                                            ; APP_MAX_SIZE = 0xF000, so the sum
+                                            ; reaches 0x1E000 and that is 17
+                                            ; BITS: this line used to read
+                                            ; `img+bss <= 0x1E000: no wrap`,
+                                            ; which is the bug written down as
+                                            ; its own proof. img = 0xF000 with
+                                            ; bss = 0x1001 wraps to 1, passes
+                                            ; the compare below, sizes a ONE
+                                            ; KILOBYTE claim at step 4 and then
+                                            ; reads 61,440 bytes into it at
+                                            ; step 6 - 60,416 bytes through
+                                            ; whatever mem_claim_hi placed
+                                            ; under it, which is a resident
+                                            ; package's CODE, top-down. Every
+                                            ; byte off a disk is hostile
+                                            ; (SPEC.md 19) and os88pkg.py is
+                                            ; not a gate on a foreign .O88.
+                                            ; SPEC.md 21 states this bound as
+                                            ; an invariant twice ("never a
+                                            ; neighbour's region") and the
+                                            ; carry is what makes it true.
+    cmp dx, APP_MAX_SIZE                    ; ...and the bss-alone test that
+    ja .toobig                              ; used to sit above is implied by
+                                            ; this one: image >= LD_HDR_SIZE,
+                                            ; so bss < APP_MAX_SIZE follows
     mov ax, [si+LD_H_ENTRY]
     cmp ax, LD_HDR_SIZE
     jb .bad
@@ -579,13 +606,24 @@ ld_run_body_x:
 
     ; --- 4. size the allocation -------------------------------------------------
     mov ax, [ld_img]            ; need = roundup512(img + bss)
-    add ax, [ld_bss]
-    add ax, 511                 ; <= 0xF000 + 511: no 16-bit overflow
+    add ax, [ld_bss]            ; <= APP_MAX_SIZE, and NOW that is enforced:
+    add ax, 511                 ; ld_check_hdr's `jc` above is what makes both
+                                ; of these adds overflow-free, so `<= 0xF000 +
+                                ; 511: no 16-bit overflow` is a fact rather
+                                ; than the assumption it was
     and ax, 0FE00h              ; ...and down to the 512 boundary. `>>9 <<9`
                                 ; through CL is the same operation in six
                                 ; bytes instead of three, and clobbers CL
-    cmp ax, APP_MAX_SIZE
-    ja .big2
+                                ;
+                                ; NO SECOND BOUND TEST, and no `.big2`: with
+                                ; the fence repaired this value is at most
+                                ; 0xF000 by construction, so `cmp ax,
+                                ; APP_MAX_SIZE / ja .big2` was code that
+                                ; could not run. It was also the one exit
+                                ; here reached by a `ja` rather than a `jc`,
+                                ; so it answered CF=0 with AL = LD_EBIG -
+                                ; harmless only because loader_run reads AL
+                                ; and never the flag
     mov [ld_need], ax
 
     ; --- 5. reserve an instance record + a pool region -------------------------
@@ -627,9 +665,6 @@ ld_run_body_x:
 .disk1:
     mov al, LD_EDISK
 .ret1:
-    ret
-.big2:
-    mov al, LD_EBIG
     ret
 .nomem:
     mov al, LD_ENOMEM
