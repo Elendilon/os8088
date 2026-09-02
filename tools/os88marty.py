@@ -1675,6 +1675,65 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None):
         "pass boot=<seconds> instead)." % limit)
 
 
+# HOW MANY TIMES DID ONE GESTURE REACH A ROUTINE? Two tests wrote this loop by
+# hand and BOTH of them counted stops that never happened. It is here now, so
+# the next one inherits the two fixes rather than the bug.
+def bp_count(m, target, act, arm=0.6, quiet=3.0, first=14.0, limit=120.0):
+    """Run `act()` and count the DISTINCT breakpoint stops at `target`.
+
+        n = os88marty.bp_count(m, "wm_anim", lambda: (mo.click(x, y),
+                                                      m.advance(frames=400),
+                                                      m.run()))
+
+    `target` is anything `bp_exec` takes - a kernel symbol or a flat address.
+    The breakpoint stops the guest, so `act` cannot be the thing pumping it:
+    it runs on a daemon thread `arm` seconds in, and this loop resumes the
+    guest and counts until the gesture is done AND nothing has stopped for
+    `quiet` seconds (`first` seconds if nothing ever stopped). The breakpoints
+    are cleared and the guest is left RUNNING. `cmd()` is atomic, so the two
+    threads on one socket cannot cross replies (see its docstring).
+
+    **IT COUNTS `breakpoint` AND NOT "anything but running".** The driving
+    thread's own `advance(frames=)` PAUSES the guest, and a poll landing in
+    that window reads a state that is not "running": counted, it is an entry
+    that never happened, and resumed, it is the gesture's own `advance` cut
+    short from another thread. `stopped()` above deliberately covers both
+    states and is the wrong test here for exactly that reason - a wait wants
+    either, a COUNT wants one.
+
+    **AND IT DEDUPES ON `instructions`.** `run()` and the `status()` after it
+    are two round trips and the resume has not always landed by the second, so
+    one stop is reported twice. A stop's instruction count is the guest's own
+    clock and cannot repeat, so it tells a repeat report from a second entry
+    and hides nothing real, because a real second entry has advanced it.
+
+    Both defects put their spare stop in whichever gesture was running, which
+    in an A/B is a false failure of whichever half is meant to answer zero.
+    tests/alertanim.py is where they were found and measured; tests/alertbtn.py
+    had carried both since it was written, asserting an EXACT count of 1.
+    """
+    seen, done = set(), []
+    m.bp_exec(target)
+    threading.Thread(target=lambda: (time.sleep(arm), act(), done.append(1)),
+                     daemon=True).start()
+    t0, last = time.time(), None
+    while time.time() - t0 < limit:
+        st = m.status()                 # ONE call: the guest is stopped, so a
+        if st.get("state", "running") == "breakpoint":   # second would be a
+            seen.add(st.get("instructions"))             # round trip for the
+            last = time.time()                           # same answer
+            m.run()
+            continue
+        if done and last is not None and time.time() - last > quiet:
+            break
+        if done and last is None and time.time() - t0 > first:
+            break
+        time.sleep(0.05)
+    m.breakpoints([])
+    m.run()
+    return len(seen)
+
+
 # Wait for a machine that is BUSY WITHOUT DRAWING: anything holding the gfx
 # lock for its whole run. `settle` cannot see that work at all - it watches
 # pixels, and there are none - so ask about the thing being waited for.

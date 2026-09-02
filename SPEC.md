@@ -13398,12 +13398,21 @@ that showed: it decodes the range, prints `WinSave`, and cannot say *whose* —
 so several tens of KB of a 640KB machine appear on the one page that reports
 memory as an anonymous row under **System**, whoever actually caused it.
 
-`OSAPI_WM_OWNSEG` (slot 0x04D8) is the door. `AL` is a window slot; `CF = 1`
+`OSAPI_WM_OWNSEG` (slot **0x04E0**) is the door. `AL` is a window slot; `CF = 1`
 means no live window is in it, and otherwise `DX` is the segment that owns it —
 `[W_SEG]`, or `KERNEL_SEG` when that word is 0, which is what a window the
 kernel itself created carries. It is 38 bytes of `.text` and **it crossed the
 image rung**: 512 bytes of every machine's RAM, on a rung that had 15 bytes
 left. That is the price and it was taken deliberately, not discovered.
+
+**It read 0x04D8 here until a later pass, and that is §20.3's own trap.** This
+cell asked for 0x04D8 and so did `gfx_spans`, on another branch in the same
+cycle; the collision was caught by the merge and by `t_api_abi`, the cell
+moved to 0x04E0 — and this prose did not, so it named a number that is a
+LIVE slot belonging to something else. `checkdocs.py` cannot see that: it
+proves a cited number IS a slot, which is exactly what a stale citation still
+is after a renumbering, and its own header says so. The kernel's comment at
+the cell carries the collision; this paragraph is the other end of it.
 
 **It answers a SEGMENT and not the record pointer.** A package holding another
 window's record could pass it back through any `wm_*` cell, and a segment is

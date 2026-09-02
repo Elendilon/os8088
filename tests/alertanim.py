@@ -11,7 +11,7 @@ a second of outline arrives in front of the interruption.
 SPEC.md 11.99.2's WF_NOANIM was already the answer and already carried the
 Standard File dialog and the notice window. What it could not carry was this
 one: the alert is PACKAGE code (apps/os88ui.inc), the window record is the
-kernel's, and every settable W_FLAGS bit the SDK publishes says never by hand.
+kernel's, and a settable W_FLAGS bit the SDK publishes is a slot's to write.
 11.99.2.1 is the slot that closes that, and this row is its A/B.
 
 **THE PAIR IS THE EXPERIMENT AND NEITHER HALF IS ONE ALONE.** A launch MUST
@@ -22,12 +22,17 @@ dialog that failed to open reads exactly like a dialog that opened quietly.
 
 Paint is the alert that is easiest to raise, as it is in tests/alertbtn.py;
 the control under test is os88ui.inc's and is shared by five packages.
+
+os88marty.bp_count is the counter, and its two hardenings were found HERE:
+a poll landing inside the driving thread's own advance(frames=) read a state
+that is not "running", and a stop was reported twice when a resume had not
+landed by the next status(). Both put their spare stop in whichever gesture
+was running, which for the B half below is a false FAILURE of the thing under
+test. Its docstring is the account.
 """
 import argparse
 import os
 import sys
-import threading
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
@@ -40,53 +45,6 @@ import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(HERE)
 S = os88sym.linear
-
-
-def counted(m, addr, act, cap=120.0):
-    """wm_anim entries over one gesture. alertbtn.py's counter, with one
-    addition it needs and that one does not.
-
-    The breakpoint stops the guest, so the driving click runs on a thread and
-    this loop resumes and re-counts until the guest has been quiet for 3s.
-    **IT COUNTS `breakpoint` AND NOT "anything but running", AND IT DEDUPES ON
-    `instructions`.** Both were measured here, on this row, before it was a
-    row, and each on its own turned a green run red at random:
-
-      * the driving thread's own `advance(frames=)` PAUSES the guest, and a
-        poll landing inside that window reads a state that is not "running".
-        Counted, it is a `wm_anim` entry that never happened - and resumed, it
-        is the gesture's own `advance` cut short from another thread. The stop
-        state at a breakpoint is `breakpoint` (docs/MARTYPC-DEBUG.md), so the
-        two are told apart by asking rather than by elimination;
-      * `run()` and the `status()` after it are two round trips and the resume
-        has not always landed by the second, so one stop is reported twice.
-        A stop's instruction count is the guest's own clock and cannot repeat,
-        so it tells a repeat report from a second entry - and hides nothing
-        real, because a real second entry has advanced it.
-
-    Both defects put their spare stop in whichever gesture was running, which
-    for the B half is a false FAILURE of exactly the thing under test.
-    """
-    seen, done = set(), []
-    m.bp_exec(addr)
-    threading.Thread(target=lambda: (time.sleep(0.6), act(), done.append(1)),
-                     daemon=True).start()
-    t0, quiet = time.time(), None
-    while time.time() - t0 < cap:
-        st = m.status()
-        if st.get("state", "running") == "breakpoint":
-            seen.add(st.get("instructions"))
-            quiet = time.time()
-            m.run()
-            continue
-        if done and quiet and time.time() - quiet > 3.0:
-            break
-        if done and quiet is None and time.time() - t0 > 14.0:
-            break
-        time.sleep(0.05)
-    m.breakpoints([])
-    m.run()
-    return len(seen)
 
 
 def main(argv):
@@ -113,8 +71,9 @@ def main(argv):
         x, y = dispcp.row_xy(wx, wy, row)
 
         # A - the CONTROL. A window the user asked for still zooms open.
-        n = counted(m, anim, lambda: (mo.dblclick(x, y),
-                                      m.advance(frames=250), m.run()))
+        n = os88marty.bp_count(m, anim, lambda: (mo.dblclick(x, y),
+                                                 m.advance(frames=250),
+                                                 m.run()))
         print("   launching PAINT              wm_anim x%d   (SPEC.md 11.99)"
               % n)
         if n == 0:
@@ -145,8 +104,9 @@ def main(argv):
         wr = dispcp.win_rect(m, S, pw)
 
         # B - the SUBJECT. The close box the user meant as a close.
-        n = counted(m, anim, lambda: (mo.click(wr[0] + 8, wr[1] + 9),
-                                      m.advance(frames=400), m.run()))
+        n = os88marty.bp_count(m, anim, lambda: (mo.click(wr[0] + 8, wr[1] + 9),
+                                                 m.advance(frames=400),
+                                                 m.run()))
         os88marty.settle(m)
         up = [w for w in dispcp.win_list(m, S) if w not in (pw, disk)]
         print("   close box -> the alert       wm_anim x%d   alert up: %s"
