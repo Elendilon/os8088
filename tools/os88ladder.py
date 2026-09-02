@@ -1940,6 +1940,9 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 .mlab.soft .lb.hot .sz{color:var(--sel);opacity:.7}
 .mlab .rz{position:absolute;width:1px;background:var(--rule);
   transition:left .45s cubic-bezier(.4,0,.2,1),top .3s,height .3s,opacity .3s}
+/* The callouts recede with the blocks they point at - gently, because a label
+   is words and a block is a colour, and .28 of a word is not readable. */
+.mlab .lb.dim, .mlab .rz.dim, .mlab .jg.dim, .mlab .dt.dim{opacity:.42}
 .mlab .rz.hot{background:var(--sel);width:1.5px;z-index:2}
 .mlab .jg{position:absolute;height:1px;background:var(--rule);
   transition:left .45s cubic-bezier(.4,0,.2,1),top .3s,width .3s,opacity .3s}
@@ -1952,15 +1955,22 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 .mbar .rg{position:absolute;top:0;height:100%;
   transition:left .45s cubic-bezier(.4,0,.2,1),width .45s cubic-bezier(.4,0,.2,1),
   opacity .3s,background .25s;cursor:pointer}
-.mbar .rg.dim{opacity:.24}
-.mbar .rg.hot{box-shadow:inset 0 0 0 2px var(--sel)}
-.mbar.soft .rg.hot{box-shadow:inset 0 0 0 1.5px var(--sel)}
+.mbar .rg.dim{opacity:.28}
+/* A HAIRLINE OF PAGE BETWEEN THE RING AND THE BLOCK, because `--sel` IS the
+   start-up code's own colour - so an orange ring drawn straight onto an orange
+   block was the one selection on the map you could not see. */
+.mbar .rg.hot{box-shadow:inset 0 0 0 2px var(--sel), inset 0 0 0 3.5px var(--panel)}
+.mbar.soft .rg.hot{box-shadow:inset 0 0 0 1.5px var(--sel), inset 0 0 0 3px var(--panel)}
+/* Faded out because the block is not in this stage at all. It sits after the
+   two above so that it wins over them. */
+.mbar .rg.gone{opacity:0}
 .movl{position:relative;height:15px;margin-top:-15px;pointer-events:none;z-index:3}
 .movl .ov{position:absolute;height:15px;top:0;border:1.5px solid var(--c-ovl);
   background:repeating-linear-gradient(135deg,var(--c-ovl) 0 3px,transparent 3px 7px);
   border-radius:2px;pointer-events:auto;cursor:pointer;
   transition:left .45s cubic-bezier(.4,0,.2,1),width .45s cubic-bezier(.4,0,.2,1),opacity .3s}
-.movl .ov.hot{box-shadow:0 0 0 2px var(--sel);background:var(--c-ovl)}
+.movl .ov.hot{box-shadow:0 0 0 1.5px var(--panel), 0 0 0 3.5px var(--sel);
+  background:var(--c-ovl)}
 .mrule{position:relative;height:15px;margin-top:3px}
 .mrule span{position:absolute;font-size:10px;color:var(--dim);transform:translateX(-50%);
   font-family:ui-monospace,monospace}
@@ -2012,6 +2022,10 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
   margin-right:6px;vertical-align:1px}
 .tag.meas{border-color:var(--c-kern);color:var(--c-kern)}
 .tag.deriv{border-color:var(--c-ovl);color:var(--c-ovl)}
+/* The memory state's own stamp. `measured` says a figure came off the running
+   machine; this one says the opposite kind of thing - not a time at all, but
+   what is sitting at an address at this point in the boot. */
+.tag.hold{border-color:var(--c-claim);color:var(--c-claim)}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--dim);margin-top:9px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;
   vertical-align:-1px}
@@ -2043,9 +2057,11 @@ footer code{font-size:11px}
 .zwin .rg{position:absolute;top:0;height:100%;cursor:pointer;overflow:hidden;
   transition:left .4s cubic-bezier(.4,0,.2,1),width .4s cubic-bezier(.4,0,.2,1),
   opacity .3s,background .25s}
-.zwin .rg.dim{opacity:.24}
-.zwin .rg.hot{box-shadow:inset 0 0 0 2px var(--sel)}
-.zrow.soft .zwin .rg.hot{box-shadow:inset 0 0 0 1.5px var(--sel)}
+.zwin .rg.dim{opacity:.28}
+.zwin .rg.hot{box-shadow:inset 0 0 0 2px var(--sel), inset 0 0 0 3.5px var(--panel)}
+.zrow.soft .zwin .rg.hot{box-shadow:inset 0 0 0 1.5px var(--sel),
+  inset 0 0 0 3px var(--panel)}
+.zwin .rg.gone{opacity:0}
 .zwin .rg span{position:absolute;left:4px;top:50%;transform:translateY(-50%);
   font-size:10px;white-space:nowrap;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);
   pointer-events:none}
@@ -2058,7 +2074,8 @@ footer code{font-size:11px}
 .zovl .ov span{position:absolute;left:5px;top:50%;transform:translateY(-50%);
   font-size:9.5px;white-space:nowrap;color:var(--ink);font-weight:600;
   background:var(--panel);padding:0 3px;border-radius:2px}
-.zovl .ov.hot{box-shadow:0 0 0 2px var(--sel)}
+.zovl .ov.hot{box-shadow:0 0 0 1.5px var(--panel), 0 0 0 3.5px var(--sel)}
+.zovl .ov.gone{opacity:0}
 .zcap{position:relative;height:15px;margin-top:5px}
 .zcap span{position:absolute;top:0;transform:translateX(-50%);font-size:10.5px;
   color:var(--dim);white-space:nowrap;
@@ -2093,7 +2110,23 @@ a:focus-visible,button:focus-visible,.st:focus-visible{outline:2px solid var(--a
 JS = r'''(function(){
 "use strict";
 var D = window.LADDER, S = D.stages;
-var stage = 0, step = -1;          // step -1 = "the stage itself"
+/* THREE STATES PER STAGE, and only ever one of them at a time.
+
+   `start`    - you have just arrived, or clicked the stage again. The panel
+                describes the stage, the screen shows the bar as the stage
+                OPENED, and the map outlines what this stage moved.
+   `timeline` - you clicked a step. The panel describes the step, the screen
+                moves to where the bar stood when it finished, and the memory
+                the step touched is filled in on the map.
+   `memory`   - you clicked a block or its label, on the full map or the
+                magnified strip. The panel describes what that area HOLDS at
+                this point in the boot; the block is filled in.
+
+   A region is not a moment, so the memory state leaves the screen on the
+   stage's opening reading rather than inventing a time for it. Selecting in
+   one place clears the other, which is what keeps the panel and the two
+   highlights describing the same thing. */
+var stage = 0, step = -1, pick = null;
 var CLS = {bios:"--c-bios", ours:"--c-ours", kern:"--c-kern", ovl:"--c-ovl",
            data:"--c-data", claim:"--c-claim", free:"--c-free", dead:"--c-dead"};
 var KIND = {rom:"bios", disk:"ours", kernel:"kern", draw:"data"};
@@ -2159,9 +2192,17 @@ function layout(host, items, W, up){
   });
 
   var n = row + 1, H = PAD + n * ROW + 4;
+  /* THE RESERVE IS PART OF THE GEOMETRY, not just of the box. Reserving the
+     tallest stack stretches this container, and everything below was still
+     being placed against the height the stack NEEDED - so on any stage with
+     fewer rungs than the tallest, the risers and their dots stopped short of
+     the bar by the difference. The spare goes ABOVE the labels, which keeps
+     them against the bar they point at. */
+  var HE = Math.max(H, +(host.dataset.reserve || 0));
+  var off = up ? (HE - H) : 0;
   seq.forEach(function(s){
     var it = s.it;
-    var top = PAD + (up ? s.row : (n - 1 - s.row)) * ROW;
+    var top = PAD + (up ? s.row : (n - 1 - s.row)) * ROW + off;
     it.el.style.left = (flip ? (W - s.u0 - s.w) : s.u0) + "px";
     it.el.style.top = top + "px";
     /* The jog sits just clear of the label, on the side the bar is on, and
@@ -2181,16 +2222,16 @@ function layout(host, items, W, up){
     it.jg.style.opacity = (!covers && (b - a) > 1) ? "1" : "0";
     it.rz.style.left = it.x + "px";
     it.rz.style.top = up ? hy + "px" : "0px";
-    it.rz.style.height = Math.max(2, up ? (H - hy) : hy) + "px";
+    it.rz.style.height = Math.max(2, up ? (HE - hy) : hy) + "px";
     if (it.dt){
       it.dt.style.left = (it.x - 2.5) + "px";
-      it.dt.style.top = (up ? H - 5 : 0) + "px";
+      it.dt.style.top = (up ? HE - 5 : 0) + "px";
     }
   });
   /* The NATURAL height is what a reserve is worked out from; the height the
      block actually takes is that or the reserve, whichever is larger. */
   host.dataset.nat = H;
-  host.style.height = Math.max(H, +(host.dataset.reserve || 0)) + "px";
+  host.style.height = HE + "px";
 }
 
 /* --------------------------------------------------------------------------
@@ -2208,7 +2249,8 @@ function layout(host, items, W, up){
 function reserve(){
   var m = $("mlab"), t = $("tlab"), d = document.querySelector(".panel.detail");
   var cab = $("scab");
-  var keepStage = stage, keepStep = step;
+  var keepStage = stage, keepStep = step, keepPick = pick;
+  pick = null;
   m.dataset.reserve = 0; t.dataset.reserve = 0;
   d.style.minHeight = ""; cab.style.minHeight = "";
   var mx = 0, tx = 0, dx = 0, cx = 0;
@@ -2233,6 +2275,20 @@ function reserve(){
     }
     if (wordy >= 0){ step = wordy; sample(); }
     if (disky >= 0){ step = disky; sample(); }
+    /* AND THE MEMORY STATE, which is a third panel with its own height: six
+       fact rows rather than four or five, and on a block this stage moved an
+       extra line naming what moved. Both extremes are sampled, because the
+       wordiest block is not usually one of the ones that moved. */
+    step = -1;
+    var rw = -1, rb = -1, rm = -1, k;
+    for (k = 0; k < S[i].regions.length; k++){
+      var rr = S[i].regions[k], RL = (rr.note || "").length;
+      if (RL > rb){ rb = RL; rw = k; }
+      if (rm < 0 && (S[i].moved_ids || []).indexOf(rr.id) >= 0) rm = k;
+    }
+    if (rw >= 0){ pick = S[i].regions[rw].id; sample(); }
+    if (rm >= 0){ pick = S[i].regions[rm].id; sample(); }
+    pick = null;
   }
   /* One row of slack on the timeline: selecting a step that is too small to
      label anyway gives it one, which can add a rung to that stack. */
@@ -2243,7 +2299,7 @@ function reserve(){
      there is the one place it costs nothing to be generous. */
   d.style.minHeight = (Math.ceil(dx) + 14) + "px";
   cab.style.minHeight = Math.ceil(cx) + "px";
-  stage = keepStage; step = keepStep;
+  stage = keepStage; step = keepStep; pick = keepPick;
 }
 
 /* --------------------------------------------------------------------------
@@ -2261,13 +2317,14 @@ function drawMap(){
      agree without the reader having to find the correspondence. Picking a
      step on the timeline hands the highlight over to that step's own memory. */
   var hot = {};
-  ((step >= 0 ? st.steps[step].mem : st.moved_ids) || [])
+  (pick ? [pick]
+        : ((step >= 0 ? st.steps[step].mem : st.moved_ids) || []))
     .forEach(function(id){ hot[id] = 1; });
   /* Two highlights, told apart on purpose: what a STAGE moved is outlined,
      because it can be six blocks at once and a filled six is a shout; what a
-     STEP uses is filled, because it is one or two and it is an answer to
-     something the reader just clicked. */
-  var soft = step < 0;
+     STEP uses - or the one block you clicked - is filled, because it is an
+     answer to something the reader just did. */
+  var soft = step < 0 && !pick;
   $("mbar").classList.toggle("soft", soft);
   $("zrow").classList.toggle("soft", soft);
   $("mlab").classList.toggle("soft", soft);
@@ -2286,22 +2343,25 @@ function drawMap(){
     var b = mblocks[r.id];
     if (!b){
       b = document.createElement("div");
-      b.className = r.layer ? "ov" : "rg";
-      b.style.opacity = "0";
+      b.className = (r.layer ? "ov" : "rg") + " gone";
       b.style.left = (100 * r.a / ram) + "%";
       b.style.width = (100 * Math.max(r.b - r.a, ram/900) / ram) + "%";
       host.appendChild(b);
       mblocks[r.id] = b;
       b.addEventListener("click", function(){ pickRegion(r.id); });
-      requestAnimationFrame(function(){ b.style.opacity = "1"; });
+      requestAnimationFrame(function(){ b.classList.remove("gone"); });
     }
     if (b.parentNode !== host) host.appendChild(b);
-    b.style.opacity = "1";
+    /* VISIBILITY IS A CLASS, NOT AN INLINE STYLE. It was inline, set to 1 on
+       every draw - which beat `.dim` on specificity, so the fading of what you
+       did NOT select had never once happened on either map. */
+    b.classList.remove("gone");
+    b.style.pointerEvents = "";
     b.style.left = (100 * r.a / ram) + "%";
     b.style.width = (100 * Math.max(r.b - r.a, ram/900) / ram) + "%";
     if (!r.layer) b.style.background = col(r.cls);
     b.title = r.label + "  " + hex(r.a) + "-" + hex(r.b) + "  " + bytes(r.b - r.a);
-    var anyHot = step >= 0 && Object.keys(hot).length;
+    var anyHot = (step >= 0 || pick) && Object.keys(hot).length;
     b.classList.toggle("dim", !!(anyHot && !hot[r.id] && r.cls !== "free"));
     b.classList.toggle("hot", !!hot[r.id]);
 
@@ -2333,23 +2393,39 @@ function drawMap(){
       var sz = document.createElement("span"); sz.className = "sz";
       sz.textContent = bytes(r.b - r.a);
       L.appendChild(sz);
-      L.style.opacity = "1"; L._rz.style.opacity = "1";
+      L.style.opacity = "1"; L.style.pointerEvents = "";
+      L._rz.style.opacity = "1";
+      var lo = !!(anyHot && !hot[r.id]);
       L.classList.toggle("hot", !!hot[r.id]);
       L._rz.classList.toggle("hot", !!hot[r.id]);
       L._jg.classList.toggle("hot", !!hot[r.id]);
       L._dt.classList.toggle("hot", !!hot[r.id]);
+      L.classList.toggle("dim", lo);
+      L._rz.classList.toggle("dim", lo);
+      L._jg.classList.toggle("dim", lo);
+      L._dt.classList.toggle("dim", lo);
       L._dt.style.opacity = "1";
       items.push({el: L, rz: L._rz, jg: L._jg, dt: L._dt,
                   x: W * (r.a + r.b) / 2 / ram, id: r.id});
     } else if (L){
-      L.style.opacity = "0"; L._rz.style.opacity = "0"; L._jg.style.opacity = "0";
+      /* All four, or the dot outlives the label it belonged to and sits on
+         the bar pointing at nothing. */
+      L.style.opacity = "0"; L.style.pointerEvents = "none";
+      L._rz.style.opacity = "0";
+      L._jg.style.opacity = "0"; L._dt.style.opacity = "0";
     }
   });
+  /* A BLOCK FADED OUT IS STILL IN THE DOCUMENT AND STILL TAKES CLICKS, sitting
+     over the bar at the extent it had when it last existed. That was harmless
+     while a click did nothing; now that it selects, a block from the previous
+     stage would answer for one under it. Hidden means unclickable here. */
   Object.keys(mblocks).forEach(function(id){
     if (!seen[id]){
-      mblocks[id].style.opacity = "0";
+      mblocks[id].classList.add("gone");
+      mblocks[id].style.pointerEvents = "none";
       if (mlabels[id]){
         mlabels[id].style.opacity = "0";
+        mlabels[id].style.pointerEvents = "none";
         mlabels[id]._rz.style.opacity = "0";
         mlabels[id]._jg.style.opacity = "0";
         mlabels[id]._dt.style.opacity = "0";
@@ -2372,13 +2448,11 @@ function drawMap(){
     }
   }
 }
-function pickRegion(id){
-  var st = S[stage];
-  for (var i = 0; i < st.steps.length; i++)
-    if ((st.steps[i].mem || []).indexOf(id) >= 0){ setStep(i); return; }
-  var r = st.regions.filter(function(x){ return x.id === id; })[0];
-  if (r) showRegion(r);
-}
+/* This used to hunt for a timeline step that touched the block and select
+   THAT, which answered a different question from the one being asked: a block
+   is a thing that exists, and several steps can have written to it. It selects
+   the block itself now, and the panel describes what is in it. */
+function pickRegion(id){ setRegion(id); }
 
 
 /* --------------------------------------------------------------------------
@@ -2400,7 +2474,7 @@ function drawZoom(hot, soft){
   var st = S[stage], wins = st.zooms || [], W = $("mbar").clientWidth || 1;
   var dim = $("zdim"), row = $("zrow"), cap = $("zcap"), link = $("zlink");
   dim.innerHTML = ""; cap.innerHTML = "";
-  var anyHot = step >= 0 && hot && Object.keys(hot).length;
+  var anyHot = (step >= 0 || pick) && hot && Object.keys(hot).length;
 
   /* Widths: proportional to the square root of the span, so a 6KB window and
      a 124KB one are both legible, with a floor and a gap between. */
@@ -2455,16 +2529,17 @@ function drawZoom(hot, soft){
       var el2 = zblocks[id];
       if (!el2){
         el2 = document.createElement("div");
-        el2.className = r.layer ? "ov" : "rg";
+        el2.className = (r.layer ? "ov" : "rg") + " gone";
         el2.appendChild(document.createElement("span"));
         into.appendChild(el2);
         zblocks[id] = el2;
         el2.addEventListener("click", function(){ pickRegion(r.id); });
       }
       if (el2.parentNode !== into) into.appendChild(el2);
+      el2.style.pointerEvents = "";
       var ra = Math.max(r.a, win.a), rb = Math.min(r.b, win.b);
       var pw = 100 * (rb - ra) / span;
-      el2.style.opacity = "1";
+      el2.classList.remove("gone");
       el2.style.left = (100 * (ra - win.a) / span) + "%";
       el2.style.width = Math.max(pw, 0.4) + "%";
       if (!r.layer){
@@ -2482,7 +2557,8 @@ function drawZoom(hot, soft){
     });
   }
   Object.keys(zblocks).forEach(function(k){
-    if (!seen[k]) zblocks[k].style.opacity = "0";
+    if (!seen[k]){ zblocks[k].classList.add("gone");
+                   zblocks[k].style.pointerEvents = "none"; }
   });
   for (i = zwinN; i > n; i--){ zwin(i - 1).style.display = "none";
                                zovl(i - 1).style.display = "none"; }
@@ -2581,15 +2657,57 @@ function drawTime(){
 }
 function short(s){ return s.length > 44 ? s.slice(0, 43) + "…" : s; }
 
-/* -------------------------------------------------------------------------- */
+/* --------------------------------------------------------------------------
+   THE MEMORY STATE. A block is not a moment in the boot, so this panel answers
+   "what is in here, now" and not "what happened" - the address, how much of
+   the machine it is, and whether this stage is the one that put it there.
+   -------------------------------------------------------------------------- */
+/* THE LEGEND'S OWN WORDS, so the row names the colour the reader can see under
+   the block rather than a synonym of it. `dead` has no swatch - it is the
+   living colour, faded - so it is the one entry with wording of its own. */
+var KINDNAME = {bios: "firmware", ours: "boot sector / disk",
+                kern: "operating system", ovl: "start-up code",
+                data: "disk index", claim: "handed out",
+                free: "free", dead: "finished with"};
 function showRegion(r){
+  var st = S[stage];
   $("dtitle").textContent = r.label;
   $("dbody").innerHTML = "";
-  var p = document.createElement("p"); p.innerHTML = r.note; $("dbody").appendChild(p);
+  var p = document.createElement("p");
+  p.innerHTML = "<span class='tag hold'>holds</span>" + (r.note || "");
+  $("dbody").appendChild(p);
+  /* WHERE IT CAME FROM. Two different facts, and they were one line saying the
+     stage's own `what moves` sentence - which describes the STAGE, so on a
+     block the stage merely resized it named a different block entirely. */
+  var fresh = born(r.id) === "this stage";
+  var mine = (st.moved_ids || []).indexOf(r.id) >= 0;
+  if (fresh || mine){
+    var q = document.createElement("p");
+    q.className = "lit";
+    q.innerHTML = fresh
+      ? "<b>New in this stage</b> — this block is on no earlier rung of the "
+        + "ladder."
+      : "<b>Changed in this stage</b> — it was already on the map, and this "
+        + "stage moved it or altered its extent.";
+    $("dbody").appendChild(q);
+  }
+  var span = r.b - r.a;
   facts([["address", hex(r.a) + " – " + hex(r.b)],
-         ["size", bytes(r.b - r.a) + " (" + (r.b - r.a).toLocaleString() + " bytes)"],
+         ["size", bytes(span) + " / " + span.toLocaleString() + " B"],
          ["segment", hex(r.a >> 4, 4) + ":0000"],
-         ["share of 640K", (100 * (r.b - r.a) / D.ram).toFixed(2) + "%"]]);
+         ["what it is", KINDNAME[r.cls] || r.cls],
+         ["share of 640K", (100 * span / D.ram).toFixed(2) + "%"],
+         ["first appears", born(r.id)]]);
+}
+/* Every stage's map is on the page, so the stage a block ARRIVED in is a fact
+   this can work out rather than approximate: it is the first one whose map has
+   it. "By this stage at the latest" was true and useless. */
+function born(id){
+  for (var i = 0; i < S.length; i++)
+    for (var j = 0; j < S[i].regions.length; j++)
+      if (S[i].regions[j].id === id)
+        return i === stage ? "this stage" : (i + 1) + ". " + S[i].short;
+  return "\u2014";
 }
 function facts(rows){
   var f = $("dfacts"); f.innerHTML = "";
@@ -2606,14 +2724,23 @@ function facts(rows){
 }
 function drawDetail(){
   var st = S[stage];
+  if (pick){
+    var r = st.regions.filter(function(x){ return x.id === pick; })[0];
+    /* A block can stop existing when you arrow into the next stage; the
+       selection is cleared with the stage, so this only guards a resize
+       landing between the two. */
+    if (r){ showRegion(r); return; }
+    pick = null;
+  }
   if (step < 0){
     $("dtitle").textContent = st.title;
     $("dbody").innerHTML = "";
     var p = document.createElement("p");
     p.innerHTML = "<span class='tag meas'>measured</span>" +
       "This stage is " + ms(st.ms) + " of the boot. Click a segment of the " +
-      "timeline above, or a label on it, to see what that step does — the " +
-      "memory it runs from lights up on the map.";
+      "timeline above to see what that step does — the memory it touches " +
+      "lights up on the map. Click a block on the map, or the label rising " +
+      "from it, to read what that area holds.";
     $("dbody").appendChild(p);
     /* `what moves` is beside the title already; a second copy in a column
        half this wide only wraps to five lines and unbalances the pair. */
@@ -2626,9 +2753,14 @@ function drawDetail(){
            ["steps measured", String(st.steps.length)],
            ["loading bar", st.bar
               ? (st.bar.done + " / " + st.bar.total + "  ("
-                 + st.bar.pct.toFixed(1) + "%)")
+                 + (100 * st.bar.done / st.bar.total).toFixed(1) + "%)")
               : (stage >= S.length - 1 ? "finished, screen handed back"
-                                       : "not up yet")]]);
+                                       : "not up yet")],
+           /* The bar counts THINGS, not pixels: the sectors of the operating
+              system, then a fixed set of later steps. Saying so here is what
+              stops "222" reading as a width. */
+           ["the bar counts",
+            D.ksecs + " sectors + " + D.cons.SPL_POST + " steps"]]);
     return;
   }
   var sp = st.steps[step];
@@ -2735,23 +2867,31 @@ function drawStages(){
 }
 function setStage(i){
   if (i < 0 || i >= S.length) return;
-  stage = i; step = -1;
+  stage = i; step = -1; pick = null;
   drawStages(); drawSplash(); drawMap(); drawTime(); drawDetail();
 }
 function setStep(i){
-  step = (step === i ? -1 : i);
+  step = (step === i ? -1 : i); pick = null;
   /* THE SCREEN IS PART OF THE SELECTION. It was redrawn on a stage change and
      not on a step one, so the bar held whatever the stage opened with however
      far along the timeline you clicked. */
   drawMap(); drawTime(); drawDetail(); drawSplash();
 }
+/* Clicking a block is a selection like any other, so clicking it again puts
+   the stage back the way you found it. */
+function setRegion(id){
+  pick = (pick === id ? null : id); step = -1;
+  drawMap(); drawTime(); drawDetail(); drawSplash();
+}
+function clearSel(){ if (step >= 0 || pick){ step = -1; pick = null;
+  drawMap(); drawTime(); drawDetail(); drawSplash(); } }
 $("prev").addEventListener("click", function(){ setStage(stage - 1); });
 $("next").addEventListener("click", function(){ setStage(stage + 1); });
 document.addEventListener("keydown", function(e){
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
   if (e.key === "ArrowRight" || e.key === "ArrowDown"){ setStage(stage + 1); e.preventDefault(); }
   else if (e.key === "ArrowLeft" || e.key === "ArrowUp"){ setStage(stage - 1); e.preventDefault(); }
-  else if (e.key === "Escape"){ setStep(-1); }
+  else if (e.key === "Escape"){ clearSel(); }
   else if (e.key === "Home"){ setStage(0); e.preventDefault(); }
   else if (e.key === "End"){ setStage(S.length - 1); e.preventDefault(); }
 });
@@ -2860,8 +3000,9 @@ def render(p, fragment=False):
    <p class="lede">What an IBM PC does between the power switch and a usable
     desktop \u2014 %(nst)d <b>discrete moves of memory</b>, on a 4.77&nbsp;MHz
     8088 reading a 360&nbsp;KB floppy. Pick a rung, or use
-    <span class="kbd">&larr;</span><span class="kbd">&rarr;</span>; click a step
-    on the timeline for the detail. Underlined words define on hover.</p>
+    <span class="kbd">&larr;</span><span class="kbd">&rarr;</span>. Then click a
+    step on the timeline to see what it does, or a block on the memory map to
+    see what is in it. Underlined words define on hover.</p>
    <div class="splash-outer">
     <div class="splash off" id="splash">
      <div class="curs"></div>
@@ -3065,6 +3206,40 @@ def selfcheck(image, defines, build="build"):
         return ("%d strings, no citations, %d definitions that stand alone"
                 % (len(prose), len(GLOSS)))
     try_("the page's prose, against its own two rules", plain)
+
+    def states():
+        """THREE STATES PER STAGE, and only ever one of them at a time.
+
+        The page's whole readability rests on the panel at the bottom, the
+        highlight on the map and the screen at the left describing the SAME
+        thing. Three selectors keep that true by clearing each other, and one
+        of them going quietly out of step is not something a screenshot shows -
+        it looks like a panel that did not update.
+        """
+        need = [
+            ("stage = i; step = -1; pick = null;",
+             "setStage clears both selections"),
+            ("step = (step === i ? -1 : i); pick = null;",
+             "picking a step clears the block"),
+            ("pick = (pick === id ? null : id); step = -1;",
+             "picking a block clears the step"),
+            ("if (pick){", "the panel answers to a picked block first"),
+            ("var soft = step < 0 && !pick;",
+             "a picked block is filled in, not outlined"),
+        ]
+        gap = [why for frag, why in need if frag not in JS]
+        if gap:
+            raise SystemExit("os88ladder: the page's three states have come "
+                             "apart - " + "; ".join(gap))
+        # every surface a reader can click on the map has to reach the same
+        # selector, or one of them silently does nothing.
+        hits = JS.count("pickRegion(r.id)")
+        if hits < 3:
+            raise SystemExit("os88ladder: only %d of the map's click surfaces "
+                             "select a block; the full map, its labels and the "
+                             "magnified strip all must" % hits)
+        return "start / timeline / memory, %d click surfaces into the last" % hits
+    try_("the three states a stage can be in", states)
 
     try_("MartyPC, and a machine to run it on",
          lambda: ("IBM-ROM %s - field figures" % FIELD_MACHINE)
