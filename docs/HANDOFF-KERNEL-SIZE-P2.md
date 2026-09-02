@@ -1,16 +1,152 @@
-# Handoff: kernel size pass 2, live state and the lock
+# Kernel size pass 2: the record, and the lock it built
 
-**This file is written to be picked up by a DIFFERENT SESSION mid-flight.** It
-says what pass 2 is, where it has got to, what is safe to touch while it runs,
-and what an independent session can usefully do in parallel without colliding.
+**PASS 2 HAS LANDED.** This file was written to be picked up by a different
+session mid-flight and is now the pass's record: what it moved, where the bytes
+came from, what it found that was not size at all, and the apparatus it left
+behind. §0 is the outcome; everything below it is the state and the reasoning
+that produced it, kept because the method is what the next pass needs.
 
 Its companion is `docs/HANDOFF-KERNEL-SIZE.md`, which is pass 1's handoff and
 still the authority on **method** and on the mistakes not to repeat. Read that
-one for *how*; read this one for *where we are*.
+one for *how*; read this one for *what happened*, and
+`docs/HANDOFF-SOAK-FINDINGS.md` for the queue of defects the closing soak
+turned up that are **not** this pass's to fix.
 
 Branch: `claude/kernel-size-optimization-p2-zcuuac`, cut from `elendilon` at
 `ac1f74f`. One root commit; unshallow the clone before believing any ancestry
 answer (CLAUDE.md, "Working in this fork", rule 1).
+
+---
+
+## 0. THE OUTCOME
+
+### The numbers
+
+```
+kern_big     .text 50,207 -2,709   .bss 5,939 +110   .cold 37,211 -1,716
+             .lowbss 8,798 -298    .ovlw 5,215 -48          SUM -4,661
+             KERN_SIZE 114,176 -> 109,568   spare 15,360 -> 19,968
+             .text+.bss 56,146 of KERN_CODE_MAX 65,536 -> 9,390 left
+
+kern_small   SUM -3,881
+             KERN_SIZE  98,816 ->  95,232
+```
+
+**Two rungs uncrossed** — the image rung's 2,560 bytes and the cold rung's
+2,048 — so **4,608 bytes of every machine's RAM come back**, on a machine the
+kernel must fully reside in at 128KB.
+
+`.bss` went UP by 110, and that is a trade rather than an accident: Batch 10
+spent 190 bytes of `.bss` to take 609 of `.text`, which is what the icon art was
+worth. Every other batch left `.bss` flat or reduced it.
+
+### Where the bytes came from
+
+| | `kern_big` | |
+|---|---:|---|
+| batches 0–6 — dead code, per-file, cross-file, segment copy | −3,721 | 105 findings, one commit group each |
+| Batch 7 — the shared epilogue ladder | −485 | 141 sites, three ladders; arithmetic and measurement agreed **to the byte** |
+| Batch 8 — the `jcc` trampoline residual | −131 | 25 clusters, 77 sites, only **14 new trampolines** |
+| Batch 10 — the icon art | −331 | art 744 → 135; `.text` −521, `.bss` +190 |
+| the DMA staging fix | **+1** | a correctness fix, priced rather than absorbed |
+| | **−4,661** | |
+
+Outside the resident ledger: `CTRL.DRV` −500, `CLONE.DRV` −6.
+
+### The ledger is complete
+
+**253 findings, all accounted for.** 244 named or range-covered in a commit; the
+nine that needed hand-resolution each have a disposition — one landed under a
+different name, two queued and then landed, three refused by the owner or their
+own finder, two yielded to overlapping findings, and one refused on a
+measurement taken twice independently (`F-assoc-18`: `imgpara` derives from
+`.text + .bss` together, so moving between them changes the footprint by zero).
+
+### And it got FASTER
+
+`benchdiff` over `gfxbench`/`sysbench`, all three adapters, ROM matched on each:
+
+| | CGA | Hercules | VGA |
+|---|---:|---:|---:|
+| `TASK_YIELD` | **−3.80%** | **−3.80%** | **−3.80%** |
+| `FONT_STR 10 aligned` | −7.29% | −6.92% | — |
+| `FONT_CHAR one cell` | −5.48% | −6.96% | — |
+| `PAIR 10 aligned` | −6.48% | −6.07% | — |
+| `GFX_HLINE 8px` | −4.21% | −4.13% | — |
+| `GFX_FILL 8x8` | −3.52% | −3.13% | — |
+| `GFX_PIXEL` | −2.90% | −2.67% | −2.02% |
+
+`TASK_YIELD` identical to two decimal places on all three adapters is what a
+real, adapter-independent win looks like. **The mechanism is PERFORMANCE.md's
+own**: the 8088 fetches at `max(clocks, 4.34 × instruction bytes)`, so shorter
+code is faster. A pass that removed 2,709 bytes of `.text` and shortened
+hundreds of encodings was always likely to buy speed as well as space.
+
+One regression survived scrutiny — `GFX_BLITP` +2.7%, on both 1bpp adapters,
+independent of block size, and **unexplained**: see
+`docs/HANDOFF-SOAK-FINDINGS.md` A3. The Hercules "regressions" were a
+measurement artefact and the same file's C1 is the experiment that settled it —
+along with the finding that PERFORMANCE.md's documented Hercules write cost is
+low by about a quarter.
+
+### What it found that was not size
+
+* **A kernel that booted on no adapter.** One converted site of 141 put the
+  splash's first tick on a jump into sectors the floppy had not delivered.
+  `make`, the fast tier, `stkbalance`, `os88ovlchk`, `t_asmrules` and
+  `checkdocs` were all green; `make test-full` was the first gate that could see
+  it. Fixed, and guarded by `tests/unit/t_resident.py`.
+* **A DMA staging path unreachable in both file routines** since the PR #61
+  squash — upstream's bug, not the fork's. A transfer whose buffer sat within
+  512 bytes of a 64KB physical boundary reported an I/O error instead of
+  staging. Fixed, verified through the real condition with the bytes compared,
+  and guarded by a new orphaned-block check that lands green.
+* **Four more orphaned local blocks outside the kernel** — `ftpd`, `texpad` and
+  two in the hard-disk installer, one of them a user-visible sentence with no
+  caller. Named, not fixed.
+* **Three suite rows that FAIL where they mean SKIP**, and one benchmark that
+  priced three of its eleven operations at 0.0 ms. Two of the three registrations
+  and the whole of `deskbench` are fixed; the rest is
+  `docs/HANDOFF-SOAK-FINDINGS.md`.
+
+### The soak: 0 kernel regressions
+
+235 rows, then the five rate rows serially, then the thirteen that want the C
+toolchain. Fifteen failures were investigated and **not one is a regression in
+kernel behaviour**: three were contention, three were a host-side commit's
+per-instance disk isolation, four were pre-existing at both ends, three were a
+missing artefact, and two were fixed. Every one of them is written up with its
+evidence in `docs/HANDOFF-SOAK-FINDINGS.md`, which is the work queue that came
+out of this pass.
+
+### The gates that did not exist before
+
+| | catches |
+|---|---|
+| `tests/unit/t_resident.py` | a resident routine jumping to the epilogue ladder — mutation-tested both ways |
+| `t_asmrules` check 4 | a local block reachable by neither name nor fall-through — lands green, no exception list |
+| `t_asmrules` rung-aware `crossed_pops` | the ladder would otherwise have blinded it on 141 routines |
+| `gate.sh` step 7 | **a machine must start**; steps 1–6 were green on a kernel that booted on nothing |
+| `tools/martylock.py` | §1 — two agents benching at once, and a rebuild under a live session |
+| `os88test -x`, the `wiredisk` capability | "the whole soak except the rate rows" had no spelling; nor did "this box has not built that disk" |
+| `icoclip --records/--entry` + the `.bss` span | an art change proved on pixels, and a staging decoder's aliasing tested rather than asserted |
+| `runadapter --out` | the phase-0 baseline can no longer be silently overwritten |
+| `benchdiff.py` | a regression, a cross-ROM comparison, and a comparison that did not happen |
+
+### The lesson, which is one lesson
+
+**Fourteen times this pass, a check ran and nothing read its answer.** Several
+were in the pass's own tooling: `kernsize` reporting figures for a tree that did
+not assemble; `gate.sh` testing `tee`'s exit status instead of the gate's;
+`runadapter` poised to overwrite the reference it would later be compared
+against; a baseline script that would have read an argparse error as a result; a
+bisect that skipped hangs while hunting a hang. One was Batch 8 deleting a `jmp`
+and passing seven gates. One was Batch 7 shipping a kernel that booted on
+nothing.
+
+The pattern is never a check that fails. It is a check that **passes for the
+wrong reason** — and the defence that worked, every time, was to break the thing
+on purpose and confirm the gate noticed.
 
 ---
 
@@ -98,8 +234,9 @@ The shared brief every agent reads is
 (session-local — if you are a different session, the durable copy of its rules
 is this file's §5 plus pass 1's handoff).
 
-### The phases, in order
-1. Baseline — **done**: `kernsize`, plus `sysbench`/`gfxbench` per adapter.
+### The phases, in order — all seven ran
+
+1. Baseline — `kernsize`, plus `sysbench`/`gfxbench` per adapter.
    *Deviation from pass 1, decided by the repo owner:* **the baseline soak is
    deliberately NOT run.** It takes ~4 h and was fixed and fully run at the end
    of pass 1. Instead the full soak runs once at the END, and any failing row is
@@ -115,8 +252,18 @@ is this file's §5 plus pass 1's handoff).
    `os88test.py fast` + `os88ovlchk.py` + a `stkbalance` diff.
 7. Full soak + bench comparison.
 
+**The deferred-baseline decision was the right one and it was not free.** It
+saved four hours and it cost each failing row a classification run against
+`073d4e7` — fifteen of them, some needing a bisect on top. What made that
+affordable at all is that the classification is *cheapest-decisive first*: re-run
+alone on HEAD (settles contention, one row of emulator time), then run at the
+base (settles pre-existing vs regression), and only then bisect. Two rows never
+got past step 1.
+
 Phases 4 and 5 are not optional. In pass 1 they removed about a fifth of the
-proposed bytes and found **four real bugs that were not size findings at all**.
+proposed bytes and found **four real bugs that were not size findings at all**;
+in pass 2 they are why 253 findings became 4,661 bytes without a behavioural
+regression.
 
 ---
 
@@ -165,7 +312,11 @@ Two of them are worth flagging to whoever picks this up:
 
 ---
 
-## 4. What is safe to touch while pass 2 runs
+## 4. What needed the lock while pass 2 ran — and still does
+
+The pass is landed, so the "do not merge this branch" clause below has lifted.
+Everything else is a standing property of this checkout and applies to any
+session that runs the emulator or builds.
 
 **Safe, no lock needed:** reading anything; `tools/kernsize.py` (it assembles
 into temp directories and never writes `build/kernel.bin`); any `docs/` edit
@@ -174,9 +325,11 @@ that you do not commit.
 **Needs the lock:** `make`, any target that builds, `git commit`, editing
 `kernel/*`, anything that opens MartyPC.
 
-**Do not do at all while pass 2 is mid-implementation:** merge this branch, or
-rebase it. The batches gate on each other and a moved base invalidates the
-measurements taken so far.
+**What was forbidden mid-pass, and why it was:** merging or rebasing this
+branch. The batches gate on each other and a moved base invalidates every
+measurement taken so far — which is also why the closing soak and the bench
+comparison were both run against a fixed base commit and not against whatever
+`elendilon` happened to be.
 
 ---
 
