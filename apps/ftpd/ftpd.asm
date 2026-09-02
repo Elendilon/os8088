@@ -7280,11 +7280,6 @@ fd_drawctl:
     pop ax
     ret
 
-.no:
-    pop ax
-    stc
-    ret
-
 ; --- fd_onkey - W_ONKEY: AL = ASCII, AH = scan -------------------------------
 ; --- fd_onkey - W_ONKEY: AL = ASCII, AH = scan. Lock held ------------------
 ; The LOG face takes no typed text at all - it is two controls and a list - so

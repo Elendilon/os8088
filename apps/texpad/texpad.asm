@@ -4218,10 +4218,6 @@ tp_bact:
     call tp_prev_page
     stc
     ret
-.next:
-    call tp_next_page
-    stc
-    ret
 ; -----------------------------------------------------------------------------
 ; tp_onup - W_ONMOUSEUP (SPEC.md 13.7): a bar button fires HERE
 ; in:  CX = x, DX = y (SCREEN), SI = the window; gfx lock held

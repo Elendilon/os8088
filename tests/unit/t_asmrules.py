@@ -335,6 +335,29 @@ def kernel_sources():
             if os.path.dirname(p) == os.path.join(ROOT, "kernel")]
 
 
+def orphan_sources():
+    """The files check 4 walks: the kernel, and `drivers/`.
+
+    NOT `apps/`, and that is a limit of the DETECTOR rather than a judgement
+    about the code. It reads fall-through and named jumps, so a routine that
+    dispatches through a TABLE looks to it like a wall of unreachable arms:
+    `apps/weave/wfx.inc`'s `_wfx_eval` has 22 and `apps/modplug`'s glyph picker
+    9, all of them perfectly live. Adding apps/ would mean 31 exceptions to
+    find 0 more defects, and an exception list is where this class comes back
+    (check 4's own note).
+
+    `drivers/` has the kernel's idiom and no table dispatch, so it comes in
+    clean: the two hits it had were both real - a greyed-control sentence
+    `hd_ibhit` can never produce, and a "will not boot" arm the SYSTEM phase
+    took with it when SPEC.md 52.10.10 moved the commit
+    (docs/HANDOFF-SOAK-FINDINGS.md A4).
+    """
+    ok = (os.path.join(ROOT, "kernel"), os.path.join(ROOT, "drivers"))
+    return [p for p in sources()
+            if os.path.dirname(p) == ok[0]
+            or (os.path.dirname(p) + os.sep).startswith(ok[1] + os.sep)]
+
+
 def kernel_code_lines():
     """Every kernel source line with its comment stripped, once."""
     global _KLINES
@@ -437,7 +460,7 @@ def main():
                   got="push %s / pop %s" % (", ".join(pro), ", ".join(popped)),
                   want="pop %s" % ", ".join(reversed(pro)))
 
-    for path in kernel_sources():
+    for path in orphan_sources():
         rel = os.path.relpath(path, ROOT)
         for line, routine, label, above in orphan_locals(path):
             check(False, "%s:%d - %s%s has no way in" % (rel, line, routine, label),
@@ -493,9 +516,10 @@ def main():
             checked += 1
 
     print("t_asmrules: %d sources scanned for dead code and crossed pops, "
-          "%d of them kernel sources scanned for orphaned local blocks, "
+          "%d of them kernel and driver sources scanned for orphaned local "
+          "blocks, "
           "%d roots 8086-constrained (%d C roots gated by tools/cc8086.py "
-          "instead)" % (len(files), len(kernel_sources()), checked, gated))
+          "instead)" % (len(files), len(orphan_sources()), checked, gated))
     done("t_asmrules")
 
 

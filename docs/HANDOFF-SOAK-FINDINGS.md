@@ -171,12 +171,28 @@ time and nobody read the second column.
 
 ## A4. Four orphaned local blocks outside the kernel
 
-Found by `t_asmrules` check 4, which was written during the pass and lands
-green on the kernel. Outside it: one in `ftpd`, one in `texpad`, two in the
-hard-disk installer — **one of which is a user-visible sentence with no
-caller**. Named, not fixed; each is its own package's decision.
+**FIXED, and all four were dead by design drift** — each one's own comment
+explains why the reachable world moved on without it:
 
----
+| | |
+|---|---|
+| `apps/texpad` `tp_bact.next` | a copy of the routine's own FALL-THROUGH, which already calls `tp_next_page` |
+| `apps/ftpd` `fd_drawctl.no` | a `stc`/`ret` in a routine that never sets CF and whose callers never test it |
+| `drivers/hdd` `hd_iw_click.refused` | the greyed-control sentence. `hd_ibhit` answers 0 for a greyed button, so nothing could reach it — and its own comment half concedes it: *"a greyed control explains itself (SPEC.md 47 rule 5), so this says nothing new"* |
+| `drivers/hdd` `hd_inst_apps.nboot` | *"the files are all there and the disk simply will not boot"* — a real distinction that is **no longer this phase's to make**. SPEC.md 52.10.10 moved the boot commit into the SYSTEM phase, and the branch went with it: that phase has its own `.nboot` with two live `jc`s into it. This copy stayed behind |
+
+`ftpd.o88` −3 bytes and `texpad.o88` −5. The HDD tool driver's image is
+byte-different and the same LENGTH — its packaged layout absorbed the ~13
+bytes — so that half is a reachability fix rather than a size one.
+
+**`t_asmrules` check 4 now walks `drivers/` as well as the kernel** (45 → 99
+files), and the mutation test still fires. It does **not** walk `apps/`, and
+that is a limit of the detector rather than a judgement: it reads fall-through
+and named jumps, so a routine dispatching through a TABLE looks to it like a
+wall of unreachable arms — `apps/weave/wfx.inc`'s `_wfx_eval` has 22 and
+`apps/modplug`'s glyph picker 9, every one of them live. Adding `apps/` would
+mean 31 exceptions to find 0 more defects, and an exception list is where this
+class comes back.
 
 # B. Harness defects — every one produces a FALSE failure
 
@@ -568,8 +584,8 @@ away. `weavesmoke._shot` is the family's helper.
 | a missing `no_saver()` call (B7) | 1 — `trkrate` |
 | found by the pre-merge gate, not the soak (B9) | 1 — a leaked QEMU breaking `ps2mouse` |
 | fixed during the pass | 3 — `deskbench`, and `weavegame`/`wireflick`'s registrations |
-| **fixed since, in this queue** | **11** — A1, A2, A5, B1, B2, B3, B4, B6, B7, B8, B9 |
-| **left open** | **4** — A3, A4, B5, C1, C2 |
+| **fixed since, in this queue** | **12** — A1, A2, A4, A5, B1, B2, B3, B4, B6, B7, B8, B9 |
+| **left open** | **3** — A3, B5, C1, C2 |
 | **classifications this queue got WRONG and corrected** | **4** — `trkscrl` (A1, called in bold "the one genuine product defect" and it is a shadowed key in the test's own include), `dispmine` (A5, called contention on one passing re-run), `blitcut` (B2, bisected to a host-side commit and it is the size pass's own ladder), and B6's own mechanism |
 | **product defects found in shipped software** | **0** |
 
