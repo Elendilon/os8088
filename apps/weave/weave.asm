@@ -76,6 +76,18 @@
 %define CC_HAS_OVL                  ; ...and WEAVE.OVL (SPEC.md 73.14), whose
                                     ; tenants are in apps/weave/wovl.c
 %define CC_HAS_WORKER               ; void os88_worker(void *) - WEAVE-SPEC
+
+%define CC_STACK_CLASS OS88_STACK_192 ; ...AND HOW MUCH STACK IT WANTS
+                                    ; (SPEC.md 8.7). Declared rather
+                                    ; than defaulted:
+                                    ; os88_worker() is a three-instruction trampoline into WEAVE.WSM,
+                                    ; whose own frame loop walks 22 more - about 62 all told, so 126
+                                    ; over the floor and 192 gives 1.52x
+                                    ; It is NOT the same number as
+                                    ; crt0.asm's CC_STACK, which is
+                                    ; the LARGEST class: this is what
+                                    ; we ask for and that is the
+                                    ; widest slice we could be given
                                     ; 6.10's canvas frame loop, hired at the
                                     ; first start() and parked between runs.
                                     ; The BODY is not in this image at all: it

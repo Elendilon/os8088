@@ -55,7 +55,14 @@ BR_SBRATE   equ SB_RATE         ; that followed the hand IS input overrun
                                 ; includes, so the two ends of it
                                 ; cannot drift (SPEC.md 20.11)
 
-    OS88_HEADER 'BROWSER', br_entry, 3  ; bit0 = icon, bit1 = association
+    OS88_HEADER 'BROWSER', br_entry, 3, OS88_STACK_384  ; bit0 = icon, bit1 = association
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 148 on the layout path
+                                ; AND ftpd's socket branch - the
+                                ; deeper of the two, not the sum
+                                ; over the 64-byte interrupt floor
+                                ; that is 224, and 384 gives 1.71x
 
     OS88_ICON16
     dw 0x0000                       ; 16 mask rows (white underlay): a page

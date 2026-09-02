@@ -68,7 +68,15 @@
                                     ; drivers/ether/ether.asm includes, so the
                                     ; two ends cannot drift (SPEC.md 20.11)
 
-    OS88_HEADER 'FTPD', fd_entry, 1
+    OS88_HEADER 'FTPD', fd_entry, 1, OS88_STACK_384
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; MEASURED +150 after a whole
+                                ; FTP session, 220 on the 5150;
+                                ; fd_worker's own chain is 90
+                                ; and the rest is the driver
+                                ; over the 64-byte interrupt floor
+                                ; that is 214, and 384 gives 1.79x
     OS88_ICON16
     ; 16 mask rows (the white underlay), then 16 of ink: a disk platter with
     ; an arrow leaving it - the machine's own storage, served outwards.

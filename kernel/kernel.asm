@@ -2373,6 +2373,7 @@ DBG_TAG_VIDEO equ 0x4456          ; 'VD' - SPEC.md 57.4
 DBG_TAG_FDD   equ 0x4446          ; 'FD' - SPEC.md 57.5
 DBG_TAG_BUILD equ 0x4449          ; 'ID' - SPEC.md 57.6
 DBG_TAG_BPROF equ 0x5042          ; 'BP' - SPEC.md 15.5, BOOTPROF=1
+DBG_TAG_STKD  equ 0x4453          ; 'SD' - docs/STACK-SLOTS-PLAN.md, STKDIAG=1
 
 ; =============================================================================
 ; Fixed entry points
@@ -3615,6 +3616,11 @@ dbg_reg:
                                     ; contest is a question about a REAL card,
                                     ; so it has to be in the build the field
                                     ; machine is actually sent
+%ifdef STK_DIAG
+    dw DBG_TAG_STKD, sd_dbg_blk     ; docs/STACK-SLOTS-PLAN.md - `make
+                                    ; STKDIAG=1`, knob-built under 57.2's rule
+                                    ; for bprof's reason: it COUNTS
+%endif
 %ifdef BOOT_PROFILE
     dw DBG_TAG_BPROF, bprof_dbg_blk  ; SPEC.md 15.5 - `make BOOTPROF=1`, and
                                     ; knob-built under SPEC.md 57.2's rule: it
@@ -4658,6 +4664,14 @@ kmain:
                                 ; close, and this should go on the first repaint
 %endif
 
+%ifdef STK_DIAG
+    call sd_start               ; docs/STACK-SLOTS-PLAN.md: the diagnostic task
+                                ; and its panel. AFTER the desktop, so the
+                                ; first paint has somewhere to land, and after
+                                ; BOOT_PROFILE's table so the two knobs do not
+                                ; fight over the same pixels
+%endif
+
     jmp ui_task                 ; task 0 becomes the UI task; never returns
 
 ; =============================================================================
@@ -5128,6 +5142,8 @@ section .text
                                 ; both and defines neither
 %include "mouse.inc"
 %include "bootprof.inc"       ; the boot phase table (SPEC.md 15.5), BOOTPROF=1
+%include "stkdiag.inc"        ; what an interrupt costs a task stack
+                              ; (docs/STACK-SLOTS-PLAN.md), STKDIAG=1
 %include "moudiag.inc"        ; ...and what the identify window saw (SPEC.md
                                 ; 9.4.6), MOUDIAG=1. Both are knob-only and
                                 ; both draw on the finished desktop, because
@@ -6567,7 +6583,7 @@ KERN_KB    equ (KERN_SIZE + 1023) / 1024
 SKB_FAT    equ FAT_PARA * 16              ; the mount-time FAT snapshot (18.8)
 SKB_DSK    equ DSK_WIN_BYTES              ; disk_dir + disk_icons + dsk_secbuf,
                                           ; and NOTHING else (SPEC.md 2.1.2)
-SKB_STK    equ (MAX_TASKS-1) * SCH_STACK  ; the background slices
+SKB_STK    equ SCH_STK_TOTAL              ; the background slices
 SKB_STK0   equ STK0_SIZE                  ; ...and task 0's
 SKB_IMG    equ KERN_SIZE - SKB_FAT - SKB_DSK - SKB_STK - SKB_STK0
 

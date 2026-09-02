@@ -62,7 +62,15 @@
 ZF_SBRATE   equ SB_RATE
 %endif
 
-    OS88_HEADER 'FROTZ', zf_entry, 3    ; bit0 = icon, bit1 = association block
+    OS88_HEADER 'FROTZ', zf_entry, 3, OS88_STACK_384    ; bit0 = icon, bit1 = association block
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 240: 22 levels down to
+                                ; OSAPI_GFX_LOCK, the deepest
+                                ; chain in the tree. 42 of them
+                                ; are registers it never uses
+                                ; over the 64-byte interrupt floor
+                                ; that is 304, and 384 gives 1.26x
 
 ; --- the 16x16 icon: a lamp, which is what you are carrying ------------------
     OS88_ICON16

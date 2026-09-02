@@ -45,7 +45,12 @@
 WD_SBRATE   equ SB_RATE         ; the system
 %endif
 
-    OS88_HEADER 'WORD', wd_entry, 3    ; bit 0 icon, bit 1 the DOC
+    OS88_HEADER 'WORD', wd_entry, 3, OS88_STACK_256    ; bit 0 icon, bit 1 the DOC
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 126 for wd_worker
+                                ; over the 64-byte interrupt floor
+                                ; that is 190, and 256 gives 1.35x
                                        ; association block (SPEC.md 68.4)
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------

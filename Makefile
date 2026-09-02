@@ -318,6 +318,32 @@ endif
 VIDDEF += -DBOOT_PROFILE
 endif
 
+# STKDIAG=1 compiles in docs/STACK-SLOTS-PLAN.md's task-stack diagnostic: a
+# sentinel written into the free bytes below SP around sch_isr's
+# `call far [sch_old08]`, so what the ROM's int 08h handler scrubs is what it
+# COSTS a task stack - the one number in that plan that came from an A/B
+# between two kernels under one BIOS, and the one that has to be true on a
+# 5150, an XT clone and a 386 before any slice is made smaller.
+#
+# It boots to its own panel with no input at all, which is the point: the quiet
+# phase is the reading that matters most and the only one a human cannot
+# perturb, so it must not need a double-click to start. Phases 2 and 3 ask for
+# the mouse and the keyboard on the glass, and a phase nobody performs reads
+# equal to the one before it rather than leaving a hole. Published in SPEC.md
+# 57's registry as 'SD' as well, so an emulator run is read rather than
+# photographed (tools/stkdiagread.py).
+#
+# It REFUSES to coexist with QUANTUM= for BOOTPROF's reason one step removed:
+# the phase clock is counted in system ticks and 53.2.1 divides the very period
+# those are, so every phase would end early by a ratio.
+ifneq ($(STKDIAG),)
+ifneq ($(QUANTUM),)
+$(error STKDIAG=1 and QUANTUM= cannot be built together: QUANTUM reprograms \
+the PIT divisor (SPEC.md 53.2.1) and the phase clock is counted in ticks)
+endif
+VIDDEF += -DSTK_DIAG
+endif
+
 # MOUIDSLOW=1 always spends the whole of SPEC.md 9.4.1's identify window,
 # instead of closing it as soon as a port has answered LIKE A MOUSE and gone
 # quiet (SPEC.md 9.4.5). The pre-9.4.5 mouse_init - 1,200 ms rather than
@@ -1344,9 +1370,9 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              SNAPAUDIT SCROLLROW QUANTUM GFXAUDIT \
                              CURFIX \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
-                             BOOTPROF BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG FDDSLOW TRACKRUN SBDRAGOFF SBRATE \
+                             BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG FDDSLOW TRACKRUN SBDRAGOFF SBRATE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOHEDGE VGADIRTY DLJUNK,\
+                             KERN_SMALL FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE VGADIRTY DLJUNK,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -1388,7 +1414,7 @@ endif
 # asked for it read a PLAIN kernel, so its assertion was about a build nobody
 # had made. Both halves, every time - the list above so the knob announces
 # itself, this string so the kernel is rebuilt when it changes.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -1470,7 +1496,7 @@ KERNEL_SRC := kernel/kernel.asm
 # a map that described "a DIFFERENT kernel".
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 
-.PHONY: small kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 xt-cga \
+.PHONY: stkdiag small kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 xt-cga \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 \
         286-sound 386-sound 486 pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
@@ -1917,6 +1943,87 @@ BD_IMGS := $(BUILD)/bootdiag360.img $(BUILD)/bootdiag720.img \
            $(BUILD)/bootdiagx720.img $(BUILD)/bootdiagx144.img
 
 .PHONY: bootdiag
+# NOMOUPRIV=1 puts BOTH mouse ISRs back on the interrupted TASK's stack, which
+# is what shipped before SPEC.md 9.10. The default runs the whole ISR on one
+# shared 128-byte stack in .lowbss, so what it costs the task is the six bytes
+# the CPU pushed at the gate and nothing else - ~48 bytes off every slice, and
+# a slice pays it seven times over where the swap costs .text once.
+#
+# This is the A/B those numbers come off (docs/STACK-SLOTS-PLAN.md 4.2), it is
+# arm 2 of `make stkdiag`, and it is the only thing keeping the un-swapped path
+# assembling.
+#
+# The default needs no re-entrancy guard, which is a property of that ISR and
+# not an assumption - mou_isr runs IF=0 from the gate to the iret and never
+# stis, so it cannot interrupt itself and IRQ3/IRQ4 cannot interrupt each
+# other. The tick's chain is not like that and its own move needs a busy flag.
+ifneq ($(NOMOUPRIV),)
+VIDDEF += -DNO_MOUPRIV
+endif
+
+# NOCHAINPRIV=1 puts the ROM's int 08h chain back on the interrupted TASK's
+# stack, which is what shipped before SPEC.md 8.5. The default runs it on one
+# shared 128-byte stack in .lowbss - ~56 bytes off every slice, the largest
+# single item in the interrupt floor, and the one that made a slot class
+# smaller than the ROM impossible.
+#
+# This is the A/B those numbers come off (docs/STACK-SLOTS-PLAN.md 4.1), it is
+# arm 3 of `make stkdiag`, and it is the only thing keeping the un-swapped path
+# assembling.
+ifneq ($(NOCHAINPRIV),)
+VIDDEF += -DNO_CHAINPRIV
+endif
+
+# --- STKDIAG=1's disks (docs/STACK-SLOTS-PLAN.md 10) -------------------------
+#
+# A RECURSIVE make and not a payload rule, because the payload is the ordinary
+# system disk: the panel is in the kernel and spawns itself, so there is no
+# package to put beside it and nothing to launch. That is the whole reason it
+# is a knob - a package would need a double-click, and the double-click is
+# inside the quiet phase it would be perturbing.
+#
+# All three geometries, because the machines this is for are not all 3.5":
+# a 5150 with 360KB drives is exactly the machine whose ROM number nobody has.
+#
+# It leaves build/os8088*.img holding the KNOB kernel. The VIDSTAMP notices and
+# a later plain `make` rebuilds them, which is the trap that stamp exists for
+# (see VIDSTAMP above) - but do not ship an image out of a tree you last built
+# this way without running `make` first.
+stkdiag:
+	$(MAKE) STKDIAG=1
+	cp $(BUILD)/os8088.img     $(BUILD)/stkdiag144.img
+	cp $(BUILD)/os8088-720.img $(BUILD)/stkdiag720.img
+	cp $(BUILD)/os8088-360.img $(BUILD)/stkdiag360.img
+	cp $(BUILD)/os8088-120.img $(BUILD)/stkdiag120.img
+	$(MAKE) STKDIAG=1 NOMOUPRIV=1
+	cp $(BUILD)/os8088.img     $(BUILD)/stkdiagmp144.img
+	cp $(BUILD)/os8088-720.img $(BUILD)/stkdiagmp720.img
+	cp $(BUILD)/os8088-360.img $(BUILD)/stkdiagmp360.img
+	cp $(BUILD)/os8088-120.img $(BUILD)/stkdiagmp120.img
+	$(MAKE) STKDIAG=1 NOCHAINPRIV=1
+	cp $(BUILD)/os8088.img     $(BUILD)/stkdiagcp144.img
+	cp $(BUILD)/os8088-720.img $(BUILD)/stkdiagcp720.img
+	cp $(BUILD)/os8088-360.img $(BUILD)/stkdiagcp360.img
+	cp $(BUILD)/os8088-120.img $(BUILD)/stkdiagcp120.img
+	@echo ""
+	@echo "stkdiag: TWELVE disks, in three arms of four - 360, 720, 1.2M and 1.44M."
+	@echo "         stkdiag<size>.img is the kernel AS IT SHIPS - both the"
+	@echo "         mouse ISRs (SPEC.md 9.10) and the ROM's int 08h chain"
+	@echo "         (SPEC.md 8.5) already on stacks of their own. The other two"
+	@echo "         each turn ONE of those off: stkdiagmp<size>.img is"
+	@echo "         NOMOUPRIV=1 and stkdiagcp<size>.img is NOCHAINPRIV=1."
+	@echo "         THE ARMS NO LONGER NEST, which is the point - arm 2 minus"
+	@echo "         arm 1 is what the mouse fix is worth on YOUR machine and"
+	@echo "         arm 3 minus arm 1 is what the tick's chain is worth, and"
+	@echo "         neither reading needs the other taken first."
+	@echo "         Boot one and DO NOT TOUCH THE MACHINE. The panel runs three"
+	@echo "         90-second phases and tells you when to move the mouse and when"
+	@echo "         to type; it says HANDS OFF for five seconds before each"
+	@echo "         reading is taken. Photograph the panel when it says DONE."
+	@echo "         The number to quote is FLOOR, idle - and ROM int08 is now"
+	@echo "         read off the SHIPPING stack, so it sizes SCH_CHSTK directly."
+	@echo ""
+
 bootdiag: $(BD_IMGS) $(BUILD)/bootdiag.com
 	@echo "bootdiag: six images. Boot bootdiag<size>.img FIRST - it loads"
 	@echo "          through tests/bootdiag/bdboot.asm, which cannot fail the"

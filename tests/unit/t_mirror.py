@@ -68,6 +68,14 @@ import os88parts as parts                                 # noqa: E402
 ASM = ["kernel/kernel.asm", "kernel/splash.inc", "boot/boot.asm",
        "boot/boothd.asm", "apps/os88api.inc", "apps/os88ui.inc",
        "drivers/os88drv.inc",
+       # The scheduler's own two (SPEC.md 8, 8.7): MAX_TASKS, which sizes the
+       # snapshot the SDK hands every package, and SCH_STACK, which is the
+       # LARGEST slot class and so the window apps/cc/crt0.asm's cc_iswk has
+       # to use. Both were typed out in apps/os88api.inc with nothing
+       # comparing them, and MAX_TASKS was moved by hand 8 -> 14 in the same
+       # session this line was written - it stayed in step on care alone,
+       # which is what this file exists to replace.
+       "kernel/sched.inc",
        # The claim table's own namespace (SPEC.md 50.2/50.6): the SDK block
        # under "mirrored from kernel/memory.inc" is the Task Manager's only
        # way to name a kernel tag, and a RENUMBER there is silent in exactly

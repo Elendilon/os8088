@@ -1198,7 +1198,18 @@ SK_KCLAIM  equ 18               ; word: ...of which the kernel's own
 SK_XMS     equ 20               ; word: the pool above 1MB, 0 with no store
 SYSKB_SIZE equ 22
 
-MAX_TASKS  equ 8                ; the scheduler's slots (SPEC.md 8) - a bound
+SCH_STACK  equ 384              ; THE LARGEST SLOT CLASS (SPEC.md 8.7), which
+                                ; is the only slice size a package may assume
+                                ; anything about. Your worker gets the smallest
+                                ; free slice that is at least what you asked
+                                ; for - so it can be BIGGER than your class,
+                                ; and anything sizing a window against "my
+                                ; stack" has to use this maximum or the window
+                                ; comes out short. apps/cc/crt0.asm's cc_iswk
+                                ; is the one thing in the tree that does.
+                                ; Mirrored from kernel/sched.inc and checked by
+                                ; tests/unit/t_mirror.py
+MAX_TASKS  equ 14               ; the scheduler's slots (SPEC.md 8) - a bound
 INST_MAX   equ 12               ; running instances (SPEC.md 29.1)   on the
 MEM_MAX    equ 32               ; claim records (SPEC.md 50)         buffers
                                 ; above, and each call answers the live figure
@@ -1932,7 +1943,31 @@ OS88_F_ICON   equ 1             ; an embedded 16x16 icon follows the header
 OS88_F_ASSOC  equ 2             ; ...and an association block follows that (54.6)
 OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
 
-%macro OS88_HEADER 2-3
+; --- OS88_STACK_* : what to pass as OS88_HEADER's 4th argument (SPEC.md 8.7)
+; Your worker's stack class. The kernel owns the sizes; you name the one you
+; need and it gives you the smallest free slice that is at least that big, or
+; refuses with CF=1 - which SPEC.md 20.6 already requires you to degrade on.
+;
+; SAY NOTHING AND YOU GET THE LARGEST, which is what every package built before
+; this field got and still gets. Declaring is how a program that does not need
+; 384 bytes stops holding one, so that the machine can run more programs at
+; once - it buys you nothing on its own and it is not a micro-optimisation to
+; skip: six slices was the whole supply.
+;
+; tools/stkdepth.py prints your worker's deepest static chain; add the kernel's
+; interrupt floor, which docs/STACK-SLOTS-PLAN.md 7.1 puts at 64 on the worst
+; real machine measured, and pick the class above the sum with margin.
+OS88_STACK_DEFAULT equ 0        ; the largest. What you get by saying nothing
+OS88_STACK_128     equ 1        ; a worker that sleeps and wakes: a close
+                                ; watcher, a caret blink, a transport poll
+OS88_STACK_192     equ 2        ; most workers. The modal class
+OS88_STACK_256     equ 3        ; a worker that draws through a deep chain
+OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
+                                ; interpreter, or anything that talks to
+                                ; ETHER.DRV, whose socket verbs cost ~126
+                                ; bytes on YOUR stack (SPEC.md 72)
+
+%macro OS88_HEADER 2-4
     cpu 8086
     bits 16
     org 0                   ; v3: you own a segment, so you link at zero and
@@ -1952,10 +1987,17 @@ OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
     dw OS88_BSS_SIZE         ; +10 bytes the loader zeroes after the image
     db 0FFh, 0D5h           ; +12 THE DISPATCHER: `call bp`...
     db 0CBh                 ; +14 ...`retf`. The kernel far-calls this fixed
-    db 0                    ; +15 offset with BP = the callback it wants,
+                            ;     offset with BP = the callback it wants,
                             ;     which is why your paint/key/click procs are
                             ;     ordinary near procs ending in `ret` and you
                             ;     never write `retf` (SPEC.md 20.1/20.2)
+    %if %0 >= 4
+    db %4                   ; +15 the worker's stack class (SPEC.md 8.7) - an
+    %else                   ;     OS88_STACK_* above. This byte padded the
+    db 0                    ;     dispatcher to a word for three format
+    %endif                  ;     versions and was always 0, which is why it
+                            ;     could be given a meaning without moving the
+                            ;     header version: 0 IS the old behaviour
     %strlen %%len %1
     %if %%len > 15
         %error "OS88_HEADER: program name must be at most 15 characters (the 16-byte field is NUL-padded)"

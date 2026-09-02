@@ -232,6 +232,63 @@ mou_masks   dw MOU_L4, MOU_L3   ; ...the line its base says it drives, which is
                                 ; what to HOOK and never what to retire
 mou_isrs    dw mou_isr, mou_isr3    ; ...and the stub that vector points at
 
+
+; -----------------------------------------------------------------------------
+; MOUPRIV_ENTER / MOUPRIV_LEAVE - the mouse ISR on a stack of its own
+;                                 (SPEC.md 9.10, docs/STACK-SLOTS-PLAN.md 4.2)
+;
+; THE DEFAULT SINCE SPEC.md 9.10; `NOMOUPRIV=1` is the A/B and the only thing
+; keeping the un-swapped path assembling.
+;
+; The whole ISR runs on a private stack, so what it costs the TASK it
+; interrupted is the six bytes the CPU pushed before we had control, and
+; nothing else. That is ~48 bytes off every task slice - and a slice pays it
+; seven times over, where the code below costs .text once.
+;
+; IT IS THE ADAPTER THAT SETS THE DEPTH, not the mouse: 54 bytes on a planar
+; card (QEMU VGA 54, an 86Box EGA 54, a Packard Bell 286's VGA with a PS/2
+; mouse 52), against 30 on Hercules and 23 on CGA, because cur_move's 1bpp path
+; is the shallow one. So the size below is cut from the planar figure.
+;
+; IT NEEDS NO RE-ENTRANCY GUARD, and that is a property of this ISR rather than
+; an assumption: `mou_isr` runs with IF=0 from the CPU's own gate to the `iret`
+; and never `sti`s (SPEC.md 7/9), so it cannot interrupt itself, and IRQ3 and
+; IRQ4 cannot interrupt each other either. The tick's chain needs a busy flag
+; because a real BIOS `sti`s inside it; this one does not.
+;
+; NO REGISTER IS AVAILABLE at entry - every one of them is the interrupted
+; task's - so the swap is written to need none: `mov [cs:x], sp` and
+; `mov sp, imm16` both work with nothing to spare. CS is KERNEL_SEG at an ISR
+; gate, so the save slot is reached through it before DS is ours; SS is already
+; LOW_SEG for every task (SPEC.md 1/2.1), so the stack itself has to live in
+; .lowbss and the swap is SP alone.
+;
+; THE ENTRY IS DUPLICATED because there are two vectors and the swap has to
+; happen before the first `push`. Four bytes of .text against ~58 bytes of
+; every task stack in the machine is the trade, and it is not close.
+; -----------------------------------------------------------------------------
+%ifndef NO_MOUPRIV
+MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
+                                ; adapter. Nothing can interrupt this stack -
+                                ; the ISR holds IF=0 throughout - so 54 is the
+                                ; whole answer and not a sample, and the margin
+                                ; is against a future cur_move rather than
+                                ; against an unknown
+
+%macro MOUPRIV_ENTER 0
+    mov [cs:mou_psave], sp
+    mov sp, mou_pstack + MOU_PSTK
+%endmacro
+%macro MOUPRIV_LEAVE 0
+    mov sp, [cs:mou_psave]
+%endmacro
+%else
+%macro MOUPRIV_ENTER 0
+%endmacro
+%macro MOUPRIV_LEAVE 0
+%endmacro
+%endif
+
 ; -----------------------------------------------------------------------------
 ; mou_pout - AL out to [port BX's base + AH]
 ;
@@ -1608,6 +1665,7 @@ mou_p2_off:
 .out:
     ret
 
+
 ; -----------------------------------------------------------------------------
 ; mou_p2_isr - IRQ12, int 74h (SPEC.md 9.9.3)
 ;
@@ -1621,6 +1679,17 @@ mou_p2_off:
 ; Runs with IF = 0 throughout; never sti (SPEC.md 7).
 ; -----------------------------------------------------------------------------
 mou_p2_isr:
+    MOUPRIV_ENTER               ; ...and the PS/2 ISR too (SPEC.md 9.9). It was
+                                ; MISSED by the first version of MOUPRIV and a
+                                ; Packard Bell 286 said so on the glass: "mouse
+                                ; ISR, own stack" read 0 there while the mouse
+                                ; phase still added 16 bytes to a task slice,
+                                ; because a PS/2 mouse arrives on IRQ12 through
+                                ; this ISR and never through mou_isr at all.
+                                ; Same argument, same safety: IF=0 from the gate
+                                ; to the iret, so it cannot nest on itself - and
+                                ; it cannot nest with mou_isr either, so the two
+                                ; share one private stack
     push ax
     push bx
     push cx
@@ -1658,6 +1727,7 @@ mou_p2_isr:
     pop cx
     pop bx
     pop ax
+    MOUPRIV_LEAVE
     iret
 
 ; -----------------------------------------------------------------------------
@@ -2754,6 +2824,7 @@ kbd_ovb     db 0                ; ...and one the ISR has asked for and no pass
                                 ; reads them on the machine's first keystroke
 
 ; -----------------------------------------------------------------------------
+
 ; mou_isr / mou_isr3 - IRQ4 and IRQ3. Microsoft
 ;           protocol: byte 0 has bit 6 set: 1 LB RB Y7 Y6 X7 X6; bytes 1/2
 ;           have bit 6 clear: low 6 bits of X then Y. Any bit-6 byte restarts
@@ -2772,11 +2843,13 @@ kbd_ovb     db 0                ; ...and one the ISR has asked for and no pass
 ; could starve the real mouse out of ever being found (SPEC.md 9.5).
 ; -----------------------------------------------------------------------------
 mou_isr:                        ; IRQ4, and...
-    push bx
+    MOUPRIV_ENTER               ; docs/STACK-SLOTS-PLAN.md 4.2: onto a private
+    push bx                     ; stack, before anything is pushed
     mov bl, MOU_L4              ; ...the ONE thing the two entries disagree
     jmp short mou_isr_body      ; about: which LINE fired. Not which PORT has
 mou_isr3:                       ; the byte - that is scanned for below - but
-    push bx                     ; which 8259 bit must SURVIVE retirement, and
+    MOUPRIV_ENTER               ; ...and the same two instructions again, which
+    push bx                     ; is the duplication this buys the saving with
     mov bl, MOU_L3              ; nothing else can tell mou_lockon that
 mou_isr_body:
     push ax
@@ -3091,7 +3164,8 @@ mou_eoi:
     pop cx
     pop ax
     pop bx
-    iret
+    MOUPRIV_LEAVE               ; ...and back to the task's, whose only cost
+    iret                        ; was the CPU's own six bytes
 
 %ifdef GFXAUDIT
 ; cur_logput - one ring entry: the tag, the refcount, and where the pixels are
@@ -4811,6 +4885,19 @@ section .lowbss
 cur_log_i   resw 1              ; write cursor, in BYTES
 cur_log     resb CURLOG_N*CURLOG_SZ
 section .bss
+%endif
+%ifndef NO_MOUPRIV
+section .lowbss
+resb (2 - (($-$$) % 2)) % 2     ; even, so SP is even across the swap. `alignb`
+                                ; spelled out - NASM refuses the macro form
+                                ; against this nobits section (sch_stacks'
+                                ; declaration carries the same note)
+mou_pstack  resb MOU_PSTK       ; the mouse ISR's own stack (MOUPRIV_ENTER).
+                                ; .lowbss and not .bss: SS is LOW_SEG for every
+                                ; task and the swap moves SP alone
+section .bss
+mou_psave   resw 1              ; the task's SP across it, reached through CS at
+                                ; entry because DS is not ours yet
 %endif
 cur_lazy    resb 1              ; gfx_lock deferred the hide (SPEC.md 7.1.4):
                                 ; the arrow is still on screen this hold

@@ -8363,6 +8363,270 @@ all. That is ~82 bytes a real machine charges and the emulator does not
 (docs/KERNEL-MEMORY.md, "Task stacks"), and it is why the freeze never
 reproduced here.
 
+### 8.5 The ROM's `int 08h` chain runs on a stack of its own, and a nested tick does not chain
+
+`sch_isr` chains to the BIOS on every full tick, and that call is made from the
+deepest-nesting context in the kernel — so the ROM's handler, and everything it
+in turn lets in, lands on whichever **task slice** was interrupted. Measured by
+A/B on a bare desktop (docs/STACK-SLOTS-PLAN.md 4.1), that chain is **50 bytes,
+plus the 6 of the `pushf` and the far call that reach it** — and the ROM is not
+ours to shrink: 56 on SeaBIOS, 36 on an IBM 5150 (10/27/82), 18 on a Packard
+Bell 286 and on 86Box's XT BIOS. It is per-BIOS and adapter-independent, so
+there is no "BIOS adder" a design can assume.
+
+It is therefore the single largest item in the interrupt floor, and it is paid
+by **every slice at once**, because any of them can be the one interrupted.
+
+```nasm
+.full:
+    cmp byte [sch_chbusy], 0    ; nested? then the chain is already on the ROM
+    jne .chskip
+    inc byte [sch_chbusy]
+    mov [sch_chsave], sp
+    mov sp, sch_chstack + SCH_CHSTK
+    pushf                       ; chain: BIOS ticks its count and sends EOI
+    call far [sch_old08]
+    mov sp, [sch_chsave]
+    dec byte [sch_chbusy]
+```
+
+**SS never changes** — every task runs `SS = LOW_SEG` (§1, §2.1) — so the swap
+is SP alone and the stack lives in `.lowbss`, exactly as §9.10's does. Unlike
+§9.10's it is reached with registers already saved, so no `cs:` override is
+needed and a plain byte flag will do.
+
+#### 8.5.1 Why a nested tick skips the chain rather than nesting on the stack
+
+`sch_isr`'s contract is **IF=0 throughout** (§8), so there is exactly one window
+in it where anything can arrive: inside the ROM's handler, which sends its EOI
+and then `sti`s before `int 1Ch`. Everything that lands there — a keystroke's
+`int 09h`, a mouse IRQ's six-byte gate frame, the floppy's completion — lands on
+this private stack, which is what it is sized for. **A second IRQ0 is the one
+that cannot simply nest**, because the re-entered `sch_isr` runs to `sch_switch`
+and would save a *private* SP into a task record. So it takes the flag's other
+arm: EOI itself, skip the chain, and carry on down the rest of the tick on the
+task's own stack, which is what it was already doing.
+
+**What that costs is one BIOS tick increment, and only in a case the machine is
+already a tick behind for.** A second IRQ0 can only reach the ROM handler if the
+first one was itself delayed by nearly a whole tick — the PIT's edges are 54.9 ms
+apart and the handler is ~0.2 ms — which happens after a long IF=0 window such as
+a floppy transfer, and then only for the one tick whose phase lands inside it: on
+the order of **one transfer in 280**. The 8259 latches one pending IRQ0 and no
+more, so a backlog is *already* collapsed to a single tick before any of this;
+this loses at most one more. `[ticks]`, the OS's own clock, is incremented on
+this path either way and is unaffected, and §37's RTC ladder does not read the
+BIOS count.
+
+`[sch_chskip]` counts the skips so the claim above is a reading rather than an
+argument; `STKDIAG=1` publishes it (docs/STACK-SLOTS-PLAN.md 10).
+
+**If the ROM's handler never returns, the flag stays set and no tick chains
+again.** That is a machine that has already stopped, and the alternative — a
+timeout — would be a second thing to get wrong in an ISR that must not have one.
+
+#### 8.5.2 The cost
+
+| | bytes |
+|---|---|
+| `.text` — the flag, the swap, the restore and the nested EOI | see the commit |
+| `.bss` — the saved SP, the flag, the skip counter | 4 |
+| `.lowbss` — one shared stack | `SCH_CHSTK` |
+| **removed from every task slice** | **~56** |
+
+One allocation against every slice in `sch_stacks`, and it is what makes a slot
+class smaller than the ROM possible at all — the floor a class is cut from falls
+from 118 to about 62 on a real 5150 with this and §9.10 together.
+
+**`NOCHAINPRIV=1` is the A/B** and the only thing keeping the un-swapped path
+assembling. With `NOMOUPRIV=1` it is the whole of what shipped before these two
+sections; `make stkdiag`'s three arms are the default, that knob, and this one,
+so each fix is isolated against arm 1 on the machine in front of you.
+
+### 8.6 `sch_stkbase` — where a slot's stack is, looked up rather than derived
+
+Every consumer of a task stack needs the same word: the **bottom** of it, which
+is both the base of the slice and where `SCH_MAGIC` sits. `sch_stkbase` is that
+word per slot — one `dw` each, in `.text`, `MAX_TASKS` entries — and the canary
+check on the switch path is an index and a compare:
+
+```nasm
+    mov bl, [sch_cur]
+    xor bh, bh
+    shl bx, 1
+    mov bx, [bx+sch_stkbase]
+    cmp word [ss:bx], SCH_MAGIC
+    jne sch_stkdie
+```
+
+**It replaces arithmetic, and that is the point rather than a side effect.**
+`sch_switch` used to derive the base from the slot index, which needed an 8-bit
+multiply in the general case and carried two hand-written special cases beside
+it — one for `SCH_STACK` = 256 that had not shipped since the 8 × 384 move, one
+for 384 that decomposed it into two shifts. `task_spawn` and the `KFZ` deep
+sampler each derived it a third and fourth time. The comment on that block
+recorded the failure mode the whole time it existed: two instruments derived the
+base a *different* wrong way — from SP's low bits, which only works if slices
+are 256-aligned — and read garbage until they were corrected. **A derivation is
+something every reader has to get right independently; a table is something they
+look up.**
+
+**A derivation also cannot survive variable slice sizes**, which is what a slot
+class scheme needs: with classes there is no expression from the slot index to
+the base at all. So the table is the enabling mechanism as well as the
+simplification, and both were true before any class existed.
+
+**It sits below `sch_stkdie`'s hang loop, and that placement is part of the
+contract.** `sch_isr` **falls through** into `sch_switch` — that is one of the
+three documented ways in — so bytes placed immediately before `sch_switch:` are
+bytes the *timer ISR executes on every tick*. The table went there first and the
+symptoms named everything except the cause: `kern_big` survived it, `kern_small`
+booted to a task resuming with `CS` = `0xCCCC` (`task_spawn`'s own fill, §8.3),
+and a bisect that reverted every line of logic still failed, because the failure
+was the data rather than the code. A `hlt` / `jmp $` is the one place in
+`sched.inc` nothing can fall through into.
+
+**It is in `.text` with real initialisers, not `.bss` with a loop.** The
+partition is fixed at assembly time — the slices exist from boot and are never
+handed out or given back — so a table of `dw`s costs 2 bytes a slot and no init
+code, where `.bss` costs the same 2 bytes *plus* the loop that fills them. It
+also cannot be corrupted, which for the word that says where a canary is is
+worth having. Its bytes are in `kernel.bin`, so a host-side reader can follow it
+through `tools/os88sym.py` rather than recomputing the layout.
+
+#### 8.6.1 Slot 0 is in the table, and now has a canary that is checked
+
+Task 0 runs on `SS:STK0_TOP` rather than a slice of `sch_stacks`, and the old
+arithmetic branched around it. The table simply holds `STK0_BOT` there.
+
+That branch going is the small part. The larger part is that **`STK0_BOT`'s
+`SCH_MAGIC` used to be seeded only under `KFZTRACE`** — so on every shipping
+kernel the UI task's 1,024-byte stack had *no canary at all*, and its stack grows
+down onto the top of `.lowbss`: the other tasks' slices, the glyph table, the
+disk buffers. An overrun there was silent, which is precisely what the
+`KFZTRACE`-only seed's own comment complained about while being unable to do
+anything about it on a build anybody runs.
+
+The seed is unconditional now, and slot 0's canary is compared on every switch
+like everybody else's. **The seed is what makes the table uniform, and the table
+is what makes the check free.**
+
+#### 8.6.2 What derived, and what happened to it
+
+Four readers computed `sch_stacks + (n-1)*SCH_STACK` for themselves, correct
+only while every slice was the same size. §8.7 made them differ, so:
+
+- **`tools/stkwater.py`** decodes `sch_stksize` out of `kernel.bin` —
+  `slice_sizes()` — and `water()`/`report()` take the list. It ranks by the
+  *fullest* slice rather than the deepest, because with classes those are
+  different questions and only the first is about a margin: 200 of 384 is
+  comfortable and 120 of 128 is nearly dead.
+- **`tools/stkdiagread.py`** reads `sum(sizes)` bytes and prints each slot as a
+  percentage of its own slice.
+- **`tools/kfzread.py`** says where the top actually comes from instead of
+  naming `SCH_STACK`.
+- **`tests/stackprobe`** now *declares* `OS88_STACK_384` in its header, which
+  turns its `SPB_SLICE` from a mirror the kernel could falsify into a request
+  the kernel honours. Its **whole-machine walk is withdrawn**: a package cannot
+  learn the partition, probing four sizes for the next canary would be right
+  most of the time, and "most of the time" in a reader that numbers slots is
+  how that file's own history already reads. `STKDIAG=1`'s panel is the
+  replacement on real hardware, and it reads the table.
+
+### 8.7 Slot classes — a task asks for the stack it needs, and gets the smallest that fits
+
+Every background slice used to be `SCH_STACK` = 384 bytes, so seven slices cost
+2,688 bytes of `.lowbss` and the machine could run **six** workers at once (the
+idle task holds the seventh permanently). 384 is what the deepest tenant in the
+tree needs; it is 4× what most of them do. `docs/STACK-SLOTS-PLAN.md` §12 is the
+survey that measured all twenty.
+
+The slices are a **fixed partition** now, not a uniform array. `SCH_PARTITION`
+in `kernel/sched.inc` is one `SCH_SLOT <bytes>` line per background slot, in
+slot order, and it is the only place the layout is written:
+
+- **`sch_stkbase`** — one `dw` per slot, each slice's bottom (§8.6).
+- **`sch_stksize`** — one `dw` per slot, its size in bytes.
+- **`SCH_STK_TOTAL`** — what `sch_stacks` reserves.
+- **`SCH_STK_N`** — checked against `MAX_TASKS - 1`, so a list that does not
+  match the table is a build failure and not a silent short read.
+
+Both tables carry **slot 0**, the UI task, for §8.6's reason: a table with a
+hole in it is a table every reader has to remember the hole in.
+
+#### 8.7.1 Asking, and what happens when the answer is no
+
+`task_spawn` takes **CX = the stack the task wants, in bytes**, and its scan
+takes the first free slot at least that big. `SCH_PARTITION` is written smallest
+first, so **first fit is smallest fit**: a worker that wants 384 cannot be given
+the last small slice a Timer would have fitted into.
+
+**CX = 0 means the largest class.** A caller with no opinion says nothing and is
+safe, rather than silently asking for the smallest.
+
+Running out is the refusal that already exists: `OSAPI_TASK_SPAWN` answers CF=1,
+and §20.6 already requires every package to degrade on it and retry. There is no
+allocator, no compaction and no new failure mode — the slices exist from boot
+and never move.
+
+#### 8.7.2 Where a package says it
+
+**Byte +15 of the package header** (`LD_H_CLASS`), an index into the kernel's
+`sch_clsbytes`:
+
+| index | bytes | the tenant |
+|---|---|---|
+| 0 | *the largest* | said nothing |
+| 1 | 128 | a worker that sleeps and wakes |
+| 2 | 192 | most workers — the modal class |
+| 3 | 256 | a worker that draws through a deep chain |
+| 4 | *the largest* | asked for on purpose |
+
+**That byte padded the dispatcher to a word for three format versions and was
+always 0** — which is exactly why it could be given a meaning without moving the
+header version. An old package has 0 there and gets the stack it always had, so
+nothing has to be rebuilt to keep working, and `OSAPI_TASK_SPAWN`'s register
+contract does not change at all.
+
+An **index** rather than a size, for two reasons: a byte cannot hold 384, and an
+index makes the legal answers a closed list the kernel owns — a package cannot
+ask for 200 and be handed a slice that does not exist, and the list can be recut
+without every package becoming wrong. `ld_check_hdr` does **not** validate it:
+an out-of-range index gets the largest class and launches, where a refusal would
+be a hostile-input failure over a field nobody validated.
+
+`apps/os88api.inc` publishes `OS88_STACK_*` and `OS88_HEADER` takes the class as
+an optional 4th argument; a C package sets `CC_STACK_CLASS` before including
+`apps/cc/crt0.asm`, which emits the same byte. **`tools/os88pkg.py` bounds the
+index at build time**, which is where a package that means something by the byte
+should hear about a typo — the kernel deliberately does not, because at *load*
+time the safe answer is the largest class and a launch that happens.
+
+**`CC_STACK` in `apps/cc/crt0.asm` is NOT that class**, and the distinction is
+load-bearing. `cc_iswk` decides "am I the worker" by testing SP against a window
+one slice deep, and a window that is too *short* fails the gate open — a worker
+deeper than it reads as the UI task and goes on to claim and read a floppy from
+it (§20.6 rule 7). Since a package is given the smallest free slice at least as
+big as it asked for, it can legitimately be running on a **bigger** slice than
+its class; so `CC_STACK` must be the largest class, and it takes that from the
+SDK's `SCH_STACK` — which `tests/unit/t_mirror.py` compares against
+`kernel/sched.inc`'s, needing nobody to remember it.
+
+#### 8.7.3 Where the kernel's own three say it
+
+A driver and the two kernel-side spawners have no header to declare in, so
+`sched.inc` names them, each against a measurement:
+
+| | bytes | why |
+|---|---|---|
+| `SCH_IDLE_STK` | 128 | the idle task's own footprint is ≤ 4 bytes (§8.1.2), so what it needs *is* the interrupt floor — 32 on QEMU, 40–64 on real iron |
+| `SCH_BUILTIN_STK` | 128 | Timer and Bounce are the built-in kinds that take a task; six Bounces at once measured +10…24 over the floor |
+| `SCH_DRV_STK` | 192 | the sound driver's stream task, the only driver worker in the tree, walks 28 bytes statically — 64 + 28 = 92, so 2.1× |
+
+`OSAPI_DRV_TASK` has exactly one caller in the whole tree, which is why one
+number serves every driver; a driver that needs more is a line here with a
+reason beside it, not a new mechanism.
+
 ## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 
 - **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both
@@ -10482,6 +10746,69 @@ The decision tree it collapses, in the order the columns are read:
 | `p2st 09`, `irq 0000` | the handshake completed and the line never fired: the cascade, the mask, or the vector |
 | `p2st 09`, `irq` moving, `pkt 0000` | bytes arrive and never sync — read `b0` |
 | `pkt` moving, `x` still | decoded and not applied |
+
+### 9.10 Both mouse ISRs run on a stack of THEIR OWN, not the interrupted task's
+
+An ISR lands on whatever stack it interrupts, so the mouse's cost is paid by
+whichever task happened to be running — and in `sch_stacks` that is a cost every
+slice must be sized for simultaneously, because any of them can be the one
+interrupted. Measured with `STKDIAG=1` (docs/STACK-SLOTS-PLAN.md 4.2), the chain
+`mou_isr` → `mou_apply` → `cur_move` is **~54 bytes on a planar adapter, 30 on
+Hercules and 23 on CGA** — it is the ADAPTER that sets the depth, `cur_move`'s
+1bpp path being the shallow one, so the number to design from is the planar 54.
+
+The whole ISR therefore runs on **one shared 128-byte stack in `.lowbss`**, and
+what it costs the interrupted task is the six bytes the CPU pushed at the gate
+and nothing else.
+
+```nasm
+    mov [cs:mou_psave], sp          ; 2E 89 26 xxxx   5 bytes   MOUPRIV_ENTER
+    mov sp, mou_pstack + MOU_PSTK   ; BC xxxx         3 bytes
+      ...
+    mov sp, [cs:mou_psave]          ;                 5 bytes   MOUPRIV_LEAVE
+```
+
+**No register is available at an interrupt gate** — every one of them is the
+interrupted task's — and the swap is written to need none: `mov [cs:x], sp` and
+`mov sp, imm16` both encode with nothing to spare. CS is `KERNEL_SEG` at the
+gate, so the save slot is reached through it before DS is ours; **SS is already
+`LOW_SEG` for every task (§1, §2.1), so the swap is SP alone** and the stack
+must live in `.lowbss`.
+
+**It needs no re-entrancy guard, and that is a property rather than a hope.**
+`mou_isr` runs with IF=0 from the CPU's own gate to its `iret` and never `sti`s
+(§7, §9), so it cannot interrupt itself and IRQ3 and IRQ4 cannot interrupt each
+other. The tick's chain to the ROM is not like that — a real BIOS `sti`s inside
+it — and its own relocation needs a busy flag for exactly that reason.
+
+**BOTH vectors carry the entry, and the duplication is deliberate.** `mou_isr`,
+`mou_isr3` and `mou_p2_isr` (§9.9's IRQ12 handler) each swap before their first
+`push`, because the swap has to happen before anything is pushed and there is no
+shared prologue above the gate. `mou_eoi`'s single `iret` and `mou_p2_isr`'s
+carry the restore. The first version of this covered only the serial pair, and a
+Packard Bell 286 with a PS/2 mouse caught it on the glass: the panel read
+*"mouse ISR, own stack"* while the mouse phase still added 16 bytes to a slice.
+
+**The cost, A/B'd against `NOMOUPRIV=1` on the tree that shipped it** — not
+estimated:
+
+| | bytes |
+|---|---|
+| `.text` — the 8-byte entry at three gates, plus a 5-byte restore at two | **34** |
+| `.bss` — the saved SP | 2 |
+| `.lowbss` — one shared stack, 2.4× the measured 54 | 128 |
+| **resident total** | **164** |
+| **removed from every task slice** | **~48** |
+
+164 bytes once against 48 off each of seven slices — **336 today**, and more
+under a class scheme, where the slices are what is being counted. That ratio is
+the whole argument, and it is why the stack is sized generously and the code is
+not. It crossed no rung.
+
+**`NOMOUPRIV=1` is the A/B**, and the only thing keeping the un-swapped path
+assembling. It puts both ISRs back on the interrupted task's stack, which is
+what shipped before this section; `make stkdiag` builds it as arm 2 so the floor
+row moves by exactly what this is worth on the machine in front of you.
 
 ## 10. events.inc
 
@@ -49654,6 +49981,132 @@ no breakpoint armed after that stop fires again**, at any address, while `run`
 is provably resuming. A rig that stops, re-arms and resumes cannot work here;
 this one writes an immediate into the patched loop and advances instead.
 
+### 42.21 A GIF's LZW loop emits a RUN, not a pixel
+
+**The decode of `MEDIA/OS8088.GIF` — 466x110, 2,138 bytes on disk — took
+12.45 seconds on a 4.77 MHz 8088**, and 10.6 of them were the LZW loop at
+**999 cycles a pixel**. Taken with a breakpoint either side of `pt_gdec` and
+one either side of `pt_line_put`, so the two halves are separated rather than
+apportioned (`tests/paintlzw.py`).
+
+999 cycles buys a lot on this machine, and none of it was arithmetic. LZW
+hands a string back **last character first**, so the reader unwound it onto a
+character stack and then emitted it in reverse — and *emitting* was a near
+call per pixel into `pt_gemit`, which pushed four registers, re-read
+`[pt_gcol]`, `[pt_cols]` and `[pt_gw]`, mapped the index through `pt_pmap`,
+stored one byte and popped four registers. Around it sat `pt_gpush` and
+`pt_gpop`, two more calls a pixel, each re-reading and re-writing the stack
+depth in memory. **Three calls, six memory round trips and a palette lookup
+for every pixel of a picture that is a table of bytes.**
+
+The shape that removes all of it is one observation: *the stack the walk fills
+is the string, backwards*. So fill it **downwards from the top of the same
+4,096-byte region** instead — the walk writes with `std` and `stosb`, one byte
+and eleven cycles a character — and when the walk ends the string is sitting
+at `ES:DI+1` in the order the picture wants it. A run then costs a
+`rep movsb`, seventeen cycles a pixel, and every per-pixel decision becomes a
+per-RUN one. `pt_grun` is that routine: it cuts the run at the source row's
+end (which is what advances the destination row and walks the interlace) and
+then at the canvas's width (which is what crops a picture wider than the
+canvas, counting the columns it drops so the stream stays in step). Strings
+here average 30 pixels, so a 466-wide row is cut about once in fifteen runs.
+
+**It costs no heap.** `PT_GD_STK` was 4,096 bytes of character stack and is
+now 4,096 bytes of string buffer, in the same place, inside the same
+`PT_LZW_KB` claim.
+
+#### 42.21.1 The two guards move from the pixel to the CODE
+
+The old walk paid `cmp word [pt_gsp], 4096 / jae` on **every character** — a
+runaway guard against a dictionary that cycles, which is a real hazard: a
+crafted file can send a code the table has not defined, and `[pt_gold]` then
+walks entries that were never written. The guard cut the chain short and
+carried on, which is a partial picture from a wrong premise.
+
+Two checks placed **once per code** make the walk unguarded and the hazard
+impossible instead:
+
+- **a code is refused unless it is at most `[pt_gfree]`.** That single forward
+  reference is the only one GIF defines (the string that ends in its own first
+  character), and it is the only one this reader now honours. Anything above
+  it is a file describing a table it never built, and the decode stops.
+- **an entry is refused unless its prefix is below its own index.** A chain
+  therefore strictly descends and cannot cycle, so its length is bounded by
+  the index it starts from.
+
+The arithmetic that follows is what lets the buffer go unchecked. Roots live
+below `[pt_gclr]`, `[pt_gfree]` starts at `Clear + 2`, and prefixes are never
+`Clear` or `EOI` (neither is ever accepted as a code), so a chain from 4,095
+visits at most `4095 - (Clear + 2) + 1` defined entries and one root — **4,091
+characters at the smallest legal `Clear` of 4**, plus one for the forward
+reference. 4,092 into 4,096. The buffer cannot underrun, and no instruction in
+the walk checks that it did not.
+
+The first code after a `Clear` must now be a root as well. It was previously
+taken on trust and used as an index into `pt_pmap`, which is 256 bytes: a
+12-bit code there read up to 4KB past the table and painted whatever it found.
+
+#### 42.21.2 The palette is applied once per STRING
+
+`pt_pmap` maps the file's colour indices onto Paint's sixteen, and the old
+reader applied it in `pt_gemit` — once per pixel, four instructions and a
+memory read. But a dictionary entry's suffix byte is written **once** and read
+once per pixel of every string that ends in it, so the mapping belongs there.
+`[pt_gfirst]` now holds a mapped colour rather than a code, which carries the
+mapping into the suffix the new entry is defined with for free, and the only
+lookups left are one per root — one per string. It is why `pt_grun` can be a `rep movsb` at
+all: the bytes in the buffer are already the bytes the canvas wants.
+
+`[pt_gfirst]` is a byte for the same reason, and `[pt_gsp]` is gone.
+
+#### 42.21.3 What it came to, and what is left
+
+| | before | after | | |
+|---|---:|---:|---:|---|
+| the LZW loop | 999 | **205** | 4.87x | cycles a pixel |
+| `pt_line_put`, per pixel of the row it packs | 169 | 169 | — | cycles a pixel |
+| the whole `pt_gif_in` on `OS8088.GIF` | 12,547 | **3,952** | 3.17x | ms |
+
+for **27 bytes** of package image, `tests/paintlzw.py`. It is a pure win in
+size as well as speed below that: `[pt_gsp]` and a byte of `[pt_gfirst]` came
+back out of `.bss`, and `pt_gpush`, `pt_gpop` and `pt_gemit` are three
+routines gone.
+
+**`pt_line_put` was then the larger half of what was left**, and it is not the
+GIF decoder's — it is the four-plane transpose every picture goes through
+(§42.13.1.2), eight shift pairs a pixel, and its cost is the 8088's
+instruction-fetch floor rather than its clocks. §42.13.1.4 straightens it out
+for 125 bytes, and it pays the BMP decoder the same way:
+
+| | before | after | | |
+|---|---:|---:|---:|---|
+| `pt_line_put`, four planes | 169 | **125** | 1.34x | cycles a pixel |
+| `pt_line_put`, packed nibbles | 185 | **49** | 3.79x | cycles a pixel |
+
+which puts the whole operation, measured end to end either side of
+`pt_gif_in` on both canvas formats, at:
+
+| `OS8088.GIF`, 466x110 | before | after | |
+|---|---:|---:|---:|
+| VGA — the canvas is four planes | 12,547 ms | **3,494 ms** | 3.59x |
+| CGA or Hercules — packed nibbles | 12,755 ms | **2,687 ms** | **4.75x** |
+
+for **136 bytes** of package image in total, and three bytes of `.bss` handed
+back. The 1bpp adapters come out ahead because the packed pack had the most
+slack in it, and they are the machines this is for.
+
+What is left is 205 cycles a pixel of LZW — about half of it the chain walk,
+two table reads and a `stosb` per character, which is what the format costs —
+and the transpose. Three things were costed and NOT built. **Pre-doubling the
+prefixes** to delete the walk's `add bx, bx` needs a stride-2 suffix table:
+8KB more claim, `PT_LZW_KB` 16 → 24, for ~5% of the loop. **Caching the
+previous string** would skip the walk for the 25.5% of characters that arrive
+as the forward reference, and needs a second 4,096-byte buffer for it.
+And **`pt_gbits`**, at roughly 550 cycles a code, is 18 cycles a pixel at this
+picture's 30-pixel average string — it is worth having only for a picture that
+compresses badly, where the strings are short and every code is paid for over
+fewer pixels.
+
 ### 42.13 The canvas is stored the way the CARD wants it
 
 §5.4's blit takes packed 4bpp — two pixels a byte, which is what a BMP row is
@@ -49950,6 +50403,48 @@ The probe removes all of that: the flag stays armed while the answer is no,
 so the retry rides the next repaint at the cost of one far call, and the
 conversion happens exactly once, at the first repaint where the planes would
 actually be taken.
+
+##### 42.13.1.4 The byte column is STRAIGHT-LINE, because the 8088 charges for arriving
+
+`pt_line_put`'s planar path is what every opened picture goes through — GIF
+and BMP alike, one call a row — and it cost **169 cycles a pixel** on a
+4.77 MHz 8088, measured with a breakpoint either side of it during a GIF
+decode (`tests/paintlzw.py`). The work in it is 32 clocks: four `shr`/`rcl`
+pairs, one bit of the pixel into each plane's accumulator. The other 137 were
+**instruction fetch**.
+
+§42.13.1.2 unrolled the same shape on the way OUT (`pt_line_get`, the GIF
+writer's row reader) and took 26% off it. The way in had the same defect and a
+second one on top:
+
+- `mov bl, [pt_line+si]` / `inc si` is **five bytes** to read a byte the 8088
+  will spend 20 bus cycles fetching. `SI` walks `pt_line` as a pointer
+  instead, so the read is `lodsb` — **one byte** — and `[pt_ppend]` (one past
+  the row's last real pixel) is what the two bounds tests compare against.
+- `dec cl` / `jnz` is four more bytes per pixel, and on this machine that is
+  what a loop costs: not the 19 clocks, the 17 cycles of *fetching* them. All
+  eight pixels are emitted straight-line.
+
+**169 → 125 cycles a pixel**, 16.53 → 12.21 ms for a 466-pixel row, for **125
+bytes** of package image. The accumulators moved to CL/CH/DL/DH so that `AL`
+can be `lodsb`'s and `BX` stays free to index the planes; the partial column
+at the end of a row keeps its rolled loop and its per-pixel bounds test, which
+is the whole reason there are two paths.
+
+**The PACKED path was worse, and it is the one a 5150 runs.** A 1bpp adapter
+holds the canvas as packed nibbles (§42.13), so `pt_line_put`'s other loop is
+what every picture opened on a CGA or a Hercules goes through — and it cost
+**185 cycles a pixel**. Two pixels are one byte, and it decided *per pixel*
+which nibble it was holding (`test si, 1`), re-derived the destination byte
+from the column every time (`mov di, si` / `shr di, 1` / `add di, bx`), and
+asked on every even pixel whether it was the last one in the row.
+
+Taking them in **pairs** deletes all three questions: `lodsw` brings both
+pixels, one `shl` and an `or` make the byte, `stosb` places it, and the count
+is whole pairs decided once. **185 → 49 cycles a pixel, 3.79x** — and it is
+**12 bytes SMALLER** than the loop it replaced. The lone final pixel of an odd
+row is still merged rather than written, which is the same promise the planar
+path's partial byte column makes.
 
 #### 42.13.2 Seven things the second bodies got wrong
 

@@ -1497,7 +1497,11 @@ app_launch:
     mov cl, 5
     shr dx, cl
     xor bx, bx                  ; a built-in kind's task is kernel code
-    call task_spawn             ; in AX, BX, DX; out CF / AL = slot
+    mov cx, SCH_BUILTIN_STK     ; ...and asks for a sleeper's stack (SPEC.md
+                                ; 8.7): the two built-ins that take a task are
+                                ; Timer and Bounce, and six Bounces at once
+                                ; measured +10..24 over the floor
+    call task_spawn             ; in AX, BX, CX, DX; out CF / AL = slot
     jc .rollback
     mov [ds:bp+I_TASK], al
 
@@ -1907,17 +1911,36 @@ inst_pkg_spawn:
     cmp byte [di+I_TASK], 0xFF  ; one worker per instance: I_TASK is a single
     jne .fail                   ; byte and is never cleared once set - this is
                                 ; spawn's own rule, so it stays here
-    mov ch, ah                  ; bank the caller's AH: task_spawn rebuilds
-                                ; the whole of AX but preserves CX
+    push ax                     ; BANK THE CALLER'S AH on the stack, not in CH:
+                                ; since SPEC.md 8.7 CX carries the stack class
+                                ; into task_spawn, so both halves are spoken
+                                ; for. `pop` writes no flags either, which is
+                                ; the property the old `mov ah, ch` was chosen
+                                ; for and the reason this substitution is safe
     mov dx, di                  ; DX = instance index = (rec - inst_tab) >> 5,
     sub dx, inst_tab            ; the app_launch idiom (SPEC.md 29.4). It
     mov cl, 5                   ; lands in the worker's DX and its DL in
     shr dx, cl                  ; T_INST, so the Task Manager attributes the
                                 ; task to this instance (SPEC.md 8/28)
-    mov bx, [di+I_SPTR]         ; the worker runs in the package's segment
-    call task_spawn             ; in AX = entry, BX = seg, DX = arg
-    mov ah, ch                  ; caller's AH back - MOV touches no flags, so
-                                ; task_spawn's CF is still the live answer
+    mov bx, [di+I_SPTR]         ; the worker runs in the package's segment...
+    push bx                     ; ...and ITS OWN HEADER says how much stack it
+    push es                     ; wants (SPEC.md 8.7). Byte +15, which padded
+    mov es, bx                  ; the dispatcher and is 0 on every package
+    mov bl, [es:LD_H_CLASS]     ; built before this - and 0 is "no opinion",
+    pop es                      ; which gets the largest class, so nothing has
+    xor bh, bh                  ; to be rebuilt to keep working
+    cmp bx, SCH_NCLASS          ; AN INDEX OUT OF RANGE IS NOT A REFUSAL: a
+    jae .defcls                 ; package with a byte we do not understand gets
+    shl bx, 1                   ; the largest class and launches, where a
+    mov cx, [bx+sch_clsbytes]   ; refused launch would be a hostile-input
+    jmp short .havecls          ; failure over a field nobody validated
+.defcls:
+    xor cx, cx                  ; task_spawn's own spelling of "no opinion"
+.havecls:
+    pop bx                      ; the segment back
+    call task_spawn             ; in AX = entry, BX = seg, CX = stack, DX = arg
+    pop cx                      ; the banked AX...
+    mov ah, ch                  ; ...and the caller's AH out of its high half
     jc .out                     ; task table full: nothing was created
     mov [di+I_TASK], al         ; the record now owns the worker
     clc

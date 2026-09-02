@@ -75,7 +75,12 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'MISSILE', mc_entry, 1
+    OS88_HEADER 'MISSILE', mc_entry, 1, OS88_STACK_256
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 106 for mc_worker
+                                ; over the 64-byte interrupt floor
+                                ; that is 170, and 256 gives 1.51x
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A burst at the top, an ICBM trail down to a city skyline on the ground - the

@@ -63,6 +63,19 @@ LD_H_BSS    equ 10              ; word: bytes to zero after the image
 LD_H_DISP   equ PKG_DISP        ; 12: the three-byte dispatcher, IN the
                                 ; header - `call bp / retf`. Every kernel to
                                 ; package call goes through it (SPEC.md 20.1)
+LD_H_CLASS  equ 15              ; byte: THE WORKER'S STACK CLASS (SPEC.md 8.7),
+                                ; an index into sch_clsbytes. It is the byte
+                                ; that padded the dispatcher out to a word
+                                ; boundary and was 0 on every package ever
+                                ; built - and 0 is "no opinion", which gets the
+                                ; largest class. So this field costs nothing to
+                                ; adopt: an old package keeps exactly the stack
+                                ; it always had, and the header version does
+                                ; not move. ld_check_hdr does NOT validate it:
+                                ; the one consumer bounds it itself and an
+                                ; out-of-range index gets the largest class,
+                                ; which is a safe answer rather than a refused
+                                ; launch
 LD_HDR_SIZE equ 0x20
 
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a

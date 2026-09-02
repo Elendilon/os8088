@@ -12774,41 +12774,39 @@ pt_line_put:
     push di
     push es
     mov ax, di
-    call pt_rowset                  ; ES:DI = the row...
-    mov bx, di                      ; ...and BX its offset, for the packing
-    xor si, si                      ; SI = column
-    cmp byte [pt_planar], 0
+    call pt_rowset                  ; ES:DI = the row, which is where BOTH
+    mov bx, di                      ; paths start writing, and BX the copy the
+    cmp byte [pt_planar], 0         ; planar one keeps while DI walks a plane
     jne .planar
+    ; --- TWO PIXELS ARE ONE BYTE, so take them in pairs (SPEC.md 42.13.1.4):
+    ; `lodsw` brings both, one shift and an `or` make the byte, and `stosb`
+    ; places it. The loop this replaced decided PER PIXEL which nibble it was
+    ; holding, re-derived the destination byte from the column every time, and
+    ; asked on every even pixel whether it was the last one in the row - 185
+    ; cycles a pixel on a 4.77MHz 8088, against 32 clocks of actual work.
 .col:
-    mov al, [pt_line+si]
-    test si, 1
-    jnz .lo
-    mov cl, 4
+    mov si, pt_line                 ; ES:DI already walks the row's BYTES and
+    mov cl, 4                       ; DS:SI now walks its PIXELS
+    mov bx, [pt_cols]
+    shr bx, 1                       ; whole pairs, and ZF says there are none
+    jz .codd
+.cpair:
+    lodsw                           ; AL = the even pixel, AH = the odd one
     shl al, cl
-    mov dl, al                      ; hold the high nibble back
-    mov ax, si
-    inc ax
-    cmp ax, [pt_cols]
-    jb .next                        ; ...unless this is the last pixel
-    mov di, si
-    shr di, 1
-    add di, bx
-    mov al, [es:di]
-    and al, 0x0F
-    or al, dl
+    and ah, 0x0F
+    or al, ah
+    stosb
+    dec bx
+    jnz .cpair
+.codd:
+    test byte [pt_cols], 1
+    jz .done                        ; the row ended on a byte boundary
+    lodsb                           ; a LONE final pixel is merged rather than
+    shl al, cl                      ; written: the low nibble past [pt_cols]
+    mov ah, [es:di]                 ; is not this row's to touch, which is the
+    and ah, 0x0F                    ; same promise the planar path's partial
+    or al, ah                       ; byte column makes
     mov [es:di], al
-    jmp short .next
-.lo:
-    and al, 0x0F
-    or al, dl
-    mov di, si
-    shr di, 1
-    add di, bx
-    mov [es:di], al
-.next:
-    inc si
-    cmp si, [pt_cols]
-    jb .col
     jmp .done
 
     ; --- FOUR PLANES: eight pixels build four bytes, and the LAST byte of a
@@ -12817,35 +12815,42 @@ pt_line_put:
     ; promise the packed path's final-nibble case makes.
 .planar:
     mov di, bx
+    mov ax, [pt_cols]               ; SI walks pt_line as a POINTER from here
+    add ax, pt_line                 ; down, so the byte column's eight loads
+    mov [pt_ppend], ax              ; are `lodsb` - one byte of code each,
+    mov si, pt_line                 ; against five (SPEC.md 42.13.1.4)
 .ppcol:
     ; --- EIGHT WHOLE PIXELS? then no bounds test and no merge (SPEC.md 42.13).
     ; This is the GIF and BMP decoders' inner loop - every row of every
     ; picture opened - and the general path below spends a compare per PIXEL
     ; and a read-modify-write per PLANE to handle the one byte column at the
     ; end of a row that may be partial.
-    mov ax, [pt_cols]
+    mov ax, [pt_ppend]
     sub ax, si
     cmp ax, 8
     jb .ppslow
-    xor ax, ax
+    xor cx, cx
     xor dx, dx
-    mov cl, 8
-.ppfast:
-    mov bl, [pt_line+si]
-    inc si
-    shr bl, 1
-    rcl al, 1                       ; plane 0
-    shr bl, 1
-    rcl ah, 1                       ; plane 1
-    shr bl, 1
+    ; --- THE COLUMN IS STRAIGHT-LINE, and the reason is the 8088's FETCH
+    ; floor rather than its clocks (SPEC.md 42.13.1.4): the rolled loop was
+    ; 25 bytes a pixel against 32 clocks of work, so `dec cl` and `jnz` were
+    ; not costing 19 clocks, they were costing the four bytes they take to
+    ; arrive. The accumulators are CL/CH/DL/DH so that AL can be `lodsb`'s
+    ; and BX stays free to index the planes at the bottom.
+%rep 8
+    lodsb
+    shr al, 1
+    rcl cl, 1                       ; plane 0
+    shr al, 1
+    rcl ch, 1                       ; plane 1
+    shr al, 1
     rcl dl, 1
-    shr bl, 1
+    shr al, 1
     rcl dh, 1
-    dec cl
-    jnz .ppfast
+%endrep
     mov bx, [pt_bpr]
-    mov [es:di], al
-    mov [es:bx+di], ah
+    mov [es:di], cl
+    mov [es:bx+di], ch
     add di, bx
     add di, bx
     mov [es:di], dl
@@ -12853,7 +12858,7 @@ pt_line_put:
     sub di, bx
     sub di, bx
     inc di
-    cmp si, [pt_cols]
+    cmp si, [pt_ppend]
     jb .ppcol
     jmp .done
 .ppslow:
@@ -12863,9 +12868,9 @@ pt_line_put:
     mov cl, 8
 .pppx:
     xor bl, bl
-    cmp si, [pt_cols]
+    cmp si, [pt_ppend]
     jae .ppshift                    ; past the end: shift a zero in and mask
-    mov bl, [pt_line+si]
+    mov bl, [si]
     inc si
     inc ch
 .ppshift:
@@ -12890,7 +12895,7 @@ pt_line_put:
     or ch, ch
     jz .done                        ; nothing real in it: the row is finished
     inc di
-    cmp si, [pt_cols]
+    cmp si, [pt_ppend]
     jb .ppcol
 .done:
     pop es
@@ -13513,73 +13518,69 @@ pt_greset:
     ret
 
 ; -----------------------------------------------------------------------------
-; pt_gpush / pt_gpop - the reader's output stack
-; in:  AL = a colour index (push); ES = the table segment
-; out: nothing; preserves all registers
+; pt_grun - a decoded RUN of pixels into the picture
+; in:  ES:SI = the run, forward order, already mapped to our sixteen colours;
+;      CX = its length; DS = the package
+; out: SI and CX are consumed; preserves every other register
 ;
-; LZW hands a string back last character first, so it is unwound onto a stack
-; and emitted in reverse. The stack is bounded at 4096 - one entry per possible
-; code - and a chain that would overrun it is a corrupt file, cut short rather
-; than followed.
+; SPEC.md 42.21. The old reader emitted a PIXEL AT A TIME, through a near call
+; that re-read the column, both widths and the palette for each one - 999
+; cycles a pixel measured on a 4.77MHz 8088, and 10.6 seconds of a 466x110
+; picture. A string arrives here contiguous and in order, so a pixel costs a
+; `rep movsb` and every per-pixel decision is taken once per RUN instead.
+;
+; The run is cut twice, in this order. First at the SOURCE row's end, because
+; that is what advances the destination row and what walks the interlace.
+; Then at the CANVAS's width, because a picture wider than the canvas is
+; cropped - and the columns past it are still counted, so a cropped picture
+; stays in step with the stream exactly as it did before.
 ; -----------------------------------------------------------------------------
-pt_gpush:
-    push bx
-    mov bx, [pt_gsp]
-    cmp bx, 4096
-    jae .full
-    mov [es:bx+PT_GD_STK], al
-    inc bx
-    mov [pt_gsp], bx
-.full:
-    pop bx
-    ret
-
-pt_gpop:
+pt_grun:
     push ax
     push bx
-.more:
-    mov bx, [pt_gsp]
-    or bx, bx
-    jz .out
-    dec bx
-    mov [pt_gsp], bx
-    mov al, [es:bx+PT_GD_STK]
-    call pt_gemit
-    jmp short .more
-.out:
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; pt_gemit - one decoded pixel into the picture
-; in:  AL = the file's colour index
-; out: nothing; preserves all registers
-;
-; Columns the canvas does not have are counted but not stored, because the
-; stream has to stay in step whether the picture was cropped or not; rows it
-; does not have are decoded and dropped for the same reason.
-; -----------------------------------------------------------------------------
-pt_gemit:
-    push ax
-    push bx
-    push cx
+    push dx
     push di
+    push ds
+    push es
+    jcxz .out
+.chunk:
     cmp byte [pt_gdone], 0
-    jne .out
+    jne .out                        ; every row is placed: drop the rest
     mov bx, [pt_gcol]
-    cmp bx, [pt_cols]
-    jae .skip
-    mov cl, al
-    xor ch, ch
-    mov di, cx
-    mov al, [pt_pmap+di]
-    mov [pt_line+bx], al
-.skip:
-    inc bx
-    mov [pt_gcol], bx
-    cmp bx, [pt_gw]
-    jb .out
+    mov ax, [pt_gw]
+    sub ax, bx                      ; AX = what is left of this SOURCE row,
+    cmp ax, cx                      ; and never 0 - the row is closed below
+    jbe .have                       ; the moment the column reaches it
+    mov ax, cx
+.have:                              ; AX = this chunk, 1..CX
+    mov dx, [pt_cols]
+    sub dx, bx                      ; ...and how much of it the canvas keeps
+    jbe .placed                     ; none: we are past its right edge
+    cmp dx, ax
+    jbe .copy
+    mov dx, ax
+.copy:
+    push cx
+    push si
+    mov cx, dx
+    mov di, pt_line
+    add di, bx
+    mov dx, ds                      ; the destination is the PACKAGE and the
+    mov bx, es                      ; source the LZW tables, which is the one
+    mov es, dx                      ; place in the decoder DS is not ours
+    mov ds, bx
+    rep movsb
+    mov ds, dx
+    mov es, bx
+    pop si
+    pop cx
+.placed:
+    add si, ax                      ; past the whole chunk, kept or dropped
+    sub cx, ax
+    add [pt_gcol], ax
+    mov ax, [pt_gcol]
+    cmp ax, [pt_gw]
+    jb .more
     mov word [pt_gcol], 0           ; the row is complete
     mov di, [pt_grw]
     cmp di, [pt_ch]
@@ -13587,9 +13588,14 @@ pt_gemit:
     call pt_line_put
 .adv:
     call pt_gnrow
+.more:
+    or cx, cx
+    jnz .chunk
 .out:
+    pop es
+    pop ds
     pop di
-    pop cx
+    pop dx
     pop bx
     pop ax
     ret
@@ -13640,6 +13646,29 @@ pt_gnrow:
 ; pt_gdec - the reader's LZW loop
 ; in:  the header fields, the canvas laid out and wiped
 ; out: nothing; preserves all registers
+;
+; SPEC.md 42.21. A code's string is unwound from the dictionary END FIRST -
+; that is the only direction a prefix chain runs - so it is written BACKWARDS
+; into the top of the table claim and comes out FORWARDS, which is what lets
+; pt_grun move it with one `rep movsb`. The 4,096 bytes are the same ones the
+; old reader used as a character stack: nothing here costs heap.
+;
+; TWO INVARIANTS ARE WHAT MAKE THE WALK SIX UNGUARDED INSTRUCTIONS, and both
+; are established once per CODE rather than once per character:
+;
+;   - a code is refused unless it is at most [pt_gfree]. That is GIF's one
+;     forward reference - the string closed by its own first character - and
+;     anything above it describes a table the file never built; and
+;   - an entry is refused unless its prefix is BELOW its own index, so a chain
+;     strictly descends and cannot cycle.
+;
+; The buffer therefore cannot underrun and no instruction checks that it did
+; not: roots live below [pt_gclr], [pt_gfree] starts at Clear + 2, and a
+; prefix is never Clear or EOI because neither is ever accepted as a code - so
+; the longest chain is 4,092 characters at the smallest legal Clear of 4, plus
+; one for the forward reference, into 4,096. The old per-character
+; `cmp [pt_gsp], 4096` was buying a weaker version of this on every pixel of
+; every honest picture.
 ; -----------------------------------------------------------------------------
 pt_gdec:
     push ax
@@ -13670,43 +13699,59 @@ pt_gdec:
     mov [pt_gcode], ax
     cmp word [pt_gold], 0xFFFF
     jne .chain
-    mov [pt_gold], ax               ; the first code after a Clear is a root
-    mov [pt_gfirst], ax
-    call pt_gemit
+    cmp ax, [pt_gclr]               ; the first code after a Clear is a ROOT.
+    jae .out                        ; Taken on trust it indexed pt_pmap, which
+    mov [pt_gold], ax               ; is 256 bytes, with up to twelve bits
+    mov bx, ax
+    mov al, [pt_pmap+bx]            ; the palette is applied HERE and at .root
+    mov [pt_gfirst], al             ; - once per string, never per pixel
+    mov di, PT_GD_END - 1
+    mov [es:di], al
+    mov si, di
+    mov cx, 1
+    call pt_grun
     jmp .next
 .chain:
-    mov word [pt_gsp], 0
+    mov dx, [pt_gclr]
+    mov di, PT_GD_END - 1           ; the string is built downwards from the
+    mov bx, ax                      ; top, so it reads upwards afterwards
     cmp ax, [pt_gfree]
-    jb .walk
-    mov ax, [pt_gfirst]             ; the code about to be defined: its own
-    call pt_gpush                   ; first character closes the string
-    mov ax, [pt_gold]
+    ja .out                         ; past the table: the file is not one
+    std                             ; (std touches neither CF nor ZF, so the
+    jb .walk                        ; compare above is still the live one)
+    mov al, [pt_gfirst]             ; AX == [pt_gfree]: the forward reference,
+    stosb                           ; a string closed by its own first
+    mov bx, [pt_gold]               ; character
 .walk:
-    cmp word [pt_gsp], 4096
-    jae .root                       ; a cyclic chain: stop unwinding
-    cmp ax, [pt_gclr]
+    cmp bx, dx
     jb .root
-    mov bx, ax
-    add bx, bx
-    mov dx, [es:bx+PT_GD_PREF]      ; the prefix first: BX is about to move
-    mov bx, ax
+.walkin:
     mov al, [es:bx+PT_GD_SUFF]
-    call pt_gpush
-    mov ax, dx
-    jmp short .walk
+    stosb
+    add bx, bx
+    mov bx, [es:bx+PT_GD_PREF]
+    cmp bx, dx
+    jae .walkin
 .root:
-    mov [pt_gfirst], ax
-    call pt_gpush
-    call pt_gpop                    ; and out, top of the stack first
-    mov bx, [pt_gfree]
+    mov al, [pt_pmap+bx]
+    mov [pt_gfirst], al
+    stosb
+    cld
+    mov si, di
+    inc si                          ; ES:SI = the string, CX = its length
+    mov cx, PT_GD_END
+    sub cx, si
+    call pt_grun
+    mov bx, [pt_gfree]              ; --- and the code this one defines
     cmp bx, 4096
     jae .noadd
-    mov ax, bx
-    add ax, ax
-    mov di, ax
     mov ax, [pt_gold]
+    cmp ax, bx
+    jae .noadd                      ; a prefix at or above its own index is
+    mov di, bx                      ; a chain that cycles: refuse the entry
+    add di, di
     mov [es:di+PT_GD_PREF], ax
-    mov ax, [pt_gfirst]
+    mov al, [pt_gfirst]
     mov [es:bx+PT_GD_SUFF], al
     inc bx
     mov [pt_gfree], bx
@@ -13727,6 +13772,7 @@ pt_gdec:
     call pt_greset
     jmp .next
 .out:
+    cld
     pop es
     pop di
     pop si
@@ -14981,9 +15027,9 @@ pt_ic_text:
     PTWORD pt_geoi                  ; ...and End Of Information
     PTWORD pt_gfree                 ; the next code to hand out
     PTWORD pt_gold                  ; the previous code, 0xFFFF = none
-    PTWORD pt_gfirst                ; its string's first character
+    PTBYTE pt_gfirst                ; its string's first character, ALREADY
+                                    ; MAPPED to our sixteen (SPEC.md 42.21.2)
     PTWORD pt_gcode                 ; the code as it arrived
-    PTWORD pt_gsp                   ; the output stack's depth
     PTWORD pt_gcol                  ; where in the row we are
     PTWORD pt_grw                   ; and which row that is
     PTBYTE pt_gpass                 ; the interlace pass
@@ -15022,6 +15068,8 @@ pt_ic_text:
     PTWORD pt_foff
     PTBUF  pt_gl8, 8                ; ...and the one glyph being drawn
     PTBUF  pt_line, PT_CW_MAX       ; one decoded source pixel per column
+    PTWORD pt_ppend                 ; ...and one past its last REAL one, which
+                                    ; is what the planar packer walks SI to
     PTBUF  pt_dimbuf, 8             ; "x464", NUL - the palette's size readout
     PTBUF  pt_pmap, 256             ; a loaded palette -> our sixteen
     PTBUF  pt_name, 14              ; the current document
