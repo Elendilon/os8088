@@ -150,13 +150,27 @@
 ; name there is no header, and nasm goes on to report a `%strlen` complaint, an
 ; undefined `cc__namelen` and a non-constant TIMES - three messages, none of
 ; which says "you forgot the name". %fatal stops here with the one that does.
-; A task's whole stack (kernel/sched.inc, SCH_STACK), which cc_iswk needs as a
-; number rather than as a fact about the kernel it cannot see - and it has to
-; move WITH it, because a window that is too SHORT fails the gate OPEN: a
-; worker deeper than this reads as the UI task and cc_ovneed goes on to claim
-; and read a floppy from it (SPEC.md 20.6 rule 7). And the depth of
-; cc_ovthunk's return stash in WORDS (SPEC.md 73.14).
-CC_STACK    equ 384
+; THE LARGEST SLOT CLASS, and it must be the largest rather than the class this
+; package declares. cc_iswk decides "am I the worker" by testing SP against a
+; window one slice deep below the banked top, and a window that is too SHORT
+; FAILS THE GATE OPEN: a worker deeper than this reads as the UI task and
+; cc_ovneed goes on to claim and read a floppy from it (SPEC.md 20.6 rule 7).
+;
+; Since SPEC.md 8.7 a package ASKS for a class and is given the smallest free
+; slice at least that big - which can be BIGGER than it asked for, because the
+; small slices may all be taken. So a package that declares 128 can legitimately
+; be running on 384, and a CC_STACK cut to its declared class would be short by
+; 256 bytes exactly when the machine is busy. The maximum is the only safe
+; answer, and being too LONG costs nothing: the only other stack in reach is
+; task 0's, which lives above .lowbss and nowhere near a slice.
+;
+; It was the literal 384 with nothing comparing it to the kernel's SCH_STACK -
+; docs/STACK-SLOTS-PLAN.md 12.4 found it while surveying the packages. Taking
+; the SDK's copy puts it under tests/unit/t_mirror.py, which compares every
+; name defined in more than one file and needed nobody to remember it.
+;
+; CC_OVDEPTH is the depth of cc_ovthunk's return stash in WORDS (SPEC.md 73.14).
+CC_STACK    equ SCH_STACK
 CC_OVDEPTH  equ 16
 
 %ifndef CC_PKG_NAME
@@ -236,11 +250,22 @@ section .text
                                     ;     a difference taken INSIDE .bss
     db 0FFh, 0D5h                   ; +12 THE DISPATCHER: `call bp`...
     db 0CBh                         ; +14 ...`retf`. The loader CHECKS these
-    db 0                            ; +15 three bytes (kernel/loader.inc:163
-                                    ;     and :165), so they are not
-                                    ;     decoration - a package whose header
-                                    ;     says the right size and carries the
-                                    ;     wrong dispatcher is rejected at load
+                                    ;     three bytes (kernel/loader.inc), so
+                                    ;     they are not decoration - a package
+                                    ;     whose header says the right size and
+                                    ;     carries the wrong dispatcher is
+                                    ;     rejected at load
+%ifdef CC_STACK_CLASS
+    db CC_STACK_CLASS               ; +15 the worker's stack class (SPEC.md
+%else                               ;     8.7), an OS88_STACK_* from the SDK.
+    db 0                            ;     Say nothing and the byte is 0, which
+%endif                              ;     the kernel reads as "no opinion" and
+                                    ;     answers with the largest class - the
+                                    ;     stack this package had before the
+                                    ;     field existed. NOT the same number as
+                                    ;     CC_STACK above, and deliberately: one
+                                    ;     is what we ASK for and the other is
+                                    ;     the widest slice we could be GIVEN
     %strlen cc__namelen CC_PKG_NAME
     %if cc__namelen > 15
         %fatal "CC_PKG_NAME must be at most 15 characters (the field is 16, NUL-padded)"

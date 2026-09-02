@@ -50,7 +50,12 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'MODPLUG', mpp_entry, 1
+    OS88_HEADER 'MODPLUG', mpp_entry, 1, OS88_STACK_256
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 98 for mpp_worker
+                                ; over the 64-byte interrupt floor
+                                ; that is 162, and 256 gives 1.58x
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; The player's face: a bevelled box with an LCD band across the top and a

@@ -30,7 +30,13 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TRACKER', trk_entry, 3
+    OS88_HEADER 'TRACKER', trk_entry, 3, OS88_STACK_192
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 80, measured +60;
+                                ; the larger of the two wins
+                                ; over the 64-byte interrupt floor
+                                ; that is 144, and 192 gives 1.33x
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; Two beamed eighth notes over a square wave - the app in two glyphs. The mask

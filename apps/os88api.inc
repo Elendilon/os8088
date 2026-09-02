@@ -1198,6 +1198,17 @@ SK_KCLAIM  equ 18               ; word: ...of which the kernel's own
 SK_XMS     equ 20               ; word: the pool above 1MB, 0 with no store
 SYSKB_SIZE equ 22
 
+SCH_STACK  equ 384              ; THE LARGEST SLOT CLASS (SPEC.md 8.7), which
+                                ; is the only slice size a package may assume
+                                ; anything about. Your worker gets the smallest
+                                ; free slice that is at least what you asked
+                                ; for - so it can be BIGGER than your class,
+                                ; and anything sizing a window against "my
+                                ; stack" has to use this maximum or the window
+                                ; comes out short. apps/cc/crt0.asm's cc_iswk
+                                ; is the one thing in the tree that does.
+                                ; Mirrored from kernel/sched.inc and checked by
+                                ; tests/unit/t_mirror.py
 MAX_TASKS  equ 14               ; the scheduler's slots (SPEC.md 8) - a bound
 INST_MAX   equ 12               ; running instances (SPEC.md 29.1)   on the
 MEM_MAX    equ 32               ; claim records (SPEC.md 50)         buffers

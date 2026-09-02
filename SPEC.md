@@ -8596,7 +8596,21 @@ an out-of-range index gets the largest class and launches, where a refusal would
 be a hostile-input failure over a field nobody validated.
 
 `apps/os88api.inc` publishes `OS88_STACK_*` and `OS88_HEADER` takes the class as
-an optional 4th argument.
+an optional 4th argument; a C package sets `CC_STACK_CLASS` before including
+`apps/cc/crt0.asm`, which emits the same byte. **`tools/os88pkg.py` bounds the
+index at build time**, which is where a package that means something by the byte
+should hear about a typo — the kernel deliberately does not, because at *load*
+time the safe answer is the largest class and a launch that happens.
+
+**`CC_STACK` in `apps/cc/crt0.asm` is NOT that class**, and the distinction is
+load-bearing. `cc_iswk` decides "am I the worker" by testing SP against a window
+one slice deep, and a window that is too *short* fails the gate open — a worker
+deeper than it reads as the UI task and goes on to claim and read a floppy from
+it (§20.6 rule 7). Since a package is given the smallest free slice at least as
+big as it asked for, it can legitimately be running on a **bigger** slice than
+its class; so `CC_STACK` must be the largest class, and it takes that from the
+SDK's `SCH_STACK` — which `tests/unit/t_mirror.py` compares against
+`kernel/sched.inc`'s, needing nobody to remember it.
 
 #### 8.7.3 Where the kernel's own three say it
 

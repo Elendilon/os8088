@@ -20,7 +20,12 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'ArtfulType', at_entry, 1
+    OS88_HEADER 'ArtfulType', at_entry, 1, OS88_STACK_192
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 50 for at_worker
+                                ; over the 64-byte interrupt floor
+                                ; that is 114, and 192 gives 1.68x
 
     OS88_ICON16
     ; a fountain-pen nib on a page - drawn for this port (the original's

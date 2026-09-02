@@ -93,7 +93,13 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'FRACTAL', fr_entry, 1
+    OS88_HEADER 'FRACTAL', fr_entry, 1, OS88_STACK_192
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; measured +60, static 48;
+                                ; the larger of the two wins
+                                ; over the 64-byte interrupt floor
+                                ; that is 124, and 192 gives 1.55x
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; The Mandelbrot silhouette: the cardioid body on the right, the period-2

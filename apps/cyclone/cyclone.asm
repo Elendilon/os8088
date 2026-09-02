@@ -77,7 +77,12 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'CYCLONE 88', cy_entry, 1
+    OS88_HEADER 'CYCLONE 88', cy_entry, 1, OS88_STACK_192
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 66 for cy_worker
+                                ; over the 64-byte interrupt floor
+                                ; that is 130, and 192 gives 1.48x
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) --------------------------
 ; The tube seen down its own axis: concentric rings converging on a vanishing

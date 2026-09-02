@@ -92,7 +92,12 @@
 ;   ................
 ;   ................
 ;   ................
-    OS88_HEADER 'TaskMgr', tm_entry, 1
+    OS88_HEADER 'TaskMgr', tm_entry, 1, OS88_STACK_192
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 56 for tm_worker
+                                ; over the 64-byte interrupt floor
+                                ; that is 120, and 192 gives 1.60x
     OS88_ICON16
     dw 0x0000, 0x7000, 0x701E, 0x701E, 0x71FE, 0x71FE, 0x7FFE, 0x7FFE
     dw 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x0000, 0x0000, 0x0000

@@ -58,7 +58,12 @@
 %define OS88UI_SBDRAG
 %endif
 
-    OS88_HEADER 'NOTEPAD', np_entry, 1
+    OS88_HEADER 'NOTEPAD', np_entry, 1, OS88_STACK_192
+                                ; THE WORKER'S STACK, declared
+                                ; rather than defaulted (SPEC.md 8.7):
+                                ; static 74 for np_worker
+                                ; over the 64-byte interrupt floor
+                                ; that is 138, and 192 gives 1.39x
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A page with a folded top-right corner and five lines of writing, two of

@@ -41,7 +41,16 @@ ASSOC_MAXN = 5            # ...holding a count byte and up to five extensions
 APP_MAX_SIZE = 0xF000     # image + bss budget: 60KB (one segment's worth -
                           # the region is a heap claim, so the real limit is
                           # also whatever the heap has contiguous)
-DISPATCH = bytes((0xFF, 0xD5, 0xCB, 0x00))   # call bp / retf / pad, at +12
+DISPATCH = bytes((0xFF, 0xD5, 0xCB))         # call bp / retf, at +12..+14
+STK_CLASS_MAX = 4                            # ...and +15 is the STACK CLASS
+                                             # (SPEC.md 8.7), an index into the
+                                             # kernel's sch_clsbytes. It was the
+                                             # dispatcher's PAD and this check
+                                             # required it to be 0, which is
+                                             # exactly why the field could be
+                                             # given a meaning without moving
+                                             # the header version - and exactly
+                                             # why this line had to move with it
 PARTS_MAGIC = b"O88PARTS"  # the part table's head, INSIDE the image (20.12.3)
 PARTS_HDR = 10             # magic(8) + count(1) + reserved(1)
 PART_ROW = 8               # kind(1) flags(1) off(2, 512-byte units)
@@ -112,10 +121,17 @@ def main() -> int:
         fail(f"flags 0x{flags:02X} has reserved bits set (bits 3-7 must be 0)")
     if link != 0:
         fail(f"bad link base 0x{link:04X}: a v3 package links at org 0")
-    if a[12:16] != DISPATCH:
+    if a[12:15] != DISPATCH:
         fail("header offset 12 is not the dispatcher `call bp / retf` - "
              "the OS88_HEADER macro emits it, so this image was built "
              "against an older os88api.inc")
+    if a[15] > STK_CLASS_MAX:
+        fail(f"header offset 15 is stack class {a[15]}, and the kernel "
+             f"publishes {STK_CLASS_MAX + 1} of them (0..{STK_CLASS_MAX}, "
+             "SPEC.md 8.7). The kernel answers an unknown index with the "
+             "largest class rather than refusing the launch, so this is a "
+             "BUILD-time complaint about a package that means something by "
+             "the byte - not a load-time one")
     if flags & 4:
         if image > len(a):
             fail(f"image size field {image} is past the file's {len(a)} bytes")

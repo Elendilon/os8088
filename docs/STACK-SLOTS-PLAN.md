@@ -1066,6 +1066,23 @@ stack the floor fell **82 → 38**, which is §4.1 working, measured, on a machi
 
 ## 12. The survey: where every shipped program lands
 
+> **BUILT — every package in the table below now declares its class in its
+> header** (SPEC.md 8.7.2), with the measurement and the margin written beside
+> it in the source. Verified on the glass: `ARKANOID.O88` declares 192 and lands
+> in **slot 4, the first 192**, stepping over two free 128s because they are too
+> small.
+>
+> One thing the survey got wrong about itself, found while building it:
+> §12.4 called `CC_STACK` an unguarded mirror that would break if a C package
+> declared a smaller class. It is the opposite — `CC_STACK` has to be the
+> **largest** class precisely because first fit can hand a package a *bigger*
+> slice than it asked for, and a window cut to the declared class would then be
+> short by up to 256 bytes exactly when the machine is busy. It is now taken
+> from the SDK's `SCH_STACK` and guarded by `tests/unit/t_mirror.py`, which
+> compares every name defined in more than one file — so the drift is closed,
+> just not in the direction the survey predicted.
+
+
 The requester's question, before any of this is built: *"for the apps we
 currently have, where would each of them land on requirements? We're going to
 have to update each of them anyway, so before we start is the best time to do
