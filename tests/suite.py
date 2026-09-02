@@ -1608,6 +1608,18 @@ SOAK = [
     Row("paintgif", "soak", py("tests/paintgif.py"), 60.0,
         "HOW LONG DOES PAINT TAKE TO OPEN OS8088.GIF? - in GUEST CYCLES",
         needs=("marty",), serial=True),
+    Row("paintlzw", "soak", py("tests/paintlzw.py"), 120.0,
+        "SPEC.md 42.21: ...and WHICH HALF of it. paintgif times the whole "
+        "operation, which is the right shape for a regression that could be "
+        "anywhere and cannot say where this one was: the decode was 12,547 ms "
+        "and 999 cycles a pixel of it were the LZW loop against 169 in "
+        "pt_line_put, because the reader emitted one pixel per near call with "
+        "two more around it for the character stack. Breakpoints on Paint's "
+        "own labels split pt_gif_in four ways and then split the decode "
+        "again, pt_line_put against the loop that feeds it. The ceilings are "
+        "loose on purpose - they catch a return to the old SHAPE, not a "
+        "picture whose dither packs differently",
+        needs=("marty",), serial=True),
     Row("paintanchor", "soak",
         py("tests/paintanchor.py", "--machine", "os8088_5150_herc_gla"), 300.0,
         "SPEC.md 11.90.3: a pure SHRINK owes its content nothing. ui_grow"
