@@ -1262,11 +1262,13 @@ SOAK = [
         "on the glass per DISPLAYED frame, whose floor against its median is"
         "the whole question a foreign-mode raster is built to answer",
         needs=("marty",), serial=True),
-    Row("tankaim", "soak", py("tests/tankaim.py"), 200.0,
-        "SPEC.md 85.6.5's aim assists: AIM OFF still turns TK_TURN a tick, G"
-        "cycles tk_aimset, FINE's tap floor is the ramp's own prefix sum, SNAP"
-        "leaves at a placed tank's bearing and LOCK LANDS on one between a step"
-        "and two - the last two being tk_aimerr's scale and sign end to end",
+    Row("tankaim", "soak", py("tests/tankaim.py"), 260.0,
+        "SPEC.md 85.6.5's aim assists and its reticle: AIM OFF still turns"
+        "TK_TURN a tick and puts no fraction in the 8.8 heading, G cycles"
+        "tk_aimset, the gun corrects by tk_aimcap and no further (so TRIM stops"
+        "at half the lattice tk_lstep says the player is on), the sight closes"
+        "on exactly the shots that HIT - read against tk_aimq and tk_aimz, the"
+        "code's own inputs - and LOCK lands on a tank between one step and two",
         needs=("marty",), serial=True),
     Row("wireflick", "soak", py("tests/wireflick.py"), 120.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"

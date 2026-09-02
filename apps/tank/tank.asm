@@ -203,27 +203,37 @@ TK_HITR   equ 150               ; a shell within this of a target is a hit
 ; TK_TURN * min(ticks a frame, TK_MAXSTEP) - SIX units, 8.44 degrees, on both
 ; 1bpp adapters, where docs/GFX-FSX-PLAN.md 0 measures 6.06 and 4.32 fps. What
 ; that has to fit inside is tk_espoil's own window, 6,100/R units either side:
-; 4.1 units wide at 3,000 and 3.1 at the shell's 3,900-unit reach, so the sweep
+; 4.1 units wide at 3,000 and 3.1 at the shell's 3,900-unit reach. So the sweep
 ; steps clean over a distant tank and the phase of the press decides whether it
-; was ever hittable. A ONE-unit floor clears every reachable range, which is
-; why none of what follows makes the heading itself finer than the byte.
-TK_AS_SNAP equ 1                ; the SHOT leaves at the target's own bearing
-TK_AS_LOCK equ 2                ; the TURN lands on a target it would cross
-TK_AS_FINE equ 4                ; a tap turns finer than a hold
+; was ever hittable.
+TK_AS_TRIM equ 1                ; the shot is corrected by AT MOST what the
+                                ; quantum took (SPEC.md 85.6.5.6)
+TK_AS_SNAP equ 2                ; ...or all the way onto the target
+TK_AS_LOCK equ 4                ; the TURN lands on a target it would cross
 TK_NAIM   equ 5                 ; combinations the G key offers, in tk_aimset
 
-TK_RETQ   equ 20                ; SNAP's window: the gunsight's OWN half-width,
-                                ; in quarter angle units. tk_t_sight brackets
-                                ; at 34 of 320x200's units and a unit of
-                                ; heading is sclx*tan(1u) pixels, so it is
+TK_RETQ   equ 20                ; the gunsight's OWN half-width, in quarter
+                                ; angle units, and the outer gate on every
+                                ; assist. tk_t_sight brackets at 34 of
+                                ; 320x200's units and a unit of heading is
+                                ; sclx*tan(1u) pixels, so it is
                                 ; 34/(277*0.024536) = 5.00 units on both
                                 ; 320-wide viewports and 68/(554*0.024536) =
                                 ; 5.00 on Hercules - one constant on all three,
                                 ; because 85.3's table sets sclx for the same
                                 ; field of view everywhere
 TK_ERRK   equ 163               ; 40.756 * 4: units per (ocx/ocz), in quarters
+TK_HITQ   equ 24444             ; tk_espoil's window, in quarter units times
+                                ; the range: TK_HITR*256*4/(2*pi). Divided by
+                                ; the range it is how far off the sights a shot
+                                ; may be and still hit - 6.2 quarters at the
+                                ; shell's longest reach and 35 at 700
+TK_LOCKHYS equ 2                ; ...widened by half a unit once the sight has
+                                ; closed, so a target on the boundary does not
+                                ; chatter the reticle and its blip
+TK_BLIPHZ equ 2200              ; the acquisition blip: one tick, and BELOW the
+TK_BLIPPRI equ 020h             ; muzzle's SND_PRI_PKG, so a shot always wins
 TK_AIMBAN equ 36                ; ticks the mode banner stays up: two seconds
-TK_NRAMP  equ 8                 ; entries in tk_ramp, and it holds at the last
 
 ; --- what a shell cannot pass through (SPEC.md 85.6.2) ------------------------
 ; One radius per scenery type, indexed by its OT_*. A slab is wider than a
@@ -550,21 +560,18 @@ tk_s_pl1:    db 'PL 1', 0
 tk_rstop:    db 0, 110, 130, 165
 
 ; --- the aim assists (SPEC.md 85.6.5) ----------------------------------------
-; The tap ramp, in 1/256ths of an angle unit a TICK, indexed by how many ticks
-; the direction has been held and HELD at the last entry - which is TK_TURN, so
-; a hold is exactly 85.6.4's rate and only the first eight ticks are softened.
-; THE FIRST THREE SUM TO 256, which is what makes a tap mean anything on the
-; machine this is for: one frame is three ticks on both 1bpp adapters, so a
-; one-frame tap turns ONE unit, the byte heading's own floor.
-tk_ramp:     dw 64, 64, 128, 128, 192, 256, 384, 512
-
-tk_aimset:   db 0, TK_AS_SNAP, TK_AS_LOCK, TK_AS_FINE, TK_AS_SNAP | TK_AS_FINE
+; What G walks. TRIM comes first because it is the one with an argument behind
+; it: SNAP corrects a shot all the way onto a tank in the brackets and was
+; reported as making the game too easy, and TRIM corrects it by AT MOST half
+; the lattice the player is actually stuck on - which is nothing at all at
+; close range, where the window is already wider than the quantum.
+tk_aimset:   db 0, TK_AS_TRIM, TK_AS_SNAP, TK_AS_LOCK, TK_AS_TRIM | TK_AS_LOCK
 tk_aimnam:   dw tk_s_a0, tk_s_a1, tk_s_a2, tk_s_a3, tk_s_a4
 tk_s_a0:     db 'AIM OFF', 0    ; drawn only while the banner is up: the CONTROL
-tk_s_a1:     db 'SNAP', 0       ; arm costs no glyphs at all, or it is not one
-tk_s_a2:     db 'LOCK', 0
-tk_s_a3:     db 'FINE', 0
-tk_s_a4:     db 'SNAP+FINE', 0
+tk_s_a1:     db 'TRIM', 0       ; arm costs no glyphs at all, or it is not one
+tk_s_a2:     db 'SNAP', 0
+tk_s_a3:     db 'LOCK', 0
+tk_s_a4:     db 'TRIM+LOCK', 0
 
 tk_s_range:  db 'ENEMY IN RANGE', 0
 tk_s_score:  db 'SCORE ', 0
@@ -722,15 +729,23 @@ tk_tpl:
                                     ; still the byte everything else reads
     ZBYTE tk_kturn                  ; the held keys, latched by tk_input and
     ZWORD tk_kdrv                   ; spent one step at a time by tk_pmove
-    ZBYTE tk_khold                  ; ticks the turn has been held: the ramp's
-    ZBYTE tk_kdir                   ; index, and the direction it is counting
     ZBYTE tk_aim                    ; which TK_AS_* are live, and where that
     ZBYTE tk_aimi                   ; sits in tk_aimset for the G key
     ZWORD tk_aimt                   ; ticks the mode banner has left
     ZBYTE tk_aimh                   ; the heading THIS shell leaves at
-    ZWORD tk_aimw                   ; tk_besttarget's window, best and pick,
-    ZWORD tk_aimb                   ; in quarter units
-    ZWORD tk_aimq
+    ZBYTE tk_lstep                  ; steps the LAST frame owed - TRIM's whole
+                                    ; input, because the lattice the player is
+                                    ; stuck on is TK_TURN times this
+    ZWORD tk_aimw                   ; tk_besttarget's window, best, pick and
+    ZWORD tk_aimb                   ; the picked target's RANGE, in quarter
+    ZWORD tk_aimq                   ; units but for the last
+    ZWORD tk_aimz
+    ZBYTE tk_locked                 ; the sight is closed on a target...
+    ZBYTE tk_lockwas                ; ...and was last frame, which is what makes
+                                    ; the blip an ACQUISITION and not a tone
+    ZWORD tk_lockn                  ; magnet events, for tests/tankaim.py: "no
+                                    ; difference from aim off" is a report a
+                                    ; counter can settle and an eye cannot
     ZWORD tk_lockr                  ; LOCK's inner edge, and the step it may
     ZWORD tk_locks                  ; replace
     ZBUF  tk_ox, TK_NOBJ * 2        ; the world's, indexed by slot x 2

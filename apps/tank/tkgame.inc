@@ -71,6 +71,9 @@ tk_fsx_main:
     jne .out
     call tk_steps                   ; CX = ticks since the last frame
     jcxz .skip
+    mov [tk_lstep], cl              ; ...and the lattice TRIM gives back half of
+                                    ; (SPEC.md 85.6.5.6): the player can only
+                                    ; command a heading every TK_TURN * this
     cmp byte [tk_pause], 0
     jne .skip
     cmp byte [tk_over], 0           ; the world is finished with; what moves
@@ -368,13 +371,16 @@ tk_pmove:
     je .turn                        ; everything else (SPEC.md 85.6.5.1)
     dec word [tk_aimt]
 .turn:
-    call tk_turnstep                ; DX = what this step turns, in 1/256ths
-    or dx, dx
+    mov al, [tk_kturn]
+    cbw
+    or ax, ax
     jz .drive
+    mov dh, al                      ; the whole units a tick SPEC.md 85.6.4
+    xor dl, dl                      ; settled on, as an 8.8 fraction
     call tk_lockstep                ; ...which LOCK may replace outright
-    add [tk_paf], dl                ; the heading is 8.8 now (SPEC.md 85.6.5.4)
-    adc [tk_pa], dh                 ; and tk_pa is still the byte
-.drive:
+    add [tk_paf], dl                ; the heading is 8.8 (SPEC.md 85.6.5.4) and
+    adc [tk_pa], dh                 ; tk_pa is still the byte: only a magnet
+.drive:                             ; ever puts anything in tk_paf
     mov bx, [tk_kdrv]
     or bx, bx
     jz .out
@@ -384,55 +390,6 @@ tk_pmove:
     pop cx
     pop bx
     pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; tk_turnstep - what this step turns, in 1/256ths of an angle unit, signed
-; out: DX = it.  clobbers AX, BX
-;
-; With no ramp this is the latched TK_TURN shifted up a byte and nothing else,
-; so AIM OFF moves tk_pa by exactly the two units a tick SPEC.md 85.6.4 settled
-; on. FINE replaces the amount and not the path (SPEC.md 85.6.5.4).
-; -----------------------------------------------------------------------------
-tk_turnstep:
-    mov al, [tk_kturn]
-    cbw
-    or ax, ax
-    jnz .live
-    mov byte [tk_khold], 0          ; released: the next press taps again
-    xor dx, dx
-    ret
-.live:
-    mov bl, 1
-    jns .dir
-    mov bl, -1
-.dir:
-    cmp bl, [tk_kdir]               ; A REVERSAL IS A FRESH PRESS - the ramp is
-    je .held                        ; about the hand and not about the heading
-    mov [tk_kdir], bl
-    mov byte [tk_khold], 0
-.held:
-    test byte [tk_aim], TK_AS_FINE
-    jnz .ramp
-    mov dh, al                      ; whole units a tick, as a 8.8 fraction:
-    xor dl, dl                      ; the sign rides in the byte
-    ret
-.ramp:
-    mov bl, [tk_khold]
-    xor bh, bh
-    cmp bl, TK_NRAMP                ; the table HOLDS at its last entry, which
-    jb .in                          ; is TK_TURN, so a hold is unchanged
-    mov bl, TK_NRAMP - 1
-    jmp short .idx
-.in:
-    inc byte [tk_khold]
-.idx:
-    shl bx, 1
-    mov dx, [tk_ramp + bx]
-    or ax, ax                       ; the table is unsigned; the latch's sign
-    jns .out                        ; is what says which way
-    neg dx
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -478,6 +435,9 @@ tk_lockstep:
     mov dx, bx
     mov cl, 6
     shl dx, cl                      ; quarter units -> 1/256ths
+    inc word [tk_lockn]             ; ...and it is COUNTED, because "no
+                                    ; difference from aim off" is a report an
+                                    ; eye cannot settle and this can
 .out:
     pop di
     pop si
@@ -558,6 +518,8 @@ tk_besttarget:
     jge .n
     mov [tk_aimb], ax
     mov [tk_aimq], dx
+    mov ax, [tk_ocz]                ; the RANGE decides the hit window, and
+    mov [tk_aimz], ax               ; tk_ocz is the last object looked at
 .n:
     pop bx
     add bx, 2
@@ -570,6 +532,107 @@ tk_besttarget:
     ret
 .none:
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; tk_lockon - would a shot fired RIGHT NOW hit? (SPEC.md 85.6.5.7)
+; out: [tk_locked] set, and a blip on the frame it ACQUIRES
+; clobbers AX, BX, CX, DX, SI, DI
+;
+; THE SIGHT MAY NOT LIE, and that is the whole design of it. A reticle keyed to
+; the BRACKETS would say "on target" for a tank five units off at 3,900 out,
+; where tk_espoil's window is one and a half - so it would close on shots that
+; miss, at exactly the range where the player cannot tell. It is keyed to the
+; window instead: TK_HITQ/range is how far off a shot may be and still land,
+; and tk_aimcap is how much of an error the gun is about to correct, so the
+; sight closes on precisely the shots that hit.
+;
+; It follows that AIM OFF gets a reticle that closes rarely at long range and
+; freely up close, which is not a lesser version of the feature - it is the
+; defect being SHOWN. The brackets are still the outer gate, because a tank
+; outside them is not one the player is aiming at.
+; -----------------------------------------------------------------------------
+tk_lockon:
+    mov byte [tk_locked], 0
+    cmp byte [tk_over], 0
+    jne .edge
+    cmp byte [tk_dead], 0           ; nothing is aimed through cracked glass
+    jne .edge
+    mov ax, TK_RETQ
+    call tk_besttarget
+    jc .edge
+    or ax, ax
+    jns .p
+    neg ax
+.p:
+    mov bx, ax                      ; BX = |the error|, in quarter units
+    mov ax, TK_HITQ                 ; ...against the window at THIS range
+    xor dx, dx
+    div word [tk_aimz]
+    mov cx, ax
+    call tk_aimcap                  ; ...widened by what the gun will correct
+    cmp ax, cx
+    jbe .hys
+    mov cx, ax
+.hys:
+    cmp byte [tk_lockwas], 0        ; a target ON the boundary would otherwise
+    je .cmp                         ; chatter the sight and its blip
+    add cx, TK_LOCKHYS
+.cmp:
+    cmp bx, cx
+    ja .edge
+    mov byte [tk_locked], 1
+.edge:
+    mov al, [tk_locked]             ; the blip is an ACQUISITION, so it is the
+    cmp al, [tk_lockwas]            ; EDGE that sounds and not the state
+    je .out
+    mov [tk_lockwas], al
+    or al, al
+    jz .out
+    mov ax, TK_BLIPHZ
+    mov cx, 1
+    mov dl, TK_BLIPPRI              ; under the muzzle's, so a shot always wins
+    call OSAPI_SND_TONE
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; tk_aimcap - how far off the sights the GUN will still correct a shot
+; out: AX = it, in quarter units; 0 with no assist live.  clobbers nothing else
+;
+; ONE FIGURE FOR THE GUN AND THE RETICLE (SPEC.md 85.6.5.6), which is what
+; makes the closed sight a promise rather than a decoration: the sight closes
+; on exactly the shot tk_fire is about to correct.
+;
+; SNAP is the whole bracket and was reported as making the game too easy - it
+; hands a hit to anything the player can see between the brackets, at every
+; range, and at close range the player did not need one. TRIM gives back only
+; what the QUANTUM took: the player can command a heading every
+; TK_TURN * tk_lstep units, so the worst a perfect aim can be rounded by is
+; half of that, and correcting further is aiming FOR them rather than undoing
+; an artefact of the frame rate. It is three units on a 5150 and one on a 386,
+; so the assist is exactly the machine's own handicap - and at 1,000 units out,
+; where tk_espoil's window is already 12 units wide, it changes no outcome at
+; all.
+; -----------------------------------------------------------------------------
+tk_aimcap:
+    test byte [tk_aim], TK_AS_SNAP
+    jz .trim
+    mov ax, TK_RETQ
+    ret
+.trim:
+    xor ax, ax
+    test byte [tk_aim], TK_AS_TRIM
+    jz .out
+    push dx
+    mov al, [tk_lstep]
+    mov ah, TK_TURN * 2             ; half the lattice, in quarter units:
+    mul ah                          ; TK_TURN * lstep * 4 / 2
+    pop dx
+    cmp ax, TK_RETQ                 ; ...and never past the brackets
+    jbe .out
+    mov ax, TK_RETQ
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1074,13 +1137,26 @@ tk_fire:
     je .out
     inc si
     loop .s
-    mov al, [tk_pa]                 ; SNAP (SPEC.md 85.6.5.1): a tank inside the
-    mov [tk_aimh], al               ; brackets IS what the player is aiming at,
-    test byte [tk_aim], TK_AS_SNAP  ; so the shell leaves at its bearing rather
-    jz .have                        ; than at the hull's - which is the only
-    mov ax, TK_RETQ                 ; thing that makes a distant one hittable at
-    call tk_besttarget              ; all on a machine whose sweep steps over
-    jc .have                        ; the whole window
+    mov al, [tk_pa]                 ; A tank inside the brackets IS what the
+    mov [tk_aimh], al               ; player is aiming at (SPEC.md 85.6.5.1),
+    call tk_aimcap                  ; so the shell leaves at its bearing rather
+    or ax, ax                       ; than at the hull's - but by AT MOST what
+    jz .have                        ; tk_aimcap allows, which is the whole
+    push ax                         ; difference between SNAP and TRIM
+    mov ax, TK_RETQ
+    call tk_besttarget
+    pop bx                          ; BX = the cap, AX = the signed error
+    jc .have
+    cmp ax, bx
+    jle .lo
+    mov ax, bx
+    jmp short .rnd
+.lo:
+    neg bx
+    cmp ax, bx
+    jge .rnd
+    mov ax, bx
+.rnd:
     call tk_qround
     add [tk_aimh], al
 .have:
@@ -1570,13 +1646,18 @@ tk_drawtab:
 ; tk_hud - the panel, the gunsight, and the cracks
 ; -----------------------------------------------------------------------------
 tk_hud:
-    mov al, TKI_MARK
+    call tk_lockon                  ; SPEC.md 85.6.5.7, and it must run before
+    mov al, TKI_MARK                ; the ink is set: tk_besttarget is under it
     call tk_setink
     mov ax, [tk_vcx]
     mov [tk_tox], ax
     mov ax, [tk_vcy]
     mov [tk_toy], ax
     mov si, tk_t_sight
+    cmp byte [tk_locked], 0
+    je .sight
+    mov si, tk_t_lock               ; ...the SAME EIGHT segments, moved: a lock
+.sight:                             ; costs the frame nothing
     call tk_drawtab
 
     mov al, TKI_HUD
@@ -2236,6 +2317,17 @@ tk_t_sight:                         ; the arcade's gunsight: two stalks and a
     dw   46, -10,   34, -10
     dw   34, -10,   34,  10
     dw   46,  10,   34,  10
+    dw 0x7FFF
+
+tk_t_lock:                          ; ...and CLOSED on a target (85.6.5.7).
+    dw    0, -34,    0, -14         ; EIGHT SEGMENTS, the same eight, of the
+    dw    0,  14,    0,  34         ; same lengths - the brackets have come in
+    dw  -30, -10,  -18, -10         ; from 34 to 18 and the stalks have given
+    dw  -18, -10,  -18,  10         ; up two rows either side. So the sight
+    dw  -30,  10,  -18,  10         ; snapping shut is free: tk_drawtab draws
+    dw   30, -10,   18, -10         ; the identical number of identical-length
+    dw   18, -10,   18,  10         ; runs, and the frame this lands in costs
+    dw   30,  10,   18,  10         ; what every other frame costs
     dw 0x7FFF
 
 tk_t_crack:                         ; the glass, when they get you first

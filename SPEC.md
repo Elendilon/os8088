@@ -85655,22 +85655,26 @@ frame's spend, and the report is the multiplication rather than the step.
 
 ##### 85.6.5.1 Three assists, one key, and OFF is the default
 
-Which of them *feels* right is not a question this file can answer, so all
-three are built and **`G` cycles them**, with the live one lettered at the top
-left of the panel. They are named for what they do to a shot:
+Which of them *feels* right is not a question this file can answer, so they are
+built and **`G` cycles them**, with the live one lettered at the top left. They
+are named for what they move:
 
 | | | |
 |---|---|---|
 | **AIM OFF** | the default | exactly the behaviour above, and it is the control |
-| **SNAP** | the SHOT moves | a tank inside the gunsight's brackets is what the player is aiming at, so the shell leaves at *its* bearing rather than at the hull's |
-| **LOCK** | the TURN moves | a sweep about to cross a tank lands *on* it instead |
-| **FINE** | the STEP moves | a tap turns finer than a hold |
-| **SNAP+FINE** | both | |
+| **TRIM** | the SHOT, by a bounded amount | the shell is corrected onto a tank in the brackets by **at most half the lattice the player is stuck on** — §85.6.5.6 |
+| **SNAP** | the SHOT, all the way | the shell leaves at the tank's own bearing, whatever the error |
+| **LOCK** | the TURN | a sweep about to cross a tank lands *on* it — §85.6.5.3 |
+| **TRIM+LOCK** | both | |
 
 **OFF draws nothing and tests nothing**, which is the point: a control arm that
 paid eight glyphs a frame more than the thing it is being compared against is
 not a control. The banner is drawn anyway for two seconds after any press of
 `G`, so cycling back *to* OFF still says so.
+
+**The reticle is not on this list.** §85.6.5.7's closed sight is *feedback* and
+runs under every arm including OFF, because saying whether a shot would hit is
+not the same as improving it — and under OFF it is the defect being shown.
 
 ##### 85.6.5.2 The error is a tangent, so there is still no arctangent
 
@@ -85710,33 +85714,75 @@ sweep can never be carried past it to reach the second one.
 So the window is the annulus between one step and two. A target further ahead
 than this step lands centred; the one you are already on is left alone and the
 sweep goes past it normally. It is also the reason LOCK is priced per STEP
-rather than per frame: two steps of the *current* rate is a lookahead that
-shrinks with `FINE`'s ramp, which is what makes the pair composable at all.
+rather than per frame: two steps of the *current* rate.
 
-##### 85.6.5.4 FINE needs a FRACTION, or "tap" means nothing at 4.32 fps
+##### 85.6.5.3.1 It is NOT bugged, and "no difference from aim off" is accurate
 
-A ramp alone does not work here, and the reason is §85.6.4's own: the shortest
-press the game can see is one FRAME, which on Hercules is three ticks. A ramp
-that starts at one whole unit a tick still turns three.
+Reported from the field as *"did not seem to work, I noticed no difference from
+aim off"*. It works. Both halves of that sentence are true at once, and the
+measurements are what separate them.
 
-So the heading gets a fraction. `tk_paf` is the low byte under `tk_pa` — the
-pair is one 8.8 value, added to with `add`/`adc`, and **`tk_pa` is still the
-byte every other line in the game reads**. The ramp is then in 1/256ths:
+**It lands.** `tests/tankaim.py` places a tank two and a half units off the
+sights and reads the 8.8 heading back: OFF lands on `TK_TURN`'s exact lattice
+and LOCK lands on the tank, keeping half a unit in `tk_paf` that no ordinary
+step could have put there.
 
-```
-tk_ramp:  dw 64, 64, 128, 128, 192, 256, 384, 512
-```
+**And it almost never happens.** `tk_lockn` counts the events, because "no
+difference" is a report a counter can settle and an eye cannot. Swept
+continuously through **three whole revolutions** of an ordinary round on a
+5150+CGA, LOCK fired **twice** — one event per crossing, which is exactly what
+§85.6.5.3's annulus promises and is a handful of moments in a round. The same
+run sampled whether a tank was inside the brackets at all: **0 of 12 samples**,
+which is not a fault either — the brackets are ±5 units of 256, so 3.9% of a
+revolution, and 12 samples of a continuous sweep expect 0.5 of them.
 
-whose **first three sum to 256**. One frame's tap on either 1bpp adapter is
-therefore **one unit** — the byte heading's own floor, and by the table above
-the finest aim that is worth having. Six ticks is 3.25 units, the eighth entry
-is `TK_TURN` itself, and the table is held there, so **a HOLD is exactly the
-rate §85.6.4 settled on** and only the first eight ticks are softened. A 386
-sees a quarter unit for its one-tick tap and banks the rest in `tk_paf`.
+**And each event lasts one step.** The sweep centres on the tank and the very
+next step, 55 ms later, takes it two units off again. `tk_hud` runs once a
+frame, *after* all of the frame's steps, so even §85.6.5.7's sight usually
+cannot show the landing: the heading has already moved off it by render time.
 
-The ramp is indexed by ticks held and reset when the direction is released *or
-reversed* — a reversal is a fresh press, because the ramp is about the hand and
-not about the heading.
+So: a two-unit correction, twice in three revolutions, invisible, and gone
+before the player could fire from it. **That is a correction the player cannot
+spend**, and it is a property of the design rather than a defect in it. What
+would make it spendable is a **detent** — absorb the next few steps of the same
+direction, so the landing outlives the frame and §85.6.5.7's sight closes on
+it. That is a counter and a compare in `tk_lockstep`; it is deliberately not
+built, because a detent is *deliberate input lag* and §85.6.5.4 is what
+happened the last time this game spent responsiveness it did not have.
+
+##### 85.6.5.4 The heading is 8.8 — and FINE, the tap ramp that wanted it, is REFUSED
+
+A magnet lands on a bearing, and a bearing is not a whole number of units. So
+the heading gets a fraction: `tk_paf` is the low byte under `tk_pa`, the pair
+is one 8.8 value added to with `add`/`adc`, and **`tk_pa` is still the byte
+every other line in the game reads**. Only a magnet ever puts anything in
+`tk_paf` — an ordinary step is `TK_TURN` whole units and leaves it alone —
+which is what makes the fraction `tests/tankaim.py`'s witness for LOCK.
+
+**FINE was built on top of it and is refused.** It was a tap ramp: the first
+eight ticks of a press turned in 1/256ths off a table (`64, 64, 128, 128, 192,
+256, 384, 512`) whose first three summed to 256, so a one-frame tap was
+**exactly one unit** — the byte heading's own floor — and a hold was still
+exactly `TK_TURN`. The arithmetic was right and `tests/tankaim.py` measured it
+holding on both 1bpp adapters. It was reported from the field as making the
+game feel **"very lagged, rather than like I have better control"**, and that
+is not a tuning miss, it is what the design *is*:
+
+> A ramp buys precision by spending responsiveness, and on a machine at
+> 4.32 fps there is no responsiveness left to spend.
+
+The press is already a frame behind — up to 230 ms before `tk_input` even sees
+it — and the ramp then withholds five sixths of the first frame's turn on top
+of that. One unit is 6.8 pixels at the centre of a 320-wide viewport: the
+player presses, the world does not visibly move, and the second frame is not
+much better. **The one machine where the ramp is cheap is the one that does not
+need it**, which is the shape of a refusal rather than of a constant to retune.
+
+What is kept is the finding that made it: the shortest press the game can see
+is one FRAME, so any per-tick scheme with a whole-unit floor is really a
+three-unit floor on the machine this game is for. Anything that wants to be
+finer than `TK_TURN` has to be finer than one unit, and has to not cost a
+frame's response to do it.
 
 ##### 85.6.5.5 What this is not
 
@@ -85745,6 +85791,89 @@ OFF, nothing writes it but `G`, and the attract panel's instructions are
 deliberately left alone until one of the arms wins. The three are not ranked
 here on purpose — §85.6.5.1's table says what each one moves, and which of
 those a gunner wants moved for them is a question for the glass.
+
+##### 85.6.5.6 TRIM: the assist is the machine's OWN handicap, and nothing more
+
+SNAP was reported as playing well and **making the game too easy**, and the
+reason is in §85.6.5's own table: it corrects a shot onto anything between the
+brackets *at every range*, and at 1,000 units out the window is already 12.2
+units wide — six times the quantum. The player did not need help there and got
+it anyway.
+
+TRIM is the same mechanism with the correction **bounded by the defect it
+exists to undo**. The player can only command a heading every
+
+```
+Q = TK_TURN x tk_lstep      units
+```
+
+— `tk_lstep` being what `tk_steps` said the last frame owed — so the worst a
+perfect aim can be *rounded* by is `Q/2`, and correcting further is aiming for
+the player rather than undoing an artefact of the frame rate. `tk_aimcap`
+returns `Q/2` in quarter units, capped at the brackets, and `tk_fire` clamps
+the error to it.
+
+**It is three units on a 5150 and one on a 386**, so the assist is exactly the
+machine's own handicap — a fast machine, which does not have the defect, barely
+gets one. And by the table in §85.6.5 it changes **no outcome at close range**:
+at 1,000 units a heading within three units of ideal already hits, so a
+three-unit correction moves a shot that was going to land anyway. What it
+changes is the far end, which is the whole of the report:
+
+| range | window | worst rounding | TRIM |
+|---:|---:|---:|---|
+| 1,000 | ±6.1 units | 3 | changes nothing — it hit already |
+| 2,000 | ±3.1 | 3 | the margin back |
+| 3,000 | ±2.0 | 3 | **the difference between a hit and a phase** |
+| 3,900 | ±1.6 | 3 | as above |
+
+`tk_aimcap` is **one figure for the gun and the reticle**, which is what makes
+§85.6.5.7's closed sight a promise instead of a decoration: the sight closes on
+exactly the shot `tk_fire` is about to correct, because both ask the same
+routine.
+
+##### 85.6.5.7 The sight may not lie
+
+The gunsight closes on a target — brackets in from 34 to 18 — and blips once,
+on the frame it acquires. What it closes on is the thing to get right.
+
+**Not the brackets.** A reticle keyed to the brackets would say *on target* for
+a tank five units off at 3,900 out, where `tk_espoil`'s window is one and a
+half — so it would close on shots that miss, at exactly the range where the
+player cannot tell. That is worse than no reticle: it is a promise the gun does
+not keep.
+
+So it closes on **the shots that hit**: `TK_HITQ/range` is how far off a shot
+may be and still land, `tk_aimcap` is how much of an error the gun is about to
+correct, and the sight closes when the target is inside the wider of the two.
+The brackets stay as the outer gate, because a tank outside them is not one the
+player is aiming at.
+
+It follows that **AIM OFF gets a reticle too**, one that closes freely up close
+and rarely at long range — and that is not a lesser version of the feature, it
+is the defect being *shown*. Sweeping past a distant tank with no assist, the
+sight stays open through the whole crossing; with TRIM it shuts.
+
+Three things it costs, and the first two are why it is affordable at all:
+
+- **The closed sight is the SAME EIGHT SEGMENTS** of the same lengths, moved.
+  `tk_drawtab` draws the identical number of identical runs, so the frame a
+  lock lands in costs what every other frame costs. §85.1's budget is priced in
+  primitive calls, and this changes none.
+- **One `tk_besttarget` a frame**, which is `tk_objcam_raw` and one `idiv` per
+  live tank. Measured on MartyPC by poking `tk_hud`'s own opening `call` out
+  and back over a frozen scene — the only A/B whose two arms share a bss
+  layout, and a frozen scene because a live game is not a bench: a cracked
+  screen holds the world still, GAME OVER stops drawing it, and how many tanks
+  are in view is most of what a frame costs. With one tank in play,
+  **3,352 cycles — 0.70 ms, 0.44% of a 158.9 ms CGA frame.**
+- **`TK_LOCKHYS`**, half a unit of hysteresis once the sight has closed,
+  because a target sitting on the boundary would otherwise chatter the sight
+  *and* its blip.
+
+The blip is the EDGE and not the state — `tk_lockwas` against `tk_locked` — at
+`TK_BLIPPRI`, under the muzzle's `SND_PRI_PKG`, so firing always wins the
+speaker.
 
 #### 85.8.1 The lettering gets a halo, because a 1bpp erase is not a colour
 
