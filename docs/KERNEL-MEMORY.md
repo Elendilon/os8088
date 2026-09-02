@@ -1034,46 +1034,46 @@ Three things about it:
   "big": {
     "boot2": 2439,
     "bootmax": 192512,
-    "bss": 5939,
+    "bss": 6024,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 37211,
+    "cold": 37214,
     "coldpara": 2336,
     "fatpara": 288,
     "imgpara": 3552,
     "kend": 6976,
     "kseg": 96,
     "ksize": 110080,
-    "lowbss": 8798,
+    "lowbss": 9182,
     "lowpara": 640,
     "minramkb": 196,
     "ovl": 1425,
-    "ovlw": 5215,
+    "ovlw": 5234,
     "stk0": 1024,
-    "text": 50435,
+    "text": 50613,
     "vgabuf": 848,
     "vgabufpara": 64
   },
   "small": {
     "boot2": 2439,
     "bootmax": 122880,
-    "bss": 5427,
+    "bss": 5512,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 34528,
+    "cold": 34531,
     "coldpara": 2176,
     "fatpara": 288,
-    "imgpara": 2880,
-    "kend": 6048,
+    "imgpara": 2912,
+    "kend": 6112,
     "kseg": 96,
-    "ksize": 95232,
-    "lowbss": 8328,
-    "lowpara": 608,
+    "ksize": 96256,
+    "lowbss": 8712,
+    "lowpara": 640,
     "minramkb": 128,
     "ovl": 1230,
-    "ovlw": 4681,
+    "ovlw": 4700,
     "stk0": 1024,
-    "text": 40449,
+    "text": 40614,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -1947,13 +1947,13 @@ generated in the first place.
 | theme | bytes | share |
 |---|---:|---:|
 | the file system, end to end | 30,797 | 35.1% |
-| the window system and its furniture | 24,420 | 27.9% |
+| the window system and its furniture | 24,457 | 27.8% |
 | drawing: adapters, primitives, glyphs, icons | 15,090 | 17.2% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,166 | 9.3% |
-| the kernel proper: API table, heap, scheduler, events | 7,033 | 8.0% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,203 | 9.3% |
+| the kernel proper: API table, heap, scheduler, events | 7,140 | 8.1% |
 | the three built-in kinds | 1,550 | 1.8% |
 | the Control Panel | 590 | 0.7% |
-| **total** | **87,646** | |
+| **total** | **87,827** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -1965,22 +1965,22 @@ generated in the first place.
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,771 | **6,166** | 890 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,958 | **5,199** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,565 | **4,744** | 155 | — | — |
-| `mouse.inc` — serial mouse and the cursor (§9) | 3,701 | — | **3,701** | 149 | — | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 3,735 | — | **3,735** | 151 | 128 | — |
 | `ui.inc` — the UI task and the event ladder (§13) | 3,353 | — | **3,353** | 58 | — | — |
 | `menu.inc` — the menu bar and pull-downs (§12) | 2,744 | 177 | **2,921** | 197 | 84 | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 2,003 | **2,499** | 348 | — | — |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 2,006 | **2,502** | 348 | — | — |
 | `assoc.inc` — file type associations (§54) | 480 | 2,003 | **2,483** | 43 | — | — |
 | `memory.inc` — the claim heap (§50) | 35 | 2,412 | **2,447** | 18 | 324 | — |
-| `instance.inc` — instances and the built-in kinds (§29) | 1,988 | 236 | **2,224** | 630 | — | — |
+| `instance.inc` — instances and the built-in kinds (§29) | 2,025 | 236 | **2,261** | 636 | — | — |
 | `font.inc` — the 8×8 glyph renderer (§6) | 2,189 | — | **2,189** | 215 | 784 | — |
 | `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,137 | **2,137** | 144 | — | — |
 | `apps.inc` — the three built-in kinds (§14) | 282 | 1,268 | **1,550** | 11 | 240 | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,292 | — | **1,292** | 20 | — | — |
 | `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,233 | — | **1,233** | 86 | — | — |
+| `sched.inc` — pre-emptive scheduling (§7–8) | 1,099 | — | **1,099** | 199 | 2,944 | — |
 | `snd.inc` — the sound layer (§34) | 1,035 | — | **1,035** | 287 | — | — |
 | `viddet.inc` — adapter detection and geometry (§39) | 1,024 | — | **1,024** | — | 696 | 3 |
 | `desk.inc` — the desktop and volume zones (§14/§26.1) | 15 | 995 | **1,010** | 18 | — | — |
-| `sched.inc` — pre-emptive scheduling (§7–8) | 992 | — | **992** | 122 | 2,688 | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 991 | — | **991** | 9 | — | — |
 | `icons.inc` — the icon renderer (§10) | 979 | — | **979** | 281 | — | — |
 | `dock.inc` — the dock strip (§30) | 791 | — | **791** | 37 | — | — |
@@ -2000,9 +2000,10 @@ generated in the first place.
 | `dskwin.inc` — the mount-owned window at the bottom of `.lowbss` (§2.1.2) | — | — | **0** | — | 3,328 | — |
 | `band.inc` — the 1bpp band composer (§5.9), `BAND=1` | — | — | **0** | — | — | — |
 | `bootprof.inc` — the boot phase table (§15.5), `BOOTPROF=1` | — | — | **0** | — | — | — |
+| `stkdiag.inc` — **(undescribed)** | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 3,000 | 18 | **3,018** | — | — | 421 |
-| **total** | **50,435** | **37,211** | **87,646** | **5,939** | **8,798** | **2,439** |
+| **total** | **50,613** | **37,214** | **87,827** | **6,024** | **9,182** | **2,439** |
 <!-- END generated table -->
 
 ### Reading it

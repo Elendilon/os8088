@@ -6313,7 +6313,21 @@ kret_dx:          pop dx
 kret_cx:          pop cx
                   pop bx
                   pop ax
-                  ret
+kret_ret:         ret         ; NAMED so a test can breakpoint the RETURN.
+                              ; A label is zero bytes and it retires a whole
+                              ; class of stale address: tests/blitcut.py
+                              ; breakpointed `gfx_blit4.pops + 7` - seven bytes
+                              ; of `pop` and then the `ret`, counted by hand -
+                              ; and this ladder replaced that run with a
+                              ; three-byte `jmp` here. The offset then landed
+                              ; on unrelated code, the breakpoint never fired,
+                              ; and the row waited out 240s and reported that
+                              ; no canvas blit had arrived: a sentence about
+                              ; the kernel for a fault in one host-side line.
+                              ; Every routine that leaves through this ladder
+                              ; returns HERE, with sp back at its own entry
+                              ; value, which is what a caller matching on sp
+                              ; needs (docs/HANDOFF-SOAK-FINDINGS.md B2).
 
 section .cold
 kretc_es:         pop es

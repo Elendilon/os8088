@@ -1833,7 +1833,7 @@ SOAK = [
         "the grid is four planes and repaints through gfx_blitp, so a window "
         "left where it opens does not reach this primitive at all.",
         needs=("marty", "nasm"), serial=True, timeout=900, builds=True),
-    Row("blitcut", "soak", py("tests/blitcut.py"), 300.0,
+    Row("blitcut", "soak", py("tests/blitcut.py"), 420.0,
         "SPEC.md 39.14.7.2: does a STRADDLING gfx_blit4 draw the same pixels "
         "cut at the seam as it does whole-virtual, and is it several times "
         "quicker? blitplane's shape one seam along, and rebuilds the tree for "

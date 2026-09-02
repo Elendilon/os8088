@@ -222,7 +222,19 @@ def run_install(m, mo, ix, iy):
     # so the wait is "our boot code is in sector 0" and then "the drive went
     # quiet".
     disk = vhd(m)
-    base = open(BASE_VHD, "rb").read(446)
+    # THIS INSTANCE'S OWN DISK, before the install - not BASE_VHD's.
+    #
+    # It used to read the shared master, on the docstring's reasoning that the
+    # master "is never written and is the pristine master by construction". It
+    # is written: any run of a commit that PREDATES per-instance isolation
+    # installs straight onto it, which a bisect or a base-side classification
+    # run does routinely. The master then carries an installed MBR, every
+    # cloned disk starts with those same bytes, and the installer writes them
+    # again - so `!= base` never becomes true and the row waits out the whole
+    # 600 seconds. Measured, and the message it ends with is right about
+    # itself: "either it is slower than the limit or the condition is asking
+    # about the wrong thing".
+    base = open(disk, "rb").read(446)
     took = M.until(m, lambda _: open(disk, "rb").read(446) != base,
                    "the installer to commit its MBR", limit=600.0)
     print("  MBR committed after %.0fs" % took)
@@ -243,6 +255,31 @@ def run_install(m, mo, ix, iy):
 
 
 def install(m):
+    """Drive the installer on `m`, and REFUSE a disk that is already installed.
+
+    The pre-flight is here because the alternative is a 600-second timeout
+    saying nothing useful: an already-installed disk gets the same MBR written
+    to it again, so the commit is invisible and the wait never ends. Naming it
+    up front turns ten minutes of nothing into one sentence with the cure in
+    it.
+    """
+    disk = vhd(m)
+    try:
+        already = "SYSTEM" in {q.split("/")[0] for q in partition(disk).tree()}
+    except SystemExit:
+        already = False                 # no MBR at all is a pristine disk
+    if already:
+        sys.exit(
+            "instdeep: the disk this instance was cloned from is ALREADY "
+            "installed, so the install below would write the same bytes and "
+            "the commit would be invisible.\n"
+            "  The shared master is %s and it is meant to be pristine "
+            "(nothing writes to it once every instance clones its own).\n"
+            "  Something wrote through to it - running a commit that predates "
+            "per-instance isolation does exactly that, which a bisect or a "
+            "base-side classification run does routinely.\n"
+            "  Restore it from its .pristine copy beside it, or delete it and "
+            "re-run `make marty`." % BASE_VHD)
     mo, ix, iy = open_installer(m)
     run_install(m, mo, ix, iy)
 

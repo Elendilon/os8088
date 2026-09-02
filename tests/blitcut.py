@@ -169,15 +169,44 @@ def run(image, apps, machine, defines):
                                                  # width and is not a constant
 
         # --- MEASURE one canvas repaint, entry to return -------------------
-        entry, ret = S("gfx_blit4"), S("gfx_blit4.pops") + 7
+        # THE RETURN IS THE LADDER'S `ret`, NOT AN OFFSET INTO THIS ROUTINE.
+        #
+        # It was `S("gfx_blit4.pops") + 7`: seven bytes of `pop` and then the
+        # `ret`, counted by hand. SPEC.md 15.1.2's shared epilogue ladder
+        # replaced that run with `jmp kret_bp` - three bytes - so `+7` landed
+        # past the label on unrelated code and the breakpoint never fired. The
+        # row then waited out its whole 240 seconds and said "no straddling
+        # canvas blit arrived", which is a sentence about the KERNEL for a
+        # fault in this line. It was even classified once as a harness
+        # regression on a bisect that pointed at a host-side commit.
+        #
+        # `kret_ret` is that ladder's `ret`, LABELLED so this line needs no
+        # arithmetic at all - the label is zero bytes and it is there for
+        # exactly this. sp at it is the entry sp of whichever routine came in,
+        # which is what the `pend[0]` match below has always relied on, and it
+        # still holds for the OUTER call: the cut re-enters gfx_blit4 for each
+        # half, and those return at a lower sp.
+        entry, ret = S("gfx_blit4"), S("kret_ret")
         m.bp_exec(entry, ret)
         m.run()
         pend, got, geom = None, [], None
         t0 = time.time()
 
+        # WHAT THE DRIVER DID, recorded rather than assumed. This row's only
+        # failure mode is a 240-second wait ending in "no straddling canvas
+        # blit arrived", which says nothing about WHICH of the three things
+        # went wrong: the drag never ran, the drag ran and nothing repainted,
+        # or the loop never saw a hit at all. All three look identical.
+        drove = {"done": False, "err": None}
+        hits = {"entry": 0, "ret": 0, "wide": 0}
+
         def driver():                       # a 16px nudge is a whole repaint
-            mo.drag(wx2 + ww // 2, wy2 + TITLE_H // 2,
-                    wx2 + ww // 2 + 16, wy2 + TITLE_H // 2)
+            try:
+                mo.drag(wx2 + ww // 2, wy2 + TITLE_H // 2,
+                        wx2 + ww // 2 + 16, wy2 + TITLE_H // 2)
+                drove["done"] = True
+            except Exception as e:                          # noqa: BLE001
+                drove["err"] = "%s: %s" % (type(e).__name__, e)
         threading.Thread(target=driver, daemon=True).start()
         while time.time() - t0 < 240 and not got:
             if m.status().get("state") == "running":
@@ -186,13 +215,24 @@ def run(image, apps, machine, defines):
             r = m.regs()
             ip = (r["cs"] << 4) + r["ip"]
             if ip == entry:
+                hits["entry"] += 1
+                if r["cx"] > 200:
+                    hits["wide"] += 1
                 if pend is None and r["cx"] > 200:      # the CANVAS, not a
                     pend = (r["sp"], m.status()["cycles"],      # dock tile
                             r["ax"], r["bx"], r["cx"], r["dx"])
             elif ip == ret and pend is not None and r["sp"] == pend[0]:
+                hits["ret"] += 1
                 got.append(m.status()["cycles"] - pend[1])
                 geom = pend[2:]
             m.run()
+        if not got:
+            print("   the drag %s; gfx_blit4 entered %d time(s), %d of them "
+                  "wide (cx > 200), %d matched returns"
+                  % ("finished" if drove["done"] else
+                     ("FAILED - %s" % drove["err"]) if drove["err"] else
+                     "NEVER FINISHED", hits["entry"], hits["wide"],
+                     hits["ret"]))
         m.bp_exec()
         m.run()
         if not got:

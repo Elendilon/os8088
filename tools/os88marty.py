@@ -1362,6 +1362,32 @@ def _clone(src, dst):
     shutil.copyfile(src, dst)
 
 
+def stage_run_dir(tag):
+    """A run tree the CALLER owns, for two instances that must share a DISK.
+
+    `launch(run_dir=...)` keeps a caller-staged tree - `_drop_instance` deletes
+    `media/` only for the private ones - so a tree made here survives an
+    instance being closed, and the next `launch` on it mounts the same VHD.
+
+    THAT IS THE ONE WORKFLOW PER-INSTANCE ISOLATION BROKE, and it broke it
+    without anybody noticing (docs/HANDOFF-SOAK-FINDINGS.md B1).
+    tests/hdboot.py and tests/knobhd.py INSTALL to a hard disk in one machine
+    and then BOOT it in another; before the isolation work both used the shared
+    master VHD, and after it the install landed in a private clone that
+    `close()` deleted while the boot opened a fresh clone of the pristine
+    master. The boot found an empty disk and said "no desktop from drive C:",
+    which reads as a broken boot loader and cost a bisect to place.
+
+    `launch` still re-clones the FLOPPIES into the tree on every call, so the
+    same directory can be booted with a different disk in fd:0 - which is what
+    those two rows need, the install running off the system floppy and the boot
+    off a blank one so the BIOS offers the hard disk.
+
+    The caller owns it: nothing here removes it, and `reap` does not either.
+    """
+    return _private_run_dir(base_run_dir(), tag)
+
+
 def _private_run_dir(base, tag):
     """One instance's working directory: shared what is read, private what is
     written.

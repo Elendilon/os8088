@@ -154,6 +154,25 @@ mean something — which is exactly what the owner asked to have watched.
 
 ## B1. Install-then-boot is broken by per-instance disk isolation
 
+**FIXED.** `os88marty.stage_run_dir()` is a run tree the CALLER owns —
+`launch(run_dir=...)` leaves its media alone, so the VHD survives the install
+instance closing, and `launch` re-clones the FLOPPY on every call, so the boot
+gets its blank one in the same directory. `hdboot` and `knobhd` install and
+boot over one disk again, in-process rather than through a subprocess.
+`hdboot` 106.5 s, `knobhd` 203.9 s on both adapters, `instdeep` still 98.9 s.
+
+**And the first attempt failed for a reason worth more than the fix.** The
+install timed out after 600 s: `instdeep` watched for the MBR to differ from
+**the shared master's** bytes, on its docstring's reasoning that the master
+"is never written and is the pristine master by construction". It was written
+— by this session's own base-side classification runs, which execute code that
+predates the isolation work and installs straight onto it. Every clone then
+starts with an installed MBR, the installer writes the same bytes, and the
+commit is invisible. `run_install` compares against **this instance's own
+disk** now, and `install` refuses an already-installed one up front with the
+cure in the sentence, instead of ten minutes of nothing.
+
+
 **`hdboot`, `knobhd` and probably `blitcut`.** Bisected on a clean master to
 `79d34b2` — *"Take the MartyPC concurrency work into size pass 2 (host-side
 only)"* — 16 files, **zero** kernel, boot, driver or app source.
@@ -190,12 +209,36 @@ Stated with its limit: that is the boot-time mount, not an install's payload
 streaming, so it corroborates rather than proves. The proof is that the guilty
 commit contains no kernel code.
 
-## B2. `blitcut`'s mechanism is assumed, not established
+## B2. `blitcut` — established, and the bisect was WRONG
 
-It bisects to the same `79d34b2` and fails alone on HEAD / passes alone at base,
-so the classification is safe — but it **builds a floppy image rather than
-installing**, so B1's mechanism does not obviously reach it. Written down as
-the hypothesis it is. Someone should establish it before fixing it.
+**FIXED, and the entry above it was the right instinct.** The mechanism is not
+B1's and not the concurrency commit's at all: **it is the size pass's own
+epilogue ladder.**
+
+The row breakpointed the return of `gfx_blit4` at `S("gfx_blit4.pops") + 7` —
+seven bytes of `pop` and then the `ret`, counted by hand. SPEC.md 15.1.2's
+shared ladder replaced that run with a three-byte `jmp kret_bp`, so `+7` landed
+on unrelated code and the breakpoint never fired. The row then waited out its
+whole 240 s and reported *"no straddling canvas blit arrived"* — **a sentence
+about the kernel for a fault in one host-side line**, which is why it read as a
+harness or boot problem and why a bisect placed it on a host-side commit.
+
+What found it was making the row say which of its three failure modes it was
+in, which it could not do before: *"the drag finished; gfx_blit4 entered 3
+time(s), 2 of them wide (cx > 200), 0 matched returns"*. The drag ran, the
+blits happened, the return never fired. One line.
+
+**The ladder's `ret` is labelled `kret_ret` now** — a label is zero bytes,
+A/B'd rather than asserted — so no test needs arithmetic to point at it. A
+sweep of every other computed address in `tests/` came back clean: the rest are
+struct-field offsets into DATA (`drv_tab + 2*16 + 2`, `ss_row + 2`), which the
+ladder cannot touch, and `tests/blitp.py` already reads its return address off
+the stack, which is the idiom that cannot go stale.
+
+**This is a regression the pass caused**, and the summary's "not one failure is
+a regression in kernel behaviour" survives it only on a technicality worth
+stating: the kernel is correct, the row's address went stale. It is still the
+pass's doing and it was mis-attributed for a week.
 
 ## B3. `os88layout.cold_span` measures `.cold` to EOF, and `.ovlw` sits after it
 
@@ -493,9 +536,9 @@ away. `weavesmoke._shot` is the family's helper.
 | a missing `no_saver()` call (B7) | 1 — `trkrate` |
 | found by the pre-merge gate, not the soak (B9) | 1 — a leaked QEMU breaking `ps2mouse` |
 | fixed during the pass | 3 — `deskbench`, and `weavegame`/`wireflick`'s registrations |
-| **fixed since, in this queue** | **7** — A5, B3, B4, B6, B7, B8, B9 |
-| **left open** | **8** — A1–A4, B1, B2, B5, C1, C2 |
-| **classifications this queue got WRONG and corrected** | **2** — `dispmine` (A5, called contention on one passing re-run) and B6's own mechanism |
+| **fixed since, in this queue** | **9** — A5, B1, B2, B3, B4, B6, B7, B8, B9 |
+| **left open** | **6** — A1, A2, A3, A4, B5, C1, C2 |
+| **classifications this queue got WRONG and corrected** | **3** — `dispmine` (A5, called contention on one passing re-run), `blitcut` (B2, bisected to a host-side commit and it is the size pass's own ladder), and B6's own mechanism |
 
 **The one lesson, and it is one lesson.** Not one of these was a check that
 failed. Every expensive hour went to a check that **passed for the wrong
