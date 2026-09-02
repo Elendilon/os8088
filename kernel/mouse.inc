@@ -4531,6 +4531,9 @@ cur_shhot   db 0, 0,          CUR_XHX, CUR_XHY
 mouse_x     dw SCREEN_W/2       ; public: cursor position, 0..639
 mouse_y     dw SCREEN_H/2       ; public: 0..479
 mouse_btn   db 0                ; public: bit 0 = left, bit 1 = right
+%if mouse_y - mouse_x != 2
+  %error "mouse_x and mouse_y are no longer an adjacent pair - viddet.inc's vid_apply homes the pointer with one stosw pair over both"
+%endif
 
 %ifdef CURFIX
 cur_mvt     dw 0                ; [ticks] at the last movement packet (SPEC.md

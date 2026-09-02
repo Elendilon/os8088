@@ -2713,10 +2713,15 @@ sb_b_ovr:
     ret
 
 ; A TABLE LOOKUP, which is what the shift rows above get traded for. The
-; kernel does this in four places now - gfx_inktab, the two edge-mask tables
-; and vid_banktab (SPEC.md 5.7) - and each of those trades was made against a
+; kernel does this in three places now - gfx_inktab and the two edge-mask
+; tables (SPEC.md 5.7) - and each of those trades was made against a
 ; written-down EA cost, never a measured one. [bx+disp16] is the addressing
-; mode all four use.
+; mode all three use. There was a FOURTH, vid_banktab, and it is the reason
+; this row is worth keeping: `bank * 0x2000` went to a table because a
+; variable shift is 60 clocks, and nobody costed the ROTATE - `ror bx, 3` is
+; the same answer for a 3-bit value in 20 clocks over 4 bytes against the
+; lookup's 25 over 7, so the table was both bigger and slower than the thing
+; it was standing in for.
 sb_b_idx:
     xor bx, bx
 %rep SB_UNROLL

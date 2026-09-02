@@ -4316,11 +4316,14 @@ a harmless tidy-up in the other direction:
    `shr dl,cl` / `shl dl,cl`. A variable shift is 8 clocks plus 4 per bit on
    an 8088 and needs CX freed around it; `[vga_y1]` is banked before the
    masks are built precisely so BX is free to index them.
-4. **`gfx_rowbase` looks its bank base up** (`vid_banktab`) instead of
-   `shl bx, 13`, which is 60 clocks for a value with four possible answers.
-   The formula in §39.3 is unchanged. The `mul` by the stride stays: the
-   alternative is a per-row table, and 480 rows of it is a third of what
-   `KERN_BUDGET` has left.
+4. **`gfx_rowbase_calc` ROTATES its bank base into place** (`ror bx, 3`)
+   instead of `shl bx, 13`, which is 60 clocks for a value with four possible
+   answers. `ror` by 3 and `shl` by 13 are the same 16-bit result for any
+   value that fits in three bits, which a bank number does, and it is 20
+   clocks over 4 bytes against a four-entry table lookup's 25 over 7 — so it
+   replaced the table rather than the shift. The formula in §39.3 is
+   unchanged. The `mul` by the stride stays: the alternative is a per-row
+   table, and 480 rows of it is a third of what `KERN_BUDGET` has left.
 5. **`sw_col` preserves nothing** (§32). Its only caller banks BX and DX for
    the whole plane and reloads AH, DI, SI and BP around every call, so the
    five push/pop pairs it used to open with were saving registers that
@@ -17413,9 +17416,11 @@ same code and, more to the point, the same save-under discipline.
 `menu_track` was split, and `menu_drop` is the half both callers share.
 
 ```nasm
-MENU_POPMAX equ 16              ; items a popup may have on a 480-row screen;
-                                ; the live cap is [vid_popmax] (§39.2) - 11 on
-                                ; CGA, because the rect must still fit
+MENU_POPMAX equ 11              ; items ANY pull-down may have - the shortest
+                                ; screen this OS drives is VID_H_MIN and the
+                                ; rect must still fit under the bar on it.
+                                ; [vid_popmax] (§39.2) is this same number,
+                                ; laid down rather than computed
 
 ; menu_drop  in:  [menu_x1] [menu_x2] [menu_y1] [menu_y2]  the menu rect
 ;                 [menu_cnt]   item count
@@ -17457,7 +17462,7 @@ A popup MAY sit over the dock strip (§30) — the save-under puts it back.
 Only one menu can be open at a time — both trackers run on the UI task
 under the gfx lock and both are driven by a held button — so both use
 the menu save-under claim (`MENU_SAVE_KB`, §12/§50) and no allocator
-appears. `[vid_popmax]` bounds a popup's HEIGHT (258 rows at `MENU_POPMAX`) and nothing bounds its
+appears. `[vid_popmax]` bounds a popup's HEIGHT (178 rows at `MENU_POPMAX`) and nothing bounds its
 width — `menu_widest` is taken as-is — so the honest budget is stated over
 the descriptors that actually exist rather than as a general guarantee.
 All of them (`fm_ctx_file` / `fm_ctx_fold` / `fm_ctx_dir` / `fm_ctx_up`,
@@ -20911,6 +20916,14 @@ down the image is not resident yet"* - and a ladder is exactly such a helper;
 it is also the shape §15's own guard already refuses for `spl_gate`, *"the PATH
 is not aboard even though the destination is"*. **So `vid_pop8` keeps its own
 pop run, and any routine the first tick can reach must.**
+
+**A fourth routine joins it one label in.** `vid_apply` pushes the same run
+without `bp`, pops its own `es`, and enters at `vid_pop7` — the label between
+`pop bp` and `pop di` — instead of writing out seven pops and a `ret`. That is
+a LOCAL ladder inside `viddet.inc`, which is what makes it legal where the
+shared one is not: the destination is four instructions away and inside the
+same resident window as its callers. It is bound by the seven-push frame where
+the other three are bound by eight, and nothing mechanical checks either.
 
 Nothing saw it. `make`, the fast tier, `stkbalance`, `os88ovlchk`,
 `t_asmrules` and `checkdocs` were all green, because none of them boots a
@@ -42723,8 +42736,24 @@ or single instructions with no register to spare for the arithmetic:
 `vid_w`, `vid_h`, `vid_wm1`, `vid_hm1`, `vid_wm8`, `vid_cwm1`, `vid_chm1`,
 `vid_cwm8`, `vid_chm8`, `vid_bankmask`, `vid_rseg`, `vid_tseg`, `vid_pw`,
 `vid_ph`, `vid_pwm1`, `vid_phm1`, `vid_dock_y0`, `vid_dock_ty0`,
-`vid_clk_hx`, `vid_ymax`, `vid_popmax`, `vid_desk_zx`, and the bytes
+`vid_clk_hx`, `vid_ymax`, `vid_desk_zx`, and the bytes
 `vid_kind`, `vid_mono`, `vid_planes`, `vid_planes_w`.
+
+**`vid_popmax` left that list and became a CONSTANT.** `[vid_h]` at the point
+`vid_apply` reached it was always a `vid_tab` height — the display block at
+the top of the routine had just stored it from `[vid_ch]`, and
+`vid_desk_union` runs *after* `vid_apply`, never inside it — and `vid_tab`'s four heights are 480, 348,
+`VID_H_MIN` and `EGA_H`, so `(h - MBAR_H - 2) >> 4` is 28, 20, **11** and 20
+against a clamp of `MENU_POPMAX` = 11. The clamp fired on every adapter there
+is and the CGA landed exactly on it, so the nine instructions always computed
+the initialiser. It is `dw MENU_POPMAX` in `.text` now and a `%if` beside
+`MENU_POPMAX` in `menu.inc` refuses a build in which that stops being true —
+either constant growing, or a fifth `vid_tab` row shorter than `VID_H_MIN`
+(which is why the test names that constant rather than a literal 200, the
+number `vid_tab`'s own CGA row is written from). The resting value used to be
+**16**, which the save-under guard in `kernel.asm` proves the machine cannot
+survive — 16 items need 28,896 bytes of a 20,480-byte claim — and only never
+fired because `vid_apply` overwrote it on the splash's first tick.
 
 **Six words left this list rather than being maintained in it.** `vid_hm8`,
 `vid_strm1`, `vid_rpara`, `vid_rend`, `vid_desk_zl` and `vid_desk_zr` were
@@ -42739,8 +42768,14 @@ vid_mono   = (kind != VID_VGA && kind != VID_EGA)   ; EGA is planar too - 39.24
 vid_planes = mono ? 1 : 4               ; ...and both are ONE word store - 39.26
 vid_rseg   = mono ? vid_seg : 0         ; 0 = nothing routes through the
                                         ; software renderer at all (39.5)
-vid_tseg   = vid_rseg ? vid_rseg : vid_seg          ; font_run's target, 6.1.10
-vid_popmax = min(MENU_POPMAX, (vid_h - MBAR_H - 2) >> 4)    ; 16 / 16 / 11
+vid_tseg   = vid_seg                    ; font_run's target, 6.1.10 - and it
+                                        ; is [vid_seg] on EVERY adapter: the
+                                        ; line above makes vid_rseg vid_seg on
+                                        ; mono and 0 on planar, so the
+                                        ; conditional this used to be read
+                                        ; `mono ? vid_seg : vid_seg`. It still
+                                        ; reads the LIVE word rather than a
+                                        ; copy taken earlier - see 39.12
 vid_desk_zx = vid_w - 56                ; 584 at 640 wide, as it always was
 [mouse_x]/[mouse_y] = centre of the new screen
 ```
@@ -42904,10 +42939,15 @@ VGA `bmask`/`bshift`/`wrapbit` are all 0, so `gfx_rowbase` reduces to exactly
 path**, which is why the VGA output is bit-for-bit what it was before.
 
 Two implementation notes, both about the 8088 rather than the formula
-(§5.7). `bank * 0x2000` is a **table lookup** (`vid_banktab`, four entries —
-the maximum the 0x2000 assertion at the foot of the module allows), because
-`shl bx, 13` is 8 clocks plus 4 per bit and this runs on the fixed cost of
-every drawing call. And **`gfx_nextrow` is meant to be inlined wherever a
+(§5.7). `bank * 0x2000` is a **rotate**, `ror bx, 3` — because `shl bx, 13`
+is 8 clocks plus 4 per bit, 60 for a value with four possible answers, and
+this runs on the fixed cost of every drawing call. A bank number fits in
+three bits (four banks is the maximum the 0x2000 assertion at the foot of the
+module allows), and for such a value `x ror 3` and `x shl 13` are the same
+sixteen bits: 3 → 0x6000, 2 → 0x4000, 1 → 0x2000, 0 → 0. It was a four-entry
+TABLE until the rotate was costed against it — 20 clocks over 4 bytes against
+25 over 7, so the table was both larger and slower and what it refused was
+only ever the *shift*. And **`gfx_nextrow` is meant to be inlined wherever a
 row loop can spare the bytes**: its body is three instructions and the call
 and ret around them cost as much again, so font.inc's cell loops (§6.1) and
 the renderer's row loops (§32) both open-code it, CS overrides and all. A
@@ -43015,10 +43055,32 @@ it. **The second rung buys VGA alone**: the saver 3.99% → 3.13% and Missile
 Command 1.75% → 1.19%, on the adapter that is not the target (PERFORMANCE.md
 Part 1). It is priced in Set 106 and not taken.
 
-`vid_apply` builds the table by calling `gfx_rowbase_calc` per row, so 348 rows
-is **~113,000 cycles — 23.6 ms — of every `vid_apply`**, against 8.7 ms at 128
-and 32 ms at 480. It runs at boot and on an **adapter** change — every caller
-of `vid_apply`: `vid_switch`, `vid_disp_init`, and the fullscreen bracket's
+`vid_apply` builds the table by ITERATING it — `gfx_nextrow` is the step form
+of `gfx_rowbase_calc`, so a row's answer is the previous row's plus a step
+rather than a bank AND, a shift and a `mul`.
+
+**The two agree over every row an adapter has, and on CGA they part company
+above row 206** — measured rather than assumed: the whole 348-entry table was
+read out of a booted guest built each way and diffed. Hercules, VGA and EGA
+are byte-identical over all 348 entries; CGA differs on **71**, the first at
+row 207 (`gfx_rowbase_calc` 16,432, `gfx_nextrow` 128) and the last at 347.
+The cause is the intra-bank assertion at the foot of the module: it bounds
+`(VID_H_MIN/2) × 80 = 8,000` inside the 0x2000 bank window, and row 207's
+`(207>>1) × 80` is 8,240 — past it. So a CGA table entry above row 206 has
+been meaningless in every build this OS has ever had, the adapter having 200
+rows; the two builders merely store a different meaningless number, and where
+they differ `gfx_rowbase_calc`'s is 48 bytes *past* the end of the card's 16KB
+aperture where `gfx_nextrow`'s is inside it.
+
+**Nothing can index those entries.** Every primitive clips y to `[vid_ch]`
+(§39.2.1) and that is 200 on a CGA — the desktop union grows `[vid_h]`, never
+`[vid_ch]`, which is the whole point of the distinction — and a CGA that is
+the *secondary* of a two-card desktop has `[vid_rowmax]` cleared outright
+rather than reading the primary's table (below).
+It cost **~113,000 cycles — 23.6 ms — of every `vid_apply`** when each row was
+a `gfx_rowbase_calc` call, against 8.7 ms at 128 rows and 32 ms at 480; the
+step form is roughly a fifth of that. It runs at boot and on an **adapter**
+change — every caller of `vid_apply`: `vid_switch`, `vid_disp_init`, and the fullscreen bracket's
 `vid_fsx_enter`/`vid_fsx_leave`, each of which repaints everything afterwards
 anyway — and a 9.2 s boot does not notice 15 ms; it is written down because
 that is only true while somebody has checked.
@@ -45022,9 +45084,11 @@ monitor is *for*.
 without a special case anywhere. `vid_desk_union` then grows `[vid_w]`,
 `[vid_h]`, `[vid_wm1]` and `[vid_hm1]` past them and touches nothing else —
 which is why every derived chrome word (`[vid_dock_y0]`, `[vid_clk_hx]`,
-`[vid_ymax]`, `[vid_popmax]`, `[vid_desk_z*]`) is already right: `vid_apply`
-computed them before the desktop grew. On a machine with one display the two
-sets are the same numbers and nothing above happens at all.
+`[vid_ymax]`, `[vid_desk_z*]`) is already right: `vid_apply` computed them
+before the desktop grew. `[vid_popmax]` is not derived at all any more — it is
+a constant, and §39.2 says why a union cannot change it either. On a machine
+with one display the two sets are the same numbers and nothing above happens
+at all.
 
 **§11.2's fullscreen surface takes the primary too**, for now: `wm_fullscreen`
 sizes a window to `[vid_pw]`/`[vid_ph]` rather than the union, so an app that
