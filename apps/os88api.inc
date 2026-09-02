@@ -1198,7 +1198,7 @@ SK_KCLAIM  equ 18               ; word: ...of which the kernel's own
 SK_XMS     equ 20               ; word: the pool above 1MB, 0 with no store
 SYSKB_SIZE equ 22
 
-MAX_TASKS  equ 8                ; the scheduler's slots (SPEC.md 8) - a bound
+MAX_TASKS  equ 14               ; the scheduler's slots (SPEC.md 8) - a bound
 INST_MAX   equ 12               ; running instances (SPEC.md 29.1)   on the
 MEM_MAX    equ 32               ; claim records (SPEC.md 50)         buffers
                                 ; above, and each call answers the live figure

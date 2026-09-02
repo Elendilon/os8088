@@ -8511,13 +8511,27 @@ The seed is unconditional now, and slot 0's canary is compared on every switch
 like everybody else's. **The seed is what makes the table uniform, and the table
 is what makes the check free.**
 
-#### 8.6.2 What still derives, and why that is not yet a defect
+#### 8.6.2 What derived, and what happened to it
 
-`tests/stackprobe` mirrors `SCH_STACK` as `SPB_SLICE` and walks the slices as a
-contiguous run; `tools/stkwater.py`, `tools/kfzread.py` and `tests/ftpd.py`
-compute `sch_stacks + (n-1)*SCH_STACK` host-side. All four are correct while
-every slice is the same size, and all four are wrong the moment one is not — so
-they are the list to convert before, not after, a class scheme lands.
+Four readers computed `sch_stacks + (n-1)*SCH_STACK` for themselves, correct
+only while every slice was the same size. §8.7 made them differ, so:
+
+- **`tools/stkwater.py`** decodes `sch_stksize` out of `kernel.bin` —
+  `slice_sizes()` — and `water()`/`report()` take the list. It ranks by the
+  *fullest* slice rather than the deepest, because with classes those are
+  different questions and only the first is about a margin: 200 of 384 is
+  comfortable and 120 of 128 is nearly dead.
+- **`tools/stkdiagread.py`** reads `sum(sizes)` bytes and prints each slot as a
+  percentage of its own slice.
+- **`tools/kfzread.py`** says where the top actually comes from instead of
+  naming `SCH_STACK`.
+- **`tests/stackprobe`** now *declares* `OS88_STACK_384` in its header, which
+  turns its `SPB_SLICE` from a mirror the kernel could falsify into a request
+  the kernel honours. Its **whole-machine walk is withdrawn**: a package cannot
+  learn the partition, probing four sizes for the next canary would be right
+  most of the time, and "most of the time" in a reader that numbers slots is
+  how that file's own history already reads. `STKDIAG=1`'s panel is the
+  replacement on real hardware, and it reads the table.
 
 ### 8.7 Slot classes — a task asks for the stack it needs, and gets the smallest that fits
 

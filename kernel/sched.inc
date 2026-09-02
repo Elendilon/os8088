@@ -43,7 +43,7 @@
 ; =============================================================================
 
 ; --- task table (SPEC.md 8) --------------------------------------------------
-MAX_TASKS   equ 8               ; mirrored in apps/os88api.inc, which sizes
+MAX_TASKS   equ 14              ; mirrored in apps/os88api.inc, which sizes
                                 ; every package's snapshot buffer from it
                                 ; (SPEC.md 20.9) - change them together and
                                 ; rebuild every .o88
@@ -154,13 +154,26 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 ; stop being uniform, and every reader had to stop assuming otherwise first.
 ; -----------------------------------------------------------------------------
 %macro SCH_PARTITION 0
-    SCH_SLOT SCH_STACK
-    SCH_SLOT SCH_STACK
-    SCH_SLOT SCH_STACK
-    SCH_SLOT SCH_STACK
-    SCH_SLOT SCH_STACK
-    SCH_SLOT SCH_STACK
-    SCH_SLOT SCH_STACK
+    SCH_SLOT 128                ; the sleepers. ONE of these is the idle task's
+    SCH_SLOT 128                ; for as long as the machine is up, so two are
+    SCH_SLOT 128                ; really available: a C package whose worker
+                                ; only sleeps, a Timer, a Bounce, the sound
+                                ; driver's stream task
+    SCH_SLOT 192                ; THE MODAL CLASS - eleven of the twenty
+    SCH_SLOT 192                ; workers in the tree land here
+    SCH_SLOT 192                ; (docs/STACK-SLOTS-PLAN.md 12.1): WIREFRAME,
+    SCH_SLOT 192                ; Artful, the Task Manager, the Fractal, WEAVE,
+    SCH_SLOT 192                ; Cyclone, Notepad, Arkanoid, Tracker,
+    SCH_SLOT 192                ; Tamegram, Tank Attack
+    SCH_SLOT 256                ; Modplug, Missile Command, Word, Telnet
+    SCH_SLOT 256
+    SCH_SLOT SCH_STACK          ; ftpd, the Browser and Frotz - and TWO is the
+    SCH_SLOT SCH_STACK          ; judgement in this list. The pair that plausibly
+                                ; runs at once is ftpd and the Browser, on a
+                                ; machine serving files while somebody reads;
+                                ; a third costs 192 bytes and, because the low
+                                ; window has 162 left, 512 of anybody's RAM.
+                                ; It is one line here if the field wants it
 %endmacro
 
 ; --- and the three things counted off it, before anything can use them -------

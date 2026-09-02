@@ -6583,7 +6583,7 @@ KERN_KB    equ (KERN_SIZE + 1023) / 1024
 SKB_FAT    equ FAT_PARA * 16              ; the mount-time FAT snapshot (18.8)
 SKB_DSK    equ DSK_WIN_BYTES              ; disk_dir + disk_icons + dsk_secbuf,
                                           ; and NOTHING else (SPEC.md 2.1.2)
-SKB_STK    equ (MAX_TASKS-1) * SCH_STACK  ; the background slices
+SKB_STK    equ SCH_STK_TOTAL              ; the background slices
 SKB_STK0   equ STK0_SIZE                  ; ...and task 0's
 SKB_IMG    equ KERN_SIZE - SKB_FAT - SKB_DSK - SKB_STK - SKB_STK0
 

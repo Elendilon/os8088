@@ -70,20 +70,24 @@ def read(sock="build/qmp.sock"):
         v[name] = w[i]
     # ...and the per-slice fill, which is the same question one level down
     eq = os88sym.equates(DEF)
-    n, nt = int(eq["SCH_STACK"]), int(eq["MAX_TASKS"])
+    nt = int(eq["MAX_TASKS"])
     import stkwater as W
-    mem = m.read(os88sym.linear("sch_stacks", DEF), (nt - 1) * n)
-    return v, W.water(mem, nt - 1, n), n
+    sizes = W.slice_sizes(DEF)              # PER SLOT since SPEC.md 8.7: one
+                                            # number here read every small
+                                            # slice off the end of itself
+    mem = m.read(os88sym.linear("sch_stacks", DEF), sum(sizes))
+    return v, W.water(mem, nt - 1, sizes), sizes
 
 
 def main():
     sock = sys.argv[1] if len(sys.argv) > 1 else "build/qmp.sock"
-    v, slices, n = read(sock)
+    v, slices, sizes = read(sock)
     ph = v["phase"] & 0xFF
     arm = {(): "ARM 1 as it ships", ("NO_MOUPRIV",): "ARM 2 NOMOUPRIV",
            ("NO_CHAINPRIV",): "ARM 3 NOCHAINPRIV"}.get(DEF[1:], " ".join(DEF[1:]))
-    print("== STKDIAG ==   %s   slice %d, MAX_TASKS %d, phase %s"
-          % (arm, v["slice"], v["ntask"], PHASES[ph] if ph < 4 else "?"))
+    print("== STKDIAG ==   %s   MAX_TASKS %d, phase %s"
+          % (arm, v["ntask"], PHASES[ph] if ph < 4 else "?"))
+    print("   slices: %s" % "/".join(str(x) for x in sizes))
     if ph < 3:
         print("   NOT FINISHED - the run takes ~95 seconds from the desktop")
     print("   FLOOR, idle slice    %4d   <- quote this" % v["floor"])
@@ -94,8 +98,11 @@ def main():
     print("   deepest slice +keys  %4d   (+%d)" % (v["k"], v["k"] - v["m"]))
     print("   --- every slice ---")
     for slot, used, _free in slices:
-        print("   slot %-2d %s" % (slot, "never spawned" if used is None
-                                   else "%3d of %d" % (used, n)))
+        sz = sizes[slot - 1] if slot - 1 < len(sizes) else sizes[-1]
+        print("   slot %-2d %s" % (slot, "never spawned (%d)" % sz
+                                   if used is None
+                                   else "%3d of %-3d  %3.0f%%"
+                                        % (used, sz, 100.0 * used / sz)))
     return 0
 
 

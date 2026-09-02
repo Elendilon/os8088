@@ -411,6 +411,24 @@ the SDK).
 
 ## 6. Pre-declared slot classes (Q4), and the canary
 
+> **BUILT. SPEC.md 8.6 and 8.7 are the contract and this is the design record
+> behind them.** The partition is `SCH_PARTITION` in `kernel/sched.inc` -
+> 3x128, 6x192, 2x256, 2x384 - `MAX_TASKS` is 14, and `task_spawn` takes the
+> stack a task asks for in CX and gives it the smallest free slice that fits.
+>
+> **Read off a running machine** (`STKDIAG=1`, the panel's own slice list):
+> the idle task takes slot 1's 128 and reads **32 of 128, 25%**; the panel's
+> own worker asks for the largest and takes slot 12's 384, reading 70 of 384.
+> Smallest-fit is doing exactly what it was cut to do - all six 192s and both
+> 256s are still free with two tasks running.
+>
+> Costs, measured: the machinery `.text` +74 / `.cold` +3 / `.ovlw` +3, and the
+> layout flip a further `.text` +24, `.bss` +78 and `.lowbss` +128. No rung
+> crossed; the low window is at 93% accrued with 34 bytes left, which is what
+> makes a third 384 slice cost 512 rather than 192 (SCH_PARTITION says so at
+> the line where it would go).
+
+
 ### 6.1 The canary gets simpler, not harder
 
 Today `sch_switch` derives the slice base from the slot index with an 8-bit
