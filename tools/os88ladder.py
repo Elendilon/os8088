@@ -1604,9 +1604,23 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
         # screen beside the ladder is what the machine looked like at the
         # moment you arrived, and a stage's own work is what moves it on. So
         # the reading is carried through the whole walk and sampled here
-        # BEFORE this stage's events are applied; each step then carries the
-        # reading taken at its own end, which is what a click shows.
+        # BEFORE this stage's events are applied.
         bar = dict(running) if running else None
+        # ...with one exception, and it is about what the reader recognises.
+        # The stage where the loading screen APPEARS opens, strictly, on a
+        # blinking cursor: the screen is drawn part-way through it, by the
+        # first notch. Opening it at 0% is what anyone who has watched this
+        # machine boot will expect to see, and the stage's own timeline still
+        # says exactly when the thing was really drawn.
+        if bar is None:
+            for e in ev:
+                if "bar" in e and e["bar"]["total"]:
+                    bar = {"done": 0, "total": e["bar"]["total"]}
+                    break
+                if "arg_done" in e:
+                    bar = {"done": 0,
+                           "total": e["arg_total"] + cons["SPL_POST"]}
+                    break
         regs = regions(st["id"], lad, cons, vol, walkdata["ram_kb"], heap,
                        loaded, None)
         for r in regs:
@@ -1657,6 +1671,8 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
             elif "arg_done" in e:
                 running = {"done": e["arg_done"],
                            "total": e["arg_total"] + cons["SPL_POST"]}
+            elif running is None and bar is not None:
+                running = dict(bar)
             steps.append({
                 "label": label, "phase": base, "kind": e["kind"],
                 "ms": e["ms"], "t0": e["t0"], "note": mark(note),
@@ -1688,6 +1704,24 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
             for f in st["focus"]:
                 moved += ([r["id"] for r in regs if r["id"].startswith("free")]
                           if f == "free*" else [f])
+
+        # A NOTCH DRAWS WHAT THE READ BEFORE IT FETCHED. The bar's numerator is
+        # sectors that have landed, and the read is what lands them - the
+        # notch a moment later is only when the machine gets round to drawing
+        # it. So a notch's reading is carried back over the steps between it
+        # and the read that earned it, which is what makes clicking along a
+        # stage's timeline walk the bar up instead of holding it at the value
+        # it had when the stage opened.
+        for i in range(len(steps) - 1, -1, -1):
+            if steps[i]["phase"] != "splash tick" or not steps[i]["bar"]:
+                continue
+            v = steps[i]["bar"]
+            for j in range(i - 1, -1, -1):
+                steps[j]["bar"] = dict(v)
+                if steps[j]["sectors"]:
+                    break
+                if steps[j]["phase"] == "splash tick":
+                    break
 
         ms = sum(e["ms"] for e in ev)
         out.append({
@@ -2649,12 +2683,16 @@ function drawSplash(){
   } else {
     $("sfill").style.width = "0%";
   }
-  $("scab").textContent = on
-    ? "The bar " + (step >= 0 ? "after this step" : "as this stage opens")
-      + " — " + b.done + " of " + b.total
-      + ", read out of the running machine rather than worked out here."
-    : (done
-        ? "The desktop, as this boot left it - read out of the display card's own memory."
+  /* The desktop wins: by the last stage the bar has reached 222 of 222 and
+     been handed back, so a caption about it would be describing a screen that
+     is no longer on the machine. */
+  $("scab").textContent = done
+    ? "The desktop, read out of the display card's own memory at the end of "
+      + "this boot."
+    : (on
+        ? "The bar " + (step >= 0 ? "after this step" : "as this stage opens")
+          + " \u2014 " + b.done + " of " + b.total
+          + ", read out of the running machine rather than worked out here."
         : "What a 5150 shows until os8088 takes the screen \u2014 a cursor, "
           + "and nothing more.");
 }
@@ -2702,7 +2740,10 @@ function setStage(i){
 }
 function setStep(i){
   step = (step === i ? -1 : i);
-  drawMap(); drawTime(); drawDetail();
+  /* THE SCREEN IS PART OF THE SELECTION. It was redrawn on a stage change and
+     not on a step one, so the bar held whatever the stage opened with however
+     far along the timeline you clicked. */
+  drawMap(); drawTime(); drawDetail(); drawSplash();
 }
 $("prev").addEventListener("click", function(){ setStage(stage - 1); });
 $("next").addEventListener("click", function(){ setStage(stage + 1); });
