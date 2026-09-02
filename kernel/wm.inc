@@ -2799,13 +2799,15 @@ wm_wkh_slot:
 ; more record.
 ;
 ; **THE FLAG AND THE RECORD ARE ONE FACT, AND A DRAIN CAN BREAK THEM APART**
-; (SPEC.md 74.1.1). Four loops pop records they are not interested in and
-; throw them away - ui_drag and ui_grow drain everything that is not an
-; EVT_MUP, fsx and snd empty the ring outright - and an EVT_WAKE eaten there
-; used to leave this flag set with no record behind it. The window is then
-; DEAF FOR THE REST OF ITS LIFE: every wm_wake after it reads "one is already
-; queued" and answers CF=0, a promise nothing will ever keep. So the flag has
-; three states and every drain calls wm_wake_eaten.
+; (SPEC.md 74.1.1). Six loops pop records they are not interested in and throw
+; them away - ui_drag, ui_grow and both of fm_drag's drain everything that is
+; not an EVT_MUP, and fsx, snd and blk_pass empty the ring outright - and an
+; EVT_WAKE eaten there used to leave this flag set with no record behind it.
+; The window is then DEAF FOR THE REST OF ITS LIFE: every wm_wake after it
+; reads "one is already queued" and answers CF=0, a promise nothing will ever
+; keep. So the flag has three states and every drain calls wm_wake_eaten -
+; which since size pass 3 is TWO SHARED HELPERS and not six copies,
+; evq_drain and evq_mup (SPEC.md 10.3).
 ; -----------------------------------------------------------------------------
 WKQ_NONE    equ 0               ; nothing owed
 WKQ_RING    equ 1               ; ...owed, and the record is in the ring
@@ -2823,9 +2825,10 @@ wm_wake:
                                 ; **`je 1`, NOT `jne 0`** - WKQ_EATEN is the
                                 ; state where the promise is owed and the
                                 ; record is GONE, and that one has to post
-    mov ax, [evq_count]
-    cmp ax, EVQ_CAP
-    jae .full                   ; evq_push would drop it silently; say so
+    cmp byte [evq_count], EVQ_CAP ; a BYTE since size pass 3, and no bank: AX
+    jae .full                   ; is banked at entry and dead on both arms -
+                                ; .full goes popf/stc/.out: pop si/pop ax/ret.
+                                ; evq_push would drop it silently; say so
     mov byte [wm_wkq+si], WKQ_RING
     mov word [wm_wk_rec+EV_TYPE], EVT_WAKE
     mov [wm_wk_rec+EV_A], bx

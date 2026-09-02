@@ -45,7 +45,7 @@ minutes rather than an afternoon.
 > | 18 | `inst_init` | `.ovl` |
 > | 19 | `loader_init_x` | `.ovl` |
 > | **20** | **`mod_init_x`** | **`.cold` — §2.3** |
-> | **21** | **`evq_init`** | **`.text` — §2.2** |
+> | ~~21~~ | ~~`evq_init`~~ | **GONE — deleted outright in kernel size pass 3, §2.2** |
 > | **22** | **`vid_init`** | **`.text` — §2.1** |
 >
 > `tests/ovlrefs.txt` is the live enforcement: every reference from outside `.ovl`
@@ -137,7 +137,7 @@ nothing has made them cheaper or dearer.
 | # | body | now | bytes | Δ`.text` | Δ`.cold` | Δ`.ovl` | resident returned | blocked by |
 |---:|---|---|---:|---:|---:|---:|---:|---|
 | 10+22 | **`vid_detect` + `vid_init`** | `.text` | 84 | **−68** | 0 | **+88** | **68** | the ROUTE, not the bytes — §2.1 |
-| 21 | `evq_init` | `.text` | 22 | −14 | 0 | +22 | 14 | a host instrument — §2.2 |
+| ~~21~~ | ~~`evq_init`~~ | — | — | — | — | — | **22, banked** | **SETTLED: deleted, not moved — §2.2** |
 | 20 | `mod_init_x` | `.cold` | 24 | +6 | −16 | +28 | 10 | nothing; it is just a bad trade — §2.3 |
 | **Σ** | | | **130** | **−76** | **−16** | **+138** | **92** | |
 
@@ -183,27 +183,29 @@ address space (§6.1), so `.boot2` could near-call `vid_detect` directly — no
 arise because the whole blob is aboard before stage 1 jumps. That change is worth
 more than these 68 bytes on its own, and it makes them free.
 
-### 2.2 `evq_init` — 22 bytes, and a host instrument names the symbol
+### 2.2 `evq_init` — SETTLED, and the answer was better than the row
 
-**What it is.** `events.inc:58`. Seeds the event ring. One caller, `kmain`.
+**What it was.** `events.inc`. Seeded the event ring. One caller, `kmain`.
 
-**The price.** `tests/evqfull.py:96` pokes a **near** `call evq_init` into
-`snd_xlat` inside `KERNEL_SEG` and executes it:
+**The row as filed** proposed moving it to `.ovl` for 14 resident bytes and was
+blocked on a host instrument: `tests/evqfull.py` poked a **near**
+`call evq_init` into `snd_xlat` inside `KERNEL_SEG` and executed it, and in
+`.ovl` `sym["evq_init"]` is an `OVL_AT`-relative offset in the blob's segment,
+so that near call would have landed somewhere arbitrary and run it. The row's
+own verdict was that 14 resident bytes for a test edit is a bad trade.
 
-```python
-rel = (sym["evq_init"] - (at + 3)) & 0xFFFF
-m.write((KERNEL_SEG << 4) + at, bytes([0xE8]) + rel.to_bytes(2, "little") + ...)
-```
+**Kernel size pass 3 deleted the routine instead, and banked the whole 22** (17
+of body plus its 3-byte call, plus the 2 the byte-sized indices then took out
+of `evq_pending`'s neighbours). The premise the `.ovl` move never needed is the
+one that settles it: the three indices are `.bss` and **`.bss` arrives zeroed**
+— measured on the built binary, the `.text`→`.cold` padding run is 0 non-zero
+bytes — and nothing can push before the point in `kmain` the call sat at.
+`evqfull.py`'s `reset()` is now three host **byte** writes with the guest
+paused, which is simpler than the poke-and-run and atomic from the guest's
+side, which the poke was not. See SPEC.md §10.
 
-In `.ovl`, `sym["evq_init"]` is an `OVL_AT`-relative offset in the blob's segment,
-so that near call from `KERNEL_SEG` lands somewhere arbitrary and **executes it**.
-(`tests/unit/t_wakedrain.py` also matches on `call evq_init`; `OVLGATE evq_init`
-simply stops matching, which is harmless.)
-
-**What would flip it.** Teaching `evqfull.py` to reach the body the way the kernel
-does. 14 resident bytes for a test edit is a bad trade on its own, but it is free
-if that test is being touched anyway — which is the only reason this row is still
-here rather than in §7.
+**The general lesson for the rest of this file**: an `.ovl` row asks "where can
+this body live"; it is worth asking first whether the body needs to exist.
 
 ### 2.3 `mod_init_x` — 24 bytes, the worst ratio in the file
 
@@ -630,8 +632,9 @@ Nothing static substitutes for these, and this file does not claim otherwise.
    refusal is about the ROUTE rather than the body, a boot off a **floppy** and not
    only off an image the emulator has entirely in RAM: the failure this row is
    refused by is a sector that has not landed yet.
-3. **`evq_init` (§2.2)** — `tests/evqfull.py` and `tests/unit/t_wakedrain.py` in the
-   soak tier, since the edit is to them.
+3. ~~**`evq_init` (§2.2)**~~ — landed as a deletion in kernel size pass 3;
+   `tests/evqfull.py` and `tests/unit/t_wakedrain.py` were both edited with it
+   and are the soak rows that cover it.
 4. **`tools/os88ovlchk.py`, all 11 checks**, on the build and on every knob arm in
    §5. It has earned its place: it caught four `retf`/near-call mismatches and a
    dead shim during the pass, all of which assemble cleanly and are wrong.

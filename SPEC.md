@@ -2510,10 +2510,10 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/font.inc`   | 8x8 font (copied at init from the BIOS ROM set, or the IBM ROM's own on a pre-EGA machine), text draw |
 | `kernel/mouse.inc`  | COM1/COM2 UARTs, IRQ4/IRQ3 ISRs, the 8042 auxiliary port and its IRQ12 ISR (§9.9), both packet decoders and the `mou_apply` back end they share, the keyboard mouse (§9.6), cursor (save-under) |
 | `kernel/sched.inc`  | PIT hook, context switch, task table, spawn/yield/sleep |
-| `kernel/events.inc` | 8-byte event records (`EVT_MDOWN`/`MUP`/`RDOWN`, and `EVT_WAKE` — a package's own kick, §71.1), system event ring queue |
+| `kernel/events.inc` | 8-byte event records (`EVT_MDOWN`/`MUP`/`RDOWN`, and `EVT_WAKE` — a package's own kick, §74.1), the system event ring queue, its two shared drains `evq_drain`/`evq_mup` (§10.3) and `evq_pending` (§13.4) |
 | `kernel/clock.inc`  | system clock (§37): the RTC ladder (§37.90 — MC146818 at 70h/71h, MM58167 and RP5C01 at 2C0h, int 1Ah last), the wall-clock date + time advanced from `[ticks]`, and formatting — prefix `clk_`. **Neither the field editor nor the RTC WRITE half is here**: `clk_fld_str`/`clk_fld_adj`/`clk_step` (§37.93) and the four rungs' writers (§37.94) are §37's code hosted in `CTRL.DRV`. What stays is the tick, the snapshot, the menu bar's formatter and the six port helpers **both** the boot overlay and that module need |
 | `kernel/clockw.inc` | §37's RTC **write** half (§37.94): `clk_rtc_write` and the four rungs' writers, `%include`d from `ctrl.inc`'s `.modc` so it ships in `CTRL.DRV` and is in RAM only while the Control Panel is open. Still `clk_`, still §37's contract — a file of its own so that `ctrl.inc` is not 600 lines of MC146818 |
-| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; `wm_runion`, `gfx_rect_isect`'s union twin (§5.11); the per-slot handler side tables `wm_about`/`wm_onsz`/`wm_onwk`/`wm_oncl`, the wake post/dispatch `wm_wake`/`wm_wake_disp` (§71.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
+| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; `wm_runion`, `gfx_rect_isect`'s union twin (§5.11); the per-slot handler side tables `wm_about`/`wm_onsz`/`wm_onwk`/`wm_oncl`, the wake post/dispatch `wm_wake`/`wm_wake_disp` (§74.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
 | `kernel/instance.inc` | instance table: records, kind descriptors, launch/close lifecycle (§29) |
 | `kernel/memory.inc` | the claim heap (§50): the map, `mem_claim`/`mem_free`/`mem_avail`, the teardown fence — prefix `mem_`; and `mem_bytes_kb`, the **bytes → whole-KB round-up every caller that sizes a claim from a byte count needs** (§50.3), which three `.text` sites each spelled out |
 | `kernel/menu.inc`   | menu bar (System menu + the active application's name and menus), runtime bar layout, pull-down tracking, Locator's own menu set (§12/§12.2/§12.3) |
@@ -10832,7 +10832,7 @@ EVT_NONE  equ 0
 EVT_MDOWN equ 1     ; a=x, b=y, c=birth tick
 EVT_MUP   equ 2     ; a=x, b=y, c=birth tick
 EVT_RDOWN equ 3     ; a=x, b=y, c=birth tick - RIGHT button press (§9/§12.4)
-EVT_WAKE  equ 4     ; a=window ptr - a PACKAGE'S OWN KICK (§71.1), posted by
+EVT_WAKE  equ 4     ; a=window ptr - a PACKAGE'S OWN KICK (§74.1), posted by
                     ; OSAPI_WM_WAKE from any context and dispatched by the UI
                     ; task to the window's wake handler WITHOUT the gfx lock
 ```
@@ -10852,18 +10852,55 @@ handler is `ui_bill`'s environment minus the lock (billed, stamped, so its
 file calls resolve in its own instance's folder), and it takes the lock
 itself for whatever it draws.
 
-Single system queue, 16 records, ring buffer in .bss. Producers may be ISRs:
-`evq_push` (SI → record; copies 8 bytes; guards the copy + index update with
-`pushf`/`cli` … `popf` so the caller's IF is preserved — it is called from
-the mouse ISR, which must keep IF=0 throughout (§7); never a bare `sti`;
-overwrites the oldest record when full, §10.1) and `evq_pop` (DI →
-destination; CF=1 if empty;
-same `pushf`/`cli` … `popf` guard). `evq_init` resets head, tail and count
-under that same guard: it is no longer only a boot-time call, because
-`blk_pass` drops the wake press with it (§64.2) from the UI task with the
-mouse ISR live — and an `evq_push` landing between the tail store and the
-count store leaves head one record behind tail for the rest of the session.
+Single system queue, 16 records; the **ring itself is `.lowbss`** (`LOW_SEG`,
+reached through SS — §10.1.1) and its three indices are `.bss`. Producers may
+be ISRs: `evq_push` (SI → record; copies 8 bytes; guards the copy + index
+update with `pushf`/`cli` … `popf` so the caller's IF is preserved — it is
+called from the mouse ISR, which must keep IF=0 throughout (§7); never a bare
+`sti`; overwrites the oldest record when full, §10.1) and `evq_pop` (DI →
+destination; CF=1 if empty; same `pushf`/`cli` … `popf` guard).
+`evq_pending` answers how many records are still queued behind this one, in
+`AX`, with no lock — §13.4.
+
+**There is no `evq_init`, and its absence is load-bearing rather than
+incidental.** It zeroed head, tail and count under the same guard, and it was
+deleted in kernel size pass 3 on two facts: the three indices are `.bss` and
+**`.bss` arrives zeroed** (the boot image's `.text`/`.cold` gap is emitted as
+padding and stage 2's one contiguous read lands it over the whole section), and
+nothing can push before the point in `kmain` the one surviving call sat at —
+the three producers are `mou_isr`, `kbm_post` and `wm_wake`, and `mouse_init`,
+the keyboard hook and the window manager all come later. Its *second* caller
+had already gone: `blk_pass` used to drop the wake press with a reset, and
+§74.1.1 replaced that with a **drain**, because a reset wipes `EVT_WAKE`
+records without `wm_wake_eaten` and leaves `wm_wkq` pointing at nothing — a
+window deaf for the rest of its life. **A mid-session reset is therefore not a
+thing to re-add**; the ring is emptied by draining it.
+
 Keyboard events are *not* queued — the UI task polls BIOS int 16h directly.
+
+**The three indices are BYTES**, and one `%if` beside `EVQ_MASK` is what keeps
+them so: both offsets index a 128-byte ring and the count is 0..`EVQ_CAP`, so
+every value fits seven bits, every reader widens with `cbw`, and the three wrap
+sites mask `AL` alone. The guard reads `%if EVQ_MASK > 0x7F` — **not `0xFF`**,
+which is the bound it carried until pass 3 and which was one bit too generous
+twice over: at `0xFF` a `cbw` sign-extends and the ring indexes up to 128 bytes
+*below* `evq_buf`, which is `.lowbss` and therefore the task stacks.
+
+### 10.3 One drain loop, not four — `evq_drain` and `evq_mup`
+
+Two shared helpers, both taking **DI → an 8-byte record buffer in DS that is
+private to the caller** (the buffer is an in-parameter and that is the point —
+§74.1.1's refusal of a shared one is repeated in `events.inc`'s own header):
+
+- **`evq_drain`** — pop until the ring is empty, calling `wm_wake_eaten` for
+  every record it discards.
+- **`evq_mup`** — pop until an `EVT_MUP` arrives (CF=0, the record is at `[DI]`)
+  or the ring goes empty (CF=1), owing every other record's wake the same way.
+  It exists because that loop was written out **four** times — `ui_drag`'s and
+  `ui_grow`'s track loops and `fm_drag`'s `.wait` and `.track` — each owing the
+  bookkeeping independently, and two of the four were the far-called `.cold`
+  copies `1f1bd7e` missed outright. `cw_evq_mup` is the far cell those two use;
+  it replaced `cw_evq_pop` and `cw_wm_wake_eaten`, which had no other callers.
 
 ### 10.1 A full ring drops the OLDEST input, not the newest
 
@@ -10915,7 +10952,7 @@ window's close box answers a determined hand in a few seconds instead of never.
 The events lost are the ones the user has already given up on.
 
 **The one exception: `EVT_WAKE` is a promise, not a sample.** `wm_wake`
-(§10, §71.1) coalesces on a per-window flag in `wm_wkq`, set when the wake is
+(§10, §74.1) coalesces on a per-window flag in `wm_wkq`, set when the wake is
 queued and cleared *only by the dispatch*. Discarding a queued wake therefore
 does not lose one kick — it leaves the flag set with no record behind it, so
 that window's handler is never called again and every later `OSAPI_WM_WAKE`
@@ -10961,9 +10998,9 @@ is the whole content of this section:
   copy and restored, which is the rule §2.1 states and the only shape that is
   correct on the target.
 
-`.lowbss` is guaranteed nothing at boot, and the ring needs no guarantee:
-`evq_init` clears the three indices, and no record is ever read that a push did
-not write.
+`.lowbss` is guaranteed nothing at boot, and the ring needs no guarantee: the
+three indices live in `.bss`, which *is* zeroed (§10), and no record is ever
+read that a push did not write.
 
 **`events.inc` is `%include`d after `sched.inc`**, so this block lands *below*
 `sch_stacks` and cannot move its word-alignment pad — which is the one thing
@@ -11030,9 +11067,10 @@ Three properties are load-bearing:
   would stop happening. Sixteen is the ring's own size: the pass clears what
   was there and leaves what arrived during it for the next one.
 - **`blk_pass` stays outside the loop.** It spends the mouse ISR's activity
-  flag and can call `evq_init` to drop the press that woke a dark screen
-  (§64.1); it is a per-pass service and running it per record would make the
-  wake press's fate depend on how many events happened to be queued.
+  flag and **drains** the ring through `evq_drain` to drop the press that woke
+  a dark screen (§64.1, §74.1.1 — it used to reset it, which ate the wakes); it
+  is a per-pass service and running it per record would make the wake press's
+  fate depend on how many events happened to be queued.
 - **The tail still runs once.** `ui_arm_trk` samples the pointer per pass, not
   per record, and `ui_arm_chk` drops an arm whose release was lost — putting
   either inside the drain would have `ui_arm_chk` cancel an arm that the very
@@ -20619,7 +20657,7 @@ screen for the whole of kmain and keeps ticking** — §15.3.
 
 kmain: set DS/ES = `KERNEL_SEG` and SS:SP = `LOW_SEG:STK0_TOP` (§2.1),
 `sti`, `cld`, then:
-`sched_init` → `evq_init` → `clk_init` (§37 — the RTC probe, before the
+`sched_init` → `clk_init` (§37 — the RTC probe, before the
 mode set so a machine without one is dated from the fallback constants
 from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe
 and apply, and **skips the mode set while the splash is live**, §15.3) →
@@ -41450,7 +41488,7 @@ afterwards. Label prefix `clk_` (the built-in **Timer** app of §14 keeps its
 own `app_tmr_` names and its own per-instance stopwatch state — the two are
 unrelated, and the app's rename away from "Clock" is what finally makes the
 two prefixes read differently). Included right after `events.inc`; `clk_init` runs in kmain
-right after `evq_init` (§15). All code is near `.text`: it is called from
+right after `sched_init` and `sch_idle_start` (§15). All code is near `.text`: it is called from
 the UI task's inner loop and from the Control
 Panel's far page (§31.5).
 
@@ -69009,7 +69047,10 @@ different routes:
   across the `int 16h` in `pushf`/`popf`, because the flags a BIOS service
   returns are its own business and not a value this loop may read.
 - **Mouse.** The press is already in the event ring by the time anything
-  notices, so `blk_pass` calls `evq_init` and drops the lot.
+  notices, so `blk_pass` **drains** the ring — record by record, owing each
+  wake through `wm_wake_eaten` (§74.1.1) — and drops the lot. It reset the ring
+  outright until that section; a reset wiped `EVT_WAKE` records and deafened
+  the window behind them for good.
 
 **That is why `blk_pass` sits ahead of `evq_pop`.** Below it, the feature
 still blanks and still wakes and still looks correct on a screenshot — and
@@ -77516,11 +77557,11 @@ to kick from every callback and sixteen ring records would otherwise be filled
 by one busy worker and the mouse dropped. `wm_wkq[slot]` carries that — set
 when the record goes in, cleared by `wm_wake_disp` before the handler runs.
 
-**The flag and the record are one fact, and four loops could break them apart.**
-`ui_drag` and `ui_grow` pop records looking for an `EVT_MUP` and *drop
-everything else on the floor*; `fsx` and `snd` empty the ring outright on their
-way back to the desktop. An `EVT_WAKE` eaten there left `wm_wkq` set with no
-record behind it — and from that moment every `wm_wake` for that window read
+**The flag and the record are one fact, and six loops could break them apart.**
+`ui_drag`, `ui_grow` and both of `fm_drag`'s pop records looking for an
+`EVT_MUP` and *drop everything else on the floor*; `fsx`, `snd` and `blk_pass`
+empty the ring outright on their way back to the desktop. An `EVT_WAKE` eaten
+there left `wm_wkq` set with no record behind it — and from that moment every `wm_wake` for that window read
 "one is already queued" and answered **CF=0**, a promise nothing would ever
 keep. Not for the duration of the drag: **for the rest of that window's life.**
 
@@ -77545,7 +77586,10 @@ So the flag has three states:
 
 - Every drain calls **`wm_wake_eaten`** with the record it is about to discard.
   One word compare on the common path; `WKQ_RING` → `WKQ_EATEN`, and one global
-  byte `wm_wkdef` is set.
+  byte `wm_wkdef` is set. **Since kernel size pass 3 the discipline lives in
+  two shared helpers rather than in six copies of it** — `evq_drain` and
+  `evq_mup` (§10.3) — so there are now two places for it to be right and the
+  far-called `.cold` sites reach the same code as the near ones.
 - **`wm_wake_redo`** runs once per `ui_task` pass, ahead of `evq_pop`, and puts
   a fresh record in the ring for every `WKQ_EATEN` slot. Its whole cost on a
   pass that ate nothing — which is all of them — is `cmp byte [wm_wkdef], 0`.

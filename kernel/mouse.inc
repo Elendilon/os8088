@@ -2779,10 +2779,22 @@ kbm_ui:
 .out:
     ret
 
-; kbm_post - AX = event type, at the pointer, stamped now
-kbm_post:
-    push si
-    mov si, kbm_ev
+; mou_evfill - stamp an event record at DS:SI and queue it
+; in:  AX = EVT_*, SI -> an 8-byte record in DS, PRIVATE TO THE CALLER
+; out: nothing (evq_push's contract); AX clobbered, SI unmoved
+;
+; The same nine instructions stood in kbm_post and in mou_isr's .fill. THE TWO
+; BUFFERS STAY TWO and that is the point: kbm_ev is filled from the UI task
+; and mou_evrec from the serial mouse ISR, and only evq_push itself runs under
+; cli - so one shared buffer would let the ISR corrupt a half-filled record.
+; It is the RECORD that is shared here, not the storage.
+;
+; It ends `jmp evq_push` - a tail call, replacing the `call evq_push` each
+; site had, so the mouse ISR's peak stack depth does not move (SPEC.md 9.10's
+; 128-byte private stack is unchanged). Not hot: mou_isr reaches .fill only on
+; a button transition EDGE, and kbm_post's three callers are keyboard-mouse
+; key handlers.
+mou_evfill:
     mov [si], ax
     mov ax, [mouse_x]
     mov [si+2], ax
@@ -2790,7 +2802,13 @@ kbm_post:
     mov [si+4], ax
     mov ax, [ticks]             ; birth time: two of these close together are
     mov [si+6], ax              ; a double-click, exactly as a real one is
-    call evq_push
+    jmp evq_push                ; ...which preserves everything
+
+; kbm_post - AX = event type, at the pointer, stamped now
+kbm_post:
+    push si
+    mov si, kbm_ev
+    call mou_evfill
     pop si
     ret
 
@@ -3084,17 +3102,12 @@ mou_apply:
     mov ax, EVT_RDOWN
 
 .fill:
-    mov si, mou_evrec
-    mov [si], ax
-    mov ax, [mouse_x]
-    mov [si+2], ax
-    mov ax, [mouse_y]
-    mov [si+4], ax
-    mov ax, [ticks]             ; c = birth time: double-click detection must
-    mov [si+6], ax              ; not use processing time - clicks queued
-                                ; behind a slow disk mount would collapse
-                                ; into one instant and read as double-clicks
-    call evq_push               ; guards internally with pushf/cli; IF stays 0
+    mov si, mou_evrec           ; c = birth time: double-click detection must
+    call mou_evfill             ; not use processing time - clicks queued
+                                ; behind a slow disk mount would collapse into
+                                ; one instant and read as double-clicks. The
+                                ; helper ends in evq_push, which guards
+                                ; internally with pushf/cli; IF stays 0
 
 .move:
     ; --- cursor: draw only if the lock is free AND cur_level >= 0 (SPEC 7) ---

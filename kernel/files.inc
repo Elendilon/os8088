@@ -5605,16 +5605,15 @@ fm_drag:
 
 .wait:                          ; not a drag until the pointer leaves the row
     mov di, ui_ev
-    call KERNEL_SEG:cw_evq_pop
-    jc .noev
-    cmp word [ui_ev + EV_TYPE], EVT_MUP
-    je .wclick                  ; anything else is DISCARDED - and a discard
-    call KERNEL_SEG:cw_wm_wake_eaten ; owes the wake bookkeeping (74.1.1): DI
-    jmp short .wait             ; is still the record. This drain and .track's
-                                ; were the two 1f1bd7e missed - far calls the
-                                ; wakedrain lint could not see - and a drag
-                                ; here during an FTP transfer deafened the
-                                ; server's window for the session
+    call KERNEL_SEG:cw_evq_mup  ; anything else is DISCARDED inside it, and a
+    jc .noev                    ; discard owes the wake bookkeeping (74.1.1).
+                                ; This drain and .track's were the two 1f1bd7e
+                                ; missed - far calls the wakedrain lint could
+                                ; not see - and a drag here during an FTP
+                                ; transfer deafened the server's window for
+                                ; the session. The MUP answer FALLS THROUGH
+                                ; into the trampoline below, so the branch
+                                ; that used to select it costs nothing
 .wclick:                        ; ...and the trampoline two other arms take
     jmp .click                  ; rather than NASM's five-byte inverted pair
 .noev:
@@ -5662,12 +5661,8 @@ fm_drag:
     call fm_dgxor               ; the outline is up from here on
 .track:
     mov di, ui_ev
-    call KERNEL_SEG:cw_evq_pop
-    jc .nomup
-    cmp word [ui_ev + EV_TYPE], EVT_MUP
-    je .drop                    ; the discard owes the wake bookkeeping
-    call KERNEL_SEG:cw_wm_wake_eaten ; (74.1.1), exactly as .wait's above
-    jmp short .track
+    call KERNEL_SEG:cw_evq_mup  ; the discard owes the wake bookkeeping
+    jnc .drop                   ; (74.1.1), exactly as .wait's above
 .nomup:
     test byte [mouse_btn], 1    ; the fallback ui_drag documents: a dropped
     jz .drop                    ; EVT_MUP still ends the drag by level

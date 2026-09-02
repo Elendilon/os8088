@@ -1260,14 +1260,12 @@ ui_drag:
     ; release + fast re-press inside one pass must still end the drag (the
     ; re-press stays queued and is dispatched as a fresh click afterwards).
     mov di, ui_ev
-    call evq_pop
-    jc .no_evt
-    cmp word [ui_ev + EV_TYPE], EVT_MUP
-    je .release                 ; exits with outline drawn + lock held
-    call wm_wake_eaten          ; ...and ANYTHING ELSE is dropped on the floor
-    jmp .track                  ; here (SPEC.md 74.1.1): a package's wake among
-                                ; them, whose promise would otherwise outlive
-                                ; its record and deafen the window for good
+    call evq_mup                ; ...and ANYTHING ELSE is dropped on the floor
+    jnc .release                ; inside it (SPEC.md 74.1.1), the wake among
+                                ; them owed back through wm_wake_eaten - its
+                                ; promise would otherwise outlive its record
+                                ; and deafen the window for good. Exits with
+                                ; the outline drawn and the lock held
 .no_evt:
     test byte [mouse_btn], 1    ; fallback: the EVT_MUP was dropped
     jz .release                 ; (queue full) - the level still says so
@@ -1802,12 +1800,11 @@ ui_grow:
 
 .track:
     mov di, ui_ev               ; button tracked by EDGE, like ui_drag: a
-    call evq_pop                ; release + fast re-press inside one pass
-    jc .no_evt                  ; must still end the resize
-    cmp word [ui_ev + EV_TYPE], EVT_MUP
-    je .release                 ; exits with outline drawn + lock held
-    call wm_wake_eaten          ; ...drained mid-resize, and a wake among them
-    jmp .track                  ; is owed back (SPEC.md 74.1.1)
+    call evq_mup                ; release + fast re-press inside one pass
+    jnc .release                ; must still end the resize. Anything else is
+                                ; drained mid-resize and a wake among them is
+                                ; owed back (SPEC.md 74.1.1). Exits with the
+                                ; outline drawn and the lock held
 .no_evt:
     test byte [mouse_btn], 1    ; fallback: the EVT_MUP was dropped
     jz .release

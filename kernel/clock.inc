@@ -97,7 +97,7 @@ section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 ; -----------------------------------------------------------------------------
 ; clk_init - fallback date first, then probe the hardware RTC
-; in:  nothing (kmain, right after evq_init - SPEC.md 15)
+; in:  nothing (kmain, right after sch_idle_start - SPEC.md 15)
 ; out: nothing (all registers preserved)
 ;
 ; The fallback is stored BEFORE the probe, so a probe that fails - at any of

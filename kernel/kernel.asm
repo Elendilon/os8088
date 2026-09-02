@@ -4359,7 +4359,7 @@ kmain:
                                 ; task. AFTER sched_init, which sets
                                 ; sch_idleslot to 0xFF, and after the task
                                 ; table is cleared
-    call evq_init
+    ; (no evq_init: the ring's three .bss indices arrive zeroed - events.inc)
     MARK 6
     OVWCALL  clk_init        ; system clock (SPEC.md 37): probe the RTC,
                                 ; or fall back to the fixed date - before the
@@ -5150,7 +5150,8 @@ section .text
                                 ; sched.inc for [ticks], events.inc for the
                                 ; evq_pop/wm_wake_eaten drain that spends the
                                 ; wake press (SPEC.md 74.1.1 - it was an
-                                ; evq_init, and a reset ate the wakes), and
+                                ; evq_init, a reset that ate the wakes, and
+                                ; that routine no longer exists at all), and
                                 ; vidsel.inc for the vid_blank_kind pair -
                                 ; which is every module it reads, so this is
                                 ; the first place it can go with none of its
@@ -5679,11 +5680,14 @@ cw_cursor_hide:         call cursor_hide
 cw_cursor_show:         call cursor_show
                     retf
 %endif                                      ; so kern_small pays for none of
-cw_evq_pop:             call evq_pop        ; them out of its 75-byte rung
-                    retf
-cw_wm_wake_eaten:       call wm_wake_eaten  ; every drain owes this per record
-                    retf                    ; it discards (SPEC.md 74.1.1) -
-                                            ; the .cold drains too
+cw_evq_mup:             call evq_mup        ; them out of its 75-byte rung.
+                    retf                    ; THE WHOLE LOOP and not its two
+                                            ; halves: cw_evq_pop and
+                                            ; cw_wm_wake_eaten were reached
+                                            ; only from fm_drag's two `.cold`
+                                            ; track loops, which now call this
+                                            ; instead - so two cells died here
+                                            ; and one was born (SPEC.md 74.1.1)
 cw_font_run:            call font_run
                     retf
 cw_fpg_step:             call fpg_step
