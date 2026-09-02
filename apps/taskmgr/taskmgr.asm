@@ -932,6 +932,10 @@ tm_entry:
                                 ; unlocks OSAPI_WM_DAMAGE, which answers
                                 ; "whole" without this flag (SPEC.md 11.90.2's
                                 ; interlock)
+    push si                     ; 'About Task Manager' above the Close the
+    mov si, tm_about            ; kernel already puts in our pull-down
+    call OSAPI_ABOUT_SET        ; (SPEC.md 12.2) - BX is still the window and
+    pop si                      ; the slot preserves the flags
     call tm_kinit               ; preserves the flags, so the CF our ret owes
 .out:                           ; the loader is wm_create's
     pop si                      ; POP leaves the flags alone
@@ -965,6 +969,65 @@ tm_hire:
 
 ; --- window template: {x, y, w, h, title, paint, onkey, onclick} words -------
     OS88_PREFER tm_pref, TM_PREF_W1, TM_PREF_H,  TM_PREF_W1, TM_PREF_H,  TM_PREF_W2, TM_PREF_H
+
+; =============================================================================
+; 'About Task Manager' - the credit card (SPEC.md 12.2, 20.5.1)
+; =============================================================================
+; The card is os88ui.inc's. What is here is the flag, the painter drawing it
+; last, the click taking it down, and the worker's guard - tm_worker refreshes
+; the same content on a timer and its tm_update is INCREMENTAL, so without the
+; guard it would letter changed rows straight through the card rather than
+; over the whole of it.
+
+; -----------------------------------------------------------------------------
+; tm_about - the OSAPI_ABOUT_SET handler (slot 0x01E0)
+; in:  SI = our window ptr; the UI task, gfx lock HELD
+; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+tm_about:
+    push bx
+    push si
+    mov byte [tm_abon], 1
+    mov bx, si
+    mov si, tm_ablines
+    call os88ui_about               ; arms the clip itself: a menu dispatch
+    pop si                          ; arrives without one (SPEC.md 11.3)
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_abdismiss - take the card down if it is up
+; in:  SI = our window ptr; gfx lock held
+; out: CF = 1 the click was spent doing it; preserves every register
+;
+; tm_clear_content + tm_draw_full, which is the view swap's own pair: this
+; window carries WF_OWNBG (SPEC.md 11.90.1), so nothing else erases the
+; ground under the card, and the incremental painter would leave it standing.
+; -----------------------------------------------------------------------------
+tm_abdismiss:
+    cmp byte [tm_abon], 0
+    je .none
+    push bx
+    mov byte [tm_abon], 0
+    mov bx, si
+    call OSAPI_WM_CLIP_SET      ; nothing has armed a region for a click
+    jc .gone                    ; (SPEC.md 11.3)
+    call tm_clear_content       ; SI = window ptr, as the view swap calls it
+    call tm_draw_full
+.gone:
+    pop bx
+    stc
+    ret
+.none:
+    clc
+    ret
+
+; --- the About card's lines (SPEC.md 20.5.1) ----------------------------------
+tm_ablines:
+    dw tm_ab1, tm_ab2, tm_ab3, 0
+tm_ab1:     db 'Task Manager for os8088', 0
+tm_ab2:     db 0
+tm_ab3:     db 'Contributed by Elendilon', 0
 
 tm_tpl:     dw 250, 100, 232, 312, tm_ttl, tm_paint, 0, tm_click
 tm_ttl:     db 'Task Manager', 0
@@ -1293,6 +1356,12 @@ tm_worker:
                                 ; all. CF=1 here is "wholly invisible" or
                                 ; "more than 16 fragments", which genuinely
                                 ; do mean skip. gfx_unlock disarms it
+    cmp byte [tm_abon], 0       ; the credits are up: the UI task owns the
+    jne .skip                   ; content until a click takes them down, and
+                                ; tm_abdismiss repaints it whole (SPEC.md
+                                ; 20.5.1). Above tm_update, not below: the
+                                ; incremental painter would letter rows
+                                ; through the card
     call tm_update              ; incremental redraw, lock held
     mov ax, [tm_qkey]           ; THE PAINT HAPPENED, so record what tm_quiet
     mov [tm_elck + 2*TMC_QUIET], ax     ; asked about (SPEC.md 28.6.1). Here
@@ -1999,8 +2068,17 @@ tm_paint:
 .out:
     call tm_dmg_none            ; the band is this paint's and no later one's
     call tm_promise             ; ...and the promise, re-stated: free when
-    ret                         ; nothing changed, and it follows a resize for
-                                ; the same nothing
+    cmp byte [tm_abon], 0       ; nothing changed, and it follows a resize for
+    je .noab                    ; the same nothing
+    push bx                     ; ...and the About card LAST, over the rows it
+    push si                     ; is opaque about (SPEC.md 20.5.1)
+    mov bx, si
+    mov si, tm_ablines
+    call os88ui_about_d         ; _d: this paint's region is already armed
+    pop si
+    pop bx
+.noab:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; tm_clear_content - white-fill this window's whole content
@@ -2512,6 +2590,8 @@ tm_click:
     push bx
     push cx
     push dx
+    call tm_abdismiss           ; the credits are up: this click is spent
+    jc .out                     ; taking them down rather than cycling the page
 
     cmp byte [tm_view], 2       ; the heap page's SCROLL BAR gets the point
     jne .cycle                  ; first (SPEC.md 28.4.4), and answers CF = 1
@@ -6259,7 +6339,8 @@ tm_put3:
 ; them on screen.
 %define OS88UI_BARONLY
 %define OS88UI_SCROLL
-%include "os88ui.inc"
+%define OS88UI_ABOUT            ; ...and the standard About card (SPEC.md
+%include "os88ui.inc"           ; 20.5.1), which draws no button either
 
     OS88_BSS TM_BSS_TOTAL
     OS88_IMAGE_END
@@ -6476,4 +6557,6 @@ tm_dmg      equ tm_hsb + 14  ; THIS PAINT'S DAMAGE, absolute, x1 y1 x2
                                        ; lettered again. Read by tm_dmg_hit
                                        ; once per chunk and by nothing else
 
-TM_BSS_TOTAL equ tm_dmg + 8 - os88_image_end
+tm_abon     equ tm_dmg + 8   ; byte: the About card is up (SPEC.md 20.5.1)
+
+TM_BSS_TOTAL equ tm_abon + 1 - os88_image_end

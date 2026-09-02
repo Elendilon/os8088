@@ -29149,6 +29149,72 @@ undoing intended design rather than consolidating it.
 `tests/muptest` is the gate, and it gates §13.7's release rules and this
 control's arm with the same four gestures.
 
+#### 20.5.1.1 `OS88UI_ABOUT` — the standard About card, and the attribution it exists for
+
+The fourth shared element, gated by `%define OS88UI_ABOUT`. Its argument is
+the scroll bar's rather than the button's: a button was five bodies that
+agreed, and this was **seventeen private implementations of one card** —
+`arkanoid`, `browser`, `calc`, `cyclone`, `ftpd`, `missile`, `modplug`,
+`paint`, `solitaire`, `tamegram`, `telnet`, `texpad`, `tracker`, `wire`, and
+three more — each a white fill plus a black frame plus a column of centred
+lines, each measuring the card its own way, and no two of them agreeing.
+
+**The reason it is worth a section is the OTHER ten packages.** `fractal`,
+`hello`, `mines`, `notepad`, `piano`, `recorder`, `tank`, `taskmgr`, `sheet`
+and `chart` shipped with **no About handler at all** or with a one-line toast
+in place of one, and every one of them is somebody's contributed work. The
+cheapest thing an author could do was nothing, and what went missing when they
+did it was the CREDIT. §12.2's `OSAPI_ABOUT_SET` is a two-line registration;
+what stopped people was the ~200 lines of card behind it, and that is what
+this removes.
+
+| | |
+|---|---|
+| `os88ui_about` | `BX` = your window, `SI` = your line table. **From your ABOUT HANDLER.** Arms the clip itself, then draws. `CF` = 1: not one pixel of your content is visible and nothing was drawn |
+| `os88ui_about_d` | the same card, **from your PAINTER**, where the kernel's region is already armed. Draw it LAST |
+
+**Two entries, not a flag, and the difference is a real defect either way
+round.** `ui_dispatch` takes the gfx lock and far-calls the About handler; it
+arms **no clip region**, because the kernel arms one for a `W_PAINT` and for
+nothing else (§11.3). A card drawn from a handler without `OSAPI_WM_CLIP_SET`
+lands on top of whatever window is covering yours. Re-arming inside a
+`W_PAINT` is the opposite error: `wm_clip_set` seeds from the whole content
+rect, so it throws that paint's damage region away and redraws the entire card
+for a two-pixel repair. `os88ui_arm`/`os88ui_armed`'s rule — two names for
+what the two callers actually are.
+
+**The card is MEASURED and CLAMPED, never pinned.** The widest line sets the
+width and the count sets the height, both clamped to the live content box:
+§39's three adapters give one window three content sizes, and a card sized on
+VGA hangs out of a CGA's. Lines are drawn with `UI_RUN`, so no pixel of the
+card is written twice (§6.1); the only fill is the ground under the frame and
+the gaps. Black on white is the one pairing that says the same thing on all
+three adapters (§39.4).
+
+**Keep the lines short.** A line wider than the clamped card starts at the
+left margin and clips at the frame rather than centring itself off the left
+edge — which is what an unguarded `shr` of a negative width does — but it is
+still clipped. Mines' content is 144px, Hello's 238 x 71; both split the
+credit across two lines for that reason and say so where the strings are.
+
+**The widget draws; the app remembers.** There is no state byte here and no
+dismissal. Your `[x_abon]`, your painter drawing the card last while it is
+set, and your click/key/menu handler taking it down are four lines each and
+they are entangled with what the app is doing underneath — Arkanoid pauses a
+live ball, Tracker drops the worker's frame, Fractal's worker keeps CACHING
+rows while it skips drawing them so one repaint settles the whole debt,
+Task Manager's incremental painter would otherwise letter changed rows
+straight through the card. A widget that owned that would have to know all
+four.
+
+**`OS88UI_NOBTN`** is `OS88UI_BARONLY` generalised, and arrived with this.
+`BARONLY` is the button's opt-out spelled as a statement about the scroll bar
+(§13.10.6.5), and the About card is the first consumer for which that sentence
+is simply false — it draws no bar and no button. `BARONLY` now implies
+`NOBTN`, so every existing consumer is **byte-identical**, which is checked
+rather than asserted: after the change exactly one package binary in the tree
+differed, and it was the one that had gained a card.
+
 ### 20.6 Worker tasks — one background task per package instance
 
 A package may claim **exactly one** worker task, so that the work it does
