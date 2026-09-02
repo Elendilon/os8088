@@ -67307,6 +67307,59 @@ That is the *opposite* of §6.2.1's conclusion for an 8x8 face, and both are
 right for their size: at 8 rows there is no curve to get right, only which of
 six pixels to light, so the hand wins. At 44 rows there is nothing but curve.
 
+### 63.6 The square marks — the same logo, re-cut for a round crop
+
+A chat server's icon, a favicon and an app tile all want the logo in a
+**square**, and most of them **crop it to a circle** on top of that. The wide
+logo cannot be used there and no amount of padding fixes it: inscribe a 4.2:1
+word in a circle and the word is a quarter of the diameter, which is a blur
+at the 40px a sidebar draws it at.
+
+`--icons DIR` writes the marks that can be, each in both polarities, at any
+whole multiple of a 128px grid (`--icon-sizes`, default 512):
+
+| mark | what it is |
+|---|---|
+| `chip` | the logo itself: the same package, legs, notch, keyline and dither, with the wordmark on **two baselines** — `os` at x-height over `8088` at cap height, the same six glyphs from the same pen (`wordmark_stacked`) |
+| `boot` | the loading screen — the spinner's stroke `8088` over its progress bar, white on black, which is what mode 12h and `spl_span` between them leave (§15.3.4) |
+| `monogram` | those same four glyphs stacked two by two. The only mark here that still resolves at 40px, and a re-arrangement of §15's own drawing rather than a new one |
+
+**They are re-cuts and not a second logo.** Two of the three are already on
+the machine's screen and the third is the first thing it draws; nothing here
+is iconography invented for a chat client, which is the failure this section
+exists to prevent — a project that has a logo and posts something else has
+two.
+
+Three rules bind them, and each is a check rather than a hope:
+
+* **Whole-number scale.** A mark is drawn at 128px and scaled by an integer,
+  so a 512px icon is that picture with 4x4 pixels. That is the same choice
+  `--png` makes for the previews (§63.4) and it is the point: the chunky
+  pixel is what says the mark came off a 1984 screen, and one resampled
+  smoothly says the opposite. A size that is not a multiple of the grid is
+  **refused**, not rounded.
+* **`ICON_SAFE`.** Nothing is drawn past 56 of the 64px radius the client
+  crops to. `icon_chip` derives its package from the type the way §63.5's
+  layout does, then measures its own corner and **exits** if it has grown
+  past that — a mark that reaches the crop reads as one cropped by accident,
+  and the fix is always to take it out of the type.
+* **A 2px dither cell.** The one place a mark departs from the screen's own
+  ground (§39.4), and `Bitmap.dither` defaults to the kernel's 1px so the
+  shipped GIF cannot move. A 1px checkerboard put through an arbitrary scale
+  factor — which is what a client does, at whatever size it likes — beats
+  against it and moires, and the ground stops reading as texture and starts
+  reading as noise.
+
+**Nothing ships them and nothing commits them.** No floppy carries a mark,
+`make` does not build one, and they are written on demand into a directory
+the caller names — §63.5's rule, which is that the artwork is code, applies
+here exactly as it does to the GIF. `--sheet` is how one is chosen: every
+mark, round-cropped, at the three sizes a client shows one at, on both of its
+themes, because the marks differ at 128px and it is at 40 that most of them
+stop working.
+
+    python3 tools/os88logo.py --icons build/marks --sheet build/marks.png
+
 ## 64. blank.inc — the idle screen blanker
 
 After **five minutes** with no keyboard and no mouse, every monitor the
