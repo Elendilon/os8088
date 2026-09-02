@@ -298,7 +298,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 
 ; SPEC.md 39.25's whole-column store in sw_col, on 5.4.1.3's terms one block
 ; up: kern_big gets it, kern_small does not, because that build is under a cut
-; (39.24.4) and this is 24 bytes of speed rather than of correctness. NOCOLFAST=1
+; (39.27.4) and this is 24 bytes of speed rather than of correctness. NOCOLFAST=1
 ; takes it out of kern_big too - that is the A/B, and it is the only thing that
 ; exercises the general body on an ordinary build, because a chrome fill is
 ; byte-aligned (11.94) and never reaches it.
@@ -5070,7 +5070,7 @@ section .text
 %include "vga12.inc"
 %include "softgfx.inc"
 
-; --- SPEC.md 39.24.5: A NO-VGA ARM THAT IS FALLEN INTO MUST EMIT CODE --------
+; --- SPEC.md 39.27.5: A NO-VGA ARM THAT IS FALLEN INTO MUST EMIT CODE --------
 ; Here and not at the foot of vga12.inc, which is where it belongs and where
 ; the sw_* names are not defined yet - softgfx.inc is the include above.
 ;
@@ -5087,16 +5087,16 @@ section .text
 ; the `equ` back is what tests it.
 %ifndef GFX_VGA
  %if gfx_fill_gray_raw == sw_fill_gray
-  %error "gfx_fill_gray_raw is an `equ` - the entry above FALLS THROUGH to it and an equ emits no code (SPEC.md 39.24.5)"
+  %error "gfx_fill_gray_raw is an `equ` - the entry above FALLS THROUGH to it and an equ emits no code (SPEC.md 39.27.5)"
  %endif
  %if gfx_fill_pat_raw == sw_fill_pat
-  %error "gfx_fill_pat_raw is an `equ` - see SPEC.md 39.24.5"
+  %error "gfx_fill_pat_raw is an `equ` - see SPEC.md 39.27.5"
  %endif
  %if vga_save_vram == sw_save
-  %error "vga_save_vram is an `equ` - see SPEC.md 39.24.5"
+  %error "vga_save_vram is an `equ` - see SPEC.md 39.27.5"
  %endif
  %if vga_restore_vram == sw_restore
-  %error "vga_restore_vram is an `equ` - see SPEC.md 39.24.5"
+  %error "vga_restore_vram is an `equ` - see SPEC.md 39.27.5"
  %endif
 %endif
 %include "font.inc"

@@ -1971,6 +1971,14 @@ wm_pref_take:
     push si
     push di
     push es
+    cmp al, VID_EGA             ; the per-window PREF table has THREE entries,
+    jne .kindok                 ; VID_VGA / VID_HERC / VID_CGA, and the kind
+    mov al, VID_VGA             ; indexes it (kind*4) below - so an unclamped
+.kindok:                        ; EGA reads si+12, off the end of a table in
+                                ; the PACKAGE's own segment. An EGA machine
+                                ; takes VGA's row - it is VGA's planar path,
+                                ; and a package cannot supply a fourth pair
+                                ; without an ABI break (SPEC.md 39.8, 39.24).
     test byte [bx+W_FLAGS+1], WF_USRSZ >> 8
     jnz .no                     ; A USER OUTRANKS AN APPLICATION (SPEC.md
                                 ; 11.100.5): once somebody has sized this window
@@ -2240,10 +2248,12 @@ wm_display:
     xor si, si                  ; ...and NO MENU BAR, so the band starts at 0
     mov dl, [di+VID_CTX_KIND]
 .bpp:
-    mov dh, 1
-    or dl, dl
-    jnz .r                      ; VGA is the only 4bpp adapter there is (39.4)
     mov dh, 4
+    or dl, dl
+    jz .r                       ; VID_VGA -> 4 planes
+    cmp dl, VID_EGA
+    je .r                       ; VID_EGA -> 4 planes too, mode 10h (39.24)
+    mov dh, 1                    ; HERC / CGA / a secondary's mono kind (39.4)
 .r:
     pop di
 %endif

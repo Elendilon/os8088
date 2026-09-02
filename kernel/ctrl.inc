@@ -2712,7 +2712,9 @@ cp_vid_pick:
 ; -----------------------------------------------------------------------------
 ; cp_vid_slot - which adapter is drawn in row slot AL? (module internal)
 ;
-; in:  AL = slot, 0..2 (the visible row, top to bottom)
+; in:  AL = slot, 0..2 (the visible row, top to bottom - THREE is still the
+;      most any machine has, VID_VGA and VID_EGA being mutually exclusive at
+;      detection, so the bands below are still laid out for three)
 ; out: AL = the VID_* kind in it, CF = 0; CF = 1 = that slot has no row
 ; clobbers: AL, flags
 ;
@@ -2738,7 +2740,7 @@ cp_vid_slot:
     inc cl
 .skip:
     inc bl
-    cmp bl, 3
+    cmp bl, 4                   ; VID_VGA / VID_HERC / VID_CGA / VID_EGA
     jb .n
     pop cx
     pop bx
@@ -5615,7 +5617,13 @@ CPS cp_s_cap,   'Takes effect immediately'
 CPS cp_s_vvga,  'Vga 640x480'
 CPS cp_s_vherc, 'Hercules 720x348'
 CPS cp_s_vcga,  'Cga 640x200'
-cp_vidnam:  dw cp_s_vvga, cp_s_vherc, cp_s_vcga
+CPS cp_s_vega,  'Ega 640x350'
+; FOUR ROWS SINCE SPEC.md 39.24, and the table is indexed by the VID_* enum -
+; so this row is EGA's because it is fourth, not because of its name. It lives
+; here rather than beside cp_s_vid because SPEC.md 51.5.3 moved the page's
+; strings into CTRL.DRV's image; adding it up there would put 14 bytes back
+; into every machine's resident .text.
+cp_vidnam:  dw cp_s_vvga, cp_s_vherc, cp_s_vcga, cp_s_vega
 CPS cp_s_vact,  'Set Primary'
 ; The Display caption, inside the pane's 27-character limit. It is ONE string
 ; and the page's only constant line: it says what the button does, on every

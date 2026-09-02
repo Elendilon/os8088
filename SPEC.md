@@ -42128,14 +42128,24 @@ The row band is 16 px and the glyph 8, so the pane fill stays — §22.11.3.
 
 ## 39. viddet.inc — video adapters, runtime geometry, the mono renderer
 
-The kernel drives three display adapters and picks one at boot. One binary,
-one set of drawing entry points, three very different framebuffers:
+The kernel drives four display adapters and picks one at boot. One binary,
+one set of drawing entry points; two of the four are the *same* planar
+framebuffer at a different height (see `EGA-PLAN.md`), and the other two are
+one parameterized 1bpp renderer:
 
 | kind | resolution | colour | framebuffer | stride | banks | mode set |
 |---|---|---|---|---|---|---|
 | `VID_VGA` (0) | 640x480 | 16, 4 planes | A000:0000 | 80 | — | int 10h AX=0012h |
 | `VID_HERC` (1) | 720x348 | mono, 1bpp | B000:0000 | 90 | 4 x 0x2000 | 6845, direct |
 | `VID_CGA` (2) | 640x200 | mono, 1bpp | B800:0000 | 80 | 2 x 0x2000 | int 10h AX=0006h |
+| `VID_EGA` (3) | 640x350 | 16, 4 planes | A000:0000 | 80 | — | int 10h AX=0010h |
+
+`VID_EGA` is not a fourth renderer. It is `VID_VGA`'s planar path — the
+`vga12.inc` primitives, `[vid_mono] = 0`, the `gfx_rowbase`/`gfx_nextrow`
+addressing with `bmask = bshift = 0` — with `vid_tab` height 350 and a
+different BIOS mode number. Everything §39.2–§39.5 says about VGA applies to
+it unchanged; the differences are enumerated in §39.24 and reasoned in
+`docs/EGA-PLAN.md`.
 
 Module `kernel/viddet.inc`, prefix `vid_`. It is `%include`d **before**
 `splash.inc` because the boot splash probes and sets the mode on its first
@@ -42149,25 +42159,52 @@ renderer (§39.5).
 
 Probe order is binding, and the equipment word is consulted **last**:
 
-1. `int 10h AX=1A00h` (VGA/MCGA Display Combination Code). A pre-EGA BIOS
+1. `int 10h AX=1A00h` (VGA/MCGA Display Combination Code). A pre-VGA BIOS
    does not implement `AH=1Ah` and returns with AL as we set it, 00h;
    `AL = 1Ah` means VGA. → `VID_VGA`.
 2. `int 10h AH=12h BL=10h` (EGA "get EGA info"). An EGA or VGA BIOS
    overwrites BL with the card's memory size; an XT BIOS leaves 10h alone.
-   An EGA does mode 12h, so it counts. → `VID_VGA`.
+   Step 1 has already claimed every VGA, so a card that answers *here* and
+   not there is an EGA — and an IBM EGA has **no mode 12h**, only mode 10h
+   (640x350). → `VID_EGA`.
 3. `int 11h` equipment word bits 5:4. `11b` = a monochrome card at B000 →
    `VID_HERC`; anything else → `VID_CGA`.
 
-Step 3 is last because an EGA or VGA driving a monochrome monitor **also**
-reports `11b`, and those machines belong on the mode 12h path.
+Step 3 is last because a **VGA** driving a monochrome monitor also reports
+`11b`, and that machine belongs on the planar path: mode 12h is a VGA mode
+whatever monitor is on the end of it, and it comes out as grey levels.
+
+**Documented scope cut:** an **EGA driving a monochrome display is not
+claimed.** Step 2's own call answers this for nothing — `int 10h AH=12h`
+returns `BH` = 0 for a colour attachment (3Dx) and 1 for a monochrome one
+(3Bx) — and the answer is binding, because an EGA's mode list follows the
+display its DIP switches name: with a 5153/5154 it has modes 0–6 and 10h,
+and with a **5151 it has modes 7 and 0Fh and nothing else**. Mode 10h is not
+in that card's table, so claiming it would set a mode that does not exist
+and then paint `A000`, which is a *blank tube* rather than a degraded
+picture — and `vid_probe_avail` would go on to offer mode 6 as well, which
+that machine also does not have. So `BH = 1` falls through to step 3 and is
+handled as the mono card it is presenting as. That is not a good answer, it
+is an honest one; the right answer is **mode 0Fh** (640x350 mono, planes 0
+and 2, at `B000`), which is a second setup and not this one. Untested and
+unclaimed rather than asserted — see `EGA-PLAN.md §7`.
 
 **Documented scope cut:** no Hercules-versus-plain-MDA discrimination (the
 0x3BA vertical-sync toggle). A plain MDA is text-only, so no better action
 exists; driving it as a Hercules is strictly less wrong than driving it as a
 CGA at B800.
 
-`VID_FORCE` (build-time, `-DVID_FORCE=1|2|3`) skips the probe. It exists for
-testing only and every shipped image is built without it — see §39.9.
+**Documented scope cut:** a 64KB EGA is driven as if it had 128KB. Mode 10h
+on a 64KB card is 640x350x4 (two planes), and the four-plane writer's upper
+two planes are ignored, so the sixteen colours collapse toward black. The
+card the port is calibrated against (Issue #136) has 128KB; a 64KB EGA is
+untested and unsupported rather than refused.
+
+`VID_FORCE` (build-time, `-DVID_FORCE=1|2|3|4`) skips the probe: `4` forces
+`VID_EGA`, which lets the 640x350 geometry be exercised on a VGA or under
+QEMU (mode 10h's framebuffer is byte-compatible with what the planar path
+writes). It exists for testing only and every shipped image is built without
+it — see §39.9.
 
 ### 39.2 Runtime geometry
 
@@ -42425,11 +42462,11 @@ that `WM_ANIM` and `OS88_THEME` use. Its low rung crosses a 512-byte step at
 *any* size above 128 — 200 crosses it too, so a smaller table would rescue
 nothing — and `KERN_SMALL_BUDGET` is the figure that has to be defended.
 
-**§39.24's reclaim does not change that, and the temptation is worth naming
+**§39.27's reclaim does not change that, and the temptation is worth naming
 because it is obvious and wrong.** Taking the VGA renderer out of `kern_small`
 returned four 512-byte rungs, so widening this table there looks free. It is
 not: those bytes are not slack, they are the first instalment of the much
-larger cut that build is under (§39.24.4). It was built, measured at exactly
+larger cut that build is under (§39.27.4). It was built, measured at exactly
 the predicted `.lowbss` +512, and reverted.
 
 **What the wider table is worth is measured on a CGA and PREDICTED on a
@@ -42675,9 +42712,14 @@ mode of anything placed below this dispatch, and `make test VIDEO=cga` plus
 graphics — but **it is not free of side effects, and `vid_init` no longer
 re-runs it blind**: it clears the framebuffer, and while the splash is still
 on screen that clear is the whole loading screen (§15.3). `vid_init` skips it
-when `[spl_live]` is set; the probe and the publish always re-run. VGA and
-CGA get their mode — and their clear — from the BIOS. Hercules has no BIOS
-mode at all:
+when `[spl_live]` is set; the probe and the publish always re-run. VGA, EGA
+and CGA get their mode from the BIOS — `int 10h AX=0012h` / `0010h` / `0006h`
+respectively. VGA and EGA then get the same explicit A000 plane clear (§39.23
+— the ROM's is not to be trusted); the EGA arm clears **350** rows, not 480,
+from a mode-10h constant of its own, because a 480-row `rep stosw` runs past
+a 128KB EGA's 32KB-per-plane RAM (and, like the VGA arm, it stays on
+constants rather than `[vid_ch]`/`[vid_stride]` for `SPL_RESIDENT`'s reason).
+Hercules has no BIOS mode at all:
 
 ```
 out 3BFh, 1                     ; configuration: graphics allowed, page 0 only
@@ -42770,9 +42812,11 @@ this was found on does), and the kernel only ever addresses page 0 (maximum
 offset 7E96h), so the second decode buys nothing and puts two cards on the
 bus for the same addresses.
 
-`vid_text` (`CMD_REBOOT`) returns VGA and CGA to mode 3; Hercules blanks
+`vid_text` (`CMD_REBOOT`) returns VGA, EGA and CGA to mode 3; Hercules blanks
 (`out 3B8h, 0`), then gets `out 3BFh, 0` and mode 7 — the BIOS reprograms
-the 6845 there too, so it gets the same blank for the same reason.
+the 6845 there too, so it gets the same blank for the same reason. EGA needs
+no special case here: it has a real `int 10h` and mode 3 is a standard BIOS
+mode on it (unlike the mono card, §39.20).
 
 ### 39.7 Window placement — `wm_fit`
 
@@ -42799,11 +42843,15 @@ subtraction here fixes it for **every fixed-size template at once** — which
 is why Solitaire, Arkanoid and the Task Manager needed no per-app rule
 beyond keeping their own derived layouts in step with it.
 
-On VGA it is a no-op. **Consequence for §11:** the record may differ from the
-template it was created from, so a package that lays out from its own
-constants rather than re-reading `W_W`/`W_H` will draw clipped. That is the
-accepted outcome — clipped but launchable — and the per-adapter acceptance
-criteria in §17 record which apps it affects.
+On VGA it is a no-op; on EGA the width clamp is a no-op and the height clamp
+bites at 350 exactly as it does on the 1bpp adapters. **Consequence for
+§11:** the record may differ from the template it was created from, so a
+package that lays out from its own constants rather than re-reading
+`W_W`/`W_H` will draw clipped. That is the accepted outcome — clipped but
+launchable — and the per-adapter acceptance criteria in §17 record which
+apps it affects. A package's `vga12.inc` clip (`vga_rect_setup`) also stops
+at `[vid_ch]` on EGA, so drawing from constants past row 350 is clipped to
+the screen and not merely invisible.
 
 ### 39.8 The package ABI
 
@@ -42813,6 +42861,14 @@ out AX = width, BX = height, CX = the first row the dock owns (so the usable
 desktop is rows `MBAR_H`..CX-1), DL = `vid_kind`, DH = bits per pixel (4 or
 1). Callable from any context, lock held or not — the first slot for which
 that is true.
+
+**DL can now be `VID_EGA` (3), and a package must not switch on it as a
+fourth case.** The two questions a package actually has are *how deep is the
+framebuffer* (DH — 4 or 1) and *how big is my window* (AX/BX or, better,
+`OSAPI_WM_GEOM`). A package that branches `cmp dl, VID_VGA` to decide
+"colour" is wrong on EGA and should test `cmp dh, 1` / `ja` instead. The
+kernel keeps `VID_EGA` out of the places that genuinely index by kind —
+`OSAPI_WM_PREFER`'s three-entry table takes VGA's row for an EGA machine.
 
 `SCREEN_W`/`SCREEN_H`/`MBAR_H`/`TITLE_H` remain in `apps/os88api.inc` as the
 **reference** geometry: fine for authoring a template, wrong for anything
@@ -42839,10 +42895,26 @@ offers only VGA-class devices), and 86Box has no automation socket. So:
 - `make xt-cga` / `make xt-hercules` — 86Box, `ibmxt`, 256KB, real `cga` and
   `hercules` cards. The **only** way to exercise the §39.1 probe and the
   Hercules 6845 programming. Interactive; no automation exists.
+- `make test VIDEO=ega` — the EGA geometry under the QMP harness. **The knob
+  is `VIDEO=`, not `VID_FORCE=`**: the Makefile maps `VIDEO=ega` to
+  `-DVID_FORCE=4` and only `VIDEO=` is in the stamp, so `make test
+  VID_FORCE=4` sets a variable nothing reads, leaves `kernel.bin` up to date
+  and boots the PREVIOUS configuration — which reads exactly like the feature
+  being broken. `vid_detect` is skipped, `vid_tab`'s EGA row publishes
+  `[vid_ch] = 350`, and `wm_fit` / the chrome / the clip core all confine to
+  it. It does **not** exercise the §39.1 EGA branch — the card is still a VGA
+  — but it DOES set mode 10h, because that is what the EGA arm of
+  `vid_setmode` asks the BIOS for and QEMU's VGA honours it: the screendump
+  comes back 640x350, not 640x480. Drive it with
+  `tools/mouse.py --screen 640x350`.
+- `make xt-ega` — 86Box, `ibmxt`, real IBM `ega` card and a 5154 monitor.
+  The **only** way to exercise the §39.1 EGA detection branch and the mode
+  10h set on a period BIOS. Interactive; no automation exists.
 - **VGA first, always.** `vga_rect_setup` is shared and its row base now goes
-  through `gfx_rowbase`, which must reduce to exactly `y * 80`. Screendump
-  and byte-compare against a pre-change baseline before trusting anything
-  else; a one-pixel VGA regression found later gets blamed on the mono work.
+  through `gfx_rowbase`, which must reduce to exactly `y * 80` — on EGA too:
+  `bmask = bshift = 0`, so a byte-compare of the VGA output against a
+  pre-change baseline also proves the EGA path did not disturb it. A one-pixel
+  VGA regression found later gets blamed on the mono or EGA work.
 
 ### 39.10 Per-adapter acceptance
 
@@ -45238,8 +45310,9 @@ still on screen. The app took the machine, not the monitors.
 
 *"Missile Command would not go into Mode X"*, on a VGA-primary machine with a
 Hercules beside it. Mode X is gated on the **adapter and nothing else** —
-`fsx_capstab` is indexed by `VID_*` (VGA `0x01EF` carries bit 8, HERC `0x0011`
-and CGA `0x000F` do not) and neither `fsx_caps` nor `fsx_mode` consults the
+`fsx_capstab` is indexed by `VID_*` (VGA `0x01EF` carries bit 8, and HERC
+`0x0011`, CGA `0x000F` and EGA `0x000F` do not) and neither `fsx_caps` nor
+`fsx_mode` consults the
 CPU tier. What was wrong is *which display* got asked.
 
 **`fsx_caps` used to GUESS the asking window, and the guess was `wm_top`.**
@@ -45465,10 +45538,17 @@ in a known write state (Map Mask **all four planes** — a BIOS that left it on
 plane 0 is one of the ways the garbage survives), then `rep stosw` of
 `SCREEN_H * ROW_BYTES / 2` words.
 
+**The EGA arm shares those five register writes and clears `EGA_H * ROW_BYTES
+/ 2` words** — `EGA_H` is 350. It is a separate `rep stosw` count and not the
+VGA one because mode 10h on a 128KB card is 32KB per plane, and 480 rows ×
+80 bytes = 38,400 would run 5,632 bytes past it; the write does not corrupt
+another plane (the Map Mask sees to that) but it is off the card's RAM. The
+EGA branch of §39.1 means an IBM EGA never reaches the VGA arm.
+
 **Inline, not `vga_gc_reset`.** This runs from `spl_chrome`, whose first tick is
 gated on `SPL_RESIDENT` sectors of `.text`; `vga12.inc` is thousands of bytes
-past that window and is not resident yet. The same gate is why the constants are
-mode 12h's rather than `[vid_h]`/`[vid_stride]`.
+past that window and is not resident yet. The same gate is why both arms stay
+on constants (`SCREEN_H`, `EGA_H`) rather than `[vid_h]`/`[vid_ch]`/`[vid_stride]`.
 
 **~110 ms on a 4.77 MHz 8088, once a boot.** `vid_init` skips the mode set while
 `[spl_live]` is up (§39.1), so the splash's `spl_chrome` is the only caller in an
@@ -45478,6 +45558,59 @@ but the splash could see the dirt in the first place.
 **No emulator in this tree shows it** — which is what the CGA arm's own comment
 says about its half — so `tests/vgadirty.py` dirties the framebuffer on purpose
 and asserts the splash comes up on black.
+
+### 39.24 `VID_EGA` — 640x350 as a second setup of the planar path
+
+**The design record is `docs/EGA-PLAN.md`.** This is the contract; that is
+why it went the way it did (Issue #136 — an IBM 5160 with a genuine IBM EGA
+and a 350-line monitor, on which the mode-12h desktop's bottom 130 rows,
+dock included, are off the tube).
+
+`VID_EGA` (3) is **not a fourth renderer**. Mode 10h is mode 12h's
+framebuffer at a shorter height: planar, four planes, `A000:0000`, 80-byte
+stride, not banked. So `[vid_mono] = 0`, every `vga12.inc` primitive runs
+unchanged, `gfx_rowbase`/`gfx_nextrow` reduce to `y*80` / `add di,80` with
+`bmask = bshift = 0` exactly as on VGA, and `vid_apply`'s whole derivation
+chain, `wm_fit`, the chrome, `desk_rowcalc` and the cursor all follow from
+`vid_tab`'s row. The complete list of what differs from VGA:
+
+| | VGA | EGA |
+|---|---|---|
+| `vid_detect` | `int 10h AX=1A00h` returns `AL = 1Ah` | that returns 0; `int 10h AH=12h/BL=10h` then succeeds (§39.1) |
+| `vid_tab` row | `A000,80,0,0,80,0,0,640,480` | `A000,80,0,0,80,0,0,640,`**`350`** |
+| `vid_setmode` | `int 10h AX=0012h` + A000 clear of `SCREEN_H` rows | `int 10h AX=`**`0010h`** + A000 clear of `EGA_H` (350) rows (§39.6, §39.23) |
+| `vid_depth_set` | colour: `[vid_mono]=0`, `[vid_planes]=4` | identical — `VID_EGA` takes the colour arm |
+| `vga_vline_core`, `vga_xor_hline` | clip y to `SCREEN_H` (a VGA-only constant) | now clip to `[vid_ch]` — a no-op edit on VGA, byte-checked (§39.9) |
+| Colour theme (§76.12) | DAC, `int 10h AX=1002h` on a VGA | **VGA only** — an EGA machine gets Bright/Dark; an Attribute-Controller path is deferred (`EGA-PLAN.md §7`) |
+| `OSAPI_WM_PREFER` kind index | `vid_kind` = 0 | clamped to 0 — an EGA takes VGA's preference row (§39.8) |
+| the idle **blank** (§64) | SR01 bit 5, Screen Off | **the PALETTE** — `vid_ac_pal`, all sixteen AC registers to black and mode 10h's own sixteen back. An EGA has neither enable bit: SR01 bit 5 and the AC index's bit 5 (Palette Address Source) are both VGA additions, so writing either on an EGA lands in a reserved field and blanks nothing |
+| `vid_dual_ok` | `[vid_avail]` alone | **also `[vid_kind]`** — and that is what makes the predicate non-invariant, below |
+
+`vid_probe_avail` treats `VID_EGA` like `VID_VGA`: available by definition,
+`VID_A_CGA` set **unprobed** (mode 6 is a standard BIOS mode on every EGA
+that drives a colour display, which §39.1 now guarantees is the only kind of
+EGA that reaches here), and no mode-12h path offered. So the Display page on
+an EGA machine lists **EGA + CGA** and `vid_switch` between them works
+through the §39.11.2 sequence unchanged.
+
+**`vid_dual_ok` is no longer invariant across a boot, and `vid_disp_init`
+owes a teardown because of it.** Every input it had was `[vid_avail]`, which
+is fixed for the life of the machine, so a refusal could never follow a
+non-refusal and `vid_disp_init` could return on one without doing anything.
+`VID_EGA` adds `[vid_kind]`, which `vid_switch` moves — so on an EGA +
+Hercules machine the sequence *primary → CGA, Extend on, primary → EGA*
+reaches a refusal with an arrangement **live**. `vid_disp_init`'s refusal arm
+therefore checks `[vid_ndisp]` and, when something is running, collapses it
+through the SINGLE arm (the other card darked, `[vid_ndisp]` back to 1, the
+desktop re-unioned) instead of returning. `[vid_dmode]` is **kept**: the
+arrangement is impossible on this primary, not forgotten, so switching back
+restores it.
+
+**Out of scope**, recorded so the next reader does not re-open it: `VID_EGA`
+as a member of a `KERN_BIG` per-display pair (§39.12 — it may be the primary
+that *ends* one, per the paragraph above, but never a half of one), the
+Colour theme on EGA, an EGA on a **monochrome display** (§39.1's second scope
+cut — mode 0Fh is the right answer and is a second setup), and a 64KB EGA.
 
 ## 40. apps/fractal — the progressive renderer and its restore cache
 
@@ -46160,7 +46293,7 @@ With no loop under it the last call becomes a **tail jump**: `sw_plane_op`'s
 
 **It costs nothing and gives bytes back: `.text` −31 on `kern_big` and −35 on
 `kern_small`**, which is the right direction for a build under a cut
-(§39.24.4). Correctness is `tests/swcolsame.py`'s session, unchanged from
+(§39.27.4). Correctness is `tests/swcolsame.py`'s session, unchanged from
 §39.25's: **0 differing pixels on CGA and on Hercules**.
 
 **THE SWEEP IS FINISHED, and the fourth body is the one that matters most.**
@@ -46222,7 +46355,7 @@ arithmetic predicts, and the reason is that a fill walks `sw_col` once per row
 per EDGE COLUMN — a 64×64 aligned rect takes it 128 times — so the size of the
 win is really a fact about how often a rect is byte-aligned. §11.94 is the
 answer: nearly always. `kern_small` does not get
-it (§39.24.4: that build is under a cut, and this is speed rather than
+it (§39.27.4: that build is under a cut, and this is speed rather than
 correctness), and `NOCOLFAST=1` takes it out of `kern_big` too.
 
 **`NOCOLFAST=1` is not decoration — it is half the correctness argument.** Two
@@ -46241,7 +46374,7 @@ all.
 **The XOR mode is untouched.** `SWM_XOR` writes `dest ^= mask` and has no read
 to remove.
 
-### 39.24 `kern_small` does not drive a VGA
+### 39.27 `kern_small` does not drive a VGA
 
 **A 128KB machine has no business with a VGA card in it, so `kern_small` does
 not carry the code to drive one.** `GFX_VGA` is `kernel.asm`'s gate, defined
@@ -46265,7 +46398,7 @@ so PERFORMANCE.md Set 113c has `GFX_LINE shallow fat` **−8.7%**, the thin line
 1–2%, on both 1bpp adapters. `gfx_line_raw` opened with *both* tests, which is
 why the line rows lead.
 
-#### 39.24.1 A VGA machine still boots, as a CGA
+#### 39.27.1 A VGA machine still boots, as a CGA
 
 **This degrades rather than refusing, and the fallback is the CGA path already
 in the kernel.** `vid_detect`'s VGA and EGA probes are gated out, so the walk
@@ -46287,7 +46420,7 @@ the card would be programmed to mode 6 by the CGA arm while `vid_apply` loaded
 640×480-at-A000 over it, and every pixel would land somewhere else with
 nothing to say so. The *detected* case is the design; only the force lies.
 
-#### 39.24.2 `GFX_PLANE` implies `GFX_VGA`, asserted
+#### 39.27.2 `GFX_PLANE` implies `GFX_VGA`, asserted
 
 §5.4.1.3's decoder is VGA-only code and sits inside `%ifdef GFX_PLANE` alone
 rather than inside both gates. That is correct only while the one implies the
@@ -46303,7 +46436,7 @@ mis-paired brackets cancelled) and `kern_small` assembled and booted. Only
 the default build is not a check on a `%ifdef`**; `make test-full`'s
 `buildmatrix` row is, and it is the only thing in the tree that could see it.
 
-#### 39.24.3 …and `kern_small` is BOOTED now, not merely assembled
+#### 39.27.3 …and `kern_small` is BOOTED now, not merely assembled
 
 `tests/smallboot.py` is the row (`make test-full`). `buildmatrix` assembles
 that kernel and stops there, which is how it has been *discovered* broken
@@ -46314,10 +46447,10 @@ assembler proves unreferenced and nothing proves unreachable.
 Three machines, and the third is the point: CGA, Hercules, **and a VGA machine
 that `kern_small` has no renderer for and must come up on anyway.** The VGA
 row's lit fraction landing within 0.2% of the CGA row's — the difference is
-the menu-bar clock's digits — is what says §39.24.1's fallback is a real CGA
+the menu-bar clock's digits — is what says §39.27.1's fallback is a real CGA
 path rather than a coincidence that lit up.
 
-#### 39.24.5 A no-VGA arm that is FALLEN INTO must emit code
+#### 39.27.5 A no-VGA arm that is FALLEN INTO must emit code
 
 **This shipped broken and a benchmark found it, not a gate.** It is written up
 at length because the failure is silent in every way a failure can be.
@@ -46359,7 +46492,7 @@ nothing turns the label after it into a fall-through target, and a fall-through
 target must be *code*. `%if`-ing out a body under one is a different operation
 from `%if`-ing out a body that is only ever jumped to.
 
-#### 39.24.4 The four rungs are not slack, and nothing may be spent from them
+#### 39.27.4 The four rungs are not slack, and nothing may be spent from them
 
 **`kern_small` is under a standing cut, so a reclaim there is banked and not
 budgeted.** This is the rule §39.3.1 is refused by and it applies to every
@@ -52983,7 +53116,8 @@ that is the right question there rather than this one.
 considered and both are §47 rule 3's *grey a guess*:
 
 - `FSXM_TEXT80` is **bit 0 of every adapter's caps** — VGA `0x01EF`, Hercules
-  `0x0011`, CGA `0x000F` (§53.8) — so there is no adapter here that cannot
+  `0x0011`, CGA `0x000F`, EGA `0x000F` (§53.8) — so there is no adapter here
+  that cannot
   set the mode, and a refusal keyed on the card would be inventing one.
 - A tier-0 8088 with XT mode **off** cannot hold 22 kHz in *either* surface —
   the mixer alone wants ~62% of the machine at 11 kHz (§45.9.3) — so a CPU
@@ -60740,25 +60874,30 @@ catches what it leaks at close.
 Mode ids (`FSXM_*`), availability decided by `[vid_kind]` alone — a fact,
 not a guess, §47:
 
-| id | mode                    | set via                  | VGA | CGA | HERC |
-|----|-------------------------|--------------------------|-----|-----|------|
-| 0  | 80x25 text              | `vid_text` (mode 3; mode 7 + 3BFh←0 on Herc) | Y | Y | Y |
-| 1  | 40x25 text              | int 10h AX=0001          | Y | Y | – |
-| 2  | 320x200x4 (CGA)         | int 10h AX=0004          | Y | Y | – |
-| 3  | 640x200x2 (CGA)         | int 10h AX=0006          | Y | Y | – |
-| 4  | 720x348 mono (Herc gfx) | `vid_setmode` (the 6845 body + 32KB clear) | – | – | Y |
-| 5  | 320x200x16 planar (0Dh) | int 10h AX=000D          | Y | – | – |
-| 6  | 320x200x256 (13h)       | int 10h AX=0013          | Y | – | – |
-| 7  | 640x480x16 (12h)        | int 10h AX=0012          | Y | – | – |
-| 8  | 320x240x256 "Mode X"    | 13h + the unchain/retime sequence | Y | – | – |
+| id | mode                    | set via                  | VGA | CGA | HERC | EGA |
+|----|-------------------------|--------------------------|-----|-----|------|-----|
+| 0  | 80x25 text              | `vid_text` (mode 3; mode 7 + 3BFh←0 on Herc) | Y | Y | Y | Y |
+| 1  | 40x25 text              | int 10h AX=0001          | Y | Y | – | Y |
+| 2  | 320x200x4 (CGA)         | int 10h AX=0004          | Y | Y | – | Y |
+| 3  | 640x200x2 (CGA)         | int 10h AX=0006          | Y | Y | – | Y |
+| 4  | 720x348 mono (Herc gfx) | `vid_setmode` (the 6845 body + 32KB clear) | – | – | Y | – |
+| 5  | 320x200x16 planar (0Dh) | int 10h AX=000D          | Y | – | – | – |
+| 6  | 320x200x256 (13h)       | int 10h AX=0013          | Y | – | – | – |
+| 7  | 640x480x16 (12h)        | int 10h AX=0012          | Y | – | – | – |
+| 8  | 320x240x256 "Mode X"    | 13h + the unchain/retime sequence | Y | – | – | – |
+
+The EGA column is the **CGA-compatible modes only** (§39.24). Its own mode
+10h has no `FSXM_*` id — a fullscreen mode the desktop is already in buys
+nothing — and 0Dh, which the card does have, is a safe later addition rather
+than pass 1.
 
 `fsx_caps` (slot 0x02C0) — out AX = the bitmask of settable ids (bit n =
 id n), DL = `vid_kind`; callable from any context, lock held or not (the
 `osapi_video` precedent), so an app can grey its mode menu per §47
-*before* entering. The masks: VGA 0x1EF, CGA 0x00F, HERC 0x011. One
-documented approximation: `vid_detect` admits EGA-class cards as
-`VID_VGA` (§39.1), and an EGA sets 0Dh but not 12h/13h; if those machines
-ever matter, this is the routine that learns the finer probe.
+*before* entering. The masks: VGA 0x1EF, CGA 0x00F, HERC 0x011, EGA 0x00F.
+The approximation that used to stand here — *"`vid_detect` admits EGA-class
+cards as `VID_VGA`"* — is gone: §39.24 gave the EGA its own kind and its own
+row of `fsx_capstab`, and this is the finer probe that paragraph asked for.
 
 `fsx_mode` (slot 0x02D0) — in AL = id, ES:DI = a 16-byte `FSI_*` block the
 kernel fills (ES is the caller's own, like `gfx_blit4`). Legal only inside

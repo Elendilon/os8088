@@ -9,6 +9,10 @@ build/
 # every nvr/ is gitignored; this is what makes that true, and true for the next
 # machine as well. vm/*/screenshots/ below has always been this shape.
 vm/*/nvr/
+# ...and 86Box's own screenshot directory. The collapse above dropped it by
+# accident - the comment has named it as present ever since, and main still
+# carried it, so the merge is where it comes back.
+vm/*/screenshots/
 
 # Page snapshots the Playwright MCP server drops in the working directory
 .playwright-mcp/
