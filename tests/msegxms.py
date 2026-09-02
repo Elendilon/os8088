@@ -68,6 +68,7 @@ import os88parts                                            # noqa: E402
 import os88fixture                                          # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "multiseg"))
 import msegsym                                              # noqa: E402
+import os88qemu                                              # noqa: E402
 
 IMG = os.path.join(ROOT, "build", "mseg.img")
 O88 = os.path.join(ROOT, "build", "mseg.o88")
@@ -104,6 +105,9 @@ def boot():
     for f in (xmcheck.SOCK, xmcheck.PID):
         if os.path.exists(f):
             os.remove(f)
+    # `make test` DAEMONISES the emulator, so it outlives this script
+    # unless somebody kills it - and the somebody is us (os88qemu).
+    os88qemu.own()
     r = subprocess.run(["make", "test", "TESTAPPS=" + IMG],
                        capture_output=True, text=True, cwd=ROOT)
     if r.returncode:

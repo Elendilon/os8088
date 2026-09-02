@@ -179,6 +179,17 @@ FAST = [
     Row("diskverify", "fast", py("tests/unit/t_diskverify.py"), 0.6,
         "the tree's own fsck, pointed at the seven images `make` ships and "
         "never ran on"),
+    Row("qemuown", "fast", py("tests/unit/t_qemuown.py"), 0.1,
+        "every test that LAUNCHES a QEMU registers a teardown for it. `make "
+        "test` daemonises the emulator and returns, so for most of this tree's "
+        "life a row that FAILED simply left its running - and the only thing "
+        "that ever killed one was the next run's kill-stale, which reaches an "
+        "instance in the same checkout with the same pidfile and nothing else. "
+        "Two of them survived FIVE HOURS from two worktrees and broke "
+        "`ps2mouse` on the pre-merge gate with a write-lock error naming "
+        "build/os8088.img: the cost of the leak is paid by an unrelated row, "
+        "hours later, wearing a message about the wrong subject "
+        "(docs/HANDOFF-SOAK-FINDINGS.md B9)"),
     Row("canary", "fast", py("tests/unit/t_canary.py"), 0.2,
         "SPEC.md 18.93.1's canary offset re-derived from every shipped image's "
         "own BPB: it has to name a sector a transfer run reads AFTER the head "

@@ -119,6 +119,7 @@ import dispcp                                          # noqa: E402
 import ethernet as eth                                 # noqa: E402
 import os88sym                                         # noqa: E402
 import os88layout                                           # noqa: E402
+import os88qemu                                              # noqa: E402
 
 S = os88sym.linear
 
@@ -204,6 +205,9 @@ def main():
         if os.path.exists(f):
             os.remove(f)
 
+    # `make test` DAEMONISES the emulator, so it outlives this script
+    # unless somebody kills it - and the somebody is us (os88qemu).
+    os88qemu.own()
     r = subprocess.run(["make", "test", "ETHER=1", "ETHFWD=1",
                         "TESTIMG=" + SYSIMG, "TESTAPPS=" + APPIMG] + knob,
                        capture_output=True, text=True)

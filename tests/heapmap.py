@@ -50,6 +50,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import heapmap                                              # noqa: E402
+import os88qemu                                              # noqa: E402
 
 PIDFILE = os.path.join(ROOT, "build", "qemu.pid")
 SOCK = os.path.join(ROOT, "build", "qmp.sock")
@@ -132,6 +133,9 @@ def launch(hdd_mb=32, hdd=True):
            " -netdev user,id=n0 -device ne2k_isa,netdev=n0,iobase=0x300,irq=3"
            % (IMG, hdarg, SOCK, PIDFILE))
     subprocess.run(cmd, cwd=ROOT, shell=True, check=True)
+    # ...and it is DAEMONISED, so it outlives this script unless
+    # somebody kills it - and the somebody is us (os88qemu).
+    os88qemu.own(PIDFILE, SOCK)
 
 
 def sample(limit=40.0):

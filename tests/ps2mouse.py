@@ -62,6 +62,7 @@ ROOT = os.path.normpath(os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import heapmap                                              # noqa: E402
 import os88sym                                              # noqa: E402
+import os88qemu                                              # noqa: E402
 
 SOCK = os.path.join(ROOT, "build", "ps2.sock")
 PIDFILE = os.path.join(ROOT, "build", "ps2.pid")
@@ -110,6 +111,9 @@ def launch():
         " -serial none"
         " -display none -qmp unix:%s,server,nowait -daemonize -pidfile %s"
         % (SOCK, PIDFILE), cwd=ROOT, shell=True, check=True)
+    # ...and it is DAEMONISED, so it outlives this script unless
+    # somebody kills it - and the somebody is us (os88qemu).
+    os88qemu.own(PIDFILE, SOCK)
 
 
 def byte(q, sym):

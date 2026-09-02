@@ -38,6 +38,7 @@ import dispcp                                          # noqa: E402
 from ethernet import (Qemu, u16, S, Mouse, type_url,   # noqa: E402
                       settle, SOCK)
 from os88geom import MB_ENTSZ                         # noqa: E402
+import os88qemu                                              # noqa: E402
 
 PORT = 8091
 SLOW_SECS = 12          # how long /slow.htm is held open (SPEC.md 71.8)
@@ -184,6 +185,9 @@ def main():
     for f in ("build/qmp.sock", "build/qemu.pid"):
         if os.path.exists(f):
             os.remove(f)
+    # `make test` DAEMONISES the emulator, so it outlives this script
+    # unless somebody kills it - and the somebody is us (os88qemu).
+    os88qemu.own()
     r = subprocess.run(["make", "test", "ETHER=1",
                         "TESTIMG=build/ether360.img",
                         "TESTAPPS=build/brtest360.img"],

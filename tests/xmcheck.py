@@ -42,6 +42,7 @@ the same run leaves all three blocks live at KB=4 owner=1 after the close.
 import os
 import subprocess
 import sys
+import os88qemu                                              # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -243,6 +244,9 @@ def boot():
     for f in (SOCK, PID):
         if os.path.exists(f):
             os.remove(f)
+    # `make test` DAEMONISES the emulator, so it outlives this script
+    # unless somebody kills it - and the somebody is us (os88qemu).
+    os88qemu.own()
     r = subprocess.run(["make", "test", "TESTAPPS=" + XMIMG],
                        capture_output=True, text=True, cwd=ROOT)
     if r.returncode:
