@@ -87,7 +87,7 @@ SD_X       equ 12
 SD_Y       equ 20
 SD_ROW     equ 8
 SD_VALX    equ SD_X + 25*8
-SD_ROWS    equ 18
+SD_ROWS    equ 19
 
 ; ---- state ------------------------------------------------------------------
 ; In .text with real initialisers, for dsk_dpt's reason (SPEC.md 18.92):
@@ -420,6 +420,29 @@ sd_mwater:
 %endif
 
 ; -----------------------------------------------------------------------------
+; sd_iwater - the IDLE task's slice, and THIS is the floor
+; in:       DS = KERNEL_SEG
+; out:      AX = bytes, or 0 if there is no idle task
+;
+; The idle task's own footprint is at most 4 bytes (SS-1.1), so everything its
+; slice reads above that is interrupt and nothing else. That is the definition
+; of the floor, and it is the number a slot class is cut from.
+;
+; It is a SEPARATE row from the deepest-slice one below because the field
+; compared the wrong one across machines and got a spread that is not there:
+; the deepest slice is almost always THIS PANEL'S OWN PAINTER, which draws
+; under the gfx lock, so its depth is its own work and it tracks the ADAPTER's
+; drawing cost - 124 on EGA against 74 on VGA - while the floor beneath it
+; moved by 8. A row labelled "quote this" has to be the one worth quoting.
+; -----------------------------------------------------------------------------
+sd_iwater:
+    mov al, [sch_idleslot]
+    cmp al, 0xFF
+    jne sd_water
+    xor ax, ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; sd_vwater - the deepest ANY slice has been: THE FLOOR
 ; in:       DS = KERNEL_SEG
 ; out:      AX = bytes, or 0 if the victim was refused a slot
@@ -743,7 +766,12 @@ sd_paint:
     mov ax, [sd_k]
     call sd_value
 
-    add bp, SD_ROW              ; --- live, so a run in progress is legible --
+    add bp, SD_ROW              ; --- the floor, and then the deepest slice ---
+    mov si, sd_s_flr
+    call sd_label
+    call sd_iwater
+    call sd_value
+    add bp, SD_ROW
     mov si, sd_s_now
     call sd_label
     call sd_vwater
@@ -922,7 +950,8 @@ sd_s_rom:   db "ROM int08 on our stack",0
 sd_s_q:     db "floor  quiet",0
 sd_s_m:     db "floor  +mouse",0
 sd_s_k:     db "floor  +keys",0
-sd_s_now:   db "FLOOR MAX  <- quote this",0
+sd_s_flr:   db "FLOOR, idle  <- quote this",0
+sd_s_now:   db "deepest slice (inc. panel)",0
 sd_s_n:     db "chain samples taken",0
 sd_s_mou:   db "mouse ISR, own stack",0
 sd_s_slots: db "every slice, slot 1 up",0

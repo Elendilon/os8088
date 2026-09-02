@@ -419,6 +419,7 @@ Read from **slot 1** and not `FLOOR MAX` (§9.8.2). The real machines:
 | 5150 Hercules | **64** | 2-or-3 |
 | 5150 CGA | 62 | 2-or-3 |
 | Packard Bell 286 | 40 | **3, confirmed** |
+| 86Box XT, EGA | 48 | **3** |
 | *(QEMU, SeaBIOS)* | *84* | *3 — not a real machine* |
 
 **64 is the design floor**: the worst reading from real hardware, and taken on
@@ -759,6 +760,85 @@ slot 1.
   pair at 23–30, and that is a prediction rather than a measurement.
 - **A 1.2MB 5.25" geometry now ships.** `make stkdiag` builds it, so the arms
   are **twelve disks, three arms of four**.
+
+## 9.9 EGA, and the "extra stack on an emulator" that was the panel
+
+86Box `ibmxt86`, EGA 640×350, ROM `05/09/86` `FB`, 10 MHz 8088, arm 3. EGA
+arrived from upstream and nobody here owns a card, so an emulator is the only
+way to run it at all.
+
+| | reading |
+|---|---|
+| ROM `int 08h` | **18** |
+| mouse ISR, own stack | **54** |
+| **slot 1 — the floor** | **48** |
+| slot 2 — the panel's own painter | 124 |
+
+### 9.9.1 The EGA prediction was right
+
+§9.8.3 predicted a planar EGA would sit with VGA at ~52–54 rather than with the
+mono pair at 23–30. **54.** The adapter sets the mouse ISR's depth (§9.7.2) and
+it is *planar versus 1bpp* that does it, not the card:
+
+| | mouse ISR |
+|---|---|
+| VGA (PS/2, real 286) | 52 |
+| VGA (serial, QEMU) | 54 |
+| **EGA (serial, 86Box)** | **54** |
+| Hercules | 30 |
+| CGA | 23 |
+
+So §7's design number of **54** is now confirmed on three planar adapters and
+needs no further reading.
+
+### 9.9.2 There is no extra stack, and the panel caused the question
+
+The field asked what was eating the extra stack on an emulator — 124 on EGA
+against 74 on the 286 — and whether the NIC could be doing it with no driver
+loaded.
+
+**Nothing is.** 124 is `slot 2`, and slot 2 is **this panel's own painter**,
+which draws the panel under the gfx lock twice a second. That depth is its own
+work, and it tracks the adapter's drawing cost exactly as it should — EGA's
+planar 640×350 is deeper than VGA's 640×480 window and much deeper than mono.
+**It is not a floor and never was.**
+
+The floor is `slot 1`, and it is entirely in family:
+
+| | slot 1 |
+|---|---|
+| PB 286 (VGA, ROM 18) | 40 |
+| **86Box XT (EGA, ROM 18)** | **48** |
+| 5150 CGA (ROM 36) | 62 |
+| 5150 Hercules (ROM 36) | 64 |
+
+Eight bytes between the two ROM-18 machines, and the 5150s are higher for the
+reason §9.6.2 already gives — their ROM chain is twice the size.
+
+**The NIC is ruled out twice over**, and neither reason is a judgement call:
+`net_01_link = 0` in both configs, so the card raises no interrupt at all; and
+the kernel hooks `int 08h`, `int 09h`, `int 0Bh`/`0Ch` and `int 19h` and
+**names no NIC vector anywhere** — that hook lives in `ETHER.DRV`, which is not
+loaded. Neither is the Sound Blaster or the ST-11M: an unloaded driver runs no
+code, and `ROM int08` already measures whatever the tick chain reaches.
+
+### 9.9.3 The panel now leads with the floor
+
+This is §9.8.2's caveat reaching the field one run after it was written down,
+which is what a caveat in a document does instead of a change in the code. The
+panel now prints
+
+```
+FLOOR, idle  <- quote this      48
+deepest slice (inc. panel)     124
+```
+
+so the row labelled "quote this" is the one worth quoting, and the deepest
+slice keeps its place as the answer to *"has anything here gone deeper than
+X"* — the overrun question, which is a real one and a different one.
+
+**No field reading needs re-taking**: every run in this document already
+reports slot 1, and the table above is those numbers.
 
 ## 10. The measurement disk — `make stkdiag`
 
