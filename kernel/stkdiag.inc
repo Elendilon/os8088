@@ -247,8 +247,17 @@ sd_slice_base:
 ; for one chain.
 ; -----------------------------------------------------------------------------
 sd_chain_call:
+%ifndef STK_FIX
     xor byte [sd_alt], 1        ; every other tick runs plainly, so the floor
-    jz .plain                   ; the panel reports is the SHIPPING floor
+    jz .plain                   ; the panel reports is the SHIPPING floor.
+                                ; `make STKFIX=1` drops the alternation: every
+                                ; chain goes on the scratch, and the floor the
+                                ; panel then reports is the floor of the machine
+                                ; 4.1 and 4.2 PROPOSE. That is a lie about the
+                                ; shipping kernel and the whole point on a disk
+                                ; whose job is to price the proposal - so it is
+                                ; a third arm and never the default
+%endif
     cmp byte [sd_busy], 0
     je .measure
 .plain:

@@ -470,28 +470,76 @@ as a rung and the ledger position is whoever takes this on to report with
 
 ---
 
-## 9. What must be measured on the 5150 before any of this is built
+## 9. The 5150 has answered — and QEMU was wrong in BOTH directions
 
-**One standing claim in the tree is contradicted by §2 and has to be settled
-first.** docs/KERNEL-MEMORY.md's "Task stacks" says SeaBIOS services its
-interrupt entries on an internal stack, "so under `make test` the only foreign
-frames a task slice ever carries are this kernel's own tick and mouse
-handlers". The A/B in §2 says otherwise: removing `call far [sch_old08]` moved
-a bare desktop's idle reading from 82 to 32, so **50 of those bytes are the
-ROM's handler on our stack, under QEMU.**
+**Run, on an IBM PC 5150: ROM `10/27/82`, model `FF`, Hercules (720).** Two
+arms, `make stkdiag`'s first and second, ~1,800 chain samples each.
 
-That matters twice over. It means the floor is bigger than that paragraph
-implies, and it means the **+46-byte QEMU-to-5150 correction quoted beside it
-may be double-counting** — a real ROM's `int 08h` will cost a different number,
-not the QEMU number plus a constant. Nobody can size a 128 class until the two
-are separated.
+| | as it ships | `MOUPRIV=1` | delta |
+|---|---|---|---|
+| ROM `int 08h` chain | 46 | **36** | −10 |
+| floor, quiet | 94 | 96 | +2 |
+| floor, +mouse | 118 | **100** | −18 |
+| floor, +keys | 118 | 100 | −18 |
+| **FLOOR MAX** | **118** | **100** | **−18** |
+| slot 1 (the idle task) | 74 | **46** | −28 |
+| slot 2 (the painter) | 118 | 100 | −18 |
+| mouse ISR, own stack | — | **30** | |
 
-`tests/stackprobe` is the instrument and it already reads every slice. The run
-wanted is the one its own header describes — hold keys, mash the mouse, play a
-module — on the machine, with and without a package that spawns a worker, and
-the number to bring back is the idle task's line and the probe's own.
+### 9.1 The ROM is 36, and the two arms explain their own difference
 
----
+**36 is the number**, and it comes from the `MOUPRIV` arm for a structural
+reason rather than a preference. In the shipping arm the ROM's chain runs on
+the scratch, and the ROM `sti`s before `int 1Ch` — so a mouse packet arriving
+inside it lands *on the scratch too* and is counted as the ROM's. Move the
+mouse ISR to its own stack and only the ROM is left: **46 → 36, and the 10 is
+the nesting.** The instrument measured §4.2.1's product case without being
+asked to.
+
+**SeaBIOS is 56. A real IBM ROM is 36.** So for this one term **QEMU
+OVERSTATES by 20**, which is the opposite direction from
+docs/KERNEL-MEMORY.md's standing "+46 understates a real BIOS" — and that
+paragraph's other claim, that SeaBIOS keeps its interrupt frames off our stack
+entirely, is refuted outright by both machines. **Neither half of it survives.**
+
+### 9.2 …but the FLOOR is higher on iron, not lower
+
+118 as shipped, against 84–130 sampled on QEMU. So QEMU understates the floor
+while overstating the ROM chain: the +46 correction is not a constant to add,
+it is two errors of opposite sign that happened to be quoted as one. **Anything
+sized off a QEMU floor plus a fixed adder is sized wrong.**
+
+### 9.3 The mouse relocation, measured on iron
+
+The mouse phase adds **24 bytes** to a task stack as shipped and **4** with
+`MOUPRIV=1` — the residual being the six the CPU pushes, within sampling. So
+the change removes 20 of the 24 it was designed to remove, and the FLOOR MAX
+falls **118 → 100** for the 21 bytes of `.text` §4.2 priced.
+
+The idle task's own slice falls further, **74 → 46**, because the machine's
+maximum sits on the busier painter slice rather than on it.
+
+### 9.4 Two findings nobody was looking for
+
+- **The mouse ISR is adapter-dependent.** 30 bytes here on Hercules against 54
+  on QEMU's VGA — `cur_move`'s 1bpp path is shallower than the planar one
+  (§39). **A class scheme must be sized from the deepest adapter, so 54 is the
+  number to design with and 30 is not.**
+- **The keyboard adds nothing.** `+keys` is +0 on both arms, where
+  docs/KERNEL-MEMORY.md's field note has `int 09h` nesting worth about twelve.
+  On this machine, at this depth, it is not.
+
+### 9.5 What is still open
+
+Both arms still **alternate** the ROM chain, so half the ticks put 36 bytes
+back on a task stack and the 100 above is not the end state. `make stkdiag`'s
+**third arm** (`stkdiagfix*`, `STKFIX=1` — both proposals on at once) is what
+reads it; the arithmetic predicts **~64**, and that is the number the classes
+in §6 and §7 should finally be cut from.
+
+Also unrun: CGA and VGA (the mouse ISR is deeper on both), and any ROM that is
+not this one — an XT clone, a 286, a 386 — which is the whole reason the disk
+is a disk.
 
 ## 10. The measurement disk — `make stkdiag`
 

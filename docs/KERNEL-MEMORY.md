@@ -1370,6 +1370,18 @@ it. Two rounds of shrinking the buffers under that rule freed exactly
 nothing: the FAT buffer gave up 7KB and task 0's stack grew by 7KB. Naming
 the number is what turned those savings into memory.
 
+**CORRECTED — NEITHER HALF OF THE PARAGRAPH BELOW SURVIVED MEASUREMENT**
+(docs/STACK-SLOTS-PLAN.md §9, `make stkdiag` on an IBM 5150, ROM 10/27/82).
+SeaBIOS does **not** keep its `int 08h` frames off our stack: removing
+`sch_isr`'s `call far [sch_old08]` moved a bare QEMU desktop's idle slice from
+82 to 32, and measuring the chain on a private stack reads **56**. And the
+correction is not a positive constant either — the real IBM ROM reads **36**,
+so QEMU *overstates* that term by 20 while *understating* the floor (84–130
+sampled, against 118 on the machine). **Two errors of opposite sign, quoted as
+one number.** Anything sized off a QEMU floor plus a fixed adder is sized
+wrong. The paragraph is kept below because the reasoning it records is what
+the disk was built to test.
+
 **The QEMU probe understates a real BIOS.** SeaBIOS services its interrupt
 entries on an internal extra stack, so under `make test` the only foreign
 frames a task slice ever carries are this kernel's own tick and mouse
