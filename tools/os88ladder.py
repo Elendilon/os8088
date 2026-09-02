@@ -51,6 +51,7 @@ which is the FDC model PERFORMANCE.md Set 37 calibrated against the real
 boot spends time on.
 """
 
+import base64
 import hashlib
 import json
 import os
@@ -328,6 +329,43 @@ class Probe(object):
         return {"base": base, "top": top, "claims": claims}
 
 
+def png1(w, h, rows, lit=(255, 255, 255), dark=(0, 0, 0)):
+    """A 1-bit PNG from the rows of bits `Marty.vram()` hands back.
+
+    Written out here rather than pulled in, because the whole page is one
+    file and a dependency for two hundred lines of PNG would be the only
+    thing in this tool that is not either measured or read out of the tree.
+
+    A SET BIT IS A LIT PIXEL, which is the one thing to get right and the one
+    thing that does not announce itself: the wrong way round produces a
+    perfectly good picture of the desktop with black and white swapped, and
+    only somebody who has seen the real screen would notice.
+    """
+    import struct
+    import zlib
+    raw = bytearray()
+    for r in rows:
+        raw.append(0)                       # filter: none
+        b, n = 0, 0
+        for px in r:
+            b = (b << 1) | (1 if px else 0)
+            n += 1
+            if n == 8:
+                raw.append(b); b, n = 0, 0
+        if n:
+            raw.append(b << (8 - n))
+
+    def chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 1, 3, 0, 0, 0))
+            + chunk(b"PLTE", bytes(dark) + bytes(lit))
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IEND", b""))
+
+
 def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True):
     """Boot once, stopping wherever the page has something to say.
 
@@ -498,8 +536,30 @@ def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True):
         m.bp_exec()
         ticks = u16(m.read(KERNEL_SEG * 16 + 0x000C, 2))
 
+        # --- and what all of that was FOR --------------------------------
+        # The walk stops on the step that draws the desktop, so the frame is
+        # already on the glass; letting it settle first is only so the pointer
+        # and the driver notice have landed. It is read out of the card's own
+        # memory rather than screenshotted, so the picture is the machine's
+        # pixels and not a rendering of them.
+        shot = None
+        try:
+            m.run()
+            os88marty.settle(m, quiet=0.6, stable=2, limit=40.0)
+            w, h, rows = m.vram()
+            shot = png1(w, h, rows)
+            if verbose:
+                sys.stderr.write("  desktop %dx%d, %s bytes of PNG\n"
+                                 % (w, h, "{:,}".format(len(shot))))
+        except Exception as e:                          # noqa: BLE001
+            # A missing picture is a page with one illustration fewer, not a
+            # failed run - and on an adapter this cannot read (a colour card
+            # in a planar mode) that is the right outcome.
+            sys.stderr.write("os88ladder: no desktop picture (%s)\n" % e)
+
     return {"machine": machine, "image": os.path.basename(image),
             "ram_kb": ramkb, "events": ev,
+            "desktop": base64.b64encode(shot).decode() if shot else "",
             "total_ms": total * 1000.0 / HZ, "longest_run": longest,
             "boot_ticks": ticks, "boot_ticks_ms": ticks * 1000.0 / TICK_HZ,
             "taken": time.strftime("%Y-%m-%d %H:%M:%S")}
@@ -517,51 +577,51 @@ def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True):
 # name it so that a phase which vanishes or appears cannot be absorbed
 # silently - assign() refuses on either.
 STAGES = [
-    dict(id="post", short="ROM + sector", title="The ROM, and one sector at 0000:7C00",
-         moved="512 bytes: the volume boot record",
+    dict(id="post", short="firmware", title="The firmware starts, and reads one sector",
+         moved="512 bytes: the first sector of the floppy",
          take=dict(until="post")),
-    dict(id="reloc", short="relocate", title="The sector copies itself to the top of RAM",
-         moved="those 512 bytes again, at the machine's last address",
+    dict(id="reloc", short="relocate", title="The boot sector moves itself out of the way",
+         moved="those same 512 bytes, now at the machine's very top",
          take=dict(until="relocate")),
-    dict(id="dpt", short="int 1Eh", title="The diskette parameter table becomes ours",
-         moved="11 bytes to 0000:0580",
+    dict(id="dpt", short="drive settings", title="The floppy's settings table is replaced",
+         moved="eleven bytes, low in memory",
          take=dict(count=1)),
-    dict(id="blob", short="loader", title="Stage 2 lands on the heap's floor",
-         moved="the loader, the loading screen and the boot overlay",
+    dict(id="blob", short="loader", title="The rest of the loader arrives",
+         moved="the loader, the loading screen and the start-up code",
          take=dict(before="stage 2: loader code")),
-    dict(id="splash", short="splash up", title="The loading screen appears",
-         moved="the first sectors of the kernel, and the framebuffer",
+    dict(id="splash", short="loading screen", title="The loading screen appears",
+         moved="the first slice of the operating system - and the screen itself",
          take=dict(until="splash tick")),
-    dict(id="kernel", short="kernel load", title="The rest of KERNEL.SYS arrives",
-         moved="everything from .text to the boot overlay's other half",
+    dict(id="kernel", short="system loads", title="The rest of the operating system arrives",
+         moved="everything from its code to its start-up code",
          take=dict(until="stage 2: loop")),
-    dict(id="kmain", short="kmain", title="Into kmain - the stack moves to LOW_SEG",
-         moved="task 0's stack, and the clock, adapter and CPU tier",
+    dict(id="kmain", short="hand over", title="The operating system takes over",
+         moved="the working stack, into an area of its own",
          take=dict(phases=["dsk_boot_from_x", "cpu_detect", "xm_sniff",
                            "dsk_dpt_init_x", "sched_init", "sch_idle_start",
                            "evq_init", "clk_init", "vid_init", "vid_ctx_init",
                            "vid_probe_avail", "vid_disp_init"])),
-    dict(id="heap", short="heap", title="The claim heap opens above the blob",
-         moved="the arena: everything from the loader's last byte to the top",
+    dict(id="heap", short="memory pool", title="The memory pool opens",
+         moved="everything above the loader becomes available to ask for",
          take=dict(phases=["mem_init_x", "mod_init_x"])),
-    dict(id="ui", short="font + WM", title="The typeface, the window manager and the bar",
-         moved="font glyphs into .lowbss, and the first heap claims",
+    dict(id="ui", short="typeface + windows", title="Typeface, windows and the menu bar",
+         moved="the letterforms, and the first blocks handed out",
          take=dict(phases=["font_init", "ovl_font_init", "wm_init",
                            "band_init", "menu_init", "inst_init",
                            "splf_step"])),
-    dict(id="mouse", short="mouse", title="mouse_init - the identify window",
-         moved="nothing: the longest phase of the boot that is not the disk",
+    dict(id="mouse", short="mouse", title="Looking for a mouse",
+         moved="nothing - the longest wait in the boot that is not the disk",
          take=dict(phases=["ovl_spl_msg_mouse", "mouse_init", "splf_step"])),
-    dict(id="desk", short="desktop", title="Volumes, the dock, the drivers table",
-         moved="desktop zones and the driver table, in .bss and the heap",
+    dict(id="desk", short="drives + dock", title="Drives, the dock and the driver table",
+         moved="desktop state, in the operating system's own storage",
          take=dict(phases=["ovl_spl_msg_fdd", "desk_init", "dock_init",
                            "files_init_x", "loader_init_x", "drv_init_x",
                            "drv_snd_sniff", "snd_init", "splf_step"])),
-    dict(id="drvboot", short="mount A:", title="A: is mounted - and the mount eats the overlay",
-         moved="the FAT snapshot, over 5KB of code that was still running",
+    dict(id="drvboot", short="mount + drivers", title="The floppy is mounted - over the start-up code",
+         moved="the disk's index, written across 5KB of code that was running",
          take=dict(phases=["drv_boot_x", "xm_boot_x", "thm_set"])),
-    dict(id="unblob", short="blob back", title="The loader's 4KB go back to the heap",
-         moved="the blob's rung, released and compacted away",
+    dict(id="unblob", short="space back", title="The loader's space is given back",
+         moved="4KB returned to the pool, and the gap closed up",
          take=dict(phases=["spl_finish", "mem_unblob_x"])),
     dict(id="paint", short="first frame", title="The first desktop frame",
          moved="nothing new - the screen, at last",
@@ -682,6 +742,22 @@ def owner_tags():
     return out
 
 
+def _claim_name(tag):
+    """MEM_K_SAVE -> "Menu save-under". A tag is an internal name; the map is
+    not the place for one, and the reader only needs to know what the block is
+    for."""
+    if not tag:
+        return "In use"
+    nice = {"SAVE": "Menu backing store", "DRV": "Loaded driver",
+            "COPY": "Copy buffer", "ASC": "File-association cache",
+            "CLIP": "Clipboard", "MOD": "Loaded module",
+            "CLONE": "Disk copier buffer", "BAND": "Title-bar composer",
+            "WSAVE": "Window backing store", "FATW": "Disk index",
+            "DIRW": "Directory read-ahead"}
+    key = tag.split("_")[-1]
+    return nice.get(key, "In use")
+
+
 def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
     """The memory map AFTER this stage - a list of spans over 640KB.
 
@@ -717,12 +793,14 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
     # label that does not fit is dropped rather than clipped (a clipped one
     # reads as a different, shorter name), which is why the long one alone is
     # not enough.
-    SHORT = {"ivt": "IVT", "bda": "BDA", "dpt": "DPT", "vbr": "boot sector",
-             "vbrtop": "boot sector", "vbrstk": "stage 1 stack",
-             "ktext": ".text + .bss", "kcold": ".cold", "ovlw": ".ovlw",
-             "ovl": ".ovl", "fatwin": "FAT", "fatw": "FAT snapshot",
-             "lowbss": ".lowbss", "vgabuf": ".vgabuf", "blob": "stage 2",
-             "pending": "not landed yet", "unclaimed": "free"}
+    SHORT = {"ivt": "jump table", "bda": "firmware", "dpt": "drive settings",
+             "vbr": "boot sector", "vbrtop": "boot sector",
+             "vbrstk": "its stack", "ktext": "system code",
+             "kcold": "more code", "ovlw": "start-up code",
+             "ovl": "start-up code", "fatwin": "index", "fatw": "disk index",
+             "lowbss": "stacks + buffers", "vgabuf": "graphics scratch",
+             "blob": "loader", "pending": "not landed yet",
+             "unclaimed": "free"}
 
     def add(a, b, rid, label, cls, note="", layer=0, sl=None):
         if floor is not None and rid not in ("heap", "claim", "free"):
@@ -734,28 +812,34 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
                       or ("free" if rid.startswith("free") else label),
                       "cls": cls, "note": note, "layer": layer})
 
-    add(0, 0x400, "ivt", "Interrupt vectors", "bios",
-        "1,024 bytes: 256 far pointers. int 1Eh is one of them, and stage 1 "
-        "repoints it.")
-    add(0x400, 0x500, "bda", "BIOS data area", "bios",
-        "The tick at 0040:006C is SPEC.md 15.4's t=0, read by the boot sector "
-        "before it does anything expensive.")
+    add(0, 0x400, "ivt", "Interrupt jump table", "bios",
+        "1,024 bytes: 256 addresses, one per [[interrupt]], saying which "
+        "routine handles it. The boot sector changes one of them, so that the "
+        "disk service reads a [[floppy settings table]] of its own.")
+    add(0x400, 0x500, "bda", "Firmware scratch", "bios",
+        "Where the machine's built-in software keeps its running state. The "
+        "count of timer [[tick|ticks]] since power-on lives here, and the "
+        "boot's own stopwatch is that count read twice.")
     if since("dpt"):
         add(cons["DPT_AT"], cons["DPT_AT"] + 11, "dpt",
-            "Diskette parameter table", "ours",
-            "Eleven bytes copied out of the ROM's own table with byte 4 - EOT "
-            "- patched to this disk's %d sectors per track. The IBM PC and XT "
-            "ROMs say 8." % vol["spt"])
+            "Floppy drive settings", "ours",
+            "Eleven bytes copied out of the machine's own table with one "
+            "changed: the highest [[sector]] number the [[controller]] may "
+            "touch on a [[track]]. This disk has %d per track and the original "
+            "IBM firmware says eight." % vol["spt"])
     # The BIOS's copy survives only until the load reaches it - which is a
     # thing to WATCH rather than assert, so it is computed from how many
     # sectors have actually landed.
     kload_end = lad["kseg"] * 16 + loaded_sectors * vol["bps"]
     if not (since("splash") and kload_end > 0x7C00):
-        add(0x7C00, 0x7E00, "vbr", "Boot sector (where the BIOS put it)",
+        add(0x7C00, 0x7E00, "vbr", "Boot sector, where the firmware put it",
             "dead" if since("reloc") else "ours",
-            "The BIOS reads exactly one sector here and jumps to it. From the "
-            "relocation onward these bytes are only waiting to be overwritten "
-            "- the kernel's own image runs straight through this address.")
+            "The firmware reads exactly one [[sector]] to this address and "
+            "jumps into it. That is the whole of what the machine knows how "
+            "to do on its own; everything else on this page follows from these "
+            "512 bytes. Once they have moved, the copy here is only waiting to "
+            "be overwritten - the operating system's own code runs straight "
+            "through this address.")
 
     # ...and stage 1's sector and stack are live until kmain takes SS away,
     # then simply part of the arena. They are DROPPED rather than drawn dead
@@ -764,49 +848,64 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
         seg = ram_kb * 64 - cons["RELOC_ADJ"]
         base = seg * 16 + 0x7C00
         add(base, base + cons["BOOT_SECT"], "vbrtop",
-            "Boot sector (relocated)", "dead" if since("kmain") else "ours",
-            "The same 512 bytes at the machine's LAST address, copied with "
-            "`rep movsw` at the SAME OFFSET - so every org 0x7C00 label still "
-            "resolves and only the segment register changes.")
+            "Boot sector, moved", "dead" if since("kmain") else "ours",
+            "The same 512 bytes, now ending on the machine's very last byte. "
+            "The [[block copy]] keeps the same offset and changes only the "
+            "[[segment]], so every address inside the sector still resolves "
+            "and no instruction had to be rewritten.")
         add(base - cons["BOOT_STACK"], base, "vbrstk",
-            "Stage 1 stack", "dead" if since("kmain") else "ours",
-            "%d bytes under the sector's own body. kmain gives it up the "
-            "moment SS becomes LOW_SEG." % cons["BOOT_STACK"])
+            "The boot sector's stack", "dead" if since("kmain") else "ours",
+            "%s bytes of [[stack]] immediately under the sector itself, so "
+            "the two travel together and neither can be landed on by the "
+            "operating system arriving below."
+            % "{:,}".format(cons["BOOT_STACK"]))
 
     # --- the kernel image, as much of it as has arrived ----------------------
     kstart = lad["kseg"] * 16
     if since("splash"):
         img_end = min(kstart + loaded_sectors * vol["bps"], lad["kend"] * 16)
         parts = [
-            (kstart, lad["cold_seg"] * 16, "ktext", ".text + .bss",
-             "kern", "%s bytes of code and %s of scratch, in ONE 64KB window "
-             "because every kernel offset is 16 bits."
+            (kstart, lad["cold_seg"] * 16, "ktext",
+             "Operating system code and working storage",
+             "kern", "%s bytes of code and %s of scratch. They share one "
+             "[[segment]], and a segment reaches 64KB - so this block is the "
+             "one hard ceiling in the whole system, and code is moved out of "
+             "it rather than allowed to grow past it."
              % ("{:,}".format(lad["text"]), "{:,}".format(lad["bss"]))),
-            (lad["cold_seg"] * 16, lad["fat_seg"] * 16, "kcold", ".cold",
-             "kern", "%s bytes of code with a CS of its own - resident, but "
-             "reached far, so it costs the kernel's own segment nothing."
-             % "{:,}".format(lad["cold"])),
+            (lad["cold_seg"] * 16, lad["fat_seg"] * 16, "kcold",
+             "Operating system code, second block",
+             "kern", "%s bytes of code that lives in a [[segment]] of its own "
+             "and is reached the long way round. It is always resident; what "
+             "it buys is that none of it counts against the 64KB ceiling next "
+             "door." % "{:,}".format(lad["cold"])),
         ]
         if since("drvboot"):
             parts.append((lad["fat_seg"] * 16, lad["low_seg"] * 16, "fatw",
-                          "FAT snapshot", "data",
-                          "The mounted volume's FAT, read here at drv_boot. "
-                          "These are the bytes .ovlw was in."))
+                          "Disk index", "data",
+                          "The [[file allocation table]] of the floppy that "
+                          "has just been [[mount|mounted]] - which is what "
+                          "makes its files openable. THESE ARE THE BYTES THE "
+                          "START-UP CODE WAS IN."))
         else:
             parts.append((lad["fat_seg"] * 16, lad["low_seg"] * 16, "fatwin",
-                          "FAT window (empty until the mount)", "free",
-                          "%s bytes reserved for a mounted volume's FAT. "
-                          "Nothing has mounted anything yet, so what is "
-                          "actually in it is the boot overlay."
+                          "Room for the disk index", "free",
+                          "%s bytes set aside for the [[file allocation table]]"
+                          " of whatever disk gets [[mount|mounted]] first. "
+                          "Nothing has been mounted yet, so what is actually "
+                          "sitting in it is [[overlay|start-up code]]."
                           % "{:,}".format((lad["low_seg"] - lad["fat_seg"]) * 16)))
         parts.append((lad["low_seg"] * 16, lad["vgabuf_seg"] * 16, "lowbss",
-                      ".lowbss - task stacks, disk buffers", "kern",
-                      "Reached through SS, not DS. The mount-owned buffers sit "
-                      "at the BOTTOM of it so the boot overlay's window can "
-                      "run on into them (SPEC.md 2.1.2)."))
+                      "Stacks and disk buffers", "kern",
+                      "Every running task's [[stack]], and the buffers a "
+                      "[[mount]] fills. Those buffers sit at the BOTTOM of "
+                      "this block on purpose, so that the start-up code above "
+                      "can run on into them and be thrown away by the same "
+                      "mount that needs the room."))
         parts.append((lad["vgabuf_seg"] * 16, lad["kend"] * 16, "vgabuf",
-                      ".vgabuf - planar decoder", "kern",
-                      "%s bytes the VGA blit decoder writes rows into."
+                      "Graphics scratch", "kern",
+                      "%s bytes the picture-drawing code assembles rows in "
+                      "before pushing them at the [[framebuffer]]. A machine "
+                      "with no colour card never needs it, and gets it back."
                       % "{:,}".format(lad["vgabuf"])))
         for a, b, rid, lab, cls, note in parts:
             if a >= img_end and not since("kernel"):
@@ -825,44 +924,48 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
             ov_b = ov_a + lad["ovlw"]
             if since("kernel") or img_end > ov_a:
                 add(ov_a, min(ov_b, img_end) if not since("kernel") else ov_b,
-                    "ovlw", ".ovlw - the boot overlay, running", "ovl",
-                    "%s bytes of code that ride the kernel's own contiguous "
-                    "read onto FAT_SEG and are FORFEIT at the first mount "
-                    "(SPEC.md 2.5.3). It is LONGER than the FAT window, so it "
-                    "lies across the mount-owned buffers at the bottom of "
-                    ".lowbss as well - which is why those three were moved "
-                    "there (SPEC.md 2.1.2). Most of kmain's init runs from "
-                    "here, and drv_boot is the one call that does NOT, "
-                    "because it is the call that overwrites it."
+                    "ovlw", "Start-up code - borrowed space", "ovl",
+                    "%s bytes of [[overlay|start-up code]]. It rides in on the "
+                    "same continuous read as everything else and lands on the "
+                    "space reserved for the disk index - so it costs nothing "
+                    "permanent, and it is FORFEIT the moment a disk is "
+                    "[[mount|mounted]]. It is also LONGER than that space, so "
+                    "it lies across the buffers below as well. Most of the "
+                    "start-up work you can click on runs from here; the one "
+                    "step that does not is the mount itself, because that is "
+                    "the step that overwrites it."
                     % "{:,}".format(lad["ovlw"]), layer=1)
         # `.ovl`, the other half, is a band inside the blob for the same
         # reason: it is a passenger, not a region.
         if since("blob") and not since("unblob") and lad["ovl"]:
             ova = lad["kend"] * 16 + ovl_at
             add(ova, ova + lad["ovl"], "ovl",
-                ".ovl - boot overlay, in the blob", "ovl",
-                "%s bytes at offset %d of the loader's %d, and the half that "
-                "has to OUTLIVE the mount: drv_boot and the two splash "
-                "captions live here. It goes back to the heap with the rest "
-                "of the blob at spl_finish."
-                % ("{:,}".format(lad["ovl"]), ovl_at,
-                   cons["BOOT2_SECS"] * vol["bps"]), layer=1)
+                "Start-up code that outlives the mount", "ovl",
+                "%s bytes riding inside the loader's %s, and the half that has "
+                "to survive the [[mount]]: the mount itself is here, and so "
+                "are the two captions the loading screen shows while it waits. "
+                "It goes back to the [[memory pool]] with the rest of the "
+                "loader once the desktop is ready to draw."
+                % ("{:,}".format(lad["ovl"]),
+                   "{:,}".format(cons["BOOT2_SECS"] * vol["bps"])), layer=1)
         if not since("kernel") and img_end < lad["kend"] * 16:
             add(img_end, lad["kend"] * 16, "pending",
-                "still on the floppy", "free",
-                "%d of %d sectors have landed. The bar's numerator is this "
-                "number." % (loaded_sectors, vol["kernel"]["sectors"]))
+                "Still on the floppy", "free",
+                "%d of %d [[sector|sectors]] have landed. The number on the "
+                "loading bar is this one."
+                % (loaded_sectors, vol["kernel"]["sectors"]))
 
     # --- stage 2's blob, on the heap's floor ---------------------------------
     blob_a = lad["kend"] * 16
     blob_b = blob_a + cons["BOOT2_SECS"] * vol["bps"]
     if since("blob") and not since("unblob"):
         add(blob_a, blob_b, "blob",
-            "Stage 2: loader + loading screen + .ovl", "ovl",
-            "%d sectors read straight to the heap's FLOOR, so the bytes "
-            "rejoin the arena when kmain gives them back rather than "
-            "stranding everything above them (SPEC.md 2.9.5)."
-            % cons["BOOT2_SECS"])
+            "Loader, loading screen and start-up code", "ovl",
+            "%d [[sector|sectors]] read straight to what will become the FLOOR "
+            "of the [[memory pool]]. That address is chosen: when these bytes "
+            "are given back they rejoin one long free run, where the same "
+            "block at the other end of the pool would strand everything above "
+            "it." % cons["BOOT2_SECS"])
 
     # --- the heap, as the machine reported it --------------------------------
     if since("heap") and heap and heap.get("base") and heap.get("top"):
@@ -876,18 +979,20 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
                     key=lambda x: x[0])
         at = base
         for ca, cb, c in cl:
-            add(at, min(ca, htop), "free%06x" % at, "arena - free", "free",
-                "Unclaimed. [mem_base] is %04X and [mem_top] %04X, both read "
-                "live out of the running kernel." % (heap["base"], heap["top"]))
+            add(at, min(ca, htop), "free%06x" % at, "Memory pool - free",
+                "free",
+                "Nobody has asked for this yet. The pool's two ends are read "
+                "live out of the running machine at this exact point, not "
+                "worked out from the layout.")
             add(ca, cb, "claim%04x" % c["seg"],
-                tags.get(c["own"], "heap claim"), "claim",
-                "%s bytes at %04X:0000, owner %s - read out of `mem_tab` at "
-                "this exact moment, not inferred."
-                % ("{:,}".format(cb - ca), c["seg"],
-                   tags.get(c["own"], "%04X" % c["own"])))
+                _claim_name(tags.get(c["own"])), "claim",
+                "%s bytes handed out as a single [[claim]], starting at "
+                "[[segment|segment]] %04X. Read out of the operating system's "
+                "own table of who owns what, at this exact point."
+                % ("{:,}".format(cb - ca), c["seg"]))
             at = max(at, cb)
-        add(at, htop, "free%06x" % at, "arena - free", "free",
-            "%s bytes unclaimed at the top of the arena."
+        add(at, htop, "free%06x" % at, "Memory pool - free", "free",
+            "%s bytes nobody has asked for, at the top of the pool."
             % "{:,}".format(max(0, htop - at)))
     else:
         # Before mem_init there is no arena, only what nobody has taken. It
@@ -895,9 +1000,10 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
         lo = blob_b if since("blob") else 0x7E00
         hi = (ram_kb * 64 - cons["RELOC_ADJ"]) * 16 + 0x7C00 - cons["BOOT_STACK"] \
             if since("reloc") else top
-        add(lo, hi, "unclaimed", "not spoken for", "free",
-            "Nothing has asked for any of this yet - mem_init has not run, so "
-            "there is no arena, only memory nobody is using.")
+        add(lo, hi, "unclaimed", "Not spoken for", "free",
+            "There is no [[memory pool]] yet - nothing has been set up to hand "
+            "memory out - so this is not free space so much as memory nobody "
+            "has touched.")
 
     R.sort(key=lambda r: (r["a"], r["b"]))
     return R
@@ -906,6 +1012,49 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
 # -----------------------------------------------------------------------------
 # 4. The PAGE's words.
 # -----------------------------------------------------------------------------
+
+def zooms(regs, ram, want=2):
+    """Which slice(s) of the 640KB are worth magnifying for this stage.
+
+    THE ZOOM FOLLOWS THE CONTENT. Early on everything of ours is 512 bytes at
+    the bottom and 2.5KB at the very top - two specks 630KB apart, and one
+    window over both of them magnifies nothing. So the occupied regions are
+    clustered by the gaps between them and each cluster gets a window of its
+    own, up to two; beyond that the smallest gaps are closed until two are
+    left, because three strips stop reading as "detail" and start reading as
+    a second map.
+    """
+    used = sorted((r["a"], r["b"]) for r in regs
+                  if r["cls"] not in ("free",) and r["id"] != "unclaimed")
+    if not used:
+        return []
+    runs = [list(used[0])]
+    for a, b in used[1:]:
+        if a - runs[-1][1] > ram // 24:         # 27KB at 640KB
+            runs.append([a, b])
+        else:
+            runs[-1][1] = max(runs[-1][1], b)
+    while len(runs) > want:
+        i = min(range(len(runs) - 1),
+                key=lambda j: runs[j + 1][0] - runs[j][1])
+        runs[i][1] = runs[i + 1][1]
+        del runs[i + 1]
+    out = []
+    for a, b in runs:
+        pad = max((b - a) // 12, 1024)
+        a = max(0, (a - pad) & ~0x7FF)
+        b = min(ram, (b + pad + 0x7FF) & ~0x7FF)
+        if b - a < 8192:                        # never magnify past legibility
+            mid = (a + b) // 2
+            a, b = max(0, mid - 4096), min(ram, mid + 4096)
+        # Padding can bring two windows together; two strips a hair apart
+        # magnify the same thing twice and read as a mistake.
+        if out and a <= out[-1]["b"] + 2048:
+            out[-1]["b"] = max(out[-1]["b"], b)
+        else:
+            out.append({"a": a, "b": b})
+    return out
+
 
 def strings():
     """The loading screen's own text, out of the kernel that draws it.
@@ -934,176 +1083,463 @@ def strings():
     }
 
 
-# What each measured phase is DOING. Keyed by the phase's own name, so a note
-# cannot outlive the thing it describes: a phase that goes takes its note with
-# it, and one that arrives shows up in check_coverage() before it ever renders.
-NOTES = {
-    "post": "The machine's own ROM: the self test, the interrupt table, the "
-            "equipment word, and then INT 19h - which reads ONE sector from "
-            "the first drive to 0000:7C00, checks it ends AA55, and jumps to "
-            "it. Everything on this row is the ROM's; os8088 has not executed "
-            "an instruction yet. The mechanical figure beside it is the "
-            "drive's - a full-stroke recalibrate and one sector.",
-    "relocate": "cli, then the BIOS tick at 0040:006C into BP as SPEC.md "
-                "15.4's t=0 - read here because everything expensive is below "
-                "it. Then INT 12h for the memory size, the refusal for a "
-                "machine too small (SPEC.md 2.7.1), and `rep movsw` of 256 "
-                "words to the top of RAM. THE COPY KEEPS THE SAME OFFSET, so "
-                "every `org 0x7C00` label still resolves and only the segment "
-                "register changes; a computed far return lands in the copy.",
-    "stage 1: sector code": "The sector's own arithmetic between disk calls: "
-                            "the DL range check (SPEC.md 2.9.11 - a Packard "
-                            "Bell 286 hands over 0x61, which is not a drive), "
-                            "the diskette parameter table copy, the data "
-                            "area's LBA out of the four BPB fields, the run "
-                            "bounds - and, at the end, SPEC.md 2.9.7's word "
-                            "sum over everything it just read.",
-    "int 13h reset": "AH=00: recalibrate the drive before trusting it. Cheap, "
-                     "and the one call here that moves no data.",
-    "int 13h read": "AH=02, a multi-sector read. COST A DISK CALL IN CALLS, "
-                    "NOT SECTORS: the head is where the head is, and one call "
-                    "that moves eighteen sectors costs about what one moving "
-                    "six does. CF=0 is the BIOS saying the whole request "
-                    "completed - and AL is NOT (SPEC.md 18.91): trusting AL "
-                    "took a 16KB read from 8.29s to 2.09 when it was fixed.",
-    "stage 2: loader code": "Stage 2's own code between calls: the text mode "
-                            "set, the parameter table again, and the run "
-                            "bound - which `push sp` widens from the TRACK to "
-                            "the CYLINDER on an 8086 or 8088 (SPEC.md "
-                            "18.93.2), because the FDC's multi-track bit "
-                            "carries a read onto the other head at EOT. That "
-                            "one test halves the number of disk calls.",
-    "stage 2: loop": "The last of the load, plus the hand-over: t=0 into "
-                     "0060:000C, the blob's own segment into [spl_fseg] so "
-                     "the kernel can still reach the loading screen, SPEC.md "
-                     "18.93.1's canary, and int 08h given back before the "
-                     "far jump into kmain.",
-    "splash tick": "One notch of the loading bar. The FIRST one is the "
-                   "expensive one - it sets the video mode, draws the dialog, "
-                   "the trough and the caption; the rest redraw a few pixels "
-                   "of fill and four digits. Both are BLITTED: a mode 12h "
-                   "BIOS teletype character costs 40 ms on this machine, and "
-                   "not calling it took a floppy boot from 21,959 ms to "
-                   "16,084 (SPEC.md 15.3.2).",
-    "dsk_boot_from_x": "Which volume did we come off (SPEC.md 52.10.3)? On a "
-                       "floppy this stores one byte.",
-    "cpu_detect": "The CPU tier (SPEC.md 41). BEFORE sched_init, because this "
-                  "is the last moment at which no kernel ISR is installed.",
-    "xm_sniff": "One INT 15h AH=88h: is there memory above 1MB? Exact rather "
-                "than heuristic, and it needs no A20 gate to ask.",
-    "dsk_dpt_init_x": "INT 1Eh becomes the kernel's, at the same address and "
-                      "for the same reason as stage 1's copy - idempotent now "
-                      "rather than necessary.",
-    "sched_init": "Pre-emption is live from here: int 08h is hooked and the "
-                  "task table cleared.",
-    "sch_idle_start": "The idle task (SPEC.md 8.1.1). Inert until ui_task "
-                      "starts sleeping - which is what makes a finished "
-                      "desktop 96.9% HALTED instead of spinning.",
-    "evq_init": "The event queue: one ring of 128 bytes in .lowbss, which "
-                "every mouse and key event will pass through for the rest of "
-                "the session.",
-    "clk_init": "Probe the RTC, or fall back to the fixed date - before the "
-                "mode set, so the first menu bar already carries a clock.",
-    "vid_init": "Probe the adapter and publish the live geometry (SPEC.md "
-                "39). This re-runs what the splash already did EXCEPT the "
-                "mode set: the loading screen stays up and keeps ticking.",
-    "vid_ctx_init": "Bank that geometry as display 0's (SPEC.md 39.12).",
-    "vid_probe_avail": "Which OTHER adapters this machine has - AFTER the "
-                       "mode set, which is the whole correctness argument: a "
-                       "VGA in mode 12h decodes A000 only, so B000 and B800 "
-                       "are free for a second card to answer at.",
-    "vid_disp_init": "If the machine has both mono cards, programme the "
-                     "second one too (SPEC.md 39.13).",
-    "mem_init_x": "INT 12h, and the empty claim map. [mem_base] is raised "
-                  "OVER the blob for the duration, which is why stage 2 was "
-                  "read to the heap's FLOOR: the bytes rejoin the long run "
-                  "when they are given back, rather than stranding every "
-                  "claim above them (SPEC.md 50.6.3).",
-    "mod_init_x": "Point every on-demand module slot at mod_gone. `-f bin` "
-                  "zeroes no .bss, so until this runs those slots hold "
-                  "whatever was in memory - and they are far-call targets.",
-    "font_init": "The typeface (SPEC.md 6.2) into font_glyphs, in .lowbss.",
-    "ovl_font_init": "The typeface this BUILD carries, out of the overlay - "
-                     "so it needs no INT 10h and the machine's own ROM font "
-                     "is never consulted.",
-    "wm_init": "The window manager's state: no windows, one clip region.",
-    "band_init": "The 1bpp band composer's 2KB claim (SPEC.md 5.9.2). A "
-                 "refusal is survivable - the fifteen-call title bar is what "
-                 "runs then.",
-    "menu_init": "The menu bar owner, so the first wm_paint_all already has "
-                 "a bar to draw.",
-    "inst_init": "The instance table: no app instances exist until launched.",
-    "splf_step": "A notch of the bar spent by hand, at a point where kmain "
-                 "knows something finished. There are three, and the bar's "
-                 "denominator has SPL_POST reserved for them.",
-    "ovl_spl_msg_mouse": "Write the caption for the wait that is about to "
-                         "happen. Composed AFTER the notch that precedes it: "
-                         "spl_mdraw refuses while the screen is not the "
-                         "splash's, so a line composed before it is composed, "
-                         "never drawn (SPEC.md 15.6.4).",
-    "mouse_init": "SPEC.md 9.4.1's identify window. The serial reset holds "
-                  "DTR/RTS low, then the port is listened to for a mouse's "
-                  "'M'. THE LONGEST PHASE OF THE BOOT THAT IS NOT THE DISK - "
-                  "585-619 ms with a mouse on the other end and about 1,190 "
-                  "without, and it charges the bar a notch a TICK rather than "
-                  "sitting still (SPEC.md 15.3.3).",
-    "ovl_spl_msg_fdd": "...and the caption for the second stall: SPEC.md "
-                       "18.97's TRACK 0 question about unit 1.",
-    "desk_init": "Volume zones for the desktop (SPEC.md 26.1) - which asks "
-                 "each floppy unit whether it is there. On a machine whose "
-                 "second drive is absent this is the longest single wait in "
-                 "the whole boot; here it is one drive answering quickly.",
-    "dock_init": "The dock strip's scratch (SPEC.md 30).",
-    "files_init_x": "The Disk module's state. No window is open at boot.",
-    "loader_init_x": "The package loader's state.",
-    "drv_init_x": "The driver table (SPEC.md 51) - BEFORE snd_init, whose "
-                  "tone route reads the published service table on its first "
-                  "tick.",
-    "drv_snd_sniff": "Is there an FM chip at 388h? If so row 0 becomes WANTED "
-                     "by default - which a SYSTEM.CFG that says otherwise "
-                     "then overwrites.",
-    "snd_init": "The sound layer publishes snd_live last; snd_tick has been "
-                "running gated since sched_init hooked int 08h.",
-    "drv_boot_x": "MOUNT A:, READ SYSTEM.CFG, AND LOAD WHAT IT ASKS FOR "
-                  "(SPEC.md 51.3). The mount is what takes the FAT window and "
-                  "the buffers above it - so this is the call that overwrites "
-                  ".ovlw, the boot overlay half that has been running kmain's "
-                  "init for the last dozen phases. That is exactly why THIS "
-                  "body lives in the blob and not in that window: a routine "
-                  "cannot be the one that overwrites itself.",
-    "xm_boot_x": "The store above 1MB, if xm_sniff found any - an OVERLAY "
-                 "rather than a driver, so no table row and nothing to decide.",
-    "thm_set": "Resolve the palette from the theme kind, once, before "
-               "anything is drawn.",
-    "spl_finish": "The bar to 100% and the screen handed back. The paint "
-                  "below covers every pixel of it, so the loading screen "
-                  "needs no erase.",
-    "mem_unblob_x": "...AND STAGE 2 GOES BACK TO THE HEAP. There is nothing "
-                    "to free: the loader is at the arena's floor, so putting "
-                    "[mem_base] back on that floor and compacting turns the "
-                    "release into part of the long run instead of a hole.",
-    "gfx_lock": "Take the drawing lock: one frame, not a race with a tick.",
-    "wm_paint_all": "THE FIRST DESKTOP FRAME - the pattern, the menu bar, the "
-                    "volume icons, the dock. Nothing repaints more of the "
-                    "screen than it changed after this; a full repaint is a "
-                    "regression against a documented number, not a neutral "
-                    "refactor.",
-    "gfx_unlock": "The frame is on the glass, and SPEC.md 15.4's boot timer "
-                  "stops HERE - not after the cursor. The question is when "
-                  "the first desktop FRAME is finished, and the cursor is not "
-                  "the desktop.",
-    "cursor_show": "The arrow, drawn by the mouse ISR from here on.",
-    "drv_notice_x": "...and only NOW say what did not load: a window needs a "
-                    "screen that has been painted.",
+# -----------------------------------------------------------------------------
+# THE GLOSSARY, and the rule the page's prose is written to.
+#
+# The reader is assumed to be technically literate and to know NOTHING about
+# this machine or this operating system. So the prose says what happens in
+# plain words, and a term survives only where it IS the subject - in which
+# case it is marked `[[term]]` and gets a definition here that a reader can
+# take in without looking anything else up.
+#
+# TWO RULES, BOTH CHECKED RATHER THAN INTENDED. A definition may not lean on
+# another marked term (`--selfcheck` fails on one that does), because a
+# glossary that needs a glossary has not explained anything. And no page text
+# may cite a specification section, a source file or a comment: the reader has
+# none of those, and what the page describes is what the machine does NOW -
+# when a thing came to be done that way is not on it.
+# -----------------------------------------------------------------------------
+
+GLOSS = {
+    '64 KB boundary':
+        'The chip that moves disk data into memory cannot carry a '
+        'transfer across an address that is a multiple of 65,536. A run '
+        'that would straddle one has to be split, which is why one read '
+        'here is a single sector.',
+    'BIOS disk call':
+        "The built-in software's disk service. A program asks it for a "
+        'run of sectors and it drives the controller, so nobody has to '
+        'know how the controller works.',
+    'BIOS memory call':
+        'The built-in software\'s answer to "how much memory is fitted", '
+        'in kilobytes. Everything on this machine, including this '
+        'operating system, sizes itself from that one number.',
+    'BIOS screen call':
+        "The built-in software's screen service - setting a display mode, "
+        'drawing a character. It is correct and it is slow: one character '
+        'in graphics mode costs about 40 milliseconds here.',
+    'block copy':
+        'A single instruction that copies a run of memory and repeats '
+        'until a counter runs out. One instruction moves the whole '
+        '512-byte boot sector.',
+    'boot sector':
+        'The first sector of a disk. The firmware reads exactly this one, '
+        'checks it ends with a known pair of bytes, and jumps into it - '
+        'which is all the machine knows how to do on its own.',
+    'checksum':
+        'Adding every value in a block together and comparing the total '
+        'against one worked out in advance. It catches a block that '
+        'arrived incomplete, which a disk can do without reporting any '
+        'error at all.',
+    'claim':
+        'A block of memory handed out to something that asked for it. The '
+        'pool tracks who owns each one, and whether it may be shuffled to '
+        'close up gaps.',
+    'controller':
+        'The chip between the processor and the drive. It is told a track '
+        'and a sector and it delivers the bytes; almost every disk figure '
+        'on this page is really the controller waiting for the disk to '
+        'turn.',
+    'cylinder':
+        'Both surfaces of the disk at the same head position, taken '
+        'together. A floppy has two sides, so a cylinder is two tracks - '
+        'and the drive can switch sides electrically, without moving '
+        'anything.',
+    'driver':
+        'A separate piece of software, loaded from disk only if asked '
+        'for, that teaches the operating system about one piece of '
+        'hardware.',
+    'file allocation table':
+        'The index at the front of a disk that says which chunks belong '
+        'to which file. It has to be read into memory before any file can '
+        'be opened, and it is why mounting a disk needs space.',
+    'firmware scratch':
+        "A small area just above the interrupt table where the machine's "
+        'built-in software keeps its running state - including the count '
+        'of timer ticks since power-on.',
+    'floppy settings table':
+        'A small table of drive timings the disk service re-reads before '
+        'every single operation, found through an entry in the interrupt '
+        'table. One byte of it is the highest sector number the '
+        'controller may touch on a track.',
+    'framebuffer':
+        'The block of memory the display hardware reads to decide what is '
+        'on the screen. Writing to it is drawing.',
+    'head':
+        'The part that reads the surface. There are two, one per side, '
+        'and only one is ever active.',
+    'interrupt':
+        'A signal that makes the processor stop what it is doing, run a '
+        'small routine, and carry on. Hardware raises them (a timer, a '
+        'key, the mouse) and programs can raise them deliberately to ask '
+        'the firmware for a service.',
+    'interrupt table':
+        'A list of 256 addresses at the very bottom of memory, one per '
+        'interrupt, saying which routine handles it. Changing an entry '
+        'redirects that service to your own code.',
+    'kernel':
+        'The operating system itself, as opposed to the small loader that '
+        'fetches it or the programs that run on top of it.',
+    'memory pool':
+        'The run of memory left over once the operating system has placed '
+        'itself, out of which every later request is satisfied.',
+    'mount':
+        "Reading a disk's index into memory so its files can be opened. "
+        'Until a disk is mounted the machine knows nothing about what is '
+        'on it.',
+    'multi-sector read':
+        'Asking for several sectors in one request instead of one at a '
+        'time. The cost is dominated by getting the head to the right '
+        'place, so eighteen sectors in one call costs barely more than '
+        'six.',
+    'overlay':
+        'Code that is only needed for a while and is deliberately put '
+        'somewhere that will be reused. It costs nothing permanent, but '
+        'whatever runs from it must be finished before the space is '
+        'taken.',
+    'sector':
+        'The smallest chunk a disk will read or write in one go. On these '
+        'floppies a sector is 512 bytes, and the drive can only ever hand '
+        'over whole ones.',
+    'segment':
+        'On this processor an address is written as two numbers - a base '
+        'and an offset - and the base counts in 16-byte steps. So '
+        '0060:0000 is base 0x60 times 16, which is byte 1,536. It is why '
+        'the addresses here jump in units of 16.',
+    'stack':
+        'The scratch area a program uses for return addresses and '
+        'temporary values. It grows downwards from a fixed top, so where '
+        'it is placed decides what it can safely overwrite.',
+    'task switching':
+        'Running several programs by giving each a slice of time and '
+        'swapping between them on the timer interrupt.',
+    'tick':
+        'The timer interrupt, 18.2 times a second. It is the clock '
+        "everything on this machine is measured in, and the boot's own "
+        'stopwatch counts them.',
+    'track':
+        'One ring of sectors at a fixed distance from the middle of the '
+        'disk. Reading within a track is nearly free; moving to a '
+        'different one means physically stepping the head.',
 }
 
 
-# Where a phase's CODE lives, and therefore which block of the memory map to
-# light up when its step is selected. The section comes out of nasm's own map
-# (tools/os88sym.py), so this is the tree's answer rather than the page's -
-# which is the whole point of showing it: most of kmain's init runs from
-# `.ovlw`, a block that is about to become a FAT snapshot, and nothing in the
-# source of any one routine says so.
+# Marks are matched case-insensitively, so a sentence may open with one.
+_GLOSS_LC = dict((k.lower(), v) for k, v in GLOSS.items())
+
+TERM = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
+
+
+def mark(text):
+    """`[[sector]]` and `[[mount|Mounting]]` -> a span the page can define.
+
+    Returns HTML, so everything else in the string is escaped here and the
+    page sets it without escaping again. A marked term with no definition is
+    a refusal rather than a silent plain word - the whole point of the mark
+    is that the reader can hover it.
+    """
+    def one(m):
+        show = m.group(2) or m.group(1)
+        key = m.group(1).lower()
+        if key not in _GLOSS_LC:
+            raise Stale("the prose marks `%s`, which has no definition" % key,
+                        "GLOSS in tools/os88ladder.py",
+                        "add one - in words that do not themselves need "
+                        "looking up - or take the marks off and say it plainly")
+        return '<b class="gl" tabindex="0" data-g="%s">%s</b>' % (
+            esc(key), esc(show))
+    return TERM.sub(one, esc(text))
+
+
+# What each measured phase is DOING, in the page's own register: plain
+# words, marked terms where a term is the subject, and nothing about
+# where any of it is written down. Keyed by the phase's own name, so a
+# note cannot outlive the thing it describes.
+NOTES = {
+    'post':
+        "The machine's own built-in software, from power-on: it tests "
+        'every byte of memory, fills in the [[interrupt table]], works '
+        'out what hardware is attached, and finally reads the [[boot '
+        'sector]] of the floppy into memory and jumps into it. None of '
+        'os8088 has run yet. The mechanical figure on this row is the '
+        "drive's own - the head stepping out and one sector passing "
+        'under it.',
+    'relocate':
+        'Interrupts off, and then the first thing worth recording: the '
+        "current [[tick]] count, which is where the boot's own "
+        'stopwatch starts. It is read here because everything expensive '
+        'is below it. Then the [[BIOS memory call]], a refusal if the '
+        'machine is too small to finish the job, and a [[block copy]] '
+        'of all 512 bytes to the very top of memory. THE COPY KEEPS THE '
+        'SAME OFFSET, so every address inside the sector still resolves '
+        'and only its [[segment]] changes.',
+    'stage 1: sector code':
+        "Out of harm's way, the sector replaces the [[floppy settings "
+        "table]]: it copies the machine's own - those timings belong to "
+        'these drives and are not ours to invent - and changes one '
+        'byte, the highest sector number the [[controller]] may touch '
+        'on a track. The original IBM PC and XT say eight. This disk '
+        'has nine, and a read that ran past the eighth would come back '
+        "with the other side's sectors and no error at all.",
+    'int 13h reset':
+        'Step the head back to track zero before trusting the drive. '
+        'The one disk call here that moves no data.',
+    'int 13h read':
+        'A [[multi-sector read]] through the [[BIOS disk call]]. COST A '
+        'DISK CALL IN CALLS, NOT SECTORS: the head is where the head '
+        'is, so one call moving eighteen [[sector|sectors]] costs about '
+        'what one moving six does. The firmware reporting success is '
+        'what says the whole request completed - the count it hands '
+        'back alongside is not reliable, and believing it costs several '
+        'times the traffic.',
+    'stage 2: loader code':
+        "The loader's own work between disk calls: a plain text screen "
+        'while the sectors land, the [[floppy settings table]] again, '
+        'and then how far one disk call may run. On an 8086 or 8088 it '
+        'widens that from a [[track]] to a whole [[cylinder]] - the '
+        '[[controller]] will carry a read onto the second [[head]] by '
+        'itself - which halves the number of calls the rest of the load '
+        'takes.',
+    'stage 2: loop':
+        "The last of the load, and the handover. The stopwatch's "
+        'starting value is written where the [[kernel]] will look for '
+        'it; the loader records where it has ended up, so the kernel '
+        'can still reach the loading screen; the whole load is verified '
+        'against a value planted in the middle of the file, and re-read '
+        'more cautiously if it fails; and the timer [[interrupt]] is '
+        'handed back.',
+    'splash tick':
+        'One notch of the loading bar. THE FIRST ONE IS THE EXPENSIVE '
+        'ONE - it switches the display into graphics, draws the frame, '
+        'the trough and the caption. The rest redraw a few pixels of '
+        'fill and four digits. Both are drawn as pixels rather than '
+        'asked of the [[BIOS screen call]], which charges about 40 '
+        'milliseconds a character on this machine.',
+    'dsk_boot_from_x':
+        'Which disk did we come off? On a floppy this stores a single '
+        'byte.',
+    'cpu_detect':
+        'Work out which processor this is. It happens here because this '
+        "is the last moment at which none of the [[kernel]]'s own "
+        '[[interrupt]] handlers are installed yet.',
+    'xm_sniff':
+        'One firmware call: is there any memory above the first '
+        'megabyte? An exact answer rather than a guess, and asking it '
+        'this way needs none of the hardware gymnastics that reaching '
+        'such memory does.',
+    'dsk_dpt_init_x':
+        "The [[floppy settings table]] becomes the [[kernel]]'s, at the "
+        'same address and for the same reason the loader took it.',
+    'sched_init':
+        '[[task switching|Task switching]] is live from here: the '
+        'kernel takes the timer [[interrupt]] and clears its table of '
+        'tasks.',
+    'sch_idle_start':
+        'The task that runs when nothing else wants to. It does nothing '
+        'until the desktop starts sleeping between events - which is '
+        'what lets a finished desktop spend most of its time halted '
+        'instead of spinning.',
+    'evq_init':
+        'The event queue: one 128-byte ring that every mouse movement '
+        'and key press will pass through for the rest of the session.',
+    'clk_init':
+        'Read the real-time clock, or fall back to a fixed date. Before '
+        'the display mode is set, so the very first menu bar already '
+        'carries the right time.',
+    'vid_init':
+        'Work out which display adapter is fitted and publish its real '
+        'dimensions - three are supported and one binary drives all of '
+        'them, so almost nothing in the kernel may assume a size. The '
+        'loading screen stays up and keeps ticking.',
+    'vid_ctx_init':
+        "Record that geometry as the first display's.",
+    'vid_probe_avail':
+        'Which OTHER adapters are fitted. It runs AFTER the mode is '
+        'set, and that is the whole correctness argument: a colour card '
+        'in graphics mode stops answering at the addresses a monochrome '
+        'card uses, so the two stop being mistakable for one another.',
+    'vid_disp_init':
+        'If the machine has both monochrome cards, program the second '
+        'one as well. It claims nothing and draws nothing, so the '
+        'second monitor comes up scanning and black.',
+    'mem_init_x':
+        "The [[memory pool]]. The loader is sitting on the pool's "
+        'floor, so the pool starts just above it - which is why the '
+        'loader was read to that address in the first place. When its '
+        'space is given back it rejoins one long free run, instead of '
+        'leaving a hole with everything else stranded above it.',
+    'mod_init_x':
+        'Point every optional-module slot at a safe stub. Nothing '
+        'clears this memory, so until this runs those slots hold '
+        'whatever happened to be there - and they are jump targets.',
+    'font_init':
+        "The typeface, into the kernel's own storage.",
+    'ovl_font_init':
+        'The typeface this build carries, read out of the '
+        '[[overlay|start-up code]] - so it needs nothing from the '
+        "firmware and the machine's own built-in font is never "
+        'consulted.',
+    'wm_init':
+        "The window manager's state: no windows, one clipping region.",
+    'band_init':
+        '2 KB for the title-bar composer, which draws a whole bar in '
+        'one pass instead of fifteen. A refusal is survivable - the '
+        'fifteen-pass version still exists.',
+    'menu_init':
+        "The menu bar's owner, so the first repaint already has a bar "
+        'to draw.',
+    'inst_init':
+        'The table of running programs. Nothing is running yet.',
+    'splf_step':
+        'One notch of the loading bar spent by hand, where the kernel '
+        "knows something has finished. There are three, and the bar's "
+        'denominator has room reserved for them.',
+    'ovl_spl_msg_mouse':
+        'Write the caption for the wait that is about to happen. It is '
+        'composed AFTER the notch that precedes it, never before: the '
+        'loading screen refuses to draw while it does not own the '
+        'screen, so a line composed too early is composed and never '
+        'seen.',
+    'mouse_init':
+        'Look for a serial mouse. The port is reset - which holds two '
+        'of its control lines low for about a sixth of a second - and '
+        'then listened to for the single letter a mouse sends to '
+        'introduce itself. THE LONGEST STRETCH OF THE BOOT THAT IS NOT '
+        'THE DISK: about 0.6 s with a mouse on the other end and about '
+        'twice that without one. It charges the bar a notch per '
+        '[[tick]] rather than sitting still.',
+    'ovl_spl_msg_fdd':
+        '...and the caption for the second wait: asking each floppy '
+        'drive whether it is there at all.',
+    'desk_init':
+        'Work out which drives belong on the desktop, which means '
+        'asking each floppy unit whether it exists. A drive heading for '
+        "the answer 'no' takes nearly two seconds to say so, which on a "
+        'machine with an empty second bay is the longest single wait in '
+        'the whole boot; here it is one drive answering quickly.',
+    'dock_init':
+        "The dock strip's working storage.",
+    'files_init_x':
+        "The file browser's state. No window is open at boot.",
+    'loader_init_x':
+        "The program loader's state.",
+    'drv_init_x':
+        'The [[driver]] table - before the sound layer, whose tone '
+        'routine reads it on its very first timer tick.',
+    'drv_snd_sniff':
+        'Is there a music chip at the usual address? If so its '
+        '[[driver]] becomes wanted by default - which the settings file '
+        'then overrides if it says otherwise, so this is only ever the '
+        'answer on a machine nobody has told.',
+    'snd_init':
+        'The sound layer publishes itself last. Its timer routine has '
+        'been running, and deliberately doing nothing, since task '
+        'switching started.',
+    'drv_boot_x':
+        'MOUNT THE FLOPPY, READ THE SETTINGS FILE, AND LOAD WHAT IT '
+        'ASKS FOR. [[mount|Mounting]] is what claims the space the '
+        "disk's [[file allocation table|index]] goes in - and that "
+        'space is currently holding [[overlay|start-up code]] that has '
+        'been running the last dozen steps. So this is the call that '
+        'destroys it, and that is exactly why THIS routine lives '
+        'somewhere else: a routine cannot be the one that overwrites '
+        'itself. Nothing loaded here can stop the boot.',
+    'xm_boot_x':
+        'Set up the memory above the first megabyte, if any was found. '
+        'A failure is silent by design.',
+    'thm_set':
+        'Resolve the colour scheme from the setting, once, before '
+        'anything is drawn.',
+    'spl_finish':
+        'The bar to 100% and the screen handed back. The desktop below '
+        'covers every pixel of it, so the loading screen needs no '
+        'erasing.',
+    'mem_unblob_x':
+        "...AND THE LOADER'S SPACE GOES BACK. There is nothing to free: "
+        "the loader is at the [[memory pool]]'s floor, so putting the "
+        'floor back where it started and closing up turns the release '
+        'into part of the one long free run rather than a hole.',
+    'gfx_lock':
+        'Take the drawing lock, so what follows is one frame and not a '
+        'race with the timer.',
+    'wm_paint_all':
+        'THE FIRST DESKTOP FRAME - the background pattern, the menu '
+        'bar, the disk icons, the dock. From here on nothing redraws '
+        'more of the screen than it changed; on a machine this slow a '
+        'full repaint is visible as a sweep.',
+    'gfx_unlock':
+        "The frame is on the glass, and the boot's stopwatch stops HERE "
+        '- not after the pointer. The question is when the first '
+        'desktop frame is finished, and the pointer is not the desktop.',
+    'cursor_show':
+        "The arrow. From here the mouse's own [[interrupt]] handler "
+        'draws it, which is why it keeps moving smoothly however busy '
+        'the machine is.',
+    'drv_notice_x':
+        '...and only NOW say what did not load. A window needs a screen '
+        'that has been painted.',
+}
+
+
+
+# A phase's own name is an internal identifier - `drv_boot_x` means nothing to
+# a reader who has not seen the source, and this page is written for one who
+# has not. So every phase gets a title in the page's own words. The self-check
+# refuses a phase with no title, for the same reason it refuses one with no
+# note: the alternative is a raw symbol on the screen.
+TITLES = {
+    "post": "Firmware start-up, and the first sector",
+    "relocate": "Move the boot sector to the top of memory",
+    "stage 1: sector code": "Take over the floppy settings table",
+    "int 13h reset": "Disk: step the head back to track zero",
+    "int 13h read": "Disk read",
+    "stage 2: loader code": "Loader housekeeping",
+    "stage 2: loop": "Finish the load, and hand over",
+    "splash tick": "Advance the loading bar",
+    "dsk_boot_from_x": "Which disk did we start from?",
+    "cpu_detect": "Identify the processor",
+    "xm_sniff": "Is there memory above the first megabyte?",
+    "dsk_dpt_init_x": "Take over the floppy settings again",
+    "sched_init": "Start task switching",
+    "sch_idle_start": "Create the idle task",
+    "evq_init": "Set up the event queue",
+    "clk_init": "Read the clock",
+    "vid_init": "Identify the display",
+    "vid_ctx_init": "Record the display's geometry",
+    "vid_probe_avail": "Look for other display cards",
+    "vid_disp_init": "Programme the second monitor",
+    "mem_init_x": "Open the memory pool",
+    "mod_init_x": "Make the optional-module slots safe",
+    "font_init": "Load the typeface",
+    "ovl_font_init": "Load the typeface",
+    "wm_init": "Start the window manager",
+    "band_init": "Claim the title-bar composer",
+    "menu_init": "Create the menu bar",
+    "inst_init": "Clear the table of running programs",
+    "splf_step": "Advance the loading bar",
+    "ovl_spl_msg_mouse": "Caption: Looking for Mouse",
+    "mouse_init": "Look for a mouse",
+    "ovl_spl_msg_fdd": "Caption: Looking for Drives",
+    "desk_init": "Find the drives",
+    "dock_init": "Set up the dock",
+    "files_init_x": "Set up the file browser",
+    "loader_init_x": "Set up the program loader",
+    "drv_init_x": "Create the driver table",
+    "drv_snd_sniff": "Look for a music chip",
+    "snd_init": "Start the sound layer",
+    "drv_boot_x": "Mount the floppy, and load what it asks for",
+    "xm_boot_x": "Set up the memory above the first megabyte",
+    "thm_set": "Resolve the colour scheme",
+    "spl_finish": "Finish the loading screen",
+    "mem_unblob_x": "Give the loader's space back",
+    "gfx_lock": "Take the drawing lock",
+    "wm_paint_all": "Draw the desktop",
+    "gfx_unlock": "Release the drawing lock",
+    "cursor_show": "Show the pointer",
+    "drv_notice_x": "Report anything that did not load",
+}
+
+
 SECTION_REGION = {
     ".text": "ktext", ".bss": "ktext", ".cold": "kcold",
     ".ovlw": "ovlw", ".ovl": "blob", ".boot2": "blob",
@@ -1160,6 +1596,8 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
             bar = None                          # ...and it has been handed back
         regs = regions(st["id"], lad, cons, vol, walkdata["ram_kb"], heap,
                        loaded, None)
+        for r in regs:
+            r["note"] = mark(r["note"])
 
         steps = []
         for e in ev:
@@ -1189,25 +1627,22 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
                     d = region_at(regs, e["dest"])
                     if d:
                         mem.append(d)
-            label = base
+            label = TITLES.get(base, base)
             if e.get("fn") == 2:
-                label = "int 13h: read %d sector%s to %04X:0000" % (
+                label = "Disk read - %d sector%s to %04X:0000" % (
                     e["want"], "" if e["want"] == 1 else "s", e["dest"])
-            elif e.get("fn") == 0:
-                label = "int 13h: reset drive %d" % e.get("drive", 0)
             elif "arg_done" in e:
-                label = "splash tick - %d of %d sectors" % (e["arg_done"],
+                label = "Loading bar - %d of %d sectors" % (e["arg_done"],
                                                             e["arg_total"])
             note = notes.get(base, "")
             if base == "int 13h read" and e["want"] == 1:
-                note += (" This one is ONE sector because the destination was "
-                         "about to cross a 64KB DMA page, which the controller "
-                         "answers with error 09h - the third of read_run's "
-                         "three bounds.")
+                note += (" THIS ONE IS A SINGLE SECTOR because the place it "
+                         "was going was about to cross a [[64 KB boundary]]. "
+                         "The run had to stop there and start again.")
             steps.append({
                 "label": label, "phase": base, "kind": e["kind"],
-                "ms": e["ms"], "t0": e["t0"], "note": note,
-                "sect": s or "", "mem": sorted(set(x for x in mem if x)),
+                "ms": e["ms"], "t0": e["t0"], "note": mark(note),
+                "mem": sorted(set(x for x in mem if x)),
                 "sectors": e["read_sectors"], "reads": e["reads"],
                 "cyl": e["seek_cylinders"],
                 "mech": e["transfer_ms"] + e["seek_ms"],
@@ -1215,6 +1650,7 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
 
         ms = sum(e["ms"] for e in ev)
         out.append({
+            "zooms": zooms(regs, ram),
             "id": st["id"], "short": st.get("short", st["id"]),
             "title": st["title"], "moved": st["moved"],
             "ms": ms, "t0": t0, "regions": regs, "steps": steps,
@@ -1234,6 +1670,7 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
             "boot_ticks": walkdata["boot_ticks"],
             "boot_ticks_ms": walkdata["boot_ticks_ms"],
             "longest_run": walkdata["longest_run"],
+            "desktop": walkdata.get("desktop", ""),
             "kernel_md5": hashlib.md5(
                 open(os.path.join(ROOT, "build", "kernel.bin"), "rb").read()
             ).hexdigest() if os.path.exists(
@@ -1249,6 +1686,7 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
         # and one file that `--measure` will take back is a better answer than
         # two that have to be kept in step.
         "walk": walkdata,
+        "gloss": _GLOSS_LC,
         "ram": ram,
         # The magnified strip's span: the top of the loader's blob, rounded up
         # to a whole 4KB so the frame is a round number and does not move when
@@ -1336,8 +1774,17 @@ h1 .sub{color:var(--dim);font-weight:400}
 .splash.off .dlg,.splash.off .dlg2{border-color:#000}
 .splash.off .logo,.splash.off .cap,.splash.off .trough,.splash.off .pct{visibility:hidden}
 .splash.off .dlg{border:none;padding:0}
-.splash.off .msg{visibility:visible;color:#54514a;text-align:center;padding:0 10px;
-  font-style:italic}
+.splash.off .msg{visibility:hidden}
+/* Before os8088 owns the screen, the 5150 shows exactly this: a blinking
+   block in the top-left corner and nothing else. */
+.splash .desk{display:none;position:absolute;left:0;top:0;width:100%;height:100%;
+  object-fit:fill;background:#000;image-rendering:pixelated}
+.splash.done .desk{display:block}
+.splash.done .curs,.splash.done .dlg,.splash.done .logo{display:none}
+.splash .curs{display:none;position:absolute;left:12px;top:10px;width:9px;
+  height:14px;background:#c8c8c8;animation:blink5150 1.07s steps(1,end) infinite}
+.splash.off:not(.done) .curs{display:block}
+@keyframes blink5150{0%,49%{opacity:1}50%,100%{opacity:0}}
 .splash .note{font-size:10.5px;color:var(--dim);margin-top:8px;text-align:center}
 .splash-outer{flex:0 0 auto}
 .splash-outer .cabin{font-size:11px;color:var(--dim);margin-top:6px;text-align:center;
@@ -1459,32 +1906,64 @@ footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--rule);
   font-size:11.5px;color:var(--dim);max-width:88ch}
 footer code{font-size:11px}
 
-/* ---- magnified strip: the low region, where everything of ours is -------- */
-.zoomhead{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
-  font-size:11px;color:var(--dim);margin:14px 0 3px;padding-top:11px;
-  border-top:1px dashed var(--rule)}
-.zoomhead b{color:var(--ink);font-weight:600}
-.zbar{position:relative;height:34px;border:1px solid var(--rule);border-radius:2px;
-  overflow:hidden;background:var(--c-free)}
-.zbar .rg{position:absolute;top:0;height:100%;cursor:pointer;overflow:hidden;
-  transition:left .45s cubic-bezier(.4,0,.2,1),width .45s cubic-bezier(.4,0,.2,1),
+/* ---- the magnified detail ----------------------------------------------- */
+/* A dimension bracket under the full map, connectors down to the strip, and a
+   strip deliberately NARROWER than the map: the width difference is what says
+   "this is that, enlarged" rather than "here is a second map". */
+.zdim{position:relative;height:19px;margin-top:5px}
+.zdim .br{position:absolute;top:7px;height:1px;background:var(--sel);
+  transition:left .45s cubic-bezier(.4,0,.2,1),width .45s cubic-bezier(.4,0,.2,1)}
+.zdim .tk{position:absolute;top:1px;width:1px;height:7px;background:var(--sel);
+  transition:left .45s cubic-bezier(.4,0,.2,1)}
+.zdim .lb{position:absolute;top:0;transform:translateX(-50%);font-size:10px;
+  color:var(--sel);background:var(--panel);padding:0 5px;white-space:nowrap;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  transition:left .45s cubic-bezier(.4,0,.2,1)}
+.zlink{display:block;width:100%;height:22px;overflow:visible}
+.zlink polygon{fill:var(--sel);opacity:.10}
+.zlink line{stroke:var(--sel);stroke-width:1}
+.zrow{position:relative;height:30px}
+.zwin{position:absolute;top:0;height:30px;border:1px solid var(--sel);
+  border-radius:2px;overflow:hidden;background:var(--c-free)}
+.zwin .rg{position:absolute;top:0;height:100%;cursor:pointer;overflow:hidden;
+  transition:left .4s cubic-bezier(.4,0,.2,1),width .4s cubic-bezier(.4,0,.2,1),
   opacity .3s,background .25s}
-.zbar .rg.dim{opacity:.24}
-.zbar .rg span{position:absolute;left:4px;top:50%;transform:translateY(-50%);
+.zwin .rg.dim{opacity:.24}
+.zwin .rg span{position:absolute;left:4px;top:50%;transform:translateY(-50%);
   font-size:10px;white-space:nowrap;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);
   pointer-events:none}
-.zbar .rg.pale span{color:var(--on-free);text-shadow:none}
-.zovl{position:relative;height:17px;margin-top:-9px;z-index:4;pointer-events:none}
-.zovl .ov{position:absolute;height:17px;top:0;border:1.5px solid var(--c-ovl);
+.zwin .rg.pale span{color:var(--on-free);text-shadow:none}
+.zovl{position:absolute;height:16px;z-index:4;pointer-events:none}
+.zovl .ov{position:absolute;height:16px;top:0;border:1.5px solid var(--c-ovl);
   border-radius:2px;pointer-events:auto;cursor:pointer;
   background:repeating-linear-gradient(135deg,var(--c-ovl) 0 4px,transparent 4px 9px);
-  transition:left .45s cubic-bezier(.4,0,.2,1),width .45s cubic-bezier(.4,0,.2,1),opacity .3s}
-.zovl .ov span{position:absolute;left:5px;top:50%;transform:translateY(-50%);font-size:9.5px;
-  white-space:nowrap;color:var(--ink);font-weight:600;background:var(--panel);
-  padding:0 3px;border-radius:2px}
+  transition:left .4s cubic-bezier(.4,0,.2,1),width .4s cubic-bezier(.4,0,.2,1),opacity .3s}
+.zovl .ov span{position:absolute;left:5px;top:50%;transform:translateY(-50%);
+  font-size:9.5px;white-space:nowrap;color:var(--ink);font-weight:600;
+  background:var(--panel);padding:0 3px;border-radius:2px}
 .zovl .ov.hot{box-shadow:0 0 0 2px var(--sel)}
-.zspan{position:absolute;top:0;height:100%;border-left:1px solid var(--sel);
-  border-right:1px solid var(--sel);background:rgba(194,96,12,.10);pointer-events:none;z-index:2}
+.zcap{position:relative;height:15px;margin-top:5px}
+.zcap span{position:absolute;top:0;transform:translateX(-50%);font-size:10.5px;
+  color:var(--dim);white-space:nowrap;
+  transition:left .45s cubic-bezier(.4,0,.2,1)}
+
+/* ---- glossary ----------------------------------------------------------- */
+.gl{font-weight:500;color:inherit;border-bottom:1px dotted var(--accent);
+  cursor:help;outline:none}
+.gl:hover,.gl:focus{background:var(--rule2)}
+#gtip{position:fixed;z-index:99;max-width:330px;background:var(--ink);
+  color:var(--bg);font-size:12px;line-height:1.45;padding:8px 11px;
+  border-radius:3px;pointer-events:none;opacity:0;transition:opacity .12s;
+  box-shadow:0 6px 22px rgba(0,0,0,.28)}
+#gtip.on{opacity:1}
+#gtip b{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  opacity:.65;margin-bottom:3px;font-weight:600}
+
+/* ---- the freshly-booted desktop ---------------------------------------- */
+.shot{margin:2px 0 12px}
+.shot img{display:block;width:100%;max-width:520px;border:1px solid var(--rule);
+  border-radius:2px;background:#000;image-rendering:pixelated}
+.shot figcaption{font-size:11px;color:var(--dim);margin-top:5px;max-width:520px}
 
 a:focus-visible,button:focus-visible,.st:focus-visible{outline:2px solid var(--accent);
   outline-offset:2px}
@@ -1706,63 +2185,145 @@ function pickRegion(id){
 
 
 /* --------------------------------------------------------------------------
-   THE MAGNIFIED STRIP. At 640KB to scale, `.ovlw` is 5,215 bytes - four fifths
-   of one per cent, a sliver you cannot see and certainly cannot see LYING
-   ACROSS two blocks. The point it is making is a shape, so it needs a scale
-   that shows the shape. The span is FIXED for every stage - the top of the
-   loader's blob, rounded up - so blocks slide within a frame that does not
-   move under them, and the bracket on the full map says which slice this is.
+   THE MAGNIFIED DETAIL. At 640KB to scale the start-up code is 5,215 bytes -
+   four fifths of one per cent, a sliver you cannot see and certainly cannot
+   see LYING ACROSS two blocks. What it is saying is a shape, so it needs a
+   scale that shows the shape.
+
+   The window FOLLOWS THE STAGE rather than sitting at a fixed address, and
+   there can be two of them: early on everything of ours is 512 bytes at the
+   bottom and 2.5KB at the very top, and one window over both magnifies
+   nothing. A bracket under the full map measures the slice, connectors run
+   down to the strip's own edges, and the strip is deliberately narrower than
+   the map - the width difference is what makes it read as an enlargement
+   rather than as a second, different map.
    -------------------------------------------------------------------------- */
 var zblocks = {};
 function drawZoom(hot){
-  var st = S[stage], bar = $("zbar"), ovh = $("zovl");
-  var lim = D.zoom, W = bar.clientWidth || 1;
+  var st = S[stage], wins = st.zooms || [], W = $("mbar").clientWidth || 1;
+  var dim = $("zdim"), row = $("zrow"), cap = $("zcap"), link = $("zlink");
+  dim.innerHTML = ""; cap.innerHTML = "";
   var anyHot = step >= 0 && hot && Object.keys(hot).length;
-  var seen = {};
-  st.regions.forEach(function(r){
-    if (r.a >= lim) return;
-    seen[r.id] = 1;
-    var host = r.layer ? ovh : bar;
-    var b = zblocks[r.id];
-    if (!b){
-      b = document.createElement("div");
-      b.className = r.layer ? "ov" : "rg";
-      b.style.opacity = "0";
-      b.appendChild(document.createElement("span"));
-      host.appendChild(b);
-      zblocks[r.id] = b;
-      b.addEventListener("click", function(){ pickRegion(r.id); });
-      requestAnimationFrame(function(){ b.style.opacity = "1"; });
-    }
-    if (b.parentNode !== host) host.appendChild(b);
-    var w = 100 * (Math.min(r.b, lim) - r.a) / lim;
-    b.style.opacity = "1";
-    b.style.left = (100 * r.a / lim) + "%";
-    b.style.width = Math.max(w, 0.25) + "%";
-    if (!r.layer){
-      b.style.background = col(r.cls);
-      b.classList.toggle("pale", r.cls === "free" || r.cls === "dead");
-    }
-    b.title = r.label + "  " + hex(r.a) + "-" + hex(r.b) + "  " + bytes(r.b - r.a);
-    b.classList.toggle("dim", !!(anyHot && !hot[r.id] && r.cls !== "free"));
-    b.classList.toggle("hot", !!hot[r.id]);
-    /* Write inside the block - then TAKE IT BACK if it does not fit. A
-       clipped label reads as a different, shorter name (".lowbss - task
-       stacks, dis"), which is worse than no label at all. */
-    var t = b.firstChild;
-    t.textContent = r.sl || r.label;
-    t.style.visibility = "hidden";
-    if (t.scrollWidth + 10 > b.clientWidth) t.textContent = "";
-    t.style.visibility = "";
+
+  /* Widths: proportional to the square root of the span, so a 6KB window and
+     a 124KB one are both legible, with a floor and a gap between. */
+  var GAP = 5, n = wins.length, tot = 0, sh = [], i;
+  for (i = 0; i < n; i++){ sh[i] = Math.sqrt(wins[i].b - wins[i].a); tot += sh[i]; }
+  var avail = (n ? 100 - GAP * (n - 1) : 0) * (n === 1 ? 0.74 : 0.92);
+  var w = [], at = [];
+  for (i = 0; i < n; i++) w[i] = Math.max(avail / n * 0.62, avail * sh[i] / tot);
+  var sum = 0; for (i = 0; i < n; i++) sum += w[i];
+  for (i = 0; i < n; i++) w[i] *= avail / sum;
+  /* One window is centred UNDER ITS OWN BRACKET, not in the middle of the
+     panel: a symmetric pair of connectors reads as an enlargement, and a
+     lopsided one reads as an arrow pointing somewhere. */
+  var cur;
+  if (n === 1){
+    var mid = 100 * (wins[0].a + wins[0].b) / 2 / D.ram;
+    cur = Math.min(Math.max(0, mid - w[0] / 2), 100 - w[0]);
+  } else {
+    cur = (100 - (avail + GAP * (n - 1))) / 2;
+  }
+  for (i = 0; i < n; i++){ at[i] = cur; cur += w[i] + GAP; }
+
+  var seen = {}, poly = [];
+  for (i = 0; i < n; i++){
+    var win = wins[i], span = win.b - win.a;
+    var host = zwin(i), ovh = zovl(i);
+    host.style.left = at[i] + "%"; host.style.width = w[i] + "%";
+    ovh.style.left = at[i] + "%"; ovh.style.width = w[i] + "%";
+    ovh.style.top = "-8px";
+
+    /* the bracket under the full map, measuring what this window covers */
+    var x0 = W * win.a / D.ram, x1 = W * win.b / D.ram;
+    dim.appendChild(el("div", "br", {left: x0 + "px", width: (x1 - x0) + "px"}));
+    dim.appendChild(el("div", "tk", {left: x0 + "px"}));
+    dim.appendChild(el("div", "tk", {left: (x1 - 1) + "px"}));
+    var lb = el("div", "lb", {left: ((x0 + x1) / 2) + "px"});
+    lb.textContent = hex(win.a) + "–" + hex(win.b);
+    dim.appendChild(lb);
+    var lw = lb.offsetWidth / 2 + 4;
+    lb.style.left = Math.min(Math.max(lw, (x0 + x1) / 2), W - lw) + "px";
+    poly.push([x0, x1, W * at[i] / 100, W * (at[i] + w[i]) / 100]);
+
+    var c = el("span", "", {left: (at[i] + w[i] / 2) + "%"});
+    c.textContent = bytes(span) + " at " + Math.round(D.ram / span) + "× actual size";
+    cap.appendChild(c);
+
+    st.regions.forEach(function(r){
+      if (r.b <= win.a || r.a >= win.b) return;
+      var id = i + "/" + r.id;
+      seen[id] = 1;
+      var into = r.layer ? ovh : host;
+      var el2 = zblocks[id];
+      if (!el2){
+        el2 = document.createElement("div");
+        el2.className = r.layer ? "ov" : "rg";
+        el2.appendChild(document.createElement("span"));
+        into.appendChild(el2);
+        zblocks[id] = el2;
+        el2.addEventListener("click", function(){ pickRegion(r.id); });
+      }
+      if (el2.parentNode !== into) into.appendChild(el2);
+      var ra = Math.max(r.a, win.a), rb = Math.min(r.b, win.b);
+      var pw = 100 * (rb - ra) / span;
+      el2.style.opacity = "1";
+      el2.style.left = (100 * (ra - win.a) / span) + "%";
+      el2.style.width = Math.max(pw, 0.4) + "%";
+      if (!r.layer){
+        el2.style.background = col(r.cls);
+        el2.classList.toggle("pale", r.cls === "free" || r.cls === "dead");
+      }
+      el2.title = r.label + "  " + hex(r.a) + "-" + hex(r.b) + "  " + bytes(r.b - r.a);
+      el2.classList.toggle("dim", !!(anyHot && !hot[r.id] && r.cls !== "free"));
+      el2.classList.toggle("hot", !!hot[r.id]);
+      var t = el2.firstChild;
+      t.textContent = r.sl || r.label;
+      t.style.visibility = "hidden";
+      if (t.scrollWidth + 10 > el2.clientWidth) t.textContent = "";
+      t.style.visibility = "";
+    });
+  }
+  Object.keys(zblocks).forEach(function(k){
+    if (!seen[k]) zblocks[k].style.opacity = "0";
   });
-  Object.keys(zblocks).forEach(function(id){
-    if (!seen[id]) zblocks[id].style.opacity = "0";
-  });
-  var sp = $("zspan");
-  sp.style.left = "0%";
-  sp.style.width = (100 * lim / D.ram) + "%";
-  $("zcap").textContent = "0 – " + bytes(lim) + " at " +
-    (D.ram / lim).toFixed(0) + "×";
+  for (i = zwinN; i > n; i--){ zwin(i - 1).style.display = "none";
+                               zovl(i - 1).style.display = "none"; }
+  for (i = 0; i < n; i++){ zwin(i).style.display = ""; zovl(i).style.display = ""; }
+
+  /* the connectors: a faint web from the bracket's ends to the strip's */
+  var H = 22;
+  link.setAttribute("viewBox", "0 0 " + W + " " + H);
+  link.setAttribute("preserveAspectRatio", "none");
+  link.innerHTML = poly.map(function(q){
+    return '<polygon points="' + q[0] + ',0 ' + q[1] + ',0 ' + q[3] + ',' + H +
+           ' ' + q[2] + ',' + H + '"/>' +
+           '<line x1="' + q[0] + '" y1="0" x2="' + q[2] + '" y2="' + H + '"/>' +
+           '<line x1="' + q[1] + '" y1="0" x2="' + q[3] + '" y2="' + H + '"/>';
+  }).join("");
+}
+var zwinN = 0;
+function zwin(i){
+  var id = "zwin" + i, e = $(id);
+  if (!e){
+    e = document.createElement("div"); e.className = "zwin"; e.id = id;
+    $("zrow").appendChild(e); zwinN = Math.max(zwinN, i + 1);
+  }
+  return e;
+}
+function zovl(i){
+  var id = "zovl" + i, e = $(id);
+  if (!e){
+    e = document.createElement("div"); e.className = "zovl"; e.id = id;
+    $("zrow").appendChild(e);
+  }
+  return e;
+}
+function el(tag, cls, css){
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  for (var k in css) e.style[k] = css[k];
+  return e;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1814,7 +2375,7 @@ function short(s){ return s.length > 44 ? s.slice(0, 43) + "…" : s; }
 function showRegion(r){
   $("dtitle").textContent = r.label;
   $("dbody").innerHTML = "";
-  var p = document.createElement("p"); p.textContent = r.note; $("dbody").appendChild(p);
+  var p = document.createElement("p"); p.innerHTML = r.note; $("dbody").appendChild(p);
   facts([["address", hex(r.a) + " – " + hex(r.b)],
          ["size", bytes(r.b - r.a) + " (" + (r.b - r.a).toLocaleString() + " bytes)"],
          ["segment", hex(r.a >> 4, 4) + ":0000"],
@@ -1830,6 +2391,21 @@ function facts(rows){
     d.appendChild(a); d.appendChild(b); f.appendChild(d);
   });
 }
+function shotInto(host){
+  /* The last stage has a picture of what all of it was for: the card's own
+     pixels, read out of display memory at the end of the measured boot. */
+  if (!D.meta.desktop || stage !== S.length - 1) return;
+  var f = document.createElement("figure");
+  f.className = "shot";
+  var i = document.createElement("img");
+  i.src = "data:image/png;base64," + D.meta.desktop;
+  i.alt = "The os8088 desktop, immediately after the boot this page measures";
+  var c = document.createElement("figcaption");
+  c.textContent = "The desktop, read out of the display card's own memory at "
+    + "the end of this boot — the machine's pixels, not a rendering of them.";
+  f.appendChild(i); f.appendChild(c); host.appendChild(f);
+}
+
 function drawDetail(){
   var st = S[stage];
   if (step < 0){
@@ -1841,20 +2417,24 @@ function drawDetail(){
       "timeline above, or a label on it, to see what that step does — the " +
       "memory it runs from lights up on the map.";
     $("dbody").appendChild(p);
+    shotInto($("dbody"));
     facts([["stage", (stage + 1) + " of " + S.length],
            ["what moves", st.moved],
            ["time in this stage", ms(st.ms)],
            ["at, from reset", ms(st.t0) + " → " + ms(st.t0 + st.ms)],
            ["steps measured", String(st.steps.length)],
-           ["loading bar", st.bar ? (st.bar.done + " / " + st.bar.total +
-              "  (" + st.bar.pct.toFixed(1) + "%)") : "not up yet"]]);
+           ["loading bar", st.bar
+              ? (st.bar.done + " / " + st.bar.total + "  ("
+                 + st.bar.pct.toFixed(1) + "%)")
+              : (stage >= S.length - 1 ? "finished, screen handed back"
+                                       : "not up yet")]]);
     return;
   }
   var sp = st.steps[step];
   $("dtitle").textContent = sp.label;
   $("dbody").innerHTML = "";
   var p = document.createElement("p");
-  p.innerHTML = "<span class='tag meas'>measured</span>" + esc(sp.note || "");
+  p.innerHTML = "<span class='tag meas'>measured</span>" + (sp.note || "");
   $("dbody").appendChild(p);
   if (sp.mem && sp.mem.length){
     var names = sp.mem.map(function(id){
@@ -1862,19 +2442,17 @@ function drawDetail(){
       return r ? r.label : id;
     });
     var q = document.createElement("p");
-    q.innerHTML = "<b>Lit up on the map:</b> " + esc(names.join(" · ")) +
-      (sp.sect ? " — the code's own section is <code>" + esc(sp.sect) +
-                 "</code>, read out of nasm's map." : "");
+    q.innerHTML = "<b>Lit up on the map:</b> " + esc(names.join(" · "));
     $("dbody").appendChild(q);
   }
   var rows = [["time", ms(sp.ms)],
               ["at, from reset", ms(sp.t0)],
-              ["share of stage", (100 * sp.ms / Math.max(st.ms, 1e-9)).toFixed(1) + "%"],
-              ["phase", sp.phase]];
+              ["share of stage", (100 * sp.ms / Math.max(st.ms, 1e-9)).toFixed(1) + "%"]];
   if (sp.sectors) rows.push(["sectors moved", String(sp.sectors)]);
-  if (sp.reads) rows.push(["int 13h reads", String(sp.reads)]);
-  if (sp.cyl) rows.push(["cylinders seeked", String(sp.cyl)]);
-  if (sp.mech) rows.push(["of which mechanical", ms(sp.mech)]);
+  if (sp.reads) rows.push(["disk requests", String(sp.reads)]);
+  if (sp.cyl) rows.push(["cylinders stepped", String(sp.cyl)]);
+  if (sp.mech) rows.push(["of which waiting for the disk", ms(sp.mech)]);
+  shotInto($("dbody"));
   facts(rows);
 }
 function esc(s){ var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
@@ -1883,6 +2461,13 @@ function esc(s){ var d = document.createElement("div"); d.textContent = s; retur
 function drawSplash(){
   var st = S[stage], box = $("splash");
   var on = !!st.bar;
+  /* The panel is the MACHINE'S SCREEN all the way down: a bare cursor while
+     nothing of ours can draw, then the loading screen, then the desktop it
+     was all for. */
+  var done = stage >= S.length - 1 && !!D.meta.desktop;
+  if (done && !$("sdesk").src)
+    $("sdesk").src = "data:image/png;base64," + D.meta.desktop;
+  box.classList.toggle("done", done);
   box.classList.toggle("off", !on);
   if (on){
     $("sfill").style.width = st.bar.pct.toFixed(2) + "%";
@@ -1890,14 +2475,15 @@ function drawSplash(){
     $("smsg").textContent = st.bar.msg;
   } else {
     $("sfill").style.width = "0%";
-    $("smsg").textContent = stage >= S.length - 1
-      ? "the screen has been handed to the desktop"
-      : "nothing can draw yet — the code that draws this is still on the floppy";
   }
   $("scab").textContent = on
-    ? "The real bar: [spl_done] " + st.bar.done + " of [spl_total] " + st.bar.total +
-      ", read out of the running machine at this exact point."
-    : "";
+    ? "The bar's own numbers at this point — " + st.bar.done + " of " +
+      st.bar.total + " — read out of the running machine, not worked out here."
+    : (done
+        ? "The desktop, as this boot left it - read out of the display card's own memory."
+        : "What a 5150 shows until os8088 takes the screen: a cursor, and "
+          + "nothing else. The code that draws a loading screen is still on "
+          + "the floppy.");
 }
 function drawStages(){
   var s = $("stages"); 
@@ -1941,6 +2527,43 @@ document.addEventListener("keydown", function(e){
   else if (e.key === "Home"){ setStage(0); e.preventDefault(); }
   else if (e.key === "End"){ setStage(S.length - 1); e.preventDefault(); }
 });
+/* One shared popup rather than one per term: the page marks a few dozen and
+   they repeat. It is positioned rather than CSS-only so it cannot be clipped
+   by the panel it sits in. */
+(function(){
+  var tip = document.createElement("div");
+  tip.id = "gtip"; document.body.appendChild(tip);
+  function show(e){
+    var k = e.target && e.target.dataset && e.target.dataset.g;
+    if (!k || !D.gloss[k]) return;
+    tip.innerHTML = "";
+    var h = document.createElement("b"); h.textContent = k;
+    tip.appendChild(h);
+    tip.appendChild(document.createTextNode(D.gloss[k]));
+    tip.classList.add("on");
+    var r = e.target.getBoundingClientRect();
+    tip.style.left = "0px"; tip.style.top = "0px";
+    var w = tip.offsetWidth, hh = tip.offsetHeight;
+    var x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2),
+                     window.innerWidth - w - 8);
+    var y = r.top - hh - 8;
+    if (y < 8) y = r.bottom + 8;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  }
+  function hide(){ tip.classList.remove("on"); }
+  document.addEventListener("mouseover", function(e){
+    if (e.target.classList && e.target.classList.contains("gl")) show(e);
+  });
+  document.addEventListener("mouseout", function(e){
+    if (e.target.classList && e.target.classList.contains("gl")) hide();
+  });
+  document.addEventListener("focusin", function(e){
+    if (e.target.classList && e.target.classList.contains("gl")) show(e);
+  });
+  document.addEventListener("focusout", hide);
+  window.addEventListener("scroll", hide, true);
+})();
+
 var rt;
 window.addEventListener("resize", function(){
   clearTimeout(rt); rt = setTimeout(function(){ drawMap(); drawTime(); }, 90);
@@ -1970,47 +2593,49 @@ def render(p, fragment=False):
     """The whole page as one string.
 
     `fragment` drops <!doctype>, <html>, <head> and <body> for a host that
-    supplies its own skeleton (the Artifact wrapper does). Everything else is
-    identical, so there is one page and not two.
+    supplies its own skeleton. Everything else is identical, so there is one
+    page and not two.
     """
     m, lad, cons, vol = p["meta"], p["ladder"], p["cons"], p["vol"]
     title = "os8088 Boot Ladder"
-    prov = " · ".join(filter(None, [
-        "MartyPC <b>%s</b>" % esc(m["machine"]),
-        "%s, %d KB" % (esc(m["image"]), m["ram_kb"]),
-        "kernel <b>%s</b>" % esc(m["kernel_md5"][:10]),
-        ("commit <b>%s</b>" % esc(m["commit"])) if m["commit"] else "",
-        "measured <b>%s</b>" % esc(m["taken"]),
-    ]))
-    rom = ("the real <b>IBM 5150 27 OCT 82</b> ROM, which is the field "
-           "machine's own" if m["field"] else
-           "the <b>GLaBIOS</b> twin, because the IBM 5150 ROM is not in this "
-           "tree — it boots faster than any 5150 ever did, so <b>the ROM's "
-           "own time is not a field figure</b>. The FDC's mechanical column "
-           "is, being the model PERFORMANCE.md Set 37 calibrated")
+    rom = ("the machine's original 1982 firmware"
+           if m["field"] else
+           "an open replacement firmware, because the original is not "
+           "redistributable \u2014 it boots faster than any real one did, so "
+           "the firmware's own share of the time here is not a field figure")
+    prov = " \u00b7 ".join([
+        "Measured on a cycle-accurate 4.77\u202fMHz 8088 running %s" % rom,
+        "%d\u202fKB of memory" % m["ram_kb"],
+        "a 360\u202fKB floppy",
+        "build <b>%s</b>" % esc(m["commit"] or m["kernel_md5"][:8]),
+        esc(m["taken"][:10]),
+    ])
 
     legend = "".join(
         "<span><i style='background:var(--c-%s)'></i>%s</span>" % (k, v)
-        for k, v in (("bios", "BIOS"), ("ours", "boot sector / disk"),
-                     ("kern", "kernel image"), ("ovl", "boot overlay"),
-                     ("data", "mount data"), ("claim", "heap claim"),
-                     ("free", "unclaimed")))
+        for k, v in (("bios", "firmware"), ("ours", "boot sector / disk"),
+                     ("kern", "operating system"), ("ovl", "start-up code"),
+                     ("data", "disk index"), ("claim", "handed out"),
+                     ("free", "free")))
 
     body = """
 <div class="wrap">
  <div class="top">
   <div>
    <h1>os8088 <span class="sub">Boot Ladder</span></h1>
-   <p class="lede">Every discrete move of memory from power-on to the first
-    desktop frame, on a 4.77&nbsp;MHz 8088 booting a 360&nbsp;KB floppy.
-    <b>%(nst)d stages.</b> Click one, or use
-    <span class="kbd">&larr;</span> <span class="kbd">&rarr;</span>.
-    Then click a step on the timeline to light up the RAM it runs from.</p>
+   <p class="lede">What an IBM PC does between the power switch and a usable
+    desktop, one <b>discrete move of memory</b> at a time \u2014 %(nst)d of them,
+    on a 4.77&nbsp;MHz 8088 reading a 360&nbsp;KB floppy. Pick a stage, or use
+    <span class="kbd">&larr;</span> <span class="kbd">&rarr;</span>. Then click
+    a step on its timeline to light up the memory that step runs from.
+    Underlined words have a definition on hover.</p>
    <div class="stamp"><span>%(prov)s</span></div>
   </div>
   <div class="splash-outer">
    <div class="splash off" id="splash">
-    <div class="logo" title="The loading screen's own logo. SPL_SPINSH sets the rate: sixteen positions, four ticks each, 3.52 s a revolution. It reads 8808 halfway round because the real one is a coin flip of the whole word - spl_flip scales x about the box centre, so at 180 degrees the first 8 is on the right."><span>8088</span></div>
+    <div class="curs"></div>
+    <img class="desk" id="sdesk" alt="The os8088 desktop as this boot left it">
+    <div class="logo" title="The loading screen's own logo, turning once every 3.5 seconds. It reads 8808 halfway round because the real one is a coin flip of the whole word: at 180 degrees the first 8 is on the right."><span>8088</span></div>
     <div class="dlg"><div class="dlg2">
       <div class="cap">%(welcome)s</div>
       <div class="trough"><div class="fill" id="sfill"></div></div>
@@ -2030,29 +2655,25 @@ def render(p, fragment=False):
  <div class="smoved" id="smovedt"></div>
 
  <div class="panel">
-  <p class="ph"><span>Conventional memory — 640&nbsp;KB, drawn to scale</span>
-   <span class="hint">labels rise from the block they name · the hatched band
-   is code lying <i>across</i> the map, not a region of it</span></p>
+  <p class="ph"><span>Memory \u2014 all 640&nbsp;KB of it, drawn to scale</span>
+   <span class="hint">labels rise from the block they name \u00b7 the hatched
+   band is code lying <i>across</i> the map rather than a region of it</span></p>
   <div class="mlab" id="mlab"></div>
-  <div class="mbar" id="mbar"><div class="zspan" id="zspan"></div></div>
+  <div class="mbar" id="mbar"></div>
   <div class="movl" id="movl"></div>
   <div class="mrule" id="mrule"></div>
-  <div class="zoomhead">
-    <span>The busy end, magnified — <b id="zcap"></b>. Everything os8088 puts
-     in memory lives here; the bracket above shows the slice.</span>
-    <span>the hatched band is <b>the boot overlay</b>, drawn raised because it
-     is not a region of the map — it is code lying across two of them</span>
-  </div>
-  <div class="zbar" id="zbar"></div>
-  <div class="zovl" id="zovl"></div>
+  <div class="zdim" id="zdim"></div>
+  <svg class="zlink" id="zlink" aria-hidden="true"></svg>
+  <div class="zrow" id="zrow"></div>
+  <div class="zcap" id="zcap"></div>
   <div class="legend">%(legend)s</div>
  </div>
 
  <div class="panel">
   <p class="ph"><span>What this stage spends its time on</span>
    <span class="hint">widths are proportional, with a small constant added to
-   every segment so a 0.03&nbsp;ms call is still clickable — read the figure,
-   not the width</span></p>
+   every segment so that a hundredth of a millisecond is still something you
+   can click \u2014 read the figure, not the width</span></p>
   <div class="tbar" id="tbar"></div>
   <div class="tlab" id="tlab"></div>
  </div>
@@ -2063,19 +2684,19 @@ def render(p, fragment=False):
  </div>
 
  <footer>
-  <p><b>Where the numbers come from.</b> Every millisecond is measured on
-  MartyPC's own cycle counter at 4.772727&nbsp;MHz with the drive's mechanics
-  modelled, running %(rom)s. The loading bar is not a mock-up of the
-  arithmetic: <code>[spl_done]</code> and <code>[spl_total]</code> are read out
-  of the running kernel at each stop. So is the heap — <code>mem_base</code>,
-  <code>mem_top</code> and every record of <code>mem_tab</code>. The addresses
-  come from <code>tools/kernsize.py</code>, which measures the kernel this page
-  was generated beside.</p>
-  <p><b>This page is generated and is not rebuilt by <code>make</code>.</b>
-  It goes stale the moment <code>kmain</code> gains a call or a section moves.
-  Regenerate it with <code>python3 tools/os88ladder.py</code>, and check it
-  still describes the tree with <code>--selfcheck</code> before believing
-  anything on it.</p>
+  <p><b>Every figure here was measured, not estimated.</b> The boot was run on
+  a cycle-accurate emulation of a 4.77&nbsp;MHz 8088 with the floppy drive's
+  mechanics modelled \u2014 the head stepping, the disk turning \u2014 and the
+  milliseconds are that machine's own cycle count. The loading bar is not a
+  reconstruction of the arithmetic either: its two numbers were read out of the
+  running system at each point on this page, and so was every figure about the
+  memory pool. The addresses are the ones this build actually places.</p>
+  <p><b>It describes one boot, of one build.</b> A different floppy, a
+  different display card or a second drive would move several of these numbers
+  \u2014 the drive probe especially, which is nearly two seconds on a machine
+  with an empty second bay. The page is generated from a measured run rather
+  than maintained by hand, so the build and the date above are the ones it
+  speaks for.</p>
   <p class="mono" style="opacity:.75">%(sums)s</p>
  </footer>
 </div>
@@ -2083,23 +2704,26 @@ def render(p, fragment=False):
 <script>%(js)s</script>
 """ % {
         "nst": len(p["stages"]),
-        "prov": prov, "rom": rom, "legend": legend,
+        "prov": prov, "legend": legend,
         "welcome": esc(p["strings"]["welcome"]),
         "data": json.dumps(p, separators=(",", ":")),
         "js": JS,
         "sums": esc(
-            "KERNEL.SYS %s bytes / %d sectors · blob %d sectors (%s bytes) at "
-            "%04X:0000 · kernel image %s bytes ending %04X:0000 · .ovlw %s "
-            "bytes over a %s-byte FAT window · total from reset %s · the "
-            "kernel's own boot_ticks %d = %.0f ms"
-            % ("{:,}".format(vol["kernel"]["size"]), vol["kernel"]["sectors"],
-               cons["BOOT2_SECS"],
-               "{:,}".format(cons["BOOT2_SECS"] * vol["bps"]), lad["kend"],
-               "{:,}".format(lad["ksize"]), lad["kend"],
-               "{:,}".format(lad["ovlw"]),
-               "{:,}".format((lad["low_seg"] - lad["fat_seg"]) * 16),
-               "%.2f s" % (m["total_ms"] / 1000.0),
-               m["boot_ticks"], m["boot_ticks_ms"])),
+            "The operating system is one file of %s bytes \u2014 %d sectors, "
+            "fetched in %d passes of the drive; the first %d of those sectors "
+            "are the loader and the loading screen. It settles into %s bytes "
+            "of memory, and %s of that is start-up code sitting in space that "
+            "is about to be reused for something else. Switch-on to desktop: "
+            "%.1f seconds, of which %.1f is the firmware's own self-test "
+            "before any of this begins."
+            % ("{:,}".format(vol["kernel"]["size"]),
+               vol["kernel"]["sectors"],
+               sum(1 for st in p["stages"] for x in st["steps"]
+                   if x.get("sectors")),
+               cons["BOOT2_SECS"], "{:,}".format(lad["ksize"]),
+               "{:,}".format(lad["ovlw"] + lad["ovl"]),
+               m["total_ms"] / 1000.0,
+               p["stages"][0]["ms"] / 1000.0)),
     }
     if fragment:
         return ("<title>%s</title>\n%s\n<style>%s</style>\n%s"
@@ -2168,6 +2792,44 @@ def selfcheck(image, defines, build="build"):
                              % ", ".join(sorted(set(gap))))
         return "%d phases, all with a note" % len(set(live))
     try_("a note for every phase the page will show", phases_have_notes)
+
+    def titled():
+        import os88boot
+        live = [n for _, n, _ in os88boot.collapse(os88boot.callsites(defines))]
+        gap = [n for n in live if n not in TITLES]
+        if gap:
+            raise SystemExit("os88ladder: no plain-words title for: %s"
+                             % ", ".join(sorted(set(gap))))
+        return "%d phases, all with a title a reader can use" % len(set(live))
+    try_("a title for every phase the page will show", titled)
+
+    def plain():
+        """The two rules the page's prose is written to, checked.
+
+        A glossary that needs a glossary explains nothing, and a reader who
+        has none of this project's documents cannot follow a citation of it -
+        so neither is left to good intentions.
+        """
+        leaky = [k for k, v in GLOSS.items() if TERM.search(v)]
+        if leaky:
+            raise SystemExit(
+                "os88ladder: these definitions lean on another marked term, "
+                "which a reader cannot follow: " + ", ".join(sorted(leaky)))
+        cite = re.compile(r"SPEC\.md|PERFORMANCE\.md|docs/|\u00a7|"
+                          r"\b\w+\.(?:inc|asm)\b|\bcomment\b", re.I)
+        prose = dict(NOTES)
+        prose.update(dict(("title:" + k, v) for k, v in TITLES.items()))
+        prose.update(dict(("gloss:" + k, v) for k, v in GLOSS.items()))
+        for st in STAGES:
+            prose["stage:" + st["id"]] = st["title"] + " / " + st["moved"]
+        bad = sorted(k for k, v in prose.items() if cite.search(v))
+        if bad:
+            raise SystemExit(
+                "os88ladder: page text cites something the reader does not "
+                "have: " + ", ".join(bad))
+        return ("%d strings, no citations, %d definitions that stand alone"
+                % (len(prose), len(GLOSS)))
+    try_("the page's prose, against its own two rules", plain)
 
     try_("MartyPC, and a machine to run it on",
          lambda: ("IBM-ROM %s - field figures" % FIELD_MACHINE)
