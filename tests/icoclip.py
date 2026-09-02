@@ -227,11 +227,25 @@ def run(machine, tag, fbseg, fbsize, verbose, dump=None,
                 #    draws NOTHING AT ALL. A 32x32 diskette lights most of its own
                 #    footprint, so this is a floor with a lot of headroom rather
                 #    than a fitted number.
+                #
+                #    IT IS PER ROW, and it was a bare 64 until the sweep grew
+                #    past one record. 64 is `2 * ih` for the 32-row diskette it
+                #    was fitted to - two bytes of a five-byte window a row -
+                #    so the default sweep's floor is unchanged to the number,
+                #    while the two 14-row records (SPEC.md 26.4) get 28 rather
+                #    than a bar 14 rows CANNOT clear. Measured on this tree,
+                #    over all 8 phases and both strides: ico_disk32 117..148,
+                #    ico_hdd32 74..96, ico_disk14 45..58, ico_hdd14 32..42 -
+                #    the last is the thin one, and it is a deterministic
+                #    number (the band is zeroed first, so the ink is a pure
+                #    function of the record and the phase), not a sampled one.
                 ink = sum(1 for row in ref[:ih] for col in range(stride) if row[col])
-                if ink < 64:
-                    bad.append("%s phase %d: the unclipped icon wrote %d non-zero "
-                               "bytes - the harness is not drawing, and every "
-                               "assertion below passes on that" % (tag, phase, ink))
+                if ink < 2 * ih:
+                    bad.append("%s %s phase %d: the unclipped icon wrote %d "
+                               "non-zero bytes of a floor of %d (2 a row) - the "
+                               "harness is not drawing, and every assertion "
+                               "below passes on that"
+                               % (tag, recname, phase, ink, 2 * ih))
                 # 1. the reference itself must stay inside its own columns.
                 for r, row in enumerate(ref):
                     for col in range(stride):

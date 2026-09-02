@@ -1366,11 +1366,19 @@ SOAK = [
         "staged gfx_patbuf and edge masks rather than a golden image. Both "
         "strides.",
         needs=("marty",), serial=True),
-    Row("icoclip", "soak", py("tests/icoclip.py"), 600.0,
+    # THE ENTRY IS NAMED HERE and it is not decoration: ico_disk32 is the
+    # INDEXED kind now (SPEC.md 25.7) and `icon_draw` reads that record as
+    # 258 bytes of plain art, walking off its 13 into whatever follows. Every
+    # assertion in this row is "nothing outside its own columns" or "the same
+    # bytes as the unclipped draw", so a mismatched pair DRAWS GARBAGE AND
+    # PASSES - measured, on the tree that introduced the kind. The record and
+    # the entry have to be named together or this row tests nothing.
+    Row("icoclip", "soak", py("tests/icoclip.py", "--entry", "icon_draw_ix"),
+        600.0,
         "Does a 32-wide icon HANGING OFF THE RIGHT EDGE still clip byte for "
         "byte? (SPEC.md 25.6) - ico_pass_bb's per-byte column test is the "
         "only thing between an icon at x = w-8 and a write on the NEXT SCAN "
-        "LINE, and ico_core does not refuse the shape. Calls icon_draw "
+        "LINE, and ico_core does not refuse the shape. Calls icon_draw_ix "
         "through the debugger at all eight shift phases and at every column "
         "that hangs off, on BOTH strides (CGA 80, Hercules 90), over a zeroed "
         "background so two draws are comparable.",

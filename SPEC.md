@@ -33299,6 +33299,103 @@ is fast and must be byte-aligned; a record is masked and may go anywhere. Reach
 for the band for composed text and long runs, and for the record for a small
 shape at a pen the caller does not control.
 
+### 25.7 A third record kind: the desktop's four icons are RUNS over a shared pool
+
+`ico_disk32`, `ico_disk14`, `ico_hdd14` and `ico_hdd32` (§26.4) held **744
+bytes** of hand-authored `dw` rows between them, and they are the same picture
+four times: two diskettes and two hard disks, at 32 rows and at 14. Enumerated,
+the four hold **16 distinct rows** — and a diskette's mask is one row repeated
+32 times.
+
+So they are stored as **runs over a shared pool** instead. The pool
+(`ico_pool`) is those 16 rows, four bytes each, 64 bytes once for all four
+records; a record is the same two-byte header every icon carries and then one
+byte a run:
+
+```
+db wwords            ; 2 - this kind is 32 px wide and only that
+db height            ; rows
+; then RUN BYTES, one each:  row index << 4  |  repeat count - 1
+;   the FIRST `height` rows the runs produce are the mask table and the
+;   next `height` the data table, which is a plain record's own order.
+;   Index 0..15 selects a row of ico_pool; count 1..16.
+```
+
+**135 bytes for the four, against 744.** The records are 13, 11, 18 and 29
+bytes; the pool is the other 64. A diskette's 32-row mask is two run bytes,
+which is the repeated-mask case falling out of the general mechanism rather
+than needing one of its own.
+
+**A run does not cross the mask/data boundary**, and that costs exactly two
+bytes over letting it. What it buys is a source that reads as "these are the
+mask rows, these are the data rows" and an assembly-time count of **each half
+separately** — a miscount inside one table that the other's compensates for is
+otherwise invisible until the icon is looked at.
+
+#### 25.7.1 `icon_draw_ix` — the entry, and it is KERNEL-INTERNAL
+
+```
+icon_draw_ix   in CX = x, DX = y, SI -> an indexed record; caller holds the
+               gfx lock. Preserves every register. Expands the runs into
+               `ico_ibuf` and falls into `ico_draw_common`, so the clip, the
+               GC setup and both passes are `icon_draw`'s own and
+               `ico_core` / `ico_pass` / `ico_pass_bb` are untouched.
+```
+
+**Two record kinds now exist and neither pass may see the wrong one.** The
+plain kind is what `icon_draw` and `icon_draw_x` take and **their refusals do
+not change**: `icon_draw_x` still refuses every width but `ICO_STAGE_WW` and
+every height above `ICO_STAGE_H`, in the same compares (§25.6.1). The indexed
+kind is named by `desk.inc` and by nothing else — `desk_pdisk` / `desk_phdd`
+(§26) are its only two pointers, `cw_icon_draw_ix` its only thunk — **and no
+package can name one at all**, since an `OSAPI_*` caller hands over a record in
+its own segment and there is no slot that takes this kind.
+
+The expansion is **once per icon draw**, not per row and not per pass, and the
+plain path — the Disk window's rows, the dock's tiles, every control glyph,
+every package's own record — does not go near it.
+
+**What it costs, MEASURED** on a cycle-exact 4.77 MHz 8088 (MartyPC, CGA,
+each icon drawn through the old entry and the new and the guest's own cycle
+counter read either side):
+
+| | plain record | indexed | added | |
+|---|---:|---:|---:|---|
+| `ico_disk32` | 96,091 | 101,331 | **+5,240** | +5.5%, 1.10 ms |
+| `ico_hdd32` | 87,177 | 94,785 | **+7,608** | +8.7%, 1.59 ms |
+| `ico_disk14` | 44,403 | 47,403 | **+3,000** | +6.8%, 0.63 ms |
+| `ico_hdd14` | 42,959 | 46,995 | **+4,036** | +9.4%, 0.85 ms |
+| `ico_app16` through `icon_draw` | 27,261 | 27,261 | **0** | the plain path |
+
+About **56 cycles a row and 148 a run**, which is why the two hard disks cost
+more than the diskettes at the same height: they are 27 runs against 11. It is
+paid on a **desktop repaint** — the volume zones, two to four icons — and
+nowhere else in the system. The decoder itself is **86 bytes**, against the
+609 of art it deletes.
+
+#### 25.7.2 `ico_ibuf` SHARES `ico_stage`'s storage, and what makes that safe
+
+The expansion target is 2 × 32 rows × 4 bytes = **256 bytes**, and it is
+declared as the `.bss` cell `ico_ibuf` with **`ico_stage` as its first 66
+bytes** — one buffer, two names, `+190` bytes of `.bss` rather than `+256`.
+
+The claim is the one §25.6.1 already makes for there being a single
+`ico_stage`: **every caller holds the gfx lock, and nothing in a drawing path
+re-enters.** `ico_stage` is written by `icon_draw_x` and by nothing else, and
+`ico_ibuf` by `icon_draw_ix` and by nothing else; both stage a record and then
+draw it inside the one lock hold, so a second stager cannot start while the
+first is between its copy and its passes. Pre-emption does not change that —
+the lock is what serialises drawing between tasks — and neither ISR that draws
+touches an icon: the mouse ISR draws the pointer through `cur_move` (§8.1.2).
+
+**It is tested rather than asserted**, and that is the point: `tests/icoclip.py`
+reports the SPAN of `.bss` the draws moved, from `ico_stage` across 512 bytes.
+A decoder that mis-sizes its buffer writes past it into `ico_ww`, `ico_h`,
+`ico_rows` … and the pixels can be perfect while it does, so the span is the
+claim "I write my own buffer and nothing else" measured. The assembler holds
+the other end: every indexed record's height is checked against the buffer's
+at assembly time, and its two halves are counted.
+
 ### 26.1 The zone list IS the volume table, and it wraps into a new column
 
 `desk_ndrives` is gone. A desktop zone is a row of `dsk_vtab` (§18.7) whose

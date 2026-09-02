@@ -1020,7 +1020,8 @@ desk_draw_zone:
     jz .icon                    ; booted through the BIOS (DVK_BIOS, unit
     mov si, [desk_phdd]         ; 80h+) drew the FLOPPY icon, which is what a
 .icon:                          ; machine booting off its own disk always saw
-    call KERNEL_SEG:cw_icon_draw
+    call KERNEL_SEG:cw_icon_draw_ix   ; the four are the INDEXED kind
+                                ; (SPEC.md 25.7) and this is their only site
 
     ; --- label: the white rect HUGS the caption (SPEC.md 26.4) ---------------
     ; It used to be the zone's full width whatever was in it, which was right

@@ -5716,6 +5716,9 @@ cw_gfx_xor_fill:        call gfx_xor_fill
                     retf
 cw_icon_draw:           call icon_draw
                     retf
+cw_icon_draw_ix:        call icon_draw_ix   ; the INDEXED kind (SPEC.md 25.7),
+                    retf                    ; desk.inc's volume icons and no
+                                            ; other caller in the tree
 cw_icon_pen:            call icon_pen
                     retf
 cw_icon_draw16:         call icon_draw16
