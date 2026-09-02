@@ -190,7 +190,14 @@ TK_SHSEG  equ 16000             ; the CGA/Hercules shadow, in bytes
 TK_SHKB   equ 16                ; ...as a claim
 
 ; --- gameplay -----------------------------------------------------------------
-TK_TURN   equ 2                 ; angle units per frame at full lock
+TK_TURN   equ 2                 ; angle units per TICK at full lock
+TK_MAXSTEP equ 3                ; ...and the most a frame may ever spend of
+                                ; them, which tk_steps caps a stall at. It
+                                ; lives here rather than beside tk_steps
+                                ; because TK_MAXSTEP * TK_TURN is the COARSEST
+                                ; heading lattice any machine puts the player
+                                ; on, and SPEC.md 85.6.5.8 derives the aim
+                                ; box from exactly that
 TK_SPEED  equ 26                ; world units per frame, forward
 TK_RSPEED equ 16                ; ...and reversing
 TK_SHVEL  equ 130               ; a shell's speed, world units a TICK
@@ -200,6 +207,94 @@ TK_SHLIFE equ 30                ; ...and its life in ticks, so its reach is
                                 ; shoots you in the back
 TK_LIVES  equ 4
 TK_HITR   equ 150               ; a shell within this of a target is a hit
+
+; --- the ground the player starts on has to be drivable (SPEC.md 85.6.6) -----
+; tk_newgame scattered TK_NSTAT pieces of scenery uniformly over the torus and
+; stood the player at the origin without ever comparing the two. tk_blocked
+; refuses a destination within 300 of a piece and a step is only TK_SPEED, so a
+; player who starts inside that box cannot get out of it in ANY direction:
+; reported as "sometimes I spawn into an obstacle, and can only turn, never
+; drive", and modelled at 5.27% of games - one in nineteen - with another 2.15%
+; fenced in on some headings but not all.
+;
+; TK_CLEARR is twice tk_blocked's own box, and the margin is what makes it a
+; proof rather than an improvement: a piece this far off cannot refuse even the
+; FIRST step, because 300 + TK_SPEED is 326. Modelled again with the rule in,
+; over the same 40,000 games: zero stuck and zero fenced.
+TK_CLEARR equ 600               ; ...and no piece may stand nearer the spawn
+
+; --- aiming, and what the TURN's own step costs it (SPEC.md 85.6.5) -----------
+; A heading is a byte, so a unit is 1.40625 degrees and TK_TURN spends two of
+; them a TICK. tk_input latches once a FRAME and tk_pmove spends up to
+; TK_MAXSTEP of them, so the finest turn a player can COMMAND is
+; TK_TURN * min(ticks a frame, TK_MAXSTEP) - SIX units, 8.44 degrees, on both
+; 1bpp adapters, where docs/GFX-FSX-PLAN.md 0 measures 6.06 and 4.32 fps. What
+; that has to fit inside is tk_espoil's own window, 6,100/R units either side:
+; 4.1 units wide at 3,000 and 3.1 at the shell's 3,900-unit reach. So the sweep
+; steps clean over a distant tank and the phase of the press decides whether it
+; was ever hittable.
+
+; --- where the auto-aim applies, DERIVED and not chosen (SPEC.md 85.6.5.8) ---
+; THE PLAYER HAS TO AIM IT THEMSELVES, so the gun only corrects a shot at a
+; tank inside the box the CLOSED sight draws. Which makes the box's width a
+; reachability question rather than a taste one: the player can only command a
+; heading every TK_TURN * tk_lstep units and tk_lstep is capped at TK_MAXSTEP,
+; so the coarsest lattice anywhere is Q = TK_MAXSTEP * TK_TURN = 6 units and
+; the nearest heading to an arbitrary bearing is within Q/2 = 3 of it.
+;
+; A BOX NARROWER THAN Q/2 THEREFORE HAS BEARINGS NOTHING CAN REACH. At the 18
+; px this was first drawn at - 2.65 units - it is 11.8% of them: one tank in
+; nine that no sequence of presses can put in the box, which is SPEC.md
+; 85.6.5's original defect in miniature. At 21 px it is none, ever, on any
+; machine.
+;
+; And tk_aimfix's cap is Q/2 as well, which makes the pair sufficient rather
+; than merely necessary: at the nearest reachable heading the error is inside
+; the box AND inside the cap, so the correction is exact and the shot lands at
+; every range. At the box's EDGE the residual is 0.24 units, against a window
+; of 1.56 at the shell's longest reach.
+TK_BOXQ   equ TK_MAXSTEP * TK_TURN * 2 + 1      ; Q/2 in quarter units, plus a
+                                                ; quarter unit of margin
+TK_BOXPX  equ 22                ; ...and what that is in tk_t_lock's own
+                                ; 320x200 units: 3.25 * sclx * tan(1u) = 22.1
+
+%if TK_BOXQ < TK_MAXSTEP * TK_TURN * 2
+  %error "TK_BOXQ is under half the coarsest turn lattice: there are bearings no sequence of presses can put a tank inside the box"
+%endif
+; ...and the same inequality read the other way is what lets tk_aimfix clamp
+; nothing at runtime: the cap is TK_MAXSTEP * TK_TURN * 2 at its largest, which
+; is inside the box by construction, so a correction can never reach past the
+; brackets the player is being asked to aim within.
+%assign TK_BOXDRAWN (TK_BOXPX * 5882) / 10      ; the DRAWN box, quarters x1000
+%if TK_BOXDRAWN > TK_BOXQ * 1000 + 588
+  %error "tk_t_lock is drawn WIDER than the box the gun uses: the closed sight would promise a correction outside it"
+%endif
+%if TK_BOXDRAWN < TK_BOXQ * 1000 - 588
+  %error "tk_t_lock is drawn NARROWER than the box the gun uses"
+%endif
+
+TK_RETQ   equ 20                ; the gunsight's OWN half-width, in quarter
+                                ; angle units, and the outer gate on every
+                                ; assist. tk_t_sight brackets at 34 of
+                                ; 320x200's units and a unit of heading is
+                                ; sclx*tan(1u) pixels, so it is
+                                ; 34/(277*0.024536) = 5.00 units on both
+                                ; 320-wide viewports and 68/(554*0.024536) =
+                                ; 5.00 on Hercules - one constant on all three,
+                                ; because 85.3's table sets sclx for the same
+                                ; field of view everywhere
+TK_ERRK   equ 163               ; 40.756 * 4: units per (ocx/ocz), in quarters
+TK_HITQ   equ 24444             ; tk_espoil's window, in quarter units times
+                                ; the range: TK_HITR*256*4/(2*pi). Divided by
+                                ; the range it is how far off the sights a shot
+                                ; may be and still hit - 6.2 quarters at the
+                                ; shell's longest reach and 35 at 700
+TK_LOCKHYS equ 2                ; ...widened by half a unit once the sight has
+                                ; closed, so a target on the boundary does not
+                                ; chatter the reticle and its blip
+TK_BLIPHZ equ 2200              ; the acquisition blip: one tick, and BELOW the
+TK_BLIPPRI equ 020h             ; muzzle's SND_PRI_PKG, so a shot always wins
+TK_AIMBAN equ 36                ; ticks the mode banner stays up: two seconds
 
 ; --- what a shell cannot pass through (SPEC.md 85.6.2) ------------------------
 ; One radius per scenery type, indexed by its OT_*. A slab is wider than a
@@ -678,6 +773,17 @@ tk_tpl:
     ZBYTE tk_pa
     ZBYTE tk_kturn                  ; the held keys, latched by tk_input and
     ZWORD tk_kdrv                   ; spent one step at a time by tk_pmove
+    ZBYTE tk_aimh                   ; the heading THIS shell leaves at
+    ZBYTE tk_lstep                  ; steps the LAST frame owed - TRIM's whole
+                                    ; input, because the lattice the player is
+                                    ; stuck on is TK_TURN times this
+    ZWORD tk_aimw                   ; tk_besttarget's window, best, pick and
+    ZWORD tk_aimb                   ; the picked target's RANGE, in quarter
+    ZWORD tk_aimq                   ; units but for the last
+    ZWORD tk_aimz
+    ZBYTE tk_locked                 ; the sight is closed on a target...
+    ZBYTE tk_lockwas                ; ...and was last frame, which is what makes
+                                    ; the blip an ACQUISITION and not a tone
     ZBUF  tk_ox, TK_NOBJ * 2        ; the world's, indexed by slot x 2
     ZBUF  tk_oz, TK_NOBJ * 2
     ZBUF  tk_otype, TK_NOBJ

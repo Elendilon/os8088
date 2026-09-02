@@ -1273,6 +1273,18 @@ SOAK = [
         "on the glass per DISPLAYED frame, whose floor against its median is"
         "the whole question a foreign-mode raster is built to answer",
         needs=("marty",), serial=True),
+    Row("tankaim", "soak", py("tests/tankaim.py"), 200.0,
+        "SPEC.md 85.6.5's aim assist and its reticle: no bearing is unreachable"
+        "(by enumeration, not by the algebra), the TURN is untouched at TK_TURN"
+        "a tick, the gun corrects inside the closed sight's box and nowhere"
+        "else, and the sight closes on exactly the shots that land - read"
+        "against tk_aimq and tk_aimz, the code's own measured error and range",
+        needs=("marty",), serial=True),
+    Row("tankspawn", "soak", py("tests/tankspawn.py"), 200.0,
+        "SPEC.md 85.6.6: no round starts inside a piece of scenery - which one"
+        "in nineteen did, sealing the player in a box a 26-unit step cannot"
+        "leave - and a player who somehow IS inside one can still drive out",
+        needs=("marty",), serial=True),
     Row("wireflick", "soak", py("tests/wireflick.py"), 120.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"
         "frame - the flicker measured rather than argued about",
