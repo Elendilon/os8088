@@ -98,24 +98,40 @@ pointer crossing and its round trip, a window dragged onto the secondary, and
 fullscreen on both. **The gate had never once run to completion.**
 `tests/dispband.py` carried the same `+6` in prose and is corrected too.
 
-## A3. `GFX_BLITP` is 2.7% slower and nothing explains it
+## A3. `GFX_BLITP` is 2.7% slower — CLOSED, it is the epilogue ladder
 
 ```
 GFX_BLITP 256x16   +2.64% (cga)  +2.76% (herc)   3413 -> 3503 / 3409 -> 3503
 GFX_BLITP 64x64    +2.76% (cga)  +2.76% (herc)   3409 -> 3503 / 3409 -> 3503
 ```
 
-The **one** bench regression that survived scrutiny. Consistent on both 1bpp
-adapters to the same landing count and independent of block size, so it is a
-FIXED per-call cost — and it is not the Hercules phase artefact of C1, because
-that moved the two adapters in opposite directions everywhere else.
+**It is the ladder, and the arithmetic that dismissed it divided by the wrong
+number.** Built both ways on one tree — `gfx_blitp`'s epilogue as `jmp
+kret_bp` against the seven pops written out, nothing else touched — the
+Hercules bench reads **3,502 counts against 3,408**, which lands on the base
+tree's 3,409 to one count. `GFX_BLIT4` in the same pair of runs moved by one
+count in 642,000, so nothing else in `.text` shifted under it.
 
-`gfx_blitp` took an epilogue-ladder site (`vga12.inc`, `jmp kret_bp`), which is
-the obvious candidate — **but the arithmetic does not support it**: a taken near
-jump is ~18–22 clocks against a call whose fixed part is ~756 µs, which is far
-under 1%. So the attribution is a hypothesis and the finding is unexplained.
-Worth one look from whoever next opens `vga12.inc`, and it deserves the same
-high-N scrutiny C1 describes before anybody acts on it.
+94 counts over 12 calls is 7.83 counts at 838 ns each: **31 clocks for one
+taken near `jmp`**, the instruction table's ~18-22 plus a prefetch queue flush
+it does not price. That is now measured and written down in three places —
+PERFORMANCE.md's *What one rung of the ladder costs*, SPEC.md §15.1.2 (whose
+"~18-22 clocks" was the basis for keeping eleven per-run exits out of the
+ladder, a decision the real figure only strengthens) and
+`docs/HANDOFF-KERNEL-SIZE-P3.md`'s reuse table, because pass 3 will add
+sites.
+
+**Why it was called unexplained**: 6.5 us was divided by the 756 us in
+PERFORMANCE.md Part 1's table — "the FIXED PART of any `gfx_*` drawing call" —
+and came out under 1%. But this row is a REFUSAL. `gfx_blitp` on a 1bpp
+adapter checks its guards and returns (SPEC.md §5.4.3), so the call costs
+238 us, not 756, and 6.5 of 238 is the 2.7% that was observed. PERFORMANCE.md
+already carries *"never quote 756 as a floor a design must beat"* (Set 89) and
+this is the same error one step along: never quote it as a denominator either.
+
+**It is not worth reverting.** 6.5 us lands once per session on a machine that
+refuses — §42.13.1 caches the refusal as a fact about the adapter — against 7
+bytes of `.text` on the constraint that actually binds.
 
 ## A5. `dispmine` asked whether a cell opened, and meant whether the press arrived
 
@@ -488,48 +504,73 @@ of every `qemu-system` launcher under `tests/` for a `finally`.
 
 # C. Measurement and documentation
 
-## C1. PERFORMANCE.md's Hercules write cost is low by about a quarter
+## C1. Hercules write cost — CLOSED, and this entry's own mechanism was wrong
 
-The bench comparison reported `VRAM write byte +18.38%` on Hercules and a family
-of VRAM-bound rows with it (`GFX_LINE` ×4, `GFX_VLINE 128px` +8.25%,
-`GFX_FRAME`, `GFX_XOR_RECT`) — every one of them showing the **opposite sign on
-CGA**, which no code change can do.
+The correction landed: PERFORMANCE.md's *The framebuffer is barely slower than
+RAM* now carries **two figures per cell**, one per BIOS ROM, all four rows at
+N=48, plus the controls. Every documented ratio was low — `rep stosw` 1.57
+against 1.75/1.82, `rep stosb` 1.36 against 1.67/1.50, the read-modify-write
+1.09 against 1.126/1.125 — and the section's conclusion (the mono renderer's
+inner step is instruction-bound, not bus-bound) survives at 82.0 clocks per
+byte end to end against RAM's 72.8.
 
-The N experiment settled it. Same patched benchmark in both trees, `RAM write
-byte` at N=8 throughout as the control:
+**But the mechanism this entry named is not the mechanism.** It said the
+quantity "needs N=48" and that eight samples of a bimodal cost do not average.
+Two measurements say otherwise:
 
-| | RAM write byte | VRAM write byte | ratio |
-|---|---|---|---|
-| base, N=8 | 4917.76 µs | **6941.98 µs** | 1.412 |
-| HEAD, N=8 | (same) | **8217.98 µs** | 1.671 |
-| base, **N=48** | 4918.07 µs | **8217.83 µs** | **1.671** |
-| HEAD, **N=48** | 4917.76 µs | **8217.84 µs** | **1.671** |
+- **N is not the variable.** One kernel reads `rep stosb` at 8,218.0 us with
+  N=8 and 8,218.6 with N=48 — 0.01% apart.
+- **Nothing is aliasing against the 19.19 ms frame.** Rebuilding the block at
+  33 rows instead of 32 — which moves the sample's duration, the only thing
+  that moves a phase orbit — scales every row by 33/32 to within 0.02%, RAM
+  and VRAM alike.
 
-**At N=48 the two kernels agree to five significant figures**; the control moved
-0.006%. There was never a Hercules regression — the BASELINE was reading 18% too
-fast at N=8, because one iteration is 6.94 ms against a 19.19 ms frame, so each
-sample is 36% of a frame and eight samples of a bimodal quantity do not average.
-(The card inserts wait states during active display and not during blanking.)
+What actually moves it is the **machine**. The same tree booted on GLaBIOS and
+on the IBM 10/27/82 ROM, all rows N=48, puts the four RAM rows inside 0.014%
+and the VRAM rows up to **10.2%** apart, in both directions. The report's
+`ISA status port in` row — an `in` from the card's own status register,
+touching no memory — moves 5.5% in the same pair, which bounds it sharply:
+everything that goes to the video card moves and nothing else does.
 
-**The finding beyond this pass**: PERFORMANCE.md gives `rep stosb` as RAM
-4,918 µs against Hercules 6,668 µs, **ratio 1.36**, and concludes a Hercules card
-costs *"about 4.8 extra clocks per byte written"*. That 6,668 sits in the same
-low band as the N=8 readings. **The converged ratio is 1.671.** It is a number
-other work reasons from — `docs/MONO-RECLAIM-PLAN.md`'s whole case is about what
-the 1bpp path costs — so it should be re-measured at high N before anyone leans
-on it again.
+**How the wrong mechanism got written down** is worth more than the mechanism.
+N was the one thing deliberately varied between two runs that gave different
+answers, so it got the credit — and the table in this entry that appeared to
+prove it (*"base, N=48"* against *"HEAD, N=48"*, agreeing to five figures) is
+**two runs of the same kernel**: the run filed as `base` reports `kernel span
+106 KB` and `boot ticks 170`, which are HEAD's, against the real base tree's
+111 and 177. The five-figure agreement was real and meant nothing. A control
+that cannot be told apart from its treatment is not a control, and the report
+printed the field that would have said so.
 
-The same file already fixed one row for this exact reason and left the others:
-`one retrace period` carries the note *"biased low by up to one frame in N… At
-N = 4 that is a quarter of the answer"* and was fixed with a priming call and
-N = 12. **The VRAM rows are still N=8.**
+**N=48 is still the right thing to run**, for a reason this entry had right:
+N=8 is not biased, it is *arbitrary* — one iteration is 36% of a frame — and
+it costs seconds to remove that as a question.
 
-## C2. `deskbench` had no recorded numbers to compare against
+**One trap for whoever raises N next**: the report's derived `VRAM/RAM word
+x100` row divides raw COUNTS, so it means what it says only while both rows
+share an N. Patching one side alone leaves it reading 6x high.
 
-`docs/LAST-DROP-PERF.md` names `deskbench` on VGA as the measurement that would
-settle whether an XOR-rect change is felt, and records that it *"has not been
-taken"*. It still has not, and the row now prices all eleven of its operations
-on all three adapters. Somebody should take it and write the table down.
+## C2. `deskbench` had no recorded numbers — CLOSED, the table is taken
+
+`docs/LAST-DROP-PERF.md` named `deskbench` on VGA as the measurement that would
+settle whether an XOR-rect change is felt, and recorded that it *"has not been
+taken"*. It has now, on all three adapters, and the table is in PERFORMANCE.md
+under *What a BUSY DESKTOP costs* with its two caveats attached.
+
+It answers less than the entry that asked for it hoped, and the reason is
+worth keeping: **there is no before.** A first reading is a baseline, not a
+comparison, so it cannot say the flash is new. What it can say is that the
+asymmetry the entry predicts is there in the row that exercises the path —
+moving the bottom window reads transient÷changed of 0.96 / 0.97 / **3.15**
+across CGA / Hercules / VGA, the only row of eleven where the adapters differ
+in kind — and that a second thing, which nobody was looking for, is four times
+larger: **the fullscreen exit writes every pixel seven to eight times**, on
+all three adapters equally, because §11.2 repaints the desktop and then each
+window over it in z-order.
+
+`docs/LAST-DROP-PERF.md`'s bullet now carries that, and says plainly that the
+honest test it named — a flicker run over a held drag, built both ways — is
+still the one that would settle it.
 
 ---
 
@@ -584,9 +625,9 @@ away. `weavesmoke._shot` is the family's helper.
 | a missing `no_saver()` call (B7) | 1 — `trkrate` |
 | found by the pre-merge gate, not the soak (B9) | 1 — a leaked QEMU breaking `ps2mouse` |
 | fixed during the pass | 3 — `deskbench`, and `weavegame`/`wireflick`'s registrations |
-| **fixed since, in this queue** | **12** — A1, A2, A4, A5, B1, B2, B3, B4, B6, B7, B8, B9 |
-| **left open** | **3** — A3, B5, C1, C2 |
-| **classifications this queue got WRONG and corrected** | **4** — `trkscrl` (A1, called in bold "the one genuine product defect" and it is a shadowed key in the test's own include), `dispmine` (A5, called contention on one passing re-run), `blitcut` (B2, bisected to a host-side commit and it is the size pass's own ladder), and B6's own mechanism |
+| **closed since, in this queue** | **15** — A1, A2, A3, A4, A5, B1, B2, B3, B4, B6, B7, B8, B9, C1, C2 |
+| **left open** | **1** — B5, deliberately (it reaches 194 files and wants a full soak behind it, and its evidence weakened rather than strengthened) |
+| **classifications this queue got WRONG and corrected** | **6** — `trkscrl` (A1, called in bold "the one genuine product defect" and it is a shadowed key in the test's own include), `dispmine` (A5, called contention on one passing re-run), `blitcut` (B2, bisected to a host-side commit and it is the size pass's own ladder), B6's own mechanism, **C1's mechanism** (it blamed N, which two measurements clear, and the table that appeared to prove it is one kernel run twice — the report printed the field that says so), and **A3's arithmetic** (it divided 6.5 µs by 756 µs, which is not this call's cost) |
 | **product defects found in shipped software** | **0** |
 
 **The one lesson, and it is one lesson.** Not one of these was a check that

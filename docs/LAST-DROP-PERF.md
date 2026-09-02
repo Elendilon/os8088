@@ -351,10 +351,23 @@ the ordinary reason PERFORMANCE.md rule 4 says to measure.
   in exact proportion.
 * **The flash being SEEN.** `gfxbench` answers the microsecond question and cannot
   answer this one. The commit named `deskbench` on VGA and `os88marty.py flicker`
-  over one held drag as the measurement, and **neither has been taken**; `dockmark`
-  is the control and not the measurement, since one rect per focus change says
-  nothing about 36.4 a second. If a flicker run over a held drag shows transient
-  pixels it did not show before, that is a defect rather than a trade.
+  over one held drag as the measurement; `dockmark` is the control and not the
+  measurement, since one rect per focus change says nothing about 36.4 a second.
+
+  **`deskbench` HAS NOW BEEN TAKEN** — the table is in PERFORMANCE.md, *What a
+  BUSY DESKTOP costs*. It does not settle this, because there is no before: it
+  is the first reading, so it is the baseline the next change is compared
+  against and nothing more. What it *does* show is the asymmetry this entry
+  predicts, in the row that exercises the path. Moving the bottom window of a
+  four-window scene — which repaints the three above it — reads a
+  transient÷changed ratio of **0.96 on CGA, 0.97 on Hercules and 3.15 on VGA**,
+  and 3.15 means the outline is written and unwritten three times for every
+  pixel the move actually moved. That is the only row in the eleven where the
+  adapters differ in kind rather than in size, and VGA-only is exactly the
+  shape of the merge: three extra `gfx_xor_rect` arrivals per strip, 1bpp free.
+  It is **not** proof, since the same asymmetry would follow from VGA simply
+  having more to repaint, and the honest test remains the one this entry
+  already names — a flicker run over a held drag, built both ways.
 * **A cheaper merge — the version to build if any of the above happens.** The
   1,112 µs is three extra *arrivals*, not three extra decompositions.
   `gfx_xor_strips` calls a whole rect fill per strip through `BP`, and each VGA

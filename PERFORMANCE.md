@@ -281,7 +281,7 @@ of what happens when a design is argued from the aggregate instead.
 
 A fill spends **91% of a 64-pixel-wide row on arriving**: 177 us of setup
 against 18 us of pixels. The per-pixel half is already at the bus (0.28 us/px
-is 2.2 us per framebuffer byte against the 3.26 a raw `rep stosb` costs), so
+is 2.2 us per framebuffer byte against the 3.6-4.0 a raw `rep stosb` costs), so
 there is nothing in the inner loop and most of an order of magnitude in the
 row setup.
 
@@ -1762,9 +1762,11 @@ fit to the two large sizes:   177 us per ROW  +  0.28 us per pixel
 177 us is **840 clocks of setup per scan line**. A 64-pixel-wide row spends
 177 us arriving and 18 us drawing: **91% overhead**. The per-pixel half is at
 or below what a raw store costs — 0.28 us/px works out to 2.2 us per
-framebuffer byte against the 3.26 us/byte a raw `rep stosb` to B000 measures
-— so there is nothing to win in the inner loop and most of an order of
-magnitude to win in the row setup, on every fill in the system.
+framebuffer byte against the 3.61 to 4.01 us/byte a raw `rep stosb` to B000
+measures (both figures, two sections down; this argument is made at the LOW
+end and only gets stronger at the other) — so there is nothing to win in the
+inner loop and most of an order of magnitude to win in the row setup, on
+every fill in the system.
 
 **Two caveats on those coefficients, because the model does not quite fit.**
 Solving all three sizes for `c + a*rows + b*px` gives a NEGATIVE per-call
@@ -1781,20 +1783,97 @@ now, so a cost that is not linear in pixels shows itself.
 
 #### The framebuffer is barely slower than RAM, which nothing here assumed
 
-| 2,048 bytes, identical loops | RAM | Hercules B000 | ratio |
+| 2,048 bytes, identical loops, N=48 | RAM | Hercules B000 | ratio |
 |---|---|---|---|
-| `rep stosw` | 3,595 us | 5,651 us | **1.57** |
-| `rep stosb` | 4,918 us | 6,668 us | 1.36 |
-| byte read-modify-write | 31,238 us | 34,169 us | **1.09** |
+| `rep stosw` | 3,594 us | 6,288 / 6,536 us | **1.75 / 1.82** |
+| `rep stosb` | 4,918 us | 8,219 / 7,383 us | **1.67 / 1.50** |
+| `rep lodsw` | 10,648 us | 13,295 / 13,656 us | 1.25 / 1.28 |
+| byte read-modify-write | 31,238 us | 35,163 / 35,138 us | **1.126 / 1.125** |
 
-A Hercules card costs about **4.8 extra clocks per byte written** and almost
-nothing on a read-modify-write, because on a 4.77 MHz 8088 the *instructions*
-are the bottleneck and the card's wait states hide inside them. The
-read-modify-write measures **79.6 clocks per byte** end to end — SPEC.md §39.5
-quotes "~30 cycles" — but only ~7 of those 79.6 are the bus. **The figure was
-low and it was attributed to the wrong thing:** the mono renderer's inner step
-is expensive because it is five 8088 instructions, not because it touches
-video memory.
+**Two figures per cell, because there are two.** The pair is the same tree and
+the same MartyPC 5150 booted twice, once on GLaBIOS and once on the IBM
+10/27/82 ROM — nothing else differs, and every row of both runs is N=48. The
+four RAM rows agree between them to **0.014%**. The VRAM rows disagree by up
+to **10.2%**, and not in one direction: `rep stosb` is 11% slower under
+GLaBIOS while `rep stosw` is 4% faster in the same pair of runs.
+
+The scope of that is worth more than the cause, and it is sharp. The report's
+`ISA status port in` row — an `in` from the card's own status register, which
+touches no memory at all — moves **5.5%** between the same two runs. So
+**everything that goes to the video card moves and nothing else does**: the
+card's arbitration is the whole of it, and a mechanism that would also slow
+RAM (DMA refresh, a clock divisor) is ruled out by the 0.014%. Why a BIOS
+leaves the card arbitrating differently is not known and is a good question
+for whoever needs the number to be one number.
+
+**Quote the pair, and never compare a VRAM row against one taken on a
+different machine** — the RAM row beside it is the only part of this table
+that travels.
+
+Three things are *not* the cause, each ruled out by a measurement:
+
+- **The sample's duration.** Rebuilding the block at 33 rows instead of 32
+  scales every row by 33/32 to within 0.02%, RAM and VRAM alike — so nothing
+  is aliasing against the 19.19 ms MDA frame, which a duration change moves.
+- **The card's frame timing.** One retrace period reads 19.19 ms in every run
+  taken, inside 0.6%.
+- **The harness.** The RAM rows share every line of it.
+
+**N=8 is what the older figures in this section were taken at, and it is not
+trustworthy.** On one kernel `rep stosb` read 6,942 us at N=8 and 8,218 at
+N=48; on another it read 8,218 at both. So N=8 is not biased low, it is
+*arbitrary* — one iteration is 36% of a 19.19 ms frame and eight of them do
+not average a quantity the card modulates. Every VRAM figure above the ratio
+1.5 was previously published as 1.57 / 1.36 / 1.09, and all three were low.
+One row in this file had already been fixed for exactly this — `one retrace
+period` carries the note *"biased low by up to one frame in N"* and was given
+a priming call and N=12 — and the VRAM rows were left behind.
+
+A Hercules card costs **4.5 extra clocks per bus cycle** on a
+read-modify-write and **5.8 to 7.7** on a single access. On a 4.77 MHz 8088
+the *instructions* are still the bottleneck and the card's wait states still
+hide inside them: the read-modify-write measures **82.0 clocks per byte** end
+to end — SPEC.md §39.5 quotes "~30 cycles" — and the same loop over RAM
+measures 72.8, so only **9 of the 82** are the card. **The figure was low and
+it was attributed to the wrong thing:** the mono renderer's inner step is
+expensive because it is five 8088 instructions, not because it touches video
+memory. That conclusion is what the correction was checked against, and it
+survives it — the read-modify-write is also the one VRAM row the two ROMs
+agree on, to 0.07%.
+
+One trap in the harness, for whoever raises N next: the report's derived
+`VRAM/RAM word x100` row divides raw COUNTS, so it means what it says only
+while both rows share an N. The shipped bench holds them equal; a patch that
+raises one side alone leaves that row reading 6x high.
+
+#### What one rung of the ladder costs
+
+**A taken near `jmp rel16` is 31 clocks — 6.5 us — not the ~18-22 the
+instruction table lists.** The extra is the prefetch queue flush, which the
+table does not price, and on the 8088's 8-bit bus that is most of a doubling.
+
+It was measured as a clean A/B on the one path where a jump is the *whole*
+difference. `gfx_blitp`'s 1bpp answer is a refusal (SPEC.md §5.4.3), so the
+call does nothing but check its guards and return, and size pass 2 replaced
+its seven-`pop` epilogue with `jmp kret_bp` (SPEC.md §15.1.2). Built both
+ways, same tree, same machine, N=12:
+
+| `GFX_BLITP`, Hercules, refusing | counts | us/call |
+|---|---|---|
+| seven pops written out | 3,408 | 238.02 |
+| `jmp kret_bp` | 3,502 | 244.65 |
+
+94 counts over 12 calls is 7.83 counts, and one PIT count is 838 ns.
+`GFX_BLIT4` in the same pair of runs moved by one count in 642,000, so the
+effect is the jump and nothing else in `.text` shifting under it.
+
+**What it means for a size pass**: a ladder site on a routine-level exit is
+free — 6.5 us against a drawing call whose fixed part alone is hundreds of
+microseconds. A ladder site on something entered per RUN, per CELL or per
+PIXEL is not, and 31 clocks is the number to price it at. This is also the
+worked example of quoting the wrong denominator: 6.5 us read as **2.7% of
+this call** and as 0.9% of the 756 us in Part 1's table, and the row was
+first dismissed as unexplained because it was divided by the 756.
 
 #### What a screenful costs
 
@@ -1819,6 +1898,71 @@ The API floor is small enough to ignore and worth knowing exactly:
 `GET_TICKS` through the far-call table is **46.7 us**, a near `call`+`ret` is
 11.5 us, `SET_COLOR` 48 us, `WM_GEOM` 79 us, `WM_CLIP_SET`+`CLEAR` 328 us,
 an ISA status-port `in` 8.7 us.
+
+#### What a BUSY DESKTOP costs — deskbench's first table
+
+`tests/deskbench.py` prices eleven ordinary actions against a fixed
+four-window scene (Control Panel, a Disk window on A:, Note Pad on
+`README.TXT` stretched to the band, Paint on `MEDIA/OS8088.GIF`). It had
+never been run — `docs/LAST-DROP-PERF.md` named it as a measurement that
+*"has not been taken"* — so this is the first table and the point of writing
+it down is that the next one can be compared against it.
+
+Each cell is **guest ms / displayed frames / transient÷changed**. The last
+of those is the scale-free one: `transient` counts pixels that changed and
+changed *back* inside the span, so a composited redraw that writes every
+pixel once reads 0 and **a row whose ratio approaches 1 is an outline being
+XORed rather than a window being drawn**.
+
+| operation | CGA 640x200 | Hercules 720x348 | VGA 640x480 |
+|---|---|---|---|
+| Paint to fullscreen | 133 / 8 / 0.03 | 393 / 20 / 0.08 | 601 / 36 / 0.04 |
+| full-screen redraw (fullscreen exit) | 484 / 29 / **7.03** | 629 / 32 / **8.01** | 834 / 50 / **7.65** |
+| move Paint away | 234 / 14 / 0.13 | 354 / 18 / 0.36 | 334 / 20 / 0.33 |
+| move Paint back | 234 / 14 / 0.23 | 374 / 19 / 0.23 | 417 / 25 / 0.39 |
+| raise Note Pad | 167 / 10 / 0.30 | 157 / 8 / 0.27 | 134 / 8 / 0.20 |
+| raise Disk window | 150 / 9 / 0.03 | 40 / 2 / 0.01 ‡ | 100 / 6 / 0.00 |
+| raise Control Panel | 150 / 9 / 0.39 | 177 / 9 / 0.41 | 283 / 17 / 0.26 |
+| move Control Panel | 317 / 19 / 0.96 | 374 / 19 / 0.97 | 350 / 21 / **3.15** |
+| move it back | 301 / 18 / 1.30 | 334 / 17 / 1.23 | 384 / 23 / **3.15** |
+| menu drop (front window) | 50 / 3 / 0.06 ‡ | 39 / 2 / 0.06 ‡ | 67 / 4 / 0.04 |
+| menu dismiss | 33 / 2 / 0.00 ‡ | 20 / 1 / 0.00 ‡ | 33 / 2 / 0.00 ‡ |
+
+**‡ is fewer than four displayed frames — do not quote those.** One frame is
+16.7 guest ms and Part 2 prices a single 78-cell text row at 71, so any
+repaint of real size is tens of frames; a row reporting 22,151 pixels in two
+of them was cut short by the threshold, not drawn quickly.
+
+Three things fall out of it:
+
+- **The fullscreen exit rewrites every pixel seven to eight times.** It is by
+  far the largest flash in the scene and it is the same shape on all three
+  adapters, so it is the composition order and not an adapter path: §11.2's
+  exit repaints the desktop and then every window over it in z-order, and
+  with four overlapping windows a pixel under the top one is written once per
+  layer. Rule 2 says nothing writes a pixel twice; this writes it seven
+  times, and it is the one operation in the scene where that is *by
+  construction* rather than by accident. It is also the row a damage-driven
+  exit would fix outright.
+- **Moving the BOTTOM window is outline-dominated on every adapter, and on
+  VGA it is three times worse.** 0.96 / 0.97 against **3.15** — the only row
+  in the table where the adapters differ in kind rather than in size, and the
+  mechanism `docs/LAST-DROP-PERF.md` names for it is VGA-only by
+  construction (three extra `gfx_xor_rect` arrivals per strip; 1bpp pays
+  nothing). Moving the TOP window instead reads 0.13-0.39 everywhere, so
+  what is being priced is the repaint of the three windows above rather than
+  the drag.
+- **Two rows are already clean and worth keeping that way** — `menu dismiss`
+  reads 0.00 on all three, and `raise Disk window` 0.00-0.03.
+
+**Two caveats on the whole table.** The scene is reproducible to about nine
+lit pixels and not to the pixel — CGA reads 78,821 / 78,825 / 78,830 across
+three runs of one build, because `new_window` waits on host time
+(`docs/HANDOFF-SOAK-FINDINGS.md` B5) — so a few tenths of a percent is noise.
+And the scene is identical to itself *per adapter*, not across adapters: the
+Display page is hidden on a single-adapter machine (§39.11.1), so the Control
+Panel holds record 0 on CGA and Hercules and the Display page on VGA. Compare
+down a column, not across a row.
 
 #### The floppy is one sector per revolution
 

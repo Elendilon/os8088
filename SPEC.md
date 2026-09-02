@@ -20830,12 +20830,19 @@ caller is behind a `%ifdef` is an unreferenced global in every shipped build.
 the whole difference between this and taking every site: `gfx_clip_run`,
 `gfx_disp_run`, `gfx_blit_run`, `gfx_lstep`, `gfx_lstepv`, `gfx_lstep_slow`,
 `gfx_bank_ok`, `sw_pairbuild`, `font_run_scell`, `cur_lazyck`,
-`cur_shape_pass`. A taken near `jmp rel16` is ~18-22 clocks; on a routine-level
-exit that is nothing against a call already costing hundreds of microseconds,
-and on `gfx_lstep` - which draws CX pixels and may be called with CX=1 from a
-package - nobody has measured it. Taking those eleven as well is **33 bytes**,
+`cur_shape_pass`. **A taken near `jmp rel16` costs 31 clocks on a 4.77 MHz
+8088** - 6.5 us - and that figure is MEASURED rather than the instruction
+table's ~18-22: `gfx_blitp`'s 1bpp refusal path was built both ways and the
+bench read 244.65 us with the ladder against 238.02 without, over 12
+iterations, everything else on the path identical (PERFORMANCE.md, *What one
+rung of the ladder costs*). The extra 9 to 13 clocks are the prefetch queue
+flush, which the table does not price. On a routine-level exit 6.5 us is
+nothing against a call already costing hundreds of microseconds, and on
+`gfx_lstep` - which draws CX pixels and may be called with CX=1 from a package
+- nobody has measured it. Taking those eleven as well is **33 bytes**,
 measured, and 33 bytes is not the place to bet against an unmeasured per-run
-path.
+path - **less so now that the price of being wrong is known to be half as much
+again as it was assumed to be.**
 
 **What it bought**, measured on the tree it landed on: 141 sites - 63 `.text`
 `ret`, 65 `.cold` `ret`, 13 `.cold` `retf` - for **`kern_big` -234 `.text` and

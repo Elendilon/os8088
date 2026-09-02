@@ -330,7 +330,7 @@ regression.
 
 | | |
 |---|---|
-| **the shared epilogue ladder** (SPEC.md §15.1.2) | `jmp kret_di` ≡ a seven-`pop` run. 141 sites, three ladders (`.text`, `.cold`, far-`.cold`), −485 bytes, and the arithmetic matched the measurement **to the byte**. It is BUILT — new sites just use it |
+| **the shared epilogue ladder** (SPEC.md §15.1.2) | `jmp kret_di` ≡ a seven-`pop` run. 141 sites, three ladders (`.text`, `.cold`, far-`.cold`), −485 bytes, and the arithmetic matched the measurement **to the byte**. It is BUILT — new sites just use it. **A site costs 31 clocks / 6.5 µs each time it is taken**, measured (PERFORMANCE.md, *What one rung of the ladder costs*), not the ~18-22 an instruction table gives: free on a routine-level exit, NOT free per run, per cell or per pixel |
 | **`tests/unit/t_resident.py`** | no `jmp kret*` in `.text` below `spw_resident_end`. Mutation-tested both ways. **It exists because one converted site of the 141 shipped a kernel that booted on nothing** |
 | **`t_asmrules` check 4** | a local block reachable by neither name nor fall-through. Lands green with no exception list; it found the DMA staging bug |
 | **`t_asmrules` rung-aware `crossed_pops`** | the ladder would otherwise have blinded it on 141 routines |
