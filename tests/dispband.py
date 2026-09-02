@@ -41,8 +41,8 @@ S = os88sym.linear
 
 # THE KERNEL'S OWN NUMBERS, not a copy of them (SPEC.md 39.2.1). This row read
 # vid_ctx with a hand-written record size and hand-written VX/VY offsets, and
-# the record GREW: VID_CTX_SZ is VID_CTX_W*2+6, so a word added to the copied
-# run moves all three. The stale set (42, 36, 38) against the real (44, 38,
+# the record GREW: VID_CTX_SZ is VID_CTX_W*2+5, so a word added to the copied
+# run moves all three. The stale set (42, 36, 38) against the real (43, 38,
 # 40) put display 1's origin four bytes early - it read (340, 45056), and
 # 45056 is 0xB000, a framebuffer segment being read as a y coordinate. The
 # test then dragged the window to a y no display holds and waited for a repaint

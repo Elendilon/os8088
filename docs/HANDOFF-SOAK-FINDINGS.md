@@ -64,11 +64,39 @@ special. That is the shape of a lost keystroke, not of broken scroll logic."*
 That reasoning was right and stopped one step short — a keystroke is lost
 either in flight or at the handler, and nobody looked at the handler.
 
-## A2. `dispcheck`: a 270-second timeout, never diagnosed
+## A2. `dispcheck`: a 270-second timeout, and every one of its own checks passed
 
-`TIMEOUT after 270s`, and it was A/B'd **before** this pass began: it dies
-identically, at identical coordinates, on the pre-wave tree. Pre-existing and
-untouched. Nobody has looked at what it is waiting for.
+**FIXED — a stale record stride, for the THIRD time in the same file.**
+
+It hung with `TIMEOUT after 270s` and no output through the runner, which is
+why nobody had looked: run directly it prints eleven lines, passes all three of
+its own assertions, and then hangs in step 4, the pointer crossing.
+
+`vid_ctx`'s per-display record is `VID_CTX_W*2+5` bytes. The row computed
+`NWORD * 2 + 6` — one byte too many — so it read display 1's record a byte
+late and believed
+
+```
+ctx[1] seg=5AB0 stride=768 cw=23554 ch=1 rseg=01B0 origin=(5122,256)
+```
+
+then asked the pointer to walk to **x = 16899** on a 1360-wide desktop.
+`mo.to` cannot converge on that, so the row sat there until its timeout with
+everything it actually tests already green.
+
+**The file's own comment describes this failure happening twice before** — the
+adapter kind moved it, then `vid_tseg` moved it, *"and it asked the pointer to
+walk to x = 16769"*. The response then was to DERIVE the figure instead of
+writing it down, and that is why it drifted a third time: the run's ends are
+symbols and cannot drift, but the `+ 6` is a literal. `tools/os88geom.py`'s
+checker could not see it either — it compares written-down copies, and this was
+an expression, so it reported "267 local copies, 0 stale" over a stale one.
+
+It comes from the mirror now, with a cross-check that the record's own run
+still matches `VID_CTX_W`. `dispcheck` passes in 71 s: both cards up, the
+pointer crossing and its round trip, a window dragged onto the secondary, and
+fullscreen on both. **The gate had never once run to completion.**
+`tests/dispband.py` carried the same `+6` in prose and is corrected too.
 
 ## A3. `GFX_BLITP` is 2.7% slower and nothing explains it
 
@@ -540,8 +568,8 @@ away. `weavesmoke._shot` is the family's helper.
 | a missing `no_saver()` call (B7) | 1 — `trkrate` |
 | found by the pre-merge gate, not the soak (B9) | 1 — a leaked QEMU breaking `ps2mouse` |
 | fixed during the pass | 3 — `deskbench`, and `weavegame`/`wireflick`'s registrations |
-| **fixed since, in this queue** | **10** — A1, A5, B1, B2, B3, B4, B6, B7, B8, B9 |
-| **left open** | **5** — A2, A3, A4, B5, C1, C2 |
+| **fixed since, in this queue** | **11** — A1, A2, A5, B1, B2, B3, B4, B6, B7, B8, B9 |
+| **left open** | **4** — A3, A4, B5, C1, C2 |
 | **classifications this queue got WRONG and corrected** | **4** — `trkscrl` (A1, called in bold "the one genuine product defect" and it is a shadowed key in the test's own include), `dispmine` (A5, called contention on one passing re-run), `blitcut` (B2, bisected to a host-side commit and it is the size pass's own ladder), and B6's own mechanism |
 | **product defects found in shipped software** | **0** |
 

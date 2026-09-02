@@ -70,6 +70,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
+from os88geom import VID_CTX_SZ, VID_CTX_VX, VID_CTX_W      # noqa: E402
 import os88geom                                             # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dispcp                                             # noqa: E402
@@ -210,18 +211,31 @@ def main(argv):
                         % cur)
 
         # VID_CTX_SZ: the per-display run, then VX, VY and the kind byte.
-        # DERIVED, not written down. This was `CTXSZ = 42` with the origin at
-        # word 18, and it had already moved once (SPEC.md 39.18 added the
-        # adapter kind) before SPEC.md 6.1.10 added `vid_tseg` and moved it
-        # again - at which point this script read display 1's record two bytes
-        # early, believed a garbage origin and asked the pointer to walk to
-        # x = 16769. That reads as a POINTER defect on a two-card machine,
-        # which is the most expensive possible way to be told a constant is
-        # stale. viddet.inc pins vid_seg..vid_tseg as the run and vidsel.inc
-        # asserts it, so both ends are symbols and neither can drift.
-        NWORD = (S("vid_tseg") - S("vid_seg")) // 2 + 1      # VID_CTX_W
-        VX = NWORD                                           # ...then VX, VY
-        CTXSZ = NWORD * 2 + 6                                # and the kind
+        #
+        # **FROM os88geom, WHICH IS THE ONE COPY.** This was `CTXSZ = 42` with
+        # the origin at word 18; SPEC.md 39.18's adapter kind moved it once and
+        # 6.1.10's `vid_tseg` moved it again, and each time this script read
+        # display 1's record at the wrong offset, believed a garbage origin and
+        # asked the pointer to walk to an x off the end of the desktop - 16769
+        # the first time, 16899 the last. `mo.to` cannot converge on that, so
+        # the row HANGS to its timeout with every one of its own checks already
+        # passed. That reads as a POINTER defect on a two-card machine, which
+        # is the most expensive possible way to be told a constant is stale.
+        #
+        # It was then rewritten to DERIVE the figure - `NWORD * 2 + 6`, with
+        # NWORD off `vid_tseg - vid_seg` - and that is why it drifted a THIRD
+        # time: the run's ends are symbols and cannot drift, but the `+ 6` is
+        # a literal, and vidsel.inc says `VID_CTX_W*2+5`. One byte, and
+        # `tools/os88geom.py`'s checker could not see it either, because it
+        # compares written-down copies and this was an expression. So it comes
+        # from the mirror now, like the other 267 copies the checker does
+        # watch (docs/HANDOFF-SOAK-FINDINGS.md A2).
+        NWORD, VX, CTXSZ = VID_CTX_W, VID_CTX_VX // 2, VID_CTX_SZ
+        run = (S("vid_tseg") - S("vid_seg")) // 2 + 1
+        if run != NWORD:
+            fail.append("vid_seg..vid_tseg is %d words and VID_CTX_W is %d - "
+                        "the record's own run and its mirrored width disagree"
+                        % (run, NWORD))
         raw = m.read(S("vid_ctx"), 2 * CTXSZ)
         ctx = [[u16(raw, d * CTXSZ + i * 2) for i in range(NWORD + 2)]
                for d in (0, 1)]

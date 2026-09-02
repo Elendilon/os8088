@@ -1224,7 +1224,7 @@ SOAK = [
     Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 60.0,
         "Does the Calculator re-fold cleanly when its box moves under it?",
         needs=("marty",), serial=True),
-    Row("dispcheck", "soak", py("tests/dispcheck.py"), 60.0,
+    Row("dispcheck", "soak", py("tests/dispcheck.py"), 120.0,
         "Did os8088 bring the SECOND card up, can it DRAW on it, and does the",
         needs=("marty",), serial=True),
     Row("dispclose", "soak", py("tests/dispclose.py"), 150.0,
