@@ -394,6 +394,24 @@ SND_OPENF_RING   equ 1           ; ring mode (SPEC.md 34.5): SI = ring base,
                                  ; after OSAPI_WM_CREATE. A resizable
                                  ; window's paint/click procs MUST lay out
                                  ; from the live W_W/W_H every call.
+%define OSAPI_WM_NOANIM     KERNEL_SEG:0x04F0   ; BX = win ptr; NO other argument and
+                                 ; no answer: this window does not zoom
+                                 ; open (SPEC.md 11.99.2.1). Call it
+                                 ; between OSAPI_WM_CREATE and
+                                 ; OSAPI_WM_SHOW. For a DIALOG - something
+                                 ; the user opens and dismisses over and
+                                 ; over, or that arrives in answer to a
+                                 ; click they meant as something else - a
+                                 ; third of a second of outline in front
+                                 ; of it reads as the machine getting in
+                                 ; the way; the Standard File dialog, the
+                                 ; notice window and os88ui.inc's alert
+                                 ; all decline. Not for your MAIN window:
+                                 ; whether the system animates at all is
+                                 ; the user's choice (Control Panel ->
+                                 ; Theme), not an application's. There is
+                                 ; no clear, and no AL is read - see
+                                 ; 11.99.2.1 for why.
 %define OSAPI_FULLSCREEN    KERNEL_SEG:0x0110   ; AL = 1 enter (BX=win ptr) / 0 exit;
                                  ; caller holds the gfx lock (window
                                  ; callbacks do); out CF=1 enter refused
@@ -1750,6 +1768,17 @@ FERR_PROT    equ 8               ; read-only/hidden/system/label/directory
 FERR_WPROT   equ 9               ; the media is write-protected
 FERR_BIG     equ 10              ; larger than the buffer (or than 64KB)
 
+WF_NOANIM  equ 0x4000            ; W_FLAGS bit14: this window does NOT zoom
+                                 ; open (SPEC.md 11.99.2). Set it with
+                                 ; OSAPI_WM_NOANIM, never by hand. Named here
+                                 ; because the W_FLAGS comment below stops at
+                                 ; bit 3 and the HIGH BYTE is not free: it is
+                                 ; SPEC.md 7.2.1's cursor shape with this bit
+                                 ; and two more kernel ones living in it, so
+                                 ; a package reading the whole word gets a
+                                 ; number it did not expect. The kernel masks
+                                 ; them off both ways round, which is why
+                                 ; OSAPI_WM_CURSOR does not clear this one
 WF_SIZABLE equ 4                 ; W_FLAGS bit2: resizable (SPEC.md 11.1)
 WF_FULL    equ 8                 ; W_FLAGS bit3: fullscreen (SPEC.md 11.2)
 WF_NOSNAP  equ 16                ; W_FLAGS bit4: this window has OPTED OUT of

@@ -1765,6 +1765,13 @@ os88ui_sbd_id:   dw 0, 0
 ;
 ; wm_destroy_seg sweeps it at teardown (SPEC.md 20.2), so an app that dies
 ; with its alert up leaves nothing behind.
+;
+; --- AND IT DOES NOT ZOOM OPEN (SPEC.md 11.99.2.1) --------------------------
+; os88ui_ask calls OSAPI_WM_NOANIM before it shows the window. Your own second
+; window may want the same: the flag is for a DIALOG, something opened and
+; dismissed over and over or arriving in answer to a click that meant
+; something else. It is not for your main window - whether the system animates
+; at all is the user's choice, in Control Panel -> Theme.
 ; =============================================================================
 
 OS88UI_AOK     equ 0            ; the button sets. Index 0 is the DEFAULT - it
@@ -1869,6 +1876,19 @@ os88ui_ask:
                                 ; button under it), and the close box is
     mov ax, os88ui_aclose       ; intercepted
     call OSAPI_WM_ONCLOSE       ; (SPEC.md 75.1) so it can be the CANCEL
+    call OSAPI_WM_NOANIM        ; ...AND IT DOES NOT ZOOM OPEN (SPEC.md
+                                ; 11.99.2.1). The Standard File dialog and the
+                                ; notice window already declined and this is
+                                ; the third of the same species - except that
+                                ; the argument is stronger here, because the
+                                ; other two answer a command the user picked
+                                ; and this one answers a click on the CLOSE
+                                ; BOX: it arrives INSTEAD OF the close that
+                                ; was asked for, and a third of a second of
+                                ; outline in front of an interruption reads as
+                                ; the machine making a show of getting in the
+                                ; way. BX is still the window - the four slots
+                                ; above all take it and preserve it
     mov [os88ui_awin], bx       ; take the gate LAST: until this store the
     call OSAPI_WM_SHOW          ; window is an ordinary one
     clc

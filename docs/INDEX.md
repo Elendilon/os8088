@@ -21,6 +21,7 @@ Read first: [§11 wm.inc — windows](../SPEC.md#11-wminc-windows); [§20 Loadab
 | `0x00A0` | `OSAPI_WM_OBSCURED` | BX=win ptr; out CF=1 if covered - which INCLUDES your window being hidden, so a worker gating a draw on this needs no visibility test of its own... |
 | `0x04E0` | `OSAPI_WM_OWNSEG` | AL = a window slot; out CF=1 no live window in that slot, else CF=0 and DX = the owning segment... |
 | `0x0108` | `OSAPI_WM_SIZABLE` | BX=win ptr, AL = 0 clear / non-zero set WF_SIZABLE; call from the entry proc after OSAPI_WM_CREATE... |
+| `0x04F0` | `OSAPI_WM_NOANIM` | BX = win ptr; NO other argument and no answer: this window does not zoom open (SPEC.md 11.99.2.1). Call it between OSAPI_WM_CREATE and OSAPI_WM_SHOW... |
 | `0x0118` | `OSAPI_WM_GROW` | BX=win ptr; caller holds the gfx lock. A resizable window's self-initiated content repaint must END with this: the white-fill idiom erases the grow... |
 | `0x0170` | `OSAPI_WM_CLIP_SET` | BX = YOUR window ptr; the gfx lock must be HELD. out CF = 1: not one pixel of your content is visible... |
 | `0x0178` | `OSAPI_WM_CLIP_CLEAR` | disarm early, to draw unclipped again inside the same lock hold. Preserves every register. |

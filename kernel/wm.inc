@@ -11647,6 +11647,38 @@ wm_an_n     dw WM_ANIM_N        ; idiv takes a memory or register operand, not
                                 ; it has a value
 %endif
 
+; -----------------------------------------------------------------------------
+; wm_noanim - this window does NOT zoom open (SPEC.md 11.99.2.1)
+; in:  BX = the window, between its wm_create and its wm_show
+; out: nothing; every register preserved. The `or` writes FLAGS, which is
+;      free here because this cell has no CF answer to lose
+;
+; API slot 0x04F0, and the only reason the kernel owes one: fdlg.inc and
+; ui.inc set WF_NOANIM with this same `or` written out where they stand, but
+; the SDK's alert (SPEC.md 20.5.1) - the 'Save changes?' dialog Note Pad and
+; Paint raise out of their close negotiator, and the one window in the machine
+; the user never asked for - is PACKAGE code, and a settable W_FLAGS bit the
+; SDK publishes is a slot's to write (WF_NOSNAP and WF_KEEPH say `never by
+; hand` at their own equ, and apps/paint's pt_wfix is the tree's ONLY
+; remaining hand-write of a window record - carrying a paragraph on why it
+; cannot be given up).
+;
+; NO AL AND NO CLEAR, unlike wm_sizable, wm_snap, wm_keeph, wm_ownbg and
+; wm_saveu, which all take AL = 0 clear / non-zero set: this bit is read in ONE
+; place
+; (wm_an_ok) and only on the wm_show of a window that is not yet visible, so a
+; clear is a verb with no moment to be called in - and an AL nobody reads is an
+; argument a caller can pass 0 to and be silently ignored.
+;
+; OUTSIDE the %ifdef above for [wm_animon]'s reason one block down: the cell is
+; ABI, a slot that exists in one build and not another is an ABI that depends
+; on a knob (SPEC.md 20.8 rule 4), and on kern_small the bit is set, masked out
+; of the cursor shape by WF_HIBITS exactly as on kern_big, and never read.
+; -----------------------------------------------------------------------------
+wm_noanim:
+    or word [bx+W_FLAGS], WF_NOANIM
+    ret
+
 ; --- SPEC.md 76.11: does the user want the zoom? ----------------------------
 ; OUTSIDE the %ifdef above, deliberately. The settings map names this byte in
 ; EVERY build, and a kernel with no animation in it still has to carry the
