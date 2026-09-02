@@ -1831,8 +1831,8 @@ tm_sample:
     ; TWO terms, not three. There used to be a third - a sum of every resident
     ; package REGION off the instance snapshot - because a region came out of
     ; a pool that the claim heap knew nothing about. Since SPEC.md 20.1 a
-    ; region IS a heap claim, so mem_claimed_kb already counts every one of
-    ; them and the sum counted them a second time.
+    ; region IS a heap claim, so the kernel's mem_sum_kb already counts every
+    ; one of them and the sum counted them a second time.
     ;
     ; That is what let this figure exceed the machine: with a package loaded,
     ; used was over by its region, and a 20KB menu save-under landing on top

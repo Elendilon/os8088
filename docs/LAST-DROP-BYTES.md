@@ -408,6 +408,29 @@ no-op**, not a crash: `spl_gate` tests `[spl_fseg]` and returns. That is a safe
 failure and an invisible one. `tests/ovlrefs.txt` is what names, per symbol, what
 may never gain a runtime caller.
 
+### 6.7 THERE IS NO DEAD-ROUTINE GATE IN THIS TREE
+
+Nothing in `tests/` can tell you that a whole routine has stopped being reached.
+Say it here because this file's entire method is "find the bodies nobody needs
+at run time", and a reader reasonably assumes the suite already does half of it.
+
+* **`tests/unit/t_swallow.py`** looks for a statement that ended up inside a
+  block comment. It is a C-comment scanner; it has nothing to say about
+  assembly reachability.
+* **`tests/unit/t_asmrules.py`** catches code after an *unconditional jump* —
+  that is, an unreachable **tail inside** a routine. A whole `ret`-terminated
+  body with a label nobody names is perfectly well-formed to it.
+* **`tools/os88ovlchk.py`** walks sections and calls; it is asking whether a
+  call crosses an address space, not whether anything makes the call.
+* **`tools/stkbalance.py`** enumerates entries and *deliberately* walks a
+  global that nothing calls — that is what "an entry may be entered at
+  depth 0" means. An orphan is a thing it measures, not a thing it reports.
+
+So the only instrument is a grep, and a grep is only as good as the directory
+list it was given: kernel size pass 2 found two dead bodies by hand, and found
+a "module-private" claim made after grepping four directories and not `tests/`.
+**If you delete a body, say in the commit which directories you searched.**
+
 ---
 
 ## 7. Priced and refused — do not re-derive these

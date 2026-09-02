@@ -338,11 +338,7 @@ menu_inval:
     inc bx                      ; into this buffer is a printable one, so it
     loop .z                     ; can never match and the cell is redrawn
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; menu_activate - hand the menu bar to a window's application (SPEC.md 12)
@@ -846,13 +842,7 @@ menu_draw_bar:
 .clock:
     call menu_draw_clock        ; --- segment 3: the clock (SPEC.md 12.1) ---
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu_furniture - the black rule and the logo glyph, after an overdraw
@@ -1194,13 +1184,7 @@ menu_bemit:
     inc si
     mov [menu_bcell+si], al
 
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu_bent - compose bar cell BX's title at its own pen x
@@ -1424,6 +1408,32 @@ menu_bput:
 ; the strip's WIDTH is the one thing about the field that hashing its
 ; characters cannot see. One byte, one compare.
 ; -----------------------------------------------------------------------------
+; menu_clkcells - the clock field's width, in whole glyph cells (SPEC.md 12.9)
+; in:  nothing
+; out: AX = ([vid_wm8] - [vid_clk_hx]) / 8, clamped to MENU_CLKC - 1
+; clobbers: CX (the shift count), flags
+;
+; The LIVE geometry words, never the SCREEN_W reference values (SPEC.md 39).
+; The clamp is the buffer's: menu_clkbuf is the field plus its NUL, and a
+; screen wider than any this runs on is the one thing that would notice.
+;
+; Written out twice until size pass 2 - here and toast.inc's toast_gapend,
+; whose copy already carried the comment "menu_draw_clock's own arithmetic,
+; and clamped the same way".  Both are `.text`, so the call is near.  CX is
+; spendable at both: each banks it and each loads it from clk_fmt afterwards.
+; -----------------------------------------------------------------------------
+menu_clkcells:
+    mov ax, [vid_wm8]
+    sub ax, [vid_clk_hx]
+    mov cl, 3
+    shr ax, cl
+    cmp ax, MENU_CLKC - 1
+    jbe .fw
+    mov ax, MENU_CLKC - 1
+.fw:
+    ret
+
+; -----------------------------------------------------------------------------
 ; menu_tbar_k - the toast strip's 4px black lead (SPEC.md 59.8.1)
 ; in:  AX = x1, CX = x2 (inclusive); MENU_TEXT_Y is the row
 ; out: nothing - all registers AND the flags preserved
@@ -1458,14 +1468,8 @@ menu_draw_clock:
     push di
     push es
 
-    mov bx, [vid_wm8]           ; --- the field, in whole cells
-    sub bx, [vid_clk_hx]
-    mov cl, 3
-    shr bx, cl
-    cmp bx, MENU_CLKC - 1       ; the buffer is the field plus its NUL, and a
-    jbe .fw                     ; screen wider than any this runs on is the
-    mov bx, MENU_CLKC - 1       ; one thing that would notice
-.fw:
+    call menu_clkcells          ; --- the field, in whole cells, clamped
+    mov bx, ax
     or bx, bx                   ; ...and a field of no cells has nothing to
     jz .out                     ; hash: `loop` with CX = 0 runs 65,536 times.
                                 ; Unreachable - the field is 25 cells on every
@@ -2168,9 +2172,9 @@ section .cold                   ; COLD (SPEC.md 2.6): the keyboard mouse's menu
                                 ; touching no flags
 menu_kbnav:
     cmp byte [menu_dropd], 0
-    je .no                      ; nothing is dropped: an ordinary pointer
+    je .noj                     ; nothing is dropped: an ordinary pointer
     or al, al
-    jz .no                      ; Left/Right keep their pixel step, which is
+    jz .noj                     ; Left/Right keep their pixel step, which is
                                 ; how the pointer leaves a menu sideways
     push bx
     push cx
@@ -2193,6 +2197,8 @@ menu_kbnav:
     jns .step                   ; last
     mov di, [menu_cnt]
     jmp short .step
+.noj:                           ; ...and the two swallows above, at 2 bytes
+    jmp .no                     ; each instead of NASM's inverted pair (-3)
 .inx:
     mov ax, [mouse_y]
     mov bx, [menu_y1]
@@ -2339,11 +2345,7 @@ menu_item_xor:
     mov cx, [menu_x2]
     dec cx
     call vga_xor_fill_vram      ; VRAM-direct transient overlay (SPEC.md 32)
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; menu_title_xor - toggle the highlight on the tracked menu's title cell
@@ -2363,12 +2365,7 @@ menu_title_xor:
     mov cx, [ss:si + MB_XR]
     mov dx, MBAR_H - 2          ; the black rule stays black
     call gfx_xor_fill
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; menu_trunc - stage an item string, truncated to MENU_MAXCH glyphs
@@ -2493,13 +2490,7 @@ menu_logo_glyph:
     inc dx
     dec bh
     jnz .row
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu data: logo bitmap, strings, item lists, the menu table

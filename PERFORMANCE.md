@@ -10322,7 +10322,7 @@ FIXED's 7 clean windows against DRIFT's 50 — that is survival, not speed), and
 `cy_entry` seeds the RNG from `OSAPI_GET_TICKS`, so boot timing decides the
 whole game. Compare like with like or not at all.
 
-### Set 113 — the mono round, priced three ways (SPEC.md §39.24, §39.25, §39.26)
+### Set 113 — the mono round, priced three ways (SPEC.md §39.27, §39.25, §39.26)
 
 | | |
 |---|---|
@@ -10390,7 +10390,7 @@ change that had removed per-PIXEL work would produce the opposite column, and
 **reading which column you got is how you check that the reason survived**
 (Part 1 rule 5). It is §39.3.1 and §39.3.2's signature again.
 
-#### 113c — `kern_small` with the VGA renderer gated out (§39.24)
+#### 113c — `kern_small` with the VGA renderer gated out (§39.27)
 
 The size half is `.text` −1,805 and four rungs. This is the speed half, which
 §2.2 of docs/MONO-RECLAIM-PLAN.md predicted and nothing had measured. Both
@@ -10448,7 +10448,7 @@ differ by a mode byte, and a pattern fill indexes a row byte and costs about
 2.1× a solid one on every working build. Two numbers that cannot both be right
 is what a wrong code path looks like from a bench.
 
-The cause is SPEC.md §39.24.5: the gated build wrote those two entries as
+The cause is SPEC.md §39.27.5: the gated build wrote those two entries as
 `equ sw_fill_gray` / `equ sw_fill_pat`, and both are **fallen into** from a
 `GFXDISP` that expands to nothing on `kern_small`. An `equ` emits no code, so
 the fall-through went past it into the next routine — `gfx_fill_gray` ran

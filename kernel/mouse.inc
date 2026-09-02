@@ -967,10 +967,7 @@ mou_lockon:
                                     ; port, so when IT won the loop above has
                                     ; just retired both UARTs on its behalf
 %endif
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 
 ; -----------------------------------------------------------------------------
 ; mou_hotplug - keep offering a hot-plugged mouse its reset (SPEC.md 9.4)
@@ -1046,11 +1043,7 @@ mou_hotplug:
     mov byte [mou_drain], 1     ; the discard window
     call mou_newround           ; ...and a fresh reset edge is a fresh contest
 .done:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 .have:                          ; proof can arrive at an awkward moment: a
     cmp byte [mou_hpst], 2      ; byte the UART latched before a drop can
@@ -2105,10 +2098,7 @@ kbm_accel:
 .set:
     mov [kbm_step], dl
     mov [kbm_lastk], ch
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_cx
 
 ; --- kbm_paint - put the arrow where mouse_x/mouse_y now say -----------------
 ; The ISR's own .move rules (SPEC.md 7): draw only with the gfx lock free and
@@ -3230,15 +3220,7 @@ cursor_show:
     call cur_put
 .done:
     popf
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; cursor_hide - decrement cur_level; on the 0 -> -1 transition, restore the
@@ -3265,15 +3247,7 @@ cursor_hide:
     call cur_get
 .done:
     popf
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; cur_put / cur_get - draw the cursor over what it covers, and put that back
@@ -3830,15 +3804,7 @@ cur_lazyend:
     mov byte [cur_dirty], 0
 .out:
     popf
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; The SHAPE (SPEC.md 7.2)

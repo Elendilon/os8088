@@ -3,10 +3,18 @@
 A HEAD in every shipped geometry.
 
 This is the row that exists because the first version of the canary did not.
-Offset 16384 is "past the first head flip" in all three geometries and is still
-in the FIRST half of a transfer run in all three - the half that loads correctly
+Offset 16384 is "past the first head flip" in every geometry and is still in
+the FIRST half of a transfer run in every one - the half that loads correctly
 on exactly the machine the canary exists to catch. It passed there, and the
 kernel it let through was scrambled.
+
+THE BAND IS AN INTERSECTION, so a NEW GEOMETRY can invalidate an offset that
+nothing touched.  Adding SPEC.md 19's 1.2MB 5.25" disk did exactly that: its
+data area starts at LBA 29 and its runs are 30 sectors, so file sector 36 -
+the middle of the band the other three shared - lands 5 sectors into a FIRST
+half there, and the canary was inert on one shipped disk of four with no
+line of the boot path changed.  This row caught it, and it can only keep
+catching it if every shipped system image is in IMAGES below.
 
 A run transfers correctly up to the head boundary and only goes wrong after it.
 So the test is not "past a flip" but "in a run's second half", re-derived here
@@ -30,7 +38,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / "build"
-IMAGES = ["os8088-360.img", "os8088-720.img", "os8088.img"]
+IMAGES = ["os8088-360.img", "os8088-720.img", "os8088-120.img",
+          "os8088.img"]
 
 
 def ksig_off():

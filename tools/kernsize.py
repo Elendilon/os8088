@@ -143,6 +143,14 @@ THEMES_END = "<!-- /kernsize:themes -->"
 # of its own and takes the `.boot2` it is included at (SPEC.md 2.9.4), so
 # without it here a 967-byte module reports as costing nothing.
 MOD_SECTIONS = ("text", "bss", "lowbss", "vgabuf", "cold", "ovl", "ovlw", "boot2")
+# ...AND `kernel.asm`'s OWN `.boot2` FIGURE IS ALMOST ALL boot/boot2.asm.
+# Stage 2 is `%include`d at the FOOT of kernel.asm, below the last module this
+# brackets, so it lands in the residual: of kernel.asm's `.boot2` row, all but
+# a three-byte `jmp` is the loader.  That is not a defect to fix here - the
+# bracketing is by kernel.asm's %include lines and boot2.asm has none of its
+# own - but it is worth knowing before quoting the row, because boot/boot2.asm
+# is the one file in the tree where a byte is genuinely delicate (SPEC.md
+# 2.9.6's blob ceiling) and it has no row.
 INCLUDE = re.compile(r'^%include\s+"([\w.]+)"')
 # Column 0 only, which is where every one of kernel.asm's own switches sits -
 # a `section` inside a module is that module's business and it has to hand
@@ -226,6 +234,23 @@ def measure(nasm_args=()):
             os.unlink(out_path)
         except OSError:
             pass
+    # NASM EMITS `ks:` AND THEN CAN STILL FAIL.  The line comes from a
+    # `%warning` late in kernel.asm, but the guards below it - and any error in
+    # a module - fire afterwards, so a tree that does NOT ASSEMBLE still leaves
+    # a complete, plausible ks: line in stderr.  Grepping for it without
+    # checking the exit status therefore prints a confident full report for a
+    # build that does not exist, which is the worst failure mode a measurement
+    # tool has: it is not wrong loudly, it is wrong quietly and in detail.
+    #
+    # Demonstrated rather than assumed: a `%error` appended after the ks: line
+    # gives nasm rc=1 and still yields "text 52,916 cold 38,927 ksize 114,176".
+    # Found during size pass 2, where it nearly let a KERN_SMALL finding ship on
+    # numbers from a build that failed.  measure_modules() already checks.
+    if r.returncode != 0:
+        tail = (r.stderr.strip().splitlines() or ["(no stderr)"])[-1]
+        return None, ("nasm FAILED (exit %d) - any ks: line in its output "
+                      "describes a build that does not assemble: %s"
+                      % (r.returncode, tail[:160]))
     m = re.search(r"\bks: (.*?)(?: \[|$)", r.stderr, re.M)
     if not m:
         return None, (r.stderr.strip() or "nasm produced no ks: line")
@@ -741,6 +766,10 @@ def main():
     ap.add_argument("--modules", action="store_true",
                     help="the per-module attribution")
     ap.add_argument("--json", action="store_true", help="the raw figures")
+    ap.add_argument("--strict", action="store_true",
+                    help="exit 1 when the size cannot be measured. This tool "
+                         "is a REPORT and exits 0 by default even when it "
+                         "measured nothing; a gate wants the opposite.")
     ap.add_argument("--build", metavar="DIR",
                     help="where the generated includes are (default build/); "
                          "a sub-make with BUILD= set needs this")
@@ -760,7 +789,14 @@ def main():
         # reporter that can break `make` is a reporter someone will delete.
         print(f"kernsize: could not measure ({err.splitlines()[-1][:120]})",
               file=sys.stderr)
-        return 0
+        # EXIT 0 IS DELIBERATE, and it is also a trap for a GATE.  This tool is
+        # a report - the Makefile runs it with `|| true` and the guards inside
+        # kernel.asm are what refuse an overrun - so failing the build here
+        # would be wrong.  But a script that checks $? would sail straight past
+        # "could not measure" and conclude the size was fine, which is the same
+        # class of quiet wrongness as the ks:-after-a-failed-assembly bug above.
+        # --strict is how a gate asks for the other contract.
+        return 1 if a.strict else 0
 
     if a.json:
         print(json.dumps({k: cur[k] for k in sorted(cur)}, indent=2))
@@ -812,4 +848,19 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # `kernsize.py | head` closes the pipe under us; an unhandled
+    # BrokenPipeError buries the report under a traceback.  Same cure as
+    # tools/martylock.py: die quietly the way `cat` does.
+    try:
+        import signal
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    except (ImportError, AttributeError, ValueError):
+        pass
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        try:
+            sys.stderr.close()
+        except Exception:
+            pass
+        os._exit(0)

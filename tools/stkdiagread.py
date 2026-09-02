@@ -34,7 +34,13 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88sym                                              # noqa: E402
 
-DEF = ("STK_DIAG",)
+# The arm's defines, because os88sym asserts byte-identity with
+# build/kernel.bin and there are three arms now: a reader pinned to STK_DIAG
+# alone refuses arms 2 and 3 with "the map describes a DIFFERENT kernel",
+# which reads as the disk being wrong rather than the tool.
+#   python3 tools/stkdiagread.py                       # arm 1
+#   OS88_ARM="MOU_PRIV STK_FIX" python3 tools/... # arm 3
+DEF = tuple(["STK_DIAG"] + os.environ.get("OS88_ARM", "").split())
 TAG = 0x4453                    # 'SD' - kernel.asm's DBG_TAG_STKD
 # The block holds POINTERS, not values - bootprof's convention (SPEC.md 57.2):
 # the registry names where the live state is, so a reader never gets a stale
@@ -73,8 +79,10 @@ def main():
     sock = sys.argv[1] if len(sys.argv) > 1 else "build/qmp.sock"
     v, slices, n = read(sock)
     ph = v["phase"] & 0xFF
-    print("== STKDIAG ==   slice %d, MAX_TASKS %d, phase %s"
-          % (v["slice"], v["ntask"], PHASES[ph] if ph < 4 else "?"))
+    arm = {(): "ARM 1 as it ships", ("MOU_PRIV",): "ARM 2 MOUPRIV",
+           ("MOU_PRIV", "STK_FIX"): "ARM 3 MOUPRIV + STKFIX"}.get(DEF[1:], " ".join(DEF[1:]))
+    print("== STKDIAG ==   %s   slice %d, MAX_TASKS %d, phase %s"
+          % (arm, v["slice"], v["ntask"], PHASES[ph] if ph < 4 else "?"))
     if ph < 3:
         print("   NOT FINISHED - the run takes ~95 seconds from the desktop")
     print("   ROM int08 chain      %4d" % v["rom08"])

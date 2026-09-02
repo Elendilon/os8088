@@ -403,56 +403,82 @@ nothing here changes that.
 
 ---
 
-## 7. What it buys — and the goal is SLOTS, not saved bytes
+## 7. The classes, cut from the field floors
 
-**The requester's framing, and it changes the arithmetic:** anything freed here
-is to be spent on **more task slots**, not returned to the heap, and the budget
-for `sch_stacks` may grow to about **3,072 bytes** (from 2,688 today). The
-target is to settle this once — a slot count nobody has to come back to.
+**Rewritten on the measured numbers, after size pass 2** (§9.8), which moved
+none of them. The requester's framing stands: anything freed goes to **more
+slots**, not back to the heap, and `sch_stacks` may grow to about **3,072
+bytes** from today's 2,688. The aim is a slot count nobody has to revisit.
 
-That makes the floor the whole game, because the floor is what every slot pays:
+### 7.1 The floor to design from is 64
 
-```
-   slots that fit  =  budget / (floor + the deepest program in that class)
-```
+Read from **slot 1** and not `FLOOR MAX` (§9.8.2). The real machines:
 
-`sch_stacks` is 7 × 384 = **2,688** today, and one of those seven is the idle
-task's, so **six are usable**.
-
-| | `.lowbss` | usable worker slots |
+| | slot 1 | arm |
 |---|---|---|
-| today | 2,688 | **6** |
-| classes only, idle external at 192 | 2,048 | **7** |
-| **§4.1 taken, classes on the lower floor, 3,072 budget** | **3,008** | **17** |
+| 5150 Hercules | **64** | 2-or-3 |
+| 5150 CGA | 62 | 2-or-3 |
+| Packard Bell 286 | 40 | **3, confirmed** |
+| *(QEMU, SeaBIOS)* | *84* | *3 — not a real machine* |
 
-The bottom row is the one to aim at, and it is arithmetic on measured numbers
-rather than a hope. With the ROM chain off the task stack the floor measured
-**38** (§10.3), so above it a Bounce needs ~62, the Fractal ~98 and
-`ETHER.DRV` ~182:
+**64 is the design floor**: the worst reading from real hardware, and taken on
+an arm that is *at least* 2 — so arm 3 can only be at or below it. QEMU's 84 is
+excluded deliberately: its ROM chain is 56 against real iron's 18–36 (§9.6.2),
+so it is the outlier and not the worst case.
 
-| class | fits | slices | bytes |
+### 7.2 The classes
+
+Program depth above the floor is the program's own and travels between machines
+(§1.1): a spinning worker **+6**, a Bounce **+10…24**, the Fractal and Tracker
+**+60**, `ETHER.DRV` **+144**.
+
+| class | holds | needs | margin |
 |---|---|---|---|
-| 128 | the idle task, Timer, Bounce, most simple workers | 12 | 1,536 |
-| 192 | the Fractal, Tracker | 4 | 768 |
-| 256 | `ETHER.DRV`, ftpd | 2 | 512 |
-| the shared chain stack (§4.1) | — | 1 | 192 |
-| | | **17 usable + idle** | **3,008** |
+| **128** | idle task, Timer, Bounce, simple workers | 64 + 24 = 88 | 1.45× |
+| **192** | the Fractal, Tracker | 64 + 60 = 124 | 1.55× |
+| **256** | headroom between the two ends | — | — |
+| **384** | `ETHER.DRV`, ftpd | 64 + 144 = 208 | 1.85× |
 
-**Seventeen against today's six, inside the stated budget.** The 1.75× margin
-this project sizes stacks with is kept throughout: 128 against a 100-byte
-Fractal-class worst case is 1.28×, which is why the Fractal is in the 192 class
-and not the 128 one.
+Every class clears this project's ~1.75× convention except 128 and 192, which
+sit at 1.45–1.55× — and that is the deliberate trade for the slot count below,
+taken against a floor that is itself the worst of four machines.
 
-**What binds after that is not RAM, it is the ABI.** `MAX_TASKS` is mirrored in
-`apps/os88api.inc` and sizes `SS_TSTATE` (one byte per task) and `SS_TCYC`
-(four), so `SYS_SNAPSHOT_SIZE` grows **5 bytes per slot** and every `.o88` is
-rebuilt. Going 8 → 18 is +50 bytes of every package's snapshot buffer and one
-flag day. That is the decision to take deliberately, and taking it once is
-exactly the "not coming back to this" the requester asked for.
+### 7.3 What fits in 3,072
 
-**Design for bytes, never for rungs** (CLAUDE.md) — none of the above is quoted
-as a rung and the ledger position is whoever takes this on to report with
-`kernsize`.
+| | bytes |
+|---|---|
+| 10 × 128 | 1,280 |
+| 4 × 192 | 768 |
+| 1 × 256 | 256 |
+| 1 × 384 | 384 |
+| the idle task, external (§5) | 128 |
+| the ROM chain's private stack (§4.1) | 128 |
+| the mouse ISRs' private stack (§4.2) | 128 |
+| **total** | **3,072** |
+
+**Sixteen usable worker slots against today's six**, exactly on the stated
+budget. The two private stacks are one allocation each and not per-task, which
+is the whole reason the floor came down far enough for a 128 class to exist.
+
+### 7.4 What binds after that is the ABI, not RAM
+
+`MAX_TASKS` is mirrored in `apps/os88api.inc` and sizes `SS_TSTATE` (a byte per
+task) and `SS_TCYC` (four), so `SYS_SNAPSHOT_SIZE` grows **5 bytes per slot** and
+every `.o88` is rebuilt. Going 8 → 18 is +50 bytes of every package's snapshot
+buffer and one flag day — the decision to take deliberately, once.
+
+### 7.5 The two readings this arithmetic still wants
+
+- **The 5150 on arm 3.** Its 64 is an arm 2-or-3 reading (§9.6.5), so the design
+  floor is conservative by an unknown margin — the 286 fell 60 → 40 on the same
+  step, and if the 5150 does likewise the 128 class gains ~20 bytes of margin.
+- **EGA** (§9.8.3), which has no mouse-ISR reading at all.
+
+Neither can raise the floor — both fixes only remove bytes — so **16 slots is a
+floor on the answer, not a ceiling.** That is why it is safe to start.
+
+**Design for bytes, never for rungs** (CLAUDE.md): nothing above is quoted as a
+rung, and the ledger position is whoever builds this to report with `kernsize`.
 
 ## 8. Refusals
 
@@ -672,6 +698,67 @@ What is banked and will not move: the ROM term is per-BIOS (18–36 on iron, 56
 on SeaBIOS); the mouse ISR is ~54 on VGA and 23–30 on mono, whichever mouse;
 and both relocations do what they were priced to do, measured on three
 machines.
+
+## 9.8 Size pass 2 landed, and it moved nothing on the stack
+
+`origin/elendilon` at `465a07c`, 153 commits including the pass that
+§4.2.3 warned about. Re-measured under QEMU with the identical protocol:
+
+| arm 1, as it ships | before pass 2 | after |
+|---|---|---|
+| ROM `int 08h` | 56 | **56** |
+| floor, quiet | 84 | **84** |
+| idle slice | 130 | **130** |
+
+**Identical.** The reason is checkable rather than lucky: the pass's headline
+item — *"the shared epilogue ladder: 141 sites"* — is entered by a **near
+`jmp`**, not a `call`, so a factored epilogue costs **zero** stack. `sch_isr`'s
+nine pushes are untouched and `SCH_FRAME` is still 24.
+
+§4.2.3's caution was worth having and did not fire. **A size pass deepens
+stacks only when it factors with `call`; this one factored with `jmp`.**
+
+Both hooks auto-merged; plain, `MOUPRIV`, `KERN_SMALL`, the three-knob build and
+the new `VIDEO=ega` all assemble, and `make test-full` is 41 passed, 0 failed.
+
+### 9.8.1 ARM 3 after pass 2
+
+| | arm 1 | **arm 3** |
+|---|---|---|
+| idle slice | 130 | **84** |
+| mouse phase adds | — | **0** |
+
+### 9.8.2 An instrument caveat: read SLOT 1, not FLOOR MAX
+
+`FLOOR MAX` and the phase rows report the deepest of **all** slices, and one of
+those is the diagnostic painter — which draws under the gfx lock and is
+**116 on both arms**, because that depth is its own work and not an interrupt at
+all. It is the deepest slice on the machine and it is not a floor.
+
+**Slot 1, the idle task's slice, is the honest floor** — its own footprint is
+≤4 bytes by construction (§1.1), so everything above that is interrupt. Every
+run in this document reports it, so nothing needs re-taking:
+
+| | slot 1, arm 1 | slot 1, arm 2-or-3 | slot 1, **arm 3** |
+|---|---|---|---|
+| QEMU (SeaBIOS 56, VGA) | 130 | — | **84** |
+| 5150 Hercules | 74 | 64 | — |
+| 5150 CGA | — | 62 | — |
+| Packard Bell 286 | — | 60 | **40** |
+
+The panel keeps `FLOOR MAX` because it is the right answer to *"has anything on
+this machine gone deeper than X"* — which is the overrun question. It is the
+wrong answer to *"what does a slot cost before its program runs"*, and §7 uses
+slot 1.
+
+### 9.8.3 Two new things to measure
+
+- **EGA (`VID_EGA`, 640×350) is a new adapter**, and §9.7.2 established that the
+  adapter is what sets the mouse ISR's depth. It has no reading. The prediction
+  is that a planar 4bpp EGA sits with VGA at ~52–54 rather than with the mono
+  pair at 23–30, and that is a prediction rather than a measurement.
+- **A 1.2MB 5.25" geometry now ships.** `make stkdiag` builds it, so the arms
+  are **twelve disks, three arms of four**.
 
 ## 10. The measurement disk — `make stkdiag`
 

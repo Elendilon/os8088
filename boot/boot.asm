@@ -65,9 +65,12 @@ org 0x7C00
 
 ; Floppy geometry. Defaults describe a 1.44MB 3.5" disk; the Makefile
 ; overrides them to 9/2 for the 360KB 5.25" build that 8086-era machines
-; can actually read. They are handed to stage 2 in CX and DH, because the
-; KERNEL is one binary for all three geometries and cannot have them as
-; immediates the way this sector does.
+; can actually read, and to 15/2 for the 1.2MB 5.25" HD disk an AT-class
+; machine takes (SPEC.md 19). They are handed to stage 2 in CX and DH,
+; because the KERNEL is one binary for every geometry and cannot have them
+; as immediates the way this sector does. Four geometries, THREE sectors:
+; 720KB and 360KB are the same 9/2 track on a different cylinder count, and
+; a count is the one thing about a disk this sector never holds.
 %ifndef SPT
 %define SPT 18
 %endif
@@ -500,7 +503,7 @@ entry:
 %else
     ; --- into stage 2 (SPEC.md 2.9) -----------------------------------------
     ; BP is still t=0. The geometry goes in CX and DH because the kernel is
-    ; one binary for three disks; the signature in DI because it is read out
+    ; one binary for every disk; the signature in DI because it is read out
     ; of that kernel and cannot be inside it.
     mov cx, SPT
     mov dh, HEADS

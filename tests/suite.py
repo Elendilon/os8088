@@ -38,6 +38,7 @@ first paint - so it fails for almost any serious regression, wherever it was.
 A row that can only fail for one narrowly-scoped reason belongs in `soak`,
 next to the change that would break it.
 """
+import os
 
 
 class Row:
@@ -68,6 +69,23 @@ class Row:
 
 def py(*a):
     return ["python3"] + list(a)
+
+
+def _kernel_sources():
+    """Every kernel source, ROOT-relative and sorted.
+
+    Asserted non-empty on purpose: a gate reporting 0 findings because its file
+    list came out empty is indistinguishable from a clean tree, and the whole
+    point of docs/STKBALANCE-KERNEL.md's sensitivity work is that a quiet gate
+    has to be quiet for a reason. The runner execs rows with cwd=ROOT, so these
+    stay relative.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = sorted(os.path.relpath(os.path.join(root, "kernel", f), root)
+                 for f in os.listdir(os.path.join(root, "kernel"))
+                 if f.endswith(".inc"))
+    assert len(src) >= 30, "kernel/*.inc came out as %d files" % len(src)
+    return src + [os.path.join("kernel", "kernel.asm")]
 
 
 # --------------------------------------------------------------------------
@@ -173,14 +191,47 @@ FAST = [
         "way the moment fpg_arm started reading it from OUTSIDE an fsx "
         "bracket, and the file-progress widget was refused for every file "
         "operation on the machine - which on an install reads as a lock"),
+    Row("invariants", "fast", py("tests/unit/t_invariants.py"), 0.3,
+        "three run-time facts that no %if can express, checked by WHO WRITES "
+        "the byte: [sch_cur] is never 0xFF (fsx's ownership compares refuse "
+        "[fsx_task]'s no-bracket sentinel only because of that, so a second "
+        "writer parking one there grants a bracket to nobody); "
+        "[vid_mono]/[vid_planes] are one fact written together (SPEC.md 39.26 "
+        "deleted four plane loops on it, and a writer that moves one leaves "
+        "all four drawing plane 0 alone on every adapter); and "
+        "[vid_rseg]/[vid_rpara]/[vid_rend] have one writer, which is a "
+        "DIFFERENT fact because sw_xfer ends on a segment compare",
+        needs=(), serial=False),
+    Row("assocpage", "fast", py("tests/unit/t_assocpage.py"), 0.2,
+        "the document page is GENERATED now (SPEC.md 54.3), so its 32 words "
+        "are replayed on the host against a golden list - the only copy of "
+        "them left in the tree. tests/assocglyph.py is the gate on the glass, "
+        "but two of its three assertions compare this kernel against ITSELF, "
+        "so a generator that composes the same WRONG page every time passes "
+        "both of them cleanly and the icon it is wrong about is on every "
+        "document in the system. Its third (--ref) closes that and needs a "
+        "capture taken BEFORE the change, on a 1bpp adapter, under an "
+        "emulator; this row is the same proof for the DATA half in a fifth of "
+        "a second, on every make",
+        needs=()),
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
         "that stops this suite going back to a directory nobody can enumerate"),
-    Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 1.0,
+    Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 1.5,
         "unreachable code after an unconditional jump, a prologue restored in "
         "the WRONG ORDER (SPEC.md 1's register discipline: balanced depth, "
-        "swapped pair, nothing faults), and a `cpu 8086` reachable from every "
-        "root"),
+        "swapped pair, nothing faults), a `cpu 8086` reachable from every "
+        "root, and a kernel LOCAL BLOCK nothing can reach - check 1 stops at "
+        "\"is there a label between the jump and this line\" and a label only "
+        "helps if something reaches it, which is how the DMA staging arm of "
+        "both file pipelines rotted for a year with this row green "
+        "(SPEC.md 18.4.2.1)"),
+    Row("resident", "fast", py("tests/unit/t_resident.py"), 1.5,
+        "nothing the splash's first tick runs may jump to SPEC.md 15.1.2's "
+        "epilogue ladder - the ladder is at the far end of .text and the "
+        "floppy has not delivered it yet, so the machine dies with a blank "
+        "screen and no message. kernel.asm's SPL_RES_SIZE guard measures where "
+        "the resident code ENDS, and size is not reach"),
     Row("wakedrain", "fast", py("tests/unit/t_wakedrain.py"), 0.3,
         "every event-queue drain gives a package's wake back - one that eats "
         "it deafens the window for the rest of its life (SPEC.md 74.1.1)"),
@@ -256,18 +307,60 @@ FAST = [
     Row("stkbalance", "fast",
         py("tools/stkbalance.py", "apps/sheet/sheet.asm", "apps/chart/chart.asm",
            "apps/os88chart.inc", "apps/os88fp.inc", "apps/os88text.inc",
-           "apps/os88line.inc"), 1.5,
-        "every `ret` in SHEET, CHART and the includes they share is reached at "
+           "apps/os88line.inc", *_kernel_sources()), 3.0,
+        "every `ret` in the KERNEL and in SHEET, CHART and the includes they "
+        "share is reached at "
         "the depth it started at. `ch_legend` pushed SI and never popped it, so "
         "its `ret` jumped to the saved register: a black canvas and a wedged "
         "app, with no crash and no message (SPEC.md 82.7.3). The walk is "
         "path-aware because a naive push-vs-pop count flags one routine in ten "
-        "and would just be ignored. SCOPED to these files on purpose - the "
-        "kernel's ISR tails push in one global label and pop in another, which "
-        "this cannot follow, so pointing it there would report noise. Two "
-        "stated gaps, both counted in the tool's own summary line: a routine "
-        "whose every exit is a tail jmp is not walked, and loop back-edge "
-        "conflicts are suppressed"),
+        "and would just be ignored. STILL SCOPED to these files, but no longer "
+        "because the kernel cannot be walked: the walker follows tail jmps "
+        "across files now, and the two `; STKBALANCE-OK:` in sched.inc that "
+        "cover the context switch and task_yield's fabricated int 08h frame "
+        "have landed, so the kernel measures ZERO and is GATED here from this "
+        "commit on (docs/STKBALANCE-KERNEL.md carries the triage of all 24). "
+        "Turned on DURING size pass 2 rather than after it, so an imbalance is "
+        "caught by the batch that introduces it instead of by a bisect. "
+        "One gap "
+        "is left and is counted in the tool's own summary line: loop back-edge "
+        "conflicts are suppressed, because the count lives in a register"),
+
+    Row("stkapps", "fast", py("tests/unit/t_stkapps.py"), 3.0,
+        "every `ret` in EVERY SHIPPED PACKAGE AND DRIVER is reached at the "
+        "depth it started at. `ch_legend` pushed SI and never popped it, so its `ret` "
+        "jumped to the saved register: a black canvas and a wedged app, with "
+        "no crash and no message (SPEC.md 82.7.3). This row walked only SHEET, "
+        "CHART and four shared includes - 776 entries - until three blind "
+        "spots in the walker were closed; it walks 9,038 now, drivers/ "
+        "included - the TCP/IP stack had never been walked either. Each blind spot "
+        "hid a whole class: `apps/*/*.inc` was in no file list, so RunCPM's "
+        "Z80, the C64's 6510 and Weave's VM had never been walked by anything; "
+        "all three dispatch as `jmp [cs:bx+tab]`, which a walker looking for "
+        "`jmp [tab+reg]` reads as every opcode handler being a routine entered "
+        "at depth 0; and wvm.inc puts its branches inside macros. It found one "
+        "real defect - `op_size` in os88parts.inc returned into a saved "
+        "register on a malformed part table, in every package via "
+        "os88api.inc. The KERNEL is the `stkbalance` row above, not this one: "
+        "the two file lists have nothing in common and were arrived at from "
+        "opposite ends (docs/STKBALANCE-KERNEL.md 4)",
+        ),
+
+    Row("stkwalker", "fast", py("tests/unit/t_stkbalance.py"), 2.0,
+        "the stack walker itself, against eleven idioms it must stay QUIET "
+        "about and six defect shapes it must catch. A gate that reports "
+        "nothing passes every build and defends nothing; one that reports a "
+        "routine in ten gets ignored and defends nothing either, which is why "
+        "the kernel went ungated for this tree's whole life. Both halves are "
+        "pinned here: the QUIET half is every idiom that was once a finding "
+        "(a continuation, a cross-file shared tail, `jmp short $+2`, `pushf` + "
+        "`call far`, `push`/`push`/`retf`, a dispatched jump table, a data "
+        "table, `owner.local`), and the LOUD half is what a size pass actually "
+        "produces - a deleted `pop`, a cross-jumped epilogue that is not a "
+        "twin, one overflow handler serving two depths. Nine of the seventeen "
+        "fail against the walker as it was, and one of those nine is a LOUD "
+        "row: the old walk skipped a routine whose every exit was a tail jmp, "
+        "so it could not see that shape at all"),
 ]
 
 # --------------------------------------------------------------------------
@@ -316,7 +409,7 @@ FULL = [
         "(`make small`, into build/smallk/) because there is no capability "
         "to probe for and `all` never builds that kernel",
         needs=("marty",), serial=True, builds=True),
-    Row("int0sweep", "soak", py("tests/int0sweep.py"), 180.0,
+    Row("int0sweep", "soak", py("tests/int0sweep.py"), 240.0,
         "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
         "5150/5160 ROM the INT 0 vector is a BIOS stub that writes 0FFh to "
         "the 8259 mask and IRETs, so ONE divide overflow anywhere is a dead "
@@ -330,7 +423,12 @@ FULL = [
         "row on GLaBIOS. Worse, a machine naming an IBM romset SILENTLY "
         "RESOLVES to glabios_pc when the ROM file is absent, so the handful "
         "of rows that ask for one were not testing it either. Arms INT 0 "
-        "across a broad UI session and reports where it fired",
+        "across a broad UI session and reports where it fired. The declared "
+        "240 is MEASURED (207-209s observed): it said 180, which was the "
+        "figure from when the row could not run at all. soak enforces no "
+        "budget, so this is a description rather than a limit - but a "
+        "description that is wrong is what makes the next person distrust "
+        "the column",
         needs=("marty",), serial=True),
     Row("vgadrop", "soak", py("tests/vgadrop.py"), 150.0,
         "SPEC.md 39.22: the heap floor starts UNDER .vgabuf on a machine with "
@@ -792,6 +890,19 @@ SOAK = [
     Row("clipkeep", "soak", py("tests/clipkeep.py"), 300.0,
         "SPEC.md 11.96.18: a wholly covered window keeps its raise cache when"
         "it arms a clip, and a partly covered one still loses it.",
+        needs=("marty",), serial=True),
+    Row("fcpcopy", "soak", py("tests/fcpcopy.py"), 240.0,
+        "SPEC.md 22.3-22.5: Cut/Copy/Paste actually moves a file AND a folder "
+        "tree. Nothing exercised kernel/filecp.inc at all until this row - a "
+        "whole-file pass over the copy engine could be green on assembly, "
+        "stkbalance, ovlchk and every size guard while leaving a machine that "
+        "cannot copy a file. The load-bearing assertion is the THIRD one: "
+        "os88disk --verify walks the volume the engine left behind, because a "
+        "stranded cluster or a cross-linked chain looks perfectly fine in the "
+        "guest's own listing, which is drawn from the structures that are "
+        "wrong. Runs on the 1.44MB disk: the 360KB one is 354 of 354 clusters "
+        "in use after one paste, so the folder copy correctly refuses there "
+        "with FERR_FULL and the row would be measuring the geometry.",
         needs=("marty",), serial=True),
     Row("cppromise", "soak", py("tests/cppromise.py"), 300.0,
         "SPEC.md 31.12: the Control Panel promises per PAGE, and the clock"
@@ -1270,11 +1381,65 @@ SOAK = [
     # a cell, and this file can be null in a way that looks exactly like a pass
     # (SPEC.md 39.14.6). `--no-build` drops to the fixed leg for a hand-built
     # image; `--machine` picks one orientation.
+    # THE POSITIVE CONTROL IS THE POINT OF THE ROW. Every assertion in it is
+    # "nothing outside its own columns" or "the same bytes as the unclipped
+    # draw", and all of them pass on a harness that draws nothing at all -
+    # which is what a boot-and-diff version of this would BE, since nothing on
+    # a stock desktop puts an icon off the right edge.
+    # NOTHING ELSE IN THE TREE REACHES sw_fill_pat. A Disk listing that fits
+    # draws no chevrons and the Task Manager has to be open, so a
+    # boot-and-look version of this is a null test that reads like a pass -
+    # icoclip's problem one primitive along, and the same answer.
+    Row("fillpat", "soak", py("tests/fillpat.py"), 600.0,
+        "Does the 1bpp PATTERNED fill lay the tile down where it says? "
+        "(SPEC.md 5, 32) - gfx_fill_pat on a mono adapter is two masked edge "
+        "columns through sw_patcol plus a rep stosw interior, with the tile "
+        "row picked by (y & 7). Calls it through the debugger over rows it "
+        "zeroed itself, at four rect shapes that run every arm including the "
+        "one-byte-wide fold, and checks each byte against the kernel's OWN "
+        "staged gfx_patbuf and edge masks rather than a golden image. Both "
+        "strides.",
+        needs=("marty",), serial=True),
+    # THE ENTRY IS NAMED HERE and it is not decoration: ico_disk32 is the
+    # INDEXED kind now (SPEC.md 25.7) and `icon_draw` reads that record as
+    # 258 bytes of plain art, walking off its 13 into whatever follows. Every
+    # assertion in this row is "nothing outside its own columns" or "the same
+    # bytes as the unclipped draw", so a mismatched pair DRAWS GARBAGE AND
+    # PASSES - measured, on the tree that introduced the kind. The record and
+    # the entry have to be named together or this row tests nothing.
+    Row("icoclip", "soak", py("tests/icoclip.py", "--entry", "icon_draw_ix"),
+        600.0,
+        "Does a 32-wide icon HANGING OFF THE RIGHT EDGE still clip byte for "
+        "byte? (SPEC.md 25.6) - ico_pass_bb's per-byte column test is the "
+        "only thing between an icon at x = w-8 and a write on the NEXT SCAN "
+        "LINE, and ico_core does not refuse the shape. Calls icon_draw_ix "
+        "through the debugger at all eight shift phases and at every column "
+        "that hangs off, on BOTH strides (CGA 80, Hercules 90), over a zeroed "
+        "background so two draws are comparable.",
+        needs=("marty",), serial=True),
     Row("dispseam", "soak", py("tests/dispseam.py"), 600.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
         "and puts the default kernel back, both seam orientations",
         needs=("marty",), serial=True, builds=True),
+    Row("dskwstage", "soak", py("tests/dskwstage.py"), 120.0,
+        "SPEC.md 18.4.2.1: does the DMA STAGING arm run, and does it move the "
+        "RIGHT bytes? dskw_runadd's third answer - CF=0 with CX != 0, `not "
+        "one sector fits this DMA page` - fell through into a shared "
+        "`jmp .ioerr` from 2e8e292 until then, so dskw_wdata.stg and "
+        "dskw_rdata.stg had never executed and the fix TURNED ON a routine "
+        "nobody had watched. Nothing on a desktop reaches it (18.4.1 keeps "
+        "the kernel's own bases 512-aligned), so the row arranges it: a 200KB "
+        "mem_claim spans three 64KB physical boundaries, and a buffer 0xF0 "
+        "bytes short of one is the only thing that makes dskw_runmax answer "
+        "0. Five cases with two page-safe CONTROLS, .stg counted by exec "
+        "breakpoint rather than inferred, and the bytes settled OFF the "
+        "machine - the floppy is flushed and walked by tests/unit/t_image's "
+        "own FAT12 reader, which shares no code with the kernel that wrote "
+        "it, so a writer and a reader agreeing on the same wrong thing "
+        "cannot pass. `--bug` asserts the PRE-fix refusal instead, which is "
+        "what makes the A/B repeatable against an old image",
+        needs=("marty",), serial=True),
     Row("dispstrad", "soak", py("tests/dispstrad.py"), 60.0,
         "Does a window dragged across the seam give back the rows only ONE"
         "display",
@@ -1490,6 +1655,16 @@ SOAK = [
         "three where one was needed) and the row must TRACK: held and dragged"
         "off, the button comes up, which is what says the gesture is cancelled"
         "before the finger commits. Also checks 42.16.1's GIF default",
+        needs=("marty",), serial=True),
+    Row("alertanim", "soak",
+        py("tests/alertanim.py", "--machine", "os8088_5150_herc_gla"), 300.0,
+        "SPEC.md 11.99.2.1: the 'Save changes?' alert must NOT zoom open. The"
+        "user clicked the close box and got a dialog instead, so a third of a"
+        "second of outline in front of it is the machine making a show of"
+        "getting in the way. AN A/B AND NEITHER HALF IS A ROW ALONE: a LAUNCH"
+        "must still animate, or a theme with the zoom off would pass this"
+        "trivially, and the alert must be on the glass at the end, or a dialog"
+        "that failed to open reads as one that opened quietly",
         needs=("marty",), serial=True),
     Row("paintdirty", "soak", py("tests/paintdirty.py"), 300.0,
         "SPEC.md 42.16: does Paint ask before it throws a picture away? A"

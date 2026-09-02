@@ -236,16 +236,15 @@ ss_row:
 ; that is dark without the user having lit it first.
 ; -----------------------------------------------------------------------------
 blk_wake:
-    push ax
-    mov ax, [ticks]
-    mov [blk_t0], ax            ; the idle period restarts from here, lit or
-    cmp byte [blk_on], 0        ; dark - this is the only place it is set
-    pop ax                      ; outside boot (pop does not touch flags)
-    jne .dark
+    push ax                     ; ONE bank, not two: the `.dark` arm keeps this
+    mov ax, [ticks]             ; one rather than popping here and pushing
+    mov [blk_t0], ax            ; again. The idle period restarts from here,
+    cmp byte [blk_on], 0        ; lit or dark - this is the only place it is
+    jne .dark                   ; set outside boot
+    pop ax
     clc                         ; already lit: an ordinary input
     ret
-.dark:
-    push ax                     ; ...and it can only have been a wake. AX is
+.dark:                          ; ...and it can only have been a wake. AX is
     xor al, al                  ; banked because this routine's contract is
     call blk_set                ; flags and nothing else: ui.inc calls it
     pop ax                      ; mid-keystroke, between int 16h's peek and
@@ -325,14 +324,22 @@ blk_pass:
                                 ; with no record behind it, and the window -
                                 ; ftpd's, mid-transfer, first among them -
                                 ; was deaf for the rest of its life
-    push di
-    mov di, fsx_evtmp           ; fsx_restore's drain scratch, borrowed: both
-.dl:                            ; drains run on the UI task, so they can
-    call evq_pop                ; never be live at once
-    jc .dend
-    call wm_wake_eaten
-    jmp short .dl
-.dend:
+    ; THE BUFFER BELOW IS BORROWED, AND HERE IS THE WHOLE OF WHY IT IS SAFE.
+    ; fsx_evtmp is fsx_restore's drain scratch. Both drains run on the UI task
+    ; and can never be live at once - fsx_run refuses any other task in code
+    ; (`cmp byte [sch_cur], 0`, fsx.inc), and kmain ends by making task 0 the
+    ; UI task. That is the load-bearing sentence, and the second half of it is
+    ; written down because THE fsx FREEZE DOES NOT MAKE IT TRUE: the freeze
+    ; parks OTHER tasks, but sch_switch keeps the exclusive task's kept worker
+    ; and every TF_SERVICE task runnable right across fsx_leave's drain
+    ; (SPEC.md 53.2). So a THIRD borrower reached from a WORKER would land in
+    ; this buffer mid-drain and task 0 would resume reading the wrong record -
+    ; the "deaf for the rest of its life" failure the paragraph above
+    ; describes. A borrow here is safe because it is UI-task-only, not because
+    ; nothing else is running.
+    push di                     ; blk_pass's contract is `clobbers: flags` and
+    mov di, fsx_evtmp           ; ui_task is read on it - so this is not
+    call evq_drain              ; belt-and-braces, it is the contract
     pop di
     ret
 
@@ -403,8 +410,7 @@ blk_set:
     xor ch, ch
 .d:
     mov al, ch
-    call vid_ctx_ptr            ; DI = that display's record; AX preserved
-    mov al, [di+VID_CTX_KIND]
+    call vid_kind_of            ; AL = that display's adapter (DI banked)
     call blk_one
     inc ch
     cmp ch, cl                  ; a do-while: [vid_ndisp] is never 0, and a
@@ -428,6 +434,27 @@ blk_one:
     jmp vid_unblank_kind
 .dark:
     jmp vid_blank_kind
+
+; -----------------------------------------------------------------------------
+; blk_relit - the chrome and the world, after something owned the WHOLE screen
+; in:  nothing; UI-task, gfx lock NOT held (wm_paint_all takes its own)
+; out: nothing
+;
+; wm_paint_all ALONE IS NOT ENOUGH: the menu bar and the dock are not windows,
+; so an app that owned the whole screen has overdrawn the logo, the rule and
+; every tile, and both are owed a forced repaint first (SPEC.md 12.9/30.3).
+;
+; Two callers and they used to carry a copy each - the saver's exit through
+; cw_blk_relit (whose own comment already said "fsx_restore is the other
+; caller that has to say so, and for the identical reason") and fsx_restore
+; itself.  The shim is now `call blk_relit / retf`, which is what its name
+; always claimed it was.  fsx.inc is `.text` like this, so its call is near.
+; -----------------------------------------------------------------------------
+blk_relit:
+    call menu_force
+    call dock_force
+    call wm_paint_all
+    ret
 
 section .cold
 

@@ -298,7 +298,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 
 ; SPEC.md 39.25's whole-column store in sw_col, on 5.4.1.3's terms one block
 ; up: kern_big gets it, kern_small does not, because that build is under a cut
-; (39.24.4) and this is 24 bytes of speed rather than of correctness. NOCOLFAST=1
+; (39.27.4) and this is 24 bytes of speed rather than of correctness. NOCOLFAST=1
 ; takes it out of kern_big too - that is the A/B, and it is the only thing that
 ; exercises the general body on an ordinary build, because a chrome fill is
 ; byte-aligned (11.94) and never reaches it.
@@ -2170,12 +2170,20 @@ BOOT2_SECS_STARS equ 9
 %ifdef SPLSTARS
 BOOT2_SECS  equ BOOT2_SECS_STARS
 %else
-BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps.
-                                ; NINETEEN: five for the loader and its screen,
-                                ; FOURTEEN for the overlay. It was THIRTEEN,
-                                ; and before that 4 with the overlay in the
-                                ; image; the disk is unchanged either time, the
-                                ; sectors having left there.
+BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
+                                ; loader and its screen up to OVL_AT, then the
+                                ; boot overlay from there to BOOT2_PAD. THE
+                                ; SPLIT IS OVL_AT AND THE TOTAL IS THIS, so
+                                ; read those two rather than a number written
+                                ; out in prose: this comment used to say
+                                ; "NINETEEN: five for the loader, FOURTEEN for
+                                ; the overlay. It was THIRTEEN" against a
+                                ; constant that is 8, and SPEC.md 2.9.12 and
+                                ; 15.3.8.5 still carry the same stale count
+                                ; (2.5.3's table is the one that is right).
+                                ; Before either, it was 4 with the overlay in
+                                ; the image; the disk is unchanged every time,
+                                ; the sectors having left there.
                                 ;
                                 ; The six that took it from 13 are SPEC.md
                                 ; 2.9.12's, and they are not for a feature:
@@ -2776,7 +2784,7 @@ osapi_table:
                                   ;          never-written blob reads back as
                                   ;          zeroes and the driver's own version
                                   ;          byte is what recognises it
-    OSAPI_JSLOT api_sys_snapshot      ; 0x0298 - the scheduler AND the instance
+    OSAPI_SLOT osapi_sys_snapshot ; 0x0298 - the scheduler AND the instance
                                   ;          table, in ONE cli window
                                   ;          (SPEC.md 28.2). in ES:DI = a
                                   ;          SYS_SNAPSHOT_SIZE buffer; out AX =
@@ -3548,7 +3556,27 @@ osapi_table:
                                   ;          3B8h that does nothing until 3BFh
                                   ;          allows it, and neither is
                                   ;          derivable from the info block
-osapi_table_end:                  ; 0x04F0
+    OSAPI_SLOT wm_noanim          ; 0x04F0 - BX = a window of yours, between
+                                  ;          OSAPI_WM_CREATE and
+                                  ;          OSAPI_WM_SHOW: it does NOT zoom
+                                  ;          open (SPEC.md 11.99.2.1). No AL
+                                  ;          and no clear - the five sibling
+                                  ;          flag slots (wm_sizable, wm_snap,
+                                  ;          wm_keeph, wm_ownbg, wm_saveu) all
+                                  ;          take AL = 0 clear / non-zero set
+                                  ;          and this one deliberately does
+                                  ;          not, the bit
+                                  ;          being read in one place and only
+                                  ;          on the wm_show of a window that
+                                  ;          is not yet visible. THE CELL IS
+                                  ;          IN BOTH KERNELS and the body is
+                                  ;          not %ifdef'd: a slot that exists
+                                  ;          in one build and not another is
+                                  ;          an ABI that depends on a knob
+                                  ;          (SPEC.md 20.8 rule 4), and on
+                                  ;          kern_small the bit is simply set
+                                  ;          and never read
+osapi_table_end:                  ; 0x04F8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3556,8 +3584,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 156 * 8
-%error "os8088 API jump table must be exactly 156 8-byte slots"
+%if OSAPI_TABLE_LEN != 157 * 8
+%error "os8088 API jump table must be exactly 157 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -3760,10 +3788,18 @@ api_file_find:
     call inst_vol_enter         ; this instance's own folder; preserves
                                 ; everything including the flags
     call COLD_SEG:dvf_drv_owns_seg ; CF = 0: a loaded driver, so it may see the
-    mov al, 0                   ; system files it is going to have to copy
-    jc .nothid
-    mov al, 1
-.nothid:
+    sbb al, al                  ; system files it is going to have to copy.
+    inc al                      ; CF straight into AL without a branch: `sbb
+                                ; al,al` is 0 for CF=0 and 0xFF for CF=1
+                                ; whatever AL held, and `inc al` makes that 1
+                                ; and 0 - the same answer, two bytes shorter
+                                ; and with no jump. AL is not an input here
+                                ; (CX and ES:DI are), and CF SURVIVES: on the
+                                ; 8086 AL-AL-CF borrows exactly when CF was
+                                ; set, so `sbb al,al` gives CF back unchanged
+                                ; and `inc` does not touch it - which matters
+                                ; only in that it is dsk_find_x's OUTPUT below
+                                ; and never its input.
     pop bx
     call COLD_SEG:dsk_find_x
     pop si
@@ -3859,19 +3895,6 @@ api_file_sysc:
     retf                        ; and from out there that is the whole truth
 
 ; ...and the two-name case, which needs DI as well and so is written out
-; api_sys_snapshot - slot 0x0298's stub, because the body is COLD (SPEC.md
-; 29.9.1). An OSAPI_SLOT cell is eight bytes exactly and `call %1` is near, so a
-; cold body cannot be reached from one; the JSLOT + stub pattern is what the
-; five below already do, and this is a sixth of the same shape. Ten bytes, and
-; it is where the DS switch lives now.
-api_sys_snapshot:
-    push ds
-    push cs
-    pop ds                      ; DS = KERNEL_SEG, as the cell used to set it
-    call COLD_SEG:osapi_sys_snapshot
-    pop ds
-    retf
-
 api_file_rename:
     push ds
     push si
@@ -4728,8 +4751,7 @@ osapi_rand:
 osapi_font_glyphs:
     mov si, font_glyphs
     mov dx, LOW_SEG
-    mov al, FONT_FIRST
-    mov ah, FONT_LAST
+    mov ax, FONT_FIRST | (FONT_LAST << 8)   ; AL and AH in one instruction
     mov cx, 8
     ret
 
@@ -4868,53 +4890,28 @@ osapi_file_goto:
 ; the other one. The instance's folder is deliberately NOT moved either
 ; (no inst_vol_mark): this is where the caller is standing to do a job, not
 ; where the application now believes it lives.
+; **THIS WAS A SECOND TRANSCRIPTION OF `fcp_goto`**, and SPEC.md 19.2.2 says
+; so in as many words: the slot is "fcp_goto's two paths, which the kernel's
+; own copy engine has had since 22.5, published because a copy engine outside
+; the kernel needs them just as much". Two bodies, in the scarce section, and
+; they had DRIFTED APART in both directions - this one had the [dsk_mntok]
+; gate and fcp_goto did not; fcp_goto had the DVK_FILE / FSV_CHDIR arm and
+; this one did not. The second of those was a BUG here (SPEC.md 62.9.1): on a
+; redirected volume this wrote [dsk_cwd] behind the driver's back, and every
+; name the caller then asked about was looked up in the folder it came FROM.
+; Merging fixes it and gives fcp_goto the gate; the argument shuffle is four
+; instructions and `pop` does not disturb CF, so .out returns fcp_goto's flag.
 osapi_file_goto_q:
+    push bx
     push dx
-    cmp byte [dsk_mntok], 0     ; IS ANYTHING MOUNTED? dsk_here_ok asks this
-    je .full                    ; first and for the same reason (SPEC.md
-                                ; 18.9.1): [disk_drive] is where the machine
-                                ; BELIEVES it stands, and dsk_vol_del sets it
-                                ; to 0 when the volume under it is unmounted -
-                                ; without mounting A:, which is what the
-                                ; cleared [dsk_mntok] beside it says. The
-                                ; compare below then read "already on A:" off
-                                ; a machine whose BPB, FAT window and geometry
-                                ; still described the dead volume, and this
-                                ; cell answered CF = 0 having done nothing at
-                                ; all. Every read after it failed, which on
-                                ; the hard-disk installer's path is a copy
-                                ; that stops on its first file (SPEC.md
-                                ; 52.10.8.1)
-    cmp bl, [disk_drive]
-    jne .full
-    or dx, dx
-    jz .quiet                   ; 0 is the root, always legal
-    cmp dx, 2
-    jb .bad
-    cmp dx, [dsk_maxclus]
-    ja .bad
-.quiet:
-    mov [dsk_cwd], dx
-    jmp short .ok               ; ...and .full's own success falls into it
-.bad:
-    mov ax, FERR_IO
-    jmp short .err              ; ...and .ferr's failure falls into that
-.full:
-    push dx
-    mov dl, bl
-    pop ax                      ; AX = the cluster, DL = the volume
-    call dsk_chdir_q
-    jc .ferr
-.ok:
+    mov al, bl                  ; fcp_goto takes AL = drive, BX = cluster
+    mov bx, dx
+    call COLD_SEG:fcpf_fcp_goto ; ...already published for CLONE.DRV (18.99.8)
+    jc .out
+    xor ax, ax                  ; the documented AX = 0, and it clears CF with
+.out:                           ; it; on the CF=1 arm AX is fcp_goto's FERR_*
     pop dx
-    xor ax, ax
-    clc
-    ret
-.ferr:
-    mov ax, FERR_NODISK
-.err:
-    pop dx
-    stc
+    pop bx
     ret
 
 ; ---- osapi_file_goto_qm - the quiet stand that MOVES THE INSTANCE (74.1) -----
@@ -5107,7 +5104,7 @@ section .text
 %include "vga12.inc"
 %include "softgfx.inc"
 
-; --- SPEC.md 39.24.5: A NO-VGA ARM THAT IS FALLEN INTO MUST EMIT CODE --------
+; --- SPEC.md 39.27.5: A NO-VGA ARM THAT IS FALLEN INTO MUST EMIT CODE --------
 ; Here and not at the foot of vga12.inc, which is where it belongs and where
 ; the sw_* names are not defined yet - softgfx.inc is the include above.
 ;
@@ -5124,16 +5121,16 @@ section .text
 ; the `equ` back is what tests it.
 %ifndef GFX_VGA
  %if gfx_fill_gray_raw == sw_fill_gray
-  %error "gfx_fill_gray_raw is an `equ` - the entry above FALLS THROUGH to it and an equ emits no code (SPEC.md 39.24.5)"
+  %error "gfx_fill_gray_raw is an `equ` - the entry above FALLS THROUGH to it and an equ emits no code (SPEC.md 39.27.5)"
  %endif
  %if gfx_fill_pat_raw == sw_fill_pat
-  %error "gfx_fill_pat_raw is an `equ` - see SPEC.md 39.24.5"
+  %error "gfx_fill_pat_raw is an `equ` - see SPEC.md 39.27.5"
  %endif
  %if vga_save_vram == sw_save
-  %error "vga_save_vram is an `equ` - see SPEC.md 39.24.5"
+  %error "vga_save_vram is an `equ` - see SPEC.md 39.27.5"
  %endif
  %if vga_restore_vram == sw_restore
-  %error "vga_restore_vram is an `equ` - see SPEC.md 39.24.5"
+  %error "vga_restore_vram is an `equ` - see SPEC.md 39.27.5"
  %endif
 %endif
 %include "font.inc"
@@ -5161,7 +5158,9 @@ section .text
                                 ; sched.inc, whose [ticks] it advances from
 %include "blank.inc"            ; the idle screen blanker (SPEC.md 64): after
                                 ; sched.inc for [ticks], events.inc for the
-                                ; evq_init that drops the wake press, and
+                                ; evq_pop/wm_wake_eaten drain that spends the
+                                ; wake press (SPEC.md 74.1.1 - it was an
+                                ; evq_init, and a reset ate the wakes), and
                                 ; vidsel.inc for the vid_blank_kind pair -
                                 ; which is every module it reads, so this is
                                 ; the first place it can go with none of its
@@ -5637,12 +5636,20 @@ MARK_FNVEC  equ $ - mark_fvec
 ; A SHIM IS NOT OWED (SPEC.md 2.6.1). When the body has no near caller of its
 ; own it can simply end in `retf` and the far call can land on it - 84 of them
 ; went that way, 340 bytes, and `.text`'s rung slack went 88 bytes to 162.
-; What is left here is what could not: a body with a near caller, one that
-; tail-jumps, one that near-calls a LOCAL helper (that helper's `ret` is
-; inside the same extent and has to stay near), and one whose thunk is named
-; by a dispatch table rather than by a call. os88ovlchk.py gates the
+; FOUR MORE WENT IN SIZE PASS 2 and the census above had drifted: font_width,
+; inst_park_req and sched_mode_get each had exactly ONE reference in the whole
+; tree - their own shim - and wm_su_stale is the "one that tail-jumps" this
+; paragraph named as impossible.  It is merely dearer: wm_su_drop has three
+; other NEAR callers and must keep its near `ret`, so the jump became
+; `call wm_su_drop / retf` and that row is worth 2 bytes rather than 4.
+; What is left here is what still could not: a body with a near caller, one
+; that near-calls a LOCAL helper (that helper's `ret` is inside the same
+; extent and has to stay near), and one whose thunk is named by a dispatch
+; table rather than by a call. os88ovlchk.py gates the
 ; distinction in both directions, because `ret` pops two bytes and `retf` pops
-; four and the wrong one does not fault.
+; four and the wrong one does not fault - shown to fire here by putting
+; sched_mode_get's near `ret` back, which named all four of its far call
+; sites and refused.
 ; =============================================================================
 cw_app_launch:          call app_launch
                     retf
@@ -5689,8 +5696,6 @@ cw_wm_wake_eaten:       call wm_wake_eaten  ; every drain owes this per record
                                             ; the .cold drains too
 cw_font_run:            call font_run
                     retf
-cw_font_width:          call font_width
-                    retf
 cw_fpg_step:             call fpg_step
                      retf
 %ifdef KERN_BIG                 ; ...and gfx_disp_enter is dual display's
@@ -5717,9 +5722,7 @@ cw_thm_set:             call thm_set
 ; 30.3.2) - and a saver session has drawn over both. fsx_restore is the other
 ; caller that has to say so, and for the identical reason: an app that owned
 ; the whole screen really did overdraw them.
-cw_blk_relit:           call menu_force
-                    call dock_force
-                    call wm_paint_all
+cw_blk_relit:           call blk_relit
                     retf
 cw_gfx_frame:           call gfx_frame
                     retf
@@ -5749,13 +5752,14 @@ cw_gfx_xor_fill:        call gfx_xor_fill
                     retf
 cw_icon_draw:           call icon_draw
                     retf
+cw_icon_draw_ix:        call icon_draw_ix   ; the INDEXED kind (SPEC.md 25.7),
+                    retf                    ; desk.inc's volume icons and no
+                                            ; other caller in the tree
 cw_icon_pen:            call icon_pen
                     retf
 cw_icon_draw16:         call icon_draw16
                     retf
 cw_inst_alloc:          call inst_alloc
-                    retf
-cw_inst_park_req:       call inst_park_req
                     retf
 cw_inst_bind_win:       call inst_bind_win
                     retf
@@ -5801,8 +5805,6 @@ cw_menu_popup:          call menu_popup
 cw_osapi_file_here:      call osapi_file_here
                      retf
 cw_osapi_snd_tone:      call osapi_snd_tone
-                    retf
-cw_sched_mode_get:      call sched_mode_get
                     retf
 cw_snd_beep:            call snd_beep
                     retf
@@ -5912,8 +5914,6 @@ cw_inst_unmin:          call inst_unmin
                     retf
 %endif
 cw_xm_release_rec:      call xm_release_rec
-                    retf
-cw_wm_su_stale:         call wm_su_stale
                     retf
 cw_wm_title_set:        call wm_title_set
                     retf
@@ -6234,6 +6234,17 @@ osapi_mem_regrow:     call COLD_SEG:osapi_mem_regrow_x
                   ret
 osapi_sys_kb:         call COLD_SEG:osapi_sys_kb_x
                   ret
+osapi_sys_snapshot:   call COLD_SEG:osapi_sys_snapshot_x
+                  ret               ; THE ORDINARY THUNK, not a bespoke JSLOT
+                                    ; stub.  The stub argued "an OSAPI_SLOT
+                                    ; cell is eight bytes and `call %1` is
+                                    ; near, so a cold body cannot be reached
+                                    ; from one" and stopped one step short:
+                                    ; the cell reaches a RESIDENT thunk and
+                                    ; the thunk reaches the cold body, which
+                                    ; is what 72 other slots in this file do.
+                                    ; 8 + 10 becomes 8 + 6.  The DS switch the
+                                    ; stub carried is the cell's own now
 
 ; --- ...and desk.inc's (SPEC.md 26.1). The desktop dither and the drive
 ; zones. Drawn on a mount, on a volume going away and on a click on bare
@@ -6241,6 +6252,90 @@ osapi_sys_kb:         call COLD_SEG:osapi_sys_kb_x
 ; moved whole with no section toggle in it.
 desk_rowcalc:     call COLD_SEG:desk_rowcalc_x
               ret
+
+; =============================================================================
+; THE SHARED-EPILOGUE LADDER (SPEC.md 15.1.2)
+;
+; A routine that banks the canonical prologue - `push ax / bx / cx / dx / si /
+; di / bp / es`, or any SUFFIX of it - restores it with the mirror-image pop
+; run and returns.  That run is the same bytes in every routine that takes it,
+; so 150 copies of it are 150 copies of the same six or seven bytes.  Here it
+; is written ONCE, entered by `jmp` at the rung that pops first, and every
+; converted routine spends 3 bytes on the jump instead of N on the run and its
+; `ret`.  Nothing is pushed to get here and nothing is popped that the routine
+; did not push: a rung is a suffix of a suffix.
+;
+; IT COSTS THE CONVERTED ROUTINE A TAKEN NEAR `jmp` (~18-22 clocks) AND SAVES
+; IT (N+1)-3 BYTES.  So the eleven exits entered per RUN or per CELL keep their
+; own pop runs - `gfx_clip_run`, `gfx_disp_run`, `gfx_blit_run`, `gfx_lstep`,
+; `gfx_lstepv`, `gfx_lstep_slow`, `gfx_bank_ok`, `sw_pairbuild`,
+; `font_run_scell`, `cur_lazyck`, `cur_shape_pass` - and that spare is what
+; separates this from the arm that takes every site for 33 bytes more.
+;
+; PLACEMENT IS LOAD-BEARING, AND IT IS THE PART THAT WENT WRONG FIRST.  Each
+; ladder is inside the section its callers are in and ABOVE that section's own
+; `*_end` label: a ladder below the label is real image bytes that KTEXT_SIZE /
+; COLD_SIZE do not count, and everything derived from them - KIMG_PARA,
+; COLD_START, the KERN_CODE_MAX guard, SPEC.md 57.6's kbld_* - then
+; under-reports the image.  The twelve `%if`s at the foot of this file are what
+; makes that a build error rather than a silent one.
+;
+; HOW IT FAILS, AND IT FAILS CLOSED.  Delete the last `jmp` to a rung and that
+; rung's label becomes a global nothing jumps to; `tools/stkbalance.py` then
+; walks it as an ENTRY, from depth 0, and the build goes red with
+; `kret_cx: ret at depth -3`.  That is the right answer - the cure is to delete
+; the dead rung label, never to exempt it.  While a rung IS jumped to,
+; stkbalance classes it a CONTINUATION: it inherits the arriving depth, so a
+; routine that leaks a word still reaches the ladder's `ret` at +1 and is
+; reported.  NO RUNG CARRIES stkbalance's skip annotation and no rung may: it
+; makes `walk()` stop on arrival, which is the one thing that would genuinely
+; blind the gate to all 141 converted routines at once.  (Its name is not
+; spelled here either - that pragma is matched as a SUBSTRING of any comment,
+; so writing it out in this block would exempt whatever routine owns the line
+; and the gate would go from 2 exemptions to 3.  Found by doing it.)
+;
+; The ORDER half is `tests/unit/t_asmrules.py`'s `crossed_pops`, which reads the
+; rung -> pop map out of the ladder below rather than assuming it - so a rung
+; label sitting over the wrong `pop` is caught there, and a converted routine
+; keeps exactly the coverage its own pop run had.
+;
+; One known imprecision, left deliberately: stkbalance dedups on
+; (path, line, why), so two routines leaking the same amount into the same rung
+; report as one line rather than two.  Both are still reported as findings; it
+; is the count that collapses, and making it exact costs duplicate lines
+; wherever one shared tail is reached from several entries.
+; =============================================================================
+kret_es:          pop es
+kret_bp:          pop bp
+kret_di:          pop di
+kret_si:          pop si
+kret_dx:          pop dx
+kret_cx:          pop cx
+                  pop bx
+                  pop ax
+                  ret
+
+section .cold
+kretc_es:         pop es
+kretc_bp:         pop bp
+kretc_di:         pop di
+kretc_si:         pop si
+kretc_dx:         pop dx
+kretc_cx:         pop cx
+                  pop bx
+                  pop ax
+                  ret
+
+kretfc_es:        pop es
+kretfc_bp:        pop bp
+kretfc_di:        pop di
+kretfc_si:        pop si
+                  pop dx
+kretfc_cx:        pop cx
+                  pop bx
+                  pop ax
+                  retf
+section .text
 
 ; --- WHICH KERNEL IS THIS? (SPEC.md 57.6) ------------------------------------
 ; Three words that change whenever any section's length does, so a field
@@ -6386,7 +6481,14 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 ; 2.1.2). One contiguous region, and `.ovlw` may fill it and no more - a byte
 ; past it is `vid_rowtab`, which vid_init wrote at MARK 7 and the overlay is
 ; still using.
-%if OVLW_SIZE > FAT_PARA * 16 + DSK_WIN_BYTES
+; **The overlay ARRIVES BY SECTOR**, so the ceiling is the region rounded DOWN
+; to a whole sector and the payload rounded UP to one. That was the same
+; number while the region was 8,192 - the mount window being 7 x 512 exactly -
+; and it stopped being when SPEC.md 19.1's staged listing narrowed to
+; DSK_DE_STRIDE and took `disk_dir` from 1,024 to 768. The region is 7,936
+; now, of which 7,680 is readable, and comparing against 7,936 would pass a
+; 15.5-sector overlay whose sixteenth sector lands on vid_rowtab.
+%if ((OVLW_SIZE + 511) / 512) * 512 > FAT_PARA * 16 + DSK_WIN_BYTES
 %error "the boot overlay's window half has outgrown the FAT window plus the mount buffers - see SPEC.md 2.1.2 and 2.5.3"
 %endif
 
@@ -6847,3 +6949,89 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ;    Nothing inside this assembly can see the sector's immediate.
 ;    tests/unit/t_bootfloor.py reads it back out of the built sector and
 ;    compares it against this ladder.
+
+; =============================================================================
+; NOTHING MAY LAND BELOW A SECTION'S OWN END LABEL (SPEC.md 15.1.2).
+;
+; Every *_SIZE above is `<section>_end - $$`, so a byte emitted into that
+; section AFTER its end label is a real byte of the image that the constant
+; does not count. That is not a build error anywhere else in this tree:
+; `-f bin` places it, `.bss` is `nobits vfollows=.text` so nothing is aliased,
+; and os88ovlchk walks SECTIONS and cannot see a same-section, wrong-side-of-
+; the-label byte. What under-reports instead is the arithmetic - KTEXT_SIZE,
+; KIMG_PARA (the FAT snapshot base), COLD_START, KERN_SIZE, the KERN_CODE_MAX
+; guard and SPEC.md 57.6's published kbld_text/kbld_cold - and for `.modc`,
+; `.modf` and `.modl` the consequence is worse than arithmetic: os88mod.py cuts
+; the module file at <sec>_end, so a byte below it is CUT OFF THE MODULE and a
+; call into it lands in unclaimed heap.
+;
+; Found during kernel size pass 2, where a transform appended a shared epilogue
+; ladder to the foot of this file: 9 bytes in `.text` and 9 in `.cold` that
+; every size constant missed, with 434 bytes of slack standing between that and
+; `.cold` being laid over the tail of `.bss`. Costs nothing: each %if is
+; assembly-time and emits no code.
+;
+; THIS BLOCK MUST STAY THE LAST THING IN THE FILE, and that is a real limit
+; rather than tidiness: a `%if` measures the section where it SITS, so anything
+; emitted BELOW here is past the check as well as past the label and is not
+; seen at all. Measured, batch 7: the same ladder appended after this block
+; assembles clean, `stkbalance` stays green at 0 findings, and `.text` and
+; `.cold` under-report by 9 and 18 bytes with nothing said. Appended ABOVE it,
+; both errors below fire by name. So: add a new section's rung to the list -
+; never a line of anything else after the last %endif.
+;
+; TWELVE LABELS AND NOT TWO. The `.text`/`.cold` pair is where the defect was
+; actually found, and it is the cheap half; `.modc` is the one that decides
+; the shape of this block, because the same mis-placement there is machine-
+; breaking rather than merely under-reported - and a `.modc` ladder is one
+; command line away, the section prefix already being in the transform's list.
+; =============================================================================
+section .text
+%if ($ - $$) != KTEXT_SIZE
+  %error "something landed in .text below kernel_text_end - KTEXT_SIZE, KIMG_PARA, COLD_START, the KERN_CODE_MAX guard and kbld_text all under-report it"
+%endif
+section .lowbss
+%if ($ - $$) != KLOW_SIZE
+  %error "something landed in .lowbss below kernel_low_end - KLOW_SIZE and LOW_PARA under-report it"
+%endif
+section .vgabuf
+%if ($ - $$) != KVGABUF_SIZE
+  %error "something landed in .vgabuf below kernel_vgabuf_end - KVGABUF_SIZE under-reports it"
+%endif
+section .bss
+%if ($ - $$) != KBSS_SIZE
+  %error "something landed in .bss below kernel_bss_end - KBSS_SIZE and COLD_START under-report it"
+%endif
+section .boot2
+%if ($ - $$) != BOOT2_SIZE
+  %error "something landed in .boot2 below boot2_end - BOOT2_SIZE under-reports it and the OVL_AT guard is blind to it"
+%endif
+section .cold
+%if ($ - $$) != COLD_SIZE
+  %error "something landed in .cold below cold_end - COLD_SIZE, COLD_PARA and kbld_cold under-report it"
+%endif
+section .ovl
+%if ($ - $$) != OVL_SIZE
+  %error "something landed in .ovl below ovl_end - OVL_SIZE under-reports it and the blob guard is blind to it"
+%endif
+section .ovlw
+%if ($ - $$) != OVLW_SIZE
+  %error "something landed in .ovlw below ovlw_end - OVLW_SIZE under-reports it and MODC_START with it"
+%endif
+section .modc
+%if ($ - $$) != MODC_SIZE
+  %error "something landed in .modc below modc_end - os88mod.py would CUT CTRL.DRV short of it and a call into it lands in unclaimed heap"
+%endif
+section .modf
+%if ($ - $$) != MODF_SIZE
+  %error "something landed in .modf below modf_end - os88mod.py would CUT the format module short of it"
+%endif
+section .modl
+%if ($ - $$) != MODL_SIZE
+  %error "something landed in .modl below modl_end - os88mod.py would CUT the clone module short of it"
+%endif
+section .modmap
+%if ($ - $$) != MODMAP_SIZE
+  %error "something landed in .modmap below modmap_end - the split trailer is no longer the last two bytes of the file"
+%endif
+section .text

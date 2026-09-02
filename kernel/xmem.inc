@@ -326,6 +326,19 @@ section .text
 ; needs its own tier-0 answer anyway and a shared refusal would have to invent
 ; a code that fits none of them.
 ; -----------------------------------------------------------------------------
+; xm_have - is there an XMS pool at all?  ZF = 1 = no.
+; clobbers: flags only - and `ret` writes none, so the answer crosses it.
+;
+; The five entry points each keep their OWN refusal below their own `je`: a
+; shared one would have to invent a code that fits none of them, which is the
+; reason this file gives for not sharing, and that reason is about the
+; REFUSAL and not about the compare.
+; -----------------------------------------------------------------------------
+xm_have:
+    cmp word [xm_kb], 0
+    ret
+
+; -----------------------------------------------------------------------------
 xm_dsp:
     push ds
     push es
@@ -381,7 +394,7 @@ xm_ownbl:
 ; machine.
 ; -----------------------------------------------------------------------------
 xm_caps:
-    cmp word [xm_kb], 0
+    call xm_have
     je .none
     push bp
     mov bp, [xm_svc+XMV_CAPS]
@@ -405,7 +418,7 @@ xm_caps:
 ; clobbers: nothing else (flags)
 ; -----------------------------------------------------------------------------
 xm_alloc:
-    cmp word [xm_kb], 0
+    call xm_have
     je .none
     push bp
     push bx
@@ -429,7 +442,7 @@ xm_alloc:
 ; clobbers: nothing (DX:AX preserved; flags)
 ; -----------------------------------------------------------------------------
 xm_free:
-    cmp word [xm_kb], 0
+    call xm_have
     je .none
     push bp
     push bx
@@ -482,16 +495,17 @@ xm_copy:
     push di
     push bp
     push es
-    cmp word [xm_kb], 0
+    call xm_have
     je .e1
     mov [xm_cblk+XMC_EXT], ax   ; the extended end, as handed to us
     mov [xm_cblk+XMC_EXT+2], dx
     mov [xm_cblk+XMC_LEN], cx
-    mov al, 0
-    or di, di
-    jz .dir
-    mov al, 1
-.dir:
+    neg di                      ; DI's direction flag as 0/1 without a branch:
+    sbb al, al                  ; `neg` sets CF iff the operand was non-zero,
+    neg al                      ; `sbb al,al` turns that into 00/FF and `neg`
+                                ; into 0/1. It SPENDS DI, which is banked at
+                                ; entry and read nowhere below - the epilogue
+                                ; pops it.
     mov [xm_cblk+XMC_DIR], al
     mov ax, es                  ; the conventional end, as linear ES*16 + SI
     mov dx, ax
@@ -554,7 +568,7 @@ xm_copy:
 ; slot and this will never free it. Claim from a callback (SPEC.md 41.5.1).
 ; -----------------------------------------------------------------------------
 xm_release_rec:
-    cmp word [xm_kb], 0
+    call xm_have
     je .out                     ; no overlay, so no table and nothing to free
     push ax
     push bx

@@ -137,6 +137,43 @@ timing is not. docs/MARTYPC-DEBUG.md carries the per-machine table. And the
 without one in `tools/martypc/roms/` can run only the GLaBIOS twins — which
 is the class you must not take that timing from.
 
+### Which ROM did it actually load? Fingerprint it, never infer it
+
+Pass 1's worst bug was a divide overflow that hard-locks an IBM machine and is
+merely a wrong clip index on GLaBIOS, and the pass ran its whole suite without
+noticing that every MartyPC row was a GLaBIOS one. Its handoff drew the right
+lesson — *"check what the emulator actually loaded"* — and left no committed way
+to do it. This is that way: read the ROM. Chip U33 sits at `0xFE000` and the
+reset vector's date string at `0xFFFF5`.
+
+```python
+with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
+                      machine="os8088_5150_cga", boot=3) as m:
+    print(bytes(m.read(0xFE000, 24)))     # b'1501476 COPR. IBM 1982'
+    print(bytes(m.read(0xFFFF5, 8)))      # b'10/27/82'
+```
+
+Measured, on a container with the dump in place:
+
+| machine | `0xFE000` | `0xFFFF5` |
+|---|---|---|
+| `os8088_5150_cga` | `1501476 COPR. IBM 1982` | `10/27/82` |
+| `os8088_5150_cga_gla` | `GLaBIOS [.] Reboot the Past` | `07/17/25` |
+
+**The failure is LOUD, which corrects the half of pass 1's account that said it
+was silent.** With the dump moved aside, `os8088_5150_cga` does not quietly come
+up as `glabios_pc`: `martypc_headless` exits **rc=1** before the guest runs at
+all, so a container without a ROM cannot run an IBM row *or* mistake a GLaBIOS
+one for it. The monoculture was the suite choosing GLaBIOS machines, not the
+emulator substituting them. Fingerprint anyway — the config's name is an
+inference and the two reads above are a measurement.
+
+**`tests/int0sweep.py` is the row that needs the real ROM.** On an IBM 5150 the
+INT 0 vector is the BIOS stub that masks the whole 8259, so a single divide
+overflow is a dead machine where GLaBIOS gives a wrong clip index and carries
+on. Run against the ROM fingerprinted above, across both drives and the folder
+walk: **`INT 0 never fired`**.
+
 ---
 
 This document exists because the opposite keeps getting concluded about
@@ -254,7 +291,7 @@ failure this tree has actually had:
 | `image` | The seven shipped floppies walked by an **independent** FAT12 reader: `KERNEL.SYS` contiguous (the boot sector has no chain walker - a fragmented kernel builds, verifies and mounts cleanly and does not boot), a byte-exact standard BPB (SPEC.md 19.3 - DOS reads a floppy's geometry from its own table), SPEC.md 19.6's attributes. |
 | `pkg` | Package, driver and module headers - and every file on every image proved byte-identical to the artifact in `build/` it came from. *"A stale image is indistinguishable from a change that did nothing."* |
 | `diskverify` | The tree's own fsck, which `make` ran on the C, Word and RunCPM disks and on **none** of the seven the default build ships. |
-| `asmrules` | Unreachable code after an unconditional jump - CLAUDE.md's own worked example is the tracker shipping *"two `jmp short`s in a row"* which assembles, boots, and puts a field bug back. And that a `cpu 8086` is reachable from every root; `boot/boot.asm` had none at all. |
+| `asmrules` | Unreachable code after an unconditional jump - CLAUDE.md's own worked example is the tracker shipping *"two `jmp short`s in a row"* which assembles, boots, and puts a field bug back. And that a `cpu 8086` is reachable from every root; `boot/boot.asm` had none at all. And a kernel **local block nothing can reach**: the first check stops at *"is there a label between the jump and this line"*, and a label only helps if something reaches it - `dskw_wdata.stg` and `dskw_rdata.stg`, the DMA staging arm of both file pipelines, had zero incoming jumps for a year with this row green (SPEC.md 18.4.2.1). |
 | `registry` | Every test in `tests/` is registered in a tier or says why not. **This is the row that stops the suite going back to what it was.** |
 
 ### Adding a test
@@ -691,7 +728,8 @@ port-61h NMI/speaker latch instead. There is no 8255 anywhere in
 before video, and beeps.
 
 **86Box is the answer to that question and the repo already has it
-configured** — `make xt`, `xt-640`, `xt-cga`, `xt-hercules`, `286`, `386sx`,
+configured** — `make xt`, `xt-640`, `xt-cga`, `xt-hercules`, `xt-ega`,
+`286`, `386sx`,
 `386dx`, each with the real ROM set. That is what the "What 86Box is genuinely
 for" section below is about.
 
@@ -2467,7 +2505,7 @@ Narrower than it was, now that MartyPC covers the 8088 probe, the 6845 and
 the sound cards: **a machine that is not an 8088** (the 286, 386, 486 and
 Pentium targets), a **period bus** under a card rather than a modelled one,
 and a second opinion on the video probe. `make xt`,
-`xt-640`, `xt-cga`, `xt-hercules`, `xt-multimon`, `xt-sound`, `286`,
+`xt-640`, `xt-cga`, `xt-hercules`, `xt-ega`, `xt-multimon`, `xt-sound`, `286`,
 `286-sound`, `386sx`, `386`, `386-sound`, `486`, `pentium`, `xt-z`, `386-z`.
 
 `xt-multimon` is the **two-card** XT — a CGA and a Hercules in one box, one

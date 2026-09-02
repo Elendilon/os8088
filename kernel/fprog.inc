@@ -155,7 +155,12 @@ fpg_begin:
     or ax, ax                   ; a 0-byte job has no progress to report and
     jz .out                     ; would be fpg_step's divisor: refuse it whole
     mov [fpg_total], ax
-    mov word [fpg_done], 0
+    mov [fpg_done], cx          ; CX IS THE EXHAUSTED LOOP COUNTER, so it is a
+                                ; free zero: `.fits` is reached only by falling
+                                ; out of `loop .shr` (which runs CX to 0) or
+                                ; through the saturate above it, which writes
+                                ; AX and not CX. Two bytes, and the dependency
+                                ; is invisible without this sentence.
     mov word [fpg_frac], FPG_UNIT - 1
                                 ; SEEDED, not zeroed, and that one word is what
                                 ; makes fpg_stepb round the way the total above
@@ -172,13 +177,15 @@ fpg_begin:
                                 ; whether it held the previous phase's bar or
                                 ; the busy hatch (SPEC.md 12.8.3)
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    popf
-    retf
+    jmp fpg_busy.out            ; THE SAME SEVEN BYTES, byte for byte: both
+                                ; routines push pushf/ax/bx/cx/dx/si and both
+                                ; end popf/retf, so fpg_busy's epilogue serves
+                                ; this one. That makes the two push lists ONE
+                                ; contract - add a push here without adding it
+                                ; there and this far entry returns to nowhere.
+                                ; Written `jmp`, so if fpg_busy ever moves out
+                                ; of short reach this grows a byte rather than
+                                ; failing to assemble.
 
 ; -----------------------------------------------------------------------------
 ; fpg_busy - a file operation with no scale is still a frozen machine
@@ -236,7 +243,7 @@ fpg_busy:
     cmp byte [fpg_pat], 0
     jne .out                    ; ...and the hatch is already on it
     call fpg_hatch
-.out:
+.out:                           ; ...and fpg_begin's exit, too - see there
     pop si
     pop dx
     pop cx
@@ -558,17 +565,18 @@ fpg_step:
     jbe .done                   ; nothing new to light
 
     mov si, ax                  ; SI = the new extent
-    call fpg_boxr               ; AX = box left, CX = box right (unused here)
-    mov bx, ax
-    inc bx                      ; BX = the trough's first pixel column
-    mov ax, bx
-    add ax, [fpg_px]            ; ...the strip starts where the bar had got to
-    mov cx, bx
+    call fpg_tin                ; THE TROUGH, which this used to compute by
+                                ; hand: AX = its first pixel column, BX and DX
+                                ; its rows. fpg_paint's own restore already
+                                ; calls it. CX comes back as the trough's right
+                                ; edge and is overwritten below - harmless, but
+                                ; the ORDER matters: CX is derived from AX
+                                ; BEFORE [fpg_px] advances it.
+    mov cx, ax
     add cx, si
     dec cx                      ; ...and ends at the new extent
+    add ax, [fpg_px]            ; ...the strip starts where the bar had got to
     mov [fpg_px], si
-    mov bx, FPG_BOX_Y + 1
-    mov dx, FPG_BOX_Y + FPG_BOX_H - 2
     call thm_ink                
     call gfx_fill
 
@@ -735,7 +743,12 @@ fpg_finish:
     mov dx, MENU_TEXT_Y - 1
     call gfx_fill
 
-    call fpg_span               ; --- and below it: its foot and the box
+                                ; --- and below it: its foot and the box.
+                                ; AX and CX still carry the span: gfx_fill is
+                                ; "clobbers: flags" and nothing between the
+                                ; two fills writes either, so the second
+                                ; `call fpg_span` was asking for what it was
+                                ; already holding
     mov bx, MENU_TEXT_Y + 8
     mov dx, MBAR_H - 2
     call gfx_fill

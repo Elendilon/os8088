@@ -1,12 +1,22 @@
 ; =============================================================================
 ; os8088 - clockw.inc : SPEC.md 37's RTC WRITE half (SPEC.md 37.94)
 ;
-; NOT A KERNEL FILE. It is %included from ctrl.inc's `.modc`, so every byte
-; below ships in CTRL.DRV: read off the floppy when the Control Panel opens,
-; freed when it closes. It has no `section` directive of ITS OWN for exactly
-; that reason - the section is the one the includer is in, which is why
-; tools/os88ovlchk.py carries this file in its EXTRA map and why adding one
-; here would silently move the module header off offset 0.
+; NOT A KERNEL FILE. It is %included from ctrl.inc's `.modc` (ctrl.inc's
+; %include line is the only place that says so), so every byte below ships in
+; CTRL.DRV: read off the floppy when the Control Panel opens, freed when it
+; closes. It has no `section` directive of ITS OWN for exactly that reason -
+; the section is the one the includer is in, and adding one here would
+; silently move the module header off offset 0.
+;
+; SO THIS IS THE ONE FILE IN kernel/ WHOSE SECTION CANNOT BE READ FROM THE
+; FILE, and every host-side tool that walks `kernel/*.inc` one file at a time
+; has to be told. tools/os88ovlchk.py is told, in its EXTRA map - and a size
+; pass that was not told measured `.text` jumps landing inside the CTRL.DRV
+; image, which assembles and runs wrong. tools/kernsize.py --modules is the
+; other end of the same gap: it brackets modules by their %include lines in
+; kernel.asm, so this file has no row of its own and its bytes are counted
+; under ctrl.inc. Neither is a defect to fix here; both are things to know
+; before quoting a number about this file.
 ;
 ; WHY IT IS HERE AND NOT IN THE KERNEL. clk_rtc_write has one caller:
 ; cp_flush_close_x, the Control Panel's teardown (SPEC.md 31.8). It used to

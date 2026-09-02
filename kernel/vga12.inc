@@ -3,7 +3,10 @@
 ;
 ; VGA mode 12h (640x480x16, planar) primitives, region save/restore, and the
 ; global drawing mutex. Everything here programs the Graphics Controller
-; (index 0x3CE / data 0x3CF) and Sequencer (0x3C4/0x3C5) directly.
+; (index 0x3CE / data 0x3CF) and Sequencer (0x3C4/0x3C5) directly - both
+; byte-identical on an EGA, which runs this same code in mode 10h at 350
+; rows ([vid_mono] = 0, SPEC.md 39.24). The width and stride are 640/80 on
+; both; only the two bottom-edge clips here read the live [vid_ch].
 ;
 ; Conventions (SPEC.md 1, 5, 7):
 ;   - Solid fills use Set/Reset (GC0 = color, GC1 = 0Fh) with the Bit Mask
@@ -404,7 +407,7 @@ gfx_aud_end:                    ; the primitive's answer is in the flags on
 ; -----------------------------------------------------------------------------
 ; NOVGA_ARM - the no-VGA arm of an entry whose VGA body is FALLEN INTO
 ;
-; SPEC.md 39.24.5. Four entries in this file are reached by fall-through from a
+; SPEC.md 39.27.5. Four entries in this file are reached by fall-through from a
 ; GFXDISP or a plain label above them, and GFXDISP EXPANDS TO NOTHING on
 ; kern_small - so on that build the entry lands on whatever the assembler put
 ; next. An `equ` to the software twin is the obvious way to write the no-VGA
@@ -420,7 +423,7 @@ gfx_aud_end:                    ; the primitive's answer is in the flags on
     jmp %2
 %%armend:
  %if %%armend - %1 < 2
-  %error "the no-VGA arm of %1 emits no code - the entry above FALLS THROUGH to it (SPEC.md 39.24.5)"
+  %error "the no-VGA arm of %1 emits no code - the entry above FALLS THROUGH to it (SPEC.md 39.27.5)"
  %endif
 %endmacro
 
@@ -1030,11 +1033,7 @@ gfx_linit:
     mov [es:di + GLS_DY], dx
     sub cx, dx                  ; err = dx - dy, exactly gfx_line's
     mov [es:di + GLS_ERR], cx
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; gfx_lstep - draw the next CX pixels of the walk in [gfx_color]
@@ -1780,15 +1779,7 @@ gfx_line:
     jmp .passes
 .out:
     GFXDLEAVE
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 .hline:
     cmp ax, cx                  ; gfx_hline wants x1 <= x2 in AX/BX, y in DX
     jle .hord
@@ -2357,9 +2348,14 @@ gfx_line_runs:
     je .step
     mov [gfx_ln_rs], si
     jmp short .step
-.last:
-    call gfx_line_flush
-    ret
+.last:                          ; ...AND FALLS THROUGH into gfx_line_flush,
+                                ; whose ret is gfx_line's.  It was `call
+                                ; gfx_line_flush / ret`, four bytes to reach a
+                                ; label six lines down.  The %endif below emits
+                                ; nothing, and gfx_line_flush is defined
+                                ; OUTSIDE it - so NOTHING MAY BE APPENDED TO
+                                ; THIS ARM, and nothing may go between the
+                                ; %endif and gfx_line_flush's label
 %endif
 
 ; gfx_line_flush - internal: the open run, clipped to the box, as one rect.
@@ -2872,14 +2868,7 @@ gfx_blit4:
 .nohk:
 %endif
 .pops:                          ; ...and the CUT returns here, having had its
-    pop bp                      ; teardown done by each half (SPEC.md 39.14.7.2)
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 %ifdef KERN_BIG
 %ifndef NOBLITCUT
@@ -3397,14 +3386,7 @@ vga_blit_prow:
     call vga_sr_on
     pop es
     pop ds                      ; ovlchk: DS restored
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3705,14 +3687,7 @@ gfx_blitp:
 %endif
     pop es
     pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 %endif
 
 %ifdef GFX_PLANE
@@ -4390,9 +4365,11 @@ osapi_gfx_fill_pat:
     pop si
     pop cx
     pop ax
-    call gfx_fill_pat
-    ret
-
+                                ; ...AND FALLS THROUGH into gfx_fill_pat, whose
+                                ; ret is this routine's.  It was `call
+                                ; gfx_fill_pat / ret`, four bytes to reach the
+                                ; label on the next line.  NOTHING MAY BE
+                                ; INSERTED BETWEEN THESE TWO LABELS
 gfx_fill_pat:
     GFXCLIP gfx_fill_pat_d
 gfx_fill_pat_d:
@@ -4628,13 +4605,7 @@ gfx_xor_strips:
     mov ax, cx
     call bp                     ; right column
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; gfx_xor_fill - filled rectangle, XOR 0Fh (menu highlight)
@@ -4922,14 +4893,7 @@ gfx_sub_arm:
 .no:
     stc
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_bp
 
 ; -----------------------------------------------------------------------------
 ; gfx_sub_off - back to restoring whole buffers
@@ -4970,11 +4934,7 @@ gfx_restore:
     call vga_restore_vram       ; the same hook or a rect banked on one display
     GFXDLEAVE                   ; could be put back on the other
     call gfx_1bpp_off           ; ...and a ONE-PLANE arm is spent (11.96.17)
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 %ifndef GFX_VGA
     NOVGA_ARM vga_restore_vram, sw_restore
 %else                           ; renderer is not a branch - it is the
@@ -5005,8 +4965,8 @@ vga_restore_vram:                              ; only renderer gfx_restore has
     inc bp                      ; bp = bytes per row
     push ds
     push es
-    mov ax, es
-    mov ds, ax                  ; movsb source = caller's buffer
+    push es
+    pop ds                      ; movsb source = caller's buffer
     mov ax, VGA_SEG
     mov es, ax                  ; movsb dest = VRAM
 .row:
@@ -5546,13 +5506,7 @@ gfx_scroll:
     stc
 .out:
     GFXDLEAVE                   ; ...and it banks CF, which is this routine's
-    pop di                      ; whole answer
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_di
 %ifdef GFX_VGA
 
 ; -----------------------------------------------------------------------------

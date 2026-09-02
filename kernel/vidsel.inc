@@ -26,6 +26,8 @@
 VID_A_VGA   equ 1 << VID_VGA
 VID_A_HERC  equ 1 << VID_HERC
 VID_A_CGA   equ 1 << VID_CGA
+VID_A_EGA   equ 1 << VID_EGA     ; bit 3. An EGA machine is EGA + CGA (mode 6),
+                                 ; never part of an extended desktop (39.24)
 
 ; SPEC.md 39.19.2's placements. TWO and not four, because the primary is
 ; always at the virtual origin, so "which monitor is on the left" is answered
@@ -174,10 +176,12 @@ vid_memchk:
 ; The running adapter is marked available without being probed, because the
 ; probe writes and that is the screen.
 ;
-; VGA IS NOT PROBED AT ALL, because vid_detect already answered it: steps 1
-; and 2 of SPEC.md 39.1 run before the equipment word, so [vid_kind] is
-; VID_VGA on every machine with a VGA or EGA BIOS. And such a machine can
-; always do CGA as well - mode 6 is a standard BIOS mode on every VGA and
+; NEITHER PLANAR KIND IS PROBED AT ALL, because vid_detect already answered
+; it: steps 1 and 2 of SPEC.md 39.1 run before the equipment word, so
+; [vid_kind] is VID_VGA or VID_EGA on every machine with a VGA or EGA BIOS -
+; which is what [vid_mono] = 0 above is asking, rather than the kind. And such
+; a machine can always do CGA as well - mode 6 is a standard BIOS mode on
+; every VGA and
 ; EGA ever made, and it is the same byte-exact 640x200 framebuffer this
 ; kernel's CGA path already drives (SPEC.md 39.9's VIDEO=cga has relied on
 ; that for as long as it has existed).
@@ -192,9 +196,9 @@ vid_probe_avail:
     shl al, cl
     mov [vid_avail], al
 
-    cmp byte [vid_kind], VID_VGA    ; ...and a VGA/EGA does mode 6 too
-    jne .herc
-    or byte [vid_avail], VID_A_CGA
+    cmp byte [vid_mono], 0          ; ...and a VGA OR EGA does mode 6 too - it
+    jne .herc                      ; is a standard BIOS mode on every one of
+    or byte [vid_avail], VID_A_CGA  ; them, so the CGA bit is set unprobed
 .herc:
     cmp byte [vid_kind], VID_HERC
     je .cga                     ; already marked, and its RAM is the screen
@@ -351,26 +355,31 @@ section .text                   ; ...and the overlay's three end here
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 vid_avail_test:
+    push ax
     push cx
-    push bx
-    cmp al, VID_CGA             ; a byte from SYSTEM.CFG written by a kernel
-    ja .no                      ; that knew a fourth adapter
+    cmp al, VID_KIND_MAX + 1    ; THE RANGE CHECK ANSWERS IN CF ITSELF, and it
+    cmc                         ; must: a byte from SYSTEM.CFG written by a
+    jc .out                     ; kernel that knew a fifth adapter would
+                                ; otherwise reach the ror below, and the 8086
+                                ; does not mask a rotate count - kind 8 would
+                                ; rotate by 9 and answer for kind 0. cmp sets
+                                ; CF = 1 for AL < 4, i.e. IN range, so one cmc
+                                ; makes CF = 1 mean "refuse" and the jump
+                                ; carries it straight out (jc and pop touch no
+                                ; flag). Setting CF before the compare would
+                                ; not work - cmp overwrites it.
+                                ; **THE BOUND IS VID_KIND_MAX AND NOTHING
+                                ; HERE NAMES A KIND**, which is why admitting
+                                ; VID_EGA (SPEC.md 39.24) was one edit in
+                                ; viddet.inc and none in this routine
     mov cl, al
-    mov bl, 1
-    shl bl, cl
-    test [vid_avail], bl
-    pop bx
+    inc cl                      ; ROR by n leaves bit n-1 of the original in
+    mov al, [vid_avail]         ; CF, so n = kind+1 puts bit KIND there - which
+    ror al, cl                  ; is what `test [vid_avail], 1 << kind` was.
+    cmc                         ; CL is 1..4, never 0. Then invert to this
+.out:                           ; routine's published polarity: CF = 0 is yes
     pop cx
-    jz .noflag
-    clc
-    ret
-.noflag:
-    stc
-    ret
-.no:
-    pop bx
-    pop cx
-    stc
+    pop ax                      ; pop touches no flag
     ret
 
 ; -----------------------------------------------------------------------------
@@ -389,8 +398,17 @@ vid_avail_test:
 ; vid_text (int 10h AX=0007h) would then have programmed the CGA instead of
 ; the MDA - a machine that reboots to a dead mono monitor.
 ;
-; Only vid_switch calls it, so the boot path is untouched: an auto-detected
-; machine still sets exactly the bits its BIOS already had.
+; TWO CALLERS, AND THE SECOND ONE RUNS AT BOOT. vid_switch is the obvious one;
+; vid_disp_init calls it too, at the foot of its two-card arrangement, and
+; kmain calls vid_disp_init. So on a VGA+Hercules machine booting with Extend
+; on, this writes 40:10 bits 5:4 where vid_cga_equip deliberately leaves them
+; alone - a claim in the BDA that the boot path was said not to make.
+;
+; The line above used to say "Only vid_switch calls it, so the boot path is
+; untouched". vid_ctx_init a few hundred lines down carries a scar of exactly
+; this shape with the polarity the other way round; this one DENIED a caller
+; that exists, which is the harder half to notice, because the code reads
+; consistent with the comment right up until you grep.
 ; -----------------------------------------------------------------------------
 vid_equip:
     push ax
@@ -441,6 +459,15 @@ vid_equip:
 ; where the other card is given something the BIOS can honestly print on.
 ; -----------------------------------------------------------------------------
 vid_mono_text:
+%ifndef GFX_VGA                 ; NO VGA IN THE BUILD, so [vid_avail]'s VGA
+    clc                         ; bit can never be set (see vid_probe_avail:
+    ret                         ; its only writer of that bit is `shl al, cl`
+%else                           ; on [vid_kind], vid_detect's VGA/EGA probes
+                                ; are themselves %ifdef GFX_VGA, VIDEO=vga is
+                                ; a %error there (viddet.inc 51), and every
+                                ; other [vid_kind] writer is inside
+                                ; %ifdef KERN_BIG). The whole body below is
+                                ; unreachable, and this IS the answer it gives.
     test byte [vid_avail], VID_A_VGA
     jnz .mine
     clc                         ; the ROM's mode 7 is this card: let it
@@ -472,6 +499,7 @@ vid_mono_text:
     pop ax
     stc
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; vid_reboot - the text mode CMD_REBOOT wants, on every card (SPEC.md 39.20.1)
@@ -500,6 +528,10 @@ vid_mono_text:
 vid_reboot:
     push ax
     call vid_text
+%ifdef GFX_VGA                  ; without a VGA in the build the tail cannot
+                                ; run: [vid_avail]'s VGA bit is never set, so
+                                ; the test below always jumps - vid_text alone
+                                ; is already the whole of this routine there
     cmp byte [vid_kind], VID_HERC   ; the mono card is the ONLY primary int 10h
     jne .out                    ; does not drive - and on a VGA machine the CGA
                                 ; row IS the VGA doing mode 6, so vid_text has
@@ -510,6 +542,7 @@ vid_reboot:
     mov ax, 0x0003              ; refuse on a machine flagged mono
     int 0x10
 .out:
+%endif
     pop ax
     ret
 
@@ -913,25 +946,48 @@ section .text
 ;
 ; So the question this answers is "are these two kinds two CARDS", and the
 ; answer to "how is a card darked" belongs in one place.
+;
+; THE KINDS ARE A CLOSED SET AND THIS TEST RESTS ON IT. "Exactly one of them
+; is the mono one" is decided by comparing against VID_HERC BY NAME, here and
+; in vid_blank_kind and vid_unblank_kind (39.18.1) - so a NEW kind is silently
+; colour to all three, and vid_avail_test would admit it on the strength of one
+; `cmp al, VID_KIND_MAX`.
+;
+; **THE BIT-0 FORM IS GONE, AND VID_EGA IS WHY (SPEC.md 39.24).** This read
+; `xor al, ah / test al, 1`, on the fact that VID_VGA=0, VID_HERC=1, VID_CGA=2
+; made bit 0 of a kind exactly "is it the mono card" - so f(a) XOR f(b) was one
+; xor and one test. VID_EGA is 3. It is ODD and it is COLOUR, and no single bit
+; separates {VID_HERC} from {VID_VGA, VID_CGA, VID_EGA}, so the trick does not
+; extend - it inverts, in both directions at once. An EGA -> CGA switch would
+; have read "exactly one is mono" and darked the outgoing card, which on an EGA
+; IS the card the next three lines programme (39.11.1: the CGA row is that
+; planar card doing mode 6) - the dark screen this routine's own header warns
+; about. An EGA -> Hercules switch, two real cards, would have read "neither"
+; and darked nothing. The %if below caught it at assembly time when
+; VID_KIND_MAX rose, which is what it was put there for.
+;
+; The explicit compares cost 7 bytes over the xor. They are not optional and
+; they are not a place to be clever again: the predicate is "is this kind the
+; mono card", the mono kinds are a SET, and a set of one is the only thing a
+; single bit can ever encode.
 ; -----------------------------------------------------------------------------
+%if VID_KIND_MAX != VID_EGA
+  %error "vid_blank, vid_blank_kind and vid_unblank_kind decide WHICH CARD by comparing against VID_HERC (and VID_VGA/VID_EGA) BY NAME and treating everything else as the CGA (SPEC.md 39.18.1), and vid_avail_test's `cmp al, VID_KIND_MAX` is the range that rests on it. A FIFTH kind is silently a CGA to all three. Give it an arm in each of them before raising VID_KIND_MAX"
+%endif
 vid_blank:
     push ax
-    push bx
-    xor bl, bl                  ; count the mono cards among the two kinds:
-    cmp al, VID_HERC            ; exactly one means two cards, which is the
-    jne .a                      ; only case with anything to dark. Two means
-    inc bl                      ; the switch is a no-op vid_switch already
-.a:                             ; caught; zero means colour -> colour, which
-    cmp byte [vid_kind], VID_HERC   ; on a VGA is ONE card doing two modes
-    jne .b
-    inc bl
-.b:
-    dec bl
-    jnz .out
-    mov al, [vid_kind]          ; dark the card being LEFT
+    mov ah, [vid_kind]          ; the kind being LEFT
+    cmp al, ah                  ; the same card either way - nothing to dark,
+    je .out                     ; and this is also what stops mono -> mono
+                                ; reaching the compares below as "one of them"
+    cmp al, VID_HERC            ; two different kinds: dark the outgoing card
+    je .dark                    ; only when EXACTLY ONE of them is the mono
+    cmp ah, VID_HERC            ; one. Neither being mono means one card in two
+    jne .out                    ; modes (39.11.1) and darking it is the bug
+.dark:
+    mov al, ah                  ; dark the card being LEFT
     call vid_blank_kind
 .out:
-    pop bx
     pop ax
     ret
 
@@ -1117,65 +1173,93 @@ vid_switch:
 ; same SR01 with bit 5 put back down.
 ; -----------------------------------------------------------------------------
 vid_blank_kind:
-    push ax
+    push dx                     ; DX FIRST, and the bit goes STRAIGHT into DH:
+    xor dh, dh                  ; AH IS LIVE ACROSS THIS CALL at
+    jmp short vid_bk            ; vid_disp_init's SINGLE arm, which banks the
+                                ; primary's kind there and stores it back
+                                ; three instructions later. Writing AH here
+                                ; and pushing afterwards puts VID_VGA in
+                                ; [vid_kind] on a machine with no VGA and
+                                ; boots it to a dead monitor
+vid_unblank_kind:
     push dx
-    push es
+    mov dh, 8                   ; 0 dark, 8 lit - and ONE BODY: the two differ
+                                ; in this byte and in nothing else, and the
+                                ; three pushes, the two-compare dispatch, the
+                                ; CGA preamble and the epilogue were
+                                ; duplicated exactly, which this file's own
+                                ; header says should not be
+vid_bk:
+    push ax
+    push es                     ; DH survives the CGA arm's `mov ax, 0x0040`,
+                                ; which is why the bit lives there. NOTHING
+                                ; BELOW MAY WRITE DH BEFORE THE ARM THAT READS
+                                ; IT - the mono arm's `mov dx, 0x3BF` does,
+                                ; which is why it tests DH first
     cmp al, VID_HERC
     je .mono
-    cmp al, VID_VGA
-    je .vga
-    mov ax, 0x0040
+%ifdef GFX_VGA                  ; no planar adapter in the build: [vid_kind]
+    cmp al, VID_EGA             ; is never VID_VGA or VID_EGA and vid_disp_set
+    je .ega                     ; is inside %ifdef KERN_BIG, so no caller can
+    cmp al, VID_VGA             ; pass either. EGA has NEITHER of the two
+    je .vga                     ; enable bits - SR01 bit 5 and the Attribute
+%endif                          ; Controller's PAS are both VGA additions -
+    mov ax, 0x0040              ; and it does not decode 3D8h either: its
+                                ; blank is its PALETTE (vid_ac_pal below)
     mov es, ax
     mov al, [es:0x0065]         ; the BIOS's shadow of 3D8h...
-    and al, ~8                  ; ...minus the video-enable bit
+    and al, ~8                  ; ...minus the video-enable bit...
+    or al, dh                   ; ...plus the one this direction wants. The
+                                ; unblank FORCES the bit where it used to
+                                ; write the shadow unchanged: identical on
+                                ; every machine whose ROM mode set left the
+                                ; bit up, and where they differ the old form
+                                ; left the screen dark for ever (SPEC.md
+                                ; 39.18.1)
     mov dx, 0x3D8
     out dx, al
     jmp short .out
 .mono:
-    mov dx, 0x3B8               ; graphics + page 0, video OFF (bit 3 clear) -
-    mov al, 0x02                ; byte for byte the value vid_setmode's own
-    out dx, al                  ; blank-first sequence writes (SPEC.md 39.6)
-    jmp short .out
-.vga:
-    mov al, 0x20                ; SR01 bit 5 up: Screen Off
-    call vid_seq1_blank
-.out:
-    pop es
-    pop dx
-    pop ax
-    ret
-
-vid_unblank_kind:
-    push ax
-    push dx
-    push es
-    cmp al, VID_HERC
-    je .mono
-    cmp al, VID_VGA
-    je .vga
-    mov ax, 0x0040
-    mov es, ax
-    mov al, [es:0x0065]         ; ...exactly what the ROM's mode set left
-    mov dx, 0x3D8
+    or dh, dh                   ; the two directions are NOT symmetric here
+    mov al, 0x02                ; and the merge keeps both exactly: `mov`
+    jz .m8                      ; touches no flag, so blanking writes 3B8h
+                                ; alone - graphics + page 0, video OFF, byte
+                                ; for byte what vid_setmode's blank-first
+                                ; sequence writes (SPEC.md 39.6) - and leaves
+                                ; 3BFh alone, because the graphics LOCK is a
+                                ; second piece of state the unblank would then
+                                ; owe and the gated signal makes it pointless
+    mov dx, 0x3BF               ; unblanking: allow graphics FIRST (the order
+    mov al, 1                   ; vid_setmode uses), then video on
     out dx, al
-    jmp short .out
-.mono:
-    mov dx, 0x3BF               ; the order vid_setmode uses: allow graphics
-    mov al, 1                   ; first, then turn the video on
-    out dx, al
-    mov dx, 0x3B8
     mov al, 0x0A
+.m8:
+    mov dx, 0x3B8
     out dx, al
     jmp short .out
+%ifdef GFX_VGA
+.ega:
+    mov al, dh                  ; EGA HAS NEITHER ENABLE BIT and its blank is
+    call vid_ac_pal             ; its palette (SPEC.md 39.24). vid_ac_pal reads
+    jmp short .out              ; its argument as ZERO / NONZERO, so this
+                                ; body's own direction byte - 0 dark, 8 lit -
+                                ; is already the argument and needs no
+                                ; translation into main's 0/1
 .vga:
-    xor al, al                  ; SR01 bit 5 down again
+    mov al, dh                  ; SR01 bit 5 is Screen OFF, so the polarity
+    xor al, 8                   ; is inverted first: dark (DH=0) -> 8 -> 0x20,
+    shl al, 1                   ; lit (DH=8) -> 0 -> 0. shl by 1 is the
+    shl al, 1                   ; 8086-legal form
     call vid_seq1_blank
+%endif
 .out:
     pop es
-    pop dx
     pop ax
+    pop dx
     ret
 
+%ifdef GFX_VGA                  ; its only two callers are the .vga arms above,
+                                ; both gated for the same reason
 ; -----------------------------------------------------------------------------
 ; vid_seq1_blank - internal: write bit 5 of the VGA's Sequencer register 1
 ;
@@ -1222,10 +1306,108 @@ vid_seq1_blank:
     pop bx
     pop ax
     ret
+%endif                          ; ...end of vid_seq1_blank
+
+; -----------------------------------------------------------------------------
+; vid_ac_pal - internal: the EGA's blank, which is its PALETTE
+;
+; in:       AL = 0 to dark the screen (all sixteen Attribute Controller
+;           palette registers to black), nonzero to put mode 10h's own
+;           sixteen back
+; out:      -
+; clobbers: flags (AL is consumed)
+;
+; AN EGA HAS NEITHER ENABLE BIT. Sequencer register 1 bit 5 (Screen Off) and
+; the Attribute Controller index's bit 5 (Palette Address Source) are BOTH
+; VGA additions - on the IBM EGA, SR01 is the dot clock and the character
+; width with bits 5-7 reserved, and the AC index is bits 4-0 with 7-5 unused.
+; Writing either on an EGA blanks nothing: the bit lands in a reserved field
+; and the tube stays lit. So the card's video signal cannot be gated at all,
+; and what CAN be done is to make every colour it is showing black.
+;
+; That keeps the property the whole feature rests on and that the other three
+; arms have (see vid_blank's header): the CRTC is untouched, both syncs keep
+; coming out, the tube never re-acquires, and what the card holds in memory is
+; not disturbed - so a background task may go on drawing into a blanked EGA
+; exactly as it may into a blanked VGA.
+;
+; THE FLIP-FLOP IS RESET PER PAIR, not once in front of sixteen. 3C0h is one
+; port for both the index and the data and which one a write lands in is a
+; LATCH, not a state re-selected by each access the way the Sequencer's index
+; is; sixteen unguarded pairs are sixteen chances to be one out, and being one
+; out writes a palette entry where an index belongs. The routine also leaves
+; the latch in the INDEX phase, because the phase outlives the call and
+; fsx.inc hands a package the raw hardware between these two routines.
+;
+; EVERY INDEX WRITE CARRIES BIT 5, and leaving it out is a black screen that
+; never comes back. On the EGA bits 7-5 of the index are unused and it is a
+; don't-care - but this same code runs on a VGA under `make test VIDEO=ega`
+; (SPEC.md 39.9), and there bit 5 IS Palette Address Source: an index written
+; with it clear means "the host is loading the palette", which DISABLES video
+; output. Sixteen index writes of a bare 0..15 therefore blank the screen as a
+; side effect of addressing it, and the restoring pass blanks it again while
+; putting the colours back - the palette ends up right and the tube stays
+; dark. Found on the glass, which is the only place it shows: the blank looks
+; correct and it is the unblank that never returns.
+;
+; IT RUNS WITH IF=0, for vid_seq1_blank's reason one screen up: the read and
+; the write are a pair with a reachable gap, and this one is thirty-two
+; accesses of it, off ui_task's idle blanker, pre-emptible throughout.
+; -----------------------------------------------------------------------------
+vid_ac_pal:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov bl, al                  ; 0 = black, nonzero = the defaults
+    mov si, vid_ac_dflt
+    xor cl, cl                  ; CL = the palette register, 0..15
+    pushf
+    cli
+.n:
+    mov dx, 0x3DA               ; Input Status 1: latch to INDEX...
+    in al, dx
+    mov dx, 0x3C0
+    mov al, cl                  ; ...the register, WITH BIT 5 SET...
+    or al, 0x20                 ; (see below)
+    out dx, al
+    xor al, al
+    or bl, bl
+    jz .wr
+    mov al, [si]
+.wr:
+    out dx, al                  ; ...and what it is to show
+    inc si
+    inc cl
+    cmp cl, 16
+    jb .n
+    mov dx, 0x3DA               ; leave the latch where every reader assumes
+    in al, dx                   ; it, INDEX, and not mid-pair
+    popf
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; Mode 10h's sixteen, which is what the BIOS mode set left and therefore what
+; an unblank owes: the standard EGA/VGA 16-colour default, with 6 mapped to
+; 14h so that colour 6 is BROWN rather than dark yellow, and 8..15 in the
+; second intensity group at 38h..3Fh. The kernel never programs these itself
+; (SPEC.md 39.4 works in the sixteen indices, not in the palette behind
+; them), so the BIOS default IS the live palette and restoring it is exact.
+vid_ac_dflt:
+    db 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x14, 0x07
+    db 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F
 
 %ifdef KERN_BIG
 
 VID_NDISP_MAX equ 2             ; the machine this is for holds two cards
+%if VID_NDISP_MAX != 2
+  %error "the extended desktop is written for TWO displays and no more (SPEC.md 39.12): vid_ctx is sized from this, vid_disp_set stores the count as a literal 2, and wm.inc's snapshot band appends 'at most VID_NDISP_MAX' clip rects so WM_CLIP_MAX's full case is unreachable rather than handled. A third display needs each of those looked at, not this number raised"
+%endif
 VID_CTX_W    equ 19             ; words copied to and from the live block
 VID_CTX_CW   equ 14             ; ...within the run, the display's own extent -
 VID_CTX_CH   equ 16             ; word 7 and word 8, vid_cw/vid_ch (39.2.1)
@@ -1234,7 +1416,7 @@ VID_CTX_VY   equ VID_CTX_W*2+2  ; desktop, which is NOT copied anywhere
 VID_CTX_KIND equ VID_CTX_W*2+4  ; ...and which ADAPTER it is, because SPEC.md
                                 ; 39.18 has to put [vid_kind] where the live
                                 ; geometry is and a segment is not a kind
-VID_CTX_SZ   equ VID_CTX_W*2+6
+VID_CTX_SZ   equ VID_CTX_W*2+5
 
 ; ...and those two offsets are a SECOND opinion about viddet.inc's column
 ; order, so they are asserted rather than trusted, exactly as the run's length
@@ -1290,21 +1472,86 @@ vid_ctx     resb VID_NDISP_MAX * VID_CTX_SZ
 section .text
 
 ; -----------------------------------------------------------------------------
+; vid_kind_of - internal: WHICH ADAPTER IS DISPLAY N? (SPEC.md 39.18)
+; in:       AL = display index (vid_ctx_ptr's convention)
+; out:      AL = its VID_* kind
+; clobbers: AX (an output) and the flags.  DI IS BANKED, which is the whole
+;           difference from `call vid_ctx_ptr / mov al, [di+VID_CTX_KIND]`:
+;           eight sites wrote that pair out and five of them had to bank DI
+;           round it themselves.
+;
+; Inside this file's `%ifdef KERN_BIG` because vid_ctx_ptr is - on kern_small
+; there is one display and [vid_kind] IS the answer, which is what every one
+; of the eight sites' `%else` arm already says.
+; -----------------------------------------------------------------------------
+vid_kind_of:
+    push di
+    call vid_ctx_ptr
+    mov al, [di+VID_CTX_KIND]
+    pop di
+    ret
+
+; -----------------------------------------------------------------------------
+; vid_ctx_rect - internal: a display's INCLUSIVE virtual rect (SPEC.md 39.14)
+; in:       AL = display index (vid_ctx_ptr's own convention)
+; out:      AX/BX = the top-left, CX/DX = the bottom-right, all VIRTUAL and
+;           both ends inclusive; DI = the context record
+; clobbers: the above, and the flags
+;
+; Written out twice before this existed - vid_disp_desk below and wm.inc's
+; wm_dmg_bands, the same nine instructions in the same order, found as one
+; hash.  Both are inside this file's `%ifdef KERN_BIG`, which is where the
+; whole multi-display path lives, so this must be too: on kern_small the
+; second display does not exist and neither does vid_ctx_ptr.
+; -----------------------------------------------------------------------------
+vid_ctx_rect:
+    call vid_ctx_ptr            ; DI = the record (AX preserved)
+    mov ax, [di+VID_CTX_VX]
+    mov cx, ax
+    add cx, [di+VID_CTX_CW]
+    dec cx                      ; inclusive: a display CW wide ends at CW-1
+    mov bx, [di+VID_CTX_VY]
+    mov dx, bx
+    add dx, [di+VID_CTX_CH]
+    dec dx
+    ret
+
+; -----------------------------------------------------------------------------
 ; vid_ctx_ptr - internal: DI = the record for display AL
 ; in:       AL = display index (0..VID_NDISP_MAX-1)
 ; out:      DI = record address
 ; clobbers: DI, flags. AX is preserved, because every caller still needs it.
 ; -----------------------------------------------------------------------------
 vid_ctx_ptr:
-    push ax
-    push dx
-    mov dl, VID_CTX_SZ
-    mul dl                      ; AX = index * VID_CTX_SZ, which is not a
-                                ; power of two and has GROWN twice
-    mov di, vid_ctx
-    add di, ax
-    pop dx
-    pop ax
+    mov di, vid_ctx             ; TWO displays (the %if at VID_NDISP_MAX), so
+    or al, al                   ; the multiply is a branch: the index is 0 or 1
+    jz .out                     ; by construction and every caller passes a
+    add di, VID_CTX_SZ          ; literal or a value already bounded by
+.out:                           ; [vid_ndisp]. That deletes `mul dl` - 70-77
+    ret                         ; clocks on an 8088 - plus two pushes and two
+                                ; pops, ~100 clocks, from a routine the mouse
+                                ; ISR reaches through cur_move_multi and every
+                                ; font_run reaches through vid_span_one. AX and
+                                ; DX are still untouched, so the contract is
+                                ; unchanged
+
+; -----------------------------------------------------------------------------
+; vid_ctx_pre - internal: the set-up vid_ctx_capture and vid_ctx_act share
+;
+; in:       AL = display index
+; out:      DS = ES = KERNEL_SEG, DI = the record, CX = VID_CTX_W, DF clear
+; clobbers: CX, DI, DS, ES, flags
+;
+; In .text beside its two callers on purpose: a near call across a section
+; boundary assembles and runs wrong, and both callers are here.
+; -----------------------------------------------------------------------------
+vid_ctx_pre:
+    mov cx, KERNEL_SEG          ; both ends are ours; the caller's ES is not
+    mov ds, cx
+    mov es, cx
+    call vid_ctx_ptr            ; DI = the record. It reads no memory, so
+    mov cx, VID_CTX_W           ; calling it after DS is loaded is what both
+    cld                         ; callers did anyway
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1328,14 +1575,9 @@ vid_ctx_capture:
     push di
     push ds
     push es
-    mov cx, KERNEL_SEG          ; both ends are ours; the caller's ES is not
-    mov ds, cx
-    mov es, cx
-    call vid_ctx_ptr            ; DI = the record
-    push di
+    call vid_ctx_pre            ; DS = ES = KERNEL_SEG, DI = the record,
+    push di                     ; CX = VID_CTX_W, DF clear
     mov si, vid_seg
-    mov cx, VID_CTX_W
-    cld
     rep movsw
     pop di
     mov cl, [vid_kind]          ; ...and the adapter this geometry IS. Here
@@ -1372,25 +1614,17 @@ vid_ctx_act:
     push di
     push ds
     push es
-    mov cx, KERNEL_SEG
-    mov ds, cx
-    mov es, cx
-    call vid_ctx_ptr
-    mov si, di                  ; ...the record is the SOURCE this way round
-    mov di, vid_seg
-    mov cx, VID_CTX_W
-    cld
+    call vid_ctx_pre            ; DS = ES = KERNEL_SEG, DI = the record,
+    mov si, di                  ; CX = VID_CTX_W, DF clear - and the record is
+    mov di, vid_seg             ; the SOURCE this way round
     rep movsw
-    pop es
-    pop ds
-    pop di
-    pop si
-    pop cx
-    pop ax
-    mov [vid_cur], al
-    push di                     ; ...and republish the origin every hook reads
-    push ax
-    call vid_ctx_ptr
+    sub si, VID_CTX_W*2         ; ...and rep movsw left SI exactly that far
+    mov di, si                  ; PAST the record it read, so the pointer is
+                                ; recovered rather than derived a second time
+    mov [vid_cur], al           ; ...published here, because AL is about to
+                                ; become the record's KIND below and nothing
+                                ; between reads [vid_cur]
+                                ; ...and republish the origin every hook reads
     mov ax, [di+VID_CTX_VX]
     mov [vid_ox], ax
     mov ax, [di+VID_CTX_VY]
@@ -1429,8 +1663,12 @@ vid_ctx_act:
     mov di, VID_ROWTAB
 .norow:
     mov [vid_rowmax], di
-    pop ax
-    pop di
+    pop es                      ; the pops are HERE, not above the origin
+    pop ds                      ; block: DS is KERNEL_SEG either way (every
+    pop di                      ; caller of this routine already has it, or
+    pop si                      ; the [vid_ox]/[vid_oy]/[vid_rowmax] stores
+    pop cx                      ; would never have worked), and vid_depth_set
+    pop ax                      ; uses no segment register and no SI
 .out:
     ret
 
@@ -1526,8 +1764,7 @@ vid_fsx_enter:
     je .bnext
     push ax
     mov al, ch
-    call vid_ctx_ptr
-    mov al, [di+VID_CTX_KIND]
+    call vid_kind_of
     call vid_blank_kind
     pop ax
 .bnext:
@@ -1535,16 +1772,17 @@ vid_fsx_enter:
     cmp ch, cl
     jb .blank
 
-    call vid_ctx_ptr            ; ...and become that one
-    mov cl, [di+VID_CTX_KIND]
-    mov [vid_kind], cl
+    call vid_kind_of            ; ...and become that one
+    mov [vid_kind], al
     call vid_apply              ; the live block, the desktop words and the
                                 ; chrome, all of it that display's
-    mov byte [vid_ndisp], 1
-    mov byte [vid_cur], 0       ; consistent with the lie: one display, and
-    mov word [vid_ox], 0        ; it is at the virtual origin
-    mov word [vid_oy], 0
-    pop di
+    xor ax, ax                  ; consistent with the lie: one display, and
+    mov [vid_cur], al           ; it is at the virtual origin. Through AX: the
+    mov [vid_ox], ax            ; accumulator forms are 3 bytes where
+    mov [vid_oy], ax            ; `mov byte [m],imm8` is 5 and
+    inc ax                      ; `mov word [m],imm16` is 6. AL is spent - its
+    mov [vid_ndisp], al         ; last reader was the vid_kind_of above and the
+    pop di                      ; caller's AX is on the stack
     pop cx
     pop ax
 .out:
@@ -1600,8 +1838,7 @@ vid_fsx_unblank:
     cmp ch, [fsx_vdisp]
     je .next
     mov al, ch
-    call vid_ctx_ptr
-    mov al, [di+VID_CTX_KIND]
+    call vid_kind_of
     call vid_unblank_kind
 .next:
     inc ch
@@ -1655,28 +1892,16 @@ vid_disp_desk:
     push bx
     push cx
     push dx
-    push si
     push di
-    mov si, 1                   ; display 0 is wm_paint_all's own
-.d:
-    mov ax, si
-    call vid_ctx_ptr
-    mov ax, [di+VID_CTX_VX]
-    mov cx, ax
-    add cx, [di+VID_CTX_CW]
-    dec cx
-    mov bx, [di+VID_CTX_VY]
-    mov dx, bx
-    add dx, [di+VID_CTX_CH]
-    dec dx
+    mov al, 1                   ; NOT A LOOP: VID_NDISP_MAX is 2 (the %if at
+                                ; its equ), the guard above has already
+                                ; returned for [vid_ndisp] <= 1, and display 0
+                                ; is wm_paint_all's own - so the general loop
+                                ; ran exactly once by construction
+    call vid_ctx_rect           ; AX/BX/CX/DX = its inclusive virtual rect
     call thm_desk               ; the THEME's ground (SPEC.md 76.2), not a
-    inc si                      ; hard-coded dither
-    mov al, [vid_ndisp]
-    mov ah, 0
-    cmp si, ax
-    jb .d
+                                ; hard-coded dither
     pop di
-    pop si
     pop dx
     pop cx
     pop bx
@@ -1749,19 +1974,16 @@ vid_disp_find:
     inc cl
     cmp cl, [vid_ndisp]
     jb .next
-    pop di
-    pop dx
+    stc                         ; the MISS pays the jump, and that is the
+    jmp short .out              ; dead zone - which is what mou_clamp exists
+.hit:                           ; to correct, so it is once per ISR pass with
+    mov al, cl                  ; the pointer between monitors: 15 clocks
+    clc                         ; against a ~4,500-clock pass
+.out:
+    pop di                      ; pop touches no flag, so the CF set above
+    pop dx                      ; survives all four
     pop cx
     pop bx
-    stc
-    ret
-.hit:
-    mov al, cl
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1789,34 +2011,14 @@ vid_disp_planes:
     push ax
     push di
     call vid_disp_of            ; AL = the display holding it...
-    call vid_ctx_ptr            ; ...DI = its record, AX preserved
+    call vid_kind_of            ; ...and AL = that display's adapter
     mov cx, 4
-    cmp byte [di+VID_CTX_KIND], VID_VGA
+    cmp al, VID_VGA
     je .out
     mov cx, 1
 .out:
     pop di
     pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; vid_pt_local - a virtual point in the display holding it (SPEC.md 39.15)
-; in:       AX = x, BX = y, virtual
-; out:      CL = the display, AX/BX its own coordinates
-; clobbers: AX, BX, CL, flags
-; -----------------------------------------------------------------------------
-vid_pt_local:
-    push dx
-    push di
-    push ax                     ; vid_disp_of ANSWERS in AL, so x is banked
-    call vid_disp_of
-    mov cl, al
-    call vid_ctx_ptr            ; DI = its record; AX preserved
-    pop ax
-    sub ax, [di+VID_CTX_VX]
-    sub bx, [di+VID_CTX_VY]
-    pop di
-    pop dx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1902,7 +2104,24 @@ vid_pt_clamp:
 ; alternative is probing B8000 for a card distinct from the VGA's own mode 6,
 ; which is vid_cga_alias's problem again on a machine nobody has.
 ; -----------------------------------------------------------------------------
+; **THE TWO EXITS ARE NOT MERGEABLE AND THE ONE BYTE IS NOT AVAILABLE.** This
+; read `stc` / `test` / `jz .out` / `test` / `jz .out` / `clc` / `.out: ret`
+; for one commit, to share the `ret` - and `test` CLEARS CF (Intel SDM: "the
+; OF and CF flags are set to 0"), so the hoisted `stc` was dead and EVERY
+; refusal returned CF = 0, the answer for `yes, this machine can extend`. It
+; assembles, it is one byte smaller, and it inverts the routine on exactly the
+; machines it exists to refuse: the ordinary single-card one, where the
+; Control Panel then OFFERS the desktop radios that SPEC.md 47 says it must
+; grey, fsx hands out a second page that is not there, and vid_disp_init takes
+; the extend arm into an empty socket. Restored to two exits deliberately.
 vid_dual_ok:
+    cmp byte [vid_kind], VID_EGA    ; EGA is a single-display adapter here
+    je .no                          ; (SPEC.md 39.24: the per-display context
+                                    ; is not in scope for it). A machine that
+                                    ; booted EGA and holds a Hercules too
+                                    ; still gets one desktop; switching the
+                                    ; primary to CGA re-opens the HERC|CGA
+                                    ; case, which this then allows as before
     test byte [vid_avail], VID_A_HERC
     jz .no                      ; nothing to extend ONTO...
     test byte [vid_avail], VID_A_VGA | VID_A_CGA
@@ -1957,7 +2176,8 @@ vid_disp_other:
 ;           second one black, [vid_ndisp] = 2, [vid_cur] = 0, display 1 banked
 ;           and placed. SINGLE: the other card dark, [vid_ndisp] = 1, the
 ;           desktop back to the primary alone. A machine vid_dual_ok refuses:
-;           untouched, [vid_ndisp] stays 1
+;           untouched if nothing was live, and COLLAPSED to single if
+;           something was - see the refusal arm (SPEC.md 39.24)
 ; clobbers: flags
 ;
 ; IT IS RE-RUNNABLE AND THAT IS THE POINT (SPEC.md 39.19). It was a boot-time
@@ -2005,8 +2225,25 @@ vid_disp_init:
     push ax
     push di
     call vid_dual_ok
-    jc .out                     ; one display - or a pairing we do not take
+    jnc .paired
 
+    ; --- REFUSED, and that used to be the end of it ------------------------
+    ; [vid_ndisp] was 1 here BY CONSTRUCTION: vid_dual_ok read nothing but
+    ; [vid_avail], which is fixed for the life of the machine (see the top of
+    ; this file), so a refusal could never follow a non-refusal and returning
+    ; was safe. VID_EGA made the predicate depend on [vid_kind] as well
+    ; (SPEC.md 39.24), and vid_switch MOVES that - so an Extend can be LIVE
+    ; when the answer turns to no. Returning then leaves [vid_ndisp] = 2 and
+    ; display 0's vid_ctx describing the card we have just switched away
+    ; from, which is a desktop drawn into the wrong segment at the wrong
+    ; stride. A refusal has to bring the arrangement DOWN.
+    cmp byte [vid_ndisp], 1
+    je .out                     ; nothing live: unchanged, and the boot path
+    mov ah, [vid_kind]          ; ...otherwise collapse it through the arm
+    call vid_disp_other         ; that already knows how. [vid_dmode] is kept:
+    jmp short .single           ; the arrangement is impossible on THIS
+                                ; primary, not forgotten
+.paired:
     mov ah, [vid_kind]          ; the primary, banked across the two applies
     call vid_disp_other         ; ...and AL = the other display's adapter, which
                                 ; is NOT simply the other of two kinds - see
@@ -2015,6 +2252,7 @@ vid_disp_init:
     jne .extend
 
     ; --- SINGLE (SPEC.md 39.19) ---------------------------------------------
+.single:
     call vid_blank_kind         ; AL is still the other kind: dark its monitor
     mov byte [vid_ndisp], 1     ; ...before anything can compute a union over
     mov byte [vid_cur], 0       ; a display that is no longer there
@@ -2049,14 +2287,16 @@ vid_disp_init:
 
     mov al, 1                   ; --- and WHERE display 1 sits (SPEC.md 39.19.2)
     call vid_ctx_ptr            ; The primary is at the origin either way, so
-    xor ax, ax                  ; one of the two words is 0 and the other is
-    mov [di+VID_CTX_VX], ax     ; the primary's own extent - which vid_apply
-    mov [di+VID_CTX_VY], ax     ; has just republished into the live block
+                                ; one of the two words is 0 and the other is
+                                ; the primary's own extent - which vid_apply
+                                ; has just republished into the live block.
+                                ; Each arm writes BOTH words, so there is no
+                                ; pre-zero: the RIGHT arm overwrote it in both
     cmp byte [vid_dlay], VID_L_BELOW
     je .below
     mov ax, [vid_cw]
     mov [di+VID_CTX_VX], ax
-    mov word [di+VID_CTX_VY], MBAR_H  ; ...AND ITS TOP ROW IS THE DESKTOP'S,
+    mov ax, MBAR_H                    ; ...AND ITS TOP ROW IS THE DESKTOP'S,
                                       ; not the screen's (SPEC.md 39.19.3).
                                       ; The second monitor carries no menu
                                       ; bar, so aligning its row 0 with the
@@ -2073,9 +2313,10 @@ vid_disp_init:
                                       ; ui_ylow already reads this very word
     jmp short .placed
 .below:
+    mov word [di+VID_CTX_VX], 0
     mov ax, [vid_ch]
-    mov [di+VID_CTX_VY], ax
 .placed:
+    mov [di+VID_CTX_VY], ax
 
     mov byte [vid_cur], 0       ; the live block is display 0's again
     mov byte [vid_ndisp], 2
@@ -2123,19 +2364,17 @@ vid_span_one:
     add ax, [di+VID_CTX_CH]
     cmp dx, ax
     jae .no                     ; ...or y2 past its bottom
-    pop di
-    pop si
-    pop bx
-    pop ax
     clc
-    ret
-.no:
-    pop di
-    pop si
+.out:
+    pop di                      ; pop touches no flag, so the CF set above
+    pop si                      ; survives all four
     pop bx
     pop ax
-    stc
     ret
+.no:                            ; BELOW the epilogue on purpose: the common
+    stc                         ; answer - a rect that fits one display - is a
+    jmp short .out              ; straight fall-through and pays nothing, and
+                                ; this is font_run's and gfx_blit4's path
 
 ; -----------------------------------------------------------------------------
 ; vid_disp_relayout - vid_disp_init, plus the two things a moved desktop owes
@@ -2210,9 +2449,9 @@ vid_desk_union:
 .h:
     inc si
     mov al, [vid_ndisp]
-    mov ah, 0
-    cmp si, ax
-    jb .d
+    cbw                         ; 1 byte where `mov ah,0` is 2: [vid_ndisp] is
+    cmp si, ax                  ; 1 or 2, bounded by VID_NDISP_MAX, so the sign
+    jb .d                       ; extension cannot bite
     mov [vid_w], cx
     dec cx
     mov [vid_wm1], cx

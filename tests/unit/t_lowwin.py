@@ -33,8 +33,17 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from harness import check, done                           # noqa: E402
 
-WANT = [("disk_dir", 1024), ("disk_icons", 2048), ("dsk_secbuf", 512)]
+WANT = [("disk_dir", 768), ("disk_icons", 2048), ("dsk_secbuf", 512)]
 FAT_BYTES = 4608          # DSK_FAT_SECS * 512, the rung under this one
+SECTOR = 512
+# `disk_dir` is DSK_NENT * DSK_DE_STRIDE and DSK_DE_STRIDE is 24, not
+# DSK_DE_SIZE's 32 (SPEC.md 19.1): a staged listing does not carry the
+# record's zero tail.  It was 1,024 and the region was 8,192, a whole 16
+# sectors; it is 768 and the region is 7,936, of which **7,680 is readable**.
+# That is the cost of those 256 bytes and it is not free - the boot overlay's
+# window half loses them too - so the number is asserted here rather than
+# left to be discovered when `.ovlw` next grows.  `kernel.asm`'s own `%if`
+# rounds OVLW_SIZE UP to a sector for exactly this reason.
 
 
 def lowbss(defines=()):
@@ -98,10 +107,18 @@ for label, defines in (("kern_big", ("-DKERN_BIG",)),
           % (label, total),
           "a gap between them is a gap in the region the overlay spills "
           "through", got=want_off, want=total)
-    check((FAT_BYTES + total) % 512 == 0,
-          "%s: FAT window + window is 512-aligned" % label,
-          "every disk-visible base is 512-aligned (SPEC.md 2.1.1) and the "
-          "overlay arrives on the kernel's own int 13h read",
-          got=(FAT_BYTES + total) % 512, want=0)
+    region = FAT_BYTES + total
+    check(region == 7936, "%s: the overlay's window half is %d bytes"
+          % (label, region),
+          "SPEC.md 2.1.2 and 2.5.3 both quote this number and kernel.asm's "
+          "%if is against it; it moved when the staged listing narrowed",
+          got=region, want=7936)
+    check((region // SECTOR) * SECTOR == 7680,
+          "%s: ...of which %d is READABLE" % (label, 7680),
+          "the overlay arrives on the kernel's own int 13h read, so the "
+          "usable ceiling is the region rounded DOWN to a whole sector - it "
+          "was the same number as the region while the window was 7x512 and "
+          "is not any more (SPEC.md 2.1.1)",
+          got=(region // SECTOR) * SECTOR, want=7680)
 
 done("lowwin")

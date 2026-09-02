@@ -394,6 +394,24 @@ SND_OPENF_RING   equ 1           ; ring mode (SPEC.md 34.5): SI = ring base,
                                  ; after OSAPI_WM_CREATE. A resizable
                                  ; window's paint/click procs MUST lay out
                                  ; from the live W_W/W_H every call.
+%define OSAPI_WM_NOANIM     KERNEL_SEG:0x04F0   ; BX = win ptr; NO other argument and
+                                 ; no answer: this window does not zoom
+                                 ; open (SPEC.md 11.99.2.1). Call it
+                                 ; between OSAPI_WM_CREATE and
+                                 ; OSAPI_WM_SHOW. For a DIALOG - something
+                                 ; the user opens and dismisses over and
+                                 ; over, or that arrives in answer to a
+                                 ; click they meant as something else - a
+                                 ; third of a second of outline in front
+                                 ; of it reads as the machine getting in
+                                 ; the way; the Standard File dialog, the
+                                 ; notice window and os88ui.inc's alert
+                                 ; all decline. Not for your MAIN window:
+                                 ; whether the system animates at all is
+                                 ; the user's choice (Control Panel ->
+                                 ; Theme), not an application's. There is
+                                 ; no clear, and no AL is read - see
+                                 ; 11.99.2.1 for why.
 %define OSAPI_FULLSCREEN    KERNEL_SEG:0x0110   ; AL = 1 enter (BX=win ptr) / 0 exit;
                                  ; caller holds the gfx lock (window
                                  ; callbacks do); out CF=1 enter refused
@@ -494,12 +512,19 @@ FDLG_SAVE  equ 1                 ; coming back
                                  ; (SPEC.md 39.2). No inputs. Out: AX = width,
                                  ; BX = height, CX = the first row the dock
                                  ; owns (so the usable desktop is rows MBAR_H
-                                 ; .. CX-1), DL = 0 VGA / 1 Hercules / 2 CGA,
-                                 ; DH = bits per pixel, 4 or 1. Callable from
-                                 ; any context, lock held or not.
+                                 ; .. CX-1), DL = 0 VGA / 1 Hercules / 2 CGA /
+                                 ; 3 EGA, DH = bits per pixel, 4 or 1. Callable
+                                 ; from any context, lock held or not.
+                                 ;
+                                 ; DON'T switch on DL as a fourth case: EGA is
+                                 ; VGA's planar path at 640x350 (DH = 4). The
+                                 ; two real questions are DH (depth) and your
+                                 ; window size - test `cmp dh, 1` / `ja` for
+                                 ; "colour", never `cmp dl, VID_VGA`.
 VID_VGA    equ 0                 ; the DL values
 VID_HERC   equ 1
 VID_CGA    equ 2
+VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.24)
 ;
 ; On a 1bpp adapter every colour you pass is reduced to black, white or a
 ; 50% dither (SPEC.md 39.4): 0..6 go black, 12/14/15 go white, and 7..11
@@ -1743,6 +1768,17 @@ FERR_PROT    equ 8               ; read-only/hidden/system/label/directory
 FERR_WPROT   equ 9               ; the media is write-protected
 FERR_BIG     equ 10              ; larger than the buffer (or than 64KB)
 
+WF_NOANIM  equ 0x4000            ; W_FLAGS bit14: this window does NOT zoom
+                                 ; open (SPEC.md 11.99.2). Set it with
+                                 ; OSAPI_WM_NOANIM, never by hand. Named here
+                                 ; because the W_FLAGS comment below stops at
+                                 ; bit 3 and the HIGH BYTE is not free: it is
+                                 ; SPEC.md 7.2.1's cursor shape with this bit
+                                 ; and two more kernel ones living in it, so
+                                 ; a package reading the whole word gets a
+                                 ; number it did not expect. The kernel masks
+                                 ; them off both ways round, which is why
+                                 ; OSAPI_WM_CURSOR does not clear this one
 WF_SIZABLE equ 4                 ; W_FLAGS bit2: resizable (SPEC.md 11.1)
 WF_FULL    equ 8                 ; W_FLAGS bit3: fullscreen (SPEC.md 11.2)
 WF_NOSNAP  equ 16                ; W_FLAGS bit4: this window has OPTED OUT of
@@ -2044,9 +2080,9 @@ OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
 ; -----------------------------------------------------------------------------
 %macro OS88_PREFER 7
 %1:
-    dw %2, %3                   ; VID_VGA   640x480
-    dw %4, %5                   ; VID_HERC  720x348
-    dw %6, %7                   ; VID_CGA   640x200
+    dw %2, %3                   ; VID_VGA   640x480  (also VID_EGA 640x350 -
+    dw %4, %5                   ; VID_HERC  720x348   the kernel takes this row
+    dw %6, %7                   ; VID_CGA   640x200   for an EGA, SPEC.md 39.8)
 %endmacro
 
 ; -----------------------------------------------------------------------------
@@ -2821,6 +2857,28 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
                                  ; so it is NOT the one to call before showing a
                                  ; folder, and it does not move your app's own
                                  ; current folder the way GOTO does.
+                                 ;
+                                 ; **ON A REDIRECTED VOLUME IT NOW TELLS THE
+                                 ; DRIVER**, which it did not and should have
+                                 ; (SPEC.md 62.9.1). A DRVC_FILE driver keeps
+                                 ; its own idea of where it stands - FSV_STAT
+                                 ; resolves a name in the CURRENT folder - so
+                                 ; writing the kernel's word behind its back
+                                 ; left the two disagreeing and every name you
+                                 ; then asked about was looked up in the folder
+                                 ; you came FROM, presented as FERR_NOENT for a
+                                 ; file that is plainly listed.
+                                 ;
+                                 ; THE PRICE IS THE CLOBBER SET, and it is only
+                                 ; a price on a redirected volume: the call can
+                                 ; now reach FSV_CHDIR, and a driver's verb owns
+                                 ; every register the FSV ABI does not reserve.
+                                 ; BX and DX are still preserved by the kernel
+                                 ; and AX is still the answer; **CX, SI and DI
+                                 ; are the driver's** on a DVK_FILE volume and
+                                 ; unchanged on every other. Bank them if you
+                                 ; hold anything across this call - the same
+                                 ; rule the file cells have always had.
 
 %define OSAPI_FILE_GOTO_QM  KERNEL_SEG:0x0460   ; DX = a folder's first cluster
                                  ; (0 = the root), BL = the volume. out exactly

@@ -299,13 +299,7 @@ fdlg_open_x:
 .refuse:
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fdlg_hidx - the requesting instance's file-home row (internal, SPEC.md 38.10)
@@ -536,16 +530,8 @@ fdlg_home_save:
     add di, ax
     mov si, fdlg_name
     mov cx, INST_FNSZ - 1
-.cp:
-    mov al, [si]
-    mov [di], al
-    or al, al
-    jz .out
-    inc si
-    inc di
-    loop .cp
-    mov byte [di], 0            ; a name that filled the row still terminates
-.out:
+    call fm_ncpy                ; bounded, always terminated (SPEC.md 4) - a
+.out:                           ; name that filled the row still ends in NUL
     pop di
     pop si
     pop cx
@@ -710,13 +696,7 @@ fdlg_close:
     call KERNEL_SEG:cw_menu_activate
     call KERNEL_SEG:cw_menu_draw_bar
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fdlg_commit - close, then answer the application (SPEC.md 38.6/38.7)
@@ -798,13 +778,7 @@ fdlg_commit:
     pop es
     pop word [snd_inst]         ; the outer dispatch's stamp, back
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fdlg_setname - store a name in the box (internal)
@@ -1077,11 +1051,7 @@ fdlg_setsel:
 .store:
     mov [fdlg_scrl], cx
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 .none:
     mov word [fdlg_sel], 0xFFFF
     jmp short .out
@@ -1145,30 +1115,15 @@ fdlg_icon:
     add cx, [fdlg_cx]           ; content-relative -> absolute
     add dx, [fdlg_cy]
     call dsk_get_icon_x ; SI -> the staged 64-byte body
-    mov bx, si
-    push cx
-    xor ax, ax
-    mov cx, 32
-.orw:
-    or ax, [bx]
-    inc bx
-    inc bx
-    loop .orw
-    pop cx
-    or ax, ax
-    jz .generic
+    call fm_icon_blank          ; ZF=1 = the 32 words OR to 0 - files.inc's,
+    jz .generic                 ; `.cold` like this, so the call is near
     call KERNEL_SEG:cw_icon_draw16 ; a harvested, folder or composed body
     jmp short .out
 .generic:
     mov si, ico_app16           ; nothing earned one: the built-in
     call KERNEL_SEG:cw_icon_draw
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fdlg_text - draw a string at a content-relative point (internal)
@@ -1325,6 +1280,26 @@ fdlg_defbtn:
 ; nothing can change what they say - so an erase there is a gfx_fill nobody
 ; needs. The default button is the exception because its state moves.
 ; -----------------------------------------------------------------------------
+; ui_krect4 - stage a whole inclusive rect into the kernel's ONE button rect
+; in:  AX = x1, BX = y1, CX = x2, DX = y2
+; out: os88ui_krect filled; ALL registers preserved
+;
+; os88ui_krect is declared in .bss by os88ui.inc and there is exactly one of
+; it, which is legal because every writer is on the UI task under the gfx
+; lock (SPEC.md 13).  Two callers stage a rect they already hold WHOLE - this
+; one and apps.inc's Timer button - and both follow it with
+; `mov bx, os88ui_krect / call os88ui_btn`.  The eleven OTHER krect sites
+; fill the words one at a time as they compute them and are not candidates.
+; Both callers are `.cold`, so the call is near.
+; -----------------------------------------------------------------------------
+ui_krect4:
+    mov [os88ui_krect+0], ax
+    mov [os88ui_krect+2], bx
+    mov [os88ui_krect+4], cx
+    mov [os88ui_krect+6], dx
+    ret
+
+; -----------------------------------------------------------------------------
 fdlg_btn:
     push ax                     ; NOT SI: fdlg_off writes AX..DX only and
     push bx                     ; os88ui_btn banks it
@@ -1338,10 +1313,7 @@ fdlg_btn:
     mov dx, bx
     add dx, FD_BH
     call fdlg_off               ; AX..DX = the inclusive SCREEN rect
-    mov [os88ui_krect+0], ax
-    mov [os88ui_krect+2], bx
-    mov [os88ui_krect+4], cx
-    mov [os88ui_krect+6], dx
+    call ui_krect4              ; ...staged whole
     mov ax, di
     or ah, ah                   ; AL is already the flag word; the greying is
     jz .live                    ; the one bit that arrived separately
@@ -1416,14 +1388,7 @@ fdlg_btn2:
     call fdlg_blabel
     mov byte [fdlg_paper], CWHITE   ; UNCONDITIONALLY, so the up path cannot
                                     ; leave it black for the next caller
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; fdlg_blabel - one line of button text, centred in the button column
@@ -1433,7 +1398,7 @@ fdlg_btn2:
 fdlg_blabel:
     push ax                     ; NOT SI: font_width clobbers nothing else and
     push cx                     ; fdlg_text preserves everything
-    call KERNEL_SEG:cw_font_width ; AX = 8 * length
+    call KERNEL_SEG:font_width ; AX = 8 * length
     mov cx, FD_BX2-FD_BX1+1
     sub cx, ax
     jns .pad                    ; a label wider than the button would make the
@@ -1543,14 +1508,7 @@ fdlg_paint_x:
     call KERNEL_SEG:cw_gfx_frame
     call fdlg_name_body
 
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; =============================================================================
 ; Partial redraws - what a keystroke actually changes (SPEC.md 38.8)
@@ -1601,11 +1559,7 @@ fdlg_draw_name:
     je .out                     ; move comes through here too, and a frame
     call fdlg_defbtn            ; plus a label per keypress is real money on
 .out:                           ; the machines this has to run on
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 fdlg_name_body:
     push ax
@@ -1633,12 +1587,7 @@ fdlg_name_body:
     add dx, [fdlg_cy]
     call KERNEL_SEG:cw_gfx_vline ; AX = x, BX = y1, DX = y2
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fdlg_list_body / fdlg_draw_list - the listing and its scroll bar
@@ -1658,17 +1607,12 @@ fdlg_draw_list:
     call fdlg_off
     call KERNEL_SEG:cw_gfx_fill
     call fdlg_list_body
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 fdlg_list_body:
     call fdlg_clamp
     call fdlg_draw_rows
-    call fdlg_draw_sbar
-    ret
+    jmp fdlg_draw_sbar          ; tail call, both ends `.cold`
 
 ; -----------------------------------------------------------------------------
 ; fdlg_draw_both - a selection move: the listing scrolled AND the box took the
@@ -1678,8 +1622,7 @@ fdlg_list_body:
 ; -----------------------------------------------------------------------------
 fdlg_draw_both:
     call fdlg_draw_list
-    call fdlg_draw_name
-    ret
+    jmp fdlg_draw_name          ; tail call, both ends `.cold`
 
 ; -----------------------------------------------------------------------------
 ; fdlg_draw_rows - the visible rows plus the selection bar (internal)
@@ -1744,7 +1687,7 @@ fdlg_draw_rows:
     pop di
     mov si, fdlg_num
 .right:
-    call KERNEL_SEG:cw_font_width ; AX = the string's width
+    call KERNEL_SEG:font_width ; AX = the string's width
     mov cx, 196
     sub cx, ax                  ; right-aligned, clear of the scroll bar
     mov dx, bp
@@ -1758,14 +1701,7 @@ fdlg_draw_rows:
     mov ax, [fdlg_sel]          ; the selection bar, drawn by the same proc a
     call fdlg_sel_bar           ; selection CHANGE uses (SPEC.md 22.2/38.3)
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; fdlg_sel_bar - XOR the selection band for ONE display row
@@ -1808,11 +1744,7 @@ fdlg_sel_bar:
     call fdlg_off
     call KERNEL_SEG:cw_gfx_xor_fill
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fdlg_sbset - fill os88ui_ksb with this dialog's bar (internal)
@@ -1884,11 +1816,7 @@ fdlg_repaint:
     call fm_cfill               ; files.inc's, and this was its twelve
                                 ; instructions to the byte (the Note Pad idiom)
     call fdlg_paint_x           ; SI is still the window
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fdlg_act - the default action: the Open/Save button, or Enter
@@ -2002,11 +1930,7 @@ fdlg_newfolder:
     pop di                      ; every other refusal in this dialog gives.
     pop si                      ; SI first: the folder work above pointed it
     call fdlg_repaint           ; at fdlg_name, and fdlg_repaint wants the
-    pop dx                      ; WINDOW - through the name it silently draws
-    pop cx                      ; nothing and the dialog shows a stale screen
-    pop bx                      ; while the volume really has moved. The
-    pop ax                      ; repaint is here and not at the call sites
-    ret                         ; because both halves of the button change
+    jmp kretc_dx
                                 ; what the box says, and one of the two ways
                                 ; in (Enter, through fdlg_act) has none
 
@@ -2308,11 +2232,7 @@ fdlg_nins:
     mov [bx+fdlg_name], dl
     inc byte [fdlg_nlen]
     inc byte [fdlg_ncur]
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fdlg_ndel - delete the character the caret sits in front of (internal)
@@ -2789,7 +2709,14 @@ fdlg_onclick_x:
     je .s_pgup
     cmp al, OS88UI_SBPGDN
     je .s_pgdn
-    jmp .out                    ; the thumb itself, or off the bar entirely
+.outj:                          ; ...AND THE ROWS' REFUSAL TRAMPOLINE, at no
+    jmp .out                    ; cost: this `jmp` was already here for the bar,
+                                ; and `.out` is 190 bytes further on, so the
+                                ; three tests below were NASM's five-byte
+                                ; inverted-short-plus-near-jmp (an 8086 has no
+                                ; near `jcc`).  Aimed here they are two bytes
+                                ; each: -9, nothing added.  Every arm is a
+                                ; click that lands on no row and draws nothing
 .s_up:
     dec word [fdlg_scrl]
     jmp .rlist
@@ -2806,15 +2733,15 @@ fdlg_onclick_x:
     ; --- the rows ---
 .rows:
     cmp dx, FD_LX1
-    jl .out
+    jl .outj
     cmp cx, FD_ROW0
-    jl .out
+    jl .outj
     mov ax, cx
     sub ax, FD_ROW0
     mov cl, 4
     shr ax, cl                  ; / FD_ROWH
     cmp ax, FD_ROWS
-    jae .out
+    jae .outj
     add ax, [fdlg_scrl]
     push ax
     call fdlg_rows              ; AX = total rows

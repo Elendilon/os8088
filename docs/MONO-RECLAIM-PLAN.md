@@ -15,7 +15,7 @@ the VGA-only code, and what each of the two kernels can do with it — which is
 
 **There are two questions here and they have different answers.**
 
-0. **`kern_small` is on a DIET, not a budget** (SPEC.md §39.24.4). It has
+0. **`kern_small` is on a DIET, not a budget** (SPEC.md §39.27.4). It has
    roughly 50KB more to find, so every byte returned to it stays returned and
    **nothing in this file may be spent there** — not §4's row table, not §5's
    loops. That rule arrived after §4 and §5 had been written as `kern_small`
@@ -333,7 +333,7 @@ with a CGA — so this section is arithmetic rather than a proposal.
 ### 4.0 …and it is REFUSED on `kern_small`, which is where it was proposed
 
 **`kern_small` is under a standing cut — roughly 50KB more to find — so a
-reclaim there is banked, never budgeted.** That is SPEC.md §39.24.4's rule and
+reclaim there is banked, never budgeted.** That is SPEC.md §39.27.4's rule and
 it retires this whole section as a `kern_small` proposal. The arithmetic below
 still holds and the win is real; what is wrong is the premise, which was that
 §2's four rungs were slack. They are not. They are the first instalment.
@@ -646,7 +646,7 @@ would have spent it on if anything had qualified.
 The plan spent two rounds treating these as alternatives. They are not, and the
 correction came from the owner rather than from the measurements: **`kern_small`
 is on a diet, not a budget.** Bytes returned to it stay returned (SPEC.md
-§39.24.4), so nothing may be spent there at all — not the table, not the loops.
+§39.27.4), so nothing may be spent there at all — not the table, not the loops.
 
 `kern_big` already carries every row of both 1bpp adapters, so the table is not
 on its menu either. **What is left is one candidate with one consumer:** the
@@ -824,7 +824,7 @@ scenarios is.
    `GFX_LINE shallow fat` −8.7%, the thin lines −6.6%, `FONT_CHAR` −1.8 to
    −2.3%, small fills and hlines 1–2%, on both adapters.
 
-   **That run also found a bug this gate had shipped** (SPEC.md §39.24.5): the
+   **That run also found a bug this gate had shipped** (SPEC.md §39.27.5): the
    no-VGA arms of `gfx_fill_gray_raw` and `gfx_fill_pat_raw` were written as
    `equ`, and both are *fallen into* from a `GFXDISP` that expands to nothing on
    `kern_small` — so the entry went past the `equ`, which emits no code, into
@@ -834,7 +834,7 @@ scenarios is.
    one (§2.2), and settle §2.4's three questions first.
 5. ~~**The row table on `kern_small`**~~ — **REFUSED, §4.0.** Built, measured at
    the predicted +512, reverted. The reclaim is banked, not budgeted (SPEC.md
-   §39.24.4), and `kern_big` already has all 348 rows.
+   §39.27.4), and `kern_big` already has all 348 rows.
 6. **`kern_big`'s reuse** (§3 mechanism, §5 payload), which is the only step that
    needs the `.ovl` decider, the blob sectors and the `tests/vgarefs.txt`
    ratchet.
