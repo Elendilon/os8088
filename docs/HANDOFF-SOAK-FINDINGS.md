@@ -129,9 +129,32 @@ adapter checks its guards and returns (SPEC.md §5.4.3), so the call costs
 already carries *"never quote 756 as a floor a design must beat"* (Set 89) and
 this is the same error one step along: never quote it as a denominator either.
 
-**It is not worth reverting.** 6.5 us lands once per session on a machine that
-refuses — §42.13.1 caches the refusal as a fact about the adapter — against 7
-bytes of `.text` on the constraint that actually binds.
+**It is not worth reverting, and reverting costs 5 bytes of `.text`** —
+measured, `50,613 → 50,618`, kern_big only (`GFX_PLANE` is undefined in
+kern_small, where `gfx_blitp` is `stc / ret` and these lines are never
+assembled). A `jmp rel16` is 3 bytes against the seven pops and the `ret`'s 8.
+
+**But not for the reason first written here, which was that the refusal lands
+once per session.** It does not. `pt_wantpl` is armed unconditionally by
+`pt_onresize` (SPEC.md §42.13.1.3), and a refused probe is DESIGNED to stay
+armed — `jc .again` skips the `mov byte [pt_wantpl], 0` — so on a 1bpp
+adapter, where the probe can never be accepted, **every canvas repaint after
+the window has ever been moved or resized pays one refused `gfx_blitp`,
+indefinitely.**
+
+It is still a wash, and the corrected frequency makes the case better rather
+than worse, because it moves the denominator off the probe and onto the thing
+the probe sits inside:
+
+| | cost of the call | the 6.5 us is |
+|---|---|---|
+| 1bpp, refusing | 244.65 us | 2.7% of the probe — and the probe rides a canvas repaint that deskbench prices at **354 ms** on Hercules, so **~0.002%** of it |
+| VGA, drawing | 15,639 us (256x16) to 38,087 us (64x64) | **0.017% to 0.042%** |
+
+**2.7% was never the number to decide on.** It is a percentage of a call that
+does nothing, which is exactly the denominator error that hid this finding in
+the first place — and the same mistake made twice, once to dismiss the cause
+and once to price the fix.
 
 ## A5. `dispmine` asked whether a cell opened, and meant whether the press arrived
 
