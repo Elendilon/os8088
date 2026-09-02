@@ -33,6 +33,19 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 from harness import check, done                           # noqa: E402
 import suite                                              # noqa: E402
 
+# builds=True with no `make` in the row, and why. A row here WRITES build/ by
+# some other route, so the flag is right and the reverse check below would
+# otherwise ask for it to be dropped. Same rule as UNREGISTERED: the reason is
+# the point, and an unexplained entry is how a stale flag survives.
+BUILDS_WITHOUT_MAKE = {
+    "fdlgthumb": "a KNOB gate, so it may not call the fixture helper at all - "
+                 "that runs `make`, and the Makefile's VIDSTAMP rule removes "
+                 "build/kernel.bin whenever the knob set differs, which would "
+                 "delete the very kernel the row is about to test. It builds "
+                 "build/fdthumb.img with nasm and os88pkg.py directly instead, "
+                 "which is still writing build/ under anything beside it",
+}
+
 # Not registered, and why. Keep the reason specific and true.
 UNREGISTERED = {
     # --- library and support code, not tests ---
@@ -92,11 +105,22 @@ UNREGISTERED = {
 def _invokes_make(path):
     """Does this test shell out to `make`? Read, not guessed at.
 
-    A quoted `make` as the first element of an argv list is the only spelling
-    this tree uses - a check_call on a list whose head is the program - so the
-    check is exact for it. A test that grows a subtler one, a shell string or
-    a variable, has to be caught by its author; the point of the gate is the
-    ordinary case, which is the one that gets forgotten.
+    A quoted `make` as the first element of an argv list is one spelling, and
+    the fixture helper in tools/ is the other - and the second is the one that
+    got away. That helper runs `make` for a test's own scratch disk, so the
+    literal lives one level down, and THIRTEEN registered rows called it from
+    the shareable emulator lane with builds=False: exactly the "rewrites the
+    tree another row is reading" this check exists to stop, invisible to it
+    because the grep was pointed at the caller.
+
+    So the second half keys on the IMPORT and not on the call. A call can be
+    `need(DISK)` as easily as `need("build/x.img")` - two of the thirteen are
+    - and requiring a quoted first argument found eleven of them and left two
+    looking like rows that declare builds=True and build nothing.
+
+    A test that grows a subtler one still - a shell string, a variable - has
+    to be caught by its author; the point of the gate is the ordinary case,
+    which is the one that gets forgotten.
 
     THE EXAMPLE THAT WOULD GO HERE IS DELIBERATELY NOT WRITTEN OUT: a docstring
     quoting the pattern matches it, and this file's own row then fails the
@@ -108,7 +132,15 @@ def _invokes_make(path):
             body = f.read()
     except OSError:
         return False
-    return bool(re.search(r'\[\s*"make"|"make"\s*,', body))
+    # The second half is spelled with `\s+` between every word ON PURPOSE, so
+    # that this file does not contain the import it looks for and match itself.
+    # Written the obvious way it did - twice, in one afternoon: the make-detector
+    # above says the same thing about its own docstring, and the pieces were
+    # first joined with a NON-raw `'fixture\\b'`, where `\\b` is a BACKSPACE and
+    # not a word boundary, so the pattern silently matched nothing at all.
+    return bool(re.search(r'\[\s*"make"|"make"\s*,', body)
+                or re.search(r'^\s*(?:from\s+os88fixture\s+import'
+                             r'|import\s+os88fixture\b)', body, re.M))
 
 
 def main():
@@ -163,7 +195,7 @@ def main():
                   "running beside it. Mark the row builds=True and the runner "
                   "gives it the tree to itself" % ", ".join(makes),
                   got="builds=False", want="builds=True")
-        elif r.builds and not makes:
+        elif r.builds and not makes and r.name not in BUILDS_WITHOUT_MAKE:
             check(False, "row %s is builds=True and builds nothing" % r.name,
                   "the flag costs the row its parallelism, so a stale one is a "
                   "slower suite for no reason. Drop it, or say here why the row "

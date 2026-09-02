@@ -35,6 +35,7 @@ def drive_y(m, n=1):
 
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_gla"
 from os88geom import WIN_SIZE, MAX_WIN   # NOT a local copy: this one
+from os88fixture import need                             # noqa: E402
                                         # moved 28 -> 30 with SPEC.md
                                         # 13.8.2's W_ONDRAG, and a stale
                                         # stride decodes window 1 as
@@ -104,6 +105,15 @@ def repaint(m, mo):
     mo.menu(x, y, x - 8, y)
     M.settle(m)
 
+
+# `all` builds NOTHING under tests/, so on a clean tree this disk is
+# absent and launch() dies in its copy with a FileNotFoundError in a
+# tenth of a second - an ABSENT gate that reads as a failing one, which
+# is worse than either. fdlgup and mouseup, which want the same disk,
+# have asked for it since it was written; these two never did, and it
+# was WHICH ROW RAN FIRST that decided whether they passed
+# (docs/HANDOFF-SOAK-FINDINGS.md B4).
+need("build/muptest.img")
 
 with M.launch("build/os8088-360.img", apps="build/muptest.img",
               machine=MACHINE) as m:

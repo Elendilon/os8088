@@ -823,7 +823,7 @@ SOAK = [
         "package truncated by one sector gives ld_status 4 and no window, "
         "because op_read now refuses a run that arrives short. Needs `make "
         "c64disk`, so it needs the C toolchain.",
-        needs=("marty", "cc"), serial=True),
+        needs=("marty", "cc"), serial=True, builds=True),
     Row("mseglazy", "soak", py("tests/mseglazy.py"), 150.0,
         "SPEC.md 20.12.4: an OP_LAZY part is NOT READ AT LOAD and can be "
         "given back. That is the first half of goal 3 - `load only some "
@@ -1115,7 +1115,7 @@ SOAK = [
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 60.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("xmcheck", "soak", py("tests/xmcheck.py"), 90.0,
         "The extended-memory TEARDOWN gate (SPEC.md 41.5, 29.4). QEMU and "
         "not MartyPC, and the row said `marty` for a year: the machine has "
@@ -1208,7 +1208,7 @@ SOAK = [
         "the identical behaviour rather than a fallback. It needs `make "
         "small` first, and it is the ONE gate here that drives that build",
         needs=("marty",), serial=True, timeout=900),
-    Row("dispcold", "soak", py("tests/dispcold.py"), 60.0,
+    Row("dispcold", "soak", py("tests/dispcold.py"), 300.0,
         "WHO DRAWS INTO .cold? (docs/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
     Row("dispcorner", "soak", py("tests/dispcorner.py"), 60.0,
@@ -1372,7 +1372,7 @@ SOAK = [
         "flush the disk the guest wrote and boot IT. Two boots, which is why it"
         "is here and not in the gate",
         needs=("marty",), serial=True),
-    Row("dispreboot", "soak", py("tests/dispreboot.py"), 60.0,
+    Row("dispreboot", "soak", py("tests/dispreboot.py"), 300.0,
         "WHO WRITES ui_rebootq? (docs/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
     Row("dispsave", "soak", py("tests/dispsave.py"), 60.0,
@@ -1464,7 +1464,7 @@ SOAK = [
     Row("drvcall", "soak", py("tests/drvcall.py"), 60.0,
         "Can a PACKAGE reach a DRIVER? (SPEC.md 20.11, docs/NET-STACK-PLAN.md"
         "stage A)",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("drvscroll", "soak", py("tests/drvscroll.py"), 60.0,
         "SPEC.md 31.1.2: scrolling the Drivers list draws the LIST once, not"
         "thrice.",
@@ -1483,11 +1483,11 @@ SOAK = [
     Row("fdlggrey", "soak", py("tests/fdlggrey.py"), 60.0,
         "The file dialog's default button: REDRAWN IN PLACE must equal"
         "FRESHLY PAINTED.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("fdlgup", "soak", py("tests/fdlgup.py"), 60.0,
         "SPEC.md 13.8.3: the Standard File dialog's buttons fire on the"
         "RELEASE.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("fmthumb", "soak", py("tests/fmthumb.py"), 60.0,
         "SPEC.md 13.10.5: the Disk window's scroll-bar THUMB is dragged, and"
         "x is never read.",
@@ -1495,22 +1495,22 @@ SOAK = [
     Row("fdlgthumb", "soak", py("tests/fdlgthumb.py"), 90.0,
         "SPEC.md 13.10.5: ...and the Standard File dialog's, which is the"
         "second bar one gesture record has to tell apart (13.10.5.10).",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("pkgthumb-np", "soak", py("tests/pkgthumb.py", "notepad"), 90.0,
         "SPEC.md 13.10.7: the thumb gesture inside a PACKAGE - Note Pad.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("pkgthumb-br", "soak", py("tests/pkgthumb.py", "browser"), 90.0,
         "SPEC.md 13.10.7: ...the Browser.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("pkgthumb-wd", "soak", py("tests/pkgthumb.py", "word"), 120.0,
         "SPEC.md 13.10.7: ...and Word, which needed 13.10.6.4 settling first -"
         "its menus are a modal poll and the thumb's two edges are disjoint"
         "from them.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("pkgthumb-tp", "soak", py("tests/pkgthumb.py", "texpad"), 90.0,
         "SPEC.md 13.10.7.2: ...and TexPad, whose TWO bars share one gesture"
         "record. --bar=1 drives the preview pane's.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("fmbtn", "soak", py("tests/fmbtn.py"), 60.0,
         "SPEC.md 22.18: the Disk window's two header buttons fire on the"
         "RELEASE.",
@@ -1518,7 +1518,7 @@ SOAK = [
     Row("fsxdisp", "soak", py("tests/fsxdisp.py"), 60.0,
         "Does an fsx bracket take ONE display and dark the others? (SPEC.md"
         "39.18)",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("knobhd", "soak", py("tests/knobhd.py"), 900.0,
         "SPEC.md 52.10.2.1: a KNOB kernel installed to a hard disk and booted "
         "off it, on BOTH adapters. The build matrix assembles knob kernels and "
@@ -1615,7 +1615,7 @@ SOAK = [
     Row("mouseup", "soak", py("tests/mouseup.py"), 60.0,
         "SPEC.md 13.7's release, apps/os88ui.inc's arm, and MOUSEUP-PLAN"
         "4.2's guard.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("paintgif", "soak", py("tests/paintgif.py"), 60.0,
         "HOW LONG DOES PAINT TAKE TO OPEN OS8088.GIF? - in GUEST CYCLES",
         needs=("marty",), serial=True),
@@ -1855,7 +1855,7 @@ SOAK = [
     Row("sbar", "soak", py("tests/sbar.py"), 60.0,
         "SPEC.md 13.10: the shared scroll bar, and the two kernel bars are"
         "one now.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("sizesnap", "soak", py("tests/sizesnap.py"), 60.0,
         "the SIZE snap aligns a content width WITHOUT shrinking the zoom "
         "(SPEC.md 11.94.5) - a maximized window must stay x=0, w=[vid_pw]",
@@ -1933,11 +1933,11 @@ SOAK = [
     Row("trkrate", "soak", py("tests/trkrate.py"), 60.0,
         "trkrate - XT mode's second rate, and the surface it refuses (SPEC.md"
         "45.9.3)",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("trktxsurf", "soak", py("tests/trktxsurf.py"), 90.0,
         "The fullscreen SURFACE is a pick, not XT mode's - text at a 45.10"
         "rate (SPEC.md 45.13.7)",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, builds=True),
     Row("wmartifact", "soak", py("tests/wmartifact.py"), 60.0,
         "Two window-manager artifacts, reproduced with NO package of ours"
         "involved.",

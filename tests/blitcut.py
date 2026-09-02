@@ -111,6 +111,14 @@ def run(image, apps, machine, defines):
             sys.exit("blitcut: %s is not a two-card machine" % machine)
         m.run()
         settle(m, gate=os88marty.desktop_up)
+        # THE SAVER, OFF, before the 240-second wait below. no_saver's own
+        # rule is "any gate that drives for more than ~5 guest minutes", and
+        # this one sits still for 240 HOST seconds waiting for a straddling
+        # blit to arrive - which at 3.4x is over thirteen guest minutes with
+        # no input. What the saver would then do is not fail this row, it is
+        # make it wait out the whole 240 and report that the blit never came
+        # (docs/HANDOFF-SOAK-FINDINGS.md B7).
+        os88marty.no_saver(m)
         mo = os88mouse.Mouse(marty=m)
         dispcp.open_panel(m, mo, S, settle)
         dispcp.set_primary(m, mo, S, settle, 0)

@@ -46,9 +46,12 @@ FILE.
     against a 40,960-byte rung, so the old length also ran 305 bytes past the
     end of the file.
 
-Both are gone below, and the second is why the length now comes from what the
-file actually holds: `.cold` is the last thing in `kernel.bin` and ends at EOF,
-so `len(kernel.bin) - COLD_OFF` IS the section, asserted against the rung.
+Both are gone below, and the second is why the length is derived rather than
+written down: the span runs from `.cold`'s file offset to `OVLW_START`, which
+is where `.ovlw` begins. **It used to run to EOF**, on the belief that `.cold`
+was the last thing in `kernel.bin` - true when that was written, false since
+`.ovlw` landed after it, and this row then failed on every build with 37,376
+of rung plus 5,215 of `.ovlw` measured as one 42,591-byte section.
 
 The lesson is one line and it has now cost three rows - this one,
 tests/linefast.py and tests/wirefps.py: **a segment delta is not a file
