@@ -163,22 +163,22 @@ sd_slice_base:
     push cx
     push dx
     or al, al
-    jz .none                    ; task 0's stack is not a slice of sch_stacks
-                                ; (SPEC.md 2.1) and nothing here measures on
-                                ; it: the two tasks below are spun precisely so
-                                ; that the ticks land somewhere whose base this
-                                ; routine can derive and whose free space is
-                                ; known. Filling below ui_task's SP was tried
-                                ; and left the panel half-drawn
+    jz .none                    ; task 0 IS in sch_stkbase now, but its stack
+                                ; is STK0's 1,024 bytes rather than a slice
+                                ; task_spawn filled, so the 0xCC scan below
+                                ; would read whatever is there. Nothing here
+                                ; measures on it anyway: the two tasks below
+                                ; are spun precisely so the ticks land
+                                ; somewhere whose free space is known. Filling
+                                ; below ui_task's SP was tried and left the
+                                ; panel half-drawn
     cmp al, MAX_TASKS
     jae .none
-    dec al
-    mov ah, 0
-    mov dx, SCH_STACK
-    mul dx                      ; DX:AX = (slot-1) * SCH_STACK; the guard in
-                                ; sched.inc bounds the product to one segment
-    add ax, sch_stacks
-    mov bx, ax
+    mov ah, 0                   ; ...and for every other slot the base is a
+    mov bx, ax                  ; LOOKUP (SPEC.md 8, sch_stkbase): this
+    shl bx, 1                   ; instrument assumed the layout twice before -
+    mov bx, [bx+sch_stkbase]    ; once from SP's low bits and once from a
+                                ; multiply - and both times it read garbage
     pop dx
     pop cx
     pop ax

@@ -179,15 +179,18 @@ sched_init:
                                 ; sch_coop, which is set three lines up - and
                                 ; a store whose comment justifies a DIFFERENT
                                 ; store is a store somebody deletes)
-%ifdef KFZTRACE
-    push es                     ; TASK 0 HAS NO CANARY (see sch_switch's
-    push ax                     ; .nocanary) and its stack grows DOWN onto the
-    mov ax, LOW_SEG             ; top of .lowbss - the other tasks' slices, the
-    mov es, ax                  ; glyph table, the disk buffers - so an overrun
-    mov word [es:STK0_BOT], SCH_MAGIC ; there is silent. Seed one so the
-    pop ax                      ; heartbeat can report it
-    pop es
-%endif
+    push es                     ; TASK 0 HAS A CANARY NOW, and it is checked on
+    push ax                     ; every switch like everybody else's - see
+    mov ax, LOW_SEG             ; sch_stkbase, whose slot-0 entry is this word.
+    mov es, ax                  ; Its stack grows DOWN onto the top of .lowbss
+    mov word [es:STK0_BOT], SCH_MAGIC ; - the other tasks' slices, the glyph
+    pop ax                      ; table, the disk buffers - so an overrun there
+    pop es                      ; used to be SILENT, which is what the KFZ-only
+                                ; version of this seed was written to complain
+                                ; about and could only report on a build nobody
+                                ; runs. Unconditional now: the seed is what
+                                ; makes the table uniform, and the table is
+                                ; what makes the check free
     mov byte [sch_tasks+T_STATE], 1     ; task 0 = this thread, ready
     mov byte [sch_tasks+T_INST], 0xFF   ; the UI task owns no instance
     mov byte [sch_tasks+T_FLAGS], 0
@@ -626,15 +629,14 @@ task_spawn:
 
 .found:
     mov si, ax                  ; SI = entry (AX becomes scratch)
-    mov ax, cx                  ; stack top = sch_stacks + slot*SCH_STACK
-    mov di, SCH_STACK           ; (slot 1 owns the FIRST slice; slot 0 has no
-    push dx                     ; slice - it runs on the task-0 stack)
-    mul di                      ; DX:AX = AX * SCH_STACK (high half discarded)
-    pop dx
-    add ax, sch_stacks
-    push ax                     ; seed this slice's canary before the frame:
-    sub ax, SCH_STACK           ; AX is the slice TOP, so its base is one
-    mov di, ax                  ; SCH_STACK below
+    push bx                     ; the slice, THROUGH sch_stkbase - no multiply,
+    mov bx, cx                  ; and no assumption here about how the slices
+    shl bx, 1                   ; are laid out. BX is the task record and is
+    mov di, [bx+sch_stkbase]    ; needed below, so it is banked across the two
+    pop bx                      ; instructions that borrow it
+    mov ax, di                  ; DI = the slice BASE, where the canary goes...
+    add ax, SCH_STACK           ; ...and AX its TOP, one slice above
+    push ax                     ; banked: the frame is carved from the top
     push ss                     ; ES = LOW_SEG (SPEC.md 2.1), which is what SS names
     pop es
     ; --- THE 0xCC FILL, and it is NOT a debug build's (SPEC.md 8.3) --------
@@ -1448,15 +1450,15 @@ sch_isr:
     je .khbnodeep               ; and its SP means something else entirely
     push bx                     ; the old `neg al` depth assumed 256-byte
     push dx                     ; 256-ALIGNED slices; SCH_STACK is 384 now, so
-    mov al, [sch_cur]           ; odd slots sit at 128 mod 256 and the byte it
-    xor ah, ah                  ; produced was garbage on the instrument that
-    mov bx, SCH_STACK           ; aims the next stack cut. The slice TOP is
-    mul bx                      ; sch_stacks + cur*SCH_STACK (slot n's base is
-    add ax, sch_stacks          ; (n-1)*SCH_STACK), and depth = top - SP, less
-    sub ax, sp                  ; this sampler's own two pushes, so it agrees
-    sub ax, 4                   ; with khb_spl/khb_sph above - stored HALVED,
-    shr ax, 1                   ; so one byte holds 0..384 and
-    pop dx                      ; tools/stkwater.py doubles it back
+    mov bl, [sch_cur]           ; odd slots sit at 128 mod 256 and the byte it
+    xor bh, bh                  ; produced was garbage on the instrument that
+    shl bx, 1                   ; aims the next stack cut. THROUGH sch_stkbase
+    mov ax, [bx+sch_stkbase]    ; now, so this reader assumes nothing about the
+    add ax, SCH_STACK           ; layout: base + size is the slice TOP, and
+    sub ax, sp                  ; depth = top - SP, less this sampler's own two
+    sub ax, 4                   ; pushes so it agrees with khb_spl/khb_sph
+    shr ax, 1                   ; above - stored HALVED, so one byte holds
+    pop dx                      ; 0..384 and tools/stkwater.py doubles it back
     pop bx
     cmp al, [cs:khb_deep]
     jbe .khbnodeep
@@ -1752,24 +1754,6 @@ sch_isr:
     ; fall through into sch_switch
 
 ; -----------------------------------------------------------------------------
-; sch_switch - common switch path (module-internal)
-;
-; Entered with IF=0, DS=KERNEL_SEG and a complete saved frame on the current
-; stack (from sch_isr or task_yield's save stub). Parks SP in the current
-; record, picks the next ready task round-robin (falling back to the current
-; task if nothing is ready), and resumes it.
-;
-; RE-ARMING sch_hold is the FIRST thing done here, and deliberately on the
-; routine's single entry point rather than at each caller: the counter means
-; "ticks of watchdog budget left since the running task last reached the switch
-; path", so every one of the three ways in - fall-through from sch_isr, the
-; explicit jmp from task_yield's save path, the explicit jmp from task_exit -
-; must re-arm it (SPEC.md 8.2). Hence a task that yields voluntarily can never
-; trip the watchdog however long it runs in total; the "nothing ready, resume
-; the outgoing task" fallback below re-arms it too, so an idle single-task
-; system manufactures no watchdog hits; and a dying task re-arms it for its
-; successor.
-; -----------------------------------------------------------------------------
 sch_switch:
     ; STKBALANCE-OK: the context switch. Its iret restores the NEXT task and
     ; returns onto that task's stack, so a depth measured against whatever
@@ -1785,56 +1769,16 @@ sch_switch:
     shl bx, cl
     mov [bx+sch_tasks+T_SP], sp
 
-    ; --- the outgoing task's canary (SPEC.md 8): slot n's slice starts at
-    ; sch_stacks + (n-1)*SCH_STACK, and with SCH_STACK = 256 the offset part
-    ; is the slot index in the HIGH byte and nothing else - no multiply on
-    ; the switch path. Task 0 owns no slice of sch_stacks and is skipped. SS
-    ; is LOW_SEG, so the read needs no segment set-up. sch_stacks is NOT at
-    ; .lowbss offset 0 (font's glyph block precedes it); the math here is
-    ; symbol-relative and does not care. The alignb at the declaration
-    ; aligns only the BLOCK: with SCH_STACK = 384 the individual slices are
-    ; 128-aligned, and nothing may derive a slice base from SP's low bits
-    ; alone - the khb deep sampler and tests/stackprobe both did, and both
-    ; read garbage until they derived from sch_stacks + slot * SCH_STACK.
+    ; --- the outgoing task's canary (SPEC.md 8), through sch_stkbase above.
+    ; SS is LOW_SEG for every task including task 0, so the read needs no
+    ; segment set-up beyond the override; the table's own header says why
+    ; there is no arithmetic here any more, and why slot 0 needs no branch.
     mov bl, [sch_cur]
-    or bl, bl
-    jz .nocanary                ; task 0: its stack is above .lowbss, not in it
-    dec bl
-%if SCH_STACK == 256
-    mov bh, bl                  ; BX = (cur-1) * 256: the slot index in the HIGH
-    xor bl, bl                  ; byte and nothing else. Two instructions - and
-                                ; NOT the shipping configuration since the
-                                ; 8 x 384 move: the %else below is what ships
-%elif SCH_STACK == 384
-    mov bh, bl                  ; THE SHIPPING ARM. 384 = 256 + 128, and both
-    xor bl, bl                  ; are shifts: the byte swap IS (cur-1) * 256...
-    mov ax, bx
-    shr ax, 1                   ; ...and half of that is (cur-1) * 128...
-    add bx, ax                  ; ...so the sum is (cur-1) * 384. Max 2,304,
-                                ; no overflow. 12 clocks over 10 bytes, so the
-                                ; 8088's fetch floor (43.4) binds - against
-                                ; the general arm's 121 clocks over 14 bytes,
-                                ; where `mul ah`'s 70 makes EXECUTION bind.
-                                ; ~78 clocks a switch, and this block is
-                                ; skipped for task 0, so the workload it is
-                                ; worth anything on is the one with a package
-                                ; open: 2.5% of a 4.77 MHz 8088 at
-                                ; SCHED-IDLE-PLAN 6.3's measured 1,541
-                                ; switches a second
-%else
-    xor bh, bh                  ; ...and for any OTHER slice size, one 8-bit
-    mov ax, bx                  ; multiply: SCH_STACK is a multiple of 128 by
-    mov ah, SCH_STACK / 128     ; the guard above, so (cur-1) * (SCH_STACK/128)
-    mul ah                      ; shifted left 7 is the base. AX and CX are both
-    mov cl, 7                   ; free here - the outgoing task's copies are on
-    shl ax, cl                  ; the stack sch_resume pops from. NOT ASSEMBLED
-    mov bx, ax                  ; on any shipping kernel: %elif means only the
-%endif                          ; matching arm exists. SCH_STACK is a CONSTANT
-                                ; AND A REBUILD now, which is what a change to
-                                ; it has to be if it is ever going to be taken
-    cmp word [ss:bx+sch_stacks], SCH_MAGIC
+    xor bh, bh
+    shl bx, 1
+    mov bx, [bx+sch_stkbase]
+    cmp word [ss:bx], SCH_MAGIC
     jne sch_stkdie
-.nocanary:
 
     mov cl, 3                   ; T_SIZE = 8, so a slot index shifts left 3.
                                 ; ***CL IS LIVE FROM HERE TO .pick*** - the
@@ -1845,11 +1789,12 @@ sch_switch:
                                 ; then shift by a wrong count, .pick would
                                 ; load SP from a mis-strided record and
                                 ; sch_resume would iret into nothing. It is
-                                ; set BELOW .nocanary and not above it because
-                                ; the canary arms are free to use CL (the
-                                ; general %else arm does, and both routes -
-                                ; fall-through and the `jz .nocanary`
-                                ; shortcut - land here).
+                                ; set below the canary check and not above it
+                                ; because that check is free to use CL. It no
+                                ; longer does - sch_stkbase took the multiply
+                                ; out - but the ordering is kept: it costs
+                                ; nothing and it is one fewer thing to get
+                                ; wrong if anything is ever put back there.
                                 ; Past .pick, `call sch_account` clobbers CX
                                 ; and nothing reads CL again.
     mov dl, [sch_cur]           ; scan cur+1, cur+2, ... (cur itself last)
@@ -1862,7 +1807,7 @@ sch_switch:
 .nowrap:
     mov bl, dl
     xor bh, bh
-    shl bx, cl                  ; CL = 3, set once at .nocanary
+    shl bx, cl                  ; CL = 3, set once above the scan
     cmp byte [bx+sch_tasks+T_STATE], 1
     jne .skip
     cmp dl, [sch_idleslot]      ; the idle task is picked at the fallback
@@ -1885,7 +1830,7 @@ sch_switch:
 .idlepick:
     mov bl, dl
     xor bh, bh
-    shl bx, cl                  ; CL = 3, set once at .nocanary
+    shl bx, cl                  ; CL = 3, set once above the scan
 .pick:
     ; --- charge the OUTGOING task, and ONLY on a real change (SPEC.md 8.1.1)
     ; [sch_cur] still names the task that just ran, which is what sch_account
@@ -1995,6 +1940,80 @@ sch_stkdie:
 .hang:
     hlt
     jmp short .hang
+
+; -----------------------------------------------------------------------------
+; sch_stkbase - where slot n's stack BOTTOM is, one word per slot
+;
+; The canary word lives at the bottom of every stack (SCH_MAGIC), so this is
+; both "the base of the slice" and "where the canary is", and every consumer
+; wants one or the other.
+;
+; IT REPLACES ARITHMETIC, and that is the point rather than a side effect.
+; sch_switch used to DERIVE the base from the slot index, which needed a
+; multiply in the general case and carried two hand-written special cases
+; beside it - one for SCH_STACK = 256 that had not shipped since the 8 x 384
+; move, and one for 384 that decomposed it into two shifts. The comment on
+; that block records the failure mode the whole time it existed: two
+; instruments derived the base a DIFFERENT wrong way (from SP's low bits) and
+; read garbage, because a derivation is something every reader has to get
+; right independently and a table is something they look up.
+;
+; A DERIVATION ALSO CANNOT SURVIVE VARIABLE SIZES, which is what
+; docs/STACK-SLOTS-PLAN.md 6 needs: with classes there is no expression from
+; the slot index to the base at all. So the table is the enabling mechanism as
+; well as the simplification, and both of those were true before any class
+; existed.
+;
+; IT SITS BELOW sch_stkdie's HANG LOOP, and that placement is load-bearing.
+; The obvious home for it is beside sch_switch, which is where it went first -
+; and sch_isr FALLS THROUGH into sch_switch, so sixteen bytes of `dw` placed
+; there are sixteen bytes the TIMER ISR EXECUTES on every tick. It cost an hour
+; and every symptom pointed elsewhere: kern_big survived it, kern_small booted
+; to a task resuming with CS = 0xCCCC (task_spawn's own fill, SPEC.md 8.3), and
+; a bisect that reverted every line of logic still failed - because the failure
+; was the DATA, not the code. The control that named it was padding a different
+; module by the same sixteen bytes, which changed nothing. A `hlt` / `jmp $` is
+; the one place in this file nothing can fall through.
+;
+; IT IS IN .text WITH REAL INITIALISERS, not .bss with a loop. The partition is
+; fixed at assembly time - the slices exist from boot and are never handed out
+; or given back (STACK-SLOTS-PLAN 6.2) - so a table of `dw`s costs 2 bytes a
+; slot and no init code at all, where .bss would cost the same 2 bytes plus the
+; loop that fills them. It cannot be corrupted either, which for the word that
+; says where a canary is worth having.
+;
+; SLOT 0 IS IN IT. Task 0 runs on SS:STK0_TOP rather than a slice of
+; sch_stacks, and the old arithmetic had to branch around it (`or bl, bl / jz
+; .nocanary`). A table just holds STK0_BOT there - which sched_init already
+; seeds with SCH_MAGIC - so the branch goes AND task 0's canary is now checked
+; on every switch, where before only a KFZ build ever looked at it.
+; -----------------------------------------------------------------------------
+sch_stkbase:
+    dw STK0_BOT                 ; slot 0: the UI task, above .lowbss
+%assign sch_bi 0
+%rep MAX_TASKS-1
+    dw sch_stacks + sch_bi * SCH_STACK
+%assign sch_bi sch_bi+1
+%endrep
+
+; -----------------------------------------------------------------------------
+; sch_switch - common switch path (module-internal)
+;
+; Entered with IF=0, DS=KERNEL_SEG and a complete saved frame on the current
+; stack (from sch_isr or task_yield's save stub). Parks SP in the current
+; record, picks the next ready task round-robin (falling back to the current
+; task if nothing is ready), and resumes it.
+;
+; RE-ARMING sch_hold is the FIRST thing done here, and deliberately on the
+; routine's single entry point rather than at each caller: the counter means
+; "ticks of watchdog budget left since the running task last reached the switch
+; path", so every one of the three ways in - fall-through from sch_isr, the
+; explicit jmp from task_yield's save path, the explicit jmp from task_exit -
+; must re-arm it (SPEC.md 8.2). Hence a task that yields voluntarily can never
+; trip the watchdog however long it runs in total; the "nothing ready, resume
+; the outgoing task" fallback below re-arms it too, so an idle single-task
+; system manufactures no watchdog hits; and a dying task re-arms it for its
+; successor.
 
 ; -----------------------------------------------------------------------------
 

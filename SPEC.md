@@ -8443,6 +8443,82 @@ assembling. With `NOMOUPRIV=1` it is the whole of what shipped before these two
 sections; `make stkdiag`'s three arms are the default, that knob, and this one,
 so each fix is isolated against arm 1 on the machine in front of you.
 
+### 8.6 `sch_stkbase` — where a slot's stack is, looked up rather than derived
+
+Every consumer of a task stack needs the same word: the **bottom** of it, which
+is both the base of the slice and where `SCH_MAGIC` sits. `sch_stkbase` is that
+word per slot — one `dw` each, in `.text`, `MAX_TASKS` entries — and the canary
+check on the switch path is an index and a compare:
+
+```nasm
+    mov bl, [sch_cur]
+    xor bh, bh
+    shl bx, 1
+    mov bx, [bx+sch_stkbase]
+    cmp word [ss:bx], SCH_MAGIC
+    jne sch_stkdie
+```
+
+**It replaces arithmetic, and that is the point rather than a side effect.**
+`sch_switch` used to derive the base from the slot index, which needed an 8-bit
+multiply in the general case and carried two hand-written special cases beside
+it — one for `SCH_STACK` = 256 that had not shipped since the 8 × 384 move, one
+for 384 that decomposed it into two shifts. `task_spawn` and the `KFZ` deep
+sampler each derived it a third and fourth time. The comment on that block
+recorded the failure mode the whole time it existed: two instruments derived the
+base a *different* wrong way — from SP's low bits, which only works if slices
+are 256-aligned — and read garbage until they were corrected. **A derivation is
+something every reader has to get right independently; a table is something they
+look up.**
+
+**A derivation also cannot survive variable slice sizes**, which is what a slot
+class scheme needs: with classes there is no expression from the slot index to
+the base at all. So the table is the enabling mechanism as well as the
+simplification, and both were true before any class existed.
+
+**It sits below `sch_stkdie`'s hang loop, and that placement is part of the
+contract.** `sch_isr` **falls through** into `sch_switch` — that is one of the
+three documented ways in — so bytes placed immediately before `sch_switch:` are
+bytes the *timer ISR executes on every tick*. The table went there first and the
+symptoms named everything except the cause: `kern_big` survived it, `kern_small`
+booted to a task resuming with `CS` = `0xCCCC` (`task_spawn`'s own fill, §8.3),
+and a bisect that reverted every line of logic still failed, because the failure
+was the data rather than the code. A `hlt` / `jmp $` is the one place in
+`sched.inc` nothing can fall through into.
+
+**It is in `.text` with real initialisers, not `.bss` with a loop.** The
+partition is fixed at assembly time — the slices exist from boot and are never
+handed out or given back — so a table of `dw`s costs 2 bytes a slot and no init
+code, where `.bss` costs the same 2 bytes *plus* the loop that fills them. It
+also cannot be corrupted, which for the word that says where a canary is is
+worth having. Its bytes are in `kernel.bin`, so a host-side reader can follow it
+through `tools/os88sym.py` rather than recomputing the layout.
+
+#### 8.6.1 Slot 0 is in the table, and now has a canary that is checked
+
+Task 0 runs on `SS:STK0_TOP` rather than a slice of `sch_stacks`, and the old
+arithmetic branched around it. The table simply holds `STK0_BOT` there.
+
+That branch going is the small part. The larger part is that **`STK0_BOT`'s
+`SCH_MAGIC` used to be seeded only under `KFZTRACE`** — so on every shipping
+kernel the UI task's 1,024-byte stack had *no canary at all*, and its stack grows
+down onto the top of `.lowbss`: the other tasks' slices, the glyph table, the
+disk buffers. An overrun there was silent, which is precisely what the
+`KFZTRACE`-only seed's own comment complained about while being unable to do
+anything about it on a build anybody runs.
+
+The seed is unconditional now, and slot 0's canary is compared on every switch
+like everybody else's. **The seed is what makes the table uniform, and the table
+is what makes the check free.**
+
+#### 8.6.2 What still derives, and why that is not yet a defect
+
+`tests/stackprobe` mirrors `SCH_STACK` as `SPB_SLICE` and walks the slices as a
+contiguous run; `tools/stkwater.py`, `tools/kfzread.py` and `tests/ftpd.py`
+compute `sch_stacks + (n-1)*SCH_STACK` host-side. All four are correct while
+every slice is the same size, and all four are wrong the moment one is not — so
+they are the list to convert before, not after, a class scheme lands.
+
 ## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 
 - **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both
