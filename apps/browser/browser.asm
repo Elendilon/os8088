@@ -1755,9 +1755,9 @@ br_onclick:
     mov bx, br_r3
     call br_inrect
     jc .out
-    call br_okrel
-    jc .out
-    call br_hgo                     ; Reload is Back to where we already are
+    call br_okrel                   ; ONE predicate for the greying and the
+    jc .out                         ; refusal...
+    call br_reload                  ; ...and ONE action behind both its doors
     jmp .out
 .nostrip:
     cmp cx, [br_sbx]
@@ -2022,6 +2022,17 @@ br_hgo:
     mov di, br_ubuf                 ; br_go reads the URL from br_ubuf and puts
     mov cx, BR_UBUF                 ; it in the bar, so that is where it goes
     rep movsb
+    mov si, br_loc                  ; **AND THE CONTROL IS TOLD IT HAPPENED.**
+    mov di, br_ubuf                 ; That was the bar's OWN buffer, written
+    call os88line_set               ; behind its back, and br_go only resyncs
+                                    ; on the FAR SIDE of br_split - so a slot
+                                    ; br_split refuses left LN_LEN describing
+                                    ; text that is no longer there, and the
+                                    ; bar then draws N cells of nothing that
+                                    ; its own opaque font_run never covers.
+                                    ; One self-copy, and "the buffer and the
+                                    ; length agree" holds by construction
+                                    ; instead of by every caller remembering
     mov byte [br_nopush], 1         ; ...and this trip is not a new place
     mov si, br_ubuf
     call br_go
@@ -2032,6 +2043,40 @@ br_hgo:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; br_reload - Go > Reload AND the toolbar button, which have to be one thing
+; in:  br_okrel has said yes; the gfx lock held
+;
+; **THE BUTTON USED TO CALL br_hgo** - "Reload is Back to where we already
+; are" - and that is not the question br_okrel answers. br_okrel asks whether
+; the BAR holds anything; br_hgo goes to history entry [br_histi], which does
+; not exist until something has been fetched. So on a browser that had just
+; opened, Reload copied a ZEROED history slot over br_ubuf - the location
+; bar's own buffer - and br_go refused the empty URL before ever reaching the
+; os88line_set that would have told the control its text had changed.
+;
+; ONE desync, THREE faults, and the field reported all three (SPEC.md 47 rule
+; 5, which the comment at .t3 claimed to be obeying): the bar drew no text,
+; because its font_run stops at the NUL now sitting at offset 0; Reload GREYED
+; ITSELF, because br_okrel reads that same byte; and a later backspace left
+; caret copies behind, because the cells between the NUL and LN_LEN are
+; painted by neither the run nor the strip fill past it, so every caret drawn
+; in them stayed. A screen saver is what made it visible all at once - the
+; stale pixels sat on the glass until something forced a full repaint.
+;
+; Reloading is re-fetching WHAT THE BAR SAYS, which is what the menu item
+; always did - and [br_nopush], which the menu item always forgot, so a Reload
+; from that door pushed a duplicate history entry every time.
+; -----------------------------------------------------------------------------
+br_reload:
+    push si
+    mov byte [br_nopush], 1         ; a reload is not a new place
+    mov si, br_ubuf
+    call br_go
+    mov byte [br_nopush], 0
+    pop si
     ret
 
 ; --- the three predicates, each answering CF=0 LIVE (gfx_pen_cf's shape) -----
@@ -3040,10 +3085,9 @@ br_oncmd:
     call br_hgo
     jmp .out
 .reload:
-    mov si, br_ubuf                 ; Go > Reload: the bar's own text, which is
-    cmp byte [si], 0                ; what br_go last put there
-    je .out
-    call br_go
+    call br_okrel                   ; the SAME predicate the button uses, and
+    jc .out                         ; the same action below it
+    call br_reload
 .out:
     pop si
     pop bx

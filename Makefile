@@ -5682,6 +5682,10 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 #                                         # (BROWSER-PLAN 4.1.1, SPEC.md
 #                                         # 71.10). brtest's own blit check
 #                                         # runs at top=0 and so cannot see it
+#   python3 tests/brreload.py             # ...and the RELOAD one: its
+#                                         # predicate and its action must be
+#                                         # the same question, or it empties
+#                                         # the location bar's own buffer
 #   python3 tests/brtoolbar.py            # ...and the TOOLBAR one: the state
 #                                         # field may not floor its pen back
 #                                         # onto the Reload button

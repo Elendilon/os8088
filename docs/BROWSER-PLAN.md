@@ -1642,3 +1642,50 @@ The gate's other two assertions guard the two cheap ways to make the first one
 pass: Back and Fwd must keep unbroken right edges too (so a change that
 stopped framing buttons fails), and the state field must still have ink in it
 (so setting its width to zero fails).
+
+### 14.5 Reload asked one question and answered another
+
+*"After coming out of screensaver with the browser as the top window, its
+redraw did not redraw the address bar text, and doing backspace left cursor
+copies afterwards. Additionally, the reload button had been greyed out."*
+
+Three faults, **one desync, and the saver is not in it.** The repro is two
+clicks: open the browser and press Reload before fetching anything.
+
+`br_okrel` greys Reload on whether the **bar** holds anything. The button's
+action was `br_hgo` — *"Reload is Back to where we already are"* — which goes
+to history entry `[br_histi]`, and that is a different question with no answer
+until something has been fetched. So `br_hgo` copied a **zeroed history slot
+over `br_ubuf`**, which is the location bar's own buffer (`br_loc + LN_BUF`),
+and `br_go` refused the empty URL at `br_split` — before ever reaching the
+`os88line_set` that would have told the control its text had changed.
+
+The bar was then claiming `LN_LEN` characters that were no longer there, and
+every symptom falls out of that one state:
+
+- **no text** — `os88line_draw`'s opaque `font_run` stops at the NUL now
+  sitting at offset 0;
+- **Reload greys itself** — `br_okrel` reads that same byte;
+- **caret copies** — the cells between the NUL and `LN_LEN` are painted by
+  neither the run nor the strip fill that starts past it, so every caret drawn
+  in them stays. Measured: three clicks along the bar leave **24 ink pixels,
+  which is three carets of eight**.
+
+**The saver is what made it visible, not what caused it.** The stale "http://"
+pixels sat on the glass until something forced a full repaint; `ss_stop_x`'s
+`wm_paint_all` is that. This is the shape SPEC.md §47 rule 5 exists to
+prevent — one predicate for the greying and the refusal — and the comment at
+the button's own hit test claimed to be obeying it.
+
+The fix is that both of Reload's doors call one routine, `br_reload`, which
+re-fetches **what the bar says** — which is what the menu item always did.
+Two things came with it. The menu item never set `[br_nopush]`, so a Reload
+from that door **pushed a duplicate history entry every time**; `br_reload`
+sets it. And `br_hgo` now calls `os88line_set` immediately after overwriting
+the bar's buffer, so *"the buffer and the length agree"* holds by construction
+rather than by every caller remembering — `br_go` only resyncs on the far side
+of `br_split`, which is exactly the gap this fell through.
+
+`tests/brreload.py` is the gate: five assertions, all red before the fix, on
+both 1bpp adapters. It drives the **click**, not the saver, and runs a saver
+session afterwards only to prove the repaint comes back identical.
