@@ -800,14 +800,20 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
     # label that does not fit is dropped rather than clipped (a clipped one
     # reads as a different, shorter name), which is why the long one alone is
     # not enough.
-    SHORT = {"ivt": "jump table", "bda": "firmware", "dpt": "drive settings",
-             "vbr": "boot sector", "vbrtop": "boot sector",
-             "vbrstk": "its stack", "ktext": "system code",
-             "kcold": "more code", "ovlw": "start-up code",
-             "ovl": "start-up code", "fatwin": "index", "fatw": "disk index",
-             "lowbss": "stacks + buffers", "vgabuf": "graphics scratch",
-             "blob": "loader", "pending": "not landed yet",
-             "unclaimed": "free"}
+    # A SHORT FORM IS NOT A SECOND NAME, it is the same name with the prose
+    # taken off - and it is what both the callouts and the magnified strip
+    # use, because thirteen labels averaging forty characters is what puts
+    # thirteen rungs on a stack that every stage then has to make room for.
+    # The full label is on the block itself, and in the panel below.
+    SHORT = {"ivt": "Interrupt table", "bda": "Firmware scratch",
+             "dpt": "Drive settings", "vbr": "Boot sector",
+             "vbrtop": "Boot sector (moved)", "vbrstk": "Its stack",
+             "ktext": "System code", "kcold": "System code 2",
+             "ovlw": "Start-up code", "ovl": "Start-up code",
+             "fatwin": "Room for the index", "fatw": "Disk index",
+             "lowbss": "Stacks + buffers", "vgabuf": "Graphics scratch",
+             "blob": "Loader", "pending": "Still on the floppy",
+             "unclaimed": "Not spoken for"}
 
     def add(a, b, rid, label, cls, note="", layer=0, sl=None):
         if floor is not None and rid not in ("heap", "claim", "free"):
@@ -816,7 +822,7 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
         if b > a:
             R.append({"a": a, "b": b, "id": rid, "label": label,
                       "sl": sl or SHORT.get(rid)
-                      or ("free" if rid.startswith("free") else label),
+                      or ("Free" if rid.startswith("free") else label),
                       "cls": cls, "note": note, "layer": layer})
 
     add(0, 0x400, "ivt", "Interrupt jump table", "bios",
@@ -1636,11 +1642,11 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
                         mem.append(d)
             label = TITLES.get(base, base)
             if e.get("fn") == 2:
-                label = "Disk read - %d sector%s to %04X:0000" % (
+                label = "%d sector%s \u2192 %04X:0000" % (
                     e["want"], "" if e["want"] == 1 else "s", e["dest"])
             elif "arg_done" in e:
-                label = "Loading bar - %d of %d sectors" % (e["arg_done"],
-                                                            e["arg_total"])
+                label = "bar: %d of %d sectors" % (e["arg_done"],
+                                                   e["arg_total"])
             note = notes.get(base, "")
             if base == "int 13h read" and e["want"] == 1:
                 note += (" THIS ONE IS A SINGLE SECTOR because the place it "
@@ -1746,23 +1752,34 @@ body{margin:0;background:var(--bg);color:var(--ink);
   -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
 .mono,code{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,
   "DejaVu Sans Mono",monospace}
-.wrap{max-width:1400px;margin:0 auto;padding:20px 22px 60px}
+.wrap{max-width:1580px;margin:0 auto;padding:15px 20px 48px}
+
+/* ---- the board: a rail of rungs, and the work beside it ----------------- */
+.board{display:grid;grid-template-columns:252px minmax(0,1fr);gap:22px;
+  align-items:start}
+.rail{position:sticky;top:15px;min-width:0}
+.work{min-width:0}
+@media (max-width:900px){
+  .board{grid-template-columns:1fr}
+  .rail{position:static}
+  .stages{flex-direction:row!important;flex-wrap:wrap}
+  .st{flex:0 0 auto}
+  .st .ms{margin-left:6px!important}
+}
 
 /* ---- header ---------------------------------------------------------- */
-.top{display:flex;gap:26px;align-items:flex-start;justify-content:space-between;
-  flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:14px}
-.top > div:first-child{flex:1 1 520px;min-width:0}
+
 h1{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",ui-sans-serif,
      Helvetica,Arial,sans-serif;
-  font-size:29px;margin:0 0 5px;letter-spacing:-.005em;font-weight:700;
+  font-size:23px;margin:0 0 5px;letter-spacing:-.005em;font-weight:700;
   text-wrap:balance}
 h1 .sub{color:var(--dim);font-weight:400}
-.lede{margin:6px 0 0;max-width:60ch;color:var(--dim);font-size:13px}
+.lede{margin:5px 0 11px;color:var(--dim);font-size:11.5px;line-height:1.5}
 footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 .stamp b{font-weight:600;color:var(--ink)}
 
 /* ---- the loading-screen mimic ---------------------------------------- */
-.splash{width:300px;height:196px;flex:0 0 auto;background:#000;color:#fff;
+.splash{width:100%;aspect-ratio:720/430;flex:0 0 auto;background:#000;color:#fff;
   padding:10px 12px;border:1px solid var(--rule);border-radius:2px;position:relative;
   display:flex;flex-direction:column;justify-content:center}
 .splash .logo{text-align:center;font-weight:800;letter-spacing:.22em;font-size:16px;
@@ -1794,35 +1811,40 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 @keyframes blink5150{0%,49%{opacity:1}50%,100%{opacity:0}}
 .splash .note{font-size:10.5px;color:var(--dim);margin-top:8px;text-align:center}
 .splash-outer{flex:0 0 auto}
-.splash-outer .cabin{font-size:11px;color:var(--dim);margin-top:6px;text-align:center;
-  max-width:300px;min-height:2.6em}
+.splash-outer{width:100%}
+.splash-outer .cabin{font-size:10.5px;color:var(--dim);margin:6px 0 11px;
+  text-align:center;min-height:3.4em;line-height:1.4}
 
 /* ---- stage strip ------------------------------------------------------ */
-.stages{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:13px 0 0}
+.stages{display:flex;flex-direction:column;align-items:stretch;gap:2px;margin:0}
 .st{appearance:none;border:1px solid var(--rule);background:var(--panel);color:var(--dim);
-  font:inherit;font-size:11.5px;padding:5px 9px;border-radius:2px;cursor:pointer;
-  display:flex;gap:6px;align-items:baseline;transition:.13s}
+  font:inherit;font-size:11.5px;padding:4px 9px;border-radius:2px;cursor:pointer;
+  display:flex;gap:7px;align-items:baseline;transition:.13s;text-align:left}
+.st .n{min-width:1.2em;text-align:right}
+.st .ms{margin-left:auto}
 .st:hover{border-color:var(--accent);color:var(--ink)}
 .st .n{font-weight:700;font-variant-numeric:tabular-nums}
 .st .ms{font-size:10.5px;opacity:.75;font-family:ui-monospace,monospace}
 .st[aria-current="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
 .st[aria-current="true"] .ms{opacity:.85}
-.nav{display:inline-flex;gap:4px;margin-left:8px}
+.nav{display:flex;gap:5px;margin-top:7px}
+.nav button{flex:1;width:auto}
 .nav button{appearance:none;border:1px solid var(--rule);background:var(--panel);
   color:var(--ink);width:32px;height:29px;border-radius:2px;cursor:pointer;font-size:14px;
   line-height:1}
 .nav button:hover{border-color:var(--accent)}
 .nav button:disabled{opacity:.35;cursor:default}
+.shead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  min-height:26px}
 .stitle{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",ui-sans-serif,
      Helvetica,Arial,sans-serif;
-  margin:15px 0 2px;font-size:22px;font-weight:700;letter-spacing:-.005em;
-  text-wrap:balance}
-.smoved{color:var(--dim);font-size:13px;margin-bottom:2px}
+  margin:0;font-size:20px;font-weight:700;letter-spacing:-.005em}
+.smoved{color:var(--dim);font-size:12.5px;margin:0}
 .smoved b{color:var(--sel);font-weight:600}
 
 /* ---- section frames --------------------------------------------------- */
 .panel{background:var(--panel);border:1px solid var(--rule);border-radius:3px;
-  padding:14px 16px 12px;margin-top:16px}
+  padding:9px 13px 8px;margin-top:9px}
 .ph{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--dim);
   font-weight:600;
   margin:0 0 2px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
@@ -1890,11 +1912,17 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 .tlab .lb.sel .ms{color:var(--ink)}
 
 /* ---- detail ----------------------------------------------------------- */
-.detail{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:22px}
+.detail{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1fr);gap:22px}
 @media(max-width:820px){.detail{grid-template-columns:1fr}}
 .detail h3{margin:0 0 6px;font-size:15px;font-weight:620}
-.detail p{margin:0 0 10px;font-size:13.5px;max-width:70ch}
+.detail p{margin:0 0 9px;font-size:13.5px;max-width:78ch}
+.detail p.lit{margin:0;font-size:12px;color:var(--dim);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.detail p.lit b{color:var(--ink)}
 .facts{border-top:1px solid var(--rule2);font-size:12px}
+.facts.two{display:grid;grid-template-columns:1fr 1fr;column-gap:20px;
+  border-top:none}
+.facts.two > div:nth-child(-n+2){border-top:1px solid var(--rule2)}
 .facts div{display:flex;justify-content:space-between;gap:14px;padding:4px 0;
   border-bottom:1px solid var(--rule2)}
 .facts .k{color:var(--dim)}
@@ -1909,7 +1937,7 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
   vertical-align:-1px}
 .kbd{font-family:ui-monospace,monospace;font-size:10.5px;border:1px solid var(--rule);
   border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--dim)}
-footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--rule);
+footer{margin-top:24px;padding-top:14px;border-top:1px solid var(--rule);
   font-size:11.5px;color:var(--dim);max-width:88ch}
 footer code{font-size:11px}
 
@@ -2010,7 +2038,7 @@ function ms(v){
    what makes a narrow region legible without widening it and lying about it.
    -------------------------------------------------------------------------- */
 function layout(host, items, W, up){
-  var ROW = 18, PAD = 6, GAP = 9, FAN = 260;
+  var ROW = 17, PAD = 5, GAP = 9, FAN = 260;
   /* THE WHOLE CONSTRUCTION IS MIRRORED FOR LABELS BELOW THE BAR, and doing it
      by flipping x into W - x, running the identical packer and flipping back
      is what keeps this one piece of code with one argument behind it.
@@ -2077,7 +2105,57 @@ function layout(host, items, W, up){
       it.dt.style.top = (up ? H - 5 : 0) + "px";
     }
   });
-  host.style.height = H + "px";
+  /* The NATURAL height is what a reserve is worked out from; the height the
+     block actually takes is that or the reserve, whichever is larger. */
+  host.dataset.nat = H;
+  host.style.height = Math.max(H, +(host.dataset.reserve || 0)) + "px";
+}
+
+/* --------------------------------------------------------------------------
+   RESERVE THE TALLEST, ONCE. The callout stack is as tall as the stage needs -
+   three rungs on the first stage and thirteen on the twelfth - so the panels
+   below it moved every time you stepped, and the thing you were about to
+   click moved with them. Every stage is laid out once at startup, the tallest
+   of each block is remembered, and every stage is drawn at that height from
+   then on. The cost is whitespace on the quiet stages; what it buys is a page
+   that sits still while you arrow through it.
+
+   It runs again when the webfont arrives, because everything measured here was
+   measured in the fallback face.
+   -------------------------------------------------------------------------- */
+function reserve(){
+  var m = $("mlab"), t = $("tlab"), d = document.querySelector(".panel.detail");
+  var keepStage = stage, keepStep = step;
+  m.dataset.reserve = 0; t.dataset.reserve = 0; d.style.minHeight = "";
+  var mx = 0, tx = 0, dx = 0;
+  function sample(){
+    drawMap(); drawTime(); drawDetail();
+    mx = Math.max(mx, +m.dataset.nat || 0);
+    tx = Math.max(tx, +t.dataset.nat || 0);
+    dx = Math.max(dx, d.getBoundingClientRect().height);
+  }
+  for (var i = 0; i < S.length; i++){
+    stage = i; step = -1; sample();
+    /* The two steps that make the panel tallest: the wordiest, and the first
+       one with disk figures, which carries four more rows of them. */
+    var wordy = -1, best = -1, disky = -1, j;
+    for (j = 0; j < S[i].steps.length; j++){
+      var L = (S[i].steps[j].note || "").length;
+      if (L > best){ best = L; wordy = j; }
+      if (disky < 0 && S[i].steps[j].sectors) disky = j;
+    }
+    if (wordy >= 0){ step = wordy; sample(); }
+    if (disky >= 0){ step = disky; sample(); }
+  }
+  /* One row of slack on the timeline: selecting a step that is too small to
+     label anyway gives it one, which can add a rung to that stack. */
+  m.dataset.reserve = Math.ceil(mx);
+  t.dataset.reserve = Math.ceil(tx) + 17;
+  /* A little slack on the panel below everything else: the three samples per
+     stage do not cover every step's exact facts, and being a few pixels short
+     there is the one place it costs nothing to be generous. */
+  d.style.minHeight = (Math.ceil(dx) + 14) + "px";
+  stage = keepStage; step = keepStep;
 }
 
 /* --------------------------------------------------------------------------
@@ -2092,6 +2170,14 @@ function drawMap(){
   var W = bar.clientWidth || 1, ram = D.ram;
   var hot = {};
   if (step >= 0) (st.steps[step].mem || []).forEach(function(id){ hot[id] = 1; });
+  /* The size threshold below exists to stop thirteen crowded regions putting
+     thirteen rungs on the stack. Where a stage HAS no crowd it should not
+     apply at all - the first stage owns three regions, and hiding all three
+     leaves a map with nothing named on it. */
+  var named = st.regions.filter(function(r){
+    return r.id.indexOf("free") !== 0 && r.id !== "unclaimed";
+  }).length;
+  var crowded = named > 7;
   var seen = {}, items = [];
   st.regions.forEach(function(r){
     seen[r.id] = 1;
@@ -2119,13 +2205,16 @@ function drawMap(){
     b.classList.toggle("hot", !!hot[r.id]);
 
     /* label it if it is worth a label: everything but the anonymous free runs */
-    /* Label everything with a name. The only things that go unlabelled are
-       the anonymous runs of arena between claims, and only when they are too
-       small to be worth a leader - keyed off the ID and not the colour, so a
-       named region that happens to be empty ground (the FAT window before the
-       mount) keeps its label. */
+    /* THE FULL MAP LABELS WHAT YOU CAN SEE ON IT. Nine of a stage's thirteen
+       regions are inside the first fifth of memory and several are a few
+       hundred bytes, so labelling every one puts thirteen rungs on the stack
+       - and the rungs come from the ANCHORS being crowded, not from the words
+       being long, so no amount of shortening fixes it. The small ones are
+       named on the magnified strip directly below, which is what the strip is
+       for. Anonymous runs of free pool are unlabelled either way. */
     var anon = r.id.indexOf("free") === 0 || r.id === "unclaimed";
-    var wantLabel = !anon || (r.b - r.a) > ram * 0.10;
+    var wantLabel = !crowded || (r.b - r.a) >= ram * 0.007;
+    if (anon) wantLabel = (r.b - r.a) > ram * 0.10;
     var L = mlabels[r.id];
     if (wantLabel){
       if (!L){
@@ -2139,7 +2228,7 @@ function drawMap(){
         L.addEventListener("click", function(){ pickRegion(r.id); });
       }
       L.innerHTML = "";
-      L.appendChild(document.createTextNode(r.label + " "));
+      L.appendChild(document.createTextNode((r.sl || r.label) + " "));
       var sz = document.createElement("span"); sz.className = "sz";
       sz.textContent = bytes(r.b - r.a);
       L.appendChild(sz);
@@ -2346,6 +2435,19 @@ function drawTime(){
      exact figure, which is the number to read. */
   var pad = 0.35 / n, sum = 0, w = [];
   for (i = 0; i < n; i++){ w[i] = (tot ? st.steps[i].ms / tot : 1/n) + pad; sum += w[i]; }
+  /* WHICH STEPS GET A LABEL. All of them where there are few; otherwise the
+     longest LABEL_MAX by time, which on the stage that loads the kernel means
+     the reads and not the housekeeping between them. The rest keep their
+     segment, their hover and their click. */
+  var LABEL_MAX = 7, keep = {};
+  if (n <= LABEL_MAX){
+    for (i = 0; i < n; i++) keep[i] = 1;
+  } else {
+    var order = [];
+    for (i = 0; i < n; i++) order.push(i);
+    order.sort(function(a, b){ return st.steps[b].ms - st.steps[a].ms; });
+    for (i = 0; i < LABEL_MAX; i++) keep[order[i]] = 1;
+  }
   bar.innerHTML = ""; lab.innerHTML = "";
   var at = 0, items = [];
   for (i = 0; i < n; i++){
@@ -2358,7 +2460,7 @@ function drawTime(){
     el.title = sp.label + " - " + ms(sp.ms);
     (function(j){ el.addEventListener("click", function(){ setStep(j); }); })(i);
     bar.appendChild(el);
-    var big = n <= 16 || sp.ms >= tot * 0.028 || i === step;
+    var big = keep[i] || i === step;
     if (big){
       var L = document.createElement("div");
       L.className = "lb" + (i === step ? " sel" : "");
@@ -2390,6 +2492,9 @@ function showRegion(r){
 }
 function facts(rows){
   var f = $("dfacts"); f.innerHTML = "";
+  f.classList.toggle("two", rows.filter(function(r){
+    return r[1] !== null && r[1] !== undefined && r[1] !== "";
+  }).length > 5);
   rows.forEach(function(kv){
     if (kv[1] === null || kv[1] === undefined || kv[1] === "") return;
     var d = document.createElement("div");
@@ -2409,8 +2514,9 @@ function drawDetail(){
       "timeline above, or a label on it, to see what that step does — the " +
       "memory it runs from lights up on the map.";
     $("dbody").appendChild(p);
+    /* `what moves` is beside the title already; a second copy in a column
+       half this wide only wraps to five lines and unbalances the pair. */
     facts([["stage", (stage + 1) + " of " + S.length],
-           ["what moves", st.moved],
            ["time in this stage", ms(st.ms)],
            ["at, from reset", ms(st.t0) + " → " + ms(st.t0 + st.ms)],
            ["steps measured", String(st.steps.length)],
@@ -2433,6 +2539,7 @@ function drawDetail(){
       return r ? r.label : id;
     });
     var q = document.createElement("p");
+    q.className = "lit";
     q.innerHTML = "<b>Lit up on the map:</b> " + esc(names.join(" · "));
     $("dbody").appendChild(q);
   }
@@ -2556,9 +2663,15 @@ document.addEventListener("keydown", function(e){
 
 var rt;
 window.addEventListener("resize", function(){
-  clearTimeout(rt); rt = setTimeout(function(){ drawMap(); drawTime(); }, 90);
+  clearTimeout(rt);
+  rt = setTimeout(function(){ reserve(); setStage(stage); }, 110);
 });
 setStage(0);
+reserve();
+setStage(stage);
+if (document.fonts && document.fonts.ready){
+  document.fonts.ready.then(function(){ reserve(); setStage(stage); });
+}
 })();
 '''
 
@@ -2610,42 +2723,42 @@ def render(p, fragment=False):
 
     body = """
 <div class="wrap">
- <div class="top">
-  <div>
+ <div class="board">
+ <aside class="rail">
    <h1>os8088 <span class="sub">Boot Ladder</span></h1>
    <p class="lede">What an IBM PC does between the power switch and a usable
     desktop, one <b>discrete move of memory</b> at a time \u2014 %(nst)d of them,
-    on a 4.77&nbsp;MHz 8088 reading a 360&nbsp;KB floppy. Pick a stage below or
-    use <span class="kbd">&larr;</span><span class="kbd">&rarr;</span>; then
-    click a step on its timeline to light up the memory it runs from.
-    Underlined words have a definition on hover.</p>
+    on a 4.77&nbsp;MHz 8088 reading a 360&nbsp;KB floppy. Pick a rung, or use
+    <span class="kbd">&larr;</span><span class="kbd">&rarr;</span>; then click a
+    step on its timeline to light up the memory it runs from. Underlined words
+    have a definition on hover.</p>
+   <div class="splash-outer">
+    <div class="splash off" id="splash">
+     <div class="curs"></div>
+     <img class="desk" id="sdesk" alt="The os8088 desktop as this boot left it">
+     <div class="logo" title="The loading screen's own logo, turning once every 3.5 seconds. It reads 8808 halfway round because the real one is a coin flip of the whole word: at 180 degrees the first 8 is on the right."><span>8088</span></div>
+     <div class="dlg"><div class="dlg2">
+       <div class="cap">%(welcome)s</div>
+       <div class="trough"><div class="fill" id="sfill"></div></div>
+       <div class="pct" id="spct">0%%</div>
+       <div class="msg" id="smsg"></div>
+     </div></div>
+    </div>
+    <div class="cabin" id="scab"></div>
+   </div>
    <div class="stages" id="stages"><span class="nav" id="navbtns">
      <button id="prev" type="button" title="previous stage (left arrow)">&larr;</button>
      <button id="next" type="button" title="next stage (right arrow)">&rarr;</button>
    </span></div>
-  </div>
-  <div class="splash-outer">
-   <div class="splash off" id="splash">
-    <div class="curs"></div>
-    <img class="desk" id="sdesk" alt="The os8088 desktop as this boot left it">
-    <div class="logo" title="The loading screen's own logo, turning once every 3.5 seconds. It reads 8808 halfway round because the real one is a coin flip of the whole word: at 180 degrees the first 8 is on the right."><span>8088</span></div>
-    <div class="dlg"><div class="dlg2">
-      <div class="cap">%(welcome)s</div>
-      <div class="trough"><div class="fill" id="sfill"></div></div>
-      <div class="pct" id="spct">0%%</div>
-      <div class="msg" id="smsg"></div>
-    </div></div>
-   </div>
-   <div class="cabin" id="scab"></div>
-  </div>
- </div>
-
- <div class="stitle" id="stitle"></div>
- <div class="smoved" id="smovedt"></div>
+ </aside>
+ <main class="work">
+ <div class="shead"><div class="stitle" id="stitle"></div>
+  <div class="smoved" id="smovedt"></div></div>
 
  <div class="panel">
   <p class="ph"><span>Memory \u2014 all 640&nbsp;KB of it, drawn to scale</span>
-   <span class="hint">labels rise from the block they name \u00b7 the hatched
+   <span class="hint">labels rise from the blocks big enough to see at this
+   scale; the rest are named on the magnified strip below \u00b7 the hatched
    band is code lying <i>across</i> the map rather than a region of it</span></p>
   <div class="mlab" id="mlab"></div>
   <div class="mbar" id="mbar"></div>
@@ -2670,6 +2783,8 @@ def render(p, fragment=False):
  <div class="panel detail">
   <div><h3 id="dtitle"></h3><div id="dbody"></div></div>
   <div class="facts" id="dfacts"></div>
+ </div>
+ </main>
  </div>
 
  <footer>
