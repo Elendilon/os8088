@@ -26,6 +26,8 @@
 VID_A_VGA   equ 1 << VID_VGA
 VID_A_HERC  equ 1 << VID_HERC
 VID_A_CGA   equ 1 << VID_CGA
+VID_A_EGA   equ 1 << VID_EGA     ; bit 3. An EGA machine is EGA + CGA (mode 6),
+                                 ; never part of an extended desktop (39.24)
 
 ; SPEC.md 39.19.2's placements. TWO and not four, because the primary is
 ; always at the virtual origin, so "which monitor is on the left" is answered
@@ -159,10 +161,12 @@ vid_memchk:
 ; The running adapter is marked available without being probed, because the
 ; probe writes and that is the screen.
 ;
-; VGA IS NOT PROBED AT ALL, because vid_detect already answered it: steps 1
-; and 2 of SPEC.md 39.1 run before the equipment word, so [vid_kind] is
-; VID_VGA on every machine with a VGA or EGA BIOS. And such a machine can
-; always do CGA as well - mode 6 is a standard BIOS mode on every VGA and
+; NEITHER PLANAR KIND IS PROBED AT ALL, because vid_detect already answered
+; it: steps 1 and 2 of SPEC.md 39.1 run before the equipment word, so
+; [vid_kind] is VID_VGA or VID_EGA on every machine with a VGA or EGA BIOS -
+; which is what [vid_mono] = 0 above is asking, rather than the kind. And such
+; a machine can always do CGA as well - mode 6 is a standard BIOS mode on
+; every VGA and
 ; EGA ever made, and it is the same byte-exact 640x200 framebuffer this
 ; kernel's CGA path already drives (SPEC.md 39.9's VIDEO=cga has relied on
 ; that for as long as it has existed).
@@ -177,9 +181,9 @@ vid_probe_avail:
     shl al, cl
     mov [vid_avail], al
 
-    cmp byte [vid_kind], VID_VGA    ; ...and a VGA/EGA does mode 6 too
-    jne .herc
-    or byte [vid_avail], VID_A_CGA
+    cmp byte [vid_mono], 0          ; ...and a VGA OR EGA does mode 6 too - it
+    jne .herc                      ; is a standard BIOS mode on every one of
+    or byte [vid_avail], VID_A_CGA  ; them, so the CGA bit is set unprobed
 .herc:
     cmp byte [vid_kind], VID_HERC
     je .cga                     ; already marked, and its RAM is the screen
@@ -334,9 +338,9 @@ vid_cga_alias:
 vid_avail_test:
     push cx
     push bx
-    cmp al, VID_CGA             ; a byte from SYSTEM.CFG written by a kernel
-    ja .no                      ; that knew a fourth adapter
-    mov cl, al
+    cmp al, VID_EGA            ; VID_EGA (3) is the fourth adapter now; a byte
+    ja .no                     ; above it is a SYSTEM.CFG from a still-newer
+    mov cl, al                 ; kernel and is refused
     mov bl, 1
     shl bl, cl
     test [vid_avail], bl
@@ -1095,14 +1099,20 @@ vid_blank_kind:
     push es
     cmp al, VID_HERC
     je .mono
-    cmp al, VID_VGA
-    je .vga
-    mov ax, 0x0040
+    cmp al, VID_EGA           ; EGA has NEITHER of the two enable bits: SR01
+    je .ega                   ; bit 5 and the Attribute Controller's PAS are
+    cmp al, VID_VGA           ; both VGA additions, and it does not decode
+    je .vga                   ; 3D8h either. Its blank is its PALETTE - see
+    mov ax, 0x0040            ; vid_ac_pal below.
     mov es, ax
     mov al, [es:0x0065]         ; the BIOS's shadow of 3D8h...
     and al, ~8                  ; ...minus the video-enable bit
     mov dx, 0x3D8
     out dx, al
+    jmp short .out
+.ega:
+    xor al, al                 ; all sixteen palette entries to black
+    call vid_ac_pal
     jmp short .out
 .mono:
     mov dx, 0x3B8               ; graphics + page 0, video OFF (bit 3 clear) -
@@ -1124,6 +1134,8 @@ vid_unblank_kind:
     push es
     cmp al, VID_HERC
     je .mono
+    cmp al, VID_EGA
+    je .ega
     cmp al, VID_VGA
     je .vga
     mov ax, 0x0040
@@ -1131,6 +1143,10 @@ vid_unblank_kind:
     mov al, [es:0x0065]         ; ...exactly what the ROM's mode set left
     mov dx, 0x3D8
     out dx, al
+    jmp short .out
+.ega:
+    mov al, 1                  ; ...and mode 10h's own sixteen back again
+    call vid_ac_pal
     jmp short .out
 .mono:
     mov dx, 0x3BF               ; the order vid_setmode uses: allow graphics
@@ -1195,6 +1211,100 @@ vid_seq1_blank:
     pop bx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; vid_ac_pal - internal: the EGA's blank, which is its PALETTE
+;
+; in:       AL = 0 to dark the screen (all sixteen Attribute Controller
+;           palette registers to black), nonzero to put mode 10h's own
+;           sixteen back
+; out:      -
+; clobbers: flags (AL is consumed)
+;
+; AN EGA HAS NEITHER ENABLE BIT. Sequencer register 1 bit 5 (Screen Off) and
+; the Attribute Controller index's bit 5 (Palette Address Source) are BOTH
+; VGA additions - on the IBM EGA, SR01 is the dot clock and the character
+; width with bits 5-7 reserved, and the AC index is bits 4-0 with 7-5 unused.
+; Writing either on an EGA blanks nothing: the bit lands in a reserved field
+; and the tube stays lit. So the card's video signal cannot be gated at all,
+; and what CAN be done is to make every colour it is showing black.
+;
+; That keeps the property the whole feature rests on and that the other three
+; arms have (see vid_blank's header): the CRTC is untouched, both syncs keep
+; coming out, the tube never re-acquires, and what the card holds in memory is
+; not disturbed - so a background task may go on drawing into a blanked EGA
+; exactly as it may into a blanked VGA.
+;
+; THE FLIP-FLOP IS RESET PER PAIR, not once in front of sixteen. 3C0h is one
+; port for both the index and the data and which one a write lands in is a
+; LATCH, not a state re-selected by each access the way the Sequencer's index
+; is; sixteen unguarded pairs are sixteen chances to be one out, and being one
+; out writes a palette entry where an index belongs. The routine also leaves
+; the latch in the INDEX phase, because the phase outlives the call and
+; fsx.inc hands a package the raw hardware between these two routines.
+;
+; EVERY INDEX WRITE CARRIES BIT 5, and leaving it out is a black screen that
+; never comes back. On the EGA bits 7-5 of the index are unused and it is a
+; don't-care - but this same code runs on a VGA under `make test VIDEO=ega`
+; (SPEC.md 39.9), and there bit 5 IS Palette Address Source: an index written
+; with it clear means "the host is loading the palette", which DISABLES video
+; output. Sixteen index writes of a bare 0..15 therefore blank the screen as a
+; side effect of addressing it, and the restoring pass blanks it again while
+; putting the colours back - the palette ends up right and the tube stays
+; dark. Found on the glass, which is the only place it shows: the blank looks
+; correct and it is the unblank that never returns.
+;
+; IT RUNS WITH IF=0, for vid_seq1_blank's reason one screen up: the read and
+; the write are a pair with a reachable gap, and this one is thirty-two
+; accesses of it, off ui_task's idle blanker, pre-emptible throughout.
+; -----------------------------------------------------------------------------
+vid_ac_pal:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov bl, al                  ; 0 = black, nonzero = the defaults
+    mov si, vid_ac_dflt
+    xor cl, cl                  ; CL = the palette register, 0..15
+    pushf
+    cli
+.n:
+    mov dx, 0x3DA               ; Input Status 1: latch to INDEX...
+    in al, dx
+    mov dx, 0x3C0
+    mov al, cl                  ; ...the register, WITH BIT 5 SET...
+    or al, 0x20                 ; (see below)
+    out dx, al
+    xor al, al
+    or bl, bl
+    jz .wr
+    mov al, [si]
+.wr:
+    out dx, al                  ; ...and what it is to show
+    inc si
+    inc cl
+    cmp cl, 16
+    jb .n
+    mov dx, 0x3DA               ; leave the latch where every reader assumes
+    in al, dx                   ; it, INDEX, and not mid-pair
+    popf
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; Mode 10h's sixteen, which is what the BIOS mode set left and therefore what
+; an unblank owes: the standard EGA/VGA 16-colour default, with 6 mapped to
+; 14h so that colour 6 is BROWN rather than dark yellow, and 8..15 in the
+; second intensity group at 38h..3Fh. The kernel never programs these itself
+; (SPEC.md 39.4 works in the sixteen indices, not in the palette behind
+; them), so the BIOS default IS the live palette and restoring it is exact.
+vid_ac_dflt:
+    db 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x14, 0x07
+    db 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F
 
 %ifdef KERN_BIG
 
@@ -1861,6 +1971,13 @@ vid_pt_clamp:
 ; which is vid_cga_alias's problem again on a machine nobody has.
 ; -----------------------------------------------------------------------------
 vid_dual_ok:
+    cmp byte [vid_kind], VID_EGA    ; EGA is a single-display adapter here
+    je .no                          ; (SPEC.md 39.24: the per-display context
+                                    ; is not in scope for it). A machine that
+                                    ; booted EGA and holds a Hercules too
+                                    ; still gets one desktop; switching the
+                                    ; primary to CGA re-opens the HERC|CGA
+                                    ; case, which this then allows as before
     test byte [vid_avail], VID_A_HERC
     jz .no                      ; nothing to extend ONTO...
     test byte [vid_avail], VID_A_VGA | VID_A_CGA
@@ -1915,7 +2032,8 @@ vid_disp_other:
 ;           second one black, [vid_ndisp] = 2, [vid_cur] = 0, display 1 banked
 ;           and placed. SINGLE: the other card dark, [vid_ndisp] = 1, the
 ;           desktop back to the primary alone. A machine vid_dual_ok refuses:
-;           untouched, [vid_ndisp] stays 1
+;           untouched if nothing was live, and COLLAPSED to single if
+;           something was - see the refusal arm (SPEC.md 39.24)
 ; clobbers: flags
 ;
 ; IT IS RE-RUNNABLE AND THAT IS THE POINT (SPEC.md 39.19). It was a boot-time
@@ -1963,8 +2081,25 @@ vid_disp_init:
     push ax
     push di
     call vid_dual_ok
-    jc .out                     ; one display - or a pairing we do not take
+    jnc .paired
 
+    ; --- REFUSED, and that used to be the end of it ------------------------
+    ; [vid_ndisp] was 1 here BY CONSTRUCTION: vid_dual_ok read nothing but
+    ; [vid_avail], which is fixed for the life of the machine (see the top of
+    ; this file), so a refusal could never follow a non-refusal and returning
+    ; was safe. VID_EGA made the predicate depend on [vid_kind] as well
+    ; (SPEC.md 39.24), and vid_switch MOVES that - so an Extend can be LIVE
+    ; when the answer turns to no. Returning then leaves [vid_ndisp] = 2 and
+    ; display 0's vid_ctx describing the card we have just switched away
+    ; from, which is a desktop drawn into the wrong segment at the wrong
+    ; stride. A refusal has to bring the arrangement DOWN.
+    cmp byte [vid_ndisp], 1
+    je .out                     ; nothing live: unchanged, and the boot path
+    mov ah, [vid_kind]          ; ...otherwise collapse it through the arm
+    call vid_disp_other         ; that already knows how. [vid_dmode] is kept:
+    jmp short .single           ; the arrangement is impossible on THIS
+                                ; primary, not forgotten
+.paired:
     mov ah, [vid_kind]          ; the primary, banked across the two applies
     call vid_disp_other         ; ...and AL = the other display's adapter, which
                                 ; is NOT simply the other of two kinds - see
@@ -1973,6 +2108,7 @@ vid_disp_init:
     jne .extend
 
     ; --- SINGLE (SPEC.md 39.19) ---------------------------------------------
+.single:
     call vid_blank_kind         ; AL is still the other kind: dark its monitor
     mov byte [vid_ndisp], 1     ; ...before anything can compute a union over
     mov byte [vid_cur], 0       ; a display that is no longer there

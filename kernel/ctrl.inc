@@ -443,7 +443,8 @@ cp_s_vid:   db 'Display', 0     ; list name AND the page heading
 cp_s_vvga:  db 'Vga 640x480', 0
 cp_s_vherc: db 'Hercules 720x348', 0
 cp_s_vcga:  db 'Cga 640x200', 0
-cp_vidnam:  dw cp_s_vvga, cp_s_vherc, cp_s_vcga
+cp_s_vega:  db 'Ega 640x350', 0
+cp_vidnam:  dw cp_s_vvga, cp_s_vherc, cp_s_vcga, cp_s_vega
 cp_s_vact:  db 'Set Primary', 0
 ; The caption, inside the pane's 27-character limit. It is ONE string and the
 ; page's only constant line: it says what the button does, on every state the
@@ -2736,7 +2737,9 @@ cp_vid_pick:
 ; -----------------------------------------------------------------------------
 ; cp_vid_slot - which adapter is drawn in row slot AL? (module internal)
 ;
-; in:  AL = slot, 0..2 (the visible row, top to bottom)
+; in:  AL = slot, 0..2 (the visible row, top to bottom - THREE is still the
+;      most any machine has, VID_VGA and VID_EGA being mutually exclusive at
+;      detection, so the bands below are still laid out for three)
 ; out: AL = the VID_* kind in it, CF = 0; CF = 1 = that slot has no row
 ; clobbers: AL, flags
 ;
@@ -2762,7 +2765,7 @@ cp_vid_slot:
     inc cl
 .skip:
     inc bl
-    cmp bl, 3
+    cmp bl, 4                   ; VID_VGA / VID_HERC / VID_CGA / VID_EGA
     jb .n
     pop cx
     pop bx
