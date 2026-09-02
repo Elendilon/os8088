@@ -613,6 +613,66 @@ it ships` / `ARM 2 of 3 MOUPRIV` / `ARM 3 of 3 MOUPRIV + STKFIX`. **The three
 readings above should be re-taken on the labelled disks**, and until they are,
 treat this table as arm 2-or-3 rather than as either.
 
+## 9.7 ARM 3 on the 286 — the end state, and the PS/2 fix validated
+
+**`ARM 3 of 3 MOUPRIV + STKFIX`**, read off the panel itself. Same machine as
+§9.6's third column: Packard Bell 286, VGA 640, PS/2 mouse, ROM 01/15/88 `FC`.
+
+| | §9.6 (PS/2 uncovered) | **ARM 3** | delta |
+|---|---|---|---|
+| ROM `int 08h` | 18 | 18 | — |
+| floor, quiet | 70 | 70 | — |
+| floor, +mouse | 86 | **70** | **−16** |
+| floor, +keys | 90 | 74 | −16 |
+| **FLOOR MAX** | **90** | **74** | **−16** |
+| mouse ISR, own stack | **0** | **52** | now measured |
+| slot 1 (idle) | 60 | **40** | −20 |
+| chain samples | 2,008 | 2,062 | |
+
+### 9.7.1 The mouse now adds exactly nothing
+
+`quiet 70 → +mouse 70`. **Zero**, where the same machine read +16 before
+`mou_p2_isr` was covered. Not "mostly removed" — removed. The six bytes the CPU
+pushes are still there, they simply never became the deepest thing on any
+slice.
+
+### 9.7.2 It is the ADAPTER that sets the mouse ISR's depth, not the mouse
+
+**52 bytes for the PS/2 ISR on VGA**, against **54 for the serial ISR on QEMU's
+VGA** — two different ISRs, two different machines, the same number. And
+against **23 on CGA / 30 on Hercules**.
+
+So the depth is dominated by `cur_move`'s adapter path (§39) and the ISR around
+it is nearly free. That settles §9.6.3's open question the other way round from
+how it was asked: **there is no missing "real VGA" reading to wait for** — the
+286 is one, it agrees with QEMU to two bytes, and **~54 is confirmed as the
+number a class scheme must be cut from.**
+
+### 9.7.3 What the end state actually is
+
+**Slot 1 — the idle task's slice — reads 40 with both proposals on**, against
+74 for the busiest slice on the same run. 40 is the honest floor for a *minimal*
+task on this machine: its own ≤4 bytes plus ~36 of interrupt frame that nothing
+proposed here removes, because it is `sch_isr`'s own context.
+
+The keyboard's **+4** reproduced exactly, on the same spamming protocol as
+§9.6.4 — so on this machine it is a standing cost, small and real, where on the
+5150 it was +14 once and +0 on the adapter next door.
+
+### 9.7.4 Recorded, not yet spent
+
+**§6 and §7's class arithmetic is deliberately NOT rewritten on these numbers.**
+Size-optimisation pass 2 (`claude/kernel-size-optimization-p2-zcuuac`) is still
+running and rewrites `kernel/sched.inc` — which is precisely where the ~36
+bytes of §9.7.3's remaining floor live, and where `STKDIAG`'s own hook sits
+(§4.2.3). Cutting classes from a floor that pass is about to move would be
+sizing against a number with a known expiry.
+
+What is banked and will not move: the ROM term is per-BIOS (18–36 on iron, 56
+on SeaBIOS); the mouse ISR is ~54 on VGA and 23–30 on mono, whichever mouse;
+and both relocations do what they were priced to do, measured on three
+machines.
+
 ## 10. The measurement disk — `make stkdiag`
 
 **Built, and it answers §9 on any machine.** `STKDIAG=1` (`kernel/stkdiag.inc`)
