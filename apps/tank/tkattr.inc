@@ -888,6 +888,10 @@ tk_at_step:
     push di
     push es
     call OSAPI_GFX_LOCK             ; **THE LOCK FIRST, THEN THE QUESTION**
+    cmp byte [tk_abon], 0           ; ...and the credits are the same question:
+    jne .unlock                     ; while they are up the UI task owns the
+                                    ; content, and tk_abdismiss repaints the
+                                    ; whole panel when they come down
     mov bx, [tk_win]                ; (SPEC.md 20.6 rule 5). wm_obscured's own
     call OSAPI_WM_OBSCURED          ; header says it is only trustworthy while
     jc .unlock                      ; the caller holds the lock, because the UI

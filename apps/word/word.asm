@@ -17036,8 +17036,8 @@ wd_abopen:
     cmp ax, 360                     ; name line as a toast instead - refusal
     jb .toast                       ; with the reason (SPEC.md 47)
     mov ax, [wd_ch]
-    cmp ax, 96
-    jb .toast
+    cmp ax, 112                     ; ...and 16 taller since the porter credit
+    jb .toast                       ; became a fourth line (SPEC.md 68.2)
     mov ax, [wd_cw]
     sub ax, 344
     shr ax, 1
@@ -17047,7 +17047,7 @@ wd_abopen:
     add ax, 343
     mov [wd_abrect+4], ax
     mov ax, [wd_ch]
-    sub ax, 72
+    sub ax, 88
     shr ax, 1
     add ax, [wd_ct]
     mov dx, [wd_ct]
@@ -17057,7 +17057,7 @@ wd_abopen:
     mov ax, dx
 .yok:
     mov [wd_abrect+2], ax
-    add ax, 71
+    add ax, 87
     mov [wd_abrect+6], ax
     ; panel, frame, shadow - the dropdown's dress
     mov al, CWHITE
@@ -17086,8 +17086,9 @@ wd_abopen:
     inc cx
     mov dx, bx
     call OSAPI_GFX_FILL_GRAY
-    ; the three lines (SPEC.md 68.2): the name, the version, and where the
-    ; authentic UI came from - the Computer History Museum's Opus release
+    ; the four lines (SPEC.md 68.2): the name, the version, where the
+    ; authentic UI came from - the Computer History Museum's Opus release -
+    ; and who brought it here
     mov cx, [wd_abrect]
     add cx, 8
     mov dx, [wd_abrect+2]
@@ -17103,6 +17104,10 @@ wd_abopen:
     mov si, wd_s_abou3
     mov ax, (CWHITE << 8) | CBLACK
     call OSAPI_FONT_RUN
+    add dx, 12
+    mov si, wd_s_abou4
+    mov ax, (CWHITE << 8) | CBLACK
+    call OSAPI_FONT_RUN
     ; the OK button
     mov ax, [wd_abrect]
     add ax, 148
@@ -17110,7 +17115,7 @@ wd_abopen:
     add ax, 47
     mov [wd_abok+4], ax
     mov ax, [wd_abrect+2]
-    add ax, 50
+    add ax, 66
     mov [wd_abok+2], ax
     add ax, 13
     mov [wd_abok+6], ax
@@ -19289,6 +19294,7 @@ wd_s_sp3:   db '   ', 0
 wd_s_about: db 'Microsoft Word', 0
 wd_s_abou2: db 'Version 1.1a for os8088', 0
 wd_s_abou3: db 'UI from the CHM Opus source release', 0
+wd_s_abou4: db 'Ported by Jorge Gonzalez', 0
 wd_s_ok:    db 'OK', 0
 wd_m_noclose: db 'Close refused - try again', 0
 

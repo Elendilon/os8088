@@ -728,6 +728,43 @@ _os88_about_set:
     pop si
     pop bp
     ret
+
+%ifdef OS88UI_ABOUT
+; -----------------------------------------------------------------------------
+; void os88_about_card(void *win, const char **lines)
+;   - and void os88_about_card_d(void *win, const char **lines) for a PAINT.
+;
+; The standard About card (SPEC.md 20.5.1.1) drawn from a C package. The line
+; table is a C array of `const char *` terminated by a 0 entry, which in this
+; near model IS os88ui_about's own format - a word per line, 0 ending it - so
+; nothing is staged or converted.
+;
+; TWO ENTRIES, for the reason SPEC.md 20.5.1.1 gives: from os88_about() the
+; clip has to be armed (ui_dispatch calls you with none), and from
+; os88_paint() re-arming would throw that paint's damage region away.
+; -----------------------------------------------------------------------------
+_os88_about_card:
+    push bp
+    mov bp, sp
+    push si
+    mov bx, [bp+4]
+    mov si, [bp+6]
+    call os88ui_about               ; arms the clip, then draws
+    pop si
+    pop bp
+    ret
+
+_os88_about_card_d:
+    push bp
+    mov bp, sp
+    push si
+    mov bx, [bp+4]
+    mov si, [bp+6]
+    call os88ui_about_d             ; a paint's region is already armed
+    pop si
+    pop bp
+    ret
+%endif
 %endif
 
 %ifdef CC_HAS_ONMOUSEUP

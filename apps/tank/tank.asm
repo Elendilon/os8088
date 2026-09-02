@@ -414,6 +414,12 @@ tk_entry:
                                     ; fact this package holds about it
     mov si, tk_menus
     call OSAPI_MENU_SET
+    mov si, tk_about                ; ...and 'About Tank Attack' above the
+    call OSAPI_ABOUT_SET            ; Close the kernel already puts in our
+                                    ; pull-down (SPEC.md 12.2). WINDOWED only:
+                                    ; inside an fsx bracket the app owns every
+                                    ; pixel and there is no bar to pull down
+                                    ; (SPEC.md 53.7, docs/GFX-FSX-PLAN.md)
 .full:
     pop di
     pop si
@@ -536,6 +542,13 @@ tk_paint:
     call tk_band_full
     call tk_at_resume               ; the two gleam cursors are absolute, so a
     call tk_hire                    ; window that MOVED has to re-init them
+    cmp byte [tk_abon], 0           ; ...and the About card LAST, over the
+    je .out                         ; attract panel it is opaque about (20.5.1)
+    push si
+    mov bx, [tk_win]
+    mov si, tk_ablines
+    call os88ui_about_d             ; _d: this paint's region is already armed
+    pop si
 .out:
     pop di
     pop si
@@ -550,6 +563,8 @@ tk_paint:
 ; -----------------------------------------------------------------------------
 tk_onkey:
     push ax
+    call tk_abdismiss               ; any key takes the credits down, and is
+    jc .out                         ; spent doing it
     cmp al, 'f'
     je .go
     cmp al, 'F'
@@ -574,7 +589,10 @@ tk_onkey:
 ; tk_onclick - W_ONCLICK: a click in the panel starts a session too
 ; -----------------------------------------------------------------------------
 tk_onclick:
+    call tk_abdismiss               ; the credits are up: this click takes them
+    jc .out                         ; down rather than starting a session
     call tk_cmd_play
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -583,7 +601,8 @@ tk_onclick:
 tk_oncmd:
     push ax
     push bx
-    cmp al, 0
+    call tk_abdismiss               ; a menu pick takes the credits down first,
+    cmp al, 0                       ; and then does what it says
     jne .n1
     call tk_cmd_play
     jmp short .out
@@ -625,6 +644,68 @@ tk_s_score:  db 'SCORE ', 0
 tk_s_gnew:   db 'N - NEW GAME', 0
 tk_s_gexit:  db 'F - EXIT', 0
 tk_s_enter:  db 'PRESS ENTER', 0
+
+; =============================================================================
+; 'About Tank Attack' - the credit card (SPEC.md 12.2, 20.5.1)
+; =============================================================================
+; WINDOWED ONLY, and that is the architecture rather than a choice: the game
+; itself runs inside an fsx bracket where this package owns every pixel and no
+; kernel drawing slot is legal at all (SPEC.md 53.7, docs/GFX-FSX-PLAN.md), so
+; there is no bar to pull the item down from. The attract panel is where the
+; kernel's chrome exists, and the card goes on it.
+;
+; The attract worker animates the same content two ticks at a time, so
+; tk_at_step checks [tk_abon] under the lock it has just taken and drops the
+; whole frame - the arkanoid/tracker pattern.
+
+; -----------------------------------------------------------------------------
+; tk_about - the OSAPI_ABOUT_SET handler (slot 0x01E0)
+; in:  SI = our window ptr; the UI task, gfx lock HELD
+; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+tk_about:
+    push bx
+    push si
+    mov byte [tk_abon], 1
+    mov bx, si
+    mov si, tk_ablines
+    call os88ui_about               ; arms the clip itself: a menu dispatch
+    pop si                          ; arrives without one (SPEC.md 11.3)
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; tk_abdismiss - take the card down if it is up
+; in:  gfx lock held ([tk_win] names the window; every caller is a callback of
+;      ours and the worker never calls this)
+; out: CF = 1 the click or key was spent doing it; preserves every register
+;
+; tk_paint is the whole attract panel, which is what the card covered AND what
+; the worker skipped while it was up - one repaint settles both.
+; -----------------------------------------------------------------------------
+tk_abdismiss:
+    cmp byte [tk_abon], 0
+    je .none
+    push bx
+    mov byte [tk_abon], 0
+    mov bx, [tk_win]
+    call OSAPI_WM_CLIP_SET          ; nothing has armed a region for a click
+    jc .gone                        ; or a key (SPEC.md 11.3)
+    call tk_paint
+.gone:
+    pop bx
+    stc
+    ret
+.none:
+    clc
+    ret
+
+; --- the About card's lines (SPEC.md 20.5.1) ----------------------------------
+tk_ablines:
+    dw tk_ab1, tk_ab2, tk_ab3, 0
+tk_ab1:      db 'Tank Attack for os8088', 0
+tk_ab2:      db 0
+tk_ab3:      db 'Contributed by Elendilon', 0
 
 tk_tpl:
     dw 0, 0, TK_WINW, TK_WINH
@@ -910,10 +991,16 @@ tk_tpl:
     ZWORD tk_cn                     ; ...and what this LSTEP takes of them
     ZWORD tk_due                    ; the tick the worker's next wake is due
     ZBYTE tk_hired
+    ZBYTE tk_abon                   ; the About card is up (SPEC.md 20.5.1)
     ZBUF  tk_curfh, TKC_SZ          ; the two gaps and their two tails: one
     ZBUF  tk_curft, TKC_SZ          ; walk block each, plus where it has got
     ZBUF  tk_curbh, TKC_SZ          ; to and what it still owes this glyph
     ZBUF  tk_curbt, TKC_SZ
+
+; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
+%define OS88UI_ABOUT            ; the standard About card, and NOTHING else:
+%define OS88UI_NOBTN            ; the attract panel is the game's own chrome
+%include "os88ui.inc"
 
     OS88_BSS TK_BSS
     OS88_IMAGE_END

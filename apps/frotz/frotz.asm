@@ -790,13 +790,15 @@ zf_it_script: db 'Transcript', 0
 zf_about:    db 'Frotz', 0
 
 zf_abt_lines:
-    dw zf_a1, zf_a2, zf_a3, zf_a4, zf_a5, zf_a6, 0
+    dw zf_a1, zf_a2, zf_a3, zf_a4, zf_a5, zf_a6, zf_a7, zf_a8, 0
 zf_a1: db 'Frotz - a Z-machine for os8088', 0
 zf_a2: db 'Plays Infocom and Inform stories, v1-v8.', 0
 zf_a3: db 0
 zf_a4: db 'An independent implementation of the', 0
 zf_a5: db 'Z-Machine Standard 1.1 in 8086 assembly.', 0
 zf_a6: db "Not a port of David Griffith's Frotz.", 0
+zf_a7: db 0
+zf_a8: db 'Contributed by Jorge Gonzalez', 0
 
 zf_splash_lines:
     dw zf_p1, zf_p2, zf_p3, 0

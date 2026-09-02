@@ -7533,7 +7533,8 @@ mc_s_bonus:  db 'BONUS POINTS', 0
 ; The credits. Kept short because this window is sized from the live screen and
 ; CGA's 200 rows leave a much smaller content than VGA's 480.
 mc_ablines:
-    dw mc_ab1, mc_ab2, mc_ab3, mc_ab4, mc_ab5, mc_ab6, mc_ab7, mc_ab8, 0
+    dw mc_ab1, mc_ab2, mc_ab3, mc_ab4, mc_ab5, mc_ab6, mc_ab7, mc_ab8
+    dw mc_ab9, mc_ab10, 0
 mc_ab1:      db 'Missile Command for os8088', 0
 mc_ab2:      db 0
 mc_ab3:      db 'After the 6502 arcade game', 0
@@ -7541,7 +7542,9 @@ mc_ab4:      db 'by Atari, 1980 - waves,', 0
 mc_ab5:      db 'scoring and explosions from', 0
 mc_ab6:      db 'the original W3MAIN source.', 0
 mc_ab7:      db 0
-mc_ab8:      db 'Click to fire. 1/2/3 pick a base.', 0
+mc_ab8:      db 'Ported by Jorge Gonzalez', 0
+mc_ab9:      db 0
+mc_ab10:     db 'Click to fire. 1/2/3 pick a base.', 0
 
 ; --- the arcade's own tables ----------------------------------------------------
 ; ICBWAV: ICBMs per wave, clamped at the end of the table (W3MAIN).
