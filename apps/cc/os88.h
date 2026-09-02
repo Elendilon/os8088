@@ -663,6 +663,22 @@ void os88_menu_set(void *win, struct os88_menuset *set);
  * puts in your name's pull-down. Needs CC_HAS_ABOUT. */
 void os88_about_set(void *win);
 
+/* os88_about_card - draw the STANDARD About card (SPEC.md 20.5.1.1): a white
+ * card, a black frame and your lines centred in it, measured from the strings
+ * and clamped to the live content box. `lines` is an array of `const char *`
+ * ended by a 0 entry; an empty string is a blank line. Keep them short - the
+ * card clamps to the content and a CGA's is the narrow one.
+ *
+ *   static const char *my_ab[] = { "Thing for os8088", "",
+ *                                  "Contributed by Someone", 0 };
+ *
+ * Call the plain one from os88_about(), which arrives with NO clip region
+ * armed, and the _d one from os88_paint(), where re-arming would throw that
+ * paint's damage rect away. You keep the flag and the dismissal; the widget
+ * only draws. Needs CC_HAS_ABOUT and %define OS88UI_ABOUT. */
+void os88_about_card(void *win, const char **lines);
+void os88_about_card_d(void *win, const char **lines);
+
 /* Install the two optional window callbacks. Call from os88_main() after
  * os88_wm_create(); they are not template words. Each needs its %define. */
 void os88_wm_onmouseup(void *win);               /* 13.7 - the RELEASE half of

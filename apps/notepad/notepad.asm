@@ -479,6 +479,8 @@ np_entry:
     push si
     mov si, np_menus                ; BX is still the window: hand it our
     call OSAPI_MENU_SET             ; menus (draws nothing, takes no lock)
+    mov si, np_about                ; ...and 'About Note Pad' above the Close
+    call OSAPI_ABOUT_SET            ; the kernel already puts in our pull-down
     pop si                          ; CF is still wm_create's: the branch
                                     ; above consumed it and OSAPI_MENU_SET
                                     ; preserves flags too (SPEC.md 20.3)
@@ -2780,6 +2782,9 @@ np_worker:
     jb .loop
 .go:
     call OSAPI_GFX_LOCK
+    cmp byte [np_abon], 0           ; the credits are up: the UI task owns the
+    jne .unlock                     ; content until a click or a key takes them
+                                    ; down, and np_abdismiss repaints it whole
     cmp byte [np_sowed], 0          ; a scroll whose repaint was dropped because
     je .nosowed                     ; another click was right behind it
     mov byte [np_sowed], 0          ; (SPEC.md 27.7.8). Cleared FIRST: a repaint
@@ -3927,7 +3932,15 @@ np_paint:
                                     ; strip np_bounds took off the top of the
                                     ; content (SPEC.md 27.10)
     call np_hirechk                 ; this walk stopped at the bottom of the
-    ret                             ; view, so the height is still owed
+    cmp byte [np_abon], 0           ; view, so the height is still owed
+    je .noab                        ; ...and the About card LAST, over the note
+    push si                         ; it is opaque about (SPEC.md 20.5.1)
+    mov bx, si
+    mov si, np_ablines
+    call os88ui_about_d             ; _d: this paint's region is already armed
+    pop si
+.noab:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; np_hguess - what the note's LENGTH alone says about its height (SPEC.md 27.7.3)
@@ -4702,6 +4715,11 @@ np_hmove:
 np_onclick:
     push ax
     push dx
+    call np_abdismiss           ; the credits are up: this click is spent
+    jnc .live                   ; taking them down - and .out is reached AFTER
+    pop dx                      ; this proc's `pop dx` on every other path, so
+    jmp .out                    ; the bank has to come off here too
+.live:
 %ifdef OS88UI_SBDRAG
     call os88ui_sbdragging      ; A PRESS CANNOT ARRIVE DURING A LIVE DRAG, so
     jc .nostale                 ; one that does means the release never came
@@ -4947,6 +4965,8 @@ np_onkey:
     push cx
     push dx
     push di
+    call np_abdismiss           ; any key takes the credits down, and is spent
+    jc .out                     ; doing it
 
     ; --- the keys that mean the same thing wherever the focus is -----------
     ; They come first because the find panel must not swallow F3, and the
@@ -5880,6 +5900,8 @@ np_new:
 ; the first case.
 ; -----------------------------------------------------------------------------
 np_oncmd:
+    call np_abdismiss               ; a menu pick takes the credits down first,
+                                    ; and then does what it says
     call np_uclose                  ; a menu command is not typing, so the edit
                                     ; group it interrupts is finished
     test ah, ah
@@ -10443,6 +10465,87 @@ np_saycnt:
 
 ; --- window template (SPEC.md 11: 16 bytes, 8 words) ---------------------------
 ; Same geometry the built-in used: 260x180 outer -> 258x160 content.
+; =============================================================================
+; 'About Note Pad' - the credit card (SPEC.md 12.2, 20.5.1)
+; =============================================================================
+; The card is os88ui.inc's. What is here is the flag, the painter drawing it
+; last, the three handlers taking it down, and the worker's guard - np_worker
+; drops its whole wake while [np_abon] is set, because it draws into the same
+; content on a timer.
+
+; -----------------------------------------------------------------------------
+; np_about - the OSAPI_ABOUT_SET handler (slot 0x01E0)
+; in:  SI = our window ptr; the UI task, gfx lock HELD
+; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+np_about:
+    push bx
+    push si
+    mov byte [np_abon], 1
+    mov bx, si
+    mov si, np_ablines
+    call os88ui_about               ; arms the clip itself: a menu dispatch
+    pop si                          ; arrives without one (SPEC.md 11.3)
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; np_abdismiss - take the card down if it is up
+; in:  SI = our window ptr; gfx lock held
+; out: CF = 1 the click or key was spent doing it; preserves every register
+;
+; THE WHITE FILL IS NOT DECORATION. np_paint's own comment says "the content
+; was white-filled on the way here" - the window manager does that before a
+; W_PAINT and this path has no window manager in front of it, so the fill is
+; done here or the card's rect keeps whatever the rows do not cover.
+; -----------------------------------------------------------------------------
+np_abdismiss:
+    cmp byte [np_abon], 0
+    je .none
+    push ax
+    push bx
+    push cx
+    push dx
+    mov byte [np_abon], 0
+    mov bx, si
+    call OSAPI_WM_CLIP_SET          ; nothing has armed a region for a click
+    jc .gone                        ; or a key (SPEC.md 11.3)
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov bx, si
+    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    push ax
+    push dx
+    mov bx, si
+    call OSAPI_WM_GEOM              ; CX = width, DX = height
+    pop bx                          ; ...the top, pushed second
+    pop ax                          ; ...and the left
+    add cx, ax                      ; -> (x1,y1)-(x2,y2), inclusive
+    dec cx
+    add dx, bx
+    dec dx
+    call OSAPI_GFX_FILL
+    call np_paint                   ; ...which is exactly what a W_PAINT does
+.gone:                              ; from here, and it wants SI = the window
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+.none:
+    clc
+    ret
+
+; --- the About card's lines (SPEC.md 20.5.1) ----------------------------------
+; Two names, because two people have worked on this one.
+np_ablines:
+    dw np_ab1, np_ab2, np_ab3, np_ab4, 0
+np_ab1:     db 'Note Pad for os8088', 0
+np_ab2:     db 0
+np_ab3:     db 'Contributed by Jorge Gonzalez', 0
+np_ab4:     db 'Optimized by Elendilon', 0
+
 np_tpl:
     dw 60, 60, 260, 180
     dw np_ttl, np_paint, np_onkey, np_onclick
@@ -10580,6 +10683,7 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                                 ; the TOP of this file, and SPEC.md 13.10.7.4
                                 ; says why in one sentence: this line is 10,000
                                 ; lines below the %ifdefs that read it
+%define OS88UI_ABOUT            ; ...and the standard About card (20.5.1)
 %define OS88UI_ALERT            ; ...and SPEC.md 75.3's alert, which is a
                                 ; PACKAGE's and not the kernel's - a windowed
                                 ; dialog has a floor of ~800 bytes wherever it
@@ -10859,6 +10963,7 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                             ; only about ours
     NPVAR np_qclose, 1      ; byte: the Save As dialog now on screen was
                             ; started by that alert, so its commit is a QUIT
+    NPVAR np_abon, 1        ; byte: the About card is up (SPEC.md 20.5.1)
     NPVAR np_qbuf, OS88UI_AMAX + 1  ; the alert's line, composed around the
                             ; document's name. Not np_tbuf, which is 30 bytes
                             ; sized for 'Loaded ' + an 8.3 name and would take

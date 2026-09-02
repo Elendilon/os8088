@@ -8725,13 +8725,16 @@ fd_ftab:
     dw fd_s_f3, fd_passs, FD_USERMAX
 
 ; --- the About panel ---------------------------------------------------------
-fd_ab_l:    dw fd_ab1, fd_ab2, fd_ab3, fd_ab4, fd_ab5, fd_ab6, 0
+; WHAT IT IS AND WHO WROTE IT, and nothing about what it is DOING. The served
+; folder and who can reach it are CONFIGURED (SPEC.md 77), so a card that
+; states either is a help screen with a stale answer in it - and this is an
+; About box.
+fd_ab_l:    dw fd_ab1, fd_ab2, fd_ab3, fd_ab4, fd_ab5, 0
 fd_ab1:     db 'FTP Server for os8088', 0
 fd_ab2:     db 0
 fd_ab3:     db 'RFC 959, one client at a time.', 0
-fd_ab4:     db 'Serves the folder it was launched from.', 0
-fd_ab5:     db 0
-fd_ab6:     db 'Anyone on the network can read these', 0
+fd_ab4:     db 0
+fd_ab5:     db 'Contributed by Elendilon', 0
 
     OS88_MENUSET fd_menus, fd_name_s, fd_oncmd
         OS88_MENU fd_m_srv, fd_i_srv, 4

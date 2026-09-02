@@ -87,9 +87,27 @@ def callsites(defines=("KERN_BIG",)):
         lines = open(lst, errors="replace").read().splitlines()
 
     # Every line that emitted a byte, in address order, with its source text.
+    #
+    # MOST OF kmain IS MACROS, and a nasm listing prints the macro's BODY
+    # rather than the argument it was given: `OVWCALL clk_init` lists as
+    # `<1>  call FAT_SEG:%1`, tagged with the expansion depth. So a row is
+    # named from the INVOCATION line - which carries the name and emits no
+    # bytes - and the expansion only says where the call landed.
+    #
+    # WITHOUT THAT, TWO THIRDS OF kmain IS INVISIBLE. Every OVWCALL, OVLGATE
+    # and SPLGATE site is dropped, the phases either side of a run of them
+    # merge, and the whole run is charged to whichever plain `call` happens to
+    # close it. Measured on the tree this was fixed against: eleven rows where
+    # there are thirty, with drv_boot's 1,463 ms and nine sectors of floppy
+    # booked to `thm_set` - two instructions of palette resolve that does no
+    # I/O at all. It reads as a phase list, not as a broken one, which is why
+    # it survived: nothing about the output says a row is missing.
     emit = []
     inmain = False
     row = re.compile(r"^\s*\d+\s+([0-9A-F]{8})\s+([0-9A-F]{2}[0-9A-F <>\[\]-]*?)\s{2,}(\S.*)$")
+    quiet = re.compile(r"^\s*\d+\s{2,}(\S.*)$")     # a line that emitted nothing
+    deep = re.compile(r"^<\d+>\s*")                  # nasm's expansion marker
+    macro = None                                      # the invocation in force
     for L in lines:
         if re.match(r"^\s*\d+\s+kmain:", L):
             inmain = True
@@ -98,20 +116,39 @@ def callsites(defines=("KERN_BIG",)):
             continue
         m = row.match(L)
         if not m:
+            q = quiet.match(L)
+            if q:
+                t = q.group(1).split(";")[0].strip()
+                if t and not t.startswith("<"):
+                    # A source-level line. An invocation is the ALL-CAPS kind;
+                    # anything else (a label, a %if) retires the last one, so a
+                    # plain `call` can never inherit a name it has no claim to.
+                    w = t.split(None, 1)
+                    macro = (w[1].split(",")[0].strip()
+                             if w[0].isupper() and len(w) > 1 else None)
             continue
-        addr, text = int(m.group(1), 16), m.group(3)
-        emit.append((addr, text.split(";")[0].strip()))
+        text = m.group(3)
+        expanded = deep.match(text) is not None
+        text = deep.sub("", text).split(";")[0].strip()
+        if expanded and macro:
+            text = text.replace("%1", macro)
+        emit.append((int(m.group(1), 16), text, macro if expanded else None))
         if text.startswith("jmp ui_task"):
             break
 
     out = []
-    for i, (addr, text) in enumerate(emit):
+    for i, (addr, text, arg) in enumerate(emit):
         if not text.startswith("call "):
             continue
         if i + 1 >= len(emit):
             break
-        name = text[5:].strip()
-        name = name.split(":")[-1]                  # `FAT_SEG:ovl_clk_init`
+        # THE MACRO'S OWN ARGUMENT BEATS THE BODY'S TEXT. SPLGATE1 and
+        # OVLGATE1 both end in a bare `call spl_gate`, so the body cannot tell
+        # drv_boot_x from xm_boot_x and the invocation can. A numeric argument
+        # is not a name - MARK and BPMARK take an index - so those fall back.
+        name = arg if (arg and not arg.isdigit()) else None
+        if name is None:
+            name = text[5:].strip().split(":")[-1]  # `FAT_SEG:ovl_clk_init`
         out.append((emit[i + 1][0], name))
     if not out:
         raise SystemExit("os88boot: no calls found in kmain - listing format?")

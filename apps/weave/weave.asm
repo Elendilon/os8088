@@ -34,6 +34,9 @@
 %define OS88UI_ARM                  ; os88ui_arm/fire/armed - the press/release
                                     ; gesture every <button>, <check> and
                                     ; <radio> is armed through
+%define OS88UI_ABOUT                ; ...the standard About card (SPEC.md
+                                    ; 20.5.1.1), reached from C through
+                                    ; os88_about_card()
 %define OS88UI_ALERT                ; ...and SPEC.md 75.3's alert, which is
                                     ; WEAVE-SPEC 8.2's alert() and 4.11's
                                     ; runaway question. 607 bytes of OUR image
