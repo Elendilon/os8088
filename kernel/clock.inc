@@ -507,11 +507,21 @@ clk_at_read:
 clk_at_num:
     cmp byte [clk_rbin], 0
     jne .bin
-    call clk_bcd                ; packed BCD, and it validates both nibbles
-    ret
+    jmp clk_bcd                 ; packed BCD, and it validates both nibbles -
+                                ; a tail call, and clk_bcd is `.ovlw` like this
 .bin:
     clc
     ret
+
+; clk_at_dcno - the refusal trampoline the first four of clk_at_dec's range
+; tests share (see clk_rp_dgno above for why one near jump beats four inverted
+; pairs, and why this is a global rather than a `.local`): -9.  Cold by
+; construction - a field out of range means the byte did not decode in the
+; mode Register B claims, and clk_at_probe then tries the other mode once and
+; gives the tier up.
+; -----------------------------------------------------------------------------
+clk_at_dcno:
+    jmp clk_at_dec.no
 
 ; -----------------------------------------------------------------------------
 ; clk_at_dec - decode clk_rr[] into clk_tb_*
@@ -525,15 +535,15 @@ clk_at_dec:
     mov [clk_rbin], al
     mov al, [clk_rr+0]
     call clk_at_num
-    jc .no
+    jc clk_at_dcno
     cmp al, 59
-    ja .no
+    ja clk_at_dcno
     mov [clk_tb_s], al
     mov al, [clk_rr+1]
     call clk_at_num
-    jc .no
+    jc clk_at_dcno
     cmp al, 59
-    ja .no
+    ja clk_at_dcno
     mov [clk_tb_mi], al
 
     ; --- the hour: strip the PM bit BEFORE decoding. 1 PM in 12-hour BCD
@@ -1097,9 +1107,11 @@ section .text
 ; correction in clk_ns_read.
 ; -----------------------------------------------------------------------------
 clk_ns_stamp:
-    push ax
-    push bx
-    push dx
+    push ax                     ; ...and NOT BX: no form of it is named below
+    push dx                     ; any more, so the routine preserves BX by not
+                                ; writing it. It carried the year byte in BL
+                                ; until the two `clk_ns_put` calls above
+                                ; started sharing AH.
     pushf
     cli                         ; every other 2C0h burst runs guarded, and
                                 ; this one is reached from clk_probe
@@ -1112,24 +1124,25 @@ clk_ns_stamp:
     mov ax, CLK_YMAX
 .yok:
     sub ax, CLK_YMIN
-    mov bl, al                  ; BL = the year byte, both conventions
-    mov ah, bl
-    mov al, CLK_NS_YRA
-    call clk_ns_put
-    mov ah, bl
-    mov al, CLK_NS_YRB
-    call clk_ns_put
+    mov ah, al                  ; AH = the year byte, and it stays there for
+    mov al, CLK_NS_YRA          ; BOTH conventions: clk_ns_put banks AX
+    call clk_ns_put             ; (`push ax` ... `pop ax`), so the second write
+    mov al, CLK_NS_YRB          ; needs only its own register index in AL.
+    call clk_ns_put             ; If clk_ns_put ever RETURNS something in AX
+                                ; this breaks the second year byte only - the
+                                ; convention 86Box's cards read - so it would
+                                ; fail on the field machine's SixPakPlus and
+                                ; nowhere else in this tree (rung 2 is in no
+                                ; emulator here).
     mov al, dl
     call clk_tobcd
     mov ah, al
     mov al, CLK_NS_LMON
     call clk_ns_put
-    mov ah, CLK_NS_MAGIC
-    mov al, CLK_NS_OK
+    mov ax, (CLK_NS_MAGIC << 8) | CLK_NS_OK     ; one store, not two
     call clk_ns_put
     popf
     pop dx
-    pop bx
     pop ax
     retf                        ; far entry, both address spaces (SPEC.md 37.94)
 
@@ -1177,6 +1190,30 @@ clk_rp_digit:
     ret
 
 ; -----------------------------------------------------------------------------
+; clk_rp_dgno - the refusal trampoline the first five of clk_rp_digits' tests
+; share.  An 8086 has NO NEAR CONDITIONAL JUMP, so NASM spells one that cannot
+; reach as `Jcc $+5 / jmp near` - five bytes instead of two - and `.no` is 200
+; bytes past the top of a routine that tests seventeen times on the way down.
+; The five nearest the entry were the expanded form; from here they are two
+; bytes each and this is the ONE near jump: -12.
+;
+; It sits between clk_rp_digit's `ret` and the routine it serves, on a path
+; NOTHING falls into, and it is a global rather than a `.local` for the reason
+; that placement forces: a NASM local belongs to the last global above it, so
+; written `.no_t` here it would be clk_rp_digit's, not clk_rp_digits'.
+; tools/stkbalance.py reads a global that is only ever JUMPED to as a
+; continuation and never walks it from depth zero, which is what this is.
+;
+; Fragile in the way every trampoline is, and in the right way: it works
+; because all five sites are within a short jump of this point, and an edit
+; that puts one out of reach is a BUILD ERROR rather than a silent bug.  The
+; refusals are cold by construction - a digit outside its range means the port
+; is not an RP5C01 at all, and the probe is over.
+; -----------------------------------------------------------------------------
+clk_rp_dgno:
+    jmp clk_rp_digits.no
+
+; -----------------------------------------------------------------------------
 ; clk_rp_digits - the thirteen page-0 digits into clk_tb_*
 ; out: CF = 1 = a digit is outside its range; preserves all registers
 ;
@@ -1198,29 +1235,29 @@ clk_rp_digits:
     mov al, 0x01                ; 10-second
     mov ah, 5
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     mov bl, al
     mov al, 0x00                ; 1-second
     mov ah, 9
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     call clk_rp_join            ; AL = BL*10 + AL
     mov [clk_tb_s], al
     mov al, 0x03
     mov ah, 5
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     mov bl, al
     mov al, 0x02
     mov ah, 9
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     call clk_rp_join
     mov [clk_tb_mi], al
     mov al, 0x05                ; 10-hour: the chip's full 0..3, PM bit and
     mov ah, 3                   ; all (see the note above)
     call clk_rp_digit
-    jc .no
+    jc clk_rp_dgno
     mov bl, al
     mov al, 0x04
     mov ah, 9
@@ -1435,6 +1472,15 @@ clk_rp_year:
 section .text
 section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
+; -----------------------------------------------------------------------------
+; clk_bios_dnone - the refusal trampoline the first four of clk_bios_read's
+; validations share (see clk_rp_dgno above): -9.  Cold by construction - a BIOS
+; that answers int 1Ah at all passes every one of them, and one that does not
+; costs the tier, not a redraw.
+; -----------------------------------------------------------------------------
+clk_bios_dnone:
+    jmp clk_bios_read.none
+
 
 ; =============================================================================
 ; Tier CLK_T_BIOS (4): int 1Ah, the BIOS - probed for its answer SECOND
@@ -1469,14 +1515,14 @@ clk_bios_read:
     mov ah, 0x02
     stc
     int 0x1a
-    jc .none                    ; "clock not operating"
+    jc clk_bios_dnone           ; "clock not operating"
     cmp cx, 0xFFFF
-    je .none                    ; poison survived: the call did nothing
+    je clk_bios_dnone           ; poison survived: the call did nothing
     mov al, ch
     call clk_bcd
-    jc .none
+    jc clk_bios_dnone
     cmp al, 23
-    ja .none
+    ja clk_bios_dnone
     mov [clk_tb_h], al
     mov al, cl
     call clk_bcd
@@ -1636,23 +1682,35 @@ clk_tick:
 ; -----------------------------------------------------------------------------
 clk_inc_sec:
     push ax
+    push bx
     pushf
     cli
-    inc byte [clk_sec]
-    cmp byte [clk_sec], 60
+    mov bx, clk_sec             ; THREE ADJACENT BYTES, walked rather than
+                                ; named: sec, min and hour are declared in
+                                ; that order and clk_snapshot already reads
+                                ; sec+min and hour+day as WORDS and says so,
+                                ; so this is a second reader of an invariant
+                                ; the file already has rather than a new one.
+                                ; `[bx]` addresses DS, which IS KERNEL_SEG
+                                ; here - this is .text and not a BP form.
+    inc byte [bx]
+    cmp byte [bx], 60
     jb .out
-    mov byte [clk_sec], 0
-    inc byte [clk_min]
-    cmp byte [clk_min], 60
+    mov byte [bx], 0
+    inc bx
+    inc byte [bx]
+    cmp byte [bx], 60
     jb .out
-    mov byte [clk_min], 0
-    inc byte [clk_hour]
-    cmp byte [clk_hour], 24
+    mov byte [bx], 0
+    inc bx
+    inc byte [bx]
+    cmp byte [bx], 24
     jb .out
-    mov byte [clk_hour], 0
+    mov byte [bx], 0
     call clk_inc_day
 .out:
     popf
+    pop bx
     pop ax
     ret
 
@@ -1754,10 +1812,9 @@ clk_fmt:
     inc bx
     mov ax, [clk_sn_year]
     call clk_put4
-    mov byte [bx], ' '
-    inc bx
-    mov byte [bx], ' '
-    inc bx
+    mov word [bx], '  '         ; the double gap, one store: clk_str is a byte
+    add bx, 2                   ; buffer and the 8086 needs no alignment for a
+                                ; word store, so BX being odd here is fine
 
     mov al, [clk_sn_hour]       ; --- the hour, in the live form ---
     cmp byte [clk_h12], 0
@@ -1883,7 +1940,7 @@ clk_put_mon:
     push cx
     push si
     dec al
-    mov ah, 0
+    cbw                         ; month-1 is 0..11, so the sign bit is clear
     mov si, ax
     add si, ax
     add si, ax                  ; SI = (month-1) * 3
@@ -1928,11 +1985,9 @@ clk_put4:
     push cx
     mov cl, 100
     div cl                      ; AL = hundreds, AH = remainder
-    push ax
-    call clk_put2               ; the century pair
-    pop ax
-    mov al, ah
-    call clk_put2               ; the pair within it
+    call clk_put2               ; the century pair - and no bank around it:
+    mov al, ah                  ; clk_put2 pushes AX itself ("clobbers:
+    call clk_put2               ; nothing else"), so AH is still the remainder
     pop cx
     pop ax
     ret
@@ -2096,7 +2151,10 @@ clk_rpep:   resb 1              ; has no century, so 0 = they are year mod 100
                                 ; is a software convention, and clk_rp_probe
                                 ; settles it by asking which one agrees
 clk_rp24:   resb 1              ; ...and bit 0 = the chip is running 24-hour,
-clk_rp_pd:  resb 1              ; read at write time, never written
+                                ; read at write time by clk_rp_hour. (A
+                                ; clk_rp_pd byte used to follow, carrying THAT
+                                ; sentence as its own comment while having no
+                                ; reader, no writer and no %if of its own)
 
 clk_str:    resb 26             ; the bar's line, longest form 24 glyphs +
                                 ; NUL (drawn under the gfx lock, UI task only)

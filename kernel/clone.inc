@@ -1174,7 +1174,7 @@ clo_key:
     cmp al, 'Y'
     je .force
     cmp al, 13
-    jne .line
+    jne .linej
     mov byte [es:CL_STEP], CLS_TGT
     jmp .tgt                    ; NEAR: CLS_NOSRC's answers sit between here
                                 ; and it now (SPEC.md 18.99.3)
@@ -1185,10 +1185,14 @@ clo_key:
     mov al, [es:CL_TGT]
     call clo_nextvol            ; ...which walks THROUGH the image file
     mov [es:CL_TGT], al         ; (SPEC.md 18.99.8), so IMG is one more stop
-    jmp .line                   ; on the same ring rather than a mode
+.linej:                         ; ...and the two `jne` around it: NASM spelt each
+    jmp .line                   ; as a five-byte inverted pair (an 8086 has no
+                                ; near `jcc`) and from here they are two, with
+                                ; nothing added at all - this jump was here
+                                ; already.  -6 on CLONE.DRV
 .pickgo:
     cmp al, 13
-    jne .line
+    jne .linej
     cmp byte [es:CL_TGT], CLE_IMG
     jne .picdisk
     mov al, CLA_SAVE            ; the resident half owns the dialog: fdlg_open
@@ -2650,6 +2654,25 @@ clo_fnbuf:  times 13 db 0       ; the image file's 8.3 name (SPEC.md 18.99.8).
 
 section .cold
 ; -----------------------------------------------------------------------------
+; clo_need - make CLONE.DRV's image resident (SPEC.md 2.8.1)
+; out: CF = 1 it is not.  AX and every other register preserved - `pop ax` and
+;      `ret` write no flag, so mod_need's CF reaches the caller intact
+;
+; dskw_fmt_load's shape for the other on-demand module, and here for the same
+; reason: three sites in two files open-coded the bank-set-call-unbank, which
+; is seven bytes against this call's three.  `.cold` because ITS CALLERS ARE -
+; clo_call below and files.inc's two - and so is mod_need, so every edge is a
+; near call.  It is NOT in the `.modl` block above: that is the image, and a
+; routine whose whole job is to fetch the image cannot live inside it.
+; -----------------------------------------------------------------------------
+clo_need:
+    push ax
+    mov al, MOD_CLONE
+    call mod_need
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; clo_call - the whole resident dispatch (SPEC.md 18.99.7)
 ; in:  DL = CLV_*, everything else the verb's own
 ; out: the verb's; CF=1 with AX = CERR_NODISK if the image cannot be had
@@ -2661,10 +2684,7 @@ section .cold
 ; near call does).
 ; -----------------------------------------------------------------------------
 clo_call:
-    push ax
-    mov al, MOD_CLONE
-    call mod_need
-    pop ax
+    call clo_need
     jc .no
     call far [CLFP + CLE_DISP*4]
     ret
@@ -2680,10 +2700,19 @@ clo_call:
 ; free the code that is about to run.
 ; -----------------------------------------------------------------------------
 clo_drop:
-    push ax
-    mov al, MOD_CLONE
-    call mod_drop
-    pop ax
-    ret
+    mov al, MOD_CLONE           ; A TAIL JUMP, and it is a CONTRACT CHANGE:
+    jmp mod_drop                ; this routine now clobbers AL where it used to
+                                ; preserve AX. mod_drop preserves every
+                                ; register and takes AL as its input, so the
+                                ; bank only ever protected our own `mov al`.
+                                ; Both callers checked: files.inc's first is
+                                ; followed by `.armed: ret` and reads nothing,
+                                ; and its second has its own push/pop ax round
+                                ; the pair. A THIRD CALLER WILL NOT BE TOLD.
+                                ; The near `jmp` is legal because clone.inc and
+                                ; mod.inc are both `.cold` and mod_drop's `ret`
+                                ; is near - it lands on our caller's return
+                                ; address. It does NOT generalise to clo_call
+                                ; or to kernel.asm's far thunks.
 
 section .text

@@ -1051,12 +1051,7 @@ ui_lit_go:
 .none:
     mov byte [ui_armlit], 0     ; nothing is lit and nothing can be, so the
 .out:                           ; byte must say so - it is what the next XOR
-    pop si                      ; is computed against
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 %endif                          ; KERN_BIG - SPEC.md 13.8.1/13.8.2/13.9
 
 ; -----------------------------------------------------------------------------
@@ -1679,7 +1674,7 @@ ui_drag_xor:
     mov dx, bx
     add dx, [ui_dragh]
     dec dx                      ; y2 = y1 + h - 1
-    call vga_xor_rect_vram      ; clips, so off-screen edges are fine.
+    jmp vga_xor_rect_vram       ; clips, so off-screen edges are fine.
                                 ; VRAM-direct (SPEC.md 32): the outline is a
                                 ; transient overlay like the cursor - it is
                                 ; always XOR-erased before the lock drops, so
@@ -1687,7 +1682,7 @@ ui_drag_xor:
                                 ; anyone else can draw. Going through the back
                                 ; buffer instead would dirty the whole window
                                 ; rect and flush it twice per pass.
-    ret
+                                ; A TAIL CALL, both ends `.text`
 
 ; -----------------------------------------------------------------------------
 ; ui_grow - grow-box resize: XOR outline anchored at the window's top-left,
@@ -2333,14 +2328,8 @@ ui_tm_open:
     call ui_tm_find             ; already running? front it and stop
     jc .load
     call gfx_lock
-%ifdef WM_ANIM
-    call inst_unmin             ; un-minimize, the app_launch cap path's rule -
-                                ; and SPEC.md 11.100.3's other half with it
-%else
-    and byte [di+I_FLAGS], 0xFE ; un-minimize, the app_launch cap path's rule
-%endif
-    mov bx, [di+I_WIN]
-    call wm_show
+    call inst_restore           ; un-minimize and show - the app_launch cap
+                                ; path's rule, and now literally its code
     call gfx_unlock
     jmp short .out
 
@@ -2414,15 +2403,7 @@ ui_tm_open:
 .back:
     call ui_tm_back
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; ui_tm_sysdir - step into SYSTEM on the volume just mounted (SPEC.md 28.3)
@@ -2511,7 +2492,11 @@ ui_s_nodisk: db 'No system disk in drive '
 ui_s_nodisk_l: db 'A:', 0       ; the LETTER, stamped once by dsk_boot_from
                                 ; (SPEC.md 52.10.3) - a label rather than an
                                 ; offset, so rewording the message cannot
-                                ; leave the stamp pointing at a space
+                                ; leave the stamp pointing at a space.
+                                ; TWO READERS: files.inc's fm_s_swapd is
+                                ; `equ` this, the formatter's swap prompt
+                                ; being the only standalone 'A:' of the six.
+                                ; Reword the message; do not delete the label
 ui_s_dskerr: db 'Disk error reading it', 0
 ui_s_badpkg: db 'TASKMGR.O88 is not a valid package', 0
 ui_s_toobig: db 'TASKMGR.O88 is too large', 0
@@ -2648,12 +2633,7 @@ ui_note_paint:
     add dx, 16
     mov si, [ui_note_msg]
     call app_about_center
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_si
 
 ; -----------------------------------------------------------------------------
 ; ui_cmd - act on one of the kernel's own menu commands

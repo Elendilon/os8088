@@ -115,7 +115,11 @@ def main(argv):
     sym = os88sym.syms()
     at = sym["snd_xlat"]                # 256 idle .bss bytes inside KERNEL_SEG,
                                         # rebuilt per clip and so idle on a
-                                        # desktop nothing is playing on. NOT
+                                        # desktop nothing is playing on. Bytes
+                                        # 0..7 are ALSO snd_evtmp (SPEC.md
+                                        # 34.4), the click-abort drain's
+                                        # scratch - idle for the same reason,
+                                        # and this test plays no clip. NOT
                                         # gfx_pairtab0 any more: that pair went
                                         # to .lowbss (SPEC.md 5.4.1.1), and an
                                         # offset in LOW_SEG poked at KERNEL_SEG

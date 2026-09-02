@@ -125,7 +125,12 @@ gfx_rect_setup:
     mov dx, cx                  ; DX = x2; [gfx_rrows] already banked it
     mov cl, 3
     shr ax, cl                  ; ax = left byte  (x1 / 8)
-    mov [gfx_rlcol], ax          ; ax = left byte column
+    mov bx, ax                  ; ...carried over gfx_rowbase in BX, which it
+                                ; PRESERVES on both its arms (viddet.inc), and
+                                ; which holds `x2 & 7` here - dead since the
+                                ; right-mask lookup two instructions up. It
+                                ; was a .bss word whose only two references
+                                ; were this store and the add below
     shr dx, cl                  ; dx = right byte (x2 / 8)
     sub dx, ax
     mov [gfx_rspan], dx          ; span = right byte - left byte
@@ -136,7 +141,7 @@ gfx_rect_setup:
 .offs:
     mov ax, [gfx_ry1]            ; this one call re-bases every rect primitive
     call gfx_rowbase            ; in BOTH renderers - on VGA it is still just
-    add ax, [gfx_rlcol]          ; y1 * 80 (SPEC.md 39.3)
+    add ax, bx                   ; y1 * 80 (SPEC.md 39.3)
     mov [gfx_roff], ax
     clc
     ret
@@ -213,15 +218,7 @@ sw_rect:
     jc .done
     call sw_rect_pl
 .done:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; sw_rect_pl - internal: the mode staging and the pass, for a rect
@@ -239,10 +236,25 @@ sw_rect_pl:
     mov byte [sw_altm], 0
     cmp byte [sw_mode], SWM_GRAY ; ONLY gray starts from the dither byte. Solid
     jne .planes                  ; overwrote it per plane below (sw_ink), and
-    call sw_parity               ; its own dither branch stages it there; XOR
-    mov byte [sw_altm], 0xFF     ; never reads [sw_pat] at all. Staging it for
+    call sw_ink.dither           ; its own dither branch stages it there; XOR
+                                 ; never reads [sw_pat] at all. Staging it for
 .planes:                         ; all three cost every solid fill five
-                                 ; instructions it threw away
+                                 ; instructions it threw away.
+                                 ;
+                                 ; sw_ink.dither IS `call sw_parity /
+                                 ; mov byte [sw_altm],0xFF / ret`, the same two
+                                 ; instructions this arm spelled out. It costs
+                                 ; a near call and ret - 52.13 clocks measured
+                                 ; (PERFORMANCE.md Part 2), not the ~35 this
+                                 ; was first priced at - on a gray fill the
+                                 ; file's own accounting puts at 5,305 cycles:
+                                 ; 0.98%, once per fill and not per row.
+                                 ; docs/LAST-DROP-BYTES.md 7.6 refused +33% on
+                                 ; this body; this is a thirtieth of that.
+                                 ; sw_parity clobbers AL and flags, and AX is
+                                 ; dead here (gfx_rect_setup spent it and
+                                 ; nothing has reloaded it) while the flags
+                                 ; from the `cmp` are already consumed
     ; --- ONE PLANE, AND NO LOOP AROUND IT (SPEC.md 39.26) -------------------
     ; This walked [vid_planes] passes, stepping [vid_rpara] between them. That
     ; is the RAM back buffer's shape - four claimed planes on a VGA - and
@@ -254,9 +266,17 @@ sw_rect_pl:
     ; applied to the body every fill goes through.
     mov es, [vid_rseg]          ; the framebuffer itself on mono (SPEC.md 39.3)
     cmp byte [sw_mode], SWM_SOLID
-    jne sw_plane_op             ; ...and with no loop under it, the last call
-    call sw_ink                 ; is a TAIL jump: sw_plane_op's `ret` is ours
-    jmp sw_plane_op
+    jne .go                     ; INVERTED so that SOLID - the mode the machine
+    call sw_ink                 ; spends its day in - falls through a 2-byte
+.go:                            ; short jump instead of taking the 5-byte
+                                ; expansion of `jne sw_plane_op` (an 8086 has
+                                ; no near Jcc, so NASM spells that `je $+5 /
+                                ; jmp near`). SOLID pays an untaken jne (8.7
+                                ; clocks by the prefetch floor) where it paid
+                                ; a taken je (18.19); GRAY and XOR pay those
+                                ; ~9.5 clocks back, once per fill.
+    jmp sw_plane_op             ; ...and with no loop under it, the last call
+                                ; is a TAIL jump: sw_plane_op's `ret` is ours
 
 %ifdef KERN_BIG
 ; -----------------------------------------------------------------------------
@@ -278,9 +298,17 @@ sw_rect_pl:
 ; The ink comes from sw_ink exactly as a fill's does, [gfx_ry1] being the FIRST
 ; row when it runs, and a middle grey then alternates through [sw_altm] per row
 ; - which is what sw_col does inside a rect (SPEC.md 39.4).
+;
+; IT WRITES NO [sw_mode], and a line here used to, "sw_ink's, and nothing else
+; reads it here". sw_ink does not read it: its whole body is the gfx_inktab
+; lookup and the dither fork. The complete reader set is sw_rect_pl,
+; sw_plane_op and sw_col, and none of the three is reachable from here -
+; sw_rect_pl's only caller is sw_rect, whose only entries are sw_fill's
+; fall-through and sw_fill_gray/sw_xor_fill's jumps, each of which writes
+; [sw_mode] as its FIRST instruction. So no reader can observe a value left
+; behind by this routine.
 ; -----------------------------------------------------------------------------
 sw_spans:
-    mov byte [sw_mode], SWM_SOLID   ; sw_ink's, and nothing else reads it here
     mov ax, [gfx_sp_y]
     mov [gfx_ry1], ax                ; the first row: sw_parity's parity
     mov byte [sw_altm], 0
@@ -374,18 +402,38 @@ sw_ink:
 ;               edge columns plus the whole-byte interior.
 ; in:       ES = plane segment; [sw_mode]/[sw_pat]/[sw_altm]; vga_* rect
 ;           scratch from gfx_rect_setup
-; clobbers: ax, cx, si, di, bp, flags (preserves BX, DX)
+; clobbers: everything but the segment registers
 ;
-; It banks BX and DX ONCE per plane so that sw_col - which used to save five
-; registers on each of its two calls - can have the run of the register file
-; and save none, and so that this routine's own interior loop can hold
+; IT USED TO BANK BX AND DX, and the header explained the pair as "ONCE PER
+; PLANE" - a SPEC.md 39.26 relic, because there is one plane and no loop, so
+; "once per plane" had become "once per call". BX and DX are still the
+; interior loop's working registers; only the pointless save is gone. The one
+; caller is sw_rect_pl (a tail `jmp`, so this routine's `ret` is its), whose
+; one caller is sw_rect, which banks all eight registers in its own prologue
+; and pops them at .done - and sw_rect_pl's published contract is already
+; "clobbers: everything but the segment registers".
+;
+; sw_col has the run of the register file and saves nothing, and this
+; routine's own interior loop can hold
 ; gfx_nextrow's two parameters in registers (SPEC.md 39.3). A row step was a
-; near call plus two CS-overridden memory reads; it is three register
-; instructions now, and a fill walks its rows THREE times.
+; near call plus two memory reads; it is three register instructions now, and
+; a fill walks its rows THREE times.
+;
+; THROUGH DS, WITH NO `cs:` OVERRIDE - here and in sw_col, and the reason is
+; not "DS is always KERNEL_SEG". sw_xfer is the counter-example, in this very
+; file: it sets DS to the framebuffer or to the caller's buffer for its movsb
+; and MUST keep its overrides, which is what gfx_nextrow's own header is about.
+; The reason here is that these two routines already read a dozen kernel
+; variables through DS in their own prologues - [gfx_lmsk], [gfx_roff],
+; [gfx_rspan], [gfx_rmsk], [gfx_rrows], [sw_pat], [sw_mode], [sw_altm] - so a
+; wrong DS would already be fetching garbage; three overrides beside them were
+; protecting nothing. They were copied verbatim off gfx_nextrow when it was
+; inlined. kernel.asm's mark_fill inlines the same three instructions with no
+; override and says so. The caller set is closed and re-checked at each edit:
+; sw_col from sw_plane_op only, sw_plane_op from sw_rect_pl only, sw_rect_pl
+; from sw_rect only, and nothing on that chain writes DS.
 ; -----------------------------------------------------------------------------
 sw_plane_op:
-    push bx
-    push dx
     mov ah, [gfx_lmsk]          ; left edge column (whole rect if 1 byte wide)
     mov di, [gfx_roff]
     call sw_col
@@ -403,11 +451,11 @@ sw_plane_op:
     inc di
     mov si, [gfx_rrows]
     mov ah, [sw_pat]
-    mov bx, [cs:vid_rowadd]     ; gfx_nextrow's two parameters, hoisted out of
+    mov bx, [vid_rowadd]     ; gfx_nextrow's two parameters, hoisted out of
     sub bx, bp                  ; the row loop and inlined below - the step
                                 ; carrying the interior walk's own advance, so
                                 ; neither loop banks DI (SPEC.md 5.7.1)
-    mov dx, [cs:vid_wrapbit]
+    mov dx, [vid_wrapbit]
     cmp byte [sw_mode], SWM_XOR
     je .xrow
 .irow:
@@ -421,7 +469,7 @@ sw_plane_op:
     add di, bx                  ; gfx_nextrow, inlined (see the note above)
     test di, dx
     jz .inw
-    add di, [cs:vid_wrapfix]
+    add di, [vid_wrapfix]
 .inw:
     xor ah, [sw_altm]           ; gray alternates, solid stays
     dec si
@@ -436,13 +484,11 @@ sw_plane_op:
     add di, bx
     test di, dx
     jz .xnw
-    add di, [cs:vid_wrapfix]
+    add di, [vid_wrapfix]
 .xnw:
     dec si
     jnz .xrow
 .out:
-    pop dx
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -462,11 +508,14 @@ sw_plane_op:
 sw_col:
     mov bl, ah
     not bl                      ; BL = ~mask
-    mov ch, [sw_pat]            ; CH = running pattern
-    mov cl, [sw_altm]
+    mov cx, [sw_altm]           ; CL = toggle, CH = running pattern - ONE word
+                                ; read where two byte reads were. The two are
+                                ; declared adjacent in .bss with a %if that
+                                ; says so; little-endian puts [sw_altm] in CL
+                                ; and the byte after it, [sw_pat], in CH
     mov dx, [gfx_rrows]
-    mov si, [cs:vid_rowadd]     ; gfx_nextrow, hoisted and inlined - its body
-    mov bp, [cs:vid_wrapbit]    ; is three instructions and the call and ret
+    mov si, [vid_rowadd]     ; gfx_nextrow, hoisted and inlined - its body
+    mov bp, [vid_wrapbit]    ; is three instructions and the call and ret
     cmp byte [sw_mode], SWM_XOR ; around them cost as much again
     je .xrow
 %ifdef GFX_COLFAST
@@ -490,7 +539,7 @@ sw_col:
     add di, si
     test di, bp
     jz .nw
-    add di, [cs:vid_wrapfix]
+    add di, [vid_wrapfix]
 .nw:
     dec dx
     jnz .row
@@ -502,7 +551,7 @@ sw_col:
     add di, si                  ; it, so a row is one store where it was two
     test di, bp                 ; accesses and two ALU ops - 15 bytes of
     jz .fnw                     ; traffic against 25 on an 8088's 8-bit bus
-    add di, [cs:vid_wrapfix]    ; (PERFORMANCE.md Set 20's model)
+    add di, [vid_wrapfix]    ; (PERFORMANCE.md Set 20's model)
 .fnw:
     dec dx
     jnz .frow
@@ -513,7 +562,7 @@ sw_col:
     add di, si
     test di, bp
     jz .xnw
-    add di, [cs:vid_wrapfix]
+    add di, [vid_wrapfix]
 .xnw:
     dec dx
     jnz .xrow
@@ -630,7 +679,31 @@ sw_pairbuild:
 ;           [gfx_blit_x] = pixel 0's destination x, [gfx_blit_w] = pixels,
 ;           [gfx_blit_ro] = the row's base byte, [gfx_blit_tb] = this row's
 ;           pair table. gfx_blit4 has already proved the row is ON SCREEN in x.
-; out:      nothing; every register preserved, ES and DS included
+; out:      nothing; preserves BX, BP, DS and ES.
+;           **CLOBBERS AX, CX, DX, SI AND DI**, which is a CONTRACT CHANGE
+;           from "every register preserved" and is worth the lines it takes to
+;           justify: this routine is 27.7% of the whole machine in Paint
+;           (PERFORMANCE.md Set 102) and the ten stack operations it drops are
+;           per ROW of every 4bpp blit on a 1bpp adapter - ~135 clocks a row,
+;           and a 466x110 Paint canvas is 110 rows of a repaint measured at
+;           399 ms.
+;           **gfx_blit4's row loop is the ONLY caller** (vga12.inc:2714,
+;           grepped over kernel/, apps/, drivers/, tools/ and tests/); it is
+;           reached only when [gfx_blit_fst] == 1, and its only successor is
+;           `jmp .nextrow`:
+;             AX  .nextrow opens `mov ax,[gfx_blit_sv]`               dead
+;             SI  .row opens `mov si,[gfx_blit_sv]`, every iteration  dead
+;             DX  gfx_rowbase, called earlier in the SAME iteration, ends
+;                 in a `mul` and so WRITES DX; .par then loads it with a
+;                 table address it stores immediately                 dead
+;             CX  gfx_rowbase clobbers CX too, before any read here    dead
+;             DI  never read on the fst == 1 path, and sw_blit_row loads
+;                 it itself from [gfx_blit_ro] at every entry          dead
+;           and when the row loop ends all five come off gfx_blit4's OWN
+;           prologue at .pops. BX (`inc bx` at .nextrow) and BP (`add ax,bp`)
+;           are LIVE and stay saved; DS and ES are mandatory - the routine
+;           swaps both. A second caller would inherit a contract that no
+;           longer holds: read this list before adding one.
 ;
 ; The accumulator is 16-bit and carries `AH` bits, seeded with the `x & 7` bits
 ; of the first destination byte that belong to the SCREEN - so the first store
@@ -660,13 +733,8 @@ sw_pairbuild:
 ; odd sideways drag, and without it a run proves half the routine.
 ; -----------------------------------------------------------------------------
 sw_blit_row:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+    push bx                     ; ...and only these four: see the contract
+    push bp                     ; above
     push ds
     push es
     mov ax, [gfx_blit_x]
@@ -768,12 +836,7 @@ sw_blit_row:
     pop es
     pop ds
     pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
     pop bx
-    pop ax
     ret
 
 ; --- SPEC.md 5.4.1.2's two aligned bodies. They live PAST the `ret` because
@@ -904,27 +967,34 @@ sw_fill_pat:
     call gfx_rect_setup
     jc .done
     call gfx_pat_stage          ; gfx_patbuf <- the 8 bytes at [gfx_pat]
-    mov dx, [vid_rseg]          ; DX = plane segment (see sw_rect)
-    mov bp, [vid_planes_w]      ; BP = plane counter
-.plane:
-    mov es, dx
+
+    ; --- ONE PLANE, AND NO LOOP AROUND IT (SPEC.md 39.26) -------------------
+    ; sw_rect_pl's note, for the body 39.26's sweep did not reach. This walked
+    ; [vid_planes_w] passes stepping [vid_rpara] between them; it is entered
+    ; only from gfx_fill_pat_raw's `cmp byte [vid_mono],0 / jne sw_fill_pat`
+    ; (vga12.inc) and, on a build with no VGA in it at all, from the NOVGA_ARM
+    ; one line above that - so [vid_mono] is set at every entry, and
+    ; vid_depth_set writes [vid_mono] and [vid_planes_w] TOGETHER, so the
+    ; counter was always 1 and the loop always exited after one pass.
+    ; BP's double duty as plane counter AND row counter - the reason for the
+    ; push/pop around the interior loop below - goes with it.
+    mov es, [vid_rseg]          ; the framebuffer itself on mono (SPEC.md 39.3)
     mov di, [gfx_roff]
     mov cl, [gfx_lmsk]          ; left edge column (whole rect if 1 byte)
     call sw_patcol
     mov si, [gfx_rspan]
     or si, si
-    jz .next
+    jz .done
     mov di, [gfx_roff]
     add di, si
     mov cl, [gfx_rmsk]          ; right edge column
     call sw_patcol
     dec si                      ; SI = interior bytes per row
-    jz .next
+    jz .done
     mov di, [gfx_roff]
     inc di
     mov bx, [gfx_ry1]
     and bx, 7
-    push bp
     mov bp, [gfx_rrows]
 .irow:
     mov al, [gfx_patbuf+bx]
@@ -942,32 +1012,27 @@ sw_fill_pat:
     and bx, 7
     dec bp
     jnz .irow
-    pop bp
-.next:
-    add dx, [vid_rpara]
-    dec bp
-    jnz .plane
 .done:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 ; -----------------------------------------------------------------------------
 ; sw_patcol - internal: one masked byte column of [gfx_rrows] rows at ES:DI,
 ;             row byte from gfx_patbuf by (y & 7):
 ;             dest = dest ^ ((dest ^ pat) & mask)
 ; in:       CL = mask, DI = top byte, ES = plane; vga_* rect scratch
-; clobbers: AX, flags (preserves BX, SI, DI and CX)
+; clobbers: AX, BX, DI, flags (preserves SI and CX)
+;
+; A CONTRACT CHANGE, and there are exactly two callers, both in sw_fill_pat
+; above (grepped over kernel/, apps/, drivers/, tools/, tests/). Neither reads
+; BX or DI on the far side: after the left column the caller's next three
+; instructions are `mov si,[gfx_rspan] / or si,si / jz .done` and then
+; `mov di,[gfx_roff]`, and after the right column `dec si / jz .done /
+; mov di,[gfx_roff] / inc di / mov bx,[gfx_ry1]` - DI and BX both written
+; before any read. SI IS live across the second call (that `dec si`), so its
+; pair stays; reloading it instead would cost 4 bytes to save 2. This is what
+; sw_col already does and documents.
 ; -----------------------------------------------------------------------------
 sw_patcol:
-    push bx
-    push di
     push si
     mov si, [gfx_rrows]
     mov bx, [gfx_ry1]
@@ -985,8 +1050,6 @@ sw_patcol:
     dec si
     jnz .row
     pop si
-    pop di
-    pop bx
     ret
 
 
@@ -1015,17 +1078,26 @@ sw_xfer:
     push bp
     call gfx_rect_setup
     jc .done
-    cmp byte [sw_dir], 0
-    je .geom
-    add si, [gfx_sub_st]        ; the SUB-RECT restore (SPEC.md 5.8), 0 at rest.
-                                ; OUT HERE, once - .rst below runs per plane,
-                                ; and DS is still KERNEL_SEG until it does
-.geom:
+
+    ; --- ONE PASS, AND NO LOOP AROUND IT (SPEC.md 39.26) --------------------
+    ; The fourth body of that sweep, and THE ONE THAT DOES NOT REST ON THE
+    ; PLANE COUNT: this walked `add bx,[vid_rpara] / cmp bx,[vid_rend] /
+    ; jb .plane`, a SEGMENT compare, so it needs its own argument and gets
+    ; one. sw_xfer is reached only from sw_save and sw_restore, and those only
+    ; from vga12.inc's `cmp byte [vid_mono],0 / jne` pair or, on a build with
+    ; no VGA at all, from the NOVGA_ARM beside each. vid_apply - the sole
+    ; writer of all three cells (tests/unit/t_invariants.py) - sets
+    ; [vid_rpara] = 1 and [vid_rend] = [vid_rseg] + 1 on every non-VGA arm, so
+    ; BX started at [vid_rseg] and reached [vid_rend] after exactly one pass,
+    ; every time.
+    ; With one pass the two `cmp byte [sw_dir],0` tests are four instructions
+    ; apart on one straight line, so the first one goes and its body - the
+    ; sub-rect skip - becomes .rst's first instruction, which is still ABOVE
+    ; the `pop ds` that makes DS the caller's buffer.
     mov bp, [gfx_rspan]
     inc bp                      ; BP = bytes per row
     mov bx, [vid_rseg]
-.plane:
-    mov ax, [gfx_roff]           ; this plane's walking offset
+    mov ax, [gfx_roff]          ; the walking offset
     mov dx, [gfx_rrows]
     push ds
     push es
@@ -1048,10 +1120,14 @@ sw_xfer:
     pop si
     jmp .pnext
 .rst:
+    add si, [gfx_sub_st]        ; the SUB-RECT restore (SPEC.md 5.8), 0 at
+                                ; rest. Here, where DS is still KERNEL_SEG -
+                                ; below the `pop ds` it would read the
+                                ; caller's buffer
     push di                     ; restore: buffer -> plane; caller DI untouched
     mov di, ax
-    mov ax, es
-    mov ds, ax                  ; movsb source = caller's buffer
+    push es
+    pop ds                      ; movsb source = caller's buffer
     mov es, bx                  ; movsb dest = this plane
 .rrow:
     mov cx, bp
@@ -1075,9 +1151,6 @@ sw_xfer:
 .pnext:
     pop es
     pop ds
-    add bx, [vid_rpara]         ; nonzero even at one plane, or this loop
-    cmp bx, [vid_rend]          ; would never terminate
-    jb .plane
 .done:
     cmp byte [sw_dir], 0        ; a sub-rect is ONE restore (SPEC.md 5.8), and
     je .nosub                   ; clearing it HERE rather than at the call site
@@ -1101,11 +1174,13 @@ gfx_ry1          resw 1          ; rect: clipped top row (dither parity)
 gfx_rrows        resw 1          ; rect: clipped row count
 gfx_rspan        resw 1          ; rect: right byte - left byte
 gfx_roff         resw 1          ; rect: VRAM offset of top-left byte
-gfx_rlcol        resw 1          ; rect: left byte column (bb dirty union)
 
 sw_dir          resb 1          ; xfer: 0 = save, 1 = restore
 sw_mode         resb 1          ; rect core: SWM_SOLID / SWM_GRAY / SWM_XOR
-sw_pat          resb 1          ; rect core: plane value / dither pattern
 sw_altm         resb 1          ; rect core: per-row pattern toggle (0 or FF)
+sw_pat          resb 1          ; rect core: plane value / dither pattern
+%if (sw_pat - sw_altm) != 1
+  %error "sw_col loads the pair as ONE word (`mov cx,[sw_altm]` -> CL = toggle, CH = pattern): they must stay adjacent, sw_altm first. Every other site reads them as bytes and does not care about the order"
+%endif
 
 section .text

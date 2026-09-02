@@ -207,6 +207,15 @@ def main():
                     help="fast (every build), full (pre-merge), soak (everything)")
     ap.add_argument("-k", metavar="GLOB", action="append", default=[],
                     help="only rows whose name matches (repeatable)")
+    ap.add_argument("-x", "--exclude", metavar="GLOB", action="append",
+                    default=[],
+                    help="drop rows whose name matches, AFTER -k (repeatable). "
+                         "It exists for one shape: a row whose assertion is a "
+                         "RATE cannot share the box with other emulators, so a "
+                         "wide run excludes those four and a second, serial run "
+                         "takes them alone. Excluding a row is a decision - the "
+                         "run prints which ones it dropped, so a green result "
+                         "cannot quietly be a green result over less.")
     ap.add_argument("-j", type=int, default=min(4, (os.cpu_count() or 2)),
                     help="parallel lanes for the host-side rows")
     ap.add_argument("--marty-jobs", type=int, dest="mj",
@@ -244,6 +253,12 @@ def main():
     want = [r for r in rows if order[r.tier] <= order[a.tier]]
     if a.k:
         want = [r for r in want if any(fnmatch.fnmatch(r.name, g) for g in a.k)]
+    if a.exclude:
+        dropped = [r.name for r in want
+                   if any(fnmatch.fnmatch(r.name, g) for g in a.exclude)]
+        want = [r for r in want if r.name not in dropped]
+        print("os88test: -x dropped %d row(s): %s"
+              % (len(dropped), " ".join(sorted(dropped)) or "(none matched)"))
     if not want:
         print("os88test: no rows matched", file=sys.stderr)
         return 1

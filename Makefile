@@ -565,11 +565,33 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # That is the same defect the paragraph above is about, and the fourth geometry
 # re-introduced it rather than the constant drifting.
 #
-# 51200 is file sector **100 + BOOT2_SECS**. The band common to all four is
-# 106..110 and it is the ONLY one below the 64KB the compare's ES can reach:
-# 106..109 once SPLSTARS' one-sector-longer blob is required to land in it too,
-# and 100 puts the default build on 108 and the SPLSTARS build on 109, inside
-# it either way with two sectors of margin below and one above.
+# **AND IT IS TIED TO THE SIZE OF `.text`, which is what moved it last and is
+# now the BINDING constraint rather than the band.** The band is a property of
+# the geometries; what has to be true as well is that the offset names a live
+# byte, and `.text` is the only section that reaches it - `.bss` is `nobits`,
+# so from the end of `.text` to `COLD_START` the file is ZEROS. A canary in
+# that padding is not merely uninformative, it is INERT in the one direction
+# that matters: every word in it equals its neighbour a sector away, so a read
+# that flipped heads early compares equal and the canary PASSES. The kernel
+# size pass shrank `.text` 52,916 -> 50,207 and slid 51200 out of the code and
+# into that padding with no line of the boot path edited - the third distinct
+# way this constant has gone wrong, after drifting against BOOT2_SECS and
+# against the set of geometries, and the second one where a merge that
+# conflicted in no file produced it. tests/unit/t_canary.py's neighbour test
+# is what caught it.
+#
+# 50176 is file sector **98 + BOOT2_SECS**: 106 on the default build and 107
+# under SPLSTARS' one-sector-longer blob, inside the band either way. The band
+# common to all four geometries is 106..110 and it is the ONLY run of two or
+# more below the 64KB the compare's ES can reach (21 and 57 also cross, but a
+# lone sector cannot hold both blob lengths). There is no margin below it any
+# more and that is not a choice: `.text` ends 31 bytes into file sector 106, so
+# the whole legal window is memory 50,176..50,205 - THIRTY BYTES, all of them
+# in that one sector - and 50,176 is the bottom of it because the bottom is
+# what survives the most further shrinking. **`.text` MAY NOT FALL BELOW
+# 50,178 BYTES** without leaving this constant no legal value at all; t_canary
+# fails loudly rather than going quiet if it does, and the answer then is a
+# design change, not a new number.
 #
 # THE OLD "stays below bootdiag's 48-sector payload" RULE IS GONE, and it was
 # already dead when it was written down: SPEC.md 2.9 moved the canary into
@@ -580,7 +602,7 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # runtime fence one line down, and it is enough on its own: a payload shorter
 # than this offset gets no -DKSIG, boot/boot.asm's `%define KSIG 0` applies,
 # and stage 2's `cmp word [b2_ksig], 0` skips the compare.
-KSIG_OFF := 51200
+KSIG_OFF := 50176
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is

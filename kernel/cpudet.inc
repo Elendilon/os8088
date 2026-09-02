@@ -74,6 +74,10 @@ cpu_x87sw       dw 0            ; the x87 probe's landing pad. In .text for
                                 ; boot overlay - it cannot own bss that
                                 ; outlives it.
 
+%if cpu_feat - cpu_tier != 1
+  %error "cpu_info answers with ONE word read at [cpu_tier] (AL = the tier, AH = the features), so cpu_feat must be the byte after it. Split them and AH picks up whatever follows cpu_tier instead - silently, and only where a caller reads the feature bits"
+%endif
+
 ; -----------------------------------------------------------------------------
 ; cpu_detect - publish the CPU tier (SPEC.md 41.1)
 ;
@@ -196,6 +200,9 @@ cpu_detect:
 section .text
 ; -----------------------------------------------------------------------------
 cpu_info:
-    mov al, [cpu_tier]
-    mov ah, [cpu_feat]
-    ret
+    mov ax, [cpu_tier]          ; ONE word: little-endian puts [cpu_tier] in
+    ret                         ; AL and [cpu_feat] in AH, which is the
+                                ; documented output byte for byte. The %if
+                                ; beside the declarations is what keeps the
+                                ; pair adjacent. An unaligned word read is
+                                ; legal on the 8086 and this is not hot.

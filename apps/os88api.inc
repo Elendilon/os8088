@@ -2821,6 +2821,28 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
                                  ; so it is NOT the one to call before showing a
                                  ; folder, and it does not move your app's own
                                  ; current folder the way GOTO does.
+                                 ;
+                                 ; **ON A REDIRECTED VOLUME IT NOW TELLS THE
+                                 ; DRIVER**, which it did not and should have
+                                 ; (SPEC.md 62.9.1). A DRVC_FILE driver keeps
+                                 ; its own idea of where it stands - FSV_STAT
+                                 ; resolves a name in the CURRENT folder - so
+                                 ; writing the kernel's word behind its back
+                                 ; left the two disagreeing and every name you
+                                 ; then asked about was looked up in the folder
+                                 ; you came FROM, presented as FERR_NOENT for a
+                                 ; file that is plainly listed.
+                                 ;
+                                 ; THE PRICE IS THE CLOBBER SET, and it is only
+                                 ; a price on a redirected volume: the call can
+                                 ; now reach FSV_CHDIR, and a driver's verb owns
+                                 ; every register the FSV ABI does not reserve.
+                                 ; BX and DX are still preserved by the kernel
+                                 ; and AX is still the answer; **CX, SI and DI
+                                 ; are the driver's** on a DVK_FILE volume and
+                                 ; unchanged on every other. Bank them if you
+                                 ; hold anything across this call - the same
+                                 ; rule the file cells have always had.
 
 %define OSAPI_FILE_GOTO_QM  KERNEL_SEG:0x0460   ; DX = a folder's first cluster
                                  ; (0 = the root), BL = the volume. out exactly

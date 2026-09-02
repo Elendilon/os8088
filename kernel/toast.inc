@@ -106,12 +106,22 @@ TOAST_SCAN  equ 256             ; bytes of the caller's string examined before
                                 ; without a byte bound a segment holding no
                                 ; NUL and no printable would hang the machine
 
-toast_on:    db 0               ; a strip is composed into the bar
-toast_want:  db 0               ; staged by toast_show, not yet put up
+; THE THREE FLAG BYTES ARE READ AND WRITTEN IN PAIRS, so their ORDER is part
+; of the code below and the %if under them is what keeps it.  Little-endian,
+; `[toast_dirty]` as a word is (dirty, on) and `[toast_on]` as a word is
+; (on, want) - which is every pair any site here needs.  The order was
+; (on, want, dirty); this one is worth 26 bytes where (on, dirty, want) was
+; worth 12, and it is also the one that keeps `toast_want` cleared FIRST in
+; toast_arm.
 toast_dirty: db 0               ; the composition changed and nobody has
                                 ; drawn it - set by the two edges AND by
                                 ; toast_kill, which runs under the lock and
                                 ; so may not draw for itself
+toast_on:    db 0               ; a strip is composed into the bar
+toast_want:  db 0               ; staged by toast_show, not yet put up
+%if (toast_on - toast_dirty) != 1 || (toast_want - toast_dirty) != 2
+  %error "toast.inc: the three flag bytes are stored and tested in PAIRS as words - dirty+on at [toast_dirty], on+want at [toast_on] - so they must stay adjacent in that order. Reorder them and every one of those sites writes or tests the wrong byte, silently"
+%endif
 toast_inst:  db 0FFh            ; the raiser's instance slot (0FFh = kernel)
 toast_die:   dw 0               ; the tick it expires at
 toast_ttl:   dw TOAST_TICKS     ; ...and how long it was asked for
@@ -210,13 +220,16 @@ toast_show:
     mov byte [toast_want], 1
     popf
     call toast_now              ; ...and if the caller can be shown to hold
-    clc                         ; the lock, it reaches the glass NOW rather
-    jmp short .out              ; than on the next idle pass (SPEC.md 59.4)
+    jmp short .out              ; the lock, it reaches the glass NOW rather
+                                ; than on the next idle pass (SPEC.md 59.4)
 .kill:
     call toast_kill             ; preserves the flags, so the popf below is
     popf                        ; still the caller's
-    clc
 .out:
+    clc                         ; ONE `clc`: nothing here refuses today, and
+                                ; `.out` is reached from those two paths and
+                                ; nothing else. A failure path added later
+                                ; must jump PAST this.
     pop di
     pop si
     pop dx
@@ -247,7 +260,16 @@ toast_say:
     push cx
     push si
     push es
-    xor ah, ah
+    cbw                         ; a code of 0x80 or more sign-extends to
+                                ; 0xFF80..0xFFFF rather than 0x0080..0x00FF -
+                                ; and BOTH are refused by the `jae` below,
+                                ; which is UNSIGNED and whose bound is a small
+                                ; table length. Every caller passes a FERR_*
+                                ; / LD_* code well under 0x80; the hostile
+                                ; case is refused either way. Widen that bound
+                                ; or make the compare signed and this byte has
+                                ; to go back. `cbw` writes no flag, so the
+                                ; `or al, al` below is unaffected.
     or al, al
     jz .out
     cmp ax, cx
@@ -325,11 +347,14 @@ toast_now:
 ; in/out:   nothing (AX clobbered - both callers have banked it)
 ; -----------------------------------------------------------------------------
 toast_arm:
-    mov byte [toast_want], 0
+    mov byte [toast_want], 0    ; FIRST, still: a toast_show landing mid-arm
+                                ; has to survive to the next pass
     mov ax, [ticks]
     add ax, [toast_ttl]
     mov [toast_die], ax
-    mov byte [toast_on], 1
+    mov word [toast_dirty], 0x0100  ; dirty = 0, on = 1, in one store - and
+                                    ; still AFTER [toast_die], so no pass can
+                                    ; see on=1 beside a stale expiry
     mov byte [menu_bdirty], 1   ; **AND THE MENUS SEGMENT IS OWED A LOOK**
                                 ; (SPEC.md 59.9): the strip's first choice of
                                 ; home is the gap that segment's last menu
@@ -343,8 +368,9 @@ toast_arm:
                                 ; composition that finds nothing differs and
                                 ; emits no pixels, which is what this segment
                                 ; answers most window operations with anyway
-    mov byte [toast_dirty], 0   ; ...and this IS the draw, on the toast_now
-                                ; path; toast_pass re-sets it and draws.
+                                ; The `dirty = 0` half of that word store IS
+                                ; the draw, on the toast_now path; toast_pass
+                                ; re-sets it and draws.
                                 ; NOTHING is invalidated in the CLOCK's field:
                                 ; its painter composes what it is about to
                                 ; show and compares it against [menu_ckck]
@@ -377,15 +403,8 @@ toast_gapend:
     push cx
     push dx
     push si
-    mov ax, [vid_wm8]           ; the field, in whole cells - menu_draw_clock's
-    sub ax, [vid_clk_hx]        ; own arithmetic, and clamped the same way
-    mov cl, 3
-    shr ax, cl
-    cmp ax, MENU_CLKC - 1
-    jbe .fw
-    mov ax, MENU_CLKC - 1
-.fw:
-    mov dx, ax                  ; DX = the field's cells
+    call menu_clkcells          ; the field, in whole cells - menu_draw_clock's
+    mov dx, ax                  ; own arithmetic, and now literally it
     call clk_fmt                ; SI = the live line, CX = its length (37) -
                                 ; which this used to walk the string for
     cmp cx, dx                  ; a line wider than its field cannot happen,
@@ -511,11 +530,7 @@ toast_place:
     mov [toast_scell], ax
     mov [toast_scn], cx
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_dx
 
 ; -----------------------------------------------------------------------------
 ; toast_pass - put a toast up, or take an expired one down
@@ -538,16 +553,20 @@ toast_pass:
                                 ; decides - sch_isr's wake scan and SPEC.md
                                 ; 45.15's stamp compare. A `jg` honours OF
                                 ; and would hold a toast across the wrap
-    mov byte [toast_on], 0
-    mov byte [toast_dirty], 1
+    mov word [toast_dirty], 0x0001  ; dirty = 1, on = 0, in one store
     jmp short .chk
 .up:
-    call toast_arm
-    mov byte [toast_dirty], 1
+    call toast_arm              ; ...whose last act leaves [toast_dirty] ZERO,
+    jmp short .draw             ; so setting it here only to have `.chk` clear
+                                ; it two instructions later was a round trip
+                                ; through a byte that had just been zeroed.
+                                ; IF toast_arm EVER STOPS CLEARING IT this
+                                ; reads as a message appearing one pass late.
 .chk:
     cmp byte [toast_dirty], 0
     je .out
     mov byte [toast_dirty], 0
+.draw:
     mov byte [menu_bdirty], 1   ; the DOWN edges' half of toast_arm's flag
                                 ; (SPEC.md 59.9) - an expiry above, and
                                 ; toast_kill's deferred retire, both of which
@@ -577,13 +596,9 @@ toast_kill:
     cli                         ; check-then-act: a task switch between the
                                 ; tests and the stores could retire a toast
                                 ; some OTHER task staged in the gap
-    cmp byte [toast_on], 0
-    jne .go
-    cmp byte [toast_want], 0
+    cmp word [toast_on], 0      ; "on OR want", as one word over the pair
     je .out
-.go:
-    mov byte [toast_want], 0
-    mov byte [toast_on], 0
+    mov word [toast_on], 0      ; ...and both cleared as one
     mov byte [toast_dirty], 1
 .out:
     popf
@@ -606,11 +621,8 @@ toast_owner_gone:
                                 ; the instance compare must not race a fresh
                                 ; toast_show from another task
     push ax
-    cmp byte [toast_on], 0
-    jne .chk
-    cmp byte [toast_want], 0
+    cmp word [toast_on], 0      ; "on OR want", one word over the pair
     je .out
-.chk:
     call inst_idx               ; AL = this record's instance index
     cmp al, [toast_inst]
     jne .out

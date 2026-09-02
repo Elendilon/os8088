@@ -1683,14 +1683,7 @@ drv_cp_closed_x:
     inc cl
     cmp cl, DRVC_MAX
     jbe .cls
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_bp
 
 ; -----------------------------------------------------------------------------
 ; osapi_drv_cfg - a driver's own settings, in the kernel's file (SPEC.md 51.9)
@@ -1940,16 +1933,8 @@ osapi_drv_dlg_x:
     or si, si                   ; file name - fdlg_setname reads through DS
     jz .named
     mov cx, 12
-.copy:
-    mov al, [es:si]
-    mov [di], al
-    or al, al
-    jz .named
-    inc si
-    inc di
-    loop .copy
-    mov byte [di], 0
-.named:
+    call fm_ncpye               ; ES:SI (the driver's) -> DS:DI (ours), NUL
+.named:                         ; either way.  files.inc is `.cold` too
     mov [drv_dlg_row], bx       ; ARMED LAST: until this store there is nothing
                                 ; for a commit to dispatch into
     mov al, KIND_CTRL
@@ -2130,16 +2115,8 @@ drv_cp_stage:
     jcxz .out                   ; no page: an empty name, and drv_cp_count
     mov si, cx                  ; then skips this class
     mov cx, DRV_CPNSZ - 1
-.copy:
-    mov al, [es:si]
-    mov [di], al
-    or al, al
-    jz .out
-    inc si
-    inc di
-    loop .copy
-    mov byte [di], 0
-.out:
+    call fm_ncpye               ; ES:SI (the driver's) -> DS:DI (ours), NUL
+.out:                           ; either way.  files.inc is `.cold` too
     pop di
     pop si
     pop cx
@@ -2585,15 +2562,7 @@ drv_load_row:
 .out:
     call drv_vol_back           ; every exit, including .already, which never
                                 ; mounted - the compare makes that free. It
-    pop es                      ; preserves CF, so the result above survives
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; drv_check - validate a loaded driver image (module internal)
@@ -2889,14 +2858,7 @@ drv_unload_x:
 .free:
     call drv_release
 .out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; drv_shutdown - take every loaded driver down, for reboot (SPEC.md 51.2)
@@ -3220,7 +3182,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     loop %%p
     call %1 %+ _want_get
     mov [drv_cfg+CFG_WANT], ax
-    call KERNEL_SEG:cw_sched_mode_get
+    call KERNEL_SEG:sched_mode_get
     mov [drv_cfg+CFG_SCH], al
     mov al, [vid_kind]          ; the adapter the machine is RUNNING as, which
     mov [drv_cfg+CFG_VID], al   ; on a machine that has never been asked is

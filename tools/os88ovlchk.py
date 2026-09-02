@@ -164,7 +164,25 @@ def main():
 
     bad = []
     for f in files:
+        inmacro = False
         for sect, n, line in sections(f):
+            # A %macro BODY is not a call site; its EXPANSIONS are, and mbody
+            # above is what makes each of those visible. Scanning the body
+            # itself reports the DEFINITION's section, which is wherever the
+            # macro happens to be written - so a macro defined beside a file's
+            # constants and expanded only inside a module image was reported as
+            # a `.text -> .modc` crossing that does not exist, and the only way
+            # to silence it was to write the definition inside a `section` it
+            # emits nothing into. That is a false positive with a workaround
+            # attached, which is the worst kind.
+            if re.match(r'^\s*%macro\b', line):
+                inmacro = True
+                continue
+            if re.match(r'^\s*%endmacro\b', line):
+                inmacro = False
+                continue
+            if inmacro:
+                continue
             hits = [(m.group(1), m.group(2)) for m in CALL.finditer(line)]
             m = MEXP.match(line)
             if m and m.group(1) in mbody:
@@ -555,6 +573,109 @@ def main():
                  "module's own data is CS-relative: mov al, [cs:si])"
                  % len(m_bad))
     print("os88ovlchk: no module image reads its data through DS")
+
+    # --- ...and the OTHER way to read module data through DS -----------------
+    # The `lods` check above is the whole of what this file used to say about
+    # SPEC.md 2.8.6, and it is blind to the two failures that actually happen
+    # when a body of strings moves into an image:
+    #
+    #   * a MISSING `cs:` on a table read - `mov si, [si + cp_vidnam]` reads
+    #     the KERNEL image at that offset and letters whatever is there;
+    #   * a MISSING staging call - `mov si, cp_s_vcap` hands `font_run` a
+    #     pointer that is correct in the IMAGE and nonsense in KERNEL_SEG.
+    #
+    # Neither moves a byte, both assemble, and both draw rubbish on a page a
+    # user opens. Proven rather than asserted: deleting one `call cp_stage`
+    # and one `cs:` from ctrl.inc left `kernsize` byte-for-byte identical and
+    # every check in this file passing. That is the safety net this batch
+    # exists to put under a 26-site hand review, and both halves are here.
+    #
+    # **Half 1 is universal.** A memory operand naming module data must carry
+    # a `cs:`. There is no correct way to write that operand without one, in
+    # any image, so this needs no registration and has no false positives.
+    #
+    # **Half 2 is per image, and needs the image to be written for it.** A
+    # pointer LOAD (`mov si, <label>`) is indistinguishable from correct code
+    # until you know what happens to SI, which is dataflow this cannot do. So
+    # the rule is turned round: an image registers the macro that DEFINES a
+    # string and the macros that READ one, and then a string label may appear
+    # only at its own definition, inside another data directive or `equ` in
+    # the same image, or as an argument of one of those macros. A bare
+    # `mov si, cp_s_*` fails the build. It is a construction rule rather than
+    # an analysis, which is why it is exact.
+    #
+    # **`.modl` (CLONE.DRV) and `.modf` (FORMAT.DRV) are NOT registered**, and
+    # so get half 1 only. They predate this and read their strings with a bare
+    # `mov si, clo_s_x` / `call clo_cat` in 26 and 10 places, in shapes a
+    # next-line rule cannot express (`jmp .tail` reaches the composer four
+    # lines later; a conditional pair stages at the join). Registering them
+    # means converting those sites to a macro of their own - worth doing, and
+    # not on the back of a change to a different image.
+    MODDEF  = re.compile(r'^\s*([A-Za-z_]\w*):\s*(?:times\s+\S+\s+)?'
+                         r'(?:d[bwdq]|res[bwdqt])\b', re.I)
+    ISDATA  = re.compile(r'^\s*(?:[A-Za-z_]\w*:)?\s*(?:times\s+\S+\s+)?'
+                         r'(?:d[bwdq]|res[bwdqt])\b', re.I)
+    ISEQU   = re.compile(r'^\s*[A-Za-z_]\w*\s+equ\b', re.I)
+    WORD    = re.compile(r'\b([A-Za-z_]\w*)\b')
+    # per image: the macro that DEFINES one of its strings, and the macros
+    # that READ one.  An image absent from here gets half 1 only.
+    MODSTAGE = {'.modc': {'def': ('CPS',), 'use': ('CPSTAGE', 'CPSTAGEX')}}
+
+    mdata = {}                       # module string/table label -> its section
+    for f in files:
+        for sect, n, line in sections(f):
+            if sect not in MODS:
+                continue
+            m = MODDEF.match(line)
+            if m:
+                mdata[m.group(1)] = sect
+                continue
+            reg = MODSTAGE.get(sect)
+            if reg:
+                for d in reg['def']:
+                    m = re.match(r'^\s*%s\s+([A-Za-z_]\w*)\s*,' % d, line)
+                    if m:
+                        mdata[m.group(1)] = sect
+    # the image HEADER is the one exception SPEC.md 2.8 carves out: mod_need
+    # reads it through ES, at offset 0, before the image is ever entered.
+    for k in [k for k in mdata if k.endswith('_hdr')]:
+        del mdata[k]
+
+    d_bad = []
+    for f in files:
+        for sect, n, line in sections(f):
+            names = [w for w in WORD.findall(line) if w in mdata]
+            if not names:
+                continue
+            if MODDEF.match(line) and MODDEF.match(line).group(1) in mdata:
+                continue                       # the definition itself
+            if sect in MODS and (ISDATA.match(line) or ISEQU.match(line)):
+                continue                       # a table or an equ in the image
+            reg = MODSTAGE.get(sect)
+            if reg:
+                mm = re.match(r'^\s*(%s)\s+([A-Za-z_]\w*)'
+                              % '|'.join(reg['def'] + reg['use']), line)
+                if mm and mm.group(2) in mdata:
+                    continue                   # a sanctioned macro
+            # half 1: a memory operand over module data must name CS
+            if re.search(r'\[[^]]*\bcs\s*:', line):
+                continue
+            for w in names:
+                if reg is None and not re.search(r'\[[^]]*\b%s\b' % w, line):
+                    continue          # unregistered image: half 1 only, and
+                                      # this is a pointer LOAD rather than a
+                                      # memory operand over the image
+                d_bad.append((f, n, sect, w, line.strip()[:56]))
+    for f, n, sect, w, src in d_bad:
+        print("%s:%d: %s is %s data read through DS: %s" % (f, n, w, sect, src),
+              file=sys.stderr)
+    if d_bad:
+        sys.exit("os88ovlchk: %d module-data reference(s) do not name CS or a "
+                 "registered stager - SPEC.md 2.8.6 (an image's own data is "
+                 "CS-relative, and a pointer to it must be staged before "
+                 "anything reads it through DS)" % len(d_bad))
+    print("os88ovlchk: every module-data reference names CS or a registered "
+          "stager (%d symbols)" % len(mdata))
 
     # --- and no TAIL CALL to a cw_ shim -------------------------------------
     # A cw_ shim is `call <target>` / `retf`: it exists to turn a far CALL

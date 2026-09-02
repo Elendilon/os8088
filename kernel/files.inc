@@ -301,7 +301,7 @@ FS_SIZE     equ 24              ; = the Disk kind's KD_SSIZE
 %endif
 
 FM_MAXWIN   equ VIEW_SLOTS      ; = KD_CAP: one cache slot per window
-FV_ICONS    equ DSK_NENT*DSK_DE_SIZE    ; icon images start here inside a
+FV_ICONS    equ DSK_NENT*DSK_DE_STRIDE  ; icon images start here inside a
                                 ; FLOPPY-sized slot; a driver-backed volume's
                                 ; is [dsk_ioff], and fmv_iofs answers both
 FM_HDRMAX   equ 48              ; fm_hdrbuf's size: the header and the status
@@ -592,14 +592,15 @@ fmv_copy_in:
 ; clobbers: BX (the output), flags
 ;
 ; A slot MIRRORS the listing it was filled from, so its shape follows
-; [dsk_nmax]: 1KB of entries then 2KB of icons on a floppy, 2KB then 4KB on a
-; driver-backed volume (SPEC.md 22.6).
+; [dsk_nmax]: 768 bytes of entries then 2KB of icons on a floppy, 1,536 then
+; 4KB on a driver-backed volume (SPEC.md 22.6) - DSK_DE_STRIDE apiece, which
+; is the listing's width and not DSK_DE_SIZE's.
 ; -----------------------------------------------------------------------------
 fmv_iofs:
     push ax
     push dx
     mov ax, [dsk_nmax]
-    mov dx, DSK_DE_SIZE
+    mov dx, DSK_DE_STRIDE       ; the LISTING's stride, which a cache mirrors
     mul dx
     mov bx, ax
     pop dx
@@ -622,8 +623,8 @@ fmv_iofs:
 ; out and the base fmv_copy_in subtracts from it would be two different
 ; volumes' arithmetic.
 ; -----------------------------------------------------------------------------
-%if ((DSK_NENT * DSK_DE_SIZE) & 0xFF) || ((DSK_VENT * DSK_DE_SIZE) & 0xFF)
-%error "FS_IOFH holds an icon base in ONE byte: nmax*32 must be a multiple of 256"
+%if ((DSK_NENT * DSK_DE_STRIDE) & 0xFF) || ((DSK_VENT * DSK_DE_STRIDE) & 0xFF)
+%error "FS_IOFH holds an icon base in ONE byte: nmax*DSK_DE_STRIDE must be a multiple of 256. It is 768 and 1,536 at a stride of 24 and was 1,024 and 2,048 at 32 - a stride that is not a multiple of 8 breaks this for BOTH caps at once"
 %endif
 fmv_viofs:
     push si
@@ -638,7 +639,7 @@ fmv_viofs:
 ; -----------------------------------------------------------------------------
 ; fmv_get_dir - stage one entry out of THIS window's cache
 ; in:  AX = entry index (0..31; callers bound it by FS_N)
-; out: SI -> dsk_ent, holding that entry's 32 bytes
+; out: SI -> dsk_ent, holding that entry's DSK_DE_STRIDE meaningful bytes
 ; clobbers: SI (the output), flags
 ;
 ; Deliberately lands in disk.inc's OWN dsk_ent rather than a second buffer:
@@ -649,11 +650,13 @@ fmv_get_dir:
     push ax
     push cx
     push di
-    mov cl, 5                   ; index * 32
-    shl ax, cl
-    mov si, ax
+    push dx                     ; index * DSK_DE_STRIDE. A MULTIPLY, because
+    mov cx, DSK_DE_STRIDE       ; the stride is no longer a power of two;
+    mul cx                      ; index <= DSK_VENT so DX is 0, and it is
+    pop dx                      ; banked because this routine's contract is
+    mov si, ax                  ; "clobbers SI"
     mov di, dsk_ent
-    mov cx, DSK_DE_SIZE
+    mov cx, DSK_DE_STRIDE
     call fmv_copy_in
     pop di
     pop cx
@@ -767,7 +770,7 @@ fmv_store:
     push di
     call fmv_winof              ; BEFORE the .none early-out: a window with no
     jc .nowin                   ; view claim paints from the global snapshot,
-    call KERNEL_SEG:cw_wm_su_stale  ; which is changing under it too - and it is
+    call KERNEL_SEG:wm_su_stale  ; which is changing under it too - and it is
                                 ; STALE rather than merely uncached (SPEC.md
                                 ; 11.96.16.1): this window's pixels are the
                                 ; folder as it was, and fmv_bcast leaves a
@@ -803,13 +806,7 @@ fmv_store:
                                 ; it next (SPEC.md 22.6.1). BL is 0 by the
                                 ; assertion at fmv_viofs
 .none:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fmv_copy_out - CX bytes from the live listing into this window's slot
@@ -870,11 +867,7 @@ fmv_fit:
 .out:
     mov bx, [di+FS_VSEG]        ; fm_vseg is what every reader looks at, and
     mov [fm_vseg], bx           ; this may just have changed it
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fmv_movable - declare the view cache at DX relocatable (SPEC.md 66.5.6)
@@ -969,13 +962,7 @@ fmv_load:
                                 ; just took, so it is read here and nowhere
                                 ; else (SPEC.md 22.7)
 
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_measure - fill one window's FS_FREE / FS_USED (SPEC.md 22.7)
@@ -1048,12 +1035,7 @@ fm_measure:
     je .out                     ; sentinel: leave it saying "not known"
     mov [di+FS_USED], ax
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fmv_sync - make the global snapshot BE this window's directory (SPEC.md 22.1)
@@ -1583,8 +1565,15 @@ fm_s_delq:    db '? Del=yes Esc=no', 0   ; the DELETE key, not Enter (SPEC.md
 ; in their first, they are answered by the same key, and a second FS_EDIT
 ; value would be a second thing every ladder in this file has to know about.
 fm_s_swap1:   db 'Insert the system disk in ', 0
-fm_s_swapd:   db 'A:', 0        ; stamped by dsk_bootltr like every other
-                                ; message that names the system volume
+fm_s_swapd    equ ui_s_nodisk_l ; NOT ITS OWN STRING.  The six messages that
+                                ; name the system volume are all stamped with
+                                ; the same byte by one dsk_bootltr loop, and
+                                ; five of them are the TAIL of a longer message
+                                ; with no NUL of its own.  This one is
+                                ; standalone, so it is ui.inc's - which means
+                                ; ui_s_nodisk_l ('A:', 0, ui.inc) MUST KEEP ITS
+                                ; LABEL AND ITS BYTES; a reword of the message
+                                ; around it is fine, deleting the label is not
 fm_s_swapk:   db 'Enter=ready  Esc=no', 0
 fm_s_swapno:  db 'Format needs disk '  ; ...and this one is a TOAST, so it is
 fm_s_swapnd:  db 'A:', 0        ; bounded by TOAST_MAX = 23 rather than by the
@@ -2017,9 +2006,10 @@ fm_bar_gate_x:
 ; -----------------------------------------------------------------------------
 ; fm_ncpy - copy a NUL string into a bounded field, always NUL-terminated
 ; in:  SI -> the string, DI -> the field, CX = the most characters it holds
-; out: DI at the stored NUL on the early-NUL path, AT the bound otherwise -
-;      which is what all five sites it replaces already did, and none of them
-;      reads DI afterwards. AX and CX clobbered
+; out: DI ONE PAST the stored NUL on the early-NUL path (the `inc di` runs
+;      before the test), at the bound otherwise - which is what all five sites
+;      it replaces already did, and none of them reads DI afterwards. AX and
+;      CX clobbered
 ;
 ; lodsb needs DF=0, which SPEC.md 1 guarantees. NOT dsk_ncopy: that is a FLAT
 ; COUNTED move and this stops at a NUL, which is a different question and
@@ -2033,9 +2023,37 @@ fm_ncpy:
     or al, al
     jz .d
     loop .c
+.t:
     mov byte [di], 0
 .d:
     ret
+
+; -----------------------------------------------------------------------------
+; fm_ncpye - fm_ncpy with the SOURCE in ES:SI (module internal)
+; in:  ES:SI -> the string, DI -> the field in DS, CX = the most it holds,
+;      CX >= 1 (a bare `loop` walks 65,536 bytes at CX = 0)
+; out: exactly fm_ncpy's: DI one past the stored NUL on the early-NUL path,
+;      at the bound otherwise; AX and CX clobbered
+;
+; It cannot be fm_ncpy with DS swapped to the source: `mov [di], al` writes
+; through DS and the field would land in the DRIVER's own image instead of
+; the kernel's. One `es` prefix on the lodsb is the whole difference, and the
+; terminator and the ret are fm_ncpy's own, shared six lines up - so an edit
+; to fm_ncpy's tail is an edit to this one's.
+;
+; Two callers, both in .cold like this one, both staging a driver-supplied
+; name into a kernel field: osapi_drv_dlg_x's default file name and
+; drv_cp_stage's Control Panel page name (SPEC.md 51).
+; -----------------------------------------------------------------------------
+fm_ncpye:
+.c:
+    es lodsb
+    mov [di], al
+    inc di
+    or al, al
+    jz fm_ncpy.d
+    loop .c
+    jmp short fm_ncpy.t
 
 ; -----------------------------------------------------------------------------
 ; fm_seed - park a target directory for the next fm_kinit (SPEC.md 22.1)
@@ -2386,13 +2404,7 @@ fm_btn1:
     mov bx, os88ui_krect
     call os88ui_btn
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_isdown - is button AL the one drawn pressed, in THIS window?
@@ -2559,8 +2571,7 @@ fm_relayout:
     sub cx, dx                  ; CX = content-relative y
     pop dx
     sub dx, ax                  ; DX = content-relative x
-    call fm_layout              ; BX = window ptr
-    ret
+    jmp fm_layout               ; BX = window ptr.  Tail call, both `.cold`
 
 ; -----------------------------------------------------------------------------
 ; fm_onclick - W_ONCLICK for the Disk window
@@ -2905,13 +2916,7 @@ fm_onup_x:
 .paint:
     call fm_repaint             ; SI still = window ptr
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_ondrag - W_ONDRAG (SPEC.md 13.8.1): the pointer moved, press still down
@@ -2961,13 +2966,7 @@ fm_ondrag_x:
 .set:
     call fm_setdown             ; ...which draws only if that CHANGED
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3115,7 +3114,7 @@ fm_onkey_x:
     mov dl, ah
     sub dl, 0x48
     test dl, 0xF6
-    jnz .out
+    jnz .outj
     mov bx, si                  ; the scroll keys clamp against the live
     call fm_layout              ; layout (fm_fit/fm_total); fm_scroll_by
     mov ax, 1                   ; commits the mirror and draws what moved
@@ -3128,15 +3127,24 @@ fm_onkey_x:
     neg ax
     jmp short .scr_move
 
+.outj:                          ; a trampoline, on a path nothing falls into:
+    jmp .out                    ; `.out` is 160 bytes past the four tests above
+                                ; and the 8086 has no near `jcc`, so each of
+                                ; them was NASM's inverted-short-plus-near-jmp,
+                                ; five bytes.  From here they are two and this
+                                ; is the one near jump: -9.  Every arm of it
+                                ; ends the keystroke without drawing, and the
+                                ; ladder runs once per KEY, not per row
+
 .editing:
     or al, al
     jnz .edkey                  ; a bare scan code is swallowed and nothing
     cmp ax, 0x5300              ; moves - with ONE exception, because the key
-    jne .out                    ; that says yes to the delete confirmation
+    jne .outj                   ; that says yes to the delete confirmation
     cmp byte [di+FS_EDIT], 3    ; carries no ASCII. The MODE is tested HERE so
-    jne .out                    ; that every other mode's swallow stays byte
+    jne .outj                   ; that every other mode's swallow stays byte
     call fm_delrep              ; for byte what it was: mode 4 in particular
-    jc .out                     ; reads "any other key" as STOP the paste, and
+    jc .outj                    ; reads "any other key" as STOP the paste, and
                                 ; a scan code must not be able to answer that.
                                 ; CF = 1 is typematic - a repeat is not a
                                 ; press (SPEC.md 22/9.6.1), and it is
@@ -3921,13 +3929,7 @@ fm_oncmd_x:
                                 ; the menu's own item count, SPEC.md 12)
     call fm_docmd
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_docmd - run one FMC_* against the published window and repaint it
@@ -4257,13 +4259,7 @@ fm_fmt_home:
     call fmv_inext
     jnc .scan
 .done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
     mov di, [fm_vp]
@@ -4275,11 +4271,8 @@ fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
     ; on the system disk. Where the two are the same drive - one floppy - the
     ; user is asked to swap; where they are not, or where the image is still
     ; loaded from a previous format, this is six compares and nothing is asked.
-    push ax
-    mov al, MOD_FMT
-    call mod_need
-    pop ax
-    jnc fm_fmt_go
+    call dskw_fmt_load          ; diskw.inc's own wrapper, which is this bank,
+    jnc fm_fmt_go               ; this `mov al` and this call, already written
     mov byte [fm_fmtstep], 0    ; ...and if it could not: the swap prompt
     mov byte [fm_swapwho], 0    ; on the FORMATTER's behalf (SPEC.md 22.21.4).
                                 ; .bss arrives as whatever was in memory, so
@@ -4344,10 +4337,7 @@ fm_c_clone:
                                 ; bar on FS_EDIT, so a second Disk window can
                                 ; pick this item while the first is sitting at
                                 ; a prompt with a live claim (SPEC.md 22.21.2)
-    push ax
-    mov al, MOD_CLONE
-    call mod_need
-    pop ax
+    call clo_need
     jnc fm_clone_go
     mov byte [fm_fmtstep], 0    ; ...and if it could not: the swap prompt,
     mov byte [fm_swapwho], 1    ; asking for the system disk on the CLONER's
@@ -4392,13 +4382,14 @@ fm_clone_go:
 ; out: nothing; AX and SI clobbered, which both sites already did
 ;
 ; NOT `push cs`: this is `.cold` (SPEC.md 2.6), so CS here is COLD_SEG and the
-; buffer is KERNEL_SEG. CX = 0 is TOAST_TICKS, the default life.
+; buffer is KERNEL_SEG - which is what DS holds (SPEC.md 2.6 rule 2), so the
+; segment copy is `push ds`. CX = 0 is TOAST_TICKS, the default life.
 ; -----------------------------------------------------------------------------
 fm_toast_hdr:
     push cx
     push es
-    mov ax, KERNEL_SEG
-    mov es, ax
+    push ds
+    pop es
     mov si, fm_hdrbuf
     xor cx, cx
     call KERNEL_SEG:cw_toast_show
@@ -4633,11 +4624,8 @@ fm_img_done_x:
     jnz .save
 
     ; --- the OPEN form: Write Img ------------------------------------------
-    push ax
-    mov al, MOD_CLONE
-    call mod_need               ; loaded HERE, not before the dialog: a cancel
-    pop ax                      ; never comes back to drop it
-    jc .nodrv
+    call clo_need               ; loaded HERE, not before the dialog: a cancel
+    jc .nodrv                   ; never comes back to drop it
     mov di, [fm_vp]
     mov al, [di+FS_DRV]
     mov bx, dx                  ; **BX:CX, NOT DX:CX** - DL is the verb, and
@@ -4682,13 +4670,7 @@ fm_img_done_x:
 .bad:
     call fm_clone_bad           ; AX = CERR_*; nothing is armed, so the window
 .out:                           ; is left exactly as it was
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 fm_c_cut:                       ; File > Cut - the selection, onto the
     mov al, FCP_CUT             ; clipboard (SPEC.md 22.3)
@@ -4698,9 +4680,10 @@ fm_c_copy:                      ; File > Copy
 fm_c_clip:
     mov di, [fm_vp]
     mov bx, [di+FS_SEL]
-    call fcp_arm                ; CF=1 = nothing selected, or '..': a no-op,
-    ret                         ; like every other command with nothing to
-                                ; act on
+    jmp fcp_arm                 ; CF=1 = nothing selected, or '..': a no-op,
+                                ; like every other command with nothing to act
+                                ; on.  Tail call - filecp.inc's `.cold` is
+                                ; this file's, so it is near
 
 fm_c_paste:                     ; File > Paste - into THIS window's folder
     mov di, [fm_vp]
@@ -5040,13 +5023,7 @@ fm_rclick_x:
     mov [fm_rcmdid], al
     clc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_rcmd - run the command fm_rclick latched
@@ -5069,13 +5046,7 @@ fm_rcmd_x:
     mov bl, [fm_rcmdid]
     xor bh, bh
     call fm_docmd
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; =============================================================================
 ; The status-line name editor (SPEC.md 22)
@@ -5124,7 +5095,7 @@ fm_editkey:
                                 ; there is no undo, and the operation is not
                                 ; one file but every one of them
     cmp byte [di+FS_EDIT], 3
-    je .confirm
+    je .confj
     cmp al, 13
     je .commit
     cmp al, 27
@@ -5182,6 +5153,15 @@ fm_editkey:
                                 ; every character typed after a backspace
                                 ; landed behind that NUL and never appeared
 
+.confj:                         ; a trampoline, on a path nothing falls into:
+    jmp .confirm                ; `.confirm` is past 190 bytes of edit modes and
+                                ; the 8086 has no near `jcc`, so the three arms
+                                ; aimed at it were NASM's five-byte inverted-
+                                ; short-plus-near-jmp.  From here they are two
+                                ; bytes each: -6.  Every one of them ends the
+                                ; keystroke on the confirmation line and the
+                                ; ladder runs once per KEY, not per row
+
     ; The replace question (SPEC.md 22.3). Three answers, and the default is
     ; the safe one for the same reason mode 3's is: Enter replaces THIS file,
     ; 'a' replaces every one that follows, and anything else stops the
@@ -5217,12 +5197,12 @@ fm_editkey:
     ; is not advertised must not quietly change what it used to do.
 .confirmf:
     cmp al, ' '
-    jne .confirm
+    jne .confj
     push ax
     mov al, [di+FS_DRV]
     call fm_fmt_sizeable        ; the SAME predicate the line is composed
     pop ax                      ; from, so the two cannot disagree
-    jc .confirm                 ; nothing to offer: Space still means no
+    jc .confj                   ; nothing to offer: Space still means no
     xor byte [fm_fmtrow], 1
     jmp .lineonly               ; the size on the line IS [fm_fmtrow], so the
                                 ; redraw is the one a typed rename character
@@ -5614,7 +5594,7 @@ fm_drag:
     mov [fm_starty], dx
     mov byte [fm_dgon], 0
     cmp byte [mou_ptr], 0       ; ...but there is nothing to disambiguate with
-    je .click                   ; no mouse on the machine (SPEC.md 9.6.1). The
+    je .wclick                  ; no mouse on the machine (SPEC.md 9.6.1). The
                                 ; keyboard's button is latched for the whole
                                 ; W_ONCLICK dispatch and the pointer cannot
                                 ; move until that returns, so this loop could
@@ -5635,11 +5615,11 @@ fm_drag:
                                 ; wakedrain lint could not see - and a drag
                                 ; here during an FTP transfer deafened the
                                 ; server's window for the session
-.wclick:
-    jmp .click
+.wclick:                        ; ...and the trampoline two other arms take
+    jmp .click                  ; rather than NASM's five-byte inverted pair
 .noev:
     test byte [mouse_btn], 1
-    jz .click                   ; released without moving: an ordinary click
+    jz .wclick                  ; released without moving: an ordinary click
     mov ax, [mouse_x]
     sub ax, [fm_startx]
     call fm_dgabs
@@ -5767,11 +5747,7 @@ fm_dgxor:
     mov dx, bx                  ; as "a row", narrow enough not to swamp a
     add dx, FM_ROW_H - 1        ; 320px window
     call KERNEL_SEG:cw_vga_xor_rect_vram ; clips, so the screen edges are free
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fm_dgdrop - resolve the release point and move the dragged entry there
@@ -5972,13 +5948,7 @@ fmv_repaint_all:
     mov [wm_dmg_y2], ax
     call KERNEL_SEG:cw_wm_dmg_wins
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fmv_uadd - grow the pending union by the rect in AX/BX/CX/DX (internal)
@@ -6048,13 +6018,7 @@ fmv_reload_all:
     call fmv_inext
     jnc .scan
 .done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_stage_onam - capture the entry Rename/Delete is about to act on
@@ -6339,11 +6303,7 @@ fm_repaint:
     call KERNEL_SEG:cw_wm_grow_paint ; the white fill above erased the grow box;
                                 ; BX is still the window ptr (SPEC.md 11.1)
 .done:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fm_nfiles - the header's count: this window's listing minus its parent link
@@ -6380,23 +6340,47 @@ fm_nfiles:
 ; fmv_get_icon stages the entry from THIS window's cache (SPEC.md 22.1); an
 ; all-zero entry (the 32 words OR to 0) falls back to built-in ico_app16.
 ; -----------------------------------------------------------------------------
+; fm_icon_blank - is this staged icon body all zeros? (SPEC.md 25)
+; in:  SI -> a 64-byte icon body
+; out: ZF = 1 if all 32 words OR to zero, i.e. nothing earned an icon and the
+;      built-in ico_app16 is the answer
+; clobbers: nothing.  The three pops do not touch flags, so the answer rides
+;      out over them
+;
+; THE RULE LIVED IN TWO PLACES: here and fdlg.inc's fdlg_icon, each with its
+; own copy of the comment.  Both are `.cold`, so the call is near.
+;
+; It costs one near call and ret plus two extra push/pop pairs over the
+; inline loop it replaces - call it ~95 clocks, ~20 us on a 4.77 MHz 8088 -
+; against a 32-iteration `or ax,[si]` walk of ~960 and then a 16x16 icon
+; blit.  (The finding said "~35 cycles" for the call alone; adverse-R3
+; measured that shape at ~52, and the pushes are the larger half anyway.)
+; -----------------------------------------------------------------------------
+fm_icon_blank:
+    push ax
+    push cx
+    push si
+    xor ax, ax
+    mov cx, 32
+.orw:
+    or ax, [si]
+    inc si
+    inc si
+    loop .orw
+    or ax, ax                   ; `loop` leaves the flags alone but `inc si`
+    pop si                      ; does not, so the verdict is re-derived here
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 fm_draw_icon16:
     push ax
     push bx
     push cx
     push si
     call fmv_get_icon           ; SI -> staged 64-byte icon body
-    mov bx, si
-    push cx                     ; the x coordinate must survive the loop
-    xor ax, ax                  ; counter below
-    mov cx, 32
-.orwords:
-    or ax, [bx]
-    inc bx
-    inc bx
-    loop .orwords
-    pop cx
-    test ax, ax
+    call fm_icon_blank          ; ZF=1 = the 32 words OR to 0
     jz .noicon
     call KERNEL_SEG:cw_icon_draw16 ; body-only table entry (SPEC.md 25)
     jmp .done
@@ -6603,14 +6587,7 @@ fm_draw_core:
                                 ; or retired - can cost one line instead of a
                                 ; whole content repaint (fm_status_only below)
 
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_bp
 
 ; -----------------------------------------------------------------------------
 ; fm_draw_rows - the row area, the selection and the scroll bar
@@ -6698,7 +6675,7 @@ fm_draw_rows:
     call fm_stage_name
     mov byte [fm_name+9], 0     ; grid names: 9 chars max (SPEC.md 22)
     mov si, fm_name
-    call KERNEL_SEG:cw_font_width
+    call KERNEL_SEG:font_width
     mov cx, FMI_CELL_W
     sub cx, ax
     shr cx, 1                   ; centered under the icon
@@ -6864,12 +6841,7 @@ fm_more_mark:
     pop ax
     call KERNEL_SEG:cw_gfx_fill_pat
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fm_2line - does this editor mode put a line UP IN THE ROW AREA? (22.20.1)
@@ -6982,7 +6954,7 @@ fm_draw_lrow:
     call fm_ultoa_x             ; the full dword: BEVERLY.MOD is 116,085
     pop di                      ; bytes, not 65,535
     mov si, fm_numbuf
-    call KERNEL_SEG:cw_font_width ; AX = string width, px
+    call KERNEL_SEG:font_width ; AX = string width, px
     mov cx, [fm_rgt]            ; right-align ending at cw-22 (clear of
     sub cx, 20                  ; the scroll bar, SPEC.md 22)
     sub cx, ax
@@ -7099,11 +7071,7 @@ fm_sel_bar:
     add cx, FMI_CELL_W - 1
     call KERNEL_SEG:cw_gfx_xor_fill
 .out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; fm_status_only - repaint one Disk window's status line and NOTHING else
@@ -7187,13 +7155,7 @@ fm_status_only:
 .refuse:
     stc
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; =============================================================================
 ; Scrolling (SPEC.md 22.11)
@@ -7286,14 +7248,7 @@ fm_scroll_by:
 .same:
     clc
 .done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret                         ; POP does not touch flags: CF is still the
+    jmp kretc_bp
                                 ; answer
 
 ; -----------------------------------------------------------------------------
@@ -7413,7 +7368,7 @@ fm_scrollpaint:
     mov cx, [fm_rgt]            ; rect, but the exposed rows below are wider
     mov dx, [fm_by2]            ; than it and are a fill plus glyphs
     call KERNEL_SEG:cw_wm_clip_test
-    jc .refuse
+    jc .refj
 
     ; --- the selection comes off where it is now ---
     mov ax, [fm_sdlt]
@@ -7432,7 +7387,7 @@ fm_scrollpaint:
     mov cx, [fm_bx2]
     mov dx, [fm_by2]
     call KERNEL_SEG:cw_gfx_scroll
-    jc .refuse                  ; it refused: fm_repaint puts the selection
+    jc .refj                    ; it refused: fm_repaint puts the selection
                                 ; back with everything else
 
     ; --- which rows it exposed ---
@@ -7444,6 +7399,8 @@ fm_scrollpaint:
     sub bx, ax
     mov [fm_rlo], bx
     jmp short .stripck
+.refj:                          ; ...and the two refusals above take it
+    jmp .refuse                 ; rather than a five-byte inverted pair: -3
 .expup:
     mov word [fm_rlo], 0        ; scrolled UP: the first |d| are
     neg ax
@@ -7728,13 +7685,7 @@ fm_draw_status:
     add dx, [fm_staty]
     call fm_stat_line
 .fs_done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_di
 
 ; -----------------------------------------------------------------------------
 ; fm_stat_line - draw fm_hdrbuf at (content x + 8, DX), truncated to the
@@ -7836,12 +7787,7 @@ fm_stat_line:
     mov ah, CWHITE              ; ...and the background, in one pass
     call KERNEL_SEG:cw_font_run
 .out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 ; fm_scat - append a NUL string to a buffer
@@ -7940,12 +7886,7 @@ fm_ultoa_x:
     loop .emit
     mov byte [di], 0
 
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 ; -----------------------------------------------------------------------------
 section .bss

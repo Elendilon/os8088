@@ -373,13 +373,22 @@ desk_rowcalc_x:
     mov ax, 1
 .rows:
     mov [desk_rows], ax
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
+
+; -----------------------------------------------------------------------------
+; desk_zflag - does volume BL have a desktop zone? (SPEC.md 26)
+; in:  BL = volume index
+; out: ZF = 1 no zone, ZF = 0 it has one; BX -> the volume row
+; clobbers: BX (dsk_vol_slot_x's documented output), flags
+;
+; Four sites asked this question with the same two instructions.  `pop` and
+; `ret` do not write flags, so ZF crosses the call unharmed - which is what
+; makes a helper possible at all here.
+; -----------------------------------------------------------------------------
+desk_zflag:
+    call dsk_vol_slot_x
+    test byte [bx+DV_FLAGS], 1
+    ret
 
 ; -----------------------------------------------------------------------------
 desk_ord:
@@ -391,8 +400,7 @@ desk_ord:
     cmp cl, DVOL_MAX
     jae .no
     mov bl, cl
-    call dsk_vol_slot_x
-    test byte [bx+DV_FLAGS], 1
+    call desk_zflag
     jz .skip
     cmp cl, al
     je .hit
@@ -401,14 +409,13 @@ desk_ord:
     inc cl
     jmp short .next
 .hit:
-    pop cx
-    pop bx
     clc
-    ret
+    jmp short .out
 .no:
-    pop cx
-    pop bx
     stc
+.out:                           ; one pair of pops, not two: `pop` does not
+    pop cx                      ; write flags, so CF crosses them intact
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -459,8 +466,7 @@ desk_paint_x:
     cmp al, DVOL_MAX
     jae .done
     mov bl, al
-    call dsk_vol_slot_x
-    test byte [bx+DV_FLAGS], 1
+    call desk_zflag
     jz .skip
     call desk_draw_zone         ; AL = volume index
 .skip:
@@ -483,6 +489,11 @@ desk_paint_x:
 ; -----------------------------------------------------------------------------
 desk_zone_rect:
     call desk_zone_xy           ; AX = zone left, DX = zone top
+desk_rect_ax:                   ; ...and the arithmetic ALONE, for a caller
+                                ; that is already holding the origin. Costs
+                                ; nothing: it is a second entry point, not a
+                                ; routine. desk_zone_rect has no NASM local,
+                                ; so this label re-parents none.
     mov bx, dx
     add dx, [desk_zh1]           ; y2 = top + 43
     mov cx, ax
@@ -682,6 +693,16 @@ desk_zones_dmg:
 ; rect to it is not slack: it is what makes wm_paint_dmg's marking pass notice
 ; a window sitting over that zone and redraw it too.
 ; -----------------------------------------------------------------------------
+; THE ZONE MASK IS ONE BYTE, and DVOL_MAX is exactly at its limit. The mask is
+; built here with `mov al,1 / shl al,cl` and spent by desk_paint_mask_x with
+; `shr al,cl`, cl = 0..DVOL_MAX-1. At 9 the ninth zone's bit is `shl al,8`,
+; which is 0 on an 8086 - so that zone silently stops being repainted by every
+; damage-driven path while desk_paint_x still draws it, and the symptom is a
+; drive icon that survives one repaint and not the next. disk.inc guards
+; DVOL_MAX against MEM_P_FATW_N the same way and for the same reason.
+%if DVOL_MAX > 8
+  %error "desk: the drive-zone mask is ONE BYTE (mov al,1 / shl al,cl here, shr al,cl in desk_paint_mask_x). Above 8 the top zones' bits shift out and those zones stop being repainted by every damage-driven path, silently"
+%endif
 desk_dmg_zones_x:
     push bx
     push cx
@@ -695,8 +716,7 @@ desk_dmg_zones_x:
     jae .done
     push bx
     mov bl, al
-    call dsk_vol_slot_x
-    test byte [bx+DV_FLAGS], 1
+    call desk_zflag
     pop bx
     jz .next
     call desk_zone_rect
@@ -743,11 +763,7 @@ desk_zones_paint_x:
     call desk_zones_dmg
     mov byte [desk_zhw], 0
     call KERNEL_SEG:cw_wm_paint_dmg
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; desk_paint_mask - draw the drive zones named by a bitmask
@@ -773,10 +789,7 @@ desk_paint_mask_x:
     inc cl
     jmp .next
 .done:
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_cx
 
 ; -----------------------------------------------------------------------------
 ; desk_click - desktop hit test, called by ui.inc when wm_hit found no
@@ -808,8 +821,7 @@ desk_click_x:
     cmp cl, DVOL_MAX
     jae .miss
     mov bl, cl
-    call dsk_vol_slot_x
-    test byte [bx+DV_FLAGS], 1
+    call desk_zflag
     jz .zstep
     mov al, cl
     call desk_zone_xy           ; AX = zone left, DX = zone top
@@ -879,13 +891,7 @@ desk_click_x:
     call KERNEL_SEG:cw_gfx_unlock
 
 .out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_di
 
 ; -----------------------------------------------------------------------------
 ; desk_zone_redraw - flip one zone's SELECTION outside wm_paint_all
@@ -947,11 +953,7 @@ desk_zone_redraw:
 .none:
     pop ax                      ; the list is already empty, i.e. disarmed
 .done:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_dx
 
 ; -----------------------------------------------------------------------------
 ; desk_zone_hilite - XOR one zone's hit rect: the selection highlight, and
@@ -964,11 +966,9 @@ desk_zone_redraw:
 ;       dead, and this is the last thing either does
 ; -----------------------------------------------------------------------------
 desk_zone_hilite:
-    call desk_zone_xy           ; AX = zone left, DX = zone top
-    mov bx, dx
-    mov cx, ax
-    add cx, DESK_ZW-1
-    add dx, [desk_zh1]
+    call desk_zone_rect         ; the DRAWN rect...
+    add ax, DESK_ZOVER          ; ...less the label's overhang at each edge,
+    sub cx, DESK_ZOVER          ; which is the HIT rect this one wants
     call KERNEL_SEG:cw_gfx_xor_fill  ; NOT a tail call any more, and it cannot
     ret                         ; be: a cw_ shim ends in `retf`, so jumping to
                                 ; one pops this routine's NEAR return address
@@ -1000,11 +1000,12 @@ desk_draw_zone:
     mov [desk_zy], dx
 
     ; --- gray desktop under the zone + the label's 2px side overhang --------
-    mov bx, dx                  ; y1 = top
-    add dx, [desk_zh1]           ; y2 = top+43
-    sub ax, DESK_ZOVER
-    mov cx, ax
-    add cx, DESK_ZW + 2*DESK_ZOVER - 1
+    call desk_rect_ax           ; the SAME rect desk_zone_rect builds, written
+                                ; out here in a different instruction order:
+                                ; x1 = left-2, x2 = (left-2)+32+4-1 = left+33,
+                                ; y1 = top, y2 = top+[desk_zh1]. AX and DX
+                                ; still hold the origin - the two stores to
+                                ; [desk_zx]/[desk_zy] above do not touch them
     call KERNEL_SEG:cw_thm_desk
 
     ; --- the icon, which IS the zone's width now (SPEC.md 26.4) --------------
@@ -1019,7 +1020,8 @@ desk_draw_zone:
     jz .icon                    ; booted through the BIOS (DVK_BIOS, unit
     mov si, [desk_phdd]         ; 80h+) drew the FLOPPY icon, which is what a
 .icon:                          ; machine booting off its own disk always saw
-    call KERNEL_SEG:cw_icon_draw
+    call KERNEL_SEG:cw_icon_draw_ix   ; the four are the INDEXED kind
+                                ; (SPEC.md 25.7) and this is their only site
 
     ; --- label: the white rect HUGS the caption (SPEC.md 26.4) ---------------
     ; It used to be the zone's full width whatever was in it, which was right
@@ -1034,7 +1036,7 @@ desk_draw_zone:
     mov ax, [desk_zdrv]
     call desk_zone_label        ; SI -> it, the row's or a derived 'A:'
     push si
-    call KERNEL_SEG:cw_font_width             ; AX = its pixel width
+    call KERNEL_SEG:font_width             ; AX = its pixel width
     mov cx, [desk_zx]
     add cx, DESK_ZW/2
     mov bx, ax
@@ -1093,12 +1095,7 @@ desk_draw_zone:
 .done:                          ; disagree about which pixels it is
     mov al, [desk_gcol]
     mov [gfx_color], al
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kretc_si
 
 section .text                   ; DATA, so back to the kernel segment (SPEC.md
                                 ; 2.6 rule 1). These labels carry NO COLON,
