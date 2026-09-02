@@ -247,11 +247,18 @@ def volume(path):
 # 2. What the MACHINE says - one boot, walked. Needs MartyPC.
 # -----------------------------------------------------------------------------
 
-# The IBM 5150 ROM is IBM's and is not in this tree (tools/martypc/build.sh).
-# The GLaBIOS twin of the same machine boots without it and is FASTER than any
-# 5150 ever was, so the page is stamped with which one ran.
-FIELD_MACHINE = "os8088_5150_cga"
-TWIN_MACHINE = "os8088_5150_cga_gla"
+# THE MACHINE IS A HERCULES 5150, and the card is the reason. All three
+# adapters run the same kernel, so the choice costs the page nothing in
+# accuracy - but the picture of the finished desktop is a real screen, and
+# 720x348 is a shape a reader recognises where CGA's 640x200 is a letterbox
+# that has to be stretched two and a half times vertically to look like the
+# monitor it was on.
+#
+# The IBM 5150 ROM is IBM's and is not in this tree; the GLaBIOS twin of the
+# same machine boots without it and is FASTER than any 5150 ever was, so the
+# page is stamped with which one ran.
+FIELD_MACHINE = "os8088_5150_herc"
+TWIN_MACHINE = "os8088_5150_herc_gla"
 
 
 def machine_available(name):
@@ -1030,7 +1037,7 @@ def zooms(regs, ram, want=2):
         return []
     runs = [list(used[0])]
     for a, b in used[1:]:
-        if a - runs[-1][1] > ram // 24:         # 27KB at 640KB
+        if a - runs[-1][1] > ram // 20:         # 32KB at 640KB
             runs.append([a, b])
         else:
             runs[-1][1] = max(runs[-1][1], b)
@@ -1742,16 +1749,16 @@ body{margin:0;background:var(--bg);color:var(--ink);
 .wrap{max-width:1400px;margin:0 auto;padding:20px 22px 60px}
 
 /* ---- header ---------------------------------------------------------- */
-.top{display:flex;gap:24px;align-items:flex-start;justify-content:space-between;
-  flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:16px}
+.top{display:flex;gap:26px;align-items:flex-start;justify-content:space-between;
+  flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:14px}
+.top > div:first-child{flex:1 1 520px;min-width:0}
 h1{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",ui-sans-serif,
      Helvetica,Arial,sans-serif;
   font-size:29px;margin:0 0 5px;letter-spacing:-.005em;font-weight:700;
   text-wrap:balance}
 h1 .sub{color:var(--dim);font-weight:400}
 .lede{margin:6px 0 0;max-width:60ch;color:var(--dim);font-size:13px}
-.stamp{margin-top:10px;font-size:11.5px;color:var(--dim);display:flex;
-  flex-wrap:wrap;gap:4px 14px}
+footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 .stamp b{font-weight:600;color:var(--ink)}
 
 /* ---- the loading-screen mimic ---------------------------------------- */
@@ -1781,8 +1788,8 @@ h1 .sub{color:var(--dim);font-weight:400}
   object-fit:fill;background:#000;image-rendering:pixelated}
 .splash.done .desk{display:block}
 .splash.done .curs,.splash.done .dlg,.splash.done .logo{display:none}
-.splash .curs{display:none;position:absolute;left:12px;top:10px;width:9px;
-  height:14px;background:#c8c8c8;animation:blink5150 1.07s steps(1,end) infinite}
+.splash .curs{display:none;position:absolute;left:12px;top:22px;width:9px;
+  height:2px;background:#d2d2d2;animation:blink5150 1.07s steps(1,end) infinite}
 .splash.off:not(.done) .curs{display:block}
 @keyframes blink5150{0%,49%{opacity:1}50%,100%{opacity:0}}
 .splash .note{font-size:10.5px;color:var(--dim);margin-top:8px;text-align:center}
@@ -1791,7 +1798,7 @@ h1 .sub{color:var(--dim);font-weight:400}
   max-width:300px;min-height:2.6em}
 
 /* ---- stage strip ------------------------------------------------------ */
-.stages{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:18px 0 6px}
+.stages{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:13px 0 0}
 .st{appearance:none;border:1px solid var(--rule);background:var(--panel);color:var(--dim);
   font:inherit;font-size:11.5px;padding:5px 9px;border-radius:2px;cursor:pointer;
   display:flex;gap:6px;align-items:baseline;transition:.13s}
@@ -2391,21 +2398,6 @@ function facts(rows){
     d.appendChild(a); d.appendChild(b); f.appendChild(d);
   });
 }
-function shotInto(host){
-  /* The last stage has a picture of what all of it was for: the card's own
-     pixels, read out of display memory at the end of the measured boot. */
-  if (!D.meta.desktop || stage !== S.length - 1) return;
-  var f = document.createElement("figure");
-  f.className = "shot";
-  var i = document.createElement("img");
-  i.src = "data:image/png;base64," + D.meta.desktop;
-  i.alt = "The os8088 desktop, immediately after the boot this page measures";
-  var c = document.createElement("figcaption");
-  c.textContent = "The desktop, read out of the display card's own memory at "
-    + "the end of this boot — the machine's pixels, not a rendering of them.";
-  f.appendChild(i); f.appendChild(c); host.appendChild(f);
-}
-
 function drawDetail(){
   var st = S[stage];
   if (step < 0){
@@ -2417,7 +2409,6 @@ function drawDetail(){
       "timeline above, or a label on it, to see what that step does — the " +
       "memory it runs from lights up on the map.";
     $("dbody").appendChild(p);
-    shotInto($("dbody"));
     facts([["stage", (stage + 1) + " of " + S.length],
            ["what moves", st.moved],
            ["time in this stage", ms(st.ms)],
@@ -2452,7 +2443,6 @@ function drawDetail(){
   if (sp.reads) rows.push(["disk requests", String(sp.reads)]);
   if (sp.cyl) rows.push(["cylinders stepped", String(sp.cyl)]);
   if (sp.mech) rows.push(["of which waiting for the disk", ms(sp.mech)]);
-  shotInto($("dbody"));
   facts(rows);
 }
 function esc(s){ var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
@@ -2625,11 +2615,14 @@ def render(p, fragment=False):
    <h1>os8088 <span class="sub">Boot Ladder</span></h1>
    <p class="lede">What an IBM PC does between the power switch and a usable
     desktop, one <b>discrete move of memory</b> at a time \u2014 %(nst)d of them,
-    on a 4.77&nbsp;MHz 8088 reading a 360&nbsp;KB floppy. Pick a stage, or use
-    <span class="kbd">&larr;</span> <span class="kbd">&rarr;</span>. Then click
-    a step on its timeline to light up the memory that step runs from.
+    on a 4.77&nbsp;MHz 8088 reading a 360&nbsp;KB floppy. Pick a stage below or
+    use <span class="kbd">&larr;</span><span class="kbd">&rarr;</span>; then
+    click a step on its timeline to light up the memory it runs from.
     Underlined words have a definition on hover.</p>
-   <div class="stamp"><span>%(prov)s</span></div>
+   <div class="stages" id="stages"><span class="nav" id="navbtns">
+     <button id="prev" type="button" title="previous stage (left arrow)">&larr;</button>
+     <button id="next" type="button" title="next stage (right arrow)">&rarr;</button>
+   </span></div>
   </div>
   <div class="splash-outer">
    <div class="splash off" id="splash">
@@ -2647,10 +2640,6 @@ def render(p, fragment=False):
   </div>
  </div>
 
- <div class="stages" id="stages"><span class="nav" id="navbtns">
-   <button id="prev" type="button" title="previous stage (left arrow)">&larr;</button>
-   <button id="next" type="button" title="next stage (right arrow)">&rarr;</button>
- </span></div>
  <div class="stitle" id="stitle"></div>
  <div class="smoved" id="smovedt"></div>
 
@@ -2697,6 +2686,7 @@ def render(p, fragment=False):
   with an empty second bay. The page is generated from a measured run rather
   than maintained by hand, so the build and the date above are the ones it
   speaks for.</p>
+  <p class="stamp">%(prov)s</p>
   <p class="mono" style="opacity:.75">%(sums)s</p>
  </footer>
 </div>
