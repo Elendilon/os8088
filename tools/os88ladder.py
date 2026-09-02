@@ -811,7 +811,7 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
     # The full label is on the block itself, and in the panel below.
     SHORT = {"ivt": "Interrupt table", "bda": "Firmware scratch",
              "dpt": "Drive settings", "vbr": "Boot sector",
-             "vbrtop": "Boot sector (moved)", "vbrstk": "Its stack",
+             "vbrtop": "Boot sector (moved)", "vbrstk": "Boot stack",
              "ktext": "System code", "kcold": "System code 2",
              "ovlw": "Start-up code", "ovl": "Start-up code",
              "fatwin": "Room for the index", "fatw": "Disk index",
@@ -1961,9 +1961,6 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
    block was the one selection on the map you could not see. */
 .mbar .rg.hot{box-shadow:inset 0 0 0 2px var(--sel), inset 0 0 0 3.5px var(--panel)}
 .mbar.soft .rg.hot{box-shadow:inset 0 0 0 1.5px var(--sel), inset 0 0 0 3px var(--panel)}
-/* Faded out because the block is not in this stage at all. It sits after the
-   two above so that it wins over them. */
-.mbar .rg.gone{opacity:0}
 .movl{position:relative;height:15px;margin-top:-15px;pointer-events:none;z-index:3}
 .movl .ov{position:absolute;height:15px;top:0;border:1.5px solid var(--c-ovl);
   background:repeating-linear-gradient(135deg,var(--c-ovl) 0 3px,transparent 3px 7px);
@@ -2061,7 +2058,6 @@ footer code{font-size:11px}
 .zwin .rg.hot{box-shadow:inset 0 0 0 2px var(--sel), inset 0 0 0 3.5px var(--panel)}
 .zrow.soft .zwin .rg.hot{box-shadow:inset 0 0 0 1.5px var(--sel),
   inset 0 0 0 3px var(--panel)}
-.zwin .rg.gone{opacity:0}
 .zwin .rg span{position:absolute;left:4px;top:50%;transform:translateY(-50%);
   font-size:10px;white-space:nowrap;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);
   pointer-events:none}
@@ -2075,7 +2071,15 @@ footer code{font-size:11px}
   font-size:9.5px;white-space:nowrap;color:var(--ink);font-weight:600;
   background:var(--panel);padding:0 3px;border-radius:2px}
 .zovl .ov.hot{box-shadow:0 0 0 1.5px var(--panel), 0 0 0 3.5px var(--sel)}
-.zovl .ov.gone{opacity:0}
+/* GONE: THE BLOCK IS NOT IN THIS STAGE AT ALL, on any of the four hosts a
+   block can live on. One rule listing all four, because it was three rules
+   next to the things they hid and the fourth was simply never written - so
+   the hatched band on the full map went on being drawn over stages that had
+   destroyed it, while the same band on the magnified strip disappeared
+   correctly. It has to sit after every `.dim` and `.hot` rule above to beat
+   them, and being one rule is what keeps that true. */
+.mbar .rg.gone, .movl .ov.gone, .zwin .rg.gone, .zovl .ov.gone{opacity:0}
+
 .zcap{position:relative;height:15px;margin-top:5px}
 .zcap span{position:absolute;top:0;transform:translateX(-50%);font-size:10.5px;
   color:var(--dim);white-space:nowrap;
@@ -2497,6 +2501,17 @@ function drawZoom(hot, soft){
   }
   for (i = 0; i < n; i++){ at[i] = cur; cur += w[i] + GAP; }
 
+  /* SHOW THE WINDOWS BEFORE PUTTING ANYTHING IN THEM. This ran at the END,
+     after the blocks had been laid out and their names measured against the
+     room available - so on a stage that opens a SECOND window, that window
+     was still `display:none` while its own blocks asked how wide it was, got
+     nought, and dropped every label. Which window a stage has depends on the
+     stage you came from, so the names came and went with the route. */
+  for (i = 0; i < n; i++){ zwin(i); zovl(i); }
+  for (i = zwinN; i > n; i--){ zwin(i - 1).style.display = "none";
+                               zovl(i - 1).style.display = "none"; }
+  for (i = 0; i < n; i++){ zwin(i).style.display = ""; zovl(i).style.display = ""; }
+
   var seen = {}, poly = [];
   for (i = 0; i < n; i++){
     var win = wins[i], span = win.b - win.a;
@@ -2549,10 +2564,19 @@ function drawZoom(hot, soft){
       el2.title = r.label + "  " + hex(r.a) + "-" + hex(r.b) + "  " + bytes(r.b - r.a);
       el2.classList.toggle("dim", !!(anyHot && !hot[r.id] && r.cls !== "free"));
       el2.classList.toggle("hot", !!hot[r.id]);
+      /* MEASURE THE WIDTH THE BLOCK IS GOING TO BE, not the one it is at.
+         A block's width is animated, so `clientWidth` during a draw is
+         wherever the transition has got to - which on a stage change is the
+         width it had in the PREVIOUS stage, or zero on the frame it is born.
+         The label was dropped against that and nothing re-measured when the
+         animation finished, so whether a name appeared depended on which
+         stage you arrived from. The hosts are not animated, so the target is
+         exactly the share of one this block was just given. */
+      var want = Math.max(pw, 0.4) / 100 * into.clientWidth;
       var t = el2.firstChild;
       t.textContent = r.sl || r.label;
       t.style.visibility = "hidden";
-      if (t.scrollWidth + 10 > el2.clientWidth) t.textContent = "";
+      if (t.scrollWidth + 10 > want) t.textContent = "";
       t.style.visibility = "";
     });
   }
@@ -2560,10 +2584,6 @@ function drawZoom(hot, soft){
     if (!seen[k]){ zblocks[k].classList.add("gone");
                    zblocks[k].style.pointerEvents = "none"; }
   });
-  for (i = zwinN; i > n; i--){ zwin(i - 1).style.display = "none";
-                               zovl(i - 1).style.display = "none"; }
-  for (i = 0; i < n; i++){ zwin(i).style.display = ""; zovl(i).style.display = ""; }
-
   /* the connectors: a faint web from the bracket's ends to the strip's */
   var H = 22;
   link.setAttribute("viewBox", "0 0 " + W + " " + H);
@@ -3240,6 +3260,30 @@ def selfcheck(image, defines, build="build"):
                              "magnified strip all must" % hits)
         return "start / timeline / memory, %d click surfaces into the last" % hits
     try_("the three states a stage can be in", states)
+
+    def hosts():
+        """Every host a block can be drawn on can also HIDE one.
+
+        A block that leaves the map is faded out by a class, and the rule that
+        does it lists the hosts by name. One host missing from that list is a
+        block that goes on being drawn over stages that destroyed it - which
+        is what happened to the hatched band on the full map, and looked like
+        a modelling mistake rather than a stylesheet with three of four
+        selectors in it.
+        """
+        want = [".mbar .rg", ".movl .ov", ".zwin .rg", ".zovl .ov"]
+        rule = [ln for ln in CSS.splitlines() if ".gone{" in ln]
+        gap = [w for w in want if not any(w + ".gone" in ln for ln in rule)]
+        if gap:
+            raise SystemExit("os88ladder: a block on %s can never be hidden - "
+                             "no `.gone` rule for it" % ", ".join(gap))
+        if len(rule) != 1:
+            raise SystemExit("os88ladder: `.gone` is %d rules; it has to be one, "
+                             "after every `.dim` and `.hot` above it, or it "
+                             "loses to them on some hosts and not others"
+                             % len(rule))
+        return "%d hosts, one rule, after the rules it must beat" % len(want)
+    try_("hiding a block, on every map it can appear on", hosts)
 
     try_("MartyPC, and a machine to run it on",
          lambda: ("IBM-ROM %s - field figures" % FIELD_MACHINE)
