@@ -35,30 +35,34 @@ is even the right question. Two rows were resolved by step 1 alone.
 
 ## A1. `trkscrl`: one scroll case of seven does nothing, at BOTH ends
 
+**FIXED — and it was never a product defect**, which this entry called it in
+bold. It is a key the test's own include bound to something the application
+had already claimed.
+
 ```
 down +1 rows: view  0-> 1  scrolls 1  repaints 0  ok
-up   -1 rows: view  1-> 0  scrolls 1  repaints 0  ok
 j    +2 rows: view  0-> 2  scrolls 1  repaints 0  ok
 v    -2 rows: view  2-> 2  scrolls 0  repaints 0  FAIL
 k    +3 rows: view  2-> 5  scrolls 1  repaints 0  ok
 b    -3 rows: view  5-> 2  scrolls 1  repaints 0  ok
-n    +4 rows: view  2-> 6  scrolls 1  repaints 0  ok
 ```
 
-**This is the only item on the list that is a defect in shipped software**, and
-it is the best-evidenced: it fails **alone on HEAD** (66.3 s) and **alone at the
-base** (65.5 s), with the identical message, so it is neither contention nor
-this pass.
+`tests/trkscrl.inc`'s `trk_dbg_keys` table binds `'v'` to −2. `tracker.asm`
+compares `al, 'v'` for the **fullscreen SURFACE** (SPEC.md 45.13) **three lines
+above** the `%ifdef TRKDBG` block that calls that table, so a `v` is answered
+there and never reaches `trk_dbg_key` at all. The key was dead.
 
-Its neighbours pass, including `b -3` — the same direction, from a higher view,
-and further. Nothing about `v` at view 2 is special, so the shape is a key that
-never arrived rather than broken scroll arithmetic. `apps/tracker/` is
-byte-identical at both ends.
+The table's own comment enumerates what not to use — *"NOT
+l/p/r/x/d/w/m/1-4/f/space/Esc/Home, which the bracket already answers"* — **and
+`v` is missing from that list.** The entry is `'u'` now, free in both handlers,
+and all three places say why. `trkscrl` passes in 84.5 s.
 
-**Not yet distinguished, and this is where to start**: a genuinely missing `v`
-binding in the tracker, against a deterministic failure of the harness to
-deliver that one keystroke. `m.input_log()` records every input with the guest
-cycle it landed on and would separate them in one run.
+**The tell was in the output the whole time and this entry wrote it down
+without following it**: *"its neighbours pass, including `b -3`, which is the
+same direction from a higher view and further. Nothing about `v` at view 2 is
+special. That is the shape of a lost keystroke, not of broken scroll logic."*
+That reasoning was right and stopped one step short — a keystroke is lost
+either in flight or at the handler, and nobody looked at the handler.
 
 ## A2. `dispcheck`: a 270-second timeout, never diagnosed
 
@@ -536,9 +540,10 @@ away. `weavesmoke._shot` is the family's helper.
 | a missing `no_saver()` call (B7) | 1 — `trkrate` |
 | found by the pre-merge gate, not the soak (B9) | 1 — a leaked QEMU breaking `ps2mouse` |
 | fixed during the pass | 3 — `deskbench`, and `weavegame`/`wireflick`'s registrations |
-| **fixed since, in this queue** | **9** — A5, B1, B2, B3, B4, B6, B7, B8, B9 |
-| **left open** | **6** — A1, A2, A3, A4, B5, C1, C2 |
-| **classifications this queue got WRONG and corrected** | **3** — `dispmine` (A5, called contention on one passing re-run), `blitcut` (B2, bisected to a host-side commit and it is the size pass's own ladder), and B6's own mechanism |
+| **fixed since, in this queue** | **10** — A1, A5, B1, B2, B3, B4, B6, B7, B8, B9 |
+| **left open** | **5** — A2, A3, A4, B5, C1, C2 |
+| **classifications this queue got WRONG and corrected** | **4** — `trkscrl` (A1, called in bold "the one genuine product defect" and it is a shadowed key in the test's own include), `dispmine` (A5, called contention on one passing re-run), `blitcut` (B2, bisected to a host-side commit and it is the size pass's own ladder), and B6's own mechanism |
+| **product defects found in shipped software** | **0** |
 
 **The one lesson, and it is one lesson.** Not one of these was a check that
 failed. Every expensive hour went to a check that **passed for the wrong

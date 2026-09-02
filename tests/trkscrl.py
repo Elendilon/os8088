@@ -67,7 +67,7 @@ STEP, PACE = 60, 0.06               # tools/mouse.py's, for the same reasons
 
 # key, rows it moves the stopped view by. tests/trkscrl.inc owns the mapping;
 # Up and Down are here too so n = 1 is covered by the same comparison.
-JUMPS = [("down", 1), ("up", -1), ("j", 2), ("v", -2),
+JUMPS = [("down", 1), ("up", -1), ("j", 2), ("u", -2),
          ("k", 3), ("b", -3), ("n", 4), ("c", -4)]
 
 

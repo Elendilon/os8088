@@ -1563,8 +1563,12 @@ trk_fsx_key:
 %ifdef TRKDBG
     cmp al, 'g'                     ; bench-only (tests/trkscrl.inc): G
     je .grid                        ; repaints the grid with the view held
-    cmp al, 'G'                     ; still, and j/k/n/v/b/c move the stopped
-    je .grid                        ; view by more than one row in one frame
+    cmp al, 'G'                     ; still, and j/k/n/u/b/c move the stopped
+    je .grid                        ; view by more than one row in one frame.
+                                    ; NOT `v`: the SURFACE binding above answers
+                                    ; it first, so a jump key bound to `v` here
+                                    ; is dead (tests/trkscrl.inc says how that
+                                    ; read for a week as a scroll defect)
     call trk_dbg_key
     jnc .out
 %endif
