@@ -63,6 +63,20 @@ TF_SERVICE  equ 1               ; survives the fullscreen-exclusive freeze:
                                 ; would starve a Sound Blaster stream mid-
                                 ; game (SPEC.md 53.2)
 
+SCH_CHSTK   equ 128             ; the ROM int 08h chain's private stack
+                                ; (SPEC.md 8.5). It holds the chain itself -
+                                ; 56 bytes on the worst BIOS measured, SeaBIOS,
+                                ; including the pushf and the far call - plus
+                                ; whatever lands in the window the ROM stis
+                                ; open: an int 09h, a mouse IRQ's six-byte gate
+                                ; frame before it swaps away (SPEC.md 9.10),
+                                ; the floppy's completion. ~78 worst case, so
+                                ; 1.6x. A second IRQ0 does NOT nest here and
+                                ; SPEC.md 8.5.1 says why
+%if SCH_CHSTK % 2
+  %error "SCH_CHSTK must be EVEN: sch_chstack precedes sch_stacks in .lowbss and an odd size would move it off the word boundary its canary and `rep stosw` fill both need"
+%endif
+
 SCH_STACK   equ 384             ; per-task stack bytes. It was 1,536 when the
                                 ; stacks were the only thing in .lowbss, then
                                 ; 512. A 0xCC fill probe under the heaviest
@@ -1604,12 +1618,38 @@ sch_isr:
     mov al, [sch_fast]
     mov [sch_fcnt], al
 .full:
-%ifdef STK_DIAG
-    call sd_chain_call          ; docs/STACK-SLOTS-PLAN.md: the same chain, run
-                                ; on a PRIVATE stack and measured. No task
-                                ; stack is touched, so this cannot corrupt a
-                                ; slice - and it is 4.1's proposed fix as well
-                                ; as the instrument for it
+    ; --- the ROM's chain, on a stack of its own (SPEC.md 8.5) ---------------
+    ; This one call is the largest single item in the interrupt floor, and it
+    ; is charged to whichever TASK SLICE was interrupted - 50 bytes plus the 6
+    ; of the pushf and the far call that reach it, and the ROM is not ours to
+    ; shrink. SS never changes (SPEC.md 1/2.1), so moving it costs SP alone.
+    ;
+    ; Registers are already saved here, so unlike SPEC.md 9.10's swap this one
+    ; needs no `cs:` override and a plain byte flag will do.
+%ifndef NO_CHAINPRIV
+    cmp byte [sch_chbusy], 0    ; NESTED? (SPEC.md 8.5.1) The ROM sends its EOI
+    jne .chskip                 ; and then stis, so a second IRQ0 can re-enter
+                                ; this ISR - and that one may not simply nest
+                                ; on the private stack, because it runs on to
+                                ; sch_switch, which would save a PRIVATE SP
+                                ; into a task record. Everything else that can
+                                ; land in that window - int 09h, a mouse gate
+                                ; frame, the floppy's completion - nests
+                                ; harmlessly, and the stack is sized for it
+    inc byte [sch_chbusy]
+    mov [sch_chsave], sp
+    mov sp, sch_chstack + SCH_CHSTK
+    pushf                       ; chain: BIOS ticks its count and sends EOI
+    call far [sch_old08]
+    mov sp, [sch_chsave]        ; ...and the ROM's iret restored our IF=0 with
+    dec byte [sch_chbusy]       ; the flags the pushf banked, so this is back
+    jmp short .chained          ; inside the ISR's own contract
+.chskip:
+    inc word [sch_chskip]       ; the claim in SPEC.md 8.5.1 is a READING, not
+                                ; an argument: STKDIAG publishes this
+    mov al, 0x20                ; ...and a skipped chain owes the EOI itself,
+    out 0x20, al                ; exactly as the sub-tick above does
+.chained:
 %else
     pushf                       ; chain: BIOS ticks its count and sends EOI
     call far [sch_old08]
@@ -1990,6 +2030,17 @@ resb ($-$$) % 2                         ; keep the BLOCK on a WORD boundary,
                                         ; It cost 42 bytes of .lowbss on
                                         ; kern_big and 0 on kern_small, which is
                                         ; the tightest rung in the kernel.
+%ifndef NO_CHAINPRIV
+sch_chstack: resb SCH_CHSTK             ; the ROM int 08h chain's own stack
+                                        ; (SPEC.md 8.5). .lowbss and not .bss
+                                        ; because SS is LOW_SEG for every task
+                                        ; and the swap moves SP alone. It is
+                                        ; declared ABOVE sch_stacks' alignment
+                                        ; guard on purpose: SCH_CHSTK is even,
+                                        ; so it cannot disturb it, and the
+                                        ; %error below is what proves that on
+                                        ; every build rather than on this one
+%endif
 sch_stacks: resb (MAX_TASKS-1) * SCH_STACK ; slots 1..MAX_TASKS-1: slot n's stack
                                         ; top at n*SCH_STACK relative to
                                         ; sch_stacks, which is NOT offset 0
@@ -2006,6 +2057,14 @@ section .bss
 
 sch_tasks:  resb MAX_TASKS * T_SIZE     ; task records (layout above)
 sch_old08:  resb 4                      ; saved BIOS int 08h vector (off:seg)
+%ifndef NO_CHAINPRIV
+sch_chsave: resw 1                      ; the task's SP across the chain...
+sch_chskip: resw 1                      ; ...how many chains a nested tick has
+                                        ; skipped (SPEC.md 8.5.1), so the
+                                        ; "one transfer in 280" claim is a
+                                        ; reading. STKDIAG publishes it
+sch_chbusy: resb 1                      ; ...and non-zero while the ROM has it
+%endif
 ticks:      resw 1                      ; public tick count, wraps at 65536
 sch_cur:    resb 1                      ; index of the running task. ALWAYS a
                                         ; live slot, 0..MAX_TASKS-1: 0xFF is

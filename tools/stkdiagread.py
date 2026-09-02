@@ -17,13 +17,13 @@ else is reported rather than believed.
 
 WHAT THE NUMBERS MEAN, and the pairing is the point:
 
-  ROM int08   what the ROM's int 08h chain costs a stack, measured on a private
-              one so no task slice is touched. THE UNKNOWN - every BIOS differs
-              and docs/STACK-SLOTS-PLAN.md 9 is open on it.
+  ROM int08   the high water of sch_chstack, the SHIPPING private stack the
+              chain runs on (SPEC.md 8.5). It is what sizes SCH_CHSTK, and it
+              is per-BIOS: 56 SeaBIOS, 36 an IBM 5150, 18 a Packard Bell 286.
   floor       the interrupt floor on a task slice, latched at the end of each
-              phase, cumulative. The kernel alternates ticks so this is the
-              SHIPPING floor and not the floor of the fix.
-  MAX         the running maximum. The one to quote; it only rises.
+              phase, cumulative. No alternation any more: the fix ships, so the
+              floor the panel reports is simply the floor of this kernel.
+  FLOOR,idle  the idle task's own slice - the one to quote. It only rises.
 
 A phase nobody performed reads equal to the phase before it, which is a
 reading and not a hole.
@@ -39,14 +39,14 @@ import os88sym                                              # noqa: E402
 # refuses arms 2 and 3 with "the map describes a DIFFERENT kernel", which reads
 # as the disk being wrong rather than the tool.
 #   python3 tools/stkdiagread.py                     # arm 1, as it ships
-#   OS88_ARM="NO_MOUPRIV" python3 tools/...          # arm 2, before SPEC.md 9.10
-#   OS88_ARM="STK_FIX"    python3 tools/...          # arm 3
+#   OS88_ARM="NO_MOUPRIV"   python3 tools/...        # arm 2, no mouse stack
+#   OS88_ARM="NO_CHAINPRIV" python3 tools/...        # arm 3, no chain stack
 DEF = tuple(["STK_DIAG"] + os.environ.get("OS88_ARM", "").split())
 TAG = 0x4453                    # 'SD' - kernel.asm's DBG_TAG_STKD
 # The block holds POINTERS, not values - bootprof's convention (SPEC.md 57.2):
 # the registry names where the live state is, so a reader never gets a stale
 # snapshot. The last two are literals, because a constant cannot go stale.
-PTRS = ("rom08", "q", "m", "k", "phase")
+PTRS = ("rom08", "q", "m", "k", "phase", "floor", "chskip")
 LITS = ("slice", "ntask")
 PHASES = ("1/3 quiet", "2/3 mouse", "3/3 keys", "done")
 
@@ -80,16 +80,18 @@ def main():
     sock = sys.argv[1] if len(sys.argv) > 1 else "build/qmp.sock"
     v, slices, n = read(sock)
     ph = v["phase"] & 0xFF
-    arm = {(): "ARM 1 as it ships", ("NO_MOUPRIV",): "ARM 2 NOMOUPRIV (before)",
-           ("STK_FIX",): "ARM 3 + STKFIX"}.get(DEF[1:], " ".join(DEF[1:]))
+    arm = {(): "ARM 1 as it ships", ("NO_MOUPRIV",): "ARM 2 NOMOUPRIV",
+           ("NO_CHAINPRIV",): "ARM 3 NOCHAINPRIV"}.get(DEF[1:], " ".join(DEF[1:]))
     print("== STKDIAG ==   %s   slice %d, MAX_TASKS %d, phase %s"
           % (arm, v["slice"], v["ntask"], PHASES[ph] if ph < 4 else "?"))
     if ph < 3:
         print("   NOT FINISHED - the run takes ~95 seconds from the desktop")
-    print("   ROM int08 chain      %4d" % v["rom08"])
-    print("   floor  quiet         %4d" % v["q"])
-    print("   floor  +mouse        %4d   (+%d)" % (v["m"], v["m"] - v["q"]))
-    print("   floor  +keys         %4d   (+%d)" % (v["k"], v["k"] - v["m"]))
+    print("   FLOOR, idle slice    %4d   <- quote this" % v["floor"])
+    print("   ROM int08, own stack %4d   (sizes SCH_CHSTK)" % v["rom08"])
+    print("   ticks that DIDN'T chain %1d" % v["chskip"])
+    print("   deepest slice quiet  %4d" % v["q"])
+    print("   deepest slice +mouse %4d   (+%d)" % (v["m"], v["m"] - v["q"]))
+    print("   deepest slice +keys  %4d   (+%d)" % (v["k"], v["k"] - v["m"]))
     print("   --- every slice ---")
     for slot, used, _free in slices:
         print("   slot %-2d %s" % (slot, "never spawned" if used is None

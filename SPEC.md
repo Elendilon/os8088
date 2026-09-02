@@ -8363,6 +8363,86 @@ all. That is ~82 bytes a real machine charges and the emulator does not
 (docs/KERNEL-MEMORY.md, "Task stacks"), and it is why the freeze never
 reproduced here.
 
+### 8.5 The ROM's `int 08h` chain runs on a stack of its own, and a nested tick does not chain
+
+`sch_isr` chains to the BIOS on every full tick, and that call is made from the
+deepest-nesting context in the kernel — so the ROM's handler, and everything it
+in turn lets in, lands on whichever **task slice** was interrupted. Measured by
+A/B on a bare desktop (docs/STACK-SLOTS-PLAN.md 4.1), that chain is **50 bytes,
+plus the 6 of the `pushf` and the far call that reach it** — and the ROM is not
+ours to shrink: 56 on SeaBIOS, 36 on an IBM 5150 (10/27/82), 18 on a Packard
+Bell 286 and on 86Box's XT BIOS. It is per-BIOS and adapter-independent, so
+there is no "BIOS adder" a design can assume.
+
+It is therefore the single largest item in the interrupt floor, and it is paid
+by **every slice at once**, because any of them can be the one interrupted.
+
+```nasm
+.full:
+    cmp byte [sch_chbusy], 0    ; nested? then the chain is already on the ROM
+    jne .chskip
+    inc byte [sch_chbusy]
+    mov [sch_chsave], sp
+    mov sp, sch_chstack + SCH_CHSTK
+    pushf                       ; chain: BIOS ticks its count and sends EOI
+    call far [sch_old08]
+    mov sp, [sch_chsave]
+    dec byte [sch_chbusy]
+```
+
+**SS never changes** — every task runs `SS = LOW_SEG` (§1, §2.1) — so the swap
+is SP alone and the stack lives in `.lowbss`, exactly as §9.10's does. Unlike
+§9.10's it is reached with registers already saved, so no `cs:` override is
+needed and a plain byte flag will do.
+
+#### 8.5.1 Why a nested tick skips the chain rather than nesting on the stack
+
+`sch_isr`'s contract is **IF=0 throughout** (§8), so there is exactly one window
+in it where anything can arrive: inside the ROM's handler, which sends its EOI
+and then `sti`s before `int 1Ch`. Everything that lands there — a keystroke's
+`int 09h`, a mouse IRQ's six-byte gate frame, the floppy's completion — lands on
+this private stack, which is what it is sized for. **A second IRQ0 is the one
+that cannot simply nest**, because the re-entered `sch_isr` runs to `sch_switch`
+and would save a *private* SP into a task record. So it takes the flag's other
+arm: EOI itself, skip the chain, and carry on down the rest of the tick on the
+task's own stack, which is what it was already doing.
+
+**What that costs is one BIOS tick increment, and only in a case the machine is
+already a tick behind for.** A second IRQ0 can only reach the ROM handler if the
+first one was itself delayed by nearly a whole tick — the PIT's edges are 54.9 ms
+apart and the handler is ~0.2 ms — which happens after a long IF=0 window such as
+a floppy transfer, and then only for the one tick whose phase lands inside it: on
+the order of **one transfer in 280**. The 8259 latches one pending IRQ0 and no
+more, so a backlog is *already* collapsed to a single tick before any of this;
+this loses at most one more. `[ticks]`, the OS's own clock, is incremented on
+this path either way and is unaffected, and §37's RTC ladder does not read the
+BIOS count.
+
+`[sch_chskip]` counts the skips so the claim above is a reading rather than an
+argument; `STKDIAG=1` publishes it (docs/STACK-SLOTS-PLAN.md 10).
+
+**If the ROM's handler never returns, the flag stays set and no tick chains
+again.** That is a machine that has already stopped, and the alternative — a
+timeout — would be a second thing to get wrong in an ISR that must not have one.
+
+#### 8.5.2 The cost
+
+| | bytes |
+|---|---|
+| `.text` — the flag, the swap, the restore and the nested EOI | see the commit |
+| `.bss` — the saved SP, the flag, the skip counter | 4 |
+| `.lowbss` — one shared stack | `SCH_CHSTK` |
+| **removed from every task slice** | **~56** |
+
+One allocation against every slice in `sch_stacks`, and it is what makes a slot
+class smaller than the ROM possible at all — the floor a class is cut from falls
+from 118 to about 62 on a real 5150 with this and §9.10 together.
+
+**`NOCHAINPRIV=1` is the A/B** and the only thing keeping the un-swapped path
+assembling. With `NOMOUPRIV=1` it is the whole of what shipped before these two
+sections; `make stkdiag`'s three arms are the default, that knob, and this one,
+so each fix is isolated against arm 1 on the machine in front of you.
+
 ## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 
 - **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both

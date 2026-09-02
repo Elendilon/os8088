@@ -52,8 +52,6 @@ section .text
 ; saturated 192 rather than eating the canary. A diagnostic that halts the
 ; machine it was sent to diagnose is worthless.
 SD_SENT    equ 0xE5
-SD_SCRATCH equ 512              ; the private chain stack, sized for a ROM
-                                ; handler AND a tick nested inside it
 
 ; ---- the phase clock, in system ticks (18.2065 Hz) --------------------------
 ; Wall clock and not "when the human is ready", because the point of the phases
@@ -93,45 +91,42 @@ SD_ROWS    equ 19
 ; In .text with real initialisers, for dsk_dpt's reason (SPEC.md 18.92):
 ; `-f bin` zeroes nothing and .bss is the previous session's bytes on a warm
 ; restart, which for a MAXIMUM is the difference between a reading and a lie.
-sd_rom08:   dw 0                ; deepest the ROM's int 08h chain has gone
-sd_savesp:  dw 0                ; the task's SP across the swap
-sd_busy:    db 0                ; a chain is already on the scratch
-sd_alt:     db 0                ; ALTERNATES. Running every chain on the
-                                ; scratch measures the chain perfectly and
-                                ; makes the floor a lie - it becomes the floor
-                                ; of the machine 4.1 PROPOSES, not the one that
-                                ; ships, and the panel would report 38 where
-                                ; the shipping kernel is 82. So odd ticks are
-                                ; measured on the scratch and even ticks run
-                                ; plainly on the task stack, where the 0xCC
-                                ; fill records them. Both numbers on the panel
-                                ; are then true of the kernel they describe,
-                                ; and the DIFFERENCE between them is what 4.1
-                                ; is worth on this machine
-sd_n:       dw 0                ; sentinel passes actually taken. A reading of
-                                ; 0 beside a floor that moved means the
-                                ; instrument never ran, which is a different
-                                ; fault from a chain that costs nothing - and
-                                ; without this row the two are the same picture
-sd_sat:     db 0                ; non-zero: it filled the whole window, so the
-                                ; number above is a FLOOR and not the answer
-sd_q:       dw 0                ; idle-slice high water, latched per phase
+sd_rom08:   dw 0                ; deepest the ROM's int 08h chain has gone, off
+                                ; sch_chstack's own sentinel. Refreshed by
+                                ; sd_paint so the 'SD' block's pointer stays
+                                ; live for tools/stkdiagread.py
+sd_floor:   dw 0                ; THE IDLE TASK'S OWN SLICE - the floor, and
+                                ; the number to quote. Banked by sd_paint so
+                                ; the 'SD' block can point at it; the panel
+                                ; itself calls sd_iwater directly
+sd_q:       dw 0                ; DEEPEST SLICE over all of them, latched per
+                                ; phase - NOT the floor. It has to be all of
+                                ; them: while the operator is moving the mouse
+                                ; or holding a key the UI task is awake, so
+                                ; those interrupts never land on the idle task
+                                ; at all and a per-phase floor reads +0 twice
 sd_m:       dw 0
 sd_k:       dw 0
 sd_phase:   db 0                ; 0 quiet, 1 mouse, 2 keys, 3 done
+sd_zero:    dw 0                ; what the 'SD' block's skip pointer aims at on
+                                ; NOCHAINPRIV, so the reader's layout does not
+                                ; change with the arm
 sd_t0:      dw 0                ; [ticks] when the panel came up
 sd_slot:    db 0xFF             ; the diagnostic task's own slot
 
-sd_armed:   db 0                ; non-zero: the desktop is up and the sentinel
-                                ; may run. IT MUST NOT RUN DURING BOOT - the
-                                ; fill happens inside sch_isr with IF=0, and
-                                ; SPEC.md 9.4.1's identify window is decided by
-                                ; a 1200-baud burst the 8250 holds one byte at
-                                ; a time. Measured, before this gate existed:
-                                ; the loading screen stops at "Looking for
-                                ; Mouse", which is that byte loss exactly and
-                                ; is the failure sched.inc's own comment warns
-                                ; about one routine up
+sd_armed:   db 0                ; non-zero: the desktop is up and the panel's
+                                ; own task may run. IT USED TO GATE A FILL
+                                ; INSIDE sch_isr, and that gate was not
+                                ; optional: with IF=0, SPEC.md 9.4.1's identify
+                                ; window is decided by a 1200-baud burst the
+                                ; 8250 holds one byte at a time, and before the
+                                ; gate existed the loading screen stopped at
+                                ; "Looking for Mouse" - that byte loss exactly.
+                                ; Since SPEC.md 8.5 ships there is no fill in
+                                ; the ISR at all: both private stacks are
+                                ; sentinelled ONCE from here, at the desktop.
+                                ; The byte stays because it is also what says
+                                ; the panel's task was spawned
 
 ; ---- the 'SD' block (SPEC.md 57.2) ------------------------------------------
 ; So an emulator run is READ rather than photographed: tools/stkdiagread.py
@@ -145,7 +140,13 @@ sd_dbg_blk:
     dw sd_m
     dw sd_k
     dw sd_phase                 ; byte-wide, but the block is words: the reader
-    dw SCH_STACK                ; takes the low half
+    dw sd_floor                 ; takes the low half
+%ifndef NO_CHAINPRIV
+    dw sch_chskip               ; SPEC.md 8.5.1: ticks that arrived inside the
+%else                           ; ROM's own handler and so did not chain
+    dw sd_zero
+%endif
+    dw SCH_STACK
     dw MAX_TASKS
 
 ; -----------------------------------------------------------------------------
@@ -216,120 +217,6 @@ sd_slice_base:
 ; question and can be compared.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; sd_chain_call - run the ROM's int 08h chain on a PRIVATE stack and measure it
-; in:       DS = KERNEL_SEG, SS = LOW_SEG, IF = 0; called from sch_isr in place
-;           of `pushf` / `call far [sch_old08]`
-; out:      the chain has run; [sd_rom08] raised if this pass was the deepest
-; clobbers: nothing the ISR still needs (AX/BX/CX/DI/ES are saved here)
-;
-; THE THIRD DESIGN, and the first that is both safe and unconditional. The two
-; before it tried to sentinel the free bytes below SP on a task stack:
-;
-;   * on the idle task's slice only - which took no samples at all, because on
-;     a desktop with a repainting panel the tick lands on task 0 far more often
-;     than on the idle task;
-;   * on whatever task was interrupted - which meant filling below ui_task's SP
-;     on task 0's 1,024 bytes, and left the panel half drawn.
-;
-; Switching SP instead touches NO task stack. It is exact on every tick whoever
-; was interrupted, it cannot corrupt a slice or a canary, and it is also a
-; working prototype of the fix docs/STACK-SLOTS-PLAN.md 4.1 proposes - so a
-; field run measures the ROM's cost AND demonstrates that moving it off the
-; task stack works on that machine, in one boot.
-;
-; SS is not touched: every task already runs SS = LOW_SEG (SPEC.md 1/2.1) and
-; the scratch is in .lowbss, so this is an SP swap and nothing else.
-;
-; RE-ENTRANCY IS REAL. A ROM handler sends the EOI and then typically `sti`s to
-; call int 1Ch, so a second IRQ0 can arrive inside the first. The busy flag
-; sends that one down the plain path - it still runs on the scratch, because SP
-; is the scratch, which is why SD_SCRATCH is sized for the nesting rather than
-; for one chain.
-; -----------------------------------------------------------------------------
-sd_chain_call:
-%ifndef STK_FIX
-    xor byte [sd_alt], 1        ; every other tick runs plainly, so the floor
-    jz .plain                   ; the panel reports is the SHIPPING floor.
-                                ; `make STKFIX=1` drops the alternation: every
-                                ; chain goes on the scratch, and the floor the
-                                ; panel then reports is the floor of the machine
-                                ; 4.1 and 4.2 PROPOSE. That is a lie about the
-                                ; shipping kernel and the whole point on a disk
-                                ; whose job is to price the proposal - so it is
-                                ; a third arm and never the default
-%endif
-    cmp byte [sd_busy], 0
-    je .measure
-.plain:
-    pushf                       ; nested: chain plainly, measure nothing
-    call far [sch_old08]
-    ret
-
-.measure:
-    push ax
-    push bx
-    push cx
-    push di
-    push es
-    mov byte [sd_busy], 1
-
-    mov ax, LOW_SEG             ; fill the scratch with the sentinel
-    mov es, ax
-    mov di, sd_scratch
-    mov cx, SD_SCRATCH
-    mov al, SD_SENT
-    cld
-    rep stosb
-
-    pop es                      ; restore what the chain does not need saved
-    pop di                      ; ACROSS the stack swap - anything still on the
-    pop cx                      ; stack when SP moves would be stranded
-    pop bx
-    pop ax
-
-    mov [sd_savesp], sp         ; --- the swap ---------------------------------
-    mov sp, sd_scratch + SD_SCRATCH
-    pushf
-    call far [sch_old08]
-    mov sp, [sd_savesp]         ; --- and back ---------------------------------
-
-    push ax
-    push bx
-    push cx
-    push di
-    push es
-    mov ax, LOW_SEG
-    mov es, ax
-    mov di, sd_scratch + SD_SCRATCH - 1
-    mov cx, SD_SCRATCH
-    mov al, SD_SENT
-    std                         ; down from the top: the cost is the DEPTH, not
-    repne scasb                 ; the scratch, and every clock here is inside
-    cld                         ; sch_isr's IF=0 window
-    jne .sat                    ; nothing left: it used the whole scratch
-    inc di                      ; DI = the deepest byte still sentinel...
-    mov ax, sd_scratch + SD_SCRATCH
-    sub ax, di
-    dec ax                      ; ...so the deepest byte TOUCHED is one above
-    inc word [sd_n]
-    cmp ax, [sd_rom08]
-    jbe .done
-    mov [sd_rom08], ax
-    jmp short .done
-.sat:
-    cld
-    mov byte [sd_sat], 1
-    mov word [sd_rom08], SD_SCRATCH
-.done:
-    mov byte [sd_busy], 0
-    pop es
-    pop di
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; sd_water - the high water of slot AL's slice, from task_spawn's 0xCC fill
 ; in:       AL = slot;  DS = KERNEL_SEG
 ; out:      AX = bytes used from the slice top, or 0 if it was never spawned
@@ -376,6 +263,79 @@ sd_water:
     ret
 
 SPB_CC     equ 0xCC             ; task_spawn's fill (SPEC.md 8.3)
+
+%ifndef NO_CHAINPRIV
+; -----------------------------------------------------------------------------
+; sd_cwater - how deep the ROM's int 08h chain has been (SPEC.md 8.5)
+; in:       DS = KERNEL_SEG
+; out:      AX = bytes used from the top of sch_chstack
+;
+; THIS NOW MEASURES THE SHIPPING KERNEL, and that is the change worth knowing
+; about. The first version of this instrument carried its own private stack and
+; its own copy of the swap, ran the chain on it on ALTERNATE ticks, and read the
+; sentinel back - because the kernel had no private stack to read. It was a
+; prototype of SPEC.md 8.5 as much as a measurement of it, which is why the
+; panel had to alternate: measuring every chain would have made the floor row
+; describe a machine that did not exist yet.
+;
+; Since 8.5 ships there is a real stack to sentinel, so the alternation, the
+; busy flag, the saturation mark and the pass counter all go - along with the
+; hook in sch_isr, which is now the plain chain again on every kernel. What is
+; left is sd_mwater one stack along: filled once by sd_start, scanned from the
+; top, and the deepest excursion is still there afterwards because nothing
+; refills it.
+;
+; What it reports is the WHOLE window - our `pushf`, the far call's frame, the
+; ROM's handler, and anything that nested inside it because a real BIOS `sti`s
+; before int 1Ch. That is what SCH_CHSTK has to cover, so it is the number that
+; sizes it.
+; -----------------------------------------------------------------------------
+sd_cwater:
+    push bx
+    push cx
+    push di
+    push es
+    mov ax, LOW_SEG
+    mov es, ax
+    mov di, sch_chstack + SCH_CHSTK - 1
+    mov cx, SCH_CHSTK
+    mov al, SD_SENT
+    std
+    repne scasb                 ; down from the top to the first survivor
+    cld
+    jne .full                   ; none left: it used the whole stack
+    inc di
+    mov ax, sch_chstack + SCH_CHSTK
+    sub ax, di
+    dec ax
+    jmp short .out
+.full:
+    mov ax, SCH_CHSTK
+.out:
+    pop es
+    pop di
+    pop cx
+    pop bx
+    ret
+
+sd_cfill:
+    push ax
+    push cx
+    push di
+    push es
+    mov ax, LOW_SEG
+    mov es, ax
+    mov di, sch_chstack
+    mov cx, SCH_CHSTK
+    mov al, SD_SENT
+    cld
+    rep stosb
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+%endif
 
 %ifndef NO_MOUPRIV
 ; -----------------------------------------------------------------------------
@@ -453,9 +413,9 @@ sd_iwater:
 ; never on the idle task at all. Reading one slice made "+mouse" and "+keys"
 ; both report +0 on a machine whose deepest slice was 46 bytes further down.
 ;
-; Nothing here writes to a slice - the chain runs on sd_scratch (see
-; sd_chain_call), so every slice's 0xCC fill (SPEC.md 8.3) is intact and
-; records exactly the interrupts that landed on it.
+; Nothing here writes to a slice - the ROM's chain runs on sch_chstack and the
+; mouse ISRs on mou_pstack (SPEC.md 8.5, 9.10), so every slice's 0xCC fill
+; (SPEC.md 8.3) is intact and records exactly the interrupts that landed on it.
 ; -----------------------------------------------------------------------------
 sd_vwater:
     push bx
@@ -738,18 +698,13 @@ sd_paint:
     add bp, SD_ROW + SD_ROW     ; --- the numbers ---------------------------
     mov si, sd_s_rom
     call sd_label
-    mov ax, [sd_rom08]
-    call sd_value
-    cmp byte [sd_sat], 0
-    je .nosat
-    push ax                     ; a saturated reading is marked ON the row, so
-    mov si, sd_s_sat            ; a photograph cannot lose it
-    mov cx, SD_VALX + 4*8
-    mov dx, bp
-    mov ax, (CBLACK << 8) | CWHITE
-    call font_run
-    pop ax
-.nosat:
+%ifndef NO_CHAINPRIV
+    call sd_cwater              ; the SHIPPING stack's own high water, and the
+    mov [sd_rom08], ax          ; number that sizes SCH_CHSTK. Banked so the
+%else                           ; 'SD' block's pointer is live for the reader
+    xor ax, ax                  ; NOCHAINPRIV: there is no private stack, so
+%endif                          ; the chain is on the slice and the floor row
+    call sd_value               ; below is where it shows up
     add bp, SD_ROW
     mov si, sd_s_q
     call sd_label
@@ -770,7 +725,8 @@ sd_paint:
     mov si, sd_s_flr
     call sd_label
     call sd_iwater
-    call sd_value
+    mov [sd_floor], ax          ; banked for the 'SD' block, so a reader gets
+    call sd_value               ; the same number the photograph shows
     add bp, SD_ROW
     mov si, sd_s_now
     call sd_label
@@ -779,7 +735,11 @@ sd_paint:
     add bp, SD_ROW
     mov si, sd_s_n
     call sd_label
-    mov ax, [sd_n]
+%ifndef NO_CHAINPRIV
+    mov ax, [sch_chskip]        ; SPEC.md 8.5.1's claim, as a reading: how many
+%else                           ; ticks arrived inside the ROM's own handler and
+    xor ax, ax                  ; so did not chain. Expected to be 0 or a very
+%endif                          ; small number over a 90-second run
     call sd_value
 %ifndef NO_MOUPRIV
     add bp, SD_ROW
@@ -903,6 +863,12 @@ sd_start:
 %ifndef NO_MOUPRIV
     call sd_mfill               ; the mouse ISR's own stack, sentinelled once
 %endif
+%ifndef NO_CHAINPRIV
+    call sd_cfill               ; ...and the ROM chain's, the same way. Once,
+                                ; at the desktop: a high water survives the
+                                ; excursion that set it, so nothing has to be
+                                ; done per tick and the ISR is not touched
+%endif
 .out:
     pop dx
     pop bx
@@ -936,30 +902,31 @@ sd_s_hdr:   db "os8088 TASK STACK DIAGNOSTIC",0
 ; be read off the picture is a measurement somebody has to remember, and
 ; remembering is what the disk exists to replace.
 ;
-; RECUT WHEN THE MOUSE FIX SHIPPED (SPEC.md 9.10): arm 1 is the default and so
-; already carries it, and arm 2 is now the BEFORE picture rather than the after
-; one. The pair is still the same experiment read in the same direction - arm 1
-; minus arm 2 is what the mouse fix is worth on the machine in front of you.
-%ifdef STK_FIX
-sd_s_arm:   db "ARM 3 of 3   + STKFIX",0
+; RECUT WHEN BOTH FIXES SHIPPED (SPEC.md 8.5, 9.10). The arms used to NEST -
+; arm 2 was arm 1 plus the mouse fix and arm 3 was arm 2 plus the tick's - so
+; only the ends could be compared. Now arm 1 is the default and each of the
+; other two turns ONE fix off, which is the A/B a field run actually wants:
+; arm 2 minus arm 1 is what the mouse fix is worth on that machine, arm 3 minus
+; arm 1 is what the tick's chain is worth, and neither reading needs the other.
+%ifdef NO_CHAINPRIV
+sd_s_arm:   db "ARM 3 of 3   NOCHAINPRIV",0
 %elifdef NO_MOUPRIV
-sd_s_arm:   db "ARM 2 of 3   NOMOUPRIV (before)",0
+sd_s_arm:   db "ARM 2 of 3   NOMOUPRIV",0
 %else
 sd_s_arm:   db "ARM 1 of 3   as it ships",0
 %endif
 sd_s_bios:  db "ROM",0
 sd_s_geom:  db "screen width",0
 sd_s_slice: db "slice bytes",0
-sd_s_rom:   db "ROM int08 on our stack",0
-sd_s_q:     db "floor  quiet",0
-sd_s_m:     db "floor  +mouse",0
-sd_s_k:     db "floor  +keys",0
+sd_s_rom:   db "ROM int08, own stack",0
+sd_s_q:     db "deepest slice, quiet",0
+sd_s_m:     db "deepest slice, +mouse",0
+sd_s_k:     db "deepest slice, +keys",0
 sd_s_flr:   db "FLOOR, idle  <- quote this",0
 sd_s_now:   db "deepest slice (inc. panel)",0
-sd_s_n:     db "chain samples taken",0
+sd_s_n:     db "ticks that did NOT chain",0
 sd_s_mou:   db "mouse ISR, own stack",0
 sd_s_slots: db "every slice, slot 1 up",0
-sd_s_sat:   db "OVER!",0
 
 ; The four instructions, and they are the only thing on the panel a human has
 ; to act on. Phase 0 needs nothing done and is the reading that matters most.
@@ -970,16 +937,6 @@ sd_s_p3:    db "DONE - WAIT 2 MIN, THEN PHOTOGRAPH",0
 sd_s_stop:  db "HANDS OFF - LATCHING THE NUMBER",0
 sd_s_phase: dw sd_s_p0, sd_s_p1, sd_s_p2, sd_s_p3, sd_s_stop, sd_s_stop
 
-section .lowbss
-resb (2 - (($-$$) % 2)) % 2     ; even, so SP is even across the swap. `alignb`
-                                ; spelled out: NASM refuses the macro form
-                                ; against this nobits section (sch_stacks'
-                                ; declaration carries the same note)
-sd_scratch: resb SD_SCRATCH     ; THE PRIVATE CHAIN STACK. It must be in
-                                ; .lowbss and not .bss: SS is LOW_SEG for every
-                                ; task (SPEC.md 1/2.1), and the swap moves SP
-                                ; alone - a scratch in the kernel's own segment
-                                ; would be addressed through the wrong one
 section .bss
 sd_buf:     resb 16             ; fm_utoa's 6, or the date string and the model
 sd_bios:    resb 12             ; the ROM's date string, 8 chars and a NUL

@@ -162,6 +162,22 @@ and being arithmetic.
 
 ### 4.1 The ROM tick chain — 50 bytes × every slot
 
+> **BUILT. SPEC.md 8.5 is the contract and this is the design record behind
+> it.** It ships as the default; `NOCHAINPRIV=1` is the A/B and arm 3 of
+> `make stkdiag`. Cost on the tree that shipped it: `.text` +36, `.bss` +5,
+> `.lowbss` +128 — **169 bytes resident, no rung crossed**.
+>
+> **Measured end to end on the shipping kernel** (QEMU/SeaBIOS, the 90-second
+> run): the idle task's slice — the floor — reads **32 of 384 on arm 1 against
+> 82 on arm 3**. Fifty bytes exactly, agreeing to the byte with §2's original
+> A/B, which reached the same number by deleting the call rather than by moving
+> it. The chain's own high water on `sch_chstack` reads **56**, which is the
+> same figure the prototype instrument measured and is what sizes `SCH_CHSTK`
+> at 128 (2.29×).
+>
+> **`[sch_chskip]` reads 0** over that run, which is §4.1's open question
+> answered rather than argued — see the note at the end of this section.
+
 `kernel/sched.inc`, in `sch_isr`:
 
 ```nasm
@@ -199,8 +215,32 @@ not equivalent:
   under a load that is already a tick behind.
 
 **The second is the one that makes the small classes possible, and it is a
-behaviour change somebody has to agree to.** It is the central open question
-of this plan.
+behaviour change somebody has to agree to.** It was the central open question
+of this plan — **and it dissolved when the window was looked at properly**
+(SPEC.md 8.5.1).
+
+`sch_isr`'s contract is IF=0 *throughout*, so there is exactly one window in it
+where anything can arrive: inside the ROM's handler, after its own EOI and
+`sti`. Everything that lands there — a keystroke's `int 09h`, a mouse IRQ's
+six-byte gate frame, the floppy's completion — nests on the private stack
+harmlessly, and `SCH_CHSTK` is sized for it. **Only a second IRQ0 is a problem**,
+and not for stack reasons: the re-entered `sch_isr` runs on to `sch_switch`,
+which would save a *private* SP into a task record. So that one, and only that
+one, takes the skip arm.
+
+And it is not the "worst case is still 50 bytes" of the first option, because
+the skipping entry never swapped: it carries on down the rest of the tick on the
+task's own stack, exactly as it did before. **No task slice ever carries the ROM
+chain on either arm**, which is what the classes needed.
+
+What it costs is one BIOS tick increment, in a case the machine is already a
+tick behind for: a second IRQ0 can only reach the ROM handler if the first was
+itself delayed by nearly a whole tick — the PIT's edges are 54.9 ms apart and the
+handler is ~0.2 ms — so it takes a long IF=0 window such as a floppy transfer,
+and then only for the one tick whose phase lands inside it. The 8259 latches one
+pending IRQ0 and no more, so a backlog is *already* collapsed to a single tick
+before any of this. **`[sch_chskip]` counts them, and over the 90-second QEMU
+run it read 0.**
 
 ### 4.2 The mouse ISR — 54 bytes, and it moves for 34
 
@@ -255,6 +295,15 @@ bytes of `.text`, once, against 48 bytes of every task stack in the machine —
 seven times over today and seventeen under §7.
 
 ### 4.2.1 The two fixes compose, and not additively
+
+**Demonstrated in the other direction now that both ship.** Arm 3 —
+`NOCHAINPRIV=1`, so the mouse ISRs are still private and only the chain is back
+on the slice — reads a floor of **82 on QEMU, which is the whole of the original
+pre-both-fixes figure.** The mouse fix alone bought *nothing* on the floor
+there, because the floor is the deeper of the two paths and
+`max(tick 28 + BIOS 50, mouse 58)` is decided by the first term. Both had to
+move before either showed.
+
 
 The ROM's `int 08h` handler sends the EOI and then `sti`s before `int 1Ch`, so
 **IRQ4 can arrive inside the tick's chain** — and when it does, one task stack
