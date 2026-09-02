@@ -85,6 +85,58 @@ under 1%. So the attribution is a hypothesis and the finding is unexplained.
 Worth one look from whoever next opens `vga12.inc`, and it deserves the same
 high-N scrutiny C1 describes before anybody acts on it.
 
+## A5. `dispmine` asked whether a cell opened, and meant whether the press arrived
+
+**FIXED**, and it is the most instructive item on this page: the entry above
+had already classified it — wrongly — as a contention artefact, and the first
+fix for it was wrong too.
+
+It failed **1 run in 4 alone on an idle box**, always with the same sentence:
+
+```
+the bottom row still cannot be played: a press at (248,194) opened nothing,
+so it went past the window (frame 20..198) to the dock (SPEC.md 11.93)
+```
+
+The row pressed a control cell first — to prove the click path works — and
+then asked whether the count of open cells had gone UP. **Two things in
+`mines.asm`'s own reveal path make that unanswerable, and both were happening:**
+
+```
+    cmp byte [mn_state+bx], MN_S_COVER
+    jne .out                     ; an OPEN cell is done: nothing happens
+    cmp byte [mn_mode], MN_M_FRESH
+    jne .armed
+    call mn_place                ; lazy placement: first click always safe
+```
+
+* the control click's flood opens **anywhere from 1 to 62 of the 81** cells,
+  measured, and if it reached the bottom-left one the press under test had
+  nothing left to do;
+* and the bottom-left cell can be one of the **10 mines**, in which case the
+  press ended the game — `mn_mode` 1 → 2, `MN_M_LIVE` → `MN_M_LOST` — and
+  `mn_revealed`, the only thing the row looked at, did not move.
+
+Both read as "it went past the window to the dock" and blamed SPEC.md 11.93.
+
+**The first fix caught only the mine** — predicate widened to "a cell opened OR
+the mode changed" — and still failed 2 runs in 8, because the flood case is a
+press that genuinely does nothing at all and no predicate can tell it from a
+press the dock swallowed. **The fix is the ORDER.** The press under test goes
+first, on a FRESH board: every cell is `MN_S_COVER` and `mn_place` puts the
+mines around it, so it must open at least itself and must take the mode
+`FRESH` → `LIVE`. The control is asked only when that press did nothing, which
+is the one case where it has something to distinguish. **10 of 10 runs pass,
+every one opening a cell**, against a measured 1-in-4 baseline.
+
+**What this cost, and it is the page's own lesson three times over.** The
+symptom named the dock, so the investigation went to `wm_hit`/`dock_hit` —
+verified byte-identical to the base, correctly, and that was read as supporting
+a harness explanation rather than as evidence the kernel was not involved.
+Then one passing re-run closed it. Then a predicate fix was measured at 6 runs
+and looked done at the 7th. The numbers were in the failure output the whole
+time and nobody read the second column.
+
 ## A4. Four orphaned local blocks outside the kernel
 
 Found by `t_asmrules` check 4, which was written during the pass and lands
@@ -229,20 +281,17 @@ This is the root of three separate observations:
   hit-test defect, and `wm_hit`/`dock_hit` were verified byte-identical to the
   base before the re-run was believed.
 
-  **AND THEY BOTH PASS AT WIDTH 3 NOW**, in an eight-row slice with three
-  guests on four cores: `dispmine` 46.4 s, `tmowner` 205.4 s, nothing failed.
-  What changed underneath them is B4 — thirteen rows that ran `make` were in
-  that same shared lane and are not any more — so the concrete mechanism
-  available for their failure is a build rewriting `build/` under them, not
-  this one.
+  **AND THE `dispmine` HALF OF THAT WAS WRONG — see A5.** It is not contention
+  at all. It fails **one run in four ALONE on an idle box**, and the cause is
+  in the test's own predicate. The classification was made on a single passing
+  re-run and it should not have been: N=1 is not a rate, and "passes alone" is
+  the answer contention predicts *and* the answer an intermittent gives three
+  times in four.
 
-  **Stated with its limit, because it is not proof.** The original failure was
-  in a 235-row pass whose shared lane held 155 rows and ran for hours; this was
-  eight rows in five minutes. It is evidence that they are not
-  *deterministically* broken by width 3, and the next full soak is the test.
-  They are deliberately NOT marked `alone=True` on the strength of it — a flag
-  taken for a cause that has moved is a slower suite for ever, and it is
-  cheaper to be wrong once more here than to pin them permanently.
+  `tmowner`'s half stands as far as it goes — it passed at width 3 in an
+  eight-row slice with three guests on four cores (205.4 s) — and stands with
+  the same caveat, which is now a demonstrated one rather than a hedge: **one
+  passing run is not a classification.** Neither row is marked `alone=True`.
 * **`deskbench`'s scene is not reproducible to the pixel** — 78,821 / 78,825 /
   78,830 lit pixels across three runs of the same build, because
   `new_window` waits on `time.time()`.
@@ -444,8 +493,9 @@ away. `weavesmoke._shot` is the family's helper.
 | a missing `no_saver()` call (B7) | 1 — `trkrate` |
 | found by the pre-merge gate, not the soak (B9) | 1 — a leaked QEMU breaking `ps2mouse` |
 | fixed during the pass | 3 — `deskbench`, and `weavegame`/`wireflick`'s registrations |
-| **fixed since, in this queue** | **5** — B3, B4, B7, B8, B9 |
-| **left open** | **10** — A1–A4, B1, B2, B5, B6, C1, C2 |
+| **fixed since, in this queue** | **7** — A5, B3, B4, B6, B7, B8, B9 |
+| **left open** | **8** — A1–A4, B1, B2, B5, C1, C2 |
+| **classifications this queue got WRONG and corrected** | **2** — `dispmine` (A5, called contention on one passing re-run) and B6's own mechanism |
 
 **The one lesson, and it is one lesson.** Not one of these was a check that
 failed. Every expensive hour went to a check that **passed for the wrong
