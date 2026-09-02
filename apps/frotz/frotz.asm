@@ -798,7 +798,7 @@ zf_a4: db 'An independent implementation of the', 0
 zf_a5: db 'Z-Machine Standard 1.1 in 8086 assembly.', 0
 zf_a6: db "Not a port of David Griffith's Frotz.", 0
 zf_a7: db 0
-zf_a8: db 'Ported by Jorge Gonzalez', 0
+zf_a8: db 'Contributed by Jorge Gonzalez', 0
 
 zf_splash_lines:
     dw zf_p1, zf_p2, zf_p3, 0

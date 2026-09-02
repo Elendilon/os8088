@@ -29207,6 +29207,24 @@ Task Manager's incremental painter would otherwise letter changed rows
 straight through the card. A widget that owned that would have to know all
 four.
 
+**A C package reaches it through `os88_about_card()`** (§73), declared in
+`apps/cc/os88.h` and thunked in `os88thunk.asm` under `CC_HAS_ABOUT` +
+`OS88UI_ABOUT`. The line table is a C array of `const char *` ended by a `0`
+entry, which in the near model **is** `os88ui_about`'s own format — a word a
+line — so nothing is staged or converted. `os88_about_card_d` is the painter's
+entry, for the reason above. `WEAVE` is the first consumer; the C statics have
+to be declared **above `os88_paint()`**, which is the C rule the assembly side
+does not have.
+
+**`LOOM` is the one package that asked for the card and could not have it**,
+and the reason is worth writing down rather than reading as inconsistency: it
+sits **242 bytes** under `os88pkg`'s `0xF000` budget (image 54,982 + bss 6,216
+= 61,198 of 61,440) and the card is **546**. Finding 304 bytes there is a size
+pass and not an attribution, so its credit went into the sentence
+`ovl_about()` already writes to the status row — which is **overlay** bytes
+rather than resident ones, and which §10.1 of WEAVE-SPEC makes *keep* the
+sentence after the toast retires itself.
+
 **`OS88UI_NOBTN`** is `OS88UI_BARONLY` generalised, and arrived with this.
 `BARONLY` is the button's opt-out spelled as a statement about the scroll bar
 (§13.10.6.5), and the About card is the first consumer for which that sentence
