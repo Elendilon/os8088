@@ -35,6 +35,13 @@ Measured by A/B on a bare desktop: **82 with the chain, 32 without it.**
 
 **The BIOS timer chain costs 50 bytes of every task stack in the machine.**
 
+And the second headline, which took §12's survey to see: **the programs are
+genuinely spread across the classes.** Twenty shipped workers, from ten bytes
+(`CWORD`'s, which only sleeps) to 240 (Frotz's, twenty-two levels deep), with
+eleven of them in one class. That is what makes a partitioning scheme worth its
+flag day — and what turns **six usable slots into twelve, in the bytes
+`sch_stacks` already costs** (§7.3).
+
 ---
 
 ## 1. What was measured, and how
@@ -68,8 +75,15 @@ positions and ten keys, eight rounds — with the probe launched the same way.
 | Bounce ×6 | **92–106** | +10…24 |
 | Fractal drawing worker | **142** | +60 |
 | Tracker streaming worker (docs/KERNEL-MEMORY.md) | 142 | +60 |
-| `ETHER.DRV` service worker, QEMU after an FTP session | 232 | +144 |
-| `ETHER.DRV` service worker, **5150 field**, upload + typing | 220 | — |
+| ftpd's worker carrying `ETHER.DRV`, QEMU after an FTP session | 232 | +150 |
+| the same slice, **5150 field**, upload + typing | 220 | — |
+
+**The last two rows were labelled "`ETHER.DRV` service worker" until §12.0.**
+The driver spawns no task at all — `OSAPI_DRV_TASK` has exactly one caller in
+the tree and it is the sound driver — so the slice measured was `FTPD.O88`'s
+own worker, carrying the driver's ~126-byte verb chain on top of itself. The
+number is right; only its owner was wrong, and it matters because a *program*
+cost is something a class can be cut for (§12.2).
 
 The idle task is the control that makes the rest readable. Its body is
 
@@ -131,8 +145,10 @@ Every task carries the same two things, and neither is the program:
    moment because interrupts land on whichever stack they interrupt.
 
 The program's own contribution is the *small* term for everything except the
-network stack: **+6** for a spinning worker, **+10…24** for a Bounce, **+60**
-for the Fractal. `ETHER.DRV`'s **+144** is the outlier and is what actually
+network stack and Frotz: **+6** for a spinning worker, **+10…24** for a Bounce,
+**+60** for the Fractal. A socket verb's **~126** — which is the driver's and
+lands on the *calling* package's slice, not on a task of its own (§12.2) — and
+Frotz's **240** (§12.3) are the two outliers, and between them they are what
 sets `SCH_STACK` today.
 
 That is the finding that governs the rest of this document. Shaving a program
@@ -386,6 +402,11 @@ the largest class**, so nothing existing has to be touched to keep working.
 
 ### 6.3 What the classes have to be
 
+> **SUPERSEDED BY §7.2, which is cut on §12's survey.** Kept because the
+> *sizes* it picked survived and the reasoning for them is here; what it got
+> wrong is the population — it had four programs to go on and the survey has
+> twenty. Read §7.2 for who is in which class.
+
 Sized from §1.1's readings, not from round numbers:
 
 | class | fits | on today's floor | on §4.1's floor |
@@ -393,13 +414,15 @@ Sized from §1.1's readings, not from round numbers:
 | 128 | the idle task; a spinning service worker | no (1.5×) | yes |
 | 192 | Bounce, Timer, most simple workers | yes | yes |
 | 256 | Fractal (+60), Tracker (+60) | tight | yes |
-| 384 | `ETHER.DRV` (+144), ftpd | yes | yes |
+| 384 | ftpd over `ETHER.DRV` (+150) | yes | yes |
 
 **The Fractal is the case that stops the class list being shorter.** At +60
 over a floor of 82 it needs 142 and a 192 slice gives it 1.35× — thin by this
 project's standards. On §4.1's floor it needs 122 and 192 gives it 1.57×.
-`ETHER.DRV` stays at 384 either way; it is the reason `SCH_STACK` is 384 and
-nothing here changes that.
+The top class stays at 384 either way; it is the reason `SCH_STACK` is 384 and
+nothing here changes that. (**The survey later found a deeper tenant than the
+network stack** — Frotz, at 240 — which does not move the class but does change
+which program defines it: §12.3.)
 
 ---
 
@@ -429,37 +452,69 @@ so it is the outlier and not the worst case.
 
 ### 7.2 The classes
 
-Program depth above the floor is the program's own and travels between machines
-(§1.1): a spinning worker **+6**, a Bounce **+10…24**, the Fractal and Tracker
-**+60**, `ETHER.DRV` **+144**.
+**Recut on §12's survey**, which is the first time anybody looked at where the
+shipped programs actually are rather than at the four numbers §1.1 happened to
+measure. Program depth above the floor travels between machines (§1.1) and the
+survey is the population:
 
-| class | holds | needs | margin |
+| class | shipped tenants | deepest of them | margin |
 |---|---|---|---|
-| **128** | idle task, Timer, Bounce, simple workers | 64 + 24 = 88 | 1.45× |
-| **192** | the Fractal, Tracker | 64 + 60 = 124 | 1.55× |
-| **256** | headroom between the two ends | — | — |
-| **384** | `ETHER.DRV`, ftpd | 64 + 144 = 208 | 1.85× |
+| **128** | `CWORD`, `RUNCPM`, the sound driver's stream tasks, Bounce, Timer | 64 + 28 = 92 | 1.39× |
+| **192** | WIREFRAME, Artful, Task Manager, Fractal, `WEAVE`, Cyclone, Notepad, Arkanoid, Tracker, Tamegram, Tank Attack | 64 + 82 = 146 | 1.32× |
+| **256** | Modplug, Missile Command, Word, Telnet | 64 + 130 = 194 | 1.32× |
+| **384** | ftpd, Browser, **Frotz** | 64 + 240 = 304 | 1.26× |
 
-Every class clears this project's ~1.75× convention except 128 and 192, which
-sit at 1.45–1.55× — and that is the deliberate trade for the slot count below,
-taken against a floor that is itself the worst of four machines.
+**The rule is a margin of at least 1.25× over `floor + depth`**, taking the
+larger of the static and measured figures — stated here because a class scheme
+with no stated rule is a set of numbers somebody will later argue with. It is
+below this project's usual ~1.75×, deliberately, and the trade is the slot
+count in §7.3; the floor it is taken over is itself the worst of four machines
+(§7.1), so the conservatism is in the base rather than in the multiplier.
 
-### 7.3 What fits in 3,072
+**Frotz is what fixes the top class at 384**, at 1.26× — the thinnest margin in
+the tree, and the reason `SCH_STACK` cannot simply become 256 for everybody.
+§12.3 has the 22-level chain and the 42 bytes of unused register saves inside it
+that would take it to 1.47× if anybody wants the headroom back.
+
+**192 is the modal class**, with eleven of the twenty shipped workers in it.
+That is the survey's most useful single result: the distribution is real, the
+programs are spread across all four classes, and a scheme that partitions is
+therefore worth its flag day. Had they all wanted 256 there would have been
+nothing to do here.
+
+### 7.3 What fits — and it is twelve, not sixteen
 
 | | bytes |
 |---|---|
-| 10 × 128 | 1,280 |
-| 4 × 192 | 768 |
-| 1 × 256 | 256 |
-| 1 × 384 | 384 |
+| 2 × 128 | 256 |
+| 6 × 192 | 1,152 |
+| 2 × 256 | 512 |
+| 2 × 384 | 768 |
+| **slices** | **2,688** |
 | the idle task, external (§5) | 128 |
 | the ROM chain's private stack (§4.1) | 128 |
 | the mouse ISRs' private stack (§4.2) | 128 |
 | **total** | **3,072** |
 
-**Sixteen usable worker slots against today's six**, exactly on the stated
-budget. The two private stacks are one allocation each and not per-task, which
-is the whole reason the floor came down far enough for a 128 class to exist.
+**Twelve usable slots against today's six, and the slices cost exactly what
+they cost today** — 2,688 bytes, unchanged. The only new money in the whole
+scheme is the 384 bytes of the three shared external stacks, which is what
+brings the floor down far enough for the small classes to exist at all. That is
+the requester's own target arithmetic ("12 user slices + the three externals")
+landing on the nose.
+
+**This is four fewer than the sixteen §7.3 claimed before the survey**, and the
+survey is why: that mix was 10 × 128, and only three shipped packages fit a 128
+slice. Sixteen was arithmetic; twelve is the programs. Recorded as a downgrade
+rather than quietly restated, because the earlier number is in this document's
+history and somebody will find it.
+
+Twelve is a **floor on the answer, not a ceiling**: a slice may host any program
+whose class is at or below it (§6.2 partitions, it does not allocate), so the
+mix above is sized for a plausible worst-case *set* of twelve rather than for
+twelve copies of the worst tenant. Trimming Frotz (§12.3) would let a 384 become
+a 256 and a 192; that is a later decision and this arithmetic does not depend
+on it.
 
 ### 7.4 What binds after that is the ABI, not RAM
 
@@ -930,3 +985,212 @@ stack the floor fell **82 → 38**, which is §4.1 working, measured, on a machi
   tick count advancing and changes motor timeout, so it is a measuring tool and
   its stressed readings are indicative only. §4.1's own busy-flag form is the
   shippable shape.
+
+---
+
+## 12. The survey: where every shipped program lands
+
+The requester's question, before any of this is built: *"for the apps we
+currently have, where would each of them land on requirements? We're going to
+have to update each of them anyway, so before we start is the best time to do
+the survey."*
+
+It is the right moment for a second reason. A class scheme is only worth the
+flag day if the programs are actually **spread** across the classes — if they
+all wanted 256 there would be nothing to partition — and until this section
+nobody had looked.
+
+### 12.0 First, the accounting — and one premise that is wrong in our favour
+
+The requester's arithmetic was *"the UI task will always take its own. If sound
+is on, that also eats a worker forever right? So a target of 12 user slices +
+the three 'externals' would give us back 10 bounces, even with sound on."*
+
+Three corrections, all of which make the answer better rather than worse:
+
+1. **The UI task takes no slice at all.** Task 0 runs on `SS:STK0_TOP`, a
+   separate 1,024-byte region above `.lowbss` (`kernel/sched.inc`'s header says
+   so explicitly: *"it owns no slice of `sch_stacks`"*). It costs a **task-table
+   record** — one of `MAX_TASKS` — and not a stack slice. Those are two
+   different budgets and only the second one is what this document is spending.
+   `sch_stacks` is `(MAX_TASKS-1) * SCH_STACK` = 7 × 384 = 2,688 bytes, and all
+   seven slices are for dynamic tasks.
+
+2. **Sound does not eat a worker forever.** It is transient, and
+   `drivers/sound/sb.inc` says so at the routine that spawns it: *"No resident
+   sound task exists (rejected, SPEC.md 34.5): this slot and its stack come
+   from the ordinary dynamic pool and return to it with the stream."*
+   `sbl_refill_task` is spawned by the stream-open verb and calls `task_exit`
+   when the stream closes, is torn down, is superseded by a newer open, or is
+   stopped by the watchdog; `sbl_drain_task` is the same shape for record. So
+   the cost is one slice **while audio is playing**, which for Tracker and
+   Modplug is concurrent with the app that asked for it, and it comes back.
+
+3. **`ETHER.DRV` takes none, ever.** `OSAPI_DRV_TASK` has exactly one caller in
+   the whole tree and it is `drivers/sound/sb.inc` (four sites: two spawns, two
+   exits). The Ethernet driver pumps **synchronously inside its own service
+   verbs**, so its ~122 bytes land on whichever task called it — see §12.2.
+   §1.1's row *"`ETHER.DRV` service worker"* is therefore a **mislabel**: the
+   232-byte slice measured after an FTP session was **`FTPD.O88`'s own worker**
+   carrying the driver's chain, not a driver task. Corrected here rather than
+   silently in the table, because the number is right and only its owner was
+   wrong — and the correction is what makes it a *program* cost that a class
+   can be cut for.
+
+So today's six is: 7 slices, minus **one** permanently held by the idle task.
+Not two. And under §5 the idle task gets its own external stack, which returns
+that one — so **N slices means N concurrent workers**, full stop.
+
+Against the requester's target: **12 slices gives 12 workers, or 11 while music
+is playing.** The stated goal of ten is met with one to spare with audio and two
+without — and §7.3's 16 is what the same 3,072 bytes actually buys.
+
+### 12.1 The survey
+
+`tools/stkdepth.py` on every shipped package that hires a worker, walked from
+the worker's own entry point. The number is the program's own depth **above the
+floor** — it ends at the `OSAPI_*` far call and counts its 4 bytes, so it is
+directly comparable with §1.1's "above the floor" column and with §7.2's
+budgets.
+
+| program | worker entry | static | measured | class |
+|---|---|---|---|---|
+| `CWORD.O88` (C) | `os88_worker` | ~10 | — | 128 |
+| `RUNCPM.O88` (C) | `os88_worker` | ~10 | — | 128 |
+| sound driver | `sbl_refill_task` / `sbl_drain_task` | **28** | — | 128 |
+| WIREFRAME | `wr_worker` | 40 | — | 128 |
+| `WEAVE.O88` (C) | `os88_worker` → `WEAVE.WSM` | ~40 + 22 | — | 192 |
+| Fractal | `fr_worker` | 48 | **+60** | 192 |
+| Artful | `at_worker` | 50 | — | 128 |
+| Task Manager | `tm_worker` | 56 | — | 192 |
+| Telnet | `te_worker` | 66 | — | *socket, §12.2* |
+| Cyclone | `cy_worker` | 66 | — | 192 |
+| Notepad | `np_worker` | 74 | — | 192 |
+| Arkanoid | `ark_worker` | 76 | — | 192 |
+| Tracker | `trk_worker` | 80 | **+60** | 192 |
+| Tamegram | `tg_worker` | 82 | — | 256 |
+| Tank Attack | `tk_worker` | 82 | — | 256 |
+| FTP server | `fd_worker` | 90 | **+150** | 256 |
+| Modplug | `mpp_worker` | 98 | — | 256 |
+| Missile Command | `mc_worker` | 106 | — | 256 |
+| Word | `wd_worker` | 126 | — | 256 |
+| Browser | `br_worker` | 148 | — | 384 |
+| **Frotz** | `zx_worker` | **240** | — | **384** |
+| *(Bounce, builtin)* | — | — | +10…24 | 128 |
+
+The two instruments **err in opposite directions and that is what makes the
+pair usable**: static walks the fall-through path of every branch, so it counts
+depth a run may never reach; a high water is a sample, so it counts only depth
+some run did reach. Where both exist they bracket the truth — the Fractal reads
+48 static against +60 measured (the kernel below its API call is the
+difference), the Tracker 80 static against +60 measured (the sample never took
+the deepest branch). **Take the larger of the two**, which is what the class
+column does.
+
+### 12.2 The network trio is a class, not a driver cost
+
+`ETHER.DRV` spawns nothing, so its depth is the *caller's*. Measured statically
+on the driver, a socket verb costs:
+
+```
+eth_v_open   122      eth_v_recv   120      eth_v_send   120
+eth_v_state  120      eth_v_accept 120      eth_v_status 116
+```
+
+plus the 4 bytes of `OSAPI_DRV_CALL`'s far frame — call it **~126 bytes on the
+calling task's slice**, arriving through `apps/os88sock.inc`. That is far more
+than any of the three network packages costs on its own (`te_worker` 66,
+`fd_worker` 90, `br_worker` 148).
+
+It does **not** simply add to the worker's static number, because the socket
+call and the worker's own deepest chain are different branches — `fd_worker`'s
+deepest static path is the glass painter (`fd_flush_glass` → `fd_paint_now` →
+`fd_spend` → …), not the socket one. The measurement settles it: ftpd's slice
+read **232 of 384 on QEMU** (floor 82, so **+150**) and **220 on the 5150** —
+i.e. the socket branch is the deeper of the two and lands at about +150, not at
+90 + 126 = 216. Browser is then the worst of the three: it has ftpd's socket
+branch *and* a 148-byte layout branch of its own.
+
+The consequence for the design is a good one: **"network app" is a class, and
+it is one class rather than a per-driver tax on everybody.** A machine with no
+NIC pays nothing for it, and a machine with one pays it only on the three
+packages that open a socket.
+
+### 12.3 Frotz is the tenant that sets the top class, and 42 of its bytes are free
+
+`zx_worker` walks **22 levels** to reach `OSAPI_GFX_LOCK`:
+
+```
+zx_worker -> ... -> zw_wflush -> zw_break -> zw_scroll1 -> zw_paint
+   -> zw_status_draw -> zw_status -> zt_print -> zt_print_ret -> zt_decloop
+   -> zt_zchar -> zt_putc -> zt_screen -> zt_screen1 -> zw6_putc -> zw6_wrap
+   -> zw6_newline -> zw6_scroll -> zw6_flush -> zw6_lock -> OSAPI_GFX_LOCK
+```
+
+240 bytes, which on the §7.1 design floor of 64 is **304 of 384** — 1.26×, the
+thinnest margin of anything in the tree, and it is the reason `SCH_STACK` may
+not simply become 256 for everybody.
+
+**42 of those 240 bytes are registers that chain pushes and never uses**, which
+`stkdepth` names one routine at a time: `zt_putc` saves ax bx cx dx si (10),
+`zw_putc` ax cx dx si (8), `zt_print_ret` bx cx si di (8), `zt_zchar` dx si di
+(6), and four more of 2 each. Cutting them is the cheapest depth in the survey —
+no restructuring, no behaviour change, and `stkdepth --check` already gates the
+`; STKDEPTH-NOSAVE:` markers that record such a decision. That takes Frotz to
+**198**, or 262 of 384 at 1.47×, in line with everything else.
+
+**Not proposed as a prerequisite.** Frotz fits 384 today and would fit it after
+the class scheme; this is recorded because the survey is where it became
+visible, and because a 22-level chain is worth somebody's attention on its own.
+
+### 12.4 What the survey found that changes the build
+
+1. **`CC_STACK equ 384` in `apps/cc/crt0.asm` is an unguarded mirror of
+   `SCH_STACK`,** and it is load-bearing: `cc_iswk` decides *"am I the worker"*
+   by testing whether SP lies in `(cc_wksp - CC_STACK, cc_wksp]`, and SPEC.md
+   20.6 rule 7 hangs off that answer. Under a class scheme the constant must
+   become the package's own declared class — which it can, the class being a
+   compile-time constant of the package — but a package that declares 192 and
+   leaves `CC_STACK` at 384 gets a window **192 bytes too wide, reaching into
+   the slice below it**, and the failure mode is a task told it is the worker
+   when it is not. Silent, and exactly the shape docs/UPSTREAM.md warns about.
+   It wants the same treatment `tests/unit/` gives the other mirrored constant.
+
+2. **There is nowhere to put a class today.** `task_spawn` takes AX = entry,
+   BX = segment, DX = the argument word (DL → `T_INST`, DH → the task's DH);
+   CX is pushed and restored and is not an input, so it is free — but a
+   register nobody sets today holds garbage, so it cannot be added silently.
+   The package header is the better home anyway: SPEC.md 20.6 allows one
+   background task per instance, so the class is a property of the package and
+   not of the call. Either way it needs a flag day — and §7.4 already names one
+   for `MAX_TASKS` in the snapshot ABI. **One flag day, not two.**
+
+3. **A worker that only sleeps costs almost nothing**, and three of the C
+   packages are exactly that: `CWORD.O88` and `RUNCPM.O88` both spawn a worker
+   whose entire body is `task_sleep(4)` / `task_alive()` with a `gfx_lock` /
+   `wm_destroy` / `gfx_unlock` bracket on the close path. They exist to make
+   File > Close work and they draw nothing. At ~10 bytes each they are the
+   cheapest tenants in the tree and the clearest argument for a 128 class
+   existing at all.
+
+### 12.5 What the survey cannot see
+
+**The kernel's own depth below an `OSAPI_*` call**, which lands on the worker's
+slice like everything else. `tools/stkdepth.py` reports **633 indirect call
+sites** in `kernel/kernel.asm` and answers `ui_task: 0 bytes`, so it cannot be
+walked — §11 already records that the tool is not usable on the kernel.
+
+It is bounded rather than unknown, from the two places both instruments read
+the same task: the Fractal is 48 static against +60 measured, so the kernel adds
+**about 12** below its deepest drawing call. That is consistent with the design
+— `gfx_hline` and its relatives are near-leaves — and it is why §7.2's margins
+are stated over the floor rather than over the program.
+
+The way to close it properly is one addition to `kernel/stkdiag.inc`: fill
+`STK0` at boot the way `task_spawn` fills a slice, and publish its high water
+in the panel. The UI task runs the *deepest* kernel paths there are — a full
+`wm_paint_all` with a menu open — so its water is the kernel term plus the UI
+task's own, on a 1,024-byte stack that can afford to be measured. It is
+deliberately **not** added now: three machines are already running the current
+disks (§9.6–§9.9) and a changed panel means a new round of field runs for a
+number that only refines margins already taken.
