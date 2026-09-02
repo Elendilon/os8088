@@ -2880,8 +2880,11 @@ function drawStages(){
   Array.prototype.forEach.call(s.querySelectorAll(".st"), function(b, i){
     b.setAttribute("aria-current", i === stage ? "true" : "false");
   });
-  $("prev").disabled = stage === 0;
-  $("next").disabled = stage === S.length - 1;
+  /* The arrows walk STEPS across stage boundaries, so they run out only at
+     the two ends of the whole boot - not at the ends of a stage. */
+  $("prev").disabled = stage === 0 && step < 0;
+  $("next").disabled = stage === S.length - 1
+                       && step >= S[stage].steps.length - 1;
   $("stitle").textContent = (stage + 1) + ". " + S[stage].title;
   $("smovedt").innerHTML = "What moves: <b>" + esc(S[stage].moved) + "</b>";
 }
@@ -2892,6 +2895,7 @@ function setStage(i){
 }
 function setStep(i){
   step = (step === i ? -1 : i); pick = null;
+  drawStages();
   /* THE SCREEN IS PART OF THE SELECTION. It was redrawn on a stage change and
      not on a step one, so the bar held whatever the stage opened with however
      far along the timeline you clicked. */
@@ -2901,16 +2905,45 @@ function setStep(i){
    the stage back the way you found it. */
 function setRegion(id){
   pick = (pick === id ? null : id); step = -1;
+  drawStages();
   drawMap(); drawTime(); drawDetail(); drawSplash();
 }
 function clearSel(){ if (step >= 0 || pick){ step = -1; pick = null;
-  drawMap(); drawTime(); drawDetail(); drawSplash(); } }
-$("prev").addEventListener("click", function(){ setStage(stage - 1); });
-$("next").addEventListener("click", function(){ setStage(stage + 1); });
+  drawStages(); drawMap(); drawTime(); drawDetail(); drawSplash(); } }
+/* --------------------------------------------------------------------------
+   ONE AXIS THROUGH THE WHOLE BOOT. Left and right walk STEPS, and run off the
+   end of a stage into the next one rather than stopping there; up and down
+   stay on the ladder and move a whole rung at a time. So the arrows alone
+   will take a reader from the firmware reading one sector to the first
+   desktop frame, through all 99 measured steps, without them having to know
+   the page has two levels.
+
+   A stage's own overview is part of the run rather than something the walk
+   skips past: position 0 in a stage is the stage itself and 1..n are its
+   steps, so arriving at a stage shows what it moves before its first step
+   opens. Going back off the front of a stage lands on the LAST step of the
+   one before, which is the same rule read the other way.
+   -------------------------------------------------------------------------- */
+function seek(d){
+  var p = step + 1 + d, to = stage;
+  if (p < 0){
+    if (stage === 0) return;
+    to = stage - 1; p = S[to].steps.length;
+  } else if (p > S[stage].steps.length){
+    if (stage === S.length - 1) return;
+    to = stage + 1; p = 0;
+  }
+  stage = to; step = p - 1; pick = null;
+  drawStages(); drawSplash(); drawMap(); drawTime(); drawDetail();
+}
+$("prev").addEventListener("click", function(){ seek(-1); });
+$("next").addEventListener("click", function(){ seek(1); });
 document.addEventListener("keydown", function(e){
   if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-  if (e.key === "ArrowRight" || e.key === "ArrowDown"){ setStage(stage + 1); e.preventDefault(); }
-  else if (e.key === "ArrowLeft" || e.key === "ArrowUp"){ setStage(stage - 1); e.preventDefault(); }
+  if (e.key === "ArrowRight"){ seek(1); e.preventDefault(); }
+  else if (e.key === "ArrowLeft"){ seek(-1); e.preventDefault(); }
+  else if (e.key === "ArrowDown"){ setStage(stage + 1); e.preventDefault(); }
+  else if (e.key === "ArrowUp"){ setStage(stage - 1); e.preventDefault(); }
   else if (e.key === "Escape"){ clearSel(); }
   else if (e.key === "Home"){ setStage(0); e.preventDefault(); }
   else if (e.key === "End"){ setStage(S.length - 1); e.preventDefault(); }
@@ -3019,10 +3052,11 @@ def render(p, fragment=False):
    <h1>os8088 <span class="sub">Boot Ladder</span></h1>
    <p class="lede">What an IBM PC does between the power switch and a usable
     desktop \u2014 %(nst)d <b>discrete moves of memory</b>, on a 4.77&nbsp;MHz
-    8088 reading a 360&nbsp;KB floppy. Pick a rung, or use
-    <span class="kbd">&larr;</span><span class="kbd">&rarr;</span>. Then click a
-    step on the timeline to see what it does, or a block on the memory map to
-    see what is in it. Underlined words define on hover.</p>
+    8088 reading a 360&nbsp;KB floppy.
+    <span class="kbd">&larr;</span><span class="kbd">&rarr;</span> walk it a
+    step at a time, end to end;
+    <span class="kbd">&uarr;</span><span class="kbd">&darr;</span> move a whole
+    rung. Underlined words define on hover.</p>
    <div class="splash-outer">
     <div class="splash off" id="splash">
      <div class="curs"></div>
@@ -3038,8 +3072,8 @@ def render(p, fragment=False):
     <div class="cabin" id="scab"></div>
    </div>
    <div class="stages" id="stages"><span class="nav" id="navbtns">
-     <button id="prev" type="button" title="previous stage (left arrow)">&larr;</button>
-     <button id="next" type="button" title="next stage (right arrow)">&rarr;</button>
+     <button id="prev" type="button" title="back one step (left arrow) — into the rung before, at its end">&larr;</button>
+     <button id="next" type="button" title="on one step (right arrow) — into the next rung when this one runs out">&rarr;</button>
    </span></div>
  </aside>
  <main class="work">
@@ -3244,6 +3278,14 @@ def selfcheck(image, defines, build="build"):
             ("pick = (pick === id ? null : id); step = -1;",
              "picking a block clears the step"),
             ("if (pick){", "the panel answers to a picked block first"),
+            ('if (e.key === "ArrowRight"){ seek(1);',
+             "right walks a step, not a rung"),
+            ('else if (e.key === "ArrowDown"){ setStage(stage + 1);',
+             "down still walks a rung"),
+            ("to = stage + 1; p = 0;",
+             "a step off the end of a stage enters the next one"),
+            ("to = stage - 1; p = S[to].steps.length;",
+             "and off the front, the end of the one before"),
             ("var soft = step < 0 && !pick;",
              "a picked block is filled in, not outlined"),
         ]
