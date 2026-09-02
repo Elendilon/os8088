@@ -4856,53 +4856,28 @@ osapi_file_goto:
 ; the other one. The instance's folder is deliberately NOT moved either
 ; (no inst_vol_mark): this is where the caller is standing to do a job, not
 ; where the application now believes it lives.
+; **THIS WAS A SECOND TRANSCRIPTION OF `fcp_goto`**, and SPEC.md 19.2.2 says
+; so in as many words: the slot is "fcp_goto's two paths, which the kernel's
+; own copy engine has had since 22.5, published because a copy engine outside
+; the kernel needs them just as much". Two bodies, in the scarce section, and
+; they had DRIFTED APART in both directions - this one had the [dsk_mntok]
+; gate and fcp_goto did not; fcp_goto had the DVK_FILE / FSV_CHDIR arm and
+; this one did not. The second of those was a BUG here (SPEC.md 62.9.1): on a
+; redirected volume this wrote [dsk_cwd] behind the driver's back, and every
+; name the caller then asked about was looked up in the folder it came FROM.
+; Merging fixes it and gives fcp_goto the gate; the argument shuffle is four
+; instructions and `pop` does not disturb CF, so .out returns fcp_goto's flag.
 osapi_file_goto_q:
+    push bx
     push dx
-    cmp byte [dsk_mntok], 0     ; IS ANYTHING MOUNTED? dsk_here_ok asks this
-    je .full                    ; first and for the same reason (SPEC.md
-                                ; 18.9.1): [disk_drive] is where the machine
-                                ; BELIEVES it stands, and dsk_vol_del sets it
-                                ; to 0 when the volume under it is unmounted -
-                                ; without mounting A:, which is what the
-                                ; cleared [dsk_mntok] beside it says. The
-                                ; compare below then read "already on A:" off
-                                ; a machine whose BPB, FAT window and geometry
-                                ; still described the dead volume, and this
-                                ; cell answered CF = 0 having done nothing at
-                                ; all. Every read after it failed, which on
-                                ; the hard-disk installer's path is a copy
-                                ; that stops on its first file (SPEC.md
-                                ; 52.10.8.1)
-    cmp bl, [disk_drive]
-    jne .full
-    or dx, dx
-    jz .quiet                   ; 0 is the root, always legal
-    cmp dx, 2
-    jb .bad
-    cmp dx, [dsk_maxclus]
-    ja .bad
-.quiet:
-    mov [dsk_cwd], dx
-    jmp short .ok               ; ...and .full's own success falls into it
-.bad:
-    mov ax, FERR_IO
-    jmp short .err              ; ...and .ferr's failure falls into that
-.full:
-    push dx
-    mov dl, bl
-    pop ax                      ; AX = the cluster, DL = the volume
-    call dsk_chdir_q
-    jc .ferr
-.ok:
+    mov al, bl                  ; fcp_goto takes AL = drive, BX = cluster
+    mov bx, dx
+    call COLD_SEG:fcpf_fcp_goto ; ...already published for CLONE.DRV (18.99.8)
+    jc .out
+    xor ax, ax                  ; the documented AX = 0, and it clears CF with
+.out:                           ; it; on the CF=1 arm AX is fcp_goto's FERR_*
     pop dx
-    xor ax, ax
-    clc
-    ret
-.ferr:
-    mov ax, FERR_NODISK
-.err:
-    pop dx
-    stc
+    pop bx
     ret
 
 ; ---- osapi_file_goto_qm - the quiet stand that MOVES THE INSTANCE (74.1) -----

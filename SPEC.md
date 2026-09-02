@@ -26754,7 +26754,12 @@ ever written, which stands somewhere only to read or write **by name**.
 `OSAPI_FILE_GOTO_Q` (slot 0x0370) is the same move with none of that. It is
 `fcp_goto`'s two paths, which the kernel's own copy engine has had since
 §22.5, published because a copy engine *outside* the kernel needs them just
-as much:
+as much — **and it is now `fcp_goto`, not a second transcription of it.** The
+slot held a copy of that body in `.text`, and the two had drifted apart in
+both directions: this one had the `[dsk_mntok]` gate and `fcp_goto` did not;
+`fcp_goto` had the `DVK_FILE` arm and this one did not. Merging them is 42
+bytes out of the scarce section for 7 back on the cold side, and it fixes
+each half against the other:
 
 - **Inside the volume you are already on it is a WORD** — `[dsk_cwd]`, no
   I/O at all. Nothing a caller can do between two of these reads the
@@ -26782,6 +26787,32 @@ described the volume that had just been dropped; every read after it failed.
 routines answer the same question and must not disagree about it. The hard-
 disk installer is where it surfaced: unmount the drive, stand on A: to read
 `KERNEL.SYS`, and the stand is a no-op (§52.10.8.1).
+
+**ON A REDIRECTED VOLUME IT TELLS THE DRIVER**, and that is the half the slot
+did not have. A `DRVC_FILE` driver keeps its own idea of where it stands — it
+has to, because `FSV_STAT` resolves a name in the *current* folder (§62.9.1) —
+so writing `[dsk_cwd]` behind its back left the two disagreeing, and every
+name the caller then asked about was looked up in the folder it came FROM. It
+presented as `FERR_NOENT` for a file that is plainly listed. `fcp_goto` has
+had the `FSV_CHDIR` arm since the copy engine met the same bug from the other
+side; the slot inherits it with the merge. The range checks stay behind on
+that arm, because the word is an **opaque handle** and not a cluster: `>= 2`
+would reject the first folder such a driver ever hands out, and
+`[dsk_maxclus]` belongs to the last FAT volume mounted.
+
+**The price is the CLOBBER SET, and only on a redirected volume.** The call
+can now reach `drv_fs_call` and a driver's verb, which owns every register the
+FSV ABI does not reserve. `BX` and `DX` are still preserved and `AX` is still
+the answer; **`CX`, `SI` and `DI` are the driver's** on a `DVK_FILE` volume
+and unchanged on every other. The three published users — FTPD (§77), the
+hard-disk installer (§52.10) and RunCPM's folder-as-drive (§74.3) — are told
+in `apps/os88api.inc`, beside the slot.
+
+**And `fcp_goto` gains the `[dsk_mntok]` gate**, which is the merge's other
+direction and reaches `CLONE.DRV`: `fcp_goto` is published to it as
+`fcpf_fcp_goto` (§18.99.8), so a shipped `.DRV` sees the gate without being
+rebuilt. That is the right way round — the gate refuses a stand that would
+have answered CF = 0 having done nothing.
 
 **It is not a replacement for `GOTO` and must not become one.** It leaves the
 global listing empty and `[dsk_lstale]` raised, so a caller about to *show* a
