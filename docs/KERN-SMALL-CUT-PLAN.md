@@ -377,24 +377,30 @@ dialog, no copy/paste, no associations, no icons, no sound, no clock beyond the
 BIOS tick, no loadable drivers, no dock, no fullscreen, no built-in apps and no
 raise cache.
 
-Substituting §6's modules for C1–C4 lands within ~1,400 bytes of the same
-number **and keeps all four features**, which is why §6 is the recommendation
-and §4 is the fallback.
+Substituting §6's modules for C1–C4 lands at **33,038 — within 1,364 bytes of
+the same number — and keeps all four features**, which is why §6 is the
+recommendation and §4 is the fallback.
 
 ### 8.1 What each tier buys, for choosing a stopping point
+
+**The cap in §7 applies to each combination separately**, because it bites only
+on the rows that take B3, D2 and D3 together — so a tier is not the sum of the
+tiers above it:
 
 | take | cut | free heap | what still works |
 |---|---:|---:|---|
 | today | — | **32.5 KB** | one mid-size program; SHEET cannot load |
-| A only | 4,700 | **37.1 KB** | everything, minus sound and loadable drivers |
-| A + D | 10,910 | **43.1 KB** | as above, with smaller tables and a 720KB volume cap |
-| A + B + D | 19,250 | **51.2 KB** | …and no save-under, icons or `gfx_line` |
-| A + B + D + §6 | 32,250 | **63.9 KB** | **all four file features intact, loaded on demand** |
-| everything (§8) | 34,402 | **66.1 KB** | a read-only browser with windows |
+| A | 4,700 | **37.1 KB** | everything, minus sound and loadable drivers |
+| A + D | 10,270 | **42.5 KB** | as above, with smaller tables and a 720KB volume cap |
+| A + B + D | 16,562 | **48.7 KB** | …and no save-under, icons or `gfx_line` |
+| A + B + D + §6 | 29,559 | **61.4 KB** | **all four file features intact, loaded on demand** |
+| A + B + D + §6 + C5–C8 | 33,038 | **64.8 KB** | …and no dock, fullscreen, clipboard or built-in apps |
+| everything, C1–C4 deleted (§8) | 34,402 | **66.1 KB** | a read-only browser with windows |
 
-**The fourth row is the one to argue about.** It is 63.9KB of free heap with
-the file system, the file dialog and copy/paste all still present, and its only
-new cost to the user is a disk read when one of them is first used.
+**The sixth row is the one to argue about.** It is **64.8KB of free heap with
+the write path, the file dialog, Cut/Copy/Paste and associations all still
+present** — within 1.3KB of deleting them outright — and its only new cost to
+the user is a disk read the first time one of them is used.
 
 ### 8.2 If 70KB is firm
 
