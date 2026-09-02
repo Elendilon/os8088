@@ -302,14 +302,18 @@ exactly like the feature being broken.
 
 86Box targets for period hardware, one per `vm/` directory: `xt`, `xt-640`,
 `xt-cga`, `xt-hercules`, `xt-multimon`, `xt-sound`, `xt-sound-1.44`, `286`,
-`286-sound`,
+`286-525`, `286-sound`,
 `386sx`, `386`, `386-sound`, `386-ps2`, `486`, `pentium`, `xt-z`, `386-z`, `xt-word`,
 `386-word`, `386-c-word`, `xt-runcpm`, `286-runcpm`, `386-runcpm`, `xt-c64`,
 `286-c64`, `386-c64`, `xt-weave`, `386-weave`, `xt-weave-256`;
 plus `marty` (MartyPC). **`386-ps2` is the only machine here with a PS/2 mouse** — every other config
 is `mouse_type = msserial`, which is why §9.9 shipped and went untested on
 anything but QEMU for months; it is a Packard Bell Legend 300SX, whose bus
-flags are what give 86Box's 8042 an auxiliary port at all. `xt-multimon` is the
+flags are what give 86Box's 8042 an auxiliary port at all. **`286-525` is the
+only machine here with 5.25" HD drives** — every other AT-class profile is
+`fdd_type = 35_2hd` — so it is the only one that can boot §19's 1.2MB pair,
+and the only place that geometry is exercised on period hardware at all.
+`xt-multimon` is the
 **two-card** XT — a CGA and a Hercules, a monitor window each — and the only
 86Box machine that can show §39.12–§39.19's extended desktop; it boots Single,
 and Control Panel → Display → Desktop is what extends it (§39.19.1). `xt-z`
@@ -753,16 +757,29 @@ There is **no relocation of any kind**, so `os88pkg.py` is a validator rather
 than a generator. Both disks are standard FAT12 volumes (§19) that any host OS
 mounts — and every byte read off one is still treated as hostile.
 
-**Every image is built in three geometries** — 1.44MB and 720KB (QEMU), 360KB
-(86Box / a real XT). Changing the boot path, the FAT driver or the disk layout
-means checking all three.
+**The SHIPPED pair is built in four geometries** — 1.44MB and 720KB (QEMU),
+1.2MB 5.25" HD (an AT-class machine with no 3.5" drive), 360KB (86Box / a real
+XT). Changing the boot path, the FAT driver or the disk layout means checking
+all four. **An application's own floppy is still three** — `worddisk`,
+`cworddisk`, `runcpmdisk`, `c64disk`, `weavedisk`, `loomdisk`, `zdisk` — because
+those are on-demand disks for a machine somebody already has, and the machine
+that wanted the fourth geometry can read the 360KB one.
 
-**Seven images, not six.** The system and apps disks in three geometries each,
+**Nine images, not seven.** The system and apps disks in four geometries each,
 plus `build/media360.img` — `BEVERLY.MOD` is 114 of a 360KB disk's 354 clusters
 and is data rather than software, so at that geometry alone it rides a disk of
 its own (§24.4). The **core packages** ship on the system disk too, a second
 copy and never a move (§24.3), and an application's own state goes in
 `SYSTEM/APPDATA/` rather than beside the user's documents (§19.9).
+
+**Adding a geometry is not only a table row**, and §19 carries what the 1.2MB
+one cost: §18.93.1's boot canary sits at a fixed *file sector*, and the band of
+sectors that cross a head is the **intersection** over every shipped disk — so
+a fourth geometry made a canary nothing had touched inert on one disk of four,
+which is precisely the fault it exists to catch. `tests/unit/t_canary.py`
+caught it and `KSIG_OFF` moved. The gates that walk "every shipped image"
+(`t_image`, `t_diskverify`, `t_canary`, `t_blobruns`) each hold their own list,
+so a new image is not covered until it is in all four of them.
 
 ## Working in this fork — BRANCH-SPECIFIC, and the section to lift
 

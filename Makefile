@@ -11,9 +11,17 @@ NASM  := nasm
 QEMU  := qemu-system-i386
 BUILD := build
 IMG   := $(BUILD)/os8088.img
+# ...and the 1.2MB 5.25" HD pair (SPEC.md 19), which is the AT-class machine
+# with a 5.25" drive and nothing else in it. That machine can read the 360KB
+# disk - a 1.2MB drive reads 360KB media - but it then gets 354 clusters of
+# software on a drive with 2,371, and the media disk has to be swapped in for
+# BEVERLY.MOD. This is the same full payload the 1.44MB and 720KB disks carry,
+# in the geometry that machine's own drive was sold as.
+IMG120 := $(BUILD)/os8088-120.img
 IMG720 := $(BUILD)/os8088-720.img
 IMG360 := $(BUILD)/os8088-360.img
 APPSIMG := $(BUILD)/apps.img
+APPSIMG120 := $(BUILD)/apps120.img
 APPSIMG720 := $(BUILD)/apps720.img
 APPSIMG360 := $(BUILD)/apps360.img
 # ...and the MEDIA disk, which exists at 360KB ALONE (SPEC.md 24.4): the third
@@ -63,6 +71,11 @@ VMHERC := $(CURDIR)/vm/xt-hercules
 # cards in it, each on its own monitor window.
 VMMULTI := $(CURDIR)/vm/xt-multimon
 VM286 := $(CURDIR)/vm/286
+# ...and the same 286 with two 1.2MB 5.25" drives instead of two 3.5" ones
+# (SPEC.md 19). It is the only machine here that can boot that geometry at
+# all: every other AT-class profile is `fdd_type = 35_2hd`, and a 5.25" HD
+# drive is what the 1.2MB pair exists for.
+VM286525 := $(CURDIR)/vm/286-525
 VM386SX := $(CURDIR)/vm/386sx
 VM386DX := $(CURDIR)/vm/386dx
 # ...and the SAME 386DX with 4MB in it, for the store above 1MB (SPEC.md 41).
@@ -537,20 +550,37 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # **THIS CONSTANT IS TIED TO BOOT2_SECS AND HAS TO MOVE WITH IT.** SPEC.md
 # 2.9.12 took the blob from 13 sectors to 19, which slid the same memory offset
 # six sectors further into the file and straight out of the band - 11776 landed
-# on file sector 42, a first half on all three geometries. 8704 puts it back on
-# **36**, the same sector the argument above is about and the middle of the
-# common band 33..38, and it is 37 under SPLSTARS' 20-sector blob, which is
-# still in it. tests/unit/t_canary.py re-derives the band from every shipped
-# image's own BPB and is what caught this - it is in the FAST tier, so a blob
-# resize that forgets this line stops the build rather than shipping a canary
-# that cannot fire.
+# on file sector 42, a first half on all three geometries. tests/unit/t_canary.py
+# re-derives the band from every shipped image's own BPB and is what caught
+# this - it is in the FAST tier, so a blob resize that forgets this line stops
+# the build rather than shipping a canary that cannot fire.
 #
-# It stays BELOW the 24,576-byte bootdiag payload (SPEC.md 2.9.10) on purpose:
-# the gate below is KERNEL_SECTORS > KSIG_OFF/512, so a bigger offset would
-# quietly stop compiling the canary into the one disk built for a machine whose
-# FDC is under suspicion. 17 sectors clears bootdiag's 48 and comscan's 8 stays
-# below both, exactly as it was.
-KSIG_OFF := 14336
+# **AND IT IS TIED TO THE SET OF SHIPPED GEOMETRIES, which is what moved it
+# last.** The common band is the INTERSECTION over every shipped disk, and the
+# 1.2MB 5.25" geometry (SPEC.md 19) does not overlap the old one anywhere: its
+# data area starts at LBA 29 and its run is 30 sectors, so file sector 36 - the
+# middle of 33..38, which served the other three for two years - sits 5 sectors
+# into a run's FIRST half there. The canary would have been loaded correctly on
+# precisely the machine it exists to catch, on one disk of the four, silently.
+# That is the same defect the paragraph above is about, and the fourth geometry
+# re-introduced it rather than the constant drifting.
+#
+# 51200 is file sector **100 + BOOT2_SECS**. The band common to all four is
+# 106..110 and it is the ONLY one below the 64KB the compare's ES can reach:
+# 106..109 once SPLSTARS' one-sector-longer blob is required to land in it too,
+# and 100 puts the default build on 108 and the SPLSTARS build on 109, inside
+# it either way with two sectors of margin below and one above.
+#
+# THE OLD "stays below bootdiag's 48-sector payload" RULE IS GONE, and it was
+# already dead when it was written down: SPEC.md 2.9 moved the canary into
+# STAGE 2, and every diagnostic that carries a short payload - bootdiagx,
+# rdiag, comscan, lptlink - is built -DFLAT_PAYLOAD, which jumps straight to
+# KERNEL_SEG:0 and never enters stage 2 at all. There has been no canary on
+# those disks for either value of this constant. What still holds is the
+# runtime fence one line down, and it is enough on its own: a payload shorter
+# than this offset gets no -DKSIG, boot/boot.asm's `%define KSIG 0` applies,
+# and stage 2's `cmp word [b2_ksig], 0` skips the compare.
+KSIG_OFF := 51200
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is
@@ -721,7 +751,7 @@ endif
 # feature set long before they stop fitting the same image, so the answer at
 # the ceiling is TWO KERNELS OFF ONE TREE rather than another raise.
 #
-# THE DEFAULT IS BIG. `all` ships kern_big, so the seven images, `make field`,
+# THE DEFAULT IS BIG. `all` ships kern_big, so the nine images, `make field`,
 # `make marty` and every test run the full kernel, and kern_small is the one
 # you ask for. That is the right way round for the same reason the budget
 # guards are: kern_big is what nearly every machine runs, and kern_small is a
@@ -1412,8 +1442,8 @@ KERNEL_SRC := kernel/kernel.asm
 # a map that described "a DIFFERENT kernel".
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 
-.PHONY: small kernsplit all run run-640 run-720 debug test test-snd xt xt-640 xt-cga \
-        xt-hercules xt-multimon 286 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 \
+.PHONY: small kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 xt-cga \
+        xt-hercules xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 \
         286-sound 386-sound 486 pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
@@ -1440,7 +1470,8 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 # paragraph, only when the compiler is absent, never an error.
 WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
-all: checkdocs $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360) \
+all: checkdocs $(IMG) $(IMG120) $(IMG720) $(IMG360) \
+     $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
      $(MEDIAIMG360) $(BUILD)/wire.o88 $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      cc-note test-fast
 # wire.o88 is named here and NOWHERE else in `all`, because WIREFRAME is built
@@ -1465,7 +1496,7 @@ all: checkdocs $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360)
 #               produced (the kernel binary, the packages, the images) and
 #               checks the invariants that break SILENTLY: the API table
 #               against the SDK, a constant mirrored in two files, the FAT12
-#               structure of all seven floppies, unreachable code, and that
+#               structure of all nine floppies, unreachable code, and that
 #               every test in tests/ is registered somewhere.
 #
 #   test-full   ~2 minutes, and THE ONE TO RUN BEFORE A MERGE. Adds the
@@ -1490,7 +1521,8 @@ all: checkdocs $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360)
 # redraw change kept the picture (SPEC.md 12.9's argument). Skipping is right
 # rather than passing the defines through: the other nine tests are about the
 # SHIPPED artifacts, and a knob build is not one.
-test-fast: $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360) \
+test-fast: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
+           $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360) $(WEAVEWABS)
 ifeq ($(KNOBS),)
 	@python3 tools/os88test.py fast
@@ -1499,11 +1531,13 @@ else
 	@echo "          tier reads the shipped artifacts. Run a plain \`make\`."
 endif
 
-test-full: $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360) \
+test-full: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
+           $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360) $(WEAVEWABS)
 	@python3 tools/os88test.py full
 
-test-soak: $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360) \
+test-soak: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
+           $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360)
 	@python3 tools/os88test.py soak
 
@@ -1689,6 +1723,31 @@ $(BUILD)/boot360.bin: boot/boot.asm kernel/kernel.asm $(BUILD)/kernel.bin Makefi
 	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
 	 echo "$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
 	 $(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) $$H \
+		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/kernel.bin) + 511 ) / 512 )) \
+		-DBOOT2_SECS=$(BOOT2_SECS) $(call KSIGDEF2,$(BUILD)/kernel.bin) $(call BLOBSUMDEF,$(BUILD)/kernel.bin) \
+		-o $@ boot/boot.asm
+	@test $(call FILESIZE,$@) -eq 512 || { echo "boot sector is not 512 bytes"; exit 1; }
+
+# ...and the 1.2MB 5.25" HD disk's sector (SPEC.md 19): 15 sectors per track,
+# 2 heads, the SAME 80 cylinders as the 720KB disk. This is the one geometry
+# in the set that does NOT share a sector with a neighbour, and the reason is
+# the whole of what boot/boot.asm knows about a disk: SPT and HEADS. 720KB and
+# 360KB differ only in a cylinder count the sector never holds, so one sector
+# serves both; 15 spt is a different track, so `mov al, SPT`, the run bound and
+# the CX/DH handoff to stage 2 are all different immediates and it needs its
+# own artifact. That is three boot sectors for four geometries, not four.
+#
+# NOTHING ELSE IN THE KERNEL CHANGES FOR IT. The geometry reaches the kernel in
+# CX and DH from here (boot/boot.asm's note on the defaults), mount rule 11
+# already whitelists 15 spt as one of the six real floppy shapes
+# (kernel/disk.inc's delta walk), and the 7-sector FAT is inside DSK_FAT_SECS's
+# 9 - so the FAT window is still the degenerate whole-FAT case a floppy has
+# always had, and 2,400 sectors is exactly rule 13's spt*heads*80 bound.
+$(BUILD)/boot120.bin: boot/boot.asm kernel/kernel.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
+	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" \
+	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
+	 echo "$(NASM) -f bin -DSPT=15 -DHEADS=2 $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
+	 $(NASM) -f bin -DSPT=15 -DHEADS=2 $(BOOTDEF) $$H \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/kernel.bin) + 511 ) / 512 )) \
 		-DBOOT2_SECS=$(BOOT2_SECS) $(call KSIGDEF2,$(BUILD)/kernel.bin) $(call BLOBSUMDEF,$(BUILD)/kernel.bin) \
 		-o $@ boot/boot.asm
@@ -2536,6 +2595,33 @@ $(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS) 
 $(IMG720): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
+		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(APPDATAFOLDER)
+
+# The 1.2MB 5.25" HD disk (SPEC.md 19). The geometry of the machine the 720KB
+# note above describes from the other side: an AT-class box - 286 and up, or a
+# late XT with an HD controller - whose only drive is 5.25". It can read the
+# 360KB disk, because a 1.2MB drive reads 360KB media, and that is what such a
+# machine has had to boot until now: 354 clusters, no BEVERLY.MOD without a
+# disk swap, and OS88NET.COM competing with the games for room. This disk is
+# 2,371 clusters of 512 bytes and carries the SAME payload as the 1.44MB one.
+#
+# It is worth being exact about which machines this is and is not for. A 1.2MB
+# drive needs a 500 kbps controller, which is the AT's, so this does NOT boot
+# the calibration 5150 - `make xt`'s 360KB pair is still that machine's, and
+# always will be (docs/FIELD-MACHINES.md). What it replaces is the 360KB disk
+# in a 1.2MB drive, which works and is the one combination of media and drive
+# in this project that is known to be marginal to WRITE: a 1.2MB drive's head
+# is narrower than a 360KB drive's, so a 360KB disk written in one is often
+# unreadable in a real 360KB drive afterwards. Booting the geometry the drive
+# was sold as sidesteps that entirely.
+#
+# Its OWN boot sector, unlike the pair above it: 15 spt is a different track
+# shape, and boot/boot.asm's whole knowledge of a disk is SPT and HEADS. See
+# build/boot120.bin's rule for why that is three sectors and not four.
+$(IMG120): $(BUILD)/boot120.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 \
+		--boot $(BUILD)/boot120.bin --kernel $(BUILD)/kernel.bin \
 		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(APPDATAFOLDER)
 
@@ -3790,8 +3876,11 @@ $(BUILD)/cword.bin: apps/cword/cwmove.inc
 
 cword: $(BUILD)/cword.o88
 
-# All three geometries, as every disk-visible image in this tree is built
-# (CLAUDE.md): 1.44MB and 720KB for QEMU, 360KB for an 86Box XT or a real one.
+# All three geometries an APPLICATION's own floppy is built in (CLAUDE.md):
+# 1.44MB and 720KB for QEMU, 360KB for an 86Box XT or a real one. The shipped
+# system and apps pair gained a fourth, 1.2MB 5.25" (SPEC.md 19), and these did
+# not: an on-demand disk is for a machine somebody already has, and the machine
+# that wanted that geometry reads the 360KB disk in the same drive.
 # The C toolchain has been booted from a 360KB floppy once, on chello, and
 # that is the geometry a 20KB image most wants re-checked on.
 #
@@ -4255,8 +4344,11 @@ $(BUILD)/wsmsize.inc: $(BUILD)/WEAVE.WSM
 
 weave: $(BUILD)/weave.o88 $(BUILD)/WEAVE.WSM
 
-# All three geometries, as every disk-visible image in this tree is built
-# (CLAUDE.md): 1.44MB and 720KB for QEMU, 360KB for an 86Box XT or a real one.
+# All three geometries an APPLICATION's own floppy is built in (CLAUDE.md):
+# 1.44MB and 720KB for QEMU, 360KB for an 86Box XT or a real one. The shipped
+# system and apps pair gained a fourth, 1.2MB 5.25" (SPEC.md 19), and these did
+# not: an on-demand disk is for a machine somebody already has, and the machine
+# that wanted that geometry reads the 360KB disk in the same drive.
 # --verify is a standalone structural fsck of what came out and it is in the
 # recipe rather than in a target of its own because it costs milliseconds and
 # catches the class of defect - a bad FAT chain, a directory entry pointing at
@@ -4651,8 +4743,11 @@ $(BUILD)/wpvsize.inc: $(BUILD)/LOOM.WPV
 loom: $(BUILD)/loom.o88 $(BUILD)/LOOM.WPV
 
 # --- the LOOM floppy ---------------------------------------------------------
-# All three geometries, as every disk-visible image in this tree is built
-# (CLAUDE.md): 1.44MB and 720KB for QEMU, 360KB for an 86Box XT or a real one.
+# All three geometries an APPLICATION's own floppy is built in (CLAUDE.md):
+# 1.44MB and 720KB for QEMU, 360KB for an 86Box XT or a real one. The shipped
+# system and apps pair gained a fourth, 1.2MB 5.25" (SPEC.md 19), and these did
+# not: an on-demand disk is for a machine somebody already has, and the machine
+# that wanted that geometry reads the 360KB disk in the same drive.
 # --verify is a standalone structural fsck of what came out.
 #
 # WHAT IS ON IT, AND WHY EACH FILE IS THERE:
@@ -6360,6 +6455,9 @@ MEDIAARGS360 := $(addprefix MEDIA:,$(MEDIA_DISK_DATA))
 $(APPSIMG): $(APPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(APPSARGS)
 
+$(APPSIMG120): $(APPS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 $(APPSARGS)
+
 $(APPSIMG720): $(APPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 $(APPSARGS)
 
@@ -6862,6 +6960,14 @@ run-640: $(IMG) $(APPSIMG)
 # 737,280 bytes is a standard one (2 heads x 80 cyl x 9 spt), so this needs
 # nothing beyond naming the two images - which is itself the check that
 # matters: a 720KB image the BIOS reads as some other shape fails here.
+# The 1.2MB 5.25" HD pair, and it is the same one-line check run-720 is:
+# QEMU picks a floppy's geometry from the image SIZE, and 1,228,800 bytes is a
+# standard one (2 heads x 80 cyl x 15 spt), so naming the images is the whole
+# recipe - and an image the BIOS reads as some other shape fails right here.
+run-120: $(IMG120) $(APPSIMG120)
+	$(QEMU) -drive file=$(IMG120),format=raw,if=floppy -boot a $(MOUSE) \
+		-drive file=$(APPSIMG120),format=raw,if=floppy,index=1 $(DEVCARD)
+
 run-720: $(IMG720) $(APPSIMG720)
 	$(QEMU) -drive file=$(IMG720),format=raw,if=floppy -boot a $(MOUSE) \
 		-drive file=$(APPSIMG720),format=raw,if=floppy,index=1 $(DEVCARD)
@@ -7115,6 +7221,18 @@ xt-multimon: $(IMG360) $(APPSIMG360)
 286: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VM286)/86box.cfg
 	$(BOX) -P $(VM286) -N
+
+# The 1.2MB 5.25" pair on the machine class it is for (SPEC.md 19): an AMI 286
+# at 12.5MHz with two 525_2hd drives. This is the ONLY 86Box profile in the
+# tree that can boot that geometry - every other AT-class machine here is
+# fitted with 3.5" drives, and a 1.2MB disk needs a 5.25" HD one - so it is
+# also the only place the geometry is exercised on period hardware at all.
+#
+# It has a CMOS like every AT-class machine, so the first launch stops in BIOS
+# setup: pick EXIT FOR BOOT once (see the note above `286`).
+286-525: $(IMG120) $(APPSIMG120)
+	@$(UNPROTECT) $(VM286525)/86box.cfg
+	$(BOX) -P $(VM286525) -N
 
 386sx: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VM386SX)/86box.cfg

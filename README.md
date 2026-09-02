@@ -54,10 +54,11 @@ feel what they were up against).
 > wrote by reading it back.
 
 ```
-make          # build all seven floppy images
+make          # build all nine floppy images
 make run      # boot it in QEMU (with an emulated serial mouse)
 make run-640  # the same, on a 640KB machine
 make run-720  # the same, off the 720KB pair
+make run-120  # the same, off the 1.2MB 5.25" HD pair
 make xt       # boot the 360KB image on an emulated IBM PC/XT in 86Box
 make xt-640   # the same XT with a full 640KB of RAM
 make xt-cga   # the same XT with a CGA card instead of VGA
@@ -515,14 +516,16 @@ says how to use it, and `LESSONS.md` inside the skill is worth reading on its
 own even if you never run it: it is the list of everything that assembles
 cleanly and runs wrong when C meets this machine.
 
-## Three geometries of everything
+## Four geometries of everything
 
 | image                  | geometry                 | for                             |
 |------------------------|--------------------------|---------------------------------|
 | `build/os8088.img`     | 1.44MB, 18 spt, 2 heads  | QEMU boot floppy (A:)           |
+| `build/os8088-120.img` | 1.2MB, 15 spt, 2 heads   | 5.25" HD boot floppy — an AT-class machine with no 3.5" drive |
 | `build/os8088-720.img` | 720KB, 9 spt, 2 heads    | 3.5" DD / USB floppy / Gotek    |
 | `build/os8088-360.img` | 360KB, 9 spt, 2 heads    | 86Box / real XT boot floppy     |
 | `build/apps.img`       | 1.44MB FAT12             | QEMU software floppy (B:)       |
+| `build/apps120.img`    | 1.2MB FAT12              | 5.25" HD software floppy        |
 | `build/apps720.img`    | 720KB FAT12              | 3.5" DD software floppy         |
 | `build/apps360.img`    | 360KB FAT12              | 86Box / real XT software floppy |
 | `build/media360.img`   | 360KB FAT12              | 360KB media floppy — the shipped module, which the 360KB apps disk has no room for |
@@ -541,7 +544,7 @@ A 1.44MB drive postdates the 8086 by years, so period hardware gets the
 360KB build.
 
 **No binary is committed to this repository.** `build/` is gitignored
-outright — the seven images, the kernel, the boot sectors, the drivers and
+outright — the nine images, the kernel, the boot sectors, the drivers and
 every package are products of `make`, which needs only `nasm` and `python3`.
 For a floppy you can boot without a toolchain, take a
 [release](https://github.com/jggonz/os8088/releases) or
@@ -556,6 +559,20 @@ them — so the two share `build/boot360.bin` and only the BPB differs. It is
 there for the machines that can take neither of the others: an XT or AT
 fitted with a 3.5" DD drive, and every USB floppy drive and Gotek made,
 which read 720KB and 1.44MB and nothing 5.25" at all.
+
+1.2MB is that argument from the 5.25" side: an AT-class machine — a 286 or
+later, or a late XT with an HD controller — whose only drive is 5.25" reads
+neither 3.5" disk. It *can* boot the 360KB one, because a 1.2MB drive reads
+360KB media, and that is what it had to do; it then got 354 clusters of
+software in a drive with 2,371, and had to swap the media disk in for
+`BEVERLY.MOD`. The 1.2MB pair carries the full 1.44MB payload instead. It is
+also the safer disk to write: a 1.2MB drive's head is narrower than a 360KB
+drive's, so a 360KB disk written in one is often unreadable in a real 360KB
+drive afterwards — and the OS writes its settings to the boot disk. It is the
+one geometry with a boot sector of its own (`build/boot120.bin`), 15 sectors
+being a different track shape. **It is not for the 5150**: a 1.2MB drive wants
+a 500 kbps controller, which is the AT's, so period XT hardware still takes
+the 360KB pair.
 
 ## Emulators
 
@@ -630,6 +647,7 @@ All targets, at a glance:
 | `xt-sound` | XT, 1986 board | 8088 @ 4.77MHz | 640KB | OTI-067 VGA | Sound Blaster 2.0 |
 | `xt-sound-1.44` | XT, 1986 board | 8088 @ 4.77MHz | 640KB | OTI-067 VGA | Sound Blaster 1.0 |
 | `286` | AMI 286 clone | 286 @ 12.5MHz | 1MB | OTI-067 VGA | — |
+| `286-525` | AMI 286 clone, two 1.2MB **5.25"** drives | 286 @ 12.5MHz | 1MB | OTI-067 VGA | — |
 | `286-sound` | AMI 286 clone | 286 @ 12.5MHz | 1MB | OTI-067 VGA | Sound Blaster 16 |
 | `386sx` | Shuttle HOT-304 | 386SX @ 16MHz | 2MB | OTI-067 VGA | — |
 | `386` | Micronics 386 | 386DX @ 25MHz | 2MB | OTI-067 VGA | — |
@@ -654,7 +672,10 @@ All targets, at a glance:
 
 The XT-class machines boot the 360KB system disk; most pair it with the 360KB
 apps disk, while `xt-sound-1.44` mounts the everything disk in a 1.44MB B:
-drive. The AT-class machines boot the 1.44MB pair.
+drive. The AT-class machines boot the 1.44MB pair — all but `286-525`, which
+is the same AMI 286 fitted with two **5.25" HD** drives and boots the 1.2MB
+pair. It is the only profile here with those drives, so it is the only place
+that geometry runs on period hardware.
 
 `xt-multimon` is the **two-card** XT — a CGA and a Hercules, a monitor window
 each — and the only 86Box machine that can show the extended desktop. It boots

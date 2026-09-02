@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """os88disk: build (or verify) a FAT data floppy image from .o88 packages.
 
-    python3 tools/os88disk.py -o OUT.img --size {1440,720,360}
+    python3 tools/os88disk.py -o OUT.img --size {1440,1200,720,360}
                              [--folder PATH ...] [[DIR[/DIR...]:]PKG.o88 ...]
     python3 tools/os88disk.py -o OUT.img --hdd --mbr MBR.bin
                              --boot BOOTHD.bin --kernel KERNEL.bin [...]
@@ -19,12 +19,16 @@ truncation guard depends on it) and fixed timestamps (date 0x5C21 =
 argument order; every field is fixed, so rebuilds are byte-identical.
 Directory display names are the host filenames (8.3, uppercased).
 
-Geometries: 1440 (1.44MB, FAT12), 720 (720KB 3.5" DD, FAT12) and 360
-(360KB, FAT12) are the shipped disks, and now the only ones. 720 and 360
-are the SAME 9 spt / 2 heads track shape and differ only in cylinder count
-(80 vs 40), which is why they share a boot sector: boot/boot.asm knows a
-geometry as -DSPT/-DHEADS and nothing else, and the BPB that does differ is
-written here. A 2880 (2.88MB ED, 5,698 clusters => FAT16)
+Geometries: 1440 (1.44MB, FAT12), 1200 (1.2MB 5.25" HD, FAT12), 720 (720KB
+3.5" DD, FAT12) and 360 (360KB, FAT12) are the shipped disks, and now the
+only ones. 720 and 360 are the SAME 9 spt / 2 heads track shape and differ
+only in cylinder count (80 vs 40), which is why they share a boot sector:
+boot/boot.asm knows a geometry as -DSPT/-DHEADS and nothing else, and the
+BPB that does differ is written here. 1200 is 15 spt on those same 80
+cylinders, so it needs a boot sector of its own (-DSPT=15) and gets one -
+build/boot120.bin - but nothing else about it is new: 2,371 clusters of 512
+bytes, a 7-sector FAT inside DSK_FAT_SECS, and spt 15 is already in the
+kernel's mount-rule 11 whitelist. A 2880 (2.88MB ED, 5,698 clusters => FAT16)
 geometry lived here so the kernel's FAT16 path had a positive test; it went
 when DSK_FAT_SECS fell to 10 sectors, which is below the 16 a FAT has to
 have to be FAT16 at all, so mount rule 10 (SPEC.md 18.2) now turns every
@@ -84,6 +88,7 @@ NAME_CHARS = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
 #          media byte)   -- mirrors SPEC.md section 19's geometry table
 GEOMETRY = {
     1440: (18, 2, 2880, 1, 9, 224, 0xF0),
+    1200: (15, 2, 2400, 1, 7, 224, 0xF9),
     720: (9, 2, 1440, 2, 3, 112, 0xF9),
     360: (9, 2, 720, 2, 2, 112, 0xFD),
 }
@@ -1239,9 +1244,10 @@ def main() -> int:
         description="Build or verify a FAT data floppy of .o88 packages and data files.")
     ap.add_argument("-o", "--output", metavar="OUT.img",
                     help="floppy image to write")
-    ap.add_argument("--size", type=int, choices=(1440, 720, 360),
-                    help="disk size in KB: 1440 (18 spt), 720 or 360 (9 spt; "
-                         "80 and 40 cylinders)")
+    ap.add_argument("--size", type=int, choices=(1440, 1200, 720, 360),
+                    help="disk size in KB: 1440 (18 spt), 1200 (15 spt, "
+                         "5.25\" HD), 720 or 360 (9 spt; 80 and 40 "
+                         "cylinders)")
     ap.add_argument("--hdd", action="store_true",
                     help="build a bootable HARD-DISK image instead of a "
                          "floppy (SPEC.md 80.1): MBR + partition table, "

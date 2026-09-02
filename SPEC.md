@@ -1401,8 +1401,8 @@ what refuses an overrun.
 
 **The geometry.** A boot sector is assembled per disk and has `SPT` and `HEADS`
 as immediates; it can divide the head count with a shift. **A kernel is one
-binary for three geometries**, so stage 2 takes both at run time in `CX` and
-`DH` and both LBA→CHS divides are general. That is the whole cost of the move
+binary for every geometry** — four of them since §19's 1.2MB disk — so stage 2
+takes both at run time in `CX` and `DH` and both LBA→CHS divides are general. That is the whole cost of the move
 and it is a handful of clocks on eleven calls.
 
 **The canary's signature.** `KSIG` is read *out of* the built kernel, so a
@@ -2289,7 +2289,8 @@ budget either half has to be argued for; the two assertions at the foot of
 | 23 | 3 — 6 + 9 + 8 | **4 — 4 + 9 + 9 + 1** | 3 — 3 + 18 + 2 |
 
 **One extra `int 13h` on the two 9-sector geometries and none on the release
-one**, plus the in-run sectors, which land on *every* geometry and are the half
+one** (§19's 1.2MB disk was added after this table and is two calls at every
+size in it), plus the in-run sectors, which land on *every* geometry and are the half
 the call table hides: at PERFORMANCE.md Part 2's ~24 ms a sector inside a run,
 1.44MB pays ~144 ms and no call at all. It is all pre-splash time — stage 1
 reads the blob before the first splash pixel — so it is time on a blank screen
@@ -2313,9 +2314,10 @@ also why `tests/unit/t_buildmatrix.py` gains a `MOUDIAG` row — a knob whose
 blob nothing measures is how the last one went unfound.
 
 **`t_blobruns.py`'s ratchet moves from 2 to per-geometry**, because the whole
-point of it is that the three geometries do not share an answer: 3 on 360KB, 3
+point of it is that the geometries do not share an answer: 3 on 360KB, 3
 on 720KB, **2 on 1.44MB** — and the last of those is the one that still refuses,
-so the release geometry cannot silently take a third call.
+so the release geometry cannot silently take a third call. §19's 1.2MB disk
+joined the ratchet with the geometry and has a row of its own like the rest.
 
 **Neither guard 5 nor guard 5c binds.** Guard 5 was measured on both shipped
 kernels rather than derived: `kern_small` is the binding configuration and
@@ -6355,8 +6357,8 @@ title or nowhere.
 
 **What it costs.** A face is 1,498–1,688 bytes (95 glyphs × `rows` + 286 bytes
 of metrics + a 64-byte header), so the eight are **12,376 bytes**, and the
-licence beside them another 6,676. On the 360 KB rung — the tightest of the
-three geometries, and the one this was checked against — that is **23 clusters
+licence beside them another 6,676. On the 360 KB rung — the tightest shipped
+geometry, and the one this was checked against — that is **23 clusters
 of 1 KB**, and the disk still has **169,984 bytes free**. The kernel does not grow by a byte: a
 `.F88` is data, read by the package that wants it. `TY_MAXFAM` costs the
 *including package* 23 bytes of bss a family and `os88type.inc` is included by
@@ -21233,7 +21235,8 @@ The boundary is worth carrying forward, because the *shipped* blob sits on it:
 
 Since §2.9.12 the two 9-sector geometries have spent their third call and the
 1.44MB one has not, so the boundary that binds now is the last row: **21 is the
-largest blob that is two calls on the release geometry**, and 22 is where the
+largest blob that is two calls on the release geometry** (§19's 1.2MB disk buys
+its third at 17, between 720KB's 14 and 1.44MB's 22), and 22 is where the
 next `int 13h` gets bought.
 
 `tests/unit/t_blobruns.py` is the ratchet, in the fast tier, and it exists
@@ -24119,7 +24122,7 @@ its own RAM; reading them back proves the write worked, which it always did. It
 says nothing about whether the BIOS consulted them. The only thing worth
 verifying is the **transfer**.
 
-So the build reads a word out of `KERNEL.SYS` at **`KSIG_OFF` = 18432** and
+So the build reads a word out of `KERNEL.SYS` at **file sector 108** and
 injects it as `KSIG`. After the load the boot sector compares, and on a mismatch
 drops `run_max` to `SPT` and **does the whole load again**. A boot 2.2s slower
 beats a kernel that is quietly wrong.
@@ -24128,16 +24131,28 @@ beats a kernel that is quietly wrong.
 flip" is not the same statement. A run transfers correctly up to the head
 boundary and only goes wrong after it, so a canary sitting in any run's FIRST
 half is loaded correctly on precisely the machine it exists to catch. The first
-version of this used file sector 32, which is in a first half in all three
-geometries; it passed on the failing machine and shipped a kernel that was
+version of this used file sector 32, which is in a first half in every
+geometry; it passed on the failing machine and shipped a kernel that was
 still scrambled.
 
-File sector 36 crosses in all three shipped geometries — 360KB (data at LBA 12),
-720KB (LBA 14), 1.44MB (LBA 33) — and sits mid-band in the common run 33..38, so
-three sectors of margin survive a BPB change. It is inside the first 64KB, so the
-compare reuses the `ES` the handoff already loads, and the word is the same for
-every geometry because `KERNEL.SYS` is one file. `tests/suite.py`'s `canary` row
-asserts all of that against the images `make` just built, so it cannot drift.
+**THE BAND IS AN INTERSECTION, so a geometry added years later can invalidate
+an offset nothing touched.** File sector 36 crossed on all three geometries
+this project shipped for two years — 360KB (data at LBA 12), 720KB (LBA 14),
+1.44MB (LBA 33) — and §19's **1.2MB disk shares none of that band**: data at
+LBA 29 in runs of 30 sectors puts sector 36 five sectors into a *first* half.
+Adding the geometry made the canary inert on one shipped disk of four with no
+line of the boot path edited, and `tests/unit/t_canary.py` is what caught it.
+
+**File sector 108 crosses on all four** — the band common to them is 106..110,
+and it is the only such band inside the 64KB the compare's `ES` can reach, so
+there was one answer rather than a choice. 108 sits inside it with two sectors
+of margin below and one above, and the sector under `SPLSTARS` — whose blob is
+one sector longer, so the same memory offset lands one sector further into the
+file — is 109, inside it too. The compare therefore reuses the `ES` the handoff
+already loads, and the word is the same for every geometry because `KERNEL.SYS`
+is one file. `tests/suite.py`'s `canary` row asserts all of that against the
+images `make` just built, so it cannot drift — and it asserts it over **every**
+shipped system image, which is the half that made the 1.2MB defect visible.
 
 The retry cannot loop: the second pass is track-bounded, so the canary is
 skipped by the `run_max == SPT` test that guards it — and that skip is also the
@@ -26124,7 +26139,7 @@ whole number of those units**. The segment bump follows the window instead of
 being a constant `0x1000`, and it is still only ever applied to a full window —
 a short one empties the counter and ends the loop. It is read from the live
 geometry rather than folded into a constant because those words are the
-*mounted* volume's and this file serves three geometries and a partition.
+*mounted* volume's and this file serves four geometries and a partition.
 
 **THE UNIT IS THE CYLINDER, and it was the track when this section was
 written.** §18.91.1 moved `dsk_xfer`'s run bound from the end of the track to
@@ -26168,44 +26183,45 @@ Not bootable in earnest (the boot sector is a message stub, below). All
 words little-endian. Sector size 512.
 
 **Shipped geometries** (what §24's os88disk.py emits — canonical DOS
-formats):
+formats; four of them since 1.2MB, and the paragraphs under the tables say
+which machine each is for):
 
-| BPB field (off, size)      | 1.44MB            | 720KB             | 360KB             |
-|----------------------------|-------------------|-------------------|-------------------|
-| BS_jmpBoot (0, 3)          | `EB 3C 90`        | `EB 3C 90`        | `EB 3C 90`        |
-| BS_OEMName (3, 8)          | `"MSDOS5.0"`      | `"MSDOS5.0"`      | `"MSDOS5.0"`      |
-| BPB_BytsPerSec (11, 2)     | 512               | 512               | 512               |
-| BPB_SecPerClus (13, 1)     | 1                 | 2                 | 2                 |
-| BPB_RsvdSecCnt (14, 2)     | 1                 | 1                 | 1                 |
-| BPB_NumFATs (16, 1)        | 2                 | 2                 | 2                 |
-| BPB_RootEntCnt (17, 2)     | 224               | 112               | 112               |
-| BPB_TotSec16 (19, 2)       | 2880              | 1440              | 720               |
-| BPB_Media (21, 1)          | 0xF0              | 0xF9              | 0xFD              |
-| BPB_FATSz16 (22, 2)        | 9                 | 3                 | 2                 |
-| BPB_SecPerTrk (24, 2)      | 18                | 9                 | 9                 |
-| BPB_NumHeads (26, 2)       | 2                 | 2                 | 2                 |
-| BPB_HiddSec (28, 4)        | 0                 | 0                 | 0                 |
-| BPB_TotSec32 (32, 4)       | 0                 | 0                 | 0                 |
-| BS_DrvNum (36, 1)          | 0                 | 0                 | 0                 |
-| BS_Reserved1 (37, 1)       | 0                 | 0                 | 0                 |
-| BS_BootSig (38, 1)         | 0x29              | 0x29              | 0x29              |
-| BS_VolID (39, 4)           | 0x88000888 fixed  | 0x88000888 fixed  | 0x88000888 fixed  |
-| BS_VolLab (43, 11)         | `"OS8088APPS "`   | `"OS8088APPS "`   | `"OS8088APPS "`   |
-| BS_FilSysType (54, 8)      | `"FAT12   "`      | `"FAT12   "`      | `"FAT12   "`      |
-| boot code (62..509)        | message stub      | message stub      | message stub      |
-| signature (510, 2)         | 0x55 0xAA         | 0x55 0xAA         | 0x55 0xAA         |
+| BPB field (off, size)      | 1.44MB            | 1.2MB             | 720KB             | 360KB             |
+|----------------------------|-------------------|-------------------|-------------------|-------------------|
+| BS_jmpBoot (0, 3)          | `EB 3C 90`        | `EB 3C 90`        | `EB 3C 90`        | `EB 3C 90`        |
+| BS_OEMName (3, 8)          | `"MSDOS5.0"`      | `"MSDOS5.0"`      | `"MSDOS5.0"`      | `"MSDOS5.0"`      |
+| BPB_BytsPerSec (11, 2)     | 512               | 512               | 512               | 512               |
+| BPB_SecPerClus (13, 1)     | 1                 | 1                 | 2                 | 2                 |
+| BPB_RsvdSecCnt (14, 2)     | 1                 | 1                 | 1                 | 1                 |
+| BPB_NumFATs (16, 1)        | 2                 | 2                 | 2                 | 2                 |
+| BPB_RootEntCnt (17, 2)     | 224               | 224               | 112               | 112               |
+| BPB_TotSec16 (19, 2)       | 2880              | 2400              | 1440              | 720               |
+| BPB_Media (21, 1)          | 0xF0              | 0xF9              | 0xF9              | 0xFD              |
+| BPB_FATSz16 (22, 2)        | 9                 | 7                 | 3                 | 2                 |
+| BPB_SecPerTrk (24, 2)      | 18                | 15                | 9                 | 9                 |
+| BPB_NumHeads (26, 2)       | 2                 | 2                 | 2                 | 2                 |
+| BPB_HiddSec (28, 4)        | 0                 | 0                 | 0                 | 0                 |
+| BPB_TotSec32 (32, 4)       | 0                 | 0                 | 0                 | 0                 |
+| BS_DrvNum (36, 1)          | 0                 | 0                 | 0                 | 0                 |
+| BS_Reserved1 (37, 1)       | 0                 | 0                 | 0                 | 0                 |
+| BS_BootSig (38, 1)         | 0x29              | 0x29              | 0x29              | 0x29              |
+| BS_VolID (39, 4)           | 0x88000888 fixed  | 0x88000888 fixed  | 0x88000888 fixed  | 0x88000888 fixed  |
+| BS_VolLab (43, 11)         | `"OS8088APPS "`   | `"OS8088APPS "`   | `"OS8088APPS "`   | `"OS8088APPS "`   |
+| BS_FilSysType (54, 8)      | `"FAT12   "`      | `"FAT12   "`      | `"FAT12   "`      | `"FAT12   "`      |
+| boot code (62..509)        | message stub      | message stub      | message stub      | message stub      |
+| signature (510, 2)         | 0x55 0xAA         | 0x55 0xAA         | 0x55 0xAA         | 0x55 0xAA         |
 
 Derived layout (all LBAs volume-relative = disk-absolute; unpartitioned):
 
-|                     | 1.44MB                  | 720KB                  | 360KB                 |
-|---------------------|-------------------------|------------------------|-----------------------|
-| FAT1 / FAT2         | LBA 1–9 / 10–18         | LBA 1–3 / 4–6          | LBA 1–2 / 3–4         |
-| Root dir            | LBA 19–32 (14 sec)      | LBA 7–13 (7 sec)       | LBA 5–11 (7 sec)      |
-| First data sector   | LBA 33                  | LBA 14                 | LBA 12                |
-| CountOfClusters     | 2847 (clusters 2..2848) | 713 (clusters 2..714)  | 354 (clusters 2..355) |
-| FAT type            | FAT12 (2847 < 4085)     | FAT12 (713 < 4085)     | FAT12 (354 < 4085)    |
-| FAT bytes needed    | 2849×1.5 = 4274 ≤ 4608  | 715×1.5 = 1073 ≤ 1536  | 356×1.5 = 534 ≤ 1024  |
-| FAT[0..1] reserved  | `F0 FF FF`              | `F9 FF FF`             | `FD FF FF`            |
+|                     | 1.44MB                  | 1.2MB                    | 720KB                  | 360KB                 |
+|---------------------|-------------------------|--------------------------|------------------------|-----------------------|
+| FAT1 / FAT2         | LBA 1–9 / 10–18         | LBA 1–7 / 8–14           | LBA 1–3 / 4–6          | LBA 1–2 / 3–4         |
+| Root dir            | LBA 19–32 (14 sec)      | LBA 15–28 (14 sec)       | LBA 7–13 (7 sec)       | LBA 5–11 (7 sec)      |
+| First data sector   | LBA 33                  | LBA 29                   | LBA 14                 | LBA 12                |
+| CountOfClusters     | 2847 (clusters 2..2848) | 2371 (clusters 2..2372)  | 713 (clusters 2..714)  | 354 (clusters 2..355) |
+| FAT type            | FAT12 (2847 < 4085)     | FAT12 (2371 < 4085)      | FAT12 (713 < 4085)     | FAT12 (354 < 4085)    |
+| FAT bytes needed    | 2849×1.5 = 4274 ≤ 4608  | 2373×1.5 = 3560 ≤ 3584   | 715×1.5 = 1073 ≤ 1536  | 356×1.5 = 534 ≤ 1024  |
+| FAT[0..1] reserved  | `F0 FF FF`              | `F9 FF FF`               | `F9 FF FF`             | `FD FF FF`            |
 
 **720KB is 360KB's track shape on twice the cylinders**, and everything that
 follows from that is why it costs so little to carry. 9 sectors, 2 heads, 80
@@ -26222,6 +26238,51 @@ project already targets — an XT or AT fitted with a 3.5" DD drive — and it i
 what a USB floppy drive or a Gotek reads. Those handle 720KB and 1.44MB and
 nothing 5.25", so on a machine whose BIOS cannot read a 1.44MB disk this is
 the only image that reaches it.
+
+**1.2MB is the fourth, and it is the 720KB argument seen from the 5.25" side.**
+An AT-class machine — a 286 or later, or a late XT with an HD controller —
+whose only drive is 5.25" reads neither of the 3.5" disks, and its own 1.2MB
+media had no image at all. It could boot the 360KB disk, because a 1.2MB drive
+reads 360KB media, and that is what such a machine has had to do: **354
+clusters of software in a drive with 2,371**, `BEVERLY.MOD` reachable only by
+swapping the media disk in (§24.4), and `OS88NET.COM` competing with the games
+for room. `build/os8088-120.img` and `build/apps120.img` carry the **same
+payload as the 1.44MB pair** instead.
+
+There is a second reason, and it is about writing rather than room. A 1.2MB
+drive's head is narrower than a 360KB drive's, so a 360KB disk written in one
+is often unreadable in a real 360KB drive afterwards — the one combination of
+media and drive in this project that is known to be marginal, and the OS
+writes its settings to the boot disk on every Control Panel save (§51.5).
+Booting the geometry the drive was sold as sidesteps it.
+
+**It does not reach the calibration 5150.** A 1.2MB drive needs a 500 kbps
+controller, which is the AT's; an IBM 5150/XT ROM tops out at 360KB and its
+8-bit controller runs the data rate to match. The 360KB pair is that machine's
+and stays that machine's (docs/FIELD-MACHINES.md).
+
+**What it cost the kernel: nothing.** The geometry reaches the kernel in `CX`
+and `DH` from the boot sector (§2.9), `spt` 15 was already one of the six real
+floppy shapes in mount rule 11's whitelist (§18.2), the 7-sector FAT is inside
+`DSK_FAT_SECS`'s 9 so the FAT window is still a floppy's degenerate whole-FAT
+case (§18.8), and 2,400 sectors is *exactly* rule 13's `spt×heads×80` bound.
+The 512-byte cluster it shares with the 1.44MB disk, so §22.5's `fcp_clspan`
+and §18.4.2's run coalescing meet nothing new either.
+
+**What it did cost is one constant, and it was a real defect rather than an
+adjustment**: §18.93.1's canary sits at a fixed *file sector*, and the band of
+sectors that cross a head is the **intersection** over every shipped geometry.
+1.2MB shares none of the old band — its data area starts at LBA 29 and its
+runs are 30 sectors, so the file sector 36 that served the other three sits 5
+sectors into a run's *first* half there. The canary would have been inert on
+one shipped disk of four, which is precisely the fault it exists to catch,
+with no line of the boot path changed. `KSIG_OFF` moved to file sector 108;
+§18.93.1 carries the arithmetic and `tests/unit/t_canary.py` is the gate.
+
+**It is the one geometry with a boot sector of its own.** `boot/boot.asm`
+knows a disk as `SPT` and `HEADS` and nothing else, so 720KB and 360KB share
+`build/boot360.bin`; 15 sectors is a different track, so 1.2MB gets
+`build/boot120.bin`. Three sectors for four geometries.
 
 **There was a test-only third geometry** — 2.88M ED, 23 FAT sectors,
 CountOfClusters 5698 ≥ 4085 ⇒ FAT16 — built by neither the Makefile nor the
@@ -27434,8 +27495,8 @@ one: Note Pad, Paint, TeXPad and Word write **documents**, which are the user's
 and belong exactly where the user put them.
 ### 19.10 `apps-all.img` — one floppy with everything, and why it is on demand
 
-The shipped apps floppy is built in three geometries and carries the nineteen
-packages that fit the smallest of them. Seven applications are deliberately not
+The shipped apps floppy is built in four geometries (§19) and carries the
+nineteen packages that fit the smallest of them. Seven applications are deliberately not
 on it, each with a disk of its own and for the same reason — they are large and
 they travel with data: **Frotz** (§61), **Word** (§68.5), **cword** (§73.12),
 **RUNCPM** (§74.5), **C64** (`docs/C64-SPEC.md` §14.2) and the Weave family's
@@ -32432,13 +32493,14 @@ and non-zero exit + stderr message on any validation failure.
   [0x20, image) (≥ 0x60 with the icon flag); image + bss ≤ `APP_MAX_SIZE`
   (0xF000); with the icon flag, image ≥ 96; name printable, ≤ 15, NUL-padded
   with nothing after the terminator.
-- `tools/os88disk.py -o OUT.img --size {1440,720,360} [PKG.o88 ...]` —
+- `tools/os88disk.py -o OUT.img --size {1440,1200,720,360} [PKG.o88 ...]` —
   builds a FAT12 data floppy per §19. CLI shape unchanged from the os88fs
   era — the Makefile call sites need zero edits; pure Python 3 stdlib (no
-  mtools). These three are the only geometries: a `--size 2880` (2.88M ED,
+  mtools). These four are the only geometries: a `--size 2880` (2.88M ED,
   FAT16) existed so the kernel's FAT16 path had a positive test and went
   with it (§2.1). 720 and 360 share a boot sector — same 9 spt / 2 heads,
-  and `boot/boot.asm` knows nothing else about a disk's shape. The tool still derives the FAT type from the cluster
+  and `boot/boot.asm` knows nothing else about a disk's shape; 1200 is 15 spt
+  and therefore has one of its own. The tool still derives the FAT type from the cluster
   count exactly like the kernel does, and its `--verify` fsck carries the
   same `1 ≤ FATSz16 ≤ 10` bound as mount rule 10, so a volume the kernel
   would refuse fails on the host too.

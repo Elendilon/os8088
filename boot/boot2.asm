@@ -51,28 +51,40 @@ DPT_AT      equ 0x0580          ; 0000:0580 - our copy of the diskette
                                 ; KERNEL_SEG, so nothing the kernel or its heap
                                 ; can claim reaches it and it needs no restore
 B2_STACK    equ 0x7C00          ; stage 1's STACK_TOP, which is still ours
-KSIG_OFF    equ 14336           ; SPEC.md 18.93.1's probe, as a MEMORY offset
+KSIG_OFF    equ 51200           ; SPEC.md 18.93.1's probe, as a MEMORY offset
                                 ; from KERNEL_SEG - the Makefile reads the same
                                 ; bytes out of the file at KSIG_OFF + BOOT2_PAD,
-                                ; which is FILE SECTOR 36 and has to be: the
+                                ; which is FILE SECTOR 108 and has to be: the
                                 ; probe must land in a run's SECOND half, and
                                 ; tests/unit/t_canary.py re-derives that from
                                 ; every shipped image's BPB. This equ and the
                                 ; Makefile's KSIG_OFF are one number typed
                                 ; twice; that row checks they agree.
                                 ;
-                                ; IT MOVES WITH BOOT2_SECS, and it has now moved
-                                ; twice for that reason: 11776 while the blob
-                                ; was 13 sectors, 8704 when SPEC.md 2.9.12 grew
-                                ; it to 19, and 14336 now that 2.5.3's split has
-                                ; taken it back to 8. The number that has to
-                                ; stay put is the FILE sector, 36, because that
-                                ; is what decides which half of a run the probe
+                                ; IT MOVES WITH BOOT2_SECS, and has had three
+                                ; values for that reason: 11776 while the
+                                ; blob was 13 sectors, 8704 when SPEC.md 2.9.12
+                                ; grew it to 19, and 14336 when 2.5.3's split
+                                ; took it back to 8. The number that has to
+                                ; stay put is the FILE sector, because that is
+                                ; what decides which half of a run the probe
                                 ; lands in - and a probe in a run's FIRST half
                                 ; is loaded CORRECTLY on exactly the machine
                                 ; this exists to catch. tests/unit/t_canary.py
                                 ; re-derives it per geometry and refused 8704
                                 ; the moment BOOT2_SECS changed
+                                ;
+                                ; ...AND IT MOVES WITH THE SET OF GEOMETRIES,
+                                ; which is what took it from 14336 to here. The
+                                ; band is the INTERSECTION over every shipped
+                                ; disk, and 19's 1.2MB 5.25" geometry shares
+                                ; none of the old one: data at LBA 29 in runs
+                                ; of 30, so file sector 36 is 5 into a FIRST
+                                ; half there. 106..110 is the only band all
+                                ; four hold, and the only one inside the 64KB
+                                ; the compare's ES reaches; 108 is in it, and
+                                ; so is 109, which is where SPLSTARS' one
+                                ; sector longer blob puts the same offset
 B2_KSECS    equ ((MODC_START + 511) / 512) - BOOT2_SECS  ; what is left to read
 
 boot2_entry:
