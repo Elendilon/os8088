@@ -211,13 +211,29 @@ gfx_rmsk        db 0            ; rect: right edge bit mask
 %endif
 gfx_pat         dw 0            ; gfx_fill_pat: near ptr to 8 row bytes,
                                 ; set by the caller before every call
-gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); 0 = free.
-                                ; Initialized data, NOT .bss: nothing zeroes
-                                ; .bss at boot, and this byte must start clear.
+gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); **strictly 0 or 1
+                                ; and never a count** - toast_now reads this
+                                ; byte and the next AS ONE WORD (`cmp word
+                                ; [gfx_lock_flag], 1` = held, and held by task
+                                ; 0), and that test dies SILENTLY if this ever
+                                ; becomes a depth. Four writers in the tree and
+                                ; no fifth: :5303 (1), :5384 (0), sched.inc
+                                ; :1683 (0) and :1699 (the value banked at
+                                ; :1677).
+                                ; Initialized data and NOT .bss - not because
+                                ; .bss is unzeroed (it arrives zeroed, SPEC.md
+                                ; 2.6) but because gfx_lock_own below cannot
+                                ; live there at all, and the two must stay
+                                ; together.
 gfx_lock_own    db 0xFF         ; ...and WHICH task holds it ([sch_cur] at the
                                 ; take, 0xFF = nobody). toast_now's whole test
                                 ; (SPEC.md 59.4): the flag alone says somebody
                                 ; holds it, never that the CALLER does.
+                                ; **KEEP IT IMMEDIATELY AFTER THE FLAG**, which
+                                ; is what makes that test one word read.
+%if gfx_lock_own - gfx_lock_flag != 1
+  %error "toast_now reads gfx_lock_flag and gfx_lock_own as ONE WORD (`cmp word [gfx_lock_flag], 1` = held by task 0). Separate them and it silently stops firing."
+%endif
 gfx_lock_want   db 0            ; SPEC.md 7.3: SOMEBODY IS BLOCKED ON IT. Set by
                                 ; a waiter on its way to task_yield, spent by
                                 ; the last owner's next acquire. Initialized

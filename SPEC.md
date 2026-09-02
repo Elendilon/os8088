@@ -17913,13 +17913,22 @@ Nothing has to be told to put the widget up.
 A one-sector directory probe is over inside a single displayed frame, and
 putting an icon up and taking it away again inside one frame is
 PERFORMANCE.md Part 1's double-draw flash with the widget itself as the flash.
-So `fpg_busy` accumulates `CX` into `[fpg_warm]` and arms nothing until it
-reaches **`FPG_WARM` = 3** — ~72 ms at the field machine's ~24 ms a sector,
-which is the only honest unit available. The counter is per **hold**, zeroed
-by `fpg_finish` and so by `gfx_unlock`, so "the machine has been at the disk
-for a while" means *in this freeze* and not *ever*. A run of more than 255
-sectors cannot happen, and a corrupt one saturates rather than wrapping back
-under the threshold.
+So `fpg_busy` arms at once for a call already carrying **`FPG_WARM` = 3**
+sectors or more — that call has met the threshold by itself — and otherwise
+accumulates `CX` into `[fpg_warm]` and arms nothing until *that* reaches 3.
+~72 ms at the field machine's ~24 ms a sector, which is the only honest unit
+available. The counter is per **hold**, zeroed by `fpg_finish` and so by
+`gfx_unlock`, so "the machine has been at the disk for a while" means *in this
+freeze* and not *ever*.
+
+Two consequences of asking the question that way round, both bounded. A call
+of three or more sectors is no longer *recorded*, so after `fpg_arm` has
+**refused** one (splash, foreign mode, another task's lock, a fullscreen
+window) a following run of one-sector calls has to accumulate three of its own
+before the arm is retried, where it used to be retried on every one — three
+sectors inside a freeze that is already seconds. And `[fpg_warm]` no longer
+saturates: only sub-threshold calls feed it, so ~85 consecutive refused ones
+would wrap it, costing one further sector of delay, once.
 
 `drv_fs_call` goes through `fpg_now`, which is `fpg_busy` with the threshold
 already met: there is nothing to warm up to when the first verb is already the
@@ -38660,9 +38669,9 @@ A focus change costs two tiles; nothing changing costs no pixels. A tile whose
 **identity** changed is erased to white first; a tile where only a MARK moved
 is not erased at all — see §30.3.
 
-The strip's own rule and white field are redrawn only when `[dock_full]` says
-so, and the single thing that sets it is somebody having drawn **over** the
-strip: `wm_paint_all`'s dither, and `wm_paint_dmg`'s when the damage reaches
+The strip's own rule and white field are redrawn only when the **damage span**
+says so, and the single thing that fills it is somebody having drawn **over**
+the strip: `wm_paint_all`'s dither, and `wm_paint_dmg`'s when the damage reaches
 `[vid_dock_y0]` — which is how *"a window that was covering the dock moved
 away"* gets its full redraw, since hiding, destroying, dragging and resizing
 all arrive there with a rect that reaches the strip. `dock_force` /
@@ -38671,8 +38680,21 @@ tiles the damage reached**: a tile whose pixels were painted over is not
 "unchanged" however much its state still matches, and a tile the damage never
 came near is not repainted to prove it.
 
-`.bss` is not zeroed at boot (`-f bin`), so `dock_init` calls `dock_force`
-and clears the keys itself.
+**The span is its own flag.** `[dock_dx1]`/`[dock_dx2]` is empty when it is
+the inverted bounding box `0x7FFF..0x8000` — `dock_px1`/`dock_px2`'s own
+idiom (§30.3.3) on the other pair, and `wm_dmg_bands`' before either — so
+`dock_force_x`'s repeated calls are one signed union with no set/union split
+and `dock_paint` spends the span by exchanging the sentinel back in at the
+**top** of the redraw, where a `dock_force` arriving mid-paint unions onto the
+fresh sentinel and re-arms the next pass. There is no separate `[dock_full]`
+boolean; it said only what the span could say itself.
+
+`dock_init` writes that pair directly — `0..[vid_pwm1]`, the whole strip owed,
+and an empty painted span — rather than calling `dock_force`, so the boot
+overlay has no outbound call here at all. It clears no keys: `.bss` **is**
+zeroed at boot (it is `nobits`, so what lands on it is the image's own
+inter-section padding, §2.6), and independently of that the first
+`dock_paint` clears all twelve from the full-width span before reading one.
 
 The dock renders ONLY records read as I_STATE = 1 during the same lock
 hold (§29.2 rule 3); dying records are skipped, so a closing instance's
@@ -38688,7 +38710,7 @@ tile vanishes with the `wm_hide` repaint. Icon pointers must satisfy
 | `dock_force_x` | in: AX = x1, CX = x2 (inclusive). Only that span was. Repeated calls UNION. Preserves all registers. |
 | `dock_paint` | draw the rule, the strip and every live instance's tile. Called by wm_paint_all after `desk_paint`, before the menu bar and windows (lock held by caller) — windows cover the dock exactly like desktop icons (§26). |
 | `dock_hit`   | in CX=x, DX=y. Out: CF=1 = the point is not in the strip at all; CF=0 = the strip owns it, and then **DI = the live instance record under the pointer, or 0** for bare strip, an inter-tile gap, a slot past the last, and an empty or dying one. AL = the slot when DI ≠ 0. Clobbers AX and DI only. The one hit test both buttons use (§30.2). |
-| `dock_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window, BEFORE desk_click). Out: CF=1 = consumed (any click with y ≥ `[vid_dock_y0]` — strip background clicks are consumed no-ops), CF=0 = not in the dock. Tile hit on a live instance: minimized → gfx_lock, `inst_restore`, gfx_unlock; I_WIN == `wm_top` → gfx_lock, `inst_minimize` on I_WIN, gfx_unlock (§30.4); else → gfx_lock, `wm_front` on I_WIN, gfx_unlock. Single click; no double-click logic. |
+| `dock_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window, BEFORE desk_click). Out: CF=1 = consumed (any click with y ≥ `[vid_dock_y0]` — strip background clicks are consumed no-ops), CF=0 = not in the dock. Tile hit on a live instance takes **one** gfx_lock bracket around whichever command the tile's own mark selects — minimized → `inst_restore`; I_WIN == `wm_top` → `inst_minimize` on I_WIN (§30.4); else → `wm_front` on I_WIN — and the `I_FLAGS`/`I_WIN` reads that choose between them are inside it, which is where a read of a record the lock protects belongs. The paths that refuse (not in the strip, bare strip, gap, dead slot) return above the lock and take none. Single click; no double-click logic. |
 | `dock_rclick`| in CX=x, DX=y (no lock held; called by `ui_rdown` when wm_hit found no window). Out: CF as `dock_click`'s. A tile on a live instance → gfx_lock, `menu_popup` anchored at the press, `app_close_win` if `Close` was chosen, gfx_unlock. Bare strip: consumed, and nothing drops (§30.2). |
 
 Every dock-state transition (launch, quit, minimize, restore) — and every
@@ -38739,9 +38761,13 @@ Three things make it exact.
 
 - **The marks own bits 0..2 and the identity owns the rest.** `dock_key` used
   to XOR the rotated icon pointer's top three bits straight onto the mark
-  bits — fine for *did anything change*, useless for *what changed*. They are
-  folded into the high byte instead, so nothing about the icon is lost and
-  `old XOR new` names the difference. A live tile's key now always has
+  bits — fine for *did anything change*, useless for *what changed*. The
+  rotated word's whole low byte is folded into the high one instead, so
+  nothing about the icon is lost, nothing lands on the marks and
+  `old XOR new` names the difference. (Folding all eight bits rather than
+  three costs nothing and saves two registers: the extra five fold into a byte
+  that is pure identity, and over all 65,536 `I_ICON` values the collision
+  classes are bit-for-bit the three-bit fold's.) A live tile's key now always has
   `DOCK_K_LIVE` set, so it can never be 0 and the collision bump the old key
   needed is gone — and "one of the two keys is 0" falls out as a bit-0
   difference, which `DOCK_K_ID` catches, so a tile appearing or disappearing

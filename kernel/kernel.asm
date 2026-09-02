@@ -5781,11 +5781,11 @@ cw_menu_item_dis:       call menu_item_dis
                     retf
 cw_mou_clamp:           call mou_clamp
                     retf
-; ...and the BOOT OVERLAY's two (docs/LAST-DROP-BYTES.md rows 15 and 17):
-; dock_init and menu_init moved into `.ovl` and each has exactly one outbound
-; call left, the other having been small enough to inline.
-cw_dock_force:          call dock_force
-                    retf
+; ...and the BOOT OVERLAY's (docs/LAST-DROP-BYTES.md rows 15 and 17):
+; dock_init and menu_init moved into `.ovl`; menu_init has exactly one
+; outbound call left, and dock_init now has NONE - what it asked cw_dock_force
+; for was "the whole strip is owed", which is two words it writes itself, so
+; the shim went with the call.
 cw_menu_relayout:       call menu_relayout
                     retf
 cw_menu_draw_bar:       call menu_draw_bar

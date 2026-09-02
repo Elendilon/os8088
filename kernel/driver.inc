@@ -1257,6 +1257,18 @@ drv_nostamp:
 ; attributed to the kernel. loader.inc's package entry is the shape that was
 ; always right: restore the segment, THEN the word.
 ; -----------------------------------------------------------------------------
+drv_call_ent:                   ; ...and the same thing for a caller that has
+    mov bp, [bx+DRVR_ENT]       ; the ROW and not the entry proc, which is four
+                                ; of the five sites in the tree (drv_attach x2,
+                                ; drv_tier_x and blank.inc's ss_call). It
+                                ; FALLS THROUGH; drv_nostamp above ends in a
+                                ; `ret` and does not reach here. drv_call's own
+                                ; NASM locals are all below its label, so
+                                ; nothing is re-parented, and drvf_drv_call
+                                ; (the far thunk) and :2002 (which passes
+                                ; [drv_dlg_cb] in BP) still enter at drv_call
+                                ; itself. The fifth site READS BP BACK
+                                ; afterwards and is deliberately left alone
 drv_call:
     cmp bx, drv_tab             ; ...AND BX MUST BE A ROW AT ALL. This one is
     jb .stray                   ; checked FIRST and on BX itself, because it is
@@ -2619,9 +2631,8 @@ drv_attach:
     push si
     push bp
     push es
-    mov bp, [bx+DRVR_ENT]
     mov al, DRVV_ATTACH
-    call drv_call               ; out: CF, and SI = its service table
+    call drv_call_ent           ; out: CF, and SI = its service table
     jc .out
     mov es, [bx+DRVR_SEG]
     call drv_publish            ; SI is an offset in ES, so copy it now
@@ -2633,9 +2644,9 @@ drv_attach:
     mov ah, [snd_route]         ; ...then hand it the persisted tier, which
     call drv_tier_x               ; may take memory back off it (SPEC.md 34.8).
 .notier:
-    mov bp, [bx+DRVR_ENT]       ; ...and only now, when the slot is armed and
-    mov al, DRVV_READY          ; every API cell will answer it, tell the
-    call drv_call               ; driver so (SPEC.md 51.2.2). This is where a
+    mov al, DRVV_READY          ; ...and only now, when the slot is armed and
+    call drv_call_ent           ; every API cell will answer it, tell the
+                                ; driver so (SPEC.md 51.2.2). This is where a
                                 ; disk driver re-mounts what its settings say
                                 ; it had mounted last time
     jnc .rdy                    ; ...and if it complained, BANK WHAT IT SAID.
@@ -2708,9 +2719,8 @@ drv_tier_x:
     mov bx, [drv_owner]
     or bx, bx
     jz .ok                      ; nothing is published: nothing to tell
-    mov bp, [bx+DRVR_ENT]
     mov al, DRVV_TIER
-    call drv_call               ; out: CF, AL = why not, SI = the table it
+    call drv_call_ent           ; out: CF, AL = why not, SI = the table it
     jc .no                      ; now has
     mov es, [bx+DRVR_SEG]
     call drv_publish

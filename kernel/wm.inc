@@ -3831,12 +3831,30 @@ wm_destroy_seg:
 wm_lk:
     cmp byte [gfx_lock_flag], 0
     je wm_lk_take               ; free: take it
-    push ax
-    mov al, [sch_cur]
-    cmp al, [gfx_lock_own]
-    pop ax
-    jne wm_lk_take              ; SOMEBODY ELSE'S: gfx_lock waits for them,
-                                ; which is what a mutex is for
+    mov al, [sch_cur]           ; AL is an OUTPUT of this routine, so banking
+    cmp al, [gfx_lock_own]      ; it round these two instructions protected
+    jne wm_lk_take              ; nothing: `mov al,[sch_cur]` writes AL and not
+                                ; AH, and AL is overwritten on every path out
+                                ; (wm_lk_take's `mov al,1`, or the `xor al,al`
+                                ; below). The header's "Neither touches another
+                                ; register" is about AH and is unaffected.
+                                ; SOMEBODY ELSE'S: gfx_lock waits for them,
+                                ; which is what a mutex is for.
+                                ;
+                                ; fpg_arm (12.8.4) has these same seven
+                                ; instructions and had the same dead pair, and
+                                ; they are NOT one routine however identical
+                                ; the bytes: the two jump targets are the
+                                ; semantics, and they partition the three lock
+                                ; states differently - fpg_arm asks
+                                ; {free,mine} against {other}, this asks
+                                ; {free,other} against {mine}, and no single
+                                ; flag out of a shared helper can carry both.
+                                ; A helper returning ZF gets THIS site exactly
+                                ; backwards: it would call gfx_lock
+                                ; recursively in the common case and run
+                                ; wm_show_b with no lock at all when the lock
+                                ; is foreign
     xor al, al                  ; ours: the caller's hold covers all of it
     ret
 wm_lk_take:
@@ -7343,11 +7361,15 @@ wm_zabove:
 wm_idx2ptr:
     push ax
     push cx
-    mov ah, 0                   ; index * WIN_SIZE, spelled as a real 8-bit
-    mov cl, WIN_SIZE            ; multiply rather than a sum of shifts: the
-    mul cl                      ; stride has already changed twice (16 -> 18
+    mov cl, WIN_SIZE            ; index * WIN_SIZE, spelled as a real 8-bit
+    mul cl                      ; multiply rather than a sum of shifts: the
+                                ; stride has already changed twice (16 -> 18
     mov bx, ax                  ; -> 20, SPEC.md 11) and a shift idiom is a
-    add bx, wm_wins             ; silent breakage every time it does
+    add bx, wm_wins             ; silent breakage every time it does.
+                                ; NO `mov ah,0` ahead of the mul, and no `cbw`
+                                ; either: `mul r/m8` computes AX <- AL x
+                                ; operand and writes AH unconditionally, so
+                                ; zeroing it first was a no-op
     pop cx
     pop ax
     ret
