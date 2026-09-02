@@ -223,11 +223,26 @@ the machine going.
 
 This is the root of three separate observations:
 
-* **`dispmine` and `tmowner` fail in the 3-wide lane and pass alone.** Both
-  re-ran green with the whole box (46.5 s and 203.5 s). `dispmine`'s symptom —
-  a press at (248,194) reaching the dock instead of the window — reads exactly
-  like a real hit-test defect, and `wm_hit`/`dock_hit` were verified
-  byte-identical to the base before the re-run was believed.
+* **`dispmine` and `tmowner` failed in the 3-wide lane and passed alone** —
+  46.5 s and 203.5 s with the whole box. `dispmine`'s symptom, a press at
+  (248,194) reaching the dock instead of the window, reads exactly like a real
+  hit-test defect, and `wm_hit`/`dock_hit` were verified byte-identical to the
+  base before the re-run was believed.
+
+  **AND THEY BOTH PASS AT WIDTH 3 NOW**, in an eight-row slice with three
+  guests on four cores: `dispmine` 46.4 s, `tmowner` 205.4 s, nothing failed.
+  What changed underneath them is B4 — thirteen rows that ran `make` were in
+  that same shared lane and are not any more — so the concrete mechanism
+  available for their failure is a build rewriting `build/` under them, not
+  this one.
+
+  **Stated with its limit, because it is not proof.** The original failure was
+  in a 235-row pass whose shared lane held 155 rows and ran for hours; this was
+  eight rows in five minutes. It is evidence that they are not
+  *deterministically* broken by width 3, and the next full soak is the test.
+  They are deliberately NOT marked `alone=True` on the strength of it — a flag
+  taken for a cause that has moved is a slower suite for ever, and it is
+  cheaper to be wrong once more here than to pin them permanently.
 * **`deskbench`'s scene is not reproducible to the pixel** — 78,821 / 78,825 /
   78,830 lit pixels across three runs of the same build, because
   `new_window` waits on `time.time()`.
@@ -239,12 +254,36 @@ deterministic instrument and `os88marty.until` is the bounded observable wait;
 the fix in each case is to wait on something the guest publishes rather than on
 stillness or on the clock.
 
+**STILL OPEN, and deliberately not taken yet.** Rewriting `settle` onto guest
+time reaches 194 files that import `os88marty`, changes how much guest work
+every row gets per settle, and would want a full soak behind it. The evidence
+that it is causing failures has just weakened rather than strengthened (see the
+first bullet), so the honest order is: run the next full soak with B4 fixed,
+and take this if anything still moves. What is NOT in doubt is the property
+itself — `deskbench`'s scene really does differ by nine lit pixels between runs
+of the same build, because `new_window` waits on `time.time()`.
+
 ## B6. Rows that must not share a box have no way to say so
 
-`serial=True` exists and `dispmine`/`tmowner` do not set it. That is the
-immediate fix, but it is the wrong shape: it makes the suite slower to work
-around B5 instead of fixing it. Whoever takes B5 should revisit these two
-rather than pinning them serial for ever.
+**FIXED** — and the entry as first written was wrong about the mechanism,
+which is worth keeping rather than editing away.
+
+It said *"`serial=True` exists and `dispmine`/`tmowner` do not set it"*. Both
+DO set it, and setting it does not make a row run alone: `serial=True` is what
+puts a row in the SHAREABLE emulator lane, which `--marty-jobs N` then widens
+to N. The only flag that made a row run alone was `builds=True`, which is a
+claim about rewriting the tree. **So a row that needed the cores could only say
+so by lying about building** — and the four rate rows did not even do that,
+they were excluded from the wide run by hand and taken in a second one, a
+workaround written into two handoffs and remembered by whoever read them.
+
+`alone=True` says it now, and the two flags are different claims: `builds`
+cannot share the TREE, `alone` cannot share the CORES. An `alone` row runs in
+the one-at-a-time lane of the SAME run, so the soak is one command again.
+`saverate`, `deskbench`, `uilat` and `wirefps` carry it.
+
+**`dispmine` and `tmowner` deliberately do NOT**, and that is measured rather
+than assumed: see B5.
 
 ## B7. `trkrate` never calls `no_saver()`
 

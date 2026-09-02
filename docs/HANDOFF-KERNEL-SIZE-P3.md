@@ -169,19 +169,20 @@ tools/setup-cc.sh            # once; nothing in `all` needs it
 make wiredisk                # `all` deliberately does not build it (§78.9)
 make                         # AFTER any commit - see the lock above
 
-# A - the wide pass: everything except the rows whose assertion is a RATE
-python3 tools/os88test.py soak --marty-jobs 3 \
-    -x saverate -x deskbench -x uilat -x wirefps
+# THE SOAK - one command. The rows that cannot share the box say so
+# themselves now (alone=True), so there is no second pass to remember.
+python3 tools/os88test.py soak --marty-jobs 3
 
-# B - the rate rows, alone, one emulator on the box
-python3 tools/os88test.py soak --marty-jobs 1 \
-    -k saverate -k deskbench -k uilat -k wirefps
-
-# C - anything that was SKIPPED for a missing capability, once it is present
+# ...and anything that SKIPPED for a capability the box has since gained
 python3 tools/os88test.py soak -k 'weave*' -k ctoolchain --marty-jobs 2
 ```
 
-### Why three passes and not one
+**IT WAS THREE PASSES**, and the first two were `-x saverate -x deskbench -x
+uilat -x wirefps` followed by the same four with `-k`. That is a property of
+those rows and it lives on the rows now — anything the reader has to remember
+is something the next reader will not.
+
+### Why the lanes are what they are
 
 * **`--marty-jobs N` is how many EMULATOR rows may run at once** (default 1).
   Instances are isolated — own port, own directory, own disks — so this is a
@@ -194,8 +195,11 @@ python3 tools/os88test.py soak -k 'weave*' -k ctoolchain --marty-jobs 2
   halfway through rewriting `build/kernel.bin` is exactly what an emulator row
   must not be reading.
 * **A row whose assertion is a frames-per-second figure cannot share four cores
-  with three emulators.** That is exactly what corrupts it. Splitting the run
-  is cheaper than widening a tolerance, and a widened tolerance is permanent.
+  with three emulators.** That is exactly what corrupts it, and widening a
+  tolerance to suit would be permanent. Those rows carry **`alone=True`**,
+  which is a different claim from `builds=True`: a builder cannot share the
+  TREE, an `alone` row cannot share the CORES. Both land in the
+  one-at-a-time lane of the same run.
 * **`-x` prints what it dropped.** A green result must not quietly be a green
   result over less.
 

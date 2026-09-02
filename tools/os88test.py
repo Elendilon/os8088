@@ -53,11 +53,21 @@ machine.  It is not forced any more.  `os88marty.launch` gives every instance
 its own port, its own run directory and its own disks (docs/MARTYPC-DEBUG.md),
 so `--marty-jobs N` widens that lane to N.
 
-WHAT STILL RUNS ALONE, and it is no longer about the emulator: a row marked
-`builds=True` shells out to `make`, so it rewrites `build/` under any row
-reading it.  Those keep the tree to themselves whatever `--marty-jobs` says,
-and `tests/unit/t_registry.py` checks the flag against the script rather than
-trusting it.
+WHAT STILL RUNS ALONE, and it is no longer about the emulator.  TWO flags,
+and they are different claims:
+
+  * `builds=True` - the row shells out to `make`, so it rewrites `build/`
+    under any row reading it.  It cannot share the TREE, and
+    `tests/unit/t_registry.py` checks this one against the script rather than
+    trusting it.
+  * `alone=True` - the row's ANSWER needs the machine to itself.  A row whose
+    assertion is a RATE cannot share four cores with two other guests; nor can
+    one whose clicks are paced by a host-timed settle.  It can share the tree
+    and only needs the CORES.
+
+Both keep the row out of the shared lane whatever `--marty-jobs` says, and
+both land it in the one-at-a-time lane of the SAME run - so "the whole soak
+except the rate rows, then the rate rows" is one command now and not two.
 
 WHY THE DEFAULT IS 1.  Not caution about the isolation - `tests/martyconc.py`
 is the gate on that - but arithmetic.  Every instance runs its guest as fast
@@ -219,12 +229,14 @@ def main():
     ap.add_argument("-x", "--exclude", metavar="GLOB", action="append",
                     default=[],
                     help="drop rows whose name matches, AFTER -k (repeatable). "
-                         "It exists for one shape: a row whose assertion is a "
-                         "RATE cannot share the box with other emulators, so a "
-                         "wide run excludes those four and a second, serial run "
-                         "takes them alone. Excluding a row is a decision - the "
-                         "run prints which ones it dropped, so a green result "
-                         "cannot quietly be a green result over less.")
+                         "It was written for one shape - a row whose assertion "
+                         "is a RATE, excluded from a wide run and taken in a "
+                         "second serial one - and that shape is alone=True on "
+                         "the row now, in ONE run. What is left is the ordinary "
+                         "use: dropping a row on purpose. Excluding one is a "
+                         "decision, so the run prints which it dropped and a "
+                         "green result cannot quietly be a green result over "
+                         "less.")
     ap.add_argument("-j", type=int, default=min(4, (os.cpu_count() or 2)),
                     help="parallel lanes for the host-side rows")
     ap.add_argument("--marty-jobs", type=int, dest="mj",
@@ -232,8 +244,9 @@ def main():
                     help="how many EMULATOR rows may run at once (default 1). "
                          "Instances are isolated, so this is a question about "
                          "how many cores the box has, not about safety - see "
-                         "the header. Rows marked builds=True run alone "
-                         "whatever this says.")
+                         "the header. Rows marked builds=True (cannot share the "
+                         "TREE) or alone=True (cannot share the CORES) run "
+                         "alone whatever this says.")
     ap.add_argument("--list", action="store_true", help="print the registry and exit")
     ap.add_argument("--strict", action="store_true",
                     help="a missing capability is a FAILURE, not a skip")
@@ -294,7 +307,7 @@ def main():
     # because every instance has its own port, directory and disks now.
     mj = max(1, a.mj)
     conc = [r for r in ser
-            if mj > 1 and "marty" in r.needs and not r.builds]
+            if mj > 1 and "marty" in r.needs and not r.builds and not r.alone]
     ser = [r for r in ser if r not in conc]
     if conc:
         print("os88test: %d emulator row(s) in a lane of %d; %d run alone"

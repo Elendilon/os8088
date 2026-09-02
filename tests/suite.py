@@ -45,10 +45,10 @@ class Row:
     """One registered test."""
 
     __slots__ = ("name", "tier", "cmd", "secs", "needs", "serial", "why",
-                 "timeout", "builds")
+                 "timeout", "builds", "alone")
 
     def __init__(self, name, tier, cmd, secs, why, needs=(), serial=False,
-                 timeout=None, builds=False):
+                 timeout=None, builds=False, alone=False):
         self.name, self.tier, self.cmd = name, tier, cmd
         self.secs, self.why = secs, why
         self.needs = tuple(needs)
@@ -62,6 +62,25 @@ class Row:
         # rather than trusting it: a row that gains a `make` and not the flag
         # would be a suite that fails one run in five for no visible reason.
         self.builds = builds
+        # ALONE: this row's ANSWER needs the machine to itself, which is a
+        # different claim from `builds` and was not sayable until now. A row
+        # whose assertion is a RATE - frames a second, milliseconds a redraw -
+        # cannot share four cores with two other guests: that is not a flaky
+        # row, it is the wrong measurement. Neither can a row whose clicks are
+        # paced by a HOST-timed settle, because how much guest time a settle
+        # covers is then a property of the box (docs/HANDOFF-SOAK-FINDINGS.md
+        # B5).
+        #
+        # It used to be spelled by EXCLUDING those rows from the wide run and
+        # taking them in a second one - `-x saverate -x deskbench ...`, written
+        # into two handoffs and remembered by whoever read them. A property of
+        # the row is the place for it: the runner keeps an `alone` row out of
+        # the shared lane and runs it in the one-at-a-time lane of the SAME
+        # run, so there is no second pass to forget.
+        #
+        # It is not `builds`. A builder cannot share the TREE; one of these
+        # can, and only needs the CORES.
+        self.alone = alone
         # A generous default: the point of the per-row timeout is to stop a
         # hung emulator eating the tier, not to police a slow machine.
         self.timeout = timeout or max(60, int(secs * 4) + 30)
@@ -984,13 +1003,13 @@ SOAK = [
         "content can produce. The other three modes are the control and are "
         "counted off [sv_due], which cannot see a re-anchored mode - so they "
         "catch a mode that stopped drawing and not one that was quantised.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, alone=True),
     Row("deskbench", "soak", py("tests/deskbench.py"), 330.0,
         "THE STANDARD BUSY DESKTOP, priced: what a full-screen redraw, a "
         "window move and a raise cost with four windows open (PERFORMANCE.md "
         "Part 3). A measurement, not a gate - it asserts its own SCENE and "
         "prints numbers. `--all` runs one per adapter.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, alone=True),
     Row("arkpuwipe", "soak", py("tests/arkpuwipe.py"), 300.0,
         "Does a capsule the blit REFUSED leave a streak behind it? (SPEC.md "
         "44.10.6.2). VGA on purpose - on CGA ARK_PUFALL floors to 1 and the "
@@ -1292,7 +1311,7 @@ SOAK = [
     Row("wirefps", "soak", py("tests/wirefps.py"), 90.0,
         "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
         "reading its own frame rate, with the dispatch poked out and back",
-        needs=("marty", "wiredisk"), serial=True),
+        needs=("marty", "wiredisk"), serial=True, alone=True),
     Row("paintrate", "soak", py("tests/paintrate.py"), 120.0,
         "SPEC.md 42.8.1: is Paint's brush stroke still sampled at the TICK? The"
         "facets in a hand-drawn curve were one 55ms sleep each. On the GLaBIOS"
@@ -1346,7 +1365,7 @@ SOAK = [
         "SPEC.md 7.3: how long a click waits while a worker draws, bracketed"
         "by two memory breakpoints because the mouse harness has a half-second"
         "floor and cannot see it (7.3.1)",
-        needs=("marty", "wiredisk"), serial=True),
+        needs=("marty", "wiredisk"), serial=True, alone=True),
     Row("evqfull", "soak", py("tests/evqfull.py"), 60.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
