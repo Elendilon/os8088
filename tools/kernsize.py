@@ -71,6 +71,13 @@ KERNEL = os.path.join(ROOT, "kernel", "kernel.asm")
 # measured the wrong kernel for `small` silently and could not assemble a
 # baked-font one at all.  --build is how the Makefile says which.
 BUILDDIR = os.path.join(ROOT, "build")
+# ...and where associco.inc is, which since the Makefile's ICODIR need not be
+# the same directory: a knob build that only wants a knob KERNEL takes that
+# include from the default build rather than rebuilding four byte-identical
+# packages for it. This tool RE-ASSEMBLES the kernel to measure it, so it needs
+# the same include path the Makefile used or nasm cannot find the file - which
+# arrives here as a JSON decode error in whoever called --json.
+ICODIR = None
 DOC = os.path.join(ROOT, "docs", "KERNEL-MEMORY.md")
 BEGIN = "<!-- kernsize:begin -->"
 END = "<!-- kernsize:end -->"
@@ -210,6 +217,11 @@ THEMES = (
 )
 
 
+def icoinc():
+    """`-I <ICODIR>`, and only when it is not $(BUILD) already."""
+    return ["-I", ICODIR + os.sep] if ICODIR and ICODIR != BUILDDIR else []
+
+
 def measure(nasm_args=()):
     """The ladder, out of NASM, from kernel.asm's own equations.
 
@@ -224,6 +236,7 @@ def measure(nasm_args=()):
                "-I", os.path.join(ROOT, "kernel") + os.sep,
                "-I", os.path.join(ROOT, "apps") + os.sep,
                "-I", BUILDDIR + os.sep,
+               *icoinc(),
                *nasm_args, "-o", out_path, KERNEL]
         r = subprocess.run(cmd, capture_output=True, text=True)
     finally:
@@ -334,6 +347,7 @@ def _nasm(path, out_path, nasm_args=()):
          "-I", os.path.join(ROOT, "kernel") + os.sep,
          "-I", os.path.join(ROOT, "apps") + os.sep,
          "-I", BUILDDIR + os.sep,
+         *icoinc(),
          *nasm_args, "-o", out_path, path],
         capture_output=True, text=True)
 
@@ -770,6 +784,10 @@ def main():
     ap.add_argument("--build", metavar="DIR",
                     help="where the generated includes are (default build/); "
                          "a sub-make with BUILD= set needs this")
+    ap.add_argument("--ico", metavar="DIR",
+                    help="where associco.inc is, when the Makefile's ICODIR "
+                         "points it somewhere other than --build. Added to "
+                         "the include path, never replacing it")
     # Anything else is handed to NASM verbatim - parse_known_args rather than
     # a positional, because the knobs arrive looking like options
     # (-DVID_FORCE=3) and argparse would claim them.
@@ -777,6 +795,9 @@ def main():
     if a.build:
         global BUILDDIR
         BUILDDIR = os.path.abspath(a.build)
+    if a.ico:
+        global ICODIR
+        ICODIR = os.path.abspath(a.ico)
     variant = variant_of(nasm_args)
     knobs = knob_args(nasm_args)
 

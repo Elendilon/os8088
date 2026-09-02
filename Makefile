@@ -1606,12 +1606,30 @@ $(BUILD):
 # stale in silence when an app's icon changes, where this dependency cannot.
 # The DAG stays acyclic - a package depends on apps/os88api.inc, never on
 # kernel.bin.
-ASSOCICO := $(BUILD)/associco.inc
-$(ASSOCICO): tools/os88mini.py $(BUILD)/paint.o88 $(BUILD)/notepad.o88 \
-             $(BUILD)/tracker.o88 $(BUILD)/artful.o88 | $(BUILD)
+#
+# ICODIR - WHERE THOSE FOUR PACKAGES AND THE INCLUDE COME FROM, and it is
+# $(BUILD) unless a caller says otherwise.  RECURSIVE for $(KMODDIR)'s reason,
+# one block up: a rule that builds a kernel somewhere else sets it for itself.
+#
+# The point of the knob is that this file is KERNEL-KNOB-INDEPENDENT.  None of
+# VIDEO=, RTC=, BAND=, QUANTUM= and the rest reaches a package's command line,
+# so a build that wants only a knob KERNEL rebuilds four packages to arrive at
+# a byte-identical associco.inc - which tests/unit/t_buildmatrix.py did 43
+# times a run.  `ICODIR=build` points it at the copy the default build already
+# made, and the knob kernel is byte-identical either way.
+#
+# IT IS NOT SAFE FOR EVERY KNOB, and $(PKGSBDEF) is the reason: SBDRAGOFF= and
+# SBRATE= DO reach a package build (see their block above - a package's copy of
+# os88ui.inc is its own), so a caller passing one of those must leave ICODIR
+# alone or it stops assembling the arm the knob exists for.  The matrix derives
+# that list from $(PKGSBDEF) itself rather than keeping a copy of it.
+ICODIR = $(BUILD)
+ASSOCICO = $(ICODIR)/associco.inc
+$(ASSOCICO): tools/os88mini.py $(ICODIR)/paint.o88 $(ICODIR)/notepad.o88 \
+             $(ICODIR)/tracker.o88 $(ICODIR)/artful.o88 | $(ICODIR)
 	python3 tools/os88mini.py -o $@ \
-		PAINT=$(BUILD)/paint.o88 NOTEPAD=$(BUILD)/notepad.o88 \
-		TRACKER=$(BUILD)/tracker.o88 ARTFUL=$(BUILD)/artful.o88
+		PAINT=$(ICODIR)/paint.o88 NOTEPAD=$(ICODIR)/notepad.o88 \
+		TRACKER=$(ICODIR)/tracker.o88 ARTFUL=$(ICODIR)/artful.o88
 
 # The baked typeface (SPEC.md 6.2), when FONT= asked for one. Empty otherwise,
 # so the prerequisite below simply is not there on a default build.
@@ -1641,9 +1659,33 @@ KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
 # a module is .cold code running with DS = KERNEL_SEG - so every kernel symbol
 # it names has to be the address the kernel itself uses, and one assembly is
 # what makes that true rather than claimed.
+#
+# KINC - the kernel assembly's include path. $(ICODIR) is added ONLY when it
+# differs from $(BUILD), so the default build's command line is the one it has
+# always been rather than the same directory named twice.
+KINC = -I kernel/ -I apps/ -I $(BUILD)/$(if $(filter-out $(BUILD),$(ICODIR)), -I $(ICODIR)/)
+#
+# NOOVLCHK=1 - DO NOT RUN THE GATE HERE, BECAUSE THE CALLER ALREADY RAN IT.
+# os88ovlchk.py reads tracked SOURCE and nothing else: no argument, no
+# environment, no build directory, and it does not expand a single %ifdef - so
+# it sees every arm of every knob and its answer is a function of kernel/ and
+# nothing else. Running it once per kernel in a sweep of 43 knob kernels is
+# therefore the same answer 43 times, which is what this exists to stop
+# (tests/unit/t_buildmatrix.py, ~40s of a 4-core box per run).
+#
+# IT IS NOT A WAY TO SKIP THE GATE. The caller that sets it must have run
+# os88ovlchk.py over this same tree and failed on it - the matrix does, as a
+# check of its own, before it builds anything. Nothing that produces a SHIPPED
+# byte may set it, which is why it is not in $(KNOBS) and not in the stamp: it
+# changes no output, so a build made with it is byte-identical to one without,
+# and the line below says so on the terminal rather than passing in silence.
 $(BUILD)/kernel-full.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) $(FONTINC) $(BUILDINC) tools/os88ovlchk.py | $(BUILD)
+ifeq ($(NOOVLCHK),)
 	@python3 tools/os88ovlchk.py
-	$(NASM) -f bin -w+error -I kernel/ -I apps/ -I $(BUILD)/ $(VIDDEF) -o $@ $(KERNEL_SRC)
+else
+	@echo "os88ovlchk: NOT RUN (NOOVLCHK=1 - the caller states it ran it over this same source)"
+endif
+	$(NASM) -f bin -w+error $(KINC) $(VIDDEF) -o $@ $(KERNEL_SRC)
 
 $(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py | $(BUILD)
 	python3 tools/os88mod.py $< -k $@ $(KMODARGS) --build $(BUILDNUM)
@@ -1667,7 +1709,14 @@ $(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py | $(BUILD)
 # rule is up to date the moment os88mod.py has written the files, so on an
 # ordinary build neither the report nor the banner ran at all. A guard that
 # stops being asked reads exactly like a guard that passes.
-	@python3 tools/kernsize.py --build $(BUILD) $(VIDDEF) || true
+# NOKERNSIZE=1 skips it, and only a sweep should: the line below is a REPORT
+# with `|| true` after it, so it gates nothing - but it RE-ASSEMBLES the kernel
+# to measure it, which is the single most expensive thing in a knob build and
+# is pure waste when the caller is going to discard the text. It is not in
+# $(KNOBS) or the stamp for NOOVLCHK's reason: it changes no output byte.
+ifeq ($(NOKERNSIZE),)
+	@python3 tools/kernsize.py --build $(BUILD) --ico $(ICODIR) $(VIDDEF) || true
+endif
 # ...and this tests the KNOBS, not $(VIDDEF), and NAMES them: the banner used
 # to be a row of blank assignments, which says no more than the alarm itself.
 # Both halves of that were the same bug and $(KNOBS) is where it is explained.
@@ -1720,11 +1769,11 @@ $(KMODS): $(BUILD)/kernel.bin ;
 # blob to HEAP_SEG in the first place retires the copy and the constant with
 # it (SPEC.md 2.9.5).
 BOOTHEAP_DEFS = import sys, subprocess, json; \
-                k = json.loads(subprocess.check_output(['python3','tools/kernsize.py','--json','--build','$(BUILD)'] + sys.argv[1:])); \
+                k = json.loads(subprocess.check_output(['python3','tools/kernsize.py','--json','--build','$(BUILD)','--ico','$(ICODIR)'] + sys.argv[1:])); \
                 print('-DHEAP_PARA=%d' % k['kend'])
 
 $(BUILD)/boot.bin: boot/boot.asm kernel/kernel.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
-	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" \
+	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
 	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
 	 echo "$(NASM) -f bin $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
 	 $(NASM) -f bin $(BOOTDEF) $$H \
@@ -1747,7 +1796,7 @@ $(BUILD)/boot.bin: boot/boot.asm kernel/kernel.asm $(BUILD)/kernel.bin Makefile 
 # byte-identical second artifact that can only ever say what this one already
 # says.
 $(BUILD)/boot360.bin: boot/boot.asm kernel/kernel.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
-	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" \
+	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
 	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
 	 echo "$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
 	 $(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) $$H \
@@ -1772,7 +1821,7 @@ $(BUILD)/boot360.bin: boot/boot.asm kernel/kernel.asm $(BUILD)/kernel.bin Makefi
 # 9 - so the FAT window is still the degenerate whole-FAT case a floppy has
 # always had, and 2,400 sectors is exactly rule 13's spt*heads*80 bound.
 $(BUILD)/boot120.bin: boot/boot.asm kernel/kernel.asm $(BUILD)/kernel.bin Makefile | $(BUILD)
-	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" \
+	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
 	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
 	 echo "$(NASM) -f bin -DSPT=15 -DHEADS=2 $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
 	 $(NASM) -f bin -DSPT=15 -DHEADS=2 $(BOOTDEF) $$H \
@@ -2316,7 +2365,7 @@ $(BUILD)/mbr.bin: boot/mbr.asm | $(BUILD)
 # not start.
 BOOTHD_DEFS = import sys, subprocess, json; sys.path.insert(0, 'tools'); \
               import os88sym; \
-              k = json.loads(subprocess.check_output(['python3','tools/kernsize.py','--json','--build','$(BUILD)'] + sys.argv[1:])); \
+              k = json.loads(subprocess.check_output(['python3','tools/kernsize.py','--json','--build','$(BUILD)','--ico','$(ICODIR)'] + sys.argv[1:])); \
               print('-DBLOB_SEG=%d -DSPL_FSEG=%d' % (k['kseg'] + k['ksize'] // 16, os88sym.syms()['spl_fseg']))
 
 # BLOB_SEG follows the SHIPPED kernel's ladder. A kern_small installed to a
@@ -2359,7 +2408,7 @@ BOOTHD_DEFS = import sys, subprocess, json; sys.path.insert(0, 'tools'); \
 # and it needs both. The floppy path cannot have this bug at all, stage 2
 # publishing the segment it actually relocated itself to.
 $(BUILD)/boothd.bin: boot/boothd.asm kernel/kernel.asm $(BUILD)/kernel.bin | $(BUILD)
-	@D=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" \
+	@D=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
 	     python3 -c "$(BOOTHD_DEFS)" $(VIDDEF)) && \
 	 echo "$(NASM) -f bin -w+error -DBOOT2_SECS=$(BOOT2_SECS) $$D -o $@ $<" && \
 	 $(NASM) -f bin -w+error -DBOOT2_SECS=$(BOOT2_SECS) $$D -o $@ $<

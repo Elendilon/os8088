@@ -367,9 +367,19 @@ FAST = [
 # full - the pre-merge gate. Everything above, plus these.
 # --------------------------------------------------------------------------
 FULL = [
-    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 45.0,
+    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 55.0,
         "the knob kernels and kern_small - every configuration `all` "
         "does not build, and so the only thing that keeps them assembling", builds=True),
+    Row("bmshare", "full", py("tests/unit/t_bmshare.py"), 16.0,
+        "...and that the three variables it builds them WITH change no byte. "
+        "ICODIR/NOOVLCHK/NOKERNSIZE each take work out of a knob build - the "
+        "shared packages, the source-only overlay gate, the size report's "
+        "second assembly - and taking work out of a build is the change that "
+        "goes wrong in silence. It builds one knob kernel both ways and "
+        "compares the images, and it checks the exclusion the sharing rests "
+        "on: SBDRAGOFF/SBRATE reach notepad's own nasm line, t_buildmatrix "
+        "derives that pair from $(PKGSBDEF) rather than keeping a copy, and "
+        "both ends of that derivation are asserted here", builds=True),
     Row("kernmods", "full", py("tests/unit/t_kernmods.py"), 7.0,
         "tools/kernsize.py's PER-MODULE pass still measures - the byte "
         "compare inside it worked and nothing ran it, so --bless returned 1 "
