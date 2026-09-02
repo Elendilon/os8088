@@ -124,6 +124,15 @@ def capabilities():
     # named its parent.
     if os.access(os.path.join(ROOT, "build/cc/SmallerC/smlrcc"), os.X_OK):
         caps.add("cc")
+    # WIREFRAME is an instrument and does not ship (SPEC.md 78.9), so `all`
+    # builds wire.o88 and NO shipped floppy carries it - the disk comes from
+    # `make wiredisk` and nothing in the suite runs that. Without this, the
+    # three rows that drive it (wireflick, wirefps, uilat) FAIL on a tree that
+    # simply has not built it, and a failure meaning "this box has no disk"
+    # buries the failures that mean something. Named for the artifact, per the
+    # note above.
+    if os.path.exists(os.path.join(ROOT, "build/wire360.img")):
+        caps.add("wiredisk")
     return caps
 
 

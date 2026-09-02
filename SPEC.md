@@ -49981,6 +49981,132 @@ no breakpoint armed after that stop fires again**, at any address, while `run`
 is provably resuming. A rig that stops, re-arms and resumes cannot work here;
 this one writes an immediate into the patched loop and advances instead.
 
+### 42.21 A GIF's LZW loop emits a RUN, not a pixel
+
+**The decode of `MEDIA/OS8088.GIF` — 466x110, 2,138 bytes on disk — took
+12.45 seconds on a 4.77 MHz 8088**, and 10.6 of them were the LZW loop at
+**999 cycles a pixel**. Taken with a breakpoint either side of `pt_gdec` and
+one either side of `pt_line_put`, so the two halves are separated rather than
+apportioned (`tests/paintlzw.py`).
+
+999 cycles buys a lot on this machine, and none of it was arithmetic. LZW
+hands a string back **last character first**, so the reader unwound it onto a
+character stack and then emitted it in reverse — and *emitting* was a near
+call per pixel into `pt_gemit`, which pushed four registers, re-read
+`[pt_gcol]`, `[pt_cols]` and `[pt_gw]`, mapped the index through `pt_pmap`,
+stored one byte and popped four registers. Around it sat `pt_gpush` and
+`pt_gpop`, two more calls a pixel, each re-reading and re-writing the stack
+depth in memory. **Three calls, six memory round trips and a palette lookup
+for every pixel of a picture that is a table of bytes.**
+
+The shape that removes all of it is one observation: *the stack the walk fills
+is the string, backwards*. So fill it **downwards from the top of the same
+4,096-byte region** instead — the walk writes with `std` and `stosb`, one byte
+and eleven cycles a character — and when the walk ends the string is sitting
+at `ES:DI+1` in the order the picture wants it. A run then costs a
+`rep movsb`, seventeen cycles a pixel, and every per-pixel decision becomes a
+per-RUN one. `pt_grun` is that routine: it cuts the run at the source row's
+end (which is what advances the destination row and walks the interlace) and
+then at the canvas's width (which is what crops a picture wider than the
+canvas, counting the columns it drops so the stream stays in step). Strings
+here average 30 pixels, so a 466-wide row is cut about once in fifteen runs.
+
+**It costs no heap.** `PT_GD_STK` was 4,096 bytes of character stack and is
+now 4,096 bytes of string buffer, in the same place, inside the same
+`PT_LZW_KB` claim.
+
+#### 42.21.1 The two guards move from the pixel to the CODE
+
+The old walk paid `cmp word [pt_gsp], 4096 / jae` on **every character** — a
+runaway guard against a dictionary that cycles, which is a real hazard: a
+crafted file can send a code the table has not defined, and `[pt_gold]` then
+walks entries that were never written. The guard cut the chain short and
+carried on, which is a partial picture from a wrong premise.
+
+Two checks placed **once per code** make the walk unguarded and the hazard
+impossible instead:
+
+- **a code is refused unless it is at most `[pt_gfree]`.** That single forward
+  reference is the only one GIF defines (the string that ends in its own first
+  character), and it is the only one this reader now honours. Anything above
+  it is a file describing a table it never built, and the decode stops.
+- **an entry is refused unless its prefix is below its own index.** A chain
+  therefore strictly descends and cannot cycle, so its length is bounded by
+  the index it starts from.
+
+The arithmetic that follows is what lets the buffer go unchecked. Roots live
+below `[pt_gclr]`, `[pt_gfree]` starts at `Clear + 2`, and prefixes are never
+`Clear` or `EOI` (neither is ever accepted as a code), so a chain from 4,095
+visits at most `4095 - (Clear + 2) + 1` defined entries and one root — **4,091
+characters at the smallest legal `Clear` of 4**, plus one for the forward
+reference. 4,092 into 4,096. The buffer cannot underrun, and no instruction in
+the walk checks that it did not.
+
+The first code after a `Clear` must now be a root as well. It was previously
+taken on trust and used as an index into `pt_pmap`, which is 256 bytes: a
+12-bit code there read up to 4KB past the table and painted whatever it found.
+
+#### 42.21.2 The palette is applied once per STRING
+
+`pt_pmap` maps the file's colour indices onto Paint's sixteen, and the old
+reader applied it in `pt_gemit` — once per pixel, four instructions and a
+memory read. But a dictionary entry's suffix byte is written **once** and read
+once per pixel of every string that ends in it, so the mapping belongs there.
+`[pt_gfirst]` now holds a mapped colour rather than a code, which carries the
+mapping into the suffix the new entry is defined with for free, and the only
+lookups left are one per root — one per string. It is why `pt_grun` can be a `rep movsb` at
+all: the bytes in the buffer are already the bytes the canvas wants.
+
+`[pt_gfirst]` is a byte for the same reason, and `[pt_gsp]` is gone.
+
+#### 42.21.3 What it came to, and what is left
+
+| | before | after | | |
+|---|---:|---:|---:|---|
+| the LZW loop | 999 | **205** | 4.87x | cycles a pixel |
+| `pt_line_put`, per pixel of the row it packs | 169 | 169 | — | cycles a pixel |
+| the whole `pt_gif_in` on `OS8088.GIF` | 12,547 | **3,952** | 3.17x | ms |
+
+for **27 bytes** of package image, `tests/paintlzw.py`. It is a pure win in
+size as well as speed below that: `[pt_gsp]` and a byte of `[pt_gfirst]` came
+back out of `.bss`, and `pt_gpush`, `pt_gpop` and `pt_gemit` are three
+routines gone.
+
+**`pt_line_put` was then the larger half of what was left**, and it is not the
+GIF decoder's — it is the four-plane transpose every picture goes through
+(§42.13.1.2), eight shift pairs a pixel, and its cost is the 8088's
+instruction-fetch floor rather than its clocks. §42.13.1.4 straightens it out
+for 125 bytes, and it pays the BMP decoder the same way:
+
+| | before | after | | |
+|---|---:|---:|---:|---|
+| `pt_line_put`, four planes | 169 | **125** | 1.34x | cycles a pixel |
+| `pt_line_put`, packed nibbles | 185 | **49** | 3.79x | cycles a pixel |
+
+which puts the whole operation, measured end to end either side of
+`pt_gif_in` on both canvas formats, at:
+
+| `OS8088.GIF`, 466x110 | before | after | |
+|---|---:|---:|---:|
+| VGA — the canvas is four planes | 12,547 ms | **3,494 ms** | 3.59x |
+| CGA or Hercules — packed nibbles | 12,755 ms | **2,687 ms** | **4.75x** |
+
+for **136 bytes** of package image in total, and three bytes of `.bss` handed
+back. The 1bpp adapters come out ahead because the packed pack had the most
+slack in it, and they are the machines this is for.
+
+What is left is 205 cycles a pixel of LZW — about half of it the chain walk,
+two table reads and a `stosb` per character, which is what the format costs —
+and the transpose. Three things were costed and NOT built. **Pre-doubling the
+prefixes** to delete the walk's `add bx, bx` needs a stride-2 suffix table:
+8KB more claim, `PT_LZW_KB` 16 → 24, for ~5% of the loop. **Caching the
+previous string** would skip the walk for the 25.5% of characters that arrive
+as the forward reference, and needs a second 4,096-byte buffer for it.
+And **`pt_gbits`**, at roughly 550 cycles a code, is 18 cycles a pixel at this
+picture's 30-pixel average string — it is worth having only for a picture that
+compresses badly, where the strings are short and every code is paid for over
+fewer pixels.
+
 ### 42.13 The canvas is stored the way the CARD wants it
 
 §5.4's blit takes packed 4bpp — two pixels a byte, which is what a BMP row is
@@ -50277,6 +50403,48 @@ The probe removes all of that: the flag stays armed while the answer is no,
 so the retry rides the next repaint at the cost of one far call, and the
 conversion happens exactly once, at the first repaint where the planes would
 actually be taken.
+
+##### 42.13.1.4 The byte column is STRAIGHT-LINE, because the 8088 charges for arriving
+
+`pt_line_put`'s planar path is what every opened picture goes through — GIF
+and BMP alike, one call a row — and it cost **169 cycles a pixel** on a
+4.77 MHz 8088, measured with a breakpoint either side of it during a GIF
+decode (`tests/paintlzw.py`). The work in it is 32 clocks: four `shr`/`rcl`
+pairs, one bit of the pixel into each plane's accumulator. The other 137 were
+**instruction fetch**.
+
+§42.13.1.2 unrolled the same shape on the way OUT (`pt_line_get`, the GIF
+writer's row reader) and took 26% off it. The way in had the same defect and a
+second one on top:
+
+- `mov bl, [pt_line+si]` / `inc si` is **five bytes** to read a byte the 8088
+  will spend 20 bus cycles fetching. `SI` walks `pt_line` as a pointer
+  instead, so the read is `lodsb` — **one byte** — and `[pt_ppend]` (one past
+  the row's last real pixel) is what the two bounds tests compare against.
+- `dec cl` / `jnz` is four more bytes per pixel, and on this machine that is
+  what a loop costs: not the 19 clocks, the 17 cycles of *fetching* them. All
+  eight pixels are emitted straight-line.
+
+**169 → 125 cycles a pixel**, 16.53 → 12.21 ms for a 466-pixel row, for **125
+bytes** of package image. The accumulators moved to CL/CH/DL/DH so that `AL`
+can be `lodsb`'s and `BX` stays free to index the planes; the partial column
+at the end of a row keeps its rolled loop and its per-pixel bounds test, which
+is the whole reason there are two paths.
+
+**The PACKED path was worse, and it is the one a 5150 runs.** A 1bpp adapter
+holds the canvas as packed nibbles (§42.13), so `pt_line_put`'s other loop is
+what every picture opened on a CGA or a Hercules goes through — and it cost
+**185 cycles a pixel**. Two pixels are one byte, and it decided *per pixel*
+which nibble it was holding (`test si, 1`), re-derived the destination byte
+from the column every time (`mov di, si` / `shr di, 1` / `add di, bx`), and
+asked on every even pixel whether it was the last one in the row.
+
+Taking them in **pairs** deletes all three questions: `lodsw` brings both
+pixels, one `shl` and an `or` make the byte, `stosb` places it, and the count
+is whole pairs decided once. **185 → 49 cycles a pixel, 3.79x** — and it is
+**12 bytes SMALLER** than the loop it replaced. The lone final pixel of an odd
+row is still merged rather than written, which is the same promise the planar
+path's partial byte column makes.
 
 #### 42.13.2 Seven things the second bodies got wrong
 

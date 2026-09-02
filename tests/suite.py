@@ -644,7 +644,7 @@ SOAK = [
         "and the FIELD RUN (docs/FIELD-MACHINES.md, WEAVE-PLAN 4.2) is what "
         "turns it into a claim. 50s is 34s MEASURED plus room for the one "
         "navigation retry weavesmoke's own flake can cost",
-        needs=("marty",), serial=True, timeout=300),
+        needs=("marty", "cc"), serial=True, timeout=300),
     Row("weavepack", "soak", py("tests/weavepack.py"), 1500.0,
         "WEAVE-SPEC 11.1's gate and the one wave 6 closes on: LOOM packs "
         "every demo and every template ON THE MACHINE, the guest's floppy is "
@@ -1265,11 +1265,11 @@ SOAK = [
     Row("wireflick", "soak", py("tests/wireflick.py"), 120.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"
         "frame - the flicker measured rather than argued about",
-        needs=("marty",), serial=True),
+        needs=("marty", "wiredisk"), serial=True),
     Row("wirefps", "soak", py("tests/wirefps.py"), 90.0,
         "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
         "reading its own frame rate, with the dispatch poked out and back",
-        needs=("marty",), serial=True),
+        needs=("marty", "wiredisk"), serial=True),
     Row("paintrate", "soak", py("tests/paintrate.py"), 120.0,
         "SPEC.md 42.8.1: is Paint's brush stroke still sampled at the TICK? The"
         "facets in a hand-drawn curve were one 55ms sleep each. On the GLaBIOS"
@@ -1323,7 +1323,7 @@ SOAK = [
         "SPEC.md 7.3: how long a click waits while a worker draws, bracketed"
         "by two memory breakpoints because the mouse harness has a half-second"
         "floor and cannot see it (7.3.1)",
-        needs=("marty",), serial=True),
+        needs=("marty", "wiredisk"), serial=True),
     Row("evqfull", "soak", py("tests/evqfull.py"), 60.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
@@ -1607,6 +1607,18 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("paintgif", "soak", py("tests/paintgif.py"), 60.0,
         "HOW LONG DOES PAINT TAKE TO OPEN OS8088.GIF? - in GUEST CYCLES",
+        needs=("marty",), serial=True),
+    Row("paintlzw", "soak", py("tests/paintlzw.py"), 120.0,
+        "SPEC.md 42.21: ...and WHICH HALF of it. paintgif times the whole "
+        "operation, which is the right shape for a regression that could be "
+        "anywhere and cannot say where this one was: the decode was 12,547 ms "
+        "and 999 cycles a pixel of it were the LZW loop against 169 in "
+        "pt_line_put, because the reader emitted one pixel per near call with "
+        "two more around it for the character stack. Breakpoints on Paint's "
+        "own labels split pt_gif_in four ways and then split the decode "
+        "again, pt_line_put against the loop that feeds it. The ceilings are "
+        "loose on purpose - they catch a return to the old SHAPE, not a "
+        "picture whose dither packs differently",
         needs=("marty",), serial=True),
     Row("paintanchor", "soak",
         py("tests/paintanchor.py", "--machine", "os8088_5150_herc_gla"), 300.0,
