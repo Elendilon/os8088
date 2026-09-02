@@ -222,6 +222,12 @@ FAST = [
         "the WRONG ORDER (SPEC.md 1's register discipline: balanced depth, "
         "swapped pair, nothing faults), and a `cpu 8086` reachable from every "
         "root"),
+    Row("resident", "fast", py("tests/unit/t_resident.py"), 1.5,
+        "nothing the splash's first tick runs may jump to SPEC.md 15.1.2's "
+        "epilogue ladder - the ladder is at the far end of .text and the "
+        "floppy has not delivered it yet, so the machine dies with a blank "
+        "screen and no message. kernel.asm's SPL_RES_SIZE guard measures where "
+        "the resident code ENDS, and size is not reach"),
     Row("wakedrain", "fast", py("tests/unit/t_wakedrain.py"), 0.3,
         "every event-queue drain gives a package's wake back - one that eats "
         "it deafens the window for the rest of its life (SPEC.md 74.1.1)"),
