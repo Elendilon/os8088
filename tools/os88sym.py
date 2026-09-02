@@ -240,8 +240,20 @@ def _load(defines=(), check=True):
     # PLAIN kernel and refused. That refusal is right and the map was right;
     # what was missing was a way to say which pair to use.
     bdir = os.environ.get("OS88_BUILD", "") or os.path.join(ROOT, "build")
+    # ...and $OS88_ICODIR the same idea one file along: since the Makefile's
+    # ICODIR, associco.inc need not be in $(BUILD) at all - a build that wants
+    # only a knob KERNEL takes it from the default build rather than rebuilding
+    # four byte-identical packages to make its own. Added to the include path,
+    # never replacing $bdir, and empty on every ordinary build.
+    idir = os.environ.get("OS88_ICODIR", "")
     if not os.path.isabs(bdir):
         bdir = os.path.join(ROOT, bdir)
+    # ...resolved against ROOT and not the cwd, exactly as $bdir is: the
+    # Makefile passes it relative ("build") and a caller with a different
+    # working directory would otherwise get an include path pointing at a
+    # directory that does not exist, and nasm would report a missing file.
+    if idir and not os.path.isabs(idir):
+        idir = os.path.join(ROOT, idir)
     # A KNOB KERNEL IS NOT BOUND BY KERN_BUDGET (kernel.asm guard 1), and the
     # Makefile says so with -DKERN_KNOB. A tool re-assembling one for its
     # symbol map has to say the same thing or nasm refuses a kernel that
@@ -270,7 +282,9 @@ def _load(defines=(), check=True):
     cmd = ["nasm", "-f", "bin", "-w+error",
            "-I", os.path.join(ROOT, "kernel") + os.sep,
            "-I", os.path.join(ROOT, "apps") + os.sep,
-           "-I", bdir + os.sep]
+           "-I", bdir + os.sep] + \
+          (["-I", idir + os.sep]
+           if idir and os.path.normpath(idir) != os.path.normpath(bdir) else [])
     for d in defines:
         cmd += ["-D" + d]
     cmd += ["-o", binf, asm]

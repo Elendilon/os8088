@@ -34,8 +34,33 @@ without assembling.
 
 This only ASSEMBLES them.  That is deliberate and it is most of the value for
 almost none of the time: a `%ifdef` arm that has fallen behind a rename fails
-at `nasm`, not at run time, and the whole matrix costs seconds.  What a knob
-DOES is the job of the gate that uses it.
+at `nasm`, not at run time.  What a knob DOES is the job of the gate that uses
+it.
+
+A ROW PAYS FOR ITS OWN ASSEMBLY AND NOTHING ELSE, and three make variables are
+what hold it to that.  Each row used to be a whole cold build in a directory of
+its own, of which the assembly under test was under a third: it also rebuilt
+four application packages to arrive at a byte-identical associco.inc, ran
+os88ovlchk.py over source no knob can change, and re-assembled the finished
+kernel a second time for a size report this file captures and throws away.  At
+43 rows that was ~230 seconds of a 4-core box per run, none of it about a knob.
+
+  ICODIR=build     take the four packages and associco.inc from the default
+                   build.  NOT passed for a row whose knob reaches a PACKAGE
+                   and not only the kernel - PKG_VARS below is that list, read
+                   out of the Makefile's own $(PKGSBDEF) rather than copied
+                   here, so a knob added to it stops sharing without anybody
+                   remembering to edit this file
+  NOOVLCHK=1       do not run the overlay gate per row.  It takes no argument
+                   and expands no %ifdef, so its answer is a function of
+                   kernel/ alone and 43 runs are one answer 43 times.  THE GATE
+                   STILL RUNS: once, here, as a check of this file's own, and
+                   the matrix fails on it exactly as a build would
+  NOKERNSIZE=1     skip the size REPORT, which re-assembles the kernel to
+                   measure it and whose output never leaves this process
+
+None of the three changes a byte of any kernel this file builds, which is the
+property that makes them safe and the one tests/unit/t_bmshare.py asserts.
 
 EVERY BUILD IS OUT OF TREE, in `build/bm-<name>/`, and that is not tidiness.
 CLAUDE.md's `cgak` note is the reason: a knob build landing in `build/` puts
@@ -48,6 +73,7 @@ import argparse
 import concurrent.futures
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -56,6 +82,29 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from harness import check, done                           # noqa: E402
+
+
+def pkg_vars():
+    """The make variables that reach a PACKAGE build and not only the kernel.
+
+    DERIVED, from the Makefile's own $(PKGSBDEF) line, because a list of knob
+    names kept here is a list that goes stale silently: the failure it would
+    cause is a row sharing the default build's notepad.o88 and so no longer
+    assembling `apps/notepad` under the knob it exists for - green, and one
+    gate poorer.  Reading the definition means a knob added to PKGSBDEF stops
+    sharing on the next run.  An empty answer is a FAILURE below, not a
+    default: it means the definition has moved and this can no longer tell.
+    """
+    txt = open(os.path.join(ROOT, "Makefile"), encoding="utf-8").read()
+    m = re.search(r'^PKGSBDEF\s*:?=\s*(.*)$', txt, re.M)
+    return set(re.findall(r'\$\(if\s+\$\((\w+)\)', m.group(1))) if m else set()
+
+
+PKG_VARS = pkg_vars()
+
+# What every row passes: see the module docstring. Held here rather than spelt
+# into build() so that the one place it is decided is the one place it reads.
+NOWASTE = ["NOOVLCHK=1", "NOKERNSIZE=1"]
 
 # (name, [make variables]) or (name, [make variables], target). The target is
 # that build's own kernel unless the row names another - `small` has a target of
@@ -217,9 +266,15 @@ def md5(p):
         return hashlib.md5(f.read()).hexdigest()
 
 
+def shares(variables):
+    """...and whether THIS row may take the default build's packages."""
+    return not ({v.split("=")[0] for v in variables} & PKG_VARS)
+
+
 def build(name, variables, target="kernel.bin"):
     out = os.path.join(ROOT, "build", "bm-" + name)
-    cmd = ["make", "BUILD=" + os.path.relpath(out, ROOT)] + variables + \
+    cmd = ["make", "BUILD=" + os.path.relpath(out, ROOT)] + NOWASTE + \
+          (["ICODIR=build"] if shares(variables) else []) + variables + \
           [os.path.relpath(os.path.join(out, target), ROOT)]
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=300)
     ok = r.returncode == 0 and os.path.exists(os.path.join(out, target))
@@ -236,6 +291,38 @@ def main():
 
     shipped = os.path.join(ROOT, "build", "kernel.bin")
     before = md5(shipped) if os.path.exists(shipped) else None
+
+    # The sharing above is only as good as the list it is withheld for, and
+    # that list is READ rather than kept - so an empty read is the failure,
+    # long before a row can quietly stop assembling a package arm.
+    check(bool(PKG_VARS), "the package-knob list still reads out of the Makefile",
+          "PKG_VARS is derived from $(PKGSBDEF); an empty answer means that "
+          "definition has moved, and every row would then share the default "
+          "build's packages - including the ones whose knob reaches one",
+          got=repr(sorted(PKG_VARS)), want="a non-empty set of make variables")
+
+    # THE OVERLAY GATE, ONCE. Every row is built with NOOVLCHK=1, and this is
+    # the other half of that bargain: the gate runs over exactly the source all
+    # 43 of them assemble, and a failure here fails the matrix the same way a
+    # failure inside one of the builds used to.
+    r = subprocess.run(["python3", "tools/os88ovlchk.py"], cwd=ROOT,
+                       capture_output=True, text=True, timeout=300)
+    check(r.returncode == 0, "os88ovlchk passes over the source every row assembles",
+          "the rows are built with NOOVLCHK=1, so this run is the gate for all "
+          "of them - it reads tracked source and expands no %ifdef, which is "
+          "what makes one run cover every knob",
+          got="\n".join((r.stdout + r.stderr).strip().splitlines()[-8:]), want="exit 0")
+
+    # ...and the packages the sharing rows are about to name. `all` has usually
+    # built these already and this is then a no-op; asking for them by name is
+    # what stops a row dying with "No rule to make target build/paint.o88" on a
+    # tree where it has not.
+    r = subprocess.run(["make", "-j%d" % a.j, "build/associco.inc"], cwd=ROOT,
+                       capture_output=True, text=True, timeout=600)
+    check(r.returncode == 0, "the shared packages and associco.inc are present",
+          "every row that does not touch a package build takes these from "
+          "build/ instead of rebuilding four byte-identical packages of its own",
+          got="\n".join((r.stdout + r.stderr).strip().splitlines()[-6:]), want="exit 0")
 
     sizes = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=a.j) as ex:
@@ -276,7 +363,11 @@ def main():
               "adapter on top of the shipped one, and nothing afterwards says so "
               "(CLAUDE.md's cgak note)")
 
-    print("t_buildmatrix: %d knob builds + kern_small" % len(sizes))
+    print("t_buildmatrix: %d knob builds + kern_small (%d shared the default "
+          "build's packages, %d built their own: %s)"
+          % (len(sizes), sum(1 for k in KNOBS if shares(k[1])),
+             sum(1 for k in KNOBS if not shares(k[1])),
+             ", ".join(sorted(k[0] for k in KNOBS if not shares(k[1]))) or "none"))
     done("t_buildmatrix")
 
 

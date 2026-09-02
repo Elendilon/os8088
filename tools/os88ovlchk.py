@@ -92,15 +92,60 @@ EXTRA = {'apps/os88ui.inc': '.cold',
          'kernel/clockw.inc': '.modc'}
 
 
+# THE SECTION WALK, DONE ONCE PER FILE AND KEPT.  Every check below wants the
+# same (section, line) sequence, and there are eighteen loops over it: walking
+# the file per check is the same parse eighteen times, which measured as 1.86M
+# line-parses over 110,920 lines of kernel and 78% of this tool's run time
+# (2.16s -> 1.00s, and every `make` pays it once).
+# The cache is keyed on the path and never invalidated, which is correct for a
+# process that reads each file and exits; a caller that edits kernel/ and asks
+# again inside one process would get the old answer, and there is none.
+#
+# `section` as a SUBSTRING before the regex is the second half of it: a line
+# matching SECT must contain the word, and almost none of them do, so the
+# test that costs a byte scan replaces one that costs a regex.
+SECT = re.compile(r'^\s*section\s+(\.\w+)')
+_WALK = {}
+
+# ...and the rest of the per-line patterns, compiled once for the same reason.
+# `re.match(r'...')` is not free: it is a cache lookup and two function calls
+# per line per check, and there are 564k of them left after the walk above.
+# The ones built with `%` interpolation further down are deliberately NOT
+# here - re's own cache is what serves a pattern whose text is not a constant.
+MACRO_D = re.compile(r'^\s*%macro\s+(\w+)')
+MACRO_B = re.compile(r'^\s*%macro\b')
+ENDMACRO = re.compile(r'^\s*%endmacro')
+ENDMACRO_B = re.compile(r'^\s*%endmacro\b')
+LABEL = re.compile(r'^([A-Za-z_]\w*):')
+LABEL_DOT = re.compile(r'^[A-Za-z_.]\w*:')
+DRVBOOT = re.compile(r'^\s*OVL(?:GATE1?|CALL)\s+drv_boot_x\b')
+OVWCALL = re.compile(r'\bOVWCALL\s+(\w+)')
+CSMEM = re.compile(r'\[[^]]*\bcs\s*:')
+RESERVE = re.compile(r'^\s*([A-Za-z_]\w*)\s*:?\s*(?:res[bwdqt])\b')
+WORD = re.compile(r'\b\w+\b')
+
+
+def _walk(path):
+    """[(section, line-number, stripped-line, raw-line)] for the whole file."""
+    got = _WALK.get(path)
+    if got is None:
+        got = []
+        cur = EXTRA.get(path, '.text')
+        for n, raw in enumerate(open(path), 1):
+            line = raw.split(';')[0]
+            if 'section' in line:
+                m = SECT.match(line)
+                if m:
+                    cur = m.group(1)
+                    continue
+            got.append((cur, n, line, raw))
+        _WALK[path] = got
+    return got
+
+
 def sections(path):
     """yield (section, line-number, source-line) with comments stripped"""
-    cur = EXTRA.get(path, '.text')
-    for n, raw in enumerate(open(path), 1):
-        line = raw.split(';')[0]
-        m = re.match(r'^\s*section\s+(\.\w+)', line)
-        if m:
-            cur = m.group(1)
-            continue
+    for cur, n, line, _raw in _walk(path):
         yield cur, n, line
 
 
@@ -108,17 +153,12 @@ def sections_raw(path):
     """...and the same walk with the RAW line beside the stripped one.
 
     The `; ovlchk: DS = ...` markers below live in COMMENTS, which sections()
-    throws away before anything can see them - so the check that needs both
-    halves gets its own walk rather than a flag on the shared one.
+    throws away before anything can see them - so the one check that needs
+    both halves takes the raw line as a fourth field rather than being given a
+    flag.  It is the SAME walk underneath: _walk keeps both, and which fields
+    a caller unpacks is the whole of the difference between these two.
     """
-    cur = EXTRA.get(path, '.text')
-    for n, raw in enumerate(open(path), 1):
-        line = raw.split(';')[0]
-        m = re.match(r'^\s*section\s+(\.\w+)', line)
-        if m:
-            cur = m.group(1)
-            continue
-        yield cur, n, line, raw
+    return iter(_walk(path))
 
 
 def main():
@@ -131,18 +171,18 @@ def main():
     for f in files:
         macro = None
         for sect, n, line in sections(f):
-            m = re.match(r'^\s*%macro\s+(\w+)', line)
+            m = MACRO_D.match(line)
             if m:
                 macro = m.group(1)
                 mbody.setdefault(macro, set())
                 continue
-            if re.match(r'^\s*%endmacro', line):
+            if ENDMACRO.match(line):
                 macro = None
             elif macro:
                 for mm in CALL.finditer(line):
                     if mm.group(1) is None:
                         mbody[macro].add(mm.group(2))
-            m = re.match(r'^([A-Za-z_]\w*):', line)
+            m = LABEL.match(line)
             if m:
                 where[m.group(1)] = sect
             m = CELLDEF.match(line)
@@ -175,10 +215,10 @@ def main():
             # to silence it was to write the definition inside a `section` it
             # emits nothing into. That is a false positive with a workaround
             # attached, which is the worst kind.
-            if re.match(r'^\s*%macro\b', line):
+            if MACRO_B.match(line):
                 inmacro = True
                 continue
-            if re.match(r'^\s*%endmacro\b', line):
+            if ENDMACRO_B.match(line):
                 inmacro = False
                 continue
             if inmacro:
@@ -356,7 +396,7 @@ def main():
     for f in kfiles:
         for sect, n, line in sections(f):
             if sect in ('.ovl', '.ovlw'):
-                m = re.match(r'^([A-Za-z_][\w]*):', line)
+                m = LABEL.match(line)
                 if m:
                     half[m.group(1)] = sect
 
@@ -466,7 +506,7 @@ def main():
         try:
             kstart = next(i for i, l in enumerate(lines) if l.startswith('kmain:'))
             mount = next(i for i, l in enumerate(lines)
-                         if i > kstart and re.search(r'^\s*OVL(?:GATE1?|CALL)\s+drv_boot_x\b', l))
+                         if i > kstart and DRVBOOT.search(l))
         except StopIteration:
             continue
         # ...and STOP at kmain's own end, which is the next label in column 0.
@@ -475,9 +515,9 @@ def main():
         # and it is called from desk_init at MARK 20, long before the mount.
         # A rule about ORDER has to stop where the ordered code does.
         for i in range(mount + 1, len(lines)):
-            if re.match(r'^[A-Za-z_.]\w*:', lines[i]):
+            if LABEL_DOT.match(lines[i]):
                 break
-            m = re.search(r'\bOVWCALL\s+(\w+)', lines[i].split(';', 1)[0])
+            m = OVWCALL.search(lines[i].split(';', 1)[0])
             if m:
                 late.append((f, i + 1, m.group(1)))
     for f, n, sym in late:
@@ -658,7 +698,7 @@ def main():
                 if mm and mm.group(2) in mdata:
                     continue                   # a sanctioned macro
             # half 1: a memory operand over module data must name CS
-            if re.search(r'\[[^]]*\bcs\s*:', line):
+            if CSMEM.search(line):
                 continue
             for w in names:
                 if reg is None and not re.search(r'\[[^]]*\b%s\b' % w, line):
@@ -736,7 +776,7 @@ def main():
         for sect, n, line in sections(f):
             if sect not in SECT_SEG:
                 continue
-            m = re.match(r'^\s*([A-Za-z_]\w*)\s*:?\s*(?:res[bwdqt])\b', line)
+            m = RESERVE.match(line)
             if m:
                 lb[m.group(1)] = SECT_SEG[sect]
     # `\b` on both sides so `vid_rowtab` does not match `vid_rowtab2` and
@@ -773,7 +813,7 @@ def main():
                 seg = (m.group(1) or '').lower()
                 if seg in ('ss', 'es', 'cs'):
                     continue
-                for w in re.findall(r'\b\w+\b', m.group(2)):
+                for w in WORD.findall(m.group(2)):
                     if w not in lb or lb[w] == bank:
                         continue
                     l_bad.append((f, n, w, 'reached without ss: or es:'
