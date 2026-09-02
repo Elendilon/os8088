@@ -455,8 +455,12 @@ def main(argv):
         # desk_paint then draws every volume's icon and label at the new x.
         zx = ctx[0][7] + ctx[1][7] // 2         # display 1, half way across
         m.write(S("vid_desk_zx"), bytes([zx & 255, zx >> 8]))
-        m.write(S("vid_desk_zl"), bytes([(zx - 2) & 255, (zx - 2) >> 8]))
-        m.write(S("vid_desk_zr"), bytes([(zx + 50) & 255, (zx + 50) >> 8]))
+        # ...and that is the WHOLE column: desk_zone_rect derives the drawn
+        # rect from it and DESK_ZW/DESK_ZOVER (SPEC.md 26.4). Two further
+        # pokes stood here, setting [vid_desk_zl]/[vid_desk_zr] - cells no
+        # instruction in the kernel ever read. A write whose answer nothing
+        # reads, inside the gate that was supposed to be checking; they went
+        # with the cells.
         m.write(S("cp_dirty"), bytes([1]))
         m.advance(frames=90, card=pri["idx"])
         m.run()                     # advance() leaves it PAUSED

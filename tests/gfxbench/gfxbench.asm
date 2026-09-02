@@ -3315,14 +3315,16 @@ gb_it_top:  db 'Top of Report', 0
 ;
 ; THE THREE OFF THE END ARE DERIVED, and they are derived here for the reason
 ; kernel/vidsel.inc derives them there: they are `VID_CTX_W*2`, `+2` and `+4`,
-; so a word added to the run MOVES ALL THREE. They were written out as 36/38/40
-; against a run that had been VID_CTX_W = 19 since SPEC.md 6.1.10 added
-; vid_tseg, so the display scan in gb_disp compared a pixel x against
-; vid_tseg - a SEGMENT - never matched, and fell to the one-display fallback
-; on every machine. Nothing sees that: t_mirror walks kernel/, boot/ and
-; apps/, and os88geom.scan walks .py, so an .asm under tests/ is outside
-; both. If VID_CTX_W moves again, this is the one line to move with it.
-VCTX_W      equ 19              ; == kernel/vidsel.inc's VID_CTX_W
+; so a word added to or taken out of the run MOVES ALL THREE. They were
+; written out as 36/38/40 against a run that had been VID_CTX_W = 19 since
+; SPEC.md 6.1.10 added vid_tseg, so the display scan in gb_disp compared a
+; pixel x against vid_tseg - a SEGMENT - never matched, and fell to the
+; one-display fallback on every machine. Nothing sees that: t_mirror walks
+; kernel/, boot/ and apps/, and os88geom.scan walks .py, so an .asm under
+; tests/ is outside both. The run has since SHRUNK to 16 - [vid_strm1],
+; [vid_rpara] and [vid_rend] left it, having no reader - and THIS IS THE ONE
+; LINE that moves with it, here and in tests/sysbench.
+VCTX_W      equ 16              ; == kernel/vidsel.inc's VID_CTX_W
 VCTX_SEG    equ 0               ; vid_seg:    the framebuffer
 VCTX_STRIDE equ 2               ; vid_stride: bytes from a row to the row one
                                 ;             BANK down (SPEC.md 39.3)

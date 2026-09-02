@@ -286,8 +286,10 @@ Two ways to carry them:
   instructions and one branch — the same derivation `vid_apply` does, in the
   one other place that changes which display is live. **Recommended.**
 
-`[vid_rseg]`, `[vid_rpara]` and `[vid_rend]` — the software renderer's target
-and its loop bounds — are *inside* the run already and need nothing.
+`[vid_rseg]` — the software renderer's target — is *inside* the run already
+and needs nothing. It had two companions here, `[vid_rpara]` and `[vid_rend]`,
+the loop bounds; SPEC.md §39.26 deleted the loop that read them and they have
+since left the run altogether.
 
 ### 4.3 What is sized in planes
 

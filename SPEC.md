@@ -2492,8 +2492,6 @@ PKG_FILE_HI  equ 16          ; the high word of the biggest FILE the mount
                              ; NOT APP_MAX_SIZE - that bounds the primary
                              ; segment's image+bss and stopped bounding the
                              ; file when a package could carry parts
-; the software renderer's plane stride (§32/§39.3)
-SW_PLANE_PARA equ 0x960      ; paragraphs per plane (0x9600 bytes = 480 rows × 80)
 ; the file manager's per-window view cache (§2.3/§22.1)
 VIEW_SLOTS    equ 4          ; max Disk windows = the kind's KD_CAP (§29.3)
 VIEW_KB       equ 3          ; each window's cache, claimed when it opens
@@ -33870,7 +33868,7 @@ on a white gap 2px around the text, centered in the zone.
 | symbol       | contract                                                    |
 |--------------|--------------------------------------------------------------|
 | `desk_paint` | draw every drive's icon + label; the selected one (desk_sel) gets `gfx_xor_fill` over its hit zone. Called by wm_paint_all after the desktop fill (lock held by caller). |
-| `desk_zone_rect` | in AL = zone index; out AX,BX,CX,DX = that zone's **drawn** rect, inclusive — `[vid_desk_zl]`..`[vid_desk_zr]`−1 horizontally, so the label's 2px overhang each side is inside it, not the 48px hit zone. Clobbers all four. |
+| `desk_zone_rect` | in AL = zone index; out AX,BX,CX,DX = that zone's **drawn** rect, inclusive — `[vid_desk_zx]`−`DESK_ZOVER` .. `[vid_desk_zx]`+`DESK_ZW`+`DESK_ZOVER`−1 horizontally, so the label's 2px overhang each side is inside it, not the 48px hit zone. **This routine is where those edges are derived**, out of the one published word and the two constants; two further cells carrying them were written every `vid_apply` and read by nothing. Clobbers all four. |
 | `desk_dmg_zones` | in `[wm_dmg_*]` (§11.91); out AL = bit n set = zone n is inside the damage rect, **and the damage rect grown to cover every one of them**. The growth is not slack: a zone is redrawn whole, so a window sitting over it has to be marked too. |
 | `desk_paint_mask` | in AL = the bitmask `desk_dmg_zones` returned; draw those zones. All registers preserved. |
 | `desk_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window and `dock_click` declined the click, §30). Zone hit: if same zone as desk_sel and [ui_click_t]−desk_clkt < 9 (birth ticks, §10) → clear the selection and call `files_open_drive` with AL = drive. Else select it, stamp desk_clkt. Miss: clear any selection. All its own drawing (selection flips) happens under gfx_lock/gfx_unlock acquired internally, redrawing only the affected zones — and **`[desk_sel]` is written inside that lock hold**, not before it, because §26.2's partial case flips pixels rather than repainting them. A zone the flip finds under a window is §26.2's business. |
@@ -40572,10 +40570,14 @@ with plain CPU instructions, one plane at a time:
   * `SWM_XOR` — XOR 0Fh flips every plane identically: edges xor the mask,
     interior bytes are complemented.
 
-Plane *p* lives at `[vid_rseg] + p*[vid_rpara]`, so `vga_rect_setup`'s masks
-and offsets serve this module and the planar one alike; every solid and XOR
-primitive funnels through `sw_rect`. Pixel, hline and vline are degenerate
-fills — a rect setup costs one `mul`, the same as a dedicated loop would.
+Plane *p* lived at `[vid_rseg] + p*<plane stride>`, so `vga_rect_setup`'s
+masks and offsets serve this module and the planar one alike; every solid and
+XOR primitive funnels through `sw_rect`. §39.26 flattened every plane loop
+here, so in practice there is only plane 0 and `[vid_rseg]` **is** the target;
+the step and the exclusive end it walked to were published cells until they
+were found to have no reader, and they have gone with the constant behind
+them. Pixel, hline and vline are degenerate fills — a rect setup costs one
+`mul`, the same as a dedicated loop would.
 
 `sw_fill` / `sw_fill_gray` / `sw_xor_fill` / `sw_fill_pat` / `sw_save` /
 `sw_restore` are the software twins of the `gfx_*` primitives with identical
@@ -42691,6 +42693,13 @@ QEMU (mode 10h's framebuffer is byte-compatible with what the planar path
 writes). It exists for testing only and every shipped image is built without
 it — see §39.9.
 
+**The override is applied at ASSEMBLY time and a shipped kernel carries
+nothing for it.** `vid_detect`'s forced arm is inside `%if VID_FORCE != 0`,
+so at the default 0 there is no test, no branch and no byte to test: the
+routine begins at the probe. There is no runtime cell — `[vid_force]` was one
+until it was observed to have a single reader, no writer anywhere, and a value
+`%if` already knew.
+
 ### 39.2 Runtime geometry
 
 `SCREEN_W`, `SCREEN_H` and `ROW_BYTES` (§3) survive as the **VGA reference
@@ -42701,24 +42710,38 @@ truth about the screen. The truth is:
 `vid_apply` `rep movsw`s an 18-byte `vid_tab` record straight over them, so
 reordering one without the other silently corrupts all nine:
 
-`vid_seg`, `vid_w`, `vid_h`, `vid_stride`, `vid_bmask`, `vid_bshift`,
-`vid_rowadd`, `vid_wrapbit`, `vid_wrapfix`
+`vid_seg`, `vid_stride`, `vid_bmask`, `vid_bshift`, `vid_rowadd`,
+`vid_wrapbit`, `vid_wrapfix`, `vid_cw`, `vid_ch`
+
+**The width and height are the LAST two columns and they are the DISPLAY's**
+(§39.2.1). The desktop's `vid_w`/`vid_h` are derived from them below and sit
+outside the per-display run — this list read `vid_seg, vid_w, vid_h, …`
+until that move, and contradicted §39.2.1 four paragraphs down.
 
 **Derived by `vid_apply`**, because the sites that want them are inner loops
 or single instructions with no register to spare for the arithmetic:
-`vid_wm1`, `vid_hm1`, `vid_wm8`, `vid_hm8`, `vid_strm1`, `vid_rseg`,
-`vid_rpara`, `vid_rend`, `vid_dock_y0`, `vid_dock_ty0`, `vid_clk_hx`,
-`vid_ymax`, `vid_popmax`, `vid_desk_zx`, `vid_desk_zl`, `vid_desk_zr`, and
-the bytes `vid_kind`, `vid_mono`, `vid_planes`, `vid_planes_w`.
+`vid_w`, `vid_h`, `vid_wm1`, `vid_hm1`, `vid_wm8`, `vid_cwm1`, `vid_chm1`,
+`vid_cwm8`, `vid_chm8`, `vid_bankmask`, `vid_rseg`, `vid_tseg`, `vid_pw`,
+`vid_ph`, `vid_pwm1`, `vid_phm1`, `vid_dock_y0`, `vid_dock_ty0`,
+`vid_clk_hx`, `vid_ymax`, `vid_popmax`, `vid_desk_zx`, and the bytes
+`vid_kind`, `vid_mono`, `vid_planes`, `vid_planes_w`.
+
+**Six words left this list rather than being maintained in it.** `vid_hm8`,
+`vid_strm1`, `vid_rpara`, `vid_rend`, `vid_desk_zl` and `vid_desk_zr` were
+each written on every `vid_apply` and read by **no instruction anywhere in the
+tree** — three of them left over from loops §39.26 deleted, two from a drawn
+rect `desk_zone_rect` computes itself (§26.4), and `vid_hm8` from a whole-cell
+clip that is the DISPLAY's and not the desktop's. Publishing an answer nothing
+asks for is a cost with no reader to defend it.
 
 ```
-vid_mono   = (kind != VID_VGA)          vid_planes = mono ? 1 : 4
-vid_rseg   = mono ? vid_seg : [bb_seg]
-vid_rpara  = mono ? 1 : SW_PLANE_PARA   ; MUST be nonzero - see 39.3
-vid_rend   = vid_rseg + (mono ? 1 : 4*SW_PLANE_PARA)
+vid_mono   = (kind != VID_VGA && kind != VID_EGA)   ; EGA is planar too - 39.24
+vid_planes = mono ? 1 : 4               ; ...and both are ONE word store - 39.26
+vid_rseg   = mono ? vid_seg : 0         ; 0 = nothing routes through the
+                                        ; software renderer at all (39.5)
+vid_tseg   = vid_rseg ? vid_rseg : vid_seg          ; font_run's target, 6.1.10
 vid_popmax = min(MENU_POPMAX, (vid_h - MBAR_H - 2) >> 4)    ; 16 / 16 / 11
 vid_desk_zx = vid_w - 56                ; 584 at 640 wide, as it always was
-[bb_on]    = vid_mono                   ; see 39.5
 [mouse_x]/[mouse_y] = centre of the new screen
 ```
 
@@ -42743,7 +42766,7 @@ answers the moment a desktop spans two cards (docs/DUAL-DISPLAY-PLAN.md §5.1).
 |---|---|---|
 | extent | `vid_cw` / `vid_ch` | `vid_w` / `vid_h` |
 | last legal pixel | `vid_cwm1` / `vid_chm1` | `vid_wm1` / `vid_hm1` |
-| whole-cell limit | `vid_cwm8` / `vid_chm8` | `vid_wm8` / `vid_hm8` |
+| whole-cell limit | `vid_cwm8` / `vid_chm8` | `vid_wm8` only — nothing clips a whole cell against the DESKTOP's height, and the `vid_hm8` that used to be published beside it had no reader at all |
 | read by | every primitive that clips | `wm_fit`, `ui_drag`, the chrome, the drive column |
 | lives in | the per-display context (§39.12) | outside it, published once |
 
@@ -42851,9 +42874,11 @@ is. Four things make it the 1bpp driver:
 
 - its plane segment is `[vid_rseg]` — the **framebuffer itself**;
 - its plane count is `[vid_planes]` — 4 or 1;
-- its plane step is `[vid_rpara]`, which **must stay nonzero even at one
-  plane**: `sw_xfer` terminates on a segment compare against `[vid_rend]`,
-  and a step of 0 never terminates;
+- it has **no plane step and no end**: §39.26 flattened every loop that
+  walked one, and the two cells that carried them (a stride that "must stay
+  nonzero even at one plane" for `sw_xfer`'s segment compare, and that
+  compare's exclusive end) were published on every `vid_apply` for a while
+  afterwards with nothing left to read them. They are gone;
 - every row advance goes through `gfx_nextrow`.
 
 The planar bodies in `vga12.inc` are simply unreachable on mono, so they keep
@@ -43770,17 +43795,25 @@ path that runs on all three adapters.
 
 ### 39.12 The per-display context — `vid_ctx` (`KERN_BIG` only)
 
-**One display's geometry is nineteen contiguous words, and making a display
+**One display's geometry is sixteen contiguous words, and making a display
 current is a `rep movsw` over them.** Present only in `kern_big`
 (docs/KERN-SPLIT-PLAN.md); `kern_small` has none of it.
 
 ```
 vid_seg  vid_stride  vid_bmask  vid_bshift  vid_rowadd
 vid_wrapbit  vid_wrapfix  vid_cw  vid_ch      <- the live block (§39.2)
-vid_bankmask  vid_strm1  vid_rseg  vid_rpara  vid_rend
+vid_bankmask  vid_rseg
 vid_cwm1  vid_chm1  vid_cwm8  vid_chm8        <- what the RENDERER derives
 vid_tseg                                      <- §6.1.10, and the run's end
 ```
+
+**It was NINETEEN**, and `vid_strm1`, `vid_rpara` and `vid_rend` are the three
+that left: each was written every `vid_apply` and read by nothing, so each
+cost two bytes in the live block and two more in *every* per-display record.
+`VID_CTX_W` is the one number that says so, and `vidsel.inc`'s
+`%if vid_tseg - vid_seg != (VID_CTX_W-1)*2` is what makes the count an
+assertion rather than a claim — a word added anywhere above `vid_tseg`, or one
+removed, fails the build.
 
 **The run ends at `vid_tseg` and that boundary is the design.** Everything from
 `vid_dock_y0` down — the dock row, the clock cell, the drive column, the
@@ -46797,13 +46830,16 @@ the `[vid_rpara]` step and a `shr ch, 1` that stepped a colour through planes
 that were not there. `.text` −38 and `.bss` −4 on both products, the two
 cells being `font_bb_si`/`font_bb_di`.
 
-With it gone **`[vid_rpara]` and `[vid_rend]` have no reader left in the
-kernel** — only `vid_apply`'s three lines that write them. They are not
-deleted here: they sit inside the contiguous `vid_seg`..`vid_tseg` run that a
-display context copies (§39.13), whose length `vidsel.inc` asserts, so
-removing them is a change to `VID_CTX_W` and to
+With it gone **`[vid_rpara]` and `[vid_rend]` had no reader left in the
+kernel** — only `vid_apply`'s three lines that wrote them. They were not
+deleted here, because they sat inside the contiguous `vid_seg`..`vid_tseg` run
+that a display context copies (§39.13), whose length `vidsel.inc` asserts: so
+removing them was a change to `VID_CTX_W` and to
 `tests/unit/t_invariants.py`'s one-writer row rather than a peephole.
-`viddet.inc` records that at their declaration.
+**That change has since been made** — with `[vid_strm1]`, dead the same
+way — and `VID_CTX_W` is 16 (§39.13). The assertion is what settled the
+count: two readings of which words were leaving gave 17 and 16, and the
+`%if` answered it in one build.
 
 **And it is worth 6.4% of a `GFX_PIXEL`** (PERFORMANCE.md Set 113b, both
 adapters). The shape is the confirmation rather than the size: this removed

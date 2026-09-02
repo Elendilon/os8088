@@ -199,8 +199,8 @@ FAST = [
         "[vid_mono]/[vid_planes] are one fact written together (SPEC.md 39.26 "
         "deleted four plane loops on it, and a writer that moves one leaves "
         "all four drawing plane 0 alone on every adapter); and "
-        "[vid_rseg]/[vid_rpara]/[vid_rend] have one writer, which is a "
-        "DIFFERENT fact because sw_xfer ends on a segment compare",
+        "[vid_rseg] has one writer, which is a DIFFERENT fact because "
+        "sw_xfer used to end on a segment compare",
         needs=(), serial=False),
     Row("assocpage", "fast", py("tests/unit/t_assocpage.py"), 0.2,
         "the document page is GENERATED now (SPEC.md 54.3), so its 32 words "

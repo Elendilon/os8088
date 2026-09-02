@@ -134,8 +134,8 @@ vid_tab:
 ;
 ; IT IS THE FIRST HALF OF A LONGER CONTIGUOUS RUN, and that is now load-bearing
 ; rather than incidental. `vid_seg` through `vid_tseg` - the nine live words,
-; the nine derived ones below them and font_run's composed-row target - are the
-; NINETEEN words A DISPLAY OWNS, and SPEC.md 39.12's per-display context copies
+; the six derived ones below them and font_run's composed-row target - are the
+; SIXTEEN words A DISPLAY OWNS, and SPEC.md 39.12's per-display context copies
 ; exactly that span with one `rep movsw`. Everything from `vid_dock_y0` down is
 ; the DESKTOP's and must stay out of it. `vid_tab` used to sit between the two
 ; halves, which is why it has moved up here: it is a static table and it was
@@ -159,35 +159,10 @@ vid_ch      dw SCREEN_H         ; PRIMITIVE clips to (SPEC.md 39.2.1). Not the
 ; Precomputed because the sites that want them are inner loops or single
 ; instructions that have no register to spare for the arithmetic.
 vid_bankmask dw 0              ; gfx_prevrow: DI's bank bits, (nbanks-1)<<13
-vid_strm1   dw ROW_BYTES-1
 vid_rseg    dw 0                ; the software renderer's target segment:
                                 ; 0 on VGA, where nothing routes through the
                                 ; software renderer; the FRAMEBUFFER itself
                                 ; on mono
-vid_rpara   dw SW_PLANE_PARA    ; paragraphs from one plane to the next.
-                                ; IT NO LONGER HAS TO BE NONZERO. This said
-                                ; "MUST be nonzero even at one plane -
-                                ; sw_xfer's loop terminates on a segment
-                                ; compare, and a step of 0 never terminates",
-                                ; and SPEC.md 39.26's sweep reaching sw_xfer
-                                ; deleted that loop and with it the only
-                                ; consumer of the sentence. font.inc's
-                                ; font_char_bb was the last reader of any kind
-                                ; and its plane loop has gone the same way
-                                ; (SPEC.md 39.26), so THIS CELL NOW HAS NO
-                                ; READER EITHER - see below.
-vid_rend    dw 0                ; ...and this was sw_xfer's exclusive end.
-                                ; NEITHER CELL HAS A READER NOW, only
-                                ; vid_apply's three lines that write them, and
-                                ; they are kept anyway: they sit INSIDE the
-                                ; contiguous vid_seg..vid_tseg run a display
-                                ; context copies (SPEC.md 39.13), whose length
-                                ; vidsel.inc asserts as (VID_CTX_W-1)*2 - so
-                                ; taking them is a change to VID_CTX_W and to
-                                ; tests/unit/t_invariants.py's one-writer row,
-                                ; not a peephole. Four words and three
-                                ; instructions, for whoever next opens this
-                                ; file with that in hand
 vid_cwm1    dw SCREEN_W-1       ; the display's last legal x and y, and the
 vid_chm1    dw SCREEN_H-1       ; whole-cell limits font_char and ico_core
 vid_cwm8    dw SCREEN_W-8       ; clip against. THE LAST WORD OF THE RUN a
@@ -206,7 +181,7 @@ vid_tseg    dw VGA_SEG          ; THE SEGMENT A COMPOSED ROW IS WRITTEN TO
                                 ; and it EXTENDED that run rather than joining
                                 ; it in the middle: vidsel.inc's VID_CTX_W and
                                 ; its %error are the second opinion, so a
-                                ; nineteenth word put anywhere above this
+                                ; seventeenth word put anywhere above this
                                 ; fails the build rather than being silently
                                 ; left out of the run that gets copied.
 
@@ -214,15 +189,17 @@ vid_tseg    dw VGA_SEG          ; THE SEGMENT A COMPOSED ROW IS WRITTEN TO
 ; What the WINDOW SYSTEM lays out in, and on a one-display machine identical to
 ; the four words above it. The distinction only becomes visible when a desktop
 ; spans two cards, and it is drawn HERE - outside the per-display run - because
-; the alternative was renaming these six at sixty-odd call sites across wm.inc,
+; the alternative was renaming these five at sixty-odd call sites across wm.inc,
 ; ui.inc, menu.inc, desk.inc and dock.inc. The renderer's side of the same
 ; question is twenty-two sites and enumerable, so the renderer is what moved.
 vid_w       dw SCREEN_W         ; desktop width, px
 vid_h       dw SCREEN_H         ; desktop height, px
 vid_wm1     dw SCREEN_W-1       ; last legal x
 vid_hm1     dw SCREEN_H-1       ; last legal y
-vid_wm8     dw SCREEN_W-8       ; the menu bar's right margin
-vid_hm8     dw SCREEN_H-8
+vid_wm8     dw SCREEN_W-8       ; the menu bar's right margin. Its twin
+                                ; vid_hm8 had no reader in the tree and
+                                ; has gone; nothing measures a whole cell
+                                ; against the DESKTOP's height
 ; --- THE CHROME's extent (SPEC.md 39.16) -------------------------------------
 ; The menu bar, the dock and the drive column are full-width strips on the
 ; PRIMARY display, not across the desktop - spanning them over a union would
@@ -244,20 +221,20 @@ vid_clk_hx  dw (SCREEN_W-206) & 0FFF8h  ; menu bar clock cell: hit band left
                                 ; font_run's single-pass path reach them
 vid_ymax    dw SCREEN_H-18      ; lowest y a title bar may be dragged to
 vid_popmax  dw 16               ; pull-down items that fit under the bar
-vid_desk_zx dw SCREEN_W-56      ; desktop drive column: hit zone left, and
-vid_desk_zl dw SCREEN_W-58      ; the redraw rect's left (zx - 2) and
-vid_desk_zr dw SCREEN_W-6       ; and its EXCLUSIVE right, zx + 50: the
-                                ; 48px zone, the label's 2px overhang and a
-                                ; window's 1px drop shadow. The fills use
-                                ; zr - 1 as their inclusive right (633 at
-                                ; 640 wide, which is what they open-coded).
+vid_desk_zx dw SCREEN_W-56      ; desktop drive column: the hit zone's left
+                                ; edge, and the ONLY word of it that is
+                                ; published. The drawn rect either side of it
+                                ; is desk_zone_rect's arithmetic over
+                                ; DESK_ZW/DESK_ZOVER (SPEC.md 26.4) - two
+                                ; further cells carrying zx-2 and zx+50 were
+                                ; written here every vid_apply and read by
+                                ; nothing at all.
 
 vid_kind    db VID_VGA          ; VID_VGA / VID_HERC / VID_CGA / VID_EGA
 vid_mono    db 0                ; 1bpp adapter? This is what routes every
                                 ; draw through the software renderer (32/39.5)
 vid_planes  db 4                ; 4 or 1
 vid_planes_w dw 4               ; the same, where a word is wanted
-vid_force   db VID_FORCE        ; 0 = probe; 1/2/3 = VGA/Herc/CGA
 
 ; Hercules has no BIOS mode, so vid_setmode programs the 6845 itself.
 ; R0..R11 for 720x348: 45 char clocks of 16 px across, 87 rows of 4 scan
@@ -343,7 +320,7 @@ VID_ROWTAB  equ 128
 ; row in it" are the same compare.
 ;
 ; IT IS ALSO THE SWITCH THAT TURNS THE TABLE OFF ON THE SECOND DISPLAY. Neither
-; this word nor the table below is inside SPEC.md 39.12's nineteen-word run -
+; this word nor the table below is inside SPEC.md 39.12's sixteen-word run -
 ; one is .text and the other .lowbss - while the stride, the bank mask and the
 ; bank shift it was built from all are. So vid_ctx_act zeroes this when it makes
 ; current a display whose adapter is not [vid_kind]'s and puts VID_ROWTAB back
@@ -409,12 +386,11 @@ vid_detect:
     push di
     push bp
     push es
-    mov al, [vid_force]
-    or al, al
-    jz .probe
-    dec al                      ; 1/2/3/4 -> VID_VGA/VID_HERC/VID_CGA/VID_EGA
-    jmp short .set
-.probe:
+%if VID_FORCE != 0              ; SPEC.md 39.1: the override is applied at
+    mov al, VID_FORCE - 1       ; ASSEMBLY time, so a shipped kernel carries
+    jmp short .set              ; neither the test nor a byte to test. The
+%endif                          ; 1/2/3/4 the Makefile passes are
+.probe:                         ; VID_VGA/VID_HERC/VID_CGA/VID_EGA
 %ifdef GFX_VGA
     mov ax, 0x1A00              ; VGA/MCGA: read Display Combination Code.
     int 0x10                    ; A pre-VGA BIOS ignores AH=1Ah and leaves
@@ -487,7 +463,7 @@ vid_detect:
 ;
 ; THESE THREE ARE NOT IN THE PER-DISPLAY RUN AND HAVE TO FOLLOW A SWAP ANYWAY,
 ; which is the whole reason this is a routine rather than eleven lines inside
-; vid_apply. SPEC.md 39.12's context is the nineteen contiguous words from
+; vid_apply. SPEC.md 39.12's context is the sixteen contiguous words from
 ; vid_seg to vid_tseg; [vid_mono] and the two plane counts sit above that run,
 ; are DERIVED from the kind rather than being vid_tab columns, and are what
 ; every primitive dispatches on. So vid_ctx_act has to publish them as well,
@@ -605,9 +581,7 @@ vid_apply:
 
     mov ax, [vid_h]             ; --- heights
     dec ax
-    mov [vid_hm1], ax
-    sub ax, 7
-    mov [vid_hm8], ax
+    mov [vid_hm1], ax           ; ...and no hm8 twin: see the declaration
     mov ax, [vid_h]
     sub ax, TITLE_H
     mov [vid_ymax], ax
@@ -652,23 +626,14 @@ vid_apply:
                                 ; primary's 640 gives cell 54, inside the
                                 ; buffer, which is the number this always meant
 
-    mov ax, [vid_stride]
-    dec ax
-    mov [vid_strm1], ax
-
     mov ax, [vid_bmask]         ; gfx_prevrow's test: the bank number lives in
     mov cl, 13                  ; DI's bits 13..14, so the address mask is the
     shl ax, cl                  ; y mask shifted up to meet it. 0 on VGA,
     mov [vid_bankmask], ax      ; which is what makes prevrow a bare subtract
 
-    mov di, vid_desk_zx         ; --- the desktop's drive column, right-hung:
-    mov ax, [vid_w]             ; THREE CONTIGUOUS WORDS, declared in this
-    sub ax, 56                  ; order and already written in it, so the
-    stosw                       ; store is a walk. ES = DS and DF is clear
-    sub ax, 2                   ; (see the chrome copy above); DI is dead
-    stosw                       ; there.
-    add ax, 52                  ; zl + 52 = zx + 50
-    stosw
+    mov ax, [vid_w]             ; --- the desktop's drive column, right-hung.
+    sub ax, 56                  ; ONE word: desk_zone_rect derives the drawn
+    mov [vid_desk_zx], ax       ; rect from it (SPEC.md 26.4)
 
     mov ax, [vid_h]             ; --- pull-down items that fit under the bar
     sub ax, MBAR_H + 2
@@ -683,18 +648,15 @@ vid_apply:
     mov al, [vid_kind]          ; --- the renderer's DEPTH, in one place
     call vid_depth_set          ; (see there: a display swap needs it too)
     xor ax, ax                  ; PLANAR (VGA or EGA): the software renderer
-    mov bx, SW_PLANE_PARA       ; has no target - [vid_rseg] is 0, nothing
-    xor dx, dx                  ; routes through it (SPEC.md 39.5/39.24)
-    cmp byte [vid_mono], 0      ; keyed on the DEPTH vid_depth_set just set,
-    je .rend                    ; not the kind - EGA is planar and 0 here too
-    mov ax, [vid_seg]           ; MONO: the software renderer draws straight
-    mov bx, 1                   ; into the framebuffer - one "plane", and a
-    mov dx, ax                  ; step of 1 paragraph purely so sw_xfer's
-    inc dx                      ; segment compare can terminate
-.rend:
-    mov [vid_rseg], ax
-    mov [vid_rpara], bx
-    mov [vid_rend], dx
+    cmp byte [vid_mono], 0      ; has no target - 0, because nothing routes
+    je .rend                    ; through it (SPEC.md 39.5/39.24). Keyed on
+    mov ax, [vid_seg]           ; the DEPTH vid_depth_set has just set and not
+.rend:                          ; on the kind - EGA is planar and 0 here too.
+    mov [vid_rseg], ax          ; MONO: the renderer draws straight into the
+                                ; framebuffer, so its target IS the screen.
+                                ; This set a plane STEP and an exclusive END
+                                ; beside it until both were found to have no
+                                ; reader anywhere (SPEC.md 39.26)
 
     ; --- font_run's target (SPEC.md 6.1.10), and it belongs HERE and not one
     ; line above the block it reads. [vid_rseg] is what this routine has just
@@ -735,13 +697,11 @@ vid_apply:
     ; LOW_SEG never had. The miss path is exactly what the machine did before
     ; the table existed: [vid_rowmax] is 0 from the top of this routine, so
     ; gfx_rowbase computes, and vid_init's own vid_apply builds it for real.
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    mov ax, ss
-    cmp ax, LOW_SEG
+    mov ax, ss                  ; AX, BX, CX, DX and DI are all dead from
+    cmp ax, LOW_SEG             ; here to vid_apply's own epilogue, which is
+                                ; what banks them for the caller - so this
+                                ; block used to open and close on five
+                                ; push/pop pairs that protected nothing
     jne .norowtab
     mov di, vid_rowtab
     xor bx, bx                  ; BX = the row
@@ -756,12 +716,6 @@ vid_apply:
     jb .rowtab
     mov word [vid_rowmax], VID_ROWTAB   ; ...and only now may anything read it
 .norowtab:
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-
     mov ax, [vid_w]             ; --- home the cursor; see the header
     shr ax, 1
     mov [mouse_x], ax

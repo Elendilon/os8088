@@ -43,16 +43,20 @@ compare on the strength of one of them, and nothing anywhere says so.
    because a regression to `mov byte [vid_mono], 1` keeps the count at one,
    passes the row above, and silently stops setting the plane count.
 
-3. [vid_rseg], [vid_rpara] AND [vid_rend] ARE WRITTEN ONLY BY vid_apply.
+3. [vid_rseg] IS WRITTEN ONLY BY vid_apply.
    This was checked separately from 2 because sw_xfer's pass loop terminated
    on a SEGMENT COMPARE - `add bx,[vid_rpara] / cmp bx,[vid_rend]` - and not
    on the plane count, so it was a DIFFERENT fact that broke the same bodies.
    That loop is gone (39.26's sweep reached it), which leaves [vid_rseg] the
    fact worth guarding here: it is the software renderer's TARGET SEGMENT, and
    a second writer that sets it while [vid_mono] disagrees is the 0xFF
-   splatter in 2.  The other two are kept in the check because they are
-   written in the same three lines and a guard that watches two of three is
-   the shape nobody notices going stale.
+   splatter in 2.
+   [vid_rpara] and [vid_rend] WERE in this row, and they are not any more:
+   with the loop that read them gone they were two cells written every
+   vid_apply and read by nothing, so they left viddet.inc entirely rather
+   than being guarded for ever.  A row naming a symbol that no longer exists
+   reads 0 writers and fails, which is exactly how this file is meant to
+   notice - and it is how it noticed this.
 
 WHAT IT CANNOT SEE, and it matters that this is written down rather than
 assumed: a write through a POINTER (`mov [bx], al` where BX happens to hold
@@ -165,15 +169,17 @@ def main():
           "writer in the right file",
           got=shown(bytew), want="no `mov byte [vid_mono], ...` anywhere")
 
-    # --- 3. the renderer's segment walk -------------------------------------
-    for sym in ("vid_rseg", "vid_rpara", "vid_rend"):
-        one_owner(
-            sym, 1, "kernel/viddet.inc",
-            "[%s] is written only by vid_apply" % sym,
-            "sw_xfer's pass loop is flattened on vid_apply setting "
-            "[vid_rpara] = 1 and [vid_rend] = [vid_rseg] + 1 on every 1bpp "
-            "adapter. That is a different fact from the plane count - the "
-            "loop ends on a SEGMENT compare - and it breaks the same bodies")
+    # --- 3. the renderer's target segment -----------------------------------
+    # [vid_rpara]/[vid_rend] were checked here too until they were deleted:
+    # sw_xfer's loop was what read them and SPEC.md 39.26 took it, leaving
+    # two cells that vid_apply wrote and nothing anywhere read.
+    one_owner(
+        "vid_rseg", 1, "kernel/viddet.inc",
+        "[vid_rseg] is written only by vid_apply",
+        "it is the software renderer's TARGET SEGMENT, and a second writer "
+        "that sets it while [vid_mono] disagrees is the 0xFF splatter row 2 "
+        "is about. vid_apply decides it from the depth vid_depth_set has "
+        "just published, in one place")
 
     done("invariants")
 

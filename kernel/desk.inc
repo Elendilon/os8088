@@ -484,8 +484,12 @@ desk_paint_x:
 ; clobbers: the four outputs (AH included)
 ;
 ; The drawn rect is wider than the hit zone: the label's white box overhangs
-; DESK_ZOVER px each side, which is what [vid_desk_zl]/[vid_desk_zr] carry
-; (SPEC.md 26/39.2). desk_zone_redraw's own overlap test uses the same two.
+; DESK_ZOVER px each side, and THIS ROUTINE is where that is expressed -
+; [vid_desk_zx] is the hit zone's left edge and the only word published, with
+; DESK_ZW/DESK_ZOVER doing the rest (SPEC.md 26/39.2). Two cells carrying the
+; drawn edges were published beside it for a while and never read; the
+; arithmetic here was always the answer. desk_zone_redraw comes through here
+; for its own overlap test.
 ; -----------------------------------------------------------------------------
 desk_zone_rect:
     call desk_zone_xy           ; AX = zone left, DX = zone top
@@ -899,9 +903,10 @@ desk_click_x:
 ;      the gfx lock
 ; out: nothing; preserves all registers
 ;
-; The zone's drawn rect (the gray refill spans x [vid_desk_zl]..[vid_desk_zr]
-; - the label overhangs the hit zone) may be overlapped by a visible window,
-; and the gfx_* primitives clip to the SCREEN, so a bare desk_draw_zone would
+; The zone's drawn rect (desk_zone_rect: the gray refill spans the hit zone
+; plus DESK_ZOVER either side, because the label overhangs it) may be
+; overlapped by a visible window, and the gfx_* primitives clip to the
+; SCREEN, so a bare desk_draw_zone would
 ; paint desktop pixels straight over that window. This used to answer that
 ; with a full wm_paint_all, which cost the whole screen twice for one click:
 ; picking a new icon redraws the old zone and the new one, and each of them

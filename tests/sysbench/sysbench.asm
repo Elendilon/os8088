@@ -1529,13 +1529,15 @@ sb_mbx:
 ; three are the fields hung off the end of it.
 ;
 ; THOSE THREE ARE DERIVED, not written down: vidsel.inc spells them
-; `VID_CTX_W*2`, `+2` and `+4`, so a word added to the run moves all three at
-; once. They were typed as 36/38/40 against a run that had been 19 words since
-; SPEC.md 6.1.10 added vid_tseg, which read each field one word early. Nothing
-; catches it - t_mirror walks kernel/, boot/ and apps/, os88geom.scan walks
-; .py, and an .asm under tests/ is outside both - so if VID_CTX_W moves again,
-; VCTX_W here and in tests/gfxbench are the two lines to move with it.
-VCTX_W      equ 19              ; == kernel/vidsel.inc's VID_CTX_W
+; `VID_CTX_W*2`, `+2` and `+4`, so a word added to or taken out of the run
+; moves all three at once. They were typed as 36/38/40 against a run that had
+; been 19 words since SPEC.md 6.1.10 added vid_tseg, which read each field one
+; word early. Nothing catches it - t_mirror walks kernel/, boot/ and apps/,
+; os88geom.scan walks .py, and an .asm under tests/ is outside both. The run
+; has since SHRUNK to 16 ([vid_strm1], [vid_rpara] and [vid_rend] left it
+; with no reader between them), and VCTX_W here and in tests/gfxbench are the
+; two lines that move with it.
+VCTX_W      equ 16              ; == kernel/vidsel.inc's VID_CTX_W
 VCTX_SEG    equ 0               ; vid_seg:    the framebuffer
 VCTX_STRIDE equ 2               ; vid_stride: bytes from a row to the row one
                                 ;             bank down

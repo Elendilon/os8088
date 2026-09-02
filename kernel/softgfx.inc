@@ -22,10 +22,14 @@
 ; RAM has no latches or Set/Reset, so these routines do the VGA ALU's work in
 ; software, one plane at a time: solid ops or/and the edge masks per the
 ; [gfx_color] plane bit (interiors are rep stosb of FF/00), XOR ops xor the
-; edge masks and `not` whole interior bytes. Plane p lives at segment
-; [vid_rseg] + p*[vid_rpara] with the same rows as VRAM, so gfx_rect_setup's
+; edge masks and `not` whole interior bytes. Plane p lived at segment
+; [vid_rseg] + p*<plane stride> with the same rows as VRAM, so gfx_rect_setup's
 ; masks and offsets serve both worlds; every solid/XOR primitive here funnels
-; through it. Pixel/hline/vline are degenerate fills - a rect setup costs one
+; through it. SPEC.md 39.26 flattened every plane loop in the file, so there
+; is only ever plane 0 now and [vid_rseg] IS the target - the stride and the
+; end it walked to were published cells, and a constant behind the stride,
+; until all three were found to have no reader left. They are gone.
+; Pixel/hline/vline are degenerate fills - a rect setup costs one
 ; mul, same as the dedicated VRAM loops.
 ;
 ; No public API slot has its body here: gfx_scroll was the last and moved to

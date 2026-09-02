@@ -2074,12 +2074,6 @@ HEAP_SEG    equ KERN_END        ; the claim heap (SPEC.md 50) starts where
                                 ; (SPEC.md 50.3); nothing up here has a fixed
                                 ; address any more
 
-; The software renderer's plane stride (SPEC.md 32/39.3). One plane is 480
-; rows x 80 bytes; on a 1bpp adapter there is exactly one and vid_apply sets
-; the stride to a single paragraph, purely so sw_xfer's segment compare can
-; terminate.
-SW_PLANE_PARA equ 0x960         ; paragraphs per plane (0x9600 = 480 rows x 80)
-
 ; --- CPU tiers and memory above 1MB (SPEC.md 41) -----------------------------
 ; None of this exists on tier 0, which is the target machine: an 8088 has no
 ; A20 line, nothing above linear 0x0FFFFF, and every routine keyed off these
