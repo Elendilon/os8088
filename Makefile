@@ -5682,6 +5682,9 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 #                                         # (BROWSER-PLAN 4.1.1, SPEC.md
 #                                         # 71.10). brtest's own blit check
 #                                         # runs at top=0 and so cannot see it
+#   python3 tests/brtoolbar.py            # ...and the TOOLBAR one: the state
+#                                         # field may not floor its pen back
+#                                         # onto the Reload button
 #   python3 tests/brtable.py              # ...and the TABLE one: issue #137's
 #                                         # three - an anchor inside a cell,
 #                                         # the doubled last line and a `..`

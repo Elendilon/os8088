@@ -791,8 +791,28 @@ br_srect:
     push bx
     push cx
     push dx
-    mov dx, [br_r3+4]               ; DX = the first x the state may use
+    mov dx, [br_r3+4]               ; DX = the first x the state may use...
     add dx, BR_BTNG + 1
+    sub dx, [br_cx]                 ; ...**ALIGNED UP**, and that is the whole
+    add dx, 7                       ; of this fix. The pen below is right-
+    and dx, 0FFF8h                  ; aligned and then FLOORED to a multiple of
+    add dx, [br_cx]                 ; 8, and a floor moves it LEFT - by up to
+                                    ; 7px, which is further than BR_BTNG's gap
+                                    ; is wide. So the field began ON the Reload
+                                    ; button's right-edge column, and since it
+                                    ; is one OPAQUE font_run padded in front
+                                    ; with spaces (br_status), those spaces
+                                    ; drew white ground over the frame: the
+                                    ; button lost its right stroke every time
+                                    ; the state was rewritten. Measured on both
+                                    ; 1bpp adapters at the shipped window size:
+                                    ; Reload's right edge is x=184, the first
+                                    ; usable x 188, and the floored pen came
+                                    ; back 184. Aligning the BOUND up instead
+                                    ; costs the field a cell at most and makes
+                                    ; the floor unable to cross it - a value
+                                    ; at or above an 8-aligned floor stays
+                                    ; above it when floored
     mov bx, [br_cx]
     add bx, [br_cw]
     sub bx, BR_LPAD                 ; BX = one past its right edge

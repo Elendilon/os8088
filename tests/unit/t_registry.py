@@ -51,6 +51,7 @@ UNREGISTERED = {
     "brscroll.py": "needs `make browsertest` (build/brtest360.img)",
     "brtable.py": "needs `make browsertest` (build/brtest360.img)",
     "brtest.py": "needs `make browsertest` (build/brtest360.img)",
+    "brtoolbar.py": "needs `make browsertest` (build/brtest360.img)",
     "ethernet.py": "needs `make ethertest` and QEMU - MartyPC has no NIC "
                    "(SPEC.md 72.9)",
     "ethcfg.py": "needs `make ethertest` and QEMU",
