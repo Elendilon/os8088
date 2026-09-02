@@ -74,6 +74,11 @@ tk_fsx_main:
     mov [tk_lstep], cl              ; ...and the lattice TRIM gives back half of
                                     ; (SPEC.md 85.6.5.6): the player can only
                                     ; command a heading every TK_TURN * this
+    mov byte [tk_lockd], 0          ; a fresh frame may land a magnet again -
+    cmp byte [tk_lockhold], 0       ; unless the LAST one is still being held,
+    je .sim                         ; which is the whole of the detent
+    dec byte [tk_lockhold]
+    mov byte [tk_lockd], 1
     cmp byte [tk_pause], 0
     jne .skip
     cmp byte [tk_over], 0           ; the world is finished with; what moves
@@ -406,38 +411,49 @@ tk_pmove:
 tk_lockstep:
     test byte [tk_aim], TK_AS_LOCK
     jz .off
+    cmp byte [tk_lockd], 0          ; landed already: the REST OF THE FRAME is
+    je .look                        ; absorbed. This is the half that was
+    xor dx, dx                      ; missing - a landing the frame's own next
+    ret                             ; step carries straight off again is a
+.look:                              ; correction nobody can spend
     push si                         ; tk_besttarget spends both, and tk_pmove
     push di                         ; keeps neither: pay for them HERE, so an
-    mov ax, dx                      ; OFF build pays nothing at all
+    mov [tk_locks], dx              ; OFF build pays nothing at all
+    mov al, [tk_kturn]              ; THE WHOLE FRAME'S SWEEP, not one step's
+    cbw
     or ax, ax
     jns .p
     neg ax
 .p:
-    mov cl, 6
-    shr ax, cl                      ; AX = |the step|, in quarter units
-    jz .out                         ; under a quarter unit it crosses nothing
-    mov [tk_lockr], ax              ; ...and that is the inner edge
-    shl ax, 1                       ; the outer one is two steps ahead
-    mov [tk_locks], dx
+    mov bl, [tk_lstep]
+    xor bh, bh
+    mul bx                          ; AX = units this frame is going to turn
+    mov bx, 4 * TK_LOCKX            ; ...in quarter units, and TK_LOCKX times
+    mul bx                          ; as far again
+    or ax, ax
+    jz .keep
     call tk_besttarget
-    mov dx, [tk_locks]
-    jc .out
+    jc .keep
     mov bx, ax
     or ax, ax
     jns .a
     neg ax
 .a:
-    cmp ax, [tk_lockr]              ; already inside one step: we are on it, so
-    jle .out                        ; the sweep carries on past
+    cmp ax, TK_LOCKIN               ; already on it: carry past rather than
+    jle .keep                       ; sticking there for ever
+    mov dx, [tk_locks]
     mov ax, bx
     xor ax, dx                      ; ...and it must lie the way we are TURNING
     js .out
     mov dx, bx
     mov cl, 6
     shl dx, cl                      ; quarter units -> 1/256ths
-    inc word [tk_lockn]             ; ...and it is COUNTED, because "no
-                                    ; difference from aim off" is a report an
-                                    ; eye cannot settle and this can
+    mov byte [tk_lockd], 1          ; ...and the frame ENDS here
+    mov byte [tk_lockhold], TK_LOCKDW
+    inc word [tk_lockn]             ; ...counted, because "no difference from
+    jmp short .out                  ; aim off" is a report an eye cannot settle
+.keep:
+    mov dx, [tk_locks]
 .out:
     pop di
     pop si
@@ -456,8 +472,8 @@ tk_lockstep:
 ; the few units either side of the sights that anything asks about, THE ANGLE
 ; IS ITS TANGENT. ocx/ocz = tan(err) and one unit is tan(1u) = 402/16384 -
 ; tk_sintab's own first entry - so err = 40.756 * ocx/ocz. In quarters, because
-; a quarter is the ramp's step and a whole unit's rounding would cost a third
-; of the window at the shell's longest reach (SPEC.md 85.6.5.2).
+; a quarter is a useful step and a whole unit's rounding would cost a third of
+; the window at the shell's longest reach (SPEC.md 85.6.5.2).
 ; -----------------------------------------------------------------------------
 tk_aimerr:
     call tk_objcam_raw
@@ -486,7 +502,8 @@ tk_aimerr:
 ; -----------------------------------------------------------------------------
 ; tk_besttarget - the live tank nearest the sights, if one is inside AX
 ; in:  AX = the half-window, in quarter units, inclusive
-; out: CF=0 and AX = that tank's error in quarter units; CF=1 none
+; out: CF=0 and AX = that tank's error in quarter units, [tk_aimz] = its range;
+;      CF=1 none
 ; clobbers AX, BX, CX, DX, SI, DI
 ;
 ; It takes the camera's own sine and cosine first, because LOCK asks this in

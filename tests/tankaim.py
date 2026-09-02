@@ -61,15 +61,12 @@ CYCLE = [0, AS_TRIM, AS_SNAP, AS_LOCK, AS_TRIM | AS_LOCK]
 
 RANGE = 3000                            # where the six-unit quantum stops
                                         # fitting inside the window at all
-LOCKE = 2.5                             # LOCK's bearing: between one step of
-                                        # TK_TURN and two, so 85.6.5.3's
-                                        # annulus contains it. DELIBERATELY NOT
-                                        # A WHOLE NUMBER - every ordinary step
-                                        # adds TK_TURN units and leaves tk_paf
-                                        # alone, so a FRACTION in the 8.8
-                                        # heading is a thing only a magnet can
-                                        # have put there. Parity of tk_pa is
-                                        # not that witness and looks like one
+LOCKE = 3.0                             # LOCK's bearing: inside the FRAME's own
+                                        # sweep (TK_TURN * tk_lstep, six units
+                                        # on a 1bpp adapter) and well outside
+                                        # TK_LOCKIN. An ordinary frame turns
+                                        # six units and lands three PAST it, so
+                                        # the two arms cannot be confused
 HOLD = 4                                # emulator frames a LOCK arm holds D
                                         # between looks. The sweep may cross
                                         # the tank only ONCE for the witness to
@@ -193,6 +190,7 @@ def main(argv):
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     RETQ, HITQ, HYS = const("TK_RETQ"), const("TK_HITQ"), const("TK_LOCKHYS")
+    IN = const("TK_LOCKIN")
     SIN = sintab()
     bad = []
 
@@ -333,10 +331,17 @@ def main(argv):
                        "itself and tested nothing"
                        % ("closed" if all(got) else "open"))
 
-        # --- 5. LOCK lands ON a tank between one step and two ----------------
-        # The witness is the FRACTION. Every step off AIM OFF is TK_TURN, so
-        # the 8.8 heading walks a whole number of units off wherever the press
-        # began; a magnet onto a tank at 2.5 units cannot leave one there.
+        # --- 5. a LOCK sweep ENDS on the tank --------------------------------
+        # The witness is the error LEFT OVER, which is the user-facing claim
+        # itself: sweep once at a tank three units ahead and see where the
+        # sights finish. An ordinary frame turns TK_TURN * tk_lstep - six units
+        # on a 1bpp adapter - and finishes three PAST it; a frame that lands
+        # finishes ON it, and the steps behind the magnet must not carry the
+        # sights off again (SPEC.md 85.6.5.3).
+        #
+        # This is what the FRACTION witness could not see. tk_paf caught the
+        # magnet firing, and the magnet was firing all along - per STEP, with
+        # the frame's remaining steps erasing the landing.
         for mode, tag in ((0, "OFF"), (AS_LOCK, "LOCK")):
             g.wr("tk_pause", [1])
             m.advance(frames=20)
@@ -358,34 +363,33 @@ def main(argv):
             m.advance(frames=20)
             h1, df, n = g.head88(), g.w("tk_frames") - f0, g.w("tk_lockn")
             d = (h1 - h0) & 0xFFFF
-            if not 256 <= d <= TK_TURN * MAXSTEP * 256 * 2:
-                print("     [pause=%d kturn=%d dead=%d over=%d live=%s]"
-                      % (g.b("tk_pause"), g.b("tk_kturn"), g.b("tk_dead"),
-                         g.b("tk_over"),
-                         [i for i, t in g.movers().items() if t == OT_TANK]))
+            left = abs(g.sw("tk_aimq"))         # ...how far off it FINISHED
             print("  %-4s: tank %+.2f units; %d frames; heading %.2f -> %.2f, "
-                  "+%.2f  [fraction %d/256, %d magnet event(s)]"
-                  % (tag, LOCKE, df, h0 / 256.0, h1 / 256.0, d / 256.0,
-                     h1 & 0xFF, n))
-            if not 256 <= d <= TK_TURN * MAXSTEP * 256 * 2:
-                bad.append("%s: the heading moved %.2f units over %d frames, "
-                           "outside the one sweep this asks about"
-                           % (tag, d / 256.0, df))
-            elif mode and not (h1 & 0xFF):
-                bad.append("LOCK: a tank %+.2f units off the sights left the "
-                           "8.8 heading a whole number of units on (+%.2f): "
-                           "every ordinary step is TK_TURN exactly, so the "
-                           "sweep stepped OVER the tank rather than landing "
-                           "on it" % (LOCKE, d / 256.0))
-            elif not mode and (h1 & 0xFF):
-                bad.append("OFF: the heading picked up a fraction of %d/256 "
-                           "with no assist live at all" % (h1 & 0xFF))
+                  "+%.2f; %d quarters off the tank at the end  [%d magnet "
+                  "event(s)]"
+                  % (tag, LOCKE, df, h0 / 256.0, h1 / 256.0, d / 256.0, left, n))
+            if d < 256:
+                bad.append("%s: the heading moved %.2f units, so no sweep "
+                           "happened and nothing was measured" % (tag, d / 256.0))
+            elif mode and left > IN + 2:
+                bad.append("LOCK: a sweep at a tank %+.2f units ahead finished "
+                           "%d quarters off it, outside TK_LOCKIN (%d): the "
+                           "frame stepped OVER the tank instead of ending on "
+                           "it (SPEC.md 85.6.5.3)" % (LOCKE, left, IN))
+            elif not mode and left <= IN + 2:
+                bad.append("OFF: a sweep finished %d quarters off the tank "
+                           "with no assist live - the arms are not "
+                           "distinguishable and the LOCK check above is "
+                           "vacuous" % left)
             if mode and not n:
                 bad.append("LOCK: tk_lockn counted no magnet events over a "
                            "sweep that crossed a tank")
             if not mode and n:
                 bad.append("OFF: tk_lockn counted %d magnet events with no "
                            "assist live" % n)
+            if not mode and (h1 & 0xFF):
+                bad.append("OFF: the heading picked up a fraction of %d/256 "
+                           "with no assist live at all" % (h1 & 0xFF))
 
     if bad:
         print("\ntankaim: FAIL")

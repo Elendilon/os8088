@@ -85704,51 +85704,62 @@ on both 320-wide viewports and `68/(554*0.024536)` = **5.00** on Hercules.
 §85.3's table sets `sclx` for the same field of view on every adapter, so the
 brackets are the same *angle* everywhere and the constant is an angle.
 
-##### 85.6.5.3 LOCK's window is an ANNULUS, and a disc sticks
+##### 85.6.5.3 LOCK is priced per FRAME, and the frame ENDS on the target
 
-The obvious window is the disc the next two steps would cross. It cannot be
-that: a disc contains the target you have just centred on, so the next step
-centres on it again and a held key **sticks to the first tank for ever** — the
-sweep can never be carried past it to reach the second one.
+The request named the boundary: *"if an enemy tank is going to be within the
+boundary that would be crossed by **last frame's turn rate x2**, then instead
+of turning at the clock rate, centre the turn on the enemy tank."*
 
-So the window is the annulus between one step and two. A target further ahead
-than this step lands centred; the one you are already on is left alone and the
-sweep goes past it normally. It is also the reason LOCK is priced per STEP
-rather than per frame: two steps of the *current* rate.
+**A frame's turn rate, not a step's**, and the difference is everything —
+§85.6.5's whole subject is that `tk_input` latches once a frame and `tk_pmove`
+spends up to `TK_MAXSTEP` of them. So the window is
 
-##### 85.6.5.3.1 It is NOT bugged, and "no difference from aim off" is accurate
+```
+TK_LOCKX x TK_TURN x tk_lstep      units ahead
+```
 
-Reported from the field as *"did not seem to work, I noticed no difference from
-aim off"*. It works. Both halves of that sentence are true at once, and the
-measurements are what separate them.
+— twelve units on a 1bpp adapter — and the landing is the **frame's**, not the
+step's: `tk_lockd` is set when a magnet fires and the frame's remaining steps
+are absorbed, because a landing that the frame's own next step carries straight
+off again is a correction nobody can spend.
 
-**It lands.** `tests/tankaim.py` places a tank two and a half units off the
-sights and reads the 8.8 heading back: OFF lands on `TK_TURN`'s exact lattice
-and LOCK lands on the tank, keeping half a unit in `tk_paf` that no ordinary
-step could have put there.
+**A disc would stick**, so the inner edge stays: inside `TK_LOCKIN` — a whole
+unit — the sights are already on the target and the sweep carries past it
+normally, which is what lets a second tank be reached at all. After a landing
+the error is inside that by construction, so the next frame turns normally.
 
-**And it almost never happens.** `tk_lockn` counts the events, because "no
-difference" is a report a counter can settle and an eye cannot. Swept
-continuously through **three whole revolutions** of an ordinary round on a
-5150+CGA, LOCK fired **twice** — one event per crossing, which is exactly what
-§85.6.5.3's annulus promises and is a handful of moments in a round. The same
-run sampled whether a tank was inside the brackets at all: **0 of 12 samples**,
-which is not a fault either — the brackets are ±5 units of 256, so 3.9% of a
-revolution, and 12 samples of a continuous sweep expect 0.5 of them.
+`TK_LOCKDW` then holds the landing one further frame. Without it the sights sit
+on the target for the tail of a single frame — 165 ms on CGA, 231 on Hercules,
+under a simple visual reaction — and §85.6.5.7's sight closes for one frame on
+a shot that cannot be taken. It is a detent and not a ramp: it engages only
+when the sweep has landed on a tank, and it costs a frame of sweep only when
+crossing one. `TK_LOCKDW` = 0 turns it off.
 
-**And each event lasts one step.** The sweep centres on the tank and the very
-next step, 55 ms later, takes it two units off again. `tk_hud` runs once a
-frame, *after* all of the frame's steps, so even §85.6.5.7's sight usually
-cannot show the landing: the heading has already moved off it by render time.
+##### 85.6.5.3.1 What this looked like when it was per-STEP, and why the first diagnosis was wrong
 
-So: a two-unit correction, twice in three revolutions, invisible, and gone
-before the player could fire from it. **That is a correction the player cannot
-spend**, and it is a property of the design rather than a defect in it. What
-would make it spendable is a **detent** — absorb the next few steps of the same
-direction, so the landing outlives the frame and §85.6.5.7's sight closes on
-it. That is a counter and a compare in `tk_lockstep`; it is deliberately not
-built, because a detent is *deliberate input lag* and §85.6.5.4 is what
-happened the last time this game spent responsiveness it did not have.
+Built first as `TK_LOCKX` times **one step's** turn, with no `tk_lockd`. On a
+1bpp adapter that is a four-unit lookahead instead of twelve, and the landing
+was erased by the two remaining steps of the same frame. Reported from the
+field as *"did not seem to work, I noticed no difference from aim off"*, with
+photographs: a tank four units right of the sights, one press of the right
+arrow, the tank three units *left* of them, and no keypress in between that
+hits.
+
+**The first diagnosis of that report was wrong, and the way it was wrong is
+worth keeping.** `tk_lockn` was added, the magnet was found to be firing —
+twice over three whole revolutions of a real round, one per crossing — and the
+conclusion drawn was that the design was sound and merely imperceptible. Every
+measurement in that was correct. The reasoning was not: it asked *"is the
+mechanism running?"* when the question was *"is the mechanism the one that was
+asked for?"* A gate built around the same assumption agreed with it, because it
+witnessed the magnet through `tk_paf` — the fraction only a magnet can leave —
+which is a witness for *did it fire*, not for *where the sweep finished*.
+
+The gate now measures the user-facing claim instead: sweep once at a tank three
+units ahead and read how far off the sights **finish**. AIM OFF turns its six
+units and finishes **twelve quarters past** it; LOCK turns 2.75 and finishes
+**four quarters** off — inside the window at that range, where OFF is not. That
+is a check the per-step build fails.
 
 ##### 85.6.5.4 The heading is 8.8 — and FINE, the tap ramp that wanted it, is REFUSED
 

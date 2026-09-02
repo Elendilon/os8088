@@ -1268,7 +1268,8 @@ SOAK = [
         "tk_aimset, the gun corrects by tk_aimcap and no further (so TRIM stops"
         "at half the lattice tk_lstep says the player is on), the sight closes"
         "on exactly the shots that HIT - read against tk_aimq and tk_aimz, the"
-        "code's own inputs - and LOCK lands on a tank between one step and two",
+        "code's own inputs - and a LOCK sweep ENDS on a tank three units ahead"
+        "where an AIM OFF one finishes three units past it",
         needs=("marty",), serial=True),
     Row("wireflick", "soak", py("tests/wireflick.py"), 120.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"

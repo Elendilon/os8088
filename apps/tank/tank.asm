@@ -210,6 +210,18 @@ TK_AS_TRIM equ 1                ; the shot is corrected by AT MOST what the
                                 ; quantum took (SPEC.md 85.6.5.6)
 TK_AS_SNAP equ 2                ; ...or all the way onto the target
 TK_AS_LOCK equ 4                ; the TURN lands on a target it would cross
+TK_LOCKX  equ 2                 ; LOCK's reach, as a multiple of the FRAME's
+                                ; own sweep (SPEC.md 85.6.5.3): the boundary
+                                ; the request named was "last frame's turn rate
+                                ; x2", and a frame is up to TK_MAXSTEP steps
+TK_LOCKIN equ 4                 ; ...and inside a whole unit of the sights we
+                                ; are already on it, so the sweep carries past
+                                ; rather than sticking there for ever
+TK_LOCKDW equ 1                 ; extra FRAMES a landing is held. Without one
+                                ; the sight is on the target for the tail of a
+                                ; single frame - 165 ms on CGA, under a simple
+                                ; visual reaction - and the shot cannot be
+                                ; spent. 0 turns the detent off
 TK_NAIM   equ 5                 ; combinations the G key offers, in tk_aimset
 
 TK_RETQ   equ 20                ; the gunsight's OWN half-width, in quarter
@@ -746,8 +758,11 @@ tk_tpl:
     ZWORD tk_lockn                  ; magnet events, for tests/tankaim.py: "no
                                     ; difference from aim off" is a report a
                                     ; counter can settle and an eye cannot
-    ZWORD tk_lockr                  ; LOCK's inner edge, and the step it may
-    ZWORD tk_locks                  ; replace
+    ZBYTE tk_lockd                  ; this FRAME's magnet has landed, so the
+                                    ; steps behind it are absorbed rather than
+                                    ; carrying the sights straight off again
+    ZBYTE tk_lockhold               ; ...and frames it is held beyond this one
+    ZWORD tk_locks                  ; the step a magnet may replace
     ZBUF  tk_ox, TK_NOBJ * 2        ; the world's, indexed by slot x 2
     ZBUF  tk_oz, TK_NOBJ * 2
     ZBUF  tk_otype, TK_NOBJ
