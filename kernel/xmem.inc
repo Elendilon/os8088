@@ -248,15 +248,25 @@ xm_boot_x:
                                 ; The row is a link-time constant, so asking
                                 ; for it again costs three bytes and removes
                                 ; the cross-boundary assumption entirely
-    mov es, [bx+DRVR_SEG]       ; stage the table out of its segment, the
-    mov di, xm_svc              ; dsk_get_dir idiom: every later dispatch is
-    mov cx, XMV_SIZE / 2        ; then a near read and one far call
-.stage:
-    mov ax, [es:si]
-    mov [di], ax
-    add si, 2
-    add di, 2
-    loop .stage
+    mov ax, [bx+DRVR_SEG]       ; stage the table out of its segment, the
+                                ; dsk_get_dir idiom: every later dispatch is
+                                ; then a near read and one far call.
+                                ; DS AND ES SWAP ROUND FOR IT, because movsw
+                                ; reads DS:SI and writes ES:DI and the source
+                                ; is the image's: the row is read through DS
+                                ; BEFORE DS moves, and ES takes the KERNEL's
+                                ; from DS rather than from CS - this body is
+                                ; `.ovl` and CS is the BLOB's segment here,
+                                ; not KERNEL_SEG
+    push ds
+    push ds
+    pop es                      ; ES = KERNEL_SEG, the destination
+    mov ds, ax                  ; DS = the image, the source
+    mov di, xm_svc
+    mov cx, XMV_SIZE / 2
+    cld
+    rep movsw
+    pop ds
     pop dx
     pop ax
     and dl, CPU_F_A20 | CPU_F_HMA | CPU_F_UNREAL

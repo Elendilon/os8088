@@ -451,10 +451,13 @@ getting them the wrong way round was **silent in both directions**. Stage C
 brings that back by construction. It is affordable only because it is
 mechanically checked; see above.
 
-**`SPLSTARS=1` needs re-pricing.** It carries its own `BOOT2_SECS_STARS` = 20 on
-this branch and its `.boot2` is 2,824 against a 2,560 `OVL_AT`. Against a 7–9
-sector blob that arithmetic changes shape entirely.
-`tests/unit/t_buildmatrix.py` is what asks.
+**`SPLSTARS=1` needed re-pricing, and has been re-priced.** It carried its own
+`BOOT2_SECS_STARS` = 20 when this was written and its `.boot2` was 2,824
+against a 2,560 `OVL_AT`. **SPEC.md §15.3.8.5.1 took that arm to 2,568 and the
+whole blob to 3,989 of 4,096**, so there is one blob length and one `OVL_AT`
+(2,624) — which is exactly the "changes shape entirely" this paragraph
+predicted, arriving from the other direction. `tests/unit/t_buildmatrix.py` is
+still what asks.
 
 ---
 

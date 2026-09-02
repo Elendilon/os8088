@@ -2158,18 +2158,22 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; is. Stage 1 has to know the second before anything has told it - SPL_RESIDENT's
 ; reason - and the Makefile reads it out of this file with one `sed` so the two
 ; cannot disagree.
-; SPLSTARS' blob is one sector longer, and this is where the Makefile reads it
-; from: its `sed` anchors on `^BOOT2_SECS  *equ  *<digits>`, which this line
-; misses on the underscore and the line below it misses on the value not being
-; a number - so the shipped 13 stays the one the pattern finds, and the knob's
-; override is a deliberate second lookup rather than an accident of ordering.
-; See SPEC.md 15.3.8.5 for why the knob arm needs it and the shipped one does
-; not.
-BOOT2_SECS_STARS equ 9
-
-%ifdef SPLSTARS
-BOOT2_SECS  equ BOOT2_SECS_STARS
-%else
+; THERE IS ONE BLOB LENGTH NOW, AND THAT IS WHAT KSIG_OFF RESTS ON.
+; `BOOT2_SECS_STARS equ 9` stood here, with a second `sed` in the Makefile to
+; find it, because SPLSTARS' twinkle wanted 4,193 bytes of a 4,096-byte blob -
+; over by 97, WHEREVER OVL_AT fell, so moving the split alone could not pay for
+; it (SPEC.md 15.3.8.5). The splash's own size pass took that arm's `.boot2`
+; from 2,768 to 2,568 and the blob to 3,993, and the sector went back.
+;
+; WHAT IT WAS COSTING WAS NOT THE SECTOR. The boot canary (SPEC.md 18.93.1) is
+; a word at a fixed MEMORY offset whose FILE sector has to cross a head on
+; every shipped geometry, and the file sector is this constant further in - so
+; an offset legal for a 4,096-byte blob and an offset legal for a 4,608-byte
+; one had to be the SAME offset. That intersection is four sectors wide and
+; all four sit at the top of `.text`; the single-length band is seven wide and
+; reaches memory 6,656. A second blob length pinned the canary to the part of
+; `.text` a size pass eats first, which is how it came to have thirty bytes of
+; headroom left. The Makefile's KSIG_OFF block is the other end of this.
 BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
                                 ; loader and its screen up to OVL_AT, then the
                                 ; boot overlay from there to BOOT2_PAD. THE
@@ -2210,10 +2214,10 @@ BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
                                 ; when something needs them. 22 buys 1.44MB a
                                 ; third call and 23 buys 720KB a fourth, and
                                 ; that is where the next conversation is
-%endif
-; OVL_AT is where `.ovl` begins inside the blob, and the value is at the FOOT
-; of this comment rather than the head of it because SPLSTARS gives it a second
-; one. FIVE sectors for `.boot2`. It was FOUR, which is what it took before the
+; OVL_AT is where `.ovl` begins inside the blob, and there is ONE of it: the
+; `%ifdef SPLSTARS` that gave the knob a second value went with
+; BOOT2_SECS_STARS, for the same reason and in the same change. It was FOUR
+; sectors, which is what it took before the
 ; overlay joined it: three left 46 bytes and BOOTDIAG=1's hex printer did not
 ; fit. Trading bytes against a diagnostic is the exact thing the sector did and
 ; 2.9 exists to stop, so the answer is the rung and not a smaller printer - and
@@ -2221,50 +2225,42 @@ BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
 ; bytes over four sectors, and shaving it would have bought those bytes with
 ; the readability of the one routine in this tree that draws an animation.
 ;
-; IT COSTS NOTHING TO MOVE: the blob is BOOT2_SECS sectors either way, so no
-; image byte, no RAM and no extra int 13h changes - only the split. That is
+; IT COSTS NOTHING TO MOVE: the blob is BOOT2_SECS sectors whatever this is, so
+; no image byte, no RAM and no extra int 13h changes - only the split. That is
 ; what makes `.boot2`'s slack and `.ovl`'s ONE pool rather than two budgets:
 ; whatever the loader is not using below OVL_AT the overlay can have for the
 ; cost of moving this line, and the two assertions at the foot of the file
 ; still say which half ran out if one ever does.
 ;
+; WHAT BINDS IT FROM BELOW IS THE KNOB ARM, and that is the whole of what is
+; left of SPLSTARS' old claim on the blob: `SPLSTARS=1` builds a `.boot2` of
+; 2,568 against the shipped 2,254 (the twinkle's tables and its star renderer),
+; so the line may not fall below 2,568 while that knob assembles. Above, the
+; overlay binds it: 4,096 - 1,421. The window is 2,568..2,675 and 2,624 sits in
+; the middle of it - 56 bytes spare below on the knob arm, 51 above on both.
+; The shipped `.boot2` has 370.
+;
 ; The sentence that used to end here - "the NEXT claim on this file is
 ; BOOT2_SECS, and that one is a real ~24 ms on every boot" - was right, and
 ; SPEC.md 2.9.12 is that claim being taken: 13 sectors to 19, for the boot-only
 ; bodies in docs/LAST-DROP-BYTES.md.
-%ifdef SPLSTARS
-OVL_AT      equ 3072            ; ...AND SPLSTARS=1 IS THAT CLAIM, arriving as a
-                                ; KNOB rather than as a shipped feature (SPEC.md
-                                ; 15.3.7, 15.3.8.5). The twinkle wants 2,824
-                                ; bytes of `.boot2` and the overlay 3,930, which
-                                ; is 6,754 of a 6,656-byte blob - so it is over
-                                ; by 98 WHEREVER the split falls, and moving
-                                ; OVL_AT alone cannot pay for it. The knob build
-                                ; therefore takes a sector the shipped blob does
-                                ; not, and takes it ALONE: BOOT2_SECS_STARS is
-                                ; one above BOOT2_SECS, its `.boot2` is where it
-                                ; was, and the ~24 ms is not spent by anybody
-                                ; who boots this.
+OVL_AT      equ 2624            ; ...and it is ONE value for every build now.
+                                ; SPLSTARS=1 took 3,072 here AND a blob a
+                                ; sector longer, because its `.boot2` was
+                                ; 2,768 and the pair came to 4,193 of 4,096 -
+                                ; over by 97 wherever the split fell. SPEC.md
+                                ; 15.3.8.5's own figure, and the splash's size
+                                ; pass took that arm to 2,568 + 1,421 = 3,993.
+                                ; So the knob costs no sector, no second split
+                                ; and no second `sed`, and what it buys back
+                                ; is that the boot canary has ONE blob length
+                                ; to be legal for (SPEC.md 18.93.1, and the
+                                ; Makefile's KSIG_OFF block).
                                 ;
-                                ; SINCE SPEC.md 2.9.12 IT IS THE ONLY KNOB THAT
-                                ; STILL NEEDS ONE. At 19 sectors BOOTMARK=1 and
-                                ; MOUDIAG=1 both fit the shipped blob, where at
-                                ; 15 neither did - so this pair of `sed`
-                                ; lookups now has exactly one user, and
-                                ; t_buildmatrix.py is what stops a mechanism
-                                ; with one user rotting unnoticed.
-                                ;
-                                ; Six sectors for `.boot2` and eight for `.ovl`
-                                ; leaves 248 bytes on one side and 166 on the
-                                ; other, which is roughly the room the shipped
-                                ; split has - so the knob arm stops being the
-                                ; one that breaks first, and both assertions at
-                                ; the foot still say which half ran out if it
-                                ; ever does. tests/unit/t_buildmatrix.py is what
-                                ; asks.
-%else
-OVL_AT      equ 2560            ; ...and the shipped split, unchanged
-%endif
+                                ; tests/unit/t_buildmatrix.py's `splstars` row
+                                ; is still what runs the two assertions at the
+                                ; foot of this file for the knob arm - it is
+                                ; the only build that does
 
 BOOT2_PAD   equ BOOT2_SECS * 512
 

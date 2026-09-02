@@ -320,9 +320,18 @@ shape of the original mistake.
 ## 5. What each knob needs at nineteen sectors
 
 A knob is bound by physics, never by a documented limit, and *"all knobs together
-fit"* is not required. `SPLSTARS=1` is the model in the tree: `BOOT2_SECS_STARS`
-sits beside the shipped value and the Makefile's `sed` is deliberately anchored to
+fit"* is not required. `SPLSTARS=1` was the model in the tree: `BOOT2_SECS_STARS`
+sat beside the shipped value and the Makefile's `sed` was deliberately anchored to
 find only the shipped one.
+
+> **RETIRED — SPEC.md §15.3.8.5.1.** `SPLSTARS=1` fits the shipped blob now:
+> the splash's own size pass took its `.boot2` from 2,768 to 2,568 and the blob
+> to 3,989 of 4,096, so `BOOT2_SECS_STARS`, the second `OVL_AT` and the second
+> `sed` are all deleted, and `OVL_AT` is 2,624 for every build. **The table
+> below and the paragraph under it are the record of the mechanism, not the
+> tree.** What retiring it bought is §18.93.1's canary: `KSIG_OFF` had to be
+> legal for both blob lengths, and that intersection is four sectors at the top
+> of `.text`.
 
 Measured on this tree:
 

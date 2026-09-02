@@ -561,14 +561,14 @@ endif
 # disagree (SPEC.md 2.9). The sector needs it to know how many sectors to
 # fetch before anything has told it; kernel.asm asserts that stage 2 fits.
 BOOT2_SECS := $(shell sed -n 's/^BOOT2_SECS  *equ  *\([0-9][0-9]*\).*/\1/p' kernel/kernel.asm)
-# ...and SPLSTARS' blob is a sector longer (SPEC.md 15.3.8.5), read from its own
-# constant for the reason above: the two must not be able to disagree. The
-# %ifdef that picks it is in kernel.asm; this is the SECTOR the boot sector is
-# told to fetch, and a boot sector fetching 13 for a 14-sector stage 2 jumps
-# into a blob whose last sector never landed.
-ifneq ($(SPLSTARS),)
-BOOT2_SECS := $(shell sed -n 's/^BOOT2_SECS_STARS  *equ  *\([0-9][0-9]*\).*/\1/p' kernel/kernel.asm)
-endif
+# THERE IS ONE BLOB LENGTH, AND THE SECOND `sed` THAT FOUND SPLSTARS' IS GONE.
+# `BOOT2_SECS_STARS` was 9 because the twinkle's `.boot2` and the boot overlay
+# came to 4,193 of a 4,096-byte blob (SPEC.md 15.3.8.5), and it stood here as an
+# `ifneq ($(SPLSTARS),)` override. The splash's size pass took that arm to
+# 2,568 + 1,421 = 3,993 and the override went with it. What it was really
+# costing is KSIG_OFF below: a canary offset had to be legal for BOTH lengths,
+# and that intersection is four sectors wide with every one of them at the top
+# of `.text`.
 BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 
 # IT IS A MEMORY OFFSET, AND THE FILE SECTOR IS BOOT2_SECS FURTHER IN (SPEC.md
@@ -612,18 +612,43 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # conflicted in no file produced it. tests/unit/t_canary.py's neighbour test
 # is what caught it.
 #
-# 50176 is file sector **98 + BOOT2_SECS**: 106 on the default build and 107
-# under SPLSTARS' one-sector-longer blob, inside the band either way. The band
-# common to all four geometries is 106..110 and it is the ONLY run of two or
-# more below the 64KB the compare's ES can reach (21 and 57 also cross, but a
-# lone sector cannot hold both blob lengths). There is no margin below it any
-# more and that is not a choice: `.text` ends 31 bytes into file sector 106, so
-# the whole legal window is memory 50,176..50,205 - THIRTY BYTES, all of them
-# in that one sector - and 50,176 is the bottom of it because the bottom is
-# what survives the most further shrinking. **`.text` MAY NOT FALL BELOW
-# 50,178 BYTES** without leaving this constant no legal value at all; t_canary
-# fails loudly rather than going quiet if it does, and the answer then is a
-# design change, not a new number.
+# **AND THE DESIGN CHANGE THE LAST PARAGRAPH ASKED FOR HAS BEEN TAKEN.** This
+# constant was 50176 - file sector 98 + BOOT2_SECS - with the sentence
+# "`.text` MAY NOT FALL BELOW 50,178 BYTES ... and the answer then is a design
+# change, not a new number" written here in capitals. `.text` was 50,607, so
+# that was 429 bytes of headroom, and the kernel size pass that read it takes
+# ~600. THE DESIGN CHANGE IS THAT THERE IS ONE BLOB LENGTH NOW.
+#
+# The band is the intersection over the four shipped geometries, and it is
+# ALSO an intersection over the blob lengths, because the file sector is the
+# memory offset plus BOOT2_SECS. Re-derived from the four BPBs, in MEMORY
+# sectors:
+#
+#   crossing on all four, BOOT2_SECS = 8    : 13, 49, 98, 99, 100, 101, 102
+#   crossing on all four, BOOT2_SECS = 9    : 12, 48, 97, 98, 99, 100, 101
+#   both, which is what the old value needed : 98, 99, 100, 101
+#
+# So while SPLSTARS' blob was a sector longer, the only offsets legal at all
+# were four sectors at the very TOP of `.text` - the part a size pass eats
+# first - and 98 was the bottom of them. That is the whole reason this constant
+# ran out of room, and retiring BOOT2_SECS_STARS (SPEC.md 15.3.8.5) is what
+# gives it back: with one length the band is seven sectors wide and reaches
+# memory 6,656.
+#
+# 6656 is memory sector 13, file sector **13 + BOOT2_SECS** = 21. It is a LONE
+# sector rather than a run of five, which is what the old value's paragraph
+# preferred - a lone sector was not legal at all while there were two blob
+# lengths - and the trade is deliberate: margin against a BPB that moves is
+# worth less than margin against `.text`, because a geometry change is a
+# decision somebody takes and `.text` shrinks whenever anyone tidies anything.
+# `.text` may now fall to **6,658** before this constant needs looking at
+# again, against 50,178 before; it is 50,607 today. It is inside the first
+# 64KB, so the compare still reuses the ES the handoff already loads, and the
+# word is still the same for every geometry because KERNEL.SYS is one file.
+# tests/unit/t_canary.py re-derives every line of the table above from the
+# shipped images themselves and checks the word against BOTH its neighbours -
+# and it now refuses a second blob length outright rather than silently
+# describing only the default one.
 #
 # THE OLD "stays below bootdiag's 48-sector payload" RULE IS GONE, and it was
 # already dead when it was written down: SPEC.md 2.9 moved the canary into
@@ -634,7 +659,7 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # runtime fence one line down, and it is enough on its own: a payload shorter
 # than this offset gets no -DKSIG, boot/boot.asm's `%define KSIG 0` applies,
 # and stage 2's `cmp word [b2_ksig], 0` skips the compare.
-KSIG_OFF := 50176
+KSIG_OFF := 6656
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is

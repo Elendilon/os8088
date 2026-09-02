@@ -1575,10 +1575,15 @@ Three consequences of the move, and they are the boot overlay's word for word
 
 - **DS is the KERNEL's**, so every `vid_*` and `gfx_*` word the splash reads is
   plain and unchanged. Its own data is reached `cs:`.
-- **`gfx_nextrow` is inlined.** Not only for the 46.7 µs a far call costs
-  against 11 — paid per *row*, in `spl_fill`, `spl_vline` and `spl_bar` — but
-  because its body reads `[cs:vid_rowadd]`, which is right in `.text` and wrong
-  here. The same three words have to come through DS.
+- **`gfx_nextrow` is the module's own**, `spl_nextrow`. Not only for the
+  46.7 µs a far call costs against 11 — paid per *row*, in `spl_fill`,
+  `spl_vline` and `spl_bar` — but because its body reads `[cs:vid_rowadd]`,
+  which is right in `.text` and wrong here. The same three words have to come
+  through DS. It was an *inlined macro* until the blob's size pass; three
+  expansions at 14 bytes against three near calls at 3 is −18 of `.boot2`, and
+  the 46.7 does not apply to a near call inside the blob. `SPL_NEXTROW_CS` —
+  the same three words read through CS, for §15.3.4's row loop — stays a macro
+  because it has one user.
 - **`spl_step`, `spl_finish` and `spl_reset` are far**, through `spl_fp` /
   `spl_fseg` and the `SPLCALL` macro — `OVLCALL`'s shape exactly, and for the
   same reason: stage 1 chose where `.boot2` landed, so its segment is not a
@@ -2378,12 +2383,15 @@ and `.cold` into `.ovl`**, where `mem_unblob` gives them back to the heap at
 the end of `kmain`. `docs/LAST-DROP-BYTES.md` is the register of them, row by
 row, with the caller that makes each one boot-only named beside it.
 
-`BOOT2_SECS` **13 → 19** and `OVL_AT` stays at **2,560**. Six extra sectors is
+`BOOT2_SECS` **13 → 19** and `OVL_AT` stayed at **2,560**. Six extra sectors is
 3,072 more bytes of blob, of which `.boot2` needs none — so the whole of it,
 plus whatever `.boot2` is not using below `OVL_AT`, is one pool for the
 overlay. **`OVL_AT` moves for nothing** (§15.3.4.2), so the split is not a
 budget either half has to be argued for; the two assertions at the foot of
-`kernel.asm` still say which half ran out if one ever does.
+`kernel.asm` still say which half ran out if one ever does. (`OVL_AT` is
+**2,624** since §15.3.8.5.1, which is the same sentence being used: the
+`SPLSTARS` arm's `.boot2` came under the shipped blob and the split moved to
+hold both arms, for nothing.)
 
 **What it costs, measured rather than reasoned** — `tests/unit/t_blobruns.py
 --sectors 19`, walked off the images `make` built:
@@ -2411,10 +2419,14 @@ are not free and are outside what was approved** — 22 costs 1.44MB its third
 call and 23 costs 720KB a fourth, which is the row the growth table did not
 carry until it was measured here.
 
-`SPLSTARS=1` keeps its own count, one sector up: `BOOT2_SECS_STARS` **14 → 20**.
-Its `.boot2` is 2,824 against the shipped 2,460, so it does not fit the shipped
+`SPLSTARS=1` kept its own count, one sector up: `BOOT2_SECS_STARS` **14 → 20**.
+Its `.boot2` was 2,824 against the shipped 2,460, so it did not fit the shipped
 blob at its own `OVL_AT` of 3,072 — the same arithmetic §15.3.8.5 records, one
-rung along. **Every other knob now fits the shipped blob**, `BOOTMARK=1` and
+rung along. **That is retired: §15.3.8.5's closing block is the measurement
+that took the knob arm under one blob length and one `OVL_AT`, and the sed
+lookup, the second constant and the second split all went with it.** What is
+below stands as the record of why the mechanism existed.
+**Every other knob now fits the shipped blob**, `BOOTMARK=1` and
 `MOUDIAG=1` included, which at 15 sectors they did not: that is §15.3.8.5's
 per-knob mechanism honoured with *less* machinery rather than more, and it is
 also why `tests/unit/t_buildmatrix.py` gains a `MOUDIAG` row — a knob whose
@@ -21929,15 +21941,68 @@ have. MartyPC cannot host a 720KB drive with the ROM sets in this tree at all,
 which is exactly how the boundary was missed.
 
 The Makefile reads the sector count out of this file with a `sed` so the two
-cannot disagree, and it now reads **two** constants: `BOOT2_SECS_STARS` for
-the knob and `BOOT2_SECS` for everything else. The pattern anchors on
-`^BOOT2_SECS  *equ  *<digits>`, which the knob's own line misses on the
-underscore and the `%ifdef`'s line misses on the value not being a number — so
-the shipped count stays the one the pattern finds and the override is
-deliberate rather than an accident of ordering. **A boot sector told to fetch
-19 sectors for a 20-sector stage 2 jumps into a blob whose last sector never
-landed**,
-which is why the two lookups are worth the ugliness.
+cannot disagree, and it read **two** constants while this arm had a blob of its
+own: `BOOT2_SECS_STARS` for the knob and `BOOT2_SECS` for everything else. The
+pattern anchored on `^BOOT2_SECS  *equ  *<digits>`, which the knob's own line
+missed on the underscore and the `%ifdef`'s line missed on the value not being
+a number — so the shipped count stayed the one the pattern found and the
+override was deliberate rather than an accident of ordering. **A boot sector
+told to fetch 19 sectors for a 20-sector stage 2 jumps into a blob whose last
+sector never landed**, which is why the two lookups were worth the ugliness.
+
+###### 15.3.8.5.1 …and the 14th sector went back, because the CANARY was paying for it
+
+**The knob arm fits one blob length now, and `BOOT2_SECS_STARS`, the second
+`OVL_AT` and the second `sed` are all deleted.** Measured on the tree that took
+them out, `nasm [map all]`, both arms:
+
+| | `.boot2` | `.ovl` | blob | of 4,096 |
+|---|---:|---:|---:|---:|
+| shipped, before | 2,439 | 1,425 | 3,864 | 232 spare |
+| **shipped, after** | **2,254** | **1,421** | **3,675** | **421 spare** |
+| `SPLSTARS=1`, before | 2,768 | 1,425 | 4,193 | **over by 97** |
+| **`SPLSTARS=1`, after** | **2,568** | **1,421** | **3,989** | **107 spare** |
+
+−185 of `.boot2` in the shipped arm and −200 in the knob's (two of the fourteen
+findings are worth more there: the cosine table is dead under `SPLSTARS` and is
+now `%ifndef`'d out, and the same table's conversion to signed bytes is worth
+16 rather than 17 in an arm that does not compile the one code byte). The
+−4 of `.ovl` is `xm_boot_x`'s staging loop becoming a `rep movsw`. **The
+"over by 97" above is confirmed to the byte before the change** — it is
+`SPEC.md`'s own figure re-measured, not an estimate carried forward.
+
+Not one byte of it is `.text`, `.bss`, `.cold` or `.lowbss`: `.boot2` is in
+neither `KERN_CODE_MAX` nor `KERN_BUDGET`, so the whole set is worth **zero**
+against the kernel's guards and must never be summed with a resident figure.
+
+**`OVL_AT` is 2,624 for every build.** The window is 2,568 (the knob arm's
+`.boot2`) to 2,675 (4,096 − 1,421), and 2,624 sits in the middle of it: 56
+bytes spare below on the knob arm, 51 above on both, 370 below on the shipped
+one. The split is still free to move (§2.9.6) — what is new is that moving it
+*down* is now bounded by a knob rather than by nothing.
+
+**WHAT THE SECOND SECTOR WAS REALLY COSTING WAS THE BOOT CANARY (§18.93.1).**
+`KSIG_OFF` is a *memory* offset whose *file* sector is `BOOT2_SECS` further in,
+so a canary offset had to land in a head-crossing sector on four geometries
+**and on both blob lengths**. Re-derived from the four shipped BPBs, in memory
+sectors:
+
+```
+crossing on all four, 8-sector blob : 13, 49, 98, 99, 100, 101, 102
+crossing on all four, 9-sector blob : 12, 48, 97, 98, 99, 100, 101
+the intersection, which is what bound: 98, 99, 100, 101
+```
+
+Four sectors, every one of them at the very top of `.text` — which is why
+`KSIG_OFF` was 50,176 with `.text` ending 431 bytes above it and the Makefile
+carrying *"`.text` MAY NOT FALL BELOW 50,178 BYTES … and the answer then is a
+design change, not a new number"* in capitals. **This is that design change.**
+With one blob length the band is seven sectors wide and reaches memory 6,656,
+so `KSIG_OFF` is 6,656 (file sector 21) and the floor under `.text` is
+**6,658**. `tests/unit/t_canary.py` now derives *every* `BOOT2_SECS*` equate
+and requires the offset to cross on all of them, so a second blob length that
+comes back fails the fast tier instead of leaving one arm's canary inert — the
+"both lengths" rule lived in a Makefile comment and was enforced by nothing.
 
 #### 15.3.9 Three of the `splf_` shims own a far return their bodies can own
 
@@ -22326,7 +22391,7 @@ one thing that is resident this early. `BAKED_FONT` would put a copy in the
 blob and is not an option: it is a knob (`FONT=`), and a shipped kernel has no
 baked typeface. The eight rows are buffered into `.boot2` a character at a
 time because three segments are live and only two can be read through — ES is
-the framebuffer and DS is the kernel's, which `SPL_NEXTROW` needs.
+the framebuffer and DS is the kernel's, which `spl_nextrow` needs.
 
 **It needs no erase, and that is a consequence of the renderer rather than
 luck.** A teletype cell is 16 rows and `font_run` draws 8, so the teletype
@@ -24896,7 +24961,7 @@ its own RAM; reading them back proves the write worked, which it always did. It
 says nothing about whether the BIOS consulted them. The only thing worth
 verifying is the **transfer**.
 
-So the build reads a word out of `KERNEL.SYS` at **file sector 106** and
+So the build reads a word out of `KERNEL.SYS` at **file sector 21** and
 injects it as `KSIG`. After the load the boot sector compares, and on a mismatch
 drops `run_max` to `SPT` and **does the whole load again**. A boot 2.2s slower
 beats a kernel that is quietly wrong.
@@ -24917,13 +24982,20 @@ LBA 29 in runs of 30 sectors puts sector 36 five sectors into a *first* half.
 Adding the geometry made the canary inert on one shipped disk of four with no
 line of the boot path edited, and `tests/unit/t_canary.py` is what caught it.
 
-**File sector 106 crosses on all four** — the band common to them is 106..110,
-and it is the only run of two or more inside the 64KB the compare's `ES` can
-reach, so there was one answer rather than a choice. (Sectors 21 and 57 cross
-on all four as well, but each is alone: a canary needs its sector to cross for
-*both* blob lengths, and a lone sector cannot do that.) The sector under
-`SPLSTARS` — whose blob is one sector longer, so the same memory offset lands
-one sector further into the file — is 107, inside it too.
+**AND IT IS AN INTERSECTION OVER THE BLOB LENGTHS TOO**, because `KSIG_OFF` is
+a *memory* offset and the file sector is `BOOT2_SECS` further in (§2.9): a
+build whose stage 2 is a sector longer puts the same offset one sector further
+into the file. Re-derived from the four shipped BPBs, in **memory** sectors:
+
+```
+crossing on all four, 8-sector blob : 13, 49, 98, 99, 100, 101, 102
+crossing on all four, 9-sector blob : 12, 48, 97, 98, 99, 100, 101
+```
+
+While `SPLSTARS=1` carried a 9-sector blob the answer had to be in the
+intersection — **98..101**, four sectors, every one of them at the very top of
+`.text` — and the value was memory 50,176 (file sector 106 on the shipped
+build, 107 under the knob).
 
 **A THIRD CONSTRAINT BINDS BEFORE THE BAND DOES, and it is `.text`'s own
 length.** The offset has to name a *live* byte. `.bss` is `nobits`, so from the
@@ -24932,15 +25004,28 @@ is worse than absent: every word there equals its neighbour a sector away, so
 the shifted read the canary exists to catch compares **equal** and passes. This
 began as file sector 108 with `.text` at 52,916 bytes; the kernel size pass
 took `.text` to 50,207 and slid the same memory offset into the padding, in a
-merge that conflicted in no file. `.text` now ends 31 bytes into file sector
-106, so the entire legal window is memory **50,176..50,205** — thirty bytes,
-all in that one sector — and `KSIG_OFF` is the bottom of it, that being the
-value that survives the most further shrinking. **`.text` may not fall below
-50,178 bytes** while the canary is built this way; `tests/unit/t_canary.py`'s
-neighbour test fails loudly rather than letting it go quiet, and the answer at
-that point is a design change and not a new number. The compare therefore reuses the `ES` the handoff
-already loads, and the word is the same for every geometry because `KERNEL.SYS`
-is one file. `tests/suite.py`'s `canary` row asserts all of that against the
+merge that conflicted in no file.
+
+**THOSE TWO CONSTRAINTS MET, AND THE ANSWER WAS THE DESIGN CHANGE THIS SECTION
+ASKED FOR.** At `.text` = 50,607 the offset 50,176 had 431 bytes above it, and
+the Makefile said in capitals that `.text` **may not fall below 50,178 bytes**
+without leaving the constant no legal value — *"and the answer then is a design
+change, not a new number"*. The next kernel size pass takes `.text` by ~600.
+The change is §15.3.8.5.1: the knob arm's blob was brought under 4,096, so
+**there is one blob length**, the band is the seven-sector single-length one,
+and `KSIG_OFF` is **6,656 — memory sector 13, file sector 21.**
+
+It is a *lone* sector where 106 sat in a run of five, and that trade is
+deliberate: margin against a BPB that moves is worth less than margin against
+`.text`, because a geometry is a decision somebody takes and `.text` shrinks
+whenever anyone tidies anything. The floor under `.text` is **6,658** instead
+of 50,178. `tests/unit/t_canary.py` reads **every** `BOOT2_SECS*` equate and
+requires the offset to cross on all of them, so a second blob length coming
+back fails the fast tier rather than leaving one arm's canary inert — until
+this change that rule existed only as a Makefile comment and was enforced by
+nothing. 6,656 is inside the first 64KB, so the compare still reuses the `ES`
+the handoff already loads, and the word is the same for every geometry because
+`KERNEL.SYS` is one file. `tests/suite.py`'s `canary` row asserts all of that against the
 images `make` just built, so it cannot drift — and it asserts it over **every**
 shipped system image, which is the half that made the 1.2MB defect visible.
 
@@ -25002,7 +25087,9 @@ A/B for §18.91.1 itself.
 splash always drew correctly, which is what made it so hard to read: the splash
 module is file sectors 0–8, and on a 360KB disk the first head flip is at LBA 27
 — file sector 15. Everything the screen could show was loaded before the first
-sector that could be wrong.
+sector that could be wrong. (File sector 21, where the canary sits now, is past
+that flip on every geometry — which is the band's own guarantee and not a
+coincidence of the new value.)
 
 ### 18.93.2 The XT gate: who PAYS for the discovery
 
