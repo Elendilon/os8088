@@ -603,16 +603,18 @@ STAGES = [
          moved="everything from its code to its start-up code",
          take=dict(until="stage 2: loop")),
     dict(id="kmain", short="hand over", title="The operating system takes over",
-         moved="the working stack, into an area of its own",
+         moved="the working stack, into an area of its own", focus=["lowbss"],
          take=dict(phases=["dsk_boot_from_x", "cpu_detect", "xm_sniff",
                            "dsk_dpt_init_x", "sched_init", "sch_idle_start",
                            "evq_init", "clk_init", "vid_init", "vid_ctx_init",
                            "vid_probe_avail", "vid_disp_init"])),
     dict(id="heap", short="memory pool", title="The memory pool opens",
          moved="everything above the loader becomes available to ask for",
+         focus=["free*"],
          take=dict(phases=["mem_init_x", "mod_init_x"])),
     dict(id="ui", short="typeface + windows", title="Typeface, windows and the menu bar",
          moved="the letterforms, and the first blocks handed out",
+         focus=["lowbss"],
          take=dict(phases=["font_init", "ovl_font_init", "wm_init",
                            "band_init", "menu_init", "inst_init",
                            "splf_step"])),
@@ -621,6 +623,7 @@ STAGES = [
          take=dict(phases=["ovl_spl_msg_mouse", "mouse_init", "splf_step"])),
     dict(id="desk", short="drives + dock", title="Drives, the dock and the driver table",
          moved="desktop state, in the operating system's own storage",
+         focus=["ktext"],
          take=dict(phases=["ovl_spl_msg_fdd", "desk_init", "dock_init",
                            "files_init_x", "loader_init_x", "drv_init_x",
                            "drv_snd_sniff", "snd_init", "splf_step"])),
@@ -629,9 +632,10 @@ STAGES = [
          take=dict(phases=["drv_boot_x", "xm_boot_x", "thm_set"])),
     dict(id="unblob", short="space back", title="The loader's space is given back",
          moved="4KB returned to the pool, and the gap closed up",
+         focus=["free*"],
          take=dict(phases=["spl_finish", "mem_unblob_x"])),
     dict(id="paint", short="first frame", title="The first desktop frame",
-         moved="nothing new - the screen, at last",
+         moved="nothing new - the screen, at last", focus=[],
          take=dict(phases=["gfx_lock", "wm_paint_all", "gfx_unlock",
                            "cursor_show", "drv_notice_x"])),
 ]
@@ -1585,10 +1589,10 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
            "ui": "kern", "mouse": "mouse", "desk": "fdd", "drvboot": "boot",
            "unblob": "boot"}
 
-    heap, loaded, out, t0 = None, 0, [], 0.0
+    heap, loaded, out, t0, running = None, 0, [], 0.0, None
     for st in stages:
         ev = st["events"]
-        # --- how much of the kernel has landed, and what the bar reads ------
+        # --- how much of the kernel has landed, and where the heap stands ---
         for e in ev:
             if "arg_done" in e:
                 loaded = e["arg_done"]
@@ -1596,17 +1600,13 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
                 heap = e["heap"]
         if st["id"] not in ("post", "reloc", "dpt", "blob", "splash"):
             loaded = ksecs
-        bar = None
-        for e in ev:
-            if "bar" in e and e["bar"]["total"]:
-                bar = dict(e["bar"])
-            elif "arg_done" in e:
-                bar = {"done": e["arg_done"],
-                       "total": e["arg_total"] + cons["SPL_POST"]}
-        if st["id"] in ("post", "reloc", "dpt", "blob"):
-            bar = None                          # the splash is not up yet
-        if st["id"] == "paint":
-            bar = None                          # ...and it has been handed back
+        # THE BAR AS IT STANDS WHEN THE STAGE OPENS, not when it closes: the
+        # screen beside the ladder is what the machine looked like at the
+        # moment you arrived, and a stage's own work is what moves it on. So
+        # the reading is carried through the whole walk and sampled here
+        # BEFORE this stage's events are applied; each step then carries the
+        # reading taken at its own end, which is what a click shows.
+        bar = dict(running) if running else None
         regs = regions(st["id"], lad, cons, vol, walkdata["ram_kb"], heap,
                        loaded, None)
         for r in regs:
@@ -1652,17 +1652,46 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
                 note += (" THIS ONE IS A SINGLE SECTOR because the place it "
                          "was going was about to cross a [[64 KB boundary]]. "
                          "The run had to stop there and start again.")
+            if "bar" in e and e["bar"]["total"]:
+                running = dict(e["bar"])
+            elif "arg_done" in e:
+                running = {"done": e["arg_done"],
+                           "total": e["arg_total"] + cons["SPL_POST"]}
             steps.append({
                 "label": label, "phase": base, "kind": e["kind"],
                 "ms": e["ms"], "t0": e["t0"], "note": mark(note),
+                "bar": (dict(running,
+                             pct=100.0 * running["done"]
+                             / max(1, running["total"])) if running else None),
                 "mem": sorted(set(x for x in mem if x)),
                 "sectors": e["read_sectors"], "reads": e["reads"],
                 "cyl": e["seek_cylinders"],
                 "mech": e["transfer_ms"] + e["seek_ms"],
             })
 
+        # WHAT MOVED, as blocks rather than as a sentence. The diff against the
+        # previous stage's map is the honest answer for most of them - a block
+        # that is new, or that changed its extent - and the firmware's own
+        # areas are excluded because nothing os8088 does moves those. Where
+        # the diff is empty and the stage still HAS a subject (the working
+        # stack does not change any block's extent, it changes what a register
+        # points at) the stage names it.
+        prev = out[-1]["regions"] if out else []
+        was = dict((r["id"], (r["a"], r["b"])) for r in prev)
+        skip = ("unclaimed", "pending")     # ground shrinking is not a move
+        moved = [r["id"] for r in regs
+                 if r["cls"] != "bios" and not r["id"].startswith("free")
+                 and r["id"] not in skip
+                 and was.get(r["id"]) != (r["a"], r["b"])]
+        if "focus" in st:
+            moved = []
+            for f in st["focus"]:
+                moved += ([r["id"] for r in regs if r["id"].startswith("free")]
+                          if f == "free*" else [f])
+
         ms = sum(e["ms"] for e in ev)
         out.append({
+            "moved_ids": moved,
             "zooms": zooms(regs, ram),
             "id": st["id"], "short": st.get("short", st["id"]),
             "title": st["title"], "moved": st["moved"],
@@ -1684,6 +1713,12 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
             "boot_ticks_ms": walkdata["boot_ticks_ms"],
             "longest_run": walkdata["longest_run"],
             "desktop": walkdata.get("desktop", ""),
+            # Where os8088 starts. Everything before this is the machine's own
+            # firmware, and on a 5150 that is most of the wall clock - so the
+            # page counts from here and says so, rather than burying nine
+            # seconds of operating system inside a minute of memory test.
+            "os0_ms": out[0]["ms"] if out else 0.0,
+            "os_ms": sum(x["ms"] for x in out[1:]),
             "kernel_md5": hashlib.md5(
                 open(os.path.join(ROOT, "build", "kernel.bin"), "rb").read()
             ).hexdigest() if os.path.exists(
@@ -1779,9 +1814,9 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 .stamp b{font-weight:600;color:var(--ink)}
 
 /* ---- the loading-screen mimic ---------------------------------------- */
-.splash{width:100%;aspect-ratio:720/430;flex:0 0 auto;background:#000;color:#fff;
-  padding:10px 12px;border:1px solid var(--rule);border-radius:2px;position:relative;
-  display:flex;flex-direction:column;justify-content:center}
+.splash{width:100%;aspect-ratio:4/3;flex:0 0 auto;background:#000;color:#fff;
+  padding:8px 11px;border:1px solid var(--rule);border-radius:2px;position:relative;
+  display:flex;flex-direction:column;justify-content:center;overflow:hidden}
 .splash .logo{text-align:center;font-weight:800;letter-spacing:.22em;font-size:16px;
   padding:0 0 9px;perspective:420px}
 .splash .logo span{display:inline-block;animation:flip8088 3.52s steps(16,end) infinite}
@@ -1812,13 +1847,20 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 .splash .note{font-size:10.5px;color:var(--dim);margin-top:8px;text-align:center}
 .splash-outer{flex:0 0 auto}
 .splash-outer{width:100%}
-.splash-outer .cabin{font-size:10.5px;color:var(--dim);margin:6px 0 11px;
-  text-align:center;min-height:3.4em;line-height:1.4}
+.splash-outer .cabin{font-size:10.5px;color:var(--dim);margin:6px 0 12px;
+  text-align:center;line-height:1.4}
+.grp{display:flex;justify-content:space-between;gap:8px;font-size:9.5px;
+  letter-spacing:.11em;text-transform:uppercase;color:var(--dim);
+  font-weight:600;margin:7px 2px 2px;padding-bottom:2px;
+  border-bottom:1px solid var(--rule2)}
+.grp:first-child{margin-top:0}
+.grp span:last-child{font-family:"IBM Plex Mono",ui-monospace,monospace;
+  letter-spacing:0;text-transform:none;opacity:.85}
 
 /* ---- stage strip ------------------------------------------------------ */
 .stages{display:flex;flex-direction:column;align-items:stretch;gap:2px;margin:0}
 .st{appearance:none;border:1px solid var(--rule);background:var(--panel);color:var(--dim);
-  font:inherit;font-size:11.5px;padding:4px 9px;border-radius:2px;cursor:pointer;
+  font:inherit;font-size:11.5px;padding:3px 9px;border-radius:2px;cursor:pointer;
   display:flex;gap:7px;align-items:baseline;transition:.13s;text-align:left}
 .st .n{min-width:1.2em;text-align:right}
 .st .ms{margin-left:auto}
@@ -1827,7 +1869,7 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 .st .ms{font-size:10.5px;opacity:.75;font-family:ui-monospace,monospace}
 .st[aria-current="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
 .st[aria-current="true"] .ms{opacity:.85}
-.nav{display:flex;gap:5px;margin-top:7px}
+.nav{display:flex;gap:5px;margin-top:6px}
 .nav button{flex:1;width:auto}
 .nav button{appearance:none;border:1px solid var(--rule);background:var(--panel);
   color:var(--ink);width:32px;height:29px;border-radius:2px;cursor:pointer;font-size:14px;
@@ -1860,6 +1902,8 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
 .mlab .lb:hover{border-color:var(--rule)}
 .mlab .lb.hot{border-color:var(--sel);background:var(--sel);color:#fff}
 .mlab .lb.hot .sz{color:rgba(255,255,255,.82)}
+.mlab.soft .lb.hot{background:var(--panel);color:var(--sel);font-weight:600}
+.mlab.soft .lb.hot .sz{color:var(--sel);opacity:.7}
 .mlab .rz{position:absolute;width:1px;background:var(--rule);
   transition:left .45s cubic-bezier(.4,0,.2,1),top .3s,height .3s,opacity .3s}
 .mlab .rz.hot{background:var(--sel);width:1.5px;z-index:2}
@@ -1875,6 +1919,8 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
   transition:left .45s cubic-bezier(.4,0,.2,1),width .45s cubic-bezier(.4,0,.2,1),
   opacity .3s,background .25s;cursor:pointer}
 .mbar .rg.dim{opacity:.24}
+.mbar .rg.hot{box-shadow:inset 0 0 0 2px var(--sel)}
+.mbar.soft .rg.hot{box-shadow:inset 0 0 0 1.5px var(--sel)}
 .movl{position:relative;height:15px;margin-top:-15px;pointer-events:none;z-index:3}
 .movl .ov{position:absolute;height:15px;top:0;border:1.5px solid var(--c-ovl);
   background:repeating-linear-gradient(135deg,var(--c-ovl) 0 3px,transparent 3px 7px);
@@ -1964,6 +2010,8 @@ footer code{font-size:11px}
   transition:left .4s cubic-bezier(.4,0,.2,1),width .4s cubic-bezier(.4,0,.2,1),
   opacity .3s,background .25s}
 .zwin .rg.dim{opacity:.24}
+.zwin .rg.hot{box-shadow:inset 0 0 0 2px var(--sel)}
+.zrow.soft .zwin .rg.hot{box-shadow:inset 0 0 0 1.5px var(--sel)}
 .zwin .rg span{position:absolute;left:4px;top:50%;transform:translateY(-50%);
   font-size:10px;white-space:nowrap;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);
   pointer-events:none}
@@ -2125,14 +2173,19 @@ function layout(host, items, W, up){
    -------------------------------------------------------------------------- */
 function reserve(){
   var m = $("mlab"), t = $("tlab"), d = document.querySelector(".panel.detail");
+  var cab = $("scab");
   var keepStage = stage, keepStep = step;
-  m.dataset.reserve = 0; t.dataset.reserve = 0; d.style.minHeight = "";
-  var mx = 0, tx = 0, dx = 0;
+  m.dataset.reserve = 0; t.dataset.reserve = 0;
+  d.style.minHeight = ""; cab.style.minHeight = "";
+  var mx = 0, tx = 0, dx = 0, cx = 0;
   function sample(){
-    drawMap(); drawTime(); drawDetail();
+    drawMap(); drawTime(); drawDetail(); drawSplash();
     mx = Math.max(mx, +m.dataset.nat || 0);
     tx = Math.max(tx, +t.dataset.nat || 0);
     dx = Math.max(dx, d.getBoundingClientRect().height);
+    /* The line under the screen is three lines while nothing can draw and two
+       once it can, and the rungs below it moved by the difference. */
+    cx = Math.max(cx, cab.getBoundingClientRect().height);
   }
   for (var i = 0; i < S.length; i++){
     stage = i; step = -1; sample();
@@ -2155,6 +2208,7 @@ function reserve(){
      stage do not cover every step's exact facts, and being a few pixels short
      there is the one place it costs nothing to be generous. */
   d.style.minHeight = (Math.ceil(dx) + 14) + "px";
+  cab.style.minHeight = Math.ceil(cx) + "px";
   stage = keepStage; step = keepStep;
 }
 
@@ -2168,8 +2222,21 @@ var mblocks = {}, mlabels = {};
 function drawMap(){
   var st = S[stage], bar = $("mbar"), lab = $("mlab"), ovh = $("movl");
   var W = bar.clientWidth || 1, ram = D.ram;
+  /* WITH NOTHING SELECTED, THE HIGHLIGHT IS WHAT THIS STAGE MOVED - the same
+     blocks the line under the title names, so the sentence and the picture
+     agree without the reader having to find the correspondence. Picking a
+     step on the timeline hands the highlight over to that step's own memory. */
   var hot = {};
-  if (step >= 0) (st.steps[step].mem || []).forEach(function(id){ hot[id] = 1; });
+  ((step >= 0 ? st.steps[step].mem : st.moved_ids) || [])
+    .forEach(function(id){ hot[id] = 1; });
+  /* Two highlights, told apart on purpose: what a STAGE moved is outlined,
+     because it can be six blocks at once and a filled six is a shout; what a
+     STEP uses is filled, because it is one or two and it is an answer to
+     something the reader just clicked. */
+  var soft = step < 0;
+  $("mbar").classList.toggle("soft", soft);
+  $("zrow").classList.toggle("soft", soft);
+  $("mlab").classList.toggle("soft", soft);
   /* The size threshold below exists to stop thirteen crowded regions putting
      thirteen rungs on the stack. Where a stage HAS no crowd it should not
      apply at all - the first stage owns three regions, and hiding all three
@@ -2257,7 +2324,7 @@ function drawMap(){
   });
   layout(lab, items, W, true);
 
-  drawZoom(hot);
+  drawZoom(hot, soft);
 
   var ru = $("mrule");
   if (!ru.childNodes.length){
@@ -2295,7 +2362,7 @@ function pickRegion(id){
    rather than as a second, different map.
    -------------------------------------------------------------------------- */
 var zblocks = {};
-function drawZoom(hot){
+function drawZoom(hot, soft){
   var st = S[stage], wins = st.zooms || [], W = $("mbar").clientWidth || 1;
   var dim = $("zdim"), row = $("zrow"), cap = $("zcap"), link = $("zlink");
   dim.innerHTML = ""; cap.innerHTML = "";
@@ -2518,7 +2585,10 @@ function drawDetail(){
        half this wide only wraps to five lines and unbalances the pair. */
     facts([["stage", (stage + 1) + " of " + S.length],
            ["time in this stage", ms(st.ms)],
-           ["at, from reset", ms(st.t0) + " → " + ms(st.t0 + st.ms)],
+           (stage === 0
+             ? ["os8088 starts at", ms(D.meta.os0_ms)]
+             : ["since os start", ms(st.t0 - D.meta.os0_ms) + " → "
+                                  + ms(st.t0 + st.ms - D.meta.os0_ms)]),
            ["steps measured", String(st.steps.length)],
            ["loading bar", st.bar
               ? (st.bar.done + " / " + st.bar.total + "  ("
@@ -2544,7 +2614,9 @@ function drawDetail(){
     $("dbody").appendChild(q);
   }
   var rows = [["time", ms(sp.ms)],
-              ["at, from reset", ms(sp.t0)],
+              (stage === 0
+                ? ["os8088 starts at", ms(D.meta.os0_ms)]
+                : ["since os start", ms(sp.t0 - D.meta.os0_ms)]),
               ["share of stage", (100 * sp.ms / Math.max(st.ms, 1e-9)).toFixed(1) + "%"]];
   if (sp.sectors) rows.push(["sectors moved", String(sp.sectors)]);
   if (sp.reads) rows.push(["disk requests", String(sp.reads)]);
@@ -2557,7 +2629,10 @@ function esc(s){ var d = document.createElement("div"); d.textContent = s; retur
 /* -------------------------------------------------------------------------- */
 function drawSplash(){
   var st = S[stage], box = $("splash");
-  var on = !!st.bar;
+  /* The stage's own reading is the one it OPENED with; picking a step on the
+     timeline moves the screen to where the bar stood when that step finished. */
+  var b = (step >= 0 && st.steps[step]) ? st.steps[step].bar : st.bar;
+  var on = !!b;
   /* The panel is the MACHINE'S SCREEN all the way down: a bare cursor while
      nothing of ours can draw, then the loading screen, then the desktop it
      was all for. */
@@ -2567,25 +2642,40 @@ function drawSplash(){
   box.classList.toggle("done", done);
   box.classList.toggle("off", !on);
   if (on){
-    $("sfill").style.width = st.bar.pct.toFixed(2) + "%";
-    $("spct").textContent = Math.round(st.bar.pct) + "%";
-    $("smsg").textContent = st.bar.msg;
+    var pct = b.pct !== undefined ? b.pct : 100 * b.done / Math.max(1, b.total);
+    $("sfill").style.width = pct.toFixed(2) + "%";
+    $("spct").textContent = Math.round(pct) + "%";
+    $("smsg").textContent = st.bar ? st.bar.msg : (b.msg || "Loading Kernel");
   } else {
     $("sfill").style.width = "0%";
   }
   $("scab").textContent = on
-    ? "The bar's own numbers at this point — " + st.bar.done + " of " +
-      st.bar.total + " — read out of the running machine, not worked out here."
+    ? "The bar " + (step >= 0 ? "after this step" : "as this stage opens")
+      + " — " + b.done + " of " + b.total
+      + ", read out of the running machine rather than worked out here."
     : (done
         ? "The desktop, as this boot left it - read out of the display card's own memory."
-        : "What a 5150 shows until os8088 takes the screen: a cursor, and "
-          + "nothing else. The code that draws a loading screen is still on "
-          + "the floppy.");
+        : "What a 5150 shows until os8088 takes the screen \u2014 a cursor, "
+          + "and nothing more.");
 }
 function drawStages(){
   var s = $("stages"); 
   if (!s.dataset.built){
     S.forEach(function(st, i){
+      /* TWO GROUPS, AND THE SPLIT IS THE POINT. On this machine the firmware's
+         own memory test is most of the time between the switch and a desktop,
+         and leaving it as rung one of fourteen buries nine seconds of
+         operating system inside a minute of something else. */
+      if (i === 0 || i === 1){
+        var g = document.createElement("div");
+        g.className = "grp";
+        var a = document.createElement("span");
+        a.textContent = i ? "os8088" : "The machine's firmware";
+        var c = document.createElement("span");
+        c.textContent = ms(i ? D.meta.os_ms : D.meta.os0_ms);
+        g.appendChild(a); g.appendChild(c);
+        s.insertBefore(g, $("navbtns"));
+      }
       var b = document.createElement("button");
       b.className = "st"; b.type = "button";
       var n = document.createElement("span"); n.className = "n"; n.textContent = String(i+1);
@@ -2727,11 +2817,10 @@ def render(p, fragment=False):
  <aside class="rail">
    <h1>os8088 <span class="sub">Boot Ladder</span></h1>
    <p class="lede">What an IBM PC does between the power switch and a usable
-    desktop, one <b>discrete move of memory</b> at a time \u2014 %(nst)d of them,
-    on a 4.77&nbsp;MHz 8088 reading a 360&nbsp;KB floppy. Pick a rung, or use
-    <span class="kbd">&larr;</span><span class="kbd">&rarr;</span>; then click a
-    step on its timeline to light up the memory it runs from. Underlined words
-    have a definition on hover.</p>
+    desktop \u2014 %(nst)d <b>discrete moves of memory</b>, on a 4.77&nbsp;MHz
+    8088 reading a 360&nbsp;KB floppy. Pick a rung, or use
+    <span class="kbd">&larr;</span><span class="kbd">&rarr;</span>; click a step
+    on the timeline for the detail. Underlined words define on hover.</p>
    <div class="splash-outer">
     <div class="splash off" id="splash">
      <div class="curs"></div>
