@@ -1244,6 +1244,11 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
                                      text=True).stdout.strip(),
             "defines": list(defines),
         },
+        # THE WALK RIDES IN THE MODEL. Re-rendering is seconds and re-booting
+        # is minutes, so the expensive half has to be something you can keep -
+        # and one file that `--measure` will take back is a better answer than
+        # two that have to be kept in step.
+        "walk": walkdata,
         "ram": ram,
         # The magnified strip's span: the top of the loader's blob, rounded up
         # to a whole 4KB so the frame is a round number and does not move when
@@ -1262,42 +1267,49 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
 
 # -----------------------------------------------------------------------------
 # 5. The PAGE. One stylesheet, one script, and the whole model as
-#    JSON - so the file opens with no network of any kind, which a
-#    page about a machine that boots from a floppy ought to manage.
+#    JSON - so the file WORKS with no network at all, which a page about a
+#    machine that boots from a floppy ought to manage. The single exception
+#    is the webfont link, and every rule that uses it names a real fallback:
+#    offline, the page renders correctly in the system's own faces.
 # -----------------------------------------------------------------------------
 
 CSS = r''':root{
-  --bg:#f4f2ec; --panel:#fffdf8; --ink:#14130f; --dim:#6b6862; --rule:#d6d2c6;
-  --rule2:#eae6dc; --accent:#1c4f8c; --sel:#c2600c;
-  --c-bios:#9a958a; --c-ours:#1c4f8c; --c-kern:#2f7d5d; --c-ovl:#c2600c;
-  --c-data:#7141c8; --c-claim:#0e7490; --c-free:#e6e2d8; --c-dead:#c9c4b8;
-  --on-free:#6b6862;
+  --bg:#e9ecef; --panel:#fbfcfd; --ink:#12161a; --dim:#5d656e; --rule:#c8cfd6;
+  --rule2:#e0e5ea; --accent:#15497f; --sel:#b8560a;
+  --c-bios:#8b939c; --c-ours:#15497f; --c-kern:#1f7a58; --c-ovl:#b8560a;
+  --c-data:#6a37bd; --c-claim:#0c6f86; --c-free:#dde2e7; --c-dead:#bcc4cc;
+  --on-free:#5d656e;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#15161a; --panel:#1d1f24; --ink:#e9e7e0; --dim:#9b988f; --rule:#33353c;
-  --rule2:#26282d; --accent:#7fb0f2; --sel:#f0a44a;
-  --c-bios:#7d7b73; --c-ours:#5b9bef; --c-kern:#4cbd93; --c-ovl:#f0a44a;
-  --c-data:#b090f5; --c-claim:#33bcd2; --c-free:#282a30; --c-dead:#41434a;
-  --on-free:#9b988f;
+  --bg:#0f1216; --panel:#181c21; --ink:#e4e9ee; --dim:#8a929c; --rule:#2b313a;
+  --rule2:#20252b; --accent:#79aef2; --sel:#f2a552;
+  --c-bios:#767e88; --c-ours:#5a9bef; --c-kern:#42bf95; --c-ovl:#f2a552;
+  --c-data:#ab8cf7; --c-claim:#2fbdd4; --c-free:#232830; --c-dead:#3c434c;
+  --on-free:#8a929c;
 }}
 :root[data-theme="dark"]{
-  --bg:#15161a; --panel:#1d1f24; --ink:#e9e7e0; --dim:#9b988f; --rule:#33353c;
-  --rule2:#26282d; --accent:#7fb0f2; --sel:#f0a44a;
-  --c-bios:#7d7b73; --c-ours:#5b9bef; --c-kern:#4cbd93; --c-ovl:#f0a44a;
-  --c-data:#b090f5; --c-claim:#33bcd2; --c-free:#282a30; --c-dead:#41434a;
-  --on-free:#9b988f;
+  --bg:#0f1216; --panel:#181c21; --ink:#e4e9ee; --dim:#8a929c; --rule:#2b313a;
+  --rule2:#20252b; --accent:#79aef2; --sel:#f2a552;
+  --c-bios:#767e88; --c-ours:#5a9bef; --c-kern:#42bf95; --c-ovl:#f2a552;
+  --c-data:#ab8cf7; --c-claim:#2fbdd4; --c-free:#232830; --c-dead:#3c434c;
+  --on-free:#8a929c;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
-  font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  -webkit-font-smoothing:antialiased}
-.mono,code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace}
+  font:14px/1.55 "IBM Plex Sans",ui-sans-serif,-apple-system,"Segoe UI",Roboto,
+       Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+.mono,code{font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,
+  "DejaVu Sans Mono",monospace}
 .wrap{max-width:1400px;margin:0 auto;padding:20px 22px 60px}
 
 /* ---- header ---------------------------------------------------------- */
 .top{display:flex;gap:24px;align-items:flex-start;justify-content:space-between;
   flex-wrap:wrap;border-bottom:1px solid var(--rule);padding-bottom:16px}
-h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em;font-weight:650}
+h1{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",ui-sans-serif,
+     Helvetica,Arial,sans-serif;
+  font-size:29px;margin:0 0 5px;letter-spacing:-.005em;font-weight:700;
+  text-wrap:balance}
 h1 .sub{color:var(--dim);font-weight:400}
 .lede{margin:6px 0 0;max-width:60ch;color:var(--dim);font-size:13px}
 .stamp{margin-top:10px;font-size:11.5px;color:var(--dim);display:flex;
@@ -1314,7 +1326,8 @@ h1 .sub{color:var(--dim);font-weight:400}
 @keyframes flip8088{to{transform:rotateY(360deg)}}
 .splash .dlg{border:1px solid #fff;padding:7px}
 .splash .dlg2{border:1px solid #fff;padding:11px 10px 9px;text-align:center}
-.splash .cap{font-size:12px;letter-spacing:.04em;margin-bottom:9px}
+.splash .cap{font-size:12px;letter-spacing:.04em;margin-bottom:9px;
+  font-family:"IBM Plex Sans",ui-sans-serif,Helvetica,sans-serif}
 .splash .trough{border:1px solid #fff;height:14px;padding:1px}
 .splash .fill{height:100%;background:#fff;width:0;transition:width .5s cubic-bezier(.4,0,.2,1)}
 .splash .pct{font-size:12px;margin-top:7px}
@@ -1346,14 +1359,18 @@ h1 .sub{color:var(--dim);font-weight:400}
   line-height:1}
 .nav button:hover{border-color:var(--accent)}
 .nav button:disabled{opacity:.35;cursor:default}
-.stitle{margin:14px 0 2px;font-size:19px;font-weight:620;letter-spacing:-.01em}
+.stitle{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",ui-sans-serif,
+     Helvetica,Arial,sans-serif;
+  margin:15px 0 2px;font-size:22px;font-weight:700;letter-spacing:-.005em;
+  text-wrap:balance}
 .smoved{color:var(--dim);font-size:13px;margin-bottom:2px}
 .smoved b{color:var(--sel);font-weight:600}
 
 /* ---- section frames --------------------------------------------------- */
 .panel{background:var(--panel);border:1px solid var(--rule);border-radius:3px;
   padding:14px 16px 12px;margin-top:16px}
-.ph{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);
+.ph{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--dim);
+  font-weight:600;
   margin:0 0 2px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .ph .hint{text-transform:none;letter-spacing:0;font-size:11px}
 
@@ -1468,6 +1485,13 @@ footer code{font-size:11px}
 .zovl .ov.hot{box-shadow:0 0 0 2px var(--sel)}
 .zspan{position:absolute;top:0;height:100%;border-left:1px solid var(--sel);
   border-right:1px solid var(--sel);background:rgba(194,96,12,.10);pointer-events:none;z-index:2}
+
+a:focus-visible,button:focus-visible,.st:focus-visible{outline:2px solid var(--accent);
+  outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition-duration:.001ms!important;animation-duration:.001ms!important;
+    animation-iteration-count:1!important}
+}
 '''
 
 JS = r'''(function(){
@@ -1931,6 +1955,17 @@ def esc(s):
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
+# IBM's own typeface, on a page about an IBM 5150 - and the ONE thing here
+# that is not in the file. Every rule names a real fallback stack, so a
+# machine with no network renders the page correctly in system faces; nothing
+# but the lettering depends on it.
+FONTS = ('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+         '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
+         'family=IBM+Plex+Mono:wght@400;500&'
+         'family=IBM+Plex+Sans:wght@400;500;600&'
+         'family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">')
+
+
 def render(p, fragment=False):
     """The whole page as one string.
 
@@ -2067,13 +2102,14 @@ def render(p, fragment=False):
                m["boot_ticks"], m["boot_ticks_ms"])),
     }
     if fragment:
-        return "<title>%s</title>\n<style>%s</style>\n%s" % (title, CSS, body)
+        return ("<title>%s</title>\n%s\n<style>%s</style>\n%s"
+                % (title, FONTS, CSS, body))
     return ("<!doctype html>\n<html lang=\"en\"><head>"
             "<meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,"
             "initial-scale=1\">"
-            "<title>%s</title>\n<style>%s</style></head><body>%s</body></html>"
-            % (title, CSS, body))
+            "<title>%s</title>%s\n<style>%s</style></head><body>%s</body></html>"
+            % (title, FONTS, CSS, body))
 
 
 # -----------------------------------------------------------------------------
@@ -2181,7 +2217,9 @@ USAGE = """os88ladder - the interactive Boot Ladder page (ON DEMAND, never in `m
                      to its GLaBIOS twin when the ROM is not in the tree)
   --define SYM       an extra -D for the kernel this describes (repeatable)
   --build DIR        where the built kernel is (default build)
-  --json PATH        also keep the model, for something else to read
+  --json PATH        where to keep the model (default: beside the page). It
+                     carries the WALK it was built from, so `--measure` on it
+                     re-renders in seconds without booting anything
   --measure PATH     re-use a walk taken earlier instead of booting again
   --no-measure       refuse to boot anything; only legal with --measure
 """
@@ -2232,6 +2270,14 @@ def main(argv):
     lad, cons, vol, strs = ladder(build, defines), constants(), volume(image), strings()
     if reuse:
         w = json.load(open(reuse))
+        if "events" not in w and isinstance(w.get("walk"), dict):
+            w = w["walk"]                   # a MODEL: take the walk out of it
+        if "events" not in w or "machine" not in w:
+            raise SystemExit(
+                "os88ladder: %s is not a walk and has no walk in it.\n"
+                "  --measure takes what a previous run MEASURED - either the "
+                "file --json wrote, or a bare walk.\n"
+                "  If this is neither, drop --measure and let it boot." % reuse)
         sys.stderr.write("os88ladder: re-using the walk in %s (%s, %s)\n"
                          % (reuse, w["machine"], w["taken"]))
     elif nomeas:
@@ -2254,13 +2300,17 @@ def main(argv):
                          % (len(w["events"]), time.time() - t0))
 
     p = build_page(w, lad, cons, vol, defines, strs)
-    html = render(p, fragment=frag)
+    # The walk rides in the JSON so a re-render needs no boot; it does NOT ride
+    # in the page, which would put 26KB of raw cycle counts into every reader's
+    # download to say nothing the page does not already draw.
+    html = render(dict((k, v) for k, v in p.items() if k != "walk"),
+                  fragment=frag)
     d = os.path.dirname(os.path.abspath(out))
     if d and not os.path.isdir(d):
         os.makedirs(d)
     open(out, "w", encoding="utf-8").write(html)
-    if jsonout:
-        json.dump(p, open(jsonout, "w"), indent=1)
+    json.dump(p, open(jsonout or (os.path.splitext(out)[0] + ".json"), "w"),
+              indent=1)
     sys.stderr.write(
         "os88ladder: %s  (%s, %d stages, %d measured phases)\n"
         % (out, "{:,}".format(len(html)), len(p["stages"]),
