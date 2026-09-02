@@ -34316,11 +34316,17 @@ Two things about where that decision lives. It keys on **`[vid_kind]`, not
 adapter's mode rather than of how many rows it has. And it is re-asked in
 `desk_rowcalc` rather than at boot, because that is the routine `vid_switch`
 re-runs (§39.11.2) — so a machine moved from its CGA to its Hercules gets the
-tall pair back with no second site to remember. `[desk_icoh]`, `[desk_zh1]`,
-`[desk_zstep]`, `[desk_pdisk]`, `[desk_phdd]` and `[desk_zgap]` (§26.5) are
-`.text` with real initialisers for the reason every boot-reachable table here
-is: `-f bin` zeroes nothing, and a zero icon pointer draws the interrupt
-vector table.
+tall pair back with no second site to remember. `[desk_zh1]`, `[desk_zstep]`,
+`[desk_pdisk]` and `[desk_phdd]` are `.text` with real initialisers for the
+reason every boot-reachable table here is: `-f bin` zeroes nothing, and a zero
+icon pointer draws the interrupt vector table.
+
+**Four words, and it was six.** The icon's own height and §26.5's gap were
+stored beside them and are not any more: every reader wanted the *sum* — the
+zone's inclusive bottom, `icon + gap + DESK_LBLH - 1` — so `desk_rowcalc`
+builds `[desk_zh1]` per arm as a constant and the label band is derived back
+off it (`y1 = zy + zh1 - (DESK_LBLH-1)`). The identity holds on both arms and
+at the resting initialiser: 32+2+11 = 45 and 14+1+11 = 26.
 
 ### 26.5 The caption sits a gap below the icon
 

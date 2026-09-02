@@ -2369,7 +2369,7 @@ osapi_vol_mount_x:
 ; -----------------------------------------------------------------------------
 osapi_vol_paint_x:
     call KERNEL_SEG:cw_gfx_lock
-    call desk_zones_paint_x
+    call COLD_SEG:desk_zones_paint_x
     call KERNEL_SEG:cw_gfx_unlock
     retf
 

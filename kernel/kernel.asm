@@ -6324,11 +6324,14 @@ kretfc_es:        pop es
 kretfc_bp:        pop bp
 kretfc_di:        pop di
 kretfc_si:        pop si
-                  pop dx
-kretfc_cx:        pop cx
-                  pop bx
-                  pop ax
-                  retf
+kretfc_dx:        pop dx
+                  pop cx          ; UNLABELLED, and it is the `dx` rung above
+                  pop bx          ; that took its last caller: `kretfc_cx` had
+                  pop ax          ; exactly one jump in the tree and desk.inc's
+                  retf            ; two paint entries merged onto `dx` instead.
+                                  ; A rung nothing jumps to is walked as an
+                                  ; ENTRY from depth 0 and goes red - so the
+                                  ; label goes, per the rule above
 section .text
 
 ; --- WHICH KERNEL IS THIS? (SPEC.md 57.6) ------------------------------------

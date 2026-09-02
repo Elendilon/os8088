@@ -583,7 +583,7 @@ ui_task:
     or al, al                   ; the same pass - but it costs the drive-zone
     jz .chk_curs                ; grid and the windows over it, not the screen
     call gfx_lock
-    call COLD_SEG:dkz_desk_zones_paint
+    call COLD_SEG:desk_zones_paint_x
     call gfx_unlock
 .chk_curs:
     cmp byte [cur_shchk], 0     ; which window is the pointer over, and does it
