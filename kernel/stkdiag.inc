@@ -87,7 +87,7 @@ SD_X       equ 12
 SD_Y       equ 20
 SD_ROW     equ 8
 SD_VALX    equ SD_X + 25*8
-SD_ROWS    equ 17
+SD_ROWS    equ 18
 
 ; ---- state ------------------------------------------------------------------
 ; In .text with real initialisers, for dsk_dpt's reason (SPEC.md 18.92):
@@ -642,6 +642,15 @@ sd_paint:
     mov si, sd_s_hdr
     call sd_label
 
+    add bp, SD_ROW              ; ...and WHICH BUILD, inverted so a photograph
+    mov si, sd_s_arm            ; cannot lose it (see sd_s_arm)
+    push ax
+    mov cx, SD_X
+    mov dx, bp
+    mov ax, (CWHITE << 8) | CBLACK
+    call font_run
+    pop ax
+
     add bp, SD_ROW              ; --- who this machine is -------------------
     mov si, sd_s_bios
     call sd_label
@@ -893,6 +902,19 @@ sd_mfill:
 %endif
 
 sd_s_hdr:   db "os8088 TASK STACK DIAGNOSTIC",0
+; WHICH BUILD IS THIS? Three photographs came back from the field that could
+; not be told apart - same panel, same machine, and no way to know whether the
+; operator had booted the shipping arm, the MOUPRIV one or both-fixes. A
+; measurement whose configuration cannot be read off the picture is a
+; measurement somebody has to remember, and remembering is what the disk exists
+; to replace.
+%ifdef STK_FIX
+sd_s_arm:   db "ARM 3 of 3   MOUPRIV + STKFIX",0
+%elifdef MOU_PRIV
+sd_s_arm:   db "ARM 2 of 3   MOUPRIV",0
+%else
+sd_s_arm:   db "ARM 1 of 3   as it ships",0
+%endif
 sd_s_bios:  db "ROM",0
 sd_s_geom:  db "screen width",0
 sd_s_slice: db "slice bytes",0

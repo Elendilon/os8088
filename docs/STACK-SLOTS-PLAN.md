@@ -541,6 +541,78 @@ Also unrun: CGA and VGA (the mouse ISR is deeper on both), and any ROM that is
 not this one — an XT clone, a 286, a 386 — which is the whole reason the disk
 is a disk.
 
+## 9.6 Three more machines, and a hole the third one found
+
+| | 5150 Herc | 5150 CGA | Packard Bell 286 |
+|---|---|---|---|
+| ROM / model | 10/27/82 `FF` | 10/27/82 `FF` | **01/15/88 `FC`** |
+| adapter | Hercules 720 | CGA 640 | VGA 640 |
+| mouse | serial | serial | **PS/2** |
+| **ROM `int 08h`** | **36** | **36** | **18** |
+| floor, quiet | 86 | 98 | 70 |
+| floor, +mouse | 98 | 98 | 86 |
+| floor, +keys | **112** | 98 | 90 |
+| **FLOOR MAX** | **112** | **98** | **90** |
+| chain samples | 2,016 | 2,291 | 2,008 |
+| mouse ISR, own stack | 30 | **23** | **0 — see below** |
+| slot 1 / slot 2 | 64 / 112 | 62 / 98 | 60 / 90 |
+
+### 9.6.1 The PS/2 mouse was never covered, and the panel said so
+
+**`mouse ISR, own stack` reads 0 on the 286 while the mouse phase still adds 16
+bytes to a task slice** (70 → 86). Those two rows together are the diagnosis: a
+PS/2 mouse arrives on IRQ12 through `mou_p2_isr` (§9.9), which is a **separate
+ISR** that §4.2's change never touched — so nothing was relocated and nothing
+was measured.
+
+Fixed: `mou_p2_isr` takes the same `MOUPRIV_ENTER`/`LEAVE` pair. The safety
+argument carries over unchanged — it runs IF=0 from the gate to its single
+`iret` and never `sti`s — and the two ISRs **share one private stack**, because
+neither can nest on the other for that same reason.
+
+This is what a knob that reports *its own* coverage is for: a 0 beside a
+non-zero effect is a hole, where a missing row would have been silence.
+
+### 9.6.2 The ROM term is BIOS-specific and adapter-independent
+
+**36 on both 5150 runs** — same ROM, different adapter, same number, which is
+the consistency check the pair was worth taking. And **18 on the 01/15/88
+ROM**. So the range on real iron so far is **18–36 against SeaBIOS's 56**:
+every ROM measured is cheaper than QEMU, and they differ from each other by 2×.
+**There is no single "BIOS adder" to design with** — only a per-machine
+measurement, which is the disk's whole reason to exist.
+
+### 9.6.3 The mouse ISR really is adapter-dependent
+
+**23 on CGA, 30 on Hercules, 54 on QEMU's VGA.** `cur_move`'s 1bpp path is
+shallower than the planar one (§39). No real-hardware VGA + serial-mouse
+reading exists yet — the 5150 has no VGA card and the 286 has no serial mouse —
+so **54 remains the number a class scheme must be cut from**, and it is still
+the one figure in this table that comes from an emulator.
+
+### 9.6.4 The keyboard, on a harder protocol
+
+Spamming several keys at once rather than holding one down found **+14 on
+Hercules** (98 → 112), **+0 on CGA** and **+4 on the 286** — so
+docs/KERNEL-MEMORY.md's "`int 09h` worth about twelve" is real, but it is a
+**rare coincidence rather than a standing cost**: the same protocol on the same
+machine one adapter along found nothing. That is the nesting distribution
+again, and it is the argument for designing to a margin rather than to a
+sampled maximum.
+
+### 9.6.5 Which arm were these? — the instrument could not say, and now it can
+
+All three carry a `mouse ISR` row, so all three are at least `MOUPRIV=1`;
+whether `STKFIX=1` was also on **cannot be read off the photographs**, and the
+arithmetic does not settle it either. Three pictures that cannot be told apart
+is a measurement somebody has to remember, and remembering is what the disk
+exists to replace.
+
+The panel now prints its own build, inverted, under the title: `ARM 1 of 3 as
+it ships` / `ARM 2 of 3 MOUPRIV` / `ARM 3 of 3 MOUPRIV + STKFIX`. **The three
+readings above should be re-taken on the labelled disks**, and until they are,
+treat this table as arm 2-or-3 rather than as either.
+
 ## 10. The measurement disk — `make stkdiag`
 
 **Built, and it answers §9 on any machine.** `STKDIAG=1` (`kernel/stkdiag.inc`)

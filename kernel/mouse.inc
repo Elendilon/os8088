@@ -232,6 +232,52 @@ mou_masks   dw MOU_L4, MOU_L3   ; ...the line its base says it drives, which is
                                 ; what to HOOK and never what to retire
 mou_isrs    dw mou_isr, mou_isr3    ; ...and the stub that vector points at
 
+
+; -----------------------------------------------------------------------------
+; MOUPRIV_ENTER / MOUPRIV_LEAVE - the mouse ISR on a stack of its own
+;                                 (`make MOUPRIV=1`, docs/STACK-SLOTS-PLAN.md)
+;
+; The whole ISR runs on a private stack, so what it costs the TASK it
+; interrupted is the six bytes the CPU pushed before we had control, and
+; nothing else. Measured on QEMU, that is ~58 bytes off every task slice - and
+; a slice pays it seven times over, where the code below costs .text once.
+;
+; IT NEEDS NO RE-ENTRANCY GUARD, and that is a property of this ISR rather than
+; an assumption: `mou_isr` runs with IF=0 from the CPU's own gate to the `iret`
+; and never `sti`s (SPEC.md 7/9), so it cannot interrupt itself, and IRQ3 and
+; IRQ4 cannot interrupt each other either. The tick's chain needs a busy flag
+; because a real BIOS `sti`s inside it; this one does not.
+;
+; NO REGISTER IS AVAILABLE at entry - every one of them is the interrupted
+; task's - so the swap is written to need none: `mov [cs:x], sp` and
+; `mov sp, imm16` both work with nothing to spare. CS is KERNEL_SEG at an ISR
+; gate, so the save slot is reached through it before DS is ours; SS is already
+; LOW_SEG for every task (SPEC.md 1/2.1), so the stack itself has to live in
+; .lowbss and the swap is SP alone.
+;
+; THE ENTRY IS DUPLICATED because there are two vectors and the swap has to
+; happen before the first `push`. Four bytes of .text against ~58 bytes of
+; every task stack in the machine is the trade, and it is not close.
+; -----------------------------------------------------------------------------
+%ifdef MOU_PRIV
+MOU_PSTK    equ 256             ; sized against the ~58 the chain measures, at
+                                ; 4.4x - it is one allocation now, not seven,
+                                ; so the margin is nearly free
+
+%macro MOUPRIV_ENTER 0
+    mov [cs:mou_psave], sp
+    mov sp, mou_pstack + MOU_PSTK
+%endmacro
+%macro MOUPRIV_LEAVE 0
+    mov sp, [cs:mou_psave]
+%endmacro
+%else
+%macro MOUPRIV_ENTER 0
+%endmacro
+%macro MOUPRIV_LEAVE 0
+%endmacro
+%endif
+
 ; -----------------------------------------------------------------------------
 ; mou_pout - AL out to [port BX's base + AH]
 ;
@@ -1615,6 +1661,7 @@ mou_p2_off:
 .out:
     ret
 
+
 ; -----------------------------------------------------------------------------
 ; mou_p2_isr - IRQ12, int 74h (SPEC.md 9.9.3)
 ;
@@ -1628,6 +1675,17 @@ mou_p2_off:
 ; Runs with IF = 0 throughout; never sti (SPEC.md 7).
 ; -----------------------------------------------------------------------------
 mou_p2_isr:
+    MOUPRIV_ENTER               ; ...and the PS/2 ISR too (SPEC.md 9.9). It was
+                                ; MISSED by the first version of MOUPRIV and a
+                                ; Packard Bell 286 said so on the glass: "mouse
+                                ; ISR, own stack" read 0 there while the mouse
+                                ; phase still added 16 bytes to a task slice,
+                                ; because a PS/2 mouse arrives on IRQ12 through
+                                ; this ISR and never through mou_isr at all.
+                                ; Same argument, same safety: IF=0 from the gate
+                                ; to the iret, so it cannot nest on itself - and
+                                ; it cannot nest with mou_isr either, so the two
+                                ; share one private stack
     push ax
     push bx
     push cx
@@ -1665,6 +1723,7 @@ mou_p2_isr:
     pop cx
     pop bx
     pop ax
+    MOUPRIV_LEAVE
     iret
 
 ; -----------------------------------------------------------------------------
@@ -2764,50 +2823,6 @@ kbd_ovb     db 0                ; ...and one the ISR has asked for and no pass
                                 ; reads them on the machine's first keystroke
 
 ; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
-; MOUPRIV_ENTER / MOUPRIV_LEAVE - the mouse ISR on a stack of its own
-;                                 (`make MOUPRIV=1`, docs/STACK-SLOTS-PLAN.md)
-;
-; The whole ISR runs on a private stack, so what it costs the TASK it
-; interrupted is the six bytes the CPU pushed before we had control, and
-; nothing else. Measured on QEMU, that is ~58 bytes off every task slice - and
-; a slice pays it seven times over, where the code below costs .text once.
-;
-; IT NEEDS NO RE-ENTRANCY GUARD, and that is a property of this ISR rather than
-; an assumption: `mou_isr` runs with IF=0 from the CPU's own gate to the `iret`
-; and never `sti`s (SPEC.md 7/9), so it cannot interrupt itself, and IRQ3 and
-; IRQ4 cannot interrupt each other either. The tick's chain needs a busy flag
-; because a real BIOS `sti`s inside it; this one does not.
-;
-; NO REGISTER IS AVAILABLE at entry - every one of them is the interrupted
-; task's - so the swap is written to need none: `mov [cs:x], sp` and
-; `mov sp, imm16` both work with nothing to spare. CS is KERNEL_SEG at an ISR
-; gate, so the save slot is reached through it before DS is ours; SS is already
-; LOW_SEG for every task (SPEC.md 1/2.1), so the stack itself has to live in
-; .lowbss and the swap is SP alone.
-;
-; THE ENTRY IS DUPLICATED because there are two vectors and the swap has to
-; happen before the first `push`. Four bytes of .text against ~58 bytes of
-; every task stack in the machine is the trade, and it is not close.
-; -----------------------------------------------------------------------------
-%ifdef MOU_PRIV
-MOU_PSTK    equ 256             ; sized against the ~58 the chain measures, at
-                                ; 4.4x - it is one allocation now, not seven,
-                                ; so the margin is nearly free
-
-%macro MOUPRIV_ENTER 0
-    mov [cs:mou_psave], sp
-    mov sp, mou_pstack + MOU_PSTK
-%endmacro
-%macro MOUPRIV_LEAVE 0
-    mov sp, [cs:mou_psave]
-%endmacro
-%else
-%macro MOUPRIV_ENTER 0
-%endmacro
-%macro MOUPRIV_LEAVE 0
-%endmacro
-%endif
 
 ; mou_isr / mou_isr3 - IRQ4 and IRQ3. Microsoft
 ;           protocol: byte 0 has bit 6 set: 1 LB RB Y7 Y6 X7 X6; bytes 1/2
