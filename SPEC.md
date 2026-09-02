@@ -85504,6 +85504,63 @@ bearing and no arctangent of its own. `tk_objcam_raw` exists because the
 radar wants objects the frustum has thrown away, which is the whole point of
 having a radar.
 
+#### 85.6.6 One game in nineteen spawned inside a rock
+
+Reported from a 5150: *"sometimes I spawn into an obstacle, and can only turn,
+never drive."* Both halves of that are exact, and the second one is what makes
+it a dead end rather than an annoyance.
+
+`tk_newgame` scatters `TK_NSTAT` pieces of scenery **uniformly over the torus**
+and stands the player at the origin, and the two were never compared.
+`tk_blocked` then refuses any destination inside a **300-unit box** of a piece
+— and a step is only `TK_SPEED` = 26 forward, `TK_RSPEED` = 16 back. So a
+player who starts inside that box is not slowed by it, they are **sealed in**:
+every one of the 256 headings, in both gears, lands inside the same box and is
+refused. Turning still works, which is exactly what was reported, because
+turning is not tested against anything.
+
+**Modelled over 40,000 games** against the shipped `tk_blocked`, the shipped
+sine table and both gears: **5.27% completely stuck — one in nineteen — and a
+further 2.15% fenced in on some headings but not all.** "Sometimes" was
+generous.
+
+##### 85.6.6.1 The fix is a clearance, and the margin is what makes it a proof
+
+`TK_CLEARR` = 600, twice `tk_blocked`'s own box: a piece that lands within it
+of the spawn is **shoved out along x**, and the same 40,000 games then give
+**zero stuck and zero fenced**.
+
+The margin is the point. A piece cleared to 600 cannot refuse even the *first*
+step, because `300 + TK_SPEED` is 326 — so this is an arithmetic guarantee and
+not a smaller probability. The test is a box on either axis, like `tk_blocked`'s
+own, so clearing one axis is enough and x is the one moved: the piece only has
+to leave the box, not go anywhere in particular.
+
+**It is a fold and not a re-draw.** Asking `OSAPI_RAND` again until the piece
+lands clear is the obvious version and it is a loop with no bound — a hang
+waiting for a poor generator, at boot, on the one code path nobody watches.
+Adding `TK_CLEARR * 2` terminates. What it costs is a slight excess of scenery
+in the band just east of the spawn: the 2.1% of draws that land in the
+exclusion box all arrive in one 1,200-unit-square region, which with twelve
+pieces is not a thing an eye finds.
+
+##### 85.6.6.2 ...and `tk_drive` will not refuse an escape
+
+The clearance means the player never starts inside anything. This means it
+cannot come back by another route: **when a move is refused, `tk_drive` now
+asks whether the player is already inside something, and lets the move happen
+if they are.**
+
+It is worth having because the "nobody can get inside a box" argument leans on
+three separate facts that a later change could break quietly — `tk_addtank`
+places tanks at 3,000–4,023 units, `tk_tankai` stops closing at `dot < 700`,
+and the player can never *drive* into a box because `tk_blocked` refuses it. If
+any of those moves, the symptom is not a slightly worse game, it is a round
+that cannot be played. And it costs nothing when it is not needed: the second
+`tk_blocked` runs only on the frame a move is refused, and in a game where the
+player is outside everything — which is every game — it answers CF=0 and the
+move is refused exactly as before.
+
 ### 85.8 GAME OVER — the lines fly in and become the letters
 
 Losing the last tank does not end the session; it ends the *game*. `GAME
@@ -85653,28 +85710,34 @@ shell's longest reach — so the byte heading is not the defect and a finer
 heading is not the fix. The whole of it is the two-unit step multiplied by the
 frame's spend, and the report is the multiplication rather than the step.
 
-##### 85.6.5.1 Three assists, one key, and OFF is the default
+##### 85.6.5.1 What shipped: one assist, always on, with no switch
 
-Which of them *feels* right is not a question this file can answer, so they are
-built and **`G` cycles them**, with the live one lettered at the top left. They
-are named for what they move:
+Four things were built, driven on a 5150 and judged on the glass. **One is in
+the game and there is nothing to turn on**: `tk_aimfix` corrects a shot at a
+tank the player has already put inside the closed sight's box, by at most half
+the lattice the frame rate rounds them to (§85.6.5.6), and §85.6.5.7's sight
+closes and blips on exactly the shots that land.
 
-| | | |
-|---|---|---|
-| **AIM OFF** | the default | exactly the behaviour above, and it is the control |
-| **TRIM** | the SHOT, by a bounded amount | the shell is corrected onto a tank in the brackets by **at most half the lattice the player is stuck on** — §85.6.5.6 |
-| **SNAP** | the SHOT, all the way | the shell leaves at the tank's own bearing, whatever the error |
-| **LOCK** | the TURN | a sweep about to cross a tank lands *on* it — §85.6.5.3 |
-| **TRIM+LOCK** | both | |
+The other three were removed rather than parked, and §85.6.5.3 to §85.6.5.5
+are their record:
 
-**OFF draws nothing and tests nothing**, which is the point: a control arm that
-paid eight glyphs a frame more than the thing it is being compared against is
-not a control. The banner is drawn anyway for two seconds after any press of
-`G`, so cycling back *to* OFF still says so.
+| | |
+|---|---|
+| **FINE** | a tap ramp. Refused: it reads as input lag, and on a 4.32 fps machine that is what it *is* — §85.6.5.4 |
+| **SNAP** | the same correction unbounded. Played well and **made the game too easy**; TRIM is what replaced the argument for it — §85.6.5.6 |
+| **LOCK** | a magnet on the *turn*. Worked, felt reasonable, and was not the winner — §85.6.5.3 |
 
-**The reticle is not on this list.** §85.6.5.7's closed sight is *feedback* and
-runs under every arm including OFF, because saying whether a shot would hit is
-not the same as improving it — and under OFF it is the defect being shown.
+There was a `G` key cycling all of them with the live one lettered at the top
+left, and a `tk_aim` byte behind it. Both are gone. **The assist is not
+switchable**, so there is no arm to compare against on the machine any more —
+what is left instead is §85.6.5.3.1's account of what each one cost to find
+out, and `tests/tankaim.py`, which asserts the shipped rule rather than a
+choice between rules.
+
+**The reticle was never one of the modes.** §85.6.5.7's closed sight is
+*feedback* — saying whether a shot would hit is not the same as improving it —
+and it ran under every arm including the control, where it was the defect being
+shown.
 
 ##### 85.6.5.2 The error is a tangent, so there is still no arctangent
 
@@ -85704,7 +85767,13 @@ on both 320-wide viewports and `68/(554*0.024536)` = **5.00** on Hercules.
 §85.3's table sets `sclx` for the same field of view on every adapter, so the
 brackets are the same *angle* everywhere and the constant is an angle.
 
-##### 85.6.5.3 LOCK is priced per FRAME, and the frame ENDS on the target
+##### 85.6.5.3 LOCK — built, fixed, played, and NOT kept
+
+*Removed at §85.6.5.1. This is the record; the code is gone.* Judged on the
+5150 as *"worked, feels ok, and it was worth doing to test it"* against a TRIM
+that answered the same complaint without touching the camera. What follows is
+what it was, because the shape of it is reusable and the second half of it was
+a defect worth writing down.
 
 The request named the boundary: *"if an enemy tank is going to be within the
 boundary that would be crossed by **last frame's turn rate x2**, then instead
@@ -85795,13 +85864,23 @@ three-unit floor on the machine this game is for. Anything that wants to be
 finer than `TK_TURN` has to be finer than one unit, and has to not cost a
 frame's response to do it.
 
-##### 85.6.5.5 What this is not
+##### 85.6.5.5 The record is here because the code is not
 
-It is a **prototype behind a key**, not a shipped decision: `tk_aim` starts at
-OFF, nothing writes it but `G`, and the attract panel's instructions are
-deliberately left alone until one of the arms wins. The three are not ranked
-here on purpose — §85.6.5.1's table says what each one moves, and which of
-those a gunner wants moved for them is a question for the glass.
+Three of the four are deleted rather than left behind a knob, which is this
+tree's rule (§4's module table has no parking bay) and is right here for a
+particular reason: **none of the three is a fallback.** `NOBAND` and `NOPLANE`
+are knobs because something still takes those paths — a kern_small build, a
+clipped blit — so the alternative has to keep assembling. Nothing takes FINE's
+path, or SNAP's, or LOCK's. A knob over them would be a second implementation
+of the game's steering kept alive by a test nobody runs.
+
+What that costs is the ability to A/B on the machine, and it is a real cost:
+every number in §85.6.5.3 and §85.6.5.4 came from being able to flip between
+arms mid-round on a 5150. It was worth having *while the question was open* and
+is dead weight now that it is not. The four constants that survive —
+`TK_BOXQ`, `TK_HITQ`, `TK_RETQ` and the cap `tk_aimfix` derives — are all
+*derived* rather than tuned (§85.6.5.8), so re-opening the question means
+changing an argument rather than a taste.
 
 ##### 85.6.5.6 TRIM: the assist is the machine's OWN handicap, and nothing more
 
@@ -85838,10 +85917,20 @@ changes is the far end, which is the whole of the report:
 | 3,000 | ±2.0 | 3 | **the difference between a hit and a phase** |
 | 3,900 | ±1.6 | 3 | as above |
 
-`tk_aimcap` is **one figure for the gun and the reticle**, which is what makes
+`tk_aimfix` is **one routine for the gun and the reticle**, which is what makes
 §85.6.5.7's closed sight a promise instead of a decoration: the sight closes on
-exactly the shot `tk_fire` is about to correct, because both ask the same
-routine.
+exactly the shot `tk_fire` is about to correct, because `tk_lockon` subtracts
+what `tk_fire` adds.
+
+**And `tk_lstep` is written after `tk_input` on purpose**, which is the other
+half of that promise. `tk_fire` runs inside `tk_input`, at the top of the
+frame, so a shot is corrected with the same `tk_lstep` that `tk_lockon` closed
+the sight on at the *end of the previous* frame. Written before it, a frame
+that owed two ticks instead of three would shrink the cap in the gap between
+the sight closing and the trigger — and the sight would have lied, which is the
+one thing §85.6.5.7 does not do. The frame rate wobbles across that boundary in
+practice: `tests/tankaim.py` reads `tk_lstep` as 2 and then 3 in a single
+run.
 
 ##### 85.6.5.7 The sight may not lie
 
@@ -85954,12 +86043,11 @@ shot lands — where before, a tank 5 units off got 3 units of correction and
 still missed beyond 3,050. The sight tells the truth about both, because
 `tk_aimfix` is the one routine `tk_fire` adds and `tk_lockon` subtracts.
 
-**SNAP stays on the wheel as the UNGATED arm**, and had to be given a reason
-to: box-gated it would correct fully inside ±3.24 where TRIM corrects to within
-0.24, and both land — so the two modes would have become the same mode with
-different names. It keeps the open bracket and the unbounded correction
-instead, which is what the assist was before this section, so the wheel carries
-the A/B for the gate itself rather than a duplicate.
+**And it is what finished SNAP off.** Box-gated, SNAP corrects fully inside
+±3.24 units where TRIM corrects to within 0.24 — and both land, so the two
+became the same mode with different names. It was kept one round longer as the
+*ungated* arm, carrying the A/B for the gate itself, and removed with the rest
+at §85.6.5.1.
 
 #### 85.8.1 The lettering gets a halo, because a 1bpp erase is not a colour
 

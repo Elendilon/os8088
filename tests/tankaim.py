@@ -1,40 +1,36 @@
 #!/usr/bin/env python3
-"""TANK ATTACK's aim assists and its reticle (SPEC.md 85.6.5) do what they claim.
+"""TANK ATTACK's aim assist and its reticle (SPEC.md 85.6.5) do what they claim.
 
     python3 tests/tankaim.py [--machine os8088_5150_cga_gla]
 
-The defect these answer is arithmetic, so this asserts arithmetic. A heading is
-a byte, `TK_TURN` spends two units of it a TICK, and `tk_input` latches once a
+The defect this answers is arithmetic, so it asserts arithmetic. A heading is a
+byte, `TK_TURN` spends two units of it a TICK, and `tk_input` latches once a
 FRAME while `tk_pmove` spends up to `TK_MAXSTEP` - so the finest turn a player
 can COMMAND on a 1bpp adapter is six units, and `tk_espoil`'s own window is 4.1
 units wide at 3,000 and 3.1 at the shell's longest reach. The sweep steps over
 a distant tank and the phase of the press decides whether it was ever hittable.
 
-FIVE CLAIMS.
+FOUR CLAIMS, and the first is a proof rather than a measurement.
 
-**AIM OFF is unchanged**, because it is the control arm of a comparison
-somebody makes on real hardware: two units a tick, and no fraction in the 8.8
-heading.
+**No bearing is unreachable.** The assist only helps inside the box the closed
+sight draws, so the box has to be at least half the coarsest lattice the player
+can be on or there are tanks nothing can aim at - which at the 18 px it was
+first drawn at was one bearing in nine. Checked by ENUMERATION rather than by
+SPEC.md 85.6.5.8's algebra, so a slip in the algebra shows up here.
 
-**G cycles `tk_aimset`** and lands back on OFF.
+**The turn itself is untouched**, which is what makes the rest of the game the
+game it was: TK_TURN a tick, and no fraction anywhere in the heading.
 
-**The gun corrects by `tk_aimcap` and no further.** A tank is placed at a KNOWN
-bearing and the shell's heading is read out of the slot it spawned into. OFF
-must leave it at `tk_pa`; SNAP must put it on the tank; TRIM must stop at half
-the lattice `tk_lstep` says the player is on - which is the whole of SPEC.md
-85.6.5.6, and is why TRIM changes no outcome at close range.
+**The gun helps inside the box and nowhere else.** A tank is placed at a KNOWN
+bearing and the shell's heading is read out of the slot it spawned into: inside
+the box it must leave corrected by `tk_aimfix`'s own cap, and outside it must
+leave at `tk_pa` exactly - the player aims that one themselves.
 
 **The reticle does not lie** (85.6.5.7). Rather than assume a geometry, this
 reads the code's OWN inputs back - `tk_aimq`, the measured error, and
-`tk_aimz`, the range it was measured at - and asserts `tk_locked` against the
-window those two imply. A ladder of bearings then has to produce both answers,
-or the check is vacuous.
-
-**LOCK lands ON a tank between one step and two**, witnessed by the 8.8
-fraction, because every ordinary step is `TK_TURN` exactly and leaves `tk_paf`
-alone - and by `tk_lockn`, which counts the events. That counter exists because
-the field reported LOCK as "no difference from aim off" while it was firing:
-what the eye had to see was a two-unit correction lasting one step.
+`tk_aimz`, the range - and asserts `tk_locked` against the window those imply
+AFTER the correction the gun is about to make. A ladder of bearings then has to
+produce both answers, or the check is vacuous.
 """
 import argparse
 import math
@@ -56,23 +52,9 @@ OT_FREE, OT_TANK, OT_SHELL = 0, 4, 5
 TK_NSTAT, TK_NOBJ = 12, 18
 TK_TURN = 2
 MAXSTEP = 3                             # apps/tank's TK_MAXSTEP
-AS_TRIM, AS_SNAP, AS_LOCK = 1, 2, 4
-CYCLE = [0, AS_TRIM, AS_SNAP, AS_LOCK, AS_TRIM | AS_LOCK]
 
 RANGE = 3000                            # where the six-unit quantum stops
                                         # fitting inside the window at all
-LOCKE = 3.0                             # LOCK's bearing: inside the FRAME's own
-                                        # sweep (TK_TURN * tk_lstep, six units
-                                        # on a 1bpp adapter) and well outside
-                                        # TK_LOCKIN. An ordinary frame turns
-                                        # six units and lands three PAST it, so
-                                        # the two arms cannot be confused
-HOLD = 4                                # emulator frames a LOCK arm holds D
-                                        # between looks. The sweep may cross
-                                        # the tank only ONCE for the witness to
-                                        # read, and it cannot cross twice: once
-                                        # passed, the error changes sign and
-                                        # 85.6.5.3's direction test refuses
 RETICLE = (1.0, 2.75, 4.25)             # the bearings the reticle ladder walks
 
 
@@ -145,10 +127,6 @@ class Game:
     def wr(self, name, data, i=0):
         self.m.write((self.seg << 4) + self.off(name) + i, bytes(data))
 
-    def head88(self):
-        """The 8.8 heading SPEC.md 85.6.5.4 made of tk_pa and tk_paf."""
-        return (self.b("tk_pa") << 8) | self.b("tk_paf")
-
     def movers(self):
         t = self.rd("tk_otype", TK_NOBJ)
         return {i: t[i] for i in range(TK_NSTAT, TK_NOBJ)}
@@ -165,13 +143,8 @@ class Game:
         self.clear_movers()
 
     def cap(self):
-        """tk_aimcap, in quarter units, for the mode and frame rate in play."""
-        aim = self.b("tk_aim")
-        if aim & AS_SNAP:
-            return const("TK_RETQ")
-        if aim & AS_TRIM:
-            return min(TK_TURN * 2 * self.b("tk_lstep"), const("TK_RETQ"))
-        return 0
+        """tk_aimfix's cap, in quarter units, for the frame rate in play."""
+        return TK_TURN * 2 * self.b("tk_lstep")
 
     def place(self, slot, err, rng, sin):
         """A tank `err` units off the sights at `rng`.
@@ -212,17 +185,15 @@ def main(argv):
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     RETQ, HITQ, HYS = const("TK_RETQ"), const("TK_HITQ"), const("TK_LOCKHYS")
-    IN, BOXPX = const("TK_LOCKIN"), const("TK_BOXPX")
+    BOXPX = const("TK_BOXPX")
     BOXQ = MAXSTEP * TK_TURN * 2 + 1        # tank.asm's TK_BOXQ, derived the
                                             # same way it is there
 
-    def fix(mode, err, cap, boxq):
+    def fix(err, cap, boxq):
         """tk_aimfix, in Python: the correction the gun applies."""
-        if not mode & (AS_TRIM | AS_SNAP):
-            return 0
-        if not mode & AS_SNAP and abs(err) > boxq:
-            return 0                            # outside the box: aim it
-        return max(-cap, min(cap, err))         # yourself
+        if abs(err) > boxq:
+            return 0                            # outside the box the player
+        return max(-cap, min(cap, err))         # aims it themselves
 
     # --- 0. the arithmetic SPEC.md 85.6.5.8 rests on, before any of it runs ---
     worst, at, q = reachable(BOXQ, TK_TURN, MAXSTEP)
@@ -248,52 +219,29 @@ def main(argv):
         m.advance(frames=150)
         if g.w("tk_back") & 0xFF == 0:
             sys.exit("tankaim: the bracket refused its mode - nothing to test")
-        print("  backend %d, viewport %dx%d, aim %d, steps a frame %d"
-              % (g.b("tk_back"), g.w("tk_vw"), g.w("tk_vh"), g.b("tk_aim"),
-                 g.b("tk_lstep")))
-        if g.b("tk_aim") != 0:
-            bad.append("tk_aim came up at %d: OFF is not the default, so the "
-                       "game changed for somebody who never asked it to"
-                       % g.b("tk_aim"))
+        print("  backend %d, viewport %dx%d, steps a frame %d"
+              % (g.b("tk_back"), g.w("tk_vw"), g.w("tk_vh"), g.b("tk_lstep")))
 
         # --- 1. AIM OFF is the control arm, and is unchanged -----------------
-        f0, t0, h0 = g.w("tk_frames"), g.w("tk_last"), g.head88()
+        f0, t0, h0 = g.w("tk_frames"), g.w("tk_last"), g.b("tk_pa")
         m.key("KeyD", down=True, up=False)
         m.advance(frames=300)
-        f1, t1, h1 = g.w("tk_frames"), g.w("tk_last"), g.head88()
+        f1, t1, h1 = g.w("tk_frames"), g.w("tk_last"), g.b("tk_pa")
         m.key("KeyD", down=False, up=True)
         m.advance(frames=30)
         df, dt = f1 - f0, (t1 - t0) & 0xFFFF
-        da = ((h1 - h0) & 0xFFFF) / 256.0
-        print("  OFF: held D over %d frames / %d ticks: heading +%.2f units, "
-              "%.2f a tick, %.2f a frame"
+        da = (h1 - h0) & 0xFF
+        print("  the turn: held D over %d frames / %d ticks: heading +%d "
+              "units, %.2f a tick, %.2f a frame"
               % (df, dt, da, da / max(1, dt), da / max(1, df)))
         if dt < 20 or da == 0:
-            bad.append("the OFF turn sample is degenerate (%d ticks, %.2f "
-                       "units): nothing was measured" % (dt, da))
+            bad.append("the turn sample is degenerate (%d ticks, %d units): "
+                       "nothing was measured" % (dt, da))
         elif not (TK_TURN * 0.6 <= da / dt <= TK_TURN * 1.15):
-            bad.append("AIM OFF turned %.2f units a tick against TK_TURN = %d: "
-                       "the CONTROL arm has moved, so nothing measured against "
-                       "it means anything (SPEC.md 85.6.4)" % (da / dt, TK_TURN))
-        if h1 & 0xFF:
-            bad.append("AIM OFF left a fraction of %d in tk_paf: only a magnet "
-                       "may put one there (SPEC.md 85.6.5.4)" % (h1 & 0xFF))
-        if g.w("tk_lockn"):
-            bad.append("tk_lockn is %d with no assist live: LOCK fired under "
-                       "AIM OFF" % g.w("tk_lockn"))
-
-        # --- 2. G cycles tk_aimset and comes back to OFF ---------------------
-        seen = []
-        for _ in range(len(CYCLE) + 1):
-            m.type_text("g")
-            m.advance(frames=20)
-            seen.append(g.b("tk_aim"))
-        want = CYCLE[1:] + CYCLE[:2]
-        print("  G cycles: %s (want %s)" % (seen, want))
-        if seen != want:
-            bad.append("G walked %s and not %s: the cycle does not visit every "
-                       "combination, or does not come home to OFF"
-                       % (seen, want))
+            bad.append("the player turned %.2f units a tick against TK_TURN = "
+                       "%d: steering is paced by something other than the "
+                       "clock, and the assist may not touch it "
+                       "(SPEC.md 85.6.4)" % (da / dt, TK_TURN))
 
         # --- a fresh, quiet, FROZEN world for the three fixtures -------------
         # Section 1 spends the better part of a minute of guest time with a
@@ -314,19 +262,15 @@ def main(argv):
                        % (g.b("tk_over"), g.b("tk_dead"), g.b("tk_pause")))
 
         # --- 3. the gun helps INSIDE THE BOX and nowhere else -----------------
-        # SPEC.md 85.6.5.8. TRIM's window is the closed sight's own box; SNAP
-        # keeps the open bracket, which is what the assist was before the box
-        # and is on the wheel as the A/B for it. So the two bearings below are
-        # the whole test: one inside the box and one outside it.
+        # SPEC.md 85.6.5.8: the window is the closed sight's own box, so the
+        # two bearings below are the whole test - one inside it and one out.
         lstep = g.b("tk_lstep")
-        print("  tk_lstep %d -> lattice %d units, cap %d quarters; box %d "
-              "quarters drawn at %d px" % (lstep, TK_TURN * lstep,
-                                           g.cap() if False else
-                                           min(TK_TURN * 2 * lstep, RETQ),
-                                           BOXQ, BOXPX))
+        print("  box %d quarters, drawn at %d px; tk_lstep is %d here and the"
+              " cap moves with it - each row below prints its own"
+              % (BOXQ, BOXPX, lstep))
         for e in (3.0, 4.5):
-            for mode, tag in ((0, "OFF"), (AS_TRIM, "TRIM"), (AS_SNAP, "SNAP")):
-                g.wr("tk_aim", [mode])
+            for _ in (0,):
+                tag = "IN " if e * 4 <= BOXQ else "OUT"
                 g.quiet()
                 g.place(TK_NSTAT, e, RANGE, SIN)
                 m.advance(frames=20)            # ...so tk_lockon measures it
@@ -334,12 +278,13 @@ def main(argv):
                 m.type_text(" ")
                 m.advance(frames=40)
                 islot, sa = g.shell()
-                corr = fix(mode, err, cap, BOXQ)
+                corr = fix(err, cap, BOXQ)
                 want = (pa + int(math.floor((corr + 2) / 4.0))) & 0xFF
                 print("  %-4s: tank %+.1f units (%d quarters, %s the %d-quarter"
-                      " box); shell left at %s (want %d, a %d-quarter fix)"
+                      " box), cap %d; shell left at %s (want %d, a %d-quarter "
+                      "fix)"
                       % (tag, e, err, "IN" if abs(err) <= BOXQ else "outside",
-                         BOXQ, sa, want, corr))
+                         BOXQ, cap, sa, want, corr))
                 if sa is None:
                     bad.append("%s at %+.1f: no shell spawned - tk_fire "
                                "refused and the assist was never reached"
@@ -359,15 +304,14 @@ def main(argv):
         # tk_aimq is the error it measured and tk_aimz the range it measured
         # it at, so the window those imply is what tk_locked has to agree with.
         got = []
-        for mode, tag in ((0, "OFF"), (AS_TRIM, "TRIM"), (AS_SNAP, "SNAP")):
+        for tag in ("aim",):
             for e in RETICLE:
-                g.wr("tk_aim", [mode])
                 g.quiet()                       # nothing in view: the sight
                 m.advance(frames=25)            # opens and tk_lockwas clears,
                 g.place(TK_NSTAT, e, RANGE, SIN)   # so HYSTERESIS is not in play
                 m.advance(frames=25)
                 err, rng = g.sw("tk_aimq"), g.w("tk_aimz")
-                err = abs(err - fix(mode, err, g.cap(), BOXQ))   # what is LEFT
+                err = abs(err - fix(err, g.cap(), BOXQ))    # what is LEFT
                 win = HITQ // max(1, rng)
                 lock = g.b("tk_locked")
                 ok = lock == (1 if err <= win else 0)
@@ -387,66 +331,6 @@ def main(argv):
             bad.append("the reticle ladder came back all %s: it agreed with "
                        "itself and tested nothing"
                        % ("closed" if all(got) else "open"))
-
-        # --- 5. a LOCK sweep ENDS on the tank --------------------------------
-        # The witness is the error LEFT OVER, which is the user-facing claim
-        # itself: sweep once at a tank three units ahead and see where the
-        # sights finish. An ordinary frame turns TK_TURN * tk_lstep - six units
-        # on a 1bpp adapter - and finishes three PAST it; a frame that lands
-        # finishes ON it, and the steps behind the magnet must not carry the
-        # sights off again (SPEC.md 85.6.5.3).
-        #
-        # This is what the FRACTION witness could not see. tk_paf caught the
-        # magnet firing, and the magnet was firing all along - per STEP, with
-        # the frame's remaining steps erasing the landing.
-        for mode, tag in ((0, "OFF"), (AS_LOCK, "LOCK")):
-            g.wr("tk_pause", [1])
-            m.advance(frames=20)
-            g.wr("tk_aim", [mode])
-            g.quiet()
-            g.place(TK_NSTAT, LOCKE, RANGE, SIN)
-            g.wr("tk_paf", [0])                 # the witness starts clean
-            g.wr("tk_lockn", b"\0\0")
-            h0, f0 = g.head88(), g.w("tk_frames")
-            g.wr("tk_pause", [0])               # ...and then let it step
-            m.advance(frames=6)
-            m.key("KeyD", down=True, up=False)
-            for _ in range(8):                  # ...until the sweep has
-                m.advance(frames=HOLD)          # actually MOVED. A fixed hold
-                if (g.head88() - h0) & 0xFFFF >= 256:   # is 1.2 game frames at
-                    break                       # 6 fps and can fall entirely
-            m.key("KeyD", down=False, up=True)  # between two tk_input polls
-            g.wr("tk_pause", [1])
-            m.advance(frames=20)
-            h1, df, n = g.head88(), g.w("tk_frames") - f0, g.w("tk_lockn")
-            d = (h1 - h0) & 0xFFFF
-            left = abs(g.sw("tk_aimq"))         # ...how far off it FINISHED
-            print("  %-4s: tank %+.2f units; %d frames; heading %.2f -> %.2f, "
-                  "+%.2f; %d quarters off the tank at the end  [%d magnet "
-                  "event(s)]"
-                  % (tag, LOCKE, df, h0 / 256.0, h1 / 256.0, d / 256.0, left, n))
-            if d < 256:
-                bad.append("%s: the heading moved %.2f units, so no sweep "
-                           "happened and nothing was measured" % (tag, d / 256.0))
-            elif mode and left > IN + 2:
-                bad.append("LOCK: a sweep at a tank %+.2f units ahead finished "
-                           "%d quarters off it, outside TK_LOCKIN (%d): the "
-                           "frame stepped OVER the tank instead of ending on "
-                           "it (SPEC.md 85.6.5.3)" % (LOCKE, left, IN))
-            elif not mode and left <= IN + 2:
-                bad.append("OFF: a sweep finished %d quarters off the tank "
-                           "with no assist live - the arms are not "
-                           "distinguishable and the LOCK check above is "
-                           "vacuous" % left)
-            if mode and not n:
-                bad.append("LOCK: tk_lockn counted no magnet events over a "
-                           "sweep that crossed a tank")
-            if not mode and n:
-                bad.append("OFF: tk_lockn counted %d magnet events with no "
-                           "assist live" % n)
-            if not mode and (h1 & 0xFF):
-                bad.append("OFF: the heading picked up a fraction of %d/256 "
-                           "with no assist live at all" % (h1 & 0xFF))
 
     if bad:
         print("\ntankaim: FAIL")

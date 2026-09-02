@@ -203,6 +203,21 @@ TK_SHLIFE equ 30                ; ...and its life in ticks, so its reach is
 TK_LIVES  equ 4
 TK_HITR   equ 150               ; a shell within this of a target is a hit
 
+; --- the ground the player starts on has to be drivable (SPEC.md 85.6.6) -----
+; tk_newgame scattered TK_NSTAT pieces of scenery uniformly over the torus and
+; stood the player at the origin without ever comparing the two. tk_blocked
+; refuses a destination within 300 of a piece and a step is only TK_SPEED, so a
+; player who starts inside that box cannot get out of it in ANY direction:
+; reported as "sometimes I spawn into an obstacle, and can only turn, never
+; drive", and modelled at 5.27% of games - one in nineteen - with another 2.15%
+; fenced in on some headings but not all.
+;
+; TK_CLEARR is twice tk_blocked's own box, and the margin is what makes it a
+; proof rather than an improvement: a piece this far off cannot refuse even the
+; FIRST step, because 300 + TK_SPEED is 326. Modelled again with the rule in,
+; over the same 40,000 games: zero stuck and zero fenced.
+TK_CLEARR equ 600               ; ...and no piece may stand nearer the spawn
+
 ; --- aiming, and what the TURN's own step costs it (SPEC.md 85.6.5) -----------
 ; A heading is a byte, so a unit is 1.40625 degrees and TK_TURN spends two of
 ; them a TICK. tk_input latches once a FRAME and tk_pmove spends up to
@@ -213,23 +228,6 @@ TK_HITR   equ 150               ; a shell within this of a target is a hit
 ; 4.1 units wide at 3,000 and 3.1 at the shell's 3,900-unit reach. So the sweep
 ; steps clean over a distant tank and the phase of the press decides whether it
 ; was ever hittable.
-TK_AS_TRIM equ 1                ; the shot is corrected by AT MOST what the
-                                ; quantum took (SPEC.md 85.6.5.6)
-TK_AS_SNAP equ 2                ; ...or all the way onto the target
-TK_AS_LOCK equ 4                ; the TURN lands on a target it would cross
-TK_LOCKX  equ 2                 ; LOCK's reach, as a multiple of the FRAME's
-                                ; own sweep (SPEC.md 85.6.5.3): the boundary
-                                ; the request named was "last frame's turn rate
-                                ; x2", and a frame is up to TK_MAXSTEP steps
-TK_LOCKIN equ 4                 ; ...and inside a whole unit of the sights we
-                                ; are already on it, so the sweep carries past
-                                ; rather than sticking there for ever
-TK_LOCKDW equ 1                 ; extra FRAMES a landing is held. Without one
-                                ; the sight is on the target for the tail of a
-                                ; single frame - 165 ms on CGA, under a simple
-                                ; visual reaction - and the shot cannot be
-                                ; spent. 0 turns the detent off
-TK_NAIM   equ 5                 ; combinations the G key offers, in tk_aimset
 
 ; --- where the auto-aim applies, DERIVED and not chosen (SPEC.md 85.6.5.8) ---
 ; THE PLAYER HAS TO AIM IT THEMSELVES, so the gun only corrects a shot at a
@@ -245,7 +243,7 @@ TK_NAIM   equ 5                 ; combinations the G key offers, in tk_aimset
 ; 85.6.5's original defect in miniature. At 21 px it is none, ever, on any
 ; machine.
 ;
-; And tk_aimcap is Q/2 as well, which is what makes the pair sufficient rather
+; And tk_aimfix's cap is Q/2 as well, which makes the pair sufficient rather
 ; than merely necessary: at the nearest reachable heading the error is inside
 ; the box AND inside the cap, so the correction is exact and the shot lands at
 ; every range. At the box's EDGE the residual is 0.24 units, against a window
@@ -258,6 +256,10 @@ TK_BOXPX  equ 22                ; ...and what that is in tk_t_lock's own
 %if TK_BOXQ < TK_MAXSTEP * TK_TURN * 2
   %error "TK_BOXQ is under half the coarsest turn lattice: there are bearings no sequence of presses can put a tank inside the box"
 %endif
+; ...and the same inequality read the other way is what lets tk_aimfix clamp
+; nothing at runtime: the cap is TK_MAXSTEP * TK_TURN * 2 at its largest, which
+; is inside the box by construction, so a correction can never reach past the
+; brackets the player is being asked to aim within.
 %assign TK_BOXDRAWN (TK_BOXPX * 5882) / 10      ; the DRAWN box, quarters x1000
 %if TK_BOXDRAWN > TK_BOXQ * 1000 + 588
   %error "tk_t_lock is drawn WIDER than the box the gun uses: the closed sight would promise a correction outside it"
@@ -613,20 +615,6 @@ tk_s_pl1:    db 'PL 1', 0
 ; clearly went past a cube.
 tk_rstop:    db 0, 110, 130, 165
 
-; --- the aim assists (SPEC.md 85.6.5) ----------------------------------------
-; What G walks. TRIM comes first because it is the one with an argument behind
-; it: SNAP corrects a shot all the way onto a tank in the brackets and was
-; reported as making the game too easy, and TRIM corrects it by AT MOST half
-; the lattice the player is actually stuck on - which is nothing at all at
-; close range, where the window is already wider than the quantum.
-tk_aimset:   db 0, TK_AS_TRIM, TK_AS_SNAP, TK_AS_LOCK, TK_AS_TRIM | TK_AS_LOCK
-tk_aimnam:   dw tk_s_a0, tk_s_a1, tk_s_a2, tk_s_a3, tk_s_a4
-tk_s_a0:     db 'AIM OFF', 0    ; drawn only while the banner is up: the CONTROL
-tk_s_a1:     db 'TRIM', 0       ; arm costs no glyphs at all, or it is not one
-tk_s_a2:     db 'SNAP', 0
-tk_s_a3:     db 'LOCK', 0
-tk_s_a4:     db 'TRIM+LOCK', 0
-
 tk_s_range:  db 'ENEMY IN RANGE', 0
 tk_s_score:  db 'SCORE ', 0
 tk_s_gnew:   db 'N - NEW GAME', 0
@@ -778,14 +766,8 @@ tk_tpl:
     ZWORD tk_px
     ZWORD tk_pz
     ZBYTE tk_pa
-    ZBYTE tk_paf                    ; the FRACTION under it (SPEC.md 85.6.5):
-                                    ; the pair is one 8.8 heading and tk_pa is
-                                    ; still the byte everything else reads
     ZBYTE tk_kturn                  ; the held keys, latched by tk_input and
     ZWORD tk_kdrv                   ; spent one step at a time by tk_pmove
-    ZBYTE tk_aim                    ; which TK_AS_* are live, and where that
-    ZBYTE tk_aimi                   ; sits in tk_aimset for the G key
-    ZWORD tk_aimt                   ; ticks the mode banner has left
     ZBYTE tk_aimh                   ; the heading THIS shell leaves at
     ZBYTE tk_lstep                  ; steps the LAST frame owed - TRIM's whole
                                     ; input, because the lattice the player is
@@ -797,14 +779,6 @@ tk_tpl:
     ZBYTE tk_locked                 ; the sight is closed on a target...
     ZBYTE tk_lockwas                ; ...and was last frame, which is what makes
                                     ; the blip an ACQUISITION and not a tone
-    ZWORD tk_lockn                  ; magnet events, for tests/tankaim.py: "no
-                                    ; difference from aim off" is a report a
-                                    ; counter can settle and an eye cannot
-    ZBYTE tk_lockd                  ; this FRAME's magnet has landed, so the
-                                    ; steps behind it are absorbed rather than
-                                    ; carrying the sights straight off again
-    ZBYTE tk_lockhold               ; ...and frames it is held beyond this one
-    ZWORD tk_locks                  ; the step a magnet may replace
     ZBUF  tk_ox, TK_NOBJ * 2        ; the world's, indexed by slot x 2
     ZBUF  tk_oz, TK_NOBJ * 2
     ZBUF  tk_otype, TK_NOBJ
