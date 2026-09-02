@@ -5682,6 +5682,10 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 #                                         # (BROWSER-PLAN 4.1.1, SPEC.md
 #                                         # 71.10). brtest's own blit check
 #                                         # runs at top=0 and so cannot see it
+#   python3 tests/brtable.py              # ...and the TABLE one: issue #137's
+#                                         # three - an anchor inside a cell,
+#                                         # the doubled last line and a `..`
+#                                         # in a relative link
 #   python3 tests/brnav.py                # Back/Forward/Reload and Save As
 #                                         # (BROWSER-PLAN 5/5.2/5.3). It needs
 #                                         # `make ethertest` too and boots
@@ -5693,7 +5697,7 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 #                                         # whose Back button did nothing
 BRFILES := $(BUILD)/browser.o88 $(BUILD)/DEMO.HTM $(BUILD)/TORTURE.HTM \
            $(BUILD)/UTF8.HTM $(BUILD)/FROGFIND.HTM $(BUILD)/FFHOME.HTM \
-           $(BUILD)/LINKS.HTM
+           $(BUILD)/LINKS.HTM $(BUILD)/PUBZONE.HTM
 
 browsertest: $(BUILD)/brtest.img $(BUILD)/brtest360.img
 
@@ -5708,6 +5712,8 @@ $(BUILD)/FROGFIND.HTM: tests/htm/frogfind-de-ie5.htm | $(BUILD)
 $(BUILD)/FFHOME.HTM: tests/htm/frogfind-home.htm | $(BUILD)
 	cp $< $@
 $(BUILD)/LINKS.HTM: tests/htm/links.htm | $(BUILD)
+	cp $< $@
+$(BUILD)/PUBZONE.HTM: tests/htm/pubzone.htm | $(BUILD)
 	cp $< $@
 
 $(BUILD)/brtest.img: $(BRFILES) tools/os88disk.py

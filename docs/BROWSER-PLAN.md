@@ -1489,3 +1489,118 @@ Each is a named step and none is a surprise:
   `tools/htmsim.py` *does* render `alt`, so **the model and the
   implementation disagree on exactly one thing** — worth stating rather than
   discovering, and the cheapest of the four to close.
+
+## 14. What the FIELD found: issue #137's three
+
+Three defects reported together off `files.bs0dd.net` — an Apache directory
+index, which is a table of links with an `<address>` footer, and so carries
+all three at once. `tests/htm/pubzone.htm` is that page's shape and
+`tests/brtable.py` is the gate; the reporter's own capture is in the issue.
+
+**None of the three is visible to `tools/htmsim.py`**, and that is the finding
+under the findings. The model renders the reporter's page correctly, so
+§13's "the model and the 8086 must agree on the text" would have passed it:
+two of the three live *below* the text — in which document offsets a line
+covers, and in what a click resolves to — and the third is in a routine the
+model does not have at all, because htmsim never follows a link. A reference
+implementation is a check on the parts it implements and silent on the rest,
+which is worth knowing before the next one is trusted.
+
+### 14.1 The doubled last line: `D_END` was tested one instruction too late
+
+*"The browser doubles the last string on some pages."*
+
+`br_layout`'s `.marker` path emits the pending line and **then** asked whether
+the marker was `D_END`, jumping to `.fin` — which emits the pending line
+again. Nothing between the two resets `[br_nch]`, so `br_emitline`'s
+empty-line guard saw a real count both times and wrote two line-table entries
+over the same span. The second is one byte longer (`.marker` advanced `SI`
+past the marker first), which is why it drew as a *copy* rather than as a
+blank.
+
+**"Some pages" is exactly the pages whose last text is not followed by a block
+tag this parser knows.** `address`, `body` and `html` are in none of
+`br_tagtab`'s rows, so `</address></body></html>` emits no break and the
+final run is still pending when `D_END` arrives. Every fixture in `tests/htm/`
+ended in `</p></body></html>` — the `</p>` flushes, `[br_nch]` is 0, and the
+second emit was suppressed by the empty-line guard. **The bug was one
+`</p>` away from the suite for the whole of step 1.**
+
+The fix is the two instructions moved above the emit, and it assembles to the
+same bytes it replaced.
+
+### 14.2 An anchor inside a table cell had no bracket left
+
+*"There is no support for links in tables."*
+
+There was support for the anchor everywhere except the one routine that
+copies a cell, and the loss happened twice on the way:
+
+- `br_tcell1`'s leading-space skip tested `al <= ' '`, so it walked over the
+  `D_LNK1` that is a cell's **first byte** in the common case
+  (`<td><a href=…>`) before `br_twrap` ever saw it;
+- `br_twrap`'s emit pass dropped every byte below `0x20` outright.
+
+So a composed row reached the arena as plain text. The painter then had no
+`D_LNK1` to set `br_lnkcell` from and drew no underline, and `br_linkat` —
+which answers a click by scanning **backward** — found no marker and reported
+"not a link", so the click did nothing. Both symptoms, one cause.
+
+**The fix is to carry the markers rather than to teach anything new.** The
+composed arena is more document bytes in the same segment, so a `D_LNK1` in a
+composed row is read by the painter and by the hit test exactly as one in the
+prose is — neither gains a line. `D_LNK1`, `D_LNK0` and `D_LNK1`'s two payload
+bytes are the whole of 14..31 (SPEC.md's `D_LNK1` comment is why), so **one
+compare separates what must be carried from every other marker**, which is
+still dropped. A carried marker costs no width: `DX` is the character count
+and a marker never touches it, so the columns `br_tmeas` measured are the
+columns that get drawn.
+
+#### 14.2.1 The character budget had to move to the text byte
+
+`br_twrap`'s emit loop exited on `dx >= cx` at the top. A link's `D_LNK0` sits
+just **past** the last character it covers, so that exit left it behind — the
+anchor stayed open across the cell wall and, because a row is one arena line
+carrying every column, the backward scan from the *next* column walked into
+it. That is a click on plain text going to the previous cell's link, which is
+worse than the dead link it replaced. Testing the budget at the text byte
+instead lets a trailing marker ride out and costs nothing else.
+
+#### 14.2.2 A wrapped link is closed at the cell wall and re-opened
+
+A cell wider than its column wraps, and its second fragment is on the next
+composed row with the anchor still open. `br_tcell1` therefore **closes an
+open link at the end of every fragment and re-opens it at the head of the
+next**, so each composed row is balanced on its own and no backward scan can
+cross a row. `br_tlnk` holds the state — one word per column, the **offset of
+the `D_LNK1`**, not the decoded index, so re-opening is a three-byte copy out
+of the document and needs neither the payload's encoding nor a second walk.
+
+### 14.3 A `..` in a relative link was sent to the server
+
+*"Problems with relative links."*
+
+`br_resolve` composed the base directory with the href and sent the result:
+`http://h/a/b/../c.htm`. **Removing dot segments is the client's job** (RFC
+3986, section 5.2.4) — `../` is not a thing a server is asked for, it is a thing the
+browser resolves before asking — and what a server does with one sent anyway
+is the server's choice: Apache 404s, others answer a different page than the
+one that was clicked. `br_undot` is that pass.
+
+It runs on the **finished buffer** rather than in the three composers above
+it, because `/a/../b` is legal in an absolute href and a root-relative one as
+well as in the directory-relative case: one call at `.done` covers all three
+and cannot be forgotten by a fourth. The rewrite is in place and forward-only
+— a segment is only ever kept or dropped, so the write cursor is never ahead
+of the read cursor — and it stops at `?` or `#`, because a query may hold
+slashes and dots of its own and not one of them is a path segment.
+
+Two deliberate answers where the RFC leaves room:
+
+- **Excess `..` are discarded, not escaped.** `/a/../../x` is `/x`; the write
+  cursor may not climb past the path's own first `/`.
+- **An empty segment is kept.** `/a//b` stays `/a//b`, which is what RFC 3986
+  says and is *not* what `urllib.parse.urljoin` does — it collapses the pair.
+  A server may distinguish them, so the RFC's answer is the safe one, and the
+  difference is written down here because the obvious host-side oracle
+  disagrees.
