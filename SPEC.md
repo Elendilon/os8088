@@ -38465,6 +38465,41 @@ droning or a dangling SB stream — including a worker-owning one, which
 rides `inst_task_die`'s call to the same routine, so a package with a
 worker is safe to close mid-tone.
 
+#### 29.4.1 At a kind's cap: a singleton fronts, anything else refuses
+
+`app_launch` counts the live instances of the kind before allocating. When the
+count has reached `KD_CAP`, what happens next depends on whether the cap is
+**one**:
+
+- **`KD_CAP` = 1** — About, the Control Panel. "Open About" twice means *show me
+  About*, and there is one About, so the existing instance is fronted and
+  un-minimized and the call succeeds. That is singleton semantics and it is the
+  right answer.
+- **`KD_CAP` > 1** — Timer and Bounce, both 10. "Open Bounce" for the eleventh
+  time means *make me another one*, and fronting one of the ten already there is
+  not that. It **refuses**: CF = 1, and `ui_cmd` turns that into `snd_beep`
+  (§34.3).
+
+**It used to front in both cases**, which made a multi-instance kind at its cap
+indistinguishable from nothing happening at all — the pick did nothing visible,
+made nothing, and said nothing. The field reported it on a desktop of ten
+Bounces, and `ui.inc`'s own comment beside the menu already claimed these
+refusals "stay beeps", which they did not.
+
+**It could not be seen until there were slots to reach the cap with.** Before
+§8.7 the machine had six worker slices, so the seventh Bounce failed on the
+*task* table — a real CF = 1 that beeped — and the per-kind cap of ten was
+unreachable. Twelve slices made the cap the binding limit for the first time.
+
+A **Disk** window never reaches here: `fm_choose` counts `FM_MAXWIN` itself and
+moves the frontmost window to the requested folder instead (§22.1), which is a
+deliberate no-failure path this must not disturb.
+
+**One caller still swallows the refusal**: `ui_task`'s deferred launch
+(`inst_launch`, posted by a lock-held handler) calls `app_launch` and ignores
+CF, so a launch posted from inside a handler is silent at the cap. It is not on
+the path the field reported and it is left alone rather than changed blind.
+
 ### 29.5 State (.bss)
 
 `inst_tab` (INST_MAX × I_RECSZ = 384 bytes), `inst_launch` (word: 0 =
