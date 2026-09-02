@@ -1470,7 +1470,8 @@ dskw_wbody:
 ; Three things keep it honest. The run is flushed BEFORE the partial final
 ; sector, because those bytes come after it and because flushing is what
 ; advances [dskw_wseg] to where the tail's source is. A sector the 8237
-; cannot carry still goes alone through the stage, and dskw_runmax is only
+; cannot carry still goes alone through the stage (.stg, and SPEC.md 18.4.2.1
+; is why that sentence only became true there), and dskw_runmax is only
 ; ever asked with no run pending, so that path can never orphan one. And
 ; every failure exit leaves the run unspent, which is exactly right: a
 ; half-built chain is rolled back by dskw_refat and nothing that was not
@@ -1541,14 +1542,13 @@ dskw_wdata:
 .addrun:
     call dskw_runadd            ; the whole sectors of this take, appended to
     jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
-    jcxz .tail                  ; back non-zero when the run cap said 0
-.jioerr:                        ; FOUR arms share this one near jump, and it
-    jmp .ioerr                  ; was already here for the first: an 8086 has
-                                ; no near `jcc`, so each of the other three
-                                ; was NASM's five-byte inverted-short-plus-
-                                ; near-jmp before it was aimed here.  -9, with
-                                ; nothing added.  A media error is the coldest
-                                ; arm in the file
+    jcxz .tail                  ; back non-zero when the run cap said 0, and
+                                ; THAT FALLS THROUGH TO .stg (SPEC.md
+                                ; 18.4.2.1). It did not until this: .jioerr
+                                ; sat here, so dskw_runadd's third answer -
+                                ; "not one sector fits this DMA page, stage
+                                ; it" - landed on the media-error arm and .stg
+                                ; had no way in at all, from 2e8e292 onwards
 .stg:                           ; one sector the 8237 cannot carry, alone,
     mov es, [dskw_wseg]         ; through the scratch - which is 512-aligned
     mov si, [dskw_src]          ; and therefore never straddles. No run can be
@@ -1564,10 +1564,24 @@ dskw_wdata:
     pop cx
     jc .jioerr
     inc word [dskw_clba]
-    add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on
-    dec cx
-    jz .tail
-    jmp .addrun
+    add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on. The source is
+    dec cx                      ; now 1..511 bytes PAST the page edge, so the
+    jz .tail                    ; next dskw_runadd gets the whole 127 back:
+    jmp .addrun                 ; one staged sector per 64KB of source, at most
+.jioerr:                        ; FOUR arms share this one near jump, and it
+    jmp .ioerr                  ; was already here for the first: an 8086 has
+                                ; no near `jcc`, so each of the other three
+                                ; was NASM's five-byte inverted-short-plus-
+                                ; near-jmp before it was aimed here.  -9, with
+                                ; nothing added.  A media error is the coldest
+                                ; arm in the file - and it sits BELOW an
+                                ; unconditional jump now, which is the whole
+                                ; of the fix. All four arms are still 2-byte
+                                ; short jumps; what the move costs is ONE
+                                ; byte, here, because .ioerr is 141 back from
+                                ; the new spot and this `jmp` is near rather
+                                ; than short (SPEC.md 18.4.2.1 prices the
+                                ; alternatives - every one of them is worse)
 
     ; the partial final sector: staged zero-filled, so nothing of the
     ; caller's neighbourhood past EOF ever reaches the disk. The run goes
@@ -1606,6 +1620,8 @@ dskw_wdata:
 ; out: CF=1 = I/O error, AX = FERR_*.  CF=0 with CX=0 = all of them are in the
 ;      run.  CF=0 with CX != 0 = dskw_runmax answered 0, so not even one
 ;      sector fits this DMA page: the caller stages that one and calls again
+;      (SPEC.md 18.4.2.1 - and NEITHER CALLER DID until it, because a shared
+;      `jmp .ioerr` trampoline sat where the third answer fell through)
 ; clobbers: AX, CX (an output), flags
 ;
 ; THE RUN ARITHMETIC, ONCE. dskw_wdata and dskw_rdata carried a copy each and
@@ -1922,9 +1938,9 @@ dskw_rdata:
 .addrun:
     call dskw_runadd            ; the whole sectors of this take, appended to
     jc .ioerr                   ; the pending run (SPEC.md 18.4.2). CX comes
-    jcxz .tail                  ; back non-zero when the run cap said 0
-.jioerr:                        ; ...and the read path's three, the same way
-    jmp .ioerr
+    jcxz .tail                  ; back non-zero when the run cap said 0, and
+                                ; THAT FALLS THROUGH TO .stg, exactly as the
+                                ; write path's does (SPEC.md 18.4.2.1)
 .stg:                           ; one sector the 8237 cannot carry, alone,
     push ss                     ; through the scratch - which is 512-aligned
     pop es                      ; and therefore never straddles. No run can be
@@ -1946,6 +1962,9 @@ dskw_rdata:
     dec cx
     jz .tail
     jmp .addrun
+.jioerr:                        ; ...and the read path's three, the same way -
+    jmp .ioerr                  ; below the loop's own jmp, where nothing can
+                                ; fall into it
 
     ; the partial final sector: only its live bytes reach the caller. The run
     ; goes first - its bytes come BEFORE these, and flushing it is also what

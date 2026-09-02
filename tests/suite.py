@@ -217,11 +217,15 @@ FAST = [
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
         "that stops this suite going back to a directory nobody can enumerate"),
-    Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 1.0,
+    Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 1.5,
         "unreachable code after an unconditional jump, a prologue restored in "
         "the WRONG ORDER (SPEC.md 1's register discipline: balanced depth, "
-        "swapped pair, nothing faults), and a `cpu 8086` reachable from every "
-        "root"),
+        "swapped pair, nothing faults), a `cpu 8086` reachable from every "
+        "root, and a kernel LOCAL BLOCK nothing can reach - check 1 stops at "
+        "\"is there a label between the jump and this line\" and a label only "
+        "helps if something reaches it, which is how the DMA staging arm of "
+        "both file pipelines rotted for a year with this row green "
+        "(SPEC.md 18.4.2.1)"),
     Row("resident", "fast", py("tests/unit/t_resident.py"), 1.5,
         "nothing the splash's first tick runs may jump to SPEC.md 15.1.2's "
         "epilogue ladder - the ladder is at the far end of .text and the "
@@ -1388,6 +1392,24 @@ SOAK = [
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
         "and puts the default kernel back, both seam orientations",
         needs=("marty",), serial=True, builds=True),
+    Row("dskwstage", "soak", py("tests/dskwstage.py"), 120.0,
+        "SPEC.md 18.4.2.1: does the DMA STAGING arm run, and does it move the "
+        "RIGHT bytes? dskw_runadd's third answer - CF=0 with CX != 0, `not "
+        "one sector fits this DMA page` - fell through into a shared "
+        "`jmp .ioerr` from 2e8e292 until then, so dskw_wdata.stg and "
+        "dskw_rdata.stg had never executed and the fix TURNED ON a routine "
+        "nobody had watched. Nothing on a desktop reaches it (18.4.1 keeps "
+        "the kernel's own bases 512-aligned), so the row arranges it: a 200KB "
+        "mem_claim spans three 64KB physical boundaries, and a buffer 0xF0 "
+        "bytes short of one is the only thing that makes dskw_runmax answer "
+        "0. Five cases with two page-safe CONTROLS, .stg counted by exec "
+        "breakpoint rather than inferred, and the bytes settled OFF the "
+        "machine - the floppy is flushed and walked by tests/unit/t_image's "
+        "own FAT12 reader, which shares no code with the kernel that wrote "
+        "it, so a writer and a reader agreeing on the same wrong thing "
+        "cannot pass. `--bug` asserts the PRE-fix refusal instead, which is "
+        "what makes the A/B repeatable against an old image",
+        needs=("marty",), serial=True),
     Row("dispstrad", "soak", py("tests/dispstrad.py"), 60.0,
         "Does a window dragged across the seam give back the rows only ONE"
         "display",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Two source rules NASM cannot refuse and a reader does not see.
+"""Four source rules NASM cannot refuse and a reader does not see.
 
     python3 tests/unit/t_asmrules.py
 
@@ -84,6 +84,57 @@ driver from `drivers/os88drv.inc`.
 512 bytes that run on a 5150 before anything has probed anything.  Adding it
 changed `build/boot.bin` by **0 bytes**, which is what says the sector was
 already clean and that what was missing was the refusal, not a fix.
+
+4. A LOCAL BLOCK NOTHING CAN REACH.
+
+Check 1 stops at *"is there a label between the unconditional jump and this
+line"*, and a label is enough for it.  **A label only helps if something
+reaches it**, and SPEC.md 18.4.2.1 is what that costs: `dskw_wdata.stg` and
+`dskw_rdata.stg` - the DMA staging arm of both file transfer pipelines - sat
+under a `jmp .ioerr` with ZERO incoming jumps from `2e8e292` until it, so the
+staging routine had never executed on any machine in any test, and check 1 was
+green for all of it because `.stg:` is a label.
+
+So: a local label is orphaned when the instruction above it is an
+unconditional transfer AND nothing refers to the label.  On this kernel that
+is 0, and the two it found before 18.4.2.1 were the two halves of that bug.
+
+TWO COUNTING RULES, and both were forced by a real false positive rather than
+guessed at.  Get either wrong and the check cries wolf, which is how a gate
+becomes one nobody reads the third time.  Measured on the tree that still
+carried the bug, where the honest answer is 2:
+
+  * a reference is ANY MENTION of the label, not just a jump to it.  A
+    dispatch table spells one `dw .label` and never jumps to it - `ui_cmd`'s
+    seven arms in kernel/ui.inc are exactly that - so counting only jump
+    instructions reports **11**, of which nine are that table and this bug.
+    (That figure is the only one here that moves with how strictly you read
+    "a jump"; the two below do not move at all.)
+  * ...and NASM lets a local be reached from ANOTHER routine by naming its
+    owner - `jmp wm_su_try.no` (kernel/wm.inc) and `jmp dsk_free_clus_x.bad`
+    (kernel/disk.inc) both do.  Scoping the search to the defining routine
+    calls both of those dead: **4** without this rule, 2 with it.
+
+WHAT IT CANNOT SEE, and what it does NOT look at.  Conditional assembly breaks
+the "instruction above" reading - `%ifdef TRKLOG` in apps/tracker/trktxt.inc
+puts a `jmp short .out` in front of a label that a shipped build reaches by
+fall-through - so a preprocessor line clears the walk rather than being walked
+through.  And the scan is the KERNEL, deliberately.  Over the
+whole tree it finds four more and every one of them is real, none of them the
+staging bug's kind - they are lost arms and duplicates, and each is a decision
+about its own package rather than a line of this file:
+
+    apps/ftpd/ftpd.asm:7275     fd_drawctl.no        a `pop ax / stc / ret`
+    apps/texpad/texpad.asm:4221 tp_bact.next         duplicates the dispatcher's
+                                                     own fall-through
+    drivers/hdd/inst.inc:1519   hd_iw_click.refused  draws hd_s_ibad
+    drivers/hdd/inst.inc:1793   hd_inst_apps.nboot   sets hd_s_inboot, the
+                                                     "files copied, disk will
+                                                     not boot" sentence
+
+Widening the scan means answering those four, which is package work; and a gate
+that ships with its own findings pre-excused is worth less than one that ships
+green, so there is no exception list here and there should not be one.
 """
 import os
 import re
@@ -269,6 +320,103 @@ def crossed_pops(path):
     return out
 
 
+# --- 4. THE ORPHANED LOCAL BLOCK (SPEC.md 18.4.2.1) -------------------------
+# See the header for why the two counting rules below are what they are. The
+# scan is the kernel's sources only; `kernel_sources()` is that scope, stated
+# once so it cannot drift into "whatever `sources()` happens to yield".
+GLOBALDEF = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):")
+LOCALDEF = re.compile(r"^(\.[A-Za-z0-9_]+):")
+XFER = re.compile(r"^\s+(jmp|ret|retf|iret)\b", re.I)
+_KLINES = None
+
+
+def kernel_sources():
+    return [p for p in sources()
+            if os.path.dirname(p) == os.path.join(ROOT, "kernel")]
+
+
+def kernel_code_lines():
+    """Every kernel source line with its comment stripped, once."""
+    global _KLINES
+    if _KLINES is None:
+        _KLINES = []
+        for q in kernel_sources():
+            with open(q, errors="replace") as f:
+                for ln in f.read().split("\n"):
+                    _KLINES.append(ln.split(";", 1)[0])
+    return _KLINES
+
+
+def _mentions(body, name):
+    """How many times `name` appears in `body`, other than as its definition.
+
+    ANY MENTION counts - see the header. A dispatch table's `dw .label` is a
+    reference, and a version of this that matched only `jmp`/`jc`/`call`
+    reports four labels here rather than two.
+    """
+    n = re.escape(name)
+    total = 0
+    for ln in body:
+        code = ln.split(";", 1)[0]
+        if re.match(r"^\s*%s:" % n, code):
+            continue
+        total += len(re.findall(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % n,
+                                code))
+    return total
+
+
+def _qualified(owner, local):
+    """`jmp owner.local` from anywhere else in the kernel - see the header."""
+    needle = owner + local
+    return sum(1 for ln in kernel_code_lines() if needle in ln)
+
+
+def orphan_locals(path):
+    """[(line, routine, label, the transfer above it)] - a block with no way in.
+
+    A routine is one top-level label to the next; a candidate is a local label
+    whose preceding INSTRUCTION is an unconditional transfer, so nothing falls
+    into it; and it is orphaned when nothing names it either.
+    """
+    out = []
+    with open(path, errors="replace") as f:
+        lines = f.read().split("\n")
+    bounds, cur = [], None
+    for i, l in enumerate(lines):
+        if GLOBALDEF.match(l):
+            if cur is not None:
+                bounds.append((cur, i))
+            cur = i
+    if cur is not None:
+        bounds.append((cur, len(lines)))
+    for a, b in bounds:
+        body = lines[a:b]
+        owner = GLOBALDEF.match(lines[a]).group(1)
+        prev = None
+        for i in range(a, b):
+            l = lines[i]
+            m = LOCALDEF.match(l)
+            if m:
+                if (prev is not None and XFER.match(prev)
+                        and _mentions(body, m.group(1)) == 0
+                        and _qualified(owner, m.group(1)) == 0):
+                    out.append((i + 1, owner, m.group(1), prev.strip()[:40]))
+                prev = None
+                continue
+            s = l.strip()
+            if not s or s.startswith(";"):
+                continue
+            if s.startswith("%"):
+                # A preprocessor line CLEARS the walk rather than being walked
+                # through: `%ifdef`'s arm may not be assembled at all, and then
+                # the label below it IS reached by fall-through. Without this,
+                # apps/tracker/trktxt.inc's TRKLOG block is a false positive.
+                prev = None
+                continue
+            prev = l
+    return out
+
+
 def main():
     files = list(sources())
     for path in files:
@@ -288,6 +436,21 @@ def main():
                   "in one of them (SPEC.md 44.10.6.1, 50.6.4.1, 77.12.3)",
                   got="push %s / pop %s" % (", ".join(pro), ", ".join(popped)),
                   want="pop %s" % ", ".join(reversed(pro)))
+
+    for path in kernel_sources():
+        rel = os.path.relpath(path, ROOT)
+        for line, routine, label, above in orphan_locals(path):
+            check(False, "%s:%d - %s%s has no way in" % (rel, line, routine, label),
+                  "the line above it is an unconditional transfer, so nothing "
+                  "falls through, and nothing in the kernel names it either - "
+                  "not from this routine and not as `%s%s`. Check 1 above cannot "
+                  "see this: a LABEL made the next line reachable to it, and a "
+                  "label only helps if something reaches it (SPEC.md 18.4.2.1 - "
+                  "the DMA staging arm of both file pipelines sat here for a "
+                  "year, never once executed, with this file green)"
+                  % (routine, label),
+                  got="after: %s" % above,
+                  want="a jump to it, or the block deleted")
 
     # Every root NASM is pointed at must be able to see a `cpu 8086`.
     # A "root" is an .asm that nothing %includes. Reading the Makefile for
@@ -330,8 +493,9 @@ def main():
             checked += 1
 
     print("t_asmrules: %d sources scanned for dead code and crossed pops, "
+          "%d of them kernel sources scanned for orphaned local blocks, "
           "%d roots 8086-constrained (%d C roots gated by tools/cc8086.py "
-          "instead)" % (len(files), checked, gated))
+          "instead)" % (len(files), len(kernel_sources()), checked, gated))
     done("t_asmrules")
 
 

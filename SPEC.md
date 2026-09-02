@@ -22747,6 +22747,97 @@ Verified with `tests/filetest` — all 25 on the ordinary image **and on
 break where the chain does — plus `os88disk.py --verify` on both afterwards,
 and Tracker still reports its module's title.
 
+#### 18.4.2.1 …and `dskw_runadd`'s third answer had no arm
+
+`dskw_runadd` gives **three** answers, and its own header always said so:
+`CF=1` is an I/O error; `CF=0` with `CX=0` means every sector went into the
+pending run; `CF=0` with `CX != 0` means `dskw_runmax` answered **0** — not
+even one sector fits the DMA page the source currently sits in, so *the caller
+stages that one sector through `dsk_secbuf` and calls again*.
+
+That third case is the belt to §18.4.1's braces. A base of the kernel's own
+making is 512-aligned and can never produce it — 64KB is a whole number of
+sectors, so a sector that starts 512-aligned ends inside its own page — but
+since §18.4.1 the buffer is the **caller's**, at any offset it likes, and
+`dskw_runmax` returning 0 is what makes that promise true rather than nearly
+true.
+
+**Both callers dropped the third case, from `2e8e292` (the PR #61 squash)
+until this.** `dskw_wdata` and `dskw_rdata` are structurally identical here,
+and both read:
+
+```nasm
+.addrun:
+    call dskw_runadd
+    jc .ioerr                   ; CF=1        -> error            correct
+    jcxz .tail                  ; CF=0, CX=0  -> all in the run   correct
+.jioerr:
+    jmp .ioerr                  ; CF=0, CX!=0 -> ***the wrong arm***
+.stg:                           ; …and this is where it should have gone
+```
+
+`.jioerr` is the near trampoline this routine's own `jc` arms share — an 8086
+has no near `jcc`, so each of them was otherwise NASM's five-byte
+inverted-short-plus-near-`jmp`. It was placed where a **fall-through reaches
+it**, so the third answer landed on the I/O-error arm and `.stg` had **zero**
+incoming jumps in either routine: the staging block had never executed, on any
+machine, in any test, since it was written. The symptom is a transfer whose
+buffer starts within 512 bytes of the top of a 64KB **physical** page
+answering `FERR_IO` instead of staging one sector and carrying on — on the
+read path and the write path alike, and moving whenever anything else in the
+tree changes size.
+
+**The fix is a move, not new code.** `.jioerr` goes below `.stg`'s own
+`jmp .addrun`, where nothing can fall into it; `jcxz .tail` then falls through
+into `.stg`. All seven `jc .jioerr` that share the trampoline — four in
+`dskw_wdata`, three in `dskw_rdata` — stay **2-byte short** jumps, which is
+what the placement was chosen for: the trampoline moves ~46 bytes *closer* to
+the three arms below it and stays inside the two above.
+
+**It costs one byte**, `.cold` 37,210 → 37,211 on kern_big and 34,527 →
+34,528 on kern_small, and both `KERN_SIZE`s are unchanged. It is
+`dskw_wdata`'s own `jmp .ioerr`: 46 bytes further down puts `.ioerr` 141 bytes
+back, 13 past a short jump's reach, so `EB A2` becomes `E9 73 FF`.
+`dskw_rdata`'s stays short and costs nothing. There is no free placement — the
+trampoline has to sit within 127 bytes of `.ioerr` **and** of all four arms
+**and** below an unconditional transfer, and `dskw_wdata` has no such
+instruction in the window (`[0x3A2E, 0x3A65]` on this tree). Every alternative
+priced higher: an explicit `jmp short .stg` above the old `.jioerr` is +2, and
+moving `.ioerr` itself lengthens the three direct `jc .ioerr` above it.
+
+`.stg` is entered only with **no run pending** — `dskw_runmax` is asked only
+from `dskw_runadd`'s `.newrun`, where `[dskw_rlen]` is 0 — so it can never
+orphan one. It moves 512 bytes, which leaves the source 1..511 bytes **past**
+the page edge, so the next `dskw_runadd` gets the full 127 and the loop
+returns to whole runs. **One staged sector per 64KB of source**, and only for
+a source that starts in that band at all.
+
+`tests/dskwstage.py` is the gate, and it has to arrange the condition
+deliberately, because §18.4.1's alignment discipline is what keeps it rare:
+it calls `dskw_wdata` and `dskw_rdata` through the debugger with
+`[dskw_seg]:[dskw_src]` set inside the last 512 bytes of a 64KB page, an exec
+breakpoint on `.stg` to prove the block ran at all, and — the assertion that
+matters — **reads every written sector back and compares the bytes**, through
+`disk_read_x` for the write half and into a second straddling buffer for the
+read half. A staging path that silently wrote the wrong 512 bytes would be
+worse than the error it replaced, and nothing had ever watched this one run.
+
+**`tests/unit/t_asmrules.py` check 4 is the other half**, and it is the one
+that stops the class rather than the instance. Check 1 has scanned this file
+since it was written and stops at *"is there a label between the unconditional
+jump and this line"* — `.stg` **has** one, which is exactly how the block
+rotted with the gate green. A label only helps if something reaches it, so
+check 4 asks the tighter question: a local label is orphaned when the
+instruction above it is an unconditional transfer **and** nothing refers to
+the label. Two counting rules, both forced by real false positives and both
+kept: a reference is **any mention** (a dispatch table spells one `dw .label`,
+and counting only jump instructions calls those dead), and the **qualified
+cross-routine form** `jmp owner.local` counts too (`wm_su_try.no` and
+`dsk_free_clus_x.bad` are reached that way, and a check that cries wolf twice
+is one nobody reads the third time). Without the first the kernel reports 4,
+without the second 27, with both **2** — and those two were the two halves of
+this bug, so the check lands with no exception list at all.
+
 ### 18.5 `dskw_mkdir` — creating a subdirectory
 
 ```
