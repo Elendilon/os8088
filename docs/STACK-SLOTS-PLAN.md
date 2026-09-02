@@ -202,11 +202,20 @@ not equivalent:
 behaviour change somebody has to agree to.** It is the central open question
 of this plan.
 
-### 4.2 The mouse ISR — 54 bytes, and it moves for 21
+### 4.2 The mouse ISR — 54 bytes, and it moves for 34
 
-**Measured, not estimated.** `make STKDIAG=1 MOUPRIV=1` runs the whole mouse
-ISR on a stack of its own and reads its high water off it: **54 bytes**, on
-QEMU, after 45 seconds of continuous movement.
+> **BUILT. SPEC.md 9.10 is the contract and this is the design record behind
+> it.** It ships as the default; `NOMOUPRIV=1` is the A/B and arm 2 of
+> `make stkdiag`. The measured cost on the tree that shipped it is **164 bytes
+> resident** — `.text` +34, `.bss` +2, `.lowbss` +128 — against ~48 off each of
+> seven slices, and it crossed no rung. The `.lowbss` figure is **128 and not
+> the 256 this section first proposed**: nothing can interrupt that stack (the
+> ISR holds IF=0 throughout), so 54 is the whole answer rather than a sample,
+> and 2.4× is margin against a future `cur_move` rather than against an unknown.
+
+**Measured, not estimated.** `make STKDIAG=1` runs the whole mouse ISR on a
+stack of its own and reads its high water off it: **54 bytes**, on QEMU, after
+45 seconds of continuous movement.
 
 Of those 54, only **six** have to be on the interrupted task's stack — the
 FLAGS/CS/IP the CPU pushed before we had control. Everything after that can be

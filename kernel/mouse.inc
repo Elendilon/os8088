@@ -235,12 +235,20 @@ mou_isrs    dw mou_isr, mou_isr3    ; ...and the stub that vector points at
 
 ; -----------------------------------------------------------------------------
 ; MOUPRIV_ENTER / MOUPRIV_LEAVE - the mouse ISR on a stack of its own
-;                                 (`make MOUPRIV=1`, docs/STACK-SLOTS-PLAN.md)
+;                                 (SPEC.md 9.10, docs/STACK-SLOTS-PLAN.md 4.2)
+;
+; THE DEFAULT SINCE SPEC.md 9.10; `NOMOUPRIV=1` is the A/B and the only thing
+; keeping the un-swapped path assembling.
 ;
 ; The whole ISR runs on a private stack, so what it costs the TASK it
 ; interrupted is the six bytes the CPU pushed before we had control, and
-; nothing else. Measured on QEMU, that is ~58 bytes off every task slice - and
-; a slice pays it seven times over, where the code below costs .text once.
+; nothing else. That is ~48 bytes off every task slice - and a slice pays it
+; seven times over, where the code below costs .text once.
+;
+; IT IS THE ADAPTER THAT SETS THE DEPTH, not the mouse: 54 bytes on a planar
+; card (QEMU VGA 54, an 86Box EGA 54, a Packard Bell 286's VGA with a PS/2
+; mouse 52), against 30 on Hercules and 23 on CGA, because cur_move's 1bpp path
+; is the shallow one. So the size below is cut from the planar figure.
 ;
 ; IT NEEDS NO RE-ENTRANCY GUARD, and that is a property of this ISR rather than
 ; an assumption: `mou_isr` runs with IF=0 from the CPU's own gate to the `iret`
@@ -259,10 +267,13 @@ mou_isrs    dw mou_isr, mou_isr3    ; ...and the stub that vector points at
 ; happen before the first `push`. Four bytes of .text against ~58 bytes of
 ; every task stack in the machine is the trade, and it is not close.
 ; -----------------------------------------------------------------------------
-%ifdef MOU_PRIV
-MOU_PSTK    equ 256             ; sized against the ~58 the chain measures, at
-                                ; 4.4x - it is one allocation now, not seven,
-                                ; so the margin is nearly free
+%ifndef NO_MOUPRIV
+MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
+                                ; adapter. Nothing can interrupt this stack -
+                                ; the ISR holds IF=0 throughout - so 54 is the
+                                ; whole answer and not a sample, and the margin
+                                ; is against a future cur_move rather than
+                                ; against an unknown
 
 %macro MOUPRIV_ENTER 0
     mov [cs:mou_psave], sp
@@ -4875,7 +4886,7 @@ cur_log_i   resw 1              ; write cursor, in BYTES
 cur_log     resb CURLOG_N*CURLOG_SZ
 section .bss
 %endif
-%ifdef MOU_PRIV
+%ifndef NO_MOUPRIV
 section .lowbss
 resb (2 - (($-$$) % 2)) % 2     ; even, so SP is even across the swap. `alignb`
                                 ; spelled out - NASM refuses the macro form

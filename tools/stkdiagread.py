@@ -35,11 +35,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88sym                                              # noqa: E402
 
 # The arm's defines, because os88sym asserts byte-identity with
-# build/kernel.bin and there are three arms now: a reader pinned to STK_DIAG
-# alone refuses arms 2 and 3 with "the map describes a DIFFERENT kernel",
-# which reads as the disk being wrong rather than the tool.
-#   python3 tools/stkdiagread.py                       # arm 1
-#   OS88_ARM="MOU_PRIV STK_FIX" python3 tools/... # arm 3
+# build/kernel.bin and there are three arms: a reader pinned to STK_DIAG alone
+# refuses arms 2 and 3 with "the map describes a DIFFERENT kernel", which reads
+# as the disk being wrong rather than the tool.
+#   python3 tools/stkdiagread.py                     # arm 1, as it ships
+#   OS88_ARM="NO_MOUPRIV" python3 tools/...          # arm 2, before SPEC.md 9.10
+#   OS88_ARM="STK_FIX"    python3 tools/...          # arm 3
 DEF = tuple(["STK_DIAG"] + os.environ.get("OS88_ARM", "").split())
 TAG = 0x4453                    # 'SD' - kernel.asm's DBG_TAG_STKD
 # The block holds POINTERS, not values - bootprof's convention (SPEC.md 57.2):
@@ -79,8 +80,8 @@ def main():
     sock = sys.argv[1] if len(sys.argv) > 1 else "build/qmp.sock"
     v, slices, n = read(sock)
     ph = v["phase"] & 0xFF
-    arm = {(): "ARM 1 as it ships", ("MOU_PRIV",): "ARM 2 MOUPRIV",
-           ("MOU_PRIV", "STK_FIX"): "ARM 3 MOUPRIV + STKFIX"}.get(DEF[1:], " ".join(DEF[1:]))
+    arm = {(): "ARM 1 as it ships", ("NO_MOUPRIV",): "ARM 2 NOMOUPRIV (before)",
+           ("STK_FIX",): "ARM 3 + STKFIX"}.get(DEF[1:], " ".join(DEF[1:]))
     print("== STKDIAG ==   %s   slice %d, MAX_TASKS %d, phase %s"
           % (arm, v["slice"], v["ntask"], PHASES[ph] if ph < 4 else "?"))
     if ph < 3:

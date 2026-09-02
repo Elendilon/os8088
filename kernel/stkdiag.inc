@@ -377,9 +377,9 @@ sd_water:
 
 SPB_CC     equ 0xCC             ; task_spawn's fill (SPEC.md 8.3)
 
-%ifdef MOU_PRIV
+%ifndef NO_MOUPRIV
 ; -----------------------------------------------------------------------------
-; sd_mwater - how deep the mouse ISR has been on its own stack (MOUPRIV=1)
+; sd_mwater - how deep the mouse ISR has been on its own stack (SPEC.md 9.10)
 ; in:       DS = KERNEL_SEG
 ; out:      AX = bytes used from the top of mou_pstack
 ;
@@ -781,7 +781,7 @@ sd_paint:
     call sd_label
     mov ax, [sd_n]
     call sd_value
-%ifdef MOU_PRIV
+%ifndef NO_MOUPRIV
     add bp, SD_ROW
     mov si, sd_s_mou
     call sd_label
@@ -900,7 +900,7 @@ sd_start:
     jc .out
     mov [sd_slot], al
     mov byte [sd_armed], 1      ; ...and only now: see sd_armed
-%ifdef MOU_PRIV
+%ifndef NO_MOUPRIV
     call sd_mfill               ; the mouse ISR's own stack, sentinelled once
 %endif
 .out:
@@ -909,7 +909,7 @@ sd_start:
     pop ax
     ret
 
-%ifdef MOU_PRIV
+%ifndef NO_MOUPRIV
 sd_mfill:
     push ax
     push cx
@@ -931,15 +931,19 @@ sd_mfill:
 
 sd_s_hdr:   db "os8088 TASK STACK DIAGNOSTIC",0
 ; WHICH BUILD IS THIS? Three photographs came back from the field that could
-; not be told apart - same panel, same machine, and no way to know whether the
-; operator had booted the shipping arm, the MOUPRIV one or both-fixes. A
-; measurement whose configuration cannot be read off the picture is a
-; measurement somebody has to remember, and remembering is what the disk exists
-; to replace.
+; not be told apart - same panel, same machine, and no way to know which of the
+; three arms the operator had booted. A measurement whose configuration cannot
+; be read off the picture is a measurement somebody has to remember, and
+; remembering is what the disk exists to replace.
+;
+; RECUT WHEN THE MOUSE FIX SHIPPED (SPEC.md 9.10): arm 1 is the default and so
+; already carries it, and arm 2 is now the BEFORE picture rather than the after
+; one. The pair is still the same experiment read in the same direction - arm 1
+; minus arm 2 is what the mouse fix is worth on the machine in front of you.
 %ifdef STK_FIX
-sd_s_arm:   db "ARM 3 of 3   MOUPRIV + STKFIX",0
-%elifdef MOU_PRIV
-sd_s_arm:   db "ARM 2 of 3   MOUPRIV",0
+sd_s_arm:   db "ARM 3 of 3   + STKFIX",0
+%elifdef NO_MOUPRIV
+sd_s_arm:   db "ARM 2 of 3   NOMOUPRIV (before)",0
 %else
 sd_s_arm:   db "ARM 1 of 3   as it ships",0
 %endif

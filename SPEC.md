@@ -10483,6 +10483,69 @@ The decision tree it collapses, in the order the columns are read:
 | `p2st 09`, `irq` moving, `pkt 0000` | bytes arrive and never sync — read `b0` |
 | `pkt` moving, `x` still | decoded and not applied |
 
+### 9.10 Both mouse ISRs run on a stack of THEIR OWN, not the interrupted task's
+
+An ISR lands on whatever stack it interrupts, so the mouse's cost is paid by
+whichever task happened to be running — and in `sch_stacks` that is a cost every
+slice must be sized for simultaneously, because any of them can be the one
+interrupted. Measured with `STKDIAG=1` (docs/STACK-SLOTS-PLAN.md 4.2), the chain
+`mou_isr` → `mou_apply` → `cur_move` is **~54 bytes on a planar adapter, 30 on
+Hercules and 23 on CGA** — it is the ADAPTER that sets the depth, `cur_move`'s
+1bpp path being the shallow one, so the number to design from is the planar 54.
+
+The whole ISR therefore runs on **one shared 128-byte stack in `.lowbss`**, and
+what it costs the interrupted task is the six bytes the CPU pushed at the gate
+and nothing else.
+
+```nasm
+    mov [cs:mou_psave], sp          ; 2E 89 26 xxxx   5 bytes   MOUPRIV_ENTER
+    mov sp, mou_pstack + MOU_PSTK   ; BC xxxx         3 bytes
+      ...
+    mov sp, [cs:mou_psave]          ;                 5 bytes   MOUPRIV_LEAVE
+```
+
+**No register is available at an interrupt gate** — every one of them is the
+interrupted task's — and the swap is written to need none: `mov [cs:x], sp` and
+`mov sp, imm16` both encode with nothing to spare. CS is `KERNEL_SEG` at the
+gate, so the save slot is reached through it before DS is ours; **SS is already
+`LOW_SEG` for every task (§1, §2.1), so the swap is SP alone** and the stack
+must live in `.lowbss`.
+
+**It needs no re-entrancy guard, and that is a property rather than a hope.**
+`mou_isr` runs with IF=0 from the CPU's own gate to its `iret` and never `sti`s
+(§7, §9), so it cannot interrupt itself and IRQ3 and IRQ4 cannot interrupt each
+other. The tick's chain to the ROM is not like that — a real BIOS `sti`s inside
+it — and its own relocation needs a busy flag for exactly that reason.
+
+**BOTH vectors carry the entry, and the duplication is deliberate.** `mou_isr`,
+`mou_isr3` and `mou_p2_isr` (§9.9's IRQ12 handler) each swap before their first
+`push`, because the swap has to happen before anything is pushed and there is no
+shared prologue above the gate. `mou_eoi`'s single `iret` and `mou_p2_isr`'s
+carry the restore. The first version of this covered only the serial pair, and a
+Packard Bell 286 with a PS/2 mouse caught it on the glass: the panel read
+*"mouse ISR, own stack"* while the mouse phase still added 16 bytes to a slice.
+
+**The cost, A/B'd against `NOMOUPRIV=1` on the tree that shipped it** — not
+estimated:
+
+| | bytes |
+|---|---|
+| `.text` — the 8-byte entry at three gates, plus a 5-byte restore at two | **34** |
+| `.bss` — the saved SP | 2 |
+| `.lowbss` — one shared stack, 2.4× the measured 54 | 128 |
+| **resident total** | **164** |
+| **removed from every task slice** | **~48** |
+
+164 bytes once against 48 off each of seven slices — **336 today**, and more
+under a class scheme, where the slices are what is being counted. That ratio is
+the whole argument, and it is why the stack is sized generously and the code is
+not. It crossed no rung.
+
+**`NOMOUPRIV=1` is the A/B**, and the only thing keeping the un-swapped path
+assembling. It puts both ISRs back on the interrupted task's stack, which is
+what shipped before this section; `make stkdiag` builds it as arm 2 so the floor
+row moves by exactly what this is worth on the machine in front of you.
+
 ## 10. events.inc
 
 Event record, 8 bytes: `EV_TYPE` dw, `EV_A` dw, `EV_B` dw, `EV_C` dw.
