@@ -48839,96 +48839,97 @@ it opens a 124,918-byte one (620×400, cropped to the screen's 594×390) and
 every one of the 390 decoded rows matches the source pixel for pixel, 190 of
 them read from source bytes past the 64KB horizon.
 
-#### 42.6.1 OPEN: the canvas does not degrade, and what a canvas actually costs
+#### 42.6.1 The CANVAS should be claimed first — DESIGNED AND MEASURED, ONE BUG OPEN
 
-**Reported from the field and reproduced here. Not fixed — this section is
-the measurement and two failed attempts, so the next go is not started from
-nothing.**
+Paint claims the scratch first and the canvas second, and it sizes the canvas
+*before* either, from `OSAPI_MEM_AVAIL`'s largest free run. So the canvas is
+sized against a run 12 KB larger than the one it will be asked for from,
+`pt_alloc`'s `jc .fail` has no retry, and one refusal is §42.6's
+`Not enough memory` notice.
 
-##### 42.6.1.1 What Paint needs, measured
+**The design that fixes it**: the canvas goes first — it is the claim Paint
+cannot run without — and everything after takes what is left, none of it able
+to refuse Paint. `mem_avail` "answers the question `mem_claim` answers" (it
+counts purgeable claims as free and its largest run is `mem_cp_plan`'s,
+post-compaction), so a canvas sized to that run is a canvas that will be
+granted, and nothing is taken out of the run between measurement and claim.
+The only refusal left is a canvas that will not fit at
+`PT_CW_MIN` × `PT_CH_MIN`. `pt_growmax` holds back `PT_SC_MIN` while there is
+no span stack yet, so a machine that could afford a canvas *and* a small stack
+is not robbed of the second — a prediction that is allowed to be wrong in both
+directions, because nothing refuses on it.
 
-`kern_small`'s heap is `int 12h − 94.0 KB`, and a 5150's RAM comes in 64 KB
-rows, so the only real machines are 128 / 192 / 256 KB.
+**It is written and it does not ship**, because on a TIGHT machine
+`pt_entry` answers CF = 1 and the loader reports `LD_EABORT`: Paint does not
+open at all where it used to open a notice. Measured, with the pre-change
+build as the control on the same kernel and machine:
 
-| claim | small build |
-|---|---|
-| package (image + `.bss`) | 23 KB |
-| scratch — the flood-fill stack, `PT_SC_KB` | 12 KB |
-| canvas, CGA 448×110 | 25 KB |
-| canvas, Hercules 448×258 | 57 KB |
-
-| machine | heap | measured |
+| machine | before | with the change |
 |---|---|---|
-| 128 KB | 34.0 KB | **no canvas at any size** — package + scratch is 35 KB before one is asked for |
-| 192 KB | 98.0 KB | CGA: full 448×110 canvas. **Hercules: `Not enough memory`** |
-| 256 KB | 162 KB | Hercules: 448×258, claiming 57 + 12 + 23 |
+| CGA 128 KB | `LD_OK`, notice (2.5 KB left after a 12 KB scratch) | **`LD_EABORT`** |
+| Hercules 192 KB | `LD_OK`, notice | **`LD_EABORT`** |
+| CGA 192 KB | full 448×110 canvas | full 448×110 canvas ✓ |
+| Hercules 640 KB | full 448×258 canvas | 57 KB canvas + 9 KB scratch ✓ |
 
-**The 12 KB scratch is the flood-fill stack and nothing else** — eight bytes an
-entry, two call sites. It is not the GIF codec's: that is `PT_LZW_KB` = 16 KB
-in a claim of its own (`pt_gseg`), taken per file, and `PTF_GIF` compiles it
-out of the small build entirely (§42.22.1).
+**Three causes ruled out by measurement**, so the next attempt need not
+re-test them: it is not the ORDER (putting the scratch back first keeps the
+abort), not `BX` across `OSAPI_MEM_CLAIM` (SPEC.md 50.3 documents `AX` in and
+`CF`/`DX` out and says nothing about `BX`, so the tier loop was rewritten as
+three written-out asks — worth keeping either way), and not a GREEDY canvas
+(reserving the full `PT_SC_KB` instead of `PT_SC_MIN`, so the canvas is small
+and the scratch always fits, aborts identically).
 
-##### 42.6.1.2 The mechanism
+`OSAPI_WM_CREATE` is where the CF comes out. **What has not been done is
+finding which call actually fails**, and the way to do it is a progress
+marker — *not* through the kernel's `[ld_status]`, which the loader
+overwrites with the abort code before the harness can read it.
 
-`pt_geom` asks `pt_growmax` — `OSAPI_MEM_AVAIL`, the largest free run — what a
-canvas could be, `pt_fit` shrinks the request to that, and only then does
-`pt_alloc` claim: **the scratch first, out of the same run**, and the canvas
-second. So the canvas is sized against a run 12 KB larger than the one it will
-be asked for from, and `pt_alloc`'s `jc .fail` has no retry — one refusal and
-`pt_geom` goes straight to `PT_M_NOMEM`.
+#### 42.6.2 The flood fill's span stack DEGRADES, and the tool greys when it cannot be had
 
-Traced at the moment of the launch on a 192 KB Hercules machine:
+**Written, and blocked behind §42.6.1's bug.** The measurements stand on their
+own.
 
-```
-free runs before launching Paint: [23, 19] KB
-```
+`PT_SC_KB` is **12 KB for a stack that needs 8,208 bytes** — `PT_FSTK_MAX`
+entries of eight plus `PT_SC_STACK`'s header. **46% slack nobody is using**,
+and 9 KB is the honest figure; a `%error` keeps the two in step. Two comments
+say the scratch is shared — `pt_alloc`'s header says "the file readers borrow
+it" and §42.6's own text says twelve — and **both are stale**: `[pt_scseg]` is
+read in exactly two places, both inside the flood fill.
 
-A 45 KB claim is held elsewhere, so Paint's own 23 KB package claim takes the
-larger run **whole**, and what is left for the scratch and the canvas together
-is 19 KB.
+Below 9 KB it comes in **9 / 4 / 2 KB**, and the degradation is graceful by
+construction: `pt_fpush` answers an overflow by setting `[pt_fovf]` and
+stopping, so a short stack fills a complex region *partially* rather than
+scribbling past itself. What a smaller stack costs is the fill's **reach** —
+not its correctness, and not its speed, which is the same per span.
+`PT_FSTK_MAX` becomes `[pt_fstkmax]`, a property of the claim.
 
-##### 42.6.1.3 Two attempts that did not work, and why they are worth recording
+**With none of the three, the tool greys.** `pt_ic_flush` draws in
+`[pt_pen]`, so `CDGRAY` is the whole of it, and on a 1bpp adapter that dithers
+— §47's disabled look for free. A click toasts `No RAM for flood fill`, and
+**asks again before it toasts**: whether a stack can be funded is a fact about
+the heap at the moment somebody asked, and the moment Paint asked was startup
+with a canvas being claimed beside it. Without the re-ask, one crowded instant
+disables the tool for the session, which is the bug `pt_gate` carries the same
+fix for on the clipboard.
 
-**Predicting the scratch is not enough.** Subtracting `PT_SC_KB` from
-`pt_growmax`'s answer was the first try. It does not work because the scratch
-is not taken off either END of the run — measured, it lands in the middle, so
-a 56 KB run less 12 KB of scratch is not a 44 KB run, it is a 37 and a 7. No
-arithmetic done before the claim can know where the allocator will put it.
+**`[pt_fovf]` is set and never read** — a fill that runs out today stops short
+silently, with no toast. Tiering makes that more likely and it should be wired
+up with this.
 
-**Claiming the scratch first, plus a shrink-and-retry, is the right shape and
-still failed.** `pt_alloc_scratch` split out and called before `pt_growmax`,
-and the canvas refusal re-running `pt_growmax`/`pt_fit` and asking again until
-`[pt_fitcut]` says there is nothing left to give. It opens correctly on
-Hercules with 640 KB (448×258) and does not regress CGA, but on the 192 KB
-Hercules machine Paint stops opening a window **at all** rather than showing
-the notice — so `pt_entry` is failing somewhere after `pt_geom`, and that was
-not run down. Reverted rather than shipped.
+#### 42.6.3 `mem_avail` counts PURGEABLE claims as free, and a reader that does not is wrong
 
-**One trap it cost, and the answer is useful on its own**: the retry re-enters
-`pt_fit`, which takes the canvas in `AX`/`DX` — and `pt_kb_of` ANSWERS in
-`AX` while `OSAPI_MEM_CLAIM` answers in `DX`. A retry that does not bank the
-pair re-enters `pt_fit` with a KB count for a width. That is fixed in the
-reverted patch and will be needed again.
+Walking `mem_tab` and subtracting every claim from the heap **under-reports
+what a package can get**, because the high byte of `MC_OWN` in `0xFB`..`0xFE`
+marks a cache the allocator sheds on demand (§50.6). Measured on a 128 KB
+machine with the file browser open, a naive walk says the largest run is
+13.5 KB; the desktop's own caches account for 23 KB of that, and Paint's 23 KB
+package claim is granted out of it without trouble.
 
-**And the size is NOT the cause**, which was the first suspicion: the attempt
-grew the package 31 bytes, and a pre-fix build padded by exactly 31 bytes
-loads and shows the notice normally on the same machine.
-
-##### 42.6.1.4 What a 1bpp canvas would and would not buy
-
-The canvas is four bits a pixel on every adapter — `pt_paras` is
-`ceil(w/2)` rounded up to 4, and §42.13's four-plane form is the same size at
-every width. On a 1bpp adapter that is four bits carrying one.
-
-| | 4bpp | 1bpp |
-|---|---|---|
-| Hercules 448×258 | 57 KB | **15 KB** |
-| CGA 448×110 | 25 KB | **7 KB** |
-
-It is a large win for Hercules and it does **not** reach the 128 KB machine:
-package 23 + scratch 12 is 35 KB against a 34 KB heap before any canvas at
-all. 128 KB needs roughly 8 KB more off the resident claim, or a smaller
-flood-fill stack, on top of the 1bpp canvas.
+`mem_avail`'s own contract makes the same point from the other side —
+"under-reporting here is not a safe error; it is the only direction in which
+the error is invisible." A diagnostic that walks the table has to classify the
+owner word, or it will report a machine as full while the kernel is happily
+funding claims on it.
 
 ### 42.7 Full Screen — the §53 bracket, and why NOT the §11.2 surface
 
