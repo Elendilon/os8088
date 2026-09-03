@@ -42,6 +42,46 @@ MOU_LOCKN   equ 8               ; CLEAN packets in a row from ONE port before
                                 ; and nothing else: the packets before it are
                                 ; decoded and acted on like any other
 
+; --- SPEC.md 7.4: the arrow tracks the hand inside int 13h -------------------
+; disk.inc brackets each `int 0x13` with these, so the ISR below may move the
+; pointer through a transfer that would otherwise freeze it. They are macros
+; rather than a call because a call is 11us and this is two stores of an
+; immediate - and because the bracket has to sit tight against the one
+; instruction it is making a claim about (SPEC.md 7.4.1).
+;
+; `mov` touches no flag, which is what lets CURXFER_OFF sit between the `int
+; 0x13` and the `jnc` that reads its CF.
+%ifndef NOCURDISK
+  %macro CURXFER_ON 0
+    mov byte [cur_inxfer], 1
+  %endmacro
+  %macro CURXFER_OFF 0
+    mov byte [cur_inxfer], 0
+  %endmacro
+%else
+  %macro CURXFER_ON 0
+  %endmacro
+  %macro CURXFER_OFF 0
+  %endmacro
+%endif
+
+; ...and SPEC.md 7.4.3's, which fprog brackets its own drawing with. A macro
+; for CURROM's reasons: two stores, and the NOCURDISK arm has to compile them
+; away to nothing so the knob reproduces the old kernel byte for byte.
+%ifndef NOCURDISK
+  %macro CURBAR_ON 0
+    mov byte [cur_barok], 1
+  %endmacro
+  %macro CURBAR_OFF 0
+    mov byte [cur_barok], 0
+  %endmacro
+%else
+  %macro CURBAR_ON 0
+  %endmacro
+  %macro CURBAR_OFF 0
+  %endmacro
+%endif
+
 MOU_RSTLOW  equ 3               ; ticks DTR/RTS are held LOW in a reset
                                 ; (~165ms; a serial mouse wants >=100ms
                                 ; unpowered to guarantee its power-on reset)
@@ -3126,6 +3166,62 @@ mou_apply:
 
 .move:
     ; --- cursor: draw only if the lock is free AND cur_level >= 0 (SPEC 7) ---
+%ifndef NOCURDISK
+    cmp byte [cur_inxfer], 0     ; **...OR THE CPU IS INSIDE AN int 13h**
+    je .gates                   ; (SPEC.md 7.4). The flag says THIS task is
+                                ; parked in the ROM; the three tests below are
+                                ; what say the SCREEN is safe, and each one
+                                ; closes a hole rather than being belt and
+                                ; braces (SPEC.md 7.4.2)
+    cmp byte [gfx_lock_flag], 0
+    je .lvl                     ; **FREE IS SAFE HERE, AND THIS IS THE CASE A
+                                ; PACKAGE LAUNCH TAKES** (SPEC.md 7.4.2.1). A
+                                ; task-level burst is wrapped in gfx_lock, so a
+                                ; free lock means no task is inside a primitive
+                                ; - and the one painter in the machine that
+                                ; draws UNLOCKED is fprog (SPEC.md 12.8.4,
+                                ; measured: nothing else does), which draws
+                                ; only from the disk path, on the task that is
+                                ; in the transfer. That task is HERE, inside
+                                ; int 13h, so it is not inside an fprog fill;
+                                ; and dsk_xfer holds [sch_lock] throughout, so
+                                ; no other task is running to be in one either.
+                                ;
+                                ; This arm read `je .gates` and refused, on the
+                                ; reasoning that stepping around [fpg_on] with
+                                ; the lock free IS 12.8.4's defect. The
+                                ; reasoning was right about the danger and
+                                ; wrong about the case: 12.8.4 is about a
+                                ; painter running while the ISR draws, and the
+                                ; only candidate is provably not running. What
+                                ; it cost was every package launch and every
+                                ; assoc open - the whole freeze, pointer dead -
+                                ; because those do their reading with the lock
+                                ; free and [fpg_on] set, which is precisely the
+                                ; state `.gates` refuses.
+                                ;
+                                ; No [wm_clip_n] test on this arm: gfx_unlock
+                                ; clears the region, so a free lock has none
+    mov al, [sch_cur]           ; HELD BY US is the file-operation freeze: a
+    cmp al, [gfx_lock_own]      ; task can only draw while holding the lock, so
+    jne .dirty                  ; our holding it while we sit in the ROM proves
+                                ; no task is inside a primitive. Held by
+                                ; ANOTHER task proves the opposite - it was
+                                ; pre-empted mid-fill and its vga_rect_setup
+                                ; scratch and GC state are live
+    cmp word [wm_clip_n], 0     ; ...and a painter that armed a region already
+    jne .dirty                  ; asked cur_lazyck whether the arrow was in
+                                ; reach and was told no (SPEC.md 7.1.4). That
+                                ; answer was given BEFORE this read and is
+                                ; spent AFTER it, so an arrow that walked into
+                                ; the region meanwhile would be drawn over and
+                                ; its save-under would be wrong for the rest of
+                                ; the session. Unclipped painters need no test:
+                                ; they call cur_unlazy, and [cur_level] < 0
+                                ; below already defers
+    jmp short .lvl
+.gates:
+%endif
     cmp byte [gfx_lock_flag], 0
     jne .dirty
     cmp byte [fpg_on], 0        ; ...OR AN UNLOCKED PAINTER IS UP (SPEC.md
@@ -3143,6 +3239,7 @@ mou_apply:
 %else                           ; are otherwise the same instruction
     jne .dirty
 %endif
+.lvl:
     mov al, [cur_level]
     or  al, al
     js .dirty
@@ -3158,12 +3255,38 @@ mou_apply:
     inc word [gfx_aud_mv]       ; the control: how many draws there were AT ALL
     cmp byte [fpg_on], 0        ; **THE GATE** (SPEC.md 12.8.4): a draw here
     je .nogate                  ; with the widget up is the defect itself -
-    inc word [gfx_aud_gate]     ; unreachable on a kernel that has the compare
-.nogate:                        ; above, and one per packet on one that does not
+                                ; unreachable on a kernel that has the compare
+                                ; above, and one per packet on one that does not
+%ifndef NOCURDISK
+    cmp byte [cur_inxfer], 0     ; ...EXCEPT SPEC.md 7.4's, which is deliberate
+    jne .nogate                 ; and bounded by the widget test below. Without
+                                ; this the counter stops meaning "the defect"
+                                ; and starts meaning "a file operation happened"
+%endif
+    inc word [gfx_aud_gate]
+.nogate:
     cmp byte [gfx_aud_dep], 0   ; ...and the COLLISION: a rect primitive in
     je .norace                  ; flight in the task we interrupted, which is
     inc word [gfx_aud_race]     ; the same defect caught in the act rather than
 .norace:                        ; at the door
+%endif
+%ifndef NOCURDISK
+    cmp byte [fpg_on], 0        ; **AND IT MAY NOT LAND ON THE WIDGET** (SPEC.md
+    je .go                      ; 7.4.2). Reachable only from the int 13h path
+                                ; above - the ordinary gates already sent an
+                                ; armed widget to .dirty - and it replaces that
+                                ; blanket refusal with the narrower question
+                                ; fpg_arm already asks: everything fprog draws
+                                ; is inside the bar's rows, so only an arrow
+                                ; that could reach them has to stand still
+    cmp bx, MBAR_H + CUR_GH     ; fpg_arm's own compare and its own constant
+    jb .dirty                   ; (SPEC.md 7.4.3) - unsigned, and conservative
+                                ; by a cell because the hot spot can be as low
+                                ; as CUR_GH (SPEC.md 7.2.2). Being wrong this
+                                ; way costs a pointer that stalls at the bar's
+                                ; edge until gfx_unlock; being wrong the other
+                                ; way is 7.1.4's permanent smear
+.go:
 %endif
     call cur_move               ; SPEC.md 7.1.2: erase-old and draw-new as one
     mov byte [cur_dirty], 0
@@ -3650,6 +3773,23 @@ cur_get_mono:
 cur_unlazy:
     cmp byte [cur_lazy], 0      ; one-way within a hold, so the common case
     je .out                     ; after the first call is three instructions
+%ifndef NOCURDISK
+    cmp byte [cur_barok], 0     ; **...UNLESS THIS PAINTER CANNOT REACH THE
+    je .spend                   ; ARROW** (SPEC.md 7.4.3) - cur_lazyck's trick
+    cmp word [cur_drawn_y], MBAR_H + CUR_GH
+    jae .out                    ; confined to the bar and the arrow is below
+                                ; it: the promise is not owed, so the pointer
+                                ; stays on the glass and the ISR goes on moving
+                                ; it through the transfer. fpg_arm's own
+                                ; compare and its own constant - the arrow's
+                                ; cell top is [cur_drawn_y] - [cur_hy] and the
+                                ; hot spot can be as low as CUR_GH (SPEC.md
+                                ; 7.2.2), so this bound puts the WHOLE cell at
+                                ; or below MBAR_H. Conservative costs a
+                                ; redundant hide; the other way is 7.1.4's
+                                ; permanent smear
+.spend:
+%endif
     mov byte [cur_lazy], 0
     call cursor_hide
 .out:
@@ -4592,6 +4732,29 @@ cur_shchk   db 0                ; "the window under the pointer may have
                                 ; raise, a hide, a destroy or a drag. One
                                 ; byte, the [fm_fchk] shape (SPEC.md 22.8)
 cur_level   db -1               ; refcount; < 0 = hidden (boot state)
+%ifndef NOCURDISK
+cur_barok   db 0                ; **THE PAINTER RUNNING NOW IS CONFINED TO THE
+                                ; MENU BAR** (SPEC.md 7.4.3). fprog sets it
+                                ; across every one of its own draws, because
+                                ; everything that module draws is inside the
+                                ; bar's rows - and the composition it starts
+                                ; with, menu_draw_bar, is what actually took
+                                ; the arrow off the glass: it is unclipped, so
+                                ; GFXCLIP's cur_unlazy hid the pointer for the
+                                ; whole freeze before fpg_paint was even
+                                ; reached. .text with a real initialiser, for
+                                ; cur_inxfer's reason below
+cur_inxfer   db 0                ; **THE CPU IS INSIDE AN int 13h** (SPEC.md
+                                ; 7.4): dsk_xfer brackets the instruction
+                                ; itself with this, so the ISR may move the
+                                ; arrow through a disk transfer that would
+                                ; otherwise freeze it. .text with a real
+                                ; initialiser, like cur_disp below and for its
+                                ; reason - -f bin zeroes nothing, and drv_boot
+                                ; reads the disk before any init routine of
+                                ; ours could run, so a garbage byte here would
+                                ; let IRQ4 draw during the splash
+%endif
 mou_nx      dw 0                ; the candidate x, staged across the y decode
                                 ; because mou_clamp is 2-D (SPEC.md 39.15.4)
 cur_dirty   db 0                ; set when the ISR could not move the cursor
