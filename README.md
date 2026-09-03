@@ -585,7 +585,7 @@ Fixed Disk Adapter, whose option ROM is the int 13h the kernel's hard-disk
 driver calls (SPEC.md 52.1). The image, `build/mfm20.img`, is created blank
 and kept between runs; partition and format it from Control Panel → Drivers
 → Hard Drive → Format, and from then on it is C: — the machine to install
-to (SPEC.md 52.10) and to hibernate on (SPEC.md 86) at a real 4.77MHz.
+to (SPEC.md 52.10) and to hibernate on (SPEC.md 87) at a real 4.77MHz.
 
 `make xt-cga`, `make xt-hercules` and `make xt-ega` are the same 256KB XT
 with the other three adapters os8088 supports (`vm/xt-cga`,

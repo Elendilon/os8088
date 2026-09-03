@@ -71,7 +71,7 @@ CMD_SEP     equ 4               ; the RULE above Hibernate. It is a MENU_DIS
                                 ; returns. The id exists only so that
                                 ; the items below it still equal base+item
 %ifdef KERN_BIG
-CMD_HIBER   equ 5               ; Hibernate... (SPEC.md 86), kern_big only:
+CMD_HIBER   equ 5               ; Hibernate... (SPEC.md 87), kern_big only:
 CMD_REBOOT  equ 6               ; kern_small's menu has no such item and its
 CMD_CLOSE   equ 7               ; ids stay one lower
 CMD_TIMER   equ 8               ; --- Locator: Builtins (SPEC.md 12.3.1) ---
@@ -2548,7 +2548,7 @@ menu_s_closex   db MENU_DIS, 'Close Window', 0  ; ...with nothing to close;
 menu_s_tasks    db 'Task Manager', 0
 menu_s_restart  db 'Restart', 0
 %ifdef KERN_BIG
-menu_s_hiber    db 'Hibernate...', 0        ; SPEC.md 86.2: ui_loc_gate points
+menu_s_hiber    db 'Hibernate...', 0        ; SPEC.md 87.2: ui_loc_gate points
 menu_s_hibernh  db MENU_DIS, 'Hibernate (No HD)', 0  ; item 4 at one of the
 menu_s_hiberxm  db MENU_DIS, 'Hibernate (XMS)', 0    ; three, and the two
                                 ; greyed ones say WHY NOT (SPEC.md 47 rule 3)
@@ -2581,7 +2581,7 @@ menu_items_logo:
     dw menu_s_tasks
     dw menu_s_msep
 %ifdef KERN_BIG
-    dw menu_s_hiber             ; item 4, swapped by ui_loc_gate (SPEC.md 86.2)
+    dw menu_s_hiber             ; item 4, swapped by ui_loc_gate (SPEC.md 87.2)
     dw menu_s_restart
 MENU_LOGO_N equ 6               ; ...and menu_relayout stamps this into cell
 %else

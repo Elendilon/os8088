@@ -60,7 +60,7 @@ KIND_BOUNCE  equ 2              ;  NOTEPAD package - SPEC.md 27; kind 1 was
 KIND_FILES   equ 3
 KIND_CTRL    equ 4              ; (the Task Manager was kind 4 until it
                                 ;  became the TASKMGR package - SPEC.md 28)
-KIND_HIBER   equ 5              ; the Hibernate window (SPEC.md 86.1): the
+KIND_HIBER   equ 5              ; the Hibernate window (SPEC.md 87.1): the
                                 ; confirmation, and the boot-time question.
                                 ; kern_big only
 KIND_PKG     equ 0x80           ; bit 7: package instance
@@ -135,7 +135,7 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw hb_tpl,         0,               0,             0,   hb_kinit,         hb_ttl
     dw 0                        ; the generic icon: it is never in the dock
     db 1, 0                     ; Hibernate: stateless task-less singleton
-                                ; (SPEC.md 86.1), painted by its module
+                                ; (SPEC.md 87.1), painted by its module
 %endif
 
 ; --- the built-in kinds' icons (SPEC.md 25/29.3) -----------------------------
@@ -1555,7 +1555,7 @@ app_close_win:
     call COLD_SEG:hbf_closed    ; the Hibernate window went by a route its
 .nohib:                         ; module did not take - the close box, Close
 %endif                          ; Window, the Task Manager - so the image can
-                                ; go now (SPEC.md 86.1)
+                                ; go now (SPEC.md 87.1)
     cmp byte [di+I_KIND], KIND_CTRL
     jne .noflush                ; the Control Panel defers its settings write
     call COLD_SEG:drv_cp_closed_x ; ...and tell the drivers, which is where the

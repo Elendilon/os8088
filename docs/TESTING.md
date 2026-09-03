@@ -1049,7 +1049,7 @@ for n,a,c,sz in ents(v):
 EOF
 ```
 
-### Hibernate and resume (SPEC.md §86)
+### Hibernate and resume (SPEC.md §87)
 
 ```sh
 python3 tests/hibernate.py            # the boot partition, DVK_BIOS

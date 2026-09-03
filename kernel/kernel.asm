@@ -4346,7 +4346,7 @@ kmain:
     MARK 29
 %ifdef KERN_BIG
     call COLD_SEG:hb_probe_x    ; ...and is there a hibernation to resume?
-                                ; (SPEC.md 86.5) After drv_boot, so a driver
+                                ; (SPEC.md 87.5) After drv_boot, so a driver
                                 ; volume is mounted to be looked at; before
                                 ; the first paint, because the answer is a
                                 ; window ui_task's first pass puts up
@@ -4974,7 +4974,7 @@ section .text
 %include "desk.inc"
 %include "dock.inc"
 %include "ctrl.inc"
-%include "hiber.inc"            ; hibernate and resume (SPEC.md 86): the
+%include "hiber.inc"            ; hibernate and resume (SPEC.md 87): the
                                 ; resident thunks, the probe, and HIBER.DRV.
                                 ; After mod.inc for MOD_NENT, a size here
 %include "driver.inc"           ; loadable drivers (SPEC.md 51): after
@@ -5638,7 +5638,7 @@ cw_wm_onmouseup:        call wm_onmouseup
                     retf
 cw_wm_ondrag:           call wm_ondrag
                     retf
-; ...and the seven HIBER.DRV needs (SPEC.md 86): a kernel window closed from
+; ...and the seven HIBER.DRV needs (SPEC.md 87): a kernel window closed from
 ; its own release handler, and the reboot path's and fsx_restore's pieces -
 ; text mode out, the desktop mode back, the two forced strips, the idle clock
 cw_app_close_win:       call app_close_win

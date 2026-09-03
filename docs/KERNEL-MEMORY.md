@@ -2230,7 +2230,7 @@ more except doing less. There is one precedent for doing less, and it is the
 Task Manager.
 
 > **The fourth MODULE, and the first feature to cross two rungs for a
-> feature the kernel does not carry: HIBERNATE (SPEC.md §86).** `HIBER.DRV`
+> feature the kernel does not carry: HIBERNATE (SPEC.md §87).** `HIBER.DRV`
 > is 3,515 bytes on the system disk and 0 resident. What the kernel spends
 > is **259 bytes of `.text`, 94 of `.bss` and 365 of `.cold`** — three menu
 > strings, a window template, a title and two file names, a kind row, five

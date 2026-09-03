@@ -122,7 +122,7 @@ MEM_K_BAND equ 0xFF0A           ; the 1bpp band composer's buffer (SPEC.md
                                 ; 128px band and 2KB of the arena buys a band
                                 ; as wide as the screen, and SPEC.md 5.9.1's
                                 ; cost is per CHUNK
-MEM_K_HIB  equ 0xFF0C           ; the resume's extent list (SPEC.md 86.5):
+MEM_K_HIB  equ 0xFF0C           ; the resume's extent list (SPEC.md 87.5):
                                 ; claimed on the way into the stub and never
                                 ; freed, because the machine it is in is
                                 ; about to be overwritten; freed on the one

@@ -283,7 +283,7 @@ DSV_PKGCALL  equ 34             ; dw: near proc reached by OSAPI_DRV_CALL -
                                 ; yours is callable from a package's worker
                                 ; only if what it does is. Say so per verb.
 DSV_GEOM     equ 36             ; dw: near proc, DRVC_DISK only (SPEC.md 51.8,
-                                ; 86.5): the TRANSPORT FACTS of one volume,
+                                ; 87.5): the TRANSPORT FACTS of one volume,
                                 ; for a caller that has to reach its sectors
                                 ; without you - the resume stub, which runs
                                 ; after every driver has been detached.

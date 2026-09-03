@@ -3032,6 +3032,85 @@ $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
 $(BUILD)/tracker.o88: $(BUILD)/tracker.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/tracker.bin -o $@
 
+# AUDIO.O88 - the Audio Player (SPEC.md 86): lightweight background music from
+# a streamed WAV (unsigned 8-bit PCM, or IMA/DVI 4-bit ADPCM decoded straight
+# to PCM8), over the existing Sound Blaster ring-stream infrastructure
+# (OSAPI_SND_STREAM, SPEC.md 34.5). A look-ahead heap claim in front of the
+# decoder keeps a disk read's sch_lock hold from starving the DMA. Seven
+# sources, one binary.
+AUDIO_SRC := apps/audio/audio.asm apps/audio/apengine.inc \
+             apps/audio/apwork.inc apps/audio/apcb.inc \
+             apps/audio/apwav.inc apps/audio/apdec.inc \
+             apps/audio/apui.inc apps/audio/aplist.inc \
+             apps/os88api.inc apps/os88ui.inc
+# NB: apps/audio/audio.asm is named explicitly (as well as via $(AUDIO_SRC),
+# which begins with it) so tools/os88index.py finds the package here.
+$(BUILD)/audio.bin: apps/audio/audio.asm $(AUDIO_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/audio/ -o $@ apps/audio/audio.asm
+	@echo "audio: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/audio.o88: $(BUILD)/audio.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/audio.bin -o $@
+
+# ...and the SAME SOURCE with -DAPROF (SPEC.md 86.5.1): the diagnostic-counter
+# build, for the profiling tests in docs/AUDIO-PLAN.md. Every counter is inside
+# %ifdef APROF, so the shipped AUDIO.O88 above carries none of it. Press D in
+# the player to see / hide the counters. Never on a shipped disk.
+$(BUILD)/audio-prof.bin: $(AUDIO_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -DAPROF -I apps/ -I apps/audio/ -o $@ apps/audio/audio.asm
+	@echo "audio (APROF): $(call FILESIZE,$@) bytes"
+
+$(BUILD)/audiop.o88: $(BUILD)/audio-prof.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/audio-prof.bin -o $@
+
+# A stand-alone Audio Player test disk (ON DEMAND: `make audiodisk`): AUDIO.O88
+# at the root beside whatever WAV files AUDIOWAV= names (each an 8.3 name), so
+#   make audiodisk AUDIOWAV="build/wav/adp11k.wav"
+#   make test-snd SB16=1 TESTAPPS=build/audio-test.img   # QEMU; add SNDSNIFF=sb
+# boots straight to a drive with the player and the clips on it. A 1.44MB
+# floppy holds AUDIO.O88 and ~1.3MB of audio - one ADPCM clip, not a whole
+# set. For more than that use `make audio-hdd` below.
+AUDIOWAV ?=
+$(BUILD)/audio-test.img: $(BUILD)/audio.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+	    $(BUILD)/audio.o88 $(AUDIOWAV)
+	@echo "audio-test: $@  (AUDIOWAV=$(AUDIOWAV))"
+
+.PHONY: audiodisk
+audiodisk: $(BUILD)/audio-test.img
+
+# ...and a BOOTABLE HARD-DISK image (ON DEMAND: `make audio-hdd`) - the vehicle
+# for a full set of multi-MB WAVs, and the realistic streaming scenario
+# (docs/AUDIO-PLAN.md: floppy streaming is marginal, HDD is where it works).
+# The system core plus AUDIO.O88 and every WAV under AUDIOWAVDIR (8.3 names,
+# either case of extension - a file called BIG.WAV is the usual one)
+# in APPS/. The partition auto-sizes to the payload; the kernel adopts it
+# as C:. 86Box: attach as the XT's hard disk. QEMU:
+#   qemu-system-i386 -drive file=build/audio-hdd.img,format=raw,if=ide -boot c \
+#     -device sb16,audiodev=snd -audiodev none,id=snd
+# AUDIOPROF=1 puts the -DAPROF diagnostic build (AUDIOP.O88) on the disk
+# instead of the shipped AUDIO.O88. AUDIOP carries its own 'WAV' association,
+# so double-click still opens it - it is the only player on the disk.
+AUDIOWAVDIR ?= build/awav
+ifeq ($(AUDIOPROF),1)
+AUDIO_O88 := $(BUILD)/audiop.o88
+else
+AUDIO_O88 := $(BUILD)/audio.o88
+endif
+$(BUILD)/audio-hdd.img: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(BUILD)/kernel.bin \
+                        $(DRIVERS) $(BUILD)/taskmgr.o88 $(AUDIO_O88) \
+                        tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --hdd \
+	    --mbr $(BUILD)/mbr.bin --boot $(BUILD)/boothd.bin \
+	    --kernel $(BUILD)/kernel.bin \
+	    $(DRIVERS) SYSTEM:$(BUILD)/taskmgr.o88 APPS:$(AUDIO_O88) \
+	    $(patsubst %,APPS:%,$(sort $(wildcard $(AUDIOWAVDIR)/*.wav $(AUDIOWAVDIR)/*.WAV)))
+	@python3 tools/os88disk.py --verify-hdd $@
+	@echo "audio-hdd: $@  (WAVs from $(AUDIOWAVDIR)/)"
+
+.PHONY: audio-hdd
+audio-hdd: $(BUILD)/audio-hdd.img
+
 # ModPlug Player, the fourteenth shipped package (SPEC.md 56): a port of
 # ModPlug Player V2's LOOK AND FEEL - the skinned player window with its LCD
 # panel, LED transport row and visualiser, the Setup window with its page
@@ -3076,7 +3155,7 @@ $(BUILD)/dbg/modplug.o88: $(BUILD)/dbg/modplug.bin tools/os88pkg.py
 $(BUILD)/dbg-apps360.img: $(BUILD)/dbg/modplug.o88 $(APPS_TOOLS) $(APPS_GAMES) \
                           $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
-	    $(patsubst %,APPS:%,$(filter-out $(BUILD)/modplug.o88,$(APPS_TOOLS))) \
+	    $(patsubst %,APPS:%,$(filter-out $(BUILD)/modplug.o88 $(BUILD)/audio.o88,$(APPS_TOOLS))) \
 	    APPS:$(BUILD)/dbg/modplug.o88 \
 	    $(patsubst %,GAMES:%,$(APPS_GAMES)) \
 	    MEDIA:apps/tracker/beverly.mod \
@@ -6031,7 +6110,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/hello.o88 $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 $(BUILD)/recorder.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
-              $(BUILD)/texpad.o88 $(BUILD)/tracker.o88
+              $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
               $(BUILD)/mines.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
@@ -6134,7 +6213,12 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # prerequisites name a file that is not on the disk it builds is a dependency
 # that lies in the direction that costs a rebuild for nothing, and one that
 # stops being harmless the day somebody reads it to find out what is on there.
-APPS360 := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
+# AUDIO.O88 is left off the 360KB disk: it fits with one cluster to spare
+# (353/354) which is too tight to be a good neighbour, and the XT/floppy is
+# exactly where streaming performance is least proven (docs/AUDIO-PLAN.md).
+# It ships on the 1.44MB and 720KB apps disks, which have room.
+APPS_TOOLS_360 := $(filter-out $(BUILD)/audio.o88,$(APPS_TOOLS))
+APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
@@ -6171,7 +6255,7 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # 24.4), and 59% OF THAT 34KB WAS LITERAL ZEROS. The buffers are reserved past
 # the image now rather than written into the file, so it is 18KB and 36 of the
 # 354 clusters. Being on this disk is the whole reason a user has it to hand.
-APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS)) \
+APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS_360)) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
                $(addprefix MEDIA:,$(APPS_DATA_360)) \
                $(SYSAPPSARGS) \
@@ -6883,7 +6967,7 @@ xt-640: $(IMG360) $(APPSIMG360)
 # image boots on). The image is created blank, once, and KEPT: partitioning
 # and formatting it is the OS's job (Control Panel -> Drivers -> tick Hard
 # Drive -> Format), and so is installing to it (SPEC.md 52.10.4) and
-# hibernating to it (SPEC.md 86), which is what this machine is for -
+# hibernating to it (SPEC.md 87), which is what this machine is for -
 # hibernate and resume on period hardware, MFM and all. The size is the
 # geometry's exactly, because 86Box refuses a raw image that disagrees.
 MFMIMG := $(BUILD)/mfm20.img

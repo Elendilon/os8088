@@ -42,7 +42,7 @@ MOD_MAX     equ 4               ; rows in mod_tab
 MOD_CTRL    equ 0               ; the Control Panel (SPEC.md 31)
 MOD_FMT     equ 1               ; the floppy formatter (SPEC.md 18.96)
 MOD_CLONE   equ 2               ; the disk cloner (SPEC.md 18.99)
-MOD_HIBER   equ 3               ; hibernate and resume (SPEC.md 86)
+MOD_HIBER   equ 3               ; hibernate and resume (SPEC.md 87)
 
 MOD_NENT    equ 8               ; far-pointer slots reserved per module. A
                                 ; fixed stride, so a thunk's
@@ -145,7 +145,7 @@ section .text
 mod_f_ctrl: db 'CTRL.DRV', 0    ; .DRV for the attributes and nothing else
 mod_f_fmt:  db 'FORMAT.DRV', 0  ; (SPEC.md 19.6): os88disk.py stamps anything
 mod_f_clon: db 'CLONE.DRV', 0   ; ...and a third of them (SPEC.md 18.99)
-mod_f_hib:  db 'HIBER.DRV', 0   ; ...and a fourth: hibernate (SPEC.md 86),
+mod_f_hib:  db 'HIBER.DRV', 0   ; ...and a fourth: hibernate (SPEC.md 87),
                                 ; which qualifies twice - the user is leaving
                                 ; the machine, or has just booted it
                                 ; ending DRV read-only + hidden + system by

@@ -808,7 +808,7 @@ kernel image.** It is read into a heap claim when its feature is asked for,
 far-called through a table of entry pointers, and freed when the feature is
 finished. Four exist: `CTRL.DRV`, the Control Panel (§31), `FORMAT.DRV`,
 the floppy formatter (§18.96), `CLONE.DRV`, the disk cloner (§18.99), and
-`HIBER.DRV`, hibernate and resume (§86).
+`HIBER.DRV`, hibernate and resume (§87).
 
 **This is the fourth lever on the footprint, and the only one that relieves
 `KERN_BUDGET` without relieving nothing else.** §2.5's overlay is run-once
@@ -2007,7 +2007,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19) |
 | `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write`. **`.cold`** (§2.6) |
 | `kernel/clone.inc`  | the disk cloner (§18.99): the on-demand `CLONE.DRV` — sector-for-sector copy between any two floppy drives or one drive twice, its XMS/heap planner, its own geometry probe and its status-line prompts — prefix `clo_`; the resident half is one word and one thunk, both **`.cold`**/`.text` (§2.6) |
-| `kernel/hiber.inc`  | hibernate and resume (§86): the on-demand `HIBER.DRV` — the Hibernate window, the image write, the boot-time question, the extent walk, the stub that puts memory back from the text framebuffer and the wake — prefix `hbm_`/`hbs_`; the resident half is the template, the state block, the `.text` thunks a kernel window needs, and in **`.cold`** the boot probe, the greying predicate and the loading thunks (`hb_`/`hbf_`/`hbk_`) |
+| `kernel/hiber.inc`  | hibernate and resume (§87): the on-demand `HIBER.DRV` — the Hibernate window, the image write, the boot-time question, the extent walk, the stub that puts memory back from the text framebuffer and the wake — prefix `hbm_`/`hbs_`; the resident half is the template, the state block, the `.text` thunks a kernel window needs, and in **`.cold`** the boot probe, the greying predicate and the loading thunks (`hb_`/`hbf_`/`hbk_`) |
 | `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21). **`.cold`** (§2.6) |
 | `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22). **`.cold`** (§2.6), with its strings and dispatch tables toggled back to `.text` |
 | `kernel/filecp.inc` | the file manager's clipboard: Cut, Copy, Paste and the recursive paste engine (§22.3) — prefix `fcp_`. **`.cold`** (§2.6) |
@@ -9108,7 +9108,7 @@ opposed, and no single number satisfies both.
 **Worse, the highlight goes AWAY rather than merely lagging.** Separators are
 `MENU_DIS` items (§12.2 — `menu_s_msep`, `fm_s_fsep`), so the System menu is
 About / Control Panel / Task Manager / **rule** / Hibernate... / Restart
-(§86; `kern_small` has no Hibernate), and `menu_hover`
+(§87; `kern_small` has no Hibernate), and `menu_hover`
 answers `0xFFFF` for the whole of that fourth cell. Six presses in the middle
 of a menu that highlight nothing at all do not read as slowness; they read as
 the menu having stopped working.
@@ -16171,7 +16171,7 @@ Window" (CMD_CLOSE); and **Builtins**: "Timer" (CMD_TIMER), "Bounce"
 (CMD_BOUNCE), "Disk" (CMD_FILES) — see §12.3.1 for why that is not how they
 started. The System menu is cell 0 for every application: "About os8088..."
 (CMD_ABOUT), "Control Panel" (CMD_CTRL, §31), "Task Manager" (CMD_TASKS,
-§28), a rule, "Hibernate..." (CMD_HIBER, §86 — kern_big only, so the ids
+§28), a rule, "Hibernate..." (CMD_HIBER, §87 — kern_big only, so the ids
 below it are one lower in kern_small), and "Restart" (CMD_REBOOT).
 
 **"Close Window" greys when there is nothing to close.** `ui_loc_gate` points
@@ -16189,7 +16189,7 @@ CMD_ABOUT  equ 1   ; --- System (cell 0, every application) ---
 CMD_CTRL   equ 2
 CMD_TASKS  equ 3
 CMD_SEP    equ 4   ; the rule above Hibernate - no handler, see below
-CMD_HIBER  equ 5   ; kern_big only (§86); kern_small has no such item and
+CMD_HIBER  equ 5   ; kern_big only (§87); kern_small has no such item and
 CMD_REBOOT equ 6   ;   its ids from here stay one lower: REBOOT 5, CLOSE 6,
 CMD_CLOSE  equ 7   ;   TIMER 7, BOUNCE 8, FILES 9
 CMD_TIMER  equ 8   ; --- Locator: Builtins ---
@@ -27949,7 +27949,7 @@ The first consumer is the hard disk installer's Restart button (§52.10.6),
 which is the case that needed it: the user has just written a bootable
 volume and the next thing they want is to boot it.
 
-**The same byte carries three more values** (§86): `UI_RBQ_HIBER`,
+**The same byte carries three more values** (§87): `UI_RBQ_HIBER`,
 `UI_RBQ_RESUME` and `UI_RBQ_ASK`, spent at the same top-of-pass site for the
 same reason — a hibernate detaches drivers and a resume waits on their
 workers, neither of which can be done from the callback that decided it.
@@ -35164,7 +35164,7 @@ decoded from `CLS_OWN`:
 | `MEM_K_CLONE` | `Cloner` | the disk cloner's buffer (§18.99) |
 | `MEM_K_BAND` | `BandBuf` | the 1bpp band composer's buffer (§5.9.2) |
 | `MEM_K_OVL` | `BootOvl` | the relocated boot overlay (§2.5.1) — retired, and its value 0xFF0B left unused (§2.9.6) |
-| `MEM_K_HIB` | `Resume` | the resume's extent list (§86.5) — 0xFF0C, the next free value |
+| `MEM_K_HIB` | `Resume` | the resume's extent list (§87.5) — 0xFF0C, the next free value |
 | `MEM_P_WSAVE` + slot | `WinSave` | a window's raise cache (a RANGE, §11.96.3) |
 | `MEM_P_DIRW` | `DirRead` | the directory read-ahead window |
 | anything else | `xxxx` | **the raw owner word, in hex** |
@@ -36274,7 +36274,7 @@ KIND_BOUNCE  equ 2       ;  NOTEPAD package, §27 — the numbering closed up;
                          ;  and became the Timer, §14)
 KIND_FILES   equ 3
 KIND_CTRL    equ 4       ; Control Panel (§31)
-KIND_HIBER   equ 5       ; the Hibernate window (§86.1), kern_big only
+KIND_HIBER   equ 5       ; the Hibernate window (§87.1), kern_big only
 KIND_PKG     equ 0x80    ; bit 7: package instance
 ```
 
@@ -36337,7 +36337,7 @@ Pinned caps: About 1 (stateless), Timer 10
 (stride 16 — 8 of state and 8 of §14.1's TMR_SHOWN), Bounce 10 (stride 8),
 **Files 4 (stride `FS_SIZE`, pool `fm_pool`)**,
 TaskMgr 1 (one sampler), Control Panel 1 (no per-instance state, §31),
-Hibernate 1 (stateless, painted by its module, §86.1). The
+Hibernate 1 (stateless, painted by its module, §87.1). The
 Files cap is 4 because each window claims its own `VIEW_KB` cache (§2.3); `KD_CAP`, `VIEW_SLOTS` and the `fm_pool` size are one
 number wearing three hats and must move together. The
 per-kind caps deliberately over-subscribe INST_MAX now that Timer and
@@ -38793,6 +38793,34 @@ the one slot where **DX is an input on some verbs and an output on another**:
 the rate on 0 and 4, the consumed count on 3. The stub banks it for the
 former and must not for the latter — getting that wrong made every poller
 believe a finished stream was still playing.
+
+**Output rate has three regimes**, chosen in `sbl_v_open` by rate and DSP
+version, and all mono unsigned-8:
+
+| rate | regime | rate cmd | start cmd | stop / pause |
+|---|---|---|---|---|
+| ≤ 22,222 Hz | time-constant (any DSP) | `40h` + TC | `1Ch` (auto-init) / `14h` (single) | `D0h` / `D4h` |
+| 22,223–44,100, DSP ≥ 4.00 | wide (SB16) | `41h` + Hz | `C6h` + mode | `D0h` / `D4h` |
+| 22,223–44,100, DSP ≥ 3.00 | **high-speed (SB Pro v1/v2)** | `40h` + TC | `90h` | mask/unmask DMA ch 1; DSP **reset** on close |
+
+The high-speed regime is what an XT/286 with an SB Pro actually uses — there is
+no SB16 for an 8-bit ISA XT. It borrows the wide regime's 4 KB double buffer
+and `SBL_WD_WIDE` watchdog. Its one hardware quirk drives the last column: once
+`90h` runs the DSP accepts **no command** until a reset, so `sbl_halt` masks
+8237 channel 1 instead of writing `D0h`, `sbl_go_on` unmasks, and
+`sbl_stop_stream` masks in the `cli` window then runs `sbl_dsp_reset` after
+`popf` (the stream already dead) to leave high-speed mode for the next open.
+A TC byte can only say 1,000,000 / n, so the high-speed regime **rounds** the
+division where the legacy path truncates: 44,100 lands on TC 233 (43,478 Hz,
+−1.4%) rather than 234 (45,454 Hz, +3.1%, half a semitone sharp), 24,000 on
+23,810 Hz. The SB16's `41h` takes the rate in Hz and has no such error.
+`sbl_dsp_reset` answers CF = 1 on a timeout and `sbl_stop_stream` retries it
+once — nothing else ever resets the DSP, and one left in `90h` swallows every
+later open's commands.
+Everything below DSP 3.00, and every rate ≤ 22,222, behaves exactly as before:
+those paths gained only a test of `sbl_hisp` (in `sbl_hw_start`, `sbl_halt`,
+`sbl_go_on`, `sbl_stop_stream` and the TC division), never a different byte
+to the card.
 
 ### 34.6 Recording and staging — back, as a driver
 
@@ -50284,9 +50312,9 @@ other direction, and it is settled the same way, on hardware and by ear.
 
 The XT trades fidelity for cycles; a 286/386 has cycles to spend, and the
 **Rate** menu spends them: `11 kHz` (default, requested as 11,000),
-`22 kHz` (22,050) and `44 kHz` (44,100 — the §34.5 wide-rate regime, so a
-DSP ≥ 4.00; on an older card the open refuses err 2 and the status line
-says so, the three-layer refusal pattern). The active item is its own
+`22 kHz` (22,050) and `44 kHz` (44,100 — §34.5's wide regime on a DSP ≥ 4.00,
+its high-speed regime on an SB Pro's DSP 3.xx; on an older card the open
+refuses err 2 and the status line says so, the three-layer refusal pattern). The active item is its own
 `MENU_DIS`-disabled twin — the Solitaire Deal-menu radio idiom — and the
 **R** key cycles the selection for fullscreen reach. A rate change while
 playing stops playback first (the §45.2 drain), exactly like the XT
@@ -55165,7 +55193,7 @@ for every cell past it**, so a cell the driver does not have is refused by the
 `or bp, bp` / `jz` test every consumer already makes — `drv_pkg_call`'s fence,
 `cp_drv_ev`'s three page cells — instead of being far-called — `drv_publish` copies exactly that length,
 clamped to `DSV_SIZE`, over a table it has zeroed first. (It was "all or
-`DSV_TAB0`" until `DSV_GEOM` took `DSV_SIZE` 36 → 38 in §86, when every
+`DSV_TAB0`" until `DSV_GEOM` took `DSV_SIZE` 36 → 38 in §87, when every
 released driver became "shorter" and lost its four newest cells — the Control
 Panel page's and `DSV_PKGCALL`, which for `ETHER.DRV` is the whole socket
 surface.) **A byte of 0
@@ -55996,7 +56024,7 @@ DSV_GEOM     in  AH = the DRIVER's own volume handle
              out CF = 0: DL = the int 13h drive, CX:BX = the partition's
                  first LBA, SI = sectors per track, DI = heads - the
                  TRANSPORT FACTS, for a caller that must reach the volume's
-                 sectors with every driver detached (§86.5's resume stub);
+                 sectors with every driver detached (§87.5's resume stub);
                  CF = 1: no such volume, or one the ROM does not reach
                  (§52.1's rung 1). 0 = never, which reads as CF = 1
 ```
@@ -83129,7 +83157,456 @@ for and re-asks on a resize, so a window dragged to the other card of a
 two-card machine (§39.18.2) re-answers it rather than carrying VGA's palette
 onto a Hercules.
 
-## 86. Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`)
+## 86. AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`)
+
+`AUDIO.O88`, "AUDIO PLAYER" in the header name field. Lightweight background
+music for the IBM XT: a WAV file — unsigned 8-bit PCM, or IMA/DVI 4-bit ADPCM
+decoded straight to unsigned 8-bit PCM — is **streamed from disk, never loaded
+whole**, through the Sound Blaster ring-stream infrastructure (§34.5), and
+keeps playing while Sheet, Note Pad or anything else has the focus. It owns
+none of the hardware: not the DMA controller, not the SB IRQ, not the DSP, not
+the DMA page register. It is a client of the `OSAPI_SND_STREAM` verb contract,
+which is the architecture §34 / §45.2 were built for.
+
+Pure NASM assembly, the Tracker (§45) / ModPlug (§56) / Recorder (§35)
+precedent for this app class — the C SDK deliberately does not wrap the stream
+verbs (§73.7's "what is not wrapped" list), and `os88.h` directs a sound app
+to assembly. Prefixes `ap_` (shell/engine), `apw_` (WAV parser), `apd_`
+(decoder), `apu_` (UI), `apl_` (playlist).
+
+### 86.2 Files
+
+Seven files, one binary: `audio.asm` (header, 16×16 speaker icon, `.WAV`
+association, all bss, entry, window template, menus, strings); `apengine.inc`
+(the look-ahead ring, track open, the disk-refill service, stream open/close,
+reap, the transport commands); `apwork.inc` (the worker task and its feed
+pass); `apcb.inc` (the window callbacks — paint / click / key / menu / About /
+wake / close / fdlg-done); `apwav.inc` (the RIFF/WAVE parser and its
+validation); `apdec.inc` (PCM8 pass-through and the IMA/DVI ADPCM decoder,
+plus the two constant tables); `apui.inc` (adapter-parameterised layout and
+drawing); `aplist.inc` (the playlist store, Shuffle and Repeat).
+
+### 86.2.1 `ap_add_file` — the one way a track enters the playlist
+
+Every route a file can arrive by converges on **`ap_add_file(name, dir, vol,
+flags)`** (`apengine.inc`), so the add rules live in one place:
+
+| route | flags | behaviour |
+|---|---|---|
+| File ▸ Open (fdlg completion) | `AP_ADD_CUR | AP_ADD_IDLE` | add, select; start it **only if nothing is playing** — Open must not interrupt the current song |
+| launch document (§86.11) | `AP_ADD_CUR | AP_ADD_PLAY` | add, select, play it now — a double-click means "play this" |
+| handoff from a second instance (§86.11.1) | `AP_ADD_CUR | AP_ADD_PLAY` | same |
+| startup `OSAPI_ARG_FILE` | `AP_ADD_CUR | AP_ADD_PLAY` | same |
+
+`ap_add_file` validates the `.WAV` extension (`ap_has_wav_ext`), de-duplicates
+on name + dir + vol (`apl_find` — a repeat just re-selects, and with
+`AP_ADD_PLAY` restarts, the existing entry), appends through `apl_add`, and on
+`AP_ADD_PLAY` (or `AP_ADD_IDLE` while stopped) calls `ap_stream_close` then
+`ap_open_track`. Drag-and-drop from the File Manager is **not** a route: there
+is no cross-app file-drop event in the window manager (`fm_drag` only targets
+Disk-window folders, via a file *move*), documented as a limitation in §86.20.
+
+### 86.3 File ▸ Open
+
+`AP_CMD_OPEN` runs `OSAPI_FILE_DLG` with `FDLG_OPEN`; the completion proc
+`ap_onfile` copies the chosen name out of the kernel buffer (valid only during
+the call), banks `OSAPI_FILE_HERE`, and calls `ap_add_file` with `AP_ADD_CUR |
+AP_ADD_IDLE`. So Open **adds to the playlist and selects**, and begins playback
+only when the player is idle — a deliberate choice so that queueing up the next
+song never cuts off the one playing. File ▸ Clear (`ap_stream_close` +
+`apl_clear`) empties the list and stops.
+
+Open in another folder **moves the instance** (§38.10): every by-name file
+call afterwards — the refill's `OSAPI_FILE_READ_AT` included — resolves there,
+so the playing track would be read in the wrong folder (not found reads as
+end of data; a same-named file as audio). `ap_open_track` therefore banks the
+track's `OSAPI_FILE_HERE` (`ap_trk_dir`/`ap_trk_vol`) and `ap_refill_chunk`
+re-stands there with `OSAPI_FILE_GOTO_QM` before a read whenever the two
+differ — a word compare inside one volume, a quiet mount across, never the
+listing remount.
+
+### 86.5 The engine — a look-ahead stage in front of §45.2
+
+§45.2's ring stream is the one this app is built on: **the UI task opens,
+closes and pre-mixes at open; the worker mixes and feeds; the close drains the
+worker first.** What this app adds in front of it is a **look-ahead stage**,
+because it is the first package that must genuinely stream from disk — Tracker
+and ModPlug load the whole module — and a disk read holds `sch_lock`, which
+pauses both the kernel refill task and the package worker (§34.5's pinned "a
+stream fed live from disk *will* underrun" rule):
+
+```
+disk --OSAPI_FILE_READ_AT--> 32 KB look-ahead ring (heap claim) --decoder-->
+    2048-byte halves --verb 6/1--> 16 KB SND ring --> SB DMA
+```
+
+- **The UI task does every disk read**, because the file slots are UI-task
+  context only (§20.6 rule 7). `ap_refill_chunk` reads a **`AP_RD_CHUNK`
+  (16 KB) gulp** — clamped to the free room in the ring and floored to a whole
+  number of clusters — from the data chunk, head-skipping the first read's
+  pre-data bytes and tail-clamping the last read at the data end, and
+  `ap_ring_put`s the usable bytes into the look-ahead ring. The gulp size is a
+  performance decision, not an arbitrary one — see §86.5.2. `AP_LA_SZ` (0x8000)
+  is a power of two, so a wrapped write splits at the seam exactly once.
+- **The worker decodes and feeds**, lock-free, on the any-task verbs 1/3/6
+  (§20.3). `ap_feed` polls verb 3, and while the SND ring has room and fewer
+  than `AP_MAXFEED` halves have gone this wake, it calls `apd_pull` for a
+  2048-byte half, `verb 6` stages it at `grant + (total & rmask)` and `verb 1`
+  publishes the new total. A short final half is silence-padded to 2048 (a
+  ring feed is always whole halves, §34.5) and marks `ap_lasthalf`.
+- **The refill handshake is the FTPD one (§77.1)**: when the look-ahead ring
+  drops below `AP_LA_LOW`, the worker sets `[ap_req] = FR_READ` and
+  `OSAPI_WM_WAKE`s the UI task; `ap_onwake` services one `ap_refill_chunk` and
+  clears `[ap_req]` **last**. It is non-blocking on the worker's side — a
+  transient look-ahead underrun just feeds less that wake and the SND stream
+  underrun-pauses (§34.5), resuming on the next feed once data lands.
+- **`[ap_mixing]`** brackets a feed pass (set before the guards, cleared
+  last). `ap_stream_close` drops `[ap_sopen]`, spins `[ap_mixing]` to zero,
+  then hands the grant back (§34.6), so no UI-side reset of engine state can
+  race a worker suspended mid-feed.
+- **Track end**: `apd_pull` returning short with `ap_src_eof` true is the last
+  half; once the DSP has consumed `ap_total` the worker latches `[ap_ended]`
+  and `OSAPI_WM_WAKE`s the UI task, which `ap_reap`s — closes the stream and
+  advances the playlist (or stops at the end of the list).
+
+Pre-roll is **`[ap_preroll]` halves** on the UI task before `verb 0`: the
+ring's halves less one, capped at `AP_PREROLL` = 6 (§45.17.2's field-corrected
+number) — six on the 16 KB grant, **three on the 8 KB tier**, because `verb 0`
+refuses a total larger than the ring and a fixed six (12 KB) meant that tier
+could never play at all. Ring grant is **16 KB**, tiered to 8 KB (`verb 7`),
+freed by `ap_stream_close`. A refused `OSAPI_TASK_SPAWN` for the worker is a
+refusal like any other (`No free task - close an app and retry`, the FTPD
+sentence): the stream is closed again, not left open under a "Playing" that
+nothing feeds. The look-ahead buffer is one 32 KB
+`OSAPI_MEM_CLAIM`, taken once and held for the instance's life.
+
+### 86.5.1 Worker pacing and the redraw throttle
+
+The worker loop is `ALIVE → sleep → reap → feed → draw`, and each step is
+budgeted for the 4.77 MHz target, not the emulator:
+
+- **Adaptive sleep.** `OSAPI_TASK_SLEEP AP_SLP_FEED` (1 tick) only while the
+  stream is open, unpaused and not ended; otherwise `AP_SLP_IDLE` (6 ticks). A
+  stopped or paused player has no ring to starve, so it does not wake ~18×/s.
+- **Feed early-out.** `ap_feed` polls `verb 3` every pass (cheap — it is the
+  clock's source) but stages nothing while the SND ring still holds more than
+  `ring − 2 halves`; a "skip" that is one tick early costs at most another
+  half-KB of DSP drain and never an underrun.
+- **The end-of-track kick is throttled** to `AP_REAP_TICKS`, not sent every
+  pass while `[ap_ended]` is latched and the UI has not yet reaped.
+- **The dynamic redraw is change-gated and throttled.** The old worker
+  repainted `MM:SS` + the progress bar ~18×/s onto identical pixels.
+  `ap_worker_draw` now recomputes the elapsed second and the bar-fill pixel,
+  returns with **no lock and no draw** when neither changed, and otherwise
+  takes the gfx lock at most every `AP_DRAW_TICKS` (~2×/s) and only when
+  `OSAPI_WM_OBSCURED` says the window is visible — and the bar update it then
+  draws is **one fill of the strip the bar grew by** (`apu_draw_bar_delta`,
+  from `[ap_last_bar]` to the new edge), not a white fill of the interior
+  followed by a black one: two fills a tick is PERFORMANCE.md rule 2's
+  double write, visible on the target as a flicker. Measured: progress updates
+  fell from ~18–24/s to ~2/s.
+
+`APROF` (`make … AUDIOPROF=1`, `AUDIOP.O88`) compiles in a block of `inc word`
+counters — worker iterations, `verb 3`/`verb 1`/`verb 6` calls, `WM_WAKE` /
+`WM_ONWAKE`, `FILE_READ_AT` calls and bytes, refill / underrun / end events, UI
+paints and progress updates, decoder calls and bytes, `ap_open_track` /
+`apw_parse` / `apw_slide` / `ap_prime` calls. The **D** key shows them in the
+window and writes `APDIAG.TXT` to the system-volume root (from `ap_onwake`, so
+the file I/O is off the gfx lock). The shipping `AUDIO.O88` compiles none of it, and its File ▸ Diagnostics item
+is greyed (`MENU_DIS`, §47 rule 5 — whether the counters exist is a
+compile-time fact); the **D** key still answers there with the one-line
+"rebuild with -DAPROF" note.
+
+### 86.5.2 Why the read is 16 KB, not one cluster — the ModPlug comparison
+
+On the target, an `int 13h` costs ~1–2 disk revolutions **whatever it moves**
+(PERFORMANCE.md: cost disk work in *calls*, not sectors), and the read holds
+`sch_lock` for its duration, freezing the scheduler — the kernel refill task
+and this package's own worker included (§34.5). The first cut read **one
+cluster (2 KB) per `ap_refill_chunk`**, ~5 times a second at 8 kHz PCM8 — five
+system-wide stalls a second.
+
+That is the whole of why PCM8/8k was *heavier than ModPlug* on the same 8088:
+ModPlug's module is resident, so it issues **zero** `int 13h` during playback;
+the Audio Player was issuing five a second and taking `sch_lock` on each. It is
+not decoder cost — PCM8 has no decoder — and it is invisible on an emulator,
+which is exact about the work and useless about the time.
+
+Reading a `AP_RD_CHUNK` (16 KB) gulp instead — the ring has room, and
+`ap_scratch` is sized to hold it — drops the streaming read rate to **~0.6/s**
+(measured: 14 reads in 20 s vs. 106 before), and with it the worker →
+`WM_WAKE` → `ap_onwake` refill handshake it drove (182 `WM_ONWAKE` in 20 s →
+14). No underruns, PCM8 or ADPCM. The chunk is not sacred: it is bounded by
+`ap_scratch` and by the 32 KB ring, and `AP_LA_LOW` (16 KB) still leaves room
+for one full gulp when a refill triggers. `ap_prime` starts after ONE gulp:
+its test is `AP_RD_CHUNK − AP_HALF`, because data never starts on a cluster
+boundary and a full gulp is never quite `AP_RD_CHUNK` of audio.
+
+**`ap_scratch` is 512-byte aligned by construction** — it is the `int 13h`
+target (CLAUDE.md's hard rule, §2.4): the loader's claim is whole KB, so the
+bss offset decides, and `audio.asm` rounds the accumulator up to 512 before
+it and pads the image end to 512. A base that is not answers error 09h on the
+one transfer in four that straddles a 64 KB page, and the refill would take
+that CF as end of data. An `OSAPI_FILE_READ_AT` error mid-track (a bad sector,
+a pulled disk) still ends the data, but the status line says `Cannot read the
+file` rather than posing as the end of the track.
+
+### 86.6 The WAV parser (`apw_parse`)
+
+Given a name (already GOTO'd) and the file size, it answers a parsed record or
+a refusal string. It does **not** assume `fmt ` is followed by `data`, a fixed
+header size, or the absence of `LIST` / `fact` / `INFO` / other chunks. It
+walks the chunk list, honours the RIFF odd-length pad byte, skips every chunk
+it does not recognise, and slides a fresh cluster window forward when a
+skipped chunk runs past the one it holds (`APW_WINDOWS` windows — a header
+larger than that is refused, not mis-read). Every size the file claims is
+bounds-checked against the file length before it is trusted — including a
+`data` length whose 32-bit sum with its offset **wraps**, which is clamped like
+any other overrun rather than passed because the wrapped sum compared small.
+The progress bar (`apu_progress`) then halves the 32-bit total and the played
+count together until `total / bar width` fits 16 bits: a real track past
+~14 MB (ten minutes at 22 kHz) would otherwise fault the divide. The walker's
+16-bit window arithmetic tests the carry, so a 64 KB tag block before `data`
+slides the window rather than wrapping the cursor into it; a cluster the 16 KB
+bounce cannot hold (FAT16's 32 KB, §19) is refused as `Cluster too large for
+this player`; and an ADPCM `nBlockAlign` below 8 is refused, because below it
+2,048 input bytes can yield fewer than 2,048 samples and the decoder's 4-byte
+block header is not resumable across a dry ring.
+
+Accepted: `WAVE_FORMAT_PCM` (0x0001) mono 8-bit, and `WAVE_FORMAT_DVI_ADPCM`
+(0x0011) mono 4-bit. Rejected with a specific reason on the glass: non-mono,
+an unsupported tag, an unsupported bit depth, a sample rate not in
+{8000, 11025, 16000, 22050}, a bad `nBlockAlign`, and an ADPCM
+`wSamplesPerBlock` that does not equal `(nBlockAlign − 4) × 2 + 1`.
+
+### 86.4 The decoder (`apdec.inc`)
+
+PCM8 is a pass-through — `apd_pull` copies bytes out of the look-ahead ring.
+
+IMA/DVI ADPCM is decoded from the **public IMA/DVI specification** — the
+89-entry step table and the 16-entry index table are the ones every
+BSD/public-domain implementation carries; nothing is vendored (§86.17). The
+decoder is **resumable**: `apd_pull(want)` fills up to `want` PCM8 bytes and
+keeps predictor / index / block cursor / nibble phase across calls, so a
+2048-byte stage half never has to line up with an ADPCM block boundary. The
+predictor is a signed 16-bit value clamped to [−32768, 32767] each step; the
+sample handed on is
+
+        pcm8 = (predictor >> 8) + 128          ; arithmetic >>, exact
+
+which needs no clamp of its own — `predictor >> 8` is [−128, 127], `+ 128` is
+[0, 255]. **There is no intermediate 16-bit PCM buffer.**
+
+Measured decode cost is well inside the background budget: at 11,025 Hz the
+inner loop is an estimated ~10–15 % of a 4.77 MHz 8088, against Tracker's
+44–165 % mixer (`PERFORMANCE.md` Sets 20/68) — a streamer does no mixing. The
+decoder stays in assembly (it *is* the shim), not because C would be too slow
+but because the SDK does not expose the stream verbs to C at all.
+
+### 86.7 The window
+
+Layout is computed from the **live** content geometry every paint (§39 — three
+adapters, one binary), and drawing is deliberately plain (§86.20: no
+visualiser, no animation, no spectrum bars):
+
+```
+BEVERLY.WAV
+01:37  [==========------------]  04:12
+[ Prev ][ Play ][Pause][ Stop ][ Next ][ Shuf ][ Rep ]
+Playlist:
+  01  TRACK01.WAV
+> 02  BEVERLY.WAV
+```
+
+The transport buttons tile the row gap-free (`apu_hit` takes
+`column = (x − x1) / pitch`, so there is no dead lane between two of them —
+found on the glass). Shuffle and Repeat draw the `OS88UI_DOWN` pressed look
+while toggled on. The worker's one gfx-lock hold each pass redraws only the
+elapsed time and the progress-bar fill, and only while `OSAPI_WM_OBSCURED`
+says the window is visible — a backgrounded player does no UI work. **Every
+self-initiated content repaint arms `OSAPI_WM_CLIP_SET` first** (`apu_repaint`,
+which the track-end, launch-document, first-paint and command paths all go
+through): outside `W_PAINT` the `gfx_*` calls are absolute (§11.3), and without
+the region the player painted over its own Open dialog. The
+elapsed clock is derived from the free-running `verb 3` consumed count
+accumulated into a 32-bit `ap_played`, so it survives the counter's ~3–6 s
+wrap.
+
+**The first paint can beat `wm_fit`**: the loader shows the window after the
+entry proc returns, so `OSAPI_WM_GEOM` / `OSAPI_WM_CONTENT` can answer CF=1
+for the first `W_PAINT`. `ap_entry` kicks itself once with `OSAPI_WM_WAKE`;
+`ap_onwake` does the settled repaint with the window fully on the glass, and
+`apu_layout` / `apu_origin` keep their last good geometry on CF=1 meanwhile.
+
+**About** (`OSAPI_ABOUT_SET`, §12.2) draws a white, black-framed card over the
+content — sized and centred from the live content box — with the package name,
+`Version 0.6b`, a one-line blurb, and the accepted rate set (§86.15).
+`[ap_abon]` gates it; `apu_draw` lays it last so it is on top, and the next
+click or key clears the flag and repaints.
+
+### 86.10 The playlist
+
+A fixed array of at most `AP_MAXTRK` entries, `AP_ENTSZ` (16) bytes each: an
+8.3 name (NUL-terminated, ≤ 12), a volume byte and a directory-cluster word.
+**No full paths** — a track is reached by `OSAPI_FILE_GOTO_QM(dir, vol)` then a
+name lookup, the `OSAPI_ARG_FILE` / fdlg model: the quiet stand that also
+moves the instance, never `OSAPI_FILE_GOTO`'s listing remount, which is seconds
+on a 4.77 MHz XT (§19.2.2) and would be paid under the gfx lock at every track
+boundary. File ▸ Open adds a track
+(captured with `OSAPI_FILE_HERE` in the completion proc) and starts it if the
+player is idle; File ▸ Clear empties the list. Shuffle keeps a separate order
+array `apl_ord[]` filled by a Fisher-Yates over `OSAPI_RAND`, re-shuffled at
+each full wrap; **Repeat loops the whole playlist** (the last track advances
+to the first only while Repeat is on). Previous always wraps.
+
+### 86.11 File association
+
+`OS88_ASSOC16 'WAV'` in the header. Double-clicking a `.WAV` on the desktop
+launches `AUDIO.O88` with that file as the launch document (§54.10):
+`ap_entry` reads and banks `OSAPI_ARG_FILE`, and `ap_onwake` — which the
+kernel calls once itself after the window is shown — adds it to the playlist
+and starts it. `.M3U` association is future work (§86.20).
+
+### 86.11.1 Single instance — the `APQUEUE.DAT` handoff (OFF by default)
+
+**Disabled unless built with `-DAP_HANDOFF`.** The mechanism below is correct
+and works under QEMU, but the running instance's poll has to **remount the
+system root** (`OSAPI_FILE_GOTO`) to read `APQUEUE.DAT`, and on a 4.77 MHz XT a
+remount — BPB, FAT window, root scan, sort, icon harvest — is *seconds*. A
+playing track polls often enough (especially ADPCM, whose look-ahead ring
+drains slowly and so clears the "ring low" gate) that the machine spends much
+of its time remounting: measured on an 86Box XT as a track that "plays a
+second, stalls, plays a second". With the feature off, a second double-click
+opens a **second window** — the OS default, and no worse than every other
+multi-instance package. Kept in the source, and in this section, because the
+design is sound where a remount is cheap.
+
+`assoc_run` (§54.4) always loads a fresh instance; there is no
+"already-running" check and no public slot to wake another instance's window by
+name (a snapshot record — `OSAPI_SYS_SNAPSHOT` — carries no window pointer).
+So single-instance is an **Audio-Player-local rendezvous file**:
+
+1. `ap_entry`, after banking `OSAPI_ARG_FILE`, calls `ap_find_sibling` —
+   `OSAPI_SYS_SNAPSHOT`, match a live `KIND_PKG` record whose name is
+   `AUDIO PLAYER` and whose region segment is not ours.
+2. If one exists, `ap_que_write` appends a 16-byte record (13-byte name,
+   dir-cluster word, volume byte) to **`APQUEUE.DAT` on the system-volume
+   root**, then `ap_entry` returns **CF = 1** — the loader frees the region,
+   no second window, no handover. If the write fails (read-only volume) it
+   falls back to a normal launch rather than lose the document.
+3. The running instance's `ap_onwake` calls `ap_que_poll`, throttled to
+   `AP_QUE_TICKS` (~5 s) and skipped while the look-ahead ring is below
+   `AP_LA_LOW` (the poll **remounts** the system root — `OSAPI_FILE_GOTO`, real
+   I/O — so it is deliberately rare and never competes with an urgent refill).
+   It reads the file, **deletes it while still standing in the root**, restores
+   its own folder, then replays each record through `ap_add_file` with
+   `AP_ADD_CUR | AP_ADD_PLAY`.
+
+`ap_que_root` uses `OSAPI_FILE_GOTO`, not its quiet twin: `GOTO_Q` sets only a
+transient by-cluster resolution and `OSAPI_FILE_WRITE`/`_READ` **by name**
+still resolve in the instance's own launched-from folder (measured — the file
+missed the root). Every caller banks `OSAPI_FILE_HERE` and GOTOs back, the
+FONTS/ pattern (`os88type.inc`). The queue file is written with
+`OSAPI_FILE_WRITE` (read-modify-write of the whole ≤128-byte file), **not**
+`OSAPI_FILE_APPEND`, which needs a pre-existing file whose size is a whole
+number of clusters — a 16-byte-record queue is neither.
+
+### 86.12 Memory
+
+| item | size | where |
+|---|---|---|
+| image + bss | ~30 KB (9,216 B image, 512-padded, + 20,958 B bss) | the package region (cap `APP_MAX_SIZE` = 60 KB) |
+| look-ahead ring | 32 KB | one `OSAPI_MEM_CLAIM`, held for the instance's life |
+| header window / streaming read bounce | 16 KB | `ap_scratch` in bss, 512-aligned (§86.5.2), shared between the parser and the `AP_RD_CHUNK` refill read |
+| decoder scratch | 2 KB | `apd_out` in bss |
+| playlist | `AP_MAXTRK` × 16 B | bss |
+| SND ring grant + driver pool | ~28 KB | `SOUND.DRV`'s claims, released when the player stops |
+
+Comfortable on 640 KB; on 256 KB the look-ahead and ring tiers drop.
+
+### 86.15 Sample rates — the SB2.0 set and the SB Pro high-speed tier
+
+Accepted: **{8000, 11025, 16000, 22050}** on any Sound Blaster, plus
+**{24000, 32000, 44100}** on a **Sound Blaster Pro (v1 / v2)** or an SB16.
+Everything stays **mono, unsigned 8-bit** — there is no stereo or 16-bit path
+in this player.
+
+The high three go through `SOUND.DRV`'s regime split (§34.5): DSP ≥ 4.00 takes
+the SB16 wide path (`41h`), DSP ≥ 3.00 the **SB Pro high-speed path** (`90h` +
+a time constant), and below 3.00 the driver returns err 2. That last driver
+piece — SB Pro high-speed — was added for this feature, because an 8-bit ISA
+XT has no SB16 to fall back on.
+
+The player does not probe the card's rate ceiling (`OSAPI_SND_CAPS` has no bit
+for it), so `apw_parse` accepts all seven and the **driver** is the authority:
+a `verb 0` refusal above 22 kHz is reported as *"Rate needs a Sound Blaster
+Pro"* rather than the generic load error (`ap_open_track` `.snderr`). On an
+SB 2.0 the four low rates play and the three high ones say why they cannot; on
+an SB Pro or SB16 (or QEMU's emulated card) all seven play. The default is
+still not hard-coded — the player takes whatever the file's `fmt ` chunk
+declares, within the set.
+
+### 86.16 Lessons inherited from existing os8088 audio applications
+
+- **Tracker (§45.2)** is the template for the whole engine: the UI-opens /
+  worker-feeds split, the `[ap_mixing]` drain before any state reset, the
+  six-half pre-roll (§45.17.2 raised it from two after a field report), the
+  16 KB ring in whole 2048-byte halves, `ap_reap` on every UI callback
+  because the worker cannot run `verb 2`. `PERFORMANCE.md` Set 21's
+  lead/underrun table is the shape the 86Box benchmark uses.
+- **Tracker also proved the negative**: its 4-channel mixer is 44–165 % of a
+  4.77 MHz 8088 (`PERFORMANCE.md` Sets 20/68), "a QEMU/286-era luxury" in its
+  own plan. A PCM/ADPCM streamer does no mixing, which is why this app is
+  feasible on the XT where a MOD player is not.
+- **ModPlug (§56.2)**: Pause leaves the stream open and only stops the
+  replayer advancing; Stop closes. This app does the same — Pause stops the
+  worker feeding (the stream underrun-pauses, §34.5) and keeps the position;
+  Stop closes and rewinds.
+- **Recorder (§35)**: size the driver-pool grant in tiers and keep the first
+  the driver will part with; keep working with no card by saying so honestly
+  (`ap_have_sb` from `OSAPI_SND_CAPS` greys playback and the status line says
+  "No Sound Blaster", not a memory error).
+- **FTPD (§77.1)**: the worker-stages / UI-task-commits handshake with a
+  single `[ap_req]` byte cleared last, and the `OSAPI_SND_STREAM` slot being
+  an X stub means the stage buffer for `verb 6` must be in the package's own
+  segment, not a heap claim (`ap_scratch` and `apd_out` are bss).
+- **Frotz / RunCPM (§74.1)**: `OSAPI_WM_ONWAKE` is the one UI-task callback
+  without the gfx lock and allowed the file slots — the disk-refill service
+  and the launch-document handover both live there.
+
+### 86.17 Licensing
+
+The IMA/DVI ADPCM decoder is an original implementation from the published
+IMA/DVI algorithm and its two standard tables. Nothing is vendored from
+`adpcm-xq`, `blueduckjf/adpcm`, `alexriegler12/adpcm`, `superctr/adpcm` or any
+console codec, and no historical Microsoft source is used — the format tag
+0x0011 is DVI/IMA, which is simpler than MS-ADPCM (0x0002) and specified in
+the open IMA document. Host-side test WAVs are produced by FFmpeg
+(`-c:a pcm_u8` and `-c:a adpcm_ima_wav`), a tool, not linked code.
+
+### 86.20 Deliberately not done
+
+No visualiser, no spectrum analyser, no animated channel bars, no seeking by
+clicking the progress bar (an ADPCM seek must respect block boundaries and
+decoder state — future work), no `.M3U` yet, no clickable playlist rows in
+v1, no arm-on-press / fire-on-release for the transport buttons (they are
+single-shot commands and fire on `W_ONCLICK`).
+
+**No drag-and-drop from the File Manager.** The window manager has no cross-app
+file-drop event — `fm_drag` (`files.inc`) recognises only a Disk window's
+folder targets and acts by a file *move* (`fcp_paste`); `OSAPI_WM_ONDRAG` is
+the scrollbar/content tracking edge (§13.8.2), not a receiver. A `W_ONDROP`
+event with a file payload is the OS feature this would need, and it does not
+exist. Until then a dragged `.WAV` reaches the player only by File ▸ Open, by
+double-click (a new instance hands it over, §86.11.1), or from the command the
+launcher passes as `OSAPI_ARG_FILE`.
+
+Performance figures on the XT are 86Box's to measure (`docs/AUDIO-PLAN.md` has
+the procedure); QEMU is functional verification only, where 28 s of PCM8 @
+22 kHz streams gap-free (0 quiet windows in the capture) with 14 s of it while
+another window holds the focus, and where the `AP_RD_CHUNK` change (§86.5.2)
+cut streaming reads from ~5/s to ~0.6/s with no underruns for either codec.
+## 87. Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`)
 
 **What it is.** `Hibernate...` is the System menu's item above `Restart`
 (§12.1). It writes everything in conventional memory to `HIBERNAT.IMG` in the
@@ -83144,7 +83621,7 @@ tasks and the clipboard are all as they were.
 
 **What it is not.** Not a suspend: nothing is kept powered. Not a snapshot of
 the hardware: the drivers that own hardware are detached before the image is
-written and loaded again after it is restored (§86.4). And not a feature of
+written and loaded again after it is restored (§87.4). And not a feature of
 the kernel image: the whole of it except the menu item, the greying
 predicate, a window kind, the boot probe and their thunks is **an on-demand
 module** (§2.8), `HIBER.DRV`, `MOD_HIBER`, read into a heap claim when the
@@ -83153,7 +83630,7 @@ Hibernate window closes. It qualifies under docs/ONDEMAND-PLAN.md §1's test
 twice over: at hibernate the user is leaving the machine, and at boot the
 system disk is in the drive by definition.
 
-### 86.1 The Hibernate window (`KIND_HIBER`)
+### 87.1 The Hibernate window (`KIND_HIBER`)
 
 A task-less, stateless singleton kind (§29.3), 320 px wide, with one mode byte
 `[hb_mode]` in kernel `.bss` and three faces:
@@ -83204,7 +83681,7 @@ set `HB_M_GONE` *before* calling `app_close_win`, and a GONE window is how the
 hook knows to leave that drop to the thunk. So the claim really is freed when
 the window closes, by whichever route.
 
-### 86.2 The greying predicate, and what it refuses
+### 87.2 The greying predicate, and what it refuses
 
 `hb_ok` (`.cold`, one call from `ui_loc_gate` on the press that opens the bar,
 §47 rule 5) points item 4 of `menu_items_logo` at one of three strings:
@@ -83213,7 +83690,7 @@ the window closes, by whichever route.
 |---|---|
 | `Hibernate...` | a fixed volume exists (§18.7: a `DVK_DRV` row, or a `DVK_BIOS` row whose unit has bit 7 set — never a `DVK_FILE` one: a RAM disk or a redirected volume answers `dsk_vol_fixed` as fixed and has no sectors the stub could read, so `hb_pick` — THE predicate, the one `hb_ok`, `hb_probe` and the window all ask, so what greys, what is probed and what is written to cannot disagree — skips it) and the store above 1MB has no block allocated |
 | `Hibernate (No HD)` (`MENU_DIS`) | no fixed volume |
-| `Hibernate (XMS)` (`MENU_DIS`) | `OSAPI_XM_CAPS` reports fewer than `XM_MAX_BLKS` free entries: a package holds extended memory, and the image does not carry it (§86.7) |
+| `Hibernate (XMS)` (`MENU_DIS`) | `OSAPI_XM_CAPS` reports fewer than `XM_MAX_BLKS` free entries: a package holds extended memory, and the image does not carry it (§87.7) |
 
 Two more refusals are made when the Hibernate button is taken (`hbm_arm`),
 with a toast each (§47 rule 6 — they need the volume mounted, which the bar
@@ -83221,13 +83698,13 @@ cannot afford on every press):
 
 - **The disk's transport must be int 13h.** A `DVK_DRV` volume whose driver
   answers `DSV_GEOM` with CF = 1 — §52.1's rung 1, the IDE task file, which
-  the resume stub cannot speak (§86.5) — is refused: `Hibernate needs a
+  the resume stub cannot speak (§87.5) — is refused: `Hibernate needs a
   BIOS-known hard disk`.
 - **There must be room**: `dskw_dfree` on the root plus the size of the
   `HIBERNAT.IMG` already there, if any, must cover `[mem_top]` × 16 + 4,096.
   `Not enough room for the hibernation file`.
 
-### 86.3 The two files
+### 87.3 The two files
 
 The **image** is the memory of the machine, linear 0 to `[mem_top]` × 16,
 written as ONE `dskw_write` from `0000:0000` (§18.4.1's segment-walking
@@ -83254,7 +83731,7 @@ pointer with a path in it is refused as another build's:
 +8   dw [mem_top]                paragraphs of conventional memory
 +10  db [vid_kind]               the adapter the desktop was on
 +11  db 0
-+12  dw SP, dw SS                hb_perform's entry frame (§86.4)
++12  dw SP, dw SS                hb_perform's entry frame (§87.4)
 +16  dw off, dw seg              hb_wake, in the module's own segment
 +20  dw driver mask              drv_tab rows detached before the image
 +22  db 0 x 10
@@ -83270,7 +83747,7 @@ the image's are byte-identical, so the restore may write over the running
 kernel's `.text` without the machine noticing, and every kernel address the
 resume needs is the fresh kernel's own symbol.
 
-### 86.4 Hibernate — what happens, in order
+### 87.4 Hibernate — what happens, in order
 
 `hbm_arm` makes the two checks above, repaints the window as `HB_M_BUSY`,
 and **posts** `UI_RBQ_HIBER` in `[ui_rebootq]` — §20.10's deferral, for
@@ -83291,7 +83768,7 @@ of its pass with nothing held, in `hb_perform`:
 3. `dsk_chdir` to the root of `[hb_vol]` — only now, because the detach
    yields and a task that took the turn could have moved the current
    directory — and `hbm_forget`: the old pointer and image are deleted before
-   a byte is written (§86.3).
+   a byte is written (§87.3).
 4. Bank `hb_perform`'s **entry** `SS:SP` and the far address of `hb_wake`.
    Everything above that SP — the dispatcher's return, the thunk's, the UI
    task's frame — is written into the image untouched, because the write
@@ -83310,13 +83787,13 @@ the lock and `sch_lock` released — and toasts `Hibernate failed`; the window
 goes back to `HB_M_ASK`.
 
 **The image is captured progressively and that is why the disk caches are
-discarded on resume** (§86.6): the FAT window, the read-ahead and the write
+discarded on resume** (§87.6): the FAT window, the read-ahead and the write
 path's own words are written into the image in the state they were in when
 the write reached their addresses, which is mid-write. Nothing else in the
 kernel changes during the write — no task runs — so nothing else needs the
 treatment.
 
-### 86.5 Resume — the probe, the question, the stub
+### 87.5 Resume — the probe, the question, the stub
 
 **The probe** (`hb_probe`, `.cold`, resident, from `kmain` after `drv_boot`
 and before the first paint) looks for `HIBERNAT.PTR` in the root of the ONE
@@ -83329,8 +83806,8 @@ with a hard disk pays one quiet mount of its root, which on a hard-disk boot
 is the root it is already standing in. A hit records the
 volume in `[hb_vol]` and posts `UI_RBQ_ASK`, which `ui_task`'s first pass
 spends — on the desktop, with nothing held — by loading the module and running
-`hb_ask`: read the pointer, validate it (§86.3), find `HIBERNAT.IMG` beside it
-and check its size against `[mem_top]`, ask the transport question (§86.2),
+`hb_ask`: read the pointer, validate it (§87.3), find `HIBERNAT.IMG` beside it
+and check its size against `[mem_top]`, ask the transport question (§87.2),
 empty the ROM's keyboard buffer — a key held at the hibernate's own "press
 any key" repeats through `int 19h` into this boot, `ui_task`'s next step
 hands it to the front window, and `Esc` there is Discard — and open the
@@ -83375,10 +83852,10 @@ mode set homed — and waits for a key before `int 19h`: half a memory is not a
 machine, and the ROM's teletype is the only thing left that can be trusted to
 say so.
 
-### 86.6 `hb_wake` — putting the machine back on its feet
+### 87.6 `hb_wake` — putting the machine back on its feet
 
 In the restored kernel, on the restored stack, interrupts off, `[sch_lock]`
-still up from step 3 of §86.4 and the gfx lock still held:
+still up from step 3 of §87.4 and the gfx lock still held:
 
 1. `sti`. The IVT is the image's, the PIT is in the kernel's mode 2 (the
    fresh boot's `sched_init` set it and nothing on the resume path unset it),
@@ -83388,13 +83865,13 @@ still up from step 3 of §86.4 and the gfx lock still held:
    area, where step 4 put the fresh boot's — the RTC ladder is boot-overlay
    code (§37.90) and cannot be run again, so the boot that just happened is the
    clock's source. `clk_last` is re-seeded from `[ticks]`.
-3. **The disk caches are discarded** (§86.4): every private FAT window
+3. **The disk caches are discarded** (§87.4): every private FAT window
    dropped (`dsk_fatw_drop`), the dirty range and the resident window marked
    empty, the read-ahead flushed, the write gate shut, the batch depths
    zeroed, `mem_pinseg` cleared and the progress widget given back with
    `fpg_end` — every one of them a word the write was in the middle of.
 4. `vid_setmode`, then `[hb_mode]` = `HB_M_GONE` and the Hibernate window
-   closed with `app_close_win` — GONE first, so §86.1's hook leaves this
+   closed with `app_close_win` — GONE first, so §87.1's hook leaves this
    image, which is the code running, to the thunk — then
    `menu_force`, `dock_force`, `wm_paint_all` — `fsx_restore`'s return from a
    foreign mode (§53), which is what a text screen is. Before any disk work,
@@ -83420,7 +83897,7 @@ needs nothing: the fresh boot's `mouse_init` left the UART and the 8042 in
 the state the image's kernel expects, because the image's kernel set them
 up the same way, and the resume path never calls `mouse_unhook`.
 
-### 86.7 What it costs, and what is owed
+### 87.7 What it costs, and what is owed
 
 Resident: the three strings, the template, the two file names, the kind row,
 five `.text` thunks and seven `cw_` shims, and in `.cold` the probe, the
@@ -83446,7 +83923,7 @@ display, which comes back as the primary alone until the next
 `vid_disp_init` — the text-mode framebuffer used for staging is the
 primary's.
 
-### 86.8 Testing
+### 87.8 Testing
 
 `tests/hibernate.py` (soak, MartyPC's `os8088_xt_hdd`, rung 0 — the same
 transport as the field machine) boots a fixture volume built by

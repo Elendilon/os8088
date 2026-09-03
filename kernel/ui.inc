@@ -46,7 +46,7 @@
 ; frozen UI, and a toast about a disk the user was asked to remove.
 UI_RBQ_FLUSH   equ 1            ; flush the Control Panel on the way out
 UI_RBQ_NOFLUSH equ 2            ; ...and do not go near a disk at all
-UI_RBQ_HIBER   equ 3            ; SPEC.md 86: write the image and stop
+UI_RBQ_HIBER   equ 3            ; SPEC.md 87: write the image and stop
 UI_RBQ_RESUME  equ 4            ; ...put an image back
 UI_RBQ_ASK     equ 5            ; ...and ask whether to, at boot. All three
                                 ; are spent by the same top-of-pass site as
@@ -86,7 +86,7 @@ ui_task:
                                 ; find the post still standing
 %ifdef KERN_BIG
     cmp al, UI_RBQ_HIBER        ; a hibernate, a resume or the question
-    jb .restart                 ; (SPEC.md 86): these DO return - on a
+    jb .restart                 ; (SPEC.md 87): these DO return - on a
     call COLD_SEG:hbf_perform   ; refusal, a Discard, or once the question
     jmp .keys                   ; is on the screen
 .restart:
@@ -2085,7 +2085,7 @@ ui_loc_gate:
                                 ; builtins having moved to Builtins (12.3.1)
 %ifdef KERN_BIG
     call COLD_SEG:hb_ok_x       ; ...and Hibernate greys with its reason
-    mov bx, menu_s_hiber        ; (SPEC.md 86.2): no fixed disk, or extended
+    mov bx, menu_s_hiber        ; (SPEC.md 87.2): no fixed disk, or extended
     jnc .hset                   ; memory held that the image would not carry.
     mov bx, menu_s_hibernh      ; BX for the string, because AL IS the reason
     cmp al, 1                   ; and a `mov ax` here read '(XMS)' on a
@@ -2693,7 +2693,7 @@ ui_cmd:
 %ifdef KERN_BIG
 .hiber:
     call COLD_SEG:hbf_open      ; the module first, then the window (SPEC.md
-    ret                         ; 86.1) - cp_open's shape, and its refusal
+    ret                         ; 87.1) - cp_open's shape, and its refusal
 %endif
 
 .about:

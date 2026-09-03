@@ -311,7 +311,7 @@ DSV_PKGCALL equ 34              ; dw: THE FENCE for OSAPI_DRV_CALL. A driver
                                 ; DSV_BLK, which is a raw sector write to the
                                 ; hard disk from any .O88 on the floppy
 DSV_GEOM    equ 36              ; dw: DRVC_DISK only - one volume's TRANSPORT
-                                ; FACTS (SPEC.md 51.8, 86.5): in AH = the
+                                ; FACTS (SPEC.md 51.8, 87.5): in AH = the
                                 ; driver's handle; out CF = 0 and DL = the
                                 ; int 13h drive, CX:BX = the partition's first
                                 ; LBA, SI = sectors per track, DI = heads; or
