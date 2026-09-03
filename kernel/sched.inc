@@ -1733,13 +1733,6 @@ sch_isr:
     mov al, 0x20                ; ...and a sub-tick owes the EOI itself,
     out 0x20, al                ; because the BIOS handler that normally
                                 ; sends it is only chained on the tick
-%ifndef NO_CHAINPRIV
-    cmp byte [sch_chbusy], 0    ; a NESTED tick is running on sch_chstack
-    jne sch_resume              ; (8.5.1): it may account and wake, which fit
-                                ; there, but it may not park a PRIVATE SP in a
-                                ; task record - the outer tick's frame is the
-                                ; interrupted task's and it is resumed below
-%endif
     cmp byte [sch_lock], 0      ; the lock still bars a switch (a floppy
     jne sch_resume              ; transfer must not be pre-empted)
     cmp byte [sch_coop], 0      ; cooperative mode: only the watchdog
@@ -1886,6 +1879,13 @@ sch_isr:
     add bx, T_SIZE
     loop .wake
 
+%ifndef NO_CHAINPRIV
+    cmp byte [sch_chbusy], 0    ; a NESTED tick is running on sch_chstack
+    jne sch_resume              ; (8.5.1): it may account and wake, which fit
+                                ; there, but it may not park a PRIVATE SP in a
+                                ; task record - the outer tick's frame is the
+                                ; interrupted task's and it is resumed below
+%endif
     cmp byte [sch_lock], 0      ; locked: count ticks but do not switch
     jne sch_resume
     cmp byte [sch_coop], 0
