@@ -24,6 +24,12 @@
 ; registration writes over a row - one copy of the data, no init code, and
 ; "take over an existing one" needs no special case.
 ; =============================================================================
+;
+; KERN_BIG ONLY (SPEC.md 54.0). The gate is HERE rather than around
+; kernel.asm's %include for tools/kernsize.py's reason, which that line
+; records: a whole file behind one %ifdef reports as a zero row instead of
+; vanishing, and the per-module pass keeps assembling.
+%ifdef OS88_ASSOC
 
 ASSOC_NAPP   equ 12             ; app slots
 ASSOC_NEXT   equ 24             ; extension slots
@@ -1944,3 +1950,11 @@ asc_seg:  dw 0                  ; the claim, 0 = none (refused, or not yet)
 asc_n:    dw 0                  ; app rows in it, 0 = no usable cache
 asc_ne:   dw 0                  ; ...and association rows
 asc_vol:  db 0xFF               ; whose cache it holds, 0xFF = nobody's
+
+%endif                          ; OS88_ASSOC - SPEC.md 54.0
+
+section .text                   ; SECTION DISCIPLINE (CLAUDE.md's hard rules):
+                                ; the file must leave .text selected on BOTH
+                                ; arms, and the gated-out arm switches section
+                                ; nowhere - so this is the one line that has
+                                ; to sit outside the %ifdef

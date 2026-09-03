@@ -243,6 +243,49 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_THEME 1
 %endif
 
+; SPEC.md 54's file ASSOCIATIONS are kern_big's, on OS88_THEME's terms one
+; block up and for a bigger reason than the footprint. This takes assoc.inc
+; and the associco.inc glyph table it pulls in out whole - .text, .cold and
+; .bss, 2,520 bytes of them, and 2,560 of KERN_SIZE once the call sites go
+; with them - and it ALSO takes out a 3,072-byte heap claim that
+; stood on a bare desktop: asc_use_x claims ASC_KB under MEM_K_ASC, which is a
+; kernel TAG and not one of the MEM_P_* purgeable classes, and nothing frees
+; it. disk_mount_x calls asc_use_x and the boot mount is a mount, so on a
+; machine whose whole heap is ~31KB the association cache was holding a
+; tenth of it before the user had done anything. SPEC.md 54.0 is the contract
+; and says what the machine loses.
+;
+; ONE symbol decides it, so a call site cannot disagree with the body - and
+; it is resolved HERE, above every %include, because nasm's preprocessor is
+; one pass and a %define beside the include it guards is made too late to
+; guard anything (the trap SBDRAG's block below records paying for).
+%ifdef KERN_BIG
+  %define OS88_ASSOC 1
+%endif
+
+; SPEC.md 22.3-22.5's Cut/Copy/Paste is an ON-DEMAND MODULE on kern_small
+; (SPEC.md 2.8, docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1) and stays resident
+; `.cold` on kern_big, which keeps its speed and its one contiguous boot read:
+; a module is CUT OUT of kernel.bin by tools/os88mod.py and MODC_START is
+; exactly where the image ends, so nothing about big's read changes.
+;
+; It is the FIRST feature through the seam because it needs nothing new:
+; five entry points against MOD_NENT's eight, and every caller is a user
+; gesture in files.inc. ONE symbol decides it, resolved here above every
+; %include for OS88_ASSOC's reason.
+%ifdef KERN_SMALL
+  %define FCP_MOD 1
+%endif
+
+; SPEC.md 38's Standard File dialog, on FCP_MOD's terms one block up and
+; through the same seam (SPEC.md 38.0, docs/KERN-SMALL-MODULE-SPLIT.md 9.2
+; wave 2). SEVEN entries against MOD_NENT's eight, because SPEC.md 13.10.5's
+; thumb drag is kern_big's already and takes fdlg_onup and fdlg_ondrag with
+; it - so this fits the mechanism as it stands and needed no MOD_NENT raise.
+%ifdef KERN_SMALL
+  %define FDLG_MOD 1
+%endif
+
 ; SPEC.md 13.10.5's thumb DRAG is kern_big's and SHIPS - `make SBDRAGOFF=1`
 ; compiles it out, which is WM_ANIM's shape one section up and exists to be
 ; diffed against rather than because anybody should build it.
@@ -2297,6 +2340,12 @@ section .ovlw    start=OVLW_START vstart=0
 section .modc    start=MODC_START vstart=0
 section .modf    start=MODF_START vstart=0
 section .modl    start=MODL_START vstart=0
+%ifdef FCP_MOD
+section .modp    start=MODP_START vstart=0
+%endif
+%ifdef FDLG_MOD
+section .modd    start=MODD_START vstart=0
+%endif
 section .modmap  start=MODMAP_START vstart=0
 section .text
 
@@ -5190,7 +5239,20 @@ section .text
 %include "apps.inc"
 %include "assoc.inc"          ; file type associations (SPEC.md 54): the
                               ; tables and the icon composition. BEFORE
-                              ; disk.inc, whose harvest calls into it
+                              ; disk.inc, whose harvest calls into it.
+                              ;
+                              ; INCLUDED UNCONDITIONALLY AND GATED INSIDE
+                              ; (SPEC.md 54.0), which is band.inc's idiom and
+                              ; not a style choice: tools/kernsize.py brackets
+                              ; every module with markers it inserts AT the
+                              ; %include line, in Python, over kernel.asm's
+                              ; raw text - so a %ifdef around this line puts
+                              ; the OPENING marker inside the gate and the
+                              ; closing one outside it, and the per-module
+                              ; pass stops assembling with an undefined
+                              ; KSMn_boot2. On a kern_small build the file
+                              ; contributes zero bytes and reports as a zero
+                              ; row, which is what band.inc already does
 %include "mod.inc"            ; on-demand kernel modules (SPEC.md 2.8): the
                               ; loader and the far-pointer table. BEFORE
                               ; every module it serves, because a module's
@@ -6138,10 +6200,25 @@ app_about_center:     call COLD_SEG:apf_app_about_center
 ; dskw_stat were a DOUBLE crossing (out through a cw_ shim, in through a
 ; resident thunk) and are near calls now - SPEC.md 2.6's "growing the set makes
 ; the ones already in it cheaper".
+%ifdef OS88_ASSOC
 osapi_arg_file:       call COLD_SEG:osapi_arg_file_x
                     ret
 osapi_assoc_set:      call COLD_SEG:osapi_assoc_set_x
                     ret
+%else
+; kern_small has no associations (SPEC.md 54.0), so both slots keep their
+; CELLS - the ABI is parity, one .o88 serves both kernels - and share ONE
+; refusing body, which is SPEC.md 13.9's idiom for exactly this.
+;
+; NO PACKAGE NEEDS CHANGING, and that is a property of the two contracts
+; rather than luck. OSAPI_ARG_FILE's CF=1 is documented as "launched empty,
+; the ordinary case" - the answer it already gives on every launch that was
+; not a document open - and OSAPI_ASSOC_SET's is "the tables are full and
+; nothing was stored". Both slots already require the caller to test CF.
+osapi_arg_file:
+osapi_assoc_set:      stc
+                    ret
+%endif
 
 ; --- ...and disk.inc's (SPEC.md 18-19). The FAT read path, mount, and the
 ; volume table: everything here is bounded by a floppy, where SPEC.md 2.6's
@@ -6525,7 +6602,13 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 MODC_START   equ OVLW_START + OVLW_SIZE
 MODF_START   equ MODC_START + MODC_SIZE
 MODL_START   equ MODF_START + MODF_SIZE
+%ifdef FCP_MOD
+MODP_START   equ MODL_START + MODL_SIZE   ; Cut/Copy/Paste, kern_small's alone
+MODD_START   equ MODP_START + MODP_SIZE   ; ...and the file dialog after it
+MODMAP_START equ MODD_START + MODD_SIZE
+%else
 MODMAP_START equ MODL_START + MODL_SIZE
+%endif
 
 section .modc
 modc_end:
@@ -6538,6 +6621,18 @@ MODF_SIZE equ modf_end - $$
 section .modl
 modl_end:
 MODL_SIZE equ modl_end - $$
+
+%ifdef FCP_MOD
+section .modp
+modp_end:
+MODP_SIZE equ modp_end - $$
+%endif
+
+%ifdef FDLG_MOD
+section .modd
+modd_end:
+MODD_SIZE equ modd_end - $$
+%endif
 
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
 ; (mod.inc) is a RUN-TIME test - a module over it is refused cleanly, the
@@ -6552,6 +6647,16 @@ MODL_SIZE equ modl_end - $$
 %endif
 %if MODL_SIZE > MOD_MAX_KB*1024
 %error "the clone module is over MOD_MAX_KB - mod_need would refuse it at run time"
+%endif
+%ifdef FCP_MOD
+ %if MODP_SIZE > MOD_MAX_KB*1024
+%error "the Cut/Copy/Paste module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
+%endif
+%ifdef FDLG_MOD
+ %if MODD_SIZE > MOD_MAX_KB*1024
+%error "the file dialog module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
 %endif
 
 ; --- the split table, which is HOST-SIDE ONLY --------------------------------
@@ -6576,6 +6681,10 @@ mod_map:
                                 ; flags but this tree's -w+error
     dd MODF_START, MODF_SIZE
     dd MODL_START, MODL_SIZE
+%ifdef FCP_MOD
+    dd MODP_START, MODP_SIZE    ; ...and kern_small's fourth (SPEC.md 22.3)
+    dd MODD_START, MODD_SIZE    ; ...and its fifth (SPEC.md 38.0)
+%endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
 modmap_end:
@@ -7070,6 +7179,18 @@ section .modc
 section .modf
 %if ($ - $$) != MODF_SIZE
   %error "something landed in .modf below modf_end - os88mod.py would CUT the format module short of it"
+%endif
+%ifdef FCP_MOD
+section .modp
+%if ($ - $$) != MODP_SIZE
+  %error "something landed in .modp below modp_end - os88mod.py would CUT the Cut/Copy/Paste module short of it"
+%endif
+%endif
+%ifdef FDLG_MOD
+section .modd
+%if ($ - $$) != MODD_SIZE
+  %error "something landed in .modd below modd_end - os88mod.py would CUT the file dialog module short of it"
+%endif
 %endif
 section .modl
 %if ($ - $$) != MODL_SIZE

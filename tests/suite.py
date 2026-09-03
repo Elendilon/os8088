@@ -988,8 +988,27 @@ SOAK = [
         "guest's own listing, which is drawn from the structures that are "
         "wrong. Runs on the 1.44MB disk: the 360KB one is 354 of 354 clusters "
         "in use after one paste, so the folder copy correctly refuses there "
-        "with FERR_FULL and the row would be measuring the geometry.",
-        needs=("marty",), serial=True),
+        "with FERR_FULL and the row would be measuring the geometry. "
+        "builds=True because the script can shell out to `make small` when it "
+        "is pointed at kern_small (the fcpsmall row below), and the runner "
+        "gives a building row the tree to itself.",
+        needs=("marty",), serial=True, builds=True),
+    Row("fcpsmall", "soak",
+        ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
+         "OS88_SYSIMG=build/small.img"] + py("tests/fcpcopy.py"), 300.0,
+        "...and the SAME drive against kern_small, where Cut/Copy/Paste is an "
+        "on-demand module (SPEC.md 22.3, docs/KERN-SMALL-MODULE-SPLIT.md 9.2) "
+        "rather than resident code. It is a different engine to reach: every "
+        "call the image makes to the kernel is a far one through an xf_ entry, "
+        "the shared register epilogues are copies inside the image because a "
+        "`jmp kretc_cx` would return through a near `ret` against a far frame, "
+        "and the whole thing is read off the disk by mod_need and given back "
+        "at the end of each operation. NONE of that is exercised by the row "
+        "above, which runs the resident build - and the first time this one "
+        "ran it caught FILECP.DRV missing from the floppy entirely, with every "
+        "build step green and the machine booting. It builds its own image "
+        "(`make small`) for smallboot's reason.",
+        needs=("marty",), serial=True, builds=True),
     Row("cppromise", "soak", py("tests/cppromise.py"), 300.0,
         "SPEC.md 31.12: the Control Panel promises per PAGE, and the clock"
         "page is the one that cannot.",
@@ -1571,6 +1590,20 @@ SOAK = [
         "The file dialog's default button: REDRAWN IN PLACE must equal"
         "FRESHLY PAINTED.",
         needs=("marty",), serial=True, builds=True),
+    Row("fdlgsmall", "soak",
+        ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
+         "OS88_SYSIMG=build/small360.img"] + py("tests/fdlggrey.py"), 300.0,
+        "...and the SAME drive against kern_small, where the WHOLE dialog is "
+        "an on-demand module (SPEC.md 38.0, docs/KERN-SMALL-MODULE-SPLIT.md "
+        "9.2.6) rather than resident code. It is `fcpsmall`'s argument one "
+        "feature along and a bigger engine: seven entries with two exit "
+        "conventions, every call out of the image a far one through an `xd_` "
+        "entry, the register epilogues copied inside the image, and mod_need "
+        "reading it off the disk on fdlg_open with mod_drop giving it back in "
+        "fdlg_reap. NONE of that is exercised by the row above, which runs "
+        "the resident build. It builds its own image (`make small`) for "
+        "smallboot's reason.",
+        needs=("marty",), serial=True, builds=True),
     Row("fdlgup", "soak", py("tests/fdlgup.py"), 60.0,
         "SPEC.md 13.8.3: the Standard File dialog's buttons fire on the"
         "RELEASE.",
@@ -1666,6 +1699,17 @@ SOAK = [
         "SPIN COUNT. This compares three readings computed three ways: the "
         "kernel's sch_cycles, the page's tm_load, and the page's tm_pct.",
         needs=("marty",), serial=True, timeout=900),
+    Row("curdisk", "soak", py("tests/curdisk.py"), 240.0,
+        "SPEC.md 7.4: the arrow TRACKS the hand through a disk transfer. It "
+        "used to freeze with the machine and then LEAVE THE SCREEN - once an "
+        "operation moved FPG_WARM = 3 sectors the widget armed, and the "
+        "unclipped menu_draw_bar inside fpg_arm spent gfx_lock's promised "
+        "hide. Both claims here are DIFFERENCES, so the row builds "
+        "NOCURDISK=1 itself: a cursor move while [gfx_lock_flag] is set is "
+        "unreachable on that arm by mou_apply's own first compare, and a "
+        "one-armed reading could not tell that from a test that never "
+        "reached a freeze at all.",
+        needs=("marty",), serial=True, builds=True, timeout=900),
     Row("uiblock", "soak", py("tests/uiblock.py"), 150.0,
         "SPEC.md 8.1.2: ui_task blocks instead of spinning, so an idle "
         "desktop is 97% HALTED and the loop runs 18 times a second instead "

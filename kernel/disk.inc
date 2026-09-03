@@ -1109,8 +1109,23 @@ dsk_xfer:
     mov bp, [di+DSV_BLK]        ; two did: a network volume's sectors would
     pop ax                      ; have been handed to the hard-disk driver
     pop di
+    CURXFER_ON                  ; **AND THE DRIVER'S TRANSFER TOO** (SPEC.md
+                                ; 7.4.1.1). Not the ROM, so the "CPU parked on
+                                ; IRQ6" half of 15.3.8 does not apply and the
+                                ; draw costs real time here - but the SCREEN
+                                ; argument is the whole of what the flag
+                                ; claims, and it is unchanged: a DRVC_DISK
+                                ; block verb moves sectors and does not draw,
+                                ; and [sch_lock] is up across this call, so no
+                                ; other task can be inside a primitive either.
+                                ; Without it a hard-disk install - the longest
+                                ; freeze on the machine - keeps a dead pointer
+                                ; for its whole run, because a DVK_DRV volume
+                                ; leaves this routine before the int 13h loop
+                                ; below ever runs
     call drv_blk_call_x
-    jnc .success
+    CURXFER_OFF                 ; ...and CF is the driver's answer, which `mov`
+    jnc .success                ; leaves alone
     mov [dsk_ioerr], al         ; the driver reports int 13h's status byte,
 .jfail:                         ; ...AND the two range refusals in .sector, at
     jmp .fail                   ; two bytes each rather than the five NASM
@@ -1333,15 +1348,29 @@ dsk_xfer:
                                 ; volume is not
     mov ax, [dsk_run]           ; AL = the run (<= 128, so AH is 0)...
     mov ah, [dsk_op]            ; ...AH = 02 read / 03 write
+    CURXFER_ON                   ; **THE ARROW MAY MOVE FROM HERE TO THE `iret`**
+                                ; (SPEC.md 7.4). The bracket is the INSTRUCTION
+                                ; and not the operation, which is the whole
+                                ; safety argument: nothing between .attempt and
+                                ; here draws, so no primitive of ours can be in
+                                ; flight while the flag is set - and the CPU in
+                                ; there is parked on IRQ6 waiting for DMA
+                                ; (SPEC.md 15.3.8), so what the ISR spends is a
+                                ; gap the machine was going to spend idle
     int 0x13
-    jnc .ok
+    CURXFER_OFF                  ; `mov` leaves the flags alone, so int 13h's CF
+    jnc .ok                     ; still reaches this branch
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
     mov ah, 0x00                ; failed: reset the controller and retry
     mov dl, [dsk_unit]          ; the ROW's drive (SPEC.md 52.10.3): resetting
+    CURXFER_ON                   ; ...and the arrow keeps moving through it too
     int 0x13                    ; drive 2 because the volume index is 2 resets
-                                ; a floppy that is not in this transfer
+    CURXFER_OFF                  ; a floppy that is not in this transfer. A
+                                ; reset on ageing media is where the machine
+                                ; grinds longest, so it is the LAST place to
+                                ; let the pointer die (SPEC.md 7.4.1)
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_rst]
 %endif
@@ -1355,7 +1384,14 @@ dsk_xfer:
     jbe .fail                   ; already per-sector: unrecoverable
     mov word [dsk_run], 1
     mov bp, 3
-    jmp short .attempt
+    jmp .attempt                ; NOT `jmp short`: SPEC.md 7.4.1's two stores
+                                ; put .attempt out of a byte's reach on the
+                                ; DISKCNT=1 build, whose counters sit in this
+                                ; same loop - and a knob nothing ships is a
+                                ; build only test-full compiles, so it fails
+                                ; for somebody else. Written plainly, this
+                                ; grows a byte rather than failing to
+                                ; assemble (fprog.inc's idiom, for its reason)
 
 .ok:
     ; CF=0 IS the BIOS saying the whole request completed, and AL is not.
@@ -2887,11 +2923,16 @@ disk_mount_x:
     ; 32..95 are the 16x16 icon body. Everything else - type 0, iconless,
     ; read failure - gets the all-zero slot (the generic-icon sentinel).
     ; disk_icons is fully rewritten every mount (SPEC.md 29.1).
+%ifdef OS88_ASSOC
     call asc_use_x                ; this volume's ASSOC.DAT (SPEC.md 54.7), so
                                 ; the loop below can answer most of its icon
                                 ; reads without doing them
-    push ss                     ; asc_use reads the disk: put ES back
-    pop es
+%endif                          ; ...and kern_small has none (SPEC.md 54.0):
+                                ; every icon below is read the slow way
+    push ss                     ; asc_use reads the disk: put ES back. OUTSIDE
+    pop es                      ; the gate - it is the loop's guarantee about
+                                ; ES and not asc_use's own cleanup, so it must
+                                ; not depend on whether the call happened
     xor dx, dx                  ; DX = entry index
 .harvest:
     cmp dx, bp
@@ -2902,10 +2943,12 @@ disk_mount_x:
     jae .h_folder               ; the one icon that is not harvested off the
     cmp word [si+16], 1         ; disk but built in
     jne .h_zero
+%ifdef OS88_ASSOC
     call asc_lookup_x             ; cached from a previous session or written
     jc .h_read                  ; warm by the image builder? (SPEC.md 54.7)
     call asc_take_x               ; then this package costs NO sector read
     jmp .h_next
+%endif                          ; kern_small falls straight into .h_read
 .h_read:
     mov ax, [si+18]             ; first cluster (validated at synthesis)
     call dsk_clus2lba_x
@@ -2925,21 +2968,31 @@ disk_mount_x:
     cmp byte [dsk_ent+2], 3         ; format version (SPEC.md 20.2)
     jne .h_zero
     mov al, [dsk_ent+3]             ; BANK the header flags here. dsk_get_dir
+%ifdef OS88_ASSOC
     mov [assoc_hflags], al          ; below re-stages the DIRECTORY entry over
                                     ; dsk_ent, so [dsk_ent+3] stops being the
                                     ; header's flags and becomes the fourth
-                                    ; character of the file's NAME
+                                    ; character of the file's NAME. The LOAD
+                                    ; stays outside the gate: `test al, 1`
+                                    ; below is the icon flag and is both
+                                    ; builds'
+%endif
     test al, 1                      ; embedded-icon flag
     jz .h_noicon                ; ...and an ICONLESS package still gets the
     mov si, dsk_secbuf+32       ; rest of this: its header may DECLARE
     mov ax, dx                  ; extensions (SPEC.md 54.6), and hanging that
     call dsk_put_icon           ; off the icon flag skipped precisely the
 .h_noicon:                      ; case the declaration ships on first
+%ifdef OS88_ASSOC
     mov ax, dx                  ; the NAME again - the header staged above
     call dsk_get_dir_x            ; overwrote dsk_ent's copy of it
     call assoc_note_app_x         ; this program is HERE, declares THIS, and
-    jmp .h_next                 ; looks like THAT (SPEC.md 54.3) - no extra
+                                ; looks like THAT (SPEC.md 54.3) - no extra
                                 ; I/O: the sector is the one just read
+%endif                          ; THE RE-STAGE GOES WITH THE CALL: its only
+                                ; reader is assoc_note_app, and the next pass
+                                ; of this loop calls dsk_get_dir_x itself
+    jmp .h_next
 
 .h_folder:                      ; every folder gets the same built-in body.
     mov si, dsk_folder_ico      ; The one icon not harvested off the disk,
@@ -2981,9 +3034,11 @@ disk_mount_x:
     jae .fsfolder               ; takes the built-in body the harvest above
     cmp word [si+16], 1         ; copies in - it comes out of .text, so it
     jne .fsico_next             ; costs no I/O here either. Below it, packages
+%ifdef OS88_ASSOC
     call asc_lookup_x           ; only: a document's icon would need 54.3's
     jc .fsico_next              ; pass, which composes from a program THIS
     call asc_take_x             ; listing has no icon for
+%endif
     jmp short .fsico_next
 .fsfolder:
     mov si, dsk_folder_ico
@@ -2995,6 +3050,7 @@ disk_mount_x:
 
 .harvested:
 
+%ifdef OS88_ASSOC
     ; --- 4b. document icons (SPEC.md 54.3) ------------------------------
     ; A SECOND pass, and the order is the whole reason it is one: pass A is
     ; what teaches assoc_note_app where each program is and what it looks
@@ -3019,7 +3075,12 @@ disk_mount_x:
 .doc_next:
     inc dx
     jmp .docs
-
+%endif                          ; kern_small composes no document icons
+                                ; (SPEC.md 54.0): a type-0 file keeps the
+                                ; all-zero slot, which is the generic-icon
+                                ; sentinel 54.1 already relies on - so no
+                                ; drawing path changes and nothing is left
+                                ; half-composed
 .done:
     mov [disk_nfiles], bp       ; publish the count last
     mov byte [dsk_lstale], 0    ; ...the listing is this volume's again...
