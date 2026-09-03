@@ -1116,11 +1116,7 @@ np_scrollpaint:
     ja .nostrip
     mov bx, [np_ty]
     mov dx, [np_bot]
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
-    call OSAPI_GFX_FILL
+    call np_fillw
     push bx
     mov bx, si
     call OSAPI_WM_GROW              ; SPEC.md 11.1/27
@@ -1175,17 +1171,11 @@ np_scrollpaint:
     call np_shiftrows
 
     mov ax, [np_bd0]                ; erase the band: OSAPI_GFX_SCROLL leaves
-    push cx                         ; the vacated rows holding a copy of what
-    mov cl, 3                       ; was next to them, and a row of the new
-    shl ax, cl                      ; text may be shorter than that or empty
-    pop cx
+    call np_x8 ; text may be shorter than that or empty
     add ax, [np_ty]
     mov bx, ax                      ; BX = y1
     mov ax, [np_bd1]
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_ty]
     add ax, 7
     cmp ax, [np_bot]
@@ -1196,24 +1186,16 @@ np_scrollpaint:
     mov ax, [np_tx]
     sub ax, NP_MARGIN               ; AX = x1, the content's own left edge
     mov cx, [np_rgt]                ; CX = x2
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
-    call OSAPI_GFX_FILL
+    call np_fillw
     mov word [np_prowi], 0xFFFF     ; the fill erased what the delta cache knew
 
-    mov word [np_hity], 0xFFFF      ; one pass, drawing AND re-signing: the
-    mov word [np_wanty], 0xFFFF     ; band was just filled, so np_clean, and
+    call np_wq                      ; one pass, drawing AND re-signing: the
+                                    ; band was just filled, so np_clean, and
     mov ax, [np_bd0]                ; np_clip confines it to the band by ROW
     mov [np_dr0], ax                ; rather than by signature - an exposed
     mov ax, [np_bd1]                ; row's old signature is the row that
     mov [np_dr1], ax                ; scrolled away and could match by luck
-    mov byte [np_draw], 1
-    mov byte [np_sigup], 1
-    mov byte [np_clip], 1
-    mov byte [np_clean], 1
-    mov byte [np_resume], 0
+    call np_wdcc
     cmp byte [np_rowsok], 0
     je .xseed
     mov ax, [np_bd0]
@@ -1389,6 +1371,114 @@ np_bounds:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; np_white / np_black / np_fillw / np_x8 - four idioms this file writes out
+; dozens of times, each of them costing more inline than a near call does
+;
+; The colour pair is `push ax / mov al, C / call OSAPI_SET_COLOR / pop ax` -
+; nine bytes, and the push is there because SET_COLOR takes its argument in
+; the same register GFX_FILL wants for x1. np_fillw is that plus the fill,
+; which is how all seven of the white ones actually read.
+;
+; np_x8 turns a ROW INDEX into a pixel offset. Inline it was `push cx /
+; mov cl, 3 / shl ax, cl / pop cx` - six bytes AND ~33 cycles, because
+; `shl reg, cl` costs 8+4n on an 8086 and the pair around it protects a
+; register the shift only needs because the count is in it. The routine
+; shifts by one three times instead: same six bytes, ~6 cycles, and CX is
+; never touched.
+;
+; NOT USED IN np_rflush, which is the per-ROW text flush and the one caller
+; on the hot path (docs/TEXT-PLAN.md): its two sites take the triple shift
+; INLINE, which is the same six bytes it already spent and faster than what
+; it spent them on. Everywhere else a near call is ~11us against a
+; GFX_FILL's 756us floor (PERFORMANCE.md Part 2), so the fills below cost
+; ~2% of one primitive call and well under 0.1% of the redraw containing it.
+; -----------------------------------------------------------------------------
+np_fillbot:
+    mov dx, [np_bot]                ; y2 - the content's own bottom, so the
+    mov ax, [np_tx]                 ; sliver under the last whole row goes too
+    sub ax, NP_MARGIN               ; x1 = the content's own left edge
+    mov cx, [np_rgt]                ; x2
+    call np_fillw
+    ret
+
+np_fillw:
+    call np_white
+    call OSAPI_GFX_FILL
+    ret
+
+np_white:
+    push ax
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    pop ax
+    ret
+
+np_black:
+    push ax
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    pop ax
+    ret
+
+np_x8:
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    ret
+
+; -----------------------------------------------------------------------------
+; np_wq / np_wsign / np_wdcc - np_walk's CONTROL BLOCK, set in one call
+;
+; The block below np_walk's header is seven separate words and bytes, and it
+; was written out longhand at eleven sites: `mov word [x], imm` is six bytes
+; and `mov byte [x], imm` is five, so the two commonest shapes of it cost 37
+; and 39 bytes EVERY TIME. Through AL/AX they are three bytes a field (the
+; 8086's A2/A3 accumulator forms address memory directly and carry no modrm),
+; which pays for a call in two fields and is why these are routines rather
+; than macros - a macro would emit the cheaper encoding eleven times over and
+; save nothing at all.
+;
+; ALL THREE CLOBBER AX AND NOTHING ELSE, which is what makes them callable
+; from the paint paths: every site either has AX dead (the walk's own first
+; act is to reload it) or has pushed it at entry. They are NOT a hot-path
+; cost - a near call is ~11us against a np_walk measured in tens of
+; MILLISECONDS (PERFORMANCE.md Part 2), so the ratio is under 0.1%.
+;
+; np_wq    - both optional queries off, and the value AX is left holding
+;            (0xFFFF) is the "disabled" sentinel the two below reuse
+; np_wsign - ...plus sign the whole view without drawing it: the pass
+;            np_reconcile and np_redraw's pass 1 both make
+; np_wdcc  - draw, sign, clip and clean, starting at the top of the view
+;            rather than resuming (np_paint's band and np_panmove's)
+; -----------------------------------------------------------------------------
+np_wq:
+    mov ax, 0xFFFF
+    mov [np_hity], ax
+    mov [np_wanty], ax
+    ret
+
+np_wsign:
+    call np_wq                      ; ...which leaves AX = 0xFFFF, so np_dr0's
+    mov [np_dr0], ax                ; own "no row yet" seed is already loaded
+    xor ax, ax
+    mov [np_dr1], ax
+    mov [np_draw], al
+    mov [np_clip], al
+    inc ax
+    mov [np_sigup], al
+    ret
+
+np_wdcc:
+    xor ax, ax
+    mov [np_resume], al
+    inc ax
+    mov [np_draw], al
+    mov [np_sigup], al
+    mov [np_clip], al
+    mov [np_clean], al
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2054,11 +2144,12 @@ np_rstart:
     pop es
     cld
     mov [np_rby], bp
-    mov word [np_rcx], 0xFFFF
-    mov word [np_rs0], 0xFFFF       ; ...and no inverted cells yet either
-    mov word [np_rs1], 0xFFFF
-    mov word [np_xs0], 0xFFFF       ; ...nor any whose inversion must change
-    mov word [np_xs1], 0xFFFF
+    mov ax, 0xFFFF                  ; five "none yet" sentinels through AX: the
+    mov [np_rcx], ax                ; 8086's A3 form is three bytes against the
+    mov [np_rs0], ax                ; six an immediate costs (...and no
+    mov [np_rs1], ax                ; inverted cells yet either, nor any whose
+    mov [np_xs0], ax                ; inversion must change). AX is reloaded
+    mov [np_xs1], ax                ; from [np_i] on the very next line
     mov ax, [np_i]                  ; where this row STARTS, banked as the
     mov [np_ckpc], ax               ; checkpoint candidate: np_ask promotes it
     mov ax, [np_row]                ; the moment the walk stands on the caret
@@ -2151,18 +2242,16 @@ np_rflush:
     cmp ax, 0xFFFF
     je .cache                       ; this row's inversion is already right
     mov cx, [np_xs1]
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
     add ax, [np_tx]                 ; x1
     push ax
     mov ax, cx
     inc ax
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
     add ax, [np_tx]
     dec ax
     mov cx, ax                      ; x2
@@ -2312,10 +2401,7 @@ np_rflush:
     mov bx, [np_rby]                ; 1px black caret, 8 rows tall, on top of
     mov dx, bx                      ; the run that would otherwise have eaten it
     add dx, 7
-    push ax
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    pop ax
+    call np_black
     call OSAPI_GFX_VLINE
 .out:
     pop di
@@ -2405,10 +2491,7 @@ np_scroll:
     push cx
     push dx
     push si
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_ty]
     mov bx, ax                      ; BX = y1
     mov dx, [np_bot]                ; DX = y2
@@ -2479,13 +2562,13 @@ np_bpush:
 np_brkdraw:
     push ax
     push bx
-    mov word [np_hity], 0xFFFF
-    mov word [np_wanty], 0xFFFF
-    mov word [np_dr1], 0            ; np_walk's blank loop must not run: it
-                                    ; erases rows this pass has no opinion on
-    mov byte [np_draw], 1
-    mov byte [np_sigup], 0
-    mov byte [np_clip], 0
+    call np_wq
+    xor ax, ax
+    mov [np_dr1], ax                ; np_walk's blank loop must not run: it
+    mov [np_sigup], al              ; erases rows this pass has no opinion on
+    mov [np_clip], al
+    inc ax
+    mov [np_draw], al
     call np_seedck
     mov byte [np_bstop], 1
     mov byte [np_didpush], 0
@@ -2558,18 +2641,12 @@ np_brktry:
     push bx                         ; the caret bar is about to be scrolled
     push dx                         ; down with everything else, and it would
     mov ax, [np_ecol]               ; land in the middle of the tail. Erase it
-    push cx                         ; where it STANDS, which is the column it
-    mov cl, 3                       ; was at before this edit and not the one
-    shl ax, cl                      ; it is at now - this row is redrawn whole
-    pop cx                          ; a moment from now anyway
+    call np_x8 ; it is at now - this row is redrawn whole
     add ax, [np_tx]
     mov bx, [np_cury]
     mov dx, bx
     add dx, 7
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
+    call np_white
     call OSAPI_GFX_VLINE
     pop dx
     pop bx
@@ -2583,28 +2660,18 @@ np_brktry:
     push bx
     mov ax, di
     inc ax
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_ty]
     mov bx, ax                      ; BX = y1
     mov dx, ax
     add dx, 7                       ; DX = y2
     pop ax                          ; AX = cells to blank
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_tx]
     dec ax
     mov cx, ax                      ; CX = x2
     mov ax, [np_tx]                 ; AX = x1
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
-    call OSAPI_GFX_FILL
+    call np_fillw
 .nodup:
     mov byte [np_bmode], 1
     mov [np_bcrow], di
@@ -2642,13 +2709,9 @@ np_reconcile:
     call np_bounds
     mov byte [np_bmode], 0
     mov byte [np_resume], 0
-    mov word [np_hity], 0xFFFF      ; pass 1: the signatures, over the whole
-    mov word [np_wanty], 0xFFFF     ; note, because they have been standing
-    mov word [np_dr0], 0xFFFF       ; still since the break went up
-    mov word [np_dr1], 0
-    mov byte [np_draw], 0
-    mov byte [np_sigup], 1
-    mov byte [np_clip], 0
+    call np_wsign                   ; pass 1: the signatures, over the whole
+                                    ; note, because they have been standing
+                                    ; still since the break went up
     call np_walk
     mov ax, [np_vrows]
     or ax, ax
@@ -2661,21 +2724,10 @@ np_reconcile:
     mov [np_dr0], ax                ; the band is everything the break moved,
                                     ; whatever the signatures think: no
                                     ; signature describes a fiction
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_ty]
     mov bx, ax                      ; BX = y1
-    mov dx, [np_bot]                ; DX = y2
-    mov ax, [np_tx]
-    sub ax, NP_MARGIN               ; AX = x1, the content's own left edge
-    mov cx, [np_rgt]                ; CX = x2
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
-    call OSAPI_GFX_FILL
+    call np_fillbot                 ; erase to the content bottom
     mov word [np_prowi], 0xFFFF     ; the fill erased whatever the cache knew
     mov byte [np_clean], 1
     mov byte [np_draw], 1
@@ -3072,11 +3124,11 @@ np_hwalk:
     push ax
     mov ax, [np_wanty]
     push ax
-    mov word [np_hity], 0xFFFF
-    mov word [np_wanty], 0xFFFF
-    mov byte [np_draw], 0
-    mov byte [np_sigup], 0
-    mov byte [np_clip], 0
+    call np_wq
+    xor ax, ax
+    mov [np_draw], al
+    mov [np_sigup], al
+    mov [np_clip], al
 
     mov ax, [np_hi]                 ; resume where the last chunk stopped, which
     mov [np_sdi], ax                ; for the first one is index 0 of row 0 -
@@ -3866,8 +3918,7 @@ np_paint:
     mov byte [np_bmode], 0          ; whatever the break was showing, this
     mov word [np_prowi], 0xFFFF     ; draws the NOTE over a filled content
     mov byte [np_resume], 0
-    mov word [np_hity], 0xFFFF      ; no queries: this pass is here to draw
-    mov word [np_wanty], 0xFFFF
+    call np_wq                      ; no queries: this pass is here to draw
     cmp byte [np_gchg], 0           ; a resize got here through W_PAINT, which
     je .laidout                     ; is not np_redraw and so has clamped
                                     ; nothing: measure the note under the new
@@ -4686,10 +4737,7 @@ np_hmove:
     cmp byte [np_ckok], 0           ; the caret's row IS the checkpoint's, so
     je .measure                     ; Home and End need no walk at all to find
     mov ax, [np_ckpr]               ; the row they are aiming at
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_ty]
     jmp short .have
 .measure:
@@ -5422,10 +5470,7 @@ np_append:
     mov bx, [np_apy]
     mov dx, bx
     add dx, 7
-    push ax
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    pop ax
+    call np_black
     call OSAPI_GFX_VLINE
 
     ; --- and now the state the next keystroke reads --------------------------
@@ -5580,13 +5625,8 @@ np_redraw:
                                     ; np_bounds and np_clamp clear [np_ckok]
                                     ; and [np_rowsok] side by side
 
-    mov word [np_hity], 0xFFFF      ; pass 1: no queries, no drawing - just
-    mov word [np_wanty], 0xFFFF     ; which rows stopped matching
-    mov word [np_dr0], 0xFFFF
-    mov word [np_dr1], 0
-    mov byte [np_draw], 0
-    mov byte [np_sigup], 1
-    mov byte [np_clip], 0
+    call np_wsign                   ; pass 1: no queries, no drawing - just
+                                    ; which rows stopped matching
     mov ax, [np_vrows]              ; STOP at the bottom of the view, plus the
                                     ; one row past it a caret can wrap onto
                                     ; (SPEC.md 27.7). Below that a row has no
@@ -5712,10 +5752,7 @@ np_redraw:
     ; pen, and whatever is left of the band right of the last whole cell. They
     ; are still fills, and they carry no glyphs, so they cannot flicker and
     ; cannot disagree with anything at a clip edge.
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
+    call np_white
     push bx
     push dx
     mov ax, [np_tx]                 ; left: the margin, if there is one
@@ -5727,10 +5764,7 @@ np_redraw:
     call OSAPI_GFX_FILL
 .mr:
     mov ax, [np_rcols]              ; right: the <8px tail past the last cell
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_tx]
     mov cx, [np_rgt]
     cmp ax, cx
@@ -5826,11 +5860,8 @@ np_redraw:
     pop ax                          ; x1
     add cx, ax
     dec cx                          ; CX = x2
-    push ax                         ; the pen is a register here, not a
-    mov al, CWHITE                  ; variable - keep x1 across the call
-    call OSAPI_SET_COLOR
-    pop ax
-    call OSAPI_GFX_FILL             ; white-fill the content
+    call np_fillw ; white-fill the content
+                                ; variable - keep x1 across the call
     call np_paint                   ; SI still = window ptr
     mov bx, si                      ; the white fill erased the grow box;
     call OSAPI_WM_GROW              ; restore it (SPEC.md 11.1/27)
@@ -6652,18 +6683,12 @@ np_selxor:
 .l1:
     cmp ax, cx
     ja .out
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_tx]             ; AX = x1
     push ax
     mov ax, cx
     inc ax
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_tx]
     dec ax
     mov cx, ax                  ; CX = x2, the last column of the last cell
@@ -8736,10 +8761,7 @@ np_hitpt:
     cmp dx, [np_ty]
     jb .up
     dec ax
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_ty]             ; AX = the last visible row's top
     cmp dx, ax
     jbe .hit
@@ -8819,10 +8841,7 @@ np_dragsel:
     or ax, ax
     jz .still
     dec ax
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_ty]             ; the last visible row's top - np_hitpt's own
     cmp dx, ax                  ; threshold for scrolling, so the two cannot
     ja .scrolling               ; disagree about which passes matter
@@ -9365,10 +9384,7 @@ np_pfield:
     mov ax, [np_fpcur]
     sub ax, [np_fview]
     js .out
-    push cx
-    mov cl, 3
-    shl ax, cl
-    pop cx
+    call np_x8
     add ax, [np_pfx]
     cmp ax, [np_pfr]
     ja .out
@@ -9376,10 +9392,7 @@ np_pfield:
     inc bx
     mov dx, bx
     add dx, 7
-    push ax
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    pop ax
+    call np_black
     call OSAPI_GFX_VLINE
 .out:
     pop bp
@@ -10297,25 +10310,12 @@ np_panmove:
     pop cx
     add ax, [np_ty]
     mov bx, ax                  ; y1
-    mov dx, [np_bot]            ; y2 - to the very bottom, so the sliver under
-                                ; the last whole row goes too
-    mov ax, [np_tx]
-    sub ax, NP_MARGIN           ; x1 = the content's own left edge
-    mov cx, [np_rgt]
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
-    call OSAPI_GFX_FILL
+    call np_fillbot             ; erase to the content bottom
     mov word [np_prowi], 0xFFFF ; the fill erased what the delta cache knew
 
-    mov word [np_hity], 0xFFFF  ; one pass, drawing AND re-signing: the band
-    mov word [np_wanty], 0xFFFF ; was just filled, so np_clean
-    mov byte [np_draw], 1
-    mov byte [np_sigup], 1
-    mov byte [np_clip], 1
-    mov byte [np_clean], 1
-    mov byte [np_resume], 0
+    call np_wq                  ; one pass, drawing AND re-signing: the band
+                                ; was just filled, so np_clean
+    call np_wdcc
     mov ax, [np_vrows]
     mov [np_lastrow], ax
     call np_walk
@@ -10335,15 +10335,7 @@ np_panmove:
     cmp ax, [np_bot]
     ja .done
     mov bx, ax                  ; y1
-    mov dx, [np_bot]            ; y2
-    mov ax, [np_tx]
-    sub ax, NP_MARGIN
-    mov cx, [np_rgt]
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
-    call OSAPI_GFX_FILL
+    call np_fillbot                 ; erase to the content bottom
 
 .done:
     call np_sbar                ; unconditional: the track changed height, and
