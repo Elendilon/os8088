@@ -1,5 +1,13 @@
 # Handoff: kernel size pass 3, the last one — scope, lock and the parallel soak
 
+> **PASS 3 HAS LANDED. Its record is `docs/HANDOFF-KERNEL-SIZE-P4.md`; this file
+> is the brief it was run from.** Two things in it are corrected in place rather
+> than deleted: **§1's scope was wrong** (it nominated pass 1's ten; the pass
+> took the twenty-one files nobody had swept), and the title's *"the last one"*
+> did not survive contact — the pass ended with **three owner decisions, a
+> measured-and-refused loader merge, and a costed `jcc` residual**. §2 (the
+> lock) and §3 (the parallel soak) are unchanged and still the how-to.
+
 **This is the FINAL pass.** Passes 1 and 2 took the kernel from its own base
 to 87,646 bytes of code across 44 files, and this one closes the work out.
 Read it before starting; read `docs/HANDOFF-KERNEL-SIZE.md` for pass 1's
@@ -16,22 +24,72 @@ Two companions matter as much as those:
 
 ---
 
-## 1. THE SCOPE — ten files, and the evidence that they are the scope
+## 1. THE SCOPE — **CORRECTED IN PLACE. It was twenty-one files, not the ten this section nominated**
 
-**Every one of the 44 kernel files has now been touched.** So the scope is not
-"files nobody looked at"; there are none. It is files that were never given a
-**dedicated finder agent** by the pass with the better method.
+> **This section was wrong when it was written, and the pass did not follow it.**
+> It nominated `wm files vga12 disk fdlg diskw mouse ui menu driver`. Those ten
+> are **pass 1's**. Pass 3 took the twenty-one kernel files that had never had a
+> focused finder at all, and `docs/HANDOFF-KERNEL-SIZE-P4.md` is its record.
+>
+> The correction is left visible rather than swapped out, because the mistake is
+> the reusable part: **an absence in one pass's records was read as evidence
+> about a file, when it was evidence about that pass's own coverage.**
 
-Pass 2's finding ids are the proof. They run
-`F-apps- F-assoc- F-blank- F-clock- F-clone- F-crosscut- F-ctrl- F-dock-
-F-dskwin- F-events- F-filecp- F-font- F-fsx- F-icons- F-instance- F-kernel-
-F-loader- F-memory- F-mod- F-sched- F-snd- F-softgfx- F-vid- F-vidsel-`
-— and there is **no `F-wm-`, no `F-files-`, no `F-vga12-`, no `F-disk-`, no
-`F-diskw-`, no `F-fdlg-`, no `F-mouse-`, no `F-ui-`, no `F-menu-`, no
-`F-driver-`.** Those ten were pass 1's twelve, and every byte they lost in
-pass 2 came from a cross-cutting batch — the epilogue ladder, the `jcc`
-trampolines, the orphaned-block sweep — reaching into them, not from anybody
-reading them.
+### 1.1 What is actually true
+
+`kernel/` holds **45 files** — 44 when this was written; `stkdiag.inc` arrived
+with the worker-stack-slots merge and is knob-only. Coverage by *focused
+finder*:
+
+| | files | recorded in |
+|---|---|---|
+| pass 1's twelve | `wm` `files` `vga12` `disk` `fdlg` `diskw` `mouse` `kernel.asm` `ui` `menu` `driver` `ctrl` | `docs/HANDOFF-KERNEL-SIZE.md` §1 |
+| pass 2's twelve | `assoc` `memory` `instance` `filecp` `font` `apps` `icons` `softgfx` `vidsel` `snd` `fsx` `sched` | `docs/HANDOFF-KERNEL-SIZE.md` §2, landed per `docs/HANDOFF-KERNEL-SIZE-P2.md` §0 |
+| **pass 3's twenty-one** | `band` `blank` `bootprof` `clip` `clock` `clockw` `clone` `cpudet` `desk` `dock` `dskwin` `events` `fprog` `loader` `mod` `moudiag` `splash` `stkdiag` `toast` `viddet` `xmem` | `docs/HANDOFF-KERNEL-SIZE-P4.md` §0 |
+
+12 + 12 + 21 = 45, with no file counted twice. Four of the twenty-one are
+knob-only and compile to **0 bytes** in every shipped kernel (`band`,
+`bootprof`, `moudiag`, `stkdiag`), so pass 3 gave **seventeen** files a focused
+finder, plus a cross-cutting sweep that owned none of them.
+
+### 1.2 The step that was wrong, and two more defects in the same paragraph
+
+**The observation below is right; the inference drawn from it is not.** Pass 2's
+finding ids really do contain no `F-wm-`, `F-files-`, `F-vga12-`, `F-disk-`,
+`F-diskw-`, `F-fdlg-`, `F-mouse-`, `F-ui-`, `F-menu-` or `F-driver-` — checked
+again, and those ten strings occur in this repository's history **only inside
+the commit that added this document**. They are missing because **pass 2 did not
+cover those files. Pass 1 did.**
+
+`git show 2f33456 --stat` settles it in one command: pass 1 changed `wm.inc` by
+971 lines, `files.inc` 751, `diskw.inc` 706, `vga12.inc` 703, `disk.inc` 459,
+`fdlg.inc` 393, `ui.inc` 378, `driver.inc` 369, `mouse.inc` 231 and `menu.inc`
+157.
+
+* **The prefix list is also incomplete.** Six more landed in pass 2 and are not
+  in it: `F-clip-` (`42d7b72`), `F-cpudet-` (`f98ddc5`), `F-desk-` (`79c25cf`),
+  `F-fprog-` (`ff215f7`), `F-toast-` (`401aecb`, `26135ee`) and `F-xmem-`
+  (`e32b873`). Those came out of pass 2's **four tail-sweep groups**
+  (`docs/HANDOFF-KERNEL-SIZE-P2.md` §2: *"one per named file, four tail-sweep
+  groups covering the remaining ~20 files"*) — which is the distinction a
+  finding id cannot carry, because a group's id is spelled like a file's.
+* **The exclusion rule contradicts the inclusion rule.** "What is NOT in scope"
+  below drops `kernel.asm` and `ctrl.inc` for being *"a third look, not a
+  first"*. Every one of the ten this section nominated would have been a
+  **second** look, and the twenty-one it never named were the only **first**
+  looks left. Applied consistently, its own rule selects pass 3's actual scope.
+
+### 1.3 What the error would have cost
+
+Nothing was lost — the pass ran on the twenty-one from its first day — but the
+failure mode is worth naming. **The ten are the largest files in the kernel**,
+so a pass that took them would have *looked* productive while re-reading swept
+code. The table below is still the right table for whoever takes a second look
+at them, and pass 3's own duplicate scan says where the largest remaining
+machine-detectable duplication in the kernel is: `vga12.inc` and `font.inc`,
+both hot, both already swept (`docs/HANDOFF-KERNEL-SIZE-P4.md` §2.4).
+
+### 1.4 Pass 1's ten — still the largest files, and a second look at them is real work
 
 **They are 65.7% of the kernel:**
 
@@ -53,7 +111,7 @@ The "pass 2 took" column is NET of feature growth over the same window, so the
 real take is a little larger and the conclusion is unchanged: **8.4% from pass
 1, and roughly 1% from pass 2's cross-cutting reach.**
 
-### The one row that makes the case
+### 1.5 The one row that makes the case — still the argument for a SECOND look
 
 `ctrl.inc` was pass 1's twelfth file. **Pass 1 took 5 bytes off it. Pass 2 gave
 it a finder and took 465** — 44% of what was left. It is not a fair sample (it
@@ -67,13 +125,22 @@ PERFORMANCE.md rule 4 applies to size as much as to speed.
 For scale: pass 2's own twelve went 22,303 → 19,552, a **12.3%** take on files
 nobody had swept.
 
-### What is NOT in scope, and why
+### 1.6 What this section excluded — and how each exclusion reads after the correction
+
+**Four of these five bullets were written against the wrong scope.** They are
+kept verbatim, with what actually happened underneath each.
+
 
 * **`kernel.asm`, `ctrl.inc`** — pass 2 gave both a finder. Re-sweeping them is
   a third look, not a first.
 * **`band.inc`, `bootprof.inc`, `moudiag.inc`** — knob-only. They compile to
   **0 bytes** in every shipped kernel, and CLAUDE.md's memory rule says no
   guard binds a knob build. Bytes there cost nobody RAM.
+  > **Right, and `stkdiag.inc` joins them** — four knob-only files now. But the
+  > rule *"knob-only files compile to nothing"* was then applied to FILES and
+  > not to BLOCKS, and a block-level `%ifdef` inside a shipped file compiles to
+  > nothing just as surely. Three separate censuses in pass 3 counted such
+  > blocks as resident (`docs/HANDOFF-KERNEL-SIZE-P4.md` §6.3).
 * **`splash.inc`** — the only shipped file neither pass swept, and it compiles
   to **0 `.text`, 0 `.cold` and 2,015 `.boot2`**. `.boot2` is the stage-2 blob:
   it is disk and boot time, not resident RAM, and it is not inside
@@ -81,6 +148,12 @@ nobody had swept.
   not for this pass's guard. **Careful there**: `SPL_RESIDENT` gates what the
   splash may call, and `tests/unit/t_resident.py` exists because one converted
   site put a boot on a jump into sectors the floppy had not delivered.
+  > **Right about the currency, wrong about the priority.** `splash.inc` was in
+  > pass 3's twenty-one and its batch had to go **FIRST**: `.boot2` 2,439 →
+  > 2,254 retired `BOOT2_SECS_STARS`, which let `KSIG_OFF` move 50,176 → 6,656
+  > and took the `.text` FLOOR from 50,178 to 6,658. Without that, the rest of
+  > the pass was a build break that the boot canary would have passed
+  > (`docs/HANDOFF-KERNEL-SIZE-P4.md` §1).
 * **`F-sched-14` and `F-sched-12`** — refused by the owner in pass 2, because
   the scheduler is about to be redesigned (`docs/SCHED-IDLE-PLAN.md`). Do not
   re-propose them.
@@ -89,13 +162,18 @@ nobody had swept.
   bytes between them changes the footprint by **zero** — measured twice,
   independently). Both refused on their merits; both will be re-found.
 
-### One thing has changed about WHICH bytes are worth taking
+### 1.7 One thing has changed about WHICH bytes are worth taking
 
 **For the first time in this project's life, the SEGMENT binds and not the
 footprint.** `.text + .bss` is 56,374 of `KERN_CODE_MAX`'s 65,536 — 9,162 left,
 and that limit **cannot be raised at all** — while `KERN_BUDGET` has 19,456
 (38 steps). See `docs/KERNEL-MEMORY.md`, "Which guard binds", which is
 corrected in place.
+
+**Those two figures are pass 2's close, and this whole subsection held.** Pass 3
+took the segment to **55,886 with 9,650 left** and the footprint to
+`KERN_SIZE` 109,056 — 40 steps — so the gap between the two guards widened
+rather than narrowed (`docs/HANDOFF-KERNEL-SIZE-P4.md` §0).
 
 Two consequences for this pass:
 
