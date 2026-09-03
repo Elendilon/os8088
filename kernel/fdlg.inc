@@ -2196,11 +2196,7 @@ fdlg_onkey_x:
     call fdlg_repaint
 .out:
     pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_dx               ; the shared far-cold epilogue (kernel.asm)
 
 ; -----------------------------------------------------------------------------
 ; fdlg_nins - insert AL at the caret, which then sits after it (internal)
@@ -2817,11 +2813,7 @@ fdlg_onclick_x:
                                 ; own live one, which is where it was copied
                                 ; from)
     pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    jmp kretfc_dx               ; the shared far-cold epilogue (kernel.asm)
 
 ; -----------------------------------------------------------------------------
 section .bss

@@ -1498,6 +1498,7 @@ font_run_x:
                                 ; load-bearing here and not incidental
     mov si, font_rn_re
     call fnt_rn_edge
+.jout:
     jmp .out
 
 %endif
@@ -1548,7 +1549,7 @@ font_run_x:
 ; a routine.
 .planar:
     cmp dx, [vid_chm8]          ; the run's y, once, exactly as on the mono
-    ja .out                     ; path (SPEC.md 6.1.6)
+    ja .jout                    ; path (SPEC.md 6.1.6)
     cmp cx, [vid_cwm8]          ; ...and a negative x goes per cell, same rule
     ja .cells
     push cx                     ; the grouping spends AX and BX only, but

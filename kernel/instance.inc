@@ -861,6 +861,43 @@ inst_idx:
     ret
 
 ; -----------------------------------------------------------------------------
+; inst_rel_rec - free every grant an instance holds, BY RECORD (SPEC.md 29.4)
+;
+; in:  DI = instance record ptr
+; out: nothing
+; clobbers: nothing (flags)
+;
+; THE SOUND RELEASE AND THE EXTENDED-MEMORY ONE ARE A PAIR, and were written
+; out as one at all three teardown sites - app_close_win's synchronous leg,
+; inst_task_die, and inst_pkg_alive's winless leg - each of them separately
+; converting the same DI into the same slot with inst_idx. This is that pair
+; called once, with the conversion done once. THE ORDER IS PART OF IT: sound
+; first, blocks second (SPEC.md 34.3 then 41.5), which is what the sites'
+; comments already asked for by name.
+;
+; It is NOT a merge of the two releases. xm_release_rec keeps its own entry
+; and its DI contract, because it has a FOURTH caller that owes no sound
+; grant: ld_unreserve (loader.inc), SPEC.md 41.5.1's abort sweep, which
+; reaches it far through cw_xm_release_rec. A grep for snd_release_rec cannot
+; find that one - it is in the wrong file and names the wrong routine - and it
+; is the reason the two bodies are not simply folded together.
+;
+; No CX bank: inst_idx preserves CX itself (its own header says so, and the
+; push this replaces was a leftover from before that), and snd_release_inst
+; is documented "clobbers: nothing".
+;
+; The tail is a JUMP and not a call: DI is still the record, so
+; xm_release_rec is entered exactly as the three sites entered it, at the same
+; stack depth as its own direct callers.
+; -----------------------------------------------------------------------------
+inst_rel_rec:
+    push ax
+    call inst_idx               ; AL = the instance slot, once for the pair
+    call snd_release_inst       ; "clobbers: nothing", so AL survives it
+    pop ax
+    jmp xm_release_rec          ; ...and every extended-memory block with it
+
+; -----------------------------------------------------------------------------
 ; inst_of_win - find the instance owning a window
 ; in:  BX = window ptr (record-aligned)
 ; out: CF = 0, DI = instance record ptr; CF = 1 if the window is unowned
@@ -1600,15 +1637,15 @@ app_close_win:
                                 ; inst_task_die - and only on CLOSE, because
                                 ; minimizing leaves it open
 .noflush:
-    call snd_release_rec        ; free every sound grant before the record
-                                ; goes (SPEC.md 29.4/34.3)
-    call xm_release_rec         ; ...and every extended-memory block with it
-                                ; (SPEC.md 41.5). It may run BEFORE the windows
-                                ; where mem_free_rec may not, and the reason is
-                                ; the rule below read exactly: a freed REGION
-                                ; makes a survivor's procs a wild call, and
-                                ; nothing up there is ever code (SPEC.md 20.8
-                                ; rule 1) or even addressable in real mode
+    call inst_rel_rec           ; free every sound grant and every
+                                ; extended-memory block before the record goes
+                                ; (SPEC.md 29.4/34.3/41.5). It may run BEFORE
+                                ; the windows where mem_free_rec may not, and
+                                ; the reason is the rule below read exactly: a
+                                ; freed REGION makes a survivor's procs a wild
+                                ; call, and nothing up there is ever code
+                                ; (SPEC.md 20.8 rule 1) or even addressable in
+                                ; real mode
     call wm_destroy             ; frees the wm slot + wm_owner, repaints -
     mov word [di+I_WIN], 0      ; and the windows go BEFORE the claims: the
     call inst_sweep_seg         ; repaint inside a destroy far-calls every
@@ -1782,9 +1819,9 @@ inst_sweep_seg:
 
 ; -----------------------------------------------------------------------------
 inst_task_die:
-    call snd_release_rec        ; free every sound grant before the record
-                                ; goes (SPEC.md 29.4/34.3)
-    call xm_release_rec         ; ...and every extended-memory block (41.5)
+    call inst_rel_rec           ; free every sound grant and every
+                                ; extended-memory block before the record goes
+                                ; (SPEC.md 29.4/34.3/41.5)
     call toast_owner_gone       ; ...and its message (SPEC.md 59)
     call gfx_lock
     mov bx, [di+I_WIN]
@@ -2038,10 +2075,10 @@ inst_pkg_alive:
                                 ; would zero the cold-entry jmp at 0800:0000
     jmp inst_task_die           ; never returns
 .winless:
-    call snd_release_rec        ; the same two releases inst_task_die makes,
-    call xm_release_rec         ; in the same order (SPEC.md 29.4/34.3/41.5) -
-                                ; this leg differs only in having no BOUND
-                                ; window to destroy
+    call inst_rel_rec           ; the same pair of releases inst_task_die
+                                ; makes, in the same order (SPEC.md
+                                ; 29.4/34.3/41.5) - this leg differs only in
+                                ; having no BOUND window to destroy
     call gfx_lock               ; ...but a package can have made windows it
     call inst_sweep_seg         ; never bound to the record, and they must not
     call gfx_unlock             ; outlive the region either (SPEC.md 20.2).

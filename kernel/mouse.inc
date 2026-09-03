@@ -326,7 +326,8 @@ mou_pall:
     xor bx, bx
 .port:
     call mou_pout
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb .port
     pop bx
@@ -432,7 +433,8 @@ mouse_init:
     jc .next
     mov word [bx+mou_bases], 0  ; nothing answered: retire the row, and every
 .next:                          ; routine below skips it from here on
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb .probe
 
@@ -448,7 +450,8 @@ mouse_init:
     je .cnext
     inc cx
 .cnext:
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb .count
     mov al, 1
@@ -486,7 +489,8 @@ mouse_init:
                                 ; other spelling now (SPEC.md 2.5.2)
     popf
 .nohook:
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb .hook
 
@@ -583,7 +587,8 @@ mouse_init:
     in  al, dx                  ; the identify byte: banked, then discarded
     call mou_idbyte
 .snext:
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb .sport
     mov ax, [ticks]
@@ -641,7 +646,8 @@ mouse_init:
     and al, cl
     out 0x21, al
 .fnext:
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb .flush
 
@@ -750,7 +756,8 @@ mou_idquiet:
     ja  .next
     mov cl, 1                   ; mou_idjudge's rules 1-3, asked early. Rule 4
 .next:                          ; is the quiet test above, and it is the same
-    add bx, 2                   ; comparison against the same word
+    inc bx                      ; comparison against the same word
+    inc bx
     cmp bx, MOU_PEND
     jb  .port
     or  cl, cl                  ; no mouse yet: there is nothing to close the
@@ -825,7 +832,8 @@ mou_idjudge:
     inc cl
     mov ch, bl
 .next:
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb  .port
 
@@ -967,7 +975,8 @@ mou_lockon:
     or  al, cl
     out 0x21, al
 .next:
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb .port
 %ifdef KERN_BIG
@@ -1113,7 +1122,8 @@ mouse_unhook:
     mov [es:si+2], ax
     popf
 .next:
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb .port
 
@@ -1459,13 +1469,13 @@ mou_p2_init:
 %endif
     mov al, 0xA8
     call KERNEL_SEG:ovw_mou_p2cw
-    jc .noaux
+    jc .jnoaux
     call mou_p2flush
     mov al, 0x20
     call KERNEL_SEG:ovw_mou_p2cw
-    jc .noaux
+    jc .jnoaux
     call mou_p2rd
-    jc .noaux
+    jc .jnoaux
 %ifdef MOU_DIAG
     mov byte [mou_p2sub], 4
     mov [mou_p2cm1], al
@@ -1475,6 +1485,7 @@ mou_p2_init:
 %ifdef MOU_DIAG
     mov byte [mou_p2aux], 0xE1  ; no: nothing here has an auxiliary port
 %endif
+.jnoaux:
     jmp .noaux
 
 .haveaux:
@@ -1483,7 +1494,7 @@ mou_p2_init:
 %endif
     mov al, 0xA8                ; enable it - and NOTHING is read back. Step 3
     call KERNEL_SEG:ovw_mou_p2cw               ; writes the command byte with bit 5 clear as
-    jc .fail                    ; well, so the port is enabled BOTH ways that
+    jc .jfail                   ; well, so the port is enabled BOTH ways that
     call mou_p2flush            ; controllers differ about, and the device
                                 ; reset below is what actually decides
 
@@ -1492,7 +1503,7 @@ mou_p2_init:
     and al, 0xDD                ; bit 5 clear: run the aux clock. Bit 1 clear:
     or  al, MOU_P2KOFF          ; IRQ12 stays OFF until the vector is ours
     call KERNEL_SEG:ovw_mou_p2wcmd             ; ...AND BIT 4 STAYS SET, which is 0xAD's own
-    jc .fail                    ; doing held rather than handed back. The bank
+    jc .jfail                   ; doing held rather than handed back. The bank
                                 ; above deliberately clears it - mou_p2_off
                                 ; writes that byte on the UI task and must not
                                 ; disable the keyboard - so every write made
@@ -1503,7 +1514,7 @@ mou_p2_init:
     mov byte [mou_p2st], 4      ; reset the device...
     mov al, 0xFF
     call mou_p2dev
-    jc .fail
+    jc .jfail
     mov byte [mou_p2st], 5      ; ...and wait out its self-test, which the part
     mov bx, MOU_P2BAT           ; is allowed half a second for. The SHORT wait
 .bat:                           ; retried, rather than a second timeout to size
@@ -1511,6 +1522,7 @@ mou_p2_init:
     jnc .bdone
     dec bx
     jnz .bat
+.jfail:
     jmp .fail                   ; NOT `jmp short`: under MOUDIAG=1 the extra
                                 ; arms between here and .fail push the target
                                 ; past +127 (SPEC.md 9.4.7), and NASM's own
@@ -2552,7 +2564,8 @@ kbd_ovflow:
     jae .out                    ; BIOS this boots on puts it
     test al, 1
     jnz .out
-    add bx, 2                   ; the slot the BIOS is about to fill...
+    inc bx                      ; the slot the BIOS is about to fill...
+    inc bx
     cmp bx, KBD_BUFE
     jb .nowrap
     mov bx, KBD_BUFB
@@ -2779,10 +2792,22 @@ kbm_ui:
 .out:
     ret
 
-; kbm_post - AX = event type, at the pointer, stamped now
-kbm_post:
-    push si
-    mov si, kbm_ev
+; mou_evfill - stamp an event record at DS:SI and queue it
+; in:  AX = EVT_*, SI -> an 8-byte record in DS, PRIVATE TO THE CALLER
+; out: nothing (evq_push's contract); AX clobbered, SI unmoved
+;
+; The same nine instructions stood in kbm_post and in mou_isr's .fill. THE TWO
+; BUFFERS STAY TWO and that is the point: kbm_ev is filled from the UI task
+; and mou_evrec from the serial mouse ISR, and only evq_push itself runs under
+; cli - so one shared buffer would let the ISR corrupt a half-filled record.
+; It is the RECORD that is shared here, not the storage.
+;
+; It ends `jmp evq_push` - a tail call, replacing the `call evq_push` each
+; site had, so the mouse ISR's peak stack depth does not move (SPEC.md 9.10's
+; 128-byte private stack is unchanged). Not hot: mou_isr reaches .fill only on
+; a button transition EDGE, and kbm_post's three callers are keyboard-mouse
+; key handlers.
+mou_evfill:
     mov [si], ax
     mov ax, [mouse_x]
     mov [si+2], ax
@@ -2790,7 +2815,13 @@ kbm_post:
     mov [si+4], ax
     mov ax, [ticks]             ; birth time: two of these close together are
     mov [si+6], ax              ; a double-click, exactly as a real one is
-    call evq_push
+    jmp evq_push                ; ...which preserves everything
+
+; kbm_post - AX = event type, at the pointer, stamped now
+kbm_post:
+    push si
+    mov si, kbm_ev
+    call mou_evfill
     pop si
     ret
 
@@ -2894,7 +2925,8 @@ mou_isr_body:
     call mou_byte               ; on the packet's own bytes - and BX is this
     pop bx                      ; loop's index
 .next:
-    add bx, 2
+    inc bx
+    inc bx
     cmp bx, MOU_PEND
     jb .scan
     jmp mou_eoi
@@ -2907,7 +2939,7 @@ mou_byte:
     cmp byte [mou_seen], 0      ; is the mouse's port settled?
     je .drain
     cmp bl, [mou_port]          ; then every other port belongs to somebody
-    jne .bout                    ; else's device and is dropped unheard. This
+    jne .jbout                  ; else's device and is dropped unheard. This
                                 ; also closes the window between the latch
                                 ; below and mou_lockon masking the loser
 .drain:
@@ -2916,7 +2948,7 @@ mou_byte:
     mov dx, [ticks]             ; bit-6 bytes would resync as headers. DX is
     sub dx, [mou_dstamp]        ; free - the base has been read - and BX is
     cmp dx, MOU_DRAINT          ; NOT: it is the port row, and every array
-    jb .bout                     ; below is indexed on it
+    jb .jbout                   ; below is indexed on it
     mov byte [mou_drain], 0     ; window over: this byte is live
 .live:
     test al, 0x40               ; bit 6 set -> first byte of a packet
@@ -2927,6 +2959,7 @@ mou_byte:
 .b0:                            ; run of clean packets (SPEC.md 9.5)
     mov [bx+mou_b0], al
     mov byte [bx+mou_phase], 1
+.jbout:
     jmp .bout
 
 .cont:
@@ -3084,17 +3117,12 @@ mou_apply:
     mov ax, EVT_RDOWN
 
 .fill:
-    mov si, mou_evrec
-    mov [si], ax
-    mov ax, [mouse_x]
-    mov [si+2], ax
-    mov ax, [mouse_y]
-    mov [si+4], ax
-    mov ax, [ticks]             ; c = birth time: double-click detection must
-    mov [si+6], ax              ; not use processing time - clicks queued
-                                ; behind a slow disk mount would collapse
-                                ; into one instant and read as double-clicks
-    call evq_push               ; guards internally with pushf/cli; IF stays 0
+    mov si, mou_evrec           ; c = birth time: double-click detection must
+    call mou_evfill             ; not use processing time - clicks queued
+                                ; behind a slow disk mount would collapse into
+                                ; one instant and read as double-clicks. The
+                                ; helper ends in evq_push, which guards
+                                ; internally with pushf/cli; IF stays 0
 
 .move:
     ; --- cursor: draw only if the lock is free AND cur_level >= 0 (SPEC 7) ---
@@ -3516,8 +3544,7 @@ cur_put_mono:
     mov ch, [cur_rows]
     or ch, ch
     jz .out                     ; wholly off the bottom: nothing to bank
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     mov si, [cur_tabp]
     mov bp, [cur_sptr]          ; the live save buffer (SPEC.md 7.1.2)
 .row:
@@ -3570,8 +3597,7 @@ cur_get_mono:
     mov ch, [cur_rows]
     or ch, ch
     jz .out
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     mov di, [cur_off]
     mov si, [cur_sptr]
 .row:
@@ -4118,8 +4144,7 @@ cur_move_mono:
     mov ch, [mv_orows]
     or ch, ch
     jz .p2
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     mov di, [mv_ooff]
     mov si, [mv_osave]
     mov bx, [mv_oy]
@@ -4168,8 +4193,7 @@ cur_move_mono:
     mov ch, [cur_rows]
     or ch, ch
     jz .out
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     mov di, [cur_off]
     mov si, [cur_tabp]
     mov bp, [mv_nsave]
@@ -4321,8 +4345,7 @@ cur_draw:
     mov ch, [cur_rows]          ; [cur_rows]/[cur_b1ok] = how much is on screen
     or ch, ch
     jz .done                    ; wholly off the bottom
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     mov si, [cur_tabp]
     mov dx, VGA_GC              ; the INDEX port: index and data go as one word
 .row:
@@ -4531,6 +4554,9 @@ cur_shhot   db 0, 0,          CUR_XHX, CUR_XHY
 mouse_x     dw SCREEN_W/2       ; public: cursor position, 0..639
 mouse_y     dw SCREEN_H/2       ; public: 0..479
 mouse_btn   db 0                ; public: bit 0 = left, bit 1 = right
+%if mouse_y - mouse_x != 2
+  %error "mouse_x and mouse_y are no longer an adjacent pair - viddet.inc's vid_apply homes the pointer with one stosw pair over both"
+%endif
 
 %ifdef CURFIX
 cur_mvt     dw 0                ; [ticks] at the last movement packet (SPEC.md

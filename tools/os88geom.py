@@ -208,7 +208,14 @@ _MIRROR = {
     # all failed as though the WINDOW SYSTEM were broken. That is this
     # module's own founding story happening a second time, so the record joins
     # it rather than being fixed nine times.
-    "VID_CTX_W": ("kernel/vidsel.inc", 19),
+    #
+    # It has since SHRUNK, 19 -> 16, which is the same hazard the other way
+    # up: [vid_strm1], [vid_rpara] and [vid_rend] were written every
+    # vid_apply and read by nothing, so they left the run and took six bytes
+    # of every record with them. VID_CTX_VX/VY/KIND/SZ are derived from this
+    # number below, so the thirty scripts that import them followed with no
+    # edit at all - which is what this module is for.
+    "VID_CTX_W": ("kernel/vidsel.inc", 16),
     "VID_CTX_CW": ("kernel/vidsel.inc", 14),
     "VID_CTX_CH": ("kernel/vidsel.inc", 16),
     "VID_NDISP_MAX": ("kernel/vidsel.inc", 2),

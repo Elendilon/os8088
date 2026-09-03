@@ -136,6 +136,12 @@ CLO_STAGEKB  equ 33             ; ...and what the XMS path stages through:
                                 ; 1KB of header and 32KB, which is exactly
                                 ; XM_MAX_COPY, so one buffer load is one copy
 CLO_XSEC     equ 64             ; sectors per xm_copy: 64 x 512 is XM_MAX_COPY
+                                ; - a THIRD hand-maintained mirror of 32,768,
+                                ; which is defined only in
+                                ; drivers/xmem/xmem.asm. The link is this
+                                ; comment and nothing compares them; a copy
+                                ; over the image's cap is refused with AX = 3,
+                                ; so the failure is loud rather than silent
                                 ; exactly (SPEC.md 41.12.2), and the length
                                 ; has to be even as well as bounded
 CLO_IMGMAX   equ 127            ; sectors per FILE transfer: dskw_append takes
@@ -500,7 +506,7 @@ clo_geom:
     mov ax, [dsk_totsec]
     mov [es:CL_TOT], ax
     or ax, ax
-    jz .io                      ; a mounted volume of no sectors is not one
+    jz .jio                     ; a mounted volume of no sectors is not one
     jmp .ok
 
     ; --- sectors per track, off the MEDIUM ---------------------------------
@@ -535,6 +541,7 @@ clo_geom:
     jmp short .spt
 .probeno:
     dec byte [dsk_rah_busy]
+.jio:
     jmp .io
 .gotspt:
     mov [es:CL_SPT], si
@@ -1161,7 +1168,7 @@ clo_key:
     cmp dl, CLS_SRC
     je .src
     cmp dl, CLS_TGT
-    je .tgt
+    je .jtgt
     cmp dl, CLS_WIMG
     je .wimg
     cmp dl, CLS_NOSRC
@@ -1176,6 +1183,7 @@ clo_key:
     cmp al, 13
     jne .linej
     mov byte [es:CL_STEP], CLS_TGT
+.jtgt:
     jmp .tgt                    ; NEAR: CLS_NOSRC's answers sit between here
                                 ; and it now (SPEC.md 18.99.3)
 
@@ -2690,8 +2698,11 @@ clo_call:
     ret
 .no:
     mov ax, CERR_NODISK         ; the nearest true thing: there is no cloner,
-    stc                         ; so there is no disk it can reach
-    ret
+    ret                         ; so there is no disk it can reach - and CF IS
+                                ; ALREADY SET: `.no` is reachable only through
+                                ; the `jc` above, and `mov r16, imm16` (B8 iw)
+                                ; writes no flag, which this file already
+                                ; states two headers up for `pop ax` and `ret`
 
 ; -----------------------------------------------------------------------------
 ; clo_drop - the cloner is finished with (SPEC.md 2.8.3)

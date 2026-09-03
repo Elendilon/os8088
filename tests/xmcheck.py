@@ -46,7 +46,12 @@ import os88qemu                                              # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-XM_BLKSZ, XM_MAX_BLKS = 8, 8        # kernel/kernel.asm
+XM_BLKSZ, XM_MAX_BLKS = 8, 8        # XM_MAX_BLKS: kernel/kernel.asm.
+                                    # XM_BLKSZ: drivers/xmem/xmem.asm, NOT
+                                    # kernel.asm - it is the image's, and it
+                                    # is the stride this file decodes xm_tab
+                                    # with, so a wrong citation sends the next
+                                    # reader to the wrong file to check it
 DRVR_SEG = 2                        # kernel/driver.inc, into xm_row
 XB_OFF, XB_KB, XB_OWN = 0, 2, 4
 XM_OWN_KERN = 0xFF

@@ -2799,13 +2799,15 @@ wm_wkh_slot:
 ; more record.
 ;
 ; **THE FLAG AND THE RECORD ARE ONE FACT, AND A DRAIN CAN BREAK THEM APART**
-; (SPEC.md 74.1.1). Four loops pop records they are not interested in and
-; throw them away - ui_drag and ui_grow drain everything that is not an
-; EVT_MUP, fsx and snd empty the ring outright - and an EVT_WAKE eaten there
-; used to leave this flag set with no record behind it. The window is then
-; DEAF FOR THE REST OF ITS LIFE: every wm_wake after it reads "one is already
-; queued" and answers CF=0, a promise nothing will ever keep. So the flag has
-; three states and every drain calls wm_wake_eaten.
+; (SPEC.md 74.1.1). Six loops pop records they are not interested in and throw
+; them away - ui_drag, ui_grow and both of fm_drag's drain everything that is
+; not an EVT_MUP, and fsx, snd and blk_pass empty the ring outright - and an
+; EVT_WAKE eaten there used to leave this flag set with no record behind it.
+; The window is then DEAF FOR THE REST OF ITS LIFE: every wm_wake after it
+; reads "one is already queued" and answers CF=0, a promise nothing will ever
+; keep. So the flag has three states and every drain calls wm_wake_eaten -
+; which since size pass 3 is TWO SHARED HELPERS and not six copies,
+; evq_drain and evq_mup (SPEC.md 10.3).
 ; -----------------------------------------------------------------------------
 WKQ_NONE    equ 0               ; nothing owed
 WKQ_RING    equ 1               ; ...owed, and the record is in the ring
@@ -2823,9 +2825,10 @@ wm_wake:
                                 ; **`je 1`, NOT `jne 0`** - WKQ_EATEN is the
                                 ; state where the promise is owed and the
                                 ; record is GONE, and that one has to post
-    mov ax, [evq_count]
-    cmp ax, EVQ_CAP
-    jae .full                   ; evq_push would drop it silently; say so
+    cmp byte [evq_count], EVQ_CAP ; a BYTE since size pass 3, and no bank: AX
+    jae .full                   ; is banked at entry and dead on both arms -
+                                ; .full goes popf/stc/.out: pop si/pop ax/ret.
+                                ; evq_push would drop it silently; say so
     mov byte [wm_wkq+si], WKQ_RING
     mov word [wm_wk_rec+EV_TYPE], EVT_WAKE
     mov [wm_wk_rec+EV_A], bx
@@ -3831,12 +3834,30 @@ wm_destroy_seg:
 wm_lk:
     cmp byte [gfx_lock_flag], 0
     je wm_lk_take               ; free: take it
-    push ax
-    mov al, [sch_cur]
-    cmp al, [gfx_lock_own]
-    pop ax
-    jne wm_lk_take              ; SOMEBODY ELSE'S: gfx_lock waits for them,
-                                ; which is what a mutex is for
+    mov al, [sch_cur]           ; AL is an OUTPUT of this routine, so banking
+    cmp al, [gfx_lock_own]      ; it round these two instructions protected
+    jne wm_lk_take              ; nothing: `mov al,[sch_cur]` writes AL and not
+                                ; AH, and AL is overwritten on every path out
+                                ; (wm_lk_take's `mov al,1`, or the `xor al,al`
+                                ; below). The header's "Neither touches another
+                                ; register" is about AH and is unaffected.
+                                ; SOMEBODY ELSE'S: gfx_lock waits for them,
+                                ; which is what a mutex is for.
+                                ;
+                                ; fpg_arm (12.8.4) has these same seven
+                                ; instructions and had the same dead pair, and
+                                ; they are NOT one routine however identical
+                                ; the bytes: the two jump targets are the
+                                ; semantics, and they partition the three lock
+                                ; states differently - fpg_arm asks
+                                ; {free,mine} against {other}, this asks
+                                ; {free,other} against {mine}, and no single
+                                ; flag out of a shared helper can carry both.
+                                ; A helper returning ZF gets THIS site exactly
+                                ; backwards: it would call gfx_lock
+                                ; recursively in the common case and run
+                                ; wm_show_b with no lock at all when the lock
+                                ; is foreign
     xor al, al                  ; ours: the caller's hold covers all of it
     ret
 wm_lk_take:
@@ -4707,7 +4728,8 @@ wm_snap_w:
     add dx, 7                   ; UP FIRST, so the package is not handed LESS
     jc .down                    ; content than its template asked for. A width
     and dx, 0xFFF8              ; within 7 of 0xFFFF is nonsense the caller's
-    add dx, 2                   ; low clamps cannot produce, and the `jc` is
+    inc dx                      ; low clamps cannot produce, and the `jc` is
+    inc dx
                                 ; one byte against having to argue that
     push ax                     ; THE RIGHT EDGE - wm_snap_ax's own test in the
     push cx                     ; other axis of this rect, and the one way
@@ -4727,10 +4749,12 @@ wm_snap_w:
     jbe .take                   ; it fits, and nothing is short
 .down:
     mov dx, ax                  ; ...it does not, so DOWN - and only a window
-    sub dx, 2                   ; within 7px of the glass ever gets here
+    dec dx                      ; within 7px of the glass ever gets here
+    dec dx
     and dx, 0xFFF8
     jz .pop                     ; under one cell wide: nothing to snap to
-    add dx, 2
+    inc dx
+    inc dx
     push ax                     ; THE FLOOR, which only the DOWN branch can
     push dx                     ; break: wm_min_axd's and not WMIN_W, so a
     mov ax, [vid_w]             ; window that declared more than 96 through
@@ -5205,19 +5229,11 @@ wm_win_rect:
 ; out: CF = 1 they overlap; all registers preserved
 ; -----------------------------------------------------------------------------
 wm_dmg_hit:
-    cmp ax, [wm_dmg_x2]
-    jg .no
-    cmp cx, [wm_dmg_x1]
-    jl .no
-    cmp bx, [wm_dmg_y2]
-    jg .no
-    cmp dx, [wm_dmg_y1]
-    jl .no
-    stc
-    ret
-.no:
-    clc
-    ret
+    push si                     ; SI is not an input here and desk.inc's
+    mov si, wm_dmg_x1           ; caller relies on "all registers preserved"
+    call gfx_rect_hit           ; (vga12.inc): the four words ARE a WCR_* rect
+    pop si                      ; - which wm.inc:5420 already relies on - and
+    ret                         ; `pop` leaves CF alone
 
 ; -----------------------------------------------------------------------------
 ; wm_dmg_vacate - the rect a moved window is LEAVING (SPEC.md 11.91.2)
@@ -5331,14 +5347,11 @@ wm_dmg_stale:
 %endif                          ; did before the vacated rect existed
     cmp word [wm_dmg_stwin], 0
     je .mark
-    cmp ax, [wm_dmg_st2]        ; ...did it overlap where the window WAS?
-    jg .clean
-    cmp cx, [wm_dmg_st1]
-    jl .clean
-    cmp bx, [wm_dmg_sy2]
-    jg .clean
-    cmp dx, [wm_dmg_sy1]
-    jl .clean
+    push si                     ; ...did it overlap where the window WAS?
+    mov si, wm_dmg_st1          ; (the vacated rect, WCR_* order - the same
+    call gfx_rect_hit           ; block the gfx_rect_isect below is given)
+    pop si
+    jnc .clean
 
     ; It did. Is that overlap wholly back under the window's NEW frame? Then
     ; the move re-covered every pixel of it and nothing is exposed.
@@ -7343,11 +7356,15 @@ wm_zabove:
 wm_idx2ptr:
     push ax
     push cx
-    mov ah, 0                   ; index * WIN_SIZE, spelled as a real 8-bit
-    mov cl, WIN_SIZE            ; multiply rather than a sum of shifts: the
-    mul cl                      ; stride has already changed twice (16 -> 18
+    mov cl, WIN_SIZE            ; index * WIN_SIZE, spelled as a real 8-bit
+    mul cl                      ; multiply rather than a sum of shifts: the
+                                ; stride has already changed twice (16 -> 18
     mov bx, ax                  ; -> 20, SPEC.md 11) and a shift idiom is a
-    add bx, wm_wins             ; silent breakage every time it does
+    add bx, wm_wins             ; silent breakage every time it does.
+                                ; NO `mov ah,0` ahead of the mul, and no `cbw`
+                                ; either: `mul r/m8` computes AX <- AL x
+                                ; operand and writes AH unconditionally, so
+                                ; zeroing it first was a no-op
     pop cx
     pop ax
     ret
@@ -7720,7 +7737,8 @@ wm_draw_title:
     add bx, [di+W_W]
     sub bx, 4
     call gfx_hline
-    add dx, 2
+    inc dx
+    inc dx
     loop .stripe
 
 .boxes:
@@ -7728,7 +7746,8 @@ wm_draw_title:
     mov ax, [di+W_X]            ; break the stripes 2px around the close box
     add ax, 6
     mov bx, [di+W_Y]
-    add bx, 2
+    inc bx
+    inc bx
     mov cx, [di+W_X]
     add cx, 20
     mov dx, [di+W_Y]
@@ -7751,7 +7770,8 @@ wm_draw_title:
     add ax, [di+W_W]            ; (mirror of the close-box break, SPEC.md 11)
     sub ax, 21
     mov bx, [di+W_Y]
-    add bx, 2
+    inc bx
+    inc bx
     mov cx, [di+W_X]
     add cx, [di+W_W]
     sub cx, 7
@@ -7821,7 +7841,8 @@ wm_draw_title:
     xchg ax, cx                 ; AX = text left, CX = gap right
     sub ax, 6                   ; AX = gap left
     mov bx, [di+W_Y]
-    add bx, 2
+    inc bx
+    inc bx
     mov dx, [di+W_Y]
     add dx, 15
     call wm_tpen_bg          
@@ -11367,8 +11388,10 @@ wm_grow_paint:
     mov dx, bx
     add dx, 7
     call gfx_frame
-    sub ax, 2                   ; the small square: 7x7 at inset (+2,+2)..
-    sub bx, 2                   ; (+8,+8), white-filled (it overlaps the
+    dec ax                      ; the small square: 7x7 at inset (+2,+2)..
+    dec ax
+    dec bx                      ; (+8,+8), white-filled (it overlaps the
+    dec bx
     mov cx, ax                  ; big one's top-left), black-framed
     add cx, 6
     mov dx, bx

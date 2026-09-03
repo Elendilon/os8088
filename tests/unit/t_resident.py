@@ -25,7 +25,10 @@ destination is"*). Nothing enforced it.
 IT HAS BEEN PAID FOR ONCE. SPEC.md 15.1.2's shared epilogue ladder converted
 `vid_pop8` - the eight-register epilogue `vid_setmode`, `vid_detect` and
 `vid_text` share - from its own pop run to `jmp kret_es`. The ladder is at
-`.text` 0xC628; the window ends at 0x0BCD. Every adapter came up dead with no
+`.text` 0xC59C; the window ends at 0x0C10. (This paragraph said 0xC628 and
+0x0BCD for a year and two readers quoted them as measurements - they were the
+tree the bug was found on. THE RUN PRINTS BOTH: take them from its output, not
+from here.) Every adapter came up dead with no
 message, and `make`, the fast tier, `stkbalance`, `os88ovlchk`, `t_asmrules`
 and `checkdocs` were all green - none of them boots a machine. The first gate
 that could see it was `make test-full`.

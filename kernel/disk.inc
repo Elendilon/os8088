@@ -954,6 +954,45 @@ dsk_dpt_init_x:
     retf
 
 section .cold                   ; ...and back to resident cold code
+
+; -----------------------------------------------------------------------------
+; dsk_bytes_secs_x - a byte count as whole 512-byte sectors, rounded UP
+; in:  AX = bytes (the +511 must not carry out - every caller's bound below)
+; out: AX = DX = sectors, which is the shape dsk_read_chain_x's callers want
+; clobbers: CL, exactly as the four open-coded copies did
+;
+; `.cold` and near-called, which is the whole reason it can exist at all: the
+; sites are in three files that cannot reach a `.text` helper with a near call
+; (SPEC.md 2.6). The DX copy is free here and dead at the one site that does
+; not want it.
+; -----------------------------------------------------------------------------
+dsk_bytes_secs_x:
+    add ax, 511
+    mov cl, 9
+    shr ax, cl
+    mov dx, ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_rd1_x / dsk_wr1_x - ONE sector, to or from dsk_secbuf (SPEC.md 18.94.1)
+; in:  AX = LBA; ES = LOW_SEG (dsk_secbuf is .lowbss, SPEC.md 2.1)
+; out: exactly disk_read_x's / disk_write_x's - CF, and [dsk_ioerr] on failure
+; clobbers: BX and CX, which every site was loading anyway
+;
+; "read one sector into the scratch" was spelled out at fourteen `.cold` sites:
+; three instructions of marshalling in front of a call that costs ~400 ms
+; (PERFORMANCE.md), so the call+ret this adds is 11 us against one disk
+; revolution. dsk_rd1_x FALLS THROUGH into disk_read_x and pays no jump at all;
+; dsk_wr1_x cannot (disk_read_x is between) and pays a short one.
+; -----------------------------------------------------------------------------
+dsk_wr1_x:
+    mov cx, 1
+    mov bx, dsk_secbuf
+    jmp short disk_write_x
+dsk_rd1_x:
+    mov cx, 1
+    mov bx, dsk_secbuf
+                                ; ...and falls through
 disk_read_x:
     mov byte [dsk_op], 0x02     ; AH=02 read (mov leaves the flags alone)
     jmp short dsk_xfer
@@ -2369,7 +2408,7 @@ osapi_vol_mount_x:
 ; -----------------------------------------------------------------------------
 osapi_vol_paint_x:
     call KERNEL_SEG:cw_gfx_lock
-    call desk_zones_paint_x
+    call COLD_SEG:desk_zones_paint_x
     call KERNEL_SEG:cw_gfx_unlock
     retf
 
@@ -2480,8 +2519,7 @@ dsk_fat_window:
 .have:
     mov word [dsk_fatw0], 0xFFFF
     push ax
-    mov bx, [dsk_fatseg]
-    mov es, bx
+    mov es, [dsk_fatseg]
     mov cx, [dsk_fatwn]
     xor bx, bx
     add ax, [dsk_fatlba]
@@ -2614,7 +2652,7 @@ disk_mount_x:
     mov bl, dl                  ; the listing's home follows the VOLUME: the
     call dsk_list_pick          ; .lowbss floor, or the claim its driver
     pop bx                      ; donated (SPEC.md 22.6)
-    mov word [ld_pending], 0    ; a queued click indexes the OLD directory;
+    mov byte [ld_pending], 0    ; a queued click indexes the OLD directory;
                                 ; never let it run against the new one
     cmp byte [dsk_keepcwd], 0   ; a remount always lands at the root, and
     jne .cwd_kept               ; dskw_* resolve there until dsk_chdir
@@ -2637,10 +2675,8 @@ disk_mount_x:
     push ss
     pop es
     xor ax, ax                  ; LBA 0
-    mov cx, 1
-    mov bx, dsk_secbuf
     inc byte [dsk_rah_busy]     ; NEVER from §18.95's cache: this read is the
-    call disk_read_x              ; swap detector itself. Served from a cached
+    call dsk_rd1_x                ; swap detector itself. Served from a cached
     dec byte [dsk_rah_busy]     ; chunk it would re-sign the OLD disk's boot
                                 ; sector, [dsk_sigcur] would never move, and
                                 ; every later hit - FAT window included -
@@ -2874,9 +2910,7 @@ disk_mount_x:
     mov ax, [si+18]             ; first cluster (validated at synthesis)
     call dsk_clus2lba_x
     jc .h_zero
-    mov cx, 1
-    mov bx, dsk_secbuf
-    call disk_read_x              ; ES = LOW_SEG
+    call dsk_rd1_x                ; ES = LOW_SEG
     jc .h_zero
     mov si, dsk_secbuf          ; stage the 32 header bytes; dsk_ent's
     mov di, dsk_ent             ; directory copy is done with above.
@@ -3319,10 +3353,8 @@ dsk_bpb_check:
     inc dx                      ; = entries + ceil(entries/2), and entries
     shr dx, 1                   ; is <= 4,086 here so the bytes fit
     add ax, dx
-    add ax, 511
-    mov cl, 9
-    shr ax, cl                  ; ...as whole sectors
-    jmp short .capcmp
+    call dsk_bytes_secs_x       ; ...as whole sectors. DX comes back a copy of
+    jmp short .capcmp           ; AX and .capcmp reads AX alone
 .cap16:
     mov dx, ax                  ; FAT16: 256 entries a sector, so the count
     mov cl, 8                   ; is entries>>8 rounded up - written as a
@@ -3767,7 +3799,8 @@ dsk_clus2lba_x:
     jb .bad
     cmp ax, [dsk_maxclus]
     ja .bad
-    sub ax, 2
+    dec ax
+    dec ax
     mov dl, [dsk_spc]
     xor dh, dh
     mul dx                      ; DX:AX = (cluster-2) * spc
@@ -4379,6 +4412,7 @@ dsk_free_clus_x:
     mov ax, 0xFFFF              ; more free space than a word of sectors can
 .fsok:                          ; carry. SATURATE rather than wrap: 32MB is
     mov di, ax                  ; already past what the status line's KB
+.jcounted:
     jmp .counted                ; figure means, and a wrapped one would read
 .slowj:                         ; ...and the FAT12 fast path's two vetoes:
     jmp .slow                   ; the window IS whole on every floppy, so
@@ -4389,7 +4423,7 @@ dsk_free_clus_x:
     xor di, di                  ; DI = free clusters
     mov si, 2                   ; SI = cluster under test
     cmp si, [dsk_maxclus]
-    ja .counted                 ; a volume with no data clusters
+    ja .jcounted                ; a volume with no data clusters
     mov ax, si                  ; make the window cover cluster 2, so the
     call dsk_fat_ofs_x            ; residency test below reads a loaded window
     jc dsk_fc_bad               ; rather than the 0xFFFF of a fresh mount
@@ -4945,8 +4979,7 @@ dsk_rah_fill:
     mov cl, 9
     shl bx, cl
     pop cx
-    mov ax, [dsk_rah_seg]
-    mov es, ax
+    mov es, [dsk_rah_seg]
     mov ax, di
     inc byte [dsk_rah_busy]     ; ...so this read is not itself cached
     call disk_read_x
@@ -5207,11 +5240,9 @@ dsk_dirw_get_x:
     call dsk_dirw_next_x
     jc .end
     push ax
-    mov cx, 1
-    mov bx, dsk_secbuf
-    mov dx, LOW_SEG             ; the buffer is in .lowbss, reached through ES
-    mov es, dx
-    call disk_read_x
+    push ss                     ; the buffer is in .lowbss, reached through ES
+    pop es                      ; - and SS names LOW_SEG (SPEC.md 2.1)
+    call dsk_rd1_x
     pop ax
     jc .ioerr
     clc
@@ -6803,7 +6834,13 @@ dsk_base:     resd 1            ; the partition base added to every LBA; 0
 ; --- write-path state (SPEC.md 18.4), all reset by disk_mount ---------------
 dsk_mntok:    resb 1            ; 1 only between a fully successful mount and
                                 ; the next mount attempt - the write gate
-dsk_wpad:     resb 1            ; keeps the words below even-aligned
+                                ; (a dsk_wpad was here to keep the words below
+                                ; even-aligned. The target is an 8088 and its
+                                ; bus is EIGHT BITS WIDE, so a word costs two
+                                ; cycles at either parity and the byte bought
+                                ; nothing; dsk_mntok above is `mov byte` /
+                                ; `cmp byte` at all six sites, so nothing
+                                ; wider was writing through it either)
 dsk_rover:    resw 1            ; next cluster the allocator examines
 dsk_fatd1:    resw 1            ; the dirty range's high end; the low end is
                                 ; dsk_fatd0 in .text (it must read CLEAN before

@@ -198,6 +198,22 @@ MENU_LOGO_Y equ 4               ; logo glyph top row (11px tall)
 MENU_ITEM_H equ 16              ; pull-down item cell height, px
 MENU_POPMAX equ 11              ; items ANY pull-down may have (SPEC.md 12.4)
 
+; ...AND [vid_popmax] IS THIS NUMBER, laid down rather than computed.
+; vid_apply used to work out min((h - MBAR_H - 2) >> 4, MENU_POPMAX) from
+; whichever vid_tab row the adapter selected; the four heights are 480, 348,
+; VID_H_MIN and EGA_H, so the answers were 28, 20, 11 and 20 and the clamp
+; fired every time - the CGA landing exactly on it, with two scan lines of
+; margin (heights >= 198 give 11).  Two things can end that and this is what
+; watches for them: MENU_POPMAX growing, and MBAR_H growing.  A FIFTH vid_tab
+; row shorter than the CGA's would end it too, which is why the test names
+; VID_H_MIN rather than a literal 200 - the constant vid_tab's own shortest
+; row is written from (viddet.inc).  The guard lives HERE and not beside
+; [vid_popmax] because `%if` cannot see an `equ` declared further down the
+; build, and viddet.inc is %included first.
+%if ((VID_H_MIN - (MBAR_H + 2)) >> 4) < MENU_POPMAX
+  %error "the shortest row of vid_tab no longer fits MENU_POPMAX pull-down items - [vid_popmax] has to be computed again (viddet.inc, vid_apply)"
+%endif
+
 ; The save-under bound (SPEC.md 2.2/50.2). gfx_save costs
 ; planes x rows x (byte span + 1), and until these two clamps existed
 ; nothing in the kernel bounded either factor: a package's menu set could
@@ -210,8 +226,14 @@ MENU_POPMAX equ 11              ; items ANY pull-down may have (SPEC.md 12.4)
 MENU_MAXW   equ 208             ; widest pull-down, px (frame + 8px padding)
 MENU_MAXCH  equ (MENU_MAXW - 16) / 8    ; ...so 24 glyphs of item text
 MENU_SAVE_KB equ 20             ; the claim menu_init takes for the save-under
-                                ; - 16 cells plus frame is 258px, which still
-                                ; fits under the bar on a 480-row screen
+                                ; - MENU_POPMAX cells plus frame is 178px,
+                                ; which fits under the bar on every screen
+                                ; this OS drives, VID_H_MIN included. The
+                                ; number here used to be 16 cells / 258px,
+                                ; from when MENU_POPMAX was 16 - and at that
+                                ; count kernel.asm's own assertion on this
+                                ; claim FIRES: 4 x 258 x 28 is 28,896 bytes
+                                ; against 20,480
 
 ; --- disabled items (SPEC.md 12.2) -------------------------------------------
 ; An item string that BEGINS with this byte is unavailable: the kernel draws
@@ -231,6 +253,10 @@ MENU_DIS    equ 1
 ; inside it: the erase is always the whole cell, and the time stays pinned
 ; to the same right margin whichever form it is in.
 MENU_CLK_W  equ 24*8                        ; the LONGEST form, not the live one
+                                            ; - and viddet.inc's vid_apply and
+                                            ; [vid_clk_hx] initialiser both read
+                                            ; it now, forward, rather than
+                                            ; carrying 198 and 206 as literals
 MENU_CLK_X  equ SCREEN_W - 8 - MENU_CLK_W   ; 440: cell left, 8px right margin
 MENU_CLK_HX equ (MENU_CLK_X - 6) & 0FFF8h   ; 432: hit band left edge, and the
                                             ; left edge of the clock SEGMENT -
@@ -1554,7 +1580,7 @@ menu_draw_clock:
     cmp ax, [menu_ckck]
     jne .draw
     cmp dh, [menu_ckstrip]      ; ...and the same characters split differently
-    je .out                     ; are a different field
+    je .jout                    ; are a different field
 .draw:
     mov [menu_ckck], ax
     mov [menu_ckstrip], dh
@@ -1570,6 +1596,7 @@ menu_draw_clock:
     call thm_pair               ; --- no toast: one opaque pass over the lot
                                 
     call font_run
+.jout:
     jmp short .out
 .strip:
     mov al, [menu_clkbuf+1]     ; --- cell 0 FIRST, in the clock's own colours:
@@ -1781,7 +1808,8 @@ menu_popup:
     mov ax, [menu_cnt]
     mov cl, 4
     shl ax, cl                  ; count * 16 ...
-    add ax, 2                   ; ... + the top and bottom frame rows
+    inc ax                      ; ... + the top and bottom frame rows
+    inc ax
     mov bx, dx                  ; BX = candidate y1 (DX = anchor y)
     mov cx, [vid_ph]
     sub cx, ax                  ; CX = lowest y1 that still fits
@@ -1893,7 +1921,8 @@ menu_save_kb:
     mov bx, [menu_x1]
     shr bx, cl                  ; ...and its first
     sub ax, bx
-    add ax, 2                   ; span -> count, plus the misalignment byte
+    inc ax                      ; span -> count, plus the misalignment byte
+    inc ax
     mov bx, [menu_y2]
     sub bx, [menu_y1]
     inc bx                      ; BX = rows
@@ -2012,7 +2041,8 @@ menu_drop:
     call thm_pen_live           ; are one decision each, not a fill and a glyph
                                 ; over it
     pop cx
-    add bx, 2
+    inc bx
+    inc bx
     add dx, MENU_ITEM_H
     loop .item
     pop es
@@ -2442,7 +2472,8 @@ menu_widest:
     jbe .keep
     mov dx, ax
 .keep:
-    add bx, 2
+    inc bx
+    inc bx
     loop .next
 .done:
     pop es

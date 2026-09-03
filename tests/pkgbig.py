@@ -18,13 +18,24 @@ this gate is for.** The staged entry has carried a 32-bit size since SPEC.md
 4,608 - a perfectly plausible small package - so a loader that reads it
 without testing the high one sizes a region from a wrapped length, reads a
 truncated image and reports `Bad package` about a file whose only fault is
-its size. `ld_run_body` step 1 tests the high word first.
+its size. The high word is tested TWICE: `ld_take` (step 1) refuses anything
+at or past `PKG_FILE_HI`, and `ld_check_hdr` (step 3) refuses a non-zero high
+word outright unless the header's flags bit 2 says the file is longer than
+its image on purpose. BIGPKG is 70KB, so step 1 passes it and step 3 is the
+one that answers.
 
 TWO FILES, AND THE PAIR IS THE EXPERIMENT. Neither alone answers anything:
 
   1. `BIGPKG.O88`, 70,144 bytes - over `APP_MAX_SIZE`, under 1MB. The mount
      must type it 1 and the loader must answer **LD_EBIG**. On its own this
      is also what a rule that types every `*.O88` as a package looks like.
+
+     Its header's image word is the file size's LOW word, 0x1200, and that
+     matters: it used to be `min(total, 0xFFFF)`, which is over
+     `APP_MAX_SIZE`, so `ld_check_hdr` refused the file on the image bound
+     and the high-word test this row is named for was never reached. A/B on
+     the machine, with `or dx,dx / jne .toobig` deleted from the kernel: the
+     clamped fixture still PASSES this row and the truncated one fails it.
   2. `HUGE.O88`, 1,048,576 bytes - exactly `PKG_FILE_HI << 16`, the first
      size the mount itself refuses. It must type 0 and reach the loader as
      **LD_EBAD**. On its own this is also what the OLD `high word == 0` rule
@@ -117,12 +128,12 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
         if name == "BIGPKG.O88" and got == LD_EBAD:
             fails.append(
                 "BIGPKG.O88 was refused as Bad package. The mount typed it 1 "
-                "and step 1 then believed LD_DE_SIZE's LOW word - 4,608 - so "
-                "the loader sized a region from a wrapped length and rejected "
-                "the truncated image. This is SPEC.md 21.4's hazard and it is "
-                "what the high-word test in step 1 exists to stop")
+                "and the loader then believed LD_DE_SIZE's LOW word - 4,608 - "
+                "so it sized a region from a wrapped length and rejected the "
+                "truncated image. This is SPEC.md 21.4's hazard and it is what "
+                "ld_check_hdr's `or dx,dx / jne .toobig` exists to stop")
         else:
-            fails.append("%s -> %s, want %s (SPEC.md 21 step 1)"
+            fails.append("%s -> %s, want %s (SPEC.md 21 steps 1 and 3)"
                          % (name, name_of(got), name_of(want)))
 
     # --- nothing was loaded, and nothing was left behind ---------------------

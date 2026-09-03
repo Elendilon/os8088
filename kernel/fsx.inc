@@ -627,12 +627,14 @@ fsx_modex:
     mov dx, 0x3C4
     mov ax, 0x0F02              ; map mask: all four planes...
     out dx, ax
-    mov ax, 0xA000              ; ...and clear the whole 256KB
-    mov es, ax
-    xor di, di
-    xor ax, ax
-    mov cx, 0x8000
-    rep stosw
+    mov ax, 0xA000              ; ...and clear the whole 256KB. vid_wipe is
+    mov cx, 0x8000              ; this body, factored (viddet.inc): both ends
+    call vid_wipe               ; are .text in KERNEL_SEG so the call is near,
+                                ; the four registers it clobbers - AX, CX, DI
+                                ; and ES - are all pushed at this routine's
+                                ; own entry, and zero is the right fill. Its
+                                ; own `cld` is redundant after the one above
+                                ; and harmless
     pop es
     pop di
     pop si

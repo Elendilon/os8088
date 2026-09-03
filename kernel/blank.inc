@@ -188,7 +188,10 @@ blk_sv      db 0                ; a SAVER SESSION is running: the overlay owns
 ; it - while the settings bitmap, the Drivers page and DRV_MAX never hear
 ; about us.
 ;
-; .text and not .bss, because -f bin zeroes nothing. DRVR_CLASS is DRVC_OVL,
+; .text and not .bss, because a `db 'SAVER.DRV', 0` has a VALUE and .bss can
+; hold nothing but zero (the section is `nobits`; what lands on it at boot is
+; the image's own zero padding, SPEC.md 2.6 - the note 71 lines above has this
+; right and this line used to have it backwards). DRVR_CLASS is DRVC_OVL,
 ; which drv_check compares against the image's own header byte and
 ; drv_cls_idx refuses by range, so this can never take a publication slot even
 ; by mistake.
@@ -206,8 +209,11 @@ ss_row:
     dw 0, 0                     ; DRVR_KB, DRVR_ENT
     db DRVC_OVL                 ; DRVR_CLASS - not a class the kernel knows
     db 0                        ; DRVR_WANT - no settings file can reach it
-    db DRVE_OK                  ; DRVR_ERR
-    db 0                        ; DRVR_PAD
+    db DRVE_OK                  ; DRVR_ERR - and NO DRVR_PAD byte after it, for
+                                ; xm_row's reason (kernel/xmem.inc): the pad
+                                ; makes DRVR_SIZE 16 so drv_row can stride
+                                ; drv_tab, and this record is deliberately not
+                                ; in drv_tab, so nothing strides over it
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -236,20 +242,26 @@ ss_row:
 ; that is dark without the user having lit it first.
 ; -----------------------------------------------------------------------------
 blk_wake:
-    push ax                     ; ONE bank, not two: the `.dark` arm keeps this
-    mov ax, [ticks]             ; one rather than popping here and pushing
-    mov [blk_t0], ax            ; again. The idle period restarts from here,
-    cmp byte [blk_on], 0        ; lit or dark - this is the only place it is
-    jne .dark                   ; set outside boot
-    pop ax
-    clc                         ; already lit: an ordinary input
-    ret
-.dark:                          ; ...and it can only have been a wake. AX is
-    xor al, al                  ; banked because this routine's contract is
-    call blk_set                ; flags and nothing else: ui.inc calls it
-    pop ax                      ; mid-keystroke, between int 16h's peek and
-    stc                         ; its fetch, and fsx_restore from inside its
-    ret                         ; own saved frame
+    push ax                     ; ONE bank, and ONE exit. AX is banked because
+    mov ax, [ticks]             ; this routine's contract is flags and nothing
+    mov [blk_t0], ax            ; else: ui.inc calls it mid-keystroke, between
+    xor al, al                  ; int 16h's peek and its fetch, and fsx_restore
+    cmp [blk_on], al            ; from inside its own saved frame. The idle
+    je .out                     ; period restarts here, lit or dark - this is
+                                ; the only place it is set outside boot.
+                                ;
+                                ; AL = 0 IS THREE THINGS AT ONCE: blk_set's
+                                ; "restore", the compare's operand, and the
+                                ; reason the lit path needs no `clc` - CF is
+                                ; set iff dest < src unsigned and nothing is
+                                ; less than zero, so the compare itself leaves
+                                ; CF = 0 = "an ordinary input". ss_start_x has
+                                ; the same idiom with its own justification
+    call blk_set                ; dark: it can only have been a wake
+    stc
+.out:
+    pop ax                      ; `pop` and `ret` write no flag, so whichever
+    ret                         ; answer got here still reaches the caller
 
 ; -----------------------------------------------------------------------------
 ; blk_pass - the UI task's per-pass service (SPEC.md 64.1, 79.5)
@@ -356,10 +368,17 @@ blk_pass:
                                 ; case is one far call per UI pass on a
                                 ; machine nobody is looking at
 
-.post:
-    mov byte [ss_post], 0       ; consumed BEFORE it is spent, blk_act's rule:
-    call COLD_SEG:ss_post_x     ; a second post landing inside this window
-    ret                         ; costs one more pass and nothing else
+.post:                          ; NO CLEAR HERE: ss_post_x opens with the
+    call COLD_SEG:ss_post_x     ; identical `mov byte [ss_post], 0` and carries
+    ret                         ; the identical comment, five source lines
+                                ; away. The window widens by one far call, and
+                                ; the surviving comment already argues that
+                                ; case for its own: a post landing inside it
+                                ; simply sets the byte again, and the work is
+                                ; state-based and idempotent. This is the
+                                ; `.text` copy and that one is `.cold` - the
+                                ; right direction, the binding guard being
+                                ; .text + .bss
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -403,24 +422,28 @@ blk_set:
     jnc .done                   ; means the overlay has the glass, so the
 %endif                          ; video signal must stay ON
     push ax
-    push cx
-    push di
-%ifdef KERN_BIG
-    mov cl, [vid_ndisp]
-    xor ch, ch
-.d:
-    mov al, ch
-    call vid_kind_of            ; AL = that display's adapter (DI banked)
-    call blk_one
-    inc ch
-    cmp ch, cl                  ; a do-while: [vid_ndisp] is never 0, and a
-    jb .d                       ; kernel that made it 0 would still do one
+%ifdef KERN_BIG                 ; CX is the loop's and the loop is KERN_BIG's:
+    push cx                     ; the %else arm below names no CX, and blk_one
+                                ; tail-jumps into vid_bk, which banks ax/es/dx
+                                ; and never writes it
+    mov cl, [vid_ndisp]         ; NO `push di`: this routine's body never names
+    xor ch, ch                  ; DI either, and the bank was a leftover from
+.d:                             ; before 25448be converted this site off
+    mov al, ch                  ; vid_ctx_ptr (whose DI IS an output).
+    call vid_kind_of            ; vid_kind_of banks its own (`push di / call
+    call blk_one                ; vid_ctx_ptr / ... / pop di`), and blk_one
+    inc ch                      ; reaches only vid_bk, vid_ac_pal and
+    cmp ch, cl                  ; vid_seq1_blank, none of which writes DI
+    jb .d                       ; a do-while: [vid_ndisp] is never 0, and a
+                                ; kernel that made it 0 would still do one -
+                                ; which is why this counts UP and not down: a
+                                ; `dec cl` from 0 would run 255 more passes
+                                ; handing vid_kind_of an out-of-range display
+    pop cx
 %else
     mov al, [vid_kind]          ; kern_small is single-display by construction
     call blk_one                ; - vidsel.inc's whole multi-display half is
 %endif                          ; inside one %ifdef KERN_BIG
-    pop di
-    pop cx
     pop ax
 .done:
     ret
@@ -453,8 +476,10 @@ blk_one:
 blk_relit:
     call menu_force
     call dock_force
-    call wm_paint_all
-    ret
+    jmp wm_paint_all            ; a tail jump: both callers are near (fsx.inc
+                                ; is .text, and kernel.asm's cw_blk_relit is
+                                ; `call blk_relit / retf`), so wm_paint_all's
+                                ; near `ret` lands on them correctly
 
 section .cold
 
@@ -486,7 +511,13 @@ ss_mins2idle:
     jbe .ok
     mov al, SS_MAXMIN
 .ok:
-    mov ah, 0
+    cbw                         ; the clamp is immediately above, SS_MAXMIN is
+                                ; 59, so AL is 0..59 and its sign bit is
+                                ; provably clear on both arms - the two
+                                ; dependencies to keep an eye on being the
+                                ; clamp staying below 0x80 and the value
+                                ; staying unsigned. `cbw` writes no flag and
+                                ; nothing below reads one
     mov dx, SS_TPM
     mul dx                      ; DX:AX, and DX is 0 by the clamp above
     mov [ss_idle], ax
@@ -511,8 +542,11 @@ ss_call:
     push bx
     push bp
     mov bx, ss_row
-    mov bp, [bx+DRVR_ENT]
-    call drv_call               ; DS = the image, ES = KERNEL_SEG, and a row
+    call drv_call_ent           ; ...whose BP the shared entry immediately
+                                ; above drv_call loads from the row, which is
+                                ; what four sites in two files were writing
+                                ; out. DS = the image, ES = KERNEL_SEG, and a
+                                ; row
     pop bp                      ; whose DRVR_SEG is 0 is a refusal rather than
     pop bx                      ; a far call. `pop` touches no flag
     ret
@@ -540,13 +574,14 @@ ss_open:
     jc .no
     mov si, ss_pub              ; the settings, in KERNEL_SEG - the overlay
     call ss_call                ; reads them through ES (SPEC.md 79.7)
-    jc .free
-    clc
-    jmp short .out
-.free:                          ; it took the file and then said no: the image
-    call ss_reap_x              ; goes back rather than sitting in the heap
-.no:                            ; until somebody asks again
-    stc
+    jnc .out                    ; ...and the yes path FALLS OUT: CF is already
+                                ; 0 there, so the `clc` and the `jmp short`
+                                ; that used to follow were both dead
+    call ss_reap_x              ; it took the file and then said no: the image
+.no:                            ; goes back rather than sitting in the heap
+    stc                         ; until somebody asks again. `.no` still
+                                ; catches drv_load_at's `jc` above, the call
+                                ; sitting immediately before it
 .out:
     pop si
     ret
@@ -599,9 +634,6 @@ ss_start_x:
 ; watching; this is a button press that did nothing, which is the shape
 ; SPEC.md 2.8.4 refuses.
 ; -----------------------------------------------------------------------------
-ss_cfg_x:
-    mov al, SSV_CFG
-    jmp short ss_open
 
 ; -----------------------------------------------------------------------------
 ; ss_stop_x - the user is back (SPEC.md 79.6)
@@ -696,16 +728,23 @@ ss_reap_x:
 ;      own close is what spends it, exactly as it spends every other page's;
 ;   3. the image is offered back, which is what closing the window reaches.
 ; -----------------------------------------------------------------------------
-ss_post_x:
-    push ax
-    mov byte [ss_post], 0       ; CONSUMED BEFORE IT IS SPENT (blk_act's rule):
-                                ; a post that lands inside this routine simply
-                                ; sets it again, and the worst a lost edge can
-                                ; cost is one more UI pass
+ss_post_x:                      ; NO `push ax`: nothing in this routine writes
+                                ; AX at all. `mov byte [mem],imm` names no
+                                ; register, ss_mins2idle opens `push ax / push
+                                ; dx` and closes `pop dx / pop ax`, and
+                                ; ss_reap_x opens `push ax / push bx` and
+                                ; closes `pop bx / pop ax` - so the header's
+                                ; "all registers preserved" holds without a
+                                ; bank of our own
+    mov byte [ss_post], 0       ; CONSUMED BEFORE IT IS SPENT (blk_act's rule),
+                                ; and this is now the ONLY clear: blk_pass's
+                                ; `.post` had the identical store five source
+                                ; lines away. A post that lands inside this
+                                ; routine simply sets it again, and the worst
+                                ; a lost edge can cost is one more UI pass
     call ss_mins2idle
     mov byte [cp_wdirty], 1
     call ss_reap_x
-    pop ax
     retf
 
 ; -----------------------------------------------------------------------------
@@ -803,8 +842,14 @@ ssf_frame:      cmp byte [blk_sv], 0    ; blk_pass's gate, on this side of the
                                 ; and the only caller is here
 .none:
                 retf
-ssf_cfg:        call ss_cfg_x
-                retf
+ssf_cfg:        mov al, SSV_CFG ; ss_cfg_x was a two-instruction wrapper with
+                call ss_open    ; exactly ONE caller - this - and it is named
+                retf            ; in no dw table, no OSAPI slot and nowhere in
+                                ; SPEC.md, unlike ss_set_x/ss_start_x/
+                                ; ss_stop_x. So it is this routine's own two
+                                ; instructions now. ctrl.inc:2399's `call
+                                ; COLD_SEG:ssf_cfg` is the external entry and
+                                ; does not move
 %endif
 
 section .text

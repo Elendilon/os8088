@@ -1005,16 +1005,8 @@ assoc_run_x:
 .refresh:                       ; ...and both routes end at the one repaint
     call files_refresh_x
 .out:
-    pop ax
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    retf
+    pop ax                      ; the extra word this routine banked itself...
+    jmp kretfc_es               ; ...and then the canonical eight (kernel.asm)
 
 ; -----------------------------------------------------------------------------
 ; assoc_handover - the window is up; tell the package to spend its document
