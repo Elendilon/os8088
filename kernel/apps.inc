@@ -956,18 +956,22 @@ app_tmr_render:
     push si
     push di
 
-    mov bx, di                  ; one walk over the three ADJACENT fields,
-    mov si, app_tmr_str         ; writing "HH:MM:SS:" ...
+    mov si, di                  ; one walk over the three ADJACENT fields,
+    mov bx, app_tmr_str         ; writing "HH:MM:SS:" ...
 .fmt:
-    mov al, [ss:bx]
-    aam                         ; AH = tens, AL = ones
-    add ax, 0x3030              ; both to ASCII, leading zero for free
-    mov [si], ah
-    mov [si+1], al
-    mov byte [si+2], ':'
+    mov al, [ss:si]             ; the source is SS-relative; the destination is
+    call KERNEL_SEG:cw_clk_put2 ; .bss, and clk_put2 writes [bx] through DS,
+                                ; which is KERNEL_SEG in .cold too. SPEC.md
+                                ; 37's own two-digit pair rather than a second
+                                ; copy of it - the `aam / add ax,0x3030 /
+                                ; leading zero for free` idiom and its COMMENT
+                                ; were written out identically in both files.
+                                ; BX comes back advanced by 2, which is what
+                                ; makes the loop bound below work unchanged
+    mov byte [bx], ':'
     inc bx
-    add si, 3
-    cmp si, app_tmr_str + 9
+    inc si
+    cmp bx, app_tmr_str + 9
     jb .fmt
     mov byte [app_tmr_str+8], 0 ; ...and the third colon IS the NUL cell
 

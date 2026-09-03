@@ -645,7 +645,7 @@ toast_kill:
 
 ; -----------------------------------------------------------------------------
 ; toast_owner_gone - a closing instance takes its message with it
-; in:       DI = the record being freed (snd_release_rec's contract, and it
+; in:       DI = the record being freed (inst_rel_rec's contract, and it
 ;           is called beside it at both teardown sites so the two cannot
 ;           drift apart)
 ; out:      nothing - all registers and the flags preserved

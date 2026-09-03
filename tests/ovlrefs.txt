@@ -39,8 +39,14 @@
 # The five `ovl_*` shims are gone and the BODIES are named here instead
 # (SPEC.md 2.6.1): each was `call <body> / retf` for a body already in `.ovl`,
 # four bytes to own a far return the body can own itself.
-cpu_detect          kmain only (kernel.asm) - CPU tier + A20, SPEC.md 41.1-41.3
-xm_sniff            kmain only (kernel.asm) - the XMS probe, SPEC.md 41.4
+cpu_detect          kmain on kern_small; xm_sniff's first instruction on
+#                     kern_big - the CPU tier, SPEC.md 60. NOT A20: it has not
+#                     touched the gate since SPEC.md 41.12, and 41.1 is a
+#                     signpost to 60 rather than a section about tiers. The
+#                     kern_big call is .ovlw -> .ovlw, which ovlchk skips by
+#                     construction; the %else arm is what keeps this row live
+xm_sniff            kmain only (kernel.asm) - the XMS probe, SPEC.md 41.12.1
+#                     (41.4 is unreal mode, and why it is FS and GS)
 clk_init            kmain only (kernel.asm) - the clock ladder's boot rung, SPEC.md 37
 desk_init           kmain only (kernel.asm) - first desktop paint, SPEC.md 14
 snd_init            kmain only (kernel.asm) - sound layer bring-up, SPEC.md 34

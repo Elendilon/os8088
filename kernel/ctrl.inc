@@ -3762,8 +3762,8 @@ cp_timebtn:
 ;
 ; DS is KERNEL_SEG here exactly as it was in .text, so every [clk_*] below is
 ; unchanged. What DID change is the six formatters these reach: those stay
-; resident (clk_fmt draws the bar from five of them, clk_inc_day carries a
-; month with the sixth), so each is far-called through its cw_clk_* thunk in
+; resident (clk_fmt draws the bar from five of them, clk_inc_sec's day carry
+; reaches the sixth), so each is far-called through its cw_clk_* thunk in
 ; kernel.asm. os88ovlchk.py refuses any of them written near.
 ; =============================================================================
 

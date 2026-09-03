@@ -209,8 +209,11 @@ ss_row:
     dw 0, 0                     ; DRVR_KB, DRVR_ENT
     db DRVC_OVL                 ; DRVR_CLASS - not a class the kernel knows
     db 0                        ; DRVR_WANT - no settings file can reach it
-    db DRVE_OK                  ; DRVR_ERR
-    db 0                        ; DRVR_PAD
+    db DRVE_OK                  ; DRVR_ERR - and NO DRVR_PAD byte after it, for
+                                ; xm_row's reason (kernel/xmem.inc): the pad
+                                ; makes DRVR_SIZE 16 so drv_row can stride
+                                ; drv_tab, and this record is deliberately not
+                                ; in drv_tab, so nothing strides over it
 %endif
 
 ; -----------------------------------------------------------------------------

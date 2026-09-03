@@ -605,21 +605,14 @@ snd_release_inst:
     popf
     ret
 
-; -----------------------------------------------------------------------------
-; snd_release_rec - snd_release_inst for a record pointer (internal helper
-;                   for the two SPEC.md 29.4 teardown call sites)
-; in:  DI = instance record ptr
-; out: nothing
-; clobbers: nothing (flags)
-; -----------------------------------------------------------------------------
-snd_release_rec:
-    push ax
-    push cx
-    call inst_idx               ; AL = instance slot
-    call snd_release_inst
-    pop cx
-    pop ax
-    ret
+; snd_release_rec USED TO BE HERE, and its three SPEC.md 29.4 teardown sites
+; now call instance.inc's inst_rel_rec instead: the sound release and the
+; extended-memory one were always called as an adjacent PAIR, in that order,
+; at all three, and each separately converted the same DI into the same slot.
+; One caller-side helper does the conversion once and tail-jumps into
+; xm_release_rec, which keeps its own entry for loader.inc's fourth caller.
+; The helper is in instance.inc because the record is instance.inc's and the
+; pair is what SPEC.md 29.4 asks for, not something sound owns.
 
 ; -----------------------------------------------------------------------------
 ; snd_disp_set - stamp the instance a window callback is dispatched for

@@ -184,6 +184,18 @@ FAST = [
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
         "boundary, because the half before it loads correctly on exactly the "
         "machine the canary is for - which is how the first one shipped wrong"),
+    Row("mlen", "fast", py("tests/unit/t_mlen.py"), 4.0,
+        "twelve month lengths, read back out of build/kernel.bin. clk_mlen "
+        "carries the eleven non-February ones as a 16-bit MASK since kernel "
+        "size pass 3 - three bytes shorter than the db table it replaced, and "
+        "twelve facts collapsed into one hex constant nobody can check by "
+        "eye. Nothing else in the tree covers them: tests/dtfield.py row 3 is "
+        "the only test that reaches the routine at all and it is '30 Jan + "
+        "one month lands on 28/29 Feb', i.e. February - which is the BRANCH "
+        "below the mask and the one arm the rewrite did not touch. A wrong "
+        "bit surfaces as '31 April accepted in the Date/Time page' and as a "
+        "midnight rollover on the wrong day, which no harness here can run "
+        "long enough to see"),
     Row("bsssentinel", "fast", py("tests/unit/t_bsssentinel.py"), 4.0,
         "a sentinel byte whose RESTING value is not zero cannot live in .bss "
         "(SPEC.md 12.8.5.1): `-f bin` emits nothing for it and the boot read "

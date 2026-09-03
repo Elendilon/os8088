@@ -41653,9 +41653,9 @@ the caller cannot know which rung answered.
 | symbol | contract |
 |--------|-----------|
 | `clk_init` | Boot: display settings to their defaults (24-hour, no seconds), fallback date, then the RTC probe. Preserves all registers. |
-| `clk_tick` | UI task only. Advances the clock from the `[ticks]` delta. Out: AL = the change mask above. Clobbers AX only. |
+| `clk_tick` | UI task only. Advances the clock from the `[ticks]` delta. Out: AL = the change mask above. Clobbers AX only — AH is left 0 or 2, which is inside that, and the one caller reads AL. **It drains `[clk_barq]` with an `xchg` and DOUBLES the byte into mask bit 1, so `[clk_barq]` is 0 or 1 and nothing else**: a 2 would set bit 2 and a 0x80 would double to 0 and lose the request silently. Every writer stores 0 or 1; a new one must too, or it owes this routine a compare instead. |
 | `clk_snapshot` | Copies the six fields to `clk_sn_*` under `pushf`/`cli`. Preserves all registers. Read by §31.5. |
-| `clk_fmt` | Calls `clk_snapshot`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 26 bytes. Out: SI = `clk_str`, **CX = its length**. Preserves everything else. The length is free here — the routine ends holding the pointer it wrote the NUL through — and it is what **both** callers wanted: each used to walk the string again the instant it came back. |
+| `clk_fmt` | Calls `clk_snapshot`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 25 bytes — 24 + the NUL, counted off the format itself and no longer carrying a guard byte, because the RTC probe's scratch is now declared *into* it (§37.90). Out: SI = `clk_str`, **CX = its length**. Preserves everything else. The length is free here — the routine ends holding the pointer it wrote the NUL through — and it is what **both** callers wanted: each used to walk the string again the instant it came back. |
 | `str_len` | In: SI = an ASCIIZ string in `KERNEL_SEG`. Out: CX = its length, NUL excluded. SI and every other register preserved. The kernel's only strlen, hosted in `clock.inc` beside `clk_fmt` and reached by a near call from `.text` alone — a site in `.modc` or `.cold` is in another segment and needs a shim, which is worth more than the loop it would replace. |
 | `clk_fld_str` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6 (month, day, year, hour, minute, second, meridiem). Out: SI = a NUL string for that field alone in `clk_fbuf` — `'Mmm'`, `'DD'`, `'YYYY'`, `'HH'`, `'MM'`, `'SS'`, `'AM'`/`'PM'`. Always the field's **full width, zero-padded** — unlike `clk_fmt`, because a field is a fixed-width editable cell whose highlight box must not change size under it; in 12-hour mode the hour reads `'12'`, `'01'`..`'11'`. Reads the last `clk_snapshot` and does **not** take one. Preserves everything else. Read by §31.5. |
 | `clk_fld_adj` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6, BL = +1 or −1. Steps that field with wrap (month 1..12, day 1..month length, year 1980..2099, hour 0..23, min/sec 0..59); field 6 flips the meridiem by ±12 hours, either sign. Then re-clamps the day to the new month length (31 Mar − 1 month = 28 Feb, never 31 Feb), zeroes `clk_acc` and re-samples `clk_last` so the new second starts from now, and sets `[clk_dirty]` + `[clk_barq]`. Preserves all registers. Called by §31.5, which is its only caller and now also its host. |
@@ -41671,6 +41671,19 @@ is the only thing that jumps by 12.
 
 **Month names** are a 12×3 ASCII table (`'Jan'`…`'Dec'`), indexed by
 month−1 ×3 — the same data serves `clk_fmt` and `clk_fld_str`.
+
+**Month LENGTHS are not a table.** `clk_mlen` carries the eleven non-February
+answers as one 16-bit mask — bit *m* set means month *m* has 31 days, *m* =
+1..12, so bit 0 is unused and bit 2 is clear because February is the branch
+under it. That is three bytes less than the `db 31,28,31,…` it replaced and
+one review problem more, so `tests/unit/t_mlen.py` (fast tier) reads the
+immediate back out of `build/kernel.bin` and asserts all twelve lengths —
+zero kernel bytes, and the only thing in the tree that covers the eleven the
+mask decides. `tests/dtfield.py` row 3 is February, which is the branch.
+**`clk_mlen` must not spend AH**: `clk_fld_adj` carries the ±1 step there
+across both `cw_clk_mlen` calls and `clk_step` opens `add al, ah`, so the
+3-bytes-cheaper `mov ax, mask / shr ax, cl` form breaks the Date/Time ±
+button and nothing here would see it.
 
 **What this deliberately does not do.** No timezone, no DST (the DST byte
 `AH=02h` returns is ignored and `AH=03h` is written 0), nothing *displays*
@@ -41803,6 +41816,30 @@ of them *enable* pulse outputs when clear.
 forever for a bit that will never change on a machine where every read is
 0FFh, and rungs 2 and 3 do their waiting with interrupts off.
 
+**The probe's scratch is `clk_str`.** Twenty-two bytes of `.bss` exist only
+while `clk_probe` runs — `clk_tb_*` (every rung's read lands there first and
+`clk_commit` is the only thing that adopts it), `clk_rr` (rung 1's raw burst),
+`clk_rf_*` (the `int 1Ah` reference rung 3 is checked against), `[clk_ref]`,
+`[clk_nsrol]` and `[clk_rpyy]` — and they are declared as `equ`s **into the
+menu bar's line buffer**, not beside it. The two lifetimes cannot meet, in
+both directions: every reference to every one of those names is in
+`clock.inc`'s `.ovlw`, which `drv_boot`'s first mount overwrites, and
+`clk_str`'s only writer is `clk_fmt`, whose two callers are `menu_draw_clock`
+and `toast_gapend` — neither reachable before `menu_init`, a hundred lines of
+`kmain` after `OVWCALL clk_init`. Not one instruction changes: every access
+was already an absolute DS-relative `[clk_tb_x]`. `CLK_PROBE_SPAN` is
+asserted against `clk_str`'s size at assembly time, which is what makes
+§37's 25-byte figure load-bearing rather than a comment.
+
+**Two numberings, and they collide on the BIOS rung.** The list above is the
+**walk order** (1..5), in which `int 1Ah` appears twice — as the reference and
+as the rung of last resort. `[clk_tier]` holds the **`CLK_T_*` enum** instead:
+AT 1, NS 2, RP 3, BIOS 4, which is what `clockw.inc`'s section headers,
+`clk_wtab`'s dispatch table and `ctrl.inc`'s `cp_rtcnam` are all indexed by.
+So the BIOS rung is "5" in one and "4" in the other. Both are defensible and
+neither is going away; what is binding is that **a comment naming a rung
+number says which scheme it means**.
+
 **Testing.** QEMU models an MC146818 and nothing else, so rungs 2, 3 and 4
 would be unreachable under the QMP harness. `RTC=none|at|ns|rp|bios` in the
 Makefile forces one rung, exactly as `VIDEO=` forces the adapter (§39.1),
@@ -41811,6 +41848,15 @@ with nothing at 2C0h are the negative test: the probe must reject and boot
 to the fallback date rather than hang or claim a phantom clock. Rungs 2 and
 3 have no positive test outside 86Box (`isartc_type = a6pak`) and real
 hardware.
+
+The consequence for a **size** pass is worth stating where the tests are:
+`clock.inc`'s `.ovlw` half and the whole of `clockw.inc` are the least-covered
+bytes in the kernel, and they buy nothing against `KERN_CODE_MAX` either —
+`.ovlw` is forfeit at the first mount and `.modc` ships in `CTRL.DRV`. What is
+reachable is rung 1 under QEMU (`sb_ladder` reads `tier 1, stop 00` out of
+§37.92's `'CK'` block, which is a live read of the whole AT burst and decode)
+and the *refusals* of rungs 2 and 3 under `RTC=ns` / `RTC=rp`. Acceptance of
+either chip is field-only.
 
 ### 37.91 The century byte, and the year it composes
 
@@ -41941,7 +41987,9 @@ prefix because §37 still owns the contract.
 
 **What could not go with them, and why.** `clk_fld_str` reaches five
 formatters and `clk_fld_adj` reaches `clk_mlen`; all six have *resident* near
-callers (`clk_fmt` from the menu bar, `clk_inc_day` from the tick), so none of
+callers (`clk_fmt` from the menu bar, `clk_inc_sec`'s day carry from the tick
+— which was `clk_inc_day`, a separate routine, until a size pass inlined its
+one caller's copy), so none of
 them can leave and none can become a `retf` body (§2.6.1). They get the
 ordinary `.text` thunk instead — **six of them, `cw_clk_mlen`,
 `cw_clk_put_mon`, `cw_clk_put2`, `cw_clk_put4`, `cw_clk_h12h`, `cw_clk_ampm`,
@@ -42021,12 +42069,20 @@ the port helpers both halves share:
 
 | | bytes | ends in | because |
 |---|---:|---|---|
-| `clk_at_get` | 13 | **`retf`** | no near caller left in `.text` |
-| `clk_at_done` | 18 | **`retf`** | " |
-| `clk_ns_stamp` | 64 | **`retf`** | " |
-| `clk_rp_get` | 14 | **`retf`** | " |
-| `clk_ns_put` | 16 | `ret` | `clk_ns_stamp` near-calls it ×4 |
+| `clk_at_get` | 9 | **`retf`** | no near caller left in `.text` |
+| `clk_at_done` | 14 | **`retf`** | " |
+| `clk_ns_stamp` | 52 | **`retf`** | " |
+| `clk_rp_get` | 11 | **`retf`** | " |
+| `clk_ns_put` | 13 | `ret` | `clk_ns_stamp` near-calls it ×4 |
 | `clk_tobcd` | 11 | `ret` | `clk_ns_stamp` near-calls it ×1 |
+
+**The byte column is re-measured at every size pass and has moved twice**
+(`routsize.py`, off `[map all]`). It read 13/18/64/14/16/11 when this section
+was written; kernel size pass 2 took `clk_ns_stamp` to 57, and pass 3 took the
+four port helpers onto the immediate/low-half addressing forms and
+`clk_ns_stamp`'s year clamp to a subtract-first one. **It is consulted to
+decide whether a body is worth moving, so a stale figure argues the wrong
+way** — `clk_ns_stamp` at 64 looks like twice the case it is at 52.
 
 **That table is enforced, not documented.** §2.6.1's gate refuses a near call
 to a `retf` body and a far call to a `ret` one, so the four that end in `retf`
@@ -42042,9 +42098,13 @@ the new `cw_clk_tobcd`.
 **Measured**, `kernsize[big]`: the move is **814 bytes** of `.text` — 787 out
 of `clock.inc`, 12 more as the `ovw_` block shrinks to two `cw_` thunks, and
 16 as `ui.inc`'s drain goes; the module pays 51 for the far-call widening and
-the `cs:` override, so `clockw.inc` is 838 in the image. `clock.inc`'s `.text`
-is **678 bytes**, from 1,794 before §37.93 — the tick, the carry, the
-snapshot, the menu bar's formatter, the `'CK'` block and these six.
+the `cs:` override, so `clockw.inc` was 838 in the image. `clock.inc`'s `.text`
+was **678 bytes** at that measurement, from 1,794 before §37.93 — the tick,
+the carry, the snapshot, the menu bar's formatter, the `'CK'` block and these
+six. **Both figures are the ones this move landed on and neither is current**:
+two size passes since read `clock.inc` `.text` **606** and `clockw.inc`
+`.modc` **771**, with the module's own dispatcher on a `[cs:]` jump table and
+its five encode-then-write bursts behind two helpers.
 
 **The two moves together are 1,119 bytes of `.text` and they uncross the image
 rung**: on the integration branch `KERN_SIZE` 120,320 → **119,296**, `.text`
@@ -47261,9 +47321,11 @@ every citation of §41.1 still lands somewhere that tells the reader where to
 go.
 
 What stays in §41 is the store and **its own prerequisites**: the A20 gate
-(§41.2) and the HMA claim (§41.3), which live in `xmem.inc` beside the code
-they serve and have exactly two callers between them — `kmain` calls
-`xm_a20_enable`, `xm_init` calls `xm_hma_claim`.
+(§41.2) and the HMA claim (§41.3), which live beside the code they serve and
+have exactly two callers between them — one at boot for the gate, one from the
+sizing for the claim.
+
+**Since §41.12 none of these routines is in `xmem.inc` at all** — the gate, the probe, the HMA claim, the sizing, the allocator and both transports are `drivers/xmem/xmem.asm`, i.e. `XMEM.DRV`, and `xm_init` does not exist: the kernel's half is the four published cells, the boot sniff and the dispatcher. The paragraphs below are kept because the *design* is unchanged and every citation of them still lands somewhere true — but a reader looking for the FILE wants §41.12, and `grep xm_a20_enable kernel/` finds nothing.
 
 ### 41.2 A20 — the gate, and the verification that is not optional
 
@@ -47272,10 +47334,11 @@ Both enable methods are advisory: a machine may have neither, may decode port
 and does nothing. So `CPU_F_A20` is set by `xm_a20_probe` — a wraparound
 read — and by **nothing else**, never by "we wrote to the gate".
 
-The gate, the probe and their helpers live in **`xmem.inc`**, not
-`cpudet.inc`: they exist only to make the store reachable, and between them
-they have two callers — `kmain` calls `xm_a20_enable`, `xm_init` calls
-`xm_hma_claim` (§60). On tier 0 `xm_a20_enable` returns having touched no port
+The gate, the probe and their helpers live **with the store**, not in
+`cpudet.inc`: they exist only to make it reachable, and between them they have
+two callers — the boot path calls `xm_a20_enable`, the sizing calls
+`xm_hma_claim` (§60). Their file is `drivers/xmem/xmem.asm` since §41.12, not
+`xmem.inc`. On tier 0 `xm_a20_enable` returns having touched no port
 at all: there is no gate on an 8088, and port 0x92 there decodes to whatever
 that machine happens to put on it (§41.9 rule 1).
 
@@ -47323,7 +47386,8 @@ this paragraph still read "nothing allocates out of this pool today" — a
 sentence a size pass could delete a live subsystem on the strength of.
 Before it, exactly one had existed — §53.6.1's fullscreen desktop
 stash, kernel-side, 286+/VGA — and it was removed. `xm_release_rec` had three
-call sites in `instance.inc`, beside each `snd_release_rec`, from the commit
+call sites in `instance.inc`, beside each `snd_release_rec` (both are
+`inst_rel_rec` now — §50.4), from the commit
 that introduced it until the **#51 integration merge dropped all three** —
 docs/UPSTREAM.md's hazard exactly, a merge that assembles, boots and says
 nothing, because a call that is simply absent breaks no build. It cost nothing
@@ -47425,7 +47489,7 @@ Four things hold it up:
 - **It is asked ONCE, in `tm_init`**, and never from a draw. The frame is
   *sized* from the answer, so a value that could change under a live window
   would leave the height and the row placement disagreeing. It cannot change
-  anyway — `xm_init` sizes the pool at boot and nothing resizes it.
+  anyway — the overlay sizes the pool at attach and nothing resizes it.
 - **`TMM_XSHIFT` is `TM_ROW_H` exactly**, asserted at assembly time. The space
   the bar gave back is one process row, so on a short screen the list gets
   longer rather than the window getting shorter; where the list is already
@@ -47535,8 +47599,10 @@ interrupts-off window is short — and where a 286 BIOS implements that by a
 CPU reset, the reset returns transparently (the himem.sys mechanism) with
 conventional RAM, the lock flag included, intact. Not from a **worker** task:
 the tier-1 path is a BIOS call, which the kernel keeps on the UI task (§7),
-and the copy shares `[xm_src]/[xm_dst]` scratch serialized by `sch_lock`
-against a switch, not against re-entry. (An earlier draft forbade COPY *under
+and the copy shares one parameter block — `xm_cblk`, in the kernel's `.bss`,
+handed to the image at `ES:SI` (§41.12.2); it was `[xm_src]/[xm_dst]` while
+the transports were resident — serialized by `sch_lock` against a switch, not
+against re-entry. (An earlier draft forbade COPY *under
 the gfx lock*; that was mistaken — a window callback is the intended caller
 and always holds it — and it made the contract self-contradictory. Lifting it
 changes no code: COPY never reads `gfx_lock_flag`.)
@@ -57818,10 +57884,15 @@ differed by more than 100KB.
 
 ### 50.4 Teardown
 
-`mem_free_rec` sits beside `snd_release_rec` at all three §29.4 teardown
+`mem_free_rec` sits beside `inst_rel_rec` at all three §29.4 teardown
 sites — `app_close_win`'s task-less path, `inst_task_die`, and
 `inst_pkg_alive`'s window-less case — and releases every claim the dying
-instance holds. That is what makes rule 4 above true, and it is the reason
+instance holds. (`inst_rel_rec` is the sound release and the extended-memory
+one as one call: they were always adjacent and in that order at all three, and
+each separately converted the same record pointer into the same slot. It is
+**not** a third member of that group — `mem_free_rec` runs *after*
+`wm_destroy`, deliberately, because a freed region makes a survivor's procs a
+wild call.) That is what makes rule 4 above true, and it is the reason
 `files.inc` needs no close hook for its view cache: the Disk window's claim
 is owned by the Disk *instance*, and the instance's death frees it.
 
@@ -64207,7 +64278,7 @@ Four things are load-bearing:
   wrong and the new step is unreachable on every pass where the previous one
   had nothing to do, which is nearly all of them (§22.8's own warning).
 
-`toast_owner_gone`, called beside `snd_release_rec` at both teardown sites,
+`toast_owner_gone`, called beside `inst_rel_rec` at both teardown sites,
 takes a closing instance's message down with it. Not needed for correctness —
 the string was copied, so nothing dangles — but `Saved NOTES.TXT` over a bar
 that now belongs to Locator is a message about a window that is not there.
@@ -64382,7 +64453,7 @@ and no message:
   The two are independent now and the ordering keeps a better reason: the
   message *is* the verdict, and `drv_cfg_save` is what produces it.
 - **`toast_owner_gone` runs FIRST in `app_close_win`**, before the
-  `KIND_CTRL` test rather than after `snd_release_rec`. The panel's last act
+  `KIND_CTRL` test rather than after `inst_rel_rec`. The panel's last act
   is a report *about the panel*, raised during the panel's own teardown, so a
   kill ordered after it would take that report away. Moving the kill to the
   top of the teardown makes that impossible by construction — rather than by

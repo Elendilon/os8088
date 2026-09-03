@@ -2124,7 +2124,7 @@ mem_free_x:
 ; out:      nothing (all registers preserved)
 ;
 ; The teardown fence. Called from both SPEC.md 29.4 paths beside
-; snd_release_rec, so a closed package can no more leak a quarter of a
+; inst_rel_rec's sound half, so a closed package can no more leak a quarter of a
 ; megabyte than it can leave a tone droning.
 ; -----------------------------------------------------------------------------
 mem_free_owner_x:
@@ -2151,7 +2151,7 @@ mem_free_owner_x:
 ; -----------------------------------------------------------------------------
 ; mem_free_rec - mem_free_owner for an instance record pointer
 ; in:  DI = instance record ptr
-; out: nothing (all registers preserved) - the snd_release_rec twin
+; out: nothing (all registers preserved) - inst_rel_rec's twin
 ; -----------------------------------------------------------------------------
 mem_free_rec_x:
     push bx

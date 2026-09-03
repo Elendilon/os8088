@@ -3926,9 +3926,10 @@ api_file_rename:
 
 ; --- resident shims the overlay far-calls (see the contract above) ----------
 ; Four bytes each. A routine gets one only because an overlay entry needs it
-; and it has to stay resident for its own reasons: xm_arm because xm_copy
-; re-arms unreal mode inside the window that uses it, dsk_vol_slot because
-; every zone painter calls it on every repaint.
+; and it has to stay resident for its own reasons: dsk_vol_slot because every
+; zone painter calls it on every repaint. (This sentence used to open with
+; `xm_arm`, which moved into XMEM.DRV with SPEC.md 41.12 and has had no shim
+; below - and no existence in kernel/ - since.)
 %ifdef BOOT_MARK
 ovw_mark_stamp:     call mark_stamp     ; SPEC.md 15.5's marker, reached from
                     retf                ; the OVERLAY (37.95). The MARK macro
@@ -4300,23 +4301,24 @@ kmain:
                                 ; would otherwise have been needed to reach
     MARK 1
 
-    OVWCALL  cpu_detect      ; CPU tier + memory above 1MB (SPEC.md 41),
-                                ; here and nowhere else: BEFORE sched_init,
-                                ; because this is the last moment at which no
-                                ; kernel ISR is installed - the unreal-mode
-                                ; window inside xm_init runs with CR0.PE set
-                                ; and a real-mode IVT, so the only handlers
-                                ; that may fire in it are the BIOS's own, and
-                                ; a tick lost here costs nothing ([ticks] is
-                                ; zeroed by sched_init anyway)
-    MARK 2
 %ifdef KERN_BIG                 ; the store above 1MB is kern_big's alone
                                 ; (SPEC.md 41.11). kern_small is the
                                 ; 128KB-floor product and neither sniffs nor
-                                ; loads. The tier is still detected above, in
-                                ; both builds: it is a fact about the CPU that
+                                ; loads. The tier is still detected in both
+                                ; builds: it is a fact about the CPU that
                                 ; packages read
-    OVWCALL  xm_sniff        ; IS there memory above 1MB? ONE int 15h
+                                ;
+                                ; ONE CROSSING, NOT TWO. xm_sniff's first
+                                ; instruction reads [cpu_tier], so it runs
+                                ; cpu_detect itself - two adjacent OVWCALLs
+                                ; were 5 resident bytes each and one of them
+                                ; buys nothing that a far call from inside the
+                                ; overlay, into the segment it is already
+                                ; running in, does not. The ORDER is unchanged:
+                                ; the tier is published before the sniff reads
+                                ; it, and both still run before sched_init
+    OVWCALL  xm_sniff        ; ...and CPU_DETECT FIRST. IS there memory
+                                ; above 1MB? ONE int 15h
                                 ; AH=88h, and on tier 0 one compare (SPEC.md
                                 ; 41.12.1). The gate, the sizing, the
                                 ; allocator and both transports are XMEM.DRV
@@ -4332,6 +4334,11 @@ kmain:
                                 ; port 0x92 and race the keyboard controller
                                 ; for D1h/DFh to be told there was nothing up
                                 ; there. AH=88h reads CMOS and needs no gate
+    MARK 2
+%else
+    OVWCALL  cpu_detect         ; kern_small has no sniff to hang it off, so
+                                ; the tier probe is its own crossing here
+    MARK 2
 %endif
     MARK 3
 
@@ -5656,7 +5663,7 @@ cw_clk_snapshot:        call clk_snapshot
 ; --- ...and the six the Date/Time page's editor needs (SPEC.md 37.93) -------
 ; clk_fld_str and clk_fld_adj moved into CTRL.DRV, and these are everything
 ; they reach on the way. Not one of them could go with them: clk_fmt draws
-; the menu bar from five of these and clk_inc_day carries a month with the
+; the menu bar from five of these and clk_inc_sec's day carry reaches the
 ; sixth, so all six keep a RESIDENT near caller and none can become a retf
 ; body (SPEC.md 2.6.1). 329 bytes of .text left and 24 came back, so the move
 ; is 305; duplicating the six into the image instead would have saved those

@@ -136,6 +136,12 @@ CLO_STAGEKB  equ 33             ; ...and what the XMS path stages through:
                                 ; 1KB of header and 32KB, which is exactly
                                 ; XM_MAX_COPY, so one buffer load is one copy
 CLO_XSEC     equ 64             ; sectors per xm_copy: 64 x 512 is XM_MAX_COPY
+                                ; - a THIRD hand-maintained mirror of 32,768,
+                                ; which is defined only in
+                                ; drivers/xmem/xmem.asm. The link is this
+                                ; comment and nothing compares them; a copy
+                                ; over the image's cap is refused with AX = 3,
+                                ; so the failure is loud rather than silent
                                 ; exactly (SPEC.md 41.12.2), and the length
                                 ; has to be even as well as bounded
 CLO_IMGMAX   equ 127            ; sectors per FILE transfer: dskw_append takes
