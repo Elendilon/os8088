@@ -138,6 +138,12 @@ FPG_USHR   equ 9                ; SECTOR, because fpg_step's caller is the
 ; -----------------------------------------------------------------------------
 fpg_begin:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     push ax
     push bx
     push cx
@@ -246,6 +252,12 @@ fpg_begin:
 ; -----------------------------------------------------------------------------
 fpg_busy:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     push ax
     push bx
     push cx
@@ -294,6 +306,7 @@ fpg_busy:
     pop cx
     pop bx
     pop ax
+    CURBAR_OFF
     popf
     retf
 
@@ -459,6 +472,45 @@ fpg_arm:
                                 ; fpg_finish's one word store still clears it
     call cursor_hide
 .lit:
+%ifndef NOCURDISK
+    ; --- ...OR IT IS ALREADY DOWN, AND AN ARROW THAT IS DOWN CANNOT TRACK ---
+    ; (SPEC.md 7.4.3.1) The case above is the pointer sitting ON the bar. This
+    ; is the other one, and it is most of the machine: a handler that PAINTED
+    ; before it read - the Control Panel, a file dialog, a copy repainting its
+    ; list - spent gfx_lock's promised hide on the way past (SPEC.md 7.1.4),
+    ; so by the time any of the disk work starts the arrow is off the glass and
+    ; [cur_level] < 0 keeps the ISR off it for the rest of the hold.
+    ;
+    ; PUT IT BACK, AND PUT THE PROMISE BACK WITH IT. Re-arming [cur_lazy] is
+    ; what makes this need no new state and no debt to settle: the arrow is up
+    ; and owed a hide, which is exactly what that byte means, so every existing
+    ; consumer takes over unchanged - a later unclipped painter's cur_unlazy
+    ; hides it, a clipped one's cur_lazyck decides, and gfx_unlock's own tail
+    ; ends it either way. Without that re-arm this would be a lit arrow with no
+    ; promise outstanding, and the first painter after the transfer would draw
+    ; straight through it (SPEC.md 7.1.4's permanent smear).
+    ;
+    ; Four conditions, and the first is the one that makes the rest sound:
+    cmp byte [gfx_lock_flag], 0
+    je .curdone                 ; HELD, and .no above already refused another
+                                ; task's - so it is ours. A free lock needs
+                                ; none of this: nothing spent the promise,
+                                ; because there was no hold to make one
+    cmp byte [cur_level], -1
+    jne .curdone                ; not hidden, or hidden more than once - a
+                                ; refcount we did not take is not ours to undo
+    cmp word [wm_clip_n], 0
+    jne .curdone                ; a region is armed, so the ISR will not move
+                                ; it anyway (SPEC.md 7.4.2) and lit-but-frozen
+                                ; is the thing 7.1.4.3 rejected
+    cmp word [mouse_y], MBAR_H + CUR_GH
+    jb .curdone                 ; [mouse_y] and NOT [cur_drawn_y]: the drawn
+                                ; position is meaningless while the arrow is
+                                ; hidden, and cursor_show draws at the live one
+    mov byte [cur_lazy], 1
+    call cursor_show
+.curdone:
+%endif
     ; ...AND THE BAR BELOW IS COMPOSED WITH THE MUTEX POSSIBLY UNHELD, which is
     ; not excluded by the [gfx_lock_own] test above: that test refuses a lock
     ; held by ANOTHER task at the instant of arming and says nothing about one
@@ -536,6 +588,10 @@ fpg_arm:
 fpg_paint:
     call cur_unlazy              ; spend gfx_lock's promised hide before we
                                 ; draw anywhere near the arrow (SPEC.md 7.1.4)
+                                ; - which SPEC.md 7.4.3's [cur_barok], set by
+                                ; every public entry of this module, turns into
+                                ; "...unless the arrow is below the bar, where
+                                ; nothing here can reach it"
     call fpg_span               ; --- the bed: white over whatever the bar had
     xor bx, bx                  ;     there, since the space is BORROWED and
                                 ;     menu_relayout's limit is untouched
@@ -660,6 +716,12 @@ fpg_tin:
 ; -----------------------------------------------------------------------------
 fpg_step:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     cmp word [fpg_total], 0
     je .out
     push ax                     ; AX/BX/CX/DX/SI and no more: everything this
@@ -702,6 +764,7 @@ fpg_step:
     pop bx
     pop ax
 .out:
+    CURBAR_OFF
     popf
     ret
 
@@ -740,6 +803,12 @@ fpg_step:
 ; -----------------------------------------------------------------------------
 fpg_stepb:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     cmp word [fpg_total], 0     ; fpg_step's gate, for fpg_step's reason
     je .out
     push ax
@@ -763,6 +832,7 @@ fpg_stepb:
     pop cx
     pop ax
 .out:
+    CURBAR_OFF
     popf
     ret
 
@@ -831,6 +901,12 @@ fpg_end:
 ; -----------------------------------------------------------------------------
 fpg_finish:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     push ax
     push bx
     push cx
@@ -932,6 +1008,7 @@ fpg_finish:
     pop cx
     pop bx
     pop ax
+    CURBAR_OFF
     popf
     ret
 

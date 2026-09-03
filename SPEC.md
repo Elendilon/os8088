@@ -7741,6 +7741,226 @@ The instrument that works is the one above: bracket the kernel's own path with
 two memory breakpoints and read `cycles` at each. It never touches the mouse
 path, so the injection floor cannot enter the number.
 
+### 7.4 The arrow TRACKS the hand inside `int 13h` — `[cur_inxfer]`
+
+A file operation freezes the machine (§12.8, §18) and the pointer freezes with
+it. This is the one state in which the arrow may move anyway, and it exists
+because the CPU inside a BIOS disk call is **not busy** — it has handed the
+transfer to DMA and is spinning on IRQ6.
+
+**The measurement this rests on is §15.3.8's**, taken on a 5150 across a whole
+load: `int 13h` runs with interrupts *enabled*, 83% of the samples have
+CS = F000, the longest unbroken in-ROM run is **21 timer interrupts with IF set
+throughout and not one IRQ0 lost**, and *"a frame drawn from the timer ISR
+costs no real time at all — it is drawn in a gap the machine was going to spend
+idle."* The boot splash already animates from IRQ0 inside `int 13h` on that
+evidence and ships. This is the same claim for IRQ4, and it is the *same gap*.
+
+**It is TRACKING or it is nothing** (§7.1.4.3). A lit-but-frozen arrow has
+already been shipped here and reported back from the field as a stutter — *"it
+sits still while the hand moves and then teleports"* — and §7.1.4.4 is the
+whole of that argument. So merely un-hiding the pointer for a file operation is
+a change this project has taken and reverted, and the only version worth
+building is one where the arrow follows the hand for the length of the
+transfer. `NOCURDISK=1` is the A/B.
+
+#### 7.4.1 The flag brackets the instruction, not the operation
+
+`dsk_xfer` sets `[cur_inxfer]` immediately before each `int 13h` and clears it
+immediately after — the data transfer and the AH=00 controller reset alike.
+**Two stores, and the safety argument is the bracket's width rather than an
+audit**: the path from `.attempt` to `int 0x13` draws nothing, so no drawing
+primitive can be in flight on this task when the flag is set. It is `.text`
+with a real initialiser and not `.bss` (`-f bin` zeroes nothing, and
+`drv_boot` reads the disk before any init routine of ours could run —
+`fprog.inc`'s constraint, for its reason).
+
+`mov` leaves the flags alone, which is why the clearing store can sit between
+the `int 0x13` and the `jnc` that reads its CF.
+
+##### 7.4.1.1 …and the driver's transfer, on the screen argument alone
+
+A `DVK_DRV` volume leaves `dsk_xfer` before the `int 13h` loop is reached, so
+a hard-disk install — the longest freeze the machine has — kept a dead pointer
+for its whole run while a floppy operation no longer did. `drv_blk_call_x` is
+bracketed too.
+
+**The two halves of §7.4's argument come apart here and only one of them
+survives.** The ROM half does not: this is our own driver polling an ATA
+controller, not a BIOS parked on IRQ6, so a cursor draw costs real time rather
+than filling a gap the machine was going to waste. The *screen* half is the
+whole of what the flag actually claims, and it is untouched — a `DRVC_DISK`
+block verb moves sectors and does not draw, and `[sch_lock]` is raised across
+the call, so no other task can be inside a primitive either. A block verb that
+drew would be a defect on its own terms, not a case this has to survive.
+
+That is why the flag is `[cur_inxfer]` and not `[cur_inrom]`, which is what it
+was called when it covered only the BIOS path.
+
+#### 7.4.2 Three more conditions, and each one closes a real hole
+
+The flag says *this* task is in the ROM. It does not say the screen is safe, so
+`mou_apply` asks three more questions before it draws (§12.8.4 is what happens
+when a painter and the ISR share the glass):
+
+1. **Is the lock held by US?** A task can only draw while holding the gfx lock,
+   so a lock held by the task that is in the ROM proves no task is inside a
+   primitive. A lock held by *another* task proves the opposite — it was
+   pre-empted mid-`gfx_fill` and its `vga_rect_setup` scratch and GC state are
+   live — so that case defers. `[gfx_lock_own]` against `[sch_cur]`, the
+   comparison `fpg_arm` already makes for the same reason.
+2. **Is a clip region armed?** `wm_clip_set` calls `cur_lazyck`, which may
+   decide the arrow is out of the region's reach and *keep* the deferred hide
+   (§7.1.4). That decision is made before the read and spent after it, so an
+   arrow that moved into the region during the transfer would be drawn over
+   and its save-under would go stale for the session. A non-zero
+   `[wm_clip_n]` therefore defers. Unclipped painters need no test: they call
+   `cur_unlazy`, which hides the arrow, and `[cur_level]` < 0 already defers.
+3. **Would it land on the progress widget?** §12.8.4's gate is `[fpg_on]`, and
+   this path deliberately steps around it — so it is replaced by the narrower
+   question `fpg_arm` already asks: everything the widget draws is inside the
+   menu bar's rows, so an arrow whose cell could reach them does not move.
+   `cmp bx, MBAR_H + CUR_GH`, unsigned, conservative by a cell exactly as
+   `fpg_arm`'s own compare is. The arrow stalls at the bar's edge for the
+   length of the operation and catches up at `gfx_unlock`.
+
+##### 7.4.2.1 The lock-free case is SAFE, and it is most of the cases
+
+This section first said the opposite — that a free lock falls back to the
+ordinary gates and gains nothing, *"because with the lock free `[fpg_on]` is
+the only thing standing between IRQ4 and an unlocked `fpg_step` fill on another
+task (§12.8.4), and that is not a guard to step around for a case nobody asked
+for."* It was right about the danger and wrong about the case, and what it cost
+was **almost every operation a person actually notices**: a package launch, an
+assoc open and a package's own file dialog all do their reading with the lock
+**free** and `[fpg_on]` **set**, which is exactly the state `.gates` refuses.
+Sampled through a `PAINT.O88` launch: `gfx_lock_flag` 0 and `cur_inxfer` 1 for
+80 samples out of 80, the arrow up the whole time and never moving once.
+
+The lock being free is *evidence*, not an absence of it. Every task-level
+drawing burst is wrapped in `gfx_lock` (§7), so a free lock means **no task is
+inside a primitive**. The one painter in the machine that draws unlocked is
+fprog — measured, and §12.8.4 names it as the whole surface of that defect —
+and fprog draws only from the disk path, on the task that is doing the
+transfer. That task is the one asking this question, and it is inside the
+transfer, so it is not inside an `fpg_step` fill. `dsk_xfer` holds `[sch_lock]`
+across the whole transfer, so there is no other task running to be in one
+either.
+
+So a free lock takes the draw, with no `[wm_clip_n]` test — `gfx_unlock` clears
+the region, so a free lock has none — and the widget test below still applies.
+
+#### 7.4.3 The hider was `menu_draw_bar`, not `fpg_paint` — `[cur_barok]`
+
+Something has to stop spending `gfx_lock`'s promised hide (§7.1.4), because a
+spent promise means `cursor_hide` has run and there is no arrow left to track.
+**The obvious candidate was wrong, and the measurement is what said so.**
+
+`fpg_paint`'s `cur_unlazy` looks like the culprit: the widget arms at
+`FPG_WARM` = 3 sectors, the paint spends the hide, and the pointer is *gone*
+for the rest of the freeze rather than merely frozen. Making that one call
+conditional was built first and moved the arrow's lit share from 0% to 0%.
+Sampling the kernel through a real operation says why — the pointer tracked
+perfectly until the instant `[fpg_on]` went to 1 and then died, and `fpg_arm`
+calls **`menu_draw_bar` before it calls `fpg_paint`**. That composition is
+unclipped, so `GFXCLIP`'s own `cur_unlazy` had already hidden the arrow before
+`fpg_paint` was reached. Two painters, and the fix was aimed at the second one.
+
+So the rule goes where it is true of all of them. **`[cur_barok]` says "the
+painter running now is confined to the menu bar"**, and `cur_unlazy` keeps the
+promise instead of spending it when that byte is set and `[cur_drawn_y]` is at
+or below `MBAR_H + CUR_GH`. It is `cur_lazyck`'s trick (§7.1.4) with a fixed
+rect instead of a window's frame, and it is one test in one routine rather than
+one per call site.
+
+**fprog is the only module that may set it**, and it may because the statement
+is true of everything it draws — the bed, the icon, the box, the trough, the
+bar composition at either end — all of it inside rows 0..`MBAR_H`-1. The five
+public entries that draw bracket themselves (`fpg_begin`, `fpg_busy`,
+`fpg_step`, `fpg_stepb`, `fpg_finish`; `fpg_begin` shares `fpg_busy`'s
+epilogue, so four `CURBAR_OFF`s serve five routines), and none of them nests
+inside another, so a plain set and clear is enough and no save/restore is
+needed. `fpg_paint` is deliberately **not** bracketed: every call reaches it
+from inside one of those five, and its one other caller — `menu_furniture`,
+from inside `menu_draw_bar` — is reached the same way.
+
+`MBAR_H + CUR_GH` is the right bound and not a fudge: the cell's top is
+`[cur_drawn_y] - [cur_hy]` and the hot spot can be as low as `CUR_GH` (§7.2.2),
+so a position at or below that bound puts the whole cell at or below `MBAR_H`.
+It is `fpg_arm`'s own compare and its own constant, and being conservative can
+only cost a redundant hide; the other direction is §7.1.4's permanent smear.
+
+**A painter that is NOT bar-confined still hides the arrow, and must.** That is
+not a gap in the mechanism, it is the mechanism: measured over one folder open,
+the pointer tracks for the whole of the disk phase and goes down for the last
+sixth of the hold, when the window starts repainting its list. `tests/curdisk.py`
+reads 18 of 24 widget-up samples lit against `NOCURDISK=1`'s 0 of 24, on
+sample counts that are otherwise identical arm for arm.
+
+##### 7.4.3.1 An arrow that is already DOWN cannot track — `fpg_arm` puts it back
+
+§7.4.3 stops fprog's own painters taking the pointer off the glass. It does
+nothing about the handler that painted **before** it read, and that is most of
+the machine: the Control Panel drawing a page, a package's file dialog drawing
+itself, a copy repainting its list. Each spends `gfx_lock`'s promised hide on
+the way past (§7.1.4), so by the time the disk work starts `[cur_level]` is
+already < 0 and the ISR is barred from the arrow for the rest of the hold —
+whatever §7.4.1 and §7.4.2 allow. Sampled on the Control Panel's Drivers page:
+`cur_level` −1 for every sample of the freeze, with no clip region armed and
+the lock held by us.
+
+So `fpg_arm` puts the arrow back, and **puts the promise back with it**.
+Re-arming `[cur_lazy]` is what makes this need no new state and no debt to
+settle: "the arrow is up and a hide is owed" is exactly what that byte means,
+so every existing consumer takes over unchanged — a later unclipped painter's
+`cur_unlazy` hides it, a clipped one's `cur_lazyck` decides, and `gfx_unlock`'s
+own tail ends it either way. **Without the re-arm this would be a lit arrow
+with no promise outstanding, and the first painter after the transfer would
+draw straight through it** — §7.1.4's permanent smear, bought back at full
+price.
+
+It rides `fpg_arm` rather than `dsk_xfer` for one reason: the widget's lifetime
+**is** the freeze (§12.8.3), so this shows once at the start and is settled once
+at the end. Hung off the transfer instead it would show and hide per
+`dsk_xfer` call — a blink per call, which is §7.1.1's complaint and
+PERFORMANCE.md rule 2's.
+
+Four conditions, and the first is what makes the rest sound:
+
+1. **The lock is held**, and `fpg_arm` has already refused another task's, so
+   it is ours. A free lock needs none of this — nothing spent the promise
+   because there was no hold to make one, which the `PAINT.O88` launch
+   confirms at `cur_level` 0 for 67 samples of 79.
+2. **`[cur_level]` is exactly −1.** A refcount we did not take is not ours to
+   undo.
+3. **No clip region is armed** — the ISR would not move it anyway (§7.4.2), and
+   lit-but-frozen is the thing §7.1.4.3 rejected.
+4. **The pointer is below the bar**, read from `[mouse_y]` and *not*
+   `[cur_drawn_y]`: the drawn position is meaningless while the arrow is
+   hidden, and `cursor_show` draws at the live one.
+
+#### 7.4.4 What it does and does not buy
+
+Updates arrive at the mouse's own report rate — a 1200-baud packet is ~25–40 ms
+(§7.1.4.3) — for the whole of every `int 13h`. **The alternative that needs no
+ISR change is not good enough and was rejected on arithmetic**: stepping the
+cursor from `dsk_xfer`'s existing `.notch` loop beside `fpg_step` updates it
+once per call, and a call in a coalesced run is ~400 ms on the field machine
+(PERFORMANCE.md Part 2) — **~2.5 Hz**, which is precisely the teleporting
+pointer §7.1.4.3 rejected. If only one of the two is ever built it must be this
+one.
+
+Nothing else unfreezes. No window paints, no menu opens, no other task runs;
+`[sch_lock]` and the gfx lock are both untouched by this section. It is
+§12.8's argument one step further along — *"what was missing was not
+concurrency but feedback"* — and docs/UI-FREEZE-PLAN.md is the costing of the
+options that do address the freeze itself.
+
+**The driver-backed path is deliberately not covered.** A `DVK_DRV` volume
+leaves `dsk_xfer` before the run loop and its transfer is the driver's own code
+running at task level, not a ROM call with the CPU parked on an IRQ — so the
+"nothing is in flight" argument does not hold there and the flag is never set.
+
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
 - `MAX_TASKS equ 8`. Task 0 is the boot thread (becomes the UI task); it
@@ -36643,6 +36863,76 @@ silent save is exactly the behaviour §75 was written to remove. The user
 closes something else and tries again.
 
 
+### 27.16 `APP_SMALL` — the small build of this package
+
+**One package, one source, two products.** `make smallapps` assembles
+`apps/notepad/notepad.asm` a second time with `-DAPP_SMALL`, and the result
+goes on `build/smallapps*.img` — the apps floppy meant to be paired with
+`make small`'s kernel. The ordinary build defines none of it and is
+byte-for-byte what it was; that identity is the gate, and it is the same one
+docs/KERN-SPLIT-PLAN.md §6 set for the first removal from `kern_small`.
+
+**It is not a second ABI and must never become one.** A small-built
+`NOTEPAD.O88` calls the same API table at the same offsets as every other
+package (KERN-SPLIT-PLAN §3), so it runs on `kern_big` exactly as it runs on
+`kern_small` — it simply has fewer features. What pairs it with `kern_small`
+is the **disk it is written to**, nothing the kernel does or does not publish.
+`make small`'s own note that a package is "one package, both kernels" is still
+true here: this is one package built twice, not two packages.
+
+#### 27.16.1 Why
+
+On a 128KB machine `kern_small` leaves **~34.0KB of heap**
+(docs/KERNEL-MEMORY.md). A package instance is one claim of image + bss
+(§20.1), and the full build is **18,407 + 1,972 = 20,379 bytes** of that
+before the note holds a character. Note Pad on the floor machine was therefore
+not a tight fit but a coin toss against the menu save-under and the window
+record. The small build claims **12,362 + 1,158 = 13,520**, and
+`tools/os88pkgsize.py` is what says so on every `make smallapps`.
+
+**The largest saving is not in that arithmetic at all.** The undo arena is a
+heap claim that grows a kilobyte at a time to `NP_UMAXKB` = 16 (§27.9), and
+with `NPF_UNDO` off it is never claimed — which on a 34.0KB heap is worth more
+than the image and the bss together.
+
+#### 27.16.2 What goes, and what does not
+
+| flag | off in `APP_SMALL` | why it is separable |
+|---|---|---|
+| `NPF_FIND` | the find/replace panel, its regex engine (§27.10, §27.10.1) and the whole Find menu | eight entry points, all in the dispatch routines; the regex matcher has no caller outside find |
+| `NPF_UNDO` | the undo log and Edit ▸ Undo (§27.9) | nine internal entry points collapse to one shared `ret` |
+| `NPF_ABOUT` | the standard About card (§20.5.1) | one `OSAPI_ABOUT_SET` at entry and one layer in `np_paint` |
+| `OS88UI_SBDRAG` | §13.10.5's thumb gesture | already a knob (§13.10.7); the bar still tracks and steps |
+
+**Kept on purpose, so that the small build is a text editor and not a
+demo:** typing and word wrap, scrolling, the selection with cut/copy/paste,
+Save, Open, Save As, and §27.15's "Save changes to *name*?" alert. That last
+one is **data safety and is never a size decision** — a build that closes an
+edited note without asking is not a smaller product, it is a broken one.
+
+Two consequences worth stating because they are silent otherwise. **Escape
+still clears a selection**: it is gated out of the find ladder but not out of
+the key ladder, because with no panel to close it still has a job (§27.8).
+And the **Edit menu's item indices renumber** when Undo goes — the kernel
+hands `np_oncmd` the item's *position* in the list it was given (§12.2), not
+a name, so leaving `NP_MI_CUT` at 1 would put every Edit command one item off
+its own label.
+
+#### 27.16.3 The one place speed is traded
+
+`NP_XN` — §27.13's row index — is **256 entries in the full build and 32
+here**, 512 bytes against 64. Nothing about the index is *wrong* at 32: it is
+the same contiguous table with the same doubling stride, exact for a note
+under 32 rows and within one stride above that. What it costs is
+**resolution** — the stride doubles five times sooner, so a seed lands further
+from the row it wants and `np_walk` lays out more rows to reach it. That is a
+scroll being slower on a long note, and it is the one trade in this section
+that a user could notice.
+
+It is deliberate and it is confined here. Everywhere else `APP_SMALL` removes
+a *feature*; this is the only line that makes a kept feature slower, and the
+full build keeps every byte of the table.
+
 ## 28. apps/taskmgr — the Task Manager
 
 **A package in the root of every shipped floppy** (`TASKMGR.O88`) — the
@@ -51730,6 +52020,78 @@ ceiling is not even constant: §11.98's adapter change re-derives
 the grow path is still owed.
 
 
+### 42.22 `APP_SMALL` — the small build of this package
+
+Note Pad's §27.16, applied here, and the rules there hold unchanged: one
+source assembled twice, `make smallapps` passes `-DAPP_SMALL`, the result goes
+on `build/smallapps*.img`, and it is **never a second ABI** — the small Paint
+runs on `kern_big` exactly as it runs on `kern_small`.
+
+**What is different here is which half of the memory it can reach.** Paint's
+heap side already degrades on its own: `pt_geom` takes four independently
+refusable claims — scratch, canvas, undo image, clipboard (§42.6) — so a small
+machine loses undo, then the clipboard, then the canvas, and finally gets a
+notice window, with no build flag involved. None of that is touched.
+
+What does *not* degrade is the **resident** cost. Image + bss is one claim
+taken before a line of `pt_geom` runs, and at **25,894 + 5,458 = 31,352
+bytes** it is larger than the whole heap `kern_small` leaves on a 128KB
+machine (~34.0KB, docs/KERNEL-MEMORY.md). Paint there does not run badly — it
+does not **load**, and that is measured rather than argued: on
+`os8088_5150_gla_128k` the full package answers `ld_status` = 5 (`LD_ENOMEM`)
+and never opens a window. Everything below is aimed at that one number.
+
+**It already crosses the line, which was not the expectation.** Measured on
+`os8088_5150_gla_128k` with `kern_small`, same disk, same gestures, the only
+variable being which `PAINT.O88` is on drive B:
+
+| build | `ld_status` | what the user sees |
+|---|---|---|
+| full, 31,352 B | **5** (`LD_ENOMEM`) | nothing — no window ever opens |
+| small, 26,465 B | **0** | its window, its menu bar, and §42.6's `Not enough memory. Close this window.` |
+
+So the small build turns "the program will not start" into "the program
+starts and tells you why it cannot paint" — which is the tier §42.6 was
+written for and which the floor machine could not reach before. **What is
+still out of reach is a CANVAS**: funding one needs `kern_small` to come down
+further, and until then full-size pictures are not expected of this arm.
+
+| flag | off in `APP_SMALL` | worth |
+|---|---|---|
+| `PTF_GIF` | the GIF codec both directions (§42.14, §42.21), its LZW claim, both Save Gif verbs | **−2,587 image, −302 bss** |
+| `PTF_ABOUT` | Paint's own About card | −365 image |
+| `PTF_FSX` | the full-screen surface (§42.7) and the View menu | −377 image |
+| `PT_CW_MAX`/`PT_CH_MAX` | the row-table ceiling drops 736×464 → the default canvas | **−1,256 bss** |
+
+**23,307 + 3,900 = 26,465 bytes, 15.6% off**, reported by
+`tools/os88pkgsize.py` on every `make smallapps`.
+
+Three things worth stating because they are otherwise silent:
+
+- **The GIF gate takes `pt_line_get` with it**, all 341 bytes including its
+  eight-way `PT_UNPACKPX` unroll, because the encoder is that routine's only
+  caller. The unroll stays in the full build: it is a deliberate optimisation
+  (every GIF save reads every row through it) and a size pass must not undo
+  one, which is PERFORMANCE.md's rule 5 read in reverse.
+- **A GIF is refused by name, not by accident.** The magic sniff sends one to
+  `.nofmt` rather than letting it fall into `.bad`, and `pt_s_nofmt` reads
+  `Only BMP` here instead of `Only BMP and GIF`. A build that cannot decode a
+  format must say which formats it *has*.
+- **The canvas ceiling is a clamp, not a truncation.** Every use of the pair
+  is `pt_geom` holding the canvas inside them, and `pt_fit` shrinks it again
+  to what the heap will fund — so a fresh Paint here is the same 448×280 it
+  always was, and what the small build gives up is *growing or loading past
+  it*.
+
+**Kept on purpose**, so this stays a paint program: every drawing tool, the
+palette, BMP load and save, undo, the clipboard, flood fill, filled shapes,
+the text tool, and §42.16's "Save changes to *name*?" alert — data safety,
+never a size decision (§27.16.2's rule).
+
+**The full build is byte-identical with the gates in**, proven by assembling a
+mechanically de-gated copy of the source and comparing: every `%ifdef PTF_*`
+is a no-op when it is defined. `tests/unit/t_appsmall.py` holds it there.
+
 ## 44. Arkanoid — the ninth package (apps/arkanoid/arkanoid.asm)
 
 A brick-breaker over the published package ABI. Prefix `ark_`, embedded icon,
@@ -62452,6 +62814,53 @@ A file with a known extension shows the **associated program's** icon, marked
 so it reads as a document rather than as the program, and double-clicking it
 opens it in that program. Build-time defaults ship in the kernel; a running
 program may register a new association or take over an existing one.
+
+### 54.0 NOT ON `kern_small` — the whole section is `kern_big`'s
+
+**`kern_small` does not carry this feature at all.** The `%include` is behind
+`%ifdef OS88_ASSOC`, which `kernel.asm` defines only on a `KERN_BIG`
+assembly, so `assoc.inc` and the build-time glyph table it pulls in
+(`associco.inc`) contribute nothing — not a byte of `.text`, `.cold` or
+`.bss`, and no call site anywhere.
+
+**It is a product decision and not a size trim that happened to fit**, on
+§5.4.1.3's terms: associations are how a document finds its program, and a
+128KB machine that can hold one program at a time has little use for the
+question. What settles it is the *second* cost, which the footprint does not
+show — `asc_use_x` claims `ASC_KB` = 3,072 bytes under `MEM_K_ASC`, a kernel
+tag rather than one of the `MEM_P_*` purgeable classes, and nothing frees it.
+`disk_mount_x` calls `asc_use_x` and the boot mount is a mount, so on
+`kern_small` that claim stood on a **bare desktop**, holding 3KB of a heap
+that has ~31KB in it. Gating the feature returns the footprint *and* the
+claim.
+
+**What a `kern_small` machine loses**, stated so nothing has to be inferred:
+
+- **Document icons.** A type-0 file gets the generic-icon sentinel §54.1
+  describes — which is what the slot already holds, so no drawing path
+  changes and nothing is left half-composed.
+- **Double-clicking a document to open it in its program** (§54.4).
+  `fm_open_sel` falls through to the package route and answers *"Bad
+  package"*, which §54.4 already calls the truthful verdict for a data file
+  with no association. Double-clicking a **program** is untouched.
+- **`OSAPI_ARG_FILE` (0x02E8) and `OSAPI_ASSOC_SET` (0x02F0)** keep their
+  slot cells and share a `stc`/`ret` stub — the ABI parity rule
+  (docs/KERN-SPLIT-PLAN.md §0), so one `.o88` still serves both kernels. **No
+  package needs changing**, and that is a property of the two contracts
+  rather than luck: `OSAPI_ARG_FILE`'s CF=1 is documented as *"launched
+  empty, the ordinary case"* — the answer it already gives on every launch
+  that was not a document open — and `OSAPI_ASSOC_SET`'s CF=1 is *"the tables
+  are full and nothing was stored"*. A package that tests CF, as both slots
+  require, cannot tell the difference.
+- **The mount's icon-harvest CACHE, not its function.** §54.7's `ASSOC.DAT`
+  lets a known package's icon cost no sector read; without it every harvested
+  icon is read the slow way. **This is the one real cost in the list** — it
+  falls on mount time on the slowest machine the OS runs on, and it is a
+  measurement to take rather than a figure to assume.
+
+`ASSOC.DAT` may still be present on a volume — the image builder writes it
+(§54.7) and nothing on a `kern_small` machine reads or writes it. It is
+inert, not invalid.
 
 ### 54.1 Compose at MOUNT, never at draw time
 

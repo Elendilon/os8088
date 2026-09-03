@@ -767,8 +767,8 @@ whole mechanism; discovering it at a failed assemble is what moves 22, 23 and
 kilobyte** off big's free heap on a 640KB machine and **half a kilobyte** off
 small's on a 128KB one. The absolutes are the ladder's, and the ladder is what
 `tools/kernsize.py` prints rather than anything to re-derive by hand: as this
-branch stands, big's heap starts at 120.0 KB and small's at 106.5, so **520.0
-KB free on the 640KB machine and 21.5 on the 128KB one**. The half-kilobyte is
+branch stands, big's heap starts at 108.0 KB and small's at 94.0, so **532.0
+KB free on the 640KB machine and 34.0 on the 128KB one**. The half-kilobyte is
 **2.3%** of everything a package has on the small machine, and it went to a
 right-click.
 
@@ -1126,23 +1126,23 @@ Three things about it:
   "small": {
     "boot2": 2250,
     "bootmax": 122880,
-    "bss": 5392,
+    "bss": 5349,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 33986,
-    "coldpara": 2144,
+    "cold": 31910,
+    "coldpara": 2016,
     "fatpara": 288,
-    "imgpara": 2848,
-    "kend": 6016,
+    "imgpara": 2816,
+    "kend": 5856,
     "kseg": 96,
-    "ksize": 94720,
+    "ksize": 92160,
     "lowbss": 8712,
     "lowpara": 640,
     "minramkb": 128,
     "ovl": 1226,
     "ovlw": 4516,
     "stk0": 1024,
-    "text": 40055,
+    "text": 39553,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -1256,8 +1256,24 @@ Everything above `KERN_END` is the claim heap, up to whatever int 12h
 reports. The arithmetic is exact and worth writing down, because every RAM
 figure in this project falls out of it:
 
-> **heap KB = what int 12h reports − 120.0** (kern_big, as this branch stands;
-> kern_small's is **106.5**)
+> **heap KB = what int 12h reports − 108.0** (kern_big, as this branch stands;
+> kern_small's is **94.0**)
+
+> **Both figures were 120.0 and 106.5 until this edition, and the stale pair
+> had been quoted onward. They then moved AGAIN inside one merge** — kernel
+> size pass 3 landed and took them to 108.0 and 94.0 before the ink was dry,
+> which is the point below made twice in a row. The sentence above says not to re-derive the
+> ladder by hand and `tools/kernsize.py` prints it — but nothing re-read it
+> either, so "a 128KB machine has 21.5KB of heap" was carried into SPEC.md
+> §27.16 and into an overlay note in §52.11. The true figure is **32.5KB**,
+> and the difference is not academic: it is the whole margin between Paint's
+> small build loading on the floor machine and not (SPEC.md §42.22, measured
+> both ways on `os8088_5150_gla_128k`). Re-read the `ladder` line after any
+> rung crossing; the numbers here are only as fresh as the last person who
+> did. Re-measured at this merge with `tools/kernsize.py --build build/smallk
+> -DKERN_SMALL`, which is the invocation for the small one and is easy to get
+> wrong: a bare `kernsize.py` reports kern_big whatever directory you point
+> the environment at.
 
 `KERN_END` is 7,680 paragraphs = 122,880 bytes = **exactly 120.0 KB**, and the
 heap starts there. It was 5,696 paragraphs = 89.0 KB when this paragraph was

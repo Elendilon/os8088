@@ -547,10 +547,13 @@ ui_task:
     dec ax
     call COLD_SEG:loader_run_x  ; in: AX = index; does its own locking
 .chk_assoc:
+%ifdef OS88_ASSOC
     cmp byte [assoc_dapp], 0xFF ; a document double-click (SPEC.md 54.4):
     je .chk_pcmd                ; find its program, load it, and hand the
     call COLD_SEG:assoc_run_x   ; document over by pull. Consumes the slot
                                 ; itself, and does its own locking
+%endif                          ; kern_small posts no document (SPEC.md 54.0),
+                                ; so there is never a slot to consume
 .chk_pcmd:
     xor ax, ax                  ; a kernel menu command posted from under
     xchg ax, [ui_pcmd]          ; the lock (ui_post_cmd, SPEC.md 13)

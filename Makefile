@@ -1063,6 +1063,25 @@ ifneq ($(NOSEAMCUT),)
 VIDDEF += -DNOSEAMCUT
 endif
 
+# NOCURDISK=1 puts the pointer back on the freeze it took before SPEC.md 7.4:
+# the arrow stops dead for the length of every disk transfer, and once an
+# operation moves FPG_WARM = 3 sectors fpg_paint's unconditional cur_unlazy
+# takes it OFF THE GLASS for the rest of the freeze. The default lets the mouse
+# ISR move it through each `int 13h`, on SPEC.md 15.3.8's measurement that the
+# CPU in there is parked on IRQ6 waiting for DMA - 21 consecutive ticks taken
+# with IF set and not one IRQ0 lost - so what the draw spends is a gap the
+# machine was going to spend idle. The boot splash already animates from IRQ0
+# inside int 13h on that same evidence.
+#
+# It is a knob because it is a LOOK QUESTION WITH A REJECTED PRECEDENT: SPEC.md
+# 7.1.4.3 shipped a lit-but-frozen arrow, the field called it a stutter, and
+# 7.1.4.4 is why CURFIX is off by default. This change is only worth having if
+# the arrow TRACKS - so the A/B is the point, and this knob is the other arm of
+# it. tests/curdisk.py is the row.
+ifneq ($(NOCURDISK),)
+VIDDEF += -DNOCURDISK
+endif
+
 # NOSUOCCL=1 is SPEC.md 11.96.15's A/B, and it exists because REDRAWFULL is
 # too COARSE to be the reference for this one. REDRAWFULL turns off every
 # incremental path in the machine at once, which makes its kernel 512 bytes
@@ -1397,7 +1416,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG FDDSLOW TRACKRUN SBDRAGOFF SBRATE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE VGADIRTY DLJUNK,\
+                             KERN_SMALL FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOCURDISK VGADIRTY DLJUNK,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -1439,7 +1458,7 @@ endif
 # asked for it read a PLAIN kernel, so its assertion was about a build nobody
 # had made. Both halves, every time - the list above so the knob announces
 # itself, this string so the kernel is rebuilt when it changes.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -6078,6 +6097,86 @@ $(BUILD)/small.img: $(SMALLDRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/kernel.bin \
 		$(SMALLDRIVERS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
+
+# --- THE SMALL APPS DISK (SPEC.md 27.16) -------------------------------------
+#
+# `make smallapps` is the APPS half of `make small`: the same floppy in the
+# same two geometries, with the SMALL BUILD of any package that has one in
+# place of the shipped one. Note Pad is the first and today the only consumer.
+#
+# IT IS NOT A SECOND ABI, and that is the whole reason this is a disk rather
+# than a kernel feature. A small-built package calls the same API table at the
+# same offsets as every other (docs/KERN-SPLIT-PLAN.md 3), so it runs on
+# kern_big exactly as it runs on kern_small - it simply has fewer features.
+# What pairs it with kern_small is which floppy it is written to, and nothing
+# else. `make small`'s note that a package is "one package, both kernels" is
+# still true: this is ONE PACKAGE BUILT TWICE, not two packages.
+#
+# So the shipped build/apps*.img are UNTOUCHED and must stay that way - the
+# default is the full package on every disk `all` produces, exactly as the
+# default kernel is kern_big.
+#
+# THE PATTERN IS `modplugdbg`'s, deliberately: a subdirectory build plus a
+# substituted package on an otherwise ordinary disk. That keeps -DAPP_SMALL
+# off every shipped nasm line, which is why it is not in $(KNOBS) and needs no
+# row in the build matrix - no top-level `make` can carry it into build/.
+SMALLAPPDIR := $(BUILD)/smallapp
+
+$(SMALLAPPDIR)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc \
+                            apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -DAPP_SMALL $(PKGSBDEF) -o $@ \
+	        apps/notepad/notepad.asm
+	@echo "notepad (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/notepad.o88: $(SMALLAPPDIR)/notepad.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(SMALLAPPDIR)/notepad.bin -o $@
+
+$(SMALLAPPDIR)/paint.bin: apps/paint/paint.asm apps/os88api.inc \
+                          apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -DAPP_SMALL $(PKGSBDEF) -o $@ \
+	        apps/paint/paint.asm
+	@echo "paint (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/paint.o88: $(SMALLAPPDIR)/paint.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(SMALLAPPDIR)/paint.bin -o $@
+
+# The substitution, written once: every APPS: package except the ones that
+# have a small build, then those. ONE LIST, and $(SMALLBASE) is derived from
+# it rather than repeated - a package added here and forgotten in the
+# filter-out would ship BOTH builds on one floppy, and the shipped one would
+# be the copy the loader found first.
+SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88
+SMALLBASE      = $(patsubst $(SMALLAPPDIR)/%,$(BUILD)/%,$(SMALLPKGS))
+SMALLAPPSARGS  = $(patsubst %,APPS:%,$(filter-out $(SMALLBASE),$(APPS_TOOLS))) \
+                 $(patsubst %,APPS:%,$(SMALLPKGS))
+
+smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
+	@python3 tools/os88pkgsize.py $(BUILD)/notepad.o88 $(SMALLAPPDIR)/notepad.o88
+	@python3 tools/os88pkgsize.py $(BUILD)/paint.o88 $(SMALLAPPDIR)/paint.o88
+
+$(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(APPS_GAMES) $(SYSAPPS) \
+                           $(APPS_DOS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+	    $(SMALLAPPSARGS) \
+	    $(addprefix GAMES:,$(APPS_GAMES)) \
+	    $(addprefix MEDIA:,$(APPS_DATA_360)) \
+	    $(SYSAPPSARGS) \
+	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
+	    $(MEDIAFOLDER) $(APPDATAFOLDER)
+	@echo "smallapps: $@ - pair it with build/small360.img (\`make small\`)"
+
+$(BUILD)/smallapps.img: $(SMALLPKGS) $(APPS_TOOLS) $(APPS_GAMES) $(SYSAPPS) \
+                        $(APPS_DOS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+	    $(SMALLAPPSARGS) \
+	    $(addprefix GAMES:,$(APPS_GAMES)) \
+	    $(addprefix MEDIA:,$(APPS_DATA)) \
+	    $(SYSAPPSARGS) \
+	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
+	    $(APPDATAFOLDER)
+	@echo "smallapps: $@ - pair it with build/small.img (\`make small\`)"
 
 # ...and the size comparison on its own, for when you want the numbers without
 # building two floppies for them. SMALL FIRST in the argument order, because it
