@@ -1919,6 +1919,20 @@ SOAK = [
         "a change that made EVERY canvas one bit deep would pass the whole"
         "suite and quietly cost the VGA fifteen of its colours",
         needs=("marty",), serial=True),
+    Row("paint1blit", "soak",
+        py("tests/paint1blit.py"), 300.0,
+        "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
+        "by, compared. kern_big has gfx_blit1 and blits the band straight in;"
+        "kern_small carries the SLOT AND NOT THE BODY (5.4.2), so Paint"
+        "expands each row for gfx_blit4 instead - and the two must draw the"
+        "same picture to the pixel. Neither arm alone would catch a wrong"
+        "one: the fast path could draw a plausible picture one row or one"
+        "byte out, and the fallback is what every other 1bpp row already"
+        "exercises. The fixture is BUILT here, every byte differing from its"
+        "neighbours, because a flat picture passes all three of those"
+        "mistakes. It is also what makes 42.23.4's negative-stride claim a"
+        "checked fact rather than a second piece of reasoning",
+        needs=("marty",), serial=True),
     Row("paint1load", "soak",
         py("tests/paint1load.py"), 180.0,
         "SPEC.md 42.23.6: does a 1bpp BMP LOAD? The one path in 42.23 no"

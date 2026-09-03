@@ -55,13 +55,35 @@ def inktab():
     return out
 
 
-def mask(name):
+def table(label, want_rows):
+    """The `db` rows following `label:` in paint.asm, as lists of ints.
+
+    `want_rows` is how many 16-byte halves the label is expected to carry -
+    one for pt_cls16, two for each of the bit tables, which are laid out
+    twice so pt_line_put's decoder needs no per-pixel test for the phase.
+    """
     src = open(PAINT).read()
-    m = re.search(r"^%s\s+equ\s+([01]{16})b\b" % name, src, re.M)
+    m = re.search(r"^%s:\s*$" % label, src, re.M)
     if not m:
-        sys.exit("t_inktab: apps/paint/paint.asm has no `%s equ <16 bits>b`"
-                 % name)
-    return int(m.group(1), 2)
+        sys.exit("t_inktab: apps/paint/paint.asm has no `%s:` label" % label)
+    rows, cur = [], []
+    for line in src[m.end():].split("\n"):
+        line = line.split(";")[0].strip()
+        if not line:
+            continue
+        if not line.startswith("db "):
+            break
+        cur = [int(t.strip(), 0) for t in line[3:].split(",")]
+        if len(cur) != 16:
+            sys.exit("t_inktab: %s has a db row of %d entries, wanted 16"
+                     % (label, len(cur)))
+        rows.append(cur)
+        if len(rows) == want_rows:
+            break
+    if len(rows) != want_rows:
+        sys.exit("t_inktab: %s carries %d rows of 16, wanted %d"
+                 % (label, len(rows), want_rows))
+    return rows
 
 
 def main():
@@ -70,22 +92,37 @@ def main():
         if v not in (0x00, 0x01, 0xFF):
             sys.exit("t_inktab: gfx_inktab holds %02X, which is not one of "
                      "SPEC.md 39.4's three classes" % v)
-    want_wht = sum(1 << i for i, v in enumerate(tab) if v == 0xFF)
-    want_dth = sum(1 << i for i, v in enumerate(tab) if v == 0x01)
-    got_wht, got_dth = mask("PT_WHT16"), mask("PT_DTH16")
+    # gfx_inktab's three classes, and the two bit tables they generate.
+    #   cls  0 solid black, 1 the 50% dither, 2 solid white
+    #   E    lit where (x+y) is EVEN  -> cls != 0 (white, and the dither's
+    #                                    lit phase - sw_pbit's `parity XOR 1`)
+    #   O    lit where (x+y) is ODD   -> cls == 2 (white only)
+    cls = {0x00: 0, 0x01: 1, 0xFF: 2}
+    want_cls = [cls[v] for v in tab]
+    want_E = [1 if c else 0 for c in want_cls]
+    want_O = [1 if c == 2 else 0 for c in want_cls]
 
     fails = []
-    for nm, want, got in (("PT_WHT16", want_wht, got_wht),
-                          ("PT_DTH16", want_dth, got_dth)):
-        if want != got:
-            bad = [i for i in range(16) if ((want >> i) & 1) != ((got >> i) & 1)]
-            fails.append("%s is %016db and gfx_inktab says %016db - colour(s) "
-                         "%s disagree" % (nm, int(bin(got)[2:]),
-                                          int(bin(want)[2:]), bad))
-    if got_wht & got_dth:
-        fails.append("PT_WHT16 and PT_DTH16 overlap on colour(s) %s - a colour "
-                     "is one class or another"
-                     % [i for i in range(16) if (got_wht >> i) & (got_dth >> i) & 1])
+    got_cls = table("pt_cls16", 1)[0]
+    if got_cls != want_cls:
+        bad = [i for i in range(16) if got_cls[i] != want_cls[i]]
+        fails.append("pt_cls16 disagrees with gfx_inktab on colour(s) %s "
+                     "(it says %s, the table says %s)"
+                     % (bad, [got_cls[i] for i in bad],
+                        [want_cls[i] for i in bad]))
+
+    # ...and both orders, because pt_line_put picks the base by the row's
+    # parity and reads the second half through `or al, 16`
+    for label, halves in (("pt_bitEO", (want_E, want_O)),
+                          ("pt_bitOE", (want_O, want_E))):
+        got = table(label, 2)
+        for n, (g, wnt) in enumerate(zip(got, halves)):
+            if g != wnt:
+                bad = [i for i in range(16) if g[i] != wnt[i]]
+                fails.append("%s half %d disagrees with gfx_inktab on "
+                             "colour(s) %s (it says %s, wanted %s)"
+                             % (label, n, bad, [g[i] for i in bad],
+                                [wnt[i] for i in bad]))
     print("t_inktab: gfx_inktab -> black %s"
           % [i for i, v in enumerate(tab) if v == 0x00])
     print("t_inktab:               dither %s"
@@ -95,10 +132,11 @@ def main():
     for f in fails:
         print("  FAIL: " + f)
     if fails:
-        print("t_inktab: %d FAILED - Paint's masks are a MIRROR of the kernel's "
-              "table (SPEC.md 42.23.1); change them together" % len(fails))
+        print("t_inktab: %d FAILED - Paint's tables are a MIRROR of the "
+              "kernel's (SPEC.md 42.23.1); change them together" % len(fails))
         return 1
-    print("t_inktab: PASS - Paint's two masks are gfx_inktab, colour for colour")
+    print("t_inktab: PASS - all four 16-byte halves are gfx_inktab, "
+          "colour for colour")
     return 0
 
 

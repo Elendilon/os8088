@@ -53072,37 +53072,98 @@ picked in `[pt_ink]`, so that is a live case and not a theoretical one.
 
 `OSAPI_GFX_BLIT1` takes **exactly** the band this canvas already holds — same
 bit order, same polarity, and §11.94's 8-aligned content origin plus
-`PT_CV_X` = 48 satisfy its multiple-of-8 rule for free. It is still not the
-path, for a reason that is the kernel's rather than this package's:
+`PT_CV_X` = 48 satisfy its multiple-of-8 rule for free. **It is the path**, and
+on a 1bpp adapter it is a `rep movsw` into the framebuffer at 12.5 clocks a
+byte.
 
-**`gfx_blit1` wants a POSITIVE stride, and this canvas is stored bottom-up
-because it is the BMP.** The two places `gfx_blit1_x` skips rows — the clip
-region's `wm_clip_r0` and a negative y — both do `mul bp` on the stride, and
-`MUL` is unsigned. Hand it a negative stride and a band whose top is clipped
-starts from a source pointer 65,000 bytes away. `gfx_blit4` has no such rule,
-which is why §42's 4bpp path passes a negative stride happily and this one may
-not. **The SDK never claimed the stride was signed**; it was this package that
-assumed it.
+**THE NEGATIVE STRIDE IS FINE, AND THIS SECTION ONCE SAID IT WAS NOT.** The
+canvas is stored bottom-up because it *is* the BMP, so the stride handed over
+is negative — and the first version of this section refused the fast path on
+that ground, reasoning that `gfx_blit1_x` skips rows with `mul bp` in two
+places and `MUL` is unsigned. That reading was wrong twice over:
 
-So a 1bpp row is expanded into `pt_line` as packed 4bpp — two `pt_nyb4`
-lookups a source byte — and drawn with `gfx_blit4`, one call a row. It costs
-the expansion, ~0.47 ms a row on a 4.77 MHz 8088, and it keeps the kernel's
-own per-row adaptivity: `gfx_blit4` picks runs for a flat row and per-pixel
-for a detailed one (§5.4.1.1), which no hand-rolled run walk here could do.
-There is **no banding**, because there is nothing to band — `pt_rowset`
-resolves each row's segment out of the table, so a canvas spanning segments
-needs no arithmetic here at all.
+- **both sites `push dx` first and use only `AX`** — the high half is
+  deliberately discarded — and the low 16 bits of a multiply are **identical
+  signed or unsigned**, because two's complement makes them so;
+- every other use of the stride there is a 16-bit `add` or `sub`
+  (`add si, [bp+6]`, `mov cx, bp / sub cx, di`), which is sign-agnostic too.
 
-`pt_line` rather than a buffer of its own: it is one byte per pixel and
-`PT_CW_MAX` long, so it is twice the room a packed run of the same width
-needs, and nothing that walks it is live during a repaint —
-`pt_line_put`, `pt_bmp_row` and the two format converters are a load, a save
-and a resize.
+So it was always accepted. `gfx_blit4` takes a negative stride from §42's 4bpp
+path for exactly the same reason, which should have been the tell. Nothing in
+the kernel had to change.
 
-**When the kernel's two skips are made sign-aware the fast path is a dozen
-bytes here**, and this loop becomes the fallback `kern_small` takes anyway:
-§5.4.2 gives that build the slot and not the body, so it answers CF = 1 and a
-package that did not have a second path would have nothing to draw with.
+Two conditions gate it, and both are ordinary. The **width** is rounded up to
+a multiple of 8, and if that would reach past the picture the whole rect falls
+to the row loop rather than painting canvas padding on screen. And **CF = 1 is
+a normal answer** — §5.4.2 gives `kern_small` the slot and not the body — so
+the row loop is that build's only path and has to exist anyway.
+
+The band is addressed from its **last** row, which is the lowest address:
+every other row is then a positive offset from there and nothing can go below
+zero, which is the same arithmetic §42's 4bpp banding does and for the same
+reason. Rows per band are a segment's worth capped at `gfx_blit1`'s own 255.
+
+**The fallback, which `kern_small` always takes**: a 1bpp row is expanded into
+`pt_line` as packed 4bpp — two `pt_nyb4` lookups a source byte — and drawn
+with `gfx_blit4`, one call a row. It keeps the kernel's own per-row
+adaptivity: `gfx_blit4` picks runs for a flat row and per-pixel for a detailed
+one (§5.4.1.1), which no hand-rolled run walk here could do. `pt_line` rather
+than a buffer of its own: it is one byte per pixel and `PT_CW_MAX` long, so it
+is twice the room a packed run of the same width needs, and nothing that walks
+it is live during a repaint — `pt_line_put`, `pt_bmp_row` and the two format
+converters are a load, a save and a resize.
+
+### 42.25 The one-bit decoder is STRAIGHT-LINE, for §42.13.1.4's reason
+
+`pt_line_put` is the BMP and GIF decoders' inner loop — every row of every
+picture opened — and §42.13.1.4 already established what that costs on an
+8088: the loop is bound by **instruction fetch at 4.34 clocks a byte**, so
+what it costs is what it is *spelled with*. That pass took the packed arm
+**185 → 49** cycles a pixel and the planar one **169 → 125**, for 136 bytes.
+
+The one-bit arm shipped at **199 cycles a pixel** — worse than *un-optimised*
+planar — and the whole operation with it. Measured end to end either side of
+`pt_gif_in`, `OS8088.GIF` on a Hercules:
+
+| | |
+|---|---:|
+| packed nibbles, after §42.13.1.4 | 2,687 ms |
+| one bit, first version | **4,207 ms** |
+
+A mono picture on a mono adapter loaded **1.57× slower** than before the
+one-bit canvas existed. Two causes, and the first is most of it:
+
+- **Two variable shifts a pixel.** The class came from two 16-bit masks read
+  with `shr ax, cl`, which on an 8088 is **8 + 4 per bit** — up to 68 clocks
+  apiece, ~136 for the pair.
+- **A rolled per-pixel loop**, paying the fetch floor on every pixel.
+
+`xlatb` is the whole answer: one byte, `DS:[BX+AL]`, the table indexed by the
+colour. `pt_cls16` replaces the masks — which also takes the shifts out of
+`pt_cls` itself, called per pixel by `pt_setpx` and per row by `pt_rect` and
+`pt_wipe`.
+
+**The phase costs nothing per pixel**, which is what the duplicated tables
+buy. `pt_bitE` answers "does this colour light a pixel where `x+y` is even",
+`pt_bitO` the odd case; both are laid out **twice**, as `pt_bitEO` and
+`pt_bitOE`, so the row's parity picks the base once and an odd-x pixel is
+`or al, 16` away from an even-x one. Eight pixels are then straight-line with
+no test for the phase, the count, or the class.
+
+**`and al, 15` stays, and it is not defensive habit.** `pt_line` holds what
+`pt_pmap` mapped, and `pt_pmap` is 256 bytes of which a picture fills only
+`biClrUsed` entries — so an 8bpp BMP declaring two colours and then using
+index 200 reads an **uninitialised** entry (§42.6's rule that a byte off a
+disk is hostile). The old code masked; dropping it would index a 16-byte
+table with whatever that byte held.
+
+**The ragged end merges rather than writes**, as both other arms do — the
+pixels past `[pt_cols]` are not that row's to touch. Its phase **starts even,
+always**: the straight-line loop consumes a whole number of bytes, so `x` is a
+multiple of 8 and the parity is the row's, which the table base already
+encodes. Deriving it from the pixels *remaining* reads it backwards on an odd
+count, and the picture comes out with its dither inverted in the last byte of
+every row.
 
 ### 42.24 The small arm hands a canvas claim's SLACK back
 
