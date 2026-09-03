@@ -78,9 +78,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88marty                                            # noqa: E402
+import os88sym                                              # noqa: E402
 
 NFISH = 4
-MAX_TASKS = 8
+# The scheduler's slot count, READ from the kernel rather than kept here: the
+# copy this replaced said 8 while sched.inc said 14, so sch_cycles was read
+# six slots short. tools/os88geom.py mirrors it too, so t_mirror catches the
+# next copy.
+MAX_TASKS = os88sym.equates()["MAX_TASKS"]
 MODES = [("cube", 1), ("starfield", 2), ("shapes", 4), ("sea life", 8)]
 
 TICKRATE = 18.2065

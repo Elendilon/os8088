@@ -4833,6 +4833,7 @@ cp_drv_mempar:
 ; (SPEC.md 62.9.10.1), so its row prices the driver and says '+' for the rest.
 ; -----------------------------------------------------------------------------
 cp_drv_memstr:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

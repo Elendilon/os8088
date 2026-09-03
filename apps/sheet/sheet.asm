@@ -18379,6 +18379,7 @@ sh_clearcell:
 ; sh_colname - bijective base-26 column letters (0-based index in AX)
 ; out: sh_colbuf = NUL-terminated letters (up to 2 for a 256-column grid)
 sh_colname:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx
@@ -18416,6 +18417,7 @@ sh_colname:
 
 ; sh_itoa - signed AX to a NUL-terminated decimal string in sh_numbuf
 sh_itoa:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

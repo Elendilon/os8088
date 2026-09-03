@@ -1923,8 +1923,18 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
     if label is None:
         label = os.path.basename(getattr(sys.modules.get("__main__"),
                                          "__file__", "") or "os88marty")
-    tag = _tag(label)
-    home = os.path.join(_inst_root(), tag)      # where the RECORD lives
+    # A FRESH home, and not merely a unique tag. The tag is pid-label-seq, and
+    # a PID wraps in minutes on a busy box (pid_max 32,768), so a launcher can
+    # land on the number a DETACHED bench's launcher had - the bench outlives
+    # its launcher by design - and inherit its directory: makedirs(exist_ok)
+    # let it, and _clone then overwrote the floppy the live bench had
+    # mounted. Any existing directory is refused, live or ended, and _seq is
+    # bumped until the name is one nobody has used.
+    while True:
+        tag = _tag(label)
+        home = os.path.join(_inst_root(), tag)  # where the RECORD lives
+        if not os.path.lexists(home):
+            break
     if run_dir is None:
         run_dir = _private_run_dir(base, tag)   # ...which is also the run tree
         private = True

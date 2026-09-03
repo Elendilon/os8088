@@ -10578,6 +10578,7 @@ np_saymsg:
 ; Preserves every other register.
 %ifdef NPF_FIND
 np_utoa:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

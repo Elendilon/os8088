@@ -161,17 +161,55 @@ def run_row(row, caps, strict, verbose):
 
     t0 = time.time()
     try:
-        p = subprocess.run(row.cmd, cwd=ROOT, capture_output=True, text=True,
-                           timeout=row.timeout)
-        out = p.stdout + p.stderr
+        p = subprocess.Popen(row.cmd, cwd=ROOT, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True)
+    except OSError as e:
+        return Result(row, False, False, time.time() - t0, str(e), "could not run")
+    try:
+        so, se = p.communicate(timeout=row.timeout)
+        out = so + se
         ok = p.returncode == 0
         reason = "" if ok else "exit %d" % p.returncode
-    except subprocess.TimeoutExpired as e:
-        out = (e.stdout or "") + (e.stderr or "") if isinstance(e.stdout, str) else ""
+    except subprocess.TimeoutExpired:
+        # SIGTERM, NOT SIGKILL. subprocess.run(timeout=) kills the row
+        # outright, and a killed Python runs no atexit - which is where every
+        # QEMU launcher's teardown lives (tests/os88qemu.py). So a row that
+        # timed out left its emulator running, holding build/qmp.sock, and
+        # the next row drove THAT machine. terminate() lets the row exit
+        # normally and take its guest with it; only a row that will not go
+        # inside ten seconds is killed.
+        p.terminate()
+        try:
+            so, se = p.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            so, se = p.communicate()
+        out = (so or "") + (se or "")
         ok, reason = False, "TIMEOUT after %ds" % row.timeout
-    except OSError as e:
-        out, ok, reason = str(e), False, "could not run"
+        if "qemu" in row.needs:
+            out += _sweep_qemu()
     return Result(row, ok, False, time.time() - t0, out, reason)
+
+
+def _sweep_qemu():
+    """Stop every QEMU a timed-out row can have left, by PIDFILE.
+
+    The belt under the braces above: a row killed after ignoring SIGTERM ran
+    no atexit either. Every launcher in tests/ daemonizes with `-pidfile
+    build/<x>.pid` - qemu.pid for most, ps2.pid for the PS/2 row - so the
+    sweep is over build/*.pid, through os88qemu.kill, which is by pidfile and
+    never by `pkill -f` (its docstring says why). The default pidfile's
+    socket is cleared with it; a private one's socket is that row's own.
+    """
+    import glob
+    import os88qemu
+    swept = []
+    for pf in sorted(glob.glob(os.path.join(ROOT, "build", "*.pid"))):
+        sock = os88qemu.SOCK if pf == os88qemu.PIDFILE else None
+        os88qemu.kill(pf, sock)
+        swept.append(os.path.basename(pf))
+    return ("\nos88test: swept %s after the timeout\n" % ", ".join(swept)
+            if swept else "")
 
 
 def kernel_is_stale(rows):

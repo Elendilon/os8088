@@ -11121,6 +11121,7 @@ pt_orowset:
 
 ; pt_num - AX in decimal at DS:DI, DI advanced; clobbers AX, BX, CX, DX
 pt_num:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     mov bx, 10
     xor cx, cx
 .div:

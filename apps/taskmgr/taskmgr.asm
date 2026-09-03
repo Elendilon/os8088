@@ -3729,6 +3729,7 @@ tm_put2:
 ; is 27 characters at two-digit counts and there is no room for the padding.
 ; -----------------------------------------------------------------------------
 tm_putn:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

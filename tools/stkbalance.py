@@ -64,9 +64,16 @@ a phantom leak. That is the difference between a tool that finds two real bugs
 and one that reports six routines because two of them are unusual.
 
 A loop that pushes N things and a second loop that pops them - every itoa in
-this tree. The count lives in a register, so no static walk can pair them;
-conflicts arriving on a BACK EDGE are therefore not reported, and the count of
-suppressed ones is printed so the suppression is visible rather than silent.
+this tree. The count lives in a register, so no static walk can pair them.
+Mark the routine `; STKBALANCE-LOOP: <reason>` and a depth conflict inside it
+is counted rather than reported. The marker is per ROUTINE and deliberate,
+because the unmarked shape it would otherwise be confused with is a real bug:
+`push cx / .l: pop cx / loop .l / ret` pops the return address on its second
+turn, and its loop target DOMINATES the source exactly as an itoa's does - so
+no dominance test, no forward/backward test and no jcc-only test can tell the
+two apart. Suppressing every backward conflict was tried first and it hid
+both this and a tail-merged epilogue one register deep, which is the commonest
+shape a size pass makes. Now nothing is suppressed without a name on it.
 
 `; STKBALANCE-OK: <reason>` skips a routine outright. The reason is the point -
 an unexplained exemption is how a gate stops meaning anything. It is the answer
@@ -98,6 +105,15 @@ SPADD = re.compile(r"^(add|sub)\s+sp\s*,\s*(\S+)$", re.I)
 GLOBAL = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):")
 LOCAL = re.compile(r"^(\.[A-Za-z0-9_]+):")
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# ...and the same with ONE dot allowed, for a `dw` row.  A table's arm is as
+# often `owner.local` as a global - mppui.inc's nine glyph arms and wfx.inc's
+# twenty-three opcode arms are all locals of the routine that dispatches into
+# them - and IDENT read `dw tab.arm` as two words, `tab` and `arm`.  The walk
+# then pushed the OWNER's global label at the dispatch depth (a backward edge
+# into the same routine, and so suppressed) and never walked the arm at all,
+# which is how an arm that pushed and never popped passed the gate.
+IDENT_DOT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)?")
+LOOPMARK = re.compile(r"STKBALANCE-LOOP\b")
 MACDEF = re.compile(r"^%macro\s+([A-Za-z_][A-Za-z0-9_]*)\s+(\d+)", re.I)
 MACEND = re.compile(r"^%endmacro\b", re.I)
 # `jmp %1` / `call %1` inside a macro body: the macro's ARGUMENT is a branch
@@ -238,6 +254,7 @@ class Corpus(object):
         self.addressed = {}
         self.nets = {}
         self.skip = set()
+        self.loops = set()      # routines marked `; STKBALANCE-LOOP:`
         self._entries = None
         self.tables = {}        # "tab" -> [label, ...] from its dw/dd rows
         self.jumptabs = set()   # tables reached by `jmp [tab + reg]`
@@ -289,7 +306,7 @@ class Corpus(object):
                 m = DWORDS.match(text)
                 if m and u.owner[idx]:
                     row = self.tables.setdefault(u.owner[idx], [])
-                    for w in IDENT.findall(m.group(1)):
+                    for w in IDENT_DOT.findall(m.group(1)):
                         row.append(w)
 
     def _bump(self, d, k):
@@ -303,7 +320,15 @@ class Corpus(object):
                     self.nets.setdefault(u.owner[idx], int(m.group(1)))
                 if "STKBALANCE-OK" in raw and u.owner[idx]:
                     self.skip.add(u.owner[idx])
+                if LOOPMARK.search(raw) and u.owner[idx]:
+                    self.loops.add(u.owner[idx])
                 if not text:
+                    continue
+                if DWORDS.match(text):
+                    # a `dw` row names its arms WHOLE: `dw disp.arm1` takes
+                    # the local's address, not the owner's.
+                    for w in IDENT_DOT.findall(text):
+                        self._bump(self.addressed, w)
                     continue
                 m = CALL.match(text)
                 if m:
@@ -398,31 +423,32 @@ def walk(corp, name):
     seen_conflict = False
 
     def push(u, j, d, raw, src=None):
-        """src = (unit, idx) the edge comes FROM.  An edge that goes backwards
-        inside the same unit is a loop back edge: a loop that pushes N things
-        and pops them in a second loop keeps its count in a register, so no
-        static walk can pair them and the conflict is suppressed rather than
-        reported.  The count is printed so the gap is visible."""
+        """src = (unit, idx) the edge comes FROM.  A label reached at two
+        depths is reported UNLESS the routine that owns it carries
+        `; STKBALANCE-LOOP:` - the push-N/pop-N loop whose count lives in a
+        register.  It used to be "unless the edge is backward inside one
+        routine", and that rule is statically indistinguishable from
+        `push cx / .l: pop cx / loop .l / ret`, whose second turn pops the
+        return address: the loop target dominates the source in both.  A
+        tail-merged epilogue one register deep hid behind it too.  So the
+        exemption is a name on the routine, and the count of conflicts taken
+        under one is printed."""
         nonlocal suppressed, seen_conflict
         key = (u.path, j)
         if key in seen:
             if seen[key] != d and not seen_conflict:
-                if (src is not None and u is src[0] and j <= src[1]
-                        and u.owner[j] == u.owner[src[1]]):
-                    # ...and only when the edge stays INSIDE one routine. A
-                    # backward edge that LEAVES the routine is a cross-jump,
-                    # not a loop back edge - and a TAIL MERGE is exactly a
-                    # backward cross-jump, so without this test the gate is
-                    # blind to the commonest shape a size pass creates. Found
-                    # by size pass 2's adverse review, which proved it both
-                    # directions on one defect: as a forward jump it was
-                    # caught, as a backward one it was silent, and the only
-                    # visible trace was the suppression counter moving 4 -> 6.
+                if u.owner[j] in corp.loops:
                     suppressed += 1
                 else:
+                    # ...naming the routine that OWNS the label when the walk
+                    # entered somewhere else, because that is where a marker
+                    # would go: hd_utoa jumps into hd_utoa_body's loop.
+                    own = u.owner[j]
                     findings.append((u.path, name, raw.strip(),
-                                     "reached at depth %+d and %+d"
-                                     % (seen[key], d)))
+                                     "reached at depth %+d and %+d%s"
+                                     % (seen[key], d,
+                                        "" if own in (None, name)
+                                        else " (label owned by %s)" % own)))
                     seen_conflict = True
             return
         seen[key] = d
@@ -463,7 +489,8 @@ def walk(corp, name):
             hit = [w for w in IDENT.findall(m.group(1)) if w in corp.tables]
             if hit:
                 for t in corp.tables[hit[0]]:
-                    where = corp.gindex.get(t)
+                    # a global, or `owner.local` through resolve()'s fallback
+                    where = corp.resolve(u, i, t)
                     if where is not None:
                         push(where[0], where[1], d, raw, (u, i))
                 continue
@@ -579,10 +606,10 @@ def main():
               % (os.path.relpath(path, ROOT), name, why, line))
     print("stkbalance: %d unbalanced path(s)"
           "  (%d entries walked, %d declared banking routines,"
-          " %d exempted, %d loop back-edges not reported, %d walks capped,"
-          " %d names defined twice)"
+          " %d exempted, %d conflicts inside %d STKBALANCE-LOOP routines,"
+          " %d walks capped, %d names defined twice)"
           % (len(all_f), len(corp.entries()), len(corp.nets),
-             len(corp.skip), sup, capped, corp.dup))
+             len(corp.skip), sup, len(corp.loops), capped, corp.dup))
     return 1 if all_f else 0
 
 

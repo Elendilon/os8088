@@ -126,13 +126,21 @@ def main():
     if off + 2 > 65536:
         sys.exit(f"t_canary: KSIG_OFF {off} is outside the 64KB the handoff's ES names")
 
+    # A missing shipped image FAILS, the way t_image's does. This used to
+    # `continue` past one, so a tree that had not built a geometry passed the
+    # canary check for it - and the canary is the one guard that must hold on
+    # every disk (SPEC.md 18.93.1), which is what the fourth geometry taught.
+    missing = [name for name in IMAGES if not (BUILD / name).exists()]
+    if missing:
+        sys.exit("t_canary: shipped image(s) not built: %s - run make first; "
+                 "a geometry this cannot see is a geometry the canary is not "
+                 "checked on" % ", ".join(missing))
+
     bad = []
     for secs in lengths:
         fo = off + secs * 512
         for name in IMAGES:
             img = BUILD / name
-            if not img.exists():
-                continue
             if not crosses(img, fo):
                 bad.append(f"{name} (blob {secs} sectors, file sector {fo // 512})")
     if bad:

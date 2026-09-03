@@ -1490,6 +1490,7 @@ fd_dcatn:
 
 ; --- fd_dnum - append AX as unsigned decimal ---------------------------------
 fd_dnum:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx
@@ -1525,6 +1526,7 @@ fd_dnum:
 ; divide the high half, carry its REMAINDER into the low half's dividend, and
 ; the pair of quotients is the 32-bit answer with the final remainder in DX.
 fd_dnum32:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in SI
     push ax
     push bx
     push cx

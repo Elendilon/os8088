@@ -2182,6 +2182,7 @@ tk_glyph_modex:
 ; tk_strlen - SI = string; out CX = its length
 ; -----------------------------------------------------------------------------
 tk_utoa:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in BP
     push ax
     push bx
     push dx

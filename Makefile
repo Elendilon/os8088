@@ -681,7 +681,15 @@ KSIGDEF = -DKSIG_OFF=$(KSIG_OFF) $$(python3 -c "import sys; d = open(sys.argv[1]
 # the FILE. The signature itself still has to be injected - it is read out of
 # the built kernel, so a kernel that carried it would need a second assembly
 # to reach a fixed point, and stage 1 is built afterwards and hands it over.
-KSIGDEF2 = $$(python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); o = $(KSIG_OFF) + $(BOOT2_PAD); print('-DKSIG=%d' % int.from_bytes(d[o:o+2], 'little')) if len(d) > o + 1 else None" $(1))
+#
+# AND IT REFUSES A KERNEL SHORTER THAN THE OFFSET. KSIGDEF above prints nothing
+# for a short payload on purpose; this one MUST NOT, because boot/boot.asm
+# defaults KSIG to 0 and 0 means NO CANARY - so a kernel that came out shorter
+# than KSIG_OFF (a cut-down build, a broken split) would boot with the check
+# silently switched off. The refusal is two-sided: the message goes to stderr
+# and an option nasm rejects goes to stdout, because a failing `$(...)` on its
+# own does not fail the recipe - the sector would still assemble, canary-less.
+KSIGDEF2 = $$(python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); o = $(KSIG_OFF) + $(BOOT2_PAD); print('-DKSIG=%d' % int.from_bytes(d[o:o+2], 'little')) if len(d) > o + 1 else (sys.stderr.write('KSIGDEF2: %s is %d bytes, shorter than KSIG_OFF + BOOT2_PAD = %d - no canary word to read, and KSIG=0 would switch the canary OFF\n' % (sys.argv[1], len(d), o)), print('--KSIGDEF2-REFUSED-kernel-shorter-than-KSIG_OFF'))" $(1))
 
 # ...and THE BLOB'S OWN CHECKSUM (SPEC.md 2.9.7). The kernel's load has had
 # 18.93.1's canary since the day a BIOS was caught flipping heads early; the
@@ -1465,6 +1473,7 @@ $(shell mkdir -p $(BUILD); \
                                       $(BUILD)/ctrl.drv $(BUILD)/format.drv \
                                       $(BUILD)/clone.drv \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin \
+                                      $(BUILD)/boot120.bin \
                                       $(BUILD)/hdd.bin $(BUILD)/hdd.drv \
                                       $(BUILD)/hddtool.bin $(BUILD)/hddtool.drv \
                                       $(BUILD)/saver.bin $(BUILD)/saver.drv; \
@@ -1623,7 +1632,7 @@ test-fast: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360) $(WEAVEWABS)
 ifeq ($(KNOBS),)
-	@python3 tools/os88test.py fast
+	@OS88_PKGDEFS="$(PKGSBDEF)" python3 tools/os88test.py fast
 else
 	@echo "os88test: skipped - this is a KNOB build ($(KNOBS)), and the fast"
 	@echo "          tier reads the shipped artifacts. Run a plain \`make\`."

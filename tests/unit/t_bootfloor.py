@@ -91,12 +91,12 @@ def boot2_secs():
 k = ladder()
 want = k["kend"] + boot2_secs() * 32 + TRANSIENT_PARA
 
-for name in ("boot.bin", "boot360.bin"):
+for name in ("boot.bin", "boot360.bin", "boot120.bin"):
     path = os.path.join(BUILD, name)
     if not os.path.exists(path):
         check(False, "%s exists" % name,
-              "`make` builds both kernel sectors; without them this row is "
-              "asserting nothing", got="missing", want=path)
+              "`make` builds all three kernel sectors; without them this row "
+              "is asserting nothing", got="missing", want=path)
         continue
     d, hits = bound(path)
     check(len(d) == 512, "%s is 512 bytes" % name,

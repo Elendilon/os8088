@@ -2049,6 +2049,7 @@ fr_clear:
 ; out: DI advanced to the NUL it wrote; all other registers preserved
 ; -----------------------------------------------------------------------------
 fr_u2s:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx
