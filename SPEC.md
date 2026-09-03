@@ -48987,96 +48987,174 @@ it opens a 124,918-byte one (620×400, cropped to the screen's 594×390) and
 every one of the 390 decoded rows matches the source pixel for pixel, 190 of
 them read from source bytes past the 64KB horizon.
 
-#### 42.6.1 OPEN: the canvas does not degrade, and what a canvas actually costs
+#### 42.6.1 The CANVAS is claimed first, and everything else takes what is left
 
-**Reported from the field and reproduced here. Not fixed — this section is
-the measurement and two failed attempts, so the next go is not started from
-nothing.**
+Paint used to claim the scratch first and the canvas second, and it sized the
+canvas *before* either, from `OSAPI_MEM_AVAIL`'s largest free run. So the
+canvas was sized against a run 12 KB larger than the one it would be asked
+for from, `pt_alloc`'s `jc .fail` had no retry, and one refusal was §42.6's
+`Not enough memory` notice.
 
-##### 42.6.1.1 What Paint needs, measured
+Reported from a 192 KB Hercules machine, where the default canvas is 448×258:
+Paint refused and needed 256 KB.
 
-`kern_small`'s heap is `int 12h − 94.0 KB`, and a 5150's RAM comes in 64 KB
-rows, so the only real machines are 128 / 192 / 256 KB.
+**The canvas goes first** — it is the claim Paint cannot run without — and
+everything after takes what is left, **none of it able to refuse Paint**:
+the span stack degrades (§42.6.2), and the undo image and clipboard already
+did. `mem_avail` "answers the question `mem_claim` answers" (it counts
+purgeable claims as free and its largest run is `mem_cp_plan`'s,
+post-compaction), so a canvas sized to that run is a canvas that will be
+granted, and nothing is taken out of the run between the measurement and the
+claim. The only refusal left is a canvas that will not fit at
+`PT_CW_MIN` × `PT_CH_MIN`.
 
-| claim | small build |
-|---|---|
-| package (image + `.bss`) | 23 KB |
-| scratch — the flood-fill stack, `PT_SC_KB` | 12 KB |
-| canvas, CGA 448×110 | 25 KB |
-| canvas, Hercules 448×258 | 57 KB |
+`pt_growmax` **holds back `PT_SC_MIN`** while there is no span stack yet, so a
+machine that could afford a canvas *and* a small stack is not robbed of the
+second by a canvas that greedily took the run. It is a prediction and it is
+allowed to be wrong in both directions — too little and the canvas is 2 KB
+smaller than it had to be, too much and the tool greys — because **nothing
+refuses on it**. That is the property that makes predicting acceptable here
+and not in the version this replaced.
 
-| machine | heap | measured |
+Measured, with the pre-change build as the control on the same kernel:
+
+| machine | before | after |
 |---|---|---|
-| 128 KB | 34.0 KB | **no canvas at any size** — package + scratch is 35 KB before one is asked for |
-| 192 KB | 98.0 KB | CGA: full 448×110 canvas. **Hercules: `Not enough memory`** |
-| 256 KB | 162 KB | Hercules: 448×258, claiming 57 + 12 + 23 |
+| CGA 128 KB | notice: 12 KB scratch, 2.5 KB left, no canvas | **12 KB canvas + 2 KB stack** |
+| Hercules 192 KB | notice — needed 256 KB | **full 448×258 canvas** |
+| CGA 192 KB | 448×110 | 448×110 |
+| Hercules 640 KB | 448×258 | 448×258 + 9 KB stack |
 
-**The 12 KB scratch is the flood-fill stack and nothing else** — eight bytes an
-entry, two call sites. It is not the GIF codec's: that is `PT_LZW_KB` = 16 KB
-in a claim of its own (`pt_gseg`), taken per file, and `PTF_GIF` compiles it
-out of the small build entirely (§42.22.1).
+**Paint opens on the 128 KB floor machine**, which it never has.
 
-##### 42.6.1.2 The mechanism
+##### 42.6.1.1 One attempt that did not work, kept because the reason holds
 
-`pt_geom` asks `pt_growmax` — `OSAPI_MEM_AVAIL`, the largest free run — what a
-canvas could be, `pt_fit` shrinks the request to that, and only then does
-`pt_alloc` claim: **the scratch first, out of the same run**, and the canvas
-second. So the canvas is sized against a run 12 KB larger than the one it will
-be asked for from, and `pt_alloc`'s `jc .fail` has no retry — one refusal and
-`pt_geom` goes straight to `PT_M_NOMEM`.
+**Predicting the scratch out of `pt_growmax` is not enough.** Subtracting
+`PT_SC_KB` from the answer and leaving the claim order alone was the first
+try. The scratch is not taken off either END of the run — measured, it lands
+in the middle, so a 56 KB run less 12 KB of scratch is not a 44 KB run, it is
+a 37 and a 7. No arithmetic done before a claim can know where the allocator
+will put it. The reservation above is not that mistake, because nothing
+refuses on it.
 
-Traced at the moment of the launch on a 192 KB Hercules machine:
+Two more things that look like causes of a memory failure and were not, both
+measured out before §42.6.4 found the real one: the claim ORDER (putting the
+scratch back first changed nothing), and `BX` held across
+`OSAPI_MEM_CLAIM` — §50.3 documents `AX` in and `CF`/`DX` out and says nothing
+about `BX`, so the tier ladder is three written-out asks rather than a loop
+with a counter in a register it does not own. Worth keeping either way.
 
-```
-free runs before launching Paint: [23, 19] KB
-```
+#### 42.6.2 The flood fill's span stack DEGRADES, and the tool greys when it cannot be had
 
-A 45 KB claim is held elsewhere, so Paint's own 23 KB package claim takes the
-larger run **whole**, and what is left for the scratch and the canvas together
-is 19 KB.
+`PT_SC_KB` was **12 KB for a stack that needs 8,208 bytes** — `PT_FSTK_MAX`
+entries of eight plus `PT_SC_STACK`'s header, 46% slack nobody was using. It
+is 9 KB now and a `%error` keeps the two in step. Two comments claimed the
+block was shared — `pt_alloc`'s header said "the file readers borrow it" —
+and **both were stale**: `[pt_scseg]` is read in exactly two places, both
+inside the flood fill.
 
-##### 42.6.1.3 Two attempts that did not work, and why they are worth recording
+Below 9 KB it comes in **9 / 4 / 2 KB**, largest first, and the degradation is
+graceful by construction: `pt_fpush` answers an overflow by setting
+`[pt_fovf]` and stopping, so a short stack fills a complex region *partially*
+rather than scribbling past itself. What a smaller stack costs is the fill's
+**reach** — not its correctness, and not its speed, which is the same per
+span. `PT_FSTK_MAX` becomes `[pt_fstkmax]`, a property of the claim rather
+than a constant. The 128 KB machine runs on the 2 KB tier, 254 spans.
 
-**Predicting the scratch is not enough.** Subtracting `PT_SC_KB` from
-`pt_growmax`'s answer was the first try. It does not work because the scratch
-is not taken off either END of the run — measured, it lands in the middle, so
-a 56 KB run less 12 KB of scratch is not a 44 KB run, it is a 37 and a 7. No
-arithmetic done before the claim can know where the allocator will put it.
+**With none of the three, the tool greys.** `pt_ic_flush` draws in
+`[pt_pen]`, so `CDGRAY` is the whole of it — and on a 1bpp adapter that
+dithers, which is §47's disabled look for free. A click on it toasts
+`No RAM for flood fill`, because the grey says *that* and the words say *why*.
 
-**Claiming the scratch first, plus a shrink-and-retry, is the right shape and
-still failed.** `pt_alloc_scratch` split out and called before `pt_growmax`,
-and the canvas refusal re-running `pt_growmax`/`pt_fit` and asking again until
-`[pt_fitcut]` says there is nothing left to give. It opens correctly on
-Hercules with 640 KB (448×258) and does not regress CGA, but on the 192 KB
-Hercules machine Paint stops opening a window **at all** rather than showing
-the notice — so `pt_entry` is failing somewhere after `pt_geom`, and that was
-not run down. Reverted rather than shipped.
+**And a click ASKS AGAIN before it toasts.** Whether a stack can be funded is
+a fact about the heap at the moment somebody asked, and the moment Paint asked
+was startup, with a canvas being claimed beside it. Without the re-ask, one
+crowded instant disables the tool for the rest of the session — which is
+exactly the bug `pt_gate` carries the same fix for on the clipboard.
 
-**One trap it cost, and the answer is useful on its own**: the retry re-enters
-`pt_fit`, which takes the canvas in `AX`/`DX` — and `pt_kb_of` ANSWERS in
-`AX` while `OSAPI_MEM_CLAIM` answers in `DX`. A retry that does not bank the
-pair re-enters `pt_fit` with a KB count for a width. That is fixed in the
-reverted patch and will be needed again.
+**The grey and the toast are not exercised on the glass**: every machine
+tested funds at least the 2 KB tier, so reaching them needs a heap tighter
+than any configuration here produces.
 
-**And the size is NOT the cause**, which was the first suspicion: the attempt
-grew the package 31 bytes, and a pre-fix build padded by exactly 31 bytes
-loads and shows the notice normally on the same machine.
+#### 42.6.3 `mem_avail` counts PURGEABLE claims as free, and a reader that does not is wrong
 
-##### 42.6.1.4 What a 1bpp canvas would and would not buy
+Walking `mem_tab` and subtracting every claim from the heap **under-reports
+what a package can get**, because the high byte of `MC_OWN` in `0xFB`..`0xFE`
+marks a cache the allocator sheds on demand (§50.6). Measured on a 128 KB
+machine with the file browser open, a naive walk says the largest run is
+13.5 KB; the desktop's own caches account for 23 KB of that, and Paint's 23 KB
+package claim is granted out of it without trouble.
 
-The canvas is four bits a pixel on every adapter — `pt_paras` is
-`ceil(w/2)` rounded up to 4, and §42.13's four-plane form is the same size at
-every width. On a 1bpp adapter that is four bits carrying one.
+`mem_avail`'s own contract makes the same point from the other side —
+"under-reporting here is not a safe error; it is the only direction in which
+the error is invisible." A diagnostic that walks the table has to classify the
+owner word, or it will report a machine as full while the kernel is happily
+funding claims on it.
 
-| | 4bpp | 1bpp |
+#### 42.6.4 `pt_entry`'s CF was inherited from a `cmp`, and only an unreachable path hid it
+
+`pt_entry` answers the loader in CF: set means "abort, unload me", and the
+only intended one is `OSAPI_WM_CREATE` failing, which `jc .out` takes
+directly. Every path below that is a success.
+
+It did not say so. The tail runs `pt_menufix` and then `OSAPI_MENU_SET`, and
+menu_set **preserves flags** — so whatever `pt_menufix` left rode out of the
+entry proc. And `pt_menufix` ends on `cmp ax, PT_LZW_KB`: with the GIF and
+undo blocks compiled out of the small build, that compare is the last thing it
+does, the two `pop`s after it write no flags, and a machine with less than
+16 KB free returned **CF = 1** from a routine whose contract is "preserves all
+registers".
+
+**Nothing had ever reached it.** `pt_menufix` sits inside `pt_entry`'s
+`cmp byte [pt_mode], PT_M_LIVE / jne .menus` gate, and a machine tight enough
+for `mem_avail` to answer under 16 KB was exactly a machine that could not
+fund a canvas — so it was `PT_M_NOMEM`, the gate skipped the call, and the
+`cmp` in the gate itself left CF = 0. The bug needed a machine that is tight
+**and** has a canvas, which is a state that did not exist until §42.6.1 made
+one.
+
+The fix is two `clc`s: one in `pt_menufix`, because the flags are not its to
+leak, and one in `pt_entry` before `.out`, because a proc whose return value
+is a flag should say what it is rather than inherit it.
+
+**The lesson is the diagnosis, not the fix.** Three plausible causes were
+measured and ruled out first — the claim order, `BX` across
+`OSAPI_MEM_CLAIM`, and a canvas greedy enough to starve `wm_create` — because
+the abort looked like a memory failure and every one of them is one. It is
+not a memory failure. It is a flag, and what made it look otherwise is that
+its trigger is a memory reading.
+
+#### 42.6.5 A canvas that memory cut is cut toward a SQUARE, not toward a letterbox
+
+`pt_fit` gives the height first and only starts on the width once the height
+is at `PT_CH_MIN`, and the reason is written down: **a picture that loses rows
+off the bottom stays more recognisable than one losing columns off the right
+AND rows off the bottom.** That is right for a LOAD, where the pixels already
+exist and the cut is a truncation.
+
+It is wrong for a canvas being **born**. There are no pixels to preserve, only
+a shape to draw in, and a full-width letterbox is the least useful shape a
+given number of bytes can be spent on. On the 128 KB machine §42.6.1 opens,
+the old ladder produced **448×51**.
+
+So `pt_geom` — and only `pt_geom` — sets `[pt_fitsq]`, and `pt_fit` then cuts
+whichever axis is **longer**:
+
+| | height first | longer axis |
 |---|---|---|
-| Hercules 448×258 | 57 KB | **15 KB** |
-| CGA 448×110 | 25 KB | **7 KB** |
+| CGA, 12 KB | 448×51 | **203×110** |
+| Hercules, 12 KB | 448×49 | **137×153** |
+| Hercules, 40 KB | 448×174 | **301×258** |
 
-It is a large win for Hercules and it does **not** reach the 128 KB machine:
-package 23 + scratch 12 is 35 KB against a 34 KB heap before any canvas at
-all. 128 KB needs roughly 8 KB more off the resident claim, or a smaller
-flood-fill stack, on top of the 1bpp canvas.
+Same bytes, a shape somebody can draw in. On CGA it reaches the screen's own
+full height and stops, because 110 is all there is.
+
+**The old ladder is still the fallback within the new rule**, not a separate
+path: the square test only diverts to the width when the width is the longer
+axis *and* can actually give — not pinned, not at `PT_CW_MIN`. Everything else
+falls into the height-first block, which already hands over to the width when
+the height cannot give. So `[pt_pinw]`/`[pt_pinh]` keep working unchanged, and
+a load, a resize and `pt_sizeask`'s ink guard all behave exactly as before.
 
 ### 42.7 Full Screen — the §53 bracket, and why NOT the §11.2 surface
 
@@ -52485,6 +52563,236 @@ Of the rest, `pt_ubst` (16 bytes) has no reference by any spelling in either
 build. It is inside `PTF_UNDO` now, so the small arm is already rid of it;
 the shipped build still carries it, and whoever removes it should check the
 other four the same way rather than trusting this list.
+
+### 42.23 The canvas may hold ONE BIT a pixel
+
+**A third canvas format, and the first one that is about the DOCUMENT rather
+than the card.** §42.13's two — packed 4bpp and four planes — are *the same
+size at every width*, because `ceil(w/2)` rounded up to 4 **is** `4*ceil(w/8)`.
+They trade speed for speed. This one trades size: a canvas of one bit is a
+quarter of the claim, and on the machine that made it necessary that is the
+difference between a picture and a letterbox.
+
+| canvas | 4bpp | 1bpp |
+|---|---:|---:|
+| Hercules default 448×258 | 56.6K | **14.2K** |
+| CGA default 448×110 | 24.2K | **6.1K** |
+| what 13.5 KB of heap buys at 448 wide | 61 rows | **245 rows** |
+
+`[pt_1bpp]` is the flag and it is **never 1 at the same time as
+`[pt_planar]`**. `pt_geom` picks one of the three and, unlike the planar
+question, this one is not re-asked when the window moves: a picture drawn on
+a Hercules and dragged onto the VGA beside it is still a black-and-white
+picture, and promoting it would quadruple a claim nobody asked to spend.
+
+Today `pt_geom` chooses it on a **1bpp adapter**, on either build, and
+`APP_SMALL` chooses it on every adapter (§42.22). What is not yet built is the
+colour machine's rule — a new canvas born one bit and promoted the first time
+a colour that is neither black nor white is painted — which needs a promotion
+pass and a refusal when the heap cannot fund one. docs/PAINT-1BPP-PLAN.md is
+the design record.
+
+#### 42.23.1 One is WHITE, and the polarity is worth 36% of every blit
+
+`gfx_blit1` maps a **set bit to a LIT pixel** (§5.4.2.2) and blits a band that
+is already that way up with `rep movsw` at 12.5 clocks a byte, against a
+complementing hand loop at 17. A standard 1bpp BMP's palette is
+`{0 = black, 1 = white}`. **Those two facts agree**, so storing the canvas
+1 = white costs nothing, writes a conventional file, and leaves the fast path
+reachable. The intuitive polarity — a set bit is ink — would have cost 36% of
+every canvas blit for ever, for nothing.
+
+A colour index becomes that bit through `pt_lit` and `PT_LIT16`: light grey
+and the seven bright colours light the pixel, the seven dark ones do not. It
+is a **reduction and not a palette lookup**, which is what lets the same
+routine answer both "what does this ink do here" and "what does this pixel of
+a colour picture become", so the two cannot disagree at the edges of the
+palette.
+
+**NEVER OFFER A COLOUR THAT CANNOT REACH THE PICTURE.** `[pt_ncol]` is the
+**minimum of what the canvas can hold and what the screen can show**, and
+`pt_ncolset` is the one place that decides it:
+
+| | colour card | 1bpp card |
+|---|---:|---:|
+| packed 4bpp / four planes | 16 | 3 |
+| one bit | **2** | **2** |
+
+Sixteen on a colour card. Three on a 1bpp one, because §39.4 reduces the rest
+to one of those and a swatch the machine cannot distinguish is a colour the
+user cannot choose. And two on a one-bit canvas *whatever the card*, because
+the canvas cannot store §39.4's dither class at all — a palette that offers a
+colour the canvas will silently discard is worse than one that does not offer
+it. Storing the dither as its own checkerboard is what would put it back; that
+is a look question and nobody has looked.
+
+The rule is written once because the two facts arrive from different places at
+different times: the adapter's from `pt_screen`, which re-runs on every
+display change, and the canvas's from `pt_geom` **or from a load**, which can
+change the depth under a strip that is already drawn. `pt_fmtpick` stored 16
+in its first build, which is wrong twice over — a colour file on a Hercules
+would have offered sixteen swatches the card reduces to three, and a one-bit
+load on a VGA has to come *down* to two.
+
+**It clamps `[pt_col]` too**, and for the same sentence one level in: a load
+can take the canvas to one bit under a strip that already has red selected, so
+the current-colour well would show a colour no swatch matches and the next
+stroke would come out as whatever `pt_lit` made of it. Reducing it in
+`pt_ncolset` means the strip, the well and the ink agree by construction
+rather than by three call sites remembering to.
+
+**Adding colour back to a one-bit document is not possible**, and that is
+accepted rather than overlooked: a monochrome file opened on a VGA gives a
+monochrome document, and File > New is what returns to colour. MacPaint and
+Paint 1.0 both worked that way. What makes it acceptable is precisely the
+table above — the strip *says* the document is monochrome instead of offering
+fifteen colours that go nowhere. A "make it colour" promotion is the
+future-work answer and needs a conversion pass plus a refusal when the heap
+cannot fund four times the claim.
+
+#### 42.23.2 The file is a 1bpp BMP, and the reader already read one
+
+`biBitCount` 1, `biClrUsed` 2, an 8-byte palette, `bfOffBits` 62 — against
+118 at 4bpp, which is why `PT_BMPHDR` stopped being a constant and became
+`[pt_hdrsz]`, set by `pt_paras` beside the stride. `pt_bmp_hdr` patches three
+fields of the shared template and writes the two entries out rather than
+reducing them from `pt_pal_rgb`, whose index 1 is BLUE: the two colours this
+file uses are entries 0 and 15 of that table and nothing in between.
+
+**Nothing had to be taught to READ one.** `pt_bmp_in` has tested `biBitCount`
+against 1, 4, 8 and 24 since it was written, and `pt_bmp_row` has carried a
+1bpp arm all along — the depth was already accepted as an input format long
+before it was available as a canvas.
+
+#### 42.23.3 Every 1bpp arm is the PLANAR arm with the plane loop removed
+
+That is the finding that made this affordable, and it is not a coincidence:
+eight pixels to a byte is eight pixels to a byte whether that byte is one
+plane of four or the whole picture. So `pt_rect` computes §42.13.2's byte
+column, span and two edge masks **once** and both arms read them, and the
+1bpp row loop *is* `.prpl` with the plane counter set to 1 instead of 4.
+`pt_setpx` and `pt_getpx` are the same shape one pixel wide.
+
+The one place the reduction is not shared is the ink: `.prpl` tests bit 0 of
+the palette index, which is right for black and white by luck and wrong for
+every colour between them, so the 1bpp entry reduces through `pt_lit` first.
+A canvas that has just been down-converted still has whatever the user last
+picked in `[pt_ink]`, so that is a live case and not a theoretical one.
+
+#### 42.23.4 The screen half, and why the fast path is NOT taken yet
+
+`OSAPI_GFX_BLIT1` takes **exactly** the band this canvas already holds — same
+bit order, same polarity, and §11.94's 8-aligned content origin plus
+`PT_CV_X` = 48 satisfy its multiple-of-8 rule for free. It is still not the
+path, for a reason that is the kernel's rather than this package's:
+
+**`gfx_blit1` wants a POSITIVE stride, and this canvas is stored bottom-up
+because it is the BMP.** The two places `gfx_blit1_x` skips rows — the clip
+region's `wm_clip_r0` and a negative y — both do `mul bp` on the stride, and
+`MUL` is unsigned. Hand it a negative stride and a band whose top is clipped
+starts from a source pointer 65,000 bytes away. `gfx_blit4` has no such rule,
+which is why §42's 4bpp path passes a negative stride happily and this one may
+not. **The SDK never claimed the stride was signed**; it was this package that
+assumed it.
+
+So a 1bpp row is expanded into `pt_line` as packed 4bpp — two `pt_nyb4`
+lookups a source byte — and drawn with `gfx_blit4`, one call a row. It costs
+the expansion, ~0.47 ms a row on a 4.77 MHz 8088, and it keeps the kernel's
+own per-row adaptivity: `gfx_blit4` picks runs for a flat row and per-pixel
+for a detailed one (§5.4.1.1), which no hand-rolled run walk here could do.
+There is **no banding**, because there is nothing to band — `pt_rowset`
+resolves each row's segment out of the table, so a canvas spanning segments
+needs no arithmetic here at all.
+
+`pt_line` rather than a buffer of its own: it is one byte per pixel and
+`PT_CW_MAX` long, so it is twice the room a packed run of the same width
+needs, and nothing that walks it is live during a repaint —
+`pt_line_put`, `pt_bmp_row` and the two format converters are a load, a save
+and a resize.
+
+**When the kernel's two skips are made sign-aware the fast path is a dozen
+bytes here**, and this loop becomes the fallback `kern_small` takes anyway:
+§5.4.2 gives that build the slot and not the body, so it answers CF = 1 and a
+package that did not have a second path would have nothing to draw with.
+
+#### 42.23.6 A LOAD picks the format, and a reduction goes to Save As
+
+`pt_fmtpick` runs **before `pt_adopt`** and that ordering is the whole of the
+mechanism. `pt_fit`, `pt_paras`, `pt_cvgrow`, `pt_layout` and `pt_bmp_hdr` all
+read the depth, and `pt_adopt` is the one routine that calls every one of them
+— so the format is an *input* to the load's arithmetic. Setting it afterwards
+would size the claim for one depth and fill it at another.
+
+The rule, per build:
+
+- **`APP_SMALL` is always one bit** (§42.22), so a colour picture is
+  down-converted through `PT_LIT16`.
+- **`kern_big` takes the file at the depth it really is**: one bit if the file
+  is bi-level, otherwise the adapter's own choice — planar on a colour card,
+  packed nibbles on a 1bpp one. A colour picture on a Hercules is still
+  sixteen colours in the canvas even though the screen shows three, because
+  the *file* is what the canvas has to be able to write back.
+
+**"Colourless" is the file's own declaration and not a scan.** A 1bpp BMP, or
+a GIF whose colour table has two entries. Walking a 4/8/24bpp picture to find
+out whether it happens to be monochrome is a pass over the whole thing before
+the canvas is even claimed, and it buys one case — a black-and-white
+photograph saved at 8bpp — that is too rare to pay for.
+
+**Two entries is not the same claim as black and white**, and `pt_mono2` is
+the test that separates them: a 1bpp BMP or a two-colour GIF may perfectly
+well be red on blue, and both of those reduce to the *same* bit through
+`PT_LIT16` — so opening it one bit deep would collapse the picture to one flat
+colour rather than reproduce it. Two `pt_lit` calls at load time, and a file
+that fails the test is loaded at its nominal depth instead.
+
+**The Save fence already existed.** `[pt_trunc]` means "the file on disk holds
+more than we are holding"; it fences File > Save *and* §42.16's close question
+alike, and its whole job is to send the user to Save As rather than write less
+than the original over it. A colour picture opened into a one-bit canvas is
+exactly that sentence, so a down-convert sets the same byte — `pt_tredo`, five
+instructions, called after `pt_adopt` because `pt_adopt` is what *clears* it.
+`[pt_tred]` only picks the wording, `Reduced` against `Cropped`, because the
+two are different things to be told.
+
+`pt_line_put`'s bit arm inlines the reduction rather than calling `pt_lit`,
+for §42.13.1.4's reason rather than for the clocks: it is the BMP and GIF
+decoders' inner loop, every row of every picture opened, and a `call`/`ret`
+per pixel is thirty cycles around fourteen of work. A row that ends mid-byte
+is **merged** rather than written — the pixels past `[pt_cols]` are not that
+row's to touch, which is the promise both other paths already make.
+
+#### 42.23.7 What needed NO arm, and why that is the interesting half
+
+Four things that look like they must know the depth and do not:
+
+- **The clipboard.** §42.13.3's fast path is planar; the other path goes
+  through `pt_getpx` and `pt_setpx` per pixel and stores packed 4bpp
+  *whatever the canvas was*. Both of those are converted, so Copy and Paste
+  work on a one-bit canvas with no clipboard change at all. `[pt_cbpl]` is
+  `[pt_planar]` at Copy time and a one-bit canvas is never planar, so the
+  planar merge cannot be reached with a one-bit destination.
+- **The resize copy.** `pt_cvmove`'s *default* is one plane of
+  `min(ostride, stride)` bytes — which is exactly a one-bit row. The planar
+  case is the special one, not this.
+- **The undo image.** `pt_ucopy`, `pt_uswap_row` and `pt_ubm1` all work in
+  bytes off `[pt_ushf]`, which `pt_layout` derives from the live stride.
+  `pt_ublocks` is the only undo routine that knows pixel positions, and
+  missing its arm left Ctrl+Z restoring *most* of a stroke: the mask was
+  built from `x>>1`, so a chord at x=160..350 marked blocks 80..175 of a row
+  that is 56 bytes long and the blocks actually under it went uncopied.
+- **Reading a 1bpp file**, which §42.23.2 covers — it was already there.
+
+#### 42.23.5 The stroke's span writer is NOT converted, deliberately
+
+`pt_sparm` refuses §42.8.9's span path on a one-bit canvas exactly as it
+refuses it on four planes. A 1bpp row writer would be genuinely *cheaper* than
+the packed one it replaces — the masks are the same bits `pt_rect` already
+computes — so it is worth having. What it is not is worth having **unproven**,
+on the one path in this program where a wrong mask is a wrong stroke rather
+than a wrong repaint (§42.8.3's wobble is what that costs). The dabs go
+through `pt_rect`, which is converted and which every other drawing tool uses
+too.
 
 ### 43.11 A hollow pip is DRAWN from the solid one, not stored beside it
 

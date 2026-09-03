@@ -1831,11 +1831,65 @@ SOAK = [
         "out of the CANVAS and compared as a SET, so neither a repaint nor a"
         "smear inside the bounding box can flatter it",
         needs=("marty", "nasm"), serial=True),
-    Row("paintrz-packed", "soak",
+    Row("paint1bpp", "soak",
+        py("tests/paint1bpp.py"), 180.0,
+        "SPEC.md 42.23: is the canvas ONE BIT a pixel, and is the DIB in"
+        "front of it a valid 1bpp BMP? The claim is the assertion and not"
+        "the pixels - 448x258 is 14.2KB one bit deep against 56.6 packed,"
+        "which on the 128KB floor machine is the difference between the full"
+        "default picture and 42.6.5's letterbox, and NOT ONE other paint row"
+        "would notice a canvas that came out four times bigger than it had"
+        "to be. The header is checked field by field against the live"
+        "geometry because the canvas IS the file (42): a save is one write"
+        "of it, so a header that lies is a file no host can open. A blank"
+        "canvas must read all 0xFF, which is 42.23.1's polarity - 1 is"
+        "WHITE, both because that is what a 1bpp BMP means and because"
+        "gfx_blit1 takes a band that way up at 12.5 clocks a byte instead of"
+        "the complementing loop's 17",
+        needs=("marty",), serial=True),
+    Row("paint1bpp-colour", "soak",
+        py("tests/paint1bpp.py", "--machine", "os8088_xt_vga", "--colour"),
+        180.0,
+        "...and THE NEGATIVE, which is the half that would drift silently: a"
+        "COLOUR adapter is untouched by 42.23 - four planes, sixteen"
+        "colours, a 118-byte DIB and the 4bpp arithmetic to the byte. A new"
+        "canvas opens in colour on a VGA and only a mono screen opens one"
+        "bit. Nothing else in tests/ asserts a negative about the format, so"
+        "a change that made EVERY canvas one bit deep would pass the whole"
+        "suite and quietly cost the VGA fifteen of its colours",
+        needs=("marty",), serial=True),
+    Row("paint1load", "soak",
+        py("tests/paint1load.py"), 180.0,
+        "SPEC.md 42.23.6: does a 1bpp BMP LOAD? The one path in 42.23 no"
+        "other row reaches - pt_line_put's bit arm, pt_fmtpick running before"
+        "pt_adopt, and the fixture is BUILT here rather than committed"
+        "because what it has to be is a pure function of what the reader is"
+        "being asked: a pattern whose every byte differs from its neighbours,"
+        "so a row read one byte early or one bit out of phase cannot come"
+        "back looking right. The oracle is the CANVAS against the FILE and"
+        "not the screen - a one-bit canvas is byte-for-byte a 1bpp BMP's"
+        "pixel rows (42.23.2) - and [pt_trunc] must be CLEAR, because"
+        "nothing was reduced here and File > Save has to stay allowed",
+        needs=("marty",), serial=True),
+    Row("paint1load-vga", "soak",
+        py("tests/paint1load.py", "--machine", "os8088_xt_vga"), 180.0,
+        "...and the same on a COLOUR adapter, which is the interesting leg:"
+        "42.23.6 opens a colourless file one bit deep on ANY card, so this is"
+        "a one-bit canvas drawn through the planar renderer - pt_blit_1's"
+        "expansion into pt_line and gfx_blit4, on the machine whose every"
+        "other canvas is four planes",
+        needs=("marty",), serial=True),
+    Row("paintrz-1bpp", "soak",
         py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 420.0,
-        "...and the PACKED canvas, which is a different move: one run of"
-        "nibbles a row instead of four plane-runs whose three inner boundaries"
-        "all shift with the width (SPEC.md 42.13.2)",
+        "...and the ONE-BIT canvas, which is a different move: one run of"
+        "bits a row instead of four plane-runs whose three inner boundaries"
+        "all shift with the width (SPEC.md 42.23, 42.13.2). IT WAS"
+        "`paintrz-packed` and the rename is the point: since 42.23 a Hercules"
+        "gives Paint a one-bit canvas and not a packed one, so the row that"
+        "read `packed` in its name had stopped covering that format. Packed"
+        "4bpp is now reached two ways - a COLOUR file opened on a 1bpp"
+        "adapter, and gfx_blitp refusing on a colour one - and `paintpack` is"
+        "the row that forces the second",
         needs=("marty", "nasm"), serial=True),
     Row("alertbtn", "soak",
         py("tests/alertbtn.py", "--machine", "os8088_5150_herc_gla"), 300.0,
