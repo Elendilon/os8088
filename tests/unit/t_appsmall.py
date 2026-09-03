@@ -119,7 +119,62 @@ def main():
               "a floor under 'the gates carry nothing', not a target - the "
               "real figure is ~34%% and is allowed to move",
               got="%.1f%%" % (saved * 100), want=">= %d%%" % (MIN_SAVING * 100))
+    disks(tmp)
     done("t_appsmall")
+
+
+# The disks themselves: SPEC.md 42.22.1 - every gated package that reaches a
+# small floppy must be the SMALL build, in EVERY folder it lands in.
+#
+# The Makefile's SMALLBASE substitution is what arranges that, and for one
+# cycle it covered the APPS list and not the GAMES one - so Solitaire shipped
+# TWICE on smallapps360.img, the small build in APPS/ and the full build in
+# GAMES/, and which one ran was whichever the loader found first. The comment
+# above SMALLPKGS predicted that failure exactly and the guard did not cover
+# it, which is why this reads the built image instead of the variable.
+SMALL_IMGS = ["build/smallapps360.img", "build/smallapps.img",
+              "build/smallk/small360.img", "build/small360.img",
+              "build/small.img"]
+
+
+def disks(tmp):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        from t_image import Vol
+    except Exception as e:                                  # pragma: no cover
+        check(False, "the FAT12 reader loads", got=str(e), want="t_image.Vol")
+        return
+
+    want = {}
+    for name, src, shipped in PKGS:
+        base = os.path.basename(shipped).upper()            # e.g. PAINT.O88
+        small = os.path.join(ROOT, "build", "smallapp", os.path.basename(shipped))
+        if os.path.exists(small):
+            want[base] = (os.path.getsize(small), md5(small))
+
+    seen_any = False
+    for rel in SMALL_IMGS:
+        path = os.path.join(ROOT, rel)
+        if not os.path.exists(path):
+            continue
+        seen_any = True
+        with open(path, "rb") as f:
+            v = Vol(f.read(), rel)
+        for folder, name11, attr, clus, size in v.walk():
+            nm = (name11[:8].decode("ascii", "replace").strip() + "." +
+                  name11[8:].decode("ascii", "replace").strip()).upper()
+            if nm not in want:
+                continue
+            wsize, _ = want[nm]
+            check(size == wsize,
+                  "%s: %s%s is the SMALL build" % (rel, folder, nm),
+                  "a gated package reached a small floppy at the FULL build's "
+                  "size. The Makefile substitutes $(SMALLBASE) for the small "
+                  "path per list, so a list that forgot it ships both copies "
+                  "and the loader picks whichever it finds first",
+                  got="%d bytes" % size, want="%d bytes" % wsize)
+    if not seen_any:
+        check(True, "small floppies present to walk (none built - skipped)")
 
 
 if __name__ == "__main__":

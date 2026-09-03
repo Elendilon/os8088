@@ -51916,6 +51916,117 @@ never a size decision (§27.16.2's rule).
 mechanically de-gated copy of the source and comparing: every `%ifdef PTF_*`
 is a no-op when it is defined. `tests/unit/t_appsmall.py` holds it there.
 
+#### 42.22.1 Pass 2 — the two features the arm could never fund
+
+`PTF_UNDO` and `PTF_CLIP` are a **different argument** from the three flags
+above. Those are features a small machine merely does without. These two are
+features it can never **fund**, and the machinery for them was being carried
+anyway.
+
+| flag | off in `APP_SMALL` |
+|---|---|
+| `PTF_UNDO` | undo/redo (§42.8.6), its claim, `pt_umask`, and the Ctrl+Z door |
+| `PTF_CLIP` | Cut, Copy, Paste, the clipboard claim, **the selection tool**, and Edit > Clear |
+
+**The heap side already tiered, and that is the point.** `pt_alloc_undo` and
+`pt_alloc_clip` each refuse on their own (§42.6), so on the floor machine the
+undo image and the clipboard were never claimed. What was still being paid for
+was **the code that asks**: routines, their call sites, `PT_CH_MAX` bytes of
+`pt_umask`, and four menu items whose only job was to explain a refusal.
+
+Measured, one instance:
+
+| | image | .bss | claim |
+|---|---|---|---|
+| full | 25,894 | 5,458 | 31,352 |
+| small, pass 1 | 22,565 | 3,900 | 26,465 |
+| **small, pass 2** | **19,613** | **3,521** | **23,134** |
+
+**−3,331 bytes** on top of pass 1; **8,218 off the full build, 26.2%.** And on
+a machine that *does* fund them it frees the claims as well — the undo image
+is a second copy of the canvas (**61.25 KB** at the 448×280 default) and the
+clipboard floor is 4 KB, so **65.25 KB of heap** that a small Paint now never
+asks for.
+
+**It buys no bigger canvas, and that is worth stating.** `pt_fit` sizes the
+canvas against `pt_growp` — the largest free run — with **no reservation for
+undo**; the canvas is claimed first and the undo image asks for the same size
+afterwards. So dropping undo does not let the canvas grow. What it frees is
+memory for *other programs*, and resident bytes for this one, which is the
+number that decides whether Paint loads at all.
+
+##### 42.22.1.1 Edit > Clear is a DEPENDENCY, not a decision
+
+Clear looks like a separate feature worth keeping — it is 22 bytes of code and
+6 of string. It is not a decision: **`pt_sel_clear` whites out the SELECTION,
+not the canvas.** `pt_sel_rect` answers CF = 1 when nothing is selected and the
+routine then does nothing at all. With the marquee gone Clear is an inert menu
+item, so it goes with `PTF_CLIP` — and Undo, Cut, Copy, Paste and Clear being
+all of the Edit menu, **the menu itself goes**. `File > New` is what blanks a
+canvas on either build.
+
+That is also why the greying goes. §47 rule 1 says grey a **fact**; a
+`(NoRam)` item that can never become available on this build is not a fact the
+user can act on, it is a menu item that should not be there.
+
+##### 42.22.1.2 Two numbers that are INDICES, counted rather than written
+
+Removing a menu and a tool shifts every one after it, and both are addressed
+by index: `pt_oncmd` is handed a `(menu, item)` pair, and `[pt_tool]` selects
+into `pt_ic_tab`. Written out, that is two lists to keep in step per build
+configuration, and **the failure is silent** — Draw's items arrive at the View
+arm, or the palette draws the wrong icon over the right tool.
+
+So `PT_MENU_*`, `PT_ME_*` and `PT_T_*` are all `%assign` counters now, and
+`PT_NTOOL` and `PT_ME_N` fall out of the same lists the tables are built from.
+One list per thing, and a flag that compiles a member out renumbers everything
+below it automatically.
+
+##### 42.22.1.3 `pt_gate` had to go WHOLE, not in halves
+
+`pt_gate` answers "is this feature funded on this machine?" and its callers
+are the three clipboard commands and GIF save. Gating its two arms
+individually left a routine with nothing to test that fell straight through
+to `call pt_msg_show` **with `SI` holding whatever the caller had** — a
+message window drawn from a garbage pointer, in code with no callers, which
+is the worst combination: it assembles, it ships, and nothing exercises it
+until something does.
+
+So it is `PTF_GATE`, derived from `PTF_CLIP` or `PTF_GIF`, and the two
+`No RAM for…` strings go with it. **A routine whose every caller is gated is
+not a routine to gate in pieces.**
+
+##### 42.22.1.4 Four names that are NOT what their prefix says
+
+The `pt_u*` prefix is undo's, except where it is not, and each of these was
+one edit away from a silent defect:
+
+- **`pt_unstage`** hands the *staging buffer* back; **`pt_unpin`** makes the
+  canvas movable again. Both are "un-", not "undo".
+- **`pt_uoff`** says a deferred stroke's **replay** is running, which
+  `pt_span` reads (§42.8.9.2) whether or not there is an undo image for it to
+  skip marking. It stays in both builds.
+- **`pt_urowset`** *is* undo's — and it sits directly under `pt_rowset`,
+  sharing one comment header, so a gate placed by that header takes the row
+  addresser every loop in the package depends on with it.
+- **`pt_iclear`** clears the **inked table** (§42.18), not Edit > Clear. The
+  `pt_i_*` menu strings and `pt_ic_*` icon bitmaps share that prefix, so an
+  unused-name sweep lists all three together and only the first two are
+  actually dead.
+
+##### 42.22.1.5 A `.bss` sweep found 62 bytes with no reference — and it is NOT all free
+
+Walking the preprocessed **shipped** build for declared `.bss` names that
+nothing reads finds ten, 62 bytes. **Three of them are load-bearing**:
+`pt_fszh`, `pt_boffh` and `pt_fsize_hi` are documented high halves, reached as
+`[pt_fsz+2]` and friends, so the declaration is what reserves the space and
+deleting it corrupts the layout of everything after it.
+
+Of the rest, `pt_ubst` (16 bytes) has no reference by any spelling in either
+build. It is inside `PTF_UNDO` now, so the small arm is already rid of it;
+the shipped build still carries it, and whoever removes it should check the
+other four the same way rather than trusting this list.
+
 ### 43.11 A hollow pip is DRAWN from the solid one, not stored beside it
 
 On a 1bpp adapter the two red suits are drawn **hollow** — index 12 reduces to

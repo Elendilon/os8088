@@ -6101,7 +6101,33 @@ SMALLOMIT_DATA := tests/htm/demo.htm apps/tracker/beverly.mod
                                     # a media disk of its own (SPEC.md 24.4);
                                     # this takes it off the 1.44MB one too
 
-SMALLGAMES      = $(filter-out $(SMALLOMIT_GAMES),$(APPS_GAMES))
+# THE PACKAGES THAT HAVE A SMALL BUILD - the build rules' list, and nothing
+# else. $(SMALLBASE) is the same set spelled as the ordinary build's paths, so
+# it is derived rather than repeated.
+#
+# **IT IS NOT A DISK LIST.** Which FOLDER a package ships in is decided by
+# which of $(APPS_TOOLS) / $(APPS_GAMES) it is in, exactly as on the ordinary
+# floppy - Solitaire is a game and belongs in GAMES/ on both. Naming these
+# APPS: directly put it in BOTH folders for a cycle.
+SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88 \
+                 $(SMALLAPPDIR)/calc.o88 $(SMALLAPPDIR)/solitair.o88
+SMALLBASE      = $(patsubst $(SMALLAPPDIR)/%,$(BUILD)/%,$(SMALLPKGS))
+
+# The substitution, ONE IDIOM used by all four lists below: drop the omitted
+# packages, and take the small build of any that has one. A list that forgets
+# it ships BOTH builds on one floppy and the shipped one is whichever the
+# loader finds first - tests/unit/t_appsmall.py walks the built images for
+# exactly that, because this comment said so once already and the guard only
+# covered the tools.
+SMALLSUB       = $(patsubst $(BUILD)/%,$(SMALLAPPDIR)/%,$(filter $(SMALLBASE),$(2))) \
+                 $(filter-out $(SMALLBASE) $(1),$(2))
+
+# ...and the SAME substitution the tools get below, because a package with a
+# small build can be a GAME: Solitaire is, and for one cycle this line shipped
+# the full build into GAMES/ beside the small one in APPS/ - two copies on one
+# floppy, exactly what SMALLBASE exists to prevent. tests/unit/t_appsmall.py
+# now walks the built disks for it rather than trusting this line.
+SMALLGAMES      = $(call SMALLSUB,$(SMALLOMIT_GAMES),$(APPS_GAMES))
                                     # DEFERRED (`=`), and it matters: $(APPS_GAMES)
                                     # is defined ~400 lines BELOW here, so `:=`
                                     # takes an EMPTY list and the disk ships with
@@ -6111,16 +6137,8 @@ SMALLGAMES      = $(filter-out $(SMALLOMIT_GAMES),$(APPS_GAMES))
 SMALLDATA_360   = $(filter-out $(SMALLOMIT_DATA),$(APPS_DATA_360))
 SMALLDATA       = $(filter-out $(SMALLOMIT_DATA),$(APPS_DATA))
 
-# The substitution, written once: every APPS: package except the omitted ones
-# and the ones that have a small build, then those. ONE LIST, and $(SMALLBASE)
-# is derived from it rather than repeated - a package added here and forgotten
-# in the filter-out would ship BOTH builds on one floppy, and the shipped one
-# would be the copy the loader found first.
-SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88 \
-                 $(SMALLAPPDIR)/calc.o88 $(SMALLAPPDIR)/solitair.o88
-SMALLBASE      = $(patsubst $(SMALLAPPDIR)/%,$(BUILD)/%,$(SMALLPKGS))
-SMALLAPPSARGS  = $(patsubst %,APPS:%,$(filter-out $(SMALLBASE) $(SMALLOMIT),$(APPS_TOOLS))) \
-                 $(patsubst %,APPS:%,$(SMALLPKGS))
+
+SMALLAPPSARGS  = $(addprefix APPS:,$(call SMALLSUB,$(SMALLOMIT),$(APPS_TOOLS)))
 
 # --- THE CORE PACKAGES, on the small system disk too --------------------------
 # SPEC.md 24.3: the core packages ship on the SYSTEM disk as well as the apps
@@ -6130,10 +6148,8 @@ SMALLAPPSARGS  = $(patsubst %,APPS:%,$(filter-out $(SMALLBASE) $(SMALLOMIT),$(AP
 #
 # It is CORE_TOOLS with the same two filters the apps disk uses: the omitted
 # packages go, and the ones with a small build are the small build.
-SMALLCORE_TOOLS = $(patsubst $(BUILD)/%,$(SMALLAPPDIR)/%,\
-                    $(filter $(SMALLBASE),$(CORE_TOOLS))) \
-                  $(filter-out $(SMALLBASE) $(SMALLOMIT),$(CORE_TOOLS))
-SMALLCORE_GAMES = $(filter-out $(SMALLOMIT_GAMES),$(CORE_GAMES))
+SMALLCORE_TOOLS = $(call SMALLSUB,$(SMALLOMIT),$(CORE_TOOLS))
+SMALLCORE_GAMES = $(call SMALLSUB,$(SMALLOMIT_GAMES),$(CORE_GAMES))
 SMALLCOREARGS   = $(addprefix APPS:,$(SMALLCORE_TOOLS)) \
                   $(addprefix GAMES:,$(SMALLCORE_GAMES))
 
