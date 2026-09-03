@@ -111,7 +111,10 @@ TASK0 = [
     re.compile(r'package\'s\s+stack\s+is\s+(\d[\d,]*)\s+bytes', re.I),
 ]
 
-SKIP_DIRS = {".git", "build", "__pycache__", "vm", "node_modules"}
+SKIP_DIRS = {".git", "build", "__pycache__", "vm", "node_modules",
+             ".claude"}     # agent worktrees under .claude/worktrees/ are whole
+                            # copies of the tree; ten of them took this row
+                            # from 5 s to a 60 s timeout
 EXTS = (".md", ".inc", ".asm", ".h", ".c", ".py", ".txt")
 
 # --- deliberate history ------------------------------------------------------

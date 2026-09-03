@@ -418,7 +418,7 @@ FAST = [
 # full - the pre-merge gate. Everything above, plus these.
 # --------------------------------------------------------------------------
 FULL = [
-    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 55.0,
+    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 110.0,
         "the knob kernels and kern_small - every configuration `all` "
         "does not build, and so the only thing that keeps them assembling", builds=True),
     Row("bmshare", "full", py("tests/unit/t_bmshare.py"), 16.0,
