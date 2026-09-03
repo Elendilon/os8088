@@ -85,6 +85,14 @@ DSK_ICO_N    equ 16              ; bodies in the pool. SIXTEEN is the product
 DSK_ICO_N    equ DSK_NENT        ; one body per entry, as it always was
 %endif
 
+%ifdef KERN_SMALL
+DSK_ICOIX_N  equ DSK_NENT        ; the index is one byte per ENTRY, so it is
+                                 ; cut from the listing and not from the pool.
+                                 ; DSK_NENT and not DSK_VENT because SPEC.md
+                                 ; 51.0 leaves this kernel no driver-backed
+                                 ; volume to list sixty-four entries from
+%endif
+
 ; How many entries a listing holds. DSK_NENT is the FLOOR - the .lowbss pair
 ; every floppy uses, and the fallback for a driver-backed volume whose driver
 ; could not fund a bigger one. DSK_VENT is what a hard disk gets: 96 bytes an
@@ -125,7 +133,7 @@ disk_dir:   resb DSK_NENT*DSK_DE_STRIDE    ; DSK_NENT SYNTHESIZED entries,
                                 ; lists into its driver's claim instead, and
                                 ; [dsk_dseg]/[dsk_doff] say which is in use
 %ifdef KERN_SMALL
-dsk_icoix:  resb DSK_NENT       ; entry i's POOL SLOT, or 0xFF for no icon
+dsk_icoix:  resb DSK_ICOIX_N    ; entry i's POOL SLOT, or 0xFF for no icon
                                 ; (SPEC.md 25.8). Blanked every mount, which
                                 ; is 32 bytes of `rep stosb` where the array
                                 ; below took 2,048 of `rep stosw`

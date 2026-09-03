@@ -571,6 +571,19 @@ after W0-W2 (modules)      88,064      87.5 KB         40.5 KB
 + the icon pool (B5)       77,824      77.5 KB       * 50.5 KB *
 ```
 
+**...and B5 has a second half that is not in that column at all**, because it
+is HEAP rather than footprint: the per-window view cache (SPEC.md 22.6.1)
+carried the same duplication one layer out - 2KB of its 3KB was one icon body
+per entry, in EVERY open Disk window's private claim. Pooling it too takes
+`VIEW_KB` 3 -> 2 for `.cold` +34, which is **1,024 bytes per open window and
+4,096 with all four up** (SPEC.md 25.8.5). Measured on the 128KB machine: a
+Disk window's claim reads 2,048 bytes where it read 3,072.
+
+That one is worth more than its size suggests and is easy to miss in a table
+of section deltas, because a claim is not a section: it never appears in
+`kernsize` at all. The lever it points at for the rest of this document is
+**per-instance claims**, which nothing here has counted.
+
 **50.5 KB, measured on a machine with 128KB in it** (`tests/small128.py`), and
 `kern_big` moved by 512 bytes — D4's, the only item here it shares.
 

@@ -6348,6 +6348,36 @@ dsk_put_ico_body:
     pop dx
     ret
 
+%ifdef KERN_SMALL
+; -----------------------------------------------------------------------------
+; dsk_ico_blank - fill dsk_ico with the "no icon" body (module internal)
+; out:      nothing (all registers preserved)
+;
+; Through DS and not a `rep stosw`: dsk_ico is `.bss` and so KERNEL_SEG, which
+; DS already is (SPEC.md 1), and setting ES here would cost more than the
+; loop. TWO callers - dsk_get_icon_x for the global pool and files.inc's
+; fmv_get_icon for a window's own copy of it (SPEC.md 25.8.5), which cannot
+; defer to the global because a cache may hold a listing the global has since
+; replaced.
+; -----------------------------------------------------------------------------
+dsk_ico_blank:
+    push ax
+    push cx
+    push di
+    mov di, dsk_ico
+    mov cx, DSK_ICO_SIZE/2
+    xor ax, ax
+.bz:
+    mov [di], ax
+    add di, 2
+    dec cx
+    jnz .bz
+    pop di
+    pop cx
+    pop ax
+    ret
+%endif
+
 ; -----------------------------------------------------------------------------
 ; dsk_get_icon - stage one harvested icon slot in the kernel segment
 ; in:       AX = entry index (0..31)
@@ -6362,20 +6392,9 @@ dsk_get_icon_x:
     call dsk_ico_ofs
 %ifdef KERN_SMALL
     jnc .have
-    ; SPEC.md 25.8: no body, so hand back the all-zero every caller already
-    ; reads as "no icon" (files.inc ORs the 32 words). Through DS and not a
-    ; `rep stosw`: dsk_ico is `.bss` and so KERNEL_SEG, which DS already is
-    ; (SPEC.md 1), and setting ES here would cost more than the loop.
-    mov di, dsk_ico
-    mov cx, DSK_ICO_SIZE/2
-    xor ax, ax
-.bz:
-    mov [di], ax
-    add di, 2
-    dec cx
-    jnz .bz
-    pop di
-    pop dx
+    call dsk_ico_blank          ; SPEC.md 25.8: no body, so hand back the
+    pop di                      ; all-zero every caller already reads as
+    pop dx                      ; "no icon"
     pop cx
     pop ax
     mov si, dsk_ico

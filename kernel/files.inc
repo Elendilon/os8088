@@ -304,6 +304,18 @@ FM_MAXWIN   equ VIEW_SLOTS      ; = KD_CAP: one cache slot per window
 FV_ICONS    equ DSK_NENT*DSK_DE_STRIDE  ; icon images start here inside a
                                 ; FLOPPY-sized slot; a driver-backed volume's
                                 ; is [dsk_ioff], and fmv_iofs answers both
+%ifdef KERN_SMALL
+FV_ICOIX    equ DSK_ICO_N*DSK_ICO_SIZE  ; ...and SPEC.md 25.8.5's index sits
+                                ; ABOVE the pool, not below it, so that
+                                ; fmv_iofs's answer stays a multiple of 256.
+                                ; FS_IOFH holds that answer in ONE BYTE
+                                ; (fmv_viofs asserts it), and putting the
+                                ; 32-byte index in front would have made the
+                                ; pool base 800 and the assertion false
+%if DSK_NENT*DSK_DE_STRIDE + DSK_ICO_N*DSK_ICO_SIZE + DSK_ICOIX_N > VIEW_KB*1024
+  %error "the pooled view cache no longer fits VIEW_KB: entries, then DSK_ICO_N bodies, then one index byte per entry. fmv_fit claims VIEW_KB and fmv_store then writes this much into it, so the overflow lands on whatever the heap handed out next"
+%endif
+%endif
 FM_HDRMAX   equ 48              ; fm_hdrbuf's size: the header and the status
                                 ; line are both staged whole and truncated
                                 ; afterwards, and the longest of them is the
@@ -509,7 +521,9 @@ fm_kinit_x:
 ; The view cache (SPEC.md 2.3/22.1)
 ;
 ; Each window owns one 4KB VIEW_SEG slot holding a byte-for-byte image of
-; disk_dir (at slot offset 0) and disk_icons (at FV_ICONS). Neither end of
+; disk_dir (at slot offset 0) and disk_icons (at FV_ICONS) - and on
+; kern_small that image is SPEC.md 25.8.5's pool plus its index, which is the
+; same bytes the global holds and not an expansion of them. Neither end of
 ; that copy is addressable through DS - the source is LOW_SEG, the
 ; destination VIEW_SEG - which is why it goes through disk.inc's
 ; dsk_copy_out / dsk_copy_seg rather than a plain rep movsw.
@@ -680,7 +694,46 @@ fmv_get_icon:
                                 ; ahead of fmv_copy_in's own fallback, whose
                                 ; [dsk_ioff] + index*64 is the arithmetic the
                                 ; pool invalidates
-%endif
+    push ax
+    push bx
+    push cx
+    push di
+    call fmv_viofs              ; THIS WINDOW'S pool base, not the global's -
+                                ; the one place the two can differ (22.6.1)
+    add ax, bx                  ; ...and the entry's INDEX BYTE above it
+    add ax, FV_ICOIX
+    mov si, ax
+    mov di, dsk_ico             ; TWO bytes, because fmv_copy_in moves words.
+    mov cx, 2                   ; The second is the next entry's index, or the
+    call fmv_copy_in            ; first byte past the array and still inside
+                                ; the claim (FV_ICOIX's %if bounds it); it is
+                                ; overwritten below either way
+    mov al, [dsk_ico]
+    cmp al, 0xFF
+    je .none                    ; SPEC.md 25.8.5: THIS WINDOW'S answer and not
+                                ; the global's - a cache may still hold a
+                                ; listing the global has since replaced, so
+                                ; falling through to dsk_get_icon_x here would
+                                ; paint another volume's icon
+    xor ah, ah                  ; ...AX was the entry; now it is the BODY
+    mov cl, 6
+    shl ax, cl
+    add ax, bx
+    mov si, ax
+    mov di, dsk_ico
+    mov cx, DSK_ICO_SIZE
+    call fmv_copy_in
+    jmp short .out
+.none:
+    call dsk_ico_blank
+.out:
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    mov si, dsk_ico
+    ret
+%else
     push ax
     push bx
     push cx
@@ -699,6 +752,7 @@ fmv_get_icon:
     pop ax
     mov si, dsk_ico
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; fmv_winof - which window owns the state block in DI? (the inst_tab walk)
@@ -801,29 +855,21 @@ fmv_store:
     mov cx, bx
     call fmv_copy_out
 %ifdef KERN_SMALL
-    ; SPEC.md 25.8: disk_icons is a POOL here and dsk_icoix says which body
-    ; an entry has, so the byte-for-byte copy below would land every body at
-    ; the wrong entry and leave the tail blank. EXPAND it instead - a slot
-    ; keeps one 64-byte body PER ENTRY, which is fmv_get_icon's contract and
-    ; every painter's, so nothing downstream of here learns about the pool.
-    mov di, bx                  ; where entry 0's icon goes in the slot
-    xor cx, cx                  ; ...and CX is the index, because BH is still
-    mov dx, ds                  ; owed to FS_IOFH below. DX = the kernel
-.ico:                           ; segment, out of DS: this module is .cold,
-    cmp cx, [dsk_nmax]          ; so CS is COLD_SEG (SPEC.md 2.6)
-    jae .icd
-    push ax
-    mov ax, cx
-    call dsk_get_icon_x         ; SI -> dsk_ico, all-zero if the entry has no
-    pop ax                      ; body - which is what a blank slot already
-    push cx                     ; was, so no reader gains a case
-    mov cx, DSK_ICO_SIZE
-    call dsk_copy_seg_x
-    pop cx
-    add di, DSK_ICO_SIZE
-    inc cx
-    jmp short .ico
-.icd:
+    ; SPEC.md 25.8.5: the cache MIRRORS the global - DSK_ICO_N bodies and one
+    ; index byte per entry - so both halves are block copies and the window
+    ; holds the same 1,056 bytes the global does instead of expanding them
+    ; back to one body per entry. The first version of this DID expand, to
+    ; keep fmv_get_icon's contract; carrying the pool through instead deletes
+    ; that loop AND a whole KB of every window's claim.
+    mov si, [dsk_ioff]
+    mov di, bx
+    mov cx, DSK_ICO_N*DSK_ICO_SIZE
+    call fmv_copy_out
+    mov si, dsk_icoix           ; the INDEX, which lives in `.lowbss` -
+    mov di, bx                  ; fmv_copy_out reads [dsk_dseg], and that IS
+    add di, FV_ICOIX            ; LOW_SEG on this kernel because SPEC.md 51.0
+    mov cx, DSK_ICOIX_N         ; leaves it no DVK_DRV volume to list from
+    call fmv_copy_out           ; anywhere else
 %else
     mov si, [dsk_ioff]
     mov di, bx

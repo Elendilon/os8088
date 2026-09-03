@@ -34672,6 +34672,98 @@ money — `.cold` is resident code in a rung with 293 bytes of slack, `.lowbss`
 sits below the heap and every byte of it is a byte the 128KB machine cannot
 allocate.
 
+#### 25.8.4 What it does NOT buy, and the measurement that says so
+
+A pool trades **bytes for a cap**, and the cap is what decides where it is
+worth taking. Measured across every shipped floppy — each folder walked, each
+package's header read, folders counted as the one body they share — the
+busiest folder in the tree is the apps disk's `APPS/` at **14 distinct bodies
+of 16 entries**. So `DSK_ICO_N` = 16 is two to spare on the worst disk this
+project ships, which is deliberate on the arm whose whole purpose is a 128KB
+machine.
+
+**It does not follow that `kern_big` should take it, and it should not.**
+`kern_big`'s index has to be `DSK_VENT` = 64 bytes rather than 32, because a
+`DVK_DRV` volume lists sixty-four entries through the same array; the
+allocator is the same `.cold` +152 either way. Built and measured on that arm:
+
+| pool | sum saved | headroom over the worst shipped folder |
+|---|---|---|
+| 16 | 806 | 2 |
+| 20 | 552 | 6 |
+| 24 | 296 | 10 |
+| 28 | 40 | 14 |
+| 32 | **−216** (costs more) | 18 |
+
+A hard disk's folder of thirty icon-bearing packages caps at any of these, and
+`kern_big` is the kernel with the memory to not have that happen. **The
+requirement selects `DSK_ICO_N` = `DSK_NENT`**, which is what it has: one body
+per entry, no pool, no cap.
+
+**And deduplication alone buys nothing there.** `disk_icons` is sized for the
+worst case — 32 entries with 32 distinct icons — so collapsing the twelve
+folder copies into one frees twelve slots that the array still has to be able
+to hold. Sharing only pays where it lets the array be *smaller*, which is the
+cap. That is the whole reason this section is `kern_small`'s.
+
+**One more thing that is not duplicated, because the wording invites the
+error:** there is exactly ONE folder icon in this kernel. `dsk_folder_ico` is
+a single hand-authored 64-byte body (§19.2) and `icons.inc` holds no duplicate
+assets at all — §25.7 deduped the four drive icons already. The twelve copies
+were in the harvest BUFFER at run time, made by `dsk_put_icon_k_x` copying
+those same 64 bytes per folder. No duplicated bytes ship in the image.
+
+#### 25.8.5 The pool goes all the way to the WINDOW, and that is where the heap is
+
+§22.6.1 gives every Disk window a private cache — a byte-for-byte image of the
+listing it is painting, so a background window repaints from memory and costs
+no floppy I/O. It is `VIEW_KB` = 3KB, of which **2KB is one 64-byte icon body
+per entry**, and it is claimed **per open window** (`VIEW_SLOTS` = 4).
+
+That is the same duplication one layer out, and a worse one: the twelve
+identical folder bodies are copied again into *every* window's private KB.
+
+**So the cache mirrors the pool instead of expanding it.** A `kern_small` slot
+is entries (768), then `DSK_ICO_N` bodies (1,024), then one index byte per
+entry (32) — **1,824 of 2,048** — and `VIEW_KB` falls to **2**. Both halves
+are block copies of what the global already holds, so `fmv_store` gets
+*simpler*: the expansion loop the first version needed to preserve
+`fmv_get_icon`'s slot-per-entry contract is deleted outright.
+
+**`.cold` +34 bytes, and 1,024 bytes of HEAP per open Disk window** — four of
+them on this kernel, so 4KB on the machine with 128KB in it. Measured on that
+machine: a Disk window's claim reads **2,048 bytes where it read 3,072**.
+`kern_big` is byte-identical.
+
+Three details are load-bearing:
+
+- **The index sits ABOVE the pool, not below it.** `FS_IOFH` holds the icon
+  base in ONE byte (§22.6.1, and `fmv_viofs` asserts it is a multiple of 256).
+  Putting the 32-byte index first would make the pool base 800 and that
+  assertion false; putting it after leaves `fmv_iofs` answering 768 exactly as
+  before, and no other reader changes at all.
+- **A missing body is answered from the WINDOW, never from the global.** A
+  cache may still hold a listing the global has since replaced — that is the
+  whole point of `[dsk_lstale]` and of `FS_IOFH` recording the shape a slot was
+  filled with. So `fmv_get_icon`'s `0xFF` calls `dsk_ico_blank` rather than
+  falling through to `dsk_get_icon_x`, which would paint another volume's icon.
+- **The index byte is read two at a time**, because `fmv_copy_in` moves words.
+  The second byte is the next entry's index, or the first byte past the array
+  and still inside the claim — `FV_ICOIX`'s `%if` is what bounds that — and it
+  is overwritten by the body copy either way.
+
+##### 25.8.5.1 …and `kern_big`'s cache cannot take it either
+
+Same arithmetic as §25.8.4, one layer out. `kern_big`'s slot is 768 + 2,048 =
+**2,816** of 3,072 today. Pooled without a cap it needs `DSK_NENT` bodies plus
+the index: 768 + 32 + 2,048 = **2,848** — thirty-two bytes MORE, for the same
+3KB claim. A driver-backed volume is the same story at 6KB: 1,536 + 64 +
+4,096 = 5,696 against 5,632.
+
+So on that arm the pooled cache costs bytes and saves none, and the only way
+to make it pay is a cap on how many distinct icons a window can show. That is
+the thing §25.8.4 refuses.
+
 ### 26.1 The zone list IS the volume table, and it wraps into a new column
 
 `desk_ndrives` is gone. A desktop zone is a row of `dsk_vtab` (§18.7) whose
