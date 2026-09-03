@@ -2131,9 +2131,147 @@ sch_stkdie:
 .nomark:
 %endif
     cli
+    call sch_diepanel           ; SPEC.md 8.8 - and if anything in there is
+                                ; itself broken, the hang below is still the
+                                ; behaviour this routine promises
 .hang:
     hlt
     jmp short .hang
+
+; -----------------------------------------------------------------------------
+; sch_diepanel - WHAT DIED, on the glass (SPEC.md 8.8)
+;
+; in:  DS = KERNEL_SEG, SS = LOW_SEG, IF = 0, [sch_cur] = the slot that overran
+; out: never usefully returns; every register clobbered
+;
+; The panel a stack overflow used to print was NOTHING AT ALL. `cli`/`hlt` is
+; the correct thing to DO and a terrible thing to WATCH: the field reports "it
+; froze", which is the same sentence a wild jump, a lost IRQ and a livelock all
+; produce, and a session then spends its first hour deciding which of the four
+; it is looking at. SPEC.md 8.8 is what these two lines save.
+;
+; WHY IT IS SAFE TO DRAW HERE, when the comment above sch_stkdie says nothing
+; is. That comment is about the WINDOW MANAGER - `wm_paint_all` on the
+; corrupted stack that got us here - and this takes none of that. It calls one
+; primitive, `font_run`, which takes no lock, claims nothing, and reads only
+; the video geometry and the glyph table, both settled since boot. What it
+; needs from this routine is three things the dying machine cannot be trusted
+; to have left it:
+;
+;   * **A STACK THAT IS NOT THE DEAD ONE.** SP is currently somewhere below the
+;     dead slice's canary, scribbling on the slot underneath. So the evidence -
+;     the slot, its parked SP, its instance - is banked into `.bss` FIRST, in
+;     nine instructions on the stack we arrived on, and only then is SP moved.
+;     It moves to task 0's, the largest in the machine and, at IF = 0 for ever,
+;     owned by nobody: if task 0 is itself the corpse then its contents are
+;     already banked and overwriting them costs the panel nothing.
+;   * **NO ARMED CLIP REGION.** `font_run` honours one (SPEC.md 11.3), and a
+;     package that died mid-paint left one armed - so the panel would be
+;     clipped to the window of the program that has just killed the machine.
+;     One store, and it is the difference between this working and this
+;     working *except in the case it exists for*.
+;   * **NOTHING ELSE.** No lock is taken and none is waited on: a lock is an
+;     agreement between things that are still running, and nothing is.
+;
+; IT IS `font_run` AND NOT `gfx_fill` + `font_str`, for SPEC.md 6.6's reason
+; and one of its own: the pair leaves the glyph TRANSPARENT over whatever the
+; desktop had under it, and a panel nobody can read is worse than no panel at
+; all. One pass puts a ground under the letters wherever the window happened
+; to be - and it is the same primitive on all three adapters, which is what
+; keeps this small enough to exist.
+; -----------------------------------------------------------------------------
+SDP_X       equ 8               ; hard left and under the menu bar, so it needs
+SDP_Y       equ 24              ; no geometry: it fits 720, 640 and 640 alike.
+                                ; ONE LINE, at 54 characters of the 80 the
+                                ; narrowest adapter here has - two would cost a
+                                ; row variable, its initialiser and its
+                                ; advance, and this has a byte budget
+
+sch_diepanel:
+    mov bl, [sch_cur]           ; --- bank the evidence, still on the dead
+    mov [sch_dpn], bl           ;     stack: after this nothing here reads a
+    xor bh, bh                  ;     task record, so nothing here cares that
+    mov cl, 3                   ;     the table is suspect
+    shl bx, cl
+    mov ax, [bx+sch_tasks+T_SP]
+    mov [sch_dpsp], ax
+    mov al, [bx+sch_tasks+T_INST]
+    mov [sch_dpi], al
+
+    mov sp, STK0_TOP            ; ...and OFF it (see the header)
+    mov word [wm_clip_n], 0     ; nothing may clip the panel away
+    mov word [sch_dpcol], SDP_X
+
+    mov si, sch_s_over          ; WHAT happened, WHICH task, WHOSE, and where
+    call sch_dpstr              ; its SP was. The slice's BASE and SIZE are
+    mov al, [sch_dpn]           ; deliberately not here: they are
+    call sch_dphex2             ; sch_stkbase[n] and sch_stksize[n] in the very
+    mov si, sch_s_sp            ; binary the reader has open, and the slot
+    call sch_dpstr              ; number is the whole of what it takes to look
+    mov ax, [sch_dpsp]          ; them up
+    call sch_dphex4
+    mov si, sch_s_in
+    call sch_dpstr
+    mov al, [sch_dpi]
+    cmp al, 0xFF                ; the UI task owns no instance record
+    je .ui
+    xor ah, ah
+    mov cl, 5                   ; I_RECSZ = 32
+    shl ax, cl
+    add ax, inst_tab + I_NAME
+    xchg ax, si
+    jmp short .name
+.ui:
+    mov si, sch_s_ui
+.name:
+    jmp short sch_dpstr         ; its `ret` is ours
+
+; sch_dpstr - the ASCIIZ at DS:SI, at the pen, which then advances past it
+sch_dpstr:
+    mov cx, [sch_dpcol]
+    mov dx, SDP_Y
+    mov ax, 0x0F00              ; AL = 0 ink on AH = 15 ground: BLACK ON WHITE,
+                                ; which is the one pair that reads on all three
+                                ; adapters and on any desktop pattern under it
+    push ds
+    pop es                      ; font_run_x takes the string at ES:SI
+    call font_run
+.adv:
+    lodsb                       ; the pen moves by what was actually drawn, so
+    or al, al                   ; no caller ever counts a string's length
+    jz .out
+    add word [sch_dpcol], 8
+    jmp short .adv
+.out:
+    ret
+
+; sch_dphex4 / sch_dphex2 - AX / AL as hex at the pen, most significant first
+sch_dphex4:
+    push ax
+    mov al, ah
+    call sch_dphex2
+    pop ax
+sch_dphex2:
+    push ax
+    mov cl, 4
+    shr al, cl
+    call .nib
+    pop ax
+.nib:
+    and al, 0x0F
+    add al, '0'
+    cmp al, '9'
+    jbe .put
+    add al, 'A' - '0' - 10
+.put:
+    mov [sch_dphc], al          ; one digit as a one-character STRING, so the
+    mov si, sch_dphc            ; hex path and the text path are the same two
+    jmp short sch_dpstr         ; lines of drawing code and not two copies
+
+sch_s_over: db 'STACK OVERFLOW  TASK ', 0   ; grep the tree for this sentence
+sch_s_sp:   db '  SP ', 0                ; and SPEC.md 8.8 is the first hit
+sch_s_in:   db '  ', 0
+sch_s_ui:   db 'UI TASK', 0
 
 ; -----------------------------------------------------------------------------
 ; sch_stkbase - where slot n's stack BOTTOM is, one word per slot
@@ -2320,6 +2458,12 @@ section .bss
 
 sch_tasks:  resb MAX_TASKS * T_SIZE     ; task records (layout above)
 sch_old08:  resb 4                      ; saved BIOS int 08h vector (off:seg)
+sch_dpcol:  resw 1                      ; the death panel's pen x (SPEC.md
+                                        ; 8.8); its y is the constant SDP_Y
+sch_dpsp:   resw 1                      ; ...and the evidence it banks off the
+sch_dpn:    resb 1                      ; dead stack before it leaves it: the
+sch_dpi:    resb 1                      ; parked SP, the slot and its instance
+sch_dphc:   resb 2                      ; one hex digit, as an ASCIIZ string
 %ifndef NO_CHAINPRIV
 sch_chsave: resw 1                      ; the task's SP across the chain...
 sch_chskip: resw 1                      ; ...how many chains a nested tick has

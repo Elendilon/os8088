@@ -397,6 +397,38 @@ FAST = [
         "opposite ends (docs/STKBALANCE-KERNEL.md 4)",
         ),
 
+    Row("gifdrag", "soak", py("tests/gifdrag.py"), 300.0,
+        "THE FIELD'S OWN FREEZE, driven end to end (SPEC.md 8.7.4): the Task "
+        "Manager on its HEAP page while PAINT holds MEDIA/OS8088.GIF, then the "
+        "window dragged again and again. It asserts the MARGIN and not the "
+        "survival, which is the whole reason it is a test rather than a "
+        "screenshot: 'it did not freeze' is what every run before the report "
+        "also said, because this machine's interrupt floor is 32 bytes where "
+        "SPEC.md 8.7 sizes against 64 on iron - so the walk that killed a real "
+        "5150 reads 180 of 192 here and passes. It fails when any slice, or "
+        "task 0's own 512, goes past 80% full, which is the emulator's honest "
+        "question: is there room left for the frame it is not charging? SOAK "
+        "and not full - it boots, launches two packages, decodes a GIF and "
+        "drags eight times, which is minutes",
+        ),
+
+    Row("stkclass", "fast", py("tests/unit/t_stkclass.py"), 12.0,
+        "every package's DECLARED stack class (SPEC.md 8.7.2) covers its "
+        "worker's deepest chain plus SPEC.md 8.7's 64-byte interrupt floor, at "
+        "Frotz's 1.25x - the thinnest margin the tree already carries, so "
+        "nothing shipping has to move and only a NEW thinnest can fail. The "
+        "row above checks a package's stack arithmetic BALANCES; nothing "
+        "checked the slice was big enough to hold it, and `OS88_STACK_192` was "
+        "a number a human typed after running a tool once. SPEC.md 8.7.4 is "
+        "what that cost: tools/stkdepth.py followed `call` edges and not tail "
+        "jumps, so `tm_worker` priced at 56 bytes when the heap page it reaches "
+        "by `ja tm_upd_heap` is 96 - the Task Manager took 192 on the strength "
+        "of 56, measured 180 of them with its heap page open beside PAINT, and "
+        "went through the canary into sch_stkdie's cli/hlt on a real 5150. It "
+        "reads the class out of the BUILT .o88's header byte, not out of the "
+        "source, so a packer that stops emitting the field fails this too",
+        ),
+
     Row("stkwalker", "fast", py("tests/unit/t_stkbalance.py"), 0.6,
         "the stack walker itself, against eleven idioms it must stay QUIET "
         "about and six defect shapes it must catch. A gate that reports "
