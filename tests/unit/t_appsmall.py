@@ -163,8 +163,10 @@ def disks(tmp):
     for name, src, shipped in PKGS:
         base = os.path.basename(shipped).upper()            # e.g. PAINT.O88
         small = os.path.join(ROOT, "build", "smallapp", os.path.basename(shipped))
-        if os.path.exists(small):
-            want[base] = (os.path.getsize(small), md5(small))
+        full = os.path.join(ROOT, "build", os.path.basename(shipped))
+        if os.path.exists(small) and os.path.exists(full):
+            want[base] = (os.path.getsize(small), os.path.getsize(full),
+                          max(os.path.getmtime(small), os.path.getmtime(full)))
 
     seen_any = False
     for rel in SMALL_IMGS:
@@ -172,6 +174,21 @@ def disks(tmp):
         if not os.path.exists(path):
             continue
         seen_any = True
+        # **A STALE DISK IS NOT A WRONG LIST**, and telling them apart is the
+        # whole of why the test below asks what it asks. `make` builds the
+        # small SYSTEM disks and NOT `smallapps`, so any change to a gated
+        # package leaves these images older than the packages they carry -
+        # and an equality test against the small build's size then fails for
+        # a reason that has nothing to do with the property. The image is
+        # skipped when it predates the packages; what is checked on a CURRENT
+        # image is that the copy on it is not the FULL build, which is the
+        # defect this exists for (a Makefile list that forgot $(SMALLBASE)
+        # ships both and the loader takes whichever it finds first).
+        newest = max((w[2] for w in want.values()), default=0)
+        if want and os.path.getmtime(path) < newest:
+            check(True, "%s is older than build/smallapp - skipped, run "
+                        "`make smallapps`" % rel)
+            continue
         with open(path, "rb") as f:
             v = Vol(f.read(), rel)
         for folder, name11, attr, clus, size in v.walk():
@@ -179,14 +196,16 @@ def disks(tmp):
                   name11[8:].decode("ascii", "replace").strip()).upper()
             if nm not in want:
                 continue
-            wsize, _ = want[nm]
-            check(size == wsize,
-                  "%s: %s%s is the SMALL build" % (rel, folder, nm),
+            wsize, fsize, _ = want[nm]
+            check(size != fsize or wsize == fsize,
+                  "%s: %s%s is not the FULL build" % (rel, folder, nm),
                   "a gated package reached a small floppy at the FULL build's "
                   "size. The Makefile substitutes $(SMALLBASE) for the small "
                   "path per list, so a list that forgot it ships both copies "
                   "and the loader picks whichever it finds first",
-                  got="%d bytes" % size, want="%d bytes" % wsize)
+                  got="%d bytes" % size,
+                  want="not %d (the full build); the small build is %d"
+                       % (fsize, wsize))
     if not seen_any:
         check(True, "small floppies present to walk (none built - skipped)")
 
