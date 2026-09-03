@@ -272,6 +272,12 @@ PT_CLIPMINP equ 256                 ; the clipboard's floor, in paragraphs. It
                                     ; claim now, so a machine that can spare
                                     ; only a little gets a small clipboard
                                     ; instead of none
+PT_SHRINKP  equ 64                  ; SPEC.md 42.24: the small arm hands a
+                                    ; canvas claim's SLACK back on a load, and
+                                    ; this is the least slack worth the churn -
+                                    ; 1 KB. Below it the regrow costs a free
+                                    ; tail nothing can use and a hole the next
+                                    ; grow has to step over
 PT_MINP     equ 2000                ; ...and a canvas under 32,000 bytes
                                     ; (320x200) is not worth starting
 PT_WANT_KB  equ 318                 ; the hard ceiling: two canvases at the
@@ -14069,7 +14075,40 @@ pt_cvgrow:
     push dx
     call pt_paras                   ; CX = paragraphs this size needs
     cmp cx, [pt_smaxp]
-    jbe .ok                         ; the block we hold already carries it
+%ifndef APP_SMALL
+    jbe .ok                         ; the block we hold already carries it, and
+                                    ; kern_big KEEPS the slack (SPEC.md 42.24)
+%else
+    ja .grow
+    ; --- ...AND THE SMALL ARM GIVES IT BACK (SPEC.md 42.24). pt_geom claims
+    ; the DEFAULT canvas at launch and a load can adopt a much smaller
+    ; picture, so the claim carries the difference for ever: 466x110 one bit
+    ; deep needs 417 paragraphs and the 448x258 default's claim holds 960 -
+    ; 8.5 KB of a floor machine's ~40, held for nothing.
+    ;
+    ; ONE CALLER, pt_adopt, so this fires on a LOAD and on nothing else. A
+    ; resize goes through pt_resize, which re-claims on its own terms.
+    mov bx, [pt_smaxp]
+    sub bx, cx
+    cmp bx, PT_SHRINKP
+    jb .ok                          ; not worth the churn
+    call pt_kb_of                   ; AX = KB for CX paragraphs, CX preserved
+    mov bx, ax
+    call pt_free_undo               ; the undo image is sized from [pt_smaxp]
+    mov ax, bx                      ; and comes back at the new one. A no-op on
+    mov dx, [pt_base]               ; this build - PTF_UNDO is off - and called
+    call OSAPI_MEM_REGROW           ; anyway, so the arm reads the same as the
+    jc .shrno                       ; grow path above it
+    mov [pt_base], dx               ; SPEC.md 50.3: a shrink "always succeeds
+    mov ax, bx                      ; in place". TESTING CF is what makes that
+    mov cl, 6                       ; a check rather than a belief, and taking
+    shl ax, cl                      ; the base back from DX is what makes a
+    mov [pt_smaxp], ax              ; move - if the contract ever changes -
+.shrno:                             ; correct rather than silent
+    call pt_alloc_undo
+    jmp short .ok
+.grow:
+%endif
     call pt_kb_of                   ; AX = KB, rounded UP
     mov bx, ax
     call pt_free_undo               ; ...and give the regrow the room it was

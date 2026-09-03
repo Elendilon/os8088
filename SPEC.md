@@ -52749,6 +52749,51 @@ bytes here**, and this loop becomes the fallback `kern_small` takes anyway:
 §5.4.2 gives that build the slot and not the body, so it answers CF = 1 and a
 package that did not have a second path would have nothing to draw with.
 
+### 42.24 The small arm hands a canvas claim's SLACK back
+
+`pt_geom` claims the **default** canvas at launch, and a load can adopt a much
+smaller picture — so the claim carries the difference for the rest of the
+session. `pt_cvgrow` only ever grew: `cmp cx, [pt_smaxp] / jbe .ok`, *"the
+block we hold already carries it"*. Measured on a Hercules, kern_big, opening
+`OS8088.GIF` by double-click:
+
+| | |
+|---|---:|
+| the picture needs | 417 paragraphs (6.5 KB) |
+| the claim holds | 960 paragraphs (15.0 KB) |
+| held for nothing | **8.5 KB, twice** — the undo image is sized from `[pt_smaxp]` too |
+
+**`APP_SMALL` gives it back and `kern_big` keeps it, and that is a judgement
+about FRAGMENTATION rather than about the bytes.** Handing the tail back
+leaves a hole; the next grow then cannot extend in place if anything has moved
+into it, and `OSAPI_MEM_REGROW` must find somewhere else to put the whole
+block — which on a full heap is a resize the user is simply refused. On the
+floor machine ~14 KB of a ~40 KB heap is worth that risk. On a 640 KB machine
+with a VGA and claims four times the size it is not.
+
+All four of Paint's claims are `OSAPI_MEM_MOVABLE` (§66) with `pt_reloc` as
+the proc — canvas, scratch, undo image and clipboard — so the compactor can
+close the hole. That **softens** the argument above without settling it: a
+pinned kernel claim or another package's block still splits the space, and the
+compaction has to happen before the grow that needs it.
+
+`PT_SHRINKP` is the least slack worth the churn, 1 KB. Below it the regrow
+costs a free tail nothing can use and a hole the next grow steps over.
+
+**Two facts about where this can fire**, both narrowing it further than it
+first appears. `pt_cvgrow` has exactly **one caller**, `pt_adopt`, so it is a
+LOAD and nothing else — a resize goes through `pt_resize`, which re-claims on
+its own terms. And `PTF_GIF` is off on the small arm (§42.22), so the picture
+that prompted this cannot be opened there at all: the shrink fires on a **BMP**
+smaller than the launch default. Measured on one, 128×48 at one bit:
+**960 paragraphs → 64**, 14.0 KB back. The 12 paragraphs still spare are
+`pt_kb_of`'s round-up to a whole KB, which is the claim granularity and not
+slack.
+
+**The big arm assembles byte-identically**, which is `tests/unit/t_appsmall.py`'s
+first claim and the reason the `%ifdef` brackets the *branch* rather than
+wrapping a block after it.
+
 #### 42.23.6 A LOAD picks the format, and a reduction goes to Save As
 
 `pt_fmtpick` runs **before `pt_adopt`** and that ordering is the whole of the
