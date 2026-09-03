@@ -1,9 +1,9 @@
 # A 1bpp canvas for Paint: what the options actually are
 
 **Status: RESEARCH. Nothing here is built and nothing is decided.** It exists
-because the motivation changed. `docs/PAINT-STROKE-PLAN.md` §5.5 item 1 already
-carries a 1bpp-canvas entry, marked *"VALID, MAYBE SOMEDAY, NOT TODAY"* on four
-reasons — and **every one of those four is a speed argument**. The new reason is
+because the motivation changed. `docs/PAINT-STROKE-PLAN.md` §5 already carries
+a 1bpp-canvas entry, as its item 1, marked *"VALID, MAYBE SOMEDAY, NOT TODAY"*
+on four reasons — and **every one of those four is a speed argument**. The new reason is
 memory, which that entry does not weigh at all, so its verdict does not bind
 this decision. §5 below corrects one of its four on the evidence as well.
 
@@ -213,8 +213,8 @@ predicted, against a run-coalesced 4bpp blit's several hundred.
 
 **But read it honestly**: `pt_draw_pal` is 0.251 s of that same maximize and is
 untouched by any of this. The speed case for 1bpp is a **40% cut to one
-operation**, not a transformation — which is roughly what §5.5 concluded, on
-worse evidence. **Memory is the argument. Speed is a bonus that arrives with
+operation**, not a transformation — which is roughly what that entry
+concluded, on worse evidence. **Memory is the argument. Speed is a bonus that arrives with
 it.**
 
 ---
@@ -321,7 +321,7 @@ always on small.
 4. **Where does a grey go?** SPEC.md §39.4 already reduces the 50% dither class
    to a checkerboard at draw time, and `[pt_ncol]` is 3 on a mono adapter. A
    1bpp canvas can store that checkerboard *natively* — which is
-   PAINT-STROKE-PLAN §5.5 item 2, and at 1bpp it stops being a separate feature
+   PAINT-STROKE-PLAN §5's item 2, and at 1bpp it stops being a separate feature
    and becomes the only way to have a grey at all. Whether the tool sets a
    pattern or a colour is a look question and wants looking at.
 5. **Option B or C for small.** ~730 kernel bytes against ~340 package bytes and
