@@ -263,7 +263,8 @@ a rule anybody has to remember.
 
 ## 4. `gfx_xor_strips`: one outline decomposition instead of four — **TAKEN**
 
-**Status:** built, measured, **SHIPPED** (`d0edd73`).
+**Status:** built, measured, **SHIPPED** (`d0edd73`); **re-decided at the
+post-squash review and KEPT** (PERFORMANCE.md Set 115, below).
 **Verdict:** **−352 bytes** for **+37% on a VGA `gfx_xor_rect`**, which is
 **+2.22 ms of a 55 ms drag tick** and could not be seen by hand. Taken — and
 written down here because the cost is real, is confined to one primitive, and is
@@ -368,6 +369,33 @@ the ordinary reason PERFORMANCE.md rule 4 says to measure.
   It is **not** proof, since the same asymmetry would follow from VGA simply
   having more to repaint, and the honest test remains the one this entry
   already names — a flicker run over a held drag, built both ways.
+### Re-decided at the review, with the body in hand
+
+The code review that followed the size passes flagged this row from the diff
+without having read this entry, and PERFORMANCE.md Set 115 re-measured it
+against the last squash: `GFX_XOR_RECT 64x64` **2,997 → 4,083 µs (+36%)**,
+256x128 5,470 → 6,552, 256x1 833 → 1,068 — the same fixed ~1.1 ms per call the
+table above found. The reviewer's proposed fix was then BUILT, not argued: the
+pre-pass body — `vga_set_xor` once, `vga_xor_hline` twice, `vga_vline_core`
+twice, `vga_gc_reset` once — restored under `GFX_VGA` with its clipping on
+`[vid_cw]`/`[vid_ch]` so the EGA row shares it. It measures **3,087 µs** (the
+3% over the pre-pass figure is the X cell's, Set 115), 256x128 5,558, 256x1
+881, for **304 bytes of `kern_big` `.text` and one image rung**, and it is
+pixel-exact on the glass: one outline changes exactly the perimeter's on-screen
+pixels in five shapes (a 64x64, a two-row, a one-column, one hanging off the
+top-left, one off the bottom-right) and a second restores the frame.
+
+**And it was taken out again**, because the accounting above still holds: the
+outline's only consumers are `ui_drag` — two a tick, inside a tick-paced loop —
+and the dock's focus rect, and neither pays a frame for the difference. 304
+bytes against 2.2 ms of a drag tick that the owner could not see by hand is the
+trade this entry took the first time. What the review adds is the body's own
+measured price, so the day the list under *What would flip the answer* gains an
+entry, the answer is a `git show` of the review's commit and 304 bytes — not a
+rebuild from this description. The clipped head and `kern_small` were never in
+the question: the first sends each strip through `GFXCLIP` on purpose, the
+second has no VGA.
+
 * **A cheaper merge — the version to build if any of the above happens.** The
   1,112 µs is three extra *arrivals*, not three extra decompositions.
   `gfx_xor_strips` calls a whole rect fill per strip through `BP`, and each VGA

@@ -10779,8 +10779,10 @@ redesigning, so this is `tests/gfxbench` on MartyPC, the kernel at the last
 squash into `main` (`f6e00ac`, before size pass 1) against the branch at
 `6336637` (every pass, the stack rework, SPEC.md §7.4 and the review's fixes),
 one report each, same bench disk shape, `os8088_xt_vga` and
-`os8088_5150_cga_gla`. The third VGA column is the branch with the VGA outline
-body restored (`vga_xor_rect_raw`), which is what this set decided.
+`os8088_5150_cga_gla`. The third VGA column is the branch with the pre-pass
+VGA outline body put back (`vga_xor_rect_raw`, 304 bytes) — built and
+measured to price the trade, and NOT shipped: docs/LAST-DROP-PERF.md §4 is
+the decision.
 
 **The target machine is better off everywhere that matters.** On CGA the
 fills are 13–22% faster (§39.25's whole-column store, §39.26's plane loop),
@@ -10788,22 +10790,24 @@ fills are 13–22% faster (§39.25's whole-column store, §39.26's plane loop),
 CGA regressed by more than `WM_OBSCURED`'s +25% and `FONT_WIDTH`'s +3.5%, and
 both are call-shaped rather than pixel-shaped (below).
 
-**On VGA the outline was the one real regression, and it is taken back.**
+**On VGA the outline was the one real regression, and it is ACCEPTED.**
 `GFX_XOR_RECT 64x64` read **2,997 → 4,083 µs (+36%)** on the branch: the
 strips walker draws an outline as four filled strips, which on 1bpp is what
 `sw_xor_rect` always did and costs nothing, but on the planar card every
 strip is a whole `gfx_rect_setup` (~1,236 cycles) for a rect one row or one
-column deep. A window drag draws two of them per mouse move. The pre-pass body
-— one `vga_set_xor`, two `vga_xor_hline`s, two `vga_vline_core`s, one
-`vga_gc_reset` — is back under `GFX_VGA`, clipping against `[vid_cw]`/
-`[vid_ch]` so the EGA row shares it, at **3,087 µs (+3.0% against the pre-pass
-figure, the X-cell's share)**; 256x128 6,552 → 5,558, 256x1 1,068 → 881. It
-cost 304 bytes of `.text` on `kern_big` alone and crossed one image rung;
-`kern_small` has no VGA and keeps the strips. Correctness was checked on the
-glass and not assumed: one outline changes exactly the perimeter's on-screen
-pixels (252 for 64x64, 81 for a rect hanging off the top-left, 19 off the
-bottom-right, 996 for a two-row one, 51 for a one-column one) and a second
-restores the frame byte for byte.
+column deep. The pre-pass body — one `vga_set_xor`, two `vga_xor_hline`s, two
+`vga_vline_core`s, one `vga_gc_reset` — was put back under `GFX_VGA` to price
+the trade: **3,087 µs (+3.0% against the pre-pass figure, the X-cell's
+share)**, 256x128 6,552 → 5,558, 256x1 1,068 → 881, for 304 bytes of
+`kern_big` `.text` and one image rung, pixel-exact on the glass in five
+outline shapes. And it was taken out again, because no current use of the
+outline pays a frame for the difference: `ui_drag` is tick-paced and draws
+exactly two a tick — +2.2 ms of a 55 ms tick that the owner could not see by
+hand — and the dock's focus mark is one rect per focus change. That is
+docs/LAST-DROP-PERF.md §4's accounting, taken when the strips shipped; the
+review's contribution is the body's own measured price beside it, so the day a
+use for the outline arrives that is not one of these two, the answer is the
+review's commit and 304 bytes rather than a rebuild.
 
 **The X cell costs ~7–9 µs a call on VGA and is invisible on CGA.** Every
 drawing slot whose body did not otherwise change moved by that much on VGA —
