@@ -460,7 +460,7 @@ figures are **measured** rather than projected:
 |---|---|---|---:|---:|---:|
 | — | post-merge baseline | | 94,720 | 34.0 KB | **~31.0 KB** |
 | **W0** | `assoc` gated out — **BUILT** | none — `%ifdef` | **92,160** | **36.5 KB** | **36.5 KB** |
-| **W1** | `filecp` → module | fits `MOD_NENT` = 8 today | 90,112 | 38.5 KB | **38.5 KB** |
+| **W1** | `filecp` → module — **BUILT** | fits `MOD_NENT` = 8 today | **90,624** | **38.0 KB** | **38.0 KB** |
 | **W2** | `fdlg` → module | lift `os88ui.inc`; `MOD_NENT` → 16 | 87,552 | 41.0 KB | **41.0 KB** |
 
 **7,168 bytes of footprint over three waves, and ~10 KB of usable heap** —
@@ -541,3 +541,74 @@ visible:
   it every harvested icon is read. **Mounts get slower on the slowest machine**,
   and that is the one real cost in this list — it wants measuring on W0 rather
   than assuming.
+
+### 9.2.3 W1 as built, and the four things §3.1 had wrong
+
+`KERN_SIZE` **92,160 → 90,624, −1,536**; heap floor 91.5 → 90.0 KB; free heap
+36.5 → **38.0 KB**. `FILECP.DRV` is 2,159 bytes, **three** entries, 5 sectors.
+**`kern_big` pays 7 bytes of `.cold` and `KERN_SIZE` does not move** — the
+150 bytes of `.text` the report showed beside it are `mouse.inc` +60 and
+`fprog.inc` +90 from the merged pointer-tracking work, whose baseline had not
+been re-blessed.
+
+Verified by driving the real surface on kern_small under MartyPC — click,
+Edit ▸ Copy, navigate, Edit ▸ Paste — for a file *and* a folder tree, with
+`os88disk --verify` walking the volume afterwards. Registered as the
+`fcpsmall` soak row so it cannot regress.
+
+§3.1 said five entry points and a clean seam. Four corrections:
+
+1. **`fcp_ncopy` is not a body.** `fcp_ncopy equ dsk_ncopy` makes it disk.inc's
+   routine under a second name, resident, needing no entry and no load. The
+   seam analysis counted a symbol, not a definition.
+2. **`fcp_goto` cannot move.** CLONE.DRV far-calls it through `fcpf_fcp_goto`
+   *between two raw transfers of a same-drive clone* (§18.99.8) — exactly when
+   the system disk is not in the drive. A `mod_need` there fails `drv_mounted`
+   and hands the cloner a CF=1 it can only stop on. It and its four doors stay
+   resident, which takes the count to **three** and means no module ever loads
+   another.
+3. **Two tail jumps out of the image were missed**, and `os88ovlchk` caught
+   both — `jmp dskw_stat_x` and four bare `call fcp_goto`. A near `ret` against
+   a far frame returns into nothing, and neither is visible in a seam count of
+   `call` sites.
+4. **The image needs its own copies of the shared register epilogues.** A
+   module may not `jmp kretc_cx` for the same reason.
+
+### 9.2.4 The rule that makes a two-shape file work
+
+Two host gates read this tree's SOURCE and can evaluate no `%ifdef`:
+`tools/os88ovlchk.py` (near calls across a segment) and `tools/stkbalance.py`
+(every `ret`'s depth). A file whose bodies are `.cold` on one build and `.modp`
+on the other has no reading that satisfies both — writing `.cold` last made
+ovlchk report the module's own jumps as crossings, and writing `.modp` last
+made it report kern_big's near jumps instead.
+
+**The resolution is a discipline, not a special case, and it is three rules:**
+
+- **One conditional `section` per file, and the module arm goes LAST**, because
+  ovlchk files everything after the last `section` directive it sees.
+- **No `%ifdef` in the bodies at all.** Every build-dependent transfer goes
+  through a macro (`FCPX`, `FCPBODY`, `FCPXF`), which both gates skip, so
+  neither can be shown an arm that is not live.
+- **A macro may never END a path.** stkbalance reads source, so a macro that
+  expands to a jump or a `ret` is one it walks straight through into the next
+  routine's pops — it reported five false imbalances that way. A tail call is
+  therefore written `FCPX name` followed by a literal `ret`, and a shared
+  epilogue is a real `jmp` to a copy inside the file.
+
+The third rule is what costs `kern_big` its 7 bytes, and it is worth them: the
+alternative is a gate that cannot see the build it is checking.
+
+### 9.2.5 …and one that has nothing to do with the kernel
+
+`KMODS` was gated on `KERN_SMALL`, which is right for the `os88mod.py`
+arguments — that expansion happens in the make that assembles the kernel. It
+is **wrong** for the floppy rules, which expand `$(SMALLDRIVERS)` in the OUTER
+make where the knob is not set. FILECP.DRV was therefore left off the disk
+while every build step succeeded and the machine booted, and Cut/Copy/Paste
+refused with `FERR_NODISK` because `mod_need` could not find a file nobody had
+shipped. `$(SMALLMODS)` names it for those rules instead.
+
+**Nothing in the build would have caught that**, and nothing in `full` does
+either — it took driving a paste on the finished floppy. It is the strongest
+argument in this document for the `fcpsmall` row existing.

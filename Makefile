@@ -1728,10 +1728,19 @@ KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
 # MOD_* and os88mod.py refuses a count that disagrees with the image's own
 # map - which is how this line announced itself when it was missing, rather
 # than by shipping a floppy with the feature silently absent.
+# KMODARGS is expanded by the make that ASSEMBLES the kernel, so the guard is
+# right here: only a KERN_SMALL=1 build has a fourth module to split out.
 ifneq ($(KERN_SMALL),)
-KMODS += $(KMODDIR)/filecp.drv
 KMODARGS += -m 3=$(BUILD)/filecp.drv
 endif
+# ...but $(KMODS) is NOT guarded, and that is the trap this comment exists for.
+# The small floppy rules below expand $(SMALLDRIVERS) - and so $(KMODS) - in
+# the OUTER make, where KERN_SMALL is NOT set; a guard here therefore left
+# FILECP.DRV off the disk while every build step succeeded, and the machine
+# booted, and Cut/Copy/Paste refused with FERR_NODISK because mod_need could
+# not find a file nobody had shipped. $(SMALLMODS) names it for those rules
+# instead, and the plain build simply never asks for it.
+SMALLMODS = $(SMALLDIR)/filecp.drv
 
 # THE KERNEL IS ASSEMBLED WHOLE AND THEN CUT UP (SPEC.md 2.8). Everything
 # from .modc onward is an on-demand module: kernel code that ships as a file
@@ -6091,22 +6100,22 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 # its kernel is $(SMALLDIR)'s, so its modules are too
 $(BUILD)/small360.img: KMODDIR := $(SMALLDIR)
 
-$(BUILD)/small360.img: $(SMALLDRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
+$(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(SMALLDIR)/boot360.bin --kernel $(SMALLDIR)/kernel.bin \
-		$(SMALLDRIVERS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
+		$(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
 	@echo "small: $@ - kern_small on 360KB. Its apps disk is the ordinary"
 	@echo "       build/apps360.img: one package, both kernels"
 
 # its kernel is $(SMALLDIR)'s, so its modules are too
 $(BUILD)/small.img: KMODDIR := $(SMALLDIR)
 
-$(BUILD)/small.img: $(SMALLDRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
+$(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot.bin
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/kernel.bin \
-		$(SMALLDRIVERS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
+		$(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
 
 # --- THE SMALL APPS DISK (SPEC.md 27.16) -------------------------------------
 #

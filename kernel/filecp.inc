@@ -194,15 +194,22 @@ modp_e_paste:   call fcp_paste_x
             retf
 modp_e_answer:  call fcp_answer_x
             retf
+%endif
 
-; --- the shared epilogues, in the image (FCPKRET above) ---------------------
+; --- the shared register epilogues, and they are INSIDE the image -----------
 ; Byte for byte kernel.asm's kretc_dx / kretc_cx, which fall through into one
-; another there and do here too.
+; another there and do here too. On kern_small they MUST be local: the image is
+; entered by a FAR call, so `jmp kretc_cx` would return through a near `ret`
+; against a four-byte frame - which is why they sit BELOW the section pair and
+; not above it. On kern_big they are five bytes of duplication, and they are
+; UNCONDITIONAL rather than behind a %ifdef because both gates that read this
+; file (tools/os88ovlchk.py, tools/stkbalance.py) read SOURCE and can evaluate
+; neither.
 fcpk_dx:    pop dx
 fcpk_cx:    pop cx
             pop bx
             pop ax
-            ret%endif
+            ret
 
 ; -----------------------------------------------------------------------------
 ; fcp_arm - put one of the acting window's entries on the clipboard
@@ -262,12 +269,8 @@ fcp_ncopy   equ dsk_ncopy
 ; with FCPS_ASK on the next line.
 fcp_unbatch:
     mov byte [dskw_batch], 0
-%ifdef FCP_MOD
-    call COLD_SEG:xf_dsk_relist_x
+    FCPX dsk_relist_x
     ret
-%else
-    jmp dsk_relist_x
-%endif
 
 ; fcp_n13 - ...and the length THREE of its callers pass: an 8.3 display name
 ; (SPEC.md 19.1).  Leaves CX = 13 on return, exactly as `mov cx, 13` +
@@ -275,12 +278,8 @@ fcp_unbatch:
 ; reads CX after the copy.
 fcp_n13:
     mov cx, 13
-%ifdef FCP_MOD
-    call COLD_SEG:xf_dsk_ncopy
+    FCPX dsk_ncopy
     ret
-%else
-    jmp dsk_ncopy
-%endif
 
 ; fcp_x6 / fcp_x5 - the two epilogues this module's six deepest routines
 ; share.  fcp_scan, fcp_rdnext and fcp_xfer bank es,di,si,dx,cx,bx; fcp_paste,
@@ -466,11 +465,7 @@ fcp_selfchk:
 .ok:
     clc
 .out:
-%ifdef FCP_MOD
     jmp fcpk_dx
-%else
-    jmp kretc_dx
-%endif
 
 ; -----------------------------------------------------------------------------
 ; fcp_srcclus - the clipboard entry's own first cluster
@@ -519,13 +514,13 @@ fcp_clspan:
     push cx
     mov al, [fcp_sdrv]
     xor bx, bx
-    call fcp_goto
+    FCPX fcp_goto
     jc .err
     FCPX dskw_clbytes
     mov cx, ax
     mov al, [fcp_ddrv]
     xor bx, bx
-    call fcp_goto
+    FCPX fcp_goto
     jc .err
     FCPX dskw_clbytes
     cmp ax, cx
@@ -538,11 +533,7 @@ fcp_clspan:
 .err:
     stc
 .out:
-%ifdef FCP_MOD
     jmp fcpk_cx
-%else
-    jmp kretc_cx
-%endif
 
 ; -----------------------------------------------------------------------------
 ; fcp_floor - the smallest copy buffer this pair of volumes can be copied with
@@ -1068,7 +1059,7 @@ fcp_scan:
     pop es
     mov al, [fcp_sdrv]
     mov bx, [di+FCP_FSRC]
-    call fcp_goto
+    FCPX fcp_goto
     jc .fsio
     cmp byte [dsk_vkind], DVK_FILE
     jne .fatwalk
@@ -1238,7 +1229,7 @@ fcp_mksub:
     mov al, [fcp_ddrv]
     push bx
     mov bx, [bx+FCP_FDST]
-    call fcp_goto
+    FCPX fcp_goto
     pop bx
     jc .out
     mov si, fcp_cname
@@ -1264,18 +1255,12 @@ fcp_ensure:
     jne .fail                   ; a lookup that failed for another reason
     FCPX dskw_mkdir_x
     jc .fail
-%ifdef FCP_MOD
-    call COLD_SEG:xf_dskw_stat_x
-    ret
-%else
-    jmp dskw_stat_x
-%endif           ; the mount's own answer for where it landed,
-                                ; and its CF is ours - a near tail call inside
-                                ; COLD_SEG on kern_big, and a far call plus a
-                                ; near `ret` on kern_small, which is the same
-                                ; thing to this routine's caller. Legal because
-                                ; this routine pushes
-                                ; nothing of its own
+    FCPX dskw_stat_x            ; the mount's own answer for where it landed,
+    ret                         ; and its CF is ours. A near call inside
+                                ; COLD_SEG on kern_big and a far one on
+                                ; kern_small, and either way the `ret` is what
+                                ; this routine's near caller unwinds. Legal
+                                ; because this routine pushes nothing of its own
 .clash:
     mov ax, FERR_EXIST
 .fail:
@@ -2118,6 +2103,7 @@ fcp_pfail:
 
 
 ; --- and the far entries the image calls out through (FCPXF) ----------------
+    FCPXF fcp_goto
     FCPXF fcp_gosrc
     FCPXF fcp_godst
     FCPXF fcp_gofs

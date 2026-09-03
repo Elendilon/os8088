@@ -62808,6 +62808,59 @@ accrued figure went 153/512 to 261/512 and `KERN_SIZE` did not move.
 
 ---
 
+### 22.3.0 ON `kern_small` THIS IS AN ON-DEMAND MODULE (§2.8)
+
+`kern_big` keeps every body in §22.3–22.5 resident in `.cold`, near-called
+from `files.inc`, and pays **7 bytes** for the discipline below and nothing
+else. `kern_small` emits the same bodies into `.modp`, which
+`tools/os88mod.py` cuts out as **`FILECP.DRV`**; `mod_need` reads it into a
+heap claim when the user copies, and `fcp_fin` gives it back when the
+operation ends. `KERN_SIZE` 92,160 → 90,624.
+
+**Three entry points, not five.** `fcp_arm`, `fcp_paste` and `fcp_answer`.
+Two public names that look like entries are not:
+
+- **`fcp_ncopy` is `equ dsk_ncopy`** — `disk.inc`'s routine under a second
+  name. It is resident on both builds and a caller of it reads no disk.
+- **`fcp_goto` and its four doors stay RESIDENT**, and that is binding rather
+  than an optimisation: `CLONE.DRV` far-calls it through `fcpf_fcp_goto`
+  between two raw transfers of a same-drive clone (§18.99.8), which is exactly
+  when the system disk is *not* in the drive. A `mod_need` there fails
+  `drv_mounted` and hands the cloner a CF=1 it can only stop on. **No module
+  may load another.**
+
+**The drop is `fcp_fin`, and the moment is "the operation finished"** — every
+return that is not `FCPS_ASK`, because a suspended paste still owns the image
+while the user reads the overwrite question. An arm is safe to drop on
+because the clipboard is `.bss` and resident.
+
+**Refusals.** `fcp_arm` answers CF=1, which its caller already treats as
+"nothing selected"; the two paste doors answer `FCPS_ERR` with `[fcp_err]` =
+`FERR_NODISK`, which is the literal truth — the system disk was not there to
+read the image from.
+
+#### 22.3.0.1 The three rules a two-shape file obeys
+
+`tools/os88ovlchk.py` and `tools/stkbalance.py` both read **source** and can
+evaluate no `%ifdef`. A file whose bodies land in a different section per
+build therefore has no reading that satisfies both unless it is written to
+this discipline, and anything else in the tree that becomes a module owes the
+same three rules:
+
+1. **One conditional `section` per file, and the module arm goes LAST.**
+   `os88ovlchk` files everything after the last `section` directive it sees.
+2. **No `%ifdef` inside the bodies.** Every build-dependent transfer goes
+   through a macro — `FCPBODY` for a label, `FCPX` for a call out, `FCPXF` for
+   the resident far entry it names — which both gates skip, so neither is ever
+   shown an arm that is not live.
+3. **A macro may never END a path.** `stkbalance` walks straight through one
+   into the next routine's pops. A tail call is written `FCPX name` followed by
+   a literal `ret`; a shared register epilogue is a real `jmp` to a copy inside
+   the image, because a module may not `jmp kretc_cx` — that ends in a near
+   `ret` and the image was entered by a far call.
+
+Rule 3 is what costs `kern_big` its 7 bytes.
+
 ## 54. assoc.inc — file type associations
 
 A file with a known extension shows the **associated program's** icon, marked

@@ -988,8 +988,27 @@ SOAK = [
         "guest's own listing, which is drawn from the structures that are "
         "wrong. Runs on the 1.44MB disk: the 360KB one is 354 of 354 clusters "
         "in use after one paste, so the folder copy correctly refuses there "
-        "with FERR_FULL and the row would be measuring the geometry.",
-        needs=("marty",), serial=True),
+        "with FERR_FULL and the row would be measuring the geometry. "
+        "builds=True because the script can shell out to `make small` when it "
+        "is pointed at kern_small (the fcpsmall row below), and the runner "
+        "gives a building row the tree to itself.",
+        needs=("marty",), serial=True, builds=True),
+    Row("fcpsmall", "soak",
+        ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
+         "OS88_SYSIMG=build/small.img"] + py("tests/fcpcopy.py"), 300.0,
+        "...and the SAME drive against kern_small, where Cut/Copy/Paste is an "
+        "on-demand module (SPEC.md 22.3, docs/KERN-SMALL-MODULE-SPLIT.md 9.2) "
+        "rather than resident code. It is a different engine to reach: every "
+        "call the image makes to the kernel is a far one through an xf_ entry, "
+        "the shared register epilogues are copies inside the image because a "
+        "`jmp kretc_cx` would return through a near `ret` against a far frame, "
+        "and the whole thing is read off the disk by mod_need and given back "
+        "at the end of each operation. NONE of that is exercised by the row "
+        "above, which runs the resident build - and the first time this one "
+        "ran it caught FILECP.DRV missing from the floppy entirely, with every "
+        "build step green and the machine booting. It builds its own image "
+        "(`make small`) for smallboot's reason.",
+        needs=("marty",), serial=True, builds=True),
     Row("cppromise", "soak", py("tests/cppromise.py"), 300.0,
         "SPEC.md 31.12: the Control Panel promises per PAGE, and the clock"
         "page is the one that cannot.",
