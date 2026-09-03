@@ -2138,7 +2138,24 @@ STK0_SIZE   equ 512             ; task 0's stack - the UI task's, and so the
 ; floppy I/O. What changed is that a machine with no Disk window open pays
 ; nothing for it, and the Task Manager can bill the 3KB to the window.
 VIEW_SLOTS  equ 4               ; max Disk windows = the kind's KD_CAP
-VIEW_KB     equ 3               ; each cache: 1KB of entries + 2KB of icons
+%ifdef KERN_SMALL
+VIEW_KB     equ 2               ; each cache: 768 bytes of entries, then
+                                ; SPEC.md 25.8.5's POOL and its index - 1,824
+                                ; of 2,048. The cache MIRRORS the global's
+                                ; shape here rather than expanding it, so the
+                                ; twelve folders of a listing are one body in
+                                ; every window's copy as well as in the
+                                ; global one. 1,024 bytes of HEAP per open
+                                ; Disk window, four of them on this kernel
+%else
+VIEW_KB     equ 3               ; each cache: 1KB of entries + 2KB of icons.
+                                ; kern_big keeps one body per ENTRY and so
+                                ; cannot take the line above: its pool would
+                                ; need DSK_NENT bodies not to show fewer
+                                ; icons than it does today, and 768 + 32 +
+                                ; 2,048 is 32 bytes MORE than the 2,816 it
+                                ; spends now (SPEC.md 25.8.5.1)
+%endif
 
 ; --- the derived ladder -------------------------------------------------------
 ; Every base below is the one before it plus the MEASURED size of what it
