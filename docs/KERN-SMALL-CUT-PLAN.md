@@ -1,5 +1,16 @@
 # `kern_small` — what a 128KB machine can stop carrying
 
+> **The tree moved under this document, twice.** `elendilon` merged kernel
+> size pass 3 and APP_SMALL, taking `kern_small` from `KERN_SIZE` **96,256 to
+> 94,720** and the free heap from 32.5 KB to **34.0**; then **§4's C3 was
+> BUILT** — associations are gated out of `kern_small` (SPEC.md §54.0), taking
+> it to **92,160 and 36.5 KB**, and returning the 3,072-byte pinned claim
+> docs/KERN-SMALL-MODULE-SPLIT.md §9.1 found, so a bare desktop went from
+> ~31.0 KB usable to 36.5. **The per-feature rows below are pre-merge
+> measurements** and are within ~1.5% of the merged tree; the tier table in
+> §8.1 is the one to re-derive before anything is decided off it.
+> docs/KERN-SMALL-MODULE-SPLIT.md §9.2 carries the current arithmetic.
+
 **Research document, not a contract.** SPEC.md is the binding contract for what
 the kernel *is*; this is the study of what `kern_small` could stop being, and
 the arithmetic that says how far each answer gets. Nothing here has been built.

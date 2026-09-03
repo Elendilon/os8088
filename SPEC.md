@@ -62595,6 +62595,53 @@ so it reads as a document rather than as the program, and double-clicking it
 opens it in that program. Build-time defaults ship in the kernel; a running
 program may register a new association or take over an existing one.
 
+### 54.0 NOT ON `kern_small` — the whole section is `kern_big`'s
+
+**`kern_small` does not carry this feature at all.** The `%include` is behind
+`%ifdef OS88_ASSOC`, which `kernel.asm` defines only on a `KERN_BIG`
+assembly, so `assoc.inc` and the build-time glyph table it pulls in
+(`associco.inc`) contribute nothing — not a byte of `.text`, `.cold` or
+`.bss`, and no call site anywhere.
+
+**It is a product decision and not a size trim that happened to fit**, on
+§5.4.1.3's terms: associations are how a document finds its program, and a
+128KB machine that can hold one program at a time has little use for the
+question. What settles it is the *second* cost, which the footprint does not
+show — `asc_use_x` claims `ASC_KB` = 3,072 bytes under `MEM_K_ASC`, a kernel
+tag rather than one of the `MEM_P_*` purgeable classes, and nothing frees it.
+`disk_mount_x` calls `asc_use_x` and the boot mount is a mount, so on
+`kern_small` that claim stood on a **bare desktop**, holding 3KB of a heap
+that has ~31KB in it. Gating the feature returns the footprint *and* the
+claim.
+
+**What a `kern_small` machine loses**, stated so nothing has to be inferred:
+
+- **Document icons.** A type-0 file gets the generic-icon sentinel §54.1
+  describes — which is what the slot already holds, so no drawing path
+  changes and nothing is left half-composed.
+- **Double-clicking a document to open it in its program** (§54.4).
+  `fm_open_sel` falls through to the package route and answers *"Bad
+  package"*, which §54.4 already calls the truthful verdict for a data file
+  with no association. Double-clicking a **program** is untouched.
+- **`OSAPI_ARG_FILE` (0x02E8) and `OSAPI_ASSOC_SET` (0x02F0)** keep their
+  slot cells and share a `stc`/`ret` stub — the ABI parity rule
+  (docs/KERN-SPLIT-PLAN.md §0), so one `.o88` still serves both kernels. **No
+  package needs changing**, and that is a property of the two contracts
+  rather than luck: `OSAPI_ARG_FILE`'s CF=1 is documented as *"launched
+  empty, the ordinary case"* — the answer it already gives on every launch
+  that was not a document open — and `OSAPI_ASSOC_SET`'s CF=1 is *"the tables
+  are full and nothing was stored"*. A package that tests CF, as both slots
+  require, cannot tell the difference.
+- **The mount's icon-harvest CACHE, not its function.** §54.7's `ASSOC.DAT`
+  lets a known package's icon cost no sector read; without it every harvested
+  icon is read the slow way. **This is the one real cost in the list** — it
+  falls on mount time on the slowest machine the OS runs on, and it is a
+  measurement to take rather than a figure to assume.
+
+`ASSOC.DAT` may still be present on a volume — the image builder writes it
+(§54.7) and nothing on a `kern_small` machine reads or writes it. It is
+inert, not invalid.
+
 ### 54.1 Compose at MOUNT, never at draw time
 
 `disk_icons` is `dsk_nmax` × 64 bytes, already allocated, **already rewritten

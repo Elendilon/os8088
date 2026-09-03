@@ -243,6 +243,26 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_THEME 1
 %endif
 
+; SPEC.md 54's file ASSOCIATIONS are kern_big's, on OS88_THEME's terms one
+; block up and for a bigger reason than the footprint. This takes assoc.inc
+; and the associco.inc glyph table it pulls in out whole - .text, .cold and
+; .bss, 2,520 bytes of them, and 2,560 of KERN_SIZE once the call sites go
+; with them - and it ALSO takes out a 3,072-byte heap claim that
+; stood on a bare desktop: asc_use_x claims ASC_KB under MEM_K_ASC, which is a
+; kernel TAG and not one of the MEM_P_* purgeable classes, and nothing frees
+; it. disk_mount_x calls asc_use_x and the boot mount is a mount, so on a
+; machine whose whole heap is ~31KB the association cache was holding a
+; tenth of it before the user had done anything. SPEC.md 54.0 is the contract
+; and says what the machine loses.
+;
+; ONE symbol decides it, so a call site cannot disagree with the body - and
+; it is resolved HERE, above every %include, because nasm's preprocessor is
+; one pass and a %define beside the include it guards is made too late to
+; guard anything (the trap SBDRAG's block below records paying for).
+%ifdef KERN_BIG
+  %define OS88_ASSOC 1
+%endif
+
 ; SPEC.md 13.10.5's thumb DRAG is kern_big's and SHIPS - `make SBDRAGOFF=1`
 ; compiles it out, which is WM_ANIM's shape one section up and exists to be
 ; diffed against rather than because anybody should build it.
@@ -5190,7 +5210,20 @@ section .text
 %include "apps.inc"
 %include "assoc.inc"          ; file type associations (SPEC.md 54): the
                               ; tables and the icon composition. BEFORE
-                              ; disk.inc, whose harvest calls into it
+                              ; disk.inc, whose harvest calls into it.
+                              ;
+                              ; INCLUDED UNCONDITIONALLY AND GATED INSIDE
+                              ; (SPEC.md 54.0), which is band.inc's idiom and
+                              ; not a style choice: tools/kernsize.py brackets
+                              ; every module with markers it inserts AT the
+                              ; %include line, in Python, over kernel.asm's
+                              ; raw text - so a %ifdef around this line puts
+                              ; the OPENING marker inside the gate and the
+                              ; closing one outside it, and the per-module
+                              ; pass stops assembling with an undefined
+                              ; KSMn_boot2. On a kern_small build the file
+                              ; contributes zero bytes and reports as a zero
+                              ; row, which is what band.inc already does
 %include "mod.inc"            ; on-demand kernel modules (SPEC.md 2.8): the
                               ; loader and the far-pointer table. BEFORE
                               ; every module it serves, because a module's
@@ -6138,10 +6171,25 @@ app_about_center:     call COLD_SEG:apf_app_about_center
 ; dskw_stat were a DOUBLE crossing (out through a cw_ shim, in through a
 ; resident thunk) and are near calls now - SPEC.md 2.6's "growing the set makes
 ; the ones already in it cheaper".
+%ifdef OS88_ASSOC
 osapi_arg_file:       call COLD_SEG:osapi_arg_file_x
                     ret
 osapi_assoc_set:      call COLD_SEG:osapi_assoc_set_x
                     ret
+%else
+; kern_small has no associations (SPEC.md 54.0), so both slots keep their
+; CELLS - the ABI is parity, one .o88 serves both kernels - and share ONE
+; refusing body, which is SPEC.md 13.9's idiom for exactly this.
+;
+; NO PACKAGE NEEDS CHANGING, and that is a property of the two contracts
+; rather than luck. OSAPI_ARG_FILE's CF=1 is documented as "launched empty,
+; the ordinary case" - the answer it already gives on every launch that was
+; not a document open - and OSAPI_ASSOC_SET's is "the tables are full and
+; nothing was stored". Both slots already require the caller to test CF.
+osapi_arg_file:
+osapi_assoc_set:      stc
+                    ret
+%endif
 
 ; --- ...and disk.inc's (SPEC.md 18-19). The FAT read path, mount, and the
 ; volume table: everything here is bounded by a floppy, where SPEC.md 2.6's

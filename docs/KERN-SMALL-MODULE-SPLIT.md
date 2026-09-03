@@ -451,15 +451,71 @@ the only one of the three whose call sites are already known and few (five in
 `disk.inc`'s mount and harvest path, one in `files.inc`, one in `ui.inc`, and
 two API-slot thunks in `kernel.asm`).
 
+**The baseline moved under this table.** `elendilon` merged kernel size pass 3
+and APP_SMALL, taking `kern_small` from `KERN_SIZE` 96,256 to **94,720** and the
+heap floor from 95.5 KB to 94.0. Every row below is against that tree, and W0's
+figures are **measured** rather than projected:
+
 | wave | change | mechanism needed | `KERN_SIZE` | free heap | usable |
 |---|---|---|---:|---:|---:|
-| — | today | | 96,256 | 32.5 KB | **~29.5 KB** |
-| **W0** | `assoc` gated out | none — `%ifdef` | 93,696 | 35.0 KB | **38.0 KB** |
-| **W1** | `filecp` → module | fits `MOD_NENT` = 8 today | 91,648 | 37.0 KB | **40.0 KB** |
-| **W2** | `fdlg` → module | lift `os88ui.inc`; `MOD_NENT` → 16 | 88,576 | 40.0 KB | **43.0 KB** |
+| — | post-merge baseline | | 94,720 | 34.0 KB | **~31.0 KB** |
+| **W0** | `assoc` gated out — **BUILT** | none — `%ifdef` | **92,160** | **36.5 KB** | **36.5 KB** |
+| **W1** | `filecp` → module | fits `MOD_NENT` = 8 today | 90,112 | 38.5 KB | **38.5 KB** |
+| **W2** | `fdlg` → module | lift `os88ui.inc`; `MOD_NENT` → 16 | 87,552 | 41.0 KB | **41.0 KB** |
 
-**7,680 bytes of footprint over three waves, and ~13.5 KB of usable heap** —
-29.5 → 43.0 — because W0 returns a pinned claim as well as a rung.
+**7,168 bytes of footprint over three waves, and ~10 KB of usable heap** —
+31.0 → 41.0 — because W0 returns a pinned claim as well as two rungs.
+
+### 9.2.1 W0 as built
+
+`KERN_SIZE` **94,720 → 92,160, −2,560**, which is the prediction to the byte:
+`.text` −502, `.bss` −43, `.cold` −2,076 (the extra over `assoc.inc`'s own
+2,520 is the call sites the gate takes with it). Two rungs uncrossed, the image
+and the cold. **`kern_big` is byte-identical** — `kernsize[big]` reports `+0` on
+every section.
+
+Verified on the glass under MartyPC, on a 5150 with a CGA:
+
+- `tests/smallboot.py` passes on all three of its machines (CGA, Hercules, and
+  a VGA the small build has no renderer for).
+- The Disk window mounts, lists and computes free space: *"Drive A: 3 files"*,
+  `MEDIA` / `README.TXT 16334` / `SYSTEM`, *"Size 15K Free 179K"*.
+- **`README.TXT` draws the generic icon**, against `kern_big`'s composed
+  page-with-glyph on the same file — §54.1's all-zero sentinel, which is what
+  §54.0 says the machine gets. Nothing else in the row differs.
+- Zero `assoc_*`/`asc_*` symbols survive in `kern_small`'s map, and the FAT-form
+  string `ASSOC   DAT` is present in `kern_big`'s image and absent from
+  `kern_small`'s.
+
+**A cross-kernel pixel diff of the two A: listings is NOT evidence and was
+discarded**: the two system disks carry different files (big's A: lists six,
+small's three), so the 2,358 differing pixels it reported are the disks and not
+the kernels. The icon crop above is the comparison that holds.
+
+### 9.2.2 The gate goes INSIDE the file, and `kernsize.py` is why
+
+The obvious placement — `%ifdef OS88_ASSOC` around `kernel.asm`'s
+`%include "assoc.inc"` — **breaks the per-module size report**, and it took a
+failed `--bless` to find out:
+
+```
+kernsize: per-module pass: the instrumented build failed:
+  kernel.asm:8119: error: symbol `KSM27_boot2' not defined before use
+```
+
+`tools/kernsize.py`'s `instrument()` inserts its bracketing markers **at the
+`%include` line, in Python, over `kernel.asm`'s raw text**, and it does not
+track `%ifdef`. A gate around the include therefore puts the *opening* marker
+inside it and the *closing* one outside, so on a `kern_small` build the opening
+marker is never emitted and the `%assign` that differences them names a symbol
+that does not exist.
+
+So the file is **included unconditionally and gated inside**, which is
+`band.inc`'s idiom already: `assoc.inc` reports as a **zero row** on
+`kern_small` rather than vanishing from the table, which is also the more
+useful report. The one line that must sit outside the `%ifdef` is the closing
+`section .text` — CLAUDE.md's section-discipline rule holds on both arms, and
+the gated-out arm switches section nowhere.
 
 W1 before W2 is not a preference: `filecp` has five entry points and fits the
 mechanism as it stands, so it is the wave that proves the `%ifdef KERN_SMALL`
