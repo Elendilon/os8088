@@ -59223,23 +59223,40 @@ was closer to unusable there than merely unused. The owner's words:
 up disk space with files we'll never use."*
 
 **What it costs, measured.** `kern_big` is **byte-identical** — the same
-`kernel.bin`, checked with a checksum and not asserted. `kern_small`:
+`kernel.bin`, checked with a checksum and not asserted. `kern_small`, taken
+tree-to-tree across this change and §18.7's `DVOL_MAX` with it:
 
 ```
-.text  -350   .bss  -257   .cold  -4,567   .ovl  -803   .ovlw  -188   = -6,165
-KERN_SIZE   88,064 -> 85,504      heap floor 87.5 KB -> 85.0 KB
-free heap on a 128KB machine      40.5 KB -> 43.0 KB
-CTRL.DRV     5,794 ->  5,358      the Drivers page is out of cp_items
-the 360KB system disk             50 clusters back = 51,200 bytes, 14% of it
+             before    after    delta
+.text        39,731   39,272     -459
+.bss          5,417    4,848     -569
+.cold        27,215   25,602   -1,613     } -2,641 IN THE LADDER
+.ovl          1,226      423     -803     } -991 boot overlay: loaded into
+.ovlw         4,516    4,328     -188     }  memory that is reused after boot
+                                -------
+                                 -3,632
+
+image rung   45,568 -> 44,544   -1,024
+cold  rung   27,648 -> 26,112   -1,536
+KERN_SIZE    88,064 -> 85,504   -2,560     heap floor 87.5 KB -> 85.0 KB
+free heap on a 128KB machine               40.5 KB -> 43.0 KB
+CTRL.DRV      5,794 ->  5,358              the Drivers page is out of cp_items
+the 360KB system disk                      50 clusters = 51,200 bytes, 14% of it
 ```
 
-That is **2.4x the 2,550 bytes the cut plan priced it at**, and the
-difference is where the estimate could not look: the plan attributed
-`driver.inc`'s own `.text`/`.cold`/`.bss` and missed the boot-overlay code
-that comes with it — `drv_boot`'s `SYSTEM.CFG` pass in `.ovl` and
-`drv_init`/`drv_snd_sniff` in `.ovlw` are 991 bytes between them, and the
-`.cold` figure was short by 2,800 because a symbol-map attribution stops at
-the first local label.
+**3,632 bytes of sections buy 2,560 bytes of heap, and the gap is the point.**
+991 of them are `.ovl`/`.ovlw` — `drv_boot`'s `SYSTEM.CFG` pass and
+`drv_init`/`drv_snd_sniff` — which live in memory the machine reuses once it
+has booted, so they move `HEAP_SEG` by nothing at all. `.ovlw`'s 188 does not
+even cross a sector, so docs/KERN-SMALL-CUT-PLAN.md §7's 2,816-byte headroom
+for the buffer cuts is unchanged by it. The last 81 bytes are lost to the
+512-byte rung rounding.
+
+Against the estimate: the cut plan priced A3's **resident** part at 2,550 and
+it came in at **2,277** — the plan was 12% *high*, not low. What it missed
+entirely was the boot overlay, and that is the half that buys no heap. **A
+per-section estimate is a good predictor of footprint and a poor one of
+free memory**, and the two questions have to be asked separately.
 
 **What a `kern_small` machine loses**, stated so nothing has to be inferred:
 

@@ -1103,10 +1103,10 @@ Three things about it:
   "big": {
     "boot2": 2250,
     "bootmax": 192512,
-    "bss": 5892,
+    "bss": 5904,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 36697,
+    "cold": 36714,
     "coldpara": 2304,
     "fatpara": 288,
     "imgpara": 3520,
@@ -1126,23 +1126,23 @@ Three things about it:
   "small": {
     "boot2": 2250,
     "bootmax": 122880,
-    "bss": 5373,
+    "bss": 4848,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 30169,
-    "coldpara": 1888,
+    "cold": 25602,
+    "coldpara": 1632,
     "fatpara": 288,
-    "imgpara": 2848,
-    "kend": 5760,
+    "imgpara": 2784,
+    "kend": 5440,
     "kseg": 96,
-    "ksize": 90624,
+    "ksize": 85504,
     "lowbss": 8712,
     "lowpara": 640,
     "minramkb": 128,
-    "ovl": 1226,
-    "ovlw": 4516,
+    "ovl": 423,
+    "ovlw": 4328,
     "stk0": 1024,
-    "text": 39718,
+    "text": 39272,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -2031,14 +2031,14 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 30,561 | 35.2% |
+| the file system, end to end | 30,576 | 35.2% |
 | the window system and its furniture | 24,107 | 27.8% |
 | drawing: adapters, primitives, glyphs, icons | 14,919 | 17.2% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,070 | 9.3% |
-| the kernel proper: API table, heap, scheduler, events | 7,058 | 8.1% |
+| the kernel proper: API table, heap, scheduler, events | 7,060 | 8.1% |
 | the three built-in kinds | 1,542 | 1.8% |
 | the Control Panel | 590 | 0.7% |
-| **total** | **86,847** | |
+| **total** | **86,864** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -2048,7 +2048,7 @@ generated in the first place.
 | `files.inc` — the Disk window (§22) | 1,049 | 8,151 | **9,200** | 465 | — | — |
 | `vga12.inc` — the VGA planar primitives (§5) | 7,235 | 702 | **7,937** | 162 | 526 | — |
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,793 | **6,188** | 889 | — | — |
-| `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,954 | **5,195** | 168 | — | — |
+| `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,969 | **5,210** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,496 | **4,675** | 152 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 3,762 | — | **3,762** | 151 | 128 | — |
 | `ui.inc` — the UI task and the event ladder (§13) | 3,329 | — | **3,329** | 58 | — | — |
@@ -2075,7 +2075,7 @@ generated in the first place.
 | `ctrl.inc` — the Control Panel (§31) | 335 | 255 | **590** | 28 | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 433 | — | **433** | 25 | — | — |
 | `blank.inc` — the idle screen blanker (§64) | 194 | 236 | **430** | — | — | — |
-| `mod.inc` — on-demand kernel modules (§2.8) | 42 | 307 | **349** | 72 | — | — |
+| `mod.inc` — on-demand kernel modules (§2.8) | 42 | 309 | **351** | 84 | — | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 232 | — | **232** | 22 | — | — |
 | `clip.inc` — the system clipboard (§55) | 179 | — | **179** | 5 | — | — |
 | `events.inc` — the event ring (§10) | 159 | — | **159** | 3 | 128 | — |
@@ -2088,7 +2088,7 @@ generated in the first place.
 | `stkdiag.inc` — **(undescribed)** | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 2,979 | 18 | **2,997** | — | — | 421 |
-| **total** | **50,150** | **36,697** | **86,847** | **5,892** | **9,182** | **2,250** |
+| **total** | **50,150** | **36,714** | **86,864** | **5,904** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it

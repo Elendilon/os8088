@@ -159,25 +159,51 @@ What is actually still on the table:
 
 ### 2.1 A3 and A4 ARE BUILT, A2 IS REFUSED, A1 IS DEFERRED
 
-**A3 is SPEC.md §51.0 and A4 is in `disk.inc`.** Together they moved more than
-this whole group was priced at:
+**A3 is SPEC.md §51.0 and A4 is in `disk.inc`.** Measured tree-to-tree across
+both:
 
 ```
-.text  -446   .bss  -525   .cold  -4,567   .ovl  -803   .ovlw  -188   = -6,529
+             before    after    delta
+.text        39,731   39,272     -459
+.bss          5,417    4,848     -569
+.cold        27,215   25,602   -1,613     } -2,641 IN THE LADDER
+.ovl          1,226      423     -803     } -991 boot overlay
+.ovlw         4,516    4,328     -188     }
+                                -------
+                                 -3,632   ->  HEAP -2,560 = 2.5 KB
+
 KERN_SIZE   88,064 -> 85,504          heap floor 87.5 KB -> 85.0 KB
 free heap on a 128KB machine, MEASURED on one:   40.5 KB -> 43.0 KB
 kern_big                                          byte-identical
 ```
 
-**A3 alone came in at 6,165 against a projected 2,550**, and the difference is
-where a symbol-map estimate could not look: this row priced `driver.inc`'s own
-`.text`/`.cold`/`.bss` and missed the boot-overlay code that goes with it —
-`drv_boot`'s `SYSTEM.CFG` pass in `.ovl` and `drv_init`/`drv_snd_sniff` in
-`.ovlw` are 991 bytes between them — while the `.cold` figure was short by
-~2,800 because an attribution that measures to the next symbol stops at the
-first *local* label. **Both errors are in the same direction and both are the
-method's, not the arithmetic's**: §9's method is honest about `.text` and
-`.bss` and systematically low on anything reached through an overlay.
+### 2.2 The finding this row exists for: SECTIONS ARE NOT HEAP
+
+**3,632 bytes of sections bought 2,560 bytes of heap, and the difference is
+not rounding.** 991 of them are `.ovl`/`.ovlw` — boot-overlay code loaded into
+memory the machine reuses once it is up — so they move `KERN_SIZE` and the
+boot-time minimum and move `HEAP_SEG` by *nothing*. Only 81 bytes went to the
+512-byte rung rounding.
+
+**That makes this document's whole method optimistic**, and it is worth saying
+plainly before anything else here is decided off it. §2–§5 price features by
+adding up `.text`, `.cold` and `.bss` off a symbol map. That is the right
+answer for **footprint**, and it is the wrong answer for **free heap** whenever
+any of the bytes are in an overlay: the ladder is `.text+.bss`, then `.cold`,
+and nothing else in the sum reaches it. A row should be read as an upper
+bound on heap, not an estimate of it.
+
+The resident half of the estimate was **good**: A3's `.text`+`.bss`+`.cold`
+was priced at 2,550 and came in at **2,277**, 12% *high*. What the row missed
+was the 991 bytes of overlay — and those are exactly the bytes that buy
+nothing.
+
+**And there is a reporting trap behind it worth not repeating.** `kernsize`'s
+`sum` is a delta against the **blessed baseline**, not against the tree you
+started from. The baseline had not been blessed since before W1, so a reading
+taken after A3 reported `-6,529` — W1 and W2 included — and it reads exactly
+like an increment. Bless after a wave lands, and measure a change
+tree-to-tree when the number is going in a document.
 
 **A2 is refused, on a measurement and on a judgement.**
 
