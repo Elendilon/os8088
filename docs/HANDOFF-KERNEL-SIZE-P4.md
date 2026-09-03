@@ -571,22 +571,26 @@ than decoration.
 
 Every batch passed `gate.sh`'s seven steps twice, of which step 7 is
 `make test-full` (the knob kernels, `kern_small`, and a boot on both 1bpp
-adapters). **The full closing soak was not run in this container** — it is ~2.8
-hours wall and `docs/HANDOFF-KERNEL-SIZE-P3.md` §3 is the recipe. Targeted soak
-rows were run per batch instead, and they are named in each commit.
+adapters). Targeted soak rows were run per batch as well, and they are named in
+each commit.
+
+**THE FULL CLOSING SOAK HAS SINCE BEEN RUN — §9 is its result.** This section
+was written when it had not been, and three of its rows have been overtaken by
+it; each says so in place. What follows is still the honest list of what this
+container could not answer, with the ones it can now answer marked.
 
 **Do not read coverage into this list that is not there.**
 
 | row / claim | why it could not run here |
 |---|---|
 | `dskwstage` | its default machine's ROM set was **absent from this container** (`Error loading ROM set`, before a guest instruction). Pointed at a machine that IS available it **hangs — and hangs identically on the stashed baseline, same command, same machine**. Out of reach in both directions; `docs/HANDOFF-SOAK-FINDINGS.md`'s "FAIL where it means SKIP" class. **It is the row that covers `dskw_wdata.stg`, one of the sites a cross-cutting finding converted** — re-run it if you have the 5150 CGA ROM set. **ANSWERED — the ROM arrived and the answer is that the hang is NOT this pass's.** Four runs: `dskw_write_x never returned after 180s` at `8626120` on the real IBM 5150 27OCT82 ROM (in its soak chunk, and again on its own), at `8626120` on GLaBIOS, and at **`f8af49e` — elendilon before the pass merged** — on the IBM ROM. So the ROM is not the variable and neither is the pass. The 180 is a HOST wall-clock bound in `m.wait_stop`, which made load the first suspect and it is ruled out: the second failure had two other emulators up, not four. The hang itself is still open and still covers `dskw_wdata.stg`; what is closed is the question this row was parked on |
-| the AT clock rung (rung 1, MC146818) | **QEMU only** — a 5150 has no RTC and MartyPC models no XT clock card, so `[clk_tier]` is 0 on both. **This container has no `qemu-system-i386`** |
-| `xmcheck` / `tests/xmtest` | the one gate in the tree *verified* to fail when the XMS release calls go missing, and a RUNTIME check rather than a grep. Needs QEMU **and** a machine with memory above 1MB; MartyPC is an 8088 and `xm_sniff` returns at its first compare |
+| the AT clock rung (rung 1, MC146818) | **QEMU only** — a 5150 has no RTC and MartyPC models no XT clock card, so `[clk_tier]` is 0 on both. This container had no `qemu-system-i386`. **IT HAS ONE NOW** (8.2.2, installed for the closing soak), so this rung and rung 2's refusal arm are REACHABLE here — but **still unrun, and the reason is a gap in the SUITE rather than in this container**: no registered row covers rung 1. `dtwrite` is the row that writes the clock and it declares `marty`, where `[clk_tier]` is 0, so it passes *without exercising a chip*. A row that means rung 1 needs QEMU in its `needs` and a reboot in its body (CLAUDE.md's recipe: set the clock, close the panel, `system_reset`, read the bar). Worth writing before the next pass leans on it |
+| `xmcheck` / `tests/xmtest` | the one gate in the tree *verified* to fail when the XMS release calls go missing, and a RUNTIME check rather than a grep. Needs QEMU **and** a machine with memory above 1MB; MartyPC is an 8088 and `xm_sniff` returns at its first compare. **OVERTAKEN — it RAN and PASSED, 41.9 s** (§9). QEMU 8.2.2 was installed for the closing soak, so this row is no longer out of reach here and the XMS teardown is checked rather than argued. `heapmap` and `msegxms` came with it |
 | clock rung 2 (MM58167) | the **refusal arm only** is reachable, via `make test RTC=ns` → `tier 0, stop 01, reg 00 = FF`, which proves the code assembles and refuses and nothing more. Not run — no QEMU |
 | clock rung 3 (RP5C01) | **nothing anywhere.** No emulator in this tree has one. Field-only |
 | `F-cpudet3-01` | **nothing.** A `word [ds:bp+0]` "fix" assembles, passes every gate, and reports an 8087 that exists as absent. The comment at `mov bp, sp` is the whole guard |
 | B1's `xm_boot_x` table staging | no test in this container exercises the path. Verified by assembly, listing and segment reasoning — **said plainly rather than left implied**. The filed form used `push cs / pop es`, which would have copied the XMS service table **into the blob** on any machine with `XMS.DRV`, because the body is `.ovl` and far-called so CS is the blob's segment |
-| `dispcheck` | fails **identically on both trees at the same line** — pre-existing, `docs/HANDOFF-SOAK-FINDINGS.md`. Up to that point the two kernels produce byte-identical framebuffers on **both** cards of the extended desktop |
+| `dispcheck` | fails **identically on both trees at the same line** — pre-existing, `docs/HANDOFF-SOAK-FINDINGS.md`. Up to that point the two kernels produce byte-identical framebuffers on **both** cards of the extended desktop. **OVERTAKEN, and it was THIS PASS'S after all**: the closing soak found a *second*, unrelated defect in the row — it indexed word 11 of a run this pass shortened to 16 words — and fixing that (`662b429`, `docs/HANDOFF-SOAK-FINDINGS.md` E4) makes it **pass**. The pre-existing timeout above and the stale index are two different things in one file; do not read this row's history as one story |
 
 **What WAS run on a machine**, and is worth knowing exists:
 
@@ -799,3 +803,107 @@ branch change in clocks on both arms before taking it (§2.3).
 **`.ovl` has no partial credit**, and `tests/ovlrefs.txt` + `tools/os88ovlchk.py`
 are what enforce it — with the caveat that until B0 the return-kind half of that
 gate could see 5 routines of 140.
+
+---
+
+## 9. THE CLOSING SOAK — RUN, and what it found
+
+§5 was written when it had not been run. It has now been run in full, in this
+container, against the merged tree.
+
+| | |
+|---|---|
+| soak rows attempted | **200** — the whole soak tier as the suite stood |
+| ok | **196** |
+| FAIL | **4** |
+| SKIP | **0** |
+| not run | **0** |
+| **regressions in kernel behaviour** | **0** |
+
+**Zero skips is the part worth stating.** Every previous run of this suite in
+this container skipped between fifteen and eighteen rows for a missing
+capability, and a skip is not a pass — it is the box declining to answer. What
+removed them was installing `qemu-system-x86` (8.2.2) and the C toolchain
+(`tools/setup-cc.sh`, SmallerC), and building the four on-demand disks the
+suite never builds for itself: `make wiredisk weavedisk loomdisk c64disk`. Two
+rows would otherwise have skipped **silently inside a rate lane** — `wirefps`
+and `uilat` declare a `wiredisk` capability, and `all` deliberately does not
+build it.
+
+`make test-full` also reached **51 passed, 0 failed, 0 skipped** for the first
+time, because `ctoolchain`, `weavesmoke` and `ps2mouse` could finally run.
+
+### 9.1 The four failures, each classified against evidence
+
+Full write-ups are `docs/HANDOFF-SOAK-FINDINGS.md` E1–E5. In one line each:
+
+| row | disposition |
+|---|---|
+| `dispsize` | **intermittent everywhere** — 10 fail / 5 pass over 15 runs, and it fails at `f8af49e`, which predates the pass merge (E1) |
+| `dskwstage` | hangs on the IBM ROM, on GLaBIOS, **and on the pre-pass tree** — closes §5's own parked question (E2) |
+| `weavegame` | **identical at `f8af49e` and HEAD**; its first run ever in this container, and it carries an `ovf = 15` input overrun (E5) |
+| `weavepack` | 18 of 23 checks, **identical on a loaded box and an idle one** (E6) |
+
+**The two Weave rows are the same story twice**: neither had ever produced a
+verdict here, because there was no C toolchain, and `docs/HANDOFF-SOAK-FINDINGS.md`
+B4/D2 record what was seen instead. Installing one did not break them — it
+made them legible.
+
+### 9.2 One mistake, and it is the reusable output
+
+E1's bisect was **published-adjacent and void**, and the three errors that
+stacked to produce it are written out at E1 because each is cheap to repeat:
+the protocol at the top of that file was skipped (re-run alone, then the base,
+and bisect *only* if those disagree); a row with six independent legs had its
+exit code read as one verdict, hiding a passing leg C behind a failing leg E
+for four runs; and the commits being bisected **did not share a base** —
+three of the branches in flight fork from `f8af49e`, not from `61d92f7`, so
+four of six points carried the pre-pass kernel. `git log --graph --boundary`
+shows that in one screen.
+
+A fourth, smaller one: `weavepack`'s first failure was blamed on contention
+*I* had introduced by running other work in its window. Re-running it on a
+verified-idle box gave the identical result, so the theory was wrong — but the
+re-run is what established that, and it cost sixteen minutes to buy a fact
+instead of a guess.
+
+### 9.3 The suite grew underneath it
+
+The tree moved while the soak ran — three other sessions pushed to `elendilon`
+— and the soak tier is **207 rows now, not 200**. The eight that arrived
+afterwards are theirs, not this pass's, and are recorded here only so nobody
+reads "0 not run" as covering them:
+
+* `paint1bpp`, `paint1bpp-colour`, `paint1load`, `paint1load-vga`,
+  `paintrz-1bpp` — the 1bpp canvas work. **Run anyway, all five pass.**
+* `fcpsmall`, `fdlgsmall`, `stk0water` — `kern_small` rows, **not run, and
+  blocked rather than skipped**: `make build/small360.img` fails on the
+  branch with `No rule to make target 'build/smallk/filecp.drv'`. That is the
+  `kern_small` module split's own in-flight work and NOT this pass's — the
+  Makefile in the merge is byte-identical to the one pushed, and this pass's
+  whole side of that merge is one documentation file. `small128`, `smallboot`
+  and `buildmatrix` fail on the same target. Its shape is the trap the
+  Makefile's own comment 8 lines above it describes: `$(SMALLMODS)` is a
+  prerequisite in the OUTER make, and the modules are produced by the
+  sub-make inside the recipe, so make demands a file before anything can
+  create it.
+
+### 9.4 How it was run, if it has to be run again
+
+~3.5 hours of wall clock, and the shape that got it there:
+
+* **`--marty-jobs 3` with THREE rows a chunk**, sorted longest-declared first.
+  A chunk then costs `max(row)` rather than `sum(row)` — 6.1 h of declared
+  serial time became 2.2 h — and the long rows are behind you early.
+* **A `.claim` marker taken before the run and a `.done` written after**, so a
+  background runner and a foreground one never pick the same chunk and a
+  container restart costs one chunk.
+* **One `make` at the top of the runner, and a preflight refusal treated as
+  fatal.** `make test-full` leaves a KNOB kernel in `build/`, and
+  `os88test`'s symbol preflight then refuses every emulator row — which
+  marked two chunks "done" in three seconds each before that guard existed.
+* **Verdicts keyed by row with the latest log winning**, so a re-run
+  supersedes its own earlier failure with no bookkeeping. `status.py` in the
+  scratch directory is twenty lines and was worth writing: counting `.done`
+  markers instead had the tally understating by four rows and still listing
+  two resolved failures.

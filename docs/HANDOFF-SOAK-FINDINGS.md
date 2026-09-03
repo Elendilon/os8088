@@ -658,6 +658,12 @@ caller and never had one**.
 
 ## D2. `weavepack` flakes — classified, not fixed
 
+> **SUPERSEDED BY E6.** Pass 3's soak ran this row twice on the tree it had
+> then and got **5 checks passed and 18 FAILED** both times — nothing like the
+> 17-of-18 below, and not a flake at all in that shape. Read E6 first; what
+> stands here is the mechanism (B5) and the fix proposal at the end, which E6
+> does not replace.
+
 Failed once on `TSHEET.WAB` (17 of 18 checks passed; six of seven projects
 matched the host packer byte for byte), then passed alone at the same commit in
 1828.6 s. It cannot be a regression by construction: `tests/weavepack.py`,
@@ -853,6 +859,87 @@ NEXT person to install a C toolchain here will meet it cold, and because
 at `f8af49e`, over 0 frames both times. That is not two different behaviours —
 it is the same behaviour reading a cell nothing ever wrote, which is itself
 evidence that `onTick` never fired. Do not bisect on that number.
+
+## E6. `weavepack`: 18 of 23 checks, and it is NOT the flake D2 recorded
+
+**Three runs, three identical results — 5 checks passed, 18 FAILED:**
+
+| tree | box | |
+|---|---|---|
+| `8626120` | loaded (I was running other work in its window) | 5 / 18 |
+| `8626120` | verified idle — nothing else on the box | 5 / 18 |
+| `f8af49e` — before the pass merged | idle | 5 / 18 |
+
+989.7 s at the base against 976.1 and 999.3 at HEAD. **Pre-existing, and not
+this pass's.** `tests/weavepack.py`, `apps/loom/` and `apps/cc/` are
+byte-identical at both ends of the pass.
+
+**D2 is superseded, and the difference matters.** D2 recorded this row as a
+FLAKE — *"17 of 18 checks passed, then passed alone at the same commit"* — with
+B5 as the mechanism. What it does now is fail nearly everything, repeatably, on
+an idle box. A row that fails 18 of 23 every time is not the row D2 describes,
+and treating it as "the known weavepack flake" would have filed a hard failure
+as noise. That is the whole reason this entry exists.
+
+Every failure is host-side by the row's OWN account, which is what makes it
+confusing:
+
+* `LOOM opens on the double-click` → *"os88mouse refuses a double-click whose
+  two presses straddled the kernel's 9-tick window — **a statement about the
+  HOST**, retried three times and then reported"*
+* `scrolled PAST entry 12 — the list moved under us`
+* `waited 25s for LOOM's window for TSHEET and it never happened. The guest is
+  still running, so either it is slower than the limit or the condition is
+  asking about the wrong thing`
+
+So the row's diagnosis is B5, and B5 is a **host-speed** story — yet the result
+does not move with host speed. It is identical loaded and idle, and the loaded
+run was 23 seconds FASTER. Whatever this is, the row's own explanation for it
+is not supported by the two runs that were designed to test it.
+
+**The failures also cascade, so 18 is not 18 independent facts.** A project
+whose double-click never opens LOOM is never packed and never closed; the next
+project then meets an instance that should have gone away, and
+*"each project is one instance and they cannot all be open at once — a 640KB
+machine has room for about four (WEAVE-SPEC 1.4)"* fires for a reason created
+one project earlier. Note that the first failing project **differs between
+runs** (`FORM` idle, `SHEET` loaded) while the count does not — consistent with
+one root cause plus a deterministic cascade, and inconsistent with 18 separate
+defects.
+
+**What was NOT done, and why.** Not root-caused: it is the Weave family rather
+than the kernel, it is identical at both ends of a size pass, and the honest
+next step is a single project driven by hand with the sidebar photographed —
+D2's own fix proposal (`m.disk(reset=True)` before `^P`, then poll `m.disk()`)
+is still the right instrument and is still unbuilt. Whoever takes it should
+start from **one** project, not nine, and should not begin from B5.
+
+**It is the second Weave row in this section with the same history**: E5's
+`weavegame` and this one had never produced a verdict in this container,
+because there was no C toolchain, and B4/D2 record what was seen instead.
+Installing one did not break them. It made them legible.
+
+### The pass-3 tally
+
+| | |
+|---|---|
+| soak rows attempted | 200 — the whole tier as the suite then stood |
+| ok | 196 |
+| FAIL | 4 |
+| SKIP | **0** |
+| not run | **0** |
+| **regressions in kernel behaviour** | **0** |
+| pre-existing, established at `f8af49e` | 4 — `dispsize`, `dskwstage`, `weavegame`, `weavepack` |
+| found and FIXED in the pass's own work | 1 — `dispcheck`'s stale in-run index (E4, `662b429`) |
+| rows whose FIRST EVER verdict here this was | 2 — `weavegame`, `weavepack`, both waiting on a C toolchain |
+| **classifications this queue got WRONG and corrected** | **+2** — E1's bisect (void: single samples, a conflated exit code, and commits with no shared base) and `weavepack`'s contention theory (mine, disproved by an idle re-run) |
+| entries SUPERSEDED by pass 3 | 1 — D2, which called `weavepack` a flake |
+
+**Pass 2's lesson held.** Not one of these four was a check that failed
+honestly on first reading: two were rows that had never run, one was
+intermittent and read as a bisectable regression, and one was a hard failure
+sitting under a queue entry that called it a flake. The defence that worked was
+the same one — run it again, on purpose, with one variable moved.
 
 ---
 
