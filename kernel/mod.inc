@@ -38,19 +38,47 @@
 ; where all three of the current ones say it).
 ; =============================================================================
 
-MOD_MAX     equ 3               ; rows in mod_tab
+%ifdef FCP_MOD
+MOD_MAX     equ 5               ; rows in mod_tab - FIVE on kern_small, which
+%else                           ; alone carries Cut/Copy/Paste and the file
+MOD_MAX     equ 3               ; dialog as modules
+%endif
 MOD_CTRL    equ 0               ; the Control Panel (SPEC.md 31)
 MOD_FMT     equ 1               ; the floppy formatter (SPEC.md 18.96)
 MOD_CLONE   equ 2               ; the disk cloner (SPEC.md 18.99)
+%ifdef FCP_MOD
+MOD_FCP     equ 3               ; Cut/Copy/Paste (SPEC.md 22.3-22.5),
+                                ; kern_small's alone - kern_big keeps the
+                                ; bodies resident in `.cold`
+MOD_FDLG    equ 4               ; ...and the Standard File dialog (SPEC.md 38,
+                                ; 38.0), on the same terms
+%endif
 
-MOD_NENT    equ 6               ; far-pointer slots reserved per module. A
+MOD_NENT    equ 7               ; far-pointer slots reserved per module. A
                                 ; fixed stride, so a thunk's
                                 ; `call far [mod_fp + K]` is an assembly-time
                                 ; constant with no arithmetic at run time -
                                 ; which is what makes dispatch re-entrant and
                                 ; register-free (see mod_fp below).
                                 ;
-                                ; SIX, WHICH IS EXACTLY WHAT THE MODULES USE.
+                                ; SEVEN, WHICH IS WHAT THE LARGEST MODULE USES
+                                ; - SPEC.md 38.0's file dialog, on kern_small.
+                                ; It is NOT per-build, and that was tried: the
+                                ; obvious `%ifdef FDLG_MOD` saves kern_big the
+                                ; twelve `.bss` bytes of a seventh slot it has
+                                ; no module for, and tools/os88mod.py SCRAPES
+                                ; this line - it cannot evaluate a %ifdef, so
+                                ; it read 7 for both builds and refused
+                                ; CTRL.DRV's first entry as being inside a
+                                ; header two bytes longer than the one the
+                                ; kernel had actually emitted. The tool's own
+                                ; header says why that is the right way round:
+                                ; the drawn thing and the tested thing come
+                                ; from ONE description. Twelve bytes is the
+                                ; price of keeping it one.
+                                ;
+                                ; It was SIX, WHICH WAS EXACTLY WHAT THE
+                                ; MODULES THEN USED.
                                 ; It was four, then eight when SPEC.md 13.8.3
                                 ; gave the Control Panel a W_ONMOUSEUP and a
                                 ; W_ONDRAG and it needed six. Eight was picked
@@ -162,8 +190,11 @@ MODR_SHIFT  equ 2               ; ...still a power of two, so the id -> row
 %if (1 << MODR_SHIFT) != MODR_SIZE
   %error "MODR_SHIFT and MODR_SIZE disagree: mod_row SHIFTS a module id up into a row pointer while every other site SHIFTS one back down, and a stride that is not 1<<MODR_SHIFT makes those two operations different functions - which reads one row and writes another, silently"
 %endif
-%if MODFP_STRIDE != MODR_SIZE * 6
-  %error "mod_fpr turns a row pointer into &mod_fp[id] with a x6 chain, which is MODFP_STRIDE / MODR_SIZE == 6. Change either stride without the other and every module but module 0 arms a block that is not its own - silently, over whatever .bss ordering has put there"
+%if MODFP_STRIDE != MODR_SIZE * MOD_NENT
+  %error "mod_fpr turns a row pointer into &mod_fp[id] with a chain whose ratio is MODFP_STRIDE / MODR_SIZE. Change either stride without the other and every module but module 0 arms a block that is not its own - silently, over whatever .bss ordering has put there"
+%endif
+%if MOD_NENT != 7
+  %error "mod_fpr's multiply chain is hand-written for THIS ratio (x7 = x8 - x1). A different MOD_NENT needs a different chain, and one that assembles is not the same as one that is right - work out the bytes before changing it"
 %endif      ; ...and see MODFP_STRIDE above for this one
 
 section .text
@@ -178,6 +209,10 @@ section .text
 mod_f_ctrl: db 'CTRL.DRV', 0    ; .DRV for the attributes and nothing else
 mod_f_fmt:  db 'FORMAT.DRV', 0  ; (SPEC.md 19.6): os88disk.py stamps anything
 mod_f_clon: db 'CLONE.DRV', 0   ; ...and a third of them (SPEC.md 18.99)
+%ifdef FCP_MOD
+mod_f_fcp:  db 'FILECP.DRV', 0  ; ...and kern_small's fourth (SPEC.md 22.3)
+mod_f_fdlg: db 'FDLG.DRV', 0    ; ...and its fifth (SPEC.md 38.0)
+%endif
                                 ; ending DRV read-only + hidden + system by
                                 ; EXTENSION, the installer's `*.DRV` copy rule
                                 ; picks it up, and neither of these is in
@@ -188,6 +223,10 @@ mod_tab:
     dw 0, mod_f_ctrl            ; MOD_CTRL
     dw 0, mod_f_fmt             ; MOD_FMT
     dw 0, mod_f_clon            ; MOD_CLONE
+%ifdef FCP_MOD
+    dw 0, mod_f_fcp             ; MOD_FCP
+    dw 0, mod_f_fdlg            ; MOD_FDLG
+%endif
 
 section .cold                   ; ...and the loader itself
 
@@ -254,18 +293,20 @@ mod_live:
 ; Both callers already hold the row and both want the answer in DI, so the id
 ; is never formed at all: &mod_fp[id] is mod_fp + (BX - mod_tab) / MODR_SIZE *
 ; MODFP_STRIDE, and that ratio is 6 (the %if above pins it), so the whole
-; thing is BX*6 with a constant folded in.  BX*6 may wrap 16 bits and the
+; thing is BX*MOD_NENT with a constant folded in.  BX*6 may wrap 16 bits and the
 ; result is still exact - it is a `.bss` offset under 64KB, so the arithmetic
-; is modular either way.  x6 is (x2 + x1) x 2, which is the same thirteen
-; bytes the three shifts were: the ratio being a power of two bought nothing
-; here, which is what let MOD_NENT come down to what the modules use.
+; is modular either way.  x6 is (x2 + x1) x 2, which is the same thirteen bytes
+; the three shifts were: the ratio being a power of two bought nothing here,
+; which is what let MOD_NENT come down to what the modules use - and then back
+; up to SEVEN on kern_small alone, where x7 is x8 - x1 for one byte more.
 ; -----------------------------------------------------------------------------
 mod_fpr:
-    mov di, bx
+    mov di, bx                  ; x7 = x8 - x1: no multiply and no CL, which is
+    shl di, 1                   ; the property that matters, and one byte more
+    shl di, 1                   ; than the x6 chain it replaced
     shl di, 1
-    add di, bx
-    shl di, 1
-    add di, mod_fp - mod_tab*6
+    sub di, bx
+    add di, mod_fp - mod_tab*7
     ret
 
 ; -----------------------------------------------------------------------------

@@ -86,6 +86,41 @@ NAME_CHARS = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
 
 # size -> (spt, heads, total sectors, sec/clus, FAT sectors, root entries,
 #          media byte)   -- mirrors SPEC.md section 19's geometry table
+def fatcap(size, cap):
+    """(spc, fatsz) for `size` with a FAT of at most `cap` sectors.
+
+    SPEC.md 51.0's kern_small caps DSK_FAT_SECS at 2 - it mounts nothing whose
+    FAT is bigger - and the naive reading of that is "so it only gets 360KB
+    disks". It does not have to: a FAT is sized by the CLUSTER COUNT, not by
+    the disk, so raising sectors-per-cluster brings any geometry under the cap.
+    A 1.44MB floppy with 4KB clusters declares a 2-sector FAT and is still
+    1.44MB, still FAT12, and still a volume any host OS mounts.
+
+    What it costs is cluster slack - a 100-byte file occupies 4KB on that disk
+    - which on a floppy carrying twenty packages of 5-48KB is a few percent,
+    and buys the geometry back whole.
+
+    Powers of two only (mount rule 4), and the search is upward from the
+    standard value so a size that already fits is left EXACTLY as DOS would
+    have formatted it.
+    """
+    spt, heads, tot, spc, fatsz, root_ent, media = GEOMETRY[size]
+    while spc <= 64:
+        lay = Layout(spc, 1, 2, root_ent, tot, fatsz)
+        need = ((lay.nclus + 2) * 3 + 1) // 2       # FAT12: 1.5 bytes an entry
+        need = (need + SECTOR - 1) // SECTOR
+        if need <= cap:
+            # re-derive with the FAT it actually needs, then check it still
+            # fits: shrinking the FAT moves data_lba down and can only ADD
+            # clusters, so one more pass settles it.
+            lay = Layout(spc, 1, 2, root_ent, tot, max(need, 1))
+            n2 = (((lay.nclus + 2) * 3 + 1) // 2 + SECTOR - 1) // SECTOR
+            if n2 <= cap:
+                return spc, max(n2, 1)
+        spc *= 2
+    fail(f"no cluster size brings a {size}KB volume under a {cap}-sector FAT")
+
+
 GEOMETRY = {
     1440: (18, 2, 2880, 1, 9, 224, 0xF0),
     1200: (15, 2, 2400, 1, 7, 224, 0xF9),
@@ -557,6 +592,8 @@ def build(args) -> int:
         spt, heads, tot, media = HDD_SPT, HDD_HEADS, HDD_PSECS, 0xF8
     else:
         spt, heads, tot, spc, fatsz, root_ent, media = GEOMETRY[args.size]
+        if args.fatcap:
+            spc, fatsz = fatcap(args.size, args.fatcap)
 
     # --- the system disk (SPEC.md 19.3) --------------------------------------
     # The kernel is an ordinary FILE, KERNEL.SYS, allocated FIRST and
@@ -1244,6 +1281,11 @@ def main() -> int:
         description="Build or verify a FAT data floppy of .o88 packages and data files.")
     ap.add_argument("-o", "--output", metavar="OUT.img",
                     help="floppy image to write")
+    ap.add_argument("--fatcap", type=int, default=0, metavar="N",
+                    help="format with a FAT of at most N sectors, raising "
+                         "sectors-per-cluster to get there (SPEC.md 51.0): "
+                         "what lets kern_small, whose DSK_FAT_SECS is 2, "
+                         "still read a 720KB or 1.44MB disk")
     ap.add_argument("--size", type=int, choices=(1440, 1200, 720, 360),
                     help="disk size in KB: 1440 (18 spt), 1200 (15 spt, "
                          "5.25\" HD), 720 or 360 (9 spt; 80 and 40 "

@@ -152,10 +152,94 @@ What is actually still on the table:
 | # | option | `.text` | `.cold` | `.bss` | total | what it costs |
 |---|---|---:|---:|---:|---:|---|
 | A1 | **Sound layer** §34 (`snd.inc`) | 1,035 | — | 287 | **1,322** | no PC-speaker tone or PCM at all. 256 of the `.bss` is `snd_xlat` |
-| A2 | **Clock ladder** §37 rungs 1–3 (`clock.inc`) | ~450 | — | ~60 | **~510** | a 5150 has no RTC — MC146818 arrived with the AT — so rungs 1–3 are for machines this build is not for. Keep rung 0, the BIOS tick |
+| A2 | **Clock ladder** §37 rungs 1–3 (`clock.inc`) | ~450 | — | ~60 | **~510** | a 5150 has no RTC — MC146818 arrived with the AT — so rungs 1–3 are for machines this build is not for. Keep rung 0, the BIOS tick. **BUILT, all four rungs, and worth far more than this row — §2.3** |
 | A3 | **Loadable drivers + `SYSTEM.CFG`** §51 (`driver.inc`) | 453 | 1,794 | 303 | **2,550** | no `.DRV` of any kind can be loaded. `mod.inc`'s modules (Control Panel, Format, Clone) are a different mechanism and survive |
 | A4 | **Volume table 8 → 4** (`DVOL_MAX`) | 64 | — | 256 | **320** | four mounted volumes instead of eight; `dsk_bpbv` is 512 bytes of `.bss` |
 | | **subtotal** | | | | **~4,700** | |
+
+### 2.1 A3 and A4 ARE BUILT, A2 IS REFUSED, A1 IS DEFERRED
+
+**A3 is SPEC.md §51.0 and A4 is in `disk.inc`.** Measured tree-to-tree across
+both:
+
+```
+             before    after    delta
+.text        39,731   39,272     -459
+.bss          5,417    4,848     -569
+.cold        27,215   25,602   -1,613     } -2,641 IN THE LADDER
+.ovl          1,226      423     -803     } -991 boot overlay
+.ovlw         4,516    4,328     -188     }
+                                -------
+                                 -3,632   ->  HEAP -2,560 = 2.5 KB
+
+KERN_SIZE   88,064 -> 85,504          heap floor 87.5 KB -> 85.0 KB
+free heap on a 128KB machine, MEASURED on one:   40.5 KB -> 43.0 KB
+kern_big                                          byte-identical
+```
+
+### 2.2 The finding this row exists for: SECTIONS ARE NOT HEAP
+
+**3,632 bytes of sections bought 2,560 bytes of heap, and the difference is
+not rounding.** 991 of them are `.ovl`/`.ovlw` — boot-overlay code loaded into
+memory the machine reuses once it is up — so they move `KERN_SIZE` and the
+boot-time minimum and move `HEAP_SEG` by *nothing*. Only 81 bytes went to the
+512-byte rung rounding.
+
+**That makes this document's whole method optimistic**, and it is worth saying
+plainly before anything else here is decided off it. §2–§5 price features by
+adding up `.text`, `.cold` and `.bss` off a symbol map. That is the right
+answer for **footprint**, and it is the wrong answer for **free heap** whenever
+any of the bytes are in an overlay: the ladder is `.text+.bss`, then `.cold`,
+and nothing else in the sum reaches it. A row should be read as an upper
+bound on heap, not an estimate of it.
+
+The resident half of the estimate was **good**: A3's `.text`+`.bss`+`.cold`
+was priced at 2,550 and came in at **2,277**, 12% *high*. What the row missed
+was the 991 bytes of overlay — and those are exactly the bytes that buy
+nothing.
+
+**And there is a reporting trap behind it worth not repeating.** `kernsize`'s
+`sum` is a delta against the **blessed baseline**, not against the tree you
+started from. The baseline had not been blessed since before W1, so a reading
+taken after A3 reported `-6,529` — W1 and W2 included — and it reads exactly
+like an increment. Bless after a wave lands, and measure a change
+tree-to-tree when the number is going in a document.
+
+**A2 is refused, on a measurement and on a judgement.**
+
+The measurement first, because it settles the row on its own. `clock.inc`
+already has the mechanism this row describes — `CLK_FORCE`, the `RTC=` knob —
+and forcing a single rung is worth **44 to 51 bytes**, not ~510:
+
+```
+full ladder      .ovlw 4,328        (-DCLK_FORCE=n, kern_small, .text/.bss identical in all five)
+rung 1 only      .ovlw 4,277   -51
+rung 2 only      .ovlw 4,277   -51
+rung 3 only      .ovlw 4,284   -44
+rung 4 only      .ovlw 4,279   -49
+```
+
+`CLK_TRY` appears five times and all five are inside `clk_probe`: it gates the
+**probes**, in the boot overlay. The per-rung **read and write** bodies are in
+`.text` and are selected at run time off `[clk_tier]`, so they are not gated
+by anything and this row's `~450 .text` has no mechanism behind it. Getting
+that 450 would mean building a second gate over ~20 bodies.
+
+And it should not be built, because the row picks the wrong rungs. **Rungs 2
+and 3 are XT clock cards** — a National MM58167 or a Ricoh RP5C01 on a card at
+2C0h — which is precisely the add-on the machine this build exists for would
+have. Rung 1 is the MC146818, and *that* is the AT-only part. So the row's own
+reasoning ("a 5150 has no RTC") argues for dropping rung 1 and keeping 2 and
+3, which is the opposite of what it proposes and is worth ~51 bytes.
+
+**A1 is deferred at the owner's instruction** — *"keep pc speaker for this
+round - we may cut it later, but for now."* Worth recording for whoever picks
+it up: A3 has already made **part of it dead**. The FM and Sound Blaster tiers
+are reached through `SOUND.DRV`, so with no driver loadable the `SND_RT_FM`
+and `SND_RT_SB` routes, `snd_str_busy` and the stream API can never be
+selected on `kern_small`. What the speaker actually needs is the tone path and
+`snd_xlat`'s 256 bytes of PCM rescale — so A1 splits, and the half that is
+already unreachable is the cheaper half to take.
 
 **A3 is the one to think hardest about.** It is the largest item here and it is
 not a device — it is the ability to load one. A `kern_small` machine with no
@@ -247,7 +331,7 @@ window that lists and launches and does nothing else.
 | D1 | **Task partition 13 slots → 6** (`SCH_PARTITION`, `MAX_TASKS`) | **~1,590** | `sch_stacks` is 2,816 of `.lowbss`. Thirteen slices is a 640KB machine's number; 70KB of heap holds about three packages |
 | D2 | **FAT window 9 → 3 sectors** (`DSK_FAT_SECS`) | **3,072** | refuses any volume above 720KB. **Capped — §7** |
 | D3 | **`disk_dir` 32 → 16 entries** (`DSK_NENT`) | **384** | sixteen files listed per floppy. **Capped — §7** |
-| D4 | **`STK0_SIZE` 1,024 → 512** | **512** | 2x the measured 246-byte high-water mark instead of 4x. Task 0's is the one stack `sch_switch`'s canary skips, so this is the slice to be most careful with |
+| D4 | **`STK0_SIZE` 1,024 → 512** | **512** | **BUILT, ON BOTH KERNELS.** `tests/stk0water.py` is the fill probe SPEC.md 15.1 asks for, automated, and it re-reads **238** against that section's 246. Two things this row said were wrong: task 0's canary is NOT skipped (SPEC.md 8.7 put slot 0 in `sch_stkbase` and `sch_switch` checks it every switch), and the margin standard is not 4x - docs/STACK-SLOTS-PLAN.md 12 accepts **1.26x** for Frotz, because SPEC.md 9.10 and 8.5 moved both mouse ISRs and the ROM tick chain onto private stacks and a slice's depth is now the program's own chain. 512 is 2.08x |
 | D5 | **`MAX_WIN` 12 → 6** | **~264** | **mirrored in `apps/os88api.inc`** — an ABI change, gated by `tests/unit/t_mirror.py` |
 | D6 | **`INST_MAX` 12 → 6** | **~270** | same mirror, same gate |
 | D7 | **`MEM_MAX` 32 → 20** | **120** | twenty heap claims |
@@ -412,6 +496,12 @@ alternatives. §8.1 gives both.
 on the rows that take B3, D2 and D3 together — so a tier is not the sum of the
 tiers above it:
 
+> **The first two rows of this table are HISTORY now.** W0-W2 of
+> docs/KERN-SMALL-MODULE-SPLIT.md and group A's A3+A4 are all built, and the
+> machine measures **43.0 KB free on a machine with 128KB in it**
+> (`tests/small128.py`, `KERN_SIZE` 85,504). Read the rows below as *what is
+> still on the table*, and §2.1 for what the A row actually cost.
+
 | take | cut | free heap | what still works |
 |---|---:|---:|---|
 | today | — | **32.5 KB** | one mid-size program; SHEET cannot load |
@@ -430,6 +520,59 @@ deleted — so the two middle rows keep file *writing* and associations and pay
 different one from the trade this table gave before
 docs/KERN-SMALL-MODULE-SPLIT.md was written.
 
+### 2.3 A2 was refused and then TAKEN, for a completely different reason
+
+§2.1 refused it on a measurement that stands: `CLK_FORCE` already exists, and
+forcing one rung is worth **44–51 bytes**, not ~510. That measurement was of
+the wrong thing.
+
+**The owner settled the hardware question, and it settles all four rungs:**
+
+> *"if they have a sixpakplus then they have more than 128kb ram. The
+> sixpakplus is a ram expansion card. And the first thing that had the toshiba
+> clock shipped with 256kb ram so its not really valid either."*
+
+That is right, and it is stronger than this document's reasoning was. Rung 1
+is AT-only; rung 4 is `int 1Ah AH=02h`, which §37.90's own opening says an XT
+BIOS does not implement; and rungs 2 and 3 — the add-on cards that looked like
+*exactly* the XT upgrade path — are on boards that came with the RAM that
+takes the machine off this build's floor. **No rung is reachable on a 128KB
+machine**, so the ladder is not unlikely there, it is dead code. SPEC.md
+§37.0.1 is the contract.
+
+**And what it is worth is not its own bytes.** `.ovlw` went **4,328 → 2,789**,
+and `.ovlw` is what §7 caps three of the most attractive data cuts against:
+
+```
+                              .ovlw   rounded   region at 2 FAT sectors
+before gating the ladder      4,328     4,608   4,352   -> D2 REFUSED by 256
+after                         2,789     3,072   4,352   -> D2 fits, 1,280 spare
+```
+
+So the clock unlocked **D2**, which is 3,584 bytes of `FAT_SEG` — seven times
+what A2's own row claimed — and the measurement in §2.1 could not have seen
+that because it was measuring footprint and this is a **placement**
+constraint. Worth keeping as a caution against the next row that looks small:
+in a kernel with overlays, a byte's value depends on where it is, not only on
+how big it is.
+
+### 2.4 The batch, measured
+
+A3 + A4 + A1's dead half + A2 + D1 + D2 + D4 + D7, all built:
+
+```
+                        KERN_SIZE   heap floor   free heap on 128KB
+before this work           96,256      95.5 KB         32.5 KB
+after W0-W2 (modules)      88,064      87.5 KB         40.5 KB
++ A3, A4                   85,504      85.0 KB         43.0 KB
++ A1 dead half             84,992      84.5 KB         43.5 KB
++ A2, D1, D4, D7           82,432      82.0 KB         46.0 KB
++ D2                       78,848      78.5 KB       * 49.5 KB *
+```
+
+**49.5 KB, measured on a machine with 128KB in it** (`tests/small128.py`), and
+`kern_big` moved by 512 bytes — D4's, the only item here it shares.
+
 ### 8.2 If 70KB is firm
 
 The last ~4KB has to come from somewhere structural, and there are only three
@@ -439,12 +582,45 @@ left (`memory.inc` 2,388 and `disk.inc` 5,771 — the second of which is the
 mount path itself and cannot be on the disk it mounts). **None of them is
 cheap, and the first is the only one that is not actively unwise.**
 
+**THE BUILT POSITION, for anything decided off the rows above.** W0 (assoc
+gated), W1 (`FILECP.DRV`), W2 (`FDLG.DRV`), A3 (no loadable drivers) and A4
+(four volumes) are in, and they reach **43.0 KB measured on a 128KB machine**
+— past the `A + D` row and most of the way to `A + B + D`. What remains
+unbuilt in the list is group B (display niceties, ~8,340), group D (sizing
+constants, ~6,210, capped by §7), C5–C8 (~3,479), A1's residue (the sound
+layer minus the speaker) and A2 (refused, §2.1). The gap to the 70 KB ask is
+**27,648 bytes** and every one of them is now a feature.
+
 **And there is a fourth candidate that costs no feature at all: audit the
 pinned boot claims.** docs/KERN-SMALL-MODULE-SPLIT.md §9.1 found one by
 accident — the association cache holds 3,072 bytes of a 128KB machine's heap
-before the user has done anything, and no assembler can see it. Nothing has
-ever pointed `tests/kernresident.py`'s `mem_tab` walk at `kern_small`. That is
-the cheapest unexamined lever here.
+before the user has done anything, and no assembler can see it. Nothing had
+ever pointed a `mem_tab` walk at `kern_small`.
+
+**THAT AUDIT HAS NOW BEEN DONE, on a machine with 128KB in it, and it is
+EMPTY — so this lever is spent.** `tests/small128.py` boots the floor machine
+(`os8088_5150_cga_128k`, the only profile in this tree that is not 640KB) and
+walks the table at a bare desktop:
+
+```
+int 12h   131,072 bytes (128.0 KB)
+HEAP_SEG   89,600 bytes  (87.5 KB)  ->  41,472 free = 40.5 KB
+  16E0  1,152 para = 18,432 bytes  owner FE02  purgeable
+PINNED on a bare desktop: 0 bytes
+USABLE for a program    : 41,472 bytes = 40.5 KB
+```
+
+Three things follow. **The 40.5 KB headline is honest** — there is no second
+`ASC_KB` hiding behind it, so nothing here can be recovered without giving up
+a feature. **The one claim standing is purgeable** (`0xFE` = rank *high*, the
+directory read-ahead), 18KB here against 64KB on a 640KB machine, and it goes
+back to whoever asks. And **`MIN_RAM_KB` has stopped being arithmetic**: guard
+5 compared two constants at assembly time and no machine in this tree had ever
+been asked to run the result. It runs, and it reaches a desktop with four
+drive zones on it.
+
+So the remaining gap to the ask is the whole gap: **30,208 bytes**, and every
+byte of it is a feature in §2–§5.
 
 Worth putting back to the requester: **65KB runs SHEET with 13KB spare**, and
 SHEET is the largest package in the tree. The difference between 65 and 70 may

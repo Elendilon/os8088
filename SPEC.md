@@ -280,6 +280,21 @@ handlers run on whichever stack they interrupt). The reservations above are
 (§15.1) only proves `STK0_SIZE` is big enough to be a stack at all, not that
 a task fits its own slice.
 
+**`tests/stk0water.py` IS that probe, automated**, and `STK0_SIZE` is **768**
+since it was first run — 3.1× a re-measured 238, which is 15.1's 246 under a
+lighter drive. It fills everything below task 0's *saved* SP with 0xCC (the
+saved one, out of `sch_tasks[0]`: the live SP is a worker's, because §8.1.2
+has `ui_task` block and an idle machine is 96.9% halted), drives the machine,
+and reads the deepest byte back.
+
+**And it corrects this section.** Task 0's stack is **not** "the one
+`sch_switch`'s canary skips" — it has not been since §8.7's `sch_stkbase`
+put `STK0_BOT` at slot 0 of the table, `sched_init` seeded it with
+`SCH_MAGIC`, and the branch that used to skip it went away. It is compared on
+**every** switch, on the shipping kernel, and an overrun reaches `sch_stkdie`.
+The probe found that by dying the instant its fill reached the magic word,
+which is the strongest evidence a claim like this can get.
+
 **`STK0_SIZE` is a constant, and that is load-bearing.** It used to be
 "whatever is left between the top of `.lowbss` and the kernel segment", so
 task 0's stack silently absorbed every byte saved anywhere below it and two
@@ -8760,7 +8775,8 @@ arithmetic branched around it. The table simply holds `STK0_BOT` there.
 
 That branch going is the small part. The larger part is that **`STK0_BOT`'s
 `SCH_MAGIC` used to be seeded only under `KFZTRACE`** — so on every shipping
-kernel the UI task's 1,024-byte stack had *no canary at all*, and its stack grows
+kernel the UI task's stack had *no canary at all* - 1,024 bytes of it, as it
+was then - and its stack grows
 down onto the top of `.lowbss`: the other tasks' slices, the glyph table, the
 disk buffers. An overrun there was silent, which is precisely what the
 `KFZTRACE`-only seed's own comment complained about while being unable to do
@@ -34264,6 +34280,50 @@ it.
 media — and docs/FIELD-MACHINES.md's standing rule for the `Elendilon/os8088`
 fork sends all three.
 
+### 24.5 THE SMALL DISKS — if it can never run there, it does not ship there
+
+`make small` and `make smallapps` build the `kern_small` product: a system
+disk and an apps disk for the 128KB floor machine. Their contents are **not**
+the shipped disks' contents, and the rule that decides the difference is one
+sentence — *if it can never run there, it does not go on the disk.*
+
+**It is a REQUIREMENT test, never a size one, and must not become one.** A
+package that merely wants a lot of heap still ships: it refuses itself **on
+the machine, in its own words**, which is a thing the user can read — §42.6's
+`Not enough memory. Close this window.` is the worked example, and §42.22
+turned that refusal into the whole point of Paint's small build. A package
+that cannot reach its **driver** can say nothing at all; it is a name in a
+list that does nothing when you double-click it.
+
+Seven packages fail that test:
+
+| omitted | requirement `kern_small` cannot meet |
+|---|---|
+| `BROWSER`, `FTPD`, `TELNET` | `ETHER.DRV`. The NIC is not in `$(SMALLDRIVERS)`, and §72's whole surface is driver verbs, so there is no socket to refuse on |
+| `MODPLUG`, `RECORDER`, `TRACKER` | `SOUND.DRV`, which a 128–256KB machine has nothing to spare for — the judgement that already took `RAMDISK.DRV` and `RAMPAGE.DRV` out of the small driver set |
+| `TANK` | the fullscreen surface (§42.7, §81). It opens and draws its splash, and there is no *game* behind it without fsx |
+
+…and two data files with them, for the same reason one step along:
+`DEMO.HTM` is openable by nothing else on the machine (§71), and
+`BEVERLY.MOD` is the two removed players' module (§24.4).
+
+**90,510 bytes — a quarter of a 360KB floppy — for seven programs that could
+not have started.** The apps disk goes 341 → 244 of 354 clusters.
+
+#### 24.5.1 The small system disk carries core packages too
+
+§24.3's rule is not the shipped disk's alone: **the core packages ride the
+system disk as a second copy so that a single-floppy machine has something to
+run**, and a 128KB machine is the likeliest single-floppy machine there is.
+`make small` did not do this for its first several editions — the small system
+disk had a `SYSTEM/` folder and nothing else executable.
+
+It does now, through the same two filters: the omitted packages go, and a
+package with a small build ships as the **small** build. So `CORE_TOOLS`'
+five become **`CALC.O88`, `NOTEPAD.O88`, `PAINT.O88`** (Browser and Telnet
+omitted) beside `GAMES/MINES.O88`, and the disk sits at 224 of 354 clusters
+with 130KB free.
+
 ## 25. icons.inc — icon format, draw routine, built-in library
 
 1-bit icons with a mask, classic Mac style, drawn exactly like the mouse
@@ -41350,6 +41410,57 @@ what stamps, so the kernel is what banks DX.
 With no driver loaded there is no stream to collide with, and `drv_svc_call`
 refuses — which is the same answer, arrived at for free.
 
+### 34.0 The CARD TIERS are not on `kern_small` — the SPEAKER is
+
+**The PC speaker is on both builds and nothing here changes it.** Tones,
+beeps, `OSAPI_SND_TONE`, `OSAPI_SND_PLAY` and the exclusive PCM clip tier
+with its 256-byte rescale table all work exactly as this section describes.
+
+What `kern_small` does not have is the **card** half, and it does not have it
+because §51.0 already took the mechanism that reaches one. Every route to an
+OPL2 or a Sound Blaster in this file is a `[drv_svc + DSV_*]` read — that is
+the published service table, and on a build that can load no driver it is
+zero for the life of the machine. So `%ifdef OS88_SNDCARD` (defined only on a
+`KERN_BIG` assembly) removes code that was already unreachable:
+
+```
+.text -190   .bss -11   = -201, and it crossed a rung
+KERN_SIZE 85,504 -> 84,992      free heap on a 128KB machine 43.0 -> 43.5 KB
+```
+
+**A separate symbol from `OS88_DRIVERS`, on purpose.** The two are different
+claims — one says "no driver can be loaded", the other "there is no card to
+send a tone to" — and a fork wanting a driverless kernel with a *built-in*
+OPL2 would turn exactly one of them on.
+
+What goes: `snd_rt_card`'s test (the answer is always the speaker), the
+driver branch of `snd_tone_out` and of `snd_tick` — that one is on a path
+**inside IRQ0**, so it is cycles saved 18.2 times a second as well as four
+bytes — the FM and stream API bodies, `snd_str_busy`'s interlock, and
+`snd_patch`'s 11 staged bytes.
+
+**Both API slots stay and refuse in their own vocabulary.** A slot's offset
+is the ABI (§20.4), so a gated feature refuses rather than moving the table
+under every package built against it. `OSAPI_SND_FM` answers CF alone;
+`OSAPI_SND_STREAM` answers **AX = 4, "no streaming sink"**, and that
+distinction is load-bearing — `AX = 0` is how every stream verb says *OK*,
+and a driverless machine that answered 0 once handed Recorder a phantom
+grant whose buffer did not exist. `snd_str_busy` answers a constant "not
+busy", which is what no streaming sink means.
+
+**`osapi_snd_caps` keeps its shape and loses its variables**: `SND_CAP_TONE |
+SND_CAP_PCM_EXCL`, BL = 0 (a tone goes to the speaker), DX = 1 (the speaker
+is present, no driver is). A package reads the same three registers and
+tests them the same way.
+
+**What is left behind, deliberately.** `drv_svc` survives as 36 bytes of
+zeroed `.text` (§51.0.2) because `ctrl.inc`'s Sound page still reads it to
+decide which tier rows are selectable. That page is in `CTRL.DRV`, a module
+on both builds, so gating it would move no resident byte — and the result is
+right as it stands: on `kern_small` the page offers the speaker and shows FM
+and Sound Blaster **greyed**, which is §47's *grey a fact, never a guess*
+working exactly as intended. The machine really has no card.
+
 ### 34.1 Port ownership
 
 - **PIT channel 2 + port 61h — one owner, one mode at a time.**
@@ -42137,6 +42248,43 @@ a day-of-week (`clk_dow` exists only because two of the chips have a
 weekday counter that must be written), and no re-reading of the RTC after
 boot — the PIT is the clock from then on, which is exactly how DOS behaves
 on the same hardware.
+
+### 37.0.1 The RTC LADDER is not on `kern_small` — tier 0 is what it has
+
+**All four rungs of §37.90 are chips a 128KB machine cannot have**, and that
+is a fact about the hardware rather than a judgement about the bytes:
+
+| rung | chip | why not here |
+|---|---|---|
+| 1 | MC146818 / DS12885 | **arrived with the AT.** Not in an XT at all |
+| 2 | National MM58167 | an add-on card — and the card everyone means is the **AST SixPakPlus, which is a RAM EXPANSION**. A machine with one in it does not have 128KB any more |
+| 3 | Ricoh RP5C01 / TC8521 | the first machine that shipped with one **shipped with 256KB** |
+| 4 | `int 1Ah` AH=02h | §37.90's own opening: *"An XT BIOS implements AH=00h/01h and nothing else"* |
+
+So the ladder is not merely unlikely on this build, it is **unreachable**, and
+`%ifdef OS88_RTC` (defined only on a `KERN_BIG` assembly) takes all four rungs
+out: `CLK_TRY(n)` becomes 0 so `clk_probe` walks nothing, the four rung bodies
+leave the assembly, the reference read leaves with them, and `clockw.inc` —
+§37.94's write half, which ships inside `CTRL.DRV` — is not included either,
+because there is no chip to write to.
+
+**What a `kern_small` machine has is tier 0**, and §37.90's table already
+describes it: `Hardware clock: none`. The PIT tick still drives everything —
+the menu-bar clock, `clk_tick`, the snapshot, the formatter, every timer — and
+the Date/Time page still edits the time. What it loses is **persistence**: the
+setting is the session's, and a reboot starts from the built-in default, the
+way a PC with no clock card always did.
+
+`cp_flush_close_x` clears `[clk_dirty]` rather than acting on it, so the panel
+still closes cleanly and there is no failure path to explain to the user.
+
+### 37.0.2 …and `snd.inc`'s CARD tiers go with §51.0, not with this
+
+Stated here because the two look like one decision and are not: the FM and
+Sound Blaster tiers are gated by `OS88_SNDCARD` (§34.0) because they are
+reached through a **driver**, and §51.0 removed the mechanism. The **PC
+speaker is untouched on both builds.** This section is about a clock chip; that
+one is about a sound chip; and the PIT drives the tone tier either way.
 
 ### 37.90 The RTC ladder
 
@@ -48839,6 +48987,97 @@ it opens a 124,918-byte one (620×400, cropped to the screen's 594×390) and
 every one of the 390 decoded rows matches the source pixel for pixel, 190 of
 them read from source bytes past the 64KB horizon.
 
+#### 42.6.1 OPEN: the canvas does not degrade, and what a canvas actually costs
+
+**Reported from the field and reproduced here. Not fixed — this section is
+the measurement and two failed attempts, so the next go is not started from
+nothing.**
+
+##### 42.6.1.1 What Paint needs, measured
+
+`kern_small`'s heap is `int 12h − 94.0 KB`, and a 5150's RAM comes in 64 KB
+rows, so the only real machines are 128 / 192 / 256 KB.
+
+| claim | small build |
+|---|---|
+| package (image + `.bss`) | 23 KB |
+| scratch — the flood-fill stack, `PT_SC_KB` | 12 KB |
+| canvas, CGA 448×110 | 25 KB |
+| canvas, Hercules 448×258 | 57 KB |
+
+| machine | heap | measured |
+|---|---|---|
+| 128 KB | 34.0 KB | **no canvas at any size** — package + scratch is 35 KB before one is asked for |
+| 192 KB | 98.0 KB | CGA: full 448×110 canvas. **Hercules: `Not enough memory`** |
+| 256 KB | 162 KB | Hercules: 448×258, claiming 57 + 12 + 23 |
+
+**The 12 KB scratch is the flood-fill stack and nothing else** — eight bytes an
+entry, two call sites. It is not the GIF codec's: that is `PT_LZW_KB` = 16 KB
+in a claim of its own (`pt_gseg`), taken per file, and `PTF_GIF` compiles it
+out of the small build entirely (§42.22.1).
+
+##### 42.6.1.2 The mechanism
+
+`pt_geom` asks `pt_growmax` — `OSAPI_MEM_AVAIL`, the largest free run — what a
+canvas could be, `pt_fit` shrinks the request to that, and only then does
+`pt_alloc` claim: **the scratch first, out of the same run**, and the canvas
+second. So the canvas is sized against a run 12 KB larger than the one it will
+be asked for from, and `pt_alloc`'s `jc .fail` has no retry — one refusal and
+`pt_geom` goes straight to `PT_M_NOMEM`.
+
+Traced at the moment of the launch on a 192 KB Hercules machine:
+
+```
+free runs before launching Paint: [23, 19] KB
+```
+
+A 45 KB claim is held elsewhere, so Paint's own 23 KB package claim takes the
+larger run **whole**, and what is left for the scratch and the canvas together
+is 19 KB.
+
+##### 42.6.1.3 Two attempts that did not work, and why they are worth recording
+
+**Predicting the scratch is not enough.** Subtracting `PT_SC_KB` from
+`pt_growmax`'s answer was the first try. It does not work because the scratch
+is not taken off either END of the run — measured, it lands in the middle, so
+a 56 KB run less 12 KB of scratch is not a 44 KB run, it is a 37 and a 7. No
+arithmetic done before the claim can know where the allocator will put it.
+
+**Claiming the scratch first, plus a shrink-and-retry, is the right shape and
+still failed.** `pt_alloc_scratch` split out and called before `pt_growmax`,
+and the canvas refusal re-running `pt_growmax`/`pt_fit` and asking again until
+`[pt_fitcut]` says there is nothing left to give. It opens correctly on
+Hercules with 640 KB (448×258) and does not regress CGA, but on the 192 KB
+Hercules machine Paint stops opening a window **at all** rather than showing
+the notice — so `pt_entry` is failing somewhere after `pt_geom`, and that was
+not run down. Reverted rather than shipped.
+
+**One trap it cost, and the answer is useful on its own**: the retry re-enters
+`pt_fit`, which takes the canvas in `AX`/`DX` — and `pt_kb_of` ANSWERS in
+`AX` while `OSAPI_MEM_CLAIM` answers in `DX`. A retry that does not bank the
+pair re-enters `pt_fit` with a KB count for a width. That is fixed in the
+reverted patch and will be needed again.
+
+**And the size is NOT the cause**, which was the first suspicion: the attempt
+grew the package 31 bytes, and a pre-fix build padded by exactly 31 bytes
+loads and shows the notice normally on the same machine.
+
+##### 42.6.1.4 What a 1bpp canvas would and would not buy
+
+The canvas is four bits a pixel on every adapter — `pt_paras` is
+`ceil(w/2)` rounded up to 4, and §42.13's four-plane form is the same size at
+every width. On a 1bpp adapter that is four bits carrying one.
+
+| | 4bpp | 1bpp |
+|---|---|---|
+| Hercules 448×258 | 57 KB | **15 KB** |
+| CGA 448×110 | 25 KB | **7 KB** |
+
+It is a large win for Hercules and it does **not** reach the 128 KB machine:
+package 23 + scratch 12 is 35 KB against a 34 KB heap before any canvas at
+all. 128 KB needs roughly 8 KB more off the resident claim, or a smaller
+flood-fill stack, on top of the 1bpp canvas.
+
 ### 42.7 Full Screen — the §53 bracket, and why NOT the §11.2 surface
 
 View ▸ Full Screen, or Ctrl+F. `pt_cmd_fs` calls `OSAPI_FSX_RUN` and nothing
@@ -52135,6 +52374,323 @@ never a size decision (§27.16.2's rule).
 **The full build is byte-identical with the gates in**, proven by assembling a
 mechanically de-gated copy of the source and comparing: every `%ifdef PTF_*`
 is a no-op when it is defined. `tests/unit/t_appsmall.py` holds it there.
+
+#### 42.22.1 Pass 2 — the two features the arm could never fund
+
+`PTF_UNDO` and `PTF_CLIP` are a **different argument** from the three flags
+above. Those are features a small machine merely does without. These two are
+features it can never **fund**, and the machinery for them was being carried
+anyway.
+
+| flag | off in `APP_SMALL` |
+|---|---|
+| `PTF_UNDO` | undo/redo (§42.8.6), its claim, `pt_umask`, and the Ctrl+Z door |
+| `PTF_CLIP` | Cut, Copy, Paste, the clipboard claim, **the selection tool**, and Edit > Clear |
+
+**The heap side already tiered, and that is the point.** `pt_alloc_undo` and
+`pt_alloc_clip` each refuse on their own (§42.6), so on the floor machine the
+undo image and the clipboard were never claimed. What was still being paid for
+was **the code that asks**: routines, their call sites, `PT_CH_MAX` bytes of
+`pt_umask`, and four menu items whose only job was to explain a refusal.
+
+Measured, one instance:
+
+| | image | .bss | claim |
+|---|---|---|---|
+| full | 25,894 | 5,458 | 31,352 |
+| small, pass 1 | 22,565 | 3,900 | 26,465 |
+| **small, pass 2** | **19,613** | **3,521** | **23,134** |
+
+**−3,331 bytes** on top of pass 1; **8,218 off the full build, 26.2%.** And on
+a machine that *does* fund them it frees the claims as well — the undo image
+is a second copy of the canvas (**61.25 KB** at the 448×280 default) and the
+clipboard floor is 4 KB, so **65.25 KB of heap** that a small Paint now never
+asks for.
+
+**It buys no bigger canvas, and that is worth stating.** `pt_fit` sizes the
+canvas against `pt_growp` — the largest free run — with **no reservation for
+undo**; the canvas is claimed first and the undo image asks for the same size
+afterwards. So dropping undo does not let the canvas grow. What it frees is
+memory for *other programs*, and resident bytes for this one, which is the
+number that decides whether Paint loads at all.
+
+##### 42.22.1.1 Edit > Clear is a DEPENDENCY, not a decision
+
+Clear looks like a separate feature worth keeping — it is 22 bytes of code and
+6 of string. It is not a decision: **`pt_sel_clear` whites out the SELECTION,
+not the canvas.** `pt_sel_rect` answers CF = 1 when nothing is selected and the
+routine then does nothing at all. With the marquee gone Clear is an inert menu
+item, so it goes with `PTF_CLIP` — and Undo, Cut, Copy, Paste and Clear being
+all of the Edit menu, **the menu itself goes**. `File > New` is what blanks a
+canvas on either build.
+
+That is also why the greying goes. §47 rule 1 says grey a **fact**; a
+`(NoRam)` item that can never become available on this build is not a fact the
+user can act on, it is a menu item that should not be there.
+
+##### 42.22.1.2 Two numbers that are INDICES, counted rather than written
+
+Removing a menu and a tool shifts every one after it, and both are addressed
+by index: `pt_oncmd` is handed a `(menu, item)` pair, and `[pt_tool]` selects
+into `pt_ic_tab`. Written out, that is two lists to keep in step per build
+configuration, and **the failure is silent** — Draw's items arrive at the View
+arm, or the palette draws the wrong icon over the right tool.
+
+So `PT_MENU_*`, `PT_ME_*` and `PT_T_*` are all `%assign` counters now, and
+`PT_NTOOL` and `PT_ME_N` fall out of the same lists the tables are built from.
+One list per thing, and a flag that compiles a member out renumbers everything
+below it automatically.
+
+##### 42.22.1.3 `pt_gate` had to go WHOLE, not in halves
+
+`pt_gate` answers "is this feature funded on this machine?" and its callers
+are the three clipboard commands and GIF save. Gating its two arms
+individually left a routine with nothing to test that fell straight through
+to `call pt_msg_show` **with `SI` holding whatever the caller had** — a
+message window drawn from a garbage pointer, in code with no callers, which
+is the worst combination: it assembles, it ships, and nothing exercises it
+until something does.
+
+So it is `PTF_GATE`, derived from `PTF_CLIP` or `PTF_GIF`, and the two
+`No RAM for…` strings go with it. **A routine whose every caller is gated is
+not a routine to gate in pieces.**
+
+##### 42.22.1.4 Four names that are NOT what their prefix says
+
+The `pt_u*` prefix is undo's, except where it is not, and each of these was
+one edit away from a silent defect:
+
+- **`pt_unstage`** hands the *staging buffer* back; **`pt_unpin`** makes the
+  canvas movable again. Both are "un-", not "undo".
+- **`pt_uoff`** says a deferred stroke's **replay** is running, which
+  `pt_span` reads (§42.8.9.2) whether or not there is an undo image for it to
+  skip marking. It stays in both builds.
+- **`pt_urowset`** *is* undo's — and it sits directly under `pt_rowset`,
+  sharing one comment header, so a gate placed by that header takes the row
+  addresser every loop in the package depends on with it.
+- **`pt_iclear`** clears the **inked table** (§42.18), not Edit > Clear. The
+  `pt_i_*` menu strings and `pt_ic_*` icon bitmaps share that prefix, so an
+  unused-name sweep lists all three together and only the first two are
+  actually dead.
+
+##### 42.22.1.5 A `.bss` sweep found 62 bytes with no reference — and it is NOT all free
+
+Walking the preprocessed **shipped** build for declared `.bss` names that
+nothing reads finds ten, 62 bytes. **Three of them are load-bearing**:
+`pt_fszh`, `pt_boffh` and `pt_fsize_hi` are documented high halves, reached as
+`[pt_fsz+2]` and friends, so the declaration is what reserves the space and
+deleting it corrupts the layout of everything after it.
+
+Of the rest, `pt_ubst` (16 bytes) has no reference by any spelling in either
+build. It is inside `PTF_UNDO` now, so the small arm is already rid of it;
+the shipped build still carries it, and whoever removes it should check the
+other four the same way rather than trusting this list.
+
+### 43.11 A hollow pip is DRAWN from the solid one, not stored beside it
+
+On a 1bpp adapter the two red suits are drawn **hollow** — index 12 reduces to
+white and a solid red pip would vanish into the card face, so the outline is
+the only thing carrying red against black (§39.4). That used to be two more
+tables, `sol_p8h` and `sol_p16h`, 96 bytes of hand-drawn hollow hearts and
+diamonds sitting beside the solid ones.
+
+**Every row of both was exactly the morphological outline of the solid mask
+next to it:**
+
+```
+outline(r) = r AND NOT (up AND r AND dn AND (r << 1) AND (r >> 1))
+```
+
+— the row, less the pixels whose four neighbours are all set, which is what
+"hollow" *means* drawn rather than stored. `sol_outline` computes it as
+`sol_maskrun` plots, and the tables are gone.
+
+`(r << 1)` and `(r >> 1)` are the right and left neighbours respectively (bit
+15 is column 0), and both appear, so the shift directions are symmetric and
+cannot be got round the wrong way. A row above or below the mask reads as
+zero, which makes the first and last rows entirely their own outline — right,
+because a shape's top row is all boundary.
+
+**The flag is one-shot.** `sol_pipsel` sets `[sol_mrh]` and `sol_maskrun`
+clears it on the way out, so a caller that never sets it draws solid — which
+is what `sol_pipsold` (the foundation ghost) and the empty-stock ring rely on,
+neither of which has a hollow form.
+
+#### 43.11.1 What it is really worth
+
+49 bytes, which is not why it is here. **Two tables that must agree is a
+drift hazard**: redraw the solid heart and the hollow one still describes the
+pip that used to be, silently, on the two adapters nobody develops on. One
+table cannot disagree with itself.
+
+#### 43.11.2 The shared About card is FOUR TIMES BIGGER — do not "modernise" it
+
+Solitaire predates `os88ui.inc` and draws its own About card in **277 bytes of
+code**. Every other package with a card uses the shared one, and the obvious
+tidy-up is to make this one match. **Measured, `OS88UI_ABOUT` alone pulls in
+~1,070 bytes** — it is written to sit beside the buttons, alerts and scroll
+bars a bigger application already has, and Solitaire uses none of them.
+
+Recorded here because it is a change that looks like a cleanup, reads like one
+in review, and costs 800 bytes.
+
+#### 43.11.3 A pip is a masked SPRITE, and the OS already draws those
+
+`sol_maskrun` walked the mask itself and emitted one `OSAPI_GFX_HLINE` per run
+of set bits. Priced against §5.7's ~756 µs fixed cost per drawing call, on the
+target machine:
+
+| pip | runs | cost |
+|---|---|---|
+| 8×8 club, solid | 12 | 9.1 ms |
+| 8×8 club, hollow | 16 | 12.1 ms |
+| 16×16 club, solid | 24 | 18.1 ms |
+| **16×16 club, hollow** | **46** | **34.8 ms** |
+| the empty stock's ring | ~30 | ~22.7 ms |
+
+A club face on a 1bpp adapter is 62 drawing calls and **46.9 ms in its two
+pips alone**, and a board shows a dozen faces at once. Hollow is the expensive
+half and hollow is the 1bpp case, so the cost landed hardest on exactly the
+machines this game is for.
+
+**`OSAPI_ICON_DRAW` (§25.6) is that operation as ONE call** — a masked 1bpp
+sprite at any x, transparent in the same sense, which is what `os88ui.inc`'s
+own 12×12 control uses to go from 45–65 calls to one (33.6 ms → 6.7 ms,
+PERFORMANCE.md Set 84). Solitaire predates the slot and had been carrying its
+own span-walker ever since. This is the failure `CLAUDE.md` opens with: the
+question that comes first is not "how does this work" but "is there already a
+way to do X".
+
+**Measured**, on a cycle-accurate 4.77 MHz 8088 (MartyPC, a seeded deal so
+both builds lay out the same board — one `New Game` and the repaint it causes,
+bracketed from the first drawing call to the last, so no idle is counted):
+
+| adapter | span-walker | sprite pass | |
+|---|---|---|---|
+| Hercules | 362 calls, **518 ms** | 89 + 14 calls, **365 ms** | −30% |
+| CGA | 362 calls | 89 + 14 calls | |
+| VGA | 299 calls, **718 ms** | 89 + 14 calls, **598 ms** | −17% |
+
+For a board showing only **seven** face-up cards; a board in play shows more.
+VGA starts lower and gains less because hollow is a 1bpp thing (§39.4) — the
+expensive half of the old cost was exactly the case the 1bpp machines had.
+The 89 calls that remain are the four foundation ghosts on every adapter,
+which cannot use the pass — see below.
+
+The record is `db wwords, rows`, then `rows` mask words, then `rows` **data**
+words, one contiguous run — so it is composed in `.bss`, where the data half
+costs claim rather than image and starts zero. `sol_maskrun` stages the shape
+(outlined by `sol_outline` when asked) into the mask and writes zeros to the
+end of the buffer in the same loop: **one rule covers mask and data at every
+row count**, and the data half must be clear because `ico_core` lays the mask
+down in the pen's first colour and then draws the data rows over it *ungated
+by the mask* — a stray data bit would be drawn.
+
+**The per-run walk stays, and it is not dead code.** `ico_core` clips a sprite
+WHOLE — one shape or none, the `font_char` rule (§39.14.2) — so a pip a damage
+rect cuts would vanish entirely rather than being drawn in half. `sol_maskrun`
+asks `OSAPI_WM_CLIP_TEST` first and takes the walk when the answer is no, which
+is `os88ui_glyph`'s own pair, one for one. It is also the fallback for
+`OSAPI_ICON_DRAW` answering CF = 1 on a record the stage will not take.
+
+**A DITHERED INK CANNOT USE THE PASS, and this cost a build.** The sprite pen
+lays its colour down *solid*; a `gfx_*` call composes a dither per pixel from
+screen-absolute `(x + y)` parity (§39.4). The foundation ghosts are drawn in
+`SOL_GHOST` = `CDGRAY`, which on a 1bpp adapter *is* that dither — so routed
+through the pass they came out flat black on black felt and **the four ghost
+pips simply disappeared**, silently, while every other pixel on the screen
+matched. Nothing refuses: a solid colour is a legal pen and a vanished shape
+is a legal drawing.
+
+So the ink is a **required input** to `sol_maskrun` and `SOL_NOPEN` (0xFF) is
+the value that means "walk this one". `sol_setink` stores a real colour beside
+the `OSAPI_SET_COLOR` it wraps; `sol_ghost16` stores the sentinel. All three
+call sites set it, so the zero a fresh `.bss` starts at is never the one read.
+
+It was a one-shot flag first, cleared by each draw, and that was wrong for a
+reason worth keeping: **`sol_drawface` sets the ink once and draws two pips.**
+The corner pip consumed the arming and the centre pip silently took the walk —
+which is invisible in a pixel A/B, because the walk draws the same picture. It
+showed up only in the call counts: 7 `icon_draw` where 14 were owed, and a
+repaint that had not got faster.
+
+**It costs claim and buys time**, which is the trade stated plainly: **185
+bytes** per instance — 116 of image and 69 of `.bss`, of which 66 is the
+record — against 30% of a repaint. It was taken as a deliberate exception to
+the size pass around it, which banked 152 bytes over the same commit, so
+Solitaire's claim ends the pass **33 bytes up** rather than down.
+
+**All three adapters are measured, and the pixels are identical on each** —
+0 differing of 252,000 (Hercules), 0 of 128,000 (CGA), 0 of 307,200 (VGA),
+same seed, same board, only the `.o88` changed. The colour arm matters most
+and was nearly skipped: MartyPC models **VGA and EGA as well as CGA, MDA and
+Hercules**, and `os8088_xt_vga` has been in its shipped `ibm5150.toml` all
+along — it is simply that no row in `tests/` names it, so a grep of this tree
+for machine names does not find it. **Grep MartyPC's machine list, not ours**,
+before concluding an adapter is out of reach.
+
+#### 43.11.4 The rest of the size pass, and what factoring cost once
+
+Solitaire is an old package and the pass around §43.11.3 was aimed at that:
+patterns it grew before the conventions settled.
+
+| | bytes |
+|---|---|
+| `sol_p8h`/`sol_p16h`, the stored hollow pips (§43.11) | −96 |
+| `sol_pop6`/`sol_pop4`, a shared epilogue ladder over 28 sites | −~100 |
+| `sol_toabs`, shared by `sol_fillc` and `sol_framec` | −11 |
+| the `MENU_DIS` pairs, overlapped | −20 |
+| `sol_facepip`, one routine for the two pips a card face draws | −18 |
+
+The ladder is entered by a near `jmp` and never a `call`, which is what makes
+it free: the frame is the caller's and nothing is added to it — the same
+finding docs/STACK-SLOTS-PLAN.md made for the kernel's own pass. `pop` writes
+no flags, so a routine answering CF answers it through the ladder unchanged.
+
+The `MENU_DIS` overlap is the pair idiom in os88api.inc read literally: the
+disabled form of an item is the *same text* behind one leading byte, so
+`sol_s_d1x: db MENU_DIS` immediately above `sol_s_d1: db 'Draw One', 0` is
+both labels for the price of one. **`sol_dealmenu` still names both**, so
+nothing depends on the overlap surviving a later edit. Two further overlaps
+the same scan found — `'Game'` inside `'New Game'`, `'Deal'` inside
+`'Restart Deal'` — were **refused**: they are coincidences of English, worth
+10 bytes, and they turn renaming a menu item into a silent corruption of a
+menu title.
+
+**`sol_facepip` cost a debugging round and the reason generalises.** The two
+pip blocks differ in four things, one of which is `AH` — the size, live from
+the caller all the way to `sol_pipsel`. The factored version computed the
+band test into `AX`, which clobbered it: the centre pip then read the **8×8**
+table 16 rows tall, off the end of it and into the next suit's rows. That
+draws a plausible pip in the right place, not a crash and not a blank, and it
+survived `make` and the fast tier. The pixel A/B is what caught it — 682
+differing pixels of 252,000 — which is the same argument §39.14.6 makes about
+null A/Bs, one turn around: **a routine you factored is a routine whose
+register contract you just rewrote, and the only cheap check on it is the
+picture.**
+
+### 43.12 `APP_SMALL` — the small build of this package
+
+Note Pad's §27.16 is the pattern and its rules hold. **There is very little to
+take here, and that is the finding rather than a shortfall:** §43.11 is where
+this package's bytes actually came from, and they came off **both** builds.
+
+| flag | off in `APP_SMALL` |
+|---|---|
+| `SOLF_AUTO` | Auto Finish — the `A` key, the Game menu's third item, and `sol_pace`, the pause that exists so the finish can be *watched* |
+| `SOLF_ABOUT` | the About card |
+
+**7,254 → 6,802 bytes an instance, 6.2%** — the smallest ratio of the four
+gated packages, and `tests/unit/t_appsmall.py`'s floor came down from 10% to
+5% to say so. A package can be thoroughly optimised and have very little
+*left* that is optional; bytes taken off both arms do not show in a small/full
+ratio at all.
+
+**The click-to-foundation convenience STAYS.** A press and release without
+moving plays that one card up if it will go — the double-click every version
+of this game has (§43). It is how Klondike is played rather than a labelled
+extra, and it is what `sol_tofnd` is really for; Auto Finish is the feature
+with a name on a menu, and that is the one that goes.
 
 ## 44. Arkanoid — the ninth package (apps/arkanoid/arkanoid.asm)
 
@@ -58797,6 +59353,189 @@ FAT12 volume now** (§19.3). A driver is a file on it, the settings that say
 which drivers load are a file on it, and both are reached through the file
 API that already existed.
 
+### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
+
+**`kern_small` cannot load a `.DRV` of any kind.** The `%ifdef OS88_DRIVERS`
+in `driver.inc` is defined only on a `KERN_BIG` assembly, `SYSTEM.CFG` is
+never read, the Control Panel has no Drivers page, and `$(SMALLDRIVERS)` in
+the Makefile is the on-demand kernel MODULES (§2.8) and nothing else — so
+`SOUND.DRV`, `HDD.DRV`, `NET.DRV`, `ETHER.DRV` and `HDDTOOL.DRV` are not on
+the disk either.
+
+**It is a product decision and the largest single item in
+docs/KERN-SMALL-CUT-PLAN.md's hardware group**, and it is the only one there
+that is not a device — it is the *ability* to load one. What settles it is
+that a 128KB machine has no heap to host a driver in anyway, so the mechanism
+was closer to unusable there than merely unused. The owner's words:
+*"remove the drivers from the OS disk builds for small; we don't need to take
+up disk space with files we'll never use."*
+
+**What it costs, measured.** `kern_big` is **byte-identical** — the same
+`kernel.bin`, checked with a checksum and not asserted. `kern_small`, taken
+tree-to-tree across this change and §18.7's `DVOL_MAX` with it:
+
+```
+             before    after    delta
+.text        39,731   39,272     -459
+.bss          5,417    4,848     -569
+.cold        27,215   25,602   -1,613     } -2,641 IN THE LADDER
+.ovl          1,226      423     -803     } -991 boot overlay: loaded into
+.ovlw         4,516    4,328     -188     }  memory that is reused after boot
+                                -------
+                                 -3,632
+
+image rung   45,568 -> 44,544   -1,024
+cold  rung   27,648 -> 26,112   -1,536
+KERN_SIZE    88,064 -> 85,504   -2,560     heap floor 87.5 KB -> 85.0 KB
+free heap on a 128KB machine               40.5 KB -> 43.0 KB
+CTRL.DRV      5,794 ->  5,358              the Drivers page is out of cp_items
+the 360KB system disk                      50 clusters = 51,200 bytes, 14% of it
+```
+
+**3,632 bytes of sections buy 2,560 bytes of heap, and the gap is the point.**
+991 of them are `.ovl`/`.ovlw` — `drv_boot`'s `SYSTEM.CFG` pass and
+`drv_init`/`drv_snd_sniff` — which live in memory the machine reuses once it
+has booted, so they move `HEAP_SEG` by nothing at all. `.ovlw`'s 188 does not
+even cross a sector, so docs/KERN-SMALL-CUT-PLAN.md §7's 2,816-byte headroom
+for the buffer cuts is unchanged by it. The last 81 bytes are lost to the
+512-byte rung rounding.
+
+Against the estimate: the cut plan priced A3's **resident** part at 2,550 and
+it came in at **2,277** — the plan was 12% *high*, not low. What it missed
+entirely was the boot overlay, and that is the half that buys no heap. **A
+per-section estimate is a good predictor of footprint and a poor one of
+free memory**, and the two questions have to be asked separately.
+
+**What a `kern_small` machine loses**, stated so nothing has to be inferred:
+
+- **no hard disk, no Ethernet, no RAM disk, no screen saver, no XMS store** —
+  each was already absent from `$(SMALLDRIVERS)` or gated, and now the
+  mechanism that would load them is gone too;
+- **no FM or Sound Blaster tier.** The **PC speaker is unaffected** — `snd.inc`
+  is resident on both builds and every tone, beep and PCM clip still plays
+  (§34). What goes is the *card* route, which was a driver;
+- **`SYSTEM.CFG` is not read**, so §51.5's settings do not persist. The
+  Control Panel pages that write it still work on the session.
+
+#### 51.0.0 …and the sizing constants that follow from it
+
+Four constants come down with the mechanism, because each was sized for a
+machine `kern_small` is not. They are grouped here rather than under their own
+sections because **three of the four are only safe once §51.0 has landed**, and
+a reader deciding to move one needs that in front of them.
+
+| | constant | `kern_big` | `kern_small` | why it is safe |
+|---|---|---:|---:|---|
+| D1 | `MAX_TASKS` | 14 | **7** | six worker slices, 1,280 bytes of `sch_stacks` against 2,816 |
+| D2 | `DSK_FAT_SECS` | 9 | **2** | 1,024 bytes of `FAT_SEG` against 4,608 |
+| D4 | `STK0_SIZE` | **512** | **512** | *both* builds — see §15.1 |
+| D7 | `MEM_MAX` | 32 | **20** | twenty heap claims |
+
+**D1's six are chosen, not just counted.** §8.7's `SCH_PARTITION` is a class
+scheme, so the question is *which* six, and the answer comes off
+docs/STACK-SLOTS-PLAN.md §12.1's survey read against what §24.5 actually puts
+on the small disks: two 128s (the idle task holds one for the life of the
+machine), two 192s (the modal class — Artful, the Task Manager, the Fractal,
+Cyclone, Notepad, Arkanoid and Tamegram all ship), one 256 (Missile Command),
+and **one `SCH_STACK`**. That last one is kept for a reason that is not a
+program: the C SDK declares `CC_STACK = SCH_STACK` (§20.6 rule 7),
+`tests/unit/t_mirror.py` guards the pair, and `SCH_STACK` is the largest class
+by construction — take the class away and either a C package's worker can
+never be spawned or the mirror breaks.
+
+**D2 could not have been taken before §37.0.1.**
+docs/KERN-SMALL-CUT-PLAN.md §7 is the floor: `.ovlw` is loaded *onto* the FAT
+window and spills through the mount buffers, so it must fit
+`FAT_PARA*16 + DSK_WIN_BYTES`. At two sectors that region is **4,352**, and
+`.ovlw` rounded to whole sectors was **4,608** — short by 256. Gating the RTC
+ladder took `.ovlw` from 4,328 to **2,789**, which rounds to 3,072, and the cap
+then fits with 1,280 to spare. The clock was 40% of that overlay, and *this* is
+what it was worth — not the 44–51 bytes of footprint that forcing a single rung
+buys.
+
+**D2 does NOT cost the other geometries**, which is the question worth
+answering because the naive reading is that a 2-sector cap means 360KB disks
+only. A FAT is sized by the **cluster count**, not by the disk, so
+`tools/os88disk.py --fatcap 2` raises sectors-per-cluster until the FAT fits:
+
+```
+  360KB   spc=2  FAT 2   354 clusters x 1,024 =   362,496 usable  (unchanged)
+  720KB   spc=4  FAT 2   357 clusters x 2,048 =   731,136
+ 1.2MB    spc=4  FAT 2   595 clusters x 2,048 = 1,218,560
+ 1.44MB   spc=8  FAT 2   357 clusters x 4,096 = 1,462,272
+```
+
+Every one is still a standard FAT12 volume any host OS mounts, and the 1.44MB
+disk with 4KB clusters boots `kern_small` on a 128KB machine. What it costs is
+cluster slack — a 100-byte file occupies 4KB there — which on a floppy carrying
+twenty packages of 5–48KB is a few percent, and buys the geometry back whole.
+
+**D1 and D7 diverge from the SDK on purpose, and the direction is the whole
+point.** Both are mirrored in `apps/os88api.inc`, and one `.o88` runs on both
+kernels (§24), so **the SDK carries the larger value and the kernel may be
+smaller**: `taskmgr` sizes `SS_TSTATE` from `MAX_TASKS` and
+`CLAIM_SNAPSHOT_SIZE` from `MEM_MAX`, so a package built at 14/32 reading a
+7/20-record snapshot **over-allocates**, which is safe, where the reverse
+overflows the buffer it was handed. It is the same rule `MEM_P_FATW_N` is
+under, and `tests/unit/t_mirror.py`'s `DIVERGENT` carries both with the reason.
+
+#### 51.0.1 `drvvol.inc` — the four routines that are not driver code
+
+`drv_mounted`, `drv_vol_bank`, `drv_vol_back` and `drv_find` were written in
+`driver.inc` because the driver loader was their first caller: it has to
+reach A: to find a `.DRV` and put the user's volume back afterwards
+(§51.5.2). Three other subsystems grew callers while they sat there, and
+**`mod.inc` needs all four on the path that loads an on-demand module** — so
+`kern_small`, which has the Control Panel, Format, Clone, Cut/Copy/Paste and
+the Standard File dialog as files on the disk, needs them *more* than
+`kern_big` does.
+
+They move to `kernel/drvvol.inc`, outside the gate, as a **pure move** — not
+a line changed, section directives included. It is `%include`d from the point
+in `driver.inc` the code left rather than from `kernel.asm` beside every
+other include, and that is deliberate: the bodies are `.cold`, so moving them
+to the end of the segment would change no behaviour and no byte count but
+would shift every address after them, and *"kern_big is untouched"* would
+stop being a thing a checksum can say. Three lines to keep the A/B exact.
+
+They keep their `drv_` prefix against CLAUDE.md's label-hygiene rule, and
+`drvvol.inc`'s banner records why: ~15 call sites across seven files, and
+renaming them would put a diff over all of those to say nothing.
+
+#### 51.0.2 The stub block, and why it is not 90 gated call sites
+
+The `%else` arm of `driver.inc`'s gate defines the answers a machine with
+nothing published already gives — `drv_svc_none`'s `xor ax,ax / stc`, an
+empty class table, a row that owns no segment. **Not one caller changed.**
+`drv_fs_call` alone has 25 call sites across six files, and a mechanical
+sweep over those is exactly the shape that introduces a defect nobody sees
+(§38.0's `fdlg_hasdot` is this tree's worked example).
+
+Three things the stubs must get right, and `tools/os88ovlchk.py` caught every
+one of them rather than a reader:
+
+1. **A stub goes in the section its live body was in.** `drv_pkg_call_x` is
+   `.text` because an API slot reaches it near; `drv_init` and
+   `drv_snd_sniff` are `.ovlw`; `drv_boot` is `.ovl`; `cp_cfg_save` is
+   `.modc`, because `cp_flush_x` reaches it near *inside CTRL.DRV's image*.
+2. **A stub ends in the `ret` kind its callers use.** Six of them are
+   far-called and end in `retf`; the overlay pair is entered through
+   `call far [spl_fp]` and ends in `retf` too (§2.5.3).
+3. **`drv_svc` is `.text` with real zero bytes, not `.bss`.** `snd.inc` reads
+   `[drv_svc+DSV_TONE]` directly to ask whether a driver offered it a tone
+   proc, and nothing zeroes `.bss` on this assembler (§8) — the live build
+   gets its zeros from `drv_svc_clear_all`, which is inside the gate.
+
+The Control Panel's Drivers page is **stubbed rather than gated**, and the
+row is taken out of `cp_items` so nothing can select it. `CTRL.DRV` is an
+on-demand module on both builds, so gating its eleven interleaved regions
+would move no resident byte and would put a `%ifdef` through the middle of
+the Sound page, which stays. What the gate does reach is the item indices:
+`CP_ISND`, `CP_IVID` and `CP_ITHM` each come up one, written out per arm
+rather than derived, because deriving them would hide the fact that makes
+them fragile — they are positions in a table one `%ifdef` above, and the two
+have to be read together.
+
 ### 51.1 A driver is a package that is not an application
 
 Same 32-byte header, same `org 0`, same paragraph-aligned heap claim, same
@@ -62852,6 +63591,156 @@ accrued figure went 153/512 to 261/512 and `KERN_SIZE` did not move.
 
 ---
 
+### 22.3.0 ON `kern_small` THIS IS AN ON-DEMAND MODULE (§2.8)
+
+`kern_big` keeps every body in §22.3–22.5 resident in `.cold`, near-called
+from `files.inc`, and pays **7 bytes** for the discipline below and nothing
+else. `kern_small` emits the same bodies into `.modp`, which
+`tools/os88mod.py` cuts out as **`FILECP.DRV`**; `mod_need` reads it into a
+heap claim when the user copies, and `fcp_fin` gives it back when the
+operation ends. `KERN_SIZE` 92,160 → 90,624.
+
+**Three entry points, not five.** `fcp_arm`, `fcp_paste` and `fcp_answer`.
+Two public names that look like entries are not:
+
+- **`fcp_ncopy` is `equ dsk_ncopy`** — `disk.inc`'s routine under a second
+  name. It is resident on both builds and a caller of it reads no disk.
+- **`fcp_goto` and its four doors stay RESIDENT**, and that is binding rather
+  than an optimisation: `CLONE.DRV` far-calls it through `fcpf_fcp_goto`
+  between two raw transfers of a same-drive clone (§18.99.8), which is exactly
+  when the system disk is *not* in the drive. A `mod_need` there fails
+  `drv_mounted` and hands the cloner a CF=1 it can only stop on. **No module
+  may load another.**
+
+**The drop is `fcp_fin`, and the moment is "the operation finished"** — every
+return that is not `FCPS_ASK`, because a suspended paste still owns the image
+while the user reads the overwrite question. An arm is safe to drop on
+because the clipboard is `.bss` and resident.
+
+**Refusals.** `fcp_arm` answers CF=1, which its caller already treats as
+"nothing selected"; the two paste doors answer `FCPS_ERR` with `[fcp_err]` =
+`FERR_NODISK`, which is the literal truth — the system disk was not there to
+read the image from.
+
+#### 22.3.0.1 The three rules a two-shape file obeys
+
+`tools/os88ovlchk.py` and `tools/stkbalance.py` both read **source** and can
+evaluate no `%ifdef`. A file whose bodies land in a different section per
+build therefore has no reading that satisfies both unless it is written to
+this discipline, and anything else in the tree that becomes a module owes the
+same three rules:
+
+1. **One conditional `section` per file, and the module arm goes LAST.**
+   `os88ovlchk` files everything after the last `section` directive it sees.
+2. **No `%ifdef` inside the bodies.** Every build-dependent transfer goes
+   through a macro — `FCPBODY` for a label, `FCPX` for a call out, `FCPXF` for
+   the resident far entry it names — which both gates skip, so neither is ever
+   shown an arm that is not live.
+3. **A macro may never END a path.** `stkbalance` walks straight through one
+   into the next routine's pops. A tail call is written `FCPX name` followed by
+   a literal `ret`; a shared register epilogue is a real `jmp` to a copy inside
+   the image, because a module may not `jmp kretc_cx` — that ends in a near
+   `ret` and the image was entered by a far call.
+
+Rule 3 is what costs `kern_big` its 7 bytes.
+
+---
+
+### 38.0 ON `kern_small` THIS IS AN ON-DEMAND MODULE (§2.8)
+
+`kern_big` keeps every body in §38 resident in `.cold`, unchanged to the
+byte, and pays **29 bytes** for the whole arrangement — `.bss` +12 and
+`.cold` +17, both explained below, and not one byte of `.text`. `kern_small`
+emits the same bodies into `.modd`, which `tools/os88mod.py` cuts out as
+**`FDLG.DRV`** (3,243 bytes, 7 entries, 7 sectors); `fdlg_open` reads it into
+a heap claim and `fdlg_reap` gives it back. `KERN_SIZE` 90,624 → 88,064, and
+the cold rung UNCROSSES: 2,560 bytes back on every machine that boots this
+kernel.
+
+It is §22.3.0's shape a second time and obeys §22.3.0.1's three rules, with
+`filecp.inc` as the worked example. What is new here is in the four
+paragraphs below; everything else is that section.
+
+**SEVEN entries, not nine.** `fdlg_open`, `fdlg_paint`, `fdlg_onkey`,
+`fdlg_onclick`, `fdlg_reap`, `fdlg_grab`, `fdlg_top`. `fdlg_onup` and
+`fdlg_ondrag` are §13.10.5's scrollbar thumb drag, already `kern_big`'s
+alone, so this build has no bodies to publish. `MOD_NENT` goes 6 → 7 **for
+both kernels**, which is where `kern_big`'s 12 `.bss` bytes come from
+(`mod_fp` is `MOD_MAX * MOD_NENT * 4`). It is not per-build because
+`tools/os88mod.py` scrapes the first `^MOD_NENT equ <int>` out of `mod.inc`
+and cannot evaluate an `%ifdef`: given two, it read 7 on both arms and
+refused `CTRL.DRV`'s first entry as out of range. One value for both builds
+is the honest reading of a constant that a host tool and the kernel must
+agree on.
+
+**The entries return BOTH ways, and the header is what reconciles it.** An
+entry is reached by `call far`, so it has to end in `retf`. Five of these
+bodies already do — `fdlg_onkey` and `fdlg_onclick` leave through
+`kretfc_dx`, and reap, grab and top through their own `retf` — so the header
+points those five at **themselves**. `fdlg_open` and `fdlg_paint` return
+near, so the header points them at a two-instruction `call/retf` wrapper.
+This is the first module in the tree with a mixed exit convention, and
+wrapping the two is cheaper than changing five contracts the resident kernel
+also calls.
+
+**`fdlg_open` is the only entry that loads, and `[fdlg_win]` is why the other
+six need not.** That word is `.text`, resident on both builds (§38.5's
+banner), and it is non-zero exactly while a dialog is up — which only
+`fdlg_open` makes true. So the image is in RAM whenever any of the other six
+has work, and each resident stub answers a zero `[fdlg_win]` with the same
+answer its body's own `.none` path would have given. That matters for cost
+rather than for correctness: `fdlg_reap` runs once per UI pass and
+`fdlg_grab` on every mouse press, and a `mod_need` on either would put a
+table walk on the machine's hottest loop. **The drop is `fdlg_reap`**, at the
+moment `[fdlg_win]` was set on the way in and is not on the way out — which
+is exactly "the dialog has closed or committed".
+
+**Thirteen of `kern_big`'s seventeen `.cold` bytes are the shared register
+epilogues, and they are a copy rather than an alias on the gates' account.**
+§22.3.0.1's rule 3 is why the image needs its own `fdk_*` ladder; what is new
+here is that writing `fdk_bp equ kretc_bp` on the `kern_big` arm — which
+would have cost that build nothing — makes `kernel.asm`'s own `kretc_*`
+look **addressed** to `tools/stkbalance.py`, which reads source and evaluates
+no `%ifdef`. It then walks all five as routines entered at depth 0 and
+reports each at its own negative depth, ten findings for a change that
+altered no instruction. So the ladder is an unconditional copy below the
+section toggle, exactly as `filecp.inc`'s is, and the duplication is the
+price of a gate that can still read the file.
+
+**`fdlg_hasdot` is resident, and it is the one body here that could not
+become a far call at all.** `files.inc`'s `fm_dotin` is a **continuation**,
+not a routine: `fm_hasdot` falls into it having banked SI, and `fm_dotin`'s
+own `pop si` takes that bank, so its near `ret` goes to *that entry's*
+caller. A `jmp` is the only legal way in. Rewriting the tail jump as
+`call fm_dotin / ret` — which is what rule 3 asks for at every *other* site —
+makes the `pop si` eat the return address, on `kern_big` as much as on
+`kern_small`. `stkbalance` caught it as `fdlg_hasdot: ret at depth +1`. So
+`fdlg_hasdot` moves to the resident side whole, keeps the `jmp` it has always
+had, and the image reaches it through an ordinary far entry whose body ends
+in a near `ret`. **Rule 3 assumes the target of a tail jump is callable, and
+a continuation is not** — that is the one place the discipline in §22.3.0.1
+needs a reader's judgement rather than a mechanical rewrite.
+
+**What stays resident, and why it is not a judgement call.** `os88ui.inc` and
+`ui_krect4` are near-called by `apps.inc`, so they cannot be inside an image
+that is far-called and often absent; the `%include` was in the middle of what
+is now `.modd` and `tools/os88ovlchk.py` is the only thing that noticed.
+`files.inc`'s `pth_*` path stack is `kern_big`'s alone, so the four far
+entries naming it are gated with the call sites rather than left to reference
+symbols this build does not have. And the far-entry prefix here is **`xd_`**
+where `filecp.inc`'s is `xf_`: both blocks sit in `.cold`, which is one
+segment, and both wrap `dsk_ncopy` — one prefix would be one label defined
+twice.
+
+**Refusal.** `fdlg_open` answers CF=1, which is already its published answer
+for "one is already up, or the window table is full", and every caller
+treats it as *the command does nothing*. So on `kern_small` a Save As with
+the system disk out of the drive opens no dialog, where on `kern_big` it
+always opens one. That is a real behaviour difference and it is stated here
+rather than left to be discovered: it is the same trade §22.3.0 took for
+Paste, and the same one `mod_need` imposes on every feature that becomes a
+module.
+
 ## 54. assoc.inc — file type associations
 
 A file with a known extension shows the **associated program's** icon, marked
@@ -64375,7 +65264,7 @@ this one is architecturally a copy of, and the one that has run on the 5150.
 The deepest chain is `mpp_render` → `mppu_frame` → `mppu_paint` →
 `mppu_draw_all` → `mppu_draw_buttons` → `mppu_btn_glyph` → `mppu_ltri` →
 `mppu_tri` → `mppu_vlr`, and the three indirect calls in this package are all
-click dispatchers on task 0's 1,024-byte stack, not in the worker's tree. That
+click dispatchers on task 0's 512-byte stack, not in the worker's tree. That
 is a bound plus a peer comparison and not a field number; `tests/stackprobe`
 on real iron is still the only thing that settles the margin, because SeaBIOS
 hides a real BIOS's interrupt stack use (docs/TESTING.md).
@@ -70406,6 +71295,61 @@ than a setting: §31.8's rule is that a Control Panel page writes `SYSTEM.CFG`
 on close, and a flash duration is not worth a page.
 
 ---
+
+### 65.10 `APP_SMALL` — the small build of this package
+
+Note Pad's §27.16 is the pattern and its rules hold unchanged. What is worth
+saying here is **why a 7KB program is worth gating at all**: the point of the
+small disk is a *handful* of programs that run, not one large one that barely
+does, so every byte off a small package is another package beside it. On the
+34.0KB heap `kern_small` leaves a 128KB machine, the small Calculator, the
+small Note Pad and Mines all fit at once with room over.
+
+| flag | off in `APP_SMALL` | worth |
+|---|---|---|
+| `CALF_HIST` | the foldaway history pane (§65), its eight rows, the disclosure strip, the View menu and the ring that feeds them | −1,203 image, −366 bss |
+| `CALF_ABOUT` | the standard About card | −155 image, −9 bss |
+
+**7,351 → 5,563 bytes an instance, 24.3%.** What it keeps: the display, the
+keypad, all four functions, √, 1/x, percent, sign, the clipboard, the
+keyboard, and both remaining menus.
+
+#### 65.10.1 The 293 bytes that were never anyone's
+
+Gating the history first needed the bss to be *gateable*, and it was not: the
+block was ~52 lines of `equ os88_image_end + N` with the offsets typed out,
+which is why the note above `cal_down` says a variable was put in the **image**
+rather than renumber them. Converting it to a preprocessor counter (Note Pad's
+`NPVAR` shape) turned up a second thing:
+
+> the fields end at **843**, and `CAL_BSS_TOTAL equ 1136` had been sitting
+> above them since the package landed.
+
+**293 bytes of every instance were reserved, zeroed by the loader and
+addressed by nothing** — 3.8% of the package, on both builds, in a constant
+nobody had re-read since it was typed. `CAL_BSS_TOTAL` is derived from the
+counter now and cannot drift again. That is the whole of this package's size
+pass: there is no dead code in it, no repeated idiom over 25 bytes, and 347
+bytes of immediate-to-memory stores of which almost none are adjacent.
+
+#### 65.10.2 What the small one looks like
+
+With no pane the window opens at `CAL_BASE_H` and never resizes, and
+`CAL_NRECT` falls from 29 to 20 — the keypad *is* the rect table, so
+`cal_nrect` answers a constant and `cal_geom`'s row-count arithmetic goes with
+it. **That is the shape a CGA already gets** (§65.3, where the desktop band
+leaves no room to fold the pane open), made the only shape.
+
+Two integration notes, both Note Pad's rules applied again. The three history
+routines the *arithmetic* calls — `cal_hist_prep`, `cal_hist_prep_un`,
+`cal_hist_push`, reached from every `=`, √ and 1/x — collapse to **one shared
+`ret`** rather than six `%ifdef`s through code that is not the history's. And
+`[cal_linep]` stays in both builds: it reads 0 here, which is exactly what
+`cal_unary_end` already tests for, so that path needs no gate either.
+
+**The full build is byte-identical with the gates in**, proven by assembling a
+mechanically de-gated copy and comparing md5; `tests/unit/t_appsmall.py`
+covers it.
 
 ## 66. Heap compaction — closing the holes on demand
 
@@ -85003,7 +85947,7 @@ parsing.
 
 **A formula's OWN nesting is bounded too.** Every `(`, unary `-`, `^` and
 function call recurses the parser, and a pending binary operator banks its
-8-byte left operand on the machine stack — which is task 0's 1,024-byte stack
+8-byte left operand on the machine stack — which is task 0's 512-byte stack
 (§2.1), the one every package callback runs on. `sh_pnest_enter` charges each
 of those recursion points, cell depth included, against one shared budget
 (`SH_PNEST_MAX` = 12 — enough for the deepest `SH_EVAL_MAXDEPTH` chain of

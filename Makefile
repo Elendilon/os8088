@@ -1731,6 +1731,26 @@ KMODDIR = $(BUILD)
 KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
            -m 2=$(BUILD)/clone.drv
+# ...and kern_small's FOURTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP): that
+# build carries the bodies in FILECP.DRV where kern_big keeps them resident
+# (docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1). The index IS the kernel's
+# MOD_* and os88mod.py refuses a count that disagrees with the image's own
+# map - which is how this line announced itself when it was missing, rather
+# than by shipping a floppy with the feature silently absent.
+# KMODARGS is expanded by the make that ASSEMBLES the kernel, so the guard is
+# right here: only a KERN_SMALL=1 build has a fourth module to split out.
+ifneq ($(KERN_SMALL),)
+KMODARGS += -m 3=$(BUILD)/filecp.drv
+KMODARGS += -m 4=$(BUILD)/fdlg.drv
+endif
+# ...but $(KMODS) is NOT guarded, and that is the trap this comment exists for.
+# The small floppy rules below expand $(SMALLDRIVERS) - and so $(KMODS) - in
+# the OUTER make, where KERN_SMALL is NOT set; a guard here therefore left
+# FILECP.DRV off the disk while every build step succeeded, and the machine
+# booted, and Cut/Copy/Paste refused with FERR_NODISK because mod_need could
+# not find a file nobody had shipped. $(SMALLMODS) names it for those rules
+# instead, and the plain build simply never asks for it.
+SMALLMODS = $(SMALLDIR)/filecp.drv $(SMALLDIR)/fdlg.drv
 
 # THE KERNEL IS ASSEMBLED WHOLE AND THEN CUT UP (SPEC.md 2.8). Everything
 # from .modc onward is an on-demand module: kernel code that ships as a file
@@ -6062,6 +6082,12 @@ FIELDKNOBS := DISKCNT=1
 # being true is the day the split acquired an ABI, which is the one thing this
 # design is written to avoid.
 SMALLDIR := $(BUILD)/smallk
+SMALLAPPDIR := $(BUILD)/smallapp
+                                    # ...and where the small BUILDS of the
+                                    # packages go. Beside $(SMALLDIR) because
+                                    # both name a directory the small product
+                                    # is assembled into, and both are read by
+                                    # the system disk's rule below
 
 # ...and its drivers are $(DRIVERS) LESS THE STORE ABOVE 1MB AND LESS THE RAM
 # DISK. XMEM.DRV is dead weight on this kernel and only on this one: xmem.inc
@@ -6078,34 +6104,143 @@ SMALLDIR := $(BUILD)/smallk
 # there is no row here that could name these two files. Leaving them on the
 # disk would be ~11KB of a 360KB floppy carrying software this kernel cannot
 # reach.
-# RECURSIVE, like $(DRIVERS) itself: $(KMODS) inside it still reads the
-# per-target KMODDIR.
-SMALLDRIVERS = $(filter-out $(BUILD)/xmem.drv $(BUILD)/ramdisk.drv \
-                            $(BUILD)/saver.drv \
-                            $(BUILD)/rampage.drv,$(DRIVERS))
+# ...AND NEITHER DOES ANY OTHER `.DRV`. SPEC.md 51.0 takes the loadable-driver
+# mechanism out of kern_small altogether, so SOUND, HDD, NET, ETHER and
+# HDDTOOL are not "unused" on this disk - there is no code left that could
+# name, read or load them. That is 49,621 bytes of a 360KB floppy, 13.5% of
+# it, and it is SPEC.md 24.5's rule applied one layer down: if it can never
+# run there, it does not go on the disk.
+#
+# STATED AS WHAT IT IS rather than as a filter-out list, and that is the point
+# of writing it this way: a driver added to $(DRIVERS) tomorrow must NOT
+# appear on this disk, and a subtraction list would have put it there
+# silently. $(KMODS) is the on-demand KERNEL MODULES (SPEC.md 2.8) - the
+# Control Panel, Format and Clone - which are this kernel's own code cut out
+# of its own binary and are a different mechanism entirely; $(SMALLMODS) adds
+# kern_small's two extra. RECURSIVE, like $(DRIVERS) itself, so $(KMODS)
+# inside it still reads the per-target KMODDIR.
+SMALLDRIVERS = $(KMODS)
 
 small: $(BUILD)/small360.img $(BUILD)/small.img
 	@python3 tools/kernsplit.py $(SMALLDIR)/kernel.bin $(BUILD)/kernel.bin
 
 # its kernel is $(SMALLDIR)'s, so its modules are too
+# --- WHAT THE SMALL DISKS DO NOT CARRY (SPEC.md 24.5) -------------------------
+#
+# **If it can never run there, it does not go on the disk.** Every row below is
+# a package whose REQUIREMENT kern_small cannot meet, and the requirement is
+# what puts it here - this is not a list of the biggest packages and must not
+# become one. A package that merely wants a lot of heap still ships: it will
+# refuse itself on the machine, in its own words, which is a thing the user can
+# read (SPEC.md 42.6 is the worked example). A package that cannot reach its
+# DRIVER cannot say anything at all.
+#
+#   browser, ftpd, telnet   ETHER.DRV. The NIC is not in $(SMALLDRIVERS) and
+#                           SPEC.md 72's whole surface is driver verbs, so
+#                           there is no socket to refuse on
+#   modplug, recorder,      SOUND.DRV, which a 128-256KB machine has nothing
+#   tracker                 to spare for - the same judgement that took
+#                           RAMDISK.DRV and RAMPAGE.DRV out of $(SMALLDRIVERS)
+#   tank                    the fullscreen surface (SPEC.md 42.7/81). It opens
+#                           and draws its splash, and there is no GAME behind
+#                           it without fsx, so what ships is a menu that leads
+#                           nowhere
+#
+# 90,510 bytes of a 360KB floppy - a quarter of it - for seven programs that
+# could not have started.
+SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
+             $(BUILD)/modplug.o88 $(BUILD)/recorder.o88 $(BUILD)/tracker.o88
+SMALLOMIT_GAMES := $(BUILD)/tank.o88
+
+# ...and DEMO.HTM with the browser, for the same reason one step along: a .HTM
+# is openable by nothing else on the machine (SPEC.md 71).
+SMALLOMIT_DATA := tests/htm/demo.htm apps/tracker/beverly.mod
+                                    # ...and BEVERLY.MOD with the two players
+                                    # that read it. At 360KB it was already on
+                                    # a media disk of its own (SPEC.md 24.4);
+                                    # this takes it off the 1.44MB one too
+
+# THE PACKAGES THAT HAVE A SMALL BUILD - the build rules' list, and nothing
+# else. $(SMALLBASE) is the same set spelled as the ordinary build's paths, so
+# it is derived rather than repeated.
+#
+# **IT IS NOT A DISK LIST.** Which FOLDER a package ships in is decided by
+# which of $(APPS_TOOLS) / $(APPS_GAMES) it is in, exactly as on the ordinary
+# floppy - Solitaire is a game and belongs in GAMES/ on both. Naming these
+# APPS: directly put it in BOTH folders for a cycle.
+SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88 \
+                 $(SMALLAPPDIR)/calc.o88 $(SMALLAPPDIR)/solitair.o88
+SMALLBASE      = $(patsubst $(SMALLAPPDIR)/%,$(BUILD)/%,$(SMALLPKGS))
+
+# The substitution, ONE IDIOM used by all four lists below: drop the omitted
+# packages, and take the small build of any that has one. A list that forgets
+# it ships BOTH builds on one floppy and the shipped one is whichever the
+# loader finds first - tests/unit/t_appsmall.py walks the built images for
+# exactly that, because this comment said so once already and the guard only
+# covered the tools.
+SMALLSUB       = $(patsubst $(BUILD)/%,$(SMALLAPPDIR)/%,$(filter $(SMALLBASE),$(2))) \
+                 $(filter-out $(SMALLBASE) $(1),$(2))
+
+# ...and the SAME substitution the tools get below, because a package with a
+# small build can be a GAME: Solitaire is, and for one cycle this line shipped
+# the full build into GAMES/ beside the small one in APPS/ - two copies on one
+# floppy, exactly what SMALLBASE exists to prevent. tests/unit/t_appsmall.py
+# now walks the built disks for it rather than trusting this line.
+SMALLGAMES      = $(call SMALLSUB,$(SMALLOMIT_GAMES),$(APPS_GAMES))
+                                    # DEFERRED (`=`), and it matters: $(APPS_GAMES)
+                                    # is defined ~400 lines BELOW here, so `:=`
+                                    # takes an EMPTY list and the disk ships with
+                                    # no GAMES folder at all - silently, because
+                                    # os88disk.py is being asked for nothing
+                                    # rather than for something missing
+SMALLDATA_360   = $(filter-out $(SMALLOMIT_DATA),$(APPS_DATA_360))
+SMALLDATA       = $(filter-out $(SMALLOMIT_DATA),$(APPS_DATA))
+
+
+SMALLAPPSARGS  = $(addprefix APPS:,$(call SMALLSUB,$(SMALLOMIT),$(APPS_TOOLS)))
+
+# --- THE CORE PACKAGES, on the small system disk too --------------------------
+# SPEC.md 24.3: the core packages ship on the SYSTEM disk as well as the apps
+# disk - a second copy and never a move - so a single-floppy machine has
+# something to run. `make small` never did that, and a 128KB machine is the
+# likeliest single-floppy machine there is.
+#
+# It is CORE_TOOLS with the same two filters the apps disk uses: the omitted
+# packages go, and the ones with a small build are the small build.
+SMALLCORE_TOOLS = $(call SMALLSUB,$(SMALLOMIT),$(CORE_TOOLS))
+SMALLCORE_GAMES = $(call SMALLSUB,$(SMALLOMIT_GAMES),$(CORE_GAMES))
+SMALLCOREARGS   = $(addprefix APPS:,$(SMALLCORE_TOOLS)) \
+                  $(addprefix GAMES:,$(SMALLCORE_GAMES))
+
 $(BUILD)/small360.img: KMODDIR := $(SMALLDIR)
 
-$(BUILD)/small360.img: $(SMALLDRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
+# $(SMALLMODS) is the ON-DEMAND KERNEL MODULES (SPEC.md 2.8), and it is
+# listed here rather than folded into $(KMODS) because these rules expand in
+# the OUTER make where KERN_SMALL is not set - which is how FILECP.DRV came to
+# be left off the disk with every build step green (docs/KERN-SMALL-MODULE-
+# SPLIT.md 9.2.5).
+$(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPS) \
+                       $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
+                       tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot360.bin
-	python3 tools/os88disk.py -o $@ --size 360 \
+	python3 tools/os88disk.py --fatcap 2 -o $@ --size 360 \
 		--boot $(SMALLDIR)/boot360.bin --kernel $(SMALLDIR)/kernel.bin \
-		$(SMALLDRIVERS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
-	@echo "small: $@ - kern_small on 360KB. Its apps disk is the ordinary"
-	@echo "       build/apps360.img: one package, both kernels"
+		$(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPSARGS) $(SMALLCOREARGS) \
+		$(SYSDOC) $(MEDIAFOLDER)
+	@echo "small: $@ - kern_small on 360KB. Pair it with"
+	@echo "       build/smallapps360.img (\`make smallapps\`)"
 
 # its kernel is $(SMALLDIR)'s, so its modules are too
 $(BUILD)/small.img: KMODDIR := $(SMALLDIR)
 
-$(BUILD)/small.img: $(SMALLDRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
+$(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPS) \
+                    $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
+                    tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot.bin
-	python3 tools/os88disk.py -o $@ --size 1440 \
+	python3 tools/os88disk.py --fatcap 2 -o $@ --size 1440 \
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/kernel.bin \
-		$(SMALLDRIVERS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
+		$(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPSARGS) $(SMALLCOREARGS) \
+		$(SYSDOC) $(MEDIAFOLDER)
 
 # --- THE SMALL APPS DISK (SPEC.md 27.16) -------------------------------------
 #
@@ -6130,7 +6265,6 @@ $(BUILD)/small.img: $(SMALLDRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 # substituted package on an otherwise ordinary disk. That keeps -DAPP_SMALL
 # off every shipped nasm line, which is why it is not in $(KNOBS) and needs no
 # row in the build matrix - no top-level `make` can carry it into build/.
-SMALLAPPDIR := $(BUILD)/smallapp
 
 $(SMALLAPPDIR)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc \
                             apps/os88ui.inc $(SBSTAMP) | $(BUILD)
@@ -6152,37 +6286,49 @@ $(SMALLAPPDIR)/paint.bin: apps/paint/paint.asm apps/os88api.inc \
 $(SMALLAPPDIR)/paint.o88: $(SMALLAPPDIR)/paint.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(SMALLAPPDIR)/paint.bin -o $@
 
-# The substitution, written once: every APPS: package except the ones that
-# have a small build, then those. ONE LIST, and $(SMALLBASE) is derived from
-# it rather than repeated - a package added here and forgotten in the
-# filter-out would ship BOTH builds on one floppy, and the shipped one would
-# be the copy the loader found first.
-SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88
-SMALLBASE      = $(patsubst $(SMALLAPPDIR)/%,$(BUILD)/%,$(SMALLPKGS))
-SMALLAPPSARGS  = $(patsubst %,APPS:%,$(filter-out $(SMALLBASE),$(APPS_TOOLS))) \
-                 $(patsubst %,APPS:%,$(SMALLPKGS))
+$(SMALLAPPDIR)/calc.bin: apps/calc/calc.asm apps/os88api.inc apps/os88ui.inc \
+                         $(SBSTAMP) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -DAPP_SMALL $(PKGSBDEF) -o $@ \
+	        apps/calc/calc.asm
+	@echo "calc (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/calc.o88: $(SMALLAPPDIR)/calc.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(SMALLAPPDIR)/calc.bin -o $@
+
+$(SMALLAPPDIR)/solitair.bin: apps/solitaire/solitaire.asm apps/os88api.inc \
+                             $(SBSTAMP) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -DAPP_SMALL $(PKGSBDEF) -o $@ \
+	        apps/solitaire/solitaire.asm
+	@echo "solitaire (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/solitair.o88: $(SMALLAPPDIR)/solitair.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(SMALLAPPDIR)/solitair.bin -o $@
 
 smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 	@python3 tools/os88pkgsize.py $(BUILD)/notepad.o88 $(SMALLAPPDIR)/notepad.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/paint.o88 $(SMALLAPPDIR)/paint.o88
+	@python3 tools/os88pkgsize.py $(BUILD)/calc.o88 $(SMALLAPPDIR)/calc.o88
+	@python3 tools/os88pkgsize.py $(BUILD)/solitair.o88 $(SMALLAPPDIR)/solitair.o88
 
-$(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(APPS_GAMES) $(SYSAPPS) \
+$(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SYSAPPS) \
                            $(APPS_DOS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 	    $(SMALLAPPSARGS) \
-	    $(addprefix GAMES:,$(APPS_GAMES)) \
-	    $(addprefix MEDIA:,$(APPS_DATA_360)) \
+	    $(addprefix GAMES:,$(SMALLGAMES)) \
+	    $(addprefix MEDIA:,$(SMALLDATA_360)) \
 	    $(SYSAPPSARGS) \
 	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
 	    $(MEDIAFOLDER) $(APPDATAFOLDER)
 	@echo "smallapps: $@ - pair it with build/small360.img (\`make small\`)"
 
-$(BUILD)/smallapps.img: $(SMALLPKGS) $(APPS_TOOLS) $(APPS_GAMES) $(SYSAPPS) \
+$(BUILD)/smallapps.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SYSAPPS) \
                         $(APPS_DOS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
 	    $(SMALLAPPSARGS) \
-	    $(addprefix GAMES:,$(APPS_GAMES)) \
-	    $(addprefix MEDIA:,$(APPS_DATA)) \
+	    $(addprefix GAMES:,$(SMALLGAMES)) \
+	    $(addprefix MEDIA:,$(SMALLDATA)) \
 	    $(SYSAPPSARGS) \
 	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
 	    $(APPDATAFOLDER)

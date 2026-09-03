@@ -421,7 +421,7 @@ SH_PNEST_MAX equ 12                  ; the parser's own nesting budget (81.3):
                                       ; the deepest SH_EVAL_MAXDEPTH chain of
                                       ; folds needs (one call + one depth per
                                       ; level); each level holds tens of bytes
-                                      ; of task 0's 1,024-byte stack, so the
+                                      ; of task 0's 512-byte stack, so the
                                       ; cap is sized to that stack, not to the
                                       ; grammar
 
@@ -16501,7 +16501,7 @@ sh_ppowcont:
 ; sh_pnest_enter / sh_pnest_leave - the parser's shared nesting budget (81.3).
 ; SH_EVAL_MAXDEPTH bounds cell-to-cell recursion, but nothing bounded a
 ; formula's OWN nesting: every '(', unary '-', '^' and nested call recurses
-; the parser and banks bytes on task 0's 1,024-byte stack, and six
+; the parser and banks bytes on task 0's 512-byte stack, and six
 ; memoization-cold cells chained that way could run SP off the stack's floor
 ; into .lowbss - silent corruption that fails later, somewhere unrelated.
 ; One counter charges every recursion point, with the cell depth folded in;

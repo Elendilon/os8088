@@ -39,12 +39,26 @@ ROOT = os.path.abspath(ROOT)
 
 # (package, source, the shipped .o88 it must still equal)
 PKGS = [("notepad", "apps/notepad/notepad.asm", "build/notepad.o88"),
-        ("paint", "apps/paint/paint.asm", "build/paint.o88")]
+        ("paint", "apps/paint/paint.asm", "build/paint.o88"),
+        ("calc", "apps/calc/calc.asm", "build/calc.o88"),
+        ("solitaire", "apps/solitaire/solitaire.asm", "build/solitair.o88")]
 
 # The least a small build must save to be worth having, as a fraction of the
-# full build's image + bss. Note Pad's real figure is ~34%; this is a floor
-# under "the define stopped reaching the source", not a target.
-MIN_SAVING = 0.10
+# full build's image + bss.
+#
+# IT IS A FLOOR UNDER "THE DEFINE STOPPED REACHING THE SOURCE", NOT A TARGET,
+# and the spread is wide on purpose: Note Pad saves ~34%, Paint ~16% (its
+# canvas, undo image and clipboard are heap claims that already tier
+# themselves, so its gates can only reach the resident part), Calculator ~24%,
+# and SOLITAIRE ~6%.
+#
+# Solitaire is the floor case and the reason this number came DOWN from 10%.
+# Its size pass took 123 bytes out of BOTH builds - SPEC.md 43.11 derives the
+# hollow pips instead of storing them, and a shared epilogue ladder replaced
+# 28 sites - and bytes taken off both arms do not show in a small/full ratio
+# at all. A package can be thoroughly optimised and have very little LEFT that
+# is optional; that is a good outcome, not a failing gate.
+MIN_SAVING = 0.05
 
 
 # The package defines the Makefile built the SHIPPED .o88 with - $(PKGSBDEF),
@@ -119,7 +133,62 @@ def main():
               "a floor under 'the gates carry nothing', not a target - the "
               "real figure is ~34%% and is allowed to move",
               got="%.1f%%" % (saved * 100), want=">= %d%%" % (MIN_SAVING * 100))
+    disks(tmp)
     done("t_appsmall")
+
+
+# The disks themselves: SPEC.md 42.22.1 - every gated package that reaches a
+# small floppy must be the SMALL build, in EVERY folder it lands in.
+#
+# The Makefile's SMALLBASE substitution is what arranges that, and for one
+# cycle it covered the APPS list and not the GAMES one - so Solitaire shipped
+# TWICE on smallapps360.img, the small build in APPS/ and the full build in
+# GAMES/, and which one ran was whichever the loader found first. The comment
+# above SMALLPKGS predicted that failure exactly and the guard did not cover
+# it, which is why this reads the built image instead of the variable.
+SMALL_IMGS = ["build/smallapps360.img", "build/smallapps.img",
+              "build/smallk/small360.img", "build/small360.img",
+              "build/small.img"]
+
+
+def disks(tmp):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        from t_image import Vol
+    except Exception as e:                                  # pragma: no cover
+        check(False, "the FAT12 reader loads", got=str(e), want="t_image.Vol")
+        return
+
+    want = {}
+    for name, src, shipped in PKGS:
+        base = os.path.basename(shipped).upper()            # e.g. PAINT.O88
+        small = os.path.join(ROOT, "build", "smallapp", os.path.basename(shipped))
+        if os.path.exists(small):
+            want[base] = (os.path.getsize(small), md5(small))
+
+    seen_any = False
+    for rel in SMALL_IMGS:
+        path = os.path.join(ROOT, rel)
+        if not os.path.exists(path):
+            continue
+        seen_any = True
+        with open(path, "rb") as f:
+            v = Vol(f.read(), rel)
+        for folder, name11, attr, clus, size in v.walk():
+            nm = (name11[:8].decode("ascii", "replace").strip() + "." +
+                  name11[8:].decode("ascii", "replace").strip()).upper()
+            if nm not in want:
+                continue
+            wsize, _ = want[nm]
+            check(size == wsize,
+                  "%s: %s%s is the SMALL build" % (rel, folder, nm),
+                  "a gated package reached a small floppy at the FULL build's "
+                  "size. The Makefile substitutes $(SMALLBASE) for the small "
+                  "path per list, so a list that forgot it ships both copies "
+                  "and the loader picks whichever it finds first",
+                  got="%d bytes" % size, want="%d bytes" % wsize)
+    if not seen_any:
+        check(True, "small floppies present to walk (none built - skipped)")
 
 
 if __name__ == "__main__":

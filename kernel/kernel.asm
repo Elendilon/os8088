@@ -263,6 +263,84 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_ASSOC 1
 %endif
 
+; SPEC.md 51's LOADABLE DRIVERS are kern_big's too (SPEC.md 51.0). It is the
+; largest single item in docs/KERN-SMALL-CUT-PLAN.md's hardware group and the
+; only one there that is not a device - it is the ABILITY to load one - so it
+; is the one that needed a product decision rather than a measurement. The
+; decision is the owner's, in their words: *"remove the drivers from the OS
+; disk builds for small; we don't need to take up disk space with files we'll
+; never use."* A 128KB machine has no heap to host a driver in, so the
+; mechanism was closer to unusable there than merely unused, and the disk and
+; the kernel now agree: $(SMALLDRIVERS) is the on-demand kernel MODULES and
+; nothing else.
+;
+; drvvol.inc is what could not go with it - four routines that live in
+; driver.inc for historical reasons and are not driver code. Resolved HERE
+; for OS88_ASSOC's reason.
+%ifdef KERN_BIG
+  %define OS88_DRIVERS 1
+%endif
+
+; ...and with them go the sound layer's CARD tiers (SPEC.md 34.0). This is
+; the half of docs/KERN-SMALL-CUT-PLAN.md's A1 that OS88_DRIVERS has already
+; made unreachable rather than merely unwanted: every route to an OPL2 or a
+; Sound Blaster is a `[drv_svc + DSV_*]` read, and on a build that can load no
+; driver that table is zero for the life of the machine. The PC SPEAKER is
+; untouched and stays on both kernels - tones, beeps and PCM clips all still
+; play - because it is resident code that needs no driver at all.
+;
+; A SEPARATE symbol from OS88_DRIVERS, and not `%ifdef OS88_DRIVERS` reused,
+; because the two are different claims: this one says "there is no card to
+; send a tone to", and a fork that wanted a driverless kernel WITH a built-in
+; OPL2 would turn exactly one of them on. Resolved here for OS88_ASSOC's
+; reason.
+%ifdef KERN_BIG
+  %define OS88_SNDCARD 1
+%endif
+
+; ...and SPEC.md 37.90's RTC LADDER, for a reason that is about the HARDWARE
+; and not about the bytes (SPEC.md 37.0.1). All four rungs are chips a 128KB
+; machine cannot have:
+;
+;   rung 1  MC146818 - arrived WITH THE AT, so not in an XT at all
+;   rung 2  MM58167  - an add-on card, and the card everyone means is the AST
+;                      SixPakPlus, which IS A RAM EXPANSION: a machine with
+;                      one in it does not have 128KB any more
+;   rung 3  RP5C01   - the first machine that shipped with one shipped with
+;                      256KB
+;   rung 4  int 1Ah AH=02h - "an XT BIOS implements AH=00h/01h and nothing
+;                      else" (SPEC.md 37.90), so it answers nothing here
+;
+; So the ladder is not merely unlikely on this build, it is unreachable, and
+; tier 0 - the PIT tick and a clock the user sets for the session - is what a
+; 128KB XT actually has. Resolved here for OS88_ASSOC's reason.
+%ifdef KERN_BIG
+  %define OS88_RTC 1
+%endif
+
+; SPEC.md 22.3-22.5's Cut/Copy/Paste is an ON-DEMAND MODULE on kern_small
+; (SPEC.md 2.8, docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1) and stays resident
+; `.cold` on kern_big, which keeps its speed and its one contiguous boot read:
+; a module is CUT OUT of kernel.bin by tools/os88mod.py and MODC_START is
+; exactly where the image ends, so nothing about big's read changes.
+;
+; It is the FIRST feature through the seam because it needs nothing new:
+; five entry points against MOD_NENT's eight, and every caller is a user
+; gesture in files.inc. ONE symbol decides it, resolved here above every
+; %include for OS88_ASSOC's reason.
+%ifdef KERN_SMALL
+  %define FCP_MOD 1
+%endif
+
+; SPEC.md 38's Standard File dialog, on FCP_MOD's terms one block up and
+; through the same seam (SPEC.md 38.0, docs/KERN-SMALL-MODULE-SPLIT.md 9.2
+; wave 2). SEVEN entries against MOD_NENT's eight, because SPEC.md 13.10.5's
+; thumb drag is kern_big's already and takes fdlg_onup and fdlg_ondrag with
+; it - so this fits the mechanism as it stands and needed no MOD_NENT raise.
+%ifdef KERN_SMALL
+  %define FDLG_MOD 1
+%endif
+
 ; SPEC.md 13.10.5's thumb DRAG is kern_big's and SHIPS - `make SBDRAGOFF=1`
 ; compiles it out, which is WM_ANIM's shape one section up and exists to be
 ; diffed against rather than because anybody should build it.
@@ -1963,6 +2041,36 @@ MIN_RAM_KB  equ 196
 MIN_RAM_KB  equ 128
 %endif
 
+%ifdef KERN_SMALL
+DSK_FAT_SECS equ 2              ; TWO on kern_small: 1,024 bytes of FAT_SEG
+                                ; instead of 4,608, and the largest volume it
+                                ; will mount is a 360KB floppy
+                                ; (docs/KERN-SMALL-CUT-PLAN.md D2).
+                                ;
+                                ; It is an ACCEPTANCE threshold like the value
+                                ; below, so this is not a buffer that might
+                                ; pinch - a volume declaring more FAT sectors
+                                ; is refused at mount rule 10 before a byte of
+                                ; it is read. tools/os88disk.py --fatcap is
+                                ; what keeps every GEOMETRY available anyway:
+                                ; a 1.44MB floppy formatted with 4KB clusters
+                                ; declares a 2-sector FAT, so the disk is
+                                ; still 1.44MB and still a standard FAT12
+                                ; volume any host mounts.
+                                ;
+                                ; IT COULD NOT HAVE BEEN TAKEN BEFORE SPEC.md
+                                ; 37.0.1. docs/KERN-SMALL-CUT-PLAN.md 7 is the
+                                ; floor: `.ovlw` is loaded ONTO this window and
+                                ; spills through the mount buffers, so it has
+                                ; to fit FAT_PARA*16 + DSK_WIN_BYTES. At 2
+                                ; sectors that region is 4,352, and `.ovlw`
+                                ; rounded to whole sectors was 4,608 - short by
+                                ; 256. Gating the RTC ladder took `.ovlw` from
+                                ; 4,328 to 2,789, which rounds to 3,072, and
+                                ; the cap fits with 1,280 to spare. The clock
+                                ; was 40% of that overlay and this is what it
+                                ; was really worth.
+%else
 DSK_FAT_SECS equ 9              ; resident FAT cap, sectors (4,608 bytes).
                                 ; Exactly what the largest geometry this OS
                                 ; boots or builds declares: 1.44MB = 9, 1.2MB
@@ -1974,12 +2082,50 @@ DSK_FAT_SECS equ 9              ; resident FAT cap, sectors (4,608 bytes).
                                 ; refused by this number alone (a FAT is only
                                 ; FAT16 with >= 4,085 clusters, i.e. >= 16 FAT
                                 ; sectors)
+%endif
 FAT_PARA    equ DSK_FAT_SECS * 32     ; 512 bytes = 32 paragraphs
 
-STK0_SIZE   equ 1024            ; task 0's stack - the UI task's, and so the
+STK0_SIZE   equ 512             ; task 0's stack - the UI task's, and so the
                                 ; one every window callback, every menu track
                                 ; and every file-dialog interaction runs on.
-                                ; 4x its measured 246-byte high-water mark.
+                                ; 2.08x a measured high-water mark, and the
+                                ; measurement is `tests/stk0water.py` now
+                                ; rather than a hand edit run once: it fills
+                                ; everything below task 0's SAVED SP with
+                                ; 0xCC, drives the machine, and reads the
+                                ; deepest byte back. It reads 238 against
+                                ; SPEC.md 15.1's 246, whose drive is heavier,
+                                ; so 246 is the number to divide by.
+                                ;
+                                ; 2.08x SPEC.md 15.1's 246, and that is
+                                ; GENEROUS by the standard this tree actually
+                                ; holds: docs/STACK-SLOTS-PLAN.md 12 has Frotz
+                                ; at 1.26x - a 22-level chain reading 240 of a
+                                ; 384 slice - as the thinnest margin in the
+                                ; tree, and it is accepted because a slice's
+                                ; depth is now DETERMINISTIC. SPEC.md 9.10 put
+                                ; both mouse ISRs on a private stack and 8.5
+                                ; the ROM's int 08h chain, so what lands on a
+                                ; task stack is that task's own call chain and
+                                ; nothing arriving from outside it. The margin
+                                ; used to be covering variance that no longer
+                                ; exists.
+                                ;
+                                ; It is also GUARDED, which two earlier
+                                ; readings of this got wrong in both
+                                ; directions: SPEC.md 8.7's sch_stkbase holds
+                                ; STK0_BOT at slot 0, sched_init seeds it with
+                                ; SCH_MAGIC, and sch_switch compares it on
+                                ; EVERY switch like every other slot's - so an
+                                ; overrun here reaches sch_stkdie rather than
+                                ; going quiet. tests/stk0water.py found that by
+                                ; dying the moment its fill reached the magic
+                                ; word.
+                                ;
+                                ; Guard 3 below refuses anything under 512, so
+                                ; this is the floor the design allows and the
+                                ; next 256 would need that guard revisited
+                                ; rather than just a probe.
                                 ; It is a CONSTANT now: it used to be "whatever
                                 ; is left between .lowbss and the kernel", so
                                 ; every byte saved anywhere below simply made
@@ -2317,6 +2463,12 @@ section .ovlw    start=OVLW_START vstart=0
 section .modc    start=MODC_START vstart=0
 section .modf    start=MODF_START vstart=0
 section .modl    start=MODL_START vstart=0
+%ifdef FCP_MOD
+section .modp    start=MODP_START vstart=0
+%endif
+%ifdef FDLG_MOD
+section .modd    start=MODD_START vstart=0
+%endif
 section .modmap  start=MODMAP_START vstart=0
 section .text
 
@@ -3997,8 +4149,10 @@ ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
 ; NEAR-calls, so neither can say it that way. They are `cw_` and not `ovw_`
 ; because `ovw_` names the overlay and the overlay is no longer the caller
 ; that matters: CTRL.DRV reaches these all session, the overlay for one boot.
-cw_clk_ns_put:      call clk_ns_put
+%ifdef OS88_RTC                 ; SPEC.md 37.0.1: CTRL.DRV's write half is
+cw_clk_ns_put:      call clk_ns_put     ; gated with the rungs it writes to
                     retf
+%endif
 cw_clk_tobcd:       call clk_tobcd
                     retf
 ; -----------------------------------------------------------------------------
@@ -6573,7 +6727,13 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 MODC_START   equ OVLW_START + OVLW_SIZE
 MODF_START   equ MODC_START + MODC_SIZE
 MODL_START   equ MODF_START + MODF_SIZE
+%ifdef FCP_MOD
+MODP_START   equ MODL_START + MODL_SIZE   ; Cut/Copy/Paste, kern_small's alone
+MODD_START   equ MODP_START + MODP_SIZE   ; ...and the file dialog after it
+MODMAP_START equ MODD_START + MODD_SIZE
+%else
 MODMAP_START equ MODL_START + MODL_SIZE
+%endif
 
 section .modc
 modc_end:
@@ -6586,6 +6746,18 @@ MODF_SIZE equ modf_end - $$
 section .modl
 modl_end:
 MODL_SIZE equ modl_end - $$
+
+%ifdef FCP_MOD
+section .modp
+modp_end:
+MODP_SIZE equ modp_end - $$
+%endif
+
+%ifdef FDLG_MOD
+section .modd
+modd_end:
+MODD_SIZE equ modd_end - $$
+%endif
 
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
 ; (mod.inc) is a RUN-TIME test - a module over it is refused cleanly, the
@@ -6600,6 +6772,16 @@ MODL_SIZE equ modl_end - $$
 %endif
 %if MODL_SIZE > MOD_MAX_KB*1024
 %error "the clone module is over MOD_MAX_KB - mod_need would refuse it at run time"
+%endif
+%ifdef FCP_MOD
+ %if MODP_SIZE > MOD_MAX_KB*1024
+%error "the Cut/Copy/Paste module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
+%endif
+%ifdef FDLG_MOD
+ %if MODD_SIZE > MOD_MAX_KB*1024
+%error "the file dialog module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
 %endif
 
 ; --- the split table, which is HOST-SIDE ONLY --------------------------------
@@ -6624,6 +6806,10 @@ mod_map:
                                 ; flags but this tree's -w+error
     dd MODF_START, MODF_SIZE
     dd MODL_START, MODL_SIZE
+%ifdef FCP_MOD
+    dd MODP_START, MODP_SIZE    ; ...and kern_small's fourth (SPEC.md 22.3)
+    dd MODD_START, MODD_SIZE    ; ...and its fifth (SPEC.md 38.0)
+%endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
 modmap_end:
@@ -7118,6 +7304,18 @@ section .modc
 section .modf
 %if ($ - $$) != MODF_SIZE
   %error "something landed in .modf below modf_end - os88mod.py would CUT the format module short of it"
+%endif
+%ifdef FCP_MOD
+section .modp
+%if ($ - $$) != MODP_SIZE
+  %error "something landed in .modp below modp_end - os88mod.py would CUT the Cut/Copy/Paste module short of it"
+%endif
+%endif
+%ifdef FDLG_MOD
+section .modd
+%if ($ - $$) != MODD_SIZE
+  %error "something landed in .modd below modd_end - os88mod.py would CUT the file dialog module short of it"
+%endif
 %endif
 section .modl
 %if ($ - $$) != MODL_SIZE

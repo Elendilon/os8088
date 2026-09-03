@@ -648,6 +648,23 @@ DRV_CFG_MAPN equ 8
                                 ; there is no .bss in either
 %endmacro
 
+; =============================================================================
+; NOT ON `kern_small` FROM HERE DOWN - SPEC.md 51.0
+; =============================================================================
+; Everything above is `equ`s and macros, which cost nothing on either build
+; and which the rest of the kernel names freely (DRVC_*, DSV_*, FSV_*, the
+; DRVR_ record offsets). Everything BELOW is the loadable-driver mechanism
+; itself, and `kern_small` does not have it: no `.DRV` of any kind can be
+; loaded there, `SYSTEM.CFG` is not read, and the Control Panel has no
+; Drivers page. drvvol.inc is the part that had to stay - see its banner.
+;
+; The gate is INSIDE the file and not around the %include, which is band.inc's
+; and assoc.inc's idiom and is `tools/kernsize.py`'s requirement: it brackets
+; kernel.asm's own %include lines to attribute bytes per module, so an include
+; inside an %ifdef puts the opening marker where the tool cannot see it and
+; `--bless` fails naming a symbol nobody edited.
+%ifdef OS88_DRIVERS
+
 drv_blob_map:
     db 1, DRV_BLOB_SZ
     dw CFG_DBLOB                ; row 1: the hard disk
@@ -2194,173 +2211,23 @@ drv_svc_clear_all:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; drv_mounted - make drive A: the mounted volume, if it can be
-; in:  nothing
-; out: CF = 0 mounted; CF = 1 no readable system disk
-; clobbers: nothing else (flags)
+; --- the volume plumbing moved to drvvol.inc (SPEC.md 51.0) -----------------
+; drv_mounted, drv_vol_bank/_back and drv_find are NOT driver code: mod.inc
+; needs all four and needs them MORE on kern_small, so they are OUTSIDE this
+; file's gate - which is why the gate closes here and reopens below.
 ;
-; A full remount every time, deliberately: the disk can be swapped between
-; two Control Panel clicks, and every other mount in this OS is a full
-; remount for exactly that reason (SPEC.md 18.3). A driver load is not the
-; place to invent a caching rule.
-; -----------------------------------------------------------------------------
-section .cold                   ; ...and back: drv_mounted is CTRL.DRV's too
-drv_mounted:
-    push ax
-    push dx
-    mov dl, [dsk_bootvol]       ; the disk we booted from - A: on a floppy
-                                ; machine, where this byte is 0 and this is
-                                ; the `xor dl, dl` it replaced, and the
-                                ; installed PARTITION on a machine that boots
-                                ; from its hard disk (SPEC.md 52.10.3)
-    xor ax, ax                  ; ...at its root, which is where 19.6 puts
-                                ; KERNEL.SYS, SYSTEM.CFG and every *.DRV
-    call dsk_chdir_q_x            ; QUIET (SPEC.md 18.9): all three callers here
-                                ; read or write a file BY NAME - drv_find is
-                                ; dskw_stat and drv_cfg_* are dskw_read /
-                                ; dskw_write_sys, none of which look at the
-                                ; listing - so the scan, the sort and one
-                                ; icon-harvest read per file in A:'s root are
-                                ; all bought for nothing. ui_tm_open used to
-                                ; be named here as the caller that DOES need
-                                ; a listing, because it handed the loader a
-                                ; directory index; SPEC.md 21.4 gave it
-                                ; ld_run_name and SPEC.md 28.3.1 spent it, so
-                                ; that exception is gone and every mount on
-                                ; the path to a system file is quiet. It still
-                                ; mounts for itself rather than coming through
-                                ; here, because it has to reach a SUBDIRECTORY
-                                ; (SPEC.md 28.3) and this stops at the root
-    pop dx
-    pop ax
-    ret
+; INCLUDED FROM THE POINT THE CODE LEFT, and not from kernel.asm beside every
+; other %include, for one reason: it keeps kern_big BYTE-IDENTICAL. The four
+; bodies are `.cold`, and moving them to the end of the segment changes no
+; behaviour and no byte count - but it changes every address after them, so
+; "kern_big is untouched" would stop being a thing a checksum could say. It
+; is worth three lines to keep the A/B exact.
+%endif                          ; OS88_DRIVERS - drvvol.inc is outside it
+%include "drvvol.inc"
+%ifdef OS88_DRIVERS
+section .cold                   ; ...and the section drvvol.inc left us in is
+                                ; .text (SPEC.md 1), so back to cold code
 
-; -----------------------------------------------------------------------------
-; drv_vol_bank / drv_vol_back - put the user's volume back (SPEC.md 51.5.2)
-; in (bank):  nothing.  in (back): the banked pair
-; out: nothing. BOTH PRESERVE EVERY REGISTER AND THE FLAGS.
-;
-; drv_mounted goes to A: because that is where the system files are, and for
-; a long time nothing put the volume back - so a user working on B: was
-; silently moved to A: by a Control Panel click. Nothing said so: the next
-; Standard File dialog simply opened on the wrong disk, and a package
-; resolving a file name resolved it there. It is the same shape of bug the
-; hard disk's Mount had (SPEC.md 52.6) and the same answer ui_tm_open already
-; used for the Task Manager (SPEC.md 28.3) - which is why this is a routine
-; and not a third open-coded dance.
-;
-; FLAGS ARE PRESERVED, and that is the load-bearing part rather than
-; politeness: both callers return a result in CF and in AX, the restore runs
-; at their common exit, and a remount that failed must not be mistaken for a
-; driver that failed to load. A failed restore is therefore SWALLOWED - the
-; volume is left at its root with the write gate shut, exactly as after any
-; failed mount, which is ui_tm_back's answer too and a survivable place to be.
-;
-; THE COMPARE IS WHAT MAKES IT FREE. A remount is a floppy's worth of sectors
-; (SPEC.md 19.2), so putting back a volume that never moved would put one on
-; the boot path: drv_boot calls drv_load once per wanted driver, and each of
-; those would have paid a mount to arrive where it already was. Banked equal
-; to current means nothing moved and there is nothing to undo.
-;
-; One static pair, like ui_tm_cwd and for the same reason: this is UI-task
-; context and the two brackets never nest - cp_flush_x is the only caller of
-; drv_cfg_save, and drv_load reaches no path that writes the settings file.
-; In .text with real initialisers, because -f bin zeroes no .bss and A:'s root
-; is the right answer before anything has been banked.
-; -----------------------------------------------------------------------------
-drv_vol_bank:
-    push ax
-    push bx
-    push dx
-    call KERNEL_SEG:cw_osapi_file_here        ; DX = the directory cluster, BL = the drive
-    mov [drv_vol_cwd], dx
-    mov [drv_vol_drv], bl
-    pop dx
-    pop bx
-    pop ax
-    ret
-
-drv_vol_back:
-    pushf
-    push ax
-    push dx
-    mov ax, [drv_vol_cwd]       ; dsk_chdir's arguments, loaded before the
-    mov dl, [drv_vol_drv]       ; compare because they ARE the compare
-    cmp dl, [disk_drive]        ; still where the user left us? then there is
-    jne .go                     ; nothing to undo, and the remount is the
-    cmp ax, [dsk_cwd]           ; whole cost
-    je .out
-.go:
-    call dsk_chdir_q_x            ; CF = the remount failed; swallowed by the
-                                ; popf below, deliberately.
-                                ;
-                                ; QUIET (SPEC.md 18.9), because putting the
-                                ; user's VOLUME back is not the same as
-                                ; putting a LISTING on screen: every Disk
-                                ; window paints from its own view cache
-                                ; (22.1), so nothing here is drawn from the
-                                ; global snapshot, and whoever reads it next
-                                ; pays for the rebuild if it is ever needed
-.out:
-    pop dx
-    pop ax
-    popf
-    ret
-section .text                   ; DATA, so back to the kernel segment
-                                ; (SPEC.md 2.6 rule 1)
-
-
-drv_vol_cwd: dw 0               ; the directory and drive to go back to
-drv_vol_drv: db 0
-section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
-                                ; segment of its own. DS is still KERNEL_SEG,
-                                ; so the DATA stays in .text at every toggle
-
-
-; -----------------------------------------------------------------------------
-; drv_find - a file's byte size, straight out of the directory
-; in:  SI -> a NUL display name (upper case, as dsk_synth writes them);
-;      drive A: already mounted
-; out: CF = 0 and AX = its size; CF = 1 not found
-; clobbers: AX (the output), flags
-;
-; **dskw_stat, NOT dsk_find_name** (SPEC.md 19.6). The latter walks the mount
-; SNAPSHOT, and the snapshot is a display listing: dsk_synth filters the
-; hidden and system entries out of it, which is exactly what a .DRV is now.
-; Through it every driver on the disk reads as "not on the system disk" -
-; and the Control Panel says so on its Drivers page, which is a long way
-; from the cause. dskw_stat walks the directory sectors themselves and so
-; sees a file whether or not it is meant to be shown.
-;
-; What stays here is the one thing a DRIVER wants out of the entry: its size,
-; which is what lets the claim be made at exactly the right size before a
-; byte of the file is read. DX:CX is a 32-bit size and a driver is capped at
-; DRV_MAX_KB, so a non-zero high word is simply not one of ours.
-; -----------------------------------------------------------------------------
-drv_find:
-    push bx
-    push cx
-    push dx
-    push si
-    call dskw_stat_x              ; AL = attribute, BX = first cluster,
-    jc .no                      ; DX:CX = the size
-    test dx, dx
-    jnz .no
-    mov ax, cx
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    clc
-    ret
-.no:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    stc
-    ret
 
 ; -----------------------------------------------------------------------------
 ; drv_load - bring one driver up (SPEC.md 51.3)
@@ -4448,7 +4315,194 @@ drv_pkg_disp:
     push word [cs:drv_fptr]     ; ...and PKG_DISP, which nothing writes
     retf
 
+%else
+; =============================================================================
+; ...AND THE `kern_small` ARM: what a machine with no drivers answers
+; =============================================================================
+; SPEC.md 51.0. Every stub below is the answer the LIVE body already gives on
+; a machine where nothing is published - `drv_svc_none`'s `xor ax,ax / stc`,
+; an empty class table, a row that owns no segment - so not one caller had to
+; change. That is the whole reason this is a stub block and not ~90 gated call
+; sites: `drv_fs_call` alone has 25 of them across six files, and a sweep over
+; those is exactly the shape that introduces a defect nobody sees (SPEC.md
+; 38.0's `fdlg_hasdot`).
+;
+; They are `.cold` because that is where the bodies they replace were, and
+; because a caller's `call` does not care which segment the answer comes from
+; when both are near.
+
+section .cold
+
+; --- the dispatchers: nothing is published, so every verb refuses -----------
+; CF = 1 with AX = 0 is drv_svc_none's contract and every caller already reads
+; it (SPEC.md 62.9.1's table): "no driver of this class, or it publishes no
+; table, or the cell for this verb is 0".
+drv_svc_none:
+drv_fs_call:
+drv_svc_call_x:
+drv_blk_call_x:
+    xor ax, ax
+    stc
+    ret
+
+section .text
+; ...and OSAPI_DRV_CALL's body is `.text` on the live arm, because kernel.asm
+; reaches it NEAR from an API slot (SPEC.md 20.11.2). The stub has to be in
+; the same section or tools/os88ovlchk.py reports the slot as a near call
+; across a segment boundary - which it caught, on this exact line.
+drv_pkg_call_x:
+    xor ax, ax
+    stc
+    ret
+section .cold
+
+; ...and the two that answer WITHOUT touching AX. drv_fs_has is the
+; unambiguous form of the above - CF = 1 means "drv_fs_call would refuse" -
+; and every register is preserved, which `ret` after `stc` already is.
+drv_fs_has:
+    stc
+    ret
+
+; drv_cls_fp / drv_cls_svc: DI = 0 and CF = 1 is the out-of-range answer the
+; live pair gives, and with no class ever published every class is that.
+drv_cls_fp_x:
+drv_cls_svc_x:
+    xor di, di
+    stc
+    ret
+
+; drv_owns_seg: no segment belongs to a driver, because there is no driver.
+; CF = 1 is the live body's "no" (it falls out of drv_row_ix_of's own refusal).
+drv_owns_seg_x:
+    stc
+    ret
+
+; --- the lifecycle: four hooks kmain and ui.inc call unconditionally --------
+; Gating the CALL SITES would put four %ifdefs into the boot sequence to say
+; nothing; a `ret` says the same thing in one byte each and keeps kmain
+; readable as the ladder it is (SPEC.md 15).
+; ...and the four the live arm ends in `retf`, because their callers reach
+; them with `call COLD_SEG:` from a module or from .text (SPEC.md 2.6.1).
+; tools/os88ovlchk.py checks the pairing both ways and named all four.
+drv_notice_x:
+drv_cp_closed_x:
+drv_shutdown_x:
+drv_task_x:
+    retf
+drv_cp_count_x:
+    xor al, al                  ; no class publishes a Control Panel page
+    retf
+drv_status_x:
+    mov si, drv_s_off           ; the one status a row could ever have
+    retf
+
+section .ovlw                   ; ...and these two are BOOT-OVERLAY code on the
+                                ; live arm (SPEC.md 2.5.2), reached near from
+                                ; kmain's own overlay window
+drv_init_x:
+drv_snd_sniff:
+    retf                        ; the boot ladder enters an overlay rung with
+                                ; `call far [spl_fp]` (SPEC.md 2.5.3)
+section .cold
+
+; --- and the far entries the resident thunks in kernel.asm name -------------
+; They are `retf` because that is how the thunk calls them; the API pair
+; keeps its slot (SPEC.md 20.4 - a slot's OFFSET is the ABI, so a gated
+; feature refuses rather than moving the table under every package that was
+; built against it) and CF = 1 is what a package already reads as "this
+; kernel cannot".
+dvf_drv_owns_seg:
+    stc
+    retf
+dvf_drv_dlg_done:
+    retf
+osapi_drv_cfg_x:
+osapi_drv_dlg_x:
+    stc
+    retf
+
+; --- ...and the Control Panel's Drivers page, which is not listed at all ----
+; SPEC.md 51.0: the page's row is out of `cp_items`, so nothing can select it
+; and none of these is reachable. They are stubbed rather than gated because
+; the page lives in CTRL.DRV - an on-demand MODULE on both builds - so gating
+; its eleven interleaved regions would move no resident byte and would put a
+; %ifdef through the middle of the Sound page, which stays.
+drvf_drv_cls_svc:
+drvf_drv_cp_class:
+drvf_drv_cp_name:
+drvf_drv_cp_call:
+drvf_drv_row:
+drvf_drv_tier:
+drvf_drv_load:
+drvf_drv_unload:
+    stc
+    retf
+
+drv_cp_class_x:
+    stc
+    ret
+
+section .ovl
+; drv_boot loads what SYSTEM.CFG asks for, and kmain's ladder calls it through
+; OVLGATE1. There is no SYSTEM.CFG here and nothing to load, so the rung is a
+; `ret` rather than a gap in the ladder - kmain stays readable as the sequence
+; it is (SPEC.md 15).
+drv_boot_x:
+    retf                        ; OVLGATE1's far entry (SPEC.md 2.5.3)
+
+section .modc                   ; CTRL.DRV's image (SPEC.md 2.8): cp_flush_x
+                                ; reaches this NEAR, so the stub has to be in
+                                ; the same image and not in .cold
+cp_cfg_save:
+    ret                         ; SPEC.md 51.5.3's writer, with no file to write
+
+section .text
+; --- the DATA three other files still name ----------------------------------
+; drv_svc is the published SERVICE TABLE, and snd.inc reads two of its cells
+; directly - `cmp word [drv_svc+DSV_TONE], 0` is the sound layer asking
+; whether a driver has offered it a tone proc. ONE class' worth, and in
+; `.text` with real zero bytes rather than `.bss`: nothing zeroes .bss on this
+; assembler (SPEC.md 8), and the live build gets its zeros from
+; drv_svc_clear_all, which is inside the gate. So the answer is "no proc",
+; permanently and without an initialiser - which is what it would be.
+drv_svc:      times DSV_SIZE db 0
+drv_blkcls:   db 0              ; disk.inc writes it per volume and only
+                                ; drv_blk_call reads it, so it is write-only
+                                ; here - kept because disk.inc's store is on
+                                ; the mount path and gating one byte there
+                                ; would cost more than the byte
+drv_e1_l:     db 'A:', 0        ; disk.inc's DRVE_DISK error string points at
+                                ; this, and that table is not the driver
+                                ; layer's (SPEC.md 52.10.3)
+drv_memk:     times DRV_MAX dw 0
+                                ; the per-row heap figure cp_drv_mem1 prints.
+                                ; Zero on every row, which is true
+drv_owner:    times DRVC_MAX dw 0
+                                ; per class, the row that published it. ALL
+                                ; ZERO for ever here, which is exactly what
+                                ; cp_snd_rowok reads it for - "nothing
+                                ; published: the speaker is all the machine
+                                ; has" (SPEC.md 34.8) is now a fact rather
+                                ; than a state
+drv_s_off:    db 'Not loaded', 0
+drv_errstr:   times DRVE_NERR dw drv_s_off
+                                ; cp_snd_note indexes this when a tier click
+                                ; is refused, so the table has to be as long
+                                ; as DRVE_NERR even though only one answer is
+                                ; reachable. One string, DRVE_NERR pointers
+fdlg_s_drive: db 'Drive', 0     ; the Standard File dialog's own button
+                                ; caption. On kern_big it is the tail of
+                                ; drv_t_hdd's 'Hard Drive' and costs nothing;
+                                ; with that string gone it needs six bytes of
+                                ; its own, and they belong to fdlg.inc rather
+                                ; than here - see SPEC.md 38.3
+
+section .cold
+%endif                          ; OS88_DRIVERS
+
 section .text                   ; ...and the file ends in .text, where it began
+                                ; - on BOTH arms, which is what SPEC.md 1's
+                                ; section rule needs from a gated file
                                 ; (SPEC.md 2.6 rule 1). There is no staged far
                                 ; pointer here any more: drv_pkg_call far-calls
                                 ; the class's own drv_fptr pair, because a

@@ -91,9 +91,34 @@
 ;              one another machine can read back
 ;   PTF_ABOUT  Paint's own About card (SPEC.md 12.2)
 ;   PTF_FSX    the full-screen surface (SPEC.md 42.7) and the View menu
+;   PTF_UNDO   undo/redo (SPEC.md 42.8.6) - and the CLAIM it runs on, which is
+;              a second copy of the canvas
+;   PTF_CLIP   Cut, Copy and Paste, their clipboard claim, and the SELECTION
+;              TOOL, which exists to feed them and has no other use
 ;
-; KEPT ON PURPOSE: every drawing tool, the palette, BMP load and save, undo,
-; the clipboard, flood fill, filled shapes, the text tool, and SPEC.md 42.16's
+; PTF_UNDO and PTF_CLIP are pass 2 (SPEC.md 42.22.1) and they are a different
+; argument from the three above. Those are features a small machine merely
+; does without; these two are features it can never FUND. Paint's heap side
+; already tiers - pt_alloc_undo and pt_alloc_clip each refuse on their own and
+; each refusal costs exactly what it funds - so on the floor machine the undo
+; image and the clipboard were never claimed in the first place. What was
+; still being paid for was the CODE THAT ASKS: ~1,781 bytes of routines, their
+; call sites, pt_umask's PT_CH_MAX bytes of .bss, and four greyed menu items
+; whose only job is to explain a refusal that no longer needs explaining.
+;
+; So this is not "drop a feature to save space". It is dropping the machinery
+; for a feature the arm could not have had, and the greying goes with it: an
+; item that is permanently `(NoRam)` is not SPEC.md 47's "grey a fact" - it is
+; a fact that never changes, which is a menu item that should not be there.
+;
+; EDIT > CLEAR GOES TOO, and it is a DEPENDENCY rather than a decision:
+; pt_sel_clear whites out the SELECTION, not the canvas, and answers CF = 1
+; when nothing is selected. With the marquee gone it is an inert item - and
+; Undo, Cut, Copy, Paste and Clear being all of the Edit menu, the MENU goes.
+; File > New is what blanks a canvas on either build.
+;
+; KEPT ON PURPOSE: every drawing tool but the marquee, the palette, BMP load
+; and save, flood fill, filled shapes, the text tool, and SPEC.md 42.16's
 ; "Save changes to X?" alert - that last one is data safety and is never a
 ; size decision, which is Note Pad's rule (27.16.2) and holds here.
 ; -----------------------------------------------------------------------------
@@ -101,6 +126,47 @@
 %define PTF_GIF
 %define PTF_ABOUT
 %define PTF_FSX
+%define PTF_UNDO
+%define PTF_CLIP
+%endif
+
+; ...and the Edit MENU, which is the two of them together: every item in it is
+; one or the other, so it is the menu that goes rather than items being
+; removed from it. Derived rather than declared, so a build that keeps just
+; one of the pair still gets a menu with the surviving items in it.
+%ifdef PTF_UNDO
+%define PTF_EDIT
+%elifdef PTF_CLIP
+%define PTF_EDIT
+%endif
+
+; ...and pt_gate, the "is this feature funded on this machine?" test. Its
+; callers are the three clipboard commands and GIF save, so with both of those
+; gone it is dead code - AND a trap, because with nothing left to test it falls
+; into pt_msg_show with SI holding whatever the caller had.
+%ifdef PTF_CLIP
+%define PTF_GATE
+%elifdef PTF_GIF
+%define PTF_GATE
+%endif
+
+; The menu NUMBERS, counted the way the tool numbers below are and for the
+; same reason: pt_oncmd is handed a (menu, item) pair as an INDEX, so a menu
+; that compiles out shifts every menu after it. Written out, that is two lists
+; to keep in step - the OS88_MENU declarations and pt_oncmd's compares - and
+; the failure is silent: Draw's items arrive at the View arm.
+%assign PT_MN 0
+%macro PTMENU 1
+%1 equ PT_MN
+%assign PT_MN PT_MN + 1
+%endmacro
+    PTMENU PT_MENU_FILE
+%ifdef PTF_EDIT
+    PTMENU PT_MENU_EDIT
+%endif
+    PTMENU PT_MENU_DRAW
+%ifdef PTF_FSX
+    PTMENU PT_MENU_VIEW
 %endif
 
     OS88_HEADER 'PAINT', pt_entry, 1
@@ -346,15 +412,26 @@ PT_BTN_W16  equ 16                  ; the two toggles are right-anchored, so
                                     ; their x is [pt_filx] / [pt_fntx]
 
 ; --- tools ---------------------------------------------------------------------
-PT_T_PENCIL equ 0
-PT_T_ERASER equ 1
-PT_T_DROP   equ 2
-PT_T_RECT   equ 3
-PT_T_OVAL   equ 4
-PT_T_SEL    equ 5
-PT_T_FILL   equ 6
-PT_T_TEXT   equ 7
-PT_NTOOL    equ 8
+; COUNTED, not written out: the marquee goes with PTF_CLIP (SPEC.md 42.22.1)
+; and the palette must close up behind it rather than leave a hole. Every
+; number below - and pt_ic_tab's order, and PT_NTOOL - then follows from one
+; list, so the two cannot disagree.
+%assign PT_TN 0
+%macro PTTOOL 1
+%1 equ PT_TN
+%assign PT_TN PT_TN + 1
+%endmacro
+    PTTOOL PT_T_PENCIL
+    PTTOOL PT_T_ERASER
+    PTTOOL PT_T_DROP
+    PTTOOL PT_T_RECT
+    PTTOOL PT_T_OVAL
+%ifdef PTF_CLIP
+    PTTOOL PT_T_SEL
+%endif
+    PTTOOL PT_T_FILL
+    PTTOOL PT_T_TEXT
+PT_NTOOL    equ PT_TN
 
 ; --- modes: anything but PT_M_LIVE draws a notice and eats every input ---------
 PT_M_LIVE   equ 0
@@ -999,14 +1076,18 @@ pt_reloc:
     inc si
     loop .shift
 .notcv:
+%ifdef PTF_UNDO
     cmp bx, [pt_unseg]
     jne .notun
     mov [pt_unseg], dx
 .notun:
+%endif
+%ifdef PTF_CLIP
     cmp bx, [pt_cbseg]
     jne .notcb
     mov [pt_cbseg], dx
 .notcb:
+%endif
     cmp bx, [pt_scseg]              ; the fill stack: one word, re-read at every
     jne .notsc                      ; use, and nothing derived from it
     mov [pt_scseg], dx
@@ -1019,11 +1100,13 @@ pt_reloc:
     jne .notos                      ; from, which is the old canvas on one
     mov [pt_osrc], dx               ; path and the undo image on the other
 .notos:
+%ifdef PTF_UNDO
     mov ax, [pt_unseg]              ; the delta LAST, and unconditionally:
     or ax, ax                       ; either end may have been what moved,
     jz .out                         ; and by here both words are current
     sub ax, [pt_base]
     mov [pt_undelta], ax
+%endif
 .out:
     pop si
     pop cx
@@ -1101,6 +1184,7 @@ pt_unpin:
 ; one add per row even though the two blocks are now unrelated claims that
 ; may sit either way round in memory (16-bit wraparound makes a negative
 ; delta work unchanged).
+%ifdef PTF_UNDO
 ; -----------------------------------------------------------------------------
 pt_alloc_undo:
     push ax
@@ -1123,6 +1207,7 @@ pt_alloc_undo:
     pop cx
     pop ax
     ret
+%endif   ; PTF_UNDO
 
 ; -----------------------------------------------------------------------------
 ; pt_alloc_clip - claim a clipboard: the canvas size if the heap will fund it,
@@ -1132,6 +1217,7 @@ pt_alloc_undo:
 ; The floor is what the GIF codec's tables need (PT_CLIPMINP), so a clipboard
 ; that shrank to it still leaves Save Gif working while Cut/Copy of a large
 ; selection starts refusing - which is what [pt_cbparas] already gates.
+%ifdef PTF_CLIP
 ; -----------------------------------------------------------------------------
 pt_alloc_clip:
     push ax
@@ -1223,10 +1309,16 @@ pt_clip_need:
     pop ax
     stc
     ret
+%else
+pt_alloc_clip:
+pt_free_clip:
+    ret
+%endif   ; PTF_CLIP
 
 ; -----------------------------------------------------------------------------
 ; pt_free_undo / pt_free_clip - hand a claim back (SPEC.md 50.3)
 ; out: nothing; preserves all registers
+%ifdef PTF_UNDO
 ; -----------------------------------------------------------------------------
 pt_free_undo:
     push dx
@@ -1241,6 +1333,7 @@ pt_free_undo:
 .out:
     pop dx
     ret
+%endif   ; PTF_UNDO
 
 ; -----------------------------------------------------------------------------
 ; pt_alloc_lzw / pt_free_lzw - the GIF codec's tables, for one file only
@@ -1249,6 +1342,7 @@ pt_free_undo:
 ; Taken at the top of a GIF and released at the bottom, so a Paint that is not
 ; converting a GIF holds none of it. 16KB is the READ direction's need; the
 ; write direction uses 10KB of the same block.
+%ifdef PTF_CLIP
 ; -----------------------------------------------------------------------------
 %ifdef PTF_GIF
 pt_alloc_lzw:
@@ -1303,6 +1397,7 @@ pt_free_clip:
 .out:
     pop dx
     ret
+%endif   ; PTF_CLIP
 
 ; -----------------------------------------------------------------------------
 ; pt_growmax - the biggest canvas a NEW claim could fund, in paragraphs
@@ -1410,7 +1505,9 @@ pt_layout:
     inc cl
     jmp short .ushf
 .ushfok:
+%ifdef PTF_UNDO
     mov [pt_ushf], cl
+%endif
     pop cx
     pop ax
     ; --- ...AND THE PLANE ROW, WHICH IS THE SAME ARITHMETIC (SPEC.md 42.13)
@@ -1634,10 +1731,12 @@ pt_topacked:
     mov byte [pt_planar], 0
     mov word [pt_uy1], -1           ; a copy of rows in a format that is gone
     mov word [pt_uy2], -1
+%ifdef PTF_CLIP
     cmp byte [pt_cbpl], 0           ; ...and so is a four-plane clipboard
     je .out                         ; (SPEC.md 42.13.3): the canvas it would
     mov word [pt_cbw], 0            ; be pasted into is nibbles now
     mov byte [pt_cbpl], 0
+%endif
 .out:
     pop bp
     pop es
@@ -1735,11 +1834,13 @@ pt_toplanar:
     mov byte [pt_planar], 1
     mov word [pt_uy1], -1           ; a copy of rows in a format that is gone
     mov word [pt_uy2], -1
+%ifdef PTF_CLIP
     cmp word [pt_cbw], 0            ; ...and so is a PACKED clipboard, which is
     je .out                         ; the mirror of SPEC.md 42.13.3's rule and
     cmp byte [pt_cbpl], 0           ; not a new one
     jne .out
     mov word [pt_cbw], 0
+%endif
 .out:
     pop bp
     pop es
@@ -1770,6 +1871,7 @@ pt_rowset:
     pop bx
     ret
 
+%ifdef PTF_UNDO
 pt_urowset:
     push bx
     mov bx, ax
@@ -1780,6 +1882,7 @@ pt_urowset:
     mov es, bx
     pop bx
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; pt_canvas_init - stamp the DIB header, white the picture
@@ -2217,6 +2320,7 @@ pt_rect:
     jmp .toscreen                   ; canvas and the undo image catch up at the
 .live:                              ; release, where the canvas still holds the
                                     ; picture the undo image needs
+%ifdef PTF_UNDO
     cmp byte [pt_uoff], 0           ; SPEC.md 42.8.8.2: the replay has already
     jne .marked                     ; marked this chord's whole box, ONCE
     call pt_ublocks                 ; SPEC.md 42.8.6: only the BLOCKS touched
@@ -2227,6 +2331,7 @@ pt_rect:
     call pt_umark_b
     pop bx
 .marked:
+%endif
 
     ; --- edge masks and the middle run, once for every row -------------------
     mov al, [pt_ink]
@@ -2434,6 +2539,7 @@ pt_rect:
 ; because consecutive rows are exactly PT_STRIDE apart (downward: the rows
 ; are stored bottom-up), so no table lookup is needed once the first row is
 ; located.
+%ifdef PTF_UNDO
 ; -----------------------------------------------------------------------------
 pt_umark:
     push bx
@@ -2648,6 +2754,7 @@ pt_uswap_row:
     pop bx
     pop ax
     ret
+%endif   ; PTF_UNDO
 
 ; -----------------------------------------------------------------------------
 ; pt_ublocks - which undo blocks does the clipped rect [pt_cx1]..[pt_cx2] touch?
@@ -2657,6 +2764,7 @@ pt_uswap_row:
 ; canvas formats: packed 4bpp puts pixel x at byte x>>1 so a rect is ONE range,
 ; planar puts it at byte x>>3 of each of four planes so it is FOUR, [pt_bpr]
 ; apart. Only this routine knows the difference.
+%ifdef PTF_UNDO
 ; -----------------------------------------------------------------------------
 pt_ublocks:
     push ax
@@ -2811,6 +2919,7 @@ pt_undo_swap:
     pop bx
     pop ax
     ret
+%endif   ; PTF_UNDO
 
 
 ; -----------------------------------------------------------------------------
@@ -2835,8 +2944,10 @@ pt_dmg_get:
     mov byte [pt_dall], 1
     cmp byte [pt_fsx], 0
     jne .out
+%ifdef PTF_CLIP
     cmp byte [pt_selon], 0
-    jne .out
+    jne .out                        ; a live marquee wants the whole content:
+%endif                              ; putting it back is an XOR (SPEC.md 11.90.2)
     mov bx, [pt_win]
     call OSAPI_WM_DAMAGE
     jc .out                         ; the whole content, which is every path
@@ -4779,7 +4890,9 @@ pt_paint:
     call pt_blit_dmg                ; ...and the canvas, narrowed to the rect -
                                     ; the one part worth narrowing rather than
                                     ; gating, and 96% of this paint (Set 32)
+%ifdef PTF_CLIP
     mov byte [pt_selshown], 0
+%endif
     call pt_marq                    ; the marquee, if a selection is live - and
                                     ; pt_dmg_get asked for the whole content if
                                     ; there is one, because this re-show is an
@@ -5781,8 +5894,10 @@ pt_canvas_click:
     push ax
     push bx
     mov al, [pt_tool]
+%ifdef PTF_CLIP
     cmp al, PT_T_SEL
     je .sel
+%endif
     cmp al, PT_T_TEXT
     je .text
     call pt_text_end                ; any other tool ends a text run...
@@ -5820,12 +5935,14 @@ pt_canvas_click:
     call pt_rubber
     call pt_shape_commit
     jmp short .out
+%ifdef PTF_CLIP
 .sel:
     call pt_text_end
     call pt_sel_drop
     call pt_rubber
     call pt_sel_take
     jmp short .out
+%endif
 .text:
     call pt_sel_drop
     call pt_text_place
@@ -6075,10 +6192,10 @@ pt_flush_n:
     mov ax, [pt_wy]
     mov [pt_toy], ax
     call pt_umark_chord
-    mov byte [pt_uoff], 1
-    call pt_dab
-    mov byte [pt_uoff], 0
-    mov byte [pt_bnkd], 1
+    mov byte [pt_uoff], 1           ; [pt_uoff] is in BOTH builds: it says a
+    call pt_dab                     ; REPLAY is running, which pt_span reads
+    mov byte [pt_uoff], 0           ; (SPEC.md 42.8.9.2) whether or not there
+    mov byte [pt_bnkd], 1           ; is an undo image for it to skip marking
     dec cx
     jz .done                        ; the dab was this call's whole budget
 .seeded:
@@ -6136,6 +6253,7 @@ pt_flush_n:
 ; The box over-approximates the swept region on the rows near its corners, and
 ; that is SAFE: saving a byte the stroke never writes costs a copy and restores
 ; itself unchanged.
+%ifdef PTF_UNDO
 ; -----------------------------------------------------------------------------
 pt_umark_chord:
     push ax
@@ -6179,6 +6297,7 @@ pt_umark_chord:
     pop bx
     pop ax
     ret
+%endif   ; PTF_UNDO
 
 ; -----------------------------------------------------------------------------
 ; pt_bnk_compact - drop the samples the canvas already has
@@ -7737,7 +7856,16 @@ pt_isqrt:
 
 ; =============================================================================
 ; The selection
+;
+; ALL OF IT IS PTF_CLIP's (SPEC.md 42.22.1), Edit > Clear included. The
+; marquee exists to feed Cut and Copy and has no other use, and pt_sel_clear
+; whites out the SELECTION rather than the canvas - pt_sel_rect answers CF=1
+; when nothing is selected and the routine then does nothing at all. So Clear
+; is not a feature the small arm keeps or drops on its own merits: without a
+; selection to clear it is an inert menu item, and File > New is what blanks
+; a canvas on either build.
 ; =============================================================================
+%ifdef PTF_CLIP
 
 ; pt_sel_take - adopt the rubber band's rectangle as the selection
 pt_sel_take:
@@ -7843,6 +7971,22 @@ pt_sel_clear:
     pop ax
     ret
 
+%else
+; -----------------------------------------------------------------------------
+; The selection family's stubs (SPEC.md 42.22.1)
+;
+; Note Pad's undo does this (27.16.1) and the reason is the same: these are
+; called from a dozen places in shared code - every tool that deselects, every
+; repaint that restores the marquee - and gating each site costs more source
+; than it saves bytes. One `ret`, and the call sites are three bytes each.
+; -----------------------------------------------------------------------------
+pt_sel_drop:
+pt_marq:
+pt_marq_hide:
+    ret
+%endif   ; PTF_CLIP - the whole selection family
+
+%ifdef PTF_CLIP
 ; -----------------------------------------------------------------------------
 ; pt_copy - the selection into the clipboard, IN THE CANVAS'S OWN FORMAT
 ; in:  gfx lock held; out: nothing; preserves all registers
@@ -8415,6 +8559,7 @@ pt_paste:
     pop bx
     pop ax
     ret
+%endif   ; PTF_CLIP
 
 ; -----------------------------------------------------------------------------
 ; pt_setpx - write one canvas pixel: clipped, no undo, no screen
@@ -8513,6 +8658,7 @@ pt_setpx:
     ret
 
 
+%ifdef PTF_UNDO
 ; -----------------------------------------------------------------------------
 ; pt_upix - one pixel of the UNDO image (the picture as it was when this
 ;           operation began)
@@ -8591,13 +8737,14 @@ pt_urestore:
 ;
 ; Scanline seed fill (Smith's algorithm) with an explicit span stack in
 ; PT_SCSEG: 1,024 entries of (row, x1, x2, direction). Recursion is out of the
-; question - a package's stack is 1,024 bytes in LOW_SEG (SPEC.md 20.6) - and
+; question - a package's stack is 512 bytes in LOW_SEG (SPEC.md 20.6) - and
 ; a per-pixel stack would need four bytes for every pixel of the region.
 ;
 ; Each run is emitted to the screen the moment it is found, so the fill draws
 ; progressively instead of after a silent pause, and the emit costs exactly
 ; one gfx_hline per run because the runs ARE the changed pixels.
 ; =============================================================================
+%endif   ; PTF_UNDO
 
 ; -----------------------------------------------------------------------------
 ; pt_flood - fill from [pt_ax],[pt_ay] until the colour under it changes
@@ -9287,19 +9434,25 @@ pt_onkey:
     je .esc
     cmp al, 8
     je .back
+%ifdef PTF_CLIP
     cmp ah, 0x53                    ; grey Delete
     je .del
+%endif
     cmp al, 13
     je .enter
     ; --- the control codes int 16h hands us for Ctrl+letter ------------------
+%ifdef PTF_UNDO
     cmp al, 0x1A                    ; Ctrl+Z
     je .undo
+%endif
+%ifdef PTF_CLIP
     cmp al, 0x03                    ; Ctrl+C
     je .copy
     cmp al, 0x18                    ; Ctrl+X
     je .cut
     cmp al, 0x16                    ; Ctrl+V
     je .paste
+%endif
 %ifdef PTF_FSX
     cmp al, 0x06                    ; Ctrl+F
     je .full
@@ -9330,16 +9483,24 @@ pt_onkey:
 .back:
     cmp byte [pt_txton], 0
     jne .bs
+%ifdef PTF_CLIP
 .del:
     call pt_sel_clear
     jmp short .out
+%else
+    jmp short .out                  ; no selection to clear, so a bare
+                                    ; Backspace outside a text run does nothing
+%endif
 .bs:
     call pt_bs
     jmp short .out
     ; --- the same routines the Edit menu calls, so the two doors cannot drift
+%ifdef PTF_UNDO
 .undo:
     call pt_undo_cmd
     jmp short .out
+%endif
+%ifdef PTF_CLIP
 .copy:
     call pt_cmd_copy
     jmp short .out
@@ -9349,6 +9510,7 @@ pt_onkey:
 .paste:
     call pt_cmd_paste
     jmp short .out
+%endif
 %ifdef PTF_FSX
 .full:
     call pt_cmd_fs                  ; the View menu's own routine: the two
@@ -9378,11 +9540,23 @@ PT_MF_SAVE   equ 2                  ; the format is the VERB, not the extension:
 PT_MF_SAVEAS equ 3                  ; each of these four sets [pt_sfmt] and the
 PT_MF_SAVEG  equ 4                  ; name's extension follows it (pt_setext)
 PT_MF_SAVEAG equ 5
-PT_ME_UNDO   equ 0                  ; Edit
-PT_ME_CUT    equ 1
-PT_ME_COPY   equ 2
-PT_ME_PASTE  equ 3
-PT_ME_CLEAR  equ 4
+; Edit - counted, so the menu's LENGTH follows the items that are in it and
+; OS88_MENU's count cannot drift from pt_it_edit's table (SPEC.md 42.22.1)
+%assign PT_MEN 0
+%macro PTEITEM 1
+%1 equ PT_MEN
+%assign PT_MEN PT_MEN + 1
+%endmacro
+%ifdef PTF_UNDO
+    PTEITEM PT_ME_UNDO
+%endif
+%ifdef PTF_CLIP
+    PTEITEM PT_ME_CUT
+    PTEITEM PT_ME_COPY
+    PTEITEM PT_ME_PASTE
+    PTEITEM PT_ME_CLEAR
+%endif
+PT_ME_N      equ PT_MEN
 PT_MD_FILL   equ 0                  ; Draw
 PT_MD_F1     equ 1
 PT_MD_F2     equ 2
@@ -9402,15 +9576,17 @@ pt_oncmd:
     mov bx, si
     call pt_org
     mov ax, [pt_key]
-    cmp ah, 1
+%ifdef PTF_EDIT
+    cmp ah, PT_MENU_EDIT
     je .edit
-    cmp ah, 2
+%endif
+    cmp ah, PT_MENU_DRAW
     je .draw
 %ifdef PTF_FSX
-    cmp ah, 3
+    cmp ah, PT_MENU_VIEW
     je .view
 %endif
-    or ah, ah
+    or ah, ah                       ; PT_MENU_FILE is 0 on every build
     jnz .out
 ; --- File ------------------------------------------------------------------
     cmp al, PT_MF_NEW
@@ -9491,9 +9667,16 @@ pt_oncmd:
     jmp pt_dlg                      ; tail call, and NO repaint after it: the
                                     ; dialog is on top of us now (SPEC.md 38)
 ; --- Edit ------------------------------------------------------------------
+; The WHOLE menu is PTF_EDIT's (SPEC.md 42.22.1): Undo, Cut, Copy, Paste and
+; Clear are all of it, and Clear clears the SELECTION rather than the canvas -
+; so with the marquee gone there is nothing left to put in it.
+%ifdef PTF_EDIT
 .edit:
+%ifdef PTF_UNDO
     cmp al, PT_ME_UNDO
     je .undo
+%endif
+%ifdef PTF_CLIP
     cmp al, PT_ME_CUT
     je .cut
     cmp al, PT_ME_COPY
@@ -9502,9 +9685,13 @@ pt_oncmd:
     je .paste
     cmp al, PT_ME_CLEAR
     je .clear
+%endif
     ret
+%ifdef PTF_UNDO
 .undo:
     jmp pt_undo_cmd
+%endif
+%ifdef PTF_CLIP
 .cut:
     jmp pt_cmd_cut
 .copy:
@@ -9513,6 +9700,8 @@ pt_oncmd:
     jmp pt_cmd_paste
 .clear:
     jmp pt_sel_clear
+%endif
+%endif   ; PTF_EDIT
 ; --- Draw ------------------------------------------------------------------
 .draw:
     cmp al, PT_MD_FILL
@@ -9573,6 +9762,7 @@ pt_menufix:
     ; stayed greyed for the rest of the session. The kernel reads a
     ; menu set LIVE out of the owning segment (SPEC.md 12.2), so a store here
     ; is enough - there is nothing to re-register.
+%ifdef PTF_CLIP
     cmp byte [pt_haveclip], 0
     je .noclip
     mov word [pt_it_edit + 2 * PT_ME_CUT], pt_i_cut
@@ -9583,6 +9773,7 @@ pt_menufix:
     mov word [pt_it_edit + 2 * PT_ME_CUT], pt_i_cut2
     mov word [pt_it_edit + 2 * PT_ME_COPY], pt_i_copy2
     mov word [pt_it_edit + 2 * PT_ME_PASTE], pt_i_paste2
+%endif
 .undo:
     ; The GIF items follow the LZW claim, which is taken per file and so
     ; cannot be tested here - what decides them is whether the heap could
@@ -9605,12 +9796,14 @@ pt_menufix:
     mov word [pt_it_file + 2 * PT_MF_SAVEAG], pt_i_saveag2
 %endif
 .undo2:
+%ifdef PTF_UNDO
     cmp byte [pt_haveundo], 0
     je .noundo
     mov word [pt_it_edit + 2 * PT_ME_UNDO], pt_i_undo
     ret
 .noundo:
     mov word [pt_it_edit + 2 * PT_ME_UNDO], pt_i_undo2
+%endif
     ret
 
 ; -----------------------------------------------------------------------------
@@ -9618,14 +9811,18 @@ pt_menufix:
 ; in:  AL = 0 undo / 1 clipboard
 ; out: CF=0 go ahead; CF=1 and the toast is already up; preserves all registers
 ; -----------------------------------------------------------------------------
+%ifdef PTF_GATE
 pt_gate:
     push si
     or al, al
     jnz .clip
+%ifdef PTF_UNDO
     mov si, pt_s_nu
     cmp byte [pt_haveundo], 0
+%endif
     jmp short .test
 .clip:
+%ifdef PTF_CLIP
     mov si, pt_s_nc
     cmp byte [pt_haveclip], 0
     jne .test
@@ -9639,6 +9836,7 @@ pt_gate:
     ; holding 174KB of claims that says it has no RAM for four more.
     call pt_alloc_clip
     cmp byte [pt_haveclip], 0
+%endif
 .test:
     jne .ok
     call pt_msg_show
@@ -9649,6 +9847,7 @@ pt_gate:
     pop si
     clc
     ret
+%endif   ; PTF_GATE
 
 ; -----------------------------------------------------------------------------
 ; pt_cmd_copy / pt_cmd_cut / pt_cmd_paste - the gated Edit commands
@@ -9657,6 +9856,7 @@ pt_gate:
 ; One routine per command, reached by BOTH the menu item and the Ctrl key, so
 ; the gate cannot be present on one path and missing on the other.
 ; -----------------------------------------------------------------------------
+%ifdef PTF_CLIP
 pt_cmd_copy:
     push ax
     mov al, 1
@@ -9687,10 +9887,12 @@ pt_cmd_paste:
 .out:
     pop ax
     ret
+%endif   ; PTF_CLIP
 
 ; -----------------------------------------------------------------------------
 ; pt_undo_cmd - Undo, or Redo: the same exchange either way (Ctrl+Z, Edit menu)
 ; in:  gfx lock held; out: nothing; preserves all registers
+%ifdef PTF_UNDO
 ; -----------------------------------------------------------------------------
 pt_undo_cmd:
     push ax
@@ -9706,6 +9908,24 @@ pt_undo_cmd:
 .out:
     pop ax
     ret
+%else
+; -----------------------------------------------------------------------------
+; The undo family's stubs (SPEC.md 42.22.1) - see the selection family's note.
+; pt_undo_new alone has seven callers, one at the head of every operation that
+; can be undone, and they are the drawing paths rather than a menu.
+; -----------------------------------------------------------------------------
+pt_undo_new:
+pt_umark:
+pt_umark_b:
+pt_umark_chord:
+pt_ublocks:
+pt_alloc_undo:
+pt_free_undo:
+pt_urestore:                        ; ...and this one is behaviour-identical:
+                                    ; it already answered `nothing to uncover`
+                                    ; on any machine whose undo claim refused
+    ret
+%endif   ; PTF_UNDO
 
 ; -----------------------------------------------------------------------------
 ; pt_new - a blank picture, undoably
@@ -10649,8 +10869,10 @@ pt_resize:
     ; --- grow: give back what a resize drops, then claim the new canvas -----
     call pt_free_undo
     call pt_free_clip
+%ifdef PTF_CLIP
     mov word [pt_cbw], 0            ; ...and here the contents ARE gone: this
                                     ; is a resize, not a Copy replacing them
+%endif
     call pt_kb_of                   ; AX = KB for CX paragraphs
     push ax
     call OSAPI_MEM_CLAIM            ; DX = the new base, CF = refused
@@ -10799,20 +11021,26 @@ pt_resize:
     call pt_alloc_undo              ; ...and the two claims a resize drops come
     call pt_alloc_clip              ; back at the new size, best effort
 .kept:
+%ifdef PTF_CLIP
     cmp byte [pt_haveclip], 0
     jne .kept2
     call pt_alloc_clip              ; the grow attempt gave it away; without
 .kept2:                             ; this a refused grow disabled Copy for
                                     ; the rest of the session
+%endif
+%ifdef PTF_UNDO
     cmp word [pt_unseg], 0          ; ...and the same for the undo image, which
     jne .kept3                      ; the in-place path no longer asks for on
     call pt_alloc_undo              ; its way in because it no longer stages in
 .kept3:                             ; it (SPEC.md 42.19.1)
+%endif
     call pt_undo_new                ; the mask describes a layout that is gone
+%ifdef PTF_CLIP
     mov word [pt_cbw], 0            ; (and pt_undo_new clears [pt_undo_ok]: a
                                     ; resize is never undoable)
     mov byte [pt_selon], 0
     mov byte [pt_selshown], 0
+%endif
     call pt_text_end
     clc
 .out:
@@ -11368,7 +11596,9 @@ pt_repaint:
     dec dx
     call pt_cfill
     call pt_blit_all
+%ifdef PTF_CLIP
     mov byte [pt_selshown], 0
+%endif
     mov byte [pt_careton], 0
     call pt_marq
 %ifdef PTF_ABOUT
@@ -13191,7 +13421,9 @@ pt_adopt:
     call pt_layout
     call pt_bmp_hdr
     call pt_undo_new
+%ifdef PTF_UNDO
     mov byte [pt_undo_ok], 0        ; a picture just arrived: there is nothing
+%endif
                                     ; to go BACK to. The clipboard used to be
                                     ; emptied here too, because the codec's
                                     ; tables lived in it and the file was
@@ -14576,8 +14808,12 @@ pt_s_hlab:   db 'H', 0
 pt_s_apply:  db 'Apply', 0
 pt_s_nofsx:  db 'The screen is not free', 0
 pt_s_nodlg:  db 'Leave Full Screen first', 0
+%ifdef PTF_UNDO
 pt_s_nu:     db 'No RAM for undo here', 0
+%endif
+%ifdef PTF_CLIP
 pt_s_nc:     db 'No RAM for clipboard', 0
+%endif
 %ifdef PTF_GIF
 pt_s_ng:     db 'No RAM for GIF here', 0
 %endif
@@ -14600,7 +14836,9 @@ pt_tpl:
 %else
         OS88_MENU pt_s_file, pt_it_file, 4
 %endif
-        OS88_MENU pt_s_edit, pt_it_edit, 5
+%ifdef PTF_EDIT
+        OS88_MENU pt_s_edit, pt_it_edit, PT_ME_N
+%endif
         OS88_MENU pt_s_draw, pt_it_draw, 4
 %ifdef PTF_FSX
         OS88_MENU pt_s_view, pt_it_view, 1
@@ -14608,14 +14846,24 @@ pt_tpl:
     OS88_MENUSET_END pt_menus
 
 pt_s_file:   db 'File', 0
+%ifdef PTF_EDIT
 pt_s_edit:   db 'Edit', 0
+%endif
 pt_s_draw:   db 'Draw', 0
 pt_s_view:   db 'View', 0
 pt_it_file:  dw pt_i_new, pt_i_open, pt_i_save, pt_i_saveas
 %ifdef PTF_GIF
              dw pt_i_saveg, pt_i_saveag
 %endif
-pt_it_edit:  dw pt_i_undo, pt_i_cut, pt_i_copy, pt_i_paste, pt_i_clear
+%ifdef PTF_EDIT
+pt_it_edit:
+%ifdef PTF_UNDO
+             dw pt_i_undo
+%endif
+%ifdef PTF_CLIP
+             dw pt_i_cut, pt_i_copy, pt_i_paste, pt_i_clear
+%endif
+%endif
 pt_it_draw:  dw pt_i_fill, pt_i_f1, pt_i_f2, pt_i_f4
 pt_it_view:  dw pt_i_full
 pt_i_new:    db 'New', 0
@@ -14631,19 +14879,27 @@ pt_i_saveag: db 'Save as Gif...', 0
 ; the item draws grey and cannot be highlighted or picked. The suffix stays,
 ; shortened - greying says "not now", the words say why - and at 24 glyphs
 ; the longest of them fits the pull-down without truncation.
+%ifdef PTF_UNDO
 pt_i_undo2:   db MENU_DIS, 'Undo / Redo (NoRam)', 0
+%endif
+%ifdef PTF_CLIP
 pt_i_cut2:    db MENU_DIS, 'Cut (NoRam)', 0
 pt_i_copy2:   db MENU_DIS, 'Copy (NoRam)', 0
 pt_i_paste2:  db MENU_DIS, 'Paste (NoRam)', 0
+%endif
 %ifdef PTF_GIF
 pt_i_saveg2:  db MENU_DIS, 'Save Gif (NoRam)', 0
 pt_i_saveag2: db MENU_DIS, 'Save as Gif... (NoRam)', 0
 %endif
+%ifdef PTF_UNDO
 pt_i_undo:   db 'Undo / Redo', 0
+%endif
+%ifdef PTF_CLIP
 pt_i_cut:    db 'Cut', 0
 pt_i_copy:   db 'Copy', 0
 pt_i_paste:  db 'Paste', 0
 pt_i_clear:  db 'Clear', 0
+%endif
 pt_i_fill:   db 'Filled Shapes', 0
 pt_i_f1:     db 'Text Size 1x', 0
 pt_i_f2:     db 'Text Size 2x', 0
@@ -14751,7 +15007,11 @@ pt_pal_rgb:
 
 ; --- the eight tool glyphs, 16x16, bit 15 = leftmost ------------------------
 pt_ic_tab:   dw pt_ic_pencil, pt_ic_eraser, pt_ic_drop, pt_ic_rect
-             dw pt_ic_oval, pt_ic_sel, pt_ic_fill, pt_ic_text
+             dw pt_ic_oval
+%ifdef PTF_CLIP
+             dw pt_ic_sel
+%endif
+             dw pt_ic_fill, pt_ic_text
 
 ; a pencil, tip down-left
 pt_ic_pencil:
@@ -14774,10 +15034,12 @@ pt_ic_rect:
 pt_ic_oval:
     dw 0x0000, 0x07E0, 0x1FF8, 0x3C3C, 0x700E, 0x6006, 0x6006, 0x6006
     dw 0x6006, 0x700E, 0x3C3C, 0x1FF8, 0x07E0, 0x0000, 0x0000, 0x0000
+%ifdef PTF_CLIP
 ; a dashed marquee
 pt_ic_sel:
     dw 0x0000, 0x39CE, 0x2004, 0x2004, 0x0002, 0x2002, 0x2002, 0x0002
     dw 0x2002, 0x2002, 0x0002, 0x2006, 0x2004, 0x39CE, 0x0000, 0x0000
+%endif
 ; a tipping paint can
 pt_ic_fill:
     dw 0x0000, 0x0060, 0x00F0, 0x0198, 0x030C, 0x0606, 0x0C0C, 0x1818
@@ -14941,6 +15203,7 @@ pt_ic_text:
     PTWORD pt_fr
 
     ; the clipboard and the paste
+%ifdef PTF_CLIP
     PTWORD pt_cbw
     PTWORD pt_cbh
     PTWORD pt_pdx
@@ -14956,6 +15219,7 @@ pt_ic_text:
     PTWORD pt_pbase
     PTWORD pt_pstr
     PTWORD pt_ptmp
+%endif   ; PTF_CLIP
 
     ; the text tool
     PTWORD pt_txtx
@@ -15029,11 +15293,17 @@ pt_ic_text:
     PTWORD pt_obase                 ; pt_resize: the canvas claim being replaced
     PTWORD pt_osrc                  ; ...the segment pt_orowset reads through
     PTWORD pt_scrw                  ; screen width, for centring the window
+%ifdef PTF_UNDO
     PTWORD pt_unseg                 ; the undo image's base segment
+%endif
+%ifdef PTF_CLIP
     PTWORD pt_cbseg                 ; the clipboard's
     PTWORD pt_cbparas               ; ...and how many paragraphs it got
+%endif
     PTWORD pt_scseg                 ; scratch: claim record + fill stack
+%ifdef PTF_UNDO
     PTWORD pt_undelta               ; canvas segment -> undo segment
+%endif
     PTWORD pt_contw                 ; the live content rect, from the record
     PTWORD pt_conth
     PTWORD pt_filx                  ; the strip's right-anchored controls
@@ -15101,13 +15371,17 @@ pt_ic_text:
     PTBYTE pt_gsh                   ; ...as a shift count, 0/1/2 (what it uses)
     PTBYTE pt_ncol                  ; palette entries this adapter shows
     PTBYTE pt_mono                  ; 1bpp adapter
+%ifdef PTF_CLIP
     PTBYTE pt_selon                 ; a selection exists
+%endif
     PTBYTE pt_dall                  ; 1 = this paint owes the WHOLE content
     PTWORD pt_dx1                   ; ...else the rect it owes, CONTENT-relative
     PTWORD pt_dy1                   ; (SPEC.md 11.90.2)
     PTWORD pt_dx2
     PTWORD pt_dy2
+%ifdef PTF_CLIP
     PTBYTE pt_selshown              ; ...and its marquee is on the glass
+%endif
     PTBYTE pt_txton                 ; a text run is open
     PTBYTE pt_careton               ; ...and its caret is on the glass
     PTBYTE pt_fs                    ; a full-screen session is on: set by
@@ -15220,12 +15494,15 @@ pt_ic_text:
          ; staging claim any picture is read into, BMP as much as GIF
     PTBUF  pt_fdigit, 2             ; the strip's scale digit, NUL-terminated
 
+%ifdef PTF_UNDO
     PTBUF  pt_umask, PT_CH_MAX      ; SPEC.md 42.8.6: one BYTE per canvas row
     PTBYTE pt_ushf                  ; block = stride bytes >> this
     PTBYTE pt_ubneed
     PTBYTE pt_ubmiss
     PTBYTE pt_ubacc
+%endif
     PTBYTE pt_uoff                  ; 42.8.8.2: the caller marked already
+%ifdef PTF_UNDO
     PTWORD pt_ub1
     PTWORD pt_ub2
     PTWORD pt_urbase
@@ -15234,6 +15511,7 @@ pt_ic_text:
     PTBUF  pt_ubbit, 16
     PTBUF  pt_ubst,  16
     PTBUF  pt_ubwd,  16
+%endif
     PTBUF  pt_rowseg, PT_CH_MAX * 2 ; canvas row -> the paragraph it starts in
     PTBUF  pt_rowoff, PT_CH_MAX * 2 ; ...and the 0..15 bytes into it. Together
                                     ; they are the whole of the bottom-up

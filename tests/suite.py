@@ -470,6 +470,42 @@ FULL = [
         "(`make small`, into build/smallk/) because there is no capability "
         "to probe for and `all` never builds that kernel",
         needs=("marty",), serial=True, builds=True),
+    Row("stk0water", "soak", py("tests/stk0water.py"), 300.0,
+        "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
+        "section says `redo the fill probe before lowering either` and the "
+        "probe was a hand edit to kmain plus a hand read, so it had been run "
+        "once - which is why `STK0_SIZE` sat at 4x a figure nobody had "
+        "re-taken. This is it automated: fill everything below task 0's SAVED "
+        "SP with 0xCC, drive the machine, read the deepest byte back. It "
+        "reads 238 against 15.1's 246 (a heavier drive), and STK0_SIZE is 512 "
+        "on both kernels now. Three things it had to get right and each was "
+        "wrong first: the LIVE SP is a worker's, because SPEC.md 8.1.2 has "
+        "ui_task block and an idle machine is 96.9% halted; the canary at the "
+        "bottom must not be filled over, because SPEC.md 8.7 put slot 0 in "
+        "sch_stkbase and sch_switch checks it on every switch - filling it "
+        "reaches sch_stkdie and the only symptom is a pointer that will not "
+        "move; and a menu released inside its pane SELECTS an item, which "
+        "launched the About box and left the screen animating for ever. "
+        "`soak` because it is a MEASUREMENT rather than an assertion - it "
+        "prints the margin at five candidate sizes and fails nothing",
+        needs=("marty",), serial=True),
+    Row("small128", "full", py("tests/small128.py"), 110.0,
+        "...and it reaches that desktop on a machine with 128KB IN IT. Every "
+        "other MartyPC profile here is 640KB, so `MIN_RAM_KB` had been an "
+        "ARITHMETIC claim since the day it was written - guard 5 compares two "
+        "constants at assembly time and nothing had ever asked the result to "
+        "run. The row above proves the build boots; this one proves the "
+        "MACHINE does, which is a different question, because a purgeable "
+        "claim that sizes itself off available heap has a floor of its own "
+        "and the directory read-ahead is 64KB on a 640KB box. It is also "
+        "docs/KERN-SMALL-CUT-PLAN.md 8.2's `cheapest unexamined lever`: it "
+        "walks mem_tab on the machine and fails if ANY pinned claim stands on "
+        "a bare desktop, because that is heap the machine never gets back and "
+        "no assembler can see it - SPEC.md 54.0's association cache was "
+        "holding 3,072 bytes of one and was found by accident. Reads 0 "
+        "pinned, 18,432 purgeable, 40.5 KB usable. Builds its own image for "
+        "smallboot's reason",
+        needs=("marty",), serial=True, builds=True),
     Row("int0sweep", "soak", py("tests/int0sweep.py"), 240.0,
         "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
         "5150/5160 ROM the INT 0 vector is a BIOS stub that writes 0FFh to "
@@ -988,8 +1024,27 @@ SOAK = [
         "guest's own listing, which is drawn from the structures that are "
         "wrong. Runs on the 1.44MB disk: the 360KB one is 354 of 354 clusters "
         "in use after one paste, so the folder copy correctly refuses there "
-        "with FERR_FULL and the row would be measuring the geometry.",
-        needs=("marty",), serial=True),
+        "with FERR_FULL and the row would be measuring the geometry. "
+        "builds=True because the script can shell out to `make small` when it "
+        "is pointed at kern_small (the fcpsmall row below), and the runner "
+        "gives a building row the tree to itself.",
+        needs=("marty",), serial=True, builds=True),
+    Row("fcpsmall", "soak",
+        ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
+         "OS88_SYSIMG=build/small.img"] + py("tests/fcpcopy.py"), 300.0,
+        "...and the SAME drive against kern_small, where Cut/Copy/Paste is an "
+        "on-demand module (SPEC.md 22.3, docs/KERN-SMALL-MODULE-SPLIT.md 9.2) "
+        "rather than resident code. It is a different engine to reach: every "
+        "call the image makes to the kernel is a far one through an xf_ entry, "
+        "the shared register epilogues are copies inside the image because a "
+        "`jmp kretc_cx` would return through a near `ret` against a far frame, "
+        "and the whole thing is read off the disk by mod_need and given back "
+        "at the end of each operation. NONE of that is exercised by the row "
+        "above, which runs the resident build - and the first time this one "
+        "ran it caught FILECP.DRV missing from the floppy entirely, with every "
+        "build step green and the machine booting. It builds its own image "
+        "(`make small`) for smallboot's reason.",
+        needs=("marty",), serial=True, builds=True),
     Row("cppromise", "soak", py("tests/cppromise.py"), 300.0,
         "SPEC.md 31.12: the Control Panel promises per PAGE, and the clock"
         "page is the one that cannot.",
@@ -1570,6 +1625,20 @@ SOAK = [
     Row("fdlggrey", "soak", py("tests/fdlggrey.py"), 60.0,
         "The file dialog's default button: REDRAWN IN PLACE must equal"
         "FRESHLY PAINTED.",
+        needs=("marty",), serial=True, builds=True),
+    Row("fdlgsmall", "soak",
+        ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
+         "OS88_SYSIMG=build/small360.img"] + py("tests/fdlggrey.py"), 300.0,
+        "...and the SAME drive against kern_small, where the WHOLE dialog is "
+        "an on-demand module (SPEC.md 38.0, docs/KERN-SMALL-MODULE-SPLIT.md "
+        "9.2.6) rather than resident code. It is `fcpsmall`'s argument one "
+        "feature along and a bigger engine: seven entries with two exit "
+        "conventions, every call out of the image a far one through an `xd_` "
+        "entry, the register epilogues copied inside the image, and mod_need "
+        "reading it off the disk on fdlg_open with mod_drop giving it back in "
+        "fdlg_reap. NONE of that is exercised by the row above, which runs "
+        "the resident build. It builds its own image (`make small`) for "
+        "smallboot's reason.",
         needs=("marty",), serial=True, builds=True),
     Row("fdlgup", "soak", py("tests/fdlgup.py"), 60.0,
         "SPEC.md 13.8.3: the Standard File dialog's buttons fire on the"

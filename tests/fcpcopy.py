@@ -39,6 +39,7 @@ real write and the next test to boot that image would see it.
 """
 import os
 import shutil
+import subprocess
 import sys
 
 sys.path.insert(0, "tools")
@@ -51,8 +52,16 @@ import os88disk
 
 S = os88sym.linear
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_herc_gla_144"
-SYS_IMG = "build/os8088.img"
-SRC_APPS = "build/apps.img"
+# The images, overridable so this row can be pointed at a SECOND kernel.
+# kern_small carries Cut/Copy/Paste as an on-demand module (SPEC.md 22.3,
+# docs/KERN-SMALL-MODULE-SPLIT.md 9.2), so the engine this script drives is
+# read off the disk there rather than being resident - which is exactly the
+# arm nothing else exercises. Pair it with $OS88_BUILD and $OS88_DEFINES, the
+# knobs os88sym already has, or the symbol map will be the wrong kernel's:
+#   OS88_DEFINES=KERN_SMALL OS88_BUILD=build/smallk \
+#   OS88_SYSIMG=build/small.img python3 tests/fcpcopy.py
+SYS_IMG = os.environ.get("OS88_SYSIMG", "build/os8088.img")
+SRC_APPS = os.environ.get("OS88_APPSIMG", "build/apps.img")
 OUT = os.path.abspath(os.path.join("build", "fcpcopy"))
 KERNEL_SEG = 0x0060
 MB_ENTSZ, MB_SEG, MB_XL, MB_XR = 12, 10, 6, 8
@@ -119,6 +128,14 @@ def goto_root(m, mo, wx, wy):
 
 
 def main():
+    # POINTED AT kern_small, BUILD ITS IMAGE FIRST - smallboot.py's shape and
+    # for its reason: `all` never builds that kernel, and there is no
+    # capability to probe for, so a row that needed the disk to be lying
+    # about would simply never run. `make small` is idempotent and builds
+    # into build/smallk/, so it disturbs nothing in the default tree.
+    if "smallk" in os.environ.get("OS88_BUILD", ""):
+        subprocess.check_call(["make", "small"],
+                              stdout=subprocess.DEVNULL)
     os.makedirs(OUT, exist_ok=True)
     apps = os.path.join(OUT, "apps-scratch.img")
     shutil.copyfile(SRC_APPS, apps)      # NEVER the shipped image

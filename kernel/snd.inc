@@ -468,6 +468,7 @@ snd_town_off:
 ; (SPEC.md 8.2).
 ; -----------------------------------------------------------------------------
 snd_tone_out:
+%ifdef OS88_SNDCARD
     call snd_rt_card
     jc spk_tone                 ; tail call: the speaker, and CF is its own
     push bp
@@ -475,6 +476,9 @@ snd_tone_out:
     call drv_svc_call
     pop bp                      ; POP leaves the driver's CF alone
     ret
+%else
+    jmp spk_tone                ; SPEC.md 34.0: there is no other sink on this
+%endif                          ; build, so the test above has one answer
 
 ; -----------------------------------------------------------------------------
 ; snd_rt_card - do tones go to the driver's hardware right now? (SPEC.md 34.8)
@@ -488,6 +492,7 @@ snd_tone_out:
 ; to a machine with no card must not take the beep away with it.
 ; -----------------------------------------------------------------------------
 snd_rt_card:
+%ifdef OS88_SNDCARD
     cmp byte [snd_route], SND_RT_SPK
     je .no
     cmp word [drv_svc+DSV_TONE], 0
@@ -495,8 +500,9 @@ snd_rt_card:
     clc
     ret
 .no:
-    stc
-    ret
+%endif
+    stc                         ; SPEC.md 34.0: always the speaker, and the
+    ret                         ; Control Panel's page reads the same answer
 
 ; -----------------------------------------------------------------------------
 ; snd_beep - the kernel UI beep (SPEC.md 34.3): menu error, refused clicks
@@ -539,6 +545,7 @@ snd_beep:
 snd_tick:
     cmp byte [snd_live], 0      ; the boot gate - nothing else is readable
     je .done
+%ifdef OS88_SNDCARD
     cmp word [drv_svc+DSV_TICK], 0
     je .tone                    ; a loaded driver may want the tick too; it
     push ax                     ; runs here, inside IRQ0, at IF=0
@@ -548,6 +555,11 @@ snd_tick:
     pop bp
     pop ax
 .tone:
+%endif                          ; SPEC.md 34.0: no driver, so nothing else
+                                ; wants the tick and the expiry test is the
+                                ; whole of it. The one gate here that is on a
+                                ; path INSIDE IRQ0, so it is cycles saved 18.2
+                                ; times a second as well as four bytes
     cmp word [snd_town_exp], 0
     je .done
     dec word [snd_town_exp]
@@ -745,6 +757,7 @@ snd_unhook:
 ; -----------------------------------------------------------------------------
 osapi_snd_caps:
     mov ax, SND_CAP_TONE | SND_CAP_PCM_EXCL
+%ifdef OS88_SNDCARD
     or ax, [drv_svc+DSV_CAPS]   ; ...plus whatever a loaded driver adds
     mov bl, 0                   ; BL = where a tone would go RIGHT NOW: 0 the
     call snd_rt_card            ; speaker, 1 the driver's own sink - the
@@ -757,6 +770,10 @@ osapi_snd_caps:
     mov dl, 3                   ; bit 1 = a sound driver is loaded (DX is 1
                                 ; three instructions up, so DH is already 0)
 .out:
+%else
+    xor bl, bl                  ; SPEC.md 34.0: the speaker, and only ever the
+    mov dx, 1                   ; speaker. The SHAPE a package reads is the
+%endif                          ; same - it just cannot vary
     ret
 
 ; -----------------------------------------------------------------------------
@@ -774,6 +791,32 @@ osapi_snd_caps:
 ; own to do it. DH is the grant-stamping rule (SPEC.md 34.3) crossing the
 ; segment boundary as an argument.
 ; -----------------------------------------------------------------------------
+%ifndef OS88_SNDCARD
+; SPEC.md 34.0: FM is an OPL2 and an OPL2 is a driver, so on this build there
+; is nothing behind either slot. THE SLOTS STAY - a slot's OFFSET is the ABI
+; (SPEC.md 20.4), so a gated feature refuses rather than moving the table
+; under every package built against it - and each refuses in ITS OWN
+; vocabulary, which is what the two live bodies below were careful about: CF
+; alone for FM, and AX = 4 "no streaming sink" for a stream verb, because
+; AX = 0 is how every stream verb says OK and a phantom grant is what handed
+; Recorder a buffer that did not exist.
+osapi_snd_fm_x:
+osapi_snd_fm:
+    stc
+    ret
+
+osapi_snd_stream:
+    mov ax, 4
+    stc
+    ret
+
+; ...and the interlock the exclusive-clip tier asks before it takes the
+; speaker (SPEC.md 34.9): with no streaming sink there is never one to
+; collide with, so the answer is a constant "not busy".
+snd_str_busy:
+    clc
+    ret
+%else
 osapi_snd_fm_x:
     cmp al, 2
     jne osapi_snd_fm            ; every verb but patch-load carries no pointer
@@ -809,6 +852,8 @@ osapi_snd_fm:
     pop bp
     ret
 
+%endif                          ; OS88_SNDCARD - the FM slot's live body ends
+
 ; -----------------------------------------------------------------------------
 ; osapi_snd_stream - the public stream request (slot 0x0100, SPEC.md 34.5)
 ; in:       AL = verb, and the verb's own registers
@@ -829,6 +874,7 @@ osapi_snd_fm:
 ; after the call - a `cmp` there would eat the CF the call just answered
 ; with, and the verb is known before the call anyway.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_SNDCARD
 osapi_snd_stream:
     cmp word [drv_svc+DSV_STREAM], 0
     jne .have
@@ -878,6 +924,8 @@ osapi_snd_stream:
     mov bp, [drv_svc+DSV_STREAM]
     call drv_svc_call
     jmp short .pops             ; jmp does not touch the CF just answered with
+
+%endif                          ; OS88_SNDCARD - the stream slot's live body
 
 ; -----------------------------------------------------------------------------
 ; osapi_snd_tone - the public tone request (slot 0x00E8, SPEC.md 20.3)
@@ -1106,6 +1154,7 @@ section .text
 ; With no driver loaded there is no stream to collide with, and drv_svc_call
 ; says so by refusing - which is the same answer, arrived at for free.
 ; -----------------------------------------------------------------------------
+%ifdef OS88_SNDCARD
 snd_str_busy:
     push ax
     push bp
@@ -1119,6 +1168,7 @@ snd_str_busy:
     pop bp                      ; epilogues' answer. pop does not touch flags
     pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; snd_xlat_build - build the 256-byte PWM rescale table (far body)
@@ -1209,9 +1259,11 @@ snd_pcm_fast:  resb 1           ;   the fsx sub-tick parked across the clip
                                 ;   (SPEC.md 53.2.1); written before every
                                 ;   read, so an unzeroed .bss cannot bite
 snd_pcm_n:     resw 1           ;   the clip divisor N (74..255)
+%ifdef OS88_SNDCARD
 snd_patch:     resb SND_PATCH_N ; a package's SND_PATCH_N-byte FM patch, staged
                                 ; into the kernel so the driver can read it
                                 ; (34.2). The guard above ties the reservation
                                 ; to the staging loop's own count
+%endif
 
 section .text

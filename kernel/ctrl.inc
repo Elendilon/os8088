@@ -365,7 +365,14 @@ CP_ISTRIDE  equ 8
 cp_items:
     dw cp_s_sched, cp_sched_paint, cp_sched_click, 0
     dw cp_s_time,  cp_time_paint,  cp_time_click,  0
+%ifdef OS88_DRIVERS             ; SPEC.md 51.0: kern_small can load no driver,
     dw cp_s_drv,   cp_drv_paint,   cp_drv_click,   0
+%endif                          ; so the page has nothing to list and is not
+                                ; offered. The BODIES stay compiled - this
+                                ; image is a module on both builds, so gating
+                                ; them would move no resident byte and would
+                                ; put a %ifdef through the Sound page, which
+                                ; stays
     dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0
     dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0
 %ifdef OS88_THEME
@@ -376,6 +383,13 @@ CP_ITEMS  equ (cp_items_end - cp_items) / CP_ISTRIDE
 CP_ITIME  equ 1                 ; the Date/Time item: ui.inc selects it by
                                 ; name when the menu bar clock is clicked
                                 ; (SPEC.md 12.1/31.5)
+; ...and the three below it SHIFT when the Drivers row is not there
+; (SPEC.md 51.0). An index into cp_items is what [cp_sel] holds, so every
+; number after the gap has to move with it - written out per arm rather than
+; derived, because deriving it would hide exactly the fact that makes it
+; fragile: these are POSITIONS in a table one %ifdef above, and the two must
+; be read together.
+%ifdef OS88_DRIVERS
 CP_IDRV   equ 2                 ; ...and the Drivers item, which drv_notice
                                 ; opens the panel on when a driver did not
                                 ; load at boot (SPEC.md 51.3)
@@ -388,6 +402,13 @@ CP_IVID   equ 4                 ; ...and Display, the one row that is HIDDEN
                                 ; 39.11.1). vid_probe_avail names it by this
                                 ; rather than by "the last one", which is what
                                 ; frees the order above
+%else
+CP_ISND   equ 2                 ; no Drivers row, so Sound, Display and Theme
+CP_IVID   equ 3                 ; each come up one (SPEC.md 51.0)
+%ifdef OS88_THEME
+CP_ITHM   equ 4
+%endif
+%endif
 
 ; How many static rows the list is showing RIGHT NOW - CP_ITEMS, or one fewer
 ; when the Display page is hidden. It is the boundary between a static row and
@@ -3756,7 +3777,9 @@ cp_timebtn:
 ; own rather than 600 lines of MC146818, MM58167 and RP5C01 in the middle of
 ; the Control Panel - it carries no `section` of its own precisely so that it
 ; lands in THIS one, and tools/os88ovlchk.py knows that through its EXTRA map.
-%include "clockw.inc"
+%ifdef OS88_RTC                 ; SPEC.md 37.0.1: with no rung on this build
+%include "clockw.inc"           ; there is no chip to write to either, and
+%endif                          ; this is CTRL.DRV's copy of the write half
 
 ; =============================================================================
 ; SPEC.md 37's FIELD EDITOR, hosted here (SPEC.md 37.93)
@@ -4082,11 +4105,17 @@ cp_flush_x:
 ; failure path handles the third.
 ; -----------------------------------------------------------------------------
 cp_flush_close_x:
+%ifdef OS88_RTC
     cmp byte [clk_dirty], 0     ; THE HARDWARE CLOCK FIRST (SPEC.md 37.94), and
     je .cfg                     ; before the floppy: this is port I/O in
     mov byte [clk_dirty], 0     ; microseconds where drv_cfg_save below is two
     call clk_rtc_write          ; seconds of motor, and a write that fails
 .cfg:                           ; leaves nothing to retry either way
+%else
+    mov byte [clk_dirty], 0     ; SPEC.md 37.0.1: no chip to write the setting
+                                ; to, so the edit is the SESSION's and the
+                                ; flag is cleared rather than acted on
+%endif
     cmp byte [cp_wdirty], 0
     je .out
     call cp_flush_x

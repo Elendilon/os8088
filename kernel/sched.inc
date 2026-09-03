@@ -43,10 +43,24 @@
 ; =============================================================================
 
 ; --- task table (SPEC.md 8) --------------------------------------------------
+%ifdef KERN_SMALL
+MAX_TASKS   equ 7               ; SIX worker slices and the UI task
+                                ; (docs/KERN-SMALL-CUT-PLAN.md D1). The SDK's
+                                ; copy STAYS AT 14, on SPEC.md 51.0's rule for
+                                ; MEM_P_FATW_N: apps/os88api.inc publishes this
+                                ; to packages and taskmgr sizes buffers from it
+                                ; (SS_TSTATE is MAX_TASKS bytes), so a package
+                                ; built at 14 reading a 7-slot snapshot
+                                ; OVER-allocates, which is safe, where the
+                                ; reverse would overflow. One .o88 runs on both
+                                ; kernels (SPEC.md 24), so the SDK carries the
+                                ; larger of the two.
+%else
 MAX_TASKS   equ 14              ; mirrored in apps/os88api.inc, which sizes
                                 ; every package's snapshot buffer from it
                                 ; (SPEC.md 20.9) - change them together and
                                 ; rebuild every .o88
+%endif
 T_STATE     equ 0               ; byte: 0 free, 1 ready, 2 sleeping
 T_SP        equ 2               ; word: saved SP (frame above)
 T_WAKE      equ 4               ; word: [ticks] value to wake at
@@ -154,6 +168,39 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 ; The list is uniform TODAY. What made it a list is that the sizes are about to
 ; stop being uniform, and every reader had to stop assuming otherwise first.
 ; -----------------------------------------------------------------------------
+%ifdef KERN_SMALL
+; --- kern_small's SIX (docs/KERN-SMALL-CUT-PLAN.md D1) -----------------------
+; 1,280 bytes against kern_big's 2,816. The COUNT is the owner's; what is
+; chosen here is WHICH SIX, off the same survey (docs/STACK-SLOTS-PLAN.md 12.1)
+; read against what SPEC.md 24.5 actually puts on the small disks:
+;
+;   the 384 class  ftpd, the Browser and Frotz - NONE of which ships on
+;                  kern_small. ONE IS KEPT ANYWAY, and not for them: the C SDK
+;                  declares CC_STACK = SCH_STACK (SPEC.md 20.6 rule 7),
+;                  tests/unit/t_mirror.py guards the pair, and SCH_STACK is the
+;                  LARGEST class by construction. Take the class away and
+;                  either a C package's worker can never be spawned or the
+;                  mirror breaks.
+;   the 256 class  Missile Command ships; Modplug, Word and Telnet do not
+;   the 192 class  the modal class, and the one with real competition here:
+;                  Artful, the Task Manager, the Fractal, Cyclone, Notepad,
+;                  Arkanoid and Tamegram are all on the small apps disk
+;   the 128 class  the idle task holds one for the life of the machine, so the
+;                  second is the only sleeper slot a program can have - and the
+;                  sound driver's stream task, one of its four consumers, went
+;                  with SPEC.md 51.0
+;
+; FIVE USABLE, the idle task owning the sixth. A 43KB heap holds about two
+; packages, so the binding resource is not this table.
+%macro SCH_PARTITION 0
+    SCH_SLOT 128                ; the idle task's, for the life of the machine
+    SCH_SLOT 128                ; ...and the one sleeper slot left over
+    SCH_SLOT 192                ; the modal class (STACK-SLOTS-PLAN 12.1)
+    SCH_SLOT 192
+    SCH_SLOT 256                ; Missile Command
+    SCH_SLOT SCH_STACK          ; ...and the top class, here for CC_STACK's
+%endmacro                       ; sake rather than for a program's
+%else
 %macro SCH_PARTITION 0
     SCH_SLOT 128                ; the sleepers. ONE of these is the idle task's
     SCH_SLOT 128                ; for as long as the machine is up, so two are
@@ -179,6 +226,7 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
                                 ; window has 162 left, 512 of anybody's RAM.
                                 ; It is one line here if the field wants it
 %endmacro
+%endif
 
 ; --- and the three things counted off it, before anything can use them -------
 %assign SCH_STK_TOTAL 0
