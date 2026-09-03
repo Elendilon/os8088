@@ -182,6 +182,15 @@ far call plus a shape draw. It is the right primitive for a card pip (SPEC.md
 
 ## 4. The four options
 
+**WHAT THE LOAD COSTS, which this document never priced.** The decoder is a
+separate axis from the screen, and the first 1bpp build regressed it badly:
+`pt_line_put`'s bit arm shipped at **199 cycles a pixel** against the packed
+arm's 49, taking `OS8088.GIF` on a Hercules from 2,687 ms to 4,207. SPEC.md
+§42.25 is the account and the fix — `xlatb` and a straight-line eight, for
+**124.3 c/px** and 3,520 ms. The lesson is §42.13.1.4's unchanged: on an 8088
+the loop costs what it is *spelled with*, and two `shr r16, cl` a pixel is 8+4
+per bit, twice.
+
 ### Option A — 1bpp everywhere, `gfx_blit1` where it exists
 
 The canvas format byte becomes three-valued (`packed4` / `planar4` / `packed1`).
@@ -351,6 +360,10 @@ always on small.
 
 ## 8. Open — settle these before building
 
+**Items 1, 4 and 5 are answered and built; 2 is answered by being
+overtaken.** What is left is 3, which is a design question rather than
+a measurement.
+
 1. ~~**Does `gfx_blit1` accept a NEGATIVE stride?**~~ **YES — ANSWERED, AND THE
    FIRST ANSWER WAS WRONG.** It was read as *no*, on the ground that
    `gfx_blit1_x` skips rows with `mul bp` in two places and `MUL` is unsigned;
@@ -364,9 +377,12 @@ always on small.
    needed**, and the lesson is the cheaper one — an instruction's *name* said
    unsigned and its *use* did not, and reading only the name cost a section of
    SPEC.md that had to be withdrawn.
-2. **What does `gfx_blit4`'s own fixed part cost?** Option C's fallback is 258
-   calls or 15, and that is the difference between ~12 ms and ~195 ms of
-   overhead. One measurement decides between a 224-byte buffer and a 4 KB one.
+2. ~~**What does `gfx_blit4`'s own fixed part cost?**~~ **OVERTAKEN.** It
+   mattered while the expansion loop was the *only* path; it is now the
+   FALLBACK, taken on `kern_small` and on a canvas whose width is off the byte
+   grid. `gfx_blit1` handles the rest a band at a time, so the per-row call
+   count stopped being the thing that decides the repaint. Worth measuring if
+   `kern_small` ever becomes the machine people watch a repaint on.
 3. **What happens to a 1bpp document dragged onto a colour display?** It should
    stay 1bpp — depth is a property of the *document*, not the adapter, which is
    what the owner's rule already says and what makes the whole thing coherent.
@@ -396,5 +412,11 @@ always on small.
    One behaviour differs and is not a defect: a flood fill inside a dithered
    area fills the half matching its seed, because alternating pixels are what
    is actually there. §42.23.1 records it.
-5. **Option B or C for small.** ~730 kernel bytes against ~340 package bytes and
-   a slower repaint. This is the owner's call, not an arithmetic one.
+5. ~~**Option B or C for small.**~~ **NEITHER, AND THE QUESTION DISSOLVED.**
+   It was posed as ~730 kernel bytes (give `kern_small` the `gfx_blit1` body)
+   against ~340 package bytes (the expansion fallback) — on the belief that
+   `kern_big` could not use `gfx_blit1` either, because of the negative
+   stride. Once that turned out to be wrong, `kern_big` takes the fast path
+   for nothing and `kern_small` takes the fallback that had to exist anyway.
+   Option B is still available if `kern_small`'s repaint ever justifies 730
+   bytes, but nothing now depends on it.
