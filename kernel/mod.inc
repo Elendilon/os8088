@@ -225,8 +225,19 @@ mod_tab:
     dw 0, mod_f_clon            ; MOD_CLONE
 %ifdef FCP_MOD
     dw 0, mod_f_fcp             ; MOD_FCP
-    dw 0, mod_f_fdlg            ; MOD_FDLG
-%endif
+mod_r_fdlg:                     ; ...and this one is NAMED, because SPEC.md
+    dw 0, mod_f_fdlg            ; 38.0.1's resident guard asks "is the image
+                                ; held?" and that question is this word. A
+                                ; label rather than mod_tab + MOD_FDLG *
+                                ; MODR_SIZE at the call site: ui.inc is
+                                ; %included ABOVE this file, so the two `equ`s
+                                ; are not defined there and a forward label is
+                                ; the only spelling that works in both.
+                                ; Under FCP_MOD and not FDLG_MOD because that
+                                ; is where the ROW is; the two are defined
+                                ; together by KERN_SMALL, and decoupling them
+                                ; is an undefined symbol rather than a silent
+%endif                          ; read of the wrong word
 
 section .cold                   ; ...and the loader itself
 

@@ -699,3 +699,50 @@ anyway. The symptom was a file dialog that painted correctly while
 `fdlg_name` stayed empty and `fdlg_nlen` read 128 — the feature working and
 the harness reading 24 bytes to the left. `make` fixes it; knowing to suspect
 it is the expensive part.
+
+### 9.2.8 W2's own defect, found in the field: the drop never ran
+
+Reported as *"the `.modc` (file dialog at least) are not freeing themselves
+after the dialog closes"*, and it is exactly that. §9.2.6 shipped `mod_drop`
+in `fdlg_reap` and said so; what nothing checked is that `fdlg_reap` is
+**reachable** at the moment the drop is due.
+
+`[fdlg_win]` is the resident word that says a dialog is up, and §38.0's own
+argument leans on it — *"the image is in RAM whenever any of the other six
+has work"*. True on the way in. On the way out it inverts, and the design
+did not notice: three of the four routes that end a dialog — the Open/Save
+button, Cancel, and Escape — reach `fdlg_close` from **inside the image's own
+`W_ONCLICK`**, so `[fdlg_win]` is already 0 by the next UI pass. `mod_drop`
+sat behind three separate compares of that word (`ui.inc`'s ladder,
+`fdlg_reap`'s thunk, and the top of `fdlg_reap_x`), and each turned the pass
+away. Only the close/minimize box — which merely *hides* the window, so
+`fdlg_gate` inside `fdlg_reap_x` is what cancels it — ever got there.
+
+So `FDLG.DRV`'s claim was held from the first dialog to the end of the
+session: **16KB of a 128KB machine, for a dialog nobody could see** — the
+same failure mode §9.2.6's own mode-6 note records for `MOD_FMT`, one
+feature along.
+
+Three things in it are worth carrying to the next module:
+
+- **The route that works is the route nobody uses.** Every hand-test of W2
+  dismissed the dialog with a button. The close box is the least-used of the
+  four and is the only one that was ever collected, which is why a feature
+  that had been driven repeatedly still shipped this.
+- **The leak is invisible by construction.** The dialog really is gone, the
+  window really is destroyed, and the next dialog reuses the image it never
+  gave back. No picture, no refusal, no error — only `mem_tab` knows. That is
+  what makes `tests/fdlgdrop.py` assert `mod_tab[MOD_FDLG].seg` rather than
+  anything on the glass, and what made `tests/small128.py`'s "no pinned claim
+  on a bare desktop" miss it: the desktop is bare *before* the first dialog.
+- **A resident guard has to be asked the resident question.** "Is a dialog
+  up" and "is the image held" differ for exactly one pass in the life of
+  every dialog, and that pass is the one that matters. SPEC.md 38.0.1 is the
+  fix — `mod_r_fdlg` names the `mod_tab` row so the guard can ask the second
+  question — and it costs **+0 bytes on both arms**, being the same
+  instruction against a different word.
+
+**The other three modules were audited and are sound**: `fcp_fin`,
+`cpf_cp_flush_close`, `fm_fmt_drop` and `clo_drop` all hang off the
+operation's own end and none is guarded on state the module clears from
+inside itself.

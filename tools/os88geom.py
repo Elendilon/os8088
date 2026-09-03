@@ -231,6 +231,27 @@ _MIRROR = {
     "CUR_GH": ("kernel/mouse.inc", 12),
     "CUR_XHX": ("kernel/mouse.inc", 3),
     "CUR_XHY": ("kernel/mouse.inc", 5),
+    # kernel/fdlg.inc - the Standard File dialog's chrome, content-relative
+    # (SPEC.md 38.4). Two test scripts click these, and a third copy is one
+    # `equ` change away from a row that clicks empty background and reports a
+    # feature broken.
+    "FD_BX1": ("kernel/fdlg.inc", 224),
+    "FD_BX2": ("kernel/fdlg.inc", 286),
+    "FD_BY0": ("kernel/fdlg.inc", 20),
+    "FD_BY1": ("kernel/fdlg.inc", 40),
+    "FD_BY2": ("kernel/fdlg.inc", 60),
+    "FD_BH": ("kernel/fdlg.inc", 13),
+    "FD_LX1": ("kernel/fdlg.inc", 6),
+    "FD_LX2": ("kernel/fdlg.inc", 213),
+    "FD_ROW0": ("kernel/fdlg.inc", 22),
+    "FD_ROWH": ("kernel/fdlg.inc", 16),
+    # FD_TEXTX is deliberately NOT here. apps/ftpd/ftpd.asm defines its own
+    # (8, the Setup page's text pen) and tests/ftpdflick.py carries a THIRD
+    # value, 6 - so registering the kernel's 28 makes the gate compare two
+    # constants that were never the same one. A row that wants to click a
+    # listing entry should take FD_LX1..FD_LX2 and aim at the middle of the
+    # row, which is what the whole row is: less coupled, and it does not need
+    # this name at all.
     "KERNEL_SEG": ("kernel/kernel.asm", 0x0060),
     # kernel/memory.inc - the claim table (SPEC.md 50)
     # PER ARM (docs/KERN-SMALL-CUT-PLAN.md D1/D7): kern_small holds TWENTY claim records. The SDK

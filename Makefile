@@ -1750,6 +1750,10 @@ endif
 # booted, and Cut/Copy/Paste refused with FERR_NODISK because mod_need could
 # not find a file nobody had shipped. $(SMALLMODS) names it for those rules
 # instead, and the plain build simply never asks for it.
+#
+# IT IS A RECIPE ARGUMENT AND NEVER A PREREQUISITE - see the small360.img rule
+# for why, and for why $(SMALLDRIVERS) beside it is not the counter-example it
+# looks like.
 SMALLMODS = $(SMALLDIR)/filecp.drv $(SMALLDIR)/fdlg.drv
 
 # THE KERNEL IS ASSEMBLED WHOLE AND THEN CUT UP (SPEC.md 2.8). Everything
@@ -6219,7 +6223,27 @@ $(BUILD)/small360.img: KMODDIR := $(SMALLDIR)
 # the OUTER make where KERN_SMALL is not set - which is how FILECP.DRV came to
 # be left off the disk with every build step green (docs/KERN-SMALL-MODULE-
 # SPLIT.md 9.2.5).
-$(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPS) \
+#
+# IN THE RECIPE ONLY, AND NOT IN THE PREREQUISITES. Nothing in the outer make
+# can build $(SMALLDIR)/filecp.drv: it is cut out of $(SMALLDIR)/kernel.bin by
+# the SUB-MAKE this recipe runs, so demanding it up front asks make for a file
+# that cannot exist until the recipe has started - `No rule to make target'.
+# $(SMALLDIR)/kernel.bin and $(SMALLDIR)/boot360.bin are the same shape and
+# are already absent from this list for the same reason.
+#
+# $(SMALLDRIVERS) looks like a counter-example and is not: KMODDIR is a
+# TARGET-SPECIFIC variable, which GNU make applies to the recipe and NOT to a
+# prerequisite list expanded when the makefile is read - so that name is
+# `build/ctrl.drv` above the tab and `build/smallk/ctrl.drv` below it, and
+# only the first has a rule. It works by that asymmetry rather than in spite
+# of it, which is why $(SMALLMODS) - spelled with $(SMALLDIR) directly, so the
+# same both sides - could not join it.
+#
+# What still triggers the rebuild is $(SMALLDRIVERS)' big-build half: those
+# fall out of $(BUILD)/kernel.bin, so any kernel source change makes them
+# newer than the disk. And a module the sub-make somehow failed to write is
+# LOUD rather than silent - os88disk.py is handed the name and refuses.
+$(BUILD)/small360.img: $(SMALLDRIVERS) $(SYSAPPS) \
                        $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
                        tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot360.bin
@@ -6233,7 +6257,7 @@ $(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPS) \
 # its kernel is $(SMALLDIR)'s, so its modules are too
 $(BUILD)/small.img: KMODDIR := $(SMALLDIR)
 
-$(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPS) \
+$(BUILD)/small.img: $(SMALLDRIVERS) $(SYSAPPS) \
                     $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
                     tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot.bin

@@ -63798,8 +63798,8 @@ answer its body's own `.none` path would have given. That matters for cost
 rather than for correctness: `fdlg_reap` runs once per UI pass and
 `fdlg_grab` on every mouse press, and a `mod_need` on either would put a
 table walk on the machine's hottest loop. **The drop is `fdlg_reap`**, at the
-moment `[fdlg_win]` was set on the way in and is not on the way out — which
-is exactly "the dialog has closed or committed".
+moment the dialog stops existing — but the GUARD in front of it may not be
+`[fdlg_win]`, and §38.0.1 is why.
 
 **Thirteen of `kern_big`'s seventeen `.cold` bytes are the shared register
 epilogues, and they are a copy rather than an alias on the gates' account.**
@@ -63846,6 +63846,58 @@ always opens one. That is a real behaviour difference and it is stated here
 rather than left to be discovered: it is the same trade §22.3.0 took for
 Paste, and the same one `mod_need` imposes on every feature that becomes a
 module.
+
+#### 38.0.1 The drop is guarded on the IMAGE, not on the window
+
+`[fdlg_win]` answers "is a dialog up". The question `fdlg_reap` has to ask is
+**"is the image held"**, and for one pass in the life of every dialog those
+two differ — the pass on which it closed. Guarding the drop on the first
+question shuts the door on it.
+
+Four routes end a dialog, and only one of them was ever collected:
+
+| route | clears `[fdlg_win]` in | reached the drop |
+|---|---|---|
+| close / minimize box | `fdlg_reap_x` → `fdlg_gate` | **yes** |
+| Open / Save button | `fdlg_commit` → `fdlg_close` | no |
+| Cancel button | `.b_cancel` → `fdlg_close` | no |
+| Escape | `.close` → `fdlg_close` | no |
+
+The three that failed all clear `[fdlg_win]` from **inside the image's own
+`W_ONCLICK`**, so by the next UI pass the word is already 0 — and `mod_drop`
+sat behind three separate compares of it: `ui.inc`'s ladder, `fdlg_reap`'s
+resident thunk, and once more at the top of `fdlg_reap_x`. Each turned the
+pass away, and `mod_tab[MOD_FDLG].seg` stayed non-zero for the rest of the
+session. **A 16KB claim, held for a dialog nobody could see, on the machine
+with 128KB in it** — and the close box, the least-used route of the four, is
+the one that worked, which is why it survived the module split's own
+testing.
+
+**The fix is the guard, not the drop.** `mod_r_fdlg` names the `mod_tab` row
+so the resident side can ask the right question, `ui.inc` and `fdlg_reap`
+both compare that word instead, and `fdlg_reap_x`'s opening `je .no` becomes
+`je .drop`: a dialog that is already gone falls straight to the collection
+with no far call into the image at all. **It costs +0 bytes on both arms** —
+the same instruction against a different word, and the same `je` encoding —
+and `kern_big` is byte-identical, having no module to give back.
+
+**A label rather than `mod_tab + MOD_FDLG*MODR_SIZE`.** `ui.inc` is
+`%include`d above `mod.inc`, so neither `equ` exists at that call site; a
+forward-referenced *label* is the one spelling that assembles in both places.
+
+**Why the invariant is safe.** The drop now runs on a pass where
+`[fdlg_win]` is 0 and the image is held, and the only other moment those two
+things are both true is inside `fdlg_open` — between `mod_need` succeeding
+and `mov [fdlg_win], bx`. Nothing can observe it: `fdlg_reap` runs only from
+`ui_task`'s ladder, every route into `fdlg_open` is a dispatch on that same
+task, and a task cannot pre-empt itself. `mod_need`'s disk read takes
+`[sch_lock]` and does not yield.
+
+`tests/fdlgdrop.py` is the gate and it drives all four routes, asserting the
+**transition** — held while the dialog is up, zero after — so a build that
+had stopped loading the module fails the first half rather than passing the
+second. Against the kernel before this it reads three failures and one pass,
+which is the table above.
 
 ## 54. assoc.inc — file type associations
 

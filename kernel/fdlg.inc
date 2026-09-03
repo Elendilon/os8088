@@ -3130,10 +3130,19 @@ fdlg_onclick_x:
 ; and is not any more" is exactly the moment the feature is finished.
 fdlg_reap_x:
     cmp word [fdlg_win], 0
-    je .no
+    je .drop                    ; ALREADY GONE, and the image is what is left
+                                ; (SPEC.md 38.0.1). This `je` used to be a
+                                ; `je .no`, which is the whole defect: the
+                                ; body below only handles the HIDDEN window,
+                                ; and the three routes that do not go through
+                                ; it - Open/Save, Cancel, Escape - all clear
+                                ; [fdlg_win] from inside the image's own
+                                ; W_ONCLICK, so by the time any pass got here
+                                ; there was nothing left to notice
     call far [FDFP + FDE_REAP*4]
     cmp word [fdlg_win], 0
-    jne .no
+    jne .no                     ; still up: the image stays, and so does the
+.drop:                          ; guard that brought us here
     push ax
     mov al, MOD_FDLG
     call mod_drop

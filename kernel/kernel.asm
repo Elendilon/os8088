@@ -6262,7 +6262,14 @@ fdlg_paint:           call COLD_SEG:fdf_fdlg_paint
 ; it is reached by nothing else, and a guard that only one caller enforces is
 ; a guard that the next caller forgets.
 fdlg_reap:
+%ifdef FDLG_MOD
+    cmp word [mod_r_fdlg], 0    ; SPEC.md 38.0.1 - the IMAGE, not the window.
+                                ; ui.inc's copy of this guard carries the
+                                ; reasoning; both have to move together, which
+                                ; is why they are spelled the same way
+%else
     cmp word [fdlg_win], 0
+%endif
     je .none
     call COLD_SEG:fdlg_reap_x
 .none:
