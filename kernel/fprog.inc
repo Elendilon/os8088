@@ -124,6 +124,12 @@ FPG_USHR   equ 9                ; SECTOR, because fpg_step's caller is the
 ; -----------------------------------------------------------------------------
 fpg_begin:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     push ax
     push bx
     push cx
@@ -217,6 +223,12 @@ fpg_begin:
 ; -----------------------------------------------------------------------------
 fpg_busy:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     push ax
     push bx
     push cx
@@ -249,6 +261,7 @@ fpg_busy:
     pop cx
     pop bx
     pop ax
+    CURBAR_OFF
     popf
     retf
 
@@ -458,6 +471,10 @@ fpg_arm:
 fpg_paint:
     call cur_unlazy              ; spend gfx_lock's promised hide before we
                                 ; draw anywhere near the arrow (SPEC.md 7.1.4)
+                                ; - which SPEC.md 7.4.3's [cur_barok], set by
+                                ; every public entry of this module, turns into
+                                ; "...unless the arrow is below the bar, where
+                                ; nothing here can reach it"
     call fpg_span               ; --- the bed: white over whatever the bar had
     xor bx, bx                  ;     there, since the space is BORROWED and
                                 ;     menu_relayout's limit is untouched
@@ -542,6 +559,12 @@ fpg_tin:
 ; -----------------------------------------------------------------------------
 fpg_step:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     cmp word [fpg_total], 0
     je .out
     push ax                     ; AX/BX/CX/DX/SI and no more: everything this
@@ -587,6 +610,7 @@ fpg_step:
     pop bx
     pop ax
 .out:
+    CURBAR_OFF
     popf
     ret
 
@@ -625,6 +649,12 @@ fpg_step:
 ; -----------------------------------------------------------------------------
 fpg_stepb:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     cmp word [fpg_total], 0     ; fpg_step's gate, for fpg_step's reason
     je .out
     push ax
@@ -646,6 +676,7 @@ fpg_stepb:
     pop cx
     pop ax
 .out:
+    CURBAR_OFF
     popf
     ret
 
@@ -714,6 +745,12 @@ fpg_end:
 ; -----------------------------------------------------------------------------
 fpg_finish:
     pushf
+    CURBAR_ON                   ; SPEC.md 7.4.3: everything this module draws
+                                ; is inside the menu bar's rows, so an arrow
+                                ; below them is out of reach and cur_unlazy
+                                ; keeps gfx_lock's promise instead of spending
+                                ; it. menu_draw_bar, below, is the unclipped
+                                ; composition this is really for
     push ax
     push bx
     push cx
@@ -782,6 +819,7 @@ fpg_finish:
     pop cx
     pop bx
     pop ax
+    CURBAR_OFF
     popf
     ret
 

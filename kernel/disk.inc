@@ -1294,15 +1294,29 @@ dsk_xfer:
                                 ; volume is not
     mov ax, [dsk_run]           ; AL = the run (<= 128, so AH is 0)...
     mov ah, [dsk_op]            ; ...AH = 02 read / 03 write
+    CURROM_ON                   ; **THE ARROW MAY MOVE FROM HERE TO THE `iret`**
+                                ; (SPEC.md 7.4). The bracket is the INSTRUCTION
+                                ; and not the operation, which is the whole
+                                ; safety argument: nothing between .attempt and
+                                ; here draws, so no primitive of ours can be in
+                                ; flight while the flag is set - and the CPU in
+                                ; there is parked on IRQ6 waiting for DMA
+                                ; (SPEC.md 15.3.8), so what the ISR spends is a
+                                ; gap the machine was going to spend idle
     int 0x13
-    jnc .ok
+    CURROM_OFF                  ; `mov` leaves the flags alone, so int 13h's CF
+    jnc .ok                     ; still reaches this branch
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
     mov ah, 0x00                ; failed: reset the controller and retry
     mov dl, [dsk_unit]          ; the ROW's drive (SPEC.md 52.10.3): resetting
+    CURROM_ON                   ; ...and the arrow keeps moving through it too
     int 0x13                    ; drive 2 because the volume index is 2 resets
-                                ; a floppy that is not in this transfer
+    CURROM_OFF                  ; a floppy that is not in this transfer. A
+                                ; reset on ageing media is where the machine
+                                ; grinds longest, so it is the LAST place to
+                                ; let the pointer die (SPEC.md 7.4.1)
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_rst]
 %endif
@@ -1316,7 +1330,14 @@ dsk_xfer:
     jbe .fail                   ; already per-sector: unrecoverable
     mov word [dsk_run], 1
     mov bp, 3
-    jmp short .attempt
+    jmp .attempt                ; NOT `jmp short`: SPEC.md 7.4.1's two stores
+                                ; put .attempt out of a byte's reach on the
+                                ; DISKCNT=1 build, whose counters sit in this
+                                ; same loop - and a knob nothing ships is a
+                                ; build only test-full compiles, so it fails
+                                ; for somebody else. Written plainly, this
+                                ; grows a byte rather than failing to
+                                ; assemble (fprog.inc's idiom, for its reason)
 
 .ok:
     ; CF=0 IS the BIOS saying the whole request completed, and AL is not.

@@ -7717,6 +7717,145 @@ The instrument that works is the one above: bracket the kernel's own path with
 two memory breakpoints and read `cycles` at each. It never touches the mouse
 path, so the injection floor cannot enter the number.
 
+### 7.4 The arrow TRACKS the hand inside `int 13h` — `[cur_inrom]`
+
+A file operation freezes the machine (§12.8, §18) and the pointer freezes with
+it. This is the one state in which the arrow may move anyway, and it exists
+because the CPU inside a BIOS disk call is **not busy** — it has handed the
+transfer to DMA and is spinning on IRQ6.
+
+**The measurement this rests on is §15.3.8's**, taken on a 5150 across a whole
+load: `int 13h` runs with interrupts *enabled*, 83% of the samples have
+CS = F000, the longest unbroken in-ROM run is **21 timer interrupts with IF set
+throughout and not one IRQ0 lost**, and *"a frame drawn from the timer ISR
+costs no real time at all — it is drawn in a gap the machine was going to spend
+idle."* The boot splash already animates from IRQ0 inside `int 13h` on that
+evidence and ships. This is the same claim for IRQ4, and it is the *same gap*.
+
+**It is TRACKING or it is nothing** (§7.1.4.3). A lit-but-frozen arrow has
+already been shipped here and reported back from the field as a stutter — *"it
+sits still while the hand moves and then teleports"* — and §7.1.4.4 is the
+whole of that argument. So merely un-hiding the pointer for a file operation is
+a change this project has taken and reverted, and the only version worth
+building is one where the arrow follows the hand for the length of the
+transfer. `NOCURDISK=1` is the A/B.
+
+#### 7.4.1 The flag brackets the instruction, not the operation
+
+`dsk_xfer` sets `[cur_inrom]` immediately before each `int 13h` and clears it
+immediately after — the data transfer and the AH=00 controller reset alike.
+**Two stores, and the safety argument is the bracket's width rather than an
+audit**: the path from `.attempt` to `int 0x13` draws nothing, so no drawing
+primitive can be in flight on this task when the flag is set. It is `.text`
+with a real initialiser and not `.bss` (`-f bin` zeroes nothing, and
+`drv_boot` reads the disk before any init routine of ours could run —
+`fprog.inc`'s constraint, for its reason).
+
+`mov` leaves the flags alone, which is why the clearing store can sit between
+the `int 0x13` and the `jnc` that reads its CF.
+
+#### 7.4.2 Three more conditions, and each one closes a real hole
+
+The flag says *this* task is in the ROM. It does not say the screen is safe, so
+`mou_apply` asks three more questions before it draws (§12.8.4 is what happens
+when a painter and the ISR share the glass):
+
+1. **Is the lock held by US?** A task can only draw while holding the gfx lock,
+   so a lock held by the task that is in the ROM proves no task is inside a
+   primitive. A lock held by *another* task proves the opposite — it was
+   pre-empted mid-`gfx_fill` and its `vga_rect_setup` scratch and GC state are
+   live — so that case defers. `[gfx_lock_own]` against `[sch_cur]`, the
+   comparison `fpg_arm` already makes for the same reason.
+2. **Is a clip region armed?** `wm_clip_set` calls `cur_lazyck`, which may
+   decide the arrow is out of the region's reach and *keep* the deferred hide
+   (§7.1.4). That decision is made before the read and spent after it, so an
+   arrow that moved into the region during the transfer would be drawn over
+   and its save-under would go stale for the session. A non-zero
+   `[wm_clip_n]` therefore defers. Unclipped painters need no test: they call
+   `cur_unlazy`, which hides the arrow, and `[cur_level]` < 0 already defers.
+3. **Would it land on the progress widget?** §12.8.4's gate is `[fpg_on]`, and
+   this path deliberately steps around it — so it is replaced by the narrower
+   question `fpg_arm` already asks: everything the widget draws is inside the
+   menu bar's rows, so an arrow whose cell could reach them does not move.
+   `cmp bx, MBAR_H + CUR_GH`, unsigned, conservative by a cell exactly as
+   `fpg_arm`'s own compare is. The arrow stalls at the bar's edge for the
+   length of the operation and catches up at `gfx_unlock`.
+
+The lock-free case is left to the ordinary gates and gains nothing, which is
+deliberate: with the lock free `[fpg_on]` is the only thing standing between
+IRQ4 and an unlocked `fpg_step` fill on another task (§12.8.4), and that is not
+a guard to step around for a case nobody asked for. **A package's file write
+does not freeze the UI and has no pointer to unfreeze.**
+
+#### 7.4.3 The hider was `menu_draw_bar`, not `fpg_paint` — `[cur_barok]`
+
+Something has to stop spending `gfx_lock`'s promised hide (§7.1.4), because a
+spent promise means `cursor_hide` has run and there is no arrow left to track.
+**The obvious candidate was wrong, and the measurement is what said so.**
+
+`fpg_paint`'s `cur_unlazy` looks like the culprit: the widget arms at
+`FPG_WARM` = 3 sectors, the paint spends the hide, and the pointer is *gone*
+for the rest of the freeze rather than merely frozen. Making that one call
+conditional was built first and moved the arrow's lit share from 0% to 0%.
+Sampling the kernel through a real operation says why — the pointer tracked
+perfectly until the instant `[fpg_on]` went to 1 and then died, and `fpg_arm`
+calls **`menu_draw_bar` before it calls `fpg_paint`**. That composition is
+unclipped, so `GFXCLIP`'s own `cur_unlazy` had already hidden the arrow before
+`fpg_paint` was reached. Two painters, and the fix was aimed at the second one.
+
+So the rule goes where it is true of all of them. **`[cur_barok]` says "the
+painter running now is confined to the menu bar"**, and `cur_unlazy` keeps the
+promise instead of spending it when that byte is set and `[cur_drawn_y]` is at
+or below `MBAR_H + CUR_GH`. It is `cur_lazyck`'s trick (§7.1.4) with a fixed
+rect instead of a window's frame, and it is one test in one routine rather than
+one per call site.
+
+**fprog is the only module that may set it**, and it may because the statement
+is true of everything it draws — the bed, the icon, the box, the trough, the
+bar composition at either end — all of it inside rows 0..`MBAR_H`-1. The five
+public entries that draw bracket themselves (`fpg_begin`, `fpg_busy`,
+`fpg_step`, `fpg_stepb`, `fpg_finish`; `fpg_begin` shares `fpg_busy`'s
+epilogue, so four `CURBAR_OFF`s serve five routines), and none of them nests
+inside another, so a plain set and clear is enough and no save/restore is
+needed. `fpg_paint` is deliberately **not** bracketed: every call reaches it
+from inside one of those five, and its one other caller — `menu_furniture`,
+from inside `menu_draw_bar` — is reached the same way.
+
+`MBAR_H + CUR_GH` is the right bound and not a fudge: the cell's top is
+`[cur_drawn_y] - [cur_hy]` and the hot spot can be as low as `CUR_GH` (§7.2.2),
+so a position at or below that bound puts the whole cell at or below `MBAR_H`.
+It is `fpg_arm`'s own compare and its own constant, and being conservative can
+only cost a redundant hide; the other direction is §7.1.4's permanent smear.
+
+**A painter that is NOT bar-confined still hides the arrow, and must.** That is
+not a gap in the mechanism, it is the mechanism: measured over one folder open,
+the pointer tracks for the whole of the disk phase and goes down for the last
+sixth of the hold, when the window starts repainting its list. `tests/curdisk.py`
+reads 18 of 24 widget-up samples lit against `NOCURDISK=1`'s 0 of 24, on
+sample counts that are otherwise identical arm for arm.
+
+#### 7.4.4 What it does and does not buy
+
+Updates arrive at the mouse's own report rate — a 1200-baud packet is ~25–40 ms
+(§7.1.4.3) — for the whole of every `int 13h`. **The alternative that needs no
+ISR change is not good enough and was rejected on arithmetic**: stepping the
+cursor from `dsk_xfer`'s existing `.notch` loop beside `fpg_step` updates it
+once per call, and a call in a coalesced run is ~400 ms on the field machine
+(PERFORMANCE.md Part 2) — **~2.5 Hz**, which is precisely the teleporting
+pointer §7.1.4.3 rejected. If only one of the two is ever built it must be this
+one.
+
+Nothing else unfreezes. No window paints, no menu opens, no other task runs;
+`[sch_lock]` and the gfx lock are both untouched by this section. It is
+§12.8's argument one step further along — *"what was missing was not
+concurrency but feedback"* — and docs/UI-FREEZE-PLAN.md is the costing of the
+options that do address the freeze itself.
+
+**The driver-backed path is deliberately not covered.** A `DVK_DRV` volume
+leaves `dsk_xfer` before the run loop and its transfer is the driver's own code
+running at task level, not a ROM call with the CPU parked on an IRQ — so the
+"nothing is in flight" argument does not hold there and the flag is never set.
+
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
 - `MAX_TASKS equ 8`. Task 0 is the boot thread (becomes the UI task); it

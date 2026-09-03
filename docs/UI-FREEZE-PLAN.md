@@ -1,9 +1,17 @@
 # The UI freeze during disk I/O — what it is, and what it would take to end it
 
-Investigation only. **Nothing here is built**; no kernel byte changed on the
-branch that carries this file. It answers three questions asked in that order:
-why the machine freezes for disk I/O, what it would take not to, and what it
-would take to keep only the pointer alive.
+It answers three questions asked in that order: why the machine freezes for
+disk I/O, what it would take not to, and what it would take to keep only the
+pointer alive.
+
+**§5 IS NOW BUILT — SPEC.md §7.4 is the contract and this section is the
+costing behind it.** §4 is not: it remains an investigation, and nothing in it
+has been started. What shipped is the cursor, at **125 bytes** (`.text` +105,
+`.cold` +20, no rung crossed), behind `NOCURDISK=1` whose build is
+byte-identical to the kernel before it. Two things in §5 as first written were
+wrong and are corrected in place: the hider was **`menu_draw_bar`**, not
+`fpg_paint` (§5.3), and the three extra safety conditions the ISR needs were
+not in the sketch at all (§5.3.1).
 
 **Read first:** SPEC.md §7 (the concurrency model), SPEC.md §12.8/§12.8.3
 (the progress widget and what its extent is), SPEC.md §18 (the disk is the UI
@@ -231,7 +239,7 @@ arrow during a file operation is the cost of `cur_move` alone — the pair
 measured at 5.41 PIT counts on Hercules (SPEC.md §7.1) — spent in a gap that
 is otherwise idle.
 
-### 5.3 The shape
+### 5.3 The shape — as built
 
 Three pieces, and they are independent:
 
@@ -245,14 +253,22 @@ Three pieces, and they are independent:
    nothing, and `drv_boot` reads the disk before any init routine runs
    (`fprog.inc` has the same constraint for the same reason).
 
-2. **`fpg_paint` must stop hiding the arrow unconditionally.** Its `cur_unlazy`
-   is what removes the pointer for the whole freeze. The widget occupies one
-   known strip at the right end of the menu bar (`fpg_span` already computes
-   it), so this is `cur_lazyck`'s trick one level cheaper: **one rect test
-   against its own strip** instead of a window frame. Arrow outside the strip
-   — nearly always — and the promise is not owed.
+2. **Something must stop spending `gfx_lock`'s promised hide** — and the
+   obvious candidate was **wrong**. `fpg_paint`'s `cur_unlazy` looks like what
+   removes the pointer, and making that one call conditional was built first
+   and moved the lit share **from 0% to 0%**. Sampling the kernel through a
+   real operation says why: the arrow tracked perfectly until the instant
+   `[fpg_on]` went to 1, and `fpg_arm` calls **`menu_draw_bar` before
+   `fpg_paint`** — an unclipped composition, so `GFXCLIP`'s own `cur_unlazy`
+   had already hidden it. Two painters, and the fix was aimed at the second.
 
-3. **And then the arrow can move *into* the strip**, which it could not before,
+   What shipped puts the rule where it is true of both: **`[cur_barok]`**,
+   "the painter running now is confined to the menu bar", set by fprog's five
+   public drawing entries and read once in `cur_unlazy`. `cur_lazyck`'s trick
+   with a fixed rect instead of a window frame, and one test in one routine
+   rather than one per call site.
+
+3. **And then the arrow can move *into* the bar**, which it could not before,
    because the hand is now live during the operation. `fpg_step`'s fill would
    draw over a lit arrow and make the save-under a lie — SPEC.md §12.8.4's
    third bullet, exactly. Cheapest answer: the ISR, when drawing under the
@@ -261,9 +277,40 @@ Three pieces, and they are independent:
    which is a corner, and it is the *hidden-and-stuck* treatment §7.1.4.3
    prefers rather than the lit-and-stuck one it rejects.
 
-Rough size: a bracket, a compare and a branch in the ISR, and one rect test —
-tens of bytes of `.text` and one byte of state. **Not costed against a build;
-that is the first thing to do, not the last.**
+#### 5.3.1 Three conditions the sketch above did not have
+
+The flag says *this task* is in the ROM. It does not say the screen is safe,
+and each of the three tests `mou_apply` gained closes a hole that was open in
+the sketch (SPEC.md §7.4.2): the lock must be **held by us** — another task's
+hold means it was pre-empted mid-`gfx_fill` with its `vga_rect_setup` scratch
+and GC state live; **no clip region may be armed** — a painter that already
+asked `cur_lazyck` and was told the arrow was out of reach spends that answer
+*after* the read; and the move must not land on the widget. The lock-free case
+is deliberately left to the ordinary gates: with the lock free `[fpg_on]` is
+the only thing between IRQ4 and an unlocked `fpg_step` fill on another task
+(SPEC.md §12.8.4), and that is not a guard to step around.
+
+#### 5.3.2 What it cost, measured
+
+**125 bytes** — `.text` +105, `.cold` +20 — no rung crossed, and
+`make NOCURDISK=1` assembles **byte-identical to the kernel before the
+change** on both `kernel.bin` and `kernel-full.bin`. One byte of that is a
+`jmp short .attempt` in `dsk_xfer` that had to widen: the two stores put the
+label out of a byte's reach on the `DISKCNT=1` build, which nothing ships and
+only `make test-full` compiles.
+
+`tests/curdisk.py` is the A/B, on `os8088_5150_cga_gla` opening `B:\SYSTEM`:
+
+| | default | `NOCURDISK=1` |
+|---|---|---|
+| samples / widget up / lock held | 47 / 24 / 35 | 47 / 24 / 35 |
+| arrow **moved** under the lock | **28** | **0** |
+| arrow **on the glass** while the widget is up | **18 of 24 (75%)** | **0 of 24 (0%)** |
+
+The two arms are identical in every structural measure and opposite in exactly
+the two the change is about. The last sixth of the hold is legitimately hidden
+on both: that is when the window starts repainting its list, and a painter
+that is not bar-confined **must** take the arrow down (SPEC.md §7.1.4).
 
 ### 5.4 What it buys, and the honest ceiling
 
