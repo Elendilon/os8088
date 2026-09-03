@@ -1590,6 +1590,20 @@ SOAK = [
         "The file dialog's default button: REDRAWN IN PLACE must equal"
         "FRESHLY PAINTED.",
         needs=("marty",), serial=True, builds=True),
+    Row("fdlgsmall", "soak",
+        ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
+         "OS88_SYSIMG=build/small360.img"] + py("tests/fdlggrey.py"), 300.0,
+        "...and the SAME drive against kern_small, where the WHOLE dialog is "
+        "an on-demand module (SPEC.md 38.0, docs/KERN-SMALL-MODULE-SPLIT.md "
+        "9.2.6) rather than resident code. It is `fcpsmall`'s argument one "
+        "feature along and a bigger engine: seven entries with two exit "
+        "conventions, every call out of the image a far one through an `xd_` "
+        "entry, the register epilogues copied inside the image, and mod_need "
+        "reading it off the disk on fdlg_open with mod_drop giving it back in "
+        "fdlg_reap. NONE of that is exercised by the row above, which runs "
+        "the resident build. It builds its own image (`make small`) for "
+        "smallboot's reason.",
+        needs=("marty",), serial=True, builds=True),
     Row("fdlgup", "soak", py("tests/fdlgup.py"), 60.0,
         "SPEC.md 13.8.3: the Standard File dialog's buttons fire on the"
         "RELEASE.",

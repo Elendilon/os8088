@@ -612,3 +612,84 @@ shipped. `$(SMALLMODS)` names it for those rules instead.
 **Nothing in the build would have caught that**, and nothing in `full` does
 either — it took driving a paste on the finished floppy. It is the strongest
 argument in this document for the `fcpsmall` row existing.
+
+### 9.2.6 W2 as built — `fdlg.inc` becomes `FDLG.DRV`
+
+SPEC.md §38.0 is the contract; this is what the wave cost and what it found.
+
+`KERN_SIZE` **90,624 → 88,064**, and the cold rung UNCROSSES — 2,560 bytes
+back on every machine that boots `kern_small`, against a `FDLG.DRV` of 3,243
+bytes in 7 sectors. Free heap on a 128KB machine is **40.5 KB**. `kern_big`
+pays **29 bytes** (`.bss` +12, `.cold` +17) and its `KERN_SIZE` does not move.
+
+Four things §3.1 did not predict:
+
+1. **Seven entries, not nine.** `fdlg_onup` and `fdlg_ondrag` are §13.10.5's
+   thumb drag and already `kern_big`'s alone, so this build has no bodies for
+   them. But `MOD_NENT` still had to go 6 → 7, **for both kernels**: the
+   per-build value assembled fine and broke `tools/os88mod.py`, which scrapes
+   the first `^MOD_NENT equ <int>` out of `mod.inc` and cannot evaluate an
+   `%ifdef` — it read 7 on both arms and refused `CTRL.DRV`'s first entry as
+   out of range. That is where 12 of `kern_big`'s 29 bytes go.
+2. **Mixed exit conventions.** `filecp.inc`'s three entries all return near, so
+   all three are wrapped. Here five of seven already `retf` and two do not, so
+   the header points five bodies at **themselves** and wraps two. First module
+   in the tree that needs both.
+3. **The far-entry prefix collides.** `filecp.inc` uses `xf_` and both files
+   wrap `dsk_ncopy`; `.cold` is one segment, so one prefix would be one label
+   defined twice. This one is `xd_`.
+4. **`os88ui.inc` had to be lifted out of the image first.** `apps.inc`
+   near-calls `ui_krect4`, and the `%include` sat in the middle of what is now
+   `.modd`. Only `tools/os88ovlchk.py` noticed.
+
+**And two defects the static gates caught that nothing else would have.** Both
+are `tools/stkbalance.py`'s, and both were introduced by applying §9.2.4's
+rules mechanically:
+
+- **Rule 3 assumes the target of a tail jump is CALLABLE, and a continuation
+  is not.** `fdlg_hasdot` ended `jmp fm_dotin`, and `fm_dotin` is not a
+  routine: `fm_hasdot` falls into it having banked SI, and `fm_dotin`'s own
+  `pop si` takes that bank, so its near `ret` returns to *that entry's*
+  caller. Rewritten as `FDX fm_dotin` + `ret` — which is what rule 3 asks for
+  everywhere else — the `pop si` eats the return address, **on `kern_big` as
+  much as on `kern_small`**. `fdlg_hasdot` is resident now and keeps its
+  `jmp`. Reported as `fdlg_hasdot: ret at depth +1`.
+- **An `equ` alias is not free even when it emits nothing.** Writing
+  `fdk_bp equ kretc_bp` on the `kern_big` arm would have saved that build 13
+  bytes and made `kernel.asm`'s own `kretc_*` look ADDRESSED to a source-
+  reading walker, which then walks all five as routines entered at depth 0:
+  ten findings for a change that altered no instruction. The ladder is an
+  unconditional copy below the section toggle, exactly as `filecp.inc`'s is.
+
+So §9.2.4's three rules stand, with one sentence added to rule 3: **check that
+the target of a converted tail jump is entered by a `call` somewhere.** Both
+of these were invisible to `make`, to every emulator run, and to a reading of
+the diff; the gate that caught them reads source and cost 0.6 seconds.
+
+### 9.2.7 …and a harness defect that made W2 look broken for a session
+
+`tools/os88geom.py` mirrors the kernel's geometry so that no test writes a
+constant down twice — and it mirrored **one of the two kernels** without
+saying so. `WIN_SIZE` is 34 on `kern_big` and 28 on `kern_small`; the parser
+took the first `equ` it saw and `verify` compared against that same first
+`equ`, so the guard agreed with itself while every script pointed at
+`kern_small` decoded `wm_wins` at the wrong stride. It returns NUMBERS — a
+Disk window at (103, 20, 322, 155) followed by a second "window" at
+(60, 552, 93, 0) — which reads exactly like the package under test failing to
+launch, which is the module that had just been built.
+
+It knows the arm now, off `$OS88_DEFINES` (os88sym.py's own knob, which every
+`kern_small` row already sets), and a constant that exists on only one arm —
+`vidsel.inc`'s extended-desktop record is `kern_big`'s whole — is **refused**
+on the other rather than answered with the big number.
+
+**A second trap sat behind it and is worth writing down on its own.**
+`tools/os88sym.py` refuses an address unless its map matches `build/kernel.bin`
+byte for byte — but the emulator boots a **floppy**, and nothing compares the
+two. A `build/kernel.bin` newer than `build/os8088-360.img` therefore passes
+the check and hands out addresses for a kernel that is not running, and
+because `.bss` is `nobits` a pure `.bss` difference is invisible in the image
+anyway. The symptom was a file dialog that painted correctly while
+`fdlg_name` stayed empty and `fdlg_nlen` read 128 — the feature working and
+the harness reading 24 bytes to the left. `make` fixes it; knowing to suspect
+it is the expensive part.

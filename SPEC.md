@@ -62861,6 +62861,103 @@ same three rules:
 
 Rule 3 is what costs `kern_big` its 7 bytes.
 
+---
+
+### 38.0 ON `kern_small` THIS IS AN ON-DEMAND MODULE (§2.8)
+
+`kern_big` keeps every body in §38 resident in `.cold`, unchanged to the
+byte, and pays **29 bytes** for the whole arrangement — `.bss` +12 and
+`.cold` +17, both explained below, and not one byte of `.text`. `kern_small`
+emits the same bodies into `.modd`, which `tools/os88mod.py` cuts out as
+**`FDLG.DRV`** (3,243 bytes, 7 entries, 7 sectors); `fdlg_open` reads it into
+a heap claim and `fdlg_reap` gives it back. `KERN_SIZE` 90,624 → 88,064, and
+the cold rung UNCROSSES: 2,560 bytes back on every machine that boots this
+kernel.
+
+It is §22.3.0's shape a second time and obeys §22.3.0.1's three rules, with
+`filecp.inc` as the worked example. What is new here is in the four
+paragraphs below; everything else is that section.
+
+**SEVEN entries, not nine.** `fdlg_open`, `fdlg_paint`, `fdlg_onkey`,
+`fdlg_onclick`, `fdlg_reap`, `fdlg_grab`, `fdlg_top`. `fdlg_onup` and
+`fdlg_ondrag` are §13.10.5's scrollbar thumb drag, already `kern_big`'s
+alone, so this build has no bodies to publish. `MOD_NENT` goes 6 → 7 **for
+both kernels**, which is where `kern_big`'s 12 `.bss` bytes come from
+(`mod_fp` is `MOD_MAX * MOD_NENT * 4`). It is not per-build because
+`tools/os88mod.py` scrapes the first `^MOD_NENT equ <int>` out of `mod.inc`
+and cannot evaluate an `%ifdef`: given two, it read 7 on both arms and
+refused `CTRL.DRV`'s first entry as out of range. One value for both builds
+is the honest reading of a constant that a host tool and the kernel must
+agree on.
+
+**The entries return BOTH ways, and the header is what reconciles it.** An
+entry is reached by `call far`, so it has to end in `retf`. Five of these
+bodies already do — `fdlg_onkey` and `fdlg_onclick` leave through
+`kretfc_dx`, and reap, grab and top through their own `retf` — so the header
+points those five at **themselves**. `fdlg_open` and `fdlg_paint` return
+near, so the header points them at a two-instruction `call/retf` wrapper.
+This is the first module in the tree with a mixed exit convention, and
+wrapping the two is cheaper than changing five contracts the resident kernel
+also calls.
+
+**`fdlg_open` is the only entry that loads, and `[fdlg_win]` is why the other
+six need not.** That word is `.text`, resident on both builds (§38.5's
+banner), and it is non-zero exactly while a dialog is up — which only
+`fdlg_open` makes true. So the image is in RAM whenever any of the other six
+has work, and each resident stub answers a zero `[fdlg_win]` with the same
+answer its body's own `.none` path would have given. That matters for cost
+rather than for correctness: `fdlg_reap` runs once per UI pass and
+`fdlg_grab` on every mouse press, and a `mod_need` on either would put a
+table walk on the machine's hottest loop. **The drop is `fdlg_reap`**, at the
+moment `[fdlg_win]` was set on the way in and is not on the way out — which
+is exactly "the dialog has closed or committed".
+
+**Thirteen of `kern_big`'s seventeen `.cold` bytes are the shared register
+epilogues, and they are a copy rather than an alias on the gates' account.**
+§22.3.0.1's rule 3 is why the image needs its own `fdk_*` ladder; what is new
+here is that writing `fdk_bp equ kretc_bp` on the `kern_big` arm — which
+would have cost that build nothing — makes `kernel.asm`'s own `kretc_*`
+look **addressed** to `tools/stkbalance.py`, which reads source and evaluates
+no `%ifdef`. It then walks all five as routines entered at depth 0 and
+reports each at its own negative depth, ten findings for a change that
+altered no instruction. So the ladder is an unconditional copy below the
+section toggle, exactly as `filecp.inc`'s is, and the duplication is the
+price of a gate that can still read the file.
+
+**`fdlg_hasdot` is resident, and it is the one body here that could not
+become a far call at all.** `files.inc`'s `fm_dotin` is a **continuation**,
+not a routine: `fm_hasdot` falls into it having banked SI, and `fm_dotin`'s
+own `pop si` takes that bank, so its near `ret` goes to *that entry's*
+caller. A `jmp` is the only legal way in. Rewriting the tail jump as
+`call fm_dotin / ret` — which is what rule 3 asks for at every *other* site —
+makes the `pop si` eat the return address, on `kern_big` as much as on
+`kern_small`. `stkbalance` caught it as `fdlg_hasdot: ret at depth +1`. So
+`fdlg_hasdot` moves to the resident side whole, keeps the `jmp` it has always
+had, and the image reaches it through an ordinary far entry whose body ends
+in a near `ret`. **Rule 3 assumes the target of a tail jump is callable, and
+a continuation is not** — that is the one place the discipline in §22.3.0.1
+needs a reader's judgement rather than a mechanical rewrite.
+
+**What stays resident, and why it is not a judgement call.** `os88ui.inc` and
+`ui_krect4` are near-called by `apps.inc`, so they cannot be inside an image
+that is far-called and often absent; the `%include` was in the middle of what
+is now `.modd` and `tools/os88ovlchk.py` is the only thing that noticed.
+`files.inc`'s `pth_*` path stack is `kern_big`'s alone, so the four far
+entries naming it are gated with the call sites rather than left to reference
+symbols this build does not have. And the far-entry prefix here is **`xd_`**
+where `filecp.inc`'s is `xf_`: both blocks sit in `.cold`, which is one
+segment, and both wrap `dsk_ncopy` — one prefix would be one label defined
+twice.
+
+**Refusal.** `fdlg_open` answers CF=1, which is already its published answer
+for "one is already up, or the window table is full", and every caller
+treats it as *the command does nothing*. So on `kern_small` a Save As with
+the system disk out of the drive opens no dialog, where on `kern_big` it
+always opens one. That is a real behaviour difference and it is stated here
+rather than left to be discovered: it is the same trade §22.3.0 took for
+Paste, and the same one `mod_need` imposes on every feature that becomes a
+module.
+
 ## 54. assoc.inc — file type associations
 
 A file with a known extension shows the **associated program's** icon, marked

@@ -45,7 +45,7 @@ CELL = re.compile(r'^\s*OSAPI_(?:SLOT|JSLOT|NSTUB|XSTUB)\s+(?:\w+\s*,\s*)?'
 # targets were not merely untested above - they were not in the label map at
 # all, which is how adding JSLOT alone would have bought nothing.
 CELLDEF = re.compile(r'^\s*OSAPI_(?:NSTUB|XSTUB)\s+([A-Za-z_]\w*)\s*,')
-MODS = ('.modc', '.modf', '.modl', '.modp')   # on-demand module images (2.8).
+MODS = ('.modc', '.modf', '.modl', '.modp', '.modd')  # module images (2.8).
 # `.modp` is Cut/Copy/Paste and kern_small's ALONE (SPEC.md 22.3,
 # docs/KERN-SMALL-MODULE-SPLIT.md 9.2): filecp.inc emits its bodies there on
 # that build and into `.cold` on kern_big, which is the first conditional
@@ -53,7 +53,8 @@ MODS = ('.modc', '.modf', '.modl', '.modp')   # on-demand module images (2.8).
 # %ifdef, so it files those bodies as `.modp` on both - which is why filecp.inc
 # now carries exactly ONE such switch and every call that leaves the image goes
 # through its FCPX/FCPXJ macros. A near call inside the body is then
-# `.modp -> .modp` and true on either build.
+# `.modp -> .modp` and true on either build. `.modd` is fdlg.inc on the same
+# terms (SPEC.md 38.0) and obeys the same three rules.
 # **A section added here and nowhere else is a section NOTHING below checks**,
 # which is how `.modl` shipped once with the near-call check blind to it - the
 # clone module's every `call COLD_SEG:` was correct, and would not have been

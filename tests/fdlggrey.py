@@ -115,7 +115,19 @@ def repaint(m, mo):
 # (docs/HANDOFF-SOAK-FINDINGS.md B4).
 need("build/muptest.img")
 
-with M.launch("build/os8088-360.img", apps="build/muptest.img",
+# The system image is overridable so this row can be pointed at kern_small,
+# where the whole dialog is an on-demand module (SPEC.md 38.0) rather than
+# resident code - a different engine to reach, and the only one nothing else
+# exercises. Pair it with $OS88_BUILD and $OS88_DEFINES, os88sym's own knobs:
+#   OS88_DEFINES=KERN_SMALL OS88_BUILD=build/smallk \
+#   OS88_SYSIMG=build/small360.img python3 tests/fdlggrey.py
+import os
+SYS_IMG = os.environ.get("OS88_SYSIMG", "build/os8088-360.img")
+if "smallk" in os.environ.get("OS88_BUILD", ""):
+    import subprocess
+    subprocess.check_call(["make", "small"], stdout=subprocess.DEVNULL)
+
+with M.launch(SYS_IMG, apps="build/muptest.img",
               machine=MACHINE) as m:
     M.settle(m)
     mo = Mouse(marty=m)

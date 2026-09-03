@@ -277,6 +277,15 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define FCP_MOD 1
 %endif
 
+; SPEC.md 38's Standard File dialog, on FCP_MOD's terms one block up and
+; through the same seam (SPEC.md 38.0, docs/KERN-SMALL-MODULE-SPLIT.md 9.2
+; wave 2). SEVEN entries against MOD_NENT's eight, because SPEC.md 13.10.5's
+; thumb drag is kern_big's already and takes fdlg_onup and fdlg_ondrag with
+; it - so this fits the mechanism as it stands and needed no MOD_NENT raise.
+%ifdef KERN_SMALL
+  %define FDLG_MOD 1
+%endif
+
 ; SPEC.md 13.10.5's thumb DRAG is kern_big's and SHIPS - `make SBDRAGOFF=1`
 ; compiles it out, which is WM_ANIM's shape one section up and exists to be
 ; diffed against rather than because anybody should build it.
@@ -2333,6 +2342,9 @@ section .modf    start=MODF_START vstart=0
 section .modl    start=MODL_START vstart=0
 %ifdef FCP_MOD
 section .modp    start=MODP_START vstart=0
+%endif
+%ifdef FDLG_MOD
+section .modd    start=MODD_START vstart=0
 %endif
 section .modmap  start=MODMAP_START vstart=0
 section .text
@@ -6592,7 +6604,8 @@ MODF_START   equ MODC_START + MODC_SIZE
 MODL_START   equ MODF_START + MODF_SIZE
 %ifdef FCP_MOD
 MODP_START   equ MODL_START + MODL_SIZE   ; Cut/Copy/Paste, kern_small's alone
-MODMAP_START equ MODP_START + MODP_SIZE
+MODD_START   equ MODP_START + MODP_SIZE   ; ...and the file dialog after it
+MODMAP_START equ MODD_START + MODD_SIZE
 %else
 MODMAP_START equ MODL_START + MODL_SIZE
 %endif
@@ -6615,6 +6628,12 @@ modp_end:
 MODP_SIZE equ modp_end - $$
 %endif
 
+%ifdef FDLG_MOD
+section .modd
+modd_end:
+MODD_SIZE equ modd_end - $$
+%endif
+
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
 ; (mod.inc) is a RUN-TIME test - a module over it is refused cleanly, the
 ; feature simply does not open - so nothing would say a word at build time
@@ -6632,6 +6651,11 @@ MODP_SIZE equ modp_end - $$
 %ifdef FCP_MOD
  %if MODP_SIZE > MOD_MAX_KB*1024
 %error "the Cut/Copy/Paste module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
+%endif
+%ifdef FDLG_MOD
+ %if MODD_SIZE > MOD_MAX_KB*1024
+%error "the file dialog module is over MOD_MAX_KB - mod_need would refuse it at run time"
  %endif
 %endif
 
@@ -6659,6 +6683,7 @@ mod_map:
     dd MODL_START, MODL_SIZE
 %ifdef FCP_MOD
     dd MODP_START, MODP_SIZE    ; ...and kern_small's fourth (SPEC.md 22.3)
+    dd MODD_START, MODD_SIZE    ; ...and its fifth (SPEC.md 38.0)
 %endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
@@ -7159,6 +7184,12 @@ section .modf
 section .modp
 %if ($ - $$) != MODP_SIZE
   %error "something landed in .modp below modp_end - os88mod.py would CUT the Cut/Copy/Paste module short of it"
+%endif
+%endif
+%ifdef FDLG_MOD
+section .modd
+%if ($ - $$) != MODD_SIZE
+  %error "something landed in .modd below modd_end - os88mod.py would CUT the file dialog module short of it"
 %endif
 %endif
 section .modl

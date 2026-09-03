@@ -1732,6 +1732,7 @@ KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
 # right here: only a KERN_SMALL=1 build has a fourth module to split out.
 ifneq ($(KERN_SMALL),)
 KMODARGS += -m 3=$(BUILD)/filecp.drv
+KMODARGS += -m 4=$(BUILD)/fdlg.drv
 endif
 # ...but $(KMODS) is NOT guarded, and that is the trap this comment exists for.
 # The small floppy rules below expand $(SMALLDRIVERS) - and so $(KMODS) - in
@@ -1740,7 +1741,7 @@ endif
 # booted, and Cut/Copy/Paste refused with FERR_NODISK because mod_need could
 # not find a file nobody had shipped. $(SMALLMODS) names it for those rules
 # instead, and the plain build simply never asks for it.
-SMALLMODS = $(SMALLDIR)/filecp.drv
+SMALLMODS = $(SMALLDIR)/filecp.drv $(SMALLDIR)/fdlg.drv
 
 # THE KERNEL IS ASSEMBLED WHOLE AND THEN CUT UP (SPEC.md 2.8). Everything
 # from .modc onward is an on-demand module: kernel code that ships as a file
