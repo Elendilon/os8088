@@ -34310,6 +34310,38 @@ Seven packages fail that test:
 **90,510 bytes — a quarter of a 360KB floppy — for seven programs that could
 not have started.** The apps disk goes 341 → 244 of 354 clusters.
 
+#### 24.5.2 A third ground: a claim larger than the machine
+
+The rule above is a requirement test and §24.5 is emphatic that it must not
+become a size one. **A minimum claim larger than the machine's entire RAM is a
+requirement, not a size.** It is not "this package wants a lot of heap and may
+have to refuse today" — it is "this package cannot start on this class of
+machine at any heap figure, on any day, however little else is running".
+
+`SHEET` is that case. Its region is 48,352 bytes, which is what a catalogue
+prints and what this project used to size packages by; **what it claims on
+open is close to 100KB** — grid, cell store, undo — which is more RAM than a
+128KB machine has in total, before the region is counted at all. So the
+refusal §24.5 asks for is the only thing SHEET could ever do there, and a
+package that can only refuse is a name in a list that does nothing when you
+double-click it, which is exactly the outcome the omission rule exists to
+prevent.
+
+**The distinction that keeps this from becoming the size test.** PAINT wants
+a lot of heap and *ships*, because whether it runs depends on what else is
+open — its refusal is real information about this machine at this moment, and
+§42.22 turned that into the whole point of its small build. SHEET's answer
+does not depend on anything: no arrangement of the machine makes it start. The
+test is **"is there a state of this machine in which this package runs"**, and
+only a package for which the answer is no comes off the disk.
+
+**And the general lesson is bigger than the disk list.** docs/KERN-SMALL-CUT-
+PLAN.md's founding argument was that 70KB of free heap is *"roughly where a
+second program becomes possible"*, reasoning from SHEET's region. That premise
+was measuring the wrong quantity, and the target built on it is retired —
+**a package's footprint is its region PLUS the claims it makes to function**,
+and only the second number says whether it runs.
+
 #### 24.5.1 The small system disk carries core packages too
 
 §24.3's rule is not the shipped disk's alone: **the core packages ride the

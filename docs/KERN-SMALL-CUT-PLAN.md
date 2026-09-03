@@ -72,12 +72,70 @@ Five findings:
    them and not one more** — which caps three of the most attractive data cuts
    at half what they would otherwise give. §7.
 
-5. **32.5KB is the number that makes the request reasonable, and it is worse
-   than it looks.** `SHEET.O88` is 48,352 bytes and **cannot be loaded on a
-   128KB machine at all** today; PAINT (25,944) fits with 6KB to spare and
-   nothing can run beside it. At 66KB, SHEET runs with 14KB left over. The ask
-   is not a round number somebody liked — it is roughly where a second program
-   becomes possible.
+5. ~~**32.5KB is the number that makes the request reasonable.**~~ **THIS
+   FINDING IS REFUTED, AND IT WAS THE JUSTIFICATION FOR THE WHOLE ASK — see
+   §0.1.** It reasoned that `SHEET.O88` is 48,352 bytes, that 66KB would run
+   it with 14KB left over, and that 70KB is therefore "roughly where a second
+   program becomes possible". **A package's image is not what it needs to
+   run.** SHEET makes nearly **100KB of heap claims when it opens** — more RAM
+   than the machine has in total, before its region is counted at all — so no
+   amount of kernel cutting was ever going to load it. The number the ask was
+   anchored to was measuring the wrong thing.
+
+---
+
+## 0.1 A PROGRAM'S SIZE IS ITS REGION *PLUS* THE CLAIMS IT MAKES TO RUN
+
+This document sized programs by their `.o88`, which is the number `ls` gives
+and the number a disk catalogue prints. It is not the number that decides
+whether a program runs.
+
+**SHEET makes almost 100KB of heap claims on open** — its grid, its cell
+store, its undo — which is more RAM than a 128KB machine has in total, before
+its 48,352-byte region is counted at all. So **SHEET will never run on
+`kern_small` in its current form**, at 70KB of free heap or at any other
+figure this document could reach, and the parallel apps session has taken it
+off the small disks for that reason. It joins §24.5's list on a new ground:
+not "it cannot reach its driver" but "it cannot fund itself".
+
+Two things follow, and the second is the one to carry forward.
+
+**The 70KB target is retired.** It was reverse-engineered from "the heap at
+which SHEET loads", and that premise is gone. The other program behind it was
+PAINT, and **that one has been solved at the APPLICATION layer instead** —
+SPEC.md 42.23's 1bpp canvas and SPEC.md 42.6.5's claim-first sizing, in the
+parallel session, not here. The kernel was being asked to make room that the
+program was better placed to stop needing.
+
+**The goal is now: as much more as we can get, weighing each feature's cost
+against what cutting it does to the machine.** Not a number to hit. That is a
+weaker brief and a more honest one — every row left in §2–§5 is a feature, and
+a row is worth taking only when the bytes are worth what the user loses. The
+rows do not become more attractive because a target is close.
+
+### 0.1.1 …and a claim is INVISIBLE to every measurement in this document
+
+`kernsize` reports sections. A heap claim is not a section — it appears in no
+column of any table here, and no `%if` in `kernel.asm` can see it. Every
+figure in §1–§8 is therefore a *footprint* figure, and the machine's actual
+free memory is that minus whatever the running software claims.
+
+This has now cost twice in opposite directions:
+
+- **It hid a defect.** `ASC_KB` held 3,072 bytes of a bare desktop before the
+  user had done anything (docs/KERN-SMALL-MODULE-SPLIT.md §9.1), found by
+  accident. `tests/small128.py` exists because of it and walks `mem_tab` on
+  the machine.
+- **It hid a WIN.** The per-window view cache was 3KB an open Disk window, 2KB
+  of which was one icon body per entry — duplicated again in every window's
+  private copy. Pooling it (SPEC.md 25.8.5) cost `.cold` +34 and gave back
+  **1,024 bytes per open window, 4,096 with all four up**. It appears nowhere
+  in this document's tables, because a claim never does.
+
+**So the next lever is per-instance claims, and nothing here has counted
+them.** `VIEW_KB`, the directory read-ahead, each package's own claims: a
+walk of what a *working* machine holds, rather than what the kernel assembles
+to, is a measurement this document has never taken.
 
 ---
 
@@ -278,6 +336,35 @@ The requester's second question. **The distinction that matters is between a
   **`vid_rowtab`** (256). These *are* the optimised path the requester asked
   to keep. docs/MONO-RECLAIM-PLAN.md measured the row table paying for itself
   three times over on CGA (saver 4.69% → 2.85% of the whole machine).
+
+  **AND THEY CANNOT BE COMBINED OR OVERLAID — asked and answered, so that
+  nobody derives it a third time.** Both are *build-once permanent lookup
+  tables*, not scratch caches with disjoint lifetimes, and they are read **on
+  the same call, five instructions apart**: `gfx_blit4`'s row loop calls
+  `gfx_rowbase` (which reads `vid_rowtab`, and is *"THE FIXED COST OF EVERY
+  DRAWING CALL IN THE MACHINE"*) at `vga12.inc:2750`, then picks a pair table
+  on `(x+y)&1` at 2757. Different domains — row index → byte offset against
+  source byte → reduced byte — different value widths, and neither is ever
+  dead while the machine is drawing. `vid_rowtab` is already cut per arm: 696
+  bytes on `kern_big` (348 rows), 256 here (128).
+
+  The two pair tables *are* related — `tab1[B]` is exactly
+  `swapbits(tab0[swapnibbles(B)])` — but both operations land in
+  `sw_blit_row`'s inner loop, which PERFORMANCE.md Set 102 measures at **27.7%
+  of the whole machine in Paint**. The second table exists precisely so "the
+  dither then costs the loop nothing"; two instructions a pixel-pair to save
+  256 bytes is the wrong direction.
+
+  Two facts that look like openings and are not. **They are lazily built and
+  usually are not**: `gfx_pairbuilt` reads 0 on a desktop with a Disk window
+  full of icons open, because icons go through `icon_draw`'s sprite engine and
+  not `gfx_blit4` — but they are `resb`, so the bytes are spent either way.
+  And **Paint going 1bpp does not free them**: `OSAPI_GFX_BLIT4` is a
+  published slot, and **CHART is on the small apps disk** (walked, `APPS/`)
+  and blits its canvas through it. The only way to reclaim the 512 is to
+  delete the row decoder and leave the per-run path, which is `NOPLANE=1` —
+  PERFORMANCE.md Set 107 prices that at **7,146 ms against 1,148** for
+  `OS8088.GIF`, because a dithered image becomes one run per pixel.
 - **`softgfx.inc`** (1,180). On `kern_small` this is the *only* renderer —
   the VGA path is already gone — so there is no second path left to collapse
   into. The "keep only an optimised path" work the requester is thinking of
@@ -504,7 +591,7 @@ tiers above it:
 
 | take | cut | free heap | what still works |
 |---|---:|---:|---|
-| today | — | **32.5 KB** | one mid-size program; SHEET cannot load |
+| today | — | **32.5 KB** | one mid-size program (SHEET cannot load at ANY row: §0.1) |
 | A | 4,700 | **37.1 KB** | everything, minus sound and loadable drivers |
 | A + D | 10,270 | **42.5 KB** | as above, with smaller tables and a 720KB volume cap |
 | A + B + D | 16,562 | **48.7 KB** | …and no save-under, icons or `gfx_line` |
@@ -605,7 +692,7 @@ so the pool stops at `fmv_store`, which expands into that cache rather than
 copying it (SPEC.md 25.8.2). Getting that wrong was 301 differing pixels in
 exactly one of the two windows.
 
-### 8.2 If 70KB is firm
+### 8.2 If 70KB is firm — IT IS NOT, and §0.1 is why
 
 The last ~4KB has to come from somewhere structural, and there are only three
 candidates: §4.1's Disk window trim (~1,800), the damage-rect layer §3.1
@@ -660,9 +747,23 @@ feature, and was not on any list here; the question it raises for §5 is which
 of the remaining sizing constants are storing the same thing more than once
 rather than merely storing it generously.
 
-Worth putting back to the requester: **65KB runs SHEET with 13KB spare**, and
-SHEET is the largest package in the tree. The difference between 65 and 70 may
-not buy a program.
+~~Worth putting back to the requester: **65KB runs SHEET with 13KB spare**.~~
+**WRONG, and refuted in §0.1**: that counted SHEET's region and not the ~100KB
+of heap it claims when it opens, which is more than the machine has. No row in
+this document runs SHEET, and the parallel apps session has taken it off the
+small disks.
+
+**The target is retired and the brief is now open-ended** (§0.1): take what
+can be taken, and weigh each feature against what losing it does to the
+machine. Nothing below is owed to a number.
+
+The two programs the ask was really about have both moved out from under it.
+PAINT was solved at the APPLICATION layer — SPEC.md 42.23's 1bpp canvas and
+42.6.5's claim-first sizing — which is the shape worth noticing: **a program
+that needs less is worth more than a kernel that is smaller**, because the
+kernel's remaining rows all cost a feature and the program's did not. Before
+taking anything from §2–§5, ask whether the package could stop needing it
+instead.
 
 ---
 
