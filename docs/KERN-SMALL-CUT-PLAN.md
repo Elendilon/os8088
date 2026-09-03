@@ -39,11 +39,14 @@ Five findings:
 2. **The best lever keeps the features rather than deleting them.** `.cold` is
    34,531 bytes — 36% of the footprint — and `mod.inc` (§2.8) already moves
    10,536 bytes of it out of RAM entirely by shipping it as on-demand modules.
-   Four more `.cold` residents are worth **13,000 bytes** by the same route.
-   **`docs/ONDEMAND-PLAN.md` §1 explicitly refuses two of them**, on a rule
-   that is right for the machine it was written against; §6 is why
-   `kern_small` is the one build where that is worth re-deciding, and it is a
-   product decision rather than a build fix.
+   Two more `.cold` residents can follow it, for **4,649 bytes net** (§6).
+   **That figure was 12,997 when this document was written, and
+   docs/KERN-SMALL-MODULE-SPLIT.md is the correction**: two of the four
+   candidates are refused by the mechanism itself — `assoc.inc` sits inside
+   `mod_need`'s own dependency cone and `diskw.inc` is the file I/O layer
+   three loaders call — and `fdlg.inc`'s row includes 1,140 bytes of shared
+   code that stays either way. Moving is no longer a substitute for deleting;
+   §6 is rewritten and §6.1's product decision still stands.
 
 3. **The hardware question the requester asked yields less than it looks.**
    Sound, hard disk, Ethernet, XMS, PS/2 mouse and the VGA are worth about
@@ -202,17 +205,17 @@ than swept up with the blanker.
 | # | option | bytes | what it costs |
 |---|---|---:|---|
 | C1 | **FAT write path** §18.4–18.6 (`diskw.inc`) | **4,899** | a **read-only OS**: nothing saves, formats, renames or deletes |
-| C2 | **Standard File dialog** §38 (`fdlg.inc`) | **4,654** | no application can Open or Save |
+| C2 | **Standard File dialog** §38 (`fdlg.inc`) | **3,514** | no application can Open or Save. **Not 4,654**: ~1,140 of `fdlg.inc`'s `.cold` is `apps/os88ui.inc`, which five other files need and which survives deletion (docs/KERN-SMALL-MODULE-SPLIT.md §0) |
 | C3 | **File associations** §54 (`assoc.inc`) | **2,526** | double-clicking a document no longer finds its program |
 | C4 | **Cut/Copy/Paste** §22.3–22.5 (`filecp.inc`) | **2,281** | no file management in the Disk window |
 | C5 | **Built-in kinds** §14 (`apps.inc` + pools) | **1,540** | Timer, About, Ball, Bounce |
 | C6 | **Fullscreen exclusive** §53 (`fsx.inc` + `fsx_mtab`) | **913** | no game or demo can take the screen |
 | C7 | **The dock** §30 (`dock.inc`) | **814** | |
 | C8 | **Clipboard** §55 (`clip.inc`) | **212** | |
-| | **subtotal** | **~17,840** | |
+| | **subtotal** | **~16,700** | |
 
-**C1–C4 are 14,360 of the 17,840, and §6 is the argument that they should be
-moved rather than deleted.**
+**C1–C4 are 13,220 of the 16,700 — and §6 no longer argues that all four can
+be moved instead.** Two of them cannot be.
 
 ### 4.1 Trimming the Disk window rather than deleting it
 
@@ -254,20 +257,31 @@ else"* — a module is assembled as part of this kernel, cut out of the binary b
 freed when it is done. It already carries **CTRL.DRV 5,866, FORMAT.DRV 1,131
 and CLONE.DRV 3,539 — 10,536 bytes that are not in the footprint.**
 
-The four biggest `.cold` residents left:
+**Which of them can follow is docs/KERN-SMALL-MODULE-SPLIT.md**, and the
+answer is two of four:
 
-| module | `.cold` today | as a module |
-|---|---:|---|
-| `diskw.inc` — the FAT write path | 4,565 | out of the footprint |
-| `fdlg.inc` — the Standard File dialog | 4,292 | out of the footprint |
-| `filecp.inc` — Cut/Copy/Paste | 2,137 | out of the footprint |
-| `assoc.inc` — file associations | 2,003 | out of the footprint |
-| | **12,997** | |
+| module | `.cold` | entries | verdict |
+|---|---:|---:|---|
+| `filecp.inc` — Cut/Copy/Paste | 2,141 | **5** | **possible**, and clean |
+| `fdlg.inc` — Standard File dialog | 3,152 | **9** | **possible**, after lifting `os88ui.inc` out and raising `MOD_NENT` to 16 |
+| `assoc.inc` — file associations | 2,003 | 9 | **refused**: `mod_need → drv_mounted → dsk_chdir_q_x → dsk_chdir_x → disk_mount_x → asc_lookup_x`. Loading any module can mount, and a mount calls associations |
+| `diskw.inc` — the FAT write path | 4,565 | **33** | **refused**: it is the by-name file I/O layer. `mod.inc` calls `dskw_read_x` *to load a module*; `driver.inc` and `loader.inc` call it to load a driver and a package; CTRL.DRV and CLONE.DRV far-call `dwf_dskw_*` from inside their own images |
 
-**That is within 1,400 bytes of what deleting C1–C4 outright would give, and
-the features survive.** It is the highest-value item in this document.
+Net of the resident stubs, the 43 new far entries and `mod_fp`: **4,649
+bytes**, taking `KERN_SIZE` 96,256 → 91,136 as the rungs fall today.
 
-### 6.1 …and the rule it runs into
+**This section read "12,997 more by the same route … within 1,400 bytes of
+what deleting them outright would give", and that was wrong.** It was the four
+files' `.cold` added up, with no check on entry counts, on the module loader's
+own dependency cone, or on what `%include` sits inside `fdlg.inc`. The honest
+gap between moving and deleting is **8.4 KB**, because the two largest
+candidates can be deleted and cannot be moved.
+
+**It is still worth doing** — 5.0 KB of heap, +15% on a 128KB machine, with
+both features intact — but it is not a substitute for the deletions, and the
+last row of §8.1 is the only one that reaches 65 KB.
+
+### 6.1 The rule it runs into
 
 docs/ONDEMAND-PLAN.md §1 states the test and it is a good one:
 
@@ -275,31 +289,29 @@ docs/ONDEMAND-PLAN.md §1 states the test and it is a good one:
 > required** to do it, or can be required **without interrupting what the user
 > was doing** — because on a one-floppy machine every load is a disk swap.
 
-and it runs the test explicitly against two of these four:
+and it runs the test explicitly against two of the four:
 
 > | Standard File dialog | **No, and the requirement is perverse** | fails |
 > | Cut/Copy/Paste | **No** | fails |
 
-That verdict is correct for the machine it was written against and it is not
-to be waved away. Three things make `kern_small` the one build where it is
-worth putting back to the requester:
+That verdict is correct for the machine it was written against and it is not to
+be waved away: `mod_need` calls `drv_vol_bank` → `drv_mounted`, so on a
+one-drive machine with a data disk in A: the dialog refuses. Two things make
+`kern_small` the one build where it is worth putting back to the requester:
 
 1. **The alternative on the table is deletion, not the status quo.** §4's C2
-   removes the file dialog from this build entirely. A dialog that costs a
-   disk swap is worse than one that does not and better than one that does not
-   exist, and that comparison was not available when the rule was written.
-2. **The rule's own machine is the 360KB one-floppy XT, and its constraint is
-   the swap.** A `kern_small` machine with two drives, or with the system disk
-   left in A: — which is what a machine with 32.5KB of heap does anyway,
-   because nothing else fits — pays a disk *read* and not a swap.
-3. **The write path (`diskw.inc`, 4,565) was never tested against the rule at
-   all**, and it plausibly passes on its own terms: saving a file is an
-   operation the user prepared for.
+   removes the file dialog from this build entirely. A dialog that sometimes
+   will not open is worse than one that always does, and better than one that
+   does not exist — a comparison that was not available when the rule was
+   written.
+2. **The rule's constraint is the swap, not the read.** A machine that leaves
+   the system disk in A: — which is what a machine with 32.5KB of heap does
+   anyway — pays a read.
 
 **This is a decision for whoever owns the product, not a change to make
-quietly.** What is being asked for is a re-decision of §1 scoped to
-`kern_small`, with the seam analysis in ONDEMAND-PLAN §6 — which already says
-these are *feasible* — as the feasibility half.
+quietly.** A third argument stood here and is **withdrawn**: that the write
+path was never tested against the rule and might pass on its own terms.
+`diskw.inc` is refused by the mechanism before the rule is reached.
 
 ### 6.2 Two structural options that are worse than they look
 
@@ -359,27 +371,27 @@ Taking §2 through §5 in full, with §7's cap applied once:
 ```
 A  hardware                        4,700
 B  display niceties                8,340
-C  features                       17,840
+C  features                       16,700
 D  sizing constants                6,210
                                   ------
-   raw                            37,090
+   raw                            35,950
    less the .ovlw cap (§7)        -2,688
                                   ------
-   cut                            34,402
+   cut                            33,262
 
-KERN_SIZE   96,256 - 34,402  =  61,854
-heap floor   1,536 + 61,854  =  63,390  =  61.9 KB
-free heap  131,072 - 63,390  =  67,682  =  66.1 KB
+KERN_SIZE   96,256 - 33,262  =  62,994
+heap floor   1,536 + 62,994  =  64,530  =  63.0 KB
+free heap  131,072 - 64,530  =  66,542  =  65.0 KB
 ```
 
-**~66KB, against 70KB asked for** — and that is with no file writing, no file
+**~65KB, against 70KB asked for** — and that is with no file writing, no file
 dialog, no copy/paste, no associations, no icons, no sound, no clock beyond the
 BIOS tick, no loadable drivers, no dock, no fullscreen, no built-in apps and no
 raise cache.
 
-Substituting §6's modules for C1–C4 lands at **33,038 — within 1,364 bytes of
-the same number — and keeps all four features**, which is why §6 is the
-recommendation and §4 is the fallback.
+Substituting §6's modules for C1–C4 does **not** land near the same number:
+two of the four cannot be moved at all, so the two routes stopped being
+alternatives. §8.1 gives both.
 
 ### 8.1 What each tier buys, for choosing a stopping point
 
@@ -393,14 +405,17 @@ tiers above it:
 | A | 4,700 | **37.1 KB** | everything, minus sound and loadable drivers |
 | A + D | 10,270 | **42.5 KB** | as above, with smaller tables and a 720KB volume cap |
 | A + B + D | 16,562 | **48.7 KB** | …and no save-under, icons or `gfx_line` |
-| A + B + D + §6 | 29,559 | **61.4 KB** | **all four file features intact, loaded on demand** |
-| A + B + D + §6 + C5–C8 | 33,038 | **64.8 KB** | …and no dock, fullscreen, clipboard or built-in apps |
-| everything, C1–C4 deleted (§8) | 34,402 | **66.1 KB** | a read-only browser with windows |
+| A + B + D + §6 | 21,211 | **53.2 KB** | …and the file dialog and Cut/Copy/Paste intact, loaded on demand |
+| A + B + D + §6 + C5–C8 | 24,690 | **56.6 KB** | …and no dock, fullscreen, clipboard or built-in apps |
+| everything, C1–C4 deleted (§8) | 33,262 | **65.0 KB** | a read-only browser with windows |
 
-**The sixth row is the one to argue about.** It is **64.8KB of free heap with
-the write path, the file dialog, Cut/Copy/Paste and associations all still
-present** — within 1.3KB of deleting them outright — and its only new cost to
-the user is a disk read the first time one of them is used.
+**The last row is now the only one that reaches 65 KB, and the gap to the row
+above it is the correction.** §6's module route keeps the file dialog and
+Cut/Copy/Paste for 4,649 bytes, but `diskw.inc` and `assoc.inc` can only be
+deleted — so the two middle rows keep file *writing* and associations and pay
+8.4 KB of heap for them. That is the trade to put to the owner, and it is a
+different one from the trade this table gave before
+docs/KERN-SMALL-MODULE-SPLIT.md was written.
 
 ### 8.2 If 70KB is firm
 
