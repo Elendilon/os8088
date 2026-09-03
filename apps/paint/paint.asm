@@ -248,8 +248,23 @@ PT_STAGE_MAX equ 192            ; the load's transient staging claim, KB. A
                                 ; canvas is 154KB with its header - and the
                                 ; cap keeps one Open from taking the whole
                                 ; heap on a big machine (SPEC.md 42.6)
-PT_SC_KB    equ 12                  ; scratch (the flood-fill stack), taken off
+; --- the flood-fill span stack, and the THREE sizes it comes in (SPEC 42.6.2)
+; PT_SC_KB is what a FULL stack needs and nothing more: PT_FSTK_MAX entries of
+; eight bytes plus PT_SC_STACK's header is 8,208, and this was 12KB - 46% slack
+; nobody was using. The assert below is what keeps the two in step.
+;
+; The smaller two are what a machine that cannot fund the full one gets, and
+; the degradation is GRACEFUL by construction: pt_fpush answers an overflow by
+; setting [pt_fovf] and stopping, so a short stack fills a complex region
+; PARTIALLY rather than scribbling past itself. What it costs is the fill's
+; REACH, not its correctness - and not its speed, which is the same per span.
+PT_SC_KB    equ 9                   ; scratch (the flood-fill stack), taken off
                                     ; the TOP of the block
+PT_SC_MID   equ 4                   ; ...and the two it degrades to
+PT_SC_MIN   equ 2
+; ...and what the SMALLEST canvas costs, in KB, which is what pt_growmax
+; refuses to hold the stack back out of: PT_CW_MIN x PT_CH_MIN at 4bpp.
+PT_MIN_KB   equ 1
 PT_CLIPMINP equ 256                 ; the clipboard's floor, in paragraphs. It
                                     ; was 1024 - 16KB - and that was the GIF
                                     ; codec's requirement, not the
@@ -267,6 +282,9 @@ PT_WANT_KB  equ 318                 ; the hard ceiling: two canvases at the
                                     ; arithmetic there running away
 PT_SC_STACK equ 16                  ; flood-fill span stack starts here
 PT_FSTK_MAX equ 1024                ; entries of 8 bytes (y, x1, x2, dy)
+%if PT_SC_KB * 1024 < PT_FSTK_MAX * 8 + PT_SC_STACK
+  %error "PT_SC_KB no longer holds PT_FSTK_MAX spans - one of the two moved"
+%endif
 
 ; --- the GIF codec's work areas (SPEC.md 42) ---------------------------------
 ; The LZW tables have their own claim, taken for the length of one GIF and
@@ -622,6 +640,15 @@ pt_entry:
     mov si, pt_menus                ; BX is still the window (SPEC.md 20.3:
     call OSAPI_MENU_SET             ; menu_win_set preserves flags too)
     pop si
+    clc                             ; ...WHICH IS WHY THIS IS HERE (SPEC.md
+                                    ; 42.6.4). Every path from wm_create's
+                                    ; `jc .out` down is a SUCCESS, and the only
+                                    ; CF the loader may see is that one - but
+                                    ; menu_set preserving flags means whatever
+                                    ; pt_menufix left rides out of this proc,
+                                    ; and pt_menufix ends on a `cmp` against
+                                    ; PT_LZW_KB. Say the answer instead of
+                                    ; inheriting it
 .out:
     ret
 
@@ -970,6 +997,60 @@ pt_kb_of:
 ; arithmetic. The scratch is a fixed 12KB and comes first, because the flood
 ; fill and the file readers borrow it and neither can be given up.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; pt_alloc_scratch - the flood-fill span stack, at whatever size the heap has
+; out: [pt_scseg]/[pt_fstkmax]/[pt_havefill]; CF is NOT an error - a machine
+;      with no room for one still runs Paint (SPEC.md 42.6.2)
+; clobbers: nothing
+;
+; **THE CANVAS IS ALREADY CLAIMED WHEN THIS RUNS** (SPEC.md 42.6.1), so
+; OSAPI_MEM_AVAIL below describes the heap that is really there rather than
+; one this routine is about to change. Three sizes, largest first; the tool
+; greys out if none of them fits.
+;
+; It is exactly the shape SPEC.md 50.2 warns about - a long-lived data claim
+; sitting mid-arena and splitting it in two - so it is declared movable.
+; Pinned, it would be a BARRIER (SPEC.md 66.4) sitting under the canvas, and
+; measured, that alone held a 25KB canvas exactly where it was across a
+; compaction with 137KB free underneath it.
+; -----------------------------------------------------------------------------
+pt_alloc_scratch:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp word [pt_scseg], 0          ; claimed once and never freed
+    jne .out
+    mov ax, PT_SC_KB                ; THREE ASKS WRITTEN OUT, and no loop
+    call OSAPI_MEM_CLAIM            ; counter across the call: SPEC.md 50.3
+    jnc .got                        ; documents AX in and CF/DX out, and says
+    mov ax, PT_SC_MID               ; NOTHING about BX. Holding the tier there
+    call OSAPI_MEM_CLAIM            ; is a register this routine does not own,
+    jnc .got                        ; and it cost a session: the loop
+    mov ax, PT_SC_MIN               ; mis-branched, claimed until mem_tab was
+    call OSAPI_MEM_CLAIM            ; full, and pt_entry answered CF=1 - which
+    jc .out                         ; the loader reports as LD_EABORT and the
+                                    ; user sees as an app that will not open
+.got:
+    mov [pt_scseg], dx              ; AX = the KB actually granted, which is
+    mov cl, 7                       ; the only place the tier is now read from
+    shl ax, cl                      ; KB -> spans: KB * 1024 / 8 is KB << 7
+    sub ax, PT_SC_STACK / 8         ; ...less the header's own two
+    cmp ax, PT_FSTK_MAX
+    jbe .cap
+    mov ax, PT_FSTK_MAX             ; the full stack is the ceiling either way
+.cap:
+    mov [pt_fstkmax], ax
+    mov byte [pt_havefill], 1
+    call pt_movable                 ; DX is still the claim's segment
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 pt_alloc:
     push bx
     push cx
@@ -978,23 +1059,12 @@ pt_alloc:
     call pt_paras                   ; CX = paragraphs one canvas needs
     mov [pt_needp], cx
 
-    cmp word [pt_scseg], 0          ; scratch is claimed once and never freed
-    jne .canvas                     ; - which is exactly the shape SPEC.md
-    mov ax, PT_SC_KB                ; 50.2 warns about, a long-lived data claim
-    call OSAPI_MEM_CLAIM            ; sitting mid-arena and splitting it in two
-    jc .fail
-    mov [pt_scseg], dx
-    call pt_movable                 ; ...so it is declared too. It is the
-                                    ; SMALLEST of the four and the one whose
-                                    ; declaration matters most: pinned, it is
-                                    ; a BARRIER (SPEC.md 66.4) sitting under
-                                    ; the canvas, so nothing above it could
-                                    ; ever pack down past it - measured, that
-                                    ; alone held a 25KB canvas exactly where it
-                                    ; was across a compaction with 137KB free
-                                    ; underneath it
-
-.canvas:
+    ; --- THE CANVAS FIRST, and that ORDER IS THE POINT (SPEC.md 42.6.1) -----
+    ; It used to be the scratch, out of the same run pt_fit had just sized the
+    ; canvas against - so the canvas was sized against a run 12KB larger than
+    ; the one it would be asked for from, and one refusal was the end of it.
+    ; The canvas is the claim Paint cannot run without; it goes first, and
+    ; everything else takes what is left.
     mov cx, [pt_needp]
     call pt_kb_of
     call OSAPI_MEM_CLAIM
@@ -1006,6 +1076,8 @@ pt_alloc:
     shl ax, cl                      ; what the claim actually holds...
     mov [pt_smaxp], ax              ; ...which is >= [pt_needp]
 
+    call pt_alloc_scratch           ; ...and the rest take what is left, none
+                                    ; of them able to refuse Paint itself
     call pt_alloc_undo
     call pt_alloc_clip
     pop ax
@@ -1413,10 +1485,26 @@ pt_growmax:
     push ax
     push cx
     call OSAPI_MEM_AVAIL            ; AX = largest free run, KB
-    cmp ax, PT_WANT_KB
-    jbe .capped
-    mov ax, PT_WANT_KB
+    cmp word [pt_scseg], 0          ; --- HOLD BACK A FLOOR'S WORTH OF SPAN
+    jne .capped                     ; STACK (SPEC.md 42.6.2), once, while
+                                    ; there is not one yet. The canvas is
+                                    ; claimed FIRST now (42.6.1) and would
+                                    ; otherwise take the whole run every time,
+                                    ; so a machine that could afford a canvas
+                                    ; AND a 2KB stack would never get the
+                                    ; second. This is a PREDICTION and it is
+                                    ; allowed to be wrong: too little and the
+                                    ; canvas is 2KB smaller than it had to be,
+                                    ; too much and pt_alloc_scratch simply
+                                    ; greys the tool. Neither refuses Paint
+    cmp ax, PT_SC_MIN + PT_MIN_KB   ; ...but not when holding it back would
+    jbe .capped                     ; cost the canvas its own floor: there,
+    sub ax, PT_SC_MIN               ; the picture wins and the tool greys
 .capped:
+    cmp ax, PT_WANT_KB
+    jbe .cap2
+    mov ax, PT_WANT_KB
+.cap2:
     mov cl, 6
     shl ax, cl                      ; KB -> paragraphs
     mov [pt_growp], ax
@@ -3870,6 +3958,11 @@ pt_draw_pal:
     cmp ax, di
     jne .glyph
     mov byte [pt_pen], CWHITE
+    cmp di, PT_T_FILL               ; ...and grey when it cannot be funded
+    jne .glyph                      ; (SPEC.md 42.6.2). CDGRAY dithers on a
+    cmp byte [pt_havefill], 0       ; 1bpp adapter, which is SPEC.md 47's
+    jne .glyph                      ; disabled look for free
+    mov byte [pt_pen], CDGRAY
 .glyph:
     mov bx, di
     add bx, bx
@@ -5738,7 +5831,27 @@ pt_pal_click:
     js .next
     cmp ax, PT_BW
     jge .next
-    ; hit: switch tool
+    ; hit: switch tool - unless it is one this machine cannot fund
+    cmp di, PT_T_FILL               ; SPEC.md 42.6.2: no span stack, no flood
+    jne .live                       ; fill. It is greyed in pt_draw_pal, and
+    cmp byte [pt_havefill], 0       ; the toast says WHY, which the grey cannot
+    jne .live
+    call pt_alloc_scratch           ; ...but ASK AGAIN FIRST. Whether a stack
+    cmp byte [pt_havefill], 0       ; could be funded is a fact about the heap
+    jne .live                       ; at the moment somebody asked, and the
+                                    ; moment Paint asked was startup - with a
+                                    ; canvas being claimed beside it. THIS is
+                                    ; the moment the user wants one, and by now
+                                    ; another program may have quit. Without
+                                    ; this, one crowded instant disables the
+                                    ; tool for the rest of the session, which
+                                    ; is the bug pt_gate carries the same fix
+                                    ; for on the clipboard. pt_draw_pal below
+                                    ; lifts the grey
+    mov si, pt_s_nofill
+    call pt_msg_show
+    jmp .out
+.live:
     call pt_text_end
     call pt_sel_drop
     mov byte [pt_fbox], 0           ; and the size boxes lose the keyboard
@@ -9016,7 +9129,8 @@ pt_fpush:
     cmp bx, cx
     jg .out
     mov si, [pt_fsp]
-    cmp si, PT_FSTK_MAX
+    cmp si, [pt_fstkmax]            ; RUNTIME, not PT_FSTK_MAX: the claim this
+                                    ; runs on may be the 4KB or the 2KB one
     jae .ovf
     inc word [pt_fsp]
     shl si, 1
@@ -9800,10 +9914,19 @@ pt_menufix:
     cmp byte [pt_haveundo], 0
     je .noundo
     mov word [pt_it_edit + 2 * PT_ME_UNDO], pt_i_undo
+    clc
     ret
 .noundo:
     mov word [pt_it_edit + 2 * PT_ME_UNDO], pt_i_undo2
 %endif
+    clc                             ; THE FLAGS ARE NOT THIS ROUTINE'S TO
+                                    ; LEAK. It ends on a `cmp` against
+                                    ; PT_LZW_KB, and with the GIF and undo
+                                    ; blocks compiled out that compare IS the
+                                    ; last thing it does - so a tight machine
+                                    ; returned CF = 1 from a routine whose
+                                    ; contract is "preserves all registers"
+                                    ; (SPEC.md 42.6.4)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -14909,6 +15032,7 @@ pt_i_full:   db 'Full Screen  ^F', 0
 
 ; --- the notice windows (indexed by [pt_mode] - 1) ---------------------------
 pt_notice:   dw pt_s_nomem, pt_s_small
+pt_s_nofill: db 'No RAM for flood fill', 0
 pt_s_nomem:  db 'Not enough memory.', 0
 pt_s_small:  db 'The screen is too small.', 0
 pt_s_note2:  db 'Close this window.', 0
@@ -15414,6 +15538,11 @@ pt_ic_text:
     PTBYTE pt_rval
     PTBYTE pt_fold                  ; the colour a flood fill replaces
     PTBYTE pt_fovf                  ; the span stack ran out
+    PTWORD pt_fstkmax               ; ...and how many spans it holds, which is
+                                    ; a property of the CLAIM and not a
+                                    ; constant (SPEC.md 42.6.2)
+    PTBYTE pt_havefill              ; 1 = there is a span stack, so the flood
+                                    ; tool is live. 0 greys it and toasts
     PTBYTE pt_cbbyte                ; pt_copy's half-packed byte
     PTBYTE pt_gch                   ; the glyph being drawn
     PTBYTE pt_mbi                   ; pt_map16's best index so far

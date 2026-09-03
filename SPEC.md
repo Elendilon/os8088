@@ -48839,82 +48839,94 @@ it opens a 124,918-byte one (620×400, cropped to the screen's 594×390) and
 every one of the 390 decoded rows matches the source pixel for pixel, 190 of
 them read from source bytes past the 64KB horizon.
 
-#### 42.6.1 The CANVAS should be claimed first — DESIGNED AND MEASURED, ONE BUG OPEN
+#### 42.6.1 The CANVAS is claimed first, and everything else takes what is left
 
-Paint claims the scratch first and the canvas second, and it sizes the canvas
-*before* either, from `OSAPI_MEM_AVAIL`'s largest free run. So the canvas is
-sized against a run 12 KB larger than the one it will be asked for from,
-`pt_alloc`'s `jc .fail` has no retry, and one refusal is §42.6's
+Paint used to claim the scratch first and the canvas second, and it sized the
+canvas *before* either, from `OSAPI_MEM_AVAIL`'s largest free run. So the
+canvas was sized against a run 12 KB larger than the one it would be asked
+for from, `pt_alloc`'s `jc .fail` had no retry, and one refusal was §42.6's
 `Not enough memory` notice.
 
-**The design that fixes it**: the canvas goes first — it is the claim Paint
-cannot run without — and everything after takes what is left, none of it able
-to refuse Paint. `mem_avail` "answers the question `mem_claim` answers" (it
-counts purgeable claims as free and its largest run is `mem_cp_plan`'s,
+Reported from a 192 KB Hercules machine, where the default canvas is 448×258:
+Paint refused and needed 256 KB.
+
+**The canvas goes first** — it is the claim Paint cannot run without — and
+everything after takes what is left, **none of it able to refuse Paint**:
+the span stack degrades (§42.6.2), and the undo image and clipboard already
+did. `mem_avail` "answers the question `mem_claim` answers" (it counts
+purgeable claims as free and its largest run is `mem_cp_plan`'s,
 post-compaction), so a canvas sized to that run is a canvas that will be
-granted, and nothing is taken out of the run between measurement and claim.
-The only refusal left is a canvas that will not fit at
-`PT_CW_MIN` × `PT_CH_MIN`. `pt_growmax` holds back `PT_SC_MIN` while there is
-no span stack yet, so a machine that could afford a canvas *and* a small stack
-is not robbed of the second — a prediction that is allowed to be wrong in both
-directions, because nothing refuses on it.
+granted, and nothing is taken out of the run between the measurement and the
+claim. The only refusal left is a canvas that will not fit at
+`PT_CW_MIN` × `PT_CH_MIN`.
 
-**It is written and it does not ship**, because on a TIGHT machine
-`pt_entry` answers CF = 1 and the loader reports `LD_EABORT`: Paint does not
-open at all where it used to open a notice. Measured, with the pre-change
-build as the control on the same kernel and machine:
+`pt_growmax` **holds back `PT_SC_MIN`** while there is no span stack yet, so a
+machine that could afford a canvas *and* a small stack is not robbed of the
+second by a canvas that greedily took the run. It is a prediction and it is
+allowed to be wrong in both directions — too little and the canvas is 2 KB
+smaller than it had to be, too much and the tool greys — because **nothing
+refuses on it**. That is the property that makes predicting acceptable here
+and not in the version this replaced.
 
-| machine | before | with the change |
+Measured, with the pre-change build as the control on the same kernel:
+
+| machine | before | after |
 |---|---|---|
-| CGA 128 KB | `LD_OK`, notice (2.5 KB left after a 12 KB scratch) | **`LD_EABORT`** |
-| Hercules 192 KB | `LD_OK`, notice | **`LD_EABORT`** |
-| CGA 192 KB | full 448×110 canvas | full 448×110 canvas ✓ |
-| Hercules 640 KB | full 448×258 canvas | 57 KB canvas + 9 KB scratch ✓ |
+| CGA 128 KB | notice: 12 KB scratch, 2.5 KB left, no canvas | **12 KB canvas + 2 KB stack** |
+| Hercules 192 KB | notice — needed 256 KB | **full 448×258 canvas** |
+| CGA 192 KB | 448×110 | 448×110 |
+| Hercules 640 KB | 448×258 | 448×258 + 9 KB stack |
 
-**Three causes ruled out by measurement**, so the next attempt need not
-re-test them: it is not the ORDER (putting the scratch back first keeps the
-abort), not `BX` across `OSAPI_MEM_CLAIM` (SPEC.md 50.3 documents `AX` in and
-`CF`/`DX` out and says nothing about `BX`, so the tier loop was rewritten as
-three written-out asks — worth keeping either way), and not a GREEDY canvas
-(reserving the full `PT_SC_KB` instead of `PT_SC_MIN`, so the canvas is small
-and the scratch always fits, aborts identically).
+**Paint opens on the 128 KB floor machine**, which it never has.
 
-`OSAPI_WM_CREATE` is where the CF comes out. **What has not been done is
-finding which call actually fails**, and the way to do it is a progress
-marker — *not* through the kernel's `[ld_status]`, which the loader
-overwrites with the abort code before the harness can read it.
+##### 42.6.1.1 One attempt that did not work, kept because the reason holds
+
+**Predicting the scratch out of `pt_growmax` is not enough.** Subtracting
+`PT_SC_KB` from the answer and leaving the claim order alone was the first
+try. The scratch is not taken off either END of the run — measured, it lands
+in the middle, so a 56 KB run less 12 KB of scratch is not a 44 KB run, it is
+a 37 and a 7. No arithmetic done before a claim can know where the allocator
+will put it. The reservation above is not that mistake, because nothing
+refuses on it.
+
+Two more things that look like causes of a memory failure and were not, both
+measured out before §42.6.4 found the real one: the claim ORDER (putting the
+scratch back first changed nothing), and `BX` held across
+`OSAPI_MEM_CLAIM` — §50.3 documents `AX` in and `CF`/`DX` out and says nothing
+about `BX`, so the tier ladder is three written-out asks rather than a loop
+with a counter in a register it does not own. Worth keeping either way.
 
 #### 42.6.2 The flood fill's span stack DEGRADES, and the tool greys when it cannot be had
 
-**Written, and blocked behind §42.6.1's bug.** The measurements stand on their
-own.
+`PT_SC_KB` was **12 KB for a stack that needs 8,208 bytes** — `PT_FSTK_MAX`
+entries of eight plus `PT_SC_STACK`'s header, 46% slack nobody was using. It
+is 9 KB now and a `%error` keeps the two in step. Two comments claimed the
+block was shared — `pt_alloc`'s header said "the file readers borrow it" —
+and **both were stale**: `[pt_scseg]` is read in exactly two places, both
+inside the flood fill.
 
-`PT_SC_KB` is **12 KB for a stack that needs 8,208 bytes** — `PT_FSTK_MAX`
-entries of eight plus `PT_SC_STACK`'s header. **46% slack nobody is using**,
-and 9 KB is the honest figure; a `%error` keeps the two in step. Two comments
-say the scratch is shared — `pt_alloc`'s header says "the file readers borrow
-it" and §42.6's own text says twelve — and **both are stale**: `[pt_scseg]` is
-read in exactly two places, both inside the flood fill.
-
-Below 9 KB it comes in **9 / 4 / 2 KB**, and the degradation is graceful by
-construction: `pt_fpush` answers an overflow by setting `[pt_fovf]` and
-stopping, so a short stack fills a complex region *partially* rather than
-scribbling past itself. What a smaller stack costs is the fill's **reach** —
-not its correctness, and not its speed, which is the same per span.
-`PT_FSTK_MAX` becomes `[pt_fstkmax]`, a property of the claim.
+Below 9 KB it comes in **9 / 4 / 2 KB**, largest first, and the degradation is
+graceful by construction: `pt_fpush` answers an overflow by setting
+`[pt_fovf]` and stopping, so a short stack fills a complex region *partially*
+rather than scribbling past itself. What a smaller stack costs is the fill's
+**reach** — not its correctness, and not its speed, which is the same per
+span. `PT_FSTK_MAX` becomes `[pt_fstkmax]`, a property of the claim rather
+than a constant. The 128 KB machine runs on the 2 KB tier, 254 spans.
 
 **With none of the three, the tool greys.** `pt_ic_flush` draws in
-`[pt_pen]`, so `CDGRAY` is the whole of it, and on a 1bpp adapter that dithers
-— §47's disabled look for free. A click toasts `No RAM for flood fill`, and
-**asks again before it toasts**: whether a stack can be funded is a fact about
-the heap at the moment somebody asked, and the moment Paint asked was startup
-with a canvas being claimed beside it. Without the re-ask, one crowded instant
-disables the tool for the session, which is the bug `pt_gate` carries the same
-fix for on the clipboard.
+`[pt_pen]`, so `CDGRAY` is the whole of it — and on a 1bpp adapter that
+dithers, which is §47's disabled look for free. A click on it toasts
+`No RAM for flood fill`, because the grey says *that* and the words say *why*.
 
-**`[pt_fovf]` is set and never read** — a fill that runs out today stops short
-silently, with no toast. Tiering makes that more likely and it should be wired
-up with this.
+**And a click ASKS AGAIN before it toasts.** Whether a stack can be funded is
+a fact about the heap at the moment somebody asked, and the moment Paint asked
+was startup, with a canvas being claimed beside it. Without the re-ask, one
+crowded instant disables the tool for the rest of the session — which is
+exactly the bug `pt_gate` carries the same fix for on the clipboard.
+
+**The grey and the toast are not exercised on the glass**: every machine
+tested funds at least the 2 KB tier, so reaching them needs a heap tighter
+than any configuration here produces.
 
 #### 42.6.3 `mem_avail` counts PURGEABLE claims as free, and a reader that does not is wrong
 
@@ -48930,6 +48942,39 @@ package claim is granted out of it without trouble.
 the error is invisible." A diagnostic that walks the table has to classify the
 owner word, or it will report a machine as full while the kernel is happily
 funding claims on it.
+
+#### 42.6.4 `pt_entry`'s CF was inherited from a `cmp`, and only an unreachable path hid it
+
+`pt_entry` answers the loader in CF: set means "abort, unload me", and the
+only intended one is `OSAPI_WM_CREATE` failing, which `jc .out` takes
+directly. Every path below that is a success.
+
+It did not say so. The tail runs `pt_menufix` and then `OSAPI_MENU_SET`, and
+menu_set **preserves flags** — so whatever `pt_menufix` left rode out of the
+entry proc. And `pt_menufix` ends on `cmp ax, PT_LZW_KB`: with the GIF and
+undo blocks compiled out of the small build, that compare is the last thing it
+does, the two `pop`s after it write no flags, and a machine with less than
+16 KB free returned **CF = 1** from a routine whose contract is "preserves all
+registers".
+
+**Nothing had ever reached it.** `pt_menufix` sits inside `pt_entry`'s
+`cmp byte [pt_mode], PT_M_LIVE / jne .menus` gate, and a machine tight enough
+for `mem_avail` to answer under 16 KB was exactly a machine that could not
+fund a canvas — so it was `PT_M_NOMEM`, the gate skipped the call, and the
+`cmp` in the gate itself left CF = 0. The bug needed a machine that is tight
+**and** has a canvas, which is a state that did not exist until §42.6.1 made
+one.
+
+The fix is two `clc`s: one in `pt_menufix`, because the flags are not its to
+leak, and one in `pt_entry` before `.out`, because a proc whose return value
+is a flag should say what it is rather than inherit it.
+
+**The lesson is the diagnosis, not the fix.** Three plausible causes were
+measured and ruled out first — the claim order, `BX` across
+`OSAPI_MEM_CLAIM`, and a canvas greedy enough to starve `wm_create` — because
+the abort looked like a memory failure and every one of them is one. It is
+not a memory failure. It is a flag, and what made it look otherwise is that
+its trigger is a memory reading.
 
 ### 42.7 Full Screen — the §53 bracket, and why NOT the §11.2 surface
 
