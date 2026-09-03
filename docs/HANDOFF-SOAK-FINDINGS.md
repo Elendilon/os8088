@@ -763,6 +763,58 @@ ends. It was the only script indexing the run by hand; every other reader of
 `vid_ctx` takes its offsets from `os88geom`, and `dispsize.py`'s bare 0/2/4/6
 are a `wm_natr` **rect**, not this record.
 
+## E5. `weavegame`: PONG runs ZERO frames, and it has never run here before
+
+Six of its ten checks fail, **identically at `f8af49e` and at HEAD** — same
+checks, same reasons, same numbers — so it is pre-existing and nobody's
+regression. `tests/weavegame.py` is byte-identical at both ends and `apps/weave`
+differs by one line of `wcanv.c`.
+
+**Why it is new information anyway:** this row has never had a verdict in this
+container. B4 above records it *failing where nine siblings skipped*, for want
+of `build/WEAVE.WSM`, and what pass 2 fixed was its **registration** —
+`needs=("marty", "cc")` — not the row. There was no C toolchain here until pass
+3's last lane installed one, so B4's fix converted a false failure into a skip
+and the skip is all anyone has seen since. The first real run is this one.
+
+What it reports, on `os8088_5150_cga_gla`:
+
+| check | why |
+|---|---|
+| exactly one BOUND module | found 2 bound of 2 images (WEAVE-SPEC 1.2.2 reads it once at open and keeps it) |
+| 18 fps asks for one frame a tick | `sleep = 256` |
+| frames ran | **0 frames** |
+| the computer's paddle moved | `cpu.y` unchanged over 0 frames |
+| the staging ring dropped nothing | **`ovf = 15`** — WEAVE-SPEC 6.10.6's input-overrun counter |
+| the palette is on where the pen is read | `colored = 5` on a **cga** adapter, want 0 |
+
+Three of those are worth separating out.
+
+**`0 frames` and `sleep = 256` are one fact, not two.** 18 fps wants one frame a
+tick; 256 is what a sleep argument looks like when nothing sensible reached it.
+The paddle row follows from the frame row by construction — the test says so
+itself — so six failures are really about four independent things.
+
+**`ovf = 15` is an INPUT OVERRUN**, which is one of the three defects
+PERFORMANCE.md says an emulator cannot show and this project has been bitten by
+repeatedly. It is worth more than the frame count: a ring that drops fifteen
+events is a class of bug no screenshot finds.
+
+**`colored = 5` on CGA is both halves of WEAVE-SPEC 9.2.1** — the palette read
+on a planar adapter, and not read at all on a 1bpp one. PONG declares
+paper/ink/color, so the row is asking a fair question of a bundle that opted in.
+
+**Not investigated further**, deliberately: this is the WEAVE runtime rather
+than the kernel, pass 3's soak was validating a size change, and the row is
+identical at both ends of it. It is written down at this length because the
+NEXT person to install a C toolchain here will meet it cold, and because
+`ovf = 15` should not wait for someone to notice it twice.
+
+**One caution about the corroboration.** `cpu.y` reads 1782 at HEAD and −15352
+at `f8af49e`, over 0 frames both times. That is not two different behaviours —
+it is the same behaviour reading a cell nothing ever wrote, which is itself
+evidence that `onTick` never fired. Do not bisect on that number.
+
 ---
 
 # The tally
