@@ -152,6 +152,15 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
+        "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
+        "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "
+        "two have to agree about which of the sixteen are solid and which are "
+        "the 50% dither - and the first version of the masks was a GUESS that "
+        "put six dither colours in the white class. gfx_inktab is a `db` "
+        "table, so `mirror` cannot see it: that is why this is a row of its "
+        "own and not one of its names",
+        ),
     Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 0.8,
         "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
         "zero bytes (docs/KERN-SPLIT-PLAN.md 6's gate, one level down), and "

@@ -208,15 +208,32 @@ def main():
         m.run()
         time.sleep(6)
 
-        # ...and now stop INSIDE Paint, so CS and DS are the package's
+        # ...and now stop INSIDE Paint, so CS and DS are the package's.
+        #
+        # **A DRAG OF PAINT'S OWN TITLE BAR, and it has to be** - this was
+        # `mo.to(rx + 3, ry + 3)`, commented "anything that repaints it", and a
+        # POINTER MOVE REPAINTS NOTHING. Measured on this tree and on upstream
+        # `main`, three targets each: rx+3/ry+3, rx/ry and 4,4 all fail to
+        # reach pt_blit inside 25 s, and a title drag hits it every time. The
+        # reason is on the glass: the file row is at (164,145) and Paint opens
+        # at (71,24) 522x152 over it, so the move lands on Paint's OWN palette
+        # strip - and the arrow is a save-under (SPEC.md 7.1), so crossing a
+        # window does not ask it to draw. The row has been failing on this
+        # step for as long as the geometry has been this shape; it is not a
+        # regression in anything.
+        #
+        # A drag is the right provoker rather than a lucky one: wm_drag
+        # damages what the window vacates and W_PAINT is Paint's first
+        # pt_blit caller (SPEC.md 42). Small, so the window stays on screen,
+        # and it does not matter that the drag never completes - the
+        # breakpoint stops the machine inside it, which is exactly where the
+        # patch below wants to be.
+        wx, wy, ww = dispcp.win_rect(m, S, dispcp.win_list(m, S)[-1])[:3]
         m.bp_exec(base + sym["pt_blit"])
-        mo.to(rx + 3, ry + 3)                   # anything that repaints it
+        mo.drag(wx + ww // 2, wy + 4, wx + ww // 2 - 40, wy + 30)
         if not m.wait_stop(limit=120.0):
-            m.bp_exec(base + sym["pt_blit"])
-            mo.to(rx, ry)
-            if not m.wait_stop(limit=120.0):
-                sys.exit("paintrow: Paint never repainted its canvas, so "
-                         "there is nowhere to call the routine from")
+            sys.exit("paintrow: Paint never repainted its canvas, so "
+                     "there is nowhere to call the routine from")
         cw = m.read(base + sym["pt_cw"], 2)
         cw = cw[0] | (cw[1] << 8)
         planar = m.read(base + sym["pt_planar"], 1)[0]
