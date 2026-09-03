@@ -796,8 +796,11 @@ pt_onresize:
 
 ; -----------------------------------------------------------------------------
 pt_geom:
-    xor bx, bx                      ; no window yet: the primary, where one is
-    call pt_screen                  ; about to be born
+    mov byte [pt_fitsq], 1          ; THIS canvas is being born, so a cut that
+                                    ; memory forces goes to the longer axis
+    xor bx, bx                      ; (SPEC.md 42.6.5). Cleared at the exit,
+    call pt_screen                  ; because every other pt_fit caller is a
+                                    ; load or a resize
                                     ; ...which is the half that can be re-run
 
     ; --- HOW THE CANVAS IS STORED, decided here (SPEC.md 42.13)
@@ -860,6 +863,7 @@ pt_geom:
     mov dx, [pt_chmax]
 .ch_ok:
     call pt_fit                     ; shrink it until memory can hold it
+    mov byte [pt_fitsq], 0
     call pt_layout                  ; stride, row tables, buffer offsets
     call pt_wsize                   ; ...and the window that shows it
     ret
@@ -915,6 +919,16 @@ pt_fit:
     cmp cx, [pt_growp]
     jbe .out                        ; ...or a bigger one we could claim does
     mov byte [pt_fitcut], 1
+    cmp byte [pt_fitsq], 0          ; --- A CANVAS BEING BORN CUTS THE LONGER
+    je .tall                        ; AXIS (SPEC.md 42.6.5), so what memory
+    cmp ax, dx                      ; leaves is a shape somebody can draw in
+    jbe .tall                       ; rather than a full-width letterbox.
+    cmp byte [pt_pinw], 0           ; Height-first is still the ladder for a
+    jne .tall                       ; LOAD, where losing rows off the bottom
+    cmp ax, PT_CW_MIN               ; beats losing rows AND columns - and it
+    ja .narrow                      ; is what .tall below does either way when
+                                    ; the wider axis cannot give
+.tall:
     cmp byte [pt_pinh], 0
     jne .narrow                     ; an axis the ink guard put back is not
     cmp dx, PT_CH_MIN               ; this routine's to cut (pt_sizeask)
@@ -15541,6 +15555,10 @@ pt_ic_text:
     PTWORD pt_fstkmax               ; ...and how many spans it holds, which is
                                     ; a property of the CLAIM and not a
                                     ; constant (SPEC.md 42.6.2)
+    PTBYTE pt_fitsq                 ; 1 = pt_fit is sizing a canvas being BORN
+                                    ; and should cut toward a square (42.6.5);
+                                    ; 0 = a load or a resize, where the height
+                                    ; gives first
     PTBYTE pt_havefill              ; 1 = there is a span stack, so the flood
                                     ; tool is live. 0 greys it and toasts
     PTBYTE pt_cbbyte                ; pt_copy's half-packed byte

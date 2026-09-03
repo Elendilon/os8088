@@ -48976,6 +48976,38 @@ the abort looked like a memory failure and every one of them is one. It is
 not a memory failure. It is a flag, and what made it look otherwise is that
 its trigger is a memory reading.
 
+#### 42.6.5 A canvas that memory cut is cut toward a SQUARE, not toward a letterbox
+
+`pt_fit` gives the height first and only starts on the width once the height
+is at `PT_CH_MIN`, and the reason is written down: **a picture that loses rows
+off the bottom stays more recognisable than one losing columns off the right
+AND rows off the bottom.** That is right for a LOAD, where the pixels already
+exist and the cut is a truncation.
+
+It is wrong for a canvas being **born**. There are no pixels to preserve, only
+a shape to draw in, and a full-width letterbox is the least useful shape a
+given number of bytes can be spent on. On the 128 KB machine §42.6.1 opens,
+the old ladder produced **448×51**.
+
+So `pt_geom` — and only `pt_geom` — sets `[pt_fitsq]`, and `pt_fit` then cuts
+whichever axis is **longer**:
+
+| | height first | longer axis |
+|---|---|---|
+| CGA, 12 KB | 448×51 | **203×110** |
+| Hercules, 12 KB | 448×49 | **137×153** |
+| Hercules, 40 KB | 448×174 | **301×258** |
+
+Same bytes, a shape somebody can draw in. On CGA it reaches the screen's own
+full height and stops, because 110 is all there is.
+
+**The old ladder is still the fallback within the new rule**, not a separate
+path: the square test only diverts to the width when the width is the longer
+axis *and* can actually give — not pinned, not at `PT_CW_MIN`. Everything else
+falls into the height-first block, which already hands over to the width when
+the height cannot give. So `[pt_pinw]`/`[pt_pinh]` keep working unchanged, and
+a load, a resize and `pt_sizeask`'s ink guard all behave exactly as before.
+
 ### 42.7 Full Screen — the §53 bracket, and why NOT the §11.2 surface
 
 View ▸ Full Screen, or Ctrl+F. `pt_cmd_fs` calls `OSAPI_FSX_RUN` and nothing
