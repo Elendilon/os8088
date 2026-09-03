@@ -1,6 +1,33 @@
 # A 1bpp canvas for Paint: what the options actually are
 
-**Status: RESEARCH. Nothing here is built and nothing is decided.** It exists
+**Status: OPTION A IS BUILT — SPEC.md §42.23 is the contract and this file is
+the design record behind it.** Read §8 first: **open question 1 is ANSWERED
+and the answer is NO** — `gfx_blit1` does not accept a negative stride, two
+unsigned `mul bp` are why, and that is what decided the screen half. What
+shipped is the memory win in full (448×258 goes 56.6 KB → **14.2 KB**,
+measured on a Hercules under MartyPC) with `gfx_blit4` drawing it a row at a
+time; the fast path is a dozen bytes in Paint once the kernel's two row-skips
+are made sign-aware. Option B still stacks on top unchanged.
+
+Two things the build settled that this page only guessed at. **Every 1bpp arm
+turned out to be the planar arm with the plane loop removed** — eight pixels
+to a byte is eight pixels to a byte whether that byte is one plane of four or
+the whole picture — so declaring `[pt_bpr]` to be the whole stride at one bit
+made `pt_lose_w`, `pt_lose_h` and `pt_ublocks` fall out for the price of a
+plane *count*, and the clipboard, the resize copy and the undo image needed
+nothing at all (SPEC.md §42.23.7). And the cost came in at **+527 bytes an
+instance** against §6.3's predicted +800 to +1,400 for big — because §6.1 read
+the fork sites as "2-way → 3-way" and they are really "2-way, plus one arm
+that reuses the second's arithmetic".
+
+**Nothing below has been rewritten to match.** It is the reasoning as it stood
+before the work, which is what makes it worth keeping; where it is wrong the
+paragraph above says so.
+
+---
+
+**Status when this was written: RESEARCH. Nothing here is built and nothing is
+decided.** It exists
 because the motivation changed. `docs/PAINT-STROKE-PLAN.md` §5 already carries
 a 1bpp-canvas entry, as its item 1, marked *"VALID, MAYBE SOMEDAY, NOT TODAY"*
 on four reasons — and **every one of those four is a speed argument**. The new reason is

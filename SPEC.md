@@ -52461,12 +52461,46 @@ routine answer both "what does this ink do here" and "what does this pixel of
 a colour picture become", so the two cannot disagree at the edges of the
 palette.
 
-`[pt_ncol]` is **2** on a one-bit canvas and not 3. §39.4's dither class is
-reduced at *draw* time, so a screen can show it and a canvas of one bit cannot
-hold it — and a palette that offers a colour the canvas will silently discard
-is worse than one that does not offer it. Storing the dither as its own
-checkerboard is what would put it back; that is a look question and nobody has
-looked.
+**NEVER OFFER A COLOUR THAT CANNOT REACH THE PICTURE.** `[pt_ncol]` is the
+**minimum of what the canvas can hold and what the screen can show**, and
+`pt_ncolset` is the one place that decides it:
+
+| | colour card | 1bpp card |
+|---|---:|---:|
+| packed 4bpp / four planes | 16 | 3 |
+| one bit | **2** | **2** |
+
+Sixteen on a colour card. Three on a 1bpp one, because §39.4 reduces the rest
+to one of those and a swatch the machine cannot distinguish is a colour the
+user cannot choose. And two on a one-bit canvas *whatever the card*, because
+the canvas cannot store §39.4's dither class at all — a palette that offers a
+colour the canvas will silently discard is worse than one that does not offer
+it. Storing the dither as its own checkerboard is what would put it back; that
+is a look question and nobody has looked.
+
+The rule is written once because the two facts arrive from different places at
+different times: the adapter's from `pt_screen`, which re-runs on every
+display change, and the canvas's from `pt_geom` **or from a load**, which can
+change the depth under a strip that is already drawn. `pt_fmtpick` stored 16
+in its first build, which is wrong twice over — a colour file on a Hercules
+would have offered sixteen swatches the card reduces to three, and a one-bit
+load on a VGA has to come *down* to two.
+
+**It clamps `[pt_col]` too**, and for the same sentence one level in: a load
+can take the canvas to one bit under a strip that already has red selected, so
+the current-colour well would show a colour no swatch matches and the next
+stroke would come out as whatever `pt_lit` made of it. Reducing it in
+`pt_ncolset` means the strip, the well and the ink agree by construction
+rather than by three call sites remembering to.
+
+**Adding colour back to a one-bit document is not possible**, and that is
+accepted rather than overlooked: a monochrome file opened on a VGA gives a
+monochrome document, and File > New is what returns to colour. MacPaint and
+Paint 1.0 both worked that way. What makes it acceptable is precisely the
+table above — the strip *says* the document is monochrome instead of offering
+fifteen colours that go nowhere. A "make it colour" promotion is the
+future-work answer and needs a conversion pass plus a refusal when the heap
+cannot fund four times the claim.
 
 #### 42.23.2 The file is a 1bpp BMP, and the reader already read one
 

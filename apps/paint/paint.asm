@@ -713,6 +713,52 @@ pt_entry:
 ; otherwise, which handed the kernel 480 as a window record - SPEC.md
 ; 11.96.11.4 is what came of it. Anything wanting the window after this reads
 ; [pt_win].
+; -----------------------------------------------------------------------------
+; pt_ncolset - how many swatches the strip may offer
+; in:  [pt_mono], [pt_1bpp]; out: [pt_ncol]; preserves all registers
+;
+; SPEC.md 42.23.1. **THE MINIMUM OF WHAT THE CANVAS CAN HOLD AND WHAT THE
+; SCREEN CAN SHOW**, and the rule is written once here because the two facts
+; arrive from different places at different times - the adapter's from
+; pt_screen, which re-runs on every display change, and the canvas's from
+; pt_geom or from a LOAD, which can change the depth under a strip that is
+; already drawn.
+;
+; Sixteen on a colour card; THREE on a 1bpp one, because 39.4 reduces the rest
+; to one of those and a swatch the machine cannot distinguish is a colour the
+; user cannot choose; and TWO on a one-bit canvas whatever the card, because
+; the canvas cannot store 39.4's dither class at all. **Never offer a colour
+; that cannot reach the picture** - that is the whole of it, and it is why the
+; count is not simply the adapter's any more.
+;
+; IT CLAMPS THE CURRENT COLOUR TOO, and for the same sentence: a load can take
+; the canvas down to one bit under a strip that already has red selected
+; (SPEC.md 42.23.6), and offering two swatches while [pt_col] is a third is
+; the same defect one level in - the well would show a colour no swatch
+; matches and the next stroke would come out as whatever pt_lit made of it.
+; Reducing it HERE means the strip, the well and the ink agree by
+; construction rather than by three call sites remembering to.
+; -----------------------------------------------------------------------------
+pt_ncolset:
+    push ax
+    mov al, 16
+    cmp byte [pt_mono], 0
+    je .canvas
+    mov al, 3
+.canvas:
+    cmp byte [pt_1bpp], 0
+    je .set
+    mov al, [pt_col]                ; ...and the colour in hand comes with it
+    call pt_lit                     ; (FF or 00)
+    and al, CWHITE                  ; -> CWHITE (15) or CBLACK (0)
+    mov [pt_col], al
+    mov al, 2
+.set:
+    mov [pt_ncol], al
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 pt_screen:
     or bx, bx
     jz .prim                        ; no window yet (pt_geom, at launch): the
@@ -728,17 +774,15 @@ pt_screen:
     mov [pt_scrw], ax
     mov [pt_scrh], bx               ; the whole screen, for the SPEC.md 53
     mov [pt_dockr], cx              ; bracket's own pointer (pt_ptr_xor)
-    mov byte [pt_ncol], 16
     mov byte [pt_mono], 0
     cmp dh, 1
     jne .colour
     mov byte [pt_mono], 1
-    mov byte [pt_ncol], 3
 .colour:
-    cmp byte [pt_1bpp], 0           ; ...and the CANVAS has the last word: this
-    je .ncok                        ; runs again on every adapter change and
-    mov byte [pt_ncol], 2           ; the document's depth did not change with
-.ncok:                              ; it (SPEC.md 42.23)
+    call pt_ncolset                 ; ...and the swatch count from both facts,
+                                    ; because this runs again on every adapter
+                                    ; change and the DOCUMENT's depth did not
+                                    ; change with it (SPEC.md 42.23.1)
     ; --- what the screen allows ---------------------------------------------
     sub cx, si                      ; the DESKTOP BAND, which is not CX - MBAR_H
                                     ; on a secondary: that card has no menu bar
@@ -846,10 +890,10 @@ pt_geom:
 %endif                              ; an unreachable one
 .one:
     mov byte [pt_1bpp], 1
-    mov byte [pt_ncol], 2           ; black and white, and not SPEC.md 39.4's
-                                    ; dither class between them: a canvas that
-                                    ; cannot store it must not offer it
 .fmt:
+    call pt_ncolset                 ; black and white, and not SPEC.md 39.4's
+                                    ; dither class between them: a canvas that
+                                    ; cannot store a colour must not offer it
     mov ax, [pt_cwmax]              ; (SPEC.md 11.98, pt_onresize below)
     mov cx, [pt_chmax]
     cmp cx, PT_CH_MIN
@@ -14059,7 +14103,6 @@ pt_fmtpick:
     jnz .one                        ; the file has no colour in it: hold it at
     mov byte [pt_1bpp], 0           ; the depth it really is, whatever the
     mov byte [pt_planar], 0         ; adapter would have picked
-    mov byte [pt_ncol], 16
     cmp byte [pt_mono], 0
     jne .out
     mov byte [pt_planar], 1
@@ -14067,8 +14110,14 @@ pt_fmtpick:
 .one:
     mov byte [pt_1bpp], 1
     mov byte [pt_planar], 0
-    mov byte [pt_ncol], 2
 .out:
+    call pt_ncolset                 ; ...AND THE STRIP FOLLOWS THE DEPTH. This
+                                    ; used to store 16 here, which is wrong
+                                    ; twice over: a colour file on a HERCULES
+                                    ; would have offered sixteen swatches the
+                                    ; card reduces to three, and a one-bit load
+                                    ; on a VGA has to come DOWN to two. One
+                                    ; rule, one place (SPEC.md 42.23.1)
     pop ax
     ret
 
