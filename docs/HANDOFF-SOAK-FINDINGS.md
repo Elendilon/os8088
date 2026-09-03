@@ -15,6 +15,11 @@ the pass's own record; this file is the queue that came out of it.
 ruled out, and what evidence exists — and where the mechanism is a hypothesis
 it says so in those words.
 
+**Pass 3's soak appended to this file rather than starting another one** —
+section E. Its findings are the same shape and one of them is in this queue
+already (`dskwstage`, which pass 2 parked on a missing ROM), so a second
+document would have split the row from its answer.
+
 ---
 
 ## How to read the classification
@@ -631,6 +636,132 @@ happened", bounded, so a pack that never writes becomes a *reported* refusal.
 And screenshot the sidebar when the write never comes: the row's own `why` says
 *"the sidebar has the sentence saying why"*, and the row throws that sentence
 away. `weavesmoke._shot` is the family's helper.
+
+
+---
+
+# E. What the pass-3 soak added
+
+Pass 3 moved 745 bytes of `.text`+`.bss` and ran the same suite behind it. Same
+result at the top: **not one failure is a regression in kernel behaviour.**
+Four things are worth the next session's time.
+
+## E1. `dispsize` leg C is INTERMITTENT — and the bisect off it was void
+
+`C: 1 pixel(s) of the CGA disagree with a full repaint after the adoption`.
+The differing pixel is **(0, 0) of the secondary display** — the card's own
+corner, nowhere near the window under test (743,64 418x151) or where the
+pointer was left (959,73).
+
+**It fails on every tree with more than one sample**, so it is nobody's
+regression:
+
+| tree | leg C |
+|---|---|
+| `f8af49e` — elendilon BEFORE the pass merged | 1 fail, 1 pass |
+| `61d92f7` — the pass merged | 3 fail, 1 pass |
+| `8626120` — HEAD | 5 fail, 1 pass |
+
+Ten failures and five passes over fifteen runs. A pre-pass tree cannot fail on
+account of the pass, and that is the whole of what is needed to clear it.
+
+**What this entry is really for is the mistake.** Six single runs across
+`f8af49e`, `61d92f7`, `cab55a9`, `2ef5052`, `94a9e23` and `5ecc7b1` came back
+ok/ok/ok/ok/fail/fail, which reads as a clean bisect, and it named a commit
+whose entire diff to shipped code is **four comment lines** (`~32.5KB` →
+`~34.0KB`). That should have stopped the bisect and instead nearly published
+it. Two separate errors made it:
+
+1. **The protocol at the top of this file was skipped.** Step 1 is *re-run
+   ALONE on HEAD*, and step 3 is *bisect only where 1 and 2 disagree*. No point
+   was sampled twice before conclusions were drawn from all six.
+2. **The row's exit code was read as one verdict.** `dispsize` has six
+   independent legs. The one run that showed **0 differing pixels** still
+   exited 1 — on leg E — so it was filed as a failure and the flake stayed
+   invisible for four more runs. `/home/user/os88-bisect/legc.sh` in that
+   session reported leg C separately, which is what finally made the rate
+   legible; a row with independent legs needs that or it cannot be sampled at
+   all.
+
+A third trap sits underneath both, and it is this branch's rather than the
+row's: **the commits being bisected did not share a base.** `cb3efa6 d5b591e
+6f1a9a1 94a9e23`, `be4f8df 5a6940d 2ef5052` and `3254f48 cab55a9 5ecc7b1` all
+fork from `f8af49e`, *not* from `61d92f7`, so four of the six points carried the
+**pre-pass kernel** and were never comparable with the two that did not.
+`git log --graph --boundary` says so in one screen and was not run until after
+the conclusion. Only points containing `61d92f7` can be compared against it.
+
+**Not yet known:** whether the rate genuinely differs between trees (5/6
+against 1/2). Separating those needs ~20 runs a point and was judged not worth
+the soak's remaining time. Stated as unknown rather than guessed at.
+
+## E2. `dskwstage` — ANSWERED, and it is not the size pass's
+
+`docs/HANDOFF-KERNEL-SIZE-P4.md` parked this row on a question: its default
+machine wants the IBM 5150 27 OCT 82 ROM, which cannot live in this tree
+(CONTRIBUTING.md §6), so it said *"re-run it if you have the 5150 CGA ROM
+set"*. The ROM was supplied. Four runs, all `dskw_write_x never returned - the
+machine is still running after 180s`:
+
+| tree | ROM | |
+|---|---|---|
+| `8626120` | IBM 5150 | FAIL — in its chunk, and again on its own |
+| `8626120` | GLaBIOS | FAIL — so the ROM is not the variable |
+| `f8af49e` | IBM 5150 | FAIL — pre-pass |
+
+The 180 is a **host** wall-clock bound inside `m.wait_stop`, not a guest
+budget, so contention was the first suspect and is ruled out: the solo failure
+had two other emulators up, not four. The hang is still open and still covers
+`dskw_wdata.stg`; what closed is the question the row was parked on, and it now
+has a reproducer needing no ROM anyone lacks.
+
+## E3. A machine naming an IBM romset SILENTLY becomes `glabios_pc`
+
+`tests/int0sweep.py`'s own description says this in as many words, and it is the
+most under-weighted sentence in `tests/`: *"a machine naming an IBM romset
+SILENTLY RESOLVES to glabios_pc when the ROM file is absent, so the handful of
+rows that ask for one were not testing it either."*
+
+Nine rows name a non-GLaBIOS machine; **four are registered** — `int0sweep`,
+`fillpat`, `icoclip`, `dskwstage` — and none had ever run on the ROM it asks
+for. Why that matters is in the same description: on an IBM ROM the INT 0
+vector masks the 8259 and IRETs, so **one divide overflow anywhere is a dead
+machine**, where GLaBIOS's handler leaves the PIC alone and the same fault is a
+wrong clip index the session survives. `wm_ttl_rect` spending BX under
+`wm_clip_occl` locked an IBM machine hard and passed every GLaBIOS row.
+
+With the ROM in place: `int0sweep` **ok, 199.0 s** — a broad UI session with
+INT 0 armed, on the kernel 745 bytes lighter, and nothing fired. `fillpat` and
+`icoclip` re-run and pass. `dskwstage` is E2.
+
+**The hazard is the silence**, and it survives this entry: nothing fails, and
+nothing in the output says which ROM ran. A row that means the IBM ROM should
+assert it got one.
+
+## E4. `dispcheck` indexed word 11 of a record that is now 16 words long — FIXED
+
+The pass's own, found by the soak and fixed in it (`662b429`). Pass 3's B2
+batch took `[vid_strm1]`, `[vid_rpara]` and `[vid_rend]` out of the
+per-display run — `VID_CTX_W` 19 → 16 — and `tests/dispcheck.py` still indexed
+that run by hand, so `vid_rseg` (word 11 → word 10) became `vid_cwm1` and the
+row asserted the two displays *"render into"* 027F and 02CF: 640−1 and 720−1,
+printed as segments. On a two-card machine that reads as the software renderer
+pointed at the wrong memory.
+
+The kernel was right throughout — `vidsel.inc` asserts the run's length **and**
+`vid_cw`/`vid_ch`'s place in it, and `os88geom` mirrors `VID_CTX_W`, so
+`VID_CTX_SZ`, `VID_CTX_VX/VY/KIND` and the thirty scripts importing them
+followed with no edit. This script imported them too, and then indexed *inside*
+the run with literals, which nothing mirrors.
+
+**Its own guard could not see it.** `run != NWORD` compares the symbols'
+distance against the mirror; both moved together, so it passed. A literal index
+inside a correctly-sized run is invisible to a check on the size. Derived now —
+cw/ch off `VID_CTX_CW`/`VID_CTX_CH`, rseg off its own symbol the way
+`tests/dispcold.py` always has — and the live block is `NWORD` words at both
+ends. It was the only script indexing the run by hand; every other reader of
+`vid_ctx` takes its offsets from `os88geom`, and `dispsize.py`'s bare 0/2/4/6
+are a `wm_natr` **rect**, not this record.
 
 ---
 
