@@ -70096,6 +70096,61 @@ on close, and a flash duration is not worth a page.
 
 ---
 
+### 65.10 `APP_SMALL` — the small build of this package
+
+Note Pad's §27.16 is the pattern and its rules hold unchanged. What is worth
+saying here is **why a 7KB program is worth gating at all**: the point of the
+small disk is a *handful* of programs that run, not one large one that barely
+does, so every byte off a small package is another package beside it. On the
+34.0KB heap `kern_small` leaves a 128KB machine, the small Calculator, the
+small Note Pad and Mines all fit at once with room over.
+
+| flag | off in `APP_SMALL` | worth |
+|---|---|---|
+| `CALF_HIST` | the foldaway history pane (§65), its eight rows, the disclosure strip, the View menu and the ring that feeds them | −1,203 image, −366 bss |
+| `CALF_ABOUT` | the standard About card | −155 image, −9 bss |
+
+**7,351 → 5,563 bytes an instance, 24.3%.** What it keeps: the display, the
+keypad, all four functions, √, 1/x, percent, sign, the clipboard, the
+keyboard, and both remaining menus.
+
+#### 65.10.1 The 293 bytes that were never anyone's
+
+Gating the history first needed the bss to be *gateable*, and it was not: the
+block was ~52 lines of `equ os88_image_end + N` with the offsets typed out,
+which is why the note above `cal_down` says a variable was put in the **image**
+rather than renumber them. Converting it to a preprocessor counter (Note Pad's
+`NPVAR` shape) turned up a second thing:
+
+> the fields end at **843**, and `CAL_BSS_TOTAL equ 1136` had been sitting
+> above them since the package landed.
+
+**293 bytes of every instance were reserved, zeroed by the loader and
+addressed by nothing** — 3.8% of the package, on both builds, in a constant
+nobody had re-read since it was typed. `CAL_BSS_TOTAL` is derived from the
+counter now and cannot drift again. That is the whole of this package's size
+pass: there is no dead code in it, no repeated idiom over 25 bytes, and 347
+bytes of immediate-to-memory stores of which almost none are adjacent.
+
+#### 65.10.2 What the small one looks like
+
+With no pane the window opens at `CAL_BASE_H` and never resizes, and
+`CAL_NRECT` falls from 29 to 20 — the keypad *is* the rect table, so
+`cal_nrect` answers a constant and `cal_geom`'s row-count arithmetic goes with
+it. **That is the shape a CGA already gets** (§65.3, where the desktop band
+leaves no room to fold the pane open), made the only shape.
+
+Two integration notes, both Note Pad's rules applied again. The three history
+routines the *arithmetic* calls — `cal_hist_prep`, `cal_hist_prep_un`,
+`cal_hist_push`, reached from every `=`, √ and 1/x — collapse to **one shared
+`ret`** rather than six `%ifdef`s through code that is not the history's. And
+`[cal_linep]` stays in both builds: it reads 0 here, which is exactly what
+`cal_unary_end` already tests for, so that path needs no gate either.
+
+**The full build is byte-identical with the gates in**, proven by assembling a
+mechanically de-gated copy and comparing md5; `tests/unit/t_appsmall.py`
+covers it.
+
 ## 66. Heap compaction — closing the holes on demand
 
 The data arena is first fit from the bottom (§50.2), so a long session fills

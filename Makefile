@@ -6123,12 +6123,23 @@ $(SMALLAPPDIR)/paint.bin: apps/paint/paint.asm apps/os88api.inc \
 $(SMALLAPPDIR)/paint.o88: $(SMALLAPPDIR)/paint.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(SMALLAPPDIR)/paint.bin -o $@
 
+$(SMALLAPPDIR)/calc.bin: apps/calc/calc.asm apps/os88api.inc apps/os88ui.inc \
+                         $(SBSTAMP) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -DAPP_SMALL $(PKGSBDEF) -o $@ \
+	        apps/calc/calc.asm
+	@echo "calc (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/calc.o88: $(SMALLAPPDIR)/calc.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(SMALLAPPDIR)/calc.bin -o $@
+
 # The substitution, written once: every APPS: package except the ones that
 # have a small build, then those. ONE LIST, and $(SMALLBASE) is derived from
 # it rather than repeated - a package added here and forgotten in the
 # filter-out would ship BOTH builds on one floppy, and the shipped one would
 # be the copy the loader found first.
-SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88
+SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88 \
+                 $(SMALLAPPDIR)/calc.o88
 SMALLBASE      = $(patsubst $(SMALLAPPDIR)/%,$(BUILD)/%,$(SMALLPKGS))
 SMALLAPPSARGS  = $(patsubst %,APPS:%,$(filter-out $(SMALLBASE),$(APPS_TOOLS))) \
                  $(patsubst %,APPS:%,$(SMALLPKGS))
@@ -6136,6 +6147,7 @@ SMALLAPPSARGS  = $(patsubst %,APPS:%,$(filter-out $(SMALLBASE),$(APPS_TOOLS))) \
 smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 	@python3 tools/os88pkgsize.py $(BUILD)/notepad.o88 $(SMALLAPPDIR)/notepad.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/paint.o88 $(SMALLAPPDIR)/paint.o88
+	@python3 tools/os88pkgsize.py $(BUILD)/calc.o88 $(SMALLAPPDIR)/calc.o88
 
 $(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(APPS_GAMES) $(SYSAPPS) \
                            $(APPS_DOS) tools/os88disk.py

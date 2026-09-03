@@ -39,7 +39,8 @@ ROOT = os.path.abspath(ROOT)
 
 # (package, source, the shipped .o88 it must still equal)
 PKGS = [("notepad", "apps/notepad/notepad.asm", "build/notepad.o88"),
-        ("paint", "apps/paint/paint.asm", "build/paint.o88")]
+        ("paint", "apps/paint/paint.asm", "build/paint.o88"),
+        ("calc", "apps/calc/calc.asm", "build/calc.o88")]
 
 # The least a small build must save to be worth having, as a fraction of the
 # full build's image + bss. Note Pad's real figure is ~34%; this is a floor
