@@ -194,7 +194,10 @@ _MIRROR = {
     "DESK_COLW": ("kernel/desk.inc", 44),
     "DESK_ZOVER": ("kernel/desk.inc", 2),
     # kernel/disk.inc - the volume table (SPEC.md 18.7)
-    "DVOL_MAX": ("kernel/disk.inc", 8),
+    # PER ARM (SPEC.md 51.0): kern_small can load no driver, so it can have no
+    # DVK_DRV volume, so every volume it will ever have is one of the four
+    # BIOS floppies SPEC.md 18.98 allows.
+    "DVOL_MAX": ("kernel/disk.inc", {"big": 8, "small": 4}),
     "DV_KIND": ("kernel/disk.inc", 0),
     "DV_FLAGS": ("kernel/disk.inc", 2),
     "DV_SIZE": ("kernel/disk.inc", 16),
@@ -286,8 +289,12 @@ _MIRROR = {
     "APP_MAX_SIZE": ("kernel/kernel.asm", 61440),
     "WCR_SZ": ("kernel/kernel.asm", 8),
     "CP_RX": ("kernel/ctrl.inc", 96),
-    "CP_IDRV": ("kernel/ctrl.inc", 2),
-    "CP_ITHM": ("kernel/ctrl.inc", 5),
+    "CP_IDRV": ("kernel/ctrl.inc", {"big": 2}),   # no Drivers page on small
+    # ...and CP_ITHM is BIG-ONLY, one level further out than it looks: the
+    # Theme (SPEC.md 76) is `%ifdef OS88_THEME`, which kernel.asm defines
+    # under KERN_BIG - so the row does not exist on kern_small at all, and
+    # ctrl.inc's `equ 4` in the no-drivers arm is the value it WOULD take.
+    "CP_ITHM": ("kernel/ctrl.inc", {"big": 5}),
     "CP_ITIME": ("kernel/ctrl.inc", 1),
     "DSK_DE_SIZE": ("kernel/dskwin.inc", 32),
     # ...and the STAGED LISTING's stride, which is a different constant with a
@@ -392,8 +399,57 @@ _EQU = re.compile(r"^\s*([A-Z_][A-Z0-9_]*)\s+equ\s+"
                   r"(0[xX][0-9a-fA-F]+|[0-9]+)\s*(?:;.*)?$")
 
 
-_KARM = {"KERN_BIG": "big", "KERN_SMALL": "small"}
 _COND = re.compile(r"^\s*%(\w+)\s*(\S*)")
+
+
+def _karm(root=None):
+    """{symbol: arm} for every conditional this parser can resolve.
+
+    The two kernels are chosen by `KERN_BIG` / `KERN_SMALL`, but no kernel
+    source tests those directly for a FEATURE - kernel.asm turns each one into
+    a named symbol first (`OS88_DRIVERS`, `OS88_ASSOC`, `FCP_MOD`, ...) so that
+    a call site cannot disagree with the body it guards. A constant gated on
+    one of those names is per-arm just as surely as one gated on the arm
+    itself, and `DVOL_MAX` is the first: it is 4 under `KERN_SMALL` and 8
+    otherwise, and mirroring the wrong one puts a harness back to reading a
+    table at the wrong stride.
+
+    So the map is READ OUT OF kernel.asm rather than written down - every
+    `%define NAME` that sits inside a bare `%ifdef KERN_BIG` or
+    `%ifdef KERN_SMALL`. A feature symbol added tomorrow is covered on the
+    next run of any script, which is the property this whole module exists
+    to have.
+    """
+    out = {"KERN_BIG": "big", "KERN_SMALL": "small"}
+    path = os.path.join(root or ROOT, "kernel", "kernel.asm")
+    if not os.path.exists(path):
+        return out
+    arm, depth = None, 0
+    with open(path, "r", errors="replace") as fh:
+        for line in fh:
+            mo = _COND.match(line)
+            if mo:
+                d, a = mo.group(1).lower(), mo.group(2)
+                if d == "ifdef" and a in ("KERN_BIG", "KERN_SMALL") and not depth:
+                    arm, depth = out[a], 1
+                elif d.startswith("if"):
+                    depth += 1 if depth else 0
+                elif d == "endif" and depth:
+                    depth -= 1
+                    if not depth:
+                        arm = None
+                elif d in ("else", "elif") and depth == 1:
+                    arm = None      # the other side of an arm test: unresolved
+                elif d == "define" and arm and depth == 1 and a:
+                    # HERE and not below: `%define` matches _COND too (it is a
+                    # directive), so a second pass over the same line never ran
+                    # and this map came back with only the two arms in it.
+                    out[a] = arm
+                continue
+    return out
+
+
+_KARM = _karm()
 
 
 def _equs(path, arm=None):

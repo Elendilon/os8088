@@ -263,6 +263,24 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_ASSOC 1
 %endif
 
+; SPEC.md 51's LOADABLE DRIVERS are kern_big's too (SPEC.md 51.0). It is the
+; largest single item in docs/KERN-SMALL-CUT-PLAN.md's hardware group and the
+; only one there that is not a device - it is the ABILITY to load one - so it
+; is the one that needed a product decision rather than a measurement. The
+; decision is the owner's, in their words: *"remove the drivers from the OS
+; disk builds for small; we don't need to take up disk space with files we'll
+; never use."* A 128KB machine has no heap to host a driver in, so the
+; mechanism was closer to unusable there than merely unused, and the disk and
+; the kernel now agree: $(SMALLDRIVERS) is the on-demand kernel MODULES and
+; nothing else.
+;
+; drvvol.inc is what could not go with it - four routines that live in
+; driver.inc for historical reasons and are not driver code. Resolved HERE
+; for OS88_ASSOC's reason.
+%ifdef KERN_BIG
+  %define OS88_DRIVERS 1
+%endif
+
 ; SPEC.md 22.3-22.5's Cut/Copy/Paste is an ON-DEMAND MODULE on kern_small
 ; (SPEC.md 2.8, docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1) and stays resident
 ; `.cold` on kern_big, which keeps its speed and its one contiguous boot read:

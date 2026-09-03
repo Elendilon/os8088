@@ -157,6 +157,64 @@ What is actually still on the table:
 | A4 | **Volume table 8 → 4** (`DVOL_MAX`) | 64 | — | 256 | **320** | four mounted volumes instead of eight; `dsk_bpbv` is 512 bytes of `.bss` |
 | | **subtotal** | | | | **~4,700** | |
 
+### 2.1 A3 and A4 ARE BUILT, A2 IS REFUSED, A1 IS DEFERRED
+
+**A3 is SPEC.md §51.0 and A4 is in `disk.inc`.** Together they moved more than
+this whole group was priced at:
+
+```
+.text  -446   .bss  -525   .cold  -4,567   .ovl  -803   .ovlw  -188   = -6,529
+KERN_SIZE   88,064 -> 85,504          heap floor 87.5 KB -> 85.0 KB
+free heap on a 128KB machine, MEASURED on one:   40.5 KB -> 43.0 KB
+kern_big                                          byte-identical
+```
+
+**A3 alone came in at 6,165 against a projected 2,550**, and the difference is
+where a symbol-map estimate could not look: this row priced `driver.inc`'s own
+`.text`/`.cold`/`.bss` and missed the boot-overlay code that goes with it —
+`drv_boot`'s `SYSTEM.CFG` pass in `.ovl` and `drv_init`/`drv_snd_sniff` in
+`.ovlw` are 991 bytes between them — while the `.cold` figure was short by
+~2,800 because an attribution that measures to the next symbol stops at the
+first *local* label. **Both errors are in the same direction and both are the
+method's, not the arithmetic's**: §9's method is honest about `.text` and
+`.bss` and systematically low on anything reached through an overlay.
+
+**A2 is refused, on a measurement and on a judgement.**
+
+The measurement first, because it settles the row on its own. `clock.inc`
+already has the mechanism this row describes — `CLK_FORCE`, the `RTC=` knob —
+and forcing a single rung is worth **44 to 51 bytes**, not ~510:
+
+```
+full ladder      .ovlw 4,328        (-DCLK_FORCE=n, kern_small, .text/.bss identical in all five)
+rung 1 only      .ovlw 4,277   -51
+rung 2 only      .ovlw 4,277   -51
+rung 3 only      .ovlw 4,284   -44
+rung 4 only      .ovlw 4,279   -49
+```
+
+`CLK_TRY` appears five times and all five are inside `clk_probe`: it gates the
+**probes**, in the boot overlay. The per-rung **read and write** bodies are in
+`.text` and are selected at run time off `[clk_tier]`, so they are not gated
+by anything and this row's `~450 .text` has no mechanism behind it. Getting
+that 450 would mean building a second gate over ~20 bodies.
+
+And it should not be built, because the row picks the wrong rungs. **Rungs 2
+and 3 are XT clock cards** — a National MM58167 or a Ricoh RP5C01 on a card at
+2C0h — which is precisely the add-on the machine this build exists for would
+have. Rung 1 is the MC146818, and *that* is the AT-only part. So the row's own
+reasoning ("a 5150 has no RTC") argues for dropping rung 1 and keeping 2 and
+3, which is the opposite of what it proposes and is worth ~51 bytes.
+
+**A1 is deferred at the owner's instruction** — *"keep pc speaker for this
+round - we may cut it later, but for now."* Worth recording for whoever picks
+it up: A3 has already made **part of it dead**. The FM and Sound Blaster tiers
+are reached through `SOUND.DRV`, so with no driver loadable the `SND_RT_FM`
+and `SND_RT_SB` routes, `snd_str_busy` and the stream API can never be
+selected on `kern_small`. What the speaker actually needs is the tone path and
+`snd_xlat`'s 256 bytes of PCM rescale — so A1 splits, and the half that is
+already unreachable is the cheaper half to take.
+
 **A3 is the one to think hardest about.** It is the largest item here and it is
 not a device — it is the ability to load one. A `kern_small` machine with no
 drivers cannot gain a RAM disk, a hard disk, a screen saver or a network later,
@@ -412,6 +470,12 @@ alternatives. §8.1 gives both.
 on the rows that take B3, D2 and D3 together — so a tier is not the sum of the
 tiers above it:
 
+> **The first two rows of this table are HISTORY now.** W0-W2 of
+> docs/KERN-SMALL-MODULE-SPLIT.md and group A's A3+A4 are all built, and the
+> machine measures **43.0 KB free on a machine with 128KB in it**
+> (`tests/small128.py`, `KERN_SIZE` 85,504). Read the rows below as *what is
+> still on the table*, and §2.1 for what the A row actually cost.
+
 | take | cut | free heap | what still works |
 |---|---:|---:|---|
 | today | — | **32.5 KB** | one mid-size program; SHEET cannot load |
@@ -438,6 +502,15 @@ refuses (1,730), or a fifth and sixth on-demand module out of what `.cold` has
 left (`memory.inc` 2,388 and `disk.inc` 5,771 — the second of which is the
 mount path itself and cannot be on the disk it mounts). **None of them is
 cheap, and the first is the only one that is not actively unwise.**
+
+**THE BUILT POSITION, for anything decided off the rows above.** W0 (assoc
+gated), W1 (`FILECP.DRV`), W2 (`FDLG.DRV`), A3 (no loadable drivers) and A4
+(four volumes) are in, and they reach **43.0 KB measured on a 128KB machine**
+— past the `A + D` row and most of the way to `A + B + D`. What remains
+unbuilt in the list is group B (display niceties, ~8,340), group D (sizing
+constants, ~6,210, capped by §7), C5–C8 (~3,479), A1's residue (the sound
+layer minus the speaker) and A2 (refused, §2.1). The gap to the 70 KB ask is
+**27,648 bytes** and every one of them is now a feature.
 
 **And there is a fourth candidate that costs no feature at all: audit the
 pinned boot claims.** docs/KERN-SMALL-MODULE-SPLIT.md §9.1 found one by

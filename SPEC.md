@@ -59205,6 +59205,110 @@ FAT12 volume now** (§19.3). A driver is a file on it, the settings that say
 which drivers load are a file on it, and both are reached through the file
 API that already existed.
 
+### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
+
+**`kern_small` cannot load a `.DRV` of any kind.** The `%ifdef OS88_DRIVERS`
+in `driver.inc` is defined only on a `KERN_BIG` assembly, `SYSTEM.CFG` is
+never read, the Control Panel has no Drivers page, and `$(SMALLDRIVERS)` in
+the Makefile is the on-demand kernel MODULES (§2.8) and nothing else — so
+`SOUND.DRV`, `HDD.DRV`, `NET.DRV`, `ETHER.DRV` and `HDDTOOL.DRV` are not on
+the disk either.
+
+**It is a product decision and the largest single item in
+docs/KERN-SMALL-CUT-PLAN.md's hardware group**, and it is the only one there
+that is not a device — it is the *ability* to load one. What settles it is
+that a 128KB machine has no heap to host a driver in anyway, so the mechanism
+was closer to unusable there than merely unused. The owner's words:
+*"remove the drivers from the OS disk builds for small; we don't need to take
+up disk space with files we'll never use."*
+
+**What it costs, measured.** `kern_big` is **byte-identical** — the same
+`kernel.bin`, checked with a checksum and not asserted. `kern_small`:
+
+```
+.text  -350   .bss  -257   .cold  -4,567   .ovl  -803   .ovlw  -188   = -6,165
+KERN_SIZE   88,064 -> 85,504      heap floor 87.5 KB -> 85.0 KB
+free heap on a 128KB machine      40.5 KB -> 43.0 KB
+CTRL.DRV     5,794 ->  5,358      the Drivers page is out of cp_items
+the 360KB system disk             50 clusters back = 51,200 bytes, 14% of it
+```
+
+That is **2.4x the 2,550 bytes the cut plan priced it at**, and the
+difference is where the estimate could not look: the plan attributed
+`driver.inc`'s own `.text`/`.cold`/`.bss` and missed the boot-overlay code
+that comes with it — `drv_boot`'s `SYSTEM.CFG` pass in `.ovl` and
+`drv_init`/`drv_snd_sniff` in `.ovlw` are 991 bytes between them, and the
+`.cold` figure was short by 2,800 because a symbol-map attribution stops at
+the first local label.
+
+**What a `kern_small` machine loses**, stated so nothing has to be inferred:
+
+- **no hard disk, no Ethernet, no RAM disk, no screen saver, no XMS store** —
+  each was already absent from `$(SMALLDRIVERS)` or gated, and now the
+  mechanism that would load them is gone too;
+- **no FM or Sound Blaster tier.** The **PC speaker is unaffected** — `snd.inc`
+  is resident on both builds and every tone, beep and PCM clip still plays
+  (§34). What goes is the *card* route, which was a driver;
+- **`SYSTEM.CFG` is not read**, so §51.5's settings do not persist. The
+  Control Panel pages that write it still work on the session.
+
+#### 51.0.1 `drvvol.inc` — the four routines that are not driver code
+
+`drv_mounted`, `drv_vol_bank`, `drv_vol_back` and `drv_find` were written in
+`driver.inc` because the driver loader was their first caller: it has to
+reach A: to find a `.DRV` and put the user's volume back afterwards
+(§51.5.2). Three other subsystems grew callers while they sat there, and
+**`mod.inc` needs all four on the path that loads an on-demand module** — so
+`kern_small`, which has the Control Panel, Format, Clone, Cut/Copy/Paste and
+the Standard File dialog as files on the disk, needs them *more* than
+`kern_big` does.
+
+They move to `kernel/drvvol.inc`, outside the gate, as a **pure move** — not
+a line changed, section directives included. It is `%include`d from the point
+in `driver.inc` the code left rather than from `kernel.asm` beside every
+other include, and that is deliberate: the bodies are `.cold`, so moving them
+to the end of the segment would change no behaviour and no byte count but
+would shift every address after them, and *"kern_big is untouched"* would
+stop being a thing a checksum can say. Three lines to keep the A/B exact.
+
+They keep their `drv_` prefix against CLAUDE.md's label-hygiene rule, and
+`drvvol.inc`'s banner records why: ~15 call sites across seven files, and
+renaming them would put a diff over all of those to say nothing.
+
+#### 51.0.2 The stub block, and why it is not 90 gated call sites
+
+The `%else` arm of `driver.inc`'s gate defines the answers a machine with
+nothing published already gives — `drv_svc_none`'s `xor ax,ax / stc`, an
+empty class table, a row that owns no segment. **Not one caller changed.**
+`drv_fs_call` alone has 25 call sites across six files, and a mechanical
+sweep over those is exactly the shape that introduces a defect nobody sees
+(§38.0's `fdlg_hasdot` is this tree's worked example).
+
+Three things the stubs must get right, and `tools/os88ovlchk.py` caught every
+one of them rather than a reader:
+
+1. **A stub goes in the section its live body was in.** `drv_pkg_call_x` is
+   `.text` because an API slot reaches it near; `drv_init` and
+   `drv_snd_sniff` are `.ovlw`; `drv_boot` is `.ovl`; `cp_cfg_save` is
+   `.modc`, because `cp_flush_x` reaches it near *inside CTRL.DRV's image*.
+2. **A stub ends in the `ret` kind its callers use.** Six of them are
+   far-called and end in `retf`; the overlay pair is entered through
+   `call far [spl_fp]` and ends in `retf` too (§2.5.3).
+3. **`drv_svc` is `.text` with real zero bytes, not `.bss`.** `snd.inc` reads
+   `[drv_svc+DSV_TONE]` directly to ask whether a driver offered it a tone
+   proc, and nothing zeroes `.bss` on this assembler (§8) — the live build
+   gets its zeros from `drv_svc_clear_all`, which is inside the gate.
+
+The Control Panel's Drivers page is **stubbed rather than gated**, and the
+row is taken out of `cp_items` so nothing can select it. `CTRL.DRV` is an
+on-demand module on both builds, so gating its eleven interleaved regions
+would move no resident byte and would put a `%ifdef` through the middle of
+the Sound page, which stays. What the gate does reach is the item indices:
+`CP_ISND`, `CP_IVID` and `CP_ITHM` each come up one, written out per arm
+rather than derived, because deriving them would hide the fact that makes
+them fragile — they are positions in a table one `%ifdef` above, and the two
+have to be read together.
+
 ### 51.1 A driver is a package that is not an application
 
 Same 32-byte header, same `org 0`, same paragraph-aligned heap claim, same

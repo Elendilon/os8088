@@ -79,11 +79,24 @@ DSK_R_SIZE   equ 28              ; file size, dword
 ; dsk_read_chain's run coalescer, dskw_flush - is untouched by capacity, and
 ; a volume is capped at 65,535 sectors (31.99MB) by BPB rule 8, which is also
 ; the DOS 3.3 partition limit these machines ran.
-%if MEM_P_FATW_N != 8
-  %error "MEM_P_FATW_N and DVOL_MAX have parted (SPEC.md 18.8.4) - the purge \
-protocol would name a shorter array than dsk_fatwc actually is, and a volume \
-above the end would keep a claim mem_shed_one has already given away"
-%endif
+%ifdef KERN_SMALL
+DVOL_MAX     equ 4               ; FOUR ON kern_small, and it is a bound the
+                                 ; machine cannot exceed rather than a trim
+                                 ; that might pinch: SPEC.md 51.0 takes the
+                                 ; loadable-driver mechanism out of that
+                                 ; build, so a DVK_DRV row can never be
+                                 ; created and every volume it will ever have
+                                 ; is a BIOS floppy - of which SPEC.md 18.98
+                                 ; says there are at most four, the ROM's own
+                                 ; `cmp dl,4 / jae <invalid>`. So this is the
+                                 ; same number as `int 11h` can report and not
+                                 ; one fewer.
+                                 ;
+                                 ; It follows A3 and could not have preceded
+                                 ; it: with drivers loadable, four partitions
+                                 ; plus two floppies is six and this would
+                                 ; have cost a machine sight of its own disk.
+%else
 DVOL_MAX     equ 8               ; the FLOPPIES the machine has, and one per
                                  ; PARTITION a disk driver can mount: four
                                  ; primaries is the whole of what a partition
@@ -100,6 +113,26 @@ DVOL_MAX     equ 8               ; the FLOPPIES the machine has, and one per
                                  ; three per-volume words) and 2 of .bss, and
                                  ; every one of them scales off this constant
                                  ; rather than being written out
+%endif
+; ...and the purge protocol's array has to be exactly as long as the volume
+; table (SPEC.md 18.8.4), or mem_shed_one gives a claim away that a volume
+; above the end still holds. It was written `!= 8` because DVOL_MAX was not
+; yet defined where the check sat; moved BELOW the definition it can name the
+; thing it is checking, which is what let it catch kern_small's 4 against
+; memory.inc's 8 on the first assembly.
+%if MEM_P_FATW_N < DVOL_MAX
+  %error "MEM_P_FATW_N is SHORTER than DVOL_MAX (SPEC.md 18.8.4) - the purge \
+protocol would name a shorter array than there are volumes, and a volume \
+above the end would keep a claim mem_shed_one has already given away"
+%endif
+; ...and the other way round is FINE, which is what kern_small needs it to be.
+; MEM_P_FATW_N is the purgeable RANK RANGE and it is mirrored in the SDK
+; (apps/os88api.inc), where taskmgr reads it to label an owner word - so it is
+; one number for both kernels, because a package is one binary that runs on
+; both (SPEC.md 24). DVOL_MAX is how many volumes there ARE, and on kern_small
+; that is four. dsk_fatwc is therefore sized from the RANGE and not from the
+; count: eight words where four would do, and the eight bytes buy the
+; guarantee that mem_shed_one cannot walk off the end of it.
 DV_KIND      equ 0               ; db: 0 = BIOS int 13h, 1 = driver, 0xFF free
 DV_UNIT      equ 1               ; db: the int 13h DL, or the driver's handle
 DV_FLAGS     equ 2               ; db: bit 0 = show a desktop zone (SPEC 26)
@@ -794,7 +827,7 @@ dsk_fatw0:   dw 0xFFFF           ; the FAT WINDOW (SPEC.md 18.8): the first
 ; second at +DVOL_MAX*2 and the third at +DVOL_MAX*4.
 dsk_fatww:   times DVOL_MAX dw 0xFFFF   ; the FAT sector each private window
                                  ; holds, 0xFFFF = nothing resident...
-dsk_fatwc:   times DVOL_MAX dw 0        ; ...the claim it lives in, 0 = none,
+dsk_fatwc:   times MEM_P_FATW_N dw 0    ; ...the claim it lives in, 0 = none,
                                  ; so this volume shares the window below the
                                  ; stacks exactly as it always did...
 dsk_fatwsig: times DVOL_MAX dw 0        ; ...and the SIGNATURE of the disk

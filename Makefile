@@ -6095,11 +6095,22 @@ SMALLAPPDIR := $(BUILD)/smallapp
 # there is no row here that could name these two files. Leaving them on the
 # disk would be ~11KB of a 360KB floppy carrying software this kernel cannot
 # reach.
-# RECURSIVE, like $(DRIVERS) itself: $(KMODS) inside it still reads the
-# per-target KMODDIR.
-SMALLDRIVERS = $(filter-out $(BUILD)/xmem.drv $(BUILD)/ramdisk.drv \
-                            $(BUILD)/saver.drv \
-                            $(BUILD)/rampage.drv,$(DRIVERS))
+# ...AND NEITHER DOES ANY OTHER `.DRV`. SPEC.md 51.0 takes the loadable-driver
+# mechanism out of kern_small altogether, so SOUND, HDD, NET, ETHER and
+# HDDTOOL are not "unused" on this disk - there is no code left that could
+# name, read or load them. That is 49,621 bytes of a 360KB floppy, 13.5% of
+# it, and it is SPEC.md 24.5's rule applied one layer down: if it can never
+# run there, it does not go on the disk.
+#
+# STATED AS WHAT IT IS rather than as a filter-out list, and that is the point
+# of writing it this way: a driver added to $(DRIVERS) tomorrow must NOT
+# appear on this disk, and a subtraction list would have put it there
+# silently. $(KMODS) is the on-demand KERNEL MODULES (SPEC.md 2.8) - the
+# Control Panel, Format and Clone - which are this kernel's own code cut out
+# of its own binary and are a different mechanism entirely; $(SMALLMODS) adds
+# kern_small's two extra. RECURSIVE, like $(DRIVERS) itself, so $(KMODS)
+# inside it still reads the per-target KMODDIR.
+SMALLDRIVERS = $(KMODS)
 
 small: $(BUILD)/small360.img $(BUILD)/small.img
 	@python3 tools/kernsplit.py $(SMALLDIR)/kernel.bin $(BUILD)/kernel.bin
