@@ -14,8 +14,11 @@ would notice a canvas that came out four times bigger than it had to be.
 **Three things, and the third is the point of the row:**
 
   1. On a 1bpp adapter the canvas is one bit - stride ceil(w/8) rounded to 4,
-     a 62-byte DIB rather than 118, and [pt_ncol] = 2 because a canvas that
-     cannot store 39.4's dither class must not offer it.
+     a 62-byte DIB rather than 118, and [pt_ncol] = 3: black, 39.4's 50%
+     dither and white, which is every distinct thing a screen with two
+     colours can show.  The dither is one of the three because a canvas of
+     one bit CAN hold it - not as a grey it has no room for, but as the
+     checkerboard 39.4 was going to reduce it to anyway (SPEC.md 42.23.1).
   2. The DIB in front of row 0 is a VALID 1bpp BMP - the canvas IS the file
      (SPEC.md 42), so a save is one write of it and a header that lies is a
      file no host can open.  biBitCount 1, biClrUsed 2, bfOffBits 62, the
@@ -53,6 +56,8 @@ ROOT = os.path.dirname(HERE)
 S = os88sym.linear
 PT_BMPHDR = 118                 # 14 + 40 + 16*4, mirrored in apps/paint
 PT_BMPHDR1 = 62                 # ...and 14 + 40 + 2*4 at one bit
+PT_SW_X = 116                   # the strip's first swatch, content-relative
+CLGRAY = 7                      # SPEC.md 39.4's dither class
 
 
 def _boff(seg, name):
@@ -62,6 +67,54 @@ def _boff(seg, name):
 
 def _w(m, seg, name, n=2):
     return int.from_bytes(m.read(_boff(seg, name), n), "little")
+
+
+def _pat_row(m, seg, row, col=4):
+    """The canvas byte a GREY fill lays on `row`, at byte column `col`.
+
+    **A COLUMN WELL INSIDE THE BAND, and byte 0 is not one.** The band starts
+    a few pixels in, so byte 0 reads `FA` - four bits of white GROUND ORed
+    with four of dither - and that is the pattern being right, not wrong. It
+    cost one wrong diagnosis; the column is named here so it cannot cost a
+    second.
+
+    Driven through pt_rect rather than the mouse: [pt_ink] and the rect words
+    are the routine's whole input (SPEC.md 42), so a five-byte breakpoint is
+    not needed - setting them and calling it is what every drawing tool does.
+    The canvas is blank when this runs, so a wrong answer cannot be left over
+    from something else.
+    """
+    base = _w(m, seg, "pt_base")
+    off = int.from_bytes(m.read(_boff(seg, "pt_rowoff") + row * 2, 2), "little")
+    sg = int.from_bytes(m.read(_boff(seg, "pt_rowseg") + row * 2, 2), "little")
+    return m.read((sg << 4) + off + col, 1)[0]
+
+
+def _grey_band(m, mo, seg, rows=4):
+    """Draw a wide band in the GREY swatch, top-left of the canvas."""
+    sw = _w(m, seg, "pt_swdx")
+    ox, oy = _w(m, seg, "pt_ox"), _w(m, seg, "pt_oy")
+    stripy = oy + _w(m, seg, "pt_conth") - 22 + 10
+    mo.click(ox + PT_SW_X + sw + sw // 2, stripy)      # swatch 1 = the dither
+    os88marty.settle(m)
+    if _w(m, seg, "pt_col", 1) != CLGRAY:
+        return False
+    cx0, cy0 = _w(m, seg, "pt_cx0"), _w(m, seg, "pt_cy0")
+    m.write(_boff(seg, "pt_thick"), bytes([3]))        # the 8px nib
+    m.advance(frames=4)
+    m.run()
+    sx, sy = cx0 + 8, cy0 + 4
+    mo.to(sx, sy)
+    os88marty.settle(m)
+    if mo.where()[2] & 1:
+        mo._edge(False)
+    mo._edge(True)
+    mo.to(sx + 120, sy, l=True)
+    mo._edge(False)
+    os88marty.settle(m)
+    mo.to(4, 4)
+    os88marty.settle(m)
+    return True
 
 
 def _open_paint(m, mo):
@@ -138,10 +191,11 @@ def main(argv):
             if planar:
                 fails.append("[pt_planar] and [pt_1bpp] are BOTH set, which "
                              "42.23 says can never happen")
-            if ncol != 2:
-                fails.append("[pt_ncol] is %d, wanted 2 - the dither class is "
-                             "not storable at one bit (SPEC.md 42.23.1)"
-                             % ncol)
+            if ncol != 3:
+                fails.append("[pt_ncol] is %d, wanted 3 - black, SPEC.md "
+                             "39.4's 50%% dither and white, which is every "
+                             "distinct thing a screen with two colours shows "
+                             "(SPEC.md 42.23.1)" % ncol)
             want = ((cw + 7) // 8 + 3) & ~3
             if stride != want:
                 fails.append("stride %d, wanted ceil(%d/8) rounded to 4 = %d"
@@ -187,11 +241,29 @@ def main(argv):
                              "42.23.1's polarity is that index 1 is WHITE")
 
             # --- ...and a blank canvas is all 0xFF, which IS that polarity
-            r0 = m.read((base << 4) + hdr, stride)
+            r0 = m.read((base << 4) + hdr, stride)   # still blank here
             if set(r0) != {0xFF}:
                 fails.append("file row 0 of a blank canvas is %s, not all "
                              "0xFF - 42.23.1 stores 1 as WHITE"
                              % r0[:8].hex())
+
+            # --- 4. THE DITHER'S PHASE IS THE KERNEL'S (SPEC.md 42.23.1).
+            # pt_pat lays 0xAA on an even canvas row and 0x55 on an odd one,
+            # which is `sw_pbit`'s `parity XOR 1` - a pixel is white when
+            # x + y is EVEN. Asserted on the BYTES rather than on the screen
+            # because the screen cannot tell a right phase from a wrong one:
+            # both are a 50% checkerboard, and the difference only shows where
+            # a dithered area meets another one.
+            if not _grey_band(m, mo, seg):
+                fails.append("the grey swatch would not select - [pt_col] is "
+                             "%d, wanted CLGRAY (7), so the phase below was "
+                             "never drawn" % _w(m, seg, "pt_col", 1))
+            for y, want in ((0, 0xAA), (1, 0x55), (2, 0xAA)):
+                got = _pat_row(m, seg, y)
+                if got != want:
+                    fails.append("pt_pat's row %d pattern is %02X, wanted %02X "
+                                 "- the phase is sw_pbit's and not a choice "
+                                 "(SPEC.md 42.23.1)" % (y, got, want))
 
     for f in fails:
         print("paint1bpp: " + f)

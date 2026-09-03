@@ -367,11 +367,28 @@ always on small.
    That differs from `[pt_planar]`, which follows the adapter both ways. Two
    format axes with different lifetimes in one byte is how this gets confusing;
    `[pt_fmt]` wants to be a small enum with the rule written next to it.
-4. **Where does a grey go?** SPEC.md §39.4 already reduces the 50% dither class
-   to a checkerboard at draw time, and `[pt_ncol]` is 3 on a mono adapter. A
-   1bpp canvas can store that checkerboard *natively* — which is
-   PAINT-STROKE-PLAN §5's item 2, and at 1bpp it stops being a separate feature
-   and becomes the only way to have a grey at all. Whether the tool sets a
-   pattern or a colour is a look question and wants looking at.
+4. ~~**Where does a grey go?**~~ **ANSWERED AND BUILT — SPEC.md §42.23.1.**
+   The third swatch came back as a **pattern rather than a colour**:
+   `[pt_ncol]` is 3 on a one-bit canvas, and drawing with the grey swatch lays
+   §39.4's checkerboard into the canvas itself. It is the one place a one-bit
+   canvas is more truthful than a 4bpp one — a 4bpp canvas stores `CLGRAY` and
+   the renderer dithers it on the way to the glass, so what is saved is not
+   what was seen.
+
+   **It also caught a defect in the first 1bpp build.** `PT_LIT16` was a
+   guess — colours 7..15 white — and `gfx_inktab` says six of them are the
+   DITHER class. So six colours were stored as flat white that every 1bpp
+   screen draws as a checkerboard. `tests/unit/t_inktab.py` now re-derives
+   both masks from the kernel's table, because `t_mirror` cannot see a `db`.
+
+   The phase was verified against a dither the *kernel* drew in the same
+   frame — the strip's own grey swatch — and both read white-on-even and
+   **zero** white-on-odd. `paint1bpp` asserts it on the bytes rather than the
+   screen, because a wrong phase is still a 50% checkerboard and a screenshot
+   cannot tell them apart.
+
+   One behaviour differs and is not a defect: a flood fill inside a dithered
+   area fills the half matching its seed, because alternating pixels are what
+   is actually there. §42.23.1 records it.
 5. **Option B or C for small.** ~730 kernel bytes against ~340 package bytes and
    a slower repaint. This is the owner's call, not an arithmetic one.

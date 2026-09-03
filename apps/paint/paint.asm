@@ -368,13 +368,23 @@ PT_BMPHDR1  equ 62                  ; ...and 14 + 40 + 2*4 when the canvas is
                                     ; multiples of 2 and PT_BMPHDR1 is the one
                                     ; that must stay so, because pt_bmp_hdr
                                     ; copies its template with `rep movsw`
-PT_LIT16    equ 1111111110000000b   ; SPEC.md 42.23.1: which of the sixteen
-                                    ; light a pixel when the canvas holds one
-                                    ; bit. Colours 7..15 - light grey and every
-                                    ; bright one - are white, 0..6 black. It is
-                                    ; a reduction and not a palette lookup, so
-                                    ; it is also the rule a colour picture is
-                                    ; down-converted by (SPEC.md 42.23.3)
+; --- THE THREE INK CLASSES, AND THEY ARE THE KERNEL'S (SPEC.md 39.4, 42.23.1)
+; A bit per colour, indexed by the palette entry. Both words are DERIVED from
+; kernel/viddet.inc's `gfx_inktab` - the one place in the system that says what
+; each of the sixteen looks like on a screen with two - and
+; tests/unit/t_inktab.py re-derives them and fails the build if they drift.
+;
+; **THIS WAS A GUESS AND THE GUESS WAS WRONG.** The first build of SPEC.md
+; 42.23 had one word, `PT_LIT16` = colours 7..15 white, on the reasoning that
+; the bright half lights up. gfx_inktab says otherwise: SIX of them - light
+; grey, dark grey, light blue, light green, light cyan and light magenta - are
+; the 50% DITHER class, and only light red, yellow and white are solid white.
+; So a canvas of one bit stored six colours as flat white that every 1bpp
+; screen in the system draws as a checkerboard, which is the one thing 42.23
+; is not allowed to do: the canvas is what the screen shows.
+PT_WHT16    equ 1101000000000000b   ; 12, 14, 15 - solid WHITE
+PT_DTH16    equ 0010111110000000b   ; 7..11, 13  - the 50% DITHER class
+                                    ; ...and everything else (0..6) is BLACK
 
 ; --- content layout (all content-relative; SPEC.md 11's content rect) ----------
 PT_BW       equ 20                  ; tool / swatch button side, pixels
@@ -724,23 +734,28 @@ pt_entry:
 ; pt_geom or from a LOAD, which can change the depth under a strip that is
 ; already drawn.
 ;
-; Sixteen on a colour card; THREE on a 1bpp one, because 39.4 reduces the rest
-; to one of those and a swatch the machine cannot distinguish is a colour the
-; user cannot choose; and TWO on a one-bit canvas whatever the card, because
-; the canvas cannot store 39.4's dither class at all. **Never offer a colour
-; that cannot reach the picture** - that is the whole of it, and it is why the
-; count is not simply the adapter's any more.
+; Sixteen on a colour card, and **THREE** on a 1bpp one or on a one-bit
+; canvas: §39.4's two solid classes and the 50% dither between them, which is
+; every distinct thing a screen with two colours can show. A swatch the machine
+; cannot distinguish is a colour the user cannot choose, so the other thirteen
+; go - and the three that stay are pt_mono_pal, the same three whatever made
+; the count 3. **Never offer a colour that cannot reach the picture.**
+;
+; The dither is one of the three because a canvas of one bit CAN store it: not
+; as a grey it has no room for, but as the checkerboard §39.4 was going to
+; reduce it to anyway (pt_pat). That is the one place a one-bit canvas is more
+; truthful than a 4bpp one - what is saved is what was seen.
 ;
 ; IT CLAMPS THE CURRENT COLOUR TOO, and for the same sentence: a load can take
 ; the canvas down to one bit under a strip that already has red selected
-; (SPEC.md 42.23.6), and offering two swatches while [pt_col] is a third is
+; (SPEC.md 42.23.6), and offering three swatches while [pt_col] is a fourth is
 ; the same defect one level in - the well would show a colour no swatch
-; matches and the next stroke would come out as whatever pt_lit made of it.
-; Reducing it HERE means the strip, the well and the ink agree by
-; construction rather than by three call sites remembering to.
+; matches. The clamp is a LOOKUP and not a comparison, because pt_cls answers
+; an index into exactly the table the strip is drawing from.
 ; -----------------------------------------------------------------------------
 pt_ncolset:
     push ax
+    push bx
     mov al, 16
     cmp byte [pt_mono], 0
     je .canvas
@@ -748,13 +763,18 @@ pt_ncolset:
 .canvas:
     cmp byte [pt_1bpp], 0
     je .set
+    mov al, 3
+    push ax
     mov al, [pt_col]                ; ...and the colour in hand comes with it
-    call pt_lit                     ; (FF or 00)
-    and al, CWHITE                  ; -> CWHITE (15) or CBLACK (0)
+    call pt_cls
+    xor bh, bh
+    mov bl, al
+    mov al, [pt_mono_pal+bx]        ; CBLACK, CLGRAY or CWHITE
     mov [pt_col], al
-    mov al, 2
+    pop ax
 .set:
     mov [pt_ncol], al
+    pop bx
     pop ax
     ret
 
@@ -2118,30 +2138,79 @@ pt_canvas_init:
 ; wrap at 64KB and paint the start of the picture again.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
-; pt_lit - the ONE BIT a colour index becomes (SPEC.md 42.23.1)
+; pt_cls - which of SPEC.md 39.4's three classes a colour index is in
 ; in:  AL = colour 0..15
-; out: AL = 0x00 (black) or 0xFF (white) - a whole BYTE, because every caller
-;      wants it as a fill or a mask rather than as a bit; preserves all other
-;      registers
+; out: AL = 0 BLACK, 1 the 50% DITHER, 2 WHITE; preserves all other registers
 ;
-; A reduction, not a palette lookup, and PT_LIT16 is the whole of it: light
-; grey and the seven bright colours light the pixel, the seven dark ones do
-; not. That makes it the rule a COLOUR PICTURE is down-converted by as well
-; (SPEC.md 42.23.3), so there is one answer to "is this pixel white" in the
-; program and not two that can disagree at the edges of the palette.
+; The reduction, and the ONLY place it is written: the two words above come
+; from the kernel's own `gfx_inktab`, so "what does this colour look like with
+; two" has one answer in this program rather than several that can disagree at
+; the edges of the palette. It is therefore also the rule a colour picture is
+; down-converted by (SPEC.md 42.23.6) and the rule the swatch strip is cut to.
+;
+; The class is an INDEX as well as an answer: pt_mono_pal is
+; `db CBLACK, CLGRAY, CWHITE`, so `[pt_mono_pal + class]` is the colour a
+; one-bit canvas can actually hold - which is what makes the clamp in
+; pt_ncolset a table lookup rather than a third comparison.
 ; -----------------------------------------------------------------------------
-pt_lit:
+pt_cls:
     push bx
     push cx
     mov cl, al
     and cl, 15
-    mov bx, PT_LIT16
+    xor al, al
+    mov bx, PT_DTH16
     shr bx, cl
-    mov al, bl
-    and al, 1
-    neg al                          ; 1 -> FF, 0 -> 00
+    test bl, 1
+    jz .wht
+    inc al                          ; 1 = the dither
+    jmp short .out
+.wht:
+    mov bx, PT_WHT16
+    shr bx, cl
+    test bl, 1
+    jz .out                         ; 0 = black
+    mov al, 2
+.out:
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; pt_pat - the canvas BYTE a colour lays down on row DX (SPEC.md 42.23.1)
+; in:  AL = colour 0..15, DX = the canvas row
+; out: AL = 0x00 black, 0xFF white, 0xAA or 0x55 for the dither; preserves all
+;      other registers
+;
+; **THE DITHER IS STORED, NOT THE GREY**, which is the whole of what a one-bit
+; canvas can do that a `[pt_ncol]` of 2 could not. §39.4 reduces a middle grey
+; to a checkerboard at DRAW time on every 1bpp screen in the system; a canvas
+; of one bit can hold that checkerboard itself, so drawing with the grey
+; swatch puts on the glass exactly what a 4bpp canvas put there - and, unlike
+; the 4bpp one, what is saved to the file is what was seen.
+;
+; THE PHASE IS THE KERNEL'S AND IS NOT A CHOICE. `sw_pbit` answers
+; `parity XOR 1` for the dither class, where parity is (x+y) & 1 - so a pixel
+; is WHITE when x+y is EVEN. Bit 7 is the leftmost pixel and a byte column
+; starts at an even x, so an even row is 1010_1010b = 0xAA and an odd row its
+; complement. Getting this the other way up would draw the right pattern in
+; the wrong phase, which is invisible in a screenshot of one canvas and
+; obvious the moment a dithered area meets a dithered window frame.
+; -----------------------------------------------------------------------------
+pt_pat:
+    call pt_cls
+    or al, al
+    jz .out                         ; 0 -> 0x00, black
+    dec al
+    jz .dither
+    mov al, 0xFF                    ; 2 -> white
+    ret
+.dither:
+    mov al, 0xAA                    ; even row: white at x+y even, bit 7 first
+    test dl, 1
+    jz .out
+    mov al, 0x55
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2168,13 +2237,6 @@ pt_wipe:
                                     ; lines a pixel wide, on both 1bpp adapters
                                     ; and in the saved .BMP with them
     mov [pt_blankc], bl             ; SPEC.md 42.15: the canvas is about to be
-    cmp byte [pt_1bpp], 0           ; ...and at ONE BIT a pixel the fill word is
-    je .c4                          ; 0000 or FFFF rather than the colour four
-    mov al, bl                      ; times over. Everything below is then the
-    call pt_lit                     ; PACKED path unchanged - a 1bpp row is
-    mov ah, al                      ; [pt_stride] bytes like any other and the
-    mov dx, ax                      ; stride is still a multiple of 4, so .row's
-.c4:                                ; `rep stosw` needs nothing said to it
     cmp byte [pt_ikeep], 0          ; ONE COLOUR, and this is the only thing
     jne .kept                       ; in Paint that makes it so - so every band
     call pt_iclear                  ; goes empty (SPEC.md 42.18), unless a
@@ -2182,6 +2244,8 @@ pt_wipe:
                                     ; to copy the old picture back onto
     xor si, si                      ; SI = row
     cld
+    cmp byte [pt_1bpp], 0
+    jne .one
     cmp byte [pt_planar], 0
     jne .planar
 .row:
@@ -2194,6 +2258,27 @@ pt_wipe:
     inc si
     cmp si, [pt_ch]
     jb .row
+    jmp short .done
+
+    ; --- ONE BIT (SPEC.md 42.23): the same `rep stosw` over [pt_stride], but
+    ; THE WORD IS ASKED FOR PER ROW rather than banked once - a wipe in the
+    ; dither class is 0xAAAA on even rows and 0x5555 on odd ones (42.23.1), so
+    ; a blank canvas can be a checkerboard and [pt_blankc] still names one
+    ; colour. Both bytes of the word carry the same pattern because a byte is
+    ; eight pixels and eight is even.
+.one:
+    mov ax, si
+    call pt_rowset                  ; ES:DI = the row; AX and SI both survive
+    mov dx, si                      ; pt_pat wants the row in DX and the colour
+    mov al, [pt_blankc]             ; in AL, and leaves ES, DI and SI alone
+    call pt_pat
+    mov ah, al                      ; AX = the pattern, both bytes
+    mov cx, [pt_stride]
+    shr cx, 1
+    rep stosw
+    inc si
+    cmp si, [pt_ch]
+    jb .one
     jmp short .done
 
     ; --- FOUR PLANES, and they are CONTIGUOUS within a row, so the four runs
@@ -2741,18 +2826,22 @@ pt_rect:
     mov dh, 4
     cmp byte [pt_1bpp], 0
     je .prpl
-    ; --- ONE PLANE, and the ink is the REDUCTION rather than a bit of the
-    ; colour index (SPEC.md 42.23.1). `test dl, 1` below would read bit 0 of
-    ; the palette index, which is right for black and white by luck and wrong
-    ; for every colour between them - and a canvas that has just been
-    ; down-converted still has whatever the user last picked in [pt_ink].
+    ; --- ONE PLANE, and the fill byte is THE ROW'S PATTERN rather than a bit
+    ; of the colour index (SPEC.md 42.23.1). `test dl, 1` below would read bit
+    ; 0 of the palette index, which is right for black and white by luck and
+    ; wrong for every colour between them - and the dither class needs a whole
+    ; byte that ALTERNATES with the row, which no single bit can carry. So the
+    ; pattern is computed here, per row, and .prpl's own derivation is skipped.
     push ax
-    mov al, dl
-    call pt_lit
-    mov dl, al
-    and dl, 1                       ; .prpl wants the bit, not the byte
+    push dx
+    mov dx, bx                      ; BX is the row this pass is filling
+    mov al, [pt_ink]
+    call pt_pat                     ; AL = 00 / FF / AA / 55
+    mov [pt_pval], al
+    pop dx
     pop ax
     mov dh, 1
+    jmp short .prv1
 .prpl:
     xor al, al
     test dl, 1
@@ -2760,6 +2849,7 @@ pt_rect:
     mov al, 0xFF
 .prv:
     mov [pt_pval], al
+.prv1:
     push di
     mov al, [es:di]
     and al, [pt_plkeep]
@@ -4935,21 +5025,15 @@ pt_btn_xy:
 ; those three and nothing that would be a lie.
 ; -----------------------------------------------------------------------------
 pt_swcol:
-    cmp byte [pt_1bpp], 0           ; the CANVAS first (SPEC.md 42.23): a one-bit
-    je .four                        ; canvas on a colour adapter is the small
-    push bx                         ; arm's ordinary case, and [pt_mono] is 0
-    mov bx, ax                      ; there
-    mov al, [pt_bw_pal+bx]
-    pop bx
-    ret
-.four:
-    cmp byte [pt_mono], 0
-    je .direct
-    push bx
+    cmp byte [pt_1bpp], 0           ; the CANVAS as well as the card (SPEC.md
+    jne .three                      ; 42.23.1): a one-bit canvas on a COLOUR
+    cmp byte [pt_mono], 0           ; adapter is the small arm's ordinary case,
+    je .direct                      ; and [pt_mono] is 0 there. The three are
+.three:                             ; the same three either way, so there is
+    push bx                         ; one table and not two
     mov bx, ax
     mov al, [pt_mono_pal+bx]
     pop bx
-    ret
 .direct:
     ret
 
@@ -9134,9 +9218,10 @@ pt_setpx:
     and cl, 7
     shr ah, cl                      ; AH = its bit, bit 7 leftmost
     mov al, [pt_setval]
-    call pt_lit                     ; AL = FF (white) or 00 (black), and it
-    mov bl, al                      ; leaves AH and BX alone, which is what
-    mov al, [es:di]                 ; lets the bit mask live across the call
+    call pt_pat                     ; AL = 00 / FF / AA / 55 for row DX, which
+    and al, ah                      ; is still y here - and MASKING it to this
+    mov bl, al                      ; pixel's bit is one rule for all three
+    mov al, [es:di]                 ; classes rather than a third arm
     or bl, bl
     jz .oclr
     or al, ah
@@ -13776,6 +13861,10 @@ pt_line_put:
     ; pixel is thirty cycles around fourteen of work.
 .one:
     cld
+    mov dx, ax                      ; AX IS STILL THE ROW - pt_rowset preserves
+    mov al, CLGRAY                  ; it - so the dither's phase is free here
+    call pt_pat                     ; (SPEC.md 42.23.1)
+    mov [pt_dpat], al               ; 0xAA on an even row, 0x55 on an odd one
     mov si, pt_line
     mov dx, [pt_cols]
     or dx, dx
@@ -13787,10 +13876,18 @@ pt_line_put:
     lodsb
     mov cl, al
     and cl, 15
-    mov ax, PT_LIT16
+    mov ax, PT_WHT16
     shr ax, cl
     test al, 1
+    jnz .oset                       ; solid white: always
+    mov ax, PT_DTH16
+    shr ax, cl
+    test al, 1
+    jz .o0                          ; solid black: never
+    mov al, [pt_dpat]               ; the DITHER, and whether it lights THIS
+    test al, bh                     ; pixel is the row pattern's own bit
     jz .o0
+.oset:
     or bl, bh
 .o0:
     shr bh, 1
@@ -14059,12 +14156,15 @@ pt_cvgrow:
 pt_mono2:
     push bx
     mov al, [pt_pmap]
-    call pt_lit
+    call pt_cls
     mov bl, al
     mov al, [pt_pmap+1]
-    call pt_lit
-    xor al, bl                      ; FF if they differ, 00 if they collapse
-    and al, 1
+    call pt_cls
+    cmp al, bl
+    mov al, 0
+    je .out                         ; the same class: the picture would come
+    inc al                          ; out one flat colour
+.out:
     pop bx
     ret
 
@@ -15754,12 +15854,10 @@ pt_bit8:     db 1, 2, 4, 8, 16, 32, 64, 128
 ; black, the 50% dither class, white
 pt_mono_pal: db CBLACK, CLGRAY, CWHITE
 
-; --- ...and the TWO a 1bpp CANVAS can store (SPEC.md 42.23) -----------------
-; The dither class is missing on purpose and is not an oversight: 39.4 reduces
-; it at DRAW time, so a screen can show it and a canvas of one bit cannot hold
-; it. Storing it as its own checkerboard is what would put it back, and that
-; is a look question nobody has looked at (docs/PAINT-1BPP-PLAN.md).
-pt_bw_pal:   db CBLACK, CWHITE
+; A ONE-BIT CANVAS OFFERS THESE THREE TOO (SPEC.md 42.23.1), which is why
+; there is no second table: it stores the dither class as the checkerboard
+; 39.4 reduces it to (pt_pat), so all three are things it can actually hold.
+; pt_cls answers 0/1/2 and those ARE the indices here.
 
 ; --- the standard EGA/VGA palette, R,G,B per entry --------------------------
 ; Written into every BMP we save, and the target of pt_map16 for every one we
@@ -16265,6 +16363,12 @@ pt_ic_text:
                                     ; the wording (SPEC.md 42.23.6)
     PTBYTE pt_dcvt                  ; pt_fmtpick's answer, ORed into pt_trunc
                                     ; by pt_tredo once pt_adopt has cleared it
+    PTBYTE pt_dpat                  ; SPEC.md 42.23.1: the 50% dither's byte
+                                    ; for the row pt_line_put is filling, 0xAA
+                                    ; or 0x55. In memory rather than a register
+                                    ; because that loop has none free, and one
+                                    ; read per DITHER-class pixel is a cost
+                                    ; only a colour picture pays
 %ifdef PTF_GIF
     PTWORD pt_gncol                 ; entries in the colour table in effect
 %endif

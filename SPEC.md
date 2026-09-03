@@ -52609,22 +52609,55 @@ routine answer both "what does this ink do here" and "what does this pixel of
 a colour picture become", so the two cannot disagree at the edges of the
 palette.
 
-**NEVER OFFER A COLOUR THAT CANNOT REACH THE PICTURE.** `[pt_ncol]` is the
-**minimum of what the canvas can hold and what the screen can show**, and
-`pt_ncolset` is the one place that decides it:
+**THE THREE INK CLASSES ARE THE KERNEL'S, AND THE CANVAS STORES ALL THREE.**
+`kernel/viddet.inc`'s `gfx_inktab` is the one place in the system that says
+what each of the sixteen looks like on a screen with two: solid black, the 50%
+dither, or solid white. Paint mirrors it as two bit-masks — `PT_WHT16` and
+`PT_DTH16` — because a package cannot read a kernel table at assembly time and
+reading it at run time would cost a far call per pixel.
+`tests/unit/t_inktab.py` re-derives them from that table and fails the build
+if they drift; `t_mirror` cannot, because `gfx_inktab` is a `db` and not an
+`equ`.
 
 | | colour card | 1bpp card |
 |---|---:|---:|
 | packed 4bpp / four planes | 16 | 3 |
-| one bit | **2** | **2** |
+| one bit | **3** | **3** |
 
-Sixteen on a colour card. Three on a 1bpp one, because §39.4 reduces the rest
-to one of those and a swatch the machine cannot distinguish is a colour the
-user cannot choose. And two on a one-bit canvas *whatever the card*, because
-the canvas cannot store §39.4's dither class at all — a palette that offers a
-colour the canvas will silently discard is worse than one that does not offer
-it. Storing the dither as its own checkerboard is what would put it back; that
-is a look question and nobody has looked.
+**THE FIRST BUILD OF THIS GOT BOTH HALVES WRONG, and they are worth stating
+because they are opposite mistakes.** `PT_LIT16` was a guess — colours 7..15
+white, on the reasoning that the bright half lights up — and `gfx_inktab` says
+six of them (light grey, dark grey, light blue, light green, light cyan, light
+magenta) are the DITHER class, only light red, yellow and white solid. So a
+one-bit canvas stored six colours as flat white that every 1bpp screen in the
+system draws as a checkerboard. And `[pt_ncol]` was **2**, on the reasoning
+that a canvas of one bit cannot hold a grey — which is true, and beside the
+point: it can hold the *checkerboard §39.4 was going to reduce that grey to
+anyway*.
+
+So the third swatch is a **PATTERN and not a colour**, and it is the one place
+a one-bit canvas is more truthful than a 4bpp one: a 4bpp canvas stores
+`CLGRAY` and the renderer dithers it on the way to the glass, so what is saved
+is not what was seen; a one-bit canvas stores what was seen.
+
+`pt_pat` is the whole of it — colour in, canvas byte out, `0x00` / `0xFF` /
+`0xAA` / `0x55` — and **the phase is `sw_pbit`'s and not a choice.** That
+routine answers `parity XOR 1` for the dither class, where parity is
+`(x+y) & 1`, so a pixel is white when `x+y` is **even**; bit 7 is the leftmost
+pixel and a byte column starts at an even x, so an even row is `1010_1010b` and
+an odd row its complement. Verified on the glass rather than by reading:
+drawn with the grey swatch and sampled against the strip's own grey swatch
+*in the same frame* — which the kernel drew — both read white-on-even 128/48
+and white-on-odd **0**. Getting it the other way up draws the right pattern in
+the wrong phase, which is invisible in a screenshot of one canvas and obvious
+the moment a dithered area meets a dithered window frame.
+
+**One thing behaves differently and is not a defect**: a flood fill inside a
+dithered area sees alternating pixels, because that is what is there, and
+fills the half that matches its seed. On a 4bpp canvas the same area is one
+flat `CLGRAY` and fills whole. That is the cost of storing the pattern rather
+than the colour, and it is the same trade §42.23 makes everywhere — the canvas
+is the picture, not a description of one.
 
 The rule is written once because the two facts arrive from different places at
 different times: the adapter's from `pt_screen`, which re-runs on every
@@ -52636,10 +52669,11 @@ load on a VGA has to come *down* to two.
 
 **It clamps `[pt_col]` too**, and for the same sentence one level in: a load
 can take the canvas to one bit under a strip that already has red selected, so
-the current-colour well would show a colour no swatch matches and the next
-stroke would come out as whatever `pt_lit` made of it. Reducing it in
-`pt_ncolset` means the strip, the well and the ink agree by construction
-rather than by three call sites remembering to.
+the current-colour well would show a colour no swatch matches. The clamp is a
+**lookup and not a comparison** — `pt_cls` answers 0/1/2 and `pt_mono_pal` is
+`db CBLACK, CLGRAY, CWHITE`, so the class *is* the index into exactly the
+table the strip is drawing from. That is also why there is no second palette
+for a one-bit canvas: the three it offers are the three a 1bpp card offers.
 
 **Adding colour back to a one-bit document is not possible**, and that is
 accepted rather than overlooked: a monochrome file opened on a VGA gives a
