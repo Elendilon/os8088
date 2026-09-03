@@ -6262,7 +6262,14 @@ fdlg_paint:           call COLD_SEG:fdf_fdlg_paint
 ; it is reached by nothing else, and a guard that only one caller enforces is
 ; a guard that the next caller forgets.
 fdlg_reap:
+%ifdef FDLG_MOD
+    cmp word [mod_r_fdlg], 0    ; SPEC.md 38.0.1 - the IMAGE, not the window.
+                                ; ui.inc's copy of this guard carries the
+                                ; reasoning; both have to move together, which
+                                ; is why they are spelled the same way
+%else
     cmp word [fdlg_win], 0
+%endif
     je .none
     call COLD_SEG:fdlg_reap_x
 .none:
@@ -7126,8 +7133,19 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ;    nmax*DSK_DE_STRIDE to be a multiple of 256, which constrains DSK_NENT
 ;    too - but DSK_ICO_SIZE has NOTHING, and halving it to 32 assembles this
 ;    whole kernel without a word from any guard in the tree.
+; ...and SPEC.md 25.8 gave it a fourth term on ONE arm: kern_small holds a
+; POOL of DSK_ICO_N bodies plus a one-byte index per entry, where kern_big
+; still holds one body per entry. Written per arm rather than in terms of
+; DSK_ICO_N alone, because the point of this guard is that both sides are
+; spelled out independently and have to agree.
+%ifdef KERN_SMALL
+%if SKB_DSK != DSK_NENT + DSK_NENT*DSK_DE_STRIDE + DSK_ICO_N*DSK_ICO_SIZE + 512
+%error "sys_kb: the Disk bufs row is no longer the mount-owned window (SPEC.md 2.1.2/25.8)"
+%endif
+%else
 %if SKB_DSK != DSK_NENT*DSK_DE_STRIDE + DSK_NENT*DSK_ICO_SIZE + 512
 %error "sys_kb: the Disk bufs row is no longer the mount-owned window (SPEC.md 2.1.2)"
+%endif
 %endif
 ;
 ; 6b. ...and so is every claim in it, which is what a package region rides

@@ -1640,6 +1640,26 @@ SOAK = [
         "the resident build. It builds its own image (`make small`) for "
         "smallboot's reason.",
         needs=("marty",), serial=True, builds=True),
+    Row("fdlgdrop", "soak", py("tests/fdlgdrop.py"), 300.0,
+        "...and the module comes BACK on every route a dialog ends by "
+        "(SPEC.md 38.0.1). The row above drives the dialog and never asks "
+        "what happened to its image; three of the four dismissals - Open, "
+        "Cancel, Escape - clear [fdlg_win] from inside the image's own "
+        "W_ONCLICK, and mod_drop sat behind three separate compares of that "
+        "same word, so the pass that should have collected the claim was "
+        "turned away by the very store it was meant to notice. A 16KB claim "
+        "held for the rest of the session on the machine with 128KB in it, "
+        "and the CLOSE BOX - the one route nobody uses - is the one that "
+        "worked, which is how it survived the module split's own testing. "
+        "The assertion is mod_tab[MOD_FDLG].seg and not a picture, because "
+        "the leak is invisible: the dialog really is gone and the next one "
+        "reuses the image it never gave back. Each route is a TRANSITION - "
+        "held while the dialog is up, zero after - so a build that stopped "
+        "LOADING the module fails the first half rather than passing the "
+        "second. Against the kernel before it: three fail, the close box "
+        "passes. It builds its own image (`make small`) for smallboot's "
+        "reason.",
+        needs=("marty",), serial=True, builds=True),
     Row("fdlgup", "soak", py("tests/fdlgup.py"), 60.0,
         "SPEC.md 13.8.3: the Standard File dialog's buttons fire on the"
         "RELEASE.",

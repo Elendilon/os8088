@@ -54,6 +54,37 @@ DSK_DE_STRIDE equ 24             ; ...and the STAGED LISTING's, which is a
                                  ; both copied into it whole
 DSK_ICO_SIZE equ 64              ; harvested icon slot stride (SPEC.md 19)
 
+; ...and HOW MANY BODIES THE FLOPPY ARRAYS HOLD (SPEC.md 25.8).
+;
+; It was one body per entry, `DSK_NENT * DSK_ICO_SIZE` = 2,048 bytes of the
+; tightest rung in the kernel, and most of them were provably identical or
+; provably blank: every FOLDER got a byte-for-byte copy of the same built-in
+; body, and every document got a blank one. So `kern_small` holds a POOL of
+; bodies and a one-byte index per entry - 16*64 + 32 = 1,056 against 2,048,
+; and 0xFF in the index is the "no icon" the generic-icon sentinel already
+; meant.
+;
+; `kern_big` KEEPS ONE BODY PER ENTRY and is byte-identical. That is not
+; timidity: a `DVK_DRV` volume gets DSK_VENT = 64 entries out of a claim its
+; driver funds, and a pool sized for a floppy would degrade the 17th icon on a
+; hard disk. `kern_small` can have no such volume at all - SPEC.md 51.0 took
+; the driver mechanism out - so there the pool only ever serves these arrays,
+; which is what makes the simpler code correct rather than merely smaller.
+%ifdef KERN_SMALL
+DSK_ICO_N    equ 16              ; bodies in the pool. SIXTEEN is the product
+                                 ; judgement: the small system disk's APPS
+                                 ; folder holds three icon-bearing packages
+                                 ; and GAMES one, the small apps disk's root
+                                 ; holds twenty-one, and the seventeenth of
+                                 ; those falls back to the generic icon -
+                                 ; which is an outcome SPEC.md 25 already has
+                                 ; a picture for. Raising it costs 64 bytes a
+                                 ; body and SPEC.md 51.0.0's region has 288
+                                 ; spare, so 20 is available and 24 is not
+%else
+DSK_ICO_N    equ DSK_NENT        ; one body per entry, as it always was
+%endif
+
 ; How many entries a listing holds. DSK_NENT is the FLOOR - the .lowbss pair
 ; every floppy uses, and the fallback for a driver-backed volume whose driver
 ; could not fund a bigger one. DSK_VENT is what a hard disk gets: 96 bytes an
@@ -93,9 +124,17 @@ disk_dir:   resb DSK_NENT*DSK_DE_STRIDE    ; DSK_NENT SYNTHESIZED entries,
                                 ; The FLOOR listing: a driver-backed volume
                                 ; lists into its driver's claim instead, and
                                 ; [dsk_dseg]/[dsk_doff] say which is in use
-disk_icons: resb DSK_NENT*DSK_ICO_SIZE     ; harvested icon slots; slot i
-                                ; belongs to directory entry i, all-zero =
-                                ; no icon; fully rewritten every mount
+%ifdef KERN_SMALL
+dsk_icoix:  resb DSK_NENT       ; entry i's POOL SLOT, or 0xFF for no icon
+                                ; (SPEC.md 25.8). Blanked every mount, which
+                                ; is 32 bytes of `rep stosb` where the array
+                                ; below took 2,048 of `rep stosw`
+%endif
+disk_icons: resb DSK_ICO_N*DSK_ICO_SIZE    ; harvested icon bodies. On
+                                ; kern_big slot i belongs to directory entry
+                                ; i and all-zero means no icon; on kern_small
+                                ; it is a POOL and dsk_icoix says which body
+                                ; an entry uses. Fully rewritten every mount
 dsk_secbuf: resb 512            ; sector scratch: BPB read, root-dir scan,
                                 ; icon harvest, and the loader's header peek
 dsk_win_end:

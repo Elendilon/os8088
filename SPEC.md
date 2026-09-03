@@ -34566,6 +34566,112 @@ claim "I write my own buffer and nothing else" measured. The assembler holds
 the other end: every indexed record's height is checked against the buffer's
 at assembly time, and its two halves are counted.
 
+### 25.8 `kern_small`'s harvested icons are a POOL, because a listing repeats itself
+
+`disk_icons` is `DSK_NENT` × `DSK_ICO_SIZE` — **2,048 bytes of `.lowbss`**, one
+64-byte body per directory entry, all-zero meaning "no icon". It is the largest
+single array in the `.lowbss` disk window and on a 128KB machine that is a rung
+and a half of every boot.
+
+**A listing does not hold 32 distinct icons.** Two facts do the work:
+
+- **Every folder is the same picture.** `dsk_put_icon_k` copied a byte-for-byte
+  duplicate of one built-in body per folder, so a listing of twelve folders
+  spent 768 bytes saying one thing.
+- **Most entries have no icon at all.** A `.TXT`, a `.MOD`, a `README` — the
+  harvest never runs for them and the slot stays 64 zero bytes.
+
+So on `kern_small` the array becomes a **pool of `DSK_ICO_N` = 16 bodies** with
+a `DSK_NENT`-byte index beside it:
+
+```
+dsk_icoix   resb DSK_NENT       ; entry i's pool body, or 0xFF = no icon
+disk_icons  resb DSK_ICO_N * DSK_ICO_SIZE
+```
+
+**1,056 bytes against 2,048**, and the mount's blanking pass falls from 2,048
+bytes of `rep stosw` to 32 of `rep stosb`. `kern_big` sets `DSK_ICO_N` to
+`DSK_NENT` and keeps the identity mapping it always had, so nothing above
+changes there — every routine below is inside `%ifdef KERN_SMALL` and the
+kernel measures **+0 on every section**.
+
+Sixteen is a product judgement, not an architectural bound: the small system
+disk's `APPS` folder holds three icon-bearing packages and `GAMES` one, and the
+small apps disk's root holds twenty-one — so the seventeenth of those falls back
+to the generic icon, which is a picture §25 already draws. Raising it costs 64
+bytes a body against §51.0.0's spare.
+
+#### 25.8.1 Two allocators, a bump pointer, and no free list
+
+```
+dsk_ico_want   in AX = entry index. Reserves the next pool body and writes
+               its number into dsk_icoix[AX]. CF = 1 = pool full, and the
+               entry keeps the 0xFF that means "the generic icon".
+dsk_ico_fld    in AX = entry index. Points the entry at the ONE body every
+               folder in this listing shares, reserving it on the first
+               folder. CF = 1 = nothing to copy (already filled, or full).
+dsk_ico_ofs    in AX = entry index, out SI = the body's offset, CF = 1 = the
+               entry has none.
+```
+
+There is **no free list and nothing frees a body**, because `[dsk_iconext]` and
+`[dsk_icofld]` are both reset at every mount: this is a listing, not a heap. A
+full pool is a **refusal that already has a picture** — the entry keeps 0xFF,
+`dsk_ico_ofs` says so, and the file manager draws the generic icon it draws for
+every entry that never had one.
+
+`dsk_icoix` is read through **SS and not DS** (`mov al, [ss:si+dsk_icoix]`): it
+is `.lowbss`, so it lives in `LOW_SEG` and not the kernel segment (§2.1), and
+`tools/os88ovlchk.py` checks that.
+
+`dsk_get_icon_x` is the one reader, and it absorbs the refusal: no body means it
+zero-fills `dsk_ico` and hands back the **all-zero every caller already reads as
+"no icon"**, so no consumer of a staged icon gains a case.
+
+#### 25.8.2 The second reader is `files.inc`, and the pool stops at its door
+
+A window's per-window view cache (§22.6.1) holds a byte-for-byte image of
+`disk_dir` at slot offset 0 and of `disk_icons` at `FV_ICONS` — **slot per
+entry**, which is exactly the mapping the pool replaces. Copying the pool into
+it verbatim put every body at the wrong entry and left the tail blank; the field
+symptom is a folder window whose icon column is right for the first few rows and
+wrong below, and it measured **301 differing pixels** of a 2,740-pixel icon
+column on the system disk's root while the `APPS` folder — whose icons happen to
+harvest in entry order — was pixel-identical.
+
+**The cache is not taught about the pool. `fmv_store` EXPANDS into it**: one
+`dsk_get_icon_x` per entry, written at `FV_ICONS + i*DSK_ICO_SIZE`. `FV_ICONS`,
+`fmv_iofs`, `fmv_viofs`, `FS_IOFH` and `fmv_get_icon`'s contract are all
+untouched, so the painters, the raise cache and the shape byte keep the
+arithmetic they had. The one other route to a body — a window with **no** cache,
+which reads the global snapshot through `fmv_copy_in`'s `[dsk_ioff] + i*64`
+fallback — is taken ahead of that fallback and sent to `dsk_get_icon_x` instead,
+because that arithmetic is precisely what the pool invalidates.
+
+That is the whole seam. **The A/B is the gate**: both windows captured against
+the kernel before the change, and both come back **0 differing of 2,740**.
+
+#### 25.8.3 What it cost
+
+Measured tree-to-tree on `kern_small`, CGA:
+
+| section | delta |
+|---|---|
+| `.text` | **+2** |
+| `.cold` | **+148** |
+| `.lowbss` | **−992** |
+| sum | **−842** |
+
+The low rung **uncrossed** — 15 → 13 steps of 512 — so `KERN_SIZE` is
+**78,848 → 77,824** and the heap floor 78.5 → 77.5 KB. `kern_big` is byte-for-byte
+the kernel before it.
+
+The trade is the shape §25.7 already took one section up: **`.cold` bytes buying
+`.lowbss` bytes**, and it is worth taking twice because they are not the same
+money — `.cold` is resident code in a rung with 293 bytes of slack, `.lowbss`
+sits below the heap and every byte of it is a byte the 128KB machine cannot
+allocate.
+
 ### 26.1 The zone list IS the volume table, and it wraps into a new column
 
 `desk_ndrives` is gone. A desktop zone is a row of `dsk_vtab` (§18.7) whose
@@ -64000,8 +64106,8 @@ answer its body's own `.none` path would have given. That matters for cost
 rather than for correctness: `fdlg_reap` runs once per UI pass and
 `fdlg_grab` on every mouse press, and a `mod_need` on either would put a
 table walk on the machine's hottest loop. **The drop is `fdlg_reap`**, at the
-moment `[fdlg_win]` was set on the way in and is not on the way out — which
-is exactly "the dialog has closed or committed".
+moment the dialog stops existing — but the GUARD in front of it may not be
+`[fdlg_win]`, and §38.0.1 is why.
 
 **Thirteen of `kern_big`'s seventeen `.cold` bytes are the shared register
 epilogues, and they are a copy rather than an alias on the gates' account.**
@@ -64048,6 +64154,58 @@ always opens one. That is a real behaviour difference and it is stated here
 rather than left to be discovered: it is the same trade §22.3.0 took for
 Paste, and the same one `mod_need` imposes on every feature that becomes a
 module.
+
+#### 38.0.1 The drop is guarded on the IMAGE, not on the window
+
+`[fdlg_win]` answers "is a dialog up". The question `fdlg_reap` has to ask is
+**"is the image held"**, and for one pass in the life of every dialog those
+two differ — the pass on which it closed. Guarding the drop on the first
+question shuts the door on it.
+
+Four routes end a dialog, and only one of them was ever collected:
+
+| route | clears `[fdlg_win]` in | reached the drop |
+|---|---|---|
+| close / minimize box | `fdlg_reap_x` → `fdlg_gate` | **yes** |
+| Open / Save button | `fdlg_commit` → `fdlg_close` | no |
+| Cancel button | `.b_cancel` → `fdlg_close` | no |
+| Escape | `.close` → `fdlg_close` | no |
+
+The three that failed all clear `[fdlg_win]` from **inside the image's own
+`W_ONCLICK`**, so by the next UI pass the word is already 0 — and `mod_drop`
+sat behind three separate compares of it: `ui.inc`'s ladder, `fdlg_reap`'s
+resident thunk, and once more at the top of `fdlg_reap_x`. Each turned the
+pass away, and `mod_tab[MOD_FDLG].seg` stayed non-zero for the rest of the
+session. **A 16KB claim, held for a dialog nobody could see, on the machine
+with 128KB in it** — and the close box, the least-used route of the four, is
+the one that worked, which is why it survived the module split's own
+testing.
+
+**The fix is the guard, not the drop.** `mod_r_fdlg` names the `mod_tab` row
+so the resident side can ask the right question, `ui.inc` and `fdlg_reap`
+both compare that word instead, and `fdlg_reap_x`'s opening `je .no` becomes
+`je .drop`: a dialog that is already gone falls straight to the collection
+with no far call into the image at all. **It costs +0 bytes on both arms** —
+the same instruction against a different word, and the same `je` encoding —
+and `kern_big` is byte-identical, having no module to give back.
+
+**A label rather than `mod_tab + MOD_FDLG*MODR_SIZE`.** `ui.inc` is
+`%include`d above `mod.inc`, so neither `equ` exists at that call site; a
+forward-referenced *label* is the one spelling that assembles in both places.
+
+**Why the invariant is safe.** The drop now runs on a pass where
+`[fdlg_win]` is 0 and the image is held, and the only other moment those two
+things are both true is inside `fdlg_open` — between `mod_need` succeeding
+and `mov [fdlg_win], bx`. Nothing can observe it: `fdlg_reap` runs only from
+`ui_task`'s ladder, every route into `fdlg_open` is a dispatch on that same
+task, and a task cannot pre-empt itself. `mod_need`'s disk read takes
+`[sch_lock]` and does not yield.
+
+`tests/fdlgdrop.py` is the gate and it drives all four routes, asserting the
+**transition** — held while the dialog is up, zero after — so a build that
+had stopped loading the module fails the first half rather than passing the
+second. Against the kernel before this it reads three failures and one pass,
+which is the table above.
 
 ## 54. assoc.inc — file type associations
 
