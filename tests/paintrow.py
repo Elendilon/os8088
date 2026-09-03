@@ -57,11 +57,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
 import os88marty, os88mouse, os88sym, dispcp                 # noqa: E402
+import dispapps                                              # noqa: E402
 from blitpair import gif_pixels                              # noqa: E402
 from paintmove import pkg_syms                               # noqa: E402
 
 S = os88sym.linear
 ROWS = (0, 1, 54, 55, 108, 109)     # top, middle and bottom of the picture
+
+
+def _diskname(path):
+    """What os88disk called it: colour_gif already answers in 8.3 upper case."""
+    return os.path.basename(path)
 
 
 def patch_caller(m, base, sym):
@@ -149,8 +155,20 @@ def main():
     ap.add_argument("--image", default="build/os8088-360.img")
     ap.add_argument("--apps", default="/tmp/paintrow.img")
     ap.add_argument("--machine", default="os8088_xt_vga")
-    ap.add_argument("--gif", default="build/OS8088.GIF")
+    ap.add_argument("--gif", default=None,
+                    help="the picture to open (default: a COLOUR derivation "
+                         "of build/OS8088.GIF - see below)")
     a = ap.parse_args()
+
+    # A COLOUR PICTURE, and it has to be said now. SPEC.md 42.23.6 opens a GIF
+    # whose colour table has two entries ONE BIT DEEP on any adapter, and
+    # build/OS8088.GIF has exactly two - so the fixture every other paint row
+    # uses stopped being able to give THIS one a four-plane canvas at all, and
+    # the row failed saying "no gfx_blitp", which is true and points at the
+    # wrong thing. dispapps.colour_gif appends two unused entries and changes
+    # not one pixel, so `gif_pixels` below is the oracle it always was.
+    if a.gif is None:
+        a.gif = dispapps.colour_gif()
 
     if a.apps == "/tmp/paintrow.img":
         os88marty.scratch_disk(a.apps, "APPS:build/paint.o88",
@@ -173,7 +191,7 @@ def main():
         rx, ry = dispcp.row_xy(bx, by,
                                dispcp.scroll_to(m, mo, S, settle, bx, by,
                                                 dispcp.row_of(m, S,
-                                                              "OS8088.GIF")))
+                                                              _diskname(a.gif))))
         mo.to(rx, ry)
         settle(m)
         # the FIRST canvas blit is what tells us where the package landed, and

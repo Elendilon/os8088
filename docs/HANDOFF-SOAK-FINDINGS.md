@@ -244,6 +244,45 @@ These are the expensive ones. A row that fails because the box has no compiler,
 or because another row has not run yet, is noise that buries the failures that
 mean something — which is exactly what the owner asked to have watched.
 
+## A6. `paintrow` cannot provoke a repaint — PRE-EXISTING, A/B'd
+
+**`paintrow` fails, and it failed the same way before SPEC.md 42.23 existed.**
+The A/B is a worktree at `1a415e9` — the commit immediately before the 1bpp
+canvas — built and run: identical message, `paintrow: Paint never repainted
+its canvas, so there is nowhere to call the routine from`. So the row is
+already broken and the 1bpp work only moved the *stage* it breaks at.
+
+Worth writing down because the failure mode changed twice on the way and each
+disguise pointed somewhere else:
+
+| tree | message | what it really was |
+|---|---|---|
+| `1a415e9` (before) | never repainted | **this finding** |
+| `c207fef` (1bpp, old fixture) | no `gfx_blitp` | `build/OS8088.GIF` has a TWO-entry colour table, so §42.23.6 opened it one bit deep and there was no planar canvas at all |
+| `ef3e555` (colour fixture) | never repainted | **this finding again** |
+
+The middle row was real and is fixed — `dispapps.colour_gif` derives a colour
+picture that changes not one pixel — and fixing it is what let the row reach
+its *original* defect again.
+
+**Where it is.** The row needs any entry to `pt_blit` with CS/DS the
+package's, so it can write `patch_caller`'s eight-byte loop over the entry.
+It provokes one with `mo.to(rx + 3, ry + 3)` — *"anything that repaints it"* —
+and a pointer crossing does not repaint a window's content any more:
+SPEC.md §11.96.11's raise cache serves it, which is the whole point of the
+cache. `tests/paintundo.py`'s own docstring already says the neighbouring
+thing — *"dragging the window to force a repaint is NOT reliable here"* — so
+this is the same rot one row along, and it is rot rather than a regression:
+nothing changed in `paintrow`, the kernel grew a cache underneath it.
+
+**What would fix it, unverified.** `pt_blit`'s callers are W_PAINT, undo,
+paste, a file load and erasing the text caret (§42). A stroke followed by
+Ctrl+Z is the one `paintundo` has already proved reachable — `pt_undo_swap`
+repaints the touched rows *out of the canvas* — and it leaves the canvas
+holding the file's picture again, which is what this row's oracle needs. That
+is a guess about the ordering and has not been run; do not bank it without
+measuring, and read §42.8.6 first.
+
 ## B1. Install-then-boot is broken by per-instance disk isolation
 
 **FIXED.** `os88marty.stage_run_dir()` is a run tree the CALLER owns —

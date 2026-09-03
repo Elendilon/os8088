@@ -248,8 +248,23 @@ PT_STAGE_MAX equ 192            ; the load's transient staging claim, KB. A
                                 ; canvas is 154KB with its header - and the
                                 ; cap keeps one Open from taking the whole
                                 ; heap on a big machine (SPEC.md 42.6)
-PT_SC_KB    equ 12                  ; scratch (the flood-fill stack), taken off
+; --- the flood-fill span stack, and the THREE sizes it comes in (SPEC 42.6.2)
+; PT_SC_KB is what a FULL stack needs and nothing more: PT_FSTK_MAX entries of
+; eight bytes plus PT_SC_STACK's header is 8,208, and this was 12KB - 46% slack
+; nobody was using. The assert below is what keeps the two in step.
+;
+; The smaller two are what a machine that cannot fund the full one gets, and
+; the degradation is GRACEFUL by construction: pt_fpush answers an overflow by
+; setting [pt_fovf] and stopping, so a short stack fills a complex region
+; PARTIALLY rather than scribbling past itself. What it costs is the fill's
+; REACH, not its correctness - and not its speed, which is the same per span.
+PT_SC_KB    equ 9                   ; scratch (the flood-fill stack), taken off
                                     ; the TOP of the block
+PT_SC_MID   equ 4                   ; ...and the two it degrades to
+PT_SC_MIN   equ 2
+; ...and what the SMALLEST canvas costs, in KB, which is what pt_growmax
+; refuses to hold the stack back out of: PT_CW_MIN x PT_CH_MIN at 4bpp.
+PT_MIN_KB   equ 1
 PT_CLIPMINP equ 256                 ; the clipboard's floor, in paragraphs. It
                                     ; was 1024 - 16KB - and that was the GIF
                                     ; codec's requirement, not the
@@ -267,6 +282,9 @@ PT_WANT_KB  equ 318                 ; the hard ceiling: two canvases at the
                                     ; arithmetic there running away
 PT_SC_STACK equ 16                  ; flood-fill span stack starts here
 PT_FSTK_MAX equ 1024                ; entries of 8 bytes (y, x1, x2, dy)
+%if PT_SC_KB * 1024 < PT_FSTK_MAX * 8 + PT_SC_STACK
+  %error "PT_SC_KB no longer holds PT_FSTK_MAX spans - one of the two moved"
+%endif
 
 ; --- the GIF codec's work areas (SPEC.md 42) ---------------------------------
 ; The LZW tables have their own claim, taken for the length of one GIF and
@@ -343,6 +361,20 @@ PT_IDLESPIN equ 32                  ; SPEC.md 42.8.1: consecutive no-movement
                                     ; and a hand that has really stopped is
                                     ; back on the tick inside 25 ms.
 PT_BMPHDR   equ 118                 ; 14 + 40 + 16*4: the DIB in front of row 0
+PT_BMPHDR1  equ 62                  ; ...and 14 + 40 + 2*4 when the canvas is
+                                    ; ONE BIT a pixel (SPEC.md 42.23). Neither
+                                    ; is a constant to the code any more - the
+                                    ; live figure is [pt_hdrsz] - but both are
+                                    ; multiples of 2 and PT_BMPHDR1 is the one
+                                    ; that must stay so, because pt_bmp_hdr
+                                    ; copies its template with `rep movsw`
+PT_LIT16    equ 1111111110000000b   ; SPEC.md 42.23.1: which of the sixteen
+                                    ; light a pixel when the canvas holds one
+                                    ; bit. Colours 7..15 - light grey and every
+                                    ; bright one - are white, 0..6 black. It is
+                                    ; a reduction and not a palette lookup, so
+                                    ; it is also the rule a colour picture is
+                                    ; down-converted by (SPEC.md 42.23.3)
 
 ; --- content layout (all content-relative; SPEC.md 11's content rect) ----------
 PT_BW       equ 20                  ; tool / swatch button side, pixels
@@ -622,6 +654,15 @@ pt_entry:
     mov si, pt_menus                ; BX is still the window (SPEC.md 20.3:
     call OSAPI_MENU_SET             ; menu_win_set preserves flags too)
     pop si
+    clc                             ; ...WHICH IS WHY THIS IS HERE (SPEC.md
+                                    ; 42.6.4). Every path from wm_create's
+                                    ; `jc .out` down is a SUCCESS, and the only
+                                    ; CF the loader may see is that one - but
+                                    ; menu_set preserving flags means whatever
+                                    ; pt_menufix left rides out of this proc,
+                                    ; and pt_menufix ends on a `cmp` against
+                                    ; PT_LZW_KB. Say the answer instead of
+                                    ; inheriting it
 .out:
     ret
 
@@ -672,6 +713,52 @@ pt_entry:
 ; otherwise, which handed the kernel 480 as a window record - SPEC.md
 ; 11.96.11.4 is what came of it. Anything wanting the window after this reads
 ; [pt_win].
+; -----------------------------------------------------------------------------
+; pt_ncolset - how many swatches the strip may offer
+; in:  [pt_mono], [pt_1bpp]; out: [pt_ncol]; preserves all registers
+;
+; SPEC.md 42.23.1. **THE MINIMUM OF WHAT THE CANVAS CAN HOLD AND WHAT THE
+; SCREEN CAN SHOW**, and the rule is written once here because the two facts
+; arrive from different places at different times - the adapter's from
+; pt_screen, which re-runs on every display change, and the canvas's from
+; pt_geom or from a LOAD, which can change the depth under a strip that is
+; already drawn.
+;
+; Sixteen on a colour card; THREE on a 1bpp one, because 39.4 reduces the rest
+; to one of those and a swatch the machine cannot distinguish is a colour the
+; user cannot choose; and TWO on a one-bit canvas whatever the card, because
+; the canvas cannot store 39.4's dither class at all. **Never offer a colour
+; that cannot reach the picture** - that is the whole of it, and it is why the
+; count is not simply the adapter's any more.
+;
+; IT CLAMPS THE CURRENT COLOUR TOO, and for the same sentence: a load can take
+; the canvas down to one bit under a strip that already has red selected
+; (SPEC.md 42.23.6), and offering two swatches while [pt_col] is a third is
+; the same defect one level in - the well would show a colour no swatch
+; matches and the next stroke would come out as whatever pt_lit made of it.
+; Reducing it HERE means the strip, the well and the ink agree by
+; construction rather than by three call sites remembering to.
+; -----------------------------------------------------------------------------
+pt_ncolset:
+    push ax
+    mov al, 16
+    cmp byte [pt_mono], 0
+    je .canvas
+    mov al, 3
+.canvas:
+    cmp byte [pt_1bpp], 0
+    je .set
+    mov al, [pt_col]                ; ...and the colour in hand comes with it
+    call pt_lit                     ; (FF or 00)
+    and al, CWHITE                  ; -> CWHITE (15) or CBLACK (0)
+    mov [pt_col], al
+    mov al, 2
+.set:
+    mov [pt_ncol], al
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 pt_screen:
     or bx, bx
     jz .prim                        ; no window yet (pt_geom, at launch): the
@@ -687,13 +774,15 @@ pt_screen:
     mov [pt_scrw], ax
     mov [pt_scrh], bx               ; the whole screen, for the SPEC.md 53
     mov [pt_dockr], cx              ; bracket's own pointer (pt_ptr_xor)
-    mov byte [pt_ncol], 16
     mov byte [pt_mono], 0
     cmp dh, 1
     jne .colour
     mov byte [pt_mono], 1
-    mov byte [pt_ncol], 3
 .colour:
+    call pt_ncolset                 ; ...and the swatch count from both facts,
+                                    ; because this runs again on every adapter
+                                    ; change and the DOCUMENT's depth did not
+                                    ; change with it (SPEC.md 42.23.1)
     ; --- what the screen allows ---------------------------------------------
     sub cx, si                      ; the DESKTOP BAND, which is not CX - MBAR_H
                                     ; on a secondary: that card has no menu bar
@@ -769,8 +858,11 @@ pt_onresize:
 
 ; -----------------------------------------------------------------------------
 pt_geom:
-    xor bx, bx                      ; no window yet: the primary, where one is
-    call pt_screen                  ; about to be born
+    mov byte [pt_fitsq], 1          ; THIS canvas is being born, so a cut that
+                                    ; memory forces goes to the longer axis
+    xor bx, bx                      ; (SPEC.md 42.6.5). Cleared at the exit,
+    call pt_screen                  ; because every other pt_fit caller is a
+                                    ; load or a resize
                                     ; ...which is the half that can be re-run
 
     ; --- HOW THE CANVAS IS STORED, decided here (SPEC.md 42.13)
@@ -782,11 +874,26 @@ pt_geom:
     ; and a HERCULES PRIMARY with a VGA beside it is what made that
     ; untenable: every Paint on such a machine opens packed, so the colour
     ; adapter was the one that ran slowly and nothing could ever fix it.
+    ; ...and SPEC.md 42.23 puts a THIRD format under that sentence. The rule
+    ; is not the planar one with an extra arm: [pt_planar] follows the ADAPTER
+    ; and moves both ways under a drag, and [pt_1bpp] is a fact about the
+    ; DOCUMENT - a canvas born on a 1bpp screen stays one bit when the window
+    ; is dragged onto the VGA beside it, because the picture has not changed
+    ; and a promotion would quadruple a claim nobody asked to spend.
     mov byte [pt_planar], 0
+    mov byte [pt_1bpp], 0
     cmp byte [pt_mono], 0
-    jne .fmt
-    mov byte [pt_planar], 1
+    jne .one
+%ifndef APP_SMALL                   ; SPEC.md 42.22: the small arm is ALWAYS one
+    mov byte [pt_planar], 1         ; bit, on any adapter - so on that build
+    jmp short .fmt                  ; there is no colour arm at all rather than
+%endif                              ; an unreachable one
+.one:
+    mov byte [pt_1bpp], 1
 .fmt:
+    call pt_ncolset                 ; black and white, and not SPEC.md 39.4's
+                                    ; dither class between them: a canvas that
+                                    ; cannot store a colour must not offer it
     mov ax, [pt_cwmax]              ; (SPEC.md 11.98, pt_onresize below)
     mov cx, [pt_chmax]
     cmp cx, PT_CH_MIN
@@ -833,6 +940,7 @@ pt_geom:
     mov dx, [pt_chmax]
 .ch_ok:
     call pt_fit                     ; shrink it until memory can hold it
+    mov byte [pt_fitsq], 0
     call pt_layout                  ; stride, row tables, buffer offsets
     call pt_wsize                   ; ...and the window that shows it
     ret
@@ -888,6 +996,16 @@ pt_fit:
     cmp cx, [pt_growp]
     jbe .out                        ; ...or a bigger one we could claim does
     mov byte [pt_fitcut], 1
+    cmp byte [pt_fitsq], 0          ; --- A CANVAS BEING BORN CUTS THE LONGER
+    je .tall                        ; AXIS (SPEC.md 42.6.5), so what memory
+    cmp ax, dx                      ; leaves is a shape somebody can draw in
+    jbe .tall                       ; rather than a full-width letterbox.
+    cmp byte [pt_pinw], 0           ; Height-first is still the ladder for a
+    jne .tall                       ; LOAD, where losing rows off the bottom
+    cmp ax, PT_CW_MIN               ; beats losing rows AND columns - and it
+    ja .narrow                      ; is what .tall below does either way when
+                                    ; the wider axis cannot give
+.tall:
     cmp byte [pt_pinh], 0
     jne .narrow                     ; an axis the ink guard put back is not
     cmp dx, PT_CH_MIN               ; this routine's to cut (pt_sizeask)
@@ -970,6 +1088,60 @@ pt_kb_of:
 ; arithmetic. The scratch is a fixed 12KB and comes first, because the flood
 ; fill and the file readers borrow it and neither can be given up.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; pt_alloc_scratch - the flood-fill span stack, at whatever size the heap has
+; out: [pt_scseg]/[pt_fstkmax]/[pt_havefill]; CF is NOT an error - a machine
+;      with no room for one still runs Paint (SPEC.md 42.6.2)
+; clobbers: nothing
+;
+; **THE CANVAS IS ALREADY CLAIMED WHEN THIS RUNS** (SPEC.md 42.6.1), so
+; OSAPI_MEM_AVAIL below describes the heap that is really there rather than
+; one this routine is about to change. Three sizes, largest first; the tool
+; greys out if none of them fits.
+;
+; It is exactly the shape SPEC.md 50.2 warns about - a long-lived data claim
+; sitting mid-arena and splitting it in two - so it is declared movable.
+; Pinned, it would be a BARRIER (SPEC.md 66.4) sitting under the canvas, and
+; measured, that alone held a 25KB canvas exactly where it was across a
+; compaction with 137KB free underneath it.
+; -----------------------------------------------------------------------------
+pt_alloc_scratch:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp word [pt_scseg], 0          ; claimed once and never freed
+    jne .out
+    mov ax, PT_SC_KB                ; THREE ASKS WRITTEN OUT, and no loop
+    call OSAPI_MEM_CLAIM            ; counter across the call: SPEC.md 50.3
+    jnc .got                        ; documents AX in and CF/DX out, and says
+    mov ax, PT_SC_MID               ; NOTHING about BX. Holding the tier there
+    call OSAPI_MEM_CLAIM            ; is a register this routine does not own,
+    jnc .got                        ; and it cost a session: the loop
+    mov ax, PT_SC_MIN               ; mis-branched, claimed until mem_tab was
+    call OSAPI_MEM_CLAIM            ; full, and pt_entry answered CF=1 - which
+    jc .out                         ; the loader reports as LD_EABORT and the
+                                    ; user sees as an app that will not open
+.got:
+    mov [pt_scseg], dx              ; AX = the KB actually granted, which is
+    mov cl, 7                       ; the only place the tier is now read from
+    shl ax, cl                      ; KB -> spans: KB * 1024 / 8 is KB << 7
+    sub ax, PT_SC_STACK / 8         ; ...less the header's own two
+    cmp ax, PT_FSTK_MAX
+    jbe .cap
+    mov ax, PT_FSTK_MAX             ; the full stack is the ceiling either way
+.cap:
+    mov [pt_fstkmax], ax
+    mov byte [pt_havefill], 1
+    call pt_movable                 ; DX is still the claim's segment
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 pt_alloc:
     push bx
     push cx
@@ -978,23 +1150,12 @@ pt_alloc:
     call pt_paras                   ; CX = paragraphs one canvas needs
     mov [pt_needp], cx
 
-    cmp word [pt_scseg], 0          ; scratch is claimed once and never freed
-    jne .canvas                     ; - which is exactly the shape SPEC.md
-    mov ax, PT_SC_KB                ; 50.2 warns about, a long-lived data claim
-    call OSAPI_MEM_CLAIM            ; sitting mid-arena and splitting it in two
-    jc .fail
-    mov [pt_scseg], dx
-    call pt_movable                 ; ...so it is declared too. It is the
-                                    ; SMALLEST of the four and the one whose
-                                    ; declaration matters most: pinned, it is
-                                    ; a BARRIER (SPEC.md 66.4) sitting under
-                                    ; the canvas, so nothing above it could
-                                    ; ever pack down past it - measured, that
-                                    ; alone held a 25KB canvas exactly where it
-                                    ; was across a compaction with 137KB free
-                                    ; underneath it
-
-.canvas:
+    ; --- THE CANVAS FIRST, and that ORDER IS THE POINT (SPEC.md 42.6.1) -----
+    ; It used to be the scratch, out of the same run pt_fit had just sized the
+    ; canvas against - so the canvas was sized against a run 12KB larger than
+    ; the one it would be asked for from, and one refusal was the end of it.
+    ; The canvas is the claim Paint cannot run without; it goes first, and
+    ; everything else takes what is left.
     mov cx, [pt_needp]
     call pt_kb_of
     call OSAPI_MEM_CLAIM
@@ -1006,6 +1167,8 @@ pt_alloc:
     shl ax, cl                      ; what the claim actually holds...
     mov [pt_smaxp], ax              ; ...which is >= [pt_needp]
 
+    call pt_alloc_scratch           ; ...and the rest take what is left, none
+                                    ; of them able to refuse Paint itself
     call pt_alloc_undo
     call pt_alloc_clip
     pop ax
@@ -1413,10 +1576,26 @@ pt_growmax:
     push ax
     push cx
     call OSAPI_MEM_AVAIL            ; AX = largest free run, KB
-    cmp ax, PT_WANT_KB
-    jbe .capped
-    mov ax, PT_WANT_KB
+    cmp word [pt_scseg], 0          ; --- HOLD BACK A FLOOR'S WORTH OF SPAN
+    jne .capped                     ; STACK (SPEC.md 42.6.2), once, while
+                                    ; there is not one yet. The canvas is
+                                    ; claimed FIRST now (42.6.1) and would
+                                    ; otherwise take the whole run every time,
+                                    ; so a machine that could afford a canvas
+                                    ; AND a 2KB stack would never get the
+                                    ; second. This is a PREDICTION and it is
+                                    ; allowed to be wrong: too little and the
+                                    ; canvas is 2KB smaller than it had to be,
+                                    ; too much and pt_alloc_scratch simply
+                                    ; greys the tool. Neither refuses Paint
+    cmp ax, PT_SC_MIN + PT_MIN_KB   ; ...but not when holding it back would
+    jbe .capped                     ; cost the canvas its own floor: there,
+    sub ax, PT_SC_MIN               ; the picture wins and the tool greys
 .capped:
+    cmp ax, PT_WANT_KB
+    jbe .cap2
+    mov ax, PT_WANT_KB
+.cap2:
     mov cl, 6
     shl ax, cl                      ; KB -> paragraphs
     mov [pt_growp], ax
@@ -1430,21 +1609,42 @@ pt_growmax:
 ; out: BX = row stride in bytes, CX = paragraphs including the DIB header;
 ;      AX and DX preserved
 ;
-; The stride is the BMP one - ceil(w/2) rounded up to 4 - because the canvas IS
-; the file (SPEC.md 42). The byte total needs 32 bits: a 736x464 canvas is
+; The stride is the BMP one - ceil(w/2) rounded up to 4, or ceil(w/8) rounded up
+; to 4 when the canvas holds ONE BIT a pixel - because the canvas IS the file
+; (SPEC.md 42, 42.23). The byte total needs 32 bits: a 736x464 canvas is
 ; 171,000 bytes, so MUL's DX:AX is shifted down to paragraphs as a pair.
+;
+; IT ALSO SETS [pt_hdrsz], because the header is the other thing the depth
+; moves - 118 bytes of DIB at 4bpp against 62 at 1bpp - and every caller that
+; wants the stride wants that too. Setting it here rather than in pt_layout is
+; what keeps pt_geom's SIZING pass honest: that pass calls pt_paras alone,
+; against a heap figure, long before any layout is adopted.
 ; -----------------------------------------------------------------------------
 pt_paras:
     push ax
     push dx
+    mov bx, PT_BMPHDR
+    cmp byte [pt_1bpp], 0
+    je .four
+    add ax, 7
+    shr ax, 1                       ; ceil(w/8)...
+    shr ax, 1
+    shr ax, 1
+    mov bx, PT_BMPHDR1
+    jmp short .round
+.four:
     inc ax
     shr ax, 1                       ; ceil(w/2)...
+.round:
+    mov [pt_hdrsz], bx
     add ax, 3
     and ax, 0xFFFC                  ; ...rounded up to 4
     mov bx, ax
     mov ax, dx
     mul bx                          ; DX:AX = stride * height
-    add ax, PT_BMPHDR + 15
+    add ax, [pt_hdrsz]
+    adc dx, 0
+    add ax, 15
     adc dx, 0
     mov cx, ax
     mov ax, dx
@@ -1515,16 +1715,28 @@ pt_layout:
     ; identical stride at every width, so the row table below, the paragraph
     ; count, the undo image, the clipboard and pt_resize are the same bytes
     ; whichever way the canvas is stored, and none of them has to know.
+    ;
+    ; **AT ONE BIT A PIXEL IT IS THE WHOLE ROW** (SPEC.md 42.23.3), and saying
+    ; so here is what makes every planar-shaped arm in the program serve the
+    ; third format for the price of a plane COUNT. [pt_bpr] means "bytes in
+    ; one plane's row"; a canvas with one plane has all of them in it. Nothing
+    ; that assumes 4*[pt_bpr] is the stride is reachable when [pt_1bpp] is set
+    ; - the two converters, gfx_blitp, and the planar arms of wipe, getpx,
+    ; setpx, fpix, line_put and line_get are all behind [pt_planar].
     push bx
     shr bx, 1
     shr bx, 1
+    cmp byte [pt_1bpp], 0
+    je .bpr
+    mov bx, [pt_stride]
+.bpr:
     mov [pt_bpr], bx
     pop bx
     ; --- row 0 is the LAST row in the file, so the walk runs downward -------
     mov ax, [pt_ch]
     dec ax
     mul bx                          ; DX:AX = (ch-1) * stride
-    add ax, PT_BMPHDR
+    add ax, [pt_hdrsz]
     adc dx, 0
     mov si, ax                      ; DI:SI = row 0's byte offset, 32 bits
     mov di, dx
@@ -1905,6 +2117,34 @@ pt_canvas_init:
 ; Row by row, because the canvas may span segments: one long rep stosw would
 ; wrap at 64KB and paint the start of the picture again.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; pt_lit - the ONE BIT a colour index becomes (SPEC.md 42.23.1)
+; in:  AL = colour 0..15
+; out: AL = 0x00 (black) or 0xFF (white) - a whole BYTE, because every caller
+;      wants it as a fill or a mask rather than as a bit; preserves all other
+;      registers
+;
+; A reduction, not a palette lookup, and PT_LIT16 is the whole of it: light
+; grey and the seven bright colours light the pixel, the seven dark ones do
+; not. That makes it the rule a COLOUR PICTURE is down-converted by as well
+; (SPEC.md 42.23.3), so there is one answer to "is this pixel white" in the
+; program and not two that can disagree at the edges of the palette.
+; -----------------------------------------------------------------------------
+pt_lit:
+    push bx
+    push cx
+    mov cl, al
+    and cl, 15
+    mov bx, PT_LIT16
+    shr bx, cl
+    mov al, bl
+    and al, 1
+    neg al                          ; 1 -> FF, 0 -> 00
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 pt_wipe:
     push ax
     push bx
@@ -1928,6 +2168,13 @@ pt_wipe:
                                     ; lines a pixel wide, on both 1bpp adapters
                                     ; and in the saved .BMP with them
     mov [pt_blankc], bl             ; SPEC.md 42.15: the canvas is about to be
+    cmp byte [pt_1bpp], 0           ; ...and at ONE BIT a pixel the fill word is
+    je .c4                          ; 0000 or FFFF rather than the colour four
+    mov al, bl                      ; times over. Everything below is then the
+    call pt_lit                     ; PACKED path unchanged - a 1bpp row is
+    mov ah, al                      ; [pt_stride] bytes like any other and the
+    mov dx, ax                      ; stride is still a multiple of 4, so .row's
+.c4:                                ; `rep stosw` needs nothing said to it
     cmp byte [pt_ikeep], 0          ; ONE COLOUR, and this is the only thing
     jne .kept                       ; in Paint that makes it so - so every band
     call pt_iclear                  ; goes empty (SPEC.md 42.18), unless a
@@ -2015,7 +2262,7 @@ pt_bmp_hdr:
     mul word [pt_stride]            ; DX:AX = pixel bytes - 32 bits, because a
     mov cx, ax                      ; big canvas is more than 64KB and bfSize
     mov si, dx                      ; has to carry all of it
-    add ax, PT_BMPHDR
+    add ax, [pt_hdrsz]
     mov [es:2], ax                  ; bfSize, low word...
     mov ax, si
     adc ax, 0
@@ -2026,8 +2273,30 @@ pt_bmp_hdr:
     mov [es:22], ax                 ; biHeight (positive = bottom-up)
     mov [es:34], cx                 ; biSizeImage, both words
     mov [es:36], si
-    mov si, pt_pal_rgb              ; 16 x RGB -> 16 x BGRA
     mov di, 54
+    cmp byte [pt_1bpp], 0
+    je .pal16
+    ; --- ONE BIT A PIXEL (SPEC.md 42.23.2): three fields of the template are
+    ; wrong for this depth and the palette is two entries rather than sixteen.
+    ; The pair is written out as BGRA rather than reduced from pt_pal_rgb,
+    ; because index 1 there is BLUE - the two colours this file uses are
+    ; entries 0 and 15 of that table and nothing in between, so a loop over it
+    ; would need the stride of a table it is not walking.
+    ;
+    ; **1 IS WHITE, and that is the whole reason the polarity is this way up**
+    ; (SPEC.md 42.23.1): it is what a standard 1bpp BMP means AND what
+    ; gfx_blit1 takes at `rep movsw`'s 12.5 clocks a byte instead of the
+    ; complementing loop's 17 (SPEC.md 5.4.2.2). The intuitive polarity - a set
+    ; bit is ink - would have cost 36% of every canvas blit for ever.
+    mov word [es:10], PT_BMPHDR1    ; bfOffBits, and its high word is already 0
+    mov word [es:28], 1             ; biBitCount
+    mov word [es:46], 2             ; biClrUsed
+    mov si, pt_pal1
+    mov cx, 4
+    rep movsw
+    jmp short .paldone
+.pal16:
+    mov si, pt_pal_rgb              ; 16 x RGB -> 16 x BGRA
     mov cx, 16
 .pal:
     mov al, [si+2]
@@ -2040,6 +2309,7 @@ pt_bmp_hdr:
     add si, 3
     add di, 4
     loop .pal
+.paldone:
     pop es
     pop di
     pop si
@@ -2374,8 +2644,15 @@ pt_rect:
     mov [pt_rval], al
 
     ; --- ...and the same three facts in BITS, for four planes (SPEC.md 42.13)
+    ; **AND FOR ONE** (SPEC.md 42.23), which wants the identical arithmetic:
+    ; eight pixels to a byte is eight pixels to a byte whether that byte is one
+    ; plane of four or the whole picture, so the left column, the span and the
+    ; two edge masks below are computed once and read by both arms.
+    cmp byte [pt_1bpp], 0
+    jne .bits
     cmp byte [pt_planar], 0
     je .packed
+.bits:
     ; BOTH BYTE COLUMNS FIRST, and the two masks after (SPEC.md 42.13.2):
     ; `mov ah, 0xFF` writes the high half of the register the left column is
     ; sitting in, so a `sub dx, ax` on the far side of it subtracts 0x0F02
@@ -2422,6 +2699,8 @@ pt_rect:
 .packed:
     cld
     mov bx, [pt_cy1]                ; BX = the row being filled
+    cmp byte [pt_1bpp], 0
+    jne .prow
     cmp byte [pt_planar], 0
     jne .prow
 .row:
@@ -2460,6 +2739,20 @@ pt_rect:
     add di, [pt_plb]
     mov dl, [pt_ink]
     mov dh, 4
+    cmp byte [pt_1bpp], 0
+    je .prpl
+    ; --- ONE PLANE, and the ink is the REDUCTION rather than a bit of the
+    ; colour index (SPEC.md 42.23.1). `test dl, 1` below would read bit 0 of
+    ; the palette index, which is right for black and white by luck and wrong
+    ; for every colour between them - and a canvas that has just been
+    ; down-converted still has whatever the user last picked in [pt_ink].
+    push ax
+    mov al, dl
+    call pt_lit
+    mov dl, al
+    and dl, 1                       ; .prpl wants the bit, not the byte
+    pop ax
+    mov dh, 1
 .prpl:
     xor al, al
     test dl, 1
@@ -2557,6 +2850,12 @@ pt_umark:
 ; saving the whole row copied about 28 times what it protected - and a y-major
 ; chord meets a new row every step, so it paid that at every step. Block b is
 ; canvas bytes [b<<pt_ushf, min((b+1)<<pt_ushf, stride)).
+;
+; NOTHING HERE KNOWS THE DEPTH and that is not luck: [pt_ushf] is derived from
+; the live stride by pt_layout, so a one-bit row (SPEC.md 42.23) is 56 bytes
+; against 224 and the shift comes out 3 against 5 with the same "at most eight
+; blocks a row" property. The one undo routine that DOES know is pt_ublocks,
+; because it turns a PIXEL range into a byte range.
 ; -----------------------------------------------------------------------------
 pt_umark_b:
     push ax
@@ -2760,10 +3059,19 @@ pt_uswap_row:
 ; pt_ublocks - which undo blocks does the clipped rect [pt_cx1]..[pt_cx2] touch?
 ; in:  [pt_cx1],[pt_cx2]; out: [pt_ubacc] = the mask; preserves all registers
 ;
-; BYTE ranges, not pixel ranges, and that is what lets one scheme serve both
-; canvas formats: packed 4bpp puts pixel x at byte x>>1 so a rect is ONE range,
-; planar puts it at byte x>>3 of each of four planes so it is FOUR, [pt_bpr]
-; apart. Only this routine knows the difference.
+; BYTE ranges, not pixel ranges, and that is what lets one scheme serve all
+; THREE canvas formats: packed 4bpp puts pixel x at byte x>>1 so a rect is ONE
+; range, planar puts it at byte x>>3 of each of four planes so it is FOUR,
+; [pt_bpr] apart, and one bit a pixel (SPEC.md 42.23) puts it at byte x>>3 of
+; a single plane - which is the planar loop with the count set to 1. Only this
+; routine knows the difference.
+;
+; IT IS ALSO THE ONLY UNDO ROUTINE THAT DOES. pt_ucopy, pt_uswap_row and
+; pt_ubm1 all work in bytes off [pt_ushf], which pt_layout derives from the
+; live stride, so the depth reaches them already accounted for. Missing this
+; one arm left Ctrl+Z restoring most of a stroke and not all of it: the mask
+; was built from x>>1, so a chord at x=160..350 marked blocks 80..175 of a row
+; that is 56 bytes long and the blocks actually under it went uncopied.
 %ifdef PTF_UNDO
 ; -----------------------------------------------------------------------------
 pt_ublocks:
@@ -2771,6 +3079,9 @@ pt_ublocks:
     push cx
     push si
     mov byte [pt_ubacc], 0
+    mov cx, 1
+    cmp byte [pt_1bpp], 0
+    jne .planes
     cmp byte [pt_planar], 0
     jne .planar
     mov ax, [pt_cx1]
@@ -2782,8 +3093,9 @@ pt_ublocks:
     call pt_ubm1
     jmp short .out
 .planar:
-    xor si, si                      ; SI = this plane's base byte
     mov cx, 4
+.planes:
+    xor si, si                      ; SI = this plane's base byte
 .pl:
     mov ax, [pt_cx1]
     shr ax, 1
@@ -3243,6 +3555,57 @@ pt_iband:
 ; pt_blit_1 - decode [pt_cx1]..[pt_cy2] (SPEC.md 42.13); the walk above owns
 ;             the band arithmetic. Clobbers the clip words.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; pt_ex1 - expand one 1bpp canvas run into pt_line as packed 4bpp
+; in:  ES:DI = the run's first source byte, CX = width in PIXELS
+; out: pt_line holds ceil(CX/8)*4 bytes of packed 4bpp; clobbers AX, BX, CX,
+;      SI and DI
+;
+; SPEC.md 42.23.4. The screen half of a 1bpp canvas on a kernel that has no
+; gfx_blit1 - which is EVERY kern_small (SPEC.md 5.4.2) - and on kern_big too
+; until the band question below is answered. Two lookups a source byte, and
+; the destination is pt_line rather than a buffer of its own: that array is
+; one byte per pixel and PT_CW_MAX long, so it is twice the room a packed run
+; of the same width needs, and NOTHING that walks it is live during a
+; repaint (pt_line_put, pt_bmp_row and the two format converters are a load,
+; a save and a resize).
+;
+; The tail source byte is expanded whole even when the run does not fill it.
+; That is deliberate: those pixels are inside the canvas row's own padding,
+; the blit is told the real width in pixels and stops there, and rounding the
+; loop instead would cost a compare on every byte to save four stores once.
+; -----------------------------------------------------------------------------
+pt_ex1:
+    add cx, 7
+    shr cx, 1
+    shr cx, 1
+    shr cx, 1                       ; CX = source bytes
+    mov si, pt_line
+    cld
+.byte:
+    mov bl, [es:di]
+    inc di
+    push cx
+    mov bh, bl
+    mov cl, 4
+    shr bh, cl                      ; the LEFT four pixels first
+    xor bl, bl
+    xchg bl, bh
+    shl bx, 1
+    mov ax, [pt_nyb4+bx]
+    mov [si], ax
+    mov bl, [es:di-1]
+    and bl, 15                      ; ...then the right four
+    xor bh, bh
+    shl bx, 1
+    mov ax, [pt_nyb4+bx]
+    mov [si+2], ax
+    add si, 4
+    pop cx
+    loop .byte
+    ret
+
+; -----------------------------------------------------------------------------
 pt_blit_1:
     push ax
     push bx
@@ -3252,6 +3615,10 @@ pt_blit_1:
     push di
     push bp
     push es
+    cmp byte [pt_1bpp], 0
+    jne .one                        ; SPEC.md 42.23.4: neither the planar
+                                    ; question nor the band machinery below
+                                    ; applies to a canvas of one bit
 .painted:
     ; --- CAN THE CANVAS GO BACK TO FOUR PLANES? (SPEC.md 42.13.1.3) Only when
     ; the adapter has changed under us since the last time it was asked, and
@@ -3375,6 +3742,72 @@ pt_blit_1:
     mov [pt_bsi], ax
     cmp ax, [pt_cy2]
     jbe .band
+    jmp short .out
+
+    ; --- ONE BIT A PIXEL, ONE ROW A CALL (SPEC.md 42.23.4)
+    ;
+    ; **THE FAST PATH IS NOT TAKEN HERE AND THE REASON IS THE KERNEL'S, NOT
+    ; OURS.** OSAPI_GFX_BLIT1 takes exactly the band this canvas already holds
+    ; - the format is identical - but it wants a POSITIVE stride, and this
+    ; canvas is stored bottom-up because it is the BMP (SPEC.md 42). The two
+    ; places gfx_blit1_x skips rows, the clip region's r0 and a negative y,
+    ; both do `mul bp` on the stride, and MUL is unsigned: hand it a negative
+    ; stride and a band whose top is clipped starts from a source pointer
+    ; 65,000 bytes away. gfx_blit4 has no such rule, which is why the 4bpp
+    ; path above passes a negative stride happily and this one may not. The
+    ; SDK never claimed the stride was signed; it is this routine that
+    ; assumed it. When the kernel's two skips are made sign-aware the fast
+    ; path is a dozen bytes here and this loop becomes the fallback that
+    ; kern_small takes anyway (SPEC.md 5.4.2 refuses there outright).
+    ;
+    ; So the row is expanded into pt_line and drawn by the call that already
+    ; works. It costs the expansion, ~0.47 ms a row on a 4.77 MHz 8088, and
+    ; it keeps the kernel's own per-row adaptivity: gfx_blit4 picks runs for a
+    ; flat row and per-pixel for a detailed one (SPEC.md 5.4.1.1), which no
+    ; hand-rolled run walk here could do.
+    ;
+    ; NO BANDING, because there is nothing to band: pt_rowset resolves each
+    ; row's segment out of the table, so a canvas spanning segments needs no
+    ; arithmetic at all here. x goes to the BYTE grid the way the planar path
+    ; does - a widened left column is inside the canvas and inside the window.
+.one:
+    mov ax, [pt_cx1]
+    and ax, 0xFFF8
+    mov [pt_bx0], ax
+    mov bx, [pt_cx2]
+    sub bx, ax
+    inc bx
+    mov [pt_bwid], bx               ; width in pixels, whatever it is: the
+    shr ax, 1                       ; expander rounds and the blit does not
+    shr ax, 1
+    shr ax, 1
+    mov [pt_bn], ax                 ; the run's byte offset into a row
+    mov ax, [pt_cy1]
+    mov [pt_bsi], ax
+.orow:
+    mov ax, [pt_bsi]
+    call pt_rowset                  ; ES:DI = the row's first byte
+    add di, [pt_bn]
+    mov cx, [pt_bwid]
+    call pt_ex1                     ; pt_line = the run, packed 4bpp
+    mov ax, ds
+    mov es, ax                      ; the band is OURS now, not the canvas's
+    mov si, pt_line
+    mov bp, [pt_bwid]
+    inc bp
+    shr bp, 1                       ; a one-row band: the stride is never
+    mov cx, [pt_bwid]               ; stepped, but it must be sane
+    mov dx, 1
+    mov ax, [pt_bx0]
+    add ax, [pt_cx0]
+    mov bx, [pt_bsi]
+    add bx, [pt_cy0]
+    call OSAPI_GFX_BLIT4
+    mov ax, [pt_bsi]
+    inc ax
+    mov [pt_bsi], ax
+    cmp ax, [pt_cy2]
+    jbe .orow
 .out:
     pop es
     pop bp
@@ -3582,6 +4015,8 @@ pt_getpx:
     push es
     mov ax, dx
     call pt_rowset                  ; ES:DI = the row
+    cmp byte [pt_1bpp], 0
+    jne .one
     cmp byte [pt_planar], 0
     jne .planar
     mov ax, cx
@@ -3594,6 +4029,32 @@ pt_getpx:
     shr al, cl
 .lo:
     and al, 0x0F
+    pop es
+    pop di
+    pop cx
+    pop bx
+    ret
+
+    ; --- ONE BIT (SPEC.md 42.23): eight pixels a byte, bit 7 leftmost, and the
+    ; answer is one of the two colours the canvas actually holds rather than a
+    ; 0/1 - every caller of this routine is asking for a PALETTE INDEX (the
+    ; eyedropper, the flood's seed, a Copy), and a canvas that answered 1 for
+    ; white would put colour 1, blue, in the ink well.
+.one:
+    mov ax, cx
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    add di, ax
+    mov al, [es:di]
+    and cl, 7
+    xor cl, 7                       ; bit 7 is the LEFTMOST pixel, so the bit
+    shr al, cl                      ; index counts the other way (a count of 0
+    test al, 1                      ; is a no-op that leaves the flags alone,
+    mov al, CBLACK                  ; which is why the test is separate)
+    jz .obit
+    mov al, CWHITE
+.obit:
     pop es
     pop di
     pop cx
@@ -3870,6 +4331,11 @@ pt_draw_pal:
     cmp ax, di
     jne .glyph
     mov byte [pt_pen], CWHITE
+    cmp di, PT_T_FILL               ; ...and grey when it cannot be funded
+    jne .glyph                      ; (SPEC.md 42.6.2). CDGRAY dithers on a
+    cmp byte [pt_havefill], 0       ; 1bpp adapter, which is SPEC.md 47's
+    jne .glyph                      ; disabled look for free
+    mov byte [pt_pen], CDGRAY
 .glyph:
     mov bx, di
     add bx, bx
@@ -4469,6 +4935,14 @@ pt_btn_xy:
 ; those three and nothing that would be a lie.
 ; -----------------------------------------------------------------------------
 pt_swcol:
+    cmp byte [pt_1bpp], 0           ; the CANVAS first (SPEC.md 42.23): a one-bit
+    je .four                        ; canvas on a colour adapter is the small
+    push bx                         ; arm's ordinary case, and [pt_mono] is 0
+    mov bx, ax                      ; there
+    mov al, [pt_bw_pal+bx]
+    pop bx
+    ret
+.four:
     cmp byte [pt_mono], 0
     je .direct
     push bx
@@ -5738,7 +6212,27 @@ pt_pal_click:
     js .next
     cmp ax, PT_BW
     jge .next
-    ; hit: switch tool
+    ; hit: switch tool - unless it is one this machine cannot fund
+    cmp di, PT_T_FILL               ; SPEC.md 42.6.2: no span stack, no flood
+    jne .live                       ; fill. It is greyed in pt_draw_pal, and
+    cmp byte [pt_havefill], 0       ; the toast says WHY, which the grey cannot
+    jne .live
+    call pt_alloc_scratch           ; ...but ASK AGAIN FIRST. Whether a stack
+    cmp byte [pt_havefill], 0       ; could be funded is a fact about the heap
+    jne .live                       ; at the moment somebody asked, and the
+                                    ; moment Paint asked was startup - with a
+                                    ; canvas being claimed beside it. THIS is
+                                    ; the moment the user wants one, and by now
+                                    ; another program may have quit. Without
+                                    ; this, one crowded instant disables the
+                                    ; tool for the rest of the session, which
+                                    ; is the bug pt_gate carries the same fix
+                                    ; for on the clipboard. pt_draw_pal below
+                                    ; lifts the grey
+    mov si, pt_s_nofill
+    call pt_msg_show
+    jmp .out
+.live:
     call pt_text_end
     call pt_sel_drop
     mov byte [pt_fbox], 0           ; and the size boxes lose the keyboard
@@ -6688,8 +7182,16 @@ pt_sparm:
     je .out                         ; nobody marked this chord's undo blocks
     cmp byte [pt_planar], 0
     jne .out                        ; PACKED ONLY: four masked runs a row is a
-    mov byte [pt_spdst], 1          ; second row writer again, for rows a VGA
-    mov word [pt_spxo], 0           ; canvas has few enough of
+    cmp byte [pt_1bpp], 0           ; second row writer again, for rows a VGA
+    jne .out                        ; canvas has few enough of - and a canvas of
+                                    ; ONE bit is the same answer for the same
+                                    ; reason (SPEC.md 42.23). Its row writer is
+                                    ; genuinely cheaper than this one, so it is
+                                    ; worth having later; what it is not is
+                                    ; worth having UNPROVEN, on the one path
+                                    ; where a wrong mask is a wrong stroke
+    mov byte [pt_spdst], 1
+    mov word [pt_spxo], 0
 .dst:
     mov ax, [pt_ddx]                ; ...and ONLY where the walk would emit
     mov dx, [pt_ddy]                ; DABS. SPEC.md 42.8.5's gate already
@@ -8596,6 +9098,8 @@ pt_setpx:
     mov [pt_setval], al             ; pt_rowset wants AX for the row
     mov ax, dx
     call pt_rowset                  ; ES:DI = the row
+    cmp byte [pt_1bpp], 0
+    jne .one
     cmp byte [pt_planar], 0
     jne .planar
     mov bx, cx
@@ -8614,6 +9118,33 @@ pt_setpx:
 .low:
     and ah, 0xF0
     or al, ah
+    mov [es:di], al
+    jmp short .out
+
+    ; --- ONE BIT (SPEC.md 42.23): the same shape as the planar arm below with
+    ; the plane loop taken out, which is what every 1bpp arm in this program
+    ; turns out to be - one plane is one plane.
+.one:
+    mov bx, cx
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    add di, bx                      ; DI = the byte holding this pixel
+    mov ah, 0x80
+    and cl, 7
+    shr ah, cl                      ; AH = its bit, bit 7 leftmost
+    mov al, [pt_setval]
+    call pt_lit                     ; AL = FF (white) or 00 (black), and it
+    mov bl, al                      ; leaves AH and BX alone, which is what
+    mov al, [es:di]                 ; lets the bit mask live across the call
+    or bl, bl
+    jz .oclr
+    or al, ah
+    mov [es:di], al
+    jmp short .out
+.oclr:
+    not ah
+    and al, ah
     mov [es:di], al
     jmp short .out
 
@@ -8935,6 +9466,8 @@ pt_frow:
 ; in:  AX = x, BP = row offset, ES = PT_CVSEG
 ; out: AL = colour; clobbers AX, BX, flags
 pt_fpix:
+    cmp byte [pt_1bpp], 0
+    jne .one
     cmp byte [pt_planar], 0
     jne .planar
     mov bx, ax
@@ -8950,6 +9483,29 @@ pt_fpix:
 .lo:
     mov al, ah
     and al, 0x0F
+    ret
+
+    ; --- ONE BIT (SPEC.md 42.23), and it answers a COLOUR like the other two
+    ; arms: [pt_fold] is what pt_flood read through pt_getpx, so a 0/1 here
+    ; would make every comparison in the scan false and the fill do nothing.
+.one:
+    push cx
+    mov bx, ax
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    add bx, bp
+    mov cl, al
+    and cl, 7
+    xor cl, 7
+    mov al, [es:bx]
+    shr al, cl
+    test al, 1
+    mov al, CBLACK
+    jz .o0
+    mov al, CWHITE
+.o0:
+    pop cx
     ret
 
     ; --- FOUR PLANES (SPEC.md 42.13). This is the flood fill's inner loop, so
@@ -9016,7 +9572,8 @@ pt_fpush:
     cmp bx, cx
     jg .out
     mov si, [pt_fsp]
-    cmp si, PT_FSTK_MAX
+    cmp si, [pt_fstkmax]            ; RUNTIME, not PT_FSTK_MAX: the claim this
+                                    ; runs on may be the 4KB or the 2KB one
     jae .ovf
     inc word [pt_fsp]
     shl si, 1
@@ -9621,7 +10178,11 @@ pt_oncmd:
     cmp byte [pt_trunc], 0
     je .save_go
     mov word [pt_msgp], pt_s_trunc  ; the file holds more than we loaded: one
-    mov si, [pt_msgp]               ; click must not throw the rest away
+    cmp byte [pt_tred], 0           ; click must not throw the rest away - and
+    je .tmsg                        ; the two ways that happens are different
+    mov word [pt_msgp], pt_s_reduce ; things to be told about (SPEC.md 42.23.6)
+.tmsg:
+    mov si, [pt_msgp]
     call pt_msg_show
     ret
 .save_go:
@@ -9800,10 +10361,19 @@ pt_menufix:
     cmp byte [pt_haveundo], 0
     je .noundo
     mov word [pt_it_edit + 2 * PT_ME_UNDO], pt_i_undo
+    clc
     ret
 .noundo:
     mov word [pt_it_edit + 2 * PT_ME_UNDO], pt_i_undo2
 %endif
+    clc                             ; THE FLAGS ARE NOT THIS ROUTINE'S TO
+                                    ; LEAK. It ends on a `cmp` against
+                                    ; PT_LZW_KB, and with the GIF and undo
+                                    ; blocks compiled out that compare IS the
+                                    ; last thing it does - so a tight machine
+                                    ; returned CF = 1 from a routine whose
+                                    ; contract is "preserves all registers"
+                                    ; (SPEC.md 42.6.4)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -10665,6 +11235,11 @@ pt_cvwipe:
     mov cx, 1                       ; CL = columns per byte, as a shift
     mov dx, [pt_stride]             ; DX = the length of one plane
     mov byte [pt_wpn], 1
+    cmp byte [pt_1bpp], 0
+    je .four
+    mov cl, 3                       ; eight columns a byte, ONE plane, and that
+    jmp short .shape                ; plane is the whole row (SPEC.md 42.23.3)
+.four:
     cmp byte [pt_planar], 0
     je .shape
     mov cl, 3
@@ -11073,8 +11648,10 @@ pt_lose_w:
     push si
     push di
     push es
-    cmp byte [pt_planar], 0
-    jne .planar
+    cmp byte [pt_1bpp], 0
+    jne .planar                     ; SPEC.md 42.23.3: the bit arm, run once -
+    cmp byte [pt_planar], 0         ; [pt_bpr] is the whole row there and the
+    jne .planar                     ; plane count below is what differs
     mov bx, ax
     shr bx, 1
     mov [pt_lwb], bx
@@ -11136,9 +11713,12 @@ pt_lose_w:
     call pt_rowset
     add di, [pt_lwb]
     mov dx, 4                       ; DL = the plane counter, DH the "the
-.prpl:                              ; partial byte was already read" flag -
-    push di                         ; NOT CH, which the byte count below
-    xor dh, dh                      ; overwrites whole
+    cmp byte [pt_1bpp], 0           ; partial byte was already read" flag -
+    je .prpl                        ; NOT CH, which the byte count below
+    mov dl, 1                       ; overwrites whole
+.prpl:
+    push di
+    xor dh, dh
     cmp byte [pt_lwmask], 0xFF
     je .pwhole                      ; the cut is on the byte grid
     mov al, [es:di]
@@ -11194,6 +11774,8 @@ pt_lose_h:
     push si
     push di
     push es
+    cmp byte [pt_1bpp], 0
+    jne .planar                     ; SPEC.md 42.23.3, and once round
     cmp byte [pt_planar], 0
     jne .planar
     inc ax
@@ -11229,6 +11811,9 @@ pt_lose_h:
     mov ax, si
     call pt_rowset
     mov dx, 4
+    cmp byte [pt_1bpp], 0
+    je .prpl
+    mov dx, 1
 .prpl:
     push di
     mov cx, [pt_lwb]
@@ -11326,7 +11911,7 @@ pt_orowset:
     sub bx, ax                      ; the file row this picture row is
     mov ax, bx
     mul word [pt_ostride]           ; DX:AX = its byte offset
-    add ax, PT_BMPHDR
+    add ax, [pt_hdrsz]
     adc dx, 0
     mov bx, ax
     and bx, 15
@@ -12424,7 +13009,7 @@ pt_save:
     ; DX:CX and a full-screen picture saves whole.
     mov ax, [pt_ch]
     mul word [pt_stride]            ; DX:AX = pixel bytes
-    add ax, PT_BMPHDR
+    add ax, [pt_hdrsz]
     adc dx, 0
     mov cx, ax                      ; DX:CX = the file's 32-bit length
     call pt_bmp_hdr                 ; re-stamp it: the live size is the truth
@@ -12815,9 +13400,16 @@ pt_bmp_in:
     call pt_bmp_pal
     ; --- the canvas becomes the picture's size, as far as it can go --------
 .size:
+    xor al, al                      ; SPEC.md 42.23.6: a 1bpp BMP whose two
+    cmp word [pt_bpp], 1            ; palette entries are a dark/light pair -
+    jne .fmt                        ; the depth alone would accept red on blue
+    call pt_mono2
+.fmt:
+    call pt_fmtpick                 ; ...and this must run BEFORE pt_adopt
     mov ax, [pt_bw]
     mov dx, [pt_bh]
     call pt_adopt
+    call pt_tredo                   ; ...and the Save fence AFTER it
     xor di, di                      ; DI = destination row
 .row:
     cmp di, [pt_ch]
@@ -13138,7 +13730,9 @@ pt_line_put:
     mov ax, di
     call pt_rowset                  ; ES:DI = the row, which is where BOTH
     mov bx, di                      ; paths start writing, and BX the copy the
-    cmp byte [pt_planar], 0         ; planar one keeps while DI walks a plane
+    cmp byte [pt_1bpp], 0           ; planar one keeps while DI walks a plane
+    jne .one
+    cmp byte [pt_planar], 0
     jne .planar
     ; --- TWO PIXELS ARE ONE BYTE, so take them in pairs (SPEC.md 42.13.1.4):
     ; `lodsw` brings both, one shift and an `or` make the byte, and `stosb`
@@ -13168,6 +13762,58 @@ pt_line_put:
     mov ah, [es:di]                 ; is not this row's to touch, which is the
     and ah, 0x0F                    ; same promise the planar path's partial
     or al, ah                       ; byte column makes
+    mov [es:di], al
+    jmp .done
+
+    ; --- ONE BIT (SPEC.md 42.23): eight pixels build ONE byte, bit 7 leftmost,
+    ; and a row that ends mid-byte is merged rather than written - the pixels
+    ; past [pt_cols] are not this row's to touch, which is the promise both
+    ; other paths make.
+    ;
+    ; THE REDUCTION IS INLINE and not a `pt_lit` call, for SPEC.md 42.13.1.4's
+    ; reason rather than for the clocks: this is the BMP and GIF decoders'
+    ; inner loop, every row of every picture opened, and a `call`/`ret` per
+    ; pixel is thirty cycles around fourteen of work.
+.one:
+    cld
+    mov si, pt_line
+    mov dx, [pt_cols]
+    or dx, dx
+    jz .done
+.o8:
+    xor bl, bl                      ; BL = the byte being built...
+    mov bh, 0x80                    ; ...BH the bit it is being built into
+.obit:
+    lodsb
+    mov cl, al
+    and cl, 15
+    mov ax, PT_LIT16
+    shr ax, cl
+    test al, 1
+    jz .o0
+    or bl, bh
+.o0:
+    shr bh, 1
+    dec dx
+    jz .otail
+    or bh, bh
+    jnz .obit
+    mov al, bl
+    stosb                           ; a WHOLE byte: nothing to preserve in it
+    jmp short .o8
+.otail:
+    or bh, bh
+    jz .owhole                      ; the row ended exactly on a byte
+    mov al, bh                      ; BH is the first bit that is NOT ours, so
+    shl al, 1                       ; 2*BH-1 masks off everything below it
+    dec al
+    mov ah, [es:di]
+    and ah, al                      ; what the row already holds there...
+    not al
+    and bl, al                      ; ...and only the bits this row filled
+    or bl, ah
+.owhole:
+    mov al, bl
     mov [es:di], al
     jmp .done
 
@@ -13378,6 +14024,105 @@ pt_cvgrow:
 ; Shared by both readers, which is the point: one place decides what "as far as
 ; it can go" means, so a GIF and a BMP of the same size open the same way.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; pt_fmtpick - the canvas format a picture about to be LOADED will take
+; in:  AL = 1 if the file is colourless, 0 if it has colour
+; out: [pt_1bpp]/[pt_planar]/[pt_ncol] set, [pt_dcvt] = 1 if colour is about
+;      to be thrown away; preserves all registers
+;
+; SPEC.md 42.23.6. CALL IT BEFORE pt_adopt and not after: pt_fit, pt_paras,
+; pt_cvgrow, pt_layout and pt_bmp_hdr all read the depth, and pt_adopt is the
+; one routine that calls every one of them - so the format is an INPUT to the
+; load's arithmetic and setting it afterwards would size the claim for one
+; depth and fill it at another.
+;
+; **"Colourless" is the FILE'S OWN DECLARATION and not a scan** - a 1bpp BMP,
+; or a GIF whose colour table has two entries. Walking a 4/8/24bpp picture to
+; find out whether it happens to be monochrome is a pass over the whole thing
+; before the canvas is even claimed, and it buys one case (a black-and-white
+; photograph saved at 8bpp) that is rare enough not to pay for it.
+;
+; [pt_dcvt] rather than writing [pt_trunc] here, because pt_adopt CLEARS that
+; byte at its entry - it is the routine that decides whether the screen or the
+; heap cropped the picture. The caller ORs this in afterwards.
+; -----------------------------------------------------------------------------
+; pt_mono2 - do the file's first two palette entries make a BI-LEVEL pair?
+; out: AL = 1 if pt_pmap[0] and pt_pmap[1] reduce to different bits, else 0;
+;      preserves all other registers
+;
+; SPEC.md 42.23.6. "Two entries" is not the same claim as "black and white":
+; a 1bpp BMP or a two-colour GIF may perfectly well be red on blue, and both
+; of those reduce to the SAME bit through PT_LIT16 - so opening it one bit deep
+; would collapse the picture to one flat colour rather than reproduce it. This
+; is the test that stops that, and it is two pt_lit calls at load time.
+; -----------------------------------------------------------------------------
+pt_mono2:
+    push bx
+    mov al, [pt_pmap]
+    call pt_lit
+    mov bl, al
+    mov al, [pt_pmap+1]
+    call pt_lit
+    xor al, bl                      ; FF if they differ, 00 if they collapse
+    and al, 1
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; pt_tredo - fold pt_fmtpick's answer into SPEC.md 42.16's Save fence
+; in:  [pt_dcvt]; out: [pt_trunc]/[pt_tred] set if colour was dropped;
+;      preserves all registers
+;
+; The MECHANISM ALREADY EXISTED and is not new here: [pt_trunc] means "the
+; file on disk holds more than we are holding", it fences File > Save and the
+; close question's Save alike, and its whole job is to send the user to Save As
+; rather than write less than the original over it. A colour picture opened
+; into a one-bit canvas is exactly that sentence. [pt_tred] only picks the
+; wording - "Reduced" against "Cropped" - because the two are different things
+; to be told.
+; -----------------------------------------------------------------------------
+pt_tredo:
+    cmp byte [pt_dcvt], 0
+    je .out
+    mov byte [pt_trunc], 1
+    mov byte [pt_tred], 1
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+pt_fmtpick:
+    push ax
+    mov byte [pt_dcvt], 0
+%ifdef APP_SMALL
+    ; SPEC.md 42.22: the small arm is always one bit, so a colour picture is
+    ; DOWN-CONVERTED and the document stops being the file it came from
+    xor al, 1
+    mov [pt_dcvt], al
+    jmp short .one
+%endif
+    or al, al
+    jnz .one                        ; the file has no colour in it: hold it at
+    mov byte [pt_1bpp], 0           ; the depth it really is, whatever the
+    mov byte [pt_planar], 0         ; adapter would have picked
+    cmp byte [pt_mono], 0
+    jne .out
+    mov byte [pt_planar], 1
+    jmp short .out
+.one:
+    mov byte [pt_1bpp], 1
+    mov byte [pt_planar], 0
+.out:
+    call pt_ncolset                 ; ...AND THE STRIP FOLLOWS THE DEPTH. This
+                                    ; used to store 16 here, which is wrong
+                                    ; twice over: a colour file on a HERCULES
+                                    ; would have offered sixteen swatches the
+                                    ; card reduces to three, and a one-bit load
+                                    ; on a VGA has to come DOWN to two. One
+                                    ; rule, one place (SPEC.md 42.23.1)
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 pt_adopt:
     push ax
     push bx
@@ -13389,6 +14134,7 @@ pt_adopt:
     call pt_text_end
     call pt_sel_drop
     mov byte [pt_trunc], 0
+    mov byte [pt_tred], 0
     mov ax, [pt_pw]                 ; what the SCREEN can show...
     cmp ax, [pt_cwmax]
     jbe .w_ok
@@ -13644,9 +14390,16 @@ pt_gif_in:
     call pt_gdeblk                  ; the sub-blocks, flattened in place
     cmp word [pt_glen], 0
     je .bad
+    xor al, al                      ; SPEC.md 42.23.6: a two-entry colour table
+    cmp word [pt_gncol], 2          ; that is a dark/light pair
+    ja .fmt
+    call pt_mono2
+.fmt:
+    call pt_fmtpick
     mov ax, [pt_gw]                 ; the canvas takes the picture's size...
     mov dx, [pt_gh]
     call pt_adopt
+    call pt_tredo
     call pt_gdec                    ; ...and the stream fills it
     call pt_wfollow
     pop di
@@ -13727,6 +14480,12 @@ pt_gif_pal:
     inc di
     loop .ent
     mov byte [pt_ghavp], 1
+    mov [pt_gncol], cx              ; ...and how many entries it had, which is
+                                    ; what pt_fmtpick asks about (SPEC.md
+                                    ; 42.23.6). Recorded HERE and not at the
+                                    ; two call sites, because a local table
+                                    ; wins over the global one and this is the
+                                    ; routine both of them go through
     mov si, [pt_gpend]
     pop di
     pop dx
@@ -14186,6 +14945,8 @@ pt_line_get:
     call pt_rowset                  ; ES:DI = the row
     mov bx, di
     xor si, si
+    cmp byte [pt_1bpp], 0
+    jne .one
     cmp byte [pt_planar], 0
     jne .planar
 .col:
@@ -14206,6 +14967,31 @@ pt_line_get:
     cmp si, [pt_cw]
     jb .col
     jmp .done
+
+    ; --- ONE BIT (SPEC.md 42.23): one read serves EIGHT pixels, so the byte
+    ; is fetched on the byte boundary and shifted left out of the top - the
+    ; same shape the planar arm below uses for the same reason, one plane deep.
+    ; The answer is a palette index like both other arms', because this
+    ; routine's only caller is the GIF encoder and it writes indices.
+.one:
+    mov di, bx
+.ogcol:
+    mov ah, [es:di]
+    inc di
+    mov cx, 8
+.obit:
+    mov al, CBLACK
+    shl ah, 1
+    jnc .o0
+    mov al, CWHITE
+.o0:
+    mov [pt_line+si], al
+    inc si
+    cmp si, [pt_cw]
+    jae .done
+    dec cx
+    jnz .obit
+    jmp short .ogcol
 
     ; --- FOUR PLANES (SPEC.md 42.13): FOUR reads a byte column, not four a
     ; PIXEL. The eight pixels then fall out of the four bytes by shifting each
@@ -14910,6 +15696,7 @@ pt_i_full:   db 'Full Screen  ^F', 0
 
 ; --- the notice windows (indexed by [pt_mode] - 1) ---------------------------
 pt_notice:   dw pt_s_nomem, pt_s_small
+pt_s_nofill: db 'No RAM for flood fill', 0
 pt_s_nomem:  db 'Not enough memory.', 0
 pt_s_small:  db 'The screen is too small.', 0
 pt_s_note2:  db 'Close this window.', 0
@@ -14936,6 +15723,7 @@ pt_s_toobig:  db 'GIF too big - try Bmp', 0
 pt_s_nostage: db 'No memory to open file', 0
 pt_s_gifbig:  db 'GIF larger than 64KB', 0
 pt_s_trunc:   db 'Cropped - use Save As', 0
+pt_s_reduce:  db 'Reduced - use Save As', 0
 pt_s_bigsel:  db 'Selection too big', 0
 
 ; FERR_* -> toast, indexed by the code (SPEC.md 18.4)
@@ -14966,6 +15754,13 @@ pt_bit8:     db 1, 2, 4, 8, 16, 32, 64, 128
 ; black, the 50% dither class, white
 pt_mono_pal: db CBLACK, CLGRAY, CWHITE
 
+; --- ...and the TWO a 1bpp CANVAS can store (SPEC.md 42.23) -----------------
+; The dither class is missing on purpose and is not an oversight: 39.4 reduces
+; it at DRAW time, so a screen can show it and a canvas of one bit cannot hold
+; it. Storing it as its own checkerboard is what would put it back, and that
+; is a look question nobody has looked at (docs/PAINT-1BPP-PLAN.md).
+pt_bw_pal:   db CBLACK, CWHITE
+
 ; --- the standard EGA/VGA palette, R,G,B per entry --------------------------
 ; Written into every BMP we save, and the target of pt_map16 for every one we
 ; load, so a file round-trips through a host paint program unchanged.
@@ -14986,6 +15781,21 @@ pt_hdrtpl:
     dd 0                            ; biYPelsPerMeter
     dd 16                           ; biClrUsed
     dd 0                            ; biClrImportant
+
+; --- one 1bpp NIBBLE -> four packed-4bpp pixels (SPEC.md 42.23.4) -----------
+; Four source bits, bit 3 leftmost, become two bytes of two pixels each - so
+; the entry is a WORD and one `mov` places both. Set = CWHITE, clear = CBLACK,
+; which is the canvas's own polarity (SPEC.md 42.23.1) written out once.
+pt_nyb4:
+    dw 0x0000, 0x0F00, 0xF000, 0xFF00, 0x000F, 0x0F0F, 0xF00F, 0xFF0F
+    dw 0x00F0, 0x0FF0, 0xF0F0, 0xFFF0, 0x00FF, 0x0FFF, 0xF0FF, 0xFFFF
+
+; --- ...and the TWO a 1bpp file carries, already BGRA (SPEC.md 42.23.2) -----
+; Index 0 black, index 1 white, which is both the convention every host reads
+; and the polarity gfx_blit1 blits without complementing.
+pt_pal1:
+    db 0x00,0x00,0x00,0x00          ; 0  black
+    db 0xFF,0xFF,0xFF,0x00          ; 1  white
 
 pt_pal_rgb:
     db 0x00,0x00,0x00               ; 0  black
@@ -15268,13 +16078,30 @@ pt_ic_text:
     PTBYTE pt_planar                ; SPEC.md 42.13: is the canvas FOUR PLANES?
                                     ; 1 on a VGA, 0 on a 1bpp adapter, and it
                                     ; can change under us - pt_onresize
-    PTWORD pt_bpr                   ; bytes per PLANE row when it is, which is
-                                    ; [pt_stride]/4 and never anything else
+    PTWORD pt_bpr                   ; bytes per PLANE row - [pt_stride]/4 when
+                                    ; the canvas is four planes, and the WHOLE
+                                    ; [pt_stride] when it is one bit deep
+                                    ; (SPEC.md 42.23.3), which is what lets
+                                    ; every planar-shaped arm serve the third
+                                    ; format for the price of a plane COUNT
     PTBYTE pt_wantpl                ; SPEC.md 42.13.1.3: the adapter moved, so
                                     ; ASK whether the canvas can hold four
                                     ; planes again. pt_onresize arms it,
                                     ; pt_blit spends it, and a refused probe
                                     ; leaves it armed for the next repaint
+    PTBYTE pt_1bpp                  ; SPEC.md 42.23: is the canvas ONE BIT a
+                                    ; pixel? The third format, and the only one
+                                    ; that is a fact about the DOCUMENT rather
+                                    ; than about the adapter - [pt_planar]
+                                    ; follows the card both ways and this does
+                                    ; not follow it at all. Never 1 at the same
+                                    ; time as [pt_planar]: pt_geom picks one,
+                                    ; and the planar probe is not armed on a
+                                    ; canvas that is already a quarter the size
+    PTWORD pt_hdrsz                 ; the DIB in front of row 0, which is no
+                                    ; longer a constant: PT_BMPHDR at 4bpp and
+                                    ; PT_BMPHDR1 at 1bpp, the palette being 16
+                                    ; entries against 2
     PTBYTE pt_lwmask                ; pt_lose_w, planar: the bits of the cut's
                                     ; own byte column that are being dropped
     PTBYTE pt_pval                  ; pt_rect, planar: this plane's fill byte
@@ -15415,6 +16242,15 @@ pt_ic_text:
     PTBYTE pt_rval
     PTBYTE pt_fold                  ; the colour a flood fill replaces
     PTBYTE pt_fovf                  ; the span stack ran out
+    PTWORD pt_fstkmax               ; ...and how many spans it holds, which is
+                                    ; a property of the CLAIM and not a
+                                    ; constant (SPEC.md 42.6.2)
+    PTBYTE pt_fitsq                 ; 1 = pt_fit is sizing a canvas being BORN
+                                    ; and should cut toward a square (42.6.5);
+                                    ; 0 = a load or a resize, where the height
+                                    ; gives first
+    PTBYTE pt_havefill              ; 1 = there is a span stack, so the flood
+                                    ; tool is live. 0 greys it and toasts
     PTBYTE pt_cbbyte                ; pt_copy's half-packed byte
     PTBYTE pt_gch                   ; the glyph being drawn
     PTBYTE pt_mbi                   ; pt_map16's best index so far
@@ -15424,6 +16260,14 @@ pt_ic_text:
     PTWORD pt_fsize_hi              ; (SPEC.md 38.6); 0 = it reported none
     PTBYTE pt_trunc                 ; the loaded picture was cropped: File >
                                     ; Save must not overwrite the original
+    PTBYTE pt_tred                  ; ...and it was a COLOUR REDUCTION that did
+                                    ; it rather than a crop, which only picks
+                                    ; the wording (SPEC.md 42.23.6)
+    PTBYTE pt_dcvt                  ; pt_fmtpick's answer, ORed into pt_trunc
+                                    ; by pt_tredo once pt_adopt has cleared it
+%ifdef PTF_GIF
+    PTWORD pt_gncol                 ; entries in the colour table in effect
+%endif
     PTBYTE pt_fitcut                ; pt_fit had to give something up
     PTBYTE pt_setval                ; pt_setpx's colour, across pt_rowset
     PTBYTE pt_wchg                  ; the window was resized: repaint the lot

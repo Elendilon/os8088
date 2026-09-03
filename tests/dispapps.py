@@ -59,8 +59,16 @@ def _map(app):
     if app in _MAPS:
         return _MAPS[app]
     src = os.path.join(ROOT, "apps", app, app + ".asm")
-    tmp = "/tmp/os88_%s_map.asm" % app
-    mp = "/tmp/os88_%s.map" % app
+    # PER PROCESS, and that is not tidiness. These were "/tmp/os88_<app>.map"
+    # flat, so two rows of the suite mapping the same package at once wrote
+    # each other's file - and `os88test.py --marty-jobs 3` runs exactly that.
+    # What it looked like was not a race: one row said "could not map paint"
+    # with an EMPTY nasm stderr, and the others read plausible-looking rubbish
+    # out of the guest - [pt_planar] = 60, a 14337x28673 canvas - because the
+    # offsets came from a half-written map. Every one of those points at the
+    # package under test rather than at the harness.
+    tmp = "/tmp/os88_%s_map_%d.asm" % (app, os.getpid())
+    mp = "/tmp/os88_%s_%d.map" % (app, os.getpid())
     open(tmp, "w").write(open(src).read() + "\n[map all %s]\n" % mp)
     inc = ["-I", os.path.join(ROOT, "apps") + os.sep,
            "-I", os.path.join(ROOT, "apps", app) + os.sep,
@@ -85,10 +93,60 @@ def _map(app):
                 out[p[2]] = int(p[0], 16)
             except ValueError:
                 pass
+    for f in (tmp, mp):                 # unique names, so they must be swept
+        try:
+            os.unlink(f)
+        except OSError:
+            pass
     if "os88_image_end" not in out:
         sys.exit("dispapps: %s's map has no os88_image_end" % app)
     _MAPS[app] = out
     return out
+
+
+def colour_gif(src="build/OS8088.GIF", dst="/tmp/OS88COL.GIF"):
+    """`src` with a FOUR-entry colour table, so SPEC.md 42.23.6 keeps it 4bpp.
+
+    **Every pixel is identical** - the two entries the image uses keep their
+    indices and their colours, and two unused ones are appended - so any row
+    whose oracle is "the canvas against the file" is unaffected. What changes
+    is the one bit `pt_fmtpick` reads: 42.23.6 opens a picture whose colour
+    table has two entries ONE BIT DEEP, on any adapter, and `build/OS8088.GIF`
+    turns out to have exactly two.
+
+    That is correct for that file and it left the tree with no COLOUR picture
+    at all - so `paintrow` and `paintback`, whose whole subject is the
+    four-plane canvas, stopped being able to get one. Deriving the fixture
+    rather than committing a second image keeps them pinned to the same
+    picture the rest of the paint rows use, and keeps the repo free of a
+    binary (CONTRIBUTING.md 6).
+
+    Returns `dst`, whose basename is deliberately already a legal 8.3 name in
+    upper case: the row has to find it in a file window by the name os88disk
+    put on the disk, and a stem of nine characters would be silently truncated
+    to something neither end agrees on.
+    """
+    import os
+    import shutil
+    sp = os.path.join(ROOT, src) if not os.path.isabs(src) else src
+    if (os.path.exists(dst)
+            and os.path.getmtime(dst) >= os.path.getmtime(sp)):
+        return dst
+    d = bytearray(open(sp, "rb").read())
+    if d[:3] != b"GIF":
+        sys.exit("dispapps: %s is not a GIF" % sp)
+    pk = d[10]
+    if not pk & 0x80:
+        sys.exit("dispapps: %s has no global colour table to widen" % sp)
+    n = 2 << (pk & 7)
+    if n != 2:
+        shutil.copyfile(sp, dst)            # already colour: nothing to do
+        return dst
+    d[10] = (pk & 0xF8) | 1                 # 2 << 1 = four entries
+    d[13:13] = bytes([0xAA, 0x00, 0x00,     # ...two of them unused by the
+                      0x00, 0x00, 0xAA])    # image, and genuinely colours
+    open(dst, "wb").write(bytes(d))
+    return dst
 
 
 def bss_off(app, name):
