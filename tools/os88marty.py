@@ -1839,16 +1839,30 @@ def scratch_disk(path, *files, **kw):
     here = os.path.dirname(os.path.abspath(__file__))
     disk = os.path.join(here, "os88disk.py")
     srcs = [f.split(":")[-1] for f in files]
+    # THE ARGUMENT LIST IS PART OF THE FRESHNESS TEST, and the mtimes alone
+    # are not. A row that starts passing a DIFFERENT file - the same folder,
+    # the same size, another name - moves no input's mtime, so an mtime-only
+    # test keeps the cached image and the row runs against a picture it did
+    # not ask for. It cost a run: three paint rows were pointed at a colour
+    # derivation of OS8088.GIF and read `'OS88COL.GIF' is not in this folder`
+    # out of a disk still holding the old one. The sidecar is the same
+    # self-maintaining shape as the mtime test - nothing enumerates what
+    # matters, the whole invocation is compared.
+    want = "\n".join([str(kw.get("size", 360))] + list(files))
+    side = path + ".args"
     try:
         have = os.path.getmtime(path)
         fresh = all(os.path.getmtime(s) <= have for s in srcs)
+        fresh = fresh and open(side).read() == want
     except OSError:
-        fresh = False                       # missing image, or a missing
-                                            # input: let os88disk say which
+        fresh = False                       # missing image, missing sidecar,
+                                            # or a missing input: rebuild and
+                                            # let os88disk say which
     if not fresh:
         subprocess.check_call(
             [sys.executable, disk, "-o", path,
              "--size", str(kw.get("size", 360))] + list(files))
+        open(side, "w").write(want)
     return path
 
 
