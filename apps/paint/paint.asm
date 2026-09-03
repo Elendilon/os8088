@@ -374,23 +374,21 @@ PT_BMPHDR1  equ 62                  ; ...and 14 + 40 + 2*4 when the canvas is
                                     ; multiples of 2 and PT_BMPHDR1 is the one
                                     ; that must stay so, because pt_bmp_hdr
                                     ; copies its template with `rep movsw`
-; --- THE THREE INK CLASSES, AND THEY ARE THE KERNEL'S (SPEC.md 39.4, 42.23.1)
-; A bit per colour, indexed by the palette entry. Both words are DERIVED from
-; kernel/viddet.inc's `gfx_inktab` - the one place in the system that says what
-; each of the sixteen looks like on a screen with two - and
-; tests/unit/t_inktab.py re-derives them and fails the build if they drift.
+; --- THE THREE INK CLASSES ARE THE KERNEL'S (SPEC.md 39.4, 42.23.1)
+; The tables live at the foot of this file - pt_cls16, pt_bitEO and pt_bitOE -
+; and every one of them is DERIVED from kernel/viddet.inc's `gfx_inktab`, the
+; one place in the system that says what each of the sixteen looks like on a
+; screen with two. tests/unit/t_inktab.py re-derives all four 16-byte halves
+; and fails the build if any drifts.
 ;
-; **THIS WAS A GUESS AND THE GUESS WAS WRONG.** The first build of SPEC.md
-; 42.23 had one word, `PT_LIT16` = colours 7..15 white, on the reasoning that
-; the bright half lights up. gfx_inktab says otherwise: SIX of them - light
-; grey, dark grey, light blue, light green, light cyan and light magenta - are
-; the 50% DITHER class, and only light red, yellow and white are solid white.
-; So a canvas of one bit stored six colours as flat white that every 1bpp
-; screen in the system draws as a checkerboard, which is the one thing 42.23
-; is not allowed to do: the canvas is what the screen shows.
-PT_WHT16    equ 1101000000000000b   ; 12, 14, 15 - solid WHITE
-PT_DTH16    equ 0010111110000000b   ; 7..11, 13  - the 50% DITHER class
-                                    ; ...and everything else (0..6) is BLACK
+; **THE FIRST VERSION WAS A GUESS AND THE GUESS WAS WRONG.** It was one word,
+; `PT_LIT16` = colours 7..15 white, on the reasoning that the bright half
+; lights up. gfx_inktab says otherwise: SIX of them - light grey, dark grey,
+; light blue, light green, light cyan and light magenta - are the 50% DITHER
+; class, and only light red, yellow and white are solid. So a canvas of one
+; bit stored six colours as flat white that every 1bpp screen in the system
+; draws as a checkerboard, which is the one thing 42.23 is not allowed to do:
+; the canvas is what the screen shows.
 
 ; --- content layout (all content-relative; SPEC.md 11's content rect) ----------
 PT_BW       equ 20                  ; tool / swatch button side, pixels
@@ -2158,27 +2156,19 @@ pt_canvas_init:
 ; `db CBLACK, CLGRAY, CWHITE`, so `[pt_mono_pal + class]` is the colour a
 ; one-bit canvas can actually hold - which is what makes the clamp in
 ; pt_ncolset a table lookup rather than a third comparison.
+;
+; IT IS A TABLE AND NOT TWO SHIFTS, and that is worth the sixteen bytes: the
+; first version read two 16-bit masks and did `shr bx, cl` on each, and an
+; 8088 charges 8 + 4 PER BIT for a shift by CL - up to 68 clocks apiece. It
+; was called per PIXEL from pt_line_put's decoder arm and cost most of the
+; 199 cycles a pixel that arm measured (SPEC.md 42.25).
 ; -----------------------------------------------------------------------------
 pt_cls:
     push bx
-    push cx
-    mov cl, al
-    and cl, 15
-    xor al, al
-    mov bx, PT_DTH16
-    shr bx, cl
-    test bl, 1
-    jz .wht
-    inc al                          ; 1 = the dither
-    jmp short .out
-.wht:
-    mov bx, PT_WHT16
-    shr bx, cl
-    test bl, 1
-    jz .out                         ; 0 = black
-    mov al, 2
-.out:
-    pop cx
+    mov bl, al
+    and bl, 15
+    xor bh, bh
+    mov al, [pt_cls16+bx]
     pop bx
     ret
 
@@ -3838,7 +3828,7 @@ pt_blit_1:
     mov [pt_bsi], ax
     cmp ax, [pt_cy2]
     jbe .band
-    jmp short .out
+    jmp .out                        ; NEAR: 42.23.4's two arms sit between
 
     ; --- ONE BIT A PIXEL, ONE ROW A CALL (SPEC.md 42.23.4)
     ;
@@ -3866,7 +3856,96 @@ pt_blit_1:
     ; row's segment out of the table, so a canvas spanning segments needs no
     ; arithmetic at all here. x goes to the BYTE grid the way the planar path
     ; does - a widened left column is inside the canvas and inside the window.
+    ; --- THE FAST PATH (SPEC.md 42.23.4): OSAPI_GFX_BLIT1 takes EXACTLY the
+    ; band this canvas already holds - same bit order, same polarity - and on
+    ; a 1bpp adapter it is a `rep movsw` into the framebuffer at 12.5 clocks a
+    ; byte. Two conditions and both are ordinary:
+    ;
+    ;   * x AND width must be multiples of 8. PT_CV_X is 48 and SPEC.md 11.94
+    ;     snaps a window's content origin to 8, so the x is free; the width is
+    ;     rounded UP, and if that would reach past the picture the whole thing
+    ;     falls to the row loop rather than painting canvas padding on screen.
+    ;   * CF = 1 is a normal answer - kern_small carries the slot and not the
+    ;     body (SPEC.md 5.4.2) - and the row loop below is that second path.
+    ;
+    ; **THE NEGATIVE STRIDE IS FINE, AND THIS ROUTINE ONCE SAID IT WAS NOT.**
+    ; The canvas is stored bottom-up because it IS the BMP, so the stride
+    ; handed over is negative. gfx_blit1_x skips rows with `mul bp` in two
+    ; places, which reads like an unsigned multiply refusing a negative - but
+    ; both sites `push dx` first and use only AX, and THE LOW 16 BITS OF A
+    ; MULTIPLY ARE THE SAME SIGNED OR UNSIGNED. Every other use of the stride
+    ; there is a 16-bit add or subtract. So it was always accepted, and the
+    ; whole of SPEC.md 42.23.4's "what blocks the fast path" was a misreading
+    ; of code that worked.
 .one:
+    mov ax, [pt_cx1]
+    and ax, 0xFFF8
+    mov [pt_bx0], ax
+    mov bx, [pt_cx2]
+    inc bx
+    add bx, 7
+    and bx, 0xFFF8                  ; the byte-grid right edge...
+    cmp bx, [pt_cw]
+    ja .oslow                       ; ...past the picture: the row loop instead
+    sub bx, ax
+    mov [pt_bwid], bx               ; width in pixels, a multiple of 8
+    mov ax, 65520                   ; rows that fit one segment...
+    xor dx, dx
+    div word [pt_stride]
+    or ax, ax
+    jnz .o1rm
+    inc ax
+.o1rm:
+    cmp ax, 255                     ; ...and gfx_blit1's own row ceiling
+    jbe .o1cap
+    mov ax, 255
+.o1cap:
+    mov [pt_brmax], ax
+    mov ax, [pt_cy1]
+    mov [pt_bsi], ax
+.o1band:
+    mov ax, [pt_cy2]
+    sub ax, [pt_bsi]
+    inc ax
+    cmp ax, [pt_brmax]
+    jbe .o1n
+    mov ax, [pt_brmax]
+.o1n:
+    mov [pt_bn], ax                 ; rows in this band
+    add ax, [pt_bsi]
+    dec ax                          ; its LAST row is the lowest address, so
+    call pt_rowset                  ; every other row is a POSITIVE offset from
+    mov ax, [pt_bn]                 ; there and nothing can go below zero
+    dec ax
+    mul word [pt_stride]            ; (n-1) strides back up to the first row
+    add ax, di
+    mov bx, [pt_bx0]
+    shr bx, 1
+    shr bx, 1
+    shr bx, 1
+    add ax, bx                      ; + the left edge, eight pixels to a byte
+    mov si, ax
+    mov bp, [pt_stride]
+    neg bp                          ; down the picture is up the file
+    mov ax, CWHITE                  ; SPEC.md 42.23.1: a SET bit is white. The
+    mov ah, CBLACK                  ; pen is ignored on a 1bpp adapter and is
+    call OSAPI_GFX_BLIT1_PEN        ; what carries the mapping on a colour one
+    mov cx, [pt_bwid]
+    mov dx, [pt_bn]
+    mov ax, [pt_bx0]
+    add ax, [pt_cx0]
+    mov bx, [pt_bsi]
+    add bx, [pt_cy0]
+    call OSAPI_GFX_BLIT1
+    jc .oslow                       ; no body on this kernel: the row loop
+    mov ax, [pt_bsi]
+    add ax, [pt_bn]
+    mov [pt_bsi], ax
+    cmp ax, [pt_cy2]
+    jbe .o1band
+    jmp .out
+
+.oslow:
     mov ax, [pt_cx1]
     and ax, 0xFFF8
     mov [pt_bx0], ax
@@ -13865,61 +13944,98 @@ pt_line_put:
     ; reason rather than for the clocks: this is the BMP and GIF decoders'
     ; inner loop, every row of every picture opened, and a `call`/`ret` per
     ; pixel is thirty cycles around fourteen of work.
+    ; --- ONE BIT A PIXEL (SPEC.md 42.23, 42.25) -----------------------------
+    ; EIGHT PIXELS STRAIGHT-LINE, and the reason is §42.13.1.4's exactly: on
+    ; an 8088 this loop is bound by INSTRUCTION FETCH, 4.34 clocks a byte, so
+    ; what it costs is what it is spelled with. The first version read two
+    ; 16-bit class masks and did `shr ax, cl` on each - 8 + 4 PER BIT, up to
+    ; 68 clocks apiece - inside a rolled per-pixel loop, and measured 199
+    ; cycles a pixel against the packed path's 49.
+    ;
+    ; `xlatb` is the whole answer: one byte, DS:[BX+AL], the table indexed by
+    ; the colour. The PHASE - is this pixel's (x+y) even or odd - is the row's
+    ; parity picking the base and `or al, 16` on the odd steps, both folded
+    ; into a straight-line eight so no per-pixel test survives.
+    ;
+    ; `and al, 15` STAYS, and it is not defensive habit: pt_line holds what
+    ; pt_pmap mapped, and pt_pmap is 256 bytes of which a picture fills only
+    ; biClrUsed entries - so an 8bpp BMP declaring two colours and then using
+    ; index 200 reads an UNINITIALISED entry (SPEC.md 42.6's rule that a byte
+    ; off a disk is hostile). The old code masked; dropping it would index a
+    ; 16-byte table with whatever that byte held.
 .one:
     cld
-    mov dx, ax                      ; AX IS STILL THE ROW - pt_rowset preserves
-    mov al, CLGRAY                  ; it - so the dither's phase is free here
-    call pt_pat                     ; (SPEC.md 42.23.1)
-    mov [pt_dpat], al               ; 0xAA on an even row, 0x55 on an odd one
+    mov bx, pt_bitEO                ; AX IS STILL THE ROW - pt_rowset preserves
+    test al, 1                      ; it - so the phase is free here: x=0 on an
+    jz .oph                         ; even row is (x+y) EVEN, on an odd row ODD
+    mov bx, pt_bitOE
+.oph:
     mov si, pt_line
     mov dx, [pt_cols]
     or dx, dx
     jz .done
-.o8:
-    xor bl, bl                      ; BL = the byte being built...
-    mov bh, 0x80                    ; ...BH the bit it is being built into
-.obit:
+%macro PTBIT1 1                     ; one pixel; %1 = 0 even x, 16 odd
     lodsb
-    mov cl, al
-    and cl, 15
-    mov ax, PT_WHT16
-    shr ax, cl
-    test al, 1
-    jnz .oset                       ; solid white: always
-    mov ax, PT_DTH16
-    shr ax, cl
-    test al, 1
-    jz .o0                          ; solid black: never
-    mov al, [pt_dpat]               ; the DITHER, and whether it lights THIS
-    test al, bh                     ; pixel is the row pattern's own bit
-    jz .o0
-.oset:
-    or bl, bh
-.o0:
-    shr bh, 1
-    dec dx
-    jz .otail
-    or bh, bh
-    jnz .obit
-    mov al, bl
+    and al, 15
+  %if %1
+    or al, 16
+  %endif
+    xlatb
+    shl cl, 1
+    or cl, al
+%endmacro
+.o8:
+    cmp dx, 8
+    jb .otail
+    xor cl, cl
+    PTBIT1 0
+    PTBIT1 16
+    PTBIT1 0
+    PTBIT1 16
+    PTBIT1 0
+    PTBIT1 16
+    PTBIT1 0
+    PTBIT1 16
+    mov al, cl
     stosb                           ; a WHOLE byte: nothing to preserve in it
+    sub dx, 8
     jmp short .o8
-.otail:
-    or bh, bh
-    jz .owhole                      ; the row ended exactly on a byte
-    mov al, bh                      ; BH is the first bit that is NOT ours, so
-    shl al, 1                       ; 2*BH-1 masks off everything below it
-    dec al
-    mov ah, [es:di]
-    and ah, al                      ; what the row already holds there...
-    not al
-    and bl, al                      ; ...and only the bits this row filled
-    or bl, ah
-.owhole:
-    mov al, bl
-    mov [es:di], al
-    jmp .done
 
+    ; --- the ragged end, 1..7 pixels, which MERGES rather than writes: the
+    ; pixels past [pt_cols] are not this row's to touch (SPEC.md 42.23.6)
+.otail:
+    or dx, dx
+    jz .done
+    ; **THE PHASE STARTS EVEN HERE, ALWAYS.** The loop above consumed a whole
+    ; number of BYTES, so x is a multiple of 8 and this pixel's (x+y) parity
+    ; is the row's - which is what the table base already encodes. Deriving it
+    ; from the pixels REMAINING instead reads the phase backwards on an odd
+    ; count, and the picture comes out with its dither inverted in the last
+    ; byte of every row.
+    mov cx, dx                      ; CX = n, 1..7 (DH is 0 here: n < 8)
+    xor dh, dh                      ; DH = the phase, 0 then 16 then 0...
+    xor ah, ah                      ; AH = the byte being built
+.otbit:
+    lodsb
+    and al, 15
+    or al, dh
+    xlatb
+    shl ah, 1
+    or ah, al
+    xor dh, 16
+    loop .otbit
+    ; DL is still n. The n bits sit at the BOTTOM of AH and belong at the top,
+    ; and the 8-n below them belong to whatever the row already holds.
+    mov cl, 8
+    sub cl, dl
+    shl ah, cl                      ; CL = 8-n: the bits to their places
+    mov cl, dl
+    mov al, 0xFF
+    shr al, cl                      ; CL = n: AL = the low 8-n, NOT ours
+    and al, [es:di]
+    or al, ah
+    stosb
+    jmp .done
     ; --- FOUR PLANES: eight pixels build four bytes, and the LAST byte of a
     ; row whose width is not a multiple of 8 is merged rather than written -
     ; the pixels past [pt_cols] are not this row's to touch, which is the same
@@ -15919,6 +16035,30 @@ pt_hdrtpl:
     dd 16                           ; biClrUsed
     dd 0                            ; biClrImportant
 
+; --- SPEC.md 39.4's THREE CLASSES, and the two bit tables they generate -----
+; ALL FOUR 16-BYTE HALVES ARE gfx_inktab's, and tests/unit/t_inktab.py
+; re-derives every one of them from kernel/viddet.inc. Nothing here may be
+; edited on its own.
+;
+;   pt_cls16   0 = solid BLACK, 1 = the 50% DITHER, 2 = solid WHITE
+;   pt_bitE    does this colour light a pixel where (x+y) is EVEN?  cls != 0
+;   pt_bitO    ...and where (x+y) is ODD?                           cls == 2
+;
+; The two bit tables are laid out TWICE, as 32-byte pairs, so pt_line_put's
+; decoder needs no per-pixel test for the phase: an even row takes pt_bitEO
+; and an odd one pt_bitOE, and within a byte an odd-x pixel is `or al, 16`
+; away from an even-x one. That is 32 bytes of duplication buying a byte a
+; pixel of instruction fetch, which on an 8088 is the thing being spent
+; (SPEC.md 42.25).
+pt_cls16:
+    db 0,0,0,0,0,0,0,1, 1,1,1,1,2,1,2,2
+pt_bitEO:
+    db 0,0,0,0,0,0,0,1, 1,1,1,1,1,1,1,1      ; E: lit where (x+y) is even
+    db 0,0,0,0,0,0,0,0, 0,0,0,0,1,0,1,1      ; O: lit where (x+y) is odd
+pt_bitOE:
+    db 0,0,0,0,0,0,0,0, 0,0,0,0,1,0,1,1      ; O
+    db 0,0,0,0,0,0,0,1, 1,1,1,1,1,1,1,1      ; E
+
 ; --- one 1bpp NIBBLE -> four packed-4bpp pixels (SPEC.md 42.23.4) -----------
 ; Four source bits, bit 3 leftmost, become two bytes of two pixels each - so
 ; the entry is a WORD and one `mov` places both. Set = CWHITE, clear = CBLACK,
@@ -16402,12 +16542,6 @@ pt_ic_text:
                                     ; the wording (SPEC.md 42.23.6)
     PTBYTE pt_dcvt                  ; pt_fmtpick's answer, ORed into pt_trunc
                                     ; by pt_tredo once pt_adopt has cleared it
-    PTBYTE pt_dpat                  ; SPEC.md 42.23.1: the 50% dither's byte
-                                    ; for the row pt_line_put is filling, 0xAA
-                                    ; or 0x55. In memory rather than a register
-                                    ; because that loop has none free, and one
-                                    ; read per DITHER-class pixel is a cost
-                                    ; only a colour picture pays
 %ifdef PTF_GIF
     PTWORD pt_gncol                 ; entries in the colour table in effect
 %endif

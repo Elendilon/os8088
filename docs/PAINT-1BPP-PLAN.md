@@ -351,13 +351,19 @@ always on small.
 
 ## 8. Open — settle these before building
 
-1. **Does `gfx_blit1` accept a NEGATIVE stride?** The canvas is stored bottom-up
-   because it is the BMP, so `pt_blit` hands `gfx_blit4` a negative stride today.
-   `gfx_blit1_x` does `add si, [bp+6]`, which wraps correctly — but SPEC.md
-   §5.4.2 does not *say* signed, and an unstated property is not a contract. If
-   it holds, say so in the SPEC; if not, the alternatives are a top-down canvas
-   with a negative `biHeight` (legal BMP, less universally read) or a flip at
-   save.
+1. ~~**Does `gfx_blit1` accept a NEGATIVE stride?**~~ **YES — ANSWERED, AND THE
+   FIRST ANSWER WAS WRONG.** It was read as *no*, on the ground that
+   `gfx_blit1_x` skips rows with `mul bp` in two places and `MUL` is unsigned;
+   SPEC.md §42.23.4 shipped that reasoning and refused the fast path on it.
+   Both sites `push dx` first and use only `AX` — the high half is deliberately
+   discarded — and **the low 16 bits of a multiply are identical signed or
+   unsigned**. Every other use of the stride there is a 16-bit `add` or `sub`.
+
+   The tell was in the tree the whole time: `gfx_blit4` takes a negative stride
+   from §42's 4bpp path, for exactly the same reason. **No kernel change was
+   needed**, and the lesson is the cheaper one — an instruction's *name* said
+   unsigned and its *use* did not, and reading only the name cost a section of
+   SPEC.md that had to be withdrawn.
 2. **What does `gfx_blit4`'s own fixed part cost?** Option C's fallback is 258
    calls or 15, and that is the difference between ~12 ms and ~195 ms of
    overhead. One measurement decides between a 224-byte buffer and a 4 KB one.
