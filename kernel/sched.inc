@@ -138,8 +138,9 @@ SCH_DRV_STK     equ 192         ; a driver's worker. The only one in the tree
                                 ; deepest static chain is 28 bytes
                                 ; (tools/stkdepth.py on sbl_refill_task) - so
                                 ; 64 + 28 = 92 and this is 2.1x. It is one
-                                ; number for all drivers because there is one
-                                ; caller of OSAPI_DRV_TASK in the whole tree;
+                                ; number for all drivers because one driver
+                                ; calls OSAPI_DRV_TASK in the whole tree (the
+                                ; sound driver's refill and drain spawners);
                                 ; a driver that needs more is a line here with
                                 ; a reason beside it, not a new mechanism
 
@@ -203,17 +204,20 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 %macro SCH_PARTITION 0
     SCH_SLOT 128                ; the sleepers. ONE of these is the idle task's
     SCH_SLOT 128                ; for as long as the machine is up, so two are
-    SCH_SLOT 128                ; really available: a C package whose worker
-                                ; only sleeps, a Timer, a Bounce, the sound
-                                ; driver's stream task
+    SCH_SLOT 128                ; really available: a Timer, a Bounce, the
+                                ; sound driver's stream task. NOT a C package
+                                ; whose worker "only sleeps": CWORD's and
+                                ; RUNCPM's close the window from that worker,
+                                ; and wm_destroy repaints what it uncovered
+                                ; on the CALLER's stack - they ask for 256
     SCH_SLOT 192                ; THE MODAL CLASS - eleven of the twenty
     SCH_SLOT 192                ; workers in the tree land here
     SCH_SLOT 192                ; (docs/STACK-SLOTS-PLAN.md 12.1): WIREFRAME,
     SCH_SLOT 192                ; Artful, the Task Manager, the Fractal, WEAVE,
-    SCH_SLOT 192                ; Cyclone, Notepad, Arkanoid, Tracker,
-    SCH_SLOT 192                ; Tamegram, Tank Attack
-    SCH_SLOT 256                ; Modplug, Missile Command, Word, Telnet
-    SCH_SLOT 256
+    SCH_SLOT 192                ; Cyclone, Notepad, Arkanoid, Tracker
+    SCH_SLOT 192
+    SCH_SLOT 256                ; Modplug, Missile Command, Word, Telnet,
+    SCH_SLOT 256                ; Tamegram, Tank Attack, CWORD, RUNCPM
     SCH_SLOT SCH_STACK          ; ftpd, the Browser and Frotz - and TWO is the
     SCH_SLOT SCH_STACK          ; judgement in this list. The pair that plausibly
                                 ; runs at once is ftpd and the Browser, on a
@@ -229,6 +233,9 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 %assign SCH_STK_N     0
 %assign SCH_STK_MAX   0
 %macro SCH_SLOT 1
+    %if (%1) < SCH_STK_MAX
+      %error "SCH_PARTITION must ascend: first fit is SMALLEST fit (SPEC.md 8.7.1) only while the slots are listed small to large"
+    %endif
     %assign SCH_STK_TOTAL SCH_STK_TOTAL + (%1)
     %assign SCH_STK_N     SCH_STK_N + 1
     %if (%1) > SCH_STK_MAX
@@ -1794,13 +1801,26 @@ sch_isr:
 %ifndef NO_CHAINPRIV
     cmp byte [sch_chbusy], 0    ; NESTED? (SPEC.md 8.5.1) The ROM sends its EOI
     jne .chskip                 ; and then stis, so a second IRQ0 can re-enter
-                                ; this ISR - and that one may not simply nest
-                                ; on the private stack, because it runs on to
-                                ; sch_switch, which would save a PRIVATE SP
-                                ; into a task record. Everything else that can
-                                ; land in that window - int 09h, a mouse gate
-                                ; frame, the floppy's completion - nests
-                                ; harmlessly, and the stack is sized for it
+                                ; this ISR - and that one may not chain again
+                                ; on the private stack (sch_chsave is one
+                                ; word), and it is ALREADY on that stack, so
+                                ; the switch below is refused for it too: a
+                                ; task record must never hold a private SP.
+                                ; Everything else that can land in that window
+                                ; - int 09h, a mouse gate frame, the floppy's
+                                ; completion - nests harmlessly, and the stack
+                                ; is sized for it
+    mov ax, ss
+    cmp ax, LOW_SEG             ; **ONLY ON A TASK STACK** (SPEC.md 8.5). SS is
+    jne .chplain                ; LOW_SEG for every os8088 context, but not
+                                ; inside a ROM service that switched stacks -
+                                ; and int 13h runs with IF=1, taking 21 of
+                                ; these a transfer (15.3.8). SeaBIOS serves it
+                                ; on an internal stack in a segment of its own,
+                                ; so moving SP alone there put the chain at
+                                ; SS:sch_chstack in the ROM's segment. The IBM
+                                ; ROMs do not hop; where one does, the chain
+                                ; runs in place as it did before 8.5
     inc byte [sch_chbusy]
     mov [sch_chsave], sp
     mov sp, sch_chstack + SCH_CHSTK
@@ -1809,6 +1829,10 @@ sch_isr:
     mov sp, [sch_chsave]        ; ...and the ROM's iret restored our IF=0 with
     dec byte [sch_chbusy]       ; the flags the pushf banked, so this is back
     jmp short .chained          ; inside the ISR's own contract
+.chplain:
+    pushf                       ; not a task stack: chain where we stand
+    call far [sch_old08]
+    jmp short .chained
 .chskip:
     inc word [sch_chskip]       ; the claim in SPEC.md 8.5.1 is a READING, not
                                 ; an argument: STKDIAG publishes this
@@ -1903,6 +1927,13 @@ sch_isr:
     add bx, T_SIZE
     loop .wake
 
+%ifndef NO_CHAINPRIV
+    cmp byte [sch_chbusy], 0    ; a NESTED tick is running on sch_chstack
+    jne sch_resume              ; (8.5.1): it may account and wake, which fit
+                                ; there, but it may not park a PRIVATE SP in a
+                                ; task record - the outer tick's frame is the
+                                ; interrupted task's and it is resumed below
+%endif
     cmp byte [sch_lock], 0      ; locked: count ticks but do not switch
     jne sch_resume
     cmp byte [sch_coop], 0

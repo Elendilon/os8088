@@ -767,8 +767,8 @@ whole mechanism; discovering it at a failed assemble is what moves 22, 23 and
 kilobyte** off big's free heap on a 640KB machine and **half a kilobyte** off
 small's on a 128KB one. The absolutes are the ladder's, and the ladder is what
 `tools/kernsize.py` prints rather than anything to re-derive by hand: as this
-branch stands, big's heap starts at 108.0 KB and small's at 94.0, so **532.0
-KB free on the 640KB machine and 34.0 on the 128KB one**. The half-kilobyte is
+branch stands, big's heap starts at 108.0 KB and small's at 91.5, so **532.0
+KB free on the 640KB machine and 36.5 on the 128KB one**. The half-kilobyte is
 **2.3%** of everything a package has on the small machine, and it went to a
 right-click.
 
@@ -1103,10 +1103,10 @@ Three things about it:
   "big": {
     "boot2": 2250,
     "bootmax": 192512,
-    "bss": 5904,
+    "bss": 5905,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 36714,
+    "cold": 36793,
     "coldpara": 2304,
     "fatpara": 288,
     "imgpara": 3520,
@@ -1119,17 +1119,17 @@ Three things about it:
     "ovl": 1417,
     "ovlw": 5037,
     "stk0": 512,
-    "text": 50150,
+    "text": 50251,
     "vgabuf": 848,
     "vgabufpara": 64
   },
   "small": {
     "boot2": 2250,
     "bootmax": 122880,
-    "bss": 4746,
+    "bss": 4747,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 25602,
+    "cold": 25671,
     "coldpara": 1632,
     "fatpara": 64,
     "imgpara": 2752,
@@ -1142,7 +1142,7 @@ Three things about it:
     "ovl": 423,
     "ovlw": 2789,
     "stk0": 512,
-    "text": 38951,
+    "text": 39013,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -1257,11 +1257,11 @@ reports. The arithmetic is exact and worth writing down, because every RAM
 figure in this project falls out of it:
 
 > **heap KB = what int 12h reports − 108.0** (kern_big, as this branch stands;
-> kern_small's is **94.0**)
+> kern_small's is **91.5**)
 
 > **Both figures were 120.0 and 106.5 until this edition, and the stale pair
 > had been quoted onward. They then moved AGAIN inside one merge** — kernel
-> size pass 3 landed and took them to 108.0 and 94.0 before the ink was dry,
+> size pass 3 landed and took them to 108.0 and 94.0 before the ink was dry - and small's has moved once more since, to 91.5, when file associations were gated out of it -
 > which is the point below made twice in a row. The sentence above says not to re-derive the
 > ladder by hand and `tools/kernsize.py` prints it — but nothing re-read it
 > either, so "a 128KB machine has 21.5KB of heap" was carried into SPEC.md
@@ -2031,14 +2031,14 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 30,576 | 35.2% |
-| the window system and its furniture | 24,107 | 27.8% |
-| drawing: adapters, primitives, glyphs, icons | 14,919 | 17.2% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,070 | 9.3% |
-| the kernel proper: API table, heap, scheduler, events | 7,060 | 8.1% |
+| the file system, end to end | 30,655 | 35.2% |
+| the window system and its furniture | 24,144 | 27.7% |
+| drawing: adapters, primitives, glyphs, icons | 14,926 | 17.1% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,103 | 9.3% |
+| the kernel proper: API table, heap, scheduler, events | 7,084 | 8.1% |
 | the three built-in kinds | 1,542 | 1.8% |
 | the Control Panel | 590 | 0.7% |
-| **total** | **86,864** | |
+| **total** | **87,044** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -2046,14 +2046,14 @@ generated in the first place.
 |---|---:|---:|---:|---:|---:|---:|
 | `wm.inc` — the window manager (§11) | 11,659 | 94 | **11,753** | 1,074 | — | — |
 | `files.inc` — the Disk window (§22) | 1,049 | 8,151 | **9,200** | 465 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 7,235 | 702 | **7,937** | 162 | 526 | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,793 | **6,188** | 889 | — | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 7,242 | 702 | **7,944** | 162 | 526 | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,797 | **6,192** | 889 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,969 | **5,210** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,496 | **4,675** | 152 | — | — |
-| `mouse.inc` — serial mouse and the cursor (§9) | 3,762 | — | **3,762** | 151 | 128 | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,329 | — | **3,329** | 58 | — | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 3,795 | — | **3,795** | 151 | 128 | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,334 | — | **3,334** | 58 | — | — |
 | `menu.inc` — the menu bar and pull-downs (§12) | 2,737 | 177 | **2,914** | 197 | 84 | — |
-| `assoc.inc` — file type associations (§54) | 480 | 1,997 | **2,477** | 43 | — | — |
+| `assoc.inc` — file type associations (§54) | 480 | 2,004 | **2,484** | 43 | — | — |
 | `memory.inc` — the claim heap (§50) | 35 | 2,420 | **2,455** | 18 | 324 | — |
 | `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 1,944 | **2,440** | 346 | — | — |
 | `instance.inc` — instances and the built-in kinds (§29) | 2,027 | 236 | **2,263** | 636 | — | — |
@@ -2062,15 +2062,15 @@ generated in the first place.
 | `apps.inc` — the three built-in kinds (§14) | 282 | 1,260 | **1,542** | 11 | 240 | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,292 | — | **1,292** | 20 | — | — |
 | `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,230 | — | **1,230** | 74 | — | — |
-| `sched.inc` — pre-emptive scheduling (§7–8) | 1,098 | — | **1,098** | 199 | 2,944 | — |
+| `sched.inc` — pre-emptive scheduling (§7–8) | 1,122 | — | **1,122** | 199 | 2,944 | — |
 | `snd.inc` — the sound layer (§34) | 1,024 | — | **1,024** | 287 | — | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 986 | — | **986** | 9 | — | — |
 | `icons.inc` — the icon renderer (§10) | 977 | — | **977** | 281 | — | — |
 | `viddet.inc` — adapter detection and geometry (§39) | 867 | — | **867** | — | 696 | 3 |
 | `desk.inc` — the desktop and volume zones (§14/§26.1) | 11 | 850 | **861** | 12 | — | — |
+| `loader.inc` — the package loader (§21) | 4 | 732 | **736** | 35 | — | — |
+| `fprog.inc` — the file-operation progress widget (§12.8) | 725 | — | **725** | — | — | — |
 | `dock.inc` — the dock strip (§30) | 696 | — | **696** | 35 | — | — |
-| `fprog.inc` — the file-operation progress widget (§12.8) | 693 | — | **693** | — | — | — |
-| `loader.inc` — the package loader (§21) | 4 | 664 | **668** | 34 | — | — |
 | `clock.inc` — the clock ladder (§37) | 606 | — | **606** | 59 | — | — |
 | `ctrl.inc` — the Control Panel (§31) | 335 | 255 | **590** | 28 | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 433 | — | **433** | 25 | — | — |
@@ -2088,7 +2088,7 @@ generated in the first place.
 | `stkdiag.inc` — **(undescribed)** | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 2,979 | 18 | **2,997** | — | — | 421 |
-| **total** | **50,150** | **36,714** | **86,864** | **5,904** | **9,182** | **2,250** |
+| **total** | **50,251** | **36,793** | **87,044** | **5,905** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it

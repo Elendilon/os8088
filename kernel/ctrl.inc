@@ -2363,10 +2363,21 @@ cp_thm_btn:
 ; SPEC.md 47 rule 1: ONE predicate drives the greying, the glyph and the
 ; refusal, so the three cannot disagree - and it is a FACT (rule 3), not a
 ; guess: SPEC.md 39.4 reduces every index outside {0,15} to black, white or
-; the 50% dither, so on a 1bpp adapter Color would BE Bright.
+; the 50% dither, so on a 1bpp adapter Color would BE Bright. The test is the
+; PRIMARY'S DEPTH - VID_VGA and VID_EGA are the two 4-plane kinds - and it
+; must match thm_set's own refusal (SPEC.md 76.12.1). It was `cmp [vid_kind],
+; VID_VGA` while VGA was the only colour adapter. It is NOT [vid_mono]: this
+; is reached from the page's own paint and click, inside a lock hold in which
+; the panel has just drawn on ITS display, and on a two-card desktop that byte
+; names the display last drawn on (SPEC.md 39.14.3) - so spelt that way a
+; panel dragged onto the Hercules greyed Color, and cancelled the click, on a
+; machine whose primary is a VGA. [vid_kind] is the primary's and vid_ctx_act
+; never moves it.
 %ifdef KERN_BIG
 cp_thm_colgrey:
     cmp byte [vid_kind], VID_VGA
+    je .live
+    cmp byte [vid_kind], VID_EGA
     je .live
     stc
     ret
@@ -4851,6 +4862,7 @@ cp_drv_mempar:
 ; (SPEC.md 62.9.10.1), so its row prices the driver and says '+' for the rest.
 ; -----------------------------------------------------------------------------
 cp_drv_memstr:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

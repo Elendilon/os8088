@@ -236,7 +236,21 @@ op_load:
 .sized:
     mov ax, [op_allkb]
     or ax, [op_reqkb]
-    jz .done                    ; a table of nothing to claim
+    jnz .grant
+    ; Nothing conventional to claim - but a table of nothing but OP_XMS rows,
+    ; on a machine whose store took them, still has a SPAN to load, and it
+    ; needs the cluster size the same as a carve does. Without this arm the
+    ; span was never read and op_seg answered 0 for every part on a 286, while
+    ; the same package worked on an 8088 where the store is absent and the
+    ; rows fall back into the carve.
+    cmp word [op_xsecs], 0
+    je .done                    ; a table of nothing to claim
+    call op_clbget
+    jc .nodisk
+    call op_xload
+    jc .ioerr
+    jmp short .done
+.grant:
 
     ; --- what the machine will grant, and the OPTIONAL parts are the give --
     ; ALL OR NONE, and one retry (SPEC.md 20.12.4). Dropping optional parts
@@ -265,7 +279,11 @@ op_load:
     ; at all, and asking a volume its geometry when there is nothing to read
     ; off it would make a memory operation depend on a disk being there.
     cmp word [op_secs], 0
-    je .claim
+    jne .clb
+    cmp word [op_xsecs], 0      ; ...and the SPAN reads the disk too, so a
+    je .claim                   ; table of scratch plus OP_XMS rows asks
+.clb:                           ; as well - op_xload with [op_clb] = 0 refused
+                                ; every such package as `Cannot read my parts`
     call op_clbget              ; ...asked once, and cached (op_clbget)
     jc .nodisk
 .claim:
@@ -430,6 +448,10 @@ op_size:
     jmp .one
 
 .run:
+    cmp word [op_xsecs], 128    ; the span is climbed through one WORD of
+    jae .bad                    ; bytes (op_xload: `shl ax, 9`), so it has the
+                                ; same 64KB ceiling the carve has below - 128
+                                ; sectors read as 0 there, and 180 as 26,624
     or bx, bx
     jz .norun
     mov [op_first], bx
@@ -753,8 +775,11 @@ op_xload:
     jc .drop
     mov bx, ax
     or bx, dx
-    jz .fin                     ; past the end: a truncated copy, and the
-                                ; package's own checks are what catch it
+    jz .drop                    ; past the end with [op_xleft] still owed: a
+                                ; TRUNCATED file, and SPEC.md 20.12.4 says the
+                                ; standard refuses it - the same answer op_read
+                                ; gives a short carve. It used to be `.fin`,
+                                ; a success with a half-filled block
 
     mov si, [op_xslack]         ; ...and up it goes. The slack is only in
     mov word [op_xslack], 0     ; front of the FIRST chunk

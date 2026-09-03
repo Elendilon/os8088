@@ -442,6 +442,17 @@ def orphan_locals(path):
 
 def main():
     files = list(sources())
+    # The ladder must have been READ before crossed_pops is believed: rungs()
+    # returning {} - an OSError it swallows, a RUNGDEF that stopped matching
+    # kernel.asm - silently un-splices every `jmp kret_xx` routine from the
+    # order check, and the check passes over what it no longer sees. There
+    # are 17 rungs today.
+    check(len(rungs()) >= 10,
+          "the kernel's return ladder was read (%d rungs)" % len(rungs()),
+          "rungs() found fewer than ten kret_*/kretc_*/kretfc_* rungs in "
+          "kernel/kernel.asm, so every routine that exits through one would "
+          "be checked against an empty pop list and crossed_pops would find "
+          "nothing", got=sorted(rungs()), want="at least 10")
     for path in files:
         rel = os.path.relpath(path, ROOT)
         for line, after, dead in dead_code(path):

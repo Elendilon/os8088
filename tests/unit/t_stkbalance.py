@@ -208,9 +208,13 @@ task_exit:
     iret
 """},
 
-    "a loop that pushes N and pops N on a back edge": {
+    "a loop that pushes N and pops N, MARKED `; STKBALANCE-LOOP:`": {
+        # The count is in CX and no static walk can pair the two loops, so
+        # the routine says so.  Without the marker this is the LOUD row
+        # `a pop inside a loop` below - the two are the same shape.
         "a.inc": """
 itoa:
+    ; STKBALANCE-LOOP: one digit pushed a turn, popped by the second loop
     xor cx, cx
 .div:
     push dx
@@ -366,6 +370,59 @@ caller:
 callee:
     mov ax, 1
     ret
+"""},
+
+    "a pop INSIDE a loop - the second turn pops the return address": {
+        # Statically this is an itoa: the loop target dominates the source,
+        # the edge is backward and inside one routine, and every test that
+        # suppressed the itoa's conflict suppressed this one with it.  So
+        # nothing is suppressed without a marker now, and a routine that is
+        # not marked reports here.
+        "a.inc": """
+looppop:
+    push cx
+.l:
+    pop cx
+    loop .l
+    ret
+"""},
+
+    "a tail-merged epilogue one register deep, reached by a BACKWARD jmp": {
+        # `.done` pops AX for the straight path, and `.alt` has pushed BX
+        # before jumping back into it.  The old rule read the backward
+        # same-routine edge as a loop and the walk went quiet at exit 0.
+        "a.inc": """
+merged:
+    push ax
+    cmp bx, 1
+    je .alt
+.done:
+    pop ax
+    ret
+.alt:
+    push bx
+    jmp .done
+"""},
+
+    "a jump table whose arms are `owner.local` (mppui.inc, wfx.inc)": {
+        # `dw disp.arm0, disp.arm1` used to read as four words - disp, arm0,
+        # disp, arm1 - so the dispatch pushed disp's own global at depth +1
+        # (backward, same owner: suppressed) and .arm1 was never walked. It
+        # pushes BX and never pops it, and passed with exit 0.
+        "a.inc": """
+disp:
+    push ax
+    mov bx, [sel]
+    jmp [disp_tab + bx]
+.arm0:
+    pop ax
+    ret
+.arm1:
+    push bx
+    pop ax
+    ret
+disp_tab:
+    dw disp.arm0, disp.arm1
 """},
 }
 

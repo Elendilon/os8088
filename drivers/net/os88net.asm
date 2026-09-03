@@ -427,6 +427,7 @@ put_ip:
 
 ; --- put_dec - AX as decimal, no padding -------------------------------------
 put_dec:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx
@@ -4227,6 +4228,7 @@ puthex16:
     ret
 
 putdec16:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

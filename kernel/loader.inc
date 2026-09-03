@@ -341,6 +341,11 @@ ld_check_hdr:
 ; -----------------------------------------------------------------------------
 ld_say_status:
     mov [ld_status], al
+    cmp byte [ld_said], 0       ; SPEC.md 20.12.4: the entry proc's own toast
+    je .say                     ; is up, and it names the reason better than
+    mov byte [ld_said], 0       ; `Load failed` would - record, and say nothing
+    ret
+.say:
     mov bx, fm_stattab
     mov cx, LD_NSTAT
     call KERNEL_SEG:toast_say
@@ -453,6 +458,29 @@ ld_run_name_x:
                                 ; dsk_clus2lba was handed 0x20 as a cluster.
                                 ; One producer now, not two.
     jc .fail
+    ; --- 1b, for THIS entry: the launching file's NAME, banked --------------
+    ; The index path copies it out of dsk_ent in ld_run_body_x's own step 1b,
+    ; which sits ABOVE .peek - so joining at .peek used to leave ld_lname
+    ; holding whatever the last index launch wrote, and step 8 handed a
+    ; package opened by association, or by the Task Manager, a stale name
+    ; (SPEC.md 21 step 1b). SI is the caller's NUL-terminated 8.3 name and
+    ; dskw_stat_x/ld_take left it alone. At most LD_NAMELEN characters, then
+    ; the terminator: the same shape 1b writes.
+    push ax                     ; the cluster .peek takes from AX
+    push ds
+    pop es
+    mov di, ld_lname
+    mov cx, LD_NAMELEN
+    cld
+.cp:
+    lodsb
+    stosb
+    or al, al
+    jz .named
+    loop .cp
+    mov byte [di], 0            ; ES == DS: no override needed
+.named:
+    pop ax
     jmp ld_run_body_x.peek      ; joins the pipeline exactly where the index
 .fail:                          ; resolver leaves it - [ld_fsz] and [ld_clus]
     ret                         ; are the rest of what step 1 produces
@@ -902,6 +930,27 @@ ld_run_body_x:
     mov ax, [ld_base]
     call KERNEL_SEG:cw_wm_destroy_seg
     call KERNEL_SEG:cw_gfx_unlock
+    ; ...but NOT its toast (SPEC.md 20.12.4). A refusal the entry proc SAID -
+    ; os88parts.inc's four, a C package's - carries the reserved slot as its
+    ; raiser, because step 8's stamp is in force for the whole of the call
+    ; (SPEC.md 19.2.1). Step 10 would toast `Load failed` over it and the
+    ; reason would never reach the glass. So when the toast that is up is
+    ; this instance's, re-home it to the kernel - the slot is about to be
+    ; somebody else's, and their close must not take it down - and tell
+    ; ld_say_status to record the verdict without saying it. A toast raised
+    ; by anybody else during the launch is not ours and is overwritten as
+    ; before.
+    mov ax, [ld_rec]            ; AL = the reserved slot's index - inst_idx's
+    sub ax, inst_tab            ; own arithmetic (32-byte records), inline
+    mov cl, 5                   ; because that routine is .text and this is
+    shr ax, cl                  ; .cold (SPEC.md 2.6): a shim costs 5 .text
+    cmp al, [toast_inst]
+    jne .unsaid
+    cmp word [toast_on], 0      ; toast_kill's own test: on OR staged
+    je .unsaid
+    mov byte [toast_inst], 0xFF
+    mov byte [ld_said], 1
+.unsaid:
     call ld_unreserve           ; the region, and anything the entry proc
                                 ; claimed before it declared itself broken
     mov al, LD_EABORT
@@ -937,6 +986,10 @@ ld_painted: resb 1              ; 1 = ld_run_body already did the full pass
   %error "ld_status and ld_painted are written as ONE WORD by ld_run_body_x \
 step 9 - little-endian, status low"
 %endif
+ld_said:    resb 1              ; 1 = the aborting entry proc's own toast is
+                                ; up and ld_say_status must not talk over it
+                                ; (set at .abort, consumed by the next
+                                ; ld_say_status - SPEC.md 20.12.4)
 ld_clus:    resw 1              ; loader_run scratch: the file's first cluster
 ld_fsz:     resw 2              ; file size, BYTES, in 32 bits: a package
                                 ; that carries parts is bigger than its image

@@ -61,8 +61,18 @@ PKGS = [("notepad", "apps/notepad/notepad.asm", "build/notepad.o88"),
 MIN_SAVING = 0.05
 
 
+# The package defines the Makefile built the SHIPPED .o88 with - $(PKGSBDEF),
+# which is SBDRAGOFF=/SBRATE= and nothing else today. `make test-fast` passes
+# them as OS88_PKGDEFS; run by hand under a plain build the variable is empty
+# and so is the list. Without this, the "default arm is the shipped bytes"
+# check below assembled with NO defines and compared against a package built
+# WITH them, which is right in a plain build and a wrong failure under
+# `make SBDRAGOFF=1`.
+DEFS = os.environ.get("OS88_PKGDEFS", "").split()
+
+
 def build(src, out, small):
-    cmd = ["nasm", "-f", "bin", "-w+error", "-I", "apps/"]
+    cmd = ["nasm", "-f", "bin", "-w+error", "-I", "apps/"] + DEFS
     if small:
         cmd += ["-DAPP_SMALL"]
     cmd += ["-o", out, src]
@@ -101,11 +111,15 @@ def main():
         shipped_path = os.path.join(ROOT, shipped)
         if os.path.exists(shipped_path):
             check(md5(full) == md5(shipped_path),
-                  "%s: the default arm is the SHIPPED bytes" % name,
-                  "APP_SMALL must cost the full build nothing. A difference "
-                  "here means a %ifdef caught a line it should not have, or a "
-                  "bss field moved between blocks - the shipped package has "
-                  "changed for a feature it still has",
+                  "%s: the shipped .o88 is the DEFAULT arm of this source" % name,
+                  "what this proves is WIRING, not history: the package on the "
+                  "shipped floppy was assembled from the current source with "
+                  "the current $(PKGSBDEF) (%s) and WITHOUT -DAPP_SMALL. A "
+                  "Makefile that built a shipped disk with the small arm, or "
+                  "with a define the test was not told about, fails here. It "
+                  "does NOT prove byte-identity with the pre-APP_SMALL "
+                  "package - both sides are the same source, so that is a "
+                  "tautology this check cannot state" % (" ".join(DEFS) or "none"),
                   got=md5(full), want=md5(shipped_path))
 
         cf, cs = claim(full), claim(small)

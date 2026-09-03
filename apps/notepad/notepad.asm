@@ -75,7 +75,7 @@
 ; `make small`'s note that a package is "one package, both kernels" still
 ; holds, because this is one package built twice rather than two packages.
 ;
-; WHY IT EXISTS. On a 128KB machine kern_small leaves ~34.0KB of heap
+; WHY IT EXISTS. On a 128KB machine kern_small leaves ~36.5KB of heap
 ; (docs/KERNEL-MEMORY.md), and an instance of this package is its image plus
 ; its bss in one claim, plus a kilobyte for the document. The full build is
 ; 18,407 + 1,972 = 20,379 of that before the note has a byte in it, so Note
@@ -3635,7 +3635,7 @@ NP_XN     equ 32                ; THE ONE PLACE APP_SMALL TRADES SPEED FOR
                                 ; long note, which is precisely the trade the
                                 ; floor machine is asked to make - 448 bytes is
                                 ; a third of what the whole find panel's bss
-                                ; cost, and this machine has ~34.0KB of heap
+                                ; cost, and this machine has ~36.5KB of heap
 %else
 NP_XN     equ 256               ; entries: 512 bytes, and 256 x 1 row means a
                                 ; note under 256 rows is answered EXACTLY
@@ -7923,7 +7923,7 @@ np_undo:
 ;
 ; THE REAL SAVING IS NOT THE CODE. The undo arena is a heap claim that grows a
 ; kilobyte at a time to NP_UMAXKB = 16 (SPEC.md 27.9), and on the floor
-; machine kern_small leaves ~34.0KB of heap in total.
+; machine kern_small leaves ~36.5KB of heap in total.
 ; -----------------------------------------------------------------------------
 np_uclear:
 np_uclose:
@@ -10578,6 +10578,7 @@ np_saymsg:
 ; Preserves every other register.
 %ifdef NPF_FIND
 np_utoa:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

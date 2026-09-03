@@ -639,10 +639,16 @@ tk_drive:
     mov [tk_nx], ax                 ; SPEC.md 85.6.6, so the move is an escape
     mov ax, [tk_pz]                 ; and is allowed. TK_CLEARR means it cannot
     mov [tk_nz], ax                 ; happen; this means it cannot come back by
-    call tk_blocked                 ; some other route, and it changes nothing
+    call tk_blocked_scen            ; some other route, and it changes nothing
     pop word [tk_nz]                ; in a game where the player is outside
-    pop word [tk_nx]                ; everything - which is every game
-    jnc .out
+    pop word [tk_nx]                ; everything - which is every game.
+    jnc .out                        ; SCENERY only: tk_blocked counts an enemy
+                                    ; tank too, and one within 300 units - the
+                                    ; ramming range - made the player's own
+                                    ; position "blocked", so every step was
+                                    ; allowed, into a cube included, and once
+                                    ; inside it the position stayed blocked
+                                    ; and the player drove through the piece
 .move:
     mov ax, [tk_nx]
     mov [tk_px], ax
@@ -660,6 +666,21 @@ tk_drive:
 ; tk_blocked - would the player standing at [tk_nx]/[tk_nz] be inside a solid?
 ; out: CF=1 blocked.  clobbers AX, BX, CX, DX, SI
 ; -----------------------------------------------------------------------------
+; tk_blocked_scen - the same question of the SCENERY alone: a tank is not a
+;                   wall you can be inside of. CF as tk_blocked; the bound
+;                   byte is restored on the way out with a mov, so CF survives
+; -----------------------------------------------------------------------------
+tk_bltop:   db OT_SHELL             ; the first type tk_blocked drives THROUGH:
+                                    ; OT_SHELL (your own fire) by default,
+                                    ; OT_TANK for the scenery-only question.
+                                    ; Image data, never executed: a `ret`
+                                    ; precedes it and a label follows
+tk_blocked_scen:
+    mov byte [tk_bltop], OT_TANK
+    call tk_blocked
+    mov byte [tk_bltop], OT_SHELL
+    ret
+
 tk_blocked:
     xor bx, bx
     mov cx, TK_NOBJ
@@ -669,8 +690,10 @@ tk_blocked:
     mov al, [tk_otype + si]
     or al, al
     jz .next
-    cmp al, OT_SHELL
+    cmp al, [tk_bltop]
     jae .next                       ; you may drive through your own fire
+                                    ; (OT_SHELL and above), or - asked by
+                                    ; tk_blocked_scen - through a tank
     mov ax, [tk_ox + bx]
     sub ax, [tk_nx]
     call tk_wrap
@@ -2159,6 +2182,7 @@ tk_glyph_modex:
 ; tk_strlen - SI = string; out CX = its length
 ; -----------------------------------------------------------------------------
 tk_utoa:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in BP
     push ax
     push bx
     push dx

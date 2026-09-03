@@ -304,6 +304,11 @@ _MIRROR = {
     # scripts were reading the listing at 32 and would have decoded garbage
     # from entry 1 onward the moment they diverged.
     "DSK_DE_STRIDE": ("kernel/dskwin.inc", 24),
+    # kernel/sched.inc - the scheduler's slot count (SPEC.md 8). It went 8 ->
+    # 14 with docs/STACK-SLOTS-PLAN.md and tests/saverate.py's copy did not,
+    # so sch_cycles was read six slots short; the test reads os88sym now and
+    # this entry is what makes the next copy a t_mirror failure.
+    "MAX_TASKS": ("kernel/sched.inc", 14),
 }
 
 def _armval(name):

@@ -144,8 +144,10 @@ def report(mem, nslots, n, note="", base=None):
             worst, worst_pc, worst_slot = used, used * 1.0 / sz, slot
     print("   ---")
     if not worst:
-        print("   NO SLICE WAS EVER FILLED. Is this a `make KFZ=1` kernel? "
-              "Nothing else fills them.")
+        print("   NO SLICE WAS EVER FILLED. Every slice is filled with 0xCC "
+              "at spawn on every kernel (SPEC.md 8.3), so either no task "
+              "has spawned in this snapshot or this is not the task-stack "
+              "region at all - check the segment and the slot table.")
         return 0
     wsz = sizes[worst_slot - 1] if worst_slot - 1 < len(sizes) else sizes[-1]
     print("   fullest %d of %d (%.0f%%) on slot %d"

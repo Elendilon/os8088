@@ -194,14 +194,55 @@ def _try_acquire(args):
             _log("reacquire", args.holder, args.purpose)
             return True, cur
         if cur["expires"] < _now():
-            # The lease lapsed.  Take it, but say so at the top of the output
-            # - a lapsed lease means somebody died mid-session and their
-            # half-driven emulator may still be running.
-            _log("steal", args.holder,
-                 "from %s (lease expired)" % cur["holder"])
-            meta = _mk(args)
-            _write(meta)
-            return True, None
+            # The lease lapsed.  Take it - ATOMICALLY.  This used to _write a
+            # fresh holder.json into the existing directory, and two callers
+            # that both read the expired lease both did so and both returned
+            # ACQUIRED, which is the one outcome this file exists to prevent.
+            #
+            # NOT by renaming the directory away, which was the first fix and
+            # measured 2 of 8 racers ACQUIRED: a racer that read the expired
+            # lease and was then delayed renames away the FRESH directory the
+            # winner has just re-created, because the rename is not
+            # conditional on the directory being the one it read - and
+            # putting it back cannot close that either, since a third
+            # racer's mkdir can land in the gap.  The steal is a COMPARE-AND-
+            # SWAP instead: a `steal` token created O_EXCL is the step exactly
+            # one caller can win, and the winner RE-READS the lease under it.
+            # A lease that is still expired on the second read is stolen; one
+            # that is fresh belongs to whoever won a moment ago and is BUSY.
+            # A token whose maker died is rubble after MKDIR_GRACE seconds.
+            # A lapsed lease is still said at the top of the log, because
+            # somebody died mid-session and their half-driven emulator may
+            # be running.
+            token = os.path.join(LOCKDIR, "steal")
+            try:
+                fd = os.open(token, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                try:
+                    if _now() - os.path.getmtime(token) > MKDIR_GRACE:
+                        os.remove(token)
+                except OSError:
+                    pass
+                return False, cur
+            except OSError:
+                return _try_acquire(args)     # the directory went under us
+            os.close(fd)
+            try:
+                again = _read()
+                if again is None:
+                    return _try_acquire(args)
+                if again["expires"] >= _now():
+                    return False, again       # somebody won it just now
+                _log("steal", args.holder,
+                     "from %s (lease expired)" % again["holder"])
+                meta = _mk(args)
+                _write(meta)
+                return True, None
+            finally:
+                try:
+                    os.remove(token)
+                except OSError:
+                    pass
         return False, cur
 
     meta = _mk(args)
@@ -252,7 +293,10 @@ def cmd_release(args):
     if cur is None:
         print("martylock: already free")
         return 0
-    if cur["holder"] != args.holder and not args.force:
+    # getattr: `run` reaches here through cmd_run and its subparser defines no
+    # --force, so a bare `args.force` was an AttributeError on the one path
+    # where the lock was re-acquired rather than fresh.
+    if cur["holder"] != args.holder and not getattr(args, "force", False):
         print("martylock: REFUSED - you are %s but the lock is\n%s\n"
               "  (use `break --reason ...` if you really mean to take it away)"
               % (args.holder, _describe(cur)), file=sys.stderr)

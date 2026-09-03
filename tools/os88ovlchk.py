@@ -132,6 +132,21 @@ OVWCALL = re.compile(r'\bOVWCALL\s+(\w+)')
 CSMEM = re.compile(r'\[[^]]*\bcs\s*:')
 RESERVE = re.compile(r'^\s*([A-Za-z_]\w*)\s*:?\s*(?:res[bwdqt])\b')
 WORD = re.compile(r'\b\w+\b')
+# A label a MACRO PASTES TOGETHER - `%1 %+ _pack:` in driver.inc's CFG_DATA,
+# CFG_SHARED, CFG_BOOT and CFG_SAVE - is `ovc_pack` or `cpc_pack` once
+# expanded, and a `name:` scan never sees it: it entered no map (where, half,
+# mdata, rets), so a near call into `ovc_load` from `.text` was reported by
+# NOTHING. driver.inc's own comment above ovl_cfg_load says as much and routes
+# the one crossing through a plain label to give the gate something to look
+# at. So a macro body is read as a TEMPLATE - which suffixes it defines,
+# whether each is data, what each returns - and every expansion line
+# (`CFG_SHARED ovc`) adds the pasted names to the maps, in the section the
+# EXPANSION is in, which is the only section that means anything for them.
+TLABEL = re.compile(r'^\s*%1\s*%\+\s*(\w+):(.*)$')
+TDATA = re.compile(r'^\s*(?:times\s+\S+\s+)?(?:d[bwdq]|res[bwdqt])\b', re.I)
+TRET = re.compile(r'^\s*(ret|retf|retn|iret)\b', re.I)
+TLADJ = re.compile(r'^\s*jmp\s+(kretf?c?_[a-z]{2})\s*$', re.I)
+TEXP = re.compile(r'^\s*(\w+)\s+([A-Za-z_]\w*)\s*$')
 
 
 def _walk(path):
@@ -177,20 +192,45 @@ def main():
     files = kfiles + [f for f in sorted(EXTRA) if f not in kfiles]
     where = {}                       # label -> section it is defined in
     mbody = {}                       # %macro -> the labels its body near-calls
+    tmpl = {}                        # %macro -> [(suffix, is_data, ret kinds)]
     for f in files:
         macro = None
+        tcur = None                  # the `%1 %+ _x:` template label open now
         for sect, n, line in sections(f):
             m = MACRO_D.match(line)
             if m:
                 macro = m.group(1)
                 mbody.setdefault(macro, set())
+                tmpl.setdefault(macro, [])
+                tcur = None
                 continue
             if ENDMACRO.match(line):
                 macro = None
+                tcur = None
             elif macro:
                 for mm in CALL.finditer(line):
                     if mm.group(1) is None:
                         mbody[macro].add(mm.group(2))
+                t = TLABEL.match(line)
+                if t:
+                    # [suffix, is_data, ret kinds, undecided]: a label with
+                    # its data on the SAME line (`%1 %+ _sig: db ...`) is
+                    # decided here; a bare one (`%1 %+ _keys:` then `db`) by
+                    # the first line under it.
+                    rest = t.group(2).strip()
+                    tcur = [t.group(1), bool(TDATA.match(rest)), set(),
+                            not rest]
+                    tmpl[macro].append(tcur)
+                elif tcur is not None:
+                    if tcur[3] and line.strip():
+                        tcur[1], tcur[3] = bool(TDATA.match(line)), False
+                    r = TRET.match(line)
+                    if r:
+                        tcur[2].add(r.group(1).lower())
+                    l = TLADJ.match(line)
+                    if l:
+                        tcur[2].add('retf' if l.group(1).lower()
+                                    .startswith('kretfc_') else 'ret')
             m = LABEL.match(line)
             if m:
                 where[m.group(1)] = sect
@@ -210,6 +250,32 @@ def main():
     mbody = {k: (v & set(where)) for k, v in mbody.items()}
     mbody = {k: v for k, v in mbody.items() if v}
     MEXP = re.compile(r'^\s*(\w+)\b')
+
+    # ...and the PASTED labels (TLABEL above): every expansion of a macro that
+    # defines `%1 %+ _x:` puts `<arg>_x` in the expansion's section. `where`
+    # takes them now; `half`, `mdata` and `rets` take theirs where each is
+    # built. A definition seen twice (CFG_DATA ovc, CFG_DATA cpc) is two
+    # different names, which is the whole point of the paste.
+    tmpl = {k: v for k, v in tmpl.items() if v}
+    pasted = {}                      # 'ovc_pack' -> (section, is_data, kinds)
+    for f in files:
+        inmacro = False
+        for sect, n, line in sections(f):
+            if MACRO_B.match(line):
+                inmacro = True
+                continue
+            if ENDMACRO_B.match(line):
+                inmacro = False
+                continue
+            if inmacro:
+                continue
+            m = TEXP.match(line)
+            if m and m.group(1) in tmpl:
+                for suffix, is_data, kinds, _u in tmpl[m.group(1)]:
+                    # the suffix carries its own underscore: `%1 %+ _load`
+                    pasted[m.group(2) + suffix] = (sect, is_data, kinds)
+    for lab, (sect, _d, _k) in pasted.items():
+        where[lab] = sect
 
     bad = []
     for f in files:
@@ -408,6 +474,9 @@ def main():
                 m = LABEL.match(line)
                 if m:
                     half[m.group(1)] = sect
+    for lab, (sect, _d, _k) in pasted.items():
+        if sect in ('.ovl', '.ovlw'):
+            half[lab] = sect         # the ovc_ family, pasted into .ovl
 
     DEADLINE = {'.ovl': 'spl_finish', '.ovlw': "drv_boot's FIRST MOUNT"}
     ovl_refs, unregistered = set(), []
@@ -685,6 +754,9 @@ def main():
                     m = re.match(r'^\s*%s\s+([A-Za-z_]\w*)\s*,' % d, line)
                     if m:
                         mdata[m.group(1)] = sect
+    for lab, (sect, is_data, _k) in pasted.items():
+        if sect in MODS and is_data:
+            mdata[lab] = sect        # cpc_sig, cpc_buf, ... pasted into .modc
     # the image HEADER is the one exception SPEC.md 2.8 carves out: mod_need
     # reads it through ES, at offset 0, before the image is ever entered.
     for k in [k for k in mdata if k.endswith('_hdr')]:
@@ -908,6 +980,9 @@ def main():
                          else 'ret')
         if cur:
             rets.setdefault(cur, []).append(seen)
+    for lab, (_s, _d, kinds) in pasted.items():
+        if kinds:
+            rets.setdefault(lab, []).append(set(kinds))
 
     def kind1(r):
         if not r or 'iret' in r:

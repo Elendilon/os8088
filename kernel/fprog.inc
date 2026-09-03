@@ -490,7 +490,18 @@ fpg_arm:
     ; promise outstanding, and the first painter after the transfer would draw
     ; straight through it (SPEC.md 7.1.4's permanent smear).
     ;
-    ; Four conditions, and the first is the one that makes the rest sound:
+    ; Five conditions, and the first two are the ones that make the rest sound:
+    cmp byte [fsx_task], 0xFF
+    jne .curdone                ; ANY fsx bracket owns the pointer (SPEC.md
+                                ; 53.6): .no above refuses a FOREIGN mode for
+                                ; the widget, but a same-mode bracket (53.7 -
+                                ; Paint fullscreen, Cyclone's high-score save)
+                                ; keeps the desktop's geometry and the app
+                                ; owns every pixel of it, so the system arrow
+                                ; has no business on that raster, and an app
+                                ; writing VRAM directly would never spend the
+                                ; re-armed promise - the stale save-under is
+                                ; restored at the bracket's end
     cmp byte [gfx_lock_flag], 0
     je .curdone                 ; HELD, and .no above already refused another
                                 ; task's - so it is ours. A free lock needs

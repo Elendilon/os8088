@@ -59,6 +59,8 @@ UNREGISTERED = {
     "trklog.inc": "tracker's logging build, %included by apps/tracker",
     "trkscrl.inc": "tracker's scroll-gate build, %included by apps/tracker",
     "npbench.inc": "a benchmark body, %included",
+    "harness.py": "tests/unit/'s check library - check(), eq(), done() - "
+                  "imported by every t_*.py there, not a test",
 
     # --- need a build prerequisite the default build does not make ---
     "brclick.py": "needs `make browsertest` (build/brtest360.img)",
@@ -150,23 +152,33 @@ def main():
             if part.startswith("tests/") and part.endswith(".py"):
                 reg[os.path.basename(part)] = r.name
 
+    # BOTH directories. This walked the top level only, so a t_*.py added to
+    # tests/unit/ with no row was invisible to the one gate meant to see it -
+    # the same failure one level down. Names are unique across the two (a
+    # unit test is t_<x>.py, a script is <x>.py), so one map serves both.
     tdir = os.path.join(ROOT, "tests")
+    udir = os.path.join(tdir, "unit")
     found = 0
-    for f in sorted(os.listdir(tdir)):
+    walk = [(tdir, f, "tests/%s") for f in sorted(os.listdir(tdir))] + \
+           [(udir, f, "tests/unit/%s") for f in sorted(os.listdir(udir))]
+    for d, f, rel in walk:
         if not f.endswith((".py", ".inc")) or f == "suite.py":
             continue
         found += 1
         if f in reg or f in UNREGISTERED:
             continue
-        check(False, "tests/%s is not registered" % f,
+        check(False, "%s is not registered" % (rel % f),
               "add a row to tests/suite.py - `soak` costs no budget and makes it "
               "discoverable and runnable - or put it in UNREGISTERED here with a "
               "reason. A test nobody can find is a test nobody runs",
               got="not in suite.py and not exempted", want="a row, or a reason")
+    check(found > 100, "the walk found the tests (%d files)" % found,
+          "a listing that came back short would pass every row above")
 
     # ...and the exemption list must not outlive the files it names.
     for f in UNREGISTERED:
-        check(os.path.exists(os.path.join(tdir, f)),
+        check(os.path.exists(os.path.join(tdir, f))
+              or os.path.exists(os.path.join(udir, f)),
               "UNREGISTERED names tests/%s, which exists" % f,
               "the file is gone - drop the row, or a stale exemption silently "
               "exempts nothing")
