@@ -3536,14 +3536,16 @@ cp_time_fld:
     push ax                     ; the box math below runs through AX, and AH
                                 ; still has to name the field afterwards
     mov ax, cx
-    sub ax, 2                   ; x1 = x - 2
+    dec ax                      ; x1 = x - 2
+    dec ax
     mov si, cx
     mov cl, [bx+1]              ; the field's width
     mov ch, 0
     add cx, si
     inc cx                      ; x2 = x + w + 1
     mov bx, dx
-    sub bx, 2                   ; y1 = y - 2
+    dec bx                      ; y1 = y - 2
+    dec bx
     add dx, 9                   ; y2 = y + 9
     mov byte [gfx_color], CBLACK
     call KERNEL_SEG:cw_gfx_fill
@@ -3603,7 +3605,8 @@ cp_time_pick:
     add si, ax
     inc si                      ; SI = x2 = x + w + 1
     mov ax, di
-    sub ax, 2                   ; AX = x1 = x - 2
+    dec ax                      ; AX = x1 = x - 2
+    dec ax
     cmp cx, ax
     jl .next
     cmp cx, si
@@ -3762,8 +3765,8 @@ cp_timebtn:
 ;
 ; DS is KERNEL_SEG here exactly as it was in .text, so every [clk_*] below is
 ; unchanged. What DID change is the six formatters these reach: those stay
-; resident (clk_fmt draws the bar from five of them, clk_inc_day carries a
-; month with the sixth), so each is far-called through its cw_clk_* thunk in
+; resident (clk_fmt draws the bar from five of them, clk_inc_sec's day carry
+; reaches the sixth), so each is far-called through its cw_clk_* thunk in
 ; kernel.asm. os88ovlchk.py refuses any of them written near.
 ; =============================================================================
 

@@ -511,9 +511,7 @@ dskw_mkbody:
     push ss                     ; ES = LOW_SEG (SPEC.md 2.1), which is what SS names
     pop es
     mov ax, [dskw_lba]
-    mov cx, 1
-    mov bx, dsk_secbuf
-    call disk_write_x
+    call dsk_wr1_x
     jc .wfail
 
     call dskw_zerobuf           ; the cluster's remaining sectors
@@ -526,9 +524,7 @@ dskw_mkbody:
 .zsec:
     push cx
     mov ax, dx
-    mov cx, 1
-    mov bx, dsk_secbuf
-    call disk_write_x
+    call dsk_wr1_x
     pop cx
     jc .wfail
     inc dx
@@ -1557,10 +1553,8 @@ dskw_wdata:
     call dskw_stage             ; ES:SI -> LOW_SEG:dsk_secbuf, all 512 of it
     push ss
     pop es
-    mov bx, dsk_secbuf
-    mov cx, 1
     mov ax, [dskw_clba]
-    call disk_write_x
+    call dsk_wr1_x
     pop cx
     jc .jioerr
     inc word [dskw_clba]
@@ -1598,10 +1592,8 @@ dskw_wdata:
     call dskw_stage             ; ES:SI -> LOW_SEG:dsk_secbuf, rest zeroed
     push ss
     pop es
-    mov bx, dsk_secbuf
-    mov cx, 1
     mov ax, [dskw_clba]         ; the sector the whole-sector walk stopped at
-    call disk_write_x
+    call dsk_wr1_x
     jc .jioerr
 .advance:
     mov ax, [dskw_take]
@@ -1944,11 +1936,9 @@ dskw_rdata:
 .stg:                           ; one sector the 8237 cannot carry, alone,
     push ss                     ; through the scratch - which is 512-aligned
     pop es                      ; and therefore never straddles. No run can be
-    mov bx, dsk_secbuf          ; pending here: dskw_runmax answered 0, and it
-    push cx                     ; is only asked with [dskw_rlen] = 0
-    mov cx, 1
-    mov ax, [dskw_clba]
-    call disk_read_x
+    push cx                     ; pending here: dskw_runmax answered 0, and it
+    mov ax, [dskw_clba]         ; is only asked with [dskw_rlen] = 0
+    call dsk_rd1_x
     pop cx
     jc .jioerr
     mov es, [dskw_wseg]
@@ -1976,10 +1966,8 @@ dskw_rdata:
     jc .ioerr
     push ss
     pop es
-    mov bx, dsk_secbuf
-    mov cx, 1
     mov ax, [dskw_clba]         ; the sector the whole-sector walk stopped at
-    call disk_read_x              ; the last sector, whole, into the scratch
+    call dsk_rd1_x                ; the last sector, whole, into the scratch
     jc .jioerr
     mov es, [dskw_wseg]
     mov di, [dskw_src]
@@ -2552,10 +2540,7 @@ dskw_read_at_x:
     ; multiple, the take is at most the capacity, and a cluster is a whole
     ; number of sectors.
     mov ax, [dwr_take]
-    add ax, 511
-    mov cl, 9
-    shr ax, cl
-    mov dx, ax                  ; DX = sectors
+    call dsk_bytes_secs_x       ; DX = sectors
     mov ax, [dwr_clus]
     mov bx, [dwr_buf]
     call dsk_read_chain_x
@@ -2714,7 +2699,7 @@ dskw_apbody:
     mov cx, [dskw_len]          ; ...and arm the widget the same way, so a
     mov dx, [dskw_lenhi]        ; file-manager copy reports chunk by chunk
     call KERNEL_SEG:fpg_begin
-    mov word [dskw_zapnext], 0
+    mov byte [dskw_zapnext], 0
 
     call dskw_wdata             ; the new sub-chain, allocated and written
     jc .rollback
@@ -3044,9 +3029,7 @@ dskw_ent_store:
     push ss
     pop es
     mov ax, [dskw_dsec]
-    mov cx, 1
-    mov bx, dsk_secbuf
-    call disk_read_x
+    call dsk_rd1_x
     jc .ioerr
     mov si, dskw_raw            ; DS = kernel, ES = LOW_SEG: a plain movsw
     mov di, dsk_secbuf
@@ -3065,9 +3048,7 @@ dskw_ent_store:
     mov byte [es:di], 0
 .write:
     mov ax, [dskw_dsec]
-    mov cx, 1
-    mov bx, dsk_secbuf
-    call disk_write_x
+    call dsk_wr1_x
     jc .ioerr
     clc
     jmp short .out
@@ -3338,8 +3319,7 @@ dskw_flush_x:
     sub cx, ax
     inc cx                      ; CX = sectors to write
     mov dx, cx
-    mov bx, [dsk_fatseg]
-    mov es, bx
+    mov es, [dsk_fatseg]
     mov bx, ax
     sub bx, [dsk_fatw0]         ; the range's offset IN THE WINDOW
     mov cl, 9
@@ -4676,27 +4656,26 @@ dskw_fmt_probe:
     ret
 .p_no:
     mov ax, FERR_NODISK         ; dskw_fmt_probe_x's own refusal for a medium
-    stc                         ; it cannot read - the nearest true thing, and
-    ret                         ; the toast names the disk either way
+    ret                         ; it cannot read - the nearest true thing, and
+                                ; the toast names the disk either way. NO stc:
+                                ; the only way in is the `jc` above, and
+                                ; `mov r16, imm16` (B8 iw) writes no flag -
+                                ; which this file already states in two
+                                ; headers for `pop ax` and `ret`
 
-dskw_format:
-    call dskw_fmt_load
-    jc .f_no
-    call far [FMFP + FME_FORMAT*4]
-    ret
-.f_no:
-    mov ax, FERR_NODISK
-    stc
-    ret
+dskw_format:                    ; ...AND THE SAME FIVE BYTES, so the refusal
+    call dskw_fmt_load          ; is dskw_fmt_probe's. The two routines are
+    jc dskw_fmt_probe.p_no      ; fifteen bytes apart, so the jc is short -
+    call far [FMFP + FME_FORMAT*4]  ; and their ORDER in this file is now
+    ret                         ; load-bearing
 
 dskw_fmt_reach:
     call dskw_fmt_load
-    jc .r_no
-    call far [FMFP + FME_REACH*4]
-    ret
-.r_no:
-    stc                         ; "the volume's last sector was NOT reached",
-    ret                         ; which is what an absent formatter has to say
+    jc .r_no                    ; "the volume's last sector was NOT reached",
+    call far [FMFP + FME_REACH*4]   ; which is what an absent formatter has to
+.r_no:                          ; say - and CF is already set on the one way
+    ret                         ; in, so the refusal is nothing but the `ret`
+                                ; the success path was going to take anyway
 
 ; dskw_fmt_line - the formatter's own status line (SPEC.md 2.8.6)
 ;
@@ -4734,7 +4713,13 @@ dskw_raw:     resb 32           ; one raw 32-byte entry, staged in the kernel
                                 ; segment (the write path's dsk_ent)
 dskw_n83:     resb 11           ; the 11-byte raw name being looked for
 dskw_n83b:    resb 11           ; the rename target's, held across the scan
-dskw_pad:     resb 2            ; keeps the words below even-aligned
+                                ; (a dskw_pad was here, for the alignment an
+                                ; 8-bit bus does not charge for. dskw_n83b
+                                ; above is a dskw_copy11 target and
+                                ; dskw_copy11 is `mov cx, 11` + dsk_ncopy,
+                                ; which is a BYTE loop - so no neighbour's
+                                ; store reached into it. Its sibling
+                                ; dskw_pad2 below took a narrowing first)
 dskw_dsec:    resw 1            ; the found entry's sector LBA...
 dskw_doff:    resw 1            ; ...and its offset within that sector
 dskw_fsec:    resw 1            ; the first reusable slot's, FFFFh = none
@@ -4742,8 +4727,20 @@ dskw_foff:    resw 1
 dskw_cursec:  resw 1            ; dskw_find: the sector being scanned
 dskw_fend:    resb 1            ; 1 = that free slot is the 00h terminator
 dskw_new:     resb 1            ; 1 = this write is creating the entry
-dskw_zapnext: resb 1            ; 1 = re-zero the slot after the one written
-dskw_pad2:    resb 1            ; (dskw_isdir is NOT here - see .text above)
+dskw_zapnext: resb 1            ; 1 = re-zero the slot after the one written.
+                                ; (dskw_isdir is NOT here - see .text above.)
+                                ; A `dskw_pad2` USED TO FOLLOW, and every
+                                ; grep in the tree called it dead - the
+                                ; declaration was its only mention. It was
+                                ; not: :2717 was the one
+                                ; `mov word [dskw_zapnext], 0` of six stores,
+                                ; so a neighbour's WORD store was zeroing the
+                                ; pad and deleting it would have put that zero
+                                ; into dskw_seg's low byte, in the middle of
+                                ; the write path. Narrowing that one store to
+                                ; `mov byte` is what made the pad free, and
+                                ; the pad then went. THE ORDER MATTERED and
+                                ; the two halves have to stay together.
 
 ; --- the transfer in progress -------------------------------------------------
 dskw_seg:     resw 1            ; the caller's buffer segment (ES at entry),

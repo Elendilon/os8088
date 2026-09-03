@@ -782,12 +782,12 @@ spl_mds:                        ; DS:SI ASCIIZ -> the line (a kernel string)
 
 spl_mnum:                       ; AL = 0..99 -> the line, no leading zero
     push ax
-    push bx
     push dx
-    xor ah, ah
-    mov bl, 10
-    div bl                      ; AL = tens, AH = units
-    mov dl, ah
+    aam                         ; AH = AL/10, AL = AL%10 - the same conversion
+    mov dl, al                  ; clk_put2 (clock.inc) does, in two bytes and
+    mov al, ah                  ; with no divisor register to bank. 0..99 IS
+                                ; aam's domain, and this routine's input is
+                                ; documented as exactly that
     or al, al
     jz .units
     add al, '0'
@@ -797,7 +797,6 @@ spl_mnum:                       ; AL = 0..99 -> the line, no leading zero
     add al, '0'
     call spl_mput
     pop dx
-    pop bx
     pop ax
     ret
 
@@ -1093,8 +1092,8 @@ vid_switch:
 ; construction rather than by inspection - which is the gate this step is
 ; allowed to land against.
 ;
-; WHAT A DISPLAY OWNS is the nineteen contiguous words `vid_seg` through
-; `vid_tseg`: the nine live geometry words, the nine derived ones the RENDERER
+; WHAT A DISPLAY OWNS is the sixteen contiguous words `vid_seg` through
+; `vid_tseg`: the nine live geometry words, the six derived ones the RENDERER
 ; reads, and font_run's composed-row target (viddet.inc). What it does NOT own
 ; starts at `vid_dock_y0` -
 ; the dock row, the clock cell, the drive column - because those describe the
@@ -1408,7 +1407,7 @@ VID_NDISP_MAX equ 2             ; the machine this is for holds two cards
 %if VID_NDISP_MAX != 2
   %error "the extended desktop is written for TWO displays and no more (SPEC.md 39.12): vid_ctx is sized from this, vid_disp_set stores the count as a literal 2, and wm.inc's snapshot band appends 'at most VID_NDISP_MAX' clip rects so WM_CLIP_MAX's full case is unreachable rather than handled. A third display needs each of those looked at, not this number raised"
 %endif
-VID_CTX_W    equ 19             ; words copied to and from the live block
+VID_CTX_W    equ 16             ; words copied to and from the live block
 VID_CTX_CW   equ 14             ; ...within the run, the display's own extent -
 VID_CTX_CH   equ 16             ; word 7 and word 8, vid_cw/vid_ch (39.2.1)
 VID_CTX_VX   equ VID_CTX_W*2    ; ...then the display's origin in the VIRTUAL
@@ -1444,7 +1443,7 @@ vid_ndisp   db 1                ; displays the kernel has brought up. 1 for
 vid_cur     db 0                ; which display's geometry is in the live block
 vid_ox      dw 0                ; ...and its ORIGIN in the virtual desktop,
 vid_oy      dw 0                ; which is what every 39.14 hook subtracts.
-                                ; OUTSIDE the nineteen-word run on purpose:
+                                ; OUTSIDE the sixteen-word run on purpose:
                                 ; that run is asserted contiguous and is what
                                 ; the RENDERER reads, and an origin is not
                                 ; renderer state. Published by vid_ctx_act
@@ -1630,7 +1629,7 @@ vid_ctx_act:
     mov ax, [di+VID_CTX_VY]
     mov [vid_oy], ax
     mov al, [di+VID_CTX_KIND]   ; ...and HOW DEEP this display is, which is not
-    call vid_depth_set          ; in the nineteen-word run and is what every
+    call vid_depth_set          ; in the sixteen-word run and is what every
                                 ; primitive dispatches on. Two 1bpp displays
                                 ; agree about it and a VGA beside a Hercules
                                 ; does not - see vid_depth_set for what the
@@ -2197,7 +2196,7 @@ vid_disp_other:
 ; accepts that pairing as one nobody built.
 ;
 ; THE SECONDARY IS BROUGHT UP BY MAKING IT MOMENTARILY CURRENT. vid_apply is
-; the only routine that turns a vid_tab row into the nineteen words a display
+; the only routine that turns a vid_tab row into the sixteen words a display
 ; owns plus everything derived from them, and it writes the LIVE block - so
 ; this sets [vid_kind], calls it, and banks the answer. vid_setmode then
 ; programmes the right card by construction rather than by argument: it reads
@@ -2238,7 +2237,7 @@ vid_disp_init:
     ; from, which is a desktop drawn into the wrong segment at the wrong
     ; stride. A refusal has to bring the arrangement DOWN.
     cmp byte [vid_ndisp], 1
-    je .out                     ; nothing live: unchanged, and the boot path
+    je .jout                    ; nothing live: unchanged, and the boot path
     mov ah, [vid_kind]          ; ...otherwise collapse it through the arm
     call vid_disp_other         ; that already knows how. [vid_dmode] is kept:
     jmp short .single           ; the arrangement is impossible on THIS
@@ -2261,6 +2260,7 @@ vid_disp_init:
     xor al, al                  ; the pointer onto display 0 - which is what
     call vid_ctx_capture        ; a shrinking desktop owes it
     call vid_desk_union         ; ...and BANK BEFORE UNION, the extend path's
+.jout:
     jmp short .out              ; order: the union reads display 0's record,
                                 ; which is stale until the capture when a
                                 ; vid_switch has just moved the primary

@@ -43,9 +43,9 @@ minutes rather than an afternoon.
 > | 16 | `sch_idle_start` | `.ovl` |
 > | 17 | `menu_init` | `.ovl` |
 > | 18 | `inst_init` | `.ovl` |
-> | 19 | `loader_init_x` | `.ovl` |
+> | ~~19~~ | ~~`loader_init_x`~~ | **GONE — deleted outright in kernel size pass 3, §2.2**: all four of the loader's resting values were already zero |
 > | **20** | **`mod_init_x`** | **`.cold` — §2.3** |
-> | **21** | **`evq_init`** | **`.text` — §2.2** |
+> | ~~21~~ | ~~`evq_init`~~ | **GONE — deleted outright in kernel size pass 3, §2.2** |
 > | **22** | **`vid_init`** | **`.text` — §2.1** |
 >
 > `tests/ovlrefs.txt` is the live enforcement: every reference from outside `.ovl`
@@ -137,7 +137,7 @@ nothing has made them cheaper or dearer.
 | # | body | now | bytes | Δ`.text` | Δ`.cold` | Δ`.ovl` | resident returned | blocked by |
 |---:|---|---|---:|---:|---:|---:|---:|---|
 | 10+22 | **`vid_detect` + `vid_init`** | `.text` | 84 | **−68** | 0 | **+88** | **68** | the ROUTE, not the bytes — §2.1 |
-| 21 | `evq_init` | `.text` | 22 | −14 | 0 | +22 | 14 | a host instrument — §2.2 |
+| ~~21~~ | ~~`evq_init`~~ | — | — | — | — | — | **22, banked** | **SETTLED: deleted, not moved — §2.2** |
 | 20 | `mod_init_x` | `.cold` | 24 | +6 | −16 | +28 | 10 | nothing; it is just a bad trade — §2.3 |
 | **Σ** | | | **130** | **−76** | **−16** | **+138** | **92** | |
 
@@ -183,27 +183,29 @@ address space (§6.1), so `.boot2` could near-call `vid_detect` directly — no
 arise because the whole blob is aboard before stage 1 jumps. That change is worth
 more than these 68 bytes on its own, and it makes them free.
 
-### 2.2 `evq_init` — 22 bytes, and a host instrument names the symbol
+### 2.2 `evq_init` — SETTLED, and the answer was better than the row
 
-**What it is.** `events.inc:58`. Seeds the event ring. One caller, `kmain`.
+**What it was.** `events.inc`. Seeded the event ring. One caller, `kmain`.
 
-**The price.** `tests/evqfull.py:96` pokes a **near** `call evq_init` into
-`snd_xlat` inside `KERNEL_SEG` and executes it:
+**The row as filed** proposed moving it to `.ovl` for 14 resident bytes and was
+blocked on a host instrument: `tests/evqfull.py` poked a **near**
+`call evq_init` into `snd_xlat` inside `KERNEL_SEG` and executed it, and in
+`.ovl` `sym["evq_init"]` is an `OVL_AT`-relative offset in the blob's segment,
+so that near call would have landed somewhere arbitrary and run it. The row's
+own verdict was that 14 resident bytes for a test edit is a bad trade.
 
-```python
-rel = (sym["evq_init"] - (at + 3)) & 0xFFFF
-m.write((KERNEL_SEG << 4) + at, bytes([0xE8]) + rel.to_bytes(2, "little") + ...)
-```
+**Kernel size pass 3 deleted the routine instead, and banked the whole 22** (17
+of body plus its 3-byte call, plus the 2 the byte-sized indices then took out
+of `evq_pending`'s neighbours). The premise the `.ovl` move never needed is the
+one that settles it: the three indices are `.bss` and **`.bss` arrives zeroed**
+— measured on the built binary, the `.text`→`.cold` padding run is 0 non-zero
+bytes — and nothing can push before the point in `kmain` the call sat at.
+`evqfull.py`'s `reset()` is now three host **byte** writes with the guest
+paused, which is simpler than the poke-and-run and atomic from the guest's
+side, which the poke was not. See SPEC.md §10.
 
-In `.ovl`, `sym["evq_init"]` is an `OVL_AT`-relative offset in the blob's segment,
-so that near call from `KERNEL_SEG` lands somewhere arbitrary and **executes it**.
-(`tests/unit/t_wakedrain.py` also matches on `call evq_init`; `OVLGATE evq_init`
-simply stops matching, which is harmless.)
-
-**What would flip it.** Teaching `evqfull.py` to reach the body the way the kernel
-does. 14 resident bytes for a test edit is a bad trade on its own, but it is free
-if that test is being touched anyway — which is the only reason this row is still
-here rather than in §7.
+**The general lesson for the rest of this file**: an `.ovl` row asks "where can
+this body live"; it is worth asking first whether the body needs to exist.
 
 ### 2.3 `mod_init_x` — 24 bytes, the worst ratio in the file
 
@@ -249,13 +251,20 @@ constraint on anything in this file.)
 Which column to rank by, when a NEW row appears:
 
 * **Footprint (`KERN_BUDGET`, guard 1)** — rank by *resident returned*.
-  `KERN_SIZE` is 113,664 of 129,536, so 15,872 bytes spare. Not tight.
+  `KERN_SIZE` is 109,056 of 129,536, so **20,480 spare, forty steps**. Not tight.
 * **The 64KB segment (guard 2, `KERN_CODE_MAX`)** — rank by `Δ.text` alone.
-  `.text`+`.bss` is 58,481 of 65,536, so **7,055 left** — it was 2,432 before the
-  size pass, and it is the looser of the two guards for the first time in a while.
-  It used to be what decided every row here; while it stays this slack, a `.cold`
-  row's standing `.text` +6 (§2.4) stops being an argument against one.
+  `.text`+`.bss` is 55,886 of 65,536, so **9,650 left**. **This is the guard that
+  BINDS**, not because it is the smaller number — it is not — but because it
+  **cannot be raised at all**, where `KERN_BUDGET` is derived from
+  `KERN_RESIDENT_KB` and moving it is a rule change. (An earlier revision of this
+  section called the segment *"the looser of the two guards"* at 7,055 bytes and
+  ranked rows on that. Slackness is not the test; §7.2 carries the correction
+  with the arithmetic.) While it stays this slack, a `.cold` row's standing
+  `.text` +6 (§2.4) is still not much of an argument against one.
 * **The blob** — 583 bytes, §1. Only §4 changes that, and 20 and 21 are free.
+  **Kernel size pass 3 moved this too**: `.boot2` fell 2,439 → 2,250 and
+  `BOOT2_SECS_STARS` was retired, so both arms are one blob length at one
+  `OVL_AT` — re-derive from `t_blobruns` rather than reusing 583.
 
 Quote `tools/kernsize.py`'s SUM and its ACCRUED line for both guards, never its
 step count (CLAUDE.md, "Design for BYTES, never for rungs").
@@ -320,9 +329,18 @@ shape of the original mistake.
 ## 5. What each knob needs at nineteen sectors
 
 A knob is bound by physics, never by a documented limit, and *"all knobs together
-fit"* is not required. `SPLSTARS=1` is the model in the tree: `BOOT2_SECS_STARS`
-sits beside the shipped value and the Makefile's `sed` is deliberately anchored to
+fit"* is not required. `SPLSTARS=1` was the model in the tree: `BOOT2_SECS_STARS`
+sat beside the shipped value and the Makefile's `sed` was deliberately anchored to
 find only the shipped one.
+
+> **RETIRED — SPEC.md §15.3.8.5.1.** `SPLSTARS=1` fits the shipped blob now:
+> the splash's own size pass took its `.boot2` from 2,768 to 2,568 and the blob
+> to 3,989 of 4,096, so `BOOT2_SECS_STARS`, the second `OVL_AT` and the second
+> `sed` are all deleted, and `OVL_AT` is 2,624 for every build. **The table
+> below and the paragraph under it are the record of the mechanism, not the
+> tree.** What retiring it bought is §18.93.1's canary: `KSIG_OFF` had to be
+> legal for both blob lengths, and that intersection is four sectors at the top
+> of `.text`.
 
 Measured on this tree:
 
@@ -466,8 +484,44 @@ or after that point and can never be in it:
 The `mou_*` cluster is the half of SPEC.md §9.4.7 that did **not** move: `mouse_init`
 is in `.ovl` and these are still `.text`. `.cold` is available to them and would buy
 **segment** rather than **footprint** — 339 bytes off `KERN_CODE_MAX` and nothing off
-`KERN_BUDGET`. Worth having when the segment is the tighter guard; it has 7,055 bytes
-today, so it is not.
+`KERN_BUDGET`.
+
+#### The condition this row carried is now MET, and the answer is still no
+
+It used to read *"worth having when the segment is the tighter guard; it has
+7,055 bytes today, so it is not."* **The segment is the tighter guard now** — it
+is the one that cannot be raised at all, `KERN_BUDGET` having forty steps — so
+that sentence, read literally, says take it. It should not be taken, and it is
+the **condition** that was wrong rather than the verdict. Priced on the tree
+kernel size pass 3 closed (`08a8743`):
+
+| | |
+|---|---:|
+| segment (`KERN_CODE_MAX`) relieved | **−339** |
+| `.cold` grows | **+339** |
+| `.cold` rung headroom there (accrued 308/512) | **204** |
+| so `.cold` crosses one 512-byte rung | **footprint +512** |
+| segment headroom already spare | **9,650** |
+
+**339 bytes of segment headroom bought for 512 bytes of every machine's RAM**, on
+a machine `kern_big` must fully reside in at 128KB, with 9,650 segment bytes
+already free. It is understated besides: the cluster's callers (`mou_hotplug`,
+`mouse_unhook`) are `.text`, so every call becomes **far**, +2 a site against the
+339.
+
+**The corrected trigger.** "The segment is tighter than the footprint" is a
+comparison between two quantities measured in different money and it should never
+have been the test. The test is:
+
+> Take this when the segment is tight enough that **512 bytes of RAM is worth 339
+> bytes of window** — that is, when something that has to land cannot fit
+> `KERN_CODE_MAX` without it. Read `.cold`'s **ACCRUED** line at the same moment:
+> the +512 is only certain while that rung has under 339 bytes left, and if it
+> has more, the move is genuinely 339 bytes of window for nothing — which is a
+> different row and a much better one.
+
+Re-derive both figures from `kernsize` when the question is asked; do not reuse
+the ones above.
 
 ### 7.3 Cannot move by construction
 
@@ -556,6 +610,92 @@ The refusal is recorded **in the source as well**, above `gfx_fill_gray` in
 `kernel/vga12.inc`, because the two bodies really are the same function and the next
 size sweep will find them again.
 
+### 7.7 Kernel size pass 3's refusals, in this file's remit
+
+`docs/HANDOFF-KERNEL-SIZE-P4.md` is the pass's record; these are the rows that
+belong here, because each is a move or a merge that **looks available and is
+not**. Two are still OPEN and are the owner's to take.
+
+#### 7.7.1 Two byte-identical routines that may not be merged — the canonical shape
+
+`wm_lk` (`wm.inc`) and `fpg_arm` (`fprog.inc`) really are **seven byte-identical
+instructions** around `gfx_lock_flag`/`gfx_lock_own`. A helper merging them was
+proposed and **refused independently by two reviewers**, because **the two jump
+targets ARE the semantics** and they partition three lock states with different
+groupings: `fpg_arm` asks `{free,mine}` vs `{other}`, `wm_lk` asks `{free,other}`
+vs `{mine}`, and **no single flag out of one helper can express both**. What
+would have shipped is a **recursive `gfx_lock`** in the common case, on a routine
+whose banner says it is not re-entrant, and `wm_show_b` running its `gfx_save`
+with **no lock at all** — `docs/FIELD-NOTES.md` 34.1 reintroduced. The correct
+three-state helper was then priced at **−2** and refused too.
+
+**Take the two dead `push ax`/`pop ax` pairs instead (−4), which pass 3 did.**
+Recorded here because this is exactly the row a duplicate scanner will file
+again, and it looks like free bytes from the listing.
+
+#### 7.7.2 `drv_load_row` ≡ `mod_need` — BUILT, MEASURED, refused on its increment
+
+`driver.inc`'s and `mod.inc`'s claim-and-read ladders share most of a body. The
+merge was **built** with the real class block and failure ladders so the `jcc`
+distances are honest, and measured at **−53 `.cold` / −4 `.bss`** (an earlier
+entry in the same record has the same build at 306 → 257 = −49; *the two are not
+reconciled — re-measure*). It was refused because it **subsumes smaller rows
+already worth −24/−4 and collapses an −8 row**, so its **increment is ~−21
+`.cold`** — a currency that does not bind — for the highest-risk change in that
+pass.
+
+Two hazards, neither named by either finder, and both to carry forward:
+
+* **`mov cl, 10` destroys CL before the `MEM_K_*` tag is needed**, silently
+  rewriting the heap owner tag **0xFF03 → 0xFF0A**, and it **assembles cleanly**.
+  Carry the size in **BP** instead — `push bx / mov bx, cx` above it.
+* The shared-`ld_fsz` premise the merge needs was **refused by its own author**
+  (*"a proof of mutual exclusion I could not construct"*). That premise is now
+  **moot** — both sides carry the size in BP and neither `.bss` word exists any
+  more — so whoever takes it starts better than the position it was refused at.
+
+#### 7.7.3 OPEN — `clk_ns_stamp` out of `.text` (−65 segment, +60 `.ovlw`, +60 `.modc`)
+
+The strongest currency argument in that pass: 65 bytes of the binding guard for
+120 bytes of two transient images, one of which is forfeit at the first mount.
+**Its mitigation does not assemble.** The filed form is "one `%include`d source
+fragment assembled twice"; both expansions define `clk_ns_stamp:` and NASM
+answers `label inconsistently redefined`, rc=1 — proved with nasm. A `%macro`
+taking the entry name works, and then: `os88ovlchk.py`'s `EXTRA` map takes one
+file → **one** section, so a fragment included into `.ovlw` *and* `.modc` is not
+representable there at all; and **both emitted labels become invisible to
+ovlchk's label map**, so neither copy is covered by the near-call check or the
+return-kind check. SPEC.md §37.93 refused the same trade at 24 bytes. The −65 is
+gross: `F-clock3-15` supersedes into it and has already landed, so the
+incremental gain is **−60**.
+
+#### 7.7.4 OPEN — `toast_say` `.text` → `.cold` (−35 segment, +27 `.cold`)
+
+§7.5 says `.text` → `.cold` is not on this menu, and this is the row to weigh
+against guard 2 anyway, because it is clean: **no `.text` caller and no indirect
+one** — no `dw toast_*` table entry, no `OSAPI_*` slot. It is also the rare case
+where `os88ovlchk`'s return-kind rule is **not** blind (the body keeps its own
+`ret`), so any surviving far call fires *"far-called, ends in a NEAR ret"*. Name
+the thunk **`toastf_say`**. Stack: the `.cold` path gains +2 and the `.modc` path
++6, both on `STK0_TOP`. At `08a8743` the `.cold` rung has 204 bytes left, so +27
+crosses nothing.
+
+#### 7.7.5 `fprog`'s far-return row — refused by a gate its own note did not know
+
+`F-fprog3-18` turns `os88ovlchk` **red** (*near-called, ends in `RETF`*). The
+finding's own refusal note did not know that, which is worth recording: the gate
+was the cheapest check available and nobody ran it before writing the
+justification.
+
+#### 7.7.6 `.lowbss` is not on this menu at all, and it is now PROVED so
+
+`dskwin.inc`'s 3,328, `viddet.inc`'s 696-byte row table and `events.inc`'s
+128-byte ring were all examined and all three are **floors**, with the arithmetic
+in `docs/HANDOFF-KERNEL-SIZE-P4.md` §3.1. The one worth knowing here: taking
+bytes out of the mount window **spends `.ovlw` headroom one for one** — they are
+the same bytes seen from either end — and past a point it fires
+the `.ovlw` guard beside `SKB_DSK` in `kernel.asm` at assembly time.
+
 ---
 
 ## 8. Method, and how to re-derive any of it
@@ -621,8 +761,9 @@ Nothing static substitutes for these, and this file does not claim otherwise.
    refusal is about the ROUTE rather than the body, a boot off a **floppy** and not
    only off an image the emulator has entirely in RAM: the failure this row is
    refused by is a sector that has not landed yet.
-3. **`evq_init` (§2.2)** — `tests/evqfull.py` and `tests/unit/t_wakedrain.py` in the
-   soak tier, since the edit is to them.
+3. ~~**`evq_init` (§2.2)**~~ — landed as a deletion in kernel size pass 3;
+   `tests/evqfull.py` and `tests/unit/t_wakedrain.py` were both edited with it
+   and are the soak rows that cover it.
 4. **`tools/os88ovlchk.py`, all 11 checks**, on the build and on every knob arm in
    §5. It has earned its place: it caught four `retf`/near-call mismatches and a
    dead shim during the pass, all of which assemble cleanly and are wrong.

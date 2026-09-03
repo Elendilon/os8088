@@ -211,13 +211,29 @@ gfx_rmsk        db 0            ; rect: right edge bit mask
 %endif
 gfx_pat         dw 0            ; gfx_fill_pat: near ptr to 8 row bytes,
                                 ; set by the caller before every call
-gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); 0 = free.
-                                ; Initialized data, NOT .bss: nothing zeroes
-                                ; .bss at boot, and this byte must start clear.
+gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); **strictly 0 or 1
+                                ; and never a count** - toast_now reads this
+                                ; byte and the next AS ONE WORD (`cmp word
+                                ; [gfx_lock_flag], 1` = held, and held by task
+                                ; 0), and that test dies SILENTLY if this ever
+                                ; becomes a depth. Four writers in the tree and
+                                ; no fifth: :5303 (1), :5384 (0), sched.inc
+                                ; :1683 (0) and :1699 (the value banked at
+                                ; :1677).
+                                ; Initialized data and NOT .bss - not because
+                                ; .bss is unzeroed (it arrives zeroed, SPEC.md
+                                ; 2.6) but because gfx_lock_own below cannot
+                                ; live there at all, and the two must stay
+                                ; together.
 gfx_lock_own    db 0xFF         ; ...and WHICH task holds it ([sch_cur] at the
                                 ; take, 0xFF = nobody). toast_now's whole test
                                 ; (SPEC.md 59.4): the flag alone says somebody
                                 ; holds it, never that the CALLER does.
+                                ; **KEEP IT IMMEDIATELY AFTER THE FLAG**, which
+                                ; is what makes that test one word read.
+%if gfx_lock_own - gfx_lock_flag != 1
+  %error "toast_now reads gfx_lock_flag and gfx_lock_own as ONE WORD (`cmp word [gfx_lock_flag], 1` = held by task 0). Separate them and it silently stops firing."
+%endif
 gfx_lock_want   db 0            ; SPEC.md 7.3: SOMEBODY IS BLOCKED ON IT. Set by
                                 ; a waiter on its way to task_yield, spent by
                                 ; the last owner's next acquire. Initialized
@@ -778,6 +794,35 @@ gfx_rect_isect:
     jle .d
     mov dx, [si+6]
 .d:
+    ret
+
+; -----------------------------------------------------------------------------
+; gfx_rect_hit - does AX/BX/CX/DX OVERLAP the rect at DS:SI?
+; in:       AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); SI = the same
+;           four-word WCR_* block gfx_rect_isect takes
+; out:      CF = 1 they overlap, CF = 0 they do not
+; clobbers: nothing at all - not even the four inputs
+;
+; gfx_rect_isect's missing sibling. gfx_rect_isectcf answers the same question
+; but CLIPS on the way, so using it here would cost four pushes and four pops
+; and lose more than the compares are worth; this one only compares.
+;
+; SIGNED, for gfx_rect_isect's reason: wm_paint_dmg's clamp takes screen
+; coordinates negative.
+; -----------------------------------------------------------------------------
+gfx_rect_hit:
+    cmp ax, [si+4]
+    jg .no
+    cmp cx, [si]
+    jl .no
+    cmp bx, [si+6]
+    jg .no
+    cmp dx, [si+2]
+    jl .no
+    stc
+    ret
+.no:
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1833,7 +1878,8 @@ gfx_lf_wide3:
     jle .ord
     xchg ax, bx
 .ord:
-    add bx, 2                       ; ...pass 2 being two columns right of 0
+    inc bx                      ; ...pass 2 being two columns right of 0
+    inc bx
     cmp word [wm_clip_n], 0
     jne .armed
     or ax, ax                       ; disarmed: the box is the screen
@@ -2686,7 +2732,7 @@ gfx_blit4:
     cmp byte [gfx_blit_fst], 0
     je .rowd
     cmp bx, [vid_ch]            ; UNSIGNED, so a negative y is caught too: the
-    jae .nextrow                ; row is off screen and nothing below it clips
+    jae .jnextrow               ; row is off screen and nothing below it clips
     push ax                     ; any more
     mov ax, bx
     call gfx_rowbase            ; once a ROW, where gfx_fill did it once a RUN.
@@ -2708,6 +2754,7 @@ gfx_blit4:
     cmp byte [gfx_blit_fst], 1
     jne .rowd
     call sw_blit_row            ; THE WHOLE ROW, no run scan at all
+.jnextrow:
     jmp .nextrow                ; (near: the scan below is longer than 127)
 .rowd:
     xor dx, dx                  ; DX = the pixel the next run starts at
@@ -5596,8 +5643,7 @@ vgas_lincopy:
 ; -----------------------------------------------------------------------------
 vgas_bankcopy:
     push ds
-    mov ax, [vid_rseg]
-    mov es, ax
+    mov es, [vid_rseg]
     mov ax, [vgas_rows]
     mov [vgas_left], ax
     mov bx, [vgas_ydst]

@@ -186,12 +186,15 @@ KNOBS = [
     ("titlesnap",   ["TITLESNAP=1"]),
     # SPLSTARS= is TITLESNAP's sentence one screen along - the loading screen's
     # animation A/B (SPEC.md 15.3.7) - and it carries a second reason this
-    # roster is the only thing watching: it is the ONE configuration left that
-    # re-splits the blob. It takes an OVL_AT of its own (3,072 against the
-    # shipped 2,560) AND a BOOT2_SECS of its own, one sector up, because the
-    # twinkle wants ~330 bytes of `.boot2` that the shipped split has not got -
-    # and it is over WHEREVER OVL_AT falls, so moving the split alone cannot
-    # pay for it (SPEC.md 15.3.8.5).
+    # roster is the only thing watching: it is the ONE configuration whose
+    # `.boot2` differs from the shipped one at all. It USED to take an OVL_AT
+    # of its own (3,072 against 2,560) AND a BOOT2_SECS of its own, one sector
+    # up, because the twinkle wanted ~330 bytes of `.boot2` the shipped split
+    # had not got - over WHEREVER OVL_AT fell, so moving the split alone could
+    # not pay for it. SPEC.md 15.3.8.5.1 is the size pass that took that arm to
+    # 2,568 + 1,421 = 3,993 of 4,096, and BOTH of those constants went with it:
+    # one blob length, one split at 2,624, and KSIG_OFF freed from an
+    # intersection over two blob lengths (SPEC.md 18.93.1).
     #
     # The margins are NOT quoted here any more and that is the fix rather than
     # an omission: they were "34 on one side and 30 on the other" against an
@@ -201,12 +204,8 @@ KNOBS = [
     # nobody re-measures. What does not rot is the mechanism: BOTH halves are
     # asserted at the foot of kernel.asm, each `%error` names which one ran
     # out, and THIS ROW is the only thing that ever runs those assertions for
-    # the knob arm.
-    #
-    # SPEC.md 2.9.12 made it the ONLY knob that still needs its own sector: at
-    # 19 the shipped blob has room for bootmark and moudiag below, where at 13
-    # it had not. A mechanism with one user is one nobody notices breaking,
-    # which is the whole argument for the row.
+    # the knob arm - which matters MORE now, not less: the knob arm's `.boot2`
+    # is what sets the floor under OVL_AT for every build in this table.
     ("splstars",    ["SPLSTARS=1"]),
     # NOHEDGE= is the first knob in this table that reaches a DRIVER and not
     # the kernel, so it names a target of its own - SAVER.DRV - and the row

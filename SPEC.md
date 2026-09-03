@@ -1136,8 +1136,8 @@ sector nothing: unset, the `%ifdef` is not assembled.
 **A module is `.cold` code that ships as a file instead of as part of the
 kernel image.** It is read into a heap claim when its feature is asked for,
 far-called through a table of entry pointers, and freed when the feature is
-finished. Two exist: `CTRL.DRV`, the Control Panel (§31), and `FORMAT.DRV`,
-the floppy formatter (§18.96).
+finished. **Three exist**: `CTRL.DRV`, the Control Panel (§31), `FORMAT.DRV`,
+the floppy formatter (§18.96), and `CLONE.DRV`, the disk cloner (§18.99).
 
 **This is the fourth lever on the footprint, and the only one that relieves
 `KERN_BUDGET` without relieving nothing else.** §2.5's overlay is run-once
@@ -1185,14 +1185,25 @@ in the tree.
   construction. A slot that is not loaded points at `mod_gone`, which
   refuses — never at zero, which is a far call to the divide-by-zero vector.
 - **The stride is `MODFP_STRIDE` and there is exactly one of it, asserted.**
-  A module's block is reached two ways — `mod_fpi` *shifts* by it to arm the
-  slots, each module's own base *multiplies* by it to dispatch — and the two
-  disagreed by a factor of two for one release, which module 0 cannot show:
-  its block is at offset 0 whichever is right. Module 1's was armed past the
-  end of `mod_fp`, over `[mod_fsz]`, and dispatched from a block nothing had
-  written; `mod_fp` is `.bss`, so what an overrun lands on is decided by
-  section ordering in files nowhere near this one. `%if (1 << MODFP_SHIFT) !=
-  MODFP_STRIDE` is why that cannot recur.
+  A module's block is reached two ways — `mod_fpr` *scales* a row pointer by
+  it to arm the slots, each module's own base *multiplies* by it to dispatch
+  — and the two disagreed by a factor of two for one release, which module 0
+  cannot show: its block is at offset 0 whichever is right. Module 1's was
+  armed past the end of `mod_fp`, over the word that then followed it, and
+  dispatched from a block nothing had written; `mod_fp` is `.bss`, so what an
+  overrun lands on is decided by section ordering in files nowhere near this
+  one. `%if MODFP_STRIDE != MODR_SIZE * MOD_NENT/…` — the assertion beside
+  the two constants, which pins the scale factor `mod_fpr` open-codes — is
+  why that cannot recur. (Neither `mod_fpi` nor `MODFP_SHIFT` has ever
+  existed; this bullet named both for several releases.)
+- **`MOD_NENT` is what the modules use and not a round number.** It is 6:
+  `CP_NENT` 6, `FM_NENT` 4, `CLO_NENT` 1, and every module header ends
+  `times MOD_NENT - X dw 0`, which makes a seventh Control Panel entry a
+  **hard NASM error in the file that grew** rather than an overrun. It was 8
+  for as long as the scale factor had to be a power of two so `mod_fpr` could
+  shift; ×6 is `(×2 + ×1) × 2` in the same thirteen bytes, so the power of
+  two bought nothing and 52 of the 96 `mod_fp` bytes were slots no module
+  could ever declare.
 - The loader itself is **`.cold`**. In `.text` it would be ~430 bytes against
   a `KERN_CODE_MAX` nobody can raise, and being cold also means the thunks
   that call it reach it with a near call.
@@ -1575,10 +1586,15 @@ Three consequences of the move, and they are the boot overlay's word for word
 
 - **DS is the KERNEL's**, so every `vid_*` and `gfx_*` word the splash reads is
   plain and unchanged. Its own data is reached `cs:`.
-- **`gfx_nextrow` is inlined.** Not only for the 46.7 µs a far call costs
-  against 11 — paid per *row*, in `spl_fill`, `spl_vline` and `spl_bar` — but
-  because its body reads `[cs:vid_rowadd]`, which is right in `.text` and wrong
-  here. The same three words have to come through DS.
+- **`gfx_nextrow` is the module's own**, `spl_nextrow`. Not only for the
+  46.7 µs a far call costs against 11 — paid per *row*, in `spl_fill`,
+  `spl_vline` and `spl_bar` — but because its body reads `[cs:vid_rowadd]`,
+  which is right in `.text` and wrong here. The same three words have to come
+  through DS. It was an *inlined macro* until the blob's size pass; three
+  expansions at 14 bytes against three near calls at 3 is −18 of `.boot2`, and
+  the 46.7 does not apply to a near call inside the blob. `SPL_NEXTROW_CS` —
+  the same three words read through CS, for §15.3.4's row loop — stays a macro
+  because it has one user.
 - **`spl_step`, `spl_finish` and `spl_reset` are far**, through `spl_fp` /
   `spl_fseg` and the `SPLCALL` macro — `OVLCALL`'s shape exactly, and for the
   same reason: stage 1 chose where `.boot2` landed, so its segment is not a
@@ -2378,12 +2394,15 @@ and `.cold` into `.ovl`**, where `mem_unblob` gives them back to the heap at
 the end of `kmain`. `docs/LAST-DROP-BYTES.md` is the register of them, row by
 row, with the caller that makes each one boot-only named beside it.
 
-`BOOT2_SECS` **13 → 19** and `OVL_AT` stays at **2,560**. Six extra sectors is
+`BOOT2_SECS` **13 → 19** and `OVL_AT` stayed at **2,560**. Six extra sectors is
 3,072 more bytes of blob, of which `.boot2` needs none — so the whole of it,
 plus whatever `.boot2` is not using below `OVL_AT`, is one pool for the
 overlay. **`OVL_AT` moves for nothing** (§15.3.4.2), so the split is not a
 budget either half has to be argued for; the two assertions at the foot of
-`kernel.asm` still say which half ran out if one ever does.
+`kernel.asm` still say which half ran out if one ever does. (`OVL_AT` is
+**2,624** since §15.3.8.5.1, which is the same sentence being used: the
+`SPLSTARS` arm's `.boot2` came under the shipped blob and the split moved to
+hold both arms, for nothing.)
 
 **What it costs, measured rather than reasoned** — `tests/unit/t_blobruns.py
 --sectors 19`, walked off the images `make` built:
@@ -2411,10 +2430,14 @@ are not free and are outside what was approved** — 22 costs 1.44MB its third
 call and 23 costs 720KB a fourth, which is the row the growth table did not
 carry until it was measured here.
 
-`SPLSTARS=1` keeps its own count, one sector up: `BOOT2_SECS_STARS` **14 → 20**.
-Its `.boot2` is 2,824 against the shipped 2,460, so it does not fit the shipped
+`SPLSTARS=1` kept its own count, one sector up: `BOOT2_SECS_STARS` **14 → 20**.
+Its `.boot2` was 2,824 against the shipped 2,460, so it did not fit the shipped
 blob at its own `OVL_AT` of 3,072 — the same arithmetic §15.3.8.5 records, one
-rung along. **Every other knob now fits the shipped blob**, `BOOTMARK=1` and
+rung along. **That is retired: §15.3.8.5's closing block is the measurement
+that took the knob arm under one blob length and one `OVL_AT`, and the sed
+lookup, the second constant and the second split all went with it.** What is
+below stands as the record of why the mechanism existed.
+**Every other knob now fits the shipped blob**, `BOOTMARK=1` and
 `MOUDIAG=1` included, which at 15 sectors they did not: that is §15.3.8.5's
 per-knob mechanism honoured with *less* machinery rather than more, and it is
 also why `tests/unit/t_buildmatrix.py` gains a `MOUDIAG` row — a knob whose
@@ -2480,8 +2503,6 @@ PKG_FILE_HI  equ 16          ; the high word of the biggest FILE the mount
                              ; NOT APP_MAX_SIZE - that bounds the primary
                              ; segment's image+bss and stopped bounding the
                              ; file when a package could carry parts
-; the software renderer's plane stride (§32/§39.3)
-SW_PLANE_PARA equ 0x960      ; paragraphs per plane (0x9600 bytes = 480 rows × 80)
 ; the file manager's per-window view cache (§2.3/§22.1)
 VIEW_SLOTS    equ 4          ; max Disk windows = the kind's KD_CAP (§29.3)
 VIEW_KB       equ 3          ; each window's cache, claimed when it opens
@@ -2500,10 +2521,10 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/font.inc`   | 8x8 font (copied at init from the BIOS ROM set, or the IBM ROM's own on a pre-EGA machine), text draw |
 | `kernel/mouse.inc`  | COM1/COM2 UARTs, IRQ4/IRQ3 ISRs, the 8042 auxiliary port and its IRQ12 ISR (§9.9), both packet decoders and the `mou_apply` back end they share, the keyboard mouse (§9.6), cursor (save-under) |
 | `kernel/sched.inc`  | PIT hook, context switch, task table, spawn/yield/sleep |
-| `kernel/events.inc` | 8-byte event records (`EVT_MDOWN`/`MUP`/`RDOWN`, and `EVT_WAKE` — a package's own kick, §71.1), system event ring queue |
+| `kernel/events.inc` | 8-byte event records (`EVT_MDOWN`/`MUP`/`RDOWN`, and `EVT_WAKE` — a package's own kick, §74.1), the system event ring queue, its two shared drains `evq_drain`/`evq_mup` (§10.3) and `evq_pending` (§13.4) |
 | `kernel/clock.inc`  | system clock (§37): the RTC ladder (§37.90 — MC146818 at 70h/71h, MM58167 and RP5C01 at 2C0h, int 1Ah last), the wall-clock date + time advanced from `[ticks]`, and formatting — prefix `clk_`. **Neither the field editor nor the RTC WRITE half is here**: `clk_fld_str`/`clk_fld_adj`/`clk_step` (§37.93) and the four rungs' writers (§37.94) are §37's code hosted in `CTRL.DRV`. What stays is the tick, the snapshot, the menu bar's formatter and the six port helpers **both** the boot overlay and that module need |
 | `kernel/clockw.inc` | §37's RTC **write** half (§37.94): `clk_rtc_write` and the four rungs' writers, `%include`d from `ctrl.inc`'s `.modc` so it ships in `CTRL.DRV` and is in RAM only while the Control Panel is open. Still `clk_`, still §37's contract — a file of its own so that `ctrl.inc` is not 600 lines of MC146818 |
-| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; `wm_runion`, `gfx_rect_isect`'s union twin (§5.11); the per-slot handler side tables `wm_about`/`wm_onsz`/`wm_onwk`/`wm_oncl`, the wake post/dispatch `wm_wake`/`wm_wake_disp` (§71.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
+| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; `wm_runion`, `gfx_rect_isect`'s union twin (§5.11); the per-slot handler side tables `wm_about`/`wm_onsz`/`wm_onwk`/`wm_oncl`, the wake post/dispatch `wm_wake`/`wm_wake_disp` (§74.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
 | `kernel/instance.inc` | instance table: records, kind descriptors, launch/close lifecycle (§29) |
 | `kernel/memory.inc` | the claim heap (§50): the map, `mem_claim`/`mem_free`/`mem_avail`, the teardown fence — prefix `mem_`; and `mem_bytes_kb`, the **bytes → whole-KB round-up every caller that sizes a claim from a byte count needs** (§50.3), which three `.text` sites each spelled out |
 | `kernel/menu.inc`   | menu bar (System menu + the active application's name and menus), runtime bar layout, pull-down tracking, Locator's own menu set (§12/§12.2/§12.3) |
@@ -4306,11 +4327,14 @@ a harmless tidy-up in the other direction:
    `shr dl,cl` / `shl dl,cl`. A variable shift is 8 clocks plus 4 per bit on
    an 8088 and needs CX freed around it; `[vga_y1]` is banked before the
    masks are built precisely so BX is free to index them.
-4. **`gfx_rowbase` looks its bank base up** (`vid_banktab`) instead of
-   `shl bx, 13`, which is 60 clocks for a value with four possible answers.
-   The formula in §39.3 is unchanged. The `mul` by the stride stays: the
-   alternative is a per-row table, and 480 rows of it is a third of what
-   `KERN_BUDGET` has left.
+4. **`gfx_rowbase_calc` ROTATES its bank base into place** (`ror bx, 3`)
+   instead of `shl bx, 13`, which is 60 clocks for a value with four possible
+   answers. `ror` by 3 and `shl` by 13 are the same 16-bit result for any
+   value that fits in three bits, which a bank number does, and it is 20
+   clocks over 4 bytes against a four-entry table lookup's 25 over 7 — so it
+   replaced the table rather than the shift. The formula in §39.3 is
+   unchanged. The `mul` by the stride stays: the alternative is a per-row
+   table, and 480 rows of it is a third of what `KERN_BUDGET` has left.
 5. **`sw_col` preserves nothing** (§32). Its only caller banks BX and DX for
    the whole plane and reloads AH, DI, SI and BP around every call, so the
    five push/pop pairs it used to open with were saving registers that
@@ -10819,7 +10843,7 @@ EVT_NONE  equ 0
 EVT_MDOWN equ 1     ; a=x, b=y, c=birth tick
 EVT_MUP   equ 2     ; a=x, b=y, c=birth tick
 EVT_RDOWN equ 3     ; a=x, b=y, c=birth tick - RIGHT button press (§9/§12.4)
-EVT_WAKE  equ 4     ; a=window ptr - a PACKAGE'S OWN KICK (§71.1), posted by
+EVT_WAKE  equ 4     ; a=window ptr - a PACKAGE'S OWN KICK (§74.1), posted by
                     ; OSAPI_WM_WAKE from any context and dispatched by the UI
                     ; task to the window's wake handler WITHOUT the gfx lock
 ```
@@ -10839,18 +10863,55 @@ handler is `ui_bill`'s environment minus the lock (billed, stamped, so its
 file calls resolve in its own instance's folder), and it takes the lock
 itself for whatever it draws.
 
-Single system queue, 16 records, ring buffer in .bss. Producers may be ISRs:
-`evq_push` (SI → record; copies 8 bytes; guards the copy + index update with
-`pushf`/`cli` … `popf` so the caller's IF is preserved — it is called from
-the mouse ISR, which must keep IF=0 throughout (§7); never a bare `sti`;
-overwrites the oldest record when full, §10.1) and `evq_pop` (DI →
-destination; CF=1 if empty;
-same `pushf`/`cli` … `popf` guard). `evq_init` resets head, tail and count
-under that same guard: it is no longer only a boot-time call, because
-`blk_pass` drops the wake press with it (§64.2) from the UI task with the
-mouse ISR live — and an `evq_push` landing between the tail store and the
-count store leaves head one record behind tail for the rest of the session.
+Single system queue, 16 records; the **ring itself is `.lowbss`** (`LOW_SEG`,
+reached through SS — §10.1.1) and its three indices are `.bss`. Producers may
+be ISRs: `evq_push` (SI → record; copies 8 bytes; guards the copy + index
+update with `pushf`/`cli` … `popf` so the caller's IF is preserved — it is
+called from the mouse ISR, which must keep IF=0 throughout (§7); never a bare
+`sti`; overwrites the oldest record when full, §10.1) and `evq_pop` (DI →
+destination; CF=1 if empty; same `pushf`/`cli` … `popf` guard).
+`evq_pending` answers how many records are still queued behind this one, in
+`AX`, with no lock — §13.4.
+
+**There is no `evq_init`, and its absence is load-bearing rather than
+incidental.** It zeroed head, tail and count under the same guard, and it was
+deleted in kernel size pass 3 on two facts: the three indices are `.bss` and
+**`.bss` arrives zeroed** (the boot image's `.text`/`.cold` gap is emitted as
+padding and stage 2's one contiguous read lands it over the whole section), and
+nothing can push before the point in `kmain` the one surviving call sat at —
+the three producers are `mou_isr`, `kbm_post` and `wm_wake`, and `mouse_init`,
+the keyboard hook and the window manager all come later. Its *second* caller
+had already gone: `blk_pass` used to drop the wake press with a reset, and
+§74.1.1 replaced that with a **drain**, because a reset wipes `EVT_WAKE`
+records without `wm_wake_eaten` and leaves `wm_wkq` pointing at nothing — a
+window deaf for the rest of its life. **A mid-session reset is therefore not a
+thing to re-add**; the ring is emptied by draining it.
+
 Keyboard events are *not* queued — the UI task polls BIOS int 16h directly.
+
+**The three indices are BYTES**, and one `%if` beside `EVQ_MASK` is what keeps
+them so: both offsets index a 128-byte ring and the count is 0..`EVQ_CAP`, so
+every value fits seven bits, every reader widens with `cbw`, and the three wrap
+sites mask `AL` alone. The guard reads `%if EVQ_MASK > 0x7F` — **not `0xFF`**,
+which is the bound it carried until pass 3 and which was one bit too generous
+twice over: at `0xFF` a `cbw` sign-extends and the ring indexes up to 128 bytes
+*below* `evq_buf`, which is `.lowbss` and therefore the task stacks.
+
+### 10.3 One drain loop, not four — `evq_drain` and `evq_mup`
+
+Two shared helpers, both taking **DI → an 8-byte record buffer in DS that is
+private to the caller** (the buffer is an in-parameter and that is the point —
+§74.1.1's refusal of a shared one is repeated in `events.inc`'s own header):
+
+- **`evq_drain`** — pop until the ring is empty, calling `wm_wake_eaten` for
+  every record it discards.
+- **`evq_mup`** — pop until an `EVT_MUP` arrives (CF=0, the record is at `[DI]`)
+  or the ring goes empty (CF=1), owing every other record's wake the same way.
+  It exists because that loop was written out **four** times — `ui_drag`'s and
+  `ui_grow`'s track loops and `fm_drag`'s `.wait` and `.track` — each owing the
+  bookkeeping independently, and two of the four were the far-called `.cold`
+  copies `1f1bd7e` missed outright. `cw_evq_mup` is the far cell those two use;
+  it replaced `cw_evq_pop` and `cw_wm_wake_eaten`, which had no other callers.
 
 ### 10.1 A full ring drops the OLDEST input, not the newest
 
@@ -10902,7 +10963,7 @@ window's close box answers a determined hand in a few seconds instead of never.
 The events lost are the ones the user has already given up on.
 
 **The one exception: `EVT_WAKE` is a promise, not a sample.** `wm_wake`
-(§10, §71.1) coalesces on a per-window flag in `wm_wkq`, set when the wake is
+(§10, §74.1) coalesces on a per-window flag in `wm_wkq`, set when the wake is
 queued and cleared *only by the dispatch*. Discarding a queued wake therefore
 does not lose one kick — it leaves the flag set with no record behind it, so
 that window's handler is never called again and every later `OSAPI_WM_WAKE`
@@ -10948,9 +11009,9 @@ is the whole content of this section:
   copy and restored, which is the rule §2.1 states and the only shape that is
   correct on the target.
 
-`.lowbss` is guaranteed nothing at boot, and the ring needs no guarantee:
-`evq_init` clears the three indices, and no record is ever read that a push did
-not write.
+`.lowbss` is guaranteed nothing at boot, and the ring needs no guarantee: the
+three indices live in `.bss`, which *is* zeroed (§10), and no record is ever
+read that a push did not write.
 
 **`events.inc` is `%include`d after `sched.inc`**, so this block lands *below*
 `sch_stacks` and cannot move its word-alignment pad — which is the one thing
@@ -11017,9 +11078,10 @@ Three properties are load-bearing:
   would stop happening. Sixteen is the ring's own size: the pass clears what
   was there and leaves what arrived during it for the next one.
 - **`blk_pass` stays outside the loop.** It spends the mouse ISR's activity
-  flag and can call `evq_init` to drop the press that woke a dark screen
-  (§64.1); it is a per-pass service and running it per record would make the
-  wake press's fate depend on how many events happened to be queued.
+  flag and **drains** the ring through `evq_drain` to drop the press that woke
+  a dark screen (§64.1, §74.1.1 — it used to reset it, which ate the wakes); it
+  is a per-pass service and running it per record would make the wake press's
+  fate depend on how many events happened to be queued.
 - **The tail still runs once.** `ui_arm_trk` samples the pointer per pass, not
   per record, and `ui_arm_chk` drops an arm whose release was lost — putting
   either inside the drain would have `ui_arm_chk` cancel an arm that the very
@@ -17403,9 +17465,11 @@ same code and, more to the point, the same save-under discipline.
 `menu_track` was split, and `menu_drop` is the half both callers share.
 
 ```nasm
-MENU_POPMAX equ 16              ; items a popup may have on a 480-row screen;
-                                ; the live cap is [vid_popmax] (§39.2) - 11 on
-                                ; CGA, because the rect must still fit
+MENU_POPMAX equ 11              ; items ANY pull-down may have - the shortest
+                                ; screen this OS drives is VID_H_MIN and the
+                                ; rect must still fit under the bar on it.
+                                ; [vid_popmax] (§39.2) is this same number,
+                                ; laid down rather than computed
 
 ; menu_drop  in:  [menu_x1] [menu_x2] [menu_y1] [menu_y2]  the menu rect
 ;                 [menu_cnt]   item count
@@ -17447,7 +17511,7 @@ A popup MAY sit over the dock strip (§30) — the save-under puts it back.
 Only one menu can be open at a time — both trackers run on the UI task
 under the gfx lock and both are driven by a held button — so both use
 the menu save-under claim (`MENU_SAVE_KB`, §12/§50) and no allocator
-appears. `[vid_popmax]` bounds a popup's HEIGHT (258 rows at `MENU_POPMAX`) and nothing bounds its
+appears. `[vid_popmax]` bounds a popup's HEIGHT (178 rows at `MENU_POPMAX`) and nothing bounds its
 width — `menu_widest` is taken as-is — so the honest budget is stated over
 the descriptors that actually exist rather than as a general guarantee.
 All of them (`fm_ctx_file` / `fm_ctx_fold` / `fm_ctx_dir` / `fm_ctx_up`,
@@ -17898,13 +17962,22 @@ Nothing has to be told to put the widget up.
 A one-sector directory probe is over inside a single displayed frame, and
 putting an icon up and taking it away again inside one frame is
 PERFORMANCE.md Part 1's double-draw flash with the widget itself as the flash.
-So `fpg_busy` accumulates `CX` into `[fpg_warm]` and arms nothing until it
-reaches **`FPG_WARM` = 3** — ~72 ms at the field machine's ~24 ms a sector,
-which is the only honest unit available. The counter is per **hold**, zeroed
-by `fpg_finish` and so by `gfx_unlock`, so "the machine has been at the disk
-for a while" means *in this freeze* and not *ever*. A run of more than 255
-sectors cannot happen, and a corrupt one saturates rather than wrapping back
-under the threshold.
+So `fpg_busy` arms at once for a call already carrying **`FPG_WARM` = 3**
+sectors or more — that call has met the threshold by itself — and otherwise
+accumulates `CX` into `[fpg_warm]` and arms nothing until *that* reaches 3.
+~72 ms at the field machine's ~24 ms a sector, which is the only honest unit
+available. The counter is per **hold**, zeroed by `fpg_finish` and so by
+`gfx_unlock`, so "the machine has been at the disk for a while" means *in this
+freeze* and not *ever*.
+
+Two consequences of asking the question that way round, both bounded. A call
+of three or more sectors is no longer *recorded*, so after `fpg_arm` has
+**refused** one (splash, foreign mode, another task's lock, a fullscreen
+window) a following run of one-sector calls has to accumulate three of its own
+before the arm is retried, where it used to be retried on every one — three
+sectors inside a freeze that is already seconds. And `[fpg_warm]` no longer
+saturates: only sub-threshold calls feed it, so ~85 consecutive refused ones
+would wrap it, costing one further sector of delay, once.
 
 `drv_fs_call` goes through `fpg_now`, which is `fpg_busy` with the threshold
 already met: there is nothing to warm up to when the first verb is already the
@@ -20595,12 +20668,12 @@ screen for the whole of kmain and keeps ticking** — §15.3.
 
 kmain: set DS/ES = `KERNEL_SEG` and SS:SP = `LOW_SEG:STK0_TOP` (§2.1),
 `sti`, `cld`, then:
-`sched_init` → `evq_init` → `clk_init` (§37 — the RTC probe, before the
+`sched_init` → `clk_init` (§37 — the RTC probe, before the
 mode set so a machine without one is dated from the fallback constants
 from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe
 and apply, and **skips the mode set while the splash is live**, §15.3) →
 `font_init` → `wm_init` →
-`inst_init` → `mouse_init` → `desk_init` → `files_init` → `loader_init` →
+`inst_init` → `mouse_init` → `desk_init` → `files_init` →
 `snd_init` (§34.7 — publishes `snd_live` last) → `drv_boot` (§51.3) →
 `spl_finish` (§15.3) → gfx_lock →
 `wm_paint_all` → gfx_unlock → `cursor_show` → `drv_notice` (§51.3) → jump
@@ -20908,6 +20981,14 @@ down the image is not resident yet"* - and a ladder is exactly such a helper;
 it is also the shape §15's own guard already refuses for `spl_gate`, *"the PATH
 is not aboard even though the destination is"*. **So `vid_pop8` keeps its own
 pop run, and any routine the first tick can reach must.**
+
+**A fourth routine joins it one label in.** `vid_apply` pushes the same run
+without `bp`, pops its own `es`, and enters at `vid_pop7` — the label between
+`pop bp` and `pop di` — instead of writing out seven pops and a `ret`. That is
+a LOCAL ladder inside `viddet.inc`, which is what makes it legal where the
+shared one is not: the destination is four instructions away and inside the
+same resident window as its callers. It is bound by the seven-push frame where
+the other three are bound by eight, and nothing mechanical checks either.
 
 Nothing saw it. `make`, the fast tier, `stkbalance`, `os88ovlchk`,
 `t_asmrules` and `checkdocs` were all green, because none of them boots a
@@ -21936,15 +22017,68 @@ have. MartyPC cannot host a 720KB drive with the ROM sets in this tree at all,
 which is exactly how the boundary was missed.
 
 The Makefile reads the sector count out of this file with a `sed` so the two
-cannot disagree, and it now reads **two** constants: `BOOT2_SECS_STARS` for
-the knob and `BOOT2_SECS` for everything else. The pattern anchors on
-`^BOOT2_SECS  *equ  *<digits>`, which the knob's own line misses on the
-underscore and the `%ifdef`'s line misses on the value not being a number — so
-the shipped count stays the one the pattern finds and the override is
-deliberate rather than an accident of ordering. **A boot sector told to fetch
-19 sectors for a 20-sector stage 2 jumps into a blob whose last sector never
-landed**,
-which is why the two lookups are worth the ugliness.
+cannot disagree, and it read **two** constants while this arm had a blob of its
+own: `BOOT2_SECS_STARS` for the knob and `BOOT2_SECS` for everything else. The
+pattern anchored on `^BOOT2_SECS  *equ  *<digits>`, which the knob's own line
+missed on the underscore and the `%ifdef`'s line missed on the value not being
+a number — so the shipped count stayed the one the pattern found and the
+override was deliberate rather than an accident of ordering. **A boot sector
+told to fetch 19 sectors for a 20-sector stage 2 jumps into a blob whose last
+sector never landed**, which is why the two lookups were worth the ugliness.
+
+###### 15.3.8.5.1 …and the 14th sector went back, because the CANARY was paying for it
+
+**The knob arm fits one blob length now, and `BOOT2_SECS_STARS`, the second
+`OVL_AT` and the second `sed` are all deleted.** Measured on the tree that took
+them out, `nasm [map all]`, both arms:
+
+| | `.boot2` | `.ovl` | blob | of 4,096 |
+|---|---:|---:|---:|---:|
+| shipped, before | 2,439 | 1,425 | 3,864 | 232 spare |
+| **shipped, after** | **2,254** | **1,421** | **3,675** | **421 spare** |
+| `SPLSTARS=1`, before | 2,768 | 1,425 | 4,193 | **over by 97** |
+| **`SPLSTARS=1`, after** | **2,568** | **1,421** | **3,989** | **107 spare** |
+
+−185 of `.boot2` in the shipped arm and −200 in the knob's (two of the fourteen
+findings are worth more there: the cosine table is dead under `SPLSTARS` and is
+now `%ifndef`'d out, and the same table's conversion to signed bytes is worth
+16 rather than 17 in an arm that does not compile the one code byte). The
+−4 of `.ovl` is `xm_boot_x`'s staging loop becoming a `rep movsw`. **The
+"over by 97" above is confirmed to the byte before the change** — it is
+`SPEC.md`'s own figure re-measured, not an estimate carried forward.
+
+Not one byte of it is `.text`, `.bss`, `.cold` or `.lowbss`: `.boot2` is in
+neither `KERN_CODE_MAX` nor `KERN_BUDGET`, so the whole set is worth **zero**
+against the kernel's guards and must never be summed with a resident figure.
+
+**`OVL_AT` is 2,624 for every build.** The window is 2,568 (the knob arm's
+`.boot2`) to 2,675 (4,096 − 1,421), and 2,624 sits in the middle of it: 56
+bytes spare below on the knob arm, 51 above on both, 370 below on the shipped
+one. The split is still free to move (§2.9.6) — what is new is that moving it
+*down* is now bounded by a knob rather than by nothing.
+
+**WHAT THE SECOND SECTOR WAS REALLY COSTING WAS THE BOOT CANARY (§18.93.1).**
+`KSIG_OFF` is a *memory* offset whose *file* sector is `BOOT2_SECS` further in,
+so a canary offset had to land in a head-crossing sector on four geometries
+**and on both blob lengths**. Re-derived from the four shipped BPBs, in memory
+sectors:
+
+```
+crossing on all four, 8-sector blob : 13, 49, 98, 99, 100, 101, 102
+crossing on all four, 9-sector blob : 12, 48, 97, 98, 99, 100, 101
+the intersection, which is what bound: 98, 99, 100, 101
+```
+
+Four sectors, every one of them at the very top of `.text` — which is why
+`KSIG_OFF` was 50,176 with `.text` ending 431 bytes above it and the Makefile
+carrying *"`.text` MAY NOT FALL BELOW 50,178 BYTES … and the answer then is a
+design change, not a new number"* in capitals. **This is that design change.**
+With one blob length the band is seven sectors wide and reaches memory 6,656,
+so `KSIG_OFF` is 6,656 (file sector 21) and the floor under `.text` is
+**6,658**. `tests/unit/t_canary.py` now derives *every* `BOOT2_SECS*` equate
+and requires the offset to cross on all of them, so a second blob length that
+comes back fails the fast tier instead of leaving one arm's canary inert — the
+"both lengths" rule lived in a Makefile comment and was enforced by nothing.
 
 #### 15.3.9 Three of the `splf_` shims own a far return their bodies can own
 
@@ -22333,7 +22467,7 @@ one thing that is resident this early. `BAKED_FONT` would put a copy in the
 blob and is not an option: it is a knob (`FONT=`), and a shipped kernel has no
 baked typeface. The eight rows are buffered into `.boot2` a character at a
 time because three segments are live and only two can be read through — ES is
-the framebuffer and DS is the kernel's, which `SPL_NEXTROW` needs.
+the framebuffer and DS is the kernel's, which `spl_nextrow` needs.
 
 **It needs no erase, and that is a consequence of the renderer rather than
 luck.** A teletype cell is 16 rows and `font_run` draws 8, so the teletype
@@ -24903,7 +25037,7 @@ its own RAM; reading them back proves the write worked, which it always did. It
 says nothing about whether the BIOS consulted them. The only thing worth
 verifying is the **transfer**.
 
-So the build reads a word out of `KERNEL.SYS` at **file sector 106** and
+So the build reads a word out of `KERNEL.SYS` at **file sector 21** and
 injects it as `KSIG`. After the load the boot sector compares, and on a mismatch
 drops `run_max` to `SPT` and **does the whole load again**. A boot 2.2s slower
 beats a kernel that is quietly wrong.
@@ -24924,13 +25058,20 @@ LBA 29 in runs of 30 sectors puts sector 36 five sectors into a *first* half.
 Adding the geometry made the canary inert on one shipped disk of four with no
 line of the boot path edited, and `tests/unit/t_canary.py` is what caught it.
 
-**File sector 106 crosses on all four** — the band common to them is 106..110,
-and it is the only run of two or more inside the 64KB the compare's `ES` can
-reach, so there was one answer rather than a choice. (Sectors 21 and 57 cross
-on all four as well, but each is alone: a canary needs its sector to cross for
-*both* blob lengths, and a lone sector cannot do that.) The sector under
-`SPLSTARS` — whose blob is one sector longer, so the same memory offset lands
-one sector further into the file — is 107, inside it too.
+**AND IT IS AN INTERSECTION OVER THE BLOB LENGTHS TOO**, because `KSIG_OFF` is
+a *memory* offset and the file sector is `BOOT2_SECS` further in (§2.9): a
+build whose stage 2 is a sector longer puts the same offset one sector further
+into the file. Re-derived from the four shipped BPBs, in **memory** sectors:
+
+```
+crossing on all four, 8-sector blob : 13, 49, 98, 99, 100, 101, 102
+crossing on all four, 9-sector blob : 12, 48, 97, 98, 99, 100, 101
+```
+
+While `SPLSTARS=1` carried a 9-sector blob the answer had to be in the
+intersection — **98..101**, four sectors, every one of them at the very top of
+`.text` — and the value was memory 50,176 (file sector 106 on the shipped
+build, 107 under the knob).
 
 **A THIRD CONSTRAINT BINDS BEFORE THE BAND DOES, and it is `.text`'s own
 length.** The offset has to name a *live* byte. `.bss` is `nobits`, so from the
@@ -24939,15 +25080,28 @@ is worse than absent: every word there equals its neighbour a sector away, so
 the shifted read the canary exists to catch compares **equal** and passes. This
 began as file sector 108 with `.text` at 52,916 bytes; the kernel size pass
 took `.text` to 50,207 and slid the same memory offset into the padding, in a
-merge that conflicted in no file. `.text` now ends 31 bytes into file sector
-106, so the entire legal window is memory **50,176..50,205** — thirty bytes,
-all in that one sector — and `KSIG_OFF` is the bottom of it, that being the
-value that survives the most further shrinking. **`.text` may not fall below
-50,178 bytes** while the canary is built this way; `tests/unit/t_canary.py`'s
-neighbour test fails loudly rather than letting it go quiet, and the answer at
-that point is a design change and not a new number. The compare therefore reuses the `ES` the handoff
-already loads, and the word is the same for every geometry because `KERNEL.SYS`
-is one file. `tests/suite.py`'s `canary` row asserts all of that against the
+merge that conflicted in no file.
+
+**THOSE TWO CONSTRAINTS MET, AND THE ANSWER WAS THE DESIGN CHANGE THIS SECTION
+ASKED FOR.** At `.text` = 50,607 the offset 50,176 had 431 bytes above it, and
+the Makefile said in capitals that `.text` **may not fall below 50,178 bytes**
+without leaving the constant no legal value — *"and the answer then is a design
+change, not a new number"*. The next kernel size pass takes `.text` by ~600.
+The change is §15.3.8.5.1: the knob arm's blob was brought under 4,096, so
+**there is one blob length**, the band is the seven-sector single-length one,
+and `KSIG_OFF` is **6,656 — memory sector 13, file sector 21.**
+
+It is a *lone* sector where 106 sat in a run of five, and that trade is
+deliberate: margin against a BPB that moves is worth less than margin against
+`.text`, because a geometry is a decision somebody takes and `.text` shrinks
+whenever anyone tidies anything. The floor under `.text` is **6,658** instead
+of 50,178. `tests/unit/t_canary.py` reads **every** `BOOT2_SECS*` equate and
+requires the offset to cross on all of them, so a second blob length coming
+back fails the fast tier rather than leaving one arm's canary inert — until
+this change that rule existed only as a Makefile comment and was enforced by
+nothing. 6,656 is inside the first 64KB, so the compare still reuses the `ES`
+the handoff already loads, and the word is the same for every geometry because
+`KERNEL.SYS` is one file. `tests/suite.py`'s `canary` row asserts all of that against the
 images `make` just built, so it cannot drift — and it asserts it over **every**
 shipped system image, which is the half that made the 1.2MB defect visible.
 
@@ -25009,7 +25163,9 @@ A/B for §18.91.1 itself.
 splash always drew correctly, which is what made it so hard to read: the splash
 module is file sectors 0–8, and on a 360KB disk the first head flip is at LBA 27
 — file sector 15. Everything the screen could show was loaded before the first
-sector that could be wrong.
+sector that could be wrong. (File sector 21, where the canary sits now, is past
+that flip on every geometry — which is the band's own guarantee and not a
+coincidence of the new value.)
 
 ### 18.93.2 The XT gate: who PAYS for the discovery
 
@@ -30181,7 +30337,8 @@ primary claims on a part's behalf and passes it a segment.
 That rule is what leaves every kernel test of "the package's segment"
 untouched: `mem_own`'s fence, `mem_free_rec`, `inst_pkg_spawn`'s identity
 test and its `I_SIZE` bound, `wm_destroy_seg` at teardown, `wm_pkgcall`'s
-`W_SEG:12`, `fsx`'s ownership test and `ld_icon`. **Not one of them moves.**
+`W_SEG:12`, `fsx`'s ownership test and the icon-flag test in `ld_run_body`'s
+step 9. **Not one of them moves.**
 It is also not a new discipline: it is what §73.14's overlay already does,
 where only code moves and `DS` stays the package's.
 
@@ -30201,7 +30358,11 @@ shows any package's own claims — because that is now what they are.
 
 ## 21. loader.inc
 
-State (.bss, cleared by `loader_init`): `ld_pending` (word: 0 = none, else
+State (.bss, **zero at boot** — §2.5, and there is no `loader_init`: all
+four resting values are zero, `LD_OK` included, so the routine that used to
+write them wrote zero over zero. It comes back the day a `ld_*` field gains a
+non-zero resting value, and the declarations say so): `ld_pending` (word:
+0 = none, else
 directory index+1 — set by files.inc, consumed by ui.inc §13), `ld_pwin`
 (word: the state block of the file-manager window that posted it, 0 =
 none — §22.1; the index is into *that* window's listing, so `loader_run`
@@ -30233,19 +30394,29 @@ is still unpublished at those points, so `mem_free_rec` cannot be used — it
 reads an I_SPTR that step 9 has not written — and both owner words are known
 locally instead.
 
-`ld_check_hdr` (module-internal) — in: SI → 32 readable header bytes,
+`ld_check_hdr` (module-internal) — in: **ES:SI → 32 readable header bytes**,
 [ld_fsz] = file size; out: CF=0 + scratch (img/bss/entry) filled, or CF=1 +
-AL = status. Checks: magic; **version = 3** (a v1 or v2 file → "Bad
+AL = status. **ES:SI and not DS:SI**, which is what `drv_check` and
+`mod_check` have always taken: both callers used to stage 32 bytes into a
+kernel-segment buffer first and validate the copy, and nothing ever compared
+the two — each call simply re-ran the same tests. The buffer and the copying
+are gone; the disk-swap guard step 6 exists for is untouched, because what
+catches a swap is re-running this routine on what the *full read* delivered,
+not the staged copy. Checks: magic; **version = 3** (a v1 or v2 file → "Bad
 package"); link base = 0; image ≥ 0x20; entry in [0x20, image) (the icon
-rule is enforced by os88pkg, not re-checked); image+bss ≤ APP_MAX_SIZE
-(else "Too large"); image = file size (guards truncated files and stale
+rule is enforced by os88pkg, not re-checked); **image+bss ≤ APP_MAX_SIZE,
+fenced on the CARRY**, because both operands are separately bounded at
+0xF000 and their sum reaches 0x1E000, which is seventeen bits (`add dx, ax /
+jc` — see §21's write bound, and `tests/pkgfence.py`); image = file size (guards truncated files and stale
 directories — sound because FAT directory sizes are byte-exact and
 os88disk.py never pads the size field, §24; cluster slack on disk is
 invisible here) **unless flags bit 2 is set, when the test is image ≤ file
 size** — a package carrying parts is longer than its image by construction
 (§20.12), and one bit is the whole of what the kernel learns about that. **It also validates the dispatcher bytes at +12** —
-`cmp word [si+LD_H_DISP], 0D5FFh` and `cmp byte [si+LD_H_DISP+2], 0CBh`
-(kernel/loader.inc:163 and :165) — so `FF D5 CB` is checked twice, by
+`cmp word [es:si+LD_H_DISP], 0D5FFh` and `cmp byte [es:si+LD_H_DISP+2],
+0CBh`, in `ld_hdr_ok`, the body the **driver** loader shares (§51.1 defines a
+driver header as a package header with a different version byte, and the two
+were spelled out twice) — so `FF D5 CB` is checked twice, by
 os88pkg.py when the file is stamped and by the loader when it is read. That
 is deliberate and this spec used to claim the opposite. os88pkg.py cannot be
 the only gate: it sees the file the build produced, and the loader sees the
@@ -30261,11 +30432,21 @@ was happening anyway.
 `loader_run` — in AX = directory index. UI task only, gfx lock not held
 on entry. Steps:
 1. Validate the entry: index < [disk_nfiles], type = 1, **the staged size's
-   HIGH word is 0** (else status 3, `LD_EBIG`), size ≤ APP_MAX_SIZE and
-   non-zero, and the first-cluster word at
+   HIGH word is below `PKG_FILE_HI`** (16 — else status 3, `LD_EBIG`), the
+   size is **non-zero**, and the first-cluster word at
    [si+LD_DE_CLUS] ∈ [2, [dsk_maxclus]] (belt and braces under §19's
    type-word rule — this check stands alone if the mount code ever
    changes; store it in `ld_clus`) → else status 2, step 10.
+   **Three of those moved and this section did not follow them.** The high
+   word is not tested against 0 — 1..15 pass, because a package carrying
+   parts may be up to 1MB (§19.1, §20.12); `size ≤ APP_MAX_SIZE` is **not**
+   tested here at all, having moved into `ld_check_hdr` where the *image* is
+   what it bounds; and the cluster range test is **skipped on a `DVK_FILE`
+   volume**, where the "first cluster" is an opaque handle (§62.9.1) and
+   `[dsk_maxclus]` belongs to whichever FAT volume was mounted last — so the
+   test would not merely be wrong there, it would be answered by a number
+   belonging to another disk. `ld_take` is the one body that asks all three,
+   for the index path and the by-name path alike (§21.4).
 
    **The high-word test is not belt and braces; it is the other half of
    §19.1's widened type rule.** The staged entry has carried a 32-bit size
@@ -30289,21 +30470,37 @@ on entry. Steps:
    `disk_read` 1 sector into `dsk_secbuf` (UI-task-only shared scratch) —
    the first sector of the first cluster IS the file's first 512 bytes,
    so peek semantics are exact. CF → status 1.
+   **A `DVK_FILE` volume takes the other arm**: there are no sectors to
+   reach, because `dsk_xfer` refuses a redirected volume outright, so the
+   peek is an `FSV_READAT` of 512 bytes at offset 0 through the volume's
+   driver (§62.9, §51.8 — DX:BX, not ES:BX). It lands in the same
+   `dsk_secbuf` and step 3 is identical. Without it every package on a
+   redirected volume is "Bad package".
 3. `ld_check_hdr` on the peek → status 2/3.
-4. need = roundup512(max(image+bss, file size)); > APP_MAX_SIZE → status
-   3. (Sector-granular allocation makes the whole-file read safe: it
-   writes ceil(fsize/512)·512 ≤ need bytes, never a neighbour's region.)
+4. need = roundup512(image + bss). **No second bound test**: `ld_check_hdr`
+   has already fenced `image + bss` at APP_MAX_SIZE *on the carry*, so this
+   value is at most 0xF000 by construction and the `> APP_MAX_SIZE → status
+   3` that used to sit here was code that could not run. The `max` with the
+   file size went when a package became allowed to be **bigger than its
+   image** (§20.12): the region holds the primary segment and the parts are
+   the package's own to read. (Sector-granular allocation makes the read at
+   step 6 safe: it writes ceil(image/512)·512 ≤ need bytes, never a
+   neighbour's region — and that is an invariant the carry fence is the
+   whole of what enforces.)
 5. `inst_alloc` (§29) → CF → status 5. `mem_claim_hi` need KB → CF →
    status 5 (the unpublished instance record stays free). Note the
    record is not yet published, so the region is reserved only by
    single-threadedness (rule §29.2.8).
-6. `dsk_read_chain` the whole file (§18) — AX = [ld_clus], DX =
-   ceil(fsize/512) sectors — to ES=KERNEL_SEG, BX=base. CF with AL=1
+6. `dsk_read_chain` the primary image (§18) — AX = [ld_clus], DX =
+   **ceil(image/512)** sectors, THE IMAGE AND NOT THE FILE (they are equal on
+   a package that carries no parts, and on one that does the rest is the
+   package's own to read, §20.12) — to **ES = [ld_base], BX = 0**, the
+   package's own segment at offset 0. CF with AL=1
    (disk error) → status 1 (`LD_EDISK`); AL=2 (chain corrupt: loop,
    cross-link, premature EOC, bad-cluster mark, out-of-range link) →
    status 2 (`LD_EBAD` — a corrupt FAT on a disk that reads fine is bad
    data, not a disk error). The write bound holds even against a corrupt
-   FAT: the walk is size-driven, reading exactly ceil(fsize/512)·512 ≤
+   FAT: the walk is size-driven, reading exactly ceil(image/512)·512 ≤
    need bytes — never a neighbour's region. Re-run `ld_check_hdr`
    against the in-region header (the disk could have been swapped
    between the peek and the read — and a looped or cross-linked chain
@@ -30325,10 +30522,14 @@ on entry. Steps:
    itself cannot spawn: neither `I_STATE = 1` nor `wm_owner` is published
    yet), I_SPTR = the base **segment**, I_SIZE = need,
    `inst_set_name_x` from segment:16 (the name is in the package's segment,
-   so the ES-reading twin), I_ICON = a pointer into `inst_icons` with the
-   header's 64 icon bytes **copied there** when flags bit 0 is set, else 0
-   — the dock draws icons from KERNEL_SEG and cannot follow a pointer into
-   a package. Then `inst_bind_win` BX, publish I_STATE = 1, **`[ld_status]`
+   so the ES-reading twin), I_ICON = the **`I_ICO_PKG` sentinel** when flags
+   bit 0 is set, else 0. **A sentinel and not a copy**, and `inst_icons`
+   does not exist: the 64-byte body sits at a fixed offset in the package's
+   own header, in a region that lives exactly as long as the instance does,
+   so a per-slot copy in kernel `.bss` was 768 bytes duplicating something
+   that could not go away first. `inst_icon_ptr` stages one body back into
+   the kernel segment when a tile is actually drawn (§25), which costs
+   nothing on any path that draws none. Then `inst_bind_win` BX, publish I_STATE = 1, **`[ld_status]`
    = LD_OK and `[ld_painted]` = 1**, gfx_lock, `wm_show` BX, gfx_unlock,
    status 0. (`wm_create` failing inside the entry surfaces as CF =
    status 4.) The status is published **before** the repaint on purpose: a
@@ -33874,7 +34075,7 @@ on a white gap 2px around the text, centered in the zone.
 | symbol       | contract                                                    |
 |--------------|--------------------------------------------------------------|
 | `desk_paint` | draw every drive's icon + label; the selected one (desk_sel) gets `gfx_xor_fill` over its hit zone. Called by wm_paint_all after the desktop fill (lock held by caller). |
-| `desk_zone_rect` | in AL = zone index; out AX,BX,CX,DX = that zone's **drawn** rect, inclusive — `[vid_desk_zl]`..`[vid_desk_zr]`−1 horizontally, so the label's 2px overhang each side is inside it, not the 48px hit zone. Clobbers all four. |
+| `desk_zone_rect` | in AL = zone index; out AX,BX,CX,DX = that zone's **drawn** rect, inclusive — `[vid_desk_zx]`−`DESK_ZOVER` .. `[vid_desk_zx]`+`DESK_ZW`+`DESK_ZOVER`−1 horizontally, so the label's 2px overhang each side is inside it, not the 48px hit zone. **This routine is where those edges are derived**, out of the one published word and the two constants; two further cells carrying them were written every `vid_apply` and read by nothing. Clobbers all four. |
 | `desk_dmg_zones` | in `[wm_dmg_*]` (§11.91); out AL = bit n set = zone n is inside the damage rect, **and the damage rect grown to cover every one of them**. The growth is not slack: a zone is redrawn whole, so a window sitting over it has to be marked too. |
 | `desk_paint_mask` | in AL = the bitmask `desk_dmg_zones` returned; draw those zones. All registers preserved. |
 | `desk_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window and `dock_click` declined the click, §30). Zone hit: if same zone as desk_sel and [ui_click_t]−desk_clkt < 9 (birth ticks, §10) → clear the selection and call `files_open_drive` with AL = drive. Else select it, stamp desk_clkt. Miss: clear any selection. All its own drawing (selection flips) happens under gfx_lock/gfx_unlock acquired internally, redrawing only the affected zones — and **`[desk_sel]` is written inside that lock hold**, not before it, because §26.2's partial case flips pixels rather than repainting them. A zone the flip finds under a window is §26.2's business. |
@@ -34262,11 +34463,17 @@ Two things about where that decision lives. It keys on **`[vid_kind]`, not
 adapter's mode rather than of how many rows it has. And it is re-asked in
 `desk_rowcalc` rather than at boot, because that is the routine `vid_switch`
 re-runs (§39.11.2) — so a machine moved from its CGA to its Hercules gets the
-tall pair back with no second site to remember. `[desk_icoh]`, `[desk_zh1]`,
-`[desk_zstep]`, `[desk_pdisk]`, `[desk_phdd]` and `[desk_zgap]` (§26.5) are
-`.text` with real initialisers for the reason every boot-reachable table here
-is: `-f bin` zeroes nothing, and a zero icon pointer draws the interrupt
-vector table.
+tall pair back with no second site to remember. `[desk_zh1]`, `[desk_zstep]`,
+`[desk_pdisk]` and `[desk_phdd]` are `.text` with real initialisers for the
+reason every boot-reachable table here is: `-f bin` zeroes nothing, and a zero
+icon pointer draws the interrupt vector table.
+
+**Four words, and it was six.** The icon's own height and §26.5's gap were
+stored beside them and are not any more: every reader wanted the *sum* — the
+zone's inclusive bottom, `icon + gap + DESK_LBLH - 1` — so `desk_rowcalc`
+builds `[desk_zh1]` per arm as a constant and the label band is derived back
+off it (`y1 = zy + zh1 - (DESK_LBLH-1)`). The identity holds on both arms and
+at the resting initialiser: 32+2+11 = 45 and 14+1+11 = 26.
 
 ### 26.5 The caption sits a gap below the icon
 
@@ -38688,9 +38895,9 @@ A focus change costs two tiles; nothing changing costs no pixels. A tile whose
 **identity** changed is erased to white first; a tile where only a MARK moved
 is not erased at all — see §30.3.
 
-The strip's own rule and white field are redrawn only when `[dock_full]` says
-so, and the single thing that sets it is somebody having drawn **over** the
-strip: `wm_paint_all`'s dither, and `wm_paint_dmg`'s when the damage reaches
+The strip's own rule and white field are redrawn only when the **damage span**
+says so, and the single thing that fills it is somebody having drawn **over**
+the strip: `wm_paint_all`'s dither, and `wm_paint_dmg`'s when the damage reaches
 `[vid_dock_y0]` — which is how *"a window that was covering the dock moved
 away"* gets its full redraw, since hiding, destroying, dragging and resizing
 all arrive there with a rect that reaches the strip. `dock_force` /
@@ -38699,8 +38906,21 @@ tiles the damage reached**: a tile whose pixels were painted over is not
 "unchanged" however much its state still matches, and a tile the damage never
 came near is not repainted to prove it.
 
-`.bss` is not zeroed at boot (`-f bin`), so `dock_init` calls `dock_force`
-and clears the keys itself.
+**The span is its own flag.** `[dock_dx1]`/`[dock_dx2]` is empty when it is
+the inverted bounding box `0x7FFF..0x8000` — `dock_px1`/`dock_px2`'s own
+idiom (§30.3.3) on the other pair, and `wm_dmg_bands`' before either — so
+`dock_force_x`'s repeated calls are one signed union with no set/union split
+and `dock_paint` spends the span by exchanging the sentinel back in at the
+**top** of the redraw, where a `dock_force` arriving mid-paint unions onto the
+fresh sentinel and re-arms the next pass. There is no separate `[dock_full]`
+boolean; it said only what the span could say itself.
+
+`dock_init` writes that pair directly — `0..[vid_pwm1]`, the whole strip owed,
+and an empty painted span — rather than calling `dock_force`, so the boot
+overlay has no outbound call here at all. It clears no keys: `.bss` **is**
+zeroed at boot (it is `nobits`, so what lands on it is the image's own
+inter-section padding, §2.6), and independently of that the first
+`dock_paint` clears all twelve from the full-width span before reading one.
 
 The dock renders ONLY records read as I_STATE = 1 during the same lock
 hold (§29.2 rule 3); dying records are skipped, so a closing instance's
@@ -38716,7 +38936,7 @@ tile vanishes with the `wm_hide` repaint. Icon pointers must satisfy
 | `dock_force_x` | in: AX = x1, CX = x2 (inclusive). Only that span was. Repeated calls UNION. Preserves all registers. |
 | `dock_paint` | draw the rule, the strip and every live instance's tile. Called by wm_paint_all after `desk_paint`, before the menu bar and windows (lock held by caller) — windows cover the dock exactly like desktop icons (§26). |
 | `dock_hit`   | in CX=x, DX=y. Out: CF=1 = the point is not in the strip at all; CF=0 = the strip owns it, and then **DI = the live instance record under the pointer, or 0** for bare strip, an inter-tile gap, a slot past the last, and an empty or dying one. AL = the slot when DI ≠ 0. Clobbers AX and DI only. The one hit test both buttons use (§30.2). |
-| `dock_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window, BEFORE desk_click). Out: CF=1 = consumed (any click with y ≥ `[vid_dock_y0]` — strip background clicks are consumed no-ops), CF=0 = not in the dock. Tile hit on a live instance: minimized → gfx_lock, `inst_restore`, gfx_unlock; I_WIN == `wm_top` → gfx_lock, `inst_minimize` on I_WIN, gfx_unlock (§30.4); else → gfx_lock, `wm_front` on I_WIN, gfx_unlock. Single click; no double-click logic. |
+| `dock_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window, BEFORE desk_click). Out: CF=1 = consumed (any click with y ≥ `[vid_dock_y0]` — strip background clicks are consumed no-ops), CF=0 = not in the dock. Tile hit on a live instance takes **one** gfx_lock bracket around whichever command the tile's own mark selects — minimized → `inst_restore`; I_WIN == `wm_top` → `inst_minimize` on I_WIN (§30.4); else → `wm_front` on I_WIN — and the `I_FLAGS`/`I_WIN` reads that choose between them are inside it, which is where a read of a record the lock protects belongs. The paths that refuse (not in the strip, bare strip, gap, dead slot) return above the lock and take none. Single click; no double-click logic. |
 | `dock_rclick`| in CX=x, DX=y (no lock held; called by `ui_rdown` when wm_hit found no window). Out: CF as `dock_click`'s. A tile on a live instance → gfx_lock, `menu_popup` anchored at the press, `app_close_win` if `Close` was chosen, gfx_unlock. Bare strip: consumed, and nothing drops (§30.2). |
 
 Every dock-state transition (launch, quit, minimize, restore) — and every
@@ -38767,9 +38987,13 @@ Three things make it exact.
 
 - **The marks own bits 0..2 and the identity owns the rest.** `dock_key` used
   to XOR the rotated icon pointer's top three bits straight onto the mark
-  bits — fine for *did anything change*, useless for *what changed*. They are
-  folded into the high byte instead, so nothing about the icon is lost and
-  `old XOR new` names the difference. A live tile's key now always has
+  bits — fine for *did anything change*, useless for *what changed*. The
+  rotated word's whole low byte is folded into the high one instead, so
+  nothing about the icon is lost, nothing lands on the marks and
+  `old XOR new` names the difference. (Folding all eight bits rather than
+  three costs nothing and saves two registers: the extra five fold into a byte
+  that is pure identity, and over all 65,536 `I_ICON` values the collision
+  classes are bit-for-bit the three-bit fold's.) A live tile's key now always has
   `DOCK_K_LIVE` set, so it can never be 0 and the collision bump the old key
   needed is gone — and "one of the two keys is 0" falls out as a bit-0
   difference, which `DOCK_K_ID` catches, so a tile appearing or disappearing
@@ -40611,10 +40835,14 @@ with plain CPU instructions, one plane at a time:
   * `SWM_XOR` — XOR 0Fh flips every plane identically: edges xor the mask,
     interior bytes are complemented.
 
-Plane *p* lives at `[vid_rseg] + p*[vid_rpara]`, so `vga_rect_setup`'s masks
-and offsets serve this module and the planar one alike; every solid and XOR
-primitive funnels through `sw_rect`. Pixel, hline and vline are degenerate
-fills — a rect setup costs one `mul`, the same as a dedicated loop would.
+Plane *p* lived at `[vid_rseg] + p*<plane stride>`, so `vga_rect_setup`'s
+masks and offsets serve this module and the planar one alike; every solid and
+XOR primitive funnels through `sw_rect`. §39.26 flattened every plane loop
+here, so in practice there is only plane 0 and `[vid_rseg]` **is** the target;
+the step and the exclusive end it walked to were published cells until they
+were found to have no reader, and they have gone with the constant behind
+them. Pixel, hline and vline are degenerate fills — a rect setup costs one
+`mul`, the same as a dedicated loop would.
 
 `sw_fill` / `sw_fill_gray` / `sw_xor_fill` / `sw_fill_pat` / `sw_save` /
 `sw_restore` are the software twins of the `gfx_*` primitives with identical
@@ -41448,7 +41676,7 @@ afterwards. Label prefix `clk_` (the built-in **Timer** app of §14 keeps its
 own `app_tmr_` names and its own per-instance stopwatch state — the two are
 unrelated, and the app's rename away from "Clock" is what finally makes the
 two prefixes read differently). Included right after `events.inc`; `clk_init` runs in kmain
-right after `evq_init` (§15). All code is near `.text`: it is called from
+right after `sched_init` and `sch_idle_start` (§15). All code is near `.text`: it is called from
 the UI task's inner loop and from the Control
 Panel's far page (§31.5).
 
@@ -41551,9 +41779,9 @@ the caller cannot know which rung answered.
 | symbol | contract |
 |--------|-----------|
 | `clk_init` | Boot: display settings to their defaults (24-hour, no seconds), fallback date, then the RTC probe. Preserves all registers. |
-| `clk_tick` | UI task only. Advances the clock from the `[ticks]` delta. Out: AL = the change mask above. Clobbers AX only. |
+| `clk_tick` | UI task only. Advances the clock from the `[ticks]` delta. Out: AL = the change mask above. Clobbers AX only — AH is left 0 or 2, which is inside that, and the one caller reads AL. **It drains `[clk_barq]` with an `xchg` and DOUBLES the byte into mask bit 1, so `[clk_barq]` is 0 or 1 and nothing else**: a 2 would set bit 2 and a 0x80 would double to 0 and lose the request silently. Every writer stores 0 or 1; a new one must too, or it owes this routine a compare instead. |
 | `clk_snapshot` | Copies the six fields to `clk_sn_*` under `pushf`/`cli`. Preserves all registers. Read by §31.5. |
-| `clk_fmt` | Calls `clk_snapshot`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 26 bytes. Out: SI = `clk_str`, **CX = its length**. Preserves everything else. The length is free here — the routine ends holding the pointer it wrote the NUL through — and it is what **both** callers wanted: each used to walk the string again the instant it came back. |
+| `clk_fmt` | Calls `clk_snapshot`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 25 bytes — 24 + the NUL, counted off the format itself and no longer carrying a guard byte, because the RTC probe's scratch is now declared *into* it (§37.90). Out: SI = `clk_str`, **CX = its length**. Preserves everything else. The length is free here — the routine ends holding the pointer it wrote the NUL through — and it is what **both** callers wanted: each used to walk the string again the instant it came back. |
 | `str_len` | In: SI = an ASCIIZ string in `KERNEL_SEG`. Out: CX = its length, NUL excluded. SI and every other register preserved. The kernel's only strlen, hosted in `clock.inc` beside `clk_fmt` and reached by a near call from `.text` alone — a site in `.modc` or `.cold` is in another segment and needs a shim, which is worth more than the loop it would replace. |
 | `clk_fld_str` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6 (month, day, year, hour, minute, second, meridiem). Out: SI = a NUL string for that field alone in `clk_fbuf` — `'Mmm'`, `'DD'`, `'YYYY'`, `'HH'`, `'MM'`, `'SS'`, `'AM'`/`'PM'`. Always the field's **full width, zero-padded** — unlike `clk_fmt`, because a field is a fixed-width editable cell whose highlight box must not change size under it; in 12-hour mode the hour reads `'12'`, `'01'`..`'11'`. Reads the last `clk_snapshot` and does **not** take one. Preserves everything else. Read by §31.5. |
 | `clk_fld_adj` | **In `CTRL.DRV`, not in the kernel (§37.93).** In: AL = field 0..6, BL = +1 or −1. Steps that field with wrap (month 1..12, day 1..month length, year 1980..2099, hour 0..23, min/sec 0..59); field 6 flips the meridiem by ±12 hours, either sign. Then re-clamps the day to the new month length (31 Mar − 1 month = 28 Feb, never 31 Feb), zeroes `clk_acc` and re-samples `clk_last` so the new second starts from now, and sets `[clk_dirty]` + `[clk_barq]`. Preserves all registers. Called by §31.5, which is its only caller and now also its host. |
@@ -41569,6 +41797,19 @@ is the only thing that jumps by 12.
 
 **Month names** are a 12×3 ASCII table (`'Jan'`…`'Dec'`), indexed by
 month−1 ×3 — the same data serves `clk_fmt` and `clk_fld_str`.
+
+**Month LENGTHS are not a table.** `clk_mlen` carries the eleven non-February
+answers as one 16-bit mask — bit *m* set means month *m* has 31 days, *m* =
+1..12, so bit 0 is unused and bit 2 is clear because February is the branch
+under it. That is three bytes less than the `db 31,28,31,…` it replaced and
+one review problem more, so `tests/unit/t_mlen.py` (fast tier) reads the
+immediate back out of `build/kernel.bin` and asserts all twelve lengths —
+zero kernel bytes, and the only thing in the tree that covers the eleven the
+mask decides. `tests/dtfield.py` row 3 is February, which is the branch.
+**`clk_mlen` must not spend AH**: `clk_fld_adj` carries the ±1 step there
+across both `cw_clk_mlen` calls and `clk_step` opens `add al, ah`, so the
+3-bytes-cheaper `mov ax, mask / shr ax, cl` form breaks the Date/Time ±
+button and nothing here would see it.
 
 **What this deliberately does not do.** No timezone, no DST (the DST byte
 `AH=02h` returns is ignored and `AH=03h` is written 0), nothing *displays*
@@ -41701,6 +41942,30 @@ of them *enable* pulse outputs when clear.
 forever for a bit that will never change on a machine where every read is
 0FFh, and rungs 2 and 3 do their waiting with interrupts off.
 
+**The probe's scratch is `clk_str`.** Twenty-two bytes of `.bss` exist only
+while `clk_probe` runs — `clk_tb_*` (every rung's read lands there first and
+`clk_commit` is the only thing that adopts it), `clk_rr` (rung 1's raw burst),
+`clk_rf_*` (the `int 1Ah` reference rung 3 is checked against), `[clk_ref]`,
+`[clk_nsrol]` and `[clk_rpyy]` — and they are declared as `equ`s **into the
+menu bar's line buffer**, not beside it. The two lifetimes cannot meet, in
+both directions: every reference to every one of those names is in
+`clock.inc`'s `.ovlw`, which `drv_boot`'s first mount overwrites, and
+`clk_str`'s only writer is `clk_fmt`, whose two callers are `menu_draw_clock`
+and `toast_gapend` — neither reachable before `menu_init`, a hundred lines of
+`kmain` after `OVWCALL clk_init`. Not one instruction changes: every access
+was already an absolute DS-relative `[clk_tb_x]`. `CLK_PROBE_SPAN` is
+asserted against `clk_str`'s size at assembly time, which is what makes
+§37's 25-byte figure load-bearing rather than a comment.
+
+**Two numberings, and they collide on the BIOS rung.** The list above is the
+**walk order** (1..5), in which `int 1Ah` appears twice — as the reference and
+as the rung of last resort. `[clk_tier]` holds the **`CLK_T_*` enum** instead:
+AT 1, NS 2, RP 3, BIOS 4, which is what `clockw.inc`'s section headers,
+`clk_wtab`'s dispatch table and `ctrl.inc`'s `cp_rtcnam` are all indexed by.
+So the BIOS rung is "5" in one and "4" in the other. Both are defensible and
+neither is going away; what is binding is that **a comment naming a rung
+number says which scheme it means**.
+
 **Testing.** QEMU models an MC146818 and nothing else, so rungs 2, 3 and 4
 would be unreachable under the QMP harness. `RTC=none|at|ns|rp|bios` in the
 Makefile forces one rung, exactly as `VIDEO=` forces the adapter (§39.1),
@@ -41709,6 +41974,15 @@ with nothing at 2C0h are the negative test: the probe must reject and boot
 to the fallback date rather than hang or claim a phantom clock. Rungs 2 and
 3 have no positive test outside 86Box (`isartc_type = a6pak`) and real
 hardware.
+
+The consequence for a **size** pass is worth stating where the tests are:
+`clock.inc`'s `.ovlw` half and the whole of `clockw.inc` are the least-covered
+bytes in the kernel, and they buy nothing against `KERN_CODE_MAX` either —
+`.ovlw` is forfeit at the first mount and `.modc` ships in `CTRL.DRV`. What is
+reachable is rung 1 under QEMU (`sb_ladder` reads `tier 1, stop 00` out of
+§37.92's `'CK'` block, which is a live read of the whole AT burst and decode)
+and the *refusals* of rungs 2 and 3 under `RTC=ns` / `RTC=rp`. Acceptance of
+either chip is field-only.
 
 ### 37.91 The century byte, and the year it composes
 
@@ -41839,7 +42113,9 @@ prefix because §37 still owns the contract.
 
 **What could not go with them, and why.** `clk_fld_str` reaches five
 formatters and `clk_fld_adj` reaches `clk_mlen`; all six have *resident* near
-callers (`clk_fmt` from the menu bar, `clk_inc_day` from the tick), so none of
+callers (`clk_fmt` from the menu bar, `clk_inc_sec`'s day carry from the tick
+— which was `clk_inc_day`, a separate routine, until a size pass inlined its
+one caller's copy), so none of
 them can leave and none can become a `retf` body (§2.6.1). They get the
 ordinary `.text` thunk instead — **six of them, `cw_clk_mlen`,
 `cw_clk_put_mon`, `cw_clk_put2`, `cw_clk_put4`, `cw_clk_h12h`, `cw_clk_ampm`,
@@ -41919,12 +42195,20 @@ the port helpers both halves share:
 
 | | bytes | ends in | because |
 |---|---:|---|---|
-| `clk_at_get` | 13 | **`retf`** | no near caller left in `.text` |
-| `clk_at_done` | 18 | **`retf`** | " |
-| `clk_ns_stamp` | 64 | **`retf`** | " |
-| `clk_rp_get` | 14 | **`retf`** | " |
-| `clk_ns_put` | 16 | `ret` | `clk_ns_stamp` near-calls it ×4 |
+| `clk_at_get` | 9 | **`retf`** | no near caller left in `.text` |
+| `clk_at_done` | 14 | **`retf`** | " |
+| `clk_ns_stamp` | 52 | **`retf`** | " |
+| `clk_rp_get` | 11 | **`retf`** | " |
+| `clk_ns_put` | 13 | `ret` | `clk_ns_stamp` near-calls it ×4 |
 | `clk_tobcd` | 11 | `ret` | `clk_ns_stamp` near-calls it ×1 |
+
+**The byte column is re-measured at every size pass and has moved twice**
+(`routsize.py`, off `[map all]`). It read 13/18/64/14/16/11 when this section
+was written; kernel size pass 2 took `clk_ns_stamp` to 57, and pass 3 took the
+four port helpers onto the immediate/low-half addressing forms and
+`clk_ns_stamp`'s year clamp to a subtract-first one. **It is consulted to
+decide whether a body is worth moving, so a stale figure argues the wrong
+way** — `clk_ns_stamp` at 64 looks like twice the case it is at 52.
 
 **That table is enforced, not documented.** §2.6.1's gate refuses a near call
 to a `retf` body and a far call to a `ret` one, so the four that end in `retf`
@@ -41940,9 +42224,13 @@ the new `cw_clk_tobcd`.
 **Measured**, `kernsize[big]`: the move is **814 bytes** of `.text` — 787 out
 of `clock.inc`, 12 more as the `ovw_` block shrinks to two `cw_` thunks, and
 16 as `ui.inc`'s drain goes; the module pays 51 for the far-call widening and
-the `cs:` override, so `clockw.inc` is 838 in the image. `clock.inc`'s `.text`
-is **678 bytes**, from 1,794 before §37.93 — the tick, the carry, the
-snapshot, the menu bar's formatter, the `'CK'` block and these six.
+the `cs:` override, so `clockw.inc` was 838 in the image. `clock.inc`'s `.text`
+was **678 bytes** at that measurement, from 1,794 before §37.93 — the tick,
+the carry, the snapshot, the menu bar's formatter, the `'CK'` block and these
+six. **Both figures are the ones this move landed on and neither is current**:
+two size passes since read `clock.inc` `.text` **606** and `clockw.inc`
+`.modc` **771**, with the module's own dispatcher on a `[cs:]` jump table and
+its five encode-then-write bursts behind two helpers.
 
 **The two moves together are 1,119 bytes of `.text` and they uncross the image
 rung**: on the integration branch `KERN_SIZE` 120,320 → **119,296**, `.text`
@@ -42730,6 +43018,13 @@ QEMU (mode 10h's framebuffer is byte-compatible with what the planar path
 writes). It exists for testing only and every shipped image is built without
 it — see §39.9.
 
+**The override is applied at ASSEMBLY time and a shipped kernel carries
+nothing for it.** `vid_detect`'s forced arm is inside `%if VID_FORCE != 0`,
+so at the default 0 there is no test, no branch and no byte to test: the
+routine begins at the probe. There is no runtime cell — `[vid_force]` was one
+until it was observed to have a single reader, no writer anywhere, and a value
+`%if` already knew.
+
 ### 39.2 Runtime geometry
 
 `SCREEN_W`, `SCREEN_H` and `ROW_BYTES` (§3) survive as the **VGA reference
@@ -42740,24 +43035,60 @@ truth about the screen. The truth is:
 `vid_apply` `rep movsw`s an 18-byte `vid_tab` record straight over them, so
 reordering one without the other silently corrupts all nine:
 
-`vid_seg`, `vid_w`, `vid_h`, `vid_stride`, `vid_bmask`, `vid_bshift`,
-`vid_rowadd`, `vid_wrapbit`, `vid_wrapfix`
+`vid_seg`, `vid_stride`, `vid_bmask`, `vid_bshift`, `vid_rowadd`,
+`vid_wrapbit`, `vid_wrapfix`, `vid_cw`, `vid_ch`
+
+**The width and height are the LAST two columns and they are the DISPLAY's**
+(§39.2.1). The desktop's `vid_w`/`vid_h` are derived from them below and sit
+outside the per-display run — this list read `vid_seg, vid_w, vid_h, …`
+until that move, and contradicted §39.2.1 four paragraphs down.
 
 **Derived by `vid_apply`**, because the sites that want them are inner loops
 or single instructions with no register to spare for the arithmetic:
-`vid_wm1`, `vid_hm1`, `vid_wm8`, `vid_hm8`, `vid_strm1`, `vid_rseg`,
-`vid_rpara`, `vid_rend`, `vid_dock_y0`, `vid_dock_ty0`, `vid_clk_hx`,
-`vid_ymax`, `vid_popmax`, `vid_desk_zx`, `vid_desk_zl`, `vid_desk_zr`, and
-the bytes `vid_kind`, `vid_mono`, `vid_planes`, `vid_planes_w`.
+`vid_w`, `vid_h`, `vid_wm1`, `vid_hm1`, `vid_wm8`, `vid_cwm1`, `vid_chm1`,
+`vid_cwm8`, `vid_chm8`, `vid_bankmask`, `vid_rseg`, `vid_tseg`, `vid_pw`,
+`vid_ph`, `vid_pwm1`, `vid_phm1`, `vid_dock_y0`, `vid_dock_ty0`,
+`vid_clk_hx`, `vid_ymax`, `vid_desk_zx`, and the bytes
+`vid_kind`, `vid_mono`, `vid_planes`, `vid_planes_w`.
+
+**`vid_popmax` left that list and became a CONSTANT.** `[vid_h]` at the point
+`vid_apply` reached it was always a `vid_tab` height — the display block at
+the top of the routine had just stored it from `[vid_ch]`, and
+`vid_desk_union` runs *after* `vid_apply`, never inside it — and `vid_tab`'s four heights are 480, 348,
+`VID_H_MIN` and `EGA_H`, so `(h - MBAR_H - 2) >> 4` is 28, 20, **11** and 20
+against a clamp of `MENU_POPMAX` = 11. The clamp fired on every adapter there
+is and the CGA landed exactly on it, so the nine instructions always computed
+the initialiser. It is `dw MENU_POPMAX` in `.text` now and a `%if` beside
+`MENU_POPMAX` in `menu.inc` refuses a build in which that stops being true —
+either constant growing, or a fifth `vid_tab` row shorter than `VID_H_MIN`
+(which is why the test names that constant rather than a literal 200, the
+number `vid_tab`'s own CGA row is written from). The resting value used to be
+**16**, which the save-under guard in `kernel.asm` proves the machine cannot
+survive — 16 items need 28,896 bytes of a 20,480-byte claim — and only never
+fired because `vid_apply` overwrote it on the splash's first tick.
+
+**Six words left this list rather than being maintained in it.** `vid_hm8`,
+`vid_strm1`, `vid_rpara`, `vid_rend`, `vid_desk_zl` and `vid_desk_zr` were
+each written on every `vid_apply` and read by **no instruction anywhere in the
+tree** — three of them left over from loops §39.26 deleted, two from a drawn
+rect `desk_zone_rect` computes itself (§26.4), and `vid_hm8` from a whole-cell
+clip that is the DISPLAY's and not the desktop's. Publishing an answer nothing
+asks for is a cost with no reader to defend it.
 
 ```
-vid_mono   = (kind != VID_VGA)          vid_planes = mono ? 1 : 4
-vid_rseg   = mono ? vid_seg : [bb_seg]
-vid_rpara  = mono ? 1 : SW_PLANE_PARA   ; MUST be nonzero - see 39.3
-vid_rend   = vid_rseg + (mono ? 1 : 4*SW_PLANE_PARA)
-vid_popmax = min(MENU_POPMAX, (vid_h - MBAR_H - 2) >> 4)    ; 16 / 16 / 11
+vid_mono   = (kind != VID_VGA && kind != VID_EGA)   ; EGA is planar too - 39.24
+vid_planes = mono ? 1 : 4               ; ...and both are ONE word store - 39.26
+vid_rseg   = mono ? vid_seg : 0         ; 0 = nothing routes through the
+                                        ; software renderer at all (39.5)
+vid_tseg   = vid_seg                    ; font_run's target, 6.1.10 - and it
+                                        ; is [vid_seg] on EVERY adapter: the
+                                        ; line above makes vid_rseg vid_seg on
+                                        ; mono and 0 on planar, so the
+                                        ; conditional this used to be read
+                                        ; `mono ? vid_seg : vid_seg`. It still
+                                        ; reads the LIVE word rather than a
+                                        ; copy taken earlier - see 39.12
 vid_desk_zx = vid_w - 56                ; 584 at 640 wide, as it always was
-[bb_on]    = vid_mono                   ; see 39.5
 [mouse_x]/[mouse_y] = centre of the new screen
 ```
 
@@ -42782,7 +43113,7 @@ answers the moment a desktop spans two cards (docs/DUAL-DISPLAY-PLAN.md §5.1).
 |---|---|---|
 | extent | `vid_cw` / `vid_ch` | `vid_w` / `vid_h` |
 | last legal pixel | `vid_cwm1` / `vid_chm1` | `vid_wm1` / `vid_hm1` |
-| whole-cell limit | `vid_cwm8` / `vid_chm8` | `vid_wm8` / `vid_hm8` |
+| whole-cell limit | `vid_cwm8` / `vid_chm8` | `vid_wm8` only — nothing clips a whole cell against the DESKTOP's height, and the `vid_hm8` that used to be published beside it had no reader at all |
 | read by | every primitive that clips | `wm_fit`, `ui_drag`, the chrome, the drive column |
 | lives in | the per-display context (§39.12) | outside it, published once |
 
@@ -42890,9 +43221,11 @@ is. Four things make it the 1bpp driver:
 
 - its plane segment is `[vid_rseg]` — the **framebuffer itself**;
 - its plane count is `[vid_planes]` — 4 or 1;
-- its plane step is `[vid_rpara]`, which **must stay nonzero even at one
-  plane**: `sw_xfer` terminates on a segment compare against `[vid_rend]`,
-  and a step of 0 never terminates;
+- it has **no plane step and no end**: §39.26 flattened every loop that
+  walked one, and the two cells that carried them (a stride that "must stay
+  nonzero even at one plane" for `sw_xfer`'s segment compare, and that
+  compare's exclusive end) were published on every `vid_apply` for a while
+  afterwards with nothing left to read them. They are gone;
 - every row advance goes through `gfx_nextrow`.
 
 The planar bodies in `vga12.inc` are simply unreachable on mono, so they keep
@@ -42918,10 +43251,15 @@ VGA `bmask`/`bshift`/`wrapbit` are all 0, so `gfx_rowbase` reduces to exactly
 path**, which is why the VGA output is bit-for-bit what it was before.
 
 Two implementation notes, both about the 8088 rather than the formula
-(§5.7). `bank * 0x2000` is a **table lookup** (`vid_banktab`, four entries —
-the maximum the 0x2000 assertion at the foot of the module allows), because
-`shl bx, 13` is 8 clocks plus 4 per bit and this runs on the fixed cost of
-every drawing call. And **`gfx_nextrow` is meant to be inlined wherever a
+(§5.7). `bank * 0x2000` is a **rotate**, `ror bx, 3` — because `shl bx, 13`
+is 8 clocks plus 4 per bit, 60 for a value with four possible answers, and
+this runs on the fixed cost of every drawing call. A bank number fits in
+three bits (four banks is the maximum the 0x2000 assertion at the foot of the
+module allows), and for such a value `x ror 3` and `x shl 13` are the same
+sixteen bits: 3 → 0x6000, 2 → 0x4000, 1 → 0x2000, 0 → 0. It was a four-entry
+TABLE until the rotate was costed against it — 20 clocks over 4 bytes against
+25 over 7, so the table was both larger and slower and what it refused was
+only ever the *shift*. And **`gfx_nextrow` is meant to be inlined wherever a
 row loop can spare the bytes**: its body is three instructions and the call
 and ret around them cost as much again, so font.inc's cell loops (§6.1) and
 the renderer's row loops (§32) both open-code it, CS overrides and all. A
@@ -43029,10 +43367,32 @@ it. **The second rung buys VGA alone**: the saver 3.99% → 3.13% and Missile
 Command 1.75% → 1.19%, on the adapter that is not the target (PERFORMANCE.md
 Part 1). It is priced in Set 106 and not taken.
 
-`vid_apply` builds the table by calling `gfx_rowbase_calc` per row, so 348 rows
-is **~113,000 cycles — 23.6 ms — of every `vid_apply`**, against 8.7 ms at 128
-and 32 ms at 480. It runs at boot and on an **adapter** change — every caller
-of `vid_apply`: `vid_switch`, `vid_disp_init`, and the fullscreen bracket's
+`vid_apply` builds the table by ITERATING it — `gfx_nextrow` is the step form
+of `gfx_rowbase_calc`, so a row's answer is the previous row's plus a step
+rather than a bank AND, a shift and a `mul`.
+
+**The two agree over every row an adapter has, and on CGA they part company
+above row 206** — measured rather than assumed: the whole 348-entry table was
+read out of a booted guest built each way and diffed. Hercules, VGA and EGA
+are byte-identical over all 348 entries; CGA differs on **71**, the first at
+row 207 (`gfx_rowbase_calc` 16,432, `gfx_nextrow` 128) and the last at 347.
+The cause is the intra-bank assertion at the foot of the module: it bounds
+`(VID_H_MIN/2) × 80 = 8,000` inside the 0x2000 bank window, and row 207's
+`(207>>1) × 80` is 8,240 — past it. So a CGA table entry above row 206 has
+been meaningless in every build this OS has ever had, the adapter having 200
+rows; the two builders merely store a different meaningless number, and where
+they differ `gfx_rowbase_calc`'s is 48 bytes *past* the end of the card's 16KB
+aperture where `gfx_nextrow`'s is inside it.
+
+**Nothing can index those entries.** Every primitive clips y to `[vid_ch]`
+(§39.2.1) and that is 200 on a CGA — the desktop union grows `[vid_h]`, never
+`[vid_ch]`, which is the whole point of the distinction — and a CGA that is
+the *secondary* of a two-card desktop has `[vid_rowmax]` cleared outright
+rather than reading the primary's table (below).
+It cost **~113,000 cycles — 23.6 ms — of every `vid_apply`** when each row was
+a `gfx_rowbase_calc` call, against 8.7 ms at 128 rows and 32 ms at 480; the
+step form is roughly a fifth of that. It runs at boot and on an **adapter**
+change — every caller of `vid_apply`: `vid_switch`, `vid_disp_init`, and the fullscreen bracket's
 `vid_fsx_enter`/`vid_fsx_leave`, each of which repaints everything afterwards
 anyway — and a 9.2 s boot does not notice 15 ms; it is written down because
 that is only true while somebody has checked.
@@ -43809,17 +44169,25 @@ path that runs on all three adapters.
 
 ### 39.12 The per-display context — `vid_ctx` (`KERN_BIG` only)
 
-**One display's geometry is nineteen contiguous words, and making a display
+**One display's geometry is sixteen contiguous words, and making a display
 current is a `rep movsw` over them.** Present only in `kern_big`
 (docs/KERN-SPLIT-PLAN.md); `kern_small` has none of it.
 
 ```
 vid_seg  vid_stride  vid_bmask  vid_bshift  vid_rowadd
 vid_wrapbit  vid_wrapfix  vid_cw  vid_ch      <- the live block (§39.2)
-vid_bankmask  vid_strm1  vid_rseg  vid_rpara  vid_rend
+vid_bankmask  vid_rseg
 vid_cwm1  vid_chm1  vid_cwm8  vid_chm8        <- what the RENDERER derives
 vid_tseg                                      <- §6.1.10, and the run's end
 ```
+
+**It was NINETEEN**, and `vid_strm1`, `vid_rpara` and `vid_rend` are the three
+that left: each was written every `vid_apply` and read by nothing, so each
+cost two bytes in the live block and two more in *every* per-display record.
+`VID_CTX_W` is the one number that says so, and `vidsel.inc`'s
+`%if vid_tseg - vid_seg != (VID_CTX_W-1)*2` is what makes the count an
+assertion rather than a claim — a word added anywhere above `vid_tseg`, or one
+removed, fails the build.
 
 **The run ends at `vid_tseg` and that boundary is the design.** Everything from
 `vid_dock_y0` down — the dock row, the clock cell, the drive column, the
@@ -45028,9 +45396,11 @@ monitor is *for*.
 without a special case anywhere. `vid_desk_union` then grows `[vid_w]`,
 `[vid_h]`, `[vid_wm1]` and `[vid_hm1]` past them and touches nothing else —
 which is why every derived chrome word (`[vid_dock_y0]`, `[vid_clk_hx]`,
-`[vid_ymax]`, `[vid_popmax]`, `[vid_desk_z*]`) is already right: `vid_apply`
-computed them before the desktop grew. On a machine with one display the two
-sets are the same numbers and nothing above happens at all.
+`[vid_ymax]`, `[vid_desk_z*]`) is already right: `vid_apply` computed them
+before the desktop grew. `[vid_popmax]` is not derived at all any more — it is
+a constant, and §39.2 says why a union cannot change it either. On a machine
+with one display the two sets are the same numbers and nothing above happens
+at all.
 
 **§11.2's fullscreen surface takes the primary too**, for now: `wm_fullscreen`
 sizes a window to `[vid_pw]`/`[vid_ph]` rather than the union, so an app that
@@ -46836,13 +47206,16 @@ the `[vid_rpara]` step and a `shr ch, 1` that stepped a colour through planes
 that were not there. `.text` −38 and `.bss` −4 on both products, the two
 cells being `font_bb_si`/`font_bb_di`.
 
-With it gone **`[vid_rpara]` and `[vid_rend]` have no reader left in the
-kernel** — only `vid_apply`'s three lines that write them. They are not
-deleted here: they sit inside the contiguous `vid_seg`..`vid_tseg` run that a
-display context copies (§39.13), whose length `vidsel.inc` asserts, so
-removing them is a change to `VID_CTX_W` and to
+With it gone **`[vid_rpara]` and `[vid_rend]` had no reader left in the
+kernel** — only `vid_apply`'s three lines that wrote them. They were not
+deleted here, because they sat inside the contiguous `vid_seg`..`vid_tseg` run
+that a display context copies (§39.13), whose length `vidsel.inc` asserts: so
+removing them was a change to `VID_CTX_W` and to
 `tests/unit/t_invariants.py`'s one-writer row rather than a peephole.
-`viddet.inc` records that at their declaration.
+**That change has since been made** — with `[vid_strm1]`, dead the same
+way — and `VID_CTX_W` is 16 (§39.13). The assertion is what settled the
+count: two readings of which words were leaving gave 17 and 16, and the
+`%if` answered it in one build.
 
 **And it is worth 6.4% of a `GFX_PIXEL`** (PERFORMANCE.md Set 113b, both
 adapters). The shape is the confirmation rather than the size: this removed
@@ -47054,8 +47427,12 @@ this*, in both builds, and this one is purely *the store*, in `kern_big`
 A20 line and nothing above linear 0x0FFFFF; `xm_init` publishes zero KB and
 every entry point below refuses having touched no port. The Task Manager reads
 no XMS bar and no XMS figures at all there (§41.6.1) — only the tier, which is
-what explains the absence. **And nothing in the tree allocates from the pool on
-any tier** — see §41.5.
+what explains the absence. **The pool's one kernel consumer is `clone.inc`**
+(§18.99.4) — which is 286+ by construction, so it takes the other half of the
+same sentence: on tier 0 a clone plans around the pool not being there. This
+paragraph said "nothing in the tree allocates from the pool on any tier" for
+several releases after that consumer landed; §4's module table and §18.99.4
+were right and this section and §41.5 were the halves nobody went back to.
 
 ### 41.1 The three tiers — MOVED to §60
 
@@ -47070,9 +47447,11 @@ every citation of §41.1 still lands somewhere that tells the reader where to
 go.
 
 What stays in §41 is the store and **its own prerequisites**: the A20 gate
-(§41.2) and the HMA claim (§41.3), which live in `xmem.inc` beside the code
-they serve and have exactly two callers between them — `kmain` calls
-`xm_a20_enable`, `xm_init` calls `xm_hma_claim`.
+(§41.2) and the HMA claim (§41.3), which live beside the code they serve and
+have exactly two callers between them — one at boot for the gate, one from the
+sizing for the claim.
+
+**Since §41.12 none of these routines is in `xmem.inc` at all** — the gate, the probe, the HMA claim, the sizing, the allocator and both transports are `drivers/xmem/xmem.asm`, i.e. `XMEM.DRV`, and `xm_init` does not exist: the kernel's half is the four published cells, the boot sniff and the dispatcher. The paragraphs below are kept because the *design* is unchanged and every citation of them still lands somewhere true — but a reader looking for the FILE wants §41.12, and `grep xm_a20_enable kernel/` finds nothing.
 
 ### 41.2 A20 — the gate, and the verification that is not optional
 
@@ -47081,10 +47460,11 @@ Both enable methods are advisory: a machine may have neither, may decode port
 and does nothing. So `CPU_F_A20` is set by `xm_a20_probe` — a wraparound
 read — and by **nothing else**, never by "we wrote to the gate".
 
-The gate, the probe and their helpers live in **`xmem.inc`**, not
-`cpudet.inc`: they exist only to make the store reachable, and between them
-they have two callers — `kmain` calls `xm_a20_enable`, `xm_init` calls
-`xm_hma_claim` (§60). On tier 0 `xm_a20_enable` returns having touched no port
+The gate, the probe and their helpers live **with the store**, not in
+`cpudet.inc`: they exist only to make it reachable, and between them they have
+two callers — the boot path calls `xm_a20_enable`, the sizing calls
+`xm_hma_claim` (§60). Their file is `drivers/xmem/xmem.asm` since §41.12, not
+`xmem.inc`. On tier 0 `xm_a20_enable` returns having touched no port
 at all: there is no gate on an 8088, and port 0x92 there decodes to whatever
 that machine happens to put on it (§41.9 rule 1).
 
@@ -47122,10 +47502,18 @@ entry covers — so a freed block merges with its neighbours for nothing.
 `xm_copy` carries **one ABI over two transports**: `int 15h AH=87h` on tier
 1, unreal mode on tier 2. The caller cannot tell which ran and must not care.
 
-**Nothing allocates out of this pool today, and the teardown leg is wired
-again.** Exactly one consumer has ever existed — §53.6.1's fullscreen desktop
+**`clone.inc` allocates out of this pool, and the teardown leg is wired
+again.** The disk cloner declares all four published slots and calls every one
+of them — `xm_caps` for the free KB and `xm_alloc` for a whole floppy's worth,
+so a same-drive clone makes one trip to the disk box instead of twenty-two
+(§18.99.4); `clo_free` returns it and is idempotent. **It is the first kernel
+consumer the pool has ever had**, and for several releases after it landed
+this paragraph still read "nothing allocates out of this pool today" — a
+sentence a size pass could delete a live subsystem on the strength of.
+Before it, exactly one had existed — §53.6.1's fullscreen desktop
 stash, kernel-side, 286+/VGA — and it was removed. `xm_release_rec` had three
-call sites in `instance.inc`, beside each `snd_release_rec`, from the commit
+call sites in `instance.inc`, beside each `snd_release_rec` (both are
+`inst_rel_rec` now — §50.4), from the commit
 that introduced it until the **#51 integration merge dropped all three** —
 docs/UPSTREAM.md's hazard exactly, a merge that assembles, boots and says
 nothing, because a call that is simply absent breaks no build. It cost nothing
@@ -47227,7 +47615,7 @@ Four things hold it up:
 - **It is asked ONCE, in `tm_init`**, and never from a draw. The frame is
   *sized* from the answer, so a value that could change under a live window
   would leave the height and the row placement disagreeing. It cannot change
-  anyway — `xm_init` sizes the pool at boot and nothing resizes it.
+  anyway — the overlay sizes the pool at attach and nothing resizes it.
 - **`TMM_XSHIFT` is `TM_ROW_H` exactly**, asserted at assembly time. The space
   the bar gave back is one process row, so on a short screen the list gets
   longer rather than the window getting shorter; where the list is already
@@ -47337,8 +47725,10 @@ interrupts-off window is short — and where a 286 BIOS implements that by a
 CPU reset, the reset returns transparently (the himem.sys mechanism) with
 conventional RAM, the lock flag included, intact. Not from a **worker** task:
 the tier-1 path is a BIOS call, which the kernel keeps on the UI task (§7),
-and the copy shares `[xm_src]/[xm_dst]` scratch serialized by `sch_lock`
-against a switch, not against re-entry. (An earlier draft forbade COPY *under
+and the copy shares one parameter block — `xm_cblk`, in the kernel's `.bss`,
+handed to the image at `ES:SI` (§41.12.2); it was `[xm_src]/[xm_dst]` while
+the transports were resident — serialized by `sch_lock` against a switch, not
+against re-entry. (An earlier draft forbade COPY *under
 the gfx lock*; that was mistaken — a window callback is the intended caller
 and always holds it — and it made the contract self-contradictory. Lifting it
 changes no code: COPY never reads `gfx_lock_flag`.)
@@ -57620,10 +58010,15 @@ differed by more than 100KB.
 
 ### 50.4 Teardown
 
-`mem_free_rec` sits beside `snd_release_rec` at all three §29.4 teardown
+`mem_free_rec` sits beside `inst_rel_rec` at all three §29.4 teardown
 sites — `app_close_win`'s task-less path, `inst_task_die`, and
 `inst_pkg_alive`'s window-less case — and releases every claim the dying
-instance holds. That is what makes rule 4 above true, and it is the reason
+instance holds. (`inst_rel_rec` is the sound release and the extended-memory
+one as one call: they were always adjacent and in that order at all three, and
+each separately converted the same record pointer into the same slot. It is
+**not** a third member of that group — `mem_free_rec` runs *after*
+`wm_destroy`, deliberately, because a freed region makes a survivor's procs a
+wild call.) That is what makes rule 4 above true, and it is the reason
 `files.inc` needs no close hook for its view cache: the Disk window's claim
 is owned by the Disk *instance*, and the instance's death frees it.
 
@@ -64009,7 +64404,7 @@ Four things are load-bearing:
   wrong and the new step is unreachable on every pass where the previous one
   had nothing to do, which is nearly all of them (§22.8's own warning).
 
-`toast_owner_gone`, called beside `snd_release_rec` at both teardown sites,
+`toast_owner_gone`, called beside `inst_rel_rec` at both teardown sites,
 takes a closing instance's message down with it. Not needed for correctness —
 the string was copied, so nothing dangles — but `Saved NOTES.TXT` over a bar
 that now belongs to Locator is a message about a window that is not there.
@@ -64184,7 +64579,7 @@ and no message:
   The two are independent now and the ordering keeps a better reason: the
   message *is* the verdict, and `drv_cfg_save` is what produces it.
 - **`toast_owner_gone` runs FIRST in `app_close_win`**, before the
-  `KIND_CTRL` test rather than after `snd_release_rec`. The panel's last act
+  `KIND_CTRL` test rather than after `inst_rel_rec`. The panel's last act
   is a report *about the panel*, raised during the panel's own teardown, so a
   kill ordered after it would take that report away. Moving the kill to the
   top of the teardown makes that impossible by construction — rather than by
@@ -68922,7 +69317,10 @@ different routes:
   across the `int 16h` in `pushf`/`popf`, because the flags a BIOS service
   returns are its own business and not a value this loop may read.
 - **Mouse.** The press is already in the event ring by the time anything
-  notices, so `blk_pass` calls `evq_init` and drops the lot.
+  notices, so `blk_pass` **drains** the ring — record by record, owing each
+  wake through `wm_wake_eaten` (§74.1.1) — and drops the lot. It reset the ring
+  outright until that section; a reset wiped `EVT_WAKE` records and deafened
+  the window behind them for good.
 
 **That is why `blk_pass` sits ahead of `evq_pop`.** Below it, the feature
 still blanks and still wakes and still looks correct on a screenshot — and
@@ -77429,11 +77827,11 @@ to kick from every callback and sixteen ring records would otherwise be filled
 by one busy worker and the mouse dropped. `wm_wkq[slot]` carries that — set
 when the record goes in, cleared by `wm_wake_disp` before the handler runs.
 
-**The flag and the record are one fact, and four loops could break them apart.**
-`ui_drag` and `ui_grow` pop records looking for an `EVT_MUP` and *drop
-everything else on the floor*; `fsx` and `snd` empty the ring outright on their
-way back to the desktop. An `EVT_WAKE` eaten there left `wm_wkq` set with no
-record behind it — and from that moment every `wm_wake` for that window read
+**The flag and the record are one fact, and six loops could break them apart.**
+`ui_drag`, `ui_grow` and both of `fm_drag`'s pop records looking for an
+`EVT_MUP` and *drop everything else on the floor*; `fsx`, `snd` and `blk_pass`
+empty the ring outright on their way back to the desktop. An `EVT_WAKE` eaten
+there left `wm_wkq` set with no record behind it — and from that moment every `wm_wake` for that window read
 "one is already queued" and answered **CF=0**, a promise nothing would ever
 keep. Not for the duration of the drag: **for the rest of that window's life.**
 
@@ -77458,7 +77856,10 @@ So the flag has three states:
 
 - Every drain calls **`wm_wake_eaten`** with the record it is about to discard.
   One word compare on the common path; `WKQ_RING` → `WKQ_EATEN`, and one global
-  byte `wm_wkdef` is set.
+  byte `wm_wkdef` is set. **Since kernel size pass 3 the discipline lives in
+  two shared helpers rather than in six copies of it** — `evq_drain` and
+  `evq_mup` (§10.3) — so there are now two places for it to be right and the
+  far-called `.cold` sites reach the same code as the near ones.
 - **`wm_wake_redo`** runs once per `ui_task` pass, ahead of `evq_pop`, and puts
   a fresh record in the ring for every `WKQ_EATEN` slot. Its whole cost on a
   pass that ate nothing — which is all of them — is `cmp byte [wm_wkdef], 0`.

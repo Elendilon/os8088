@@ -214,6 +214,18 @@ FAST = [
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
         "boundary, because the half before it loads correctly on exactly the "
         "machine the canary is for - which is how the first one shipped wrong"),
+    Row("mlen", "fast", py("tests/unit/t_mlen.py"), 4.0,
+        "twelve month lengths, read back out of build/kernel.bin. clk_mlen "
+        "carries the eleven non-February ones as a 16-bit MASK since kernel "
+        "size pass 3 - three bytes shorter than the db table it replaced, and "
+        "twelve facts collapsed into one hex constant nobody can check by "
+        "eye. Nothing else in the tree covers them: tests/dtfield.py row 3 is "
+        "the only test that reaches the routine at all and it is '30 Jan + "
+        "one month lands on 28/29 Feb', i.e. February - which is the BRANCH "
+        "below the mask and the one arm the rewrite did not touch. A wrong "
+        "bit surfaces as '31 April accepted in the Date/Time page' and as a "
+        "midnight rollover on the wrong day, which no harness here can run "
+        "long enough to see"),
     Row("bsssentinel", "fast", py("tests/unit/t_bsssentinel.py"), 4.0,
         "a sentinel byte whose RESTING value is not zero cannot live in .bss "
         "(SPEC.md 12.8.5.1): `-f bin` emits nothing for it and the boot read "
@@ -229,8 +241,8 @@ FAST = [
         "[vid_mono]/[vid_planes] are one fact written together (SPEC.md 39.26 "
         "deleted four plane loops on it, and a writer that moves one leaves "
         "all four drawing plane 0 alone on every adapter); and "
-        "[vid_rseg]/[vid_rpara]/[vid_rend] have one writer, which is a "
-        "DIFFERENT fact because sw_xfer ends on a segment compare",
+        "[vid_rseg] has one writer, which is a DIFFERENT fact because "
+        "sw_xfer used to end on a segment compare",
         needs=(), serial=False),
     Row("assocpage", "fast", py("tests/unit/t_assocpage.py"), 0.2,
         "the document page is GENERATED now (SPEC.md 54.3), so its 32 words "
@@ -926,6 +938,31 @@ SOAK = [
         "one run. Needs `make pkgbig`, which uses os88disk.py --raw: the "
         "fixtures are *.O88 files that are deliberately not packages, and "
         "validate_o88 exists to make those unbuildable. 40s measured.",
+        needs=("marty",), serial=True),
+    Row("pkgfence", "soak", py("tests/pkgfence.py"), 60.0,
+        "SPEC.md 21 steps 4 and 6's WRITE BOUND: ld_check_hdr's `image + bss` "
+        "fence. Both operands are separately bounded at APP_MAX_SIZE, so "
+        "their sum reaches 0x1E000 - SEVENTEEN BITS - and the compare that "
+        "used to stand there read a WRAPPED value, with the comment on the "
+        "line stating the defect as its own proof (`img+bss <= 0x1E000: no "
+        "wrap`). The repair is `add dx, ax / jc .toobig` and it shipped in "
+        "size pass 3 with NO ROW BEHIND IT: nothing else in the tree can see "
+        "this, because every other gate loads a well-formed package and "
+        "os88pkg.py refuses to build a malformed .O88 at all - which is the "
+        "point, since the input this is about comes off a disk (SPEC.md 19). "
+        "TWO FILES AND THE PAIR IS THE EXPERIMENT - BSSWRAP.O88 is image = "
+        "bss = 0xF000, whose sum wraps to 0xE000, BELOW the bound, for a 56KB "
+        "claim and 4KB past it; BSSWORST.O88 is image = 0xF000, bss = 0x1001, "
+        "whose sum wraps to 1, for a ONE KILOBYTE claim and 60,416 bytes "
+        "written through whatever mem_claim_hi placed under it, which is a "
+        "resident package's code because it places top-down. The first alone "
+        "under-states the fault fifteenfold and the second alone looks "
+        "contrived. Both must answer LD_EBIG. A regression does NOT answer "
+        "cleanly - it corrupts the guest's heap and this row times out, which "
+        "is inherent: the write the fence bounds has already happened by the "
+        "time anything could report it. The instrument is [ld_status] read "
+        "out of the guest, so it answers for all three adapters out of one "
+        "run. Shares build/pkgbig.img with the pkgbig row - `make pkgbig`.",
         needs=("marty",), serial=True),
     Row("clipkeep", "soak", py("tests/clipkeep.py"), 300.0,
         "SPEC.md 11.96.18: a wholly covered window keeps its raise cache when"

@@ -1829,8 +1829,18 @@ MENU_APPMAX equ 5           ; menus the bar can host per app; extras are
                             ; title that would reach the clock's band, so
                             ; five SHORT titles fit where four long ones may
                             ; not (SPEC.md 12.2)
-MENU_MAXCH  equ 24          ; glyphs of item text a pull-down shows; longer
-                            ; items are TRUNCATED, not wrapped
+MENU_MAXW   equ 208         ; widest pull-down, px (frame + 8px padding).
+                            ; Mirrored from kernel/menu.inc, and it is here
+                            ; only so that MENU_MAXCH below can be DERIVED the
+                            ; way the kernel derives it: the two were `24` and
+                            ; `(MENU_MAXW - 16) / 8`, agreeing by arithmetic
+                            ; accident, and the day the kernel's width moves
+                            ; off 208 the kernel's glyph count follows and a
+                            ; literal here does not. tests/unit/t_mirror.py
+                            ; now compares this number, which is the half a
+                            ; name-matching gate can actually check
+MENU_MAXCH  equ (MENU_MAXW - 16) / 8    ; glyphs of item text a pull-down
+                            ; shows; longer items are TRUNCATED, not wrapped
 MENU_DIS    equ 1           ; an item string that BEGINS with this byte is
                             ; DISABLED: the kernel draws the rest of it grey
                             ; and never highlights or selects it. Point the

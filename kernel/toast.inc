@@ -176,29 +176,40 @@ toast_scn:   dw 0               ; and how many cells it takes there - 0 meaning
 ; -----------------------------------------------------------------------------
 toast_show:
     push ax
-    push cx
-    push dx
-    push si
+    push bx                     ; BX is not spent here - it is pushed to make
+    push cx                     ; ax..di the shared epilogue ladder's own run,
+    push dx                     ; which is what kret_di wants (+1 here buys 4
+    push si                     ; at the exit)
     push di
     pushf
     cli
+    cld                         ; the copy below is `es lodsb`, and OSAPI_SLOT
+                                ; does NOT cld - a package running with `std`
+                                ; (SPEC.md 20) would walk its string backwards.
+                                ; Free of side effects: the pushf above and the
+                                ; popf on both exits restore the caller's DF
+                                ; exactly as they restore its IF
     or cx, cx
     jnz .ttl
     mov cx, TOAST_TICKS
 .ttl:
-    cmp cx, 0x7FFF              ; toast_pass measures expiry with a SIGNED
-    jbe .ttlok                  ; subtract (the modular-clock compare), so a
+    or ch, ch                   ; toast_pass measures expiry with a SIGNED
+    jns .ttlok                  ; subtract (the modular-clock compare), so a
     mov cx, 0x7FFF              ; TTL past 32767 ticks would read as already
-.ttlok:                         ; over and the toast would die on first look
+.ttlok:                         ; over and the toast would die on first look.
+                                ; BIT 15 IS THE WHOLE TEST, so it is asked of
+                                ; CH: same predicate as `cmp cx,0x7FFF / jbe`
+                                ; at every value including both boundaries
     mov [toast_ttl], cx
     mov di, toast_buf
     mov cx, TOAST_MAX
     mov dx, TOAST_SCAN
 .cp:
-    mov al, [es:si]
+    es lodsb                    ; the same instruction files.inc:2050 uses in
+                                ; the same role, and it is why the `cld` above
+                                ; is not optional
     or al, al
     jz .end
-    inc si
     dec dx                      ; the OTHER bound: CX counts characters KEPT,
     jz .end                     ; so a string that never offers a printable
                                 ; byte or a NUL - and every byte from a
@@ -230,12 +241,9 @@ toast_show:
                                 ; `.out` is reached from those two paths and
                                 ; nothing else. A failure path added later
                                 ; must jump PAST this.
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
+    jmp kret_di                 ; pops di, si, dx, cx, bx, ax - this routine's
+                                ; push run. `pop` and `ret` write no flag, so
+                                ; the `clc` still reaches the caller
 
 ; -----------------------------------------------------------------------------
 ; toast_say - say entry AL of a word table of NUL strings
@@ -316,26 +324,36 @@ toast_say:
 ; -----------------------------------------------------------------------------
 toast_now:
     push ax
-    cmp byte [gfx_lock_flag], 0
-    je .outa
-    cmp byte [sch_cur], 0       ; task 0 is ui_task (kernel.asm's kmain tail)
-    jne .outa
-    cmp byte [gfx_lock_own], 0  ; ...and the UI task is the HOLDER, not a
-    jne .outa                   ; bystander running while a pre-empted worker
-                                ; owns the glass
+    cmp word [gfx_lock_flag], 1 ; HELD (flag = 1) **and owned by task 0** (own
+    jne .outa                   ; = 0) in ONE word read: the two bytes are
+                                ; declared adjacent in vga12.inc and a 0-byte
+                                ; %if there holds them to it. The flag is
+                                ; strictly 0 or 1 - every writer was read, and
+                                ; the comment beside the declaration says so.
+                                ; Torn reads cannot lie either: gfx_lock writes
+                                ; flag then owner inside its own cli window and
+                                ; gfx_unlock writes owner FIRST then flag, so
+                                ; the only interleaving visible is (1, 0xFF) =
+                                ; 0xFF01, which this refuses exactly as the two
+                                ; byte compares did; and an 8086 takes
+                                ; interrupts only at instruction boundaries, so
+                                ; the word read is atomic
+    cmp byte [sch_cur], 0       ; ...and task 0 - ui_task (kernel.asm's kmain
+    jne .outa                   ; tail) - is the one asking, not a bystander
+                                ; running while a pre-empted worker owns the
+                                ; glass
     mov al, [gfx_color]         ; the caller is mid-callback: its pen and its
     push ax                     ; clip region are ITS, and the bar is inside
-    mov ax, [wm_clip_n]         ; no window's region ever - drawn through an
-    push ax                     ; armed one the strip's cells would be dropped
-    mov word [wm_clip_n], 0     ; on the glass while menu_bcell records them
+    push word [wm_clip_n]       ; no window's region ever - drawn through an
+    xor ax, ax                  ; armed one the strip's cells would be dropped
+    mov [wm_clip_n], ax         ; on the glass while menu_bcell records them
                                 ; composed, and no later pass would repair it
     call toast_arm
     call menu_draw_bar
                                 ; carry it to VRAM does not come until the
                                 ; operation this announces is over (SPEC.md
                                 ; 32) - fpg_begin's reasoning exactly
-    pop ax
-    mov [wm_clip_n], ax
+    pop word [wm_clip_n]
     pop ax
     mov [gfx_color], al
 .outa:
@@ -399,25 +417,31 @@ toast_arm:
 ; there is no port I/O and no chip access here at all.
 ; -----------------------------------------------------------------------------
 toast_gapend:
-    push bx
-    push cx
-    push dx
-    push si
+    push cx                     ; NO `push bx`: this routine's body never names
+    push dx                     ; BX, menu_clkcells is "clobbers: CX (the shift
+    push si                     ; count), flags" and clk_fmt pushes ax/bx/dx and
+                                ; pops all three - so the published contract
+                                ; "clobbers: nothing but AX (flags)" holds
+                                ; without the bank
     call menu_clkcells          ; the field, in whole cells - menu_draw_clock's
     mov dx, ax                  ; own arithmetic, and now literally it
     call clk_fmt                ; SI = the live line, CX = its length (37) -
                                 ; which this used to walk the string for
-    cmp cx, dx                  ; a line wider than its field cannot happen,
-    jbe .pad                    ; but a negative pad below would put the gap's
-    mov cx, dx                  ; end LEFT of the segment
-.pad:
-    mov ax, dx
-    sub ax, cx                  ; AX = the leading spaces = the cells of the
-    add ax, [menu_bn]           ; field that are blank before the first glyph
+    mov ax, dx                  ; AX = the leading spaces = the cells of the
+    sub ax, cx                  ; field that are blank before the first glyph.
+    jns .pad                    ; CLAMP THE RESULT, not the input - toast_place
+    xor ax, ax                  ; makes the identical move on the identical
+.pad:                           ; quantities forty lines down. A line wider
+                                ; than its field cannot happen, but a negative
+                                ; pad would put the gap's end LEFT of the
+                                ; segment. `jns` where the old clamp was
+                                ; unsigned: both operands are cell counts
+                                ; (menu_clkcells <= MENU_CLKC-1, clk_fmt
+                                ; 18..24), so |dx-cx| cannot approach 32768
+    add ax, [menu_bn]
     pop si
     pop dx
     pop cx
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -467,17 +491,28 @@ toast_place:
     push bx
     push cx
     push dx
-    mov word [toast_scn], 0
+    push si                     ; ONE bank, at the top, rather than an inner
+                                ; pair round str_len - and ax,bx,cx,dx,si is
+                                ; the shared ladder's own run, so `.out` is a
+                                ; rung rather than five pops
+    xor ax, ax                  ; AX is banked and dead here; `mov [mem],ax` is
+    mov [toast_scn], ax         ; A3+disp16 where the immediate store is 6
     cmp byte [toast_on], 0
     je .out
-    push si                     ; the strip's width in cells: the message, plus
-    mov si, toast_buf           ; the one inverted space at each end. SI is
-    call str_len                ; banked because this routine does not own it
-    pop si
+    mov si, toast_buf           ; the strip's width in cells: the message, plus
+    call str_len                ; the one inverted space at each end (str_len
+                                ; preserves SI, so the hoist changes nothing it
+                                ; sees)
     jcxz .out                   ; nothing sayable. toast_show cannot stage that
     inc cx                      ; (an empty string is a retire), but reading the
                                 ; buffer rather than trusting the flag is what
                                 ; keeps the two decs below off a negative count
+    mov bx, [menu_bend]         ; **BX = THE END OF THE LAST DRAWN MENU**, read
+                                ; ONCE: three sites below address it, at 4
+                                ; bytes each against 2 for a register, and BX
+                                ; is free until `mov bx, dx` at `.set` - after
+                                ; the last of them. toast_gapend preserves BX
+                                ; (it does not name it at all)
     mov dx, [menu_bn]           ; **DX = ONE PAST THE LAST CELL THE STRIP MAY
                                 ; TAKE**, which is the end of the segment -
                                 ; and that already accounts for SPEC.md 12.8's
@@ -492,7 +527,7 @@ toast_place:
                                 ; sees it and this line lost its second
                                 ; opinion about where the widget is
     mov ax, dx                  ; the GAP: the cells between the end of the last
-    sub ax, [menu_bend]         ; drawn menu and whatever is on our right
+    sub ax, bx                  ; drawn menu and whatever is on our right
     jbe .out                    ; the menus fill the segment: no gap at all
     cmp ax, cx
     jb .out                     ; will not fit - the clock's field takes it and
@@ -514,13 +549,13 @@ toast_place:
                                 ; armed widget alone, which IS our right-hand
                                 ; neighbour then and sits left of the glyph
                                 ; (59.9.2)
-    sub ax, [menu_bend]
+    sub ax, bx
     sub ax, cx                  ; AX = the slack, half of it each side
     jns .half
     xor ax, ax                  ; a clock so wide it reaches the menus: flush
 .half:                          ; left, and the clamp below is what keeps it in
     shr ax, 1
-    add ax, [menu_bend]
+    add ax, bx
     mov bx, dx                  ; **THE ROOM IS THE SEGMENT'S EVEN THOUGH THE
     sub bx, cx                  ; CENTRING IS THE EYE'S**: the strip is composed
     cmp ax, bx                  ; into menu_bcell, where menu_bput DROPS a cell
@@ -530,7 +565,7 @@ toast_place:
     mov [toast_scell], ax
     mov [toast_scn], cx
 .out:
-    jmp kret_dx
+    jmp kret_si                 ; pops si, dx, cx, bx, ax - the push run above
 
 ; -----------------------------------------------------------------------------
 ; toast_pass - put a toast up, or take an expired one down
@@ -553,16 +588,10 @@ toast_pass:
                                 ; decides - sch_isr's wake scan and SPEC.md
                                 ; 45.15's stamp compare. A `jg` honours OF
                                 ; and would hold a toast across the wrap
-    mov word [toast_dirty], 0x0001  ; dirty = 1, on = 0, in one store
-    jmp short .chk
-.up:
-    call toast_arm              ; ...whose last act leaves [toast_dirty] ZERO,
-    jmp short .draw             ; so setting it here only to have `.chk` clear
-                                ; it two instructions later was a round trip
-                                ; through a byte that had just been zeroed.
-                                ; IF toast_arm EVER STOPS CLEARING IT this
-                                ; reads as a message appearing one pass late.
-.chk:
+    mov word [toast_dirty], 0x0001  ; dirty = 1, on = 0, in one store...
+.chk:                           ; ...and FALLS INTO the test, where it used to
+                                ; step over `.up` with a `jmp short`. `.up` is
+                                ; at the foot of the routine now
     cmp byte [toast_dirty], 0
     je .out
     mov byte [toast_dirty], 0
@@ -581,6 +610,16 @@ toast_pass:
                                 ; the message waits for it to end
     pop ax
     ret
+
+.up:                            ; MOVED HERE from between the expiry store and
+    call toast_arm              ; `.chk`, so that store falls through instead of
+    jmp short .draw             ; jumping over this block. toast_arm's last act
+                                ; leaves [toast_dirty] ZERO, so setting it here
+                                ; only to have `.chk` clear it two instructions
+                                ; later was a round trip through a byte that
+                                ; had just been zeroed. IF toast_arm EVER STOPS
+                                ; CLEARING IT this reads as a message appearing
+                                ; one pass late.
 
 ; -----------------------------------------------------------------------------
 ; toast_kill - retire whatever is up, now
@@ -606,7 +645,7 @@ toast_kill:
 
 ; -----------------------------------------------------------------------------
 ; toast_owner_gone - a closing instance takes its message with it
-; in:       DI = the record being freed (snd_release_rec's contract, and it
+; in:       DI = the record being freed (inst_rel_rec's contract, and it
 ;           is called beside it at both teardown sites so the two cannot
 ;           drift apart)
 ; out:      nothing - all registers and the flags preserved
@@ -621,13 +660,20 @@ toast_owner_gone:
                                 ; the instance compare must not race a fresh
                                 ; toast_show from another task
     push ax
-    cmp word [toast_on], 0      ; "on OR want", one word over the pair
-    je .out
-    call inst_idx               ; AL = this record's instance index
-    cmp al, [toast_inst]
-    jne .out
-    call toast_kill             ; ...which preserves every register and the
-.out:                           ; flags, so CX needs no banking here either
+    call inst_idx               ; AL = this record's instance index. NO "is
+    cmp al, [toast_inst]        ; anything up?" test first: toast_kill opens
+    jne .out                    ; with exactly that test (`cmp word
+    call toast_kill             ; [toast_on], 0`, one word over the pair) and
+.out:                           ; does nothing when it fails, so the only
+                                ; thing the deleted pair bought was skipping
+                                ; one inst_idx (a shift) and one compare in
+                                ; the case where no toast is up. With nothing
+                                ; up [toast_inst] still holds the LAST
+                                ; raiser's slot - nothing resets it on expiry
+                                ; - so the compare can now match and
+                                ; toast_kill is called, which writes nothing.
+                                ; It preserves every register and the flags,
+                                ; so CX needs no banking here either
     pop ax
     popf
     ret

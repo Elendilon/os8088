@@ -243,7 +243,8 @@ icon_draw_ix:
     mov [ico_ww], ax            ; a reader (and tests/icoclip.py) see one shape
     mov al, [si+1]
     mov [ico_h], ax
-    add si, 2                   ; SI -> the run bytes
+    inc si                      ; SI -> the run bytes
+    inc si
 
     ; --- expand: `2 * h` rows, mask table then data table ------------------
     push cx                     ; CX is the x and DX the y, and ico_draw_common
@@ -509,7 +510,8 @@ ico_pass:
     mov al, [es:di+2]
     mov [es:di+2], al
 .wnext:
-    add di, 2                   ; next word of this row
+    inc di                      ; next word of this row
+    inc di
     add word [ico_col], 2
     dec word [ico_wleft]
     jnz .word

@@ -2074,12 +2074,6 @@ HEAP_SEG    equ KERN_END        ; the claim heap (SPEC.md 50) starts where
                                 ; (SPEC.md 50.3); nothing up here has a fixed
                                 ; address any more
 
-; The software renderer's plane stride (SPEC.md 32/39.3). One plane is 480
-; rows x 80 bytes; on a 1bpp adapter there is exactly one and vid_apply sets
-; the stride to a single paragraph, purely so sw_xfer's segment compare can
-; terminate.
-SW_PLANE_PARA equ 0x960         ; paragraphs per plane (0x9600 = 480 rows x 80)
-
 ; --- CPU tiers and memory above 1MB (SPEC.md 41) -----------------------------
 ; None of this exists on tier 0, which is the target machine: an 8088 has no
 ; A20 line, nothing above linear 0x0FFFFF, and every routine keyed off these
@@ -2158,18 +2152,22 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; is. Stage 1 has to know the second before anything has told it - SPL_RESIDENT's
 ; reason - and the Makefile reads it out of this file with one `sed` so the two
 ; cannot disagree.
-; SPLSTARS' blob is one sector longer, and this is where the Makefile reads it
-; from: its `sed` anchors on `^BOOT2_SECS  *equ  *<digits>`, which this line
-; misses on the underscore and the line below it misses on the value not being
-; a number - so the shipped 13 stays the one the pattern finds, and the knob's
-; override is a deliberate second lookup rather than an accident of ordering.
-; See SPEC.md 15.3.8.5 for why the knob arm needs it and the shipped one does
-; not.
-BOOT2_SECS_STARS equ 9
-
-%ifdef SPLSTARS
-BOOT2_SECS  equ BOOT2_SECS_STARS
-%else
+; THERE IS ONE BLOB LENGTH NOW, AND THAT IS WHAT KSIG_OFF RESTS ON.
+; `BOOT2_SECS_STARS equ 9` stood here, with a second `sed` in the Makefile to
+; find it, because SPLSTARS' twinkle wanted 4,193 bytes of a 4,096-byte blob -
+; over by 97, WHEREVER OVL_AT fell, so moving the split alone could not pay for
+; it (SPEC.md 15.3.8.5). The splash's own size pass took that arm's `.boot2`
+; from 2,768 to 2,568 and the blob to 3,993, and the sector went back.
+;
+; WHAT IT WAS COSTING WAS NOT THE SECTOR. The boot canary (SPEC.md 18.93.1) is
+; a word at a fixed MEMORY offset whose FILE sector has to cross a head on
+; every shipped geometry, and the file sector is this constant further in - so
+; an offset legal for a 4,096-byte blob and an offset legal for a 4,608-byte
+; one had to be the SAME offset. That intersection is four sectors wide and
+; all four sit at the top of `.text`; the single-length band is seven wide and
+; reaches memory 6,656. A second blob length pinned the canary to the part of
+; `.text` a size pass eats first, which is how it came to have thirty bytes of
+; headroom left. The Makefile's KSIG_OFF block is the other end of this.
 BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
                                 ; loader and its screen up to OVL_AT, then the
                                 ; boot overlay from there to BOOT2_PAD. THE
@@ -2210,10 +2208,10 @@ BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
                                 ; when something needs them. 22 buys 1.44MB a
                                 ; third call and 23 buys 720KB a fourth, and
                                 ; that is where the next conversation is
-%endif
-; OVL_AT is where `.ovl` begins inside the blob, and the value is at the FOOT
-; of this comment rather than the head of it because SPLSTARS gives it a second
-; one. FIVE sectors for `.boot2`. It was FOUR, which is what it took before the
+; OVL_AT is where `.ovl` begins inside the blob, and there is ONE of it: the
+; `%ifdef SPLSTARS` that gave the knob a second value went with
+; BOOT2_SECS_STARS, for the same reason and in the same change. It was FOUR
+; sectors, which is what it took before the
 ; overlay joined it: three left 46 bytes and BOOTDIAG=1's hex printer did not
 ; fit. Trading bytes against a diagnostic is the exact thing the sector did and
 ; 2.9 exists to stop, so the answer is the rung and not a smaller printer - and
@@ -2221,50 +2219,42 @@ BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
 ; bytes over four sectors, and shaving it would have bought those bytes with
 ; the readability of the one routine in this tree that draws an animation.
 ;
-; IT COSTS NOTHING TO MOVE: the blob is BOOT2_SECS sectors either way, so no
-; image byte, no RAM and no extra int 13h changes - only the split. That is
+; IT COSTS NOTHING TO MOVE: the blob is BOOT2_SECS sectors whatever this is, so
+; no image byte, no RAM and no extra int 13h changes - only the split. That is
 ; what makes `.boot2`'s slack and `.ovl`'s ONE pool rather than two budgets:
 ; whatever the loader is not using below OVL_AT the overlay can have for the
 ; cost of moving this line, and the two assertions at the foot of the file
 ; still say which half ran out if one ever does.
 ;
+; WHAT BINDS IT FROM BELOW IS THE KNOB ARM, and that is the whole of what is
+; left of SPLSTARS' old claim on the blob: `SPLSTARS=1` builds a `.boot2` of
+; 2,568 against the shipped 2,254 (the twinkle's tables and its star renderer),
+; so the line may not fall below 2,568 while that knob assembles. Above, the
+; overlay binds it: 4,096 - 1,421. The window is 2,568..2,675 and 2,624 sits in
+; the middle of it - 56 bytes spare below on the knob arm, 51 above on both.
+; The shipped `.boot2` has 370.
+;
 ; The sentence that used to end here - "the NEXT claim on this file is
 ; BOOT2_SECS, and that one is a real ~24 ms on every boot" - was right, and
 ; SPEC.md 2.9.12 is that claim being taken: 13 sectors to 19, for the boot-only
 ; bodies in docs/LAST-DROP-BYTES.md.
-%ifdef SPLSTARS
-OVL_AT      equ 3072            ; ...AND SPLSTARS=1 IS THAT CLAIM, arriving as a
-                                ; KNOB rather than as a shipped feature (SPEC.md
-                                ; 15.3.7, 15.3.8.5). The twinkle wants 2,824
-                                ; bytes of `.boot2` and the overlay 3,930, which
-                                ; is 6,754 of a 6,656-byte blob - so it is over
-                                ; by 98 WHEREVER the split falls, and moving
-                                ; OVL_AT alone cannot pay for it. The knob build
-                                ; therefore takes a sector the shipped blob does
-                                ; not, and takes it ALONE: BOOT2_SECS_STARS is
-                                ; one above BOOT2_SECS, its `.boot2` is where it
-                                ; was, and the ~24 ms is not spent by anybody
-                                ; who boots this.
+OVL_AT      equ 2624            ; ...and it is ONE value for every build now.
+                                ; SPLSTARS=1 took 3,072 here AND a blob a
+                                ; sector longer, because its `.boot2` was
+                                ; 2,768 and the pair came to 4,193 of 4,096 -
+                                ; over by 97 wherever the split fell. SPEC.md
+                                ; 15.3.8.5's own figure, and the splash's size
+                                ; pass took that arm to 2,568 + 1,421 = 3,993.
+                                ; So the knob costs no sector, no second split
+                                ; and no second `sed`, and what it buys back
+                                ; is that the boot canary has ONE blob length
+                                ; to be legal for (SPEC.md 18.93.1, and the
+                                ; Makefile's KSIG_OFF block).
                                 ;
-                                ; SINCE SPEC.md 2.9.12 IT IS THE ONLY KNOB THAT
-                                ; STILL NEEDS ONE. At 19 sectors BOOTMARK=1 and
-                                ; MOUDIAG=1 both fit the shipped blob, where at
-                                ; 15 neither did - so this pair of `sed`
-                                ; lookups now has exactly one user, and
-                                ; t_buildmatrix.py is what stops a mechanism
-                                ; with one user rotting unnoticed.
-                                ;
-                                ; Six sectors for `.boot2` and eight for `.ovl`
-                                ; leaves 248 bytes on one side and 166 on the
-                                ; other, which is roughly the room the shipped
-                                ; split has - so the knob arm stops being the
-                                ; one that breaks first, and both assertions at
-                                ; the foot still say which half ran out if it
-                                ; ever does. tests/unit/t_buildmatrix.py is what
-                                ; asks.
-%else
-OVL_AT      equ 2560            ; ...and the shipped split, unchanged
-%endif
+                                ; tests/unit/t_buildmatrix.py's `splstars` row
+                                ; is still what runs the two assertions at the
+                                ; foot of this file for the knob arm - it is
+                                ; the only build that does
 
 BOOT2_PAD   equ BOOT2_SECS * 512
 
@@ -3936,9 +3926,10 @@ api_file_rename:
 
 ; --- resident shims the overlay far-calls (see the contract above) ----------
 ; Four bytes each. A routine gets one only because an overlay entry needs it
-; and it has to stay resident for its own reasons: xm_arm because xm_copy
-; re-arms unreal mode inside the window that uses it, dsk_vol_slot because
-; every zone painter calls it on every repaint.
+; and it has to stay resident for its own reasons: dsk_vol_slot because every
+; zone painter calls it on every repaint. (This sentence used to open with
+; `xm_arm`, which moved into XMEM.DRV with SPEC.md 41.12 and has had no shim
+; below - and no existence in kernel/ - since.)
 %ifdef BOOT_MARK
 ovw_mark_stamp:     call mark_stamp     ; SPEC.md 15.5's marker, reached from
                     retf                ; the OVERLAY (37.95). The MARK macro
@@ -4310,23 +4301,24 @@ kmain:
                                 ; would otherwise have been needed to reach
     MARK 1
 
-    OVWCALL  cpu_detect      ; CPU tier + memory above 1MB (SPEC.md 41),
-                                ; here and nowhere else: BEFORE sched_init,
-                                ; because this is the last moment at which no
-                                ; kernel ISR is installed - the unreal-mode
-                                ; window inside xm_init runs with CR0.PE set
-                                ; and a real-mode IVT, so the only handlers
-                                ; that may fire in it are the BIOS's own, and
-                                ; a tick lost here costs nothing ([ticks] is
-                                ; zeroed by sched_init anyway)
-    MARK 2
 %ifdef KERN_BIG                 ; the store above 1MB is kern_big's alone
                                 ; (SPEC.md 41.11). kern_small is the
                                 ; 128KB-floor product and neither sniffs nor
-                                ; loads. The tier is still detected above, in
-                                ; both builds: it is a fact about the CPU that
+                                ; loads. The tier is still detected in both
+                                ; builds: it is a fact about the CPU that
                                 ; packages read
-    OVWCALL  xm_sniff        ; IS there memory above 1MB? ONE int 15h
+                                ;
+                                ; ONE CROSSING, NOT TWO. xm_sniff's first
+                                ; instruction reads [cpu_tier], so it runs
+                                ; cpu_detect itself - two adjacent OVWCALLs
+                                ; were 5 resident bytes each and one of them
+                                ; buys nothing that a far call from inside the
+                                ; overlay, into the segment it is already
+                                ; running in, does not. The ORDER is unchanged:
+                                ; the tier is published before the sniff reads
+                                ; it, and both still run before sched_init
+    OVWCALL  xm_sniff        ; ...and CPU_DETECT FIRST. IS there memory
+                                ; above 1MB? ONE int 15h
                                 ; AH=88h, and on tier 0 one compare (SPEC.md
                                 ; 41.12.1). The gate, the sizing, the
                                 ; allocator and both transports are XMEM.DRV
@@ -4342,6 +4334,11 @@ kmain:
                                 ; port 0x92 and race the keyboard controller
                                 ; for D1h/DFh to be told there was nothing up
                                 ; there. AH=88h reads CMOS and needs no gate
+    MARK 2
+%else
+    OVWCALL  cpu_detect         ; kern_small has no sniff to hang it off, so
+                                ; the tier probe is its own crossing here
+    MARK 2
 %endif
     MARK 3
 
@@ -4369,7 +4366,7 @@ kmain:
                                 ; task. AFTER sched_init, which sets
                                 ; sch_idleslot to 0xFF, and after the task
                                 ; table is cleared
-    call evq_init
+    ; (no evq_init: the ring's three .bss indices arrive zeroed - events.inc)
     MARK 6
     OVWCALL  clk_init        ; system clock (SPEC.md 37): probe the RTC,
                                 ; or fall back to the fixed date - before the
@@ -4526,7 +4523,13 @@ kmain:
     MARK 22
     OVWCALL  files_init_x       ; Disk module state (no window at boot)
     MARK 23
-    OVWCALL  loader_init_x      ; package loader state
+                                ; NO loader_init: all four of the loader's
+                                ; resting values ARE zero (LD_OK is 0) and
+                                ; .bss is zero at boot (SPEC.md 2.5), so the
+                                ; routine wrote zero over zero. The MARK stays
+                                ; where it is - they are counted, not named,
+                                ; so renumbering would move every BOOTHALT
+                                ; number after it for nothing
     MARK 24
     OVWCALL  drv_init_x         ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
@@ -5160,7 +5163,8 @@ section .text
                                 ; sched.inc for [ticks], events.inc for the
                                 ; evq_pop/wm_wake_eaten drain that spends the
                                 ; wake press (SPEC.md 74.1.1 - it was an
-                                ; evq_init, and a reset ate the wakes), and
+                                ; evq_init, a reset that ate the wakes, and
+                                ; that routine no longer exists at all), and
                                 ; vidsel.inc for the vid_blank_kind pair -
                                 ; which is every module it reads, so this is
                                 ; the first place it can go with none of its
@@ -5364,8 +5368,7 @@ mark_stamp:
 .plain:
     and ax, 0x007F              ; ...and the rest of it is the index
     mov si, ax                  ; banked: gfx_rowbase spends AX, CX and DX
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     mov ax, [vid_h]             ; the LIVE height (SPEC.md 39), never a
     sub ax, MARK_UP             ; reference constant - this runs on all three
     call gfx_rowbase            ; adapters and two of them are not 640x480
@@ -5464,8 +5467,7 @@ mark_prev:
     cmp ax, MARK_MAXIDX
     ja .out
     mov si, ax
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     mov ax, [vid_h]
     sub ax, MARK_PREVUP
     call gfx_rowbase
@@ -5659,7 +5661,7 @@ cw_clk_snapshot:        call clk_snapshot
 ; --- ...and the six the Date/Time page's editor needs (SPEC.md 37.93) -------
 ; clk_fld_str and clk_fld_adj moved into CTRL.DRV, and these are everything
 ; they reach on the way. Not one of them could go with them: clk_fmt draws
-; the menu bar from five of these and clk_inc_day carries a month with the
+; the menu bar from five of these and clk_inc_sec's day carry reaches the
 ; sixth, so all six keep a RESIDENT near caller and none can become a retf
 ; body (SPEC.md 2.6.1). 329 bytes of .text left and 24 came back, so the move
 ; is 305; duplicating the six into the image instead would have saved those
@@ -5689,11 +5691,14 @@ cw_cursor_hide:         call cursor_hide
 cw_cursor_show:         call cursor_show
                     retf
 %endif                                      ; so kern_small pays for none of
-cw_evq_pop:             call evq_pop        ; them out of its 75-byte rung
-                    retf
-cw_wm_wake_eaten:       call wm_wake_eaten  ; every drain owes this per record
-                    retf                    ; it discards (SPEC.md 74.1.1) -
-                                            ; the .cold drains too
+cw_evq_mup:             call evq_mup        ; them out of its 75-byte rung.
+                    retf                    ; THE WHOLE LOOP and not its two
+                                            ; halves: cw_evq_pop and
+                                            ; cw_wm_wake_eaten were reached
+                                            ; only from fm_drag's two `.cold`
+                                            ; track loops, which now call this
+                                            ; instead - so two cells died here
+                                            ; and one was born (SPEC.md 74.1.1)
 cw_font_run:            call font_run
                     retf
 cw_fpg_step:             call fpg_step
@@ -5791,11 +5796,11 @@ cw_menu_item_dis:       call menu_item_dis
                     retf
 cw_mou_clamp:           call mou_clamp
                     retf
-; ...and the BOOT OVERLAY's two (docs/LAST-DROP-BYTES.md rows 15 and 17):
-; dock_init and menu_init moved into `.ovl` and each has exactly one outbound
-; call left, the other having been small enough to inline.
-cw_dock_force:          call dock_force
-                    retf
+; ...and the BOOT OVERLAY's (docs/LAST-DROP-BYTES.md rows 15 and 17):
+; dock_init and menu_init moved into `.ovl`; menu_init has exactly one
+; outbound call left, and dock_init now has NONE - what it asked cw_dock_force
+; for was "the whole strip is owed", which is two words it writes itself, so
+; the shim went with the call.
 cw_menu_relayout:       call menu_relayout
                     retf
 cw_menu_draw_bar:       call menu_draw_bar
@@ -6344,11 +6349,14 @@ kretfc_es:        pop es
 kretfc_bp:        pop bp
 kretfc_di:        pop di
 kretfc_si:        pop si
-                  pop dx
-kretfc_cx:        pop cx
-                  pop bx
-                  pop ax
-                  retf
+kretfc_dx:        pop dx
+                  pop cx          ; UNLABELLED, and it is the `dx` rung above
+                  pop bx          ; that took its last caller: `kretfc_cx` had
+                  pop ax          ; exactly one jump in the tree and desk.inc's
+                  retf            ; two paint entries merged onto `dx` instead.
+                                  ; A rung nothing jumps to is walked as an
+                                  ; ENTRY from depth 0 and goes red - so the
+                                  ; label goes, per the rule above
 section .text
 
 ; --- WHICH KERNEL IS THIS? (SPEC.md 57.6) ------------------------------------
@@ -6861,7 +6869,30 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ;    The mount-owned window is the one term that is a LABEL as much as a size:
 ;    it is `Disk bufs` on the screen, so it has to stay the three buffers of
 ;    SPEC.md 2.1.2 and not drift back into meaning "the rest of .lowbss".
-%if SKB_DSK != DSK_WIN_BYTES
+;
+;    IT IS COMPARED AGAINST AN INDEPENDENT RECOMPUTATION OF THOSE THREE, and
+;    not against DSK_WIN_BYTES. This read `%if SKB_DSK != DSK_WIN_BYTES` for
+;    the life of the tree, and the SKB_ block above defines SKB_DSK as `equ
+;    DSK_WIN_BYTES` - so it was `X != X` and no edit could make it true. The
+;    exact drift it was written for went straight through it: a fourth `resb`
+;    between dsk_win_base and dsk_win_end grows DSK_WIN_BYTES, SKB_DSK
+;    follows it, and both sides move together. A guard that cannot fail is
+;    not a weak guard, it is an absent one that reads as present.
+;    THE 512 IS A LITERAL ON PURPOSE: spelling it as a symbol that also sizes
+;    dsk_secbuf puts the same tautology back one level down.
+;    WHAT IT CATCHES (each broken on purpose): a fourth buffer inside the
+;    window, a resized dsk_secbuf, a buffer moved out of it, and padding
+;    inserted between two of them.
+;    WHAT IT STILL MISSES, said rather than assumed: a SAME-SIZE substitution
+;    - one buffer swapped for another of the same length, which leaves the
+;    row's arithmetic right and its LABEL wrong - and a change to DSK_NENT,
+;    DSK_DE_STRIDE or DSK_ICO_SIZE themselves, since both sides are written
+;    in terms of those three and move together. Elsewhere: dskwin.inc bounds
+;    DSK_DE_STRIDE at both ends and files.inc's FS_IOFH `%if` requires
+;    nmax*DSK_DE_STRIDE to be a multiple of 256, which constrains DSK_NENT
+;    too - but DSK_ICO_SIZE has NOTHING, and halving it to 32 assembles this
+;    whole kernel without a word from any guard in the tree.
+%if SKB_DSK != DSK_NENT*DSK_DE_STRIDE + DSK_NENT*DSK_ICO_SIZE + 512
 %error "sys_kb: the Disk bufs row is no longer the mount-owned window (SPEC.md 2.1.2)"
 %endif
 ;

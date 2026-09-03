@@ -2800,8 +2800,9 @@ item.
 both**: a pull-down is at most `MENU_POPMAX` = **11 items** and each item is
 truncated to `MENU_MAXCH` = **24 glyphs** (`kernel/menu.inc:195`, `:207`).
 They are facts about the machine, and they are measured on the SMALLEST
-screen: `vid_popmax` is `(vid_h − 22) / 16`, which is 11 on a 200-line CGA and
-clamped to 11 above it. Three rules follow:
+screen: `(vid_h − 22) / 16` is 11 on a 200-line CGA and clamped to 11 above
+it, which is why `[vid_popmax]` is now that constant rather than that
+arithmetic (SPEC.md §39.2). Three rules follow:
 
 1. **A section that is ENTIRELY unavailable folds into ONE item, and that item
    is the section's FIRST** — its submenu head label where it has one,
