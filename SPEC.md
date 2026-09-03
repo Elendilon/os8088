@@ -34014,6 +34014,50 @@ it.
 media — and docs/FIELD-MACHINES.md's standing rule for the `Elendilon/os8088`
 fork sends all three.
 
+### 24.5 THE SMALL DISKS — if it can never run there, it does not ship there
+
+`make small` and `make smallapps` build the `kern_small` product: a system
+disk and an apps disk for the 128KB floor machine. Their contents are **not**
+the shipped disks' contents, and the rule that decides the difference is one
+sentence — *if it can never run there, it does not go on the disk.*
+
+**It is a REQUIREMENT test, never a size one, and must not become one.** A
+package that merely wants a lot of heap still ships: it refuses itself **on
+the machine, in its own words**, which is a thing the user can read — §42.6's
+`Not enough memory. Close this window.` is the worked example, and §42.22
+turned that refusal into the whole point of Paint's small build. A package
+that cannot reach its **driver** can say nothing at all; it is a name in a
+list that does nothing when you double-click it.
+
+Seven packages fail that test:
+
+| omitted | requirement `kern_small` cannot meet |
+|---|---|
+| `BROWSER`, `FTPD`, `TELNET` | `ETHER.DRV`. The NIC is not in `$(SMALLDRIVERS)`, and §72's whole surface is driver verbs, so there is no socket to refuse on |
+| `MODPLUG`, `RECORDER`, `TRACKER` | `SOUND.DRV`, which a 128–256KB machine has nothing to spare for — the judgement that already took `RAMDISK.DRV` and `RAMPAGE.DRV` out of the small driver set |
+| `TANK` | the fullscreen surface (§42.7, §81). It opens and draws its splash, and there is no *game* behind it without fsx |
+
+…and two data files with them, for the same reason one step along:
+`DEMO.HTM` is openable by nothing else on the machine (§71), and
+`BEVERLY.MOD` is the two removed players' module (§24.4).
+
+**90,510 bytes — a quarter of a 360KB floppy — for seven programs that could
+not have started.** The apps disk goes 341 → 244 of 354 clusters.
+
+#### 24.5.1 The small system disk carries core packages too
+
+§24.3's rule is not the shipped disk's alone: **the core packages ride the
+system disk as a second copy so that a single-floppy machine has something to
+run**, and a 128KB machine is the likeliest single-floppy machine there is.
+`make small` did not do this for its first several editions — the small system
+disk had a `SYSTEM/` folder and nothing else executable.
+
+It does now, through the same two filters: the omitted packages go, and a
+package with a small build ships as the **small** build. So `CORE_TOOLS`'
+five become **`CALC.O88`, `NOTEPAD.O88`, `PAINT.O88`** (Browser and Telnet
+omitted) beside `GAMES/MINES.O88`, and the disk sits at 224 of 354 clusters
+with 130KB free.
+
 ## 25. icons.inc — icon format, draw routine, built-in library
 
 1-bit icons with a mask, classic Mac style, drawn exactly like the mouse

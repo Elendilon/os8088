@@ -243,16 +243,27 @@ make ethertest  # THE ETHERNET GATE'S DISK (§72.9): a SYSTEM.CFG that already
 make browsertest # ...and the browser's page disk, for tests/br*.py
 make small    # kern_small and its system disks, into build/smallk/ (the
 make smallapps#   128KB floor machine, docs/KERN-SPLIT-PLAN.md). `smallapps` is
-              #   the APPS half of it (SPEC.md §27.16): the same floppy with
-              #   the SMALL BUILD of any package that has one in place of the
-              #   shipped one - Note Pad today, at 13,520 bytes an instance
-              #   against 20,379, with its undo arena's 1-16KB heap claim
-              #   never taken. IT IS NOT A SECOND ABI: a small-built package
-              #   calls the same API table at the same offsets, so it runs on
-              #   kern_big too and what pairs it with kern_small is only which
-              #   floppy it is written to. The shipped build/apps*.img are
-              #   untouched, and `tests/unit/t_appsmall.py` is what says so -
-              #   the default arm must stay byte-identical
+              #   the APPS half of it: the same floppies with the SMALL BUILD
+              #   of any package that has one in place of the shipped one -
+              #   Note Pad (SPEC.md §27.16) 13,520 bytes an instance against
+              #   20,379, Paint (§42.22) 26,465 against 31,352, Calculator
+              #   (§65.10) 5,563 against 7,351. IT IS NOT A SECOND ABI: a
+              #   small-built package calls the same API table at the same
+              #   offsets, so it runs on kern_big too and what pairs it with
+              #   kern_small is only which floppy it is written to. The
+              #   shipped build/apps*.img are untouched, and
+              #   `tests/unit/t_appsmall.py` says so - the default arm must
+              #   stay byte-identical.
+              #
+              #   **§24.5 is what they LEAVE OFF**, and it is a REQUIREMENT
+              #   test rather than a size one: seven packages that cannot
+              #   reach a driver kern_small does not ship (Browser, FTPD,
+              #   Telnet on ETHER.DRV; ModPlug, Recorder, Tracker on
+              #   SOUND.DRV) or a surface it has (Tank on fsx) are not on the
+              #   disk at all, because a package that merely wants heap can
+              #   REFUSE ITSELF in its own words and one that cannot reach its
+              #   driver can say nothing. The small SYSTEM disk carries
+              #   §24.3's core packages too, filtered the same way (§24.5.1)
 make allapps  # build/apps-all.img (§19.10): ONE 1.44MB floppy with every app
               #   on it, Frotz, both Words, RunCPM (with its drive A), the
               #   C64 and the Weave family's two — one folder each, so
