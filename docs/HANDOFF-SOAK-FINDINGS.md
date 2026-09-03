@@ -244,44 +244,76 @@ These are the expensive ones. A row that fails because the box has no compiler,
 or because another row has not run yet, is noise that buries the failures that
 mean something — which is exactly what the owner asked to have watched.
 
-## A6. `paintrow` cannot provoke a repaint — PRE-EXISTING, A/B'd
+## A6. `paintrow` cannot provoke a repaint — FIXED, and it was UPSTREAM's
 
-**`paintrow` fails, and it failed the same way before SPEC.md 42.23 existed.**
-The A/B is a worktree at `1a415e9` — the commit immediately before the 1bpp
-canvas — built and run: identical message, `paintrow: Paint never repainted
-its canvas, so there is nowhere to call the routine from`. So the row is
-already broken and the 1bpp work only moved the *stage* it breaks at.
+**FIXED. The provoker was wrong, and it was wrong at upstream `main` too.**
+
+The first A/B here was a worktree at `1a415e9` — the commit immediately before
+the 1bpp canvas — and it cleared *that* change and nothing else, because
+`1a415e9` already carried the whole of that session's other Paint work. **The
+second A/B is the one that settles it**: a worktree at `origin/main`, built and
+probed, reads **identically** — same window rects, every pointer move failing
+to reach `pt_blit`, a title drag hitting it every time. So the step has been
+broken for as long as the geometry has been this shape, in nobody's recent
+work.
+
+**What the probe measured**, on this tree and on `main`, three targets each:
+
+| provoker | reaches `pt_blit`? |
+|---|---|
+| `mo.to(rx + 3, ry + 3)` — what the row used | **no** |
+| `mo.to(rx, ry)` — its fallback | **no** |
+| `mo.to(4, 4)` | **no** |
+| a drag of Paint's own title bar | **HIT**, every time |
+
+**And the reason is on the glass.** The file row is at (164,145); Paint opens
+at (71,24) 522×152 *over it*. So the move lands on Paint's own palette strip —
+and the arrow is a save-under (§7.1), so crossing a window never asks it to
+draw. The comment said *"anything that repaints it"*, and a pointer move
+repaints nothing.
+
+The fix is a small title-bar drag, which is the right provoker rather than a
+lucky one: `wm_drag` damages what the window vacates and W_PAINT is Paint's
+first `pt_blit` caller. It does not matter that the drag never completes — the
+breakpoint stops the machine inside it, which is exactly where `patch_caller`
+wants to be. The row now reads **0 of 466 columns differing on all six sampled
+rows**, so `pt_line_get`'s four-plane reader is under test again.
 
 Worth writing down because the failure mode changed twice on the way and each
 disguise pointed somewhere else:
 
 | tree | message | what it really was |
 |---|---|---|
-| `1a415e9` (before) | never repainted | **this finding** |
+| `origin/main` | never repainted | **this finding, and it starts here** |
+| `1a415e9` (before 1bpp) | never repainted | this finding |
 | `c207fef` (1bpp, old fixture) | no `gfx_blitp` | `build/OS8088.GIF` has a TWO-entry colour table, so §42.23.6 opened it one bit deep and there was no planar canvas at all |
-| `ef3e555` (colour fixture) | never repainted | **this finding again** |
+| `ef3e555` (colour fixture) | never repainted | this finding again |
 
 The middle row was real and is fixed — `dispapps.colour_gif` derives a colour
 picture that changes not one pixel — and fixing it is what let the row reach
 its *original* defect again.
 
-**Where it is.** The row needs any entry to `pt_blit` with CS/DS the
-package's, so it can write `patch_caller`'s eight-byte loop over the entry.
-It provokes one with `mo.to(rx + 3, ry + 3)` — *"anything that repaints it"* —
-and a pointer crossing does not repaint a window's content any more:
-SPEC.md §11.96.11's raise cache serves it, which is the whole point of the
-cache. `tests/paintundo.py`'s own docstring already says the neighbouring
-thing — *"dragging the window to force a repaint is NOT reliable here"* — so
-this is the same rot one row along, and it is rot rather than a regression:
-nothing changed in `paintrow`, the kernel grew a cache underneath it.
+**The lesson worth keeping is about the SECOND fault, not this one.** Fixing
+the fixture is what let the row reach its original defect again — and while
+the fixture was wrong, `paintplan` **kept passing** on the same picture while
+its stated proof, *"the canvas went planar by construction"*, had silently
+stopped being true. A row that passes for a reason that has gone away is
+worse than one that fails, and only reading a docstring against the new
+behaviour caught it. `paint1bpp-colour` exists because of that: it asserts the
+**negative** — four planes, sixteen colours, the 4bpp arithmetic to the byte —
+which nothing in `tests/` did before.
 
-**What would fix it, unverified.** `pt_blit`'s callers are W_PAINT, undo,
-paste, a file load and erasing the text caret (§42). A stroke followed by
-Ctrl+Z is the one `paintundo` has already proved reachable — `pt_undo_swap`
-repaints the touched rows *out of the canvas* — and it leaves the canvas
-holding the file's picture again, which is what this row's oracle needs. That
-is a guess about the ordering and has not been run; do not bank it without
-measuring, and read §42.8.6 first.
+**Checked for the same assumption elsewhere, and it is not there.** Six rows
+call `mo.to` shortly before a breakpoint — `dispblitp`, `paintbig`,
+`paintblank`, `paintfill`, `paintsu`, `tmrepair` — and in every one the move
+PARKS the arrow clear of what is about to be read rather than provoking
+anything, which is legitimate and why they pass. `paintrow` was the only row
+that used a pointer move as a repaint provoker, and the *"anything that
+repaints it"* comment appears nowhere else in `tests/`.
+`tests/paintundo.py`'s docstring already warns about the neighbouring case
+for a window *drag* on a 1bpp adapter, which is the same class of assumption
+pointing the other way — so the pair of them is now the written record that
+neither gesture is a repaint by itself.
 
 ## B1. Install-then-boot is broken by per-instance disk isolation
 
