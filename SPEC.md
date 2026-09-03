@@ -48619,6 +48619,97 @@ it opens a 124,918-byte one (620×400, cropped to the screen's 594×390) and
 every one of the 390 decoded rows matches the source pixel for pixel, 190 of
 them read from source bytes past the 64KB horizon.
 
+#### 42.6.1 OPEN: the canvas does not degrade, and what a canvas actually costs
+
+**Reported from the field and reproduced here. Not fixed — this section is
+the measurement and two failed attempts, so the next go is not started from
+nothing.**
+
+##### 42.6.1.1 What Paint needs, measured
+
+`kern_small`'s heap is `int 12h − 94.0 KB`, and a 5150's RAM comes in 64 KB
+rows, so the only real machines are 128 / 192 / 256 KB.
+
+| claim | small build |
+|---|---|
+| package (image + `.bss`) | 23 KB |
+| scratch — the flood-fill stack, `PT_SC_KB` | 12 KB |
+| canvas, CGA 448×110 | 25 KB |
+| canvas, Hercules 448×258 | 57 KB |
+
+| machine | heap | measured |
+|---|---|---|
+| 128 KB | 34.0 KB | **no canvas at any size** — package + scratch is 35 KB before one is asked for |
+| 192 KB | 98.0 KB | CGA: full 448×110 canvas. **Hercules: `Not enough memory`** |
+| 256 KB | 162 KB | Hercules: 448×258, claiming 57 + 12 + 23 |
+
+**The 12 KB scratch is the flood-fill stack and nothing else** — eight bytes an
+entry, two call sites. It is not the GIF codec's: that is `PT_LZW_KB` = 16 KB
+in a claim of its own (`pt_gseg`), taken per file, and `PTF_GIF` compiles it
+out of the small build entirely (§42.22.1).
+
+##### 42.6.1.2 The mechanism
+
+`pt_geom` asks `pt_growmax` — `OSAPI_MEM_AVAIL`, the largest free run — what a
+canvas could be, `pt_fit` shrinks the request to that, and only then does
+`pt_alloc` claim: **the scratch first, out of the same run**, and the canvas
+second. So the canvas is sized against a run 12 KB larger than the one it will
+be asked for from, and `pt_alloc`'s `jc .fail` has no retry — one refusal and
+`pt_geom` goes straight to `PT_M_NOMEM`.
+
+Traced at the moment of the launch on a 192 KB Hercules machine:
+
+```
+free runs before launching Paint: [23, 19] KB
+```
+
+A 45 KB claim is held elsewhere, so Paint's own 23 KB package claim takes the
+larger run **whole**, and what is left for the scratch and the canvas together
+is 19 KB.
+
+##### 42.6.1.3 Two attempts that did not work, and why they are worth recording
+
+**Predicting the scratch is not enough.** Subtracting `PT_SC_KB` from
+`pt_growmax`'s answer was the first try. It does not work because the scratch
+is not taken off either END of the run — measured, it lands in the middle, so
+a 56 KB run less 12 KB of scratch is not a 44 KB run, it is a 37 and a 7. No
+arithmetic done before the claim can know where the allocator will put it.
+
+**Claiming the scratch first, plus a shrink-and-retry, is the right shape and
+still failed.** `pt_alloc_scratch` split out and called before `pt_growmax`,
+and the canvas refusal re-running `pt_growmax`/`pt_fit` and asking again until
+`[pt_fitcut]` says there is nothing left to give. It opens correctly on
+Hercules with 640 KB (448×258) and does not regress CGA, but on the 192 KB
+Hercules machine Paint stops opening a window **at all** rather than showing
+the notice — so `pt_entry` is failing somewhere after `pt_geom`, and that was
+not run down. Reverted rather than shipped.
+
+**One trap it cost, and the answer is useful on its own**: the retry re-enters
+`pt_fit`, which takes the canvas in `AX`/`DX` — and `pt_kb_of` ANSWERS in
+`AX` while `OSAPI_MEM_CLAIM` answers in `DX`. A retry that does not bank the
+pair re-enters `pt_fit` with a KB count for a width. That is fixed in the
+reverted patch and will be needed again.
+
+**And the size is NOT the cause**, which was the first suspicion: the attempt
+grew the package 31 bytes, and a pre-fix build padded by exactly 31 bytes
+loads and shows the notice normally on the same machine.
+
+##### 42.6.1.4 What a 1bpp canvas would and would not buy
+
+The canvas is four bits a pixel on every adapter — `pt_paras` is
+`ceil(w/2)` rounded up to 4, and §42.13's four-plane form is the same size at
+every width. On a 1bpp adapter that is four bits carrying one.
+
+| | 4bpp | 1bpp |
+|---|---|---|
+| Hercules 448×258 | 57 KB | **15 KB** |
+| CGA 448×110 | 25 KB | **7 KB** |
+
+It is a large win for Hercules and it does **not** reach the 128 KB machine:
+package 23 + scratch 12 is 35 KB against a 34 KB heap before any canvas at
+all. 128 KB needs roughly 8 KB more off the resident claim, or a smaller
+flood-fill stack, on top of the 1bpp canvas.
+
 ### 42.7 Full Screen — the §53 bracket, and why NOT the §11.2 surface
 
 View ▸ Full Screen, or Ctrl+F. `pt_cmd_fs` calls `OSAPI_FSX_RUN` and nothing
