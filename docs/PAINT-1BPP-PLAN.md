@@ -20,9 +20,31 @@ instance** against §6.3's predicted +800 to +1,400 for big — because §6.1 re
 the fork sites as "2-way → 3-way" and they are really "2-way, plus one arm
 that reuses the second's arithmetic".
 
+**What it cost and what it verified.** +527 bytes an instance at the first
+commit, then 2 bytes back when the swatch rule collapsed into `pt_ncolset`.
+The gates: `paint1bpp` and `paint1load` are new and assert the claim, the DIB
+field by field, and the load; `paint1bpp-colour` and `paint1load-vga` assert
+the **negative** on a VGA, which nothing in `tests/` did before — a change
+that made every canvas one bit deep would otherwise have passed the whole
+suite and quietly cost the VGA fifteen of its colours. `paintblank`,
+`paintsize`, `paintshrink`, `paintrz-1bpp`, `paintwipe`, `paintundo`,
+`paintanchor`, `paintdirty`, `paintsu`, `paintbig`, `paintcull`, `paintplan`,
+`paintdraw`, `paintfill` and `paintback` all pass. **`paintrow` fails and did
+so before this work** — A/B'd against a worktree at the preceding commit, and
+recorded as docs/HANDOFF-SOAK-FINDINGS.md A6.
+
+**One consequence the design did not anticipate**, and it is worth reading
+before touching the load rule: `build/OS8088.GIF` has a **two-entry colour
+table**, so §42.23.6 opens the tree's only picture one bit deep on every
+adapter. That is correct for that file and it left three rows whose subject is
+the four-plane canvas unable to get one — `paintplan` kept *passing* while its
+stated proof, "the canvas went planar by construction", had silently stopped
+being true. `dispapps.colour_gif` derives a colour fixture by appending two
+unused table entries, changing not one pixel.
+
 **Nothing below has been rewritten to match.** It is the reasoning as it stood
 before the work, which is what makes it worth keeping; where it is wrong the
-paragraph above says so.
+paragraphs above say so.
 
 ---
 
