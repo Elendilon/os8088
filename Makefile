@@ -1722,6 +1722,16 @@ KMODDIR = $(BUILD)
 KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
            -m 2=$(BUILD)/clone.drv
+# ...and kern_small's FOURTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP): that
+# build carries the bodies in FILECP.DRV where kern_big keeps them resident
+# (docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1). The index IS the kernel's
+# MOD_* and os88mod.py refuses a count that disagrees with the image's own
+# map - which is how this line announced itself when it was missing, rather
+# than by shipping a floppy with the feature silently absent.
+ifneq ($(KERN_SMALL),)
+KMODS += $(KMODDIR)/filecp.drv
+KMODARGS += -m 3=$(BUILD)/filecp.drv
+endif
 
 # THE KERNEL IS ASSEMBLED WHOLE AND THEN CUT UP (SPEC.md 2.8). Everything
 # from .modc onward is an on-demand module: kernel code that ships as a file

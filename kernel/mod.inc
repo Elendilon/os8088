@@ -38,10 +38,19 @@
 ; where all three of the current ones say it).
 ; =============================================================================
 
+%ifdef FCP_MOD
+MOD_MAX     equ 4               ; rows in mod_tab - FOUR on kern_small, which
+%else                           ; alone carries Cut/Copy/Paste as a module
 MOD_MAX     equ 3               ; rows in mod_tab
+%endif
 MOD_CTRL    equ 0               ; the Control Panel (SPEC.md 31)
 MOD_FMT     equ 1               ; the floppy formatter (SPEC.md 18.96)
 MOD_CLONE   equ 2               ; the disk cloner (SPEC.md 18.99)
+%ifdef FCP_MOD
+MOD_FCP     equ 3               ; Cut/Copy/Paste (SPEC.md 22.3-22.5),
+                                ; kern_small's alone - kern_big keeps the
+                                ; bodies resident in `.cold`
+%endif
 
 MOD_NENT    equ 6               ; far-pointer slots reserved per module. A
                                 ; fixed stride, so a thunk's
@@ -178,6 +187,9 @@ section .text
 mod_f_ctrl: db 'CTRL.DRV', 0    ; .DRV for the attributes and nothing else
 mod_f_fmt:  db 'FORMAT.DRV', 0  ; (SPEC.md 19.6): os88disk.py stamps anything
 mod_f_clon: db 'CLONE.DRV', 0   ; ...and a third of them (SPEC.md 18.99)
+%ifdef FCP_MOD
+mod_f_fcp:  db 'FILECP.DRV', 0  ; ...and kern_small's fourth (SPEC.md 22.3)
+%endif
                                 ; ending DRV read-only + hidden + system by
                                 ; EXTENSION, the installer's `*.DRV` copy rule
                                 ; picks it up, and neither of these is in
@@ -188,6 +200,9 @@ mod_tab:
     dw 0, mod_f_ctrl            ; MOD_CTRL
     dw 0, mod_f_fmt             ; MOD_FMT
     dw 0, mod_f_clon            ; MOD_CLONE
+%ifdef FCP_MOD
+    dw 0, mod_f_fcp             ; MOD_FCP
+%endif
 
 section .cold                   ; ...and the loader itself
 

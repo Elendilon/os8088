@@ -263,6 +263,20 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_ASSOC 1
 %endif
 
+; SPEC.md 22.3-22.5's Cut/Copy/Paste is an ON-DEMAND MODULE on kern_small
+; (SPEC.md 2.8, docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1) and stays resident
+; `.cold` on kern_big, which keeps its speed and its one contiguous boot read:
+; a module is CUT OUT of kernel.bin by tools/os88mod.py and MODC_START is
+; exactly where the image ends, so nothing about big's read changes.
+;
+; It is the FIRST feature through the seam because it needs nothing new:
+; five entry points against MOD_NENT's eight, and every caller is a user
+; gesture in files.inc. ONE symbol decides it, resolved here above every
+; %include for OS88_ASSOC's reason.
+%ifdef KERN_SMALL
+  %define FCP_MOD 1
+%endif
+
 ; SPEC.md 13.10.5's thumb DRAG is kern_big's and SHIPS - `make SBDRAGOFF=1`
 ; compiles it out, which is WM_ANIM's shape one section up and exists to be
 ; diffed against rather than because anybody should build it.
@@ -2317,6 +2331,9 @@ section .ovlw    start=OVLW_START vstart=0
 section .modc    start=MODC_START vstart=0
 section .modf    start=MODF_START vstart=0
 section .modl    start=MODL_START vstart=0
+%ifdef FCP_MOD
+section .modp    start=MODP_START vstart=0
+%endif
 section .modmap  start=MODMAP_START vstart=0
 section .text
 
@@ -6573,7 +6590,12 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 MODC_START   equ OVLW_START + OVLW_SIZE
 MODF_START   equ MODC_START + MODC_SIZE
 MODL_START   equ MODF_START + MODF_SIZE
+%ifdef FCP_MOD
+MODP_START   equ MODL_START + MODL_SIZE   ; Cut/Copy/Paste, kern_small's alone
+MODMAP_START equ MODP_START + MODP_SIZE
+%else
 MODMAP_START equ MODL_START + MODL_SIZE
+%endif
 
 section .modc
 modc_end:
@@ -6586,6 +6608,12 @@ MODF_SIZE equ modf_end - $$
 section .modl
 modl_end:
 MODL_SIZE equ modl_end - $$
+
+%ifdef FCP_MOD
+section .modp
+modp_end:
+MODP_SIZE equ modp_end - $$
+%endif
 
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
 ; (mod.inc) is a RUN-TIME test - a module over it is refused cleanly, the
@@ -6600,6 +6628,11 @@ MODL_SIZE equ modl_end - $$
 %endif
 %if MODL_SIZE > MOD_MAX_KB*1024
 %error "the clone module is over MOD_MAX_KB - mod_need would refuse it at run time"
+%endif
+%ifdef FCP_MOD
+ %if MODP_SIZE > MOD_MAX_KB*1024
+%error "the Cut/Copy/Paste module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
 %endif
 
 ; --- the split table, which is HOST-SIDE ONLY --------------------------------
@@ -6624,6 +6657,9 @@ mod_map:
                                 ; flags but this tree's -w+error
     dd MODF_START, MODF_SIZE
     dd MODL_START, MODL_SIZE
+%ifdef FCP_MOD
+    dd MODP_START, MODP_SIZE    ; ...and kern_small's fourth (SPEC.md 22.3)
+%endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
 modmap_end:
@@ -7118,6 +7154,12 @@ section .modc
 section .modf
 %if ($ - $$) != MODF_SIZE
   %error "something landed in .modf below modf_end - os88mod.py would CUT the format module short of it"
+%endif
+%ifdef FCP_MOD
+section .modp
+%if ($ - $$) != MODP_SIZE
+  %error "something landed in .modp below modp_end - os88mod.py would CUT the Cut/Copy/Paste module short of it"
+%endif
 %endif
 section .modl
 %if ($ - $$) != MODL_SIZE
