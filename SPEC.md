@@ -52416,6 +52416,202 @@ build. It is inside `PTF_UNDO` now, so the small arm is already rid of it;
 the shipped build still carries it, and whoever removes it should check the
 other four the same way rather than trusting this list.
 
+### 42.23 The canvas may hold ONE BIT a pixel
+
+**A third canvas format, and the first one that is about the DOCUMENT rather
+than the card.** §42.13's two — packed 4bpp and four planes — are *the same
+size at every width*, because `ceil(w/2)` rounded up to 4 **is** `4*ceil(w/8)`.
+They trade speed for speed. This one trades size: a canvas of one bit is a
+quarter of the claim, and on the machine that made it necessary that is the
+difference between a picture and a letterbox.
+
+| canvas | 4bpp | 1bpp |
+|---|---:|---:|
+| Hercules default 448×258 | 56.6K | **14.2K** |
+| CGA default 448×110 | 24.2K | **6.1K** |
+| what 13.5 KB of heap buys at 448 wide | 61 rows | **245 rows** |
+
+`[pt_1bpp]` is the flag and it is **never 1 at the same time as
+`[pt_planar]`**. `pt_geom` picks one of the three and, unlike the planar
+question, this one is not re-asked when the window moves: a picture drawn on
+a Hercules and dragged onto the VGA beside it is still a black-and-white
+picture, and promoting it would quadruple a claim nobody asked to spend.
+
+Today `pt_geom` chooses it on a **1bpp adapter**, on either build, and
+`APP_SMALL` chooses it on every adapter (§42.22). What is not yet built is the
+colour machine's rule — a new canvas born one bit and promoted the first time
+a colour that is neither black nor white is painted — which needs a promotion
+pass and a refusal when the heap cannot fund one. docs/PAINT-1BPP-PLAN.md is
+the design record.
+
+#### 42.23.1 One is WHITE, and the polarity is worth 36% of every blit
+
+`gfx_blit1` maps a **set bit to a LIT pixel** (§5.4.2.2) and blits a band that
+is already that way up with `rep movsw` at 12.5 clocks a byte, against a
+complementing hand loop at 17. A standard 1bpp BMP's palette is
+`{0 = black, 1 = white}`. **Those two facts agree**, so storing the canvas
+1 = white costs nothing, writes a conventional file, and leaves the fast path
+reachable. The intuitive polarity — a set bit is ink — would have cost 36% of
+every canvas blit for ever, for nothing.
+
+A colour index becomes that bit through `pt_lit` and `PT_LIT16`: light grey
+and the seven bright colours light the pixel, the seven dark ones do not. It
+is a **reduction and not a palette lookup**, which is what lets the same
+routine answer both "what does this ink do here" and "what does this pixel of
+a colour picture become", so the two cannot disagree at the edges of the
+palette.
+
+`[pt_ncol]` is **2** on a one-bit canvas and not 3. §39.4's dither class is
+reduced at *draw* time, so a screen can show it and a canvas of one bit cannot
+hold it — and a palette that offers a colour the canvas will silently discard
+is worse than one that does not offer it. Storing the dither as its own
+checkerboard is what would put it back; that is a look question and nobody has
+looked.
+
+#### 42.23.2 The file is a 1bpp BMP, and the reader already read one
+
+`biBitCount` 1, `biClrUsed` 2, an 8-byte palette, `bfOffBits` 62 — against
+118 at 4bpp, which is why `PT_BMPHDR` stopped being a constant and became
+`[pt_hdrsz]`, set by `pt_paras` beside the stride. `pt_bmp_hdr` patches three
+fields of the shared template and writes the two entries out rather than
+reducing them from `pt_pal_rgb`, whose index 1 is BLUE: the two colours this
+file uses are entries 0 and 15 of that table and nothing in between.
+
+**Nothing had to be taught to READ one.** `pt_bmp_in` has tested `biBitCount`
+against 1, 4, 8 and 24 since it was written, and `pt_bmp_row` has carried a
+1bpp arm all along — the depth was already accepted as an input format long
+before it was available as a canvas.
+
+#### 42.23.3 Every 1bpp arm is the PLANAR arm with the plane loop removed
+
+That is the finding that made this affordable, and it is not a coincidence:
+eight pixels to a byte is eight pixels to a byte whether that byte is one
+plane of four or the whole picture. So `pt_rect` computes §42.13.2's byte
+column, span and two edge masks **once** and both arms read them, and the
+1bpp row loop *is* `.prpl` with the plane counter set to 1 instead of 4.
+`pt_setpx` and `pt_getpx` are the same shape one pixel wide.
+
+The one place the reduction is not shared is the ink: `.prpl` tests bit 0 of
+the palette index, which is right for black and white by luck and wrong for
+every colour between them, so the 1bpp entry reduces through `pt_lit` first.
+A canvas that has just been down-converted still has whatever the user last
+picked in `[pt_ink]`, so that is a live case and not a theoretical one.
+
+#### 42.23.4 The screen half, and why the fast path is NOT taken yet
+
+`OSAPI_GFX_BLIT1` takes **exactly** the band this canvas already holds — same
+bit order, same polarity, and §11.94's 8-aligned content origin plus
+`PT_CV_X` = 48 satisfy its multiple-of-8 rule for free. It is still not the
+path, for a reason that is the kernel's rather than this package's:
+
+**`gfx_blit1` wants a POSITIVE stride, and this canvas is stored bottom-up
+because it is the BMP.** The two places `gfx_blit1_x` skips rows — the clip
+region's `wm_clip_r0` and a negative y — both do `mul bp` on the stride, and
+`MUL` is unsigned. Hand it a negative stride and a band whose top is clipped
+starts from a source pointer 65,000 bytes away. `gfx_blit4` has no such rule,
+which is why §42's 4bpp path passes a negative stride happily and this one may
+not. **The SDK never claimed the stride was signed**; it was this package that
+assumed it.
+
+So a 1bpp row is expanded into `pt_line` as packed 4bpp — two `pt_nyb4`
+lookups a source byte — and drawn with `gfx_blit4`, one call a row. It costs
+the expansion, ~0.47 ms a row on a 4.77 MHz 8088, and it keeps the kernel's
+own per-row adaptivity: `gfx_blit4` picks runs for a flat row and per-pixel
+for a detailed one (§5.4.1.1), which no hand-rolled run walk here could do.
+There is **no banding**, because there is nothing to band — `pt_rowset`
+resolves each row's segment out of the table, so a canvas spanning segments
+needs no arithmetic here at all.
+
+`pt_line` rather than a buffer of its own: it is one byte per pixel and
+`PT_CW_MAX` long, so it is twice the room a packed run of the same width
+needs, and nothing that walks it is live during a repaint —
+`pt_line_put`, `pt_bmp_row` and the two format converters are a load, a save
+and a resize.
+
+**When the kernel's two skips are made sign-aware the fast path is a dozen
+bytes here**, and this loop becomes the fallback `kern_small` takes anyway:
+§5.4.2 gives that build the slot and not the body, so it answers CF = 1 and a
+package that did not have a second path would have nothing to draw with.
+
+#### 42.23.6 A LOAD picks the format, and a reduction goes to Save As
+
+`pt_fmtpick` runs **before `pt_adopt`** and that ordering is the whole of the
+mechanism. `pt_fit`, `pt_paras`, `pt_cvgrow`, `pt_layout` and `pt_bmp_hdr` all
+read the depth, and `pt_adopt` is the one routine that calls every one of them
+— so the format is an *input* to the load's arithmetic. Setting it afterwards
+would size the claim for one depth and fill it at another.
+
+The rule, per build:
+
+- **`APP_SMALL` is always one bit** (§42.22), so a colour picture is
+  down-converted through `PT_LIT16`.
+- **`kern_big` takes the file at the depth it really is**: one bit if the file
+  is bi-level, otherwise the adapter's own choice — planar on a colour card,
+  packed nibbles on a 1bpp one. A colour picture on a Hercules is still
+  sixteen colours in the canvas even though the screen shows three, because
+  the *file* is what the canvas has to be able to write back.
+
+**"Colourless" is the file's own declaration and not a scan.** A 1bpp BMP, or
+a GIF whose colour table has two entries. Walking a 4/8/24bpp picture to find
+out whether it happens to be monochrome is a pass over the whole thing before
+the canvas is even claimed, and it buys one case — a black-and-white
+photograph saved at 8bpp — that is too rare to pay for.
+
+**Two entries is not the same claim as black and white**, and `pt_mono2` is
+the test that separates them: a 1bpp BMP or a two-colour GIF may perfectly
+well be red on blue, and both of those reduce to the *same* bit through
+`PT_LIT16` — so opening it one bit deep would collapse the picture to one flat
+colour rather than reproduce it. Two `pt_lit` calls at load time, and a file
+that fails the test is loaded at its nominal depth instead.
+
+**The Save fence already existed.** `[pt_trunc]` means "the file on disk holds
+more than we are holding"; it fences File > Save *and* §42.16's close question
+alike, and its whole job is to send the user to Save As rather than write less
+than the original over it. A colour picture opened into a one-bit canvas is
+exactly that sentence, so a down-convert sets the same byte — `pt_tredo`, five
+instructions, called after `pt_adopt` because `pt_adopt` is what *clears* it.
+`[pt_tred]` only picks the wording, `Reduced` against `Cropped`, because the
+two are different things to be told.
+
+`pt_line_put`'s bit arm inlines the reduction rather than calling `pt_lit`,
+for §42.13.1.4's reason rather than for the clocks: it is the BMP and GIF
+decoders' inner loop, every row of every picture opened, and a `call`/`ret`
+per pixel is thirty cycles around fourteen of work. A row that ends mid-byte
+is **merged** rather than written — the pixels past `[pt_cols]` are not that
+row's to touch, which is the promise both other paths already make.
+
+#### 42.23.7 What needed NO arm, and why that is the interesting half
+
+Four things that look like they must know the depth and do not:
+
+- **The clipboard.** §42.13.3's fast path is planar; the other path goes
+  through `pt_getpx` and `pt_setpx` per pixel and stores packed 4bpp
+  *whatever the canvas was*. Both of those are converted, so Copy and Paste
+  work on a one-bit canvas with no clipboard change at all. `[pt_cbpl]` is
+  `[pt_planar]` at Copy time and a one-bit canvas is never planar, so the
+  planar merge cannot be reached with a one-bit destination.
+- **The resize copy.** `pt_cvmove`'s *default* is one plane of
+  `min(ostride, stride)` bytes — which is exactly a one-bit row. The planar
+  case is the special one, not this.
+- **The undo image.** `pt_ucopy`, `pt_uswap_row` and `pt_ubm1` all work in
+  bytes off `[pt_ushf]`, which `pt_layout` derives from the live stride.
+  `pt_ublocks` is the only undo routine that knows pixel positions, and
+  missing its arm left Ctrl+Z restoring *most* of a stroke: the mask was
+  built from `x>>1`, so a chord at x=160..350 marked blocks 80..175 of a row
+  that is 56 bytes long and the blocks actually under it went uncopied.
+- **Reading a 1bpp file**, which §42.23.2 covers — it was already there.
+
+#### 42.23.5 The stroke's span writer is NOT converted, deliberately
+
+`pt_sparm` refuses §42.8.9's span path on a one-bit canvas exactly as it
+refuses it on four planes. A 1bpp row writer would be genuinely *cheaper* than
+the packed one it replaces — the masks are the same bits `pt_rect` already
+computes — so it is worth having. What it is not is worth having **unproven**,
+on the one path in this program where a wrong mask is a wrong stroke rather
+than a wrong repaint (§42.8.3's wobble is what that costs). The dabs go
+through `pt_rect`, which is converted and which every other drawing tool uses
+too.
+
 ### 43.11 A hollow pip is DRAWN from the solid one, not stored beside it
 
 On a 1bpp adapter the two red suits are drawn **hollow** — index 12 reduces to

@@ -1795,11 +1795,17 @@ SOAK = [
         "out of the CANVAS and compared as a SET, so neither a repaint nor a"
         "smear inside the bounding box can flatter it",
         needs=("marty", "nasm"), serial=True),
-    Row("paintrz-packed", "soak",
+    Row("paintrz-1bpp", "soak",
         py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 420.0,
-        "...and the PACKED canvas, which is a different move: one run of"
-        "nibbles a row instead of four plane-runs whose three inner boundaries"
-        "all shift with the width (SPEC.md 42.13.2)",
+        "...and the ONE-BIT canvas, which is a different move: one run of"
+        "bits a row instead of four plane-runs whose three inner boundaries"
+        "all shift with the width (SPEC.md 42.23, 42.13.2). IT WAS"
+        "`paintrz-packed` and the rename is the point: since 42.23 a Hercules"
+        "gives Paint a one-bit canvas and not a packed one, so the row that"
+        "read `packed` in its name had stopped covering that format. Packed"
+        "4bpp is now reached two ways - a COLOUR file opened on a 1bpp"
+        "adapter, and gfx_blitp refusing on a colour one - and `paintpack` is"
+        "the row that forces the second",
         needs=("marty", "nasm"), serial=True),
     Row("alertbtn", "soak",
         py("tests/alertbtn.py", "--machine", "os8088_5150_herc_gla"), 300.0,
