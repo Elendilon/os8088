@@ -8903,6 +8903,131 @@ driver's refill and drain spawners, both light — which is why one number
 serves every driver; a driver that needs more is a line here with a
 reason beside it, not a new mechanism.
 
+#### 8.7.4 A class sized from a chain that was never walked — the Task Manager's freeze
+
+**A tail jump into another routine is a call-graph edge, and `tools/stkdepth.py`
+did not follow one.** It priced `push`/`pop`/`sub sp` and every `call`, and
+stopped at the end of the linear walk — so a routine that finishes
+`ja somewhere_else` was measured as if `somewhere_else` did not exist. Nothing
+in the tool said so, and the number it printed looked exactly like a number
+that had counted everything.
+
+`tm_update` reaches the Task Manager's three pages that way: the performance
+list by falling through, and the other two by `je tm_upd_mem` / `ja
+tm_upd_heap`. So `tm_worker` priced at **56 bytes**, which is the performance
+list alone; the heap page under it —
+
+    tm_upd_heap → tm_rows_heap → tm_hgrp → tm_hhead → tm_mrow_nolast
+                → tm_mrow_close → tm_row_draw → tm_row_lead
+
+— is **96**. The header declared `OS88_STACK_192` on the strength of 56, with
+"56 over the 64-byte floor is 120, and 192 gives 1.60×" written beside it. The
+real sum is 160, and 192 over 160 is **1.20×** — thinner than Frotz's 1.26×,
+which docs/STACK-SLOTS-PLAN.md §12 records as the thinnest in the tree.
+
+**What that cost.** `tools/stkwater.py` on the field's own recipe — the heap
+page open while PAINT holds `MEDIA/OS8088.GIF`, the window dragged — reads
+**180 of 192, 94%**, and reads 180 given a 384-byte slice too, so 180 is the
+ceiling and not a clamp. The ~20 bytes over the 160 prediction are the
+**kernel's own depth below the `OSAPI_*` far calls**, which `stkdepth.py` cannot
+see and the 64-byte floor does not cover. On the emulator the interrupt floor
+is 32 (slot 1's reading) and 180 fits with twelve bytes over; on a real IBM
+5150 the floor is the 64 §8.7 sizes against, so the same walk needs ~212 and
+goes **through the canary**. `sch_switch` then takes `sch_stkdie`, which is
+`cli`/`hlt` — the machine stops dead, mid-drag, with nothing on the glass to
+say why. The field reported it as *"open the heap view, open OS8088.GIF in
+Paint, and it freezes on open or after a few drags."*
+
+Three things follow, and only the first is the Task Manager's:
+
+- **The class is 256.** 96 + 64 = 160, and 256 over 160 is the 1.60× the
+  header meant to buy. Not 384: kern_small has exactly one slice of that class
+  and it is there for `CC_STACK`'s sake (§8.7.2), so a monitor taking it would
+  be a C package's worker that can never spawn.
+- **The tool follows tail jumps now**, at +0 rather than +2 — nothing is
+  pushed, and the target runs on top of the frame the jumping routine still
+  holds, returning to *its* caller. Two packages re-priced: the Task Manager
+  56 → 96 and Missile Command 106 → 126. Missile Command's 256 already covered
+  it; nothing else in `apps/` moved at all.
+- **`tests/unit/t_stkclass.py` reads the answer back.** The declared class out
+  of the built `.o88`'s byte +15, against the tool's chain plus the 64-byte
+  floor, at Frotz's 1.25× — so nothing shipping has to move to pass it and only
+  a *new* thinnest can fail. Until it existed, `OS88_STACK_192` was a number a
+  human typed after running a tool once, and no gate ever compared it with
+  anything. `t_stkapps` checks that a package's stack arithmetic *balances*;
+  this checks that the slice is big enough to hold it.
+
+**The lesson is about the instrument, not the arithmetic.** Every number in
+§8.7.2 and §8.7.3 was measured with the same tool, and PERFORMANCE.md's rule 5
+— *keeping the shape of an optimisation is not keeping the optimisation* — has
+a sibling here: **a measurement that silently covers less than it claims is
+worse than no measurement**, because the margin it reports is the reason
+nobody looks again.
+
+### 8.8 What a stack overflow says — the death panel
+
+`sch_stkdie` is the only `cli`/`hlt` in the kernel, and until §8.8 it printed
+**nothing**. That is the correct thing to *do* — the overrun has already
+written into the slice below, so every task record is suspect and there is no
+safe way back — and it is a terrible thing to *watch*. The field's report is
+"it froze", which is the same sentence a wild jump, a lost IRQ, a livelock and
+a `gfx_lock` deadlock all produce, and a session then spends its first hour
+deciding which of the five it is looking at. §8.7.4's freeze cost exactly that.
+
+One line, drawn immediately before the halt:
+
+    STACK OVERFLOW  TASK 04  SP 1A2C  TASKMGR
+
+**What is on it, and what deliberately is not.** The slot number, the task's
+parked `T_SP`, and the *name* of the instance that owns it — which is the field
+that names the culprit outright, and the one nothing else can supply. The
+slice's base and size are **not** there: they are `sch_stkbase[n]` and
+`sch_stksize[n]` in the very binary whoever is reading the photograph has open,
+and the slot number is the whole of what it takes to look them up. A panel
+carrying derivable numbers is a panel that costs bytes to say nothing.
+
+**Why it is safe to draw from here.** It calls one primitive, `font_run`, which
+takes no lock, claims nothing, and reads only the video geometry and the glyph
+table — both settled since boot. What the dying machine cannot be trusted to
+have left it is three things, and each is one instruction:
+
+- **A stack that is not the dead one.** `SP` is below the dead canary,
+  scribbling on the slot underneath. The evidence is banked into `.bss` first,
+  on the stack we arrived on, and only then does `SP` move — to task 0's, the
+  largest in the machine and, at `IF` = 0 for ever, owned by nobody. If task 0
+  *is* the corpse its contents are already banked, so overwriting them costs
+  the panel nothing.
+- **No armed clip region.** `font_run` honours one (§11.3), and a package that
+  died mid-paint left one armed — so without the store the panel would be
+  clipped to the window of the program that has just killed the machine. It is
+  the difference between this working and this working *except in the case it
+  exists for*.
+- **Nothing else.** No lock is taken and none is waited on: a lock is an
+  agreement between things that are still running, and nothing is.
+
+It is `font_run` and not `gfx_fill` + `font_str` for §6.6's reason and one of
+its own — the pair leaves the glyph transparent over whatever the desktop had
+under it, and a panel nobody can read is worse than no panel — and because it
+is the same primitive on all three adapters, which is what keeps this small
+enough to exist at all.
+
+**One window it cannot cover, deliberately.** `sched_init` runs *before*
+`vid_init` (§15), so pre-emption is live for a few milliseconds before the
+adapter is published — and an overrun in there draws through `vid_tseg`'s
+static initialiser into the VGA aperture, which on a machine that has no VGA
+lands nowhere. It is not guarded: the guard would cost bytes to turn a panel
+that may not be visible into one that certainly is not, in the one window
+where nothing else can report either.
+
+**It costs 209 bytes** (`.text` +201, `.bss` +8) and it is **unconditional**,
+not a knob. `KFZTRACE`'s black bar (§8.3.1) is the thing it replaces in
+practice and that one is still there, still knob-only: it answers *"the canary
+died"* on a machine whose adapter cannot be photographed usefully, where this
+answers *"which task, whose, how far"* on one that can. The argument for paying
+for it in every shipping kernel is §8.7.4: the margin that makes this path
+unreachable is a **measurement**, not a proof, and it has now gone stale twice
+— once in docs/FIELD-NOTES.md 29.6 and once in the Task Manager's heap page.
+
 ## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 
 - **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both

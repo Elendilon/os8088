@@ -92,12 +92,31 @@
 ;   ................
 ;   ................
 ;   ................
-    OS88_HEADER 'TaskMgr', tm_entry, 1, OS88_STACK_192
-                                ; THE WORKER'S STACK, declared
-                                ; rather than defaulted (SPEC.md 8.7):
-                                ; static 56 for tm_worker
-                                ; over the 64-byte interrupt floor
-                                ; that is 120, and 192 gives 1.60x
+    OS88_HEADER 'TaskMgr', tm_entry, 1, OS88_STACK_256
+                                ; THE WORKER'S STACK, declared rather than
+                                ; defaulted (SPEC.md 8.7). It said 192 on a
+                                ; static 56, and 56 WAS THE WRONG BRANCH:
+                                ; tm_update reaches the performance list by
+                                ; falling through and the other two pages by
+                                ; `je tm_upd_mem` / `ja tm_upd_heap`, and
+                                ; tools/stkdepth.py followed `call` edges
+                                ; only - so the deepest thing this worker
+                                ; does was invisible to the measurement that
+                                ; sized the slice (SPEC.md 8.7.4).
+                                ;
+                                ; The heap page walks tm_upd_heap ->
+                                ; tm_rows_heap -> tm_hgrp -> tm_hhead ->
+                                ; tm_mrow_nolast -> tm_mrow_close ->
+                                ; tm_row_draw -> tm_row_lead, which is
+                                ; **96** bytes; 96 + SPEC.md 8.7's 64-byte
+                                ; floor is 160, and 256 gives the 1.60x the
+                                ; line above meant to be buying. MEASURED
+                                ; with tools/stkwater.py on the field's own
+                                ; recipe - this page open while PAINT holds
+                                ; MEDIA/OS8088.GIF - the slice reads **180**,
+                                ; and it reads 180 given a 384 slice too, so
+                                ; that is the ceiling and not a clamp. 180
+                                ; was 94% of 192.
     OS88_ICON16
     dw 0x0000, 0x7000, 0x701E, 0x701E, 0x71FE, 0x71FE, 0x7FFE, 0x7FFE
     dw 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x0000, 0x0000, 0x0000

@@ -1292,3 +1292,50 @@ task's own, on a 1,024-byte stack that can afford to be measured. It is
 deliberately **not** added now: three machines are already running the current
 disks (§9.6–§9.9) and a changed panel means a new round of field runs for a
 number that only refines margins already taken.
+
+### 12.6 The survey missed a whole branch, and the machine froze — SPEC.md 8.7.4
+
+§12.5 says what the survey cannot see. This is what it could have seen and did
+not, and both halves of the miss were in the instrument rather than in the
+arithmetic.
+
+**`tools/stkdepth.py` followed `call` edges and not tail jumps.** A routine
+ending `ja somewhere_else` was walked as if `somewhere_else` did not exist —
+and nothing in the output said so, which is the property that makes a
+measurement worse than no measurement: the number looked exactly like a number
+that had counted everything. `tm_update` reaches the Task Manager's three pages
+that way (the performance list by falling through, the other two by `je
+tm_upd_mem` / `ja tm_upd_heap`), so §12.1 recorded `tm_worker` at **56 bytes**,
+which is the performance list alone. The heap page under it is **96**. The tool
+adds tail edges at +0 now — nothing is pushed, and the target runs on top of
+the frame the jumping routine still holds. Re-walking every worker in §12.1
+moved exactly two: the Task Manager 56 → 96 and Missile Command 106 → 126.
+
+**And §12.5's "about 12" is light by a factor of four on a drawing worker.**
+That figure is the Fractal's — 48 static against 60 measured — and the Fractal's
+deepest call is `gfx_hline`, which §12.5 correctly calls a near-leaf. The Task
+Manager's heap page bottoms out in `font_run`, and the same subtraction there
+is **180 measured − 96 static − 32 floor = ~52**. So the kernel term is not a
+constant at all; it is a property of *which* primitive the worker's deepest
+chain ends in, and 12 is the cheap end of it.
+
+The two together are why 192 looked like 1.60× when it was 1.20×, and why the
+slice measured **180 of 192** with the heap page open beside PAINT. It held
+here — this emulator's interrupt floor is 32 where §7 sizes against 64 — and
+went through the canary on a real IBM 5150, which is `sch_stkdie`: `cli`/`hlt`,
+a dead machine, and until SPEC.md 8.8 nothing on the glass to say which of the
+five things that look like a freeze it was.
+
+Three things came out of it, and only the first is the Task Manager's:
+
+- the class is **256**, which is the 1.60× the header comment meant to buy;
+- `stkdepth.py` follows tail jumps, so the next `ja` is counted;
+- **`tests/unit/t_stkclass.py`** reads the declared class back out of the built
+  `.o88` and compares it with the tool plus the 64-byte floor, at Frotz's
+  1.25×. Until it existed, `OS88_STACK_192` was a number a human typed after
+  running a tool once and no gate ever compared it with anything — which is the
+  same shape as §12.4's `CC_STACK` mirror, and it is fixed the same way.
+
+`tests/gifdrag.py` is the recipe driven end to end. It asserts the **margin**
+and not the survival, because "it did not freeze" is what every run before the
+report also said.
