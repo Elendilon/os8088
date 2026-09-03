@@ -152,6 +152,15 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 1.6,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 1.2,
+        "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
+        "zero bytes (docs/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
+        "the small build is really smaller. Both fail silently - a %ifdef one "
+        "line too wide changes the shipped package for a feature it still "
+        "has, and a define that stops reaching the source leaves "
+        "build/smallapps*.img as the ordinary floppy under another name. It "
+        "is also the only thing keeping the small arm ASSEMBLING: nothing in "
+        "`all` builds it"),
     Row("ktags", "fast", py("tests/unit/t_ktags.py"), 0.2,
         "every owner tag the kernel ships has a TYPE name on the Task "
         "Manager's heap page - SPEC.md 28.4's hex fallback is for a tag this "

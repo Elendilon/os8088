@@ -49,6 +49,60 @@
 
 %include "os88api.inc"
 
+; -----------------------------------------------------------------------------
+; APP_SMALL - THE SMALL-APPS BUILD OF THIS PACKAGE (SPEC.md 42.22)
+;
+; `make smallapps` passes -DAPP_SMALL and the features below compile out; the
+; ordinary build defines none of it and is byte-for-byte what it was. Note Pad
+; (SPEC.md 27.16) is the pattern and the rules there apply unchanged - one
+; package built twice, never a second ABI, and the small arm runs on kern_big
+; too.
+;
+; WHAT IS DIFFERENT HERE, and it is worth saying plainly: Paint's HEAP side
+; already degrades on its own. pt_geom takes four independently refusable
+; claims - scratch, canvas, undo image, clipboard (SPEC.md 42.6) - so a small
+; machine already loses undo, then the clipboard, then the canvas itself, and
+; finally gets a notice window. None of that needed a build flag and none of
+; it is touched here.
+;
+; What does NOT degrade is the RESIDENT cost: image + bss is one claim taken
+; before a line of pt_geom runs, and at 25,894 + 5,458 = 31,352 bytes it is
+; larger than the whole heap kern_small leaves on a 128KB machine (~32.5KB).
+; So Paint there does not run badly - it does not LOAD. Everything below is
+; aimed at that one number, and the tiering above is left alone.
+;
+; IT ALREADY CROSSES THE LINE, which was not the expectation when this was
+; written. On an os8088_5150_gla_128k under kern_small the FULL package
+; answers ld_status = 5 (LD_ENOMEM) and never opens a window; this one loads,
+; gets its menu bar, and shows SPEC.md 42.6's `Not enough memory` notice -
+; the tier that exists for exactly this machine and that the floor machine
+; could not reach before. What is still out of reach is a CANVAS: funding one
+; needs kern_small to come down further, so full-size pictures are not
+; expected of this arm yet.
+;
+; **AT THE TOP** because these are PREPROCESSOR tests answered in file order
+; and the blocks they guard start ~1,000 lines below (apps/notepad/notepad.asm
+; carries the same note for the same trap).
+;
+;   PTF_GIF    the GIF codec, both directions (SPEC.md 42.14) - the largest
+;              single feature here, and it takes pt_line_get with it because
+;              the encoder is that routine's only caller. BMP is untouched:
+;              it is the format the Standard File dialog defaults to and the
+;              one another machine can read back
+;   PTF_ABOUT  Paint's own About card (SPEC.md 12.2)
+;   PTF_FSX    the full-screen surface (SPEC.md 42.7) and the View menu
+;
+; KEPT ON PURPOSE: every drawing tool, the palette, BMP load and save, undo,
+; the clipboard, flood fill, filled shapes, the text tool, and SPEC.md 42.16's
+; "Save changes to X?" alert - that last one is data safety and is never a
+; size decision, which is Note Pad's rule (27.16.2) and holds here.
+; -----------------------------------------------------------------------------
+%ifndef APP_SMALL
+%define PTF_GIF
+%define PTF_ABOUT
+%define PTF_FSX
+%endif
+
     OS88_HEADER 'PAINT', pt_entry, 1
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
@@ -185,8 +239,32 @@ PT_LZW_KB   equ 16                  ; the claim both directions run in
 ; from the live geometry rather than from a constant.
 PT_CW_DEF   equ 448                 ; the canvas a fresh Paint starts with...
 PT_CH_DEF   equ 280                 ; ...clamped to the screen and to memory
+%ifdef APP_SMALL
+PT_CW_MAX   equ PT_CW_DEF           ; THE SMALL BUILD'S CANVAS CEILING IS THE
+PT_CH_MAX   equ PT_CH_DEF           ; DEFAULT CANVAS (SPEC.md 42.22). These
+                                    ; two size four bss buffers between them -
+                                    ; pt_umask, pt_rowseg, pt_rowoff and
+                                    ; pt_line, plus pt_ibx1/pt_ibx2 through
+                                    ; PT_NBAND - and at 736x464 that is 1,256
+                                    ; bytes of a package whose whole resident
+                                    ; claim is what keeps it off the floor
+                                    ; machine.
+                                    ;
+                                    ; NOTHING IS WRONG AT THIS SIZE, because
+                                    ; every use of the pair is a CLAMP:
+                                    ; pt_geom holds the canvas inside them and
+                                    ; pt_fit shrinks it again to what the heap
+                                    ; will fund. So a fresh Paint here is the
+                                    ; SAME 448x280 it always was, and what the
+                                    ; small build gives up is only growing or
+                                    ; LOADING past it - which is the trade the
+                                    ; floor machine is being asked to make,
+                                    ; and it is why full-size pictures are not
+                                    ; expected of this arm
+%else
 PT_CW_MAX   equ 736                 ; row-table sizing: the widest screen
 PT_CH_MAX   equ 464                 ; os8088 drives is 720, the tallest 480
+%endif
 PT_IBSH     equ 4                   ; SPEC.md 42.18: the inked table's band is
 PT_IBH      equ 1 << PT_IBSH        ; 16 rows, so a row's band is y >> 4
 PT_NBAND    equ (PT_CH_MAX >> PT_IBSH) + 1
@@ -344,10 +422,13 @@ pt_entry:
     mov byte [pt_ethick], 1         ; text scale; the eraser starts at 16px
                                     ; against the pencil's 1px, which is what
                                     ; "much thicker by default" means here
+%ifdef PTF_GIF
     mov byte [pt_sfmt], 1           ; ...AND A NEW CANVAS IS A GIF (SPEC.md
                                     ; 42.16.1): the four menu verbs each name
-                                    ; their own format, so this decides only
-                                    ; the DEFAULT - the name Save As offers
+%endif                              ; their own format, so this decides only
+                                    ; the DEFAULT - the name Save As offers.
+                                    ; With no encoder the bss zero is right:
+                                    ; a new canvas is a BMP (SPEC.md 42.22)
                                     ; when there is none, and what 42.16's
                                     ; close question writes. The test picture
                                     ; is 1,285 bytes as a GIF against 62,838
@@ -449,10 +530,12 @@ pt_entry:
     mov ax, pt_onsize               ; ...and the kernel asks us before it
     call OSAPI_WM_ONSIZE            ; commits one (SPEC.md 11.1)
     pop ax
+%ifdef PTF_ABOUT
     push si                         ; SI is the loader's, like the two other
     mov si, pt_about                ; borrowings in this proc
     call OSAPI_ABOUT_SET            ; 'About Paint' under our name in the bar
     pop si                          ; (SPEC.md 12.2); BX is still the window.
+%endif
                                     ; LIVE only - see pt_about
     call pt_menufix                 ; and the menus say what is unavailable                      ; a notice window gets the menu bar too,
                                     ; so its name shows and File/Edit are
@@ -1167,6 +1250,7 @@ pt_free_undo:
 ; converting a GIF holds none of it. 16KB is the READ direction's need; the
 ; write direction uses 10KB of the same block.
 ; -----------------------------------------------------------------------------
+%ifdef PTF_GIF
 pt_alloc_lzw:
     push ax
     push dx
@@ -1195,6 +1279,8 @@ pt_free_lzw:
 .out:
     pop dx
     ret
+
+%endif   ; PTF_GIF
 
 pt_free_clip:
     push dx
@@ -4698,10 +4784,12 @@ pt_paint:
                                     ; pt_dmg_get asked for the whole content if
                                     ; there is one, because this re-show is an
                                     ; XOR (SPEC.md 11.90.2)
+%ifdef PTF_ABOUT
     cmp byte [pt_abon], 0           ; ...and the About card over the lot
     je .noab
     call pt_abdraw
 .noab:
+%endif
     cmp byte [pt_apend], 0          ; a refused resize, deferred to here
     je .out
     cmp byte [pt_apend], 2          ; 2 = pt_onsize held an axis back, so the
@@ -4759,9 +4847,15 @@ pt_paint:
 ; back off by blitting the canvas underneath.
 ; =============================================================================
 
-; pt_sfill / pt_sframe - as pt_cfill/pt_cframe, but in CANVAS coordinates
+; pt_sfill - as pt_cfill, but in CANVAS coordinates
 ; in:  AX = x1, BX = y1, CX = x2, DX = y2 (canvas); [pt_pen] = colour
 ; out: nothing; preserves all registers
+;
+; THERE WAS A pt_sframe HERE, the framed half of the pair, and it was dead:
+; nothing in this file called it and nothing ever had. Removed rather than
+; kept for symmetry - the rubber band draws its own outline through pt_sfill
+; four times, which is what a frame in canvas coordinates would have to do
+; anyway once it clipped. 19 bytes.
 pt_sfill:
     push ax
     push bx
@@ -4769,19 +4863,6 @@ pt_sfill:
     push dx
     call pt_sprep
     call OSAPI_GFX_FILL
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-pt_sframe:
-    push ax
-    push bx
-    push cx
-    push dx
-    call pt_sprep
-    call OSAPI_GFX_FRAME
     pop dx
     pop cx
     pop bx
@@ -5243,6 +5324,7 @@ pt_ptr_move:
 ; out: nothing; preserves all registers. Does not return until the user
 ;      leaves full screen - OSAPI_FSX_RUN is a bracket, not a latch
 ; -----------------------------------------------------------------------------
+%ifdef PTF_FSX
 pt_cmd_fs:
     push ax
     push bx
@@ -5460,6 +5542,9 @@ pt_fsx_key:
 ; in:  CX = x, DX = y (absolute screen), SI = window ptr; gfx lock held
 ; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
+%endif   ; PTF_FSX - the [pt_fs]/[pt_fsx] state bytes stay in both builds and
+         ; simply read 0 here, so the dozen places that ask "are we full
+         ; screen?" need no gate of their own and keep their one compare
 pt_click:
     push ax
     push bx
@@ -5798,10 +5883,12 @@ pt_stroke:
     mov [pt_wx], ax
     mov ax, [pt_ay]
     mov [pt_wy], ax
-    mov word [pt_bnkn], 0           ; SPEC.md 42.8.8: the canvas catches up at
-    mov word [pt_bnkh], 0           ; the release - or sooner, in the idle
-    mov byte [pt_bnkd], 0           ; turns (42.8.8.1); bank the press point
-    mov byte [pt_defer], 1
+    xor ax, ax                      ; SPEC.md 42.8.8: the canvas catches up at
+    mov [pt_bnkn], ax               ; the release - or sooner, in the idle
+    mov [pt_bnkh], ax               ; turns (42.8.8.1); bank the press point.
+    mov [pt_bnkd], al               ; Through AX at three bytes a store, and
+    inc ax                          ; ONCE PER STROKE rather than per dab, so
+    mov [pt_defer], al              ; it is not on 42.8's measured path
     call pt_bank
     call pt_dab
     mov byte [pt_idlen], 0
@@ -5871,10 +5958,11 @@ pt_stroke:
     call pt_bank
 .out:
     call pt_flush                   ; SPEC.md 42.8.8: whatever the idle turns
-    mov byte [pt_defer], 0          ; did not already pay down
-    mov word [pt_bnkn], 0
-    mov word [pt_bnkh], 0
-    mov byte [pt_bnkd], 0
+    xor ax, ax                      ; did not already pay down. AX is popped
+    mov [pt_defer], al              ; three lines below, so clobbering it here
+    mov [pt_bnkn], ax               ; costs the caller nothing
+    mov [pt_bnkh], ax
+    mov [pt_bnkd], al
     pop dx
     pop cx
     pop ax
@@ -9212,6 +9300,7 @@ pt_onkey:
     je .cut
     cmp al, 0x16                    ; Ctrl+V
     je .paste
+%ifdef PTF_FSX
     cmp al, 0x06                    ; Ctrl+F
     je .full
     cmp byte [pt_txton], 0          ; ...and the bare F, the tree's fullscreen
@@ -9220,6 +9309,7 @@ pt_onkey:
     je .full                        ; drops it in that state anyway, so this
     cmp al, 'F'                     ; costs the canvas nothing it was using
     je .full
+%endif
 .print:
     cmp al, 32
     jb .out
@@ -9259,8 +9349,10 @@ pt_onkey:
 .paste:
     call pt_cmd_paste
     jmp short .out
+%ifdef PTF_FSX
 .full:
     call pt_cmd_fs                  ; the View menu's own routine: the two
+%endif
 .out:                               ; doors onto one command cannot drift
     pop di
     pop si
@@ -9314,8 +9406,10 @@ pt_oncmd:
     je .edit
     cmp ah, 2
     je .draw
+%ifdef PTF_FSX
     cmp ah, 3
     je .view
+%endif
     or ah, ah
     jnz .out
 ; --- File ------------------------------------------------------------------
@@ -9327,18 +9421,22 @@ pt_oncmd:
     je .save_bmp
     cmp al, PT_MF_SAVEAS
     je .saveas_bmp
+%ifdef PTF_GIF
     cmp al, PT_MF_SAVEG
     je .save_gif
     cmp al, PT_MF_SAVEAG
     je .saveas_gif
+%endif
 .out:
     ret
 .new:
     call pt_new
     ret
+%ifdef PTF_GIF
 .save_gif:
     mov byte [pt_sfmt], 1
     jmp short .gifchk
+%endif
 .save_bmp:
     mov byte [pt_sfmt], 0
 .save:
@@ -9363,6 +9461,7 @@ pt_oncmd:
 .open:
     mov al, FDLG_OPEN
     jmp short .dlg
+%ifdef PTF_GIF
 .saveas_gif:
     mov byte [pt_sfmt], 1
     push ax
@@ -9378,6 +9477,7 @@ pt_oncmd:
     pop ax
     jc .out
     jmp short .save
+%endif
 .saveas_bmp:
     mov byte [pt_sfmt], 0
 .saveas:
@@ -9426,10 +9526,12 @@ pt_oncmd:
     call pt_setscale
     jmp pt_draw_strip
 ; --- View ------------------------------------------------------------------
+%ifdef PTF_FSX
 .view:
     cmp al, PT_MV_FULL
     jne .out
-    jmp pt_cmd_fs                   ; does not return until the user leaves,
+    jmp pt_cmd_fs
+%endif                   ; does not return until the user leaves,
                                     ; and repaints on the way out - so, like
                                     ; the dialog above, NO repaint after it
 
@@ -9492,12 +9594,16 @@ pt_menufix:
     pop bx
     pop ax
     jb .nogif
+%ifdef PTF_GIF
     mov word [pt_it_file + 2 * PT_MF_SAVEG], pt_i_saveg
     mov word [pt_it_file + 2 * PT_MF_SAVEAG], pt_i_saveag
+%endif
     jmp short .undo2
 .nogif:
+%ifdef PTF_GIF
     mov word [pt_it_file + 2 * PT_MF_SAVEG], pt_i_saveg2
     mov word [pt_it_file + 2 * PT_MF_SAVEAG], pt_i_saveag2
+%endif
 .undo2:
     cmp byte [pt_haveundo], 0
     je .noundo
@@ -11058,6 +11164,7 @@ pt_num:
 ; one has a notice on screen already saying so, which is the more useful
 ; thing for it to be showing.
 ; -----------------------------------------------------------------------------
+%ifdef PTF_ABOUT
 pt_about:
     push ax
     push bx
@@ -11228,6 +11335,15 @@ pt_abdraw:
 ; load (SPEC.md 38.6). Every part of this draws its own background, so no
 ; white fill is needed first.
 ; -----------------------------------------------------------------------------
+%else
+; No About card (APP_SMALL). pt_abdismiss is called by the click and key paths
+; before they do anything else and answers CF = 1 when it SPENT the event
+; taking the card down - so with no card it must answer "not spent".
+pt_abdismiss:
+    clc
+    ret
+%endif   ; PTF_ABOUT
+
 pt_repaint:
     push ax
     push bx
@@ -11254,10 +11370,12 @@ pt_repaint:
     mov byte [pt_selshown], 0
     mov byte [pt_careton], 0
     call pt_marq
+%ifdef PTF_ABOUT
     cmp byte [pt_abon], 0           ; the card sits on top of everything, so
     je .noab                        ; it is drawn last and by every repaint -
     call pt_abdraw                  ; otherwise a paint triggered while it is
 .noab:                              ; up would quietly erase it
+%endif
     call pt_growbox                 ; the white-fill idiom ate it (SPEC.md
                                     ; 11.1) - put it back, unless this screen
                                     ; has none (pt_growbox)
@@ -11657,9 +11775,11 @@ pt_dlg:
     cmp byte [pt_name], 0
     jne .named
     mov si, pt_s_defname
+%ifdef PTF_GIF
     cmp byte [pt_sfmt], 0
     je .named
     mov si, pt_s_defgif
+%endif
 .named:
     call OSAPI_FILE_DLG
     pop di
@@ -12054,6 +12174,7 @@ pt_save:
     mov word [pt_msgp], pt_s_wrote
     call pt_setext
     mov si, pt_name
+%ifdef PTF_GIF
     cmp byte [pt_sfmt], 0
     je .bmp
     call pt_alloc_lzw               ; the tables, for the length of this file
@@ -12064,7 +12185,8 @@ pt_save:
     call pt_gif_out
     call pt_free_lzw                ; ...and straight back
     jmp .out
-.bmp:
+%endif                              ; ...with no encoder [pt_sfmt] is always 0
+.bmp:                               ; and this is the only road out
     ; --- one write, and no 64KB ceiling on it any more (SPEC.md 18.4.1). The
     ; canvas is one contiguous claim with the DIB at offset 0, which is
     ; exactly the segment run the write walks - so DX:AX goes straight into
@@ -12146,8 +12268,15 @@ pt_load:
 .sz32:
     cmp word [es:0], 0x4D42         ; 'BM'
     je .bmp
+%ifdef PTF_GIF
     cmp word [es:0], 0x4947         ; 'GI'
     je .gifin
+%else
+    cmp word [es:0], 0x4947         ; ...and with no decoder a GIF is a format
+    je .nofmt                       ; THIS BUILD has not got (SPEC.md 42.22).
+%endif                              ; Named, rather than left to fall into
+                                    ; .bad: "Only BMP" is the true answer and
+                                    ; "Unreadable picture" is not
     cmp word [es:0], 0xD8FF         ; JPEG SOI
     je .nofmt
 .bad:
@@ -12156,6 +12285,7 @@ pt_load:
 .nofmt:
     mov word [pt_msgp], pt_s_nofmt
     jmp short .out
+%ifdef PTF_GIF
 .gifin:
     cmp word [pt_fsz+2], 0          ; the GIF decoder is 16-bit end to end and
     jne .gifbig                     ; deliberately so (SPEC.md 42.6): every
@@ -12191,6 +12321,7 @@ pt_load:
 .gifbad:
     mov [pt_msgp], si
     jmp short .out
+%endif   ; PTF_GIF
 .bmp:
     mov si, pt_s_decbmp             ; ...and the same for a bitmap, which is
     call pt_msg_show                ; row-by-row rather than LZW and still
@@ -13138,9 +13269,11 @@ pt_setext:
     mov di, bx
     inc di
     mov si, pt_s_ebmp
+%ifdef PTF_GIF
     cmp byte [pt_sfmt], 0
     je .cp
     mov si, pt_s_egif
+%endif
 .cp:
     mov cx, 4
 .c:
@@ -13191,6 +13324,7 @@ pt_setext:
 ; dimensions are capped at PT_GDIM_MAX as well: a header claiming 60000 rows
 ; would otherwise be decoded row by row into nothing for a very long time.
 ; -----------------------------------------------------------------------------
+%ifdef PTF_GIF
 pt_gif_in:
     push ax
     push bx
@@ -13680,12 +13814,13 @@ pt_gdec:
     push es
     mov ax, [pt_lzwseg]
     mov es, ax                      ; the tables, for the whole loop
-    mov word [pt_gbyte], 0
-    mov byte [pt_gbit], 0
-    mov word [pt_gcol], 0
-    mov byte [pt_gpass], 0
-    mov word [pt_grw], 0
-    mov byte [pt_gdone], 0
+    xor ax, ax                      ; six zeroed fields through AX: the 8086's
+    mov [pt_gbyte], ax              ; A2/A3 accumulator forms address memory
+    mov [pt_gbit], al               ; directly, so a store is three bytes
+    mov [pt_gcol], ax               ; against the five or six an immediate
+    mov [pt_gpass], al              ; costs. AX was spent on ES above and is
+    mov [pt_grw], ax                ; reloaded below
+    mov [pt_gdone], al
     call pt_greset
 .next:
     cmp byte [pt_gdone], 0
@@ -14235,11 +14370,14 @@ pt_genc:
     push es
     mov ax, [pt_lzwseg]
     mov es, ax                      ; the tables, for the whole loop
-    mov byte [pt_gbn], 0
-    mov word [pt_gacc], 0
-    mov byte [pt_gaccn], 0
-    mov word [pt_gfree], 18
-    mov byte [pt_gcsize], 5
+    xor ax, ax                      ; ...and the writer's, the same way
+    mov [pt_gbn], al
+    mov [pt_gacc], ax
+    mov [pt_gaccn], al
+    mov ax, 18
+    mov [pt_gfree], ax
+    mov al, 5
+    mov [pt_gcsize], al
     call pt_gtclr
     mov word [pt_gent], 0xFFFF
     mov ax, 16                      ; a leading Clear, as every writer emits
@@ -14393,6 +14531,8 @@ pt_gif_out:
     pop ax
     ret
 
+%endif   ; PTF_GIF
+
 ; =============================================================================
 ; Data
 ; =============================================================================
@@ -14405,6 +14545,7 @@ pt_appname:  db 'Paint', 0          ; the menu bar's app label (SPEC.md 12.2)
 ; A 12px line pitch rather than the kernel About's 16: every line has to fit
 ; a CGA content of about 132 rows (SPEC.md 39.2), and pt_abmeas clamps to
 ; whatever the window has actually been resized to anyway.
+%ifdef PTF_ABOUT
 PT_ABLH     equ 12
 pt_ablines:
     dw pt_ab_1, pt_ab_2, pt_ab_3, pt_ab_4, 0
@@ -14412,15 +14553,20 @@ pt_ab_1:     db 'Paint for os8088', 0
 pt_ab_2:     db 'a bitmap editor for the 8086', 0
 pt_ab_3:     db 0                   ; a blank line is a line with no glyphs
 pt_ab_4:     db 'Contributed by Elendilon', 0
+%endif
 pt_q_pre:     db 'Save changes to ', 0   ; SPEC.md 42.16, + a name + '?'
 pt_s_anon:    db 'this picture', 0
 pt_s_defname: db 'PICTURE.BMP', 0
+%ifdef PTF_GIF
 pt_s_defgif:  db 'PICTURE.GIF', 0
+%endif
 pt_s_ebmp:    db 'BMP', 0
+%ifdef PTF_GIF
 pt_s_egif:    db 'GIF', 0
 pt_g_magic:   db 'GIF87a'
 pt_gstep:     db 8, 8, 4, 2         ; the interlaced row passes: step...
 pt_gstart:    db 0, 4, 2, 1         ; ...and where each one starts
+%endif
 pt_s_crop:   db 'Would crop artwork', 0
 pt_s_noram:  db 'No memory to resize', 0
 pt_s_saving: db 'Saving...', 0
@@ -14431,7 +14577,9 @@ pt_s_nofsx:  db 'The screen is not free', 0
 pt_s_nodlg:  db 'Leave Full Screen first', 0
 pt_s_nu:     db 'No RAM for undo here', 0
 pt_s_nc:     db 'No RAM for clipboard', 0
+%ifdef PTF_GIF
 pt_s_ng:     db 'No RAM for GIF here', 0
+%endif
 
 ; --- the window template (SPEC.md 11; x/y/w/h patched by pt_geom) -------------
 pt_tpl:
@@ -14446,10 +14594,16 @@ pt_tpl:
 
 ; --- menus (SPEC.md 12.2) ----------------------------------------------------
     OS88_MENUSET pt_menus, pt_appname, pt_oncmd
+%ifdef PTF_GIF
         OS88_MENU pt_s_file, pt_it_file, 6
+%else
+        OS88_MENU pt_s_file, pt_it_file, 4
+%endif
         OS88_MENU pt_s_edit, pt_it_edit, 5
         OS88_MENU pt_s_draw, pt_it_draw, 4
+%ifdef PTF_FSX
         OS88_MENU pt_s_view, pt_it_view, 1
+%endif
     OS88_MENUSET_END pt_menus
 
 pt_s_file:   db 'File', 0
@@ -14457,7 +14611,9 @@ pt_s_edit:   db 'Edit', 0
 pt_s_draw:   db 'Draw', 0
 pt_s_view:   db 'View', 0
 pt_it_file:  dw pt_i_new, pt_i_open, pt_i_save, pt_i_saveas
+%ifdef PTF_GIF
              dw pt_i_saveg, pt_i_saveag
+%endif
 pt_it_edit:  dw pt_i_undo, pt_i_cut, pt_i_copy, pt_i_paste, pt_i_clear
 pt_it_draw:  dw pt_i_fill, pt_i_f1, pt_i_f2, pt_i_f4
 pt_it_view:  dw pt_i_full
@@ -14465,8 +14621,10 @@ pt_i_new:    db 'New', 0
 pt_i_open:   db 'Open...', 0
 pt_i_save:   db 'Save Bmp', 0
 pt_i_saveas: db 'Save as Bmp...', 0
+%ifdef PTF_GIF
 pt_i_saveg:  db 'Save Gif', 0
 pt_i_saveag: db 'Save as Gif...', 0
+%endif
 ; --- and the same items on a machine that cannot fund them (SPEC.md 42) -----
 ; The leading MENU_DIS byte is the kernel's disabled marker (SPEC.md 12.2):
 ; the item draws grey and cannot be highlighted or picked. The suffix stays,
@@ -14476,8 +14634,10 @@ pt_i_undo2:   db MENU_DIS, 'Undo / Redo (NoRam)', 0
 pt_i_cut2:    db MENU_DIS, 'Cut (NoRam)', 0
 pt_i_copy2:   db MENU_DIS, 'Copy (NoRam)', 0
 pt_i_paste2:  db MENU_DIS, 'Paste (NoRam)', 0
+%ifdef PTF_GIF
 pt_i_saveg2:  db MENU_DIS, 'Save Gif (NoRam)', 0
 pt_i_saveag2: db MENU_DIS, 'Save as Gif... (NoRam)', 0
+%endif
 pt_i_undo:   db 'Undo / Redo', 0
 pt_i_cut:    db 'Cut', 0
 pt_i_copy:   db 'Copy', 0
@@ -14501,13 +14661,21 @@ pt_s_note2:  db 'Close this window.', 0
 pt_s_wrote:   db 'Saved', 0
 pt_s_opened:  db 'Opened', 0
 pt_s_decbmp:  db 'Decoding BMP', 0   ; SPEC.md 42.15: the half of an open that
+%ifdef PTF_GIF
 pt_s_decgif:  db 'Decoding GIF', 0   ; SPEC.md 12.8's widget cannot see
+%endif   ; PTF_GIF
+%ifdef PTF_GIF
 pt_s_nofmt:   db 'Only BMP and GIF', 0
+%else
+pt_s_nofmt:   db 'Only BMP', 0      ; ...and it must SAY so (SPEC.md 42.22)
+%endif
 pt_s_badpic:  db 'Unreadable picture', 0
 pt_s_bigpic:  db 'Picture too big', 0
 pt_s_nocomp:  db 'No compressed BMP', 0
 pt_s_nodepth: db 'Need 1/4/8/24-bit BMP', 0
+%ifdef PTF_GIF
 pt_s_toobig:  db 'GIF too big - try Bmp', 0
+%endif
 pt_s_nostage: db 'No memory to open file', 0
 pt_s_gifbig:  db 'GIF larger than 64KB', 0
 pt_s_trunc:   db 'Cropped - use Save As', 0
@@ -15000,7 +15168,9 @@ pt_ic_text:
     PTBYTE pt_szmem                 ; ...and refused for want of memory, not ink
     PTWORD pt_reqw                  ; the size asked for, before pt_fit had its
     PTWORD pt_reqh                  ; say - so the two can be compared
+%ifdef PTF_GIF
     PTWORD pt_lzwseg                ; the LZW tables' own claim, 0 = none
+%endif
     PTWORD pt_gseg                  ; where a GIF is staged, either direction:
                                     ; the undo image when there is one, the
                                     ; flood-fill scratch when there is not
@@ -15014,6 +15184,7 @@ pt_ic_text:
     PTBYTE pt_lwn                   ; pt_lose_w: the boundary nibble matters
     PTBYTE pt_sfmt                  ; the save verb's format: 0 BMP, 1 GIF
     PTWORD pt_pw                    ; a loaded picture's own width
+%ifdef PTF_GIF
     PTWORD pt_gw                    ; --- GIF (SPEC.md 42) ---
     PTWORD pt_gh                    ; the image descriptor's own size
     PTWORD pt_gpend                 ; one past a colour table
@@ -15044,6 +15215,8 @@ pt_ic_text:
     PTBYTE pt_govf                  ; it tried to
     PTBYTE pt_gbn                   ; bytes staged for the current sub-block
     PTBUF  pt_gbuf, 255             ; the sub-block itself
+%endif   ; PTF_GIF - pt_gseg above is NOT in here: despite the name it is the
+         ; staging claim any picture is read into, BMP as much as GIF
     PTBUF  pt_fdigit, 2             ; the strip's scale digit, NUL-terminated
 
     PTBUF  pt_umask, PT_CH_MAX      ; SPEC.md 42.8.6: one BYTE per canvas row

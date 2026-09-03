@@ -36643,6 +36643,76 @@ silent save is exactly the behaviour §75 was written to remove. The user
 closes something else and tries again.
 
 
+### 27.16 `APP_SMALL` — the small build of this package
+
+**One package, one source, two products.** `make smallapps` assembles
+`apps/notepad/notepad.asm` a second time with `-DAPP_SMALL`, and the result
+goes on `build/smallapps*.img` — the apps floppy meant to be paired with
+`make small`'s kernel. The ordinary build defines none of it and is
+byte-for-byte what it was; that identity is the gate, and it is the same one
+docs/KERN-SPLIT-PLAN.md §6 set for the first removal from `kern_small`.
+
+**It is not a second ABI and must never become one.** A small-built
+`NOTEPAD.O88` calls the same API table at the same offsets as every other
+package (KERN-SPLIT-PLAN §3), so it runs on `kern_big` exactly as it runs on
+`kern_small` — it simply has fewer features. What pairs it with `kern_small`
+is the **disk it is written to**, nothing the kernel does or does not publish.
+`make small`'s own note that a package is "one package, both kernels" is still
+true here: this is one package built twice, not two packages.
+
+#### 27.16.1 Why
+
+On a 128KB machine `kern_small` leaves **~32.5KB of heap**
+(docs/KERNEL-MEMORY.md). A package instance is one claim of image + bss
+(§20.1), and the full build is **18,407 + 1,972 = 20,379 bytes** of that
+before the note holds a character. Note Pad on the floor machine was therefore
+not a tight fit but a coin toss against the menu save-under and the window
+record. The small build claims **12,362 + 1,158 = 13,520**, and
+`tools/os88pkgsize.py` is what says so on every `make smallapps`.
+
+**The largest saving is not in that arithmetic at all.** The undo arena is a
+heap claim that grows a kilobyte at a time to `NP_UMAXKB` = 16 (§27.9), and
+with `NPF_UNDO` off it is never claimed — which on a 32.5KB heap is worth more
+than the image and the bss together.
+
+#### 27.16.2 What goes, and what does not
+
+| flag | off in `APP_SMALL` | why it is separable |
+|---|---|---|
+| `NPF_FIND` | the find/replace panel, its regex engine (§27.10, §27.10.1) and the whole Find menu | eight entry points, all in the dispatch routines; the regex matcher has no caller outside find |
+| `NPF_UNDO` | the undo log and Edit ▸ Undo (§27.9) | nine internal entry points collapse to one shared `ret` |
+| `NPF_ABOUT` | the standard About card (§20.5.1) | one `OSAPI_ABOUT_SET` at entry and one layer in `np_paint` |
+| `OS88UI_SBDRAG` | §13.10.5's thumb gesture | already a knob (§13.10.7); the bar still tracks and steps |
+
+**Kept on purpose, so that the small build is a text editor and not a
+demo:** typing and word wrap, scrolling, the selection with cut/copy/paste,
+Save, Open, Save As, and §27.15's "Save changes to *name*?" alert. That last
+one is **data safety and is never a size decision** — a build that closes an
+edited note without asking is not a smaller product, it is a broken one.
+
+Two consequences worth stating because they are silent otherwise. **Escape
+still clears a selection**: it is gated out of the find ladder but not out of
+the key ladder, because with no panel to close it still has a job (§27.8).
+And the **Edit menu's item indices renumber** when Undo goes — the kernel
+hands `np_oncmd` the item's *position* in the list it was given (§12.2), not
+a name, so leaving `NP_MI_CUT` at 1 would put every Edit command one item off
+its own label.
+
+#### 27.16.3 The one place speed is traded
+
+`NP_XN` — §27.13's row index — is **256 entries in the full build and 32
+here**, 512 bytes against 64. Nothing about the index is *wrong* at 32: it is
+the same contiguous table with the same doubling stride, exact for a note
+under 32 rows and within one stride above that. What it costs is
+**resolution** — the stride doubles five times sooner, so a seed lands further
+from the row it wants and `np_walk` lays out more rows to reach it. That is a
+scroll being slower on a long note, and it is the one trade in this section
+that a user could notice.
+
+It is deliberate and it is confined here. Everywhere else `APP_SMALL` removes
+a *feature*; this is the only line that makes a kept feature slower, and the
+full build keeps every byte of the table.
+
 ## 28. apps/taskmgr — the Task Manager
 
 **A package in the root of every shipped floppy** (`TASKMGR.O88`) — the
@@ -51729,6 +51799,78 @@ ceiling is not even constant: §11.98's adapter change re-derives
 `pt_cwmax`/`pt_chmax`, so a window dragged onto a bigger display raises it and
 the grow path is still owed.
 
+
+### 42.22 `APP_SMALL` — the small build of this package
+
+Note Pad's §27.16, applied here, and the rules there hold unchanged: one
+source assembled twice, `make smallapps` passes `-DAPP_SMALL`, the result goes
+on `build/smallapps*.img`, and it is **never a second ABI** — the small Paint
+runs on `kern_big` exactly as it runs on `kern_small`.
+
+**What is different here is which half of the memory it can reach.** Paint's
+heap side already degrades on its own: `pt_geom` takes four independently
+refusable claims — scratch, canvas, undo image, clipboard (§42.6) — so a small
+machine loses undo, then the clipboard, then the canvas, and finally gets a
+notice window, with no build flag involved. None of that is touched.
+
+What does *not* degrade is the **resident** cost. Image + bss is one claim
+taken before a line of `pt_geom` runs, and at **25,894 + 5,458 = 31,352
+bytes** it is larger than the whole heap `kern_small` leaves on a 128KB
+machine (~32.5KB, docs/KERNEL-MEMORY.md). Paint there does not run badly — it
+does not **load**, and that is measured rather than argued: on
+`os8088_5150_gla_128k` the full package answers `ld_status` = 5 (`LD_ENOMEM`)
+and never opens a window. Everything below is aimed at that one number.
+
+**It already crosses the line, which was not the expectation.** Measured on
+`os8088_5150_gla_128k` with `kern_small`, same disk, same gestures, the only
+variable being which `PAINT.O88` is on drive B:
+
+| build | `ld_status` | what the user sees |
+|---|---|---|
+| full, 31,352 B | **5** (`LD_ENOMEM`) | nothing — no window ever opens |
+| small, 26,465 B | **0** | its window, its menu bar, and §42.6's `Not enough memory. Close this window.` |
+
+So the small build turns "the program will not start" into "the program
+starts and tells you why it cannot paint" — which is the tier §42.6 was
+written for and which the floor machine could not reach before. **What is
+still out of reach is a CANVAS**: funding one needs `kern_small` to come down
+further, and until then full-size pictures are not expected of this arm.
+
+| flag | off in `APP_SMALL` | worth |
+|---|---|---|
+| `PTF_GIF` | the GIF codec both directions (§42.14, §42.21), its LZW claim, both Save Gif verbs | **−2,587 image, −302 bss** |
+| `PTF_ABOUT` | Paint's own About card | −365 image |
+| `PTF_FSX` | the full-screen surface (§42.7) and the View menu | −377 image |
+| `PT_CW_MAX`/`PT_CH_MAX` | the row-table ceiling drops 736×464 → the default canvas | **−1,256 bss** |
+
+**23,307 + 3,900 = 26,465 bytes, 15.6% off**, reported by
+`tools/os88pkgsize.py` on every `make smallapps`.
+
+Three things worth stating because they are otherwise silent:
+
+- **The GIF gate takes `pt_line_get` with it**, all 341 bytes including its
+  eight-way `PT_UNPACKPX` unroll, because the encoder is that routine's only
+  caller. The unroll stays in the full build: it is a deliberate optimisation
+  (every GIF save reads every row through it) and a size pass must not undo
+  one, which is PERFORMANCE.md's rule 5 read in reverse.
+- **A GIF is refused by name, not by accident.** The magic sniff sends one to
+  `.nofmt` rather than letting it fall into `.bad`, and `pt_s_nofmt` reads
+  `Only BMP` here instead of `Only BMP and GIF`. A build that cannot decode a
+  format must say which formats it *has*.
+- **The canvas ceiling is a clamp, not a truncation.** Every use of the pair
+  is `pt_geom` holding the canvas inside them, and `pt_fit` shrinks it again
+  to what the heap will fund — so a fresh Paint here is the same 448×280 it
+  always was, and what the small build gives up is *growing or loading past
+  it*.
+
+**Kept on purpose**, so this stays a paint program: every drawing tool, the
+palette, BMP load and save, undo, the clipboard, flood fill, filled shapes,
+the text tool, and §42.16's "Save changes to *name*?" alert — data safety,
+never a size decision (§27.16.2's rule).
+
+**The full build is byte-identical with the gates in**, proven by assembling a
+mechanically de-gated copy of the source and comparing: every `%ifdef PTF_*`
+is a no-op when it is defined. `tests/unit/t_appsmall.py` holds it there.
 
 ## 44. Arkanoid — the ninth package (apps/arkanoid/arkanoid.asm)
 
