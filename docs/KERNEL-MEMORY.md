@@ -1129,7 +1129,7 @@ Three things about it:
     "bss": 5349,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 31910,
+    "cold": 31940,
     "coldpara": 2016,
     "fatpara": 288,
     "imgpara": 2816,
@@ -1142,7 +1142,7 @@ Three things about it:
     "ovl": 1226,
     "ovlw": 4516,
     "stk0": 1024,
-    "text": 39553,
+    "text": 39703,
     "vgabuf": 0,
     "vgabufpara": 0
   }
