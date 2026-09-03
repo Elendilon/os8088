@@ -442,9 +442,33 @@ cheap, and the first is the only one that is not actively unwise.**
 **And there is a fourth candidate that costs no feature at all: audit the
 pinned boot claims.** docs/KERN-SMALL-MODULE-SPLIT.md §9.1 found one by
 accident — the association cache holds 3,072 bytes of a 128KB machine's heap
-before the user has done anything, and no assembler can see it. Nothing has
-ever pointed `tests/kernresident.py`'s `mem_tab` walk at `kern_small`. That is
-the cheapest unexamined lever here.
+before the user has done anything, and no assembler can see it. Nothing had
+ever pointed a `mem_tab` walk at `kern_small`.
+
+**THAT AUDIT HAS NOW BEEN DONE, on a machine with 128KB in it, and it is
+EMPTY — so this lever is spent.** `tests/small128.py` boots the floor machine
+(`os8088_5150_cga_128k`, the only profile in this tree that is not 640KB) and
+walks the table at a bare desktop:
+
+```
+int 12h   131,072 bytes (128.0 KB)
+HEAP_SEG   89,600 bytes  (87.5 KB)  ->  41,472 free = 40.5 KB
+  16E0  1,152 para = 18,432 bytes  owner FE02  purgeable
+PINNED on a bare desktop: 0 bytes
+USABLE for a program    : 41,472 bytes = 40.5 KB
+```
+
+Three things follow. **The 40.5 KB headline is honest** — there is no second
+`ASC_KB` hiding behind it, so nothing here can be recovered without giving up
+a feature. **The one claim standing is purgeable** (`0xFE` = rank *high*, the
+directory read-ahead), 18KB here against 64KB on a 640KB machine, and it goes
+back to whoever asks. And **`MIN_RAM_KB` has stopped being arithmetic**: guard
+5 compared two constants at assembly time and no machine in this tree had ever
+been asked to run the result. It runs, and it reaches a desktop with four
+drive zones on it.
+
+So the remaining gap to the ask is the whole gap: **30,208 bytes**, and every
+byte of it is a feature in §2–§5.
 
 Worth putting back to the requester: **65KB runs SHEET with 13KB spare**, and
 SHEET is the largest package in the tree. The difference between 65 and 70 may

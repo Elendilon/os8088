@@ -461,10 +461,16 @@ figures are **measured** rather than projected:
 | — | post-merge baseline | | 94,720 | 34.0 KB | **~31.0 KB** |
 | **W0** | `assoc` gated out — **BUILT** | none — `%ifdef` | **92,160** | **36.5 KB** | **36.5 KB** |
 | **W1** | `filecp` → module — **BUILT** | fits `MOD_NENT` = 8 today | **90,624** | **38.0 KB** | **38.0 KB** |
-| **W2** | `fdlg` → module | lift `os88ui.inc`; `MOD_NENT` → 16 | 87,552 | 41.0 KB | **41.0 KB** |
+| **W2** | `fdlg` → module — **BUILT** | lift `os88ui.inc`; `MOD_NENT` → 7 | **88,064** | **40.5 KB** | **40.5 KB** |
 
-**7,168 bytes of footprint over three waves, and ~10 KB of usable heap** —
-31.0 → 41.0 — because W0 returns a pinned claim as well as two rungs.
+**8,192 bytes of footprint over three waves, and ~9.5 KB of usable heap** —
+31.0 → 40.5 — because W0 returns a pinned claim as well as two rungs. W2
+landed 512 bytes above its projection and needed `MOD_NENT` = 7 rather than
+16; §9.2.6 has why.
+
+**All three waves are BUILT, and there is no fourth in this document.** What
+is left of the 128KB ask lives in docs/KERN-SMALL-CUT-PLAN.md §8.1, whose
+tiers are the next thing to choose from.
 
 ### 9.2.1 W0 as built
 

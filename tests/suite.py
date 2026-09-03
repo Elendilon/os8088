@@ -470,6 +470,23 @@ FULL = [
         "(`make small`, into build/smallk/) because there is no capability "
         "to probe for and `all` never builds that kernel",
         needs=("marty",), serial=True, builds=True),
+    Row("small128", "full", py("tests/small128.py"), 110.0,
+        "...and it reaches that desktop on a machine with 128KB IN IT. Every "
+        "other MartyPC profile here is 640KB, so `MIN_RAM_KB` had been an "
+        "ARITHMETIC claim since the day it was written - guard 5 compares two "
+        "constants at assembly time and nothing had ever asked the result to "
+        "run. The row above proves the build boots; this one proves the "
+        "MACHINE does, which is a different question, because a purgeable "
+        "claim that sizes itself off available heap has a floor of its own "
+        "and the directory read-ahead is 64KB on a 640KB box. It is also "
+        "docs/KERN-SMALL-CUT-PLAN.md 8.2's `cheapest unexamined lever`: it "
+        "walks mem_tab on the machine and fails if ANY pinned claim stands on "
+        "a bare desktop, because that is heap the machine never gets back and "
+        "no assembler can see it - SPEC.md 54.0's association cache was "
+        "holding 3,072 bytes of one and was found by accident. Reads 0 "
+        "pinned, 18,432 purgeable, 40.5 KB usable. Builds its own image for "
+        "smallboot's reason",
+        needs=("marty",), serial=True, builds=True),
     Row("int0sweep", "soak", py("tests/int0sweep.py"), 240.0,
         "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
         "5150/5160 ROM the INT 0 vector is a BIOS stub that writes 0FFh to "
