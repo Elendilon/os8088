@@ -41364,6 +41364,57 @@ what stamps, so the kernel is what banks DX.
 With no driver loaded there is no stream to collide with, and `drv_svc_call`
 refuses — which is the same answer, arrived at for free.
 
+### 34.0 The CARD TIERS are not on `kern_small` — the SPEAKER is
+
+**The PC speaker is on both builds and nothing here changes it.** Tones,
+beeps, `OSAPI_SND_TONE`, `OSAPI_SND_PLAY` and the exclusive PCM clip tier
+with its 256-byte rescale table all work exactly as this section describes.
+
+What `kern_small` does not have is the **card** half, and it does not have it
+because §51.0 already took the mechanism that reaches one. Every route to an
+OPL2 or a Sound Blaster in this file is a `[drv_svc + DSV_*]` read — that is
+the published service table, and on a build that can load no driver it is
+zero for the life of the machine. So `%ifdef OS88_SNDCARD` (defined only on a
+`KERN_BIG` assembly) removes code that was already unreachable:
+
+```
+.text -190   .bss -11   = -201, and it crossed a rung
+KERN_SIZE 85,504 -> 84,992      free heap on a 128KB machine 43.0 -> 43.5 KB
+```
+
+**A separate symbol from `OS88_DRIVERS`, on purpose.** The two are different
+claims — one says "no driver can be loaded", the other "there is no card to
+send a tone to" — and a fork wanting a driverless kernel with a *built-in*
+OPL2 would turn exactly one of them on.
+
+What goes: `snd_rt_card`'s test (the answer is always the speaker), the
+driver branch of `snd_tone_out` and of `snd_tick` — that one is on a path
+**inside IRQ0**, so it is cycles saved 18.2 times a second as well as four
+bytes — the FM and stream API bodies, `snd_str_busy`'s interlock, and
+`snd_patch`'s 11 staged bytes.
+
+**Both API slots stay and refuse in their own vocabulary.** A slot's offset
+is the ABI (§20.4), so a gated feature refuses rather than moving the table
+under every package built against it. `OSAPI_SND_FM` answers CF alone;
+`OSAPI_SND_STREAM` answers **AX = 4, "no streaming sink"**, and that
+distinction is load-bearing — `AX = 0` is how every stream verb says *OK*,
+and a driverless machine that answered 0 once handed Recorder a phantom
+grant whose buffer did not exist. `snd_str_busy` answers a constant "not
+busy", which is what no streaming sink means.
+
+**`osapi_snd_caps` keeps its shape and loses its variables**: `SND_CAP_TONE |
+SND_CAP_PCM_EXCL`, BL = 0 (a tone goes to the speaker), DX = 1 (the speaker
+is present, no driver is). A package reads the same three registers and
+tests them the same way.
+
+**What is left behind, deliberately.** `drv_svc` survives as 36 bytes of
+zeroed `.text` (§51.0.2) because `ctrl.inc`'s Sound page still reads it to
+decide which tier rows are selectable. That page is in `CTRL.DRV`, a module
+on both builds, so gating it would move no resident byte — and the result is
+right as it stands: on `kern_small` the page offers the speaker and shows FM
+and Sound Blaster **greyed**, which is §47's *grey a fact, never a guess*
+working exactly as intended. The machine really has no card.
+
 ### 34.1 Port ownership
 
 - **PIT channel 2 + port 61h — one owner, one mode at a time.**

@@ -281,6 +281,23 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_DRIVERS 1
 %endif
 
+; ...and with them go the sound layer's CARD tiers (SPEC.md 34.0). This is
+; the half of docs/KERN-SMALL-CUT-PLAN.md's A1 that OS88_DRIVERS has already
+; made unreachable rather than merely unwanted: every route to an OPL2 or a
+; Sound Blaster is a `[drv_svc + DSV_*]` read, and on a build that can load no
+; driver that table is zero for the life of the machine. The PC SPEAKER is
+; untouched and stays on both kernels - tones, beeps and PCM clips all still
+; play - because it is resident code that needs no driver at all.
+;
+; A SEPARATE symbol from OS88_DRIVERS, and not `%ifdef OS88_DRIVERS` reused,
+; because the two are different claims: this one says "there is no card to
+; send a tone to", and a fork that wanted a driverless kernel WITH a built-in
+; OPL2 would turn exactly one of them on. Resolved here for OS88_ASSOC's
+; reason.
+%ifdef KERN_BIG
+  %define OS88_SNDCARD 1
+%endif
+
 ; SPEC.md 22.3-22.5's Cut/Copy/Paste is an ON-DEMAND MODULE on kern_small
 ; (SPEC.md 2.8, docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1) and stays resident
 ; `.cold` on kern_big, which keeps its speed and its one contiguous boot read:
