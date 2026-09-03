@@ -671,6 +671,16 @@ fmv_get_dir:
 ; clobbers: SI (the output), flags
 ; -----------------------------------------------------------------------------
 fmv_get_icon:
+%ifdef KERN_SMALL
+    cmp word [fm_vseg], 0       ; SPEC.md 25.8: with no cache of its own the
+    je dsk_get_icon_x           ; painter reads the GLOBAL icons, which here
+                                ; are a pool - and dsk_get_icon_x is that
+                                ; indirection, landing in the same dsk_ico
+                                ; with the same "all-zero = none". Taken
+                                ; ahead of fmv_copy_in's own fallback, whose
+                                ; [dsk_ioff] + index*64 is the arithmetic the
+                                ; pool invalidates
+%endif
     push ax
     push bx
     push cx
@@ -790,6 +800,31 @@ fmv_store:
     xor di, di
     mov cx, bx
     call fmv_copy_out
+%ifdef KERN_SMALL
+    ; SPEC.md 25.8: disk_icons is a POOL here and dsk_icoix says which body
+    ; an entry has, so the byte-for-byte copy below would land every body at
+    ; the wrong entry and leave the tail blank. EXPAND it instead - a slot
+    ; keeps one 64-byte body PER ENTRY, which is fmv_get_icon's contract and
+    ; every painter's, so nothing downstream of here learns about the pool.
+    mov di, bx                  ; where entry 0's icon goes in the slot
+    xor cx, cx                  ; ...and CX is the index, because BH is still
+    mov dx, ds                  ; owed to FS_IOFH below. DX = the kernel
+.ico:                           ; segment, out of DS: this module is .cold,
+    cmp cx, [dsk_nmax]          ; so CS is COLD_SEG (SPEC.md 2.6)
+    jae .icd
+    push ax
+    mov ax, cx
+    call dsk_get_icon_x         ; SI -> dsk_ico, all-zero if the entry has no
+    pop ax                      ; body - which is what a blank slot already
+    push cx                     ; was, so no reader gains a case
+    mov cx, DSK_ICO_SIZE
+    call dsk_copy_seg_x
+    pop cx
+    add di, DSK_ICO_SIZE
+    inc cx
+    jmp short .ico
+.icd:
+%else
     mov si, [dsk_ioff]
     mov di, bx
     mov cx, [dsk_nmax]
@@ -800,6 +835,7 @@ fmv_store:
     mov cx, ax
     pop ax
     call fmv_copy_out
+%endif
     pop di
     mov [di+FS_IOFH], bh        ; ...AND THE SHAPE IT WAS FILLED WITH, which
                                 ; is this mount's and not whichever one paints

@@ -804,6 +804,14 @@ section .text                   ; DATA, so back to the kernel segment
 ; the kernel segment and now just take their segment from a word.
 dsk_dseg:    dw LOW_SEG          ; the segment the listing lives in
 dsk_doff:    dw disk_dir         ; entry 0's offset in it
+%ifdef KERN_SMALL
+dsk_iconext: db 0               ; SPEC.md 25.8's bump allocator: the next free
+                                ; POOL body, reset at every mount
+dsk_icofld:  db 0xFF            ; ...and the body every FOLDER shares, 0xFF
+                                ; until the first folder in this listing
+                                ; claims one. It used to be a 64-byte copy of
+                                ; the same bytes per folder
+%endif
 dsk_ioff:    dw disk_icons       ; icon slot 0's offset in it
 dsk_nmax:    dw DSK_NENT         ; how many entries fit
 
@@ -2921,6 +2929,18 @@ disk_mount_x:
     ; Blank EVERY icon slot up front so none ever carries a previous mount's
     ; bytes (SPEC.md 18.3 step 4: fully rewritten every mount) - the harvest
     ; below then only fills the slots that earn an icon.
+%ifdef KERN_SMALL
+    mov di, dsk_icoix           ; SPEC.md 25.8: blanking the INDEX is what
+    mov cx, [dsk_nmax]          ; retires a listing, and the bodies below it
+    mov al, 0xFF               ; are simply re-reserved. 32 bytes of stosb
+    cld                         ; where this was 2,048 of stosw
+    rep stosb                   ; ES = [dsk_dseg], which IS LOW_SEG here -
+                                ; dsk_icoix is `.lowbss` and kern_small has no
+                                ; DVK_DRV volume to put a listing anywhere
+                                ; else (SPEC.md 51.0)
+    mov byte [dsk_iconext], 0   ; ...and the pool starts over
+    mov byte [dsk_icofld], 0xFF
+%else
     mov di, [dsk_ioff]
     mov cx, [dsk_nmax]
     mov ax, DSK_ICO_SIZE/2
@@ -2929,6 +2949,7 @@ disk_mount_x:
     xor ax, ax
     cld
     rep stosw                   ; ES = [dsk_dseg]
+%endif
 
     cmp byte [dsk_vkind], DVK_FILE  ; ...and a REDIRECTED volume takes the
     jne .harvest0                   ; CACHE-ONLY pass below: it has no sectors
@@ -6166,10 +6187,26 @@ dsk_ico_ofs:
     push ax
     push cx
     push dx
-    mov cx, DSK_ICO_SIZE
+%ifdef KERN_SMALL
+    mov si, ax                  ; SPEC.md 25.8: AX is the ENTRY and the pool
+    xor ah, ah                  ; body is one indirection away
+    mov al, [ss:si+dsk_icoix]   ; SS, not DS: dsk_icoix is `.lowbss` and
+                                ; LOW_SEG is not the kernel segment (SPEC.md
+                                ; 2.1) - tools/os88ovlchk.py checks it
+    cmp al, 0xFF
+    je .none                    ; ...and NOT "CF is already set" here: `cmp`
+%endif                          ; against an EQUAL value CLEARS carry, so the
+    mov cx, DSK_ICO_SIZE        ; refusal has to say so itself below
     mul cx
     add ax, [dsk_ioff]
     mov si, ax
+%ifdef KERN_SMALL
+    clc                         ; INSIDE the gate: kern_big has no refusal to
+    jmp short .out              ; distinguish, so it would be one byte spent
+.none:                          ; saying nothing (CLAUDE.md's byte rule - and
+    stc                         ; kernsize caught it as `.cold +1`)
+.out:
+%endif
     pop dx
     pop cx
     pop ax
@@ -6207,14 +6244,91 @@ dsk_put_dir:
 ;           the kernel segment (dsk_put_icon_k - the built-in folder body)
 ; out:      nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+%ifdef KERN_SMALL
+; --- SPEC.md 25.8's two allocators ------------------------------------------
+; dsk_ico_want - reserve a pool body for entry AX
+; in:       AX = entry index
+; out:      CF = 0 and dsk_icoix[AX] names a fresh body; CF = 1 pool full,
+;           and the entry keeps the 0xFF that means "the generic icon"
+; clobbers: nothing else (flags)
+;
+; A bump pointer and no free list, because the whole pool is reset at every
+; mount and nothing frees one body: this is a listing, not a heap.
+dsk_ico_want:
+    push ax
+    push bx
+    push si
+    mov bl, [dsk_iconext]
+    cmp bl, DSK_ICO_N
+    jae .full
+    inc byte [dsk_iconext]
+    mov si, ax
+    mov [ss:si+dsk_icoix], bl   ; SS: dsk_icoix is `.lowbss` (SPEC.md 2.1)
+    clc
+    jmp short .out
+.full:
+    stc
+.out:
+    pop si                      ; `pop` writes no flag, so CF survives
+    pop bx
+    pop ax
+    ret
+
+; dsk_ico_fld - point entry AX at the ONE body every folder shares
+; in:       AX = entry index
+; out:      CF = 0 a body was just reserved and the CALLER must fill it;
+;           CF = 1 there is nothing to copy - it is already filled, or the
+;           pool is full
+; clobbers: nothing else (flags)
+;
+; This is the half of SPEC.md 25.8 that costs nothing to get: every folder in
+; a listing was handed a byte-for-byte copy of the same built-in body, so a
+; listing of twelve folders spent 768 bytes saying one thing. Now the second
+; folder onward is an index byte and no copy at all.
+dsk_ico_fld:
+    push ax
+    push si
+    cmp byte [dsk_icofld], 0xFF
+    je .first
+    mov si, ax
+    mov al, [dsk_icofld]
+    mov [ss:si+dsk_icoix], al
+    stc                         ; already filled: the caller copies nothing
+    jmp short .out
+.first:
+    call dsk_ico_want           ; AX is still the entry index
+    jc .out                     ; pool full: CF = 1, and the entry keeps 0xFF
+    mov si, ax
+    mov al, [ss:si+dsk_icoix]   ; ...the body it just took, remembered for
+    mov [dsk_icofld], al        ; every later folder in this listing
+    clc
+.out:
+    pop si
+    pop ax
+    ret
+%endif
+
 dsk_put_icon:
     push dx
     mov dx, LOW_SEG
+%ifdef KERN_SMALL
+    call dsk_ico_want
+    jnc dsk_put_ico_body
+    pop dx                      ; the pool is full: SPEC.md 25's generic icon
+    ret                         ; is what this entry gets, and that is a
+%else                           ; picture the file manager already draws
     jmp short dsk_put_ico_body
+%endif
 dsk_put_icon_k_x:
     push dx
     mov dx, KERNEL_SEG          ; ...the kernel segment, named (SPEC.md 2.6
                                 ; rule 2: CS is COLD_SEG here)
+%ifdef KERN_SMALL
+    call dsk_ico_fld
+    jnc dsk_put_ico_body        ; a body was reserved: fill it
+    pop dx                      ; ...or it is already filled / the pool is
+    ret                         ; full, and either way nothing is copied
+%endif
 dsk_put_ico_body:
     push ax
     push cx
@@ -6246,6 +6360,28 @@ dsk_get_icon_x:
     push dx
     push di
     call dsk_ico_ofs
+%ifdef KERN_SMALL
+    jnc .have
+    ; SPEC.md 25.8: no body, so hand back the all-zero every caller already
+    ; reads as "no icon" (files.inc ORs the 32 words). Through DS and not a
+    ; `rep stosw`: dsk_ico is `.bss` and so KERNEL_SEG, which DS already is
+    ; (SPEC.md 1), and setting ES here would cost more than the loop.
+    mov di, dsk_ico
+    mov cx, DSK_ICO_SIZE/2
+    xor ax, ax
+.bz:
+    mov [di], ax
+    add di, 2
+    dec cx
+    jnz .bz
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    mov si, dsk_ico
+    ret
+.have:
+%endif
     mov di, dsk_ico
     mov cx, DSK_ICO_SIZE
     mov dx, [dsk_dseg]

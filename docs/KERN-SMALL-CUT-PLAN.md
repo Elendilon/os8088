@@ -567,11 +567,30 @@ after W0-W2 (modules)      88,064      87.5 KB         40.5 KB
 + A3, A4                   85,504      85.0 KB         43.0 KB
 + A1 dead half             84,992      84.5 KB         43.5 KB
 + A2, D1, D4, D7           82,432      82.0 KB         46.0 KB
-+ D2                       78,848      78.5 KB       * 49.5 KB *
++ D2                       78,848      78.5 KB         49.5 KB
++ the icon pool (B5)       77,824      77.5 KB       * 50.5 KB *
 ```
 
-**49.5 KB, measured on a machine with 128KB in it** (`tests/small128.py`), and
+**50.5 KB, measured on a machine with 128KB in it** (`tests/small128.py`), and
 `kern_big` moved by 512 bytes — D4's, the only item here it shares.
+
+**B5 is the row that was not on the list**, and it is the shape §3 was looking
+for and did not find: `disk_icons` is 2,048 bytes of `.lowbss` holding one
+64-byte body per directory entry, and a listing does not have 32 distinct
+icons — every folder is the same picture and most entries have none at all.
+SPEC.md 25.8 makes it a **16-body pool with a 32-byte index**, 1,056 against
+2,048, and the low rung uncrosses twice: `.lowbss −992`, `.cold +148`,
+`.text +2`, **KERN_SIZE −1,024**.
+
+It is the only cut in this document so far that **loses no feature and no
+picture**: the seventeenth icon in one listing falls back to the generic icon
+§25 already draws, and the A/B against the kernel before it is **0 differing
+pixels of 2,740** in both a folder window and a package window. What made it
+non-trivial is not the pool, it is that `files.inc` is a **second reader** of
+the same array with a slot-per-entry layout baked into a per-window cache —
+so the pool stops at `fmv_store`, which expands into that cache rather than
+copying it (SPEC.md 25.8.2). Getting that wrong was 301 differing pixels in
+exactly one of the two windows.
 
 ### 8.2 If 70KB is firm
 
@@ -583,8 +602,9 @@ mount path itself and cannot be on the disk it mounts). **None of them is
 cheap, and the first is the only one that is not actively unwise.**
 
 **THE BUILT POSITION, for anything decided off the rows above.** W0 (assoc
-gated), W1 (`FILECP.DRV`), W2 (`FDLG.DRV`), A3 (no loadable drivers) and A4
-(four volumes) are in, and they reach **43.0 KB measured on a 128KB machine**
+gated), W1 (`FILECP.DRV`), W2 (`FDLG.DRV`), A3 (no loadable drivers), A4
+(four volumes), the D batch and B5 (the icon pool) are in, and they reach
+**50.5 KB measured on a 128KB machine**
 — past the `A + D` row and most of the way to `A + B + D`. What remains
 unbuilt in the list is group B (display niceties, ~8,340), group D (sizing
 constants, ~6,210, capped by §7), C5–C8 (~3,479), A1's residue (the sound
@@ -619,8 +639,13 @@ back to whoever asks. And **`MIN_RAM_KB` has stopped being arithmetic**: guard
 been asked to run the result. It runs, and it reaches a desktop with four
 drive zones on it.
 
-So the remaining gap to the ask is the whole gap: **30,208 bytes**, and every
-byte of it is a feature in §2–§5.
+So the remaining gap to the ask is the whole gap: **19,968 bytes** at the
+built position above, and every byte of it is a feature in §2–§5 — **except
+whatever else has B5's shape**, which is the one lever this document
+under-weighted. B5 came out of `.lowbss` rather than `.cold`, cost no
+feature, and was not on any list here; the question it raises for §5 is which
+of the remaining sizing constants are storing the same thing more than once
+rather than merely storing it generously.
 
 Worth putting back to the requester: **65KB runs SHEET with 13KB spare**, and
 SHEET is the largest package in the tree. The difference between 65 and 70 may
