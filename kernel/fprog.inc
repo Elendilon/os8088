@@ -394,6 +394,45 @@ fpg_arm:
                                 ; fpg_finish's one word store still clears it
     call cursor_hide
 .lit:
+%ifndef NOCURDISK
+    ; --- ...OR IT IS ALREADY DOWN, AND AN ARROW THAT IS DOWN CANNOT TRACK ---
+    ; (SPEC.md 7.4.3.1) The case above is the pointer sitting ON the bar. This
+    ; is the other one, and it is most of the machine: a handler that PAINTED
+    ; before it read - the Control Panel, a file dialog, a copy repainting its
+    ; list - spent gfx_lock's promised hide on the way past (SPEC.md 7.1.4),
+    ; so by the time any of the disk work starts the arrow is off the glass and
+    ; [cur_level] < 0 keeps the ISR off it for the rest of the hold.
+    ;
+    ; PUT IT BACK, AND PUT THE PROMISE BACK WITH IT. Re-arming [cur_lazy] is
+    ; what makes this need no new state and no debt to settle: the arrow is up
+    ; and owed a hide, which is exactly what that byte means, so every existing
+    ; consumer takes over unchanged - a later unclipped painter's cur_unlazy
+    ; hides it, a clipped one's cur_lazyck decides, and gfx_unlock's own tail
+    ; ends it either way. Without that re-arm this would be a lit arrow with no
+    ; promise outstanding, and the first painter after the transfer would draw
+    ; straight through it (SPEC.md 7.1.4's permanent smear).
+    ;
+    ; Four conditions, and the first is the one that makes the rest sound:
+    cmp byte [gfx_lock_flag], 0
+    je .curdone                 ; HELD, and .no above already refused another
+                                ; task's - so it is ours. A free lock needs
+                                ; none of this: nothing spent the promise,
+                                ; because there was no hold to make one
+    cmp byte [cur_level], -1
+    jne .curdone                ; not hidden, or hidden more than once - a
+                                ; refcount we did not take is not ours to undo
+    cmp word [wm_clip_n], 0
+    jne .curdone                ; a region is armed, so the ISR will not move
+                                ; it anyway (SPEC.md 7.4.2) and lit-but-frozen
+                                ; is the thing 7.1.4.3 rejected
+    cmp word [mouse_y], MBAR_H + CUR_GH
+    jb .curdone                 ; [mouse_y] and NOT [cur_drawn_y]: the drawn
+                                ; position is meaningless while the arrow is
+                                ; hidden, and cursor_show draws at the live one
+    mov byte [cur_lazy], 1
+    call cursor_show
+.curdone:
+%endif
     ; ...AND THE BAR BELOW IS COMPOSED WITH THE MUTEX POSSIBLY UNHELD, which is
     ; not excluded by the [gfx_lock_own] test above: that test refuses a lock
     ; held by ANOTHER task at the instant of arming and says nothing about one

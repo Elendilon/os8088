@@ -7717,7 +7717,7 @@ The instrument that works is the one above: bracket the kernel's own path with
 two memory breakpoints and read `cycles` at each. It never touches the mouse
 path, so the injection floor cannot enter the number.
 
-### 7.4 The arrow TRACKS the hand inside `int 13h` — `[cur_inrom]`
+### 7.4 The arrow TRACKS the hand inside `int 13h` — `[cur_inxfer]`
 
 A file operation freezes the machine (§12.8, §18) and the pointer freezes with
 it. This is the one state in which the arrow may move anyway, and it exists
@@ -7742,7 +7742,7 @@ transfer. `NOCURDISK=1` is the A/B.
 
 #### 7.4.1 The flag brackets the instruction, not the operation
 
-`dsk_xfer` sets `[cur_inrom]` immediately before each `int 13h` and clears it
+`dsk_xfer` sets `[cur_inxfer]` immediately before each `int 13h` and clears it
 immediately after — the data transfer and the AH=00 controller reset alike.
 **Two stores, and the safety argument is the bracket's width rather than an
 audit**: the path from `.attempt` to `int 0x13` draws nothing, so no drawing
@@ -7753,6 +7753,25 @@ with a real initialiser and not `.bss` (`-f bin` zeroes nothing, and
 
 `mov` leaves the flags alone, which is why the clearing store can sit between
 the `int 0x13` and the `jnc` that reads its CF.
+
+##### 7.4.1.1 …and the driver's transfer, on the screen argument alone
+
+A `DVK_DRV` volume leaves `dsk_xfer` before the `int 13h` loop is reached, so
+a hard-disk install — the longest freeze the machine has — kept a dead pointer
+for its whole run while a floppy operation no longer did. `drv_blk_call_x` is
+bracketed too.
+
+**The two halves of §7.4's argument come apart here and only one of them
+survives.** The ROM half does not: this is our own driver polling an ATA
+controller, not a BIOS parked on IRQ6, so a cursor draw costs real time rather
+than filling a gap the machine was going to waste. The *screen* half is the
+whole of what the flag actually claims, and it is untouched — a `DRVC_DISK`
+block verb moves sectors and does not draw, and `[sch_lock]` is raised across
+the call, so no other task can be inside a primitive either. A block verb that
+drew would be a defect on its own terms, not a case this has to survive.
+
+That is why the flag is `[cur_inxfer]` and not `[cur_inrom]`, which is what it
+was called when it covered only the BIOS path.
 
 #### 7.4.2 Three more conditions, and each one closes a real hole
 
@@ -7781,11 +7800,31 @@ when a painter and the ISR share the glass):
    `fpg_arm`'s own compare is. The arrow stalls at the bar's edge for the
    length of the operation and catches up at `gfx_unlock`.
 
-The lock-free case is left to the ordinary gates and gains nothing, which is
-deliberate: with the lock free `[fpg_on]` is the only thing standing between
-IRQ4 and an unlocked `fpg_step` fill on another task (§12.8.4), and that is not
-a guard to step around for a case nobody asked for. **A package's file write
-does not freeze the UI and has no pointer to unfreeze.**
+##### 7.4.2.1 The lock-free case is SAFE, and it is most of the cases
+
+This section first said the opposite — that a free lock falls back to the
+ordinary gates and gains nothing, *"because with the lock free `[fpg_on]` is
+the only thing standing between IRQ4 and an unlocked `fpg_step` fill on another
+task (§12.8.4), and that is not a guard to step around for a case nobody asked
+for."* It was right about the danger and wrong about the case, and what it cost
+was **almost every operation a person actually notices**: a package launch, an
+assoc open and a package's own file dialog all do their reading with the lock
+**free** and `[fpg_on]` **set**, which is exactly the state `.gates` refuses.
+Sampled through a `PAINT.O88` launch: `gfx_lock_flag` 0 and `cur_inxfer` 1 for
+80 samples out of 80, the arrow up the whole time and never moving once.
+
+The lock being free is *evidence*, not an absence of it. Every task-level
+drawing burst is wrapped in `gfx_lock` (§7), so a free lock means **no task is
+inside a primitive**. The one painter in the machine that draws unlocked is
+fprog — measured, and §12.8.4 names it as the whole surface of that defect —
+and fprog draws only from the disk path, on the task that is doing the
+transfer. That task is the one asking this question, and it is inside the
+transfer, so it is not inside an `fpg_step` fill. `dsk_xfer` holds `[sch_lock]`
+across the whole transfer, so there is no other task running to be in one
+either.
+
+So a free lock takes the draw, with no `[wm_clip_n]` test — `gfx_unlock` clears
+the region, so a free lock has none — and the widget test below still applies.
 
 #### 7.4.3 The hider was `menu_draw_bar`, not `fpg_paint` — `[cur_barok]`
 
@@ -7833,6 +7872,48 @@ the pointer tracks for the whole of the disk phase and goes down for the last
 sixth of the hold, when the window starts repainting its list. `tests/curdisk.py`
 reads 18 of 24 widget-up samples lit against `NOCURDISK=1`'s 0 of 24, on
 sample counts that are otherwise identical arm for arm.
+
+##### 7.4.3.1 An arrow that is already DOWN cannot track — `fpg_arm` puts it back
+
+§7.4.3 stops fprog's own painters taking the pointer off the glass. It does
+nothing about the handler that painted **before** it read, and that is most of
+the machine: the Control Panel drawing a page, a package's file dialog drawing
+itself, a copy repainting its list. Each spends `gfx_lock`'s promised hide on
+the way past (§7.1.4), so by the time the disk work starts `[cur_level]` is
+already < 0 and the ISR is barred from the arrow for the rest of the hold —
+whatever §7.4.1 and §7.4.2 allow. Sampled on the Control Panel's Drivers page:
+`cur_level` −1 for every sample of the freeze, with no clip region armed and
+the lock held by us.
+
+So `fpg_arm` puts the arrow back, and **puts the promise back with it**.
+Re-arming `[cur_lazy]` is what makes this need no new state and no debt to
+settle: "the arrow is up and a hide is owed" is exactly what that byte means,
+so every existing consumer takes over unchanged — a later unclipped painter's
+`cur_unlazy` hides it, a clipped one's `cur_lazyck` decides, and `gfx_unlock`'s
+own tail ends it either way. **Without the re-arm this would be a lit arrow
+with no promise outstanding, and the first painter after the transfer would
+draw straight through it** — §7.1.4's permanent smear, bought back at full
+price.
+
+It rides `fpg_arm` rather than `dsk_xfer` for one reason: the widget's lifetime
+**is** the freeze (§12.8.3), so this shows once at the start and is settled once
+at the end. Hung off the transfer instead it would show and hide per
+`dsk_xfer` call — a blink per call, which is §7.1.1's complaint and
+PERFORMANCE.md rule 2's.
+
+Four conditions, and the first is what makes the rest sound:
+
+1. **The lock is held**, and `fpg_arm` has already refused another task's, so
+   it is ours. A free lock needs none of this — nothing spent the promise
+   because there was no hold to make one, which the `PAINT.O88` launch
+   confirms at `cur_level` 0 for 67 samples of 79.
+2. **`[cur_level]` is exactly −1.** A refcount we did not take is not ours to
+   undo.
+3. **No clip region is armed** — the ISR would not move it anyway (§7.4.2), and
+   lit-but-frozen is the thing §7.1.4.3 rejected.
+4. **The pointer is below the bar**, read from `[mouse_y]` and *not*
+   `[cur_drawn_y]`: the drawn position is meaningless while the arrow is
+   hidden, and `cursor_show` draws at the live one.
 
 #### 7.4.4 What it does and does not buy
 

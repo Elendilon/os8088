@@ -122,7 +122,7 @@ def watch(m, S, mo, rx, ry):
         m.advance(frames=PACKET)    # ...which also STOPS the guest, so every
         s = sample(m, S)            # read below is of a machine that is not
         out.append(s)               # moving under it
-        if s[1]:
+        if s[1] or s[0]:
             seen, quiet = True, 0
         elif seen:
             # THE DEADBAND ONLY COUNTS AFTER THE WIDGET HAS BEEN UP. Counting
@@ -140,120 +140,143 @@ def watch(m, S, mo, rx, ry):
     return out
 
 
-def leg(defines, label):
+# The two scenarios, and the SECOND one is the lesson: this row shipped with
+# only the first, which is the one case in the machine that reads with the gfx
+# lock HELD.  A package launch reads with it FREE, and SPEC.md 7.4.2 refused
+# that arm on purpose - so a green suite sat beside a pointer that was dead for
+# every launch, every assoc open and every package file dialog on the machine.
+# One scenario is one path.
+SCENARIOS = (
+    ("folder", ["SYSTEM"],        "a folder open - reads with the lock HELD"),
+    ("launch", ["APPS", "PAINT.O88"], "a package launch - reads with it FREE"),
+)
+
+
+def leg(defines, label, which):
     S = (lambda n: os88sym.linear(n, defines))
-    say("\n=== %s ===\n" % label)
+    name, path, why = which
+    say("\n=== %s: %s ===\n" % (label, why))
     with os88marty.launch(IMAGE, apps=APPS, machine=MACHINE) as m:
         mo = os88mouse.Mouse(marty=m)
         os88marty.no_saver(m)
 
-        # Setup: a Disk window on B:, and a folder row to open inside it.  The
-        # row is used rather than the desktop's drive zone because a row is
-        # far below the menu bar, and SPEC.md 7.4.2's widget test refuses a
-        # move near it - measuring there would report the guard as the defect.
+        # Setup: a Disk window on B:, and a row inside it.  A row is used
+        # rather than the desktop's drive zone because a row is far below the
+        # menu bar, and SPEC.md 7.4.2's widget test refuses a move near it -
+        # measuring there would report the guard as the defect.  The sweep in
+        # watch() is bounded for the same reason.
         dispcp.open_drive(m, mo, S, os88marty.settle, "B")
         disk = dispcp.win_list(m, S)[-1]
         dx, dy, _, _ = dispcp.win_rect(m, S, disk)
-        entry = dispcp.row_of(m, S, "SYSTEM")
+        for step in path[:-1]:
+            dispcp.open_named(m, mo, S, os88marty.settle, dx, dy, step)
+            dx, dy, _, _ = dispcp.win_rect(m, S, disk)
+        entry = dispcp.row_of(m, S, path[-1])
         row = dispcp.scroll_to(m, mo, S, os88marty.settle, dx, dy, entry)
         rx, ry = dispcp.row_xy(dx, dy, row)
 
         s = watch(m, S, mo, rx, ry)
 
-    busy = [x for x in s if x[1]]
-    held = [x for x in s if x[0]]
-    lit = [x for x in busy if x[2] < 128]        # cur_level >= 0
+    # THE FREEZE IS [fpg_on] OR THE LOCK, and not the lock alone: a launch
+    # holds no lock at all, so counting lock-held samples measures nothing
+    # there and this row read a working kernel as a broken one.
+    busy = [x for x in s if x[1] or x[0]]
     moves = sum(1 for a, b in zip(s, s[1:])
-                if a[0] and b[0] and (a[3], a[4]) != (b[3], b[4]))
-    say("  %d samples: %d with the widget up, %d with the lock held"
-        % (len(s), len(busy), len(held)))
+                if (a[1] or a[0]) and (b[1] or b[0])
+                and (a[3], a[4]) != (b[3], b[4]))
+    # THE LIT SHARE IS MEASURED OVER THE WIDGET-UP SAMPLES ONLY, because that
+    # is the phase in which the old kernel takes the arrow OFF the glass
+    # (fpg_paint's unconditional cur_unlazy, SPEC.md 7.4.3).  Measured over the
+    # whole freeze it is not a discriminator at all: NOCURDISK=1 leaves the
+    # arrow lit for 41% of a folder open and 75% of a launch - LIT AND FROZEN,
+    # which is precisely the state SPEC.md 7.1.4.3 rejected, and reading that
+    # as "the arrow is fine" is the mistake this test made first.
+    wide = [x for x in s if x[1]]
+    wlit = [x for x in wide if x[2] < 128]       # cur_level >= 0
+    say("  %d samples: %d in the freeze, %d with the widget up"
+        % (len(s), len(busy), len(wide)))
     say("  arrow ON THE GLASS for %d of %d widget samples (%s)"
-        % (len(lit), len(busy),
-           "%.0f%%" % (100.0 * len(lit) / len(busy)) if busy else "n/a"))
-    say("  arrow MOVED under the lock %d times" % moves)
+        % (len(wlit), len(wide),
+           "%.0f%%" % (100.0 * len(wlit) / len(wide)) if wide else "n/a"))
+    say("  arrow MOVED during the freeze %d times" % moves)
     if "--trace" in sys.argv:
         say("    #   lock fpg lvl    x    y")
         for i, x in enumerate(s):
             say("    %-3d %4d %3d %3d %4d %4d"
                 % (i, x[0], x[1], x[2] - 256 if x[2] > 127 else x[2],
                    x[3], x[4]))
-    return {"n": len(s), "busy": len(busy), "held": len(held),
-            "lit": len(lit), "moves": moves}
+    return {"n": len(s), "busy": len(busy), "wide": len(wide),
+            "lit": len(wlit), "moves": moves, "name": name}
 
 
 def main(argv):
     os.chdir(ROOT)
     solo = "--solo" in argv
     fail = []
+    new, old = {}, {}
 
-    new = leg((), "default: the arrow tracks the hand (SPEC.md 7.4)")
+    for sc in SCENARIOS:
+        new[sc[0]] = leg((), "default (SPEC.md 7.4)", sc)
 
-    if not new["busy"]:
-        fail.append("SETUP: the progress widget never armed, so no sample was "
-                    "taken during a freeze at all. The operation was too "
-                    "short (FPG_WARM is 3 sectors in ONE lock hold) or the "
-                    "double-click missed the row - nothing below means "
-                    "anything, and this is not a verdict on SPEC.md 7.4.")
-    if not new["held"]:
-        fail.append("SETUP: no sample saw the gfx lock held, so the freeze "
-                    "itself was never observed.")
+    for k, r in new.items():
+        if not r["busy"]:
+            fail.append("SETUP [%s]: no sample was taken during a freeze at "
+                        "all - neither the gfx lock nor the progress widget "
+                        "was ever seen up. The operation was too short or the "
+                        "double-click missed the row; nothing below is a "
+                        "verdict on SPEC.md 7.4." % k)
     if not fail:
-        if new["moves"] < MOVES_MIN:
-            fail.append("the arrow NEVER MOVED under the lock. That is the "
-                        "whole of SPEC.md 7.4: [cur_inrom] should let the "
-                        "mouse ISR run cur_move inside each int 13h. Check "
-                        "the three gates in 7.4.2 - a clip region left armed "
-                        "by a painter, or a lock held by another task, both "
-                        "defer for good reasons and would read like this.")
-        share = 100.0 * new["lit"] / new["busy"] if new["busy"] else 0.0
-        if share < LIT_MIN:
-            fail.append("the arrow was on the glass for only %.0f%% of the "
-                        "freeze (want >= %.0f%%). SPEC.md 7.4.3 is what "
-                        "changed this: [cur_barok] makes cur_unlazy keep "
-                        "gfx_lock's promise for a painter confined to the "
-                        "menu bar, and the unclipped menu_draw_bar inside "
-                        "fpg_arm is the one that used to hide the pointer for "
-                        "the whole operation before fpg_paint was reached."
-                        % (share, LIT_MIN))
+        for k, r in new.items():
+            share = 100.0 * r["lit"] / r["wide"] if r["wide"] else 0.0
+            if r["moves"] < MOVES_MIN:
+                fail.append("[%s] the arrow moved %d times during the freeze "
+                            "(want >= %d). That is the whole of SPEC.md 7.4. "
+                            "Check 7.4.2's gates - a clip region left armed, "
+                            "or a lock held by another task, both defer for "
+                            "good reasons and read like this; and 7.4.2.1 is "
+                            "the lock-FREE arm the launch scenario covers."
+                            % (k, r["moves"], MOVES_MIN))
+            if share < LIT_MIN:
+                fail.append("[%s] the arrow was on the glass for only %.0f%% "
+                            "of the freeze (want >= %.0f%%). SPEC.md 7.4.3 "
+                            "keeps fprog's own painters off it and 7.4.3.1 "
+                            "puts it BACK when a handler that painted before "
+                            "it read had already spent the hide."
+                            % (k, share, LIT_MIN))
 
     if solo:
         say("\ncurdisk: --solo, the NOCURDISK=1 leg is skipped")
-        old = None
     else:
         say("\n--- building the other arm ---")
         subprocess.check_call(["make", "NOCURDISK=1"], cwd=ROOT,
                               stdout=subprocess.DEVNULL)
         atexit.register(subprocess.check_call, ["make"], cwd=ROOT,
                         stdout=subprocess.DEVNULL)
-        old = leg(("NOCURDISK",), "NOCURDISK=1: the freeze it replaces")
+        for sc in SCENARIOS:
+            old[sc[0]] = leg(("NOCURDISK",), "NOCURDISK=1, the freeze it "
+                             "replaces", sc)
 
-        if old["moves"]:
-            fail.append("NOCURDISK=1 moved the arrow under the lock %d times, "
-                        "and it cannot: mou_apply's first compare is "
-                        "`cmp byte [gfx_lock_flag], 0 / jne .dirty`. Either "
-                        "the knob is not reaching the build (check VIDSTAMP "
-                        "and KNOBS in the Makefile) or these samples are not "
-                        "reading what they claim to."
-                        % old["moves"])
-        oshare = 100.0 * old["lit"] / old["busy"] if old["busy"] else 0.0
-        if oshare >= LIT_MIN:
-            fail.append("NOCURDISK=1 kept the arrow on the glass for %.0f%% "
-                        "of the freeze, which is the behaviour it exists to "
-                        "NOT have: its cur_unlazy is unconditional, so the "
-                        "bar composition inside fpg_arm should take the "
-                        "pointer off within a few instructions of arming. "
-                        "The two arms are not separated, so the default "
-                        "arm's %.0f%% says nothing." % (oshare, share))
-        # A SAMPLE OR TWO HERE IS NOT A FAILURE, and the bound above is a
-        # share rather than a zero for that reason: fpg_arm sets [fpg_on]
-        # BEFORE the cursor block that follows it (SPEC.md 12.8.4), so a
-        # sample landing in those few instructions sees the widget up and the
-        # arrow not yet down. Measured at 1 of 24. `moves` has no such window
-        # and IS asserted at zero, because mou_apply's first compare makes a
-        # move under the lock unreachable rather than merely unlikely.
-        if not old["busy"]:
-            fail.append("SETUP: the NOCURDISK=1 leg never armed the widget "
-                        "either, so the two arms are not comparable.")
+        for k, r in old.items():
+            if r["moves"]:
+                fail.append("[%s] NOCURDISK=1 moved the arrow %d times during "
+                            "the freeze, and it cannot: mou_apply's first "
+                            "compare is `cmp byte [gfx_lock_flag], 0 / jne "
+                            ".dirty` and [fpg_on] gates the rest. Either the "
+                            "knob is not reaching the build (check VIDSTAMP "
+                            "and KNOBS in the Makefile) or these samples are "
+                            "not reading what they claim to." % (k, r["moves"]))
+            if not r["busy"]:
+                fail.append("SETUP [%s]: the NOCURDISK=1 leg never reached a "
+                            "freeze either, so the two arms are not "
+                            "comparable." % k)
+        # AND NOTHING IS ASSERTED ABOUT THE OLD ARM'S LIT SHARE, deliberately.
+        # It is not a property that separates the two: NOCURDISK=1 leaves the
+        # arrow lit for most of a package launch, because a launch reads with
+        # the gfx lock FREE and so never made a promise for anything to spend.
+        # What it does not do is MOVE it, and `moves` is asserted at exactly
+        # zero above - mou_apply's first compare makes a move under the lock
+        # unreachable, and [fpg_on] gates the lock-free case, so that zero is
+        # structural rather than merely likely.
 
     say("")
     if fail:
@@ -261,13 +284,13 @@ def main(argv):
         for f in fail:
             say("  FAIL: %s" % f)
         return 1
-    if old is not None:
-        say("curdisk: pass - %d moves under the lock against NOCURDISK's %d, "
-            "arrow lit for %d of %d widget samples against %d"
-            % (new["moves"], old["moves"], new["lit"], new["busy"],
-               old["lit"]))
-    else:
-        say("curdisk: pass (one arm)")
+    for k in new:
+        o = old.get(k)
+        say("curdisk: %-7s moves %d vs %s   widget-phase lit %d/%d vs %s"
+            % (k, new[k]["moves"], o["moves"] if o else "-",
+               new[k]["lit"], new[k]["wide"],
+               ("%d/%d" % (o["lit"], o["wide"])) if o else "-"))
+    say("curdisk: pass")
     return 0
 
 

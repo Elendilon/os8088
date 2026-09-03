@@ -1070,8 +1070,23 @@ dsk_xfer:
     mov bp, [di+DSV_BLK]        ; two did: a network volume's sectors would
     pop ax                      ; have been handed to the hard-disk driver
     pop di
+    CURXFER_ON                  ; **AND THE DRIVER'S TRANSFER TOO** (SPEC.md
+                                ; 7.4.1.1). Not the ROM, so the "CPU parked on
+                                ; IRQ6" half of 15.3.8 does not apply and the
+                                ; draw costs real time here - but the SCREEN
+                                ; argument is the whole of what the flag
+                                ; claims, and it is unchanged: a DRVC_DISK
+                                ; block verb moves sectors and does not draw,
+                                ; and [sch_lock] is up across this call, so no
+                                ; other task can be inside a primitive either.
+                                ; Without it a hard-disk install - the longest
+                                ; freeze on the machine - keeps a dead pointer
+                                ; for its whole run, because a DVK_DRV volume
+                                ; leaves this routine before the int 13h loop
+                                ; below ever runs
     call drv_blk_call_x
-    jnc .success
+    CURXFER_OFF                 ; ...and CF is the driver's answer, which `mov`
+    jnc .success                ; leaves alone
     mov [dsk_ioerr], al         ; the driver reports int 13h's status byte,
 .jfail:                         ; ...AND the two range refusals in .sector, at
     jmp .fail                   ; two bytes each rather than the five NASM
@@ -1294,7 +1309,7 @@ dsk_xfer:
                                 ; volume is not
     mov ax, [dsk_run]           ; AL = the run (<= 128, so AH is 0)...
     mov ah, [dsk_op]            ; ...AH = 02 read / 03 write
-    CURROM_ON                   ; **THE ARROW MAY MOVE FROM HERE TO THE `iret`**
+    CURXFER_ON                   ; **THE ARROW MAY MOVE FROM HERE TO THE `iret`**
                                 ; (SPEC.md 7.4). The bracket is the INSTRUCTION
                                 ; and not the operation, which is the whole
                                 ; safety argument: nothing between .attempt and
@@ -1304,16 +1319,16 @@ dsk_xfer:
                                 ; (SPEC.md 15.3.8), so what the ISR spends is a
                                 ; gap the machine was going to spend idle
     int 0x13
-    CURROM_OFF                  ; `mov` leaves the flags alone, so int 13h's CF
+    CURXFER_OFF                  ; `mov` leaves the flags alone, so int 13h's CF
     jnc .ok                     ; still reaches this branch
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
     mov ah, 0x00                ; failed: reset the controller and retry
     mov dl, [dsk_unit]          ; the ROW's drive (SPEC.md 52.10.3): resetting
-    CURROM_ON                   ; ...and the arrow keeps moving through it too
+    CURXFER_ON                   ; ...and the arrow keeps moving through it too
     int 0x13                    ; drive 2 because the volume index is 2 resets
-    CURROM_OFF                  ; a floppy that is not in this transfer. A
+    CURXFER_OFF                  ; a floppy that is not in this transfer. A
                                 ; reset on ageing media is where the machine
                                 ; grinds longest, so it is the LAST place to
                                 ; let the pointer die (SPEC.md 7.4.1)

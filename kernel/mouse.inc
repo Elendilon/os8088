@@ -49,19 +49,19 @@ MOU_LOCKN   equ 8               ; CLEAN packets in a row from ONE port before
 ; immediate - and because the bracket has to sit tight against the one
 ; instruction it is making a claim about (SPEC.md 7.4.1).
 ;
-; `mov` touches no flag, which is what lets CURROM_OFF sit between the `int
+; `mov` touches no flag, which is what lets CURXFER_OFF sit between the `int
 ; 0x13` and the `jnc` that reads its CF.
 %ifndef NOCURDISK
-  %macro CURROM_ON 0
-    mov byte [cur_inrom], 1
+  %macro CURXFER_ON 0
+    mov byte [cur_inxfer], 1
   %endmacro
-  %macro CURROM_OFF 0
-    mov byte [cur_inrom], 0
+  %macro CURXFER_OFF 0
+    mov byte [cur_inxfer], 0
   %endmacro
 %else
-  %macro CURROM_ON 0
+  %macro CURXFER_ON 0
   %endmacro
-  %macro CURROM_OFF 0
+  %macro CURXFER_OFF 0
   %endmacro
 %endif
 
@@ -3139,19 +3139,41 @@ mou_apply:
 .move:
     ; --- cursor: draw only if the lock is free AND cur_level >= 0 (SPEC 7) ---
 %ifndef NOCURDISK
-    cmp byte [cur_inrom], 0     ; **...OR THE CPU IS INSIDE AN int 13h**
+    cmp byte [cur_inxfer], 0     ; **...OR THE CPU IS INSIDE AN int 13h**
     je .gates                   ; (SPEC.md 7.4). The flag says THIS task is
                                 ; parked in the ROM; the three tests below are
                                 ; what say the SCREEN is safe, and each one
                                 ; closes a hole rather than being belt and
                                 ; braces (SPEC.md 7.4.2)
     cmp byte [gfx_lock_flag], 0
-    je .gates                   ; free: nothing here can improve on the
-                                ; ordinary gates, and stepping around [fpg_on]
-                                ; with the lock free is exactly the two-painter
-                                ; defect (SPEC.md 12.8.4) - a package's file
-                                ; write does not freeze the UI and has no
-                                ; pointer to unfreeze
+    je .lvl                     ; **FREE IS SAFE HERE, AND THIS IS THE CASE A
+                                ; PACKAGE LAUNCH TAKES** (SPEC.md 7.4.2.1). A
+                                ; task-level burst is wrapped in gfx_lock, so a
+                                ; free lock means no task is inside a primitive
+                                ; - and the one painter in the machine that
+                                ; draws UNLOCKED is fprog (SPEC.md 12.8.4,
+                                ; measured: nothing else does), which draws
+                                ; only from the disk path, on the task that is
+                                ; in the transfer. That task is HERE, inside
+                                ; int 13h, so it is not inside an fprog fill;
+                                ; and dsk_xfer holds [sch_lock] throughout, so
+                                ; no other task is running to be in one either.
+                                ;
+                                ; This arm read `je .gates` and refused, on the
+                                ; reasoning that stepping around [fpg_on] with
+                                ; the lock free IS 12.8.4's defect. The
+                                ; reasoning was right about the danger and
+                                ; wrong about the case: 12.8.4 is about a
+                                ; painter running while the ISR draws, and the
+                                ; only candidate is provably not running. What
+                                ; it cost was every package launch and every
+                                ; assoc open - the whole freeze, pointer dead -
+                                ; because those do their reading with the lock
+                                ; free and [fpg_on] set, which is precisely the
+                                ; state `.gates` refuses.
+                                ;
+                                ; No [wm_clip_n] test on this arm: gfx_unlock
+                                ; clears the region, so a free lock has none
     mov al, [sch_cur]           ; HELD BY US is the file-operation freeze: a
     cmp al, [gfx_lock_own]      ; task can only draw while holding the lock, so
     jne .dirty                  ; our holding it while we sit in the ROM proves
@@ -3208,7 +3230,7 @@ mou_apply:
                                 ; unreachable on a kernel that has the compare
                                 ; above, and one per packet on one that does not
 %ifndef NOCURDISK
-    cmp byte [cur_inrom], 0     ; ...EXCEPT SPEC.md 7.4's, which is deliberate
+    cmp byte [cur_inxfer], 0     ; ...EXCEPT SPEC.md 7.4's, which is deliberate
     jne .nogate                 ; and bounded by the widget test below. Without
                                 ; this the counter stops meaning "the defect"
                                 ; and starts meaning "a file operation happened"
@@ -4695,8 +4717,8 @@ cur_barok   db 0                ; **THE PAINTER RUNNING NOW IS CONFINED TO THE
                                 ; GFXCLIP's cur_unlazy hid the pointer for the
                                 ; whole freeze before fpg_paint was even
                                 ; reached. .text with a real initialiser, for
-                                ; cur_inrom's reason below
-cur_inrom   db 0                ; **THE CPU IS INSIDE AN int 13h** (SPEC.md
+                                ; cur_inxfer's reason below
+cur_inxfer   db 0                ; **THE CPU IS INSIDE AN int 13h** (SPEC.md
                                 ; 7.4): dsk_xfer brackets the instruction
                                 ; itself with this, so the ISR may move the
                                 ; arrow through a disk transfer that would

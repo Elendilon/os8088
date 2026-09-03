@@ -290,27 +290,63 @@ is deliberately left to the ordinary gates: with the lock free `[fpg_on]` is
 the only thing between IRQ4 and an unlocked `fpg_step` fill on another task
 (SPEC.md §12.8.4), and that is not a guard to step around.
 
+#### 5.3.3 Half-built is what one scenario looks like
+
+§5.3 as first shipped was **verified and wrong**, and the way it was wrong is
+worth more than the fix. `tests/curdisk.py` drove one operation — a folder
+open — and reported 28 cursor moves under a held lock against `NOCURDISK=1`'s
+0. Every number in it was true. The field then reported that *the only* thing
+whose pointer moved was a folder open, and named five operations that still
+froze.
+
+A folder open is the one case in the machine that reads with the gfx lock
+**held**. Everything else on the list reads with it **free** (a package launch,
+an assoc open, a package's file dialog) or has already painted before it reads
+(the Control Panel, a copy, the installer). The test asked the one question the
+code answered.
+
+Three causes, and the sampling found each one in a single run:
+
+| case | what the samples said | what it needed |
+|---|---|---|
+| package launch, assoc open, a package's file dialog | `gfx_lock_flag` 0 and `cur_inxfer` 1 for 80 samples of 80, arrow up and never moving | SPEC.md §7.4.2.1 — the lock-free arm, which §7.4.2 had **refused on purpose** |
+| Control Panel, a copy, the installer's panel | `cur_level` −1 for the whole freeze, no clip region, lock ours | SPEC.md §7.4.3.1 — `fpg_arm` puts the arrow back and re-arms the promise |
+| the hard-disk install's own transfers | never bracketed at all — a `DVK_DRV` volume leaves `dsk_xfer` before the `int 13h` loop | SPEC.md §7.4.1.1 — bracket the driver's block verb too |
+
+The registered row now drives **two** scenarios, one either side of the lock.
+That is the smallest change that would have caught this, and it is the general
+lesson: **a gate that drives one path measures one path**, and here the one it
+drove was the exceptional one.
+
 #### 5.3.2 What it cost, measured
 
-**125 bytes** — `.text` +105, `.cold` +20 — no rung crossed, and
+**180 bytes** — `.text` +150, `.cold` +30 — no rung crossed, and
 `make NOCURDISK=1` assembles **byte-identical to the kernel before the
-change** on both `kernel.bin` and `kernel-full.bin`. One byte of that is a
+change** on both `kernel.bin` and `kernel-full.bin`. (It was 125 before
+§5.3.3's three additions.) One byte of that is a
 `jmp short .attempt` in `dsk_xfer` that had to widen: the two stores put the
 label out of a byte's reach on the `DISKCNT=1` build, which nothing ships and
 only `make test-full` compiles.
 
 `tests/curdisk.py` is the A/B, on `os8088_5150_cga_gla` opening `B:\SYSTEM`:
 
-| | default | `NOCURDISK=1` |
-|---|---|---|
-| samples / widget up / lock held | 47 / 24 / 35 | 47 / 24 / 35 |
-| arrow **moved** under the lock | **28** | **0** |
-| arrow **on the glass** while the widget is up | **18 of 24 (75%)** | **0 of 24 (0%)** |
+| scenario | | default | `NOCURDISK=1` |
+|---|---|---|---|
+| folder open (lock **held**) | moves during the freeze | **28** | **0** |
+| | arrow lit, widget phase | **19 of 24** | **0 of 23** |
+| package launch (lock **free**) | moves during the freeze | **37** | **0** |
+| | arrow lit, widget phase | 63 of 84 | 64 of 85 |
 
-The two arms are identical in every structural measure and opposite in exactly
-the two the change is about. The last sixth of the hold is legitimately hidden
-on both: that is when the window starts repainting its list, and a painter
-that is not bar-confined **must** take the arrow down (SPEC.md §7.1.4).
+**The launch's lit share does not separate the arms, and that is the shape of
+the defect rather than a null.** A launch reads with the lock free, so nothing
+ever promised a hide for anything to spend: the old kernel's arrow was **lit
+and frozen** for the whole of it — §7.1.4.3's rejected state, reached by a
+different door. Motion is what separates them there, which is why `moves` is
+the assertion and the lit share is a second reading beside it.
+
+The last part of a hold is legitimately hidden on both arms: that is when the
+window starts repainting its list, and a painter that is not bar-confined
+**must** take the arrow down (SPEC.md §7.1.4).
 
 ### 5.4 What it buys, and the honest ceiling
 
