@@ -67,7 +67,7 @@
 ;
 ; What does NOT degrade is the RESIDENT cost: image + bss is one claim taken
 ; before a line of pt_geom runs, and at 25,894 + 5,458 = 31,352 bytes it is
-; larger than the whole heap kern_small leaves on a 128KB machine (~32.5KB).
+; larger than the whole heap kern_small leaves on a 128KB machine (~34.0KB).
 ; So Paint there does not run badly - it does not LOAD. Everything below is
 ; aimed at that one number, and the tiering above is left alone.
 ;
