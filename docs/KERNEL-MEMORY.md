@@ -767,8 +767,8 @@ whole mechanism; discovering it at a failed assemble is what moves 22, 23 and
 kilobyte** off big's free heap on a 640KB machine and **half a kilobyte** off
 small's on a 128KB one. The absolutes are the ladder's, and the ladder is what
 `tools/kernsize.py` prints rather than anything to re-derive by hand: as this
-branch stands, big's heap starts at 108.0 KB and small's at 94.0, so **532.0
-KB free on the 640KB machine and 34.0 on the 128KB one**. The half-kilobyte is
+branch stands, big's heap starts at 108.0 KB and small's at 91.5, so **532.0
+KB free on the 640KB machine and 36.5 on the 128KB one**. The half-kilobyte is
 **2.3%** of everything a package has on the small machine, and it went to a
 right-click.
 
@@ -1257,11 +1257,11 @@ reports. The arithmetic is exact and worth writing down, because every RAM
 figure in this project falls out of it:
 
 > **heap KB = what int 12h reports − 108.0** (kern_big, as this branch stands;
-> kern_small's is **94.0**)
+> kern_small's is **91.5**)
 
 > **Both figures were 120.0 and 106.5 until this edition, and the stale pair
 > had been quoted onward. They then moved AGAIN inside one merge** — kernel
-> size pass 3 landed and took them to 108.0 and 94.0 before the ink was dry,
+> size pass 3 landed and took them to 108.0 and 94.0 before the ink was dry - and small's has moved once more since, to 91.5, when file associations were gated out of it -
 > which is the point below made twice in a row. The sentence above says not to re-derive the
 > ladder by hand and `tools/kernsize.py` prints it — but nothing re-read it
 > either, so "a 128KB machine has 21.5KB of heap" was carried into SPEC.md

@@ -36906,7 +36906,7 @@ true here: this is one package built twice, not two packages.
 
 #### 27.16.1 Why
 
-On a 128KB machine `kern_small` leaves **~34.0KB of heap**
+On a 128KB machine `kern_small` leaves **~36.5KB of heap**
 (docs/KERNEL-MEMORY.md). A package instance is one claim of image + bss
 (§20.1), and the full build is **18,407 + 1,972 = 20,379 bytes** of that
 before the note holds a character. Note Pad on the floor machine was therefore
@@ -36916,7 +36916,7 @@ record. The small build claims **12,362 + 1,158 = 13,520**, and
 
 **The largest saving is not in that arithmetic at all.** The undo arena is a
 heap claim that grows a kilobyte at a time to `NP_UMAXKB` = 16 (§27.9), and
-with `NPF_UNDO` off it is never claimed — which on a 34.0KB heap is worth more
+with `NPF_UNDO` off it is never claimed — which on a 36.5KB heap is worth more
 than the image and the bss together.
 
 #### 27.16.2 What goes, and what does not
@@ -52074,7 +52074,7 @@ notice window, with no build flag involved. None of that is touched.
 What does *not* degrade is the **resident** cost. Image + bss is one claim
 taken before a line of `pt_geom` runs, and at **25,894 + 5,458 = 31,352
 bytes** it is larger than the whole heap `kern_small` leaves on a 128KB
-machine (~34.0KB, docs/KERNEL-MEMORY.md). Paint there does not run badly — it
+machine (~36.5KB, docs/KERNEL-MEMORY.md). Paint there does not run badly — it
 does not **load**, and that is measured rather than argued: on
 `os8088_5150_gla_128k` the full package answers `ld_status` = 5 (`LD_ENOMEM`)
 and never opens a window. Everything below is aimed at that one number.
