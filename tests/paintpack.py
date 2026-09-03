@@ -50,7 +50,6 @@ def main():
     # dispapps.colour_gif appends two unused entries and changes not one
     # pixel, so every oracle below is the one it always was.
     gif = dispapps.colour_gif()
-    gifname = os.path.basename(gif)
 
     # The tree is REBUILT, the way tests/blitplane.py rebuilds it, and the
     # `finally` is not decoration: `make NOPLANE=1` writes build/kernel.bin,

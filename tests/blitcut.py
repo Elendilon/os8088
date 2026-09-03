@@ -45,6 +45,17 @@ sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
 import os88marty                                            # noqa: E402
 import dispapps                                              # noqa: E402
+
+
+# SPEC.md 42.23.6's COLOUR fixture, at module scope because the helpers below
+# read it and they are not nested inside main(). dispapps.colour_gif is itself
+# cached on mtime, so naming it here costs one stat and not a rebuild.
+def gifpath():
+    return dispapps.colour_gif()
+
+
+def gifname():
+    return os.path.basename(gifpath())
 import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
 import dispcp                                               # noqa: E402
@@ -144,7 +155,7 @@ def run(image, apps, machine, defines):
         rx, ry = dispcp.row_xy(bx, by,
                                dispcp.scroll_to(m, mo, S, settle, bx, by,
                                                 dispcp.row_of(m, S,
-                                                              gifname),
+                                                              gifname()),
                                                 card=0))
         mo.dblclick(rx, ry)
         settle(m, card=0, limit=300.0)
@@ -271,8 +282,7 @@ def main():
     # uses stopped being able to give this one a four-plane canvas.
     # dispapps.colour_gif appends two unused entries and changes not one
     # pixel, so every oracle below is the one it always was.
-    gif = dispapps.colour_gif()
-    gifname = os.path.basename(gif)
+    gif = gifpath()
 
     if a.apps == "/tmp/blitcut.img":
         os88marty.scratch_disk(a.apps, "APPS:build/paint.o88",
