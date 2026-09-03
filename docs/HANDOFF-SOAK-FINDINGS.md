@@ -315,6 +315,58 @@ for a window *drag* on a 1bpp adapter, which is the same class of assumption
 pointing the other way — so the pair of them is now the written record that
 neither gesture is a repaint by itself.
 
+## A7. `build/OS8088.GIF` is TWO COLOURS, and six rows needed it not to be
+
+**The tree has one picture fixture and SPEC.md 42.23.6 made it monochrome.**
+That section opens a GIF whose colour table has two entries **one bit deep on
+any adapter** — which is right for that file — and `build/OS8088.GIF` has
+exactly two. So every row whose subject is the FOUR-PLANE canvas stopped being
+able to get one, and each said so in the product's words rather than the
+fixture's: *"no gfx_blitp — the canvas is not planar"*.
+
+**Six rows, and they were found three at a time, which is the lesson.** They
+were fixed as they surfaced — `paintplan`, `paintrow`, `paintback`, then
+`paintdraw` and `paintfill`, then `paintbig`, `paintlzw`, `paintpack`,
+`blitcut`, `blitplane`, `dispblitp` — and each round was reported as complete
+before the next one appeared. **`grep -l OS8088.GIF tests/` is fourteen files
+and takes a second**; doing it at the start would have found all of them at
+once. The rule worth keeping: when a change moves what a shared fixture MEANS,
+enumerate its users before fixing any of them.
+
+`dispapps.colour_gif` is the answer — two unused colour-table entries appended,
+**not one pixel changed** — so every oracle of the form "the canvas against the
+file" is unaffected and the rows stay pinned to the same picture. Deriving it
+also keeps the repo free of a second binary (CONTRIBUTING.md 6).
+
+### A7.1 Two things the failures said that were true and misleading
+
+**`paintplan` KEPT PASSING.** Its docstring claims it proves "the canvas went
+planar, by construction: the geometry comes off a breakpoint on `gfx_blitp`,
+and on a build that stayed packed that breakpoint never fires". Once the
+fixture was monochrome that stopped being true and the row still went green,
+because what it *asserts* is a pixel comparison the 1bpp canvas also satisfies.
+**A row that passes for a reason that has gone away is worse than one that
+fails**, and nothing catches it: only reading the docstring against the new
+behaviour did. `paint1bpp-colour` exists because of this — it asserts the
+NEGATIVE, four planes and sixteen colours, which nothing in `tests/` did.
+
+**`paintpack` read "the canvas is 466x1".** That is `blitpair` inferring the
+canvas height from a blit, and 42.23.4's one-bit path blits **one row per
+call**. Harmless there once the fixture is colour, but any harness that infers
+geometry from a single blit will read 1 on a one-bit canvas.
+
+### A7.2 …and one number that is NOT a fixture artefact
+
+`paintlzw` measured `pt_line_put` at **199.1 cycles a pixel against a ceiling
+of 150** — because the monochrome fixture sent it down 42.23's new BIT arm
+instead of 42.13.1.4's unrolled planar one. Pointing the row back at a colour
+picture restores what it was written to measure, and **the number stands on its
+own**: the one-bit load path is a per-pixel loop with two table shifts and is
+~33% over the planar arm's budget. §42.13.1.4's finding applies to it unchanged
+— the 8088 charges for instruction BYTES, so a straight-line byte column beat
+the rolled loop there and would here. Open, and worth taking with a measurement
+rather than on this note's word.
+
 ## B1. Install-then-boot is broken by per-instance disk isolation
 
 **FIXED.** `os88marty.stage_run_dir()` is a run tree the CALLER owns —

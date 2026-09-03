@@ -44,6 +44,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
 import os88marty                                            # noqa: E402
+import dispapps                                              # noqa: E402
 import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
 import dispcp                                               # noqa: E402
@@ -143,7 +144,7 @@ def run(image, apps, machine, defines):
         rx, ry = dispcp.row_xy(bx, by,
                                dispcp.scroll_to(m, mo, S, settle, bx, by,
                                                 dispcp.row_of(m, S,
-                                                              "OS8088.GIF"),
+                                                              gifname),
                                                 card=0))
         mo.dblclick(rx, ry)
         settle(m, card=0, limit=300.0)
@@ -264,9 +265,18 @@ def main():
     ap.add_argument("--machine", default="os8088_xt_vga_mda")
     a = ap.parse_args()
 
+    # A COLOUR PICTURE, and it has to be said now: SPEC.md 42.23.6 opens a GIF
+    # whose colour table has two entries ONE BIT DEEP on any adapter, and
+    # build/OS8088.GIF has exactly two - so the fixture every picture row here
+    # uses stopped being able to give this one a four-plane canvas.
+    # dispapps.colour_gif appends two unused entries and changes not one
+    # pixel, so every oracle below is the one it always was.
+    gif = dispapps.colour_gif()
+    gifname = os.path.basename(gif)
+
     if a.apps == "/tmp/blitcut.img":
         os88marty.scratch_disk(a.apps, "APPS:build/paint.o88",
-                               "MEDIA:build/OS8088.GIF")
+                               "MEDIA:" + gif)
 
     print("   shipped kernel:")
     cyc, geom, fbs, clk = run(a.image, a.apps, a.machine, ())

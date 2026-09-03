@@ -58,6 +58,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 sys.path.insert(0, HERE)
 import os88marty, os88mouse, os88sym, dispcp                  # noqa: E402
+import dispapps                                              # noqa: E402
 from paintmove import pkg_syms                                # noqa: E402
 
 S = os88sym.linear
@@ -94,14 +95,23 @@ def main():
     ap.add_argument("--image", default="build/os8088-360.img")
     ap.add_argument("--apps", default="/tmp/paintlzw.img")
     ap.add_argument("--machine", default="os8088_xt_vga")
-    ap.add_argument("--gif", default="build/OS8088.GIF")
+    ap.add_argument("--gif", default=None)
     a = ap.parse_args()
+
+    # A COLOUR PICTURE, and it has to be said now: SPEC.md 42.23.6 opens a GIF
+    # whose colour table has two entries ONE BIT DEEP on any adapter, and
+    # build/OS8088.GIF has exactly two - so the fixture every picture row here
+    # uses stopped being able to give this one a four-plane canvas.
+    # dispapps.colour_gif appends two unused entries and changes not one
+    # pixel, so every oracle below is the one it always was.
+    gif = dispapps.colour_gif()
+    gifname = os.path.basename(gif)
 
     sym = pkg_syms("apps/paint/paint.asm")
     # The docstring's recipe, RUN rather than transcribed (tests/paintgif.py's
     # rule): a disk built by hand is a row that passes for whoever built it.
-    os88marty.scratch_disk(a.apps, "APPS:build/paint.o88", "MEDIA:" + a.gif)
-    name = os.path.basename(a.gif).upper()
+    os88marty.scratch_disk(a.apps, "APPS:build/paint.o88", "MEDIA:" + gif)
+    name = os.path.basename(gif).upper()
 
     with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
                           boot=False) as m:
