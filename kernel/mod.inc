@@ -43,30 +43,39 @@ MOD_CTRL    equ 0               ; the Control Panel (SPEC.md 31)
 MOD_FMT     equ 1               ; the floppy formatter (SPEC.md 18.96)
 MOD_CLONE   equ 2               ; the disk cloner (SPEC.md 18.99)
 
-MOD_NENT    equ 8               ; far-pointer slots reserved per module. A
+MOD_NENT    equ 6               ; far-pointer slots reserved per module. A
                                 ; fixed stride, so a thunk's
                                 ; `call far [mod_fp + K]` is an assembly-time
                                 ; constant with no arithmetic at run time -
                                 ; which is what makes dispatch re-entrant and
                                 ; register-free (see mod_fp below).
                                 ;
-                                ; EIGHT. It was four - "what both modules use,
-                                ; and not a round eight" - until SPEC.md
-                                ; 13.8.3 gave the Control Panel a
-                                ; W_ONMOUSEUP and a W_ONDRAG and it needed
-                                ; six. The costs the old comment named are
-                                ; real and are what they are: +32 bytes of
-                                ; .bss (MOD_MAX x 16) and 8 bytes of each
-                                ; module FILE, and every module is rebuilt -
-                                ; which a kernel change already forces,
-                                ; MOD_H_BUILD being the commit count.
+                                ; SIX, WHICH IS EXACTLY WHAT THE MODULES USE.
+                                ; It was four, then eight when SPEC.md 13.8.3
+                                ; gave the Control Panel a W_ONMOUSEUP and a
+                                ; W_ONDRAG and it needed six. Eight was picked
+                                ; because it is a POWER OF TWO and mod_fpr
+                                ; could then reach mod_fp with three shifts -
+                                ; but the three modules declare 6, 4 and 1
+                                ; (CP_NENT, FM_NENT, CLO_NENT), so eleven
+                                ; slots of twenty-four were ever armed and 52
+                                ; bytes of mod_fp were written by mod_disarm
+                                ; on every load and drop and were never a
+                                ; far-call target.
                                 ;
-                                ; IT HAS TO BE A POWER OF TWO, because
-                                ; mod_fpr SHIFTS a ROW pointer straight into
-                                ; mod_fp while each module's base equ
-                                ; MULTIPLIES by MODFP_STRIDE. The assertion
-                                ; below is what caught those two disagreeing
-                                ; once already
+                                ; The power of two was never the requirement -
+                                ; it was one ENCODING of MODFP_STRIDE /
+                                ; MODR_SIZE, which is now 6, and x6 is
+                                ; (x2 + x1) x 2: the same THIRTEEN BYTES of
+                                ; mod_fpr, measured. What it costs is
+                                ; headroom: the Control Panel is at the
+                                ; ceiling, so a SEVENTH entry raises this
+                                ; constant, and at x7 mod_fpr gains two bytes
+                                ; on top of the .bss because x7 is x8 - x1.
+                                ; It cannot be a silent overrun - every module
+                                ; header ends `times MOD_NENT - X dw 0` and a
+                                ; negative TIMES is a hard NASM error, in the
+                                ; file that grew.
 
 MODFP_STRIDE equ MOD_NENT * 4   ; bytes of mod_fp per module: four far
                                 ; pointers. Named because it is spelled TWICE
@@ -141,17 +150,20 @@ MODR_SIZE   equ 4               ; ...and that is the whole row. It was 8: two
                                 ; the padding with it - the live part had been
                                 ; the first four bytes for a while, and MOD_MAX
                                 ; is THREE, so the pad was wasting six.
-MODR_SHIFT  equ 2               ; ...still a power of two, so the id <-> row
+MODR_SHIFT  equ 2               ; ...still a power of two, so the id -> row
                                 ; conversion is shifts and never a multiply.
-                                ; FOUR SITES MOVE TOGETHER when this does:
-                                ; mod_row unrolls it as two `shl bx,1`, and
-                                ; three `mov cl, MODR_SHIFT / shr ax, cl`
-                                ; take the id back out of a row pointer.
+                                ; ONE SITE reads it now - mod_row, which
+                                ; unrolls it as two `shl bx,1`. The three
+                                ; `mov cl, MODR_SHIFT / shr ax, cl` that took
+                                ; the id back OUT of a row pointer are gone:
+                                ; the only caller that wanted it (mod_check)
+                                ; is handed the id in DI instead, and the
+                                ; conversion is now one-way.
 %if (1 << MODR_SHIFT) != MODR_SIZE
   %error "MODR_SHIFT and MODR_SIZE disagree: mod_row SHIFTS a module id up into a row pointer while every other site SHIFTS one back down, and a stride that is not 1<<MODR_SHIFT makes those two operations different functions - which reads one row and writes another, silently"
 %endif
-%if MODFP_STRIDE != MODR_SIZE * 8
-  %error "mod_fpr turns a row pointer into &mod_fp[id] with three shifts, which is MODFP_STRIDE / MODR_SIZE == 8. Change either stride without the other and every module but module 0 arms a block that is not its own - silently, over whatever .bss ordering has put there"
+%if MODFP_STRIDE != MODR_SIZE * 6
+  %error "mod_fpr turns a row pointer into &mod_fp[id] with a x6 chain, which is MODFP_STRIDE / MODR_SIZE == 6. Change either stride without the other and every module but module 0 arms a block that is not its own - silently, over whatever .bss ordering has put there"
 %endif      ; ...and see MODFP_STRIDE above for this one
 
 section .text
@@ -195,11 +207,17 @@ mod_gone:
 
 ; -----------------------------------------------------------------------------
 ; mod_row - AL = a module id -> BX = its row
-; clobbers: BX, flags
+; clobbers: BX, AH, flags
+;
+; AH, because `cbw` is a byte where `mov bh, 0` is two. It SIGN-extends, so an
+; AL past 0x7F would give a negative row offset where `mov bh,0` gave a large
+; positive one - both out-of-table garbage, and every caller passes a MOD_*
+; constant or the [fm_swapwho]-selected one, so no reachable input differs.
+; All three callers bank AX round the call.
 ; -----------------------------------------------------------------------------
 mod_row:
-    mov bl, al
-    mov bh, 0
+    cbw
+    mov bx, ax
     shl bx, 1
     shl bx, 1                   ; MODR_SHIFT, unrolled rather than borrowing CL
     add bx, mod_tab
@@ -209,7 +227,12 @@ mod_row:
 ; mod_live - is module AL resident RIGHT NOW? (SPEC.md 2.8, 13.8.3)
 ; in:  AL = a module id
 ; out: CF = 0 resident, CF = 1 not; BX = its row either way, nothing else
-;      touched
+;      touched - which is still true, and the only thing that changed is
+;      WHICH flags carry the answer. `cmp word [bx+MODR_SEG], 1` sets CF iff
+;      the word is below 1 unsigned, and for a 16-bit word that is exactly
+;      "is zero" - the question this routine asks. ZF/SF/OF now differ on the
+;      resident arm; both callers (ctrl.inc's cpf_cp_onup and cpf_cp_ondrag,
+;      the complete set) read CF alone, and the contract never named the rest.
 ;
 ; mod_need without the loading. The callers are the ones that can only ever
 ; follow a gesture the module itself took - a W_ONMOUSEUP or a W_ONDRAG after
@@ -220,12 +243,7 @@ mod_row:
 ; -----------------------------------------------------------------------------
 mod_live:
     call mod_row
-    cmp word [bx+MODR_SEG], 0
-    je .no
-    clc
-    ret
-.no:
-    stc
+    cmp word [bx+MODR_SEG], 1   ; CF = 1 iff the word is 0 - see the banner
     ret
 
 ; -----------------------------------------------------------------------------
@@ -235,17 +253,19 @@ mod_live:
 ;
 ; Both callers already hold the row and both want the answer in DI, so the id
 ; is never formed at all: &mod_fp[id] is mod_fp + (BX - mod_tab) / MODR_SIZE *
-; MODFP_STRIDE, and that ratio is 8 (the %if above pins it), so the whole
-; thing is BX*8 with a constant folded in.  BX*8 may wrap 16 bits and the
+; MODFP_STRIDE, and that ratio is 6 (the %if above pins it), so the whole
+; thing is BX*6 with a constant folded in.  BX*6 may wrap 16 bits and the
 ; result is still exact - it is a `.bss` offset under 64KB, so the arithmetic
-; is modular either way.
+; is modular either way.  x6 is (x2 + x1) x 2, which is the same thirteen
+; bytes the three shifts were: the ratio being a power of two bought nothing
+; here, which is what let MOD_NENT come down to what the modules use.
 ; -----------------------------------------------------------------------------
 mod_fpr:
     mov di, bx
     shl di, 1
+    add di, bx
     shl di, 1
-    shl di, 1
-    add di, mod_fp - mod_tab*8
+    add di, mod_fp - mod_tab*6
     ret
 
 ; -----------------------------------------------------------------------------
@@ -283,7 +303,20 @@ mod_need:
     push bp
     push es
 
-    push ax                     ; the id, for the whole routine
+    mov di, ax                  ; THE ID, FOR THE WHOLE ROUTINE, and in a
+                                ; register rather than on the stack: it used
+                                ; to be pushed here and popped by both exit
+                                ; arms, and nothing between read it -
+                                ; mod_check's own banner said the pushed copy
+                                ; was NOT read. DI survives every callee
+                                ; below (drv_vol_bank/back and drv_mounted
+                                ; preserve everything, drv_find clobbers AX
+                                ; alone, mem_claim_hi_x "every other register
+                                ; preserved" - including through mem_compact,
+                                ; whose mem_reloc_call is "all registers
+                                ; preserved" - and dskw_read_x banks BP/DI
+                                ; itself), and mod_check reads it instead of
+                                ; deriving the id back out of the row pointer
     call mod_row
     cmp word [bx+MODR_SEG], 0
     jne .already
@@ -298,7 +331,11 @@ mod_need:
     jc .fail
     cmp ax, MOD_HDR_SZ
     jb .fail
-    mov [mod_fsz], ax
+    mov bp, ax                  ; THE FILE'S BYTE SIZE, in the register this
+                                ; routine already banks and never spends -
+                                ; it was a .bss word read five times, four of
+                                ; them through a disp16 operand. mod_check
+                                ; takes it as an input
 
     add ax, 1023                ; -> whole KB. The size is well under 64KB,
     mov cl, 10                  ; so this cannot carry out
@@ -313,44 +350,41 @@ mod_need:
     mov [bx+MODR_SEG], dx
 
     push bx
-    mov es, dx
-    mov si, [bx+MODR_FILE]
-    mov cx, [mod_fsz]
-    xor bx, bx
+    mov es, dx                  ; ...and NO second `mov si, [bx+MODR_FILE]`:
+    mov cx, bp                  ; SI is still the one loaded for drv_find, and
+    xor bx, bx                  ; mem_claim_x banks SI/DI around everything
+                                ; including the compaction (memory.inc:520)
     xor dx, dx                  ; DX:CX = the capacity, DX:AX the answer
     call dskw_read_x                         ; the whole file, by name, on the system disk
     pop bx
     jc .freefail
-    cmp ax, [mod_fsz]           ; DX is 0 or the read would have refused
+    cmp ax, bp                  ; DX is 0 or the read would have refused
     jne .freefail
 
     call mod_check
     jc .freefail
 
-    call drv_vol_back                     ; preserves CF
-    jmp short .ok
-
+    call drv_vol_back           ; preserves CF - and the success path FALLS
+                                ; INTO the answer below
+.already:
+.ok:
+    clc
+    jmp short .out
 .freefail:
     call mod_free_row           ; the claim goes back; nothing was armed
 .fail:
-    call drv_vol_back          
-    pop ax
-    jmp short .out_c
-.already:
-.ok:
-    pop ax
-    clc
-    jmp short .out
-.out_c:
-    stc
+    call drv_vol_back           ; ...and this one no longer has to preserve
+    stc                         ; CF, which is weaker than what the old shape
+                                ; leaned on rather than stronger
 .out:
     jmp kretc_es
 
 ; -----------------------------------------------------------------------------
 ; mod_check - validate a loaded image and arm its entry slots (module internal)
-; in:  BX = the row with MODR_SEG live, [mod_fsz] = the bytes that arrived,
-;      the id still on the stack under the return address is NOT read - the
-;      header's own MOD_H_ID is checked against the row instead
+; in:  BX = the row with MODR_SEG live, BP = the bytes that arrived,
+;      DI = the module id mod_need was called with - which is checked against
+;      the header's own MOD_H_ID rather than derived back out of the row
+;      pointer, because mod_need already has it
 ; out: CF = 0 and mod_fp armed; CF = 1 malformed - and nothing armed
 ; clobbers: AX, CX, DX, SI, DI, ES, flags
 ;
@@ -369,22 +403,21 @@ mod_check:
     jne .bad
     cmp byte [es:MOD_H_VER], MOD_VER
     jne .bad
-    mov ax, bx
-    sub ax, mod_tab
-    mov cl, MODR_SHIFT
-    shr ax, cl                  ; the row index back out of the row pointer
-    cmp [es:MOD_H_ID], al
-    jne .bad
+    mov ax, di                  ; the id mod_need was CALLED with - nine
+    cmp [es:MOD_H_ID], al       ; bytes of arithmetic recovered a number the
+    jne .bad                    ; caller was holding. If DI were ever
+                                ; clobbered on the way here the failure is a
+                                ; REFUSAL and not a wrong dispatch, which is
+                                ; the safe direction
     cmp word [es:MOD_H_BUILD], BUILD_NUM
     jne .bad
     cmp word [es:MOD_H_STAMP], MOD_STAMP
     jne .bad
     mov ax, [es:MOD_H_IMG]
-    cmp ax, [mod_fsz]           ; the image IS the file
+    cmp ax, bp                  ; the image IS the file
     jne .bad
     mov cx, [es:MOD_H_NENT]
-    or cx, cx
-    jz .bad
+    jcxz .bad
     cmp cx, MOD_NENT
     ja .bad
 
@@ -395,18 +428,19 @@ mod_check:
     call mod_fpr                ; DI = &mod_fp[id], and BX is untouched - so
                                 ; the `pop bx / push bx` that used to put the
                                 ; row back goes with the id derivation
-    mov si, MOD_H_ENT
-    mov cx, [es:MOD_H_NENT]
-.arm:
-    mov ax, [es:si]
+    mov si, MOD_H_ENT           ; ...and CX is STILL MOD_H_NENT from the bound
+    cld                         ; test above: mod_fpr writes DI and the flags
+.arm:                           ; and nothing else, and says so
+    es lodsw                    ; the entry table, one word a pass
     cmp ax, MOD_HDR_SZ
     jb .badarm
-    cmp ax, [mod_fsz]
+    cmp ax, bp
     jae .badarm
     mov [di], ax                ; offset...
-    mov ax, [bx+MODR_SEG]
-    mov [di+2], ax              ; ...and segment
-    add si, 2
+    mov [di+2], es              ; ...and segment, which ES IS: it was loaded
+                                ; from [bx+MODR_SEG] at the top of this
+                                ; routine and no segment register is written
+                                ; in between
     add di, 4
     loop .arm
     pop bx
@@ -442,7 +476,11 @@ mod_disarm:
 ; -----------------------------------------------------------------------------
 ; mod_free_row - give a module's claim back (module internal)
 ; in:  BX = the row
-; clobbers: AX, CX, DX, DI, flags
+; clobbers: AX, BX, CX, DX, DI, flags   <- BX now: it becomes the MEM_K_MOD
+;           owner word for mem_free and is not put back. Both callers are in
+;           this file, both named below, and neither reads it after the call.
+;           A THIRD CALLER WILL NOT BE TOLD - the same hazard clo_drop
+;           accepted, and the same mitigation: it is written here.
 ;
 ; DISARM FIRST. The claim is freed here, and a slot still naming it is a far
 ; call into whatever claims that memory next - which is the failure this whole
@@ -451,15 +489,14 @@ mod_disarm:
 mod_free_row:
     cmp word [bx+MODR_SEG], 0   ; ...and no outer bank: nothing between here
     je .out                     ; and `.out` writes BX except the inner
-    call mod_disarm             ; `push bx / mov bx, MEM_K_MOD / ... / pop bx`,
-    mov dx, [bx+MODR_SEG]       ; which already covers itself. mod_disarm
-    mov word [bx+MODR_SEG], 0   ; preserves BX since it stopped forming the id.
-    push bx
-    mov bx, MEM_K_MOD
-    call mem_free_x            
-    pop bx
-.out:
-    ret
+    call mod_disarm             ; mod_disarm preserves BX since it stopped
+    xor dx, dx                  ; forming the id, and READ-AND-CLEAR is one
+    xchg dx, [bx+MODR_SEG]      ; instruction on the 8086 - DX comes out the
+    mov bx, MEM_K_MOD           ; old segment and the word is left 0. NO bank
+    call mem_free_x             ; round BX either: neither caller reads it
+.out:                           ; after the call - mod_need's .freefail falls
+    ret                         ; into .fail and out through kretc_es, and
+                                ; mod_drop goes straight to its own pop run
 
 ; -----------------------------------------------------------------------------
 ; mod_drop - the feature is finished with its module (SPEC.md 2.8.3)
@@ -480,19 +517,16 @@ mod_drop:
     push bx
     push cx
     push dx
-    push di
-    call mod_row
-    call mod_free_row
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    push si                     ; SI is pushed so the run is a SUFFIX of the
+    push di                     ; shared ladder's es/bp/di/si/dx/cx/bx/ax -
+    call mod_row                ; which mod_drop already preserved in fact
+    call mod_free_row           ; (mod_free_row clobbers AX, BX, CX, DX, DI),
+    jmp kretc_di                ; so no contract weakens. .cold's copy of the
+                                ; ladder, and mod_drop is .cold
 
 ; -----------------------------------------------------------------------------
 ; mod_init - point every slot at mod_gone before anything can call one
-; clobbers: AX, BX, CX, DI, flags
+; clobbers: CX, DI, flags
 ;
 ; WHY IT EXISTS - AND NOT FOR THE REASON THIS COMMENT USED TO GIVE. It said
 ; ".bss arrives as whatever was in memory - `-f bin` zeroes nothing". That is
@@ -509,14 +543,19 @@ mod_drop:
 ; test written the wrong way round still assembles.
 ; -----------------------------------------------------------------------------
 mod_init_x:
-    mov al, MOD_MAX - 1
-.each:
-    call mod_row                ; ...and AL survives the body: mod_row writes
-    call mod_disarm             ; BX only, and mod_disarm is CX/DI/flags now
-    mov word [bx+MODR_SEG], 0   ; that mod_fpr answers from the row. THAT IS
-    dec al                      ; WHY THIS BANK IS GONE - take it out without
-    jns .each                   ; mod_fpr and the loop counter is corrupted.
-    retf
+    mov di, mod_fp              ; ONE PASS over the whole array. The row walk
+    mov cx, MOD_MAX * MOD_NENT  ; existed only to reach mod_fp - mod_disarm
+    call mod_disarm.slot        ; turned each row straight back into
+    retf                        ; &mod_fp[id] through mod_fpr - and the three
+                                ; blocks are contiguous by construction.
+                                ;
+                                ; ...and NO `mov word [bx+MODR_SEG], 0`: that
+                                ; wrote zero over zero. mod_tab is in .text
+                                ; (see its declaration) as a real `dw 0`
+                                ; initialiser, re-read out of KERNEL.SYS on
+                                ; every boot, and this routine's ONE caller is
+                                ; kmain - Chip > Restart being `int 19h`, the
+                                ; BIOS bootstrap, which re-loads the image.
 
 section .cold                   ; the far entry, for kmain
 
@@ -531,9 +570,12 @@ section .bss
 ; word set here and consumed one instruction later is a race with anything
 ; that can run in between, which on a pre-emptive kernel is everything.
 mod_fp:     resb MOD_MAX * MODFP_STRIDE
-mod_fsz:    resw 1              ; the file's byte size, across the read. It
-                                ; follows mod_fp, which is how the stride bug
-                                ; above announced itself at all - the arm loop
-                                ; overwrote it and then compared against it
+                                ; ...and NO mod_fsz. The file's byte size
+                                ; lives in BP for the length of mod_need,
+                                ; which banks BP at entry and never spends
+                                ; it. It used to be the word after mod_fp,
+                                ; which is how the stride bug above announced
+                                ; itself at all - the arm loop overwrote it
+                                ; and then compared against it
 
 section .text

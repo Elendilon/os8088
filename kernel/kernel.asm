@@ -4516,7 +4516,13 @@ kmain:
     MARK 22
     OVWCALL  files_init_x       ; Disk module state (no window at boot)
     MARK 23
-    OVWCALL  loader_init_x      ; package loader state
+                                ; NO loader_init: all four of the loader's
+                                ; resting values ARE zero (LD_OK is 0) and
+                                ; .bss is zero at boot (SPEC.md 2.5), so the
+                                ; routine wrote zero over zero. The MARK stays
+                                ; where it is - they are counted, not named,
+                                ; so renumbering would move every BOOTHALT
+                                ; number after it for nothing
     MARK 24
     OVWCALL  drv_init_x         ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the

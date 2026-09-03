@@ -887,6 +887,31 @@ SOAK = [
         "fixtures are *.O88 files that are deliberately not packages, and "
         "validate_o88 exists to make those unbuildable. 40s measured.",
         needs=("marty",), serial=True),
+    Row("pkgfence", "soak", py("tests/pkgfence.py"), 60.0,
+        "SPEC.md 21 steps 4 and 6's WRITE BOUND: ld_check_hdr's `image + bss` "
+        "fence. Both operands are separately bounded at APP_MAX_SIZE, so "
+        "their sum reaches 0x1E000 - SEVENTEEN BITS - and the compare that "
+        "used to stand there read a WRAPPED value, with the comment on the "
+        "line stating the defect as its own proof (`img+bss <= 0x1E000: no "
+        "wrap`). The repair is `add dx, ax / jc .toobig` and it shipped in "
+        "size pass 3 with NO ROW BEHIND IT: nothing else in the tree can see "
+        "this, because every other gate loads a well-formed package and "
+        "os88pkg.py refuses to build a malformed .O88 at all - which is the "
+        "point, since the input this is about comes off a disk (SPEC.md 19). "
+        "TWO FILES AND THE PAIR IS THE EXPERIMENT - BSSWRAP.O88 is image = "
+        "bss = 0xF000, whose sum wraps to 0xE000, BELOW the bound, for a 56KB "
+        "claim and 4KB past it; BSSWORST.O88 is image = 0xF000, bss = 0x1001, "
+        "whose sum wraps to 1, for a ONE KILOBYTE claim and 60,416 bytes "
+        "written through whatever mem_claim_hi placed under it, which is a "
+        "resident package's code because it places top-down. The first alone "
+        "under-states the fault fifteenfold and the second alone looks "
+        "contrived. Both must answer LD_EBIG. A regression does NOT answer "
+        "cleanly - it corrupts the guest's heap and this row times out, which "
+        "is inherent: the write the fence bounds has already happened by the "
+        "time anything could report it. The instrument is [ld_status] read "
+        "out of the guest, so it answers for all three adapters out of one "
+        "run. Shares build/pkgbig.img with the pkgbig row - `make pkgbig`.",
+        needs=("marty",), serial=True),
     Row("clipkeep", "soak", py("tests/clipkeep.py"), 300.0,
         "SPEC.md 11.96.18: a wholly covered window keeps its raise cache when"
         "it arms a clip, and a partly covered one still loses it.",

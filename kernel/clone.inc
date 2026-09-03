@@ -2690,8 +2690,11 @@ clo_call:
     ret
 .no:
     mov ax, CERR_NODISK         ; the nearest true thing: there is no cloner,
-    stc                         ; so there is no disk it can reach
-    ret
+    ret                         ; so there is no disk it can reach - and CF IS
+                                ; ALREADY SET: `.no` is reachable only through
+                                ; the `jc` above, and `mov r16, imm16` (B8 iw)
+                                ; writes no flag, which this file already
+                                ; states two headers up for `pop ax` and `ret`
 
 ; -----------------------------------------------------------------------------
 ; clo_drop - the cloner is finished with (SPEC.md 2.8.3)

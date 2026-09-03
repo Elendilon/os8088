@@ -24,12 +24,18 @@
 ; reach. kern_small had already dropped it outright (SPEC.md 41.11); this is
 ; the same removal for kern_big, keeping the capability.
 ;
-; NOTHING IN THE TREE ALLOCATES OUT OF THE POOL TODAY, and that is worth
-; knowing before reading any comment here as a description of live behaviour.
-; Exactly one consumer has ever existed - SPEC.md 53.6.1's fullscreen desktop
-; stash - and it was removed. What remains is a published package ABI
-; (SPEC.md 20.8 rule 4) with no caller inside the kernel, which is a
-; deliberate state and not an oversight; consumers are expected.
+; THE POOL HAS A KERNEL CONSUMER, and this banner said the opposite for
+; several releases - which is worth knowing before reading any comment here
+; as a description of live behaviour, and before deleting anything on the
+; strength of it. **kernel/clone.inc declares all four published slots and
+; calls every one**: clo_xmsup asks xm_caps for the free KB and xm_alloc for
+; a whole floppy's worth, so a same-drive clone makes ONE trip to the disk
+; box instead of twenty-two (SPEC.md 18.99.4); clo_free gives it back, and
+; xm_copy moves the image. It is also a package ABI (SPEC.md 20.8 rule 4).
+; The sentence that used to be here - "nothing in the tree allocates out of
+; the pool today", true when SPEC.md 53.6.1's fullscreen desktop stash was
+; removed and never revisited - is what a size pass would have deleted a
+; live subsystem on.
 ;
 ; [xm_kb] IS THE ONE GATE, and it means two things at once on purpose: "there
 ; is a store" and "the overlay is attached". The kernel writes it LAST, after

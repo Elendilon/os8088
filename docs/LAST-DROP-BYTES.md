@@ -43,7 +43,7 @@ minutes rather than an afternoon.
 > | 16 | `sch_idle_start` | `.ovl` |
 > | 17 | `menu_init` | `.ovl` |
 > | 18 | `inst_init` | `.ovl` |
-> | 19 | `loader_init_x` | `.ovl` |
+> | ~~19~~ | ~~`loader_init_x`~~ | **GONE — deleted outright in kernel size pass 3, §2.2**: all four of the loader's resting values were already zero |
 > | **20** | **`mod_init_x`** | **`.cold` — §2.3** |
 > | ~~21~~ | ~~`evq_init`~~ | **GONE — deleted outright in kernel size pass 3, §2.2** |
 > | **22** | **`vid_init`** | **`.text` — §2.1** |

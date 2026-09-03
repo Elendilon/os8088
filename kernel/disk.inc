@@ -2614,7 +2614,7 @@ disk_mount_x:
     mov bl, dl                  ; the listing's home follows the VOLUME: the
     call dsk_list_pick          ; .lowbss floor, or the claim its driver
     pop bx                      ; donated (SPEC.md 22.6)
-    mov word [ld_pending], 0    ; a queued click indexes the OLD directory;
+    mov byte [ld_pending], 0    ; a queued click indexes the OLD directory;
                                 ; never let it run against the new one
     cmp byte [dsk_keepcwd], 0   ; a remount always lands at the root, and
     jne .cwd_kept               ; dskw_* resolve there until dsk_chdir

@@ -537,8 +537,9 @@ ui_task:
     call app_launch             ; in: AL = kind; does its own locking
 .chk_ld:
     xor ax, ax                  ; set by files.inc's click handler, stored as
-    xchg ax, [ld_pending]       ; directory index + 1, consumed before running
-    or ax, ax
+    xchg al, [ld_pending]       ; directory index + 1, consumed before running
+    or al, al                   ; - a BYTE now, and the xor above leaves AH 0
+                                ; so `dec ax` and the call below are untouched
     jz .chk_assoc               ; ...and NOT .chk_pcmd: a document open posts
                                 ; no package index, so skipping past the step
                                 ; below on "no package pending" is skipping

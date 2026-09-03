@@ -1182,8 +1182,8 @@ drv_status_x:
 drv_row_x:
     push ax
     push cx
-    mov ah, 0
-    mov cl, 4                   ; DRVR_SIZE = 16
+    cbw                         ; AH banked above, so even the sign-extension
+    mov cl, 4                   ; is invisible - DRVR_SIZE = 16
     shl ax, cl
     mov bx, ax
     add bx, drv_tab
@@ -2455,7 +2455,14 @@ drv_load_row:
     jc .noent
     cmp ax, DRV_HDR_SZ
     jb .bad
-    mov [drv_fsz], ax
+    mov bp, ax                  ; THE FILE'S BYTE SIZE, in the register both
+                                ; entries already bank and neither spends: it
+                                ; was a .bss word read four times, three of
+                                ; them through a disp16 operand. drv_attach's
+                                ; own `mov bp, [bx+DRVR_ENT]` is inside its
+                                ; own push bp/pop bp and after the last read.
+                                ; mod_need does the identical thing with
+                                ; mod_fsz - one register audit, both files
 
     add ax, 1023                ; -> whole KB (the size is well under 64KB,
     mov cl, 10                  ; so this cannot carry out)
@@ -2471,15 +2478,16 @@ drv_load_row:
     mov [bx+DRVR_KB], ax
 
     push bx                     ; the row - BX is the read's own destination
-    mov es, dx                  ; offset, and the claim starts at ES:0000
-    mov si, [bx+DRVR_FILE]
-    mov cx, [drv_fsz]
-    xor bx, bx
+    mov es, dx                  ; offset, and the claim starts at ES:0000.
+    mov cx, bp                  ; ...and NO second `mov si, [bx+DRVR_FILE]`:
+    xor bx, bx                  ; SI is still the one loaded for drv_find, and
+                                ; mem_claim_x banks SI/DI around everything
+                                ; including the compaction
     xor dx, dx                  ; DX:CX = the capacity, DX:AX the answer -
     call dskw_read_x              ; the whole file, by name, in A:'s root
     pop bx
     jc .ioerr
-    cmp ax, [drv_fsz]           ; DX is 0 or the read would have refused: a
+    cmp ax, bp                  ; DX is 0 or the read would have refused: a
     jne .ioerr                  ; driver is DRV_MAX_KB at the outside
 
     call drv_check              ; the header, against the image that arrived
@@ -2502,7 +2510,7 @@ drv_load_row:
     cmp ax, bx                  ; and browsable. RAMDISK.DRV and NET.DRV are
     je .clsfree                 ; both DRVC_FILE, so the user can ask for it
     mov al, DRVE_TWICE          ; from the Drivers page. REFUSE AND SAY SO
-    jmp short .failfree         ; instead: 'Attached twice (bug)' beside the
+    jmp short .fail             ; instead: 'Attached twice (bug)' beside the
                                 ; second row, and the image handed straight
                                 ; back. Genuine coexistence is a [drv_fscls]
                                 ; resolved from the VOLUME's row, which
@@ -2546,10 +2554,10 @@ drv_load_row:
     jmp short .fail
 .ioerr:
     mov al, DRVE_BAD
-    jmp short .failfree
+    jmp short .fail
 .badfree:
     mov al, DRVE_BAD
-    jmp short .failfree
+    jmp short .fail
 .nohwal:
     ; A refusing attach MAY hand back a DRVE_* in AL, and most do not: the
     ; verb's contract was CF alone for a long time, so anything outside the
@@ -2561,14 +2569,19 @@ drv_load_row:
     cmp al, DRVE_OK
     je .nohw
     cmp al, DRVE_NERR
-    jb .failfree
+    jb .fail
 .nohw:
     mov al, DRVE_HW
-.failfree:
-    push ax
-    call drv_release            ; the claim goes back; nothing was hooked
-    pop ax
-.fail:
+.fail:                          ; ONE TAIL, and drv_release runs on every arm.
+    call drv_release            ; It is a NO-OP when DRVR_SEG is 0 - its own
+                                ; first three instructions test exactly that -
+                                ; and at every pre-claim refusal DRVR_SEG is
+                                ; provably 0, because this routine's FIRST
+                                ; instruction is `cmp word [bx+DRVR_SEG], 0 /
+                                ; jne .already`. It also preserves AX itself
+                                ; ("out: nothing - all registers preserved"),
+                                ; so the bank the .fail arm used to put
+                                ; round it was dead as well
     mov [bx+DRVR_ERR], al
     stc
 .out:
@@ -2578,37 +2591,38 @@ drv_load_row:
 
 ; -----------------------------------------------------------------------------
 ; drv_check - validate a loaded driver image (module internal)
-; in:  BX = row ptr with DRVR_SEG live, [drv_fsz] = the bytes that arrived
+; in:  BX = row ptr with DRVR_SEG live, BP = the bytes that arrived
 ; out: CF = 0 and [bx+DRVR_ENT] filled; CF = 1 malformed
-; clobbers: AX, flags
+; clobbers: AX, SI, flags
 ;
-; ld_check_hdr's tests, on a driver: version 4 instead of 3, the row's own
-; class, and the same dispatcher bytes - a driver whose header does not carry
-; `call bp / retf` would jump the kernel into its data on the first call.
+; ld_check_hdr's tests, on a driver - and it is now literally them: the
+; magic, the version, the link word and the dispatcher pair are ld_hdr_ok
+; (loader.inc, .cold, so the call is near), because SPEC.md 51.1 defines a
+; driver header as a package header with a different version byte and these
+; offsets are identical by construction. What stays here is what is a
+; DRIVER's: version 4 instead of 3 is the argument, and the row's own class,
+; the image-is-the-file rule and the entry bound are the rest.
+;
+; SI is the header cursor the shared body wants, and it is zero throughout -
+; [es:si+n] is a byte shorter than [es:n] for every one of these fields.
 ; -----------------------------------------------------------------------------
 drv_check:
     push es
     mov es, [bx+DRVR_SEG]
-    cmp word [es:DRV_H_MAGIC], 0x384F
-    jne .bad
-    cmp byte [es:DRV_H_VER], DRV_VER
-    jne .bad
+    xor si, si
+    mov al, DRV_VER
+    call ld_hdr_ok
+    jc .bad
     mov al, [bx+DRVR_CLASS]
-    cmp [es:DRV_H_CLASS], al
+    cmp [es:si+DRV_H_CLASS], al
     jne .bad
-    cmp word [es:DRV_H_LINK], 0
+    mov ax, [es:si+DRV_H_IMG]
+    cmp ax, bp                              ; the image IS the file
     jne .bad
-    cmp word [es:DRV_H_DISP], 0D5FFh        ; call bp
-    jne .bad
-    cmp byte [es:DRV_H_DISP+2], 0CBh        ; retf
-    jne .bad
-    mov ax, [es:DRV_H_IMG]
-    cmp ax, [drv_fsz]                       ; the image IS the file
-    jne .bad
-    mov ax, [es:DRV_H_ENTRY]
+    mov ax, [es:si+DRV_H_ENTRY]
     cmp ax, DRV_HDR_SZ
     jb .bad
-    cmp ax, [drv_fsz]
+    cmp ax, bp
     jae .bad
     mov [bx+DRVR_ENT], ax                   ; banked: an unload must not be
     pop es                                  ; steerable by a driver that has
@@ -4171,7 +4185,6 @@ drv_wcnt:   resb 1              ; live driver worker tasks: +1 inside the
                                 ; spawn's IF=0 window, -1 inside task_exit's
                                 ; (drv_task). drv_unload waits for 0 before
                                 ; the image is freed (SPEC.md 51.7)
-drv_fsz:    resw 1              ; the driver file's byte size
 %ifdef KERN_BIG                 ; kern_small's slot is a refusing stub, so it
                                 ; needs none of this state (SPEC.md 62.9.15)
 drv_dlg_row: resw 1             ; the row that asked for a file dialog, 0 =

@@ -1136,8 +1136,8 @@ sector nothing: unset, the `%ifdef` is not assembled.
 **A module is `.cold` code that ships as a file instead of as part of the
 kernel image.** It is read into a heap claim when its feature is asked for,
 far-called through a table of entry pointers, and freed when the feature is
-finished. Two exist: `CTRL.DRV`, the Control Panel (§31), and `FORMAT.DRV`,
-the floppy formatter (§18.96).
+finished. **Three exist**: `CTRL.DRV`, the Control Panel (§31), `FORMAT.DRV`,
+the floppy formatter (§18.96), and `CLONE.DRV`, the disk cloner (§18.99).
 
 **This is the fourth lever on the footprint, and the only one that relieves
 `KERN_BUDGET` without relieving nothing else.** §2.5's overlay is run-once
@@ -1185,14 +1185,25 @@ in the tree.
   construction. A slot that is not loaded points at `mod_gone`, which
   refuses — never at zero, which is a far call to the divide-by-zero vector.
 - **The stride is `MODFP_STRIDE` and there is exactly one of it, asserted.**
-  A module's block is reached two ways — `mod_fpi` *shifts* by it to arm the
-  slots, each module's own base *multiplies* by it to dispatch — and the two
-  disagreed by a factor of two for one release, which module 0 cannot show:
-  its block is at offset 0 whichever is right. Module 1's was armed past the
-  end of `mod_fp`, over `[mod_fsz]`, and dispatched from a block nothing had
-  written; `mod_fp` is `.bss`, so what an overrun lands on is decided by
-  section ordering in files nowhere near this one. `%if (1 << MODFP_SHIFT) !=
-  MODFP_STRIDE` is why that cannot recur.
+  A module's block is reached two ways — `mod_fpr` *scales* a row pointer by
+  it to arm the slots, each module's own base *multiplies* by it to dispatch
+  — and the two disagreed by a factor of two for one release, which module 0
+  cannot show: its block is at offset 0 whichever is right. Module 1's was
+  armed past the end of `mod_fp`, over the word that then followed it, and
+  dispatched from a block nothing had written; `mod_fp` is `.bss`, so what an
+  overrun lands on is decided by section ordering in files nowhere near this
+  one. `%if MODFP_STRIDE != MODR_SIZE * MOD_NENT/…` — the assertion beside
+  the two constants, which pins the scale factor `mod_fpr` open-codes — is
+  why that cannot recur. (Neither `mod_fpi` nor `MODFP_SHIFT` has ever
+  existed; this bullet named both for several releases.)
+- **`MOD_NENT` is what the modules use and not a round number.** It is 6:
+  `CP_NENT` 6, `FM_NENT` 4, `CLO_NENT` 1, and every module header ends
+  `times MOD_NENT - X dw 0`, which makes a seventh Control Panel entry a
+  **hard NASM error in the file that grew** rather than an overrun. It was 8
+  for as long as the scale factor had to be a power of two so `mod_fpr` could
+  shift; ×6 is `(×2 + ×1) × 2` in the same thirteen bytes, so the power of
+  two bought nothing and 52 of the 96 `mod_fp` bytes were slots no module
+  could ever declare.
 - The loader itself is **`.cold`**. In `.text` it would be ~430 bytes against
   a `KERN_CODE_MAX` nobody can raise, and being cold also means the thunks
   that call it reach it with a near call.
@@ -20662,7 +20673,7 @@ mode set so a machine without one is dated from the fallback constants
 from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe
 and apply, and **skips the mode set while the splash is live**, §15.3) →
 `font_init` → `wm_init` →
-`inst_init` → `mouse_init` → `desk_init` → `files_init` → `loader_init` →
+`inst_init` → `mouse_init` → `desk_init` → `files_init` →
 `snd_init` (§34.7 — publishes `snd_live` last) → `drv_boot` (§51.3) →
 `spl_finish` (§15.3) → gfx_lock →
 `wm_paint_all` → gfx_unlock → `cursor_show` → `drv_notice` (§51.3) → jump
@@ -30235,7 +30246,8 @@ primary claims on a part's behalf and passes it a segment.
 That rule is what leaves every kernel test of "the package's segment"
 untouched: `mem_own`'s fence, `mem_free_rec`, `inst_pkg_spawn`'s identity
 test and its `I_SIZE` bound, `wm_destroy_seg` at teardown, `wm_pkgcall`'s
-`W_SEG:12`, `fsx`'s ownership test and `ld_icon`. **Not one of them moves.**
+`W_SEG:12`, `fsx`'s ownership test and the icon-flag test in `ld_run_body`'s
+step 9. **Not one of them moves.**
 It is also not a new discipline: it is what §73.14's overlay already does,
 where only code moves and `DS` stays the package's.
 
@@ -30255,7 +30267,11 @@ shows any package's own claims — because that is now what they are.
 
 ## 21. loader.inc
 
-State (.bss, cleared by `loader_init`): `ld_pending` (word: 0 = none, else
+State (.bss, **zero at boot** — §2.5, and there is no `loader_init`: all
+four resting values are zero, `LD_OK` included, so the routine that used to
+write them wrote zero over zero. It comes back the day a `ld_*` field gains a
+non-zero resting value, and the declarations say so): `ld_pending` (word:
+0 = none, else
 directory index+1 — set by files.inc, consumed by ui.inc §13), `ld_pwin`
 (word: the state block of the file-manager window that posted it, 0 =
 none — §22.1; the index is into *that* window's listing, so `loader_run`
@@ -30287,19 +30303,29 @@ is still unpublished at those points, so `mem_free_rec` cannot be used — it
 reads an I_SPTR that step 9 has not written — and both owner words are known
 locally instead.
 
-`ld_check_hdr` (module-internal) — in: SI → 32 readable header bytes,
+`ld_check_hdr` (module-internal) — in: **ES:SI → 32 readable header bytes**,
 [ld_fsz] = file size; out: CF=0 + scratch (img/bss/entry) filled, or CF=1 +
-AL = status. Checks: magic; **version = 3** (a v1 or v2 file → "Bad
+AL = status. **ES:SI and not DS:SI**, which is what `drv_check` and
+`mod_check` have always taken: both callers used to stage 32 bytes into a
+kernel-segment buffer first and validate the copy, and nothing ever compared
+the two — each call simply re-ran the same tests. The buffer and the copying
+are gone; the disk-swap guard step 6 exists for is untouched, because what
+catches a swap is re-running this routine on what the *full read* delivered,
+not the staged copy. Checks: magic; **version = 3** (a v1 or v2 file → "Bad
 package"); link base = 0; image ≥ 0x20; entry in [0x20, image) (the icon
-rule is enforced by os88pkg, not re-checked); image+bss ≤ APP_MAX_SIZE
-(else "Too large"); image = file size (guards truncated files and stale
+rule is enforced by os88pkg, not re-checked); **image+bss ≤ APP_MAX_SIZE,
+fenced on the CARRY**, because both operands are separately bounded at
+0xF000 and their sum reaches 0x1E000, which is seventeen bits (`add dx, ax /
+jc` — see §21's write bound, and `tests/pkgfence.py`); image = file size (guards truncated files and stale
 directories — sound because FAT directory sizes are byte-exact and
 os88disk.py never pads the size field, §24; cluster slack on disk is
 invisible here) **unless flags bit 2 is set, when the test is image ≤ file
 size** — a package carrying parts is longer than its image by construction
 (§20.12), and one bit is the whole of what the kernel learns about that. **It also validates the dispatcher bytes at +12** —
-`cmp word [si+LD_H_DISP], 0D5FFh` and `cmp byte [si+LD_H_DISP+2], 0CBh`
-(kernel/loader.inc:163 and :165) — so `FF D5 CB` is checked twice, by
+`cmp word [es:si+LD_H_DISP], 0D5FFh` and `cmp byte [es:si+LD_H_DISP+2],
+0CBh`, in `ld_hdr_ok`, the body the **driver** loader shares (§51.1 defines a
+driver header as a package header with a different version byte, and the two
+were spelled out twice) — so `FF D5 CB` is checked twice, by
 os88pkg.py when the file is stamped and by the loader when it is read. That
 is deliberate and this spec used to claim the opposite. os88pkg.py cannot be
 the only gate: it sees the file the build produced, and the loader sees the
@@ -30315,11 +30341,21 @@ was happening anyway.
 `loader_run` — in AX = directory index. UI task only, gfx lock not held
 on entry. Steps:
 1. Validate the entry: index < [disk_nfiles], type = 1, **the staged size's
-   HIGH word is 0** (else status 3, `LD_EBIG`), size ≤ APP_MAX_SIZE and
-   non-zero, and the first-cluster word at
+   HIGH word is below `PKG_FILE_HI`** (16 — else status 3, `LD_EBIG`), the
+   size is **non-zero**, and the first-cluster word at
    [si+LD_DE_CLUS] ∈ [2, [dsk_maxclus]] (belt and braces under §19's
    type-word rule — this check stands alone if the mount code ever
    changes; store it in `ld_clus`) → else status 2, step 10.
+   **Three of those moved and this section did not follow them.** The high
+   word is not tested against 0 — 1..15 pass, because a package carrying
+   parts may be up to 1MB (§19.1, §20.12); `size ≤ APP_MAX_SIZE` is **not**
+   tested here at all, having moved into `ld_check_hdr` where the *image* is
+   what it bounds; and the cluster range test is **skipped on a `DVK_FILE`
+   volume**, where the "first cluster" is an opaque handle (§62.9.1) and
+   `[dsk_maxclus]` belongs to whichever FAT volume was mounted last — so the
+   test would not merely be wrong there, it would be answered by a number
+   belonging to another disk. `ld_take` is the one body that asks all three,
+   for the index path and the by-name path alike (§21.4).
 
    **The high-word test is not belt and braces; it is the other half of
    §19.1's widened type rule.** The staged entry has carried a 32-bit size
@@ -30343,21 +30379,37 @@ on entry. Steps:
    `disk_read` 1 sector into `dsk_secbuf` (UI-task-only shared scratch) —
    the first sector of the first cluster IS the file's first 512 bytes,
    so peek semantics are exact. CF → status 1.
+   **A `DVK_FILE` volume takes the other arm**: there are no sectors to
+   reach, because `dsk_xfer` refuses a redirected volume outright, so the
+   peek is an `FSV_READAT` of 512 bytes at offset 0 through the volume's
+   driver (§62.9, §51.8 — DX:BX, not ES:BX). It lands in the same
+   `dsk_secbuf` and step 3 is identical. Without it every package on a
+   redirected volume is "Bad package".
 3. `ld_check_hdr` on the peek → status 2/3.
-4. need = roundup512(max(image+bss, file size)); > APP_MAX_SIZE → status
-   3. (Sector-granular allocation makes the whole-file read safe: it
-   writes ceil(fsize/512)·512 ≤ need bytes, never a neighbour's region.)
+4. need = roundup512(image + bss). **No second bound test**: `ld_check_hdr`
+   has already fenced `image + bss` at APP_MAX_SIZE *on the carry*, so this
+   value is at most 0xF000 by construction and the `> APP_MAX_SIZE → status
+   3` that used to sit here was code that could not run. The `max` with the
+   file size went when a package became allowed to be **bigger than its
+   image** (§20.12): the region holds the primary segment and the parts are
+   the package's own to read. (Sector-granular allocation makes the read at
+   step 6 safe: it writes ceil(image/512)·512 ≤ need bytes, never a
+   neighbour's region — and that is an invariant the carry fence is the
+   whole of what enforces.)
 5. `inst_alloc` (§29) → CF → status 5. `mem_claim_hi` need KB → CF →
    status 5 (the unpublished instance record stays free). Note the
    record is not yet published, so the region is reserved only by
    single-threadedness (rule §29.2.8).
-6. `dsk_read_chain` the whole file (§18) — AX = [ld_clus], DX =
-   ceil(fsize/512) sectors — to ES=KERNEL_SEG, BX=base. CF with AL=1
+6. `dsk_read_chain` the primary image (§18) — AX = [ld_clus], DX =
+   **ceil(image/512)** sectors, THE IMAGE AND NOT THE FILE (they are equal on
+   a package that carries no parts, and on one that does the rest is the
+   package's own to read, §20.12) — to **ES = [ld_base], BX = 0**, the
+   package's own segment at offset 0. CF with AL=1
    (disk error) → status 1 (`LD_EDISK`); AL=2 (chain corrupt: loop,
    cross-link, premature EOC, bad-cluster mark, out-of-range link) →
    status 2 (`LD_EBAD` — a corrupt FAT on a disk that reads fine is bad
    data, not a disk error). The write bound holds even against a corrupt
-   FAT: the walk is size-driven, reading exactly ceil(fsize/512)·512 ≤
+   FAT: the walk is size-driven, reading exactly ceil(image/512)·512 ≤
    need bytes — never a neighbour's region. Re-run `ld_check_hdr`
    against the in-region header (the disk could have been swapped
    between the peek and the read — and a looped or cross-linked chain
@@ -30379,10 +30431,14 @@ on entry. Steps:
    itself cannot spawn: neither `I_STATE = 1` nor `wm_owner` is published
    yet), I_SPTR = the base **segment**, I_SIZE = need,
    `inst_set_name_x` from segment:16 (the name is in the package's segment,
-   so the ES-reading twin), I_ICON = a pointer into `inst_icons` with the
-   header's 64 icon bytes **copied there** when flags bit 0 is set, else 0
-   — the dock draws icons from KERNEL_SEG and cannot follow a pointer into
-   a package. Then `inst_bind_win` BX, publish I_STATE = 1, **`[ld_status]`
+   so the ES-reading twin), I_ICON = the **`I_ICO_PKG` sentinel** when flags
+   bit 0 is set, else 0. **A sentinel and not a copy**, and `inst_icons`
+   does not exist: the 64-byte body sits at a fixed offset in the package's
+   own header, in a region that lives exactly as long as the instance does,
+   so a per-slot copy in kernel `.bss` was 768 bytes duplicating something
+   that could not go away first. `inst_icon_ptr` stages one body back into
+   the kernel segment when a tile is actually drawn (§25), which costs
+   nothing on any path that draws none. Then `inst_bind_win` BX, publish I_STATE = 1, **`[ld_status]`
    = LD_OK and `[ld_painted]` = 1**, gfx_lock, `wm_show` BX, gfx_unlock,
    status 0. (`wm_create` failing inside the entry surfaces as CF =
    status 4.) The status is published **before** the repaint on purpose: a
@@ -47185,8 +47241,12 @@ this*, in both builds, and this one is purely *the store*, in `kern_big`
 A20 line and nothing above linear 0x0FFFFF; `xm_init` publishes zero KB and
 every entry point below refuses having touched no port. The Task Manager reads
 no XMS bar and no XMS figures at all there (§41.6.1) — only the tier, which is
-what explains the absence. **And nothing in the tree allocates from the pool on
-any tier** — see §41.5.
+what explains the absence. **The pool's one kernel consumer is `clone.inc`**
+(§18.99.4) — which is 286+ by construction, so it takes the other half of the
+same sentence: on tier 0 a clone plans around the pool not being there. This
+paragraph said "nothing in the tree allocates from the pool on any tier" for
+several releases after that consumer landed; §4's module table and §18.99.4
+were right and this section and §41.5 were the halves nobody went back to.
 
 ### 41.1 The three tiers — MOVED to §60
 
@@ -47253,8 +47313,15 @@ entry covers — so a freed block merges with its neighbours for nothing.
 `xm_copy` carries **one ABI over two transports**: `int 15h AH=87h` on tier
 1, unreal mode on tier 2. The caller cannot tell which ran and must not care.
 
-**Nothing allocates out of this pool today, and the teardown leg is wired
-again.** Exactly one consumer has ever existed — §53.6.1's fullscreen desktop
+**`clone.inc` allocates out of this pool, and the teardown leg is wired
+again.** The disk cloner declares all four published slots and calls every one
+of them — `xm_caps` for the free KB and `xm_alloc` for a whole floppy's worth,
+so a same-drive clone makes one trip to the disk box instead of twenty-two
+(§18.99.4); `clo_free` returns it and is idempotent. **It is the first kernel
+consumer the pool has ever had**, and for several releases after it landed
+this paragraph still read "nothing allocates out of this pool today" — a
+sentence a size pass could delete a live subsystem on the strength of.
+Before it, exactly one had existed — §53.6.1's fullscreen desktop
 stash, kernel-side, 286+/VGA — and it was removed. `xm_release_rec` had three
 call sites in `instance.inc`, beside each `snd_release_rec`, from the commit
 that introduced it until the **#51 integration merge dropped all three** —

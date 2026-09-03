@@ -3354,7 +3354,9 @@ fm_open_sel:
     jnc .quiet                  ; there and still says "Bad package", which
 .package:                       ; is the truthful verdict it always was
     inc ax                      ; index + 1: ui.inc runs the loader once the
-    mov [ld_pending], ax        ; lock drops (SPEC.md 21)
+    mov [ld_pending], al        ; lock drops (SPEC.md 21) - a BYTE, and
+                                ; AH is 0 anyway: the index came out of a
+                                ; [dsk_nmax]-bounded loop
     mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
     mov [ld_pwin], di           ; ...resolved against THIS window (22.1)
 .quiet:

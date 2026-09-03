@@ -4676,27 +4676,26 @@ dskw_fmt_probe:
     ret
 .p_no:
     mov ax, FERR_NODISK         ; dskw_fmt_probe_x's own refusal for a medium
-    stc                         ; it cannot read - the nearest true thing, and
-    ret                         ; the toast names the disk either way
+    ret                         ; it cannot read - the nearest true thing, and
+                                ; the toast names the disk either way. NO stc:
+                                ; the only way in is the `jc` above, and
+                                ; `mov r16, imm16` (B8 iw) writes no flag -
+                                ; which this file already states in two
+                                ; headers for `pop ax` and `ret`
 
-dskw_format:
-    call dskw_fmt_load
-    jc .f_no
-    call far [FMFP + FME_FORMAT*4]
-    ret
-.f_no:
-    mov ax, FERR_NODISK
-    stc
-    ret
+dskw_format:                    ; ...AND THE SAME FIVE BYTES, so the refusal
+    call dskw_fmt_load          ; is dskw_fmt_probe's. The two routines are
+    jc dskw_fmt_probe.p_no      ; fifteen bytes apart, so the jc is short -
+    call far [FMFP + FME_FORMAT*4]  ; and their ORDER in this file is now
+    ret                         ; load-bearing
 
 dskw_fmt_reach:
     call dskw_fmt_load
-    jc .r_no
-    call far [FMFP + FME_REACH*4]
-    ret
-.r_no:
-    stc                         ; "the volume's last sector was NOT reached",
-    ret                         ; which is what an absent formatter has to say
+    jc .r_no                    ; "the volume's last sector was NOT reached",
+    call far [FMFP + FME_REACH*4]   ; which is what an absent formatter has to
+.r_no:                          ; say - and CF is already set on the one way
+    ret                         ; in, so the refusal is nothing but the `ret`
+                                ; the success path was going to take anyway
 
 ; dskw_fmt_line - the formatter's own status line (SPEC.md 2.8.6)
 ;
@@ -4742,15 +4741,20 @@ dskw_foff:    resw 1
 dskw_cursec:  resw 1            ; dskw_find: the sector being scanned
 dskw_fend:    resb 1            ; 1 = that free slot is the 00h terminator
 dskw_new:     resb 1            ; 1 = this write is creating the entry
-dskw_zapnext: resb 1            ; 1 = re-zero the slot after the one written
-dskw_pad2:    resb 1            ; (dskw_isdir is NOT here - see .text above)
-                                ; PURE PADDING as of this commit, and it
-                                ; was not before: :2717 was the one
-                                ; `mov word [dskw_zapnext], 0` of six
-                                ; stores, so a neighbour's WORD store
-                                ; was zeroing this byte and the pad was
-                                ; load-bearing by accident. All six are
-                                ; `mov byte` now. Nothing reads it.
+dskw_zapnext: resb 1            ; 1 = re-zero the slot after the one written.
+                                ; (dskw_isdir is NOT here - see .text above.)
+                                ; A `dskw_pad2` USED TO FOLLOW, and every
+                                ; grep in the tree called it dead - the
+                                ; declaration was its only mention. It was
+                                ; not: :2717 was the one
+                                ; `mov word [dskw_zapnext], 0` of six stores,
+                                ; so a neighbour's WORD store was zeroing the
+                                ; pad and deleting it would have put that zero
+                                ; into dskw_seg's low byte, in the middle of
+                                ; the write path. Narrowing that one store to
+                                ; `mov byte` is what made the pad free, and
+                                ; the pad then went. THE ORDER MATTERED and
+                                ; the two halves have to stay together.
 
 ; --- the transfer in progress -------------------------------------------------
 dskw_seg:     resw 1            ; the caller's buffer segment (ES at entry),
