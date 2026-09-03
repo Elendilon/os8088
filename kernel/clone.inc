@@ -506,7 +506,7 @@ clo_geom:
     mov ax, [dsk_totsec]
     mov [es:CL_TOT], ax
     or ax, ax
-    jz .io                      ; a mounted volume of no sectors is not one
+    jz .jio                     ; a mounted volume of no sectors is not one
     jmp .ok
 
     ; --- sectors per track, off the MEDIUM ---------------------------------
@@ -541,6 +541,7 @@ clo_geom:
     jmp short .spt
 .probeno:
     dec byte [dsk_rah_busy]
+.jio:
     jmp .io
 .gotspt:
     mov [es:CL_SPT], si
@@ -1167,7 +1168,7 @@ clo_key:
     cmp dl, CLS_SRC
     je .src
     cmp dl, CLS_TGT
-    je .tgt
+    je .jtgt
     cmp dl, CLS_WIMG
     je .wimg
     cmp dl, CLS_NOSRC
@@ -1182,6 +1183,7 @@ clo_key:
     cmp al, 13
     jne .linej
     mov byte [es:CL_STEP], CLS_TGT
+.jtgt:
     jmp .tgt                    ; NEAR: CLS_NOSRC's answers sit between here
                                 ; and it now (SPEC.md 18.99.3)
 

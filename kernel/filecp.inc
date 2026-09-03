@@ -545,9 +545,7 @@ fcp_clspan:
 fcp_floor:
     push ax                     ; ...and NOT DX: `shr` is not `div`, and no
     mov ax, [fcp_lclus]         ; instruction below writes DX         ; bytes per cluster, the LARGER of the two
-    add ax, 1023                ; volumes (fcp_clspan) - as KB, rounded up
-    mov cl, 10
-    shr ax, cl
+    call mem_bytes_kb_x         ; volumes (fcp_clspan) - as KB, rounded up
     mov cx, ax
     cmp cx, FCP_MINKB
     jae .out
@@ -947,9 +945,7 @@ fcp_rlup:
     call dsk_clus2lba_x ; AX = the folder's first sector
     jc .out
     push ax
-    mov cx, 1
-    mov bx, dsk_secbuf
-    call disk_read_x
+    call dsk_rd1_x
     pop ax
     jc .out
     cmp byte [es:dsk_secbuf+32], '.'
@@ -959,9 +955,7 @@ fcp_rlup:
     mov bx, [fcp_dcwd]
     mov [es:dsk_secbuf+32+DSK_R_CLUS], bx
     push ax
-    mov cx, 1
-    mov bx, dsk_secbuf
-    call disk_write_x
+    call dsk_wr1_x
     pop ax
 .out:
     pop es
@@ -1059,7 +1053,7 @@ fcp_scan:
     mov al, [fcp_sdrv]
     mov bx, [di+FCP_FSRC]
     call fcp_goto
-    jc .ioerr
+    jc .fsio
     cmp byte [dsk_vkind], DVK_FILE
     jne .fatwalk
 
@@ -1490,10 +1484,8 @@ fcp_rdnext:
 
 .fatread:
     mov ax, [fcp_rgot]
-    add ax, 511                 ; sectors = ceil(take / 512). take is at most
-    mov cl, 9                   ; FCP_MAXCH, so the +511 cannot carry out
-    shr ax, cl
-    mov dx, ax
+    call dsk_bytes_secs_x       ; sectors = ceil(take / 512). take is at most
+                                ; FCP_MAXCH, so the +511 cannot carry out
     mov ax, [fcp_rclus]
     cmp ax, 2
     jb .io
@@ -1685,7 +1677,7 @@ fcp_xfer:
     push es
     call fcp_gofs               ; open the source stream AND take its first
                                 ; chunk: we are here, and the alternative is
-    jc .err                     ; coming back for it
+    jc .jerr                    ; coming back for it
 
     ; --- BOTH ENDS ON ONE REDIRECTED VOLUME: let the far side do it -------
     ; A remote-to-remote copy streamed every byte across the cable and back
@@ -1730,6 +1722,7 @@ fcp_xfer:
     call fcp_room               ; ...but ASK FIRST (SPEC.md 22.5.2). Here and
     jnc .create                 ; not earlier, because this is the first moment
     mov ax, FERR_FULL           ; the destination volume is current - so the
+.jerr:
     jmp short .err              ; check costs no switch of its own - and it is
 .create:                        ; still before anything has been created
     call fcp_wprep
@@ -1843,8 +1836,12 @@ fcp_stack:  resb FCP_MAXD * FCP_FSIZE
 fcp_ssec:   resw 1              ; fcp_scan: sectors still to skip...
 fcp_sslot:  resw 1              ; ...and the slot to resume at
 
-fcp_cname:  resb 13             ; fcp_scan's answer: name...
-fcp_cpad:   resb 1              ; (keeps the words below even-aligned)
+fcp_cname:  resb 13             ; fcp_scan's answer: name... (its only writer
+                                ; is fcp_n13, `mov cx, 13` + dsk_ncopy, a BYTE
+                                ; loop that ends exactly here - which is what
+                                ; made the alignment pad that used to follow
+                                ; safe to drop. An 8088's bus is 8 bits and
+                                ; charges nothing for the odd word)
 fcp_ctype:  resw 1              ; ...SPEC.md 19 type word...
 fcp_csrc:   resw 1              ; ...and first cluster. NOT the size: it was
                                 ; stored in two more words here and read by
@@ -1853,8 +1850,9 @@ fcp_csrc:   resw 1              ; ...and first cluster. NOT the size: it was
 
 fcp_fname:  resb 13             ; the pending file: name...
 fcp_fsdrv:  resb 1              ; ...source drive...
-fcp_fddrv:  resb 1              ; ...destination drive...
-fcp_fpad:   resb 1
+fcp_fddrv:  resb 1              ; ...destination drive... (both `mov [x], al`
+                                ; at every site, so the alignment pad that
+                                ; used to follow was covering nothing)
 fcp_fsclus: resw 1              ; ...source folder...
 fcp_fdclus: resw 1              ; ...destination folder...
 fcp_made:   resb 1              ; 1 = fcp_xfer has CREATED the destination, so

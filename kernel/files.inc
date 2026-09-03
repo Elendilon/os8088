@@ -2192,7 +2192,8 @@ fm_layout:
     mov [fm_cx], ax
     mov [fm_cy], dx
     mov ax, [bx+W_W]
-    sub ax, 2
+    dec ax
+    dec ax
     mov [fm_cw], ax             ; cw = W_W - 2
     add ax, [fm_cx]
     dec ax
@@ -2320,7 +2321,8 @@ fm_brect:
     add ax, FM_BTN_W-1
     mov [os88ui_krect+4], ax
     mov ax, [fm_cy]
-    add ax, 2
+    inc ax
+    inc ax
     mov [os88ui_krect+2], ax
     add ax, FM_BTN_H-1
     mov [os88ui_krect+6], ax
@@ -5443,7 +5445,7 @@ fm_edit_commit:
     cmp al, 3
     je .del
     cmp byte [fm_elen], 0
-    je .done                    ; nothing typed: Enter simply cancels
+    je .jdone                   ; nothing typed: Enter simply cancels
     call fmv_sync_x             ; act in OUR folder (SPEC.md 22.1)
     cmp al, 2
     je .ren
@@ -5540,6 +5542,7 @@ fm_edit_commit:
     jc .bad
 .bcast:
     call fmv_bcast              ; the new listing reaches every window that
+.jdone:
     jmp short .done             ; is showing this folder
 .bad:
     push bx                     ; every failure gets visible text (22) - as a
@@ -6241,7 +6244,8 @@ fm_cfill:
     call KERNEL_SEG:cw_wm_content ; AX = x1, DX = y1
     mov cx, [bx+W_X]
     add cx, [bx+W_W]
-    sub cx, 2                   ; CX = x2
+    dec cx                      ; CX = x2
+    dec cx
     push dx
     mov dx, [bx+W_Y]
     add dx, [bx+W_H]
@@ -6535,7 +6539,8 @@ fm_draw_core:
     mov ax, [fm_rgt]
     sub ax, 67                  ; abs x1 = cx + cw - 68 = rgt - 67
     mov bx, [fm_cy]
-    add bx, 2
+    inc bx
+    inc bx
     mov cx, [fm_rgt]
     sub cx, 5                   ; abs x2 = rgt - 5
     mov dx, [fm_cy]
@@ -6554,7 +6559,8 @@ fm_draw_core:
     mov ax, [fm_rgt]
     sub ax, 135                 ; abs x1 = rgt - 135
     mov bx, [fm_cy]
-    add bx, 2
+    inc bx
+    inc bx
     mov cx, [fm_rgt]
     sub cx, 73                  ; abs x2 = rgt - 73
     mov dx, [fm_cy]
@@ -6697,12 +6703,11 @@ fm_draw_rows:
     ; --- the scroll bar, through the SHARED element (SPEC.md 13.10) ---
     ; It was 139 bytes of frame, two rules, two hand-plotted arrows, a grey
     ; track and a thumb - and fdlg.inc's 136 bytes of the same picture, a
-    ; PIXEL apart in two places. [fm_sbx1] stays because fm_scrollpaint's
-    ; blit band is measured from it.
+    ; PIXEL apart in two places. There was an [fm_sbx1] here too, staged for a
+    ; blit band fm_scrollpaint measures for itself; fm_sbset computes the same
+    ; `[fm_rgt] - FM_SB_W + 1` into os88ui_ksb+0 two instructions later, so the
+    ; word and the three instructions that fed it were both dead.
 .bar:
-    mov ax, [fm_rgt]
-    sub ax, FM_SB_W-1
-    mov [fm_sbx1], ax
     call fm_sbset
     call os88ui_sbar
     call fm_more_mark           ; ...and the edge the bar is standing on
@@ -6820,7 +6825,8 @@ fm_more_mark:
     mov bx, si
     add bx, FM_EDGE_CHV
     mov dx, bx
-    add dx, 2                   ; three rows
+    inc dx                      ; three rows
+    inc dx
     mov si, [fm_lscr]           ; anything below the fold?
     add si, [fm_fit]
     cmp si, [fm_total]
@@ -8060,10 +8066,6 @@ fm_vrow:    resw 1              ; grid scratch: visible row / column
 fm_vcol:    resw 1
 fm_cellx:   resw 1              ; grid scratch: current cell origin (abs)
 fm_celly:   resw 1
-fm_sbx1:    resw 1              ; scroll bar scratch: left col (abs)
-fm_sby1:    resw 1              ; top row (abs)
-fm_sby2:    resw 1              ; bottom row (abs)
-
 fm_name:    resb 17             ; NUL-safe copy of one 16-byte name field
 fm_hdrbuf:  resb 48             ; = FM_HDRMAX (a literal per the no-forward-
                                 ; ref-in-bss rule). The header is 22 bytes at

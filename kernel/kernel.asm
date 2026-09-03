@@ -5368,8 +5368,7 @@ mark_stamp:
 .plain:
     and ax, 0x007F              ; ...and the rest of it is the index
     mov si, ax                  ; banked: gfx_rowbase spends AX, CX and DX
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     mov ax, [vid_h]             ; the LIVE height (SPEC.md 39), never a
     sub ax, MARK_UP             ; reference constant - this runs on all three
     call gfx_rowbase            ; adapters and two of them are not 640x480
@@ -5468,8 +5467,7 @@ mark_prev:
     cmp ax, MARK_MAXIDX
     ja .out
     mov si, ax
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     mov ax, [vid_h]
     sub ax, MARK_PREVUP
     call gfx_rowbase

@@ -2464,10 +2464,8 @@ drv_load_row:
                                 ; mod_need does the identical thing with
                                 ; mod_fsz - one register audit, both files
 
-    add ax, 1023                ; -> whole KB (the size is well under 64KB,
-    mov cl, 10                  ; so this cannot carry out)
-    shr ax, cl
-    cmp ax, DRV_MAX_KB
+    call mem_bytes_kb_x         ; -> whole KB (the size is well under 64KB,
+    cmp ax, DRV_MAX_KB          ; so this cannot carry out)
     ja .big
     push bx
     mov bx, MEM_K_DRV

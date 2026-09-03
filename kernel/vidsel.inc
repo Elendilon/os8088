@@ -782,12 +782,12 @@ spl_mds:                        ; DS:SI ASCIIZ -> the line (a kernel string)
 
 spl_mnum:                       ; AL = 0..99 -> the line, no leading zero
     push ax
-    push bx
     push dx
-    xor ah, ah
-    mov bl, 10
-    div bl                      ; AL = tens, AH = units
-    mov dl, ah
+    aam                         ; AH = AL/10, AL = AL%10 - the same conversion
+    mov dl, al                  ; clk_put2 (clock.inc) does, in two bytes and
+    mov al, ah                  ; with no divisor register to bank. 0..99 IS
+                                ; aam's domain, and this routine's input is
+                                ; documented as exactly that
     or al, al
     jz .units
     add al, '0'
@@ -797,7 +797,6 @@ spl_mnum:                       ; AL = 0..99 -> the line, no leading zero
     add al, '0'
     call spl_mput
     pop dx
-    pop bx
     pop ax
     ret
 
@@ -2238,7 +2237,7 @@ vid_disp_init:
     ; from, which is a desktop drawn into the wrong segment at the wrong
     ; stride. A refusal has to bring the arrangement DOWN.
     cmp byte [vid_ndisp], 1
-    je .out                     ; nothing live: unchanged, and the boot path
+    je .jout                    ; nothing live: unchanged, and the boot path
     mov ah, [vid_kind]          ; ...otherwise collapse it through the arm
     call vid_disp_other         ; that already knows how. [vid_dmode] is kept:
     jmp short .single           ; the arrangement is impossible on THIS
@@ -2261,6 +2260,7 @@ vid_disp_init:
     xor al, al                  ; the pointer onto display 0 - which is what
     call vid_ctx_capture        ; a shrinking desktop owes it
     call vid_desk_union         ; ...and BANK BEFORE UNION, the extend path's
+.jout:
     jmp short .out              ; order: the union reads display 0's record,
                                 ; which is stale until the capture when a
                                 ; vid_switch has just moved the primary

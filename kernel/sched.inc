@@ -304,7 +304,8 @@ sched_init:
     mov cx, MAX_TASKS * 2
 .zcyc:
     mov word [bx], 0
-    add bx, 2
+    inc bx
+    inc bx
     loop .zcyc
 
     mov al, 0x00                ; seed sch_pit_last with a coherent stamp:
@@ -727,7 +728,8 @@ task_spawn:
     jbe .found                  ; written smallest first, so first fit is
 .next:                          ; SMALLEST fit and one instruction
     add bx, T_SIZE
-    add si, 2
+    inc si
+    inc si
     cmp si, MAX_TASKS * 2
     jb .find
     xor ax, ax                  ; nothing free that is big enough: AL = 0,

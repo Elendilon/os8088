@@ -595,8 +595,7 @@ spl_rechrome:
     add ax, bx
     mov [cs:spl_bar_adr], ax
 
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
                                 ; ...and ALL THREE ADAPTERS draw it now
                                 ; (SPEC.md 15.3.5). It was VGA-only because
                                 ; the chrome was BIOS text and int 10h
@@ -617,7 +616,8 @@ spl_rechrome:
 
     mov bx, [cs:spl_l_bar]      ; bar trough, 1px inset from the fill
     mov dx, bx
-    sub bx, 2
+    dec bx
+    dec bx
     add dx, SPL_BAR_H + 1
     mov ax, 146
     call spl_rectc
@@ -645,8 +645,7 @@ spl_cell:
     add ax, bx
 spl_setdi:                      ; ...and the tail spl_spinadr shares: AX is a
     mov di, ax                  ; framebuffer offset, so hand it back as ES:DI
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     ret
 
 ; -----------------------------------------------------------------------------
@@ -675,8 +674,7 @@ spl_frac:
 ; clobbers: ax, bx, cx, dx, si, di, es
 ; -----------------------------------------------------------------------------
 spl_bar:
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
 
     mov cx, SPL_BAR_PX
     call spl_frac               ; AX = filled pixels, 0..SPL_BAR_PX
@@ -1264,8 +1262,7 @@ spl_staradr:
     add ax, [cs:spl_l_spx]
     add ax, bx
     mov di, ax
-    mov ax, [vid_seg]
-    mov es, ax
+    mov es, [vid_seg]
     ret
 
 ; --- 15.3.7's data -----------------------------------------------------------

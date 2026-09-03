@@ -797,6 +797,35 @@ gfx_rect_isect:
     ret
 
 ; -----------------------------------------------------------------------------
+; gfx_rect_hit - does AX/BX/CX/DX OVERLAP the rect at DS:SI?
+; in:       AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); SI = the same
+;           four-word WCR_* block gfx_rect_isect takes
+; out:      CF = 1 they overlap, CF = 0 they do not
+; clobbers: nothing at all - not even the four inputs
+;
+; gfx_rect_isect's missing sibling. gfx_rect_isectcf answers the same question
+; but CLIPS on the way, so using it here would cost four pushes and four pops
+; and lose more than the compares are worth; this one only compares.
+;
+; SIGNED, for gfx_rect_isect's reason: wm_paint_dmg's clamp takes screen
+; coordinates negative.
+; -----------------------------------------------------------------------------
+gfx_rect_hit:
+    cmp ax, [si+4]
+    jg .no
+    cmp cx, [si]
+    jl .no
+    cmp bx, [si+6]
+    jg .no
+    cmp dx, [si+2]
+    jl .no
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; gfx_rect_isectcf - gfx_rect_isect, and CF = 1 if the answer is EMPTY
 ; in/out:   as above, plus CF = 1 -> x1 > x2 or y1 > y2, i.e. nothing left
 ; clobbers: nothing else
@@ -1849,7 +1878,8 @@ gfx_lf_wide3:
     jle .ord
     xchg ax, bx
 .ord:
-    add bx, 2                       ; ...pass 2 being two columns right of 0
+    inc bx                      ; ...pass 2 being two columns right of 0
+    inc bx
     cmp word [wm_clip_n], 0
     jne .armed
     or ax, ax                       ; disarmed: the box is the screen
@@ -2702,7 +2732,7 @@ gfx_blit4:
     cmp byte [gfx_blit_fst], 0
     je .rowd
     cmp bx, [vid_ch]            ; UNSIGNED, so a negative y is caught too: the
-    jae .nextrow                ; row is off screen and nothing below it clips
+    jae .jnextrow               ; row is off screen and nothing below it clips
     push ax                     ; any more
     mov ax, bx
     call gfx_rowbase            ; once a ROW, where gfx_fill did it once a RUN.
@@ -2724,6 +2754,7 @@ gfx_blit4:
     cmp byte [gfx_blit_fst], 1
     jne .rowd
     call sw_blit_row            ; THE WHOLE ROW, no run scan at all
+.jnextrow:
     jmp .nextrow                ; (near: the scan below is longer than 127)
 .rowd:
     xor dx, dx                  ; DX = the pixel the next run starts at
@@ -5612,8 +5643,7 @@ vgas_lincopy:
 ; -----------------------------------------------------------------------------
 vgas_bankcopy:
     push ds
-    mov ax, [vid_rseg]
-    mov es, ax
+    mov es, [vid_rseg]
     mov ax, [vgas_rows]
     mov [vgas_left], ax
     mov bx, [vgas_ydst]

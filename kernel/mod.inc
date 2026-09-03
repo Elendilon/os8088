@@ -337,10 +337,8 @@ mod_need:
                                 ; them through a disp16 operand. mod_check
                                 ; takes it as an input
 
-    add ax, 1023                ; -> whole KB. The size is well under 64KB,
-    mov cl, 10                  ; so this cannot carry out
-    shr ax, cl
-    cmp ax, MOD_MAX_KB
+    call mem_bytes_kb_x         ; -> whole KB. The size is well under 64KB,
+    cmp ax, MOD_MAX_KB          ; so this cannot carry out
     ja .fail
     push bx
     mov bx, MEM_K_MOD

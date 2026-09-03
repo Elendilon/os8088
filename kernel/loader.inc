@@ -631,9 +631,7 @@ ld_run_body_x:
     jc ld_take.bad              ; sector of the first cluster IS the file's
                                 ; first 512 bytes, so peek semantics are
                                 ; exact (SPEC.md 21 step 2)
-    mov cx, 1
-    mov bx, dsk_secbuf
-    call disk_read_x              ; in: AX=LBA, CX=1, ES:BX (set at .peek)
+    call dsk_rd1_x                ; in: AX=LBA; ES set at .peek
     jc .disk1
 .hdr:
 
@@ -677,9 +675,9 @@ ld_run_body_x:
                                 ; entry offset into the dispatcher below,
                                 ; and loader_run is UI-task-only and one
                                 ; load at a time (SPEC.md 21)
-    add ax, 1023                ; the region is a heap claim now (SPEC.md
-    mov cl, 10                  ; 20.1/50.3), so it rounds to whole KB rather
-    shr ax, cl                  ; than to the 512 bytes int 13h needs - which
+    call mem_bytes_kb_x         ; the region is a heap claim now (SPEC.md
+                                ; 20.1/50.3), so it rounds to whole KB rather
+                                ; than to the 512 bytes int 13h needs - which
                                 ; mem_claim's own granularity then guarantees
     call ld_slot                ; BX = the owner word: this record's slot
     call mem_claim_hi_x ; from the TOP down, away from the data claims
@@ -687,8 +685,10 @@ ld_run_body_x:
     mov [ld_base], dx
     shl ax, cl                  ; I_SIZE is bytes, and it is what the region
                                 ; occupies now, not what the file needed.
-                                ; **CL IS STILL 10** from the `shr` above, and
-                                ; that rests on TWO DOCUMENTED CONTRACTS:
+                                ; **CL IS STILL 10**, set by mem_bytes_kb_x
+                                ; and documented as one of its outputs BECAUSE
+                                ; of this line. That rests on TWO DOCUMENTED
+                                ; CONTRACTS either side of it:
                                 ; ld_slot preserves CX (it pushes it - and its
                                 ; header says "clobbers: nothing else") and
                                 ; mem_claim_hi_x "clobbers: DX (an output) and
@@ -728,10 +728,10 @@ ld_run_body_x:
     ; --- 6. read the whole file into the region --------------------------------
 .read:
     mov ax, [ld_img]            ; THE IMAGE, NOT THE FILE. On a v3 package the
-    add ax, 511                 ; two are equal and always were; on one
-    mov cl, 9                   ; carrying parts the region holds the primary
-    shr ax, cl                  ; alone and the rest is the package's to read
-    mov dx, ax                  ; (SPEC.md 20.12). DX = ceil(image/512)
+    call dsk_bytes_secs_x       ; two are equal and always were; on one
+                                ; carrying parts the region holds the primary
+                                ; alone and the rest is the package's to read
+                                ; (SPEC.md 20.12). DX = ceil(image/512)
     mov ax, [ld_clus]
     mov es, [ld_base]           ; the package's OWN segment, offset 0
     xor bx, bx

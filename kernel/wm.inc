@@ -4728,7 +4728,8 @@ wm_snap_w:
     add dx, 7                   ; UP FIRST, so the package is not handed LESS
     jc .down                    ; content than its template asked for. A width
     and dx, 0xFFF8              ; within 7 of 0xFFFF is nonsense the caller's
-    add dx, 2                   ; low clamps cannot produce, and the `jc` is
+    inc dx                      ; low clamps cannot produce, and the `jc` is
+    inc dx
                                 ; one byte against having to argue that
     push ax                     ; THE RIGHT EDGE - wm_snap_ax's own test in the
     push cx                     ; other axis of this rect, and the one way
@@ -4748,10 +4749,12 @@ wm_snap_w:
     jbe .take                   ; it fits, and nothing is short
 .down:
     mov dx, ax                  ; ...it does not, so DOWN - and only a window
-    sub dx, 2                   ; within 7px of the glass ever gets here
+    dec dx                      ; within 7px of the glass ever gets here
+    dec dx
     and dx, 0xFFF8
     jz .pop                     ; under one cell wide: nothing to snap to
-    add dx, 2
+    inc dx
+    inc dx
     push ax                     ; THE FLOOR, which only the DOWN branch can
     push dx                     ; break: wm_min_axd's and not WMIN_W, so a
     mov ax, [vid_w]             ; window that declared more than 96 through
@@ -5226,19 +5229,11 @@ wm_win_rect:
 ; out: CF = 1 they overlap; all registers preserved
 ; -----------------------------------------------------------------------------
 wm_dmg_hit:
-    cmp ax, [wm_dmg_x2]
-    jg .no
-    cmp cx, [wm_dmg_x1]
-    jl .no
-    cmp bx, [wm_dmg_y2]
-    jg .no
-    cmp dx, [wm_dmg_y1]
-    jl .no
-    stc
-    ret
-.no:
-    clc
-    ret
+    push si                     ; SI is not an input here and desk.inc's
+    mov si, wm_dmg_x1           ; caller relies on "all registers preserved"
+    call gfx_rect_hit           ; (vga12.inc): the four words ARE a WCR_* rect
+    pop si                      ; - which wm.inc:5420 already relies on - and
+    ret                         ; `pop` leaves CF alone
 
 ; -----------------------------------------------------------------------------
 ; wm_dmg_vacate - the rect a moved window is LEAVING (SPEC.md 11.91.2)
@@ -5352,14 +5347,11 @@ wm_dmg_stale:
 %endif                          ; did before the vacated rect existed
     cmp word [wm_dmg_stwin], 0
     je .mark
-    cmp ax, [wm_dmg_st2]        ; ...did it overlap where the window WAS?
-    jg .clean
-    cmp cx, [wm_dmg_st1]
-    jl .clean
-    cmp bx, [wm_dmg_sy2]
-    jg .clean
-    cmp dx, [wm_dmg_sy1]
-    jl .clean
+    push si                     ; ...did it overlap where the window WAS?
+    mov si, wm_dmg_st1          ; (the vacated rect, WCR_* order - the same
+    call gfx_rect_hit           ; block the gfx_rect_isect below is given)
+    pop si
+    jnc .clean
 
     ; It did. Is that overlap wholly back under the window's NEW frame? Then
     ; the move re-covered every pixel of it and nothing is exposed.
@@ -7745,7 +7737,8 @@ wm_draw_title:
     add bx, [di+W_W]
     sub bx, 4
     call gfx_hline
-    add dx, 2
+    inc dx
+    inc dx
     loop .stripe
 
 .boxes:
@@ -7753,7 +7746,8 @@ wm_draw_title:
     mov ax, [di+W_X]            ; break the stripes 2px around the close box
     add ax, 6
     mov bx, [di+W_Y]
-    add bx, 2
+    inc bx
+    inc bx
     mov cx, [di+W_X]
     add cx, 20
     mov dx, [di+W_Y]
@@ -7776,7 +7770,8 @@ wm_draw_title:
     add ax, [di+W_W]            ; (mirror of the close-box break, SPEC.md 11)
     sub ax, 21
     mov bx, [di+W_Y]
-    add bx, 2
+    inc bx
+    inc bx
     mov cx, [di+W_X]
     add cx, [di+W_W]
     sub cx, 7
@@ -7846,7 +7841,8 @@ wm_draw_title:
     xchg ax, cx                 ; AX = text left, CX = gap right
     sub ax, 6                   ; AX = gap left
     mov bx, [di+W_Y]
-    add bx, 2
+    inc bx
+    inc bx
     mov dx, [di+W_Y]
     add dx, 15
     call wm_tpen_bg          
@@ -11392,8 +11388,10 @@ wm_grow_paint:
     mov dx, bx
     add dx, 7
     call gfx_frame
-    sub ax, 2                   ; the small square: 7x7 at inset (+2,+2)..
-    sub bx, 2                   ; (+8,+8), white-filled (it overlaps the
+    dec ax                      ; the small square: 7x7 at inset (+2,+2)..
+    dec ax
+    dec bx                      ; (+8,+8), white-filled (it overlaps the
+    dec bx
     mov cx, ax                  ; big one's top-left), black-framed
     add cx, 6
     mov dx, bx

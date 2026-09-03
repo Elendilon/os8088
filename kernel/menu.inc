@@ -1580,7 +1580,7 @@ menu_draw_clock:
     cmp ax, [menu_ckck]
     jne .draw
     cmp dh, [menu_ckstrip]      ; ...and the same characters split differently
-    je .out                     ; are a different field
+    je .jout                    ; are a different field
 .draw:
     mov [menu_ckck], ax
     mov [menu_ckstrip], dh
@@ -1596,6 +1596,7 @@ menu_draw_clock:
     call thm_pair               ; --- no toast: one opaque pass over the lot
                                 
     call font_run
+.jout:
     jmp short .out
 .strip:
     mov al, [menu_clkbuf+1]     ; --- cell 0 FIRST, in the clock's own colours:
@@ -1807,7 +1808,8 @@ menu_popup:
     mov ax, [menu_cnt]
     mov cl, 4
     shl ax, cl                  ; count * 16 ...
-    add ax, 2                   ; ... + the top and bottom frame rows
+    inc ax                      ; ... + the top and bottom frame rows
+    inc ax
     mov bx, dx                  ; BX = candidate y1 (DX = anchor y)
     mov cx, [vid_ph]
     sub cx, ax                  ; CX = lowest y1 that still fits
@@ -1919,7 +1921,8 @@ menu_save_kb:
     mov bx, [menu_x1]
     shr bx, cl                  ; ...and its first
     sub ax, bx
-    add ax, 2                   ; span -> count, plus the misalignment byte
+    inc ax                      ; span -> count, plus the misalignment byte
+    inc ax
     mov bx, [menu_y2]
     sub bx, [menu_y1]
     inc bx                      ; BX = rows
@@ -2038,7 +2041,8 @@ menu_drop:
     call thm_pen_live           ; are one decision each, not a fill and a glyph
                                 ; over it
     pop cx
-    add bx, 2
+    inc bx
+    inc bx
     add dx, MENU_ITEM_H
     loop .item
     pop es
@@ -2468,7 +2472,8 @@ menu_widest:
     jbe .keep
     mov dx, ax
 .keep:
-    add bx, 2
+    inc bx
+    inc bx
     loop .next
 .done:
     pop es

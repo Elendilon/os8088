@@ -3012,3 +3012,37 @@ mem_bytes_kb:
 .out:
     pop cx
     ret
+
+section .cold                   ; COLD_SEG (SPEC.md 2.6)
+
+; -----------------------------------------------------------------------------
+; mem_bytes_kb_x - the same, for the four callers that are in .cold
+; in:       AX = bytes, and AT LEAST 512 of them - see below
+; out:      AX = kilobytes;  CL = 10, which loader.inc's `shl ax, cl` reads
+; clobbers: CL, and the flags
+;
+; A TWIN AND NOT A CALL, because a near call from COLD_SEG to a KERNEL_SEG
+; body assembles cleanly and runs wrong (SPEC.md 2.6) - which is exactly why
+; the four sites open-coded these three instructions instead of using the
+; routine above them.
+;
+; TWO DELIBERATE DIFFERENCES from the .text original, and both are why this is
+; eight bytes rather than fifteen:
+;
+;   * NO CX BANK. All four callers destroy CL themselves today, so the bank
+;     bought nothing - and dropping it is what SATISFIES loader.inc's
+;     documented "CL IS STILL 10" dependency rather than breaking it.
+;   * NO ZERO CLAMP, because no caller can reach zero: driver and mod have
+;     already refused anything under their *_HDR_SZ, filecp's input is a
+;     cluster size (>= 512 by the BPB rules), and loader's is
+;     `(img + bss + 511) & 0FE00h` with `img >= LD_HDR_SIZE` enforced by
+;     ld_check_hdr, so it is at least 512. **A NEW CALLER MUST PROVE THE SAME
+;     OR USE mem_bytes_kb**: 0 KB is a claim with nowhere to put anything.
+; -----------------------------------------------------------------------------
+mem_bytes_kb_x:
+    add ax, 1023
+    mov cl, 10
+    shr ax, cl
+    ret
+
+section .text                   ; ...and the file ends in .text (CLAUDE.md 1)

@@ -748,7 +748,8 @@ dock_draw_tile:
     mov cx, ax                  ; icon at (left+4, top+2): 16x16 body, off the
     add cx, 4                   ; rect's own x1/y1, which gfx_frame gave back
     mov dx, bx
-    add dx, 2
+    inc dx
+    inc dx
     push si
     call inst_icon_ptr          ; SI -> 64 bytes in OUR segment, staged if
     jnc .icon                   ; this instance's body lives in LOW_SEG

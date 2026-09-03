@@ -26,9 +26,19 @@ THE LIST MAINTAINS ITSELF, which is the point.  Nothing here enumerates which
 constants are mirrored - it takes every `NAME equ VALUE` from each file and
 checks that any name defined in MORE THAN ONE of them agrees everywhere.  So
 a constant that becomes mirrored tomorrow is covered tomorrow, with nobody
-remembering to add it.  Today that is 20 names across the kernel and the SDK,
-including `KERNEL_SEG`, `APP_MAX_SIZE`, `TITLE_H`, `MBAR_H`, the colour
-indices and the SPEC.md 57 debug-registry tags.
+remembering to add it.  Today that is 289 names, including `KERNEL_SEG`,
+`APP_MAX_SIZE`, `TITLE_H`, `MBAR_H`, the colour indices, the SPEC.md 57
+debug-registry tags, the whole `W_*` window record, the whole `SSI_*`
+snapshot, the entire fsx ABI and every `FERR_*`.
+
+**IT MAINTAINED ITSELF ON ONE SIDE ONLY UNTIL THE KERNEL WAS GLOBBED**, and
+that is the lesson worth keeping: the SDK end was one file and the KERNEL end
+was five named by hand, so a constant typed out in the SDK and in any of the
+other 39 kernel files was defined in exactly ONE listed file and no comparison
+happened at all.  That was 111 names - all of them agreeing, none of them
+watched, and `W_W` among them, which is the drift docs/UPSTREAM.md records as
+having arrived from upstream three times.  A self-maintaining check with a
+hand-written half is a hand-written check.
 
 The host tools are checked too, and the self-maintaining property has to be
 said again there rather than assumed: PY_MIRROR below is a HAND-WRITTEN list,
@@ -53,6 +63,7 @@ ONE LIMITATION, stated so nobody trusts it further: a definition inside a
 per build would be compared at one arm.  None does today; if one ever should,
 put it in DIVERGENT below with the reason rather than deleting the check.
 """
+import glob
 import os
 import re
 import sys
@@ -65,33 +76,26 @@ from harness import check, done                           # noqa: E402
 import os88geom as geom                                   # noqa: E402
 import os88parts as parts                                 # noqa: E402
 
-ASM = ["kernel/kernel.asm", "kernel/splash.inc", "boot/boot.asm",
-       "boot/boothd.asm", "apps/os88api.inc", "apps/os88ui.inc",
+# EVERY KERNEL FILE, BY GLOB - see KERNEL_GLOB below. What is listed HERE is
+# only what the glob cannot reach: the boot sectors, the SDK, the drivers and
+# the C packages. The kernel half of each pair below used to be named here one
+# file at a time, and naming it is what made the check partial - a constant
+# typed out in the SDK and in any kernel file the list had not been told about
+# was defined in exactly ONE listed file, so nothing compared it. That was 111
+# names, including the WHOLE `W_*` window record, the whole `SSI_*` snapshot,
+# the entire fsx ABI, every `FERR_*` and `CLIP_MAXKB` - all agreeing, none
+# watched. The glob is the docstring's "the list maintains itself" applied to
+# the side of the comparison that was not getting it.
+ASM = ["boot/boot.asm", "boot/boothd.asm",
+       "apps/os88api.inc", "apps/os88ui.inc",
        "drivers/os88drv.inc",
-       # The scheduler's own two (SPEC.md 8, 8.7): MAX_TASKS, which sizes the
-       # snapshot the SDK hands every package, and SCH_STACK, which is the
-       # LARGEST slot class and so the window apps/cc/crt0.asm's cc_iswk has
-       # to use. Both were typed out in apps/os88api.inc with nothing
-       # comparing them, and MAX_TASKS was moved by hand 8 -> 14 in the same
-       # session this line was written - it stayed in step on care alone,
-       # which is what this file exists to replace.
-       "kernel/sched.inc",
-       # The claim table's own namespace (SPEC.md 50.2/50.6): the SDK block
-       # under "mirrored from kernel/memory.inc" is the Task Manager's only
-       # way to name a kernel tag, and a RENUMBER there is silent in exactly
-       # the way this file exists for - the heap page would go on decoding
-       # the old word and label the wrong claim. tests/unit/t_ktags.py is the
-       # other half: that every tag reaches the SDK at all, which a mirror
-       # check by construction cannot see.
-       "kernel/memory.inc",
        # The screen saver's private ABI (SPEC.md 79.3): five verbs, the
        # settings block's four offsets, the mode bits and the minutes clamp,
-       # all written out in the kernel AND in the overlay because an overlay
-       # cannot include a kernel header.  That is exactly the shape this file
-       # exists for, and it was the first ABI in the tree with nothing at all
-       # watching it.
-       "kernel/blank.inc", "drivers/saver/saver.asm",
-       "drivers/saver/svcfg.inc",
+       # all written out in kernel/blank.inc AND in the overlay because an
+       # overlay cannot include a kernel header. That is exactly the shape
+       # this file exists for, and it was the first ABI in the tree with
+       # nothing at all watching it.
+       "drivers/saver/saver.asm", "drivers/saver/svcfg.inc",
        # The socket ABI's two ends (SPEC.md 72.20): netpkg.inc is the header a
        # package includes and tcp.inc is the driver's own, and the TS_* a
        # reader tests by name are typed out in both. netpkg.inc's own comment
@@ -100,21 +104,28 @@ ASM = ["kernel/kernel.asm", "kernel/splash.inc", "boot/boot.asm",
        "drivers/net/netpkg.inc", "drivers/ether/tcp.inc",
        # The XMS store's private ABI (SPEC.md 41.12.2): the six verb numbers
        # a caller passes in AL, the six caps-block offsets it reads the
-       # answer out of, and XM_ABI_VER, all typed out in the kernel AND in
-       # the driver because a driver cannot %include a kernel header - the
+       # answer out of, and XM_ABI_VER, all typed out in kernel/xmem.inc AND
+       # in the driver because a driver cannot %include a kernel header - the
        # same shape as drivers/saver above. It is the WORST of them to leave
        # unwatched, because SPEC.md 41.12.4 makes the whole subsystem silent
        # BY DESIGN: a drifted XMV_* is a wrong index into drv_call's service
        # table, so the driver far-calls the wrong verb or a word straddling
        # two entries, and the kernel's answer to every xmem failure is to
        # carry on with no store and tell nobody.
-       "kernel/xmem.inc", "drivers/xmem/xmem.asm",
+       "drivers/xmem/xmem.asm",
        # apps/c64 is a C package whose assembly half and C half type the same
        # constants out twice (docs/C64-SPEC.md, its memory and screen
        # sections): the core's scratch offsets, the composer's band stride.
        # A drifted C64_SCR_WLO reads the wrong scratch words and presents as
        # a stale screen, not as an error.
        "apps/c64/c64cpu.inc", "apps/c64/c64band.inc"]
+
+# ...and the kernel, whole. `kernel/*.inc` + `kernel.asm`: 44 files, of which
+# the hand-written list named five. The knob-only files (band.inc, moudiag.inc)
+# come with it and that is right - a constant is a constant whether or not the
+# block around it is compiled, and a knob build is where a drifted one would
+# be found LAST.
+KERNEL_GLOB = os.path.join(ROOT, "kernel", "*.inc")
 
 # ...and the C side of those, which cannot `%include` an .inc any more than a
 # host tool can.  `#define NAME VALUE`, same one-value-everywhere rule.
@@ -187,7 +198,9 @@ def structfields(rel, name):
 
 
 def main():
-    tables = {rel: defs(rel, EQU) for rel in ASM}
+    asm = ASM + sorted(os.path.relpath(p, ROOT).replace(os.sep, "/")
+                       for p in glob.glob(KERNEL_GLOB)) + ["kernel/kernel.asm"]
+    tables = {rel: defs(rel, EQU) for rel in asm}
     tables.update({rel: defs(rel, CCONST) for rel in CDEF})
 
     where = {}
@@ -307,7 +320,7 @@ def main():
 
     print("t_mirror: %d names mirrored across %d asm/c files, %d host-tool "
           "copies, %d local constants scanned, %d os88parts copies"
-          % (len(mirrored), len(ASM) + len(CDEF), pychecked, copies, pcopies))
+          % (len(mirrored), len(asm) + len(CDEF), pychecked, copies, pcopies))
     done("t_mirror")
 
 
