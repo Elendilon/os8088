@@ -6214,7 +6214,7 @@ $(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPS) \
                        $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
                        tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot360.bin
-	python3 tools/os88disk.py -o $@ --size 360 \
+	python3 tools/os88disk.py --fatcap 2 -o $@ --size 360 \
 		--boot $(SMALLDIR)/boot360.bin --kernel $(SMALLDIR)/kernel.bin \
 		$(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPSARGS) $(SMALLCOREARGS) \
 		$(SYSDOC) $(MEDIAFOLDER)
@@ -6228,7 +6228,7 @@ $(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPS) \
                     $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
                     tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot.bin
-	python3 tools/os88disk.py -o $@ --size 1440 \
+	python3 tools/os88disk.py --fatcap 2 -o $@ --size 1440 \
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/kernel.bin \
 		$(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPSARGS) $(SMALLCOREARGS) \
 		$(SYSDOC) $(MEDIAFOLDER)

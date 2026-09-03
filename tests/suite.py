@@ -470,6 +470,25 @@ FULL = [
         "(`make small`, into build/smallk/) because there is no capability "
         "to probe for and `all` never builds that kernel",
         needs=("marty",), serial=True, builds=True),
+    Row("stk0water", "soak", py("tests/stk0water.py"), 300.0,
+        "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
+        "section says `redo the fill probe before lowering either` and the "
+        "probe was a hand edit to kmain plus a hand read, so it had been run "
+        "once - which is why `STK0_SIZE` sat at 4x a figure nobody had "
+        "re-taken. This is it automated: fill everything below task 0's SAVED "
+        "SP with 0xCC, drive the machine, read the deepest byte back. It "
+        "reads 238 against 15.1's 246 (a heavier drive), and STK0_SIZE is 512 "
+        "on both kernels now. Three things it had to get right and each was "
+        "wrong first: the LIVE SP is a worker's, because SPEC.md 8.1.2 has "
+        "ui_task block and an idle machine is 96.9% halted; the canary at the "
+        "bottom must not be filled over, because SPEC.md 8.7 put slot 0 in "
+        "sch_stkbase and sch_switch checks it on every switch - filling it "
+        "reaches sch_stkdie and the only symptom is a pointer that will not "
+        "move; and a menu released inside its pane SELECTS an item, which "
+        "launched the About box and left the screen animating for ever. "
+        "`soak` because it is a MEASUREMENT rather than an assertion - it "
+        "prints the margin at five candidate sizes and fails nothing",
+        needs=("marty",), serial=True),
     Row("small128", "full", py("tests/small128.py"), 110.0,
         "...and it reaches that desktop on a machine with 128KB IN IT. Every "
         "other MartyPC profile here is 640KB, so `MIN_RAM_KB` had been an "

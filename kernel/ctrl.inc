@@ -3766,7 +3766,9 @@ cp_timebtn:
 ; own rather than 600 lines of MC146818, MM58167 and RP5C01 in the middle of
 ; the Control Panel - it carries no `section` of its own precisely so that it
 ; lands in THIS one, and tools/os88ovlchk.py knows that through its EXTRA map.
-%include "clockw.inc"
+%ifdef OS88_RTC                 ; SPEC.md 37.0.1: with no rung on this build
+%include "clockw.inc"           ; there is no chip to write to either, and
+%endif                          ; this is CTRL.DRV's copy of the write half
 
 ; =============================================================================
 ; SPEC.md 37's FIELD EDITOR, hosted here (SPEC.md 37.93)
@@ -4092,11 +4094,17 @@ cp_flush_x:
 ; failure path handles the third.
 ; -----------------------------------------------------------------------------
 cp_flush_close_x:
+%ifdef OS88_RTC
     cmp byte [clk_dirty], 0     ; THE HARDWARE CLOCK FIRST (SPEC.md 37.94), and
     je .cfg                     ; before the floppy: this is port I/O in
     mov byte [clk_dirty], 0     ; microseconds where drv_cfg_save below is two
     call clk_rtc_write          ; seconds of motor, and a write that fails
 .cfg:                           ; leaves nothing to retry either way
+%else
+    mov byte [clk_dirty], 0     ; SPEC.md 37.0.1: no chip to write the setting
+                                ; to, so the edit is the SESSION's and the
+                                ; flag is cleared rather than acted on
+%endif
     cmp byte [cp_wdirty], 0
     je .out
     call cp_flush_x

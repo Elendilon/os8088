@@ -6,7 +6,7 @@
 ; the os8088 API jump table (os88api.inc). 9x9 board, 10 mines, 16px cells,
 ; a 20px status strip above the board. Mines are placed lazily on the first
 ; reveal (never under it); zero-count reveals flood-fill through an explicit
-; queue (no recursion - the UI task's stack is 1,024 bytes). RIGHT-CLICKING a
+; queue (no recursion - the UI task's stack is 512 bytes). RIGHT-CLICKING a
 ; cell flags it (SPEC.md 13.11); 'F' toggles flag mode for the left button on
 ; a one-button mouse, and 'N' starts a new game.
 ;

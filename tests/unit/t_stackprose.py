@@ -73,12 +73,50 @@ _EQU = re.compile(r'^\s*(\w+)\s+equ\s+([0-9][0-9a-fA-FxX]*)', re.M)
 _NL = re.compile(r"\n")
 
 
-def kernel_constants():
+_COND = re.compile(r"^\s*%(\w+)\s*(\S*)", re.M)
+
+
+def kernel_constants(arm="big"):
+    """The three constants, READ from the kernel and never mirrored.
+
+    **It folds the OTHER kernel's arm out first**, and it has to: the tree
+    builds two kernels off one source and `MAX_TASKS` is 7 under
+    `%ifdef KERN_SMALL` and 14 otherwise (SPEC.md 51.0.0). A reader that takes
+    the first `equ` it sees would compare every sentence in the tree against
+    whichever arm happens to be written first - and the prose describes the
+    SHIPPED kernel, so `big` is the default.
+
+    That is not hypothetical. `tools/os88geom.py` had exactly this bug for as
+    long as there were two kernels: it mirrored `WIN_SIZE` = 34 and kern_small
+    is 28, so every script pointed at that build decoded the window table at
+    the wrong stride and returned plausible numbers. The fix there was the same
+    fold, and this is the second file to need it - which is why it is written
+    out rather than borrowed: this file's whole contract is that it reads the
+    kernel with no help from anything that could itself be stale.
+    """
     out = {}
     for name, rel in AUTHORITY.items():
         text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
-        for m in _EQU.finditer(text):
-            if m.group(1) == name:
+        live, depth = [], 0
+        for line in text.split("\n"):
+            mo = _COND.match(line)
+            if mo:
+                d, a = mo.group(1).lower(), mo.group(2)
+                if d == "ifdef" and a in ("KERN_BIG", "KERN_SMALL"):
+                    live.append(["k", (a == "KERN_BIG") == (arm == "big")])
+                elif d.startswith("if"):
+                    live.append(["?", True])
+                elif d.startswith("eli") and live:
+                    live[-1] = ["?", True]          # not understood -> read it
+                elif d == "else" and live and live[-1][0] == "k":
+                    live[-1][1] = not live[-1][1]
+                elif d == "endif" and live:
+                    live.pop()
+                continue
+            if not all(e[1] for e in live):
+                continue
+            m = _EQU.match(line)
+            if m and m.group(1) == name:
                 out[name] = int(m.group(2), 0)
                 break
     return out

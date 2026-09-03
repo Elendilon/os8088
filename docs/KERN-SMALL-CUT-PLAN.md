@@ -152,7 +152,7 @@ What is actually still on the table:
 | # | option | `.text` | `.cold` | `.bss` | total | what it costs |
 |---|---|---:|---:|---:|---:|---|
 | A1 | **Sound layer** §34 (`snd.inc`) | 1,035 | — | 287 | **1,322** | no PC-speaker tone or PCM at all. 256 of the `.bss` is `snd_xlat` |
-| A2 | **Clock ladder** §37 rungs 1–3 (`clock.inc`) | ~450 | — | ~60 | **~510** | a 5150 has no RTC — MC146818 arrived with the AT — so rungs 1–3 are for machines this build is not for. Keep rung 0, the BIOS tick |
+| A2 | **Clock ladder** §37 rungs 1–3 (`clock.inc`) | ~450 | — | ~60 | **~510** | a 5150 has no RTC — MC146818 arrived with the AT — so rungs 1–3 are for machines this build is not for. Keep rung 0, the BIOS tick. **BUILT, all four rungs, and worth far more than this row — §2.3** |
 | A3 | **Loadable drivers + `SYSTEM.CFG`** §51 (`driver.inc`) | 453 | 1,794 | 303 | **2,550** | no `.DRV` of any kind can be loaded. `mod.inc`'s modules (Control Panel, Format, Clone) are a different mechanism and survive |
 | A4 | **Volume table 8 → 4** (`DVOL_MAX`) | 64 | — | 256 | **320** | four mounted volumes instead of eight; `dsk_bpbv` is 512 bytes of `.bss` |
 | | **subtotal** | | | | **~4,700** | |
@@ -331,7 +331,7 @@ window that lists and launches and does nothing else.
 | D1 | **Task partition 13 slots → 6** (`SCH_PARTITION`, `MAX_TASKS`) | **~1,590** | `sch_stacks` is 2,816 of `.lowbss`. Thirteen slices is a 640KB machine's number; 70KB of heap holds about three packages |
 | D2 | **FAT window 9 → 3 sectors** (`DSK_FAT_SECS`) | **3,072** | refuses any volume above 720KB. **Capped — §7** |
 | D3 | **`disk_dir` 32 → 16 entries** (`DSK_NENT`) | **384** | sixteen files listed per floppy. **Capped — §7** |
-| D4 | **`STK0_SIZE` 1,024 → 512** | **512** | 2x the measured 246-byte high-water mark instead of 4x. Task 0's is the one stack `sch_switch`'s canary skips, so this is the slice to be most careful with |
+| D4 | **`STK0_SIZE` 1,024 → 512** | **512** | **BUILT, ON BOTH KERNELS.** `tests/stk0water.py` is the fill probe SPEC.md 15.1 asks for, automated, and it re-reads **238** against that section's 246. Two things this row said were wrong: task 0's canary is NOT skipped (SPEC.md 8.7 put slot 0 in `sch_stkbase` and `sch_switch` checks it every switch), and the margin standard is not 4x - docs/STACK-SLOTS-PLAN.md 12 accepts **1.26x** for Frotz, because SPEC.md 9.10 and 8.5 moved both mouse ISRs and the ROM tick chain onto private stacks and a slice's depth is now the program's own chain. 512 is 2.08x |
 | D5 | **`MAX_WIN` 12 → 6** | **~264** | **mirrored in `apps/os88api.inc`** — an ABI change, gated by `tests/unit/t_mirror.py` |
 | D6 | **`INST_MAX` 12 → 6** | **~270** | same mirror, same gate |
 | D7 | **`MEM_MAX` 32 → 20** | **120** | twenty heap claims |
@@ -519,6 +519,59 @@ deleted — so the two middle rows keep file *writing* and associations and pay
 8.4 KB of heap for them. That is the trade to put to the owner, and it is a
 different one from the trade this table gave before
 docs/KERN-SMALL-MODULE-SPLIT.md was written.
+
+### 2.3 A2 was refused and then TAKEN, for a completely different reason
+
+§2.1 refused it on a measurement that stands: `CLK_FORCE` already exists, and
+forcing one rung is worth **44–51 bytes**, not ~510. That measurement was of
+the wrong thing.
+
+**The owner settled the hardware question, and it settles all four rungs:**
+
+> *"if they have a sixpakplus then they have more than 128kb ram. The
+> sixpakplus is a ram expansion card. And the first thing that had the toshiba
+> clock shipped with 256kb ram so its not really valid either."*
+
+That is right, and it is stronger than this document's reasoning was. Rung 1
+is AT-only; rung 4 is `int 1Ah AH=02h`, which §37.90's own opening says an XT
+BIOS does not implement; and rungs 2 and 3 — the add-on cards that looked like
+*exactly* the XT upgrade path — are on boards that came with the RAM that
+takes the machine off this build's floor. **No rung is reachable on a 128KB
+machine**, so the ladder is not unlikely there, it is dead code. SPEC.md
+§37.0.1 is the contract.
+
+**And what it is worth is not its own bytes.** `.ovlw` went **4,328 → 2,789**,
+and `.ovlw` is what §7 caps three of the most attractive data cuts against:
+
+```
+                              .ovlw   rounded   region at 2 FAT sectors
+before gating the ladder      4,328     4,608   4,352   -> D2 REFUSED by 256
+after                         2,789     3,072   4,352   -> D2 fits, 1,280 spare
+```
+
+So the clock unlocked **D2**, which is 3,584 bytes of `FAT_SEG` — seven times
+what A2's own row claimed — and the measurement in §2.1 could not have seen
+that because it was measuring footprint and this is a **placement**
+constraint. Worth keeping as a caution against the next row that looks small:
+in a kernel with overlays, a byte's value depends on where it is, not only on
+how big it is.
+
+### 2.4 The batch, measured
+
+A3 + A4 + A1's dead half + A2 + D1 + D2 + D4 + D7, all built:
+
+```
+                        KERN_SIZE   heap floor   free heap on 128KB
+before this work           96,256      95.5 KB         32.5 KB
+after W0-W2 (modules)      88,064      87.5 KB         40.5 KB
++ A3, A4                   85,504      85.0 KB         43.0 KB
++ A1 dead half             84,992      84.5 KB         43.5 KB
++ A2, D1, D4, D7           82,432      82.0 KB         46.0 KB
++ D2                       78,848      78.5 KB       * 49.5 KB *
+```
+
+**49.5 KB, measured on a machine with 128KB in it** (`tests/small128.py`), and
+`kern_big` moved by 512 bytes — D4's, the only item here it shares.
 
 ### 8.2 If 70KB is firm
 

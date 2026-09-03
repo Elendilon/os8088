@@ -103,7 +103,12 @@ CLK_RETRY   equ 10              ; bounded coherent-read retries
 %ifndef CLK_FORCE
 %define CLK_FORCE 0
 %endif
+%ifdef OS88_RTC
 %define CLK_TRY(n) (CLK_FORCE == 0 || CLK_FORCE == n)
+%else
+%define CLK_TRY(n) 0            ; SPEC.md 37.0.1: no rung is reachable on this
+%endif                          ; build, so clk_probe walks nothing and every
+                                ; rung's body is out of the assembly too
 section .ovlw                  ; boot overlay (SPEC.md 2.5)
 
 
@@ -198,6 +203,7 @@ clk_probe:
 .no_at:
 %endif
 
+%ifdef OS88_RTC                 ; SPEC.md 37.0.1: the REFERENCE read is int 1Ah,
     OVLMARK 34                  ; 34: the AT rung is behind us
     call clk_bios_read          ; the reference, and WALK step 5's own answer
     jc .no_bios
@@ -214,6 +220,8 @@ clk_probe:
 .no_bios:
     OVLMARK 35                  ; 35: int 1Ah answered or refused, and did not
                                 ; take the machine with it
+
+%endif
 
 %if CLK_TRY(CLK_T_RP)
     cmp byte [clk_ref], 0
@@ -300,6 +308,11 @@ clk_commit:
     pop ax
     ret
 section .text
+%ifdef OS88_RTC                 ; SPEC.md 37.0.1: the four RTC rungs, whole.
+                                ; Everything above is the ladder's dispatch
+                                ; and everything below is the SOFTWARE clock -
+                                ; the tick, the snapshot and the bar's
+                                ; formatter - which both builds keep
 
 ; =============================================================================
 ; Tier CLK_T_AT (1): the MC146818 at 70h/71h (SPEC.md 37.90)
@@ -1625,6 +1638,7 @@ clk_bios_read:
     pop bx
     pop ax
     ret
+%endif                          ; OS88_RTC
 section .text
 
 ; -----------------------------------------------------------------------------

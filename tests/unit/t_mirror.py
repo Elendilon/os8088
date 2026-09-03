@@ -140,7 +140,28 @@ PY_MIRROR = {
 # Names that are DELIBERATELY different between two files. Empty today. A row
 # here is a decision, so give the reason - an unexplained exemption is how a
 # real divergence gets filed as an intended one.
-DIVERGENT = {}
+# --- deliberate divergences, with the reason ---------------------------------
+#
+# The SDK carries the LARGER value and the kernel may be smaller. That is not
+# a half-applied change: `apps/os88api.inc` is compiled into every package,
+# ONE `.o88` runs on BOTH kernels (SPEC.md 24), and each of these sizes a
+# buffer a package hands the kernel to fill. So the safe direction is the
+# package over-allocating - it reads a shorter snapshot into a longer buffer -
+# and the unsafe one is the kernel writing more records than the package
+# reserved. Shrinking the SDK's copy to match kern_small would overflow that
+# buffer on kern_big.
+#
+# SPEC.md 51.0 took the same decision for MEM_P_FATW_N and states the rule.
+DIVERGENT = {
+    "MAX_TASKS": "kern_small has 7 slots (SPEC.md 8.7, "
+                 "docs/KERN-SMALL-CUT-PLAN.md D1) and the SDK keeps 14: "
+                 "taskmgr sizes SS_TSTATE from it, so a package built at 14 "
+                 "reading a 7-slot snapshot over-allocates and is safe, where "
+                 "the reverse overflows",
+    "MEM_MAX": "kern_small has 20 claim records "
+               "(docs/KERN-SMALL-CUT-PLAN.md D7) and the SDK keeps 32, which "
+               "is CLAIM_SNAPSHOT_SIZE's input - same direction, same reason",
+}
 
 EQU = re.compile(r"^([A-Z][A-Z0-9_]*)\s+equ\s+([^\s;]+)", re.M)
 PYCONST = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=\s*([^\s#]+)", re.M)

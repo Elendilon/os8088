@@ -280,6 +280,21 @@ handlers run on whichever stack they interrupt). The reservations above are
 (§15.1) only proves `STK0_SIZE` is big enough to be a stack at all, not that
 a task fits its own slice.
 
+**`tests/stk0water.py` IS that probe, automated**, and `STK0_SIZE` is **768**
+since it was first run — 3.1× a re-measured 238, which is 15.1's 246 under a
+lighter drive. It fills everything below task 0's *saved* SP with 0xCC (the
+saved one, out of `sch_tasks[0]`: the live SP is a worker's, because §8.1.2
+has `ui_task` block and an idle machine is 96.9% halted), drives the machine,
+and reads the deepest byte back.
+
+**And it corrects this section.** Task 0's stack is **not** "the one
+`sch_switch`'s canary skips" — it has not been since §8.7's `sch_stkbase`
+put `STK0_BOT` at slot 0 of the table, `sched_init` seeded it with
+`SCH_MAGIC`, and the branch that used to skip it went away. It is compared on
+**every** switch, on the shipping kernel, and an overrun reaches `sch_stkdie`.
+The probe found that by dying the instant its fill reached the magic word,
+which is the strongest evidence a claim like this can get.
+
 **`STK0_SIZE` is a constant, and that is load-bearing.** It used to be
 "whatever is left between the top of `.lowbss` and the kernel segment", so
 task 0's stack silently absorbed every byte saved anywhere below it and two
@@ -8745,7 +8760,8 @@ arithmetic branched around it. The table simply holds `STK0_BOT` there.
 
 That branch going is the small part. The larger part is that **`STK0_BOT`'s
 `SCH_MAGIC` used to be seeded only under `KFZTRACE`** — so on every shipping
-kernel the UI task's 1,024-byte stack had *no canary at all*, and its stack grows
+kernel the UI task's stack had *no canary at all* - 1,024 bytes of it, as it
+was then - and its stack grows
 down onto the top of `.lowbss`: the other tasks' slices, the glyph table, the
 disk buffers. An overrun there was silent, which is precisely what the
 `KFZTRACE`-only seed's own comment complained about while being unable to do
@@ -42203,6 +42219,43 @@ weekday counter that must be written), and no re-reading of the RTC after
 boot — the PIT is the clock from then on, which is exactly how DOS behaves
 on the same hardware.
 
+### 37.0.1 The RTC LADDER is not on `kern_small` — tier 0 is what it has
+
+**All four rungs of §37.90 are chips a 128KB machine cannot have**, and that
+is a fact about the hardware rather than a judgement about the bytes:
+
+| rung | chip | why not here |
+|---|---|---|
+| 1 | MC146818 / DS12885 | **arrived with the AT.** Not in an XT at all |
+| 2 | National MM58167 | an add-on card — and the card everyone means is the **AST SixPakPlus, which is a RAM EXPANSION**. A machine with one in it does not have 128KB any more |
+| 3 | Ricoh RP5C01 / TC8521 | the first machine that shipped with one **shipped with 256KB** |
+| 4 | `int 1Ah` AH=02h | §37.90's own opening: *"An XT BIOS implements AH=00h/01h and nothing else"* |
+
+So the ladder is not merely unlikely on this build, it is **unreachable**, and
+`%ifdef OS88_RTC` (defined only on a `KERN_BIG` assembly) takes all four rungs
+out: `CLK_TRY(n)` becomes 0 so `clk_probe` walks nothing, the four rung bodies
+leave the assembly, the reference read leaves with them, and `clockw.inc` —
+§37.94's write half, which ships inside `CTRL.DRV` — is not included either,
+because there is no chip to write to.
+
+**What a `kern_small` machine has is tier 0**, and §37.90's table already
+describes it: `Hardware clock: none`. The PIT tick still drives everything —
+the menu-bar clock, `clk_tick`, the snapshot, the formatter, every timer — and
+the Date/Time page still edits the time. What it loses is **persistence**: the
+setting is the session's, and a reboot starts from the built-in default, the
+way a PC with no clock card always did.
+
+`cp_flush_close_x` clears `[clk_dirty]` rather than acting on it, so the panel
+still closes cleanly and there is no failure path to explain to the user.
+
+### 37.0.2 …and `snd.inc`'s CARD tiers go with §51.0, not with this
+
+Stated here because the two look like one decision and are not: the FM and
+Sound Blaster tiers are gated by `OS88_SNDCARD` (§34.0) because they are
+reached through a **driver**, and §51.0 removed the mechanism. The **PC
+speaker is untouched on both builds.** This section is about a clock chip; that
+one is about a sound chip; and the PIT drives the tone tier either way.
+
 ### 37.90 The RTC ladder
 
 `int 1Ah` AH=02h..05h is the **last** rung, not the only one. An XT BIOS
@@ -59320,6 +59373,68 @@ free memory**, and the two questions have to be asked separately.
 - **`SYSTEM.CFG` is not read**, so §51.5's settings do not persist. The
   Control Panel pages that write it still work on the session.
 
+#### 51.0.0 …and the sizing constants that follow from it
+
+Four constants come down with the mechanism, because each was sized for a
+machine `kern_small` is not. They are grouped here rather than under their own
+sections because **three of the four are only safe once §51.0 has landed**, and
+a reader deciding to move one needs that in front of them.
+
+| | constant | `kern_big` | `kern_small` | why it is safe |
+|---|---|---:|---:|---|
+| D1 | `MAX_TASKS` | 14 | **7** | six worker slices, 1,280 bytes of `sch_stacks` against 2,816 |
+| D2 | `DSK_FAT_SECS` | 9 | **2** | 1,024 bytes of `FAT_SEG` against 4,608 |
+| D4 | `STK0_SIZE` | **512** | **512** | *both* builds — see §15.1 |
+| D7 | `MEM_MAX` | 32 | **20** | twenty heap claims |
+
+**D1's six are chosen, not just counted.** §8.7's `SCH_PARTITION` is a class
+scheme, so the question is *which* six, and the answer comes off
+docs/STACK-SLOTS-PLAN.md §12.1's survey read against what §24.5 actually puts
+on the small disks: two 128s (the idle task holds one for the life of the
+machine), two 192s (the modal class — Artful, the Task Manager, the Fractal,
+Cyclone, Notepad, Arkanoid and Tamegram all ship), one 256 (Missile Command),
+and **one `SCH_STACK`**. That last one is kept for a reason that is not a
+program: the C SDK declares `CC_STACK = SCH_STACK` (§20.6 rule 7),
+`tests/unit/t_mirror.py` guards the pair, and `SCH_STACK` is the largest class
+by construction — take the class away and either a C package's worker can
+never be spawned or the mirror breaks.
+
+**D2 could not have been taken before §37.0.1.**
+docs/KERN-SMALL-CUT-PLAN.md §7 is the floor: `.ovlw` is loaded *onto* the FAT
+window and spills through the mount buffers, so it must fit
+`FAT_PARA*16 + DSK_WIN_BYTES`. At two sectors that region is **4,352**, and
+`.ovlw` rounded to whole sectors was **4,608** — short by 256. Gating the RTC
+ladder took `.ovlw` from 4,328 to **2,789**, which rounds to 3,072, and the cap
+then fits with 1,280 to spare. The clock was 40% of that overlay, and *this* is
+what it was worth — not the 44–51 bytes of footprint that forcing a single rung
+buys.
+
+**D2 does NOT cost the other geometries**, which is the question worth
+answering because the naive reading is that a 2-sector cap means 360KB disks
+only. A FAT is sized by the **cluster count**, not by the disk, so
+`tools/os88disk.py --fatcap 2` raises sectors-per-cluster until the FAT fits:
+
+```
+  360KB   spc=2  FAT 2   354 clusters x 1,024 =   362,496 usable  (unchanged)
+  720KB   spc=4  FAT 2   357 clusters x 2,048 =   731,136
+ 1.2MB    spc=4  FAT 2   595 clusters x 2,048 = 1,218,560
+ 1.44MB   spc=8  FAT 2   357 clusters x 4,096 = 1,462,272
+```
+
+Every one is still a standard FAT12 volume any host OS mounts, and the 1.44MB
+disk with 4KB clusters boots `kern_small` on a 128KB machine. What it costs is
+cluster slack — a 100-byte file occupies 4KB there — which on a floppy carrying
+twenty packages of 5–48KB is a few percent, and buys the geometry back whole.
+
+**D1 and D7 diverge from the SDK on purpose, and the direction is the whole
+point.** Both are mirrored in `apps/os88api.inc`, and one `.o88` runs on both
+kernels (§24), so **the SDK carries the larger value and the kernel may be
+smaller**: `taskmgr` sizes `SS_TSTATE` from `MAX_TASKS` and
+`CLAIM_SNAPSHOT_SIZE` from `MEM_MAX`, so a package built at 14/32 reading a
+7/20-record snapshot **over-allocates**, which is safe, where the reverse
+overflows the buffer it was handed. It is the same rule `MEM_P_FATW_N` is
+under, and `tests/unit/t_mirror.py`'s `DIVERGENT` carries both with the reason.
+
 #### 51.0.1 `drvvol.inc` — the four routines that are not driver code
 
 `drv_mounted`, `drv_vol_bank`, `drv_vol_back` and `drv_find` were written in
@@ -65105,7 +65220,7 @@ this one is architecturally a copy of, and the one that has run on the 5150.
 The deepest chain is `mpp_render` → `mppu_frame` → `mppu_paint` →
 `mppu_draw_all` → `mppu_draw_buttons` → `mppu_btn_glyph` → `mppu_ltri` →
 `mppu_tri` → `mppu_vlr`, and the three indirect calls in this package are all
-click dispatchers on task 0's 1,024-byte stack, not in the worker's tree. That
+click dispatchers on task 0's 512-byte stack, not in the worker's tree. That
 is a bound plus a peer comparison and not a field number; `tests/stackprobe`
 on real iron is still the only thing that settles the margin, because SeaBIOS
 hides a real BIOS's interrupt stack use (docs/TESTING.md).
@@ -85758,7 +85873,7 @@ parsing.
 
 **A formula's OWN nesting is bounded too.** Every `(`, unary `-`, `^` and
 function call recurses the parser, and a pending binary operator banks its
-8-byte left operand on the machine stack — which is task 0's 1,024-byte stack
+8-byte left operand on the machine stack — which is task 0's 512-byte stack
 (§2.1), the one every package callback runs on. `sh_pnest_enter` charges each
 of those recursion points, cell depth included, against one shared budget
 (`SH_PNEST_MAX` = 12 — enough for the deepest `SH_EVAL_MAXDEPTH` chain of

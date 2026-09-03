@@ -30,7 +30,20 @@
 ; worker task inside inst_task_die, so the two really can meet.
 ; =============================================================================
 
+%ifdef KERN_SMALL
+MEM_MAX     equ 20              ; TWENTY heap claims on kern_small
+                                ; (docs/KERN-SMALL-CUT-PLAN.md D7). The SDK's
+                                ; copy STAYS AT 32, on MAX_TASKS' rule:
+                                ; apps/os88api.inc derives
+                                ; CLAIM_SNAPSHOT_SIZE from it and taskmgr
+                                ; allocates that, so a package built at 32
+                                ; reading a 20-record snapshot OVER-allocates
+                                ; and is safe, where the reverse overflows the
+                                ; buffer. The only visible cost is twelve
+                                ; empty rows on the Task Manager's heap page.
+%else
 MEM_MAX  equ 32                 ; claim records; more than this and a claim
+%endif
                                 ; is refused, which is the same answer as
                                 ; "no room" and needs no new failure path.
                                 ; Mirrored in apps/os88api.inc (SPEC.md 20.9
