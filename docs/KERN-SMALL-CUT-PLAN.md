@@ -206,7 +206,7 @@ than swept up with the blanker.
 |---|---|---:|---|
 | C1 | **FAT write path** §18.4–18.6 (`diskw.inc`) | **4,899** | a **read-only OS**: nothing saves, formats, renames or deletes |
 | C2 | **Standard File dialog** §38 (`fdlg.inc`) | **3,514** | no application can Open or Save. **Not 4,654**: ~1,140 of `fdlg.inc`'s `.cold` is `apps/os88ui.inc`, which five other files need and which survives deletion (docs/KERN-SMALL-MODULE-SPLIT.md §0) |
-| C3 | **File associations** §54 (`assoc.inc`) | **2,526** | double-clicking a document no longer finds its program |
+| C3 | **File associations** §54 (`assoc.inc`) | **2,526** + **3,072 of heap** | double-clicking a document no longer finds its program, and files get the generic icon. **DECIDED — gated.** The second figure is `asc_use_x`'s `ASC_KB` claim, a kernel tag rather than a purgeable class, taken at the boot mount and never freed: docs/KERN-SMALL-MODULE-SPLIT.md §9.1 |
 | C4 | **Cut/Copy/Paste** §22.3–22.5 (`filecp.inc`) | **2,281** | no file management in the Disk window |
 | C5 | **Built-in kinds** §14 (`apps.inc` + pools) | **1,540** | Timer, About, Ball, Bounce |
 | C6 | **Fullscreen exclusive** §53 (`fsx.inc` + `fsx_mtab`) | **913** | no game or demo can take the screen |
@@ -384,7 +384,9 @@ heap floor   1,536 + 62,994  =  64,530  =  63.0 KB
 free heap  131,072 - 64,530  =  66,542  =  65.0 KB
 ```
 
-**~65KB, against 70KB asked for** — and that is with no file writing, no file
+**~65KB of footprint-derived heap, against 70KB asked for** — and **~68KB
+usable** once C3's pinned 3,072-byte association cache is counted
+(docs/KERN-SMALL-MODULE-SPLIT.md §9.1), which is within 2KB of the ask — and that is with no file writing, no file
 dialog, no copy/paste, no associations, no icons, no sound, no clock beyond the
 BIOS tick, no loadable drivers, no dock, no fullscreen, no built-in apps and no
 raise cache.
@@ -407,7 +409,7 @@ tiers above it:
 | A + B + D | 16,562 | **48.7 KB** | …and no save-under, icons or `gfx_line` |
 | A + B + D + §6 | 21,211 | **53.2 KB** | …and the file dialog and Cut/Copy/Paste intact, loaded on demand |
 | A + B + D + §6 + C5–C8 | 24,690 | **56.6 KB** | …and no dock, fullscreen, clipboard or built-in apps |
-| everything, C1–C4 deleted (§8) | 33,262 | **65.0 KB** | a read-only browser with windows |
+| everything, C1–C4 deleted (§8) | 33,262 | **65.0 KB** (68.0 usable) | a read-only browser with windows |
 
 **The last row is now the only one that reaches 65 KB, and the gap to the row
 above it is the correction.** §6's module route keeps the file dialog and
@@ -426,8 +428,15 @@ left (`memory.inc` 2,388 and `disk.inc` 5,771 — the second of which is the
 mount path itself and cannot be on the disk it mounts). **None of them is
 cheap, and the first is the only one that is not actively unwise.**
 
-Worth putting back to the requester: **66KB runs SHEET with 14KB spare**, and
-SHEET is the largest package in the tree. The difference between 66 and 70 may
+**And there is a fourth candidate that costs no feature at all: audit the
+pinned boot claims.** docs/KERN-SMALL-MODULE-SPLIT.md §9.1 found one by
+accident — the association cache holds 3,072 bytes of a 128KB machine's heap
+before the user has done anything, and no assembler can see it. Nothing has
+ever pointed `tests/kernresident.py`'s `mem_tab` walk at `kern_small`. That is
+the cheapest unexamined lever here.
+
+Worth putting back to the requester: **65KB runs SHEET with 13KB spare**, and
+SHEET is the largest package in the tree. The difference between 65 and 70 may
 not buy a program.
 
 ---

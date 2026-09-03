@@ -394,3 +394,94 @@ accounts for and the kernel source does not define — `fdlg.inc`'s
 `tools/os88ovlchk.py`'s own `EXTRA` table independently confirms.
 
 **Nothing here has been built.** Every figure is what the code costs today.
+
+---
+
+## 9. Decisions taken, and the order to build in
+
+The fork owner has settled three things, and one of them changes the order
+this document would otherwise have proposed.
+
+| | decision |
+|---|---|
+| `assoc.inc` | **gated out of `kern_small` entirely** — not a module. *"A nice to have, not something they need to use the system."* |
+| `filecp.inc`, `fdlg.inc` | **become on-demand modules**, as §3.1 and §3.2 |
+| `diskw.inc` | **kept for now.** Killing file writing outright is still on the table and is a separate conversation — *"a much more core feature for an OS to have"* |
+
+### 9.1 Gating `assoc` is worth more than KERN-SMALL-CUT-PLAN §4's row says
+
+That row prices it at 2,526 bytes of footprint. It misses a second, larger
+term: **`asc_use_x` claims 3KB of heap and never gives it back.**
+
+```nasm
+ASC_KB       equ 3              ; 32*80 + 16 + 24*4 = 2,672 bytes
+...
+    cmp word [asc_seg], 0
+    jne .haveseg                ; claimed ONCE, for the session
+    mov ax, ASC_KB
+    mov bx, MEM_K_ASC
+    call mem_claim_x
+```
+
+`MEM_K_ASC` is a kernel tag (0xFF06), **not one of the `MEM_P_*` purgeable
+classes**, and nothing frees it — a volume switch reloads the block in place.
+`disk_mount_x` calls `asc_use_x`, and the boot mount is a mount, so **the claim
+is standing on a bare desktop**. Gating the feature returns it.
+
+So the honest figure for a 128KB machine is **2,560 of footprint (as the rungs
+fall) plus 3,072 of heap = 5.5 KB**, which makes it the single largest item
+now on the table — larger than either module wave — and the only one that
+needs no new mechanism at all.
+
+**And it means today's headline is optimistic.** `32.5 KB` is what the ladder
+leaves; the association cache is holding 3KB of it before the user has done
+anything, so the real figure at a bare desktop is **~29.5 KB**. Only this one
+claim has been audited — `tests/kernresident.py` walks `mem_tab` at a desktop
+and has never been pointed at `kern_small`. **Doing that walk is worth more
+than any single row in these documents**, because a pinned boot claim is heap
+the machine never gets back and no assembler can see it.
+
+### 9.2 The order, and why it is not the one proposed
+
+The owner's instinct was to start with the two modules. On the measurements
+above the order should be **assoc first**, for two reasons that have nothing to
+do with its size: it needs **no new mechanism** — no section, no `MOD_*` id, no
+`os88mod.py` argument, no `os88ovlchk.py` edit, no `MOD_NENT` change — and it is
+the only one of the three whose call sites are already known and few (five in
+`disk.inc`'s mount and harvest path, one in `files.inc`, one in `ui.inc`, and
+two API-slot thunks in `kernel.asm`).
+
+| wave | change | mechanism needed | `KERN_SIZE` | free heap | usable |
+|---|---|---|---:|---:|---:|
+| — | today | | 96,256 | 32.5 KB | **~29.5 KB** |
+| **W0** | `assoc` gated out | none — `%ifdef` | 93,696 | 35.0 KB | **38.0 KB** |
+| **W1** | `filecp` → module | fits `MOD_NENT` = 8 today | 91,648 | 37.0 KB | **40.0 KB** |
+| **W2** | `fdlg` → module | lift `os88ui.inc`; `MOD_NENT` → 16 | 88,576 | 40.0 KB | **43.0 KB** |
+
+**7,680 bytes of footprint over three waves, and ~13.5 KB of usable heap** —
+29.5 → 43.0 — because W0 returns a pinned claim as well as a rung.
+
+W1 before W2 is not a preference: `filecp` has five entry points and fits the
+mechanism as it stands, so it is the wave that proves the `%ifdef KERN_SMALL`
+module shape with nothing else moving. `fdlg` then arrives against a mechanism
+that has already shipped once.
+
+### 9.3 What a `kern_small` user loses to W0
+
+Worth stating precisely, because it is the only one of the three waves that is
+visible:
+
+- **Document icons** in the Disk window — files get the generic glyph.
+  `associco.inc`'s build-time reduced glyphs go with it.
+- **Double-clicking a document to open it in its program** (`ui.inc`'s
+  `assoc_run_x`). A program is still launched by double-clicking the program.
+- **`OSAPI_ASSOC_SET`** and **`OSAPI_ARG_FILE`** become refusing stubs. That is
+  cleaner than it looks: `osapi_arg_file_x` is only ever non-empty *because* a
+  document launch put something there — *"the first proc to ask gets it and the
+  word is spent"* — so with no document launch, `stc / retf` is the answer it
+  already gives on every other launch path, and no package needs changing.
+- The mount's icon harvest loses its **cache**, not its function: `asc_lookup_x`
+  exists so a package with a known association *"costs NO sector read"*. Without
+  it every harvested icon is read. **Mounts get slower on the slowest machine**,
+  and that is the one real cost in this list — it wants measuring on W0 rather
+  than assuming.
