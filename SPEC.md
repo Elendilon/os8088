@@ -51916,6 +51916,212 @@ never a size decision (§27.16.2's rule).
 mechanically de-gated copy of the source and comparing: every `%ifdef PTF_*`
 is a no-op when it is defined. `tests/unit/t_appsmall.py` holds it there.
 
+### 43.11 A hollow pip is DRAWN from the solid one, not stored beside it
+
+On a 1bpp adapter the two red suits are drawn **hollow** — index 12 reduces to
+white and a solid red pip would vanish into the card face, so the outline is
+the only thing carrying red against black (§39.4). That used to be two more
+tables, `sol_p8h` and `sol_p16h`, 96 bytes of hand-drawn hollow hearts and
+diamonds sitting beside the solid ones.
+
+**Every row of both was exactly the morphological outline of the solid mask
+next to it:**
+
+```
+outline(r) = r AND NOT (up AND r AND dn AND (r << 1) AND (r >> 1))
+```
+
+— the row, less the pixels whose four neighbours are all set, which is what
+"hollow" *means* drawn rather than stored. `sol_outline` computes it as
+`sol_maskrun` plots, and the tables are gone.
+
+`(r << 1)` and `(r >> 1)` are the right and left neighbours respectively (bit
+15 is column 0), and both appear, so the shift directions are symmetric and
+cannot be got round the wrong way. A row above or below the mask reads as
+zero, which makes the first and last rows entirely their own outline — right,
+because a shape's top row is all boundary.
+
+**The flag is one-shot.** `sol_pipsel` sets `[sol_mrh]` and `sol_maskrun`
+clears it on the way out, so a caller that never sets it draws solid — which
+is what `sol_pipsold` (the foundation ghost) and the empty-stock ring rely on,
+neither of which has a hollow form.
+
+#### 43.11.1 What it is really worth
+
+49 bytes, which is not why it is here. **Two tables that must agree is a
+drift hazard**: redraw the solid heart and the hollow one still describes the
+pip that used to be, silently, on the two adapters nobody develops on. One
+table cannot disagree with itself.
+
+#### 43.11.2 The shared About card is FOUR TIMES BIGGER — do not "modernise" it
+
+Solitaire predates `os88ui.inc` and draws its own About card in **277 bytes of
+code**. Every other package with a card uses the shared one, and the obvious
+tidy-up is to make this one match. **Measured, `OS88UI_ABOUT` alone pulls in
+~1,070 bytes** — it is written to sit beside the buttons, alerts and scroll
+bars a bigger application already has, and Solitaire uses none of them.
+
+Recorded here because it is a change that looks like a cleanup, reads like one
+in review, and costs 800 bytes.
+
+#### 43.11.3 A pip is a masked SPRITE, and the OS already draws those
+
+`sol_maskrun` walked the mask itself and emitted one `OSAPI_GFX_HLINE` per run
+of set bits. Priced against §5.7's ~756 µs fixed cost per drawing call, on the
+target machine:
+
+| pip | runs | cost |
+|---|---|---|
+| 8×8 club, solid | 12 | 9.1 ms |
+| 8×8 club, hollow | 16 | 12.1 ms |
+| 16×16 club, solid | 24 | 18.1 ms |
+| **16×16 club, hollow** | **46** | **34.8 ms** |
+| the empty stock's ring | ~30 | ~22.7 ms |
+
+A club face on a 1bpp adapter is 62 drawing calls and **46.9 ms in its two
+pips alone**, and a board shows a dozen faces at once. Hollow is the expensive
+half and hollow is the 1bpp case, so the cost landed hardest on exactly the
+machines this game is for.
+
+**`OSAPI_ICON_DRAW` (§25.6) is that operation as ONE call** — a masked 1bpp
+sprite at any x, transparent in the same sense, which is what `os88ui.inc`'s
+own 12×12 control uses to go from 45–65 calls to one (33.6 ms → 6.7 ms,
+PERFORMANCE.md Set 84). Solitaire predates the slot and had been carrying its
+own span-walker ever since. This is the failure `CLAUDE.md` opens with: the
+question that comes first is not "how does this work" but "is there already a
+way to do X".
+
+**Measured**, on a cycle-accurate 4.77 MHz 8088 (MartyPC, a seeded deal so
+both builds lay out the same board — one `New Game` and the repaint it causes,
+bracketed from the first drawing call to the last, so no idle is counted):
+
+| adapter | span-walker | sprite pass | |
+|---|---|---|---|
+| Hercules | 362 calls, **518 ms** | 89 + 14 calls, **365 ms** | −30% |
+| CGA | 362 calls | 89 + 14 calls | |
+| VGA | 299 calls, **718 ms** | 89 + 14 calls, **598 ms** | −17% |
+
+For a board showing only **seven** face-up cards; a board in play shows more.
+VGA starts lower and gains less because hollow is a 1bpp thing (§39.4) — the
+expensive half of the old cost was exactly the case the 1bpp machines had.
+The 89 calls that remain are the four foundation ghosts on every adapter,
+which cannot use the pass — see below.
+
+The record is `db wwords, rows`, then `rows` mask words, then `rows` **data**
+words, one contiguous run — so it is composed in `.bss`, where the data half
+costs claim rather than image and starts zero. `sol_maskrun` stages the shape
+(outlined by `sol_outline` when asked) into the mask and writes zeros to the
+end of the buffer in the same loop: **one rule covers mask and data at every
+row count**, and the data half must be clear because `ico_core` lays the mask
+down in the pen's first colour and then draws the data rows over it *ungated
+by the mask* — a stray data bit would be drawn.
+
+**The per-run walk stays, and it is not dead code.** `ico_core` clips a sprite
+WHOLE — one shape or none, the `font_char` rule (§39.14.2) — so a pip a damage
+rect cuts would vanish entirely rather than being drawn in half. `sol_maskrun`
+asks `OSAPI_WM_CLIP_TEST` first and takes the walk when the answer is no, which
+is `os88ui_glyph`'s own pair, one for one. It is also the fallback for
+`OSAPI_ICON_DRAW` answering CF = 1 on a record the stage will not take.
+
+**A DITHERED INK CANNOT USE THE PASS, and this cost a build.** The sprite pen
+lays its colour down *solid*; a `gfx_*` call composes a dither per pixel from
+screen-absolute `(x + y)` parity (§39.4). The foundation ghosts are drawn in
+`SOL_GHOST` = `CDGRAY`, which on a 1bpp adapter *is* that dither — so routed
+through the pass they came out flat black on black felt and **the four ghost
+pips simply disappeared**, silently, while every other pixel on the screen
+matched. Nothing refuses: a solid colour is a legal pen and a vanished shape
+is a legal drawing.
+
+So the ink is a **required input** to `sol_maskrun` and `SOL_NOPEN` (0xFF) is
+the value that means "walk this one". `sol_setink` stores a real colour beside
+the `OSAPI_SET_COLOR` it wraps; `sol_ghost16` stores the sentinel. All three
+call sites set it, so the zero a fresh `.bss` starts at is never the one read.
+
+It was a one-shot flag first, cleared by each draw, and that was wrong for a
+reason worth keeping: **`sol_drawface` sets the ink once and draws two pips.**
+The corner pip consumed the arming and the centre pip silently took the walk —
+which is invisible in a pixel A/B, because the walk draws the same picture. It
+showed up only in the call counts: 7 `icon_draw` where 14 were owed, and a
+repaint that had not got faster.
+
+**It costs claim and buys time**, which is the trade stated plainly: **185
+bytes** per instance — 116 of image and 69 of `.bss`, of which 66 is the
+record — against 30% of a repaint. It was taken as a deliberate exception to
+the size pass around it, which banked 152 bytes over the same commit, so
+Solitaire's claim ends the pass **33 bytes up** rather than down.
+
+**All three adapters are measured, and the pixels are identical on each** —
+0 differing of 252,000 (Hercules), 0 of 128,000 (CGA), 0 of 307,200 (VGA),
+same seed, same board, only the `.o88` changed. The colour arm matters most
+and was nearly skipped: MartyPC models **VGA and EGA as well as CGA, MDA and
+Hercules**, and `os8088_xt_vga` has been in its shipped `ibm5150.toml` all
+along — it is simply that no row in `tests/` names it, so a grep of this tree
+for machine names does not find it. **Grep MartyPC's machine list, not ours**,
+before concluding an adapter is out of reach.
+
+#### 43.11.4 The rest of the size pass, and what factoring cost once
+
+Solitaire is an old package and the pass around §43.11.3 was aimed at that:
+patterns it grew before the conventions settled.
+
+| | bytes |
+|---|---|
+| `sol_p8h`/`sol_p16h`, the stored hollow pips (§43.11) | −96 |
+| `sol_pop6`/`sol_pop4`, a shared epilogue ladder over 28 sites | −~100 |
+| `sol_toabs`, shared by `sol_fillc` and `sol_framec` | −11 |
+| the `MENU_DIS` pairs, overlapped | −20 |
+| `sol_facepip`, one routine for the two pips a card face draws | −18 |
+
+The ladder is entered by a near `jmp` and never a `call`, which is what makes
+it free: the frame is the caller's and nothing is added to it — the same
+finding docs/STACK-SLOTS-PLAN.md made for the kernel's own pass. `pop` writes
+no flags, so a routine answering CF answers it through the ladder unchanged.
+
+The `MENU_DIS` overlap is the pair idiom in os88api.inc read literally: the
+disabled form of an item is the *same text* behind one leading byte, so
+`sol_s_d1x: db MENU_DIS` immediately above `sol_s_d1: db 'Draw One', 0` is
+both labels for the price of one. **`sol_dealmenu` still names both**, so
+nothing depends on the overlap surviving a later edit. Two further overlaps
+the same scan found — `'Game'` inside `'New Game'`, `'Deal'` inside
+`'Restart Deal'` — were **refused**: they are coincidences of English, worth
+10 bytes, and they turn renaming a menu item into a silent corruption of a
+menu title.
+
+**`sol_facepip` cost a debugging round and the reason generalises.** The two
+pip blocks differ in four things, one of which is `AH` — the size, live from
+the caller all the way to `sol_pipsel`. The factored version computed the
+band test into `AX`, which clobbered it: the centre pip then read the **8×8**
+table 16 rows tall, off the end of it and into the next suit's rows. That
+draws a plausible pip in the right place, not a crash and not a blank, and it
+survived `make` and the fast tier. The pixel A/B is what caught it — 682
+differing pixels of 252,000 — which is the same argument §39.14.6 makes about
+null A/Bs, one turn around: **a routine you factored is a routine whose
+register contract you just rewrote, and the only cheap check on it is the
+picture.**
+
+### 43.12 `APP_SMALL` — the small build of this package
+
+Note Pad's §27.16 is the pattern and its rules hold. **There is very little to
+take here, and that is the finding rather than a shortfall:** §43.11 is where
+this package's bytes actually came from, and they came off **both** builds.
+
+| flag | off in `APP_SMALL` |
+|---|---|
+| `SOLF_AUTO` | Auto Finish — the `A` key, the Game menu's third item, and `sol_pace`, the pause that exists so the finish can be *watched* |
+| `SOLF_ABOUT` | the About card |
+
+**7,254 → 6,802 bytes an instance, 6.2%** — the smallest ratio of the four
+gated packages, and `tests/unit/t_appsmall.py`'s floor came down from 10% to
+5% to say so. A package can be thoroughly optimised and have very little
+*left* that is optional; bytes taken off both arms do not show in a small/full
+ratio at all.
+
+**The click-to-foundation convenience STAYS.** A press and release without
+moving plays that one card up if it will go — the double-click every version
+of this game has (§43). It is how Klondike is played rather than a labelled
+extra, and it is what `sol_tofnd` is really for; Auto Finish is the feature
+with a name on a menu, and that is the one that goes.
+
 ## 44. Arkanoid — the ninth package (apps/arkanoid/arkanoid.asm)
 
 A brick-breaker over the published package ABI. Prefix `ark_`, embedded icon,
