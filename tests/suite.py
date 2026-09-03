@@ -1666,6 +1666,17 @@ SOAK = [
         "SPIN COUNT. This compares three readings computed three ways: the "
         "kernel's sch_cycles, the page's tm_load, and the page's tm_pct.",
         needs=("marty",), serial=True, timeout=900),
+    Row("curdisk", "soak", py("tests/curdisk.py"), 240.0,
+        "SPEC.md 7.4: the arrow TRACKS the hand through a disk transfer. It "
+        "used to freeze with the machine and then LEAVE THE SCREEN - once an "
+        "operation moved FPG_WARM = 3 sectors the widget armed, and the "
+        "unclipped menu_draw_bar inside fpg_arm spent gfx_lock's promised "
+        "hide. Both claims here are DIFFERENCES, so the row builds "
+        "NOCURDISK=1 itself: a cursor move while [gfx_lock_flag] is set is "
+        "unreachable on that arm by mou_apply's own first compare, and a "
+        "one-armed reading could not tell that from a test that never "
+        "reached a freeze at all.",
+        needs=("marty",), serial=True, builds=True, timeout=900),
     Row("uiblock", "soak", py("tests/uiblock.py"), 150.0,
         "SPEC.md 8.1.2: ui_task blocks instead of spinning, so an idle "
         "desktop is 97% HALTED and the loop runs 18 times a second instead "
