@@ -8634,10 +8634,20 @@ by **every slice at once**, because any of them can be the one interrupted.
     dec byte [sch_chbusy]
 ```
 
-**SS never changes** — every task runs `SS = LOW_SEG` (§1, §2.1) — so the swap
-is SP alone and the stack lives in `.lowbss`, exactly as §9.10's does. Unlike
-§9.10's it is reached with registers already saved, so no `cs:` override is
-needed and a plain byte flag will do.
+**SS never changes in os8088's own code** — every task runs `SS = LOW_SEG`
+(§1, §2.1) — so the swap is SP alone and the stack lives in `.lowbss`, exactly
+as §9.10's does. Unlike §9.10's it is reached with registers already saved, so
+no `cs:` override is needed and a plain byte flag will do. **But it is not
+true inside a ROM service that switched stacks**, and the kernel calls two
+with IF=1: `int 13h`, which §15.3.8 measured taking 21 ticks a transfer, and
+`int 16h` on every `ui_task` pass. The IBM ROMs run both on the caller's
+stack; SeaBIOS serves them on an internal stack in a segment of its own, and
+a swap of SP alone there put the chain at `SS:sch_chstack` in the ROM's
+segment — which the suite survived only because that offset happened to be
+unallocated there. So both this swap and §9.10's test `SS` against `LOW_SEG`
+first, and where it is anything else the chain (or the mouse ISR) runs in
+place on the interrupted stack, as it did before either section. The target
+machine pays the compare and nothing else.
 
 #### 8.5.1 Why a nested tick skips the chain rather than nesting on the stack
 
@@ -8648,8 +8658,13 @@ and then `sti`s before `int 1Ch`. Everything that lands there — a keystroke's
 this private stack, which is what it is sized for. **A second IRQ0 is the one
 that cannot simply nest**, because the re-entered `sch_isr` runs to `sch_switch`
 and would save a *private* SP into a task record. So it takes the flag's other
-arm: EOI itself, skip the chain, and carry on down the rest of the tick on the
-task's own stack, which is what it was already doing.
+arm: EOI itself, skip the chain, and carry on down the rest of the tick — the
+accounting and the wake scan, which fit — on the private stack it is already
+standing on, and then **resume without switching**: `sch_switch` would park
+the private SP in the interrupted task's record, so the nested tick tests
+`[sch_chbusy]` beside the lock and takes `sch_resume`. (The first build let it
+switch, which unwound only because nothing else can free a task record; what
+it was not sized for was `sch_switch` on top of the chain's own 56.)
 
 **What that costs is one BIOS tick increment, and only in a case the machine is
 already a tick behind for.** A second IRQ0 can only reach the ROM handler if the
@@ -8867,8 +8882,9 @@ A driver and the two kernel-side spawners have no header to declare in, so
 | `SCH_BUILTIN_STK` | 128 | Timer and Bounce are the built-in kinds that take a task; six Bounces at once measured +10…24 over the floor |
 | `SCH_DRV_STK` | 192 | the sound driver's stream task, the only driver worker in the tree, walks 28 bytes statically — 64 + 28 = 92, so 2.1× |
 
-`OSAPI_DRV_TASK` has exactly one caller in the whole tree, which is why one
-number serves every driver; a driver that needs more is a line here with a
+`OSAPI_DRV_TASK` is called from one driver in the whole tree — the sound
+driver's refill and drain spawners, both light — which is why one number
+serves every driver; a driver that needs more is a line here with a
 reason beside it, not a new mechanism.
 
 ## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
@@ -30511,12 +30527,20 @@ the call count moves when the file's position on the disk moves — at one
 padding the two launches cost the same three calls while moving 12 sectors and
 21 — and what was *read* is the claim being made.
 
-**A package's own toast does not survive an abort.** §21 step 10 says
-`[ld_status]` for every outcome including `LD_EABORT`, and it runs after the
-entry proc returns — so a package that refuses itself is heard as `Load
-failed`, not in its own words. A package that can run degraded does not abort
-and its toast stands; one that cannot has to survive to draw a window if it
-wants to name the figure.
+**A package's own toast SURVIVES an abort.** §21 step 10 says `[ld_status]`
+for every outcome including `LD_EABORT`, and it runs after the entry proc
+returns — so it used to be that a package refusing itself was heard as `Load
+failed`, not in its own words, and the four strings this include carries for
+its refusals never reached the glass from a launch. The loader now keeps a
+toast the ENTRY PROC raised: a toast raised inside the entry call carries the
+reserved slot as its raiser (step 8's stamp is in force for the whole of the
+call, §19.2.1), so at `.abort` the loader compares `[toast_inst]` with that
+slot and, when the toast that is up is this instance's, re-homes it to the
+kernel — the slot is about to be somebody else's, and their close must not
+take it down — and `ld_say_status` records the verdict without saying it. A
+toast raised by anybody else during the launch is not the package's and is
+overwritten by `Load failed` as before. A package that can run degraded still
+does not abort, and its toast stands on its own.
 
 **One claim, carved.** `MEM_OWNER_MAX` is 8 claims per owner word (§50) and a
 package's own claims carry its segment, so the standard claims the whole
@@ -47602,11 +47626,24 @@ desktop. Nothing refuses and nothing goes black, and `fsx_caps` (§53.8) needs
 no special case: it is indexed by `[vid_kind]`, which can never be `VID_VGA`
 here, so the VGA modes are simply never offered.
 
-**`VIDEO=vga` on `kern_small` is a BUILD ERROR** and deliberately so. Forcing
-`VID_FORCE=1` would set `[vid_kind]` to a kind `vid_setmode` has no arm for:
-the card would be programmed to mode 6 by the CGA arm while `vid_apply` loaded
-640×480-at-A000 over it, and every pixel would land somewhere else with
-nothing to say so. The *detected* case is the design; only the force lies.
+**`VIDEO=vga` and `VIDEO=ega` on `kern_small` are BUILD ERRORS** and
+deliberately so. Forcing `VID_FORCE=1` would set `[vid_kind]` to a kind
+`vid_setmode` has no arm for: the card would be programmed to mode 6 by the
+CGA arm while `vid_apply` loaded 640×480-at-A000 over it, and every pixel
+would land somewhere else with nothing to say so. `VID_FORCE=4` was one kind
+worse — its mode-10h arm was not gated, so the card really went planar and
+every primitive then took its no-VGA arm through a `[vid_rseg]` of 0, the IVT
+— and the guard now refuses both. The *detected* case is the design; only the
+force lies.
+
+**One machine is excluded, and stated rather than handled: an EGA (or a VGA
+booting in mode 7) on a MONOCHROME monitor.** Its equipment word answers
+`11b`, which the small kernel's walk — no Hercules probe, no EGA identify —
+takes as `VID_HERC`, and the Hercules arm then programs the 6845 and writes
+pixels into B000 text memory. `kern_big` identifies the card and drives it as
+`VID_EGA` in mode 0Fh; the 128KB machine has no room for that identify, and
+the combination — a 1984 card on a 1981 monitor in a 128KB box — is not one
+the field has asked for. A user with one runs `kern_big` or a CGA.
 
 #### 39.27.2 `GFX_PLANE` implies `GFX_VGA`, asserted
 

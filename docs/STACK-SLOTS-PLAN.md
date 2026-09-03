@@ -535,9 +535,9 @@ survey is the population:
 
 | class | shipped tenants | deepest of them | margin |
 |---|---|---|---|
-| **128** | `CWORD`, `RUNCPM`, the sound driver's stream tasks, Bounce, Timer | 64 + 28 = 92 | 1.39× |
-| **192** | WIREFRAME, Artful, Task Manager, Fractal, `WEAVE`, Cyclone, Notepad, Arkanoid, Tracker, Tamegram, Tank Attack | 64 + 82 = 146 | 1.32× |
-| **256** | Modplug, Missile Command, Word, Telnet | 64 + 130 = 194 | 1.32× |
+| **128** | the sound driver's stream tasks, Bounce, Timer | 64 + 28 = 92 | 1.39× |
+| **192** | WIREFRAME, Artful, Task Manager, Fractal, `WEAVE`, Cyclone, Notepad, Arkanoid, Tracker | 64 + 80 = 144 | 1.33× |
+| **256** | Modplug, Missile Command, Word, Telnet, Tamegram, Tank Attack, `CWORD`, `RUNCPM` | 64 + 130 = 194 | 1.32× |
 | **384** | ftpd, Browser, **Frotz** | 64 + 240 = 304 | 1.26× |
 
 **The rule is a margin of at least 1.25× over `floor + depth`**, taking the
@@ -1148,8 +1148,8 @@ budgets.
 
 | program | worker entry | static | measured | class |
 |---|---|---|---|---|
-| `CWORD.O88` (C) | `os88_worker` | ~10 | — | 128 |
-| `RUNCPM.O88` (C) | `os88_worker` | ~10 | — | 128 |
+| `CWORD.O88` (C) | `os88_worker` | ~10, **but see below** | — | 256 |
+| `RUNCPM.O88` (C) | `os88_worker` | ~10, **but see below** | — | 256 |
 | sound driver | `sbl_refill_task` / `sbl_drain_task` | **28** | — | 128 |
 | WIREFRAME | `wr_worker` | 40 | — | 128 |
 | `WEAVE.O88` (C) | `os88_worker` → `WEAVE.WSM` | ~40 + 22 | — | 192 |
@@ -1162,7 +1162,7 @@ budgets.
 | Arkanoid | `ark_worker` | 76 | — | 192 |
 | Tracker | `trk_worker` | 80 | **+60** | 192 |
 | Tamegram | `tg_worker` | 82 | — | 256 |
-| Tank Attack | `tk_worker` | 82 | — | 256 |
+| Tank Attack | `tk_worker` | 82 (a floor: three indirect call sites below which the walker counts nothing) | — | 256 |
 | FTP server | `fd_worker` | 90 | **+150** | 256 |
 | Modplug | `mpp_worker` | 98 | — | 256 |
 | Missile Command | `mc_worker` | 106 | — | 256 |
@@ -1262,8 +1262,13 @@ visible, and because a 22-level chain is worth somebody's attention on its own.
    packages are exactly that: `CWORD.O88` and `RUNCPM.O88` both spawn a worker
    whose entire body is `task_sleep(4)` / `task_alive()` with a `gfx_lock` /
    `wm_destroy` / `gfx_unlock` bracket on the close path. They exist to make
-   File > Close work and they draw nothing. At ~10 bytes each they are the
-   cheapest tenants in the tree and the clearest argument for a 128 class
+   File > Close work and they draw nothing THEMSELVES — but `wm_destroy`
+   repaints what the window uncovered on the CALLER's stack (`wm_paint_dmg`,
+   then every uncovered window's own painter through `wm_pkgcall`), so the
+   close path lands a Task Manager's or a Notepad's paint chain on this
+   slice. At ~10 bytes of their own they LOOKED like the cheapest tenants in
+   the tree and the clearest argument for a 128 class; §0's rule — a slice is
+   sized by what lands on it — puts them at 256, which is what they declare
    existing at all.
 
 ### 12.5 What the survey cannot see

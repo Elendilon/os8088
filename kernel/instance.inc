@@ -74,8 +74,16 @@ SS_COOP    equ 3                ; byte: 0 pre-emptive, 1 cooperative (8.2)
 SS_NTASK   equ 4                ; byte: MAX_TASKS, the same figure AX answers
 SS_NINST   equ 5                ; byte: INST_MAX, likewise BX
 SS_TSTATE  equ 6                ; MAX_TASKS bytes: T_STATE per slot
-SS_TCYC    equ SS_TSTATE + MAX_TASKS       ; MAX_TASKS dwords: sch_cycles
-SS_INST    equ SS_TCYC + MAX_TASKS * 4     ; ...then the instance records
+SS_TMAX    equ 16               ; the LAYOUT's ceiling on MAX_TASKS, so the
+                                ; offsets below stop moving with the count:
+                                ; 8 -> 14 moved SS_INST by 30 bytes, and a
+                                ; TASKMGR built against the old SDK was
+                                ; written past its own buffer by exactly that
+SS_TCYC    equ SS_TSTATE + SS_TMAX         ; SS_TMAX dwords: MAX_TASKS dwords: sch_cycles
+SS_INST    equ SS_TCYC + SS_TMAX * 4       ; ...then the instance records
+%if MAX_TASKS > SS_TMAX
+  %error "MAX_TASKS has outgrown the snapshot's layout: raise SS_TMAX in BOTH kernel/instance.inc and apps/os88api.inc, and every package built against the old SDK overruns its buffer"
+%endif
 SSI_STATE  equ 0                ; byte: I_STATE - 0 free, 1 live, 2 dying
 SSI_TASK   equ 1                ; byte: I_TASK - the task slot, 0xFF = none
 SSI_KIND   equ 2                ; byte: I_KIND - bit 7 (KIND_PKG) = package

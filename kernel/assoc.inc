@@ -1865,10 +1865,16 @@ asc_take_x:
     mov si, di
     mov di, dsk_ico
     mov cx, 64
+    pushf                       ; the stage-to-consume is ATOMIC: this runs
+    cli                         ; with the gfx lock free, and a worker's
+                                ; wm_show repainting the dock is dsk_ico's
+                                ; fifth tenant (inst_icon_ptr) - two 64-byte
+                                ; copies, well under a tick
     call dsk_copy_seg_x           ; DX = src seg, AX = dst seg
     pop ax                      ; ...the listing index again
     mov si, dsk_ico
     call dsk_put_icon_k_x
+    popf
     pop es
     pop di
     pop si

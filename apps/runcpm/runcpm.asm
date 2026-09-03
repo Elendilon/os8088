@@ -42,7 +42,7 @@
                                     ; os88_menu_set() patches the trampoline in
 %define CC_HAS_WORKER               ; void os88_worker(void *) - hired only
 
-%define CC_STACK_CLASS OS88_STACK_128 ; ...AND HOW MUCH STACK IT WANTS
+%define CC_STACK_CLASS OS88_STACK_256 ; ...AND HOW MUCH STACK IT WANTS
                                     ; (SPEC.md 8.7). Declared rather
                                     ; than defaulted:
                                     ; the same shape as CWORD's: os88_worker() sleeps four ticks a pass

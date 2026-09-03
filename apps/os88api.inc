@@ -1054,9 +1054,12 @@ CPU_F_X87           equ 0x08     ; an 8087/287/387 IS IN THE SOCKET, probed
 ; The first three answer questions about the SYSTEM rather than about you: the
 ; scheduler and the instance table, the claim map, and how big the kernel is.
 ; Every one of them fills a buffer YOU own, through ES:DI, and returns a count
-; so a package built against an older SDK finds out that a table has grown
-; rather than walking off the end of its own buffer. Any context - they take
-; no lock and touch no VRAM.
+; so a package built against an older SDK finds out that a table has grown.
+; THE COUNT DOES NOT SHORTEN THE WRITE: the kernel fills the whole layout, so
+; what keeps an old buffer from being overrun is that the layout is pinned at
+; a ceiling (SS_TMAX below) rather than at the live MAX_TASKS - it moved once,
+; 8 -> 14, and a stale TASKMGR was written 30 bytes past its buffer. Any
+; context - they take no lock and touch no VRAM.
 ;
 ; These exist because a task monitor cannot be written without them, and one
 ; had to be liftable out of the kernel. Nothing stops another app using them,
@@ -1110,8 +1113,13 @@ SS_TSTATE  equ 6                ; MAX_TASKS bytes, the kernel's T_STATE - with
                                 ; (SPEC.md 8). There is no "running" state -
                                 ; the running task is SS_CUR, and its T_STATE
                                 ; is 1 like any other ready task
-SS_TCYC    equ SS_TSTATE + MAX_TASKS       ; MAX_TASKS dwords: cycles per task
-SS_INST    equ SS_TCYC + MAX_TASKS * 4     ; ...then the instance records
+SS_TMAX    equ 16               ; the LAYOUT's ceiling on MAX_TASKS, so the
+                                ; offsets below stop moving with the count:
+                                ; 8 -> 14 moved SS_INST by 30 bytes, and a
+                                ; TASKMGR built against the old SDK was
+                                ; written past its own buffer by exactly that
+SS_TCYC    equ SS_TSTATE + SS_TMAX         ; SS_TMAX dwords: MAX_TASKS dwords: cycles per task
+SS_INST    equ SS_TCYC + SS_TMAX * 4       ; ...then the instance records
 SSI_STATE  equ 0                ; byte: 0 free, 1 live, 2 dying
 SSI_TASK   equ 1                ; byte: its task slot, 0xFF = task-less
 SSI_KIND   equ 2                ; byte: bit 7 (KIND_PKG) = a loaded package
@@ -1213,9 +1221,14 @@ MAX_TASKS  equ 14               ; the scheduler's slots (SPEC.md 8) - a bound
 INST_MAX   equ 12               ; running instances (SPEC.md 29.1)   on the
 MEM_MAX    equ 32               ; claim records (SPEC.md 50)         buffers
                                 ; above, and each call answers the live figure
-                                ; so a stale SDK is a caught mismatch and not
+                                ; so a stale SDK can SEE the mismatch - the
+                                ; snapshot's layout is pinned at SS_TMAX so it
+                                ; is not also an overrun; the other two are
                                 ; an overrun
 KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
+%if MAX_TASKS > SS_TMAX
+  %error "MAX_TASKS has outgrown the snapshot's layout: raise SS_TMAX in BOTH kernel/instance.inc and apps/os88api.inc, and every package built against the old SDK overruns its buffer"
+%endif
 
 %define OSAPI_CPU_INFO      KERNEL_SEG:0x0188   ; no inputs; out AL = CPU_8086 /
                                  ; CPU_286 / CPU_386, AH = feature bits: bit 0

@@ -535,6 +535,15 @@ ui_task:
     jz .chk_ld
     dec ax                      ; stored as kind + 1
     call app_launch             ; in: AL = kind; does its own locking
+    jnc .chk_ld
+    call snd_beep               ; CF = the tables are full, or the kind is at
+                                ; its cap (SPEC.md 29.4.1) - the same audible
+                                ; refusal ui_cmd gives the Apple-menu route.
+                                ; This is the Disk window's Builtins route
+                                ; (fm_c_timer/fm_c_bounce), and it discarded
+                                ; the CF, so ten Bounces plus one more here
+                                ; did nothing and said nothing - exactly the
+                                ; symptom 29.4.1 exists to remove
 .chk_ld:
     xor ax, ax                  ; set by files.inc's click handler, stored as
     xchg al, [ld_pending]       ; directory index + 1, consumed before running

@@ -248,9 +248,10 @@ make small    # kern_small and its system disks, into build/smallk/ (the
 make smallapps#   128KB floor machine, docs/KERN-SPLIT-PLAN.md). `smallapps` is
               #   the APPS half of it (SPEC.md §27.16): the same floppy with
               #   the SMALL BUILD of any package that has one in place of the
-              #   shipped one - Note Pad today, at 13,520 bytes an instance
-              #   against 20,379, with its undo arena's 1-16KB heap claim
-              #   never taken. IT IS NOT A SECOND ABI: a small-built package
+              #   shipped one - Note Pad and Paint today: Note Pad at 13,520
+              #   bytes an instance against 20,379, with its undo arena's
+              #   1-16KB heap claim never taken, Paint at 26,465 against
+              #   31,352. IT IS NOT A SECOND ABI: a small-built package
               #   calls the same API table at the same offsets, so it runs on
               #   kern_big too and what pairs it with kern_small is only which
               #   floppy it is written to. The shipped build/apps*.img are

@@ -6102,7 +6102,8 @@ $(BUILD)/small.img: $(SMALLDRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 #
 # `make smallapps` is the APPS half of `make small`: the same floppy in the
 # same two geometries, with the SMALL BUILD of any package that has one in
-# place of the shipped one. Note Pad is the first and today the only consumer.
+# place of the shipped one. Note Pad was the first consumer and Paint the second
+# (SMALLPKGS below is the list).
 #
 # IT IS NOT A SECOND ABI, and that is the whole reason this is a disk rather
 # than a kernel feature. A small-built package calls the same API table at the

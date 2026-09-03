@@ -1755,10 +1755,12 @@ gfx_line:
     ; One walk with a three-bit mask is therefore the identical pixel set at a
     ; third of the Bresenham. Solid ink only: the dither class alternates with
     ; x, so the neighbours never carry the centre's bit.
-    cmp byte [vid_mono], 0         ; the same two tests gfx_line_raw makes
-    je .passes
-    cmp byte [vid_planes], 1
+%ifdef GFX_VGA
+    cmp byte [vid_mono], 0         ; the same two tests gfx_line_raw makes -
+    je .passes                  ; and gated the same way: without a VGA in
+    cmp byte [vid_planes], 1    ; the build both are constants
     jne .passes
+%endif
     mov al, [gfx_color]
     call gfx_ink
     cmp al, 1
@@ -1923,6 +1925,16 @@ gfx_line_raw:
                                 ; kern_small (5.6.4.4): it is 686 bytes of
                                 ; .text and that machine is short of the thing
                                 ; it would be spent from
+%else
+    jmp gfx_line_mono           ; 5.6.4.4: the general walk, and NOT a fall
+                                ; through - gfx_lm_pre sits between this entry
+                                ; and it. With both gates above closed the
+                                ; entry fell into gfx_lm_pre, which steps the
+                                ; walk to the box's top edge and RETURNS, so
+                                ; every gfx_line on kern_small drew nothing at
+                                ; all: 0 lit pixels for a (100,66)-(180,94)
+                                ; against 81 on kern_big, measured through
+                                ; the debugger on a CGA 5150
 %endif
 ; -----------------------------------------------------------------------------
 ; gfx_lm_pre - advance the walk to the box's top edge, drawing nothing
