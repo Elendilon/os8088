@@ -149,7 +149,12 @@ def main():
     for img, (cap, why) in IMAGES.items():
         path = os.path.join(ROOT, "build", img)
         if not os.path.exists(path):
-            print("  %-16s not built - skipped" % img)
+            # a FAILURE, not a skip: this row used to print "not built" and
+            # pass, so a geometry nobody had built was a geometry whose
+            # blob ratchet was never read at all
+            fail.append("%s: not built - run make first; the ratchet for "
+                        "this geometry (%s) cannot be read off a disk that "
+                        "is not there" % (img, why))
             continue
         spt, r = runs(path, nsec)
         seen.append(len(r))

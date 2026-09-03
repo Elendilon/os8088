@@ -8634,10 +8634,20 @@ by **every slice at once**, because any of them can be the one interrupted.
     dec byte [sch_chbusy]
 ```
 
-**SS never changes** — every task runs `SS = LOW_SEG` (§1, §2.1) — so the swap
-is SP alone and the stack lives in `.lowbss`, exactly as §9.10's does. Unlike
-§9.10's it is reached with registers already saved, so no `cs:` override is
-needed and a plain byte flag will do.
+**SS never changes in os8088's own code** — every task runs `SS = LOW_SEG`
+(§1, §2.1) — so the swap is SP alone and the stack lives in `.lowbss`, exactly
+as §9.10's does. Unlike §9.10's it is reached with registers already saved, so
+no `cs:` override is needed and a plain byte flag will do. **But it is not
+true inside a ROM service that switched stacks**, and the kernel calls two
+with IF=1: `int 13h`, which §15.3.8 measured taking 21 ticks a transfer, and
+`int 16h` on every `ui_task` pass. The IBM ROMs run both on the caller's
+stack; SeaBIOS serves them on an internal stack in a segment of its own, and
+a swap of SP alone there put the chain at `SS:sch_chstack` in the ROM's
+segment — which the suite survived only because that offset happened to be
+unallocated there. So both this swap and §9.10's test `SS` against `LOW_SEG`
+first, and where it is anything else the chain (or the mouse ISR) runs in
+place on the interrupted stack, as it did before either section. The target
+machine pays the compare and nothing else.
 
 #### 8.5.1 Why a nested tick skips the chain rather than nesting on the stack
 
@@ -8648,8 +8658,13 @@ and then `sti`s before `int 1Ch`. Everything that lands there — a keystroke's
 this private stack, which is what it is sized for. **A second IRQ0 is the one
 that cannot simply nest**, because the re-entered `sch_isr` runs to `sch_switch`
 and would save a *private* SP into a task record. So it takes the flag's other
-arm: EOI itself, skip the chain, and carry on down the rest of the tick on the
-task's own stack, which is what it was already doing.
+arm: EOI itself, skip the chain, and carry on down the rest of the tick — the
+accounting and the wake scan, which fit — on the private stack it is already
+standing on, and then **resume without switching**: `sch_switch` would park
+the private SP in the interrupted task's record, so the nested tick tests
+`[sch_chbusy]` beside the lock and takes `sch_resume`. (The first build let it
+switch, which unwound only because nothing else can free a task record; what
+it was not sized for was `sch_switch` on top of the chain's own 56.)
 
 **What that costs is one BIOS tick increment, and only in a case the machine is
 already a tick behind for.** A second IRQ0 can only reach the ROM handler if the
@@ -8867,8 +8882,9 @@ A driver and the two kernel-side spawners have no header to declare in, so
 | `SCH_BUILTIN_STK` | 128 | Timer and Bounce are the built-in kinds that take a task; six Bounces at once measured +10…24 over the floor |
 | `SCH_DRV_STK` | 192 | the sound driver's stream task, the only driver worker in the tree, walks 28 bytes statically — 64 + 28 = 92, so 2.1× |
 
-`OSAPI_DRV_TASK` has exactly one caller in the whole tree, which is why one
-number serves every driver; a driver that needs more is a line here with a
+`OSAPI_DRV_TASK` is called from one driver in the whole tree — the sound
+driver's refill and drain spawners, both light — which is why one number
+serves every driver; a driver that needs more is a line here with a
 reason beside it, not a new mechanism.
 
 ## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
@@ -28970,7 +28986,13 @@ api_x:                              ; ONE copy, for all 33 X cells
   `font_width_x`, `wm_create` (the template), `inst_pkg_spawn` (the
   ownership fence), `osapi_mem_claim` and `osapi_mem_free` (the owner
   identity). This is why "the string/template you pass lives in your own
-  segment" needs no thought from the package author.
+  segment" needs no thought from the package author. **What the shared body
+  costs is measured, not assumed** (PERFORMANCE.md Set 115): against the
+  per-slot stub it replaced, an X cell adds ~7–9 µs to a drawing call on VGA
+  — 1.4% of `GFX_PIXEL`, 0.5% of a 64x64 fill — and nothing visible on CGA,
+  where the renderer under the same rows got 9–20% faster in the same
+  passes. The six hottest cells could have per-slot stubs back for ~30
+  bytes; the price is recorded rather than paid.
 - **N cells** stage a NAME out of the package's segment into the kernel's
   `api_name` buffer first, because the file API takes `SI` = a NUL 8.3
   string and passes it on to routines that read it through DS many calls
@@ -30511,12 +30533,20 @@ the call count moves when the file's position on the disk moves — at one
 padding the two launches cost the same three calls while moving 12 sectors and
 21 — and what was *read* is the claim being made.
 
-**A package's own toast does not survive an abort.** §21 step 10 says
-`[ld_status]` for every outcome including `LD_EABORT`, and it runs after the
-entry proc returns — so a package that refuses itself is heard as `Load
-failed`, not in its own words. A package that can run degraded does not abort
-and its toast stands; one that cannot has to survive to draw a window if it
-wants to name the figure.
+**A package's own toast SURVIVES an abort.** §21 step 10 says `[ld_status]`
+for every outcome including `LD_EABORT`, and it runs after the entry proc
+returns — so it used to be that a package refusing itself was heard as `Load
+failed`, not in its own words, and the four strings this include carries for
+its refusals never reached the glass from a launch. The loader now keeps a
+toast the ENTRY PROC raised: a toast raised inside the entry call carries the
+reserved slot as its raiser (step 8's stamp is in force for the whole of the
+call, §19.2.1), so at `.abort` the loader compares `[toast_inst]` with that
+slot and, when the toast that is up is this instance's, re-homes it to the
+kernel — the slot is about to be somebody else's, and their close must not
+take it down — and `ld_say_status` records the verdict without saying it. A
+toast raised by anybody else during the launch is not the package's and is
+overwritten by `Load failed` as before. A package that can run degraded still
+does not abort, and its toast stands on its own.
 
 **One claim, carved.** `MEM_OWNER_MAX` is 8 claims per owner word (§50) and a
 package's own claims carry its segment, so the standard claims the whole
@@ -36882,7 +36912,7 @@ true here: this is one package built twice, not two packages.
 
 #### 27.16.1 Why
 
-On a 128KB machine `kern_small` leaves **~34.0KB of heap**
+On a 128KB machine `kern_small` leaves **~36.5KB of heap**
 (docs/KERNEL-MEMORY.md). A package instance is one claim of image + bss
 (§20.1), and the full build is **18,407 + 1,972 = 20,379 bytes** of that
 before the note holds a character. Note Pad on the floor machine was therefore
@@ -36892,7 +36922,7 @@ record. The small build claims **12,362 + 1,158 = 13,520**, and
 
 **The largest saving is not in that arithmetic at all.** The undo arena is a
 heap claim that grows a kilobyte at a time to `NP_UMAXKB` = 16 (§27.9), and
-with `NPF_UNDO` off it is never claimed — which on a 34.0KB heap is worth more
+with `NPF_UNDO` off it is never claimed — which on a 36.5KB heap is worth more
 than the image and the bss together.
 
 #### 27.16.2 What goes, and what does not
@@ -46765,7 +46795,7 @@ chain, `wm_fit`, the chrome, `desk_rowcalc` and the cursor all follow from
 | `vid_setmode` | `int 10h AX=0012h` + A000 clear of `SCREEN_H` rows | `int 10h AX=`**`0010h`** + A000 clear of `EGA_H` (350) rows (§39.6, §39.23) |
 | `vid_depth_set` | colour: `[vid_mono]=0`, `[vid_planes]=4` | identical — `VID_EGA` takes the colour arm |
 | `vga_vline_core`, `vga_xor_hline` | clip y to `SCREEN_H` (a VGA-only constant) | now clip to `[vid_ch]` — a no-op edit on VGA, byte-checked (§39.9) |
-| Colour theme (§76.12) | DAC, `int 10h AX=1002h` on a VGA | **VGA only** — an EGA machine gets Bright/Dark; an Attribute-Controller path is deferred (`EGA-PLAN.md §7`) |
+| Colour theme (§76.12) | eligible | eligible — the theme is six palette *indices*, no DAC or AC programming; `thm_set` / `cp_thm_colgrey` accept `VID_EGA` beside `VID_VGA`, the two four-plane kinds (§76.12.1) |
 | `OSAPI_WM_PREFER` kind index | `vid_kind` = 0 | clamped to 0 — an EGA takes VGA's preference row (§39.8) |
 | the idle **blank** (§64) | SR01 bit 5, Screen Off | **the PALETTE** — `vid_ac_pal`, all sixteen AC registers to black and mode 10h's own sixteen back. An EGA has neither enable bit: SR01 bit 5 and the AC index's bit 5 (Palette Address Source) are both VGA additions, so writing either on an EGA lands in a reserved field and blanks nothing |
 | `vid_dual_ok` | `[vid_avail]` alone | **also `[vid_kind]`** — and that is what makes the predicate non-invariant, below |
@@ -46792,9 +46822,10 @@ restores it.
 
 **Out of scope**, recorded so the next reader does not re-open it: `VID_EGA`
 as a member of a `KERN_BIG` per-display pair (§39.12 — it may be the primary
-that *ends* one, per the paragraph above, but never a half of one), the
-Colour theme on EGA, an EGA on a **monochrome display** (§39.1's second scope
-cut — mode 0Fh is the right answer and is a second setup), and a 64KB EGA.
+that *ends* one, per the paragraph above, but never a half of one), an EGA on
+a **monochrome display** (§39.1's second scope cut — mode 0Fh is the right
+answer and is a second setup), and a 64KB EGA. (The Colour system theme
+*is* supported on EGA — §76.12, a depth capability now.)
 
 ## 40. apps/fractal — the progressive renderer and its restore cache
 
@@ -47601,11 +47632,24 @@ desktop. Nothing refuses and nothing goes black, and `fsx_caps` (§53.8) needs
 no special case: it is indexed by `[vid_kind]`, which can never be `VID_VGA`
 here, so the VGA modes are simply never offered.
 
-**`VIDEO=vga` on `kern_small` is a BUILD ERROR** and deliberately so. Forcing
-`VID_FORCE=1` would set `[vid_kind]` to a kind `vid_setmode` has no arm for:
-the card would be programmed to mode 6 by the CGA arm while `vid_apply` loaded
-640×480-at-A000 over it, and every pixel would land somewhere else with
-nothing to say so. The *detected* case is the design; only the force lies.
+**`VIDEO=vga` and `VIDEO=ega` on `kern_small` are BUILD ERRORS** and
+deliberately so. Forcing `VID_FORCE=1` would set `[vid_kind]` to a kind
+`vid_setmode` has no arm for: the card would be programmed to mode 6 by the
+CGA arm while `vid_apply` loaded 640×480-at-A000 over it, and every pixel
+would land somewhere else with nothing to say so. `VID_FORCE=4` was one kind
+worse — its mode-10h arm was not gated, so the card really went planar and
+every primitive then took its no-VGA arm through a `[vid_rseg]` of 0, the IVT
+— and the guard now refuses both. The *detected* case is the design; only the
+force lies.
+
+**One machine is excluded, and stated rather than handled: an EGA (or a VGA
+booting in mode 7) on a MONOCHROME monitor.** Its equipment word answers
+`11b`, which the small kernel's walk — no Hercules probe, no EGA identify —
+takes as `VID_HERC`, and the Hercules arm then programs the 6845 and writes
+pixels into B000 text memory. `kern_big` identifies the card and drives it as
+`VID_EGA` in mode 0Fh; the 128KB machine has no room for that identify, and
+the combination — a 1984 card on a 1981 monitor in a 128KB box — is not one
+the field has asked for. A user with one runs `kern_big` or a CGA.
 
 #### 39.27.2 `GFX_PLANE` implies `GFX_VGA`, asserted
 
@@ -52036,7 +52080,7 @@ notice window, with no build flag involved. None of that is touched.
 What does *not* degrade is the **resident** cost. Image + bss is one claim
 taken before a line of `pt_geom` runs, and at **25,894 + 5,458 = 31,352
 bytes** it is larger than the whole heap `kern_small` leaves on a 128KB
-machine (~34.0KB, docs/KERNEL-MEMORY.md). Paint there does not run badly — it
+machine (~36.5KB, docs/KERNEL-MEMORY.md). Paint there does not run badly — it
 does not **load**, and that is measured rather than argued: on
 `os8088_5150_gla_128k` the full package answers `ld_status` = 5 (`LD_ENOMEM`)
 and never opens a window. Everything below is aimed at that one number.
@@ -79564,7 +79608,7 @@ a user's Dark choice **round-trips untouched** through a `kern_small` boot
 instead of being reset by one. It is the same argument `[wm_animon]` is
 declared outside `%ifdef WM_ANIM` for (§76.11).
 
-### 76.12. Color — the third theme, and VGA's alone
+### 76.12. Color — the third theme, and the colour adapters'
 
 Bright and Dark are two arrangements of one pair of pens. **Color is the first
 theme that needs the distinctions the chrome actually has**, and adding it is
@@ -79575,6 +79619,16 @@ a dither nor black needs a colour rather than a flag.
 It is patterned on Windows 3.1, which is the right reference for a 16-colour
 machine: that interface got its whole effect from four flat colours and no
 gradients, because that is all an EGA palette has.
+
+**It runs on `VID_EGA` as well as `VID_VGA` (§39.24).** The theme is six
+palette *indices* — `CBLACK`, `CBLUE`, `CTEAL`, `CLGRAY`, `CDGRAY`, `CWHITE`,
+0/1/3/7/8/15 — over the standard 16-colour table, and that table is the same
+under EGA mode 10h and VGA mode 12h. Nothing in the theme programs a palette,
+touches the DAC or the Attribute Controller, or names a colour any other way
+than by index; `thm_set` copies eight bytes and every chrome site draws with
+the primitives that already render Solitaire and Cyclone at 16 colours on an
+EGA. The gate is a **depth** test — the primary's kind, planar or not — see
+§76.12.1.
 
 | surface | colour |
 |---|---|
@@ -79615,25 +79669,42 @@ still know better. On `kern_small` the two names are `equ`-aliased to the
 chrome pair, so the composed bar's prologue reads the same in both builds —
 which is the reason it is these names rather than an inline `cmp di, bp`.
 
-### 76.12.1 Colour is a fact about the adapter, and `thm_set` owns the refusal
+### 76.12.1 Colour is a fact about the adapter's DEPTH, and `thm_set` owns the refusal
 
 §39.4 reduces every palette index outside {0, 15} to black, white or the 50%
 dither, so **Color on a 1bpp adapter would be Bright with extra steps**. It is
 therefore refused rather than reduced, and the refusal lives in `thm_set` —
-the one routine both callers go through — rather than at the callers:
+the one routine both callers go through — rather than at the callers.
 
-- The Control Panel's row is **greyed** on a machine with no colour (§47
-  rule 3: grey a *fact*), and `cp_thm_colgrey` is the single predicate behind
-  the greying, the glyph and the click's refusal, so the three cannot disagree
-  (§47 rule 1).
+**The test is the PRIMARY's kind mapped to a depth, and NOT `[vid_mono]`.**
+`VID_VGA` and `VID_EGA` are the two four-plane kinds and qualify; `VID_HERC`
+and `VID_CGA` are 1bpp and are refused. It was `cmp [vid_kind], VID_VGA` for
+as long as VGA was the only colour adapter, where the identity and the
+capability were the same fact; `VID_EGA` (§39.24) is a colour adapter that is
+not a VGA, so the identity test refused Color on the one machine class this
+whole capability is patterned on (§76.12 — "because that is all an EGA palette
+has"). `[vid_mono]` looks like the shorter spelling of the same test and is the
+wrong one: on a two-card desktop it is a fact about the display **last drawn
+on** (§39.14.3, §5.4.2.4), and `cp_thm_colgrey` is read from the Theme page's
+own paint and click, inside a lock hold in which the panel has just drawn on
+its own display — so spelt that way a Control Panel dragged onto the Hercules
+greyed Color, and cancelled its click, on a machine whose primary is a VGA,
+while the same panel on the VGA accepted it. `[vid_kind]` is the primary's and
+`vid_ctx_act` never moves it (§39.12), so `cp_thm_colgrey` reads the same byte
+as `thm_set` and the greying and the refusal cannot disagree — with each
+other, or with which monitor the panel happens to be on.
+
+- The Control Panel's row is **greyed** on a 1bpp machine (§47 rule 3: grey a
+  *fact*), and `cp_thm_colgrey` is the single predicate behind the greying,
+  the glyph and the click's refusal, so the three cannot disagree (§47 rule 1).
 - A **settings disk carried to a Hercules machine** loads `TH` = 2 and gets
   Bright, exactly as `VM` refuses a card the machine does not have (§39.11.3).
-- **§39.11's Display page can move a running machine off VGA**, which is the
-  case that is easy to forget: `vid_switch` re-asserts `[thm_kind]` through
-  `thm_set` after `wm_refit`, so Bright and Dark re-resolve to what they
-  already were and Color falls back. It costs one call on a path that already
-  repaints the world, and it re-forces the two diffing painters that the pair
-  below it wanted anyway.
+- **§39.11's Display page can move a running machine off a colour adapter**
+  — VGA → CGA, or EGA → CGA — which is the case that is easy to forget:
+  `vid_switch` re-asserts `[thm_kind]` through `thm_set` after `wm_refit`, so
+  Bright and Dark re-resolve to what they already were and Color falls back.
+  It costs one call on a path that already repaints the world, and it
+  re-forces the two diffing painters that the pair below it wanted anyway.
 
 `drv_cfg_unpack` has **no range test of its own** any more. It had `cmp al, 1`
 while the setting was a boolean; a second opinion about which kinds are legal
@@ -79643,10 +79714,13 @@ refuses both an unknown kind and Color on a machine without one.
 ### 76.12.4 …and a SECOND MONITOR is a card `[vid_kind]` says nothing about
 
 §76.12.1 refuses Color on a machine with no colour in it, and asks `[vid_kind]`
-to decide. **That is the PRIMARY's adapter**, so on an extended desktop
-(§39.11–§39.19) whose primary is a VGA the answer is right about the primary
-and silent about the other monitor: Color is accepted, and every window dragged
-onto a 1bpp secondary draws its chrome through §39.4's reduction.
+to decide. **That is the PRIMARY's adapter** — and the primary of a *live*
+extended desktop is always the VGA: §39.13 pairs a colour card with a mono
+one, and a switch to a `VID_EGA` primary collapses the span rather than
+sustaining it (`vid_disp_init`, §39.24). The answer is right about the
+primary and silent about the other monitor: Color is accepted, and every
+window dragged onto a 1bpp secondary draws its chrome through §39.4's
+reduction.
 
 What that reduction makes of the Color row is not "Bright with extra steps":
 

@@ -67,7 +67,7 @@
 ;
 ; What does NOT degrade is the RESIDENT cost: image + bss is one claim taken
 ; before a line of pt_geom runs, and at 25,894 + 5,458 = 31,352 bytes it is
-; larger than the whole heap kern_small leaves on a 128KB machine (~34.0KB).
+; larger than the whole heap kern_small leaves on a 128KB machine (~36.5KB).
 ; So Paint there does not run badly - it does not LOAD. Everything below is
 ; aimed at that one number, and the tiering above is left alone.
 ;
@@ -11121,6 +11121,7 @@ pt_orowset:
 
 ; pt_num - AX in decimal at DS:DI, DI advanced; clobbers AX, BX, CX, DX
 pt_num:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     mov bx, 10
     xor cx, cx
 .div:

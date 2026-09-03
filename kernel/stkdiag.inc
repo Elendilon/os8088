@@ -463,6 +463,7 @@ sd_vwater:
 ; than either, and this runs twice a second on a diagnostic kernel.
 ; -----------------------------------------------------------------------------
 sd_utoa:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push bx
     push cx
     push dx

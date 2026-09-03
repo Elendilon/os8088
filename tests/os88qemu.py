@@ -34,6 +34,7 @@ twelve `main()`s.  It does NOT cover `SIGKILL` or `os._exit`, and nothing can.
 import atexit
 import os
 import signal
+import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -79,5 +80,19 @@ def own(pidfile=PIDFILE, sock=SOCK):
 
     Idempotent: registering twice kills once, because the second call finds no
     pidfile.  Safe to call before the guest is up.
+
+    AND IT CATCHES SIGTERM, because atexit alone is not enough: Python's
+    default disposition for SIGTERM is the kernel's - the process is gone at
+    once and no atexit runs - so a row that tools/os88test.py stops on a
+    timeout would leave its guest running exactly as a SIGKILL did.  The
+    handler raises SystemExit, which is the one path that runs the teardown
+    registered above.  Installed only when no handler is already there, so a
+    script with its own SIGTERM policy keeps it.
     """
     atexit.register(kill, pidfile, sock)
+    try:
+        if signal.getsignal(signal.SIGTERM) in (signal.SIG_DFL, None):
+            signal.signal(signal.SIGTERM,
+                          lambda signo, frame: sys.exit(128 + signo))
+    except (ValueError, OSError):
+        pass                            # not the main thread: atexit alone

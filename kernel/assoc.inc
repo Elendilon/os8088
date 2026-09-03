@@ -1865,10 +1865,21 @@ asc_take_x:
     mov si, di
     mov di, dsk_ico
     mov cx, 64
+    pop ax                      ; ...the listing index again - popped BEFORE
+    pushf                       ; the flags go on: the stage-to-consume is
+    cli                         ; ATOMIC, because this runs with the gfx lock
+                                ; free and a worker's wm_show repainting the
+                                ; dock is dsk_ico's fifth tenant
+                                ; (inst_icon_ptr) - two 64-byte copies, well
+                                ; under a tick. dsk_copy_seg_x takes AX as
+                                ; the destination SEGMENT, so it is banked
+    push ax                     ; across the copy
+    mov ax, ds                  ; AX = dst seg (the kernel's, where dsk_ico is)
     call dsk_copy_seg_x           ; DX = src seg, AX = dst seg
-    pop ax                      ; ...the listing index again
+    pop ax
     mov si, dsk_ico
     call dsk_put_icon_k_x
+    popf
     pop es
     pop di
     pop si

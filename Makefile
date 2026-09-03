@@ -681,7 +681,15 @@ KSIGDEF = -DKSIG_OFF=$(KSIG_OFF) $$(python3 -c "import sys; d = open(sys.argv[1]
 # the FILE. The signature itself still has to be injected - it is read out of
 # the built kernel, so a kernel that carried it would need a second assembly
 # to reach a fixed point, and stage 1 is built afterwards and hands it over.
-KSIGDEF2 = $$(python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); o = $(KSIG_OFF) + $(BOOT2_PAD); print('-DKSIG=%d' % int.from_bytes(d[o:o+2], 'little')) if len(d) > o + 1 else None" $(1))
+#
+# AND IT REFUSES A KERNEL SHORTER THAN THE OFFSET. KSIGDEF above prints nothing
+# for a short payload on purpose; this one MUST NOT, because boot/boot.asm
+# defaults KSIG to 0 and 0 means NO CANARY - so a kernel that came out shorter
+# than KSIG_OFF (a cut-down build, a broken split) would boot with the check
+# silently switched off. The refusal is two-sided: the message goes to stderr
+# and an option nasm rejects goes to stdout, because a failing `$(...)` on its
+# own does not fail the recipe - the sector would still assemble, canary-less.
+KSIGDEF2 = $$(python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); o = $(KSIG_OFF) + $(BOOT2_PAD); print('-DKSIG=%d' % int.from_bytes(d[o:o+2], 'little')) if len(d) > o + 1 else (sys.stderr.write('KSIGDEF2: %s is %d bytes, shorter than KSIG_OFF + BOOT2_PAD = %d - no canary word to read, and KSIG=0 would switch the canary OFF\n' % (sys.argv[1], len(d), o)), print('--KSIGDEF2-REFUSED-kernel-shorter-than-KSIG_OFF'))" $(1))
 
 # ...and THE BLOB'S OWN CHECKSUM (SPEC.md 2.9.7). The kernel's load has had
 # 18.93.1's canary since the day a BIOS was caught flipping heads early; the
@@ -1465,6 +1473,7 @@ $(shell mkdir -p $(BUILD); \
                                       $(BUILD)/ctrl.drv $(BUILD)/format.drv \
                                       $(BUILD)/clone.drv \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin \
+                                      $(BUILD)/boot120.bin \
                                       $(BUILD)/hdd.bin $(BUILD)/hdd.drv \
                                       $(BUILD)/hddtool.bin $(BUILD)/hddtool.drv \
                                       $(BUILD)/saver.bin $(BUILD)/saver.drv; \
@@ -1623,7 +1632,7 @@ test-fast: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360) $(WEAVEWABS)
 ifeq ($(KNOBS),)
-	@python3 tools/os88test.py fast
+	@OS88_PKGDEFS="$(PKGSBDEF)" python3 tools/os88test.py fast
 else
 	@echo "os88test: skipped - this is a KNOB build ($(KNOBS)), and the fast"
 	@echo "          tier reads the shipped artifacts. Run a plain \`make\`."
@@ -6102,7 +6111,8 @@ $(BUILD)/small.img: $(SMALLDRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 #
 # `make smallapps` is the APPS half of `make small`: the same floppy in the
 # same two geometries, with the SMALL BUILD of any package that has one in
-# place of the shipped one. Note Pad is the first and today the only consumer.
+# place of the shipped one. Note Pad was the first consumer and Paint the second
+# (SMALLPKGS below is the list).
 #
 # IT IS NOT A SECOND ABI, and that is the whole reason this is a disk rather
 # than a kernel feature. A small-built package calls the same API table at the
@@ -6874,9 +6884,25 @@ ALLAPPSFILES := $(APPS) $(BUILD)/frotz.o88 \
                 $(BUILD)/cword.o88 $(BUILD)/CWORD.OVL $(BUILD)/WELCOME.RTF \
                 $(BUILD)/c64.o88 $(BUILD)/C64.OVL \
                 apps/c64/README.TXT apps/c64/COPYING \
-                $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
+                $(WEAVEDISK) $(WEAVELOOM) $(LOOMRUN) $(LOOMSRCS) \
                 $(RUNCPMDISK)
 ALLAPPS := $(ALLAPPSFILES) $(RUNCPMDEPS)
+
+# LOOMRUN IS NAMED TWICE ON THIS DISK AND MUST BE PRICED TWICE. ALLAPPSARGS
+# below places the runtime's three files under WEAVE\ and again under LOOM\,
+# because WEAVE-SPEC 11.2 makes each folder a WHOLE program - a bundle Pack
+# writes beside the sources opens only beside a runtime that is there. The
+# --reserve list is what --select prices the disk against, so listing
+# $(WEAVEDISK) alone under-priced it by the second copy - 152 clusters at
+# 1.44MB - and getruncpm.py handed back an A\0 selection that os88disk.py
+# then refused as 27 clusters over. Duplicates in --reserve are summed,
+# which is the arithmetic wanted here.
+#
+# ...and one cluster more, which --folders cannot see. It prices every folder
+# directory at one cluster; LOOM asks os88disk.py for 32 directory slots
+# (ALLAPPSARGS), and 32 entries x 32 bytes is 1,024 - two clusters at
+# 1.44MB's 512. The second is the difference.
+ALLAPPSEXTRA := 1
 
 ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(BUILD)/frotz.o88) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
@@ -6901,7 +6927,7 @@ ALLAPPSFOLDERS := $(words $(ALLAPPSDIRS))
 allapps: $(ALLAPPSIMG)
 
 $(ALLAPPSIMG): $(ALLAPPS) tools/os88disk.py
-	sel="$$(python3 tools/getruncpm.py -o $(RUNCPMDIR) --select 1440 --dir-slots $(RUNCPMSLOTS) --folders $(ALLAPPSFOLDERS) --reserve $(ALLAPPSFILES) | sed 's,^,RUNCPM/A/0:,')"; \
+	sel="$$(python3 tools/getruncpm.py -o $(RUNCPMDIR) --select 1440 --dir-slots $(RUNCPMSLOTS) --folders $(ALLAPPSFOLDERS) --reserve-clusters $(ALLAPPSEXTRA) --reserve $(ALLAPPSFILES) | sed 's,^,RUNCPM/A/0:,')"; \
 	[ -n "$$sel" ] || { echo "allapps: getruncpm.py --select 1440 chose nothing"; exit 1; }; \
 	python3 tools/os88disk.py -o $@ --size 1440 --deep-folders --dir-slots RUNCPM/A/0=$(RUNCPMSLOTS) --dir-slots LOOM=32 --folder DOCS $(APPDATAFOLDER) $(ALLAPPSARGS) $$sel
 	@python3 tools/os88disk.py --verify $@
@@ -6955,7 +6981,7 @@ live: $(USBIMG) $(LIVEISO)
 $(USBIMG): $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(BUILD)/kernel.bin \
            $(DRIVERS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) \
            $(ALLAPPS) tools/os88disk.py
-	sel="$$(python3 tools/getruncpm.py -o $(RUNCPMDIR) --select 1440 --dir-slots $(RUNCPMSLOTS) --folders $(ALLAPPSFOLDERS) --reserve $(ALLAPPSFILES) | sed 's,^,RUNCPM/A/0:,')"; \
+	sel="$$(python3 tools/getruncpm.py -o $(RUNCPMDIR) --select 1440 --dir-slots $(RUNCPMSLOTS) --folders $(ALLAPPSFOLDERS) --reserve-clusters $(ALLAPPSEXTRA) --reserve $(ALLAPPSFILES) | sed 's,^,RUNCPM/A/0:,')"; \
 	[ -n "$$sel" ] || { echo "usb: getruncpm.py --select 1440 chose nothing"; exit 1; }; \
 	python3 tools/os88disk.py -o $@ --hdd \
 		--mbr $(BUILD)/mbr.bin --boot $(BUILD)/boothd.bin \

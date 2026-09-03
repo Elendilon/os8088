@@ -55,9 +55,13 @@
 ; nothing would say so. The AUTO-detected case is fine and is the whole design
 ; (2.4): a VGA machine falls through the gated probes to the equipment word
 ; and comes up as a CGA, geometry and all. It is only the FORCE that lies.
-%if VID_FORCE == 1
+; ...and VIDEO=ega is the same lie one kind along: the EGA is the other
+; 4-plane kind (SPEC.md 39.24), driven by the same renderer, and forcing it
+; here set mode 10h, loaded the A000 row and then took every primitive's
+; no-VGA arm through a planar [vid_rseg] of 0 - the IVT.
+%if VID_FORCE == 1 || VID_FORCE == 4
  %ifndef GFX_VGA
-%error "VIDEO=vga needs a build with a VGA renderer in it - kern_small has none (docs/MONO-RECLAIM-PLAN.md 2). Auto-detect drives a VGA card as a CGA there; VIDEO=cga forces the same thing."
+%error "VIDEO=vga/ega needs a build with a VGA renderer in it - kern_small has none (docs/MONO-RECLAIM-PLAN.md 2). Auto-detect drives a VGA or EGA card as a CGA there; VIDEO=cga forces the same thing."
  %endif
 %endif
 
@@ -537,7 +541,9 @@ vid_depth_set:
                                 ; change and are not taken.
     cmp al, VID_VGA
     je .colour                  ; **ZF IS THE ANSWER AND IT SURVIVES TO THE
-    cmp al, VID_EGA             ; `jne` BELOW**: EGA is the same four-plane
+%ifdef GFX_VGA                  ; `jne` BELOW**, and without a VGA renderer
+    cmp al, VID_EGA             ; the first compare is the whole answer.
+%endif                          ; EGA is the same four-plane
 .colour:                        ; 16-colour depth as VGA - mode 10h, just
                                 ; shorter (SPEC.md 39.24) - so `colour` is
                                 ; `al == VID_VGA || al == VID_EGA`, and the
@@ -906,14 +912,19 @@ vid_setmode:
     mov al, [vid_kind]          ; ONE load answers all three questions below:
     cmp al, VID_HERC            ; AL is idle until `mov ax, 0x0010`, and
     je .herc                    ; `cmp reg,imm8` is 2 bytes where
-    cmp al, VID_EGA             ; `cmp byte [mem],imm8` is 5
-    jne .colorbios
-    mov ax, 0x0010             ; EGA: mode 10h, 640x350x16 planar. NO
-    jmp short .bios            ; vid_cga_equip - that call is the XT ROM's
+%ifdef GFX_VGA                  ; `cmp byte [mem],imm8` is 5
+    cmp al, VID_EGA             ; A build with no VGA renderer never detects
+    jne .colorbios              ; an EGA either (2.4: the gated probes fall
+    mov ax, 0x0010             ; through to the equipment word), so the arm
+    jmp short .bios            ; is dead there and the VIDEO= guard above
+                              ; refuses the one way of reaching it.
+                              ; EGA: mode 10h, 640x350x16 planar. NO
+                              ; vid_cga_equip - that call is the XT ROM's
                               ; CGA-equipment quirk (see below), and an EGA
                               ; BIOS is not equipment-driven that way; it
                               ; sets mode 10h whatever 40:10 says.
 .colorbios:
+%endif
     call vid_cga_equip          ; EITHER COLOUR CARD, NOT JUST THE CGA (SPEC.md
                                 ; 39.19.4). The XT ROM's mode set is
                                 ; EQUIPMENT-driven: with 40:10 saying mono it

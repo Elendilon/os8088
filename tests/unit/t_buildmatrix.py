@@ -3,9 +3,11 @@
 
     python3 tests/unit/t_buildmatrix.py [-j N]
 
-`all` builds ONE kernel.  The tree has two dozen more (KNOBS below is the
-roster, and the count in this sentence went stale twice before it stopped
-naming one), and nothing builds them until somebody types the knob by hand:
+`all` builds ONE kernel.  The tree has several dozen more - the ROSTER is the
+Makefile's own $(KNOBS) list, read by makefile_knobs() rather than kept here,
+and KNOBS below is the hand table of the VALUE each one needs; a knob in the
+Makefile with no row here fails this file - and nothing builds them until
+somebody types the knob by hand:
 
   * `kern_small` - the 128-256KB machine's kernel (SPEC.md 62.9.15), a
     genuinely different binary with its own `KERN_BUDGET`, its own driver set
@@ -102,6 +104,29 @@ def pkg_vars():
 
 PKG_VARS = pkg_vars()
 
+
+def makefile_knobs():
+    """Every knob the Makefile stamps - its own $(KNOBS) list, read out.
+
+    THE ROSTER IS DERIVED AND THE VALUES ARE THE HAND TABLE. The list below
+    used to be the roster as well, and it covered 43 of the Makefile's 78:
+    sixteen knobs were assembled by NO tier at all (ANIMOFF, CURFIX, FONT,
+    STRAD, ...), fifteen only by a soak row that builds the knob for its own
+    A/B (NOUIBLOCK, NOBLITCUT, NOCURDISK, DLJUNK, ...), three only by `make
+    stkdiag` - and CLAUDE.md says of four of those that the knob is "the only
+    thing keeping ... assembling", while none of them was in test-full. A
+    hand roster is a list that goes stale silently; this reads $(KNOBS) so a
+    knob added to the Makefile FAILS the matrix below until it has a row,
+    rather than joining the unbuilt list.
+    """
+    txt = open(os.path.join(ROOT, "Makefile"), encoding="utf-8").read()
+    m = re.search(r'^KNOBS\s*:=\s*\$\(strip\s+\$\(foreach\s+k,(.*?),\s*\\?'
+                  r'\s*\$\(if\b', txt, re.M | re.S)
+    if not m:
+        return []
+    return re.findall(r'[A-Z][A-Z0-9_]*', m.group(1).replace('\\', ' '))
+
+
 # What every row passes: see the module docstring. Held here rather than spelt
 # into build() so that the one place it is decided is the one place it reads.
 NOWASTE = ["NOOVLCHK=1", "NOKERNSIZE=1"]
@@ -110,7 +135,12 @@ NOWASTE = ["NOOVLCHK=1", "NOKERNSIZE=1"]
 # that build's own kernel unless the row names another - `small` has a target of
 # its own because it is a whole second tree (its own drivers, its own Control
 # Panel), and the rows below that say `boot360.bin` are the ones whose %ifdef
-# arms are in the BOOT SECTOR.
+# arms are in the BOOT SECTOR. A knob that reaches only a DRIVER or a PACKAGE
+# names that file: a `kernel.bin` row for PICOMEM assembled a kernel the knob
+# never touches and reported the sound driver's arm alive.
+#
+# THIS TABLE IS THE VALUE EACH KNOB NEEDS, not the roster: main() reads the
+# roster out of the Makefile's $(KNOBS) and fails on any knob with no row here.
 #
 # A boot-sector row is not the same question as a kernel row and asking the
 # kernel one is how four broken knobs shipped: `make FLOPPY1=1 kernel.bin`
@@ -125,6 +155,8 @@ KNOBS = [
     ("rtc-bios",    ["RTC=bios"]),
     ("rtc-none",    ["RTC=none"]),
     ("rtc-ns",      ["RTC=ns"]),
+    ("rtc-at",      ["RTC=at"]),
+    ("rtc-rp",      ["RTC=rp"]),
     ("ramkb-128",   ["RAMKB=128"]),
     ("ramkb-104",   ["RAMKB=104"]),
     ("floppy1",     ["FLOPPY1=1"], "boot360.bin"),
@@ -137,7 +169,12 @@ KNOBS = [
     ("fddprobe",    ["FDDPROBE=0"]),
     ("snapaudit",   ["SNAPAUDIT=1"]),
     ("dirw1",       ["DIRW1=1"]),
-    ("picomem",     ["PICOMEM=1"]),
+    # PICOMEM= reaches SOUND.DRV and nothing else (SNDDEF), so the target is
+    # the driver: this row built kernel.bin for a year and assembled no arm.
+    # PM_BASE/PM_SB_PORT are only read under it, so one row takes all three.
+    ("picomem",     ["PICOMEM=1"], "sound.drv"),
+    ("picomem-ports", ["PICOMEM=1", "PM_BASE=0x2A0", "PM_SB_PORT=0x220"],
+     "sound.drv"),
     ("bootprof",    ["BOOTPROF=1"]),
     ("mouidslow",   ["MOUIDSLOW=1"]),
     ("trackrun",    ["TRACKRUN=1"], "boot360.bin"),
@@ -257,7 +294,58 @@ KNOBS = [
     # NOPLANE's sentence exactly: an A/B that stopped assembling is found at
     # the moment somebody reaches for it to tell a real fix from a null run.
     ("noseamcut",   ["NOSEAMCUT=1"]),
+    # --- the thirty-five $(KNOBS) no tier assembled (see makefile_knobs) ---
+    # Each value is the one its gate or its Makefile block documents; a knob
+    # that takes a NUMBER is given the one the A/B uses (DLJUNK=0x61 is the
+    # Packard Bell 286, FDDABSENT has an =2 arm of its own, THEMEDARK is 1
+    # Dark and 2 Colour), and a knob that reaches a driver or a package names
+    # that file for PICOMEM's reason above.
+    ("kfz",         ["KFZ=1"]),
+    ("instro",      ["INSTRO=1"]),
+    ("keeph",       ["KEEPH=0"]),
+    ("strad",       ["STRAD=all"]),
+    ("heappark",    ["HEAPPARK=0"]),
+    ("heapparklk",  ["HEAPPARKLK=0"]),
+    ("fddabsent",   ["FDDABSENT=1"]),
+    ("fddabsent2",  ["FDDABSENT=2"]),
+    ("nosplit",     ["NOSPLIT=1"]),
+    ("nosuoccl",    ["NOSUOCCL=1"]),
+    ("sndsniff",    ["SNDSNIFF=sb"]),
+    ("dragcache",   ["DRAGCACHE=0"]),
+    ("fatwnone",    ["FATWNONE=1"]),
+    ("scrollrow",   ["SCROLLROW=1"]),
+    ("curfix",      ["CURFIX=1"]),
+    ("font",        ["FONT=tallx"]),
+    ("instchunk",   ["INSTCHUNK=1"], "hdd.drv"),
+    ("instchunk-tool", ["INSTCHUNK=1"], "hddtool.drv"),
+    ("animoff",     ["ANIMOFF=1"]),
+    ("disink0",     ["DISINK0=1"]),
+    ("themedark",   ["THEMEDARK=1"]),
+    ("themedark2",  ["THEMEDARK=2"]),
+    # STKDIAG=1 refuses QUANTUM= (the Makefile's $(error)), so it is a row of
+    # its own and never paired; NOMOUPRIV/NOCHAINPRIV are `make stkdiag`'s
+    # arms 2 and 3 and were built by nothing in the suite.
+    ("stkdiag",     ["STKDIAG=1"]),
+    ("nomoupriv",   ["NOMOUPRIV=1"]),
+    ("nochainpriv", ["NOCHAINPRIV=1"]),
+    ("ethprof",     ["ETHPROF=1"], "ether.drv"),
+    ("ftpdslow",    ["FTPDSLOW=1"], "ftpd.o88"),
+    ("ftpdbg",      ["FTPDBG=1"], "ftpd.o88"),
+    ("nosizesnap",  ["NOSIZESNAP=1"]),
+    ("nocolfast",   ["NOCOLFAST=1"]),
+    ("noblitcut",   ["NOBLITCUT=1"]),
+    ("nouiblock",   ["NOUIBLOCK=1"]),
+    ("nocurdisk",   ["NOCURDISK=1"]),
+    ("vgadirty",    ["VGADIRTY=1"]),
+    ("dljunk",      ["DLJUNK=0x61"], "boot360.bin"),
 ]
+
+
+def covered(knob):
+    """Does some row build this knob? KERN_SMALL is `make small` below."""
+    if knob == "KERN_SMALL":
+        return True
+    return any(v.split("=")[0] == knob for row in KNOBS for v in row[1])
 
 
 def md5(p):
@@ -299,6 +387,30 @@ def main():
           "definition has moved, and every row would then share the default "
           "build's packages - including the ones whose knob reaches one",
           got=repr(sorted(PKG_VARS)), want="a non-empty set of make variables")
+
+    # THE ROSTER, read out of the Makefile. Every knob it stamps must have a
+    # row in KNOBS above (or be kern_small, built below), so a knob added to
+    # $(KNOBS) fails here on the day it is added rather than rotting unbuilt.
+    roster = makefile_knobs()
+    check(len(roster) >= 60,
+          "the knob roster still reads out of the Makefile's $(KNOBS) (%d)"
+          % len(roster),
+          "the regex over `KNOBS := $(strip $(foreach k,...` found nothing or "
+          "next to nothing; the definition has moved, and every knob would "
+          "then be 'covered' by an empty list", got=roster, want=">= 60 knobs")
+    unbuilt = [k for k in roster if not covered(k)]
+    check(not unbuilt, "every knob in $(KNOBS) has a row in this matrix",
+          "a knob with no row is a %ifdef arm nothing assembles - give it a "
+          "row in KNOBS with the value its gate uses, and the target it "
+          "reaches if that is a driver or a package rather than the kernel",
+          got=unbuilt, want="[]")
+    stale = sorted({v.split("=")[0] for row in KNOBS for v in row[1]}
+                   - set(roster))
+    check(not stale, "no row names a variable the Makefile no longer stamps",
+          "`make NOBAND=1` is a make variable nothing reads - it builds the "
+          "DEFAULT kernel and reports a pass for a configuration nobody "
+          "assembled, which is how that row once went green for a retired "
+          "knob", got=stale, want="[]")
 
     # THE OVERLAY GATE, ONCE. Every row is built with NOOVLCHK=1, and this is
     # the other half of that bargain: the gate runs over exactly the source all

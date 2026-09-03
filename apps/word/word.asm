@@ -12772,6 +12772,7 @@ wd_saymsg:
 ; wd_utoa - AX as decimal at DI, no leading zeros; DI advances past it.
 ; Preserves every other register.
 wd_utoa:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx
@@ -16802,6 +16803,7 @@ wd_rad3:
 
 ; wd_unum - write unsigned AX into the NUL buffer at BX. Preserves all.
 wd_unum:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

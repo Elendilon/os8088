@@ -3067,11 +3067,22 @@ disk_mount_x:
     call dsk_get_dir_x
     cmp word [si+16], 0         ; type 0 alone: a package draws its own icon
     jne .doc_next               ; and a folder has dsk_folder_ico
+    pushf                       ; dsk_ico has FIVE tenants (assoc.inc says
+                                ; which, above assoc_docicon)
+    cli                         ; and this one stages it with the gfx lock
+                                ; FREE, so a tick here could switch to a
+                                ; package worker whose wm_show repaints the
+                                ; dock through inst_icon_ptr - the fifth
+                                ; tenant - and the document would cache 64
+                                ; bytes of that package's icon. A compose
+                                ; and a 64-byte copy, well under one tick
     call assoc_docicon_x          ; CF=0 and dsk_ico holds the composed body
-    jc .doc_next
+    jc .doc_skip
     mov ax, dx
     mov si, dsk_ico
     call dsk_put_icon_k_x
+.doc_skip:
+    popf
 .doc_next:
     inc dx
     jmp .docs
@@ -3614,8 +3625,14 @@ dsk_synth_x:
                                 ; 1 tests the high word before it trusts the
                                 ; low one (SPEC.md 21) - the two are one
                                 ; change
-    cmp word [es:si+DSK_R_SIZE], 1
-    jb .typed                   ; size low word >= 1
+    mov ax, [es:si+DSK_R_SIZE]  ; ...and not EMPTY, which is BOTH words zero.
+    or ax, dx                   ; It was `cmp word [..SIZE], 1 / jb`, right
+    jz .typed                   ; while the high word had to be 0 and wrong
+                                ; the moment it did not: a parts package of
+                                ; exactly n x 65,536 bytes has a low word of
+                                ; 0 and was typed 0 - not a package - here,
+                                ; while ld_take's own test (`or cx,cx / jnz
+                                ; / or dx,dx / jz .bad`) launched it by name
     mov ax, [es:si+DSK_R_CLUS]
     cmp ax, 2
     jb .typed

@@ -119,7 +119,7 @@ FAST = [
         "two calls on a 720KB disk, and the 14th costs a whole revolution to "
         "move one sector",
         needs=("nasm",)),
-    Row("bootfloor", "fast", py("tests/unit/t_bootfloor.py"), 2.0,
+    Row("bootfloor", "fast", py("tests/unit/t_bootfloor.py"), 3.5,
         "stage 1's RAM floor against the kernel's own ladder (SPEC.md 2.7.1) "
         "- HEAP_PARA is INJECTED, so the two can disagree, and guard 5c used "
         "to reconcile them until stage 1 started testing the exact condition "
@@ -128,7 +128,7 @@ FAST = [
         "after the compare underflows and relocates the sector to the top of "
         "a 1MB machine that is not there",
         needs=("nasm",)),
-    Row("lowwin", "fast", py("tests/unit/t_lowwin.py"), 3.0,
+    Row("lowwin", "fast", py("tests/unit/t_lowwin.py"), 5.5,
         "the mount-owned window is the BOTTOM of .lowbss (SPEC.md 2.1.2), so "
         "that it and the FAT window under it are one contiguous 8,192-byte "
         "region dead for the whole of kmain. It is bought by one include line "
@@ -136,7 +136,7 @@ FAST = [
         "any code names changes, and the kernel boots either way - only "
         "stage C would find out, by writing the overlay over vid_rowtab",
         needs=("nasm",)),
-    Row("api-abi", "fast", py("tests/unit/t_api_abi.py"), 2.0,
+    Row("api-abi", "fast", py("tests/unit/t_api_abi.py"), 3.3,
         "the API table decoded from kernel.bin and compared with the SDK - the "
         "silent merge collision CLAUDE.md asks to be checked by hand"),
     Row("stackprose", "full", py("tests/unit/t_stackprose.py"), 5.0,
@@ -149,10 +149,10 @@ FAST = [
         "go looking for what to adapt. os88geom guards the copies a SCRIPT "
         "retyped; this guards the ones a HUMAN did. FULL rather than fast: a stale comment misleads a reader, it does not break a build, and the fast tier runs on every `make` against a 30s budget this row is a sixth of",
         needs=()),
-    Row("mirror", "fast", py("tests/unit/t_mirror.py"), 1.6,
+    Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
-    Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 1.2,
+    Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 0.8,
         "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
         "zero bytes (docs/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
         "the small build is really smaller. Both fail silently - a %ifdef one "
@@ -161,11 +161,11 @@ FAST = [
         "build/smallapps*.img as the ordinary floppy under another name. It "
         "is also the only thing keeping the small arm ASSEMBLING: nothing in "
         "`all` builds it"),
-    Row("ktags", "fast", py("tests/unit/t_ktags.py"), 0.2,
+    Row("ktags", "fast", py("tests/unit/t_ktags.py"), 0.1,
         "every owner tag the kernel ships has a TYPE name on the Task "
         "Manager's heap page - SPEC.md 28.4's hex fallback is for a tag this "
         "build has never seen, and three shipped ones had been sitting in it"),
-    Row("dirwsize", "fast", py("tests/unit/t_dirwsize.py"), 0.2,
+    Row("dirwsize", "fast", py("tests/unit/t_dirwsize.py"), 0.1,
         "The directory cache picks its WIDTH from the machine now (SPEC.md "
         "18.95.5), so three numbers in three places have to agree: the "
         "constants, the gate's divisor, and the shift-add that turns slots "
@@ -176,7 +176,7 @@ FAST = [
         "width needs a 36-126KB free run and no emulator here can be put in "
         "that state on demand",
         needs=(), serial=False),
-    Row("pgrank", "fast", py("tests/unit/t_pgrank.py"), 0.2,
+    Row("pgrank", "fast", py("tests/unit/t_pgrank.py"), 0.1,
         "The purgeable caches are ORDERED - WSAVE below FATW below DIRW - "
         "and that ordering IS the machine's eviction policy (SPEC.md 50.6.4). "
         "A rank is one token with no callers and is silent both ways: too low "
@@ -187,24 +187,24 @@ FAST = [
         "is inside the purgeable range at all, and that dsk_fatw_want asks "
         "mem_avail_lvl at its OWN rank so it may take the caches it outranks",
         needs=(), serial=False),
-    Row("kernbudget", "fast", py("tests/unit/t_kernbudget.py"), 0.2,
+    Row("kernbudget", "fast", py("tests/unit/t_kernbudget.py"), 0.1,
         "docs/KERNEL-MEMORY.md's blessed baseline carries THIS kernel's "
         "KERN_BUDGET - it went two moves behind because tools/kernsize.py "
         "compared spare and could not see a budget move at all"),
-    Row("swallow", "fast", py("tests/unit/t_swallow.py"), 0.2,
+    Row("swallow", "fast", py("tests/unit/t_swallow.py"), 0.1,
         "a statement that ended up inside a block comment: it compiles clean, "
         "runs never, and cost apps/c64 a Paste that outlived a machine reset"),
-    Row("drvmem", "fast", py("tests/unit/t_drvmem.py"), 0.2,
+    Row("drvmem", "fast", py("tests/unit/t_drvmem.py"), 0.1,
         "the Drivers page's memory column (SPEC.md 31.6.2) re-derived: every "
         "image term against the .drv this build made, every claim term against "
         "the constant in the driver that takes it"),
-    Row("image", "fast", py("tests/unit/t_image.py"), 0.2,
+    Row("image", "fast", py("tests/unit/t_image.py"), 0.1,
         "the shipped floppies read by an independent FAT12 walker: contiguity, "
         "the standard BPB, SPEC.md 19.6's attributes"),
-    Row("pkg", "fast", py("tests/unit/t_pkg.py"), 0.5,
+    Row("pkg", "fast", py("tests/unit/t_pkg.py"), 0.1,
         "package/driver/module headers, and every file on every image proved "
         "identical to the artifact it was built from"),
-    Row("diskverify", "fast", py("tests/unit/t_diskverify.py"), 0.6,
+    Row("diskverify", "fast", py("tests/unit/t_diskverify.py"), 0.5,
         "the tree's own fsck, pointed at the seven images `make` ships and "
         "never ran on"),
     Row("qemuown", "fast", py("tests/unit/t_qemuown.py"), 0.1,
@@ -218,12 +218,12 @@ FAST = [
         "build/os8088.img: the cost of the leak is paid by an unrelated row, "
         "hours later, wearing a message about the wrong subject "
         "(docs/HANDOFF-SOAK-FINDINGS.md B9)"),
-    Row("canary", "fast", py("tests/unit/t_canary.py"), 0.2,
+    Row("canary", "fast", py("tests/unit/t_canary.py"), 0.1,
         "SPEC.md 18.93.1's canary offset re-derived from every shipped image's "
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
         "boundary, because the half before it loads correctly on exactly the "
         "machine the canary is for - which is how the first one shipped wrong"),
-    Row("mlen", "fast", py("tests/unit/t_mlen.py"), 4.0,
+    Row("mlen", "fast", py("tests/unit/t_mlen.py"), 3.4,
         "twelve month lengths, read back out of build/kernel.bin. clk_mlen "
         "carries the eleven non-February ones as a 16-bit MASK since kernel "
         "size pass 3 - three bytes shorter than the db table it replaced, and "
@@ -235,14 +235,14 @@ FAST = [
         "bit surfaces as '31 April accepted in the Date/Time page' and as a "
         "midnight rollover on the wrong day, which no harness here can run "
         "long enough to see"),
-    Row("bsssentinel", "fast", py("tests/unit/t_bsssentinel.py"), 4.0,
+    Row("bsssentinel", "fast", py("tests/unit/t_bsssentinel.py"), 3.5,
         "a sentinel byte whose RESTING value is not zero cannot live in .bss "
         "(SPEC.md 12.8.5.1): `-f bin` emits nothing for it and the boot read "
         "lands padding on those bytes, so it comes up 0. fsx_cur shipped that "
         "way the moment fpg_arm started reading it from OUTSIDE an fsx "
         "bracket, and the file-progress widget was refused for every file "
         "operation on the machine - which on an install reads as a lock"),
-    Row("invariants", "fast", py("tests/unit/t_invariants.py"), 0.3,
+    Row("invariants", "fast", py("tests/unit/t_invariants.py"), 1.2,
         "three run-time facts that no %if can express, checked by WHO WRITES "
         "the byte: [sch_cur] is never 0xFF (fsx's ownership compares refuse "
         "[fsx_task]'s no-bracket sentinel only because of that, so a second "
@@ -253,7 +253,7 @@ FAST = [
         "[vid_rseg] has one writer, which is a DIFFERENT fact because "
         "sw_xfer used to end on a segment compare",
         needs=(), serial=False),
-    Row("assocpage", "fast", py("tests/unit/t_assocpage.py"), 0.2,
+    Row("assocpage", "fast", py("tests/unit/t_assocpage.py"), 0.1,
         "the document page is GENERATED now (SPEC.md 54.3), so its 32 words "
         "are replayed on the host against a golden list - the only copy of "
         "them left in the tree. tests/assocglyph.py is the gate on the glass, "
@@ -268,7 +268,7 @@ FAST = [
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
         "that stops this suite going back to a directory nobody can enumerate"),
-    Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 1.5,
+    Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 2.0,
         "unreachable code after an unconditional jump, a prologue restored in "
         "the WRONG ORDER (SPEC.md 1's register discipline: balanced depth, "
         "swapped pair, nothing faults), a `cpu 8086` reachable from every "
@@ -277,22 +277,22 @@ FAST = [
         "helps if something reaches it, which is how the DMA staging arm of "
         "both file pipelines rotted for a year with this row green "
         "(SPEC.md 18.4.2.1)"),
-    Row("resident", "fast", py("tests/unit/t_resident.py"), 1.5,
+    Row("resident", "fast", py("tests/unit/t_resident.py"), 3.7,
         "nothing the splash's first tick runs may jump to SPEC.md 15.1.2's "
         "epilogue ladder - the ladder is at the far end of .text and the "
         "floppy has not delivered it yet, so the machine dies with a blank "
         "screen and no message. kernel.asm's SPL_RES_SIZE guard measures where "
         "the resident code ENDS, and size is not reach"),
-    Row("wakedrain", "fast", py("tests/unit/t_wakedrain.py"), 0.3,
+    Row("wakedrain", "fast", py("tests/unit/t_wakedrain.py"), 0.2,
         "every event-queue drain gives a package's wake back - one that eats "
         "it deafens the window for the rest of its life (SPEC.md 74.1.1)"),
-    Row("wab", "fast", py("tests/unit/t_wab.py"), 0.3,
+    Row("wab", "fast", py("tests/unit/t_wab.py"), 0.1,
         "the demo bundles `all` just packed, read back by an independent "
         "second reader of the .WAB format - weavesim and t_wab are two "
         "implementations written from WEAVE-SPEC that can disagree, and "
         "until the 8086 runtime lands this row is the disagreement's only "
         "audience"),
-    Row("lmpack", "fast", py("tests/unit/t_lmpack.py"), 5.0,
+    Row("lmpack", "fast", py("tests/unit/t_lmpack.py"), 6.5,
         "WEAVE-SPEC 11.1's byte-identity gate, host-side: LOOM's five "
         "SHIPPING compilers built with the host cc, packing every demo, "
         "every template and every case in tests/weave/packerr/, diffed "
@@ -305,25 +305,25 @@ FAST = [
         "because a clone with nasm and python3 builds every floppy this "
         "project ships and a red suite there would be reporting on the box",
         needs=()),
-    Row("textrules", "fast", py("tests/unit/t_textrules.py"), 0.4,
+    Row("textrules", "fast", py("tests/unit/t_textrules.py"), 0.7,
         "SPEC.md 6.6's ratchet: transparent text (font_char/font_str) draws every "
         "pixel twice and flashes on the target machine, so every call site is "
         "registered in tests/textsites.txt with a reason and the count can only "
         "go down"),
-    Row("layout", "fast", py("tests/unit/t_layout.py"), 0.2,
+    Row("layout", "fast", py("tests/unit/t_layout.py"), 0.1,
         "SPEC.md 2.9: a GUEST ADDRESS IS NOT A FILE OFFSET. Stage 2 sits in "
         "front of .text in kernel.bin, so a host-side reader that indexes the "
         "image by a symbol, a segment or a return address lands 6,656 bytes "
         "early - on real code, silently. Five readers got it wrong "
         "independently: two rows dead since 2.9, two reporting .cold as "
         "corrupt every run, and stkwater recognising 126 of 3,000 call sites"),
-    Row("fixtures", "fast", py("tests/unit/t_fixtures.py"), 0.2,
+    Row("fixtures", "fast", py("tests/unit/t_fixtures.py"), 0.1,
         "a row's scratch floppy is a BUILD PRODUCT: os88disk.py behind a bare "
         "`not os.path.exists` builds it once and every run after boots "
         "whatever build/ held that minute, which is the stale kernel.bin trap "
         "in other clothes. It read paintsu as 0 pixels wrong against a Paint "
         "without the fix in it, and that number was pushed on"),
-    Row("vbrseg", "fast", py("tests/unit/t_vbrseg.py"), 2.6,
+    Row("vbrseg", "fast", py("tests/unit/t_vbrseg.py"), 3.4,
         "SPEC.md 52.10.2.1: build/boothd.bin's BLOB_SEG and SPL_FSEG read back "
         "out of the assembled sector and compared with build/kernel.bin's own "
         "map. The volume boot record is told where the heap starts by a host "
@@ -331,26 +331,26 @@ FAST = [
         "tool did not know about boots into wild execution with no build "
         "error anywhere.",
         ),
-    Row("checkdocs", "fast", py("tools/checkdocs.py"), 1.0,
+    Row("checkdocs", "fast", py("tools/checkdocs.py"), 1.6,
         "stale SPEC.md citations and slot numbers in prose (already in `make`; "
         "here too so the suite is a complete statement)"),
-    Row("docindex", "fast", py("tools/os88index.py", "--check"), 0.5,
+    Row("docindex", "fast", py("tools/os88index.py", "--check"), 0.2,
         "docs/INDEX.md still matches the tree - an index that has drifted is "
         "worse than none, because it is consulted and believed"),
-    Row("checkreadme", "fast", py("tools/checkreadme.py", "readme.txt"), 0.3,
+    Row("checkreadme", "fast", py("tools/checkreadme.py", "readme.txt"), 0.1,
         "README.TXT's width and size rules - Note Pad refuses a file one byte "
         "too long and shows nothing at all"),
-    Row("ovlchk", "fast", py("tools/os88ovlchk.py"), 1.0,
+    Row("ovlchk", "fast", py("tools/os88ovlchk.py"), 1.4,
         "no near call crosses a section boundary - it assembles cleanly and "
         "runs wrong"),
-    Row("dsegaudit", "fast", py("tools/dsegaudit.py"), 1.0,
+    Row("dsegaudit", "fast", py("tools/dsegaudit.py"), 0.2,
         "no path holding [dsk_dseg] can reach a claim, and a claim COMPACTS "
         "(SPEC.md 50.6.2). It is a 0/1 gate with no harness around it and "
         "nothing ran it - not `make`, not this file, and not t_registry, "
         "whose walk is over tests/ and cannot see a tool. A static gate that "
         "nobody runs is a comment"),
     Row("stknosave", "fast",
-        py("tools/stkdepth.py", "drivers/ether/ether.asm", "--check"), 1.5,
+        py("tools/stkdepth.py", "drivers/ether/ether.asm", "--check"), 0.4,
         "every `; STKDEPTH-NOSAVE:` in ETHER.DRV still holds: the routines "
         "that stopped saving a register to fit a 384-byte task slice (SPEC.md "
         "72.16.4) still get it back from every callee. Without this the trade "
@@ -358,7 +358,7 @@ FAST = [
     Row("stkbalance", "fast",
         py("tools/stkbalance.py", "apps/sheet/sheet.asm", "apps/chart/chart.asm",
            "apps/os88chart.inc", "apps/os88fp.inc", "apps/os88text.inc",
-           "apps/os88line.inc", *_kernel_sources()), 3.0,
+           "apps/os88line.inc", *_kernel_sources()), 0.9,
         "every `ret` in the KERNEL and in SHEET, CHART and the includes they "
         "share is reached at "
         "the depth it started at. `ch_legend` pushed SI and never popped it, so "
@@ -377,7 +377,7 @@ FAST = [
         "is left and is counted in the tool's own summary line: loop back-edge "
         "conflicts are suppressed, because the count lives in a register"),
 
-    Row("stkapps", "fast", py("tests/unit/t_stkapps.py"), 3.0,
+    Row("stkapps", "fast", py("tests/unit/t_stkapps.py"), 2.1,
         "every `ret` in EVERY SHIPPED PACKAGE AND DRIVER is reached at the "
         "depth it started at. `ch_legend` pushed SI and never popped it, so its `ret` "
         "jumped to the saved register: a black canvas and a wedged app, with "
@@ -397,7 +397,7 @@ FAST = [
         "opposite ends (docs/STKBALANCE-KERNEL.md 4)",
         ),
 
-    Row("stkwalker", "fast", py("tests/unit/t_stkbalance.py"), 2.0,
+    Row("stkwalker", "fast", py("tests/unit/t_stkbalance.py"), 0.6,
         "the stack walker itself, against eleven idioms it must stay QUIET "
         "about and six defect shapes it must catch. A gate that reports "
         "nothing passes every build and defends nothing; one that reports a "
@@ -418,7 +418,7 @@ FAST = [
 # full - the pre-merge gate. Everything above, plus these.
 # --------------------------------------------------------------------------
 FULL = [
-    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 55.0,
+    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 110.0,
         "the knob kernels and kern_small - every configuration `all` "
         "does not build, and so the only thing that keeps them assembling", builds=True),
     Row("bmshare", "full", py("tests/unit/t_bmshare.py"), 16.0,

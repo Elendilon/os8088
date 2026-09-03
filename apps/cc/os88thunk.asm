@@ -1827,6 +1827,7 @@ _os88_strcpy:
 ; at most five words, which is the kind of frame the 384-byte worker stack can
 ; afford (SPEC.md 73.8).
 _os88_utoa:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push bp
     mov bp, sp
     push si

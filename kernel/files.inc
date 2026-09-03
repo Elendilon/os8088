@@ -7865,6 +7865,7 @@ fm_utoa:
 ; digit is the true dword remainder and the loop repeats on the quotient.
 ; -----------------------------------------------------------------------------
 fm_ultoa_x:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

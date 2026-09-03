@@ -947,7 +947,7 @@ tm_entry:
 ; out: nothing (all registers preserved)
 ;
 ; Latches on SUCCESS only, so a refusal is retried by the next paint rather
-; than being permanent - MAX_TASKS is 12 and shared, and closing one Timer
+; than being permanent - MAX_TASKS is 14 and shared, and closing one Timer
 ; frees a slot. Without a worker the window is still correct, just static
 ; until something repaints it.
 ; -----------------------------------------------------------------------------
@@ -3729,6 +3729,7 @@ tm_put2:
 ; is 27 characters at two-digit counts and there is no room for the padding.
 ; -----------------------------------------------------------------------------
 tm_putn:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

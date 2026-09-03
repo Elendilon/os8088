@@ -61,7 +61,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TANK', tk_entry, 1, OS88_STACK_192
+    OS88_HEADER 'TANK', tk_entry, 1, OS88_STACK_256
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 82 for tk_worker

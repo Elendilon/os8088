@@ -69,9 +69,14 @@ MOU_LOCKN   equ 8               ; CLEAN packets in a row from ONE port before
 ; for CURROM's reasons: two stores, and the NOCURDISK arm has to compile them
 ; away to nothing so the knob reproduces the old kernel byte for byte.
 %ifndef NOCURDISK
-  %macro CURBAR_ON 0
-    mov byte [cur_barok], 1
-  %endmacro
+  %macro CURBAR_ON 0            ; TASK-SCOPED: the byte names the task whose
+    push ax                     ; painter is confined to the bar (its slot +
+    mov al, [sch_cur]           ; 1, so 0 stays "nobody"), because fpg_busy
+    inc al                      ; sets it with the gfx lock FREE and IF=1 -
+    mov [cur_barok], al         ; a tick can switch to a worker whose own
+    pop ax                      ; unclipped painter would otherwise read the
+  %endmacro                     ; flag as its own and skip the hide (7.1.4's
+                                ; permanent smear, on a one-shot painter)
   %macro CURBAR_OFF 0
     mov byte [cur_barok], 0
   %endmacro
@@ -316,9 +321,25 @@ MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
                                 ; against an unknown
 
 %macro MOUPRIV_ENTER 0
-    mov [cs:mou_psave], sp
-    mov sp, mou_pstack + MOU_PSTK
-%endmacro
+    mov [cs:mou_psave], sp      ; taken BEFORE the push below, so LEAVE's
+    push ax                     ; restore lands on the un-pushed SP either way
+    mov ax, ss
+    cmp ax, LOW_SEG             ; **ONLY ON A TASK STACK.** SS is LOW_SEG for
+    pop ax                      ; every os8088 context (SPEC.md 1/2.1) - but
+    jne %%noswap                ; not inside a ROM service that switched
+    mov sp, mou_pstack + MOU_PSTK   ; stacks, and the kernel calls two with
+%%noswap:                       ; IF=1: int 13h (which SPEC.md 7.4 makes the
+%endmacro                       ; DESIGNED case for this ISR) and int 16h on
+                                ; every ui_task pass. SeaBIOS serves both on an
+                                ; internal stack in a segment of its own, so a
+                                ; swap of SP alone there ran this whole body
+                                ; at SS:mou_pstack in the ROM's segment -
+                                ; whatever happened to be there. The IBM ROMs
+                                ; do not hop, so the target machine was never
+                                ; affected; the swap simply stays off where it
+                                ; would be wrong, and that gate runs on the
+                                ; interrupted stack as it did before 9.10.
+                                ; Seven bytes and ~20 clocks a gate
 %macro MOUPRIV_LEAVE 0
     mov sp, [cs:mou_psave]
 %endmacro
@@ -3774,8 +3795,12 @@ cur_unlazy:
     cmp byte [cur_lazy], 0      ; one-way within a hold, so the common case
     je .out                     ; after the first call is three instructions
 %ifndef NOCURDISK
-    cmp byte [cur_barok], 0     ; **...UNLESS THIS PAINTER CANNOT REACH THE
-    je .spend                   ; ARROW** (SPEC.md 7.4.3) - cur_lazyck's trick
+    push ax                     ; **...UNLESS THIS PAINTER CANNOT REACH THE
+    mov al, [sch_cur]           ; ARROW** (SPEC.md 7.4.3) - cur_lazyck's trick.
+    inc al                      ; The flag is the SETTING task's slot + 1, and
+    cmp al, [cur_barok]         ; it is only this painter's promise to keep if
+    pop ax                      ; this is that task: another task's painter
+    jne .spend                  ; (a worker's, after a tick) owes the hide
     cmp word [cur_drawn_y], MBAR_H + CUR_GH
     jae .out                    ; confined to the bar and the arrow is below
                                 ; it: the promise is not owed, so the pointer
@@ -3931,9 +3956,9 @@ cur_lazyck:
     pop cx
     pop bx
     pop ax
-    jmp short cur_unlazy
-%endif
-.out:
+    jmp cur_unlazy              ; NEAR: SPEC.md 7.4's `.lit` block put the
+%endif                          ; target past short range, and this arm is
+.out:                           ; CURFIX=1's, which no tier assembled
     ret
 
 ; cur_lazyend - gfx_unlock, when the hide was never spent. The cursor is still
@@ -4733,8 +4758,12 @@ cur_shchk   db 0                ; "the window under the pointer may have
                                 ; byte, the [fm_fchk] shape (SPEC.md 22.8)
 cur_level   db -1               ; refcount; < 0 = hidden (boot state)
 %ifndef NOCURDISK
-cur_barok   db 0                ; **THE PAINTER RUNNING NOW IS CONFINED TO THE
-                                ; MENU BAR** (SPEC.md 7.4.3). fprog sets it
+cur_barok   db 0                ; **THE PAINTER ON TASK (this - 1) IS CONFINED
+                                ; TO THE MENU BAR** (SPEC.md 7.4.3): the
+                                ; setting task's slot + 1, 0 = nobody, because
+                                ; fpg_busy sets it with the lock free and a
+                                ; tick can hand the glass to a worker whose
+                                ; painter is NOT confined. fprog sets it
                                 ; across every one of its own draws, because
                                 ; everything that module draws is inside the
                                 ; bar's rows - and the composition it starts

@@ -113,6 +113,10 @@ def window(lines):
                      "label this check hangs on has moved or gone (SPEC.md 15)")
 
 
+# The fewest ladder jumps the walk may find and still be believed (see main).
+RUNG_FLOOR = 40
+
+
 def main():
     verbose = "-v" in sys.argv
     lines = listing(os.path.join(ROOT, "build"))
@@ -143,6 +147,19 @@ def main():
     if verbose and not below:
         print("  (a rung jump above the line is fine: by then the whole image "
               "is aboard)")
+
+    # A FLOOR on what was found. The listing's `jmp kret_xx` lines are what
+    # this row reads, and a pattern that stopped matching them - a renamed
+    # ladder, a listing format change - found 0 jumps and 0 inside the window
+    # and PASSED. There are 62 today; 40 leaves room for a size pass and none
+    # for a blind one.
+    total = above + len(below)
+    if total < RUNG_FLOOR:
+        print("  FAIL: only %d ladder jump(s) found in .text; the shipped "
+              "kernel has ~62, so the pattern is no longer reading the "
+              "listing (RUNG/LST/SEC in this file) and the check above "
+              "passed over nothing" % total)
+        return 1
 
     if below:
         for addr, txt in below:

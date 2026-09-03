@@ -28,7 +28,7 @@
                                     ; document (SPEC.md 54.10)
 %define CC_HAS_WORKER               ; void os88_worker(void *) - the close path
 
-%define CC_STACK_CLASS OS88_STACK_128 ; ...AND HOW MUCH STACK IT WANTS
+%define CC_STACK_CLASS OS88_STACK_256 ; ...AND HOW MUCH STACK IT WANTS
                                     ; (SPEC.md 8.7). Declared rather
                                     ; than defaulted:
                                     ; os88_worker() is a sleep/alive loop with a gfx_lock / wm_destroy

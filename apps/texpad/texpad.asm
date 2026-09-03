@@ -5950,6 +5950,7 @@ tp_cpatn:
     ret
 
 tp_u16_di:
+    ; STKBALANCE-LOOP: one digit pushed a turn and the second loop pops them; the count is in CX
     push ax
     push bx
     push cx

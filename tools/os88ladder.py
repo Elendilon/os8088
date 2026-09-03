@@ -19,9 +19,9 @@ will still open, still animate, and still be confidently wrong.
 **THE FIRST THING TO DO WHEN SOMEONE ASKS FOR THIS PAGE IS TO RUN
 `--selfcheck` AND FIX WHAT IT SAYS - before regenerating, and before
 believing a number on the page you already have.** The check is not a
-formality: this tool reads eleven constants out of five source files by
-name, resolves nine symbols, and maps a measured phase list onto a fixed
-model of the boot. Every one of those is a thing the tree is allowed to
+formality: this tool reads fifteen constants out of five source files by
+name, resolves the seven symbols the probe reads out of the guest, and maps
+a measured phase list onto a fixed model of the boot. Every one of those is a thing the tree is allowed to
 change without telling anybody, and each has its own refusal below naming
 the file to go and look at. A rename fails the check; it does not quietly
 produce a page with a hole in it.
@@ -149,6 +149,14 @@ def constants():
                         "MC_SIZE - one claim record",
                         "kernel/memory.inc; if the record grew, the walk in "
                         "heap_now() below reads the wrong words")
+    # Scraped HERE and not in regions(), which is where it used to be: a
+    # scrape the self-check does not reach is one that fails after the walk,
+    # with the minutes already spent - which is how this one was found, its
+    # pattern binding on a comment the tree had since rewritten.
+    c["OVL_AT"] = grab("kernel/kernel.asm", r"^OVL_AT\s+equ\s+(\d+)",
+                       "OVL_AT - where `.ovl` sits inside the blob",
+                       "kernel/kernel.asm; `section .ovl start=OVL_AT` is the "
+                       "line that uses it")
     # MIN_RAM_KB is NOT scraped: kernel.asm defines it twice, once per build,
     # and a regex picks whichever it happens to reach. tools/kernsize.py is
     # told which build it is measuring and reports the one that applies.
@@ -286,24 +294,47 @@ def u16(b, i=0):
     return b[i] | (b[i + 1] << 8)
 
 
+PROBE_BLOB = ("spl_done", "spl_total", "spl_tick")   # offsets inside the blob
+PROBE_KERN = ("kmain",)                               # KERNEL_SEG offsets
+PROBE_LIN = ("mem_base", "mem_top", "mem_tab")        # linear, wherever they are
+
+
+def probe_symbols(defines):
+    """The seven symbols the walk reads out of the guest, resolved - or a
+    refusal naming the one that is gone. Called by the Probe, and by
+    `--selfcheck` BEFORE any emulator is started, so a rename is a second's
+    failure and not a walk's."""
+    import os88sym
+    sym = os88sym.syms(defines)
+    out = {}
+    for want in PROBE_BLOB + PROBE_KERN:
+        if want not in sym:
+            raise Stale("the kernel has no symbol `%s`" % want,
+                        "kernel/splash.inc, kernel/kernel.asm",
+                        "the page reads it to draw the loading bar; find "
+                        "what replaced it")
+        out[want] = sym[want]
+    for want in PROBE_LIN:
+        try:
+            out[want] = os88sym.linear(want, defines)
+        except KeyError:
+            raise Stale("the kernel has no symbol `%s`" % want,
+                        "kernel/memory.inc",
+                        "the page walks the heap's arena and claim table "
+                        "through it; find what replaced it")
+    return out
+
+
 class Probe(object):
     """One live guest, with the four questions this page asks of it."""
 
     def __init__(self, m, lad, defines):
-        import os88sym
         self.m, self.lad = m, lad
         self.blob = lad["kend"] * 16
-        self.sym = os88sym.syms(defines)
-        for want in ("spl_done", "spl_total", "kmain", "spl_tick"):
-            if want not in self.sym:
-                raise Stale("the kernel has no symbol `%s`" % want,
-                            "kernel/splash.inc, kernel/kernel.asm",
-                            "the page reads it to draw the loading bar; find "
-                            "what replaced it")
-        import os88sym as _s
-        self.mem_base = _s.linear("mem_base", defines)
-        self.mem_top = _s.linear("mem_top", defines)
-        self.mem_tab = _s.linear("mem_tab", defines)
+        self.sym = probe_symbols(defines)
+        self.mem_base = self.sym["mem_base"]
+        self.mem_top = self.sym["mem_top"]
+        self.mem_tab = self.sym["mem_tab"]
 
     # `.boot2` has no fixed segment (os88sym refuses to place it), and it does
     # not need one here: stage 1 reads the blob to the heap's floor, so the
@@ -373,7 +404,8 @@ def png1(w, h, rows, lit=(255, 255, 255), dark=(0, 0, 0)):
             + chunk(b"IEND", b""))
 
 
-def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True):
+def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True,
+         build="build"):
     """Boot once, stopping wherever the page has something to say.
 
     THE BOUNDARIES ARE THE PAGE'S OWN, which is why this does not simply call
@@ -389,7 +421,7 @@ def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True):
     import os88marty
     import os88boot
 
-    sites = os88boot.collapse(os88boot.callsites(defines))
+    sites = os88boot.collapse(os88boot.callsites(defines, build))
     if len(sites) < 20:
         raise Stale("os88boot.callsites() found only %d calls in kmain"
                     % len(sites),
@@ -437,9 +469,9 @@ def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True):
         # frame; spl_tick is a NEAR call from inside the blob and returns
         # through two bytes. GETTING THAT WRONG IS A HANG, NOT AN ERROR: the
         # bracket runs to an address the boot never reaches and the walk sits
-        # there until the timeout. tools/os88boot.py still brackets the splash
-        # as a FAR call at the pinned 0060:0008 entry SPEC.md 2.9.4 deleted,
-        # which is why it reports `boot: splash x0` on this tree.
+        # there until the timeout. tools/os88boot.py brackets the same call
+        # at the same address (its splash_entry()), so the two instruments
+        # agree about what the splash costs.
         #
         # THE ONE `mem` BREAKPOINT IS WHAT SEPARATES TWO STAGES: relocating
         # the sector and taking over the diskette parameter table are one
@@ -606,7 +638,7 @@ STAGES = [
          moved="the working stack, into an area of its own", focus=["lowbss"],
          take=dict(phases=["dsk_boot_from_x", "cpu_detect", "xm_sniff",
                            "dsk_dpt_init_x", "sched_init", "sch_idle_start",
-                           "evq_init", "clk_init", "vid_init", "vid_ctx_init",
+                           "clk_init", "vid_init", "vid_ctx_init",
                            "vid_probe_avail", "vid_disp_init"])),
     dict(id="heap", short="memory pool", title="The memory pool opens",
          moved="everything above the loader becomes available to ask for",
@@ -625,7 +657,7 @@ STAGES = [
          moved="desktop state, in the operating system's own storage",
          focus=["ktext"],
          take=dict(phases=["ovl_spl_msg_fdd", "desk_init", "dock_init",
-                           "files_init_x", "loader_init_x", "drv_init_x",
+                           "files_init_x", "drv_init_x",
                            "drv_snd_sniff", "snd_init", "splf_step"])),
     dict(id="drvboot", short="mount + drivers", title="The floppy is mounted - over the start-up code",
          moved="the disk's index, written across 5KB of code that was running",
@@ -647,7 +679,20 @@ def basename(name):
     return re.sub(r"^(int 13h read) \d+$", r"\1", n)
 
 
-def check_coverage(defines):
+def defined_in_tree(name):
+    """Is there a label `name:` anywhere under kernel/? The cheapest question
+    that separates a phase a KNOB left out of this build from one that has
+    left the tree altogether."""
+    kdir = os.path.join(ROOT, "kernel")
+    pat = re.compile(r"^\s*%s:" % re.escape(name), re.M)
+    for f in sorted(os.listdir(kdir)):
+        if f.endswith((".inc", ".asm")):
+            if pat.search(open(os.path.join(kdir, f), errors="replace").read()):
+                return True
+    return False
+
+
+def check_coverage(defines, build="build"):
     """Does the STAGES table still describe the kmain that is in the tree?
 
     THE ONE CHECK THAT MATTERS, and the reason it is a check rather than a
@@ -658,7 +703,7 @@ def check_coverage(defines):
     charged to the wrong picture.
     """
     import os88boot
-    live = [n for _, n, _ in os88boot.collapse(os88boot.callsites(defines))]
+    live = [n for _, n, _ in os88boot.collapse(os88boot.callsites(defines, build))]
     named = set()
     for st in STAGES:
         named |= set(st["take"].get("phases", []))
@@ -670,14 +715,26 @@ def check_coverage(defines):
                     "add each to the stage whose STORY it belongs to - and if "
                     "it is a new discrete move of memory, it wants a stage of "
                     "its own, which is what this page is a ladder OF")
-    # The other direction is a warning rather than a refusal: a phase this
-    # table names and the tree no longer has costs the page nothing (the stage
-    # simply gets fewer rows), and both `font_init`/`ovl_font_init` and
-    # `band_init` are legitimately absent depending on how the kernel is built.
-    return [n for n in sorted(named) if n not in live]
+    # The other direction is TWO cases, and only one of them is a warning. A
+    # phase this table names that THIS build's kmain does not call costs the
+    # page nothing (the stage simply gets fewer rows): `xm_sniff`, `thm_set`
+    # and `band_init` are all legitimately absent depending on how the kernel
+    # is built. A phase that is defined NOWHERE in kernel/ is not gated, it is
+    # gone - and a table that keeps naming it, with a note and a title
+    # written for it, is describing a boot the tree no longer has. That one
+    # is a refusal, because it read as the first case for two releases.
+    unused = [n for n in sorted(named) if n not in live]
+    gone = [n for n in unused if not defined_in_tree(n)]
+    if gone:
+        raise Stale("STAGES names a phase no build has: %s" % ", ".join(gone),
+                    "STAGES, NOTES and TITLES in tools/os88ladder.py, against "
+                    "every label under kernel/",
+                    "it is gone from the tree, not gated out of this build - "
+                    "remove it from all three tables")
+    return unused
 
 
-def assign(events, defines=("KERN_BIG",)):
+def assign(events, defines=("KERN_BIG",), build="build"):
     """Hand every measured event to the stage that wants it, in order.
 
     Two kinds of boundary, because the boot has two kinds. Down in the boot
@@ -686,7 +743,7 @@ def assign(events, defines=("KERN_BIG",)):
     ends where a NAMED call does, so the rule is the phase list, and an
     unnamed phase is a refusal.
     """
-    check_coverage(defines)
+    check_coverage(defines, build)
     out = [dict(st, events=[]) for st in STAGES]
     i = 0
     for s, st in enumerate(out):
@@ -779,11 +836,7 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
     are what the kernel actually had, not what it ought to have had.
     """
     top = ram_kb * 1024
-    ovl_at = grab("kernel/kernel.asm",
-                  r"^OVL_AT\s+equ\s+(\d+)\s*;.*shipped split",
-                  "OVL_AT - where `.ovl` sits inside the blob",
-                  "kernel/kernel.asm; the shipped arm is the one with "
-                  "\"the shipped split\" on it, the other being SPLSTARS=1's")
+    ovl_at = cons["OVL_AT"]
     order = [st["id"] for st in STAGES]
     at = order.index(stage_id)
 
@@ -1356,9 +1409,6 @@ NOTES = {
         'until the desktop starts sleeping between events - which is '
         'what lets a finished desktop spend most of its time halted '
         'instead of spinning.',
-    'evq_init':
-        'The event queue: one 128-byte ring that every mouse movement '
-        'and key press will pass through for the rest of the session.',
     'clk_init':
         'Read the real-time clock, or fall back to a fixed date. Before '
         'the display mode is set, so the very first menu bar already '
@@ -1438,8 +1488,6 @@ NOTES = {
         "The dock strip's working storage.",
     'files_init_x':
         "The file browser's state. No window is open at boot.",
-    'loader_init_x':
-        "The program loader's state.",
     'drv_init_x':
         'The [[driver]] table - before the sound layer, whose tone '
         'routine reads it on its very first timer tick.',
@@ -1519,7 +1567,6 @@ TITLES = {
     "dsk_dpt_init_x": "Take over the floppy settings again",
     "sched_init": "Start task switching",
     "sch_idle_start": "Create the idle task",
-    "evq_init": "Set up the event queue",
     "clk_init": "Read the clock",
     "vid_init": "Identify the display",
     "vid_ctx_init": "Record the display's geometry",
@@ -1540,7 +1587,6 @@ TITLES = {
     "desk_init": "Find the drives",
     "dock_init": "Set up the dock",
     "files_init_x": "Set up the file browser",
-    "loader_init_x": "Set up the program loader",
     "drv_init_x": "Create the driver table",
     "drv_snd_sniff": "Look for a music chip",
     "snd_init": "Start the sound layer",
@@ -1573,21 +1619,64 @@ def region_at(regs, seg):
     return None
 
 
-def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
+def check_fatw(stages):
+    """PROVE the band goes away where the page says it does.
+
+    walk() digests the first 256 bytes of FAT_SEG at every kmain stop: while
+    `.ovlw` is the code that is running they do not change, and the mount is
+    what overwrites them with the disk's index. The page draws that band as
+    forfeit at `drvboot`. Reading the digests back is what turns that from a
+    thing the page asserts into a thing the walk saw - and a walk in which
+    the FIRST change lands in any other stage, or never lands at all, is one
+    the map would have drawn wrong, so it is refused rather than rendered.
+    A walk with no digests (one taken before they were recorded) proves
+    nothing either way and is let through.
+    """
+    seen, first = None, None
+    for st in stages:
+        for e in st["events"]:
+            f = e.get("fatw")
+            if f is None:
+                continue
+            if seen is not None and f != seen and first is None:
+                first = (st["id"], e["name"])
+            seen = f
+    if seen is None:
+        return "no FAT-window digests in this walk"
+    if first is None:
+        raise Stale("the FAT window never changed across kmain, so the walk "
+                    "never saw the mount overwrite `.ovlw`",
+                    "walk()'s `fatw` digest, against STAGES' `drvboot`",
+                    "either the mount no longer lands on FAT_SEG (SPEC.md "
+                    "2.5.3) or the digest is read from the wrong place")
+    if first[0] != "drvboot":
+        raise Stale("the FAT window first changed in stage `%s` (at `%s`), "
+                    "not at the mount the page charges it to" % first,
+                    "STAGES in tools/os88ladder.py, `drvboot`'s phase list",
+                    "whatever first writes FAT_SEG belongs to the stage that "
+                    "says the band goes away; move the phase or the claim")
+    return "first changed at `%s` in stage `%s`" % (first[1], first[0])
+
+
+def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
+               build="build"):
     """Everything the page needs, as one JSON-able object."""
     import os88sym
     sect = os88sym.sections(defines)
-    stages = assign(walkdata["events"], defines)
+    stages = assign(walkdata["events"], defines, build)
+    check_fatw(stages)
     ram = walkdata["ram_kb"] * 1024
     ksecs = vol["kernel"]["sectors"] - cons["BOOT2_SECS"]
 
     # The bar's message, per stage. Every string is scraped, and the point at
     # which each is written is a call in kmain that the stage OWNS - so this
     # says which stage, not which line, and cannot drift into a lie about
-    # wording.
+    # wording. The last stage opens with the bar full and the hand-over
+    # caption still on the glass - `spl_finish` fills the bar and nothing
+    # rewrites the caption until the desktop paints over it.
     MSG = {"splash": "kern", "kernel": "kern", "kmain": "kern", "heap": "kern",
            "ui": "kern", "mouse": "mouse", "desk": "fdd", "drvboot": "boot",
-           "unblob": "boot"}
+           "unblob": "boot", "paint": "boot"}
 
     heap, loaded, out, t0, running = None, 0, [], 0.0, None
     for st in stages:
@@ -1633,9 +1722,17 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES):
             s = sect.get(base)
             if s in SECTION_REGION:
                 rid = SECTION_REGION[s]
-                # `.ovlw` is gone once the mount has been through it.
-                if rid == "ovlw" and not any(r["id"] == "ovlw" for r in regs):
-                    rid = "fatw"
+                # A section's home can be OFF this stage's map by the time a
+                # step in it runs: `.ovlw` is gone once the mount has been
+                # through it, and the blob is gone once `mem_unblob_x` has
+                # given it back - yet `spl_finish` runs from the blob in
+                # that same stage. Light whatever the map draws where the
+                # section's bytes were, which is the disk index for one and
+                # the free run for the other, rather than a name the map
+                # does not have.
+                if not any(r["id"] == rid for r in regs):
+                    home = {"ovlw": lad["fat_seg"], "blob": lad["kend"]}.get(rid)
+                    rid = region_at(regs, home) if home else None
                 mem.append(rid)
             elif e["kind"] == "rom":
                 mem.append("vbr")
@@ -3205,17 +3302,22 @@ def selfcheck(image, defines, build="build"):
     try_("heap claim tags in kernel/memory.inc",
          lambda: "%d tags" % len(owner_tags()))
 
+    try_("the seven symbols the walk reads out of the guest",
+         lambda: "  ".join("%s=%05X" % (k, v) for k, v in
+                           sorted(probe_symbols(defines).items())))
+
     def cover():
-        unused = check_coverage(defines)
+        unused = check_coverage(defines, build)
         out = "every kmain call is in a stage"
         if unused:
-            out += "; not built in this configuration: " + ", ".join(unused)
+            out += ("; gated out of this build (defined under kernel/, not "
+                    "called by this kmain): " + ", ".join(unused))
         return out
     try_("kmain's calls, against the STAGES table", cover)
 
     def phases_have_notes():
         import os88boot
-        live = [n for _, n, _ in os88boot.collapse(os88boot.callsites(defines))]
+        live = [n for _, n, _ in os88boot.collapse(os88boot.callsites(defines, build))]
         gap = [n for n in live if n not in NOTES]
         if gap:
             raise SystemExit("os88ladder: no note written for: %s"
@@ -3225,7 +3327,7 @@ def selfcheck(image, defines, build="build"):
 
     def titled():
         import os88boot
-        live = [n for _, n, _ in os88boot.collapse(os88boot.callsites(defines))]
+        live = [n for _, n, _ in os88boot.collapse(os88boot.callsites(defines, build))]
         gap = [n for n in live if n not in TITLES]
         if gap:
             raise SystemExit("os88ladder: no plain-words title for: %s"
@@ -3373,8 +3475,11 @@ USAGE = """os88ladder - the interactive Boot Ladder page (ON DEMAND, never in `m
   --image PATH       the floppy to boot (default build/os8088-360.img)
   --machine NAME     a MartyPC machine (default: the IBM-ROM 5150, falling back
                      to its GLaBIOS twin when the ROM is not in the tree)
-  --define SYM       an extra -D for the kernel this describes (repeatable)
-  --build DIR        where the built kernel is (default build)
+  --define SYM       an extra -D for the kernel this describes (repeatable).
+                     KERN_BIG unless one of KERN_BIG/KERN_SMALL is given
+  --build DIR        where the built kernel is (default build, or $OS88_BUILD).
+                     kern_small: --build build/smallk --define KERN_SMALL
+                     --image build/small360.img, after `make small`
   --json PATH        where to keep the model (default: beside the page). It
                      carries the WALK it was built from, so `--measure` on it
                      re-renders in seconds without booting anything
@@ -3386,7 +3491,7 @@ USAGE = """os88ladder - the interactive Boot Ladder page (ON DEMAND, never in `m
 def main(argv):
     image = os.path.join(ROOT, "build", "os8088-360.img")
     out = os.path.join(ROOT, "build", "bootladder.html")
-    machine, defines, build = None, ["KERN_BIG"], "build"
+    machine, defines, build = None, [], None
     jsonout, reuse, frag, check, nomeas = None, None, False, False, False
     it = iter(argv)
     for a in it:
@@ -3412,7 +3517,18 @@ def main(argv):
             nomeas = True
         else:
             raise SystemExit(USAGE)
+    # KERN_BIG is the DEFAULT, not a seed: seeded, `--define KERN_SMALL` on
+    # top of it assembled a kernel that was both, and every row failed.
+    if not any(d.split("=")[0] in ("KERN_BIG", "KERN_SMALL") for d in defines):
+        defines.append("KERN_BIG")
     defines = tuple(defines)
+    # ONE build directory, told to everything that reads it. os88sym checks
+    # its map against $OS88_BUILD/kernel.bin, os88boot its listing against
+    # <build>/kernel-full.bin and kernsize measures <build>/kernel.bin - so
+    # --build and the environment are reconciled here, before any of them is
+    # imported, and cannot name different kernels.
+    build = build or os.environ.get("OS88_BUILD") or "build"
+    os.environ["OS88_BUILD"] = build
 
     if check:
         return selfcheck(image, defines, build)
@@ -3453,22 +3569,30 @@ def main(argv):
         sys.stderr.write("os88ladder: booting %s on %s - this is minutes, "
                          "not seconds\n" % (os.path.basename(image), machine))
         t0 = time.time()
-        w = walk(image, machine, defines, lad, cons)
+        w = walk(image, machine, defines, lad, cons, build=build)
         sys.stderr.write("os88ladder: walked %d phases in %.0f s of host time\n"
                          % (len(w["events"]), time.time() - t0))
 
-    p = build_page(w, lad, cons, vol, defines, strs)
+    d = os.path.dirname(os.path.abspath(out))
+    if d and not os.path.isdir(d):
+        os.makedirs(d)
+    jpath = jsonout or (os.path.splitext(out)[0] + ".json")
+    if not reuse:
+        # THE WALK IS KEPT THE MOMENT IT EXISTS, before the model is built
+        # from it. A refusal in build_page() is a second's fix and a re-run
+        # of `--measure` on this file; without this line it was also the
+        # loss of the minutes the walk took, which is how a scrape that had
+        # gone stale cost every page three boots.
+        json.dump(w, open(jpath, "w"), indent=1)
+
+    p = build_page(w, lad, cons, vol, defines, strs, build=build)
     # The walk rides in the JSON so a re-render needs no boot; it does NOT ride
     # in the page, which would put 26KB of raw cycle counts into every reader's
     # download to say nothing the page does not already draw.
     html = render(dict((k, v) for k, v in p.items() if k != "walk"),
                   fragment=frag)
-    d = os.path.dirname(os.path.abspath(out))
-    if d and not os.path.isdir(d):
-        os.makedirs(d)
     open(out, "w", encoding="utf-8").write(html)
-    json.dump(p, open(jsonout or (os.path.splitext(out)[0] + ".json"), "w"),
-              indent=1)
+    json.dump(p, open(jpath, "w"), indent=1)
     sys.stderr.write(
         "os88ladder: %s  (%s, %d stages, %d measured phases)\n"
         % (out, "{:,}".format(len(html)), len(p["stages"]),

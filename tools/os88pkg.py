@@ -324,9 +324,11 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts) -> None:
              "no file bytes takes none (SPEC.md 20.12)")
 
     it = iter(parts)
+    laid = []                   # (row, flags, first sector, sector count)
     for i, has_file in enumerate(filed):
         if not has_file:
             continue
+        pflags = out[table + PARTS_HDR + PART_ROW * i + 1]
         body = read_file(next(it))
         if not body:
             fail(f"part {i}: the payload is empty")
@@ -343,7 +345,34 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts) -> None:
         out.extend(b"\xE5" * pad)
         off = table + PARTS_HDR + PART_ROW * i
         struct.pack_into("<HH", out, off + 2, len(out) // PART_ALIGN, len(body))
+        laid.append((i, pflags, len(out) // PART_ALIGN,
+                     (len(body) + PART_ALIGN - 1) // PART_ALIGN))
         out.extend(body)
+
+    # THE RUN AND THE SPAN ARE EACH BOUNDED AT 128 SECTORS, and the bound is
+    # the standard's own arithmetic rather than any machine's memory: op_size
+    # refuses a carve of 64KB or more ("Parts do not fit", everywhere) because
+    # op_cap is a word with the head slack added to it, and op_xload climbs
+    # the OP_XMS span through `shl ax, 9` in a word, so a span of 128 sectors
+    # reads as 0 bytes and 180 as 26,624 (apps/os88parts.inc). A package past
+    # either bound builds, ships, and fails at launch with a toast that blames
+    # the machine - so refuse it HERE, where the author is. The OP_XMS rows
+    # are counted in the carve too: where there is no store they fall back
+    # into it (SPEC.md 20.12.4), which is every 8088.
+    def extent(rows_):
+        return rows_[-1][2] + rows_[-1][3] - rows_[0][2] if rows_ else 0
+    carve = [r for r in laid if not r[1] & OPF_LAZY]
+    span = [r for r in laid if r[1] & OPF_XMS]
+    if extent(carve) >= 128:
+        fail(f"the carved run is {extent(carve)} sectors (parts "
+             f"{carve[0][0]}..{carve[-1][0]}, OP_XMS rows included - they "
+             "fall back into the carve on a machine with no store). op_size "
+             "refuses 128 or more: the carve plus a cluster has to fit one "
+             "WORD (SPEC.md 20.12.4)")
+    if extent(span) >= 128:
+        fail(f"the OP_XMS span is {extent(span)} sectors (parts "
+             f"{span[0][0]}..{span[-1][0]}). op_xload walks it in a WORD of "
+             "bytes, so 128 sectors is its ceiling too (SPEC.md 20.12.4)")
 
 
 def report_parts(out: bytes, table: int, rows: int, parts) -> None:
