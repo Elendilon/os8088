@@ -28986,7 +28986,13 @@ api_x:                              ; ONE copy, for all 33 X cells
   `font_width_x`, `wm_create` (the template), `inst_pkg_spawn` (the
   ownership fence), `osapi_mem_claim` and `osapi_mem_free` (the owner
   identity). This is why "the string/template you pass lives in your own
-  segment" needs no thought from the package author.
+  segment" needs no thought from the package author. **What the shared body
+  costs is measured, not assumed** (PERFORMANCE.md Set 115): against the
+  per-slot stub it replaced, an X cell adds ~7–9 µs to a drawing call on VGA
+  — 1.4% of `GFX_PIXEL`, 0.5% of a 64x64 fill — and nothing visible on CGA,
+  where the renderer under the same rows got 9–20% faster in the same
+  passes. The six hottest cells could have per-slot stubs back for ~30
+  bytes; the price is recorded rather than paid.
 - **N cells** stage a NAME out of the package's segment into the kernel's
   `api_name` buffer first, because the file API takes `SI` = a NUL 8.3
   string and passes it on to routines that read it through DS many calls

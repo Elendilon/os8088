@@ -10766,3 +10766,158 @@ why the composer's own constants are what §14 quotes, never the ratio.
 inverted. The first two are pixel-identical on the glass and the third differs
 in exactly those eight cells - which is the one thing a plain-text screendump
 would never exercise, and the reason the bench draws a picture at all.
+
+
+### Set 115 — the review's A/B: the three size passes and the stack rework, row for row, on both adapters (SPEC.md §5, §20, §11.96.16)
+
+The code review that followed the size passes left two performance questions
+open, both raised from reading the diff and neither measured: the drag
+outline on VGA had become four `gfx_rect_setup`s where it was one GC arming
+and four cores, and every X-slot API cell had become `push bp / mov bp /
+jmp api_x` where it was a direct `call`. Rule 4 says measure before
+redesigning, so this is `tests/gfxbench` on MartyPC, the kernel at the last
+squash into `main` (`f6e00ac`, before size pass 1) against the branch at
+`6336637` (every pass, the stack rework, SPEC.md §7.4 and the review's fixes),
+one report each, same bench disk shape, `os8088_xt_vga` and
+`os8088_5150_cga_gla`. The third VGA column is the branch with the VGA outline
+body restored (`vga_xor_rect_raw`), which is what this set decided.
+
+**The target machine is better off everywhere that matters.** On CGA the
+fills are 13–22% faster (§39.25's whole-column store, §39.26's plane loop),
+`GFX_PIXEL` −9%, the outline −7%, and the text rows 1–3% faster. Nothing on
+CGA regressed by more than `WM_OBSCURED`'s +25% and `FONT_WIDTH`'s +3.5%, and
+both are call-shaped rather than pixel-shaped (below).
+
+**On VGA the outline was the one real regression, and it is taken back.**
+`GFX_XOR_RECT 64x64` read **2,997 → 4,083 µs (+36%)** on the branch: the
+strips walker draws an outline as four filled strips, which on 1bpp is what
+`sw_xor_rect` always did and costs nothing, but on the planar card every
+strip is a whole `gfx_rect_setup` (~1,236 cycles) for a rect one row or one
+column deep. A window drag draws two of them per mouse move. The pre-pass body
+— one `vga_set_xor`, two `vga_xor_hline`s, two `vga_vline_core`s, one
+`vga_gc_reset` — is back under `GFX_VGA`, clipping against `[vid_cw]`/
+`[vid_ch]` so the EGA row shares it, at **3,087 µs (+3.0% against the pre-pass
+figure, the X-cell's share)**; 256x128 6,552 → 5,558, 256x1 1,068 → 881. It
+cost 304 bytes of `.text` on `kern_big` alone and crossed one image rung;
+`kern_small` has no VGA and keeps the strips. Correctness was checked on the
+glass and not assumed: one outline changes exactly the perimeter's on-screen
+pixels (252 for 64x64, 81 for a rect hanging off the top-left, 19 off the
+bottom-right, 996 for a two-row one, 51 for a one-column one) and a second
+restores the frame byte for byte.
+
+**The X cell costs ~7–9 µs a call on VGA and is invisible on CGA.** Every
+drawing slot whose body did not otherwise change moved by that much on VGA —
+`GFX_PIXEL` +6.8 µs, `HLINE 8px` +8.5, `VLINE 8px` +10.6, `FILL 8x8` +8.4 —
+which is the `push bp / mov bp,imm16 / jmp` plus `call bp / pop bp` against a
+direct `call`, on the fetch floor. `GFX_PEN`, a cell that draws nothing, went
+the other way (−1.7 µs), so it is not the far call itself. On CGA the same
+rows are 9–20% FASTER because the renderer under them changed more than the
+cell did. It is 1.4% of a pixel and 0.5% of a 64x64 fill; the six hottest
+cells could be given per-slot stubs back for ~30 bytes, and this set records
+the price rather than paying it.
+
+**Two rows moved that nobody predicted.** `WM_OBSCURED` is **142 → 178 µs
+(+25%) on both adapters**: the size pass factored the z-order search into
+`wm_zabove`, which itself calls `wm_ptr2idx`, so a query that was one body
+is now three call levels and a bounds check — ~36 µs on a call painters make
+once a paint, not once a pixel, and `wm_zabove` serves five sites. Left as
+it is, and priced here. `GFX_UNLOCK+LOCK pair` is **430 → 457 µs (+6%)**,
+which is SPEC.md §7.4's work in `gfx_unlock` and the task-scoped
+`[cur_barok]` test — 26 µs on a pair every callback takes, and the price of
+a pointer that tracks the hand through disk I/O. `FONT_WIDTH 10` +3.5% is
+the far entry (F-kernel-1).
+
+**VGA, os8088_xt_vga**
+
+| row (VGA, os8088_xt_vga) | pre-pass, us | branch, us | delta | restored, us | delta |
+|---|---:|---:|---:|---:|---:|
+| `GFX_PIXEL` | 485.93 | 492.74 | +1.40% | 492.70 | +1.39% |
+| `GFX_HLINE 8px` | 492.49 | 501.01 | +1.73% | 501.09 | +1.75% |
+| `GFX_HLINE 256px` | 614.96 | 634.45 | +3.17% | 634.45 | +3.17% |
+| `GFX_VLINE 8px` | 589.24 | 599.86 | +1.80% | 599.88 | +1.81% |
+| `GFX_VLINE 128px` | 2399.66 | 2410.24 | +0.44% | 2410.24 | +0.44% |
+| `GFX_FILL 8x8` | 576.36 | 584.78 | +1.46% | 584.71 | +1.45% |
+| `GFX_FILL 64x64` | 3868.52 | 3887.84 | +0.50% | 3887.91 | +0.50% |
+| `GFX_FILL 64x64 clipped` | 4914.30 | 4990.74 | +1.56% | 4989.52 | +1.53% |
+| `GFX_FILL 256x1` | 591.60 | 614.83 | +3.93% | 614.73 | +3.91% |
+| `GFX_FILL 256x128` | 14000.46 | 14020.57 | +0.14% | 14020.43 | +0.14% |
+| `GFX_FRAME 64x64` | 3916.47 | 3871.70 | -1.14% | 3871.42 | -1.15% |
+| `GFX_FILL_GRAY 64x64` | 4266.55 | 4251.78 | -0.35% | 4250.87 | -0.37% |
+| `GFX_FILL_PAT 64x64` | 5850.11 | 5834.57 | -0.27% | 5834.74 | -0.26% |
+| `GFX_XOR_FILL 64x64` | 7040.73 | 7056.03 | +0.22% | 7056.52 | +0.22% |
+| `GFX_XOR_RECT 64x64` | 2997.22 | 4083.39 | +36.24% | 3086.89 | +2.99% |
+| `GFX_XOR_RECT 256x128` | 5469.99 | 6551.70 | +19.78% | 5557.99 | +1.61% |
+| `GFX_XOR_RECT 256x1` | 833.21 | 1067.80 | +28.15% | 881.01 | +5.74% |
+| `GFX_LINE steep thin` | 28338.29 | 28834.34 | +1.75% | 28834.44 | +1.75% |
+| `GFX_LINE shallow thin` | 27748.96 | 28089.44 | +1.23% | 28089.96 | +1.23% |
+| `GFX_LSTEP x8 (8 calls)` | 7611.04 | 7735.19 | +1.63% | 7735.04 | +1.63% |
+| `GFX_LSTEPV x8 (1 call)` | 6650.37 | 6700.74 | +0.76% | 6700.55 | +0.75% |
+| `GFX_BLIT1 128x128` | 12623.39 | 12622.79 | -0.00% | 12622.17 | -0.01% |
+| `GFX_BLITP 64x64` | 38079.35 | 38087.31 | +0.02% | 38087.17 | +0.02% |
+| `GFX_SCROLL 256x128` | 19193.69 | 19511.28 | +1.65% | 19510.07 | +1.65% |
+| `FONT_CHAR one cell` | 643.95 | 628.76 | -2.36% | 628.82 | -2.35% |
+| `FONT_STR 10 aligned` | 5992.41 | 5827.37 | -2.75% | 5827.23 | -2.76% |
+| `PAIR 10 aligned` | 7024.95 | 6882.54 | -2.03% | 6881.84 | -2.04% |
+| `FONT_RUN 10 aligned` | 3010.45 | 2997.18 | -0.44% | 2997.04 | -0.45% |
+| `FONT_RUN 10 skewed` | 4997.52 | 4906.93 | -1.81% | 4906.86 | -1.81% |
+| `FONT_WIDTH 10` | 218.35 | 226.09 | +3.54% | 226.10 | +3.55% |
+| `GFX_PEN` | 56.83 | 55.09 | -3.06% | 55.09 | -3.06% |
+| `WM_CONTENT` | 207.61 | 199.33 | -3.99% | 199.32 | -3.99% |
+| `WM_GEOM` | 393.39 | 378.61 | -3.76% | 378.62 | -3.75% |
+| `WM_OBSCURED` | 141.97 | 177.57 | +25.08% | 177.54 | +25.05% |
+| `WM_CLIP_TEST` | 75.78 | 75.78 | +0.00% | 75.78 | +0.00% |
+| `WM_CLIP_SET+CLEAR` | 845.14 | 870.58 | +3.01% | 870.55 | +3.01% |
+| `GFX_UNLOCK+LOCK pair` | 430.50 | 456.70 | +6.09% | 456.72 | +6.09% |
+| `WM_TITLE strip` | 25513.85 | 25421.87 | -0.36% | 25572.52 | +0.23% |
+
+**CGA, os8088_5150_cga_gla**
+
+| row (CGA, os8088_5150_cga_gla) | pre-pass, us | branch, us | delta |
+|---|---:|---:|---:|
+| `GFX_PIXEL` | 591.54 | 538.58 | -8.95% |
+| `GFX_HLINE 8px` | 599.77 | 531.17 | -11.44% |
+| `GFX_HLINE 256px` | 841.01 | 763.70 | -9.19% |
+| `GFX_VLINE 8px` | 830.61 | 764.21 | -7.99% |
+| `GFX_VLINE 128px` | 4903.78 | 4686.92 | -4.42% |
+| `GFX_FILL 8x8` | 817.21 | 659.23 | -19.33% |
+| `GFX_FILL 64x64` | 8089.89 | 6333.94 | -21.71% |
+| `GFX_FILL 64x64 clipped` | 9136.65 | 7447.11 | -18.49% |
+| `GFX_FILL 256x1` | 820.65 | 741.53 | -9.64% |
+| `GFX_FILL 256x128` | 23951.08 | 20389.99 | -14.87% |
+| `GFX_FRAME 64x64` | 6944.28 | 6346.19 | -8.61% |
+| `GFX_FILL_GRAY 64x64` | 8081.55 | 6348.95 | -21.44% |
+| `GFX_FILL_PAT 64x64` | 13496.86 | 13441.51 | -0.41% |
+| `GFX_XOR_FILL 64x64` | 9265.02 | 9001.96 | -2.84% |
+| `GFX_XOR_RECT 64x64` | 5142.58 | 4795.29 | -6.75% |
+| `GFX_XOR_RECT 256x128` | 8645.97 | 8056.51 | -6.82% |
+| `GFX_XOR_RECT 256x1` | 1172.95 | 1141.84 | -2.65% |
+| `GFX_LINE steep thin` | 5364.22 | 5366.84 | +0.05% |
+| `GFX_LINE shallow thin` | 4312.09 | 4326.62 | +0.34% |
+| `GFX_LSTEP x8 (8 calls)` | 6213.19 | 6255.98 | +0.69% |
+| `GFX_LSTEPV x8 (1 call)` | 5248.28 | 5248.28 | +0.00% |
+| `GFX_BLIT1 128x128` | 15019.38 | 15017.77 | -0.01% |
+| `GFX_BLITP 64x64` | 238.09 | 244.65 | +2.76% |
+| `GFX_SCROLL 256x128` | 29998.16 | 30372.06 | +1.25% |
+| `FONT_CHAR one cell` | 871.20 | 796.17 | -8.61% |
+| `FONT_STR 10 aligned` | 8109.94 | 7486.39 | -7.69% |
+| `PAIR 10 aligned` | 9816.17 | 8934.63 | -8.98% |
+| `FONT_RUN 10 aligned` | 3257.41 | 3247.56 | -0.30% |
+| `FONT_RUN 10 skewed` | 5327.59 | 5238.89 | -1.66% |
+| `FONT_WIDTH 10` | 218.36 | 226.10 | +3.54% |
+| `GFX_PEN` | 56.84 | 55.09 | -3.08% |
+| `WM_CONTENT` | 207.62 | 199.32 | -4.00% |
+| `WM_GEOM` | 393.39 | 378.62 | -3.75% |
+| `WM_OBSCURED` | 141.98 | 177.57 | +25.07% |
+| `WM_CLIP_TEST` | 75.78 | 75.78 | +0.00% |
+| `WM_CLIP_SET+CLEAR` | 845.17 | 870.56 | +3.00% |
+| `GFX_UNLOCK+LOCK pair` | 425.16 | 430.63 | +1.29% |
+| `WM_TITLE strip` | 35751.87 | 32994.94 | -7.71% |
+
+**Harness**: `build/bench360.img` from each tree, launched from a B: window,
+Bench → Run, the report read back with `tools/os88flush.py`. The pre-pass tree
+is `git archive f6e00ac` built in a scratch directory; the reports are one
+run each, and the rows that did not change agree to 0.05%, which is the
+harness checking itself. The menu click that starts the run is at x=150 on a
+640-wide bar, not the 110 docs/TESTING.md quotes for `sysbench` — that lands
+on the app-name menu for a package whose title is nine characters, and the
+run silently never starts.
