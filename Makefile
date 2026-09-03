@@ -6049,6 +6049,71 @@ $(BUILD)/small.img: $(SMALLDRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/kernel.bin \
 		$(SMALLDRIVERS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
 
+# --- THE SMALL APPS DISK (SPEC.md 27.16) -------------------------------------
+#
+# `make smallapps` is the APPS half of `make small`: the same floppy in the
+# same two geometries, with the SMALL BUILD of any package that has one in
+# place of the shipped one. Note Pad is the first and today the only consumer.
+#
+# IT IS NOT A SECOND ABI, and that is the whole reason this is a disk rather
+# than a kernel feature. A small-built package calls the same API table at the
+# same offsets as every other (docs/KERN-SPLIT-PLAN.md 3), so it runs on
+# kern_big exactly as it runs on kern_small - it simply has fewer features.
+# What pairs it with kern_small is which floppy it is written to, and nothing
+# else. `make small`'s note that a package is "one package, both kernels" is
+# still true: this is ONE PACKAGE BUILT TWICE, not two packages.
+#
+# So the shipped build/apps*.img are UNTOUCHED and must stay that way - the
+# default is the full package on every disk `all` produces, exactly as the
+# default kernel is kern_big.
+#
+# THE PATTERN IS `modplugdbg`'s, deliberately: a subdirectory build plus a
+# substituted package on an otherwise ordinary disk. That keeps -DAPP_SMALL
+# off every shipped nasm line, which is why it is not in $(KNOBS) and needs no
+# row in the build matrix - no top-level `make` can carry it into build/.
+SMALLAPPDIR := $(BUILD)/smallapp
+
+$(SMALLAPPDIR)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc \
+                            apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -DAPP_SMALL $(PKGSBDEF) -o $@ \
+	        apps/notepad/notepad.asm
+	@echo "notepad (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/notepad.o88: $(SMALLAPPDIR)/notepad.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(SMALLAPPDIR)/notepad.bin -o $@
+
+# The substitution, written once: every APPS: package except the ones that
+# have a small build, then those.
+SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88
+SMALLAPPSARGS  = $(patsubst %,APPS:%,$(filter-out $(BUILD)/notepad.o88,$(APPS_TOOLS))) \
+                 $(patsubst %,APPS:%,$(SMALLPKGS))
+
+smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
+	@python3 tools/os88pkgsize.py $(BUILD)/notepad.o88 $(SMALLAPPDIR)/notepad.o88
+
+$(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(APPS_GAMES) $(SYSAPPS) \
+                           $(APPS_DOS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+	    $(SMALLAPPSARGS) \
+	    $(addprefix GAMES:,$(APPS_GAMES)) \
+	    $(addprefix MEDIA:,$(APPS_DATA_360)) \
+	    $(SYSAPPSARGS) \
+	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
+	    $(MEDIAFOLDER) $(APPDATAFOLDER)
+	@echo "smallapps: $@ - pair it with build/small360.img (\`make small\`)"
+
+$(BUILD)/smallapps.img: $(SMALLPKGS) $(APPS_TOOLS) $(APPS_GAMES) $(SYSAPPS) \
+                        $(APPS_DOS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+	    $(SMALLAPPSARGS) \
+	    $(addprefix GAMES:,$(APPS_GAMES)) \
+	    $(addprefix MEDIA:,$(APPS_DATA)) \
+	    $(SYSAPPSARGS) \
+	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
+	    $(APPDATAFOLDER)
+	@echo "smallapps: $@ - pair it with build/small.img (\`make small\`)"
+
 # ...and the size comparison on its own, for when you want the numbers without
 # building two floppies for them. SMALL FIRST in the argument order, because it
 # is the figure being defended (tools/kernsplit.py).

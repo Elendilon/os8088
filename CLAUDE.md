@@ -241,6 +241,18 @@ make ethertest  # THE ETHERNET GATE'S DISK (§72.9): a SYSTEM.CFG that already
                 #   all, and tests/ethernet.py asserts behaviour and never
                 #   speed because the machine under it is not an 8088
 make browsertest # ...and the browser's page disk, for tests/br*.py
+make small    # kern_small and its system disks, into build/smallk/ (the
+make smallapps#   128KB floor machine, docs/KERN-SPLIT-PLAN.md). `smallapps` is
+              #   the APPS half of it (SPEC.md §27.16): the same floppy with
+              #   the SMALL BUILD of any package that has one in place of the
+              #   shipped one - Note Pad today, at 13,520 bytes an instance
+              #   against 20,379, with its undo arena's 1-16KB heap claim
+              #   never taken. IT IS NOT A SECOND ABI: a small-built package
+              #   calls the same API table at the same offsets, so it runs on
+              #   kern_big too and what pairs it with kern_small is only which
+              #   floppy it is written to. The shipped build/apps*.img are
+              #   untouched, and `tests/unit/t_appsmall.py` is what says so -
+              #   the default arm must stay byte-identical
 make allapps  # build/apps-all.img (§19.10): ONE 1.44MB floppy with every app
               #   on it, Frotz, both Words, RunCPM (with its drive A), the
               #   C64 and the Weave family's two — one folder each, so

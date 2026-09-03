@@ -36436,6 +36436,76 @@ silent save is exactly the behaviour §75 was written to remove. The user
 closes something else and tries again.
 
 
+### 27.16 `APP_SMALL` — the small build of this package
+
+**One package, one source, two products.** `make smallapps` assembles
+`apps/notepad/notepad.asm` a second time with `-DAPP_SMALL`, and the result
+goes on `build/smallapps*.img` — the apps floppy meant to be paired with
+`make small`'s kernel. The ordinary build defines none of it and is
+byte-for-byte what it was; that identity is the gate, and it is the same one
+docs/KERN-SPLIT-PLAN.md §6 set for the first removal from `kern_small`.
+
+**It is not a second ABI and must never become one.** A small-built
+`NOTEPAD.O88` calls the same API table at the same offsets as every other
+package (KERN-SPLIT-PLAN §3), so it runs on `kern_big` exactly as it runs on
+`kern_small` — it simply has fewer features. What pairs it with `kern_small`
+is the **disk it is written to**, nothing the kernel does or does not publish.
+`make small`'s own note that a package is "one package, both kernels" is still
+true here: this is one package built twice, not two packages.
+
+#### 27.16.1 Why
+
+On a 128KB machine `kern_small` leaves **~21.5KB of heap**
+(docs/KERNEL-MEMORY.md). A package instance is one claim of image + bss
+(§20.1), and the full build is **18,407 + 1,972 = 20,379 bytes** of that
+before the note holds a character. Note Pad on the floor machine was therefore
+not a tight fit but a coin toss against the menu save-under and the window
+record. The small build claims **12,362 + 1,158 = 13,520**, and
+`tools/os88pkgsize.py` is what says so on every `make smallapps`.
+
+**The largest saving is not in that arithmetic at all.** The undo arena is a
+heap claim that grows a kilobyte at a time to `NP_UMAXKB` = 16 (§27.9), and
+with `NPF_UNDO` off it is never claimed — which on a 21.5KB heap is worth more
+than the image and the bss together.
+
+#### 27.16.2 What goes, and what does not
+
+| flag | off in `APP_SMALL` | why it is separable |
+|---|---|---|
+| `NPF_FIND` | the find/replace panel, its regex engine (§27.10, §27.10.1) and the whole Find menu | eight entry points, all in the dispatch routines; the regex matcher has no caller outside find |
+| `NPF_UNDO` | the undo log and Edit ▸ Undo (§27.9) | nine internal entry points collapse to one shared `ret` |
+| `NPF_ABOUT` | the standard About card (§20.5.1) | one `OSAPI_ABOUT_SET` at entry and one layer in `np_paint` |
+| `OS88UI_SBDRAG` | §13.10.5's thumb gesture | already a knob (§13.10.7); the bar still tracks and steps |
+
+**Kept on purpose, so that the small build is a text editor and not a
+demo:** typing and word wrap, scrolling, the selection with cut/copy/paste,
+Save, Open, Save As, and §27.15's "Save changes to *name*?" alert. That last
+one is **data safety and is never a size decision** — a build that closes an
+edited note without asking is not a smaller product, it is a broken one.
+
+Two consequences worth stating because they are silent otherwise. **Escape
+still clears a selection**: it is gated out of the find ladder but not out of
+the key ladder, because with no panel to close it still has a job (§27.8).
+And the **Edit menu's item indices renumber** when Undo goes — the kernel
+hands `np_oncmd` the item's *position* in the list it was given (§12.2), not
+a name, so leaving `NP_MI_CUT` at 1 would put every Edit command one item off
+its own label.
+
+#### 27.16.3 The one place speed is traded
+
+`NP_XN` — §27.13's row index — is **256 entries in the full build and 32
+here**, 512 bytes against 64. Nothing about the index is *wrong* at 32: it is
+the same contiguous table with the same doubling stride, exact for a note
+under 32 rows and within one stride above that. What it costs is
+**resolution** — the stride doubles five times sooner, so a seed lands further
+from the row it wants and `np_walk` lays out more rows to reach it. That is a
+scroll being slower on a long note, and it is the one trade in this section
+that a user could notice.
+
+It is deliberate and it is confined here. Everywhere else `APP_SMALL` removes
+a *feature*; this is the only line that makes a kept feature slower, and the
+full build keeps every byte of the table.
+
 ## 28. apps/taskmgr — the Task Manager
 
 **A package in the root of every shipped floppy** (`TASKMGR.O88`) — the
