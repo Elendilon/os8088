@@ -926,7 +926,7 @@ task_spawn:
 ; clobbers: flags only (arithmetic flags; IF preserved via the frame)
 ; -----------------------------------------------------------------------------
 task_yield:
-%ifdef KERN_BIG
+%ifdef KERN_EMU
     ; --- the VMware absolute pointer's service point (SPEC.md 9.11.3) --------
     ; vmmouse is POLLED, not interrupt-driven, so every spin loop that waits on
     ; the mouse - a drag, a grow, a menu track, the file manager's icon drag -
@@ -939,11 +939,20 @@ task_yield:
     ; is for ui_task and menu_drop, which already hold the kernel's; this site
     ; does not - task_yield is an OSAPI slot, so the caller may be a package
     ; with its own DS. The GATE is still the macro's cs-relative compare, and
-    ; the segment load moves INSIDE the branch: a machine with no backdoor then
-    ; pays 9 bytes and ~39 clocks (the 8088's fetch floor over the encoding,
+    ; the segment load moves INSIDE the branch: a machine with no backdoor pays
+    ; 9 bytes and ~39 clocks (the 8088's fetch floor over the encoding,
     ; PERFORMANCE.md Part 2) instead of 16 and 91 - 8.2 us against 19.1, or
-    ; 1.2% of a 693 us switch instead of 2.8%. That is the whole price the
-    ; target machine pays for a branch it can never take.
+    ; 1.2% of a 693 us switch instead of 2.8%.
+    ;
+    ; THE TARGET MACHINE NO LONGER PAYS EVEN THAT, and this block is why the
+    ; guard is KERN_EMU and not KERN_BIG (SPEC.md 9.11.7). task_yield is the
+    ; hottest thing in the kernel - every drag, every grow, every menu track
+    ; and every worker goes through it - so 9 bytes and 39 clocks HERE were the
+    ; largest single share of what an XT was charged for a protocol it cannot
+    ; speak. On kern_big this now assembles to nothing at all; the arithmetic
+    ; above is kept because it is what the arrangement buys on the build that
+    ; DOES take the branch, where a hypervisor guest pays the 9-byte form on
+    ; every switch the backdoor is idle for.
     ;
     ; Before the cli/frame build: this is still the caller's task context with
     ; IF as it left it, exactly as ui_task's own VMM_POLL - and vmm_poll takes

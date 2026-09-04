@@ -62,7 +62,7 @@ first of them fires in the first minute of a session.
 | **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** | writing or building a package in C (§73) — how to install the compiler, the four C rules and what each refusal means, and what the language does not have here |
 | **[docs/NET-STACK-PLAN.md](docs/NET-STACK-PLAN.md)** | anything on the wire (§72) — the stack's stages, what each layer refuses, and why TLS is not on this machine |
 | **[docs/BROWSER-PLAN.md](docs/BROWSER-PLAN.md)** | the browser (§71) — the renderer's steps, and `tools/htmsim.py` is its reference implementation |
-| **[docs/VMMOUSE-PLAN.md](docs/VMMOUSE-PLAN.md)** | the browser's grabless absolute pointer (§9.11) — why the VMware backdoor probe is the whole of "detect the browser". **Its §15 is the fork**: the study plans resident kernel code behind `[cpu_tier]`, and `VMMOUSE.DRV` is what shipped — the protocol is 32-bit, and a tier gate cannot survive a hibernate image carried to an 8088 |
+| **[docs/VMMOUSE-PLAN.md](docs/VMMOUSE-PLAN.md)** | the browser's grabless absolute pointer (§9.11) — why the VMware backdoor probe is the whole of "detect the browser". **Its §15 is the fork**: the study plans resident kernel code behind `[cpu_tier]`, and `VMMOUSE.DRV` is what shipped — the protocol is 32-bit, and a tier gate cannot survive a hibernate image carried to an 8088. **§16 is the SECOND fork and the one to read first**: the driver split left a resident half on `kern_big`, which is the XT's kernel, and §9.11.7 moved it into a third build (`make emu`) — the rule it is a worked example of being that when a feature's own DETECTION is out of a machine's reach, that machine's honest cost is zero rather than small |
 | **[docs/PROXY-PLAN.md](docs/PROXY-PLAN.md)** | the host-side proxy — it exists because an RSA-2048 private operation is *minutes* on a 4.77 MHz 8088, so TLS terminates off the machine |
 | **[docs/MARTYPC-DEBUG.md](docs/MARTYPC-DEBUG.md)** | driving the emulator — `launch`/`settle`/`sym`, the debug server, reading the guest's floppy back on the host, and installing the deps in a fresh Ubuntu container |
 | **[docs/UPSTREAM.md](docs/UPSTREAM.md)** | any claim about what is ahead, behind, merged or unrelated. **Its Rule 0: a fresh clone is SHALLOW, and git answers ancestry questions confidently and wrongly on one** |
@@ -241,9 +241,21 @@ make vmmousetest # THE ABSOLUTE POINTER'S DISK (§9.11.6): a SYSTEM.CFG with
                 #   VMMOUSE.DRV's bit already set, ethertest's shape - the
                 #   driver is NOT wanted by default, so a stock os8088.img
                 #   never reads it and the gate would have nothing to test.
+                #   **AND SINCE §9.11.7 IT IS A DIFFERENT KERNEL TOO**: it
+                #   builds on kern_emu (build/emuk/), because the shipped one
+                #   no longer has the resident half at all - no row for bit 5
+                #   to tick, no vmm_boot_x, no poll site - and does not carry
+                #   VMMOUSE.DRV on its disk either. So a gate built on it would
+                #   fail for the right reason pointing at the wrong thing.
+                #   build/emu.img is the same pair shipped as a PRODUCT; this
+                #   is the gate's copy. tests/vmmouse.py sets $OS88_BUILD and
+                #   $OS88_DEFINES so os88sym resolves against that kernel -
+                #   on the shipped one `vmm_on` is not a wrong address, it is
+                #   not a symbol.
                 #   `make vmmousetest && python3 tests/vmmouse.py`. QEMU by
                 #   name: its `pc` machine carries the backdoor and MartyPC
                 #   has none, and `make run VMPORT=on` is the interactive form
+                #   (on kern_big that is now a no-op - `make emu` first)
 make ethertest  # THE ETHERNET GATE'S DISK (§72.9): a SYSTEM.CFG that already
                 #   asks for ETHER.DRV, so the card is up and DHCP has run
                 #   before the first paint and the test reads state instead of
@@ -288,6 +300,32 @@ make smallapps#   128KB floor machine, docs/KERN-SPLIT-PLAN.md). `smallapps` is
               #   REFUSE ITSELF in its own words and one that cannot reach its
               #   driver can say nothing. The small SYSTEM disk carries
               #   §24.3's core packages too, filtered the same way (§24.5.1)
+make emu      # THE THIRD KERNEL (§9.11.7): kern_emu, into build/emuk/, plus
+              #   build/emu.img. It is kern_big PLUS §9.11's VMware absolute
+              #   pointer and nothing else - the backdoor on port 0x5658 that
+              #   v86 in a browser and every desktop hypervisor answer, so the
+              #   pointer tracks 1:1 with no grab. **ADDITIVE, not a third
+              #   tier**: KERN_EMU implies KERN_BIG, so every `%ifdef KERN_BIG`
+              #   still applies and the build keeps the whole big feature set;
+              #   KERN_EMU with KERN_SMALL is refused in kernel.asm.
+              #   WHY IT IS ITS OWN BUILD is who was paying: the protocol is
+              #   32-bit (`in eax, dx`, dword magic), so the 4.77 MHz 8088 this
+              #   project is calibrated against can neither speak it nor be
+              #   spoken to, and it was carrying 385 bytes of image, ONE
+              #   CROSSED 512-BYTE FOOTPRINT RUNG and 521 bytes of a 360KB
+              #   system disk that had 17 of 354 clusters left. §41.12 made
+              #   this argument for XMEM.DRV and stopped one machine short,
+              #   keeping a resident sniff because an 8086 CAN ask whether
+              #   there is RAM above 1MB; here the PROBE is 386 code, so there
+              #   is no resident question an XT could ask and the honest cost
+              #   on it is zero. kern_big now measures BYTE-IDENTICAL to its
+              #   blessed baseline and kern_emu measures exactly what kern_big
+              #   used to. Its disk is the only one in the tree that ships a
+              #   SYSTEM.CFG (bit 5 set) - every row is not-wanted by default
+              #   (§51.3), and a kern_emu machine that must be TOLD to turn on
+              #   the one feature it was built for has been given nothing.
+              #   Pair it with the SHIPPED build/apps.img: same API table, same
+              #   offsets, so there is no emu apps disk and must not be
 make allapps  # build/apps-all.img (§19.10): ONE 1.44MB floppy with every app
               #   on it, Frotz, both Words, RunCPM (with its drive A), the
               #   C64 and the Weave family's two — one folder each, so

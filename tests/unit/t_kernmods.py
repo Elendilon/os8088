@@ -50,7 +50,20 @@ import kernsize                                           # noqa: E402
 # a default build measures them at zero and that is the correct answer.  A
 # module joining this list is a decision: it is saying "this ships in no
 # kernel any disk carries", which is exactly what a knob is.
-KNOB_ONLY = ("band.inc", "bootprof.inc", "moudiag.inc", "stkdiag.inc")
+#
+# **vmmouse.inc IS THE ONE ENTRY THAT IS NOT A KNOB** (SPEC.md 9.11.7), and it
+# is named here rather than exempted quietly because the distinction matters:
+# `make emu` is a SHIPPED PRODUCT - kern_big plus the VMware absolute pointer,
+# for v86 in a browser and for a desktop hypervisor - so build/emu.img is a
+# disk that carries it, which is precisely what the four above are saying is
+# not true of them. What it shares with them is the only thing this test can
+# see: it measures zero on the DEFAULT build, because the whole file is inside
+# %ifdef KERN_EMU and the target machine is a 4.77 MHz 8088 that can neither
+# speak a 32-bit backdoor protocol nor be spoken to. Its bytes are on the emu
+# variant's row instead - `tools/kernsize.py --modules -DKERN_BIG -DKERN_EMU`
+# prints them, exactly as `--modules -DKERN_SMALL` prints kern_small's.
+KNOB_ONLY = ("band.inc", "bootprof.inc", "moudiag.inc", "stkdiag.inc",
+             "vmmouse.inc")
 
 
 def main():

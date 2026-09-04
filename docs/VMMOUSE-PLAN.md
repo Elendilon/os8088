@@ -590,3 +590,110 @@ image rather than moved into it:
 - And, found only by merging `main` in: **four calls crossed the `.ovlw`
   boundary as near calls** after #147 moved `mouse_init` into the boot
   overlay. `tools/os88ovlchk.py` caught them; nothing else would have.
+
+## 16. The second fork: why the driver split was not far enough
+
+§15 is the first fork — resident kernel code behind `[cpu_tier]`, against
+`VMMOUSE.DRV` — and the driver won it. This is the second, and it is about
+what the driver split *left behind*.
+
+### 16.1 What was still resident, and on whose machine
+
+The split moved the protocol out and kept a small half in: a gate byte
+`[vmm_on]`, `vmm_dsp`, `vmm_poll`, `vmm_boot_x`, `mou_apply_abs`, the
+`drv_tab` row with its two strings and its `drv_memk` word, `drv_cfgbit`'s
+sixth byte, one `ovw_` wrapper, and two sites that compare a byte and branch
+— `ui_task`'s pass and `task_yield`, the hottest routine in the kernel. (Two
+and not the six the feature landed with: every spin loop that waits on the
+mouse calls `task_yield`, so draining it there services all of them, and the
+per-`kbm_pollm` sites went.)
+
+It was gated `%ifdef KERN_BIG`, and the argument written down for that was
+§41.11's, one level down: *every machine `kern_small` runs on is an 8086*.
+That argument is true. **It also names the wrong machine.** `kern_small` is
+the 128-256KB product; the machine this entire project is calibrated
+against — the 4.77 MHz 8088 in an IBM PC/XT, the machine every number in
+PERFORMANCE.md is measured on — runs **`kern_big`**. It has no `EAX`, `0x66`
+is an invalid opcode on it, and there is nothing on it to speak the protocol
+to. So the build that was excused was not the build that was paying.
+
+Measured, `tools/kernsize.py`, `kern_big` with and without:
+
+| | |
+|---|---|
+| `.text` | 50,993 → 50,733, **−260** |
+| `.cold` | 37,310 → 37,186, **−124** |
+| `.ovl` | 1,418 → 1,417, **−1** (`drv_cfgbit`) |
+| `KERN_SIZE` | 110,080 → 109,568 — **one 512-byte footprint rung, uncrossed** |
+| the 360KB system disk | 337 → 335 of 354 clusters, and 35 → 34 files |
+
+The rung is the part that matters. `KERN_BUDGET` is a footprint, so 385 bytes
+bought a 512-byte step: **512 bytes of every XT's RAM**, held for a byte that
+is nailed to 0 for the life of that machine. And `VMMOUSE.DRV` — 521 bytes and
+a directory slot — was riding a 360KB floppy that had **17 of 354 clusters
+left**.
+
+### 16.2 The rule this is a worked example of
+
+§41.12 made the same argument for `XMEM.DRV` and stopped one step short. It
+kept a resident **sniff** on `kern_big`, and that was right: an 8086 *can* ask
+whether there is memory above 1MB, the answer differs per machine, and a
+machine that has it should use it.
+
+Here the probe is `GETVERSION` through the backdoor, which is `in eax, dx`.
+**The detection is itself 386 code.** So there is no resident question an XT
+could ask, no answer it could act on, and nothing a `[cpu_tier]` gate buys
+except the bytes it costs.
+
+> When a feature's own **detection** is out of a machine's reach, that
+> machine's honest resident cost is **zero**, not small — and a build is what
+> makes zero available.
+
+`kern_emu` is that build (SPEC.md §9.11.7). It is `kern_big` **plus** this
+file: `KERN_EMU` implies `KERN_BIG`, so every `%ifdef KERN_BIG` in the tree
+still applies and nothing else changes. A third *exclusive* tier was rejected
+in one line — it would fall outside all of those `%ifdef`s and produce a
+kernel that was neither product.
+
+### 16.3 What it cost to take
+
+Almost nothing, and that is itself the finding: the feature was already
+written as a clean seam. Every guard was a `KERN_BIG` that became a
+`KERN_EMU`, and the only real work was in the table that walks the rows —
+`DRV_MAX` is now 6 / 5 / 4 across emu / big / small.
+
+**The row that went was the last one**, which is why the subtraction is free
+where `kern_small`'s is not. `drv_cfgbit` maps rows 0-4 to bits `0, 1, 4, 2,
+3` on both builds, so a `SYSTEM.CFG` written on one is read correctly on the
+other; bit 5 on a `kern_big` machine names a row `drv_want_get` never reaches,
+and is ignored rather than misread. §62.9.15's `kern_small` divergence — drop
+row 3 and every row after it shifts — is what that looks like when it is *not*
+free, and it is written down as a divergence for exactly that reason.
+
+Two defects fell out of the move:
+
+- **`drv_cfgbit` had no length assertion**, where `drv_memk` has had one since
+  it was written. Both are one entry per `drv_tab` row and both are walked
+  `DRV_MAX` times. A table shorter than the row count reads whatever follows
+  it as a shift amount — a silent wrong bit in a file on the user's floppy;
+  longer, and it is a dead byte carried in two images. The `kern_big` arm was
+  the long kind for as long as the row was `kern_big`'s. It has the assertion
+  now.
+- **`tests/vmmouse.py` would have gone on "working"** in the sense of failing:
+  the gate disk was built on the shipped kernel, where `vmm_on` is now not a
+  wrong address but not a symbol. It sets `$OS88_BUILD`/`$OS88_DEFINES` and
+  `make vmmousetest` builds `build/emuk/`.
+
+### 16.4 What was NOT done
+
+- **No 360KB or 720KB emu disk.** 360KB exists for real period hardware, and
+  no machine that needs a 360KB floppy can execute a 386 instruction. One
+  geometry, stated in the rule rather than left as an omission.
+- **No emu apps disk.** `kern_emu` defines `KERN_BIG`, so it holds the same
+  API table at the same offsets as the shipped kernel — not "compatible
+  with", the same — and `build/apps.img` pairs with it unchanged. `make
+  small` needs a `smallapps` because those two kernels have different feature
+  sets; there is nothing here for one to do.
+- **The resident half was not made smaller before it was moved.** It would
+  have been the wrong question: the target machine's cost is not a number to
+  minimise, it is a number that should be zero.

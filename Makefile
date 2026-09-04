@@ -1065,6 +1065,28 @@ else
 VIDDEF += -DKERN_BIG
 endif
 
+# KERN_EMU=1 selects the EMULATOR build (SPEC.md 9.11.7) - kern_big plus
+# SPEC.md 9.11's VMware absolute pointer, and nothing else.
+#
+# **IT IS ADDED TO KERN_BIG, NOT SUBSTITUTED FOR IT.** The `else` above still
+# fires, so a KERN_EMU line carries -DKERN_BIG -DKERN_EMU and every `%ifdef
+# KERN_BIG` in the tree - the RAM disk, the extended store, the loadable
+# drivers, the whole big feature set - still applies. A third exclusive name
+# would have fallen outside all of them and produced a kernel that was neither
+# product. kernel.asm asserts the pairing and refuses KERN_EMU with
+# KERN_SMALL.
+#
+# THE DEFAULT IS BIG, and this is the build you ask for, exactly like
+# KERN_SMALL. os8088 runs in a browser under v86, which emulates the backdoor
+# on I/O port 0x5658 and feeds it absolute canvas coordinates with no pointer
+# lock - so this is the kernel the website wants, and a desktop hypervisor
+# wants it for the same reason. Every other machine, the 4.77 MHz 8088 this
+# project is calibrated against first among them, gets a kernel with no trace
+# of it: .text -260, .cold -124, and one 512-byte image rung UNCROSSED.
+ifneq ($(KERN_EMU),)
+VIDDEF += -DKERN_EMU
+endif
+
 # REDRAWFULL=1 puts the menu bar, the dock and the Disk window's command
 # path back on their pre-SPEC.md 12.9/30.3/22.13 paths: every bar redraw is a
 # full one (fill, logo, name, every title and the clock), every changed dock
@@ -1475,7 +1497,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG FDDSLOW TRACKRUN SBDRAGOFF SBRATE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOCURDISK VGADIRTY DLJUNK,\
+                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOCURDISK VGADIRTY DLJUNK,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -1491,7 +1513,14 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
 # ...and NOHEDGE, which reaches SAVER.DRV and not one kernel byte, so it is in
 # $(KNOBS) for the matrix and NOT in $(VIDSTAMP): exempting the kernel for it
 # would be the sticky exemption the ETHPROF note below describes.
-ifneq ($(filter-out KERN_SMALL=% NOHEDGE=%,$(KNOBS)),)
+# ...and KERN_EMU joins KERN_SMALL in the exemption, for KERN_SMALL's exact
+# reason: it is not a diagnostic, it is the SHIPPED emulator kernel, and it
+# stays inside kern_big's budget rather than being excused from it. Getting
+# this wrong is silent in the useful direction and loud in the other - a
+# kern_emu carrying -DKERN_KNOB would SKIP guard 1 (the KERN_BUDGET footprint
+# check), so the one build that adds a feature would be the one build nothing
+# measured.
+ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=%,$(KNOBS)),)
 VIDDEF += -DKERN_KNOB
 endif
 
@@ -1520,7 +1549,7 @@ endif
 # asked for it read a PLAIN kernel, so its assertion was about a build nobody
 # had made. Both halves, every time - the list above so the knob announces
 # itself, this string so the kernel is rebuilt when it changes.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSEAMCUT),-nsc$(NOSEAMCUT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KERN_EMU),-emu$(KERN_EMU))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(GFXAUDIT),-ga$(GFXAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(BOOTPROF),-bp$(BOOTPROF))$(if $(STKDIAG),-sd$(STKDIAG))$(if $(NOMOUPRIV),-nmp$(NOMOUPRIV))$(if $(NOCHAINPRIV),-ncp$(NOCHAINPRIV))$(if $(BOOTMARK),-bm$(BOOTMARK))$(if $(BOOTHALT),-bh$(BOOTHALT))$(if $(BOOTSTOP),-bs$(BOOTSTOP))$(if $(NOPS2),-np$(NOPS2))$(if $(MOUIDSLOW),-mis$(MOUIDSLOW))$(if $(MOUDIAG),-mdg$(MOUDIAG))$(if $(FDDSLOW),-fsl$(FDDSLOW))$(if $(TRACKRUN),-tr$(TRACKRUN))$(if $(SBDRAGOFF),-sbo$(SBDRAGOFF))$(if $(SBRATE),-sbr$(SBRATE))$(if $(TITLESNAP),-ts$(TITLESNAP))$(if $(SPLSTARS),-sst$(SPLSTARS))$(if $(NOSIZESNAP),-nzs$(NOSIZESNAP))$(if $(NOFLUSHR),-nfr$(NOFLUSHR))$(if $(NOUNAL),-nu$(NOUNAL))$(if $(BAND),-bnd$(BAND))$(if $(NOPLANE),-npl$(NOPLANE))$(if $(NOCOLFAST),-ncf$(NOCOLFAST))$(if $(NOBLITCUT),-nbc$(NOBLITCUT))$(if $(NOUIBLOCK),-nub$(NOUIBLOCK))$(if $(NOCURDISK),-ncd$(NOCURDISK))$(if $(VGADIRTY),-vd$(VGADIRTY))$(if $(BOOTDIAG),-bd$(BOOTDIAG))$(if $(PICOMEM),-pm$(PICOMEM))$(if $(PM_BASE),-pmb$(PM_BASE))$(if $(PM_SB_PORT),-pms$(PM_SB_PORT))$(if $(ETHPROF),-ep$(ETHPROF))$(if $(FTPDSLOW),-fs$(FTPDSLOW))$(if $(FTPDBG),-fd$(FTPDBG))$(if $(DLJUNK),-dlj$(DLJUNK))$(if $(FATWNONE),-fwn$(FATWNONE))$(if $(FATWGATE),-fwg$(FATWGATE))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -1603,7 +1632,7 @@ KERNEL_SRC := kernel/kernel.asm
 # a map that described "a DIFFERENT kernel".
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 
-.PHONY: stkdiag small kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 xt-mfm xt-cga \
+.PHONY: stkdiag small emu kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 xt-mfm xt-cga \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
@@ -2311,15 +2340,17 @@ DRIVERS += $(BUILD)/xmem.drv
 # back out ($(SMALLDRIVERS) below): drv_load_at, its only loader, is inside
 # %ifdef KERN_BIG and nothing on that kernel can name the file
 DRIVERS += $(BUILD)/saver.drv
-# ...and SPEC.md 9.11's absolute pointer, which is an overlay for a reason
-# neither of those two has: its code is 386 instructions and the target machine
-# is an 8088, so this is the one file in the tree that MUST NOT BE EXECUTED on
-# the machine the project is calibrated against. It differs from XMEM and the
-# saver in having a drv_tab row and a SYSTEM.CFG bit - the probe is 386 code,
-# so there is no resident sniff that could decide for the user the way
-# xm_sniff does. kern_small filters it out ($(SMALLDRIVERS)): every machine
-# that kernel runs on is an 8086
-DRIVERS += $(BUILD)/vmmouse.drv
+# ...and SPEC.md 9.11's absolute pointer is NOT HERE, which is the one entry
+# in this list that is an absence. Its code is 386 instructions and the target
+# machine is an 8088, so it is the one file in the tree that MUST NOT BE
+# EXECUTED on the machine the project is calibrated against - and unlike XMEM
+# and the saver, whose loaders are resident on kern_big and decide per machine,
+# NOTHING ON A kern_big DISK CAN NAME IT since SPEC.md 9.11.7: the row, the
+# gate byte, the dispatch and vmm_boot_x are all inside %ifdef KERN_EMU now.
+# A driver no resident code can name is not "unused" on the disk, it is
+# unreachable, and SPEC.md 24.5's rule is then the whole answer: 521 bytes and
+# one directory slot of a 360KB system disk that had 17 of 354 clusters left.
+# It rides $(EMUDRIVERS) instead - `make emu` - and the vmmousetest image.
 # ...and the ON-DEMAND KERNEL MODULES (SPEC.md 2.8), which are neither a driver
 # nor an overlay. Both of those are SELF-CONTAINED images with a dispatcher and
 # an ABI; a module is this kernel's OWN CODE, cut out of the assembled binary by
@@ -2333,6 +2364,32 @@ DRIVERS += $(BUILD)/vmmouse.drv
 # non-default image rules override per target - which is also why DRIVERS is a
 # recursive `=` and not a `:=`.
 DRIVERS += $(KMODS)
+
+# --- ...and what the EMULATOR disks carry on top (SPEC.md 9.11.7) -------------
+# $(DRIVERS) PLUS the absolute pointer, and that direction is the point: this
+# is an ADDITION to the shipped set, where $(SMALLDRIVERS) below is a
+# restatement from nothing. Both spellings are chosen rather than inherited.
+#
+# kern_emu is kern_big with one feature switched on, so its disk is the big
+# disk with one file added, and a driver added to $(DRIVERS) tomorrow should
+# appear here too - which an `=` addition gives for free and a hand-written
+# list would not. kern_small's case is the opposite one (a driver added
+# tomorrow must NOT reach that disk), which is why the two are written
+# differently and why neither should be made to look like the other.
+#
+# RECURSIVE for $(DRIVERS)' own reason: $(KMODS) inside it reads $(KMODDIR),
+# which the emu image rule overrides per target so the on-demand kernel
+# modules come out of the emu kernel and not the shipped one.
+EMUDRIVERS = $(DRIVERS) $(BUILD)/vmmouse.drv
+
+# ...and where that build goes. UP HERE WITH $(EMUDRIVERS) rather than down
+# with `make emu`, where $(SMALLDIR) sits beside `make small`, because the
+# vmmouse GATE disk needs it some 3,500 lines earlier: `$(BUILD)/vmmouse.img:
+# KMODDIR := $(EMUDIR)` is a target-specific `:=`, evaluated where it is read,
+# so a definition below it expands to nothing and the gate silently takes the
+# SHIPPED kernel's modules. See `make emu` for what the directory is for.
+EMUDIR := $(BUILD)/emuk
+
 SYSAPPS := $(BUILD)/taskmgr.o88
 SYSAPPSARGS := $(addprefix SYSTEM:,$(SYSAPPS))
 
@@ -3028,6 +3085,15 @@ $(BUILD)/system.cfg: | $(BUILD)
 # is Ethernet's and not row 2's (drv_cfgbit). It is 1.44MB rather than 360KB
 # because tests/vmmouse.py drives a VGA screen and the 360KB disk is where the
 # geometry gets tight; nothing here depends on the size.
+#
+# **IT IS THE kern_emu KERNEL SINCE SPEC.md 9.11.7**, and that is the whole of
+# what changed here: the shipped kernel has no resident half to test any more -
+# no row for SYSTEM.CFG's bit 5 to tick, no vmm_boot_x to attach the image, no
+# poll site to drain it - so a gate built on it would have loaded a driver
+# nothing calls and reported a pointer that never moved. That is a test failing
+# for the right reason and pointing at the wrong thing. $(BUILD)/emu.img is the
+# PRODUCT disk and this is the GATE disk; they are the same kernel and differ
+# only in that this one is rebuilt whenever the gate's inputs move.
 # IN A DIRECTORY OF ITS OWN because os88disk.py names a file on the volume from
 # its BASENAME, and this has to land as SYSTEM.CFG - which build/system.cfg,
 # the Ethernet gate's, already is with a different bit set.
@@ -3037,10 +3103,12 @@ $(BUILD)/vmmcfg/system.cfg: | $(BUILD)
 	  (3).to_bytes(2,'little') + b'DW' + bytes([1,2]) + \
 	  (1 << 5).to_bytes(2,'little') + b'\0\0')" > $@
 
-$(BUILD)/vmmouse.img: $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg tools/os88disk.py
+$(BUILD)/vmmouse.img: KMODDIR := $(EMUDIR)
+$(BUILD)/vmmouse.img: $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg tools/os88disk.py
+	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin
 	python3 tools/os88disk.py -o $@ --size 1440 \
-		--boot $(BUILD)/boot.bin --kernel $(BUILD)/kernel.bin \
-		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		--boot $(EMUDIR)/boot.bin --kernel $(EMUDIR)/kernel.bin \
+		$(EMUDRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/vmmcfg/system.cfg
 
 .PHONY: vmmousetest
@@ -6622,6 +6690,78 @@ $(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) \
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/kernel.bin \
 		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) $(SMALLCOREARGS) \
 		$(SYSDOC) $(MEDIAFOLDER)
+
+# =============================================================================
+# `make emu` - THE EMULATOR KERNEL AND ITS SYSTEM DISK (SPEC.md 9.11.7)
+# =============================================================================
+# kern_emu is kern_big plus SPEC.md 9.11's VMware absolute pointer, and it is
+# the third shipped product off this one tree. os8088 runs in the browser under
+# v86, which emulates the backdoor on I/O port 0x5658 and feeds it absolute
+# canvas coordinates with no pointer lock; a desktop hypervisor answers the
+# same port for the same reason. On those machines the pointer tracks 1:1 with
+# no grab, which is the difference between a demo somebody closes and one they
+# use.
+#
+# **IT IS A THIRD BUILD RATHER THAN A DEFAULT BECAUSE OF WHO PAYS.** The
+# protocol is 32-bit - `in eax, dx` with a dword magic - so an 8088 can neither
+# speak it nor be spoken to, and the 4.77 MHz XT this project is calibrated
+# against is exactly the machine that was carrying it: 385 bytes of kernel
+# image and one crossed 512-byte footprint rung, for a gate byte nailed to 0.
+# SPEC.md 41.12 made this argument for XMEM.DRV and stopped one step short,
+# keeping a resident sniff because an 8086 CAN ask whether there is memory
+# above 1MB. Here even the probe is 386 code, so there is no resident question
+# an XT could ask, and the right resident cost on it is zero.
+#
+# INTO A DIRECTORY OF ITS OWN, build/emuk/, for `make small`'s reason: a
+# non-default kernel that reaches build/ is a kernel somebody boots by accident
+# believing it is the shipped one, and that mistake has been made in this tree
+# before. Nothing under build/emuk/ is what `all` ships.
+#
+# **THE APPS DISKS ARE NOT REBUILT AND MUST NOT BE.** kern_emu defines
+# KERN_BIG, so it holds the same API table at the same offsets as the shipped
+# kernel - not "compatible with", THE SAME - and build/apps.img pairs with it
+# unchanged. `make small` has to say this carefully because the two kernels
+# there have different feature sets; here there is nothing to say beyond it.
+emu: $(BUILD)/emu.img
+	@echo "emu: $< - kern_emu on 1.44MB, VMMOUSE.DRV wanted from the first"
+	@echo "     boot. Pair it with the SHIPPED build/apps.img - same ABI."
+
+# its kernel is $(EMUDIR)'s, so its on-demand kernel modules are too. kern_emu
+# cuts the same four as kern_big (ctrl, format, clone, hiber): it is that
+# kernel with one file switched on, so there is no $(SMALLMODS) equivalent
+# here and $(KMODS) alone is right.
+$(BUILD)/emu.img: KMODDIR := $(EMUDIR)
+
+# $(EMUDRIVERS)' big-build half falls out of $(BUILD)/kernel.bin, so any kernel
+# source change makes it newer than this disk and the sub-make below reruns -
+# $(BUILD)/small.img's note explains why the target-specific KMODDIR makes that
+# name `build/ctrl.drv` in this prerequisite list and `build/emuk/ctrl.drv` in
+# the recipe, and it works here by the same asymmetry.
+#
+# **SYSTEM.CFG IS SHIPPED ON THIS DISK AND ON NO OTHER**, and it is the reason
+# the disk exists rather than a detail of it. Every drv_tab row is NOT WANTED
+# by default (SPEC.md 51.3), so a floppy carrying no settings file boots with
+# the backdoor untouched - correct for the shipped disks, and useless here: a
+# kern_emu machine that has to be told through the Control Panel to turn on the
+# one feature it was built for has not been given anything. build/vmmcfg is the
+# gate's own SYSTEM.CFG with bit 5 set, which is the absolute mouse's bit and
+# not its row number (drv_cfgbit), and it is reused verbatim rather than copied.
+$(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
+                  $(FACES) $(FACELIC) $(BUILD)/vmmcfg/system.cfg \
+                  tools/os88disk.py
+	@$(MAKE) BUILD=$(EMUDIR) KERN_EMU=1 $(EMUDIR)/boot.bin
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(EMUDIR)/boot.bin --kernel $(EMUDIR)/kernel.bin \
+		$(EMUDRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS) $(SYSDOC) \
+		$(SYSLOGOARG) $(FACESARG) $(BUILD)/vmmcfg/system.cfg \
+		$(APPDATAFOLDER)
+
+# ONE GEOMETRY, and that is a decision rather than an omission. 360KB exists
+# for real period hardware - a 5.25" drive on an XT or an AT - and no machine
+# that needs a 360KB floppy can execute a 386 instruction, so an emu disk in
+# that geometry would be a disk that cannot boot the kernel on it. v86 takes a
+# 1.44MB floppy image and every hypervisor here does too. If a 720KB emu disk
+# is ever wanted, it is this rule with --size 720 and nothing else.
 
 # --- THE SMALL APPS DISK (SPEC.md 27.16) -------------------------------------
 #

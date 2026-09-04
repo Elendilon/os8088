@@ -91,23 +91,39 @@ END = "<!-- kernsize:end -->"
 #   nobody ships, so blessing one would write a baseline describing a binary
 #   that does not exist on any disk, and --bless refuses them.
 #
-#   KERN_BIG / KERN_SMALL are VARIANTS. Each has a baseline of its own, and
-#   each is blessable, because each IS a shipped kernel.
+#   KERN_BIG / KERN_SMALL / KERN_EMU are VARIANTS. Each has a baseline of its
+#   own, and each is blessable, because each IS a shipped kernel.
 #
 # Conflating the two is the bug this section exists to prevent: with one flat
 # baseline, `make KERN_SMALL=1` reported small's sections against big's
 # figures and every line was a delta of the difference between the products -
 # noise that looks exactly like a regression, in the build that is supposed to
 # be defended byte by byte.
-VARIANTS = ("big", "small")
-VARIANT_DEFS = {"-DKERN_BIG": "big", "-DKERN_SMALL": "small"}
+# ...and kern_emu is the THIRD (SPEC.md 9.11.7): kern_big plus SPEC.md 9.11's
+# absolute pointer, for v86 in a browser and for a desktop hypervisor. It is a
+# shipped product on the same terms - somebody boots it, it has a baseline and
+# it is blessable - so it is a VARIANT and not a knob.
+#
+# **ITS COMMAND LINE CARRIES BOTH -DKERN_BIG AND -DKERN_EMU**, because the
+# build is additive (Makefile, kernel.asm): kern_emu IS kern_big with a file
+# switched on. So the order of this dict is load-bearing in a way the two-way
+# version never had to be - a plain left-to-right scan over nasm_args would
+# answer "big" for a kern_emu line, report its sections against kern_big's
+# baseline, and show the absolute pointer as a +384 regression in the shipped
+# kernel. variant_of therefore checks the NARROWEST name first, which is
+# what the sorted-by-specificity tuple below is for.
+VARIANTS = ("big", "small", "emu")
+VARIANT_DEFS = {"-DKERN_BIG": "big", "-DKERN_SMALL": "small",
+                "-DKERN_EMU": "emu"}
+# most specific first: -DKERN_EMU implies -DKERN_BIG and must win over it
+VARIANT_ORDER = ("-DKERN_EMU", "-DKERN_SMALL", "-DKERN_BIG")
 
 
 def variant_of(nasm_args):
     """Which product is this? Defaults to big, as the Makefile does."""
-    for arg in nasm_args:
-        if arg in VARIANT_DEFS:
-            return VARIANT_DEFS[arg]
+    for want in VARIANT_ORDER:
+        if want in nasm_args:
+            return VARIANT_DEFS[want]
     return "big"
 
 
@@ -201,6 +217,10 @@ THEMES = (
     # is is the POINTER's question, and its other half - the 386 protocol
     # itself - is VMMOUSE.DRV and weighs nothing here at all. xmem.inc is the
     # same shape one subject over, and is already on this row.
+    # SINCE SPEC.md 9.11.7 IT IS 0 IN TWO OF THE THREE PRODUCTS, moudiag.inc's
+    # shape rather than xmem.inc's: the whole file is inside %ifdef KERN_EMU,
+    # so it weighs nothing on kern_big or kern_small and its bytes appear on
+    # the emu variant's row alone.
     ("hardware: drivers, clock, mouse, sound, CPU, XMS",
      ("mouse.inc", "moudiag.inc", "vmmouse.inc", "clock.inc", "driver.inc",
       "hiber.inc", "snd.inc", "cpudet.inc", "xmem.inc")),

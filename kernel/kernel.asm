@@ -189,6 +189,42 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %define KERN_BIG
 %endif
 
+; --- the THIRD build: kern_emu (SPEC.md 9.11.7) ------------------------------
+; KERN_EMU is not a fourth tier beside those two - it is KERN_BIG WITH ONE
+; FEATURE ADDED, and it is written as an addition rather than as a tier for a
+; reason that is structural rather than stylistic: a third exclusive name would
+; fall outside every `%ifdef KERN_BIG` already in this tree, so kern_emu would
+; lose the RAM disk, the extended store, the loadable drivers and the whole
+; feature set it is meant to be a superset of. It is therefore ADDITIVE, and
+; kernel.asm defines KERN_BIG for it here so that no site below has to spell
+; `%ifdef KERN_BIG` or `%ifdef KERN_EMU` to mean "the big feature set".
+;
+; WHAT IT BUYS is SPEC.md 9.11's absolute pointer and nothing else. The
+; backdoor protocol is 32-bit and the target machine is an 8088, so the whole
+; feature is dead weight on every machine this project is calibrated against -
+; which is the same argument SPEC.md 41.12 made for XMEM.DRV, one level up:
+; XMEM moved the BODY out and kept a resident sniff because an 8086 can ask
+; whether there is memory above 1MB. Here even the PROBE is 386 code, so there
+; is nothing an XT can usefully keep, and the honest resident cost on that
+; machine is ZERO rather than a small one.
+;
+; SO kern_big AND kern_small PAY NOTHING - not a byte of image, not a cluster
+; of floppy. VMMOUSE.DRV is off their disks too ($(DRIVERS) in the Makefile),
+; because a driver no resident code can name is 521 bytes of a 360KB floppy
+; that had 17 clusters left.
+;
+; NEITHER IS AN ERROR: KERN_EMU with KERN_SMALL would be a 128KB machine
+; running a 386 protocol, which is not a product, so it is refused here rather
+; than left to fail somewhere below as a missing symbol.
+%ifdef KERN_EMU
+ %ifdef KERN_SMALL
+%error "KERN_EMU and KERN_SMALL are both defined - the emulator build is big"
+ %endif
+ %ifndef KERN_BIG
+  %define KERN_BIG
+ %endif
+%endif
+
 ; BANDCOMP - the 1bpp band composer (SPEC.md 5.9), and since SPEC.md 5.9.6 it
 ; is a KNOB again rather than kern_big's default. `make BAND=1` compiles it in
 ; and puts wm_draw_title's interior on ONE composed blit; the default build
@@ -4147,13 +4183,20 @@ ovw_mou_p2dw:       call mou_p2dw
                     retf
 ovw_mou_p2wcmd:     call mou_p2wcmd
                     retf
+%ifdef KERN_EMU
 ovw_mou_lockon:     call mou_lockon     ; ...and a sixth, for SPEC.md 9.11:
                     retf                ; vmm_boot_x settles the contest on the
                                         ; backdoor and has to retire the UARTs
                                         ; from `.ovl`, where mouse_init already
                                         ; is. The five above were mouse_init's
-                                        ; own; this is the one the absolute
-                                        ; pointer added
+                                        ; own and are kern_big's; THIS ONE IS
+                                        ; kern_emu's, because vmm_boot_x is its
+                                        ; only caller and that routine does not
+                                        ; exist on the other builds (SPEC.md
+                                        ; 9.11.7). A wrapper whose callee is
+                                        ; compiled out is 4 bytes of overlay
+                                        ; nothing can reach
+%endif
 %endif
 ovw_font_run_x:     call font_run_x     ; SPEC.md 15.6's status line composes
                     retf                ; into the OVERLAY, so its string is
@@ -4760,7 +4803,7 @@ kmain:
     MARK 28
 
     OVLGATE1 drv_boot_x         ; ...and load what SYSTEM.CFG asks for
-%ifdef KERN_BIG
+%ifdef KERN_EMU
     call COLD_SEG:vmm_boot_x    ; ...one of which may be SPEC.md 9.11's
                                 ; absolute pointer, which is DRVC_OVL and so
                                 ; stops at drv_check with nothing called: the

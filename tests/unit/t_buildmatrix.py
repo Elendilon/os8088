@@ -342,8 +342,14 @@ KNOBS = [
 
 
 def covered(knob):
-    """Does some row build this knob? KERN_SMALL is `make small` below."""
-    if knob == "KERN_SMALL":
+    """Does some row build this knob? The two PRODUCT builds are their own
+    targets below - `make small` and `make emu` - because each is a whole
+    second tree with a disk of its own rather than a %ifdef arm, and building
+    only their kernels would leave the Makefile machinery that assembles the
+    disk uncovered. That machinery is exactly where kern_emu broke first: its
+    build directory is named by a target-specific `:=`, which reads empty if
+    the variable is defined further down the file."""
+    if knob in ("KERN_SMALL", "KERN_EMU"):
         return True
     return any(v.split("=")[0] == knob for row in KNOBS for v in row[1])
 
@@ -454,6 +460,25 @@ def main():
           "build it, so nothing catches this until a release",
           got="\n".join((r.stdout + r.stderr).strip().splitlines()[-8:]), want="exit 0")
 
+    # ...and kern_emu is the third product (SPEC.md 9.11.7): kern_big PLUS the
+    # VMware absolute pointer, for v86 in a browser and for a desktop
+    # hypervisor. `all` does not build it either, and it is the only thing
+    # that assembles vmmouse.inc, vmmabi.inc's kernel half and every
+    # %ifdef KERN_EMU arm in driver.inc, sched.inc and kernel.asm - which is
+    # the whole resident half of a feature whose gate NOTHING ELSE COMPILES.
+    # It builds the DISK and not just the kernel, because build/emu.img is
+    # what a browser boots and because the sub-make, $(EMUDRIVERS) and the
+    # target-specific $(KMODDIR) that cuts the on-demand modules out of the
+    # emu kernel are all machinery no other target exercises.
+    r = subprocess.run(["make", "emu"], cwd=ROOT, capture_output=True,
+                       text=True, timeout=600)
+    check(r.returncode == 0, "make emu (kern_emu) builds",
+          "SPEC.md 9.11.7: the emulator kernel is kern_big plus SPEC.md 9.11's "
+          "absolute pointer, and it is the only build that compiles that "
+          "feature at all. `all` does not build it, so nothing catches a "
+          "rename inside %ifdef KERN_EMU until somebody boots the browser",
+          got="\n".join((r.stdout + r.stderr).strip().splitlines()[-8:]), want="exit 0")
+
     # `make small` shares build/ with the default build - SMALLDRIVERS are the
     # same `build/*.drv` paths - and it is a target-specific `KMODDIR` away
     # from restamping one of them for the SMALL kernel. Measured: it left
@@ -474,7 +499,8 @@ def main():
               "adapter on top of the shipped one, and nothing afterwards says so "
               "(CLAUDE.md's cgak note)")
 
-    print("t_buildmatrix: %d knob builds + kern_small (%d shared the default "
+    print("t_buildmatrix: %d knob builds + kern_small + kern_emu (%d shared "
+          "the default "
           "build's packages, %d built their own: %s)"
           % (len(sizes), sum(1 for k in KNOBS if shares(k[1])),
              sum(1 for k in KNOBS if not shares(k[1])),

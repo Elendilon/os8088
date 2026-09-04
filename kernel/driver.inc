@@ -41,21 +41,50 @@
 ; happens.
 ; =============================================================================
 
-%ifdef KERN_BIG
+%ifdef KERN_EMU
 DRV_MAX     equ 6               ; rows in drv_tab. The FIFTH is SPEC.md 72's
                                 ; Ethernet card and the SIXTH is SPEC.md
                                 ; 9.11's absolute mouse - the one DRVC_OVL row
                                 ; in the table, which takes no publication
                                 ; class and exists only so SYSTEM.CFG carries
-                                ; a bit for it and the page can untick it. The settings word carries
-                                ; one bit per row, so the FILE FORMAT allows
-                                ; 16 - and the CONTROL PANEL now allows any
-                                ; number too: the Drivers page fits CP_DVIS
-                                ; rows and SCROLLS (SPEC.md 31.1.1), which is
-                                ; what SPEC.md 31.1 named as the answer the
-                                ; first time a fifth driver was wanted. Row 2's
-                                ; note about a fifth row falling off the bottom
-                                ; is what that work fixed.
+                                ; a bit for it and the page can untick it.
+                                ; **kern_emu ALONE** (SPEC.md 9.11.7): the row
+                                ; is the sixth on that build and does not
+                                ; exist on the other two.
+%elifdef KERN_BIG
+DRV_MAX     equ 5               ; ...and kern_big stops at the parallel link.
+                                ; The absolute mouse's row was HERE until
+                                ; SPEC.md 9.11.7 and the machine this project
+                                ; is calibrated against could never use it:
+                                ; the probe is 386 code, so on an XT the row,
+                                ; its two strings, its drv_memk word and the
+                                ; whole of vmmouse.inc were bytes spent to
+                                ; carry a tick box that must stay unticked.
+                                ;
+                                ; **ROWS 0-4 DO NOT MOVE, so the SYSTEM.CFG
+                                ; BITMAP DOES NOT EITHER** (drv_cfgbit): the
+                                ; row that went was the LAST one, which is the
+                                ; whole reason this subtraction is free where
+                                ; kern_small's is not. A settings file written
+                                ; by a kern_emu machine and read on a kern_big
+                                ; one has bit 5 set for a row this build has
+                                ; no table entry for - drv_boot_x walks
+                                ; DRV_MAX rows and never reaches it, so the
+                                ; bit is ignored rather than misread, and the
+                                ; reverse direction simply leaves it clear.
+                                ; That is the SAME disk being readable by both
+                                ; builds, which kern_small's row COUNT change
+                                ; explicitly could not manage (below).
+                                ;
+                                ; The settings word carries one bit per row, so
+                                ; the FILE FORMAT allows 16 - and the CONTROL
+                                ; PANEL allows any number too: the Drivers page
+                                ; fits CP_DVIS rows and SCROLLS (SPEC.md
+                                ; 31.1.1), which is what SPEC.md 31.1 named as
+                                ; the answer the first time a fifth driver was
+                                ; wanted. Row 2's note about a fifth row
+                                ; falling off the bottom is what that work
+                                ; fixed.
 %else
 DRV_MAX     equ 4               ; **kern_small HAS NO RAM DISK** (SPEC.md
                                 ; 62.9.15): a 128-256KB machine has nothing to
@@ -643,11 +672,27 @@ DRV_CFG_MAPN equ 8
 ; a filename through DS, so a name in an image would be a filename read out of
 ; the kernel at the image's offset.
 %1 %+ _bit:
-%ifdef KERN_BIG
+%ifdef KERN_EMU
     db 0, 1, 4, 2, 3, 5         ; sound, hdd, ether, ramdisk, net, vmmouse
+%elifdef KERN_BIG
+    db 0, 1, 4, 2, 3            ; sound, hdd, ether, ramdisk, net
 %else
     db 0, 1, 3, 2               ; sound, hdd, ether, net
 %endif
+%if ($ - %1 %+ _bit) != DRV_MAX
+  %error "drv_cfgbit has drifted from drv_tab: one byte per row, same order"
+%endif
+                                ; ...WHICH drv_memk HAS HAD SINCE IT WAS
+                                ; WRITTEN AND THIS TABLE HAS NOT. %1_want_get
+                                ; walks DRV_MAX entries, so a table SHORTER
+                                ; than the row count reads whatever follows it
+                                ; as a shift amount - a silent wrong bit in a
+                                ; file on the user's floppy - and a LONGER one
+                                ; is a byte carried in two images (the boot
+                                ; overlay and CTRL.DRV, SPEC.md 51.5.3) that
+                                ; nothing can ever read. The kern_big arm was
+                                ; the long kind for exactly as long as the
+                                ; absolute mouse's row was kern_big's
 %1 %+ _sig:  db 'O88CFG', 0, 0  ; 8 bytes, byte for byte the file's head
 %1 %+ _buf:  times CFG_FBUF db 0   ; ...AND THE FILE ITSELF (SPEC.md 51.5.3).
                                 ; It was 120 bytes of .bss doing nothing
@@ -718,9 +763,19 @@ drv_t_net:   db 'os88net', 0
 drv_f_ram:   db 'RAMDISK.DRV', 0
 drv_t_ram:   db 'Ram Disk', 0
 %endif
-drv_f_vmm:   db 'VMMOUSE.DRV', 0 ; SPEC.md 9.11's absolute pointer. kern_big
-drv_t_vmm:   db 'Absolute mouse', 0  ; alone - the row below is inside the
-                                ; %ifdef and so is every byte that reads it
+%ifdef KERN_EMU
+drv_f_vmm:   db 'VMMOUSE.DRV', 0 ; SPEC.md 9.11's absolute pointer, kern_emu
+drv_t_vmm:   db 'Absolute mouse', 0  ; ALONE (SPEC.md 9.11.7) - 27 bytes that
+                                ; kern_big was paying for a row it no longer
+                                ; has. kern_small never saw them either way:
+                                ; the whole of this block is inside
+                                ; %ifdef OS88_DRIVERS, which SPEC.md 51.0
+                                ; defines on kern_big alone, so the strings
+                                ; were already unreachable AND unassembled
+                                ; there. The guard is needed for the build in
+                                ; between - the one that HAS the driver
+                                ; mechanism and has no use for this driver
+%endif
 drv_f_eth:   db 'ETHER.DRV', 0   ; ...and the card's, on BOTH builds: the store
 drv_t_eth:   db 'Ethernet', 0    ; a RAM disk is made of is what kern_small has
                                 ; none of, and a network card is not
@@ -895,7 +950,7 @@ drv_tab:
     db DRVE_OK
     db 0
 
-%ifdef KERN_BIG
+%ifdef KERN_EMU
 vmm_row:                        ; row 5: the VMware absolute pointer (SPEC.md
     dw PKG_DISP, 0              ; 9.11) - THE ONE DRVC_OVL ROW IN drv_tab, and
     dw drv_f_vmm, drv_t_vmm     ; the combination is deliberate. DRVC_OVL means
@@ -1008,8 +1063,8 @@ drv_memk:                       ; one word per drv_tab row, in the same order
     dw DRVM_RAM                 ; row 3: the RAM disk (kern_big alone)
 %endif
     dw DRVM_NET                 ; the parallel link, last on both builds
-%ifdef KERN_BIG
-    dw DRVM_VMM                 ; row 5: the absolute mouse (kern_big alone)
+%ifdef KERN_EMU
+    dw DRVM_VMM                 ; row 5: the absolute mouse (kern_emu alone)
 %endif
 %if ($ - drv_memk) / 2 != DRV_MAX
   %error "drv_memk has drifted from drv_tab: one word per row, same order"

@@ -3095,7 +3095,7 @@ mou_byte:
 .bout:
     ret
 
-%ifdef KERN_BIG
+%ifdef KERN_EMU
 ; -----------------------------------------------------------------------------
 ; mou_apply_abs - an ABSOLUTE report (SPEC.md 9.11)
 ;

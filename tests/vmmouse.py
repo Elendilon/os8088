@@ -60,6 +60,27 @@ import heapmap                                              # noqa: E402
 import os88sym                                              # noqa: E402
 import os88qemu                                             # noqa: E402
 
+# --- WHICH KERNEL'S SYMBOL MAP (SPEC.md 9.11.7) ------------------------------
+# Every read below goes through os88sym.linear, which re-assembles kernel.asm
+# and refuses a map that is not byte-identical to the kernel.bin it is checked
+# against. Since 9.11.7 the resident half of this feature is inside
+# %ifdef KERN_EMU, so the SHIPPED kernel has no vmm_on, no vmm_row and no
+# mou_apply_abs - a map taken from it would not merely have the wrong
+# addresses, it would not contain these symbols at all, and the test would die
+# at the first read with "unknown symbol" pointing at the test rather than at
+# the build.
+#
+# $OS88_BUILD names the directory (build/emuk/, where `make vmmousetest` puts
+# the emu kernel and its generated includes) and $OS88_DEFINES the define.
+# KERN_EMU is in os88sym's _SHIPPED_DEFS, so it does NOT pull in -DKERN_KNOB:
+# kern_emu is a shipped product measured against kern_big's budget, and adding
+# that define here would assemble a kernel `make emu` never built.
+#
+# setdefault rather than a plain assignment, so a session driving this by hand
+# with its own OS88_BUILD (a knob kernel, a field build) keeps it.
+os.environ.setdefault("OS88_BUILD", os.path.join(ROOT, "build", "emuk"))
+os.environ.setdefault("OS88_DEFINES", "KERN_EMU")
+
 SOCK = os.path.join(ROOT, "build", "vmm.sock")
 PIDFILE = os.path.join(ROOT, "build", "vmm.pid")
 

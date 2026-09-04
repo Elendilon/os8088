@@ -233,7 +233,15 @@ def _modcut(blob):
     return int.from_bytes(blob[off + 6:off + 10], "little")
 
 
-_SHIPPED_DEFS = ("KERN_BIG", "KERN_SMALL", "KERNSIZE", "KERN_KNOB")
+# The defines that name a SHIPPED PRODUCT rather than a diagnostic. A knob
+# kernel skips guard 1 and says so with -DKERN_KNOB (below); these four must
+# not, because each is a configuration somebody boots and each stays inside a
+# budget of its own. KERN_EMU is the third product (SPEC.md 9.11.7) and is
+# here for KERN_SMALL's exact reason - it is kern_big plus the absolute
+# pointer, measured against kern_big's budget, so adding KERN_KNOB for it
+# would assemble a map of a kernel `make emu` never built and the
+# byte-identity check below would refuse it.
+_SHIPPED_DEFS = ("KERN_BIG", "KERN_SMALL", "KERN_EMU", "KERNSIZE", "KERN_KNOB")
 
 
 def _load(defines=(), check=True):
@@ -276,8 +284,8 @@ def _load(defines=(), check=True):
     # Makefile says so with -DKERN_KNOB. A tool re-assembling one for its
     # symbol map has to say the same thing or nasm refuses a kernel that
     # `make` built happily - which reads as "the map is broken" rather than as
-    # a missing define. KERN_SMALL is not a knob for this purpose: it is a
-    # shipped configuration with a budget of its own.
+    # a missing define. KERN_SMALL and KERN_EMU are not knobs for this
+    # purpose: each is a shipped configuration with a budget of its own.
     if any(d.split("=")[0] not in _SHIPPED_DEFS for d in defines):
         defines = tuple(defines) + ("KERN_KNOB",)
     key = (bdir,) + tuple(defines)   # ...and the DIRECTORY, or two builds

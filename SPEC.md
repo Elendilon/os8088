@@ -11268,10 +11268,15 @@ install and hibernate on. §87.4 step 1 **detaches every driver that is not
 `DRVC_DISK` or `DRVC_FILE`** before it writes, so a file cannot make that
 trip and resident code can.
 
-`kern_big` only, for §41.11's reason one level down: every machine
-`kern_small` runs on is an 8086, `$(SMALLDRIVERS)` filters the image off those
-disks, and the row, `drv_load_at` and every byte that reads them are inside
-`%ifdef KERN_BIG`.
+**`kern_emu` only** — a third build of the kernel, and §9.11.7 is why the
+first answer here (`kern_big` only, `kern_small` filtered out) was not far
+enough. `kern_small` was never the machine that mattered: the 4.77 MHz 8088
+this project is calibrated against runs `kern_big`, and it can no more speak a
+32-bit backdoor protocol than a 128KB machine can. So the row, the gate byte,
+`vmm_dsp`, `vmm_poll`, `vmm_boot_x`, `mou_apply_abs` and every poll site are
+inside `%ifdef KERN_EMU`, `VMMOUSE.DRV` is off `$(DRIVERS)` and on the
+`make emu` disk alone, and both shipped kernels pay **nothing** — not a byte
+of image, not a cluster of floppy.
 
 #### 9.11.1 `DRVC_OVL`, with a `drv_tab` row
 
@@ -11280,7 +11285,8 @@ The one such combination in the tree, and each half is load-bearing.
 **No class.** A class is a *publication slot* (§51.2.1) — how a **package**
 finds the driver serving sound, or disks, or files. The kernel is this one's
 only caller and holds its row, so there is nothing to publish and nothing to
-find. `DRVC_MAX` stays 5. `drv_load_row` already stops a `DRVC_OVL` row after
+find. `DRVC_MAX` stays 5. (The row is `kern_emu`'s alone — §9.11.7 — so
+`DRV_MAX` is **6** there, **5** on `kern_big` and **4** on `kern_small`.) `drv_load_row` already stops a `DRVC_OVL` row after
 `drv_check`, with `DRVR_SEG` and `DRVR_ENT` live and no verb sent, and leaves
 the attaching to the owner — the same division `HDD.DRV`/`HDDTOOL.DRV` runs
 on, and the same one `XMEM.DRV` reaches through `drv_load_at`.
@@ -11465,20 +11471,33 @@ confirmed before it is called a bug rather than a hazard.
 
 #### 9.11.5 Cost
 
-| | |
-|---|---|
-| `.text` | **+259** — the gate byte, `vmm_dsp`, `vmm_poll`, `mou_apply_abs`, the three poll sites and the row |
-| `.cold` | **+124** — `vmm_boot_x`, where `driver.inc`'s three calls are near |
-| `kern_small` | **0**, `%ifdef`-ed out entire, state included |
-| the footprint | one 512-byte rung. The resident version cost two |
-| every `task_yield` | 16 bytes and ~91 clocks — **19.1 µs**, 2.8% of a 693 µs switch |
+**On `kern_emu`, and on nothing else** (§9.11.7). Measured by
+`tools/kernsize.py` against the shipped kernel:
 
-That last row is the price the target machine pays for a compare it will never
-take, and it is why `[vmm_on]` is one byte in `.text` rather than anything
-that needs computing. `.cold` is not `.ovl` — which would cost nothing after
-`spl_finish` — because the blob is full: putting `vmm_boot_x` there trips
-`OVL_AT + OVL_SIZE > BOOT2_PAD`, and `BOOT2_SECS` is a decision about how many
-sectors stage 1 reads, not a build fix.
+| | `kern_emu` | `kern_big` | `kern_small` |
+|---|---|---|---|
+| `.text` | **+260** — the gate byte, `vmm_dsp`, `vmm_poll`, `mou_apply_abs`, the poll sites, the row and its two strings | **0** | **0** |
+| `.cold` | **+124** — `vmm_boot_x`, where `driver.inc`'s three calls are near | **0** | **0** |
+| `.ovl` | **+1** — `drv_cfgbit`'s sixth byte | **0** | **0** |
+| the footprint | one 512-byte rung. The resident version cost two | **0** | **0** |
+| the system disk | `VMMOUSE.DRV`, 521 bytes and a directory slot | **0** | **0** |
+| every `task_yield` | 16 bytes and ~91 clocks — **19.1 µs**, 2.8% of a 693 µs switch | **0** | **0** |
+
+`[vmm_on]` is one byte in `.text` rather than anything that needs computing
+because that last row is what a build which *does* take the branch pays on
+every switch the backdoor is idle for. `.cold` is not `.ovl` — which would
+cost nothing after `spl_finish` — because the blob is full: putting
+`vmm_boot_x` there trips `OVL_AT + OVL_SIZE > BOOT2_PAD`, and `BOOT2_SECS` is
+a decision about how many sectors stage 1 reads, not a build fix.
+
+**The `kern_big` column is measured and not asserted.** With the feature
+gated to `kern_emu`, `kernsize[big]` reports every section identical to the
+blessed baseline — `text 50,733 +0  bss 6,067 +0  cold 37,186 +0  ovl 1,417
++0`, sum **+0** — and `kernsize[emu]` reports exactly the figures `kern_big`
+carried while it held the feature (`text 50,993`, `cold 37,310`, `ovl 1,418`,
+`KERN_SIZE 110,080`). Nothing was lost in the move and nothing was added: the
+385 bytes and the crossed rung went from the kernel every XT boots to the one
+only an emulator boots.
 
 #### 9.11.6 QEMU carries the backdoor — the harness turns it off
 
@@ -11517,6 +11536,73 @@ tolerance allows in the middle. `make run VMPORT=on`
 is how a developer gets the grabless pointer interactively.
 
 MartyPC has no backdoor of any kind, so nothing there changes.
+
+#### 9.11.7 `kern_emu` — the build that carries it
+
+**A third kernel off the one tree**, beside `kern_big` and `kern_small`
+(docs/KERN-SPLIT-PLAN.md). `make emu` builds it into `build/emuk/` and writes
+`build/emu.img`; `kern_emu` is `kern_big` **plus this feature and nothing
+else**.
+
+**Why it is a build and not a default.** §9.11 moved the protocol into
+`VMMOUSE.DRV` and left a resident half behind — a gate byte, `vmm_dsp`,
+`vmm_poll`, `vmm_boot_x`, `mou_apply_abs` and two poll sites — on the
+argument that `kern_small` is the 128-256KB product and every machine it runs
+on is an 8086. That argument was true and it stopped one machine short. **The
+IBM PC/XT runs `kern_big`**, and it is the machine this entire project is
+calibrated against; it has no `EAX`, `0x66` is an invalid opcode on it, and
+there is nothing on it to speak the protocol to. What it was carrying was 385
+bytes of image and **one crossed 512-byte footprint rung** — 512 bytes of
+every XT's RAM — to hold a byte nailed to 0 for the life of the product, plus
+521 bytes and a directory slot of a 360KB system disk that had **17 of 354
+clusters left**.
+
+**It goes one step further than `XMEM.DRV`, and the step is the CPU.** §41.12
+made this same argument for the store above 1MB and kept a resident sniff,
+because an 8086 *can* ask whether there is memory up there and the answer
+differs per machine. Here **the probe itself is 386 code** (§9.11.2's
+`cmp byte [cpu_tier], CPU_386`), so there is no resident question an XT could
+ask and nothing it could do with the answer. When a feature's *detection* is
+out of a machine's reach, the honest resident cost on that machine is zero,
+and a third build is what makes zero available.
+
+**It is ADDITIVE, not a third tier.** `KERN_EMU` implies `KERN_BIG` —
+`kernel.asm` defines it and the Makefile puts both on the command line — so
+every `%ifdef KERN_BIG` in the tree still applies and `kern_emu` keeps the RAM
+disk, the extended store, the loadable drivers and the rest. A third
+*exclusive* name would have fallen outside all of them and produced a kernel
+that was neither product. `KERN_EMU` with `KERN_SMALL` is refused in
+`kernel.asm`: a 128KB machine running a 386 protocol is not a product.
+
+**It is a shipped variant, not a knob.** Like `KERN_SMALL` it is exempt from
+`-DKERN_KNOB`, so guard 1 (`KERN_BUDGET`) still binds it — the one build that
+*adds* a feature must not be the one build nothing measures — and it has a
+baseline of its own in docs/KERNEL-MEMORY.md, blessable by
+`tools/kernsize.py --bless -DKERN_BIG -DKERN_EMU`. `tools/os88sym.py` carries
+`KERN_EMU` in `_SHIPPED_DEFS` for the same reason.
+
+| | |
+|---|---|
+| build | `make emu` → `build/emuk/kernel.bin`, `build/emu.img` (1.44MB) |
+| drivers | `$(EMUDRIVERS)` = `$(DRIVERS)` **plus** `VMMOUSE.DRV` — an addition, where `$(SMALLDRIVERS)` is a restatement from nothing |
+| `SYSTEM.CFG` | **shipped on this disk and on no other**, bit 5 set. Every row is not-wanted by default (§51.3), and a `kern_emu` machine that must be told to enable the one feature it was built for has been given nothing |
+| apps disk | the **shipped** `build/apps.img`, unchanged — `kern_emu` defines `KERN_BIG`, so it holds the same API table at the same offsets |
+| `DRV_MAX` | 6 here, 5 on `kern_big`, 4 on `kern_small` |
+| geometry | 1.44MB only. 360KB exists for real period hardware, and no machine that needs a 360KB floppy can execute a 386 instruction |
+
+**Rows 0-4 do not move, so `SYSTEM.CFG` stays readable both ways.** The row
+that went was the *last* one, which is why this subtraction is free where
+`kern_small`'s (§62.9.15, which drops row 3 and shifts everything after it) is
+not. `drv_cfgbit`'s assignment for rows 0-4 is `0, 1, 4, 2, 3` on both builds;
+a settings file written on `kern_emu` and read on `kern_big` has bit 5 set for
+a row that build has no table entry for, and `drv_want_get` walks `DRV_MAX`
+rows and never reaches it — ignored, not misread. `drv_cfgbit` now carries the
+same one-byte-per-row assertion `drv_memk` has always had.
+
+**The gate is `kern_emu`'s too.** `make vmmousetest` builds `build/vmmouse.img`
+on the `build/emuk/` kernel, and `tests/vmmouse.py` sets `$OS88_BUILD` and
+`$OS88_DEFINES` so `os88sym` resolves against it — on the shipped kernel
+`vmm_on` is not a wrong address, it is not a symbol at all.
 
 
 ## 10. events.inc
