@@ -143,12 +143,17 @@ def _map(app, defines=()):
 def colour_gif(src="build/OS8088.GIF", dst="/tmp/OS88COL.GIF"):
     """`src` with a FOUR-entry colour table, so SPEC.md 42.23.6 keeps it 4bpp.
 
-    **Every pixel is identical** - the two entries the image uses keep their
-    indices and their colours, and two unused ones are appended - so any row
-    whose oracle is "the canvas against the file" is unaffected. What changes
-    is the one bit `pt_fmtpick` reads: 42.23.6 opens a picture whose colour
-    table has two entries ONE BIT DEEP, on any adapter, and `build/OS8088.GIF`
-    turns out to have exactly two.
+    **Every pixel INDEX is identical, and what the indices mean is not** - the
+    two new entries go in FIRST, so the picture's own pair moves to 2 and 3
+    and every pixel is drawn in one of the two new colours. That is what makes
+    the file colour, and the file has to be colour or `pt_fmtpick` takes a
+    1bpp canvas and the planar rows have no subject. What it reads is one bit:
+    42.23.6 opens a picture whose colour table has two entries ONE BIT DEEP,
+    on any adapter, and `build/OS8088.GIF` turns out to have exactly two.
+
+    **A row whose oracle is "the 1bpp canvas equals the file's own bitmap"
+    therefore CANNOT use this** - see the note at the insertion below, which
+    is what `blitpair` cost. Those rows want `build/OS8088.GIF` itself.
 
     That is correct for that file and it left the tree with no COLOUR picture
     at all - so `paintrow` and `paintback`, whose whole subject is the
@@ -179,6 +184,27 @@ def colour_gif(src="build/OS8088.GIF", dst="/tmp/OS88COL.GIF"):
         shutil.copyfile(sp, dst)            # already colour: nothing to do
         return dst
     d[10] = (pk & 0xF8) | 1                 # 2 << 1 = four entries
+    # **PREPENDED, AND THAT IS THE POINT, so the paragraph above is wrong in
+    # the one way that matters and is corrected here rather than tidied.** The
+    # table starts at offset 13, so this inserts BEFORE the two entries the
+    # image uses: indices 0 and 1 - the only ones any pixel carries - become
+    # the two new colours, and the picture's own pair moves to 2 and 3. The
+    # INDICES are untouched; what they mean is not.
+    #
+    # That is what makes the file colour, which is the whole purpose: with the
+    # original black and white still at 0 and 1 the picture reduces to one bit
+    # again, `pt_fmtpick` calls it colourless and Paint takes a 1bpp canvas -
+    # measured, `paintrow` and `paintplan` then report *"no gfx_blitp - the
+    # canvas is not planar"*, which is those rows losing their subject.
+    #
+    # **SO IT IS NOT A DROP-IN FOR OS8088.GIF, and a row whose oracle is "the
+    # 1bpp canvas equals the file's own bitmap" must not use it**: on a 1bpp
+    # adapter SPEC.md 39.4 reduces 0xAA0000 and 0x0000AA to the SAME class, so
+    # the canvas is solid where the file alternates. `tests/blitpair.py` was
+    # pointed here and read 20,327 differing pixels of 51,260 - which looks
+    # exactly like the decoder bug it exists to catch, and was filed as a
+    # pre-existing failure (docs/HANDOFF-SOAK-FINDINGS.md F1). It takes
+    # build/OS8088.GIF itself now, and says why.
     d[13:13] = bytes([0xAA, 0x00, 0x00,     # ...two of them unused by the
                       0x00, 0x00, 0xAA])    # image, and genuinely colours
     open(dst, "wb").write(bytes(d))

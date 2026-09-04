@@ -17,7 +17,7 @@
 ; look at the SAME window before and after the Control Panel's Drivers page
 ; has the Ram Disk ticked:
 ;
-;   Ping: DR      RDPV_IDENT answered 'DR' - we reached A DRIVER. '--' means
+;   Ping: DR      RDPV_IDENT answered 'DR' - we reached A DRIVER. '..' means
 ;                 the kernel refused: no DRVC_FILE driver published, or the
 ;                 one that is publishes no DSV_PKGCALL
 ;   Upcase: ...   RDPV_UPCASE was handed ES:SI into OUR OWN SEGMENT and wrote

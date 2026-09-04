@@ -41,6 +41,7 @@ so a rung that moves cannot desync them.
 """
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -244,6 +245,32 @@ def _modcut(blob):
 _SHIPPED_DEFS = ("KERN_BIG", "KERN_SMALL", "KERN_EMU", "KERNSIZE", "KERN_KNOB")
 
 
+# The About box's first line (SPEC.md 14.2), and the only place the build
+# number is VISIBLE in the image - `dw BUILD_NUM` appears five more times in
+# module headers, but those are fixed-width values at offsets that move with
+# the code, while this is a unique byte string with the digits right after it.
+_ABOUT = b"os8088 1.0  Build "
+
+
+def image_build_num(path):
+    """The build number `path` was BUILT with, read out of the image itself.
+
+    Returns None when it cannot be had - a shallow clone builds with
+    BUILD_NUM 0 and then the About line has no number in it at all, which is
+    `%if BUILD_NUM` working as designed.
+    """
+    try:
+        with open(path, "rb") as f:
+            b = f.read()
+    except OSError:
+        return None
+    if b.count(_ABOUT) != 1:            # not exactly one: do not guess
+        return None
+    i = b.find(_ABOUT) + len(_ABOUT)
+    m = re.match(rb"(\d{1,9})\x00", b[i:i + 12])
+    return int(m.group(1)) if m else None
+
+
 def _load(defines=(), check=True):
     # $OS88_DEFINES is how a tool that never asked for a knob still finds the
     # right map. Every helper here takes `defines`, and the ones layered above
@@ -305,7 +332,42 @@ def _load(defines=(), check=True):
         f.write("[map all %s]\n" % mapf)         # is what `check` proves
         f.write(body)
 
-    cmd = ["nasm", "-f", "bin", "-w+error",
+    # **A COMMIT MUST NOT INVALIDATE THIS MAP, and it used to.** BUILD_NUM is
+    # the commit count and it reaches the kernel through a GENERATED include
+    # (tools/buildnum.py -> $(BUILD)/buildnum.inc), which every `make` rewrites
+    # at PARSE time - so between a commit and the next relink, this
+    # re-assembly used a number the image was not built with and the byte
+    # comparison below refused a kernel that was perfectly current. Every
+    # emulator row in the tree then died on its first symbol lookup, several
+    # frames from the cause, and the standing advice was "run `make` after
+    # committing" - which every agent forgets, and which does not help at all
+    # while a suite is running (docs/SOAK-PARALLEL.md 12: nine rows lost to a
+    # 4m54s window).
+    #
+    # So the number is READ OUT OF THE IMAGE being checked, and a shadow
+    # buildnum.inc carrying it goes FIRST on the include path. The comparison
+    # stays EXACT - a genuinely stale kernel still differs in the bytes that
+    # matter - and it simply stops failing on the one difference that is never
+    # a real one. Measured: forcing the image's own number reproduces the
+    # plain assembly byte for byte, and a different number changes the bytes.
+    #
+    # It needs no kernel change, which is the reason for doing it this way
+    # rather than pinning a field: nasm's `%define` in an included file beats
+    # a command-line `-D`, and shadowing the file beats both.
+    shadow = []
+    built0 = os.path.join(bdir, "kernel.bin")
+    bn = image_build_num(built0)
+    if bn is not None:
+        sdir = os.path.join(tmp, "bn")
+        os.makedirs(sdir, exist_ok=True)
+        with open(os.path.join(sdir, "buildnum.inc"), "w") as f:
+            f.write("; SHADOW, written by tools/os88sym.py: the number the\n"
+                    "; image under test was built with (see _load).\n"
+                    "%%define BUILD_NUM %d\n%%define BUILD_STR '%d'\n"
+                    % (bn, bn))
+        shadow = ["-I", sdir + os.sep]
+
+    cmd = ["nasm", "-f", "bin", "-w+error"] + shadow + [
            "-I", os.path.join(ROOT, "kernel") + os.sep,
            "-I", os.path.join(ROOT, "apps") + os.sep,
            "-I", bdir + os.sep] + \

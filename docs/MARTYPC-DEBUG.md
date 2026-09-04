@@ -647,6 +647,129 @@ a real os8088 Hercules desktop measures **136,617 lit of 252,000 (54.2%)**
 through `fbuf` against **55.7%** through `vram`, the two agreeing to within the
 aperture crop. See the correction under `flicker` below.
 
+### Start at `tools/os88ui.py`, not at the mouse
+
+The mouse drivers below are the layer under this one. What a test usually
+means is *"open the Disk window on B:"*, not *"double-click (584, 48)"* — and
+`tools/os88ui.py` is that vocabulary, resolved out of the guest's own tables
+and **confirmed by reading guest state**:
+
+```python
+import os88ui
+
+with os88ui.boot("build/os8088-360.img", apps="build/apps360.img") as ui:
+    disk = ui.open_drive("B")            # ...whatever ordinal B: has today
+    w    = ui.path("APPS/CALC.O88")      # ...scrolling if the row is below the fold
+    ui.drag_window(w, 20, 12)            # ...and checking where it landed
+    ui.raise_window("APPS")
+    ui.menu_pick("Calc", "Close")        # ...off menu_bar[], not four numbers
+```
+
+`boot` is the three lines 175 of 231 scripts open with, plus the two things
+most of them forget: the machine name goes through `os88marty.machine`, so an
+IBM-romset name resolves to its GLaBIOS twin, and **the screen saver is turned
+off by default** — 171 of the 206 launching scripts never do that, and five
+guest minutes of no input is reachable on a busy lane.
+
+**Confirming is FASTER than not confirming, which is the surprising part.**
+`settle` waits for two identical frames a second apart and reads the
+framebuffer over the socket to compare them; it cannot know what it is waiting
+for, so it waits for the whole screen to go quiet and then waits `quiet`
+seconds more. Reading `wm_wins` to see whether the window that was supposed to
+open has opened is a 408-byte read that answers the actual question and
+returns the instant it is yes. The check REPLACES the wait rather than
+following it. Measured by `tests/uilayer.py`, one machine, the same three-step
+navigation ending on the same desktop:
+
+| | host | guest |
+|---|---|---|
+| double-click, `settle`, repeat | 15.0 s | 250,573,106 cycles (52.5 s) |
+| the same through `os88ui` | **5.2 s** | **87,422,885 cycles (18.3 s)** |
+| | **0.35x** | **0.35x** |
+
+`ui.settle()` is still there for a test that compares PIXELS — that one really
+does have to wait for the picture. It is settling as a way of waiting for
+something to *happen* that this replaces.
+
+**And a verb that cannot do what it was asked RAISES, naming what it saw.**
+That is the half the speed is a bonus to. `no window called 'MINES' is open.
+What is open: ['Disk', 'APPS']` is reported where it happened; a click that
+lands on bare desktop is reported twenty steps later wearing the costume of
+the feature under test. Three cases in the tree that had each cost a session
+are handled rather than described:
+
+- **a drive with no zone.** Zone position is the volume's place among the
+  *shown* ones, so a machine whose B: was retired by §18.97's probe numbers
+  them differently. `open_drive` walks `dsk_vtab` and says "drive C: has no
+  desktop zone on this machine" instead of clicking bare desktop.
+- **a row that is not a row.** §19.4 sorts by name, a folder that gains one
+  entry renumbers every row after it, and one that outgrows the window puts
+  the row below the fold. `open` looks the name up, scrolls to it by reading
+  `FS_SCRL` back, and checks the row before it clicks.
+- **a title bar that is covered.** The window record says where the bar is and
+  nothing about whether anything is on top of it, so
+  `click(w.x + w.w//2, ...)` on a window that is behind another one raises the
+  *other* one and the script never knows. `raise_window` walks the z-order for
+  a column nothing covers, and falls back to the dock tile — which is always
+  visible, and whose click "does whatever its own mark says is not true yet"
+  (§30). `tests/uilayer.py` hits this every run: the Disk window covers the
+  Calculator's bar completely, and the raise goes via the tile.
+- **the acting Disk window is not the front window.** `fm_vp_set` runs on a
+  file-manager raise and on its navigations; *nothing* calls it when a
+  Calculator comes forward, so `[fm_vp]` goes on naming the last Disk window
+  while the front window is something else. A row position computed off the
+  front window then lands inside the Calculator. `ui.disk_window()` resolves
+  it through `[fm_vinst] → I_WIN` — the link the kernel itself keeps — and
+  `ui.open` raises it before scrolling, because the arrow keys only reach the
+  frontmost window. **Five scripts in this tree carry their own `raise_win`
+  for exactly this**, one of them with a docstring naming the symptom: *"the
+  listing simply does not change, and the NEXT open says the file it wants is
+  not in this folder while naming the folder it never left."*
+
+Two more things it knows that a hand-written click does not: a window dragged
+to *x* lands at `((x + 1) & ~7) - 1`, because §11.94 snaps the content origin
+to a multiple of 8 (`os88geom.snapx`) — so a check written against the
+requested x fails on a window manager doing exactly what the spec says; and a
+menu item carrying §12's `MENU_DIS` prefix cannot be selected at all, so a
+drag aimed at one releases over its neighbour and runs a command nobody asked
+for. `menu_pick` refuses that before the press, and checks `menu_sel` **before
+the release** — so a mis-aimed pick raises instead of activating the wrong
+item.
+
+Every constant it uses comes from `tools/os88geom.py`, which checks itself
+against the kernel source at import and is checked again by
+`tests/unit/t_mirror.py` in the fast tier.
+
+### Which mouse driver — there are two, and picking wrong fails silently
+
+| | | |
+|---|---|---|
+| **`tools/os88mouse.py`** | **ABSOLUTE — the default** | Reads the kernel's published `mouse_x` (SPEC.md §9.4.3), computes the exact remaining delta and **proves arrival**. `Mouse(marty=m)`, then `to` / `click` / `dblclick` / `drag` / `menu`. A target it cannot reach raises; it never clicks into empty desktop. |
+| **`tools/os88mouserel.py`** | RELATIVE | Dead reckoning off a corner pin (`home()`), guest-**frame** pacing for a bit-exact replay, proven button edges, and `drift()`/`check()` to say when reckoning has come apart. |
+| `Marty.mouse()` in `tools/os88marty.py` | the transport | One 3-byte packet into the emulated UART. The layer both drivers sit on, and correct to call directly **only** for packet-level work. |
+
+**Use the absolute one unless your case is on this list**, which is the whole
+of it:
+
+1. **the mouse itself is under test** — packet decoding, SPEC.md §9.5's port
+   contest, the ISR's own stack (§9.10). Asking the kernel where the arrow is
+   would be asking the thing under test to mark its own work;
+2. **a replay must be reproducible** (docs/SNAPSHOT-PLAN.md §7) — the absolute
+   driver sends however many packets convergence needs, and how many that is
+   depends on the host;
+3. **the motion has no destination** — a paint stroke, a window drag, a sweep.
+
+The reason this needs writing down is the failure shape. A dead-reckoned click
+lands three pixels outside a 16-pixel control, **nothing happens, and no error
+is raised** — the script carries on and reports a broken feature twenty steps
+later. A packet carries a signed byte per axis, the 1200-baud UART drops one
+sent while the previous is in flight, and the kernel's edge clamp eats
+overshoot; those three are why aiming by hand does not work and why closing
+the loop was worth a tool.
+
+(The relative driver was `tools/os88drive.py`, whose first line called itself
+*absolute* while dead reckoning. It had no callers.)
+
 ### Several at once
 
 **Two agents, two terminals or two rows of the suite can drive MartyPC in one
@@ -1242,7 +1365,7 @@ x >= [vid_clk_hx]` rather than chasing 42 pixels at the top right.
 | `park` | point the CPU at `cs:ip` with the prefetch queue flushed, so a harness can take the guest **out** of a measurement |
 | `snapshot` / `restore` | fork a holder process; wake it on a port, any number of times |
 | `key` | a keypress by MartyKey name — `KeyA`, `Enter`, `ArrowRight` |
-| `mouse` | one Microsoft packet: relative `dx`/`dy` and button state. **To click a CONTROL use `tools/os88mouse.py` instead** — it reads the live cursor from the debug registry (SPEC.md §9.4.3) and converges on an absolute target, where aiming this one by dead reckoning drifts and misses silently |
+| `mouse` | one Microsoft packet: relative `dx`/`dy` and button state. **To click a CONTROL use `tools/os88mouse.py` instead** — it reads the live cursor from the debug registry (SPEC.md §9.4.3) and converges on an absolute target, where aiming this one by dead reckoning drifts and misses silently. When relative really is what you want — the mouse itself under test, a bit-exact replay, motion with no destination — `tools/os88mouserel.py` is that driver and this is its transport |
 | `history` / `callstack` | the CPU's own instruction history |
 | `disks` | what is in each floppy drive, and where it was mounted from |
 | `flush` | write a drive's live image back out to a host file — the guest's writes, which live nowhere else. `tools/os88flush.py` is the client |
@@ -1704,7 +1827,7 @@ replaying the inputs, with no snapshot format at all.
 The sharp edge is that **a wall-clock client destroys that determinism**: two
 free-running instances paused after the same `sleep(22)` were **21.7 M cycles
 apart**. So `advance(frames=…)` / `advance(cycles=…)` is the way to wait, never
-`time.sleep`, and `tools/os88drive.py` is the mouse driver paced that way —
+`time.sleep`, and `tools/os88mouserel.py` is the mouse driver paced that way —
 two processes running the same script from reset land on the identical cycle
 count and the identical 1 MB.
 

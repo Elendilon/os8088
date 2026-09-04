@@ -66,6 +66,7 @@ import sys
 sys.path.insert(0, "tools")
 sys.path.insert(0, "tests")
 sys.path.insert(0, "tests/multiseg")
+import os88build
 import os88marty
 import os88mouse
 import os88parts
@@ -125,18 +126,31 @@ def title_of(m, S, seg, rec):
 
 
 def build_counted():
+    """The counted kernel, in a PRIVATE TREE (tools/os88build.py).
+
+    It used to go into build/ with a `make` in a `finally` to put the plain
+    kernel back - two full builds, and in between any row reading the tree
+    would have driven a DISKCNT kernel nobody asked for.
+    """
+    global SYS_IMG, APPS_IMG, O88
     say("building the counted kernel (DISKCNT=1)...")
-    r = subprocess.run(["make"] + KNOBS, cwd=ROOT, capture_output=True,
-                       text=True)
-    if r.returncode:
-        raise SystemExit("mseglazy: `make %s` failed:\n%s"
-                         % (" ".join(KNOBS), (r.stdout + r.stderr)[-1500:]))
+    # `mseg` COMES ALONG, and that is a fix rather than tidiness: this row's
+    # own usage line says `make mseg && python3 tests/mseglazy.py`, mseg is NOT
+    # in `all`, and the row never built it - so on any tree where somebody had
+    # not typed that by hand it died with FileNotFoundError on build/mseg.o88.
+    # That is docs/HANDOFF-SOAK-FINDINGS.md B4's shape exactly: an ABSENT gate
+    # reading as a failing one. A private tree has to name what it wants, and
+    # naming it is what fixed it.
+    t = os88build.tree(*KNOBS, targets=("os8088-360.img", "mseg")).apply()
+    SYS_IMG = t.img("os8088-360.img")
+    APPS_IMG = t.img("mseg.img")
+    O88 = t.img("mseg.o88")
 
 
 def run():
     import os88geom
     S = lambda n: os88sym.linear(n, defines=DEFINES)     # noqa: E731
-    blob = open(os.path.join(ROOT, O88), "rb").read()
+    blob = open(O88, "rb").read()
     rows = os88parts.rows(blob[:blob[8] | (blob[9] << 8)])
     row = rows[LAZY]
     lazy_secs = os88parts.sectors(row)
@@ -298,10 +312,7 @@ def run():
 
 def main():
     build_counted()
-    try:
-        run()
-    finally:
-        subprocess.run(["make"], cwd=ROOT, capture_output=True, text=True)
+    run()
     if fails:
         print("\nmseglazy: FAIL")
         for f in fails:

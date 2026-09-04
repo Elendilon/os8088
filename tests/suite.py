@@ -45,10 +45,10 @@ class Row:
     """One registered test."""
 
     __slots__ = ("name", "tier", "cmd", "secs", "needs", "serial", "why",
-                 "timeout", "builds", "alone")
+                 "timeout", "builds", "alone", "wants")
 
     def __init__(self, name, tier, cmd, secs, why, needs=(), serial=False,
-                 timeout=None, builds=False, alone=False):
+                 timeout=None, builds=False, alone=False, wants=()):
         self.name, self.tier, self.cmd = name, tier, cmd
         self.secs, self.why = secs, why
         self.needs = tuple(needs)
@@ -62,6 +62,24 @@ class Row:
         # rather than trusting it: a row that gains a `make` and not the flag
         # would be a suite that fails one run in five for no visible reason.
         self.builds = builds
+        # WANTS: build artefacts this row OPENS and `make all` does not
+        # produce - `("build/pkgbig.img",)`. Paths, not make targets, because
+        # the path is what the row actually opens and the runner can then ask
+        # whether it is there; `make <path>` builds it, since every one of
+        # them is a `$(BUILD)/x` rule.
+        #
+        # **THE POINT IS THAT THEY ARE BUILT BEFORE ANY ROW RUNS.** A row that
+        # makes its own artefact mid-run rewrites build/ under every other row
+        # reading it, and that is not a theory: the first full soak of this
+        # work lost nine rows to a four-minute window opened by one row's
+        # `make` (docs/SOAK-PARALLEL.md 12). Declaring the artefact moves the
+        # build to a moment when nothing else is running.
+        #
+        # It also ends the OTHER failure this caused, which reads as a broken
+        # feature: eleven images under tests/ had a Makefile rule, no builder,
+        # and a row that died on `FileNotFoundError` several frames from the
+        # cause - mseg360, pkgbig and pkgfence did exactly that in that soak.
+        self.wants = tuple(wants)
         # ALONE: this row's ANSWER needs the machine to itself, which is a
         # different claim from `builds` and was not sayable until now. A row
         # whose assertion is a RATE - frames a second, milliseconds a redraw -
@@ -128,7 +146,7 @@ FAST = [
         "after the compare underflows and relocates the sector to the top of "
         "a 1MB machine that is not there",
         needs=("nasm",)),
-    Row("lowwin", "fast", py("tests/unit/t_lowwin.py"), 5.5,
+    Row("lowwin", "fast", py("tests/unit/t_lowwin.py"), 10.0,
         "the mount-owned window is the BOTTOM of .lowbss (SPEC.md 2.1.2), so "
         "that it and the FAT window under it are one contiguous 8,192-byte "
         "region dead for the whole of kmain. It is bought by one include line "
@@ -139,7 +157,7 @@ FAST = [
     Row("api-abi", "fast", py("tests/unit/t_api_abi.py"), 3.3,
         "the API table decoded from kernel.bin and compared with the SDK - the "
         "silent merge collision CLAUDE.md asks to be checked by hand"),
-    Row("stackprose", "full", py("tests/unit/t_stackprose.py"), 5.0,
+    Row("stackprose", "full", py("tests/unit/t_stackprose.py"), 10.0,
         "a doc or comment that names the task stack's SIZE names the one the "
         "kernel has. SCH_STACK has been 1,536, 512, 256 and 384; SPEC.md 2.1 "
         "and 20.6 rule 6 followed it every time and the forty-odd places "
@@ -298,6 +316,14 @@ FAST = [
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
         "that stops this suite going back to a directory nobody can enumerate"),
+    Row("machines", "fast", py("tests/unit/t_machines.py"), 0.3,
+        "no row names a machine whose ROM this tree has not got. MartyPC "
+        "falls back to glabios_pc when a romset is absent and says NOTHING, "
+        "so nine rows spent months reporting passes about a machine they "
+        "never booted (docs/HANDOFF-SOAK-FINDINGS.md E3). It also checks each "
+        "GLaBIOS twin still differs from its IBM original in `rom_set` alone "
+        "- a drifted twin measures the config's difference and calls it the "
+        "kernel's"),
     Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 2.0,
         "unreachable code after an unconditional jump, a prologue restored in "
         "the WRONG ORDER (SPEC.md 1's register discipline: balanced depth, "
@@ -322,7 +348,7 @@ FAST = [
         "implementations written from WEAVE-SPEC that can disagree, and "
         "until the 8086 runtime lands this row is the disagreement's only "
         "audience"),
-    Row("lmpack", "fast", py("tests/unit/t_lmpack.py"), 6.5,
+    Row("lmpack", "fast", py("tests/unit/t_lmpack.py"), 10.0,
         "WEAVE-SPEC 11.1's byte-identity gate, host-side: LOOM's five "
         "SHIPPING compilers built with the host cc, packing every demo, "
         "every template and every case in tests/weave/packerr/, diffed "
@@ -427,7 +453,7 @@ FAST = [
         "opposite ends (docs/STKBALANCE-KERNEL.md 4)",
         ),
 
-    Row("gifdrag", "soak", py("tests/gifdrag.py"), 300.0,
+    Row("gifdrag", "soak", py("tests/gifdrag.py"), 150.0,
         "THE FIELD'S OWN FREEZE, driven end to end (SPEC.md 8.7.4): the Task "
         "Manager on its HEAP page while PAINT holds MEDIA/OS8088.GIF, then the "
         "window dragged again and again. It asserts the MARGIN and not the "
@@ -480,10 +506,10 @@ FAST = [
 # full - the pre-merge gate. Everything above, plus these.
 # --------------------------------------------------------------------------
 FULL = [
-    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 110.0,
+    Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 180.0,
         "the knob kernels and kern_small - every configuration `all` "
         "does not build, and so the only thing that keeps them assembling", builds=True),
-    Row("bmshare", "full", py("tests/unit/t_bmshare.py"), 16.0,
+    Row("bmshare", "full", py("tests/unit/t_bmshare.py"), 30.0,
         "...and that the three variables it builds them WITH change no byte. "
         "ICODIR/NOOVLCHK/NOKERNSIZE each take work out of a knob build - the "
         "shared packages, the source-only overlay gate, the size report's "
@@ -492,8 +518,8 @@ FULL = [
         "compares the images, and it checks the exclusion the sharing rests "
         "on: SBDRAGOFF/SBRATE reach notepad's own nasm line, t_buildmatrix "
         "derives that pair from $(PKGSBDEF) rather than keeping a copy, and "
-        "both ends of that derivation are asserted here", builds=True),
-    Row("kernmods", "full", py("tests/unit/t_kernmods.py"), 7.0,
+        "both ends of that derivation are asserted here"),
+    Row("kernmods", "full", py("tests/unit/t_kernmods.py"), 30.0,
         "tools/kernsize.py's PER-MODULE pass still measures - the byte "
         "compare inside it worked and nothing ran it, so --bless returned 1 "
         "without writing while t_kernbudget went on advising it. Here and "
@@ -531,8 +557,8 @@ FULL = [
         "perfectly and dies at the first paint. It builds its own image "
         "(`make small`, into build/smallk/) because there is no capability "
         "to probe for and `all` never builds that kernel",
-        needs=("marty",), serial=True, builds=True),
-    Row("stk0water", "soak", py("tests/stk0water.py"), 300.0,
+        needs=("marty",), serial=True),
+    Row("stk0water", "soak", py("tests/stk0water.py"), 70.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
         "section says `redo the fill probe before lowering either` and the "
         "probe was a hand edit to kmain plus a hand read, so it had been run "
@@ -551,7 +577,7 @@ FULL = [
         "`soak` because it is a MEASUREMENT rather than an assertion - it "
         "prints the margin at five candidate sizes and fails nothing",
         needs=("marty",), serial=True),
-    Row("small128", "full", py("tests/small128.py"), 110.0,
+    Row("small128", "full", py("tests/small128.py"), 20.0,
         "...and it reaches that desktop on a machine with 128KB IN IT. Every "
         "other MartyPC profile here is 640KB, so `MIN_RAM_KB` had been an "
         "ARITHMETIC claim since the day it was written - guard 5 compares two "
@@ -567,8 +593,8 @@ FULL = [
         "holding 3,072 bytes of one and was found by accident. Reads 0 "
         "pinned, 18,432 purgeable, 40.5 KB usable. Builds its own image for "
         "smallboot's reason",
-        needs=("marty",), serial=True, builds=True),
-    Row("int0sweep", "soak", py("tests/int0sweep.py"), 240.0,
+        needs=("marty",), serial=True),
+    Row("int0sweep", "soak", py("tests/int0sweep.py"), 60.0,
         "Does anything raise a DIVIDE ERROR? (SPEC.md 11.96) On an IBM "
         "5150/5160 ROM the INT 0 vector is a BIOS stub that writes 0FFh to "
         "the 8259 mask and IRETs, so ONE divide overflow anywhere is a dead "
@@ -589,7 +615,7 @@ FULL = [
         "description that is wrong is what makes the next person distrust "
         "the column",
         needs=("marty",), serial=True),
-    Row("vgadrop", "soak", py("tests/vgadrop.py"), 150.0,
+    Row("vgadrop", "soak", py("tests/vgadrop.py"), 40.0,
         "SPEC.md 39.22: the heap floor starts UNDER .vgabuf on a machine with "
         "no VGA and AT KERN_END on one that has it. Reads [mem_base] as a "
         "WORD on three adapters rather than a KB total, because a KB rounds "
@@ -598,7 +624,7 @@ FULL = [
         "[vid_avail], which reads identically until somebody switches a VGA "
         "machine to mono",
         needs=("marty",), serial=True),
-    Row("weavesmoke", "full", py("tests/weavesmoke.py"), 100.0,
+    Row("weavesmoke", "full", py("tests/weavesmoke.py"), 70.0,
         "WEAVE opens FORM.WAB and draws a window on both 1bpp GLaBIOS twins - "
         "the Weave family's ONE full-tier row, forever (WEAVE-SPEC 12.3), and "
         "the widest reach per second the family has: the .WAB association, "
@@ -616,7 +642,7 @@ FULL = [
         "the launch after the boot costs as much again as the boot, and it "
         "went 41s -> 45s when wdraw.inc's paint core took weave.o88 from "
         "21,076 bytes to 27,020",
-        needs=("marty", "cc"), serial=True, timeout=300, builds=True),
+        needs=("marty", "cc"), serial=True, timeout=300),
 ]
 
 # --------------------------------------------------------------------------
@@ -627,7 +653,7 @@ FULL = [
 # single-subject gates; several are worth reading before touching their area.
 # --------------------------------------------------------------------------
 SOAK = [
-    Row("weavevm", "soak", py("tests/weavevm.py"), 20.0,
+    Row("weavevm", "soak", py("tests/weavevm.py"), 10.0,
         "WEAVE-SPEC 12.3: the SHIPPING apps/weave/wvm.inc run in a raw-QEMU "
         "BOOT SECTOR with SS != DS and no OS under it at all, diffed case by "
         "case against tools/weavesim.py's end states - the rcz80test / "
@@ -646,7 +672,7 @@ SOAK = [
         "in well under a second) plus the corpus generation and the nasm "
         "run, with room for the corpus growing",
         needs=("qemu", "nasm"), serial=True, timeout=300),
-    Row("weavecanvas", "soak", py("tests/weavecanvas.py"), 20.0,
+    Row("weavecanvas", "soak", py("tests/weavecanvas.py"), 10.0,
         "WEAVE-SPEC 12.1.3: the SHIPPING apps/weave/wspr.inc and "
         "apps/weave/wwork.inc - WEAVE.WSM's composer and frame loop - run in "
         "a raw-QEMU BOOT SECTOR with SS != DS and no OS under them, diffed "
@@ -684,7 +710,7 @@ SOAK = [
         "run, and a declared figure nobody has taken is the thing this "
         "registry's budgets exist to stop drifting",
         needs=("marty", "cc"), serial=True, timeout=360, builds=True),
-    Row("weavegrid", "soak", py("tests/weavegrid.py"), 200.0,
+    Row("weavegrid", "soak", py("tests/weavegrid.py"), 120.0,
         "WEAVE-SPEC 13.1's wave-4 gate: the <grid>, against the model and "
         "against itself. Three things no other row in this family can see. "
         "(1) Every visible BAND is read off the glass by 12.3.2's "
@@ -709,7 +735,7 @@ SOAK = [
         "gestures - taken over three consecutive clean runs at 156.8, 157.4 "
         "and 156.7, with room for the demo growing",
         needs=("marty", "cc"), serial=True, timeout=480, builds=True),
-    Row("weavegfx", "soak", py("tests/weavegfx.py"), 240.0,
+    Row("weavegfx", "soak", py("tests/weavegfx.py"), 90.0,
         "WEAVE-SPEC 12.3's pixels-vs-model row, zgfx's shape: every other "
         "gate in this family reads a number or a structure, and none of them "
         "can see a component drawn at the wrong row, a control that draws "
@@ -735,7 +761,7 @@ SOAK = [
         "that happens. The retry is weavesmoke's and is not loosened here - "
         "a gate that hid it would hide a host that had really got slower",
         needs=("marty", "cc"), serial=True, timeout=600, builds=True),
-    Row("weaveprev", "soak", py("tests/weaveprev.py"), 320.0,
+    Row("weaveprev", "soak", py("tests/weaveprev.py"), 240.0,
         "WEAVE-SPEC 1.7.1 and 12.3: LOOM's PREVIEW PANE against "
         "`weavesim --render --preview`. Wave 7 draws the pane with WEAVE's "
         "own flow walk and WEAVE's own component painter, compiled a second "
@@ -760,7 +786,7 @@ SOAK = [
         "the kernel's 9-tick window; the retry is weavesmoke's and is not "
         "loosened here",
         needs=("marty", "cc"), serial=True, timeout=600, builds=True),
-    Row("weaveone", "soak", py("tests/weaveone.py"), 90.0,
+    Row("weaveone", "soak", py("tests/weaveone.py"), 60.0,
         "WEAVE-SPEC 1.4's 256KB machine, ASSERTED: the family's floor board "
         "holds exactly ONE Weave app, and the second launch is refused while "
         "the first goes on running. It is the one row in this family about "
@@ -824,7 +850,7 @@ SOAK = [
         "and that read is the whole of the time. It is the price of asking "
         "the question on the target rather than on the host",
         needs=("marty", "cc"), serial=True, timeout=3000, builds=True),
-    Row("weavefuzz", "soak", py("tests/weavefuzz.py"), 75.0,
+    Row("weavefuzz", "soak", py("tests/weavefuzz.py"), 180.0,
         "a thousand DAMAGED projects through both packers, asking the two "
         "questions a fixture cannot: did they agree about whether it is a "
         "program, and when both said yes are the bytes identical "
@@ -837,7 +863,7 @@ SOAK = [
         "to. Measured when it was written: 0 verdict disagreements, 0 byte "
         "disagreements, 93 differing messages in 1,000",
         needs=()),
-    Row("weavelat", "soak", py("tests/weavelat.py"), 120.0,
+    Row("weavelat", "soak", py("tests/weavelat.py"), 40.0,
         "SPEC.md 7.3's click-to-action bar with a WEAVE FORM as the load "
         "(WEAVE-SPEC 12.4), measured the way tests/uilat.py measures it - "
         "two memory breakpoints and the cycle counter, because os88mouse's "
@@ -849,11 +875,11 @@ SOAK = [
         "functional test in this family and it is exactly what this row is "
         "for. 120s is uilat's own figure: the same shape, one more launch",
         needs=("marty", "cc"), serial=True, timeout=480, builds=True),
-    Row("assocglyph", "soak", py("tests/assocglyph.py"), 62.3,
+    Row("assocglyph", "soak", py("tests/assocglyph.py"), 30.0,
         "A DECLARED extension's icon is right from a COLD mount (SPEC.md"
         "54.7.3).",
         needs=("marty",), serial=True),
-    Row("assocwake", "soak", py("tests/assocwake.py"), 95.0,
+    Row("assocwake", "soak", py("tests/assocwake.py"), 30.0,
         "SPEC.md 54.10: a document launch draws the PROGRAM'S WINDOW first, "
         "and only then reads the document. The instrument is a breakpoint on "
         "assoc_handover - the guest cannot have read the file yet at that "
@@ -861,13 +887,13 @@ SOAK = [
         "says wm_show already drew it. The 'Decoding GIF' toast (42.14) and "
         "the picture arriving are what stop it passing vacuously.",
         needs=("marty",), serial=True),
-    Row("assocopen", "soak", py("tests/assocopen.py"), 60.0,
+    Row("assocopen", "soak", py("tests/assocopen.py"), 40.0,
         "SPEC.md 22.13.2: opening a DOCUMENT draws no pixel of the Disk "
         "window. The instrument is a breakpoint on fm_repaint, and the "
         "FOLDER open beside it is the control that says the breakpoint "
         "fires at all.",
         needs=("marty",), serial=True),
-    Row("fmcommit", "soak", py("tests/fmcommit.py"), 62.0,
+    Row("fmcommit", "soak", py("tests/fmcommit.py"), 80.0,
         "SPEC.md 22.13.3: a committing keystroke redraws the Disk window and "
         "a REFUSED character does not. fm_onkey banks fm_editkey's answer "
         "across the modal-dialog test, because `cmp word [x], 0` clears the "
@@ -876,7 +902,7 @@ SOAK = [
         "(assocopen's), and the refused comma is the leg that says the fix "
         "did not buy the repaint back with one nobody owes.",
         needs=("marty",), serial=True),
-    Row("multiseg", "soak", py("tests/multiseg.py", "1440"), 60.0,
+    Row("multiseg", "soak", py("tests/multiseg.py", "1440"), 20.0,
         "SPEC.md 20.12: a package carries its parts in its OWN FILE and loads "
         "them ITSELF. The kernel parses none of it - all it learns is flags "
         "bit 2, that the file is longer than the image on purpose, and it "
@@ -901,8 +927,8 @@ SOAK = [
         "TITLE, read out of the package's segment rather than off the glass. "
         "MEASURED with the kernel's bit-2 exception disabled: ld_status 2, "
         "`Bad package`. Needs `make mseg`.",
-        needs=("marty",), serial=True),
-    Row("mseg360", "soak", py("tests/multiseg.py", "360"), 60.0,
+        needs=("marty",), serial=True, wants=("build/mseg360.img",)),
+    Row("mseg360", "soak", py("tests/multiseg.py", "360"), 40.0,
         "...and the same package off a 360KB disk, where it is NOT a "
         "duplicate. A part begins on a 512-byte boundary in the FILE and "
         "OSAPI_FILE_READ_AT will only BEGIN a read on a CLUSTER boundary - "
@@ -918,8 +944,8 @@ SOAK = [
         "added back: this row answers `MSEG 0/6 BAD` and the 1.44MB row "
         "still answers `MSEG 6/6 OK`, which is why neither alone is the "
         "gate. Needs `make mseg`.",
-        needs=("marty",), serial=True),
-    Row("msegnomem", "soak", py("tests/msegnomem.py"), 600.0,
+        needs=("marty",), serial=True, wants=("build/mseg360.img",)),
+    Row("msegnomem", "soak", py("tests/msegnomem.py"), 40.0,
         "SPEC.md 20.12.3: a package that cannot fit is refused BEFORE IT "
         "READS ANYTHING, and this row measures that rather than asserting it. "
         "MSEGBIG is MSEG's twin - the same three filed parts and one more, a "
@@ -946,8 +972,8 @@ SOAK = [
         "nothing. VERIFIED by A/B - made to try the claim instead of asking, "
         "the table goes 4 claims to 2 and this row names it. Needs `make "
         "mseg`.",
-        needs=("marty", "nasm"), serial=True, builds=True),
-    Row("c64part", "soak", py("tests/c64part.py"), 120.0,
+        needs=("marty", "nasm"), serial=True),
+    Row("c64part", "soak", py("tests/c64part.py"), 30.0,
         "THE FIRST REAL CONSUMER of the parts standard (SPEC.md 20.12, and "
         "C64-SPEC 1.4): C64.ROM - 20,480 bytes of KERNAL, BASIC and "
         "character generator - was a SIDECAR a file copy could separate from "
@@ -972,7 +998,7 @@ SOAK = [
         "because op_read now refuses a run that arrives short. Needs `make "
         "c64disk`, so it needs the C toolchain.",
         needs=("marty", "cc"), serial=True, builds=True),
-    Row("mseglazy", "soak", py("tests/mseglazy.py"), 150.0,
+    Row("mseglazy", "soak", py("tests/mseglazy.py"), 50.0,
         "SPEC.md 20.12.4: an OP_LAZY part is NOT READ AT LOAD and can be "
         "given back. That is the first half of goal 3 - `load only some "
         "minimal amount` - where msegnomem is the second, and MSEG's part 6 "
@@ -996,8 +1022,8 @@ SOAK = [
         "assertion 1 does NOT notice, because op_seg answers a lazy row out "
         "of the row itself and that is still 0. Presence is what the package "
         "was told; the carve is what the disk did. Needs `make mseg`.",
-        needs=("marty", "nasm"), serial=True, builds=True),
-    Row("msegxms", "soak", py("tests/msegxms.py"), 150.0,
+        needs=("marty", "nasm"), serial=True),
+    Row("msegxms", "soak", py("tests/msegxms.py"), 50.0,
         "SPEC.md 20.12.4: an OP_XMS part really goes ABOVE 1MB. Every MartyPC "
         "row proves the FALLBACK - an 8088 has nothing up there, so the part "
         "comes back as an ordinary conventional claim, which is what makes "
@@ -1045,7 +1071,7 @@ SOAK = [
         "one run. Needs `make pkgbig`, which uses os88disk.py --raw: the "
         "fixtures are *.O88 files that are deliberately not packages, and "
         "validate_o88 exists to make those unbuildable. 40s measured.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True, wants=("build/pkgbig.img",)),
     Row("pkgfence", "soak", py("tests/pkgfence.py"), 60.0,
         "SPEC.md 21 steps 4 and 6's WRITE BOUND: ld_check_hdr's `image + bss` "
         "fence. Both operands are separately bounded at APP_MAX_SIZE, so "
@@ -1070,12 +1096,12 @@ SOAK = [
         "time anything could report it. The instrument is [ld_status] read "
         "out of the guest, so it answers for all three adapters out of one "
         "run. Shares build/pkgbig.img with the pkgbig row - `make pkgbig`.",
-        needs=("marty",), serial=True),
-    Row("clipkeep", "soak", py("tests/clipkeep.py"), 300.0,
+        needs=("marty",), serial=True, wants=("build/pkgbig.img",)),
+    Row("clipkeep", "soak", py("tests/clipkeep.py"), 40.0,
         "SPEC.md 11.96.18: a wholly covered window keeps its raise cache when"
         "it arms a clip, and a partly covered one still loses it.",
         needs=("marty",), serial=True),
-    Row("fcpcopy", "soak", py("tests/fcpcopy.py"), 240.0,
+    Row("fcpcopy", "soak", py("tests/fcpcopy.py"), 70.0,
         "SPEC.md 22.3-22.5: Cut/Copy/Paste actually moves a file AND a folder "
         "tree. Nothing exercised kernel/filecp.inc at all until this row - a "
         "whole-file pass over the copy engine could be green on assembly, "
@@ -1092,8 +1118,17 @@ SOAK = [
         "gives a building row the tree to itself.",
         needs=("marty",), serial=True, builds=True),
     Row("fcpsmall", "soak",
+        # OS88_APPSIMG IS NOT OPTIONAL HERE. The default is build/apps.img,
+        # a plain 1.44MB FAT12 declaring NINE FAT sectors - and kern_small's
+        # DSK_FAT_SECS is 2, so mount rule 10 refuses it before a byte is
+        # read. The row then met an empty B: and failed three steps later
+        # saying "'MEDIA' is not in this folder". build/smallapps.img is the
+        # disk `make small` tells you to pair with build/small.img, and it is
+        # --fatcap 2 as of the same commit as this line - it was not, which
+        # is why this arm could never have passed.
         ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
-         "OS88_SYSIMG=build/small.img"] + py("tests/fcpcopy.py"), 300.0,
+         "OS88_SYSIMG=build/small.img",
+         "OS88_APPSIMG=build/smallapps.img"] + py("tests/fcpcopy.py"), 70.0,
         "...and the SAME drive against kern_small, where Cut/Copy/Paste is an "
         "on-demand module (SPEC.md 22.3, docs/KERN-SMALL-MODULE-SPLIT.md 9.2) "
         "rather than resident code. It is a different engine to reach: every "
@@ -1106,8 +1141,8 @@ SOAK = [
         "ran it caught FILECP.DRV missing from the floppy entirely, with every "
         "build step green and the machine booting. It builds its own image "
         "(`make small`) for smallboot's reason.",
-        needs=("marty",), serial=True, builds=True),
-    Row("cppromise", "soak", py("tests/cppromise.py"), 300.0,
+        needs=("marty",), serial=True, builds=True, wants=("build/smallapps.img",)),
+    Row("cppromise", "soak", py("tests/cppromise.py"), 50.0,
         "SPEC.md 31.12: the Control Panel promises per PAGE, and the clock"
         "page is the one that cannot.",
         needs=("marty",), serial=True),
@@ -1121,7 +1156,7 @@ SOAK = [
         "cw_clk_mlen is the only call clk_fld_adj makes out of the image, so "
         "a bad thunk shows up there and nowhere else on the page.",
         needs=("marty",), serial=True),
-    Row("dtwrite", "soak", py("tests/dtwrite.py"), 45.0,
+    Row("dtwrite", "soak", py("tests/dtwrite.py"), 30.0,
         "SPEC.md 37.94: the hardware clock is written by the Control Panel's "
         "CLOSE and no longer drained off the system tick. [clk_dirty] "
         "SURVIVING ~54 ticks with the panel open is the leg that matters - "
@@ -1129,13 +1164,13 @@ SOAK = [
         "here: a 5150 has no RTC and MartyPC models no clock card, so the "
         "writers themselves are a QEMU session (see the docstring).",
         needs=("marty",), serial=True),
-    Row("saver", "soak", py("tests/saver.py"), 95.0,
+    Row("saver", "soak", py("tests/saver.py"), 70.0,
         "the animated screen saver end to end (SPEC.md 79): every mode draws, "
         "the overlay is loaded and freed, the wake puts the whole desktop back "
         "including the bar and the dock, no block is left in the menu bar, and "
         "all three fallbacks reach the blanker with the framebuffer untouched",
         needs=("marty",), serial=True),
-    Row("fishfit", "soak", py("tests/fishfit.py"), 45.0,
+    Row("fishfit", "soak", py("tests/fishfit.py"), 20.0,
         "does the most expensive sea the generator can roll still fit ONE "
         "TICK? (SPEC.md 79.5.8). Sea life is the one saver mode that ever "
         "cost more than the 54.93 ms a task_sleep(1) parks for, and what that "
@@ -1165,7 +1200,7 @@ SOAK = [
         "NOT armed there, which is what keeps gfx_blit1's own right clip the "
         "only cut on the two adapters with no artifact to hide.",
         needs=("marty",), serial=True),
-    Row("saverate", "soak", py("tests/saverate.py"), 260.0,
+    Row("saverate", "soak", py("tests/saverate.py"), 50.0,
         "is a saver mode ASLEEP while it is behind? (SPEC.md 79.5.7, 8.1.2.4). "
         "ui_task's task_sleep(1) quantises a deadline polled once a pass to "
         "whole ticks, so a mode whose pass runs a millisecond into the next "
@@ -1177,72 +1212,72 @@ SOAK = [
         "counted off [sv_due], which cannot see a re-anchored mode - so they "
         "catch a mode that stopped drawing and not one that was quantised.",
         needs=("marty",), serial=True, alone=True),
-    Row("deskbench", "soak", py("tests/deskbench.py"), 330.0,
+    Row("deskbench", "soak", py("tests/deskbench.py"), 180.0,
         "THE STANDARD BUSY DESKTOP, priced: what a full-screen redraw, a "
         "window move and a raise cost with four windows open (PERFORMANCE.md "
         "Part 3). A measurement, not a gate - it asserts its own SCENE and "
         "prints numbers. `--all` runs one per adapter.",
         needs=("marty",), serial=True, alone=True),
-    Row("arkpuwipe", "soak", py("tests/arkpuwipe.py"), 300.0,
+    Row("arkpuwipe", "soak", py("tests/arkpuwipe.py"), 80.0,
         "Does a capsule the blit REFUSED leave a streak behind it? (SPEC.md "
         "44.10.6.2). VGA on purpose - on CGA ARK_PUFALL floors to 1 and the "
         "one vacated row is the capsule's BLACK top edge on a BLACK playfield, "
         "so the broken build scores zero. `--small --img build/small360.img` "
         "is trigger A, and wants `make small` first.",
         needs=("marty",), serial=True),
-    Row("cycweb", "soak", py("tests/cycweb.py"), 51.4,
+    Row("cycweb", "soak", py("tests/cycweb.py"), 40.0,
         "Does the claw eat the web it slides over? (SPEC.md 67.5.3.1)",
         needs=("marty",), serial=True),
-    Row("cycfire", "soak", py("tests/cycfire.py"), 180.0,
+    Row("cycfire", "soak", py("tests/cycfire.py"), 50.0,
         "Does holding the mouse button repeat the gun, and does a press on "
         "somebody else's window leave it alone? (SPEC.md 67.11.3)",
         needs=("marty",), serial=True),
-    Row("bootstatus", "soak", py("tests/bootstatus.py"), 240.0,
+    Row("bootstatus", "soak", py("tests/bootstatus.py"), 90.0,
         "Does the boot say WHAT it is doing, not only how far? (SPEC.md 15.6)"
         " Builds a disk whose SYSTEM.CFG wants two drivers, then reads the "
         "composed line out of the overlay AND hashes the pixel band under the"
         " bar, on both 1bpp adapters",
-        needs=("marty", "nasm"), serial=True, builds=True),
-    Row("blobsum", "soak", py("tests/blobsum.py"), 90.0,
+        needs=("marty", "nasm"), serial=True, builds=True, wants=("build/ether360.img",)),
+    Row("blobsum", "soak", py("tests/blobsum.py"), 60.0,
         "Does a SHORT READ of stage 2's blob halt instead of executing what "
         "landed? (SPEC.md 2.9.7) Blanks one sector in the middle of it - the "
         "failure that is not a disk error, because stage 2 and the loading "
         "screen are in the sectors that DID arrive",
         needs=("marty",), serial=True),
-    Row("postboot", "soak", py("tests/postboot.py"), 180.0,
+    Row("postboot", "soak", py("tests/postboot.py"), 20.0,
         "Does the machine survive its FIRST DISK ACCESS AFTER THE DESKTOP? "
         "(SPEC.md 2.9.5.1) Every other boot row in this file stops at the "
         "first frame, which is how a kernel whose next int 13h jumped into "
         "cold_entry passed all of them",
         needs=("marty",), serial=True),
-    Row("cylrun", "soak", py("tests/cylrun.py"), 150.0,
+    Row("cylrun", "soak", py("tests/cylrun.py"), 10.0,
         "Did the kernel load actually CROSS A HEAD? (SPEC.md 18.93.3) "
         "boot_cylrun at 0060:0004 is written on the one path where the "
         "cylinder bound, the 8088 gate and the canary all held - and 18.93's "
         "reload is what makes losing all three look like a normal boot",
         needs=("marty",), serial=True),
-    Row("splashbar", "soak", py("tests/splashbar.py"), 150.0,
+    Row("splashbar", "soak", py("tests/splashbar.py"), 40.0,
         "Does the progress bar ADVANCE during the kernel load? (SPEC.md 15, "
         "15.3.1) The counter AND the lit width of the trough, sampled a frame "
         "at a time - a bar that parked at 44% for the whole load passed every "
         "other row in this file and was found by somebody watching it",
         needs=("marty",), serial=True),
-    Row("splashspin", "soak", py("tests/splashspin.py"), 150.0,
+    Row("splashspin", "soak", py("tests/splashspin.py"), 20.0,
         "Does the logo turn on the WALL CLOCK? (SPEC.md 15.3.6) The composed "
         "angle checked against the guest's own BIOS tick on every frame it "
         "changes, and the rate compared either side of the notch rate "
         "changing - a stopped tick parks the logo at one angle and the "
         "machine still boots, so no screendump in this tree would notice",
         needs=("marty",), serial=True),
-    Row("bootfloor-ab", "soak", py("tests/bootfloor.py"), 300.0,
+    Row("bootfloor-ab", "soak", py("tests/bootfloor.py"), 420.0,
         "SPEC.md 2.7.1's floor, both sides, both kernels: RAMKB at the floor "
         "must reach a DESKTOP - everything the bound is computed from is "
         "downstream of the refusal - and one KB under it must print RAM. "
         "kern_small is the half that matters: guard 5 has asserted it boots "
         "on 128KB since the split and stage 1 refused it at 129 until 2.7.1, "
         "which no host-side row could have noticed",
-        needs=("marty",), serial=True, builds=True),
-    Row("dljunk", "soak", py("tests/dljunk.py"), 150.0,
+        needs=("marty",), serial=True),
+    Row("dljunk", "soak", py("tests/dljunk.py"), 210.0,
         "SPEC.md 2.9.11's DL check, both ways: a BIOS that never set DL left "
         "0x61 in it and every int 13h named a unit that is not there, which "
         "is `Disk error` since the first commit (docs/FIELD-NOTES.md 36). "
@@ -1250,8 +1285,8 @@ SOAK = [
         "check must LEAVE ALONE, on a machine whose drive 1 is empty - must "
         "not: without the second half a sector that ignored DL outright "
         "would pass the first",
-        needs=("marty", "nasm"), serial=True, timeout=420, builds=True),
-    Row("fatwpin", "soak", py("tests/fatwpin.py"), 420.0,
+        needs=("marty", "nasm"), serial=True, timeout=420),
+    Row("fatwpin", "soak", py("tests/fatwpin.py"), 120.0,
         "Is the kernel's own FAT window somebody's PIN, and only ever one "
         "volume's? (SPEC.md 18.8.3) FAT_SEG used to be a fallback owned by "
         "nobody, so a machine whose volumes all won heap claims reserved "
@@ -1266,14 +1301,14 @@ SOAK = [
         "tests/heapfrag fills the heap at the ordinary rank, which outranks "
         "MEM_P_FATW's MED, and the LIVE window must come back as the pin "
         "with [dsk_fatw0] invalidated, not a pointer into freed memory",
-        needs=("marty", "nasm"), serial=True, timeout=900, builds=True),
-    Row("vgadirty", "soak", py("tests/vgadirty.py"), 120.0,
+        needs=("marty", "nasm"), serial=True, timeout=900),
+    Row("vgadirty", "soak", py("tests/vgadirty.py"), 30.0,
         "Does vid_setmode leave the VGA framebuffer black whatever the ROM "
         "did? (SPEC.md 39.23) Builds a VGADIRTY=1 kernel, which fills A0000 "
         "in the one window a machine cannot - after the ROM's mode set and "
         "before ours - and asserts the loading screen comes up on black",
-        needs=("qemu", "nasm"), serial=True, timeout=300, builds=True),
-    Row("ps2mouse", "full", py("tests/ps2mouse.py"), 40.0,
+        needs=("qemu", "nasm"), serial=True, timeout=300),
+    Row("ps2mouse", "full", py("tests/ps2mouse.py"), 10.0,
         "Does the PS/2 mouse reach the pointer, and does the KEYBOARD survive "
         "the handshake? (SPEC.md 9.9) -serial none, so no UART probes present "
         "and the aux port is the only pointing device: mou_p2st 9, port 04, "
@@ -1306,18 +1341,18 @@ SOAK = [
         "menu, which is what proves the task_yield service point. QEMU by "
         "name on CLAUDE.md's closed list - MartyPC has no backdoor",
         needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
-    Row("heapmap", "soak", py("tests/heapmap.py"), 120.0,
+    Row("heapmap", "soak", py("tests/heapmap.py"), 30.0,
         "What does the claim heap look like when the boot is over? (SPEC.md "
         "50, 66) Every driver attached at once on a machine WITH memory above "
         "1MB, sampled from instruction zero: the order claims are taken in, "
         "and MC_RLOC for each - which is the machine-readable answer to "
         "'can this be compacted'",
         needs=("qemu", "nasm"), serial=True, timeout=300, builds=True),
-    Row("dockmark", "soak", py("tests/dockmark.py"), 60.0,
+    Row("dockmark", "soak", py("tests/dockmark.py"), 90.0,
         "Does the dock strip mark windows it did not draw under? (SPEC.md"
         "30.3.3)",
         needs=("marty",), serial=True),
-    Row("dualcheck", "soak", py("tests/dualcheck.py"), 60.0,
+    Row("dualcheck", "soak", py("tests/dualcheck.py"), 10.0,
         "Can this MartyPC drive TWO video cards at once?"
         "(docs/DUAL-DISPLAY-PLAN.md 9)",
         needs=("marty",), serial=True),
@@ -1325,12 +1360,12 @@ SOAK = [
         "Does ANYTHING draw with the gfx lock free - which is the one state "
         "the mouse ISR draws in? (SPEC.md 7/12.8.4, docs/FIELD-NOTES.md 34) "
         "Rebuilds the tree, because the counters are a knob kernel",
-        needs=("marty", "nasm"), serial=True, builds=True),
-    Row("heapcheck", "soak", py("tests/heapcheck.py"), 60.0,
+        needs=("marty", "nasm"), serial=True),
+    Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",
         needs=("marty",), serial=True, builds=True),
-    Row("xmcheck", "soak", py("tests/xmcheck.py"), 90.0,
+    Row("xmcheck", "soak", py("tests/xmcheck.py"), 50.0,
         "The extended-memory TEARDOWN gate (SPEC.md 41.5, 29.4). QEMU and "
         "not MartyPC, and the row said `marty` for a year: the machine has "
         "to HAVE memory above 1MB and the target machine never can (SPEC.md "
@@ -1338,32 +1373,32 @@ SOAK = [
         "uses of QEMU. It also needs nasm for the OVERLAY's map - xm_tab is "
         "in XMEM.DRV now (SPEC.md 41.12), not in the kernel.",
         needs=("qemu", "nasm"), serial=True, timeout=600, builds=True),
-    Row("brpromise", "soak", py("tests/brpromise.py"), 120.0,
+    Row("brpromise", "soak", py("tests/brpromise.py"), 40.0,
         "SPEC.md 71.11: the Browser's WF_SAVEU promise follows the FETCH - "
         "withdrawn when br_go starts one, back when it settles. The plain apps "
         "disk, so unlike the other br* rows it needs no `make browsertest`",
         needs=("marty",), serial=True),
-    Row("calcflick", "soak", py("tests/calcflick.py"), 60.0,
+    Row("calcflick", "soak", py("tests/calcflick.py"), 90.0,
         "Does the Calculator FLASH? (PERFORMANCE.md Part 3.1, SPEC.md 65.4)",
-        needs=("marty",), serial=True),
-    Row("ftpdflick", "soak", py("tests/ftpdflick.py"), 90.0,
+        needs=("marty",), serial=True, wants=("build/calcref.img",)),
+    Row("ftpdflick", "soak", py("tests/ftpdflick.py"), 120.0,
         "What does clicking into an FTPD Setup field cost, and is it still "
         "two cells rather than the page? (SPEC.md 77.45)",
         needs=("marty",), serial=True),
-    Row("ftpdfocus", "soak", py("tests/ftpdfocus.py"), 90.0,
+    Row("ftpdfocus", "soak", py("tests/ftpdfocus.py"), 60.0,
         "Does FTPD's Setup page keep a caret it cannot type into? "
         "(SPEC.md 77.45.4)",
         needs=("marty",), serial=True),
-    Row("dispapp", "soak", py("tests/dispapp.py"), 60.0,
+    Row("dispapp", "soak", py("tests/dispapp.py"), 40.0,
         "Does a PACKAGE stay on its own display? (SPEC.md 39.2.1)",
         needs=("marty",), serial=True),
-    Row("dispapps", "soak", py("tests/dispapps.py"), 60.0,
+    Row("dispapps", "soak", py("tests/dispapps.py"), 120.0,
         "Do the apps that lay out ONCE re-derive when the adapter changes?",
         needs=("marty",), serial=True),
     Row("dispband", "soak", py("tests/dispband.py"), 54.1,
         "Can a window use the SECOND display's top rows? (SPEC.md 39.16.2)",
         needs=("marty",), serial=True),
-    Row("dispzoom", "soak", py("tests/dispzoom.py"), 240.0,
+    Row("dispzoom", "soak", py("tests/dispzoom.py"), 50.0,
         "SPEC.md 11.95.2.1: does a ZOOM land flush on an EXTENDED desktop?"
         "wm_snap_ax refuses to move a window right when it would hang off the"
         "screen, a test written against [vid_w] - which before 39.16 WAS the"
@@ -1403,21 +1438,29 @@ SOAK = [
     # timeout is ~2x that: enough that container jitter cannot kill a healthy
     # run, small enough that a genuinely hung emulator is still caught in
     # minutes rather than tens of them.
-    Row("dispcalc", "soak", py("tests/dispcalc.py"), 420.0,
+    Row("dispcalc", "soak", py("tests/dispcalc.py"), 250.0,
         "Does the Calculator add up, fold cleanly and redraw nothing spare?",
         needs=("marty",), serial=True, timeout=900),
-    Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 60.0,
+    Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 150.0,
         "Does the Calculator re-fold cleanly when its box moves under it?",
         needs=("marty",), serial=True),
-    Row("dispcheck", "soak", py("tests/dispcheck.py"), 120.0,
+    Row("dispcheck", "soak", py("tests/dispcheck.py"), 60.0,
         "Did os8088 bring the SECOND card up, can it DRAW on it, and does the",
         needs=("marty",), serial=True),
-    Row("dispclose", "soak", py("tests/dispclose.py"), 150.0,
+    Row("dispclose", "soak", py("tests/dispclose.py"), 90.0,
         "SPEC.md 75: closing ASKS - W_ONCLOSE, the deferred OSAPI_WM_CLOSE, "
         "and os88ui_ask's alert, driven through every branch and finished by "
         "reading the saved file off the floppy with os88flush",
         needs=("marty",), serial=True, timeout=900),
-    Row("dispclose-small", "soak", py("tests/dispclose.py", "--small"), 150.0,
+    Row("dispclose-small", "soak",
+        # THE ARM IS DECLARED HERE, once, and every tool in the session
+        # follows it: os88sym picks the kern_small map and CHECKS it against
+        # build/smallk/kernel.bin, and os88geom's per-arm constants resolve to
+        # a 28-byte window record. The row used to build that map in process
+        # with check=False and patch one stride by hand, which was enough
+        # until anything else read the window table.
+        ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk"]
+        + py("tests/dispclose.py", "--small"), 100.0,
         "...and the same suite on kern_small, which since SPEC.md 75.3.2 has "
         "the identical behaviour rather than a fallback. It needs `make "
         "small` first, and it is the ONE gate here that drives that build",
@@ -1425,18 +1468,15 @@ SOAK = [
     Row("dispcold", "soak", py("tests/dispcold.py"), 300.0,
         "WHO DRAWS INTO .cold? (docs/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
-    Row("dispcorner", "soak", py("tests/dispcorner.py"), 60.0,
+    Row("dispcorner", "soak", py("tests/dispcorner.py"), 120.0,
         "REPORTED ARTIFACTS, LOCALISED (a corner pixel, and two drags across"
         "a seam)",
-        needs=("marty",), serial=True),
-    Row("dispcp", "soak", py("tests/dispcp.py"), 60.0,
-        "Driving the Control Panel's Display page from a scripted session.",
         needs=("marty",), serial=True),
     Row("dispdepth", "soak", py("tests/dispdepth.py"), 60.0,
         "Does a window dragged BACK from a different-depth display arrive"
         "intact?",
         needs=("marty",), serial=True),
-    Row("dispdrag", "soak", py("tests/dispdrag.py"), 60.0,
+    Row("dispdrag", "soak", py("tests/dispdrag.py"), 40.0,
         "Does a window DRAGGED across the seam arrive on both displays?",
         needs=("marty",), serial=True),
     Row("dispfit", "soak", py("tests/dispfit.py"), 60.0,
@@ -1449,26 +1489,26 @@ SOAK = [
         "Does a package's PER-ADAPTER preference and floor survive a drag"
         "across the seam, and does a USER outrank it? (SPEC.md 11.100)",
         needs=("marty",), serial=True, timeout=1200),
-    Row("disptitle", "soak", py("tests/disptitle.py"), 150.0,
+    Row("disptitle", "soak", py("tests/disptitle.py"), 80.0,
         "Does a title bar STRADDLING the seam have one polarity? (SPEC.md"
         "5.4.2.4) - it builds `make BAND=1` itself, the composer being a knob"
         "again since SPEC.md 5.9.6, and puts the default kernel back",
-        needs=("marty",), serial=True, builds=True),
+        needs=("marty",), serial=True),
     Row("dispthm", "soak", py("tests/dispthm.py"), 60.0,
         "Does SPEC.md 76's theme meet the extended desktop honestly? Color is"
         "a fact about the PRIMARY and a window can be on the other card",
         needs=("marty",), serial=True),
     # 295 s measured, and the row the settle profile above was taken on.
     # See the note above `dispcalc`.
-    Row("dispsize", "soak", py("tests/dispsize.py"), 320.0,
+    Row("dispsize", "soak", py("tests/dispsize.py"), 210.0,
         "What size is a window given when it lands on the other card?"
         "(SPEC.md 11.100.3/11.100.4)",
         needs=("marty",), serial=True, timeout=900),
-    Row("dispfrac", "soak", py("tests/dispfrac.py"), 60.0,
+    Row("dispfrac", "soak", py("tests/dispfrac.py"), 180.0,
         "Does apps/fractal's restore cache survive an adapter change?"
         "(SPEC.md 40.1)",
         needs=("marty",), serial=True),
-    Row("dispfreeze", "soak", py("tests/dispfreeze.py"), 60.0,
+    Row("dispfreeze", "soak", py("tests/dispfreeze.py"), 120.0,
         "The field's freeze: a straddling window over a Disk window, then a"
         "click",
         needs=("marty",), serial=True),
@@ -1478,36 +1518,36 @@ SOAK = [
     Row("dispherc1", "soak", py("tests/dispherc1.py"), 60.0,
         "HERCULES PRIMARY, VGA SECOND (SPEC.md 39.19.2's other arrangement)",
         needs=("marty",), serial=True),
-    Row("dispmcfs", "soak", py("tests/dispmcfs.py"), 60.0,
+    Row("dispmcfs", "soak", py("tests/dispmcfs.py"), 180.0,
         "SPEC.md 11.2 fullscreen with the window's CENTRE on the second"
         "display",
         needs=("marty",), serial=True),
-    Row("tank", "soak", py("tests/tank.py"), 150.0,
+    Row("tank", "soak", py("tests/tank.py"), 30.0,
         "SPEC.md 85: TANK ATTACK draws, ADVANCES, and does not flash - the ink"
         "on the glass per DISPLAYED frame, whose floor against its median is"
         "the whole question a foreign-mode raster is built to answer",
         needs=("marty",), serial=True),
-    Row("tankaim", "soak", py("tests/tankaim.py"), 200.0,
+    Row("tankaim", "soak", py("tests/tankaim.py"), 30.0,
         "SPEC.md 85.6.5's aim assist and its reticle: no bearing is unreachable"
         "(by enumeration, not by the algebra), the TURN is untouched at TK_TURN"
         "a tick, the gun corrects inside the closed sight's box and nowhere"
         "else, and the sight closes on exactly the shots that land - read"
         "against tk_aimq and tk_aimz, the code's own measured error and range",
         needs=("marty",), serial=True),
-    Row("tankspawn", "soak", py("tests/tankspawn.py"), 200.0,
+    Row("tankspawn", "soak", py("tests/tankspawn.py"), 40.0,
         "SPEC.md 85.6.6: no round starts inside a piece of scenery - which one"
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
         needs=("marty",), serial=True),
-    Row("wireflick", "soak", py("tests/wireflick.py"), 120.0,
+    Row("wireflick", "soak", py("tests/wireflick.py"), 30.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"
         "frame - the flicker measured rather than argued about",
         needs=("marty", "wiredisk"), serial=True),
-    Row("wirefps", "soak", py("tests/wirefps.py"), 90.0,
+    Row("wirefps", "soak", py("tests/wirefps.py"), 30.0,
         "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
         "reading its own frame rate, with the dispatch poked out and back",
         needs=("marty", "wiredisk"), serial=True, alone=True),
-    Row("paintrate", "soak", py("tests/paintrate.py"), 120.0,
+    Row("paintrate", "soak", py("tests/paintrate.py"), 60.0,
         "SPEC.md 42.8.1: is Paint's brush stroke still sampled at the TICK? The"
         "facets in a hand-drawn curve were one 55ms sleep each. On the GLaBIOS"
         "twin, like paintwipe - and unlike paintwipe this row DOES take a"
@@ -1515,62 +1555,62 @@ SOAK = [
         "with no int 13h in it, and the assertion is a separation of an order"
         "of magnitude rather than a calibrated figure",
         needs=("marty",), serial=True),
-    Row("paintwalk", "soak", py("tests/paintwalk.py"), 120.0,
+    Row("paintwalk", "soak", py("tests/paintwalk.py"), 30.0,
         "SPEC.md 42.8.3: a brush chord steps each axis exactly |d| times. The"
         "denominator lived in CX, which `loop` decrements, so a wide nib drew"
         "a zig-zag that grew with the hand's speed",
         needs=("marty",), serial=True),
-    Row("paintblank", "soak", py("tests/paintblank.py"), 240.0,
+    Row("paintblank", "soak", py("tests/paintblank.py"), 120.0,
         "SPEC.md 42.15: a full-canvas repaint is 980 ms through the pair"
         "decoder and one gfx_fill when every pixel is the same colour, which"
         "is the picture Paint draws most. Counts the DECODER, not the clock,"
         "and checks the stroke is still on the glass afterwards",
         needs=("marty",), serial=True),
-    Row("paintsize", "soak", py("tests/paintsize.py"), 240.0,
+    Row("paintsize", "soak", py("tests/paintsize.py"), 60.0,
         "SPEC.md 42.8.6.1: a maximize GROWS Paint's canvas and a restore"
         "shrinks it, so the two clicks walk pt_ucopy over every row at two"
         "strides. A row has AT MOST eight blocks and the walk assumed exactly"
         "eight: 97 seconds and a band of garbage in the saved picture",
         needs=("marty",), serial=True),
-    Row("paintundo", "soak", py("tests/paintundo.py"), 150.0,
+    Row("paintundo", "soak", py("tests/paintundo.py"), 60.0,
         "SPEC.md 42.8.6: draw, Ctrl+Z, Ctrl+Z - does the picture come back to"
         "the pixel? Nothing covered undo at all until the copy-on-first-touch"
         "bitmap went from a bit a ROW to a bit a BLOCK",
         needs=("marty",), serial=True),
-    Row("spantest", "soak", py("tests/spantest.py"), 180.0,
+    Row("spantest", "soak", py("tests/spantest.py"), 30.0,
         "SPEC.md 5.10: gfx_spans against the GFX_FILL a row its own refusal"
         "sends a caller to - nine shapes including an EMPTY row, both clips"
         "and a middle grey's dither, plus the refusal itself. apps/paint only"
         "ever asks for the shapes a brush chord makes",
         needs=("marty",), serial=True, builds=True),
     Row("spantest-vga", "soak",
-        py("tests/spantest.py", "--machine", "os8088_xt_vga"), 180.0,
+        py("tests/spantest.py", "--machine", "os8088_xt_vga"), 30.0,
         "...and the same on VGA, which is gfx_spans' other row writer - the"
         "latch-and-bit-mask one, with vga_set_color and vga_gc_reset hoisted"
         "out of the span loop",
         needs=("marty",), serial=True, builds=True),
     Row("paintundo-vga", "soak",
-        py("tests/paintundo.py", "--machine", "os8088_xt_vga"), 150.0,
+        py("tests/paintundo.py", "--machine", "os8088_xt_vga"), 60.0,
         "...and the same on VGA, which is where SPEC.md 5.10's gfx_spans takes"
         "its OTHER row writer - the latch-and-bit-mask one. The redo hash is"
         "what compares it against the canvas the untouched walk wrote, so this"
         "is the gate on the planar half of the primitive",
         needs=("marty",), serial=True),
-    Row("uilat", "soak", py("tests/uilat.py"), 120.0,
+    Row("uilat", "soak", py("tests/uilat.py"), 30.0,
         "SPEC.md 7.3: how long a click waits while a worker draws, bracketed"
         "by two memory breakpoints because the mouse harness has a half-second"
         "floor and cannot see it (7.3.1)",
         needs=("marty", "wiredisk"), serial=True, alone=True),
-    Row("evqfull", "soak", py("tests/evqfull.py"), 60.0,
+    Row("evqfull", "soak", py("tests/evqfull.py"), 20.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
         needs=("marty",), serial=True),
-    Row("linefast", "soak", py("tests/linefast.py"), 60.0,
+    Row("linefast", "soak", py("tests/linefast.py"), 90.0,
         "Does SPEC.md 5.6.4.1's fast walk lay 5.6.4's pixels? Both inks, all"
         "eight octants, clipped and not - against the same kernel with the"
         "dispatch poked out",
         needs=("marty",), serial=True),
-    Row("dispmine", "soak", py("tests/dispmine.py"), 60.0,
+    Row("dispmine", "soak", py("tests/dispmine.py"), 30.0,
         "Can Minesweeper's bottom row be PLAYED on a CGA? (SPEC.md 11.93)",
         needs=("marty",), serial=True),
     Row("curshape", "soak", py("tests/curshape.py"), 60.0,
@@ -1581,7 +1621,7 @@ SOAK = [
         "Single or Extend, where the second display sits, and does it survive"
         "a",
         needs=("marty",), serial=True),
-    Row("dispmodex", "soak", py("tests/dispmodex.py"), 60.0,
+    Row("dispmodex", "soak", py("tests/dispmodex.py"), 120.0,
         "Which display does Missile Command ask about Mode X? (SPEC.md"
         "39.18.1)",
         needs=("marty",), serial=True),
@@ -1589,7 +1629,7 @@ SOAK = [
         "Does a WIDE straddling Note Pad letter its whole row? (SPEC.md"
         "27.2.1)",
         needs=("marty",), serial=True),
-    Row("cfgtrip", "soak", py("tests/cfgtrip.py"), 150.0,
+    Row("cfgtrip", "soak", py("tests/cfgtrip.py"), 30.0,
         "SPEC.md 51.5.3: does a setting still survive the panel and a reboot?"
         "The parser is two copies now - the reader in the boot overlay and the"
         "writer inside CTRL.DRV - sharing no segment, no table and no buffer,"
@@ -1627,7 +1667,7 @@ SOAK = [
     # draws no chevrons and the Task Manager has to be open, so a
     # boot-and-look version of this is a null test that reads like a pass -
     # icoclip's problem one primitive along, and the same answer.
-    Row("fillpat", "soak", py("tests/fillpat.py"), 600.0,
+    Row("fillpat", "soak", py("tests/fillpat.py"), 20.0,
         "Does the 1bpp PATTERNED fill lay the tile down where it says? "
         "(SPEC.md 5, 32) - gfx_fill_pat on a mono adapter is two masked edge "
         "columns through sw_patcol plus a rep stosw interior, with the tile "
@@ -1645,7 +1685,7 @@ SOAK = [
     # PASSES - measured, on the tree that introduced the kind. The record and
     # the entry have to be named together or this row tests nothing.
     Row("icoclip", "soak", py("tests/icoclip.py", "--entry", "icon_draw_ix"),
-        600.0,
+        40.0,
         "Does a 32-wide icon HANGING OFF THE RIGHT EDGE still clip byte for "
         "byte? (SPEC.md 25.6) - ico_pass_bb's per-byte column test is the "
         "only thing between an icon at x = w-8 and a write on the NEXT SCAN "
@@ -1654,11 +1694,20 @@ SOAK = [
         "that hangs off, on BOTH strides (CGA 80, Hercules 90), over a zeroed "
         "background so two draws are comparable.",
         needs=("marty",), serial=True),
-    Row("dispseam", "soak", py("tests/dispseam.py"), 600.0,
+    Row("uilayer", "soak", py("tests/uilayer.py"), 50.0,
+        "Does tools/os88ui.py do what it says, and is confirming cheaper "
+        "than settling? Every verb - open_drive, open, drag_window, "
+        "raise_window from BEHIND another window, menu_pick off the live "
+        "menu_bar[], close - then every failure path, because the layer's "
+        "whole claim is that a miss raises where it happened instead of "
+        "surfacing twenty steps later. Ends with the same navigation run "
+        "both ways on one machine: settle-and-hope against read-the-answer.",
+        needs=("marty",), serial=True),
+    Row("dispseam", "soak", py("tests/dispseam.py"), 300.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
         "and puts the default kernel back, both seam orientations",
-        needs=("marty",), serial=True, builds=True),
+        needs=("marty",), serial=True),
     Row("dskwstage", "soak", py("tests/dskwstage.py"), 120.0,
         "SPEC.md 18.4.2.1: does the DMA STAGING arm run, and does it move the "
         "RIGHT bytes? dskw_runadd's third answer - CF=0 with CX != 0, `not "
@@ -1677,31 +1726,32 @@ SOAK = [
         "cannot pass. `--bug` asserts the PRE-fix refusal instead, which is "
         "what makes the A/B repeatable against an old image",
         needs=("marty",), serial=True),
-    Row("dispstrad", "soak", py("tests/dispstrad.py"), 60.0,
+    Row("dispstrad", "soak", py("tests/dispstrad.py"), 30.0,
         "Does a window dragged across the seam give back the rows only ONE"
         "display",
         needs=("marty",), serial=True),
-    Row("disptext", "soak", py("tests/disptext.py"), 60.0,
+    Row("disptext", "soak", py("tests/disptext.py"), 40.0,
         "Does going back to text name the CARD? (SPEC.md 39.20)",
         needs=("marty",), serial=True),
-    Row("dispvy", "soak", py("tests/dispvy.py"), 60.0,
+    Row("dispvy", "soak", py("tests/dispvy.py"), 40.0,
         "How many rows of the SECOND monitor can a straddling window use?",
         needs=("marty",), serial=True),
     Row("drvcall", "soak", py("tests/drvcall.py"), 60.0,
         "Can a PACKAGE reach a DRIVER? (SPEC.md 20.11, docs/NET-STACK-PLAN.md"
         "stage A)",
         needs=("marty",), serial=True, builds=True),
-    Row("drvscroll", "soak", py("tests/drvscroll.py"), 60.0,
+    Row("drvscroll", "soak", py("tests/drvscroll.py"), 80.0,
         "SPEC.md 31.1.2: scrolling the Drivers list draws the LIST once, not"
         "thrice.",
         needs=("marty",), serial=True),
     Row("drvup", "soak", py("tests/drvup.py"), 60.0,
         "SPEC.md 13.8.4: a DRIVER's Control Panel page acts on the RELEASE.",
         needs=("marty",), serial=True),
-    Row("editmove", "soak", py("tests/editmove.py", "--app", "notepad"), 60.0,
+    Row("editmove", "soak", py("tests/editmove.py", "--app", "notepad"), 150.0,
         "Compact the heap out from under a live app that is holding a big"
         "claim",
-        needs=("marty",), serial=True, builds=True),
+        needs=("marty",), serial=True, builds=True,
+        wants=("build/mppmove360.img", "build/zmove360.img")),
     Row("frcyclefull", "soak",
         py("tests/unit/t_frcycle.py", "--stride", "7"), 900.0,
         "...and the same agreement at stride 7 - about 25 million (point,"
@@ -1715,7 +1765,7 @@ SOAK = [
         "would be the longest row in the tree by a factor of two; it was run"
         "once, at the shipped margin and again at a margin of zero, and"
         "SPEC.md 40.5 records what it found."),
-    Row("frpromise", "soak", py("tests/frpromise.py"), 600.0,
+    Row("frpromise", "soak", py("tests/frpromise.py"), 150.0,
         "SPEC.md 40.4: Fractal promises when the frame lands and takes it"
         "back when the view moves.",
         needs=("marty",), serial=True),
@@ -1737,7 +1787,7 @@ SOAK = [
         "the resident build. It builds its own image (`make small`) for "
         "smallboot's reason.",
         needs=("marty",), serial=True, builds=True),
-    Row("fdlgdrop", "soak", py("tests/fdlgdrop.py"), 300.0,
+    Row("fdlgdrop", "soak", py("tests/fdlgdrop.py"), 80.0,
         "...and the module comes BACK on every route a dialog ends by "
         "(SPEC.md 38.0.1). The row above drives the dialog and never asks "
         "what happened to its image; three of the four dismissals - Open, "
@@ -1761,26 +1811,26 @@ SOAK = [
         "SPEC.md 13.8.3: the Standard File dialog's buttons fire on the"
         "RELEASE.",
         needs=("marty",), serial=True, builds=True),
-    Row("fmthumb", "soak", py("tests/fmthumb.py"), 60.0,
+    Row("fmthumb", "soak", py("tests/fmthumb.py"), 30.0,
         "SPEC.md 13.10.5: the Disk window's scroll-bar THUMB is dragged, and"
         "x is never read.",
         needs=("marty",), serial=True),
-    Row("fdlgthumb", "soak", py("tests/fdlgthumb.py"), 90.0,
+    Row("fdlgthumb", "soak", py("tests/fdlgthumb.py"), 50.0,
         "SPEC.md 13.10.5: ...and the Standard File dialog's, which is the"
         "second bar one gesture record has to tell apart (13.10.5.10).",
         needs=("marty",), serial=True, builds=True),
-    Row("pkgthumb-np", "soak", py("tests/pkgthumb.py", "notepad"), 90.0,
+    Row("pkgthumb-np", "soak", py("tests/pkgthumb.py", "notepad"), 50.0,
         "SPEC.md 13.10.7: the thumb gesture inside a PACKAGE - Note Pad.",
         needs=("marty",), serial=True, builds=True),
-    Row("pkgthumb-br", "soak", py("tests/pkgthumb.py", "browser"), 90.0,
+    Row("pkgthumb-br", "soak", py("tests/pkgthumb.py", "browser"), 50.0,
         "SPEC.md 13.10.7: ...the Browser.",
         needs=("marty",), serial=True, builds=True),
-    Row("pkgthumb-wd", "soak", py("tests/pkgthumb.py", "word"), 120.0,
+    Row("pkgthumb-wd", "soak", py("tests/pkgthumb.py", "word"), 50.0,
         "SPEC.md 13.10.7: ...and Word, which needed 13.10.6.4 settling first -"
         "its menus are a modal poll and the thumb's two edges are disjoint"
         "from them.",
         needs=("marty",), serial=True, builds=True),
-    Row("pkgthumb-tp", "soak", py("tests/pkgthumb.py", "texpad"), 90.0,
+    Row("pkgthumb-tp", "soak", py("tests/pkgthumb.py", "texpad"), 50.0,
         "SPEC.md 13.10.7.2: ...and TexPad, whose TWO bars share one gesture"
         "record. --bar=1 drives the preview pane's.",
         needs=("marty",), serial=True, builds=True),
@@ -1792,7 +1842,7 @@ SOAK = [
         "Does an fsx bracket take ONE display and dark the others? (SPEC.md"
         "39.18)",
         needs=("marty",), serial=True, builds=True),
-    Row("knobhd", "soak", py("tests/knobhd.py"), 900.0,
+    Row("knobhd", "soak", py("tests/knobhd.py"), 180.0,
         "SPEC.md 52.10.2.1: a KNOB kernel installed to a hard disk and booted "
         "off it, on BOTH adapters. The build matrix assembles knob kernels and "
         "never boots one; hdboot boots a disk and only the shipped kernel; "
@@ -1800,14 +1850,14 @@ SOAK = [
         "once, because the volume boot record is the only loader that has to "
         "be TOLD where the heap starts. REBUILDS build/ and puts it back, and "
         "erases the VHD.",
-        needs=("marty",), serial=True, timeout=2400, builds=True),
-    Row("hdboot", "soak", py("tests/hdboot.py"), 420.0,
+        needs=("marty",), serial=True, timeout=2400),
+    Row("hdboot", "soak", py("tests/hdboot.py"), 120.0,
         "Does os8088 BOOT from the hard disk it was installed to? (SPEC.md "
         "2.9.9) instdeep proves the bytes ARRIVE and every other boot row "
         "boots a floppy, so the volume boot record - a different 512 bytes "
         "with a different loader - was unexercised, and 2.9 broke it",
         needs=("marty",), serial=True),
-    Row("instdeep", "soak", py("tests/instdeep.py"), 240.0,
+    Row("instdeep", "soak", py("tests/instdeep.py"), 120.0,
         "SPEC.md 52.10.13: an install reproduces the source disk's WHOLE "
         "tree - the empty SYSTEM/APPDATA and SYSTEM/DOS/OS88NET.COM included, "
         "which one folder level could not reach. It ERASES the VHD.",
@@ -1823,7 +1873,7 @@ SOAK = [
         "driver, so C: is a DVK_DRV volume and the resume's transport facts "
         "come through DSV_GEOM",
         needs=("marty",), serial=True, timeout=1500),
-    Row("instrest", "soak", py("tests/instrest.py"), 240.0,
+    Row("instrest", "soak", py("tests/instrest.py"), 120.0,
         "SPEC.md 52.10.6.1: the installer's ACTION BUTTON reads Install and "
         "then Restart, there is no third button, and clicking it at the end "
         "restarts the machine. The caption is read out of the framebuffer "
@@ -1837,25 +1887,25 @@ SOAK = [
         "and an output path and DEFAULTS both: registered with neither,"
         "every run died on sys.argv[1] before the emulator started.",
         needs=("marty",), serial=True),
-    Row("mediadisk", "soak", py("tests/mediadisk.py"), 60.0,
+    Row("mediadisk", "soak", py("tests/mediadisk.py"), 30.0,
         "The 360KB MEDIA DISK mounts, and the apps disk keeps MEDIA (SPEC.md"
         "24.4).",
         needs=("marty",), serial=True),
-    Row("mkclick", "soak", py("tests/mkclick.py"), 60.0,
+    Row("mkclick", "soak", py("tests/mkclick.py"), 10.0,
         "mkclick - generate CLICK.MOD, a metronome for judging A/V sync by"
         "eye and ear.",
         needs=(), serial=False),
-    Row("minexflag", "soak", py("tests/minexflag.py"), 180.0,
+    Row("minexflag", "soak", py("tests/minexflag.py"), 50.0,
         "A wrong flag must not be drawn pixel-identical to a mine (SPEC.md "
         "23): the X over it is light red because a black one lands entirely "
         "inside the black glyph beneath and cannot be seen.",
         needs=("marty",), serial=True, timeout=900),
-    Row("minesrc", "soak", py("tests/minesrc.py"), 180.0,
+    Row("minesrc", "soak", py("tests/minesrc.py"), 80.0,
         "SPEC.md 13.11's right button: it flags a Minesweeper cell, and it "
         "does nothing on the strip, on an open cell or on a window that was "
         "not already frontmost.",
         needs=("qemu", "nasm"), serial=True, timeout=900, builds=True),
-    Row("tmsmall", "soak", py("tests/tmsmall.py"), 110.0,
+    Row("tmsmall", "soak", py("tests/tmsmall.py"), 30.0,
         "SPEC.md 28.12: the APP_SMALL Task Manager gates out two of its three "
         "PAGES, which is 39.9% of one heap claim and the largest saving of "
         "any package in the tree - and the two that go share their row "
@@ -1865,8 +1915,8 @@ SOAK = [
         "SHIPPED kernel (27.16: a small build is not a second ABI): the full "
         "arm's click cycles the page and the small arm's does not, and the "
         "page they share is compared pixel for pixel.",
-        needs=("marty",), serial=True, timeout=900),
-    Row("tmload", "soak", py("tests/tmload.py"), 150.0,
+        needs=("marty",), serial=True, timeout=900, wants=("build/smallapps360.img",)),
+    Row("tmload", "soak", py("tests/tmload.py"), 20.0,
         "SPEC.md 28.7: the CPU meter and the process rows read the same "
         "numbers. The page used to show two figures that contradicted each "
         "other in plain sight and were both right - it charged its own "
@@ -1884,8 +1934,8 @@ SOAK = [
         "unreachable on that arm by mou_apply's own first compare, and a "
         "one-armed reading could not tell that from a test that never "
         "reached a freeze at all.",
-        needs=("marty",), serial=True, builds=True, timeout=900),
-    Row("uiblock", "soak", py("tests/uiblock.py"), 150.0,
+        needs=("marty",), alone=True, serial=True, timeout=900),
+    Row("uiblock", "soak", py("tests/uiblock.py"), 20.0,
         "SPEC.md 8.1.2: ui_task blocks instead of spinning, so an idle "
         "desktop is 97% HALTED and the loop runs 18 times a second instead "
         "of 1,134 - which nothing on screen can show, so the rate is the "
@@ -1903,7 +1953,7 @@ SOAK = [
         "books are checked beside it against MartyPC's own cycle counter, "
         "which is an authority outside the kernel's arithmetic.",
         needs=("marty",), serial=True, timeout=600),
-    Row("heapscrl", "soak", py("tests/heapscrl.py"), 260.0,
+    Row("heapscrl", "soak", py("tests/heapscrl.py"), 120.0,
         "SPEC.md 28.4.4: the Task Manager's heap page scrolls, its bar "
         "survives six refreshes of the list beside it (tm_rowr), and a scroll "
         "down and back leaves the rows byte-identical - which is what says "
@@ -1912,7 +1962,7 @@ SOAK = [
         "is the one that can put a tm_mrow_nolast blank between the table and "
         "its own end stop and no one-column machine can show it.",
         needs=("marty",), serial=True, timeout=900),
-    Row("trkscrl", "soak", py("tests/trkscrl.py"), 180.0,
+    Row("trkscrl", "soak", py("tests/trkscrl.py"), 80.0,
         "SPEC.md 45.12.2: a jump of n rows in the pattern view costs ONE "
         "gfx_scroll and no full repaint, and what it leaves on the screen is "
         "byte-identical to a repaint of the same view. QEMU, because the "
@@ -1922,10 +1972,10 @@ SOAK = [
         "SPEC.md 13.7's release, apps/os88ui.inc's arm, and MOUSEUP-PLAN"
         "4.2's guard.",
         needs=("marty",), serial=True, builds=True),
-    Row("paintgif", "soak", py("tests/paintgif.py"), 60.0,
+    Row("paintgif", "soak", py("tests/paintgif.py"), 40.0,
         "HOW LONG DOES PAINT TAKE TO OPEN OS8088.GIF? - in GUEST CYCLES",
         needs=("marty",), serial=True),
-    Row("paintlzw", "soak", py("tests/paintlzw.py"), 120.0,
+    Row("paintlzw", "soak", py("tests/paintlzw.py"), 40.0,
         "SPEC.md 42.21: ...and WHICH HALF of it. paintgif times the whole "
         "operation, which is the right shape for a regression that could be "
         "anywhere and cannot say where this one was: the decode was 12,547 ms "
@@ -1938,7 +1988,7 @@ SOAK = [
         "picture whose dither packs differently",
         needs=("marty",), serial=True),
     Row("paintanchor", "soak",
-        py("tests/paintanchor.py", "--machine", "os8088_5150_herc_gla"), 300.0,
+        py("tests/paintanchor.py", "--machine", "os8088_5150_herc_gla"), 50.0,
         "SPEC.md 11.90.3: a pure SHRINK owes its content nothing. ui_grow"
         "repaints the union of the old rect and the new, so the window used to"
         "be told to draw all of itself about pixels nothing painted over."
@@ -1948,7 +1998,7 @@ SOAK = [
         "columns went back to the desktop",
         needs=("marty",), serial=True),
     Row("paintshrink", "soak",
-        py("tests/paintshrink.py", "--machine", "os8088_5150_herc_gla"), 300.0,
+        py("tests/paintshrink.py", "--machine", "os8088_5150_herc_gla"), 60.0,
         "SPEC.md 42.17: a shrink that would lose ink gives back what it CAN."
         "Refused used to mean pinned where it started, so one stroke kept the"
         "whole canvas. Inks a stroke at a known place, types a size well past"
@@ -1957,7 +2007,7 @@ SOAK = [
         "pt_szapply resizes the window and pt_track re-fits the width back up"
         "before anything else can look",
         needs=("marty", "nasm"), serial=True),
-    Row("paintrz", "soak", py("tests/paintrz.py"), 420.0,
+    Row("paintrz", "soak", py("tests/paintrz.py"), 120.0,
         "SPEC.md 42.19.1: does a resize still have the PICTURE afterwards?"
         "pt_resize used to carry it through the undo image, where every walk"
         "order is safe because the source is a buffer of its own; it moves the"
@@ -1971,7 +2021,7 @@ SOAK = [
         "smear inside the bounding box can flatter it",
         needs=("marty", "nasm"), serial=True),
     Row("paint1bpp", "soak",
-        py("tests/paint1bpp.py"), 180.0,
+        py("tests/paint1bpp.py"), 40.0,
         "SPEC.md 42.23: is the canvas ONE BIT a pixel, and is the DIB in"
         "front of it a valid 1bpp BMP? The claim is the assertion and not"
         "the pixels - 448x258 is 14.2KB one bit deep against 56.6 packed,"
@@ -1988,7 +2038,7 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("paint1bpp-colour", "soak",
         py("tests/paint1bpp.py", "--machine", "os8088_xt_vga", "--colour"),
-        180.0,
+        30.0,
         "...and THE NEGATIVE, which is the half that would drift silently: a"
         "COLOUR adapter is untouched by 42.23 - four planes, sixteen"
         "colours, a 118-byte DIB and the 4bpp arithmetic to the byte. A new"
@@ -1998,7 +2048,7 @@ SOAK = [
         "suite and quietly cost the VGA fifteen of its colours",
         needs=("marty",), serial=True),
     Row("paint1blit", "soak",
-        py("tests/paint1blit.py"), 300.0,
+        py("tests/paint1blit.py"), 90.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
         "by, compared. kern_big has gfx_blit1 and blits the band straight in;"
         "kern_small carries the SLOT AND NOT THE BODY (5.4.2), so Paint"
@@ -2012,7 +2062,7 @@ SOAK = [
         "checked fact rather than a second piece of reasoning",
         needs=("marty",), serial=True),
     Row("paint1load", "soak",
-        py("tests/paint1load.py"), 180.0,
+        py("tests/paint1load.py"), 30.0,
         "SPEC.md 42.23.6: does a 1bpp BMP LOAD? The one path in 42.23 no"
         "other row reaches - pt_line_put's bit arm, pt_fmtpick running before"
         "pt_adopt, and the fixture is BUILT here rather than committed"
@@ -2025,7 +2075,7 @@ SOAK = [
         "nothing was reduced here and File > Save has to stay allowed",
         needs=("marty",), serial=True),
     Row("paint1load-vga", "soak",
-        py("tests/paint1load.py", "--machine", "os8088_xt_vga"), 180.0,
+        py("tests/paint1load.py", "--machine", "os8088_xt_vga"), 40.0,
         "...and the same on a COLOUR adapter, which is the interesting leg:"
         "42.23.6 opens a colourless file one bit deep on ANY card, so this is"
         "a one-bit canvas drawn through the planar renderer - pt_blit_1's"
@@ -2033,7 +2083,7 @@ SOAK = [
         "other canvas is four planes",
         needs=("marty",), serial=True),
     Row("paintrz-1bpp", "soak",
-        py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 420.0,
+        py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 120.0,
         "...and the ONE-BIT canvas, which is a different move: one run of"
         "bits a row instead of four plane-runs whose three inner boundaries"
         "all shift with the width (SPEC.md 42.23, 42.13.2). IT WAS"
@@ -2045,7 +2095,7 @@ SOAK = [
         "the row that forces the second",
         needs=("marty", "nasm"), serial=True),
     Row("alertbtn", "soak",
-        py("tests/alertbtn.py", "--machine", "os8088_5150_herc_gla"), 300.0,
+        py("tests/alertbtn.py", "--machine", "os8088_5150_herc_gla"), 80.0,
         "SPEC.md 75.3.0: the STANDARD alert's button row - os88ui's and not"
         "Paint's, which is only the alert easiest to raise. One press must"
         "draw ONE button (os88ui_adn redrew the whole row, so a press lettered"
@@ -2054,7 +2104,7 @@ SOAK = [
         "before the finger commits. Also checks 42.16.1's GIF default",
         needs=("marty",), serial=True),
     Row("alertanim", "soak",
-        py("tests/alertanim.py", "--machine", "os8088_5150_herc_gla"), 300.0,
+        py("tests/alertanim.py", "--machine", "os8088_5150_herc_gla"), 60.0,
         "SPEC.md 11.99.2.1: the 'Save changes?' alert must NOT zoom open. The"
         "user clicked the close box and got a dialog instead, so a third of a"
         "second of outline in front of it is the machine making a show of"
@@ -2063,7 +2113,7 @@ SOAK = [
         "trivially, and the alert must be on the glass at the end, or a dialog"
         "that failed to open reads as one that opened quietly",
         needs=("marty",), serial=True),
-    Row("paintdirty", "soak", py("tests/paintdirty.py"), 300.0,
+    Row("paintdirty", "soak", py("tests/paintdirty.py"), 70.0,
         "SPEC.md 42.16: does Paint ask before it throws a picture away? A"
         "FLAG and not Note Pad's checksum, so the places that set and clear it"
         "are the whole feature - opened 0, MAXIMIZED AND RESTORED 0 (a resize"
@@ -2071,7 +2121,7 @@ SOAK = [
         "blank picture nobody drew on), one stroke 1, and the close box"
         "refuses and puts an alert up",
         needs=("marty",), serial=True),
-    Row("paintcull", "soak", py("tests/paintcull.py"), 300.0,
+    Row("paintcull", "soak", py("tests/paintcull.py"), 70.0,
         "SPEC.md 5.4.3.3: does 11.3.3's CULL cost Paint its four planes? An"
         "armed clip region is one of gfx_blitp's refusals and pt_topacked"
         "reads any refusal as a fact about the MACHINE, so one ordinary"
@@ -2080,7 +2130,7 @@ SOAK = [
         "never blits - maximize, restore; asserts [pt_planar] at each step and"
         "reports which guard fired if it did not hold",
         needs=("marty",), serial=True),
-    Row("paintplan", "soak", py("tests/paintplan.py"), 150.0,
+    Row("paintplan", "soak", py("tests/paintplan.py"), 60.0,
         "SPEC.md 42.13: is Paint's PLANAR canvas the picture? Opens"
         "OS8088.GIF and compares the screen against the FILE, so the GIF"
         "decoder, pt_line_put's packing into four planes and gfx_blitp are"
@@ -2091,7 +2141,14 @@ SOAK = [
         "Reads the four PLANES rather than the rendered frame - which below"
         "the raster is last frame's, and reads exactly like a blit that"
         "stopped halfway. Needs `make bench`",
-        needs=("marty", "nasm"), serial=True),
+        # ...and SAYS SO to the runner, not only to the reader. `all` does not
+        # build build/gfxbench.o88, so this row failed at HEAD and at the base
+        # alike and was written up as a pre-existing defect
+        # (docs/HANDOFF-SOAK-FINDINGS.md F1). With the artefact present it
+        # passes: 256 plane-rows, 2,048 bytes, all as given. B4's shape again -
+        # the suite modelling tools rather than artefacts.
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/gfxbench.o88",)),
     Row("blitpair", "soak", py("tests/blitpair.py"), 90.0,
         "SPEC.md 5.4.1.1: is the 1bpp canvas the PICTURE? OS8088.GIF is two"
         "colours, so 39.4 sends every pixel to a solid class and the"
@@ -2099,32 +2156,32 @@ SOAK = [
         "thing that can see sw_blit_row's tables read through the wrong"
         "segment (5.4.1.3 moved them to .lowbss)",
         needs=("marty",), serial=True),
-    Row("paintdraw", "soak", py("tests/paintdraw.py"), 180.0,
+    Row("paintdraw", "soak", py("tests/paintdraw.py"), 70.0,
         "SPEC.md 42.13: does DRAWING on the planar canvas touch only what it"
         "drew? paintplan covers the routines that write a whole row; this one"
         "covers pt_rect, which is the pencil's dab and builds a left mask, a"
         "right mask and a byte count the packed path gets from one shift",
         needs=("marty",), serial=True),
-    Row("paintsu", "soak", py("tests/paintsu.py"), 240.0,
+    Row("paintsu", "soak", py("tests/paintsu.py"), 120.0,
         "SPEC.md 11.96.11: on a 1bpp adapter Paint banks its WHOLE content"
         "rather than the tool column, because there the cache is ~9KB and the"
         "canvas it saves redrawing is 399 ms. Asserts the size asked for, that"
         "no canvas blit crosses an uncover, and that what came back is right",
         needs=("marty",), serial=True),
-    Row("paintfill", "soak", py("tests/paintfill.py"), 180.0,
+    Row("paintfill", "soak", py("tests/paintfill.py"), 80.0,
         "SPEC.md 42.13.2: does the FLOOD FILL find the same edges the picture"
         "has? pt_fpix gathers one bit per plane, so a plane addressed wrongly"
         "does not corrupt anything - it makes the fill see a picture that is"
         "not there. The oracle is a flood fill on the host over the same file",
         needs=("marty",), serial=True),
-    Row("paintbig", "soak", py("tests/paintbig.py"), 240.0,
+    Row("paintbig", "soak", py("tests/paintbig.py"), 150.0,
         "SPEC.md 42.13.2: GROW the canvas, which is the only thing that"
         "changes [pt_bpr] - the one number the two storage formats do not"
         "share - then copy a block past the clipboard's 4KB floor and paste"
         "it back at a DIFFERENT bit phase (SPEC.md 42.13.3), which is what"
         "makes both shifts and both edge masks run. Nothing else resizes",
         needs=("marty",), serial=True),
-    Row("paintback", "soak", py("tests/paintback.py"), 600.0,
+    Row("paintback", "soak", py("tests/paintback.py"), 180.0,
         "SPEC.md 11.96.11.4 and 42.13.1.3: a window dragged clear onto the"
         "other card and home again - the PICTURE first, because the stale BX"
         "this caught had the kernel writing zeros into its own .text and the"
@@ -2132,14 +2189,14 @@ SOAK = [
         "the canvas has to come home as four planes. The herc leg is the only"
         "row here on a machine whose colour card is not the primary",
         needs=("marty",), serial=True),
-    Row("paintrow", "soak", py("tests/paintrow.py"), 240.0,
+    Row("paintrow", "soak", py("tests/paintrow.py"), 50.0,
         "SPEC.md 42.13.1.2: pt_line_get's FOUR-PLANE row reader, whose only"
         "caller is the GIF writer - so nothing that draws can fail on it and"
         "no screenshot here can see it. Calls the routine directly, through"
         "five bytes written over pt_blit's entry, and compares the colour"
         "classes it returns against the file's",
         needs=("marty",), serial=True),
-    Row("paintwipe", "soak", py("tests/paintwipe.py"), 90.0,
+    Row("paintwipe", "soak", py("tests/paintwipe.py"), 30.0,
         "SPEC.md 42.13.2.1: is a BLANK canvas blank? Every other paint row"
         "opens a picture and compares it against the file, which is the one"
         "oracle that cannot see pt_wipe - a wrong ground is not a difference"
@@ -2149,15 +2206,15 @@ SOAK = [
         "of it, since this row takes no timing and ibm5150_82_v4 is not in"
         "this tree.",
         needs=("marty",), serial=True),
-    Row("paintpack", "soak", py("tests/paintpack.py"), 600.0,
+    Row("paintpack", "soak", py("tests/paintpack.py"), 210.0,
         "SPEC.md 42.13.1: the REFUSAL path. Builds the NOPLANE kernel, where"
         "every gfx_blitp says no in six bytes, so Paint's pt_topacked runs"
         "for real and the nibbles it produced are compared against the file,"
         "then paintbig again over it - the only kernel on which the PACKED"
         "half of pt_copy/pt_paste runs without a second monitor. Rebuilds the"
         "tree, like blitplane",
-        needs=("marty", "nasm"), serial=True, builds=True),
-    Row("bouncecost", "soak", py("tests/bouncecost.py"), 120.0,
+        needs=("marty", "nasm"), serial=True),
+    Row("bouncecost", "soak", py("tests/bouncecost.py"), 20.0,
         "SPEC.md 14/2.6: what one Bounce frame costs the machine in 8088 "
         "cycles. Its PERIOD is task_sleep's, so nothing here can move its "
         "frame rate - what it measures is how much of a 4.77MHz machine one "
@@ -2175,8 +2232,8 @@ SOAK = [
         "Paint OFF THE BYTE GRID on purpose: since SPEC.md 42.13 a canvas on "
         "the grid is four planes and repaints through gfx_blitp, so a window "
         "left where it opens does not reach this primitive at all.",
-        needs=("marty", "nasm"), serial=True, timeout=900, builds=True),
-    Row("blitcut", "soak", py("tests/blitcut.py"), 420.0,
+        needs=("marty", "nasm"), serial=True, timeout=900),
+    Row("blitcut", "soak", py("tests/blitcut.py"), 330.0,
         "SPEC.md 39.14.7.2: does a STRADDLING gfx_blit4 draw the same pixels "
         "cut at the seam as it does whole-virtual, and is it several times "
         "quicker? blitplane's shape one seam along, and rebuilds the tree for "
@@ -2185,16 +2242,16 @@ SOAK = [
         "the drag is what makes gfx_blitp refuse and Paint convert its canvas "
         "to nibbles (SPEC.md 42.13.1), which is what puts the block through "
         "gfx_blit4 at all, and a W_X written by hand would skip it.",
-        needs=("marty", "nasm"), serial=True, timeout=1800, builds=True),
-    Row("paintmove", "soak", py("tests/paintmove.py"), 60.0,
+        needs=("marty", "nasm"), serial=True, timeout=1800),
+    Row("paintmove", "soak", py("tests/paintmove.py"), 150.0,
         "Compact the heap out from under a LIVE Paint canvas (SPEC.md"
         "66.2/42).",
         needs=("marty",), serial=True, builds=True),
-    Row("rdmove", "soak", py("tests/rdmove.py"), 60.0,
+    Row("rdmove", "soak", py("tests/rdmove.py"), 150.0,
         "Compact the heap out from under the RAM disk's store (SPEC.md"
         "66.5.10).",
         needs=("marty",), serial=True),
-    Row("hdmove", "soak", py("tests/hdmove.py"), 90.0,
+    Row("hdmove", "soak", py("tests/hdmove.py"), 120.0,
         "Compact the heap out from under a DONATED listing claim (SPEC.md "
         "66.5.10.2) - the only claim in the tree with three holders, two of "
         "them the kernel's and on the far side of the ABI from the callback. "
@@ -2211,13 +2268,13 @@ SOAK = [
         "which moved that number by 64.5KB and the LIVE largest run by "
         "nothing at all",
         needs=("marty",), serial=True),
-    Row("modstr", "soak", py("tests/modstr.py"), 90.0,
+    Row("modstr", "soak", py("tests/modstr.py"), 60.0,
         "modstr - a module's own strings letter correctly (SPEC.md 2.8.6). "
         "The bytes, out of fm_hdrbuf and toast_buf, because a string read "
         "through DS instead of CS lands in kernel code and letters plausible "
         "rubbish rather than faulting",
         needs=("marty",), serial=True),
-    Row("diskclone", "soak", py("tests/diskclone.py"), 90.0,
+    Row("diskclone", "soak", py("tests/diskclone.py"), 120.0,
         "diskclone - Clone Disk... (SPEC.md 18.99/22.21) driven end to end, "
         "with the assertion that cannot pass for the wrong reason: the two "
         "floppies read back off the guest and diffed byte for byte. Cross "
@@ -2230,53 +2287,53 @@ SOAK = [
         "SPEC.md 13.10: the shared scroll bar, and the two kernel bars are"
         "one now.",
         needs=("marty",), serial=True, builds=True),
-    Row("sizesnap", "soak", py("tests/sizesnap.py"), 60.0,
+    Row("sizesnap", "soak", py("tests/sizesnap.py"), 20.0,
         "the SIZE snap aligns a content width WITHOUT shrinking the zoom "
         "(SPEC.md 11.94.5) - a maximized window must stay x=0, w=[vid_pw]",
         needs=("marty",), serial=True),
-    Row("netpromise", "soak", py("tests/netpromise.py"), 240.0,
+    Row("netpromise", "soak", py("tests/netpromise.py"), 90.0,
         "SPEC.md 70.7/77.47: Telnet and the FTP server promise per DEBT, not"
         "per session.",
         needs=("marty",), serial=True),
-    Row("monoink", "soak", py("tests/monoink.py"), 120.0,
+    Row("monoink", "soak", py("tests/monoink.py"), 40.0,
         "SPEC.md 11.96.17.1's hook reaches font_run and not font_str - it must "
         "not perturb the path it does not serve, and the gap is measured",
         needs=("marty",), serial=True),
-    Row("su1bpp", "soak", py("tests/su1bpp.py"), 120.0,
+    Row("su1bpp", "soak", py("tests/su1bpp.py"), 50.0,
         "SPEC.md 11.96.17: a two-colour window's raise cache is ONE plane, a "
         "quarter the size, and puts back the pixels a full repaint would",
         needs=("marty",), serial=True),
-    Row("win1bpp", "soak", py("tests/win1bpp.py"), 90.0,
+    Row("win1bpp", "soak", py("tests/win1bpp.py"), 70.0,
         "SPEC.md 11.96.17's two-colour declaration reaches W_FLAGS, and clear "
         "of SPEC.md 7.2.1's cursor shape in the same byte",
         needs=("marty",), serial=True),
-    Row("tpsaveu", "soak", py("tests/tpsaveu.py"), 120.0,
+    Row("tpsaveu", "soak", py("tests/tpsaveu.py"), 50.0,
         "TeXPad - the largest window in the tree, and the one four planes "
         "cannot fund - keeps its pixels one plane deep (SPEC.md 11.96.17)",
         needs=("marty",), serial=True),
     Row("tmrup", "soak", py("tests/tmrup.py"), 60.0,
         "SPEC.md 13.8: the Timer's three buttons fire on the RELEASE.",
         needs=("marty",), serial=True),
-    Row("kernresident", "full", py("tests/kernresident.py"), 90.0,
+    Row("kernresident", "full", py("tests/kernresident.py"), 20.0,
         "kernel.asm rule 3: kern_big fully RESIDES in KERN_RESIDENT_KB at a "
         "bare desktop - the half of the rule an assembler cannot see, which "
         "is a claim made at boot and never given back.",
         needs=("marty",), serial=True),
-    Row("zoomsave", "soak", py("tests/zoomsave.py"), 420.0,
+    Row("zoomsave", "soak", py("tests/zoomsave.py"), 150.0,
         "SPEC.md 11.96.16.2: a window ZOOMED over another banks it - the "
         "precover pass had one caller and a maximize took 0 caches.",
         needs=("marty",), serial=True),
-    Row("dmgcull", "soak", py("tests/dmgcull.py"), 420.0,
+    Row("dmgcull", "soak", py("tests/dmgcull.py"), 50.0,
         "SPEC.md 11.3.3: a marked window does not paint where something above "
         "it is about to - 452 cells under the mover became 26. Counts CELLS "
         "and not calls, because a culled cell is still a call.",
         needs=("marty",), serial=True),
-    Row("tmdmg", "soak", py("tests/tmdmg.py"), 420.0,
+    Row("tmdmg", "soak", py("tests/tmdmg.py"), 60.0,
         "SPEC.md 28.10.2: a partial repaint of the Task Manager draws only "
         "the part - 225 cells put on the glass became 0, against 549 for a "
         "whole repaint. CELLS and not calls (11.3.3).",
         needs=("marty",), serial=True),
-    Row("tmrepair", "soak", py("tests/tmrepair.py"), 420.0,
+    Row("tmrepair", "soak", py("tests/tmrepair.py"), 80.0,
         "SPEC.md 28.11: the Task Manager's quiet pages hold a raise cache by "
         "REPAIRING at the restore - a whole-content band, and tm_update "
         "spends the debt W_PAINT is handed.",
@@ -2293,30 +2350,30 @@ SOAK = [
         "the page COMPOSES rather than the pixels, which is the only way to "
         "say which group a row is in",
         needs=("marty",), serial=True),
-    Row("tmground", "soak", py("tests/tmground.py"), 300.0,
+    Row("tmground", "soak", py("tests/tmground.py"), 60.0,
         "SPEC.md 28.10: the Task Manager paints its own ground, so a repaint"
         "is not a 450ms white hole.",
         needs=("marty",), serial=True),
-    Row("trackmove", "soak", py("tests/trackmove.py"), 60.0,
+    Row("trackmove", "soak", py("tests/trackmove.py"), 150.0,
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",
         needs=("marty",), serial=True, builds=True),
     Row("tpdraw", "soak", py("tests/tpdraw.py"), 300.0,
         "Does TeXPad's INCREMENTAL source redraw draw what a full repaint"
         "draws? (SPEC.md 69.8)",
         needs=("marty",), serial=True),
-    Row("trkrate", "soak", py("tests/trkrate.py"), 60.0,
+    Row("trkrate", "soak", py("tests/trkrate.py"), 120.0,
         "trkrate - XT mode's second rate, and the surface it refuses (SPEC.md"
         "45.9.3)",
         needs=("marty",), serial=True, builds=True),
-    Row("trktxsurf", "soak", py("tests/trktxsurf.py"), 90.0,
+    Row("trktxsurf", "soak", py("tests/trktxsurf.py"), 180.0,
         "The fullscreen SURFACE is a pick, not XT mode's - text at a 45.10"
         "rate (SPEC.md 45.13.7)",
         needs=("marty",), serial=True, builds=True),
-    Row("wmartifact", "soak", py("tests/wmartifact.py"), 60.0,
+    Row("wmartifact", "soak", py("tests/wmartifact.py"), 260.0,
         "Two window-manager artifacts, reproduced with NO package of ours"
         "involved.",
         needs=("marty",), serial=True),
-    Row("xorrect", "soak", py("tests/xorrect.py"), 60.0,
+    Row("xorrect", "soak", py("tests/xorrect.py"), 20.0,
         "gfx_xor_rect draws the same pixels it always did (SPEC.md 39.14.10)",
         needs=("marty",), serial=True),
 ]

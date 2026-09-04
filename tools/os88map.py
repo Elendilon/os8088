@@ -32,15 +32,50 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _in_build(p):
+    """Resolve a repo-relative path, following $OS88_BUILD when it names one.
+
+    os88sym.py has honoured $OS88_BUILD for as long as there have been
+    out-of-tree builds; this file did not, and hardcoded `build/` in every
+    caller. That is invisible until a row builds into a tree of its own
+    (tools/os88build.py) and then cannot find its own binary - measured:
+    `tests/mseglazy.py` built `mseg.bin` into its private tree and died on
+    "os88map: no build/mseg.bin - build it first", about a file it had just
+    made.
+
+    Only a `build/` prefix is redirected. Everything else - a source path, an
+    include directory under apps/ - is the checkout's and does not move.
+    """
+    bdir = os.environ.get("OS88_BUILD", "")
+    if bdir and (p == "build" or p.startswith("build" + os.sep)):
+        if not os.path.isabs(bdir):
+            bdir = os.path.join(ROOT, bdir)
+        return os.path.join(bdir, p[len("build") + 1:]) if p != "build" else bdir
+    return os.path.join(ROOT, p)
+
+
 class Syms(object):
     """The symbols of one nasm source, checked against the binary it built."""
 
     def __init__(self, src, ship, incs=("apps",), prefixes=None):
         self.src = os.path.join(ROOT, src)
-        self.ship = os.path.join(ROOT, ship)
-        self.incs = [os.path.join(ROOT, i) + os.sep for i in incs]
+        # RESOLVED LAZILY, in `_load`, and not here. A module-level
+        # `Syms(...)` - which is how every caller spells it - runs at IMPORT,
+        # and a row that builds into a private tree sets $OS88_BUILD after
+        # that. Resolving in the constructor therefore captured `build/`
+        # whatever the row did next, which is the bug this note exists to stop
+        # coming back.
+        self._ship, self._incs = ship, list(incs)
         self.prefixes = prefixes
         self._map = None
+
+    @property
+    def ship(self):
+        return _in_build(self._ship)
+
+    @property
+    def incs(self):
+        return [_in_build(i) + os.sep for i in self._incs]
 
     def _load(self):
         if not os.path.exists(self.ship):

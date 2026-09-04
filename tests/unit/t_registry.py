@@ -51,6 +51,15 @@ UNREGISTERED = {
     # --- library and support code, not tests ---
     "dispcells.py": "the CELLS-not-calls counter two gates share (SPEC.md "
                     "11.3.3), not a test",
+    "dispcp.py": "the Control Panel's Display page driven from a script - "
+                 "the shared one, imported by 104 files in this directory and "
+                 "the most-reused thing in it. It was REGISTERED as a soak "
+                 "row until it was noticed reporting `ok` in 0.1s against 60 "
+                 "declared: 22 function definitions and no call, so the row "
+                 "booted nothing, asserted nothing and could never fail. A "
+                 "green row that tests nothing is worse than B4's three rows "
+                 "that failed where they meant to skip, because nobody "
+                 "investigates a pass",
     "os88qemu.py": "the teardown every QEMU launcher registers, written once "
                    "rather than thirteen times - library, not a test. What "
                    "checks it is `t_qemuown`, which asserts every launcher "
@@ -140,9 +149,46 @@ def _invokes_make(path):
     # above says the same thing about its own docstring, and the pieces were
     # first joined with a NON-raw `'fixture\\b'`, where `\\b` is a BACKSPACE and
     # not a word boundary, so the pattern silently matched nothing at all.
-    return bool(re.search(r'\[\s*"make"|"make"\s*,', body)
-                or re.search(r'^\s*(?:from\s+os88fixture\s+import'
-                             r'|import\s+os88fixture\b)', body, re.M))
+    # A `make` CARRYING `BUILD=` IS NOT ONE OF THESE. It names a destination
+    # of its own, so it cannot rewrite the shared tree - which is the only
+    # thing this flag is about. `tests/unit/t_bmshare.py` has done that since
+    # it was written and was marked builds=True anyway, because the detector
+    # looked for the word `make` and not for where the output went.
+    for argv in re.findall(r'\[[^\[\]]*"make"[^\[\]]*\]', body):
+        if "BUILD=" not in argv:
+            return True
+    if re.search(r'"make"\s*,', body) and "BUILD=" not in body:
+        return True
+    return bool(re.search(r'^\s*(?:from\s+os88fixture\s+import'
+                          r'|import\s+os88fixture\b)', body, re.M))
+
+
+def _private_build(path):
+    """Does this test build into a PRIVATE tree (tools/os88build.py)?
+
+    A third spelling, and the one that means the OPPOSITE of the two above.
+    `os88build.tree()` runs `make BUILD=<a directory of its own>`, so the row
+    really does invoke make - and it does not touch `build/`, which is the
+    only thing `builds=True` is about. A row that spells `BUILD=` itself
+    counts too: `t_bmshare` and `t_buildmatrix` were both doing this before
+    os88build existed, and the first of them was marked `builds=True` for
+    years because the detector looked for the word `make` rather than for
+    where the output went. A row like that must be builds=FALSE,
+    or the flag puts it back in the one-at-a-time lane for a hazard it no
+    longer has.
+
+    Checked in both directions below, because both mistakes are silent: a
+    private builder marked `builds=True` costs the soak its parallelism for
+    nothing, and a shared-tree builder marked False is the corruption the
+    original check exists to stop.
+    """
+    try:
+        with open(path) as f:
+            body = f.read()
+    except OSError:
+        return False
+    return bool(re.search(r'^\s*import\s+os88build\b', body, re.M)
+                or "BUILD=" in body)
 
 
 def main():
@@ -201,13 +247,35 @@ def main():
         scripts = [c for c in r.cmd
                    if c.startswith("tests/") and c.endswith(".py")]
         makes = [c for c in scripts if _invokes_make(os.path.join(ROOT, c))]
-        if makes and not r.builds:
+        priv = [c for c in scripts if _private_build(os.path.join(ROOT, c))]
+        # A ROW THAT BUILDS ONLY PRIVATELY MUST NOT BE builds=True. It runs
+        # `make` into a directory of its own, so it cannot rewrite the tree
+        # under anything - and the flag would cost it the shared lane for a
+        # hazard it has given up. This is the check that lets the flag
+        # actually go away as rows are converted, rather than being dropped by
+        # hand and drifting back.
+        #
+        # `not makes` is the important half: a row may do BOTH, and
+        # `t_buildmatrix` does - it builds 81 knob kernels out of tree and
+        # still asks the shared tree for `build/associco.inc`. That row keeps
+        # the flag, and correctly: it also runs itself at -j4, so it wants the
+        # box rather than a share of it.
+        if priv and not makes and r.builds:
+            check(False, "row %s builds PRIVATELY and is still builds=True"
+                  % r.name,
+                  "%s uses tools/os88build.py, which builds into a tree of "
+                  "its own and never writes build/. The flag puts it back in "
+                  "the one-at-a-time lane for a hazard it no longer has"
+                  % ", ".join(priv),
+                  got="builds=True", want="builds=False")
+        elif makes and not priv and not r.builds:
             check(False, "row %s shells out to make and is not builds=True" % r.name,
                   "%s invokes `make`, so this row rewrites build/ under any row "
                   "running beside it. Mark the row builds=True and the runner "
                   "gives it the tree to itself" % ", ".join(makes),
                   got="builds=False", want="builds=True")
-        elif r.builds and not makes and r.name not in BUILDS_WITHOUT_MAKE:
+        elif r.builds and not makes and not priv \
+                and r.name not in BUILDS_WITHOUT_MAKE:
             check(False, "row %s is builds=True and builds nothing" % r.name,
                   "the flag costs the row its parallelism, so a stale one is a "
                   "slower suite for no reason. Drop it, or say here why the row "

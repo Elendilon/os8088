@@ -240,12 +240,42 @@ python3 tools/os88test.py soak -k 'disp*'   # just the ones about displays
 reason `checkdocs` is in there: a gate you have to remember is not a gate.
 `make test-full` and `make test-soak` are the other two.
 
+**RUNNING THE WHOLE SOAK IS `tools/os88soak.py`, NOT `make test-soak`** —
+that target runs the same rows serially, which is why the parallel invocation
+lived in two handoff documents as a line to remember:
+
+```
+python3 tools/os88soak.py check     # can this box answer? what would SKIP?
+python3 tools/os88soak.py start     # preflight, then run detached
+python3 tools/os88soak.py status    # cheap progress read - SAFE to poll
+python3 tools/os88soak.py stop
+```
+
+`check` is the half worth typing on its own. A capability the box has not got
+makes a row skip, **and a skip is the box declining to answer rather than a
+pass** — the pass-3 soak reached zero skips only after somebody noticed by
+hand, fifteen runs in, that four disks the suite never builds for itself were
+missing. `check` names every gap, the rows it would silence, and the command
+that fixes it.
+
+The width is **CORES-1**, and the missing core is the point: it is what a
+`status` poll or a small side task runs on. `status` reads a file, so polling
+it cannot perturb the run; running rows beside it, or a `make`, can and does.
+Every row that reports is journalled, so `start --resume` after a container is
+reclaimed re-runs only what did not finish.
+
+**Before deciding a failure was contention, read `docs/SOAK-PARALLEL.md` §1.**
+Measured here: twelve rows at width 3 with two extra CPU hogs were 1.06x
+slower than idle and 12/12 passed in both arms. Contention does not make a row
+slow — it makes it less thorough, at the same wall time, because the guest
+rate halves inside sleeps that do not stretch.
+
 ### What each tier is for
 
 | tier | budget | what it does | when |
 |---|---|---|---|
 | `fast` | **30s** (uses ~3) | Host-side only. Reads what `make` just built and checks what breaks SILENTLY. | Every build |
-| `full` | **10 min** (uses ~1) | `fast`, plus the eighteen knob kernels and `kern_small`, plus the C toolchain, plus the emulator smoke test. | **Before a merge** |
+| `full` | **10 min** (uses ~3m45) | `fast`, plus the eighteen knob kernels and `kern_small`, plus the C toolchain, plus the emulator smoke test. | **Before a merge** |
 | `soak` | none | The other sixty-odd gates in `tests/`, one subject each. | When you touched that subsystem |
 
 The tiers are **cumulative**: `full` runs everything `fast` does, `soak`

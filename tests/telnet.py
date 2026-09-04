@@ -59,7 +59,8 @@ import os88sym                                         # noqa: E402
 from os88geom import MB_ENTSZ                          # noqa: E402
 
 S = os88sym.linear
-MACHINE = {"cga": "os8088_5150_cga", "herc": "os8088_5150_herc"}
+MACHINE = {c: os88marty.machine("os8088_5150_%s" % c)
+           for c in ("cga", "herc")}
 
 TS_IDLE, TS_OPEN, TS_WAIT, TS_UP, TS_DOWN, TS_ERR = range(6)
 TE_COLS, TE_ROWS = 64, 18

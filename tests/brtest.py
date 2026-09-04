@@ -34,10 +34,14 @@ S = os88sym.linear
 # GLaBIOS twins, which MartyPC bundles, when tools/martypc/roms/ is empty:
 # this tree cannot ship somebody else's ROM (tools/martypc/README.md).
 import os                                              # noqa: E402
-_IBMROM = os.path.exists("tools/martypc/roms/"
-                         "BIOS_IBM5150_27OCT82_1501476_U33.BIN")
-MACHINE = ({"cga": "os8088_5150_cga", "herc": "os8088_5150_herc"} if _IBMROM
-           else {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"})
+# THE MACHINE IS THE GLaBIOS TWIN, resolved rather than chosen here.
+# This used to be a conditional on whether the IBM ROM happened to be
+# in the checkout, which made the machine a property of the box - and
+# on two of the four files that carried it, the path it tested was not
+# the ROM's filename, so the IBM arm could never be taken at all.
+# os88marty.machine() is the one place that decision lives now.
+MACHINE = {c: os88marty.machine("os8088_5150_%s" % c)
+           for c in ("cga", "herc")}
 
 
 def frame(m, adapter):

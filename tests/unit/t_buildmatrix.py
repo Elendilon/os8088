@@ -83,6 +83,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88build                                          # noqa: E402
 from harness import check, done                           # noqa: E402
 
 
@@ -451,14 +453,39 @@ def main():
             if ok:
                 sizes[name] = size
 
-    # kern_small is a whole second tree, so it gets the real target.
-    r = subprocess.run(["make", "small"], cwd=ROOT, capture_output=True,
-                       text=True, timeout=600)
-    check(r.returncode == 0, "make small (kern_small) builds",
+    # kern_small is a whole second tree, so it gets the real target - IN A
+    # PRIVATE BUILD DIRECTORY, which is what removed the restore build that
+    # used to follow it.
+    #
+    # The paragraph here used to explain why: `make small` shares build/ with
+    # the default build - SMALLDRIVERS are the same `build/*.drv` paths - and
+    # it is a target-specific `KMODDIR` away from restamping one of them for
+    # the SMALL kernel. Measured at the time: it left `build/hddtool.drv`
+    # disagreeing with the copy already on the shipped images, and a later
+    # plain `make` did not put it back, because the file was newer than its
+    # sources. The matrix therefore ran a whole second `make -j` afterwards to
+    # put the tree back.
+    #
+    # `make BUILD=<dir> small` writes NONE of that - verified, hddtool.drv
+    # included - so there is nothing to restore, the restore build is gone,
+    # and this file no longer dirties the tree at all. That last part is what
+    # lets the row drop `builds=True` and run beside the emulator rows.
+    try:
+        small = os88build.tree(targets=("small",))
+        ok, err = True, ""
+    except RuntimeError as e:
+        ok, err = False, str(e)[-800:]
+    check(ok, "make small (kern_small) builds",
           "SPEC.md 62.9.15: the 128-256KB machine's kernel is a different binary "
           "with its own budget and whole features compiled out. `all` does not "
           "build it, so nothing catches this until a release",
-          got="\n".join((r.stdout + r.stderr).strip().splitlines()[-8:]), want="exit 0")
+          got=err, want="exit 0")
+    if ok:
+        check(os.path.exists(small.img("small360.img")),
+              "...and it produced its floppy",
+              "a `small` that exits 0 and writes no image is a target whose "
+              "prerequisites have moved",
+              got=small.dir, want="small360.img")
 
     # ...and kern_emu is the third product (SPEC.md 9.11.7): kern_big PLUS the
     # VMware absolute pointer, for v86 in a browser and for a desktop
@@ -470,28 +497,29 @@ def main():
     # what a browser boots and because the sub-make, $(EMUDRIVERS) and the
     # target-specific $(KMODDIR) that cuts the on-demand modules out of the
     # emu kernel are all machinery no other target exercises.
-    r = subprocess.run(["make", "emu"], cwd=ROOT, capture_output=True,
-                       text=True, timeout=600)
-    check(r.returncode == 0, "make emu (kern_emu) builds",
+    #
+    # IN A PRIVATE TREE, like `small` above and for its reason: `emu:` is
+    # `$(BUILD)/emu.img`, so run in ROOT it writes the shared build/ - which
+    # is what the restore build under it used to exist for, and what this
+    # file no longer does at all. `_key` includes the targets, so this gets a
+    # directory of its own rather than sharing `small`'s.
+    try:
+        emu = os88build.tree(targets=("emu",))
+        eok, eerr = True, ""
+    except RuntimeError as e:
+        eok, eerr = False, str(e)[-800:]
+    check(eok, "make emu (kern_emu) builds",
           "SPEC.md 9.11.7: the emulator kernel is kern_big plus SPEC.md 9.11's "
           "absolute pointer, and it is the only build that compiles that "
           "feature at all. `all` does not build it, so nothing catches a "
           "rename inside %ifdef KERN_EMU until somebody boots the browser",
-          got="\n".join((r.stdout + r.stderr).strip().splitlines()[-8:]), want="exit 0")
-
-    # `make small` shares build/ with the default build - SMALLDRIVERS are the
-    # same `build/*.drv` paths - and it is a target-specific `KMODDIR` away
-    # from restamping one of them for the SMALL kernel. Measured: it left
-    # `build/hddtool.drv` disagreeing with the copy already on the shipped
-    # images, and a later plain `make` did not put it back because the file
-    # was newer than its sources. So the matrix restores the tree itself
-    # rather than leaving that for the next thing to trip over - a test suite
-    # that dirties the build is a test suite people stop running.
-    r = subprocess.run(["make", "-j%d" % a.j], cwd=ROOT, capture_output=True,
-                       text=True, timeout=600)
-    check(r.returncode == 0, "the default build is restored afterwards",
-          "the matrix must not leave build/ in a state the next test reads as a "
-          "stale image", got="\n".join((r.stdout + r.stderr).strip().splitlines()[-6:]))
+          got=eerr, want="exit 0")
+    if eok:
+        check(os.path.exists(emu.img("emu.img")),
+              "...and it produced its floppy",
+              "build/emu.img is what a browser boots; a target that exits 0 "
+              "and writes no image has lost a prerequisite",
+              got=emu.dir, want="emu.img")
 
     if before:
         check(md5(shipped) == before, "the shipped kernel was not clobbered",

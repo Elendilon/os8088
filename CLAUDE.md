@@ -52,6 +52,7 @@ first of them fires in the first minute of a session.
 | **[docs/PAINT-1BPP-PLAN.md](docs/PAINT-1BPP-PLAN.md)** | asking what a MONOCHROME canvas would buy Paint, on either build. **OPTION A IS BUILT (SPEC.md 42.23) and this is the design record behind it** - 448x258 goes 56.6KB to **14.2KB**, measured on a Hercules, and the floor machine's 13.5KB of heap funds the FULL default where it funded 61 rows of it. Its open question 1 is ANSWERED and the answer is NO: `gfx_blit1` does not take a negative stride, two unsigned `mul bp` are why, and a bottom-up canvas is what the BMP makes it - so the screen half expands a row into `pt_line` and uses `gfx_blit4`, and the fast path is a dozen bytes once the kernel's two row-skips are sign-aware. It exists because PAINT-STROKE-PLAN's §5 already refused this once (its item 1) on four reasons and **every one of them is a speed argument** - the new motivation is MEMORY, which that entry does not weigh at all. The prize is one line: the floor machine's **13.5 KB of free heap funds 61 rows of a 448-wide canvas at 4bpp and 245 at 1bpp**, so the letterbox §42.6.5 cuts becomes the FULL 448x258 Hercules default with 43% to spare. Three separate answers say the format is valid - `OSAPI_GFX_BLIT1` takes exactly a 1bpp packed band, a 1bpp BMP is standard and **`pt_bmp_in` already reads one**, and `PT_CV_X` is 48 so the canvas's screen x already satisfies the multiple-of-8 rule for free. **BUILT, and the awkwardness turned out to be one line of `kernel.asm` and not the one expected**: `gfx_blit1` is `stc`/`ret` on kern_small, so that build takes the expansion fallback - but kern_big takes the fast path for nothing, because the NEGATIVE stride this document first refused it over is fine (both `mul bp` sites discard the high half, and a multiply's low 16 bits are the same signed or unsigned). The load path is the other half and was the real regression: the decoder shipped at 199 cycles a pixel against the packed arm's 49 and is now 124 (SPEC.md 42.25). Two findings worth having whatever is decided: **storing the canvas 1 = WHITE agrees with the BMP palette convention AND takes `rep movsw`'s 12.5 clocks a byte instead of the complementing loop's 17** - the intuitive polarity costs 36% of every blit for ever - and **the third of its four reasons is WRONG**, because `gfx_blit1` does not refuse a straddle the way `gfx_blitp` does, it falls to `.percol` and resolves each band column's display, so the extended desktop is the one place 1bpp has a fast path and planar can never have one. The **planar machinery is ~1,320 bytes of the small build and is DEAD CODE there today** - `[pt_planar]` is only ever set on a colour adapter - so that half is bankable with no 1bpp work at all. §7 is the three things already in the tree (`[pt_trunc]` IS the Save->Save As shunt, fencing the menu and §42.16's close question both) and §8 the five to settle first |
 | **[docs/HANDOFF-KERNEL-SIZE-P3.md](docs/HANDOFF-KERNEL-SIZE-P3.md)** | taking the LAST kernel size pass, or running the parallel soak - its 3 is the how-to for that and belongs to anybody, not just a size pass. **Scope is settled and measured**: all 44 kernel files have been touched, so the question is which were never given a FINDER, and pass 2's own finding ids answer it - there is no `F-wm-`, `F-files-`, `F-vga12-`, `F-disk-`, `F-diskw-`, `F-fdlg-`, `F-mouse-`, `F-ui-`, `F-menu-` or `F-driver-`, and those ten are **65.7% of the kernel**. The case is one row: `ctrl.inc` gave pass 1 **5 bytes** and gave pass 2's finder **465**. What changed strategically is that the SEGMENT now binds and not the footprint - 9,162 left of `KERN_CODE_MAX`, which cannot be raised at all, against 38 steps of `KERN_BUDGET` - so a `.bss` byte is worth a `.text` byte and `wm.inc`'s 1,074 is the largest claim left. Its 6 is the fourteen times a check ran in pass 2 and nothing read its answer |
 | **[docs/HANDOFF-SOAK-FINDINGS.md](docs/HANDOFF-SOAK-FINDINGS.md)** | a row of the soak failing, or looking for work. It is the queue the kernel size pass 2 soak left: 235 rows against a kernel 4,661 bytes lighter, fifteen failures investigated, and **not one of them a regression in kernel behaviour** - so what is in it is what was ALREADY broken. Every item says what was ruled out and on what evidence, and it is worth opening BEFORE diagnosing a failure of your own, because most of them are already in there: three rows FAIL where they mean SKIP (the suite models tools and not artefacts, so "the wire disk has been built" cannot be said), install-then-boot is broken by the per-instance disk clones that make `--marty-jobs` safe, `cold_span` measures `.cold` to EOF and `.ovlw` sits after it - and that one's message says "rebuild before trusting this" about a build that is current, which cost a wrong diagnosis. It has now been worked through and the striking result is that **NOT ONE of the fifteen was a defect in shipped software** - four classifications in it were wrong and are corrected in place, including `trkscrl`, which this row called the one genuine product defect and which is a key the test's own include bound to something the application had already claimed. The largest single finding is not a row at all: PERFORMANCE.md's Hercules VRAM write cost is measured at N=8 against a quantity that needs N=48, and the documented ratio of 1.36 is really 1.671 |
+| **[docs/SOAK-PARALLEL.md](docs/SOAK-PARALLEL.md)** | running the WHOLE soak, or blaming a failure on contention. **BUILT** - `tools/os88soak.py` is the command (`check` / `start` / `status` / `stop`), and `make test-soak` is not: that runs the same rows serially. Its §1 is the measurement that overturns the standing theory, and it is the reason to open this before diagnosing anything: twelve rows at width 1 idle and at width 3 with **two extra CPU hogs** were **1.06x** slower and **12/12 passed in both arms**, so no timeout was ever going to fire and raising one would only make a stuck row sit there longer. What moves under load is the GUEST rate. The wait log recorded **118 waits in each arm - the same waits in the same scripts - at the same median HOST cost of 2.2s and a guest cost of 7.3s against 5.9s**, up to **-37%** per script: the same line of the same test takes the same wall time and hands the machine a third less work. **Contention does not make a row slow, it makes it LESS THOROUGH**, which is precisely why the wall times in every classification run showed nothing. So the waits hang off the GUEST clock now: a budget in guest seconds that a loaded box cannot shorten (17x headroom over the widest wait measured), and a guest that STOPS advancing fails its wait in **2.1s against 120** naming the machine rather than the condition. `OS88_WAITLOG` is how the numbers get re-derived rather than argued about, and the 194-file sweep B5 warns of is deliberately left behind `OS88_GUEST_PACE`. **Its §11 is where the suite's time actually goes**, and the finding is one number: **`settle` is 48% of a row** and two-thirds of every settle is its own floor - `stable` identical captures `quiet` apart is 2.0 host seconds before it can return, and the gap log says `stable` cannot come down (a change arrives after one whole quiet round **1 time in 19**, so halving it would end one settle mid-repaint per 48). **The floor is real, so the only way to spend less is not to settle** - which is what `tools/os88ui.py` is for. Four across-the-board cuts took the same four rows **269.2s -> 206.6s** with everything still passing (`dispnp` 73.8 -> 41.0, `dispthm` 81.2 -> 51.1): the screen bands went lazy, `Mouse.to` confirms each packet instead of sleeping 0.25s after it, the trailing settle came out of the navigation verbs (**2 of 401 call sites** read pixels within six lines of one), and the Control Panel verbs read `[cp_sel]`/`[vid_dmode]`/`[cp_wdirty]` instead - that last one being the SYSTEM.CFG write, where `time.sleep(1.0)` used to return mid-write on a busy box. **Then the log learned to name the CALL SITE**, which turned the totals into a work list with a very sharp head: **one line was 30% of all settle time** in a ten-row sample (`dispcalc`'s `typed`, 60 settles at 2.3s) - and what follows it is thirteen bytes of the Calculator's own composition buffer, so the screen was never the question. `os88marty.quiesce(m, read)` is settle's shape applied to those bytes - the same `stable` identical readings a fixed interval apart, over a handful of bytes instead of a framebuffer and over GUEST seconds instead of host ones - and it took **dispcalc 376.3s -> 197.2s**, 48%, with every assertion still passing. **56 settles in 34 files** are followed by a guest-memory read and no framebuffer read at all, so the pattern has a queue. Its §5 is the IBM ROM audit - **no registered row made the case**, all four are on GLaBIOS twins and `t_machines` keeps them there - and its §6 the two false greens found on the way, of which `dispcp` is the one to remember: a LIBRARY imported by 104 files, registered as a soak row, reporting `ok` in 0.1s against 60 declared. **Its §8 is the second phase and retires `tools/martylock.py`, which is DELETED** — do not go looking for a build lock. A row that wants a knob kernel builds into `build/trees/<knob>-<hash>/` (`tools/os88build.py`) instead of into `build/`, which is the whole of what `builds=True` was protecting and the whole of what the lock was for. `make BUILD=<dir>` has always worked and gives a BYTE-IDENTICAL image; nothing had to be invented. Two traps are written down there and both bit: **`make -n` is not a dry run of the PARSE** — `$(VIDSTAMP)`'s rule deletes `$(BUILD)/kernel.bin` and every boot sector when the knob set differs, so a `make -n` with a knob in it pointed at `build/` is a DESTRUCTIVE command — and a knob's make VARIABLE is not its nasm DEFINE (`VGADIRTY=1` compiles `-DVGA_DIRTY`), so the defines are derived rather than restated. Its audit answers "do we need this many builders": **19 of 52 are knobs**, 27 are an artefact that should just exist before the run, and six are not builds at all |
 | **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable — it is the matrix of what each emulator can and cannot do, with a recipe per capability |
 | **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory |
 | **[docs/KERN-SMALL-CUT-PLAN.md](docs/KERN-SMALL-CUT-PLAN.md)** | cutting `kern_small` down for the 128KB machine, or answering "what does a 128KB system not need". **PARTLY BUILT** - it began as research and its §2.1 and §8.1 now carry the built position. A 128KB machine had **32.5 KB** of free heap when this was written and has **49.5 KB** now, MEASURED on a machine with 128KB in it (`tests/small128.py`, `os8088_5150_cga_128k` - every other MartyPC profile here is 640KB, so `MIN_RAM_KB` had been an arithmetic claim since the day it was written). The ask is 70 and the gap is **21,000 bytes**, every one of them a feature. **Its §2.3 is the caution worth carrying forward**: A2, the clock ladder, was REFUSED on a correct measurement of the wrong thing - forcing one rung is 44-51 bytes of footprint - and then taken, because `.ovlw` is what §7 caps three of the biggest data cuts against, and the clock was 40% of it. Gating the ladder took `.ovlw` 4,328 -> 2,789 and UNLOCKED D2, which is 3,584 bytes. In a kernel with overlays a byte's value depends on WHERE it is, not only how big it is. Its founding finding still stands - the requester's own list is the wrong 20% of the kernel, **the file system and the window system are 69% of the code**, and there is no fat symbol - but **docs/KERN-SMALL-CUT-PLAN.md §2.2 is the finding that binds every other row in it: SECTIONS ARE NOT HEAP.** A3+A4 removed **3,632 bytes of sections and bought 2,560 of heap** - 991 of them were `.ovl`/`.ovlw`, boot-overlay code loaded into memory the machine reuses once it is up, which moves `KERN_SIZE` and moves `HEAP_SEG` by nothing (only 81 went to rung rounding). So every row in §2-§5 is an UPPER BOUND on free heap rather than an estimate of it, because the ladder is `.text+.bss` then `.cold` and nothing else in those sums reaches it. The resident half of the estimate was good - A3 was priced at 2,550 and came in at **2,277**, 12% HIGH. **And there is a reporting trap behind it**: `kernsize`'s `sum` is a delta against the BLESSED BASELINE and not against the tree you started from, so a reading taken with a stale baseline reports three waves as one and reads exactly like an increment - bless after a wave lands, and measure tree-to-tree when the number is going in a document. **§2.1 also carries the one REFUSAL**: A2, the clock ladder, is worth **44-51 bytes and not ~510** - `CLK_FORCE` already exists and gates the PROBES only, the per-rung read/write bodies being run-time selected off `[clk_tier]` - and it picks the wrong rungs anyway, rungs 2 and 3 being XT clock cards, which is the add-on the target machine would actually have. **§7 is the floor nobody had to notice**: `.ovlw` is loaded onto the FAT window and spills through the mount buffers, so those may shed **2,816 bytes between them and not one more**. Two standing refusals: the damage-rect layer is the redraw architecture and not a nicety, and `SHEET.O88` - 48,352 bytes, the largest package in the tree - runs at 65 KB with 13 to spare - **and that was measuring the wrong thing** (SPEC.md 24.5.2): SHEET claims ~100KB of heap on open, more than the machine has, so no row in the document ever ran it. **The 70KB target is retired with it** and the brief is now open-ended - take what can be taken, weigh each feature against what losing it does to the machine. PAINT, the other program behind the ask, was solved at the APPLICATION layer instead (SPEC.md 42.23), which is the shape worth noticing |
@@ -137,12 +138,56 @@ make test-soak   #   ENFORCED wall-clock budget — the runner FAILS fast over
                  #     reader, unreachable code, SPEC.md 6.6's
                  #     transparent-text ratchet, the doc gate, and that every
                  #     test in tests/ is registered somewhere or says why not
-                 #   full ~50s, THE PRE-MERGE GATE — adds the knob kernels and
+                 #   full ~3m45, THE PRE-MERGE GATE — adds the knob kernels and
                  #     kern_small (every configuration `all` does NOT build, so
                  #     the only thing keeping them assembling), the C toolchain
                  #     and a boot to a desktop on both 1bpp adapters
                  #   soak no budget — the rest of tests/, one subject each:
                  #     `python3 tools/os88test.py soak -k 'disp*'`
+                 #   ...and the WHOLE soak is `tools/os88soak.py`, never this
+                 #   target: `make test-soak` runs it SERIALLY. See below.
+python3 tools/os88bisect.py classify <row>   # WHY A ROW FAILS, without
+              #   the three errors that made the last bisect VOID
+              #   (docs/SOAK-PARALLEL.md 10). It is the classification
+              #   protocol made into a command: step 1 (re-run alone on
+              #   HEAD) runs FIRST and step 2 (the base) only if step 1
+              #   fails, so a row that passes never builds the base.
+              #   Every point is sampled N times, because N=1 IS NOT A
+              #   RATE - E1 bisected six points at one run each and
+              #   named a commit whose whole diff is four comment lines,
+              #   for a row that fails 10 times in 15 EVERYWHERE. It
+              #   parses a row's output into LEGS (four spellings in
+              #   this tree), so `dispsize` failing on leg E cannot hide
+              #   leg C passing; and it checks ANCESTRY first, because
+              #   four of E1's six points were siblings carrying a
+              #   different kernel. `sample` rates named commits,
+              #   `search` bisects over rates and STOPS on an
+              #   intermittent rather than picking a side by luck
+python3 tools/os88soak.py check    # THE WHOLE SOAK, in parallel and
+python3 tools/os88soak.py start    #   detached (docs/SOAK-PARALLEL.md).
+python3 tools/os88soak.py status   #   `make test-soak` runs the same rows
+              #   SERIALLY, which is why the parallel invocation lived in two
+              #   handoff documents as a line to remember. `check` is the
+              #   preflight: it names every capability gap, the rows that
+              #   would SKIP because of it — a skip is the box declining to
+              #   answer, not a pass — and the command that fixes each one.
+              #   The width is CORES-1 and the missing core is the point: it
+              #   is what a `status` poll or a small side task runs on, and a
+              #   run sized to fill the box exactly is one that anything else
+              #   on the box perturbs. `status` READS A FILE, so polling it
+              #   cannot perturb the run; running rows beside it, or a `make`,
+              #   can and does. It journals every row that reports, so
+              #   `start --resume` after a container is reclaimed re-runs only
+              #   what did not finish — the floor of a soak is its 58
+              #   `builds=True` rows and 3.3 declared hours that no width
+              #   helps, so a restart from zero is expensive. IN A CONTAINER,
+              #   HOLD A WAITING TASK FOR THE WHOLE RUN (`until [ -f
+              #   build/soak/latest/finished ]; do sleep 30; done`): an agent
+              #   that ENDED ITS TURN with only the background soak running
+              #   had it die about five minutes later, and the same soak under
+              #   an agent waiting on it ran to the end. A periodic check-in
+              #   is not a substitute — between two of them the session is
+              #   idle, and idle is what kills it
 make zcheck   # play every Z-machine story to a script and diff it against
               # dfrotz (§61.13). `make zh` builds the harness interpreter;
               # `tools/zharness.py <story> --repl` types at one by hand. This
@@ -723,8 +768,33 @@ the result. That leaves the table above and arithmetic — which is precisely
 rule 5's blind spot. Say when a number is predicted rather than measured, and
 get it checked on the 5150 (docs/FIELD-MACHINES.md).
 
+**Start at `tools/os88ui.py`, not at the mouse** (docs/MARTYPC-DEBUG.md,
+*Start at tools/os88ui.py*). It is the vocabulary a test actually means —
+`boot`, `open_drive("B")`, `path("APPS/CALC.O88")`, `raise_window`,
+`drag_window`, `menu_pick("Calc", "Close")` — every position resolved out of
+the guest's own tables and every verb CONFIRMED by reading guest state. It is
+also **faster**: the check replaces the wait instead of following it, and the
+same three-step navigation is **0.35x** the host time and 0.35x the guest
+cycles of the settle-and-hope spelling (`tests/uilayer.py`). `boot` turns the
+screen saver off by default and resolves an IBM machine name to its GLaBIOS
+twin, which are the two things most scripts forget. A verb that cannot do what
+it was asked RAISES naming what it saw, so a miss is reported where it
+happened rather than twenty steps later dressed as the feature under test.
+
+```python
+with os88ui.boot("build/os8088-360.img", apps="build/apps360.img") as ui:
+    w = ui.path("APPS/CALC.O88")        # drive, folder, package - all checked
+    ui.menu_pick("Calc", "Close")
+```
+
 Driving MartyPC — **`os88mouse.py`, never `os88marty.py mouse`**: it reads the
 cursor back instead of dead-reckoning, and `dblclick` is a verb of its own.
+**There are two mouse drivers and the other one is `tools/os88mouserel.py`** —
+RELATIVE, for the short list where relative is right (the mouse itself under
+test, a bit-exact replay, or motion with no destination such as a paint stroke
+or a window drag). Everything else wants the absolute one; a dead-reckoned
+click that misses raises nothing and is reported as a broken feature twenty
+steps later. `Marty.mouse()` is the transport under both.
 
 ```
 python3 tools/os88mouse.py 127.0.0.1:9001 click 445 153
@@ -957,7 +1027,33 @@ cannot reach, and the container is reclaimed when the session ends. Use
 whatever the harness offers for attaching a file — in Claude Code, the
 `SendUserFile` tool.
 
-### 4. Do NOT boot an image after building it
+### 4. REPORT EVERY 15 MINUTES while a long run is in flight
+
+A soak is nearly two hours; a full-tier run is minutes. Anything that will not
+finish inside one reply gets a **status report every ~15 minutes** until it
+does — not a single "started it" and then silence, and not one summary at the
+end. The owner is following along and cannot see the terminal.
+
+A report is a few lines and says what changed since the last one: elapsed,
+`reported N/M`, ok/FAIL/SKIP, the failure NAMES, and what is in flight. Name
+the new failures explicitly and say which of them are already known — a row
+that is on the books as failing at the base is not news, and burying that in a
+count makes twenty-three failures look like twenty-three problems.
+
+**The mechanics, because the naive spelling does not survive a container.** The
+run needs a held waiting task for its whole life (see `tools/os88soak.py`'s own
+note), so the tick and the hold are the same shape: a background task that
+waits up to fifteen minutes *or* until the run's marker appears, then prints
+the status. Poll `status` as often as you like on top of that — it reads a
+file and cannot perturb anything.
+
+    end=$((SECONDS+900))
+    while [ $SECONDS -lt $end ] && [ ! -f build/soak/<run>/finished ]; do
+        sleep 30
+    done
+    python3 tools/os88soak.py status
+
+### 5. Do NOT boot an image after building it
 
 Not on request, not after a commit. Build it, send it, say what is in it. The
 reasoning is the trade rather than a claim that booting is worthless: by the
@@ -965,9 +1061,9 @@ time an image is being built, the change it carries has almost always just
 been driven as part of the work, so a second cycle re-establishes what the
 first already did. When the owner wants one exercised harder, they will ask.
 
-It relaxes neither the testing that earns a commit nor rule 5 below.
+It relaxes neither the testing that earns a commit nor rule 6 below.
 
-### 5. A merge onto the integration branch rebuilds and boots first — IF it could change a shipped byte
+### 6. A merge onto the integration branch rebuilds and boots first — IF it could change a shipped byte
 
 A merge combines two trees nothing has run together, so no earlier test covers
 the result. That reason does not apply to a merge that cannot reach the
@@ -997,7 +1093,7 @@ moved" across any commit and useless between two.
 **Either way the merge commits nothing under `build/`**, which is gitignored
 outright.
 
-### 6. Upstream squash-merges, and the branch is disposable
+### 7. Upstream squash-merges, and the branch is disposable
 
 `jggonz/os8088` keeps a linear, one-commit-per-feature history: every commit
 on `main` since PR #14 is a squash. A squash carries the branch's *content*

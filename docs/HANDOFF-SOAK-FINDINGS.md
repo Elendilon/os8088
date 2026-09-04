@@ -24,6 +24,14 @@ document would have split the row from its answer.
 
 ## How to read the classification
 
+**`tools/os88bisect.py` IS THIS PROTOCOL, and running it is cheaper than
+following it by hand** (`docs/SOAK-PARALLEL.md` §10). It samples every point N
+times so a rate is never read as a side, parses a row's output into LEGS so a
+six-legged row can be sampled at all, and checks ancestry before comparing
+anything — which are E1's three errors, in order.
+
+    python3 tools/os88bisect.py classify <row>
+
 Every failing row got the same two-sided treatment, cheapest step first:
 
 1. **re-run ALONE on HEAD** — settles contention, which is the commonest cause
@@ -561,6 +569,27 @@ deterministic instrument and `os88marty.until` is the bounded observable wait;
 the fix in each case is to wait on something the guest publishes rather than on
 stillness or on the clock.
 
+**PARTLY TAKEN, AND THE MECHANISM IS NOW MEASURED — `docs/SOAK-PARALLEL.md`
+§1.** The property this entry describes is real and is worse than it reads
+here, because it does NOT show up as a slow row. Twelve rows run at width 1
+idle and at width 3 with two extra CPU hogs were **1.06x** slower in wall time
+(worst 1.17x) and **12/12 passed in both arms** — so no timeout was ever going
+to fire. What moves is the GUEST rate. `OS88_WAITLOG` recorded **118 waits in each
+arm - the same waits in the same scripts - at an identical median HOST cost
+of 2.2s and a GUEST cost of 7.3s against 5.9s**, and up to **-37%** per
+script (`curshape` 12.0 -> 7.6, `dispdrag` 8.0 -> 5.1). The host column does
+not move and the guest column does. *Contention does not make a row slow, it makes it less thorough* — which
+is exactly why the wall times in every classification run showed nothing.
+
+What shipped: `settle`, `until` and `wait_stop` now spend a budget denominated
+in GUEST seconds (`os88marty.GUEST_HZ`), a guest that stops advancing fails the
+wait in ~2 s instead of at the end of the deadline (measured 2.1 s against
+120), `guest_sleep()` is the standard replacement for `time.sleep`, and
+`OS88_WAITLOG` records what every wait actually costs. The 194-file sweep this
+paragraph warns about is still NOT taken and is behind `OS88_GUEST_PACE`.
+
+The original text stands:
+
 **STILL OPEN, and deliberately not taken yet.** Rewriting `settle` onto guest
 time reaches 194 files that import `os88marty`, changes how much guest work
 every row gets per settle, and would want a full soak behind it. The evidence
@@ -826,6 +855,60 @@ the soak's remaining time. Stated as unknown rather than guessed at.
 
 ## E2. `dskwstage` — ANSWERED, and it is not the size pass's
 
+> **ROOT-CAUSED AND FIXED: 6 of 6.** Two harness defects, one on top of the
+> other, both in `tests/dskwstage.py`'s `Caller` — the class that calls a
+> kernel routine on a synthetic context. Nothing in the kernel changed.
+>
+> **1. It ran a BIOS `int 13h` on a 128-byte stack.** The Caller took the
+> paused machine's own `SS:SP` and dropped 96 bytes, on the reasoning that the
+> call *"goes as deep as the BIOS's own int 13h handler, on this task's
+> stack"*. It does — and `sch_stacks` begins at `.lowbss:0x15D6`, its first
+> slice is the **128** class, and SPEC.md 8.1.2 guarantees which task a pause
+> lands on: an idle desktop is 96.9% halted, so it is always the idle task's.
+> Traced, SP started at `0x15F2` and reached **`0x1562`** — 116 bytes below
+> `sch_stacks`, through its canary word and into `sch_chstack`, the ROM
+> int 08h chain's own stack. It now runs on `STK0_TOP`, which is task 0's,
+> which is **the stack the real caller uses**: a file operation on this
+> machine *is* the UI task calling this routine.
+>
+> **2. It ran with interrupts off, so the motor never came up.** `park` goes
+> through the reset vector, so it clears FLAGS with every other register and
+> this had IF = 0 for its whole life. The BIOS's floppy handler starts the
+> motor and times the spin-up on the BIOS tick at `0040:006C` — a byte only
+> IRQ0 advances. Sampled at the timeout, the guest was at **`F000:FF23` with
+> IF=0 and a PIC read in front of it**, parked in the ROM for 540 guest
+> seconds.
+>
+> **The motor is the proof, and it is the cleanest evidence in the file.**
+> `launch` settles on the first desktop, a few hundred milliseconds after the
+> last boot read, with the drive still turning — and a handler that finds the
+> motor already up skips the wait. So the row passed exactly when it won that
+> race, which is what *"2 runs in 3"* was. Adding five idle guest seconds
+> before taking over, past the ROM's own motor-off timer, took it to **0 of
+> 6, deterministically.** Interrupts on plus `[sch_lock]` raised — the byte
+> `sch_isr` tests before it picks, and exactly what `dsk_xfer` raises around
+> every `int 13h` in this system — then takes it to **6 of 6 with the motor
+> off**. Interrupts alone are not enough and were tried: without the stack fix
+> under them the machine walked off to `CS=C301` executing zeros.
+>
+> **What made it diagnosable was making the row say WHERE.** *"the machine is
+> still running after 180s"* is the whole of what four runs and two ROM sets
+> had to work with below. It now samples the program counter six times, names
+> the nearest symbol, prints IF, the code bytes, the stack and the registers,
+> and says when the address is an interrupt vector rather than a hang. Two
+> traps found on the way: `wait_stop`'s budget had already become guest
+> seconds during this pass, so *"180s"* was never the host claim this entry
+> treats it as; and `os88sym.syms()` answers **section-relative** offsets
+> while `os88sym.linear()` answers flat addresses, so a walker that sorts one
+> and searches with the other names every address and every name is wrong —
+> adjacent bytes came back `menu_drop.poll`, `fpg_begin.shr`, `wm_db_b`,
+> `fm_saycl`, which is the tell.
+>
+> The row also takes the machine over at `sch_idle_body.loop` rather than
+> wherever `pause` lands, and reads its own register setup back before running
+> — every line of that setup is a debug-server round trip, and a synthetic
+> call is exactly as good as the registers it starts with.
+
 `docs/HANDOFF-KERNEL-SIZE-P4.md` parked this row on a question: its default
 machine wants the IBM 5150 27 OCT 82 ROM, which cannot live in this tree
 (CONTRIBUTING.md §6), so it said *"re-run it if you have the 5150 CGA ROM
@@ -863,6 +946,19 @@ With the ROM in place: `int0sweep` **ok, 199.0 s** — a broad UI session with
 INT 0 armed, on the kernel 745 bytes lighter, and nothing fired. `fillpat` and
 `icoclip` re-run and pass. `dskwstage` is E2.
 
+**CLOSED — `docs/SOAK-PARALLEL.md` §5.** The audit was taken row by row and
+**no registered row made the case**: `fillpat` and `icoclip` call a primitive
+through the debugger over memory they zeroed themselves, `int0sweep` traps INT
+0 with a breakpoint that fires before any ROM handler runs, and E2 above
+already measured `dskwstage`'s hang to be identical on both ROMs. All four are
+on the GLaBIOS twins now and all four pass. `os88marty.machine()` resolves the
+name, `assert_rom()` ends the silence, and `tests/unit/t_machines.py` in the
+FAST tier refuses a row that names an IBM machine directly. Two of the nine
+(`brclick`, `brscroll`) were testing the path `roms/ibm5150`, which is not the
+ROM's filename, so their IBM arm could never be taken on any box at all.
+
+The original diagnosis, which was right:
+
 **The hazard is the silence**, and it survives this entry: nothing fails, and
 nothing in the output says which ROM ran. A row that means the IBM ROM should
 assert it got one.
@@ -893,6 +989,44 @@ ends. It was the only script indexing the run by hand; every other reader of
 are a `wm_natr` **rect**, not this record.
 
 ## E5. `weavegame`: PONG runs ZERO frames, and it has never run here before
+
+> **ANSWERED, and every one of the six was the ROW reading the wrong image.**
+> `weavegame` now passes 11 of 11, at 17.7 fps and 1.00 gfx calls a frame, on
+> the same machine and the same bundle. Nothing in `apps/weave` changed.
+>
+> `find_modules` scanned the heap for WEAVE.WSM's six-byte stamp and its last
+> sixteen bytes, and the caller then kept every candidate whose `WSS_CVSEG`
+> was non-zero — *"a real one has been WRITTEN, and a cached copy still carries
+> the file's zeros"*. **Two images answered that**, and the one the scan
+> reached first was not a module at all:
+>
+> | | RUN | SLEEP | CVSEG | WIN | NSPR | BLITS | FRAMES | OVF |
+> |---|---|---|---|---|---|---|---|---|
+> | seg 2b80 | 1 | 256 | 0202 | 0c01 | 8 | 770 | 7693 | 15 |
+> | seg 3500 | 0 | 1 | 3640 | 0000 | 3 | 1 | 0 | 0 |
+>
+> Every number in the first row is impossible — a canvas claim below the heap,
+> 770 blits against 7,693 frames, eight sprites in a bundle that declares
+> three — and every number in the second is PONG's, down to a canvas claim at
+> `3640`, which is `3500` plus the module's own 5,087 bytes. **So the table
+> below is a reading of garbage, and its four PASSES are too.** `ovf = 15` was
+> not an input overrun, `sleep = 256` was not a sleep, and `cpu.y` was a cell
+> nothing ever wrote — which this entry already suspected in its last
+> paragraph and drew the wrong conclusion from.
+>
+> **What separates them is the CODE, not the state.** A live module differs
+> from the file only from `WSM_H_STATE` onward; that is where its writable data
+> begins and a flat image has nothing else to write. Diffed whole:  seg 3500
+> differs in 59 bytes and every one is at or above 3676, seg 2b80 in 707 with
+> **589 of them BELOW it, from offset 3584** — a 512 boundary, so it is disk
+> sectors, which is the floppy cache this entry's own docstring describes. It
+> matched at the tail only because the sectors past it had not been reused.
+> `find_modules` compares the whole code region now.
+>
+> **The lesson is not about Weave.** A scan that identifies a claim by a
+> SIGNATURE has to identify it by something a stale copy cannot have, and
+> "a field that is zero in the file" is not that — anything can write a byte.
+> The intact-code test costs one 3.6KB read per candidate.
 
 Six of its ten checks fail, **identically at `f8af49e` and at HEAD** — same
 checks, same reasons, same numbers — so it is pre-existing and nobody's
@@ -945,6 +1079,44 @@ it is the same behaviour reading a cell nothing ever wrote, which is itself
 evidence that `onTick` never fired. Do not bisect on that number.
 
 ## E6. `weavepack`: 18 of 23 checks, and it is NOT the flake D2 recorded
+
+> **ANSWERED: the row built a 1.44MB floppy for a machine with 360KB drives.**
+> `weavepack` now passes 19 of 19. One line of `tests/weavepack.py` changed —
+> `--size 1440` to `--size 360`.
+>
+> `MACHINE` is `os8088_5150_cga_gla`, and every 5150 and 5160 profile in
+> `tools/martypc/configs/os8088_machines.toml` carries the
+> `pcxt_2_360k_floppies` overlay. **The failure looked nothing like a geometry
+> error, and that is the whole of why this entry exists.** A 1.44MB layout is
+> 18 sectors a track, so the boot sector, the FAT and the root directory all
+> sit in the first two tracks and read PERFECTLY: the Disk window opens, the
+> listing is complete, `entry("LOOM.O88")` finds it, `scroll_to` walks to it.
+> The first thing that asks for sector 10 of a track is the package LOAD — and
+> a 360KB drive cannot step there.
+>
+> So the double-click produced **no window, no toast, no instance record, and
+> `ld_status` still 0**, nine times over. That reads exactly like a
+> double-click that missed or an association that did not resolve, which is
+> what the row's own message says and what this entry spent three runs on.
+> It is neither: `ASSOC.DAT` was correct, and **`LOOM.O88` opened directly
+> fails identically**, which is the control that settles it in one run and
+> which nobody had taken.
+>
+> Two things below stand, re-read in that light. The cascade is real — three
+> retries of a load that cannot succeed, then a Disk window that will not come
+> to the front — which is why *"the first failing project differs between runs
+> while the count does not"*. And the B5 host-speed theory was correctly
+> rejected here; what this entry could not do was name the alternative, because
+> the row reported a host statement (*"os88mouse refuses a double-click…"*)
+> about a guest fact.
+>
+> **The general lesson is the disk, not the row.** Nothing in this tree checks
+> that a scratch image's geometry is one the machine's drives have, and the
+> failure it produces is silent and late. `weavesmoke` boots the same machine
+> off `build/weave360.img`; `weavepack` was the odd one out for its whole life.
+>
+> It fits 360KB with room to spare: 131 of ~354 clusters for the inputs, plus
+> seven `.WAB` outputs of about a cluster each.
 
 **Three runs, three identical results — 5 checks passed, 18 FAILED:**
 
@@ -1054,3 +1226,351 @@ build that was current, a bisect that skipped hangs while hunting a hang, a
 baseline script that would have read an argparse error as a result. The defence
 that worked, every time, was to break the thing on purpose and confirm the gate
 noticed.
+
+---
+
+# F. What the parallel-soak work found
+
+`docs/SOAK-PARALLEL.md` is the record. Its §1 is the finding that matters to
+every entry above: **contention does not make a row slow, it makes it less
+thorough** — 118 waits in each arm at the same median HOST cost of 2.2 s and a
+GUEST cost of 7.3 s against 5.9 s, up to −37% per script. So the wall times
+every classification run in this file went looking at could never have shown
+anything, and "it passed alone" was never going to be a satisfying diagnosis.
+
+## F1. `blitp` and `blitpair` fail identically at the base — NOT the harness change
+
+> **BOTH FIXED, and they were two unrelated things that the shared verdict
+> hid.** The table below is right about what it measured — each row fails at
+> HEAD and at `af1f2e0` — and "pre-existing" turned out to mean two different
+> stories.
+>
+> **`blitp` needed an artefact nobody built.** Its own description ends
+> *"Needs `make bench`"*, `all` does not build `build/gfxbench.o88`, and the
+> row said so only to the reader. A bisect worktree runs `make`, which is
+> `all`, so the artefact was missing at both ends — which is exactly how a
+> missing prerequisite acquires a "pre-existing regression" verdict. With it
+> present the row passes: **256 plane-rows, 2,048 bytes, all as given.** It
+> now declares `wants=("build/gfxbench.o88",)` so the runner builds it up
+> front. B4's shape again — the suite modelling tools rather than artefacts.
+>
+> **`blitpair` was reading a fixture that means something else.** The quoted
+> message is this row's, and A7's fallout is the cause: when
+> `build/OS8088.GIF` turned out to be two colours, the row's `--gif` default
+> was pointed at `dispapps.colour_gif()` on the reasoning that *"the pixels
+> are identical either way (two unused colour-table entries)"*. **The pixel
+> INDICES are identical; the colours are not.** `colour_gif` inserts its two
+> entries at offset 13 — the start of the global colour table — so indices 0
+> and 1, the only ones any pixel carries, become `0xAA0000` and `0x0000AA` and
+> the picture's own black and white move to 2 and 3.
+>
+> That prepend is **deliberate and must stay**: appending instead leaves the
+> file one bit deep, `pt_fmtpick` calls it colourless, Paint takes a 1bpp
+> canvas, and `paintrow` and `paintplan` report *"no gfx_blitp - the canvas is
+> not planar"* — those rows losing their subject. What it means is that
+> `colour_gif` is **not a drop-in for OS8088.GIF for any row whose oracle is
+> "the 1bpp canvas equals the file's own bitmap"**: SPEC.md 39.4 reduces both
+> new colours to the same class, so the guest drew a solid block where the
+> file alternates. `row 0 want 10101010 / got 11111111`, 20,327 pixels — and
+> that is indistinguishable from `sw_blit_row` reading its tables through the
+> wrong segment, which is the one defect this row exists to catch.
+>
+> It takes `build/OS8088.GIF` itself now and reads **0 pixels differ**, and
+> `paintrow`/`paintplan` are untouched and still green. A second defect
+> surfaced underneath: the row asserted `(bw, bh) == (iw, ih)` on the blit it
+> caught, and the load path emits one 466x1 call per row through that same
+> primitive — so it reported *"the canvas is 466x1 and the picture 466x110 -
+> Paint cropped it"* about a Paint that had cropped nothing. It takes the
+> ORIGIN from the blit and asks Paint for the SIZE (`[pt_cw]`/`[pt_ch]`),
+> which is what actually answers whether SPEC.md 42.6.5 letterboxed it.
+
+Found while checking that the guest-clock waits had broken nothing. Both fail
+on a dithered ground read back solid:
+
+```
+canvas 466x110 on 640x200: 20327 pixels differ from the file
+row 0 want 10101010101010101010101010101010
+row 0 got  11111111111111111111111111111111
+```
+
+The protocol at the top of this file, both steps:
+
+| | `blitp` / `blitpair` |
+|---|---|
+| in a 3-wide lane | FAIL |
+| alone on HEAD | FAIL — so it is not contention |
+| alone at `af1f2e0`, the commit before the work | **FAIL, 20327 pixels, byte for byte the same message** |
+
+So it is **pre-existing and nobody's regression**, and it is open. It is
+adjacent to A7 — the picture fixture — but it is NOT A7's symptom: A7's six
+rows said *"no gfx_blitp, the canvas is not planar"*, and this one gets a
+canvas and reads every pixel of a 50% dither as lit. One for the pass that
+fixes tests.
+
+**The base worktree is worth keeping the recipe for**, because it took four
+minutes and settled the question outright:
+
+```sh
+git worktree add /tmp/base-soak <base>
+mkdir -p /tmp/base-soak/build
+ln -sfn <tree>/build/martypc /tmp/base-soak/build/martypc   # pinned, identical
+ln -sfn <tree>/build/cc      /tmp/base-soak/build/cc        # by construction
+cd /tmp/base-soak && make && python3 tools/os88test.py soak -k <row>
+```
+
+Only those two may be shared. A shared writable DISK is what contaminated
+pass 2's first bisect.
+
+## F2. `msegnomem`: its first verdict, and it is a failure
+
+**The row had never run.** Its own usage line is `make mseg && python3
+tests/msegnomem.py`, `mseg` is not in `all`, and the row never built it — so it
+died in `os88marty.launch` on a missing `build/mseg.o88` on any tree where
+nobody had typed that by hand. B4's shape: an ABSENT gate reading as a failing
+one. Building `mseg` into its own tree (`docs/SOAK-PARALLEL.md` §8.6) is what
+finally got a verdict out of it, and the verdict is:
+
+```
+the toast says 'Not enough memory' and should be 'Load failed'
+```
+
+Its own comment is the argument for the assertion, and it is a good one:
+
+> `op_load` does put up `Not enough memory` — but step 10 toasts `[ld_status]`
+> over `fm_stattab` for EVERY outcome including `LD_EABORT`, and it runs after
+> the entry proc returns. So a package that refuses from its entry is always
+> overwritten by `Load failed`, and asserting the package's own string here
+> would be asserting a race.
+
+So one of three things is true and this entry does not pick between them:
+
+1. SPEC.md 21 step 10 no longer toasts over `LD_EABORT`, and the kernel is
+   wrong;
+2. it does, and the row reads the toast **before** step 10 runs — in which case
+   the row is asserting the very race its comment says it is avoiding;
+3. the expectation was written from the spec rather than from a run, and has
+   never been true.
+
+**(3) is the one to rule out first**, because the row has produced no evidence
+in its whole life. The other assertions around it pass — `MSEGBIG` does come
+back `LD_EABORT`, which is the substance — so this is about the message a user
+sees, not about the refusal.
+
+Not this work's regression by construction: there is no earlier verdict to
+have regressed from.
+
+## F3. `gfxlk`'s control check is INTERMITTENT, and it is not contention
+
+> **FIXED, both ways this entry proposes, and the diagnosis below is right.**
+> `gfxlk` is 6/6. The control was measuring a coincidence, and the reason it
+> had become one is **SPEC.md 7.4**: the mouse ISR now DRAWS the arrow through
+> a disk transfer (`NOCURDISK=1` restores the old freeze), so an arrival with
+> the gfx lock free is a draw and not a deferral. When this control was
+> written, 12.8.4's compare made the draw unreachable for the whole of a file
+> operation, so every arrival in the window WAS a deferral and counting them
+> proved the session had armed the widget. 7.4 inverted that on purpose, and
+> the check was never revisited.
+>
+> Instrumented, six runs read **15-18 ISR arrivals inside the window with 0, 1,
+> 0, 0, 1, 0 of them deferred**: the sum never varies and the deferral count is
+> a coin. The control is now `gfx_aud_mv + gfx_aud_def`, which is what the
+> file's own docstring asks for (*"a zero cannot be a session that never armed
+> the widget"*) and is unambiguous under either kernel. **It is not the
+> "≥0 deferrals" widening this entry warns against**: the assertion below it —
+> `gfx_aud_gate == 0`, an ISR draw with the widget up — is untouched.
+>
+> The row also PROVOKES rather than hopes, the entry's other proposal: it waits
+> for `[fpg_on]` and moves the hand while it is set, instead of firing a fixed
+> 40 packets at a package load that sometimes finished first.
+>
+> `msegnomem` (F2) is the same shape one device along — an expectation written
+> against a kernel that a later § deliberately changed.
+
+`gfxlk` asserts five things about SPEC.md 12.8.4's cursor gate. Four are
+"this did not happen" and pass. The fifth is the **control**:
+
+```
+[FAIL] the gate fired at all   0 deferrals - the control for the row below
+```
+
+It needs the race to actually OCCUR at least once — an ISR cursor move landing
+while the gfx lock is held — or the four zeroes below it prove nothing. The run
+that failed had **37 ISR cursor moves and 0 of them deferred**.
+
+It first failed in a 3-wide lane, which reads like contention. Sampled, it is
+not:
+
+| | gfxlk |
+|---|---|
+| width 3 + two CPU hogs | 1 FAIL / 3 |
+| idle, alone | **2 FAIL / 3** |
+
+**Worse idle than loaded**, so `alone=True` would not have fixed it — and that
+is the whole reason to sample both arms rather than only re-running the failure
+alone. `curdisk`, sampled the same way in the same session, came out the other
+way (2 FAIL / 4 loaded, 0 / 4 idle) and did take the flag; the two look
+identical from a single failing run in a wide lane.
+
+**What to fix is the control, not the tolerance.** A check that depends on a
+coincidence occurring is a check that reports on the coincidence. Either the
+row has to PROVOKE the collision — move the pointer while something holds the
+lock, rather than hoping a sample lands there — or the control has to be a
+different observation. Widening it to "≥0 deferrals" would delete the only
+thing standing between this row and four zeroes that mean nothing.
+
+## F4. `schacct` and `hdmove` — the two that looked like KERNEL defects, and neither is
+
+Both were carried for most of a session as genuine product findings, written
+down as such, and left failing on purpose. Both were the row.
+
+### F4.1 `schacct`: 8.7% of the machine unbilled, and the leak was the read
+
+The balance check reported the books accounting for **91.3%** of elapsed time
+with the Task Manager open, against a `95..102%` window — and its own failure
+text says what that means: *"Under 95% means a slice is being dropped"*. It
+looked like exactly the defect SPEC.md 8.1.1's change-compare could plausibly
+introduce, and it had the right shape for one:
+
+| | balance |
+|---|---|
+| bare desktop, six 2-second windows | **99.9%** every time |
+| Task Manager open, six 2-second windows | 91.9, 91.6, 91.6, 89.7, 91.6, 91.9 |
+| Task Manager open, cumulative 2→12 s | 89.9 → 91.3, flat |
+
+A steady **rate** rather than an end effect, invariant in the window length,
+and specific to one window. Everything about it says "a slice is being
+dropped".
+
+**`cycles()` read 32 bytes and unpacked 8 slots.** `MAX_TASKS` is **14** and
+`sch_cycles` is **56 bytes** — docs/STACK-SLOTS-PLAN.md took `SCH_PARTITION`
+to twelve slices and this literal did not move with it. With the table read
+whole the row passes at **99.6%, tasks [0, 1, 10]** — and task 10 is billed
+**8.3%**, which is the missing time to the tenth of a percent.
+
+**The lesson is the mirrored constant, not the arithmetic.** A kernel constant
+copied into a test is what `tests/unit/t_mirror.py` exists to catch; this copy
+was a *slice length* rather than a named constant, so nothing compared it. It
+now comes from `os88sym.equates()`.
+
+It is also a caution about a good check: the balance row is well designed and
+its failure message is accurate about what a shortfall means. It just cannot
+distinguish "the kernel dropped a slice" from "you did not read all the
+slices", and the second is indistinguishable from the first in every statistic
+the row prints.
+
+### F4.2 `hdmove`: `[dsk_dseg] still names the old base`, about a pointer that did not
+
+The row's check 4 failed with *"every listing read goes to the wrong segment
+until the next mount"* — a pointer left naming freed memory, which would be a
+serious kernel defect. `[dsk_dseg]` read `1860`, the `.lowbss` floor, and the
+claim had moved `5e80 → 3b40`. **`1860` is neither base**, and the message was
+about a value it never held.
+
+`dsk_dseg_reloc` follows the pointer if and only if it names the block being
+moved, and its own comment says why: *"the second equals the first only while
+that volume is the one mounted"*. The row's sequence puts a mount between the
+two: the only way it has to force a compaction is to LAUNCH heapfrag out of
+the B: window, and **the launch mounts B: on its way to the file**, before
+heapfrag's big claim can fire anything. So the order is mount, then compact,
+and the pointer correctly names the floppy's listing when the relocation runs.
+
+The row already had a `NOT EXERCISED` branch for exactly this, and it was
+keyed on the wrong sample — `[dsk_dseg]` as it stood when C: was opened,
+minutes and one mount earlier. Sampling it immediately before the compaction
+was **not enough either**, because the mount happens inside the launch: the
+honest formulation is that the only failure this check can see is the OLD
+base, and any other value is a mount having re-pointed it, which is correct
+and none of this check's business. Check 4b — *no word anywhere still holds
+the old base* — is the one that is never vacuous, and it passed throughout.
+
+**What both have in common** is that the row's own diagnosis was confident,
+specific, and pointed at the kernel. `schacct` named a dropped slice;
+`hdmove` named a stale pointer. Neither existed. A failing row is evidence
+that the row and the kernel disagree, and it names the suspect it was written
+to catch — which is worth remembering before the next one is written up as a
+product defect.
+
+## F5. The soak that found five, and four of them were the same defect
+
+The tree with F1–F4 in it ran the whole tier in **1:51:52 — 267 reported, 262
+ok, 5 FAIL, 0 SKIP**, against the previous run's **23 failures in 5:22**.
+Every one of those 23 came back green. The five are a different set, and four
+of them are one idea.
+
+| row | previous run | why |
+|---|---|---|
+| `paintpack` | ok | mine: F1 changed `blitpair`'s `--gif` default |
+| `saver` | ok | a wait that could observe the PREVIOUS session |
+| `dmgcull` | ok | a zero from one pass, read as "did not happen" |
+| `tmrepair` | **FAIL** | the same, and it never passed here |
+| `dispprefer` | FAIL | `[fm_vinst]` is allowed to be 0 |
+
+### F5.1 The common defect: a budget that is not the guest's
+
+`tests/dispcells.py`'s `serve` has warned about this since it was written —
+*"how often it happens depends on how many breakpoints are armed and how busy
+the guest is"*, and *"treat a zero from a single pass as `not seen`, never as
+`did not happen`"*. Three of the five are that warning coming true, and the
+mechanism under it is one line:
+
+```python
+for _ in range(rounds):
+    if not serve(...):
+        m.advance(frames=frames)
+```
+
+**A serviced stop costs a round.** So the guest gets `rounds` minus however
+many breakpoints fired — less time exactly when more is happening, and how
+much less is a property of the box's load. That is not a guest-anchored budget
+at all; it only looks like one.
+
+`tmrepair` is the clearest case: it read **0 `wm_su_occl` calls with 0
+subpixels differing** — the repair itself perfect, the call that performs it
+never observed. Counting only the rounds that ADVANCE makes the window a fixed
+amount of the machine's own time, and it then reads **1 call, three runs of
+three, in a three-wide lane**. That row has never passed in this container
+before.
+
+`dmgcull` failed on `0 cells outside the mover's rect` in the lane and read 27
+alone, in the same build — two readings of the same machine, so the zero was
+the pump. It retries the gesture now, which is what `serve`'s docstring asks
+for, and reads 27 three runs of three. The retry did not have to fire in any
+of them.
+
+`saver` is the same family one step out: every wait in it was `time.time()`
+and `time.sleep`, and what the saver waits for is `ss_idle` TICKS. It also
+waited for `blk_on == 1` **without first proving it was 0** — and the previous
+iteration leaves it 1, so the wait could return on a session that was already
+running. Measured, exactly one of its two fallbacks failed each time and
+*which one* changed between the lane and a solo run, which is a race and not a
+saver. Guest-clock waits plus "wake it and confirm it is off, then arm" is
+3/3 three-wide.
+
+### F5.2 `dispprefer`: `[fm_vinst]` is allowed to be 0
+
+`os88ui.open_drive` waited on the front window's own state and then returned
+`disk_window()` — the ACTING window, resolved through `[fm_vinst]`. Those are
+different questions, and the kernel is entitled to answer the second with
+"nobody": `fm_vp_set` stores the window's OWNER instance and **0 for an
+unowned one**, which kernel/files.inc says at the store. `dispprefer` reached
+that state in its seventh section, with seven windows up and four of them file
+windows, and the verb raised *"no Disk window is acting"* about a wait that
+had just succeeded on a Disk window showing B: at its root.
+
+The verb returns the window it confirmed now, and `disk_window()` falls back
+to the front window when nothing is acting — the docstring's warning is that
+front and acting are different, and with nothing acting there is no other
+answer to disagree with.
+
+### F5.3 `paintpack`: one default cannot serve both adapters
+
+F1 pointed `blitpair`'s `--gif` default at `build/OS8088.GIF`, because
+`colour_gif`'s derived picture reduces to one class on a 1bpp adapter.
+`paintpack` runs the same row on a **VGA** machine, where the framebuffer
+carries real colour and `blitpair`'s red channel separates `0xAA0000` from
+`0x0000AA` — so there the derived picture is the right one, and it is what
+`paintpack` puts on the disk it builds.
+
+Both are true and neither is a default. `paintpack` passes `--gif` now, which
+is what `blitpair`'s own comment asks for: it is the caller that builds the
+disk.

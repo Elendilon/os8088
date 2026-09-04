@@ -189,9 +189,21 @@ Two consequences for this pass:
 
 ---
 
-## 2. THE LOCK — read this before running anything
+## 2. THE LOCK — **RETIRED. `tools/martylock.py` IS DELETED and there is no build lock**
 
-`tools/martylock.py` serialises two hazards that share one cure:
+> **Do not go looking for it.** The section below is kept as the record of what
+> it was for, because both hazards it names were real. What removed it was
+> taking away the shared DESTINATION rather than serialising access to it: a
+> row that wants a knob kernel builds into `build/trees/<knob>-<hash>/` now
+> (`tools/os88build.py`), so two agents in one checkout no longer collide and
+> there is nothing left to hold a mutex over. `docs/SOAK-PARALLEL.md` §8 is the
+> account.
+>
+> The one hazard that survives is narrower than this section's: **`make` in the
+> shared `build/` still rewrites the kernel and every floppy image under
+> anything reading them.** Rows do not do that any more; a person still can.
+
+`tools/martylock.py` serialised two hazards that shared one cure:
 
 1. **One machine, one client.** Every emulator test drives MartyPC's debug
    server. A second client on one instance is refused in a sentence naming the
@@ -209,8 +221,10 @@ Two consequences for this pass:
    rebuilding `kernel.bin` and rewriting every floppy image *including the one
    the emulator has mounted*, which is the worse half.
 
-**The rule is: hold the lock to use MartyPC, OR to `make`, OR to `git commit`,
-OR to edit `kernel/*`.**
+**The rule WAS: hold the lock to use MartyPC, OR to `make`, OR to `git
+commit`, OR to edit `kernel/*`.** None of it applies now — MartyPC instances
+have been isolated since `--marty-jobs`, and knob builds since
+`tools/os88build.py`.
 
 ```sh
 python3 tools/martylock.py status

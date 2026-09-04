@@ -89,7 +89,7 @@ Two consequences, and the second is about work already in this tree:
   `flicker`/`pace` protocol already has this discipline (inject while paused,
   advance by frames), which is why those measurements repeat.
 - **Scripted mouse navigation used to be wall-clock paced and was therefore
-  NOT reproducible run to run.** `tools/os88drive.py` is that driver re-paced
+  NOT reproducible run to run.** `tools/os88mouserel.py` is that driver re-paced
   on frames; §7 measures the difference. Anything else still written with
   `time.sleep` around a running machine has the same defect, and it is the
   likeliest reason a measurement moves slightly between sessions.
@@ -208,7 +208,10 @@ All three of the steps this section originally proposed, and C was left alone:
 
 1. **`advance`** — the guest-time primitive (`frames=` or `cycles=`), plus a
    cycle stamp on every `key`/`mouse` reply and an input log in the client.
-2. **`tools/os88drive.py`** — the mouse/menu driver, re-paced on frames.
+2. **`tools/os88mouserel.py`** — the RELATIVE mouse/menu driver, re-paced on
+   frames. (It was `os88drive.py`, whose first line called itself *absolute*
+   while dead reckoning — the one name in this tree that pointed at the wrong
+   driver. `tools/os88mouse.py` is the absolute one.)
 3. **`snapshot`/`restore`** — the fork holder, restorable any number of times.
 
 §7 and §8 below are how to use them.
@@ -245,15 +248,21 @@ A breakpoint ends either one early and `state` says so, so `advance` doubles as
 
 ### Driving the UI reproducibly
 
-`tools/os88drive.py` is the mouse/menu driver, paced on frames. Use it exactly
-like the old one — `home()`, `goto()`, `click()`, `dblclick()`, `menu()` — and
-scripted navigation becomes bit-exact:
+`tools/os88mouserel.py` is the RELATIVE mouse/menu driver, paced on frames.
+Use it exactly like the old one — `home()`, `goto()`, `click()`, `dblclick()`,
+`menu()` — and scripted navigation becomes bit-exact:
 
 ```python
-from os88drive import Pointer
-p = Pointer(m, 640, 200)
+from os88mouserel import Rel
+p = Rel(m)                     # pace="frames" is the default here
 p.home(); p.dblclick(608, 105); m.advance(frames=500)
 ```
+
+**Frame pacing is why this one and not `tools/os88mouse.py`.** The absolute
+driver reads the guest's pointer and sends however many packets it takes to
+converge, and how many that is depends on the host — which is exactly the
+property a replay cannot have. Everywhere else, the absolute driver is the
+right one; `p.check()` here will say if dead reckoning has drifted.
 
 Measured, two independent processes driven from reset by that exact script:
 

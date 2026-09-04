@@ -40,10 +40,14 @@ from os88fixture import need                           # noqa: E402
 
 S = os88sym.linear
 
-_IBMROM = os.path.exists("tools/martypc/roms/"
-                         "BIOS_IBM5150_27OCT82_1501476_U33.BIN")
-MACHINE = ({"cga": "os8088_5150_cga", "herc": "os8088_5150_herc"} if _IBMROM
-           else {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"})
+# THE MACHINE IS THE GLaBIOS TWIN, resolved rather than chosen here.
+# This used to be a conditional on whether the IBM ROM happened to be
+# in the checkout, which made the machine a property of the box - and
+# on two of the four files that carried it, the path it tested was not
+# the ROM's filename, so the IBM arm could never be taken at all.
+# os88marty.machine() is the one place that decision lives now.
+MACHINE = {c: os88marty.machine("os8088_5150_%s" % c)
+           for c in ("cga", "herc")}
 
 RD_ROW = 3                          # drv_tab row 3 is the RAM disk: the
                                     # Ethernet card came forward to row 2
@@ -56,6 +60,15 @@ CP_RX, CP_DBY1, CP_DROWH = 96, 20, 26
 def say(*a):
     print(*a)
     sys.stdout.flush()
+
+
+# drvcall.asm's three result lines AS ASSEMBLED (dc_r1/dc_r2/dc_r3). A
+# refused OSAPI_DRV_CALL writes nothing, so these are what the window shows
+# until a driver is published - which makes them the "nothing was dispatched"
+# assertion rather than decoration.
+PLACEHOLDER = ("Ping: ..",
+               "Upcase: hello world n=..",
+               "Bad verb: ........")
 
 
 def main():
@@ -108,16 +121,26 @@ def main():
         before = lines()
         for s in before:
             say("  before: %s" % s)
-        if before[0] != "Ping: --":
-            fails.append("with no driver published the ping answered %r - the "
-                         "kernel dispatched something it should have refused"
-                         % before[0])
-        if not before[1].endswith("n=00") or "HELLO" in before[1]:
-            fails.append("upcase ran with no driver published: %r" % before[1])
-        if not before[2].endswith("refused "):
-            fails.append("the bad-verb check reads %r before any driver is "
-                         "loaded, which cannot be right either way"
-                         % before[2])
+        # **UNCHANGED IS THE PROOF.** With no driver published every
+        # OSAPI_DRV_CALL is refused, and a refused call WRITES NOTHING - so
+        # the three fields still read the placeholders drvcall.asm assembled
+        # them with, and that is the assertion. Anything else would mean the
+        # kernel dispatched.
+        #
+        # These used to expect 'Ping: --', 'n=00' and 'refused ' BEFORE a
+        # driver existed, which is a package that answers a refusal by
+        # writing an answer - and the third one's own message said "which
+        # cannot be right either way". drvcall.asm's `db` lines are the
+        # contract and they are dots; only the comment above dc_r1 ever said
+        # '--', and it is corrected in the same commit as this.
+        for i, want in enumerate(PLACEHOLDER):
+            if before[i] != want:
+                fails.append(
+                    "with no driver published line %d reads %r and should "
+                    "still be its placeholder %r - a refused OSAPI_DRV_CALL "
+                    "writes nothing, so anything else means the kernel "
+                    "dispatched something it had to refuse"
+                    % (i + 1, before[i], want))
 
         # --- tick the Ram Disk ---------------------------------------------
         mo.menu(8, 8, 8, 40)                        # chip menu -> Control Panel

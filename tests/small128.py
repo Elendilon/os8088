@@ -38,7 +38,7 @@ os.environ.setdefault("OS88_DEFINES", "KERN_SMALL")
 os.environ.setdefault("OS88_BUILD", "build/smallk")
 import os88marty as M                                        # noqa: E402
 import os88sym                                               # noqa: E402
-from os88fixture import need                                 # noqa: E402
+import os88build                                             # noqa: E402
 
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_128k"
 DEFS = ("KERN_SMALL",)
@@ -56,7 +56,30 @@ def u16(b, i=0):
     return b[i] | (b[i + 1] << 8)
 
 
-need("build/small360.img")          # `all` does not build kern_small
+# A PRIVATE TREE (tools/os88build.py), shared with tests/smallboot.py: the
+# targets are the same, so the two rows key the same directory and the second
+# one to run finds it built. `make small` writes build/*.drv as well as
+# build/smallk/ - t_buildmatrix measured it restamping build/hddtool.drv - so
+# out of tree is what lets this row run beside anything else.
+_T = os88build.tree(targets=("small", "apps360.img"))
+
+# **AND THE SYMBOL READER FOLLOWS IT.** The two lines at the top of this file
+# point os88sym at the SHARED `build/smallk`, which is where `make small`
+# writes - and this row has not booted that kernel since it moved to a private
+# tree. It agreed for as long as the two directories held the same build, and
+# stopped the moment they did not: cherry-picking this work onto a re-cut
+# integration branch left `build/smallk/kernel.bin` carrying BUILD_NUM 497
+# against a checkout at 142, and the row failed with "the map describes a
+# DIFFERENT kernel" - correctly, about a kernel it was not running.
+#
+# `_T.apply()` is NOT the way to do it, and that is worth saying because it is
+# the obvious move. `defines_for` asks how the tree's DEFAULT kernel target is
+# compiled, so a tree built for the `small` GOAL still answers `KERN_BIG`;
+# apply() would point the reader at the right directory with the wrong
+# defines. The kern_small kernel is in the tree's own `smallk/` subdirectory,
+# exactly as it is under `build/`, so name that and keep KERN_SMALL.
+os.environ["OS88_BUILD"] = os.path.join(_T.dir, "smallk")
+os88sym.default_defines(*DEFS)
 
 # ...and the FLOOR MACHINE has to be staged. tools/martypc/build.sh appends
 # os8088_machines.toml to upstream's ibm5150.toml, so a run tree built before
@@ -69,7 +92,7 @@ if os.path.exists(_cfg) and MACHINE not in open(_cfg, errors="replace").read():
     sys.exit("tests/small128.py: build/martypc/ has no %s - it was staged "
              "before that profile existed. Re-run `make marty`." % MACHINE)
 
-with M.launch("build/small360.img", apps="build/apps360.img",
+with M.launch(_T.img("small360.img"), apps=_T.img("apps360.img"),
               machine=MACHINE) as m:
     M.no_saver(m)
     M.settle(m, limit=180)

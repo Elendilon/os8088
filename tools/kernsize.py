@@ -896,7 +896,7 @@ def main():
 if __name__ == "__main__":
     # `kernsize.py | head` closes the pipe under us; an unhandled
     # BrokenPipeError buries the report under a traceback.  Same cure as
-    # tools/martylock.py: die quietly the way `cat` does.
+    # tools/os88soak.py's `status`: die quietly the way `cat` does.
     try:
         import signal
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)

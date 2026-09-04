@@ -1728,9 +1728,18 @@ test-full: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(MEDIAIMG360) $(WEAVEWABS)
 	@python3 tools/os88test.py full
 
+# THIS TARGET RUNS THE TIER SERIALLY (`--marty-jobs 1`), which is right for
+# `make test-soak -k <subject>` after touching one thing and wrong for the
+# whole tier - hours of it, on one core of four. `tools/os88soak.py` is the
+# whole-tier command: it preflights the capabilities first (a skip is the box
+# declining to answer, not a pass), sizes the lanes off the box, runs
+# detached, and journals every row so a reclaimed container resumes rather
+# than restarts. docs/SOAK-PARALLEL.md is the account.
 test-soak: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360)
+	@echo "os88: this runs the soak SERIALLY. For the whole tier use"
+	@echo "      python3 tools/os88soak.py check   # then \`start\`"
 	@python3 tools/os88test.py soak
 
 # The documentation gate (SPEC.md is the binding contract, so a citation that
@@ -6844,9 +6853,18 @@ smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 	@python3 tools/os88pkgsize.py $(BUILD)/solitair.o88 $(SMALLAPPDIR)/solitair.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/taskmgr.o88 $(SMALLAPPDIR)/taskmgr.o88
 
+# --fatcap 2 ON BOTH, exactly as the small SYSTEM disks above take it, and it
+# is not cosmetic on the 1.44MB one: kern_small's DSK_FAT_SECS is 2 and mount
+# rule 10 REFUSES a volume declaring more, so a plain 1.44MB FAT12 (9 FAT
+# sectors) is a disk this kernel will not read. `make small` capped its own
+# and `make smallapps` did not, so the 1.44MB half of a PAIR the Makefile
+# itself tells you to pair was unmountable - measured, `listed=0` on
+# build/smallapps.img in B:, and tests/fcpcopy.py's kern_small arm could
+# never have passed. 360KB declares a 2-sector FAT anyway; it is spelled here
+# so the two geometries say the same thing.
 $(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SMALLSYSAPPS) \
                            $(APPS_DOS) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 \
+	python3 tools/os88disk.py --fatcap 2 -o $@ --size 360 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \
 	    $(addprefix MEDIA:,$(SMALLDATA_360)) \

@@ -125,9 +125,26 @@ def serve(m, at, di, hits):
 
 
 def pump(m, at, di, hits, rounds=24, frames=8):
-    for _ in range(rounds):
+    """Give the guest `rounds * frames` frames, servicing stops as they come.
+
+    **A SERVICED STOP USED TO COST A ROUND**, so the guest got LESS time
+    exactly when more was happening - `for _ in range(rounds): if not serve():
+    advance()`. That is not a guest-anchored budget at all: it is
+    `rounds` minus however many breakpoints fired, which is a property of the
+    box's load and of what else is on screen.
+
+    It cost this row its REPAIR leg. In a three-wide emulator lane it read
+    `0 wm_su_occl call(s)` with `0 subpixels differ` - the repair itself
+    perfect, the call that performs it never observed - and
+    tests/dispcells.py's `serve` already warns that stops go missing here and
+    that "a zero from a single pass" means NOT SEEN. Counting only the rounds
+    that advanced makes the window a fixed amount of the machine's own time.
+    """
+    left = rounds
+    while left > 0:
         if not serve(m, at, di, hits):
             m.advance(frames=frames)
+            left -= 1
 
 
 def edge(m, mo, down, at, di, hits, tries=240):
@@ -241,7 +258,7 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     # the only thing left to do over the covered window is open a package.
     raise_win(m, mo, disk, dx + 30, dy + 9, "the drive window")
     dispcp.open_named(m, mo, S, os88marty.settle, dx, dy, "..")
-    dispcp.open_named(m, mo, S, os88marty.settle, dx, dy, "APPS")
+    dispcp.open_named(m, mo, S, os88marty.settle, dx, dy, "APPS", paint=True)
 
     # --- KEPT --------------------------------------------------------------
     raise_win(m, mo, slot, w.x + w.w - 24, w.y + 9, "the Task Manager")

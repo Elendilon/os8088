@@ -124,7 +124,10 @@ def _drive(m, png_dir):
 
     live = set(dispcp.win_list(m, S))
     try:
-        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, SECOND)
+        # THE SECOND LAUNCH IS SUPPOSED TO REFUSE (WEAVE-SPEC 1.4) - that is
+        # the whole row - so it is declared rather than waited out.
+        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, SECOND,
+                          expect="refusal")
     except os88marty.MartyError as e:
         check(False, "%s: the second double-click reached %s"
               % (MACHINE, SECOND),
