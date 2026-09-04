@@ -161,6 +161,21 @@ FAST = [
         "table, so `mirror` cannot see it: that is why this is a row of its "
         "own and not one of its names",
         ),
+    Row("frinset", "fast", py("tests/unit/t_frinset.py"), 1.9,
+        "fr_inset never claims a pixel frac_iter would have escaped, and its"
+        "rejection boxes still match the closed forms (SPEC.md 40.5)"),
+    Row("frstepv", "fast", py("tests/unit/t_frstepv.py"), 0.4,
+        "The axis-phased pass order is still a permutation of the canvas, a"
+        "row's twin is still the row before it, and rc=0 is still the order"
+        "walked before the phase existed (SPEC.md 40.6). SPEC.md 40.1 rests"
+        "the whole restore cache on that arithmetic and nothing else records"
+        "which cached row is which."),
+    Row("frcycle", "fast", py("tests/unit/t_frcycle.py"), 0.8,
+        "SPEC.md 40.7's cycle check returns exactly what the uncut core"
+        "returns, for all five types. The CLAIM needs no sweep - a repeated"
+        "state in a deterministic map can never escape - but the BOOKKEEPING"
+        "does: a reference refreshed at the wrong moment or left over from"
+        "the last pixel reads FR_CAP for a point that escapes."),
     Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 0.8,
         "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
         "zero bytes (docs/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
@@ -1687,6 +1702,19 @@ SOAK = [
         "Compact the heap out from under a live app that is holding a big"
         "claim",
         needs=("marty",), serial=True, builds=True),
+    Row("frcyclefull", "soak",
+        py("tests/unit/t_frcycle.py", "--stride", "7"), 900.0,
+        "...and the same agreement at stride 7 - about 25 million (point,"
+        "type) pairs, each run through the core twice (SPEC.md 40.7)."),
+    Row("frinsetfull", "soak",
+        py("tests/unit/t_frinset.py", "--stride", "2"), 900.0,
+        "...and the same sweep at stride 2 - 5.7 million of the lattice"
+        "points fr_inset can claim, against the core (SPEC.md 40.5). The fast"
+        "row strides 32 to fit its tier. Stride 1 is the exhaustive one and"
+        "is a flag away, but it is FORTY MINUTES of interpreted Q4.12 and"
+        "would be the longest row in the tree by a factor of two; it was run"
+        "once, at the shipped margin and again at a margin of zero, and"
+        "SPEC.md 40.5 records what it found."),
     Row("frpromise", "soak", py("tests/frpromise.py"), 600.0,
         "SPEC.md 40.4: Fractal promises when the frame lands and takes it"
         "back when the view moves.",

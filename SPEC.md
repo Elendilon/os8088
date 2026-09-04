@@ -47923,14 +47923,18 @@ the escape count *is* the palette index. `fr_clamp` bounds the centre on
 both axes unconditionally inside `fr_setup`, because the clamp is what keeps
 the core's arithmetic from wrapping. Zoom is a shift count (step = step0 >>
 z) so there is no per-frame division except the single step0 = span / cw.
-`FT_SYM` — 0 none / 1 x-axis / 2 origin — is declared in the type table and
-**still not exploited**; exploiting it is a free 2× on four of the five
-types and the one optimisation here that can silently corrupt half a frame,
-so it wants a byte-compare harness against the reference model first.
+`FT_SYM` — 0 none / 1 x-axis / 2 origin — is **exploited for the x-axis
+since §40.6**, which also carries the byte-compare harness this asked for
+before it was allowed to ship: the toward-zero `qmul` makes the mirror exact
+to the bit, and the sweep says so over 45.7 million pairs per type. The two
+Julias' ORIGIN symmetry is still not taken — its twin row is the partner
+reversed in x, which is a different emit path.
 
-**Progressive refinement.** `fr_advance` runs three passes over the canvas:
-pass 0 computes rows 0, 4, 8 … and paints each as a **4-row band**, pass 1
-fills rows 2, 6, 10 … as 2-row bands, pass 2 the rest as single rows.
+**Progressive refinement.** `fr_advance` runs three passes over the canvas,
+counted from the mirror row `rc` (§40.6; `rc` = 0, and these are then rows
+0, 4, 8 …, whenever there is no mirror): with `d = row − rc`, pass 0 computes
+`d ≡ 0 (mod 4)` and paints each as a **4-row band**, pass 1 fills
+`d ≡ 2 (mod 4)` as 2-row bands, pass 2 the odd `d` as single rows.
 ch/4 + ch/4 + ch/2 = ch, so no pixel is computed twice — only painted twice
 — and the finished image is exactly the non-progressive image, with a full
 chunky preview after a quarter of the work. `fr_rowcalc` computes one row
@@ -48549,6 +48553,268 @@ the three call sites are 3 bytes each plus `fr_emit_body`'s 5-byte compare —
 `FRACTAL.O88` grows and `kernel.bin` does not.
 
 `tests/frpromise.py` is the gate.
+
+### 40.5 `fr_inset` — the interior is 77% of the work, and most of it is answerable without iterating
+
+Escape-time gives every pixel that does not escape the **full** `FR_CAP`, so a
+black pixel is the most expensive pixel on the canvas by a factor of three
+over the average and by twelve over a typical exterior one. Measured off a
+bit-exact model of this core (`tools/frref.py`) at the shipped 320×170 canvas:
+
+| Mandelbrot | iterations | interior px | share of iterations spent on them |
+|---|---|---|---|
+| default view, z=0 | 867,555 | 13,894 | **76.9%** |
+| z=1 | 2,163,726 | 41,790 | 92.7% |
+| z=2 | 2,550,956 | 52,080 | 98.0% |
+| z=3, z=4 | 2,611,200 | **54,400** | **100%** |
+
+The last row is the one to read twice. The default centre is (−0.5, 0), which
+is *inside* the set, so zooming in on it without recentring first walks the
+view into the cardioid — and z=3 is **every pixel interior**, 2.6 million
+iterations and about six minutes on a 4.77 MHz 8088 to arrive at a canvas that
+is uniformly black. Zoom In gets slower and blanker at the same time, and the
+menu item that looks like the expensive one, Redraw, is not.
+
+**None of that work is needed, because the two largest interior components of
+the Mandelbrot set have closed-form membership tests.** A point is in the main
+cardioid when, with `dx = cx - 1/4` and `q = dx² + cy²`, `q(q + dx) < cy²/4`;
+it is in the period-2 bulb when `(cx + 1)² + cy² < 1/16`. `fr_inset` evaluates
+both in the same Q4.12 the core uses — four `imul`s at worst, against 144 for
+a capped pixel — and `fr_rowcalc` calls it once per pixel *before* `frac_iter`,
+taking `CBLACK` on a hit.
+
+**It is exact, and that word is used here in its strong sense.** The claim is
+not "these points are in the mathematical set" — the picture does not owe
+anything to the mathematical set, it owes everything to what *this core*
+returns. So the property that was checked is the one that matters: **for every
+Q4.12 lattice point `fr_inset` can claim, does `frac_iter` return `FR_CAP`?**
+Swept exhaustively over the whole region the gates admit, the answer is **yes
+for every one of them** — and the sweep was run again at a safety margin of
+**zero**, where the test claims 22,951,518 points and still disagrees with the
+core nowhere. **That one run settles every margin at once**, because raising
+the margin can only claim a strict subset of what zero claims. The sweep is
+the harness §40 asked for before an optimisation of this class was allowed to
+ship, and `tests/unit/t_frinset.py` is it.
+
+**The margin is kept anyway, at 16 ulps.** It is not load-bearing today and
+the sweep says so; what it is, is the thing that keeps this true if `qmul`'s
+rounding is ever touched, and it costs 7% of the claimed area — a boundary
+annulus — which does not appear in the measured frame times below.
+
+**The cheap rejections are what keep it free on the views it cannot help.**
+The main cardioid lies inside Re ∈ [−0.75, 0.375], |Im| ≤ 3√3/8 = 0.6495 and
+the bulb inside Re ∈ [−1.25, −0.75], |Im| ≤ 0.25 — both verified by sweep
+rather than asserted — so `|cy| > 2661` rejects **both shapes in two
+instructions** and is tested first. A pixel outside the boxes pays about 120
+clocks against the 10,560 an average default-view pixel costs, and the
+worst case in the survey — a view holding no cardioid area at all — is
+**+1.1%**:
+
+| view | z | now | with `fr_inset` | |
+|---|---|---|---|---|
+| default | 0 | 120.0 s | **49.4 s** | 2.4x |
+| default | 1 | 299.4 s | **63.1 s** | 4.7x |
+| default | 2 | 353.0 s | **27.9 s** | 12.7x |
+| default | 3 | 361.3 s | **8.2 s** | **44x** |
+| seahorse valley | 2 | 336.3 s | 42.9 s | 7.8x |
+| elephant valley | 3 | 276.8 s | 182.5 s | 1.5x |
+| off-axis edge | 2 | 174.1 s | 92.2 s | 1.9x |
+| north tip — no cardioid in view | 2 | 45.1 s | 45.6 s | **0.99x** |
+
+**It is the Mandelbrot's and nothing else's.** `fr_rowcalc` tests `[fr_flg]`
+for zero at the single call site — not inside `fr_inset`, so the types this
+cannot help pay a compare rather than a compare wrapped in a near call — and
+zero is true of exactly one of the five types (§40's table: Burning Ship carries `FF_ABS`, Tricorn `FF_NEG`,
+both Julias `FF_JUL`). A Julia's `c` is a constant, so a per-pixel test of `c`
+is meaningless there; the Burning Ship and the Tricorn have interiors of a
+different shape and no test of this form describes them. Four of the five
+types are unchanged, byte for byte, and pay one compare per pixel.
+
+**`FT_SYM` is the other half of this, and §40.6 is it.** The x-axis mirror is
+worth **84 of 170 rows** at the shipped geometry, it is exact for four of the
+five types, and it multiplies with `fr_inset` rather than overlapping it —
+this section removes iterations, that one removes whole rows. What made it
+look awkward from here was an assumption about the pass order that turned out
+not to be a property of the mirror; §40.6 phases the passes from the axis row
+and the twin becomes the next row rather than a cache read.
+
+### 40.6 `FT_SYM` exploited — the passes are phased from the AXIS, not from row 0
+
+§40's type table has declared `FT_SYM` since the first version and §40.5 left
+it unexploited with the arithmetic attached. This is it, and the thing that
+made it cheap is not the mirror — it is **where the progressive passes start
+counting**.
+
+**First, the claim itself, because §40 calls this the one optimisation here
+that can silently corrupt half a frame.** The property is not "the Mandelbrot
+set is symmetric about the real axis" — the picture owes that nothing. It is
+that *this core*, in Q4.12, returns the same escape index for `(cx, cy)` and
+`(cx, −cy)`. It does, and it does so because `qmul` truncates toward zero:
+`qmul(−a,b) = −qmul(a,b)` exactly, so the conjugate orbit is the negated orbit
+to the bit, `x2` and `x2+y2` are untouched, and the magnitude guard is
+symmetric. Swept at stride 3 over the whole clamped plane — **45,677,682 pairs
+per type**:
+
+| type | `FT_SYM` | disagreements |
+|---|---|---|
+| Mandelbrot | 1 | **0** |
+| Julia Dendrite | 2 | **0** |
+| Julia Rabbit | 2 | **0** |
+| Tricorn | 1 | **0** |
+| Burning Ship | **0** | 6,538,376 |
+
+That last row is the table's own control: the Ship declares no symmetry and
+really has none, so a sweep that found nothing anywhere would have proved only
+that it was not looking.
+
+**Now the ordering, which is the whole of the change.** A mirrored row costs
+nothing only if the row it mirrors is *to hand*. §40.5 said that meant reading
+§40.1's cache back out of order, and that was true of `fr_stepv`'s phase and
+not of the mirror. `mirror(r) = 2·rc − r` preserves parity but not `r mod 4`,
+so with passes counted from row 0 a pass-0 row's twin lands in pass 1, an
+entire pass away. Count the passes from the **axis row** instead — pass 0 is
+`d ≡ 0 (mod 4)` where `d = r − rc`, visited `d = 0, +4, −4, +8, −8, …` — and
+`−d` is the *very next row*, so `fr_line` still holds it:
+
+| | rows still computed, reading the cache back | rows still computed, `fr_line` alone |
+|---|---|---|
+| passes phased from row 0 | 86 of 170 | **169 of 170** |
+| passes phased from the axis | 86 of 170 | **86 of 170** |
+
+**`fr_stepv(rc = 0)` is today's order exactly** — checked at every canvas
+height, not argued — so the phase is a generalisation rather than a
+replacement, and every frame without a mirror walks the identical sequence.
+`[fr_mrc]` is that parameter: the axis row, or **0 meaning none**, which
+costs nothing to conflate because `rc = 0` has no in-range twins anyway.
+
+**The mirror is available exactly when `cy = 0` lands on a canvas row**, which
+`fr_setup` tests directly — `−y0` divisible by `[fr_step]`, quotient inside
+the canvas, and the type's `FT_SYM` = 1. That is guaranteed whenever `ceny` is
+0, so it covers the default view, Reset and both menu zooms; a click that
+recentres off the axis loses it, and **that is the honest limit of this
+optimisation** — it doubles the views §40.5 already made fastest and does
+nothing for the ones it did not. Frame cost with the emit priced as well as
+the iteration (one `gfx_fill` a run, 756 µs):
+
+| view | z | before §40.5 | with `fr_inset` | **and the mirror** |
+|---|---|---|---|---|
+| default | 0 | 125.2 s | 55.0 s | **30.4 s** |
+| default | 1 | 303.6 s | 66.6 s | **35.8 s** |
+| default | 2 | 354.2 s | 27.7 s | **14.6 s** |
+| default | 3 | 361.4 s | 6.5 s | **3.3 s** |
+
+It is 1.81× and not 2× at z=0 because a mirrored row is still *emitted* —
+5.2 s of the frame is drawing calls, and the mirror does not save one of them.
+
+**Four things follow that are not the mirror, and each is load-bearing.**
+
+- **`fr_replay` had a SECOND copy of the pass-0 walk** — `fr_crrow` starting
+  at 0 and stepping by 4 — which §40.1 says does not exist ("there is exactly
+  one copy of that arithmetic and why `fr_stepv` exists"). It was true of the
+  cache's frontier and the render, and not of the replay. Under a phase it is
+  simply wrong, so `fr_replay` steps `fr_stepv` now like everything else, and
+  the sentence in §40.1 becomes true.
+- **The topmost pass-0 band starts at canvas row 0.** Pass 0's first row is
+  `rc mod 4`, so under a phase up to three rows sit above every pass-0 band
+  and would stay unpainted until pass 2 — a white line at the top of the
+  canvas for the first quarter of a render. The topmost band is extended
+  upward instead; `fr_emit_body` and `fr_replay` apply the same rule, because
+  band geometry is derived from `(pass, row)` at both ends and never stored.
+- **`[fr_c0row]` is the LAST cached pass-0 row now, not the next one.**
+  `fr_redraw` resumed with `fr_stepv(0, c0row − 4)`, and `− 4` is an assumption
+  about the phase. Recording the row the prefix actually stopped at makes the
+  resume one plain step of the one state machine, which is what that comment
+  claimed all along.
+- **`[fr_mrc]` joins `[fr_ccw]`/`[fr_cch]` as a cache validity key.** The cache
+  stores rows in emission order and nothing else records which row is which,
+  so replaying it under a different phase would put every row at the wrong
+  height. A view change funnels through `fr_kick` and cannot reach that, but
+  the key costs one compare and turns an argument into a check.
+
+**Cost.** `[fr_mrc]` and `[fr_lrow]` — the row `fr_line` currently holds, which
+is what the twin test compares against and what `fr_kick` invalidates — are
+the only new state. Mandelbrot and Tricorn get the mirror; the two Julias
+declare `FT_SYM` = 2, an ORIGIN symmetry whose twin row is the partner
+*reversed in x*, which is a different emit path and is not done here; the
+Burning Ship declares none and is untouched.
+
+### 40.7 A repeated state can never escape — the cycle check, and what it costs
+
+§40.5 and §40.6 between them are worth 4x on the views reached by Reset and
+the menu, and **nothing at all** on three of the five types or on any view
+reached by clicking. This is what covers that, and it is the only one of the
+three that helps every type.
+
+**The claim needs no sweep, which is what makes it different from §40.5's.**
+`frac_iter` is a deterministic function of `(zx, zy)` alone — `c` and the flag
+bits are fixed for the pixel — so if the orbit ever returns to a state it has
+already been in, it will retrace the same states forever and can never reach
+the escape test. It is therefore *already* a point `frac_iter` returns
+`FR_CAP` for, and stopping early returns the same answer sooner. No
+approximation, no margin, no bound on the arithmetic: the exactness is a
+property of determinism rather than of Q4.12. The sweep was run anyway, over
+eleven views and all five types, and **not one pixel changes**.
+
+**The shape is one saved state and one compare.** `[fr_hx]`/`[fr_hy]` hold a
+reference; every iteration compares `zx` against it and, only when that
+matches, `zy`; every eighth iteration the reference is replaced with the
+current state. So a cycle of any period ≤ 8 is caught within eight iterations
+of the orbit entering it, and longer ones are caught when a reference happens
+to land inside them.
+
+**The cheaper scheme that suggests itself does not work, and the Julia Rabbit
+is why.** Comparing only on the eighth iteration — `z(t)` against `z(t−8)`,
+skipping the compare the other seven times — costs 12.5 clocks instead of
+33 and looks like the obvious trade. It detects only cycles whose period
+DIVIDES eight. The Rabbit's interior is period 3 almost everywhere (99% of its
+interior points), so that scheme takes it from **−37% to +1.9%** — a
+regression on the type the every-iteration compare helps most. A fixed stride
+only ever sees the periods it is a multiple of.
+
+**Eight is measured.** The interval trades detection latency against how many
+periods a reference can catch; swept at 4, 8, 16 and 32, four wins more on the
+Rabbit and the elephant and loses more everywhere else, and sixteen and
+thirty-two give up more than they save back.
+
+**What it costs is ~5% of every iteration, forever**, and that is the honest
+frame of this: 33 clocks on 660, of which 19 is the compare and 14 the
+refresh test. `rel8` is why the refresh test is not cheaper — `.loop` is out
+of a conditional jump's reach, so the back edge has to be `jz .refresh` over
+a `jmp .loop` rather than a `jnz` straight back.
+
+| view | z | after §40.5/§40.6 | with the cycle check | |
+|---|---|---|---|---|
+| elephant valley | 3 | 181.6 s | **127.5 s** | −29.8% |
+| Julia Rabbit | 0 | 90.0 s | **56.6 s** | −37.1% |
+| Tricorn | 0 | 60.7 s | **49.8 s** | −17.9% |
+| Burning Ship | 1 | 290.6 s | **250.4 s** | −13.8% |
+| Burning Ship | 0 | 106.5 s | **93.0 s** | −12.7% |
+| default | 1 | 62.3 s | 57.7 s | −7.5% |
+| default | 0 | 49.8 s | 49.2 s | −1.1% |
+| seahorse valley | 2 | 42.1 s | 43.6 s | **+3.4%** |
+| north tip | 2 | 45.6 s | 47.6 s | **+4.4%** |
+
+**Two views get slower and they are written down rather than buried.** A view
+with almost no interior left — north tip is outside the set entirely, and
+seahorse's interior is what §40.5 already answered — pays the 5% and gets
+nothing back. Both are among the cheapest views in the survey, and what buys
+them is the worst one: the elephant valley is 181.6 s and is where §40.5 is
+weakest, because its interior is mini-Mandelbrots rather than the main
+cardioid. **The trade is 2 s on two fast views against 54 s on the slow one,
+and 13–37% on the three types §40.5 cannot describe at all.**
+
+**Why it is not armed late.** Arming after N iterations so that fast-escaping
+pixels never pay looks like it removes the regression, and it half does — but
+the arm test is itself a compare and a branch on every iteration, and the
+armed path then costs more than the unarmed one saves. Measured, it moves
+north tip from +4.4% to +1.9% and seahorse from +3.4% to +3.8%, which is not
+a trade, and it costs the elephant valley half a percent of its 30%.
+
+**Cost: two bss words and no state anywhere else.** The reference is seeded
+from `z0` at the top of `frac_iter`, so a Julia (whose `z0` is the pixel) and
+a Mandelbrot (whose `z0` is zero) both start with a reference that is a real
+state of the orbit rather than a sentinel — which is what lets a period-1
+fixed point at the origin be caught on the first comparison.
 
 ### 39.26 The software renderer's plane loop is gone
 
