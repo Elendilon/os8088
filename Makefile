@@ -6199,7 +6199,8 @@ SMALLOMIT_DATA := tests/htm/demo.htm apps/tracker/beverly.mod
 # floppy - Solitaire is a game and belongs in GAMES/ on both. Naming these
 # APPS: directly put it in BOTH folders for a cycle.
 SMALLPKGS     := $(SMALLAPPDIR)/notepad.o88 $(SMALLAPPDIR)/paint.o88 \
-                 $(SMALLAPPDIR)/calc.o88 $(SMALLAPPDIR)/solitair.o88
+                 $(SMALLAPPDIR)/calc.o88 $(SMALLAPPDIR)/solitair.o88 \
+                 $(SMALLAPPDIR)/taskmgr.o88
 SMALLBASE      = $(patsubst $(SMALLAPPDIR)/%,$(BUILD)/%,$(SMALLPKGS))
 
 # The substitution, ONE IDIOM used by all four lists below: drop the omitted
@@ -6228,6 +6229,20 @@ SMALLDATA       = $(filter-out $(SMALLOMIT_DATA),$(APPS_DATA))
 
 
 SMALLAPPSARGS  = $(addprefix APPS:,$(call SMALLSUB,$(SMALLOMIT),$(APPS_TOOLS)))
+
+# The Task Manager is in NEITHER of those lists: it lives in SYSTEM/ on both
+# floppies (SPEC.md 28.3), so it needs the substitution said once more over
+# $(SYSAPPS). Nothing is omitted from it - the small kernel still schedules,
+# still claims and still runs packages, so the one thing that reports on all
+# three belongs on a 128KB machine more than on a 640KB one (SPEC.md 28.12).
+#
+# BOTH DISKS TAKE IT. `make small` and `make smallapps` are a PAIR - one boots
+# and the other is what you swap into B: - so a small taskmgr on one of them
+# and the shipped one on the other is a machine that gets whichever floppy it
+# was pointed at, which is exactly the "two copies, the loader picks" defect
+# tests/unit/t_appsmall.py exists for.
+SMALLSYSAPPS      = $(call SMALLSUB,,$(SYSAPPS))
+SMALLSYSAPPSARGS  = $(addprefix SYSTEM:,$(SMALLSYSAPPS))
 
 # --- THE CORE PACKAGES, on the small system disk too --------------------------
 # SPEC.md 24.3: the core packages ship on the SYSTEM disk as well as the apps
@@ -6269,13 +6284,13 @@ $(BUILD)/small360.img: KMODDIR := $(SMALLDIR)
 # fall out of $(BUILD)/kernel.bin, so any kernel source change makes them
 # newer than the disk. And a module the sub-make somehow failed to write is
 # LOUD rather than silent - os88disk.py is handed the name and refuses.
-$(BUILD)/small360.img: $(SMALLDRIVERS) $(SYSAPPS) \
+$(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) \
                        $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
                        tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot360.bin
 	python3 tools/os88disk.py --fatcap 2 -o $@ --size 360 \
 		--boot $(SMALLDIR)/boot360.bin --kernel $(SMALLDIR)/kernel.bin \
-		$(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPSARGS) $(SMALLCOREARGS) \
+		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) $(SMALLCOREARGS) \
 		$(SYSDOC) $(MEDIAFOLDER)
 	@echo "small: $@ - kern_small on 360KB. Pair it with"
 	@echo "       build/smallapps360.img (\`make smallapps\`)"
@@ -6283,13 +6298,13 @@ $(BUILD)/small360.img: $(SMALLDRIVERS) $(SYSAPPS) \
 # its kernel is $(SMALLDIR)'s, so its modules are too
 $(BUILD)/small.img: KMODDIR := $(SMALLDIR)
 
-$(BUILD)/small.img: $(SMALLDRIVERS) $(SYSAPPS) \
+$(BUILD)/small.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) \
                     $(SMALLCORE_TOOLS) $(SMALLCORE_GAMES) $(SYSDOC) \
                     tools/os88disk.py
 	@$(MAKE) BUILD=$(SMALLDIR) KERN_SMALL=1 $(SMALLDIR)/boot.bin
 	python3 tools/os88disk.py --fatcap 2 -o $@ --size 1440 \
 		--boot $(SMALLDIR)/boot.bin --kernel $(SMALLDIR)/kernel.bin \
-		$(SMALLDRIVERS) $(SMALLMODS) $(SYSAPPSARGS) $(SMALLCOREARGS) \
+		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) $(SMALLCOREARGS) \
 		$(SYSDOC) $(MEDIAFOLDER)
 
 # --- THE SMALL APPS DISK (SPEC.md 27.16) -------------------------------------
@@ -6346,6 +6361,16 @@ $(SMALLAPPDIR)/calc.bin: apps/calc/calc.asm apps/os88api.inc apps/os88ui.inc \
 $(SMALLAPPDIR)/calc.o88: $(SMALLAPPDIR)/calc.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(SMALLAPPDIR)/calc.bin -o $@
 
+$(SMALLAPPDIR)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc \
+                            apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+	@mkdir -p $(SMALLAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -DAPP_SMALL $(PKGSBDEF) -o $@ \
+	        apps/taskmgr/taskmgr.asm
+	@echo "taskmgr (APP_SMALL): $(call FILESIZE,$@) bytes"
+
+$(SMALLAPPDIR)/taskmgr.o88: $(SMALLAPPDIR)/taskmgr.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(SMALLAPPDIR)/taskmgr.bin -o $@
+
 $(SMALLAPPDIR)/solitair.bin: apps/solitaire/solitaire.asm apps/os88api.inc \
                              $(SBSTAMP) | $(BUILD)
 	@mkdir -p $(SMALLAPPDIR)
@@ -6361,25 +6386,26 @@ smallapps: $(BUILD)/smallapps360.img $(BUILD)/smallapps.img
 	@python3 tools/os88pkgsize.py $(BUILD)/paint.o88 $(SMALLAPPDIR)/paint.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/calc.o88 $(SMALLAPPDIR)/calc.o88
 	@python3 tools/os88pkgsize.py $(BUILD)/solitair.o88 $(SMALLAPPDIR)/solitair.o88
+	@python3 tools/os88pkgsize.py $(BUILD)/taskmgr.o88 $(SMALLAPPDIR)/taskmgr.o88
 
-$(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SYSAPPS) \
+$(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SMALLSYSAPPS) \
                            $(APPS_DOS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \
 	    $(addprefix MEDIA:,$(SMALLDATA_360)) \
-	    $(SYSAPPSARGS) \
+	    $(SMALLSYSAPPSARGS) \
 	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
 	    $(MEDIAFOLDER) $(APPDATAFOLDER)
 	@echo "smallapps: $@ - pair it with build/small360.img (\`make small\`)"
 
-$(BUILD)/smallapps.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SYSAPPS) \
+$(BUILD)/smallapps.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SMALLSYSAPPS) \
                         $(APPS_DOS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \
 	    $(addprefix MEDIA:,$(SMALLDATA)) \
-	    $(SYSAPPSARGS) \
+	    $(SMALLSYSAPPSARGS) \
 	    $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
 	    $(APPDATAFOLDER)
 	@echo "smallapps: $@ - pair it with build/small.img (\`make small\`)"

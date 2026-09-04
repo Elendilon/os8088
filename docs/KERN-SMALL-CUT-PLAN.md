@@ -107,6 +107,27 @@ SPEC.md 42.23's 1bpp canvas and SPEC.md 42.6.5's claim-first sizing, in the
 parallel session, not here. The kernel was being asked to make room that the
 program was better placed to stop needing.
 
+**And the shape has held up.** SPEC.md 28.12 is the same move on the Task
+Manager and it is the largest one yet in proportional terms: gating the heap
+page and the memory view out of the `APP_SMALL` arm takes one instance from
+**11,138 bytes to 6,693**, 39.9%, against a 128KB machine's whole free heap
+of ~43 KB. Two things about it are worth carrying into the rows below rather
+than left in §28.
+
+- **The saving was not where the page count put it.** The heap page is the
+  more elaborate of the two to look at and the cheaper to remove — 1,786
+  bytes — because it is nearly all drawing. The memory view is 2,659 more,
+  because it takes a *layer* with it: `tm_quiet`'s hashes, `TM_SLOW`'s
+  pacing, the raise-cache promise, and the 192-byte claim snapshot that no
+  page left in the build reads. **A feature's cost is its machinery, not its
+  pixels**, and that is the same lesson §2.2 records one level down about
+  sections not being heap.
+- **It cost the kernel nothing at all**, which is what makes it worth
+  preferring to any row in §2–§5: no `KERN_SIZE`, no rung, no feature that
+  a 640KB machine loses. Every row in this document spends something a user
+  can see on every machine; this one spends nothing outside the floppy it
+  ships on.
+
 **The goal is now: as much more as we can get, weighing each feature's cost
 against what cutting it does to the machine.** Not a number to hit. That is a
 weaker brief and a more honest one — every row left in §2–§5 is a feature, and

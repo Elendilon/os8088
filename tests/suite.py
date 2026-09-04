@@ -1794,6 +1794,17 @@ SOAK = [
         "does nothing on the strip, on an open cell or on a window that was "
         "not already frontmost.",
         needs=("qemu", "nasm"), serial=True, timeout=900, builds=True),
+    Row("tmsmall", "soak", py("tests/tmsmall.py"), 110.0,
+        "SPEC.md 28.12: the APP_SMALL Task Manager gates out two of its three "
+        "PAGES, which is 39.9% of one heap claim and the largest saving of "
+        "any package in the tree - and the two that go share their row "
+        "machinery, their check words and their bss chain with the one that "
+        "stays. t_appsmall.py reads that off two headers and would pass "
+        "unchanged on an arm whose window opens blank. This is an A/B on the "
+        "SHIPPED kernel (27.16: a small build is not a second ABI): the full "
+        "arm's click cycles the page and the small arm's does not, and the "
+        "page they share is compared pixel for pixel.",
+        needs=("marty",), serial=True, timeout=900),
     Row("tmload", "soak", py("tests/tmload.py"), 150.0,
         "SPEC.md 28.7: the CPU meter and the process rows read the same "
         "numbers. The page used to show two figures that contradicted each "

@@ -41,7 +41,24 @@ ROOT = os.path.abspath(ROOT)
 PKGS = [("notepad", "apps/notepad/notepad.asm", "build/notepad.o88"),
         ("paint", "apps/paint/paint.asm", "build/paint.o88"),
         ("calc", "apps/calc/calc.asm", "build/calc.o88"),
-        ("solitaire", "apps/solitaire/solitaire.asm", "build/solitair.o88")]
+        ("solitaire", "apps/solitaire/solitaire.asm", "build/solitair.o88"),
+        ("taskmgr", "apps/taskmgr/taskmgr.asm", "build/taskmgr.o88")]
+
+# ...and the arms BETWEEN the two, which no floppy carries and which nothing
+# else would keep assembling (SPEC.md 28.12). The Task Manager's gates are a
+# LADDER - `TMF_HEAP` off alone, then `TMF_MEM` off as well - and the middle
+# rung is a real configuration with a measured cost that somebody may yet
+# choose to ship. A rung nothing builds is a rung that silently stops
+# building, which is exactly why the knob kernels are in `make test-full`'s
+# matrix.
+#
+# Defining a flag on the command line is how a rung is selected: the source
+# defines both under `%ifndef APP_SMALL`, so -DAPP_SMALL -DTMF_MEM leaves the
+# memory view in and takes only the heap page out.
+#
+# (source, extra defines, what the rung is, must be smaller than)
+RUNGS = [("apps/taskmgr/taskmgr.asm", ["-DTMF_MEM"],
+          "taskmgr: the heap page alone (SPEC.md 28.12)", "taskmgr")]
 
 # The least a small build must save to be worth having, as a fraction of the
 # full build's image + bss.
@@ -133,8 +150,35 @@ def main():
               "a floor under 'the gates carry nothing', not a target - the "
               "real figure is ~34%% and is allowed to move",
               got="%.1f%%" % (saved * 100), want=">= %d%%" % (MIN_SAVING * 100))
+    rungs(tmp)
     disks(tmp)
     done("t_appsmall")
+
+
+def rungs(tmp):
+    """the intermediate arms: they assemble, and they sit between the two."""
+    for i, (src, extra, what, pkg) in enumerate(RUNGS):
+        out = os.path.join(tmp, "rung%d.bin" % i)
+        cmd = (["nasm", "-f", "bin", "-w+error", "-I", "apps/"] + DEFS +
+               ["-DAPP_SMALL"] + extra + ["-o", out, src])
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+        check(r.returncode == 0, "%s assembles" % what,
+              "nothing in the tree builds this arm, so this row is the only "
+              "thing that keeps it compiling (%s)" % " ".join(extra),
+              got=r.stderr.strip(), want="exit 0")
+        if r.returncode:
+            continue
+        full = os.path.join(tmp, pkg + ".full.bin")
+        small = os.path.join(tmp, pkg + ".small.bin")
+        if not (os.path.exists(full) and os.path.exists(small)):
+            continue
+        mid, cf, cs = claim(out), claim(full), claim(small)
+        check(cs < mid < cf, "%s: it lands BETWEEN the two arms" % what,
+              "a rung that saves nothing has stopped reaching the source; one "
+              "that saves as much as the full small build means the flag "
+              "below it is carrying everything and the ladder is a fiction",
+              got="%d (full %d, small %d)" % (mid, cf, cs),
+              want="small < this < full")
 
 
 # The disks themselves: SPEC.md 42.22.1 - every gated package that reaches a
