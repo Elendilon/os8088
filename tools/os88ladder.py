@@ -661,7 +661,8 @@ STAGES = [
                            "drv_snd_sniff", "snd_init", "splf_step"])),
     dict(id="drvboot", short="mount + drivers", title="The floppy is mounted - over the start-up code",
          moved="the disk's index, written across 5KB of code that was running",
-         take=dict(phases=["drv_boot_x", "xm_boot_x", "thm_set"])),
+         take=dict(phases=["drv_boot_x", "hb_probe_x", "xm_boot_x",
+                           "thm_set"])),
     dict(id="unblob", short="space back", title="The loader's space is given back",
          moved="4KB returned to the pool, and the gap closed up",
          focus=["free*"],
@@ -1509,6 +1510,12 @@ NOTES = {
         'destroys it, and that is exactly why THIS routine lives '
         'somewhere else: a routine cannot be the one that overwrites '
         'itself. Nothing loaded here can stop the boot.',
+    'hb_probe_x':
+        'Is there a hibernation to resume? A look for the pointer file '
+        'in the root of the one volume a hibernate writes to - after the '
+        'mount, so a hard disk is there to be looked at, and before the '
+        'first frame, because the answer is a question the desktop puts '
+        'up. A floppy-only machine pays eight compares and no disk work.',
     'xm_boot_x':
         'Set up the memory above the first megabyte, if any was found. '
         'A failure is silent by design.',
@@ -1591,6 +1598,7 @@ TITLES = {
     "drv_snd_sniff": "Look for a music chip",
     "snd_init": "Start the sound layer",
     "drv_boot_x": "Mount the floppy, and load what it asks for",
+    "hb_probe_x": "Is there a hibernation to resume?",
     "xm_boot_x": "Set up the memory above the first megabyte",
     "thm_set": "Resolve the colour scheme",
     "spl_finish": "Finish the loading screen",
