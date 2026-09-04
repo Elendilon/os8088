@@ -11699,7 +11699,14 @@ wm_an_n     dw WM_ANIM_N        ; idiv takes a memory or register operand, not
 ; of the cursor shape by WF_HIBITS exactly as on kern_big, and never read.
 ; -----------------------------------------------------------------------------
 wm_noanim:
+    push ax                     ; **BX CAME FROM A PACKAGE**: wm_saveu's test,
+    mov ax, bx                  ; for wm_saveu's reason (SPEC.md 11.96.11.4) -
+    sub ax, wm_wins             ; a window record or nothing, and `pop` leaves
+    cmp ax, MAX_WIN * WIN_SIZE  ; the compare's flags alone. Without it a
+    pop ax                      ; height passed here sets a bit inside the API
+    jae .done                   ; jump table, as Paint once did to wm_saveu
     or word [bx+W_FLAGS], WF_NOANIM
+.done:
     ret
 
 ; --- SPEC.md 76.11: does the user want the zoom? ----------------------------

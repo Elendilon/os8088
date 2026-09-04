@@ -1103,10 +1103,10 @@ Three things about it:
   "big": {
     "boot2": 2250,
     "bootmax": 192512,
-    "bss": 6003,
+    "bss": 6067,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 37154,
+    "cold": 37186,
     "coldpara": 2336,
     "fatpara": 288,
     "imgpara": 3552,
@@ -1119,30 +1119,30 @@ Three things about it:
     "ovl": 1417,
     "ovlw": 5037,
     "stk0": 512,
-    "text": 50704,
+    "text": 50733,
     "vgabuf": 848,
     "vgabufpara": 64
   },
   "small": {
     "boot2": 2250,
     "bootmax": 122880,
-    "bss": 4783,
+    "bss": 4847,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 25853,
+    "cold": 25885,
     "coldpara": 1632,
     "fatpara": 64,
-    "imgpara": 2752,
-    "kend": 4960,
+    "imgpara": 2784,
+    "kend": 4992,
     "kseg": 96,
-    "ksize": 77824,
+    "ksize": 78336,
     "lowbss": 6064,
     "lowpara": 416,
     "minramkb": 128,
     "ovl": 423,
     "ovlw": 2789,
     "stk0": 512,
-    "text": 39232,
+    "text": 39261,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -2031,21 +2031,21 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 30,655 | 34.9% |
-| the window system and its furniture | 24,267 | 27.6% |
+| the file system, end to end | 30,687 | 34.9% |
+| the window system and its furniture | 24,279 | 27.6% |
 | drawing: adapters, primitives, glyphs, icons | 14,926 | 17.0% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,546 | 9.7% |
-| the kernel proper: API table, heap, scheduler, events | 7,332 | 8.3% |
+| the kernel proper: API table, heap, scheduler, events | 7,349 | 8.4% |
 | the three built-in kinds | 1,542 | 1.8% |
 | the Control Panel | 590 | 0.7% |
-| **total** | **87,858** | |
+| **total** | **87,919** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` | `.boot2` |
 |---|---:|---:|---:|---:|---:|---:|
-| `wm.inc` — the window manager (§11) | 11,659 | 94 | **11,753** | 1,074 | — | — |
-| `files.inc` — the Disk window (§22) | 1,049 | 8,151 | **9,200** | 465 | — | — |
+| `wm.inc` — the window manager (§11) | 11,671 | 94 | **11,765** | 1,074 | — | — |
+| `files.inc` — the Disk window (§22) | 1,049 | 8,183 | **9,232** | 465 | — | — |
 | `vga12.inc` — the VGA planar primitives (§5) | 7,242 | 702 | **7,944** | 162 | 526 | — |
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,797 | **6,192** | 889 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,969 | **5,210** | 168 | — | — |
@@ -2056,11 +2056,11 @@ generated in the first place.
 | `assoc.inc` — file type associations (§54) | 480 | 2,004 | **2,484** | 43 | — | — |
 | `memory.inc` — the claim heap (§50) | 35 | 2,420 | **2,455** | 18 | 324 | — |
 | `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 1,951 | **2,447** | 356 | — | — |
-| `instance.inc` — instances and the built-in kinds (§29) | 2,054 | 236 | **2,290** | 636 | — | — |
+| `instance.inc` — instances and the built-in kinds (§29) | 2,054 | 236 | **2,290** | 700 | — | — |
 | `font.inc` — the 8×8 glyph renderer (§6) | 2,186 | — | **2,186** | 215 | 784 | — |
 | `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,116 | **2,116** | 142 | — | — |
 | `apps.inc` — the three built-in kinds (§14) | 282 | 1,260 | **1,542** | 11 | 240 | — |
-| `sched.inc` — pre-emptive scheduling (§7–8) | 1,323 | — | **1,323** | 207 | 2,944 | — |
+| `sched.inc` — pre-emptive scheduling (§7–8) | 1,340 | — | **1,340** | 207 | 2,944 | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,292 | — | **1,292** | 20 | — | — |
 | `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,230 | — | **1,230** | 74 | — | — |
 | `snd.inc` — the sound layer (§34) | 1,024 | — | **1,024** | 287 | — | — |
@@ -2089,7 +2089,7 @@ generated in the first place.
 | `stkdiag.inc` — **(undescribed)** | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 3,012 | 18 | **3,030** | — | — | 421 |
-| **total** | **50,704** | **37,154** | **87,858** | **6,003** | **9,182** | **2,250** |
+| **total** | **50,733** | **37,186** | **87,919** | **6,067** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it

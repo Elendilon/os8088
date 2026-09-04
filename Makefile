@@ -1438,7 +1438,10 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
 # five %ifdefs this replaced were added one at a time, each after a diagnostic
 # that would not assemble. tools/os88sym.py derives the same thing, so a tool
 # re-assembling a knob kernel for its symbol map gets the same answer.
-ifneq ($(filter-out KERN_SMALL=%,$(KNOBS)),)
+# ...and NOHEDGE, which reaches SAVER.DRV and not one kernel byte, so it is in
+# $(KNOBS) for the matrix and NOT in $(VIDSTAMP): exempting the kernel for it
+# would be the sticky exemption the ETHPROF note below describes.
+ifneq ($(filter-out KERN_SMALL=% NOHEDGE=%,$(KNOBS)),)
 VIDDEF += -DKERN_KNOB
 endif
 
@@ -6288,7 +6291,7 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #                           SPEC.md 72's whole surface is driver verbs, so
 #                           there is no socket to refuse on
 #   modplug, recorder,      SOUND.DRV, which a 128-256KB machine has nothing
-#   tracker                 to spare for - the same judgement that took
+#   tracker, audio          to spare for - the same judgement that took
 #                           RAMDISK.DRV and RAMPAGE.DRV out of $(SMALLDRIVERS)
 #   tank                    the fullscreen surface (SPEC.md 42.7/81). It opens
 #                           and draws its splash, and there is no GAME behind
@@ -6298,7 +6301,8 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 # 90,510 bytes of a 360KB floppy - a quarter of it - for seven programs that
 # could not have started.
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
-             $(BUILD)/modplug.o88 $(BUILD)/recorder.o88 $(BUILD)/tracker.o88
+             $(BUILD)/modplug.o88 $(BUILD)/recorder.o88 $(BUILD)/tracker.o88 \
+             $(BUILD)/audio.o88
 SMALLOMIT_GAMES := $(BUILD)/tank.o88
 
 # ...and DEMO.HTM with the browser, for the same reason one step along: a .HTM
@@ -6494,7 +6498,7 @@ $(BUILD)/smallapps360.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SYSAPPS) \
 
 $(BUILD)/smallapps.img: $(SMALLPKGS) $(APPS_TOOLS) $(SMALLGAMES) $(SYSAPPS) \
                         $(APPS_DOS) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 \
+	python3 tools/os88disk.py --fatcap 2 -o $@ --size 1440 \
 	    $(SMALLAPPSARGS) \
 	    $(addprefix GAMES:,$(SMALLGAMES)) \
 	    $(addprefix MEDIA:,$(SMALLDATA)) \

@@ -338,8 +338,11 @@ def main():
 
     t0 = time.time()
     results = []
-    par = [r for r in want if not r.serial]
-    ser = [r for r in want if r.serial]
+    par = [r for r in want if not r.serial and not r.builds]
+    ser = [r for r in want if r.serial or r.builds]
+    # ...`builds` keeps a row OUT of the shared lane whatever the row says
+    # about serial: buildmatrix and bmshare both drive make against build/,
+    # and the 47 par rows read build/kernel.bin and build/*.img meanwhile
     # THREE LANES, not two. A row that builds keeps the tree to itself; an
     # emulator row that does not build can share the machine with another,
     # because every instance has its own port, directory and disks now.

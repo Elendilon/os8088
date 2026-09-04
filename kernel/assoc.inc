@@ -474,15 +474,18 @@ assoc_compose:
 ; out: CF=0 and dsk_ico holds the 64-byte body; CF=1 = no association
 ; clobbers: CF (everything else preserved)
 ;
-; dsk_ico is dsk_get_icon's staging buffer and has FIVE tenants: dsk_get_icon
-; (fdlg_icon), fmv_get_icon (fm_draw_icon16), assoc_docicon (mount pass 4b),
-; asc_take (mount pass 4a) and inst_icon_ptr (dock_draw_tile). All five run on
-; task 0 - two on the repaint path, two inside disk_mount, one in the modal
-; dialog - and NO tenant's live range contains a yield, a claim or a drawing
-; call that reaches another. disk_mount_x in particular DRAWS NOTHING AT ALL,
-; which is what makes "no tile is composed during a mount" structural rather
-; than hoped for. A sixth tenant must state which task it runs on and prove it
-; cannot be entered from inside another's stage-to-consume window.
+; dsk_ico is dsk_get_icon's staging buffer and has FOUR tenants: dsk_get_icon
+; (fdlg_icon), fmv_get_icon (fm_draw_icon16), assoc_docicon (mount pass 4b)
+; and asc_take (mount pass 4a). All four run on task 0 - one on the repaint
+; path, two inside disk_mount, one in the modal dialog - and NO tenant's live
+; range contains a yield, a claim or a drawing call that reaches another.
+; disk_mount_x in particular DRAWS NOTHING AT ALL, which is what makes "no
+; tile is composed during a mount" structural rather than hoped for. A fifth
+; tenant must state which task it runs on and prove it cannot be entered from
+; inside another's stage-to-consume window - which is exactly why
+; inst_icon_ptr (dock_draw_tile) is NOT one: wm_destroy reaches it on a dying
+; package's worker, and osapi_file_goto reaches a mount with no lock held, so
+; it stages into inst_icobuf of its own (instance.inc).
 ; -----------------------------------------------------------------------------
 assoc_docicon_x:
     push ax

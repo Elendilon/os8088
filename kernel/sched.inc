@@ -742,6 +742,8 @@ section .text
 ;                the frame below sets up - the scheduler itself needs no
 ;                change, because DS, ES and CS are already part of the saved
 ;                frame and sch_resume pops all three.
+;           CX = the stack the task wants, in bytes; 0 = the largest class
+;                (SPEC.md 8.7.1). Preserved.
 ;           DX = argument word - lands in the new task's DX; DL is also
 ;                stored to T_INST (instance index, 0xFF = none)
 ; out:      CF = 1 if no free slot (task not created)
@@ -1867,6 +1869,14 @@ sch_isr:
                                 ; runs every tick even during floppy reads.
                                 ; It no-ops itself while the fsx sub-tick is
                                 ; armed (SPEC.md 53.2.1)
+%ifndef NO_CHAINPRIV
+    cmp byte [sch_chbusy], 0    ; a NESTED tick is on sch_chstack (8.5.1):
+    jne .nospl                  ; the accounting above and the wake scan
+                                ; below fit there; the driver's tick and a
+                                ; spinner frame - 58 bytes on top of the
+                                ; chain's own 56 - do not, and there is no
+                                ; canary under them
+%endif
     call snd_tick               ; sound duties (SPEC.md 8.2/34): a called
                                 ; leaf, gated on snd_live until snd_init
                                 ; publishes; runs every tick in both modes,
@@ -1954,6 +1964,17 @@ sch_switch:
     ; entry walked in here is meaningless (SPEC.md 8). The walker stops on
     ; arrival at an exempted routine, so this one line also covers task_exit
     ; and inst_task_die, which both reach the switch by a tail jmp.
+    mov ax, ss                  ; **ONLY ON A TASK STACK** - the chain swap's
+    cmp ax, LOW_SEG             ; test (SPEC.md 8.5), for the same reason: a
+    jne sch_resume              ; ROM that hops stacks for int 16h (SeaBIOS
+                                ; does, for AH=01h, which ui_task polls with
+                                ; sch_lock CLEAR) would have its SP parked in
+                                ; the task record and task 0's canary read
+                                ; through its segment - a false STACK OVERFLOW
+                                ; panel, or a task resumed on a foreign SP.
+                                ; Not switching this tick is the whole cost.
+                                ; AX is free here: every entry arrives with
+                                ; the full frame saved
     mov byte [sch_hold], SCH_WD_TICKS
                                 ; the outgoing task reached the switch path,
                                 ; so its watchdog budget is full again
@@ -2442,9 +2463,12 @@ sch_chstack: resb SCH_CHSTK             ; the ROM int 08h chain's own stack
                                         ; %error below is what proves that on
                                         ; every build rather than on this one
 %endif
-sch_stacks: resb SCH_STK_TOTAL          ; slots 1..MAX_TASKS-1: slot n's stack
-                                        ; top at n*SCH_STACK relative to
-                                        ; sch_stacks, which is NOT offset 0
+sch_stacks: resb SCH_STK_TOTAL          ; slots 1..MAX_TASKS-1, one slice per
+                                        ; SCH_SLOT line of SCH_PARTITION in that
+                                        ; order; a slice's bottom is
+                                        ; sch_stkbase[n] and its size
+                                        ; sch_stksize[n] - nothing derives
+                                        ; either (SPEC.md 8.6)
                                         ; of .lowbss (font_glyphs precedes
                                         ; it). Slot 0 = the UI task runs on
                                         ; the task-0 stack, SS:STK0_TOP,

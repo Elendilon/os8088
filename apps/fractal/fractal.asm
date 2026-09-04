@@ -321,6 +321,7 @@ fr_paint:
     cmp byte [fr_abon], 0           ; ...and the About card LAST, over the
     je .out                         ; canvas it is opaque about (SPEC.md 20.5.1)
     push si
+    mov bx, [fr_win]                ; fr_redraw clobbers BX (its header says so)
     mov si, fr_ablines
     call os88ui_about_d             ; _d: this paint's region is already armed
     pop si

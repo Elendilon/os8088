@@ -1323,12 +1323,12 @@ inst_icon_ptr:
     je .none                    ; not a package: I_SPTR is a state block
     mov dx, [di+I_SPTR]         ; the REGION, and byte 32 of it is the body
     mov si, LD_HDR_SIZE
-    mov di, dsk_ico             ; dsk_get_icon's staging slot - the FIFTH
-    mov cx, DSK_ICO_SIZE        ; tenant of it, and see assoc_docicon_x's
-    mov ax, cs                  ; header for the whole tenancy. This one runs
-    call COLD_SEG:dkf_dsk_copy_seg  ; on task 0 out of dock_draw_tile, whose
-    mov si, dsk_ico             ; reachers are exactly fm_draw_icon16's (the
-.have:                          ; wm_paint_* family), so it widens nothing
+    mov di, inst_icobuf         ; ITS OWN slot, not dsk_ico: this runs out of
+    mov cx, DSK_ICO_SIZE        ; dock_draw_tile, which wm_destroy reaches
+    mov ax, cs                  ; from inst_task_die ON THE WORKER, while
+    call COLD_SEG:dkf_dsk_copy_seg  ; task 0 may be inside disk_mount_x's
+    mov si, inst_icobuf         ; icon pass (osapi_file_goto takes no lock) -
+.have:                          ; so it cannot be dsk_ico's fifth tenant
     pop di
     pop dx
     pop cx
@@ -2323,6 +2323,13 @@ inst_tab:    resb 384           ; INST_MAX x I_RECSZ (12 x 32; literal per
                                 ; segment beside every one of those pointers,
                                 ; which is the MB_SEG trap of SPEC.md 12.2 for
                                 ; 384 bytes
+inst_icobuf: resb DSK_ICO_SIZE  ; inst_icon_ptr's staging slot: its own, and
+                                ; not dsk_ico's, because dock_draw_tile runs
+                                ; on a dying package's WORKER (inst_task_die ->
+                                ; wm_destroy) while task 0 may be staging into
+                                ; dsk_ico inside a mount (assoc_docicon_x's
+                                ; tenancy rule) - 64 bytes against a tile
+                                ; drawn with another file's icon
 
 ; THE INSTANCE'S OWN CURRENT DIRECTORY (SPEC.md 19.2.1), and the name it last
 ; picked in the Standard File dialog (SPEC.md 38.10).

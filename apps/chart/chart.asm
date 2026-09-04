@@ -149,7 +149,8 @@ ct_paint:
     push di
     push bp
     push es
-    mov bx, si
+    mov di, si                          ; the window, banked for the card:
+    mov bx, si                          ; SI is spent on the blit below
     call OSAPI_WM_CONTENT               ; ax=content x, dx=content y
     call ch_margin                      ; THE INTERIOR THE PICTURE DOES NOT
                                          ; COVER (SPEC.md 82.1.1, issue #142) -
@@ -170,8 +171,8 @@ ct_paint:
     cmp byte [ct_abon], 0               ; ...and the About card LAST, over the
     je .noab                            ; canvas it is opaque about (20.5.1)
     push si
-    mov bx, si
-    mov si, ct_ablines
+    mov bx, di                          ; the WINDOW - not SI, which is CH_PXOFF
+    mov si, ct_ablines                  ; since the blit
     call os88ui_about_d                 ; _d: this paint's region is armed
     pop si
 .noab:

@@ -333,6 +333,7 @@ op_load:
 ; -----------------------------------------------------------------------------
 op_size:
     mov word [op_secs], 0
+    mov word [op_tail], 0
     mov word [op_bytes], 0
     mov word [op_reqkb], 0
     mov word [op_allkb], 0
@@ -430,6 +431,12 @@ op_size:
     cmp ax, dx
     jbe .next
     mov dx, ax
+    push ax                     ; this row ends the run (so far): the file
+    mov ax, [si+OP_R_LEN]       ; carries no padding after it if it is also
+    neg ax                      ; the LAST body, so a read to its sector
+    and ax, 511                 ; boundary comes back short by exactly this,
+    mov [op_tail], ax           ; and [op_want] must not ask for it
+    pop ax
     jmp short .next
 .scratch:
     push ax
@@ -540,8 +547,10 @@ op_claim:
     mov ax, [op_bytes]          ; capacity = slack + the run, rounded up to a
     add ax, bx                  ; whole number of clusters, which is the
     jc .no                      ; slot's other precondition. THE CARRY IS THE
-    mov [op_want], ax           ; ...and before the rounding, THIS is what has
-                                ; to arrive - op_read's fourth input
+    push ax                     ; ...and before the rounding, THIS is what has
+    sub ax, [op_tail]           ; to arrive - op_read's fourth input - less the
+    mov [op_want], ax           ; padding after the last row, which is not in
+    pop ax                      ; the file when nothing follows it (op_size)
                                 ; BOUND op_size could not apply: the slack is
                                 ; up to a cluster short of 32KB and is not
                                 ; known until here, so a 64KB run on a
@@ -1277,7 +1286,17 @@ op_drop:
     or dx, dx
     jz .out
     mov word [si+OP_R_ZKB], 0   ; CLEARED FIRST: op_seg must never answer a
-    call OSAPI_MEM_FREE         ; segment that is on its way back to the heap
+                                ; segment that is on its way back to the heap
+    mov ax, [si+OP_R_OFF]       ; ...and the word op_fetch banked is the PART's
+    mov cl, 9                   ; base, which sits past the head slack (op_seg
+    shl ax, cl                  ; answers it as such). OSAPI_MEM_FREE matches
+    mov bx, [op_clb]            ; the CLAIM's base exactly (mem_find_own,
+    dec bx                      ; SPEC.md 50.3) and op_drop never reads its CF,
+    and ax, bx                  ; so a free of the biased word was a silent
+    mov cl, 4                   ; leak on every volume whose cluster is over
+    shr ax, cl                  ; 512 bytes. This is op_fetch's slack
+    sub dx, ax                  ; arithmetic run backwards; [op_clb] is live
+    call OSAPI_MEM_FREE         ; because op_fetch ran op_clbget before it claimed
 .out:
     pop es
     pop si
@@ -1431,4 +1450,9 @@ op_xstg     equ OP_BSS_AT + 67      ; ...and the transient claim it uses
 op_want     equ OP_BSS_AT + 69      ; bytes of the run that MUST still arrive,
                                     ; so a file that ends inside it refuses
                                     ; rather than filling half a claim
-OP_BSS      equ 71
+op_tail     equ OP_BSS_AT + 71      ; ...less this: the sector padding AFTER the
+                                    ; run's last row, which the packer does not
+                                    ; write (tools/os88pkg.py pads BEFORE each
+                                    ; body and never after the last), so a run
+                                    ; that ends the file arrives short by it
+OP_BSS      equ 73

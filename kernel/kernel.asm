@@ -7393,6 +7393,10 @@ section .modl
 %if ($ - $$) != MODL_SIZE
   %error "something landed in .modl below modl_end - os88mod.py would CUT the clone module short of it"
 %endif
+section .modh
+%if ($ - $$) != MODH_SIZE
+  %error "something landed in .modh below modh_end - os88mod.py would CUT the hibernate module short of it"
+%endif
 section .modmap
 %if ($ - $$) != MODMAP_SIZE
   %error "something landed in .modmap below modmap_end - the split trailer is no longer the last two bytes of the file"

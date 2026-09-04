@@ -101,7 +101,7 @@ def main() -> int:
                     help="append a part after the image, 512-aligned, and "
                          "fill its row in the package's own part table. One "
                          "per FILE-BACKED row, in table order; a row with no "
-                         "file bytes (OP_SCRATCH) takes none (SPEC.md 20.12)")
+                         "file bytes (OP_ZERO) takes none (SPEC.md 20.12)")
     args = ap.parse_args()
 
     a = read_file(args.input)
@@ -242,7 +242,7 @@ def lay_out_parts(out: bytearray, table: int, rows: int, parts) -> None:
     """Append each part 512-aligned and fill its row.
 
     THE ROWS AND THE PAYLOADS ARE NOT ONE LIST: a row with no file bytes
-    (OP_SCRATCH) takes no --part, so the i'th --part is the i'th FILE-BACKED
+    (OP_ZERO) takes no --part, so the i'th --part is the i'th FILE-BACKED
     row and not the i'th row.
     """
     filed = []

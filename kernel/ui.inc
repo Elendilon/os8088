@@ -460,7 +460,9 @@ ui_task:
 .yield:                         ; SPEC.md 10.2 - every dispatch above lands here,
     dec word [ui_drain]         ; and the ring is asked again before the tail
     jz .tail                    ; runs. Two words of work when the queue is
-    cmp word [evq_count], 0     ; empty, which is nearly every pass
+    cmp byte [evq_count], 0     ; empty, which is nearly every pass. A
+                                ; BYTE (events.inc's .bss): the word form read
+                                ; clk_sec beside it and was never zero
     jne .evloop
 .tail:
     cmp byte [mou_ptr], 0       ; the keyboard mouse's end-of-pass service
@@ -849,7 +851,7 @@ ui_arm_chk:
     je .out                     ; nothing armed - the common case
     test byte [mouse_btn], 1
     jnz .out                    ; still held: the release is yet to come
-    cmp word [evq_count], 0
+    cmp byte [evq_count], 0     ; a BYTE - see .yield above
     jne .out                    ; ...or it is queued behind something else
 %ifdef KERN_BIG
     call ui_lit_off             ; ...and the picture goes with the arm, or the
