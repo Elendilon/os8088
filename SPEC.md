@@ -34455,20 +34455,24 @@ turned that refusal into the whole point of Paint's small build. A package
 that cannot reach its **driver** can say nothing at all; it is a name in a
 list that does nothing when you double-click it.
 
-Seven packages fail that test:
+Eight packages fail that test:
 
 | omitted | requirement `kern_small` cannot meet |
 |---|---|
 | `BROWSER`, `FTPD`, `TELNET` | `ETHER.DRV`. The NIC is not in `$(SMALLDRIVERS)`, and §72's whole surface is driver verbs, so there is no socket to refuse on |
-| `MODPLUG`, `RECORDER`, `TRACKER` | `SOUND.DRV`, which a 128–256KB machine has nothing to spare for — the judgement that already took `RAMDISK.DRV` and `RAMPAGE.DRV` out of the small driver set |
+| `MODPLUG`, `RECORDER`, `TRACKER`, `AUDIO` | `SOUND.DRV`, which a 128–256KB machine has nothing to spare for — the judgement that already took `RAMDISK.DRV` and `RAMPAGE.DRV` out of the small driver set |
 | `TANK` | the fullscreen surface (§42.7, §81). It opens and draws its splash, and there is no *game* behind it without fsx |
 
 …and two data files with them, for the same reason one step along:
 `DEMO.HTM` is openable by nothing else on the machine (§71), and
 `BEVERLY.MOD` is the two removed players' module (§24.4).
 
-**90,510 bytes — a quarter of a 360KB floppy — for seven programs that could
-not have started.** The apps disk goes 341 → 244 of 354 clusters.
+**99,749 bytes — 27% of a 360KB floppy — for eight programs that could
+not have started.** The apps disk goes 344 → 234 of 354 clusters — which
+moves for SEVEN of them, `AUDIO.O88` not being on that geometry's apps disk
+in the first place (#144's decision). Both figures re-measured on this
+build; they read 90,510 and 341 → 244 when they were taken and had drifted
+with the packages since, the way a number quoted from a build always does.
 
 #### 24.5.2 A third ground: a claim larger than the machine
 
