@@ -245,6 +245,12 @@ mod_r_fdlg:                     ; ...and this one is NAMED, because SPEC.md
                                 ; together by KERN_SMALL, and decoupling them
                                 ; is an undefined symbol rather than a silent
 %endif                          ; read of the wrong word
+MOD_TAB_OFF equ mod_tab - $$    ; mod_tab AS A NUMBER. .text has vstart=0
+                                ; (kernel.asm), so this IS the address every
+                                ; `mov bx, mod_tab` loads - and a number can
+                                ; be multiplied where a label cannot: nasm
+                                ; 3.02 refuses `mod_tab*7` in mod_fpr below
+                                ; as an invalid operand, in every spelling
 
 section .cold                   ; ...and the loader itself
 
@@ -324,7 +330,7 @@ mod_fpr:
     shl di, 1                   ; than the x6 chain it replaced
     shl di, 1
     sub di, bx
-    add di, mod_fp - mod_tab*7
+    add di, mod_fp - MOD_TAB_OFF*7
     ret
 
 ; -----------------------------------------------------------------------------
