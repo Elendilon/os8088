@@ -2828,7 +2828,7 @@ $(BUILD)/ether.drv: $(BUILD)/ether.bin tools/os88drv.py
 # and the stack it serves them with is drivers/ether's own, over a packet
 # driver instead of an NE2000. Hence the second include path and the six
 # extra prerequisites - a change to the stack has to rebuild BOTH ends.
-$(BUILD)/os88net.com: drivers/net/os88net.asm drivers/net/lplink.inc \
+$(BUILD)/os88net.raw: drivers/net/os88net.asm drivers/net/lplink.inc \
                       drivers/net/lplslv.inc drivers/net/nwslv.inc \
                       drivers/net/nwire.inc drivers/net/netpkg.inc \
                       drivers/net/pktdrv.inc \
@@ -2836,7 +2836,33 @@ $(BUILD)/os88net.com: drivers/net/os88net.asm drivers/net/lplink.inc \
                       drivers/ether/ethstate.inc drivers/ether/inet.inc \
                       drivers/ether/tcp.inc drivers/ether/dns.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I drivers/net/ -I drivers/ether/ -o $@ $<
-	@echo "os88net.com: $(call FILESIZE,$@) bytes - the DOS end, for the FAR machine"
+	@echo "os88net:     $(call FILESIZE,$@) bytes unpacked - the DOS end, for the FAR machine"
+
+# ...AND THE SHIPPED FILE IS AN ARCHIVE OF THAT (SPEC.md 62.12). OS88NET.COM
+# is the one thing on either floppy that does not run on os8088 at all - it
+# rides the apps disk for TRANSPORT (see APPS_DOS below) - so it ships packed
+# and unpacks itself on the DOS machine it was always for. The .lzi carries
+# the unpacked size across to the stub, so the two ends cannot disagree about
+# where the image stops; both are prerequisites of the assembly below, and
+# `%include`/`incbin` resolve out of $(BUILD) rather than beside the source.
+#
+# ONE INVOCATION WRITES BOTH, and the empty rule below is how that is said
+# without a grouped target: `&:` is GNU make 4.3 and Apple still ships 3.81,
+# where it would parse as a target named `&` and take the build apart on the
+# one platform tools/setup-macos.sh exists for. The idiom is the portable one
+# - the .lzi is up to date once the .lz that wrote it is - and it is
+# parallel-safe, because make has one recipe to run and one only.
+# os88sfx.asm asserts the two agree anyway: "cannot happen" is a claim about
+# make, and the disk is where stale halves actually live.
+$(BUILD)/os88net.lz: $(BUILD)/os88net.raw tools/os88sfx.py
+	python3 tools/os88sfx.py $(BUILD)/os88net.raw -o $(BUILD)/os88net.lz \
+	        --inc $(BUILD)/os88net.lzi
+$(BUILD)/os88net.lzi: $(BUILD)/os88net.lz ;
+
+$(BUILD)/os88net.com: drivers/net/os88sfx.asm $(BUILD)/os88net.lz \
+                      $(BUILD)/os88net.lzi | $(BUILD)
+	$(NASM) -f bin -w+error -I $(BUILD)/ -o $@ $<
+	@echo "os88net.com: $(call FILESIZE,$@) bytes packed - self-extracting, runs on DOS"
 
 $(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
@@ -6892,6 +6918,12 @@ APPS_SYS := $(SYSAPPS)
 # the first place, so "copy it off the disk that came with the OS" cannot
 # depend on already having a way to move a file across.
 #
+# AND BECAUSE THIS MACHINE NEVER RUNS IT, IT SHIPS PACKED (SPEC.md 62.12): a
+# self-extracting archive that unpacks itself on the DOS machine, 11,653 bytes
+# where the program is 19,333. It is still copied and typed exactly as before -
+# the archive extracts into memory and enters the program, so there is no
+# unpacked file to find and no second step to explain.
+#
 # On the APPS disk rather than the system disk, so a single-floppy machine
 # does not have to eject the disk it booted from to reach it; and in SYSTEM/
 # rather than the root because it is machinery and not a program to go and
@@ -6944,7 +6976,11 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # and two things put it back: BEVERLY.MOD moved to a disk of its own (SPEC.md
 # 24.4), and 59% OF THAT 34KB WAS LITERAL ZEROS. The buffers are reserved past
 # the image now rather than written into the file, so it is 18KB and 36 of the
-# 354 clusters. Being on this disk is the whole reason a user has it to hand.
+# 708 SECTORS - 18 of the 354 clusters, this volume's being 1,024 bytes each,
+# which the line said wrongly in clusters until SPEC.md 62.12 redid the sum.
+# AND IT IS PACKED NOW (SPEC.md 62.12): 11,653 bytes and 12 clusters, which is
+# what took this disk off THREE free clusters and put it on ten.
+# Being on this disk is the whole reason a user has it to hand.
 APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS)) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
                $(addprefix MEDIA:,$(APPS_DATA_360)) \
