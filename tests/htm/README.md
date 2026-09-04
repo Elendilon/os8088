@@ -3,6 +3,16 @@
 Real-world pages the renderer is developed and checked against. Nothing here
 ships and nothing here is built by `make`.
 
+**`demo.htm` used to be the exception and is not any more.** It was the
+fixture *and* the page in `MEDIA/` that a new user opens first, and it was
+written for the first job — 5,696 bytes of pathological markup that never
+says what the toolbar does. SPEC.md §71.12 gave the second job to
+`apps/browser/browser.htm`, which is the program's manual written in the
+program's own dialect. `demo.htm` stays here, unchanged, and stays on `make
+browsertest`'s disk: `brtest`, `brclick`, `brreload` and `brtoolbar` open it
+by name, and `tests/socktest` serves `GET /demo.htm` over a real socket. Do
+not delete it, and do not put it back on a shipped floppy.
+
 ## `frogfind-de-ie5.htm`
 
 FrogFind's front page, from `http://frogfind.de/` (the `.de` host of the same
