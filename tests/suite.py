@@ -161,6 +161,9 @@ FAST = [
         "table, so `mirror` cannot see it: that is why this is a row of its "
         "own and not one of its names",
         ),
+    Row("frinset", "fast", py("tests/unit/t_frinset.py"), 1.9,
+        "fr_inset never claims a pixel frac_iter would have escaped, and its"
+        "rejection boxes still match the closed forms (SPEC.md 40.5)"),
     Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 0.8,
         "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
         "zero bytes (docs/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
@@ -1683,6 +1686,15 @@ SOAK = [
         "Compact the heap out from under a live app that is holding a big"
         "claim",
         needs=("marty",), serial=True, builds=True),
+    Row("frinsetfull", "soak",
+        py("tests/unit/t_frinset.py", "--stride", "2"), 900.0,
+        "...and the same sweep at stride 2 - 5.7 million of the lattice"
+        "points fr_inset can claim, against the core (SPEC.md 40.5). The fast"
+        "row strides 32 to fit its tier. Stride 1 is the exhaustive one and"
+        "is a flag away, but it is FORTY MINUTES of interpreted Q4.12 and"
+        "would be the longest row in the tree by a factor of two; it was run"
+        "once, at the shipped margin and again at a margin of zero, and"
+        "SPEC.md 40.5 records what it found."),
     Row("frpromise", "soak", py("tests/frpromise.py"), 600.0,
         "SPEC.md 40.4: Fractal promises when the frame lands and takes it"
         "back when the view moves.",

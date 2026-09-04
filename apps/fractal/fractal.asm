@@ -168,6 +168,25 @@ FR_CAP      equ 48                  ; iteration cap; palette index is then the
                                     ; escape count directly (0..47)
 FR_ZMAX     equ 4                   ; deepest useful zoom in Q4.12 (measured)
 
+; fr_inset's two shapes (SPEC.md 40.5). Every bound here is a MEASURED extent
+; of the algebraic test rather than a convenient round number: the main
+; cardioid lies inside Re -0.75..0.375 and |Im| <= 3*sqrt(3)/8 = 0.6495, the
+; period-2 bulb inside Re -1.25..-0.75 and |Im| <= 0.25, and tools/frref.py
+; sweeps the plane to say so. They are what makes the test nearly free on a
+; view that holds neither shape - |cy| alone rejects both in two instructions.
+FR_QTR      equ 1024                ; 0.25, the cardioid's cusp
+FR_SYMAX    equ 2661                ; ceil(0.6495 * 4096): above BOTH shapes
+FR_CDXHI    equ 512                 ; dx = cx - 0.25 at the cardioid's Re max
+FR_CDXLO    equ -4096               ; ...and at its Re min
+FR_BULBR    equ 1024                ; the bulb's box: |cx + 1| and |cy| < 0.25
+FR_BULBR2   equ 256                 ; ...and its radius squared, 1/16
+FR_INMARG   equ 16                  ; ulps of Q4.12 held back before claiming a
+                                    ; point. NOT load-bearing - the exhaustive
+                                    ; sweep passes at zero - but it is what
+                                    ; keeps that true if qmul's rounding is
+                                    ; ever touched, and it costs 7% of the
+                                    ; claimed area, all of it boundary annulus
+
 FF_ABS      equ 01h                 ; Burning Ship: t = |t|
 FF_NEG      equ 02h                 ; Tricorn: t2 = -t2  (conj(z))
 FF_JUL      equ 04h                 ; Julia: z0 = pixel, c = the constant
@@ -1513,12 +1532,18 @@ fr_rowcalc:
     mov [fr_cx], ax
     mov ax, [fr_pcy]
     mov [fr_cy], ax
+    cmp byte [fr_flg], 0            ; SPEC.md 40.5: the two interior components
+    jne .go0                        ; that answer without iterating at all.
+    call fr_inset                   ; THE TYPE GATE IS HERE and not inside it,
+    jc .interior                    ; so the Burning Ship and the Tricorn do
+.go0:                               ; not pay a near call a pixel to be told no
     xor bx, bx
     xor si, si
 .go:
     call frac_iter                  ; AX = escape index, or FR_CAP = interior
     cmp ax, FR_CAP
     jb .escaped
+.interior:
     xor al, al                      ; the interior is CBLACK in every palette -
     jmp short .store                ; a separate constant, not table entry 0
 .escaped:
@@ -1635,6 +1660,131 @@ frac_iter:
     jmp .loop                       ; rel16: the body is out of rel8 range
 .interior:
     mov ax, FR_CAP
+    ret
+
+; -----------------------------------------------------------------------------
+; fr_q12 - DX:AX (a signed 32-bit product) -> DX = product >> 12, truncated
+;          TOWARD ZERO, which is bit for bit what frac_iter's inline chain
+;          does and is the whole reason this is one routine and not two
+; in:  DX:AX = the product
+; out: DX = the Q4.12 result; AX clobbered, flags clobbered
+;
+; frac_iter inlines this three times because it is the innermost loop in the
+; package and a near call+ret is ~11us on the target (PERFORMANCE.md Part 2).
+; fr_inset does not: it runs at most four multiplies for a pixel that reaches
+; the shapes at all, off the hot path, so the four calls cost less than the
+; 64 bytes four copies of the chain would.
+; -----------------------------------------------------------------------------
+fr_q12:
+    or dx, dx                       ; a negative product is biased before the
+    jns .pos                        ; shift so the truncation goes toward zero
+    add ax, FR_ONE-1                ; instead of toward -infinity
+    adc dx, 0
+.pos:
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    ret
+
+; -----------------------------------------------------------------------------
+; fr_inset - is this c PROVABLY interior?  (SPEC.md 40.5)
+; in:  [fr_cx] [fr_cy] = c in Q4.12, and [fr_flg] ALREADY KNOWN ZERO by the
+;      caller - see the precondition below
+; out: CF set   = frac_iter would return FR_CAP for this c; do not iterate
+;      CF clear = unknown; iterate
+; clobbers: AX, BX, CX, DX, SI - the same freedom frac_iter has, and for the
+;      same reason: fr_rowcalc keeps every scrap of its loop state in memory
+;
+; An interior pixel costs FR_CAP iterations, which is 144 multiplies, and at
+; the default view they are 76.9% of the frame (SPEC.md 40.5). The main
+; cardioid and the period-2 bulb are the two largest interior components and
+; both have a closed form, so this answers them in at most four multiplies:
+;
+;     cardioid   dx = cx - 1/4,  q = dx^2 + cy^2,  q(q + dx) < cy^2/4
+;     bulb       (cx + 1)^2 + cy^2 < 1/16
+;
+; THE CLAIM IS ABOUT THIS CORE, NOT ABOUT THE MATHEMATICAL SET, and that is
+; the only claim worth making: what was checked is that every Q4.12 lattice
+; point this routine can claim is one frac_iter returns FR_CAP for. The sweep
+; is exhaustive over the region the gates admit, and it was run again at a
+; margin of ZERO, where the test claims 22,951,518 points and still disagrees
+; with the core nowhere. That one run settles every margin at once, because
+; raising the margin claims a strict subset. tests/unit/t_frinset.py is it. Widening a gate or cutting FR_INMARG without
+; re-running that is how this becomes a black speck in the outer field, which
+; is the failure SPEC.md 40 warns about for the mirror and warns about here.
+;
+; PRECONDITION: [fr_flg] IS ZERO - the Mandelbrot, which is the one type it
+; is, and the one type this shape describes. Burning Ship carries FF_ABS and
+; Tricorn FF_NEG, both of which have an interior of a different shape; both
+; Julias carry FF_JUL, where c is a constant for the whole frame and a
+; per-pixel test of c means nothing at all. fr_rowcalc tests the flag at the
+; SINGLE call site rather than here, so those four pay one compare a pixel
+; instead of a compare wrapped in a near call, and they stay byte-identical.
+; tests/unit/t_frinset.py is what keeps the precondition true: it fails if
+; the Mandelbrot ever stops being the only type with a zero flag word.
+; -----------------------------------------------------------------------------
+fr_inset:
+    mov cx, [fr_cy]                 ; CX = |cy|, which both shapes are bounded
+    or cx, cx                       ; in and which is therefore the FIRST gate:
+    jns .ay                         ; a view above them both - a click on the
+    neg cx                          ; north tip, say - is rejected in two
+.ay:                                ; instructions and pays nothing else
+    cmp cx, FR_SYMAX
+    ja .no
+
+    mov ax, cx                      ; SI = cy^2, wanted by both shapes
+    imul ax
+    call fr_q12
+    mov si, dx
+
+    mov bx, [fr_cx]                 ; --- the main cardioid ---
+    sub bx, FR_QTR                  ; BX = dx
+    cmp bx, FR_CDXHI
+    jg .bulb
+    cmp bx, FR_CDXLO
+    jl .bulb
+    mov ax, bx
+    imul bx
+    call fr_q12
+    add dx, si                      ; DX = q = dx^2 + cy^2
+    cmp dx, FR_ONE                  ; q >= 1 is outside the cardioid, and it is
+    jge .bulb                       ; also what keeps the product below in range
+    mov ax, dx
+    add ax, bx                      ; AX = q + dx
+    imul dx                         ; DX:AX = (q + dx) * q
+    call fr_q12
+    mov ax, si                      ; AX = cy^2 / 4, less the margin
+    shr ax, 1
+    shr ax, 1
+    sub ax, FR_INMARG
+    cmp dx, ax
+    jl .yes
+
+.bulb:                              ; --- the period-2 bulb ---
+    cmp cx, FR_BULBR                ; its box is disjoint from the cardioid's
+    jae .no                         ; in cx, so reaching here costs two compares
+    mov bx, [fr_cx]
+    add bx, FR_ONE                  ; BX = cx + 1
+    cmp bx, FR_BULBR
+    jge .no
+    cmp bx, -FR_BULBR
+    jle .no
+    mov ax, bx
+    imul bx
+    call fr_q12
+    add dx, si                      ; DX = (cx + 1)^2 + cy^2
+    cmp dx, FR_BULBR2-FR_INMARG
+    jl .yes
+.no:
+    clc
+    ret
+.yes:
+    stc
     ret
 
 ; -----------------------------------------------------------------------------

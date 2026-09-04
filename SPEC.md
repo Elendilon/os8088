@@ -48464,6 +48464,96 @@ the three call sites are 3 bytes each plus `fr_emit_body`'s 5-byte compare —
 
 `tests/frpromise.py` is the gate.
 
+### 40.5 `fr_inset` — the interior is 77% of the work, and most of it is answerable without iterating
+
+Escape-time gives every pixel that does not escape the **full** `FR_CAP`, so a
+black pixel is the most expensive pixel on the canvas by a factor of three
+over the average and by twelve over a typical exterior one. Measured off a
+bit-exact model of this core (`tools/frref.py`) at the shipped 320×170 canvas:
+
+| Mandelbrot | iterations | interior px | share of iterations spent on them |
+|---|---|---|---|
+| default view, z=0 | 867,555 | 13,894 | **76.9%** |
+| z=1 | 2,163,726 | 41,790 | 92.7% |
+| z=2 | 2,550,956 | 52,080 | 98.0% |
+| z=3, z=4 | 2,611,200 | **54,400** | **100%** |
+
+The last row is the one to read twice. The default centre is (−0.5, 0), which
+is *inside* the set, so zooming in on it without recentring first walks the
+view into the cardioid — and z=3 is **every pixel interior**, 2.6 million
+iterations and about six minutes on a 4.77 MHz 8088 to arrive at a canvas that
+is uniformly black. Zoom In gets slower and blanker at the same time, and the
+menu item that looks like the expensive one, Redraw, is not.
+
+**None of that work is needed, because the two largest interior components of
+the Mandelbrot set have closed-form membership tests.** A point is in the main
+cardioid when, with `dx = cx - 1/4` and `q = dx² + cy²`, `q(q + dx) < cy²/4`;
+it is in the period-2 bulb when `(cx + 1)² + cy² < 1/16`. `fr_inset` evaluates
+both in the same Q4.12 the core uses — four `imul`s at worst, against 144 for
+a capped pixel — and `fr_rowcalc` calls it once per pixel *before* `frac_iter`,
+taking `CBLACK` on a hit.
+
+**It is exact, and that word is used here in its strong sense.** The claim is
+not "these points are in the mathematical set" — the picture does not owe
+anything to the mathematical set, it owes everything to what *this core*
+returns. So the property that was checked is the one that matters: **for every
+Q4.12 lattice point `fr_inset` can claim, does `frac_iter` return `FR_CAP`?**
+Swept exhaustively over the whole region the gates admit, the answer is **yes
+for every one of them** — and the sweep was run again at a safety margin of
+**zero**, where the test claims 22,951,518 points and still disagrees with the
+core nowhere. **That one run settles every margin at once**, because raising
+the margin can only claim a strict subset of what zero claims. The sweep is
+the harness §40 asked for before an optimisation of this class was allowed to
+ship, and `tests/unit/t_frinset.py` is it.
+
+**The margin is kept anyway, at 16 ulps.** It is not load-bearing today and
+the sweep says so; what it is, is the thing that keeps this true if `qmul`'s
+rounding is ever touched, and it costs 7% of the claimed area — a boundary
+annulus — which does not appear in the measured frame times below.
+
+**The cheap rejections are what keep it free on the views it cannot help.**
+The main cardioid lies inside Re ∈ [−0.75, 0.375], |Im| ≤ 3√3/8 = 0.6495 and
+the bulb inside Re ∈ [−1.25, −0.75], |Im| ≤ 0.25 — both verified by sweep
+rather than asserted — so `|cy| > 2661` rejects **both shapes in two
+instructions** and is tested first. A pixel outside the boxes pays about 120
+clocks against the 10,560 an average default-view pixel costs, and the
+worst case in the survey — a view holding no cardioid area at all — is
+**+1.1%**:
+
+| view | z | now | with `fr_inset` | |
+|---|---|---|---|---|
+| default | 0 | 120.0 s | **49.4 s** | 2.4x |
+| default | 1 | 299.4 s | **63.1 s** | 4.7x |
+| default | 2 | 353.0 s | **27.9 s** | 12.7x |
+| default | 3 | 361.3 s | **8.2 s** | **44x** |
+| seahorse valley | 2 | 336.3 s | 42.9 s | 7.8x |
+| elephant valley | 3 | 276.8 s | 182.5 s | 1.5x |
+| off-axis edge | 2 | 174.1 s | 92.2 s | 1.9x |
+| north tip — no cardioid in view | 2 | 45.1 s | 45.6 s | **0.99x** |
+
+**It is the Mandelbrot's and nothing else's.** `fr_rowcalc` tests `[fr_flg]`
+for zero at the single call site — not inside `fr_inset`, so the types this
+cannot help pay a compare rather than a compare wrapped in a near call — and
+zero is true of exactly one of the five types (§40's table: Burning Ship carries `FF_ABS`, Tricorn `FF_NEG`,
+both Julias `FF_JUL`). A Julia's `c` is a constant, so a per-pixel test of `c`
+is meaningless there; the Burning Ship and the Tricorn have interiors of a
+different shape and no test of this form describes them. Four of the five
+types are unchanged, byte for byte, and pay one compare per pixel.
+
+**What is still on the table, with the arithmetic attached, is `FT_SYM`** —
+declared in §40's type table and still not exploited. The x-axis mirror is
+worth **84 of 170 rows** at the shipped geometry, and the pass order is what
+makes it awkward rather than free: `mirror(r) = 2·rc − r` preserves parity, so
+every pass-1 row mirrors a pass-0 row already computed and the second half of
+pass 2 mirrors the first half — but a pass-0 row's partner is not computed
+yet, and a mirrored row has to be *read back*, which means reading §40.1's
+cache out of order rather than computing into `fr_line`. Combined with
+`fr_inset` it takes the default view to **25.1 s** and z=3 to **4.1 s**. It is
+also the one that is exact for four types rather than one: the toward-zero
+`qmul` makes `qmul(-a,b) = -qmul(a,b)` hold to the bit, so the conjugate
+orbit is the negated orbit exactly, and for a Julia the origin mirror is
+exact for the same reason.
+
 ### 39.26 The software renderer's plane loop is gone
 
 **`softgfx.inc` was written for a RAM back buffer — four claimed planes on a
