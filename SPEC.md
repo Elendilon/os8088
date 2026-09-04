@@ -57342,9 +57342,7 @@ rule covers every delimiter the parser has: `*`, `**`, a backtick, `~~`, a
 heading's `#` prefix, and a link's `](url)` tail. It also settles §46.6 without
 a rule of its own — every character of a URL is hidden, so each one typed
 becomes the run's new end and the URL is visible exactly while it is being
-written. The cost of that generality is that an *existing* link's URL is no
-longer reachable by clicking into it: `End` puts the caret past the `)`, which
-reveals the whole tail, and Markdown mode shows the source outright.
+written. What it does not settle is EDITING one, which is §46.2.3.
 
 **The rebuild is the cost and it is not optional.** `at_xmap` and `at_cellbg`
 are functions of the pen, the pen only advances on a visible cell, and the run
@@ -57359,6 +57357,41 @@ run makes a line render *closer* to the width the wrap already assumed and can
 never overflow it. And `at_nav_paint`'s Writer-mode fold of the old and new
 caret lines (§46.2.1) is already exactly the repaint this needs — a run that
 stops being the caret's has to hide, and that is one line.
+
+#### 46.2.3 …and a link is one construct, not a run
+
+§46.2.2 is enough to TYPE a link and not enough to EDIT one, and the reason is
+not a judgement call: **a click cannot land inside a hidden run at all.** A
+hidden character shares its `at_xmap` entry with the next visible one, so
+`at_xy2log`'s midpoint walk steps straight past it — click anywhere on
+`click here` and the caret lands in the TEXT, where §46.2.2 reveals nothing,
+because the run ending there is empty. The URL was reachable only by `End`
+(which puts the caret one past the `)`, revealing the whole tail through the
+run rule) or by Markdown mode.
+
+So a link is treated as **one construct**: `at_linkcaret` asks whether the
+caret is anywhere from the `[` to one past the `)` — the visible text
+included — and if it is, `at_parse` throws `at_linkscan`'s answer away and the
+whole `[text](url)` draws literally. Click the link text, and the syntax
+appears around it; click again inside the URL and edit it; click away and it
+collapses back to underlined text.
+
+**One past the `)` counts**, which is where `End` and the last typed character
+of a URL both leave the caret; the character after *that* is outside and the
+link collapses — deliberately the same shape as the space that ends a `**` run
+in §46.2.2's table, so the two rules feel like one.
+
+**It is not §46.2.1's old `[at_lnkraw]` come back.** That keyed on the LINE and
+made every link on it literal whenever the caret was anywhere on that line,
+including inside an unrelated span; this keys on the link, so a second link on
+the same line stays collapsed and the delimiters around it keep §46.2.2's
+behaviour. A revealed link renders as plain literal text rather than an
+underlined one, which is exactly what Markdown mode shows and what makes the
+two views agree about what is being edited.
+
+The repaint needs nothing new: §46.2.1's Writer-mode fold of the old and new
+caret lines is already the redraw a link entering or leaving the caret's line
+wants.
 
 ### 46.3 Layout — raw-width wrap, one paragraph at a time
 

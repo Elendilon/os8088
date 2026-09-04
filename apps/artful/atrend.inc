@@ -102,7 +102,10 @@ at_geom_init:
 ; ...and then at_reveal shows back the one run the caret is standing at the
 ; end of (SPEC.md 46.2.2), which is what lets markdown be TYPED into a view
 ; that hides it. It is the last thing this proc does, because it rebuilds
-; at_xmap and at_cellbg out of the at_vis it changed.
+; at_xmap and at_cellbg out of the at_vis it changed. A LINK is the one
+; construct that answers to the caret rather than to the run (46.2.3), and it
+; has to do that in the FSM above rather than in at_reveal: a click cannot land
+; inside a hidden run, so nothing would ever put the caret at the end of one.
 ; -----------------------------------------------------------------------------
 at_parse:
     push ax
@@ -278,7 +281,11 @@ at_parse:
 .bracket:
     call at_linkscan                ; CF=0: at_plt/at_plh set
     jc .stylevis
-    jmp short .hide                 ; the '[' itself is hidden
+    call at_linkcaret               ; CF=1: the caret is standing IN this link
+    jnc .hide                       ; ...otherwise the '[' itself is hidden
+    mov word [at_plt], 0FFFFh       ; a link the caret is in stays LITERAL, so
+    mov word [at_plh], 0FFFFh       ; its URL can be clicked into and edited
+    jmp .stylevis                   ; (SPEC.md 46.2.3)
 .place:
     mov [si+at_vis], ch
     mov [si+at_sty], cl
@@ -469,6 +476,48 @@ at_pkbuf:
 .no:
     xor ah, ah
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; at_linkcaret - is the caret standing inside the link at slice index SI?
+; in:  SI = the '[' index, [at_plh] = the ')' index (at_linkscan just set it)
+; out: CF=1 when [at_caret] is anywhere in [ '[' .. one past ')' ]; preserves
+;      every register
+;
+; SPEC.md 46.2.3: 46.2.2's run rule reveals the delimiters at the caret, which
+; is enough to TYPE a link and not enough to EDIT one - a click cannot land
+; inside a hidden run at all, because at_xy2log walks a zero-width cell past.
+; So a link is treated as one construct: the caret anywhere in it, the visible
+; text included, and the whole `[text](url)` draws literally.
+;
+; One past the ')' counts, which is where End and the last typed character of
+; a URL both leave the caret; the character after THAT is outside, and the link
+; collapses - the same shape as the space that ends a `**` run.
+; -----------------------------------------------------------------------------
+at_linkcaret:
+    push ax
+    push dx
+    cmp byte [at_writer], 0
+    je .no                          ; markdown draws the syntax anyway
+    cmp byte [at_pforce], 0
+    jne .no                         ; at_cmd_none wants the hidden set whole
+    mov ax, [at_caret]
+    sub ax, [at_pstart]
+    jb .no                          ; the caret is not on this line
+    cmp ax, si
+    jb .no                          ; ...or is before the link
+    mov dx, [at_plh]
+    inc dx
+    cmp ax, dx
+    ja .no                          ; ...or past its close
+    pop dx
+    pop ax
+    stc
+    ret
+.no:
+    pop dx
+    pop ax
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
