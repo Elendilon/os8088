@@ -57316,16 +57316,156 @@ the full-size clipboard; without it undo reports itself unavailable through
 the menu gray and the clipboard falls back to 2KB of bss. There is no second styled
 buffer and no sync machinery (the original's `BuildHiddenView` /
 `SyncHiddenToCanonical` pair): **Writer mode is a rendering property**.
-Styled lines hide the delimiters and draw the spans; the caret's logical
-line renders RAW — the live-preview rule, which is what keeps caret
-arithmetic exact while editing — and collapses to styled the moment the
-caret leaves. Markdown mode renders everything raw at body size
+Styled lines hide the delimiters and draw the spans, and **every line of the
+document is a styled line in Writer mode**, the caret's included (§46.2.1 is
+what that replaced and why). Markdown mode renders everything raw at body size
 (`ClearStyles`' rule). Toggle semantics per logical line: `**` bold, `*`
 italic, `` ` `` code (suppressing the others inside), `~~` strike (which
 the classic Mac original could not render), `[text](url)` inside one
 visual line underlines the text and hides the rest; span state carries
 across a WRAP but resets at every newline — the independence that makes
 §46.3 cheap.
+
+#### 46.2.1 The caret's line is not special, and it was
+
+This shipped with a **live-preview rule**: the caret's whole *logical line*
+rendered RAW, and collapsed to styled the moment the caret left it. The stated
+reason was that it keeps caret arithmetic exact while editing, which it does.
+What it also does is described exactly by the report that ended it — *"styles
+don't work at all; they show up as markdown regardless of what the View menu is
+set to"* — because **a paragraph is where you are, and the caret cannot leave a
+document that is one paragraph.** Select a line, `Style > Bold`, and you get
+`**Testing 1 2 3**` and no bold. Click on the blank half of the screen: the
+click clamps to the end of the document, which is that same paragraph. Type
+more: still that paragraph. Toggle `View > Markdown` and back: Markdown is raw
+everywhere and Writer is raw on the caret's line, so with one paragraph the
+two modes draw the identical picture and the menu looks dead. Only `Enter` —
+starting a second paragraph — ever showed the styling, which is not a thing a
+user thinks to try.
+
+It was reported as a mono defect and is **not adapter-specific at all**: a VGA
+under QEMU and a Hercules and a CGA under MartyPC were driven through the same
+sequence and drew the same raw markdown, and the same three drew the styled
+line after one `Enter`. The mono half of the report was §46.4.1, which is a
+different bug in the same screenshot.
+
+**The mode alone decides now.** `at_parse` tests `[at_writer]` and nothing else,
+so Writer styles the caret's line like any other and the View menu means what
+its two names say — which is also what the original did, its `BuildHiddenView`
+being a whole second buffer that never showed a delimiter at all.
+
+**Two things had to move with it.**
+
+*The caret steps by CELL, not by byte* (`at_lvis` / `at_rvis`). A hidden
+delimiter carries no width, so with the caret's line styled, arrowing across
+`**bold**` stood still twice before it moved and did the same coming back.
+Both skip the hidden run in the way and then consume one visible character;
+in Markdown mode nothing is hidden and they are exactly ±1, which is why the
+mode test comes first and a parse is spent only where it can change the
+answer. Running out of the slice stops AT the slice end rather than stepping
+past it — that is the end-of-line position, and typing after a trailing span
+needs it.
+
+*Markdown has to stay typeable*, which is §46.2.2 — one exception, defined on
+the delimiter run rather than on the line, and it is what `Style > Link`'s
+caret-in-the-parens (§46.6) rides on rather than a carve-out of its own.
+
+**The repaint got cheaper, not dearer.** `at_nav_paint` used to union the
+caret's old and new *paragraphs* into its redraw range on every move, because
+their appearance followed the caret; it now folds in the old and new caret
+*lines*, one each and never the span between, and only in Writer mode — which
+is where the link carve-out lives and the only place a move can still change a
+pixel. `at_apply_edit` dropped its widening to `[at_cll1]` outright: a span
+change cannot reach past `at_relayout`'s window, span state resetting at every
+newline and the rescan converging on an equal attr. `at_cline_span`,
+`[at_cll0]`, `[at_cll1]` and their two banked copies are gone.
+
+**And it closed a selection bug on the way.** The old range was
+union(old paragraph, new paragraph, delta `[old moving end, new one)`), and
+the paragraphs were doing work the delta could not: a selection made
+*backwards* collapses to its own low end, which leaves that delta EMPTY with
+the XOR still on the glass — erased before only as far as one paragraph
+reached, and not at all for a plain click, whose banked "old" was the
+post-click state. `at_nav_paint` now takes the delta while the selection stays
+live (the anchor does not move, so a shift-arrow costs one or two lines
+however long the selection is) and the WHOLE old extent when it collapses.
+`at_click_text` banks the pre-click selection instead of the settled one; the
+drag's release still banks the settled state, the drag loop having XORed every
+delta as the mouse moved.
+
+#### 46.2.2 The one exception: the run you are typing
+
+A view that hides markdown still has to let you type markdown. §46.2.1 on its
+own means the `**` you type vanishes under your fingers — the second asterisk
+completes a span, and the pair it belongs to is hidden by the keystroke that
+finishes it. So `at_reveal` shows back **the run of hidden characters that ends
+exactly at the caret**, and nothing else:
+
+| keystroke | buffer | drawn |
+|---|---|---|
+| `*` | `*` | `*` |
+| `*` | `**` | `**` |
+| `H` | `**H` | **H** |
+| `ello world` | `**Hello world` | **Hello world** |
+| `*` | `**Hello world*` | **Hello world**`*` |
+| `*` | `**Hello world**` | **Hello world**`**` |
+| *space* | `**Hello world** ` | **Hello world** |
+
+**It is defined on the RUN, not on the span**, and that is the whole of why one
+rule covers every delimiter the parser has: `*`, `**`, a backtick, `~~`, a
+heading's `#` prefix, and a link's `](url)` tail. It also settles §46.6 without
+a rule of its own — every character of a URL is hidden, so each one typed
+becomes the run's new end and the URL is visible exactly while it is being
+written. What it does not settle is EDITING one, which is §46.2.3.
+
+**The rebuild is the cost and it is not optional.** `at_xmap` and `at_cellbg`
+are functions of the pen, the pen only advances on a visible cell, and the run
+just changed which cells those are — so `at_reveal` lays both again from the
+`at_vis` it edited (`at_codecols` is factored out of `at_parse`'s own `.place`
+for exactly that second caller). Only the caret's line ever pays it; every
+other line leaves on the first compare.
+
+**Layout is untouched**, which is what keeps this cheap and is not a
+coincidence: §46.3 wraps on RAW character counts in both modes, so revealing a
+run makes a line render *closer* to the width the wrap already assumed and can
+never overflow it. And `at_nav_paint`'s Writer-mode fold of the old and new
+caret lines (§46.2.1) is already exactly the repaint this needs — a run that
+stops being the caret's has to hide, and that is one line.
+
+#### 46.2.3 …and a link is one construct, not a run
+
+§46.2.2 is enough to TYPE a link and not enough to EDIT one, and the reason is
+not a judgement call: **a click cannot land inside a hidden run at all.** A
+hidden character shares its `at_xmap` entry with the next visible one, so
+`at_xy2log`'s midpoint walk steps straight past it — click anywhere on
+`click here` and the caret lands in the TEXT, where §46.2.2 reveals nothing,
+because the run ending there is empty. The URL was reachable only by `End`
+(which puts the caret one past the `)`, revealing the whole tail through the
+run rule) or by Markdown mode.
+
+So a link is treated as **one construct**: `at_linkcaret` asks whether the
+caret is anywhere from the `[` to one past the `)` — the visible text
+included — and if it is, `at_parse` throws `at_linkscan`'s answer away and the
+whole `[text](url)` draws literally. Click the link text, and the syntax
+appears around it; click again inside the URL and edit it; click away and it
+collapses back to underlined text.
+
+**One past the `)` counts**, which is where `End` and the last typed character
+of a URL both leave the caret; the character after *that* is outside and the
+link collapses — deliberately the same shape as the space that ends a `**` run
+in §46.2.2's table, so the two rules feel like one.
+
+**It is not §46.2.1's old `[at_lnkraw]` come back.** That keyed on the LINE and
+made every link on it literal whenever the caret was anywhere on that line,
+including inside an unrelated span; this keys on the link, so a second link on
+the same line stays collapsed and the delimiters around it keep §46.2.2's
+behaviour. A revealed link renders as plain literal text rather than an
+underlined one, which is exactly what Markdown mode shows and what makes the
+two views agree about what is being edited.
+
+The repaint needs nothing new: §46.2.1's Writer-mode fold of the old and new
+caret lines is already the redraw a link entering or leaving the caret's line
+wants.
 
 ### 46.3 Layout — raw-width wrap, one paragraph at a time
 
@@ -57361,6 +57501,49 @@ makes the blink worker's toggling safe: the package's one §20.6 task
 sleeps 9 ticks, re-checks its gates under the lock, arms the §11.3 clip
 and toggles. The colours survive every adapter by construction: black on
 white, dithered code cells, XOR selection/caret.
+
+#### 46.4.1 …and the code cell is the one grey with TEXT ON TOP OF IT
+
+`CLGRAY` is the right colour for a code span's background, and §39.4's
+reduction of a middle grey to the kernel's 50% dither is the right reduction
+for a middle grey. The two together are still wrong here, and the reason is a
+property of this cell and of no other grey in the system: **a code cell is the
+only one that has a glyph drawn over it.** A black 8×8 letter on a 50%
+checkerboard carries the same ink as its own ground, so on a 1bpp adapter
+`` `code` `` rendered as a smudge — the one style of the six that did not
+survive the adapter, measured on a Hercules against the same line on a VGA,
+where it reads perfectly.
+
+**On 1bpp the badge is turned over instead**: `at_codebg` runs `not` across
+the code span's bytes in `at_strip1`, so the ground is black and the glyph is
+a hole in it, and then **clears `at_cellbg`** — which makes `at_expand` widen
+those columns through the white table and asks the kernel for no grey at all.
+The rules `at_glyph` laid inside the span, a strike or a link's underline,
+invert with it and stay right. What the colour adapter says with a light grey
+badge and black letters, the 1bpp one says with a black badge and white ones:
+the same distinction, drawn the only way that adapter can draw it legibly.
+
+**A lighter ground was built first and the glass refused it.** A 25% stipple
+read barely better than the 50% dither, because what destroys the letter is
+not the ground's density but a dot that *touches* a stroke — one beside the
+bowl of an `o` closes it. Knocking a one-pixel halo out under every glyph
+pixel got it to legible-if-you-squint for ~30 bytes and a dilation per column;
+inverting is four bytes and reads outright. Both arms are photographed in the
+branch that made the change.
+
+**It costs the keystroke path nothing**, and that is by construction rather
+than by hope. `at_parse` records the code span's first and last 8px column in
+`[at_pcb0]`/`[at_pcb1]`; a line with no code in it — nearly every line — keeps
+the empty span `0FFFFh > 0` and is refused on `at_codebg`'s first compare,
+and a line that has one walks the SPAN and never the line. `at_expand`'s own
+hot loop is untouched on both adapters: the grey columns are simply gone
+before it runs.
+
+**`[at_vbpp]` was a dead store before this** — `at_geom_init` latched
+`OSAPI_WM_DISPLAY`'s `DH` and nothing ever read it, which is the shape §39
+warns about: the geometry was asked for correctly and the answer about the
+*card* was thrown away. It is the gate now, so a colour adapter reaches none
+of the above.
 
 ### 46.5 The chrome — the app draws its own Macintosh
 
@@ -57482,22 +57665,29 @@ just laid. Eight sites, all of them now `OSAPI_FONT_RUN`:
 The fills stay: the bar is 18 px, an item row `AT_ITEMH` = 13, both against an
 8-px glyph, which is §22.11.3's rule.
 
-#### 46.10.1 …and it found a §47 rule 1 violation, which is NOT fixed here
+#### 46.10.1 …and it found a §47 rule 1 violation, SINCE FIXED
 
-A disabled pull-down item is `mov al, CLGRAY` and `OSAPI_SET_COLOR` — the colour
+A disabled pull-down item was `mov al, CLGRAY` and `OSAPI_SET_COLOR` — the colour
 without the flag. §47 exists because that does not work: `[gfx_dis]` clear means
 `font_ink` takes the ordinary path, and §39.4 reduces a middle grey to **solid
 black** on a 1bpp adapter. So on the target machine — the one this OS is for — a
-dead item is pixel-identical to a live one and the greying says nothing at all.
+dead item was pixel-identical to a live one and the greying said nothing at all.
 
-**The fix is one line** — `OSAPI_GFX_PEN` with CF, which sets the pen and the
-flag together and cannot be half-done, after which §6.1.12 carries the
-checkerboard through the run's own mask. It is deliberately **not** in the same
-commit as the conversion: the conversion is verified byte-identical across the
-bar and all four pull-downs, and **no state this session could drive put a
-disabled item on screen**, so the fix would have shipped unverified beside work
-that was not. Whoever takes it needs an ArtfulType state with a greyed item and
-a diff on a 1bpp adapter showing it stippled where it was solid.
+**The fix was one line and is now in** — `OSAPI_GFX_PEN` with CF, which sets the
+pen and the flag together and cannot be half-done, after which §6.1.12 carries
+the checkerboard through the run's own mask. It was deliberately **not** in the
+same commit as the conversion: the conversion was verified byte-identical across
+the bar and all four pull-downs, and no state that session could drive put a
+disabled item on screen, so the fix would have shipped unverified beside work
+that was not.
+
+**The state that was missing is `Edit` with an empty redo stack**, and it is one
+keystroke away: type anything and open `Edit`, and `Undo` is live while `Redo`
+is dead. On a Hercules that pull-down used to draw the two identically; it now
+draws `Redo` as a checkerboard, which is what §47 rule 3 says a greyed label
+looks like everywhere else in the system. `at_mrows` puts the pen back live at
+`.done` as well — `gfx_unlock` would clear the flag, but the hover bar and the
+erase still draw inside that hold.
 
 **A package cannot read the pen back.** There is no `OSAPI_GET_COLOR`, so
 `cp_run`'s trick — inherit `[gfx_color]`, touch no call site — does not port

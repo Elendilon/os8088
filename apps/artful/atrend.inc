@@ -9,12 +9,15 @@
 ; centre rule, headings a 2x/3x bit-doubled scale-up; the expander
 ; (at_expand) widens 1bpp to packed 4bpp through a 256-entry table (white
 ; background, or light-gray for code spans, chosen per 8px column); and the
-; whole line reaches the screen as ONE OSAPI_GFX_BLIT4. The keystroke path
-; repaints one line; scrolling is OSAPI_GFX_SCROLL plus the revealed lines;
-; only mode/zoom switches and W_PAINT redraw everything.
+; whole line reaches the screen as ONE OSAPI_GFX_BLIT4. On a 1bpp adapter
+; at_codebg turns the code cell over on the way past, a grey one being
+; unreadable under text there (SPEC.md 46.4.1). The keystroke path repaints
+; one line; scrolling is OSAPI_GFX_SCROLL plus the revealed lines; only
+; mode/zoom switches and W_PAINT redraw everything.
 ;
 ; The colours survive every adapter (SPEC.md 39.4): black text on white,
-; CLGRAY code cells (a dither on 1bpp), XOR selection and caret.
+; CLGRAY code cells on a colour card and INVERSE ones on a 1bpp adapter
+; (46.4.1 - a dither cannot carry a letter), XOR selection and caret.
 ;
 ; The caret is an XOR vertical bar with strict on/off bookkeeping
 ; (at_caret_on/off): anything that may touch its pixels turns it off first
@@ -78,46 +81,31 @@ at_geom_init:
     ret
 
 ; -----------------------------------------------------------------------------
-; at_cline_span - cache the caret's logical line as a visual-line range
-; out: [at_cll0]/[at_cll1] = first/last visual line of the caret's logical
-;      line (the range that renders RAW in Writer mode); preserves all
-; -----------------------------------------------------------------------------
-at_cline_span:
-    push ax
-    push bx
-    mov ax, [at_caret]
-    call at_line_of
-    call at_lhome
-    mov [at_cll0], bx
-.fwd:
-    inc bx
-    cmp bx, [at_nlines]
-    jae .end
-    test byte [bx+at_lattr], 4
-    jnz .fwd
-.end:
-    dec bx
-    mov [at_cll1], bx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; at_parse - analyse one visual line into the per-character arrays
 ; in:  BX = line index
 ; out: at_lbuf = the slice, [at_pcnt] chars, [at_pstart] logical start,
 ;      at_vis[] (0 draw / 1 hidden), at_sty[] (AT_ST_*), at_xmap[0..cnt] =
 ;      x px relative to the text origin (entry cnt = end-of-line caret x),
-;      at_cellbg[] per 8px column (0 white / 1 gray), [at_pcw]/[at_prh] =
-;      cell width / row height, [at_psc] = scale 1..3; preserves all regs
+;      at_cellbg[] per 8px column (0 white / 1 gray) with [at_pcb0]/[at_pcb1]
+;      spanning the ones it set, [at_pcw]/[at_prh] = cell width / row height,
+;      [at_psc] = scale 1..3; preserves all regs
 ;
-; RAW when Markdown mode, or when the line belongs to the caret's logical
-; line in Writer mode (the live-preview rule, SPEC.md 46.2): every char
-; visible, no styles. STYLED otherwise: span delimiters hidden and their
+; RAW in Markdown mode, STYLED in Writer mode - THE MODE DECIDES AND NOTHING
+; ELSE (SPEC.md 46.2.1). The caret's own logical line used to render raw here
+; as well; a document that is one paragraph then never styled at all, which is
+; how this shipped. Styled: span delimiters hidden and their
 ; text styled (at_span's exact toggle semantics, seeded from the line's
 ; attr nibble), the heading prefix hidden on the logical line's first
 ; visual line, links recognised within the line ([text](url): text
 ; underlined and verbatim, the rest hidden).
+;
+; ...and then at_reveal shows back the one run the caret is standing at the
+; end of (SPEC.md 46.2.2), which is what lets markdown be TYPED into a view
+; that hides it. It is the last thing this proc does, because it rebuilds
+; at_xmap and at_cellbg out of the at_vis it changed. A LINK is the one
+; construct that answers to the caret rather than to the run (46.2.3), and it
+; has to do that in the FSM above rather than in at_reveal: a click cannot land
+; inside a hidden run, so nothing would ever put the caret at the end of one.
 ; -----------------------------------------------------------------------------
 at_parse:
     push ax
@@ -146,16 +134,17 @@ at_parse:
     xor ax, ax
     rep stosw
     pop es
-    ; raw or styled?
+    mov word [at_pcb0], 0FFFFh      ; ...and an EMPTY code span, which is what
+    mov word [at_pcb1], 0           ; a raw line keeps (at_codebg's gate)
+    ; raw or styled? MODE ALONE DECIDES (SPEC.md 46.2.1) - Writer styles every
+    ; line of the document including the one the caret is on, which is what
+    ; the original's BuildHiddenView did and what the View menu's two names
+    ; promise. The caret's paragraph used to render RAW here; see 46.2.1 for
+    ; why that had to go and what it cost the caret to take it out.
     cmp byte [at_pforce], 0
     jne .styled                     ; at_cmd_none needs the hidden set as
     cmp byte [at_writer], 0         ; the parser defines it, in either mode
-    je .raw
-    cmp bx, [at_cll0]
-    jb .styled
-    cmp bx, [at_cll1]
-    jbe .raw
-    jmp short .styled
+    jne .styled
 .raw:
     xor si, si                      ; SI = char index
     xor dx, dx                      ; DX = x
@@ -292,7 +281,11 @@ at_parse:
 .bracket:
     call at_linkscan                ; CF=0: at_plt/at_plh set
     jc .stylevis
-    jmp short .hide                 ; the '[' itself is hidden
+    call at_linkcaret               ; CF=1: the caret is standing IN this link
+    jnc .hide                       ; ...otherwise the '[' itself is hidden
+    mov word [at_plt], 0FFFFh       ; a link the caret is in stays LITERAL, so
+    mov word [at_plh], 0FFFFh       ; its URL can be clicked into and edited
+    jmp .stylevis                   ; (SPEC.md 46.2.3)
 .place:
     mov [si+at_vis], ch
     mov [si+at_sty], cl
@@ -305,29 +298,7 @@ at_parse:
     jnz .next
     test cl, AT_ST_C
     jz .adv
-    ; gray background columns for this cell
-    push ax
-    push bx
-    push dx
-    mov ax, di
-    mov cl, 3
-    shr ax, cl                      ; first 8px column
-    mov dx, di
-    add dx, [at_pcw]
-    dec dx
-    shr dx, cl                      ; last column
-    mov bx, ax
-.gcol:
-    cmp bx, AT_CBGCAP
-    jae .gdone
-    mov byte [bx+at_cellbg], 1
-    inc bx
-    cmp bx, dx
-    jbe .gcol
-.gdone:
-    pop dx
-    pop bx
-    pop ax
+    call at_codecols                ; this cell's grey background columns
 .adv:
     add di, [at_pcw]
 .next:
@@ -339,8 +310,152 @@ at_parse:
     xchg bx, dx
     mov [bx+at_xmap], di
     xchg bx, dx
+    call at_reveal                  ; ...and the run the caret is typing
 .out:
     pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; at_codecols - mark a code cell's 8px background columns from the pen x in DI
+; out: at_cellbg[] set across the cell and [at_pcb0]/[at_pcb1] widened to the
+;      span of every column set; preserves every register
+; Factored out of at_parse's .place because at_reveal has to lay these again
+; from scratch: they are a function of the pen, and the pen moves when a
+; hidden run turns visible.
+; -----------------------------------------------------------------------------
+at_codecols:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, di
+    mov cl, 3
+    shr ax, cl                      ; first 8px column
+    mov dx, di
+    add dx, [at_pcw]
+    dec dx
+    shr dx, cl                      ; last column
+    mov bx, ax
+    cmp bx, [at_pcb0]               ; ...and the SPAN of them, so at_codebg
+    jae .g0                         ; walks a code run rather than the line
+    mov [at_pcb0], bx
+.g0:
+.gcol:
+    cmp bx, AT_CBGCAP
+    jae .gdone
+    mov byte [bx+at_cellbg], 1
+    cmp bx, [at_pcb1]
+    jbe .g1
+    mov [at_pcb1], bx
+.g1:
+    inc bx
+    cmp bx, dx
+    jbe .gcol
+.gdone:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; at_reveal - show the delimiter run the caret is standing at the end of
+;             (SPEC.md 46.2.2)
+; in:  at_vis[]/at_sty[]/at_xmap[] as the styled pass left them
+; out: the run of HIDDEN characters ending exactly at the caret turned visible,
+;      and at_xmap/at_cellbg/[at_pcb0]/[at_pcb1] rebuilt around it; preserves
+;      every register. Nothing happens in Markdown mode, under at_pforce, or on
+;      a line the caret is not standing on.
+;
+; THE ONE EXCEPTION TO 46.2.1, and it is what makes typing markdown by hand
+; bearable in a view that hides it: `**` you have just typed is a `**` you can
+; see, and it disappears at the keystroke that ends it.
+;
+;     *            ->  *              the run is the caret's, so it shows
+;     **           ->  **
+;     **H          ->  H (bold)       H is not a delimiter: the run is behind
+;     **Hello      ->  Hello          the caret now, and hides
+;     **Hello*     ->  Hello*         a new run, at the caret again
+;     **Hello**    ->  Hello**
+;     **Hello** _  ->  Hello_         the space ends it
+;
+; It is defined on the RUN and not on the span, which is why one rule covers
+; every delimiter the parser has - `*`, `**`, backtick, `~~`, a heading's `#`
+; prefix and a link's `](url)` tail - and why the tail of a link is typeable
+; without a carve-out of its own: every character of a URL is hidden and each
+; one you type is the run's new end.
+;
+; The rebuild is not optional and it is the whole cost: at_xmap and at_cellbg
+; are functions of the PEN, the pen only advances on a visible cell, and the
+; run just changed which cells those are. Only the caret's line ever pays it.
+; -----------------------------------------------------------------------------
+at_reveal:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp byte [at_pforce], 0
+    jne .out                        ; at_cmd_none wants the hidden set whole
+    cmp byte [at_writer], 0
+    je .out
+    mov ax, [at_caret]
+    sub ax, [at_pstart]
+    jb .out                         ; the caret is not on this line...
+    cmp ax, [at_pcnt]
+    ja .out                         ; ...at either end
+    mov si, ax                      ; SI = the caret's slice index
+    mov cx, si
+.back:
+    or cx, cx
+    jz .done
+    mov bx, cx
+    dec bx
+    cmp byte [bx+at_vis], 0
+    je .done                        ; a visible character ends the run
+    mov byte [bx+at_vis], 0
+    mov cx, bx
+    jmp short .back
+.done:
+    cmp cx, si
+    je .out                         ; nothing was hidden there
+    push es                         ; --- the pen moved: lay the columns again
+    push ds
+    pop es
+    cld
+    mov di, at_cellbg
+    mov cx, AT_CBGCAP/2
+    xor ax, ax
+    rep stosw
+    pop es
+    mov word [at_pcb0], 0FFFFh
+    mov word [at_pcb1], 0
+    xor si, si                      ; SI = index
+    xor di, di                      ; DI = pen x
+.rex:
+    mov bx, si
+    shl bx, 1
+    mov [bx+at_xmap], di
+    cmp si, [at_pcnt]
+    jae .out
+    cmp byte [si+at_vis], 0
+    jne .rnext
+    test byte [si+at_sty], AT_ST_C
+    jz .radv
+    call at_codecols
+.radv:
+    add di, [at_pcw]
+.rnext:
+    inc si
+    jmp short .rex
+.out:
     pop di
     pop si
     pop dx
@@ -361,6 +476,48 @@ at_pkbuf:
 .no:
     xor ah, ah
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; at_linkcaret - is the caret standing inside the link at slice index SI?
+; in:  SI = the '[' index, [at_plh] = the ')' index (at_linkscan just set it)
+; out: CF=1 when [at_caret] is anywhere in [ '[' .. one past ')' ]; preserves
+;      every register
+;
+; SPEC.md 46.2.3: 46.2.2's run rule reveals the delimiters at the caret, which
+; is enough to TYPE a link and not enough to EDIT one - a click cannot land
+; inside a hidden run at all, because at_xy2log walks a zero-width cell past.
+; So a link is treated as one construct: the caret anywhere in it, the visible
+; text included, and the whole `[text](url)` draws literally.
+;
+; One past the ')' counts, which is where End and the last typed character of
+; a URL both leave the caret; the character after THAT is outside, and the link
+; collapses - the same shape as the space that ends a `**` run.
+; -----------------------------------------------------------------------------
+at_linkcaret:
+    push ax
+    push dx
+    cmp byte [at_writer], 0
+    je .no                          ; markdown draws the syntax anyway
+    cmp byte [at_pforce], 0
+    jne .no                         ; at_cmd_none wants the hidden set whole
+    mov ax, [at_caret]
+    sub ax, [at_pstart]
+    jb .no                          ; the caret is not on this line
+    cmp ax, si
+    jb .no                          ; ...or is before the link
+    mov dx, [at_plh]
+    inc dx
+    cmp ax, dx
+    ja .no                          ; ...or past its close
+    pop dx
+    pop ax
+    stc
+    ret
+.no:
+    pop dx
+    pop ax
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -442,6 +599,100 @@ at_compose:
     inc si
     jmp short .ch
 .done:
+    call at_codebg                  ; ...and the code span's own ground, which
+                                    ; on a 1bpp adapter only this side can draw
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; at_codebg - the code span's ground on a 1bpp adapter (SPEC.md 46.4.1)
+; out: on 1bpp, at_strip1's code columns INVERTED and at_cellbg cleared;
+;      nothing at all on a colour adapter. Preserves every register.
+;
+; CLGRAY is the code cell's background everywhere else and it is the RIGHT
+; colour: SPEC.md 39.4 reduces a middle grey to the kernel's 50% dither, which
+; is what every other grey in the system wants. It is wrong HERE, and only
+; here, because a code cell is the one grey in the UI with TEXT ON TOP OF IT -
+; a black 8x8 glyph on a 50% checkerboard carries the same ink as its own
+; ground, so the word inside the span stops being a word. Measured on a
+; Hercules, `code` came back a smudge: the one style of the six that did not
+; survive the adapter.
+;
+; A LIGHTER GROUND IS NOT THE ANSWER, and the glass is what settled it: a 25%
+; stipple was built first and read barely better, because what destroys the
+; letter is not the ground's density but a dot that TOUCHES a stroke - one
+; beside the bowl of an `o` closes it - and knocking a one-pixel halo out
+; under every glyph pixel bought legible-if-you-squint, for ~30 bytes and a
+; dilation per column. Inverting the span is FOUR bytes and reads outright.
+;
+; So on 1bpp the code cell is the badge turned over: `not` makes the ground
+; black and the glyph a hole in it, which is the same distinction the colour
+; adapter draws and the only one this adapter can draw legibly. The rules
+; at_glyph laid - a strike, a link's underline - invert with it, correctly.
+;
+; The expander is then told the truth for this adapter, which is that the line
+; has no grey columns in it at all: at_cellbg is CLEARED, so at_expand widens
+; every byte through at_x4w and its hot loop pays NOTHING for any of this. The
+; app owning the code ground is the same division of labour the styling
+; already uses - at_compose bolds, shears, underlines and rules its own glyphs
+; rather than asking the kernel for a face it has not got.
+;
+; [at_pcb0]/[at_pcb1] are why this is not on the keystroke path: at_parse
+; records the code span's first and last 8px column, and a line with no code
+; in it - which is nearly every line - leaves 0FFFFh > 0 and is refused on the
+; first compare. A line that HAS one walks the span, never the line.
+;
+; SS != DS, so BP is a COUNTER here and never an address (at_glyph's rule);
+; the strip is addressed [bx+si], both DS defaults.
+; -----------------------------------------------------------------------------
+at_codebg:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    cmp byte [at_vbpp], 1
+    ja .out                         ; a colour adapter keeps CLGRAY, which is
+                                    ; a light grey there and reads perfectly
+    mov dx, [at_pcb1]
+    cmp [at_pcb0], dx
+    ja .out                         ; no code span on this line
+    mov si, at_strip1               ; SI = this row's base in the strip
+    xor bp, bp                      ; BP = row
+.row:
+    cmp bp, [at_prh]
+    jae .clear
+    mov bx, [at_pcb0]               ; BX = 8px column
+.col:
+    cmp byte [bx+at_cellbg], 0
+    je .nxc
+    not byte [bx+si]
+.nxc:
+    inc bx
+    cmp bx, dx
+    jbe .col
+    add si, AT_S1ST
+    inc bp
+    jmp short .row
+.clear:
+    push es                         ; the ground is drawn: the expander has no
+    push ds                         ; grey columns left to widen
+    pop es
+    cld
+    mov di, at_cellbg
+    mov cx, AT_CBGCAP/2
+    xor ax, ax
+    rep stosw
+    pop es
+.out:
+    pop bp
     pop di
     pop si
     pop dx
