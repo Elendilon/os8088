@@ -57242,16 +57242,86 @@ the full-size clipboard; without it undo reports itself unavailable through
 the menu gray and the clipboard falls back to 2KB of bss. There is no second styled
 buffer and no sync machinery (the original's `BuildHiddenView` /
 `SyncHiddenToCanonical` pair): **Writer mode is a rendering property**.
-Styled lines hide the delimiters and draw the spans; the caret's logical
-line renders RAW — the live-preview rule, which is what keeps caret
-arithmetic exact while editing — and collapses to styled the moment the
-caret leaves. Markdown mode renders everything raw at body size
+Styled lines hide the delimiters and draw the spans, and **every line of the
+document is a styled line in Writer mode**, the caret's included (§46.2.1 is
+what that replaced and why). Markdown mode renders everything raw at body size
 (`ClearStyles`' rule). Toggle semantics per logical line: `**` bold, `*`
 italic, `` ` `` code (suppressing the others inside), `~~` strike (which
 the classic Mac original could not render), `[text](url)` inside one
 visual line underlines the text and hides the rest; span state carries
 across a WRAP but resets at every newline — the independence that makes
 §46.3 cheap.
+
+#### 46.2.1 The caret's line is not special, and it was
+
+This shipped with a **live-preview rule**: the caret's whole *logical line*
+rendered RAW, and collapsed to styled the moment the caret left it. The stated
+reason was that it keeps caret arithmetic exact while editing, which it does.
+What it also does is described exactly by the report that ended it — *"styles
+don't work at all; they show up as markdown regardless of what the View menu is
+set to"* — because **a paragraph is where you are, and the caret cannot leave a
+document that is one paragraph.** Select a line, `Style > Bold`, and you get
+`**Testing 1 2 3**` and no bold. Click on the blank half of the screen: the
+click clamps to the end of the document, which is that same paragraph. Type
+more: still that paragraph. Toggle `View > Markdown` and back: Markdown is raw
+everywhere and Writer is raw on the caret's line, so with one paragraph the
+two modes draw the identical picture and the menu looks dead. Only `Enter` —
+starting a second paragraph — ever showed the styling, which is not a thing a
+user thinks to try.
+
+It was reported as a mono defect and is **not adapter-specific at all**: a VGA
+under QEMU and a Hercules and a CGA under MartyPC were driven through the same
+sequence and drew the same raw markdown, and the same three drew the styled
+line after one `Enter`. The mono half of the report was §46.4.1, which is a
+different bug in the same screenshot.
+
+**The mode alone decides now.** `at_parse` tests `[at_writer]` and nothing else,
+so Writer styles the caret's line like any other and the View menu means what
+its two names say — which is also what the original did, its `BuildHiddenView`
+being a whole second buffer that never showed a delimiter at all.
+
+**Two things had to move with it.**
+
+*The caret steps by CELL, not by byte* (`at_lvis` / `at_rvis`). A hidden
+delimiter carries no width, so with the caret's line styled, arrowing across
+`**bold**` stood still twice before it moved and did the same coming back.
+Both skip the hidden run in the way and then consume one visible character;
+in Markdown mode nothing is hidden and they are exactly ±1, which is why the
+mode test comes first and a parse is spent only where it can change the
+answer. Running out of the slice stops AT the slice end rather than stepping
+past it — that is the end-of-line position, and typing after a trailing span
+needs it.
+
+*A link still shows its syntax under the caret*, and it is the one carve-out
+left. `Style > Link` parks the caret between the parens of `[text]()` for the
+URL (§46.6), and a hidden paren is a paren you cannot type into — the URL
+would go in blind. So `[at_lnkraw]` marks the line the caret stands on and
+`at_linkscan`'s result is discarded there, leaving `[text](url)` literal until
+the caret moves off the LINE. Nothing else on that line is affected: bold,
+italic, code, strike and headings style under the caret like anywhere else.
+
+**The repaint got cheaper, not dearer.** `at_nav_paint` used to union the
+caret's old and new *paragraphs* into its redraw range on every move, because
+their appearance followed the caret; it now folds in the old and new caret
+*lines*, one each and never the span between, and only in Writer mode — which
+is where the link carve-out lives and the only place a move can still change a
+pixel. `at_apply_edit` dropped its widening to `[at_cll1]` outright: a span
+change cannot reach past `at_relayout`'s window, span state resetting at every
+newline and the rescan converging on an equal attr. `at_cline_span`,
+`[at_cll0]`, `[at_cll1]` and their two banked copies are gone.
+
+**And it closed a selection bug on the way.** The old range was
+union(old paragraph, new paragraph, delta `[old moving end, new one)`), and
+the paragraphs were doing work the delta could not: a selection made
+*backwards* collapses to its own low end, which leaves that delta EMPTY with
+the XOR still on the glass — erased before only as far as one paragraph
+reached, and not at all for a plain click, whose banked "old" was the
+post-click state. `at_nav_paint` now takes the delta while the selection stays
+live (the anchor does not move, so a shift-arrow costs one or two lines
+however long the selection is) and the WHOLE old extent when it collapses.
+`at_click_text` banks the pre-click selection instead of the settled one; the
+drag's release still banks the settled state, the drag loop having XORed every
+delta as the mouse moved.
 
 ### 46.3 Layout — raw-width wrap, one paragraph at a time
 

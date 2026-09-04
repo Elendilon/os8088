@@ -514,7 +514,6 @@ at_fs_enter:
     call at_geom_init               ; the live screen, fresh every entry
     mov byte [at_fs], 1
     call at_layout                  ; the text width just became real
-    call at_cline_span
     call at_maxtop
     mov bx, ax
     mov ax, [at_top]
@@ -1026,12 +1025,14 @@ at_pbase    equ at_pspan + 1                 ; byte
 at_plt      equ at_pbase + 1                 ; word: link text end
 at_plh      equ at_plt + 2                   ; word: link hide end
 at_pforce   equ at_plh + 2                   ; byte: force styled parse
-at_gsty     equ at_pforce + 1                ; byte: composing style
+at_lnkraw   equ at_pforce + 1                ; byte: this line holds the
+                                             ; caret, so its LINKS show
+                                             ; their syntax (SPEC.md
+                                             ; 46.2.1)
+at_gsty     equ at_lnkraw + 1                ; byte: composing style
 at_grow     equ at_gsty + 1                  ; 4 bytes: scaled glyph row
-at_cll0     equ at_grow + 4                  ; word: caret paragraph first
-at_cll1     equ at_cll0 + 2                  ; word: caret paragraph last
 ; --- the strips ---------------------------------------------------------------
-at_strip1   equ at_cll1 + 2                  ; AT_S1ST * AT_SROWS
+at_strip1   equ at_grow + 4                  ; AT_S1ST * AT_SROWS
 at_strip4   equ at_strip1 + AT_S1ST*AT_SROWS ; AT_S4ST * AT_SROWS
 at_xw       equ at_strip4 + AT_S4ST*AT_SROWS ; word: expand/blit width
 at_dly      equ at_xw + 2                    ; word: draw-line y
@@ -1082,12 +1083,10 @@ at_spcx     equ at_sph + 2
 at_btx      equ at_spcx + 2                  ; bigtext/image cursor
 at_bty      equ at_btx + 2
 ; --- edit scratch -------------------------------------------------------------
-at_ocll0    equ at_bty + 2
-at_ocll1    equ at_ocll0 + 2
-at_oselb    equ at_ocll1 + 2
-at_nvlo     equ at_oselb + 2
-at_nvhi     equ at_nvlo + 2
-at_xrlo     equ at_nvhi + 2
+at_osela    equ at_bty + 2                   ; the pre-move SELECTION and caret -
+at_oselb    equ at_osela + 2                 ; between them, all a caret move can
+at_ocaret   equ at_oselb + 2                 ; change on the glass (46.2.1)
+at_xrlo     equ at_ocaret + 2
 at_xrhi     equ at_xrlo + 2
 at_xry      equ at_xrhi + 2
 at_rby      equ at_xry + 2

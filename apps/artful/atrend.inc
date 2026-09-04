@@ -81,31 +81,6 @@ at_geom_init:
     ret
 
 ; -----------------------------------------------------------------------------
-; at_cline_span - cache the caret's logical line as a visual-line range
-; out: [at_cll0]/[at_cll1] = first/last visual line of the caret's logical
-;      line (the range that renders RAW in Writer mode); preserves all
-; -----------------------------------------------------------------------------
-at_cline_span:
-    push ax
-    push bx
-    mov ax, [at_caret]
-    call at_line_of
-    call at_lhome
-    mov [at_cll0], bx
-.fwd:
-    inc bx
-    cmp bx, [at_nlines]
-    jae .end
-    test byte [bx+at_lattr], 4
-    jnz .fwd
-.end:
-    dec bx
-    mov [at_cll1], bx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; at_parse - analyse one visual line into the per-character arrays
 ; in:  BX = line index
 ; out: at_lbuf = the slice, [at_pcnt] chars, [at_pstart] logical start,
@@ -115,9 +90,10 @@ at_cline_span:
 ;      spanning the ones it set, [at_pcw]/[at_prh] = cell width / row height,
 ;      [at_psc] = scale 1..3; preserves all regs
 ;
-; RAW when Markdown mode, or when the line belongs to the caret's logical
-; line in Writer mode (the live-preview rule, SPEC.md 46.2): every char
-; visible, no styles. STYLED otherwise: span delimiters hidden and their
+; RAW in Markdown mode, STYLED in Writer mode - THE MODE DECIDES AND NOTHING
+; ELSE (SPEC.md 46.2.1). The caret's own logical line used to render raw here
+; as well; a document that is one paragraph then never styled at all, which is
+; how this shipped. Styled: span delimiters hidden and their
 ; text styled (at_span's exact toggle semantics, seeded from the line's
 ; attr nibble), the heading prefix hidden on the logical line's first
 ; visual line, links recognised within the line ([text](url): text
@@ -134,6 +110,27 @@ at_parse:
     call at_slice                   ; at_lbuf, CX = len, AX = start
     mov [at_pcnt], cx
     mov [at_pstart], ax
+    ; DOES THE CARET STAND ON THIS LINE, and does anything care? Exactly one
+    ; thing does: a LINK (SPEC.md 46.2.1). Style > Link parks the caret between
+    ; the parens of `[text]()` for the URL to be typed into, and hiding them
+    ; would make it type into pixels that are not drawn - so a link shows its
+    ; syntax while the caret is on its line, and collapses when the caret
+    ; leaves. Nothing else on the line is affected: bold, italic, code, strike
+    ; and headings style under the caret like every other line.
+    mov byte [at_lnkraw], 0
+    cmp byte [at_pforce], 0
+    jne .nolr                       ; at_cmd_none wants the hidden set whole
+    cmp byte [at_writer], 0
+    je .nolr                        ; markdown draws the syntax anyway
+    mov dx, [at_caret]
+    cmp dx, ax
+    jb .nolr
+    add ax, cx
+    cmp dx, ax
+    ja .nolr
+    mov byte [at_lnkraw], 1
+.nolr:
+    mov ax, [at_pstart]
     call at_lgeom                   ; AX = cellw, DX = rowh
     mov [at_pcw], ax
     mov [at_prh], dx
@@ -152,16 +149,15 @@ at_parse:
     pop es
     mov word [at_pcb0], 0FFFFh      ; ...and an EMPTY code span, which is what
     mov word [at_pcb1], 0           ; a raw line keeps (at_codebg's gate)
-    ; raw or styled?
+    ; raw or styled? MODE ALONE DECIDES (SPEC.md 46.2.1) - Writer styles every
+    ; line of the document including the one the caret is on, which is what
+    ; the original's BuildHiddenView did and what the View menu's two names
+    ; promise. The caret's paragraph used to render RAW here; see 46.2.1 for
+    ; why that had to go and what it cost the caret to take it out.
     cmp byte [at_pforce], 0
     jne .styled                     ; at_cmd_none needs the hidden set as
     cmp byte [at_writer], 0         ; the parser defines it, in either mode
-    je .raw
-    cmp bx, [at_cll0]
-    jb .styled
-    cmp bx, [at_cll1]
-    jbe .raw
-    jmp short .styled
+    jne .styled
 .raw:
     xor si, si                      ; SI = char index
     xor dx, dx                      ; DX = x
@@ -298,7 +294,11 @@ at_parse:
 .bracket:
     call at_linkscan                ; CF=0: at_plt/at_plh set
     jc .stylevis
-    jmp short .hide                 ; the '[' itself is hidden
+    cmp byte [at_lnkraw], 0
+    je .hide                        ; the '[' itself is hidden
+    mov word [at_plt], 0FFFFh       ; ...unless the caret is standing here, in
+    mov word [at_plh], 0FFFFh       ; which case the whole structure stays
+    jmp .stylevis                   ; literal so the URL can be typed
 .place:
     mov [si+at_vis], ch
     mov [si+at_sty], cl
