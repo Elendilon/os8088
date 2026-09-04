@@ -39332,6 +39332,80 @@ picture: the cache word cannot be read (§11.96.18.1), a forced repaint cannot
 be a reference while anything else is up, and what is left to assert is the
 **calls**.
 
+### 28.12 `APP_SMALL` — the small build of this package
+
+Note Pad's §27.16, applied here, and the rules there hold unchanged: one
+package, one source, two products; `make smallapps` passes `-DAPP_SMALL`; the
+ordinary build defines nothing of it and is **byte-for-byte** what it was, and
+that identity is the gate. It is not a second ABI — a small-built
+`TASKMGR.O88` calls the same API table at the same offsets and runs on
+`kern_big` exactly as it runs on `kern_small`.
+
+**What this package has to trade is a PAGE**, which is the difference from the
+other four. Note Pad drops a panel and keeps an editor; Paint drops a codec
+and keeps a canvas. Here the whole window is three pages behind one click
+target (§28.4) and each page is a self-contained reporter, so the gates are
+the pages themselves:
+
+| flag | off in `APP_SMALL` | what goes with it |
+|---|---|---|
+| `TMF_HEAP` | the heap page (§28.4) | the per-claim table and its `TYPE`/`TIER` decode, the three captions, `tm_hsnap`'s `OSAPI_MEM_AVAIL` pair, the scroll bar (§13.10) and `TMH_ROWS`' share of `tm_rowck` |
+| `TMF_MEM` | the memory view (§28) | the conventional-memory map, the XMS bar, the `NAME/ADDR/SIZE/HEAP` re-columning, the legend squares and their textures, the RAM line's second pair — and the whole of §28.6/§28.8/§28.11's quiet-page machinery, which exists for these two pages and for nothing else |
+
+**The ladder is ORDERED and the guard says so.** The heap page borrows the
+memory view's row machinery whole — `tm_mrow_open` / `tm_mrow_close` /
+`tm_row_draw` / `tm_row_place` (§28.4) — so "heap without memory" is not a
+configuration this file has, and asking for it is a `%error` rather than a
+silently different product.
+
+**Kept on purpose, so that the small build is still an instrument and not a
+splash screen:** the load gauge and its sweep graph, `RAM used/total` with its
+bar, and the process list entire — every instance, its CPU share, its `MEM`
+and its `CLM`. The one question the floor machine most wants answered, *what
+is eating this machine*, is answered by the arm that ships there.
+
+#### 28.12.1 What it costs, and where the bytes actually are
+
+One instance is one heap claim of image + bss (§20.1), so a byte of bss is
+worth a byte of `.text` here and `tools/os88pkgsize.py` prints the sum:
+
+| arm | image | bss | claim | vs. full |
+|---|---|---|---|---|
+| full (shipped) | 8,893 | 2,245 | **11,138** | — |
+| `TMF_HEAP` off | 7,423 | 1,929 | 9,352 | −1,786 (16.0%) |
+| both off (`APP_SMALL`) | 5,040 | 1,653 | **6,693** | −4,445 (39.9%) |
+
+**The second step is the bigger one and that is not where the page count
+suggests it would be.** The heap page is the more elaborate of the two to
+look at and it is the cheaper to remove, because it is nearly all drawing;
+the memory view takes with it a whole *layer* that the heap page merely used
+— `tm_quiet`'s three hashes, `TM_SLOW`'s pacing, `tm_promise`'s raise-cache
+repair, `tm_qpeek`, `tm_sumb`, the row cursor and the legend squares — and
+`tm_claims` with them, all 192 bytes of it, because the process list's own
+`MEM` column comes off the **instance** snapshot's `SSI_KB` and nothing left
+in the file reads `mem_tab`.
+
+Three things fell out that are worth stating because they are otherwise
+silent:
+
+- **`tm_rowck` is sized from the DEEPEST list that is built.** `TM_NCK` was
+  `TMH_ROWS + 1` = 48; it is `TM_DEEPEST + 1` now, which is 20 with the heap
+  page gone and 14 with both. That is 480 → 200 → 140 bytes of bss for a
+  check-word array whose only job is to know what a row already says.
+- **The `TMC_*` element list is COUNTED, not numbered** — each name takes a
+  running `%assign` and bumps it — so a gated page takes its check words out
+  of `tm_elck` with it and no `mov bx, tm_elck + 2*TMC_*` had to be
+  renumbered by hand. The order is deliberately the one the literals had,
+  because renumbering them would have changed the full build and broken the
+  one gate this flag has.
+- **The worker's deepest chain is 96 → 82 → 56 bytes** (`tools/stkdepth.py`),
+  56 being the figure §8.7.4 records as the *wrong* branch for the full
+  build: with the other two pages gone it is the only branch there is. The
+  declared class stays `OS88_STACK_256` on every arm regardless — §8.7.4's
+  field reading of 180 was taken on the heap page's chain, and re-deriving a
+  slice from a static walk is exactly what put a task through the canary
+  last time.
+
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
 Every running application instance — built-in kind or loaded package — is

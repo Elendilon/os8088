@@ -250,14 +250,26 @@ make smallapps#   128KB floor machine, docs/KERN-SPLIT-PLAN.md). `smallapps` is
               #   the APPS half of it: the same floppies with the SMALL BUILD
               #   of any package that has one in place of the shipped one -
               #   Note Pad (SPEC.md §27.16) 13,520 bytes an instance against
-              #   20,379, Paint (§42.22) 26,465 against 31,352, Calculator
-              #   (§65.10) 5,563 against 7,351. IT IS NOT A SECOND ABI: a
+              #   20,379, Paint (§42.22) 24,636 against 32,891, Calculator
+              #   (§65.10) 5,563 against 7,351, Solitaire (§43.12) 6,954
+              #   against 7,406, and the Task Manager (§28.12) **6,693
+              #   against 11,138**, which is 39.9% and the largest saving in
+              #   the tree - it is the only one of the five that trades whole
+              #   PAGES rather than features, and the memory view takes more
+              #   with it than the heap page does. `make smallapps` prints
+              #   every row (tools/os88pkgsize.py); quote it rather than this.
+              #   IT IS NOT A SECOND ABI: a
               #   small-built package calls the same API table at the same
               #   offsets, so it runs on kern_big too and what pairs it with
               #   kern_small is only which floppy it is written to. The
               #   shipped build/apps*.img are untouched, and
               #   `tests/unit/t_appsmall.py` says so - the default arm must
-              #   stay byte-identical.
+              #   stay byte-identical. **`make small`'s SYSTEM disks take the
+              #   small arm too**: the two floppies are a PAIR, one boots and
+              #   the other is what goes in B:, so the Task Manager - which
+              #   lives in SYSTEM/ on both (§28.3) - shipping small on one and
+              #   full on the other would be a machine that gets whichever
+              #   disk it was pointed at.
               #
               #   **§24.5 is what they LEAVE OFF**, and it is a REQUIREMENT
               #   test rather than a size one: seven packages that cannot
