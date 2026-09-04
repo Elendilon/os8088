@@ -167,6 +167,15 @@ FR_CLAMP    equ 14336               ; |cx|,|cy| ceiling over the whole view (3.5
 FR_CAP      equ 48                  ; iteration cap; palette index is then the
                                     ; escape count directly (0..47)
 FR_ZMAX     equ 4                   ; deepest useful zoom in Q4.12 (measured)
+FR_CYCK     equ 8                   ; the cycle check's reference is replaced
+                                    ; every FR_CYCK iterations (SPEC.md 40.7).
+                                    ; A POWER OF TWO, because the test is
+                                    ; `test di, FR_CYCK-1` and one AND is what
+                                    ; keeps the whole scheme affordable. Eight
+                                    ; is measured: 4 wins more on the Rabbit
+                                    ; and the elephant and loses more
+                                    ; everywhere else, 16 and 32 give up more
+                                    ; than they save
 
 ; fr_inset's two shapes (SPEC.md 40.5). Every bound here is a MEASURED extent
 ; of the algebraic test rather than a convenient round number: the main
@@ -270,7 +279,7 @@ FR_CRUN        equ 2                ; bytes per cached run
 FR_CACHE_KB0   equ 4                ; the first claim
 FR_CACHE_MAXKB equ 32               ; ...and where doubling stops
 
-FR_BSS_TOTAL equ 421                ; see the bss layout after OS88_IMAGE_END
+FR_BSS_TOTAL equ 425                ; see the bss layout after OS88_IMAGE_END
 
 ; -----------------------------------------------------------------------------
 ; fr_entry - package entry point (SPEC.md 20.2)
@@ -1756,6 +1765,11 @@ fr_rowcalc:
 ; -----------------------------------------------------------------------------
 frac_iter:
     mov di, FR_CAP
+    mov [fr_hx], bx                 ; SPEC.md 40.7: the cycle reference starts
+    mov [fr_hy], si                 ; as z0 itself - a real state of the orbit
+                                    ; rather than a sentinel, which is what
+                                    ; lets a fixed point at the origin be
+                                    ; caught on the very first comparison
     jmp short .loop
 .escaped:                           ; placed BEFORE the body on purpose: every
     mov ax, FR_CAP                  ; exit branch below is a backward rel8, and
@@ -1829,9 +1843,25 @@ frac_iter:
     sub ax, bp                      ; x2 - y2
     add ax, [fr_cx]
     mov bx, ax                      ; zx'
+
+    cmp bx, [fr_hx]                 ; SPEC.md 40.7: has this orbit been here
+    je .cycy                        ; before? zx first, so the zy compare is
+.nocyc:                             ; only paid on a match
     dec di
     jz .interior
+    test di, FR_CYCK-1              ; ...and the reference is replaced every
+    jz .cycref                      ; FR_CYCK iterations. The refresh test is
     jmp .loop                       ; rel16: the body is out of rel8 range
+.cycref:
+    mov [fr_hx], bx
+    mov [fr_hy], si
+    jmp .loop
+.cycy:
+    cmp si, [fr_hy]                 ; a full match: the map is a function of
+    jne .nocyc                      ; (zx, zy) alone, so this orbit retraces
+                                    ; itself forever and can never reach the
+                                    ; escape test. It IS an FR_CAP point, and
+                                    ; saying so now is the same answer sooner
 .interior:
     mov ax, FR_CAP
     ret
@@ -2659,12 +2689,17 @@ fr_cmrc    equ os88_image_end + 419  ; word: the phase the cache was built in,
                                      ; beside fr_ccw/fr_cch and for the same
                                      ; reason - a replay under a different one
                                      ; puts every row at the wrong height
+fr_hx      equ os88_image_end + 421  ; word: the cycle check's reference state
+fr_hy      equ os88_image_end + 423  ; word:  (SPEC.md 40.7). Live only inside
+                                     ; frac_iter, which seeds it from z0 on
+                                     ; entry, so nothing outside has to know
+                                     ; it exists or reset it
 fr_lrow    equ os88_image_end + 417  ; word: the canvas row fr_line holds, or
                                      ; 0FFFFh = nothing. The twin test compares
                                      ; against this and nothing else, so a
                                      ; stale fr_line can only ever cost a
                                      ; recompute - never a wrong row
-                                     ; total 421 = FR_BSS_TOTAL
+                                     ; total 425 = FR_BSS_TOTAL
 
 ; The percentage field's padding is written into fr_numbuf, and fr_numbuf's
 ; size is the gap to the next bss symbol rather than a declaration - these are

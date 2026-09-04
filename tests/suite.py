@@ -170,6 +170,12 @@ FAST = [
         "walked before the phase existed (SPEC.md 40.6). SPEC.md 40.1 rests"
         "the whole restore cache on that arithmetic and nothing else records"
         "which cached row is which."),
+    Row("frcycle", "fast", py("tests/unit/t_frcycle.py"), 0.8,
+        "SPEC.md 40.7's cycle check returns exactly what the uncut core"
+        "returns, for all five types. The CLAIM needs no sweep - a repeated"
+        "state in a deterministic map can never escape - but the BOOKKEEPING"
+        "does: a reference refreshed at the wrong moment or left over from"
+        "the last pixel reads FR_CAP for a point that escapes."),
     Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 0.8,
         "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
         "zero bytes (docs/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
@@ -1692,6 +1698,10 @@ SOAK = [
         "Compact the heap out from under a live app that is holding a big"
         "claim",
         needs=("marty",), serial=True, builds=True),
+    Row("frcyclefull", "soak",
+        py("tests/unit/t_frcycle.py", "--stride", "7"), 900.0,
+        "...and the same agreement at stride 7 - about 25 million (point,"
+        "type) pairs, each run through the core twice (SPEC.md 40.7)."),
     Row("frinsetfull", "soak",
         py("tests/unit/t_frinset.py", "--stride", "2"), 900.0,
         "...and the same sweep at stride 2 - 5.7 million of the lattice"

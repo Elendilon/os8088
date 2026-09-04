@@ -48652,6 +48652,84 @@ declare `FT_SYM` = 2, an ORIGIN symmetry whose twin row is the partner
 *reversed in x*, which is a different emit path and is not done here; the
 Burning Ship declares none and is untouched.
 
+### 40.7 A repeated state can never escape — the cycle check, and what it costs
+
+§40.5 and §40.6 between them are worth 4x on the views reached by Reset and
+the menu, and **nothing at all** on three of the five types or on any view
+reached by clicking. This is what covers that, and it is the only one of the
+three that helps every type.
+
+**The claim needs no sweep, which is what makes it different from §40.5's.**
+`frac_iter` is a deterministic function of `(zx, zy)` alone — `c` and the flag
+bits are fixed for the pixel — so if the orbit ever returns to a state it has
+already been in, it will retrace the same states forever and can never reach
+the escape test. It is therefore *already* a point `frac_iter` returns
+`FR_CAP` for, and stopping early returns the same answer sooner. No
+approximation, no margin, no bound on the arithmetic: the exactness is a
+property of determinism rather than of Q4.12. The sweep was run anyway, over
+eleven views and all five types, and **not one pixel changes**.
+
+**The shape is one saved state and one compare.** `[fr_hx]`/`[fr_hy]` hold a
+reference; every iteration compares `zx` against it and, only when that
+matches, `zy`; every eighth iteration the reference is replaced with the
+current state. So a cycle of any period ≤ 8 is caught within eight iterations
+of the orbit entering it, and longer ones are caught when a reference happens
+to land inside them.
+
+**The cheaper scheme that suggests itself does not work, and the Julia Rabbit
+is why.** Comparing only on the eighth iteration — `z(t)` against `z(t−8)`,
+skipping the compare the other seven times — costs 12.5 clocks instead of
+33 and looks like the obvious trade. It detects only cycles whose period
+DIVIDES eight. The Rabbit's interior is period 3 almost everywhere (99% of its
+interior points), so that scheme takes it from **−37% to +1.9%** — a
+regression on the type the every-iteration compare helps most. A fixed stride
+only ever sees the periods it is a multiple of.
+
+**Eight is measured.** The interval trades detection latency against how many
+periods a reference can catch; swept at 4, 8, 16 and 32, four wins more on the
+Rabbit and the elephant and loses more everywhere else, and sixteen and
+thirty-two give up more than they save back.
+
+**What it costs is ~5% of every iteration, forever**, and that is the honest
+frame of this: 33 clocks on 660, of which 19 is the compare and 14 the
+refresh test. `rel8` is why the refresh test is not cheaper — `.loop` is out
+of a conditional jump's reach, so the back edge has to be `jz .refresh` over
+a `jmp .loop` rather than a `jnz` straight back.
+
+| view | z | after §40.5/§40.6 | with the cycle check | |
+|---|---|---|---|---|
+| elephant valley | 3 | 181.6 s | **127.5 s** | −29.8% |
+| Julia Rabbit | 0 | 90.0 s | **56.6 s** | −37.1% |
+| Tricorn | 0 | 60.7 s | **49.8 s** | −17.9% |
+| Burning Ship | 1 | 290.6 s | **250.4 s** | −13.8% |
+| Burning Ship | 0 | 106.5 s | **93.0 s** | −12.7% |
+| default | 1 | 62.3 s | 57.7 s | −7.5% |
+| default | 0 | 49.8 s | 49.2 s | −1.1% |
+| seahorse valley | 2 | 42.1 s | 43.6 s | **+3.4%** |
+| north tip | 2 | 45.6 s | 47.6 s | **+4.4%** |
+
+**Two views get slower and they are written down rather than buried.** A view
+with almost no interior left — north tip is outside the set entirely, and
+seahorse's interior is what §40.5 already answered — pays the 5% and gets
+nothing back. Both are among the cheapest views in the survey, and what buys
+them is the worst one: the elephant valley is 181.6 s and is where §40.5 is
+weakest, because its interior is mini-Mandelbrots rather than the main
+cardioid. **The trade is 2 s on two fast views against 54 s on the slow one,
+and 13–37% on the three types §40.5 cannot describe at all.**
+
+**Why it is not armed late.** Arming after N iterations so that fast-escaping
+pixels never pay looks like it removes the regression, and it half does — but
+the arm test is itself a compare and a branch on every iteration, and the
+armed path then costs more than the unarmed one saves. Measured, it moves
+north tip from +4.4% to +1.9% and seahorse from +3.4% to +3.8%, which is not
+a trade, and it costs the elephant valley half a percent of its 30%.
+
+**Cost: two bss words and no state anywhere else.** The reference is seeded
+from `z0` at the top of `frac_iter`, so a Julia (whose `z0` is the pixel) and
+a Mandelbrot (whose `z0` is zero) both start with a reference that is a real
+state of the orbit rather than a sentinel — which is what lets a period-1
+fixed point at the origin be caught on the first comparison.
+
 ### 39.26 The software renderer's plane loop is gone
 
 **`softgfx.inc` was written for a RAM back buffer — four claimed planes on a

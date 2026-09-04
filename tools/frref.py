@@ -48,7 +48,7 @@ def consts(path=SRC):
             pass
     for need in ("FR_ONE", "FR_GUARD", "FR_FOUR", "FR_CAP", "FR_QTR",
                  "FR_SYMAX", "FR_CDXHI", "FR_CDXLO", "FR_BULBR", "FR_BULBR2",
-                 "FR_INMARG", "FR_CLAMP", "FR_ZMAX", "FF_ABS", "FF_NEG", "FF_JUL"):
+                 "FR_INMARG", "FR_CLAMP", "FR_ZMAX", "FR_CYCK", "FF_ABS", "FF_NEG", "FF_JUL"):
         if need not in out:
             sys.exit("frref: %s defines no %s - the source moved and this "
                      "reader did not" % (os.path.relpath(path, ROOT), need))
@@ -116,14 +116,24 @@ def qmul(a, b):
 
 # --- the core ---------------------------------------------------------------
 
-def frac_iter(zx, zy, cx, cy, flg, count=None):
+def frac_iter(zx, zy, cx, cy, flg, count=None, cycle=True):
     """apps/fractal's frac_iter, instruction for instruction.
 
     Returns the escape index 0..FR_CAP-1, or FR_CAP for a point that never
     escaped.  The ORDER is binding (SPEC.md 40): both magnitude guards run
-    before either square is formed."""
+    before either square is formed.
+
+    `cycle` is SPEC.md 40.7's check, and it is here with an OFF switch
+    precisely so a test can assert the two agree: the map is a function of
+    (zx, zy) alone, so a repeated state retraces forever and can never reach
+    the escape test - it is already an FR_CAP point and stopping early is the
+    same answer sooner.  The reference is z0 on entry and is replaced every
+    FR_CYCK iterations, the refresh tested AFTER the countdown is decremented
+    because that is the order the assembly runs them in."""
     cap, guard, four = K["FR_CAP"], K["FR_GUARD"], K["FR_FOUR"]
     di = cap
+    hx, hy = zx, zy                             # the reference starts as z0
+    mask = K["FR_CYCK"] - 1
     while True:
         if ((zx + guard) & 0xFFFF) >= guard * 2 + 1:
             return cap - di
@@ -141,9 +151,13 @@ def frac_iter(zx, zy, cx, cy, flg, count=None):
         zx, zy = s16(x2 - y2 + cx), s16(t + cy)
         if count is not None:
             count[0] += 1
+        if cycle and zx == hx and zy == hy:
+            return cap                          # a repeat: it never escapes
         di -= 1
         if di == 0:
             return cap
+        if cycle and not (di & mask):
+            hx, hy = zx, zy
 
 
 def inset(cx, cy, flg):
