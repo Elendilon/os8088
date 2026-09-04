@@ -9,12 +9,15 @@
 ; centre rule, headings a 2x/3x bit-doubled scale-up; the expander
 ; (at_expand) widens 1bpp to packed 4bpp through a 256-entry table (white
 ; background, or light-gray for code spans, chosen per 8px column); and the
-; whole line reaches the screen as ONE OSAPI_GFX_BLIT4. The keystroke path
-; repaints one line; scrolling is OSAPI_GFX_SCROLL plus the revealed lines;
-; only mode/zoom switches and W_PAINT redraw everything.
+; whole line reaches the screen as ONE OSAPI_GFX_BLIT4. On a 1bpp adapter
+; at_codebg turns the code cell over on the way past, a grey one being
+; unreadable under text there (SPEC.md 46.4.1). The keystroke path repaints
+; one line; scrolling is OSAPI_GFX_SCROLL plus the revealed lines; only
+; mode/zoom switches and W_PAINT redraw everything.
 ;
 ; The colours survive every adapter (SPEC.md 39.4): black text on white,
-; CLGRAY code cells (a dither on 1bpp), XOR selection and caret.
+; CLGRAY code cells on a colour card and INVERSE ones on a 1bpp adapter
+; (46.4.1 - a dither cannot carry a letter), XOR selection and caret.
 ;
 ; The caret is an XOR vertical bar with strict on/off bookkeeping
 ; (at_caret_on/off): anything that may touch its pixels turns it off first
@@ -108,8 +111,9 @@ at_cline_span:
 ; out: at_lbuf = the slice, [at_pcnt] chars, [at_pstart] logical start,
 ;      at_vis[] (0 draw / 1 hidden), at_sty[] (AT_ST_*), at_xmap[0..cnt] =
 ;      x px relative to the text origin (entry cnt = end-of-line caret x),
-;      at_cellbg[] per 8px column (0 white / 1 gray), [at_pcw]/[at_prh] =
-;      cell width / row height, [at_psc] = scale 1..3; preserves all regs
+;      at_cellbg[] per 8px column (0 white / 1 gray) with [at_pcb0]/[at_pcb1]
+;      spanning the ones it set, [at_pcw]/[at_prh] = cell width / row height,
+;      [at_psc] = scale 1..3; preserves all regs
 ;
 ; RAW when Markdown mode, or when the line belongs to the caret's logical
 ; line in Writer mode (the live-preview rule, SPEC.md 46.2): every char
@@ -146,6 +150,8 @@ at_parse:
     xor ax, ax
     rep stosw
     pop es
+    mov word [at_pcb0], 0FFFFh      ; ...and an EMPTY code span, which is what
+    mov word [at_pcb1], 0           ; a raw line keeps (at_codebg's gate)
     ; raw or styled?
     cmp byte [at_pforce], 0
     jne .styled                     ; at_cmd_none needs the hidden set as
@@ -317,10 +323,18 @@ at_parse:
     dec dx
     shr dx, cl                      ; last column
     mov bx, ax
+    cmp bx, [at_pcb0]               ; ...and the SPAN of them, so at_codebg
+    jae .g0                         ; walks a code run rather than the line
+    mov [at_pcb0], bx
+.g0:
 .gcol:
     cmp bx, AT_CBGCAP
     jae .gdone
     mov byte [bx+at_cellbg], 1
+    cmp bx, [at_pcb1]
+    jbe .g1
+    mov [at_pcb1], bx
+.g1:
     inc bx
     cmp bx, dx
     jbe .gcol
@@ -442,6 +456,100 @@ at_compose:
     inc si
     jmp short .ch
 .done:
+    call at_codebg                  ; ...and the code span's own ground, which
+                                    ; on a 1bpp adapter only this side can draw
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; at_codebg - the code span's ground on a 1bpp adapter (SPEC.md 46.4.1)
+; out: on 1bpp, at_strip1's code columns INVERTED and at_cellbg cleared;
+;      nothing at all on a colour adapter. Preserves every register.
+;
+; CLGRAY is the code cell's background everywhere else and it is the RIGHT
+; colour: SPEC.md 39.4 reduces a middle grey to the kernel's 50% dither, which
+; is what every other grey in the system wants. It is wrong HERE, and only
+; here, because a code cell is the one grey in the UI with TEXT ON TOP OF IT -
+; a black 8x8 glyph on a 50% checkerboard carries the same ink as its own
+; ground, so the word inside the span stops being a word. Measured on a
+; Hercules, `code` came back a smudge: the one style of the six that did not
+; survive the adapter.
+;
+; A LIGHTER GROUND IS NOT THE ANSWER, and the glass is what settled it: a 25%
+; stipple was built first and read barely better, because what destroys the
+; letter is not the ground's density but a dot that TOUCHES a stroke - one
+; beside the bowl of an `o` closes it - and knocking a one-pixel halo out
+; under every glyph pixel bought legible-if-you-squint, for ~30 bytes and a
+; dilation per column. Inverting the span is FOUR bytes and reads outright.
+;
+; So on 1bpp the code cell is the badge turned over: `not` makes the ground
+; black and the glyph a hole in it, which is the same distinction the colour
+; adapter draws and the only one this adapter can draw legibly. The rules
+; at_glyph laid - a strike, a link's underline - invert with it, correctly.
+;
+; The expander is then told the truth for this adapter, which is that the line
+; has no grey columns in it at all: at_cellbg is CLEARED, so at_expand widens
+; every byte through at_x4w and its hot loop pays NOTHING for any of this. The
+; app owning the code ground is the same division of labour the styling
+; already uses - at_compose bolds, shears, underlines and rules its own glyphs
+; rather than asking the kernel for a face it has not got.
+;
+; [at_pcb0]/[at_pcb1] are why this is not on the keystroke path: at_parse
+; records the code span's first and last 8px column, and a line with no code
+; in it - which is nearly every line - leaves 0FFFFh > 0 and is refused on the
+; first compare. A line that HAS one walks the span, never the line.
+;
+; SS != DS, so BP is a COUNTER here and never an address (at_glyph's rule);
+; the strip is addressed [bx+si], both DS defaults.
+; -----------------------------------------------------------------------------
+at_codebg:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    cmp byte [at_vbpp], 1
+    ja .out                         ; a colour adapter keeps CLGRAY, which is
+                                    ; a light grey there and reads perfectly
+    mov dx, [at_pcb1]
+    cmp [at_pcb0], dx
+    ja .out                         ; no code span on this line
+    mov si, at_strip1               ; SI = this row's base in the strip
+    xor bp, bp                      ; BP = row
+.row:
+    cmp bp, [at_prh]
+    jae .clear
+    mov bx, [at_pcb0]               ; BX = 8px column
+.col:
+    cmp byte [bx+at_cellbg], 0
+    je .nxc
+    not byte [bx+si]
+.nxc:
+    inc bx
+    cmp bx, dx
+    jbe .col
+    add si, AT_S1ST
+    inc bp
+    jmp short .row
+.clear:
+    push es                         ; the ground is drawn: the expander has no
+    push ds                         ; grey columns left to widen
+    pop es
+    cld
+    mov di, at_cellbg
+    mov cx, AT_CBGCAP/2
+    xor ax, ax
+    rep stosw
+    pop es
+.out:
+    pop bp
     pop di
     pop si
     pop dx

@@ -1012,7 +1012,11 @@ at_vis      equ at_lbuf + AT_LBUFCAP         ; AT_LBUFCAP bytes: 1 = hidden
 at_sty      equ at_vis + AT_LBUFCAP          ; AT_LBUFCAP bytes: AT_ST_*
 at_xmap     equ at_sty + AT_LBUFCAP          ; AT_LBUFCAP+1 words: x per char
 at_cellbg   equ at_xmap + (AT_LBUFCAP+1)*2   ; AT_CBGCAP bytes
-at_pcnt     equ at_cellbg + AT_CBGCAP        ; word
+at_pcb0     equ at_cellbg + AT_CBGCAP        ; word: first at_cellbg column set
+at_pcb1     equ at_pcb0 + 2                  ; word: ...and the last. 0FFFFh/0
+                                             ; is the empty span, which is what
+                                             ; at_codebg is refused on
+at_pcnt     equ at_pcb1 + 2                  ; word
 at_pstart   equ at_pcnt + 2                  ; word
 at_pcw      equ at_pstart + 2                ; word
 at_prh      equ at_pcw + 2                   ; word

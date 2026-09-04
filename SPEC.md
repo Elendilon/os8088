@@ -57288,6 +57288,49 @@ sleeps 9 ticks, re-checks its gates under the lock, arms the §11.3 clip
 and toggles. The colours survive every adapter by construction: black on
 white, dithered code cells, XOR selection/caret.
 
+#### 46.4.1 …and the code cell is the one grey with TEXT ON TOP OF IT
+
+`CLGRAY` is the right colour for a code span's background, and §39.4's
+reduction of a middle grey to the kernel's 50% dither is the right reduction
+for a middle grey. The two together are still wrong here, and the reason is a
+property of this cell and of no other grey in the system: **a code cell is the
+only one that has a glyph drawn over it.** A black 8×8 letter on a 50%
+checkerboard carries the same ink as its own ground, so on a 1bpp adapter
+`` `code` `` rendered as a smudge — the one style of the six that did not
+survive the adapter, measured on a Hercules against the same line on a VGA,
+where it reads perfectly.
+
+**On 1bpp the badge is turned over instead**: `at_codebg` runs `not` across
+the code span's bytes in `at_strip1`, so the ground is black and the glyph is
+a hole in it, and then **clears `at_cellbg`** — which makes `at_expand` widen
+those columns through the white table and asks the kernel for no grey at all.
+The rules `at_glyph` laid inside the span, a strike or a link's underline,
+invert with it and stay right. What the colour adapter says with a light grey
+badge and black letters, the 1bpp one says with a black badge and white ones:
+the same distinction, drawn the only way that adapter can draw it legibly.
+
+**A lighter ground was built first and the glass refused it.** A 25% stipple
+read barely better than the 50% dither, because what destroys the letter is
+not the ground's density but a dot that *touches* a stroke — one beside the
+bowl of an `o` closes it. Knocking a one-pixel halo out under every glyph
+pixel got it to legible-if-you-squint for ~30 bytes and a dilation per column;
+inverting is four bytes and reads outright. Both arms are photographed in the
+branch that made the change.
+
+**It costs the keystroke path nothing**, and that is by construction rather
+than by hope. `at_parse` records the code span's first and last 8px column in
+`[at_pcb0]`/`[at_pcb1]`; a line with no code in it — nearly every line — keeps
+the empty span `0FFFFh > 0` and is refused on `at_codebg`'s first compare,
+and a line that has one walks the SPAN and never the line. `at_expand`'s own
+hot loop is untouched on both adapters: the grey columns are simply gone
+before it runs.
+
+**`[at_vbpp]` was a dead store before this** — `at_geom_init` latched
+`OSAPI_WM_DISPLAY`'s `DH` and nothing ever read it, which is the shape §39
+warns about: the geometry was asked for correctly and the answer about the
+*card* was thrown away. It is the gate now, so a colour adapter reaches none
+of the above.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what
