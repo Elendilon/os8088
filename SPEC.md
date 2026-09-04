@@ -29219,9 +29219,18 @@ Four things about the convention:
   from the root, matching `type == OSAPI_FT_DIR` — the folder is an ordinary
   visible directory, unlike the system *files* inside it (§19.6).
 
-Cyclone (§67.20) is the first consumer and, at the time of writing, the only
-one: Note Pad, Paint, TeXPad and Word write **documents**, which are the user's
-and belong exactly where the user put them.
+Cyclone (§67.20) is the first consumer: Note Pad, Paint, TeXPad and Word write
+**documents**, which are the user's and belong exactly where the user put them.
+FTPD's `FTPD.CFG` (§77) is the second.
+
+**`WIRE.CFG` is the third, and it is the first that is only ever READ** (§88.4).
+One line, `host[:port][/prefix/]`, naming where the Wire fetches its catalog;
+absent — which is what every shipped disk carries — the package uses
+`os8088.com:80/wire/` and says nothing. That is `19.9`'s tolerate-the-missing-
+folder rule with nothing to tolerate: the default is the shipping
+configuration, and the file exists so that a gate can point one machine at a
+host server (`make thewiretest`) and a user can point theirs at a mirror.
+Nothing on the machine writes it.
 ### 19.10 `apps-all.img` — one floppy with everything, and why it is on demand
 
 The shipped apps floppy is built in four geometries (§19) and carries the
@@ -31362,6 +31371,152 @@ double-click that selected the row and did **nothing at all** — no window, no
 error, no notice, and five sectors of I/O where a load is three hundred. An
 undocumented register contract at a jump target is exactly the difference
 that survives a build and a review.
+
+### 21.5 `OSAPI_PKG_RUN` — the loader's back half, with the read replaced by a copy
+
+Everything in this system launches a package by naming a FILE. The Wire
+(§26.7, docs/WIRE-PLAN.md) fetches a `.O88` over the network into a heap
+claim and has no file to name, so `Load Program` needs a way in that the
+loader did not have. Slot **`KERNEL_SEG:0x04F8`**, the 158th:
+
+```
+OSAPI_PKG_RUN   KERNEL_SEG:0x04F8
+  in   ES:SI  = a package image, byte for byte what the .O88 file holds,
+                in a claim of YOURS. ANY segment - it is COPIED into a region
+                of the kernel's own, never adopted, so the caller may free
+                its claim the moment this returns
+       DX:CX  = its length in bytes, DX the high word
+       DI     = a NUL-terminated 8.3 name, at most 12 characters, in the
+                CALLING INSTANCE's segment - what the new instance is told
+                it was launched from (step 1b's [ld_lname], and the entry
+                proc's SI, §20.2)
+  out  CF = 0, AX = 0: registered, published and its window shown, exactly
+                as a Disk-window double-click leaves one
+       CF = 1, AL = LD_* (§21.4): LD_EBAD a header ld_check_hdr refuses, or
+                flags bit 2 set; LD_EBIG over APP_MAX_SIZE; LD_ENOMEM no
+                region or no instance record; LD_EABORT the entry declined
+```
+
+**`DI` is read through the CALLING INSTANCE's segment and not through ES**,
+and the two really are different: the image is in a claim and the name is in
+the package's own data. `inst_caller` is the published way to ask who is
+calling (§19.2.1) and `I_SPTR` is that instance's segment; a call from kernel
+context answers `0xFF` and the name is then read through `KERNEL_SEG`, which
+is the only segment there is to read it through.
+
+**It is a plain `OSAPI_SLOT` and not an X cell.** ES is an *argument* here,
+and an X stub overwrites ES with the caller's DS (§20.3) — the one segment the
+image is least likely to be in.
+
+**Context: UI TASK ONLY, gfx lock NOT held** — a window callback or an
+`OSAPI_WM_ONWAKE` handler. That is `loader_run`'s own context and for its
+reasons: step 9 takes the lock itself around `wm_show`, and step 8 runs the
+package's entry proc, which creates windows and may draw. `ui_task`'s ladder
+calls `loader_run_x` with the lock free at its `.chk_ld` step, and both
+callback kinds are entered with it released.
+
+**A package carrying PARTS is refused** (header flags bit 2, §20.12): parts
+are read by the package out of its OWN FILE and there is none here. The test
+is `LD_EBAD` and it is asked **before** `ld_check_hdr`, which allows the bit.
+
+#### The split, which is what makes the slot 159 bytes and not a second loader
+
+`ld_run_body_x` gave up two routines, both entered by the disk path exactly
+where they used to be inline:
+
+- **`ld_alloc`** — steps 4 and 5: `roundup512(img + bss)`, `inst_alloc`,
+  `mem_bytes_kb`, `ld_slot`, `mem_claim_hi`. Out `CF = 0` with `[ld_rec]`,
+  `[ld_base]` and `[ld_need]` filled, or `CF = 1` with `AL = LD_ENOMEM`. The
+  one line that is new is a `clc`: `shl ax, cl` writes CF and used to fall
+  through into a caller that never looked at it.
+- **`ld_start`** — steps 7, 8 and 9: zero the bss, call the entry proc through
+  the dispatcher in the package's own header, register and publish the
+  instance and show its window; `.abort` and its `ld_unreserve` sweep come
+  with it. In `ES` = the region, out `AL` = `LD_OK` or `LD_EABORT`.
+
+The disk path is then `ld_check_hdr` → `ld_alloc` → **step 6, the file read
+and the disk-swap re-check** → `ld_start`, and the slot is `ld_check_hdr` →
+`ld_alloc` → **a far `rep movsb`** → `ld_start`. Nothing about the arithmetic,
+the fences or the entry contract moved.
+
+**No disk-swap re-check on the memory path**, and it is not an omission: the
+bytes came out of memory the caller owns and `ld_check_hdr` read *those very
+bytes*, so there is nothing that could have been swapped underneath them. The
+copy count is `[ld_img]` and not the file length, which `ld_check_hdr` has
+just proved equal — parts being refused above.
+
+**The source is banked in `[ld_msrc]`** (offset, then segment) rather than
+kept in `ES:SI`, because `ld_alloc`'s chain reaches `mem_compact` and a
+package's relocation procs and no register survives that by contract.
+
+#### 21.5.1 The copy reads every kernel word BEFORE it moves DS
+
+`[ld_msrc]` is a kernel `.bss` offset and the copy needs it in SI, so the
+order of two instructions is the whole of this section:
+
+```
+    mov si, [ld_msrc]           ; through the KERNEL's DS, while it is still
+    push ds                     ; the kernel's
+    mov ds, [ld_msrc+2]         ; ...and only now the source segment
+    rep movsb
+```
+
+Written the other way round — the `mov ds` first — the `mov si` reads
+`[ld_msrc]` **out of the caller's segment**, at a kernel `.bss` offset that
+means nothing there, and the copy then runs from `caller:<whatever is there>`
+instead of `caller:<the image>`. Nothing refuses it: `ld_check_hdr` ran BEFORE
+the copy, on the bytes the caller actually named, so the header was valid; the
+region is filled with something else; and step 8 far-calls a `PKG_DISP` that
+is not a dispatcher. The machine ends at **CS=0000 IP=0003, executing the
+interrupt vector table**, and one run painted a third of the framebuffer.
+
+**It was intermittent, and that is what made it expensive.** `ld_msrc`'s
+offset is past the end of a small package's image and bss, so the stray read
+lands in whatever the HEAP has next to the caller's region — and the same
+fixture on the same build wedged or worked according to whether a Disk window
+was open, because a listing claim is what sits there. Six runs differing only
+in what had happened before the call: nothing, works; a dialog opened and
+cancelled, works; a Disk window opened and closed, works; a Disk window left
+open, wedge. That reads as a heap defect, and it was two instructions in the
+wrong order.
+
+**The gate that missed it and the gate that catches it.** `tests/pkgrun.py`
+passed throughout, because its test package handed the slot `SI = 0` — so an
+implementation that lost the offset entirely still copied from the right
+place. It now stages the image at `PR_OFF` = 64 bytes into its claim, behind
+64 bytes of poison, and the host compares the RUNNING INSTANCE's region
+against `build/hello.o88` byte for byte. An instance existing only says the
+slot returned. With the fix reverted, the row fails on the first call and the
+machine never comes back.
+
+**The new instance's current directory is the CALLER's** at the time of the
+call (§19.2.1), so a package with an overlay or sidecars run this way looks
+for them where the caller is standing and refuses cleanly. The Wire never
+offers `Load Program` for one.
+
+**The slot is in BOTH kernels, body included** — a slot that exists in one
+build and not another is an ABI that depends on a knob (§20.8 rule 4), which
+is `wm_noanim`'s own precedent. `kern_small` has no Wire and no caller for it,
+and it assembles and answers there like anywhere else.
+
+**What it cost, measured** (`tools/kernsize.py` either side, `kern_big`, on
+top of §26.7's):
+
+| | before | after | |
+|---|---:|---:|---|
+| `.text` | 51,061 | 51,079 | **+18** (the table cell, the resident thunk, `cw_inst_caller`) |
+| `.bss` | 6,134 | 6,138 | **+4** (`[ld_msrc]`) |
+| `.cold` | 37,485 | 37,622 | **+137** |
+
+**159 bytes**, 137 of them `.cold` — 9 over docs/WIRE-PLAN.md §3's 150-byte
+budget, and **taken as it stands rather than contorted**: the 18 in `.text` are
+the three things that cannot be cold — the table cell, the resident thunk every
+cold body needs, and `cw_inst_caller` — so the cold half alone is inside 150
+and the target was a target.
+The measurement is taken on top of §26.7's, which is why the `before` column
+is not the pristine tree's; against that tree the two together are `.text`
++86, `.cold` +312, `.bss` +71. §26.7's own split is that total less this
+one, which was measured on its own before the zone was rewritten.
 
 ## 22. files.inc — the Disk window (file manager)
 
@@ -34577,6 +34732,16 @@ second copy, never a move:** the apps disks carry every package there is
 exactly as before, and a single-floppy machine that swaps to the apps disk
 (§28.1) finds everything where it was.
 
+**`THEWIRE.O88` is on the system disks too and is NOT one of the six.** It is
+a `SYSAPPS` package like `TASKMGR.O88` — it lives in `SYSTEM/`, it is launched
+by name by the kernel rather than found in a folder, and it is on **all four**
+geometries where the core six are on three. The reason is the one this section
+already gives for Browser and Telnet, taken one step: a network machine's
+system disk carries the driver, so it should carry the program that turns the
+driver into software you do not have. It is the *only* copy — there is no
+Wire on the apps disk, because a program whose whole subject is fetching
+software off the network belongs on the disk the machine booted from.
+
 **Entirely build-side. Not one line of the kernel changed for it**, and none
 had to — every mechanism it leans on already existed and already covers "some
 other volume happens to have this program on it", because that is what a
@@ -34589,9 +34754,12 @@ it off the system disk (§72.9, §62) — so that disk already carries the
 machine's whole ability to talk to something. Carrying the driver and not the
 two programs that use it is a machine whose link is configured and which has
 nothing on the disk in the drive that can speak over it: working, and
-indistinguishable from broken. Telnet is 4KB and Browser 14KB against the
-360KB disk's 60 free clusters, which is what makes the pair affordable where
-Tracker's 30KB and the module it exists to play are not.
+indistinguishable from broken. Telnet is 4KB and Browser 14KB against what the
+360KB disk had free, which is what makes the pair affordable where Tracker's
+30KB and the module it exists to play are not. (That figure was **60 free
+clusters** here for two releases and was stale the day it was written: it
+described the disk *before* those two went on it. §88.11 measures it rather
+than remembering it.)
 
 **`CORE_TOOLS` / `CORE_GAMES` in the Makefile are the list**, defined up
 beside `DRIVERS` and `SYSAPPS` rather than down with `APPS_TOOLS`, for a
@@ -35564,6 +35732,212 @@ desktop repaint and on every selection change. The caption is a `font_run` now.
 against an 8-px cell, so the run cannot be the erase for it; §22.11.3's rule.
 What the run buys is the cells, and that the caption is never momentarily
 missing from a rect that has just been whitened.
+
+### 26.7 A driver-registered desktop SERVICE zone, and the kernel keeps no glyph
+
+Every desktop zone in this OS is a row of `dsk_vtab` (§26.1). The Wire
+(docs/WIRE-PLAN.md) needs one that is not a disk: double-clicking it opens
+`SYSTEM/THEWIRE.O88`, the online software library. A package cannot put an
+icon on the desktop and `OSAPI_VOL_ADD` is fenced to drivers, so this is
+kernel code — but **the kernel learns nothing about the Wire**, and that is
+the design rather than a nicety. Most XTs have no network card. A desktop
+icon whose glyph, caption and launch name sat in every kernel would be
+carried in RAM by every machine that can never use it, and this OS's own
+budget is measured in single-figure bytes per rung.
+
+So the kernel gains one small GENERIC mechanism: **a desktop zone a DRIVER
+registers**, whose picture the driver draws. `ETHER.DRV` and `NET.DRV`
+register the Wire's out of the shared `drivers/wirezone.inc`. No driver, no
+zone, and the only thing a cardless machine pays at runtime is one compare in
+`desk_svflag`.
+
+#### `OSAPI_DESK_SVC` — slot `KERNEL_SEG:0x0500`
+
+```
+  in   AL    = 1 add / 0 withdraw
+       ES:SI = (add) a 65-byte record in the DRIVER's own segment:
+               +0  12  caption, NUL (<= 11 chars; 'Wire')
+               +12 13  the 8.3 file the zone launches, from the BOOT
+                       volume's SYSTEM/ ('THEWIRE.O88')
+               +25  1  the driver's DRVC_* class
+               +26  1  the verb the kernel calls to PAINT the icon
+               +27 12  the package's HEADER name, NUL ('The Wire')
+               +39 26  the failure notice's lead ('Cannot open Wire:')
+  out  CF = 1 refused: not a published driver, a SECOND registration, or a
+              withdraw of somebody else's zone
+```
+
+An **X cell**, so the caller's segment arrives in ES — which is both where
+the record is and what the fence tests. **The fence is `osapi_vol_fence`,
+unchanged and shared** (§51.8): the caller's segment must be the segment of a
+driver whose services are published. A package gets CF=1 and nothing else,
+for `OSAPI_VOL_ADD`'s reason — the kernel is about to far-call this segment
+on every desktop repaint.
+
+**ONE record, stated as the limit.** A second registration is refused; whoever
+attaches first has the zone, and on a machine with both network drivers loaded
+they reach the same Wire either way. Room for more is a count and a table, and
+nothing has asked for one.
+
+**The strings are copied, once, at registration**, into a `.bss` mirror laid
+out in the record's own order so the copy is one `rep movsb`. Keeping seg:off
+and reading them far at each use is the obvious alternative and it is worse:
+`font_run` and `ld_run_name` both take an SI relative to DS, and **SS is not
+DS on this system** (§1 rule 2), so a caption staged on the stack is
+unreachable by either and every site would need a kernel buffer anyway. The
+caption's terminator is forced here because it is the one field drawn on every
+repaint — without a NUL it letters the rest of `.bss` across the desktop for
+ever. The other three are used once each and the driver is trusted about them
+exactly as it is about the offsets in its own DSV table, which the kernel
+far-calls without looking.
+
+**The lead line is the driver's, not the kernel's.** `Cannot open Wire:` names
+the driver's own program; a kernel that composed it would carry both the words
+and the composer on every machine. That one decision is 47 bytes of `.text`
+and `.cold` that a cardless machine does not pay.
+
+#### The zone itself
+
+`DESK_SVZ` = `DVOL_MAX`, one past the last volume row, so `desk_ord` answers
+"the number of volume zones shown" for it and it lands at the end of §26.1's
+column flow. Every other routine in `desk.inc` is asked about an INDEX and
+never about a drive, so the zone selects, highlights, repaints under a dragged
+window and wraps into the next column exactly as a disk does. Five routines
+carry a one-compare arm — `desk_zflag` (→ `desk_svflag`), `desk_ord`,
+`desk_zone_label`, `desk_draw_zone`, `desk_click` — and `desk_zones_dmg` gains
+one `inc`, because the zone sits one ordinal past the last volume and
+therefore MOVES whenever one is mounted.
+
+**Two conditions make it visible**: a driver has registered one
+(`[desk_svc_seg]` is its segment, and 0 is the whole of what a machine without
+such a driver tests), and fewer than `DVOL_MAX` volumes have zones. It is not
+shown when eight volumes are — a fact rather than a crash: it is a desktop
+SERVICE and a machine with `DVOL_MAX` mounted volumes has said what it wants
+the right-hand edge for.
+
+**Painting calls the driver back.** `desk_draw_zone` reaches `drv_pkg_call`
+with `BH` = the record's class, `BL` = its verb and `CX,DX` = the icon's
+top-left, under `desk_paint`'s own gfx lock — the same door a package reaches
+a driver by (§20.11), so the kernel gains no drawing contract it would then
+owe for ever. The refusal is free and correct: `drv_pkg_call` answers CF=1 /
+AX=0 when no driver of that class is published, so a driver that vanished
+without withdrawing draws nothing rather than far-calling a freed image. The
+kernel then letters the caption itself, white rect hugging it, exactly as a
+volume's (§26.4).
+
+**The paint verb must not touch the driver's hardware.** A desktop repaint can
+land while another task is inside one of the driver's other verbs, so both
+drivers answer it above their own claim, where `NETV_IDENT` is answered and for
+the same reason.
+
+**Double-click** → `ui_svc_open`, which is `ui_tm_open` (§28.3) with a
+different descriptor (§28.3.2): a running instance whose header name matches
+the record's is fronted with `inst_restore`, otherwise the boot volume is
+quiet-mounted, the loader is given the record's file inside `SYSTEM/`, and the
+user's volume and folder go back. A failure raises the kernel's one-line
+notice with the record's lead and the `LD_*` reason. `desk_click` is `.cold`
+and `ui_sys_open` is not, so it goes out through `cw_ui_svc_open` — with **no
+gfx lock held**, which is that routine's contract and why the deselect and its
+redraw happen inside their own lock hold first.
+
+**The repaint on both edges is `desk_zmark`'s** (§26.3), and the withdraw's is
+the interesting one: it marks while the zone is still counted and then adds one
+more to `[desk_zhw]`, because `desk_zones_dmg`'s own `+1` for this zone is
+gated on the segment the withdraw has just cleared and the stale pixels are at
+the ordinal past the last volume.
+
+**The damage mask is a WORD.** It was one byte and `DVOL_MAX` = 8 sat exactly
+at that limit, so zone index 8 had **no bit under any volume count** — the
+eight-volume rule does not rescue it, because the volumes that ARE shown keep
+their own indices whatever their number. A bit that does not fit is a zone
+`desk_paint_x` still draws and every damage-driven path silently stops
+repainting. `[wm_dmg_zn]` is a `dw`, `desk_dmg_zones` answers in AX and
+`desk_paint_mask` shifts DX: **two bytes**, because `mov [mem],ax` and
+`mov ax,[mem]` are the same length as their byte forms.
+
+**`kern_small` leaves the species out** (`%ifndef KERN_SMALL`) — it has no
+driver that would register one. **The CELL is in both kernels** and refuses in
+two instructions there, because a slot that exists in one build and not another
+is an ABI that depends on a knob (§20.8 rule 4, `wm_noanim`'s precedent).
+
+#### What it cost, measured
+
+`tools/kernsize.py` either side, `kern_big`:
+
+| | before | after | |
+|---|---:|---:|---|
+| `.text` | 50,993 | 51,061 | **+68** |
+| `.cold` | 37,310 | 37,485 | **+175** |
+| `.bss` | 6,067 | 6,134 | **+67** |
+
+**243 bytes of `.text` + `.cold`, and 67 of `.bss`** — 43 over
+docs/WIRE-PLAN.md §2's 200-byte budget, and the overrun is named rather than
+absorbed. The slot's own body is about 95 of it: a fence call, a 65-byte
+`rep movsb`, the caption's terminator, `desk_zmark` on both edges and a
+withdraw that checks it is yours. The zone's five arms are about 75. The rest
+is the API cell, two `cw_` shims and the descriptor. The three things that
+could close the gap are all fences or guards — the withdraw's identity check,
+the caption's terminator, the damage rect's gate — and none of them is worth
+43 bytes.
+
+The `.bss` is the record's mirror plus the two words that find it, and it is
+the price of the strings being the driver's: the kernel holds a copy because
+nothing it hands them to can read the driver's segment.
+
+**What a machine with no such driver pays**: those 243 + 67 bytes, and at
+runtime one `cmp word [desk_svc_seg], 0` per zone test. It carries no glyph,
+no caption, no file name and no lead line.
+
+### 26.7.1 The picture is the driver's: `drivers/wirezone.inc`
+
+A reel of cable, side on, with a cord and a two-prong plug — 32 rows for
+VGA/EGA/Hercules and 14 for the CGA, drawn and not squashed (§26.4: the CGA's
+pixels are 2.4:1 tall, and OR-ing row pairs thickens every 1px feature into
+two). Black outline on a white body, the diskette's own mask/data convention.
+
+**Solid black masses, not a 1px outline**, and that is the difference between
+this and the first two drafts of it. Against the desktop's 50% dither a thin
+outline over a white silhouette reads as a pale BLOCK; the third draft stood
+the flanges two rows proud of the drum, which is what makes it a reel rather
+than a framed grille.
+
+```
+  ..######................######..   1.. 2  flange caps
+  ..############################..   3      the drum's top edge
+  ..######.#..#..#..#..#..######..   4..12  ...and the cable wound on it
+  ..############################..  13      the drum's bottom edge
+  ..######................######..  14..15  flange caps
+  ..............####..............  16..19  the cord
+  ...........##########...........  20      the plug's shoulder
+  ........################........  21..25  ...its body
+  ...........###....###...........  26..30  ...and its two prongs
+```
+
+**It is drawn as four 16×16 quadrants through `OSAPI_ICON_DRAW`**, two for the
+short form. That is not a stylistic choice: the slot refuses every record but
+16 px wide and at most 16 rows (§25.6.1 — it stages into a fixed cell and the
+bound is a refusal, not a truncation), and the kernel's own 32-wide icons go
+through `icon_draw_ix`, which is kernel-internal and reachable by no slot.
+Four far calls at ~47 µs is 188 µs on a 4.77 MHz 8088, against the 756 µs any
+one drawing call costs there — inside the noise of the draw it is part of, and
+paid on a desktop repaint and nowhere else.
+
+`drivers/wirezone.inc` is shared by `ETHER.DRV` and `NET.DRV` as **source**,
+never as a copy: `%define WZ_CLASS` before the `%include` is the whole of what
+differs. The include sits high in each file, above every call site, so
+`wz_paint` and `wz_register` are backward references — with it at the foot of
+`net.asm` nasm sized a forward `je` on pass 1 and resized it on pass 2, which
+is `label changed during code generation` on three labels and no build.
+
+**What it cost the two drivers**, and only machines that load one pay it:
+
+| | before | after | |
+|---|---:|---:|---|
+| `ETHER.DRV` | 17,668 | 18,274 | **+606** |
+| `NET.DRV` | 5,832 | 6,437 | **+605** |
+
+380 of those bytes are the six icon records; the rest is the 65-byte
+registration record, the paint verb and the two entry points.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
@@ -38530,6 +38904,47 @@ The change made the kernel smaller: `.text` −29, `.cold` −16
 on either guard, `KERN_BUDGET` unmoved. Three resident thunks lost their only
 caller (`disk_mount`, `dsk_find_name`, `ld_run_body` — all three were
 `ui_tm_open`'s alone) and two took their place (`dskw_stat`, `ld_run_name`).
+
+### 28.3.2 `ui_sys_open` — one body, a descriptor per system package
+
+The Wire's desktop zone (§26.7) opens `SYSTEM/THEWIRE.O88` by exactly the
+route above: front the running instance by name, else bank the user's volume
+and folder, quiet-mount the boot volume's root, step into `SYSTEM`,
+`ld_run_name`, put the volume back, and on failure raise `ui_note` with a
+lead line and the `LD_*` reason. That is eighty bytes of sequencing with six
+strings threaded through it, and a second copy of it would drift from this one
+the first time either changed.
+
+So `ui_tm_open` is now a two-instruction entry into `ui_sys_open`, which takes
+`SI` -> a **descriptor**: six words in `.text`, one per surface the routine
+touches.
+
+```
+UO_FILE   dw -> the 8.3 file name, in SYSTEM
+UO_NAME   dw -> the 16-byte header name a running instance carries (§20.2)
+UO_TTL    dw -> the failure notice's title
+UO_LEAD   dw -> ...and its lead line
+UO_ERRS   dw -> six words, indexed by LD_*
+UO_NOFI   dw -> the "not in SYSTEM" reason, which is not an LD_* code
+```
+
+`UO_NOFI` is a field of its own because §21.4 answers `LD_EBAD` both for a
+file that is not a package and for one that is not there, and those are not
+one message to a user; the disambiguation — `dskw_stat` asked on the failure
+path only, still standing in `SYSTEM` — is unchanged and now reads the name to
+ask about out of `UO_FILE`.
+
+`ui_tm_find` is `ui_sys_find`, matching `UO_NAME` instead of a baked
+`ui_s_tmname`; the descriptor pointer lives in `[ui_desc]` for `[ui_tm_cwd]`'s
+reason — this is UI-task-only and one load at a time, and every register in
+the routine is spoken for.
+
+**The two descriptors do not share their reason strings, and the Wire's name
+no file.** The Task Manager's three say `TASKMGR.O88 is not a valid package`
+and so on; the Wire's say `It is not a valid package`. The lead line above
+them already names the program, and the brand is `The Wire` with a desktop
+caption of `Wire` — `THEWIRE.O88 is too large` would be the only place in the
+whole interface where the user is shown the Wire's file name at all.
 
 ### 28.4 The heap page — every claim, grouped under the app that holds it
 
@@ -91097,3 +91512,458 @@ with a `SYSTEM.CFG` that wants `HDD.DRV`, the same VHD mounted through it —
 is the same script with `--driver`, registered as `hibernatedrv`. Both write
 three rendered screenshots to `build/hiber-*.png`; docs/TESTING.md has the
 recipe and what it cannot see.
+
+## 88. THE WIRE — the online software library (`apps/thewire/thewire.asm`)
+
+The Wire is a window listing every program the project publishes, fetched
+over `ETHER.DRV` from `os8088.com`, with a picture, a description, a
+recommended-machine filter and two actions: **Load Program** runs it now out
+of memory, **Add to Disk...** writes it and its sidecars to a floppy. A
+networked XT with one 360KB drive reaches the whole collection without ever
+seeing a second disk.
+
+`docs/WIRE-PLAN.md` is the design record — what was considered and why each
+fork went the way it did. This section is the contract.
+
+**`apps/wire/` is WIREFRAME (§78) and is not renamed.** The package is
+`apps/thewire/`, the file `THEWIRE.O88`, the header name `The Wire`. Nothing
+the user sees carries the file name.
+
+### 88.1 The four parts, and where the boundaries are
+
+```
+ kernel/desk.inc         kernel/loader.inc        apps/thewire/          ../os8088-web
+ the Wire zone   --dbl-> OSAPI_PKG_RUN    <--WM_- THEWIRE.O88   <--HTTP-- /wire/catalog.bin
+ (paint, hit)     click  (an image in      ONWAKE  catalog, list,          /wire/pic/*.PIC
+                         memory -> a               picture, filter,        /wire/pkg/*.O88
+                         running instance)         Load / Add
+```
+
+- The two kernel parts (§26's zone, §21's slot) know nothing about HTTP.
+- The package is the only reader of the catalog format on the machine and the
+  only caller of `OSAPI_PKG_RUN` today. It ships on the **system** disks in
+  all four geometries, in `SYSTEM/` beside `TASKMGR.O88` (§24.3), and is in
+  `SMALLOMIT` — `kern_small` has no NIC.
+- The catalog format below is the contract between the machine and the site.
+  The OS repo owns it: `tools/os88wire.py` packs, verifies and dumps it, and
+  the website's packer is an independent second writer of the same bytes. The
+  arrangement is `tests/unit/t_wab.py`'s over a `.WAB`, one format along.
+
+### 88.2 The catalog — `catalog.bin`, format version 1
+
+Little-endian throughout, fixed offsets, so the 8088 reads with `mov` and
+never parses. Every text field is ASCII 0x20..0x7E, NUL-padded to its width,
+and the **writer** refuses anything else. The **reader** refuses on any check
+below with `Catalog not understood` and leaves the window usable.
+
+```
+HEADER, 32 bytes
+ +0   4   'WIRE'
+ +4   1   format version, 1
+ +5   1   record size in 16-byte units, 16 (= 256)
+ +6   2   record count N (1..255)
+ +8   2   header size, 32
+ +10  2   sidecar table offset from file start
+ +12  2   sidecar table entry count S
+ +14  8   catalog date 'YYYYMMDD'
+ +22  10  zero
+
+RECORD i, 256 bytes at 32 + 256*i
+ +0   8   stem, uppercase A-Z 0-9 _ -, space-padded ('HELLO   ');
+          the package file is /wire/pkg/<STEM>.O88 and the picture
+          /wire/pic/<STEM>.PIC
+ +8   24  title (<= 23 chars)
+ +32  1   kind: 0 program, 1 game, 2 utility, 3 document, 4 update,
+          5 shared file. Only 0..2 are used today. A reader shows a kind it
+          does not know as a program.
+ +33  1   tier: 0 = 8088/8086, 1 = 286, 2 = 386, 3 = 486+ - the machine this
+          program is RECOMMENDED for. The filter 'X' shows tier <= X.
+ +34  1   flags
+          bit 0  WF_DISK    needs its files on a disk: an overlay, parts
+                            (header flags bit 2) or sidecars. Load Program is
+                            refused with that reason; Add to Disk works.
+          bit 1  WF_PIC     /wire/pic/<STEM>.PIC exists
+          bit 2  WF_NEW     new on the Wire
+          bit 3  WF_FLOPPY  only as a floppy image from os8088.com - its files
+                            live in a folder tree the Wire does not create
+                            (RunCPM's A/0/). Both actions refused.
+ +35  1   sidecar count n, 0..8
+ +36  2   first sidecar index into the table (meaningless when n = 0)
+ +38  4   size of <STEM>.O88 in bytes
+ +42  4   total bytes, the .O88 plus every sidecar - Add to Disk refuses
+          before touching the disk when OSAPI_FILE_DFREE is short
+ +46  2   zero
+ +48  64  icon: 16 mask words then 16 data words, bit 15 = leftmost - the
+          package's own OS88_ICON16 block (file offset 32..95 when its header
+          flags bit 0 is set) or the site's generic program icon. Drawn per
+          list row with OSAPI_ICON_DRAW.
+ +112 140 description: 5 lines x 28 bytes, each NUL-terminated within its 28
+          (<= 27 chars). PRE-WRAPPED BY THE WRITER; the machine wraps nothing.
+          Unused lines are all-NUL.
+ +252 4   zero
+
+SIDECAR TABLE entry j, 16 bytes at (header +10) + 16*j
+ +0   12  NUL-terminated 8.3 name, uppercase ('WEAVE.OVL') - fetched from
+          /wire/pkg/<NAME>, written beside the .O88
+ +12  4   size in bytes
+```
+
+The offsets are `WC_*` equs in `apps/thewire/wcat.inc` and are **mirrored in
+`tools/os88wire.py`**; `tests/unit/t_wire.py` compares the two files and
+fails the fast tier when they disagree, which is `t_mirror`'s arrangement for
+a constant that lives on both sides of a wire.
+
+**The generic icon is the kernel's own `ico_app16`** — a diamond outline over
+a solid diamond mask, which is what the Disk window already draws for a
+package with no `OS88_ICON16`, so a program looks the same in the Wire's list
+as it does in the folder it comes from. `tools/os88wire.py` carries the rows
+baked in rather than parsed, because the website's packer runs in a checkout
+with no kernel in it, and `t_wire` compares that copy against
+`kernel/icons.inc`'s own `dw` rows.
+
+**What `--verify --pkgdir` cross-checks, and the one thing it deliberately
+does not.** Given the *published* `/wire/pkg/` — where a file is named
+`<STEM>.O88` — it checks every `WC_SIZE` and every sidecar size against the
+file on disk, that every sidecar named in the table is actually there, and
+that `WC_TOTAL` is the `.O88` plus its sidecars to the byte. It checks a
+record's icon **exactly** when the package declares one (header flags bit 0);
+when the package declares none, the record carries a generic and *which*
+generic is the writer's choice by the sentence above — two independent writers
+may pick differently and both be right. What it still refuses there is the one
+thing that is a fault either way: an icon with no pixels in it, or one whose
+data rows are all zero, both of which `icon_draw_x` accepts and draws as
+nothing. That distinction is not hypothetical — the first spelling of this
+verifier compared the generic too, and failed the site's real catalog on the
+three packages that have no icon of their own.
+
+**Limits the reader enforces**, each a refusal and not a crash: the whole file
+`<= WIRE_CATMAX` = 16,384 bytes (the claim is made before `Content-Length` is
+known); the magic, the version and the two size fields exactly as above;
+`N >= 1`; the record array and the sidecar table both inside the file; every
+sidecar index in range; every file size `<= WIRE_FILEMAX` = 64,512 (63 KB —
+one claim, one `OSAPI_FILE_WRITE`). A larger file gets `WF_FLOPPY` from the
+writer, which is the site's job and the verifier's check.
+
+`WIRE_CATMAX` bounds `N` well below the format's 255: 16,384 bytes is 63
+records with no sidecar table at all, and the record array may not run past
+the end of the file. That is also what keeps `32 + 256*i` inside 16 bits,
+which the reader's addressing depends on.
+
+### 88.3 The picture — `<STEM>.PIC`
+
+**1,024 bytes, raw: 128 x 64 pixels, 1 bit per pixel**, 16 bytes a row, bit 7
+of a byte its leftmost pixel, **1 = ink (black)**, 0 = paper. No header; the
+reader refuses any other `Content-Length`. It is a 1:1 **crop** of a real
+screenshot, never a scaled one — a scaled 16-colour UI is mush and a crop is
+the program.
+
+**The reader inverts the 1,024 bytes as they arrive**, and that one `not` per
+byte is what makes the draw free of adapter branches. `OSAPI_GFX_BLIT1` takes
+a band in *final screen polarity* where a set bit is a LIT pixel, and its
+default pen is `CWHITE` ink on `CBLACK` paper (§5.4.2.2) — while on a 1bpp
+adapter the pen is ignored and a set bit is simply white. Inverted, the file's
+paper bits are the set ones on both, so the same band is correct on a VGA, a
+Hercules and a CGA with no pen call and no second buffer.
+
+`OSAPI_GFX_BLIT1` first: x and width must be multiples of 8, which 128 is, and
+the picture's x is a multiple of 8 from a content origin §11.94 has already
+snapped. When it answers CF = 1 — a `kern_small` kernel, which carries the
+slot and not the body — the fallback expands **one row at a time** into a
+64-byte scratch and calls `OSAPI_GFX_BLIT4` with `DX = 1`. Whole-picture
+`BLIT4` would want 4,096 bytes of packed 4bpp; a row wants 64.
+
+### 88.4 The HTTP profile
+
+Request, exactly:
+
+```
+GET /wire/<file> HTTP/1.0\r\n
+Host: <host>\r\n
+User-Agent: os8088 Wire 1.0\r\n
+Connection: close\r\n
+\r\n
+```
+
+The reply is read a header LINE at a time into a 32-byte buffer rather than
+through the browser's four-state CR-LF-CR-LF machine (§71): the Wire needs
+`Content-Length` and the browser does not, so it has to look at a header's
+contents anyway and a line buffer is both smaller and the thing that makes
+the length readable. A line longer than the buffer is clipped, which cannot
+lose a length header. The status code is columns 9..11 of line 0 — `br_hdrb`'s
+scan, done once on a complete line.
+
+- **`Content-Length` is required.** It bounds the body, drives the progress
+  figure, and its absence is `The Wire did not answer (0)`. A body longer than
+  its claim is truncated and the transfer marked failed.
+- **No chunked decoding, no redirects, no keep-alive.** A 3xx or a 4xx is
+  reported as `The Wire did not answer (NNN)` with the body discarded.
+- One socket at a time. `NETE_BUSY` is an ordinary answer and is retried next
+  pass, never a failure (`drivers/net/netpkg.inc`).
+- Everything off the wire is hostile: the only thing trusted about the server
+  is how many bytes it just handed over, and that is bounded by the capacity
+  passed to `NETV_RECV`.
+
+**Host, port and path prefix come from `WIRE.CFG`** (§19.9), read once at
+launch: one line, `host[:port][/prefix/]`, default when the file is absent
+`os8088.com:80/wire/`. The name goes to `NETV_OPEN` as is — resolution is the
+driver's. The gate's disk carries `10.0.2.2:8092/wire/`.
+
+### 88.5 The task division, and the one byte between the halves
+
+§71.1's division, and it is forced rather than chosen: **a worker may not call
+`OSAPI_MEM_*`, the file slots or the dialog** (§20.6 rule 7), and every
+`NETV_*` verb is non-blocking.
+
+| | does |
+|---|---|
+| the **UI task** | claims, sets the request, and is the only caller of `OSAPI_MEM_CLAIM`/`_FREE`, `OSAPI_FILE_WRITE`, `OSAPI_FILE_DLG` and `OSAPI_PKG_RUN` |
+| the **worker** (one, `OS88_STACK_192`) | opens, polls `NETV_STATUS`, sends, drains into a 1,024-byte staging buffer **in its own segment**, copies into the claim, and paints the status cell under the lock with §20.6 rule 5's obscured and clip tests |
+
+The handshake is `apps/ftpd`'s one byte (§77): the worker writes `wr_wkind`
+and everything else the handler will read, and writes `wr_wake` **last**; the
+handler banks the code, clears the flag, and only then acts. Clearing before
+acting rather than after is not a departure from the ftpd shape — acting is
+what starts the *next* request, and a flag cleared after that would clear the
+new request's wake.
+
+**And a generation counter checked INSIDE the store loop**, which is §71.11's
+lesson written out. `wr_gen` is bumped by the UI task on every abort and every
+new request; the worker banks it at the top of each pass and re-reads it per
+byte in the drain loop. Without the per-byte check a selection change landing
+mid-picture writes the rest of that chunk into a buffer the UI task has
+already freed — the check at the top of the pass is true when the pass starts
+and stale 512 stores later.
+
+### 88.6 The window
+
+Title `The Wire`, content **384 px wide**, height from the adapter through
+`OS88_PREFER` (§11.100.1): **386 x 243** on VGA, EGA and Hercules, **386 x
+147** on CGA, with `OSAPI_WM_MINSIZE` at the CGA size so no display may cut
+the layout below it.
+
+```
+ Show: (*) All  ( ) 8088/8086  ( ) 286  ( ) 386  ( ) 486+
+ +--------------+ +-----------------------------------+
+ | [i] Browser  | | [    128 x 64 picture, or the    ] |
+ | [i] Calculato| | [    words 'No picture'          ] |
+ | [i] Hello   ^| | Browser                           |
+ | [i] Mineswee#| | 8088/8086     15K                 |
+ | [i] Paint   v| | A web browser for the IBM PC.     |
+ | [i] Solitair| | Plain HTTP, no TLS.               |
+ |              | | [         Load Program          ] |
+ |              | | [        Add to Disk...         ] |
+ +--------------+ +-----------------------------------+
+ Available on the Wire: 31 programs
+```
+
+Everything below is content-relative; the content origin is 8-aligned by
+§11.94, so every text pen and the picture's x are 8-aligned too and take
+`font_run`'s single-store path and `gfx_blit1`'s only path.
+
+| element | where |
+|---|---|
+| filter radios | y 2..13, five `os88ui_glyph` rings at x 48, 96, 192, 240, 288, `Show:` at x 0 |
+| list pane | x 0..143, y 18..`y2`; rows 16 px from y 19, icon at x 3, one `OSAPI_FONT_RUN` of **13 cells** per row at x 24 |
+| scroll bar | x 129..142, the same y extent — `os88ui_sbar` with `OS88UI_SBDRAG` |
+| detail pane | x 152..383, same y extent; its text pen at x 160 and the picture at x 208 |
+| buttons | x 156..379, **stacked**, `y2-37..y2-21` and `y2-19..y2-3` |
+| status cell | y `ch-10`, one 48-character space-padded `OSAPI_FONT_RUN` across the full 384 |
+
+**THE DETAIL PANE IS SIZED FROM THE CATALOG FORMAT AND THE LIST GETS WHAT IS
+LEFT**, which is the second place the shipped window departs from
+`docs/WIRE-PLAN.md`'s mock. That mock starts the detail pane at 176 — 208 px —
+and draws a 27-column description in it, and 27 cells is 216 px: the first
+build ran the last two words of every description off the right-hand edge and
+into the frame. §88.2's 27 is the *format*, which the website implements too,
+so what moved is the pane. A pen at 160 ends at 375 with the frame at 383,
+eight pixels clear, and `WR_DESCC` is derived from those two edges so that
+moving either moves the ceiling with it. `wrtxt.inc`'s `WR_PANE` macro asserts
+every hand-written pane line against it at **assembly time** — the pane's own
+sentences do not come through the writer's wrapper, and the no-driver advice
+was thirty characters wide in the one state whose whole point is that a person
+can read it.
+
+What it costs is three cells off a list row, 13 rather than 16, and that is
+the right side to lose them on: a list row is an *index* and the detail pane
+is where the title is shown in full.
+
+`y2 = 18 + PH - 1` and `PH = ch - 29`, so the visible row count is
+`(PH - 2) / 16`: **12 rows on VGA and Hercules, 6 on CGA**, which is the
+floor `docs/WIRE-PLAN.md` §7 asks for.
+
+**The buttons are stacked and not side by side**, and the arithmetic is why:
+`Load Program` and `Add to Disk...` are 12 and 14 cells, so two standard
+buttons want 110 + 6 + 126 = 242 px against a 208-px detail pane. The captions
+are brand and are not shortened (`docs/WIRE-PLAN.md`'s table), so the column
+is what fits.
+
+**The CGA drops the PICTURE, not the description**, and this is the one place
+the shipped window differs from the plan's mock. A 108-row detail pane cannot
+hold a 64-row picture, a title, a tier line and any description at all: with
+the picture, the tier line already runs into the top button. Between a picture
+and the sentences that say what the program is, the sentences are what a
+person acts on. The test is the pane's own height — `>= 170 rows` draws the
+picture — so it is the *screen* that decides and not a `VID_*` compare, which
+is §39's rule.
+
+### 88.7 The two buttons, one predicate, three consumers
+
+§47. One routine answers, for the selected record, "may Load?" / "may Add?"
+with a **reason string**, and three call sites read it: the painter greys on
+it, the click refuses on it and says the reason in the status cell, and the
+File menu's items carry a `MENU_DIS` prefix from it.
+
+| reason | when |
+|---|---|
+| `Select a program first` | nothing is selected |
+| `The catalog is not loaded` | no catalog, or it was refused |
+| `A transfer is already running` | the state machine is in flight |
+| `Needs its files on a disk - use Add to Disk` | `WF_DISK`, Load only |
+| `Available as a floppy from os8088.com` | `WF_FLOPPY`, both |
+| `Needs NNNK free on the disk` | the Save completion's `OSAPI_FILE_DFREE` |
+
+The last one is not in the painter's answer and cannot be: it is knowable
+only once a *volume and folder* have been chosen, which is what §38.6's
+completion is. It is a refusal in the completion, before the first byte moves,
+and `OSAPI_FILE_DFREE` is asked **once** there rather than per file — §77.40's
+finding, where asking per chunk was 44% of an upload. **That call WRITES BX**
+(it is the sectors-per-cluster output), so the figure it is compared against
+is banked first: held in BX it is compared against 1, 2, 4 or 8 and the check
+never fires — on exactly the nearly-full disk it exists for.
+
+**The painter records its own answer in `[wr_grey]`**, bit 0 for Load Program
+and bit 1 for Add to Disk, written where the greying is drawn. That is §13.8's
+rule ("keep which control is down in a variable your `W_PAINT` reads") rather
+than an instrument, and it is what makes §47 assertable by a gate at all: a
+greyed caption on a VGA is `CDGRAY` and on a 1bpp adapter a checkerboard, and
+neither is a thing a screendump comparison can state cleanly. `tests/thewire.py`
+reads the byte.
+
+The predicate keeps the question in **BL and not AH**, and that is not a
+style: the body does `mov ax, [wr_sel]` on its way to the record, so a
+question in AH does not survive it. In AH, every Add to Disk came back with
+Load Program's answer — greying the one button a `WF_DISK` record exists to be
+used with.
+
+### 88.8 What each action does
+
+- **Load Program** — claim the exact size, fetch `/wire/pkg/<STEM>.O88`, and
+  on the wake call `OSAPI_PKG_RUN` with `ES:SI` = the claim, `DX:CX` = the
+  length and `DI` = `<STEM>.O88`; free the claim; status `Loaded <title> from
+  the Wire` and a toast. An `LD_*` refusal is said in the status cell in
+  words. The new instance's current directory is the Wire's (§19.2.1), which
+  is why a `WF_DISK` record is refused rather than launched into a folder
+  where its overlay is not.
+- **Add to Disk...** — `OSAPI_FILE_DLG` Save with `<STEM>.O88` as the default
+  name. The dialog moves the instance's directory to the chosen folder, so
+  every later write lands there. The completion checks free space and then
+  runs the chain: the `.O88` under the chosen name, then each sidecar under
+  its own, each one claim -> fetch -> the wake writes it with
+  `OSAPI_FILE_WRITE` -> free -> next. Status `Adding <title>... N of M
+  files`; a toast on the last. **A failure mid-chain leaves what was
+  written** and says which file failed — there is no undo on this system
+  (§22).
+- **A selection change** fetches the record's `.PIC` when it has `WF_PIC` and
+  the worker is idle, and repaints the detail pane and the two rows whose
+  selection changed and nothing else. A second selection change while a
+  picture is in flight bumps the generation and the worker drops the bytes.
+- **Refresh** re-fetches the catalog. **About** is `OSAPI_ABOUT_SET` (§12.2):
+  `The Wire`, `Online Software Library`, `Software by wire.`, the catalog
+  date, `os8088.com`.
+
+### 88.9 No driver, no link
+
+`net_find` answering CF = 1, or `NETV_STATE` without `NSTF_SOCK`, is an
+ordinary state and **never a modal alert**: the window opens with the status
+`Wire connection unavailable`, the list empty, both buttons greyed, and the
+detail pane carrying three lines a person can act on —
+
+```
+The Wire needs ETHER.DRV and a
+network card.
+Control Panel > Drivers turns it on.
+Or browse it at os8088.com/wire
+```
+
+Refresh retries. That is §47 rule 3 at the scale of a whole window: the grey
+says the buttons will refuse and the pane says what to do about it.
+
+### 88.10 The numbers
+
+Measured on this tree. The times are PERFORMANCE.md Part 2's XT figures
+applied to the calls each path makes — this is an 8088 cost model and not a
+stopwatch, because the machine that can hold a stopwatch to it is a 4.77 MHz
+one somebody is holding and the only harness for the network half is QEMU
+(§88.12).
+
+**The picture, 128 × 64 (§88.3).** One `OSAPI_GFX_BLIT1`: one drawing call, so
+**~756 µs of fixed cost** plus 64 rows × 16 bytes of `rep movsb` per plane —
+the traffic `OSAPI_GFX_SCROLL` moves for the same area, and the floor a 1bpp
+block has on this card. The `kern_small` fallback is **64 `OSAPI_GFX_BLIT4`
+calls**, one a row, at ~756 µs of wrapper each: **~48 ms**, plus the nibble
+expansion. Sixty-four times the fixed cost is what a whole-picture `BLIT4`
+would have avoided, and it would have wanted 4,096 bytes of bss to do it on a
+kernel that is *the* memory-constrained one. That is the trade, stated: the
+fallback is slow where the slot is refused, and it is refused on one kernel.
+
+**A list row.** One `OSAPI_GFX_FILL`, one `OSAPI_ICON_DRAW`, one
+`OSAPI_FONT_RUN` — **three drawing calls, ~2.3 ms**. A full twelve-row list is
+36 calls, ~27 ms, and it is drawn on a filter change, a scroll or a `W_PAINT`.
+A **selection change draws two rows and the detail pane** and nothing else,
+which is PERFORMANCE.md rule 1 written into §88.8.
+
+**The status cell.** One opaque `OSAPI_FONT_RUN` of 48 cells at an 8-aligned
+pen: `font_run`'s single-store path, one store a row a cell. The worker
+redraws it **when the KILOBYTE figure changes** and not per `NETV_RECV` — a
+40KB package is 40 repaints rather than the ~80 its chunks would give, and
+what the cell shows is kilobytes, so it is redrawn exactly when the picture
+changes.
+
+### 88.11 Sizes, and the 360KB disk
+
+The 360KB system disk is the binding one: its cluster is 1,024 bytes, and
+`docs/WIRE-PLAN.md` §7 sized the package against what was left on it.
+Measured with `python3 tools/os88disk.py --verify`:
+
+| | |
+|---|---|
+| `THEWIRE.O88` image | **10,174 bytes** (the ceiling is 12,288) |
+| bss | **2,997 bytes** |
+| 360KB system disk before | 354 clusters, 337 in use, **17 free** |
+| 360KB system disk after | 354 clusters, 347 in use, **7 free** |
+
+Seven clusters is about 7 KB, which is the margin the ceiling was chosen for.
+**The enforcement is `os88disk.py` refusing an image that does not fit**, not
+this table: a cluster count in prose goes stale the next time anything ships,
+and the figure that used to sit in `Makefile`'s core-package comment (60 free
+clusters, describing the disk before Browser and Telnet went on it) is what
+that looks like.
+
+The bss is a 1,024-byte receive buffer, the 1,024-byte picture, a 64-byte
+`BLIT4` scratch row, the request and header buffers, the two message buffers
+and the state. **The receive buffer is in the package's own segment and has to
+be**: `NETV_RECV` takes `ES:DI` and `OSAPI_DRV_CALL` puts the *caller's*
+segment in ES, so a staging buffer in a heap claim is written into our own
+image instead — which reads as memory corruption rather than as a wrong
+segment register, because the bytes really are ours (§77.10).
+
+### 88.12 The tests
+
+| row | tier | what |
+|---|---|---|
+| `tests/unit/t_wire.py` | fast | pack -> verify -> dump round trip on a fixture built from `build/hello.o88` and `build/mines.o88`; the writer's refusals; and the `WC_*`/`WIRE_*` equs in `wcat.inc` compared against `tools/os88wire.py`'s |
+| `tests/thewire.py` (`make thewiretest`) | soak | QEMU with an NE2000 and a host HTTP server on 8092. Seven assertions: the catalog loads and `wr_catck` accepts it, the host saw `GET /wire/catalog.bin HTTP/1.0` with a `Host:` and a `User-Agent:`, the list lists three rows, the `8088/8086` filter cuts it to two, a tier-3 `WF_DISK` record greys Load Program and **not** Add to Disk, the 128 × 64 picture on the glass matches the served `.PIC` **pixel for pixel**, and Add to Disk writes the `.O88` and its sidecar byte-identical — read back on the host by a FAT12 reader in that file after `quit` |
+
+**The picture assertion is the one nothing else can make.** §88.3 stores the
+band inverted so that one `gfx_blit1` is right on all three adapters, and an
+inversion that went the other way draws a perfectly plausible picture in
+negative: every gate that counts lit pixels, diffs two frames or looks for a
+block of the right size passes it. So the fixture's pattern is deliberately
+asymmetric — diagonal stripes with a solid block in one corner — and the
+comparison is per pixel against the file's own bits. All 8,192 wrong is the
+polarity; a few hundred is the block landing at the wrong x or y.
+
+**`tests/thewire.py` is QEMU's and cannot be MartyPC's**: MartyPC has no
+network card of any kind, so `ETHER.DRV` cannot be hosted on it at all
+(§72.9). Every assertion in it is about behaviour and none about speed,
+because the machine under it is not an 8088.
