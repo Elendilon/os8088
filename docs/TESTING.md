@@ -69,13 +69,28 @@ argue yourself into:
    field-verified on a real clock card). `RTC=ns` on QEMU exercises the
    *rejection* of an absent chip and that is all it exercises.
 
+7. **The VMware absolute pointer** (SPEC.md §9.11). MartyPC has no backdoor
+   of any kind — nothing decodes port `0x5658` there, which is the whole
+   reason the protocol chose it — so `VMMOUSE.DRV`'s probe cannot succeed on
+   it and there is nothing to host. QEMU's `pc` machine carries a `vmport`
+   and a `vmmouse` **by default**, which makes it the only emulator here that
+   can answer the guest at all. This entry was added by following the
+   instruction below, and it is entry 5's shape once more: the hardware is
+   simply absent. **Every assertion is about behaviour**, and about geometry —
+   never about speed, and never about the boot cost of loading the image,
+   because the machine under it is not a 4.77 MHz 8088. The gate needs a disk
+   of its own (`make vmmousetest`) because the driver is not wanted by
+   default: a stock image reads no sector of it, which is correct and is
+   exactly what makes the row need arranging rather than just running.
+
 That is the list. **"It is quicker to type" is not on it, and neither is
-"I already know the QMP commands."** If you find a seventh entry, add it here
+"I already know the QMP commands."** If you find an eighth entry, add it here
 rather than treating the rule as advisory.
 
-Note the shape entries 4, 5 and 6 share, because it is the only shape that
+Note the shape entries 4, 5, 6 and 7 share, because it is the only shape that
 gets on this list easily: **MartyPC does not have the hardware at all.** An
-8042 aux port, a NIC, an RTC — none of them exist on a 5150, so there is no
+8042 aux port, a NIC, an RTC, a hypervisor backdoor — none of them exist on a
+5150, so there is no
 "prefer MartyPC" to weigh. Entries 1-3 are the harder kind and the ones to
 argue with.
 
@@ -325,6 +340,7 @@ emulator have the hardware": a ✅ means reach for it first.
 | A **cross-wired IRQ** (SPEC.md §9.5.2) | ➖ | ✅ | `make test MOUSEPORT=com2irq4` | the Compaq Portable III: mouse at 2F8 driving IRQ4. Undetectable before the fix |
 | A **modem** on the other port | ➖ | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
 | **A PS/2 mouse** (SPEC.md §9.9) | ➖ | ✅ | `make test MOUSEPORT=ps2` | the `pc` machine's 8042 has an auxiliary port whether or not anything is plugged into it, so both halves are testable here and neither is on MartyPC or a 5150 — an XT has no 8042 at all, and `[cpu_tier]` refuses the whole module there. See below |
+| **The VMware absolute pointer** (SPEC.md §9.11) | ➖ | ✅ | `python3 tests/vmmouse.py` (or `make run VMPORT=on`) | QEMU's `pc` machine carries a `vmport` and a `vmmouse` by default, so the backdoor probe succeeds here exactly as it does under v86 in the browser — the one CI gate this browser-only feature gets. **Every recipe that DRIVES the pointer turns it off** (`-machine pc,vmport=off`): the Makefile's eight `$(QEMU)` sites, through a `$(QEMUMACH)` of its own so that a documented `QEMU=` override cannot swallow it, and `tests/ps2mouse.py`, `tests/heapmap.py` and `tests/vgadirty.py` in their own launch strings. `tools/mouse.py` drives `msserial`, and left on beside it the backdoor wins the contest and retires it — QEMU then splits coordinates from buttons across the two devices, `mouse_btn` sticks pressed, and the drag never ends. **The recipes that only BOOT a stock image neither turn it off nor need to** — the release zip's README, docs/LIVE-MEDIA.md, the modem recipe below: `vmm_row` is `db 0` like every other, so a disk whose `SYSTEM.CFG` does not set bit 5 (which is every image this tree ships) never reads a sector of `VMMOUSE.DRV` and never speaks the backdoor. `tests/vmmouse.py` turns it back on with `-serial none`, asserts `mou_port` = 6, and injects absolute positions through `vmmouse` that must land on the pixel. MartyPC has no backdoor |
 | **The hardware clock** (SPEC.md §37.90/§37.94) | ➖ | ✅ | `make test`, then drive the Date/Time page and `system_reset` — see below | a 5150 has no RTC and MartyPC models no clock card, so `[clk_tier]` is 0 there and the whole ladder is untestable. QEMU's MC146818 is rung 1 and the only hardware clock in this tree. Verified: `Hardware clock: AT 70h`, year stepped 2026 → 2024, panel closed, `system_reset`, and the bar still reads `Aug 26 2024`. Rungs 2 and 3 are the 5150's — no emulator here has an MM58167 or an RP5C01 |
 | Performance benchmarks | ✅ | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
 | **Flicker** — the double-draw flash | ✅ | ❌ | `os88marty.py flicker` (PERFORMANCE.md Part 3.1) | one sample per displayed frame. A Disk window repaint flashes 1,963 px for 166 ms; an idle desktop and a pointer move measure zero. CGA, Hercules and VGA — the MDA's rasterisation of Hercules graphics was measured working at the pinned build (docs/MARTYPC-DEBUG.md); this row used to exclude it |

@@ -926,6 +926,39 @@ task_spawn:
 ; clobbers: flags only (arithmetic flags; IF preserved via the frame)
 ; -----------------------------------------------------------------------------
 task_yield:
+%ifdef KERN_BIG
+    ; --- the VMware absolute pointer's service point (SPEC.md 9.11.3) --------
+    ; vmmouse is POLLED, not interrupt-driven, so every spin loop that waits on
+    ; the mouse - a drag, a grow, a menu track, the file manager's icon drag -
+    ; has to pump it or the button-release it is waiting for never arrives (a
+    ; freeze). They ALL call task_yield, so draining it here services every one,
+    ; present and future, near and far (the cold segment's cw_task_yield lands
+    ; here too).
+    ;
+    ; **WRITTEN OUT RATHER THAN VMM_POLL, and the difference is DS.** The macro
+    ; is for ui_task and menu_drop, which already hold the kernel's; this site
+    ; does not - task_yield is an OSAPI slot, so the caller may be a package
+    ; with its own DS. The GATE is still the macro's cs-relative compare, and
+    ; the segment load moves INSIDE the branch: a machine with no backdoor then
+    ; pays 9 bytes and ~39 clocks (the 8088's fetch floor over the encoding,
+    ; PERFORMANCE.md Part 2) instead of 16 and 91 - 8.2 us against 19.1, or
+    ; 1.2% of a 693 us switch instead of 2.8%. That is the whole price the
+    ; target machine pays for a branch it can never take.
+    ;
+    ; Before the cli/frame build: this is still the caller's task context with
+    ; IF as it left it, exactly as ui_task's own VMM_POLL - and vmm_poll takes
+    ; its own cli, and its own STACK, around the apply.
+    cmp byte [cs:vmm_on], 0
+    jz .noyvmm
+    push ds
+    push ax
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    call vmm_poll
+    pop ax
+    pop ds
+.noyvmm:
+%endif
     ; STKBALANCE-OK: fabricates the int 08h frame (pushf / push cs /
     ; call .save), so the ret below is reached by the scheduler's iret and not
     ; by .save returning - the depth at that ret is the frame, by design.

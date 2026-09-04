@@ -719,7 +719,6 @@ mouse_init:
     ; and the burst alone is MOU_IDWIN of this routine, so it runs to
     ; completion and this runs after it. Where both mice exist both end up
     ; live, and SPEC.md 9.5's contest settles it exactly as it settles two
-    ; UARTs: the first complete packet wins.
 %ifdef KERN_BIG
 %ifndef NO_PS2
     call mou_p2_init
@@ -1894,6 +1893,7 @@ mou_p2_byte:
 .out:
     ret
 %endif                          ; KERN_BIG - the PS/2 mouse (SPEC.md 9.9)
+
 
 ; =============================================================================
 ; The keyboard mouse (SPEC.md 9.6)
@@ -3095,6 +3095,36 @@ mou_byte:
 .bout:
     ret
 
+%ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; mou_apply_abs - an ABSOLUTE report (SPEC.md 9.11)
+;
+; The VMware backdoor knows where the pointer IS, not how far it moved. From
+; the clamp on nothing is protocol-specific, so this shares mou_apply's tail
+; rather than carrying a second copy of the event rules - the binding
+; both-buttons fall-through (SPEC.md 9) is the one that would be got wrong
+; twice.
+;
+; ins:  AX = x, BX = y - already scaled to the live screen; CL = the buttons
+;       in mouse_btn's own two bits. IF = 0 and ON mou_pstack: vmm_poll swaps
+;       to the mouse's private stack around this call, because .tail's
+;       cur_move chain is exactly what SPEC.md 9.10 moved OFF task stacks and
+;       vmm_poll runs on every task's. The contest was settled at boot by
+;       vmm_boot_x (SPEC.md 9.11.2).
+; outs: none
+; -----------------------------------------------------------------------------
+mou_apply_abs:
+    mov byte [blk_act], 1       ; a report IS user input (SPEC.md 64.1) - the
+                                ; contest is long settled, so unlike mou_apply
+                                ; there is no losing device to keep the screen
+                                ; awake
+    call mou_clamp              ; bounds, and 2-D on a two-display machine
+                                ; (SPEC.md 39.15.4). Preserves CX
+    mov [mouse_x], ax
+    mov [mouse_y], bx
+    jmp mou_apply.tail
+%endif
+
 ; -----------------------------------------------------------------------------
 ; mou_apply - one decoded report, whatever hardware carried it (SPEC.md 9.9.3)
 ;
@@ -3113,6 +3143,7 @@ mou_byte:
 ;       ISR context, IF = 0; the caller has already settled the contest.
 ; outs: none
 ; -----------------------------------------------------------------------------
+
 mou_apply:
     mov byte [blk_act], 1       ; a packet on a SETTLED port IS user input
                                 ; (SPEC.md 64.1), and only a settled one: both
@@ -3132,6 +3163,8 @@ mou_apply:
     call mou_clamp              ; ...and CX is untouched by it, which the
     mov [mouse_x], ax           ; button decode below relies on
     mov [mouse_y], bx
+.tail:                          ; mou_apply_abs (SPEC.md 9.11) joins here: from
+                                ; the clamp on, a report is protocol-agnostic
     mov byte [cur_shchk], 1     ; THE POINTER MOVED, so the window under it
     mov byte [ui_post], 1       ; ...and SAY SO once (SPEC.md 13.13)
     call sch_wake_ui            ; ...and WAKE the UI task (SPEC.md 8.1.2.2)
@@ -4974,6 +5007,7 @@ mou_p2m1    db 0                ; ...as is the master 8259's mask as
                                 ; back without disturbing the cascade bit the
                                 ; success path clears in the same byte
                                 ; (mouse_unhook restores the vector)
+
 
 %ifdef MOU_DIAG                 ; --- MOUDIAG=1 only (SPEC.md 9.9.6) ----------
                                 ; BELOW the published span deliberately: a knob

@@ -9061,6 +9061,13 @@ unreachable is a **measurement**, not a proof, and it has now gone stale twice
   CPU_8086` because an XT has no 8042 at all, and only ever committed to on a
   device that answered `0xFF` with `0xFA 0xAA`. It joins §9.5's contest as row
   `MOU_P2ROW` = 4 and the first complete packet still wins.
+- **And the VMware absolute-pointer backdoor on I/O port `0x5658`** (§9.10),
+  which is how the browser build (v86) gets a grabless absolute pointer.
+  `kern_big` only, behind `[cpu_tier] == CPU_386` at run time and a `cpu 386`
+  island at assembly — the probe and every command are 32-bit. Present ⇒ it
+  wins the contest outright at boot as row `MOU_VMROW` = 6 and the serial /
+  PS/2 ports are retired; absent (every real XT, and a real 386 with no
+  hypervisor) ⇒ the probe fails cleanly and nothing below changes.
 - Microsoft protocol, 3-byte packets, 7 data bits. Byte 0 has bit 6 set:
   `1 LB RB Y7 Y6 X7 X6`; bytes 1/2 have bit 6 clear: low 6 bits of X, Y.
   dx = sign-extended {X7X6,X5..X0}, dy likewise (positive = down).
@@ -9138,7 +9145,9 @@ unreachable is a **measurement**, not a proof, and it has now gone stale twice
   `mouse_x` (word), `mouse_y` (word), `mouse_btn` (byte), `mou_hotplug`
   (§9.4, the UI task's per-pass call). The PS/2 half adds no entry point of
   its own: `mouse_init` probes it, `mou_lockon` retires it and `mouse_unhook`
-  gives its vector back (§9.9.4).
+  gives its vector back (§9.9.4). The VMware half adds `vmm_poll`, drained
+  from `task_yield` and from `ui_task` — one byte compare (`[vmm_on]`) on a
+  machine that is not in a browser (`kern_big` only, §9.10).
 
 ### 9.4 Reset, absence and hot-plug (`mou_hotplug`)
 
@@ -11226,6 +11235,289 @@ not. It crossed no rung.
 assembling. It puts both ISRs back on the interrupted task's stack, which is
 what shipped before this section; `make stkdiag` builds it as arm 2 so the floor
 row moves by exactly what this is worth on the machine in front of you.
+
+### 9.11 The VMware absolute pointer — the browser's grabless mouse
+
+os8088 runs in the browser under **v86**, which emulates the **VMware mouse
+backdoor** on I/O port `0x5658`. The browser side already feeds v86 absolute
+canvas coordinates with no pointer lock, hides the host cursor and suppresses
+the context menu once a guest enables absolute mode — so the guest side is
+just something that speaks the protocol. The pointer then tracks 1:1 with no
+grab, which is the whole point. QEMU's `pc` machine, VMware and VirtualBox
+answer the same backdoor.
+
+**It is `VMMOUSE.DRV`, and none of it is in the kernel.** The protocol is
+32-bit by construction: the magic is a dword, the command register is `ECX`,
+and the call itself is `in eax, dx`. An 8088 has no `EAX`, `0x66` is not a
+prefix there but an invalid opcode, and — the part that settles it — **there
+is nothing on that machine to speak the protocol to**. So the whole feature
+is a file on the system disk, read on a machine that asks for it and on no
+other. §41.12's argument for `XMEM.DRV` is this argument, and the arithmetic
+came out the same way: carried resident the feature cost **548 bytes of
+`.text`**, which `tools/kernsize.py` priced as a crossed 512-byte footprint
+rung — RAM every XT keeps for code it can never execute.
+
+**A `[cpu_tier]` gate in the kernel would not have been enough**, and this is
+the sharper half of the reason. §87's hibernate writes the machine's RAM
+wholesale and validates five things on resume — `HBP_MAGIC`, `HBP_BUILD`,
+`HBP_STAMP`, `HBP_MEMTOP`, `HBP_VID` — and **not the CPU**. Resident 386 code
+plus a restored "the backdoor is on" byte is an 8088 executing `push eax`
+after a disk is carried between two machines with the same kernel, the same
+`mem_top` and the same adapter; CLAUDE.md names `xt-mfm` as the machine to
+install and hibernate on. §87.4 step 1 **detaches every driver that is not
+`DRVC_DISK` or `DRVC_FILE`** before it writes, so a file cannot make that
+trip and resident code can.
+
+`kern_big` only, for §41.11's reason one level down: every machine
+`kern_small` runs on is an 8086, `$(SMALLDRIVERS)` filters the image off those
+disks, and the row, `drv_load_at` and every byte that reads them are inside
+`%ifdef KERN_BIG`.
+
+#### 9.11.1 `DRVC_OVL`, with a `drv_tab` row
+
+The one such combination in the tree, and each half is load-bearing.
+
+**No class.** A class is a *publication slot* (§51.2.1) — how a **package**
+finds the driver serving sound, or disks, or files. The kernel is this one's
+only caller and holds its row, so there is nothing to publish and nothing to
+find. `DRVC_MAX` stays 5. `drv_load_row` already stops a `DRVC_OVL` row after
+`drv_check`, with `DRVR_SEG` and `DRVR_ENT` live and no verb sent, and leaves
+the attaching to the owner — the same division `HDD.DRV`/`HDDTOOL.DRV` runs
+on, and the same one `XMEM.DRV` reaches through `drv_load_at`.
+
+**A row, which `XMEM.DRV` deliberately has not got.** §41.12 declined one on
+the grounds that "a machine either has memory up there or it does not", so a
+tick box "would only ever be a way to break a working machine". Half of that
+holds here and half does not:
+
+- whether the backdoor **answers** is likewise not a matter of opinion — but
+  **the probe is 386 code**, so unlike `xm_sniff` there is no resident test
+  that could ask the question at all;
+- and whether the user wants the pointer **ungrabbed** *is* a decision, in a
+  way that "is there RAM above 1MB" is not.
+
+So the `SYSTEM.CFG` bit is both the request and the record of it (§51.3), and
+the Control Panel's Drivers page is where it goes off again. **Bit 5**, by
+`drv_cfgbit`'s stable assignment and not by row number. Row 5, **not wanted by
+default** like every other row: a floppy carrying no settings file reads no
+sector of this driver, which is exactly what an XT should pay.
+
+| | |
+|---|---|
+| file | `VMMOUSE.DRV`, 521 bytes |
+| class | `DRVC_OVL` — no publication slot, no `DRVV_TIER`, no `DRVV_READY` |
+| row | `drv_tab` row 5, `SYSTEM.CFG` bit 5, `DRVM_VMM` = its image and nothing else |
+| ABI | `kernel/vmmabi.inc`, **`%include`d by both sides** — `VMM_ABI_VER`, `VMMV_READ`, `VMM_DRAIN` and the register contract |
+| hooks | **nothing**: no vector, no IRQ line, no DMA channel, no port kept |
+
+#### 9.11.2 Attach — the last CPU gate in the tree
+
+`vmm_boot_x` (`.cold`) runs from `kmain` on the line after `drv_boot_x`'s,
+which is what read the image if the settings file asked for it.
+
+1. **`cmp byte [cpu_tier], CPU_386`.** Below this compare there is no kernel
+   code that could need one, because below it there is no 386 instruction in
+   the kernel at all. A `SYSTEM.CFG` carried from a faster machine is refused
+   here with `DRVE_HW` in the row and the image handed back, rather than
+   obeyed. `cpu_detect` (§60) runs from the boot overlay long before
+   `drv_boot_x`.
+2. **`DRVV_ATTACH`** with `AH = VMM_ABI_VER`, which the image checks against
+   its own — a stale `VMMOUSE.DRV` beside a new kernel is a refused load with
+   a Drivers-page line, not a wrong answer at the first poll. The image then
+   sends `GETVERSION`; on bare metal `0x5658` is undriven by design and `EBX`
+   comes back unchanged. There is no v86 detection and no hypervisor `CPUID`
+   bit: the backdoor is the only thing worth asking about.
+3. On success it **settles the contest**, as `mou_claim` and `mou_p2_byte` do:
+   `[mou_port] = MOU_VMROW`, `[mou_line] = MOU_P2LINE`, `[mou_seen] = 1`,
+   `[mou_ptr] = 1` (the machine has a pointer, so the keyboard mouse stands
+   down, §9.6.6), `[mou_idany] = 1` (so `mou_hotplug` stands down too), then
+   `mou_lockon`. **`[vmm_on]` is written last**, and it is the gate every poll
+   site reads.
+
+**`MOU_VMROW` is 6 and is reachable by no device.** Serial rows are byte
+offsets into a word table, so they are 0 and 2; `mou_p2_byte`'s is
+`MOU_P2ROW` = 4. Every `cmp bl, [mou_port]` in the serial decoder therefore
+fails, and `mou_lockon` — which retires every row that does not match —
+clears `IER` on **both** UARTs, masks both lines at the master 8259 and calls
+`mou_p2_off`. A modem on COM1 raises no interrupt at all.
+
+**It runs after `mouse_init`, and settles the contest a second time rather
+than skipping ahead of it.** That order is not free — a browser pays
+`MOU_IDWIN` for a serial identify it will not use — and it is the right one
+anyway: a machine whose backdoor turns out not to answer still has whatever it
+really has, with nothing to undo.
+
+**The 8042.** os8088 reads positions from the backdoor and never decodes a
+PS/2 packet, but **v86 only starts delivering mouse events to the page once
+the guest enables the PS/2 mouse stream** — until then the browser's handler
+is dead and the pointer does not move at all. QEMU and VMware deliver
+regardless. So the image sends `0xF4` (enable — the host flips its handler on)
+and then immediately `0xF5` (stop the stream, so no packet is ever queued and
+`int 74h` can stay unhooked). `0xF5` does not undo the host's own
+"mouse enabled" state.
+
+**Each command is bracketed the way `mou_p2_init` brackets its probe, and that
+is binding.** §9.9.1 step 1 says the `0xAD` there is "not tidiness": IRQ1 is
+tied to OBF and gated by the command byte's bit 0, so **the controller's own
+replies raise it too**, and an `int 09h` that reads `0x60` takes them. So:
+mask IRQ1 at `0x21`, write `0xAD`, send the command, read the ack **filtered
+on status bit 5** — a byte without it is the keyboard's and is *left in the
+buffer* — then `0xAE` and the old mask back, **on every exit including the
+timeouts**. One command per bracket: doing both inside one would leave the aux
+stream enabled for the width of two acks with `int 74h` unhooked, and a
+3-byte packet queued there is three garbage scancodes and, if the buffer
+fills, a starved keyboard. `DRVV_DETACH` sends `0xF5` again, because a stream
+left enabled across an `int 19h` warm boot is packets arriving at a kernel
+that has not hooked `int 74h`.
+
+#### 9.11.3 `VMMV_READ`, and the pump
+
+The image answers **one report a call, raw**:
+
+```
+in:  AL = VMMV_READ
+out: CF = 1                nothing queued - stop asking this pass
+     CF = 0                a report:
+       AX = x, BX = y      RAW, 0..0xFFFF, UNSCALED
+       CL                  buttons, in mouse_btn's own bits (1 left, 2 right)
+       CH                  0 = an absolute POSITION, 1 = a signed relative
+                           DELTA (v86 sends these while the host pointer is
+                           locked - the user hit "capture pointer")
+```
+
+**Raw, because the scaling is the kernel's.** Turning `0..0xFFFF` into a pixel
+needs `[vid_w]`/`[vid_h]` — the live screen and never `SCREEN_W`/`SCREEN_H` —
+and on a two-display machine §39.15.4's geometry as well. That is kernel state
+which changes under the image's feet, `vid_switch` being able to run while it
+is loaded. `DX = (v * vid_w) >> 16` maps 0 to 0 and `0xFFFF` to `vid_w - 1` for
+every width, so the top of the range can never address one past the edge.
+
+**One report a call, because a button transition is not idempotent the way a
+position is.** Collapsing four packets into "the last position and the current
+buttons" loses a click that opened and closed inside one poll. The kernel
+bounds the drain at `VMM_DRAIN` (24), the way `ui_task` bounds `EVQ_CAP`.
+
+`vmm_poll` is called from **`ui_task`'s pass and from `task_yield`**. The
+second is what matters: vmmouse is polled rather than interrupt-driven, so
+every spin loop that waits on the mouse — a drag, a grow, a menu track, the
+file manager's icon drag — has to pump it or the button-release it is waiting
+for never arrives, which is a freeze. They all call `task_yield`, so servicing
+it there covers every one, present and future.
+
+**The apply runs on `mou_pstack`, and that is not optional.** §9.10 moved the
+`mou_apply → cur_move` chain onto the mouse's private stack precisely so it
+stops being "a cost every slice must be sized for simultaneously", and
+`STK0_SIZE` was halved to 512 citing that removal in terms. Polling from
+`task_yield` puts the same chain back on the caller's stack by a different
+door: `task_yield`'s deepest path measures **28 → 66 bytes**, which computes
+the 128-byte idle slice to within one word of `sch_stkdie`. So `vmm_poll`
+takes `MOUPRIV_ENTER`/`MOUPRIV_LEAVE` around the apply and §9.10's invariant
+holds unchanged. It may borrow that stack because it is **provably idle**
+whenever `[vmm_on]` is set: neither mouse ISR can fire, `mou_lockon` having
+retired both. **The swap is inside the `cli`** — `SP` is what `sch_switch`
+banks into the task's record, so a tick taken while `SP` points into
+`mou_pstack` would save the mouse's stack as that task's and never get it
+back.
+
+**`vmm_bd` runs with interrupts off**, which is `xmem.asm`'s arrangement and
+not merely its shape (§41.9 rule 2 is about assembly-time permission; the
+`cli` is the run-time half). A tick between `mov eax, VMM_MAGIC` and
+`in eax, dx` switches tasks, `sch_switch` saves 16-bit registers only, and
+`XMEM.DRV`'s 32-bit movers are exactly the other tenant of a machine with
+memory above 1MB. A clobbered upper half means the magic is wrong and the
+mouse stops intermittently.
+
+**`vmm_flush` is bounded** (`VMM_FLUSHMX`, 64 passes of at most 6 words). It
+runs at attach, inside the boot sequence, and "the count strictly fell so this
+terminates" is a statement about a host that behaves.
+
+`[vmm_busy]` is an `xchg` test-and-set, atomic on an 8086: `task_yield` is a
+caller, so two task slices can otherwise race the image's one scratch buffer.
+A slice that finds it held returns and lets the holder drain. It is released
+on every exit, it is unreachable from any ISR, and the state is `.text` with
+real initialisers so a warm boot clears it.
+
+**One case is open and is written down rather than guarded.** If a task is
+preempted inside `vmm_poll` and an **exclusive bracket** (§53.2) is then
+armed, the holder may be ineligible for the whole bracket — it cannot reach
+its release, and every `task_yield` the exclusive task makes finds the guard
+held and returns. The pointer is then dead until the bracket ends, which for
+a full-screen game is unbounded. The window is tens of microseconds wide and
+the fix is not obviously the guard's — clearing it in `sch_switch` when
+switching *away* would work, and so would holding it only across the backdoor
+call rather than the whole drain — so it wants §53.2's eligibility rules
+confirmed before it is called a bug rather than a hazard.
+
+#### 9.11.4 Not done
+
+- **No multi-display scaling.** `[vid_w]`/`[vid_h]` are the *union bounding
+  box* on a two-display desktop (§39.12–§39.19), so absolute coordinates would
+  spread across both monitors at ~2×. v86 presents one framebuffer and the
+  extended desktop is 86Box's two-card XT, which has no backdoor of any kind,
+  so the two cannot meet today. It is written down rather than guarded.
+- **No wheel.** The packet's fourth dword is dropped; os8088 has no scroll
+  event (§10).
+- **The version word is not read back.** `READ_ID` queues one as a side
+  effect and `vmm_flush` throws it away. Checking it means a `DATA` read whose
+  size can only be guessed, and guessing wrong desyncs the framing and sticks
+  the pointer — which is the bug that made the drain unconditional in the
+  first place. The `GETVERSION` probe is the gate.
+
+#### 9.11.5 Cost
+
+| | |
+|---|---|
+| `.text` | **+259** — the gate byte, `vmm_dsp`, `vmm_poll`, `mou_apply_abs`, the three poll sites and the row |
+| `.cold` | **+124** — `vmm_boot_x`, where `driver.inc`'s three calls are near |
+| `kern_small` | **0**, `%ifdef`-ed out entire, state included |
+| the footprint | one 512-byte rung. The resident version cost two |
+| every `task_yield` | 16 bytes and ~91 clocks — **19.1 µs**, 2.8% of a 693 µs switch |
+
+That last row is the price the target machine pays for a compare it will never
+take, and it is why `[vmm_on]` is one byte in `.text` rather than anything
+that needs computing. `.cold` is not `.ovl` — which would cost nothing after
+`spl_finish` — because the blob is full: putting `vmm_boot_x` there trips
+`OVL_AT + OVL_SIZE > BOOT2_PAD`, and `BOOT2_SECS` is a decision about how many
+sectors stage 1 reads, not a build fix.
+
+#### 9.11.6 QEMU carries the backdoor — the harness turns it off
+
+QEMU's `pc` machine has a `vmport` and a `vmmouse` **enabled by default**, so
+a guest that speaks the protocol wins the contest there. That is right in v86
+and on a desktop hypervisor and wrong for automated testing, where
+`tools/mouse.py` drives the `msserial` device by relative deltas and the
+backdoor's queue stays empty — the pointer would never move. With **both**
+present QEMU splits absolute coordinates and button events across two pointer
+devices and `[mouse_btn]` sticks pressed: a drag that starts and never ends.
+
+So the Makefile carries `QEMUMACH := -machine pc,vmport=$(VMPORT)` with
+`VMPORT ?= off`, appended at every `$(QEMU)` use site. **It is its own
+variable rather than part of `$(QEMU)`**, because six recipes and four
+documents tell the reader to replace `$(QEMU)` wholesale — `make test
+QEMU="qemu-system-i386 -icount shift=3,sleep=off"` is the band benchmarks'
+documented form — and an override that swallowed the machine flag would put
+the default `pc` back with `$(MOUSE)`'s msmouse still on the line. The three
+tests that build their own QEMU command line (`tests/heapmap.py`,
+`tests/ps2mouse.py`, `tests/vgadirty.py`) carry it themselves.
+
+**`make vmmousetest`** builds `build/vmmouse.img` — a system disk whose
+`SYSTEM.CFG` already has bit 5 set, `ether360.img`'s shape (§72.9) — and
+`tests/vmmouse.py` boots it with `vmport=on` and `-serial none`, the
+browser's own arrangement: the backdoor as the only pointing device. It
+asserts `[cpu_tier]` = 2, `[vmm_on]` = 1, `[mou_port]` = `MOU_VMROW`, then
+injects absolute positions through QEMU's `vmmouse` that must land within 2 px
+— the sign and axis handling a boot-state read cannot see — and drags through
+a menu to prove the `task_yield` service point. **It reads `[vid_w]`/`[vid_h]`
+out of the guest rather than assuming 640x480**, so the row means the same
+under `VIDEO=cga` and `VIDEO=ega`; and **(0, 0) and (`vid_w`-1, `vid_h`-1) are
+among the points**, because the interior ones cannot see an off-by-one at
+either end and the claim in §9.11.3 is precisely about the ends. Every
+injected point must also land strictly inside the screen, whatever the
+tolerance allows in the middle. `make run VMPORT=on`
+is how a developer gets the grabless pointer interactively.
+
+MartyPC has no backdoor of any kind, so nothing there changes.
+
 
 ## 10. events.inc
 

@@ -145,6 +145,11 @@ ui_task:
 
     ; --- 2. events: DRAIN the ring, acting on each record (SPEC.md 10.2) ------
 .events:
+    VMM_POLL                    ; the VMware absolute pointer (SPEC.md 9.11.3):
+                                ; drain its queue into mouse_x/y and the event
+                                ; ring BEFORE evq_pop below, so a click it
+                                ; carries lands this pass. One byte compare off
+                                ; a browser
     call blk_pass               ; spend the mouse ISR's activity flag, and dark
                                 ; every monitor once the idle period is up
                                 ; (SPEC.md 64.1). AHEAD of evq_pop and not
