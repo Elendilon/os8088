@@ -138,6 +138,16 @@ lets a browser change be verified the way everything else here is — an
 identical scripted session against a reference build, diffed for **0
 differing pixels**.
 
+**The double duty came apart, and it is this section that was right.** For as
+long as `demo.htm` was both the fixture and the file in `MEDIA/`, the page a
+new user opened first was one written to torture a parser — every
+pathological case above is deliberately there, and none of them says what the
+toolbar does. SPEC.md §71.12 splits the two: `apps/browser/browser.htm` ships
+and is the program's manual, `tests/htm/demo.htm` stays exactly what this
+section asked for and stops being anything else. Both are on `make
+browsertest`'s disk, so the shipped page is renderable under test too — which
+it was not while it was the fixture.
+
 #### 1.1.2 What FrogFind's front page settled, and what it did not
 
 A copy of `http://frogfind.de/` is checked in at `tests/htm/frogfind-de-ie5.htm`

@@ -3787,12 +3787,31 @@ br_foldwide:
 ; --- br_entity - &...; -> folded text ----------------------------------------
 ; A malformed entity is LITERAL TEXT, never an error and never a swallowed
 ; line (tests/htm/torture.htm section 6).
+;
+; AN ENTITY IS INK, so the pending space is owed to it exactly as it is owed
+; to an ordinary byte - br_char's `.ink` path is `br_wflush` then `br_fold`
+; and this is that pair one level up. Without the flush, `word &mdash; word`
+; drew as `word- word`: the space BEFORE the entity was collapsed into
+; [br_wsp] and then never spent, because every path out of here reaches
+; br_fold without passing br_char at all. It is silent in two directions -
+; the space after the dash survives (that one is br_char's), so the line
+; reads as a typographical choice rather than a dropped character, and
+; tools/htmsim.py cannot see it AT ALL, because the model unescapes entities
+; into the text stream before it collapses whitespace and therefore has no
+; entity left to lose a space in front of (SPEC.md 71.13).
+;
+; Flushing at ENTRY rather than beside each br_fold is safe because every
+; path out of here emits exactly once - `.have`, `.num` and `.literal` alike
+; - and it is right even when br_fold DROPS the character (a fold to 0, the
+; soft hyphen): the space is the source's, not the entity's, and br_char
+; spends it the same way in the same case.
 br_entity:
     push ax
     push bx
     push cx
     push dx
     push di
+    call br_wflush                  ; the pending space, if one is owed
     mov di, si                      ; remember where the body starts
     xor cx, cx
     mov bx, br_ebuf

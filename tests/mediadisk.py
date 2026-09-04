@@ -60,7 +60,7 @@ def run(apps, want_root, want_media):
 
 run("build/media360.img", ["MEDIA"], ["BEVERLY.MOD"])
 run("build/apps360.img", ["APPS", "GAMES", "MEDIA", "SYSTEM"],
-    ["DEMO.HTM", "GUIDE.TEX", "PAPER.TEX"])
+    ["BROWSER.HTM", "GUIDE.TEX", "PAPER.TEX"])
 
 if fails:
     print("\nFAILED:\n  " + "\n  ".join(fails))

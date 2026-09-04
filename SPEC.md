@@ -28916,7 +28916,7 @@ The tree, and the one part of it that is a correctness requirement:
 | `C64/` | `C64.O88` (the ROM is a PART of it, §20.12), `C64.OVL`, `README.TXT` and `COPYING` (`docs/C64-SPEC.md` §14.2) |
 | `WEAVE/` | `WEAVE.O88`, `WEAVE.OVL`, `WEAVE.WSM` and the three demo bundles (`WEAVE-SPEC 1.2`) |
 | `LOOM/` | `LOOM.O88`, `LOOM.OVL`, `LOOM.WPV`, the demo sources — and a second copy of `WEAVE.O88`, `WEAVE.OVL` and `WEAVE.WSM`, so that a bundle Pack writes beside its sources opens where it was written (`WEAVE-SPEC 1.2`, `1.2.4`, `11.2`) |
-| `MEDIA/` | the module, the two `.TEX` documents and `DEMO.HTM` — where a File Open starts (§38.10) |
+| `MEDIA/` | the module, the two `.TEX` documents and `BROWSER.HTM` — where a File Open starts (§38.10) |
 | `SYSTEM/`, `SYSTEM/DOS/` | the Task Manager (§28.3) and `OS88NET.COM` (§62) |
 | `SYSTEM/APPDATA/` | empty and **built rather than made on demand** (§19.9) — a Weave bundle's `saveState` writes its `.SAV` here (`WEAVE-SPEC 8.3`) |
 | `DOCS/` | empty, for the user's own saves |
@@ -34429,11 +34429,17 @@ Seven packages fail that test:
 | `TANK` | the fullscreen surface (§42.7, §81). It opens and draws its splash, and there is no *game* behind it without fsx |
 
 …and two data files with them, for the same reason one step along:
-`DEMO.HTM` is openable by nothing else on the machine (§71), and
-`BEVERLY.MOD` is the two removed players' module (§24.4).
+`BROWSER.HTM` is openable by nothing else on the machine (§71) — and it is
+that program's manual (§71.12), which is worse than no file at all on a disk
+the program is not on — and `BEVERLY.MOD` is the two removed players' module
+(§24.4).
 
-**90,510 bytes — a quarter of a 360KB floppy — for seven programs that could
-not have started.** The apps disk goes 341 → 244 of 354 clusters.
+**90,527 bytes — a quarter of a 360KB floppy — for seven programs that could
+not have started.** The apps disk goes 341 → 231 of 354 clusters. (All three
+re-measured at §71.12, and only 341 moved *because* of it: `BROWSER.HTM` is
+three clusters where `DEMO.HTM` was six, so the full disk was 344 before it.
+The other two read 90,510 and 244 when they were taken and had drifted with
+the packages since, the way a number quoted from a build always does.)
 
 #### 24.5.2 A third ground: a claim larger than the machine
 
@@ -65286,8 +65292,8 @@ because Tracker is one of the four whose glyph `tools/os88mini.py` bakes into
 the kernel (`assoc_glyph`); `HTM` and `TEX` are §54.6 *declarations*, so their
 slots are created by `asc_merge_ext` out of the cache and have no baked glyph
 at all. The programs are in `APPS/` and the documents are in `MEDIA/`
-(§19.2), so `DEMO.HTM`, `GUIDE.TEX` and `PAPER.TEX` drew bare pages from a
-cold boot, and started drawing properly the moment `APPS/` was browsed —
+(§19.2), so the `MEDIA/` `.HTM` and the two `.TEX` documents drew bare pages
+from a cold boot, and started drawing properly the moment `APPS/` was browsed —
 because *that* is when the harvest reads `BROWSER.O88` and `TEXPAD.O88` and
 `asc_note` reduces their icons. Browsing one folder fixed the icons in
 another, which is the shape that says a cache was half-spent.
@@ -77490,6 +77496,93 @@ this OS is for. **And on a VGA too, now**: it declares two colours as well
 (§11.96.17), which the greyed Back and Forward used to make untrue and
 §11.96.17.1 fixed — so the claim is 23,513 bytes at one plane where four
 planes would have been 94,010 and `wm_su_kb` would have refused it.
+
+### 71.12 The page that SHIPS is the manual; the testbed stays a fixture
+
+`DEMO.HTM` was written to stress the renderer while the renderer was being
+written, and it is good at that: two real tables, a third that collapses to a
+block, a form, a `<pre>` block, an `https` link kept on purpose so there is
+something to refuse. docs/BROWSER-PLAN.md §1.1.1 gave it three jobs at once —
+the page the project hosts, `tests/htm/`'s conformance fixture, and the one
+document in `MEDIA/` a new reader can open.
+
+**The third job is the one it was worst at.** `MEDIA/` is where a File Open
+starts (§38.10), so its one `.HTM` is the first thing a new user clicks — and
+what they got was a page describing the project *to somebody who has already
+got it running*. Nothing on it said what the toolbar does, which keys scroll,
+why an `https` link answers back instead of loading, or that the proxy exists
+at all. The one file guaranteed to be read was spending its bytes on an
+audience that had already arrived.
+
+`apps/browser/browser.htm` is that slot filled with a **manual**, and it is
+still the demonstration — which is the whole trick, because a manual for this
+renderer written in this renderer's dialect exercises it by saying what it
+does. `h1`/`h2`, `ul`, a measured multi-column table, a definition list,
+`pre`, `blockquote`, `center`, a form with a hidden pair and a submit, the
+three link shapes the renderer answers *differently* (absolute `http`, a
+refused `https`, a relative one with no server to be relative to), `script`
+and `style` dropped whole, `font` and `bgcolor` dropped in both directions
+(BROWSER-PLAN §2.2.1), and entities from `&mdash;` to `&copy;`.
+
+**3,063 bytes**, which is three clusters of a 360KB floppy against
+`DEMO.HTM`'s six — and the reason to care is §24.4, where that geometry is
+tight enough that `BEVERLY.MOD` rides a disk of its own.
+
+It also puts the file **beside its package**, which is where the other three
+`APPS_DATA` entries already were — `apps/tracker/beverly.mod`,
+`apps/texpad/PAPER.TEX`, `apps/texpad/GUIDE.TEX`. A shipped artifact living
+under `tests/` was the odd one out of four, and CLAUDE.md's layout note says
+`tests/` is *every package that is not shipped software*.
+
+**`DEMO.HTM` is not deleted and must not be.** Four emulator rows open it by
+name — `brtest`, `brclick`, `brreload`, `brtoolbar` — and `tests/socktest`
+serves `GET /demo.htm` over a real socket. It stays in `tests/htm/` and on
+`make browsertest`'s disk, which is where a fixture belongs; what it stops
+being is the manual it was never written as. The new page rides that disk too,
+so `python3 tests/brtest.py --page BROWSER.HTM` renders the page that actually
+ships — which nothing could do while the shipped page was the fixture and the
+fixture was the shipped page.
+
+**The reference implementation could not see this page until it was fixed.**
+`tools/htmsim.py` models the parse against its own `BLOCK` set, and that set
+was missing `dl`, `dt`, `dd` and `caption` — four names `br_tagtab` has had
+all along, all four `TA_PARA`. A tag missing from `BLOCK` is treated as an
+unknown tag, text kept and no break emitted, so the model reported this page's
+definition list as one run-on paragraph the machine does not draw. It is
+BROWSER-PLAN §14's finding again, one tag table along: a reference
+implementation is a check on the parts it implements and **silent** on the
+rest, and the silence looks exactly like agreement.
+
+### 71.13 A pending space is owed to an ENTITY too
+
+`word &mdash; word` drew as `word- word`. **Whitespace collapses to a pending
+space** (`[br_wsp]`) that is spent at the next ink character, and `br_char`'s
+`.ink` path is `br_wflush` then `br_fold` — but `br_entity` reached `br_fold`
+by three paths of its own (`.have`, `.num` and `.literal`) and passed through
+`br_char` on none of them, so the space in front of an entity was collapsed
+into the flag and then dropped. One `call br_wflush` at `br_entity`'s entry,
+where every path out of it emits exactly once.
+
+**It is silent in two directions, which is why it survived this long.** The
+space *after* the entity is `br_char`'s and arrives normally, so the line
+reads as a typographical choice — an em dash set tight on the left and open
+on the right — rather than as a character the renderer lost. And
+`tools/htmsim.py` **cannot see it at all**: the model unescapes entities into
+the text stream *before* it collapses whitespace, so by the time its
+collapse runs there is no entity left to lose a space in front of. The model
+was right and the machine was wrong, and the two agreeing was never possible.
+docs/BROWSER-PLAN.md §14 again, one table along from §71.12's.
+
+**Measured on a Hercules, `os8088_5150_herc_gla`, on §71.12's page**, whose
+`File&nbsp;&gt;&nbsp;Open</b> &mdash; another` is the shape that found it. The
+line's cells, before: `F`(56) `i`(64) `l`(72) `e`(80) ` `(88) `>`(96) ` `(104)
+`O`(112) `p`(120) `e`(128) `n`(136) `-`(144) ` `(152) `a`(160) — the dash in
+the cell immediately after the `n`, with the source's space nowhere. After:
+the dash moves one cell right and 144 is blank.
+
+`DEMO.HTM` had the construct too, from its first commit — *"Served over plain
+HTTP, on purpose &mdash; see below"* — so this was on the page the project
+hosts for as long as there has been one. **Three bytes of package.**
 
 ### 72.1 What the packages did have to change, which is one question
 

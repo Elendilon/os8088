@@ -130,7 +130,15 @@ def fold(ch):
 
 
 # --- the parse ---------------------------------------------------------------
+# MIRRORS apps/browser/browser.asm's br_tagtab, which is the authority: every
+# name there whose action is a paragraph break belongs here, and a name missing
+# from this set is silently treated as an unknown tag - text kept, no break -
+# so the model reports a run-on paragraph the machine does not draw. `dl`, `dt`,
+# `dd` and `caption` were missing exactly that way, and nothing caught it until
+# a page used a definition list: BROWSER-PLAN 14's finding is that a reference
+# implementation is a check on the parts it implements and SILENT on the rest.
 BLOCK = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li",
+         "dl", "dt", "dd", "caption",
          "pre", "table", "tr", "hr", "center", "blockquote", "form"}
 DROP_CONTENT = {"script", "style", "head", "title", "select", "textarea"}
 HEADING = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
