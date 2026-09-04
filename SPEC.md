@@ -81660,6 +81660,58 @@ rather than two renderings that agree by inspection.
 The 118-byte BMP header and palette are written into the buffer **once at
 startup** and never rebuilt; the writer stages whatever is already there.
 
+### 82.1.1 The interior the picture does not cover (#142)
+
+`sh_chart_paint` was the `OSAPI_GFX_BLIT4` and nothing else, and that is not
+enough to paint a window. `ct_paint` was the same call and the same nothing, on
+a window of the same size — which is why the answer lives in
+`apps/os88chart.inc` as `ch_margin` and neither package writes it twice.
+
+The frame is `SH_CHARTWIN_W` × `SH_CHARTWIN_H` = 260 × 200 (and `CT_WIN_W` ×
+`CT_WIN_H` is the same), so its content is **258 × 181** — `wm_geom` takes
+`TITLE_H` + 1 off the height and one border column off each side, `wm_bord`
+answering 0 or 1 — while the image is `CH_W` × `CH_H` = 240 × 160. **An
+18-pixel band down the right and 21 along the bottom belonged to the window and
+was never written by anything** — the "little margin around the CH_W x CH_H
+canvas" that `SH_CHARTWIN_W`'s own comment describes. The margin was
+deliberate; painting it was not considered.
+
+So on a move the frame redrew and the picture re-blitted, and whatever had been
+on the glass in between stayed there. The reporter's guess was close but not
+exact: the picture **is** re-blitted on a damage event; it is only the band the
+picture does not cover that never was.
+
+**The two bands, not the whole content.** Filling the content and letting the
+blit land on top writes every pixel of the picture twice, which is
+PERFORMANCE.md Part 1's double-draw flash — the picture goes white and wipes
+back on every repaint, and on SHEET that includes the `sh_chartdirty` resync a
+cell edit fires. §11.90.1's `WF_OWNBG` exists to take exactly this pair out of
+`wm_draw_win`, and it would be a poor trade to put it back inside `W_PAINT`.
+The bands are also **cheaper**: PERFORMANCE.md's measured model — 177 µs a scan
+line plus 0.28 µs a pixel, the one that reproduces its own published
+`GFX_FILL 256x128` = 31.7 ms — prices the whole 258 × 181 content at **45.1
+ms** and the two bands at **38.0 ms**. The "756 µs whatever it covers" figure
+does not decide this; Part 2 says in terms not to quote it as a floor a design
+has to beat. The bottom band stops at the picture's right edge, so the corner
+the right band covered is not written a second time either.
+
+**`OSAPI_WM_GEOM`, not `W_W`/`W_H`.** Those are the OUTER frame, and filling to
+them paints over the window's own border. `WM_GEOM` answers the size of the box
+`WM_CONTENT` gives the origin of — the rectangle wanted — and `sh_geom` already
+uses it for the same reason. A screenshot diff against the unfixed build is
+what caught the difference; looking at the screenshot did not.
+
+**Verified both ways** on VGA (dragging the chart across the SHEET window:
+before, fragments of SHEET's *Format* menu and its cells sit inside the Chart
+frame; after, white — 1,530 pixels apart) and on **CGA**, where `CWHITE` is the
+adapter's white and the bars are black.
+
+**The raise symptom in #142 did not reproduce.** Driven through the reported
+sequence — chart on top, raise SHEET over it, click the Chart's title bar — the
+window comes forward and draws correctly, and the fixed and unfixed builds are
+identical to the pixel. The interior fill neither causes nor cures it, so it is
+not established as the same defect.
+
 ### 82.2 `ch_bars_draw` takes a segment in DX and never touches DS
 
 The array of values to plot lives in the caller's claimed segment, not in the

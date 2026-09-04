@@ -6020,7 +6020,8 @@ sh_chart_render:
     ret
 
 ; sh_chart_paint - the chart window's own W_PAINT callback (SI=window);
-; one OSAPI_GFX_BLIT4 of the already-rasterized buffer, nothing else
+; the two bands the picture does not cover, then one OSAPI_GFX_BLIT4 of the
+; already-rasterized buffer
 sh_chart_paint:
     push ax
     push bx
@@ -6035,6 +6036,20 @@ sh_chart_paint:
     mov [ch_bx1], ax                    ; borrow this scratch - safe here,
     mov [ch_by1], dx                    ; ch_bars_draw already finished by
                                          ; the time sh_chart_paint ever runs
+    call ch_margin                      ; THE INTERIOR THE PICTURE DOES NOT
+                                         ; COVER (SPEC.md 82.1.1, issue #142):
+                                         ; the window is a little larger than
+                                         ; the CH_W x CH_H canvas, and the two
+                                         ; bands that leaves were never written
+                                         ; by anything - so a move redrew the
+                                         ; frame, re-blitted the picture, and
+                                         ; left whatever had been on the glass
+                                         ; in between. BX is still the window
+                                         ; and AX/DX still WM_CONTENT's answer,
+                                         ; which is exactly what it wants.
+                                         ; SHARED with CHART.O88's ct_paint,
+                                         ; because the two windows have the
+                                         ; same margin for the same reason
     mov es, [sh_chartseg]
     mov si, CH_PXOFF
     mov bp, CH_STRIDE
