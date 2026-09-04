@@ -344,8 +344,12 @@ the ordinary reason PERFORMANCE.md rule 4 says to measure.
 
 * **A consumer that XORs rectangles faster than a drag does.** A game's sprite
   erase, a rubber-band selection updated more than once a tick, marching ants, any
-  outline drawn in a loop. Today the only consumers are `ui_drag` (two a tick) and
-  the dock's focus rect (one per focus change). At ten rects a tick this entry is
+  outline drawn in a loop. Today the consumers are `ui_drag` (two a tick), the
+  dock's focus rect (one per focus change) and, through API slot 0x0050
+  (`OSAPI_GFX_XOR_RECT`), four packages: Paint's rubber band and marquee
+  (`pt_rb_xor`, `pt_marq_xor`, paced by `pt_wait_tick`), Solitaire's card-drag
+  outline (`sol_dxor`) and Cyclone's aiming box (`cy_cur_xor`) - each one or
+  two rects an event, so the accounting below holds for the whole set. At ten rects a tick this entry is
   11 ms of a 55 ms tick and the answer is different.
 * **A drag that stops being tick-paced.** The 4% is 4% *because* `.linger` caps the
   loop at one pass a tick. Anything that makes the drag smoother makes this dearer

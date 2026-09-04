@@ -941,7 +941,10 @@ font_str_x:
 ; in:       CX = x, DX = y, SI -> ASCIIZ (font_run_x: ES:SI), AL = text
 ;           colour, AH = background colour; caller holds the gfx lock
 ; out:      nothing
-; clobbers: nothing (flags)
+; clobbers: flags, and [gfx_color] - the pen is SPENT: it is left at the run's
+;           foreground on a drawn run and at its background on one whose cells
+;           were all refused by the clip region (font_run_scell sets it before
+;           the test). A caller that draws afterwards sets its own pen
 ;
 ; **Every text-bearing element in this system erases a rect and then letters
 ; it**, and each of them writes those bytes twice: once as a fill and once,

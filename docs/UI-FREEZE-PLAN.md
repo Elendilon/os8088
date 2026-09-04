@@ -6,8 +6,8 @@ pointer alive.
 
 **§5 IS NOW BUILT — SPEC.md §7.4 is the contract and this section is the
 costing behind it.** §4 is not: it remains an investigation, and nothing in it
-has been started. What shipped is the cursor, at **125 bytes** (`.text` +105,
-`.cold` +20, no rung crossed), behind `NOCURDISK=1` whose build is
+has been started. What shipped is the cursor, at **180 bytes** (`.text` +150,
+`.cold` +30, no rung crossed - 125 before §5.3.3's three additions), behind `NOCURDISK=1` whose build is
 byte-identical to the kernel before it. Two things in §5 as first written were
 wrong and are corrected in place: the hider was **`menu_draw_bar`**, not
 `fpg_paint` (§5.3), and the three extra safety conditions the ISR needs were
@@ -288,7 +288,9 @@ asked `cur_lazyck` and was told the arrow was out of reach spends that answer
 *after* the read; and the move must not land on the widget. The lock-free case
 is deliberately left to the ordinary gates: with the lock free `[fpg_on]` is
 the only thing between IRQ4 and an unlocked `fpg_step` fill on another task
-(SPEC.md §12.8.4), and that is not a guard to step around.
+(SPEC.md §12.8.4), and that is not a guard to step around. **Superseded by
+§5.3.3 below**: that arm was measured, was where almost every operation a
+person notices lives, and is covered now (SPEC.md 7.4.2.1).
 
 #### 5.3.3 Half-built is what one scenario looks like
 

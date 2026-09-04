@@ -39,7 +39,6 @@ the whole claim is about what happens while the CPU sits inside the ROM.
 Nothing here is a TIMING assertion, though: every figure is a count of
 samples, so an oversubscribed host changes none of it.
 """
-import atexit
 import os
 import subprocess
 import sys
@@ -54,8 +53,12 @@ import os88sym                                               # noqa: E402
 import dispcp                                                # noqa: E402
 
 MACHINE = "os8088_5150_cga_gla"
-IMAGE = "build/os8088-360.img"
-APPS = "build/apps360.img"
+IMAGE = os.environ.get("OS88_SYSIMG", "build/os8088-360.img")
+APPS = os.environ.get("OS88_APPSIMG", "build/apps360.img")
+KNOB = os.path.join("build", "curdisk")   # the NOCURDISK=1 arm's OWN tree: a
+                                          # knob kernel over build/ would be
+                                          # what every later row boots if this
+                                          # one were killed before atexit
 
 # How long to watch, and how finely.  One frame is ~16.7 ms of guest time; a
 # mount plus a directory walk plus an icon harvest is seconds of it, so this
@@ -152,11 +155,12 @@ SCENARIOS = (
 )
 
 
-def leg(defines, label, which):
+def leg(defines, label, which, image=None, apps=None):
     S = (lambda n: os88sym.linear(n, defines))
     name, path, why = which
     say("\n=== %s: %s ===\n" % (label, why))
-    with os88marty.launch(IMAGE, apps=APPS, machine=MACHINE) as m:
+    with os88marty.launch(image or IMAGE, apps=apps or APPS,
+                          machine=MACHINE) as m:
         mo = os88mouse.Mouse(marty=m)
         os88marty.no_saver(m)
 
@@ -248,13 +252,20 @@ def main(argv):
         say("\ncurdisk: --solo, the NOCURDISK=1 leg is skipped")
     else:
         say("\n--- building the other arm ---")
-        subprocess.check_call(["make", "NOCURDISK=1"], cwd=ROOT,
-                              stdout=subprocess.DEVNULL)
-        atexit.register(subprocess.check_call, ["make"], cwd=ROOT,
-                        stdout=subprocess.DEVNULL)
-        for sc in SCENARIOS:
-            old[sc[0]] = leg(("NOCURDISK",), "NOCURDISK=1, the freeze it "
-                             "replaces", sc)
+        subprocess.check_call(["make", "BUILD=" + KNOB, "NOCURDISK=1"],
+                              cwd=ROOT, stdout=subprocess.DEVNULL)
+        os.environ["OS88_BUILD"] = os.path.join(ROOT, KNOB)   # os88sym reads it
+        os88sym.default_defines("NOCURDISK")   # ...and so do the helpers that
+        try:                                   # look symbols up with no defines
+                                               # of their own (no_saver, dispcp)
+            for sc in SCENARIOS:
+                old[sc[0]] = leg(("NOCURDISK",), "NOCURDISK=1, the freeze it "
+                                 "replaces", sc,
+                                 image=os.path.join(KNOB, "os8088-360.img"),
+                                 apps=os.path.join(KNOB, "apps360.img"))
+        finally:
+            del os.environ["OS88_BUILD"]
+            os88sym.default_defines()
 
         for k, r in old.items():
             if r["moves"]:

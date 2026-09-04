@@ -4190,6 +4190,9 @@ pt_getpx:
     push es
     mov ax, dx
     call pt_rowset                  ; ES:DI = the row
+.fmt:                               ; ...and pt_upix enters HERE with ES:DI =
+                                    ; the undo image's row, which has the
+                                    ; canvas's own layout (all three of them)
     cmp byte [pt_1bpp], 0
     jne .one
     cmp byte [pt_planar], 0
@@ -9372,22 +9375,14 @@ pt_upix:
     push di
     push es
     mov ax, dx
-    call pt_urowset                 ; ES:DI = the undo image's row
-    mov ax, cx
-    shr ax, 1
-    add di, ax
-    mov al, [es:di]
-    test cl, 1
-    jnz .lo
-    mov cl, 4
-    shr al, cl
-.lo:
-    and al, 0x0F
-    pop es
-    pop di
-    pop cx
-    pop bx
-    ret
+    call pt_urowset                 ; ES:DI = the undo image's row, laid out
+    jmp pt_getpx.fmt                ; exactly as the canvas is - so the three
+                                    ; format arms are pt_getpx's, entered past
+                                    ; its pt_rowset with the same four pushes
+                                    ; to pop. Reading packed nibbles here put
+                                    ; back a different picture on a planar or
+                                    ; one-bit canvas: Backspace in the text
+                                    ; tool restored bytes three rows away
 
 
 ; -----------------------------------------------------------------------------

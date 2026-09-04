@@ -68,16 +68,35 @@ ENTRY = re.compile(r"^\s*mov\s+ax\s*,\s*([A-Za-z_][\w]*)\s*(?:;.*)?$")
 
 
 def worker_of(path):
-    """The near entry the package hands OSAPI_TASK_SPAWN, or None."""
-    lines = open(path, errors="replace").read().splitlines()
-    for i, ln in enumerate(lines):
-        if not SPAWN.match(ln.split(";")[0]):
-            continue
-        for j in range(i - 1, max(-1, i - 8), -1):   # AX is loaded just above
-            m = ENTRY.match(lines[j].split(";")[0].rstrip())
-            if m:
-                return m.group(1)
+    """The near entry the package hands OSAPI_TASK_SPAWN, or None.
+
+    The spawn is not always in the top-level .asm: TANK's is in tkattr.inc and
+    BROWSER's in brnet.inc, and a gate that read only the .asm sized neither
+    and said nothing - so every .inc beside the .asm is read too, the .asm
+    first.
+    """
+    here = os.path.dirname(path)
+    files = [path] + sorted(p for p in glob.glob(os.path.join(here, "*.inc")))
+    for f in files:
+        lines = open(f, errors="replace").read().splitlines()
+        for i, ln in enumerate(lines):
+            if not SPAWN.match(ln.split(";")[0]):
+                continue
+            for j in range(i - 1, max(-1, i - 8), -1):   # AX is loaded just above
+                m = ENTRY.match(lines[j].split(";")[0].rstrip())
+                if m:
+                    return m.group(1)
     return None
+
+
+def spawns(path):
+    """Does any source of this package call OSAPI_TASK_SPAWN at all?"""
+    here = os.path.dirname(path)
+    for f in [path] + glob.glob(os.path.join(here, "*.inc")):
+        for ln in open(f, errors="replace"):
+            if SPAWN.match(ln.split(";")[0]):
+                return True
+    return False
 
 
 def declared(o88):
@@ -111,6 +130,8 @@ def main():
         app = os.path.basename(os.path.dirname(asm))
         root = worker_of(asm)
         if root is None:
+            if spawns(asm):
+                unfound.append(app)      # a spawner this scan could not size
             continue                     # no worker: nothing to size
         o88 = os.path.join(BUILD, "%s.o88" % os.path.splitext(os.path.basename(asm))[0])
         if not os.path.exists(o88):

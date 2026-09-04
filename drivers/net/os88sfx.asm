@@ -128,7 +128,13 @@ sfx_body:
     lodsb                       ; al = offlo
     inc  ax                     ; ax = the offset back from di
     mov  cx, dx
-    inc  cx                     ; cx = the length
+    inc  cx                     ; cx = the length...
+    mov  dx, SFX_END            ; ...clamped to what the image still owes, so
+    sub  dx, di                 ; a token off a truncated or damaged file
+    cmp  dx, cx                 ; cannot carry di over SFX_END and into the
+    jae  .len                   ; staged decompressor running this very copy
+    mov  cx, dx                 ; (the packer's round-trip check is host-side;
+.len:                           ; jae, because t_sfx's model has jb/jae/jz/jnz)
     push si                     ; the input stream, while si does the copy
     mov  si, di
     sub  si, ax

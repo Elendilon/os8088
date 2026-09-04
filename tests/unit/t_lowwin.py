@@ -46,10 +46,10 @@ from harness import check, done                           # noqa: E402
 # out of the kernel agrees with the kernel by construction and would have
 # noticed neither change.
 WANT = {
-    "kern_big":   [("disk_dir", 768), ("disk_icons", 2048),
-                   ("dsk_secbuf", 512)],
-    "kern_small": [("disk_dir", 768), ("dsk_icoix", 32),
-                   ("disk_icons", 1024), ("dsk_secbuf", 512)],
+    "kern_big":   [("dsk_secbuf", 512), ("disk_dir", 768),
+                   ("disk_icons", 2048)],
+    "kern_small": [("dsk_secbuf", 512), ("disk_dir", 768),
+                   ("dsk_icoix", 32), ("disk_icons", 1024)],
 }
 FAT_BYTES = {"kern_big": 4608, "kern_small": 1024}   # DSK_FAT_SECS * 512
 # ...and what the two make between them: the region the boot overlay spills
@@ -122,6 +122,12 @@ for label, defines in (("kern_big", ("-DKERN_BIG",)),
               "from; a resize moves the total and stage C's headroom with it",
               got=sz, want=size)
         want_off += size
+    if "dsk_secbuf" in at:
+        check(at["dsk_secbuf"][0] % 512 == 0,
+              "%s: dsk_secbuf is 512-byte aligned in LOW_SEG" % label,
+              "it is an int 13h TRANSFER BASE, and only an aligned base cannot "
+              "straddle a 64KB DMA page (SPEC.md 2.1.1) - it sat at +2,816 once",
+              got=at["dsk_secbuf"][0] % 512, want=0)
 
     total = sum(s for _, s in want)
     check(want_off == total, "%s: the window is contiguous, %d bytes"

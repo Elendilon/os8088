@@ -5943,6 +5943,10 @@ fm_paste_res:
     pop cx
     pop si
     mov di, [fm_vp]
+    cmp byte [di+FS_EDIT], 4    ; the NEXT question of the SAME paste is not
+    jne .arm                    ; an abandonment: clear it here, so the
+    mov byte [di+FS_EDIT], 0    ; fm_edit_end inside fm_edit_arm does not end
+.arm:                           ; the operation it is re-asking about
     mov al, 4                   ; the replace question (SPEC.md 22.3)
     call fm_edit_arm
 .out:
@@ -6281,6 +6285,12 @@ fm_edit_end:
     ; rename or delete ending costs a compare. fm_edit_arm calls this too, so
     ; without the gate arming the confirmation would drop the image the probe
     ; had just loaded and the status line would read it back off the floppy.
+    cmp byte [di+FS_EDIT], 4    ; a replace question ABANDONED rather than
+    je .pastegone               ; answered - a click, a right-click, another
+                                ; prompt - leaves the paste SUSPENDED: the copy
+                                ; buffer claimed, [fcp_busy] set and, on
+                                ; kern_small, FILECP.DRV's image held
+                                ; (SPEC.md 22.3.0)
     cmp byte [di+FS_EDIT], 7
     je .clonegone               ; ...and a CLONE ending is where its claim and
     cmp byte [di+FS_EDIT], 5    ; CLONE.DRV both go back (SPEC.md 22.21.2),
@@ -6295,6 +6305,14 @@ fm_edit_end:
     jmp short .clonegone        ; instead left its 4KB claim resident forever.
                                 ; Step 0 loaded NOTHING, and .clonegone's
                                 ; clo_call would LOAD the module to free it
+.pastegone:
+    cmp byte [fcp_busy], 0      ; a stale mode 4 in a REUSED pool block owes
+    je .clrit                   ; nothing - and on kern_small asking would
+    push ax                     ; load the image back to find that out
+    xor al, al                  ; "stop": fcp_stop hands the copy buffer
+    call fcp_answer             ; back, clears [fcp_busy] and pays the
+    pop ax                      ; listing debt - and fcp_pfin then drops the
+    jmp short .clrit            ; image, FCPS_DONE not being FCPS_ASK
 .fmtgone:
     call fm_fmt_drop
     jmp short .clrit

@@ -426,6 +426,7 @@ cal_layout:
     cmp si, CAL_NKEY
     jb .key
 
+%ifdef CALF_HIST                    ; the strip and the rows are the pane's
     mov ax, [cal_ox]                ; the disclosure strip: the keypad's full
     add ax, CAL_KEY_X0              ; width, so the label and the triangle are
     mov cx, [cal_ox]                ; both inside one target
@@ -459,6 +460,9 @@ cal_layout:
     inc si
     cmp si, CAL_HIST_N
     jb .hrow
+%endif                              ; ...and so are their rects: CAL_NRECT is
+                                    ; CAL_NKEY without it, and cal_rects ends
+                                    ; where the keypad's do
 
     pop di
     pop si

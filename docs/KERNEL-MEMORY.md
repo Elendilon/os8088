@@ -1103,46 +1103,46 @@ Three things about it:
   "big": {
     "boot2": 2250,
     "bootmax": 192512,
-    "bss": 5905,
+    "bss": 6067,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 36793,
-    "coldpara": 2304,
+    "cold": 37186,
+    "coldpara": 2336,
     "fatpara": 288,
-    "imgpara": 3520,
-    "kend": 6880,
+    "imgpara": 3552,
+    "kend": 6944,
     "kseg": 96,
-    "ksize": 108544,
+    "ksize": 109568,
     "lowbss": 9182,
     "lowpara": 608,
     "minramkb": 196,
     "ovl": 1417,
     "ovlw": 5037,
     "stk0": 512,
-    "text": 50251,
+    "text": 50733,
     "vgabuf": 848,
     "vgabufpara": 64
   },
   "small": {
     "boot2": 2250,
     "bootmax": 122880,
-    "bss": 4747,
+    "bss": 4847,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 25819,
+    "cold": 25885,
     "coldpara": 1632,
     "fatpara": 64,
-    "imgpara": 2752,
-    "kend": 4960,
+    "imgpara": 2784,
+    "kend": 4992,
     "kseg": 96,
-    "ksize": 77824,
+    "ksize": 78336,
     "lowbss": 6064,
     "lowpara": 416,
     "minramkb": 128,
     "ovl": 423,
     "ovlw": 2789,
     "stk0": 512,
-    "text": 39015,
+    "text": 39261,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -2031,38 +2031,38 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 30,655 | 35.2% |
-| the window system and its furniture | 24,144 | 27.7% |
-| drawing: adapters, primitives, glyphs, icons | 14,926 | 17.1% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,103 | 9.3% |
-| the kernel proper: API table, heap, scheduler, events | 7,084 | 8.1% |
+| the file system, end to end | 30,687 | 34.9% |
+| the window system and its furniture | 24,279 | 27.6% |
+| drawing: adapters, primitives, glyphs, icons | 14,926 | 17.0% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,546 | 9.7% |
+| the kernel proper: API table, heap, scheduler, events | 7,349 | 8.4% |
 | the three built-in kinds | 1,542 | 1.8% |
 | the Control Panel | 590 | 0.7% |
-| **total** | **87,044** | |
+| **total** | **87,919** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` | `.boot2` |
 |---|---:|---:|---:|---:|---:|---:|
-| `wm.inc` — the window manager (§11) | 11,659 | 94 | **11,753** | 1,074 | — | — |
-| `files.inc` — the Disk window (§22) | 1,049 | 8,151 | **9,200** | 465 | — | — |
+| `wm.inc` — the window manager (§11) | 11,671 | 94 | **11,765** | 1,074 | — | — |
+| `files.inc` — the Disk window (§22) | 1,049 | 8,183 | **9,232** | 465 | — | — |
 | `vga12.inc` — the VGA planar primitives (§5) | 7,242 | 702 | **7,944** | 162 | 526 | — |
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,797 | **6,192** | 889 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,969 | **5,210** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,496 | **4,675** | 152 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 3,795 | — | **3,795** | 151 | 128 | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,334 | — | **3,334** | 58 | — | — |
-| `menu.inc` — the menu bar and pull-downs (§12) | 2,737 | 177 | **2,914** | 197 | 84 | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,377 | — | **3,377** | 58 | — | — |
+| `menu.inc` — the menu bar and pull-downs (§12) | 2,790 | 177 | **2,967** | 197 | 84 | — |
 | `assoc.inc` — file type associations (§54) | 480 | 2,004 | **2,484** | 43 | — | — |
 | `memory.inc` — the claim heap (§50) | 35 | 2,420 | **2,455** | 18 | 324 | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 1,944 | **2,440** | 346 | — | — |
-| `instance.inc` — instances and the built-in kinds (§29) | 2,027 | 236 | **2,263** | 636 | — | — |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 1,951 | **2,447** | 356 | — | — |
+| `instance.inc` — instances and the built-in kinds (§29) | 2,054 | 236 | **2,290** | 700 | — | — |
 | `font.inc` — the 8×8 glyph renderer (§6) | 2,186 | — | **2,186** | 215 | 784 | — |
 | `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,116 | **2,116** | 142 | — | — |
 | `apps.inc` — the three built-in kinds (§14) | 282 | 1,260 | **1,542** | 11 | 240 | — |
+| `sched.inc` — pre-emptive scheduling (§7–8) | 1,340 | — | **1,340** | 207 | 2,944 | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,292 | — | **1,292** | 20 | — | — |
 | `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,230 | — | **1,230** | 74 | — | — |
-| `sched.inc` — pre-emptive scheduling (§7–8) | 1,122 | — | **1,122** | 199 | 2,944 | — |
 | `snd.inc` — the sound layer (§34) | 1,024 | — | **1,024** | 287 | — | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 986 | — | **986** | 9 | — | — |
 | `icons.inc` — the icon renderer (§10) | 977 | — | **977** | 281 | — | — |
@@ -2073,9 +2073,10 @@ generated in the first place.
 | `dock.inc` — the dock strip (§30) | 696 | — | **696** | 35 | — | — |
 | `clock.inc` — the clock ladder (§37) | 606 | — | **606** | 59 | — | — |
 | `ctrl.inc` — the Control Panel (§31) | 335 | 255 | **590** | 28 | — | — |
+| `hiber.inc` — **(undescribed)** | 82 | 354 | **436** | 52 | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 433 | — | **433** | 25 | — | — |
 | `blank.inc` — the idle screen blanker (§64) | 194 | 236 | **430** | — | — | — |
-| `mod.inc` — on-demand kernel modules (§2.8) | 42 | 309 | **351** | 84 | — | — |
+| `mod.inc` — on-demand kernel modules (§2.8) | 56 | 309 | **365** | 112 | — | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 232 | — | **232** | 22 | — | — |
 | `clip.inc` — the system clipboard (§55) | 179 | — | **179** | 5 | — | — |
 | `events.inc` — the event ring (§10) | 159 | — | **159** | 3 | 128 | — |
@@ -2087,8 +2088,8 @@ generated in the first place.
 | `bootprof.inc` — the boot phase table (§15.5), `BOOTPROF=1` | — | — | **0** | — | — | — |
 | `stkdiag.inc` — **(undescribed)** | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 2,979 | 18 | **2,997** | — | — | 421 |
-| **total** | **50,251** | **36,793** | **87,044** | **5,905** | **9,182** | **2,250** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,012 | 18 | **3,030** | — | — | 421 |
+| **total** | **50,733** | **37,186** | **87,919** | **6,067** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it
@@ -2518,6 +2519,24 @@ thunks rather than through the window record.
 more except doing less. There is one precedent for doing less, and it is the
 Task Manager.
 
+> **The fourth MODULE, and the first feature to cross two rungs for a
+> feature the kernel does not carry: HIBERNATE (SPEC.md §87).** `HIBER.DRV`
+> is 3,515 bytes on the system disk and 0 resident. What the kernel spends
+> is **259 bytes of `.text`, 94 of `.bss` and 365 of `.cold`** — three menu
+> strings, a window template, a title and two file names, a kind row, five
+> `.text` thunks and seven `cw_` shims; the state block the image carries;
+> and in `.cold` the boot probe, the greying predicate, eleven far entries
+> and the seven thunks that load the module — against rungs that had 96
+> (image) and 157 (`.cold`) left. So both crossed: `KERN_SIZE` 120,320 →
+> **121,344**, spare under `KERN_BUDGET` 9,216 → **8,192** (16 steps). The
+> `.bss` is the part worth a second look: a button label and its rect are
+> staged there because the button drawer reads through `DS`, and a module's
+> own bytes are not `DS` — the pointer file's 80-byte buffer and every
+> string went into the module for the same reason in reverse. It was 141
+> while a file dialog chose the image's place; the path it needed went with
+> the dialog. Nothing was reclaimed to pay for it; the two steps are spent
+> out of the spare, which is what the spare is for.
+>
 > **A THIRD lever, and the third thing has gone through it: an OVERLAY.**
 > SPEC.md §79's animated screen saver ships as `SAVER.DRV`, 10,064 bytes,
 > `DRVC_OVL` like `XMEM.DRV` and `HDDTOOL.DRV` (SPEC.md §41.12, §52.11). It is

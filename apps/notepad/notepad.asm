@@ -10736,7 +10736,11 @@ np_ttl: db 'Note Pad', 0
 ; 32 + 12 more to its right edge at 162 - nowhere near the clock at 434.
     OS88_MENUSET np_menus, np_ttl, np_oncmd
         OS88_MENU np_m_file, np_items_file, 4
+%ifdef NPF_UNDO
         OS88_MENU np_m_edit, np_items_edit, 5
+%else
+        OS88_MENU np_m_edit, np_items_edit, 4   ; no Undo row (np_items_edit)
+%endif
 %ifdef NPF_FIND
         OS88_MENU np_m_find, np_items_find, 3
 %endif                              ; AM_COUNT is derived from the list length,

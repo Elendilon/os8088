@@ -260,14 +260,15 @@ A package `%include`s these itself; they are not kernel calls. Include them at t
 
 | include | SPEC | what it gives you |
 |---|---|---|
-| `apps/os88ui.inc` | §13, 75 | Buttons, check boxes, radio dots, scroll bars, group boxes and the standard alert. Opt into the alert with `%define OS88UI_ALERT` and the scroll bar with `%define OS88UI_SCROLL`. |
+| `apps/os88ui.inc` | §13, 75 | Buttons, check boxes, radio dots, scroll bars, group boxes and the standard alert. Opt into the alert with `%define OS88UI_ALERT`, the scroll bar with `%define OS88UI_SCROLL` and its thumb-drag half with `%define OS88UI_SBDRAG`. |
 | `apps/os88line.inc` | §83 | A one-line text field: caret, horizontal scroll, focus, click-to-position and the editing keys. The caller owns a 20-byte block. |
 | `apps/os88text.inc` | §83 | The multi-line sibling of os88line.inc. Enter inserts a newline; no wrap, no selection, no undo. |
-| `apps/os88chart.inc` | §82 | A 4bpp offscreen canvas and five chart types - column, bar, line, area, pie - plus a BMP writer. Shared by CHART.O88 and Sheet's chart window. |
+| `apps/os88chart.inc` | §82 | A 4bpp offscreen canvas and all seven chart types - area, bar, column, line, pie, scatter, combination - plus a BMP writer. Shared by CHART.O88 and Sheet's chart window. |
 | `apps/os88fp.inc` | §84 | IEEE-754 double arithmetic in software, with an 8087 path chosen at run time. Parse, format, add, subtract, multiply, divide, compare, sqrt, trunc, floor, round. |
 | `apps/os88sock.inc` | §62, 72 | The socket layer over NET.DRV or ETHER.DRV. |
 | `apps/os88pit.inc` | §37 | Sub-tick timing off the 8253. |
 | `apps/os88type.inc` | §54 | File-type recognition by name and by content. |
+| `apps/os88parts.inc` | §20.12 | Package parts: named, sized parts inside one `.O88` - claimed, loaded on demand, optionally into XMS, and refused with an arithmetic the package states itself. A package over 64KB is still a package. |
 
 ## Packages, and what to read them for
 
@@ -276,6 +277,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | package | source | SPEC |
 |---|---|---|
 | ARKANOID | `apps/arkanoid/arkanoid.asm` | §44 |
+| AUDIO PLAYER | `apps/audio/audio.asm` | §86 |
 | ArtfulType | `apps/artful/artful.asm` | §46 |
 | BROWSER | `apps/browser/browser.asm` | §71 |
 | C64 | `apps/c64/c64.asm` | `docs/C64-SPEC.md` |
@@ -397,12 +399,14 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 83 | Text input for packages (`apps/os88line.inc`, `apps/os88text.inc`) |
 | 84 | Software floating point (`apps/os88fp.inc`) |
 | 85 | TANK ATTACK — a wireframe tank duel in a foreign mode (`apps/tank/`) |
+| 86 | AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`) |
+| 87 | Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`) |
 
 ## docs/
 
 **`*-PLAN.md` files are DESIGN RECORDS, not descriptions of what shipped.** They record what was considered, including options that were rejected. SPEC.md is the current state; these are how it got there.
 
-*Design records (50):* `ASSOC-PLAN.md`, `BOOT-LADDER-PLAN.md`, `BOOT-PERF-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `EGA-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `GFX-FSX-PLAN.md`, `GFX-REWORK-PLAN.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERN-SPLIT-PLAN.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MONO-RECLAIM-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `O88-MULTISEG-PLAN.md`, `ONDEMAND-PLAN.md`, `PAINT-1BPP-PLAN.md`, `PAINT-STROKE-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SAVEUNDER-LIVE-PLAN.md`, `SCHED-IDLE-PLAN.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `SOUND-PLAN.md`, `STACK-SLOTS-PLAN.md`, `TEXT-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `TRACKER-PLAN.md`, `UI-FREEZE-PLAN.md`, `UIHELPERS-PLAN.md`, `WEAVE-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
+*Design records (51):* `ASSOC-PLAN.md`, `AUDIO-PLAN.md`, `BOOT-LADDER-PLAN.md`, `BOOT-PERF-PLAN.md`, `BROWSER-PLAN.md`, `C64-PORT-PLAN.md`, `CURSOR-PLAN.md`, `DBLCLICK-PLAN.md`, `DEBUG-PLAN.md`, `DISK-PERF-PLAN.md`, `DUAL-DISPLAY-PLAN.md`, `EGA-PLAN.md`, `FROTZ-PLAN.md`, `FSX-PLAN.md`, `GFX-FSX-PLAN.md`, `GFX-REWORK-PLAN.md`, `HDD-PLAN.md`, `HDD-SPLIT-PLAN.md`, `HEAP-COMPACTION-PLAN.md`, `KERN-SMALL-CUT-PLAN.md`, `KERN-SPLIT-PLAN.md`, `LINE-PERF-PLAN.md`, `MEMORY-PLAN.md`, `MONO-RECLAIM-PLAN.md`, `MOUSEUP-PLAN.md`, `NET-PLAN.md`, `NET-STACK-PLAN.md`, `O88-MULTISEG-PLAN.md`, `ONDEMAND-PLAN.md`, `PAINT-1BPP-PLAN.md`, `PAINT-STROKE-PLAN.md`, `PROXY-PLAN.md`, `RUNCPM-PORT-PLAN.md`, `SAVEUNDER-LIVE-PLAN.md`, `SCHED-IDLE-PLAN.md`, `SNAP-PLAN.md`, `SNAPSHOT-PLAN.md`, `SOUND-PLAN.md`, `STACK-SLOTS-PLAN.md`, `TEXT-PLAN.md`, `TITLE-PLAN.md`, `TOAST-PLAN.md`, `TRACKER-PLAN.md`, `UI-FREEZE-PLAN.md`, `UIHELPERS-PLAN.md`, `WEAVE-PLAN.md`, `WINDOW-ANIM-PLAN.md`, `WINDOW-SIZING-PLAN.md`, `WMEVENT-PLAN.md`, `WORD-PLAN.md`, `XMEM-DRIVER-PLAN.md`
 
 *Notes and reference (39):* `BIFF-NOTES.md`, `C-TOOLCHAIN.md`, `C64-SPEC.md`, `DUAL-DISPLAY-BUG2.md`, `DUAL-DISPLAY-VGA.md`, `FIELD-MACHINES.md`, `FIELD-NOTES.md`, `FTP-PERF.md`, `HANDOFF-DISK-IO.md`, `HANDOFF-FONTCHAR-SEAM.md`, `HANDOFF-KERNEL-SIZE-P2.md`, `HANDOFF-KERNEL-SIZE-P3.md`, `HANDOFF-KERNEL-SIZE-P4.md`, `HANDOFF-KERNEL-SIZE.md`, `HANDOFF-REDRAW.md`, `HANDOFF-SOAK-FINDINGS.md`, `HANDOFF-SOUND-MEMORY.md`, `HANDOFF-TESTS-A-STRADDLE.md`, `HANDOFF-TESTS-B-LAUNCH.md`, `HANDOFF-TESTS-C-FRESH.md`, `HANDOFF-TESTS.md`, `HANDOFF.md`, `HEAP-CLAIMS.md`, `HERCULES-TESTING.md`, `KERN-SMALL-MODULE-SPLIT.md`, `KERNEL-MEMORY.md`, `LAST-DROP-BYTES.md`, `LAST-DROP-PERF.md`, `LIVE-MEDIA.md`, `MARTYPC-DEBUG.md`, `NOTEPAD-NOTES.md`, `PAINT-NOTES.md`, `SDK-INCLUDE-SIZE.md`, `SETTINGS-COST.md`, `STKBALANCE-KERNEL.md`, `TESTING.md`, `UPSTREAM.md`, `WEAVE-SPEC.md`, `WM-ARTIFACTS.md`
 

@@ -62,7 +62,7 @@ BR_SBRATE   equ SB_RATE         ; that followed the hand IS input overrun
                                 ; AND ftpd's socket branch - the
                                 ; deeper of the two, not the sum
                                 ; over the 64-byte interrupt floor
-                                ; that is 224, and 384 gives 1.71x
+                                ; that is 212, and 384 gives 1.81x
 
     OS88_ICON16
     dw 0x0000                       ; 16 mask rows (white underlay): a page

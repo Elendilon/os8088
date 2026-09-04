@@ -7,7 +7,7 @@ A canvas of one bit stores what a 1bpp SCREEN shows, which means Paint has to
 agree with the kernel about what each of the sixteen colours looks like there:
 solid black, solid white, or the 50% dither.  The kernel says it once, in
 `kernel/viddet.inc`'s `gfx_inktab` - 00 / 01 / FF a colour - and Paint says it
-again as two bit-masks, `PT_WHT16` and `PT_DTH16`, because a package cannot
+again as two bit-masks, `pt_bitEO` and `pt_bitOE`, because a package cannot
 read a kernel table at assembly time and reading it at run time would cost a
 far call per pixel.
 

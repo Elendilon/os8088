@@ -119,6 +119,7 @@ code by every other property, so the 102 `cw_*` shims already serve it.
 **`MOD_NENT` is 8 and that is the ceiling on entry points.** It is not a free
 constant: `mod_fpr` turns a row pointer into `&mod_fp[id]` with three unrolled
 `shl di,1`, and `kernel/mod.inc` asserts `MODFP_STRIDE == MODR_SIZE * 8`.
+— **superseded**: it landed at **7**, with a ×7 = ×8 − ×1 chain; §9.2 has why.
 Raising it to 16 is a four-line change — one more shift, the assertion's `8` to
 `16` — and doubles `mod_fp`.
 
@@ -243,7 +244,7 @@ Per wave, in dependency order.
 - `MOD_MAX` 3 → 4 (wave 1) → 5 (wave 2), inside `%ifdef KERN_SMALL`.
 - New ids `MOD_FILECP` / `MOD_FDLG`, two `mod_f_*` name strings, two `mod_tab`
   rows — all gated.
-- Wave 2 only: `MOD_NENT` 8 → 16, `mod_fpr`'s three shifts → four, and the
+- Wave 2 only (**superseded**: it landed at 7, not 16 — §9.2): `MOD_NENT` 8 → 16, `mod_fpr`'s three shifts → four, and the
   `MODFP_STRIDE != MODR_SIZE * 8` assertion → 16. **All three move together**;
   the file's own header records what happened last time two of them drifted.
 

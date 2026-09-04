@@ -10803,7 +10803,10 @@ share)**, 256x128 6,552 → 5,558, 256x1 1,068 → 881, for 304 bytes of
 outline shapes. And it was taken out again, because no current use of the
 outline pays a frame for the difference: `ui_drag` is tick-paced and draws
 exactly two a tick — +2.2 ms of a 55 ms tick that the owner could not see by
-hand — and the dock's focus mark is one rect per focus change. That is
+hand — the dock's focus mark is one rect per focus change, and the four
+package callers of slot 0x0050 (Paint's rubber band and marquee, Solitaire's
+drag outline, Cyclone's aiming box) are tick- or event-paced at one or two
+rects each. That is
 docs/LAST-DROP-PERF.md §4's accounting, taken when the strips shipped; the
 review's contribution is the body's own measured price beside it, so the day a
 use for the outline arrives that is not one of these two, the answer is the

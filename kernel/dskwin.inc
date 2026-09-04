@@ -9,13 +9,16 @@
 ; WHY THE ADDRESS MATTERS, when no other `.lowbss` byte's does (SPEC.md 2.1.2).
 ; The FAT window and these three come alive at the SAME MOMENT - the first
 ; mount - and are untouched before it. Adjacent, they are one contiguous
-; 8,192-byte region that is dead for the whole of `kmain`:
+; 7,936-byte region that is dead for the whole of `kmain`:
 ;
 ;     FAT_SEG   4,608   the FAT snapshot, filled at mount
-;     +         1,024   disk_dir    "ALWAYS exactly a mount snapshot"
+;     +           512   dsk_secbuf  FIRST: the one int 13h TARGET here, so it
+;                                   takes the rung's 512-aligned base
+;     +           768   disk_dir    "ALWAYS exactly a mount snapshot"
 ;     +         2,048   disk_icons  "fully rewritten every mount"
-;     +           512   dsk_secbuf  read by drv_boot's very first mount
-;     =         8,192   512-aligned by construction, LOW_SEG being a rung base
+;     =         7,936   of which 7,680 is readable (SPEC.md 2.1.2). LOW_SEG is
+;                       a rung base (guard 6); dsk_secbuf is aligned because it
+;                       is the rung's first bytes, and the %if below holds it
 ;
 ; That is what the boot overlay is meant to land in and spill through
 ; (docs/BOOT-LADDER-PLAN.md stage B): `.ovl` is 6,688 bytes and the FAT window
@@ -123,6 +126,18 @@ section .lowbss                 ; LOW_SEG: written by int 13h through ES:BX
                                 ; (or rep movsw/stosw from the mount), read
                                 ; only through disk.inc's dsk_get_*
 dsk_win_base:
+dsk_secbuf: resb 512            ; sector scratch: BPB read, root-dir scan,
+                                ; icon harvest, and the loader's header peek.
+                                ; FIRST, and that is an int 13h requirement
+                                ; rather than a preference: this is the one
+                                ; buffer here that is a TRANSFER BASE (ES:BX
+                                ; at dsk_rd1_x), and only a 512-aligned base
+                                ; cannot straddle a 64KB DMA page (SPEC.md
+                                ; 2.1.1). LOW_SEG is 512-aligned by guard 6,
+                                ; so being the rung's first bytes is what
+                                ; aligns it - at +2,816 it was 256 into a
+                                ; sector and the build's own size decided
+                                ; whether the first mount failed with 09h
 disk_dir:   resb DSK_NENT*DSK_DE_STRIDE    ; DSK_NENT SYNTHESIZED entries,
                                 ; DSK_DE_STRIDE apiece and not DSK_DE_SIZE:
                                 ; 19.1's bytes 24..31 are zero and no reader
@@ -143,9 +158,10 @@ disk_icons: resb DSK_ICO_N*DSK_ICO_SIZE    ; harvested icon bodies. On
                                 ; i and all-zero means no icon; on kern_small
                                 ; it is a POOL and dsk_icoix says which body
                                 ; an entry uses. Fully rewritten every mount
-dsk_secbuf: resb 512            ; sector scratch: BPB read, root-dir scan,
-                                ; icon harvest, and the loader's header peek
 dsk_win_end:
 DSK_WIN_BYTES equ dsk_win_end - dsk_win_base
+%if (dsk_secbuf - $$) % 512     ; against the RUNG base, not dsk_win_base: a
+  %error "dsk_secbuf is not 512-byte aligned inside LOW_SEG: an int 13h read from an unaligned base can straddle a 64KB DMA page and fail with error 09h. Keep it FIRST in the window (SPEC.md 2.1.1/2.1.2, guard 6)"
+%endif                          ; block sorted above this file would slide it
 
 section .text

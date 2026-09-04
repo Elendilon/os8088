@@ -91,9 +91,6 @@ FCPE_ARM    equ 0               ; ...and their slots, in header order
 FCPE_PASTE  equ 1
 FCPE_ANSWER equ 2
 FCPFP       equ mod_fp + MOD_FCP*MODFP_STRIDE   ; this module's slot block
-  %define FCP_GOTO fcp_goto_x   ; the name the three `fcp_go*` doors fall into,
-%else                           ; which the body rename below moves
-  %define FCP_GOTO fcp_goto
 %endif
 
 ; =============================================================================

@@ -77,7 +77,15 @@ SECTION_SEG = {".text": "KERNEL_SEG", ".bss": "KERNEL_SEG",
                # two-step read the caller has to do for itself: the kernel's
                # own row says where the claim went (tests/xmcheck.py does
                # exactly that for XMEM.DRV, SPEC.md 41.12).
-               ".modc": None, ".modf": None, ".modl": None, ".modmap": None}
+               ".modc": None, ".modf": None, ".modl": None, ".modh": None,
+               ".modp": None, ".modd": None, ".modmap": None}
+# Every module section, and the list is the UNION of both builds: `.modh` is
+# hibernate's (SPEC.md 87) and `.modp`/`.modd` are kern_small's (SPEC.md
+# 22.3.0, 38.0), so no kernel emits all six and each build's assembly simply
+# never produces the rows it has no section for. A module section MISSING here
+# is not an error, it is `segment_of` raising "add it rather than assuming
+# KERNEL_SEG" instead of the module answer - loud, which is why the two halves
+# of this list each went a while without the other's.
 
 _cache = {}
 

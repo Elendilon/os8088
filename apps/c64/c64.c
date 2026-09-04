@@ -1628,7 +1628,6 @@ void *os88_main(void)
      * ~111KB footprint (docs/KERNEL-MEMORY.md). This is the guard that says
      * so out loud rather than the assumption that does not. */
     if (c64_m.romseg < 0x0E00) {
-        os88_mem_free(c64_m.romseg);
         os88_mem_free(c64_m.ramseg);
         os88_toast("C64: the ROM claim is too low in memory", 0);
         return 0;
@@ -1688,7 +1687,6 @@ void *os88_main(void)
         wh = OS88_TITLE_H + C64_STATH + 16;
     win = os88_wm_create(C64_W_X, C64_W_Y, C64_W_W, wh, c64_title);
     if (win == 0) {
-        os88_mem_free(c64_m.romseg);
         os88_mem_free(c64_m.ramseg);
         return 0;
     }

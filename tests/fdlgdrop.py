@@ -29,6 +29,7 @@ after - so a build that had simply stopped loading the module would fail the
 first half rather than pass the second.
 """
 import os
+import re
 import sys
 import time
 
@@ -47,7 +48,16 @@ from os88geom import (WIN_SIZE, MAX_WIN, FD_BX1, FD_BX2,   # noqa: E402
 
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_128k"
 ARM = ("KERN_SMALL",)
-MOD_FDLG, MODR_SIZE = 4, 4              # kernel/mod.inc
+def equ(path, name):                # tests/diskclone.py's helper. The row
+    src = open(path).read()         # index has moved once already (HIBER.DRV
+    m = re.search(r"^%s\s+equ\s+(\d+)" % name, src, re.M)   # took slot 3),
+    if not m:                       # and a stale one reads ANOTHER module's
+        sys.exit("%s: no `%s equ`" % (path, name))          # MODR_SEG word
+    return int(m.group(1))
+
+
+MOD_FDLG = equ("kernel/mod.inc", "MOD_FDLG")
+MODR_SIZE = equ("kernel/mod.inc", "MODR_SIZE")
 W_FLAGS, W_X, W_Y, W_W, W_H, W_TITLE = 0, 2, 4, 6, 8, 10
 # fdlg.inc's chrome comes out of os88geom, which reads the kernel: this file
 # clicks a button column and a listing row, and a local copy of either is a
