@@ -255,7 +255,9 @@ def main(argv):
         subprocess.check_call(["make", "BUILD=" + KNOB, "NOCURDISK=1"],
                               cwd=ROOT, stdout=subprocess.DEVNULL)
         os.environ["OS88_BUILD"] = os.path.join(ROOT, KNOB)   # os88sym reads it
-        try:
+        os88sym.default_defines("NOCURDISK")   # ...and so do the helpers that
+        try:                                   # look symbols up with no defines
+                                               # of their own (no_saver, dispcp)
             for sc in SCENARIOS:
                 old[sc[0]] = leg(("NOCURDISK",), "NOCURDISK=1, the freeze it "
                                  "replaces", sc,
@@ -263,6 +265,7 @@ def main(argv):
                                  apps=os.path.join(KNOB, "apps360.img"))
         finally:
             del os.environ["OS88_BUILD"]
+            os88sym.default_defines()
 
         for k, r in old.items():
             if r["moves"]:
