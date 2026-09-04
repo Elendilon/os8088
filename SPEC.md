@@ -47837,14 +47837,18 @@ the escape count *is* the palette index. `fr_clamp` bounds the centre on
 both axes unconditionally inside `fr_setup`, because the clamp is what keeps
 the core's arithmetic from wrapping. Zoom is a shift count (step = step0 >>
 z) so there is no per-frame division except the single step0 = span / cw.
-`FT_SYM` — 0 none / 1 x-axis / 2 origin — is declared in the type table and
-**still not exploited**; exploiting it is a free 2× on four of the five
-types and the one optimisation here that can silently corrupt half a frame,
-so it wants a byte-compare harness against the reference model first.
+`FT_SYM` — 0 none / 1 x-axis / 2 origin — is **exploited for the x-axis
+since §40.6**, which also carries the byte-compare harness this asked for
+before it was allowed to ship: the toward-zero `qmul` makes the mirror exact
+to the bit, and the sweep says so over 45.7 million pairs per type. The two
+Julias' ORIGIN symmetry is still not taken — its twin row is the partner
+reversed in x, which is a different emit path.
 
-**Progressive refinement.** `fr_advance` runs three passes over the canvas:
-pass 0 computes rows 0, 4, 8 … and paints each as a **4-row band**, pass 1
-fills rows 2, 6, 10 … as 2-row bands, pass 2 the rest as single rows.
+**Progressive refinement.** `fr_advance` runs three passes over the canvas,
+counted from the mirror row `rc` (§40.6; `rc` = 0, and these are then rows
+0, 4, 8 …, whenever there is no mirror): with `d = row − rc`, pass 0 computes
+`d ≡ 0 (mod 4)` and paints each as a **4-row band**, pass 1 fills
+`d ≡ 2 (mod 4)` as 2-row bands, pass 2 the odd `d` as single rows.
 ch/4 + ch/4 + ch/2 = ch, so no pixel is computed twice — only painted twice
 — and the finished image is exactly the non-progressive image, with a full
 chunky preview after a quarter of the work. `fr_rowcalc` computes one row
@@ -48540,19 +48544,113 @@ is meaningless there; the Burning Ship and the Tricorn have interiors of a
 different shape and no test of this form describes them. Four of the five
 types are unchanged, byte for byte, and pay one compare per pixel.
 
-**What is still on the table, with the arithmetic attached, is `FT_SYM`** —
-declared in §40's type table and still not exploited. The x-axis mirror is
-worth **84 of 170 rows** at the shipped geometry, and the pass order is what
-makes it awkward rather than free: `mirror(r) = 2·rc − r` preserves parity, so
-every pass-1 row mirrors a pass-0 row already computed and the second half of
-pass 2 mirrors the first half — but a pass-0 row's partner is not computed
-yet, and a mirrored row has to be *read back*, which means reading §40.1's
-cache out of order rather than computing into `fr_line`. Combined with
-`fr_inset` it takes the default view to **25.1 s** and z=3 to **4.1 s**. It is
-also the one that is exact for four types rather than one: the toward-zero
-`qmul` makes `qmul(-a,b) = -qmul(a,b)` hold to the bit, so the conjugate
-orbit is the negated orbit exactly, and for a Julia the origin mirror is
-exact for the same reason.
+**`FT_SYM` is the other half of this, and §40.6 is it.** The x-axis mirror is
+worth **84 of 170 rows** at the shipped geometry, it is exact for four of the
+five types, and it multiplies with `fr_inset` rather than overlapping it —
+this section removes iterations, that one removes whole rows. What made it
+look awkward from here was an assumption about the pass order that turned out
+not to be a property of the mirror; §40.6 phases the passes from the axis row
+and the twin becomes the next row rather than a cache read.
+
+### 40.6 `FT_SYM` exploited — the passes are phased from the AXIS, not from row 0
+
+§40's type table has declared `FT_SYM` since the first version and §40.5 left
+it unexploited with the arithmetic attached. This is it, and the thing that
+made it cheap is not the mirror — it is **where the progressive passes start
+counting**.
+
+**First, the claim itself, because §40 calls this the one optimisation here
+that can silently corrupt half a frame.** The property is not "the Mandelbrot
+set is symmetric about the real axis" — the picture owes that nothing. It is
+that *this core*, in Q4.12, returns the same escape index for `(cx, cy)` and
+`(cx, −cy)`. It does, and it does so because `qmul` truncates toward zero:
+`qmul(−a,b) = −qmul(a,b)` exactly, so the conjugate orbit is the negated orbit
+to the bit, `x2` and `x2+y2` are untouched, and the magnitude guard is
+symmetric. Swept at stride 3 over the whole clamped plane — **45,677,682 pairs
+per type**:
+
+| type | `FT_SYM` | disagreements |
+|---|---|---|
+| Mandelbrot | 1 | **0** |
+| Julia Dendrite | 2 | **0** |
+| Julia Rabbit | 2 | **0** |
+| Tricorn | 1 | **0** |
+| Burning Ship | **0** | 6,538,376 |
+
+That last row is the table's own control: the Ship declares no symmetry and
+really has none, so a sweep that found nothing anywhere would have proved only
+that it was not looking.
+
+**Now the ordering, which is the whole of the change.** A mirrored row costs
+nothing only if the row it mirrors is *to hand*. §40.5 said that meant reading
+§40.1's cache back out of order, and that was true of `fr_stepv`'s phase and
+not of the mirror. `mirror(r) = 2·rc − r` preserves parity but not `r mod 4`,
+so with passes counted from row 0 a pass-0 row's twin lands in pass 1, an
+entire pass away. Count the passes from the **axis row** instead — pass 0 is
+`d ≡ 0 (mod 4)` where `d = r − rc`, visited `d = 0, +4, −4, +8, −8, …` — and
+`−d` is the *very next row*, so `fr_line` still holds it:
+
+| | rows still computed, reading the cache back | rows still computed, `fr_line` alone |
+|---|---|---|
+| passes phased from row 0 | 86 of 170 | **169 of 170** |
+| passes phased from the axis | 86 of 170 | **86 of 170** |
+
+**`fr_stepv(rc = 0)` is today's order exactly** — checked at every canvas
+height, not argued — so the phase is a generalisation rather than a
+replacement, and every frame without a mirror walks the identical sequence.
+`[fr_mrc]` is that parameter: the axis row, or **0 meaning none**, which
+costs nothing to conflate because `rc = 0` has no in-range twins anyway.
+
+**The mirror is available exactly when `cy = 0` lands on a canvas row**, which
+`fr_setup` tests directly — `−y0` divisible by `[fr_step]`, quotient inside
+the canvas, and the type's `FT_SYM` = 1. That is guaranteed whenever `ceny` is
+0, so it covers the default view, Reset and both menu zooms; a click that
+recentres off the axis loses it, and **that is the honest limit of this
+optimisation** — it doubles the views §40.5 already made fastest and does
+nothing for the ones it did not. Frame cost with the emit priced as well as
+the iteration (one `gfx_fill` a run, 756 µs):
+
+| view | z | before §40.5 | with `fr_inset` | **and the mirror** |
+|---|---|---|---|---|
+| default | 0 | 125.2 s | 55.0 s | **30.4 s** |
+| default | 1 | 303.6 s | 66.6 s | **35.8 s** |
+| default | 2 | 354.2 s | 27.7 s | **14.6 s** |
+| default | 3 | 361.4 s | 6.5 s | **3.3 s** |
+
+It is 1.81× and not 2× at z=0 because a mirrored row is still *emitted* —
+5.2 s of the frame is drawing calls, and the mirror does not save one of them.
+
+**Four things follow that are not the mirror, and each is load-bearing.**
+
+- **`fr_replay` had a SECOND copy of the pass-0 walk** — `fr_crrow` starting
+  at 0 and stepping by 4 — which §40.1 says does not exist ("there is exactly
+  one copy of that arithmetic and why `fr_stepv` exists"). It was true of the
+  cache's frontier and the render, and not of the replay. Under a phase it is
+  simply wrong, so `fr_replay` steps `fr_stepv` now like everything else, and
+  the sentence in §40.1 becomes true.
+- **The topmost pass-0 band starts at canvas row 0.** Pass 0's first row is
+  `rc mod 4`, so under a phase up to three rows sit above every pass-0 band
+  and would stay unpainted until pass 2 — a white line at the top of the
+  canvas for the first quarter of a render. The topmost band is extended
+  upward instead; `fr_emit_body` and `fr_replay` apply the same rule, because
+  band geometry is derived from `(pass, row)` at both ends and never stored.
+- **`[fr_c0row]` is the LAST cached pass-0 row now, not the next one.**
+  `fr_redraw` resumed with `fr_stepv(0, c0row − 4)`, and `− 4` is an assumption
+  about the phase. Recording the row the prefix actually stopped at makes the
+  resume one plain step of the one state machine, which is what that comment
+  claimed all along.
+- **`[fr_mrc]` joins `[fr_ccw]`/`[fr_cch]` as a cache validity key.** The cache
+  stores rows in emission order and nothing else records which row is which,
+  so replaying it under a different phase would put every row at the wrong
+  height. A view change funnels through `fr_kick` and cannot reach that, but
+  the key costs one compare and turns an argument into a check.
+
+**Cost.** `[fr_mrc]` and `[fr_lrow]` — the row `fr_line` currently holds, which
+is what the twin test compares against and what `fr_kick` invalidates — are
+the only new state. Mandelbrot and Tricorn get the mirror; the two Julias
+declare `FT_SYM` = 2, an ORIGIN symmetry whose twin row is the partner
+*reversed in x*, which is a different emit path and is not done here; the
+Burning Ship declares none and is untouched.
 
 ### 39.26 The software renderer's plane loop is gone
 

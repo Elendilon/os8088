@@ -176,6 +176,86 @@ def inset(cx, cy, flg):
     return False
 
 
+# --- the (pass, row) state machine, phased from the axis (SPEC.md 40.6) -----
+
+def incv(pas):
+    """fr_incv: the |d| increment of a pass - 4 for 0 and 1, 2 for pass 2."""
+    return 2 if pas == 2 else 4
+
+
+def stepv(pas, row, ch, rc):
+    """fr_stepv, control flow for control flow.
+
+    d = row - rc, and a pass walks d = 0, +k, -k, +2k, -2k ... so that -d is
+    the row IMMEDIATELY after +d and fr_line still holds its twin.  rc = 0 is
+    the order this package walked before the phase existed - not by
+    coincidence but by construction, and t_frstepv.py checks it at every
+    canvas height rather than taking the word for it."""
+    cx = rc
+    si = ch - 1 - rc
+    if not si >= cx:                        # fr_stepv's `cmp si,cx / jae`
+        si = cx                             # SI = max(rc, ch-1-rc)
+    dx = incv(pas)
+    d = row - cx
+    state = "step"
+    while True:
+        if state == "step":
+            if d > 0:
+                d = -d                      # +d -> its twin
+            elif d < 0:
+                d = -d + dx                 # -d -> the next pair
+            else:
+                d = d + dx                  # d = 0 -> the first pair
+            state = "chk"
+        if state == "chk":
+            if abs(d) > si:                 # past both edges: pass exhausted
+                state = "nextpass"
+            else:
+                r = d + cx
+                if not 0 <= r < ch:         # off ONE edge: skip, do not stop
+                    state = "step"
+                    continue
+                return pas, r
+        if state == "nextpass":
+            pas += 1
+            if pas >= 3:
+                return pas, row             # frame complete
+            dx = incv(pas)
+            d = dx >> 1                     # 2 for pass 1, 1 for pass 2
+            state = "chk"
+
+
+def order(ch, rc):
+    """Every (pass, row) a frame draws, in the order it draws them."""
+    out = []
+    pas, row = 0, rc
+    while pas < 3:
+        out.append((pas, row))
+        pas, row = stepv(pas, row, ch, rc)
+    return out
+
+
+def band(pas, row, ch):
+    """fr_band: the (top, bottom) canvas rows this row paints.
+
+    The topmost pass-0 band reaches row 0 because pass 0 now opens at
+    rc mod 4, so up to three rows would otherwise sit above every pass-0
+    band and stay unpainted until pass 2."""
+    bottom = min(row + (3, 1, 0)[pas], ch - 1)
+    top = 0 if (pas == 0 and row < 4) else row
+    return top, bottom
+
+
+def axis_row(t, step, y0, ch):
+    """fr_setup's [fr_mrc]: the canvas row cy = 0 falls on, or 0 for none."""
+    if t["sym"] != 1 or y0 > 0:
+        return 0
+    rc, rem = divmod(-y0, step)
+    if rem or rc >= ch:
+        return 0
+    return rc
+
+
 # --- the view, as fr_setup derives it ---------------------------------------
 
 def setup(t, z, cw, ch, cenx=None, ceny=None):

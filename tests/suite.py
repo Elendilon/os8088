@@ -164,6 +164,12 @@ FAST = [
     Row("frinset", "fast", py("tests/unit/t_frinset.py"), 1.9,
         "fr_inset never claims a pixel frac_iter would have escaped, and its"
         "rejection boxes still match the closed forms (SPEC.md 40.5)"),
+    Row("frstepv", "fast", py("tests/unit/t_frstepv.py"), 0.4,
+        "The axis-phased pass order is still a permutation of the canvas, a"
+        "row's twin is still the row before it, and rc=0 is still the order"
+        "walked before the phase existed (SPEC.md 40.6). SPEC.md 40.1 rests"
+        "the whole restore cache on that arithmetic and nothing else records"
+        "which cached row is which."),
     Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 0.8,
         "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
         "zero bytes (docs/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
