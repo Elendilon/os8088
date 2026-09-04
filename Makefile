@@ -6318,8 +6318,8 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #                           it without fsx, so what ships is a menu that leads
 #                           nowhere
 #
-# 90,510 bytes of a 360KB floppy - a quarter of it - for seven programs that
-# could not have started.
+# 99,749 bytes of a 360KB floppy - 27% of it - for eight programs that could
+# not have started (SPEC.md 24.5 has the same figures, re-measured together).
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/recorder.o88 $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88

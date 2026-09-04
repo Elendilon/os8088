@@ -34469,8 +34469,8 @@ that program's manual (§71.12), which is worse than no file at all on a disk
 the program is not on — and `BEVERLY.MOD` is the two removed players' module
 (§24.4).
 
-**99,743 bytes — 27% of a 360KB floppy — for eight programs that could
-not have started.** The apps disk goes 341 → 231 of 354 clusters — which
+**99,752 bytes — 27% of a 360KB floppy — for eight programs that could
+not have started.** The apps disk goes 341 → 230 of 354 clusters — which
 moves for SEVEN of them, `AUDIO.O88` not being on that geometry's apps disk in
 the first place. (All three
 re-measured at §71.12, and only 341 moved *because* of it: `BROWSER.HTM` is
