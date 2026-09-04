@@ -213,6 +213,12 @@ FAST = [
     Row("pkg", "fast", py("tests/unit/t_pkg.py"), 0.1,
         "package/driver/module headers, and every file on every image proved "
         "identical to the artifact it was built from"),
+    Row("sfx", "fast", py("tests/unit/t_sfx.py"), 0.4,
+        "OS88NET.COM's self-extracting stub (SPEC.md 62.12) EXECUTED - the "
+        "shipped bytes run in a small 8086 and must rebuild os88net.raw "
+        "exactly. The DOS end has shipped broken twice for want of ever "
+        "being run (tests/dosstub); a packer checked only by its own "
+        "decoder is that shape again"),
     Row("diskverify", "fast", py("tests/unit/t_diskverify.py"), 0.5,
         "the tree's own fsck, pointed at the seven images `make` ships and "
         "never ran on"),

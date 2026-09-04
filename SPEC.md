@@ -71240,7 +71240,10 @@ disk of its own (§24.4), and **16,776 of those bytes were literal zeros**: the
 socket table, the two frame buffers, the packet ring and the command buffer,
 written into the file to say nothing. A driver's bss ships inside its image
 (§51) and must; a `.COM` already owns every byte above its own image, so
-`ETH_NOEMIT` reserves them instead. **17,992 bytes, 36 of 354 clusters.**
+`ETH_NOEMIT` reserves them instead. **17,992 bytes, 36 of 708 sectors** — that
+last figure said "36 of 354 clusters" until §62.12 had to do the same
+arithmetic and found it mixed the two units: a 360KB volume's 354 clusters are
+**1,024 bytes** each, so 17,992 bytes is 36 sectors and **18 clusters**.
 
 That is also the answer to *should it be a self-extracting archive*. A
 compressor's whole job there would have been squeezing zeros that need not
@@ -71248,6 +71251,14 @@ exist, and what is left is code, which would come down perhaps a further 5KB
 in exchange for a decompressor on the critical path of the one program in this
 tree that reached the field twice without executing. The lever is still there
 if the disk tightens; it is not the first one to reach for.
+
+> **The disk tightened and the lever has been pulled — §62.12.** The paragraph
+> above is kept because its reasoning is the reasoning that was overturned, and
+> only one half of it was wrong. Its *caution* was right and is what §62.12 is
+> built around. Its *arithmetic* was low by half: the saving is **7,680 bytes**,
+> not "perhaps 5KB", because it costed a compressor against the zeros
+> `ETH_NOEMIT` had already taken out and the remaining code is where an LZ77
+> with gamma-coded offsets actually earns.
 
 **Reserved memory arrives DIRTY and `net_bss_clear` is what pays for that.**
 Emitted, the buffers were zero because the file said so; reserved, they are
@@ -71277,6 +71288,115 @@ away and looks like nothing to do with the program that caused it. `ne_stop`
 is called at `.bye`, the one exit every path funnels through, and it is
 guarded by `[pk_handle]` rather than `[eth_up]`: a run that registered and
 then lost DHCP serves files with `eth_up` 0 and a **live** upcall.
+
+### 62.12 `OS88NET.COM` is a self-extracting archive (`drivers/net/os88sfx.asm`, `tools/os88sfx.py`)
+
+**It ships packed and unpacks itself on the DOS machine.** 19,333 bytes became
+**11,653** — a 96-byte stub in front of an 11,557-byte body — and the 360KB apps
+disk, the one that was full, goes from **3 free clusters to 10**: the file costs
+**12 of its 354 clusters where it cost 19**, and the disk's headroom more than
+triples. On the 1.44MB apps disk, whose clusters are 512 bytes, it is 15 of
+them — the whole 7,680. Nothing else about it changes: it is still
+`OS88NET.COM`, it is still what you copy to the far machine and type, and it
+still prints the banner in §62.7. The archive extracts into MEMORY and enters
+the program; there is no unpacked file to find afterwards and nothing extra to
+explain to whoever is sitting at that machine.
+
+**Why it is allowed to be packed at all** is the sentence above `APPS_DOS` in
+the Makefile: this is the one file on either shipped floppy that does not run on
+os8088. It rides the apps disk for TRANSPORT — the link is how files reach these
+disks in the first place, so *"copy it off the disk that came with the OS"* must
+not depend on already having a way to move a file. The machine carrying it never
+executes it, so the only machine that has to unpack it is the DOS one, which is
+the machine that was always going to run it.
+
+#### 62.12.1 The format, and why not deflate
+
+LZSS with interlaced Elias-gamma lengths and offsets, one stream interleaving
+bits with whole bytes:
+
+    0 <byte>                                literal
+    1 <gamma(len-1)> <gamma(offhi+1)> <byte offlo>
+
+with `len >= 2` and `off = (offhi << 8) + offlo + 1`. A tag byte is fetched only
+when the bit buffer runs dry, so every literal and every offset byte stays
+byte-aligned and there is no such thing here as reading thirteen bits — which is
+what keeps the decoder to the ~90 bytes it is. Gamma is interlaced, so decoding
+one is a four-instruction loop needing no bit counter:
+
+    ax = 1;  while (getbit()) ax = ax*2 + getbit();
+
+**Measured on the file this exists for**, optimally parsed each time: this
+format **11,557**, `zlib -9` **11,467**, plain LZSS with a 12-bit offset and a
+4-bit length **13,510**. So deflate is **90 bytes** better and costs a Huffman
+decoder, two dynamic tables and a window — over a kilobyte of stub, to win back
+ninety bytes. Plain LZSS is 1,953 bytes worse for a stub perhaps thirty bytes
+smaller. **The parse is optimal rather than greedy** (every token's cost depends
+only on `len` and `off`, so the cheapest encoding is a shortest path and a DP
+finds it); greedy costs about 3% here.
+
+#### 62.12.2 The three things that make it correct
+
+1. **The unpacker cannot run where it is assembled.** It writes the image over
+   `0x100` upwards, which is where its own code sits. So the entry lifts the
+   unpacker *and* the packed body clear of the image first and jumps to the
+   copy — and everything from `sfx_body` down therefore executes at an address
+   nasm knows nothing about. All control flow in it is relative; the one
+   absolute jump, back into the unpacked program, goes through a register.
+2. **Output can never catch input.** The body is staged at `0x100 + SFX_RAW` —
+   the first byte *past* the image about to be written — so `di` stops at the
+   byte before the first one still unread. That is not a margin to be checked;
+   it is the two ranges being disjoint by construction.
+3. **`inc si` does not touch the carry flag.** `sfx_bit` answers in CF and
+   reloads its buffer in the middle of doing so, so a refill that clobbered CF
+   would return a wrong bit every eighth call — and that does not fail at the
+   first bit. It fails at the ninth, in a stream that keeps decoding into
+   plausible rubbish hundreds of bytes further on.
+
+#### 62.12.3 It needs no memory the program did not already need
+
+The staged body runs `0x4C85..0x7A0A`. `os88net.asm`'s own reserved buffers
+already run to `net_bss1` = **`0x9C0D`** (§62.11.7), so every machine with the
+room to run the unpacked program has the room to unpack this one, with **8,803
+bytes to spare**. `tools/os88sfx.py` asserts the ceiling and refuses in a
+sentence if it is ever crossed, and `net_bss_clear` zeroes the staged body along
+with everything else above the image — by which time it has been read.
+
+#### 62.12.4 What it costs the far machine, measured
+
+**943 ms** on a 4.77 MHz 8088 — 4,499,473 cycles, taken on MartyPC with an exec
+breakpoint at `PSP:0100`, which the packed build hits **twice**: once when DOS
+enters the stub and once when the stub jumps back into the unpacked program.
+Against that, the file is 7,680 bytes shorter to read, which at the 11.5–13.4
+KB/s a real 5150 drive does (PERFORMANCE.md Part 2) is **570–670 ms** that is
+not spent loading it. So the honest figure is roughly **a third of a second**,
+once, before the banner, on a program that then sits and serves files — and it
+is a third of a second on a machine whose whole job is being the fast end of a
+slow cable.
+
+#### 62.12.5 The objection in §62.11.7 was the right one, and it is answered by RUNNING it
+
+That paragraph deferred this on one ground worth repeating: a decompressor on
+the critical path of *"the one program in this tree that reached the field twice
+without executing"*. §62.8 exists because of exactly that history. Two gates
+answer it, and neither is arithmetic:
+
+- **`tests/unit/t_sfx.py` executes the shipped bytes** — a few dozen opcodes of
+  8086, only the ones `os88sfx.asm` emits, running `build/os88net.com` out of a
+  simulated 64KB segment the way DOS enters a `.COM`, and passing only when
+  execution reaches `0x100` again with the whole of `build/os88net.raw` sitting
+  there. It runs in the **fast** tier, so it hangs off every `make`, and it
+  refuses an opcode it does not model rather than stepping over one. A packer
+  checked only by its own decoder proves nothing: the two agree by construction
+  and neither is what ships.
+- **`make dosstub` runs the packed `.COM` on the 8088 itself**, through §62.8's
+  harness, to the `Listening.` state — and the screen is **identical, line for
+  line**, to the same harness built with `COMFILE=build/os88net.raw`. That knob
+  is the A/B.
+
+`tools/os88sfx.py` also refuses to write a payload it cannot decode back, on
+every build, with a model of the assembly rather than a second call into its own
+tables. Three checks, none of which is the author's arithmetic.
 
 ## 63. The logo (`tools/os88logo.py`, `MEDIA/OS8088.GIF`)
 
