@@ -57292,13 +57292,9 @@ answer. Running out of the slice stops AT the slice end rather than stepping
 past it — that is the end-of-line position, and typing after a trailing span
 needs it.
 
-*A link still shows its syntax under the caret*, and it is the one carve-out
-left. `Style > Link` parks the caret between the parens of `[text]()` for the
-URL (§46.6), and a hidden paren is a paren you cannot type into — the URL
-would go in blind. So `[at_lnkraw]` marks the line the caret stands on and
-`at_linkscan`'s result is discarded there, leaving `[text](url)` literal until
-the caret moves off the LINE. Nothing else on that line is affected: bold,
-italic, code, strike and headings style under the caret like anywhere else.
+*Markdown has to stay typeable*, which is §46.2.2 — one exception, defined on
+the delimiter run rather than on the line, and it is what `Style > Link`'s
+caret-in-the-parens (§46.6) rides on rather than a carve-out of its own.
 
 **The repaint got cheaper, not dearer.** `at_nav_paint` used to union the
 caret's old and new *paragraphs* into its redraw range on every move, because
@@ -57322,6 +57318,47 @@ however long the selection is) and the WHOLE old extent when it collapses.
 `at_click_text` banks the pre-click selection instead of the settled one; the
 drag's release still banks the settled state, the drag loop having XORed every
 delta as the mouse moved.
+
+#### 46.2.2 The one exception: the run you are typing
+
+A view that hides markdown still has to let you type markdown. §46.2.1 on its
+own means the `**` you type vanishes under your fingers — the second asterisk
+completes a span, and the pair it belongs to is hidden by the keystroke that
+finishes it. So `at_reveal` shows back **the run of hidden characters that ends
+exactly at the caret**, and nothing else:
+
+| keystroke | buffer | drawn |
+|---|---|---|
+| `*` | `*` | `*` |
+| `*` | `**` | `**` |
+| `H` | `**H` | **H** |
+| `ello world` | `**Hello world` | **Hello world** |
+| `*` | `**Hello world*` | **Hello world**`*` |
+| `*` | `**Hello world**` | **Hello world**`**` |
+| *space* | `**Hello world** ` | **Hello world** |
+
+**It is defined on the RUN, not on the span**, and that is the whole of why one
+rule covers every delimiter the parser has: `*`, `**`, a backtick, `~~`, a
+heading's `#` prefix, and a link's `](url)` tail. It also settles §46.6 without
+a rule of its own — every character of a URL is hidden, so each one typed
+becomes the run's new end and the URL is visible exactly while it is being
+written. The cost of that generality is that an *existing* link's URL is no
+longer reachable by clicking into it: `End` puts the caret past the `)`, which
+reveals the whole tail, and Markdown mode shows the source outright.
+
+**The rebuild is the cost and it is not optional.** `at_xmap` and `at_cellbg`
+are functions of the pen, the pen only advances on a visible cell, and the run
+just changed which cells those are — so `at_reveal` lays both again from the
+`at_vis` it edited (`at_codecols` is factored out of `at_parse`'s own `.place`
+for exactly that second caller). Only the caret's line ever pays it; every
+other line leaves on the first compare.
+
+**Layout is untouched**, which is what keeps this cheap and is not a
+coincidence: §46.3 wraps on RAW character counts in both modes, so revealing a
+run makes a line render *closer* to the width the wrap already assumed and can
+never overflow it. And `at_nav_paint`'s Writer-mode fold of the old and new
+caret lines (§46.2.1) is already exactly the repaint this needs — a run that
+stops being the caret's has to hide, and that is one line.
 
 ### 46.3 Layout — raw-width wrap, one paragraph at a time
 

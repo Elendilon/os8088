@@ -98,6 +98,11 @@ at_geom_init:
 ; attr nibble), the heading prefix hidden on the logical line's first
 ; visual line, links recognised within the line ([text](url): text
 ; underlined and verbatim, the rest hidden).
+;
+; ...and then at_reveal shows back the one run the caret is standing at the
+; end of (SPEC.md 46.2.2), which is what lets markdown be TYPED into a view
+; that hides it. It is the last thing this proc does, because it rebuilds
+; at_xmap and at_cellbg out of the at_vis it changed.
 ; -----------------------------------------------------------------------------
 at_parse:
     push ax
@@ -110,27 +115,6 @@ at_parse:
     call at_slice                   ; at_lbuf, CX = len, AX = start
     mov [at_pcnt], cx
     mov [at_pstart], ax
-    ; DOES THE CARET STAND ON THIS LINE, and does anything care? Exactly one
-    ; thing does: a LINK (SPEC.md 46.2.1). Style > Link parks the caret between
-    ; the parens of `[text]()` for the URL to be typed into, and hiding them
-    ; would make it type into pixels that are not drawn - so a link shows its
-    ; syntax while the caret is on its line, and collapses when the caret
-    ; leaves. Nothing else on the line is affected: bold, italic, code, strike
-    ; and headings style under the caret like every other line.
-    mov byte [at_lnkraw], 0
-    cmp byte [at_pforce], 0
-    jne .nolr                       ; at_cmd_none wants the hidden set whole
-    cmp byte [at_writer], 0
-    je .nolr                        ; markdown draws the syntax anyway
-    mov dx, [at_caret]
-    cmp dx, ax
-    jb .nolr
-    add ax, cx
-    cmp dx, ax
-    ja .nolr
-    mov byte [at_lnkraw], 1
-.nolr:
-    mov ax, [at_pstart]
     call at_lgeom                   ; AX = cellw, DX = rowh
     mov [at_pcw], ax
     mov [at_prh], dx
@@ -294,11 +278,7 @@ at_parse:
 .bracket:
     call at_linkscan                ; CF=0: at_plt/at_plh set
     jc .stylevis
-    cmp byte [at_lnkraw], 0
-    je .hide                        ; the '[' itself is hidden
-    mov word [at_plt], 0FFFFh       ; ...unless the caret is standing here, in
-    mov word [at_plh], 0FFFFh       ; which case the whole structure stays
-    jmp .stylevis                   ; literal so the URL can be typed
+    jmp short .hide                 ; the '[' itself is hidden
 .place:
     mov [si+at_vis], ch
     mov [si+at_sty], cl
@@ -311,9 +291,41 @@ at_parse:
     jnz .next
     test cl, AT_ST_C
     jz .adv
-    ; gray background columns for this cell
+    call at_codecols                ; this cell's grey background columns
+.adv:
+    add di, [at_pcw]
+.next:
+    inc si
+    jmp .sloop
+.sdone:
+    mov dx, si
+    shl dx, 1
+    xchg bx, dx
+    mov [bx+at_xmap], di
+    xchg bx, dx
+    call at_reveal                  ; ...and the run the caret is typing
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; at_codecols - mark a code cell's 8px background columns from the pen x in DI
+; out: at_cellbg[] set across the cell and [at_pcb0]/[at_pcb1] widened to the
+;      span of every column set; preserves every register
+; Factored out of at_parse's .place because at_reveal has to lay these again
+; from scratch: they are a function of the pen, and the pen moves when a
+; hidden run turns visible.
+; -----------------------------------------------------------------------------
+at_codecols:
     push ax
     push bx
+    push cx
     push dx
     mov ax, di
     mov cl, 3
@@ -340,21 +352,103 @@ at_parse:
     jbe .gcol
 .gdone:
     pop dx
+    pop cx
     pop bx
     pop ax
-.adv:
-    add di, [at_pcw]
-.next:
-    inc si
-    jmp .sloop
-.sdone:
-    mov dx, si
-    shl dx, 1
-    xchg bx, dx
+    ret
+
+; -----------------------------------------------------------------------------
+; at_reveal - show the delimiter run the caret is standing at the end of
+;             (SPEC.md 46.2.2)
+; in:  at_vis[]/at_sty[]/at_xmap[] as the styled pass left them
+; out: the run of HIDDEN characters ending exactly at the caret turned visible,
+;      and at_xmap/at_cellbg/[at_pcb0]/[at_pcb1] rebuilt around it; preserves
+;      every register. Nothing happens in Markdown mode, under at_pforce, or on
+;      a line the caret is not standing on.
+;
+; THE ONE EXCEPTION TO 46.2.1, and it is what makes typing markdown by hand
+; bearable in a view that hides it: `**` you have just typed is a `**` you can
+; see, and it disappears at the keystroke that ends it.
+;
+;     *            ->  *              the run is the caret's, so it shows
+;     **           ->  **
+;     **H          ->  H (bold)       H is not a delimiter: the run is behind
+;     **Hello      ->  Hello          the caret now, and hides
+;     **Hello*     ->  Hello*         a new run, at the caret again
+;     **Hello**    ->  Hello**
+;     **Hello** _  ->  Hello_         the space ends it
+;
+; It is defined on the RUN and not on the span, which is why one rule covers
+; every delimiter the parser has - `*`, `**`, backtick, `~~`, a heading's `#`
+; prefix and a link's `](url)` tail - and why the tail of a link is typeable
+; without a carve-out of its own: every character of a URL is hidden and each
+; one you type is the run's new end.
+;
+; The rebuild is not optional and it is the whole cost: at_xmap and at_cellbg
+; are functions of the PEN, the pen only advances on a visible cell, and the
+; run just changed which cells those are. Only the caret's line ever pays it.
+; -----------------------------------------------------------------------------
+at_reveal:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp byte [at_pforce], 0
+    jne .out                        ; at_cmd_none wants the hidden set whole
+    cmp byte [at_writer], 0
+    je .out
+    mov ax, [at_caret]
+    sub ax, [at_pstart]
+    jb .out                         ; the caret is not on this line...
+    cmp ax, [at_pcnt]
+    ja .out                         ; ...at either end
+    mov si, ax                      ; SI = the caret's slice index
+    mov cx, si
+.back:
+    or cx, cx
+    jz .done
+    mov bx, cx
+    dec bx
+    cmp byte [bx+at_vis], 0
+    je .done                        ; a visible character ends the run
+    mov byte [bx+at_vis], 0
+    mov cx, bx
+    jmp short .back
+.done:
+    cmp cx, si
+    je .out                         ; nothing was hidden there
+    push es                         ; --- the pen moved: lay the columns again
+    push ds
+    pop es
+    cld
+    mov di, at_cellbg
+    mov cx, AT_CBGCAP/2
+    xor ax, ax
+    rep stosw
+    pop es
+    mov word [at_pcb0], 0FFFFh
+    mov word [at_pcb1], 0
+    xor si, si                      ; SI = index
+    xor di, di                      ; DI = pen x
+.rex:
+    mov bx, si
+    shl bx, 1
     mov [bx+at_xmap], di
-    xchg bx, dx
+    cmp si, [at_pcnt]
+    jae .out
+    cmp byte [si+at_vis], 0
+    jne .rnext
+    test byte [si+at_sty], AT_ST_C
+    jz .radv
+    call at_codecols
+.radv:
+    add di, [at_pcw]
+.rnext:
+    inc si
+    jmp short .rex
 .out:
-    pop bp
     pop di
     pop si
     pop dx

@@ -1025,11 +1025,7 @@ at_pbase    equ at_pspan + 1                 ; byte
 at_plt      equ at_pbase + 1                 ; word: link text end
 at_plh      equ at_plt + 2                   ; word: link hide end
 at_pforce   equ at_plh + 2                   ; byte: force styled parse
-at_lnkraw   equ at_pforce + 1                ; byte: this line holds the
-                                             ; caret, so its LINKS show
-                                             ; their syntax (SPEC.md
-                                             ; 46.2.1)
-at_gsty     equ at_lnkraw + 1                ; byte: composing style
+at_gsty     equ at_pforce + 1                ; byte: composing style
 at_grow     equ at_gsty + 1                  ; 4 bytes: scaled glyph row
 ; --- the strips ---------------------------------------------------------------
 at_strip1   equ at_grow + 4                  ; AT_S1ST * AT_SROWS
