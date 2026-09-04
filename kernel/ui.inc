@@ -46,6 +46,12 @@
 ; frozen UI, and a toast about a disk the user was asked to remove.
 UI_RBQ_FLUSH   equ 1            ; flush the Control Panel on the way out
 UI_RBQ_NOFLUSH equ 2            ; ...and do not go near a disk at all
+UI_RBQ_HIBER   equ 3            ; SPEC.md 87: write the image and stop
+UI_RBQ_RESUME  equ 4            ; ...put an image back
+UI_RBQ_ASK     equ 5            ; ...and ask whether to, at boot. All three
+                                ; are spent by the same top-of-pass site as
+                                ; a restart, for the same reason (20.10):
+                                ; what they do detaches drivers and yields
 
 UI_TDBLT    equ 9               ; title-bar double-click window, ticks - the
                                 ; same half second as DESK_DBLT, FM_DBLCLK
@@ -74,11 +80,19 @@ ui_task:
     ; --- 0. a posted restart, spent with NOTHING held (SPEC.md 20.10) --------
     cmp byte [ui_rebootq], 0
     je .keys
-    mov al, [ui_rebootq]        ; what the poster ASKED for, carried into AL:
-    sub al, UI_RBQ_FLUSH        ; 0 = flush the panel first, non-0 = do not
+    mov al, [ui_rebootq]        ; what the poster ASKED for, carried into AL
     mov byte [ui_rebootq], 0    ; ...cleared first: ui_cmd_reboot does not
-    call ui_cmd_reboot          ; return, but a path that ever did must not
+                                ; return, but a path that ever did must not
                                 ; find the post still standing
+%ifdef KERN_BIG
+    cmp al, UI_RBQ_HIBER        ; a hibernate, a resume or the question
+    jb .restart                 ; (SPEC.md 87): these DO return - on a
+    call COLD_SEG:hbf_perform   ; refusal, a Discard, or once the question
+    jmp .keys                   ; is on the screen
+.restart:
+%endif
+    sub al, UI_RBQ_FLUSH        ; 0 = flush the panel first, non-0 = do not
+    call ui_cmd_reboot
 .keys:
     ; --- 1. keyboard: poll, and feed the front window's key handler ----------
     mov ah, 0x01                ; any key pending?
@@ -2129,6 +2143,17 @@ ui_loc_gate:
     mov [menu_items_file], ax   ; Close Window is item 0 now: Locator's File
                                 ; menu is that item and nothing else, the
                                 ; builtins having moved to Builtins (12.3.1)
+%ifdef KERN_BIG
+    call COLD_SEG:hb_ok_x       ; ...and Hibernate greys with its reason
+    mov bx, menu_s_hiber        ; (SPEC.md 87.2): no fixed disk, or extended
+    jnc .hset                   ; memory held that the image would not carry.
+    mov bx, menu_s_hibernh      ; BX for the string, because AL IS the reason
+    cmp al, 1                   ; and a `mov ax` here read '(XMS)' on a
+    je .hset                    ; floppy-only machine
+    mov bx, menu_s_hiberxm
+.hset:
+    mov [menu_items_logo + 8], bx   ; item 4 of the System menu
+%endif
     pop bx
     pop ax
     ret
@@ -2675,21 +2700,33 @@ ui_note_paint:
 ; which quits the frontmost instance - with nothing to close.
 ; -----------------------------------------------------------------------------
 ui_cmd:
-    dec ax                      ; CMD_ABOUT = 1 .. CMD_FILES = 9 are
-    cmp ax, CMD_FILES           ; CONTIGUOUS (SPEC.md 13, menu.inc), so an
-    jae .done                   ; eight-deep compare ladder is a table walk.
-    mov bx, ax                  ; AX = 0 wraps to 0xFFFF and the same unsigned
-    shl bx, 1                   ; compare catches it, exactly as `or ax,ax /
-    jmp word [bx + .tab]        ; jz` did. CMD_SEP is entry 3 and goes to
-.done:                          ; .done: it is the RULE above Restart and
-    ret                         ; dispatches to nothing (SPEC.md 12.3)
+    dec ax                      ; CMD_ABOUT = 1 .. CMD_FILES (9, or 10 with
+    cmp ax, CMD_FILES           ; Hibernate on kern_big) are CONTIGUOUS
+    jae .done                   ; (SPEC.md 13, menu.inc), so an eight-deep
+    mov bx, ax                  ; compare ladder is a table walk. AX = 0 wraps
+    shl bx, 1                   ; to 0xFFFF and the same unsigned compare
+    jmp word [bx + .tab]        ; catches it, exactly as `or ax,ax / jz` did.
+.done:                          ; CMD_SEP is entry 3 and goes to .done: it is
+    ret                         ; the RULE above Hibernate (Restart on
+                                ; kern_small) and dispatches to nothing
+                                ; (SPEC.md 12.3)
 
 .tab:                           ; data in .text, reached only by the indirect
                                 ; jump above - ui_loc_base's pattern, and
                                 ; fm_jmp's. os88ovlchk cannot see an indirect
                                 ; transfer, so EVERY ENTRY HERE MUST BE .text
                                 ; and is
+%ifdef KERN_BIG
+    dw .about, .ctrl, .tasks, .done, .hiber, .reboot, .close, .timer, .bounce, .files
+%else
     dw .about, .ctrl, .tasks, .done, .reboot, .close, .timer, .bounce, .files
+%endif
+
+%ifdef KERN_BIG
+.hiber:
+    call COLD_SEG:hbf_open      ; the module first, then the window (SPEC.md
+    ret                         ; 87.1) - cp_open's shape, and its refusal
+%endif
 
 .about:
     mov al, KIND_ABOUT

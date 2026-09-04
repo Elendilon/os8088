@@ -33,7 +33,7 @@ that `.text` DOES dispatch through must name the resident thunk and not the
 
 Run it from `make`; it is worth more than any amount of reading.
 """
-import re, sys, glob, os
+import os, re, sys, glob
 
 CALL = re.compile(r'\b(?:call|jmp|j[a-z]{1,3}|loop[a-z]{0,2})\s+'
                   r'(?:(?:near|short)\s+)?(?:(\w+):)?([A-Za-z_]\w*)\b')
@@ -45,7 +45,7 @@ CELL = re.compile(r'^\s*OSAPI_(?:SLOT|JSLOT|NSTUB|XSTUB)\s+(?:\w+\s*,\s*)?'
 # targets were not merely untested above - they were not in the label map at
 # all, which is how adding JSLOT alone would have bought nothing.
 CELLDEF = re.compile(r'^\s*OSAPI_(?:NSTUB|XSTUB)\s+([A-Za-z_]\w*)\s*,')
-MODS = ('.modc', '.modf', '.modl', '.modp', '.modd')  # module images (2.8).
+MODS = ('.modc', '.modf', '.modl', '.modh', '.modp', '.modd')  # module images (2.8).
 # `.modp` is Cut/Copy/Paste and kern_small's ALONE (SPEC.md 22.3,
 # docs/KERN-SMALL-MODULE-SPLIT.md 9.2): filecp.inc emits its bodies there on
 # that build and into `.cold` on kern_big, which is the first conditional
@@ -55,6 +55,9 @@ MODS = ('.modc', '.modf', '.modl', '.modp', '.modd')  # module images (2.8).
 # through its FCPX/FCPXJ macros. A near call inside the body is then
 # `.modp -> .modp` and true on either build. `.modd` is fdlg.inc on the same
 # terms (SPEC.md 38.0) and obeys the same three rules.
+# `.modh` is hiber.inc's HIBER.DRV (SPEC.md 87) - a stub on kern_small - and
+# was missing from this list when it shipped, so every label in it filed as
+# `.text` and a near call from the module into the kernel passed in silence.
 # **A section added here and nowhere else is a section NOTHING below checks**,
 # which is how `.modl` shipped once with the near-call check blind to it - the
 # clone module's every `call COLD_SEG:` was correct, and would not have been
@@ -186,7 +189,12 @@ def sections_raw(path):
 
 
 def main():
-    kfiles = sorted(glob.glob('kernel/*.inc')) + ['kernel/kernel.asm']
+    # glob yields the pattern's own separator, which is a backslash on
+    # Windows - and then the forward-slash keys in EXTRA never match, so
+    # clockw.inc / splash.inc file as .text and 42 far calls out of them read
+    # as near crossings that are not. Normalise to '/'; open() takes it fine.
+    kfiles = sorted(p.replace('\\', '/')
+                    for p in glob.glob('kernel/*.inc')) + ['kernel/kernel.asm']
     # dedup: an EXTRA under kernel/ is already in the glob, and scanning it
     # twice reports every finding in it twice.
     files = kfiles + [f for f in sorted(EXTRA) if f not in kfiles]
@@ -1092,5 +1100,118 @@ def main():
 
 
 
+# =============================================================================
+# THE APPLICATION PACKAGES, which the walk above does not reach (SPEC.md 68.10)
+#
+# A package that carries an overlay has the same hazard the kernel does and had
+# no guard at all: `section .modc` code gets a CS of its own, so a near call
+# from it to a resident label assembles cleanly - NASM emits a relative
+# displacement, which is legal - and lands at that offset in the WRONG segment
+# at run time. There is no crash to read and no message; the app simply stops.
+#
+# It is checked differently from the kernel half, and better: instead of a map
+# saying which section each %included file lands in, this FOLLOWS the includes
+# and carries the current section across them. That is what NASM actually does,
+# so a file moved from `.text` into `.modc` by editing one %include line is
+# reclassified with no second edit here - which matters, because the whole
+# point of the overlay is that moving a subsystem out is a matter of moving its
+# text.
+#
+# Each package is its own address space, so each gets its own label map: two
+# packages may legitimately define the same wd_* label and neither can call the
+# other's.
+# A package listed here that is not in the tree is SKIPPED, not an error: a
+# fork may carry one this branch does not, and the walk should still check the
+# ones that are here. The count reported at the end is what was actually
+# walked, so a skipped package cannot be mistaken for a checked one.
+PKGS = ['apps/word/word.asm']
+
+
+def expand(path, seen):
+    """The package's source with %include inlined, as NASM assembles it."""
+    if path in seen:
+        return
+    seen = seen | {path}
+    here = os.path.dirname(path)
+    for n, raw in enumerate(open(path, errors='replace'), 1):
+        m = re.match(r'\s*%include\s+"([^"]+)"', raw)
+        if m:
+            for cand in (os.path.join(here, m.group(1)),
+                         os.path.join('apps', m.group(1))):
+                if os.path.exists(cand):
+                    for row in expand(cand, seen):
+                        yield row
+                    break
+            continue
+        yield path, n, raw
+
+
+def check_pkgs():
+    bad = []
+    walked = 0
+    for pkg in PKGS:
+        if not os.path.exists(pkg):
+            continue
+        walked += 1
+        stream = list(expand(pkg, frozenset()))
+        # one linear pass for the section each line lands in: a `section`
+        # directive inside an include stays in force after it, exactly as it
+        # does for NASM
+        rows, cur = [], '.text'
+        for f, n, raw in stream:
+            line = raw.split(';')[0]
+            m = re.match(r'\s*section\s+(\.\w+)', line)
+            if m:
+                cur = m.group(1)
+                continue
+            rows.append((cur, f, n, line))
+
+        # ONLY `.modc` IS ANOTHER ADDRESS SPACE. A package is one flat binary
+        # (SPEC.md 20.2) and tools/os88ovl.py cuts exactly one section off the
+        # end of it, so `.text`, `.cold` and `.bss` are all the same CS and a
+        # near call between them is correct. apps/os88ui.inc carries `.cold`
+        # directives for the KERNEL's benefit (it is %included into a cold
+        # block there) and those must not be read as a boundary here - without
+        # this fold, 70 correct calls were reported.
+        fold = lambda x: x if x == '.modc' else '.text'
+
+        # A FILE %included TWICE was deduped here by keeping the LAST copy, on
+        # the reasoning that the code-bearing include comes last. It does not
+        # survive being tested: a file included into `.modc` FIRST and `.text`
+        # second had its `.modc` rows dropped, and a real `.modc -> .text` near
+        # call inside such a file was reported clean - a false negative, which
+        # is the exact failure this whole walk exists to prevent. Nothing in
+        # the tree needed it either: no file in a package's expansion is
+        # included twice at all. So there is no dedup, and both copies of a
+        # doubly-included file are judged in the section they actually land in.
+        # If one is ever wanted again it must keep the `.modc` copy, not the
+        # last one.
+
+        where = {}
+        for sect, f, n, line in rows:
+            m = re.match(r'^([A-Za-z_]\w*):', line)
+            if m:
+                where[m.group(1)] = fold(sect)
+        for sect, f, n, line in rows:
+            for m in CALL.finditer(line):
+                seg, tgt = m.group(1), m.group(2)
+                if seg is not None:
+                    continue            # `call far [vec]` is the way across
+                t = where.get(tgt)
+                if t is not None and t != fold(sect):
+                    bad.append((f, n, '%s -> %s, near' % (fold(sect), t),
+                                tgt, pkg))
+    for f, n, why, tgt, pkg in bad:
+        print("%s:%d: %s: %s  (%s)" % (f, n, why, tgt, pkg), file=sys.stderr)
+    if bad:
+        sys.exit("os88ovlchk: %d package call(s) cross a section boundary near "
+                 "- SPEC.md 68.10 rule 1" % len(bad))
+    if PKGS and not walked:
+        sys.exit("os88ovlchk: none of the %d package(s) in PKGS is in the tree "
+                 "- the package half of this gate checked nothing" % len(PKGS))
+    print("os88ovlchk: %d package(s) keep every overlay call far" % walked)
+
+
 if __name__ == '__main__':
     main()
+    check_pkgs()

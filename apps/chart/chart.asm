@@ -136,8 +136,9 @@ ct_entry:
     ret
 
 ; -----------------------------------------------------------------------------
-; ct_paint - W_PAINT: one OSAPI_GFX_BLIT4 of the already-rasterized buffer,
-; nothing else. In: SI = window ptr; caller holds the gfx lock.
+; ct_paint - W_PAINT: the two bands the picture does not cover, then one
+; OSAPI_GFX_BLIT4 of the already-rasterized buffer.
+; In: SI = window ptr; caller holds the gfx lock.
 ; -----------------------------------------------------------------------------
 ct_paint:
     push ax
@@ -150,6 +151,14 @@ ct_paint:
     push es
     mov bx, si
     call OSAPI_WM_CONTENT               ; ax=content x, dx=content y
+    call ch_margin                      ; THE INTERIOR THE PICTURE DOES NOT
+                                         ; COVER (SPEC.md 82.1.1, issue #142) -
+                                         ; CT_WIN_W x CT_WIN_H is the same
+                                         ; 260x200 around the same CH_W x CH_H
+                                         ; that SHEET's chart window is, so it
+                                         ; had the same unwritten bands for the
+                                         ; same reason. BX is still the window
+                                         ; and AX/DX still WM_CONTENT's answer
     mov bx, dx                          ; bx=y for BLIT4 below
     mov es, [ct_chartseg]
     mov si, CH_PXOFF

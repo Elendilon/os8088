@@ -2480,6 +2480,7 @@ section .ovlw    start=OVLW_START vstart=0
 section .modc    start=MODC_START vstart=0
 section .modf    start=MODF_START vstart=0
 section .modl    start=MODL_START vstart=0
+section .modh    start=MODH_START vstart=0
 %ifdef FCP_MOD
 section .modp    start=MODP_START vstart=0
 %endif
@@ -4759,6 +4760,13 @@ kmain:
                                 ; settings file did not ask for - a driver is
                                 ; several seconds of floppy on this machine
     MARK 29
+%ifdef KERN_BIG
+    call COLD_SEG:hb_probe_x    ; ...and is there a hibernation to resume?
+                                ; (SPEC.md 87.5) After drv_boot, so a driver
+                                ; volume is mounted to be looked at; before
+                                ; the first paint, because the answer is a
+                                ; window ui_task's first pass puts up
+%endif
 
     ; --- the overlay is dead from here, and costs nothing to say so ---------
     ; drv_boot was the last thing that wanted it. It is part of the blob now
@@ -5416,6 +5424,9 @@ section .text
 %include "desk.inc"
 %include "dock.inc"
 %include "ctrl.inc"
+%include "hiber.inc"            ; hibernate and resume (SPEC.md 87): the
+                                ; resident thunks, the probe, and HIBER.DRV.
+                                ; After mod.inc for MOD_NENT, a size here
 %include "driver.inc"           ; loadable drivers (SPEC.md 51): after
                                 ; diskw (it reads and writes the system disk)
                                 ; and memory (a driver image is a claim)
@@ -6091,6 +6102,23 @@ cw_wm_onmouseup:        call wm_onmouseup
                     retf
 cw_wm_ondrag:           call wm_ondrag
                     retf
+; ...and the seven HIBER.DRV needs (SPEC.md 87): a kernel window closed from
+; its own release handler, and the reboot path's and fsx_restore's pieces -
+; text mode out, the desktop mode back, the two forced strips, the idle clock
+cw_app_close_win:       call app_close_win
+                    retf
+cw_vid_reboot:          call vid_reboot
+                    retf
+cw_vid_setmode:         call vid_setmode
+                    retf
+cw_menu_force:          call menu_force
+                    retf
+cw_dock_force:          call dock_force
+                    retf
+cw_blk_wake:            call blk_wake
+                    retf
+cw_sched_unhook:        call sched_unhook
+                    retf
 %endif
 cw_wm_dmg_add:           call wm_dmg_add
                      retf
@@ -6751,12 +6779,13 @@ OVL_SIZE equ ovl_end - $$       ; `$$` is the SECTION's base, which is OVL_AT
 MODC_START   equ OVLW_START + OVLW_SIZE
 MODF_START   equ MODC_START + MODC_SIZE
 MODL_START   equ MODF_START + MODF_SIZE
+MODH_START   equ MODL_START + MODL_SIZE
 %ifdef FCP_MOD
-MODP_START   equ MODL_START + MODL_SIZE   ; Cut/Copy/Paste, kern_small's alone
+MODP_START   equ MODH_START + MODH_SIZE   ; Cut/Copy/Paste, kern_small's alone
 MODD_START   equ MODP_START + MODP_SIZE   ; ...and the file dialog after it
 MODMAP_START equ MODD_START + MODD_SIZE
 %else
-MODMAP_START equ MODL_START + MODL_SIZE
+MODMAP_START equ MODH_START + MODH_SIZE
 %endif
 
 section .modc
@@ -6770,6 +6799,10 @@ MODF_SIZE equ modf_end - $$
 section .modl
 modl_end:
 MODL_SIZE equ modl_end - $$
+
+section .modh
+modh_end:
+MODH_SIZE equ modh_end - $$
 
 %ifdef FCP_MOD
 section .modp
@@ -6796,6 +6829,9 @@ MODD_SIZE equ modd_end - $$
 %endif
 %if MODL_SIZE > MOD_MAX_KB*1024
 %error "the clone module is over MOD_MAX_KB - mod_need would refuse it at run time"
+%endif
+%if MODH_SIZE > MOD_MAX_KB*1024
+%error "the hibernate module is over MOD_MAX_KB - mod_need would refuse it at run time"
 %endif
 %ifdef FCP_MOD
  %if MODP_SIZE > MOD_MAX_KB*1024
@@ -6830,9 +6866,10 @@ mod_map:
                                 ; flags but this tree's -w+error
     dd MODF_START, MODF_SIZE
     dd MODL_START, MODL_SIZE
+    dd MODH_START, MODH_SIZE
 %ifdef FCP_MOD
-    dd MODP_START, MODP_SIZE    ; ...and kern_small's fourth (SPEC.md 22.3)
-    dd MODD_START, MODD_SIZE    ; ...and its fifth (SPEC.md 38.0)
+    dd MODP_START, MODP_SIZE    ; ...and kern_small's fifth (SPEC.md 22.3)
+    dd MODD_START, MODD_SIZE    ; ...and its sixth (SPEC.md 38.0)
 %endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file

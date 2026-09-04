@@ -65,6 +65,7 @@ endif
 
 VM    := $(CURDIR)/vm/xt
 VM640 := $(CURDIR)/vm/xt640
+VMMFM := $(CURDIR)/vm/xt-mfm
 VMCGA := $(CURDIR)/vm/xt-cga
 VMHERC := $(CURDIR)/vm/xt-hercules
 VMEGA := $(CURDIR)/vm/xt-ega
@@ -1471,7 +1472,7 @@ $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
                                       $(BUILD)/ctrl.drv $(BUILD)/format.drv \
-                                      $(BUILD)/clone.drv \
+                                      $(BUILD)/clone.drv $(BUILD)/hiber.drv \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin \
                                       $(BUILD)/boot120.bin \
                                       $(BUILD)/hdd.bin $(BUILD)/hdd.drv \
@@ -1549,13 +1550,13 @@ KERNEL_SRC := kernel/kernel.asm
 # a map that described "a DIFFERENT kernel".
 KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm
 
-.PHONY: stkdiag small kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 xt-cga \
+.PHONY: stkdiag small kernsplit all run run-640 run-720 run-120 debug test test-snd xt xt-640 xt-mfm xt-cga \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 \
         286-sound 386-sound 486 pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
         fonts fontsheets fontlist \
-        stories zdisk ztest zh zhboot zcheck zgfx zpic zscreens xt-z 386-z \
+        stories zdisk ztest zh zhboot zcheck zgfx zpic zgfxpic zscreens xt-z 386-z \
         worddisk wordcheck xt-word 386-word \
         cc-note chello covl pkgbig cword cworddisk 386-c-word runcpm runcpmdisk \
         runcpm-src cpmsw rcz80test rcmemtest rczex 386-runcpm \
@@ -1728,20 +1729,25 @@ $(FONTINC): $(FONTSRC) tools/os88font.py | $(BUILD)
 # (SPEC.md 2.8.2), so shipping the wrong one is refused rather than executed;
 # this is what stops it happening in the first place.
 KMODDIR = $(BUILD)
-KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv
+KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv \
+        $(KMODDIR)/hiber.drv
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
-           -m 2=$(BUILD)/clone.drv
-# ...and kern_small's FOURTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP): that
-# build carries the bodies in FILECP.DRV where kern_big keeps them resident
-# (docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1). The index IS the kernel's
+           -m 2=$(BUILD)/clone.drv -m 3=$(BUILD)/hiber.drv
+# ...and kern_small's FIFTH and SIXTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP)
+# and the Standard File dialog (SPEC.md 38.0, MOD_FDLG): that build carries
+# the bodies in FILECP.DRV and FDLG.DRV where kern_big keeps them resident
+# (docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1). HIBER.DRV is index 3 on BOTH
+# builds: kern_small's is the one-entry stub hiber.inc emits so that every
+# kernel cuts the same first four files (SPEC.md 87), which is why it sits in
+# $(KMODS) above and these two do not. The index IS the kernel's
 # MOD_* and os88mod.py refuses a count that disagrees with the image's own
 # map - which is how this line announced itself when it was missing, rather
 # than by shipping a floppy with the feature silently absent.
 # KMODARGS is expanded by the make that ASSEMBLES the kernel, so the guard is
-# right here: only a KERN_SMALL=1 build has a fourth module to split out.
+# right here: only a KERN_SMALL=1 build has a fifth module to split out.
 ifneq ($(KERN_SMALL),)
-KMODARGS += -m 3=$(BUILD)/filecp.drv
-KMODARGS += -m 4=$(BUILD)/fdlg.drv
+KMODARGS += -m 4=$(BUILD)/filecp.drv
+KMODARGS += -m 5=$(BUILD)/fdlg.drv
 endif
 # ...but $(KMODS) is NOT guarded, and that is the trap this comment exists for.
 # The small floppy rules below expand $(SMALLDRIVERS) - and so $(KMODS) - in
@@ -3501,6 +3507,85 @@ $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
 $(BUILD)/tracker.o88: $(BUILD)/tracker.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/tracker.bin -o $@
 
+# AUDIO.O88 - the Audio Player (SPEC.md 86): lightweight background music from
+# a streamed WAV (unsigned 8-bit PCM, or IMA/DVI 4-bit ADPCM decoded straight
+# to PCM8), over the existing Sound Blaster ring-stream infrastructure
+# (OSAPI_SND_STREAM, SPEC.md 34.5). A look-ahead heap claim in front of the
+# decoder keeps a disk read's sch_lock hold from starving the DMA. Seven
+# sources, one binary.
+AUDIO_SRC := apps/audio/audio.asm apps/audio/apengine.inc \
+             apps/audio/apwork.inc apps/audio/apcb.inc \
+             apps/audio/apwav.inc apps/audio/apdec.inc \
+             apps/audio/apui.inc apps/audio/aplist.inc \
+             apps/os88api.inc apps/os88ui.inc
+# NB: apps/audio/audio.asm is named explicitly (as well as via $(AUDIO_SRC),
+# which begins with it) so tools/os88index.py finds the package here.
+$(BUILD)/audio.bin: apps/audio/audio.asm $(AUDIO_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/audio/ -o $@ apps/audio/audio.asm
+	@echo "audio: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/audio.o88: $(BUILD)/audio.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/audio.bin -o $@
+
+# ...and the SAME SOURCE with -DAPROF (SPEC.md 86.5.1): the diagnostic-counter
+# build, for the profiling tests in docs/AUDIO-PLAN.md. Every counter is inside
+# %ifdef APROF, so the shipped AUDIO.O88 above carries none of it. Press D in
+# the player to see / hide the counters. Never on a shipped disk.
+$(BUILD)/audio-prof.bin: $(AUDIO_SRC) | $(BUILD)
+	$(NASM) -f bin -w+error -DAPROF -I apps/ -I apps/audio/ -o $@ apps/audio/audio.asm
+	@echo "audio (APROF): $(call FILESIZE,$@) bytes"
+
+$(BUILD)/audiop.o88: $(BUILD)/audio-prof.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/audio-prof.bin -o $@
+
+# A stand-alone Audio Player test disk (ON DEMAND: `make audiodisk`): AUDIO.O88
+# at the root beside whatever WAV files AUDIOWAV= names (each an 8.3 name), so
+#   make audiodisk AUDIOWAV="build/wav/adp11k.wav"
+#   make test-snd SB16=1 TESTAPPS=build/audio-test.img   # QEMU; add SNDSNIFF=sb
+# boots straight to a drive with the player and the clips on it. A 1.44MB
+# floppy holds AUDIO.O88 and ~1.3MB of audio - one ADPCM clip, not a whole
+# set. For more than that use `make audio-hdd` below.
+AUDIOWAV ?=
+$(BUILD)/audio-test.img: $(BUILD)/audio.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+	    $(BUILD)/audio.o88 $(AUDIOWAV)
+	@echo "audio-test: $@  (AUDIOWAV=$(AUDIOWAV))"
+
+.PHONY: audiodisk
+audiodisk: $(BUILD)/audio-test.img
+
+# ...and a BOOTABLE HARD-DISK image (ON DEMAND: `make audio-hdd`) - the vehicle
+# for a full set of multi-MB WAVs, and the realistic streaming scenario
+# (docs/AUDIO-PLAN.md: floppy streaming is marginal, HDD is where it works).
+# The system core plus AUDIO.O88 and every WAV under AUDIOWAVDIR (8.3 names,
+# either case of extension - a file called BIG.WAV is the usual one)
+# in APPS/. The partition auto-sizes to the payload; the kernel adopts it
+# as C:. 86Box: attach as the XT's hard disk. QEMU:
+#   qemu-system-i386 -drive file=build/audio-hdd.img,format=raw,if=ide -boot c \
+#     -device sb16,audiodev=snd -audiodev none,id=snd
+# AUDIOPROF=1 puts the -DAPROF diagnostic build (AUDIOP.O88) on the disk
+# instead of the shipped AUDIO.O88. AUDIOP carries its own 'WAV' association,
+# so double-click still opens it - it is the only player on the disk.
+AUDIOWAVDIR ?= build/awav
+ifeq ($(AUDIOPROF),1)
+AUDIO_O88 := $(BUILD)/audiop.o88
+else
+AUDIO_O88 := $(BUILD)/audio.o88
+endif
+$(BUILD)/audio-hdd.img: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(BUILD)/kernel.bin \
+                        $(DRIVERS) $(BUILD)/taskmgr.o88 $(AUDIO_O88) \
+                        tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --hdd \
+	    --mbr $(BUILD)/mbr.bin --boot $(BUILD)/boothd.bin \
+	    --kernel $(BUILD)/kernel.bin \
+	    $(DRIVERS) SYSTEM:$(BUILD)/taskmgr.o88 APPS:$(AUDIO_O88) \
+	    $(patsubst %,APPS:%,$(sort $(wildcard $(AUDIOWAVDIR)/*.wav $(AUDIOWAVDIR)/*.WAV)))
+	@python3 tools/os88disk.py --verify-hdd $@
+	@echo "audio-hdd: $@  (WAVs from $(AUDIOWAVDIR)/)"
+
+.PHONY: audio-hdd
+audio-hdd: $(BUILD)/audio-hdd.img
+
 # ModPlug Player, the fourteenth shipped package (SPEC.md 56): a port of
 # ModPlug Player V2's LOOK AND FEEL - the skinned player window with its LCD
 # panel, LED transport row and visualiser, the Setup window with its page
@@ -3545,7 +3630,7 @@ $(BUILD)/dbg/modplug.o88: $(BUILD)/dbg/modplug.bin tools/os88pkg.py
 $(BUILD)/dbg-apps360.img: $(BUILD)/dbg/modplug.o88 $(APPS_TOOLS) $(APPS_GAMES) \
                           $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
-	    $(patsubst %,APPS:%,$(filter-out $(BUILD)/modplug.o88,$(APPS_TOOLS))) \
+	    $(patsubst %,APPS:%,$(filter-out $(BUILD)/modplug.o88 $(BUILD)/audio.o88,$(APPS_TOOLS))) \
 	    APPS:$(BUILD)/dbg/modplug.o88 \
 	    $(patsubst %,GAMES:%,$(APPS_GAMES)) \
 	    MEDIA:apps/tracker/beverly.mod \
@@ -3840,7 +3925,8 @@ $(BUILD)/mppmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/modplug.o88 \
 # drive than ModPlug.
 $(BUILD)/zt/ZOPS.Z5: tests/frotz/zopstest.inf
 	@mkdir -p $(BUILD)/zt
-	inform -v5 $< $@
+	@$(INFORMCHK)
+	$(INFORM) -v5 $< $@
 
 $(BUILD)/zmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/frotz.o88 \
                        $(BUILD)/zt/ZOPS.Z5 tools/os88disk.py
@@ -5340,7 +5426,8 @@ ztest: $(ZTESTDIR)/gold3.txt $(ZTESTDIR)/gold5.txt $(ZTESTDIR)/gold8.txt \
 
 $(ZTESTDIR)/zopstest.z%: tests/frotz/zopstest.inf
 	@mkdir -p $(ZTESTDIR)
-	inform -v$* $< $@
+	@$(INFORMCHK)
+	$(INFORM) -v$* $< $@
 
 $(ZTESTDIR)/gold%.txt: $(ZTESTDIR)/zopstest.z%
 	dfrotz -w 80 -h 200 -p $< | grep -E '^(PASS|FAIL|TEXT|RESULT)' > $@
@@ -5436,15 +5523,47 @@ zgfx: zh zpic $(BUILD)/stories.stamp
 	python3 tools/zharness.py --all --graphics
 	python3 tools/zharness.py $(ZPICDIR)/zpictest.z6 --graphics
 
+# ...and the PICTURE half on its own. zgfx needs the story fetch, so on a
+# machine with no network - or when the question is only about the drawing
+# path - this is the part that can still run: the v6 fixture is the only thing
+# in the tree that asks for a picture at all (SPEC.md 61.7, 61.14), and it
+# needs neither a story nor a reference interpreter.
+zgfxpic: zh zpic
+	python3 tools/zharness.py $(ZPICDIR)/zpictest.z6 --graphics
+
 # The v6 picture fixture: a story that draws, and three flat blocks to draw.
-# Needs `inform` (`brew install inform6`), which is host-side only.
+# Needs an Inform 6 compiler, which is host-side only.
 ZPICDIR := $(BUILD)/zpic
+
+# WHICH IS NOT ALWAYS CALLED `inform`. Debian's inform6-compiler installs it as
+# `inform6`; Homebrew's inform6 formula installs it as `inform` (and
+# `inform-6.44`), with no `inform6` at all - so BOTH names are in the field,
+# on the two platforms this repo is built on, and neither is safe to hard-code.
+# These rules hard-coded one of them, so on the other they did not degrade -
+# they died as `make: inform: No such file or directory`, which reads like a
+# broken Makefile rather than a missing package. Look for both, and let
+# INFORM= name a third.
+INFORM ?= $(shell command -v inform6 2>/dev/null || command -v inform 2>/dev/null)
+
+# ...and the SAME refusal for each of the three rules that compile Inform
+# source, because a message worth writing is worth not triplicating. `$(INFORM)`
+# on its own would expand to nothing and run `-v6 <file>`, whose error is worse
+# than the one this replaces. Named `$@` so the reader is told which target
+# wanted the compiler.
+INFORMCHK = if [ -z "$(INFORM)" ]; then \
+		echo "$@: no Inform 6 compiler found (tried inform6, inform)."; \
+		echo "  Debian/Ubuntu: sudo apt install inform6-compiler"; \
+		echo "  macOS:         brew install inform6"; \
+		echo "  or name one:   make INFORM=/path/to/inform6"; \
+		exit 1; \
+	fi
 
 zpic: $(ZPICDIR)/zpictest.z6 $(ZPICDIR)/zpictest.PIX
 
 $(ZPICDIR)/zpictest.z6: tests/frotz/zpictest.inf
 	@mkdir -p $(ZPICDIR)
-	inform -v6 $< $@
+	@$(INFORMCHK)
+	$(INFORM) -v6 $< $@
 
 $(ZPICDIR)/zpictest.PIX: tools/zpicgen.py tools/os88pix.py
 	@mkdir -p $(ZPICDIR)
@@ -6831,7 +6950,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/hello.o88 $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 $(BUILD)/recorder.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
-              $(BUILD)/texpad.o88 $(BUILD)/tracker.o88
+              $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
               $(BUILD)/mines.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
@@ -6940,7 +7059,12 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # prerequisites name a file that is not on the disk it builds is a dependency
 # that lies in the direction that costs a rebuild for nothing, and one that
 # stops being harmless the day somebody reads it to find out what is on there.
-APPS360 := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
+# AUDIO.O88 is left off the 360KB disk: it fits with one cluster to spare
+# (353/354) which is too tight to be a good neighbour, and the XT/floppy is
+# exactly where streaming performance is least proven (docs/AUDIO-PLAN.md).
+# It ships on the 1.44MB and 720KB apps disks, which have room.
+APPS_TOOLS_360 := $(filter-out $(BUILD)/audio.o88,$(APPS_TOOLS))
+APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
@@ -6981,7 +7105,7 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # AND IT IS PACKED NOW (SPEC.md 62.12): 11,653 bytes and 12 clusters, which is
 # what took this disk off THREE free clusters and put it on ten.
 # Being on this disk is the whole reason a user has it to hand.
-APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS)) \
+APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS_360)) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
                $(addprefix MEDIA:,$(APPS_DATA_360)) \
                $(SYSAPPSARGS) \
@@ -7693,6 +7817,26 @@ xt: $(IMG360) $(APPSIMG360)
 xt-640: $(IMG360) $(APPSIMG360)
 	@$(UNPROTECT) $(VM640)/86box.cfg
 	$(BOX) -P $(VM640) -N
+
+# ...AND A 20MB MFM HARD DISK: an ST-225 (615 cylinders, 4 heads, 17 sectors)
+# on IBM's Fixed Disk Adapter, the Xebec card whose option ROM presents the
+# drive as int 13h unit 80h - SPEC.md 52.1's rung 0, the transport the field
+# machine uses (docs/FIELD-MACHINES.md: an ST-225 on an ST-11M, which 86Box
+# also has as `st506_xt_st11_m`, but that ROM keeps its geometry ON THE DISK
+# and wants its own low-level format first, so the Xebec is the one a blank
+# image boots on). The image is created blank, once, and KEPT: partitioning
+# and formatting it is the OS's job (Control Panel -> Drivers -> tick Hard
+# Drive -> Format), and so is installing to it (SPEC.md 52.10.4) and
+# hibernating to it (SPEC.md 87), which is what this machine is for -
+# hibernate and resume on period hardware, MFM and all. The size is the
+# geometry's exactly, because 86Box refuses a raw image that disagrees.
+MFMIMG := $(BUILD)/mfm20.img
+$(MFMIMG): | $(BUILD)
+	dd if=/dev/zero of=$@ bs=512 count=$$(( 615 * 4 * 17 )) 2>/dev/null
+
+xt-mfm: $(IMG360) $(APPSIMG360) $(MFMIMG)
+	@$(UNPROTECT) $(VMMFM)/86box.cfg
+	$(BOX) -P $(VMMFM) -N
 
 # The two monochrome machines (SPEC.md 39), both 256KB - which is all an
 # ibmxt takes anyway, and the floor os8088 targets. These are the ONLY way to

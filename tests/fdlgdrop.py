@@ -47,7 +47,7 @@ from os88geom import (WIN_SIZE, MAX_WIN, FD_BX1, FD_BX2,   # noqa: E402
 
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_128k"
 ARM = ("KERN_SMALL",)
-MOD_FDLG, MODR_SIZE = 4, 4              # kernel/mod.inc
+MOD_FDLG, MODR_SIZE = 5, 4              # kernel/mod.inc (3 is HIBER.DRV's stub)
 W_FLAGS, W_X, W_Y, W_W, W_H, W_TITLE = 0, 2, 4, 6, 8, 10
 # fdlg.inc's chrome comes out of os88geom, which reads the kernel: this file
 # clicks a button column and a listing row, and a local copy of either is a
