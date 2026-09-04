@@ -402,21 +402,27 @@ at_mrows:
     mov ah, al
     mov al, CBLACK
     cmp ah, 1
-    jne .ink
-    mov al, CLGRAY                  ; disabled: gray (dither on 1bpp)
+    je .dis
+    clc                             ; live: CBLACK with [gfx_dis] CLEAR, and it
+    jmp short .ink                  ; is set on EVERY item because the pen is
+.dis:                               ; one lock hold long and the item before
+    mov al, CDGRAY                  ; this one may have been the dead one
+    stc
 .ink:
     mov [at_ink], al                ; ...and the run's ink, kept: a package
-    call OSAPI_SET_COLOR            ; cannot read the pen back (SPEC.md 46.10)
+    call OSAPI_GFX_PEN              ; cannot read the pen back (SPEC.md 46.10)
                                     ;
-                                    ; THIS IS A SPEC.md 47 RULE 1 VIOLATION AND
-                                    ; IT IS LEFT STANDING HERE - see 46.10.1.
-                                    ; A grey store without [gfx_dis] reduces to
-                                    ; solid BLACK on a 1bpp adapter, so a dead
-                                    ; item looks live on the target machine.
-                                    ; The fix is OSAPI_GFX_PEN with CF, and it
-                                    ; is not in this commit because no state
-                                    ; this session could drive put a disabled
-                                    ; item on screen to diff it against
+                                    ; THE PEN AND THE FLAG TOGETHER (SPEC.md 47
+                                    ; rule 1), which is what 46.10.1 left open:
+                                    ; this was OSAPI_SET_COLOR with CLGRAY, the
+                                    ; colour WITHOUT the flag, and SPEC.md 39.4
+                                    ; rounds a middle grey to solid BLACK in
+                                    ; text - so on the machine this OS is for a
+                                    ; dead item was pixel-identical to a live
+                                    ; one. CF is the argument and at_mstate's
+                                    ; answer is what sets it; nothing between
+                                    ; the flag and the call touches one, `mov`
+                                    ; and the API cell both being flag-clean
     cmp ah, 2
     jne .nocheck
     ; a small hand-drawn check in the left gutter (no glyph exists for it)
@@ -466,6 +472,10 @@ at_mrows:
     jz .done
     jmp .item
 .done:
+    clc                             ; the pen back, in case the LAST item was
+    call OSAPI_GFX_PEN              ; the dead one: gfx_unlock would clear the
+                                    ; flag for us, but the hover bar and the
+                                    ; erase are still to draw inside this hold
     pop di
     pop si
     pop dx

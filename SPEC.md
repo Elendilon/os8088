@@ -57451,22 +57451,29 @@ just laid. Eight sites, all of them now `OSAPI_FONT_RUN`:
 The fills stay: the bar is 18 px, an item row `AT_ITEMH` = 13, both against an
 8-px glyph, which is §22.11.3's rule.
 
-#### 46.10.1 …and it found a §47 rule 1 violation, which is NOT fixed here
+#### 46.10.1 …and it found a §47 rule 1 violation, SINCE FIXED
 
-A disabled pull-down item is `mov al, CLGRAY` and `OSAPI_SET_COLOR` — the colour
+A disabled pull-down item was `mov al, CLGRAY` and `OSAPI_SET_COLOR` — the colour
 without the flag. §47 exists because that does not work: `[gfx_dis]` clear means
 `font_ink` takes the ordinary path, and §39.4 reduces a middle grey to **solid
 black** on a 1bpp adapter. So on the target machine — the one this OS is for — a
-dead item is pixel-identical to a live one and the greying says nothing at all.
+dead item was pixel-identical to a live one and the greying said nothing at all.
 
-**The fix is one line** — `OSAPI_GFX_PEN` with CF, which sets the pen and the
-flag together and cannot be half-done, after which §6.1.12 carries the
-checkerboard through the run's own mask. It is deliberately **not** in the same
-commit as the conversion: the conversion is verified byte-identical across the
-bar and all four pull-downs, and **no state this session could drive put a
-disabled item on screen**, so the fix would have shipped unverified beside work
-that was not. Whoever takes it needs an ArtfulType state with a greyed item and
-a diff on a 1bpp adapter showing it stippled where it was solid.
+**The fix was one line and is now in** — `OSAPI_GFX_PEN` with CF, which sets the
+pen and the flag together and cannot be half-done, after which §6.1.12 carries
+the checkerboard through the run's own mask. It was deliberately **not** in the
+same commit as the conversion: the conversion was verified byte-identical across
+the bar and all four pull-downs, and no state that session could drive put a
+disabled item on screen, so the fix would have shipped unverified beside work
+that was not.
+
+**The state that was missing is `Edit` with an empty redo stack**, and it is one
+keystroke away: type anything and open `Edit`, and `Undo` is live while `Redo`
+is dead. On a Hercules that pull-down used to draw the two identically; it now
+draws `Redo` as a checkerboard, which is what §47 rule 3 says a greyed label
+looks like everywhere else in the system. `at_mrows` puts the pen back live at
+`.done` as well — `gfx_unlock` would clear the flag, but the hover bar and the
+erase still draw inside that hold.
 
 **A package cannot read the pen back.** There is no `OSAPI_GET_COLOR`, so
 `cp_run`'s trick — inherit `[gfx_color]`, touch no call site — does not port
