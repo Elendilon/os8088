@@ -5963,7 +5963,10 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 #
 #   make browsertest                      # build the disks
 #   make marty ... TESTAPPS=build/brtest.img
-#   python3 tests/brtest.py               # the RENDERER's gate
+#   python3 tests/brtest.py               # the RENDERER's gate, on DEMO.HTM
+#   python3 tests/brtest.py --page BROWSER.HTM
+#                                         # ...and on the page that SHIPS
+#                                         # (SPEC.md 71.12)
 #   python3 tests/brclick.py              # ...and the PAGE-CLICK one: links,
 #                                         # a form field and the submit button
 #                                         # (BROWSER-PLAN 5.1/7.4). Both use
@@ -5994,7 +5997,24 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 #                                         # it, so a local test would drive an
 #                                         # empty stack and pass on a browser
 #                                         # whose Back button did nothing
-BRFILES := $(BUILD)/browser.o88 $(BUILD)/DEMO.HTM $(BUILD)/TORTURE.HTM \
+# BROWSER.HTM is the page that SHIPS (SPEC.md 71.12) and DEMO.HTM the one
+# that no longer does. Both are here, and having both is the point: four rows
+# below open DEMO.HTM by name and it stays their fixture, while the shipped
+# manual gets a disk it can be rendered from at all - which nothing could do
+# while the shipped page and the fixture were one file.
+#
+# IT IS THE ONLY ONE PASSED STRAIGHT FROM ITS SOURCE, and that is not a
+# shortcut. The copies below exist to RENAME - `frogfind-de-ie5.htm` is not an
+# 8.3 name and `demo.htm` is not on the disk it ships from - and os88disk.py
+# upper-cases what it is given, so `apps/browser/browser.htm` already lands as
+# `BROWSER.HTM` with no copy at all. Making one anyway puts a SECOND
+# `build/BROWSER.HTM` beside the shipped file's own name, and that is what
+# tests/unit/t_pkg.py resolves an image's files against: `make browsertest` is
+# not part of `all`, so the copy goes stale the moment the page is edited and
+# every shipped apps image then fails a freshness check about a disk that is
+# perfectly fresh. Renaming is a reason for a copy; having one is not.
+BRFILES := $(BUILD)/browser.o88 apps/browser/browser.htm $(BUILD)/DEMO.HTM \
+           $(BUILD)/TORTURE.HTM \
            $(BUILD)/UTF8.HTM $(BUILD)/FROGFIND.HTM $(BUILD)/FFHOME.HTM \
            $(BUILD)/LINKS.HTM $(BUILD)/PUBZONE.HTM
 
@@ -6182,9 +6202,10 @@ SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/recorder.o88 $(BUILD)/tracker.o88
 SMALLOMIT_GAMES := $(BUILD)/tank.o88
 
-# ...and DEMO.HTM with the browser, for the same reason one step along: a .HTM
-# is openable by nothing else on the machine (SPEC.md 71).
-SMALLOMIT_DATA := tests/htm/demo.htm apps/tracker/beverly.mod
+# ...and BROWSER.HTM with the browser, for the same reason one step along: a
+# .HTM is openable by nothing else on the machine (SPEC.md 71), and a manual
+# for a program that is not on the disk is worse than no file at all.
+SMALLOMIT_DATA := apps/browser/browser.htm apps/tracker/beverly.mod
                                     # ...and BEVERLY.MOD with the two players
                                     # that read it. At 360KB it was already on
                                     # a media disk of its own (SPEC.md 24.4);
@@ -6902,14 +6923,21 @@ $(if $(filter-out $(APPS_GAMES),$(CORE_GAMES)), \
 # markup is a worked example of it. Both are the kernel's default Open
 # location, and both are ASSOCIATED (SPEC.md 69.6), so a double-click on
 # either one opens TeXPad on it without going through APPS/ at all.
-# DEMO.HTM is here for the same reason and it is the browser's: a machine
+# BROWSER.HTM is here for the same reason and it is the browser's: a machine
 # with a browser and no page on it opens its File dialog on an empty folder,
-# which is the first thing a new user would see. It is also the page the
-# project hosts and tests/htm/'s conformance fixture - one artifact doing all
-# three jobs (docs/BROWSER-PLAN.md 1.1.1), and it is ASSOCIATED, so a
-# double-click on it opens the browser without going through APPS/.
+# which is the first thing a new user would see. It is ASSOCIATED, so a
+# double-click on it opens the browser without going through APPS/ - and what
+# it SAYS is the browser's manual, so the first page a new user opens is the
+# one that tells them how to open the next.
+#
+# It replaced DEMO.HTM here (SPEC.md 71.12). That file was a TESTBED - it was
+# written to stress the renderer while the renderer was being written, and it
+# still does, in tests/htm/ where four browser rows expect it by name. What it
+# never was is documentation: it describes the project to a reader who has
+# already got the machine running, on a disk whose one .HTM is the only thing
+# a new user has to click. 5,696 bytes of that against 3,063 of a manual.
 APPS_DATA := apps/tracker/beverly.mod apps/texpad/PAPER.TEX \
-             apps/texpad/GUIDE.TEX tests/htm/demo.htm
+             apps/texpad/GUIDE.TEX apps/browser/browser.htm
 
 # ...except at 360KB, where BEVERLY.MOD rides a MEDIA DISK of its own
 # (SPEC.md 24.4). 116KB is 114 of that geometry's 354 clusters - a third of
