@@ -360,9 +360,10 @@ is dead for the whole of `kmain`:
 
 ```
   FAT_SEG   4,608   the FAT snapshot, filled at mount
+  +           512   dsk_secbuf   FIRST: the one int 13h TARGET here, so it
+                                 takes the rung's 512-aligned base
   +           768   disk_dir     "ALWAYS exactly a mount snapshot"
   +         2,048   disk_icons   "fully rewritten every mount"
-  +           512   dsk_secbuf   read by drv_boot's very first mount
   =         7,936   of which 7,680 is READABLE (see below)
 ```
 
@@ -374,10 +375,13 @@ declared-zero tail — 256 bytes of `.lowbss` back to the heap. They come out of
 worth saying which way the trade runs: the heap gains them and the boot
 overlay's window half loses them.
 
-**The base is 512-aligned and the SIZE is no longer a multiple of 512**, which
-matters because the overlay arrives on the kernel's own `int 13h` read.
-`LOW_SEG` is a rung base so §2.1.1 is satisfied at the only end that is a
-*base*; the region is 15.5 sectors, so the usable ceiling is **7,680** and not
+**The bases are 512-aligned and the SIZE is no longer a multiple of 512**, which
+matters because the overlay arrives on the kernel's own `int 13h` read. There
+are TWO bases here: `LOW_SEG`, a rung base, and `dsk_secbuf`, the one buffer
+in the window that is itself an `int 13h` target — and §2.1.1 holds at both
+only because `dsk_secbuf` is the window's FIRST bytes, which `dskwin.inc`'s
+`%if` against the rung base is what holds (it sat at +2,816 once, 256 into a
+sector, and the build's size decided whether a read straddled a DMA page); the region is 15.5 sectors, so the usable ceiling is **7,680** and not
 7,936. `kernel.asm`'s `%if` therefore rounds `OVLW_SIZE` **up** to a whole
 sector before comparing — the two were the same number while the mount window
 was 7 × 512 exactly, and a guard against 7,936 would pass a 15.5-sector
@@ -661,7 +665,7 @@ bytes are simply forfeit.
 | blob `int 13h`, 360 / 720 / 1.44 | 3 / 3 / 2 | **2 / 2 / 2** |
 | sectors read before the first splash pixel | 19 | **8** |
 | overlay pool | 7,168 (480 free) | 4,096 blob + **7,936 window, 7,680 readable** |
-| stage 1's floor, kern_big | 125 KB | **119 KB** |
+| stage 1's floor, kern_big | 125 KB | **115 KB** (`MEMFIT`, derived: `kend` + 8 blob sectors + 2,560 bytes of sector and stack) |
 
 The eleven sectors that left the blob did not leave the disk: they are in the
 kernel's own read now, which is cylinder-bounded (§18.91.1) where stage 1's is
@@ -1213,14 +1217,20 @@ in the tree.
   the two constants, which pins the scale factor `mod_fpr` open-codes — is
   why that cannot recur. (Neither `mod_fpi` nor `MODFP_SHIFT` has ever
   existed; this bullet named both for several releases.)
-- **`MOD_NENT` is what the modules use and not a round number.** It is 6:
-  `CP_NENT` 6, `FM_NENT` 4, `CLO_NENT` 1, and every module header ends
-  `times MOD_NENT - X dw 0`, which makes a seventh Control Panel entry a
-  **hard NASM error in the file that grew** rather than an overrun. It was 8
+- **`MOD_NENT` is what the modules use and not a round number.** It is
+  **7**, which is what the largest module declares — §38.0's Standard File
+  dialog on `kern_small` (`FD_NENT` 7). The others: `HB_NENT` 7 (§87,
+  `kern_big`; `kern_small` ships a one-entry stub), `CP_NENT` 6 on `kern_big`
+  and 5 on `kern_small`, `FM_NENT` 4, `FCP_NENT` 3, `CLO_NENT` 1. Every module
+  header ends `times MOD_NENT - X dw 0`, which makes an eighth entry a **hard
+  NASM error in the file that grew** rather than an overrun. It is **not**
+  per-build, and that was tried: `tools/os88mod.py` scrapes the first
+  `MOD_NENT equ` out of `mod.inc` and cannot evaluate an `%ifdef`. It was 8
   for as long as the scale factor had to be a power of two so `mod_fpr` could
-  shift; ×6 is `(×2 + ×1) × 2` in the same thirteen bytes, so the power of
-  two bought nothing and 52 of the 96 `mod_fp` bytes were slots no module
-  could ever declare.
+  shift; ×7 is `×8 − ×1`, four instructions, and the power of two was buying
+  12 `.bss` bytes per module that nothing could declare. `MOD_MAX` is 4 on
+  `kern_big` and 6 on `kern_small`: `MOD_FCP` 4 and `MOD_FDLG` 5 exist under
+  `FCP_MOD` alone, after `MOD_HIBER` 3.
 - The loader itself is **`.cold`**. In `.text` it would be ~430 bytes against
   a `KERN_CODE_MAX` nobody can raise, and being cold also means the thunks
   that call it reach it with a near call.
@@ -7974,27 +7984,28 @@ Nothing else unfreezes. No window paints, no menu opens, no other task runs;
 concurrency but feedback"* — and docs/UI-FREEZE-PLAN.md is the costing of the
 options that do address the freeze itself.
 
-**The driver-backed path is deliberately not covered.** A `DVK_DRV` volume
-leaves `dsk_xfer` before the run loop and its transfer is the driver's own code
-running at task level, not a ROM call with the CPU parked on an IRQ — so the
-"nothing is in flight" argument does not hold there and the flag is never set.
+The driver-backed path is covered too, on half of this argument only —
+§7.4.1.1.
 
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
-- `MAX_TASKS equ 8`. Task 0 is the boot thread (becomes the UI task); it
-  runs on the task-0 stack (SS:`STK0_TOP`, §2.1) and owns **no** slice of
-  `sch_stacks`.
-  Slots 1..7 are dynamic — spawned by `app_launch` (§29), by
+- `MAX_TASKS equ 14` on `kern_big` and **7 on `kern_small`**. Task 0 is the
+  boot thread (becomes the UI task); it runs on the task-0 stack
+  (SS:`STK0_TOP`, §2.1) and owns **no** slice of `sch_stacks`.
+  Slots 1..`MAX_TASKS-1` are dynamic — spawned by `app_launch` (§29), by
   `inst_pkg_spawn` for a package's one worker (§20.6) and by the transient
-  sound refill/drain tasks (§34.5), freed by `task_exit`. Three claimants
-  for seven slots: a refused `OSAPI_TASK_SPAWN` (CF=1) and a stream
-  open's err 6 are ordinary outcomes, not edge cases, and a package must
-  degrade rather than abort when it cannot have its worker. Each slot has
-  an `SCH_STACK`-byte stack — **384**, measured (1.75× the 220 bytes the
-  field has seen in use, docs/KERNEL-MEMORY.md "Task stacks"), not guessed:
-  `sch_stacks resb (MAX_TASKS-1) * SCH_STACK` **in `.lowbss`** (§2.1),
-  the block word-aligned and the slices themselves 128-aligned, slot n's
-  stack top at `sch_stacks + n*SCH_STACK` (slot 1 owns bytes 0..383).
+  sound refill/drain tasks (§34.5), freed by `task_exit`. A refused
+  `OSAPI_TASK_SPAWN` (CF=1) and a stream open's err 6 are ordinary outcomes,
+  not edge cases, and a package must degrade rather than abort when it cannot
+  have its worker.
+  The slices are **not a uniform array**. `SCH_PARTITION` (§8.7) is the one
+  place the layout is written — one `SCH_SLOT <bytes>` line per background
+  slot, in ascending order — and `SCH_STK_TOTAL` is what `sch_stacks resb`
+  reserves **in `.lowbss`** (§2.1), the block word-aligned and every slice
+  even. A slice is **looked up, never derived**: `sch_stkbase[n]` is its
+  bottom (§8.6, and where `SCH_MAGIC` sits) and `sch_stksize[n]` its size.
+  `SCH_STACK` (**384**) is the largest class, what a task that asks for
+  nothing is given, and the bound every figure in the SDK is written against.
   **Thin is CHECKED, not trusted**: `SCH_MAGIC` (0x5A57) is written at the
   bottom word of every slice by `task_spawn`, `sch_switch` compares the
   outgoing task's canary on every switch away — one 8-bit multiply and a
@@ -8032,7 +8043,8 @@ running at task level, not a ROM call with the CPU parked on an IRQ — so the
 - `task_spawn` — three callers: `app_launch` (a built-in kind's `KD_TASK`,
   §29.4), `inst_pkg_spawn` (a package's worker, §20.6) and the SB
   refill/drain spawns (§34.5). In: AX = entry point (near), **BX = the
-  segment the task runs in — 0 meaning `KERNEL_SEG`**, DX = argument
+  segment the task runs in — 0 meaning `KERNEL_SEG`**, **CX = the stack the
+  task wants in bytes; 0 means the largest class** (§8.7.1), DX = argument
   word — delivered
   in the new task's DX register; DL is additionally stored to `T_INST`
   (instance index, 0xFF = none). Builds a fresh stack frame that `iret`s
@@ -29015,7 +29027,8 @@ each needed a mechanism**:
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
 | 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly — **unless flags bit 2 is set, when it may be smaller and the file's tail is the package's (§20.12)**. |
 | 10  | 2    | bss size — bytes the loader zeroes after the image        |
-| 12  | 4    | **the dispatcher**: `FF D5` (`call bp`), `CB` (`retf`), `00` pad |
+| 12  | 3    | **the dispatcher**: `FF D5` (`call bp`), `CB` (`retf`)     |
+| 15  | 1    | **worker stack class** — an index into the kernel's `sch_clsbytes` (§8.7.2). 0 is "no opinion" and gets the largest class, which is what every package built before this field carries |
 | 16  | 16   | program name, printable, NUL-padded (shown by tools)      |
 
 **The dispatcher at +12 is the header's one piece of executable code**, and
@@ -29936,14 +29949,18 @@ Two teardown corollaries, both about not trading a crash for a leak:
    **kernel-private**; a package writes their bodies inline, and
    `app_kind_arm` is exactly this rule's `gfx_lock` → `test W_FLAGS, 2`
    → `OSAPI_WM_CLIP_SET` sequence, with the lock held on both exits.
-6. **The worker's stack is `SCH_STACK` (**384**) bytes in `LOW_SEG`, and
-   SS ≠ DS** (§2.1).
+6. **The worker's stack is the CLASS the package's header declares** (§8.7.2,
+   byte +15), resolved through `sch_clsbytes`: 128, 192, 256 or `SCH_STACK`
+   (**384**). A header that declares nothing gets `SCH_STACK`, which is what
+   every package built before the field has. The slice is in `LOW_SEG`, and
+   **SS ≠ DS** (§2.1).
    No deep recursion, no large stack buffers — the tick, mouse and any
    sound IRQ land their frames on this slice while the worker runs, so
-   budget well under the 384 — and remember that `[bp+disp]` addresses
-   SS: a kernel or package pointer held in BP needs an explicit `ds:`
-   override. An overrun is caught by §8's canary and HALTS the machine,
-   loudly, at the next switch.
+   budget well under the class you asked for — and remember that
+   `[bp+disp]` addresses SS: a kernel or package pointer held in BP needs an
+   explicit `ds:` override. An overrun is caught by §8's canary and HALTS
+   the machine, loudly, at the next switch, so a class declared smaller than
+   the worker's deepest path is a halt and not a slowdown.
 7. **What a worker may call.** Only the background-task surface: `gfx_*`,
    `osapi_set_color`, `font_*`, `wm_content`, `wm_obscured`,
    `wm_clip_set`/`wm_clip_clear`, `osapi_video`,
@@ -29982,10 +29999,13 @@ Two teardown corollaries, both about not trading a crash for a leak:
    is why §20.11 requires the amendment in the same change as the cell.
    None of this is enforced.
 
-**Refusal is normal, not exceptional.** `MAX_TASKS` is 8 and the UI task,
-up to ten Timer/Bounce instances, the Task Manager's worker and a transient SB refill/drain
-task (§34.5) all draw from the same seven dynamic slots, so CF=1 is an
-ordinary outcome. A package must degrade — stay a perfectly good task-less
+**Refusal is normal, not exceptional.** `MAX_TASKS` is **14** on `kern_big`
+and **7** on `kern_small`, so there are 13 background slices on one and 6 on
+the other (§8.7) — the idle task holding one for the life of the machine — and
+the UI task, up to ten Timer/Bounce instances, the Task Manager's worker and a
+transient SB refill/drain task (§34.5) all draw from them, so CF=1 is an
+ordinary outcome, and it arrives sooner for a worker that asks for the largest
+class: `kern_big`'s partition has two 384-byte slices and `kern_small`'s one. A package must degrade — stay a perfectly good task-less
 package, window, callbacks, menus and close box all working — and **should
 retry**, because the condition is transient: closing one Timer frees the
 slot, and a package that latched its refusal is broken until it is
@@ -30592,7 +30612,9 @@ kernel has already read and already bounds by the time the entry proc runs.
     +0   8   'O88PARTS'
     +8   1   count
     +9   1   reserved, 0
-    +10      count x 6: db kind, db flags, dw off (512-byte units), dw len
+    +10      count x 8: db kind, db flags, dw off (512-byte units),
+             dw len (bytes), dw zkb (KB of zero-filled scratch - the author's,
+             non-zero only on an OP_ZERO row; off and len are the packer's)
 ```
 
 `kind` is 0 SEGMENT (code you far-call) or 1 ASSET (data). `off` and `len`
@@ -30605,7 +30627,7 @@ are the packer's. Flags are §20.12.4's, and a part with no file bytes has
 |---|---|
 | `OP_SEG` | code and/or data reached by far call |
 | `OP_ASSET` | data reached through a segment |
-| `OP_SCRATCH` | zero-filled working set with no file bytes at all — declared, so it is refused before a sector is read rather than after |
+| `OP_ZERO` | zero-filled working set with no file bytes at all — declared, so it is refused before a sector is read rather than after |
 | `OP_XMS` | an ASSET that ACCEPTS a placement above 1MB, and falls back to a conventional claim where there is no store — which is every 8088 (§41) |
 | `OP_OPT` | a part the package can do without: refused without refusing the launch |
 | `OP_LAZY` | not claimed and not read at load: `op_fetch` gets it when the package asks, `op_drop` gives it back |
@@ -53001,7 +53023,7 @@ complementing hand loop at 17. A standard 1bpp BMP's palette is
 reachable. The intuitive polarity — a set bit is ink — would have cost 36% of
 every canvas blit for ever, for nothing.
 
-A colour index becomes that bit through `pt_lit` and `PT_LIT16`: light grey
+A colour index becomes that bit through `pt_cls` and `pt_cls16`: light grey
 and the seven bright colours light the pixel, the seven dark ones do not. It
 is a **reduction and not a palette lookup**, which is what lets the same
 routine answer both "what does this ink do here" and "what does this pixel of
@@ -53011,8 +53033,8 @@ palette.
 **THE THREE INK CLASSES ARE THE KERNEL'S, AND THE CANVAS STORES ALL THREE.**
 `kernel/viddet.inc`'s `gfx_inktab` is the one place in the system that says
 what each of the sixteen looks like on a screen with two: solid black, the 50%
-dither, or solid white. Paint mirrors it as two bit-masks — `PT_WHT16` and
-`PT_DTH16` — because a package cannot read a kernel table at assembly time and
+dither, or solid white. Paint mirrors it as two bit-masks — `pt_bitEO` and
+`pt_bitOE` — because a package cannot read a kernel table at assembly time and
 reading it at run time would cost a far call per pixel.
 `tests/unit/t_inktab.py` re-derives them from that table and fails the build
 if they drift; `t_mirror` cannot, because `gfx_inktab` is a `db` and not an
@@ -53108,7 +53130,7 @@ column, span and two edge masks **once** and both arms read them, and the
 
 The one place the reduction is not shared is the ink: `.prpl` tests bit 0 of
 the palette index, which is right for black and white by luck and wrong for
-every colour between them, so the 1bpp entry reduces through `pt_lit` first.
+every colour between them, so the 1bpp entry reduces through `pt_cls` first.
 A canvas that has just been down-converted still has whatever the user last
 picked in `[pt_ink]`, so that is a live case and not a theoretical one.
 
@@ -53265,7 +53287,7 @@ would size the claim for one depth and fill it at another.
 The rule, per build:
 
 - **`APP_SMALL` is always one bit** (§42.22), so a colour picture is
-  down-converted through `PT_LIT16`.
+  down-converted through `pt_cls16`.
 - **`kern_big` takes the file at the depth it really is**: one bit if the file
   is bi-level, otherwise the adapter's own choice — planar on a colour card,
   packed nibbles on a 1bpp one. A colour picture on a Hercules is still
@@ -53281,8 +53303,8 @@ photograph saved at 8bpp — that is too rare to pay for.
 **Two entries is not the same claim as black and white**, and `pt_mono2` is
 the test that separates them: a 1bpp BMP or a two-colour GIF may perfectly
 well be red on blue, and both of those reduce to the *same* bit through
-`PT_LIT16` — so opening it one bit deep would collapse the picture to one flat
-colour rather than reproduce it. Two `pt_lit` calls at load time, and a file
+`pt_cls16` — so opening it one bit deep would collapse the picture to one flat
+colour rather than reproduce it. Two `pt_cls` calls at load time, and a file
 that fails the test is loaded at its nominal depth instead.
 
 **The Save fence already existed.** `[pt_trunc]` means "the file on disk holds
@@ -53294,7 +53316,7 @@ instructions, called after `pt_adopt` because `pt_adopt` is what *clears* it.
 `[pt_tred]` only picks the wording, `Reduced` against `Cropped`, because the
 two are different things to be told.
 
-`pt_line_put`'s bit arm inlines the reduction rather than calling `pt_lit`,
+`pt_line_put`'s bit arm inlines the reduction rather than calling `pt_cls`,
 for §42.13.1.4's reason rather than for the clocks: it is the BMP and GIF
 decoders' inner loop, every row of every picture opened, and a `call`/`ret`
 per pixel is thirty cycles around fourteen of work. A row that ends mid-byte

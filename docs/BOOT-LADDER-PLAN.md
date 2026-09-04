@@ -11,8 +11,8 @@ than measured.
 >
 > | | before | after |
 > |---|---:|---:|
-> | stage 1's floor, kern_big | 140 KB | **119 KB** |
-> | …kern_small | 129 KB | **107 KB** |
+> | stage 1's floor, kern_big | 140 KB | **115 KB** (derived from `MEMFIT`; 119 was a stale hand figure) |
+> | …kern_small | 129 KB | **84 KB** (derived from `MEMFIT`; 107 was stale by 23 KB) |
 > | `BOOT2_SECS` | 19 | **8** |
 > | blob `int 13h`, 360/720/1.44 | 3/3/2 | **2/2/2** |
 > | overlay pool | 7,168 (480 free) | 4,096 + **8,192** (2,929 free) |
