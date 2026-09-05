@@ -241,13 +241,31 @@ hb_pick1:                       ; is volume CL one? out: CF = 0 and AL = CL
 ; hb_ok - may the machine hibernate? (SPEC.md 87.2, 47 rule 5)
 ; in:  nothing
 ; out: CF = 0 yes; CF = 1 and AL = 1 no fixed volume / 2 extended memory held
-; clobbers: AL (the output), flags
+; clobbers: AX (AL is the output; AH is XCAPS's), flags. Everything else is
+;           preserved, CX AND DX INCLUDED - see below
 ;
 ; Called on the press that opens the menu bar, so it is at most eight row
 ; tests and one far call into a table - no I/O, no probe.
+;
+; **THE FAR CALL ANSWERS IN THREE REGISTERS, NOT ONE** (SPEC.md 87.2).
+; OSAPI_XM_CAPS is AX = free KB, DX:CX = the pool's linear base and BL = free
+; block-table entries (SPEC.md 41.8), and this routine reads BL alone - so it
+; saves CX and DX across it as well as BX, or it hands its caller three
+; clobbers where its contract promises one.
+;
+; That is not a defensive push. ui_loc_gate promises ITS caller that nothing
+; moves, and that caller is ui_task's mouse-down arm holding the press's x in
+; CX and its y in DX; CX goes to menu_track three instructions later. And the
+; call is reached ONLY when hb_pick found a fixed volume, so a floppy-booted
+; machine takes the `jc .no` above it and never sees the damage: on an
+; INSTALLED machine CX came back 0, every press in the bar hit-tested at x = 0,
+; and cell 0 is the System menu in every application - so every menu title on
+; the bar dropped the System menu.
 ; -----------------------------------------------------------------------------
 hb_ok_x:
     push bx
+    push cx                     ; ...and these two, for the reason above
+    push dx
     call COLD_SEG:hb_pick_x     ; the volume a hibernate would go to
     mov al, 1
     jc .no
@@ -261,6 +279,8 @@ hb_ok_x:
 .no:
     stc
 .out:
+    pop dx                      ; neither pop touches the flags CF was set in
+    pop cx
     pop bx
     retf
 
