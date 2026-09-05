@@ -118,8 +118,13 @@ B2_KSECS    equ ((MODC_START + 511) / 512) - BOOT2_SECS  ; what is left to read
   %ifndef KZ_SECS
     %error "KZIP without KZ_SECS: tools/os88kz.py --defines is what supplies it"
   %endif
-KZ_MARGIN   equ 64              ; LZ_MARGIN in kernel/lz.inc, and what
-                                ; os88kz.py refuses a kernel over
+KZ_MARGIN   equ 64              ; what os88kz.py refuses a kernel over. This
+                                ; stream is the CLASSIC LZ4 block - no raw
+                                ; tail (SPEC.md 20.13.7) - because kz_expand
+                                ; below is its own copy of the arm and reads
+                                ; the standard ending, so it is the one stream
+                                ; on the machine that still needs an in-place
+                                ; margin; kernel/lz.inc has none
 KZ_BLK      equ 0xF000          ; ...and BLK in that tool: the most one block
                                 ; may produce, so kz_expand never leaves a
                                 ; segment. 61,440 and not 65,536 because the

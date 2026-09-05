@@ -93,7 +93,7 @@ def compressed(img):
             seen[1] += 1
             hdr = first_sector(clus)
             if e[12] in (0x5A, 0x5B):               # a 'CZ' data file, either
-                                                    # format (SPEC.md 20.14.2.4)
+                                                    # format (SPEC.md 20.14.1)
                 seen[0] += 1
             elif len(hdr) >= 12 and hdr[:2] == b"O8":
                 if hdr[2] == 3 and hdr[3] & 0x08:   # a package

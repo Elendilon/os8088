@@ -256,13 +256,11 @@ def main() -> int:
 # Disk window all at once.
 PKG_COMP_BIT   = 0x08           # flags bit 3: the image is compressed
 PKG_COMP_FMT   = 0x10           # flags bit 4: 0 = LZ4, 1 = LZB
-PKG_COMP_MARGIN = 64            # what the loader reserves above image+bss so
-                                # the decoder, reading its source from the top
-                                # of the region, cannot overtake its own write
-                                # pointer. Real packages measure 2; the ceiling
-                                # is here so a file that would need more is
-                                # refused at BUILD time rather than found at
-                                # load time on somebody's machine
+                                # ...and NO MARGIN CONSTANT any more: the
+                                # loader reads the file at roundup512(image -
+                                # file) and the stream's own raw tail is what
+                                # makes that enough (SPEC.md 20.13.7).
+                                # os88lz.in_place_margin asserts it below
 
 
 def roundup(v: int, n: int) -> int:
@@ -332,19 +330,19 @@ def compress_image(out: bytearray, image: int, bss: int, flags: int,
             f"{fmt} makes this image LARGER ({packed} vs {image} bytes). "
             "Ship it uncompressed: the loader would spend cycles to read "
             "more sectors, which is the trade upside down")
-    margin = os88lz.in_place_margin(body, fid)
-    if margin > PKG_COMP_MARGIN:
-        return refuse(
-            f"{fmt} needs {margin} bytes of in-place margin and the loader "
-            f"reserves {PKG_COMP_MARGIN}")
+    margin = os88lz.in_place_margin(body, fid, packed=z)
+    if margin:
+        fail(f"{fmt} needs {margin} bytes of in-place margin - a stream with "
+             "a tail needs none (SPEC.md 20.13.7), so os88lz.py's cut is "
+             "wrong and this is a bug there")
 
     # THE IN-PLACE LAYOUT HAS TO FIT THE REGION THE LOADER WAS GOING TO CLAIM
     # ANYWAY, and this side is what guarantees it - which is the whole reason
     # SPEC.md 21 step 4 needs no change at all. The loader reads the file at
-    # R = roundup512(image - file + margin) so it can expand downwards; if that
-    # does not fit, the answer is to ship this package UNCOMPRESSED rather than
-    # to make every launch on the machine claim a bigger region.
-    r = roundup(image - packed + PKG_COMP_MARGIN, 512)
+    # R = roundup512(image - file) so it can expand downwards; if that does
+    # not fit, the answer is to ship this package UNCOMPRESSED rather than to
+    # make every launch on the machine claim a bigger region.
+    r = roundup(image - packed, 512)
     if r + packed > roundup(image + bss, 512):
         return refuse(
             f"{fmt} saves {image - packed} bytes but its in-place layout "
@@ -356,7 +354,7 @@ def compress_image(out: bytearray, image: int, bss: int, flags: int,
     new = bytearray(out[:pre]) + z
     new[3] = flags | PKG_COMP_BIT | (PKG_COMP_FMT if fid == os88lz.LZB else 0)
     print(f"os88pkg: compressed {fmt}: image {image} -> file {packed} bytes "
-          f"({packed / image:.1%}), {pre} clear, margin {margin}")
+          f"({packed / image:.1%}), {pre} clear")
     return new
 
 
@@ -429,9 +427,11 @@ def compress_part(i: int, body: bytes, fmt: str):
 
     STRICT, like --compress and unlike --compress-if: the flag is on a row the
     package's author wrote, so a part that does not pay is an error rather than
-    a line of output. The three refusals are the image's (SPEC.md 20.13.4)
-    measured against a PART: it has to get smaller, it has to expand in place
-    inside OP_MARGIN, and it has to round-trip through the reference decoder.
+    a line of output. The two refusals are the image's (SPEC.md 20.13.4)
+    measured against a PART: it has to get smaller, and it has to round-trip
+    through the reference decoder. It expands in place with no margin, as
+    every stream does (SPEC.md 20.13.7), and that is asserted rather than
+    measured.
     """
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import os88lz
@@ -444,13 +444,11 @@ def compress_part(i: int, body: bytes, fmt: str):
         fail(f"part {i}: {fmt} makes it LARGER ({len(z)} vs {len(body)} "
              "bytes). Take OP_COMP off the row: the launch would spend cycles "
              "to read more sectors, which is the trade upside down")
-    margin = os88lz.in_place_margin(body, fid)
-    if margin > PKG_COMP_MARGIN:
-        fail(f"part {i}: {fmt} needs {margin} bytes of in-place margin and "
-             f"op_unpack reserves {PKG_COMP_MARGIN} (OP_MARGIN in "
-             "apps/os88parts.inc)")
+    if os88lz.in_place_margin(body, fid, packed=z):
+        fail(f"part {i}: the stream needs an in-place margin, which a stream "
+             "with a tail cannot (SPEC.md 20.13.7) - a bug in os88lz.py")
     print(f"os88pkg: part {i} compressed {fmt}: {len(body)} -> {len(z)} bytes "
-          f"({len(z) / len(body):.1%}), margin {margin}")
+          f"({len(z) / len(body):.1%})")
     return z, len(z)
 
 

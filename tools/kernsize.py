@@ -210,9 +210,9 @@ THEMES = (
     # between the sectors and the bytes.
     # compress.inc (SPEC.md 20.15) is here with lz.inc and for the same
     # reading: it is a step in WRITING a file. Its row is 0 in every section
-    # this report tracks, and correctly - the whole file is `.modz`, which
-    # os88mod.py cuts out of kernel.bin into COMPRESS.DRV, so the only thing
-    # it costs a machine is a mod_tab row in files.inc's and mod.inc's rows.
+    # this report tracks, and correctly - the whole file is `.modl`, part of
+    # the cloner's image, which os88mod.py cuts out of kernel.bin into
+    # CLONE.DRV, so the only thing it costs a machine is files.inc's thunk.
     ("the file system, end to end",
      ("disk.inc", "dskwin.inc", "diskw.inc", "files.inc", "filecp.inc",
       "fdlg.inc", "loader.inc", "assoc.inc", "clone.inc", "lz.inc",

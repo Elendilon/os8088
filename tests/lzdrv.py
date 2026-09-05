@@ -3,14 +3,17 @@
 
 The subject is RAMDISK.DRV, on a system disk otherwise identical to the
 shipped 360KB one. It is the right one because it has BOTH halves of wave 3:
-a 2,416-byte bss that `drv_bss` re-makes, and a body `drv_expand` unpacks - so
-one file exercises the whole path.
+a 2,416-byte bss that `drv_bss` re-makes, and a body the transparent read
+unpacks - a compressed driver is a 'CZ' file since SPEC.md 20.13.3.1, expanded
+into the claim drv_load cut from the directory hint - so one file exercises
+the whole path.
 
 Three assertions, and the middle one is what a working driver alone would not
 prove:
 
-  * it ATTACHES - the row has a segment, so drv_load got through drv_check,
-    drv_expand, drv_bss and the driver's own attach;
+  * it ATTACHES - the row has a segment, so drv_load got through the
+    hint-sized claim, the expanding read, drv_check, drv_bss and the driver's
+    own attach;
   * its image in memory is byte-for-byte the UNCOMPRESSED driver, with the
     stripped zeros back. A decoder that fumbled the last run would still
     attach, and this is what catches it;
@@ -61,7 +64,7 @@ def main():
 
     # THE SHIPPED DRIVER IS COMPRESSED TOO NOW (SPEC.md 20.13.5), so the
     # reference this whole row compares against has to be unwrapped: what the
-    # guest holds after drv_expand is the IMAGE, and build/ramdisk.drv is a
+    # guest holds after the read is the IMAGE, and build/ramdisk.drv is a
     # FILE. Without this the row reports 4,832 differing bytes on a kernel
     # that expanded perfectly, which reads exactly like a broken decoder.
     # `at` on every host-side read: under a frozen run these live in the

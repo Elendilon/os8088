@@ -13,12 +13,13 @@ field or an end-of-block rule is got wrong, and none of them appears in a real
 package. `python3 tools/os88lz.py --selfcheck` is the same check over every
 binary the tree builds and runs in soak (`lzfmt-all`).
 
-**The in-place margin is asserted here too** (plan 7.2). The loader will read
-a compressed image into the TOP of the region it is about to decompress into,
-so the writer must never overtake the reader; the margin is how much room
-that needs, it is measured rather than bounded, and the plan's design rests
-on it being small. A format change that made it large would otherwise be
-found by the loader, at run time, on a machine.
+**The in-place margin is asserted here too, at ZERO** (SPEC.md 20.13.7). The
+loader reads a compressed image into the TOP of the region it is about to
+decompress into, `image - file` above the base, so the writer must never
+overtake the reader; every stream ends in a raw tail cut at the peak of
+(produced - consumed), which is what makes exactly that placement enough,
+and `os88lz.in_place_margin` simulates the decode to check it. A cut that
+went wrong would otherwise be found by the loader, at run time, on a machine.
 
 **And the `CZ` container's two refusals** (SPEC.md 20.14.5), because both are
 silent: a file that does not get smaller and a file whose PACKED form reaches
@@ -37,9 +38,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
 import os88lz                                             # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-MARGIN_MAX = 64          # plan 7.2 measures 2; this is the ceiling the loader
-                         # will reserve, so a format that needs more must say
-                         # so HERE and not by corrupting a neighbour's region
+MARGIN_MAX = 0           # the loader reserves NOTHING above image - file:
+                         # the tail is what makes that enough, so a stream
+                         # that needs more must say so HERE and not by
+                         # corrupting a neighbour's region
 
 
 def corpus():
@@ -74,9 +76,6 @@ def corpus():
 # family, and every row is a pair that assembles and runs cleanly while
 # disagreeing.
 MIRROR = [
-    ("kernel/lz.inc", "LZ_MARGIN", "tools/os88lz.py", "CZ_MARGIN"),
-    ("kernel/lz.inc", "LZ_MARGIN", "tools/os88pkg.py", "PKG_COMP_MARGIN"),
-    ("kernel/lz.inc", "LZ_MARGIN", "apps/os88parts.inc", "OP_MARGIN"),
     ("kernel/lz.inc", "LZ_LZ4", "tools/os88lz.py", "LZ4"),
     ("kernel/lz.inc", "LZ_LZB", "tools/os88lz.py", "LZB"),
     ("kernel/lz.inc", "LZ_LZ4", "apps/os88api.inc", "OSAPI_LZ_LZ4"),
@@ -153,11 +152,13 @@ def main():
                 fails.append("%s: round trip differs (%d -> %d -> %d bytes)"
                              % (tag, len(data), len(z), len(back)))
         if data:
-            m = os88lz.in_place_margin(data, os88lz.LZ4)
-            worst = max(worst, m)
-            if m > MARGIN_MAX:
-                fails.append("%s: in-place margin %d exceeds the %d the "
-                             "loader reserves" % (name, m, MARGIN_MAX))
+            for fmt in (os88lz.LZ4, os88lz.LZB):
+                m = os88lz.in_place_margin(data, fmt)
+                worst = max(worst, m)
+                if m > MARGIN_MAX:
+                    fails.append("%s/%s: in-place margin %d exceeds the %d "
+                                 "the loader reserves"
+                                 % (name, os88lz.NAMES[fmt], m, MARGIN_MAX))
 
     # --- the CZ container, and the file the feature is for -----------------
     beverly = os.path.join(ROOT, "apps", "tracker", "beverly.mod")

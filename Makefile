@@ -1360,8 +1360,11 @@ SBSTAMP := $(BUILD)/.sbpkg$(if $(SBDRAGOFF),-off$(SBDRAGOFF))$(if $(SBRATE),-r$(
 #
 # IT DOES NOT REACH THE KMODS. CTRL/FORMAT/CLONE.DRV are cut out of
 # kernel-full.bin by os88mod.py and reached through mod.inc, whose two stamps
-# are computed over the image (SPEC.md 2.8) - so compressing them is a wave of
-# its own and this knob leaves them alone.
+# are computed over the image (SPEC.md 2.8). They COULD be 'CZ' files now - a
+# module loads by the driver's route, and that route expands a 'CZ' file into
+# a claim cut from the hint (SPEC.md 20.13.3.1) - but their rules are
+# os88mod.py's and not $(OS88DRV)'s, so that is a wave of its own and this
+# knob leaves them alone.
 PKGZ ?= lz4
 ifneq ($(PKGZ),)
 ifeq ($(filter $(PKGZ),lz4 lzb),)
@@ -1680,7 +1683,6 @@ $(shell mkdir -p $(BUILD); \
                                       $(BUILD)/boothd.bin \
                                       $(BUILD)/ctrl.drv $(BUILD)/format.drv \
                                       $(BUILD)/clone.drv $(BUILD)/hiber.drv \
-                                      $(BUILD)/compress.drv \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin \
                                       $(BUILD)/boot120.bin \
                                       $(BUILD)/hdd.bin $(BUILD)/hdd.drv \
@@ -1957,7 +1959,7 @@ $(FONTINC): $(FONTSRC) tools/os88font.py | $(BUILD)
 # this is what stops it happening in the first place.
 KMODDIR = $(BUILD)
 KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv \
-        $(KMODDIR)/hiber.drv $(KMODDIR)/compress.drv
+        $(KMODDIR)/hiber.drv
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
            -m 2=$(BUILD)/clone.drv -m 3=$(BUILD)/hiber.drv
 # ...and kern_small's FIFTH and SIXTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP)
@@ -1976,16 +1978,18 @@ ifneq ($(KERN_SMALL),)
 KMODARGS += -m 4=$(BUILD)/filecp.drv
 KMODARGS += -m 5=$(BUILD)/fdlg.drv
 endif
-# ...and the compressor (SPEC.md 20.15, MOD_CMPR) is LAST on both, so its index
-# is the one thing here that is not the same number in both builds. mod.inc
-# defines it as 4 or 6 for exactly this reason - the shared row goes on the end
-# and neither build carries a hole - and os88mod.py checks the index against
-# the image's own MOD_H_ID, so getting this line wrong is a build failure.
-ifneq ($(KERN_SMALL),)
-KMODARGS += -m 6=$(BUILD)/compress.drv
-else
-KMODARGS += -m 4=$(BUILD)/compress.drv
+# ...AND THE MODULES ARE 'CZ' FILES ON THE DISK (SPEC.md 2.8, 20.13.5), by
+# the route a driver took: mod_need sizes its claim from the directory hint
+# drv_find reads, and dskw_read_x expands the file into it. os88mod.py checks
+# every image the way mod_check will and THEN wraps it, so what it validated
+# is what the machine gets back. Size-passed code packs poorly - 82-90% - and
+# the four modules still give the 360KB disk five clusters; every fetch
+# decodes ~6KB, ~50 ms on the 8088, against the sectors it no longer reads.
+ifneq ($(PKGZ),)
+KMODARGS += --wrap $(PKGZ)
 endif
+# ...and the compressor (SPEC.md 20.15) has no file of its own: it rides in
+# CLONE.DRV as that image's second entry (20.15.3), on both builds.
 # ...but $(KMODS) is NOT guarded, and that is the trap this comment exists for.
 # The small floppy rules below expand $(SMALLDRIVERS) - and so $(KMODS) - in
 # the OUTER make, where KERN_SMALL is NOT set; a guard here therefore left
@@ -2086,7 +2090,7 @@ else
 endif
 	$(NASM) -f bin -w+error $(KINC) $(VIDDEF) $(KZDEF) -o $@ $(KERNEL_SRC)
 
-$(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py | $(BUILD)
+$(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
 	python3 tools/os88mod.py $< -k $@ $(KMODARGS) --build $(BUILDNUM)
 	@echo "kernel: $(call FILESIZE,$@) bytes (image rung + boot overlay)$(if $(filter-out 0,$(BUILDNUM)), - build $(BUILDNUM), - NO build number: buildnum.py said why)"
 
@@ -2771,7 +2775,17 @@ $(SYSLOGO): tools/os88logo.py | $(BUILD)
 # The list is generated from the directory, exactly as SPEC.md 6.2.1's FONT=
 # targets are, so a new face is a new file and not an edit here as well.
 FACESRC := $(wildcard faces/*.t88)
-FACES := $(patsubst faces/%.t88,$(BUILD)/%.f88,$(FACESRC))
+FACESRAW := $(patsubst faces/%.t88,$(BUILD)/%.f88,$(FACESRC))
+# ...AND THEY ARE COMPRESSED ON THE DISKS (SPEC.md 6.4.1, 20.13.5). A face is
+# 1,498-1,688 bytes, so every one of the ten wasted most of its second
+# cluster; packed to 52-65% each is one. What reads them is ty_open, which
+# takes an 8KB claim, rounds it to a 512-byte boundary and reads at offset 0
+# with OSAPI_FILE_READ - the transparent read's exact shape (20.14.3) - so a
+# 'CZ' face arrives expanded and ty_hdrchk runs against the image. The packed
+# copy lives in $(BUILD)/faces/ under the SAME basename, because os88disk
+# names a file by its basename and the plain one stays where os88face left
+# it for anything on the host that wants the bytes.
+FACES := $(patsubst faces/%.t88,$(BUILD)/faces/%.f88,$(FACESRC))
 
 # ...and the LICENCE rides beside them (SPEC.md 6.4.1). Eight of the ten
 # families are fitted from typefaces somebody else drew, all of them under the
@@ -2781,16 +2795,37 @@ FACES := $(patsubst faces/%.t88,$(BUILD)/%.f88,$(FACESRC))
 # cannot turn up in a Font menu, and the mount types it as a document, so the
 # person at the machine can double-click it and read it. CRLF here for the
 # same reason readme.txt gets it below.
+FACELICRAW := $(BUILD)/license-plain.txt
 FACELIC := $(BUILD)/license.txt
 FACESARG := $(addprefix SYSTEM/FONTS:,$(FACES)) SYSTEM/FONTS:$(FACELIC)
 
 $(BUILD)/%.f88: faces/%.t88 tools/os88face.py | $(BUILD)
 	python3 tools/os88face.py $< -o $@
 
-$(FACELIC): faces/LICENSES.txt | $(BUILD)
+$(BUILD)/faces:
+	mkdir -p $@
+
+$(BUILD)/faces/%.f88: $(BUILD)/%.f88 tools/os88lz.py $(PKGZSTAMP) | $(BUILD)/faces
+ifeq ($(PKGZ),)
+	cp $< $@
+else
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+endif
+
+# ...and the licence is packed the way README.TXT is (SPEC.md 20.13.5): prose
+# at 56%, seven clusters to four, opened by nothing but a double-click into
+# Note Pad, whose read is the transparent one.
+$(FACELICRAW): faces/LICENSES.txt | $(BUILD)
 	python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); \
 		open(sys.argv[2], 'wb').write(d.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))" \
 		$< $@
+
+$(FACELIC): $(FACELICRAW) tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+ifeq ($(PKGZ),)
+	cp $< $@
+else
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+endif
 
 # ...AND IT IS COMPRESSED ON THE DISKS (SPEC.md 20.13.4). 16,334 bytes of
 # CRLF prose is 8,861 wrapped, which is seven of a 360KB disk's 354 clusters,
@@ -3027,23 +3062,25 @@ $(BUILD)/hddtool.bin: drivers/hdd/hddtool.asm apps/os88ui.inc drivers/hdd/hddabi
 	$(NASM) -f bin -w+error $(DRVDEF) -I drivers/hdd/ -I drivers/ -I apps/ -I $(BUILD) -o $@ $<
 	@echo "hddtool: $(call FILESIZE,$@) bytes"
 
-# **IT IS THE ONE ARTEFACT ON THESE DISKS THAT PKGZ MUST NOT TOUCH**
-# (SPEC.md 20.13.5.1), which is why this rule spells out os88drv.py instead of
-# using $(OS88DRV). Every other package and driver is read by a loader that
-# knows about compression - ld_run_body for a .O88, drv_load for a .DRV, and
-# drv_load_at for the two overlays the KERNEL owns (XMEM.DRV, SAVER.DRV). This
-# one is read by HDD.DRV, with OSAPI_FILE_READ, which hands back exactly what
-# is on the disk (SPEC.md 20.14.3) - and the 32-byte header crosses
-# compression VERBATIM, so hd_tool_check's seven tests all still PASS and the
-# driver far-calls [es:6] into a compressed body. Not a refusal: a crash on
-# Format or Install.
+# IT WAS THE ONE ARTEFACT ON THESE DISKS THAT PKGZ MUST NOT TOUCH, and the
+# reason is kept because it is the shape of a whole class of bug: every other
+# package and driver is read by a loader that knows about compression -
+# ld_run_body for a .O88, drv_load for a .DRV, drv_load_at for the two
+# overlays the KERNEL owns - and this one is read by HDD.DRV, with
+# OSAPI_FILE_READ. Under the v4 body format that read handed back exactly
+# what was on the disk, the 32-byte header crossed compression VERBATIM, so
+# hd_tool_check's seven tests all still PASSED and the driver far-called
+# [es:6] into a compressed body. Not a refusal: a crash on Format or Install.
 #
-# Including it would cost HDD.DRV a peek-then-read (two int 13h where there is
-# one) or a second claim the way drv_expand takes one, to buy 4,202 bytes -
-# four of a 360KB disk's 354 clusters. That is a change worth making on its
-# own evidence, not a line in a compression default.
+# Since SPEC.md 20.13.3.1 a compressed driver is a 'CZ' file and the read
+# hd_tool_need makes IS the transparent one (20.14.3): the tool arrives
+# EXPANDED, into a claim the hdd.bin rule below cuts from the IMAGE, and
+# hd_tool_check runs against the image. So it takes $(OS88DRV) like every
+# other driver (SPEC.md 20.13.5.1), tests/unit/t_pkg.py asserts it is packed
+# whenever the rest are - a plain tool beside compressed drivers is this rule
+# falling back - and tests/hddcp.py opens Format and Install off it.
 $(BUILD)/hddtool.drv: $(BUILD)/hddtool.bin tools/os88drv.py $(PKGZSTAMP)
-	python3 tools/os88drv.py $(BUILD)/hddtool.bin -o $@
+	$(OS88DRV) $(BUILD)/hddtool.bin -o $@
 
 # -DHDTOOL_KB is the claim HDD.DRV makes for the tool, and it is injected the
 # way boot.asm is told KERNEL_SECTORS: there is no file-size slot in the API,
@@ -3566,9 +3603,11 @@ spantest: $(BUILD)/spantest.img
 
 # LZDRV: the gate on loading a COMPRESSED DRIVER
 # (docs/plans/O88-COMPRESSION-PLAN.md 13 wave 3b). The shipped 360KB system disk
-# with ONE file swapped - RAMDISK.DRV compressed. It is the right subject
-# because it has a real bss (2,416 bytes) as well as a compressible body, so
-# drv_expand and drv_bss are both exercised on one file, and because
+# with ONE file swapped - RAMDISK.DRV compressed, which since SPEC.md
+# 20.13.3.1 means a 'CZ' file the transparent read expands into the claim
+# drv_load cut from the directory hint. It is the right subject because it has
+# a real bss (2,416 bytes) as well as a compressible body, so the hint-sized
+# claim and drv_bss are both exercised on one file, and because
 # tests/drvcall.py already knows how to make it answer.
 #   make lzdrvtest && python3 tests/lzdrv.py
 LZDDIR := $(BUILD)/lzd
@@ -3659,26 +3698,31 @@ $(BUILD)/lzf/PLAIN.TXT: tests/lzfile/plain.txt | $(BUILD)
 	@mkdir -p $(BUILD)/lzf
 	cp $< $@
 
-# ...and the pair that exercises SPEC.md 20.14.2.4's SLIDING WINDOW.
+# ...and the trio that exercises the TIGHT BUFFER (SPEC.md 20.14.2, 20.13.7).
 # window.txt is exactly 4,096 bytes, so a 4,096-byte capacity - the tightest a
-# caller sized from the size it was TOLD can be - is LZ_MARGIN short of the
-# in-place layout. Wrapped LZB it reads through the window and nothing else in
-# the tree does; wrapped LZ4 os88lz.py REFUSES it (20.14.2.3), which is why
-# the format is named here and is not $(PKGZ).
+# caller sized from the size it was TOLD can be - is the case that used to
+# need a sliding window for LZB and be refused outright for LZ4. A stream ends
+# in a raw tail now and expands in place inside exactly U, so BOTH formats are
+# on the disk and both are read into 4,096 bytes. The names are history.
 $(BUILD)/lzf/WINDOW.TXT: tests/lzfile/window.txt tools/os88lz.py | $(BUILD)
 	@mkdir -p $(BUILD)/lzf
 	python3 tools/os88lz.py --wrap $@ --fmt lzb tests/lzfile/window.txt
+
+$(BUILD)/lzf/WLZ4.TXT: tests/lzfile/window.txt tools/os88lz.py | $(BUILD)
+	@mkdir -p $(BUILD)/lzf
+	python3 tools/os88lz.py --wrap $@ --fmt lz4 tests/lzfile/window.txt
 
 $(BUILD)/lzf/WPLAIN.TXT: tests/lzfile/window.txt | $(BUILD)
 	@mkdir -p $(BUILD)/lzf
 	cp $< $@
 
 $(BUILD)/lzfile360.img: $(BUILD)/lzfile.o88 $(BUILD)/lzf/WINDOW.TXT \
+                        $(BUILD)/lzf/WLZ4.TXT \
                         $(BUILD)/lzf/WPLAIN.TXT $(BUILD)/lzf/PLAIN.TXT \
                         $(BUILD)/lzf/PACKED.TXT tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/lzfile.o88 \
 	    $(BUILD)/lzf/PLAIN.TXT $(BUILD)/lzf/PACKED.TXT \
-	    $(BUILD)/lzf/WINDOW.TXT $(BUILD)/lzf/WPLAIN.TXT
+	    $(BUILD)/lzf/WINDOW.TXT $(BUILD)/lzf/WLZ4.TXT $(BUILD)/lzf/WPLAIN.TXT
 
 .PHONY: lzfiletest
 lzfiletest: $(BUILD)/lzfile360.img

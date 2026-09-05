@@ -1430,9 +1430,11 @@ tests pass on a compressed tool and the driver far-calls `[es:6]` into the
 stream. A crash on Format or Install, on a machine with a hard disk, which is
 not the machine a shipped floppy gets tested on. Its rule names `os88drv.py`
 rather than `$(OS88DRV)`, and `t_pkg` asserts it, because "who loads it" is
-not a property of the file. It costs 4,202 bytes — four of 354 clusters at
-360KB — and buying them back means a peek-then-read or a second claim in
-`HDD.DRV`, which is its own change.
+not a property of the file. It cost four of 354 clusters at 360KB, and
+buying them back meant a peek-then-read or a second claim in `HDD.DRV` —
+until a compressed driver became a `'CZ'` file and the read the tool already
+made became the transparent one, at which point it was one word in a
+Makefile rule (13.14.5, taken).
 
 ### 13.10 MAKING THE COMPRESSED KERNEL THE DEFAULT
 
@@ -1930,7 +1932,167 @@ It is the one open item in the feature.
 **Zeroing `files.inc` entirely would still leave 2,041**, so the remaining
 1,700 has to come out of the four consumers below it — which is a decision
 about which of them stay resident, not a shaving exercise. `lz_wbuf` alone is
-256 bytes of `.bss` serving one case (`.cznoroom`, §20.14.2.4).
+256 bytes of `.bss` serving one case (`.cznoroom`, 20.14.2.4 as it then was).
+**13.14 below is what came of this**: the window, the margin and the case are gone.
+**13.14 below is what came of this**: the window, the margin and the case are gone.
+
+### 13.14 THE SIZE PASS 2 — 2,725 to 1,025, and the format change that paid for it
+
+The ask was **under 1,024 bytes** for a feature that stood at 2,725, with three
+constraints: LZ4's decode speed stays, the transparent read stays, and a file
+that compresses right up to the end of its kilobyte still loads. The requester
+opened the format itself. Two things were measured before anything was
+written, and both decided the pass.
+
+#### 13.14.1 The finding: cut the stream at its peak, and the margin is ZERO
+
+The in-place scheme reads the packed bytes `R` above the destination and
+expands downwards. `R` had to clear the PEAK of `produced − consumed` over the
+whole decode, and that peak sat wherever the stream was densest, not at the
+end — so `LZ_MARGIN` = 64 was reserved above every placement, a caller whose
+buffer was exactly `U` was a case of its own (a sliding window for LZB, a
+refusal and a build-time rule for LZ4), and the manual was EDITED to dodge the
+rule.
+
+**The peak can be moved to the end by the encoder, for free.** After the peak
+the symbols are net-EXPANDING by exactly the margin: storing them raw makes
+the file smaller by that much, and every prefix of what is left leads by no
+more than the whole stream does — which is `U − P`, the placement itself. So a
+stream is `[T word][LZ symbols][T raw bytes]`, the encoder cuts at the first
+peak, and the decoder finds the tail with the compare it already made: where
+it tested `SI` against the source's END it tests it against `end − T`. Zero
+cycles on the fast path. SPEC.md §20.13.7 is the contract, `os88lz._cut` is
+the rule, and `kernel/compress.inc`'s `.next` tracks the peak with the six
+instructions that used to measure the margin — the cut is the same compare.
+`tools/os88lz.py --selfcheck` asserts the margin at 0 over every binary in
+the tree, and a Python decoder run INSIDE a buffer of exactly `U` bytes
+(reading and writing in the kernel's order) confirmed it over the awkward
+cases before a line of assembly was touched — `window.txt`, 4,096 bytes into
+4,096, in both formats.
+
+What that deleted, in the kernel: `LZ_MARGIN` and its three mirrors, the
+package loader's `+ 64`, the `'CZ'` read's two-verdict capacity ladder and
+its scratch claim, the **256-byte window and its cursor** (266 bytes of
+`.bss`, ~150 of `.cold`), `dskw_czwin`, and the driver loader's second claim.
+In the tools: `cz_inplace_short`, `cz_room`, `PKG_COMP_MARGIN`,
+`CZ_MARGIN`, `OP_MARGIN`'s value, `checkreadme.py` rule 4, and the refusal
+that stored one file in sixteen plain. The boot blob's kernel stream is the
+one exception — `kz_expand` is its own copy of the LZ4 arm and reads the
+classic ending — so `os88lz.lz4_compress` takes `tail=False` for it and
+`KZ_MARGIN` stays real there; the blob could adopt the tail for ~22 bytes of
+blob and nothing resident, and has not.
+
+#### 13.14.2 The format question, measured — and both formats stay
+
+Since the format was on the table, four byte-oriented alternatives were
+prototyped in Python on the shared matcher and run over the tree's own files:
+LZ4 with an implicit 7/15-bit offset (`c1`), a token bit for an 8/16-bit
+offset (`c2`), `c2` with a repeat-offset (`c3`), and `c1` at min match 2.
+Ratio, per cent of the input, host parse (H) and the machine's greedy
+parse (M):
+
+| | LZ4 | LZB host | LZB machine | c1 H | c2 H | c3 H | c1 M | c2 M |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 12 packages, 232 KB | 79.6 | 69.7 | 74.9 | 75.9 | 76.3 | 76.1 | 76.7 | 77.1 |
+| README.TXT | 55.1 | 43.9 | 47.2 | 54.0 | 53.2 | 53.2 | 56.9 | 55.9 |
+| BEVERLY.MOD | 36.3 | 33.0 | 52.5 | 51.2 | 35.1 | 35.2 | 53.0 | 52.6 |
+| whole corpus, 425 KB | 65.1 | **57.2** | 66.4 | 66.9 | 62.6 | 62.5 | 68.4 | 68.6 |
+
+A byte candidate recovers about a third of LZB's advantage on code and almost
+none on text; `c1`'s 15-bit offsets lose `BEVERLY.MOD` outright (the samples
+match tens of KB back), and the one that keeps 16-bit offsets is still five
+points behind LZB over the corpus. The decoder it would save is ~130 bytes
+against a `compress.inc` rewrite and a worse Compress verb. **So both formats
+stay**, and the bytes came out of what the two decoders had been carrying
+twice: a format decides how a length, an offset and a literal are SPELLED,
+and everything done with them — the output bound, the offset bound, the copy
+that may cross a segment, the match a segment below, the tail — is one body
+of code under two arms of 51 and 89 bytes. `lz.inc` is 340 bytes of `.cold`
+and no `.bss` where it was 650 and 266.
+
+#### 13.14.3 What moved, and where the bill landed
+
+| | before | after | how |
+|---|---:|---:|---|
+| `lz.inc` | 916 | 340 | one core, two arms, no window, no margin |
+| `files.inc` | 684 | ~110 | Uncompress into the module with its four verdicts; the selection test too; one thunk for both verbs, the command id in `BX` telling them apart |
+| `diskw.inc` | 597 | ~250 | one placement path for plain and compressed (`R = U − P`, and 0 for plain), `dskw_usize` gone (the module reads the hint off `dskw_raw` after `dwf_dskw_stat`), `czexp` loading its pair with one `lds`, the hint re-read after the transfer instead of a flag |
+| `driver.inc` | 219 | ~0 | a compressed `.DRV` is a `'CZ'` file; `drv_find` reads the hint (+14 in `drvvol.inc`) and the transparent read expands it into the claim; `drv_expand` and its two claims are gone |
+| `loader.inc` | 187 | ~170 | the prefix computed off the header the file carries, the format as `(flags >> 3) & 3` |
+| `mod.inc` + `kernel.asm` + `disk.inc` | 122 | ~60 | **the compressor rides in `CLONE.DRV`** (§20.15.3): no `mod_tab` row, no name, no `mod_fp` block — a second entry in an image that had six spare slots |
+
+`kernsize` on the tree that took it: **`.text` −84, `.bss` −312, `.cold`
+−1,304, sum −1,700**; the cold rung uncrossed three times, 1,536 bytes of
+every machine's RAM back; `.text + .bss` 56,885 of `KERN_CODE_MAX`. Against
+§13.13's 2,725 that is **1,025** — and by that section's own arithmetic, which
+is the one the requester quoted. Six of those bytes arrived with the two
+defects `tests/lzcomp.py` found on the first full run, and the number is the
+tree the row passes on, not the one it was first read off:
+
+- the thunk entered `fmv_sync_x` with DI unset. The old body reached that
+  line through `fm_sel_ok`, which loads DI with the state block, and the
+  cut took the load with the test — so the sync mounted a drive read off the
+  stack (142, on the machine), `mod_need` then remounted the boot volume and
+  put the garbage back, and every verb said `No disk`. Traced with
+  `bp_exec` on the eight routines between the thunk and the toast rather
+  than reasoned about;
+- `cmz_sizes`'s container arm returned with the `jbe`'s own carry. An LZB
+  mark compares equal and leaves CF clear; an LZ4 mark compares BELOW and
+  leaves it set, so both verbs on an LZ4 file answered a FERR whose number
+  was the file's unpacked size, and `toast_say` said nothing for an index
+  past its table. `xor dh, dh` clears it and is a byte shorter.
+
+#### 13.14.4 What it costs, stated
+
+- **Two bytes per stream** for `T`, and the tail's own `rep movsb`. The files
+  are smaller anyway: the cut saves the old margin, which was 2 on a package
+  and up to 5 on `BEVERLY.MOD`.
+- **The LZ4 fast path is UNCHANGED in cycles** on the symbol loop — the tail
+  compare replaces the end compare — and gains the shared copy's second
+  carry test per match, which the old arm also made. This is arithmetic on
+  the listing and NOT a MartyPC measurement; §4's 50.6 cycles a byte has not
+  been re-taken.
+- **A 64KB boundary is now crossed by a byte loop** rather than a four-way
+  minimum: a few hundred cycles once per segment of output, against sixty
+  bytes of kernel.
+- **A no-op Compress on a folder fetches the image** to find out it is a
+  no-op: the selection test was 31 resident bytes for a case the context menu
+  of a folder does not offer.
+- **Either verb reads `CLONE.DRV` whole**, 5,810 bytes where `COMPRESS.DRV`
+  was 2,265 — one sector run rather than two, on a verb somebody waits
+  seconds for.
+- **The 128KB machine**: nothing resident was added anywhere; the sliding
+  window's 256 bytes came off `.bss`.
+
+#### 13.14.5 Refused, and left on the table
+
+- LZB's literal path through the shared take/copy: −7 bytes for ~+120 cycles
+  a literal, which on that format is half its speed. Refused.
+- The bit reader as a subroutine: −6 bytes for ~+30% on LZB. Refused.
+- `HDDTOOL.DRV` (SPEC.md 20.13.5.1) — **TAKEN**, the day after the pass
+  landed: `hd_tool_need`'s read IS the transparent one and its `HDTOOL_KB`
+  claim is cut from the IMAGE by the Makefile, so an expanded tool fits it by
+  construction. One word in a Makefile rule, the gate in `tests/unit/t_pkg.py`
+  turned round to assert it is packed whenever the rest are, and
+  `tests/hddcp.py` opening Format and Install off it on MartyPC. 8,304
+  bytes against 12,567, 9 clusters of the 360KB system disk
+  against 13; the disk stands at 273 of 354 against 277.
+- The kernel modules, the ten faces and the licence — **TAKEN**, with
+  `HDDTOOL.DRV` and for its reason: every reader was already the transparent
+  read into a claim cut from the image or bigger than any file. `os88mod.py`
+  wraps what it has checked (`--wrap`, off `PKGZ`), the faces ship packed out
+  of `build/faces/` under their own basenames, and the licence follows
+  `README.TXT`'s rule. Modules 7,394 / 5,810 / 3,497 / 1,129 → 6,104 / 4,965
+  / 3,003 / 1,018 (five clusters); faces 14,992 → 8,937 (ten); licence 6,718
+  → 3,783 (three). The 360KB system disk stands at **255 of 354 clusters**
+  against 277 before the tool. Proved on MartyPC: `tests/facetest`'s package
+  opens a packed face (`ty_openfam` err 0, ten families), and the module rows
+  `modstr`, `dispthm`, `lzcomp`, `diskclone`, `hibernate`, `fcpsmall` and
+  `fdlgsmall`. What it turned up on the way: `tools/os88hdd.py` wrote no
+  directory hint, so a packed driver on the hibernate fixture's volume read
+  as plain — it stamps one now, `os88disk.dirent`'s rule.
+- The boot blob's classic ending: one dialect instead of two, ~22 bytes of
+  blob, `KZ_MARGIN` gone.
 
 ## 14. Decisions still open before wave 1
 
@@ -1957,7 +2119,8 @@ recommendation; three are genuinely the owner's.
    so whether a file needs SPEC.md §20.14.2.1's scratch depends only on its
    UNPACKED size against a kilobyte boundary and on the margin. The ratio
    never enters, and neither does the format. The build-time rule
-   (§20.14.2.3), the scratch, and the un-rounded `R` are all format-blind.
+   (20.14.2.3 as it then was), the scratch, and the un-rounded `R` are all format-blind.
+   **Superseded by 13.14 below**: there is no margin, no scratch and no rule any more.
 
    The one format-dependent number is the margin, over 77 raw inputs:
 

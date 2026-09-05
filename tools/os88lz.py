@@ -11,6 +11,23 @@ Two formats, and which one a file uses is two bits in its header:
                Elias gamma for the length and the high offset byte. ~10 points
                better on ratio and four times the decode (plan 12.7).
 
+**Every stream ends in a RAW TAIL, and that is what makes in-place expansion
+need no margin** (SPEC.md 20.13.7). A stream is
+
+    +0  word  T, the tail's length
+    +2        the LZ symbols
+    end-T     T raw bytes - the last T bytes of the output, stored as they are
+
+and the encoder cuts the symbols at the FIRST point where (produced - consumed)
+peaks, storing the rest raw. The suffix after that peak was net-EXPANDING by
+exactly what the old in-place margin measured, so the cut makes the file
+smaller by that much - and a decoder reading its source from `U - P` above
+its output can never overtake it, the tail's source landing ON its
+destination. `_cut` is the whole of it and both encoders (and the machine's,
+`lzb_compress_machine`) go through it. The boot blob's kernel stream is the
+one exception: boot/boot2.asm carries its own copy of the LZ4 arm and reads
+the classic ending, so `tools/os88kz.py` asks for `tail=False`.
+
 **This file is the reference implementation and the kernel is the copy**, so a
 disagreement between them is a bug here or there and never a judgement call:
 `--selfcheck` round-trips both formats over the tree's own binaries, and
@@ -80,6 +97,46 @@ class Chains:
 
 
 # =============================================================================
+# the raw tail (SPEC.md 20.13.7) - the one rule both formats share
+# =============================================================================
+def _cut(src, out, bounds):
+    """Finish a stream: cut the symbols at the first peak of (produced -
+    consumed) and store the rest raw, behind the T word the stream begins with.
+
+    `out` is the symbols with two bytes reserved in front; `bounds` is
+    (produced, consumed) at every symbol boundary in order, `consumed`
+    counting those two bytes. The peak is tracked EXACTLY as kernel/
+    compress.inc tracks it - strictly greater than a running maximum that
+    starts at 0, so a negative lead never wins and a tie keeps the earlier
+    point - because tests/lzcomp.py compares the machine's stream with
+    lzb_compress_machine's byte for byte.
+    """
+    mx, kp, kc = 0, 0, 2
+    for p, c in bounds:
+        if p - c > mx:
+            mx, kp, kc = p - c, p, c
+    tail = src[kp:]
+    if len(tail) > 0xFFFF:
+        # a tail the T word cannot count: the stream is over 64KB whatever
+        # else is in it, which is a file that compressed badly and is stored
+        # plain (cz_wrap, SPEC.md 20.14.5) - so this is a refusal, not a
+        # stream
+        raise ValueError(f"a raw tail of {len(tail)} bytes does not fit T")
+    return len(tail).to_bytes(2, "little") + bytes(out[2:kc]) + tail
+
+
+def _tail_bounds(buf):
+    """(first symbol byte, where the tail begins) for a stream, or an error."""
+    if len(buf) < 2:
+        raise ValueError("no T word")
+    t = int.from_bytes(buf[0:2], "little")
+    end = len(buf) - t
+    if end < 2:
+        raise ValueError(f"a tail of {t} in a stream of {len(buf)}")
+    return 2, end
+
+
+# =============================================================================
 # LZ4
 # =============================================================================
 def _lz4_seq_len(litlen, mlen):
@@ -116,20 +173,26 @@ def _lz4_emit(out, lits, mlen, off):
             out.append(n)
 
 
-def lz4_compress(src, depth=128):
+def lz4_compress(src, depth=128, tail=True):
     """Hash chains with a two-step lazy parse.
 
     Lazy rather than a shortest-path DP because LZ4's literal run is carried in
     the same token as the match, so the two are not separable and an exact
     parse costs far more than the fraction of a percent it buys - measured
     against the reference `lz4hc` at level 12 while this was written.
+
+    `tail=False` is the CLASSIC block - no T word, the last sequence literals
+    only - and exists for one caller: the boot blob's own decoder
+    (tools/os88kz.py, boot/boot2.asm kz_expand).
     """
     src = bytes(src)
     n = len(src)
-    out = bytearray()
+    out = bytearray(2)
+    bounds = [(0, 2)]
     if n <= MFLIMIT:
         _lz4_emit(out, src, 0, 0)
-        return bytes(out)
+        bounds.append((n, len(out)))
+        return _cut(src, out, bounds) if tail else bytes(out[2:])
     ch = Chains(src, MINMATCH)
     lim = n - MFLIMIT
     mend = n - LASTLITS
@@ -155,14 +218,20 @@ def lz4_compress(src, depth=128):
         _lz4_emit(out, src[anchor:i], l, o)
         i += l
         anchor = i
+        bounds.append((i, len(out)))
     _lz4_emit(out, src[anchor:n], 0, 0)
-    return bytes(out)
+    bounds.append((n, len(out)))
+    return _cut(src, out, bounds) if tail else bytes(out[2:])
 
 
-def lz4_decompress(buf, outlen):
+def lz4_decompress(buf, outlen, tail=True):
     out = bytearray()
-    p, end = 0, len(buf)
-    while p < end:
+    p, end = (_tail_bounds(buf) if tail else (0, len(buf)))
+    while True:
+        if p >= end:
+            if p > end:
+                raise ValueError(f"LZ4: a length ran {p - end} past the tail")
+            break
         tok = buf[p]; p += 1
         ll = tok >> 4
         if ll == 15:
@@ -172,7 +241,9 @@ def lz4_decompress(buf, outlen):
                     break
         out += buf[p:p + ll]; p += ll
         if p >= end:
-            break
+            if tail:
+                raise ValueError("LZ4: the symbols end in a literal run")
+            break                       # a classic block ends in literals
         off = buf[p] | (buf[p + 1] << 8); p += 2
         if off == 0 or off > len(out):
             raise ValueError(f"LZ4: bad offset {off} at output {len(out)}")
@@ -186,6 +257,8 @@ def lz4_decompress(buf, outlen):
         s = len(out) - off
         for k in range(ml):
             out.append(out[s + k])
+    if tail:
+        out += buf[end:]
     if len(out) != outlen:
         raise ValueError(f"LZ4: produced {len(out)} bytes, expected {outlen}")
     return bytes(out)
@@ -262,7 +335,7 @@ def lzb_compress(src, depth=128):
     src = bytes(src)
     n = len(src)
     if n == 0:
-        return b""
+        return b"\0\0"                 # a T word saying 0, and nothing else
     ch = Chains(src, LZB_MIN)
     INF = float("inf")
     dp = [INF] * (n + 1)
@@ -287,6 +360,8 @@ def lzb_compress(src, depth=128):
                     nxt[i] = (k, off)
     ch.insert_to(n)
     w = _BitOut()
+    w.buf += b"\0\0"                     # the T word, filled in by _cut
+    bounds = [(0, 2)]
     i = 0
     while i < n:
         ml, off = nxt[i]
@@ -300,7 +375,8 @@ def lzb_compress(src, depth=128):
             w.gamma((off >> 8) + 2)
             w.byte(off & 0xFF)
             i += ml
-    return bytes(w.buf)
+        bounds.append((i, len(w.buf)))
+    return _cut(src, w.buf, bounds)
 
 
 # =============================================================================
@@ -382,13 +458,13 @@ def lzb_compress_machine(src, window=CMZ_WMAX, depth=CMZ_DEPTH):
         return (best, boff) if best >= CMZ_MIN else (0, 0)
 
     w = _BitOut()
+    w.buf += b"\0\0"                     # the T word, patched at the end
+    bounds = [(0, 2)]
     i = 0
-    mx = 0
     while True:
-        # cmz_pack's margin, measured at every symbol boundary - inside a
-        # symbol the decoder consumes and only then produces, so this is where
-        # (produced - consumed) peaks
-        mx = max(mx, i - len(w.buf))
+        # cmz_pack's cut, measured at every symbol boundary - inside a symbol
+        # the decoder consumes and only then produces, so this is where
+        # (produced - consumed) peaks. _cut tracks it as the assembly does
         if i >= n:
             break
         if len(w.buf) >= lim:
@@ -407,21 +483,11 @@ def lzb_compress_machine(src, window=CMZ_WMAX, depth=CMZ_DEPTH):
             for k in range(i, i + ml):          # cmz_fill
                 ins(k)
             i += ml
-    if len(w.buf) >= n:
+        bounds.append((i, len(w.buf)))
+    z = _cut(src, w.buf, bounds)
+    if len(z) >= n:
         return None
-    _last_margin[0] = mx - (n - len(w.buf))
-    return bytes(w.buf)
-
-
-_last_margin = [0]
-
-
-def lzb_machine_margin():
-    """The in-place margin of the stream lzb_compress_machine last built.
-
-    cmz_pack returns it in DX (SPEC.md 20.15.2) because the alternative - the
-    verb simulating the decode to find out - is the decoder over again."""
-    return _last_margin[0]
+    return z
 
 
 class _BitIn:
@@ -454,8 +520,13 @@ class _BitIn:
 
 def lzb_decompress(buf, outlen):
     r = _BitIn(buf)
+    r.p, end = _tail_bounds(buf)
     out = bytearray()
-    while len(out) < outlen:
+    while True:
+        if r.p >= end:
+            if r.p > end:
+                raise ValueError(f"LZB: a symbol ran {r.p - end} past the tail")
+            break
         if r.bit() == 0:
             out.append(r.byte())
         else:
@@ -466,6 +537,7 @@ def lzb_decompress(buf, outlen):
             s = len(out) - off
             for k in range(ml):
                 out.append(out[s + k])
+    out += buf[end:]
     if len(out) != outlen:
         raise ValueError(f"LZB: produced {len(out)} bytes, expected {outlen}")
     return bytes(out)
@@ -474,29 +546,41 @@ def lzb_decompress(buf, outlen):
 # =============================================================================
 # the two entry points everything else uses
 # =============================================================================
-def compress(data, fmt=LZ4):
-    return lz4_compress(data) if fmt == LZ4 else lzb_compress(data)
+def compress(data, fmt=LZ4, tail=True):
+    return lz4_compress(data, tail=tail) if fmt == LZ4 else lzb_compress(data)
 
 
-def decompress(data, fmt, outlen):
-    return (lz4_decompress if fmt == LZ4 else lzb_decompress)(data, outlen)
+def decompress(data, fmt, outlen, tail=True):
+    if fmt == LZ4:
+        return lz4_decompress(data, outlen, tail=tail)
+    return lzb_decompress(data, outlen)
 
 
-def in_place_margin(data, fmt=LZ4, packed=None):
+def in_place_margin(data, fmt=LZ4, packed=None, tail=True):
     """Bytes a region must have ABOVE the image so the decoder, reading its
     own compressed source from the top of that region, never overtakes its
     write pointer (plan 7.2). Measured rather than bounded: this simulates the
     decode and reports the worst point.
 
+    **FOR A STREAM WITH A TAIL THE ANSWER IS ZERO BY CONSTRUCTION** (SPEC.md
+    20.13.7), and this is what asserts it: tests/unit/t_lzfmt.py and the
+    packagers call it on every stream they write. The measurement still means
+    something for the classic block the boot blob decodes (`tail=False`),
+    where the margin is real and tools/os88kz.py reserves it.
+
     `packed` is an ALREADY-compressed stream of the same bytes - the machine's
     (`lzb_compress_machine`), when the question is about what the 8088 wrote
     rather than about what this module would have written."""
-    z = compress(data, fmt) if packed is None else packed
+    z = compress(data, fmt, tail=tail) if packed is None else packed
     n, zl = len(data), len(z)
-    worst = 0
     if fmt == LZ4:
-        p, prod = 0, 0
-        while p < zl:
+        p, end = (_tail_bounds(z) if tail else (0, zl))
+        prod = 0
+        worst = prod - p        # the T word is consumed before anything is
+                                # produced, so the first boundary's lead is
+                                # -2 and not 0; a stream that is ALL tail
+                                # (noise) has that as its peak
+        while p < end:
             tok = z[p]; p += 1
             ll = tok >> 4
             if ll == 15:
@@ -506,7 +590,7 @@ def in_place_margin(data, fmt=LZ4, packed=None):
                         break
             p += ll; prod += ll
             worst = max(worst, prod - p)
-            if p >= zl:
+            if p >= end:
                 break
             p += 2
             ml = tok & 15
@@ -518,8 +602,11 @@ def in_place_margin(data, fmt=LZ4, packed=None):
             prod += ml + MINMATCH
             worst = max(worst, prod - p)
     else:
-        r = _BitIn(z); prod = 0
-        while prod < n:
+        r = _BitIn(z)
+        r.p, end = _tail_bounds(z)
+        prod = 0
+        worst = prod - r.p
+        while r.p < end:
             if r.bit() == 0:
                 r.byte(); prod += 1
             else:
@@ -545,17 +632,26 @@ def in_place_margin(data, fmt=LZ4, packed=None):
 # the magic here before it believes anything.
 CZ_MAGIC = b"CZ"
 CZ_HDR = 8
-CZ_MARGIN = 64                 # LZ_MARGIN in kernel/lz.inc - the one number both
-                                # ends of the in-place expansion agree on
-CZ_SRCMAX = 0xFFFF             # ...and the source's own ceiling: the decoder's
+CZ_SRCMAX = 0xFFFF             # the source's own ceiling: the decoder's
                                 # output crosses 64KB and its input does not
 
 
 def cz_wrap(data, fmt=LZ4):
     """compress `data` into a 'CZ' file, or return it unchanged if that would
     not be smaller - a file that grew is a file the reader pays to expand for
-    nothing."""
-    z = compress(data, fmt)
+    nothing.
+
+    THERE IS NO SIZE RULE ANY MORE. The kernel expands a 'CZ' file in place
+    inside a buffer of exactly the unpacked size (SPEC.md 20.14.2), because
+    the stream's own tail is what makes that safe (20.13.7) - so a file that
+    lands one byte under a kilobyte boundary compresses like any other, and
+    the reader that was told U needs U. The old margin rule refused one size
+    in sixteen and had the manual EDITED to fit.
+    """
+    try:
+        z = compress(data, fmt)
+    except ValueError:          # a tail T cannot count: over 64KB packed
+        return data, False
     if CZ_HDR + len(z) >= len(data):
         return data, False
     if CZ_HDR + len(z) > CZ_SRCMAX:
@@ -564,60 +660,13 @@ def cz_wrap(data, fmt=LZ4):
                                 # this big is one that compressed badly, and
                                 # storing it plain is the right answer to that
                                 # rather than a limitation worked around
-    if in_place_margin(data, fmt) > CZ_MARGIN:
-        return data, False      # the reader expands IN PLACE inside the
-                                # caller's own buffer, so a stream whose
-                                # write pointer gets closer than that to its
-                                # own source is stored plain rather than
-                                # given a margin only this file would use
-    if fmt == LZ4 and cz_inplace_short(len(data), CZ_HDR + len(z)):
-        return data, False      # ...and LZ4 would not fit a buffer sized to
-                                # the size the reader is TOLD. LZB is exempt
-                                # because it has a window (SPEC.md 20.14.2.4)
-                                # and is the format a USER compresses into,
-                                # whose files are whatever size they are
     if decompress(z, fmt, len(data)) != data:
         raise ValueError("round trip failed - os88lz is the reference")
+    if in_place_margin(data, fmt, packed=z):
+        raise ValueError("a stream with a tail needs no margin - os88lz is "
+                         "the reference and its cut is wrong")
     return (CZ_MAGIC + bytes([fmt, 0])
             + len(data).to_bytes(4, "little") + z), True
-
-
-def cz_room(u, p, margin=CZ_MARGIN):
-    """Bytes the kernel's IN-PLACE read needs for a `u`-byte file packed to
-    `p` (SPEC.md 20.14.2.2).
-
-    The packed bytes go `R = u - p + margin` above the destination and the
-    buffer must hold `R + p` - which is just `u + margin`, the `p` cancelling.
-    It carried a paragraph rounding as well until the low nibble of `R` moved
-    into `[dskw_src]`; if that ever comes back, so does the `+ 15`.
-    """
-    return (u - p + margin) + p
-
-
-def cz_inplace_short(u, p, margin=CZ_MARGIN):
-    """...and whether that overruns a buffer sized to the UNPACKED size.
-
-    **THE READER IS TOLD `u` AND CLAIMS IN WHOLE KILOBYTES** (SPEC.md 50.3),
-    so the buffer it arrives with is `roundup1024(u)`. In-place expansion
-    wants `u + margin` plus up to 15 of rounding, so a file whose unpacked
-    size lands within those 64 bytes below a kilobyte boundary is one the
-    kernel has to take a scratch claim for (SPEC.md 20.14.2.1) - which is the
-    whole packed file, transiently, on top of what the caller already holds.
-
-    **LZ4 ONLY.** LZB reads through a sliding window (SPEC.md 20.14.2.4) and
-    needs no such rule; LZ4 has no window, so a file WE ship must never land
-    here and this is the check that stops it - such a file is stored plain
-    instead. It is about one size in thirteen, so
-    it is not rare - README.TXT and PAPER.TEX are both in the window today -
-    and for a file worth the disk the answer is to EDIT IT rather than to lose
-    the compression (tools/checkreadme.py rule 4 does exactly that).
-
-    There is no runtime fallback for LZ4: `'CZ'` is this project's own
-    container and these tools are the only thing that writes one, so a file
-    that lands here anyway was made by something bypassing them, and
-    `FERR_BIG` is a correct answer to it.
-    """
-    return cz_room(u, p, margin) > ((u + 1023) & ~1023)
 
 
 def cz_parse(blob):
@@ -663,11 +712,16 @@ def _selfcheck(paths):
             except Exception as e:
                 print(f"os88lz: {NAMES[fmt]} {f}: {e}")
                 bad += 1
-        marg = max(marg, in_place_margin(d, LZ4))
+        for fmt in (LZ4, LZB):
+            marg = max(marg, in_place_margin(d, fmt))
+    if marg:
+        print(f"os88lz: A STREAM NEEDED {marg} BYTES OF IN-PLACE MARGIN - the "
+              "tail (SPEC.md 20.13.7) is meant to make that zero")
+        bad += 1
     print(f"os88lz: {len(files)} files, {raw:,} bytes -> "
           f"LZ4 {tot[LZ4]:,} ({tot[LZ4]/raw:.1%}), "
           f"LZB {tot[LZB]:,} ({tot[LZB]/raw:.1%}); "
-          f"worst in-place margin {marg} bytes; "
+          f"in-place margin {marg}; "
           + ("ALL ROUND TRIPS OK" if not bad else f"{bad} FAILURE(S)"))
     return 1 if bad else 0
 
@@ -690,28 +744,9 @@ def main():
         src = open(a.files[0], "rb").read()
         out, did = cz_wrap(src, LZ4 if a.fmt == "lz4" else LZB)
         open(a.wrap, "wb").write(out)
-        why = ""
-        if not did:
-            # WHICH refusal, because they mean different things to whoever is
-            # reading the build. "It got bigger" is the file's own business;
-            # "it would not expand in place" is a rule the file can SATISFY by
-            # being a few bytes shorter (SPEC.md 20.14.2.2), and saying so is
-            # the difference between a decision and a silent 7KB.
-            z = compress(src, LZ4 if a.fmt == "lz4" else LZB)
-            if (CZ_HDR + len(z) < len(src)
-                    and cz_inplace_short(len(src), CZ_HDR + len(z))):
-                why = (" - it would not expand IN PLACE inside a buffer sized"
-                       " to %d, which needs %d of %d; trim %d byte(s) to get"
-                       " it back (SPEC.md 20.14.2.2)"
-                       % (len(src), cz_room(len(src), CZ_HDR + len(z)),
-                          (len(src) + 1023) & ~1023,
-                          cz_room(len(src), CZ_HDR + len(z))
-                          - ((len(src) + 1023) & ~1023)))
-            else:
-                why = " - compressing it made it bigger"
         print(f"os88lz: {a.files[0]} {len(src)} -> {len(out)} bytes "
               + (f"({len(out)/len(src):.1%}, {NAMES[out[2]]})" if did
-                 else "(UNCHANGED" + why + ")"))
+                 else "(UNCHANGED - compressing it made it bigger)"))
         return 0
     if a.selfcheck or not a.files:
         return _selfcheck(a.files)

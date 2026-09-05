@@ -35,8 +35,12 @@ and the geometry the emulated controller reports cannot disagree.
                            --vbr build/boothd.bin --mbr build/mbr.bin
 """
 import argparse
+import os
 import struct
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from os88disk import CZ_HINT, CZ_H_MARK, CZ_H_HI, CZ_H_LO  # noqa: E402
 
 SECTOR = 512
 BOOTHD_KSECS = 508          # boot/boothd.asm's pinned patch offset
@@ -206,6 +210,21 @@ def main():
         struct.pack_into("<H", e, 24, ((2026 - 1980) << 9) | (1 << 5) | 1)
         struct.pack_into("<H", e, 26, nextc)
         struct.pack_into("<I", e, 28, len(blob))
+        # THE DIRECTORY HINT, os88disk.dirent's rule (SPEC.md 20.14.1): a
+        # 'CZ' file carries its unpacked size in the entry's spare bytes, and
+        # drv_find / mod_need size their claims from it. Without it a packed
+        # driver or module on this volume reads as PLAIN and its loader
+        # refuses the 'CZ' magic - which is what the hibernate row saw the
+        # day the drivers became containers and this tool did not follow.
+        if len(blob) >= 8 and blob[:2] == b"CZ" and blob[3] == 0 \
+                and blob[2] in (0, 1):
+            n = int.from_bytes(blob[4:8], "little")
+            if n >= (1 << 24):
+                fail("%s: expands to %d bytes and the hint carries 24 bits"
+                     % (name, n))
+            e[CZ_H_MARK] = CZ_HINT + blob[2]
+            e[CZ_H_HI] = n >> 16
+            struct.pack_into("<H", e, CZ_H_LO, n & 0xFFFF)
         root[nent * 32:nent * 32 + 32] = e
         laid.append((nextc, blob))
         nextc += n

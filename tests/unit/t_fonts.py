@@ -90,6 +90,32 @@ for img in IMAGES:
        "ty_gofonts walks to exactly one folder, so a face anywhere else is "
        "bytes on the disk that nothing can ever open")
 
+    # ...AND THEY ARE PACKED WHENEVER THE DRIVERS ARE (SPEC.md 6.4.1,
+    # 20.13.5): a 'CZ' face expands into ty_open's claim through the
+    # transparent read, and the licence into Note Pad's. `make PKGZ=` packs
+    # nothing, which is why the test is against the image's own drivers and
+    # not against a constant - a plain face beside packed drivers is the
+    # Makefile's $(BUILD)/faces/ rule falling back.
+    def head(clus, size):
+        if size == 0 or clus < 2:
+            return b""
+        ch, _ = v.chain(clus)
+        at = v.cluster_lba(ch[0]) * v.byts
+        return bytes(v.blob[at:at + 8])
+    files = [(path, n, clus, size) for path, n, attr, clus, size in v.walk()
+             if not attr & t_image.A_DIR]
+    packed = [n for path, n, c, sz in files
+              if path == "" and n[8:] == b"DRV" and head(c, sz)[:2] == b"CZ"]
+    if packed:
+        for path, n, c, sz in files:
+            if path == FONTS_AT and (n[8:].strip() == b"F88"
+                                     or n == LICENCE.encode()):
+                eq(head(c, sz)[:2], b"CZ",
+                   "%s: %s is packed like the drivers" % (img, name11(path, n.decode())),
+                   "%d drivers on this image are 'CZ' files and this is not: "
+                   "the Makefile's $(BUILD)/faces/ or $(FACELIC) rule fell "
+                   "back to the plain file" % len(packed))
+
     root_folders = sorted(n[:8].strip() for path, n, attr in rows
                           if path == "" and attr & t_image.A_DIR)
     check("FONTS" not in root_folders,

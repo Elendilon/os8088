@@ -185,34 +185,38 @@ lf_tpl:
 lf_ttl:     db 'LZ fence', 0
 
 ; -----------------------------------------------------------------------------
-; the streams. LZ4: token = (litlen << 4) | (matchlen - 4), then the literals,
-; then a 2-byte little-endian offset, then any extended match length.
+; the streams. Every stream begins with a word T, the length of the RAW TAIL
+; it ends in (SPEC.md 20.13.7) - here 0, so the symbols run to the end. LZ4:
+; token = (litlen << 4) | (matchlen - 4), then the literals, then a 2-byte
+; little-endian offset, then any extended match length.
 ; -----------------------------------------------------------------------------
 ; GOOD: four literals, then an eight-byte match at offset 4 -> 'ABCD' three
-; times, then an empty literals-only sequence to end the block the way a real
-; stream does.
-lf_good:    db 0x44, 'A','B','C','D', 0x04, 0x00
-            db 0x00
+; times, and the symbols end exactly where the (empty) tail begins.
+lf_good:    dw 0
+            db 0x44, 'A','B','C','D', 0x04, 0x00
 lf_good_len equ $ - lf_good
 
 ; TRUNCATED: the same stream with its tail gone, still claiming twelve bytes.
-lf_trunc:   db 0x44, 'A','B','C','D', 0x04
+; The offset's high byte is what is missing, so the match reads one byte past
+; the symbols - and a symbol running past the tail is a refusal.
+lf_trunc:   dw 0
+            db 0x44, 'A','B','C','D', 0x04
 lf_trunc_len equ $ - lf_trunc
 
 ; ZERO OFFSET: a match that would copy from itself for ever.
-lf_zero:    db 0x44, 'A','B','C','D', 0x00, 0x00
-            db 0x00
+lf_zero:    dw 0
+            db 0x44, 'A','B','C','D', 0x00, 0x00
 lf_zero_len equ $ - lf_zero
 
 ; OFFSET PAST WHAT HAS BEEN PRODUCED: four bytes written, then a match reaching
 ; 64 back - below the claim's base, into whatever the heap put under it.
-lf_back:    db 0x44, 'A','B','C','D', 0x40, 0x00
-            db 0x00
+lf_back:    dw 0
+            db 0x44, 'A','B','C','D', 0x40, 0x00
 lf_back_len equ $ - lf_back
 
 ; OVERLONG MATCH: 4 + 15 + 240 = 259 bytes out of a buffer told it holds 12.
-lf_long:    db 0x4F, 'A','B','C','D', 0x04, 0x00, 240
-            db 0x00
+lf_long:    dw 0
+            db 0x4F, 'A','B','C','D', 0x04, 0x00, 240
 lf_long_len equ $ - lf_long
 
 lf_want:    db 'A','B','C','D','A','B','C','D','A','B','C','D'
