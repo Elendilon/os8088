@@ -272,6 +272,12 @@ def main(argv):
             m.pause()
             panel0 = panel_rows(m, r, back)
             m.run()
+            ink = sum(POP[x] for row in panel0 for x in row)
+            print("  ink in the panel rows: %d" % ink)
+            if back == 3 and ink < 8000:
+                bad.append("the panel rows hold %d lit pixels: the cockpit "
+                           "(SPEC.md 88.9.2) is not drawn - its face alone is "
+                           "a quarter of 640x88" % ink)
 
         # --- it does not flash (SPEC.md 85.1's instrument) --------------------
         # Straight out of VRAM, once per DISPLAYED frame, in flight, where the

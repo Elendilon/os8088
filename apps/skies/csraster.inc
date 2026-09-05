@@ -74,9 +74,14 @@ cs_r_setup:
     ; --- the backend's own procs ------------------------------------------
     mov byte [cs_ink], 0xFF         ; no ink set yet (cs_setink's cache)
     mov byte [cs_conebase], 1       ; the cull's cone: 0.75 of the depth...
+    mov word [cs_pasp], 256         ; rows per logical x unit (88.9.2): Mode
+    cmp byte [cs_back], CSB_MODEX   ; X's pixels are square...
+    je .cb
+    mov word [cs_pasp], 213         ; ...CGA's 0.83 wide for their height...
     cmp byte [cs_back], CSB_HERC
     jne .cb
-    mov byte [cs_conebase], 0       ; ...0.5 for the narrower Hercules field
+    mov word [cs_pasp], 330         ; ...and a Hercules pair is 1.29
+    mov byte [cs_conebase], 0       ; (and 0.5 for the narrower Hercules field)
 .cb:
     mov byte [cs_kshift], 2
     mov byte [cs_pbg8], CSI_PBG     ; the panel's ground, as the glyph stores
@@ -230,6 +235,7 @@ cs_dactab:                          ; 6-bit DAC values, indexed by CSI_*
     db  6,  6, 10                   ; 10 the panel
     db 56, 56, 56                   ; 11 its ink
     db 63, 44, 10                   ; 12 its warning
+    db 24, 24, 26                   ; 13 the cockpit's face
 
 ; ...and what each MEANING is worth as FOUR ROW PATTERNS on the three
 ; adapters (SPEC.md 88.4.4). Indexed by CSI_* x 4.
@@ -252,6 +258,7 @@ cs_inkherc:
     db 0x00, 0x00, 0x00, 0x00       ; the panel
     db 0xFF, 0xFF, 0xFF, 0xFF       ; its ink
     db 0xFF, 0xFF, 0xFF, 0xFF       ; its warning
+    db 0xAA, 0x00, 0x55, 0x00       ; the cockpit's face: 25%
 cs_inkcga:                          ; palette 0: 0 light blue, 1 green,
     db 0x00, 0x00, 0x00, 0x00       ;   2 red, 3 brown
     db 0x55, 0x55, 0x55, 0x55       ; ground: green
@@ -266,6 +273,7 @@ cs_inkcga:                          ; palette 0: 0 light blue, 1 green,
     db 0xFF, 0xFF, 0xFF, 0xFF       ; the panel: brown
     db 0x55, 0x55, 0x55, 0x55       ; its ink: green
     db 0xAA, 0xAA, 0xAA, 0xAA       ; its warning: red
+    db 0xAA, 0xAA, 0xAA, 0xAA       ; the cockpit's face: red
 cs_inkmodex:                        ; the DAC above, one for one
     db 0, 0, 0, 0
     db 1, 1, 1, 1
@@ -280,12 +288,13 @@ cs_inkmodex:                        ; the DAC above, one for one
     db 10, 10, 10, 10
     db 11, 11, 11, 11
     db 12, 12, 12, 12
+    db 13, 13, 13, 13
 
 ; The pixel value of an ink on the two colour adapters, for the WALKS and the
 ; glyphs: the 2-bit colour on CGA and the index on Mode X. Hercules is the one
 ; bit.
-cs_inkval_cga:   db 0, 1, 3, 0, 3, 2, 2, 3, 2, 1, 3, 1, 2
-cs_inkval_modex: db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+cs_inkval_cga:   db 0, 1, 3, 0, 3, 2, 2, 3, 2, 1, 3, 1, 2, 2
+cs_inkval_modex: db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
 
 ; -----------------------------------------------------------------------------
 ; cs_setink - adopt a logical ink (CSI_*) for the fills and walks that follow
@@ -2015,6 +2024,36 @@ cs_markspan:
 .hi:
     pop cx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_pclip / cs_vclip - the segment walk clipped to the whole BOX instead of
+;                       the view, for the panel's own drawing (88.9.2), and
+;                       back. Segments in the panel mark their own rows
+;                       (cs_wire), as a wireframe's do.
+; -----------------------------------------------------------------------------
+cs_pclip:
+    mov ax, [cs_wx0]
+    mov [cs_svclip], ax
+    mov ax, [cs_wx1]
+    mov [cs_svclip + 2], ax
+    mov ax, [cs_wh]
+    mov [cs_svclip + 4], ax
+    mov word [cs_wx0], 0
+    mov ax, [cs_vw]
+    dec ax
+    mov [cs_wx1], ax
+    mov ax, [cs_vh]
+    mov [cs_wh], ax
+    mov byte [cs_wire], -1
+    ret
+cs_vclip:
+    mov ax, [cs_svclip]
+    mov [cs_wx0], ax
+    mov ax, [cs_svclip + 2]
+    mov [cs_wx1], ax
+    mov ax, [cs_svclip + 4]
+    mov [cs_wh], ax
     ret
 
 ; =============================================================================

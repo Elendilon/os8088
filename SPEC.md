@@ -94217,16 +94217,18 @@ it.
 
 ### 88.9 The panel
 
-Below the view, in the box's own coordinates, lettered with the kernel's 8×8
-face through `OSAPI_FONT_GLYPHS` exactly as §85.7 does — and, as there, every
-cell is opaque. Two rows of readouts — airspeed in knots, altitude in feet,
-heading in degrees, vertical speed in feet a minute, throttle, and the
-aeroplane's state — a throttle bar, a message line (the take-off prompt, the
-stall warning, `LANDED`, and a crash with what was hit) and a line of the
-keys. Each readout is a §85.3.5 item keyed on the value it shows: unchanged,
-it costs the frame nothing; changed, it is redrawn opaque and marked into the
-span. Positions are laid out at 320-wide and scaled to the box by
-`cs_hscalex`, so the Hercules panel is the CGA one drawn twice as wide.
+Below the view, in the box's own coordinates: a **cockpit** drawn once
+(§88.9.2), and in its windows the readouts, lettered with the kernel's 8×8
+face through `OSAPI_FONT_GLYPHS` exactly as §85.7 does — and, as there,
+every cell is opaque. Airspeed in knots, altitude in feet, heading in
+degrees, throttle and the aeroplane's state are digital; vertical speed
+gave its place to an **attitude indicator**; a throttle bar; and a message
+strip along the bottom (the take-off prompt, the stall warning, `LANDED`,
+and a crash with what was hit). Each item is a §85.3.5 item keyed on the
+value it shows: unchanged, it costs the frame nothing; changed, it is
+redrawn opaque and marked into the span. Every position is the plane's
+cockpit record's, at 320-wide and scaled to the box by `cs_hscalex`, so the
+Hercules panel is the CGA one drawn twice as wide.
 
 #### 88.9.1 The instruments read the aeroplane six ticks apart
 
@@ -94241,6 +94243,41 @@ when the throttle moved, once**: a glyph marked its eight span rows and
 not the set's row range (§88.3.3), so the blit never looked at the panel's
 rows unless the throttle bar's rectangle had widened the range that frame.
 `tests/skies.py` now reads the panel rows a second apart in a climb.
+
+#### 88.9.2 The cockpit is drawn from shapes, and belongs to the plane
+
+`apps/skies/cspanel.inc`. When a target's panel is first painted, `cs_pface`
+draws the cockpit: the face in `CSI_PFACE` (a 25% dither on Hercules, red
+on CGA, a grey on Mode X), a black window for each readout with a
+one-pixel outline, a line along the panel's top, and for the attitude
+indicator two rings of 24 segments each (`cs_ellipse`) round a square
+window. It is **shapes and not a bitmap** because a bitmap would have been
+7 KB a width in a 20 KB package — 640 for Hercules and 320 for the other
+two — and round on at most one adapter: the rings' horizontal radius is
+the vertical one over the adapter's pixel aspect (`cs_pasp`: a Hercules
+pair of pixels is 1.29 rows, a CGA pixel 0.83, a Mode X pixel 1.0), so the
+bezel is round on the monitor of each. The panel's segments are drawn with
+the view's own walk under `cs_pclip`, which widens the clip to the whole
+box for the duration and has them mark their own rows.
+
+**The cockpit is a record the plane points to** (`CSP_COCKPIT` →
+`cs_ck_c172`): its windows, the cell each item letters at, the attitude
+indicator's centre and radii, the throttle bar's width. A second aeroplane
+brings its own; nothing in the drawing code knows a coordinate. A cell's x
+is a multiple of 8 at 320 wide, because a glyph cell is 8 wide on every
+adapter and `cs_text` rounds down to one — at 12, CGA lettered over the
+window's outline.
+
+**The attitude indicator** (`cs_d_adi`) is the horizon as one line in its
+window, sloped by the roll — a right bank raises the right end, as it does
+in the view above — with the pixel aspect in the slope, and moved by the
+pitch a row per 1.4°, nose up moving it down; clipped to the window's rows
+by bringing each end that is past an edge back to it along the line, one
+divide; and the aeroplane as two bars and a dot that stay put. It is keyed
+on the two angles' top bytes and read on the readings' rate gate
+(§88.9.1), and a redraw is the window blacked and five segments, ~8 ms
+three times a second at most. It may not survive — it is there to be
+looked at.
 
 ### 88.10 The attract window
 

@@ -359,6 +359,7 @@ cs_p_c172:
     dw 2                            ; CSP_EYE      metres above the wheels
     dw 10923                        ; CSP_MAXROLL  60 degrees
     dw 7282                         ; CSP_MAXPITCH 40 degrees
+    dw cs_ck_c172                   ; CSP_COCKPIT  (cspanel.inc)
 cs_s_c172:   db 'CESSNA 172', 0
 
 ; =============================================================================

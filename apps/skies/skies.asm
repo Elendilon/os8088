@@ -133,7 +133,8 @@ CSI_MARK   equ 9                ; runway edges and roads
 CSI_PBG    equ 10               ; the panel's ground...
 CSI_PFG    equ 11               ; ...its ink...
 CSI_PHI    equ 12               ; ...and its warning
-CSI_NINK   equ 13
+CSI_PFACE  equ 13               ; the cockpit's face round the windows (88.9.2)
+CSI_NINK   equ 14
 
 ; --- the world (SPEC.md 88.5, 88.6) -------------------------------------------
 ; Metres. x east, z north, y up; the Eiffel Tower at the origin.
@@ -224,7 +225,19 @@ CSP_TURNK  equ 24               ; heading a tick at sin(roll) = 1
 CSP_EYE    equ 26               ; the pilot's eye above the wheels
 CSP_MAXROLL equ 28
 CSP_MAXPITCH equ 30
-CSP_SIZE   equ 32
+CSP_COCKPIT equ 32              ; word: its cockpit record (88.9.2)
+CSP_SIZE   equ 34
+
+; --- a cockpit record (SPEC.md 88.9.2): what a plane's panel looks like ------
+CSK_WIN    equ 0                ; word: the windows, (x1, y1, x2, y2) at 320
+CSK_NWIN   equ 2                ; word: how many         wide, rows below the view
+CSK_ITEMS  equ 4                ; word: the items' cells, (x, row) x CS_PI_N
+CSK_ADCX   equ 6                ; the attitude indicator's centre, x at 320
+CSK_ADCY   equ 8                ; ...and its row below the view
+CSK_ADRY   equ 10               ; its bezel's vertical radius, rows
+CSK_ADHH   equ 12               ; its window's half-height, rows
+CSK_BARW   equ 14               ; the throttle bar's width at 320 wide
+CSK_SIZE   equ 16
 
 ; --- the session (SPEC.md 88.8) -----------------------------------------------
 CS_ST_GROUND equ 0
@@ -678,6 +691,7 @@ cs_tpl:
 %include "csworld.inc"
 %include "csflight.inc"
 %include "csgame.inc"
+%include "cspanel.inc"
 
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes CS_BSS bytes after the image, and
@@ -973,6 +987,30 @@ cs_tpl:
     ZBUF  cs_msgbuf, 48
     ZWORD cs_hsx                    ; the panel's horizontal scale, in eighths
     ZWORD cs_pany                   ; the panel's first row
+    ZWORD cs_pasp                   ; rows per logical x unit, Q8 (88.9.2)
+    ZWORD cs_pbarx                  ; the throttle bar's left end, top row
+    ZWORD cs_pbary                  ; and width, off the cockpit
+    ZWORD cs_pbarw
+    ZBUF  cs_svclip, 6              ; the view's clip while the panel draws
+    ZWORD cs_adcx                   ; the attitude indicator: centre, the
+    ZWORD cs_adcy                   ; bezel's radii, the window's half sizes
+    ZWORD cs_adrx
+    ZWORD cs_adry
+    ZWORD cs_adhw
+    ZWORD cs_adhh
+    ZWORD cs_adoff                  ; ...its horizon: the pitch offset, the
+    ZWORD cs_addy                   ; slope's rise over the half-width, and
+    ZWORD cs_adx1                   ; the two ends
+    ZWORD cs_ady1
+    ZWORD cs_adx2
+    ZWORD cs_ady2
+    ZWORD cs_elcx                   ; cs_ellipse: centre, radii, the last point
+    ZWORD cs_elcy
+    ZWORD cs_elrx
+    ZWORD cs_elry
+    ZWORD cs_elx
+    ZWORD cs_ely
+    ZWORD cs_elang
     ZBYTE cs_pfirst                 ; bit n: page n has never had its ground
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------

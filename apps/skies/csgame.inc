@@ -291,20 +291,15 @@ cs_render:
 CS_PI_SPD  equ 0
 CS_PI_ALT  equ 1
 CS_PI_HDG  equ 2
-CS_PI_VS   equ 3
+CS_PI_ADI  equ 3                    ; the attitude indicator (88.9.2)
 CS_PI_THR  equ 4
 CS_PI_STATE equ 5
 CS_PI_BAR  equ 6
 CS_PI_MSG  equ 7
-CS_PI_KEYS equ 8
-CS_PI_N    equ 9
+CS_PI_N    equ 8
 
-; the layout, at 320 wide (x scaled by cs_hscalex) and rows below the view
-CS_PR1    equ 4
-CS_PR2    equ 16
-CS_PR3    equ 30                    ; the throttle bar, six rows
-CS_PR4    equ 44
-CS_PR5    equ 60
+; the layout is the cockpit's (cspanel.inc): x at 320 wide through
+; cs_hscalex, rows below the view
 
 ; -----------------------------------------------------------------------------
 ; cs_panel - every item whose key moved, and the ground under them the first
@@ -332,23 +327,16 @@ cs_panel:
     mov ax, [cs_last]
     mov [cs_plast], ax
 .first:
+    mov al, [cs_ppage]              ; (the gate spent AX)
     mov ah, 1
     mov cl, al
     shl ah, cl
     test [cs_pfirst], ah
     jz .items
     mov byte [cs_pgate], 1          ; the first frame draws everything
-    not ah                          ; this target's first frame: the ground
+    not ah                          ; this target's first frame: the cockpit
     and [cs_pfirst], ah
-    mov al, CSI_PBG
-    call cs_setink
-    xor ax, ax
-    mov bx, [cs_pany]
-    mov cx, [cs_vw]
-    dec cx
-    mov dx, [cs_vh]
-    dec dx
-    call cs_prect
+    call cs_pface                   ; (88.9.2)
     push ds                         ; ...and every key on this page stale
     pop es
     mov al, [cs_ppage]
@@ -375,7 +363,7 @@ cs_panel:
 ; cs_pitem - BX = an item: its key now, against the cache; draw on a change
 cs_pitem:
     mov [cs_pcur], bx
-    cmp bx, CS_PI_VS                ; the four readings wait for the gate;
+    cmp bx, CS_PI_ADI               ; the four readings wait for the gate;
     ja .now                         ; a message or the state never does
     cmp byte [cs_pgate], 0
     je .same
@@ -405,10 +393,10 @@ cs_pkey:
     shl bx, 1
     jmp [cs_pkeyp + bx]
 
-cs_pkeyp:  dw cs_k_spd, cs_k_alt, cs_k_hdg, cs_k_vs, cs_k_thr, cs_k_state
-           dw cs_k_thr, cs_k_msg, cs_k_one
-cs_pdraw:  dw cs_d_spd, cs_d_alt, cs_d_hdg, cs_d_vs, cs_d_thr, cs_d_state
-           dw cs_d_bar, cs_d_msg, cs_d_keys
+cs_pkeyp:  dw cs_k_spd, cs_k_alt, cs_k_hdg, cs_k_adi, cs_k_thr, cs_k_state
+           dw cs_k_thr, cs_k_msg
+cs_pdraw:  dw cs_d_spd, cs_d_alt, cs_d_hdg, cs_d_adi, cs_d_thr, cs_d_state
+           dw cs_d_bar, cs_d_msg
 
 ; --- the keys -----------------------------------------------------------------
 cs_k_spd:                           ; knots: v(16.8) x 1.944 / 256
@@ -430,18 +418,6 @@ cs_k_hdg:                           ; degrees: hdg x 360 / 65536
     mul bx
     mov ax, dx
     ret
-cs_k_vs:                            ; feet a minute, to the nearest 50:
-    mov ax, [cs_vs]                 ; vs(16.8) x 196.85 / 256 = vs x 0.769
-    mov bx, 788
-    imul bx
-    mov al, ah                      ; >> 10: a byte and two more
-    mov ah, dl
-    sar ax, 1
-    sar ax, 1
-    cwd
-    mov bx, 50
-    idiv bx
-    ret                             ; AX = fpm / 50, signed
 cs_k_thr:
     mov ax, [cs_thr]
     ret
@@ -453,9 +429,6 @@ cs_k_msg:
     mov al, [cs_msg]
     mov ah, [cs_crashwhy]           ; the low byte of the string's address
     ret                             ; tells crashes apart
-cs_k_one:
-    mov ax, 1
-    ret
 
 ; cs_shr32 - DX:AX >>= CL (CL < 16). Clobbers CX.
 cs_shr32:
@@ -523,54 +496,33 @@ cs_strcpy:
     ret
 
 cs_d_spd:
+    mov bx, CS_PI_SPD
+    call cs_pcell
     mov ax, [cs_pkeyv]
     mov cl, 3
     mov si, cs_s_spd
-    mov bx, 8
-    mov dx, CS_PR1
     jmp cs_pnum
 cs_d_alt:
+    mov bx, CS_PI_ALT
+    call cs_pcell
     mov ax, [cs_pkeyv]
     mov cl, 5
     mov si, cs_s_alt
-    mov bx, 72
-    mov dx, CS_PR1
     jmp cs_pnum
 cs_d_hdg:
+    mov bx, CS_PI_HDG
+    call cs_pcell
     mov ax, [cs_pkeyv]
     mov cl, 3
     mov si, cs_s_hdg
-    mov bx, 152
-    mov dx, CS_PR1
     jmp cs_pnum
-cs_d_vs:
-    mov ax, [cs_pkeyv]              ; fpm / 50, signed: sign, then x 50
-    mov di, cs_numbuf
-    mov si, cs_s_vs
-    call cs_strcpy
-    mov byte [di], '+'
-    or ax, ax
-    jns .p
-    neg ax
-    mov byte [di], '-'
-.p:
-    inc di
-    mov bx, 50
-    mul bx
-    mov cl, 4
-    call cs_utoa
-    mov si, cs_numbuf
-    mov bx, 216
-    mov dx, CS_PR1
-    jmp cs_pline
 cs_d_thr:
+    mov bx, CS_PI_THR
+    call cs_pcell
     mov ax, [cs_pkeyv]
     mov cl, 3
     mov si, cs_s_thr
-    mov bx, 8
-    mov dx, CS_PR2
-    call cs_pnum
-    ret
+    jmp cs_pnum
 cs_d_state:
     mov ax, [cs_pkeyv]
     mov si, cs_s_ground
@@ -584,40 +536,51 @@ cs_d_state:
     jz .s
     mov si, cs_s_stalled
 .s:
-    mov bx, 80
-    mov dx, CS_PR2
+    push si
+    mov bx, CS_PI_STATE
+    call cs_pcell
+    pop si
     jmp cs_pline
-cs_d_bar:                           ; the throttle bar: 0..100 at 320 wide
+cs_d_bar:                           ; the throttle bar: 0..100 in its slot
+    mov bx, CS_PI_BAR
+    call cs_pcell                   ; BX = its left end, DX = its top row
+    mov [cs_pbarx], bx
+    add dx, [cs_pany]
+    mov [cs_pbary], dx
+    mov si, [cs_plane]
+    mov si, [si + CSP_COCKPIT]
+    mov ax, [si + CSK_BARW]
+    mov [cs_pbarw], ax
     mov al, CSI_PBG                 ; the whole slot in the ground first...
     call cs_setink
-    mov ax, 8
-    call cs_hscalex
-    mov si, ax
-    mov ax, 109
+    mov ax, [cs_pbarx]
+    add ax, [cs_pbarw]
     call cs_hscalex
     mov cx, ax
-    mov ax, si
-    mov bx, [cs_pany]
-    add bx, CS_PR3
+    mov ax, [cs_pbarx]
+    call cs_hscalex
+    mov bx, [cs_pbary]
     mov dx, bx
     add dx, 5
     call cs_prect
-    mov ax, [cs_pkeyv]              ; ...then the lit part
+    mov ax, [cs_pkeyv]              ; ...then the lit part: 100 is the width
     or ax, ax
     jz .none
-    add ax, 8
+    mul word [cs_pbarw]
+    mov bx, 100
+    div bx
+    add ax, [cs_pbarx]
     call cs_hscalex
     mov cx, ax
-    mov ax, 8
+    mov ax, [cs_pbarx]
     call cs_hscalex
     cmp ax, cx
     jg .none
     mov al, CSI_PHI
     call cs_setink
-    mov ax, 8
+    mov ax, [cs_pbarx]
     call cs_hscalex
-    mov bx, [cs_pany]
-    add bx, CS_PR3
+    mov bx, [cs_pbary]
     mov dx, bx
     add dx, 5
     call cs_prect
@@ -659,19 +622,10 @@ cs_d_msg:                           ; the message line, padded to 40 cells
     sub ax, 320
     shr ax, 1                       ; 40 cells, centred in the box
     mov cx, ax
-    mov dx, CS_PR4
-    add dx, [cs_pany]
-    call cs_text
-    ret
-cs_d_keys:
-    mov al, CSI_PFG
-    call cs_setink
-    mov si, cs_s_keys
-    mov ax, [cs_vw]
-    sub ax, 320
-    shr ax, 1
-    mov cx, ax
-    mov dx, CS_PR5
+    mov bx, CS_PI_MSG
+    push cx
+    call cs_pcell
+    pop cx
     add dx, [cs_pany]
     call cs_text
     ret
@@ -679,13 +633,11 @@ cs_d_keys:
 cs_s_spd:    db 'SPD ', 0
 cs_s_alt:    db 'ALT ', 0
 cs_s_hdg:    db 'HDG ', 0
-cs_s_vs:     db 'VS ', 0
 cs_s_thr:    db 'THR ', 0
 cs_s_ground: db 'ON THE GROUND', 0
 cs_s_flying: db 'FLYING       ', 0
 cs_s_stalled: db 'STALL        ', 0
 cs_s_crash:  db 'CRASHED      ', 0
-cs_s_keys:   db 'ARROWS FLY W/S THR A/D RUD B BRAKE ESC F', 0
 
 cs_msgtab:   dw cs_g_none, cs_g_takeoff, cs_g_stall, cs_g_landed
              dw cs_g_crash, cs_g_paused, cs_g_edge

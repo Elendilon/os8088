@@ -42,6 +42,7 @@ SCENES = {                              # x, y, z (metres), heading (degrees), p
     "tower": (-640, 150, -640, 45, 0),
     "city": (150, 300, -900, 30, -5),
     "climb": (-2689, 40, -2409, 40, 5),  # 300 m down the runway, 40 m up
+    "bank": (-2689, 80, -2409, 40, 5, 30),   # ...banked 30 right, for the ADI
 }
 
 
@@ -231,12 +232,13 @@ def main(argv):
         sc = SCENES[a.scene]
         m.pause()
         if sc:
-            x, y, z, hdg, pitch = sc
+            x, y, z, hdg, pitch = sc[:5]
+            roll = sc[5] if len(sc) > 5 else 0
             for name, v in (("cs_px", x), ("cs_py", y), ("cs_pz", z)):
                 poke(name, ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             poke("cs_hdg", ((hdg * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             poke("cs_pitch", ((pitch * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
-            poke("cs_roll", b"\x00\x00")
+            poke("cs_roll", ((roll * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
         poke("cs_pause", b"\x01")           # the world stands still
         # ...and every object is looked at again: a poke is a teleport, and
