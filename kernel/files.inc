@@ -1590,6 +1590,31 @@ fm_errtab:    dw fm_s_empty,  fm_s_enodisk, fm_s_dskerr, fm_s_ename
               dw fm_s_eprot,  fm_s_ewprot,  fm_s_toobig
 FM_NERR       equ 11            ; FERR_OK .. FERR_BIG
 
+; --- FMZ_* -> the Compress verb's own verdicts (SPEC.md 22.22) ----------------
+; A table of its own rather than rows on fm_errtab above: these are not FERR_*
+; codes and the index IS the code there, so borrowing that table would mean
+; either a second numbering inside one array or a bias nobody can see. Slot 0
+; is never drawn, which is how every one of these tables spells "nothing to
+; report".
+FMZ_PKG     equ 1
+FMZ_BIG     equ 2
+FMZ_ALREADY equ 3
+FMZ_NOMEM   equ 4
+FMZ_NOMOD   equ 5
+FMZ_WORSE   equ 6
+FMZ_NCOUNT  equ 7
+fm_s_zpkg:    db 'Cannot compress this one', 0
+fm_s_zbig:    db 'Too large to compress', 0
+fm_s_zalr:    db 'Already compressed', 0
+fm_s_znomem:  db 'Not enough memory', 0
+fm_s_znomod:  db 'COMPRESS.DRV not found', 0
+fm_s_zworse:  db 'It would not get smaller', 0
+fm_ztab:      dw fm_s_empty, fm_s_zpkg, fm_s_zbig, fm_s_zalr
+              dw fm_s_znomem, fm_s_znomod, fm_s_zworse
+fm_s_zdone:   db 'Compressed to '     ; ...and the success, which is a NUMBER
+FM_ZDONE      equ $ - fm_s_zdone      ; and so is composed rather than picked
+
+
 ; --- the status-line input prompts (SPEC.md 22) ------------------------------
 ; The delete line is the ONLY thing between a command and a file that is
 ; gone, so it names the file, states the key that says yes and states the key
@@ -1733,6 +1758,8 @@ fm_s_open     equ fdlg_s_topen   ; the Standard File dialog's title, which
 fm_s_mkdir:   db 'New Folder...', 0
 fm_s_rename:  db 'Rename...', 0
 fm_s_delete:  db 'Delete', 0
+fm_s_compress: db 'Compress', 0 ; SPEC.md 22.22 - no ellipsis: it asks nothing
+                                ; and starts the moment it is picked
 fm_s_cut:     db 'Cut', 0
 fm_s_copy:    db 'Copy', 0
 fm_s_paste:   db 'Paste', 0
@@ -1778,14 +1805,14 @@ fm_s_opennew: db 'Open in '
 fm_s_newwin:  db 'New Window', 0
 
 fm_items_file:
-    dw fm_s_open, fm_s_mkdir, fm_s_rename, fm_s_delete
+    dw fm_s_open, fm_s_mkdir, fm_s_rename, fm_s_delete, fm_s_compress
     dw fm_s_fsep, fm_s_format   ; fm_bar_gate rewrites these last three words
     dw fm_s_clone, fm_s_wimg
-FM_IFMT     equ 5               ; ...at these item indices, which are also
-FM_ICLONE   equ 6               ; FMC_FORMAT/FMC_CLONE/FMC_WIMG - FMC_OPEN,
-FM_IWIMG    equ 7               ; and are written down once rather than being
+FM_IFMT     equ 6               ; ...at these item indices, which are also
+FM_ICLONE   equ 7               ; FMC_FORMAT/FMC_CLONE/FMC_WIMG - FMC_OPEN,
+FM_IWIMG    equ 8               ; and are written down once rather than being
                                 ; counted at the store
-FM_NFILE    equ 8               ; items in the File menu (MENU_POPMAX is 11)
+FM_NFILE    equ 9               ; items in the File menu (MENU_POPMAX is 11)
 fm_items_edit:
     dw fm_s_cut, fm_s_copy, fm_s_paste
 fm_items_nav:
@@ -3875,28 +3902,33 @@ FMC_OPEN    equ 0               ; File
 FMC_MKDIR   equ 1
 FMC_RENAME  equ 2
 FMC_DELETE  equ 3
-FMC_FMTSEP  equ 4               ; the RULE between Delete and Format. It is a
+FMC_COMPRESS equ 4              ; SPEC.md 22.22, and the paragraph above is the
+                                ; licence for the renumber below it - a THIRD
+                                ; time. It sits with Delete rather than with
+                                ; Format because it acts on the SELECTION, and
+                                ; the rule is what separates the two groups
+FMC_FMTSEP  equ 5               ; the RULE between Compress and Format. It is a
                                 ; MENU_DIS item, so menu_hover can never land
                                 ; on it and this id can never be dispatched -
                                 ; but it occupies an item index, so it needs
                                 ; an id and a fm_jmp entry all the same, and
                                 ; that entry is a bare `ret` because a body
                                 ; may not assume which surface picked it
-FMC_FORMAT  equ 5
-FMC_CLONE   equ 6               ; SPEC.md 22.21, and the paragraph above is the
-FMC_WIMG    equ 7               ; licence for the renumber below it - twice
-FMC_CUT     equ 8               ; Edit
-FMC_COPY    equ 9
-FMC_PASTE   equ 10
-FMC_NEWWIN  equ 11              ; Nav
-FMC_OPENNEW equ 12
-FMC_REFRESH equ 13
-FMC_UP      equ 14
-FMC_ROOT    equ 15
-FMC_DRVA    equ 16
-FMC_DRVB    equ 17
-FMC_LIST    equ 18              ; no menu CELL of its own since SPEC.md 22.15
-FMC_ICONS   equ 19              ; retired View: the context menu (fm_cxc_dir)
+FMC_FORMAT  equ 6
+FMC_CLONE   equ 7               ; SPEC.md 22.21, and the paragraph above is the
+FMC_WIMG    equ 8               ; licence for the renumber below it - twice
+FMC_CUT     equ 9               ; Edit
+FMC_COPY    equ 10
+FMC_PASTE   equ 11
+FMC_NEWWIN  equ 12              ; Nav
+FMC_OPENNEW equ 13
+FMC_REFRESH equ 14
+FMC_UP      equ 15
+FMC_ROOT    equ 16
+FMC_DRVA    equ 17
+FMC_DRVB    equ 18
+FMC_LIST    equ 19              ; no menu CELL of its own since SPEC.md 22.15
+FMC_ICONS   equ 20              ; retired View: the context menu (fm_cxc_dir)
                                 ; and the in-window toggle button are the two
                                 ; surfaces left, and both reach these BY NAME.
                                 ; Nothing renumbers - a base + item sum simply
@@ -3904,19 +3936,19 @@ FMC_ICONS   equ 19              ; retired View: the context menu (fm_cxc_dir)
                                 ; that produced it left fm_menu_base and every
                                 ; other base is a VALUE that did not move
                                 ; (SPEC.md 12.7's FMC_CLOSEW reasoning)
-FMC_TIMER   equ 20              ; Builtins (SPEC.md 12.3.1) - the same three
-FMC_BOUNCE  equ 21              ; commands Locator's own Builtins menu has,
-FMC_DISK    equ 22              ; in the same order. Restart is NOT among them
+FMC_TIMER   equ 21              ; Builtins (SPEC.md 12.3.1) - the same three
+FMC_BOUNCE  equ 22              ; commands Locator's own Builtins menu has,
+FMC_DISK    equ 23              ; in the same order. Restart is NOT among them
                                 ; any more: it moved to the System menu, which
                                 ; is cell 0 of every application, so a Disk
                                 ; window reaches it there like everything else
-FMC_PASTEIN equ 23              ; no menu CELL of its own: the context menu's
+FMC_PASTEIN equ 24              ; no menu CELL of its own: the context menu's
                                 ; "paste into the folder under the pointer"
                                 ; (SPEC.md 22.3), which the bar cannot offer
                                 ; because the bar has no pointer. It sits
                                 ; PAST every menu's range so no base + item
                                 ; sum can reach it by accident.
-FMC_COUNT   equ 24
+FMC_COUNT   equ 25
 
 ; --- how much of the acting window did the command change? (SPEC.md 22.13) ---
 ; fm_docmd stamps FMD_ALL before every dispatch, so a body that says nothing -
@@ -3947,6 +3979,10 @@ fm_jmp:
     dw fm_c_rename              ; inline (arms it; the disk is touched at
                                 ;         Enter, not here)
     dw fm_c_delete              ; inline (arms the CONFIRM line; likewise)
+    dw fm_c_compress            ; inline (reads, compresses and WRITES under
+                                ;         the lock - the whole operation, like
+                                ;         a clone's transfer, and it is what
+                                ;         SPEC.md 12.8's bar is drawn for)
     dw fm_c_nop                 ; the separator - unreachable through the bar
                                 ; (MENU_DIS), and a `ret` rather than a hole
                                 ; because fm_docmd's bound is FMC_COUNT and
@@ -4467,6 +4503,513 @@ fm_clone_go:
     mov di, [fm_vp]             ; - and the refusal's whole body is a `ret`
     mov al, 7                   ;   away, so this is a tail jump
     jmp fm_edit_arm
+
+; =============================================================================
+; File > Compress (SPEC.md 22.22) - the file manager's half of SPEC.md 20.15
+; =============================================================================
+; The verb reads the file whole, hands it to COMPRESS.DRV and writes the result
+; back over the same name. THE MODULE IS THE ALGORITHM AND THIS IS THE POLICY:
+; every refusal, every claim and every verdict is here, and the module knows
+; nothing about files, memory or the screen.
+;
+; What it refuses, and each is a FACT rather than a guess (SPEC.md 47):
+;   - a folder, or the parent link
+;   - a loadable package, until SPEC.md 22.22.1: a `.o88` carries its own
+;     compression flags (SPEC.md 20.13) and wrapping one in a 'CZ' container
+;     makes a file the loader cannot start
+;   - a file of 64KB or more, which cmz_pack's 16-bit CX cannot take
+;   - one already stored LZB: this encoder would write the same stream again
+;   - one there is no room to work on, after the window has been dropped as
+;     far as CMZ_WMIN
+;   - one the encoder could not make smaller, which the measurement says is a
+;     real case and not a defensive one (docs/O88-COMPRESSION-PLAN.md
+;     13.11.0.1's BEVERLY.MOD row)
+;
+; IT REFUSES NOTHING BY NAME, and that is structural rather than lucky. A
+; `.DRV` and `KERNEL.SYS` are hidden + system, so SPEC.md 19's species filter
+; keeps them out of the listing entirely and there is no row to select; and had
+; one somehow been selected, dskw_write_x refuses a hidden + system file with
+; FERR_PROT before a sector moves. Two independent gates, neither of them a
+; name list - which is the shape that rots.
+;
+; RE-COMPRESSING AN LZ4 FILE NEEDS NO SPECIAL CASE AT ALL, which is the point
+; worth keeping: dskw_read_x hands back the UNPACKED bytes (SPEC.md 20.14), so
+; "read, compress, write" is one path for a plain file and for a shipped one -
+; and LZ4 -> LZB, the thing this verb exists for on a shipped disk, falls out
+; of it.
+CMZ_WMAX    equ 16384           ; the compressor's window, largest first: 2
+CMZ_WMIN    equ 1024            ; bytes of prev[] each (SPEC.md 20.15.1)
+
+; -----------------------------------------------------------------------------
+; fm_c_compress - the FMC_COMPRESS body (fm_docmd near-calls it, lock held)
+; -----------------------------------------------------------------------------
+fm_c_compress:
+    call fm_sel_ok              ; 0xFFFF (no selection) also fails this
+    jnc .none
+    call fm_stage_onam          ; fm_onam + [fm_odir] + [fm_ftype]
+    cmp byte [fm_odir], 0
+    jne .none                   ; a folder is not a file, and '..' is not
+    cmp word [fm_ftype], 3      ; either - both are the no-selection case,
+    je .none                    ; silently, exactly as Rename and Delete
+    jmp fm_cmpr_go              ; NEAR: the body is past the tables below
+.none:
+    mov byte [fm_cmdchg], FMD_NONE  ; a no-op draws nothing (SPEC.md 22.13)
+    ret
+
+; fm_cmpr_say - toast verdict AL and leave the window alone (module internal)
+; in:  AL = FMZ_*
+fm_cmpr_say:
+    push bx
+    push cx
+    mov bx, fm_ztab
+    mov cx, FMZ_NCOUNT
+    call KERNEL_SEG:toast_say
+    pop cx
+    pop bx
+    mov byte [fm_cmdchg], FMD_NONE  ; nothing on this window moved: the file
+    ret                             ; is untouched and so is the listing
+
+; -----------------------------------------------------------------------------
+; fm_cmpr_go - compress [fm_onam] in the acting window's folder
+; in:  fm_onam staged; the gfx lock HELD, on the UI task
+; out: nothing; [fm_cmdchg] says what the window owes
+; -----------------------------------------------------------------------------
+fm_cmpr_go:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call fmv_sync_x             ; act in OUR folder (SPEC.md 22.1)
+
+    mov si, fm_onam
+    call dskw_usize             ; DX:AX = U, BX = on-disk, CL = the format
+    jc .ferr
+    mov [fm_cmpru], ax
+    mov [fm_cmprp], bx
+    mov word [fm_cmprx], 0      ; no clear prefix - a package sets its own
+    or dx, dx
+    jnz .big                    ; U past 64KB (SPEC.md 20.15.1)
+    cmp ax, CMZ_SLACK + 1
+    jb .worse                   ; nothing this short can shrink, and cmz_pack
+                                ; refuses it in the same words
+    cmp cl, LZ_LZB
+    je .already
+
+    call fm_cmpr_claim          ; DX = the base, [fm_cmprk]/[fm_cmprw] set
+    jc .nomem
+    mov [fm_cmprb], dx
+
+    ; --- read the file whole, expanding it if it arrives compressed --------
+    ; THE CAPACITY IS THE SOURCE PLUS THE OUTPUT REGION, not the source alone:
+    ; a 'CZ' file expands in place (SPEC.md 20.14.2.2) and wants U + margin of
+    ; room to do it in. Both regions are ours and the output is built after, so
+    ; lending the read the second one costs nothing and takes .cznoroom off the
+    ; table entirely - which is the same trap Note Pad hit at 20.14.2.3.
+    mov es, dx
+    xor bx, bx
+    mov ax, [fm_cmprk]
+    add ax, ax
+    inc ax                      ; (2*KU + 1) KB, as a 32-bit byte count
+    mov dx, ax
+    mov cl, 10
+    shl ax, cl
+    mov cl, 6
+    shr dx, cl
+    mov cx, ax
+    mov si, fm_onam
+    call dskw_read_x            ; DX:AX = what arrived
+    jc .rferr
+    or dx, dx
+    jnz .rdisk
+    cmp ax, [fm_cmpru]
+    jne .rdisk                  ; the entry said one thing and the read another
+
+    ; --- a PACKAGE keeps a clear prefix (SPEC.md 22.22.1) ------------------
+    cmp word [fm_ftype], 1
+    jne .notpkg
+    mov es, [fm_cmprb]
+    call fm_cmpr_pkg            ; CF=1 with AL = FMZ_*; else [fm_cmprx]
+    jc .rsay
+.notpkg:
+
+    ; --- the module, and the three segments it works between --------------
+    mov ax, MOD_CMPR
+    call mod_need
+    jc .rnomod
+
+    mov cx, [fm_cmpru]          ; SPEC.md 12.8's bar, scaled to what is
+    sub cx, [fm_cmprx]          ; actually parsed: cmz_pack reports every
+    xor dx, dx                  ; CMZ_PSTEP of it, which is the only progress
+    call KERNEL_SEG:fpg_begin   ; the pack itself can give
+
+    mov ax, [fm_cmprk]
+    mov cl, 6
+    shl ax, cl                  ; KU KB in paragraphs
+    mov dx, [fm_cmprb]
+    add dx, ax                  ; the output region's base...
+    mov [fm_cmpro], dx
+    add dx, 8                   ; ...and the STREAM starts 128 BYTES INTO IT,
+                                ; which is what leaves room for either header
+                                ; in front of it without a move: 8 bytes for a
+                                ; 'CZ' container, up to 112 for a package's
+                                ; clear prefix, and both are a multiple of 16
+    add ax, ax
+    add ax, 64
+    add ax, [fm_cmprb]          ; base + (2*KU + 1)*64: head[] and prev[]
+    mov bx, ax
+    mov ax, [fm_cmprx]
+    mov cl, 4
+    shr ax, cl                  ; the clear prefix in paragraphs - 0 for
+    add ax, [fm_cmprb]          ; everything but a package, so the source
+    mov di, [fm_cmprw]          ; segment is the claim's base
+    dec di                      ; the window's MASK
+    mov cx, [fm_cmpru]
+    sub cx, [fm_cmprx]
+    call far [CMZFP]            ; AX = the packed length, DX = its margin
+    jc .rworse
+
+    cmp word [fm_cmprx], 0
+    jne .pkghdr
+
+    ; --- the 'CZ' container, built in the 128 bytes in front of the stream --
+    add ax, DSK_CZ_HDR
+    cmp ax, [fm_cmprp]
+    jae .rworse                 ; THE HEADER COUNTS: a file that packs to one
+                                ; byte under what it occupies is bigger once
+                                ; the container is on it, and cmz_pack was
+                                ; comparing against U rather than against what
+                                ; is on the disk
+    mov [fm_cmprz], ax
+    mov dx, [fm_cmpro]
+    add dx, 7                   ; the last paragraph before the stream, so the
+    mov es, dx                  ; eight bytes end exactly where it begins
+    mov word [es:8], DSK_CZ_MAG
+    mov byte [es:10], LZ_LZB
+    mov byte [es:11], 0
+    mov dx, [fm_cmpru]
+    mov [es:12], dx
+    mov word [es:14], 0         ; U is 16 bits, by the refusal above
+    mov bx, 8
+    jmp short .writeit
+.pkghdr:
+    call fm_cmpr_hdr            ; ES:BX = the whole file, AX = its length
+    jc .rworse
+.writeit:
+    mov cx, ax
+    xor dx, dx
+    mov si, fm_onam
+    call dskw_write_x           ; ...and dskw_czstamp derives the directory
+    jc .rferr                   ; hint from the bytes (SPEC.md 20.14.4) - or
+                                ; CLEARS it, which is what a package needs:
+                                ; a `.o88` begins 'O8' and carries its own
+    call fm_cmpr_drop
+    call fmv_bcast              ; every window showing this folder re-lists
+    call fm_cmpr_pct            ; 'Compressed to 47%'
+    jmp short .out
+
+.rdisk:
+    mov ax, FERR_IO             ; the volume moved under us between the
+.rferr:                         ; directory read and the data read
+    push ax                     ; the two that arrive with the claim, and
+    call fm_cmpr_drop           ; possibly the module, still held
+    pop ax
+.ferr:
+    push bx
+    push cx
+    mov bx, fm_errtab
+    mov cx, FM_NERR
+    call KERNEL_SEG:toast_say
+    pop cx
+    pop bx
+    mov byte [fm_cmdchg], FMD_NONE
+    jmp short .out
+.rworse:
+    call fm_cmpr_drop
+.worse:
+    mov al, FMZ_WORSE
+    jmp short .say
+.rnomod:
+    call fm_cmpr_drop
+    mov al, FMZ_NOMOD
+    jmp short .say
+.rsay:                          ; fm_cmpr_pkg's refusal: the claim is held and
+    push ax                     ; the module is not
+    call fm_cmpr_drop
+    pop ax
+    jmp short .say
+.nomem:
+    mov al, FMZ_NOMEM
+    jmp short .say
+.big:
+    mov al, FMZ_BIG
+    jmp short .say
+.already:
+    mov al, FMZ_ALREADY
+.say:
+    call fm_cmpr_say
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_cmpr_pkg - may this `.o88` be compressed, and what must stay clear?
+; in:  ES = the source segment, the whole file at ES:0; [fm_cmpru] = its size
+; out: CF=0 and [fm_cmprx] = the clear prefix; CF=1 with AL = FMZ_*
+; clobbers: AX (the output), flags
+;
+; os88pkg.py's `compress_pkg` refusals, on the machine, and they are the same
+; refusals for the same reasons - a package this verb writes has to be one
+; ld_check_hdr and ld_run_body already accept, and both of those shipped in
+; wave 2 (SPEC.md 20.13). Nothing new is being defined here.
+; -----------------------------------------------------------------------------
+fm_cmpr_pkg:
+    push bx
+    push dx
+    mov al, [es:LD_H_FLAGS]
+    test al, 4
+    jnz .no1                    ; PARTS (SPEC.md 20.12): a part's offset is
+                                ; measured from the start of the FILE and the
+                                ; table lives INSIDE the image, so compressing
+                                ; the image and laying out its parts are
+                                ; circular. os88pkg.py refuses it too, in the
+                                ; same words
+    test al, 0x18
+    jnz .already                ; a compression bit is already set
+    mov dx, [es:LD_H_IMG]
+    cmp dx, [fm_cmpru]
+    jne .no1                    ; `image` is not the file: something this verb
+                                ; does not understand, and 20.13.2's guard
+                                ; would refuse whatever it wrote
+    mov bx, dx
+    add bx, [es:LD_H_BSS]
+    jc .big
+    cmp bx, APP_MAX_SIZE
+    ja .big                     ; ...so fm_cmpr_hdr's two roundups cannot carry
+    mov dx, LD_HDR_SIZE         ; the CLEAR prefix, ld_cpre's own ladder: what
+    test al, 1                  ; the mount reads out of the first sector and
+    jz .noico                   ; must never have to decompress to get
+    add dx, 64                  ; (SPEC.md 20.13.1). At most 112, and always a
+.noico:                         ; multiple of 16 - which is what lets the
+    test al, 2                  ; source be a SEGMENT below and the header
+    jz .noasc                   ; land on a paragraph in front of the stream
+    add dx, 16
+.noasc:
+    mov [fm_cmprx], dx
+    add dx, CMZ_SLACK
+    cmp dx, [fm_cmpru]
+    jae .no1                    ; near enough all prefix: there is no body
+    pop dx
+    pop bx
+    clc
+    ret
+.no1:
+    mov al, FMZ_PKG
+    jmp short .no
+.big:
+    mov al, FMZ_BIG
+    jmp short .no
+.already:
+    mov al, FMZ_ALREADY
+.no:
+    pop dx
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_cmpr_hdr - a package's clear prefix, in front of the stream and re-flagged
+; in:  AX = the packed body, DX = its in-place margin, [fm_cmprx] = the prefix,
+;      [fm_cmprb] = the source, [fm_cmpro] = the output region
+; out: CF=0 with ES:BX = the whole file and AX = its length; CF=1 = refuse
+; clobbers: AX BX CX DX SI DI ES, flags
+;
+; TWO REFUSALS AND A COPY, and both refusals are os88pkg.py's:
+;
+;   * the stream's in-place margin against LZ_MARGIN, which is what
+;     ld_expand reserves. cmz_pack measured it as it wrote (SPEC.md 20.15.2),
+;     so this is a compare rather than a decode;
+;   * and THE IN-PLACE LAYOUT AGAINST THE REGION THE LOADER WAS GOING TO CLAIM
+;     ANYWAY. ld_run_body reads the file at R = roundup512(image - file +
+;     LZ_MARGIN) and expands downwards, so R + file has to fit
+;     roundup512(image + bss). When it does not, the answer is to leave this
+;     package alone rather than to make every launch on the machine claim a
+;     bigger region - a package that marginal was not going to save a sector.
+; -----------------------------------------------------------------------------
+fm_cmpr_hdr:
+    cmp dx, LZ_MARGIN
+    ja .no
+    add ax, [fm_cmprx]          ; packed = the clear prefix + the stream
+    cmp ax, [fm_cmpru]
+    jae .no                     ; not smaller than the image it replaces
+    mov [fm_cmprz], ax          ; ...and for a package the FILE is what the
+                                ; percentage is about, prefix included
+    mov bx, [fm_cmpru]
+    sub bx, ax
+    add bx, LZ_MARGIN + 511
+    and bx, 0FE00h
+    add bx, ax                  ; R + file
+    jc .no
+    mov es, [fm_cmprb]
+    mov cx, [es:LD_H_IMG]
+    add cx, [es:LD_H_BSS]       ; fm_cmpr_pkg proved this is under
+    add cx, 511                 ; APP_MAX_SIZE, so neither add can carry
+    and cx, 0FE00h
+    cmp bx, cx
+    ja .no
+
+    mov ax, [fm_cmprx]
+    mov cl, 4
+    shr ax, cl                  ; the prefix in paragraphs, and it IS one
+    mov bx, [fm_cmpro]
+    add bx, 8
+    sub bx, ax                  ; ...so it ENDS where the stream begins
+    mov cx, [fm_cmprx]
+    mov ax, [fm_cmprb]
+    mov es, bx
+    xor si, si
+    xor di, di
+    push ds                     ; DS is KERNEL_SEG everywhere else in this
+    mov ds, ax                  ; file (SPEC.md 2.6), so the source segment is
+    cld                         ; borrowed for the length of the copy and put
+    rep movsb                   ; straight back
+    pop ds
+    or byte [es:LD_H_FLAGS], 0x18   ; bit 3 = compressed, bit 4 = LZB
+    xor bx, bx                  ; ES:BX = the whole file...
+    mov ax, [fm_cmprz]          ; ...and AX its length
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_cmpr_claim - ONE block for the source, the output and the tables
+; in:  [fm_cmpru] = U
+; out: CF=0 with DX = the base segment, [fm_cmprk] = the source's KB and
+;      [fm_cmprw] = the window that fitted; CF=1 = not at any window size
+; clobbers: DX (an output) and the flags
+;
+;   base + 0                 the source,  KU KB
+;   base + KU*64             the output,  KU+1 KB - the odd KB is what the
+;                            'CZ' header goes in front of the stream in
+;   base + (2*KU + 1)*64     head[] 8KB, then prev[] at CMZ_PREV
+;
+; ONE CLAIM AND NOT THREE, because the three are one lifetime and because
+; three claims into a fragmented heap can fail where one run would not:
+; mem_claim compacts, so the run it can give is the run compaction would leave
+; (SPEC.md 50.3).
+;
+; THE WINDOW IS THE DIAL. A machine that cannot fund 40KB of tables gets a
+; shorter history and a slightly worse ratio, which is the whole difference;
+; refusing outright would make the verb absent from the machine most likely to
+; want it (SPEC.md 20.15.1).
+; -----------------------------------------------------------------------------
+fm_cmpr_claim:
+    push ax
+    push bx
+    push cx
+    mov ax, [fm_cmpru]          ; the source's KB, ROUNDED UP - and NOT through
+    mov cl, 10                  ; mem_bytes_kb_x, whose own banner says a new
+    shr ax, cl                  ; caller must prove its input cannot wrap: this
+    inc ax                      ; one cannot, `add ax, 1023` carries for every
+    mov [fm_cmprk], ax          ; U from 64,513 up and answers ZERO KB. A shift
+                                ; and an increment is a KB more than needed
+                                ; when U is an exact multiple of 1,024, which
+                                ; the output region is glad of anyway
+    mov word [fm_cmprw], CMZ_WMAX
+.try:
+    mov ax, [fm_cmprw]
+    mov cl, 9
+    shr ax, cl                  ; prev[] is 2 bytes a position: window/512 KB
+    add ax, CMZ_PREV / 1024     ; ...plus head[]'s 8
+    add ax, [fm_cmprk]
+    add ax, [fm_cmprk]
+    inc ax
+    mov bx, MEM_K_CMPR
+    call mem_claim_x
+    jnc .out
+    shr word [fm_cmprw], 1
+    cmp word [fm_cmprw], CMZ_WMIN
+    jae .try
+    stc
+.out:
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; fm_cmpr_drop - give the module and the block back (module internal)
+; clobbers: FLAGS ONLY
+;
+; fpg_end as well, because three of the failure paths leave through here with
+; SPEC.md 12.8's bar still scaled to a compress that is not happening. On the
+; success path dskw_write_x has already ended it and a second one is a store
+; of a zero over a zero.
+fm_cmpr_drop:
+    push ax
+    push bx
+    push dx
+    mov al, MOD_CMPR
+    call mod_drop
+    mov bx, MEM_K_CMPR
+    mov dx, [fm_cmprb]
+    call mem_free_x
+    call KERNEL_SEG:fpg_end
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_cmpr_pct - 'Compressed to 47%', as a toast (SPEC.md 59)
+; in:  [fm_cmprz] = the packed length, [fm_cmprp] = what the file used to
+;      occupy
+;
+; THE PERCENTAGE AND NOT THE TWO SIZES, because the sizes are on the listing
+; behind the toast and the ratio is what the operation was for. The divide
+; cannot overflow: both halves are under 65,536 and the quotient is under 100,
+; by the `jae .rworse` that got us here.
+; -----------------------------------------------------------------------------
+fm_cmpr_pct:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov si, fm_s_zdone
+    mov di, fm_hdrbuf
+    mov cx, FM_ZDONE
+.cp:
+    lodsb                       ; DF=0 per SPEC.md 1
+    mov [di], al                ; mov/inc, never stosb: ES is not DS here
+    inc di
+    loop .cp
+    mov ax, [fm_cmprz]          ; the FILE, header included: both arms store
+    mov cx, 100                 ; the whole length rather than the stream's
+    mul cx                      ; DX:AX = the new size in hundredths...
+    div word [fm_cmprp]         ; ...over the old, so AX is the percentage
+    xor dx, dx
+    call fm_ultoa_x             ; DI -> the NUL it stored
+    mov byte [di], '%'
+    mov byte [di+1], 0
+    call fm_toast_hdr
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_toast_hdr - say what is staged in fm_hdrbuf, as a toast (SPEC.md 59)
@@ -8165,6 +8708,23 @@ fm_bx2:     resw 1              ; to byte columns and stopping short of the
 fm_by1:     resw 1              ; scroll bar; y covers whole rows only
 fm_by2:     resw 1
                                 ; change (fm_sb_thumb)
+fm_cmpru:   resw 1              ; the Compress verb (SPEC.md 22.22): what a
+                                ; read of the file produces...
+fm_cmprp:   resw 1              ; ...what it occupies on the disk today
+fm_cmprz:   resw 1              ; ...what cmz_pack made of it
+fm_cmprb:   resw 1              ; ...the base of its one claim
+fm_cmpro:   resw 1              ; ...the output region inside that claim
+fm_cmprx:   resw 1              ; ...the clear prefix a package keeps (22.22.1)
+fm_cmprk:   resw 1              ; ...the source region's size in KB
+fm_cmprw:   resw 1              ; ...and the window the claim could fund.
+                                ; EIGHT WORDS RESIDENT for a verb that runs
+                                ; for seconds at a time and never twice at
+                                ; once - which is the shape that would
+                                ; normally live in the claim's own head, the
+                                ; way the cloner's job block does (SPEC.md
+                                ; 18.99.1). It does not here because two of
+                                ; them are read BEFORE the claim exists and
+                                ; one is read after it has been freed
 fm_fsize:   resw 1              ; fm_stage_name: entry size, bytes (lo word)
 fm_fsizeh:  resw 1              ; ...and its high word (SPEC.md 19)
 fm_ftype:   resw 1              ; fm_stage_name: SPEC.md 19 type word

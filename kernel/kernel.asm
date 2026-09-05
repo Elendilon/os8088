@@ -2523,6 +2523,7 @@ section .modp    start=MODP_START vstart=0
 %ifdef FDLG_MOD
 section .modd    start=MODD_START vstart=0
 %endif
+section .modz    start=MODZ_START vstart=0
 section .modmap  start=MODMAP_START vstart=0
 section .text
 
@@ -3792,7 +3793,31 @@ osapi_table:
                                   ;          (SPEC.md 20.8 rule 4), and on
                                   ;          kern_small the bit is simply set
                                   ;          and never read
-osapi_table_end:                  ; 0x04F8
+    OSAPI_JSLOT api_decomp        ; 0x04F8 - expand a compressed block
+                                  ;          (docs/O88-COMPRESSION-PLAN.md
+                                  ;          12.1). A JSLOT and not an X or N
+                                  ;          cell: BOTH segment registers are
+                                  ;          the caller's here, because the
+                                  ;          decompressor reads no kernel data
+                                  ;          at all and so needs no stub to
+                                  ;          reach the caller's segment - it
+                                  ;          needs the OPPOSITE, to be left
+                                  ;          alone. OSAPI_GFX_BLIT4 is the
+                                  ;          precedent for a cell taking a
+                                  ;          caller far pointer this way.
+                                  ;          IN BOTH KERNELS and never
+                                  ;          %ifdef'd (SPEC.md 20.8 rule 4):
+                                  ;          COMPRESS= decides which FORMATS
+                                  ;          answer, not whether the cell is
+                                  ;          there, and a format this build
+                                  ;          lacks is refused with CF
+    OSAPI_JSLOT api_file_find_raw ; 0x0500 - OSAPI_FILE_FIND, answering what
+                                  ;          the file OCCUPIES rather than
+                                  ;          what it expands to (SPEC.md
+                                  ;          20.14.3). The cell a COPIER wants:
+                                  ;          OSAPI_FILE_READ_AT is already raw,
+                                  ;          and this is the size to go with it
+osapi_table_end:                  ; 0x0508
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3800,8 +3825,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 157 * 8
-%error "os8088 API jump table must be exactly 157 8-byte slots"
+%if OSAPI_TABLE_LEN != 159 * 8
+%error "os8088 API jump table must be exactly 159 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -3979,6 +4004,17 @@ api_fdlg_open:
     retf
 
 ; -----------------------------------------------------------------------------
+; api_decomp - slot 0x04F8. The whole stub, because there is nothing to do:
+; DS:SI, ES:DI, CX, DX and AL are already what lz_decomp_x wants and both
+; segment registers come back the caller's. The far call is only because the
+; body is `.cold` and its CS is not this one.
+; -----------------------------------------------------------------------------
+api_decomp:
+    call COLD_SEG:lzf_decomp
+    retf                        ; CF is lz_decomp_x's answer: neither the far
+                                ; return above nor this one touches the flags
+
+; -----------------------------------------------------------------------------
 ; api_file_find - slot 0x0348 (X). in CX = ordinal, ES:DI = a DSK_FIND_SZ
 ; buffer; out CF=0 with it filled and CX = the next ordinal (SPEC.md 19.7.1)
 ;
@@ -3994,6 +4030,39 @@ api_fdlg_open:
 ; directory that OSAPI_FILE_READ would resolve a name in, or a package would
 ; enumerate one folder and open files from another.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; api_file_find_raw - slot 0x0500, and api_file_find's twin in one respect
+;
+; **THE SIZE, AND NOTHING ELSE.** A compressed file has two of them (SPEC.md
+; 20.14.3): what it occupies and what it expands to. `api_file_find` answers
+; the second, because an application sizes its claim from +18 and then reads
+; the file with OSAPI_FILE_READ, which expands it. A COPIER wants the first -
+; OSAPI_FILE_READ_AT delivers the packed bytes, so the packed length is the
+; number that describes what it is about to move.
+;
+; It exists because the record has nowhere to put both. `OSAPI_FIND_SZ` is 24
+; and published, so a caller's buffer is 24 bytes wide and growing it would
+; write past one; and asking per file with a second call would put a directory
+; walk on every entry of every listing. A second CELL over the same walk costs
+; a slot and nothing per entry.
+;
+; **Bit 0 of +22 still means COMPRESSED**, on both cells, because that is a
+; fact about the FILE rather than about which number was reported - and a
+; caller knows which it got from which cell it called.
+;
+; The fence is unchanged: hidden and system entries go to a DRIVER and not to
+; a package, on this cell exactly as on the other one (SPEC.md 19.6.1).
+; -----------------------------------------------------------------------------
+api_file_find_raw:
+    push ds
+    push si
+    push bx
+    mov bx, ds
+    push cs
+    pop ds
+    mov byte [dsk_fdraw], 1
+    jmp short api_ff_fence
+
 api_file_find:
     push ds
     push si
@@ -4001,6 +4070,8 @@ api_file_find:
     mov bx, ds                  ; the caller's segment, for the fence
     push cs
     pop ds                      ; DS = KERNEL
+    mov byte [dsk_fdraw], 0
+api_ff_fence:
     call inst_vol_enter         ; this instance's own folder; preserves
                                 ; everything including the flags
     call COLD_SEG:dvf_drv_owns_seg ; CF = 0: a loaded driver, so it may see the
@@ -5474,6 +5545,18 @@ section .text
                               ; every module it serves, because a module's
                               ; own section carries the header that names
                               ; MOD_* and MOD_NENT
+%include "lz.inc"             ; decompression (docs/O88-COMPRESSION-PLAN.md):
+                                ; BEFORE every loader that calls it, and it
+                                ; calls nothing itself - no kernel data, no
+                                ; kernel routine, just the caller's two
+                                ; segments and a four-byte stack frame
+%include "compress.inc"       ; ...and the one thing that COMPRESSES (SPEC.md
+                                ; 20.15), which is an on-demand module and so
+                                ; needs mod.inc's header constants above it.
+                                ; Beside lz.inc because it is the other half
+                                ; of one format, and nowhere near it in the
+                                ; image: this file emits `.modz` and not one
+                                ; byte of `.text`
 %include "disk.inc"
 %include "diskw.inc"          ; the FAT write path (SPEC.md 18.4): after
                                 ; disk.inc, whose constants and layout it uses
@@ -6849,10 +6932,12 @@ MODH_START   equ MODL_START + MODL_SIZE
 %ifdef FCP_MOD
 MODP_START   equ MODH_START + MODH_SIZE   ; Cut/Copy/Paste, kern_small's alone
 MODD_START   equ MODP_START + MODP_SIZE   ; ...and the file dialog after it
-MODMAP_START equ MODD_START + MODD_SIZE
+MODZ_START   equ MODD_START + MODD_SIZE   ; ...and the compressor last
 %else
-MODMAP_START equ MODH_START + MODH_SIZE
-%endif
+MODZ_START   equ MODH_START + MODH_SIZE   ; the compressor, on both builds -
+%endif                                    ; after hibernate's, which every
+                                          ; kernel carries (SPEC.md 87)
+MODMAP_START equ MODZ_START + MODZ_SIZE
 
 section .modc
 modc_end:
@@ -6882,6 +6967,10 @@ modd_end:
 MODD_SIZE equ modd_end - $$
 %endif
 
+section .modz
+modz_end:
+MODZ_SIZE equ modz_end - $$
+
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
 ; (mod.inc) is a RUN-TIME test - a module over it is refused cleanly, the
 ; feature simply does not open - so nothing would say a word at build time
@@ -6908,6 +6997,9 @@ MODD_SIZE equ modd_end - $$
  %if MODD_SIZE > MOD_MAX_KB*1024
 %error "the file dialog module is over MOD_MAX_KB - mod_need would refuse it at run time"
  %endif
+%endif
+%if MODZ_SIZE > MOD_MAX_KB*1024
+%error "the compressor module is over MOD_MAX_KB - mod_need would refuse it at run time"
 %endif
 
 ; --- the split table, which is HOST-SIDE ONLY --------------------------------
@@ -6937,6 +7029,7 @@ mod_map:
     dd MODP_START, MODP_SIZE    ; ...and kern_small's fifth (SPEC.md 22.3)
     dd MODD_START, MODD_SIZE    ; ...and its sixth (SPEC.md 38.0)
 %endif
+    dd MODZ_START, MODZ_SIZE    ; ...and the compressor last, on both
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
 modmap_end:
@@ -7454,6 +7547,10 @@ section .modd
 %if ($ - $$) != MODD_SIZE
   %error "something landed in .modd below modd_end - os88mod.py would CUT the file dialog module short of it"
 %endif
+%endif
+section .modz
+%if ($ - $$) != MODZ_SIZE
+  %error "something landed in .modz below modz_end - os88mod.py would CUT the compressor short of it"
 %endif
 section .modl
 %if ($ - $$) != MODL_SIZE

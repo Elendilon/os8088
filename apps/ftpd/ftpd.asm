@@ -5457,6 +5457,12 @@ fd_enter:
 ; it exists for is find -> read -> write -> find, and every middle step walks
 ; directories itself, so a shared cursor would be destroyed by the very work
 ; it was feeding.
+;
+; **THE _RAW CELL** (SPEC.md 20.14.3, 77.48): a compressed file has two sizes
+; and this server is a COPIER - RETR delivers what OSAPI_FILE_READ_AT hands
+; over, which is the packed bytes - so the number that describes a file here is
+; what it OCCUPIES. The plain cell answers what it expands to, and SIZE was
+; announcing that while RETR sent the other one.
 ; -----------------------------------------------------------------------------
 fd_find:
     push ax
@@ -5468,7 +5474,7 @@ fd_find:
     xor cx, cx
 .l:
     mov di, fd_fbuf
-    call OSAPI_FILE_FIND
+    call OSAPI_FILE_FIND_RAW        ; the size RETR will deliver (SPEC.md 77.48)
     jc .no                          ; FERR_NOENT: the end of the directory
     push cx
     push si
@@ -5593,7 +5599,10 @@ fd_do_list:
     push cx
     push di
     mov di, fd_fbuf
-    call OSAPI_FILE_FIND            ; CX = the ordinal in, the NEXT one out
+    call OSAPI_FILE_FIND_RAW        ; CX = the ordinal in, the NEXT one out -
+                                    ; and the size a LIST row prints is what
+                                    ; the file occupies, which is what RETR
+                                    ; will send (SPEC.md 77.48)
     pop di
     jc .end
     mov [fd_lord], cx

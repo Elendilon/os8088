@@ -141,6 +141,20 @@ MEM_K_HIB  equ 0xFF0C           ; the resume's extent list (SPEC.md 87.5):
                                 ; about to be overwritten; freed on the one
                                 ; path that turns back. 0xFF0C and not the
                                 ; retired 0xFF0B above, for the reason above
+
+MEM_K_CMPR equ 0xFF0D           ; the Compress verb's working block (SPEC.md
+                                ; 22.22) - the source, the output and the
+                                ; compressor's 8KB head[] plus its prev[]
+                                ; window, all in ONE claim so the three
+                                ; segments are paragraph arithmetic off a
+                                ; single base. Held for exactly one compress,
+                                ; and it is the LARGEST transient claim in the
+                                ; kernel: twice a file plus up to 40KB, which
+                                ; is why the window drops until the claim fits
+                                ; rather than the verb refusing outright.
+                                ; 0xFF0B is skipped (it was MEM_K_OVL and is
+                                ; retired above) and so is 0xFF0C, which is
+                                ; MEM_K_HIB's
 MEM_K_CLIP equ 0xFF07           ; the system clipboard's text (SPEC.md 55) -
                                 ; sized to what is in it, freed when it is
                                 ; emptied, and deliberately NOT an instance's,

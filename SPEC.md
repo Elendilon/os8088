@@ -2485,6 +2485,180 @@ exactly the 512 per sector that moves the right-hand side's 32 paragraphs, and
 both sides move together. It is sensitive to `.lowbss` growing, which is a
 different question and its own comment says so.
 
+#### 2.9.13 `KZIP=1` — the kernel is COMPRESSED and stage 2 expands it
+
+**It is the default, on every geometry, on both kernels and on the hard disk;
+`NOKZIP=1` is the A/B that turns it off.** `KERNEL.SYS` is packed and
+`boot/boot2.asm` carries an LZ4 decoder; the blob is a transient (§2.9.5), so
+`mem_unblob` hands that decoder back to the heap at the end of `kmain` and the
+running machine carries none of it.
+
+**Two names, and they are two things.** The build's own `KZIP` says what this
+kernel *does* and is what every `%ifdef` in `boot/` is on; `NOKZIP` is what
+somebody *asked for* and is what the knob roster and the build stamp carry.
+The stamp names the first — a stamp built from the second would have had the
+same name before and after the day this became the default, which is a
+`build/` full of an unpacked kernel that `make` believes is current.
+
+**`kernel.bin` is the IMAGE and `kernel.sys` is the FILE**, always, and with
+`NOKZIP=1` the second is a copy of the first. Every rule that puts a kernel on
+a volume names `$(KERNFILE)`, and so does every gate that compares one:
+`tests/unit/t_image.py` reads `build/kernel.sys`, and so does
+`tests/unit/t_canary.py`. `os88sym` needs no telling — `tools/os88kz.py`
+writes the four numbers beside the kernel it packed and `os88sym` reads them
+from there, because they are properties of a file that did not exist when the
+kernel was assembled and no caller could be expected to name them.
+
+**MEASURED, on a cycle-accurate 4.77 MHz 8088 booting the 360KB disk:**
+
+| | plain | `KZIP=1` |
+|---|---:|---:|
+| the kernel read | 7,098.0 ms — 220 sectors, 15 reads, 3,279 ms mechanical | **5,819.8 ms — 173 sectors, 14 reads, 2,717 ms** |
+| the sector loop (which is where the decode lands) | 70.4 ms | **869.4 ms** |
+| the splash's ticks | 216.0 ms | 205.6 ms |
+| `drv_boot_x` | 809 ms | 701 ms |
+| **the whole boot, from reset** | **13,877.9 ms** | **13,278.8 ms** |
+| the kernel's own `boot_ticks` | 165 | **154** |
+| `KERNEL.SYS` | 204 sectors | **164** |
+| the system disk, `PKGZ=` | 326 of 354 clusters | **306** |
+| …and with §20.13.5's default under it | 290 | **270** |
+
+**599 ms and 20 clusters**, and the decomposition is worth reading rather than
+the headline. −1,278 ms of read against +799 of decode is −479; the splash's
+two fewer ticks are −10; and the last **−108 is `drv_boot_x`**, which this
+change does not touch at all — the drivers simply sit 40 sectors earlier on
+the disk, so the seeks to them are shorter. Of the read's own saving, only
+**562 ms is mechanical**: the other 716 is the BIOS's per-call and per-sector
+overhead, which is a term this project had modelled and never measured.
+
+The decode came in at **39.9 cycles an output byte**, which is
+`PERFORMANCE.md`'s 50.6 for bounded LZ4 less the ~19% the bounds cost — so the
+unbounded decision below is worth about 200 ms of it.
+
+##### 2.9.13.1 The file is three parts and only the last is packed
+
+```
+    [ BOOT2_PAD    the blob       ]  stage 1 reads it, and it holds the loader
+    [ KZ_HEADSEC   the plain head ]  SPL_RESIDENT sectors
+    [ ...          LZ4 blocks     ]  what stage 2 expands into where the head ends
+```
+
+**The head cannot be packed**, and that is §15's constraint rather than a
+choice: `spl_tick` far-calls `viddet.inc` while the rest of the kernel is
+still landing, so those sectors have to be at their linked addresses *during*
+the read. `SPL_RESIDENT` is exactly how many, so the head is exactly that.
+It costs one extra `int 13h` — the head does not end on a cylinder boundary —
+and it buys an animated loading screen through the long read.
+
+**No block produces more than `KZ_BLK` (61,440) bytes**, so the decoder never
+leaves a segment and needs none of §20.14.5's crossing machinery. Measured:
+one stream is 73,832 bytes and two blocks are 74,908, so that simplification
+costs **1,076 bytes — two sectors of the forty it saves**. Machine code
+matches locally; the same split costs 44% on a MOD
+(docs/O88-COMPRESSION-PLAN.md 13.4).
+
+**`R` IS ROUNDED TO A SECTOR AND NOT A PARAGRAPH.** The packed tail is read
+`R` bytes above where it expands to, exactly as §20.13 does it — and
+`read_run`'s third bound divides the destination's physical address by 512 to
+find the DMA page's end, resting on every destination being 512-aligned. A
+paragraph-aligned `R` makes that shift truncate, and a run of **zero** sectors
+is an infinite loop rather than a wrong picture. It cost a boot to find.
+
+**Nothing bounds the head's read but `[b2_left]`.** The first version capped
+`[b2_runmax]`, which is not a cap at all: `read_run` **divides** the LBA by it
+to find where the current run ends, so a borrowed value redefines the geometry
+rather than shortening one read.
+
+##### 2.9.13.2 The decoder is UNBOUNDED, and that is a decision
+
+Every other decoder in this system is bounds-checked because every byte off a
+disk is hostile (§19). This one is not, and the argument is that **what it
+produces is the kernel**: the alternative to expanding it wrongly is *jumping
+into it* wrongly, which a bound cannot make safe. It is our own file, made by
+our own build, and the failure that actually happens to this read is a BIOS
+returning the wrong head's sectors — which §18.93.1's canary catches, by
+checking the **transfer**, before a byte is decoded.
+
+So there is no offset test, no source-end test and no output-overflow test:
+the loop stops when it has produced what the block header said. It is a copy
+of `kernel/lz.inc`'s LZ4 arm minus those, and **the copy is the point** —
+`lz.inc` lives in `.cold`, which is inside the bytes being expanded.
+
+##### 2.9.13.3 The canary is unmoved, and its reasoning is untouched
+
+§18.93.1's probe is a word whose **file sector** has to cross a head on every
+shipped geometry — and that is a property of the sector number and the
+geometry, not of what is in it. So it is still file sector 21, the Makefile
+reads the word out of the **packed** file at the same offset, and the check
+runs where it always did: after the whole read and **before** the expansion.
+
+Only the memory address moves, and the two adjustments cancel: the tail's base
+is `+head/16 +R` and the offset inside it is `KSIG_OFF − head`, so `+R` at the
+**same offset** is the same address.
+
+##### 2.9.13.4 It is a TWO-PASS BUILD, and it has to be
+
+The loader is told the packed sector count and how far up the tail lands, and
+neither exists until the kernel it is inside has been packed. Pass 1 packs a
+kernel assembled with placeholders to *learn* those numbers; pass 2 is the
+kernel that knows them. What makes that terminate rather than chase its own
+tail is that the numbers only reach `.boot2`, which is padded to `OVL_AT` — so
+the bytes being packed are identical in both passes, and the build asserts
+exactly that rather than assuming it.
+
+`tests/kzboot.py` is the gate: it breakpoints `KERNEL_SEG:0` — the one moment
+the image is exactly what the file says, before stage 2's own writes at +4 and
++12 and before `kmain` — and compares **all 95,661 decoded bytes** against the
+file on the host. A decoder that got one match wrong still boots, still draws
+a desktop, and is a kernel with a wrong instruction in it.
+
+**It boots TWO geometries, because there are two floppy boot sectors.** 360KB
+takes the byte comparison; the 1.44MB disk is a different 512 bytes
+(`boot.bin`, 18 sectors a track against 9) and gets booted. The 720KB disk
+shares its sector with the 360KB one and differs only in a BPB whose `spt` and
+`heads` are identical, so booting it would test nothing this does not; the
+1.2MB sector is genuinely its own and no emulator in this tree has a 5.25" HD
+drive, so §18.93.1's canary and `t_image` are its cover and
+`t_buildmatrix` keeps it assembling. `tests/kzboot.py --nokzip` is the A/B,
+and it is the only thing that ever RUNS the unpacked arm of either loader.
+The hard disk is a third loader again and `tests/hdboot.py` boots it, install
+and all.
+
+##### 2.9.13.5 The HARD DISK never enters stage 2, so the blob grew a door
+
+`boot/boothd.asm` (§52.10) is a volume boot record with a reader of its own:
+it loads the blob to `BLOB_SEG`, loads `.text` to `KERNEL_SEG` and jumps
+there, never touching `boot2_entry` (§2.9.9). A packed `KERNEL.SYS` arriving
+that way would be **jumped into**, and that sector has 23 spare bytes to do
+something about it in.
+
+**Five is what it takes, because the two loaders' arithmetic already agrees.**
+The floppy reads the head to `KERNEL_SEG` and the blocks to `KERNEL_SEG +
+head/16 + R`. The hard disk reads *one run* to `KERNEL_SEG + R`, which puts
+the head at the bottom of it and the blocks at `KERNEL_SEG + R + head/16` —
+**the same place**. So the whole of the difference is moving the head down,
+which cannot overlap (R is 20,992 and the head 4,608), and the block loop is
+then the identical call on identical addresses.
+
+So the VBR's packed arm is `mov dx, KERNEL_SEG + KZ_RPARA` in place of
+`mov dx, KERNEL_SEG`, and a far `call BLOB_SEG:KZ_HD`. `kz_hd` lives in the
+blob beside the decoder, moves the head and calls `kz_all` — the block loop,
+which is a routine rather than the straight line it began as precisely so
+there is no second copy of it. It preserves every register including **BP**,
+which is the caller's boot timer and is written into the kernel *after* this
+returns, at an offset the head move would otherwise have overwritten.
+
+`KZ_HD` is the third constant this sector takes from the kernel's own build,
+beside `BLOB_SEG` and `SPL_FSEG`, and `KZ_RPARA` is an immediate here where
+`[ksecs]` is a patch word — the same assumption those two already make, that
+the VBR ships inside `HDD.DRV` built from the kernel it will boot. `ksecs`
+needs nothing: `os88disk.py` and the installer both take it from the file they
+just wrote, which is the packed one.
+
+**The live media inherits all of it** (§80.1): `build/os8088-usb.img` is this
+VBR over a FAT16 partition, so the CD and the stick boot a packed kernel by
+the same five bytes.
+
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
 ```nasm
@@ -22853,6 +23027,30 @@ and requires the offset to cross on all of them, so a second blob length that
 comes back fails the fast tier instead of leaving one arm's canary inert — the
 "both lengths" rule lived in a Makefile comment and was enforced by nothing.
 
+##### 15.3.8.5.2 …and the twinkle now needs `NOKZIP=1`, for the same reason
+
+The blob got a decoder (§2.9.13). The twinkle's `.boot2` is **2,568** bytes
+against the spinner's 2,250, and the compressed kernel's expander is **180**
+more — so the pair is **2,748 of `OVL_AT`'s 2,624** and the assembler refuses
+it, at exactly the `%error` §2.9.6 wrote for the purpose.
+
+**The escape that `%error` names is the wrong one here.** `.ovl` has 55 spare
+bytes, so `OVL_AT` cannot move on its own; raising `BOOT2_SECS` with it is a
+ninth blob sector, which costs **every shipped image 512 bytes** and brings
+back the two blob lengths §15.3.8.5.1 deleted — and with them `KSIG_OFF`'s
+four-sector intersection. That is the tail wagging the dog for a **look knob
+that ships in no configuration**.
+
+So `SPLSTARS=1` is exclusive with the compressed kernel and the Makefile says
+so in a sentence: `make SPLSTARS=1 NOKZIP=1` is the build to look at, and
+`tests/unit/t_buildmatrix.py`'s row is that pair, so both of §2.9.6's
+assertions still run for the arm that sets the floor under `OVL_AT`.
+
+**What it costs the shipped build is the margin, and that is worth stating:**
+`.boot2` is 2,430 of 2,624 where it was 2,250 — **194 bytes free, not 374** —
+and `.ovl` has 55 of its own. The next thing that wants blob space is a
+`BOOT2_SECS` conversation, not a byte hunt.
+
 #### 15.3.9 Three of the `splf_` shims own a far return their bodies can own
 
 `spl_stepq`, `spl_finish` and `spl_reset` each have exactly one `ret` and **no
@@ -29444,7 +29642,7 @@ each needed a mechanism**:
 |-----|------|------------------------------------------------------------|
 | 0   | 2    | magic: bytes `'O','8'` (word 0x384F)                      |
 | 2   | 1    | format version = 3 (segment-per-package; v1/v2 files are rejected) |
-| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; bits 3–7 zero |
+| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/O88-COMPRESSION-PLAN.md; bits 5–7 zero |
 | 4   | 2    | link base — must be **0**: a v3 package links at org 0     |
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
 | 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly — **unless flags bit 2 is set, when it may be smaller and the file's tail is the package's (§20.12)**. |
@@ -31053,6 +31251,7 @@ are the packer's. Flags are §20.12.4's, and a part with no file bytes has
 | `OP_XMS` | an ASSET that ACCEPTS a placement above 1MB, and falls back to a conventional claim where there is no store — which is every 8088 (§41) |
 | `OP_OPT` | a part the package can do without: refused without refusing the launch |
 | `OP_LAZY` | not claimed and not read at load: `op_fetch` gets it when the package asks, `op_drop` gives it back |
+| `OP_COMP` | the part is COMPRESSED on the disk and expanded into the carve at load (§20.12.7) |
 
 **Every one of them is package code.** `OP_XMS` is `OSAPI_XMEM_ALLOC` with a
 fallback; `OP_LAZY` is a row `op_size` steps over; `OP_OPT` is a claim the stub
@@ -31203,6 +31402,775 @@ The region holds the primary alone; parts are claims beside it. `I_SIZE`
 keeps its unit (bytes), its meaning and both its bound tests (§20.6, §53),
 and the Task Manager's RAM column (§28) shows a package's parts the way it
 shows any package's own claims — because that is now what they are.
+
+#### 20.12.7 `OP_COMP` — a part compressed on the disk
+
+**A part may be stored compressed, and `op_load` expands it into the carve.**
+`kernel/lz.inc` is the decoder and the package reaches it through
+`OSAPI_DECOMP` (§20.13.3) — it carries none of its own, which is the whole
+argument for that cell being a plain slot.
+
+**`len` stays the UNPACKED byte count**, and that is the load-bearing part of
+the design rather than a convention: `len` is what `op_size` cuts the claim
+from, so a machine that cannot fit the part is still refused **before a sector
+is read** (§20.12.3). The packed count goes in **`zkb`**, which the macro
+already forbids on a file-backed row — one word with three meanings, and no two
+of them can be on the same row:
+
+| row | what `zkb` is |
+|---|---|
+| `OP_ZERO` | the KB of scratch it asks for |
+| `OP_LAZY` | the segment it was fetched into, 0 = not fetched |
+| `OP_COMP` | its packed byte count |
+
+**The three refusals follow from that table** and the macro, `os88pkg.py` and
+this section all state them: `OP_COMP` with `OP_ZERO` (no file bytes to
+compress), with `OP_LAZY` (a fetch would overwrite the length it needs to be
+fetched again), or with `OP_XMS` (the span above 1MB is staged through a
+transient buffer a chunk at a time, and a stream cannot be expanded a chunk at
+a time).
+
+**The format is the part table's own byte at +9.** It was the reserved byte
+`os88pkg.py` validated as zero; it now writes 0 for LZ4 or 1 for LZB there. It
+is the package's own scope, so a compressed **part** needs nothing of the
+header's flags and nothing of the kernel's — and the two cannot both be
+compressed anyway: a part's offset is measured from the start of the file and
+lives in a table **inside** the image, so compressing the image and laying out
+its parts are circular.
+
+##### 20.12.7.1 One read, then one walk down
+
+The carve is still **one read per 32KB and not one per part**, which is what
+the whole parts design exists for. What changes is where it lands: `op_read`
+puts the **packed** run `R` paragraphs **up** the claim, and `op_unpack` walks
+the rows in order — expanding a compressed row, moving a plain one down —
+so the claim ends up holding the **unpacked** layout.
+
+```
+    R = paragraph_round(unpacked_total − packed_total + OP_MARGIN)
+```
+
+**The gap never closes.** At the top of row *i* the write pointer is at
+`Σlen` and the read pointer at `R + Σpacked`, both over the rows already
+done, so the gap is `R − Σ(len − packed)` — smallest at the **last** row, and
+`OP_MARGIN` there by construction. Inside one row the decoder's own measured
+margin bounds the dip, and `os88pkg.py` refuses a part needing more than
+`OP_MARGIN`. Both pointers step by a multiple of 512, so the walk is paragraph
+arithmetic and nothing in it can carry past a segment.
+
+**`op_seg` answers the unpacked layout too.** Its fast path reads the *disk's*
+layout — part *i* sits where its own sectors sit — and that is exactly what
+compressing one breaks, so when any row carries `OP_COMP` it walks the table
+accumulating `roundup512(len)` instead. **The two agree when nothing is
+compressed**, because the packer lays part *i* at `roundup512(len)` past part
+*i−1*, so the sum *is* `(off − first) × 512` — which is why the fast path
+stays and why a package with no compressed part is unchanged to the
+instruction.
+
+##### 20.12.7.2 What it costs
+
+**Nothing in the kernel**, like every other part flag: `op_unpack` is SDK
+source and only a package with a compressed row assembles a use of it. On the
+disk it costs one `roundup512` of padding per part, exactly as a plain part
+does. At load it costs the decode — ~50.6 cycles an output byte for LZ4 on the
+target machine (PERFORMANCE.md) — plus a `rep movsb` down for each *plain* row
+that shares the carve with a compressed one.
+
+That last term is the one to weigh: a table of one compressed part costs
+nothing extra, and a table of one compressed part among five plain ones moves
+all five. Both are measured against the disk time saved, which is ~35.6 ms a
+sector.
+
+### 20.13 COMPRESSION — flags bits 3 and 4, and one slot
+
+**A file may be compressed and the kernel expands it on the way in.**
+docs/O88-COMPRESSION-PLAN.md is the design record — what it costs, what it
+buys, and the measurements behind both. This section is the contract.
+
+**Two formats, and which one is a bit.** Flags **bit 3** says the image is
+compressed; **bit 4** says which format — 0 = **LZ4** (byte-oriented, min
+match 4), 1 = **LZB** (bit-oriented, aPLib-family). `tools/os88lz.py` is the
+reference implementation of both and `kernel/lz.inc` is the copy;
+`tests/unit/t_lzfmt.py` is what keeps that true.
+
+**The format version stays 3**, for §20.12's reason and in its words: an old
+kernel reads nothing that has moved, refuses the file through the guard it
+already has (`image != file size`), and that refusal is the correct outcome by
+the correct route.
+
+#### 20.13.1 What stays in the clear, and why it is the whole design
+
+**The header, the icon and the association block are NOT compressed.** The
+mount harvests a 16x16 icon out of every type-1 file's first sector (§18.3
+step 4) and §54.6's association block sits beside it, so a compressed package
+must answer both **without a decoder**. That is what makes this change
+invisible to `disk_mount`, `dsk_synth`, the Disk window and the loader's own
+step-2 peek all at once — every byte any of them reads is already in the first
+sector and already plain.
+
+The clear prefix is therefore **32 bytes**, plus 64 with an icon, plus 16 with
+an association block: at most **112**, and always inside the first sector.
+
+#### 20.13.2 `image` still means the UNPACKED size
+
+`image` is what the loader sizes its region from, so it keeps meaning the
+resident bytes. **The FILE becomes shorter than it**, which is the case
+`ld_check_hdr` refuses without bit 3 and permits with it — the same shape
+§20.12 uses for a file that is *longer*, and the reason the truncated-file
+guard is still exact for everything else.
+
+The compressed length needs no header field: the loader already has the file's
+size staged from the directory entry (§19.1), and the compressed body is that
+minus the clear prefix.
+
+#### 20.13.3 `OSAPI_DECOMP` (0x04F8) — a plain cell, and why
+
+```
+    DS:SI = the compressed bytes          CX = compressed bytes (under 64KB)
+    ES:0  = the destination, DI = 0       BX:DX = the EXACT expected output, 32
+    AL    = 0 LZ4 / 1 LZB                         bits
+    out:  CF=0 and ES:DI one past the last byte; CF=1 = refused, and nothing
+          past the declared length was written
+```
+
+The **output crosses 64KB and the input does not** — §20.14.5 is why, and what
+each half costs.
+
+**It is a plain `OSAPI_JSLOT` and not an X or N cell**, and the reason is that
+the decompressor **reads no kernel data at all**. Every other cell needs
+`DS = KERNEL_SEG` for its own variables and therefore needs a stub family to
+reach the caller's segment; this one needs the opposite — *both* segments are
+the caller's — and has nothing of its own to address. Its two locals live in a
+stack frame, which SS addresses whatever DS is doing. `OSAPI_GFX_BLIT4` is the
+precedent for a cell taking a caller's far pointer this way.
+
+**`DI` must be zero.** The offset bound is `cmp bx, di`, which reads "no match
+may reach back further than we have produced" only when production started at
+zero. Every caller in the tree hands over a claim's base, so the precondition
+costs nothing and saves an instruction in the hottest test in the routine. It
+is checked, not assumed.
+
+**The cell is in BOTH kernels and is never `%ifdef`'d** (§20.8 rule 4): a slot
+present in one build and absent in another is an ABI that depends on a knob.
+`make COMPRESS=lz4|lzb|both` decides which **formats** answer, and one this
+kernel does not carry is refused exactly as a corrupt stream is.
+
+#### 20.13.3.1 A DRIVER says it differently, and expands differently
+
+A `.DRV` (§51) carries the same two formats through the same
+`lz_decomp_x`, and everything else about it differs — because the driver
+header has no flags byte and the driver loader learns its sizes at a
+different moment.
+
+**The signal is `image > file`, and the FORMAT is the body's first byte.**
+There is no spare header bit to put it in: +31 became the bss count
+(docs/O88-COMPRESSION-PLAN.md 12.6) and the name fills +16..30. A
+self-describing body costs one byte and no archaeology, and `drv_check`'s
+`image == file` becomes `image >= file` — a *truncated* file then fails in
+`drv_expand` instead, which is the same refusal by a different route.
+
+**And it expands into a SECOND CLAIM rather than in place.** §20.13's package
+path reads high and expands downwards because `ld_run_body` sizes its region
+from a one-sector PEEK, before it reads. `drv_load` has no peek: it claims
+from the size the DIRECTORY reported, before any read at all, which is
+`drivers/os88drv.inc`'s whole load discipline — so the image size is not
+known until the file is in memory and the claim is already the wrong size.
+Peeking first would cost an extra `int 13h` per driver on every boot. So the
+compressed file's claim is scratch, the image gets a claim of its own, and
+the first is freed the moment the second is filled: peak memory is file +
+image rather than image alone, for as long as one decompression.
+
+#### 20.13.4 A REFUSAL IS A NORMAL PATH, and the bound is not optional
+
+Every byte off a disk is hostile (§19) and `os88pkg.py` is not a gate on a
+foreign `.O88`. Both decoders refuse, rather than write, on each of:
+
+- a literal run or a match that would pass `DX`;
+- a match offset of **zero**, which would copy from itself for ever;
+- a match offset **larger than what has been produced**, which would read
+  below the caller's buffer — and under `mem_claim_hi`'s top-down placement
+  (§50.3) that is a resident package's code;
+- a stream that ends **short** of `DX`, which is a truncated file.
+
+**What the bounds buy back is an invariant this loader already had for free.**
+§21 step 6 writes `ceil(image/512)*512 <= need` bytes — *never a neighbour's
+region* — because the count is arithmetic the loader did **before** the read.
+A decompressor breaks exactly that: the count becomes whatever the stream
+says. So the invariant stops being structural and has to become a runtime
+check. It costs LZ4 39 bytes and 19% of its time, LZB 16 bytes and 25% of its,
+and neither figure is negotiable.
+
+#### 20.13.5 LZ4 SHIPS, and LZB does not
+
+**Every shipped package, every shipped driver, `README.TXT`, `BEVERLY.MOD`,
+the two `.TEX` documents and `DEMO.HTM` are LZ4 on the disk.** It was a knob
+for one cycle (`make PKGZ=lz4`), tested on the 360KB set in the field, and it
+is now what a plain `make` builds; `make PKGZ=` builds the uncompressed disks
+and is what an A/B uses. The kernel needs no arranging to match, because
+§20.13.3's default format is LZ4 as well — which is the reason LZ4 is the one
+that got to be the default here rather than the better ratio.
+
+**LZB is built and not shipped.** It is ~10 points better on ratio and ~4×
+slower to expand (§20.13.3), and on a 4.77 MHz 8088 that trade is a disk
+saving *once* against a launch cost *for ever* — two numbers on different
+clocks that do not reduce to one rate. Until somebody has measured the second
+of them on a 5150 the machine takes the fast decoder. Both knobs stay on both
+sides (`make PKGZ=lzb COMPRESS=lzb`), and `tests/lzship.py --fmt lzb` builds
+and boots the whole set through it, so adding LZB later moves no layout.
+
+**What it is worth, on the geometry that binds** — the 360KB pair, measured:
+
+| disk | plain | LZ4 |
+|---|---:|---:|
+| system, of 354 clusters | 326 | **290** |
+| apps, of 354 clusters | 203 + a second floppy | **331**, `BEVERLY.MOD` on it |
+
+The second row is the headline and it is a *disk* rather than a percentage:
+§24.4 gives `BEVERLY.MOD` a floppy of its own at this geometry because 116,085
+bytes is 114 of 354 clusters, and 42,177 bytes is 42 — so the module rides the
+apps disk in `MEDIA/` and the two-disk split is gone. `build/media360.img` is
+still built and now carries a compressed copy of the same file, which is a
+duplicate rather than a requirement.
+
+**`README.TXT` is compressed and gains no room by it.** 16,334 bytes of CRLF
+prose is 8,861, and Note Pad reads it whole through `OSAPI_FILE_READ`, so
+§20.14 applies and `np_load` is untouched — but `np_load` claims against the
+UNPACKED size §20.14.4 reports, so `NP_MAXKB`'s 16 KB still bounds the manual
+at 16,334 with the same 50 bytes of headroom. `tools/checkreadme.py` rule 2
+therefore keeps measuring the CRLF source and not the file. **The live CD
+carries a PLAIN copy** as its host-visible `README.TXT` (§80.2): a host that
+mounts the ISO to copy the raw image off it has to be able to read the
+instructions for doing so, and a `CZ` blob is not that.
+
+**What the default does NOT reach, deliberately.** `PKGZ` is the `$(OS88PKG)`
+/`$(OS88DRV)` wrappers, so it covers the two SHIPPED floppies and nothing
+else: 23 of the 38 packages in `build/` and 8 of the 9 loadable drivers. The
+rest are each a reason rather than an omission — the kernel modules (§2.8)
+are cut out of `kernel-full.bin` and stamped over the image, so compressing
+them is a wave of its own; `C64.O88` has PARTS and refuses at the image level,
+its ROM riding as a compressed PART instead (§20.12.7); `HELLO.O88` refuses on
+its own arithmetic, saving 89 bytes for a layout that would make the loader
+claim more; the test fixtures under `tests/` are built by their own rules; and
+the on-demand application disks — `WEAVE.O88`, `LOOM.O88`, `CWORD.O88` and
+the C examples — are not on a floppy this default builds. Those last are the
+only ones that are a *choice*, and it is the conservative one: each ships
+beside an overlay of its own that the PACKAGE reads (§73.14), which is
+§20.13.5.1's shape again.
+
+**The host-side gates had to learn the difference between the FILE and the
+IMAGE**, which is one function per container — `os88pkg.image_unwrap` and
+`os88drv.image_unwrap`. A gate comparing a floppy against what the build
+produced wants the file; one checking a size field, the bss arithmetic, the
+Drivers page's KB column or an assembly against its source wants the image.
+Three of them were reading the file and calling it the image, and every one
+of the three was wrong in the safe direction: `t_drvmem` under-reported every
+driver's resident claim, `t_pkg` refused a v4 header whose `image` exceeds its
+file (which for a driver IS the compression signal, there being no flags
+byte), and `t_appsmall` compared an assembly against a compressed artefact
+and reported the wrong build arm.
+
+##### 20.13.5.1 `HDDTOOL.DRV` is the one file `PKGZ` must not touch
+
+**Every compressed artefact on these disks is read by a loader that knows it
+is compressed** — `ld_run_body` for a `.O88` (§21), `drv_load` for a `.DRV`
+(§51), and `drv_load_at` for the two overlays the *kernel* owns, `XMEM.DRV`
+(§41.12) and `SAVER.DRV` (§79.2), which share `drv_load`'s body precisely so
+there is no second copy to forget. `HDDTOOL.DRV` is the exception: it is
+`HDD.DRV`'s overlay (§52.11), read by `hd_tool_need` with `OSAPI_FILE_READ`,
+which hands back **what is on the disk** (§20.14.3 — the file is not a `'CZ'`
+container, so nothing expands it).
+
+**And it would not be caught.** `hd_tool_check` runs drv_check's tests against
+the bytes that arrived: the magic, version 4, the link base, the three
+dispatcher bytes at +12 and the ABI word at +10. Every one of those is inside
+the 32-byte header, and §20.13.2 crosses the header **verbatim** — so all
+seven pass on a compressed tool and the next instruction far-calls `[es:6]`
+into the stream. Not a refusal: a crash on Format or Install, on a machine
+with a hard disk, which is not the machine a shipped floppy is tested on.
+
+So its Makefile rule names `os88drv.py` and not `$(OS88DRV)`, and
+`tests/unit/t_pkg.py` asserts it — because *who loads a file* is not a
+property of the file, and nothing else in the tree can state this.
+
+**What that leaves on the table is 4,202 bytes**, four of a 360KB disk's 354
+clusters. Taking it needs `HDD.DRV` to peek the header before it reads (two
+`int 13h` where there is one) or to take a second claim the way `drv_expand`
+does — a change worth making on its own evidence, and not one to fold into a
+compression default.
+
+#### 20.13.6 The kernel carries BOTH decoders, and the disks are LZ4
+
+**`COMPRESS=both` is the default and ships.** **181 bytes of `.cold`**,
+measured against LZ4 alone on the tree that took it — the decoder body is 91
+of them and the dispatch and its refusals are the rest — and what they buy is the ability to **read a format the machine
+does not write**. That is not a hedge:
+
+- the file manager's Compress verb can offer LZB **as a package-side change**,
+  because the kernel already understands what it produces;
+- an LZB disk is something a user can be **handed**, rather than something
+  that needs a matching kernel — §20.13.3's refusal ("this build does not
+  carry that format") is a correct answer and a bad experience;
+- and the dispatch between the two is only assembled when both are present,
+  so shipping `both` is also what keeps it exercised. With one format built
+  the decoder never checks `AL` at all, which is where its first version had
+  its bug: a file in the other format was run through the wrong decoder
+  instead of refused.
+
+**The disks stay LZ4** (§20.13.5), and the trade is still the one §12.7 of
+`docs/O88-COMPRESSION-PLAN.md` states: LZ4 is 50.6 cycles an output byte and
+LZB is 207, against about ten points of ratio. A disk saving happens once and
+a launch cost happens for ever, and the 5150 has not been asked yet.
+
+**The default names no symbol.** `kernel/lz.inc` defines both when neither is
+defined, and only `COMPRESS=lz4` and `COMPRESS=lzb` pass a `-D`. That
+direction is load-bearing rather than tidy: `tools/os88sym.py` re-assembles
+the kernel with **no** defines to build a symbol map and refuses one that is
+not byte-identical to `build/kernel.bin`, so whatever the source does with
+none has to be what `make` builds — otherwise every symbol lookup in the tree
+refuses a kernel that is perfectly fine.
+
+### 20.14 A COMPRESSED FILE — the kernel expands it on the way in
+
+**A file that is not a package may be compressed too, and `OSAPI_FILE_READ`
+hands over what it expands to.** §20.13 is the package's version of this and
+`kernel/lz.inc` is the same decoder; what differs is everything around it,
+because a file has no header of ours to put a flag in.
+
+**The file's own header is eight bytes**, and it is the first eight bytes of
+the file:
+
+```
+    +0  'C' 'Z'          the magic, as the word 5A43h
+    +2  byte             0 = LZ4, 1 = LZB (§20.13's two formats)
+    +3  byte             reserved, and MUST be zero
+    +4  dword            the UNPACKED size
+```
+
+`tools/os88lz.py --wrap` writes one and is the reference implementation.
+
+#### 20.14.1 The hint lives in the DIRECTORY ENTRY, and costs no I/O
+
+A listing must not get slower because a file might be compressed, and reading
+each file's first sector to find out would make every Disk window and every
+file dialog pay for a feature most files do not use. So the answer is carried
+in the entry the walk is holding anyway — **three bytes FAT12 and FAT16 leave
+free** (§19.1):
+
+| offset | what FAT calls it | what it carries here |
+|---|---|---|
+| +12 | `NTRes` | **5Ah** = this file is compressed; anything else = it is not |
+| +13 | `CrtTimeTenth` | the unpacked size, high byte |
+| +20 | `FstClusHI` | the unpacked size, low word |
+
+Twenty-four bits, so a hint describes an expansion up to 16MB. `dskw_commit`
+already zeroes all thirty-two bytes of a new entry and writes only the name,
+the attribute, three stamps, the cluster and the size, and §19.1 already
+documents @20 as *"FAT32-only per spec — ignored"*, so nothing in this kernel
+was reading or writing any of the three.
+
+**IT IS A CACHE, AND THE FILE IS THE TRUTH.** A foreign tool may drop the
+three bytes, or leave them describing a file that has since been replaced. A
+missing hint therefore reads as *"not compressed"* — the file is handed over
+as it is, which is the safe direction — and a hint that IS there is checked
+against the file's own header before a byte is decoded: the magic, the format,
+the reserved byte and the recorded length must all agree, or the read is
+refused as `FERR_IO`. Neither number is more trustworthy than the other, so a
+disagreement is not resolved in favour of either.
+
+#### 20.14.2 The read expands IN PLACE, and there is no 64KB ceiling
+
+The packed bytes are read **high inside the caller's own buffer** and expanded
+downwards onto themselves — §20.13's package path exactly, and for its reason:
+there is no second claim and no scratch buffer, which is what makes this
+affordable on a 128KB machine. The offset is
+`R = paragraph_round(unpacked − packed + LZ_MARGIN)`, and the capacity test is
+against **`R + packed`** as well as against the unpacked size, both **before
+any data I/O** — so `FERR_BIG` still leaves the destination untouched.
+
+Three refusals fall out of the shape and each is checked rather than assumed:
+
+- **the destination must be paragraph-aligned.** `lz_decomp_x` requires
+  `DI = 0` (§20.13.3), so a buffer whose offset is not a multiple of 16 is
+  `FERR_PROT`. Every caller in the tree hands over a claim's base;
+- **a packed size of 64KB or more is `FERR_IO`.** That is the decoder's
+  *source* limit (§20.14.5), and a file that compressed that badly is one
+  `os88lz.py` stores plain instead;
+- **`R` past a megabyte is `FERR_BIG`** — not an address in this machine, and
+  the one piece of the arithmetic below that could otherwise wrap;
+- **a hint claiming an expansion no larger than the file** is `FERR_IO`: a
+  hint that has drifted from the file it describes.
+
+The *unpacked* size has no ceiling of its own: `R` goes into the destination's
+**segment** and never into an offset, which is §18.4.1's idiom one layer up,
+and `lz_decomp_x` walks the output across 64KB boundaries by itself.
+
+`OSAPI_FILE_WRITE`'s cap is unchanged and unrelated: it is what the *caller*
+hands over.
+
+##### 20.14.2.1 …and when `R + packed` does not fit, the two formats differ
+
+**In-place expansion needs `unpacked + LZ_MARGIN` and a caller was told
+`unpacked`.** That is up to 64 bytes — see §20.14.2.2 for what it is made of —
+and it is the gap an application sized for the size it was *told* falls into.
+`README.TXT` found it the day the manual shipped compressed: 16,334 bytes
+unpacked into Note Pad's 16,384, needing 16,413, and the answer was `FERR_BIG`
+— *"Too big"* on a file the machine had just reported as fitting.
+
+**So the capacity test has two verdicts and not one.** If the *unpacked* size
+does not fit, that is `FERR_BIG` and always was. If it fits and only the
+layout does not, what happens depends on the format, and §20.14.2.4 is why
+the directory hint's mark has to carry it:
+
+- **LZ4 is refused.** `'CZ'` is this project's own container and this
+  project's tools are the only thing that writes one — and they refuse to
+  write an LZ4 file that would land here at all (§20.14.2.3). A file that
+  does anyway was made by something bypassing them, and `FERR_BIG` is a
+  correct answer to it.
+- **LZB reads through a SLIDING WINDOW** (§20.14.2.4) and works whatever the
+  buffer, because LZB is the format the *user* compresses into (§20.13.6's
+  door) and a user's file can be any size at all.
+
+Everything else is unchanged: the verdict is reached before any data I/O, so
+`FERR_BIG` still leaves the destination untouched.
+
+##### 20.14.2.2 What the overrun IS, exactly
+
+`lz_decomp_x` reads its source forward and writes its output forward. In
+place, the write head must never overtake the read head. After consuming `p`
+source bytes it has produced `u` output bytes, and the **lead** is `u − p`:
+
+- a **literal run** of `L` moves both heads by `L`, and the token and any
+  length-extension bytes it consumed move the read head alone — so a literal
+  run *reduces* the lead by its own overhead;
+- a **match** consumes about three bytes (a token, a two-byte offset, maybe an
+  extension) and produces at least four — so a match *raises* the lead.
+
+At the end the lead is exactly `U − P`. Place the source `U − P` above the
+destination and the write head finishes precisely where the source began. But
+the lead is **not monotone**: it peaks wherever the stream is most
+match-dense and then falls back as trailing literals pay their overhead. So
+what the placement must clear is the **peak**, not the end:
+
+```
+margin = max over every prefix of (u − p)   −   (U − P)
+```
+
+That is the whole of it, and `os88lz.in_place_margin` computes it by
+simulating the decode rather than bounding it. The buffer therefore needs
+**`U + margin`** — `R + P` with the `P` cancelling.
+
+**It used to need up to 15 more**, because `R` was folded into the
+destination's *segment* and a segment moves in paragraphs. It is not rounded
+any more: the transfer layer takes an offset of 0..15 and walks the segment
+(§18.4.1), so `R`'s low nibble simply lives in `[dskw_src]`, which every
+consumer already reads — `dskw_rdata` writes to `seg:src` and `dskw_czexp`
+finds the `'CZ'` header at it. The one thing that would have collided is
+`.czoff`'s refusal of a non-zero *caller* offset, and that runs at the top of
+`.czfile`, before any of this.
+
+**The two numbers are 64 and 5.** `LZ_MARGIN` is 64 — a constant the packer
+enforces, refusing any stream that measures higher — and over the 40 raw
+inputs in this tree the measured worst is **5** (`BEVERLY.MOD`); `README.TXT`
+is **1**. LZ4's own worst case is `U/255 + 16`, which is where 64 came from
+and which no stream that also gets *smaller* comes near. It is left where it
+is: it is a bound against data nobody has seen yet, and the rule below makes
+it moot for data this build produces.
+
+##### 20.14.2.3 A file WE ship never needs the scratch
+
+**`os88lz.cz_wrap` refuses to compress a file that would not expand in place
+inside `roundup1024(U)`**, and stores it plain instead. Callers claim in whole
+kilobytes (§50.3), so that is the buffer a reader arrives with — which makes
+this a rule the *build* can check and the machine never has to meet. The
+runtime scratch (§20.14.2.1) stays for files that did not come from here:
+every byte off a disk is hostile (§19) and a foreign tool has no reason to
+know the rule.
+
+**It is about one size in sixteen, so it is not rare** — `README.TXT` and
+`PAPER.TEX` were both inside it. For a file worth the disk the answer is to
+**edit the file**, not to lose the compression: `tools/checkreadme.py` rule 4
+fails the build and prints how many bytes to trim, and the manual lost 40 of
+prose to get its 7.4 KB back. For `PAPER.TEX` — 2,006 bytes saving 417 — the
+answer is to ship it plain, and `os88lz --wrap` says which refusal it was so
+that is a decision rather than a silent 7 KB.
+
+##### 20.14.2.4 The sliding window — LZB only, and why only LZB
+
+`lz_win_x` decodes with the source read through a **256-byte window** in
+kernel `.bss`, refilled from the real source before the writer can reach
+those bytes. The caller's buffer then only has to hold `U`.
+
+**The two sizes are a proof rather than a preference.** At a refill the writer
+is at most `LZ_MARGIN` past the reader's source position, so bytes from
+`p + LZ_MARGIN` on are certainly intact — which means the window must still
+*hold* `[p, p + LZ_MARGIN)` when it tops up. The check runs once per sequence
+and one LZB sequence consumes at most ~10 bytes (two gammas of four and an
+offset byte), so refilling below `LZ_WLOW` = 128 leaves at least
+`128 − 64 = LZ_MARGIN` in hand. Lower `LZ_WLOW` and the proof fails silently,
+on data that depends on where the peak fell.
+
+**LZ4 does not get one, and that is the design and not an omission.** LZB
+touches its source at three places and every one is a *single byte* — the tag
+refill in `LZ_GETBIT`, the offset's low byte, and a literal's `movsb` — so the
+window costs one compare per sequence, on a branch the direct path already
+had, and the direct path is untouched. LZ4's literals are `rep movsb` **runs**
+that would have to be split at the window's edge, and that is the hot path of
+every package launch. The build refuses to write an LZ4 file that would need
+a window instead (§20.14.2.3), which is the same guarantee bought with no
+runtime code at all.
+
+**THE MARK CARRIES THE FORMAT** (`DSK_CZ_MARK + LZ_*`, so `0x5A` is LZ4 and
+`0x5B` LZB). It has to: the capacity decision happens *before* any data I/O
+and the two formats get different answers there, so a hint that could not tell
+them apart would have to read the file to find out — the one thing the hint
+exists to avoid. It stays a *cache*: `dskw_czexp` still checks the file's own
+`'CZ'` header, and the format the decoder is handed comes from there.
+
+**Every writer of the hint carries the format, and both do.** `dskw_commit`
+takes it from the bytes it is writing (§20.14.4) and `tools/os88disk.py` from
+the `'CZ'` header of each file it lays down — a host-built disk is where a
+compressed file usually comes from, so a `os88disk.py` that stamped a bare
+`0x5A` would make every LZB file on a shipped floppy read as LZ4 and be
+refused at the one place the two differ. It did, for one run of the gate.
+
+**The window is `.bss` and not frame words**, so the direct path's stack is
+byte for byte what it was. That is safe on `dsk_op`'s terms and only those:
+`lz_win_x` is reached from `dskw_czexp` and nowhere else, and a transfer holds
+`sch_lock` — the same argument `dskw_read_at`'s banked arguments already run
+on.
+
+#### 20.14.3 What each surface reports, and the one that stays RAW
+
+The two sizes a compressed file has — what it occupies and what it becomes —
+go to different callers, and getting that table wrong is how an application
+claims 1,943 bytes for a 2,682-byte document.
+
+| surface | the size it answers | the bytes it moves |
+|---|---|---|
+| `OSAPI_FILE_READ` | **unpacked**, in `DX:AX` | **unpacked** |
+| `OSAPI_FILE_FIND` +18 | **unpacked**, with **bit 0 of +22** set | — |
+| `OSAPI_FILE_READ_AT` | on-disk | **raw — the packed bytes** |
+| `OSAPI_FILE_DFREE`, the free-space arithmetic | on-disk | — |
+
+**`OSAPI_FILE_READ_AT` IS THE RAW PATH AND STAYS RAW**, and it has a SIZE cell
+to go with it: `OSAPI_FILE_FIND_RAW` (0x0500) is the same walk into the same
+24-byte record with **+18 the size the file OCCUPIES**. Bit 0 of +22 still says
+*compressed* on both cells — that is a fact about the file, not about which
+number was reported, and a caller knows which it got from which cell it called.
+A second cell rather than a wider record because `OSAPI_FIND_SZ` is published
+at 24 and growing it would write past a caller's buffer; and rather than a
+per-file lookup, because that would put a directory walk on every entry of
+every listing.
+
+That is a decision
+rather than an omission. **It is also the whole of how anything COPIES a file**
+(§52.10.13.1): `READ_AT` → `OSAPI_FILE_WRITE` for the first chunk, `READ_AT` →
+`OSAPI_FILE_APPEND` after, and **stop on a short take** — never on the size
+from `OSAPI_FILE_FIND`, which is what the file expands to and which a raw
+copier never reaches. A copier that reaches for `OSAPI_FILE_READ` instead gets
+a plain file at the other end, which is what the hard-disk installer did to
+`README.TXT` for a release. It exists for a file bigger than the caller's claim
+(§18.4.4) — which is precisely the case in-place expansion cannot serve — and
+a transparent chunked read would need a decoder cursor living in the kernel,
+which is the resume token §18.4.4 refused for its own reasons. Being raw is
+also what keeps a **byte-exact copy** possible: a caller that reads a
+compressed file with `READ_AT` and writes it back with `OSAPI_FILE_WRITE` gets
+a compressed file at the other end, hint and all, by §20.14.4.
+
+The `+22` word was reserved and zero, so a caller written before this still
+works — and one that reads it now learns the thing a badge or a listing column
+needs (docs/O88-COMPRESSION-PLAN.md 15) without a sector read of its own.
+
+#### 20.14.4 The WRITE derives the hint, and clearing is the half that matters
+
+`dskw_czstamp` runs inside `dskw_commit` — the one place a whole-file write
+lands an entry — and reads the first eight bytes of **the bytes being
+written**. It is never propagated from another entry, which is what makes it
+unable to describe a different file: a save, a file-manager copy and a
+package's own write all arrive there with the file's first sector in hand, so
+all three get it right without knowing the mechanism exists.
+
+**Clearing it is the more important direction.** A plain file landing on a
+compressed one's slot must take the mark off, or that slot goes on describing
+a file which is no longer there — and the next read sends prose to the
+decoder. So the three bytes are zeroed on every path through the commit and
+written back only when the bytes justify them.
+
+An `OSAPI_FILE_APPEND` does not reach `dskw_commit` and leaves the hint alone,
+which is correct: appending does not change what the file's own header says it
+expands to.
+
+The stamp is refused on the same evidence the read path uses — the magic, a
+format this kernel could name, a zero reserved byte, an expansion inside 24
+bits, and an unpacked size strictly **larger** than the file. A plain file
+that happens to begin `'CZ'` is not enough.
+
+
+#### 20.14.5 The output crosses 64KB and the input does not
+
+**`BEVERLY.MOD` is why any of this exists.** 116,085 bytes, and LZ4 takes it to
+**42,169 — 36.3%**, which is 145 sectors of a floppy at ~35.6 ms each: roughly
+**5.2 seconds saved against ~1.2 seconds of decode**, and 72KB off a disk where
+that module currently needs a floppy of its own at the 360KB geometry (§24.4).
+It is the single largest win compression has in this system, and it does not
+fit in a segment.
+
+**Splitting the stream into segment-sized blocks was measured and rejected.**
+Two blocks of 61,440 cost **18,766 bytes — 44% of the entire win** — because a
+MOD's sample data matches back tens of KB into itself and a block boundary
+throws that history away. So the stream stays whole and the decoder learns to
+cross.
+
+**How it crosses, and what it costs.** The destination is `ES:DI`, and `ES` is
+bumped by **4,096 paragraphs** whenever `DI` wraps — the exact 64KB step, so
+the wrapped `DI` needs no arithmetic of its own. Three consequences:
+
+- a match reaching below the segment base falls out for free. `SI = DI − BX`
+  wraps to precisely the right offset, and the **borrow** says the source is
+  one segment down, so it is `mov ax, ds / sub ax, 0x1000 / mov ds, ax` and a
+  branch that is not taken on the common path;
+- a copy that would straddle a boundary goes **out of line** to `lz_cross`,
+  which moves as much as fits below whichever boundary comes first and goes
+  round. Once per 64KB of output, so a whole segment of literals and matches
+  pays for it once;
+- the match-offset bound stops being a compare. `cmp bx, di` reads "no match
+  may reach back further than we have produced" only while `DI` *is* that
+  count; once the output has crossed 64KB, **every** 16-bit offset is inside
+  what has been produced, and the flag `LZ_F_BUMP` says so.
+
+The expected output length is therefore **`BX:DX`, 32 bits**, and the frame
+counts **what is left to produce** rather than where the end is.
+
+**The input does NOT cross, and that is a decision.** `CX` stays 16 bits and
+`SI + CX` wrapping is refused at entry, which keeps the source end a plain
+offset in one segment — and that compare is tested twice per sequence and is
+the hottest one in the routine. What it costs is that a file which compresses
+to 64KB or more is stored plain; `cz_wrap` enforces the same rule at the other
+end. A file that compressed that badly was not worth the decode time anyway.
+
+The fast path pays **three instructions per copy** for all of this: the
+source-wrap test, and a 32-bit remaining counter in place of a 16-bit end
+compare (which is one instruction *fewer* than what it replaced).
+
+### 20.15 `compress.inc` — the one thing on the machine that COMPRESSES
+
+Everything else in this system decodes. The loader expands a package, the file
+read expands a file, the boot sector expands a kernel. This module is the other
+direction, and it exists for exactly one caller: the file manager's Compress
+verb (§22.6). It is `COMPRESS.DRV`, an on-demand kernel module (§2.8), and a
+machine that never uses the verb carries **none** of it — no `.text`, no
+`.bss`, one `mod_tab` row and one file on the system disk.
+
+**It writes LZB and only LZB.** The build's own compressor is LZ4 (§20.13.5)
+because LZ4 is what a *launch* pays for; this is the other trade, taken
+deliberately by somebody who is trying to make a file smaller and is willing to
+wait for it. That means the LZB decoder is not optional on a kernel that ships
+this module — §20.14.2.4's sliding window is what reads back what this writes.
+
+#### 20.15.1 `cmz_pack` — the parse, and why it is the one that was measured
+
+```
+in:  AX = the SOURCE segment, the source at AX:0000
+     DX = the OUTPUT segment, the output at DX:0000, CX bytes of room
+     BX = a scratch segment of CMZ_TBL (8,192) bytes, at BX:0000
+     CX = the source's length, 1..0xFFFF
+out: CF=0 and AX = the packed length, which is < CX
+     CF=1 = it did not get smaller, and the output is undefined
+```
+
+**Segments and not pointers**, because the far pointer this is reached through
+lives in `mod_fp` — kernel `.bss` — so a caller whose `DS` was already the
+source could not have made the call at all.
+
+**It is a hash-chain matcher, depth 16, over a 16,384-byte window**, and
+`os88lz.lzb_compress_machine` is its reference implementation — a mirror of the
+assembly, statement for statement, so that the machine's output can be checked
+BYTE FOR BYTE rather than by size. `os88lz.py`'s *own* encoder is something
+else again: a shortest-path parse over a chain at depth 128, with a cost array
+over every position, which is 464KB of working set for `BEVERLY.MOD`. The
+machine does not attempt it and produces a bigger stream than the host does.
+Over the seven files of docs/O88-COMPRESSION-PLAN.md §13.11.0:
+
+| | ratio |
+|---|---:|
+| what the build's LZ4 achieves on them | 74.6% |
+| **this encoder, window 16,384** | **68.9%** |
+| this encoder, window 4,096 (a `kern_small` claim) | 71.4% |
+| the host's shortest-path parse | 63.9% |
+
+so **re-compressing a shipped file gains 3.9 to 10.3 points**, which is what
+the verb is for. `BEVERLY.MOD` — 116,085 bytes — is the one file in that set the
+verb cannot reach at all: `CX` is 16 bits, so a source of 64KB or more is
+refused before anything is claimed.
+
+**There is no lookahead**, and that is a measurement rather than an omission:
+at every work budget tried, a deeper chain without one beat a shallower chain
+with one (docs/O88-COMPRESSION-PLAN.md §13.11.0.1). **Every position a match covers is recorded**, which is
+worth 2.5 of those 5.7 points — nothing else would ever put them in the table,
+and a later position matching *into* the middle of an earlier match is common.
+
+**The minimum match is 3**, not LZB's format minimum of 2: a two-byte match
+needs a two-byte hash.
+
+**The 40KB of tables is the CALLER'S block, and that is where the memory
+belongs.** A module's image is its file — `mod_check` refuses one where
+`MOD_H_IMG` is not the size that arrived — so a table inside the image would be
+zeros written to the system disk by the build, read off the floppy at every
+use, and overwritten before the first byte is hashed. The verb claims one block
+and slices it: `head[]` 8KB at offset 0, `prev[]` at `CMZ_PREV`, two bytes per
+window position. **The window is the verb's dial** — it drops until the claim
+fits — so a 128KB machine runs the same encoder over less history rather than a
+different one.
+
+**`head[]` is cleared at entry and `prev[]` is not**, which is worth 32KB of
+stores. A stale `head` slot names a position in a buffer that is not this one;
+the match would still be verified byte for byte, so the stream would be
+correct, but the parse would be worse for no reason. A stale `prev` entry
+cannot be reached at all: `prev[p]` is only overwritten by a position
+`p + k·window`, and that position being below `SI` puts `p` itself outside the
+window, which the bound test rejects first.
+
+**The output is bounded once a pass, not once a store.** `[cmz_lim]` is the
+input's length less `CMZ_SLACK` = 16, and a single pass can write at most 8
+bytes past it (one tag bit, two gammas of at most 30 and 16 bits, and one raw
+byte — 47 tag bits is 7 tag bytes plus the raw one). So the caller's buffer is
+exactly `CX` bytes and nothing checks a store. A stream that reaches `CX` has
+already lost, because the caller would store the file plain.
+
+#### 20.15.2 It returns the IN-PLACE MARGIN, measured as it writes
+
+`cmz_pack` answers `DX` = the stream's in-place margin: the bytes a region
+needs *above* the image so a decoder reading its own source from the top never
+overtakes its write pointer. `os88pkg.py` computes the same number by
+simulating the decode; the machine gets it for **six instructions** instead.
+
+A decoder needs `R ≥ (produced − consumed)` at every instant, and the instants
+that matter are the **symbol boundaries**: inside a symbol the decoder consumes
+its bytes and only then produces, so `produced − consumed` peaks at the end of
+one. At an encoder's symbol boundary those two are exactly `SI` and `DI`, which
+the loop is already holding, so the whole of it is a compare and a store per
+symbol and `margin = max(SI − DI) − (U − P)` at the end. That cannot borrow:
+the last boundary has `SI = U` and `DI = P`.
+
+It exists for §22.22's package case, which is the one caller that needs it —
+a `'CZ'` file's placement is decided by `.czcap` from `LZ_MARGIN` and does not
+ask. Without it the verb would have to simulate the decode to find out, which
+is the decoder over again in a module that is meant to be the encoder.
+
+#### 20.15.3 It is on BOTH builds, and it is last in `mod_tab`
+
+`MOD_CMPR` is **3 on `kern_big` and 5 on `kern_small`**. Every other module has
+one index on both, and this is the first that does not — because `kern_small`
+carries two modules `kern_big` keeps resident (§22.3.0, §38.0) and a shared row
+has to go somewhere. Putting it **last** is what keeps either build from
+carrying a hole: `mod_map`, `mod_tab` and the Makefile's `-m N=` all follow the
+same order, and `os88mod.py` checks the index it is given against the image's
+own `MOD_H_ID`, so getting that line wrong is a build failure rather than a
+far call into the wrong module.
+
+It is on `kern_small` for the reason it exists: a 128KB machine is the one most
+likely to want a file smaller, and the thing that would have made it expensive
+there — the 8KB table — is the caller's block and not the image.
 
 ## 21. loader.inc
 
@@ -34404,6 +35372,139 @@ A refusal, on either half, is `fm_clone_bad` — one proc rather than the two
 copies it started as, `fm_clone_go`'s reaching it as a **tail jump** because its
 whole body is a `ret` away. That is 30 bytes of `.cold`, and the account beside
 `KERN_BUDGET` records why they were worth counting.
+
+### 22.22 `Compress` — the file manager makes a file smaller
+
+**The one verb on this machine that COMPRESSES.** `COMPRESS.DRV` (§20.15) is
+the algorithm and `fm_c_compress` is the policy: read the file whole, hand it
+to the module, write the result back over the same name. The result is a `'CZ'`
+file (§20.14), so every reader on the machine already handles it — the verb
+adds no format and no second path.
+
+It is the **fifth item in the File menu**, with Delete, above the rule that
+separates the selection's verbs from the disk's. No ellipsis: it asks nothing
+and starts the moment it is picked.
+
+**Re-compressing a shipped file is the case it exists for, and it needs no
+special case at all.** `dskw_read_x` hands back the UNPACKED bytes (§20.14), so
+"read, compress, write" is one path for a plain file and for one the build
+already packed — and LZ4 → LZB falls out of it. The gain is real:
+docs/O88-COMPRESSION-PLAN.md §13.11.0.1 measures **3.9 to 10.3 points** across
+the seven files it tracks.
+
+#### 22.22.1 What it refuses, and why none of it is a name list
+
+Each is a FACT rather than a guess (§47 rule 5), and each has a verdict of its
+own on the `fm_ztab` table — the verb's, not `fm_errtab`'s, because those are
+`FERR_*` codes and the index *is* the code there.
+
+| refusal | said as |
+|---|---|
+| a folder, or the parent link | nothing — a no-op, silently, exactly as Rename and Delete |
+| 64KB or more, or a package region past `APP_MAX_SIZE` | `Too large to compress` |
+| already stored LZB, or a package with a compression bit set | `Already compressed` |
+| a package with PARTS, or whose `image` is not its file | `Cannot compress this one` |
+| no claim, at any window size | `Not enough memory` |
+| `COMPRESS.DRV` not on the system disk | `COMPRESS.DRV not found` |
+| the encoder could not beat what is on the disk | `It would not get smaller` |
+| success | `Compressed to 47%` |
+
+**A `.DRV` and `KERNEL.SYS` are refused by NOTHING here**, and that is
+structural rather than lucky: both are hidden + system, so §19's species filter
+keeps them out of the listing entirely and there is no row to select — and had
+one somehow been selected, `dskw_write_x` refuses a hidden + system file with
+`FERR_PROT` before a sector moves. Two independent gates, neither of them a
+name list, which is the shape that rots.
+
+**A PACKAGE IS COMPRESSED AS A PACKAGE, not wrapped in a `'CZ'` container.** A
+`.o88` carries its own compression in flags bits 3 and 4 (§20.13) with a clear
+prefix the mount reads without a decoder, so a container round it would make a
+file `ld_check_hdr` cannot start. What the verb does instead is exactly what
+`os88pkg.py --compress` does, and for the same reasons — which is why
+`tools/os88pkg.py`'s `compress_image` now takes the *encoder* as a parameter
+and `tests/lzcomp.py` passes it the machine's: the refusals, the prefix, the
+flag bits and the in-place arithmetic are stated once, and the test carries no
+copy of them.
+
+The whole of it is arithmetic on four header fields:
+
+- **the clear prefix**, `ld_cpre`'s own ladder — 32 bytes, plus 64 with an
+  icon, plus 16 with an association block (§20.13.1). Always a multiple of 16,
+  which is what lets the body be a *segment* to `cmz_pack` and the prefix land
+  on a paragraph in front of the stream;
+- **`image` must be the file**, or this is a package the verb does not
+  understand;
+- **`image + bss` under `APP_MAX_SIZE`**, so the two roundups below cannot
+  carry;
+- and **the in-place layout against the region the loader was going to claim
+  anyway**: `ld_run_body` reads the file at `R = roundup512(image − file +
+  LZ_MARGIN)` and expands downwards, so `R + file` has to fit
+  `roundup512(image + bss)`. When it does not, the answer is to leave that
+  package alone rather than to make every launch on the machine claim a bigger
+  region.
+
+**`cmz_pack`'s margin is what makes it affordable** (§20.15.2): the stream's
+in-place margin has to be inside `LZ_MARGIN`, and the encoder measured it as it
+wrote — so this is a compare where the host simulates the decode to find out.
+
+**`dskw_czstamp` needs no exception.** It derives the `'CZ'` hint from the
+bytes being written and a `.o88` begins `'O8'`, so the mark is correctly not
+written — and correctly *cleared*, which is the half that matters when a
+package lands on a slot a compressed file used to hold.
+
+**"It would not get smaller" compares against the DISK, not against the
+image.** `cmz_pack`'s own refusal is `P >= U`; this one is
+`P + DSK_CZ_HDR >= what the file occupies today`, which is the question that
+matters when the file being re-compressed is already packed. The eight-byte
+container counts, and a file that packs to one byte under what it occupies is
+bigger once it is on.
+
+#### 22.22.2 One claim, and the window is the dial
+
+The operation needs the source, the output and the compressor's tables at once.
+They are ONE claim, `MEM_K_CMPR`, sliced by paragraph arithmetic off a single
+base:
+
+| | |
+|---|---|
+| `base + 0` | the source, `KU` KB where `KU = ceil(U/1024)` |
+| `base + KU·64` | the output, `KU+1` KB — and the **stream starts 128 bytes into it**, which is what leaves room for either header in front without a move: 8 bytes for a `'CZ'` container, up to 112 for a package's clear prefix, and both are a multiple of 16 |
+| `base + (2·KU+1)·64` | `head[]` 8KB, then `prev[]` — two bytes per window position |
+
+One claim and not three because the three are one lifetime, and because three
+claims into a fragmented heap can fail where one run would not: `mem_claim`
+compacts, so the run it can give is the run compaction would leave (§50.3).
+
+**The window drops until the claim fits** — 16,384, then halving to
+`CMZ_WMIN` = 1,024 — so a machine that cannot fund 40KB of tables gets a
+shorter history and a slightly worse ratio (71.4% against 68.9% at 4,096)
+rather than a verb that is absent from the machine most likely to want it. Only
+when 1,024 will not fit either is it `Not enough memory`.
+
+**The read is lent the OUTPUT region as well**, and that is the trap §20.14.2.3
+already cost this project once: a `'CZ'` source expands in place and wants
+`U + margin` of room to do it in, so a capacity of exactly `U` sends it to
+`.cznoroom` and, for LZ4, to `FERR_BIG`. Both regions are ours and the output
+is built afterwards, so lending it costs nothing.
+
+#### 22.22.3 What the user watches
+
+`fpg_begin` is armed with the SOURCE's length after the read, and `cmz_pack`
+reports every `CMZ_PSTEP` = 512 source bytes through `OSAPI_FS_PROG` — the
+cloner's idiom (§18.99.4), an `OSAPI_SLOT` being a far-callable wrapper that
+fixes `DS` itself, so the module reports progress with the source in `DS` and
+needs neither a `cw_` shim nor a callback in its own ABI.
+
+That matters because the pack is the long part and it is the part with no disk
+I/O in it: the read and the write drive the widget themselves through
+`dskw_*`, and without this the bar would sit still for the seconds in between.
+
+**The write is `dskw_write_x`'s ordinary replace**, which allocates the new
+chain while the old one stays allocated and frees the old only after one
+directory sector commits (§18.6) — so there is no moment where the file does
+not exist, and the space it needs is `P`, not a second copy. `dskw_czstamp`
+then derives the directory hint from the bytes (§20.14.4), so the verb writes
+no hint of its own.
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
@@ -62146,6 +63247,24 @@ Three things about it are load-bearing:
   than being arranged. It mounts A: itself before the loop, so every
   `drv_load` inside it banks A: and finds A: — the restore is skipped without
   anything having to know it is boot.
+- **It banks `[dsk_cwd]` / `[disk_drive]` — the MACHINE's position — and not
+  `osapi_file_here`'s**, which is a correction rather than a detail. That cell
+  answers **for the calling instance** (§19.2.1) and falls back to the
+  machine's own words only when there is no instance stamp; the stamp is set
+  for the length of any dispatched callback, which is where every one of these
+  brackets actually runs. So a verb inside a window's own `AM_ONCMD` banked
+  *that window's instance* directory, and the restore then **moved the machine
+  there**: §22.22's Compress read a file on B: and wrote the result to A:,
+  which is the exact bug §51.5.1 and this section exist to prevent, arriving
+  through the routine meant to prevent it.
+
+  **It was invisible for as long as both callers worked by DRIVE.** A format
+  and a driver load do not resolve a name in a directory, so where the machine
+  *thought* it was standing never showed; the first caller that wrote a file
+  **by name** after a `mod_need` found it on its first run. What the routine
+  wants is the two words `drv_mounted` is about to overwrite, and those are
+  `[dsk_cwd]` and `[disk_drive]` — four bytes shorter than the far call it
+  replaces.
 - **Both mounts are QUIET** (`dsk_chdir_q`, §18.9). Going to A: and coming
   back are volume switches made to read or write a file **by name** —
   `drv_find` is `dskw_stat`, `drv_cfg_load`/`drv_cfg_save` are
@@ -64373,6 +65492,48 @@ the root like anything else.
 caption becomes `Folders nested too deep to copy` and the install stops — in
 the apps phase, which by §52.10.10 is a machine that already boots. Skipping
 it would be the defect this section exists to fix, one level further down.
+
+#### 52.10.13.1 …and it copies the file's BYTES, which it did not
+
+**An install EXPANDED every compressed file small enough to fit the buffer.**
+`hd_icopy_one` had two shapes and the split was by size: a file that fitted
+took one `OSAPI_FILE_READ` and one `OSAPI_FILE_WRITE`, and a bigger one took a
+run of `OSAPI_FILE_READ_AT` chunks. **`OSAPI_FILE_READ` is the transparent
+one** (§20.14.3) — so the small shape was handed the *expanded* bytes and
+wrote them out as a plain file, hint and all gone, while the chunked shape was
+raw and right all along. `README.TXT` is 8,850 bytes on the shipped floppy and
+16,304 expanded; it took the small shape, and an installed machine carried the
+bigger one.
+
+**The fix is to delete the shape, not to repair it, because the defect was the
+SPLIT.** Two paths that must agree about something, chosen by a number that has
+nothing to do with it, is a disagreement waiting for the next person to add a
+third. There is one path now, and for a file that fits it is the same two calls
+plus a compare — `hd_isrc_here` is already standing in the source, so its
+`OSAPI_FILE_GOTO_Q` is a compare and a return (§18.9.1).
+
+**And the loop's terminator had to change with it.** It stopped when the offset
+reached `OSAPI_FILE_FIND`'s size, which is what a compressed file **expands
+to** — a number a raw copier never reaches, so the loop went round once more
+for nothing. It stops on a **short take** now: a take under one full chunk is
+the end of the file whatever the file is, which is the only terminator a raw
+copier can use. That is also the rule the small shape got wrong by having no
+loop at all.
+
+**A package needs no new slot for any of this.** `OSAPI_FILE_READ_AT` is
+already raw and already answers the bytes delivered; a raw copy is
+`READ_AT` → `WRITE` for the first chunk, `READ_AT` → `APPEND` after, and stop
+on a short take. Bit 0 of `OSAPI_FILE_FIND`'s +22 is how a caller knows the
+question even arises.
+
+**The file manager's Copy/Paste was already right**, and now says so:
+`fcp_rdnext` reads raw clusters through `dsk_read_chain` and `fcp_rdopen`
+sizes itself from `dskw_stat`, whose answer is the **on-disk** size — so a
+compressed file crosses whole and `dskw_czstamp` re-derives the hint at the
+other end (§20.14.4). Nothing asserted it until `tests/lzcomp.py`'s
+`copypaste` leg did; `tests/instdeep.py` is the installer's half, and it
+compares `README.TXT` **byte for byte** against the floppy it came from with
+one FAT reader on both sides.
 `HIW_DEPTH` is **6**, which is the deepest folder any disk in this tree
 carries — `RUNCPM/A/0` on the combined apps floppy (§74.6), three below the
 root — with room to spare for a user's own.
@@ -86208,6 +87369,46 @@ It is the same defect §77.44's carry was invented to describe, one level up:
 two variables saying the same thing, cleared in two places. `fd_setup_toggle`
 calls `fd_setup_defoc` now, which is the routine that owns both halves and
 always did.
+
+### 77.48 The server said one size and sent another
+
+**`FTPCZ.TXT: LIST says 5400, SIZE says 5400, RETR delivered 83.`** A
+compressed file has two sizes (§20.14.3) and this server was using both:
+`fd_list_row` and `fd_do_size` were built from `OSAPI_FILE_FIND`'s +18, which
+is what the file EXPANDS to, and `fd_do_read` sends what `OSAPI_FILE_READ_AT`
+delivers, which is what it OCCUPIES. A client sizes its progress bar and its
+resume from the first two and receives the third.
+
+**RFC 3659 settles which of the two is right rather than this tree doing it:**
+`SIZE` is *the size of the file in the transfer mode* — what `RETR` will
+deliver. So the transfer is the fact and the listing has to follow it, which
+is also the cheaper side by a long way: expanding the transfer to match the
+listing would need the whole file in RAM per download, and the stage-and-commit
+design (§77.1) does not have it — a 116KB module would want a 116KB claim on a
+machine that may not have one.
+
+**So `fd_find` and `fd_do_list` take `OSAPI_FILE_FIND_RAW`** (§20.14.3), and
+the server now speaks in on-disk sizes throughout: `LIST`, `SIZE` and `RETR`
+are one number, a download is the file as it sits on the disk, and re-uploading
+it with `STOR` puts it back byte for byte with `dskw_czstamp` re-deriving the
+hint (§20.14.4).
+
+**What that costs the person at the other end is that the download is PACKED**,
+and unreadable on a machine with no decoder for it — which is the trade
+§20.14.3 already made when it kept `READ_AT` raw so that a byte-exact copy
+would be possible at all. FTP is a transport between two machines here, not a
+viewer: a download that restores exactly is worth more than one that opens in
+Notepad, and the file was going to arrive packed either way — only the numbers
+were lying about it.
+
+**It was found by a gate that could not run.** `tests/ftpd.py` identifies the
+FTP window by `w == FD_W` = 400, and §39.16.3.4's size snap rounds a window's
+CONTENT width up to a multiple of 8 while `W_W` is the OUTER frame — content
+plus two 1px borders — so ftpd's 400 is **402** in `wm_wins`. Matching on 400
+found nothing, `ftp_win` raised, and `launch` reported *"the package failed to
+load"* about a package that had opened its window every time. The failure names
+the LOADER, which is why the width was never looked at, and the whole
+thirteen-assertion gate had been silently unrunnable since that snap shipped.
 
 
 ---

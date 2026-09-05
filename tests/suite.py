@@ -167,6 +167,25 @@ FAST = [
         "go looking for what to adapt. os88geom guards the copies a SCRIPT "
         "retyped; this guards the ones a HUMAN did. FULL rather than fast: a stale comment misleads a reader, it does not break a build, and the fast tier runs on every `make` against a 30s budget this row is a sixth of",
         needs=()),
+    Row("lzfmt", "fast", py("tests/unit/t_lzfmt.py"), 1.5,
+        "docs/O88-COMPRESSION-PLAN.md wave 0: both compression formats "
+        "round-trip. tools/os88lz.py is the REFERENCE and the kernel's "
+        "decoders are the copy, so this is what makes that claim mean "
+        "anything. The corpus is small and FIXED on purpose - an empty file, "
+        "one byte, a file shorter than LZ4's 12-byte match limit, a long run "
+        "and incompressible noise are each a place an end-of-block rule or a "
+        "length field is got wrong, and not one of them occurs in a real "
+        "package. It also asserts the IN-PLACE MARGIN the loader will "
+        "reserve, which is the number that lets a compressed image be read "
+        "into the top of its own region and expanded downwards with no "
+        "second buffer - noise measures 17 bytes where every real package "
+        "measures 2, because LZ4 EXPANDS data that does not compress",
+        needs=()),
+    Row("lzfmt-all", "soak", ["python3", "tools/os88lz.py", "--selfcheck"], 4.3,
+        "the same round trip over every binary the tree builds - packages, "
+        "drivers and the kernel. SOAK and not fast: the fixed corpus above is "
+        "what catches a format bug, this is what catches a bug that only some "
+        "real file's byte pattern reaches, and it costs 4s"),
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
@@ -952,6 +971,31 @@ SOAK = [
         "still answers `MSEG 6/6 OK`, which is why neither alone is the "
         "gate. Needs `make mseg`.",
         needs=("marty",), serial=True, wants=("build/mseg360.img",)),
+    Row("msegz", "soak", py("tests/multiseg.py", "1440", "--comp"), 60.0,
+        "SPEC.md 20.12.7: the same seven parts with two of them COMPRESSED. "
+        "It is one source built twice - `-DMSEG_COMP` puts OP_COMP on parts 0 "
+        "and 2 - so every assertion the row above makes has to come out "
+        "IDENTICAL, which is a stronger statement about op_unpack than any "
+        "new check would be: the three per-part proofs are unchanged, and so "
+        "are the segments each part lands at. THE MIX IS THE POINT. Part 0 is "
+        "the FIRST row, so its expansion starts at the very base of the "
+        "carve; part 2 is in the MIDDLE, so a plain row is expanded past on "
+        "each side; parts 1 and 5 are plain, so they take op_unpack's `move "
+        "it down` arm - and part 5 is the OP_XMS fallback, which is a plain "
+        "row that only joins the carve at run time. MEASURED: with the "
+        "format byte left unread, op_unpack handed the decoder the low half "
+        "of a SEGMENT as the format and every stream was refused - `A part "
+        "will not unpack` on a package whose bytes, lengths and pointers "
+        "were all correct. Needs `make msegz`.",
+        needs=("marty",), serial=True, wants=("build/msegz.img",)),
+    Row("msegz360", "soak", py("tests/multiseg.py", "360", "--comp"), 60.0,
+        "...and off a 360KB disk, where op_claim's head slack is 512 rather "
+        "than 0 - so op_unpack's walk starts a paragraph run into the claim "
+        "and not at its base. It is mseg360's argument applied to the new "
+        "arithmetic: the slack is the one term that is zero on the geometry "
+        "everything else is tested on, and a walk that ignored it would pass "
+        "at 1.44MB and put every part 512 bytes low here. Needs `make msegz`.",
+        needs=("marty",), serial=True, wants=("build/msegz360.img",)),
     Row("msegnomem", "soak", py("tests/msegnomem.py"), 40.0,
         "SPEC.md 20.12.3: a package that cannot fit is refused BEFORE IT "
         "READS ANYTHING, and this row measures that rather than asserting it. "
@@ -1754,6 +1798,172 @@ SOAK = [
     Row("dispvy", "soak", py("tests/dispvy.py"), 40.0,
         "How many rows of the SECOND monitor can a straddling window use?",
         needs=("marty",), serial=True),
+    Row("lzdrv", "soak", py("tests/lzdrv.py"), 75.0,
+        "docs/O88-COMPRESSION-PLAN.md 12.6: a COMPRESSED DRIVER loads, "
+        "expands and answers. RAMDISK.DRV is the subject because it has both "
+        "halves of wave 3 - a 2,416-byte bss drv_bss re-makes and a body "
+        "drv_expand unpacks - so one file exercises the whole path. The image "
+        "is compared byte for byte; the BSS deliberately is not, because by "
+        "the time the row has a segment the driver has attached and its bss "
+        "is its working memory. What stands in for it is the three driver "
+        "probes, which a bss full of floppy leftovers does not answer",
+        needs=("marty",), serial=True, builds=True),
+    Row("lzload", "soak", py("tests/lzload.py"), 60.0,
+        "SPEC.md 20.13: a COMPRESSED package loads and expands to the same "
+        "bytes. The loader reads it HIGH, brings the clear prefix down and "
+        "expands the body into the same region with no second claim, so what "
+        "this asserts is the WHOLE image byte for byte and not that a window "
+        "opened - a decoder that got the last run wrong would still open one. "
+        "The third subject is compressed in the format the default kernel "
+        "does NOT carry: 20.13.3 says the cell is in every build and a "
+        "missing format answers CF=1, and no amount of reading the source "
+        "demonstrates that",
+        needs=("marty",), serial=True, builds=True),
+    Row("lzload-lz4", "soak", py("tests/lzload.py", "--lz4only"), 420.0,
+        "...and the REFUSAL, on a kernel built COMPRESS=lz4. The shipped one "
+        "carries both formats (SPEC.md 20.13.6), so the row above proves the "
+        "dispatch and this one proves the fence: SPEC.md 20.13.3 says the "
+        "cell is in every build and a format the build has not got answers "
+        "CF=1, which no amount of reading the source can demonstrate and "
+        "which matters to anyone who cuts a single-format kernel. It "
+        "rebuilds build/ and puts it back",
+        needs=("marty", "nasm"), serial=True, alone=True, builds=True),
+    Row("lzfence", "soak", py("tests/lzfence.py"), 60.0,
+        "SPEC.md 20.13.4: OSAPI_DECOMP REFUSES a hostile stream rather than "
+        "writing. The bounds in kernel/lz.inc were measured for size and "
+        "speed before anything ever fed them a bad stream, so this is the row "
+        "that turns 'it refuses' from an assertion into a fact - a truncated "
+        "blob, a zero offset, a match reaching below the caller's buffer and "
+        "one running past the declared output, each of which would otherwise "
+        "reach a neighbour's region under mem_claim_hi's top-down placement. "
+        "THE POSITIVE CONTROL IS THE POINT: a decoder that refuses everything "
+        "passes all four negatives, so a valid stream runs first and its "
+        "twelve bytes are compared one by one",
+        needs=("marty",), serial=True, builds=True),
+    Row("lzfile", "soak", py("tests/lzfile.py"), 60.0,
+        "SPEC.md 20.14: a COMPRESSED FILE is read transparently, and a write "
+        "derives the hint from the bytes it is writing. The disk carries one "
+        "document TWICE - plain, and inside a 'CZ' wrapper - so every "
+        "assertion is the two of them compared with each other and the "
+        "fixture can be rewritten without touching test code. Six verdicts, "
+        "of which the last two are the write half: PACKED.TXT's RAW bytes "
+        "written back under another name come back EXPANDED (without that, a "
+        "file-manager copy turns a document into gibberish), and a PLAIN "
+        "file written over that same name reads back plain - a stale mark "
+        "would send prose to the decoder, which refuses it. The middle two "
+        "are the size an application claims against: OSAPI_FILE_FIND reports "
+        "the UNPACKED size with bit 0 of +22 set, and a plain file must NOT "
+        "carry that bit, or a cell that set it unconditionally would pass. "
+        "AND THEN IT OPENS README.TXT off the shipped system disk by "
+        "double-clicking it (SPEC.md 20.14.2.1), which no fixture could stand "
+        "in for: the manual's reader has 16,384 bytes for 16,334 of text and "
+        "in-place expansion wants 16,413, so the field saw 'Too big' on a "
+        "file the machine had just reported as fitting. np_len is what says "
+        "it worked - an empty note and a full one look identical at every "
+        "zoom - and it reads 16,019, the CRLF file FOLDED, so 315 carriage "
+        "returns had to arrive to be dropped",
+        needs=("marty",), serial=True, builds=True),
+    Row("lzcomp", "soak", py("tests/lzcomp.py"), 180.0,
+        "SPEC.md 22.22: File > Compress, and the machine's LZB stream against "
+        "the host's BYTE FOR BYTE. os88lz.lzb_compress_machine is a mirror of "
+        "kernel/compress.inc statement for statement rather than a model of "
+        "its output, so the assertion is equality of the whole file - the 'CZ' "
+        "header and every byte of the stream - and not a ratio or a round "
+        "trip. THAT IS THE POINT: a round trip passes on any encoder that "
+        "emits a decodable stream, which is every parse anybody could write, "
+        "and it would have said nothing about either of the two bugs the "
+        "first draft of the module had (a lookahead that poisoned the slot it "
+        "had just read, and a write bound tested once a symbol rather than "
+        "once a pass). Four subjects, each a different half of the verb: a "
+        "PLAIN file; the SAME bytes already wrapped LZ4, which is what a "
+        "shipped floppy carries and which must produce the identical file "
+        "because dskw_read_x hands both paths the same bytes; a PACKAGE, "
+        "refused and untouched; and the plain file a second time, refused as "
+        "already compressed. The disk is read back with os88flush rather than "
+        "by asking os8088 - the writer and the reader inside are one FAT12 "
+        "implementation, so the one bug a write can have that matters is the "
+        "one that cannot be seen from in there. Its FIRST leg is not about "
+        "the verb at all: Copy/Paste must move a compressed file AS IT SITS "
+        "(SPEC.md 20.14.3), which the copy engine has always done - raw "
+        "clusters, dskw_stat's on-disk size, the hint re-derived at the other "
+        "end - and which nothing asserted until this. The installer had the "
+        "same job and got it wrong (52.10.13.1); tests/instdeep.py is that "
+        "half",
+        needs=("marty",), serial=True),
+    Row("lzmod", "soak", py("tests/lzmod.py"), 180.0,
+        "SPEC.md 20.14.5: BEVERLY.MOD, COMPRESSED, opened by a double-click. "
+        "The file this whole feature is for - 116,085 bytes is 114 of a 360KB "
+        "disk's 354 clusters, which is why that geometry ships the module on "
+        "a floppy of its own (24.4); LZ4 takes it to 42,177 and 42, so "
+        "Tracker AND the module fit one disk with 294 clusters left. It is "
+        "also the ONLY file in the tree that crosses a segment, so every path "
+        "in 20.14.5 - the bumped ES, the borrowed match source one segment "
+        "down, lz_cross splitting a copy at the boundary, and LZ_F_BUMP "
+        "retiring the offset compare - runs here and nowhere else. All "
+        "116,085 bytes are compared BYTE FOR BYTE, because a decoder that got "
+        "one match wrong across the boundary still opens a window, still "
+        "shows the title, and still plays - it plays a click",
+        needs=("marty",), serial=True, builds=True),
+    Row("lzmod-lzb", "soak", py("tests/lzmod.py", "--fmt", "lzb"), 420.0,
+        "...and the same module through the OTHER decoder, on the SHIPPED "
+        "kernel - which carries both now (SPEC.md 20.13.6), so this row no "
+        "longer builds a knob and is the proof that a format the machine "
+        "does not WRITE is one it can READ. It is the only thing that ever "
+        "EXECUTES LZB's segment-crossing arm: nothing on any shipped disk is "
+        "LZB, so t_buildmatrix keeps the single-format arms assembling and "
+        "this keeps the one that matters correct. It spends ~10s compressing "
+        "116KB with a bit-oriented format, which is why it is soak and why "
+        "lzmod itself stays on LZ4",
+        needs=("marty", "nasm"), serial=True, alone=True, builds=True),
+    Row("lzship", "soak", py("tests/lzship.py", "--fmt", "lz4"), 420.0,
+        "THE WHOLE SHIPPED SET, COMPRESSED (`make zset ZFMT=lz4`): every "
+        "shipped package, every shipped driver and every data file on both "
+        "360KB floppies at once, under a kernel built to carry that format. "
+        "The other rows in this family compress one subject each; this one has "
+        "a failure mode none of them can have, because the system disk's NINE "
+        "drivers expand during BOOT, by a kernel that has not finished "
+        "starting, into a heap still being laid out. It asserts the boot, the "
+        "drivers actually attaching (off drv_tab, not off the screen - one "
+        "that failed to expand is silently absent rather than visibly "
+        "broken), a compressed package opening off the shipped disk, and "
+        "BEVERLY.MOD opening from MEDIA/ on the APPS disk with all 116,085 "
+        "bytes intact - which is the point of the exercise, that geometry "
+        "needing a whole second floppy for that file today (SPEC.md 24.4)",
+        needs=("marty", "nasm"), serial=True, alone=True, builds=True),
+    Row("lzship-lzb", "soak", py("tests/lzship.py", "--fmt", "lzb"), 600.0,
+        "...and the same set through the bit-oriented decoder. It is a second "
+        "full build of everything plus LZB's ~4x compression time, which is "
+        "why it is separate from the row above rather than a loop inside it - "
+        "and it is what says the two formats are interchangeable at the DISK "
+        "level and not only at the decoder's",
+        needs=("marty", "nasm"), serial=True, alone=True, builds=True),
+    Row("kzboot", "soak", py("tests/kzboot.py"), 120.0,
+        "SPEC.md 2.9.13: the COMPRESSED KERNEL boots, and it is the SHIPPED "
+        "one. The only compression in the tree whose decoder is not in the "
+        "kernel - it is in the BLOB, which mem_unblob hands back to the heap "
+        "at the end of kmain, so the whole feature is resident for the length "
+        "of one boot and costs the running machine nothing. Two assertions, "
+        "and the second is the one a screenshot cannot make: it reaches a "
+        "desktop, AND the image in memory is the image on the host BYTE FOR "
+        "BYTE, because a decoder that got one match wrong still boots, still "
+        "draws a desktop, and is a kernel with a wrong instruction somewhere "
+        "in it. The comparison is taken at a breakpoint on KERNEL_SEG:0 "
+        "rather than at the desktop, that being the one moment the image is "
+        "exactly what the file says - stage 2 writes 18.93.1's boot_cylrun at "
+        "+4 and the boot timer at +12 before it jumps, and kmain writes a "
+        "great deal more, so a comparison taken later reports ~103 "
+        "differences on a kernel that expanded perfectly. TWO GEOMETRIES, "
+        "because there are two floppy boot sectors: 360KB takes the byte "
+        "comparison and 1.44MB is a different 512 bytes (18 spt against 9) "
+        "that gets booted",
+        needs=("marty", "nasm"), serial=True, alone=True, builds=True),
+    Row("kzboot-off", "soak", py("tests/kzboot.py", "--nokzip"), 240.0,
+        "...and the A/B (`NOKZIP=1`), which is what tells 'the packed disk "
+        "boots' from 'any disk boots'. It is also the only row that ever "
+        "RUNS the unpacked arm of either loader - t_buildmatrix keeps it "
+        "assembling and nothing else keeps it correct - and it rebuilds "
+        "build/ twice, which is why it is soak and alone",
+        needs=("marty", "nasm"), serial=True, alone=True, builds=True),
     Row("drvcall", "soak", py("tests/drvcall.py"), 60.0,
         "Can a PACKAGE reach a DRIVER? (SPEC.md 20.11, docs/NET-STACK-PLAN.md"
         "stage A)",
@@ -1888,7 +2098,15 @@ SOAK = [
     Row("instdeep", "soak", py("tests/instdeep.py"), 120.0,
         "SPEC.md 52.10.13: an install reproduces the source disk's WHOLE "
         "tree - the empty SYSTEM/APPDATA and SYSTEM/DOS/OS88NET.COM included, "
-        "which one folder level could not reach. It ERASES the VHD.",
+        "which one folder level could not reach - AND ITS BYTES (52.10.13.1). "
+        "README.TXT is compressed on the shipped floppy, 8,850 bytes against "
+        "16,304 expanded, and the installer had two copy shapes chosen by "
+        "size: the small one used OSAPI_FILE_READ, which is the TRANSPARENT "
+        "read, so the manual was installed EXPANDED with its directory hint "
+        "gone while every file too big for the buffer was copied raw and "
+        "correctly. The tree check passes either way; only the bytes say "
+        "which happened, and one FAT reader reads both sides. It ERASES the "
+        "VHD.",
         needs=("marty",), serial=True, timeout=1200),
     Row("hibernate", "soak", py("tests/hibernate.py"), 300.0,
         "SPEC.md 87: Hibernate... writes the machine to the hard disk and the "

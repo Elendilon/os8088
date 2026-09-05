@@ -65,6 +65,17 @@ import kernsize                                           # noqa: E402
 KNOB_ONLY = ("band.inc", "bootprof.inc", "moudiag.inc", "stkdiag.inc",
              "vmmouse.inc")
 
+# ...and a second reason for a zero row, which is NOT a knob: a file whose
+# whole contribution is an on-demand module IMAGE (SPEC.md 2.8).  Those
+# sections are cut out of kernel.bin by tools/os88mod.py and shipped as a
+# `.DRV`, so they are not in MOD_SECTIONS and never will be - the report is
+# about what a machine carries, and a module image is not it.  Every other
+# module file has a resident half as well (a thunk, a string, a `mod_tab`
+# row) and so measures somewhere; compress.inc is the first that is PURELY
+# the image, and its resident half lives on mod.inc's and files.inc's rows.
+# A file joining this list is saying "nothing of this is in KERNEL.SYS".
+IMAGE_ONLY = ("compress.inc",)
+
 
 def main():
     per, err = kernsize.measure_modules()
@@ -107,7 +118,7 @@ def main():
 
     # 3. Nothing reads as free.
     for name, v in sorted(per.items()):
-        if name in KNOB_ONLY:
+        if name in KNOB_ONLY or name in IMAGE_ONLY:
             continue
         check(any(v[s] for s in kernsize.MOD_SECTIONS),
               "%s measures somewhere" % name,

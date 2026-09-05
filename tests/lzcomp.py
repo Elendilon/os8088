@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""File > Compress, and the machine's stream against the host's, BYTE FOR BYTE.
+
+docs/O88-COMPRESSION-PLAN.md wave 6; SPEC.md 20.15 is the module and 22.22 the
+verb. `os88lz.lzb_compress_machine` is a mirror of `kernel/compress.inc`
+statement for statement rather than a model of its output, so the assertion
+here is equality of the whole file - the 'CZ' header and every byte of the
+stream - and not a ratio or a round trip.
+
+THAT DISTINCTION IS THE ROW'S VALUE. A round-trip test passes on any encoder
+that emits a decodable stream, which is every parse anybody could write; it
+would have said nothing about the two bugs the first draft of the module had
+(a lookahead that poisoned the slot it had just read, and a write bound tested
+once a symbol rather than once a pass). Equality with a reference implementation
+fails on the first byte that differs and says where.
+
+Four subjects, and each is a different half of the verb:
+
+  PLAIN.TXT   a plain file: read, compress, write. The result must be exactly
+              'CZ' + LZB + the machine model's stream
+  PACKED.TXT  the SAME bytes already wrapped LZ4 - what a shipped floppy
+              carries. dskw_read_x hands back the unpacked bytes, so LZ4 -> LZB
+              is the same code path and the result must be the same file
+  CALC.O88    a PACKAGE (SPEC.md 22.22.1), which is not a 'CZ' file at all: the
+              clear prefix stays in front, flags bits 3 and 4 go on, and the
+              expected bytes come from os88pkg.compress_image with the machine
+              encoder passed in - so the refusals, the prefix and the in-place
+              arithmetic are stated ONCE and this test carries no copy of them.
+              **And then it is double-clicked**, because the only thing that
+              proves a package is still a package is the machine's own loader
+              running it
+  TELNET.O88  ...one the BUILD already compressed: refused, and untouched
+  (again)     PLAIN.TXT once it is LZB: refused as already compressed, and the
+              file untouched
+
+...and one thing that is not about the verb at all. **COPY/PASTE MUST NOT
+EXPAND** (SPEC.md 20.14.3): the file manager's copy engine reads raw clusters
+and takes its size from `dskw_stat`, so it moves a compressed file as it sits
+and `dskw_czstamp` re-derives the hint at the other end - which nothing in the
+tree asserted until this row did. The installer had the same job and got it
+wrong (SPEC.md 52.10.13); `tests/instdeep.py` is that half.
+
+The disk is read back with os88flush rather than by asking os8088 - the writer
+and the reader here are one FAT12 implementation, so the one bug a write can
+have that matters is the one that cannot be seen from inside (docs/FIELD-NOTES.md
+4's rule).
+"""
+import argparse
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+sys.path.insert(0, os.path.dirname(__file__))
+import os88flush                                       # noqa: E402
+import os88lz                                          # noqa: E402
+import os88pkg                                         # noqa: E402
+import os88marty                                       # noqa: E402
+import os88mouse                                       # noqa: E402
+import os88sym                                         # noqa: E402
+import dispcp                                          # noqa: E402
+from os88geom import MBAR_H, MENU_ITEM_H, MB_ENTSZ      # noqa: E402
+
+S = os88sym.linear
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.join(HERE, "..")
+MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
+
+MB_XL = 6                       # menu.inc's bar entry: the cell's left edge
+FM_ICOMPRESS = 4                # the File menu's fifth item (SPEC.md 22.22)
+TOAST_MAX = 24
+
+
+def say(*a):
+    print(*a, flush=True)
+
+
+def u16(b, i=0):
+    return b[i] | (b[i + 1] << 8)
+
+
+def menu_pick(m, mo, cell, item):
+    """Drop menu-bar cell `cell` and pick item `item` - dispcalc's helper, and
+    the x comes out of the kernel's own `menu_bar` for its reason: the bar is
+    rebuilt whenever the owner changes, so its cells are a runtime fact."""
+    t = m.read(S("menu_bar") + cell * MB_ENTSZ, MB_ENTSZ)
+    x = u16(t, MB_XL) + 6
+    mo.menu(x, 8, x, MBAR_H + 1 + item * MENU_ITEM_H + 8)
+
+
+def toast(m):
+    """What the last verdict said. Empty when nothing is up."""
+    raw = m.read(S("toast_buf"), TOAST_MAX + 1)
+    return raw.split(b"\0")[0].decode("latin-1")
+
+
+def cz(body, u):
+    """The 'CZ' container the verb must write (SPEC.md 20.14)."""
+    return (b"CZ" + bytes([os88lz.LZB, 0])
+            + u.to_bytes(4, "little") + body)
+
+
+def stage(d, name, data):
+    """One staged file, written only when its bytes CHANGE.
+
+    os88disk names a file by its BASENAME, so the staging directory is what
+    gives PACKED.TXT its name - and rewriting it every run would defeat
+    scratch_disk's mtime test and rebuild the image forty times for nothing.
+    """
+    path = os.path.join(d, name)
+    try:
+        same = open(path, "rb").read() == data
+    except OSError:
+        same = False
+    if not same:
+        open(path, "wb").write(data)
+    return path
+
+
+def pkg_want(image):
+    """What the verb must write over an UNCOMPRESSED package.
+
+    os88pkg.compress_image with the machine's encoder passed in: the clear
+    prefix, the flag bits, the "did it get smaller" test and the in-place
+    layout arithmetic are all that function's, so this test states none of
+    them (SPEC.md 22.22.1). None back means the host would refuse it too,
+    which makes the fixture the wrong one rather than the machine wrong.
+    """
+    image = bytearray(image)
+    img = int.from_bytes(image[8:10], "little")
+    bss = int.from_bytes(image[10:12], "little")
+    out = os88pkg.compress_image(bytearray(image), img, bss, image[3], "lzb",
+                                 soft=True,
+                                 packer=os88lz.lzb_compress_machine)
+    if out is None:
+        sys.exit("lzcomp: the host refuses to compress the package fixture, "
+                 "so there is nothing for the machine to be compared against")
+    return bytes(out)
+
+
+def build_disk(path):
+    plain = open(os.path.join(HERE, "lzcomp", "plain.txt"), "rb").read()
+    packed, did = os88lz.cz_wrap(plain, os88lz.LZ4)
+    if not did:
+        sys.exit("lzcomp: the fixture does not compress under LZ4 - PACKED.TXT "
+                 "would be the plain file and the LZ4 -> LZB leg would test "
+                 "nothing")
+    # The shipped .o88 files are LZ4 by default (PKGZ), so the package fixture
+    # is the IMAGE back out of one - what nasm emitted, which is what an
+    # uncompressed package on somebody's disk looks like.
+    calc = os88pkg.image_unwrap(
+        open(os.path.join(ROOT, "build", "calc.o88"), "rb").read())
+    telnet = open(os.path.join(ROOT, "build", "telnet.o88"), "rb").read()
+    if len(telnet) >= int.from_bytes(telnet[8:10], "little"):
+        sys.exit("lzcomp: build/telnet.o88 is not compressed, so the "
+                 "'already compressed' package leg would test nothing - "
+                 "this needs a default (PKGZ=lz4) build")
+    d = os.path.join(os.path.dirname(path), "lzcomp")
+    os.makedirs(d, exist_ok=True)
+    sub = os.path.join(d, "sub")
+    os.makedirs(sub, exist_ok=True)
+    return os88marty.scratch_disk(
+        path,
+        stage(d, "PLAIN.TXT", plain),
+        stage(d, "PACKED.TXT", packed),
+        stage(d, "CALC.O88", calc),
+        stage(d, "TELNET.O88", telnet),
+        "SUB:" + stage(sub, "RAWCOPY.TXT", packed),
+        size=360), plain, packed, calc, telnet
+
+
+def compress(m, mo, wx, wy, name, fails, quiet=30):
+    """Select `name`, pick File > Compress, and wait for the verb to finish.
+
+    THE WAIT IS ON THE TOAST and not on a fixed sleep: the pack is seconds of
+    8088 at ~1,600 cycles a byte and the disk write is more, and a sleep long
+    enough for the slowest subject is dead time on every other row. Every exit
+    from the verb says something (SPEC.md 22.22.1), including the refusals, so
+    a toast IS the completion signal.
+    """
+    m.write(S("toast_buf"), b"\0")          # ...so the previous verdict cannot
+    row = dispcp.row_of(m, S, name)         # be read as this one's
+    x, y = dispcp.row_xy(wx, wy, row)
+    mo.click(x, y)
+    os88marty.settle(m)
+    menu_pick(m, mo, 1, FM_ICOMPRESS)       # cell 0 is the chip, 1 is File
+    for _ in range(quiet):
+        time.sleep(1)
+        t = toast(m)
+        if t:
+            return t
+    fails.append("%s: nothing was said in %ds - the verb never finished, or it "
+                 "returned without a verdict" % (name, quiet))
+    return ""
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--adapter", default="cga", choices=sorted(MACHINE))
+    a = ap.parse_args()
+
+    for f in ("build/os8088-360.img", "build/hello.o88"):
+        if not os.path.exists(os.path.join(ROOT, f)):
+            sys.exit("lzcomp: %s is missing - run `make` first" % f)
+
+    disk, plain, packed, calc, telnet = build_disk("/tmp/lzcomp360.img")
+    want = cz(os88lz.lzb_compress_machine(plain), len(plain))
+    pwant = pkg_want(calc)
+    say("lzcomp: %d bytes of prose -> %d expected (%.1f%%), LZ4 on the disk "
+        "is %d" % (len(plain), len(want), 100.0 * len(want) / len(plain),
+                   len(packed)))
+    say("lzcomp: CALC.O88 %d -> %d expected (%.1f%%), %d bytes clear"
+        % (len(calc), len(pwant), 100.0 * len(pwant) / len(calc),
+           os88pkg.clear_prefix(calc[3])))
+    fails = []
+
+    with os88marty.launch(os.path.join(ROOT, "build", "os8088-360.img"),
+                          apps=disk, machine=MACHINE[a.adapter]) as m:
+        os88marty.settle(m, gate=os88marty.desktop_up)
+        mo = os88mouse.Mouse(marty=m)
+        fl = os88flush.Flush(marty=m)
+
+        dispcp.open_drive(m, mo, S, os88marty.settle, "B")
+        wins = dispcp.win_list(m, S)
+        if not wins:
+            sys.exit("lzcomp: no Disk window after double-clicking B:")
+        wx, wy = dispcp.win_rect(m, S, wins[-1])[:2]
+
+        # --- 0. COPY/PASTE MOVES A COMPRESSED FILE AS IT SITS ---------------
+        # Before anything is modified, and it is not the verb's: the copy
+        # engine reads raw clusters (dsk_read_chain) and sizes itself from
+        # dskw_stat's RAW answer, so a compressed file crosses whole and
+        # dskw_czstamp re-derives the hint from the bytes at the other end.
+        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "SUB")
+        row = dispcp.row_of(m, S, "RAWCOPY.TXT")
+        rx, ry = dispcp.row_xy(wx, wy, row)
+        mo.click(rx, ry)
+        os88marty.settle(m)
+        menu_pick(m, mo, 2, 1)                  # Edit > Copy
+        time.sleep(1)
+        menu_pick(m, mo, 3, 3)                  # Nav > Up One Folder
+        time.sleep(2)
+        menu_pick(m, mo, 2, 2)                  # Edit > Paste
+        for _ in range(25):
+            time.sleep(1)
+            if any(n == "RAWCOPY.TXT" for n, _ in dispcp.listing(m, S)):
+                break
+        got = fl.volume(1).read("RAWCOPY.TXT")
+        ok = got == packed
+        say("  copypaste  %s  (%d bytes, the source is %d, expanded is %d)"
+            % ("ok " if ok else "BAD", len(got), len(packed), len(plain)))
+        if not ok:
+            fails.append("RAWCOPY.TXT came out of Copy/Paste at %d bytes and "
+                         "the source is %d - a copy that EXPANDS is a copy "
+                         "that used the transparent read (SPEC.md 20.14.3)"
+                         % (len(got), len(packed)))
+
+        # --- 1. a plain file ------------------------------------------------
+        t = compress(m, mo, wx, wy, "PLAIN.TXT", fails)
+        got = fl.volume(1).read("PLAIN.TXT")
+        ok = got == want
+        say("  plain      %s  %r  (%d bytes, wanted %d)"
+            % ("ok " if ok else "BAD", t, len(got), len(want)))
+        if not ok:
+            i = next((k for k in range(min(len(got), len(want)))
+                      if got[k] != want[k]), min(len(got), len(want)))
+            fails.append("PLAIN.TXT: the machine's file and "
+                         "lzb_compress_machine's first differ at byte %d "
+                         "(%d bytes against %d)" % (i, len(got), len(want)))
+
+        # --- 2. the SAME bytes, arriving LZ4 --------------------------------
+        t = compress(m, mo, wx, wy, "PACKED.TXT", fails)
+        got = fl.volume(1).read("PACKED.TXT")
+        ok = got == want
+        say("  lz4tolzb   %s  %r  (%d bytes, wanted %d)"
+            % ("ok " if ok else "BAD", t, len(got), len(want)))
+        if not ok:
+            fails.append("PACKED.TXT: LZ4 -> LZB did not produce the same "
+                         "file as plain -> LZB, and dskw_read_x hands both "
+                         "paths the identical bytes (%d against %d)"
+                         % (len(got), len(want)))
+
+        # --- 3. a PACKAGE, which is not a 'CZ' file (SPEC.md 22.22.1) -------
+        t = compress(m, mo, wx, wy, "CALC.O88", fails)
+        got = fl.volume(1).read("CALC.O88")
+        ok = got == pwant
+        say("  package    %s  %r  (%d bytes, wanted %d)"
+            % ("ok " if ok else "BAD", t, len(got), len(pwant)))
+        if not ok:
+            i = next((k for k in range(min(len(got), len(pwant)))
+                      if got[k] != pwant[k]), min(len(got), len(pwant)))
+            fails.append("CALC.O88: the machine's package and "
+                         "os88pkg.compress_image's first differ at byte %d "
+                         "(%d bytes against %d) - byte 3 is the flags and "
+                         "%d bytes should be clear in front"
+                         % (i, len(got), len(pwant),
+                            os88pkg.clear_prefix(calc[3])))
+
+        # --- 3a. ...and it still LOADS, which is the only proof that counts --
+        before = dispcp.win_list(m, S)
+        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "CALC.O88")
+        for _ in range(20):
+            time.sleep(1)
+            if len(dispcp.win_list(m, S)) > len(before):
+                break
+        after = dispcp.win_list(m, S)
+        ok = len(after) > len(before)
+        say("  runs       %s  (%d windows, was %d)"
+            % ("ok " if ok else "BAD", len(after), len(before)))
+        if not ok:
+            fails.append("the compressed CALC.O88 opened no window - "
+                         "ld_check_hdr or ld_expand refused a package this "
+                         "machine had just written")
+
+        # --- 4. one the BUILD already compressed ----------------------------
+        before = fl.volume(1).read("TELNET.O88")
+        t = compress(m, mo, wx, wy, "TELNET.O88", fails, quiet=8)
+        after = fl.volume(1).read("TELNET.O88")
+        ok = t.startswith("Already") and after == before
+        say("  pkgalready %s  %r  (%d bytes, was %d)"
+            % ("ok " if ok else "BAD", t, len(after), len(before)))
+        if not ok:
+            fails.append("TELNET.O88: expected 'Already compressed' and an "
+                         "untouched file, got %r and %d bytes of %d"
+                         % (t, len(after), len(before)))
+
+        # --- 5. ...and the plain file again, now LZB ------------------------
+        t = compress(m, mo, wx, wy, "PLAIN.TXT", fails, quiet=8)
+        again = fl.volume(1).read("PLAIN.TXT")
+        ok = t.startswith("Already") and again == want
+        say("  already    %s  %r  (%d bytes)"
+            % ("ok " if ok else "BAD", t, len(again)))
+        if not ok:
+            fails.append("PLAIN.TXT a second time: expected 'Already "
+                         "compressed' and the same file, got %r and %d bytes"
+                         % (t, len(again)))
+
+    for f in fails:
+        say("  FAIL: " + f)
+    say("lzcomp: %s" % ("FAILED" if fails else "ok"))
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

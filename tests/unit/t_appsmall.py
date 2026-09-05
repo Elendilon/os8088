@@ -37,6 +37,9 @@ from harness import check, done                             # noqa: E402
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 ROOT = os.path.abspath(ROOT)
 
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88pkg                                              # noqa: E402
+
 # (package, source, the shipped .o88 it must still equal)
 PKGS = [("notepad", "apps/notepad/notepad.asm", "build/notepad.o88"),
         ("paint", "apps/paint/paint.asm", "build/paint.o88"),
@@ -105,8 +108,17 @@ def claim(path):
 
 
 def md5(path):
+    """...of the IMAGE, which for a shipped package is not the file.
+
+    Every shipped `.o88` is LZ4 on the disk now (SPEC.md 20.13.4) and the
+    thing this file compares is an ASSEMBLY - so the shipped side has to be
+    unwrapped or the check degenerates into "compression changes bytes", which
+    it does, and says nothing about which arm was built. image_unwrap puts the
+    flags byte back too, so a plain package and a compressed one made from the
+    same source hash the same.
+    """
     with open(path, "rb") as f:
-        return hashlib.md5(f.read()).hexdigest()
+        return hashlib.md5(os88pkg.image_unwrap(f.read())).hexdigest()
 
 
 def main():
