@@ -1,19 +1,32 @@
 # `kern_small` — what a 128KB machine can stop carrying
 
-> **The tree moved under this document, twice.** `elendilon` merged kernel
-> size pass 3 and APP_SMALL, taking `kern_small` from `KERN_SIZE` **96,256 to
-> 94,720** and the free heap from 32.5 KB to **34.0**; then **§4's C3 was
-> BUILT** — associations are gated out of `kern_small` (SPEC.md §54.0), taking
-> it to **92,160 and 36.5 KB**, and returning the 3,072-byte pinned claim
-> docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md §9.1 found, so a bare desktop went from
-> ~31.0 KB usable to 36.5. **The per-feature rows below are pre-merge
-> measurements** and are within ~1.5% of the merged tree; the tier table in
-> §8.1 is the one to re-derive before anything is decided off it.
-> docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md §9.2 carries the current arithmetic.
+> **THIS IS THE OPEN HALF. What has been BUILT is
+> `docs/plans/completed/KERN-SMALL-CUT-BUILT.md`**, and it is worth reading
+> first: it carries A3, A4, A2, C3, B5 and the D rows, the measurement that a
+> 128KB desktop now has **50.5 KB** of free heap against 32.5 when this study
+> opened, and the three findings that bind every row still on this page -
+> sections are not heap, a byte's value depends on where it is, and a claim is
+> not a section. §2.1-§2.4 below are pointers into it; everything else here is
+> still a proposal.
+
+> **The 70KB target is RETIRED and the brief is open-ended.** It was derived
+> from SHEET's region, and SHEET claims ~100KB of heap on open - more than the
+> machine has - so no row in this document ever ran it (§0.1, §8.2). What is
+> asked now is: take what can be taken, and weigh each feature against what
+> losing it does to the machine. PAINT, the other program behind the original
+> ask, was solved at the APPLICATION layer instead (SPEC.md §42.23), which is
+> the shape worth noticing.
+
+> **The per-feature rows below are PRE-MERGE measurements** taken at build 376
+> and are within ~1.5% of the merged tree; the tier table in §8.1 is the one to
+> re-derive before anything is decided off it.
+> `docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md` §9.2 carries the current
+> arithmetic.
 
 **Research document, not a contract.** SPEC.md is the binding contract for what
 the kernel *is*; this is the study of what `kern_small` could stop being, and
-the arithmetic that says how far each answer gets. Nothing here has been built.
+the arithmetic that says how far each answer gets. Nothing STILL ON THIS PAGE
+has been built - what was is in the completed companion above.
 Every figure was measured on this tree at build 376 by the method in §8, and
 the ones that are derived rather than measured say so.
 
@@ -238,94 +251,51 @@ What is actually still on the table:
 
 ### 2.1 A3 and A4 ARE BUILT, A2 IS REFUSED, A1 IS DEFERRED
 
-**A3 is SPEC.md §51.0 and A4 is in `disk.inc`.** Measured tree-to-tree across
-both:
+**CLOSED. The record is docs/plans/completed/KERN-SMALL-CUT-BUILT.md §1.** A3 (loadable
+drivers, SPEC.md §51.0) and A4 (`disk.inc`) were built together for
+**−3,632 bytes of sections and −2,560 of heap**, taking `KERN_SIZE`
+88,064 → 85,504 and the free heap on a 128KB machine 40.5 → 43.0 KB;
+`kern_big` byte-identical. A1 is **deferred at the owner's instruction**
+(*"keep pc speaker for this round"*), and its FM/Sound-Blaster half is already
+dead on `kern_small` because those tiers are reached through `SOUND.DRV`.
 
-```
-             before    after    delta
-.text        39,731   39,272     -459
-.bss          5,417    4,848     -569
-.cold        27,215   25,602   -1,613     } -2,641 IN THE LADDER
-.ovl          1,226      423     -803     } -991 boot overlay
-.ovlw         4,516    4,328     -188     }
-                                -------
-                                 -3,632   ->  HEAP -2,560 = 2.5 KB
-
-KERN_SIZE   88,064 -> 85,504          heap floor 87.5 KB -> 85.0 KB
-free heap on a 128KB machine, MEASURED on one:   40.5 KB -> 43.0 KB
-kern_big                                          byte-identical
-```
+**A2 was refused here and then taken for a different reason — §2.3.**
 
 ### 2.2 The finding this row exists for: SECTIONS ARE NOT HEAP
 
-**3,632 bytes of sections bought 2,560 bytes of heap, and the difference is
-not rounding.** 991 of them are `.ovl`/`.ovlw` — boot-overlay code loaded into
-memory the machine reuses once it is up — so they move `KERN_SIZE` and the
-boot-time minimum and move `HEAP_SEG` by *nothing*. Only 81 bytes went to the
-512-byte rung rounding.
+**CLOSED, and it binds every row still open in this document. The record is
+docs/plans/completed/KERN-SMALL-CUT-BUILT.md §2.** In one line: 3,632 bytes of
+sections bought 2,560 bytes of heap, because 991 of them were `.ovl`/`.ovlw`
+— boot-overlay code loaded into memory the machine reuses once it is up, which
+moves `KERN_SIZE` and moves `HEAP_SEG` by nothing.
 
-**That makes this document's whole method optimistic**, and it is worth saying
-plainly before anything else here is decided off it. §2–§5 price features by
-adding up `.text`, `.cold` and `.bss` off a symbol map. That is the right
-answer for **footprint**, and it is the wrong answer for **free heap** whenever
-any of the bytes are in an overlay: the ladder is `.text+.bss`, then `.cold`,
-and nothing else in the sum reaches it. A row should be read as an upper
-bound on heap, not an estimate of it.
+**So every per-feature row in §2–§5 below is an UPPER BOUND on free heap, not
+an estimate of it.** The ladder is `.text+.bss` then `.cold`, and nothing else
+in those sums reaches it. Read the tables accordingly.
 
-The resident half of the estimate was **good**: A3's `.text`+`.bss`+`.cold`
-was priced at 2,550 and came in at **2,277**, 12% *high*. What the row missed
-was the 991 bytes of overlay — and those are exactly the bytes that buy
-nothing.
+### 2.3 A2 was refused and then TAKEN, for a completely different reason
 
-**And there is a reporting trap behind it worth not repeating.** `kernsize`'s
-`sum` is a delta against the **blessed baseline**, not against the tree you
-started from. The baseline had not been blessed since before W1, so a reading
-taken after A3 reported `-6,529` — W1 and W2 included — and it reads exactly
-like an increment. Bless after a wave lands, and measure a change
-tree-to-tree when the number is going in a document.
+**CLOSED. The record is docs/plans/completed/KERN-SMALL-CUT-BUILT.md §3**, and it is
+the caution worth carrying into every row still open here: **in a kernel with
+overlays a byte's value depends on WHERE it is, not only on how big it is.**
+§2.1 refused the clock ladder on a measurement that stands — forcing one rung
+is 44–51 bytes, not ~510 — and the owner then settled the hardware question
+(no rung is reachable on a 128KB machine at all, SPEC.md §37.0.1). Gating it
+took `.ovlw` **4,328 → 2,789**, which **unlocked D2** — 3,584 bytes of
+`FAT_SEG`, seven times what A2's own row claimed. §7 is why `.ovlw` is the
+constraint.
 
-**A2 is refused, on a measurement and on a judgement.**
+### 2.4 The batch, measured
 
-The measurement first, because it settles the row on its own. `clock.inc`
-already has the mechanism this row describes — `CLK_FORCE`, the `RTC=` knob —
-and forcing a single rung is worth **44 to 51 bytes**, not ~510:
+**CLOSED. The record is docs/plans/completed/KERN-SMALL-CUT-BUILT.md §4.** Everything
+built lands at **50.5 KB of free heap on a 128KB machine**, measured on one
+(`tests/small128.py`), against 32.5 KB when this study opened.
 
-```
-full ladder      .ovlw 4,328        (-DCLK_FORCE=n, kern_small, .text/.bss identical in all five)
-rung 1 only      .ovlw 4,277   -51
-rung 2 only      .ovlw 4,277   -51
-rung 3 only      .ovlw 4,284   -44
-rung 4 only      .ovlw 4,279   -49
-```
-
-`CLK_TRY` appears five times and all five are inside `clk_probe`: it gates the
-**probes**, in the boot overlay. The per-rung **read and write** bodies are in
-`.text` and are selected at run time off `[clk_tier]`, so they are not gated
-by anything and this row's `~450 .text` has no mechanism behind it. Getting
-that 450 would mean building a second gate over ~20 bodies.
-
-And it should not be built, because the row picks the wrong rungs. **Rungs 2
-and 3 are XT clock cards** — a National MM58167 or a Ricoh RP5C01 on a card at
-2C0h — which is precisely the add-on the machine this build exists for would
-have. Rung 1 is the MC146818, and *that* is the AT-only part. So the row's own
-reasoning ("a 5150 has no RTC") argues for dropping rung 1 and keeping 2 and
-3, which is the opposite of what it proposes and is worth ~51 bytes.
-
-**A1 is deferred at the owner's instruction** — *"keep pc speaker for this
-round - we may cut it later, but for now."* Worth recording for whoever picks
-it up: A3 has already made **part of it dead**. The FM and Sound Blaster tiers
-are reached through `SOUND.DRV`, so with no driver loadable the `SND_RT_FM`
-and `SND_RT_SB` routes, `snd_str_busy` and the stream API can never be
-selected on `kern_small`. What the speaker actually needs is the tone path and
-`snd_xlat`'s 256 bytes of PCM rescale — so A1 splits, and the half that is
-already unreachable is the cheaper half to take.
-
-**A3 is the one to think hardest about.** It is the largest item here and it is
-not a device — it is the ability to load one. A `kern_small` machine with no
-drivers cannot gain a RAM disk, a hard disk, a screen saver or a network later,
-and `SYSTEM.CFG` stops being read. Against that: on a 128KB machine there is no
-heap to host a driver in anyway, which is close to an argument that the
-mechanism is already unusable there rather than merely unused.
+**The lever it points at for everything still open in this document is
+PER-INSTANCE CLAIMS, which nothing here has counted.** B5's second half — the
+per-window view cache, SPEC.md §22.6.1 — is 1,024 bytes per open Disk window
+and 4,096 with all four up, and **a claim is not a section: it never appears
+in `kernsize` at all.**
 
 ---
 
@@ -627,91 +597,6 @@ deleted — so the two middle rows keep file *writing* and associations and pay
 8.4 KB of heap for them. That is the trade to put to the owner, and it is a
 different one from the trade this table gave before
 docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md was written.
-
-### 2.3 A2 was refused and then TAKEN, for a completely different reason
-
-§2.1 refused it on a measurement that stands: `CLK_FORCE` already exists, and
-forcing one rung is worth **44–51 bytes**, not ~510. That measurement was of
-the wrong thing.
-
-**The owner settled the hardware question, and it settles all four rungs:**
-
-> *"if they have a sixpakplus then they have more than 128kb ram. The
-> sixpakplus is a ram expansion card. And the first thing that had the toshiba
-> clock shipped with 256kb ram so its not really valid either."*
-
-That is right, and it is stronger than this document's reasoning was. Rung 1
-is AT-only; rung 4 is `int 1Ah AH=02h`, which §37.90's own opening says an XT
-BIOS does not implement; and rungs 2 and 3 — the add-on cards that looked like
-*exactly* the XT upgrade path — are on boards that came with the RAM that
-takes the machine off this build's floor. **No rung is reachable on a 128KB
-machine**, so the ladder is not unlikely there, it is dead code. SPEC.md
-§37.0.1 is the contract.
-
-**And what it is worth is not its own bytes.** `.ovlw` went **4,328 → 2,789**,
-and `.ovlw` is what §7 caps three of the most attractive data cuts against:
-
-```
-                              .ovlw   rounded   region at 2 FAT sectors
-before gating the ladder      4,328     4,608   4,352   -> D2 REFUSED by 256
-after                         2,789     3,072   4,352   -> D2 fits, 1,280 spare
-```
-
-So the clock unlocked **D2**, which is 3,584 bytes of `FAT_SEG` — seven times
-what A2's own row claimed — and the measurement in §2.1 could not have seen
-that because it was measuring footprint and this is a **placement**
-constraint. Worth keeping as a caution against the next row that looks small:
-in a kernel with overlays, a byte's value depends on where it is, not only on
-how big it is.
-
-### 2.4 The batch, measured
-
-A3 + A4 + A1's dead half + A2 + D1 + D2 + D4 + D7, all built:
-
-```
-                        KERN_SIZE   heap floor   free heap on 128KB
-before this work           96,256      95.5 KB         32.5 KB
-after W0-W2 (modules)      88,064      87.5 KB         40.5 KB
-+ A3, A4                   85,504      85.0 KB         43.0 KB
-+ A1 dead half             84,992      84.5 KB         43.5 KB
-+ A2, D1, D4, D7           82,432      82.0 KB         46.0 KB
-+ D2                       78,848      78.5 KB         49.5 KB
-+ the icon pool (B5)       77,824      77.5 KB       * 50.5 KB *
-```
-
-**...and B5 has a second half that is not in that column at all**, because it
-is HEAP rather than footprint: the per-window view cache (SPEC.md 22.6.1)
-carried the same duplication one layer out - 2KB of its 3KB was one icon body
-per entry, in EVERY open Disk window's private claim. Pooling it too takes
-`VIEW_KB` 3 -> 2 for `.cold` +34, which is **1,024 bytes per open window and
-4,096 with all four up** (SPEC.md 25.8.5). Measured on the 128KB machine: a
-Disk window's claim reads 2,048 bytes where it read 3,072.
-
-That one is worth more than its size suggests and is easy to miss in a table
-of section deltas, because a claim is not a section: it never appears in
-`kernsize` at all. The lever it points at for the rest of this document is
-**per-instance claims**, which nothing here has counted.
-
-**50.5 KB, measured on a machine with 128KB in it** (`tests/small128.py`), and
-`kern_big` moved by 512 bytes — D4's, the only item here it shares.
-
-**B5 is the row that was not on the list**, and it is the shape §3 was looking
-for and did not find: `disk_icons` is 2,048 bytes of `.lowbss` holding one
-64-byte body per directory entry, and a listing does not have 32 distinct
-icons — every folder is the same picture and most entries have none at all.
-SPEC.md 25.8 makes it a **16-body pool with a 32-byte index**, 1,056 against
-2,048, and the low rung uncrosses twice: `.lowbss −992`, `.cold +148`,
-`.text +2`, **KERN_SIZE −1,024**.
-
-It is the only cut in this document so far that **loses no feature and no
-picture**: the seventeenth icon in one listing falls back to the generic icon
-§25 already draws, and the A/B against the kernel before it is **0 differing
-pixels of 2,740** in both a folder window and a package window. What made it
-non-trivial is not the pool, it is that `files.inc` is a **second reader** of
-the same array with a slot-per-entry layout baked into a per-window cache —
-so the pool stops at `fmv_store`, which expands into that cache rather than
-copying it (SPEC.md 25.8.2). Getting that wrong was 301 differing pixels in
-exactly one of the two windows.
 
 ### 8.2 If 70KB is firm — IT IS NOT, and §0.1 is why
 
