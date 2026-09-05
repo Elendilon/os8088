@@ -82,31 +82,44 @@ def button1(m):
     return x + BTN1_DX, y + BTN1_DY
 
 
+# **THE FILE, NOT THE IMAGE** (docs/plans/O88-COMPRESSION-PLAN.md). `kernel.bin`
+# is what the kernel IS and `kernel.sys` is what goes on a volume; since
+# `PKGZ ?= lz4` they are different bytes and different lengths, and both
+# fixtures below name a kernel by hand where every Makefile rule names
+# `$(KERNFILE)`. Getting it wrong is silent at build time and fatal at boot:
+# the VHD carried 208 sectors of unpacked image under a boot record built for
+# the packed one, and the machine reached a loading screen and stopped there
+# for the whole 360-second budget. `tools/os88hdd.py` refuses it now, and this
+# is the caller that taught it to.
+KERNEL = "build/kernel.sys"
+
+
 def fixture():
     """The VHD, rebuilt from the tree every run: KERNEL.SYS plus the three
     modules and the driver the boot volume must carry (SPEC.md 2.8.4)."""
     subprocess.check_call(
         ["python3", "tools/os88hdd.py", "--template", TEMPLATE, "--out", VHD,
-         "--kernel", "build/kernel.bin", "--vbr", "build/boothd.bin",
-         "--mbr", "build/mbr.bin",
-         "--file", "HIBER.DRV=build/hiber.drv",
-         "--file", "CTRL.DRV=build/ctrl.drv",
-         "--file", "HDD.DRV=build/hdd.drv"])
+         "--kernel", _B.at(KERNEL), "--vbr", _B.at("build/boothd.bin"),
+         "--mbr", _B.at("build/mbr.bin"),
+         "--file", "HIBER.DRV=" + _B.at("build/hiber.drv"),
+         "--file", "CTRL.DRV=" + _B.at("build/ctrl.drv"),
+         "--file", "HDD.DRV=" + _B.at("build/hdd.drv")])
 
 
 def floppy():
     """A 360KB system disk whose SYSTEM.CFG wants HDD.DRV (row 1 = bit 1),
     the Makefile's ethertest shape."""
-    os.makedirs("build/hibcfg", exist_ok=True)
-    cfg = "build/hibcfg/system.cfg"          # its basename IS the file's name
+    os.makedirs(_B.at("build/hibcfg"), exist_ok=True)
+    cfg = _B.at("build/hibcfg/system.cfg")   # its basename IS the file's name
     with open(cfg, "wb") as f:
         f.write(b"O88CFG\0\0" + (3).to_bytes(2, "little") + b"DW"
                 + bytes([1, 2]) + (1 << 1).to_bytes(2, "little") + b"\0\0")
     subprocess.check_call(
         ["python3", "tools/os88disk.py", "-o", FLOPPY, "--size", "360",
-         "--boot", "build/boot360.bin", "--kernel", "build/kernel.bin",
-         "build/hdd.drv", "build/hiber.drv", "build/ctrl.drv", "build/format.drv",
-         "build/clone.drv", cfg])
+         "--boot", _B.at("build/boot360.bin"), "--kernel", _B.at(KERNEL),
+         _B.at("build/hdd.drv"), _B.at("build/hiber.drv"),
+         _B.at("build/ctrl.drv"), _B.at("build/format.drv"),
+         _B.at("build/clone.drv"), cfg])
 
 
 def byte(m, name):
