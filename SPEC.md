@@ -93730,11 +93730,16 @@ where Tank writes a few thousand.
 #### 88.3.1 Two span sets and a row-kind byte
 
 `cs_span0`/`cs_span1` by frame parity, `cs_rowkind`: a view row's kind is 0
-all sky, 1 all ground, 3 split or unknown, as it stood at the last blit,
-and bit 7 says something was drawn on it since. The sky/ground pass
-computes each row's kind now: a whole row of the same kind and clean costs
-one compare; the same kind but drawn on is refilled **over last frame's
-span for that row and no further** and NOT marked, because the bytes that
+all sky, 1 all ground, 3 split or unknown, as it stood at the last blit;
+whether anything was drawn on it since is **last frame's span set's entry
+for the row**, which the pass reads (an untouched row's reads FF/00). The
+first build kept a dirty bit in the kind byte as well, set by every mark:
+`cs_markrows` cost ~170 cycles a row with it and ~110 without, and the
+pass's extra read of the pair is a fifth of that on the rows it touches.
+The sky/ground pass computes each row's kind now: a whole row of the same
+kind and clean costs one compare and one read; the same kind but drawn on
+is refilled **over last frame's span for that row and no further** and NOT
+marked, because the bytes that
 have to change on the glass are the ones last frame's polygon lit and those
 are in **last frame's span set** — the blit copies the union of the two
 sets, exactly §85.3.1's argument; a row whose kind changed, and every split
@@ -93765,19 +93770,40 @@ every row is refilled every frame there and its panel keeps a **key per
 page** — an instrument changed at frame N is drawn on the page being shown
 at N+1 too.
 
-#### 88.3.2 Marks are per object — or per segment, for a wireframe
+#### 88.3.2 Marks are per object, and off its vertices when it is whole
 
 The first build marked every polygon's bounding box and every segment's
 clipped box into the span set as it drew them, and the per-row loop that
-does it (`cs_markrows`: a compare-and-store on each end of the row's pair,
-plus the dirty bit) is **dearer than walking a steep segment's row**. A
-wireframe tower is 32 segments over the same hundred rows, so it was marked
-thirty-two times. Now `cs_poly` and `cs_seg` **accumulate** (`cs_markacc`,
-four compares) into the object's box — `cs_oby0`/`cs_oby1`, `cs_oblo`/
-`cs_obhi`, reset by `cs_drawobj` — and the object is marked once when it is
-done. The exception is a model with no faces (`cs_wire`): a wireframe's
-box is mostly ground the refill and the blit would then carry, so its
-segments mark their own boxes as before, and the tower's blit halved.
+does it (`cs_markrows`: a compare-and-store on each end of the row's pair)
+is **dearer than walking a steep segment's row**. A wireframe tower is 32
+segments over the same hundred rows, so it was marked thirty-two times.
+Now `cs_poly` and `cs_seg` **accumulate** (`cs_markacc`, four compares)
+into the object's box — `cs_oby0`/`cs_oby1`, `cs_oblo`/`cs_obhi`, reset by
+`cs_drawobj` — and the object is marked once when it is done.
+
+A wireframe took an exception to that for a cycle: its segments marked
+their own boxes, on the argument that its object box is mostly ground the
+refill and the blit would carry. **That was the wrong trade, and it was
+the largest single item in the tower frame**: `--trace` read
+`cs_markrows` at 217,000 cycles — 23% of the frame, 45 ms — over the 32
+segments, against about 6,000 of blit the tighter boxes saved. A wireframe
+marks like any object now, and the tower frame went 196.9 to 187.5 ms for
+the change (CGA 244 to 238). The panel's own drawing is the one thing that
+still marks its own rows (`cs_ownmk`, set by `cs_pclip` and cleared by
+`cs_vclip`): its segments belong to no object that would.
+
+An object that is **WHOLE** — no vertex behind the near plane or past a
+side, which `cs_projall` decides once from the origin and the radius
+(§88.5.7) — goes further: its box is taken off its projected vertices as
+they are projected (`cs_pwhole`, four compares a vertex), its faces and
+edges skip `cs_markacc`, `cs_edge1` skips the per-end flags since no end
+can be clipped, and when that box is inside the view (`cs_pinview`) its
+segments skip `cs_seg`'s eight-compare clip test as well. It pays on the
+objects with many primitives a vertex — the tower's 32 segments over its
+twenty vertices: 182.7 to 178.1 ms — and costs ~20 cycles a primitive on
+the objects that are not whole, which is why the city frame reads 0.8 ms
+MORE for it: the river pieces there reach the eye or a side, and its
+buildings are boxes (§88.5.4) with no primitives at all.
 
 #### 88.3.3 The blit looks only at the rows anything marked
 
@@ -94059,7 +94085,17 @@ build's version of this projected every vertex and took their bounding box,
 and never ran at all: it read the model through an SI that `cs_projall`
 had spent, compared a random word, and a basilica five kilometres off was
 four polygons and ten milliseconds. Under 24 pixels a solid keeps no outline
-(§88.4.7). And the tower carries a **far model** that stands in for its
+(§88.4.7). **The two-pixel test comes BEFORE the rotation**: `along`, the
+cull's depth before pitch and roll and the record's sort key, stands in
+for cz — the threshold is a bound and not a measurement — so an object too
+small to draw is refused for ~300 cycles rather than the ~5,500 of
+`cs_scale`'s nine multiplies and three 16.8 subtractions, which the second
+build spent on every object it then refused. The test after the rotation
+stays, on the far model's radius and the true depth; it compared a depth
+at or behind the eye UNSIGNED, so a building whose origin had just passed
+the aeroplane read as infinitely far and vanished with its front half
+still beside the wing. It is signed now, and an origin behind the eye is
+"big" and left to the frustum. And the tower carries a **far model** that stands in for its
 32-edge one beyond `CSO_LOD` = 2,500 m: **the four legs to the apex** and
 nothing else, the base square being eight pixels wide where this stands in
 and having cost four segments.
@@ -94096,11 +94132,16 @@ back, so the rotation the cull used to do here is not a second one. The
 model's own offsets are shifted to the same scale before the column trick,
 the near plane and the table's floor with them (`cs_nearat`), the
 projection picks its row by the depth shifted back to metres and shifts the
-product by 11, 13 or 15 (`cs_pshiftp`, each clamped by the product's high
-word first), and the divide under the floor is a ratio and needs no
-telling. The box path (§88.5.4) projects the whole-metre origin. The
-residual is a sixteenth of a metre — a pixel and a half at 22 m — and the
-runway holds still.
+product by 11, 13 or 15 (each clamped by the product's high word first),
+and the divide under the floor is a ratio and needs no telling. The box
+path (§88.5.4) projects the whole-metre origin. The residual is a
+sixteenth of a metre — a pixel and a half at 22 m — and the runway holds
+still. **The cull's record is six bytes** (`CS_VISZ`): the object, its
+REACH — the offset's Manhattan length, which the cull had computed for the
+range test and `cs_scale` was recomputing from three stored components —
+and `along`. And `cs_sdiff`'s multiply by 256 is two byte moves and its
+shift loop is unrolled per scale: 145 and up to 360 cycles, three times an
+object, became 30 and 80.
 
 #### 88.5.7 A line through a clamped point bends, so the sides clip too
 
@@ -94140,6 +94181,19 @@ axis road — reads 0 of 30 off-view segments. The price is highest on the
 ground: the runway face crosses both x planes at its near end, and the two
 passes, four crossings and two extra polygon edges are 8 ms of the parked
 frame (§88.12).
+
+Two things came off the vertex since. **Projection is per scale**
+(`cs_project0`, `cs_project2`, `cs_project4` — one macro; `[cs_projp]` is
+the object's): the depth shift and the product shift are the scale's own
+instructions, where one routine had served all three through a `shr bx,
+cl` and two indirect calls to the scale's shift — ~110 cycles a vertex in
+calls and returns — and the divide path under the floor stays shared. And
+**the side test is per OBJECT where it can be**: every vertex is within
+the radius of the origin on each axis, so when |ox| + r and |oy| + r are
+both under 4 (oz − r) no vertex is past a side and `cs_projall` skips the
+fourteen instructions a vertex (`cs_pinside`); when the object is in front
+of the near plane by its radius too, it is WHOLE, and §88.3.2 says what
+that buys.
 
 ### 88.6 The world (`apps/skies/csworld.inc`)
 
@@ -94357,9 +94411,15 @@ table exactly.
   the whole run, because a frame faster than a tick would otherwise read as
   55 ms and so would every "without"; and `--trace` stops at every
   `cs_consider`, `cs_drawobj`, stage, `cs_seg` and `cs_poly` of one frame and
-  prints what each cost, cycle-exact, with the object's name and offset or
+  prints what each cost, cycle-exact, with the object's name and reach or
   the segment's ends — which is how every number in §88.12 was found, and
-  how the three bugs in §88.5 were.
+  how the three bugs in §88.5 were. Since the fourth pass it also stops at
+  the loop's tail (`cs_blit`, `cs_input`, `cs_steps`), the refill
+  (`cs_hzrows`, `cs_edge`), the marks and the clipper's three routines,
+  and the reading to take is that **a line's cycles are what the line
+  BEFORE it cost**: a mark that precedes a walk reads as the mark plus the
+  walk, which is how the per-segment marking of §88.3.2 was first read as
+  45 ms and turned out, on the A/B, to be 9.
 
 ### 88.12 What it costs
 
@@ -94383,7 +94443,8 @@ its near size, the worst frame in the world.
 | 400 wide, four-leg far tower, river range | 101 ms, 9.9 fps | 150 ms, 6.7 fps | 183 ms, 5.5 fps |
 | the ground to the wheels (§88.5.5), full-width rows | 134 ms, 7.5 fps | 151 | 183 |
 | sixteenth-metre transforms (§88.5.6), the dashed centreline (§88.6.2) | 143 ms, 7.0 fps | 156 ms, 6.4 fps | 189 ms, 5.3 fps |
-| **the frustum's sides clip (§88.5.7)** | **159 ms, 6.3 fps** | **166 ms, 6.0 fps** | **197 ms, 5.1 fps** |
+| the frustum's sides clip (§88.5.7) | 159 ms, 6.3 fps | 166 ms, 6.0 fps | 197 ms, 5.1 fps |
+| **wireframes marked per object, no dirty bit, the size test before the rotation, per-scale projection, whole objects (§88.3.2)** | **153 ms, 6.5 fps** | **160 ms, 6.2 fps** | **178 ms, 5.6 fps** |
 
 **The target was twelve frames a second; the runway frame stood at ten
 before the runway was drawn to the wheels and is 7.5 after.** Where
@@ -94406,6 +94467,28 @@ face that crosses a plane costing two passes and its crossings, and every
 near-clipped face the four passes that find nothing to do. The city and the tower frames are
 further off because they hold more of the same: fifteen objects, and the
 tower's 32 segments at ~4,300 cycles each.
+
+**The fourth pass was read off `--trace` before anything was touched**,
+and what the tower frame's 934,000 cycles were: segments 248,000 (39 of
+them, and the marking was most of it, §88.3.2), the blit 108,000, the sky
+and ground pass 90,000, the objects' setup 87,000 (fourteen at 6,200 —
+five of which drew nothing), projection 78,000, polygon rows 71,000 and
+edges 62,000, the cull 61,000 over forty objects, the vertices 76,000. It
+took the frame 196.9 to 178.1 ms in five measured steps, each on the same
+pinned frame: the marks (−9.4), the setup (−2.1), the projection (−2.7),
+whole objects (−4.6), and one step that read −0.00 on all three scenes and
+was taken out again — a tick skip for objects refused as too small, which
+the cull's range already keeps out of the frame. What is left is the
+floors: the blit is `rep movsw` to the card plus ~450 cycles of union
+arithmetic on each of 110 rows (§88.3.3), 41 of them full-width ground
+under flats that cover the row; the refill is those same rows at ~900
+each; the cull is 25 in-range objects at ~2,000, of which the sorted
+insert is ~900; and a segment's fixed cost is ~1,000 with a walk of 60-70
+a row, a polygon's ~2,000 plus ~1,750 an edge and ~640 a row. Twelve
+frames a second is 400,000 cycles, and this frame's floors sum past that
+before a pixel is drawn: what is between here and there is content — how
+many objects a view holds and how many primitives each is — not the
+loops.
 
 What the measurements say about the design, in the order it matters:
 

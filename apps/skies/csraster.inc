@@ -177,7 +177,7 @@ cs_r_setup:
     rep stosw
     mov di, cs_rowkind
     mov cx, CS_MAXROW
-    mov al, 0x83                    ; every row: kind unknown, and dirty
+    mov al, 3                       ; every row: kind unknown
     rep stosb
     clc
     ret
@@ -442,7 +442,7 @@ cs_r_begin:
     mov [cs_tbase], cx
     mov di, cs_rowkind              ; two pages alternate, so a row is never
     mov cx, [cs_wh]                 ; "as it was": every row is refilled
-    mov al, 0x83
+    mov al, 3
     rep stosb
 .out:
     ret
@@ -808,76 +808,68 @@ cs_hzrows:
     call cs_inkpat                  ; first build kept it there and every row
     mov [cs_hzkt], si               ; was recorded as kind 0, so a row that
     mov al, dl                      ; went from ground to sky was "as it was"
-                                    ; and never refilled - 88.3.1)
+    mov si, bx                      ; and never refilled - 88.3.1)
+    shl si, 1
+    add si, [cs_spprv]              ; SI -> last frame's span of row BX
 .r:
-    mov ah, [cs_rowkind + bx]
-    cmp al, ah
-    je .next                        ; as it was, and clean: nothing to do
+    cmp al, [cs_rowkind + bx]
+    jne .kind                       ; a new kind: the whole row goes over
+    mov dx, [si]                    ; the same kind: what last frame drew on
+    cmp dl, dh                      ; the row IS the erase - the blit carries
+    ja .next                        ; it, being in the union - and an
+    push cx                         ; untouched row reads FF/00 and is left
+    push di                         ; alone (88.3.1)
+    mov cl, dl
+    xor ch, ch
+    sub cx, [cs_wb0]                ; the span is absolute bytes of the row
+    add di, cx                      ; and DI is the view's first: the first
+    mov cl, dh                      ; build added them and refilled fifteen
+    sub cl, dl                      ; bytes to the right of everything, which
+    inc cx                          ; left the left of every object on the
+    jmp short .fill                 ; glass and a bar past the view's edge
+.kind:
+    mov [cs_rowkind + bx], al
     push cx
     push di
-    mov [cs_rowkind + bx], al
-    and ah, 3
-    cmp al, ah                      ; the same kind, only dirty: refill the
-    je .part                        ; bytes that were drawn on, no more
-    mov si, [cs_spcur]              ; a new kind: the whole row goes over,
-    cmp bx, [si - 4]                ; and the set's row range takes it
+    mov di, [cs_spcur]              ; the set's row range takes the row...
+    cmp bx, [di - 4]
     jge .y0
-    mov [si - 4], bx
+    mov [di - 4], bx
 .y0:
-    cmp bx, [si - 2]
+    cmp bx, [di - 2]
     jle .y1
-    mov [si - 2], bx
+    mov [di - 2], bx
 .y1:
-    mov si, bx
-    shl si, 1
-    add si, [cs_spcur]
+    mov di, bx                      ; ...and its span is the whole view
+    shl di, 1
+    add di, [cs_spcur]
     mov cx, [cs_fullspan]
-    mov [si], cx
+    mov [di], cx
+    pop di
+    push di
     mov cx, [cs_wbn]
-    jmp short .fill
-.part:                              ; last frame's span IS the erase: the
-    mov si, bx                      ; blit carries it (it is in the union)
-    shl si, 1                       ; and nothing outside it changed
-    add si, [cs_spprv]
-    mov cx, [si]                    ; CL = its first byte, CH = its last
-    sub ch, cl
-    jb .done                        ; ...none: the mark was a kind change
+.fill:                              ; CX bytes at ES:DI in the kind's pattern
     push ax
-    mov al, cl
-    xor ah, ah
-    sub ax, [cs_wb0]                ; the span is absolute bytes of the row
-    add di, ax                      ; and DI is the view's first: the first
-    mov cl, ch                      ; build added them and refilled fifteen
-    xor ch, ch                      ; bytes to the right of everything, which
-    inc cx                          ; left the left of every object on the
-    mov si, bx                      ; glass and a bar past the view's edge
-    and si, 3                       ; (88.3.1)
-    add si, [cs_hzkt]
-    mov al, [si]
-    mov ah, al
-    shr cx, 1                       ; the 8088's bus is a byte wide: an odd
-    rep stosw                       ; address costs a word store nothing
-    jnc .part1
-    stosb
-.part1:
-    pop ax
-    jmp short .done
-.fill:
-    push ax
+    push si
     mov si, bx
     and si, 3
     add si, [cs_hzkt]
     mov al, [si]
+    pop si
     mov ah, al
-    shr cx, 1
-    rep stosw
+    shr cx, 1                       ; the 8088's bus is a byte wide: an odd
+    rep stosw                       ; address costs a word store nothing
+    jnc .even
+    stosb
+.even:
     pop ax
-.done:
     pop di
     pop cx
 .next:
     add di, 80
     inc bx
+    inc si
+    inc si
     LOOPF .r
 .out:
     ret
@@ -892,6 +884,7 @@ cs_markrows:
     push ax
     push bx
     push cx
+    push dx
     mov bx, [cs_spcur]
     cmp si, [bx - 4]                ; the set's row range takes them
     jge .y0
@@ -901,26 +894,28 @@ cs_markrows:
     jle .y1
     mov [bx - 2], di
 .y1:
-    mov al, [cs_mklo]
-    mov ah, [cs_mkhi]
+    mov ax, [cs_mklo]               ; AL = the first byte, AH = the last
+    mov cx, di
+    sub cx, si
+    inc cx                          ; CX = rows
     mov bx, si
     shl bx, 1
-    add bx, [cs_spcur]
-.m:
-    or byte [cs_rowkind + si], 0x80
-    cmp [bx], al
-    jbe .lo
-    mov [bx], al
-.lo:
-    cmp [bx+1], ah
+    add bx, [cs_spcur]              ; BX -> the first row's pair
+.m:                                 ; one read and one write a row: the
+    mov dx, [bx]                    ; first build compared and stored each
+    cmp dl, al                      ; byte on its own and set a dirty bit
+    jbe .lo                         ; besides, which the sky pass now reads
+    mov dl, al                      ; off the pair itself (88.3.1) - at
+.lo:                                ; 170 cycles a row it was a quarter of
+    cmp dh, ah                      ; the tower frame (88.3.2)
     jae .hi
-    mov [bx+1], ah
+    mov dh, ah
 .hi:
+    mov [bx], dx
     inc bx
     inc bx
-    inc si
-    cmp si, di
-    jle .m
+    LOOPF .m
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -1455,6 +1450,8 @@ cs_poly:
 .mx2:
     mov [cs_pbx0], ax
     mov [cs_pbx1], cx
+    cmp byte [cs_pwhole], 0         ; a whole object's box was taken off its
+    jne .marked                     ; vertices (88.3.2)
     push bx
     push dx
     mov dx, cx
@@ -1468,6 +1465,7 @@ cs_poly:
     mov si, bx
     mov di, dx
     call cs_markacc
+.marked:
     ; --- one row or two: the box IS the polygon at that size, and four
     ;     edges traced for it would cost more than the fill (SPEC.md 88.4.5)
     mov ax, dx
@@ -2030,7 +2028,7 @@ cs_markspan:
 ; cs_pclip / cs_vclip - the segment walk clipped to the whole BOX instead of
 ;                       the view, for the panel's own drawing (88.9.2), and
 ;                       back. Segments in the panel mark their own rows
-;                       (cs_wire), as a wireframe's do.
+;                       (cs_ownmk): they belong to no object that would.
 ; -----------------------------------------------------------------------------
 cs_pclip:
     mov ax, [cs_wx0]
@@ -2045,7 +2043,9 @@ cs_pclip:
     mov [cs_wx1], ax
     mov ax, [cs_vh]
     mov [cs_wh], ax
-    mov byte [cs_wire], -1
+    mov byte [cs_ownmk], -1
+    mov byte [cs_pwhole], 0         ; the panel is no object's
+    mov byte [cs_pinview], 0
     ret
 cs_vclip:
     mov ax, [cs_svclip]
@@ -2054,6 +2054,7 @@ cs_vclip:
     mov [cs_wx1], ax
     mov ax, [cs_svclip + 4]
     mov [cs_wh], ax
+    mov byte [cs_ownmk], 0
     ret
 
 ; =============================================================================
@@ -2066,6 +2067,10 @@ cs_vclip:
 ;      +-4000; [cs_ink] set.  CLOBBERS EVERY REGISTER (SPEC.md 85.3.4)
 ; -----------------------------------------------------------------------------
 cs_seg:
+    cmp byte [cs_pinview], 0        ; the object's box is inside the view:
+    je .test                        ; nothing to test, and its box is taken
+    jmp .mk1
+.test:
     mov si, [cs_wx0]
     mov di, [cs_wh]
     cmp ax, si
@@ -2142,6 +2147,8 @@ cs_seg:
     mov cx, [cs_cx2]
     mov dx, [cs_cy2]
 .accept:
+    cmp byte [cs_pwhole], 0         ; a whole object's box is off its
+    jne .mk1                        ; vertices already (88.3.2)
     push ax                         ; the rows it lies on, and the bytes its
     push cx                         ; ends span, go to the glass
     cmp ax, cx
@@ -2163,9 +2170,9 @@ cs_seg:
     jle .mk
     xchg si, di
 .mk:
-    cmp byte [cs_wire], 0           ; a wireframe marks each segment's own
-    je .acc                         ; box: its object's box is mostly empty
-    call cs_markrows                ; ground the blit would carry (88.3.2)
+    cmp byte [cs_ownmk], 0          ; the scene's segments go into their
+    je .acc                         ; object's box, marked once (88.3.2);
+    call cs_markrows                ; the panel's mark their own rows
     jmp short .mk1
 .acc:
     call cs_markacc

@@ -119,7 +119,10 @@ def trace(m, lin, seg, base, off, render):
                                 "cs_flatverts", "cs_projall", "cs_faces",
                                 "cs_edges", "cs_boxlod", "cs_rect",
                                 "cs_polyrows_herc", "cs_polyrows",
-                                "cs_fclip", "cs_sidepass", "cs_cxing")}
+                                "cs_fclip", "cs_sidepass", "cs_cxing",
+                                "cs_blit", "cs_steps", "cs_step", "cs_input",
+                                "cs_r_begin", "cs_matrix", "cs_sound_step",
+                                "cs_hzrows", "cs_edge", "cs_markrows", "cs_markacc")}
     m.bp_exec(lin + render)
     m.run()
     if m.wait_stop(20) is None:
@@ -156,8 +159,8 @@ def trace(m, lin, seg, base, off, render):
             ob = int.from_bytes(m.readseg(seg, si, 2), "little")
             name = int.from_bytes(m.readseg(seg, ob + 14, 2), "little")
             nm = m.readseg(seg, name, 16).split(b"\0")[0].decode("ascii", "replace")
-            e = [sg(int.from_bytes(m.readseg(seg, si + 2 * i, 2), "little")) for i in range(1, 5)]
-            print("    %6d  object %s at %d m along (d %d,%d,%d)" % (c1 - c0, nm, e[3], e[0], e[1], e[2]))
+            e = [sg(int.from_bytes(m.readseg(seg, si + 2 * i, 2), "little")) for i in range(1, 3)]
+            print("    %6d  object %s at %d m along (reach %d)" % (c1 - c0, nm, e[1], e[0]))
         elif ip == segp:
             print("    %6d  seg (%d,%d)-(%d,%d)" % (c1 - c0, sg(ax), sg(bx), sg(cx), sg(dx)))
         else:

@@ -278,54 +278,111 @@ cs_ktabs:
     ret
 
 ; -----------------------------------------------------------------------------
-; cs_project - one camera-space point onto the box
-; in:  AX = cx, BX = cy, CX = cz (cz >= CS_NEAR)
+; cs_project0 / cs_project2 / cs_project4 - one camera-space point onto the
+;            box, at the object's transform scale (88.5.6): whole metres,
+;            quarters, sixteenths. [cs_projp] is the one for [cs_pshr]
+; in:  AX = cx, BX = cy, CX = cz (cz >= the near plane at the scale)
 ; out: AX = screen x, BX = screen y (box coords, clamped to +-4000 about the
 ;      centre).  clobbers CX, DX, SI, DI
+;
+; One routine served every scale through a `shr bx, cl` and two indirect
+; calls to the scale's shift, which was ~110 cycles a vertex in calls and
+; returns; here the depth shift and the product shift are the scale's own
+; instructions, and the divide path under the floor is shared
 ; -----------------------------------------------------------------------------
-cs_project:
+; CS_PSH - AX = (DX:AX) >> %2, clamped to +-4000 by the high word against
+;          %1 first (SPEC.md 85.5.3); %3/%4 are the clamps, out of line
+%macro CS_PSH 4
+    cmp dx, %1
+    jge %3
+    cmp dx, -(%1 + 1)
+    jl %4
+  %if %2 == 15
+    shl ax, 1
+    rcl dx, 1
+    mov ax, dx
+  %else
+    mov al, ah
+    mov ah, dl
+    %rep %2 - 8
+    sar ax, 1
+    %endrep
+  %endif
+%endmacro
+
+; CS_PROJ - %1 = the depth shift (cs_pshr), %2 = the product's high-word
+;           bound, %3 = the product shift (11, 13 or 15)
+%macro CS_PROJ 3
     mov si, bx                      ; SI = cy
     mov bx, cx                      ; the depth picks the row...
-    cmp bx, [cs_pfloor]
-    jb .near
-    mov cl, [cs_pshr]
-    shr bx, cl                      ; ...in whole metres (88.5.6)
+    cmp bx, CS_NEAR << %1
+    jae %%table
+    jmp cs_pnear
+%%table:
+  %rep %1
+    shr bx, 1                       ; ...in whole metres (88.5.6)
+  %endrep
     cmp bx, 1024
-    jb .row
+    jb %%row
     cmp bx, 4096
-    jb .mid
+    jb %%mid
     sub bx, 4096                    ; 4096.. : every 64 units, from row 1792
     mov cl, 6
     shr bx, cl
     add bx, 1792
     cmp bx, 2047
-    jbe .row
+    jbe %%row
     mov bx, 2047
-    jmp short .row
-.mid:
+    jmp short %%row
+%%mid:
     sub bx, 1024                    ; 1024..4095: every 4 units, from row 1024
     shr bx, 1
     shr bx, 1
     add bx, 1024
-.row:
+%%row:
     shl bx, 1
     imul word [cs_kx + bx]          ; DX:AX = cx x kx
-    call [cs_pshiftp]
+    CS_PSH %2, %3, %%hix, %%lox
+%%bx:
     add ax, [cs_vcx]
     mov di, ax                      ; DI = screen x
     mov ax, si
     imul word [cs_ky + bx]
-    call [cs_pshiftp]
+    CS_PSH %2, %3, %%hiy, %%loy
+%%by:
     neg ax                          ; screen y grows DOWNWARD
     add ax, [cs_vcy]
     mov bx, ax
     mov ax, di
     ret
+%%hix:
+    mov ax, 4000
+    jmp short %%bx
+%%lox:
+    mov ax, -4000
+    jmp short %%bx
+%%hiy:
+    mov ax, 4000
+    jmp short %%by
+%%loy:
+    mov ax, -4000
+    jmp short %%by
+%endmacro
+
+cs_project0:
+    CS_PROJ 0, 125, 11
+cs_project2:
+    CS_PROJ 2, 500, 13
+cs_project4:
+    CS_PROJ 4, 2000, 15
+cs_projtab: dw cs_project0, cs_project2, cs_project4
+
     ; --- under the table's floor: a ground polygon's near plane is 4 m
     ;     (88.5.5), where k would not fit a word, so the two divides are
     ;     real ones - clamped first, because a quotient past +-4000 would
-    ;     not fit either and an 8088 faults on that ------------------------
-.near:
+    ;     not fit either and an 8088 faults on that. A ratio: the scale
+    ;     needs no telling. In: SI = cy, CX = cz, AX = cx --------------------
+cs_pnear:
     mov di, cx                      ; DI = z, 1..39
     mov cx, ax                      ; CX = cx
     mov ax, di
@@ -376,51 +433,6 @@ cs_project:
     mov ax, cx
     ret
 
-; cs_pshift - AX = (DX:AX) >> 11, clamped to +-4000 (SPEC.md 85.5.3)
-cs_pshift:
-    cmp dx, 125
-    jge .hi
-    cmp dx, -126
-    jl .lo
-    mov al, ah
-    mov ah, dl
-    sar ax, 1
-    sar ax, 1
-    sar ax, 1
-    ret
-.hi:
-    mov ax, 4000
-    ret
-.lo:
-    mov ax, -4000
-    ret
-
-; ...and the same at the two finer scales (88.5.6): quarter metres shift
-; 13, sixteenths 15, each clamped by the product's high word first
-cs_pshift13:
-    cmp dx, 500
-    jge cs_pshift.hi
-    cmp dx, -501
-    jl cs_pshift.lo
-    mov al, ah
-    mov ah, dl
-    sar ax, 1
-    sar ax, 1
-    sar ax, 1
-    sar ax, 1
-    sar ax, 1
-    ret
-cs_pshift15:
-    cmp dx, 2000
-    jge cs_pshift.hi
-    cmp dx, -2001
-    jl cs_pshift.lo
-    shl ax, 1
-    rcl dx, 1
-    mov ax, dx
-    ret
-cs_pshtab: dw cs_pshift, cs_pshift13, cs_pshift15
-
 ; -----------------------------------------------------------------------------
 ; cs_scale - the object's transform scale (SPEC.md 88.5.6): sixteenths of a
 ;            metre when its reach from the eye - the world offset's Manhattan
@@ -434,29 +446,15 @@ cs_pshtab: dw cs_pshift, cs_pshift13, cs_pshift15
 ;            first build rotated whole metres from a whole-metre eye, and a
 ;            runway transformed that way jumped a metre across between
 ;            frames: 20 pixels at 22 m.
-; in:  SI = the cs_vis record (ptr, dx, dy, dz whole metres), [cs_obj]
-; out: [cs_pshr], [cs_pfloor], [cs_pshiftp], cs_scx/y/z, cs_ocx/y/z.
+; in:  SI = the cs_vis record (ptr, reach, along), [cs_obj]
+; out: [cs_pshr], [cs_projp], cs_scx/y/z, cs_ocx/y/z.
 ;      Clobbers everything
 ; -----------------------------------------------------------------------------
 cs_scale:
-    xor ax, ax                      ; the world offset's Manhattan length...
-    mov cx, 3
-    push si
-.l1:
-    mov bx, [si + 2]
-    or bx, bx
-    jns .a1
-    neg bx
-.a1:
-    add ax, bx
-    jc .s0
-    inc si
-    inc si
-    loop .l1
-    pop si                          ; ...which no component of the rotated
-    push si                         ; offset can exceed (it is over the
-    mov si, [si]                    ; Euclidean length)...
-    mov si, [si + CSO_MODEL]
+    mov ax, [si + 2]                ; the world offset's Manhattan length,
+    push si                         ; the cull's, which no component of the
+    mov si, [si]                    ; rotated offset can exceed (it is over
+    mov si, [si + CSO_MODEL]        ; the Euclidean length)...
     mov bx, [si + CSM_RAD]
     add ax, bx                      ; ...plus the radius: no vertex is further
     jc .s0
@@ -476,13 +474,10 @@ cs_scale:
 .have:
     pop si
     mov [cs_pshr], cl
-    mov ax, CS_NEAR
-    shl ax, cl
-    mov [cs_pfloor], ax
     mov bl, cl
     xor bh, bh
-    mov ax, [cs_pshtab + bx]        ; 0, 2, 4 are the table's byte offsets
-    mov [cs_pshiftp], ax
+    mov ax, [cs_projtab + bx]       ; 0, 2, 4 are the table's byte offsets
+    mov [cs_projp], ax
     ; --- the origin from the 16.8 eye, at the scale ------------------------
     mov bx, [cs_obj]
     mov ax, [bx + CSO_X]
@@ -524,17 +519,36 @@ cs_nearat:
 ; cs_sdiff - AX = a whole-metre coordinate, SI -> a 16.8 position: out AX =
 ;            (coordinate - position) in 1/2^[cs_pshr] metres. Clobbers CX, DX
 cs_sdiff:
-    mov dx, 256
-    imul dx                         ; DX:AX = the coordinate, 16.8
+    mov dx, ax                      ; DX:AX = the coordinate, 16.8: the high
+    mov al, ah                      ; byte sign-extended up, the low one
+    cbw                             ; moved up (an `imul` by 256 was 145
+    xchg ax, dx                     ; cycles of this, three times an object)
+    mov ah, al
+    xor al, al
     sub ax, [si]
     sbb dx, [si + 2]
-    mov cl, 8
-    sub cl, [cs_pshr]
-.s:
+    mov cl, [cs_pshr]               ; ...shifted down 8 - pshr: 4, 6 or 8,
+    cmp cl, 4                       ; unrolled (a loop of `sar`/`rcr` paid
+    je .s4                          ; 20 cycles a step in its own count)
+    cmp cl, 2
+    je .s6
+    mov al, ah                      ; whole metres: the middle two bytes
+    mov ah, dl
+    ret
+.s6:
     sar dx, 1
     rcr ax, 1
-    dec cl
-    jnz .s
+    sar dx, 1
+    rcr ax, 1
+.s4:
+    sar dx, 1
+    rcr ax, 1
+    sar dx, 1
+    rcr ax, 1
+    sar dx, 1
+    rcr ax, 1
+    sar dx, 1
+    rcr ax, 1
     ret
 
 ; =============================================================================
@@ -637,6 +651,7 @@ cs_consider:
     cmp bx, CS_FAR
     jae .far
     add ax, bx
+    mov [cs_ddm], ax                ; the reach cs_scale wants is this + |dy|
     sub ax, [si + CSO_RANGE]
     jbe .inrange
     ; --- out of range by AX metres: not looked at again for AX/16 ticks.
@@ -731,9 +746,12 @@ cs_consider:
     ;     (along, record) inserted into cs_vkey by `along`, which is the
     ;     depth before pitch and roll and orders the same objects the same
     ;     way. A key is four bytes, so the insertion shifts four and not
-    ;     the record's ten. The rotation itself waits for cs_drawobj, so
-    ;     an object the frustum refuses there has cost the cone's four
-    ;     multiplies and not nine more (SPEC.md 88.5.1) ----------------------
+    ;     the record's six. The record is the object, its REACH - the
+    ;     offset's Manhattan length, which is what cs_scale wants of it and
+    ;     was three words and a loop before - and `along`, which stands in
+    ;     for the depth in cs_drawobj's size test. The rotation itself
+    ;     waits for cs_drawobj, so an object the frustum refuses there has
+    ;     cost the cone's four multiplies and not nine more (SPEC.md 88.5.1)
 .file:
     mov di, [cs_nvisn]
     cmp di, CS_NVIS
@@ -741,20 +759,20 @@ cs_consider:
     inc word [cs_nvisn]
     mov ax, di
     shl ax, 1
-    shl ax, 1
     add ax, di
-    shl ax, 1                       ; AX = 10 x (ten bytes a slot)...
+    shl ax, 1                       ; AX = 6 x (CS_VISZ bytes a slot)...
     add ax, cs_vis                  ; ...the new record
     mov bx, ax
     mov ax, [cs_obj]
     mov [bx], ax
-    mov ax, [cs_ddx]
-    mov [bx+2], ax
     mov ax, [cs_ddy]
-    mov [bx+4], ax
-    mov ax, [cs_ddz]
-    mov [bx+6], ax
-    mov [bx+8], cx
+    or ax, ax
+    jns .fy
+    neg ax
+.fy:
+    add ax, [cs_ddm]
+    mov [bx+2], ax                  ; the reach: |dx| + |dz| + |dy|
+    mov [bx+4], cx                  ; along
     shl di, 1
     shl di, 1
     add di, cs_vkey                 ; DI = the new key's slot
@@ -784,6 +802,25 @@ cs_consider:
 cs_drawobj:
     mov bx, [si]
     mov [cs_obj], bx
+    ; --- under two pixels across: not drawn, and NOT ROTATED FIRST. The
+    ;     cull's `along` - the depth before pitch and roll - stands in for
+    ;     cz, the threshold being a bound and not a measurement; the first
+    ;     build spent the nine multiplies on every object it then refused,
+    ;     five of fourteen in the tower frame (88.5.4). Behind or at the
+    ;     eye the frustum decides -------------------------------------------
+    mov cx, [si + 4]                ; CX = along
+    or cx, cx
+    jle .go
+    push si
+    mov si, [bx + CSO_MODEL]
+    call cs_sizepx                  ; DX:AX = 0.75 rad scly
+    pop si
+    or dx, dx
+    jnz .go
+    shl cx, 1                       ; 2 along, under CS_FAR: it fits
+    cmp ax, cx
+    jb .no
+.go:
     call cs_scale                   ; the origin at the object's scale, from
     mov si, [cs_obj]                ; the 16.8 eye (88.5.6), and in metres
     mov si, [si + CSO_MODEL]
@@ -834,10 +871,13 @@ cs_drawobj:
     mov si, cx
 .mdl:
     mov [cs_mdl], si
-    call cs_sizepx                  ; under two pixels across: not drawn
-    mov cx, [cs_ocz]
-    shl cx, 1
-    or dx, dx
+    call cs_sizepx                  ; under two pixels across: not drawn -
+    mov cx, [cs_ocz]                ; the far model's radius, and the true
+    or cx, cx                       ; depth, where the test above had bounds
+    jle .big                        ; (an origin behind the eye compared
+    shl cx, 1                       ; unsigned as a huge depth in the first
+    jc .big                         ; build, and a building whose front half
+    or dx, dx                       ; was still beside the aeroplane vanished)
     jnz .big
     cmp ax, cx
     jb .out
@@ -845,7 +885,6 @@ cs_drawobj:
     mov al, [si + CSM_NF]
     cmp al, 1
     sbb al, al                      ; AL = -1 for a wireframe (no faces)
-    mov [cs_wire], al
     cmp byte [si + CSM_TYPE], CSM_FLAT
     je .flat
     ; --- a solid under CS_LODPX pixels across is its box, filled: one
@@ -952,8 +991,6 @@ cs_sizepx:
 ; -----------------------------------------------------------------------------
 cs_boxlod:
     mov byte [cs_pshr], 0           ; the cull's origin: whole metres
-    mov word [cs_pfloor], CS_NEAR
-    mov word [cs_pshiftp], cs_pshift
     mov si, [cs_mdl]
     mov cl, [si + CSM_NV]           ; levels
     xor ch, ch
@@ -974,7 +1011,7 @@ cs_boxlod:
     mov ax, [cs_ocx]
     mov bx, [cs_ocy]
     mov cx, [cs_ocz]
-    call cs_project                 ; the base
+    call cs_project0                ; the base
     mov [cs_bx0], ax
     mov [cs_by1], bx
     mov ax, [cs_ocx]
@@ -985,13 +1022,13 @@ cs_boxlod:
     add cx, [cs_col1 + 4]
     cmp cx, CS_NEAR
     jl .out
-    call cs_project                 ; the top
+    call cs_project0                ; the top
     mov [cs_by0], bx
     mov ax, [cs_ocx]
     add ax, [cs_bw]
     mov bx, [cs_ocy]
     mov cx, [cs_ocz]
-    call cs_project                 ; the right edge
+    call cs_project0                ; the right edge
     sub ax, [cs_bx0]
     jg .w
     mov ax, 1                       ; a pixel at least
@@ -1162,9 +1199,64 @@ cs_flatverts:
 ; cs_projall - project every vertex in front of the near plane, flag the rest
 ; -----------------------------------------------------------------------------
 cs_projall:
+    mov byte [cs_pwhole], 0
+    mov byte [cs_pinview], 0
     mov cx, [cs_nv]
-    jcxz .out
+    jcxz .out0
+    ; --- can any vertex be past a side at all? Every one is within the
+    ;     radius of the origin on each axis, so when |ox| + r and |oy| + r
+    ;     are both under 4 (oz - r) none is, and the per-vertex test below
+    ;     - 180 cycles of the 1,200 a vertex cost - is skipped for the
+    ;     object (88.5.7). At the object's scale: r << pshr fits, the scale
+    ;     rule bounding it -------------------------------------------------
+    mov si, [cs_mdl]
+    mov ax, [si + CSM_RAD]
+    mov cl, [cs_pshr]
+    shl ax, cl                      ; AX = r at the scale
+    mov bx, [cs_scz]
+    sub bx, ax                      ; BX = oz - r
+    jle .sides                      ; reaching the eye: test every vertex
+    mov cx, [cs_scx]
+    or cx, cx
+    jns .ax
+    neg cx
+.ax:
+    add cx, ax                      ; CX = |ox| + r
+    jc .sides
+    shr cx, 1
+    shr cx, 1
+    cmp cx, bx
+    ja .sides
+    mov cx, [cs_scy]
+    or cx, cx
+    jns .ay
+    neg cx
+.ay:
+    add cx, ax
+    jc .sides
+    shr cx, 1
+    shr cx, 1
+    cmp cx, bx
+    ja .sides
+    mov byte [cs_pinside], 1
+    ; --- ...and wholly in front of the near plane too: then it is WHOLE,
+    ;     nothing of it is clipped, and its box for the blit is the box of
+    ;     its projected vertices, taken here once, instead of each face
+    ;     and edge widening it on its own (88.3.2) ---------------------------
+    cmp bx, [cs_near]
+    jl .go
+    mov byte [cs_pwhole], 1
+    mov word [cs_obx0], 0x7FFF
+    mov word [cs_obx1], -32768
+    jmp short .go
+.sides:
+    mov byte [cs_pinside], 0
+.go:
+    mov cx, [cs_nv]
     xor di, di
+    jmp short .v
+.out0:
+    ret
 .v:
     push cx
     mov cx, [cs_czv + di]
@@ -1173,11 +1265,15 @@ cs_projall:
     mov ax, [cs_cxv + di]
     mov bx, [cs_cyv + di]
     push di
-    call cs_project
+    call [cs_projp]
     pop di
     mov [cs_sxv + di], ax
     mov [cs_syv + di], bx
     mov word [cs_fv + di], 1
+    cmp byte [cs_pwhole], 0
+    jne .box
+    cmp byte [cs_pinside], 0
+    jne .next
     ; --- in front, but outside the frustum's SIDES (|x| or |y| over 4z)?
     ;     Its projection was clamped, and a line through a clamped point is
     ;     bent: the face or edge it is on gets clipped in camera space
@@ -1204,12 +1300,82 @@ cs_projall:
 .side:
     mov word [cs_fv + di], 2
     jmp short .next
+.box:                               ; a whole object's box, vertex by vertex
+    cmp ax, [cs_obx0]
+    jge .x0
+    mov [cs_obx0], ax
+.x0:
+    cmp ax, [cs_obx1]
+    jle .x1
+    mov [cs_obx1], ax
+.x1:
+    cmp bx, [cs_oby0]
+    jge .y0
+    mov [cs_oby0], bx
+.y0:
+    cmp bx, [cs_oby1]
+    jle .next
+    mov [cs_oby1], bx
+    jmp short .next
 .behind:
     mov word [cs_fv + di], 0
 .next:
     add di, 2
     pop cx
-    loop .v
+    LOOPF .v
+    cmp byte [cs_pwhole], 0
+    jne .conv
+    ret
+.conv:
+    ; --- the box to the view, and its bytes: inside the view outright and
+    ;     every segment of the object skips the clip test (cs_pinview) ------
+    mov ax, [cs_obx0]
+    mov cx, [cs_obx1]
+    mov bx, [cs_oby0]
+    mov dx, [cs_oby1]
+    cmp ax, [cs_wx0]
+    jl .clip
+    cmp cx, [cs_wx1]
+    jg .clip
+    or bx, bx
+    js .clip
+    cmp dx, [cs_wh]
+    jge .clip
+    mov byte [cs_pinview], 1
+    jmp short .bytes
+.clip:
+    cmp ax, [cs_wx0]
+    jge .cx0
+    mov ax, [cs_wx0]
+.cx0:
+    cmp cx, [cs_wx1]
+    jle .cx1
+    mov cx, [cs_wx1]
+.cx1:
+    cmp ax, cx
+    jg .none                        ; beside the view: nothing to mark
+    or bx, bx
+    jns .cy0
+    xor bx, bx
+.cy0:
+    cmp dx, [cs_wh]
+    jl .cy1
+    mov dx, [cs_wh]
+    dec dx
+.cy1:
+    mov [cs_oby0], bx
+    mov [cs_oby1], dx
+.bytes:
+    mov dx, cx
+    mov cl, [cs_kshift]
+    shr ax, cl
+    shr dx, cl
+    mov [cs_oblo], al
+    mov [cs_obhi], dl
+    ret
+.none:
+    mov word [cs_oby0], 0x7FFF      ; cs_drawobj marks nothing
+    mov word [cs_oby1], -1
 .out:
     ret
 
@@ -1235,6 +1401,8 @@ cs_faces:
     mov [cs_fflags], al
     add si, 3
     mov [cs_fidx], si
+    cmp byte [cs_pwhole], 0         ; a whole object: no end is behind or
+    jne .plain                      ; past a side, so the count is skipped
     ; --- how many ends are behind the near plane, how many past a side ------
     mov cx, [cs_fn]
     xor dx, dx                      ; DL = behind, DH = outside
@@ -1399,7 +1567,7 @@ cs_fclip:
     mov ax, [si]
     mov bx, [si+2]
     mov cx, [si+4]
-    call cs_project
+    call [cs_projp]
     pop di
     mov [di], ax
     mov [di+2], bx
@@ -1660,6 +1828,8 @@ cs_edge1:
     xor dh, dh
     shl dx, 1
     mov di, dx
+    cmp byte [cs_pwhole], 0
+    jne .both                       ; a whole object: every end as projected
     mov cx, [cs_fv + bx]
     add cx, [cs_fv + di]
     jcxz .skip                      ; both behind the near plane
@@ -1739,13 +1909,13 @@ cs_edge1:
     mov ax, [cs_ea]                 ; --- both ends inside: project and draw --
     mov bx, [cs_ea + 2]
     mov cx, [cs_ea + 4]
-    call cs_project
+    call [cs_projp]
     mov [cs_ex1], ax
     mov [cs_ey1], bx
     mov ax, [cs_eb]
     mov bx, [cs_eb + 2]
     mov cx, [cs_eb + 4]
-    call cs_project
+    call [cs_projp]
     mov cx, ax
     mov dx, bx
     mov ax, [cs_ex1]
@@ -1887,7 +2057,7 @@ cs_rwpt:
     mov ax, [cs_cxv + di]
     mov bx, [cs_cyv + di]
     push di
-    call cs_project
+    call [cs_projp]
     pop di
     mov [cs_sxv + di], ax
     mov [cs_syv + di], bx

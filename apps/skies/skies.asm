@@ -148,7 +148,7 @@ CS_MAXV   equ 24                ; vertices in the largest model (the tower's
                                 ; five levels are 20)
 CS_MAXPV  equ 10                ; ...and a face after the near clip
 CS_NVIS   equ 32                ; objects that can be in one frame
-CS_VISZ   equ 10                ; ...ten bytes each: ptr, dx, dy, dz, along
+CS_VISZ   equ 6                 ; ...six bytes each: ptr, reach, along
 CS_MAXROW equ 240               ; the tallest box any backend offers
 CS_LASTB  equ 79                ; the last byte of a box row, on all three
 CS_SHSEG  equ 16000             ; the CGA/Hercules shadow, in bytes
@@ -763,13 +763,20 @@ cs_tpl:
     ZWORD cs_rowsproc               ; the polygon's row loop (88.4.6)
     ZBYTE cs_cone                   ; the cull's cone factor this frame (88.5.1)
     ZBYTE cs_conebase               ; ...and the backend's: 0 = 0.5, 1 = 0.75
-    ZBYTE cs_wire                   ; the object being drawn has no faces
+    ZBYTE cs_ownmk                  ; a segment marks its own rows: the
+                                    ; panel's, whose drawing is no object's
+                                    ; (88.3.2); zero for the scene
     ZWORD cs_near                   ; ...and its near plane: CS_NEAR or CS_NEARG
     ZBYTE cs_pshr                   ; the object's transform scale (88.5.6):
-    ZWORD cs_pfloor                 ; 0, 2 or 4 (whole, quarter, sixteenth
-    ZWORD cs_pshiftp                ; metres), the table's floor and the
-    ZWORD cs_scx                    ; projection's shift at that scale, and
-    ZWORD cs_scy                    ; the origin from the eye's 16.8 position
+    ZBYTE cs_pinside                ; ...no vertex can be past a side (88.5.7)
+    ZBYTE cs_pwhole                 ; ...nor behind the near plane: WHOLE, its
+                                    ; box off its vertices (88.3.2)
+    ZBYTE cs_pinview                ; ...and that box inside the view
+    ZWORD cs_obx0                   ; a whole object's projected x range
+    ZWORD cs_obx1
+    ZWORD cs_projp                  ; 0, 2 or 4 (whole, quarter, sixteenth
+    ZWORD cs_scx                    ; metres), its projection, and the
+    ZWORD cs_scy                    ; origin from the eye's 16.8 position
     ZWORD cs_scz
     ZWORD cs_rwu                    ; cs_rwpt's u
     ZWORD cs_rwdu                   ; a runway stripe, on, in Q15 of the
@@ -810,9 +817,11 @@ cs_tpl:
     ZBUF  cs_rowoff, CS_MAXROW * 2
     ZBUF  cs_xl, CS_MAXROW * 2      ; a polygon's left and right bound per row
     ZBUF  cs_xr, CS_MAXROW * 2
-    ZBUF  cs_rowkind, CS_MAXROW     ; a view row at the last blit: bits 0-1
-                                    ; 0 all sky, 1 all ground, 3 split or
-                                    ; unknown; bit 7 drawn on since (88.3)
+    ZBUF  cs_rowkind, CS_MAXROW     ; a view row's kind at the last sky and
+                                    ; ground pass: 0 all sky, 1 all ground, 3
+                                    ; split or unknown. Whether anything drew
+                                    ; on it since is the previous span set's
+                                    ; entry, not a bit here (88.3.1)
     ZWORD cs_fullspan               ; the span pair of a touched view row
     ZWORD cs_slx                    ; the slice's (85.3.6): its first x, whole
     ZWORD cs_slq                    ; step, error, runs to go and last run
@@ -896,6 +905,7 @@ cs_tpl:
     ZWORD cs_ezh
     ZWORD cs_ddx                    ; an object's offset from the eye
     ZWORD cs_ddy
+    ZWORD cs_ddm                    ; ...and |dx| + |dz|, the range's measure
     ZWORD cs_ddz
     ZWORD cs_ocx                    ; the object's origin in camera space
     ZWORD cs_ocy
@@ -945,7 +955,7 @@ cs_tpl:
     ZWORD cs_nden
     ZBUF  cs_kx, 2048 * 2           ; the projection tables (85.5.3, 88.5)
     ZBUF  cs_ky, 2048 * 2
-    ZBUF  cs_vis, CS_NVIS * CS_VISZ ; the frame's objects: ptr, dx, dy, dz, along
+    ZBUF  cs_vis, CS_NVIS * CS_VISZ ; the frame's objects: ptr, reach, along
     ZBUF  cs_vkey, CS_NVIS * 4      ; ...sorted far to near: along, record
     ZWORD cs_nvisn
     ZBUF  cs_rwverts, 6 * 4         ; the runway, built from the airport

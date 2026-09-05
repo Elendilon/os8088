@@ -227,11 +227,14 @@ def main(argv):
 
         # --- it takes off --------------------------------------------------------
         m.key("KeyW", down=True, up=False)      # full throttle...
-        ok = until(m, lambda: r.word("cs_thr") >= 100, 180)
+        # 50 ticks at 2 a tick, and a frame slower than CS_MAXSTEP ticks
+        # loses steps (SPEC.md 85.6): 180 frames was 3.0 s on CGA's 60 Hz
+        # and read 96 once at 5.5 fps, so the wait is twice what it needs
+        ok = until(m, lambda: r.word("cs_thr") >= 100, 400)
         m.key("KeyW", down=False, up=True)
         print("  throttle %d after holding W" % r.word("cs_thr"))
         if not ok:
-            bad.append("W held for ten seconds did not open the throttle "
+            bad.append("W held for 400 frames did not open the throttle "
                        "(cs_thr = %d)" % r.word("cs_thr"))
         ok = until(m, lambda: r.word("cs_spd") >= VROT, 1200, 30)
         print("  speed %d (VROT %d), state %d" % (r.word("cs_spd"), VROT,
@@ -335,7 +338,7 @@ def main(argv):
             m.pause()
             before, outside = view_rows(m, r, back)
             m.run()
-            r.poke("cs_rowkind", b"\x83" * r.word("cs_wh"))
+            r.poke("cs_rowkind", b"\x03" * r.word("cs_wh"))
             m.advance(frames=20)
             m.pause()
             after, _ = view_rows(m, r, back)
