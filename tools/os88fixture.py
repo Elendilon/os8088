@@ -189,7 +189,12 @@ def recipe(goal, contains):
     the caller can rewrite the output path it is about to redirect.
     """
     import os88build
-    g = os88build.at(goal)
+    # RELATIVE TO ROOT, the way `make` above spells `BUILD=`. An ABSOLUTE goal
+    # matches no rule under a relative BUILD, and make's answer to a goal it
+    # has no rule for but can see on disk is `Nothing to be done` - the one
+    # sentence that reads like a satisfied dependency. That is this helper's
+    # own third trap, hit on the first run after it was written.
+    g = os.path.relpath(os88build.at(goal), ROOT)
     r = make("-n", "--always-make", g)
     if r.returncode:
         raise SystemExit("os88fixture: `make -n %s` failed:\n%s%s"

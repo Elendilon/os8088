@@ -47,12 +47,20 @@ os88ovlchk.py over source no knob can change, and re-assembled the finished
 kernel a second time for a size report this file captures and throws away.  At
 43 rows that was ~230 seconds of a 4-core box per run, none of it about a knob.
 
-  ICODIR=build     take the four packages and associco.inc from the default
+  ICODIR=<shared>  take the four packages and associco.inc from the shared
                    build.  NOT passed for a row whose knob reaches a PACKAGE
                    and not only the kernel - PKG_VARS below is that list, read
                    out of the Makefile's own $(PKGSBDEF) rather than copied
                    here, so a knob added to it stops sharing without anybody
-                   remembering to edit this file
+                   remembering to edit this file.
+                   **`<shared>` IS `os88build.at("build")`, NOT `build/`**
+                   (docs/SOAK-PARALLEL.md 14.2): under a frozen run the shared
+                   directory is the RUN'S tree, and `build/` is the operator's
+                   to `make` in. This was the one row left reaching out of the
+                   run - it read four packages and associco.inc out of a
+                   directory somebody else was rebuilding, and three of its
+                   rows duly failed a soak and passed standalone. Its OUTPUT
+                   goes in the tree for the same reason
   NOOVLCHK=1       do not run the overlay gate per row.  It takes no argument
                    and expands no %ifdef, so its answer is a function of
                    kernel/ alone and 43 runs are one answer 43 times.  THE GATE
@@ -392,9 +400,13 @@ def shares(variables):
 
 
 def build(name, variables, target="kernel.bin"):
-    out = os.path.join(ROOT, "build", "bm-" + name)
+    # INSIDE THE RUN'S TREE, both ways (see ICODIR in the header). `at` is the
+    # identity function with $OS88_TREE unset, so an interactive run is
+    # exactly as it was.
+    shared = os.path.relpath(os88build.at("build"), ROOT)
+    out = os.path.join(ROOT, shared, "bm-" + name)
     cmd = ["make", "BUILD=" + os.path.relpath(out, ROOT)] + NOWASTE + \
-          (["ICODIR=build"] if shares(variables) else []) + variables + \
+          (["ICODIR=" + shared] if shares(variables) else []) + variables + \
           [os.path.relpath(os.path.join(out, target), ROOT)]
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=300)
     ok = r.returncode == 0 and os.path.exists(os.path.join(out, target))
@@ -409,7 +421,11 @@ def main():
     ap.add_argument("-j", type=int, default=min(4, os.cpu_count() or 2))
     a = ap.parse_args()
 
-    shipped = os.path.join(ROOT, "build", "kernel.bin")
+    # THE KERNEL THE RUN READS, which under a frozen soak is the tree's and
+    # not `build/`'s (docs/SOAK-PARALLEL.md 14.2). Guarding the operator's
+    # copy would be guarding the one directory this row is no longer allowed
+    # to touch, and leaving the one it could actually clobber unwatched.
+    shipped = os88build.at("build/kernel.bin")
     before = md5(shipped) if os.path.exists(shipped) else None
 
     # The sharing above is only as good as the list it is withheld for, and
