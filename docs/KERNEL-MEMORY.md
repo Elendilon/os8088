@@ -224,7 +224,7 @@ had added.
     "bss": 6077,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 38168,
+    "cold": 38199,
     "coldpara": 2400,
     "fatpara": 288,
     "imgpara": 3584,
@@ -237,7 +237,7 @@ had added.
     "ovl": 1417,
     "ovlw": 5037,
     "stk0": 512,
-    "text": 50808,
+    "text": 50852,
     "vgabuf": 848,
     "vgabufpara": 64
   },
@@ -270,7 +270,7 @@ had added.
     "bss": 4857,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 26751,
+    "cold": 26782,
     "coldpara": 1696,
     "fatpara": 64,
     "imgpara": 2784,
@@ -283,7 +283,7 @@ had added.
     "ovl": 423,
     "ovlw": 2789,
     "stk0": 512,
-    "text": 39336,
+    "text": 39380,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -621,14 +621,14 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 31,573 | 35.5% |
-| the window system and its furniture | 24,279 | 27.3% |
+| the file system, end to end | 31,604 | 35.5% |
+| the window system and its furniture | 24,284 | 27.3% |
 | drawing: adapters, primitives, glyphs, icons | 14,964 | 16.8% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,638 | 9.7% |
-| the kernel proper: API table, heap, scheduler, events | 7,390 | 8.3% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,671 | 9.7% |
+| the kernel proper: API table, heap, scheduler, events | 7,396 | 8.3% |
 | the three built-in kinds | 1,542 | 1.7% |
 | the Control Panel | 590 | 0.7% |
-| **total** | **88,976** | |
+| **total** | **89,051** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -637,11 +637,11 @@ there and nowhere else.
 | `wm.inc` — the window manager (§11) | 11,671 | 94 | **11,765** | 1,074 | — | — |
 | `files.inc` — the Disk window (§22) | 1,083 | 8,252 | **9,335** | 465 | — | — |
 | `vga12.inc` — the VGA planar primitives (§5) | 7,242 | 740 | **7,982** | 162 | 526 | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,832 | **6,227** | 890 | — | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,863 | **6,258** | 890 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,969 | **5,210** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,740 | **4,919** | 158 | — | — |
-| `mouse.inc` — serial mouse and the cursor (§9) | 3,795 | — | **3,795** | 151 | 128 | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,377 | — | **3,377** | 58 | — | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 3,828 | — | **3,828** | 151 | 128 | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,382 | — | **3,382** | 58 | — | — |
 | `menu.inc` — the menu bar and pull-downs (§12) | 2,790 | 177 | **2,967** | 197 | 84 | — |
 | `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 496 | 2,039 | **2,535** | 356 | — | — |
 | `assoc.inc` — file type associations (§54) | 480 | 2,004 | **2,484** | 43 | — | — |
@@ -681,8 +681,8 @@ there and nowhere else.
 | `stkdiag.inc` — what an interrupt costs a task stack (STACK-SLOTS-PLAN §10), `STKDIAG=1` | — | — | **0** | — | — | — |
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,053 | 18 | **3,071** | — | — | 421 |
-| **total** | **50,808** | **38,168** | **88,976** | **6,077** | **9,182** | **2,250** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,059 | 18 | **3,077** | — | — | 421 |
+| **total** | **50,852** | **38,199** | **89,051** | **6,077** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it
