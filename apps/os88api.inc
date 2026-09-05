@@ -1463,8 +1463,8 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; disk: your instance stands in the folder it
                                  ; was launched from, or in one a dialog gave
                                  ; it, and nothing told you where the SYSTEM's
-                                 ; own files are. FONTS/ is the first of those
-                                 ; (SPEC.md 19.7).
+                                 ; own files are. SYSTEM/FONTS is the first of
+                                 ; those (SPEC.md 19.8).
                                  ;
                                  ; Bank OSAPI_FILE_HERE first and GOTO back
                                  ; when you are done: a visit leaves your

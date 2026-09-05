@@ -255,7 +255,7 @@ structure the natural one to write. What CWORD does, and what it costs:
   overstrike sits one pixel above the glyph band and the double underline two
   below; at pitch 10 the rule landed exactly where the next row's italic goes
   and rubbed it out on every repaint. Model every pixel row outside the band
-  separately, and let a face off `FONTS/` bring its own height.
+  separately, and let a face off `SYSTEM/FONTS/` bring its own height.
 - **One decision per cell, one call per RUN.** Bold is a second strike one
   pixel right, italic a strike up-and-right, the underlines are drawn rules,
   small caps a case map — each ONE extra call per run, never one per glyph.

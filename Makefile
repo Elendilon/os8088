@@ -2751,11 +2751,21 @@ $(SYSLOGO): tools/os88logo.py | $(BUILD)
 # idempotent: LF is normalised out first, so re-running it never doubles a CR.
 # --- the TYPEFACES (SPEC.md 6.4/19.8) ----------------------------------------
 # One .F88 per family, built from the reviewable art in faces/, and carried in
-# FONTS/ on the SYSTEM disk. A face is the machine's and not an application's -
-# the same thing the kernel's own 8x8 cell is - so a second program wanting
-# Charter finds it already there instead of carrying a copy. They are DATA: the
-# mount types a directory entry as an application only when its extension is
-# O88 (SPEC.md 19), so a .F88 can never be double-clicked into the loader.
+# SYSTEM/FONTS on the SYSTEM disk. A face is the machine's and not an
+# application's - the same thing the kernel's own 8x8 cell is - so a second
+# program wanting Charter finds it already there instead of carrying a copy.
+# They are DATA: the mount types a directory entry as an application only when
+# its extension is O88 (SPEC.md 19), so a .F88 can never be double-clicked
+# into the loader.
+#
+# UNDER SYSTEM/ AND NOT BESIDE IT (SPEC.md 19.8.1). The root of the system
+# disk is what the user sees when they open the boot floppy, and a folder of
+# files no person opens by hand had no business being one of the four things
+# in it. SYSTEM/ is already where the machine's own furniture lives -
+# TASKMGR.O88 and APPDATA/ - so the faces join it, and the root loses an entry
+# rather than gaining one. os88disk.py needs nothing new for it: a nested
+# folder key creates its parents, so SYSTEM/FONTS costs an entry in SYSTEM
+# instead of one in the root.
 #
 # The list is generated from the directory, exactly as SPEC.md 6.2.1's FONT=
 # targets are, so a new face is a new file and not an edit here as well.
@@ -2771,7 +2781,7 @@ FACES := $(patsubst faces/%.t88,$(BUILD)/%.f88,$(FACESRC))
 # person at the machine can double-click it and read it. CRLF here for the
 # same reason readme.txt gets it below.
 FACELIC := $(BUILD)/license.txt
-FACESARG := $(addprefix FONTS:,$(FACES)) FONTS:$(FACELIC)
+FACESARG := $(addprefix SYSTEM/FONTS:,$(FACES)) SYSTEM/FONTS:$(FACELIC)
 
 $(BUILD)/%.f88: faces/%.t88 tools/os88face.py | $(BUILD)
 	python3 tools/os88face.py $< -o $@

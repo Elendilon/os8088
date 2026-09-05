@@ -274,6 +274,15 @@ FAST = [
     Row("pkg", "fast", py("tests/unit/t_pkg.py"), 0.1,
         "package/driver/module headers, and every file on every image proved "
         "identical to the artifact it was built from"),
+    Row("fonts", "fast", py("tests/unit/t_fonts.py"), 0.1,
+        "the typefaces are in SYSTEM/FONTS on every shipped system image and "
+        "nowhere else (SPEC.md 19.8.1), and apps/os88type.inc's ty_gofonts "
+        "spells the same two components. The two ends of that path are in "
+        "files that never see each other, and when they disagree nothing says "
+        "so: ty_scan answers CF=1 and every Font menu on the machine is one "
+        "item long, which looks exactly like a Font menu. `pkg` above cannot "
+        "see it - it matches every file BY NAME, so the folder can move and "
+        "each of its rows still passes"),
     Row("sfx", "fast", py("tests/unit/t_sfx.py"), 0.4,
         "OS88NET.COM's self-extracting stub (SPEC.md 62.12) EXECUTED - the "
         "shipped bytes run in a small 8086 and must rebuild os88net.raw "
@@ -2095,6 +2104,14 @@ SOAK = [
         "record. --bar=1 drives the preview pane's.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("facescan", "soak", py("tests/facescan.py"), 18.0,
+        "SPEC.md 19.8: ty_scan WALKS to SYSTEM/FONTS on the machine and comes "
+        "back with every family - a package standing on the apps floppy, told "
+        "nothing but OSAPI_VOL_SYS. The unit rows either side of it check the "
+        "disk (`fonts`) and the bytes (`pkg`) and neither runs the walk; a "
+        "walk that fails is SILENT, because face 0 is the kernel's own cell "
+        "and a Font menu one item long looks like a Font menu",
+        needs=("marty",), wants=("build/bench360.img",)),
     Row("fmbtn", "soak", py("tests/fmbtn.py"), 60.0,
         "SPEC.md 22.18: the Disk window's two header buttons fire on the"
         "RELEASE.",

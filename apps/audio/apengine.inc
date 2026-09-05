@@ -1073,7 +1073,8 @@ ap_find_sibling:
 ; resolution dir and OSAPI_FILE_WRITE / _READ by NAME still land in the
 ; instance's own launched-from folder (measured - APDIAG.TXT and the queue file
 ; both missed the root). The real GOTO moves the instance, so every caller
-; banks OSAPI_FILE_HERE first and GOTOs back (the FONTS/ pattern, os88type.inc).
+; banks OSAPI_FILE_HERE first and GOTOs back (the SYSTEM/FONTS pattern, in
+; os88type.inc).
 ; =============================================================================
 ap_que_root:
     call OSAPI_VOL_SYS             ; BL = the volume this machine booted from

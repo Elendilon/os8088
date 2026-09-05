@@ -937,7 +937,7 @@ box does not have focus, `Ctrl+F` unconditionally — and the menu item names
 mostly about tables and alignment rather than about speed.
 
 **v2 is proportional, and the interesting part is that it is competitive.**
-SPEC.md §6.3–§6.5 already ship: `.F88` faces in `FONTS/` on every system disk,
+SPEC.md §6.3–§6.5 already ship: `.F88` faces in `SYSTEM/FONTS/` on every system disk,
 `apps/os88type.inc` as the method, and `OSAPI_GFX_BLIT1` to put a composed
 1bpp band on screen in one call. Measured (PERFORMANCE.md Set 64): the emit is
 **4.04 ms for a 624×12 band** and the compose is **21–43 ms** depending on how
