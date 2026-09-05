@@ -271,6 +271,27 @@ def image_build_num(path):
     return int(m.group(1)) if m else None
 
 
+def _in_tree(bdir):
+    """`$OS88_BUILD`, resolved inside the run's own tree when there is one.
+
+    **THE TWO VARIABLES MEAN DIFFERENT THINGS** (tools/os88build.py's
+    `tree_root`): `$OS88_BUILD` says which kernel this map describes and has
+    named a SUB-directory since long before the soak froze anything -
+    `build/smallk` in three registry rows, `build/emuk` in tests/vmmouse.py -
+    while `$OS88_TREE` says where the run's artefacts live. Under a frozen run
+    `build/smallk` has to become `<tree>/smallk`, or the row drives the tree's
+    kern_small disks with a map of the SHARED tree's kern_small kernel. Both
+    build fine, and after a commit they differ.
+
+    An absolute `$OS88_BUILD` is left alone: it is somebody naming a directory
+    outright, which is not a claim about this run's tree.
+    """
+    if not bdir:
+        return ""
+    import os88build
+    return os88build.at(bdir) if not os.path.isabs(bdir) else bdir
+
+
 def _load(defines=(), check=True):
     # $OS88_DEFINES is how a tool that never asked for a knob still finds the
     # right map. Every helper here takes `defines`, and the ones layered above
@@ -292,7 +313,8 @@ def _load(defines=(), check=True):
     # hardcoding build/ here meant the check compared a knob's map against the
     # PLAIN kernel and refused. That refusal is right and the map was right;
     # what was missing was a way to say which pair to use.
-    bdir = os.environ.get("OS88_BUILD", "") or os.path.join(ROOT, "build")
+    bdir = _in_tree(os.environ.get("OS88_BUILD", "")) \
+        or os.path.join(ROOT, "build")
     # ...and $OS88_ICODIR the same idea one file along: since the Makefile's
     # ICODIR, associco.inc need not be in $(BUILD) at all - a build that wants
     # only a knob KERNEL takes it from the default build rather than rebuilding

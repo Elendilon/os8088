@@ -135,11 +135,23 @@ def make(*args):
     # them literally, and that is fine: they are the row's own runtime files
     # and no `make` writes them.
     args = list(args)
-    root = os.environ.get("OS88_BUILD")
+    # THE RUN'S TREE, not $OS88_BUILD: a row may point the latter at a
+    # sub-directory of a build (`build/smallk`), and `make BUILD=build/smallk`
+    # is a build of its own in the wrong place.
+    import os88build
+    root = os88build.tree_root()
     if root:
         args.insert(0, "BUILD=%s" % os.path.relpath(root, ROOT))
 
-    stamp = os.path.join(ROOT, "build", "buildnum.inc")
+    # **THE STAMP TO RESTORE IS THE ONE THIS MAKE WILL WRITE**, which is the
+    # tree's when there is one. It was hardcoded to `build/buildnum.inc`, so
+    # under a frozen run this saved and restored a file the make never touched
+    # while letting the TREE's drift: after a commit mid-run the tree carried
+    # BUILD_NUM 150 beside a kernel.bin built at 149, and four rows died with
+    # "the map describes a DIFFERENT kernel" about a tree that was fine either
+    # side of the window. The freeze protects `build/` from the run; this is
+    # the run being protected from itself.
+    stamp = os.path.join(root or os.path.join(ROOT, "build"), "buildnum.inc")
     before = None
     if os.path.exists(stamp):
         with open(stamp, "rb") as f:

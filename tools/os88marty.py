@@ -2391,10 +2391,21 @@ def scratch_disk(path, *files, **kw):
 
     here = os.path.dirname(os.path.abspath(__file__))
     disk = os.path.join(here, "os88disk.py")
-    # RESOLVED AGAINST $OS88_BUILD, like launch's floppies (14.2): a scratch
-    # disk is built OUT OF build/ artefacts, so a run pointed at a frozen tree
-    # has to read them from there or it bakes the shared tree's bytes into its
-    # own image and the freeze buys nothing. `files` carries os88disk's own
+    # **THE OUTPUT IS RESOLVED TOO, and the first version was not.** A row
+    # spells the same `build/x.img` twice - once here and once to `launch` -
+    # and `launch` resolves it. Resolving only the inputs therefore WROTE the
+    # disk into the shared tree and READ it out of the run's own, which is a
+    # FileNotFoundError in `_clone` with the image sitting right there: ten
+    # rows of one soak, and three more where os88disk could not open an input
+    # it had been handed from the tree while writing to a directory that did
+    # not exist. A tree is the run's own directory and its scratch disks
+    # belong in it. The resolved path is returned, so a caller that keeps the
+    # answer and one that re-spells the literal both land on one file.
+    path = _build.at(path)
+    # ...AND THE INPUTS, for the same section's reason (14.2): a scratch disk
+    # is built OUT OF build/ artefacts, so a run pointed at a frozen tree has
+    # to read them from there or it bakes the shared tree's bytes into its own
+    # image and the freeze buys nothing. `files` carries os88disk's own
     # "PREFIX:path" spelling, so the prefix is put back after resolving.
     files = tuple(
         (f.split(":", 1)[0] + ":" + _build.at(f.split(":", 1)[1])
