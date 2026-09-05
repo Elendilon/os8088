@@ -214,9 +214,10 @@ tk_clearall:
     mov cx, TK_MAXROW
     rep stosw
     mov di, tk_tmc                  ; every template key stale, so the first
-    mov cx, 12                      ; frame draws the whole panel (85.3.5)
+    mov cx, TK_NTM * 2              ; frame draws the whole panel (85.3.5)
     mov ax, 0xFFFF
     rep stosw
+    mov byte [tk_rtm_on], 0         ; ...and no ridge in the template (85.3.8)
     mov es, [tk_tseg]
     cmp byte [tk_back], TKB_MODEX
     jne .flat
@@ -1545,7 +1546,8 @@ tk_render:
     je .nt                          ; template (SPEC.md 85.3.5) - AFTER the
     call tk_tmupdate                ; clear, which has just copied the old
 .nt:                                ; template over last frame's runs
-    call tk_ridge
+    call tk_ridge_tm                ; the ridge: template while the heading
+                                    ; holds, dynamic while it turns (85.3.8)
     mov al, OT_CUBE
     call tk_drawtype
     mov al, OT_PYR
@@ -2098,10 +2100,13 @@ tk_tmupdate:
     call tk_tmitem
     ret
 
-; The items, in key order: what each draws into the template when asked
-TK_NTM equ 6
+; The items, in key order: what each draws into the template when asked. The
+; seventh is the ridge (85.3.8), which keeps its own state and is here only so
+; that an item whose rectangle it crosses can have it drawn again.
+TK_NTM equ 7
 tk_tmproc:
     dw tk_rim, tk_sightdraw, tk_tm_lives, tk_tm_scores, tk_rangedraw, tk_tm_crack
+    dw tk_tm_ridge
 
 tk_tm_lives:
     mov al, TKI_HUD
@@ -2140,7 +2145,7 @@ tk_tmitem:
     mov [tk_tseg], ax
     mov ax, [tk_spcur]              ; ...and mark a set nobody reads
     mov [tk_tmsave], ax
-    mov word [tk_spcur], tk_spans2
+    mov word [tk_spcur], tk_spjunk
     ; EVERY ITEM WHOSE RECTANGLE MEETS THIS ONE IS DRAWN AGAIN, this one
     ; included: the zero above took their pixels inside it with it. The
     ; crack's rectangle holds the whole sight, which is how the sight was
@@ -2148,19 +2153,11 @@ tk_tmitem:
     ; drawing nothing, had just zeroed it.
     mov al, [ds:tk_tmovl + bp]      ; DS, SPELLED: a BP operand addresses SS
     mov [tk_tmbits], al             ; by default, and SS is the kernel's
-    xor bx, bx
-.j:
-    shr byte [tk_tmbits], 1
-    jnc .nj
-    push bx
-    push bp
-    call [tk_tmproc + bx]
-    pop bp
-    pop bx
-.nj:
-    add bx, 2
-    cmp bx, TK_NTM * 2
-    jb .j
+    mov [tk_tmcur], si              ; the rectangle, for a redraw that can
+    push bp                         ; limit itself to it (the ridge's). The
+    call tk_tmdrawset               ; walks keep nothing, BP included, and
+    pop bp                          ; BP is the item: without this the copy
+    mov word [tk_tmcur], 0          ; below ran a garbage rectangle for ever
     mov ax, [tk_tmsave]
     mov [tk_spcur], ax
     mov ax, [tk_shseg]
@@ -2225,6 +2222,337 @@ tk_tmoverlap:
     jb .i
     ret
 
+; tk_tmdrawset - draw every item whose bit is set in [tk_tmbits], into
+;                whatever tk_tseg/tk_spcur point at. Bit j is tk_tmproc[j].
+tk_tmdrawset:
+    xor bx, bx
+.j:
+    shr byte [tk_tmbits], 1
+    jnc .nj
+    push bx
+    call [tk_tmproc + bx]
+    pop bx
+.nj:
+    add bx, 2
+    cmp bx, TK_NTM * 2
+    jb .j
+    ret
+
+; =============================================================================
+; THE RIDGE IN THE TEMPLATE, WHILE THE HEADING HOLDS (SPEC.md 85.3.8)
+;
+; The ridge is at infinity and moves only when the camera turns, and it cost
+; 26 ms of a 97 ms Hercules frame to draw every frame. It cannot be a plain
+; item: its rectangle is the whole width by seventy rows, and zeroing, copying
+; and blitting that on every turn would cost more than drawing it. So it keeps
+; its OWN span set - what it actually lit in the template - and the rule is
+; the heading: the frame after a turn stops, the ridge is drawn into the
+; template over those runs; the frame a turn starts, it is taken out again
+; and drawn into the shadow as every frame once did. A frame in the middle of
+; a turn costs exactly what it did; a still one costs no ridge at all.
+; =============================================================================
+tk_ridge_full:                      ; the whole width, then tk_ridge
+    xor ax, ax
+    mov [tk_rx0], ax
+    mov ax, [tk_vw]
+    dec ax
+    mov [tk_rx1], ax
+    jmp tk_ridge
+
+tk_ridge_tm:
+    cmp byte [tk_tmpl], 0
+    je tk_ridge_full                ; Mode X: every frame, as before
+    mov al, [tk_pa]
+    mov ah, [tk_rpa_last]
+    mov [tk_rpa_last], al
+    cmp al, ah
+    jne .moving
+    cmp byte [tk_rtm_on], 0         ; SETTLED: the same heading as last frame
+    je .settle
+    cmp al, [tk_rpa_tm]
+    je .done                        ; ...and the template already has it
+.settle:
+    mov [tk_rpa_tm], al
+    call tk_rdg_out                 ; the old ridge out; its runs in tk_spans2
+    call tk_rdg_touch               ; -> [tk_tmbits]: the items on those runs
+    push ds
+    pop es
+    mov di, tk_sprdg                ; the new ridge records its own runs
+    mov cx, TK_MAXROW
+    mov ax, 0x00FF
+    cld
+    rep stosw
+    mov ax, [tk_tmseg]
+    mov [tk_tseg], ax
+    mov ax, [tk_spcur]
+    mov [tk_tmsave], ax
+    mov word [tk_spcur], tk_sprdg
+    call tk_ridge_full
+    mov word [tk_spcur], tk_spjunk
+    call tk_tmdrawset               ; the items the zero took, drawn again
+    mov ax, [tk_tmsave]
+    mov [tk_spcur], ax
+    mov ax, [tk_shseg]
+    mov [tk_tseg], ax
+    mov byte [tk_rtm_on], 1
+    call tk_rdg_union               ; tk_spans2 = the old runs and the new
+    jmp tk_rdg_apply                ; template -> shadow over them, marked
+.moving:
+    cmp byte [tk_rtm_on], 0
+    je .dyn
+    call tk_rdg_out                 ; MOVING: the template must hold no ridge
+    call tk_rdg_touch
+    mov ax, [tk_tmseg]
+    mov [tk_tseg], ax
+    mov ax, [tk_spcur]
+    mov [tk_tmsave], ax
+    mov word [tk_spcur], tk_spjunk
+    call tk_tmdrawset
+    mov ax, [tk_tmsave]
+    mov [tk_spcur], ax
+    mov ax, [tk_shseg]
+    mov [tk_tseg], ax
+    mov byte [tk_rtm_on], 0
+    call tk_rdg_apply
+.dyn:
+    jmp tk_ridge_full               ; into the shadow, as every frame once did
+.done:
+    ret
+
+; tk_tm_ridge - the ridge as an ITEM: drawn again when another item's zero
+;               took some of it, and only across that item's rectangle
+tk_tm_ridge:
+    cmp byte [tk_rtm_on], 0
+    je .o
+    mov si, [tk_tmcur]
+    or si, si
+    jnz .part
+    jmp tk_ridge_full
+.part:
+    mov cl, [tk_kshift]
+    mov ax, [si+4]
+    shl ax, cl
+    mov [tk_rx0], ax
+    mov ax, [si+6]
+    inc ax
+    shl ax, cl
+    dec ax
+    mov [tk_rx1], ax
+    jmp tk_ridge
+.o:
+    ret
+
+; EVERY PASS BELOW RUNS OVER THE RIDGE'S BAND ALONE - rectangle 6's rows, the
+; tallest peak the table holds above the horizon - and not the viewport's 200.
+; The first build ran them full height and a transition frame spent 30 ms in
+; span-array loops before it drew a pixel.
+;
+; tk_rdg_band - SI -> tk_spans2 at the band's first row, DI -> tk_sprdg there,
+;               BX -> tk_rowoff there, CX = the band's rows, DX = its first row
+tk_rdg_band:
+    mov dx, [tk_tmr + 48]
+    mov cx, [tk_tmr + 50]
+    sub cx, dx
+    inc cx
+    mov bx, dx
+    shl bx, 1
+    mov si, bx
+    add si, tk_spans2
+    mov di, bx
+    add di, tk_sprdg
+    add bx, tk_rowoff
+    ret
+
+; tk_rdg_out - the template's ridge, if it has one, taken out: its runs are
+;              copied to tk_spans2 and zeroed in the template; else tk_spans2's
+;              band is armed empty
+tk_rdg_out:
+    call tk_rdg_band
+    push ds
+    pop es
+    cld
+    cmp byte [tk_rtm_on], 0
+    je .empty
+    push cx
+    push bx
+    push di
+    xchg si, di                     ; tk_sprdg -> tk_spans2, the band
+    rep movsw
+    pop si                          ; SI = tk_sprdg at the band
+    pop bx
+    pop bp                          ; BP = its rows
+    jmp tk_tmzruns
+.empty:
+    mov di, si
+    mov ax, 0x00FF
+    rep stosw
+    ret
+
+; tk_tmzruns - zero the template over the runs of SI, BP rows, BX -> tk_rowoff
+tk_tmzruns:
+    mov es, [tk_tmseg]
+    cld
+.r:
+    lodsw
+    cmp al, ah
+    ja .n
+    and al, 0xFE
+    or ah, 1
+    sub ah, al
+    shr ah, 1
+    mov cl, ah
+    xor ch, ch
+    inc cx
+    xor ah, ah
+    mov di, [bx]
+    add di, ax
+    xor ax, ax
+    rep stosw
+.n:
+    inc bx
+    inc bx
+    dec bp
+    jnz .r
+    ret
+
+; tk_tmcpruns - template -> shadow over the runs of SI, BP rows, BX -> tk_rowoff
+tk_tmcpruns:
+    mov es, [tk_shseg]
+    cld
+.r:
+    lodsw
+    cmp al, ah
+    ja .n
+    and al, 0xFE
+    or ah, 1
+    sub ah, al
+    shr ah, 1
+    mov cl, ah
+    xor ch, ch
+    inc cx
+    xor ah, ah
+    mov di, [bx]
+    add di, ax
+    push si
+    mov si, di
+    push ds
+    mov ds, [tk_tmseg]
+    rep movsw
+    pop ds
+    pop si
+.n:
+    inc bx
+    inc bx
+    dec bp
+    jnz .r
+    ret
+
+; tk_rdg_touch - [tk_tmbits] = the six panel items whose rectangle meets a
+;                run of tk_spans2 inside the band: the ones a zero over it took
+tk_rdg_touch:
+    mov byte [tk_tmbits], 0
+    xor bp, bp
+    mov dl, 1
+.i:
+    mov si, bp
+    shl si, 1
+    shl si, 1
+    shl si, 1
+    add si, tk_tmr                  ; SI = the rectangle
+    mov ax, [si]                    ; its rows, clipped to the band
+    cmp ax, [tk_tmr + 48]
+    jge .r0
+    mov ax, [tk_tmr + 48]
+.r0:
+    mov cx, [si+2]
+    cmp cx, [tk_tmr + 50]
+    jle .r1
+    mov cx, [tk_tmr + 50]
+.r1:
+    sub cx, ax
+    jl .ni                          ; no row in common
+    inc cx                          ; CX = rows
+    mov bx, ax
+    shl bx, 1
+    add bx, tk_spans2               ; BX = the run of the first such row
+    mov al, [si+4]                  ; AL = byte0, AH = byte1
+    mov ah, [si+6]
+.r:
+    cmp [bx], ah                    ; lo > byte1 (or empty): no
+    ja .nr
+    push ax
+    mov al, [bx+1]
+    cmp al, [bx]
+    jb .nx                          ; lo > hi: empty
+    cmp al, [si+4]                  ; hi < byte0: no
+    jb .nx
+    pop ax
+    or [tk_tmbits], dl
+    jmp short .ni
+.nx:
+    pop ax
+.nr:
+    inc bx
+    inc bx
+    loop .r
+.ni:
+    shl dl, 1
+    inc bp
+    cmp bp, TK_NTM - 1              ; the six panel items, not the ridge
+    jb .i
+    ret
+
+; tk_rdg_union - tk_spans2 = its runs widened by tk_sprdg's, over the band
+tk_rdg_union:
+    call tk_rdg_band
+.r:
+    mov ax, [di]
+    cmp al, [si]
+    jae .l
+    mov [si], al
+.l:
+    cmp ah, [si+1]
+    jbe .h
+    mov [si+1], ah
+.h:
+    inc si
+    inc si
+    inc di
+    inc di
+    loop .r
+    ret
+
+; tk_rdg_apply - template -> shadow over tk_spans2's band runs, and those runs
+;                into this frame's span set so the blit carries them
+tk_rdg_apply:
+    call tk_rdg_band
+    push cx
+    push dx
+    push si
+    mov bp, cx
+    call tk_tmcpruns
+    pop si                          ; SI = tk_spans2 at the band
+    pop di                          ; DI = the band's first row...
+    shl di, 1
+    add di, [tk_spcur]              ; ...in this frame's set
+    pop cx
+.r:
+    mov ax, [si]
+    cmp al, [di]
+    jae .l
+    mov [di], al
+.l:
+    cmp ah, [di+1]
+    jbe .h
+    mov [di+1], ah
+.h:
+    inc si
+    inc si
+    inc di
+    inc di
+    loop .r
+    ret
+
 ; A RECTANGLE is four words: row0, row1, byte0, byte1, all inclusive and all
 ; clamped to the viewport by tk_tmreg. The byte pair is rounded out to whole
 ; WORDS by the two movers, as the clear and the blit round theirs.
@@ -2242,6 +2570,7 @@ tk_tmzero:                          ; zero it in the template
     mov cx, [si+2]
     sub cx, [si]
     inc cx                          ; CX = rows
+    jle .done                       ; ...and none is none, not 65,536
     cld
 .r:
     push cx
@@ -2255,6 +2584,7 @@ tk_tmzero:                          ; zero it in the template
     add di, 2
     pop cx
     loop .r
+.done:
     ret
 
 tk_tmcopy:                          ; template -> shadow, the same rectangle
@@ -2272,6 +2602,7 @@ tk_tmcopy:                          ; template -> shadow, the same rectangle
     mov cx, [si+2]
     sub cx, [si]
     inc cx
+    jle .done
     mov ds, [tk_tmseg]
     cld
 .r:
@@ -2286,6 +2617,7 @@ tk_tmcopy:                          ; template -> shadow, the same rectangle
     add di, 2
     pop cx
     loop .r
+.done:
     pop ds
     ret
 
@@ -2296,6 +2628,7 @@ tk_tmmark:                          ; the rectangle into [tk_spcur]
     mov cx, [si+2]
     sub cx, [si]
     inc cx
+    jle .done
     mov dx, [si+4]                  ; DL = byte0
     mov dh, [si+6]                  ; DH = byte1
 .r:
@@ -2309,6 +2642,7 @@ tk_tmmark:                          ; the rectangle into [tk_spcur]
 .h:
     add bx, 2
     loop .r
+.done:
     ret
 
 ; tk_tmreg - store one rectangle, clamped to the viewport
@@ -2468,6 +2802,33 @@ tk_tmlayout:
     pop bx
     pop ax
     mov si, tk_tmr + 40
+    call tk_tmreg
+    ; the ridge's band (85.3.8): the tallest peak the table holds, scaled,
+    ; above the horizon, the whole width - for the matrix only
+    mov si, tk_ridgetab
+    mov cx, 256
+    xor al, al
+.mx:
+    cmp al, [si]
+    jae .m1
+    mov al, [si]
+.m1:
+    inc si
+    loop .mx
+    xor ah, ah
+    mul word [tk_ridgek]
+    mov al, ah                      ; AX = the tallest peak in rows
+    mov ah, dl
+    mov bx, [tk_vcy]
+    inc bx
+    mov dx, bx
+    sub dx, ax
+    sub dx, 2
+    mov ax, dx                      ; AX = row0, BX = row1
+    xor cx, cx
+    mov dx, [tk_vw]
+    dec dx
+    mov si, tk_tmr + 48
     call tk_tmreg
     jmp tk_tmoverlap
 

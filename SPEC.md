@@ -91623,6 +91623,76 @@ measured **-3 ms** on the fixed Hercules scene and at eight **-4 ms**, with the
 ridge - twenty-four segments at sixteen to thirty pixels a row - the whole of
 the difference. Mode X keeps the walk: its runs cross planes.
 
+#### 85.3.7 The clear and the blit keep DS, and an empty row is one compare
+
+Both loops visit every row of the viewport, and in a typical frame most rows
+are empty. `tk_blit` reloaded both span pointers from memory and read the four
+span bytes through `CS` on every row - about 280 cycles a row by §85.3.4's
+rule before a byte moved, 200 rows a frame - because `DS` was the shadow for
+the whole loop so that the copy could be a `rep movsw`. Now `DS` stays the
+package's: each pair comes in by `lodsw` (and the other set's by one word
+read), two EQUAL EMPTY pairs are one compare, and the segment the mover needs
+is loaded around the `rep` alone. `tk_clearspans` takes the same shape for
+both its arms, the template copy and Mode X's zeros.
+
+**And the blit stays: a Hercules page flip is REFUSED, priced.** §85.2 refused
+it as a poor trade for a copy this small, and the copy turned out to be 16%
+of the frame; but what it removes is now 10.6 ms of a 72 ms still frame, and
+what it adds back is the clear into VRAM with its wait states (+60% of 6 ms),
+every plot a read-modify-write of VRAM, a banked row step in every walk,
+`fsx_page`'s refusal on a two-card machine (§53.10) with the shadow path kept
+as the fallback, and a gate that reads page 0. Net about 3 ms for a fourth
+backend. The blit's row loop was the part worth having, and this section is
+it.
+
+#### 85.3.8 The ridge is in the template while the heading holds
+
+The ridge is at infinity and moves only when the camera turns (§85.5.1), and
+drawing it every frame - twenty-four sliced segments, the horizon run and
+the rows they dirty - was **26 ms of a 97 ms Hercules frame**. It cannot be a
+plain §85.3.5 item: its rectangle is the whole width by seventy rows, and
+zeroing, copying and blitting 5,680 bytes on every turn would cost more than
+the drawing did. So it keeps its **own span set**, `tk_sprdg` - what it
+actually lit in the template - and the rule is the heading:
+
+- **Settled** (the heading equals last frame's, and the template does not hold
+  this ridge): the old ridge's runs are copied aside and zeroed in the
+  template, the new ridge is drawn into the template recording its runs, the
+  panel items whose rectangles meet the OLD runs are drawn again (the zero
+  took their pixels), and the union of old and new runs is copied template to
+  shadow and marked into this frame's spans. From the next frame the ridge
+  costs nothing.
+- **Moving** (the heading changed): if the template holds a ridge it comes out
+  the same way, and the ridge is drawn into the shadow as every frame once
+  did. A frame in the middle of a turn therefore costs exactly what it did.
+- The ridge is also item 6 of the matrix, so a panel item whose rectangle
+  meets the band has the ridge drawn again inside its rectangle when it
+  changes - `tk_ridge` takes a column range for exactly that, and skips
+  segments outside it.
+
+**The transitions are the price**, one frame each way at a turn's start and
+end, and every pass they make runs over the ridge's BAND (rectangle 6's rows,
+the tallest peak the table holds) and never the viewport's 200 rows - the
+first build ran them full height and a transition frame spent 30 ms in
+span-array loops before it drew a pixel. Measured with `tests/tankperf.py
+--turn-every` on the fixed Hercules scene, frame by frame:
+
+| | ms |
+|---|---:|
+| still, ridge in the template | **72** |
+| turning every frame (never settles: the dynamic ridge, as before) | 91 |
+| the frame a turn starts: take-out, the sight drawn again, the runs copied and blitted | 116 |
+| the frame a turn stops: the ridge drawn into the template, union copied and blitted | 112 |
+| a turn every fourth frame, mean | 99 |
+| alternating turn and stop every frame, mean | 113 |
+
+So a turn-stop pair costs about 45 ms over the dynamic ridge and every still
+frame saves 19; it pays back after two or three still frames, which is
+shorter than any pause to fire. Alternating every frame is the case that
+cannot win, at five taps a second on a ten-frame machine. Over eight fresh
+games standing still averaged **104 → 79.5 ms** (9.6 → 12.6 fps) and turning
+**129 → 123** (7.8 → 8.1).
+
 ### 85.4 Three inks, named for what they mean
 
 `TKI_WORLD`, `TKI_HUD`, `TKI_MARK` — the world, the panel, the gunsight and
@@ -91674,6 +91744,30 @@ both ends behind is a reject, one end behind is an interpolation onto
 `TK_NEARZ`. The interpolation's numerator is bounded by its denominator by
 construction, so that `idiv` needs no guard.
 
+#### 85.5.3 The projection is a table and a multiply, not a divide
+
+`tk_project` was two `imul` and two guarded `idiv` a vertex, about 1,400
+cycles by §85.3.4's rule, and with 120 vertices in a clustered frame a third
+of its non-pixel floor. It is now one table row and two `imul`: `tk_ktabs`
+builds `kx[i] = sclx x 2048 / z(i)` and `ky[i]` likewise once a bracket
+(4,096 divides, once, for the two scales the live viewport has), and each
+axis is `c x k >> 11`, the shift being a byte move and three `sar`s because the
+clamp has already promised sixteen bits.
+
+**The rows are exact below 1,024 units and bucketed above** - every 4 units to
+4,095 and every 16 beyond, at the bucket's centre so the error is signed both
+ways - which is 2,048 rows, 8 KB of bss for the pair. Modelled against the
+exact divide over 200,000 random vertices per scale, the error is **0.26-0.28
+px on average and at most 3 px**, the worst cases all at the 1,024 boundary for
+vertices further off-axis than the frustum admits; under 0.6% of vertices are
+two pixels off on Hercules and under 0.1% on CGA. An object's vertices share a
+depth to within its own size, so the bucketing moves a shape, not its edges
+apart.
+
+**The clamp survives**, in the product's high word: `4000 << 11` is 125, so a
+`DX` at or past ±125 is ±4000 before any shift, and the near-plane case that
+made `tk_pdiv`'s guard load-bearing is caught the same way.
+
 #### 85.5.1 The ridge is at infinity, so it is a table
 
 Mountains at infinity move only when the camera TURNS, so the horizon
@@ -91715,6 +91809,9 @@ same Hercules frames, exact and scene for scene, from **192.8 to 110.6 ms**
 second kind of scene from being dealt. Over eight fresh games, ten exact
 frames each, standing still averaged **185 → 104 ms** (5.4 → 9.6 fps) and
 turning **221 → 129 ms** (4.5 → 7.8 fps), the worst turning frame 289 → 173.
+The round after (§85.5.3, §85.3.7, §85.3.8) took the same scenes to **72 ms**
+(13.9 fps) on the scatter and **215 ms** (4.6 fps) on the cluster, and the
+eight games to 79.5 ms still and 123 turning.
 
 **Two input readers, because they answer two different questions.** `int 16h`
 answers *what was typed* and is right for fire, pause and leaving;

@@ -99,6 +99,7 @@ tk_r_setup:
     mov [tk_ridgek], ax
 
     call tk_hud_layout
+    call tk_ktabs                   ; the projection tables for these scales
 
     ; --- the target: two VRAM pages, or one RAM shadow --------------------
     cmp byte [tk_back], TKB_MODEX
@@ -332,21 +333,21 @@ tk_r_begin:
 ; than the ones it saves on every row wider than about six.
 ; -----------------------------------------------------------------------------
 tk_clearspans:
-    cmp byte [tk_tmpl], 0
-    je .zero
-    ; --- a shadow backend: the TEMPLATE's bytes over every run, not zeros ---
-    ; (SPEC.md 85.3.5). DS is the template for the loop, so the copy is a rep
-    ; movsw; everything of ours is reached through CS, which is our DS too.
-    push ds
-    mov es, [tk_tseg]
+    ; THE LOOP KEEPS DS (SPEC.md 85.3.7): the span pair comes in by `lodsw`,
+    ; the row's base by one lookup, and the segment the mover needs is loaded
+    ; around the `rep` alone - so an EMPTY row, which is most of them, costs
+    ; ten bytes and one memory access instead of the twenty and two it did.
     mov si, [tk_spprv]
-    xor bx, bx                      ; the row-offset index
+    mov bx, tk_rowoff
     mov bp, [tk_vh]
-    mov ds, [tk_tmseg]
+    mov es, [tk_tseg]
     cld
+    cmp byte [tk_tmpl], 0
+    je .zrow
+    ; --- a shadow backend: the TEMPLATE's bytes over every run, not zeros ---
+    ; (SPEC.md 85.3.5)
 .trow:
-    mov al, [cs:si]                 ; lo
-    mov ah, [cs:si+1]               ; hi
+    lodsw                           ; AL = lo, AH = hi
     cmp al, ah
     ja .tnext
     and al, 0xFE                    ; even..odd, so the run is whole words
@@ -357,50 +358,44 @@ tk_clearspans:
     xor ch, ch
     inc cx                          ; CX = words
     xor ah, ah
-    mov di, [cs:tk_rowoff + bx]
-    add di, ax
+    mov di, [bx]
+    add di, ax                      ; the same offset in template and shadow
     push si
-    mov si, di                      ; the same offset in template and shadow
+    mov si, di
+    push ds
+    mov ds, [tk_tmseg]
     rep movsw
+    pop ds
     pop si
 .tnext:
-    add si, 2
-    add bx, 2
+    inc bx
+    inc bx
     dec bp
     jnz .trow
-    pop ds
     ret
-.zero:
-    mov es, [tk_tseg]
-    mov si, [tk_spprv]
-    mov di, [tk_tbase]
-    mov bp, [tk_vh]
-    cld
-.row:
-    mov al, [si]                    ; lo
-    mov ah, [si+1]                  ; hi
+    ; --- Mode X: zeros, into the page nobody is looking at -------------------
+.zrow:
+    lodsw
     cmp al, ah
-    ja .next
-    and al, 0xFE                    ; even..odd, so the run is whole words
+    ja .znext
+    and al, 0xFE
     or ah, 1
-    mov bl, ah
-    sub bl, al
-    shr bl, 1
-    mov cl, bl
+    sub ah, al
+    shr ah, 1
+    mov cl, ah
     xor ch, ch
-    inc cx                          ; CX = words
-    mov bl, al
-    xor bh, bh
-    push di
-    add di, bx
+    inc cx
+    xor ah, ah
+    mov di, [bx]
+    add di, ax
+    add di, [tk_tbase]
     xor ax, ax
     rep stosw
-    pop di
-.next:
-    add si, 2
-    add di, 80
+.znext:
+    inc bx
+    inc bx
     dec bp
-    jnz .row
+    jnz .zrow
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1248,52 +1243,64 @@ tk_r_end:
 ; DS (SPEC.md 20.1) and is free at that moment.
 ; -----------------------------------------------------------------------------
 tk_blit:
-    push ds
-    mov es, [tk_fsi+FSI_SEG]
+    ; THE LOOP KEEPS DS (SPEC.md 85.3.7). It used to reload both span pointers
+    ; from memory and read four bytes through CS on EVERY row, about 280
+    ; cycles a row before a byte moved, and most rows move none. Now the two
+    ; pairs come in as words, two equal EMPTY pairs are one compare, and the
+    ; shadow segment is loaded around the `rep` alone.
+    mov si, [tk_spcur]              ; this frame's set...
+    mov di, [tk_spprv]              ; ...and last frame's
+    mov bx, tk_devoff               ; the device row table
+    xor dx, dx                      ; the row's base in the shadow
     mov bp, [tk_vh]
-    xor bx, bx                      ; BX = the row's span offset
-    xor dx, dx                      ; DX = the row's base in the shadow
-    mov ax, [tk_shseg]
-    mov ds, ax
+    mov es, [tk_fsi+FSI_SEG]
     cld
 .row:
-    mov si, [cs:tk_spcur]
-    mov di, [cs:tk_spprv]
-    mov cl, [cs:si+bx]              ; CL = min(lo, lo')
-    mov al, [cs:di+bx]
-    cmp al, cl
-    jae .l1
-    mov cl, al
-.l1:
-    mov ch, [cs:si+bx+1]            ; CH = max(hi, hi')
-    mov al, [cs:di+bx+1]
-    cmp al, ch
-    jbe .h1
-    mov ch, al
-.h1:
-    cmp cl, ch
-    ja .next
-    and cl, 0xFE                    ; whole words, as the clear does
-    or ch, 1
+    lodsw                           ; AL/AH = lo/hi
+    mov cx, [di]                    ; CL/CH = lo'/hi'
+    inc di
+    inc di
+    cmp ax, cx
+    jne .work
+    cmp ax, 0x00FF                  ; both empty: the common row
+    je .next
+.work:
+    cmp al, cl                      ; AL = min(lo, lo')
+    jbe .l1
     mov al, cl
-    xor ah, ah
+.l1:
+    cmp ah, ch                      ; AH = max(hi, hi')
+    jae .h1
+    mov ah, ch
+.h1:
+    cmp al, ah
+    ja .next
+    and al, 0xFE                    ; whole words, as the clear does
+    or ah, 1
+    sub ah, al
+    shr ah, 1
+    mov cl, ah
+    xor ch, ch
+    inc cx                          ; CX = words
+    xor ah, ah                      ; AX = the first byte
+    push si
+    push di
+    mov di, [bx]
+    add di, ax                      ; ES:DI = the device row
     mov si, dx
-    add si, ax
-    mov di, [cs:tk_devoff+bx]
-    add di, ax
-    mov al, ch
-    sub al, cl
-    shr al, 1
-    xor ah, ah
-    inc ax
-    xchg ax, cx
+    add si, ax                      ; DS:SI = the shadow row
+    push ds
+    mov ds, [tk_shseg]
     rep movsw
+    pop ds
+    pop di
+    pop si
 .next:
-    add bx, 2
+    inc bx
+    inc bx
     add dx, 80
     dec bp
     jnz .row
-    pop ds
     ret
 
 ; -----------------------------------------------------------------------------
