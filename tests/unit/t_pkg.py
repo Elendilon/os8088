@@ -174,24 +174,6 @@ def header(blob, nm):
                   "shipped uncompressed - os88pkg.py refuses to write one")
         check(32 <= image <= 0xFFFF,
               "%s: image %d fits the 16-bit field" % (nm, image), got=image)
-    elif ver == V_DRV and len(blob) < image:
-        # ...AND A COMPRESSED DRIVER SAYS SO WITH NO BIT AT ALL. +3 is the
-        # CLASS in a v4 header and there is no flags byte to spare, so the
-        # signal IS this inequality and the format is the body's own first
-        # byte (SPEC.md 20.13.2). Which means the check above cannot simply be
-        # widened: `image > file` is the DEFINITION here, so what is left to
-        # assert is that the body names a format the kernel has and that the
-        # stream really does expand to the size the header claims - both of
-        # which image_unwrap does by doing it.
-        check(blob[HEADER] in (0, 1),
-              "%s: the compressed body names a format" % nm, got=blob[HEADER],
-              want="0 (LZ4) or 1 (LZB)")
-        eq(len(os88drv.image_unwrap(blob)), image,
-           "%s: the stream expands to the %d bytes the header claims"
-           % (nm, image),
-           "drv_expand claims from +8 and then decodes into it - a stream that "
-           "produces fewer bytes leaves the tail of a driver as whatever the "
-           "heap had, and one that produces more has already overrun")
     else:
         eq(image, len(blob), "%s: image size field matches the file" % nm)
     if ver == V_APP:
@@ -203,13 +185,21 @@ def header(blob, nm):
 
 def main():
     build = os.path.join(ROOT, "build")
-    arts, apps, drvs, mods = {}, 0, 0, 0
+    arts, apps, drvs, mods, drvs_cz = {}, 0, 0, 0, 0
     for f in sorted(os.listdir(build)):
         p = os.path.join(build, f)
         if not os.path.isfile(p) or not f.endswith((".o88", ".drv")):
             continue
         blob = read(p)
         arts[f.upper()] = blob
+        if f.endswith(".drv") and blob[:2] == b"CZ":
+            # A COMPRESSED DRIVER IS A 'CZ' FILE (SPEC.md 20.13.3.1): the header
+            # is inside the stream with everything else, so what the loader
+            # will check is the IMAGE the read delivers, and that is what the
+            # header tests below have to be made on. The file itself is what
+            # the freshness check further down compares against a floppy
+            drvs_cz += 1
+            blob = os88drv.image_unwrap(blob)
         ver = header(blob, f)
         if ver == V_APP:
             apps += 1
@@ -235,13 +225,12 @@ def main():
     # not a property of the file.
     tool = arts.get("HDDTOOL.DRV")
     if tool is not None:
-        eq(struct.unpack_from("<H", tool, 8)[0], len(tool),
-           "HDDTOOL.DRV is NOT compressed",
-           "HDD.DRV reads it with OSAPI_FILE_READ, which does not expand a "
-           "driver - and hd_tool_check passes on a compressed one because the "
-           "header crosses verbatim, so the next thing that happens is a far "
-           "call into the stream. Its Makefile rule names os88drv.py rather "
-           "than $(OS88DRV) for exactly this reason")
+        eq(tool[:2] != b"CZ" and struct.unpack_from("<H", tool, 8)[0] == len(tool),
+           True, "HDDTOOL.DRV is NOT compressed",
+           "HDD.DRV reads it with OSAPI_FILE_READ into a claim of its own "
+           "sizing, and its Makefile rule names os88drv.py rather than "
+           "$(OS88DRV) so that stays a decision taken on its own evidence "
+           "(SPEC.md 20.13.5.1)")
 
     # Everything else in build/ that an image can carry, so the freshness
     # check below covers the kernel, the fonts, the logo and README.TXT too.
@@ -274,8 +263,8 @@ def main():
                "nothing - it boots, it looks right, and it is the previous build")
             compared += 1
 
-    print("t_pkg: %d packages, %d drivers, %d modules, %d files compared against build/"
-          % (apps, drvs, mods, compared))
+    print("t_pkg: %d packages, %d drivers (%d of them 'CZ' files), %d modules, "
+          "%d files compared against build/" % (apps, drvs, drvs_cz, mods, compared))
     done("t_pkg")
 
 

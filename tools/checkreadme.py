@@ -110,28 +110,11 @@ def main() -> int:
               f"{limit}-byte ceiling - it would refuse the file entirely")
         bad += 1
 
-    # 4. ...AND IT MUST STILL BE WORTH COMPRESSING (SPEC.md 20.14.2.2).
-    # The manual ships LZ4 (20.13.5) and the kernel expands it IN PLACE inside
-    # the reader's own buffer, which wants `unpacked + LZ_MARGIN` and up to 15
-    # of paragraph rounding on top. Note Pad claims whole kilobytes, so a
-    # manual whose size lands within those 79 bytes below a KB boundary cannot
-    # be expanded in place at all: os88lz.py stores it PLAIN, silently, and
-    # the disk quietly gains 7KB back. That is a rule the file can satisfy by
-    # being a few bytes shorter, so it is checked here and the number to trim
-    # is printed - which is the whole point of doing it at BUILD time rather
-    # than leaving it to the kernel's scratch claim (20.14.2.1).
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import os88lz
-    body = text.replace("\n", "\r\n").encode("latin-1")
-    packed = os88lz.CZ_HDR + len(os88lz.compress(body, os88lz.LZ4))
-    if os88lz.cz_inplace_short(ondisk, packed):
-        room = os88lz.cz_room(ondisk, packed)
-        cap = (ondisk + 1023) & ~1023
-        print(f"{path}: {ondisk} bytes on disk packs to {packed}, and "
-              f"expanding that in place needs {room} of the {cap} a reader "
-              f"claims - so it would ship UNCOMPRESSED. Trim "
-              f"{room - cap} byte(s) of prose (SPEC.md 20.14.2.2)")
-        bad += 1
+    # There used to be a rule 4 here - that the manual must expand IN PLACE
+    # inside the kilobyte a reader claims, which one size in sixteen did not
+    # and which had the manual EDITED to fit. A stream ends in a raw tail now
+    # and needs no margin (SPEC.md 20.13.7), so the manual can be any size
+    # under the ceiling above and still ship compressed.
 
     if bad:
         print(f"checkreadme: {bad} problem(s)")

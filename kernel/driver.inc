@@ -2499,9 +2499,9 @@ drv_load_row:
     jne .ioerr                  ; driver is DRV_MAX_KB at the outside
 
     call drv_check              ; the header, against the image that arrived
-    jc .badfree
-    call drv_expand             ; ...expanded, if it arrived compressed
-    jc .badfree
+    jc .badfree                 ; - which a compressed driver already IS: a
+                                ; .DRV is a 'CZ' file (SPEC.md 20.13.3.1) and
+                                ; dskw_read_x expanded it into the claim
     call drv_bss                ; ...and the zeros it did NOT ship
 
 %ifdef KERN_BIG
@@ -2629,125 +2629,23 @@ drv_check:
     jne .bad
     mov ax, [es:si+DRV_H_IMG]
     cmp ax, bp
-    jb .bad                                 ; an image SHORTER than its file
-                                            ; describes nothing: the header is
-                                            ; talking about another file.
-                                            ; EQUAL is a plain driver and
-                                            ; GREATER is a COMPRESSED one
-                                            ; (docs/plans/O88-COMPRESSION-PLAN.md
-                                            ; 12.6) - which drv_expand turns
-                                            ; into the image, and a stream that
-                                            ; does not decode is refused there,
-                                            ; so a merely TRUNCATED file still
-                                            ; ends up refused, by that route
-                                            ; instead of this one
+    jne .bad                                ; the image IS what arrived - and
+                                            ; what arrived is the image even
+                                            ; for a compressed driver, the read
+                                            ; having expanded it (SPEC.md
+                                            ; 20.13.3.1), so a header saying
+                                            ; otherwise is talking about
+                                            ; another file
     mov ax, [es:si+DRV_H_ENTRY]
     cmp ax, DRV_HDR_SZ
     jb .bad
     cmp ax, [es:si+DRV_H_IMG]               ; ...and the entry is inside the
-    jae .bad                                ; IMAGE, which is the FILE only
-                                            ; when it is not compressed
+    jae .bad                                ; image
     mov [bx+DRVR_ENT], ax                   ; banked: an unload must not be
     pop es                                  ; steerable by a driver that has
     clc                                     ; since scribbled on its own
     ret                                     ; header
 .bad:
-    pop es
-    stc
-    ret
-
-; -----------------------------------------------------------------------------
-; drv_expand - turn a compressed driver image into the real one (module
-;              internal; docs/plans/O88-COMPRESSION-PLAN.md 12.6, SPEC.md 20.13)
-; in:  BX = the row with DRVR_SEG/DRVR_KB live, BP = the file's byte size
-; out: CF=0 - the row names the image, compressed or not. CF=1 - refused, and
-;      the row still names the claim the caller's .badfree will release
-; clobbers: AX CX DX SI DI ES, flags
-;
-; TWO CLAIMS AND NOT ONE, which is the opposite of what the package loader
-; does (SPEC.md 20.13), and the reason is where the size is KNOWN. ld_run_body
-; validates a header from a one-sector PEEK and so sizes its region before it
-; reads, which is what lets it read high and expand downwards in place. A
-; driver is claimed from the size the DIRECTORY reported, before any read at
-; all - drivers/os88drv.inc's whole load discipline - so the image size is not
-; known until the file is already in memory and the claim is already the wrong
-; size. Peeking first would cost an extra int 13h per driver on every boot.
-;
-; So the compressed file's claim is the SCRATCH, the expanded image gets a
-; claim of its own, and the first is freed the moment the second is filled.
-; Peak memory is file + image rather than image alone; for the largest driver
-; in the tree that is 26KB against 18KB, and it lasts as long as one
-; decompression.
-; -----------------------------------------------------------------------------
-drv_expand:
-    push es
-    mov es, [bx+DRVR_SEG]
-    mov ax, [es:DRV_H_IMG]
-    cmp ax, bp
-    je .plain                   ; the image IS the file: nothing to expand
-    mov dl, [es:DRV_H_BSSP]     ; what the expanded driver will need, bss and
-    xor dh, dh                  ; all - it is claimed once, at the size it
-    mov cl, 4                   ; ends up
-    shl dx, cl
-    add ax, dx
-    call mem_bytes_kb_x
-    push bx
-    mov bx, MEM_K_DRV
-    call mem_claim_hi_x         ; DX = the image's home, AX = its KB
-    pop bx
-    jc .fail
-    mov [drv_xseg], dx
-    mov [drv_xkb], ax
-
-    push ds
-    mov ax, es                  ; ES is still the compressed file's claim
-    mov es, dx
-    mov ds, ax                  ; DS:0 the file, ES:0 its expansion
-    xor si, si
-    xor di, di
-    mov cx, DRV_HDR_SZ
-    cld
-    rep movsb                   ; the header crosses VERBATIM - it is what
-                                ; drv_check already validated and what
-                                ; drv_bss is about to read
-    mov al, [si]                ; the format byte, first of the body
-    inc si                      ; ...and the stream begins after it
-    mov cx, bp
-    sub cx, DRV_HDR_SZ + 1
-    mov dx, [es:DRV_H_IMG]      ; the header is in ES now: what the stream
-    sub dx, DRV_HDR_SZ          ; must produce, past the header it follows
-    mov di, es
-    add di, DRV_HDR_SZ / 16     ; the destination is a SEGMENT two paragraphs
-    mov es, di                  ; along, so DI stays 0 (SPEC.md 20.13.3) - the
-    xor di, di                  ; header being 32 bytes is what allows it
-    push bx                     ; the ROW: lz_decomp_x spends BX
-    xor bx, bx                  ; ...which is now BX:DX, the 32-bit expected
-                                ; output (SPEC.md 20.14.5). A driver's image
-    call lz_decomp_x            ; is 16 bits by drv_check
-    pop bx
-    pop ds
-    jc .freefail
-
-    push bx                     ; the scratch goes back, and the row moves to
-    mov dx, [bx+DRVR_SEG]       ; the image it now names
-    mov bx, MEM_K_DRV
-    call mem_free_x
-    pop bx
-    mov ax, [drv_xseg]
-    mov [bx+DRVR_SEG], ax
-    mov ax, [drv_xkb]
-    mov [bx+DRVR_KB], ax
-.plain:
-    pop es
-    clc
-    ret
-.freefail:
-    push bx
-    mov dx, [drv_xseg]
-    mov bx, MEM_K_DRV
-    call mem_free_x
-    pop bx
-.fail:
     pop es
     stc
     ret
@@ -2779,11 +2677,8 @@ drv_bss:
     mov cl, 4
     shl ax, cl                  ; AX = the bss in BYTES, at most 4,080
     mov cx, ax
-    mov di, [es:DRV_H_IMG]      ; THE IMAGE AND NOT BP: the bss begins where
-    add ax, di                  ; the IMAGE ends, and since drv_expand those
-                                ; are different numbers for a compressed
-                                ; driver. They are equal for a plain one, so
-                                ; this is the same arithmetic it always was
+    mov di, [es:DRV_H_IMG]      ; the bss begins where the image ends, which
+    add ax, di                  ; drv_check has just made equal to BP
     push ax
     xor al, al
     cld
@@ -4366,9 +4261,6 @@ drv_wcnt:   resb 1              ; live driver worker tasks: +1 inside the
                                 ; needs none of this state (SPEC.md 62.9.15)
 drv_dlg_row: resw 1             ; the row that asked for a file dialog, 0 =
                                 ; nobody (SPEC.md 51.10)
-drv_xseg:   resw 1              ; drv_expand: the expanded image's claim and
-drv_xkb:    resw 1              ; its size, banked because the segment loads
-                                ; below take DS away from KERNEL_SEG
 drv_dlg_seg: resw 1             ; ...the image it was in, so a detach between
                                 ; the ask and the answer refuses
 drv_dlg_cb: resw 1              ; ...and its near completion proc

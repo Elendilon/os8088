@@ -94,11 +94,12 @@ OP_COMP       equ 16            ; ...and the part is COMPRESSED on the disk
                                 ; claim, so a refusal still costs no disk -
                                 ; and `zkb`, which the macro already forbids
                                 ; on a file-backed row, carries the packed one
-OP_MARGIN     equ 64            ; LZ_MARGIN in kernel/lz.inc, and CZ_MARGIN in
-                                ; tools/os88lz.py: what the run is read HIGH
-                                ; by so the writer can never overtake the
-                                ; reader. tests/unit/t_lzfmt.py guards all
-                                ; three against each other
+OP_MARGIN     equ 0             ; what a compressed run needs ABOVE its
+                                ; unpacked bytes: NOTHING, since every stream
+                                ; ends in a raw tail (SPEC.md 20.13.7) - the
+                                ; name is kept because the arithmetic below
+                                ; is written in terms of it and reads better
+                                ; with the term in than with it silently gone
 
 OP_ROW        equ 8             ; db kind, db flags, dw off (512-byte units),
 OP_R_KIND     equ 0             ; dw len, dw zkb - off and len are os88pkg.py's

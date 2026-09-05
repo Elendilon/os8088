@@ -4,7 +4,7 @@
 docs/plans/O88-COMPRESSION-PLAN.md 13 wave 5. The disk carries one document twice -
 PLAIN.TXT as it is, PACKED.TXT inside a 'CZ' wrapper - so the package's own
 assertions are the two of them compared with each other, and this script only
-has to read the six verdicts out of its image.
+has to read the eight verdicts out of its image.
 
 Comparing two files on the machine, rather than one file against a checksum
 carried from here, is what keeps the fixture maintainable: the text can be
@@ -21,15 +21,20 @@ The last two verdicts are the ones the write half turns on:
   clear   ...and a PLAIN file written over that same name reads back plain. A
           stale mark would send prose to the decoder, which refuses it
 
+The seventh and eighth are the TIGHT BUFFER: a 4,096-byte file, wrapped LZB
+and wrapped LZ4, each read into a capacity of exactly 4,096 - the case that
+used to need a sliding window for one format and be refused for the other,
+and that a stream's own raw tail now makes ordinary (SPEC.md 20.13.7).
+
 **AND THEN IT OPENS README.TXT**, on the shipped system disk, by
 double-clicking it - which is the second half of this row and is not a
-duplicate of the six above. The fixture's buffer is generous; the manual's
-reader has 16,384 bytes for 16,334 of text, and in-place expansion wants
-16,413. That is SPEC.md 20.14.2.1, it is what the field reported as *"Note Pad
-says Too big"* on the day the manual first shipped compressed, and no
-assertion over a fixture could have caught it: the defect is in the arithmetic
-between the size an application is TOLD and the size the read NEEDS, so the
-only thing that finds it is a real reader whose buffer is sized to the first.
+duplicate of the eight above. The manual's reader has 16,384 bytes for its
+text, and in-place expansion once wanted 64 more than the text. That is
+SPEC.md 20.14.2.1, it is what the field reported as *"Note Pad says Too big"*
+on the day the manual first shipped compressed, and no assertion over a
+fixture could have caught it: the defect is in the arithmetic between the
+size an application is TOLD and the size the read NEEDS, so the only thing
+that finds it is a real reader whose buffer is sized to the first.
 """
 import argparse
 import os
@@ -48,7 +53,7 @@ from trackmove import pkg_syms                         # noqa: E402
 S = os88sym.linear
 MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
 TAGS = ("read", "find", "plainrec", "raw", "stamp", "clear",
-        "window")
+        "window", "tight")
 
 
 def say(*a):

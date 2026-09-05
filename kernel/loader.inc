@@ -208,47 +208,62 @@ ld_hdr_ok:
 ; -----------------------------------------------------------------------------
 ; ld_expand - turn the compressed file step 6 read HIGH into the image
 ;             (module-internal; SPEC.md 20.13)
-; in:  [ld_base] the region, [ld_roff] where the file landed, [ld_pfx] the
-;      clear prefix, [ld_fsz] the file, [ld_img] the image, [ld_cfmt] the format
+; in:  [ld_base] the region, [ld_roff] where the file landed, [ld_fsz] the
+;      file, [ld_img] the image; the clear prefix and the format come off the
+;      header the file carries, at [ld_roff]
 ; out: CF = 0 done; CF = 1 the stream was refused
 ; clobbers: AX BX CX DX SI DI (DS is restored)
 ;
 ; TWO MOVES, and the first is easy to miss: the file was read high, so the
-; region's first `[ld_pfx]` bytes - the header the disk-swap re-check below is
+; region's first `prefix` bytes - the header the disk-swap re-check below is
 ; about to validate - are otherwise NEVER WRITTEN. They come down first. R is
 ; at least 512 and the prefix at most 112, so the copy cannot overlap.
 ;
 ; Then the body. `lz_decomp_x` wants its destination at offset 0 of a segment
-; (SPEC.md 20.13.3) and the body belongs at `[ld_pfx]`, which would be a
+; (SPEC.md 20.13.3) and the body belongs at `prefix`, which would be a
 ; problem if the prefix were not always a multiple of 16 - 32, 48, 96 or 112.
-; It is, so the destination is a SEGMENT `[ld_pfx]/16` paragraphs along and DI
+; It is, so the destination is a SEGMENT `prefix/16` paragraphs along and DI
 ; stays 0, which keeps the offset bound one instruction.
 ; -----------------------------------------------------------------------------
 ld_expand:
     push ds
-    mov al, [ld_cfmt]           ; every kernel variable this needs is read
-    mov bx, [ld_pfx]            ; while DS is still KERNEL_SEG
-    mov si, [ld_roff]
-    mov cx, [ld_fsz]
+    mov si, [ld_roff]           ; every kernel variable this needs is read
+    mov cx, [ld_fsz]            ; while DS is still KERNEL_SEG
     mov dx, [ld_img]
-    push ax                     ; ...the format, across the segment loads
-    mov ax, [ld_base]
-    mov es, ax
+    mov ax, [ld_base]           ; (the format comes off the header itself,
+    mov es, ax                  ; below, once DS reaches it)
     mov ds, ax                  ; source and destination are one region
+    mov al, [si+LD_H_FLAGS]     ; the CLEAR prefix, off the header the file
+    mov bx, LD_HDR_SIZE         ; carries at R: what the mount reads out of
+    test al, 1                  ; the first sector and must never have to
+    jz .noico                   ; decompress to get (SPEC.md 20.13.1) - the
+    add bx, 64                  ; header, the icon, the association block.
+.noico:                         ; At most 112, and ALWAYS a multiple of 16,
+    test al, 2                  ; which is what lets the body's destination
+    jz .noasc                   ; be a SEGMENT below
+    add bx, 16
+.noasc:
+    test al, 0x10               ; bit 4 says which format (SPEC.md 20.13): the
+    mov al, LZ_LZ4              ; decoder wants 0 or 1, and CX - the file's
+    jz .fmt                     ; length - is not a register to shift by
+    mov al, LZ_LZB
+.fmt:
     xor di, di
+    push ax                     ; ...the format, across the copy
     push cx
     mov cx, bx
     cld
     rep movsb                   ; the prefix, down to offset 0 - and this
-    pop cx                      ; leaves SI on the compressed body
+                                ; leaves SI on the compressed body, and CX
+                                ; spent, which is when it can be a shift count
+    mov cl, 4
+    mov ax, bx
+    shr ax, cl                  ; the prefix in PARAGRAPHS...
+    mov cx, es
+    add ax, cx                  ; ...is where the body's segment starts
+    pop cx
     sub cx, bx                  ; the body's length
     sub dx, bx                  ; ...and what it must produce
-    mov ax, es
-    shr bx, 1
-    shr bx, 1
-    shr bx, 1
-    shr bx, 1                   ; the prefix in PARAGRAPHS
-    add ax, bx
     mov es, ax
     xor di, di
     xor bx, bx                  ; BX:DX is the expected output (SPEC.md 20.14.5)
@@ -257,7 +272,7 @@ ld_expand:
     call lz_decomp_x
     pop ds
     mov es, [ld_base]           ; ES BACK TO THE REGION'S BASE. The destination
-                                ; above is a segment `[ld_pfx]/16` paragraphs
+                                ; above is a segment `prefix/16` paragraphs
                                 ; along, and step 6's disk-swap re-check reads
                                 ; the header at ES:0 - which without this is 96
                                 ; bytes into the image, and every launch of a
@@ -381,25 +396,16 @@ ld_check_hdr:
     ; this is where the flags byte is already in hand and both callers of this
     ; routine want them. AX is spent by now and DX is documented as clobbered.
     mov al, [es:si+LD_H_FLAGS]
-    mov ah, 0xFF                            ; 0xFF = not compressed at all
-    test al, 8
-    jz .nofmt
-    mov ah, LZ_LZ4
-    test al, 0x10
-    jz .nofmt
-    mov ah, LZ_LZB
-.nofmt:
-    mov [ld_cfmt], ah
-    mov dx, LD_HDR_SIZE                     ; the CLEAR prefix: what the mount
-    test al, 1                              ; reads out of the first sector and
-    jz .noico                               ; must never have to decompress to
-    add dx, 64                              ; get (SPEC.md 20.13.1) - the
-.noico:                                     ; header, the icon, the association
-    test al, 2                              ; block. At most 112, and ALWAYS a
-    jz .noasc                               ; multiple of 16, which is what
-    add dx, 16                              ; lets ld_expand put the
-.noasc:                                     ; destination on a paragraph
-    mov [ld_pfx], dx
+    shr al, 1                               ; bits 3 and 4, as a number: 0 =
+    shr al, 1                               ; plain, 1 = LZ4, 3 = LZB - and 2,
+    shr al, 1                               ; bit 4 without bit 3, is not a
+    and al, 3                               ; thing os88pkg.py writes; it reads
+    mov [ld_cfmt], al                       ; (CX is a caller's, so no `shr
+                                            ; al, cl`)
+                                            ; as LZB and the decoder refuses
+                                            ; the plain bytes it is then given,
+                                            ; which is a refusal by the right
+                                            ; route
     clc
     ret
 .bad:
@@ -853,20 +859,22 @@ ld_run_body_x:
                                 ; carrying parts the region holds the primary
                                 ; alone and the rest is the package's to read
                                 ; (SPEC.md 20.12)
-    cmp byte [ld_cfmt], 0xFF
+    cmp byte [ld_cfmt], 0
     je .rdgo
     ; COMPRESSED (SPEC.md 20.13): read the FILE, and read it HIGH so step 6a
     ; can expand it DOWNWARDS into the same region - no second buffer and no
     ; second claim, which is what makes this admissible on a 128KB machine.
-    ;   R = roundup512(image - file + LZ_MARGIN)
-    ; and 512 because that is what int 13h needs of a destination. os88pkg.py
-    ; computes the same R and REFUSES to compress anything for which R + file
-    ; does not fit the region this loader was going to claim anyway - so the
-    ; sizing at step 4 is untouched and this cannot overflow it.
+    ;   R = roundup512(image - file)
+    ; and 512 because that is what int 13h needs of a destination. There is no
+    ; margin in it: the stream's own raw tail makes image - file exactly
+    ; enough (SPEC.md 20.13.7). os88pkg.py computes the same R and REFUSES to
+    ; compress anything for which R + file does not fit the region this
+    ; loader was going to claim anyway - so the sizing at step 4 is untouched
+    ; and this cannot overflow it.
     mov ax, [ld_fsz]
     mov bx, [ld_img]
     sub bx, ax
-    add bx, LZ_MARGIN + 511
+    add bx, 511
     and bx, 0FE00h
     mov [ld_roff], bx
 .rdgo:
@@ -881,7 +889,7 @@ ld_run_body_x:
                                 ; SPEC.md 21 step 6
 
     ; --- 6a. expand it, if it came compressed (SPEC.md 20.13) -----------------
-    cmp byte [ld_cfmt], 0xFF
+    cmp byte [ld_cfmt], 0
     je .expanded
     call ld_expand
     jnc .expanded
@@ -1122,13 +1130,8 @@ ld_img:     resw 1              ; header: image size
 ld_bss:     resw 1              ; header: bss size
 ld_ent:     resw 1              ; header: image-relative entry
 ld_need:    resw 1              ; allocated region size (512-multiple)
-ld_cfmt:    resb 1              ; SPEC.md 20.13: LZ_LZ4 / LZ_LZB, or 0xFF for
-                                ; "not compressed". A byte, and it carries both
-                                ; questions - whether to expand and with what -
-                                ; because the flags say both and one test is
-                                ; cheaper than two
-ld_pfx:     resw 1              ; ...and the CLEAR prefix in bytes: 32, 48, 96
-                                ; or 112, always a multiple of 16
+ld_cfmt:    resb 1              ; SPEC.md 20.13: flags bits 3 and 4 as a number -
+                                ; 0 plain, 1 LZ4, 3 LZB (ld_check_hdr)
 ld_roff:    resw 1              ; where in the region step 6 put the file: 0
                                 ; uncompressed, high enough to expand
                                 ; downwards from when it is not

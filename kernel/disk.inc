@@ -63,15 +63,14 @@ DSK_R_CZH    equ 13              ; docs/plans/O88-COMPRESSION-PLAN.md 15): a mar
 DSK_R_CZL    equ 20              ; byte, then the UNPACKED size as a high byte
 DSK_CZ_MARK  equ 0x5A            ; and a low word. **THE MARK CARRIES THE
                                  ; FORMAT**: 0x5A + the LZ_* id, so 0x5A is
-                                 ; LZ4 and 0x5B is LZB (SPEC.md 20.14.2.4).
-                                 ; It has to, because the capacity decision in
-                                 ; .czcap happens BEFORE any data I/O and the
-                                 ; two formats get different answers there -
-                                 ; LZ4 refuses where LZB windows - so a hint
-                                 ; that could not tell them apart would have
-                                 ; to read the file to find out, which is the
-                                 ; one thing this hint exists to avoid. THESE
-                                 ; FOUR BYTES ARE FREE -
+                                 ; LZ4 and 0x5B is LZB (SPEC.md 20.14.1). It
+                                 ; had to when the two formats got different
+                                 ; answers at the capacity decision, which
+                                 ; happens BEFORE any data I/O; they get the
+                                 ; same answer now (20.13.7), and what the
+                                 ; format still buys is that Compress can
+                                 ; refuse a file already stored LZB without
+                                 ; reading it. THESE FOUR BYTES ARE FREE -
                                  ; dskw_commit clears all 32 and writes only
                                  ; name, attribute, the three stamps, cluster
                                  ; and size, and 19.1 already documents @20 as

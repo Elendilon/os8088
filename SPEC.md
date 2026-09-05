@@ -2487,6 +2487,11 @@ different question and its own comment says so.
 
 #### 2.9.13 `KZIP=1` — the kernel is COMPRESSED and stage 2 expands it
 
+**This stream is the CLASSIC LZ4 block** — no raw tail (§20.13.7) — because
+`kz_expand` is the blob's own copy of the LZ4 arm and reads the standard
+ending. It is the one stream on the machine that still needs an in-place
+margin, `KZ_MARGIN` is what reserves it, and `tools/os88kz.py` asks
+`os88lz` for `tail=False` to get it.
 **It is the default, on every geometry, on both kernels and on the hard disk;
 `NOKZIP=1` is the A/B that turns it off.** `KERNEL.SYS` is packed and
 `boot/boot2.asm` carries an LZ4 decoder; the blob is a transient (§2.9.5), so
@@ -31599,30 +31604,30 @@ present in one build and absent in another is an ABI that depends on a knob.
 `make COMPRESS=lz4|lzb|both` decides which **formats** answer, and one this
 kernel does not carry is refused exactly as a corrupt stream is.
 
-#### 20.13.3.1 A DRIVER says it differently, and expands differently
+#### 20.13.3.1 A DRIVER is a `'CZ'` file, and the READ expands it
 
-A `.DRV` (§51) carries the same two formats through the same
-`lz_decomp_x`, and everything else about it differs — because the driver
-header has no flags byte and the driver loader learns its sizes at a
-different moment.
+A `.DRV` (§51) — and a kernel module (§2.8), which loads by the same route —
+is compressed as **a plain `'CZ'` file** (§20.14): the whole file, header
+included, inside the container, and nothing in `kernel/driver.inc` knows it
+was ever compressed. `drv_load` claims from the size the directory reports
+**before any read**, which is `drivers/os88drv.inc`'s whole load discipline —
+and the directory hint (§20.14.1) says what a `'CZ'` file BECOMES, so
+`drv_find` reads the hint out of the entry `dskw_stat` has just staged, the
+claim is cut to the unpacked size, and `dskw_read_x` expands the file into it
+on the way in. `drv_check` then sees a plain driver whose image is exactly
+what arrived, which is the one test it has always made.
 
-**The signal is `image > file`, and the FORMAT is the body's first byte.**
-There is no spare header bit to put it in: +31 became the bss count
-(docs/plans/O88-COMPRESSION-PLAN.md 12.6) and the name fills +16..30. A
-self-describing body costs one byte and no archaeology, and `drv_check`'s
-`image == file` becomes `image >= file` — a *truncated* file then fails in
-`drv_expand` instead, which is the same refusal by a different route.
+**It used to be otherwise, and the difference is 219 bytes of `.cold`.** The
+first design put the format in the body's first byte and had `drv_load` claim
+for the file, read it, learn the image size, claim a second block and expand
+across — because a driver's claim is made before the read and the loader had
+no way to know the unpacked size without a peek. The hint was there all
+along; it had been built for §20.14's transparent read and nobody had asked
+the driver loader to use it. What made the move possible is §20.13.7: a claim
+of exactly the unpacked size is enough, so there is no in-place margin to
+find room for.
 
-**And it expands into a SECOND CLAIM rather than in place.** §20.13's package
-path reads high and expands downwards because `ld_run_body` sizes its region
-from a one-sector PEEK, before it reads. `drv_load` has no peek: it claims
-from the size the DIRECTORY reported, before any read at all, which is
-`drivers/os88drv.inc`'s whole load discipline — so the image size is not
-known until the file is in memory and the claim is already the wrong size.
-Peeking first would cost an extra `int 13h` per driver on every boot. So the
-compressed file's claim is scratch, the image gets a claim of its own, and
-the first is freed the moment the second is filled: peak memory is file +
-image rather than image alone, for as long as one decompression.
+`HDDTOOL.DRV` stays plain (§20.13.5.1), for the reason given there.
 
 #### 20.13.4 A REFUSAL IS A NORMAL PATH, and the bound is not optional
 
@@ -31720,34 +31725,35 @@ is compressed** — `ld_run_body` for a `.O88` (§21), `drv_load` for a `.DRV`
 (§51), and `drv_load_at` for the two overlays the *kernel* owns, `XMEM.DRV`
 (§41.12) and `SAVER.DRV` (§79.2), which share `drv_load`'s body precisely so
 there is no second copy to forget. `HDDTOOL.DRV` is the exception: it is
-`HDD.DRV`'s overlay (§52.11), read by `hd_tool_need` with `OSAPI_FILE_READ`,
-which hands back **what is on the disk** (§20.14.3 — the file is not a `'CZ'`
-container, so nothing expands it).
+`HDD.DRV`'s overlay (§52.11), read by `hd_tool_need` with `OSAPI_FILE_READ`
+into a claim of `HDTOOL_KB`, which the Makefile injects from the built tool's
+own size — the image's, rounded up to a kilobyte.
 
-**And it would not be caught.** `hd_tool_check` runs drv_check's tests against
-the bytes that arrived: the magic, version 4, the link base, the three
-dispatcher bytes at +12 and the ABI word at +10. Every one of those is inside
-the 32-byte header, and §20.13.2 crosses the header **verbatim** — so all
-seven pass on a compressed tool and the next instruction far-calls `[es:6]`
-into the stream. Not a refusal: a crash on Format or Install, on a machine
-with a hard disk, which is not the machine a shipped floppy is tested on.
+**Since §20.13.3.1 that read would do all of it.** A compressed `.DRV` is a
+`'CZ'` container and `OSAPI_FILE_READ` is the transparent read (§20.14.3): a
+compressed tool would arrive EXPANDED into a claim that was cut from the
+image, and `hd_tool_check`'s seven tests would run against the image rather
+than the stream. The crash this paragraph used to describe — the seven header
+tests passing on a stream that crossed the header verbatim, and the next
+instruction far-calling `[es:6]` into it — went with the v4 body format.
 
 So its Makefile rule names `os88drv.py` and not `$(OS88DRV)`, and
-`tests/unit/t_pkg.py` asserts it — because *who loads a file* is not a
-property of the file, and nothing else in the tree can state this.
+`tests/unit/t_pkg.py` asserts it, for a weaker reason than it used to: not
+that it would break, but that nothing has driven it — the hard-disk driver is
+QEMU-only (docs/TESTING.md), and the row that proves a compressed tool loads
+and formats has not been written.
 
 **What that leaves on the table is 4,202 bytes**, four of a 360KB disk's 354
-clusters. Taking it needs `HDD.DRV` to peek the header before it reads (two
-`int 13h` where there is one) or to take a second claim the way `drv_expand`
-does — a change worth making on its own evidence, and not one to fold into a
-compression default.
+clusters. Taking it is one word in that Makefile rule and the row that
+exercises it — a change worth making on its own evidence, and not one to fold
+into a compression default.
 
 #### 20.13.6 The kernel carries BOTH decoders, and the disks are LZ4
 
-**`COMPRESS=both` is the default and ships.** **181 bytes of `.cold`**,
-measured against LZ4 alone on the tree that took it — the decoder body is 91
-of them and the dispatch and its refusals are the rest — and what they buy is the ability to **read a format the machine
-does not write**. That is not a hedge:
+**`COMPRESS=both` is the default and ships.** The LZB arm is **94 bytes of
+`.cold`** on top of the core the two formats share (§20.13.7's table), and
+what they buy is the ability to **read a format the machine does not write**.
+That is not a hedge:
 
 - the file manager's Compress verb can offer LZB **as a package-side change**,
   because the kernel already understands what it produces;
@@ -31772,6 +31778,77 @@ the kernel with **no** defines to build a symbol map and refuses one that is
 not byte-identical to `build/kernel.bin`, so whatever the source does with
 none has to be what `make` builds — otherwise every symbol lookup in the tree
 refuses a kernel that is perfectly fine.
+
+#### 20.13.7 Every stream ends in a RAW TAIL, and in-place expansion needs no margin
+
+**The stream** — a package's body, a `'CZ'` file's, a part's, whatever
+`OSAPI_DECOMP` is handed — is, in both formats:
+
+```
+    +0     word    T, the tail's length
+    +2             the LZ symbols
+    end-T          T raw bytes: the LAST T bytes of the output, stored as
+                   they are
+```
+
+**The encoder cuts the symbols at the FIRST peak of `produced − consumed`
+and stores the rest raw.** `tools/os88lz.py`'s `_cut` is the rule, both host
+encoders and `kernel/compress.inc` go through it, and it is tracked exactly
+the way the machine tracks it — strictly greater than a running maximum that
+starts at 0 — because `tests/lzcomp.py` compares the two streams byte for
+byte.
+
+Two things follow, and both are arithmetic rather than policy.
+
+**The file gets smaller.** After the peak the symbols were net-*expanding*:
+that is what the old in-place margin measured (`max over every prefix of
+(produced − consumed)`, less `U − P`), and the suffix past the peak costs
+exactly that much more than the bytes it produces. Storing it raw saves it,
+less the two bytes of `T`.
+
+**And a decoder reading its own source from `U − P` above its output can
+never overtake it.** At every symbol boundary the writer is at `produced` and
+the reader at `(U − P) + consumed`, so the reader leads by `(U − P) −
+(produced − consumed)`; cutting at the peak makes every prefix's `produced −
+consumed` at most the whole stream's, which is `U − P` itself, so the lead is
+never negative. Inside a symbol the decoder consumes before it produces, so
+boundaries are the worst points. And the tail's source lands ON its
+destination: the reader reaches it at `(U − P) + (P − T) = U − T`, which is
+where the writer is. So the tail copy is a copy of bytes onto themselves in
+the tight case and a forward copy from above in every other.
+
+**What that deletes.** `LZ_MARGIN` and its three mirrors; the package loader's
+`+ 64`; the `'CZ'` read's two-verdict capacity ladder, its scratch claim and
+its **256-byte sliding window** for the caller whose buffer was exactly `U`;
+the rule that refused to write an LZ4 file landing near a kilobyte boundary,
+which was one size in sixteen and had the manual EDITED to fit
+(`tools/checkreadme.py`'s old rule 4); and the driver loader's second claim
+(§20.13.3.1). A buffer of exactly `U` is enough for either format, so a
+caller that claims from the size it was told needs nothing more.
+
+**What it costs the decoder is nothing on the fast path.** Where each arm
+tested `SI` against the source's *end* it tests it against `end − T`, once per
+symbol as before; `SI` arriving there is the tail and `SI` past it is a
+refusal, both off the same compare's flags. `T` is read once at entry. The
+cost is the two bytes of `T` per stream and the tail's own `rep movsb`.
+
+**The kernel's own image is the exception.** `boot/boot2.asm`'s `kz_expand`
+is a separate copy of the LZ4 arm and reads the CLASSIC block ending, so
+`tools/os88kz.py` asks `os88lz` for `tail=False` and `KZ_MARGIN` stays real
+there (§2.9.13). It is the one stream on the machine that still carries an
+in-place margin, and the blob is where 22 bytes buy nothing resident.
+
+**Both decoders share everything but their syntax.** A format decides how a
+length, an offset and a literal are spelled; what is done with them — the
+output bound, the offset bound, the copy that may cross a segment, the match
+whose source is a segment below, the tail — is one body of code below the two
+arms. Measured on the tree that took it, against the two-copies version it
+replaced:
+
+| `kernel/lz.inc` | before | after |
+|---|---:|---:|
+| `.cold` | 650 | 347 |
+| `.bss` (the window and its cursor) | 266 | 0 |
 
 ### 20.14 A COMPRESSED FILE — the kernel expands it on the way in
 
@@ -31816,22 +31893,34 @@ was reading or writing any of the three.
 three bytes, or leave them describing a file that has since been replaced. A
 missing hint therefore reads as *"not compressed"* — the file is handed over
 as it is, which is the safe direction — and a hint that IS there is checked
-against the file's own header before a byte is decoded: the magic, the format,
-the reserved byte and the recorded length must all agree, or the read is
-refused as `FERR_IO`. Neither number is more trustworthy than the other, so a
-disagreement is not resolved in favour of either.
+against the file's own header before a byte is decoded: the magic must be
+there, the format is the header's and not the hint's, and the length the
+decoder is told is the hint's, because that is what sized the destination — a
+header claiming another length is refused by the decoder itself, which has to
+produce exactly that many bytes. Neither number is more trustworthy than the
+other, so a disagreement is not resolved in favour of either.
 
+**The mark carries the format** (`DSK_CZ_MARK + LZ_*`, so `0x5A` is LZ4 and
+`0x5B` LZB), and every writer of the hint carries it — `dskw_commit` from the
+bytes it is writing (§20.14.4) and `tools/os88disk.py` from each file's
+`'CZ'` header. It was load-bearing when the two formats got different answers
+at the capacity decision (a window for one, a refusal for the other); since
+§20.13.7 they get the same answer, and what the format in the mark still buys
+is that `Compress` can refuse a file already stored LZB without reading it.
 #### 20.14.2 The read expands IN PLACE, and there is no 64KB ceiling
 
 The packed bytes are read **high inside the caller's own buffer** and expanded
 downwards onto themselves — §20.13's package path exactly, and for its reason:
 there is no second claim and no scratch buffer, which is what makes this
-affordable on a 128KB machine. The offset is
-`R = paragraph_round(unpacked − packed + LZ_MARGIN)`, and the capacity test is
-against **`R + packed`** as well as against the unpacked size, both **before
-any data I/O** — so `FERR_BIG` still leaves the destination untouched.
+affordable on a 128KB machine. The offset is **`R = unpacked − packed`**, with
+nothing added: the stream's own raw tail is what makes that exactly enough
+(§20.13.7). So the capacity test is **`unpacked` against the caller's
+capacity**, once, **before any data I/O** — `FERR_BIG` still leaves the
+destination untouched — and a buffer of exactly `unpacked` is enough for
+either format. A plain file is the same placement with `R = 0`: `dskw_rbody`
+has one path for both.
 
-Three refusals fall out of the shape and each is checked rather than assumed:
+Four refusals fall out of the shape and each is checked rather than assumed:
 
 - **the destination must be paragraph-aligned.** `lz_decomp_x` requires
   `DI = 0` (§20.13.3), so a buffer whose offset is not a multiple of 16 is
@@ -31846,142 +31935,38 @@ Three refusals fall out of the shape and each is checked rather than assumed:
 
 The *unpacked* size has no ceiling of its own: `R` goes into the destination's
 **segment** and never into an offset, which is §18.4.1's idiom one layer up,
-and `lz_decomp_x` walks the output across 64KB boundaries by itself.
+and `lz_decomp_x` walks the output across 64KB boundaries by itself. `R`'s low
+nibble lives in `[dskw_src]`, which every consumer already reads — `dskw_rdata`
+writes to `seg:src` and `dskw_czexp` finds the `'CZ'` header at it.
 
 `OSAPI_FILE_WRITE`'s cap is unchanged and unrelated: it is what the *caller*
 hands over.
 
-##### 20.14.2.1 …and when `R + packed` does not fit, the two formats differ
-
-**In-place expansion needs `unpacked + LZ_MARGIN` and a caller was told
-`unpacked`.** That is up to 64 bytes — see §20.14.2.2 for what it is made of —
-and it is the gap an application sized for the size it was *told* falls into.
-`README.TXT` found it the day the manual shipped compressed: 16,334 bytes
-unpacked into Note Pad's 16,384, needing 16,413, and the answer was `FERR_BIG`
-— *"Too big"* on a file the machine had just reported as fitting.
-
-**So the capacity test has two verdicts and not one.** If the *unpacked* size
-does not fit, that is `FERR_BIG` and always was. If it fits and only the
-layout does not, what happens depends on the format, and §20.14.2.4 is why
-the directory hint's mark has to carry it:
-
-- **LZ4 is refused.** `'CZ'` is this project's own container and this
-  project's tools are the only thing that writes one — and they refuse to
-  write an LZ4 file that would land here at all (§20.14.2.3). A file that
-  does anyway was made by something bypassing them, and `FERR_BIG` is a
-  correct answer to it.
-- **LZB reads through a SLIDING WINDOW** (§20.14.2.4) and works whatever the
-  buffer, because LZB is the format the *user* compresses into (§20.13.6's
-  door) and a user's file can be any size at all.
-
-Everything else is unchanged: the verdict is reached before any data I/O, so
-`FERR_BIG` still leaves the destination untouched.
-
-##### 20.14.2.2 What the overrun IS, exactly
+##### 20.14.2.1 What the overrun WAS, and why there is none
 
 `lz_decomp_x` reads its source forward and writes its output forward. In
 place, the write head must never overtake the read head. After consuming `p`
-source bytes it has produced `u` output bytes, and the **lead** is `u − p`:
+source bytes it has produced `u` output bytes, and the **lead** is `u − p`: a
+literal run moves both heads by its length and the read head alone by its
+overhead, so it *reduces* the lead; a match consumes a few bytes and produces
+at least four, so it *raises* it. At the end the lead is exactly `U − P`, and
+placing the source `U − P` above the destination makes the write head finish
+precisely where the source began. But the lead is not monotone: it used to
+**peak** wherever the stream was most match-dense and fall back as trailing
+literals paid their overhead, and what the placement had to clear was the
+peak.
 
-- a **literal run** of `L` moves both heads by `L`, and the token and any
-  length-extension bytes it consumed move the read head alone — so a literal
-  run *reduces* the lead by its own overhead;
-- a **match** consumes about three bytes (a token, a two-byte offset, maybe an
-  extension) and produces at least four — so a match *raises* the lead.
-
-At the end the lead is exactly `U − P`. Place the source `U − P` above the
-destination and the write head finishes precisely where the source began. But
-the lead is **not monotone**: it peaks wherever the stream is most
-match-dense and then falls back as trailing literals pay their overhead. So
-what the placement must clear is the **peak**, not the end:
-
-```
-margin = max over every prefix of (u − p)   −   (U − P)
-```
-
-That is the whole of it, and `os88lz.in_place_margin` computes it by
-simulating the decode rather than bounding it. The buffer therefore needs
-**`U + margin`** — `R + P` with the `P` cancelling.
-
-**It used to need up to 15 more**, because `R` was folded into the
-destination's *segment* and a segment moves in paragraphs. It is not rounded
-any more: the transfer layer takes an offset of 0..15 and walks the segment
-(§18.4.1), so `R`'s low nibble simply lives in `[dskw_src]`, which every
-consumer already reads — `dskw_rdata` writes to `seg:src` and `dskw_czexp`
-finds the `'CZ'` header at it. The one thing that would have collided is
-`.czoff`'s refusal of a non-zero *caller* offset, and that runs at the top of
-`.czfile`, before any of this.
-
-**The two numbers are 64 and 5.** `LZ_MARGIN` is 64 — a constant the packer
-enforces, refusing any stream that measures higher — and over the 40 raw
-inputs in this tree the measured worst is **5** (`BEVERLY.MOD`); `README.TXT`
-is **1**. LZ4's own worst case is `U/255 + 16`, which is where 64 came from
-and which no stream that also gets *smaller* comes near. It is left where it
-is: it is a bound against data nobody has seen yet, and the rule below makes
-it moot for data this build produces.
-
-##### 20.14.2.3 A file WE ship never needs the scratch
-
-**`os88lz.cz_wrap` refuses to compress a file that would not expand in place
-inside `roundup1024(U)`**, and stores it plain instead. Callers claim in whole
-kilobytes (§50.3), so that is the buffer a reader arrives with — which makes
-this a rule the *build* can check and the machine never has to meet. The
-runtime scratch (§20.14.2.1) stays for files that did not come from here:
-every byte off a disk is hostile (§19) and a foreign tool has no reason to
-know the rule.
-
-**It is about one size in sixteen, so it is not rare** — `README.TXT` and
-`PAPER.TEX` were both inside it. For a file worth the disk the answer is to
-**edit the file**, not to lose the compression: `tools/checkreadme.py` rule 4
-fails the build and prints how many bytes to trim, and the manual lost 40 of
-prose to get its 7.4 KB back. For `PAPER.TEX` — 2,006 bytes saving 417 — the
-answer is to ship it plain, and `os88lz --wrap` says which refusal it was so
-that is a decision rather than a silent 7 KB.
-
-##### 20.14.2.4 The sliding window — LZB only, and why only LZB
-
-`lz_win_x` decodes with the source read through a **256-byte window** in
-kernel `.bss`, refilled from the real source before the writer can reach
-those bytes. The caller's buffer then only has to hold `U`.
-
-**The two sizes are a proof rather than a preference.** At a refill the writer
-is at most `LZ_MARGIN` past the reader's source position, so bytes from
-`p + LZ_MARGIN` on are certainly intact — which means the window must still
-*hold* `[p, p + LZ_MARGIN)` when it tops up. The check runs once per sequence
-and one LZB sequence consumes at most ~10 bytes (two gammas of four and an
-offset byte), so refilling below `LZ_WLOW` = 128 leaves at least
-`128 − 64 = LZ_MARGIN` in hand. Lower `LZ_WLOW` and the proof fails silently,
-on data that depends on where the peak fell.
-
-**LZ4 does not get one, and that is the design and not an omission.** LZB
-touches its source at three places and every one is a *single byte* — the tag
-refill in `LZ_GETBIT`, the offset's low byte, and a literal's `movsb` — so the
-window costs one compare per sequence, on a branch the direct path already
-had, and the direct path is untouched. LZ4's literals are `rep movsb` **runs**
-that would have to be split at the window's edge, and that is the hot path of
-every package launch. The build refuses to write an LZ4 file that would need
-a window instead (§20.14.2.3), which is the same guarantee bought with no
-runtime code at all.
-
-**THE MARK CARRIES THE FORMAT** (`DSK_CZ_MARK + LZ_*`, so `0x5A` is LZ4 and
-`0x5B` LZB). It has to: the capacity decision happens *before* any data I/O
-and the two formats get different answers there, so a hint that could not tell
-them apart would have to read the file to find out — the one thing the hint
-exists to avoid. It stays a *cache*: `dskw_czexp` still checks the file's own
-`'CZ'` header, and the format the decoder is handed comes from there.
-
-**Every writer of the hint carries the format, and both do.** `dskw_commit`
-takes it from the bytes it is writing (§20.14.4) and `tools/os88disk.py` from
-the `'CZ'` header of each file it lays down — a host-built disk is where a
-compressed file usually comes from, so a `os88disk.py` that stamped a bare
-`0x5A` would make every LZB file on a shipped floppy read as LZ4 and be
-refused at the one place the two differ. It did, for one run of the gate.
-
-**The window is `.bss` and not frame words**, so the direct path's stack is
-byte for byte what it was. That is safe on `dsk_op`'s terms and only those:
-`lz_win_x` is reached from `dskw_czexp` and nowhere else, and a transfer holds
-`sch_lock` — the same argument `dskw_read_at`'s banked arguments already run
-on.
+**§20.13.7 moves the peak to the end.** The encoder cuts the symbols at the
+first peak and stores the rest raw, so no prefix leads by more than the whole
+stream does, and `U − P` is enough by construction. Before that the kernel
+reserved `LZ_MARGIN` = 64 above every placement (over 40 raw inputs the
+measured worst was 5, `BEVERLY.MOD`), which put a caller whose buffer was
+exactly `U` in a case of its own: LZ4 was refused there and the build refused
+to write an LZ4 file that would land there, while LZB read its source through
+a 256-byte sliding window refilled ahead of the writer. All of it — the
+constant, the window, the refusal, and `tools/checkreadme.py`'s rule that
+trimmed the manual to dodge it — is gone, and `tests/lzfile.py`'s tight-buffer
+leg reads a 4,096-byte file into 4,096 bytes in both formats.
 
 #### 20.14.3 What each surface reports, and the one that stays RAW
 
@@ -32086,57 +32071,64 @@ The expected output length is therefore **`BX:DX`, 32 bits**, and the frame
 counts **what is left to produce** rather than where the end is.
 
 **The input does NOT cross, and that is a decision.** `CX` stays 16 bits and
-`SI + CX` wrapping is refused at entry, which keeps the source end a plain
-offset in one segment — and that compare is tested twice per sequence and is
-the hottest one in the routine. What it costs is that a file which compresses
-to 64KB or more is stored plain; `cz_wrap` enforces the same rule at the other
+`SI + CX` wrapping is refused at entry, which keeps the tail bound a plain
+offset in one segment — and that compare is tested once per symbol and is the
+hottest one in the routine. What it costs is that a file which compresses to
+64KB or more is stored plain; `cz_wrap` enforces the same rule at the other
 end. A file that compressed that badly was not worth the decode time anyway.
 
-The fast path pays **three instructions per copy** for all of this: the
-source-wrap test, and a 32-bit remaining counter in place of a 16-bit end
-compare (which is one instruction *fewer* than what it replaced).
-
+The fast path pays **two carries per copy** for all of this, in the one copy
+routine both arms share, and a 32-bit remaining counter in place of a 16-bit
+end compare. The crossing itself is a byte loop: it is one symbol per 64KB of
+output, so a few hundred cycles once per segment against sixty bytes of
+kernel for ever.
 ### 20.15 `compress.inc` — the one thing on the machine that COMPRESSES
 
 Everything else in this system decodes. The loader expands a package, the file
 read expands a file, the boot sector expands a kernel. This module is the other
-direction. It is `COMPRESS.DRV`, an on-demand kernel module (§2.8), and a
-machine that never uses the verb carries **none** of it — no `.text`, no
-`.bss`, one `mod_tab` row and one file on the system disk.
-
-**IT IS THE WHOLE VERB AND NOT THE ENCODER**, and that is a correction to what
-this section first said. `cmz_verb` — the sizing, the claim, the read, the
-package refusals, the `'CZ'` container, the write and the ratio — was 722
-bytes of resident `.cold` in `files.inc`, and every one of them only ever ran
-after `mod_need` had already fetched this image. What kept them resident was
-ORDER and nothing else: the old body refused a file *before* asking for the
-module, so a refusal could be said on a machine with no system disk. `mod_need`
-goes first now, the module's five refusal strings came out here with it (89
-bytes of `.text`, which is the segment that binds), and `cmz_pack` is a near
-call inside this image rather than an entry point. What is left in `files.inc`
-is 47 bytes: `fmv_sync_x`, `mod_need`, one far call, `mod_drop`, `fmv_bcast`.
+direction. It is part of `CLONE.DRV`, an on-demand kernel module (§2.8,
+§20.15.3), and a machine that never uses the verb carries **none** of it — no
+`.text`, no `.bss`, no `mod_tab` row and no file of its own: one far-pointer
+slot in a block the cloner had six spare of, and one thunk in `files.inc`.
+**IT IS BOTH VERBS AND NOT THE ENCODER**, and that is a correction to what
+this section first said, taken in two steps. `cmz_verb` — the sizing, the
+claim, the read, the package refusals, the `'CZ'` container, the write and the
+ratio — was 722 bytes of resident `.cold` in `files.inc`, and every one of
+them only ever ran after `mod_need` had already fetched this image. What kept
+them resident was ORDER and nothing else: the old body refused a file *before*
+asking for the module, so a refusal could be said on a machine with no system
+disk. `mod_need` goes first now, the module's refusal strings came out here
+with it, and `cmz_pack` is a near call inside this image rather than an entry
+point. **Uncompress followed** (§22.23) with its 445 bytes and its three
+verdicts: expanding needs no encoder, but it needs a claim, a read, a write
+and the words, and those are the same bytes whichever way the file is going.
+What is left in `files.inc` is one thunk for the pair, which enters this image
+with `DL` = the command id `fm_docmd` was given, times two.
 
 **`DS` IS `KERNEL_SEG` INSIDE IT**, the caller being `.cold` (§2.6 rule 2), so
-every kernel variable it reads is a plain `[label]` and only this image's own
-scratch needs `cs:`. What it cannot do is a near `call` into the kernel, so the
-four services it wants go through the far shims the cloner already established:
-`COLD_SEG:dwf_dskw_usize` / `dwf_dskw_read` / `dwf_dskw_write` for the file
-layer, `COLD_SEG:mmf_mem_claim` / `mmf_mem_free` for the heap, and
-`KERNEL_SEG:0x0380` — `OSAPI_TOAST` — for its own verdicts, that slot taking
-`ES:SI` rather than `DS:SI` precisely so the text can live in a heap claim,
-which a module image is.
+every kernel variable it reads — `fm_onam`, `fm_ftype`, `dskw_raw` — is a
+plain `[label]` and only this image's own scratch needs `cs:`. What it cannot
+do is a near `call` into the kernel, so the services it wants go through the
+far shims the cloner already established: `COLD_SEG:dwf_dskw_stat` /
+`dwf_dskw_read` / `dwf_dskw_write` for the file layer, `COLD_SEG:mmf_mem_claim`
+/ `mmf_mem_free` for the heap, `COLD_SEG:lzf_decomp` for the decoder a
+package's expansion needs, and `KERNEL_SEG:0x0380` — `OSAPI_TOAST` — for its
+own verdicts, that slot taking `ES:SI` rather than `DS:SI` precisely so the
+text can live in a heap claim, which a module image is. **The sizing question
+is the module's own** (`cmz_sizes`): `dskw_stat` leaves the raw directory
+entry in `dskw_raw`, and the hint (§20.14.1) is three bytes of it, so the
+kernel routine that used to answer it (`dskw_usize`) went with the verb.
 
 **Three answers in one register pair**: `CF=0` the file changed and this image
-has already said the ratio; `CF=1` with `AX = 0` it refused and has already
-said why; `CF=1` with `AX != 0` a `FERR_*` for the caller to say off
-`fm_errtab`.
+has already said the ratio or the word; `CF=1` with `AX = 0` it refused and
+has already said why; `CF=1` with `AX != 0` a `FERR_*` for the caller to say
+off `fm_errtab`.
 
 **It writes LZB and only LZB.** The build's own compressor is LZ4 (§20.13.5)
 because LZ4 is what a *launch* pays for; this is the other trade, taken
 deliberately by somebody who is trying to make a file smaller and is willing to
 wait for it. That means the LZB decoder is not optional on a kernel that ships
-this module — §20.14.2.4's sliding window is what reads back what this writes.
-
+this module.
 #### 20.15.1 `cmz_pack` — the parse, and why it is the one that was measured
 
 ```
@@ -32144,7 +32136,8 @@ in:  AX = the SOURCE segment, the source at AX:0000
      DX = the OUTPUT segment, the output at DX:0000, CX bytes of room
      BX = a scratch segment of CMZ_TBL (8,192) bytes, at BX:0000
      CX = the source's length, 1..0xFFFF
-out: CF=0 and AX = the packed length, which is < CX
+out: CF=0 and AX = the packed length, which is < CX — a whole stream, T
+     word and raw tail included (§20.13.7)
      CF=1 = it did not get smaller, and the output is undefined
 ```
 
@@ -32207,40 +32200,46 @@ byte — 47 tag bits is 7 tag bytes plus the raw one). So the caller's buffer is
 exactly `CX` bytes and nothing checks a store. A stream that reaches `CX` has
 already lost, because the caller would store the file plain.
 
-#### 20.15.2 It returns the IN-PLACE MARGIN, measured as it writes
-
-`cmz_pack` answers `DX` = the stream's in-place margin: the bytes a region
-needs *above* the image so a decoder reading its own source from the top never
-overtakes its write pointer. `os88pkg.py` computes the same number by
-simulating the decode; the machine gets it for **six instructions** instead.
+#### 20.15.2 It finds the CUT as it writes
 
 A decoder needs `R ≥ (produced − consumed)` at every instant, and the instants
 that matter are the **symbol boundaries**: inside a symbol the decoder consumes
 its bytes and only then produces, so `produced − consumed` peaks at the end of
-one. At an encoder's symbol boundary those two are exactly `SI` and `DI`, which
-the loop is already holding, so the whole of it is a compare and a store per
-symbol and `margin = max(SI − DI) − (U − P)` at the end. That cannot borrow:
-the last boundary has `SI = U` and `DI = P`.
+one. At an encoder's symbol boundary those two are exactly `SI` and `DI`,
+which the loop is already holding, so finding the FIRST peak is a compare and
+three stores per symbol — and at the end the stream is cut there: the output
+is truncated to that `DI`, the source from that `SI` on goes across raw, and
+the count of it goes into the `T` word the stream was started two bytes in for
+(§20.13.7). A tag byte opened before the cut may carry bits of symbols after
+it; the decoder stops reading bits at the cut, so they are never seen.
 
-It exists for §22.22's package case, which is the one caller that needs it —
-a `'CZ'` file's placement is decided by `.czcap` from `LZ_MARGIN` and does not
-ask. Without it the verb would have to simulate the decode to find out, which
-is the decoder over again in a module that is meant to be the encoder.
+It used to return the *margin* those same instructions measured, for §22.22's
+package case to check against `LZ_MARGIN`. There is no margin to check now,
+and the compare is the same compare: `os88lz.lzb_compress_machine` mirrors it
+— strictly greater, never negative — so that `tests/lzcomp.py` can hold the
+two streams equal byte for byte.
 
-#### 20.15.3 It is on BOTH builds, and it is last in `mod_tab`
+#### 20.15.3 It has no image of its own: it rides in `CLONE.DRV`
 
-`MOD_CMPR` is **3 on `kern_big` and 5 on `kern_small`**. Every other module has
-one index on both, and this is the first that does not — because `kern_small`
-carries two modules `kern_big` keeps resident (§22.3.0, §38.0) and a shared row
-has to go somewhere. Putting it **last** is what keeps either build from
-carrying a hole: `mod_map`, `mod_tab` and the Makefile's `-m N=` all follow the
-same order, and `os88mod.py` checks the index it is given against the image's
-own `MOD_H_ID`, so getting that line wrong is a build failure rather than a
-far call into the wrong module.
+`compress.inc` emits `.modl` — the cloner's section — and is included right
+after `clone.inc`, so its code follows the cloner's header inside one image
+and `modl_end` closes both. The cloner's entry table has two rows: its own
+dispatcher, and `cmz_verb`; `CMZFP` is the second slot of the cloner's
+`mod_fp` block, and the file manager's thunk fetches `MOD_CLONE`.
 
-It is on `kern_small` for the reason it exists: a 128KB machine is the one most
-likely to want a file smaller, and the thing that would have made it expensive
-there — the 8KB table — is the caller's block and not the image.
+**What that buys is the whole of a module's resident cost.** A module of its
+own was a `mod_tab` row, a file name and a `mod_fp` block of `MOD_NENT` slots
+for one entry — 45 bytes, 28 of them `.bss` — on both builds, and it was the
+one module whose index differed between them (3 on `kern_big`, 5 on
+`kern_small`, because it had to be last on each). Inside the cloner's image
+it costs none of that and the two builds agree again. What it costs the USER
+is a bigger fetch: `CLONE.DRV` is the cloner's ~3.5 KB plus the compressor's
+~2.3 KB, read whole when either verb is picked, which on a floppy is a sector
+run rather than two. A verb somebody waits seconds for does not notice.
+
+The cloner is the right host and not merely the one with room: both are
+`files.inc` verbs on the system volume, both take a claim and run to
+completion, and neither is ever wanted while the other runs.
 
 ## 21. loader.inc
 
@@ -35446,16 +35445,20 @@ whole body is a `ret` away. That is 30 bytes of `.cold`, and the account beside
 ### 22.22 `Compress` — the file manager makes a file smaller
 
 **The one verb on this machine that COMPRESSES**, and since the size pass it
-is `COMPRESS.DRV` (§20.15) *entirely*: the module is the algorithm AND the
-policy, and `fm_c_compress` is 47 bytes that fetch it. The result is a `'CZ'`
-file (§20.14), so every reader on the machine already handles it — the verb
-adds no format and no second path.
-
-**`mod_need` RUNS FIRST, so a refusal costs an image read.** That is a
-deliberate trade and it is what let the policy move out: every refusal below
-is a fact only the image knows how to state, and stating them resident meant
-722 bytes that a machine without the system disk could reach and a machine
-with it never needed. A machine that cannot fetch the image now says `No disk`
+is the module (§20.15) *entirely* — `CLONE.DRV`'s second entry: the module is
+the algorithm AND the policy, and `fm_c_compress` is one thunk it shares with
+`Uncompress` (§22.23) — the same body under both `fm_jmp` rows, entered with
+`BX` = the command id times two, which is what it hands the module in `DL`.
+The result is a `'CZ'` file (§20.14), so every reader on the machine already
+handles it — the verb adds no format and no second path.
+**`mod_need` RUNS FIRST, so a refusal costs an image read — the silent one
+for a folder included.** That is a deliberate trade and it is what let the
+policy move out: every refusal below is a fact only the image knows how to
+state, and stating them resident meant 722 bytes that a machine without the
+system disk could reach and a machine with it never needed. The selection
+test followed in the second size pass, 31 bytes for a case nobody has a
+reason to trigger from the File menu (the context menu of a folder offers
+neither verb). A machine that cannot fetch the image now says `No disk`
 — the same words the cloner uses when *its* image cannot be fetched, for the
 same cause (`mod_need` goes to `[dsk_bootvol]` and only there) — instead of
 the specific reason, which is the truer answer to "compress this" on a machine
@@ -35484,8 +35487,8 @@ own on the `fm_ztab` table — the verb's, not `fm_errtab`'s, because those are
 
 | refusal | said as | said BY |
 |---|---|---|
-| a folder, or the parent link | nothing — a no-op, silently, exactly as Rename and Delete | `fm_cmpr_sel` |
-| `COMPRESS.DRV` not on the system disk | `No disk` | the kernel — it is the one thing the image cannot say about itself |
+| a folder, or the parent link | nothing — a no-op, silently, exactly as Rename and Delete | the image, which is fetched to find out |
+| `CLONE.DRV` not on the system disk | `No disk` | the kernel — it is the one thing the image cannot say about itself |
 | 64KB or more, or a package region past `APP_MAX_SIZE` | `Too large` | the image |
 | already stored LZB, or a package with a compression bit set | `Already compressed` | the image |
 | a package with PARTS, or whose `image` is not its file | `Cannot compress this one` | the image |
@@ -35494,13 +35497,10 @@ own on the `fm_ztab` table — the verb's, not `fm_errtab`'s, because those are
 | a `FERR_*` from the file layer | `fm_errtab`'s own word | the kernel, off `AX` |
 | success | `Compressed to 47%` | the image |
 
-Everything in the "the image" column is a string inside `COMPRESS.DRV`, said
-through `OSAPI_TOAST` with `ES = CS`. `fm_ztab` is **four rows** now where it
-was nine, and two of those four are aliases onto strings the kernel already
-had: `Too large` is `fm_stattab`'s `fm_s_toobig` and `Not enough memory` is
-`driver.inc`'s `drv_e4` (guarded — `kern_small` has no driver layer at all, so
-there it is the only copy rather than the second one).
-
+Everything in the "the image" column is a string inside the image, said
+through `OSAPI_TOAST` with `ES = CS`. There is no `fm_ztab` any more: the one
+verdict the kernel says itself, `No disk`, goes through the same slot with
+`ES = DS`, the string being `fm_s_enodisk`, which the cloner already had.
 **A `.DRV` and `KERNEL.SYS` are refused by NOTHING here**, and that is
 structural rather than lucky: both are hidden + system, so §19's species filter
 keeps them out of the listing entirely and there is no row to select — and had
@@ -35529,16 +35529,12 @@ The whole of it is arithmetic on four header fields:
 - **`image + bss` under `APP_MAX_SIZE`**, so the two roundups below cannot
   carry;
 - and **the in-place layout against the region the loader was going to claim
-  anyway**: `ld_run_body` reads the file at `R = roundup512(image − file +
-  LZ_MARGIN)` and expands downwards, so `R + file` has to fit
-  `roundup512(image + bss)`. When it does not, the answer is to leave that
-  package alone rather than to make every launch on the machine claim a bigger
-  region.
-
-**`cmz_pack`'s margin is what makes it affordable** (§20.15.2): the stream's
-in-place margin has to be inside `LZ_MARGIN`, and the encoder measured it as it
-wrote — so this is a compare where the host simulates the decode to find out.
-
+  anyway**: `ld_run_body` reads the file at `R = roundup512(image − file)`
+  and expands downwards, so `R + file` has to fit `roundup512(image + bss)`.
+  When it does not, the answer is to leave that package alone rather than to
+  make every launch on the machine claim a bigger region. There is no margin
+  in that sum: the stream `cmz_pack` writes ends in a raw tail (§20.13.7,
+  §20.15.2).
 **`dskw_czstamp` needs no exception.** It derives the `'CZ'` hint from the
 bytes being written and a `.o88` begins `'O8'`, so the mark is correctly not
 written — and correctly *cleared*, which is the half that matters when a
@@ -35574,12 +35570,11 @@ shorter history and a slightly worse ratio (71.4% against 68.9% at 4,096)
 rather than a verb that is absent from the machine most likely to want it. Only
 when 1,024 will not fit either is it `Not enough memory`.
 
-**The read is lent the OUTPUT region as well**, and that is the trap §20.14.2.3
-already cost this project once: a `'CZ'` source expands in place and wants
-`U + margin` of room to do it in, so a capacity of exactly `U` sends it to
-`.cznoroom` and, for LZ4, to `FERR_BIG`. Both regions are ours and the output
-is built afterwards, so lending it costs nothing.
-
+**The read is given the source region alone.** It used to be lent the output
+region as well, because a `'CZ'` source expanding in place wanted `U + margin`
+and a capacity of exactly `U` was refused; a stream ends in a raw tail now and
+`U` is enough (§20.14.2), which is the whole of why the round-up KB is the only
+slack in the claim.
 #### 22.22.3 What the user watches
 
 `fpg_begin` is armed with the SOURCE's length after the read, and `cmz_pack`
@@ -35599,19 +35594,17 @@ not exist, and the space it needs is `P`, not a second copy. `dskw_czstamp`
 then derives the directory hint from the bytes (§20.14.4), so the verb writes
 no hint of its own.
 
-### 22.23 `Uncompress` — and it needs no module at all
+### 22.23 `Uncompress` — and it is the same module
 
-The other half of §22.22, and the asymmetry between them is the whole design:
-**compressing needs an encoder that is not in the kernel, and expanding needs a
-decoder that already is.** `kernel/lz.inc` is resident because the loader, the
-driver loader and every transparent read go through it (§20.14), so
-`fm_c_uncomp` spends no `COMPRESS.DRV`, no `mod_need`, and cannot answer
-`No disk`. Making it a module would have *added* a system-disk requirement to
-a verb that has none — and it is why `fm_ztab` still exists at all: when
-Compress's policy moved into its image (§22.22) it took its five verdicts with
-it, and what is left resident is Uncompress's plus the one the fetch itself
-needs.
-
+The other half of §22.22, and since the second size pass it lives in the
+same image beside it (`cmz_uncomp`, §20.15), reached through the one thunk
+the pair shares. It was resident first, on the argument that **compressing
+needs an encoder that is not in the kernel and expanding needs a decoder that
+already is** — which is true and was 445 bytes beside the point: what the verb
+needs beyond the decoder is a claim, a read, a write and three verdicts, and
+those are the same bytes whichever way the file is going. What a machine
+without its system disk loses is a verb that now says `No disk`, on a machine
+that could not have launched anything off that file's disk either.
 It is the **sixth item in the File menu**, under `Compress`, and the seventh on
 `fm_ctx_file`. No ellipsis, for `Compress`'s reason.
 
@@ -35620,14 +35613,13 @@ It is the **sixth item in the File menu**, under `Compress`, and the seventh on
 | the file is | what happens |
 |---|---|
 | a `'CZ'` file (§20.14) | **`dskw_read_x` does all of it.** The transparent read hands back the unpacked bytes, and writing them back over the same name is the verb. One claim, no decoder call in this module at all |
-| a package with flags bit 3 (§20.13) | the file is read as it lies — a `.o88` is not a container, so the same transparent read is a plain one — and then `fm_uncmp_pkg` copies the clear prefix across and hands the body to `lz_decomp_x`, which is `ld_expand` one step at a time and for the same reasons |
+| a package with flags bit 3 (§20.13) | the file is read as it lies — a `.o88` is not a container, so the same transparent read is a plain one — and then `cmz_upkg` copies the clear prefix across and hands the body to `lz_decomp_x`, which is `ld_expand` one step at a time and for the same reasons |
 | anything else | `Not compressed` |
 
 **The two are mutually exclusive and the directory says which**, so the branch
-costs a compare: `dskw_usize` answers the `'CZ'` mark or `0xFF`, and a package
-never carries one — `dskw_czstamp` derives the hint from the bytes and a `.o88`
-begins `'O8'` (§20.14.4).
-
+costs a compare: `cmz_sizes` answers the `'CZ'` mark or `0xFF` off the entry
+`dskw_stat` staged, and a package never carries one — `dskw_czstamp` derives
+the hint from the bytes and a `.o88` begins `'O8'` (§20.14.4).
 #### 22.23.2 TWO claims, and that is the honest cost of not knowing `U`
 
 `Compress` sizes everything from `U`, which the directory hint gives it before
@@ -35640,21 +35632,14 @@ second block for the expansion:
 
 | | |
 |---|---|
-| `[fm_cmprb]` | the file as it lies, `ceil(P/1024) + 2` KB |
-| `[fm_cmpro]` | the expansion, `ceil(U/1024) + 2` KB — the prefix at offset 0, the body at `prefix/16` paragraphs along |
+| `[cmz_b]` | the file as it lies, `P/1024 + 1` KB |
+| `[cmz_o]` | the expansion, `U/1024 + 1` KB — the prefix at offset 0, the body at `prefix/16` paragraphs along |
 
-Peak is `P + U`, against the in-place scheme's `U + LZ_MARGIN`. That is
-~1.4×`U` rather than ~1.0×`U`, and it is affordable by construction:
-**§22.22.2's claim on the same file is `2·U + tables`**, so any machine that
-could compress a file can expand it. The `'CZ'` arm takes ONE claim and pays
-none of this — `U` is in the hint.
-
-The `+2` KB is not slack. One KB is the round-up; the other is `LZ_MARGIN` and
-the odd bytes, because a `'CZ'` read lays the packed bytes at `U − P +
-LZ_MARGIN` and expands downwards (§20.14.2.2) — a capacity of exactly `U` is
-what sends it to `.cznoroom`, and §22.22.2 records that same trap costing this
-project a bug once already.
-
+Peak is `P + U`, against the in-place scheme's `U`. That is ~1.4×`U` rather
+than ~1.0×`U`, and it is affordable by construction: **§22.22.2's claim on the
+same file is `2·U + tables`**, so any machine that could compress a file can
+expand it. The `'CZ'` arm takes ONE claim and pays none of this — `U` is in
+the hint, and `U` is enough (§20.14.2).
 #### 22.23.3 What it refuses
 
 | refusal | said as |
@@ -35669,8 +35654,9 @@ project a bug once already.
 
 **A verdict rather than a size**, where `Compress` says `Compressed to 47%`:
 the number `Compress` reports is the only place the ratio is visible, and the
-one `Uncompress` would report is already on the listing behind the toast.
-
+one `Uncompress` would report is already on the listing behind the toast. And
+`No disk`, from the thunk, when `CLONE.DRV` cannot be fetched — the same
+words and the same cause as §22.22's.
 The **flag bits are cleared on the expanded copy** before it is written — bits
 3 and 4 of `LD_H_FLAGS` — so what lands on the disk is a package
 `ld_check_hdr` reads without a decoder, and `dskw_czstamp` clears the
