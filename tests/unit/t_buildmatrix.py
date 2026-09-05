@@ -54,7 +54,7 @@ kernel a second time for a size report this file captures and throws away.  At
                    here, so a knob added to it stops sharing without anybody
                    remembering to edit this file.
                    **`<shared>` IS `os88build.at("build")`, NOT `build/`**
-                   (docs/SOAK-PARALLEL.md 14.2): under a frozen run the shared
+                   (docs/plans/SOAK-PARALLEL.md 14.2): under a frozen run the shared
                    directory is the RUN'S tree, and `build/` is the operator's
                    to `make` in. This was the one row left reaching out of the
                    run - it read four packages and associco.inc out of a
@@ -422,7 +422,7 @@ def main():
     a = ap.parse_args()
 
     # THE KERNEL THE RUN READS, which under a frozen soak is the tree's and
-    # not `build/`'s (docs/SOAK-PARALLEL.md 14.2). Guarding the operator's
+    # not `build/`'s (docs/plans/SOAK-PARALLEL.md 14.2). Guarding the operator's
     # copy would be guarding the one directory this row is no longer allowed
     # to touch, and leaving the one it could actually clobber unwatched.
     shipped = os88build.at("build/kernel.bin")
