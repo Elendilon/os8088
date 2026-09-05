@@ -32776,7 +32776,7 @@ arithmetic gives). `'Locator'` is 56px so the first cell starts at
 
 | menu | width | x range | items |
 |------|-------|---------|-------|
-| **File** | 48 | 112..159 | Open · New Folder… · Rename… · Delete · ──── · Format Disk… |
+| **File** | 48 | 112..159 | Open · New Folder… · Rename… · Delete · Compress · Uncompress · ──── · Format Disk… · Clone Disk… · Write Img… |
 | **Edit** | 48 | 160..207 | Cut · Copy · Paste |
 | **Nav** | 40 | 208..247 | New Window · Open in New Window · Refresh · Up One Folder · Root Folder · Drive A: · Drive B: |
 | **Builtins** | 80 | 248..327 | Timer · Bounce · Disk |
@@ -32881,8 +32881,8 @@ lock-side answer, and the table's per-entry comments cover both callers.
 
 | descriptor | when | items |
 |------------|------|-------|
-| `fm_ctx_file` | the row is a file | Open · Rename… · Delete |
-| `fm_ctx_fold` | the row is a folder | Open · Open in New Window · Rename… · Delete |
+| `fm_ctx_file` | the row is a file | Open · Cut · Copy · Rename… · Delete · Compress · Uncompress |
+| `fm_ctx_fold` | the row is a folder | Open · Open in New Window · Cut · Copy · Paste Into · Rename… · Delete |
 | `fm_ctx_dir`  | empty space, the header band, below the last row | New Folder… · Refresh · Up One Folder · Root Folder · Drive A: · Drive B: · as List · as Icons |
 
 A descriptor is three words in `.text` — the item-string array, a parallel
@@ -35381,9 +35381,13 @@ to the module, write the result back over the same name. The result is a `'CZ'`
 file (§20.14), so every reader on the machine already handles it — the verb
 adds no format and no second path.
 
-It is the **fifth item in the File menu**, with Delete, above the rule that
-separates the selection's verbs from the disk's. No ellipsis: it asks nothing
-and starts the moment it is picked.
+It is the **fifth item in the File menu**, with Delete and immediately above
+`Uncompress` (§22.23), the pair sitting above the rule that separates the
+selection's verbs from the disk's. No ellipsis: it asks nothing and starts the
+moment it is picked. Both are on the **file context menu** as well
+(`fm_ctx_file`), which is not a convenience: under `WF_FULL` a file-manager
+window has no menu bar at all (§11.2), so a right-press is the only surface
+these two have on a fullscreen window.
 
 **Re-compressing a shipped file is the case it exists for, and it needs no
 special case at all.** `dskw_read_x` hands back the UNPACKED bytes (§20.14), so
@@ -35505,6 +35509,82 @@ directory sector commits (§18.6) — so there is no moment where the file does
 not exist, and the space it needs is `P`, not a second copy. `dskw_czstamp`
 then derives the directory hint from the bytes (§20.14.4), so the verb writes
 no hint of its own.
+
+### 22.23 `Uncompress` — and it needs no module at all
+
+The other half of §22.22, and the asymmetry between them is the whole design:
+**compressing needs an encoder that is not in the kernel, and expanding needs a
+decoder that already is.** `kernel/lz.inc` is resident because the loader, the
+driver loader and every transparent read go through it (§20.14), so
+`fm_c_uncomp` spends no `COMPRESS.DRV`, no `mod_need`, and cannot answer
+`COMPRESS.DRV not found`. Making it a module would have *added* a system-disk
+requirement to a verb that has none.
+
+It is the **sixth item in the File menu**, under `Compress`, and the seventh on
+`fm_ctx_file`. No ellipsis, for `Compress`'s reason.
+
+#### 22.23.1 Two arms, because there are two containers
+
+| the file is | what happens |
+|---|---|
+| a `'CZ'` file (§20.14) | **`dskw_read_x` does all of it.** The transparent read hands back the unpacked bytes, and writing them back over the same name is the verb. One claim, no decoder call in this module at all |
+| a package with flags bit 3 (§20.13) | the file is read as it lies — a `.o88` is not a container, so the same transparent read is a plain one — and then `fm_uncmp_pkg` copies the clear prefix across and hands the body to `lz_decomp_x`, which is `ld_expand` one step at a time and for the same reasons |
+| anything else | `Not compressed` |
+
+**The two are mutually exclusive and the directory says which**, so the branch
+costs a compare: `dskw_usize` answers the `'CZ'` mark or `0xFF`, and a package
+never carries one — `dskw_czstamp` derives the hint from the bytes and a `.o88`
+begins `'O8'` (§20.14.4).
+
+#### 22.23.2 TWO claims, and that is the honest cost of not knowing `U`
+
+`Compress` sizes everything from `U`, which the directory hint gives it before
+a sector moves. `Uncompress` of a **package** cannot: `U` is `image`, which
+lives in the file's own header, and there is no way to read 32 bytes of a file
+on this machine — `dskw_read_x` reads the whole of it or refuses with
+`FERR_BIG`, and `dskw_read_at` wants a whole number of clusters (§18.4.4). So
+the package arm claims for the file, reads it, learns `image`, and claims a
+second block for the expansion:
+
+| | |
+|---|---|
+| `[fm_cmprb]` | the file as it lies, `ceil(P/1024) + 2` KB |
+| `[fm_cmpro]` | the expansion, `ceil(U/1024) + 2` KB — the prefix at offset 0, the body at `prefix/16` paragraphs along |
+
+Peak is `P + U`, against the in-place scheme's `U + LZ_MARGIN`. That is
+~1.4×`U` rather than ~1.0×`U`, and it is affordable by construction:
+**§22.22.2's claim on the same file is `2·U + tables`**, so any machine that
+could compress a file can expand it. The `'CZ'` arm takes ONE claim and pays
+none of this — `U` is in the hint.
+
+The `+2` KB is not slack. One KB is the round-up; the other is `LZ_MARGIN` and
+the odd bytes, because a `'CZ'` read lays the packed bytes at `U − P +
+LZ_MARGIN` and expands downwards (§20.14.2.2) — a capacity of exactly `U` is
+what sends it to `.cznoroom`, and §22.22.2 records that same trap costing this
+project a bug once already.
+
+#### 22.23.3 What it refuses
+
+| refusal | said as |
+|---|---|
+| a folder, or the parent link | nothing — a no-op, silently, exactly as `Compress` |
+| no `'CZ'` mark and no package compression bit | `Not compressed` |
+| 64KB or more unpacked | `Too large to compress` |
+| an `image` no bigger than the file it is packed into | `Cannot expand this one` |
+| a stream `lz_decomp_x` refuses, or one that produces the wrong length | `Cannot expand this one` |
+| either claim | `Not enough memory` |
+| success | `Uncompressed` |
+
+**A verdict rather than a size**, where `Compress` says `Compressed to 47%`:
+the number `Compress` reports is the only place the ratio is visible, and the
+one `Uncompress` would report is already on the listing behind the toast.
+
+The **flag bits are cleared on the expanded copy** before it is written — bits
+3 and 4 of `LD_H_FLAGS` — so what lands on the disk is a package
+`ld_check_hdr` reads without a decoder, and `dskw_czstamp` clears the
+directory hint on the `'CZ'` arm for the same reason and by the same route it
+sets one: it looks at the bytes.
+
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 

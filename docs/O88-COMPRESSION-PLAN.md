@@ -1742,6 +1742,78 @@ size and the volume's free space at entry, so the worst case is decidable then
 and no claim has to be held across a suspended interaction. That is the shape
 to build if the tight case turns out to be common.
 
+### 13.12 WAVE 7 — `Uncompress`, and the asymmetry that made it cheap
+
+**534 bytes for the other half of the feature** — `.text` +78, `.cold` +456 —
+against wave 6's 1,477 resident plus a 712-byte module. It is a third of the
+price for a verb of the same standing, and the reason is one sentence:
+**compressing needs an encoder that is not in the kernel; expanding needs a
+decoder that already is.** `kernel/lz.inc` is resident because the loader, the
+driver loader and every transparent read go through it, so `fm_c_uncomp`
+spends no `COMPRESS.DRV`, takes no `mod_need`, and has no `not found` verdict
+to say. §22.23 is the contract.
+
+Making it a module was considered and refused for exactly that: it would have
+*added* a system-disk requirement to a verb that has none.
+
+**One arm of it is not code at all.** A `'CZ'` file is expanded by
+`dskw_read_x` (§20.14), so that arm is a claim, a transparent read and a plain
+write with nothing in between — the transparency wave 5 built for applications
+turns out to be the whole verb here. Only a **package** needs work, because a
+`.o88` is not a container: `fm_uncmp_pkg` is `ld_expand` between two regions
+instead of inside one, and the format is read back out of the source header
+once `DS` is the source segment, which is what saves carrying it through the
+prefix copy.
+
+**Two claims, and it is `image` that forces them.** Wave 6 sizes everything
+from `U`, which the directory hint hands over before a sector moves. A package
+carries `U` in its own header and there is no way to read 32 bytes of a file on
+this machine — `dskw_read_x` reads the whole of it or answers `FERR_BIG`, and
+`dskw_read_at` wants whole clusters (§18.4.4). So the package arm claims for
+the file, reads it, learns `image`, and claims again. Peak is `P + U` against
+an in-place scheme's `U + LZ_MARGIN`, and it is affordable by construction:
+§22.22.2's claim on the same file is `2·U` plus tables, so **any machine that
+could compress a file can expand it**.
+
+#### 13.12.1 The right-click menu, and the leg that caught its own harness
+
+Both verbs went onto `fm_ctx_file` at the same time, which is a requirement
+rather than a courtesy: under `WF_FULL` a file-manager window has no menu bar
+at all (§11.2), so a right-press is the only surface either one has there.
+
+`tests/lzcomp.py` grew five legs — two round trips (a `'CZ'` file and a
+package, both back to bytes the run itself wrote), the expanded package opened
+again, a plain file refused, and the context menu driving `Uncompress` off
+`fm_cxc_file` rather than off the bar. **A round trip is the weakest possible
+assertion about an encoder and the strongest available one about this pair**,
+which is why wave 6's legs are byte-equality against a host model and these are
+not: `lzb_compress_machine` cannot say whether the decoder gives the bytes
+back.
+
+Three things had to be built under it, and each is reusable:
+
+* **the harness had no right button.** `os88mouse` drove `mouse_btn` bit 0
+  only, so `_edge` learned which button it is proving and `to` learned to carry
+  both levels through a drag. `rmenu` is `menu` with the other button — and it
+  has to be a press-drag-release for `menu`'s own reason, `menu_track` polling
+  a level either way;
+* **an item's y cannot be computed from the press point.** `menu_popup`
+  anchors at the pointer and then SHIFTS rather than clips — left off the right
+  edge, up off the bottom — so `rmenu` takes an `aim` callback that runs with
+  the button DOWN and reads `menu_x1`/`menu_y1` out of the guest, after waiting
+  for `menu_btn` to say the popup is up;
+* **and the first run of that leg failed for a reason that was not the
+  feature.** Two Calculator instances are on screen by then (the package legs
+  open one each), and a right-press goes to whatever is under the pointer — an
+  empty toast and an untouched file, reported against the context menu and
+  caused by the z-order. The leg raises the window with a left click first,
+  which is what `compress()` had been doing all along.
+
+`FM_ICOMP` and `FM_IUNCOMP` are `equ`s now and the test reads them out of the
+kernel's own map, so the two menu indices it picks by number cannot go stale —
+the same discipline `tests/diskclone.py` and `tests/modstr.py` already use for
+`FM_ICLONE` and `FM_IFMT`, both of which moved down one when the item landed.
+
 ## 14. Decisions still open before wave 1
 
 Everything in §12 is costed. These are the things a build would have to

@@ -33,6 +33,15 @@ Four subjects, and each is a different half of the verb:
   (again)     PLAIN.TXT once it is LZB: refused as already compressed, and the
               file untouched
 
+...and then UNCOMPRESS (SPEC.md 22.23), where a ROUND TRIP is the strongest
+assertion available rather than the weakest one: PLAIN.TXT and CALC.O88 both
+went in as bytes this run knows exactly, so coming back byte for byte is a
+statement about the pair that no ratio could make. The package is then opened
+again, because the only thing that proves a package is a package is the
+machine's loader running it - and the last leg picks Uncompress off the
+RIGHT-CLICK menu instead of the bar, `fm_cxi_file`/`fm_cxc_file` being a
+parallel pair of arrays that can be one item out and look perfectly right.
+
 ...and one thing that is not about the verb at all. **COPY/PASTE MUST NOT
 EXPAND** (SPEC.md 20.14.3): the file manager's copy engine reads raw clusters
 and takes its size from `dskw_stat`, so it moves a compressed file as it sits
@@ -67,7 +76,11 @@ ROOT = os.path.join(HERE, "..")
 MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
 
 MB_XL = 6                       # menu.inc's bar entry: the cell's left edge
-FM_ICOMPRESS = 4                # the File menu's fifth item (SPEC.md 22.22)
+_EQU = os88sym.equates()        # the kernel's own constants, so an item that
+FM_ICOMP = _EQU["FM_ICOMP"]     # moves moves here too (SPEC.md 22.22/22.23)
+FM_IUNCOMP = _EQU["FM_IUNCOMP"]
+CX_IUNCOMP = 6                  # fm_cxi_file's seventh item: Open, Cut, Copy,
+                                # Rename, Delete, Compress, Uncompress
 TOAST_MAX = 24
 
 
@@ -169,7 +182,7 @@ def build_disk(path):
         size=360), plain, packed, calc, telnet
 
 
-def compress(m, mo, wx, wy, name, fails, quiet=30):
+def compress(m, mo, wx, wy, name, fails, quiet=30, item=FM_ICOMP):
     """Select `name`, pick File > Compress, and wait for the verb to finish.
 
     THE WAIT IS ON THE TOAST and not on a fixed sleep: the pack is seconds of
@@ -183,7 +196,7 @@ def compress(m, mo, wx, wy, name, fails, quiet=30):
     x, y = dispcp.row_xy(wx, wy, row)
     mo.click(x, y)
     os88marty.settle(m)
-    menu_pick(m, mo, 1, FM_ICOMPRESS)       # cell 0 is the chip, 1 is File
+    menu_pick(m, mo, 1, item)               # cell 0 is the chip, 1 is File
     for _ in range(quiet):
         time.sleep(1)
         t = toast(m)
@@ -334,6 +347,110 @@ def main():
             fails.append("PLAIN.TXT a second time: expected 'Already "
                          "compressed' and the same file, got %r and %d bytes"
                          % (t, len(again)))
+
+        # --- 6. UNCOMPRESS a 'CZ' file, and it must be the ORIGINAL bytes ---
+        # A round trip is a weak assertion about an ENCODER and the strongest
+        # available one about this verb: PLAIN.TXT went in as prose, came back
+        # as LZB, and has to come back again byte for byte. Anything the pair
+        # loses - a length, the last symbol, the eight-byte container left on
+        # the front - shows up here and nowhere else.
+        t = compress(m, mo, wx, wy, "PLAIN.TXT", fails, item=FM_IUNCOMP)
+        back = fl.volume(1).read("PLAIN.TXT")
+        ok = t.startswith("Uncompressed") and back == plain
+        say("  uncz       %s  %r  (%d bytes, the original is %d)"
+            % ("ok " if ok else "BAD", t, len(back), len(plain)))
+        if not ok:
+            i = next((k for k in range(min(len(back), len(plain)))
+                      if back[k] != plain[k]), min(len(back), len(plain)))
+            fails.append("PLAIN.TXT did not survive compress -> uncompress: "
+                         "%r, %d bytes against %d, first differing byte %d"
+                         % (t, len(back), len(plain), i))
+
+        # --- 7. ...and a PACKAGE, which is the other container -------------
+        t = compress(m, mo, wx, wy, "CALC.O88", fails, item=FM_IUNCOMP)
+        back = fl.volume(1).read("CALC.O88")
+        ok = t.startswith("Uncompressed") and back == calc
+        say("  unpkg      %s  %r  (%d bytes, the original is %d)"
+            % ("ok " if ok else "BAD", t, len(back), len(calc)))
+        if not ok:
+            i = next((k for k in range(min(len(back), len(calc)))
+                      if back[k] != calc[k]), min(len(back), len(calc)))
+            fails.append("CALC.O88 did not survive the round trip: %r, %d "
+                         "bytes against %d, first differing byte %d - byte 3 "
+                         "is the flags, and bits 3 and 4 must be OFF"
+                         % (t, len(back), len(calc), i))
+
+        # --- 7a. ...and the expanded package still runs --------------------
+        before = dispcp.win_list(m, S)
+        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "CALC.O88")
+        for _ in range(20):
+            time.sleep(1)
+            if len(dispcp.win_list(m, S)) > len(before):
+                break
+        after = dispcp.win_list(m, S)
+        ok = len(after) > len(before)
+        say("  unruns     %s  (%d windows, was %d)"
+            % ("ok " if ok else "BAD", len(after), len(before)))
+        if not ok:
+            fails.append("the EXPANDED CALC.O88 opened no window - the round "
+                         "trip produced bytes ld_check_hdr will not start")
+
+        # --- 8. a file that is not compressed at all ------------------------
+        t = compress(m, mo, wx, wy, "PLAIN.TXT", fails, quiet=8,
+                     item=FM_IUNCOMP)
+        again = fl.volume(1).read("PLAIN.TXT")
+        ok = t.startswith("Not compressed") and again == plain
+        say("  unplain    %s  %r  (%d bytes)"
+            % ("ok " if ok else "BAD", t, len(again)))
+        if not ok:
+            fails.append("PLAIN.TXT is plain now: expected 'Not compressed' "
+                         "and an untouched file, got %r and %d bytes"
+                         % (t, len(again)))
+
+        # --- 9. THE RIGHT-CLICK MENU IS THE OTHER SURFACE (SPEC.md 22.23) --
+        # Not a duplicate of leg 6. Under WF_FULL a file-manager window has no
+        # menu bar at all (SPEC.md 11.2), so `fm_ctx_file` is the ONLY surface
+        # either verb has there - and it is a separate descriptor with its own
+        # parallel array of FMC_* bytes, which is exactly the kind of table
+        # that can be one item out and look right.
+        m.write(S("toast_buf"), b"\0")
+        row = dispcp.row_of(m, S, "PACKED.TXT")
+        rx, ry = dispcp.row_xy(wx, wy, row)
+        mo.click(rx, ry)        # RAISE THE DISK WINDOW FIRST. Two Calculator
+        os88marty.settle(m)     # instances are on screen by now (3a and 7a),
+                                # and a right-press goes to whatever is under
+                                # the pointer - which was this leg's whole
+                                # failure the first time it ran: an empty
+                                # toast and an untouched file, reported
+                                # against the context menu and caused by the
+                                # z-order
+
+        def aim(_mo):           # ...and the item comes off the popup's OWN
+            for _ in range(40):                 # rect, because menu_popup
+                if m.read(S("menu_btn"), 1)[0] == 2:    # SHIFTS rather than
+                    break                               # clips near an edge
+                time.sleep(0.25)
+            x = u16(m.read(S("menu_x1"), 2))
+            y = u16(m.read(S("menu_y1"), 2))
+            return x + 8, y + 1 + CX_IUNCOMP * MENU_ITEM_H + 8
+
+        mo.rmenu(rx, ry, 0, 0, aim=aim)
+        t = ""
+        for _ in range(30):
+            time.sleep(1)
+            t = toast(m)
+            if t:
+                break
+        back = fl.volume(1).read("PACKED.TXT")
+        ok = t.startswith("Uncompressed") and back == plain
+        say("  ctxuncomp  %s  %r  (%d bytes, the original is %d)"
+            % ("ok " if ok else "BAD", t, len(back), len(plain)))
+        if not ok:
+            fails.append("the context menu's Uncompress said %r and left "
+                         "PACKED.TXT at %d bytes (the original is %d) - "
+                         "fm_cxi_file and fm_cxc_file are a PAIR and an item "
+                         "index out by one dispatches the wrong command"
+                         % (t, len(back), len(plain)))
 
     for f in fails:
         say("  FAIL: " + f)

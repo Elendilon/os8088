@@ -245,8 +245,8 @@ class Mouse:
         return (b[0] | (b[1] << 8), b[2] | (b[3] << 8), b[4])
 
     # --- moving ------------------------------------------------------------
-    def _pk(self, dx=0, dy=0, l=False):
-        self.m.mouse(dx, dy, l=l)
+    def _pk(self, dx=0, dy=0, l=False, r=False):
+        self.m.mouse(dx, dy, l=l, r=r)
         time.sleep(GAP)
 
     def _landed(self, was, guest=PKT_GUEST):
@@ -288,8 +288,13 @@ class Mouse:
             time.sleep(0.005)
         return False
 
-    def to(self, x, y, tries=None, l=False, retry=True):
-        """Drive to (x, y) and PROVE it, or raise."""
+    def to(self, x, y, tries=None, l=False, retry=True, r=False):
+        """Drive to (x, y) and PROVE it, or raise.
+
+        `l` and `r` are the button LEVELS to carry while moving - a Microsoft
+        packet states both on every one, so a drag with a button held has to
+        keep saying so or the guest sees a release halfway across.
+        """
         if tries is None:
             # A packet moves at most STEP per axis, so the budget has to scale
             # with the DISTANCE: a fixed six was enough for a short hop and
@@ -316,7 +321,8 @@ class Mouse:
                 return
             # One packet's worth at a time; the read after it is what makes
             # the next one exact rather than hopeful.
-            self._pk(max(-STEP, min(STEP, dx)), max(-STEP, min(STEP, dy)), l=l)
+            self._pk(max(-STEP, min(STEP, dx)), max(-STEP, min(STEP, dy)),
+                     l=l, r=r)
             self._landed((cx, cy))
         cx, cy, _ = self.where()        # ...and CHECK AFTER THE LAST MOVE, or
         if (cx, cy) == (x, y):          # a target needing exactly `tries`
@@ -341,7 +347,7 @@ class Mouse:
         # stop a slow one being called impossible.
         if retry:
             os88marty.guest_sleep(self.m, BUSY)
-            self.to(x, y, tries=tries, l=l, retry=False)
+            self.to(x, y, tries=tries, l=l, retry=False, r=r)
             return
         raise MartyError("could not reach (%d,%d): stuck at (%d,%d) after a "
                          "%.0f GUEST-second wait, so it is not the guest "
@@ -363,7 +369,7 @@ class Mouse:
         b = self._raw(BIOS_TICKS, 4)
         return b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24)
 
-    def _edge(self, down, tries=60, resend=20):
+    def _edge(self, down, tries=60, resend=20, btn=1):
         """One button edge, PROVEN: send the packet, then wait until the
         published mouse_btn agrees. A packet clocked into the UART while the
         previous one is still in flight is simply dropped, and the only
@@ -382,17 +388,18 @@ class Mouse:
         mouse_btn to agree before it returns, so a re-send cannot turn a
         genuinely stuck button into a pass.
         """
-        want = 1 if down else 0
+        want = btn if down else 0
         for i in range(tries):
             if i % resend == 0:
-                self.m.mouse(0, 0, l=down)
-            if (self.where()[2] & 1) == want:
+                self.m.mouse(0, 0, l=down and btn == 1, r=down and btn == 2)
+            if (self.where()[2] & btn) == want:
                 return
             time.sleep(0.02)
         raise MartyError(
-            "the %s was never decoded (mouse_btn = %02x). The 1200-baud UART "
-            "drops a packet sent while the previous one is in flight."
-            % ("press" if down else "release", self.where()[2]))
+            "the %s %s was never decoded (mouse_btn = %02x). The 1200-baud "
+            "UART drops a packet sent while the previous one is in flight."
+            % ("right" if btn == 2 else "left",
+               "press" if down else "release", self.where()[2]))
 
     def dblclick(self, x, y, settle=2.0):
         """Two presses inside the kernel's own double-click window.
@@ -439,16 +446,44 @@ class Mouse:
         """
         self._press_drag_release(x0, y0, x1, y1, settle)
 
+    def rmenu(self, x0, y0, x1, y1, settle=2.0, aim=None):
+        """The same for the RIGHT button: the context menu (SPEC.md 12.4).
+
+        `fm_rclick` pops the menu under the pointer and `menu_track` then
+        polls a LEVEL exactly as the bar's does, so this is `menu` with the
+        other button and not a click - a press and release in place would open
+        it and close it in one breath.
+
+        `aim(self)` -> (x, y) IS CALLED WITH THE BUTTON DOWN, once the menu is
+        on screen, and its answer replaces (x1, y1). A popup is anchored at
+        the pointer and then SHIFTED rather than clipped - left off the right
+        edge, up off the bottom (menu_popup) - so a caller computing an item's
+        y from the press point is right until the press is near an edge, and
+        then silently picks a different item. Reading `menu_x1`/`menu_y1` out
+        of the guest at this moment is the only spelling that cannot.
+        """
+        if aim is None:
+            self._press_drag_release(x0, y0, x1, y1, settle, btn=2)
+            return
+        self.to(x0, y0)
+        if self.where()[2] & 2:
+            self._edge(False, btn=2)
+        self._edge(True, btn=2)
+        x1, y1 = aim(self)
+        self.to(x1, y1, r=True)
+        self._edge(False, btn=2)
+        _wait(self.m, settle, "drag/menu")
+
     def drag(self, x0, y0, x1, y1, settle=1.5):
         self._press_drag_release(x0, y0, x1, y1, settle)
 
-    def _press_drag_release(self, x0, y0, x1, y1, settle):
+    def _press_drag_release(self, x0, y0, x1, y1, settle, btn=1):
         self.to(x0, y0)
-        if self.where()[2] & 1:
-            self._edge(False)
-        self._edge(True)
-        self.to(x1, y1, l=True)
-        self._edge(False)
+        if self.where()[2] & btn:
+            self._edge(False, btn=btn)
+        self._edge(True, btn=btn)
+        self.to(x1, y1, l=btn == 1, r=btn == 2)
+        self._edge(False, btn=btn)
         _wait(self.m, settle, "drag/menu")
 
 
