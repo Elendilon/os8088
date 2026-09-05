@@ -51,7 +51,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default="cga", choices=sorted(MACHINE))
     a = ap.parse_args()
-    need("lzdrvtest")              # `all` builds nothing under tests/
+    need("build/lzdrv360.img", "build/drvcall360.img")   # `all`
+                                   # builds nothing under tests/
 
     # THE SHIPPED DRIVER IS COMPRESSED TOO NOW (SPEC.md 20.13.5), so the
     # reference this whole row compares against has to be unwrapped: what the
@@ -90,10 +91,20 @@ def main():
         mo.click(x0 + drvcall.CP_RX + 40,
                  y0 + drvcall.CP_DBY1 + RD_ROW * drvcall.CP_DROWH
                  + drvcall.CP_DROWH // 2)
-        time.sleep(6)
+        # POLL drv_tab, do not sleep at it. A driver comes off a floppy and
+        # `time.sleep(6)` is a HOST-clock wait for GUEST work - under a loaded
+        # box the guest does about a third less of it per host second
+        # (docs/SOAK-PARALLEL.md 1), so the fixed wait was right alone and
+        # short beside anything else. The segment appearing IS the event.
+        seg = 0
+        for _ in range(40):
+            seg = int.from_bytes(
+                m.read(S("drv_tab") + RD_ROW * DRVR_SZ + DRVR_SEG, 2),
+                "little")
+            if seg:
+                break
+            time.sleep(0.5)
         os88marty.settle(m)
-        seg = int.from_bytes(
-            m.read(S("drv_tab") + RD_ROW * DRVR_SZ + DRVR_SEG, 2), "little")
         mo.click(cx + 8, cy + 9)                    # close the panel (31.8)
         os88marty.settle(m)
         if not seg:
@@ -153,7 +164,20 @@ def main():
                 rec = m.read(S("wm_wins") + w2[-1] * dispcp.WIN_SIZE,
                              dispcp.WIN_SIZE)
                 pseg = rec[22] | (rec[23] << 8)
-                raw = m.readseg(pseg, 0, os.path.getsize("build/drvcall.bin"))
+                # ...AND THE PACKAGE FILLS THESE IN ITS OWN TIME. The window
+                # existing is not the answer arriving, so reading the segment
+                # the instant `open_named` returns is the same host-clock race
+                # one screen along: it landed on the template's dots and this
+                # row reported a driver that was answering perfectly. The
+                # bytes are the event, so poll them.
+                size = os.path.getsize("build/drvcall.bin")
+                raw = m.readseg(pseg, 0, size)
+                for _ in range(40):
+                    i = raw.find(b"Ping: ")
+                    if i >= 0 and bytes(raw[i + 6:i + 8]) != b"..":
+                        break
+                    time.sleep(0.5)
+                    raw = m.readseg(pseg, 0, size)
                 for tag, want_txt in ((b"Ping: ", b"Ping: DR"),
                                       (b"Upcase: ", b"Upcase: HELLO WORLD")):
                     i = raw.find(tag)

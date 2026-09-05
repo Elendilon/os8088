@@ -157,6 +157,10 @@ def main():
     with os88marty.launch("build/os8088-360.img", apps=IMG,
                           machine=a.machine) as m:
         os88marty.settle(m, gate=os88marty.desktop_up)
+        os88marty.no_saver(m)   # SPEC.md 79: it DRAWS, so a settle can never
+                                # return once it is up - and this row waits
+                                # minutes for a 116KB module. os88ui.boot does
+                                # this by default and a bare launch does not
         mo = os88mouse.Mouse(marty=m)
         dispcp.open_drive(m, mo, S, os88marty.settle, "B")
         wins = dispcp.win_list(m, S)
@@ -182,10 +186,20 @@ def main():
         pseg = rec[22] | (rec[23] << 8)
         say("  window     Tracker at %04X" % pseg)
 
-        # Give the load and the first rows time on a 4.77MHz guest.
-        time.sleep(20)
+        # POLL [trk_modseg], do not sleep at it. 42KB off a floppy plus
+        # 116KB of decode is GUEST work, and `time.sleep(20)` is a HOST-clock
+        # wait for it - right alone and short beside anything else, because a
+        # loaded box hands the guest about a third less work per host second
+        # (docs/SOAK-PARALLEL.md 1). The claim appearing IS the event, and
+        # tests/lzdrv.py had the identical bug one driver along.
+        modseg = 0
+        for _ in range(90):
+            modseg = int.from_bytes(
+                m.readseg(pseg, P["trk_modseg"], 2), "little")
+            if modseg:
+                break
+            time.sleep(1)
         os88marty.settle(m)
-        modseg = int.from_bytes(m.readseg(pseg, P["trk_modseg"], 2), "little")
         if not modseg:
             fails.append("[trk_modseg] is 0: Tracker opened and holds no "
                          "module - a read that was REFUSED looks exactly like "

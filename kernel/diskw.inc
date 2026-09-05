@@ -5143,6 +5143,8 @@ dwf_dskw_dfree:         call dskw_dfree_x
                     retf
 dwf_dskw_read:          call dskw_read_x
                     retf
+dwf_dskw_usize:         call dskw_usize
+                    retf
 dwf_dskw_rename:        call dskw_rename_x
                     retf
 dwf_dskw_stat:          call dskw_stat_x

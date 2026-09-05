@@ -60,7 +60,7 @@ def main():
         subprocess.check_call(["make", "COMPRESS=lz4", "all", "lzloadtest"],
                               cwd=ROOT, stdout=subprocess.DEVNULL)
     else:
-        need("lzloadtest")         # `all` builds nothing under tests/
+        need("build/lzload360.img")    # `all` builds nothing under tests/
     S = (lambda n: os88sym.linear(n, ("LZ_HAVE_LZ4",))) if a.lz4only \
         else os88sym.linear
 

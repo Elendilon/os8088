@@ -32056,10 +32056,36 @@ compare (which is one instruction *fewer* than what it replaced).
 
 Everything else in this system decodes. The loader expands a package, the file
 read expands a file, the boot sector expands a kernel. This module is the other
-direction, and it exists for exactly one caller: the file manager's Compress
-verb (§22.6). It is `COMPRESS.DRV`, an on-demand kernel module (§2.8), and a
+direction. It is `COMPRESS.DRV`, an on-demand kernel module (§2.8), and a
 machine that never uses the verb carries **none** of it — no `.text`, no
 `.bss`, one `mod_tab` row and one file on the system disk.
+
+**IT IS THE WHOLE VERB AND NOT THE ENCODER**, and that is a correction to what
+this section first said. `cmz_verb` — the sizing, the claim, the read, the
+package refusals, the `'CZ'` container, the write and the ratio — was 722
+bytes of resident `.cold` in `files.inc`, and every one of them only ever ran
+after `mod_need` had already fetched this image. What kept them resident was
+ORDER and nothing else: the old body refused a file *before* asking for the
+module, so a refusal could be said on a machine with no system disk. `mod_need`
+goes first now, the module's five refusal strings came out here with it (89
+bytes of `.text`, which is the segment that binds), and `cmz_pack` is a near
+call inside this image rather than an entry point. What is left in `files.inc`
+is 47 bytes: `fmv_sync_x`, `mod_need`, one far call, `mod_drop`, `fmv_bcast`.
+
+**`DS` IS `KERNEL_SEG` INSIDE IT**, the caller being `.cold` (§2.6 rule 2), so
+every kernel variable it reads is a plain `[label]` and only this image's own
+scratch needs `cs:`. What it cannot do is a near `call` into the kernel, so the
+four services it wants go through the far shims the cloner already established:
+`COLD_SEG:dwf_dskw_usize` / `dwf_dskw_read` / `dwf_dskw_write` for the file
+layer, `COLD_SEG:mmf_mem_claim` / `mmf_mem_free` for the heap, and
+`KERNEL_SEG:0x0380` — `OSAPI_TOAST` — for its own verdicts, that slot taking
+`ES:SI` rather than `DS:SI` precisely so the text can live in a heap claim,
+which a module image is.
+
+**Three answers in one register pair**: `CF=0` the file changed and this image
+has already said the ratio; `CF=1` with `AX = 0` it refused and has already
+said why; `CF=1` with `AX != 0` a `FERR_*` for the caller to say off
+`fm_errtab`.
 
 **It writes LZB and only LZB.** The build's own compressor is LZ4 (§20.13.5)
 because LZ4 is what a *launch* pays for; this is the other trade, taken
@@ -35375,11 +35401,21 @@ whole body is a `ret` away. That is 30 bytes of `.cold`, and the account beside
 
 ### 22.22 `Compress` — the file manager makes a file smaller
 
-**The one verb on this machine that COMPRESSES.** `COMPRESS.DRV` (§20.15) is
-the algorithm and `fm_c_compress` is the policy: read the file whole, hand it
-to the module, write the result back over the same name. The result is a `'CZ'`
+**The one verb on this machine that COMPRESSES**, and since the size pass it
+is `COMPRESS.DRV` (§20.15) *entirely*: the module is the algorithm AND the
+policy, and `fm_c_compress` is 47 bytes that fetch it. The result is a `'CZ'`
 file (§20.14), so every reader on the machine already handles it — the verb
 adds no format and no second path.
+
+**`mod_need` RUNS FIRST, so a refusal costs an image read.** That is a
+deliberate trade and it is what let the policy move out: every refusal below
+is a fact only the image knows how to state, and stating them resident meant
+722 bytes that a machine without the system disk could reach and a machine
+with it never needed. A machine that cannot fetch the image now says `No disk`
+— the same words the cloner uses when *its* image cannot be fetched, for the
+same cause (`mod_need` goes to `[dsk_bootvol]` and only there) — instead of
+the specific reason, which is the truer answer to "compress this" on a machine
+that cannot compress anything.
 
 It is the **fifth item in the File menu**, with Delete and immediately above
 `Uncompress` (§22.23), the pair sitting above the rule that separates the
@@ -35402,16 +35438,24 @@ Each is a FACT rather than a guess (§47 rule 5), and each has a verdict of its
 own on the `fm_ztab` table — the verb's, not `fm_errtab`'s, because those are
 `FERR_*` codes and the index *is* the code there.
 
-| refusal | said as |
-|---|---|
-| a folder, or the parent link | nothing — a no-op, silently, exactly as Rename and Delete |
-| 64KB or more, or a package region past `APP_MAX_SIZE` | `Too large to compress` |
-| already stored LZB, or a package with a compression bit set | `Already compressed` |
-| a package with PARTS, or whose `image` is not its file | `Cannot compress this one` |
-| no claim, at any window size | `Not enough memory` |
-| `COMPRESS.DRV` not on the system disk | `COMPRESS.DRV not found` |
-| the encoder could not beat what is on the disk | `It would not get smaller` |
-| success | `Compressed to 47%` |
+| refusal | said as | said BY |
+|---|---|---|
+| a folder, or the parent link | nothing — a no-op, silently, exactly as Rename and Delete | `fm_cmpr_sel` |
+| `COMPRESS.DRV` not on the system disk | `No disk` | the kernel — it is the one thing the image cannot say about itself |
+| 64KB or more, or a package region past `APP_MAX_SIZE` | `Too large` | the image |
+| already stored LZB, or a package with a compression bit set | `Already compressed` | the image |
+| a package with PARTS, or whose `image` is not its file | `Cannot compress this one` | the image |
+| no claim, at any window size | `Not enough memory` | the image |
+| the encoder could not beat what is on the disk | `It would not get smaller` | the image |
+| a `FERR_*` from the file layer | `fm_errtab`'s own word | the kernel, off `AX` |
+| success | `Compressed to 47%` | the image |
+
+Everything in the "the image" column is a string inside `COMPRESS.DRV`, said
+through `OSAPI_TOAST` with `ES = CS`. `fm_ztab` is **four rows** now where it
+was nine, and two of those four are aliases onto strings the kernel already
+had: `Too large` is `fm_stattab`'s `fm_s_toobig` and `Not enough memory` is
+`driver.inc`'s `drv_e4` (guarded — `kern_small` has no driver layer at all, so
+there it is the only copy rather than the second one).
 
 **A `.DRV` and `KERNEL.SYS` are refused by NOTHING here**, and that is
 structural rather than lucky: both are hidden + system, so §19's species filter
@@ -35465,7 +35509,8 @@ bigger once it is on.
 
 #### 22.22.2 One claim, and the window is the dial
 
-The operation needs the source, the output and the compressor's tables at once.
+`cmz_claim`, inside the image (§20.15), through `COLD_SEG:mmf_mem_claim`. The
+operation needs the source, the output and the compressor's tables at once.
 They are ONE claim, `MEM_K_CMPR`, sliced by paragraph arithmetic off a single
 base:
 
@@ -35517,8 +35562,11 @@ The other half of §22.22, and the asymmetry between them is the whole design:
 decoder that already is.** `kernel/lz.inc` is resident because the loader, the
 driver loader and every transparent read go through it (§20.14), so
 `fm_c_uncomp` spends no `COMPRESS.DRV`, no `mod_need`, and cannot answer
-`COMPRESS.DRV not found`. Making it a module would have *added* a system-disk
-requirement to a verb that has none.
+`No disk`. Making it a module would have *added* a system-disk requirement to
+a verb that has none — and it is why `fm_ztab` still exists at all: when
+Compress's policy moved into its image (§22.22) it took its five verdicts with
+it, and what is left resident is Uncompress's plus the one the fetch itself
+needs.
 
 It is the **sixth item in the File menu**, under `Compress`, and the seventh on
 `fm_ctx_file`. No ellipsis, for `Compress`'s reason.
@@ -35569,7 +35617,7 @@ project a bug once already.
 |---|---|
 | a folder, or the parent link | nothing — a no-op, silently, exactly as `Compress` |
 | no `'CZ'` mark and no package compression bit | `Not compressed` |
-| 64KB or more unpacked | `Too large to compress` |
+| 64KB or more unpacked | `Too large` |
 | an `image` no bigger than the file it is packed into | `Cannot expand this one` |
 | a stream `lz_decomp_x` refuses, or one that produces the wrong length | `Cannot expand this one` |
 | either claim | `Not enough memory` |

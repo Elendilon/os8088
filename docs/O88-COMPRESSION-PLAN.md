@@ -1814,6 +1814,124 @@ kernel's own map, so the two menu indices it picks by number cannot go stale —
 the same discipline `tests/diskclone.py` and `tests/modstr.py` already use for
 `FM_ICLONE` and `FM_IFMT`, both of which moved down one when the item landed.
 
+### 13.13 THE SIZE PASS — 3,553 to 2,725, and `files.inc` 1,516 to 684
+
+The feature landed at **3,553 bytes of sections / 4,096 of footprint** and the
+shipping target is about 1,024. This is the first pass, and it took the largest
+single row of the bill without cutting anything a user can see.
+
+**Where the 1,516 in `files.inc` actually was**, measured off the map by
+adjacency rather than estimated:
+
+| | `.cold` | |
+|---|---:|---|
+| `fm_cmpr_go` | 375 | Compress |
+| `fm_uncmp_go` | 284 | Uncompress |
+| `fm_cmpr_hdr` | 113 | Compress |
+| `fm_cmpr_pkg` | 88 | Compress |
+| `fm_uncmp_pkg` | 72 | Uncompress |
+| `fm_cmpr_claim` | 64 | Compress |
+| `fm_cmpr_pct` | 55 | Compress |
+| `fm_uncmp_free` | 38 | Uncompress |
+| `fm_cmpr_sel` / `ferr` / `say` / the two entries | 79 | shared |
+| `fm_uncmp_read` / `claim` | 51 | Uncompress |
+| `fm_cmpr_drop` | 27 | Compress |
+
+plus **251 of `.text`, of which 217 was PROSE** — nine verdict strings and a
+ten-word table — and 16 of `.bss`. **Compress 722, Uncompress 445, shared 79.**
+
+#### 13.13.1 The move, and what made it possible
+
+**Every one of Compress's 722 bytes only ever ran after `mod_need` had already
+fetched `COMPRESS.DRV`.** What kept them resident was ORDER and nothing else:
+the body sized, claimed, read and refused a package *before* asking for the
+module, so a refusal could be said on a machine with no system disk in it.
+`mod_need` goes first now (§20.15), and the trade is stated rather than
+hidden: such a machine says `No disk` instead of the specific reason, which is
+the truer answer to "compress this" on a machine that cannot compress anything,
+and a refusal costs one image read on a machine that can.
+
+The mechanism was already in the tree and needed nothing invented. A module is
+entered with **`DS = KERNEL_SEG`** (the caller is `.cold`), so `fm_onam`,
+`fm_ftype` and the `fm_cmpr*` words are plain `[label]` reads and only the
+image's own scratch needs `cs:`; the cloner had already established
+`COLD_SEG:dwf_*` and `COLD_SEG:mmf_*` far shims for the file layer and the
+heap, and only `dskw_usize` wanted a new one (4 bytes). The verdicts moved out
+with the body because **`OSAPI_TOAST` takes `ES:SI` and not `DS:SI`** — a
+detail written for packages putting text in a heap claim, and a module image is
+one.
+
+`COMPRESS.DRV` went 712 → 1,613 bytes on the system disk, which is not RAM.
+
+#### 13.13.2 Four aliases, and two of them read better than what they replaced
+
+* `fm_s_znomem` **=** `driver.inc`'s `drv_e4`, the same nineteen bytes of
+  `'Not enough memory'` — guarded, because that whole block is inside
+  `%ifdef OS88_DRIVERS` and `kern_small` has no driver layer, so there it is
+  the only copy rather than the second one;
+* `FMZ_BIG` **=** `fm_stattab`'s `fm_s_toobig`, `'Too large'`. The wording had
+  to lose the word *compress* anyway, Uncompress being the verb that does not;
+* `FMZ_NOMOD` **=** `fm_s_enodisk`, `'No disk'` — **the same words the cloner
+  already uses when ITS image cannot be fetched**, for the same cause, and it
+  cost 23 bytes to tell the user the name of a file they cannot act on;
+* and `fm_cmprz` / `fm_cmprw` went into the image as `cs:` scratch, being the
+  two words of the eight that Uncompress does not read.
+
+#### 13.13.3 What is left, and what the arithmetic says about the target
+
+`files.inc` is **684**: `fm_uncmp_go` 284, `fm_uncmp_pkg` 72, `fm_uncmp_free`
+38, `fm_uncmp_read` 30, `fm_uncmp_claim` 21, the shared front and the thunk 86,
+and 99 of `.text` (four verdict strings, a seven-word table and two menu
+labels). **It is Uncompress now, plus the plumbing both verbs share.**
+
+The whole feature is **2,725 / 3,072**:
+
+| | bytes |
+|---|---:|
+| `lz.inc` — both decoders | 916 (650 `.cold`, 266 `.bss`) |
+| `files.inc` — the two verbs | 684 |
+| `diskw.inc` — the transparent read, `dskw_usize`, `czstamp` | 597 |
+| `driver.inc` — a `.DRV` expands at load | 219 |
+| `loader.inc` — `ld_expand` | 187 |
+| `kernel.asm` / `mod.inc` / `disk.inc` | 122 |
+
+#### 13.13.4 Three rows that were waiting on the wrong clock
+
+The pass ran into elendilon's new `wants=` mechanism and found two bugs of its
+own under it. `lzdrv`, `lzload`, `lzfence` and `lzfile` called
+`os88fixture.need()` with a **phony target name** where every other row in the
+tree passes a PATH — the runner compares the argument against what the row
+declared, so all four died before their first instruction. Paths, declared in
+`wants=`, and the four dropped `builds=True` with them: they no longer build
+anything, which is the whole point of the mechanism.
+
+That made `lzdrv` fail *differently*, and the second bug is the interesting
+one: it read DRVCALL's answer strings the instant the window existed and slept
+6 host seconds for a driver to come off a floppy. Both are HOST-clock waits for
+GUEST work, and docs/SOAK-PARALLEL.md §1 is exactly about that — a loaded box
+hands the guest about a third less work per host second, so each was right
+alone and short beside anything else. It polls `drv_tab`'s segment and the
+answer bytes now, and is **faster** for it (28.2s against 34.3s): the poll
+returns when the event happens instead of always spending the budget.
+
+`lzmod` had the same 20-second sleep and polling it exposed a third thing —
+the row never called `os88marty.no_saver`, so a long wait ends in SPEC.md §79's
+saver drawing and `settle` refusing for ever. That is fixed too, and it is not
+what ails the row: **`lzmod` FAILS, and it fails identically before this size
+pass** — `[trk_modseg]` is 0 after ninety seconds with the saver off, so
+Tracker opens and never gets the module. Ruled out so far: the package's
+symbol map (the re-assembly is byte-identical to `build/tracker.bin`), the
+in-place layout (`R + P` = 116,149 against a 114KB claim, which fits), memory
+(a 640KB machine has ~527KB of heap), and this pass (the failure predates it).
+It is the one open item in the feature.
+
+#### 13.13.5 What the target now needs
+
+**Zeroing `files.inc` entirely would still leave 2,041**, so the remaining
+1,700 has to come out of the four consumers below it — which is a decision
+about which of them stay resident, not a shaving exercise. `lz_wbuf` alone is
+256 bytes of `.bss` serving one case (`.cznoroom`, §20.14.2.4).
+
 ## 14. Decisions still open before wave 1
 
 Everything in §12 is costed. These are the things a build would have to

@@ -110,7 +110,7 @@ def main():
     ap.add_argument("--adapter", default="cga", choices=sorted(MACHINE))
     a = ap.parse_args()
 
-    need("lzfiletest")             # `all` builds nothing under tests/
+    need("build/lzfile360.img")    # `all` builds nothing under tests/
     img = os.path.getsize("build/lzfile.bin")
     fails = []
     with os88marty.launch("build/os8088-360.img",

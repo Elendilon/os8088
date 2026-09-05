@@ -74,7 +74,17 @@ CMZ_XPROG   equ 0x03C8          ; OSAPI_FS_PROG. The cloner's idiom (SPEC.md
                                 ; with the SOURCE in DS and needs neither a
                                 ; cw_ shim nor a callback in its own ABI
 
-CMZ_NENT    equ 1               ; one entry, like the cloner's
+CMZ_XTOAST  equ 0x0380          ; OSAPI_TOAST, and it is what lets this
+                                ; image carry its own VERDICT STRINGS: the
+                                ; slot takes ES:SI rather than DS:SI (the text
+                                ; is often in a heap claim, and a module image
+                                ; IS one), so five refusals that used to be
+                                ; 89 bytes of kernel `.text` are 89 bytes of
+                                ; this file instead
+
+CMZ_NENT    equ 1               ; one entry, still - it is the whole VERB now
+                                ; rather than the encoder, and cmz_pack became
+                                ; a near call inside this image
 CMZFP       equ mod_fp + MOD_CMPR * MODFP_STRIDE
 
 section .modz                   ; the on-demand image (SPEC.md 2.8)
@@ -86,10 +96,10 @@ modz_hdr:
     dw MOD_STAMP                ; MOD_H_STAMP
     dw modz_end                 ; MOD_H_IMG
     dw CMZ_NENT                 ; MOD_H_NENT
-    dw modz_e_pack
+    dw modz_e_verb
     times MOD_NENT - CMZ_NENT dw 0
 
-modz_e_pack:    call cmz_pack
+modz_e_verb:    call cmz_verb
             retf                ; CF is the answer and `retf` does not touch it
 
 ; -----------------------------------------------------------------------------
@@ -529,6 +539,503 @@ cmz_gamma:
     pop ax
     ret
 
+
+; =============================================================================
+; THE VERB ITSELF (SPEC.md 22.22), and it lives HERE and not in files.inc
+; =============================================================================
+; It used to be 722 bytes of resident `.cold`, and every one of them only ever
+; ran after `mod_need` had already fetched this image - so what was resident
+; was policy nothing could reach without the system disk anyway. The only
+; thing that kept it out here was ORDER: the old body sized, claimed, read and
+; refused a package BEFORE calling mod_need, so a refusal could be said on a
+; machine with no system disk in it. `mod_need` goes first now, and the trade
+; is stated rather than hidden: a machine that cannot fetch this image says
+; `COMPRESS.DRV not found` instead of the specific reason, which is the truer
+; answer to "compress this" on such a machine, and a refusal costs one extra
+; 1.4KB read on a machine that CAN.
+;
+; **DS IS KERNEL_SEG ON ENTRY** (SPEC.md 2.6 rule 2: the caller is `.cold`),
+; so every kernel variable this needs - fm_onam, fm_ftype, the fm_cmpr* words -
+; is reached with a plain `[label]` and only this image's OWN scratch needs
+; `cs:`. What it CANNOT do is a near `call` into the kernel, so the four
+; services it wants go through the far shims the cloner already established:
+; COLD_SEG:dwf_* for the file layer, COLD_SEG:mmf_* for the heap.
+;
+; THE THREE ANSWERS, and they are one register pair:
+;
+;   CF=0            the file changed. This image has already said the ratio
+;   CF=1, AX = 0    it refused, and has already said why in its own words
+;   CF=1, AX != 0   a FERR_*, which the caller says off fm_errtab
+; -----------------------------------------------------------------------------
+cmz_verb:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+
+    mov si, fm_onam
+    call COLD_SEG:dwf_dskw_usize    ; DX:AX = U, BX = on-disk, CL = the format
+    jc .ferr
+    mov [fm_cmpru], ax
+    mov [fm_cmprp], bx
+    mov word [fm_cmprx], 0      ; no clear prefix - a package sets its own
+    or dx, dx
+    jnz .big                    ; U past 64KB (SPEC.md 20.15.1)
+    cmp ax, CMZ_SLACK + 1
+    jb .worse                   ; nothing this short can shrink, and cmz_pack
+                                ; refuses it in the same words
+    cmp cl, LZ_LZB
+    je .already
+
+    call cmz_claim              ; DX = the base, [fm_cmprk]/[cs:cmz_w] set
+    jc .nomem
+    mov [fm_cmprb], dx
+
+    ; --- read the file whole, expanding it if it arrives compressed --------
+    ; THE CAPACITY IS THE SOURCE PLUS THE OUTPUT REGION, not the source alone:
+    ; a 'CZ' file expands in place (SPEC.md 20.14.2.2) and wants U + margin of
+    ; room to do it in. Both regions are ours and the output is built after, so
+    ; lending the read the second one costs nothing and takes .cznoroom off the
+    ; table entirely - which is the same trap Note Pad hit at 20.14.2.3.
+    mov es, dx
+    xor bx, bx
+    mov ax, [fm_cmprk]
+    add ax, ax
+    inc ax                      ; (2*KU + 1) KB, as a 32-bit byte count
+    mov dx, ax
+    mov cl, 10
+    shl ax, cl
+    mov cl, 6
+    shr dx, cl
+    mov cx, ax
+    mov si, fm_onam
+    call COLD_SEG:dwf_dskw_read ; DX:AX = what arrived
+    jc .rferr
+    or dx, dx
+    jnz .rdisk
+    cmp ax, [fm_cmpru]
+    jne .rdisk                  ; the entry said one thing and the read another
+
+    ; --- a PACKAGE keeps a clear prefix (SPEC.md 22.22.1) ------------------
+    cmp word [fm_ftype], 1
+    jne .notpkg
+    mov es, [fm_cmprb]
+    call cmz_pkg                ; CF=1 with AX = the string; else [fm_cmprx]
+    jc .rsay
+.notpkg:
+
+    ; --- the three segments the encoder works between ----------------------
+    mov cx, [fm_cmpru]          ; SPEC.md 12.8's bar, scaled to what is
+    sub cx, [fm_cmprx]          ; actually parsed: cmz_pack reports every
+    xor dx, dx                  ; CMZ_PSTEP of it, which is the only progress
+    call KERNEL_SEG:fpg_begin   ; the pack itself can give
+
+    mov ax, [fm_cmprk]
+    mov cl, 6
+    shl ax, cl                  ; KU KB in paragraphs
+    mov dx, [fm_cmprb]
+    add dx, ax                  ; the output region's base...
+    mov [fm_cmpro], dx
+    add dx, 8                   ; ...and the STREAM starts 128 BYTES INTO IT,
+                                ; which is what leaves room for either header
+                                ; in front of it without a move: 8 bytes for a
+                                ; 'CZ' container, up to 112 for a package's
+                                ; clear prefix, and both are a multiple of 16
+    add ax, ax
+    add ax, 64
+    add ax, [fm_cmprb]          ; base + (2*KU + 1)*64: head[] and prev[]
+    mov bx, ax
+    mov ax, [fm_cmprx]
+    mov cl, 4
+    shr ax, cl                  ; the clear prefix in paragraphs - 0 for
+    add ax, [fm_cmprb]          ; everything but a package, so the source
+    mov di, [cs:cmz_w]          ; segment is the claim's base
+    dec di                      ; the window's MASK
+    mov cx, [fm_cmpru]
+    sub cx, [fm_cmprx]
+    call cmz_pack               ; NEAR now: AX = the packed length, DX = its
+    jc .rworse                  ; margin, and the encoder is this same image
+
+    cmp word [fm_cmprx], 0
+    jne .pkghdr
+
+    ; --- the 'CZ' container, built in the 128 bytes in front of the stream --
+    add ax, DSK_CZ_HDR
+    cmp ax, [fm_cmprp]
+    jae .rworse                 ; THE HEADER COUNTS: a file that packs to one
+                                ; byte under what it occupies is bigger once
+                                ; the container is on it, and cmz_pack was
+                                ; comparing against U rather than against what
+                                ; is on the disk
+    mov [cs:cmz_z], ax
+    mov dx, [fm_cmpro]
+    add dx, 7                   ; the last paragraph before the stream, so the
+    mov es, dx                  ; eight bytes end exactly where it begins
+    mov word [es:8], DSK_CZ_MAG
+    mov byte [es:10], LZ_LZB
+    mov byte [es:11], 0
+    mov dx, [fm_cmpru]
+    mov [es:12], dx
+    mov word [es:14], 0         ; U is 16 bits, by the refusal above
+    mov bx, 8
+    jmp short .writeit
+.pkghdr:
+    call cmz_hdr                ; ES:BX = the whole file, AX = its length
+    jc .rworse
+.writeit:
+    mov cx, ax
+    xor dx, dx
+    mov si, fm_onam
+    call COLD_SEG:dwf_dskw_write    ; ...and dskw_czstamp derives the directory
+    jc .rferr                       ; hint from the bytes (SPEC.md 20.14.4) -
+                                    ; or CLEARS it, which is what a package
+                                    ; needs: a `.o88` begins 'O8' and carries
+                                    ; its own
+    call cmz_drop
+    call cmz_pct                ; 'Compressed to 47%'
+    clc
+    jmp short .out
+
+.rdisk:
+    mov ax, FERR_IO             ; the volume moved under us between the
+.rferr:                         ; directory read and the data read
+    push ax                     ; the claim is still held
+    call cmz_drop
+    pop ax
+.ferr:
+    stc                         ; AX = FERR_*, and the caller says it: this
+    jmp short .out              ; image has no fm_errtab of its own and does
+                                ; not want one
+.rworse:
+    call cmz_drop
+.worse:
+    mov ax, cmz_s_worse
+    jmp short .say
+.rsay:                          ; cmz_pkg's refusal: the claim is held
+    push ax
+    call cmz_drop
+    pop ax
+    jmp short .say
+.nomem:
+    mov ax, cmz_s_nomem
+    jmp short .say
+.big:
+    mov ax, cmz_s_big
+    jmp short .say
+.already:
+    mov ax, cmz_s_alr
+.say:
+    call cmz_say
+    xor ax, ax                  ; ...said here, so the caller says nothing
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; cmz_say - AX -> a NUL string in THIS image, as a toast (SPEC.md 59)
+; clobbers: nothing but the flags
+;
+; ES:SI and not DS:SI, which is why the strings can live out here at all: the
+; slot takes the segment from the caller (OSAPI_CLIP_PUT's reason - the text
+; is often in a heap claim, and a module image IS one).
+; -----------------------------------------------------------------------------
+cmz_say:
+    push ax
+    push cx
+    push si
+    push es
+    push cs
+    pop es
+    mov si, ax
+    xor cx, cx                  ; TOAST_TICKS, the default life
+    call KERNEL_SEG:CMZ_XTOAST
+    pop es
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cmz_pct - 'Compressed to 47%' (SPEC.md 22.22)
+; in:  [cs:cmz_z] = the packed length, [fm_cmprp] = what the file occupied
+;
+; THE PERCENTAGE AND NOT THE TWO SIZES, because the sizes are on the listing
+; behind the toast and the ratio is what the operation was for. Neither the
+; multiply nor the divide can overflow: both halves are under 65,536 and the
+; quotient is under 100, by the `jae .rworse` that got us here - which is also
+; why two digits is the whole of the conversion.
+; -----------------------------------------------------------------------------
+cmz_pct:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov si, cmz_s_done
+    mov di, cmz_buf
+    mov cx, CMZ_SDONE
+.cp:
+    mov al, [cs:si]             ; cs: BOTH WAYS: DS is the kernel's here
+    inc si
+    mov [cs:di], al
+    inc di
+    loop .cp
+    mov ax, [cs:cmz_z]          ; the FILE, header included: both arms store
+    mov cx, 100                 ; the whole length rather than the stream's
+    mul cx                      ; DX:AX = the new size in hundredths...
+    div word [fm_cmprp]         ; ...over the old, so AX is the percentage
+    xor dx, dx
+    mov cx, 10
+    div cx                      ; AL = tens, DL = units
+    or al, al
+    jz .ones
+    add al, '0'
+    mov [cs:di], al
+    inc di
+.ones:
+    add dl, '0'
+    mov [cs:di], dl
+    mov byte [cs:di+1], '%'
+    mov byte [cs:di+2], 0
+    mov ax, cmz_buf
+    call cmz_say
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cmz_claim - ONE block for the source, the output and the tables
+; in:  [fm_cmpru] = U
+; out: CF=0 with DX = the base segment, [fm_cmprk] = the source's KB and
+;      [cs:cmz_w] = the window that fitted; CF=1 = not at any window size
+; clobbers: DX (an output) and the flags
+;
+;   base + 0                 the source,  KU KB
+;   base + KU*64             the output,  KU+1 KB - the odd KB is what the
+;                            'CZ' header goes in front of the stream in
+;   base + (2*KU + 1)*64     head[] 8KB, then prev[] at CMZ_PREV
+;
+; ONE CLAIM AND NOT THREE, because the three are one lifetime and because
+; three claims into a fragmented heap can fail where one run would not:
+; mem_claim compacts, so the run it can give is the run compaction would leave
+; (SPEC.md 50.3).
+;
+; THE WINDOW IS THE DIAL. A machine that cannot fund 40KB of tables gets a
+; shorter history and a slightly worse ratio, which is the whole difference;
+; refusing outright would make the verb absent from the machine most likely to
+; want it (SPEC.md 20.15.1).
+; -----------------------------------------------------------------------------
+cmz_claim:
+    push ax
+    push bx
+    push cx
+    mov ax, [fm_cmpru]          ; the source's KB, ROUNDED UP - and NOT through
+    mov cl, 10                  ; mem_bytes_kb_x, whose own banner says a new
+    shr ax, cl                  ; caller must prove its input cannot wrap: this
+    inc ax                      ; one cannot, `add ax, 1023` carries for every
+    mov [fm_cmprk], ax          ; U from 64,513 up and answers ZERO KB. A shift
+                                ; and an increment is a KB more than needed
+                                ; when U is an exact multiple of 1,024, which
+                                ; the output region is glad of anyway
+    mov word [cs:cmz_w], CMZ_WMAX
+.try:
+    mov ax, [cs:cmz_w]
+    mov cl, 9
+    shr ax, cl                  ; prev[] is 2 bytes a position: window/512 KB
+    add ax, CMZ_PREV / 1024     ; ...plus head[]'s 8
+    add ax, [fm_cmprk]
+    add ax, [fm_cmprk]
+    inc ax
+    mov bx, MEM_K_CMPR
+    call COLD_SEG:mmf_mem_claim
+    jnc .out
+    shr word [cs:cmz_w], 1
+    cmp word [cs:cmz_w], CMZ_WMIN
+    jae .try
+    stc
+.out:
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; cmz_drop - give the block back, and end the bar (module internal)
+; clobbers: FLAGS ONLY
+;
+; fpg_end as well, because three of the failure paths leave through here with
+; SPEC.md 12.8's bar still scaled to a compress that is not happening. On the
+; success path dskw_write_x has already ended it and a second one is a store
+; of a zero over a zero.
+cmz_drop:
+    push ax
+    push bx
+    push dx
+    mov bx, MEM_K_CMPR
+    mov dx, [fm_cmprb]
+    call COLD_SEG:mmf_mem_free
+    call KERNEL_SEG:fpg_end
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cmz_pkg - may this `.o88` be compressed, and what must stay clear?
+; in:  ES = the source segment, the whole file at ES:0; [fm_cmpru] = its size
+; out: CF=0 and [fm_cmprx] = the clear prefix; CF=1 with AX = its refusal string
+; clobbers: AX (the output), flags
+;
+; os88pkg.py's `compress_pkg` refusals, on the machine, and they are the same
+; refusals for the same reasons - a package this verb writes has to be one
+; ld_check_hdr and ld_run_body already accept, and both of those shipped in
+; wave 2 (SPEC.md 20.13). Nothing new is being defined here.
+; -----------------------------------------------------------------------------
+cmz_pkg:
+    push bx
+    push dx
+    mov al, [es:LD_H_FLAGS]
+    test al, 4
+    jnz .no1                    ; PARTS (SPEC.md 20.12): a part's offset is
+                                ; measured from the start of the FILE and the
+                                ; table lives INSIDE the image, so compressing
+                                ; the image and laying out its parts are
+                                ; circular. os88pkg.py refuses it too, in the
+                                ; same words
+    test al, 0x18
+    jnz .already                ; a compression bit is already set
+    mov dx, [es:LD_H_IMG]
+    cmp dx, [fm_cmpru]
+    jne .no1                    ; `image` is not the file: something this verb
+                                ; does not understand, and 20.13.2's guard
+                                ; would refuse whatever it wrote
+    mov bx, dx
+    add bx, [es:LD_H_BSS]
+    jc .big
+    cmp bx, APP_MAX_SIZE
+    ja .big                     ; ...so cmz_hdr's two roundups cannot carry
+    mov dx, LD_HDR_SIZE         ; the CLEAR prefix, ld_cpre's own ladder: what
+    test al, 1                  ; the mount reads out of the first sector and
+    jz .noico                   ; must never have to decompress to get
+    add dx, 64                  ; (SPEC.md 20.13.1). At most 112, and always a
+.noico:                         ; multiple of 16 - which is what lets the
+    test al, 2                  ; source be a SEGMENT below and the header
+    jz .noasc                   ; land on a paragraph in front of the stream
+    add dx, 16
+.noasc:
+    mov [fm_cmprx], dx
+    add dx, CMZ_SLACK
+    cmp dx, [fm_cmpru]
+    jae .no1                    ; near enough all prefix: there is no body
+    pop dx
+    pop bx
+    clc
+    ret
+.no1:
+    mov ax, cmz_s_pkg
+    jmp short .no
+.big:
+    mov ax, cmz_s_big
+    jmp short .no
+.already:
+    mov ax, cmz_s_alr
+.no:
+    pop dx
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; cmz_hdr - a package's clear prefix, in front of the stream and re-flagged
+; in:  AX = the packed body, DX = its in-place margin, [fm_cmprx] = the prefix,
+;      [fm_cmprb] = the source, [fm_cmpro] = the output region
+; out: CF=0 with ES:BX = the whole file and AX = its length; CF=1 = refuse
+; clobbers: AX BX CX DX SI DI ES, flags
+;
+; TWO REFUSALS AND A COPY, and both refusals are os88pkg.py's:
+;
+;   * the stream's in-place margin against LZ_MARGIN, which is what
+;     ld_expand reserves. cmz_pack measured it as it wrote (SPEC.md 20.15.2),
+;     so this is a compare rather than a decode;
+;   * and THE IN-PLACE LAYOUT AGAINST THE REGION THE LOADER WAS GOING TO CLAIM
+;     ANYWAY. ld_run_body reads the file at R = roundup512(image - file +
+;     LZ_MARGIN) and expands downwards, so R + file has to fit
+;     roundup512(image + bss). When it does not, the answer is to leave this
+;     package alone rather than to make every launch on the machine claim a
+;     bigger region - a package that marginal was not going to save a sector.
+; -----------------------------------------------------------------------------
+cmz_hdr:
+    cmp dx, LZ_MARGIN
+    ja .no
+    add ax, [fm_cmprx]          ; packed = the clear prefix + the stream
+    cmp ax, [fm_cmpru]
+    jae .no                     ; not smaller than the image it replaces
+    mov [cs:cmz_z], ax          ; ...and for a package the FILE is what the
+                                ; percentage is about, prefix included
+    mov bx, [fm_cmpru]
+    sub bx, ax
+    add bx, LZ_MARGIN + 511
+    and bx, 0FE00h
+    add bx, ax                  ; R + file
+    jc .no
+    mov es, [fm_cmprb]
+    mov cx, [es:LD_H_IMG]
+    add cx, [es:LD_H_BSS]       ; cmz_pkg proved this is under
+    add cx, 511                 ; APP_MAX_SIZE, so neither add can carry
+    and cx, 0FE00h
+    cmp bx, cx
+    ja .no
+
+    mov ax, [fm_cmprx]
+    mov cl, 4
+    shr ax, cl                  ; the prefix in paragraphs, and it IS one
+    mov bx, [fm_cmpro]
+    add bx, 8
+    sub bx, ax                  ; ...so it ENDS where the stream begins
+    mov cx, [fm_cmprx]
+    mov ax, [fm_cmprb]
+    mov es, bx
+    xor si, si
+    xor di, di
+    push ds                     ; DS is KERNEL_SEG everywhere else in this
+    mov ds, ax                  ; file (SPEC.md 2.6), so the source segment is
+    cld                         ; borrowed for the length of the copy and put
+    rep movsb                   ; straight back
+    pop ds
+    or byte [es:LD_H_FLAGS], 0x18   ; bit 3 = compressed, bit 4 = LZB
+    xor bx, bx                  ; ES:BX = the whole file...
+    mov ax, [cs:cmz_z]          ; ...and AX its length
+    clc
+    ret
+.no:
+    stc
+    ret
+
+
+; --- this image's own verdicts (SPEC.md 22.22.1) -----------------------------
+; They were kernel `.text` until the verb moved out here, and `.text` is the
+; segment that binds (KERN_CODE_MAX). Not one of them can be said by a machine
+; that has not already loaded this file, so this is where they belong.
+cmz_s_pkg:   db 'Cannot compress this one', 0
+cmz_s_big:   db 'Too large', 0
+cmz_s_alr:   db 'Already compressed', 0
+cmz_s_nomem: db 'Not enough memory', 0
+cmz_s_worse: db 'It would not get smaller', 0
+cmz_s_done:  db 'Compressed to '   ; ...and the success, which is a NUMBER and
+CMZ_SDONE    equ $ - cmz_s_done    ; so is composed rather than picked
+
 ; --- the module's own scratch ------------------------------------------------
 ; A module image is loaded into a heap claim, so it is WRITABLE - which is what
 ; lets these live here and be reached `cs:`, with DS and ES both spent on the
@@ -548,5 +1055,10 @@ cmz_nextp:  dw 0                ; the SI the next progress report is owed at
 cmz_tofs:   dw 0                ; where the tag byte being filled lives
 cmz_tag:    db 0                ; ...its value so far
 cmz_tbit:   db 0                ; ...and the bits still free in it
+cmz_z:      dw 0                ; the verb's: what cmz_pack made of the file...
+cmz_w:      dw 0                ; ...and the window the claim could fund. Both
+                                ; were kernel `.bss` while the verb was, and
+                                ; nothing outside this image reads either
+cmz_buf:    times 20 db 0       ; 'Compressed to NN%' - TOAST_MAX is 24
 
 section .text
