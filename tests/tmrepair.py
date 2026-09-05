@@ -294,6 +294,16 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
         if [x for x in os88geom.windows(m) if "ello" in x.title]:
             fails.append("REPAIR: Hello did not close")
 
+    # **WHAT THE CACHE LOOKED LIKE THE INSTANT BEFORE THE UNCOVER**, which is
+    # the one reading that tells a REPAIR failure's two causes apart and the
+    # row did not have. `0 wm_su_occl` means either the cache was GONE by
+    # here - shed, dropped, withdrawn - or it was live and the call was
+    # MISSED, and those want opposite fixes. Two guest reads; it costs a
+    # failing run nothing and a passing one nothing worth measuring.
+    ww = win(m, slot)
+    bb = m.read(S("wm_su_ext") + slot * 4, 4)
+    print("BEFORE  : saveu=%s band=%r view=%d"
+          % (ww.promises if ww else None, list(bb), view(m, seg)))
     hits = watch_click(m, mo, big.x + 8, big.y + 9, "wm_su_occl", ours)
     mo.to(*dispcorner.PARK)
     tick(m)
