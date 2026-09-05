@@ -5763,6 +5763,15 @@ $(BUILD)/loom.o88: $(BUILD)/loom.bin tools/os88pkg.py tools/os88ovl.py
 		--trim $(BUILD)/loom.trim.bin
 	python3 tools/os88pkg.py $(BUILD)/loom.trim.bin -o $@
 
+# ...AND THE OVERLAY IS ASKABLE BY NAME, the way $(BUILD)/WORD.OVL is and for
+# the same reason: it falls out of the recipe above rather than having one of
+# its own, so `make $(BUILD)/LOOM.OVL` had no rule at all. Anything that names
+# a build artefact to make - a row's `Row(wants=...)`, a private tree's goal
+# list - can only name a TARGET, and weavepack names this one. An empty recipe
+# (`;`) says "building loom.o88 is what produces it" without claiming to do it
+# twice.
+$(BUILD)/LOOM.OVL: $(BUILD)/loom.o88 ;
+
 # THE REST OF THE TRANSLATION UNIT, exactly as the WEAVE block above explains
 # it: `nasm -f bin` has no notion of an external symbol, so a C package is ONE
 # compilation and one assembly (SPEC.md 73.1) - loom.c #includes its parts and
