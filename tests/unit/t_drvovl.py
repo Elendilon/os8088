@@ -1,34 +1,29 @@
 #!/usr/bin/env python3
-"""A driver-loaded OVERLAY may not be COMPRESSED (SPEC.md 20.13, 62.9.9).
-
+"""A driver-loaded OVERLAY is COMPRESSED like the rest (SPEC.md 20.13.5.1).
     python3 tests/unit/t_drvovl.py
-
 TWO `.drv` FILES ARE NOT LOADED BY THE KERNEL. `RAMPAGE.DRV` is read by
 RAMDISK.DRV and `HDDTOOL.DRV` by HDD.DRV, each with `OSAPI_FILE_READ` and its
-own header check - never through `drv_load`. That matters because the two
-compressions are different things:
-
-  * a compressed FILE is a 'CZ' wrapper and `OSAPI_FILE_READ` expands it
-    transparently (SPEC.md 20.14.3);
-  * a compressed DRIVER is a v4 container whose file is SHORTER than the
-    `image` field at +8, and the only thing that expands one is `drv_expand`,
-    inside `drv_load` (SPEC.md 20.13).
-
-So a compressed overlay arrives at its loader as its own compressed bytes, the
-loader's header check refuses it, and what the user sees is not a decode error
-- it is `Ram Disk needs the system disk`, with the driver loaded, its Control
-Panel cells published, and every control on the page inert. That shipped: the
-compression pass gave `$(BUILD)/rampage.drv` the `$(OS88DRV)` recipe, which
-carries `$(PKGZARG)`, where `hddtool.drv` had always spelled the tool out
-without it. `tests/rdup.py` reported it as three UI failures and the reason
-took a screenshot to see.
-
-The saving was 646 bytes of a 360KB disk. What it cost was the RAM disk.
-
+own header check - never through `drv_load`. For a cycle that made them the
+two files `PKGZ` must NOT touch: under the v4 BODY format a compressed driver
+was a container only `drv_expand` inside `drv_load` could open, so a packed
+overlay arrived at its loader as its own compressed bytes, the header check
+refused it, and what the user saw was `Ram Disk needs the system disk` - the
+driver loaded, its Control Panel cells published, and every control on the
+page inert. That shipped, and it cost the RAM disk to save 646 bytes.
+Since SPEC.md 20.13.3.1 a compressed driver IS a 'CZ' file and
+`OSAPI_FILE_READ` is the transparent read (20.14.3): each overlay's loader
+takes a claim the Makefile cuts from the IMAGE (`-DRAMPAGE_KB` and
+`-DHDTOOL_KB`, off the `.bin`), reads at offset 0 with that capacity, and
+what lands is the image, expanded - so both overlays ship packed by the same
+rule as every other driver, and `tests/rdup.py` and `tests/hddcp.py` drive
+the pages off them.
 **THIS GATE IS THE RULE, not the two names.** It reads the drivers' own source
-for the file names they load and checks each one on every shipped image, so a
-third overlay is covered the day it is written rather than the day somebody
-notices its page is dead.
+for the file names they load and checks each one against the build: whenever
+any OTHER shipped driver is a 'CZ' file, an overlay is one too. A plain
+overlay beside packed drivers is a Makefile rule that fell back - the exact
+shape of the cycle above, seen from the other side - and `make PKGZ=`, which
+packs nothing, asserts nothing here. A third overlay is covered the day it is
+written rather than the day somebody notices its page is dead.
 """
 import os
 import re
@@ -68,6 +63,16 @@ def main():
           "an empty read means the `db 'X.DRV', 0` idiom has changed and this "
           "gate would pass by testing nothing - the failure dispcp.py and "
           "mkclick.py were both in (docs/WRITING-TESTS.md 1)")
+    build = os.path.dirname(os88build.at("build/kernel.bin"))
+    if not os.path.isabs(build):
+        build = os.path.join(ROOT, build)
+    ovl = {n.split(".")[0].lower() + ".drv" for n in found}
+    others = 0
+    for f in os.listdir(build):
+        if f.endswith(".drv") and f not in ovl:
+            with open(os.path.join(build, f), "rb") as fh:
+                if fh.read(2) == b"CZ":
+                    others += 1
     for name in sorted(found):
         stem = name.split(".")[0].lower()
         p = os88build.at("build/%s.drv" % stem)
@@ -78,15 +83,21 @@ def main():
         with open(p, "rb") as f:        # whether it should have been
             raw = f.read()
         img = os88drv.image_unwrap(raw)
-        check(len(img) == len(raw),
-              "%s is not compressed" % name,
-              "%s loads it with OSAPI_FILE_READ, which expands a 'CZ' FILE "
-              "and not a v4 DRIVER container - so a compressed one is refused "
-              "by that loader's own header check and the feature is silently "
-              "dead. Build it with `python3 tools/os88drv.py` and NOT "
-              "$(OS88DRV), which carries $(PKGZARG)." % found[name],
-              got="file %d, image %d" % (len(raw), len(img)),
-              want="file == image")
+        check(len(img) >= 32 and img[:2] == b"O8",
+              "%s expands to a driver-shaped image" % name,
+              "what %s will read through OSAPI_FILE_READ is the IMAGE, and "
+              "its header check runs against these bytes" % found[name],
+              got=img[:4].hex(), want="'O8', version 4")
+        if others:
+            check(raw[:2] == b"CZ",
+                  "%s is compressed with the rest" % name,
+                  "%d other shipped drivers are 'CZ' files and this is not: "
+                  "the rule for it fell back to `python3 tools/os88drv.py` "
+                  "without $(PKGZARG). %s reads it with OSAPI_FILE_READ into "
+                  "a claim cut from the image, which expands a 'CZ' file by "
+                  "construction (SPEC.md 20.13.5.1)" % (others, found[name]),
+                  got="file %d, image %d" % (len(raw), len(img)),
+                  want="a 'CZ' container")
     return done("t_drvovl")
 
 

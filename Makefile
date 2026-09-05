@@ -3213,17 +3213,23 @@ $(BUILD)/rampage.bin: drivers/ramdisk/rampage.asm drivers/ramdisk/rdabi.inc \
 	        -I apps/ -o $@ $<
 	@echo "rampage: $(call FILESIZE,$@) bytes"
 
-# **NOT $(OS88DRV): THIS ONE IS NOT LOADED BY THE KERNEL.** RAMDISK.DRV reads
-# it itself with OSAPI_FILE_READ (drivers/ramdisk/rdpage.inc, rd_page_need),
-# and that verb expands a compressed FILE - a 'CZ' wrapper (SPEC.md 20.14) -
-# not a compressed DRIVER CONTAINER, which is drv_expand's job inside
-# drv_load. So a compressed RAMPAGE.DRV arrives as its own compressed bytes,
-# rd_page_check refuses the header, and the page draws "Ram Disk needs the
-# system disk" with every control on it inert - the driver loaded, the cells
-# published, and nothing working. HDDTOOL.DRV is the same class and the same
-# rule two hundred lines up; it has always been spelled this way.
+# $(OS88DRV) LIKE EVERY OTHER DRIVER, AND FOR A CYCLE IT COULD NOT BE. This
+# one is not loaded by the kernel: RAMDISK.DRV reads it itself with
+# OSAPI_FILE_READ (drivers/ramdisk/rdpage.inc, rd_page_need). Under the v4
+# BODY format a compressed driver was a container only drv_expand inside
+# drv_load could open, so a packed RAMPAGE.DRV arrived at rd_page_check as
+# its own compressed bytes, the header was refused, and the page drew "Ram
+# Disk needs the system disk" with every control on it inert - which cost
+# the RAM disk to save 646 bytes, and was taken back to a plain spelling.
+# Since SPEC.md 20.13.3.1 a compressed driver IS a 'CZ' file and
+# OSAPI_FILE_READ is the transparent read (20.14.3): the page arrives
+# EXPANDED into a claim the ramdisk.bin rule below cuts from the IMAGE
+# (-DRAMPAGE_KB off rampage.bin), and rd_page_check runs against the image.
+# HDDTOOL.DRV is the same class and went the same way (20.13.5.1);
+# tests/unit/t_drvovl.py is the rule for the class, read off the drivers'
+# own source, and tests/rdup.py drives the page.
 $(BUILD)/rampage.drv: $(BUILD)/rampage.bin tools/os88drv.py $(PKGZSTAMP)
-	python3 tools/os88drv.py $(BUILD)/rampage.bin -o $@
+	$(OS88DRV) $(BUILD)/rampage.bin -o $@
 
 $(BUILD)/ramdisk.bin: drivers/ramdisk/ramdisk.asm drivers/ramdisk/rdabi.inc \
                       drivers/ramdisk/rdpkg.inc \

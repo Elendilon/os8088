@@ -292,6 +292,27 @@ def _in_tree(bdir):
     return os88build.at(bdir) if not os.path.isabs(bdir) else bdir
 
 
+def kz_defines(bdir, defines=()):
+    """The defines a PACKED kernel assembled with, added to `defines` unless
+    the caller already named KZIP (SPEC.md 2.9.13.4). tools/os88kz.py writes
+    the four numbers beside the kernel it packed, as kernel.kz.json, because
+    they are properties of a file that did not exist when the kernel was
+    assembled; pass 2 of the build assembles with them, so anything that
+    re-assembles kernel.asm to compare against build/kernel-full.bin -
+    this reader, tools/os88boot.py's listing - has to say the same four or
+    it describes pass 1's placeholders and refuses a kernel that is fine.
+    """
+    kz = os.path.join(bdir, "kernel.kz.json")
+    if os.path.exists(kz) and not any(d.split("=")[0] == "KZIP"
+                                      for d in defines):
+        import json
+        n = json.load(open(kz))
+        defines = tuple(defines) + (
+            "KZIP", "KZ_SECS=%d" % n["ksecs"], "KZ_RPARA=%d" % n["rpara"],
+            "KZ_HEADSEC=%d" % n["headsecs"], "KZ_NBLK=%d" % n["nblk"])
+    return tuple(defines)
+
+
 def _load(defines=(), check=True):
     # $OS88_DEFINES is how a tool that never asked for a knob still finds the
     # right map. Every helper here takes `defines`, and the ones layered above
@@ -338,14 +359,7 @@ def _load(defines=(), check=True):
     # about a kernel that is perfectly fine. os88kz.py writes them beside the
     # kernel it packed, so they are read from there and never guessed: the
     # json IS the build, and if it is absent this kernel is not packed.
-    kz = os.path.join(bdir, "kernel.kz.json")
-    if os.path.exists(kz) and not any(d.split("=")[0] == "KZIP"
-                                      for d in defines):
-        import json
-        n = json.load(open(kz))
-        defines = tuple(defines) + (
-            "KZIP", "KZ_SECS=%d" % n["ksecs"], "KZ_RPARA=%d" % n["rpara"],
-            "KZ_HEADSEC=%d" % n["headsecs"], "KZ_NBLK=%d" % n["nblk"])
+    defines = kz_defines(bdir, defines)
     # A KNOB KERNEL IS NOT BOUND BY KERN_BUDGET (kernel.asm guard 1), and the
     # Makefile says so with -DKERN_KNOB. A tool re-assembling one for its
     # symbol map has to say the same thing or nasm refuses a kernel that

@@ -2090,7 +2090,13 @@ tree the row passes on, not the one it was first read off:
   `modstr`, `dispthm`, `lzcomp`, `diskclone`, `hibernate`, `fcpsmall` and
   `fdlgsmall`. What it turned up on the way: `tools/os88hdd.py` wrote no
   directory hint, so a packed driver on the hibernate fixture's volume read
-  as plain — it stamps one now, `os88disk.dirent`'s rule.
+  as plain — it stamps one now, `os88disk.dirent`'s rule. And `RAMPAGE.DRV`
+  came through the merge PLAIN, with a gate asserting it must stay so: the
+  soak branch had found the Ram Disk page dead under the v4 body format and
+  fixed it the only way that format allowed. Its reader is `HDDTOOL.DRV`'s
+  shape exactly (a claim cut from the image, a read at offset 0), so on this
+  tree it packs by construction, the gate is turned round, and `rdup` is
+  the row that says so.
 - The boot blob's classic ending: one dialect instead of two, ~22 bytes of
   blob, `KZ_MARGIN` gone.
 

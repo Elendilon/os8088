@@ -31771,6 +31771,16 @@ build, a stale plain `hddtool.drv` that no prerequisite of the rule had
 touched) — and `tests/hddcp.py` is the row that opens Format and Install off
 it, on MartyPC's `os8088_xt_hdd`.
 
+**`RAMPAGE.DRV` is the same class** — `RAMDISK.DRV` reads it with
+`OSAPI_FILE_READ` into a claim cut from `rampage.bin` (`RAMPAGE_KB`) — and it
+walked the whole cycle in a day: packed by the compression default, refused
+by `rd_page_check` under the v4 body format so the Ram Disk page drew `Ram
+Disk needs the system disk` with every control inert, taken back to a plain
+spelling, and packed again once a compressed driver was a `'CZ'` file.
+`tests/unit/t_drvovl.py` is the rule for the class, read off the drivers'
+own source (`db 'X.DRV', 0`) so a third overlay is covered the day it is
+written, and `tests/rdup.py` drives the page.
+
 What it bought: `HDDTOOL.DRV` is **8,304 bytes against 12,567**
 (66.1%), 9 clusters of the 360KB system disk against 13, and that
 disk stands at 273 of 354 clusters against 277.
