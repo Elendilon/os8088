@@ -413,7 +413,7 @@ SND_OPENF_RING   equ 1           ; ring mode (SPEC.md 34.5): SI = ring base,
                                  ; no clear, and no AL is read - see
                                  ; 11.99.2.1 for why.
 
-; --- decompression (docs/O88-COMPRESSION-PLAN.md 12.1) -----------------------
+; --- decompression (docs/plans/completed/O88-COMPRESSION-PLAN.md 12.1) -----------------------
 ; The two format ids, mirrored from tools/os88lz.py, which is the reference
 ; implementation both this and the kernel copy.
 OSAPI_LZ_LZ4 equ 0
@@ -2032,7 +2032,7 @@ OS88_F_PARTS  equ 4             ; the FILE is longer than the image, on purpose
 ; skip: six slices was the whole supply.
 ;
 ; tools/stkdepth.py prints your worker's deepest static chain; add the kernel's
-; interrupt floor, which docs/STACK-SLOTS-PLAN.md 7.1 puts at 64 on the worst
+; interrupt floor, which docs/plans/completed/STACK-SLOTS-PLAN.md 7.1 puts at 64 on the worst
 ; real machine measured, and pick the class above the sum with margin.
 OS88_STACK_DEFAULT equ 0        ; the largest. What you get by saying nothing
 OS88_STACK_128     equ 1        ; a worker that sleeps and wakes: a close

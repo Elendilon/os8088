@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/ftpd/ftpd.asm
 ;
-; FTPD - docs/NET-STACK-PLAN.md stage F, and the first thing in this system
+; FTPD - docs/plans/completed/NET-STACK-PLAN.md stage F, and the first thing in this system
 ; that makes the 5150 a SERVER rather than a client.
 ;
 ; Everything before it - the cable, Telnet, the browser, the card - had os8088
@@ -23,7 +23,7 @@
 ; **A WORKER MAY NOT TOUCH A FILE** (SPEC.md 20.6 rule 7): the file slots share
 ; dsk_secbuf, the FAT snapshot and sch_lock, and are UI-task context only. An
 ; FTP server is socket-to-file BY DEFINITION, so that is not a detail here, it
-; is the central design problem (docs/NET-STACK-PLAN.md 1.5.1).
+; is the central design problem (docs/plans/completed/NET-STACK-PLAN.md 1.5.1).
 ;
 ; The answer is the one Frotz proved for @save (SPEC.md 61.6) and RunCPM for
 ; its Z80 slices (SPEC.md 74.1): **THE WORKER STAGES AND THE UI TASK COMMITS.**
@@ -2712,7 +2712,7 @@ fd_c_rmd:
 ; THE DATA CONNECTION
 ;
 ; FOUR HANDLES IS THE FLOOR AND THIS IS THE THING THAT SPENDS THEM (netpkg.inc,
-; docs/NET-STACK-PLAN.md 1.2): the port-21 listener, the control connection,
+; docs/plans/completed/NET-STACK-PLAN.md 1.2): the port-21 listener, the control connection,
 ; the passive listener and the data connection itself. All four are live at
 ; once for exactly as long as it takes a client to answer a 227 - and
 ; fd_data_ready CLOSES THE PASSIVE LISTENER the moment it has accepted, both

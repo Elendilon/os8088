@@ -1384,7 +1384,7 @@ asc_use_out:
 ; ASSOC.DAT - the volume's icon and association cache (SPEC.md 54.7)
 ;
 ; The mount reads the first sector of EVERY package in a directory to harvest
-; its icon, and mechanism D of docs/DISK-PERF-PLAN.md is the measurement that
+; its icon, and mechanism D of docs/plans/DISK-PERF-PLAN.md is the measurement that
 ; makes this worth having: opening APPS/ costs 20 sectors, EIGHT of which are
 ; those reads, and it is paid again on every re-entry. Sixteen rows of 80
 ; bytes is ONE file - three sectors, read once per volume per session - in

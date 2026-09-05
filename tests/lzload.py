@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A COMPRESSED package loads, and expands to the same bytes (SPEC.md 20.13).
 
-docs/O88-COMPRESSION-PLAN.md 13 wave 2. Three assertions, and the third is the
+docs/plans/completed/O88-COMPRESSION-PLAN.md 13 wave 2. Three assertions, and the third is the
 one that needed a file to exist before it could be made at all:
 
   * a compressed package OPENS - the loader reads it high, brings the clear

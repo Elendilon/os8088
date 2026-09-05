@@ -15,10 +15,10 @@ purgeable claim that sizes itself off available heap has a floor of its own -
 the directory read-ahead is 64KB on a 640KB machine and nothing had ever
 squeezed one.
 
-It also answers docs/KERN-SMALL-CUT-PLAN.md 8.2's *"cheapest unexamined
+It also answers docs/plans/KERN-SMALL-CUT-PLAN.md 8.2's *"cheapest unexamined
 lever"*: a PINNED claim made at boot is heap the machine never gets back, no
 assembler can see it, and its cost is only real against the heap a 128KB
-machine actually has.  docs/KERN-SMALL-MODULE-SPLIT.md 9.1 found one by
+machine actually has.  docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.1 found one by
 accident - the association cache held 3,072 bytes before the user had done
 anything - and SPEC.md 54.0 has since gated it out.  This walks `mem_tab` on
 the machine itself and says whether any others are left.

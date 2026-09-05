@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""os8088 compression formats - the host-side authority (docs/O88-COMPRESSION-PLAN.md).
+"""os8088 compression formats - the host-side authority (docs/plans/completed/O88-COMPRESSION-PLAN.md).
 
 Two formats, and which one a file uses is two bits in its header:
 
@@ -530,7 +530,7 @@ def in_place_margin(data, fmt=LZ4, packed=None):
 
 # =============================================================================
 # The 'CZ' header - a compressed file that is NOT a package (SPEC.md 20.14,
-# docs/O88-COMPRESSION-PLAN.md 12.2). Eight bytes in front of the stream:
+# docs/plans/completed/O88-COMPRESSION-PLAN.md 12.2). Eight bytes in front of the stream:
 #
 #     +0  2  magic 'CZ'
 #     +2  1  format: 0 = LZ4, 1 = LZB

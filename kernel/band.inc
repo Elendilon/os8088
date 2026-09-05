@@ -51,7 +51,7 @@
 ; because a band is 1bpp on every card while the primitives get VGA's planar
 ; hardware. What it buys on all three is a bar that writes no pixel twice
 ; where the one it replaces writes the caption's own rows four times, and that
-; is visible on the target machine (docs/TEXT-PLAN.md 1.1: flicker first,
+; is visible on the target machine (docs/plans/completed/TEXT-PLAN.md 1.1: flicker first,
 ; speed second). None of that moved when the default did; the BYTES are what
 ; moved it - 1,634 of them, 1,278 out of .cold. `make`
 ; against `make BAND=1` is the A/B, and the knob is now the only thing that

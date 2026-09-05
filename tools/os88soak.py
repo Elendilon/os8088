@@ -10,7 +10,7 @@ and survivable.
 WHY THIS EXISTS.  `make test-soak` runs the soak SERIALLY - `os88test.py soak`
 defaults to `--marty-jobs 1` - so the one command in the Makefile is the slow
 one, and the parallel invocation lived in two handoff documents as a line to
-remember (`docs/HANDOFF-KERNEL-SIZE-P3.md` 3).  Anything a reader has to
+remember (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md` 3).  Anything a reader has to
 remember is something the next reader will not, which is the same sentence
 that put `alone=True` on a row instead of `-x` in a runbook.  This file is
 that line, made into the command.
@@ -22,7 +22,7 @@ belong in `os88test.py` - that runs rows, and these are about the RUN:
      skip is the box declining to answer rather than a pass.  The pass-3 soak
      reached zero skips only after somebody noticed, by hand, that four disks
      the suite never builds for itself were missing
-     (`docs/HANDOFF-KERNEL-SIZE-P4.md` 9).  `check` says so BEFORE the hours
+     (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P4.md` 9).  `check` says so BEFORE the hours
      rather than after them, and prints the command that fixes each one.
 
   2. THE WIDTH.  One instance per core is the measured ceiling and going past
@@ -44,7 +44,7 @@ belong in `os88test.py` - that runs rows, and these are about the RUN:
      not by running rows beside it.
 
 WHAT IT DOES NOT DO.  It does not decide whether a failure is real.  That is
-`docs/HANDOFF-SOAK-FINDINGS.md`'s protocol - re-run alone on HEAD, then at the
+`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md`'s protocol - re-run alone on HEAD, then at the
 base, and bisect only where those two disagree - and the first step is
 `os88test.py soak -k <row>` by hand.
 """
@@ -331,7 +331,7 @@ def _stale_emulators():
 
     A stale QEMU from an earlier row holds build/os8088.img for hours and the
     next row fails wearing a message about the wrong subject
-    (docs/HANDOFF-SOAK-FINDINGS.md B9); a MartyPC orphan is cheaper but still
+    (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B9); a MartyPC orphan is cheaper but still
     eats a core the width arithmetic below has already promised to somebody.
 
     Reported, never killed from here.  `os88marty.py reap` kills ORPHANS only
@@ -429,7 +429,7 @@ def would_skip():
 #     to answer. `check` reports these; `start` now builds them.
 #   * `build/muptest.img` is built by ANOTHER ROW OF THE SAME SUITE, so
 #     whether `fdlggrey` passes depends on the ORDER rows ran in - and with
-#     `--marty-jobs` that order is not fixed. docs/HANDOFF-SOAK-FINDINGS.md B4
+#     `--marty-jobs` that order is not fixed. docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B4
 #     records that as unfixed and says "either the artefact gets its own build
 #     step, or the dependency gets stated". This is the build step.
 #
@@ -507,13 +507,13 @@ def widths(cores, mj=None, hj=None):
     paying for.  What three costs against four is not in that series and is
     not claimed here; what it buys is measured, and is the reason for it:
     twelve rows at width 3 with two extra CPU hogs passed 12/12 and ran 1.06x
-    slower than the same rows alone (docs/SOAK-PARALLEL.md 1).
+    slower than the same rows alone (docs/plans/completed/SOAK-PARALLEL.md 1).
 
     That last core is what a `status` poll, an editor, a `git log` or a small
     side task runs on.  Leaving it is not politeness - a run sized to fill the
     box exactly is one that anything else on the box perturbs, and every
     perturbed row is an hour of somebody deciding whether the failure was
-    real.  `docs/HANDOFF-SOAK-FINDINGS.md` is largely a list of people making
+    real.  `docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` is largely a list of people making
     that decision.
     """
     return (mj if mj else max(1, cores - 1),
@@ -662,7 +662,7 @@ def start(a):
                   % os.path.relpath(d, ROOT))
             return 0
 
-    # **THE RUN GETS A TREE OF ITS OWN** (docs/SOAK-PARALLEL.md 14.2), unless
+    # **THE RUN GETS A TREE OF ITS OWN** (docs/plans/completed/SOAK-PARALLEL.md 14.2), unless
     # --shared-build says otherwise. A soak is two hours and the box is not
     # idle for them: somebody types `make`, and every row that launches after
     # it copies a half-written floppy while every row that resolves a symbol
@@ -955,7 +955,7 @@ def stop(a):
     # kills ORPHANS and only orphans - an instance whose owner is gone - so it
     # cannot reach another session's live work. That is what makes this worth
     # doing here rather than printing advice about it
-    # (docs/HANDOFF-SOAK-FINDINGS.md B9 is the same leak from the QEMU side,
+    # (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B9 is the same leak from the QEMU side,
     # where the bill landed on an unrelated row five hours later).
     time.sleep(2.0)                      # let the rows go before judging them
     try:
@@ -1028,13 +1028,13 @@ def main():
                     help="do not build the on-demand artefacts first. They "
                          "are what four rows SKIP without and what makes "
                          "`build/muptest.img` exist before the row that reads "
-                         "it rather than after (docs/HANDOFF-SOAK-FINDINGS.md "
+                         "it rather than after (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md "
                          "B4)")
     ap.add_argument("--shared-build", action="store_true",
                     dest="shared_build",
                     help="read build/ instead of a tree of the run's own - "
                          "faster to start, and a `make` while it runs breaks "
-                         "rows (docs/SOAK-PARALLEL.md 14.2)")
+                         "rows (docs/plans/completed/SOAK-PARALLEL.md 14.2)")
     ap.add_argument("--strict", action="store_true",
                     help="a missing capability is a FAILURE, not a skip")
     ap.add_argument("-v", "--verbose", action="store_true")

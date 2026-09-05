@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""docs/O88-COMPRESSION-PLAN.md 13 wave 0 - the compression formats round-trip.
+"""docs/plans/completed/O88-COMPRESSION-PLAN.md 13 wave 0 - the compression formats round-trip.
 
 `tools/os88lz.py` is the REFERENCE implementation of both formats and the
 kernel's decoders are the copy, so this row is what makes that claim mean

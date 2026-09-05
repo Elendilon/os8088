@@ -281,7 +281,7 @@ MENU_CLKC   equ 26              ; menu_clkbuf: the field is 25 cells on both
 ; in:  nothing (called from kmain after wm_init, before the first paint)
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
-; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 17). One
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/plans/LAST-DROP-BYTES.md row 17). One
 ; caller, kmain:4299. menu_force is INLINED - it is the two stores below and a
 ; `ret`, one of which menu_init was already making itself, so a cw_ shim would
 ; have cost `.text` more than the call saved.

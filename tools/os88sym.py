@@ -358,7 +358,7 @@ def _load(defines=(), check=True):
     # emulator row in the tree then died on its first symbol lookup, several
     # frames from the cause, and the standing advice was "run `make` after
     # committing" - which every agent forgets, and which does not help at all
-    # while a suite is running (docs/SOAK-PARALLEL.md 12: nine rows lost to a
+    # while a suite is running (docs/plans/completed/SOAK-PARALLEL.md 12: nine rows lost to a
     # 4m54s window).
     #
     # So the number is READ OUT OF THE IMAGE being checked, and a shadow

@@ -490,7 +490,7 @@ decided, done, and written down. That is the ratio to keep.
 ## 13. What the RunCPM port added
 
 `apps/runcpm` is RunCPM 6.9 (SPEC.md §74), ported across six waves by the
-skill this file belongs to; `docs/RUNCPM-PORT-PLAN.md` carries each wave's
+skill this file belongs to; `docs/plans/completed/RUNCPM-PORT-PLAN.md` carries each wave's
 measured paragraph. What it learned that CWORD had not, one line each:
 
 - **The `.OVL` cannot be loaded from `os88_main`** — there is no instance

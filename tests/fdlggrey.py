@@ -112,7 +112,7 @@ def repaint(m, mo):
 # is worse than either. fdlgup and mouseup, which want the same disk,
 # have asked for it since it was written; these two never did, and it
 # was WHICH ROW RAN FIRST that decided whether they passed
-# (docs/HANDOFF-SOAK-FINDINGS.md B4).
+# (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B4).
 need("build/muptest.img")
 
 # The system image is overridable so this row can be pointed at kern_small,

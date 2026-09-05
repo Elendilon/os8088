@@ -754,7 +754,7 @@ of it:
 1. **the mouse itself is under test** — packet decoding, SPEC.md §9.5's port
    contest, the ISR's own stack (§9.10). Asking the kernel where the arrow is
    would be asking the thing under test to mark its own work;
-2. **a replay must be reproducible** (docs/SNAPSHOT-PLAN.md §7) — the absolute
+2. **a replay must be reproducible** (docs/plans/completed/SNAPSHOT-PLAN.md §7) — the absolute
    driver sends however many packets convergence needs, and how many that is
    depends on the host;
 3. **the motion has no destination** — a paint stroke, a window drag, a sweep.
@@ -1104,7 +1104,7 @@ guest's turnaround puts it. Quote the **class**, not the machine.
 | `os8088_5150_cga_lpt` | the CGA GLaBIOS 5150 with a **Centronics card at 0x378** — SPEC.md §62's machine, and the only other one here with a parallel port. MartyPC's `ParallelPort` has a readable data register, so `lp_latch` succeeds and the whole os8088 side of the link is testable: the scan, the attach, the publication, the page, and `net_connect` failing in bounded time. **IT CAN BE GIVEN A PARTNER, and this row said for two milestones that it could not** — the claim was that the status lines read a constant, and they do until something writes them: stock `lpt_port.rs` implements `status_register_write` and stores the byte the guest reads back, so the debug server's `outb` drives exactly the lines `lp_snib`/`lp_rnib` poll. `tests/lptlink/partner.py` is that far end in both roles (SPEC.md §62.10.3), and on this machine it has driven a handshake, a mount, a listing and a whole recursive **folder copy** (§62.10.6). No patch was needed; the capability was there the whole time and the row was the reason nobody looked. What is still out of reach here is the WIRE's verdict — timings, levels, a real cable — which is the 5150's question, and `tests/lptlink` is how it is asked.
 
 **Two things to know before driving it.** MartyPC headless free-runs at about **4x real time** (measured: 74.0 guest ticks a wall second against 18.2), and `net_connect` leaves the reply deadline at `REPLY_TMO` = ten GUEST seconds — so a mouse `settle` of 6 s is 24 guest seconds of nobody answering, `net_lost` fires, and every verb after it is refused by the `NS_LINKED` gate with **no wire traffic at all**. That reads as a UI that does nothing, nowhere near its cause. Click with a short settle and answer immediately. And `Partner.serve` **steps** the guest, so it leaves it paused: call `m.run()` afterwards or `os88mouse` reports the next target as one it cannot reach. GLaBIOS on purpose: nothing here is a timing question, so this is one of the machines that runs in a container with no IBM ROM |
-| `os8088_5150_both` | **two cards**: a CGA *and* a Hercules, which is docs/FIELD-MACHINES.md's machine as it actually is. SPEC.md §39.11's adapter switching exists for this, and docs/DUAL-DISPLAY-PLAN.md is the study of driving both at once |
+| `os8088_5150_both` | **two cards**: a CGA *and* a Hercules, which is docs/FIELD-MACHINES.md's machine as it actually is. SPEC.md §39.11's adapter switching exists for this, and docs/plans/completed/DUAL-DISPLAY-PLAN.md is the study of driving both at once |
 | `os8088_5150_both_gla` | its GLaBIOS twin, and the one `tests/dualcheck.py` runs by default — the IBM ROM this tree cannot ship is what the other needs |
 | `os8088_xt_vga_mda` | **two cards, and one of them is a VGA.** Every other two-card machine here is a CGA beside a Hercules, so both of its displays are 1bpp and every question the extended desktop raises about a COLOUR display is unanswerable — which is most of them, because the paths that differ by bit depth are the interesting ones. SPEC.md §5.4.3's `gfx_blitp` refuses a 1bpp adapter *and* refuses a straddle, so on the mono-only machines a window dragged across the seam takes both refusals at once and one of them changes what the app stores (§42.13.1); §39.4's colour reduction only exists on the mono side; and §11.98's adapter change is a real change of DEPTH here rather than of size. The field has had one of these for a while — 86Box's `XTDualVideoVGA` — and every report off it arrived as a screenshot nothing here could reproduce, `tests/dispblitp.py`'s bug included. The VGA is declared first, so it is MartyPC's card 0; which of them os8088 calls display 0 is the Control Panel's business (§39.19.1) and `tests/dispcp.py`'s `set_primary` drives it either way |
 | `os8088_5150_herc_gla` | a single-card Hercules on GLaBIOS: `os8088_5150_herc` without the ROM, and the control for "does this card rasterise at all" with no second card to confuse the question |
@@ -1818,7 +1818,7 @@ machine, because the IBM ROM this tree cannot ship is needed for
 discriminator there, exactly as it is on VGA.
 
 **It has snapshots, and it did not need a save format to get them** —
-docs/SNAPSHOT-PLAN.md is the full pattern, §7 and §8. The headline is that **the emulator is
+docs/plans/completed/SNAPSHOT-PLAN.md is the full pattern, §7 and §8. The headline is that **the emulator is
 bit-exact deterministic**: two independent processes reach a breakpoint at the
 same 261,943,446 cycles with the same 1 MB memory hash, and stay identical
 through injected input. So "continue from a known state" is available today by

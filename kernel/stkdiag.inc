@@ -1,9 +1,9 @@
 ; =============================================================================
 ; stkdiag.inc - what an INTERRUPT costs on a task stack, measured by the
-;               machine itself (docs/STACK-SLOTS-PLAN.md).  `make STKDIAG=1`
+;               machine itself (docs/plans/completed/STACK-SLOTS-PLAN.md).  `make STKDIAG=1`
 ;               ONLY.
 ;
-; docs/STACK-SLOTS-PLAN.md 2 priced the interrupt floor at 82 of 384 bytes and
+; docs/plans/completed/STACK-SLOTS-PLAN.md 2 priced the interrupt floor at 82 of 384 bytes and
 ; found that 50 of those are the ROM's `int 08h` handler running on whichever
 ; task stack it interrupted - measured under QEMU, by an A/B between two
 ; kernels. Two things make that number unsafe to build on:
@@ -213,7 +213,7 @@ sd_slice_base:
 ; What it reports is the WHOLE chain - our `pushf`, the far call's own return
 ; frame, the ROM's handler, and anything that nested inside it because a real
 ; BIOS `sti`s before int 1Ch. That is deliberate: it is what the A/B in
-; docs/STACK-SLOTS-PLAN.md 2 removed, so the two numbers answer the same
+; docs/plans/completed/STACK-SLOTS-PLAN.md 2 removed, so the two numbers answer the same
 ; question and can be compared.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------

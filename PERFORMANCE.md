@@ -327,7 +327,7 @@ then 21,307 B/s. Nothing was wrong with any measurement; the summary table
 simply was not edited when Part 9 moved, and every consumer of it inherited a
 figure **2.9x too pessimistic**. It reached docs/FIELD-MACHINES.md's machine
 register, `sysbench`'s own report text, `trklog.inc`, and a whole plan document
-(docs/NET-PLAN.md) that concluded a parallel cable would be *faster* than the
+(docs/plans/NET-PLAN.md) that concluded a parallel cable would be *faster* than the
 floppy partly on the strength of it.
 
 **So every row in the table above now names the Set it came from**, and that
@@ -393,7 +393,7 @@ the ACCESS SHAPE:
 | 512 bytes **delivered by a warm `FILE_READ`** | **24 ms** (5150) | measured, **Set 24**. NOT a sector transferred — §18.95's cache means some are never read |
 | a sector **inside a coalesced run**, pre-cache | 65 ms (5150), 46 ms (Compaq III) | measured, Sets 17/18 — **superseded by the row above for any estimate made today**, and kept because pre-Set-22 reasoning all over this tree is derived from it |
 | an **`int 13h` call** in such a run | **199 ms** for one sector, **384 ms** for a 9-sector track — 1 to 1.92 revolutions, near enough whatever it moves | measured, Sets 14/22 |
-| an **isolated single-sector access** — a boot sector at LBA 0, a lone directory sector | **~150–200 ms once the motor is up**, and most of a second if it is not | **MODELLED, NOT MEASURED** (docs/ASSOC-PLAN.md): ~100 ms average rotational latency + ~80 ms average seek across 40 tracks at a 6 ms step + ~15 ms settle |
+| an **isolated single-sector access** — a boot sector at LBA 0, a lone directory sector | **~150–200 ms once the motor is up**, and most of a second if it is not | **MODELLED, NOT MEASURED** (docs/plans/completed/ASSOC-PLAN.md): ~100 ms average rotational latency + ~80 ms average seek across 40 tracks at a 6 ms step + ~15 ms settle |
 
 **A fourth quantity has since split off the first**, which is why the table
 grew a row rather than having one edited: §18.95's cache made *bytes
@@ -1274,7 +1274,7 @@ list to check yourself against.
 | Tracker's text frame clock | one frame per tick: a 120 ms row drawn 110, 110, 110, **165** ms after the last, and on a module past 18.2 rows/s the display never shows some rows at all | `FSXW_FRAME` — the fsx sub-tick, 54.6 Hz, and it **yields** rather than polls, so the mixer keeps the machine (the retrace clock that came between cost 28.8% of the CPU and 13% of the audio) | §45.16, §53.5.1 |
 | Tracker's text shadow rebuild | all 64 rows in one frame — 256 `mp_cell2txt` + 3,776 `lodsb`/`stosw` + a 9,676-byte blank ≈ **140–330 ms, once every ~9 s**, reported from the field as the screen stopping and then jumping | `TTX_SHCHUNK` = 4 rows a frame, cursor starting at the visible window and wrapping. **Confirmed on the 5150**: 51 s of bracket, frame spacings 432 × 1 tick / 247 × 2 / 2 × 3 and nothing else, with all five pattern boundaries indistinguishable from the baseline. (§45.13.4 took the shadow to 82 rows — 328 calls, 21 chunk frames instead of 16 — which lengthens the *rebuild*, not the frame the field run measured) | §45.13.2 |
 | Screen saver, sea life | a swimmer was a 4bpp block through `gfx_blit4`, which on a 1bpp adapter costs **2,863 cycles a ROW** near enough whatever the row's width - 540 µs a row at 20 px and 611 at 36 - so four large swimmers were **73.4 ms of work in a 54.9 ms tick**, and the pass was **76.2 ms, 13.1 fps** | the swimmers were 1bpp art all along: the union is composed as a BAND and put down with `OSAPI_GFX_BLIT1`, a `rep movsw` a row over five or six bytes instead of eighteen. The arrival is **10.20 → 1.26 ms** and the frame **73.4 → 32.8**, so the pass is **54.93 ms on all three adapters - one tick, flat to 54.90-54.95 over 199 frames**. Same generator, same sizes, **0 differing pixels** on CGA, Hercules and VGA | §79.5.8 |
-| Paint brush stroke | width² per pixel of travel | the dab's leading edge, one `gfx_fill` per step | docs/PAINT-NOTES.md |
+| Paint brush stroke | width² per pixel of travel | the dab's leading edge, one `gfx_fill` per step | docs/plans/completed/PAINT-NOTES.md |
 | Paint undo | whole canvas | row-granular and lazy | ibid |
 | Paint's canvas, redrawn | a BMP in memory, transposed into the card's four planes on every repaint - 106.9 cycles a pixel of which nearly all is the transpose, **1,148 ms** for 466x110 | the canvas IS four planes, so a repaint is a COPY: **162 ms**, 7.1x again and **44x** on the run writer this line started from. No heap: the two formats want the identical stride | §42.13, §5.4.3 |
 | Paint's canvas on an UNCOVER, 1bpp | the raise cache banked the tool column and the bottom strip - 3 KB - and left the canvas to be redrawn: an uncover issues a **376x110** `gfx_blit4`, and the whole 466x110 canvas is **399 ms** on a cycle-accurate 5150/CGA (31.2 cycles a pixel in `sw_blit_row`, 1.4 in `gfx_blit4`, and §5.4.1.2 had already taken the 2x in the loop) | on a 1bpp adapter the WHOLE content is banked instead - measured **9 KB** against the band's 3, and granted - so an uncover issues **no canvas blit at all**. The reduction cannot be made cheaper (the canvas is 4bpp because it is the FILE, and §39.4 maps sixteen colours onto three classes), so it is not made at all | §11.96.11.3 |
@@ -1452,8 +1452,8 @@ was ruled out (tens of seconds per 448×280 frame before the dither).
 | The tracker on an 8088 | SPEC.md §45.9 – §45.12 |
 | ArtfulType's performance contract | SPEC.md §46.1 |
 | Greying a control honestly | SPEC.md §47 |
-| Paint's design notes and what it cost | [docs/PAINT-NOTES.md](docs/PAINT-NOTES.md) |
-| Per-device cycle budgets on the floor machine | [docs/SOUND-PLAN.md](docs/SOUND-PLAN.md) |
+| Paint's design notes and what it cost | [docs/plans/completed/PAINT-NOTES.md](docs/plans/completed/PAINT-NOTES.md) |
+| Per-device cycle budgets on the floor machine | [docs/history/SOUND-PLAN.md](docs/history/SOUND-PLAN.md) |
 | Memory, and why there is no growth room | [docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md) |
 | `sysbench`'s three CPU books, and the tier that picks one | Part 8.1, below |
 | The benchmarks themselves | `tests/fontbench/`, `tests/typebench/`, `tests/gfxbench/`, `tests/sysbench/` (`make bench`) |
@@ -1907,7 +1907,7 @@ an ISA status-port `in` 8.7 us.
 `tests/deskbench.py` prices eleven ordinary actions against a fixed
 four-window scene (Control Panel, a Disk window on A:, Note Pad on
 `README.TXT` stretched to the band, Paint on `MEDIA/OS8088.GIF`). It had
-never been run — `docs/LAST-DROP-PERF.md` named it as a measurement that
+never been run — `docs/plans/LAST-DROP-PERF.md` named it as a measurement that
 *"has not been taken"* — so this is the first table and the point of writing
 it down is that the next one can be compared against it.
 
@@ -1950,7 +1950,7 @@ Three things fall out of it:
 - **Moving the BOTTOM window is outline-dominated on every adapter, and on
   VGA it is three times worse.** 0.96 / 0.97 against **3.15** — the only row
   in the table where the adapters differ in kind rather than in size, and the
-  mechanism `docs/LAST-DROP-PERF.md` names for it is VGA-only by
+  mechanism `docs/plans/LAST-DROP-PERF.md` names for it is VGA-only by
   construction (three extra `gfx_xor_rect` arrivals per strip; 1bpp pays
   nothing). Moving the TOP window instead reads 0.13-0.39 everywhere, so
   what is being priced is the repaint of the three windows above rather than
@@ -1961,7 +1961,7 @@ Three things fall out of it:
 **Two caveats on the whole table.** The scene is reproducible to about nine
 lit pixels and not to the pixel — CGA reads 78,821 / 78,825 / 78,830 across
 three runs of one build, because `new_window` waits on host time
-(`docs/HANDOFF-SOAK-FINDINGS.md` B5) — so a few tenths of a percent is noise.
+(`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` B5) — so a few tenths of a percent is noise.
 And the scene is identical to itself *per adapter*, not across adapters: the
 Display page is hidden on a single-adapter machine (§39.11.1), so the Control
 Panel holds record 0 on CGA and Hercules and the Display page on VGA. Compare
@@ -4176,7 +4176,7 @@ since there the padding IS the erase. It needs a per-run array of glyph
 pointers (80 cells × 2 bytes of `.bss`) or 8x the glyph-address lookups, so it
 is a real trade rather than a free one.
 
-**docs/LAST-DROP-PERF.md carries the rejected one in full** — the patch, the
+**docs/plans/LAST-DROP-PERF.md carries the rejected one in full** — the patch, the
 figures, the price and what would have to change for the answer to flip — so
 the next session that has this idea can read it instead of building it.
 
@@ -5107,7 +5107,7 @@ the wrong one — and the second of those was invisible until it was measured.
 
 `tests/lptlink` between the **5150** (Hercules GB101's LPT at **03BC**) and
 the DOS machine (**DIO-500 at 0378**), a LapLink nibble cable between them.
-Two runs, the master role swapped between them. **docs/NET-PLAN.md step 1.**
+Two runs, the master role swapped between them. **docs/plans/NET-PLAN.md step 1.**
 
 **Neither end is os8088**, which is the point: no kernel byte is involved, so
 a result here is a fact about the cable and the protocol and cannot be
@@ -5198,7 +5198,7 @@ docs/FIELD-MACHINES.md.
 
 ### Set 40 — the network drive works, and a third of it is turnaround
 
-**docs/NET-PLAN.md step 2, on the iron**: the 5150 (GB101's LPT at **03BC**)
+**docs/plans/NET-PLAN.md step 2, on the iron**: the 5150 (GB101's LPT at **03BC**)
 against the DOS machine (DIO-500 at **0378**), NET.DRV loaded and
 `OS88NET.COM` serving a 720KB image. The Control Panel reads **Linked, 1440
 sectors** — the image's exact size — a Disk window lists `APPS`, `MEDIA` and
@@ -5360,7 +5360,7 @@ pixels, which is what proves it pre-dates the change. One `pt_org` after
 
 ### Set 42 — the chrome flash under a drag, and a bug that was not there
 
-Two of the three open items in docs/HANDOFF-REDRAW.md, on a cycle-accurate
+Two of the three open items in docs/plans/completed/HANDOFF-REDRAW.md, on a cycle-accurate
 5150/CGA. One was real and is fixed; one was a misreading of a trace and is
 retired.
 
@@ -5447,7 +5447,7 @@ neither of which fires.
 
 ### Set 43 — a blit run goes straight into the framebuffer (SPEC.md §5.4.1)
 
-docs/HANDOFF-REDRAW.md's item B, and the largest single drawing cost in the
+docs/plans/completed/HANDOFF-REDRAW.md's item B, and the largest single drawing cost in the
 system. `gfx_blit4` coalesces runs of equal pixels and emits one `gfx_hline`
 per run — which is one `gfx_fill`, which is §5.7's per-call floor of clip test,
 display hook, adapter dispatch, `vga_rect_setup` and row-base arithmetic before
@@ -5474,7 +5474,7 @@ The whole Paint raise is 5,947.8 → **2,851.5 ms** on the textured canvas, and
 against the figure this round started from — before §11.96.10 gave a raise a
 damage rect at all — **9,090.1 → 2,851.5, 3.19x**.
 
-**Flat art gets faster too, which the plan doubted.** docs/PAINT-NOTES.md's
+**Flat art gets faster too, which the plan doubted.** docs/plans/completed/PAINT-NOTES.md's
 sketch was a plane-parallel decoder that "would beat this on detailed pictures
 and lose to it on flat ones"; this is not that. It keeps the run scan, so a
 solid row is still ONE run — it just costs less. Measured on `mkbmp`'s `flat`
@@ -5488,7 +5488,7 @@ run path, µs a row = 830 + 371 x runs      (830 = the scan and the row setup)
 — reproducing all three measured densities within 3% (flat 132.1 against 132.1,
 textured 2,352 against 2,430.7, fine 8,292 against 8,364.9). **That 830 µs is
 the term the "45x" estimate forgot**, and it is what decides whether the byte
-decoder needs a hybrid; docs/HANDOFF-REDRAW.md item B2 has the working.
+decoder needs a hybrid; docs/plans/completed/HANDOFF-REDRAW.md item B2 has the working.
 
 **Merging the two routines was worth 11%** — 2,698.1 → 2,430.7 ms — and that is
 the 8088 lesson rather than a tidy-up. Written as a `gfx_blit_span` that worked
@@ -5538,7 +5538,7 @@ identifies it; `make`'s own `N/354 clusters` line confirms it in one command.
 
 ### Set 44 — the blit stops working per run (SPEC.md §5.4.1.1)
 
-docs/HANDOFF-REDRAW.md item B2, built without its hybrid. Same session, same
+docs/plans/completed/HANDOFF-REDRAW.md item B2, built without its hybrid. Same session, same
 damage rect, cycle-accurate 5150/CGA, three run densities:
 
 | Paint's canvas | runs/row | pre-§5.4.1 | span writer | **decoder** |
@@ -5619,7 +5619,7 @@ same window, one pixel over, **508.3 ms against 259.1**. The odd body is 52
 bytes per eight pixels against the even one's 37, the carry epilogue being the
 whole difference, and it takes the spread down to 15%.
 
-**The crossover moved with it, and docs/LAST-DROP-PERF.md 3 is re-costed**: the run
+**The crossover moved with it, and docs/plans/LAST-DROP-PERF.md 3 is re-costed**: the run
 path is still `830 + 371 x runs` µs a row and the decoder is now 1,948, so the
 hybrid's band is **~3 runs a row** rather than Set 44's ~10, and what it buys
 on flat art is 1.96x rather than 3.9x. Same verdict, less of it.
@@ -5653,7 +5653,7 @@ from.
 
 ### Set 46 — Paint's palette stops being drawn (SPEC.md §11.96.11)
 
-docs/HANDOFF-REDRAW.md item C, in the half that fits. **Paint has no raise
+docs/plans/completed/HANDOFF-REDRAW.md item C, in the half that fits. **Paint has no raise
 cache at all and the reason is memory** — over its whole content that is ~9 KB
 on 1bpp, ~36 KB on VGA and ~150 KB grown, on top of the ~127 KB it already
 holds — while its repaint is the most expensive in the tree.
@@ -5716,7 +5716,7 @@ next one, not a build fix.
 
 ### Set 47 — item D measured, and not built (SPEC.md §11.91.3)
 
-docs/HANDOFF-REDRAW.md item D: key §11.91's marking on each window's **redrawn
+docs/plans/completed/HANDOFF-REDRAW.md item D: key §11.91's marking on each window's **redrawn
 region** instead of its rect. **A negative result, and the measurement is the
 deliverable** — it costs one guest run and it stops the next session spending a
 budget step on it.
@@ -6213,7 +6213,7 @@ per forced repaint, so counts under about ten say nothing.
 
 ### Set 54 — snapping in Y buys nothing, and the scroll recomputes what it could add
 
-The Y question was left open by Set 53 and `docs/SNAP-PLAN.md` §6. It is
+The Y question was left open by Set 53 and `docs/plans/SNAP-PLAN.md` §6. It is
 answered: **a `WF_SNAP` in Y would gain nothing on any adapter**, and the
 investigation redirects to something that does.
 
@@ -6381,7 +6381,7 @@ sector, which is the guard working rather than this change being dear.
 `make SNAPAUDIT=1` carried a documented unexplained artifact: every window's
 callback reported a **constant 4 glyphs in bucket 7** whatever the app, which
 made any count under about ten worthless and left Piano, Arkanoid and Missile
-Command unresolved in `docs/SNAP-PLAN.md`.
+Command unresolved in `docs/plans/SNAP-PLAN.md`.
 
 **It was `wm_draw_title`.** A caption's pen is **centred in the title bar by the
 kernel** and no application can influence it, and it was being attributed to
@@ -6433,7 +6433,7 @@ measured. Reset with no filter and then LAUNCH the app.
 ### Set 58 — the Disk window and Fractal go on the grid, and one of them was not an alignment problem
 
 Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_cga` /
-`os8088_5150_herc` / `os8088_xt_vga`. Two items off docs/SNAP-PLAN.md's list,
+`os8088_5150_herc` / `os8088_xt_vga`. Two items off docs/plans/SNAP-PLAN.md's list,
 and the second is the interesting one.
 
 **The Disk window (SPEC.md §22.11.1.1/§22.11.2, seven constants + two): 0 bytes.**
@@ -6446,7 +6446,7 @@ pen and the status line's 6 → 8 (with their truncation constants 14 → 16 and
 78 → 80 and the grid icon `fm_cellx + 31` → `+ 32`.
 
 **Two things the numbers could not see, and one of them was in this tree's own
-notes.** docs/SNAP-PLAN.md said an aligned content origin makes
+notes.** docs/plans/SNAP-PLAN.md said an aligned content origin makes
 `fm_scrollpaint`'s left strip *always* 4px wide, so §22.11.1's strip pass runs on
 every scroll; that is backwards — `fm_bx1 = align_up(fm_cx)` and an aligned
 `fm_cx` already is a multiple of 8, so the strip is **empty** and §11.94.1's
@@ -6464,7 +6464,7 @@ right edge **exactly on the name's first letter** — `ARTFUL.O88`'s A against t
 app diamond. Both numbers are multiples of 8, the kernel is 0 bytes bigger, and a
 four-row scroll stayed byte-identical to a full repaint on all three adapters:
 **nothing in the verification recipe could see it.** A 5x crop could. That is now
-a rule in docs/SNAP-PLAN.md §5 — look at the pixels that moved, every item.
+a rule in docs/plans/SNAP-PLAN.md §5 — look at the pixels that moved, every item.
 
 **Fractal (SPEC.md §40.2.1): 2,557 glyph cells → 565, 4.5x — and it was not an
 alignment item.** Set 57 put it first of what was left (2,542 glyphs sampled,
@@ -6521,7 +6521,7 @@ figures. The 5150 is where they would land.
 ### Set 59 — Note Pad's panel goes on the bank quantum; Tracker is measured and left alone
 
 Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_cga` /
-`os8088_5150_herc` / `os8088_xt_vga`. Two more items off docs/SNAP-PLAN.md, and
+`os8088_5150_herc` / `os8088_xt_vga`. Two more items off docs/plans/SNAP-PLAN.md, and
 the second is a **negative result** — the more useful of the two.
 
 **Note Pad's find panel (SPEC.md §27.10.3): 0 bytes.** §27.10.2 makes opening or
@@ -6594,7 +6594,7 @@ reads precisely like a blit that moved a band of text. The reference build score
 
 ### Set 60 — Tamegram's HUD goes on the grid; Paint was already there
 
-Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_herc`. docs/SNAP-PLAN.md
+Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_herc`. docs/plans/SNAP-PLAN.md
 listed these as "one constant table each". One of them was one constant table.
 The other needed nothing at all.
 
@@ -6658,7 +6658,7 @@ as designed, and the reason to `make SNAPAUDIT=1` immediately before an audit ru
 ### Set 61 — the survey's tail, walked in one batch: one change, six reasons not to
 
 Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_herc`. The last
-entries in docs/SNAP-PLAN.md §2 — the Task Manager, Recorder, Minesweeper, the two
+entries in docs/plans/SNAP-PLAN.md §2 — the Task Manager, Recorder, Minesweeper, the two
 HDD pages, Piano, Arkanoid, Missile Command. **One change came out of them**, and
 the reasons the others did not are the useful part.
 
@@ -7323,7 +7323,7 @@ it to `gfx_hline` (§5.6.1); at 127×32 the row changes every fourth pixel and
 the byte has to be spent then anyway. Rule 5 in miniature — the optimisation's
 *shape* was right and its *reason* was not present.
 
-`docs/LINE-PERF-PLAN.md` is what this would cost to build, and what has to
+`docs/plans/completed/LINE-PERF-PLAN.md` is what this would cost to build, and what has to
 move with it.
 
 ### Set 70 — §5.6.4.1 built and measured, and one defect it found
@@ -7841,7 +7841,7 @@ path to miss:
 | **VGA, after** | 3,005.5 | 8,337.1 | **2.77×** |
 | Hercules | 3,192.3 | 11,056.0 | 3.46× |
 
-docs/TEXT-PLAN.md §4 is the argument that the unaligned case is *also*
+docs/plans/completed/TEXT-PLAN.md §4 is the argument that the unaligned case is *also*
 tractable — and that SPEC.md §6.1.4's "4 accesses per cell row, 320 per
 ten-character run" is a fact about a **cell** being read as a fact about a
 **run**, where the true figure is `n+3` per row and 104 for the same ten
@@ -8257,7 +8257,7 @@ is dragged** — the panel moved 159 → 175 for a 21-pixel drag, so `x & 7` is 
 property of where a window opens and cannot be nudged. The seed flip for an odd
 `k7` is therefore reasoned, not measured, and the caller that will first reach it
 is a *centred* pen — `wm_draw_title`'s, which lands on the exact pixel
-(docs/TEXT-PLAN.md §6.1) — if it ever greys.
+(docs/plans/completed/TEXT-PLAN.md §6.1) — if it ever greys.
 
 ### Set 83 — a Control Panel press edge, and what one control glyph costs (SPEC.md §31.1.3)
 
@@ -8515,7 +8515,7 @@ Old build against new, VGA, cropped to each window and compared byte for byte:
 
 #### There is no headline number here, and that is the honest report
 
-This batch converted the **tail** of docs/TEXT-PLAN.md's Stage 4 — forty-odd
+This batch converted the **tail** of docs/plans/completed/TEXT-PLAN.md's Stage 4 — forty-odd
 sites one and two at a time across twenty-five files. Not one of them is on a
 path anybody would put a stopwatch to: an About box is drawn once when it
 opens, a driver's Control Panel page when you click its row, a Find panel when
@@ -8759,8 +8759,8 @@ Two consequences:
   should not be quoted as the thing a design has to beat. Measure the call you
   mean. `band_hline_x` at 2,286 cycles is *under* what `gfx_hline` spends
   before it draws anything, which is the whole argument for
-  docs/GFX-REWORK-PLAN.md in one comparison.
-- **Speed is not the axis this work is on.** docs/TEXT-PLAN.md §1.1 is the
+  docs/plans/GFX-REWORK-PLAN.md in one comparison.
+- **Speed is not the axis this work is on.** docs/plans/completed/TEXT-PLAN.md §1.1 is the
   ordering: flicker first. The composed bar writes every pixel once; the
   fifteen-call bar writes the caption's rows four times, and the gap between
   the third and the fourth is visible on the target machine. A 61 ms bar that
@@ -8820,7 +8820,7 @@ of the six were fine.
 | harness | a breakpoint pair on a `cw_` shim and on the body it wraps, entry to return, and the difference between them |
 | date | 2026-08-24 |
 
-docs/GFX-REWORK-PLAN.md's Phase 2 said a cross-segment call "pays a far call
+docs/plans/GFX-REWORK-PLAN.md's Phase 2 said a cross-segment call "pays a far call
 plus a near call plus two returns" and that a direct far entry "roughly halves
 it, globally". Half of that was right and the important half was not.
 
@@ -9061,11 +9061,11 @@ assembling is not ceremony.
 **VGA ships at a loss and that is the decision, not an oversight.** 38.3 ms
 against the primitives' 30.3. A band is 1bpp on every card while the primitives
 get VGA's planar hardware, so VGA is where the trade is worst — and
-docs/TEXT-PLAN.md §1.1 is the standing ordering: *flicker first, speed second.*
+docs/plans/completed/TEXT-PLAN.md §1.1 is the standing ordering: *flicker first, speed second.*
 The fifteen-call bar writes the caption's own rows four times and the gap
 between the third and the fourth is visible on the target machine. Both halves
 of that — VGA, and eventually mono — are re-decidable if
-docs/GFX-REWORK-PLAN.md brings the per-call cost down far enough that fifteen
+docs/plans/GFX-REWORK-PLAN.md brings the per-call cost down far enough that fifteen
 calls stop flashing in practice. `NOBAND=1` is how that gets measured rather
 than argued.
 
@@ -9149,7 +9149,7 @@ override byte `[cs:…]` would have been. `KERN_SIZE +0`.
 | adapter | `os8088_5150_herc_gla`, one window raise, two Disk windows |
 | date | 2026-08-24 |
 
-docs/GFX-REWORK-PLAN.md's Phase 1: *"the layer resolves the clip region, the
+docs/plans/GFX-REWORK-PLAN.md's Phase 1: *"the layer resolves the clip region, the
 display and the pen per call when none of them changes within a `gfx_lock`
 hold."* Set 92 priced the chain; this is what was left after acting on it.
 
@@ -9204,7 +9204,7 @@ this kernel is no longer the one that can be negotiated.
 **Removed 2026-08-27 by the owner's decision, and nothing replaces it.** It
 counted crossings out of `.cold` over two gestures on an idle desktop and its
 conclusion — that segment crossings cost the system essentially nothing — was
-written as a general fact and cited as one, by docs/GFX-REWORK-PLAN.md §4 and
+written as a general fact and cited as one, by docs/plans/GFX-REWORK-PLAN.md §4 and
 by sessions since. Two gestures cannot establish that. A crossing cost is a
 property of the whole system under load, and the paths that would show it are
 the ones neither gesture went near.
@@ -9631,7 +9631,7 @@ worst case here and 1–3% of the ordinary one, against an ABI change that
 reaches every package in the tree. **The graphics layer's cost is not the
 boundary — it is what is on the other side of it**: 60–85% of every one of
 these four scenarios is in kernel drawing code, and that is where
-docs/GFX-REWORK-PLAN.md should be pointed.
+docs/plans/GFX-REWORK-PLAN.md should be pointed.
 
 #### What each one is really bound by, which is not what you would guess
 
@@ -9975,7 +9975,7 @@ what the gate reads and the screen is not.
 
 #### Why this one has a hybrid where Set 44's did not
 
-Set 44 took the row outright on 1bpp, and the costing was docs/LAST-DROP-PERF.md 3:
+Set 44 took the row outright on 1bpp, and the costing was docs/plans/LAST-DROP-PERF.md 3:
 the crossover is ~1.84 runs a row and nothing anyone waits on is below it.
 Both halves of that move here. The transpose is **four planes deep**, and the
 run it replaces is a direct framebuffer write rather than a `gfx_hline` —
@@ -10118,7 +10118,7 @@ exactly right the whole time.** `tests/blitp.py` reads them rather than the
 rendered frame, and docs/MARTYPC-DEBUG.md now carries the trap beside the
 Hercules offset it sits next to.
 
-### Set 109 — what the segment machinery COSTS, in bytes and in cycles (SPEC.md §2.6, §2.6.1, docs/GFX-REWORK-PLAN.md §4)
+### Set 109 — what the segment machinery COSTS, in bytes and in cycles (SPEC.md §2.6, §2.6.1, docs/plans/GFX-REWORK-PLAN.md §4)
 
 | | |
 |---|---|
@@ -10543,7 +10543,7 @@ change that had removed per-PIXEL work would produce the opposite column, and
 #### 113c — `kern_small` with the VGA renderer gated out (§39.27)
 
 The size half is `.text` −1,805 and four rungs. This is the speed half, which
-§2.2 of docs/MONO-RECLAIM-PLAN.md predicted and nothing had measured. Both
+§2.2 of docs/plans/MONO-RECLAIM-PLAN.md predicted and nothing had measured. Both
 sides carry §39.26, so the only difference is the gate.
 
 | row | CGA | Hercules |
@@ -10784,7 +10784,7 @@ squash into `main` (`f6e00ac`, before size pass 1) against the branch at
 one report each, same bench disk shape, `os8088_xt_vga` and
 `os8088_5150_cga_gla`. The third VGA column is the branch with the pre-pass
 VGA outline body put back (`vga_xor_rect_raw`, 304 bytes) — built and
-measured to price the trade, and NOT shipped: docs/LAST-DROP-PERF.md §4 is
+measured to price the trade, and NOT shipped: docs/plans/LAST-DROP-PERF.md §4 is
 the decision.
 
 **The target machine is better off everywhere that matters.** On CGA the
@@ -10810,7 +10810,7 @@ hand — the dock's focus mark is one rect per focus change, and the four
 package callers of slot 0x0050 (Paint's rubber band and marquee, Solitaire's
 drag outline, Cyclone's aiming box) are tick- or event-paced at one or two
 rects each. That is
-docs/LAST-DROP-PERF.md §4's accounting, taken when the strips shipped; the
+docs/plans/LAST-DROP-PERF.md §4's accounting, taken when the strips shipped; the
 review's contribution is the body's own measured price beside it, so the day a
 use for the outline arrives that is not one of these two, the answer is the
 review's commit and 304 bytes rather than a rebuild.

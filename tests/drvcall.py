@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Can a PACKAGE reach a DRIVER? (SPEC.md 20.11, docs/NET-STACK-PLAN.md stage A)
+"""Can a PACKAGE reach a DRIVER? (SPEC.md 20.11, docs/plans/completed/NET-STACK-PLAN.md stage A)
 
     make && make drvcalltest && python3 tests/drvcall.py [--adapter cga|herc]
 

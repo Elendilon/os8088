@@ -43,7 +43,7 @@ SIX ASSERTIONS, and they climb the stack.
 
 5. NOT ONE BYTE OF THE BROWSER IS ABOUT ETHERNET. The `.o88` under test is the
    one `make` builds for the shipped floppy, and the only thing it was told is
-   a URL. That is stage E's whole claim (docs/NET-STACK-PLAN.md).
+   a URL. That is stage E's whole claim (docs/plans/completed/NET-STACK-PLAN.md).
 
 The driver is asked for by a SYSTEM.CFG that `make ethertest` puts on the disk,
 so nothing here drives the Control Panel: the driver is attached and DHCP has

@@ -81,7 +81,7 @@ not a draw on this one.
 
 **Big went thirty-one steps to thirty at the parts standard's landing, and
 small thirteen to seventeen at the same bless** — two different things that
-arrived together. Big's step is SPENT: `docs/O88-MULTISEG-PLAN.md` adds
+arrived together. Big's step is SPENT: `docs/plans/completed/O88-MULTISEG-PLAN.md` adds
 `.cold` +70 and the cold rung had 55 bytes free on this tree, so the union
 crossed it, which is move 28's sentence at rung scale (see the entry below).
 Small's four steps are FOUND: `GFX_VGA` had already handed back 2,048 bytes
@@ -461,7 +461,7 @@ The constant's own comment in `kernel/kernel.asm` is the long form of every
 row below, and it is the copy to trust if the two ever disagree.
 
 **From move 15 the table is about TWO figures.** The guards split at
-docs/KERN-SPLIT-PLAN.md, so a row says which of them moved: 15 and 16 are
+docs/history/KERN-SPLIT-PLAN.md, so a row says which of them moved: 15 and 16 are
 `kern_big`'s alone, and 17 moves both by the same 2KB.
 
 | | budget | bought |
@@ -480,17 +480,17 @@ docs/KERN-SPLIT-PLAN.md, so a row says which of them moved: 15 and 16 are
 | 12 | 86,016 → **90,112** | 4KB asked for and granted **in advance**, on move 7's terms: SPEC.md §39.11's adapter switching took the spare to EXACTLY ZERO — 6 bytes left in the image rung and 155 in the cold one — and what the headroom buys immediately is §39.11.4 (blanking the card the machine has just left, so a two-monitor 5150 does not sit with a frozen desktop on the tube nobody is using) and §31.10's hiding of a Display page with nothing to choose between. Granted WITHOUT the usual "hand back what the optimisation pass saves", because the 128KB floor is to be met by a SECOND BUILD of this kernel rather than by holding one build to a figure both machines can live with. Until that exists this is still the only guard there is, so move 5's rule stands: headroom for ordinary growth, not an invitation to spend it |
 | 13 | 90,112 → **92,160** | 2KB, and move 12's story again: the spare hit EXACTLY ZERO, this time from two directions at once — SPEC.md §52's hard-disk installer arriving on the integration branch, and §11.95.1's "a window that grew reveals nothing" (193 B of `.text`, 8 of `.bss`). Granted at 2KB rather than 4, which puts the guard back within reach of ordinary growth without pre-authorising another feature's worth |
 | 14 | 92,160 → **94,208** | 2KB granted **in advance** for SPEC.md §18.94.2's finding: a file operation spends over half its disk TIME on work the progress widget never shows, because the kernel optimised for SECTORS where the media charges for REVOLUTIONS. Measured over one install, the payload streams at **5.78 sectors per `int 13h` call and every other phase runs at exactly 1.00** — `dsk_dirw_next` hands out one LBA at a time and every caller reads it with `cx = 1` into a single 512-byte buffer. What it funds: a per-volume banked BPB (a fixed disk cannot be swapped, so it revalidates once ever) and coalescing the directory walks into runs, which needs somewhere bigger than `dsk_secbuf`. The batch bracket and its sector cache still to come cost this figure **nothing** — that one is a refusable heap claim by explicit decision, so a 128KB machine can still install, just slowly |
-| 15 | **big** 94,208 → **96,256** | 2KB for the rest of SPEC.md §39's dual display (docs/DUAL-DISPLAY-PLAN.md): estimated at 1,400–1,900 bytes against a spare that had fallen to 1,024. **The first move that is one build's alone** — `kern_small` stayed at 94,208, which is the whole reason the split exists |
+| 15 | **big** 94,208 → **96,256** | 2KB for the rest of SPEC.md §39's dual display (docs/plans/completed/DUAL-DISPLAY-PLAN.md): estimated at 1,400–1,900 bytes against a spare that had fallen to 1,024. **The first move that is one build's alone** — `kern_small` stayed at 94,208, which is the whole reason the split exists |
 | 16 | **big** 96,256 → **98,304** | 2KB again, on move 15's terms, for §39.16's union and what follows it |
-| 17 | **both** big 98,304 → **100,352**, small 94,208 → **96,256** | 2KB each for **window drawing optimizations** — SPEC.md §5.8's partial restore, §11.96.6's cache restoring only what the pass painted, §11.96.8's bounded edge merge, §11.90.1's opt-out fill and §11.90.2's damage rect. One window restore went **49.22 → 23.36 ms (2.11x)**, a raise's white flash disappeared, and Paint's canvas 8,670 → 6,759 ms. **It moves BOTH guards, and that is the argument rather than a convenience**: a redraw optimisation is worth most on the slowest machine, and the machine that feels a 49 ms restore is the 4.77MHz one at the RAM floor — so this is not work `kern_small` may be kept out of, and move 15's "small should drift tighter" does not apply in this direction. What spent the PRIOR step is the same round: §11.96.9's fix (a partial draw may not re-bank — the field bug §11.96.6 introduced) crossed the rung the image had 15 bytes left of, taking the spare to ONE step against a standard of four. Granted at 2KB on move 13's terms, with the round's biggest item still to come — a raise restoring only what was **covered** (docs/HANDOFF-REDRAW.md item A), which is a `wm_raise` change and not a new mechanism. **On the integration branch it lands on top of §41.11's removal, which had just handed small two rungs of its own**, so small comes out at SEVEN steps and owes the conversation the "Where it goes" section below names — the raise was asked for and granted against a one-step figure, and that figure had moved underneath it |
-| 18 | **big** 100,352 → **102,400** | 2KB on move 13's terms — headroom, half a step — for SPEC.md §62's **network driver** (docs/NET-PLAN.md), `kern_big`'s alone. Stage 1's 175 bytes landed inside a rung the merge had already opened; what it is FOR is stage 2's file redirector |
+| 17 | **both** big 98,304 → **100,352**, small 94,208 → **96,256** | 2KB each for **window drawing optimizations** — SPEC.md §5.8's partial restore, §11.96.6's cache restoring only what the pass painted, §11.96.8's bounded edge merge, §11.90.1's opt-out fill and §11.90.2's damage rect. One window restore went **49.22 → 23.36 ms (2.11x)**, a raise's white flash disappeared, and Paint's canvas 8,670 → 6,759 ms. **It moves BOTH guards, and that is the argument rather than a convenience**: a redraw optimisation is worth most on the slowest machine, and the machine that feels a 49 ms restore is the 4.77MHz one at the RAM floor — so this is not work `kern_small` may be kept out of, and move 15's "small should drift tighter" does not apply in this direction. What spent the PRIOR step is the same round: §11.96.9's fix (a partial draw may not re-bank — the field bug §11.96.6 introduced) crossed the rung the image had 15 bytes left of, taking the spare to ONE step against a standard of four. Granted at 2KB on move 13's terms, with the round's biggest item still to come — a raise restoring only what was **covered** (docs/plans/completed/HANDOFF-REDRAW.md item A), which is a `wm_raise` change and not a new mechanism. **On the integration branch it lands on top of §41.11's removal, which had just handed small two rungs of its own**, so small comes out at SEVEN steps and owes the conversation the "Where it goes" section below names — the raise was asked for and granted against a one-step figure, and that figure had moved underneath it |
+| 18 | **big** 100,352 → **102,400** | 2KB on move 13's terms — headroom, half a step — for SPEC.md §62's **network driver** (docs/plans/NET-PLAN.md), `kern_big`'s alone. Stage 1's 175 bytes landed inside a rung the merge had already opened; what it is FOR is stage 2's file redirector |
 | 19 | **big** 102,400 → **102,912** | One step, and an **ASK rather than a grant**: SPEC.md §5.4.1.1's pair decoder landed the kernel EXACTLY on the guard, so without it the next byte anywhere failed to build. What the step buys is 512 bytes of **pair table** — a source byte is two pixels and maps to a two-bit destination pattern, so 2 × 256 entries make the blit's inner loop a read, an `xlat` and a shift. The constant's own comment carries two costed ways to hand it back |
 | 20 | **big** 102,912 → **104,960** | 2KB asked for and granted for the rest of that work, **"blit4 rendering speed"** — `gfx_blit4` is the largest single drawing cost in the system and it is under Paint's canvas, Solitaire's card backs and ArtfulType's keystroke. Measured: a Paint canvas 5,526 → 2,431 → 517 → **259 ms** and CONSTANT in the content (PERFORMANCE.md Sets 41–43). 148 of it went on §5.4.1.2's aligned bodies and 417 on §11.96.11's cache band — which is not blit work, and is charged here because this is the step that was open |
 | 21 | **small** 96,256 → **97,280** | 1KB asked for and granted, **allocated to window redraw improvements** — and this figure's FIRST move at the 1KB unit its own rule sets, `kern_big` having moved by 2KB throughout. SPEC.md §11.96.11 had landed the small build EXACTLY on the old figure, 0 spare and not one byte, so the next addition to `.text` or `.bss` anywhere would have failed to assemble there and only there. The ask was made with what the last of the old figure bought already measured (a Paint raise **680.9 → 451.0 ms**, PERFORMANCE.md Set 46). It is move 17's allocation continued rather than a new one, and what is left over is bound by move 5's rule: headroom for ordinary growth, not an invitation. **Moves 17 and 21 together are the tier named `window redraw`, and that tier is CLOSED** — 94,208 → 97,280, spent; the tier above it is not a continuation of it |
 | 22 | **small** 97,280 → **99,328** | **2KB asked for and granted, and a stated departure from this figure's own 1KB rule** — the owner's, made explicitly, recorded here rather than quietly taken, because a standing rule that can be stepped over without a note is not one. The rule is NOT withdrawn: the next move is 1KB again unless somebody says otherwise. **What it repairs first is a small build that had stopped assembling** — measured at the grant, `KERN_SIZE` 98,304, which is 1,024 OVER the old figure, and the tree had been in that state for some time without anyone seeing it because `all` never builds `kern_small`. 512 of the overshoot predates the drag-cache round and 512 arrived with it; neither was asked for. Against 99,328 the same build is 1,024 spare — two steps, the smallest honest landing place rather than a comfortable one. **What is in front of the rest** is the size-changed notification and its straddle rule (a window spanning two displays adopts the more restrictive size), which is kernel-side and lands on both guards. It is deliberately un-numbered here — it is not written yet, and a forward reference to a heading that does not exist is what `tools/checkdocs.py` catches. On move 10's terms: granted ahead of the work, and whatever that does not spend is handed back rather than kept |
 | 23 | **small** 99,328 → **102,400** | **3KB asked for and granted, allocated to performance and disk.** It repairs the same breakage move 22 did, and that repetition is the point: `make small` had stopped assembling again — `KERN_SIZE` measured at **100,864** by bisecting the guard, **1,536 over the old figure, three rungs** — and once again nobody saw it arrive, because `all` still never builds `kern_small` and nothing else does either. **Twice now this figure has been discovered broken rather than reported broken**, which is not the guard failing but the guard being the only thing watching, asked only when somebody happens to run the target. **Why 3KB and not the 1KB first asked for**: 1KB (100,352) does not clear 100,864 at all and would have failed on the next assemble, and the smallest figure that assembles is 100,864 exactly — 0 spare, handing the next byte added anywhere the same failure. 3KB lands **1,536 spare, three steps**, and keeps the whole-KB unit this figure's rule sets; move 22's 2KB landed two steps and called that the smallest honest landing place, and this is that judgement applied to an overshoot half again as large. The 1KB unit is NOT withdrawn — the next move is 1KB again unless somebody says otherwise |
 | 24 | **big** 107,008 → **108,544** | **1.5KB asked for and granted, attributed to THE FONT SYSTEM**, and `kern_big`'s alone. What lands here is SPEC.md §5.4.2's `gfx_blit1` and the proportional type it exists for (§6.3–§6.5, §19.8), merged in from `main`. **The overrun was one step and the grant is three**: the merged kernel measures **107,520** by bisecting the guard, 512 over the old figure, and 107,520 exactly would be ZERO spare — handing the next byte added anywhere the identical build failure this move repairs, which is precisely what moves 22 and 23 were each called out for. 1.5KB lands **1,024 spare, two steps**, still one under the four-step standard, so the next feature asks in the usual way rather than quietly finding room here. **`kern_small` is untouched at 103,424 and needed nothing** — it carries the slot cell and a `stc`/`ret` stub rather than the blit's body, `main`'s own **+10** bytes — and that was re-measured at the merge rather than assumed, because the paragraph above this table is the record of that build being *discovered* broken twice rather than reported broken. Note the unit: the 1KB rule in this figure's comment is `kern_small`'s, and `kern_big` moves on its own terms |
-| 25 | **big** 108,544 → **109,568** | 1KB, `kern_big`'s alone, **attributed to BUTTON INTERACTIONS** — SPEC.md §13.8's down state, §13.8.2's tracking edge and §13.9's one-shot timer, plus the conversion of every control that still acted on the PRESS. Its terms were narrower than the four-step standard on purpose: if the remaining conversion work did not fit, the work would be reconsidered rather than the figure raised again. It was honoured — every conversion in docs/UIHELPERS-PLAN.md §15.4 landed inside the 1KB |
+| 25 | **big** 108,544 → **109,568** | 1KB, `kern_big`'s alone, **attributed to BUTTON INTERACTIONS** — SPEC.md §13.8's down state, §13.8.2's tracking edge and §13.9's one-shot timer, plus the conversion of every control that still acted on the PRESS. Its terms were narrower than the four-step standard on purpose: if the remaining conversion work did not fit, the work would be reconsidered rather than the figure raised again. It was honoured — every conversion in docs/plans/completed/UIHELPERS-PLAN.md §15.4 landed inside the 1KB |
 | 26 | **both** big 109,568 → **110,592**, small 103,936 → **104,960** | 1KB each, **attributed to THE RAM DISK AND UI STANDARDIZATION**, and a MERGE rather than a feature: two branches spent against these guards independently — the RAM disk with its Control Panel page and §31.9.2's typed field on one side, §13.8's button interactions on the other — and neither crossed alone. Merged they landed EXACTLY on both, zero spare on each, which builds and boots and cannot take one more byte |
 | 27 | **both** big 110,592 → **112,128**, small 104,960 → **105,472** | **1.5KB and 512 bytes — the two figures PART here** after four moves together. Attributed to **THE MERGE FROM `main`**: the C toolchain, CWORD, RunCPM and the ten review fixes. The C toolchain is a host-side compiler and costs the kernel nothing; what lands in the kernel is RunCPM's **wake mechanism** (§74.1 — `wm_wake`, `wm_onwake`, `wm_wake_disp`, `wm_wkh_slot`, the `wm_onwk` side table, `wm_wkq`, `EVT_WAKE` and three API cells) plus `osapi_file_goto_qm` and the review fixes' own code. Small takes what the round actually cost it and no share of the headroom, landing at two steps against big's four. **The twenty-sixth's grant was spent by NETWORKING** — the browser, Telnet, `ETHER.DRV`, the socket layer and OS88NET took it to 63 bytes of image-rung slack without crossing a rung, so the footprint figure never moved and nothing in this table said so |
 | 28 | **both** big 112,128 → **114,176**, small 105,472 → **105,984** | **2KB and 512 bytes**, attributed to **WINDOW SIZE ADAPTATION STANDARDIZATION**. **A MERGE for the third move running**, which at that point is a property of how this tree works rather than a run of bad luck: feature branches are long, each is measured against the guard alone, and the guard is crossed by the union. Here it is the extended desktop's sizing work (SPEC.md §11.100 — `OSAPI_WM_PREFER`, `OSAPI_WM_MINSIZE` and `OSAPI_WM_DISPLAY`, the per-slot preference/minimum/sized-for-adapter arrays, `wm_land_fit`'s one landing sequence and `wm_disp_now`'s one answer to *which display is this window's*) meeting the themes and the zoom animation (SPEC.md §76, §11.99) coming the other way. Measured: `.text` **+1,243**, `.bss` **+104** against the baseline `elendilon` blessed, which stood at 512 spare — so **neither side crossed and the union crossed by exactly one step**. **2KB and not 512** is moves 22/23/24's rule applied: 112,640 assembles and is ZERO spare, handing the next byte added anywhere the identical failure this move repairs. It lands **three steps**, one under the standard. **`kern_small` takes 512 and the round cost it nothing net** — the extended desktop is `kern_big`'s (a 128KB machine has one display), so small carries the three API cells, the two side tables and `wm_apply_size`'s sequence against an `OSAPI_WM_DISPLAY` that is a `mov si`/`jmp osapi_video` there rather than a body, and it came out even. What the 512 repairs is **SPEC.md §76.12.3's zero**, said out loud when the theme landed (*"0 spare, 0 steps... the next byte added anywhere fails that build"*) and named there as a decision owed rather than a build fix. This is that decision, taken at the first merge that had to assemble both kernels. One step and not two, because **move 18's judgement stands**: the 128KB machine's kernel is already too big |
@@ -571,7 +571,7 @@ does not change with the tree it lands on. §59.8's note is the precedent for
 reporting both.
 
 **A WHOLE DESIGN THAT ASKED FOR NO MOVE AT ALL, and it is here because the
-first attempt asked for five.** `docs/O88-MULTISEG-PLAN.md` is a package that
+first attempt asked for five.** `docs/plans/completed/O88-MULTISEG-PLAN.md` is a package that
 wants more than its own 64KB segment, or wants to carry its data rather than
 trail a sidecar file. Built kernel-side to five waves it came to **2,560
 resident bytes** and was thrown away; rebuilt as a STANDARD PACKAGES EMBED
@@ -872,7 +872,7 @@ against its own base `073d4e7`, both builds:
 **Five rungs uncrossed on big** — the image rung five steps and `.cold` four,
 2,560 + 2,048 = **4,608 bytes of every machine's RAM, back** — and seven on
 small, 2,048 + 1,536 = **3,584**. Not one byte of it was asked for: the
-253 findings are in `docs/HANDOFF-KERNEL-SIZE-P2.md`, and `.bss` going UP by
+253 findings are in `docs/plans/completed/HANDOFF-KERNEL-SIZE-P2.md`, and `.bss` going UP by
 110 is the icon art trading 190 bytes of it for 609 of `.text`.
 
 **One of those five steps was gone before the pass finished merging, and that
@@ -954,7 +954,7 @@ amortised price of a byte is a byte"*) running in the good direction for once.
 `KERN_CODE_MAX`'s 65,536, so 9,650 left**, and `KERN_SIZE` is 109,056 of
 129,536 — twenty thousand spare, forty steps. Accrued at that commit: image
 78/512, cold 308/512, low 478/512, vgabuf 336/512. The record is
-`docs/HANDOFF-KERNEL-SIZE-P4.md`.
+`docs/plans/completed/HANDOFF-KERNEL-SIZE-P4.md`.
 
 #### THE `.lowbss` CROSSING `kernsize --bless` PRINTS IS NOT THAT PASS
 
@@ -981,7 +981,7 @@ anything in it.
   §9.10's `mou_pstack`, **+128**; SPEC.md §8.5's `sch_chstack`, **+128**; and
   `sch_chbusy`, **+1**. (`kernel/stkdiag.inc` arrived in the same merge and
   contributes **nothing** — it is `STKDIAG=1` only. And 2,816 is what shipped:
-  `docs/STACK-SLOTS-PLAN.md` §7's *3,072* is that plan's proposal, not a
+  `docs/plans/completed/STACK-SLOTS-PLAN.md` §7's *3,072* is that plan's proposal, not a
   measurement of the tree.)
 * **Every `kernsize` run throughout the pass printed `lowbss +384`, including
   the very first** — taken on the base commit before a line was edited, where
@@ -1081,7 +1081,7 @@ Three things about it:
   refuses a knob build for the same reason: the baseline is the shipped
   kernel.
 - **A VARIANT is not a knob, and it is blessable.** `KERN_BIG` / `KERN_SMALL`
-  each produce a kernel that *ships* (docs/KERN-SPLIT-PLAN.md §5), so each has
+  each produce a kernel that *ships* (docs/history/KERN-SPLIT-PLAN.md §5), so each has
   a baseline of its own in the block below and each is blessed separately;
   `--bless` merges rather than replaces. Every reported line names its variant
   (`kernsize[big]:` / `kernsize[small]:`), because two products with separate
@@ -1188,7 +1188,7 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 | `.lowbss` + task 0's stack | 10,240 B | 9,096 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 — 120 bytes of the rung are free |
 | `.vgabuf` | 1,024 B | 848 B: `vga_p4tab` and `vga_pbuf`, SPEC.md §5.4.1.3's planar decoder and nothing else. **The topmost rung, and the only one a machine can decline** — `mem_init` seeds `[mem_base]` under it when `[vid_avail] & VID_A_VGA` is clear, so a mono machine never reserves these 1,024 bytes and its heap starts here instead (SPEC.md §39.22). 0 B on `kern_small` and on any `NOPLANE` build, which have no decoder |
 | the boot overlay | 0 B | 3,969 bytes of code inside **stage 2's blob** (SPEC.md §2.9.6), which sits on the heap's floor and is given back at `spl_finish`. It was inside the FAT window and gone by the first mount; before that it was a heap claim |
-| **total** | **114,176 B** | of a 129,536-byte budget — **15,360 spare, 30 steps**, and the rung figures above are what is actually free inside it. **Every row here was re-derived from `kernsize`'s own `sections` and `rungs` lines at the bless that carries the parts standard** (`docs/O88-MULTISEG-PLAN.md`). `tools/kernsize.py --json` is the live breakdown; this table is hand-written and says so below |
+| **total** | **114,176 B** | of a 129,536-byte budget — **15,360 spare, 30 steps**, and the rung figures above are what is actually free inside it. **Every row here was re-derived from `kernsize`'s own `sections` and `rungs` lines at the bless that carries the parts standard** (`docs/plans/completed/O88-MULTISEG-PLAN.md`). `tools/kernsize.py --json` is the live breakdown; this table is hand-written and says so below |
 
 **This table is HAND-WRITTEN and the block above it is not**, which is how it
 came to disagree with the blessed JSON by 800 bytes before this was noticed.
@@ -1209,7 +1209,7 @@ cheaply. The total above is the VGA machine's; on a Hercules or a CGA read it
 as **113,152 B**, and `SK_KERN` says so too (SPEC.md §39.22).
 
 **These are `kern_big`'s figures**, which is to say the shipped kernel's
-(docs/KERN-SPLIT-PLAN.md). **The two builds have DIVERGED** — in both
+(docs/history/KERN-SPLIT-PLAN.md). **The two builds have DIVERGED** — in both
 directions now — so this table is big's alone and `make kernsplit` is what
 prices the difference. Things ADDED to big behind `%ifndef KERN_SMALL`:
 SPEC.md §18.96's floppy formatter, §39.11's dual display. Things REMOVED from
@@ -1563,7 +1563,7 @@ nothing: the FAT buffer gave up 7KB and task 0's stack grew by 7KB. Naming
 the number is what turned those savings into memory.
 
 **CORRECTED — NEITHER HALF OF THE PARAGRAPH BELOW SURVIVED MEASUREMENT**
-(docs/STACK-SLOTS-PLAN.md §9, `make stkdiag` on an IBM 5150, ROM 10/27/82).
+(docs/plans/completed/STACK-SLOTS-PLAN.md §9, `make stkdiag` on an IBM 5150, ROM 10/27/82).
 SeaBIOS does **not** keep its `int 08h` frames off our stack: removing
 `sch_isr`'s `call far [sch_old08]` moved a bare QEMU desktop's idle slice from
 82 to 32, and measuring the chain on a private stack reads **56**. And the
@@ -2593,7 +2593,7 @@ Task Manager.
 > overlay wins where the thing has an interface and a world of its own.
 
 > **A second lever exists now and the first thing has gone through it** —
-> SPEC.md §2.8, docs/ONDEMAND-PLAN.md. The **Control Panel** is a file
+> SPEC.md §2.8, docs/plans/completed/ONDEMAND-PLAN.md. The **Control Panel** is a file
 > (`CTRL.DRV`, 3,185 bytes) read into a heap claim when it is opened and freed
 > when it closes: measured, `KERN_SIZE` **102,912 → 100,352, −2,560 bytes**,
 > five 512-byte steps, on both builds. What is left in the table below for
@@ -2839,5 +2839,5 @@ the room it opened — on the same terms as the nine: asked for, granted, and
 owed to something named. The row after the row that reaches **126,976** is
 not a raise either, and not a deletion: it is a second kernel.
 
-`docs/MEMORY-PLAN.md` is the narrative of how it got here, step by step, and
+`docs/plans/MEMORY-PLAN.md` is the narrative of how it got here, step by step, and
 what was rejected along the way. This document is what it looks like now.

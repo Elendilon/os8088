@@ -62,8 +62,9 @@ def wait(m, addr, want, limit=20.0):
     what the saver is waiting FOR is guest time: `ss_idle` is a count of
     TICKS, so "28 ticks after the last keypress" is 1.5 seconds of the 8088
     and whatever the box makes of it. In a three-wide emulator lane that is a
-    different amount of host wall clock, which is docs/HANDOFF-SOAK-FINDINGS
-    B5 exactly - and this row took 110.7s there against 52.3s alone.
+    different amount of host wall clock, which is
+    docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B5 exactly - and this row
+    took 110.7s there against 52.3s alone.
     """
     try:
         os88marty.until(m, lambda mm: mm.read(addr, 1)[0] == want,

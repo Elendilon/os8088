@@ -487,7 +487,7 @@ TMM_ROWS    equ INST_MAX + 7    ; System, its four buffer rows, the two
 ; W_PAINT on a worker task holding the gfx lock - which hard froze the machine
 ; the one build that tried it (a Disk window open, then dragged across twice).
 ;
-; A GENEROUS height is the idiom (docs/WINDOW-SIZING-PLAN.md 9): the clamp
+; A GENEROUS height is the idiom (docs/plans/WINDOW-SIZING-PLAN.md 9): the clamp
 ; brings it down, and on a CGA it comes back at the band.
 ;
 ; THE HEIGHT IS THE ONE A MACHINE WITH A STORE WANTS, and tm_entry SUBTRACTS

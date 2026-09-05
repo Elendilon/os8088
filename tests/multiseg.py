@@ -7,7 +7,7 @@ MSEG is a v3 package with flags bit 2: its file is longer than its image, and
 what is past the image is three separately assembled modules it reads for
 itself through `apps/os88parts.inc`. **The kernel parses none of it** - all it
 learns is that bit, and it hands the entry proc the name of the file it came
-out of. docs/O88-MULTISEG-PLAN.md 1 is why the kernel-side version of this
+out of. docs/plans/completed/O88-MULTISEG-PLAN.md 1 is why the kernel-side version of this
 was thrown away.
 
 MSEG checks itself THREE INDEPENDENT WAYS PER PART and publishes the verdict

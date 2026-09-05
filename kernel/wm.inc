@@ -340,7 +340,7 @@ wm_pkgcall:
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
-; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 14). One
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/plans/LAST-DROP-BYTES.md row 14). One
 ; caller, kmain:4291, and zero outbound: it is four `rep stos` runs over `.bss`
 ; through ES = DS = KERNEL_SEG, which `.ovl` supplies unchanged.
 section .ovlw
@@ -653,7 +653,7 @@ wm_fs_setrect:
 ; out:      nothing; every register preserved, FLAGS INCLUDED
 ;
 ; **THE RULE IS ABOUT ADAPTER IDENTITY AND NOT ABOUT GEOMETRY**, which is the
-; whole of docs/WINDOW-SIZING-PLAN.md 12 and the correction of everything
+; whole of docs/plans/WINDOW-SIZING-PLAN.md 12 and the correction of everything
 ; above it. What a window wants is not "a size that fits the box the drag left
 ; me in" but "my size for adapter kind Y, and I am standing on adapter kind
 ; Y" - so the TRIGGER is a change of kind and nothing else. A move within one
@@ -1154,7 +1154,7 @@ wm_reflows:
 ; clobbers: AX, CX, DX, SI, DI, flags
 ;
 ; The ORIGIN and not the centre, deliberately: wm_disp_of's centre test is for
-; deciding which monitor an app OWNS (docs/DUAL-DISPLAY-PLAN.md 6.5.1), and
+; deciding which monitor an app OWNS (docs/plans/completed/DUAL-DISPLAY-PLAN.md 6.5.1), and
 ; this is deciding which edges a frame may not pass - which is a question
 ; about the corner the clamps are written from. A window whose origin is in
 ; the dead zone gets the primary, the only answer that cannot leave it
@@ -1222,7 +1222,7 @@ wm_fit_box:
 ; CGA's dock ceiling of 175 was applied to the Hercules part as well and every
 ; vacated row below it there was never dithered - 3,844 stale pixels, which is
 ; 320 columns x 24 rows half-lit in a 50% dither to within four
-; (docs/WM-ARTIFACTS.md 2). A one-display machine could not show it and never
+; (docs/history/WM-ARTIFACTS.md 2). A one-display machine could not show it and never
 ; will, so the shape of the contract is the only thing that stops it coming
 ; back: there is no point-shaped entry point here any more to reach for.
 ;
@@ -2996,7 +2996,7 @@ wm_wk_none:
 ;      preserved
 ; clobbers: nothing else (flags)
 ;
-; The other half of what docs/PAINT-NOTES.md asked for. wm_resize is how an
+; The other half of what docs/plans/completed/PAINT-NOTES.md asked for. wm_resize is how an
 ; app changes its OWN size; this is how the kernel asks before changing it
 ; for them - and the answer is a size rather than a yes/no, because the case
 ; that motivated it (apps/paint refusing to crop artwork) is per-axis: a drag
@@ -3030,7 +3030,7 @@ wm_ask_size:
 ;      size and everything is repainted
 ;
 ; The sanctioned version of what apps/paint had to do behind the kernel's
-; back (docs/PAINT-NOTES.md): an app that adopts a picture's dimensions has
+; back (docs/plans/completed/PAINT-NOTES.md): an app that adopts a picture's dimensions has
 ; to move its own frame, and ui_grow and wm_fullscreen were the only things
 ; that could. Clamps exactly as a drag does - never smaller than WMIN_W/
 ; WMIN_H, never past the screen edge or the dock - and then re-fits the
@@ -7816,7 +7816,7 @@ wm_draw_title:
     sar cx, 1
     add cx, [di+W_X]            ; CX = text left
 %ifdef TITLESNAP
-    ; docs/TEXT-PLAN.md 6.1: centre to the nearest CELL rather than to the
+    ; docs/plans/completed/TEXT-PLAN.md 6.1: centre to the nearest CELL rather than to the
     ; exact pixel. A window title is the hottest text in the system - it
     ; redraws on every window operation - and centring puts its pen off the
     ; 8px grid seven times in eight, which costs SPEC.md 6.1's fast path and
@@ -8645,7 +8645,7 @@ wm_damage:
 ;
 ; Raising an obscured window was measured at 1,026 ms on a 4.77MHz 8088, and
 ; 578 ms of that is W_PAINT lettering cells that were genuinely overwritten
-; while the window was covered (docs/NOTEPAD-NOTES.md 5.3). There is no faster
+; while the window was covered (docs/plans/completed/NOTEPAD-NOTES.md 5.3). There is no faster
 ; way to draw them; the only way under one typematic repeat is not to draw
 ; them at all. So the content is BANKED when the window is covered and put
 ; back when it is raised: ~10 ms of blit each way against 578 ms of glyphs.
@@ -8753,7 +8753,7 @@ wm_su_scrsz: dw 0               ; scratch begins, and how big that is
 wm_su_pw: dw 4                  ; HOW DEEP THE DISPLAY THIS CACHE IS ON IS, in
                                 ; planes, which is not [vid_planes_w] the
                                 ; moment two displays can differ
-                                ; (docs/DUAL-DISPLAY-VGA.md 4.3). Set by
+                                ; (docs/plans/completed/DUAL-DISPLAY-VGA.md 4.3). Set by
                                 ; wm_su_flay, which is the one place both the
                                 ; take and the check establish the content
                                 ; rect, and read by wm_su_bytes, wm_su_scrset,
@@ -8779,7 +8779,7 @@ wm_su_pw: dw 4                  ; HOW DEEP THE DISPLAY THIS CACHE IS ON IS, in
 ; the NAME here rather than keeping the word and feeding it is what makes the
 ; small build measure +0: the word, the store and the four instructions that
 ; bank CX/DX around it are not assembled at all. Written down because the
-; plan (docs/DUAL-DISPLAY-VGA.md 6) calls that +0 non-negotiable and it is
+; plan (docs/plans/completed/DUAL-DISPLAY-VGA.md 6) calls that +0 non-negotiable and it is
 ; the cheapest regression test the whole feature has - and because the first
 ; version of this DID cost it 17 bytes, by writing [vid_planes_w] into a word
 ; nothing else could ever have put anything different in.
@@ -10147,7 +10147,7 @@ wm_dc_take:
                                 ; once every eight pixels
 %ifdef KERN_BIG
     mov ax, [di+W_X]            ; ...AND THE DEPTH IS THE SECOND THING IT
-    mov bx, [di+W_Y]            ; CANNOT DO (docs/DUAL-DISPLAY-VGA.md 4.3.1).
+    mov bx, [di+W_Y]            ; CANNOT DO (docs/plans/completed/DUAL-DISPLAY-VGA.md 4.3.1).
     call vid_disp_planes        ; The byte phase above is this same argument
     mov si, cx                  ; about x; this is it about PLANES. gfx_save
     mov ax, [ui_origx]          ; lays the buffer out with the depth of the

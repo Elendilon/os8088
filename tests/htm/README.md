@@ -1,4 +1,4 @@
-# HTML fixtures for the browser (docs/BROWSER-PLAN.md)
+# HTML fixtures for the browser (docs/plans/completed/BROWSER-PLAN.md)
 
 Real-world pages the renderer is developed and checked against. Nothing here
 ships and nothing here is built by `make`.
@@ -50,4 +50,4 @@ descriptor contains the search URL **template** — so it names the query
 parameter and the method **without needing a search to succeed**, which is
 what the daily API quota was blocking.
 
-docs/BROWSER-PLAN.md §1.1.2 is what this file settled and what it did not.
+docs/plans/completed/BROWSER-PLAN.md §1.1.2 is what this file settled and what it did not.

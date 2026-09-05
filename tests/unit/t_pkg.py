@@ -86,7 +86,7 @@ def app(blob, nm, flags, entry, image, bss):
           why="a part's offset is measured from the start of the FILE and its "
               "table lives INSIDE the image, so compressing the image and "
               "laying out its parts are circular. os88pkg.py refuses the "
-              "combination (docs/O88-COMPRESSION-PLAN.md wave 4)")
+              "combination (docs/plans/completed/O88-COMPRESSION-PLAN.md wave 4)")
     lo = ICON_END if flags & 1 else HEADER
     check(lo <= entry < image, "%s: entry +0x%04X is inside the image" % (nm, entry),
           got=hex(entry), want="0x%04X..0x%04X" % (lo, image))

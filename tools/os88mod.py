@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Split the on-demand kernel modules out of the assembled kernel.
 
-SPEC.md 2.8, docs/ONDEMAND-PLAN.md.  `kernel.asm` assembles to
+SPEC.md 2.8, docs/plans/completed/ONDEMAND-PLAN.md.  `kernel.asm` assembles to
 `.text | pad | .cold | pad | .ovl | .modc | .modf | .modmap`, and everything
 from `.modc` onward is code that must NOT ship inside KERNEL.SYS: each module
 becomes a file of its own that the kernel reads into a heap claim when the

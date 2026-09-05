@@ -55,7 +55,7 @@ S = os88sym.linear
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_herc_gla_144"
 # The images, overridable so this row can be pointed at a SECOND kernel.
 # kern_small carries Cut/Copy/Paste as an on-demand module (SPEC.md 22.3,
-# docs/KERN-SMALL-MODULE-SPLIT.md 9.2), so the engine this script drives is
+# docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2), so the engine this script drives is
 # read off the disk there rather than being resident - which is exactly the
 # arm nothing else exercises. Pair it with $OS88_BUILD and $OS88_DEFINES, the
 # knobs os88sym already has, or the symbol map will be the wrong kernel's:

@@ -110,7 +110,7 @@ BUSY = 6.0                      # ...and how long a repaint may hold the guest
 # against 5.9s, up to -37% per script.  The row does not get slower (measured: 1.06x
 # wall across twelve rows), it gets LESS THOROUGH, and then fails somewhere
 # further on looking like the thing under test.  That is the mechanism behind
-# docs/HANDOFF-SOAK-FINDINGS.md B5, and it is why "it passed alone" has been
+# docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B5, and it is why "it passed alone" has been
 # such an unsatisfying diagnosis: the wall times never showed anything.
 #
 # `OS88_GUEST_PACE=<ratio>` spends the same wait in GUEST seconds instead -
@@ -333,7 +333,7 @@ class Mouse:
         # ALL, which reads as
         # "the kernel will not let me go there" and has now cost two
         # investigations - one of them concluding a drag clamp that does not
-        # exist (docs/DUAL-DISPLAY-VGA.md 8(10)).
+        # exist (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(10)).
         #
         # So exhaustion is not a verdict: wait out the repaint and run the
         # loop again, ONCE. It cannot turn an unreachable target into a

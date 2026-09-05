@@ -169,7 +169,7 @@ def main():
         # THE RESIDENT SIZE, WHICH IS NO LONGER THE FILE SIZE. A driver's
         # trailing zeros are stripped by os88drv.py and re-made by drv_bss, so
         # what the loader claims is file + bss (byte +31, in paragraphs) -
-        # docs/O88-COMPRESSION-PLAN.md 12.6. ether.drv is 13,602 bytes on the
+        # docs/plans/completed/O88-COMPRESSION-PLAN.md 12.6. ether.drv is 13,602 bytes on the
         # floppy and 17,666 in memory, and the column is the second number.
         # ...AND THE FILE IS NO LONGER THE IMAGE EITHER (SPEC.md 20.13.2).
         # Every shipped driver is LZ4 on the disk now, and every term below -

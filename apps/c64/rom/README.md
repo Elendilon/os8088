@@ -20,7 +20,7 @@ names spelled out in `src/c64/c64rom.h:52`, `:31` and `:60`.
 
 `CONTRIBUTING.md` §6 says nothing third-party is committed. **This is a
 stated, user-decided departure from that rule, for these three files only**,
-recorded in `docs/C64-SPEC.md` §1.3 and `docs/C64-PORT-PLAN.md`'s Decision 1.
+recorded in `docs/C64-SPEC.md` §1.3 and `docs/plans/completed/C64-PORT-PLAN.md`'s Decision 1.
 The user's words were: *"move all the necessary code into my repo, and use a
 sidecar that is loaded at runtime. Don't cut features, make it modular so that
 we can load the rom at runtime instead of embedding it in the package."*
@@ -45,7 +45,7 @@ SPEC.md §73's 61,440 cap — refused on paper". `APP_MAX_SIZE` bounds the
 primary SEGMENT's image plus bss, not the FILE. Measured after the conversion:
 image **40,854**, bss **13,176**, sum **54,030** against that same 61,440 cap,
 in a file of **61,440** bytes. The cap was never the obstacle — until
-`docs/O88-MULTISEG-PLAN.md` there was simply nowhere in the format to put
+`docs/plans/completed/O88-MULTISEG-PLAN.md` there was simply nowhere in the format to put
 bytes that are not the image.
 
 The runtime-loading half of the decision stands and is what the parts standard

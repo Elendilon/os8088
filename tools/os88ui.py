@@ -78,7 +78,7 @@ class UIError(Exception):
 #
 # GUEST seconds, not host ones - `os88marty.until` anchors its deadline to the
 # emulator's own cycle counter, so what a wait allows is the same on a loaded
-# box as an idle one (docs/SOAK-PARALLEL.md 2). These are budgets a healthy
+# box as an idle one (docs/plans/completed/SOAK-PARALLEL.md 2). These are budgets a healthy
 # machine never approaches: the poll returns the moment the condition is true,
 # so a generous number costs nothing and a tight one turns a slow host into a
 # false failure.
@@ -147,7 +147,7 @@ def boot(image, apps=None, machine="os8088_5150_cga", card=None,
 
       * `machine` goes through `os88marty.machine`, so an IBM-romset name
         resolves to its GLaBIOS twin unless the row makes a case for the real
-        ROM in `why_ibm` (docs/SOAK-PARALLEL.md 5). A row that hardcodes an
+        ROM in `why_ibm` (docs/plans/completed/SOAK-PARALLEL.md 5). A row that hardcodes an
         IBM name runs on a container that has the ROM and does not run on one
         that does not, and nothing in its output says which.
       * **the screen saver is turned OFF by default.** It is five GUEST
@@ -841,7 +841,7 @@ class UI:
             "no" from this routine is read as THE END STOP, so a wait cut
             short by a busy box does not fail - it silently decides the list
             has run out, and the click that follows lands on the wrong row.
-            That is docs/HANDOFF-SOAK-FINDINGS.md B5's mechanism exactly, and
+            That is docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B5's mechanism exactly, and
             the version this replaces had a 3.0-second `time.sleep` loop.
 
             Polling the WORD rather than settling on the picture: a settle is

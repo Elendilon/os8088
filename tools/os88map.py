@@ -13,7 +13,7 @@ WRONG NUMBERS rather than erroring. `tools/os88sym.py` applies that rule to
 the kernel and refuses an address unless the re-assembly is byte-identical to
 `build/kernel.bin`; `tests/xmcheck.py`'s `ovl_sym` applies it to XMEM.DRV.
 This is the same rule for a PACKAGE, and it is here because it was about to be
-written a third time (docs/O88-MULTISEG-PLAN.md 11.0.4).
+written a third time (docs/plans/completed/O88-MULTISEG-PLAN.md 11.0.4).
 
 WHAT IT REPLACES. A gate that wants a package's own word had two choices
 before: recompute the package's bss layout in Python - which is the package's

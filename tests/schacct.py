@@ -133,7 +133,7 @@ def cycles(m):
     """sch_cycles[], read with the guest stopped (the ISR writes them).
 
     **THE LENGTH COMES FROM THE KERNEL.** This read 32 bytes and unpacked 8
-    slots, which was right when the table had eight; docs/STACK-SLOTS-PLAN.md
+    slots, which was right when the table had eight; docs/plans/completed/STACK-SLOTS-PLAN.md
     took `SCH_PARTITION` to twelve slices and `MAX_TASKS` to 14, and this
     number did not move with it. The array is 56 bytes now, and the six slots
     past the end of the read are simply not in the sum.

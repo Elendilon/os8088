@@ -201,7 +201,7 @@ gfx_disink      db CBLACK       ; ...and WHICH DIRECTION a disabled GLYPH
 ; pair to move two of them costs every VGA fill 3 bytes and 4 clocks a site -
 ; the whole point of the interleave - and a name in the right file is not
 ; worth that. The 8s are the only VGA-specific part and they are two bytes;
-; docs/MONO-RECLAIM-PLAN.md 1.1 carries the trade.
+; docs/plans/MONO-RECLAIM-PLAN.md 1.1 carries the trade.
 vga_m8l         db 8
 gfx_lmsk        db 0            ; rect: left edge bit mask
 vga_m8r         db 8
@@ -2525,7 +2525,7 @@ gfx_line_flush:
 ; and write it through the Map Mask) would beat this on detailed pictures and
 ; lose to it on flat ones, and it would need its own 1bpp
 ; twins. It is a worthwhile future optimisation and it changes no caller;
-; docs/PAINT-NOTES.md records why it was not the first one.
+; docs/plans/completed/PAINT-NOTES.md records why it was not the first one.
 ;
 ; Colour reduction on a 1bpp adapter happens in gfx_fill, per run (SPEC.md
 ; 39.4), so a 16-colour picture reads as black/dither/white there exactly as
@@ -4279,7 +4279,7 @@ gfx_sp_next:
 ; went 4,266.31 -> 5,685.53 us, +33.27% for 139 bytes, and it was reverted.
 ; UI_GRAY is os88ui_sbar's trough, so the bill lands on every scrollbar in
 ; every package and on every C package through os88thunk.asm. Do not re-derive
-; it: docs/LAST-DROP-BYTES.md 7.6 carries the numbers and the flip condition.
+; it: docs/plans/LAST-DROP-BYTES.md 7.6 carries the numbers and the flip condition.
 ; -----------------------------------------------------------------------------
 gfx_fill_gray:
     GFXCLIP gfx_fill_gray_d
@@ -4566,7 +4566,7 @@ vga_xor_rect_vram:
 ; 34 differing runs in .cold at a stride of 80 - a scan line - and what it
 ; overwrote next ran: a `call far` became `cbw`, DS went to 0, fm_layout's
 ; stores landed 0x600 low across ui_rebootq, and the machine rebooted or
-; froze (docs/DUAL-DISPLAY-VGA.md 8(11), docs/FIELD-NOTES.md).
+; froze (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11), docs/FIELD-NOTES.md).
 ;
 ; It is whole-shape rather than split, for gfx_blit4's reason: an outline is
 ; not the intersection of its bounding rect with anything (see the clipped

@@ -36,7 +36,7 @@ many pixels are lit but which way up the picture is, and a bar that is white on
 one monitor cannot be black on the other.
 
 It is the only test in this tree that can see the defect: two cards of
-DIFFERENT DEPTH is `os8088_xt_vga_herc` (docs/DUAL-DISPLAY-VGA.md 7.1), 86Box's
+DIFFERENT DEPTH is `os8088_xt_vga_herc` (docs/plans/completed/DUAL-DISPLAY-VGA.md 7.1), 86Box's
 `xt-multimon` is a Hercules beside a CGA and those two agree about depth, and
 one card cannot straddle anything.
 """

@@ -1,7 +1,7 @@
 ; =============================================================================
 ; lzfence - THE GATE ON OSAPI_DECOMP's REFUSALS (SPEC.md 20.13.4)
 ;
-; docs/O88-COMPRESSION-PLAN.md 13 makes this wave 1's gate and says why it must
+; docs/plans/completed/O88-COMPRESSION-PLAN.md 13 makes this wave 1's gate and says why it must
 ; exist before any consumer does: the bounds in kernel/lz.inc are measured for
 ; SIZE and for SPEED, and that they actually REFUSE was an assertion until
 ; something fed them a bad stream.

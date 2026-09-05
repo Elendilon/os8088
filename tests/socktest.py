@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch a page over the cable (SPEC.md 62.11, docs/NET-STACK-PLAN.md stage B).
+"""Fetch a page over the cable (SPEC.md 62.11, docs/plans/completed/NET-STACK-PLAN.md stage B).
 
     make && make socktest && python3 tests/socktest.py [--adapter cga]
 

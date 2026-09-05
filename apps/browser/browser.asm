@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/browser/browser.asm
 ;
-; BROWSER, the text-and-table HTTP viewer (docs/BROWSER-PLAN.md). This is
+; BROWSER, the text-and-table HTTP viewer (docs/plans/completed/BROWSER-PLAN.md). This is
 ; step 1 of that document's 10: the RENDERER, with no network in the machine
 ; at all - it opens a .HTM off a floppy through the Standard File dialog and
 ; draws it. tools/htmsim.py is the reference implementation and the cost

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A COMPRESSED DRIVER loads, expands and answers (docs/O88-COMPRESSION-PLAN.md 12.6).
+"""A COMPRESSED DRIVER loads, expands and answers (docs/plans/completed/O88-COMPRESSION-PLAN.md 12.6).
 
 The subject is RAMDISK.DRV, on a system disk otherwise identical to the
 shipped 360KB one. It is the right one because it has BOTH halves of wave 3:
@@ -65,7 +65,7 @@ def main():
     # FILE. Without this the row reports 4,832 differing bytes on a kernel
     # that expanded perfectly, which reads exactly like a broken decoder.
     # `at` on every host-side read: under a frozen run these live in the
-    # run's own tree and not in build/ (docs/SOAK-PARALLEL.md 14.2), and a
+    # run's own tree and not in build/ (docs/plans/completed/SOAK-PARALLEL.md 14.2), and a
     # comparison that takes one build's driver and boots another's is the
     # failure that reads as a broken decoder.
     plain = os88drv.image_unwrap(

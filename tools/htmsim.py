@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A host-side model of the os8088 browser's parse, layout and cost.
 
-docs/BROWSER-PLAN.md is the design; this is that design run against real
+docs/plans/completed/BROWSER-PLAN.md is the design; this is that design run against real
 pages before a byte of 8086 is written, for the reason PERFORMANCE.md
 19.2.3.1 exists: the obvious refinement to the sector cache was MEASURED and
 found wrong, and the negative result was cheaper than the code. The same

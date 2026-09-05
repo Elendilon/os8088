@@ -13,7 +13,7 @@
 ; wanted more than its 19.5KB region had no way to ask: apps/paint simply
 ; took linear 0x66000 and hoped, reading a kernel policy constant to guess
 ; whether SPEC.md 32's then-live back buffer would ever want it
-; (docs/PAINT-NOTES.md records
+; (docs/plans/completed/PAINT-NOTES.md records
 ; that as the least defensible thing in the file). One map, owned by the
 ; kernel, retires the whole class: two packages cannot pick the same
 ; address, an app cannot outlive its claim, and the Task Manager can bill
@@ -32,7 +32,7 @@
 
 %ifdef KERN_SMALL
 MEM_MAX     equ 20              ; TWENTY heap claims on kern_small
-                                ; (docs/KERN-SMALL-CUT-PLAN.md D7). The SDK's
+                                ; (docs/plans/KERN-SMALL-CUT-PLAN.md D7). The SDK's
                                 ; copy STAYS AT 32, on MAX_TASKS' rule:
                                 ; apps/os88api.inc derives
                                 ; CLAIM_SNAPSHOT_SIZE from it and taskmgr
@@ -303,7 +303,7 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; section (SPEC.md 7's only-the-UI-task-calls-BIOS rule holds here).
 ; -----------------------------------------------------------------------------
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
-                                ; docs/LAST-DROP-BYTES.md row 11): kmain sizes
+                                ; docs/plans/LAST-DROP-BYTES.md row 11): kmain sizes
                                 ; the heap once. mem_unblob_x, which runs LATER
                                 ; and gives the blob back, is a different body
                                 ; and stays resident - it has to, because it
