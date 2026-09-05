@@ -63065,61 +63065,67 @@ and the size the driver *needs* is `image + bss`, a number that is inside the
 image and therefore unknown until the image is in memory and the claim has
 already been made. Peeking the header first would answer it, and costs an
 extra `int 13h` per driver on every boot (PERFORMANCE.md: ~400 ms a call, so
-seconds on the target machine). §51.1.2 is what is done instead, and what it
-costs.
+seconds on the target machine). §51.1.2 is what is done instead: the two are
+made the same number at BUILD time, where both are known.
 
-### 51.1.2 The claim is padded by `DRV_BSS_KB`, and the shrink cannot give it back
+### 51.1.2 The strip stops at the KB rung, so the directory's size already covers the bss
 
-The size the directory reports is what the driver needs *before* its bss —
-§20.13.3.1's read expands a `'CZ'` driver into the claim, so there is exactly
-one claim and it arrives holding the image. What it does not hold is the bss,
-whose length is a byte inside that image and so is unknown when the claim is
-made. `drv_load` therefore adds a fixed `DRV_BSS_KB` = 4 (255 paragraphs being
-4,080 bytes, so 4KB covers the largest declarable bss), and `drv_bss` hands the
-remainder back with `mem_regrow`.
+The size the directory reports is what §20.13.3.1's read expands into the
+claim — the driver's image — and the size the driver *needs* is `image + bss`,
+a byte inside that image and so unknown when the claim is made. **The answer
+is to make the two the same number**: `tools/os88drv.py` strips a driver's
+trailing zero run only as far as the KB boundary its footprint needs, so the
+claim `drv_load` makes from the directory covers the bss by construction and
+nothing is padded, shrunk, grown or moved. `drv_bss` zeroes and does no more.
 
-**The remainder does not come back.** `mem_regrow`'s shrink keeps the BASE and
-frees the TAIL — §50.3 path 1, "the record's length changes and that is all" —
-and the tail of a *top-down* claim is above the image, walled in between this
-driver and the one loaded before it. Only a later claim small enough to fit
-that gap can ever reach it, and drivers are 6–18KB against gaps of 1–4KB.
-`DRV_BSS_KB`'s own note priced this at "a few hundred transient bytes"; it is
-neither.
+What that costs is zeros back on the floppy, and **on a packed disk it costs
+nothing measurable** — a run of zeros is what LZ4 is best at. Measured: the
+360KB system disk is **255 of 354 clusters with the strip and 255 without**.
+That is the half which was not true when the stripping was written; it was
+weighed against an uncompressed disk, where 6,722 bytes of trailing zeros were
+6,722 bytes of floppy.
 
-Measured on a machine whose `SYSTEM.CFG` wants every driver
-(`tests/heapmap.py`), against the same machine before a driver's bss stopped
-shipping:
+**`drv_bss` keeps one bound test**, which the padded version did not need. The
+header is a FILE: a foreign tool may write any `DRV_H_BSSP` it likes, and the
+pad is what used to make the zeroing safe by construction. `image + bss` past
+the claim is refused, and costs a driver that was already malformed.
 
-| | before | today |
-|---|---|---|
-| driver claims | `8D800..9FC00`, contiguous | `8A000..9EC00`, four holes |
-| free runs | 2 | 6 |
-| after shed + compaction | **1 run, 454.5K** | 5 runs, 439.0K |
-| largest contiguous | 375.0K | 361.0K |
+#### 51.1.2.1 What a pad, and then a grow, cost instead
 
-`tests/heapmap.py` is the gate and it is RED on this, deliberately: the row is
-the only thing in the suite that looks at *where* the free memory is, and
-§66.10's invariant — that after shedding caches and compacting, nothing is
-walled off behind something pinned — is exactly what a stranded tail breaks.
+Both were built and measured, on a machine whose `SYSTEM.CFG` wants every
+driver (`tests/heapmap.py`):
 
-**What has already been ruled out**, because each looked like the answer and
-was not: it is not the file compression (a `PKGZ=` tree strands the same four
-holes, `os88drv.py` stripping the bss whatever `PKGZ` says); it is not the
+| | before the bss stopped shipping | `DRV_BSS_KB` pad | `drv_bss` grows | the strip stops at the rung |
+|---|---|---|---|---|
+| driver claims | contiguous | four holes | two land mid-arena | contiguous |
+| free runs | 2 | 6 | 2 | 2 |
+| after shed + compaction | 1 run, 454.5K | 5 runs, 439.0K | 2 runs, **375.0K** | **1 run, 453.0K** |
+| largest contiguous | 375.0K | 361.0K | 375.0K | 375.0K |
+
+**The pad**: `drv_load` added a fixed 4KB (255 paragraphs being 4,080 bytes)
+and `drv_bss` handed the remainder back with `mem_regrow`. That shrink keeps
+the BASE and frees the TAIL — §50.3 path 1, "the record's length changes and
+that is all" — and the tail of a top-down claim is walled in between this
+driver and the one loaded before it, reachable only by a later claim small
+enough to fit a 1–4KB gap. `DRV_BSS_KB`'s own note priced it at "a few hundred
+transient bytes"; it was 14,336 permanent ones.
+
+**The grow** is the obvious repair and it is WORSE. The claim is exact and the
+grow is at most 4,080 bytes, but a grow that cannot extend in place takes
+§50.3 path 3, and `mem_hifit` then placed an 18KB driver image at the bottom
+of the free middle — a pinned barrier *under* the read-ahead cache, so the
+cache's 63K stopped rejoining at all. Largest contiguous improved and the
+compacted figure, which is the one that decides a refusal, fell 439.0K →
+375.0K. §50.3's own warning, earned: *"one long-lived data claim landing
+mid-heap permanently splits the space a package can be loaded into"*.
+
+**Three things were ruled out on the way**, each of which looked like the
+answer: it is not the file compression (a `PKGZ=` tree strands the same four
+holes — `os88drv.py` strips the bss whatever `PKGZ` says); it is not the
 allocator (a top-down claim is placed at the highest base that FITS over every
 gap, and the map shows a 2KB claim landing inside a former 9KB hole); and it
-was not, on its own, the two-claim scratch that §20.13.3.1 has since deleted —
-removing the pad while that scratch stood still left 5 runs and 364.0K.
-
-**What is left to decide is where the size comes from.** Peeking the header
-before claiming answers it exactly and costs an extra `int 13h` per driver on
-every boot — hundreds of milliseconds on the target machine, which is why it
-was refused. Two cheaper routes exist and neither has been built: `drv_bss`
-could GROW instead of the claim padding (`mem_regrow` path 3 relocates and
-copies, and only four shipped drivers would need it, none of them on the boot
-path); or the `'CZ'` container could declare an unpacked length that already
-includes the bss, so the expander zero-fills the tail and the directory
-reports the driver's true footprint — no pad, no shrink, no grow, and
-`drv_bss` has nothing left to do.
+was not the two-claim scratch §20.13.3.1 has since deleted — removing the pad
+while that scratch still stood left 5 runs and 364.0K.
 
 ### 51.2 The contract
 
