@@ -13634,6 +13634,193 @@ wd_mbarhit:
     ret
 
 ; -----------------------------------------------------------------------------
+; wd_subank - bank the pixels the dropdown is about to cover (SPEC.md 68.2.1)
+; in:  wd_mrect computed, gfx lock held
+; out: [wd_suseg] set, or 0 if anything refused; preserves all registers
+;
+; THE KERNEL'S OWN MENU DOES THIS AND WORD COULD NOT, because the pair was
+; unpublished until SPEC.md 5.3. What it buys is the whole of wd_mrepair: a
+; dropdown over a page of text is ~13 rows re-lettered FULL WIDTH at ~900us a
+; glyph cell, measured at 521 ms on a 4.77MHz 8088, against a write-back.
+;
+; THE CLAIM IS PER DROP, not per session - SPEC.md 12.4's rule, and for its
+; reason: 10KB held at every instant nobody is looking at a menu is a third of
+; a small machine's heap. It is freed on the way back up, before the picked
+; item runs, so whatever that item allocates gets a heap the menu has left.
+;
+; EVERY REFUSAL IS THE SAME REFUSAL and none of them is a new path: no claim,
+; a straddled rect, no window - [wd_suseg] stays 0 and wd_mclose repaints,
+; which is what it did before this existed.
+; -----------------------------------------------------------------------------
+wd_subank:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    mov word [wd_suseg], 0
+    mov ax, [wd_mrx1]               ; the rect INCLUDING the drop shadow, and
+    mov [wd_surx1], ax              ; clamped exactly the way wd_mrepair grows
+    mov bx, [wd_mry1]               ; and clamps its own - the two must name
+    mov [wd_sury1], bx              ; the same pixels or the restore is short
+    mov ax, [wd_mrx2]               ; by a column
+    inc ax
+    mov dx, [wd_cl]
+    add dx, [wd_cw]
+    dec dx
+    cmp ax, dx
+    jbe .x2ok
+    mov ax, dx
+.x2ok:
+    mov [wd_surx2], ax
+    mov ax, [wd_mry2]
+    inc ax
+    mov dx, [wd_ct]
+    add dx, [wd_ch]
+    dec dx
+    cmp ax, dx
+    jbe .y2ok
+    mov ax, dx
+.y2ok:
+    mov [wd_sury2], ax
+    ; bytes = planes * rows * ((x2>>3) - (x1>>3) + 1)
+    mov ax, [wd_surx2]
+    mov cl, 3
+    shr ax, cl
+    mov bx, [wd_surx1]
+    shr bx, cl
+    sub ax, bx
+    inc ax                          ; AX = byte columns
+    mov bx, [wd_sury2]
+    sub bx, [wd_sury1]
+    inc bx                          ; BX = rows
+    mul bx                          ; AX = one plane's bytes (DX:AX, and a
+                                    ; panel cannot reach 64KB of one plane)
+    mov bx, [wd_win]
+    or bx, bx
+    jz .no
+    push ax
+    call OSAPI_WM_DISPLAY           ; DH = bpp OF THE DISPLAY WE ARE ON, which
+    mov bl, dh                      ; OSAPI_VIDEO cannot answer on a two-card
+    xor bh, bh                      ; machine (SPEC.md 39.16.4)
+    pop ax
+    cmp bl, 4
+    je .planes
+    mov bx, 1                       ; 1bpp adapter: one plane
+.planes:
+    mul bx
+    add ax, 1023
+    mov cl, 10
+    shr ax, cl                      ; AX = KB, rounded up
+    or ax, ax
+    jz .no
+    mov [wd_sukb], ax
+    call OSAPI_MEM_CLAIM            ; out CF=0, DX = base segment
+    jc .no
+    mov [wd_suseg], dx
+    mov es, dx
+    xor di, di
+    mov ax, [wd_surx1]
+    mov bx, [wd_sury1]
+    mov cx, [wd_surx2]
+    mov dx, [wd_sury2]
+    call OSAPI_GFX_SAVE             ; CF=1 = the rect straddles two displays,
+    jnc .out                        ; and half a bank put back is worse than
+    mov dx, [wd_suseg]              ; none: hand it straight back
+    mov ax, [wd_sukb]
+    call OSAPI_MEM_FREE
+.no:
+    mov word [wd_suseg], 0
+.out:
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_suab / wd_sudlg - bank for the About box and for a modal dialog
+;
+; Both keep their rect in their own four words and both load wd_mrect from it
+; on the way down (wd_abclose, wd_dgclose), so banking is that same load one
+; step earlier. They are worth banking for the same reason the dropdowns are
+; and more so: a dialog is the largest thing Word puts over its content, and
+; SPEC.md 68.3 makes it modal - so nothing can draw underneath it while it is
+; up, which is the whole precondition (word.asm's worker refuses on
+; [wd_dlg] and [wd_about] exactly as it does on [wd_mopen]).
+; -----------------------------------------------------------------------------
+wd_suab:
+    push ax
+    mov ax, [wd_abrect]
+    mov [wd_mrx1], ax
+    mov ax, [wd_abrect+2]
+    mov [wd_mry1], ax
+    mov ax, [wd_abrect+4]
+    mov [wd_mrx2], ax
+    mov ax, [wd_abrect+6]
+    mov [wd_mry2], ax
+    call wd_subank
+    pop ax
+    ret
+
+wd_sudlg:
+    push ax
+    mov ax, [wd_dlrect]
+    mov [wd_mrx1], ax
+    mov ax, [wd_dlrect+2]
+    mov [wd_mry1], ax
+    mov ax, [wd_dlrect+4]
+    mov [wd_mrx2], ax
+    mov ax, [wd_dlrect+6]
+    mov [wd_mry2], ax
+    call wd_subank
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_surest - put the banked pixels back and hand the claim over
+; in:  gfx lock held
+; out: CF=0 the screen is repaired, CF=1 nothing was banked and the caller
+;      owes wd_mrepair; preserves all registers
+; -----------------------------------------------------------------------------
+wd_surest:
+    cmp word [wd_suseg], 0
+    jne .have
+    stc
+    ret
+.have:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    mov es, [wd_suseg]
+    xor si, si
+    mov ax, [wd_surx1]
+    mov bx, [wd_sury1]
+    mov cx, [wd_surx2]
+    mov dx, [wd_sury2]
+    call OSAPI_GFX_REST             ; the same rect the save took, off the
+                                    ; banked copy of it and not off wd_mrect,
+                                    ; which wd_mrepair is free to consume
+    mov dx, [wd_suseg]
+    mov ax, [wd_sukb]
+    call OSAPI_MEM_FREE             ; before the picked item runs (SPEC.md
+    mov word [wd_suseg], 0          ; 12.4): whatever it claims gets a heap
+    pop es                          ; this menu has already left
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; wd_mopenm - open menu AL: bank state, invert the title, draw the dropdown
 ; in:  AL = menu index, wd_bounds run, gfx lock held; preserves all registers
 ; -----------------------------------------------------------------------------
@@ -13664,6 +13851,7 @@ wd_mopenm:
     jae .noxor
     call wd_mtxor
 .noxor:
+    call wd_subank                  ; ...before a pixel of the panel is drawn
     call wd_mdraw
     pop di
     pop si
@@ -13686,7 +13874,9 @@ wd_mclose:
 .noxor:
     mov byte [wd_mopen], WD_M_NONE
     mov byte [wd_mhi], 0xFF
-    call wd_mrepair
+    call wd_surest                  ; the banked pixels, or CF=1 and the
+    jnc .out                        ; piecewise repaint that was the only path
+    call wd_mrepair                 ; before SPEC.md 68.2.1
 .out:
     pop ax
     ret
@@ -17061,6 +17251,11 @@ wd_abopen:
     mov [wd_abrect+2], ax
     add ax, 87
     mov [wd_abrect+6], ax
+    call wd_suab                    ; bank what the box will cover, exactly as
+                                    ; a dropdown does (SPEC.md 68.2.1) - this
+                                    ; is the BIGGEST rect Word ever covers
+                                    ; content with, so it is the biggest
+                                    ; repaint it ever owed
     ; panel, frame, shadow - the dropdown's dress
     mov al, CWHITE
     call OSAPI_SET_COLOR
@@ -17156,7 +17351,10 @@ wd_abclose:
     mov [wd_mrx2], ax
     mov ax, [wd_abrect+6]
     mov [wd_mry2], ax
+    call wd_surest                  ; the banked pixels, or CF=1 and the
+    jnc .out                        ; piecewise repaint (SPEC.md 68.2.1)
     call wd_mrepair
+.out:
     pop ax
     ret
 
@@ -17235,6 +17433,7 @@ wd_dgopen:
 .ckset:
     mov word [wd_dgfoc], 0          ; no edit is focused yet
     mov [wd_dlg], bx
+    call wd_sudlg                   ; bank before the dialog's first pixel
     call wd_dgpaint
     jmp short .out
 .toast:
@@ -18105,7 +18304,10 @@ wd_dgclose:
     mov [wd_mrx2], ax
     mov ax, [wd_dlrect+6]
     mov [wd_mry2], ax
+    call wd_surest                  ; the banked pixels, or CF=1 and the
+    jnc .out                        ; piecewise repaint (SPEC.md 68.2.1)
     call wd_mrepair
+.out:
     pop ax
     ret
 
@@ -19938,6 +20140,14 @@ section .text
     WDVAR wd_mry1, 2        ; word } once by wd_mgeo and read by painter, hit
     WDVAR wd_mrx2, 2        ; word } test, highlight and close repaint alike
     WDVAR wd_mry2, 2        ; word } (the fm_hit discipline)
+    WDVAR wd_suseg, 2       ; word: the save-under claim's segment while a
+                            ; dropdown is down, 0 = none and the close
+                            ; REPAINTS instead (SPEC.md 68.2.1)
+    WDVAR wd_sukb,  2       ; word: its size in KB, for the free
+    WDVAR wd_surx1, 2       ; word } the rect actually banked - the panel GROWN
+    WDVAR wd_sury1, 2       ; word } by its shadow and clamped, computed once
+    WDVAR wd_surx2, 2       ; word } on the way down so the way back cannot
+    WDVAR wd_sury2, 2       ; word } disagree with it by a pixel
     WDVAR wd_mabox, 8       ; 4 words: the gesture anchor - the bar title's
                             ; band or the combo's box (os88ui rect order)
     WDVAR wd_max,  2        ; word } where a combo's dropdown hangs: its

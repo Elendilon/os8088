@@ -2134,6 +2134,18 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,
+        "SPEC.md 68.2.1: Word's dropdown BANKS the pixels it covers and the "
+        "close writes them back (521.4 ms -> 19.7 ms on a 4.77MHz 8088). The "
+        "assertion is PIXEL EQUALITY, because a save-under that is fast and "
+        "wrong is worse than a repaint that is slow and right: banking the "
+        "panel without its drop shadow, clamping differently from wd_mrepair, "
+        "or taking the plane count off the wrong display all show up here and "
+        "nowhere else. It pokes [wd_suseg] = 0 for the second cycle, which is "
+        "what a REFUSED claim leaves behind, so one run checks the banked path "
+        "and the wd_mrepair fallback against one reference.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("pkgthumb-tp", "soak", py("tests/pkgthumb.py", "texpad"), 50.0,
         "SPEC.md 13.10.7.2: ...and TexPad, whose TWO bars share one gesture"
         "record. --bar=1 drives the preview pane's.",

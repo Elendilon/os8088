@@ -85,6 +85,8 @@ Read first: [§5 vga12.inc](../SPEC.md#5-vga12inc); [§25 icons.inc — icon for
 | `0x00C0` | `OSAPI_SET_COLOR` | AL -> [gfx_color] |
 | `0x01F8` | `OSAPI_GFX_SCROLL` | move a rect's contents up or down instead of redrawing them (SPEC.md 5.5): AX/BX/CX/DX = x1/y1/x2/y2 inclusive ABSOLUTE screen coords, SI = signed... |
 | `0x04C0` | `OSAPI_GFX_BLITP` | ES:SI = plane 0's first row, DI = the step to the next plane, BP = the row stride inside one, AX = x (A MULTIPLE OF 8), BX = y, CX = width in pixels,... |
+| `0x0508` | `OSAPI_GFX_SAVE` | AX = x1, BX = y1, CX = x2, DX = y2 (INCLUSIVE, absolute screen), ES:DI = your buffer. Copies those pixels into it... |
+| `0x0510` | `OSAPI_GFX_REST` | the same rect in AX/BX/CX/DX and ES:SI = the buffer OSAPI_GFX_SAVE filled; writes it back. out CF = 1 REFUSED, CF = 0 and SI advanced... |
 | `0x04D8` | `OSAPI_GFX_SPANS` | AX = the y of the FIRST span, ES:SI = CX records of two words each, x1 then x2, both INCLUSIVE; CX = rows, row n being y+n... |
 | `0x01D8` | `OSAPI_GFX_BLIT4` | ES:SI = packed 4bpp pixels (two per byte, high nibble leftmost), BP = source stride in BYTES, AX/BX = destination x/y, CX/DX = width/height in... |
 | `0x0418` | `OSAPI_GFX_BLIT1` | ES:SI = a 1bpp BAND in the framebuffer's own bit order (row-major, bit 7 leftmost, 1 = a LIT pixel), BP = its stride in BYTES per row, AX =... |

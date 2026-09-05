@@ -2810,8 +2810,8 @@ Mode set and teardown are not in this module: `vid_setmode` / `vid_text` in
 | `gfx_blit1`     | ES:SI=band, BP=band stride (bytes), AX=dest x (**×8**), BX=dest y, CX=width px (**×8**), DX=height rows | put a 1bpp band on the screen in one call, in the framebuffer's own bit order (§5.4.2). API slot 0x0418. `kern_big` only — the small build refuses with CF=1 |
 | `gfx_xor_rect`  | AX=x1, BX=y1, CX=x2, DX=y2           | 1px outline, XOR 0Fh (drag outline)   |
 | `gfx_xor_fill`  | AX=x1, BX=y1, CX=x2, DX=y2           | filled rect, XOR 0Fh (menu highlight) |
-| `gfx_save`      | AX=x1, BX=y1, CX=x2, DX=y2, ES:DI=buf| copy region to buffer; x1 is rounded **down** to a byte boundary and x2 **up** internally. Buffer layout: plane 0 rows, plane 1 rows, plane 2, plane 3 — all four on VGA, the single plane at 1bpp (§39.3). Returns DI advanced past data. |
-| `gfx_restore`   | AX=x1, BX=y1, CX=x2, DX=y2, ES:SI=buf| write region back (same rounding/layout). Returns SI advanced. |
+| `gfx_save`      | AX=x1, BX=y1, CX=x2, DX=y2, ES:DI=buf| copy region to buffer; x1 is rounded **down** to a byte boundary and x2 **up** internally. Buffer layout: plane 0 rows, plane 1 rows, plane 2, plane 3 — all four on VGA, the single plane at 1bpp (§39.3). Returns DI advanced past data. API slot 0x0508 through `api_gfx_save`, which adds the straddle refusal (§5.3); **both builds** |
+| `gfx_restore`   | AX=x1, BX=y1, CX=x2, DX=y2, ES:SI=buf| write region back (same rounding/layout). Returns SI advanced. API slot 0x0510 through `api_gfx_rest` |
 | `gfx_lock`      | —                                    | acquire drawing mutex + hide cursor (§7) |
 | `gfx_unlock`    | —                                    | show cursor, release mutex (§7) |
 
@@ -2819,6 +2819,41 @@ Save/restore for a W-px-wide, H-px-tall rect uses
 `bytes = ((x2/8) - (x1/8) + 1) * H * [vid_planes]` — ×4 on VGA, ×1 on a 1bpp
 adapter (§39.2). Buffers are budgeted for the VGA worst case, so no routine
 computes the size at run time.
+
+### 5.3 The save-under pair is published — slots 0x0508 and 0x0510
+
+`gfx_save` and `gfx_restore` have been in the kernel since the menu save-under
+(§12.4) and, unlike `gfx_blit1`, they are outside every `KERN_BIG` guard: the
+1bpp twins are `sw_save`/`sw_restore`, so **both builds have a working body.**
+What a package was missing was therefore the *cell*, not the code.
+
+It was missing one other thing, and that is the whole of what the two stubs
+add. `GFXDENTERR` puts the whole shape on the display holding the rect's
+top-left (§39.14.6), so a rect straddling two displays banks one display's
+half and, on the way back, leaves the other half **stale**. The kernel's own
+callers owe that test and pay it — `wm_su_take` asks `vid_span_one` — but a
+package has no published way to ask, so **the cell asks on its behalf and
+refuses with CF = 1**, writing nothing.
+
+Refusing is the answer rather than a shortcoming, and it needs no failure path
+anyone has to invent: a caller that is refused **repaints**, which is what it
+did before the cell existed. That is §12.4's `[menu_sseg] = 0` rule one layer
+out — a machine that cannot bank gets a flash, not a feature it cannot use.
+
+`vid_span_one` takes AX/BX/CX/DX inclusive, the same four registers the pair
+takes, so the guard needs no frame; `gfx_save` and `gfx_restore` preserve all
+four, so the caller's rect is still in hand for the restore. The stubs are
+**12 bytes each** and the two cells 8 bytes each — 40 bytes of `.text`.
+
+Both cells are guarded, deliberately and symmetrically. Only the save can
+strictly need it (nothing may move a display between a paired save and
+restore, both being under one gfx lock hold), but a contract that refuses on
+one side and not the other is the kind that costs somebody a day.
+
+**The size formula a package uses takes its plane count from
+`OSAPI_WM_DISPLAY`'s DH, never from `OSAPI_VIDEO`** — the depth is the
+*display's*, and `OSAPI_VIDEO` answers about the primary alone (§39.2.1).
+That distinction is §39.14.8's field bug, one register along.
 
 **Software-renderer dispatch (§32/§39.5).** Every public drawing entry above
 (`gfx_pixel` … `gfx_restore`) starts with a `[vid_mono]` test and branches to
@@ -78260,6 +78295,55 @@ the kernel's own teardown path frees the task, region and claims. Both
 prompt first when the document is dirty (§68.4); the kernel close box
 CANNOT prompt — the kernel tears the instance down itself, a documented
 limitation.
+
+#### 68.2.1 A dropdown is BANKED, and the repaint is what a refusal falls back to
+
+Word draws its own bar, so it also owns the dismissal — and until §5.3 it had
+only one way to spell it: `wd_mrepair`, a piecewise repaint of everything the
+panel covered. That is the right fallback and was the wrong default. Measured
+on a 4.77 MHz 8088 (`os8088_5150_both_gla`), opening Utilities over
+`WELCOME.DOC` in a 600×136 content area:
+
+| | cycles | ms |
+|---|---:|---:|
+| open — `wd_mdraw` | 475,304 | 99.6 |
+| close — `wd_mrepair` | 2,488,591 | **521.4** |
+
+The panel is 168×109 and covers 80% of the content height; `wd_mrepair` erases
+the covered rows **full width** — all 600 px, not the panel's 168 — and
+re-letters them at ~900 µs a glyph cell. **Sliding along the bar is that
+figure once per title crossed**, because `wd_mtrack` closes and reopens, so
+File → Help was eight of them.
+
+So the drop banks first. `wd_subank` runs between `wd_mgeo` and `wd_mdraw`,
+sizes the rect the way `wd_mrepair` grows and clamps its own — **including
+the drop shadow**, or the restore is short by a column — takes the plane
+count from `OSAPI_WM_DISPLAY`'s DH (never `OSAPI_VIDEO`: §39.16.4), claims,
+and calls `OSAPI_GFX_SAVE`. `wd_surest` writes it back and frees.
+
+**Every refusal is the same refusal and none of them is a new path.** No
+claim, a rect straddling two displays, no window — `[wd_suseg]` stays 0,
+`wd_surest` answers CF = 1 and the caller falls into `wd_mrepair`, which is
+what it did before. That is §12.4's `[menu_sseg]` rule, one layer out.
+
+**The claim is per drop**, freed before the picked item runs, so whatever that
+item allocates gets a heap the menu has already left — §12.4's reasoning and
+its arithmetic: ~10 KB held at every instant nobody is looking at a menu is a
+third of a small machine's heap.
+
+**What makes it safe is an invariant the program already had.** A save-under
+is wrong if anything draws into the banked rect while the panel is up, and
+Word's worker already refuses to draw on `[wd_mopen]`, `[wd_about]` and
+`[wd_dlg]` — *"every draw below would letter text straight through it"* — so
+the precondition is one the code was already keeping for its own reasons.
+
+The About box (`wd_suab`) and every modal dialog (`wd_sudlg`) bank through the
+same pair: they keep their rect in their own four words and already loaded
+`wd_mrect` from it on the way down, so banking is that load one step earlier.
+A dialog is the largest thing Word ever puts over its content and §68.3 makes
+it modal, so it is both the biggest repaint owed and the safest to bank.
+
+`.text` +356 bytes.
 
 ### 68.3 Document model: CHP bytes and PAP on the paragraph mark
 

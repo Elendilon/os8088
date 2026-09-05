@@ -3826,7 +3826,17 @@ osapi_table:
                                   ;          20.14.3). The cell a COPIER wants:
                                   ;          OSAPI_FILE_READ_AT is already raw,
                                   ;          and this is the size to go with it
-osapi_table_end:                  ; 0x0508
+    OSAPI_SLOT api_gfx_save       ; 0x0508 - AX/BX/CX/DX = an inclusive rect,
+                                  ;          ES:DI = your buffer. Bank the
+                                  ;          pixels under a thing you are about
+                                  ;          to draw over (SPEC.md 5.4.3), so
+                                  ;          taking it down is a write-back
+                                  ;          instead of a repaint. CF = 1
+                                  ;          REFUSED - the rect straddles two
+                                  ;          displays - and nothing is written
+    OSAPI_SLOT api_gfx_rest       ; 0x0510 - ...and put it back: same rect,
+                                  ;          ES:SI = the buffer the save filled
+osapi_table_end:                  ; 0x0518
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3834,8 +3844,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 159 * 8
-%error "os8088 API jump table must be exactly 159 8-byte slots"
+%if OSAPI_TABLE_LEN != 161 * 8
+%error "os8088 API jump table must be exactly 161 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -4022,6 +4032,54 @@ api_decomp:
     call COLD_SEG:lzf_decomp
     retf                        ; CF is lz_decomp_x's answer: neither the far
                                 ; return above nor this one touches the flags
+
+; -----------------------------------------------------------------------------
+; api_gfx_save / api_gfx_rest - slots 0x0508 / 0x0510 (SPEC.md 5.4.3)
+;
+; gfx_save and gfx_restore have been in this kernel since the menu save-under
+; and are on BOTH builds - unlike gfx_blit1, which is kern_big only - so what a
+; package was missing was the CELL and not the code. The one thing it was also
+; missing is the test the kernel's own callers owe them: GFXDENTERR puts the
+; whole shape on the display holding the top-left (SPEC.md 39.14.6), so a
+; straddling rect banks one display's half and, on the way back, leaves the
+; other display's half STALE. wm_su_take asks vid_span_one for exactly this
+; reason; a package has no published way to ask, so the cell asks for it.
+;
+; Refusing is the whole answer rather than a shortcoming: a caller that gets
+; CF = 1 repaints, which is what it did before it had this cell at all
+; (SPEC.md 12.4's [menu_sseg] = 0 rule, one layer out).
+;
+; vid_span_one takes AX/BX/CX/DX inclusive - the same four registers these two
+; take - so the guard needs no frame, and gfx_save/gfx_restore preserve all
+; four, so the caller's rect survives for the restore.
+; -----------------------------------------------------------------------------
+api_gfx_save:
+%ifdef KERN_BIG
+    call vid_span_one           ; ...and only kern_big HAS a second display to
+    jc .no                      ; straddle: vid_span_one is inside that build's
+%endif                          ; guard because the extended desktop is, so on
+    call gfx_save               ; the small kernel the question cannot arise
+    clc                         ; and the cell is five bytes lighter
+    ret
+%ifdef KERN_BIG
+.no:
+    stc
+    ret
+%endif
+
+api_gfx_rest:
+%ifdef KERN_BIG
+    call vid_span_one           ; symmetric with the save on purpose: a
+    jc .no                      ; contract that refuses on one side and not
+%endif                          ; the other is the kind that costs somebody a
+    call gfx_restore            ; day
+    clc
+    ret
+%ifdef KERN_BIG
+.no:
+    stc
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; api_file_find - slot 0x0348 (X). in CX = ordinal, ES:DI = a DSK_FIND_SZ
