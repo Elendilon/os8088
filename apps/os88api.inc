@@ -305,7 +305,11 @@ KSC_ESC     equ 0x01
 
 ; --- sound (SPEC.md 20.3/34): the PC speaker, which is the whole of it.
 %define OSAPI_SND_CAPS      KERNEL_SEG:0x00E0   ; out AX = caps word (SND_CAP_*),
-                                 ; BL = 0 (the speaker), DX = 1 (present)
+                                 ; BL = where a tone goes right now: 0 the
+                                 ; speaker / 1 a sound driver's sink (34.8),
+                                 ; DX bit 0 = the speaker is present (always),
+                                 ; bit 1 = a sound driver is loaded. On
+                                 ; kern_small BL = 0 and DX = 1, always
 %define OSAPI_SND_TONE      KERNEL_SEG:0x00E8   ; AX = freq Hz (0 = off), CX =
                                  ; duration ticks (0 = until off), DL =
                                  ; priority (default 0x40); out CF=1 refused,
@@ -1285,10 +1289,12 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
 %endif
 
 %define OSAPI_CPU_INFO      KERNEL_SEG:0x0188   ; no inputs; out AL = CPU_8086 /
-                                 ; CPU_286 / CPU_386, AH = feature bits: bit 0
-                                 ; A20 verified open, bit 1 HMA claimed, bit 2
-                                 ; unreal mode armed. Preserves every register
-                                 ; but AX. Any context - it reads two bytes.
+                                 ; CPU_286 / CPU_386, AH = feature bits (the
+                                 ; CPU_F_* below): bit 0 A20 verified open,
+                                 ; bit 1 HMA claimed, bit 2 unreal mode armed,
+                                 ; bit 3 an x87 is in the socket. Preserves
+                                 ; every register but AX. Any context - it
+                                 ; reads two bytes.
 %define OSAPI_XMEM_CAPS     KERNEL_SEG:0x0190   ; no inputs; out AX = extended-
                                  ; memory KB the pool can still hand out (0 =
                                  ; none, and the three below will all refuse),
@@ -3468,8 +3474,9 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; window. Out: AX = width, BX = height, CX =
                                  ; the first row the dock owns, SI = the first
                                  ; row the desktop band has, DL = 0 VGA / 1
-                                 ; Hercules / 2 CGA, DH = bits per pixel. DI
-                                 ; preserved; no lock needed, any context.
+                                 ; Hercules / 2 CGA / 3 EGA (the VID_* kinds),
+                                 ; DH = bits per pixel. DI preserved; no lock
+                                 ; needed, any context.
                                  ;
                                  ; **OSAPI_VIDEO ANSWERS ABOUT THE PRIMARY**
                                  ; (SPEC.md 39.2.1) and is right to - but on a

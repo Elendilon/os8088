@@ -4638,13 +4638,13 @@ $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88dis
 	python3 tools/os88disk.py -o $@ --size 1440 --scramble $(BUILD)/filetest.o88 $(BUILD)/mines.o88 $(BUILD)/piano.o88 $(BUILD)/big.dat
 
 # =============================================================================
-# THE C TOOLCHAIN (SPEC.md 70) - ON DEMAND: `make cc-smoke`, `make chello`,
+# THE C TOOLCHAIN (SPEC.md 73) - ON DEMAND: `make cc-smoke`, `make chello`,
 #                                           `make cword`, `make cworddisk`
 # =============================================================================
 # apps/cc/Makefile.inc holds the rules that turn a .c file into an .o88: the
 # two new steps (smlrcc -tiny -S, then tools/cc8086.py, which lowers the seven
 # non-8086 forms SmallerC emits and REFUSES the C that is silently wrong here
-# - SPEC.md 73.6, 67.10) in front of the three steps every assembly package
+# - SPEC.md 73.6, 73.10) in front of the three steps every assembly package
 # already goes through unchanged. Its header asks to be included "anywhere
 # after $(BUILD) and $(NASM) are defined"; here also puts it after FILESIZE,
 # which its size report uses.
@@ -4666,8 +4666,8 @@ $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88dis
 #    from inside a recipe with "no such file".
 #
 #  * CWORD DOES NOT RIDE THE SHIPPED APPS DISKS. It takes Frotz's and Word's
-#    precedent (SPEC.md 61, 65.5, and 67.12 names the disk and the machine):
-#    its own floppy, all three geometries, built only when asked for.
+#    precedent (SPEC.md 61, 68.5, and 73.12 names the disk and the machine):
+#    its own floppy, all four geometries, built only when asked for.
 include apps/cc/Makefile.inc
 
 # The one thing the default build says about C, and it says it only when there
@@ -4911,7 +4911,7 @@ msegz: $(BUILD)/msegz.img $(BUILD)/msegz360.img
 # The C toolchain's demonstrator: a word processor whose UI, layout, redraw
 # and RTF engine are all C, going through the same five steps ccsmoke and
 # chello do. `make cword` builds the package, `make cworddisk` the floppy in
-# all three geometries, and `make 386-c-word` boots a period machine with it.
+# all four geometries, and `make 386-c-word` boots a period machine with it.
 #
 # IT IS NOT THE WORD PORT (SPEC.md 73.12). §68's apps/word/ is hand-written
 # assembly and the two share no file, no package name, no make target, no disk
@@ -8367,19 +8367,20 @@ burn:
 #
 # WHAT IT LEAVES OFF, because 360KB is 354 clusters and everything is more:
 #
-#   MEDIA/BEVERLY.MOD  114 cl - the module Tracker and ModPlug open. It is a
-#                      third of the disk on its own, and it is the one item
-#                      here that is DATA rather than software: the two players
-#                      still launch, they just have nothing to open. Swap in
-#                      build/media360.img when the module is the point - the
-#                      same arithmetic took it off the shipped 360KB apps disk
-#                      (SPEC.md 24.4), so that is where the module now is.
+#   MEDIA/BEVERLY.MOD   42 cl lz4-packed (114 plain) - the module Tracker and
+#                      ModPlug open, and the one item here that is DATA rather
+#                      than software: the two players still launch, they just
+#                      have nothing to open. The shipped apps360.img carries
+#                      it in MEDIA/ (SPEC.md 20.13.5; media360.img is a second
+#                      copy), so swap that disk in when the module is the
+#                      point.
 #   BIGFILE.DAT        104 cl - sysbench's cache-capacity sweep and the DOS
 #                      read-rate cross-check. sysbench says so in the report
 #                      and skips the row (SPEC.md 57.3 rule 2's shape); every
 #                      other row still runs. It is on the `make field` disks,
 #                      which is where that measurement belongs.
-#   README.TXT         16 cl - the manual, on a disk that is for running.
+#   README.TXT          9 cl - the manual (lz4-packed on disk), on a disk
+#                      that is for running.
 #
 # ...AND, SINCE THE APPLICATIONS THEMSELVES STOPPED FITTING, THREE OF THOSE -
 # COMBO_DROP below. This disk carried "every application" for as long as that

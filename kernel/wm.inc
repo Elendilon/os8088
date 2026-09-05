@@ -2189,8 +2189,8 @@ wm_kind_was:
 ;              0x0488, SPEC.md 39.16.4)
 ; in:  BX = the window
 ; out: AX = width, BX = height, CX = the first row the DOCK owns, SI = the
-;      first row the desktop band has, DL = 0 VGA / 1 Hercules / 2 CGA,
-;      DH = bits per pixel; DI preserved
+;      first row the desktop band has, DL = 0 VGA / 1 Hercules / 2 CGA / 3 EGA
+;      (the VID_* kinds), DH = bits per pixel; DI preserved
 ;
 ; **OSAPI_VIDEO ANSWERS ABOUT THE PRIMARY AND SAYS SO** (39.2.1), and it is
 ; right to: windows open there, everything a package draws is window-relative,
