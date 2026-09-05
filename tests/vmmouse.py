@@ -58,6 +58,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests"))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import heapmap                                              # noqa: E402
 import os88fixture                                       # noqa: E402
+import os88build as _B
 import os88sym                                              # noqa: E402
 import os88qemu                                             # noqa: E402
 
@@ -79,7 +80,14 @@ import os88qemu                                             # noqa: E402
 #
 # setdefault rather than a plain assignment, so a session driving this by hand
 # with its own OS88_BUILD (a knob kernel, a field build) keeps it.
-os.environ.setdefault("OS88_BUILD", os.path.join(ROOT, "build", "emuk"))
+#
+# ...AND THROUGH `os88build.at`, or a frozen run reads the SHARED build/emuk
+# while booting the tree's vmmouse.img (docs/plans/SOAK-PARALLEL.md 14.2). The two
+# are built from the same source and differ by the build number, which is one
+# 16-bit immediate - so os88sym refuses the map with "a DIFFERENT kernel" and
+# the row dies at its first symbol. Under the runner this becomes
+# `<tree>/emuk`, which is where the declared `build/vmmouse.img` put it.
+os.environ.setdefault("OS88_BUILD", _B.at("build/emuk"))
 os.environ.setdefault("OS88_DEFINES", "KERN_EMU")
 
 SOCK = os.path.join(ROOT, "build", "vmm.sock")

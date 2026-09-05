@@ -43,13 +43,14 @@ import time
 sys.path.insert(0, "tools")
 sys.path.insert(0, "tests/unit")
 sys.path.insert(0, "tests")
+import os88build as _B
 import os88marty as M                                     # noqa: E402
 from harness import check, done                           # noqa: E402
 
 RUN = "build/martypc/run"
 TEMPLATE = os.path.join(RUN, "media/hdds/default_xtide.vhd")
 VHD = os.path.abspath("build/hiber.vhd")
-FLOPPY = "build/hiber360.img"
+FLOPPY = _B.at("build/hiber360.img")
 MACHINE = "os8088_xt_hdd"
 
 # kernel/hiber.inc, kernel/instance.inc - the module's own constants

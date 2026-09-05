@@ -688,7 +688,14 @@ def start(a):
             print("%sos88soak: could not build the run's own tree:%s\n%s"
                   % (RED, OFF, str(e)[-1200:]), file=sys.stderr)
             return 1
+        # BOTH VARIABLES, and they are not the same claim (os88build's
+        # `tree_root`): OS88_BUILD says which kernel a symbol map describes -
+        # which three registry rows override with `build/smallk` - and
+        # OS88_TREE says where this run's artefacts live. Keying the path
+        # resolver on the first sent every disk a kern_small row opened into
+        # `build/smallk`, and five rows died on a missing image the tree had.
         env["OS88_BUILD"] = frozen.dir
+        env["OS88_TREE"] = frozen.dir
         print("os88soak: the run reads %s, so build/ is yours while it runs"
               % os.path.relpath(frozen.dir, ROOT))
     else:

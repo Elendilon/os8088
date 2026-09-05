@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88geom                                            # noqa: E402
+import os88build
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
@@ -139,7 +140,7 @@ def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_5150_cga_gla")
     ap.add_argument("--image", default="build/os8088-360.img")
-    ap.add_argument("--apps", default="build/npclose.img")
+    ap.add_argument("--apps", default=os88build.at("build/npclose.img"))
     ap.add_argument("--small", action="store_true",
                     help="drive kern_small, which has the SAME behaviour now "
                          "(SPEC.md 75.3.2) - the alert being a package's")
@@ -166,8 +167,14 @@ def main(argv):
     # Note Pad from an earlier build, and every assertion here is about what
     # Note Pad does - so the gate reports the last build's behaviour and says
     # nothing about this one.
+    # THE OUTPUT IS RESOLVED, not just the input (docs/plans/SOAK-PARALLEL.md 14.2).
+    # `launch` resolves what it is handed, so writing the literal
+    # `build/npclose.img` built the disk in the shared tree and looked for it
+    # in the run's own - FileNotFoundError in `_clone`, with the image sitting
+    # right there.
     subprocess.check_call([sys.executable, "tools/os88disk.py", "-o",
-                           a.apps, "--size", "360", "build/notepad.o88"])
+                           os88build.at(a.apps), "--size", "360",
+                           os88build.at("build/notepad.o88")])
 
     with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
                           boot=False) as m:

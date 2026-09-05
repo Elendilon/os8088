@@ -29,8 +29,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import os88build                                            # noqa: E402
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
+import os88pkg                                              # noqa: E402
 import os88sym                                              # noqa: E402
 import dispcp                                               # noqa: E402
 import os88geom                                             # noqa: E402
@@ -115,11 +117,28 @@ def _map(app, defines=()):
     # build/kernel.bin - and packages had no equivalent. This is it.
     # os88pkg.py validates and stamps without changing a byte, so the
     # comparison is exact rather than a size test.
+    # **THE FILE IS NO LONGER THE IMAGE** (SPEC.md 20.13.5,
+    # docs/plans/O88-COMPRESSION-PLAN.md): `PKGZ ?= lz4`, so every shipped
+    # `.o88` on disk is
+    # a compressed CONTAINER and the bytes nasm emitted are inside it.
+    # Comparing the file against a fresh assembly therefore compares 11,758
+    # bytes with 14,935 and reports "build/ is BEHIND THE TREE" about a
+    # perfectly current one - which is a WRONG DIAGNOSIS of a right check, and
+    # it took 41 rows down in one soak because every graphical row imports
+    # this. `image_unwrap` is the rule that plan states for exactly this
+    # shape: a host-side check about a size, the bss arithmetic or an
+    # assembly wants the IMAGE, never the file.
+    #
+    # ...and through `os88build.at`, because under a frozen run the shipped
+    # packages are in the run's own tree (docs/plans/SOAK-PARALLEL.md 14.2) and
+    # `build/` may hold another build's.
     sub = os.path.join("build", "smallapp") if defines else "build"
-    o88 = os.path.join(ROOT, sub,
-                       {"solitaire": "solitair"}.get(app, app) + ".o88")
+    o88 = os88build.at("%s/%s.o88"
+                       % (sub, {"solitaire": "solitair"}.get(app, app)))
+    if not os.path.isabs(o88):
+        o88 = os.path.join(ROOT, o88)
     try:
-        built = open(o88, "rb").read()
+        built = os88pkg.image_unwrap(open(o88, "rb").read())
         fresh = open(bn, "rb").read()
     except OSError as e:
         sys.exit("dispapps: cannot compare %s against the tree (%s) - run "
@@ -131,11 +150,13 @@ def _map(app, defines=()):
             except OSError:
                 pass
     if built != fresh:
-        sys.exit("dispapps: %s is %d bytes and apps/%s/%s.asm assembles to "
-                 "%d - build/ is BEHIND THE TREE, so every bss offset this "
-                 "returns describes a layout the guest does not have. Run "
-                 "`make%s`." % (o88, len(built), app, app, len(fresh),
-                                " && make smallapps" if defines else ""))
+        sys.exit("dispapps: %s holds a %d-byte image and apps/%s/%s.asm "
+                 "assembles to %d - build/ is BEHIND THE TREE, so every bss "
+                 "offset this returns describes a layout the guest does not "
+                 "have. Run `make%s`." % (o88, len(built), app, app,
+                                          len(fresh),
+                                          " && make smallapps" if defines
+                                          else ""))
     _MAPS[key] = out
     return out
 
@@ -229,17 +250,28 @@ def bss_off(app, name, small=False):
 
 
 def img_size(app, small=False):
-    """The package's image size, which is where its bss starts."""
+    """The package's image size, which is where its bss starts.
+
+    **`image` AT +8 IS THE UNPACKED SIZE ON BOTH CONTAINERS** (SPEC.md
+    20.13.5), so `n != len(d)` is not a layout check any more - it is how a
+    COMPRESSED package looks, and `PKGZ ?= lz4` makes that every shipped one.
+    The check is kept, against the unwrapped image, because it is still worth
+    something: a header whose +8 disagrees with the bytes it describes is a
+    layout that has moved. It just has to be told what the bytes are first.
+    """
     sub = os.path.join("build", "smallapp") if small else "build"
-    p = os.path.join(ROOT, sub, {"solitaire": "solitair"}.get(app, app)
-                     + ".o88")
-    d = open(p, "rb").read()
-    if d[:2] != b"O8":
+    p = os88build.at("%s/%s.o88" % (sub.replace(os.sep, "/"),
+                                    {"solitaire": "solitair"}.get(app, app)))
+    if not os.path.isabs(p):
+        p = os.path.join(ROOT, p)
+    raw = open(p, "rb").read()
+    if raw[:2] != b"O8":
         sys.exit("dispapps: %s is not a package image" % p)
+    d = os88pkg.image_unwrap(raw)
     n = int.from_bytes(d[8:10], "little")       # +8 = image size (SPEC.md 20.2)
     if n != len(d):
-        sys.exit("dispapps: %s says image=%d but is %d bytes - the header "
-                 "layout has moved" % (p, n, len(d)))
+        sys.exit("dispapps: %s says image=%d and unwraps to %d bytes - the "
+                 "header layout has moved" % (p, n, len(d)))
     return n
 
 

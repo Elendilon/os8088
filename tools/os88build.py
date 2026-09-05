@@ -110,7 +110,8 @@ class Tree(object):
         a missing one - which is exactly why it is worth handing out ready-made.
         """
         e = dict(os.environ)
-        e["OS88_BUILD"] = self.dir
+        e["OS88_BUILD"] = self.dir          # which kernel the map describes
+        e["OS88_TREE"] = self.dir           # ...and where the artefacts are
         if self.defines:
             e["OS88_DEFINES"] = " ".join(self.defines)
         return e
@@ -132,6 +133,7 @@ class Tree(object):
         code, with a message about a stale build.
         """
         os.environ["OS88_BUILD"] = self.dir
+        os.environ["OS88_TREE"] = self.dir
         os.environ.pop("OS88_DEFINES", None)
         if self.defines:
             os.environ["OS88_DEFINES"] = " ".join(self.defines)
@@ -163,7 +165,7 @@ def plain():
     supposed to be the control. With $OS88_BUILD unset this is `build/`, which
     is what every interactive run gets.
     """
-    root = os.environ.get("OS88_BUILD")
+    root = tree_root()
     return Tree(os.path.abspath(root) if root else os.path.join(ROOT, "build"),
                 (), (), DEFAULT_TARGETS)
 
@@ -397,8 +399,31 @@ def defines_for(args, target="kernel-full.bin", build=None):
     return ()
 
 
+def tree_root():
+    """The run's own build tree, or None - `$OS88_TREE`.
+
+    **IT IS NOT `$OS88_BUILD`, and conflating the two cost a soak.** They
+    answer different questions:
+
+      * `$OS88_BUILD` says WHICH KERNEL a symbol map describes, and it has
+        named a SUB-directory since long before any of this - three registry
+        rows spell `OS88_BUILD=build/smallk`, and `tests/vmmouse.py` spells
+        `build/emuk`. Those directories hold a kernel and its generated
+        includes; they hold no floppies at all.
+      * `$OS88_TREE` says WHERE THE RUN'S ARTEFACTS LIVE, which is what a
+        path like `build/small360.img` has to be resolved against.
+
+    `at()` keyed on the first, so a row pointing the symbol reader at
+    kern_small silently redirected every DISK it opened into `build/smallk`
+    as well - `FileNotFoundError: build/smallk/small360.img`, on a tree that
+    had the image exactly where the row asked for it. Five rows, and it reads
+    as a missing build.
+    """
+    return os.environ.get("OS88_TREE") or None
+
+
 def at(path):
-    """A `build/...` path, resolved against $OS88_BUILD.
+    """A `build/...` path, resolved against the run's tree (`$OS88_TREE`).
 
     **THE ONE THING THAT LETS A SOAK SURVIVE SOMEBODY ELSE'S `make`**
     (docs/plans/SOAK-PARALLEL.md 14.2). Rows name `build/os8088-360.img` and its
@@ -419,7 +444,7 @@ def at(path):
     so. Falling back to `build/` on a miss would be worse - it would half-run
     a soak against the directory the tree exists to avoid, and only sometimes.
     """
-    root = os.environ.get("OS88_BUILD")
+    root = tree_root()
     if not root or not isinstance(path, str):
         return path
     q = path.replace("\\", "/")

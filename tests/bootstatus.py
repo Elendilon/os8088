@@ -50,6 +50,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
+import os88build as _B
 import os88fixture                                       # noqa: E402
 import os88marty                                            # noqa: E402
 import os88sym                                              # noqa: E402
@@ -109,19 +110,12 @@ def image(bits):
     # THROUGH os88fixture.make - see tests/heapmap.py's note. `make -n` still
     # runs the parse, and the parse rewrites build/buildnum.inc; this puts it
     # back, so lifting a recipe out leaves the tree untouched.
-    r = os88fixture.make("-n", "build/ether360.img")
-    if r.returncode:
-        raise SystemExit("bootstatus: `make -n build/ether360.img` failed:\n"
-                         "%s%s" % (r.stdout[-800:], r.stderr[-800:]))
-    recipe = r.stdout
-    recipe = recipe.replace("\\\n", " ")
-    lines = [l for l in recipe.splitlines() if "os88disk.py" in l]
-    assert len(lines) == 1, recipe
-    cmd = lines[0].strip()
-    assert "build/system.cfg" in cmd, cmd
+    cmd, goal = os88fixture.recipe("build/ether360.img", "os88disk.py")
+    cfg = _B.at("build/system.cfg")
+    assert cfg in cmd, cmd
     out = os.path.join(BUILD, "bootstatus", "boot.img")
-    cmd = (cmd.replace("build/system.cfg", cfgfile(bits))
-              .replace("-o build/ether360.img", "-o " + out))
+    cmd = (cmd.replace(cfg, cfgfile(bits))
+              .replace("-o " + goal, "-o " + out))
     subprocess.run(cmd, cwd=ROOT, shell=True, check=True,
                    stdout=subprocess.DEVNULL)
     got = cfg_on_disk(out)

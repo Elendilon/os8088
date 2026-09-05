@@ -37,6 +37,7 @@ import sys
 sys.path.insert(0, "tools")
 sys.path.insert(0, "tests")
 import os88marty
+import os88build
 import os88mouse
 import os88sym
 import os88geom
@@ -49,9 +50,12 @@ def _image_of(rel):
     """A packed .o88's IMAGE bytes - the part table lives inside it.
 
     Relative, like every other path in this file: the row runs from the repo
-    root, which is where `make` put the fixture.
+    root - but WHICH `build/` that is depends on the run. Under a frozen soak
+    the fixture is in the run's own tree and `build/` may not have it at all
+    (docs/plans/SOAK-PARALLEL.md 14.2), which is a FileNotFoundError at IMPORT time
+    naming a file the row correctly declared.
     """
-    blob = open(rel, "rb").read()
+    blob = open(os88build.at(rel), "rb").read()
     return blob[:blob[8] | (blob[9] << 8)]
 
 

@@ -107,6 +107,8 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88build                                            # noqa: E402
 
 # The tier ceilings, in seconds. These are the numbers in the request that
 # made this suite exist and they are not advisory - see the header.
@@ -193,7 +195,12 @@ def capabilities():
     # simply has not built it, and a failure meaning "this box has no disk"
     # buries the failures that mean something. Named for the artifact, per the
     # note above.
-    if os.path.exists(os.path.join(ROOT, "build/wire360.img")):
+    # THROUGH `at`, because a frozen run reads the tree and not `build/`
+    # (docs/plans/SOAK-PARALLEL.md 14.2). Probing the shared directory granted the
+    # capability off a disk the rows could not open: `uilat`, `wirefps` and
+    # `wireflick` ran and died on FileNotFoundError instead of skipping - the
+    # one outcome a probed capability exists to prevent.
+    if os.path.exists(os88build.at("build/wire360.img")):
         caps.add("wiredisk")
     return caps
 
@@ -325,7 +332,7 @@ def prebuild(rows):
     # and `pkg` gates catch that, correctly, and it reads as a stale image.
     # Bringing the whole tree current first costs about two seconds when it
     # already is, and it is the same reason os88soak's prewarm opens with one.
-    # **A FROZEN RUN BUILDS NOTHING HERE.** With $OS88_BUILD set the tree was
+    # **A FROZEN RUN BUILDS NOTHING HERE.** With $OS88_TREE set the tree was
     # made before any of this started (os88soak's start, 14.2) and already
     # contains every declared artefact - it is built from the same union. So
     # the job is to CONFIRM, not to build: a `make` in the shared build/ would
@@ -334,8 +341,7 @@ def prebuild(rows):
     # nothing to do with this run. Measured: with a knob build looping in
     # build/, this printed "`make` failed before the declared artefacts"
     # while every row went on to pass against the tree.
-    import os88build
-    if os.environ.get("OS88_BUILD"):
+    if os88build.tree_root():
         gone = [a for a in want if not os.path.exists(os88build.at(a))]
         if gone:
             print("%s  %d declared artefact(s) are not in the run's tree: %s%s"
