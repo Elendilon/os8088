@@ -1975,14 +1975,12 @@ ifneq ($(KERN_SMALL),)
 KMODARGS += -m 4=$(BUILD)/filecp.drv
 KMODARGS += -m 5=$(BUILD)/fdlg.drv
 endif
-# ...and the compressor (SPEC.md 20.15, MOD_CMPR) is LAST on both, so its index
-# is the one thing here that is not the same number in both builds. mod.inc
-# defines it as 4 or 6 for exactly this reason - the shared row goes on the end
-# and neither build carries a hole - and os88mod.py checks the index against
-# the image's own MOD_H_ID, so getting this line wrong is a build failure.
-ifneq ($(KERN_SMALL),)
-KMODARGS += -m 6=$(BUILD)/compress.drv
-else
+# ...and the compressor (SPEC.md 20.15, MOD_CMPR) is KERN_BIG'S ALONE since
+# SPEC.md 24.5.3, so unlike the two above it this line is guarded the other way
+# round. The two builds' modules past HIBER are DISJOINT - two on kern_small,
+# one on kern_big - and os88mod.py checks the index against the image's own
+# MOD_H_ID, so getting this wrong is a build failure rather than a silent one.
+ifeq ($(KERN_SMALL),)
 KMODARGS += -m 4=$(BUILD)/compress.drv
 endif
 # ...but $(KMODS) is NOT guarded, and that is the trap this comment exists for.
@@ -7048,7 +7046,13 @@ SMALLAPPDIR := $(BUILD)/smallapp
 # of its own binary and are a different mechanism entirely; $(SMALLMODS) adds
 # kern_small's two extra. RECURSIVE, like $(DRIVERS) itself, so $(KMODS)
 # inside it still reads the per-target KMODDIR.
-SMALLDRIVERS = $(KMODS)
+# ...AND NOT $(KMODS), which is the trap the note above $(SMALLMODS) is about
+# seen from the other side. kern_small emits no `.modz` at all since SPEC.md
+# 24.5.3, so os88mod.py never writes a COMPRESS.DRV in $(SMALLDIR) - and a
+# prerequisite naming one is a rule that cannot be satisfied. The pattern, not
+# the literal, because $(KMODS) expands with $(KMODDIR) = $(BUILD) here and
+# $(SMALLDIR) in the recipe (the asymmetry $(BUILD)/small.img's note explains).
+SMALLDRIVERS = $(filter-out %/compress.drv,$(KMODS))
 
 small: $(BUILD)/small360.img $(BUILD)/small.img
 	@python3 tools/kernsplit.py $(SMALLDIR)/kernel.bin $(BUILD)/kernel.bin

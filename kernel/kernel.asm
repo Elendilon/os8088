@@ -334,6 +334,38 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_SNDCARD 1
 %endif
 
+; SPEC.md 22.22/22.23's COMPRESSION VERBS are kern_big's too, and the case is
+; the file manager's rather than the codec's. READING a compressed file is
+; untouched on both builds - the loader, the driver loader and every
+; transparent read still expand one, which is what makes a compressed floppy
+; the shipped default (SPEC.md 20.13.5) - and what goes is the ability to
+; MAKE one and to undo it. A 128KB machine has no heap to hold a source, an
+; output and a 40KB match table at once (SPEC.md 22.22.2 sizes the claim at
+; 2*U plus tables, and 22.23.2's expansion at P + U), so the verb was closer
+; to unusable there than merely unused - and with the verbs go COMPRESS.DRV's
+; mod_tab row, the fourth module, and every verdict string either says.
+;
+; Resolved HERE for OS88_ASSOC's reason, and a SEPARATE symbol for
+; OS88_SNDCARD's: this says "no verb on the menu", where LZ_HAVE_LZB below
+; says "no decoder in the kernel", and a fork wanting one without the other
+; turns exactly one of them off.
+%ifdef KERN_BIG
+  %define OS88_ZIPVERB 1
+%endif
+
+; ...and SPEC.md 20.14.2.4's SLIDING WINDOW with them, which is a smaller and
+; sharper claim. It is 256 bytes of `.bss` and ~120 of `.cold` serving ONE
+; case: a 'CZ' file whose in-place layout does not fit the capacity its reader
+; lent it (`.cznoroom`). LZ4 already has no window and is refused there, so
+; this is LZB's alone - and on kern_small the file that needs it does not
+; exist. BEVERLY.MOD is the case the window was built for and SPEC.md 24.5
+; keeps ModPlug, Tracker and Audio off the small disks entirely, there being
+; no SOUND.DRV to reach. Without it `.cznoroom` refuses in FERR_BIG's words on
+; both formats, which is what the reader already says for LZ4.
+%ifdef KERN_BIG
+  %define OS88_LZWIN 1
+%endif
+
 ; ...and SPEC.md 37.90's RTC LADDER, for a reason that is about the HARDWARE
 ; and not about the bytes (SPEC.md 37.0.1). All four rungs are chips a 128KB
 ; machine cannot have:
@@ -2531,7 +2563,9 @@ section .modp    start=MODP_START vstart=0
 %ifdef FDLG_MOD
 section .modd    start=MODD_START vstart=0
 %endif
+%ifdef OS88_ZIPVERB
 section .modz    start=MODZ_START vstart=0
+%endif
 section .modmap  start=MODMAP_START vstart=0
 section .text
 
@@ -5558,6 +5592,7 @@ section .text
                                 ; calls nothing itself - no kernel data, no
                                 ; kernel routine, just the caller's two
                                 ; segments and a four-byte stack frame
+%ifdef OS88_ZIPVERB
 %include "compress.inc"       ; ...and the one thing that COMPRESSES (SPEC.md
                                 ; 20.15), which is an on-demand module and so
                                 ; needs mod.inc's header constants above it.
@@ -5565,6 +5600,7 @@ section .text
                                 ; of one format, and nowhere near it in the
                                 ; image: this file emits `.modz` and not one
                                 ; byte of `.text`
+%endif                          ; OS88_ZIPVERB
 %include "disk.inc"
 %include "diskw.inc"          ; the FAT write path (SPEC.md 18.4): after
                                 ; disk.inc, whose constants and layout it uses
@@ -6940,12 +6976,12 @@ MODH_START   equ MODL_START + MODL_SIZE
 %ifdef FCP_MOD
 MODP_START   equ MODH_START + MODH_SIZE   ; Cut/Copy/Paste, kern_small's alone
 MODD_START   equ MODP_START + MODP_SIZE   ; ...and the file dialog after it
-MODZ_START   equ MODD_START + MODD_SIZE   ; ...and the compressor last
-%else
-MODZ_START   equ MODH_START + MODH_SIZE   ; the compressor, on both builds -
-%endif                                    ; after hibernate's, which every
-                                          ; kernel carries (SPEC.md 87)
-MODMAP_START equ MODZ_START + MODZ_SIZE
+MODMAP_START equ MODD_START + MODD_SIZE   ; ...and the map after THEM, this
+%else                                     ; build having no compressor at all
+MODZ_START   equ MODH_START + MODH_SIZE   ; the compressor, kern_big's alone
+MODMAP_START equ MODZ_START + MODZ_SIZE   ; since SPEC.md 24.5.3 - after
+%endif                                    ; hibernate's, which every kernel
+                                          ; carries (SPEC.md 87)
 
 section .modc
 modc_end:
@@ -6975,9 +7011,11 @@ modd_end:
 MODD_SIZE equ modd_end - $$
 %endif
 
+%ifdef OS88_ZIPVERB
 section .modz
 modz_end:
 MODZ_SIZE equ modz_end - $$
+%endif
 
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
 ; (mod.inc) is a RUN-TIME test - a module over it is refused cleanly, the
@@ -7006,8 +7044,10 @@ MODZ_SIZE equ modz_end - $$
 %error "the file dialog module is over MOD_MAX_KB - mod_need would refuse it at run time"
  %endif
 %endif
-%if MODZ_SIZE > MOD_MAX_KB*1024
-%error "the compressor module is over MOD_MAX_KB - mod_need would refuse it at run time"
+%ifdef OS88_ZIPVERB
+ %if MODZ_SIZE > MOD_MAX_KB*1024
+ %error "the compressor module is over MOD_MAX_KB - mod_need would refuse it at run time"
+ %endif
 %endif
 
 ; --- the split table, which is HOST-SIDE ONLY --------------------------------
@@ -7037,7 +7077,9 @@ mod_map:
     dd MODP_START, MODP_SIZE    ; ...and kern_small's fifth (SPEC.md 22.3)
     dd MODD_START, MODD_SIZE    ; ...and its sixth (SPEC.md 38.0)
 %endif
-    dd MODZ_START, MODZ_SIZE    ; ...and the compressor last, on both
+%ifdef OS88_ZIPVERB
+    dd MODZ_START, MODZ_SIZE    ; ...and the compressor last, on kern_big
+%endif
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
 modmap_end:
@@ -7556,9 +7598,11 @@ section .modd
   %error "something landed in .modd below modd_end - os88mod.py would CUT the file dialog module short of it"
 %endif
 %endif
+%ifdef OS88_ZIPVERB
 section .modz
 %if ($ - $$) != MODZ_SIZE
   %error "something landed in .modz below modz_end - os88mod.py would CUT the compressor short of it"
+%endif
 %endif
 section .modl
 %if ($ - $$) != MODL_SIZE

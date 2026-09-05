@@ -39,10 +39,12 @@
 ; =============================================================================
 
 %ifdef FCP_MOD
-MOD_MAX     equ 7               ; rows in mod_tab - SEVEN on kern_small, which
+MOD_MAX     equ 6               ; rows in mod_tab - SIX on kern_small, which
 %else                           ; alone carries Cut/Copy/Paste and the file
-MOD_MAX     equ 5               ; dialog as modules
-%endif
+MOD_MAX     equ 5               ; dialog as modules and alone carries NO
+%endif                          ; compressor (SPEC.md 24.5.3), so the two
+                                ; builds differ by two rows in one direction
+                                ; and one in the other
 MOD_CTRL    equ 0               ; the Control Panel (SPEC.md 31)
 MOD_FMT     equ 1               ; the floppy formatter (SPEC.md 18.96)
 MOD_CLONE   equ 2               ; the disk cloner (SPEC.md 18.99)
@@ -54,14 +56,17 @@ MOD_FCP     equ 4               ; Cut/Copy/Paste (SPEC.md 22.3-22.5),
                                 ; kern_small's alone - kern_big keeps the
                                 ; bodies resident in `.cold`
 MOD_FDLG    equ 5               ; ...and the Standard File dialog (SPEC.md 38,
-                                ; 38.0), on the same terms
-MOD_CMPR    equ 6               ; ...and the LZB compressor after them
-%else
-MOD_CMPR    equ 4               ; the LZB compressor (SPEC.md 20.15), which is
-%endif                          ; BOTH builds' - the Compress verb is not a
-                                ; feature kern_small does without, and the
-                                ; thing that would have made it resident (an
-                                ; 8KB hash table) is the caller's block
+%endif                          ; 38.0), on the same terms
+%ifdef OS88_ZIPVERB
+MOD_CMPR    equ 4               ; ...and the LZB compressor (SPEC.md 20.15),
+                                ; which is KERN_BIG'S ALONE since SPEC.md
+                                ; 24.5.3: the verb it exists for is not on
+                                ; kern_small's menu, so the row, the mod_fp
+                                ; block and the file all go with it. It is
+                                ; index 4 because the two above it are
+                                ; kern_small's and the two builds' module
+                                ; lists are disjoint past MOD_HIBER
+%endif
 
 MOD_NENT    equ 7               ; far-pointer slots reserved per module. A
                                 ; fixed stride, so a thunk's
@@ -225,7 +230,9 @@ mod_f_hib:  db 'HIBER.DRV', 0   ; ...and a fourth: hibernate (SPEC.md 87),
 mod_f_fcp:  db 'FILECP.DRV', 0  ; ...and kern_small's fifth (SPEC.md 22.3)
 mod_f_fdlg: db 'FDLG.DRV', 0    ; ...and its sixth (SPEC.md 38.0)
 %endif
-mod_f_cmpr: db 'COMPRESS.DRV', 0 ; ...and the compressor, on both (SPEC.md 20.15)
+%ifdef OS88_ZIPVERB
+mod_f_cmpr: db 'COMPRESS.DRV', 0 ; ...and the compressor, kern_big's alone
+%endif                          ; (SPEC.md 20.15, 24.5.3)
                                 ; ending DRV read-only + hidden + system by
                                 ; EXTENSION, the installer's `*.DRV` copy rule
                                 ; picks it up, and neither of these is in
@@ -252,10 +259,11 @@ mod_r_fdlg:                     ; ...and this one is NAMED, because SPEC.md
                                 ; together by KERN_SMALL, and decoupling them
                                 ; is an undefined symbol rather than a silent
 %endif                          ; read of the wrong word
-    dw 0, mod_f_cmpr            ; MOD_CMPR - LAST on both builds, so the row
-                                ; the two configurations share is at a
-                                ; different index in each and neither has a
-                                ; hole. mod_map is written in this order too
+%ifdef OS88_ZIPVERB
+    dw 0, mod_f_cmpr            ; MOD_CMPR - kern_big's alone (SPEC.md 24.5.3),
+%endif                          ; and the two builds' rows past MOD_HIBER are
+                                ; disjoint: two here on kern_small and one on
+                                ; kern_big. mod_map is written in this order
 
 MOD_TAB_OFF equ mod_tab - $$    ; mod_tab AS A NUMBER. .text has vstart=0
                                 ; (kernel.asm), so this IS the address every

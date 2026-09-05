@@ -1590,6 +1590,7 @@ fm_errtab:    dw fm_s_empty,  fm_s_enodisk, fm_s_dskerr, fm_s_ename
               dw fm_s_eprot,  fm_s_ewprot,  fm_s_toobig
 FM_NERR       equ 11            ; FERR_OK .. FERR_BIG
 
+%ifdef OS88_ZIPVERB
 ; --- FMZ_* -> the Compress verb's own verdicts (SPEC.md 22.22) ----------------
 ; A table of its own rather than rows on fm_errtab above: these are not FERR_*
 ; codes and the index IS the code there, so borrowing that table would mean
@@ -1635,6 +1636,7 @@ fm_ztab:      dw fm_s_empty, fm_s_znomod, fm_s_znomem, fm_s_toobig
                                 ; word `compress' anyway, this verb being the
                                 ; one that does not
 
+%endif                          ; OS88_ZIPVERB
 
 ; --- the status-line input prompts (SPEC.md 22) ------------------------------
 ; The delete line is the ONLY thing between a command and a file that is
@@ -1779,9 +1781,10 @@ fm_s_open     equ fdlg_s_topen   ; the Standard File dialog's title, which
 fm_s_mkdir:   db 'New Folder...', 0
 fm_s_rename:  db 'Rename...', 0
 fm_s_delete:  db 'Delete', 0
+%ifdef OS88_ZIPVERB
 fm_s_compress: db 'Compress', 0 ; SPEC.md 22.22 - no ellipsis: it asks nothing
 fm_s_uncomp:  db 'Uncompress', 0 ; and starts the moment it is picked, and
-                                ; SPEC.md 22.23's other half says the same
+%endif                          ; SPEC.md 22.23's other half says the same
 fm_s_cut:     db 'Cut', 0
 fm_s_copy:    db 'Copy', 0
 fm_s_paste:   db 'Paste', 0
@@ -1828,19 +1831,25 @@ fm_s_newwin:  db 'New Window', 0
 
 fm_items_file:
     dw fm_s_open, fm_s_mkdir, fm_s_rename, fm_s_delete
+%ifdef OS88_ZIPVERB
     dw fm_s_compress, fm_s_uncomp
+%endif
     dw fm_s_fsep, fm_s_format   ; fm_bar_gate rewrites these last three words
     dw fm_s_clone, fm_s_wimg
+%ifdef OS88_ZIPVERB
 FM_ICOMP    equ 4               ; the compression pair (SPEC.md 22.22/22.23),
 FM_IUNCOMP  equ 5               ; written down because tests/lzcomp.py picks
-                                ; both by index and reads these rather than
-                                ; carrying a copy of the number
-FM_IFMT     equ 7               ; ...at these item indices, which are also
-FM_ICLONE   equ 8               ; FMC_FORMAT/FMC_CLONE/FMC_WIMG - FMC_OPEN,
-FM_IWIMG    equ 9               ; and are written down once rather than being
+FM_IZIP     equ 2               ; both by index and reads these rather than
+%else                           ; carrying a copy of the number - and FM_IZIP
+FM_IZIP     equ 0               ; is how many items the pair adds, which is
+%endif                          ; what the three below are written against
+FM_IFMT     equ 5 + FM_IZIP     ; ...at these item indices, which are also
+FM_ICLONE   equ 6 + FM_IZIP     ; FMC_FORMAT/FMC_CLONE/FMC_WIMG - FMC_OPEN,
+FM_IWIMG    equ 7 + FM_IZIP     ; and are written down once rather than being
                                 ; counted at the store
-FM_NFILE    equ 10              ; items in the File menu (MENU_POPMAX is 11,
-                                ; so this is the last one that fits)
+FM_NFILE    equ 8 + FM_IZIP     ; items in the File menu (MENU_POPMAX is 11,
+                                ; so ten is the most that fits and kern_small
+                                ; runs at eight)
 fm_items_edit:
     dw fm_s_cut, fm_s_copy, fm_s_paste
 fm_items_nav:
@@ -3930,6 +3939,7 @@ FMC_OPEN    equ 0               ; File
 FMC_MKDIR   equ 1
 FMC_RENAME  equ 2
 FMC_DELETE  equ 3
+%ifdef OS88_ZIPVERB
 FMC_COMPRESS equ 4              ; SPEC.md 22.22, and the paragraph above is the
                                 ; licence for the renumber below it - a THIRD
                                 ; time. It sits with Delete rather than with
@@ -3938,28 +3948,39 @@ FMC_COMPRESS equ 4              ; SPEC.md 22.22, and the paragraph above is the
 FMC_UNCOMP  equ 5               ; SPEC.md 22.23 - the pair, and the licence
                                 ; above is what pays for the renumber below
                                 ; it a FOURTH time
-FMC_FMTSEP  equ 6               ; the RULE between the pair and Format. It is a
+%endif
+                                ; ...and FMC_ZIP is how many ids the pair
+                                ; takes, so every one below is written against
+                                ; it rather than twice. It is not a knob: a
+                                ; menu that gains an item renumbers, and this
+                                ; is a menu that gains two on one build
+%ifdef OS88_ZIPVERB
+FMC_ZIP     equ 2
+%else
+FMC_ZIP     equ 0
+%endif
+FMC_FMTSEP  equ 4 + FMC_ZIP     ; the RULE between the pair and Format. It is a
                                 ; MENU_DIS item, so menu_hover can never land
                                 ; on it and this id can never be dispatched -
                                 ; but it occupies an item index, so it needs
                                 ; an id and a fm_jmp entry all the same, and
                                 ; that entry is a bare `ret` because a body
                                 ; may not assume which surface picked it
-FMC_FORMAT  equ 7
-FMC_CLONE   equ 8               ; SPEC.md 22.21, and the paragraph above is the
-FMC_WIMG    equ 9               ; licence for the renumber below it - twice
-FMC_CUT     equ 10              ; Edit
-FMC_COPY    equ 11
-FMC_PASTE   equ 12
-FMC_NEWWIN  equ 13              ; Nav
-FMC_OPENNEW equ 14
-FMC_REFRESH equ 15
-FMC_UP      equ 16
-FMC_ROOT    equ 17
-FMC_DRVA    equ 18
-FMC_DRVB    equ 19
-FMC_LIST    equ 20              ; no menu CELL of its own since SPEC.md 22.15
-FMC_ICONS   equ 21              ; retired View: the context menu (fm_cxc_dir)
+FMC_FORMAT  equ 5 + FMC_ZIP
+FMC_CLONE   equ 6 + FMC_ZIP     ; SPEC.md 22.21, and the paragraph above is the
+FMC_WIMG    equ 7 + FMC_ZIP     ; licence for the renumber below it - twice
+FMC_CUT     equ 8 + FMC_ZIP     ; Edit
+FMC_COPY    equ 9 + FMC_ZIP
+FMC_PASTE   equ 10 + FMC_ZIP
+FMC_NEWWIN  equ 11 + FMC_ZIP    ; Nav
+FMC_OPENNEW equ 12 + FMC_ZIP
+FMC_REFRESH equ 13 + FMC_ZIP
+FMC_UP      equ 14 + FMC_ZIP
+FMC_ROOT    equ 15 + FMC_ZIP
+FMC_DRVA    equ 16 + FMC_ZIP
+FMC_DRVB    equ 17 + FMC_ZIP
+FMC_LIST    equ 18 + FMC_ZIP    ; no menu CELL of its own since SPEC.md 22.15
+FMC_ICONS   equ 19 + FMC_ZIP    ; retired View: the context menu (fm_cxc_dir)
                                 ; and the in-window toggle button are the two
                                 ; surfaces left, and both reach these BY NAME.
                                 ; Nothing renumbers - a base + item sum simply
@@ -3967,20 +3988,19 @@ FMC_ICONS   equ 21              ; retired View: the context menu (fm_cxc_dir)
                                 ; that produced it left fm_menu_base and every
                                 ; other base is a VALUE that did not move
                                 ; (SPEC.md 12.7's FMC_CLOSEW reasoning)
-FMC_TIMER   equ 22              ; Builtins (SPEC.md 12.3.1) - the same three
-FMC_BOUNCE  equ 23              ; commands Locator's own Builtins menu has,
-FMC_DISK    equ 24              ; in the same order. Restart is NOT among them
+FMC_TIMER   equ 20 + FMC_ZIP    ; Builtins (SPEC.md 12.3.1) - the same three
+FMC_BOUNCE  equ 21 + FMC_ZIP    ; commands Locator's own Builtins menu has,
+FMC_DISK    equ 22 + FMC_ZIP    ; in the same order. Restart is NOT among them
                                 ; any more: it moved to the System menu, which
                                 ; is cell 0 of every application, so a Disk
                                 ; window reaches it there like everything else
-FMC_PASTEIN equ 25              ; no menu CELL of its own: the context menu's
+FMC_PASTEIN equ 23 + FMC_ZIP    ; no menu CELL of its own: the context menu's
                                 ; "paste into the folder under the pointer"
                                 ; (SPEC.md 22.3), which the bar cannot offer
                                 ; because the bar has no pointer. It sits
                                 ; PAST every menu's range so no base + item
                                 ; sum can reach it by accident.
-FMC_COUNT   equ 26
-
+FMC_COUNT   equ 24 + FMC_ZIP
 ; --- how much of the acting window did the command change? (SPEC.md 22.13) ---
 ; fm_docmd stamps FMD_ALL before every dispatch, so a body that says nothing -
 ; and a body somebody adds later - is repainted whole: the value a forgotten
@@ -4010,6 +4030,7 @@ fm_jmp:
     dw fm_c_rename              ; inline (arms it; the disk is touched at
                                 ;         Enter, not here)
     dw fm_c_delete              ; inline (arms the CONFIRM line; likewise)
+%ifdef OS88_ZIPVERB
     dw fm_c_compress            ; inline (reads, compresses and WRITES under
                                 ;         the lock - the whole operation, like
                                 ;         a clone's transfer, and it is what
@@ -4017,6 +4038,7 @@ fm_jmp:
     dw fm_c_uncomp              ; inline (ditto, and with no module to fetch:
                                 ;         the DECODER is resident, which is
                                 ;         SPEC.md 22.23's whole asymmetry)
+%endif
     dw fm_c_nop                 ; the separator - unreachable through the bar
                                 ; (MENU_DIS), and a `ret` rather than a hole
                                 ; because fm_docmd's bound is FMC_COUNT and
@@ -4574,6 +4596,7 @@ fm_clone_go:
 CMZ_WMAX    equ 16384           ; the compressor's window, largest first: 2
 CMZ_WMIN    equ 1024            ; bytes of prev[] each (SPEC.md 20.15.1)
 
+%ifdef OS88_ZIPVERB
 ; -----------------------------------------------------------------------------
 ; fm_c_compress - the FMC_COMPRESS body (fm_docmd near-calls it, lock held)
 ; -----------------------------------------------------------------------------
@@ -4964,6 +4987,8 @@ fm_uncmp_free:
     pop bx
 .none:
     ret
+
+%endif                          ; OS88_ZIPVERB
 
 ; -----------------------------------------------------------------------------
 ; fm_toast_hdr - say what is staged in fm_hdrbuf, as a toast (SPEC.md 59)
@@ -5481,7 +5506,7 @@ MC_NITEM    equ 4               ; word: item count
 ; here to add it: it is doable, and the paragraph above is not an argument
 ; against it.
 fm_ctx_file:                    ; the row under the pointer is a file
-    dw fm_cxi_file, fm_cxc_file, 7
+    dw fm_cxi_file, fm_cxc_file, 5 + FM_IZIP
 fm_ctx_fold:                    ; ...or a folder, which can also be opened
     dw fm_cxi_fold, fm_cxc_fold, 7
 fm_ctx_dir:                     ; empty space: the folder's own commands
@@ -5499,10 +5524,14 @@ fm_ctx_up:                      ; ...or '..' (SPEC.md 19.5), which opens and
 ; '..', so the other three descriptors are unchanged.
 fm_cxi_file:
     dw fm_s_open, fm_s_cut, fm_s_copy, fm_s_rename, fm_s_delete
+%ifdef OS88_ZIPVERB
     dw fm_s_compress, fm_s_uncomp
+%endif
 fm_cxc_file:
     db FMC_OPEN, FMC_CUT, FMC_COPY, FMC_RENAME, FMC_DELETE
+%ifdef OS88_ZIPVERB
     db FMC_COMPRESS, FMC_UNCOMP
+%endif
 
 ; Paste is on the FOLDER menu as well as the empty-space one, because
 ; "paste into that folder" is the thing a right-click on a folder is for -
@@ -8669,6 +8698,7 @@ fm_bx2:     resw 1              ; to byte columns and stopping short of the
 fm_by1:     resw 1              ; scroll bar; y covers whole rows only
 fm_by2:     resw 1
                                 ; change (fm_sb_thumb)
+%ifdef OS88_ZIPVERB
 fm_cmpru:   resw 1              ; the compression verbs (SPEC.md 22.22/22.23):
                                 ; what a read of the file produces...
 fm_cmprp:   resw 1              ; ...what it occupies on the disk today
@@ -8688,6 +8718,7 @@ fm_cmprk:   resw 1              ; ...and the source region's size in KB
                                 ; right rather than twelve, and the two that
                                 ; were Compress's alone went into COMPRESS.DRV
                                 ; with the body that reads them
+%endif                          ; OS88_ZIPVERB
 fm_fsize:   resw 1              ; fm_stage_name: entry size, bytes (lo word)
 fm_fsizeh:  resw 1              ; ...and its high word (SPEC.md 19)
 fm_ftype:   resw 1              ; fm_stage_name: SPEC.md 19 type word

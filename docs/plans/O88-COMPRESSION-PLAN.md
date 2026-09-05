@@ -1932,6 +1932,80 @@ It is the one open item in the feature.
 about which of them stay resident, not a shaving exercise. `lz_wbuf` alone is
 256 bytes of `.bss` serving one case (`.cznoroom`, §20.14.2.4).
 
+### 13.14 SIZE PASS 2 — kern_small pays 1,174 where it paid 3,329
+
+Two `%ifdef`s, both resolved in `kernel.asm` beside `OS88_DRIVERS`, and
+neither costs `kern_big` a byte — it measures **2,725, unchanged**. SPEC.md
+24.5.3 is the contract; this is what it cost and what it found.
+
+**`OS88_ZIPVERB` — Compress, Uncompress and `COMPRESS.DRV`.** The requirement
+kern_small cannot meet is memory and it is not close: §22.22.2 sizes the
+Compress claim at `2·U` plus 8–40KB of tables and §22.23.2 the Uncompress one
+at `P + U`, against ~40KB of heap with a window open. Unlike a package it
+could not refuse itself usefully — `Not enough memory` on every file is a menu
+item that never works.
+
+**The distinction that made the decision easy is that READING is untouched.**
+The loader, the driver loader, `OP_COMP` parts and every transparent read
+still expand a compressed file on both builds, which is what lets a compressed
+floppy stay the shipped default: a kern_small machine boots a packed kernel,
+launches packed packages and opens `'CZ'` data files. It cannot write one.
+
+**`OS88_LZWIN` — the LZB sliding window.** 256 bytes of `.bss` and ~120 of
+`.cold` for ONE case, and on kern_small the file it exists for cannot be
+there: `BEVERLY.MOD` is that file and §24.5 keeps ModPlug, Tracker and Audio
+off the small disks for want of `SOUND.DRV`. It also picked up a saving that
+was sitting on the floor — `lz.inc` `%undef`s the gate when `LZ_HAVE_LZB` is
+absent, so **`COMPRESS=lz4`** stops assembling an arm whose first instruction
+is `cmp al, LZ_LZB` / `jne`.
+
+#### 13.14.1 Three things the gating taught
+
+**A gate written round the FEATURE leaves what the feature was the only reason
+for.** `dskw_usize` is 97 bytes of `.cold` whose two callers are the verb and
+the module; with both gone it was dead code on kern_small and nothing said so —
+not the unreachable-code check, not the linker there isn't one of. Found by
+grepping the callers rather than by any gate, which is the argument for
+`t_smallzip.py` below.
+
+**`tools/stkbalance.py` reads SOURCE and has no preprocessor**, so a
+conditional carrying a different `pop` count per arm walks to depth −1 and the
+gate refuses a routine that is balanced on both builds. `dskw_czexp` is the
+worked example: the pops stay OUTSIDE the `%ifdef` and only the compare and
+the branch go inside, which costs nothing and is the shape to copy.
+
+**The renumbering is arithmetic, not two lists.** The File menu loses two
+items and every `FMC_*` below the pair closes up, so the ids are written
+against `FMC_ZIP` (2 or 0) and the item indices against `FM_IZIP` — one
+definition per build rather than a second copy of twenty-one constants that
+could drift. `MOD_MAX` is 6 on kern_small and 5 on kern_big, and the two
+builds' modules past `MOD_HIBER` are now **disjoint**: Cut/Copy/Paste and the
+file dialog there, the compressor here.
+
+#### 13.14.2 …and a gate for the gates
+
+`tests/unit/t_smallzip.py` is a fast-tier row and it exists because **both
+gates fail silently**. A `%ifdef` round one line too few leaves the bytes in
+and nothing says a word — the kernel assembles, the disk builds, the machine
+boots, and the measurement is simply not true any more. It asserts sixteen
+symbols absent from kern_small and present in kern_big, four present in BOTH
+(`lz_decomp_x`, `ld_expand`, `dskw_rbody`, `api_decomp` — a gate that reached
+one of those took the half that had to stay), and `COMPRESS.DRV`'s presence on
+four disks, because whether the FILE ships is the half a symbol map cannot
+see. Two cached symbol maps and four root directories: 3.5 seconds.
+
+#### 13.14.3 Where the target stands now
+
+| | kern_big | kern_small |
+|---|---:|---:|
+| sections | 2,725 | **1,174** |
+| footprint | 3,072 | **1,024** |
+
+**kern_small is at the number.** kern_big still is not, and nothing above
+touches it: its 2,725 is `lz.inc` 916, `files.inc` 684, `diskw.inc` ~690,
+`driver.inc` 219, `loader.inc` 187 and 122 of plumbing — the five consumers,
+all of which that build genuinely uses.
+
 ## 14. Decisions still open before wave 1
 
 Everything in §12 is costed. These are the things a build would have to

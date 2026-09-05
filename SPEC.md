@@ -36163,6 +36163,66 @@ was measuring the wrong quantity, and the target built on it is retired —
 **a package's footprint is its region PLUS the claims it makes to function**,
 and only the second number says whether it runs.
 
+#### 24.5.3 …and two of the KERNEL's own features go by the same rule
+
+The rule above is about packages, and these two are about the kernel, but the
+test is the one sentence and the answer is the same. Both are `%ifdef`s
+resolved in `kernel.asm` beside `OS88_DRIVERS` and `OS88_ASSOC`, so neither is
+a knob and neither costs `kern_big` a byte.
+
+**`OS88_ZIPVERB` — `Compress` and `Uncompress` (§22.22, §22.23).** What goes is
+the ability to MAKE a compressed file and to undo it. **Reading one is
+untouched**, and that distinction is the whole of the decision: the loader, the
+driver loader, `OP_COMP` parts and every transparent read still expand a
+compressed file on both builds, which is what lets a compressed floppy be the
+shipped default (§20.13.5) — a `kern_small` machine still boots a packed
+kernel, still launches packed packages, and still opens `'CZ'` data files. It
+simply cannot write one.
+
+The requirement it cannot meet is memory, and it is not close. §22.22.2 sizes
+Compress's claim at **`2·U` plus 8–40KB of match tables** and §22.23.2 sizes
+Uncompress's at **`P + U`**; the floor machine has ~40KB of heap with a window
+open. The verb was closer to unusable there than merely unused — and unlike a
+package it could not say so in its own words, because a verb that refuses is
+`Not enough memory` on every file, which is a menu item that never works.
+
+With them go: the two menu items and the two `fm_ctx_file` rows, `FMC_ZIP` = 0
+so every id below the pair closes up, the four verdict strings and `fm_ztab`,
+six words of `.bss`, and **`COMPRESS.DRV` entirely** — the `mod_tab` row, the
+28-byte `mod_fp` block, the file name and the file. `MOD_MAX` is 6 on
+`kern_small` and 5 on `kern_big`, and the two builds' modules past `MOD_HIBER`
+are **disjoint**: Cut/Copy/Paste and the file dialog there, the compressor
+here.
+
+**`OS88_LZWIN` — the LZB sliding window (§20.14.2.4).** 256 bytes of `.bss` and
+~120 of `.cold` serving ONE case: a `'CZ'` file whose in-place layout does not
+fit the capacity its reader lent it. LZ4 already has no window and is refused
+there, so this was always LZB's alone — and on `kern_small` the file it was
+built for does not exist. `BEVERLY.MOD` is that file, and the table above keeps
+ModPlug, Tracker and Audio off the small disks entirely for want of
+`SOUND.DRV`. Without the window `.cznoroom` refuses in `FERR_BIG`'s words on
+both formats, which is what the reader already says for LZ4.
+
+It is also **`COMPRESS=lz4`'s** saving, taken at the same time: `lz_win_x`
+tests `AL == LZ_LZB` and returns, so the arm used to assemble into a kernel
+that could never reach it. `lz.inc` `%undef`s `OS88_LZWIN` when `LZ_HAVE_LZB`
+is absent.
+
+`dskw_usize` goes with the verb, both its callers being the verb's: 97 bytes
+of `.cold` that were dead the moment `OS88_ZIPVERB` was off, and the kind of
+leftover a gate leaves when it is written round the feature and not round
+everything the feature was the only reason for.
+
+**What the pair is worth**: compression's whole cost on `kern_small` falls from
+**3,329 bytes of sections to 1,174**, and its footprint from 3,072 to
+**1,024** — `.text` 311 → 42, `.bss` 322 → 12, `.cold` 2,696 → 1,120. What is
+left is the two decoders and the read path, which is the half that had to stay.
+**`kern_big` is unchanged at 2,725**, which is the claim `tests/unit/t_smallzip.py`
+exists to keep true in both directions: it asserts the gated symbols absent
+from `kern_small`, present in `kern_big`, and `lz_decomp_x` / `ld_expand` /
+`dskw_rbody` / `OSAPI_DECOMP` present in BOTH — a gate that reached one of
+those took the half that had to stay, and nothing else would have said so.
+
 #### 24.5.1 The small system disk carries core packages too
 
 §24.3's rule is not the shipped disk's alone: **the core packages ride the

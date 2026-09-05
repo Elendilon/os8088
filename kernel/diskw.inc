@@ -150,10 +150,12 @@ dskw_syms:  db '$', '%', 0x27, '-', '_', '@', '~', 0x60
 ; deleted, and every chain those writes allocated leaked. It is exactly the
 ; kind of flag that is only ever cleared on a path that has never run.
 dskw_czon:  db 0                ; 1 = the file being read is compressed
+%ifdef OS88_LZWIN
 dskw_czwin: db 0                ; ...and 1 = through lz_win_x's sliding window,
                                 ; the caller's buffer being too tight for the
                                 ; in-place layout (SPEC.md 20.14.2.4).
                                 ; `.text` for dskw_czon's own reason
+%endif
 dskw_isdir: db 0                ; 1 = dskw_commit is stamping a folder
 dskw_batch: db 0                ; 1 = a MULTI-FILE operation is running and
                                 ; owns the coherence remount (SPEC.md 22.3).
@@ -1743,6 +1745,7 @@ dskw_last_p:
     pop ax
     ret
 
+%ifdef OS88_ZIPVERB              ; its two callers are the Compress verb and
 ; -----------------------------------------------------------------------------
 ; dskw_usize - what a READ of this file would produce, without reading it
 ; in:  SI -> NUL-terminated 8.3 name, in the volume's current directory
@@ -1828,6 +1831,7 @@ dskw_usize:
 ; chain walk STOP EARLY and report success over a hostile entry (SPEC.md 18
 ; - every byte off the disk is hostile input).
 ; -----------------------------------------------------------------------------
+%endif                          ; COMPRESS.DRV, both kern_big's (SPEC.md 24.5.3)
 dskw_rbody:
     call dskw_mounted
     jnc .gated
@@ -1856,9 +1860,11 @@ dskw_rbody:
     ret
 .isfile:
     mov byte [dskw_czon], 0
+%ifdef OS88_LZWIN
     mov byte [dskw_czwin], 0    ; ...and not through the window (20.14.2.4),
                                 ; cleared HERE rather than in .bss for
                                 ; dskw_czon's own reason one screen up
+%endif
     mov al, [dskw_raw+DSK_R_CZM]    ; the mark, LESS its format: 0x5A is LZ4
     sub al, DSK_CZ_MARK             ; and 0x5B is LZB (SPEC.md 20.14.2.4), and
     cmp al, LZ_LZB                  ; .czcap below needs to know WHICH before
@@ -1987,12 +1993,13 @@ dskw_rbody:
 .cznoroom:                      ; ...AND NOT TOO BIG, for ONE of the two
     pop dx                      ; formats (SPEC.md 20.14.2.4). U fits and only
     pop ax                      ; the in-place LAYOUT does not, which LZB
-    mov al, [dskw_raw+DSK_R_CZM]    ; survives by reading through a WINDOW and
-    sub al, DSK_CZ_MARK             ; LZ4 does not - so the mark has to carry
-    cmp al, LZ_LZB                  ; the format, and this is the reason it
-    jne .toobig                     ; does. An LZ4 file here is one no build of
-                                    ; ours would write (20.14.2.3), so the
-                                    ; refusal IS its handling
+%ifndef OS88_LZWIN              ; survives by reading through a WINDOW and LZ4
+    jmp .toobig                 ; does not - so the mark has to carry the
+%else                           ; format, and this is the reason it does. An
+    mov al, [dskw_raw+DSK_R_CZM]    ; LZ4 file here is one no build of ours
+    sub al, DSK_CZ_MARK             ; would write (20.14.2.3), so the refusal
+    cmp al, LZ_LZB                  ; IS its handling - and on a kernel built
+    jne .toobig                     ; without the window it is BOTH formats'
     mov ax, [dskw_cap]          ; R = cap - P: the packed bytes go as HIGH in
     mov dx, [dskw_caphi]        ; the caller's buffer as they fit. Where they
     sub ax, bx                  ; sit no longer decides safety - the window
@@ -2001,6 +2008,7 @@ dskw_rbody:
     jae .toobig
     mov byte [dskw_czwin], 1
     jmp short .czplace
+%endif                          ; OS88_LZWIN
 .czroom:
     pop dx
     pop ax                      ; R again
@@ -2238,19 +2246,28 @@ dskw_czexp:
                                 ; packed bytes came in R paragraphs up and the
                                 ; expansion walks down onto them. ES FIRST -
     xor di, di                  ; dskw_czseg is the KERNEL's word, and this is
-    cmp byte [dskw_czwin], 0    ; what stops it being readable - and the SAME
-                                ; goes for this flag, which is why it is read
-                                ; HERE and not after the pop. `.cold` runs at
+%ifdef OS88_LZWIN               ; what stops it being readable - and the SAME
+    cmp byte [dskw_czwin], 0    ; goes for this flag, which is why it is read
+%endif                          ; HERE and not after the pop. `.cold` runs at
                                 ; COLD_SEG, so `cs:` reaches neither
-    pop ds                      ; ...and `pop` leaves the flags alone, which
-    jne .win                    ; is what lets the branch survive it
+    pop ds                      ; ...and `pop` leaves the flags alone, which is
+%ifdef OS88_LZWIN               ; what lets the branch below survive it. THE
+    jne .win                    ; POPS ARE OUTSIDE THE %ifdef and the branch is
+%endif                          ; inside it, which is not a style choice:
+                                ; tools/stkbalance.py reads SOURCE and has no
+                                ; preprocessor, so a conditional carrying a
+                                ; different `pop` count per arm walks to depth
+                                ; -1 and the gate refuses a routine that is
+                                ; balanced on both builds
     call lz_decomp_x
     pop ds
     ret
+%ifdef OS88_LZWIN
 .win:
     call lz_win_x               ; the tight-buffer arm (SPEC.md 20.14.2.4)
     pop ds
     ret
+%endif
 .bad:
     pop ds
     stc
@@ -5143,8 +5160,10 @@ dwf_dskw_dfree:         call dskw_dfree_x
                     retf
 dwf_dskw_read:          call dskw_read_x
                     retf
+%ifdef OS88_ZIPVERB
 dwf_dskw_usize:         call dskw_usize
                     retf
+%endif
 dwf_dskw_rename:        call dskw_rename_x
                     retf
 dwf_dskw_stat:          call dskw_stat_x

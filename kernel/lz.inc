@@ -89,6 +89,17 @@ LZ_LZB      equ 1               ; field. Mirrored by os88lz.py's LZ4/LZB and
   %endif
 %endif
 
+; ...and the SLIDING WINDOW is LZB's alone (SPEC.md 20.14.2.4), so a build
+; without LZB has no use for it whatever kernel.asm's OS88_LZWIN says. That is
+; a saving `COMPRESS=lz4` used to leave on the floor: lz_win_x tests
+; `AL == LZ_LZB` and returns, so the whole arm assembled into a kernel that
+; could never reach it.
+%ifdef OS88_LZWIN
+  %ifndef LZ_HAVE_LZB
+    %undef OS88_LZWIN
+  %endif
+%endif
+
 section .cold
 
 ; -----------------------------------------------------------------------------
@@ -145,6 +156,7 @@ LZ_F_BUMP   equ 6               ; ...and 1 once the destination has crossed a
                                 ; can reach - so the offset bound stops being a
                                 ; compare at all (SPEC.md 20.14.5)
 
+%ifdef OS88_LZWIN
 ; -----------------------------------------------------------------------------
 ; lz_win_x - the same decode, reading the source through a WINDOW
 ;            (SPEC.md 20.14.2.4)
@@ -261,6 +273,7 @@ lz_wfill:
     pop bx
     pop ax
     ret
+%endif                          ; OS88_LZWIN
 
 lz_decomp_x:
     push ds                     ; both segments are the caller's and both come
@@ -529,6 +542,7 @@ lz_lzb:
 .loop:
     cmp si, [bp+LZ_F_SEND]
     jbe .seq
+%ifdef OS88_LZWIN
     cmp word [bp+LZ_F_WIN], 0   ; ...OR the window wants topping up
     je .bad                     ; (SPEC.md 20.14.2.4). The direct path reaches
     push dx                     ; this compare only when its stream really HAS
@@ -539,6 +553,13 @@ lz_lzb:
     mov [bp+LZ_F_SEND], ax
     cmp si, ax
     ja .bad                     ; ...and an empty window at the trigger is the
+%else
+    jmp .bad                    ; ...and without one there is only ever the one
+                                ; reason to be past the source end. LZ_F_WIN
+                                ; stays in the frame and stays zero: the slot
+                                ; is lz_body's and removing it would move every
+                                ; other offset in the frame for nothing
+%endif
 .seq:                           ; stream running out after all
     LZ_GETBIT
     jnc .lit
@@ -638,6 +659,7 @@ lzf_decomp:             call lz_decomp_x
 ; was. Safe on dsk_op's terms and only those: lz_win_x is reached from
 ; dskw_czexp and nowhere else, and a transfer holds sch_lock - the same
 ; argument dskw_read_at's banked arguments already run on.
+%ifdef OS88_LZWIN
 section .bss
 lz_wbuf:    resb LZ_WIN         ; the window itself
 lz_wend:    resw 1              ; ...one past its last valid byte
@@ -645,5 +667,7 @@ lz_wsend:   resw 1              ; ...and the refill trigger, LZ_WLOW below that
 lz_wsseg:   resw 1              ; the REAL source: segment...
 lz_wsoff:   resw 1              ; ...the next byte not yet copied in...
 lz_wleft:   resw 1              ; ...and how many of those are left
+%endif                          ; OS88_LZWIN - 266 bytes, and the whole of what
+                                ; this file costs `.bss` on either build
 
 section .text

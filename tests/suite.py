@@ -547,6 +547,22 @@ FULL = [
         "on: SBDRAGOFF/SBRATE reach notepad's own nasm line, t_buildmatrix "
         "derives that pair from $(PKGSBDEF) rather than keeping a copy, and "
         "both ends of that derivation are asserted here"),
+    Row("smallzip", "fast", py("tests/unit/t_smallzip.py"), 5.0,
+        "SPEC.md 24.5.3: what kern_small does NOT have of the compression "
+        "feature. Two gates landed together and both fail SILENTLY - a "
+        "%ifdef round one line too few leaves the bytes in, the kernel "
+        "assembles, the disk builds, the machine boots, and the saving "
+        "somebody measured is simply not there. OS88_ZIPVERB takes Compress, "
+        "Uncompress and COMPRESS.DRV entirely; OS88_LZWIN takes the LZB "
+        "sliding window, 256 bytes of `.bss` serving the one case a "
+        "kern_small disk cannot hold. AND THE THIRD CLAIM IS THE ONE THAT "
+        "MATTERS: READING a compressed file is untouched on both builds, "
+        "which is what makes a compressed floppy the shipped default "
+        "(20.13.5) - so lz_decomp_x, ld_expand, dskw_rbody and OSAPI_DECOMP "
+        "are asserted PRESENT on both, and a gate that took one of them with "
+        "it is what this half catches. Host-side: two symbol maps the tier "
+        "caches anyway, plus the root directory of four disks, because "
+        "whether the FILE ships is the half a map cannot see."),
     Row("kernmods", "full", py("tests/unit/t_kernmods.py"), 30.0,
         "tools/kernsize.py's PER-MODULE pass still measures - the byte "
         "compare inside it worked and nothing ran it, so --bless returned 1 "
