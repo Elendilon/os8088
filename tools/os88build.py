@@ -492,6 +492,20 @@ def at(path):
     if not root or not isinstance(path, str):
         return path
     q = path.replace("\\", "/")
+    # **A PATH ALREADY UNDER `build/trees/` IS ALREADY RESOLVED**, and
+    # re-basing it is how a tree ends up inside another tree. Only this module
+    # writes that prefix, so it is an exact marker of "somebody has already
+    # answered this question". Measured: `tests/fatwpin.py` applies its plain
+    # tree and then builds a `FATWNONE=1` one, and the `make` it spawns
+    # inherits $OS88_TREE - so the boothd rule's own
+    # `OS88_BUILD=build/trees/fatwnone-...` came back as
+    # `<plain tree>/trees/fatwnone-...`, a directory that does not exist.
+    # os88sym then had no kernel.bin to check against, the map went unchecked,
+    # and `-DKZ_HD` vanished exactly as the placeholder bug made it vanish -
+    # same symptom, a different cause, and one that only bites the rows that
+    # build a SECOND tree.
+    if q.startswith("build/trees/"):
+        return path
     if q == "build" or q.startswith("build/"):
         return os.path.join(root, q[len("build/"):]) if q != "build" else root
     return path
