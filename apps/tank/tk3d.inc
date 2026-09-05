@@ -306,73 +306,53 @@ tk_emit:
     mov cl, [si+1]                  ; the edges
     xor ch, ch
     mov si, [si+4]
+    cld
 .e:
+    lodsw                           ; AL/AH = the edge's two vertex indices
     push cx
-    mov al, [si]
-    xor ah, ah
-    shl ax, 1
-    mov [tk_na], ax
-    mov al, [si+1]
-    xor ah, ah
-    shl ax, 1
-    mov [tk_nb], ax
     push si
-    mov bx, [tk_na]
+    mov bl, al
+    xor bh, bh
+    shl bx, 1                       ; BX = a x 2
+    mov dl, ah
+    xor dh, dh
+    shl dx, 1                       ; DX = b x 2
+    mov di, dx
     mov cx, [tk_fv + bx]
-    mov bx, [tk_nb]
-    add cx, [tk_fv + bx]
-    or cx, cx
-    jz .skip                        ; both behind the near plane
+    add cx, [tk_fv + di]
+    jcxz .skip                      ; both behind the near plane
     cmp cx, 2
     je .both
     ; --- one end is behind: pull it up to the near plane ------------------
-    mov bx, [tk_na]
     cmp word [tk_fv + bx], 0
-    jne .aisfront
-    mov ax, [tk_na]                 ; make tk_na the one in FRONT
-    mov bx, [tk_nb]
+    jne .afront
+    xchg bx, dx                     ; make BX the one in FRONT
+.afront:
     mov [tk_na], bx
-    mov [tk_nb], ax
-.aisfront:
+    mov [tk_nb], dx
     call tk_nclip                   ; AX/BX = the clipped end, projected
-    mov [tk_ex2], ax
-    mov [tk_ey2], bx
+    mov cx, ax
+    mov dx, bx
     mov bx, [tk_na]
     mov ax, [tk_sxv + bx]
-    mov [tk_ex1], ax
-    mov ax, [tk_syv + bx]
-    mov [tk_ey1], ax
+    mov bx, [tk_syv + bx]
     jmp short .draw
 .both:
-    mov bx, [tk_na]
     mov ax, [tk_sxv + bx]
-    mov [tk_ex1], ax
-    mov ax, [tk_syv + bx]
-    mov [tk_ey1], ax
-    mov bx, [tk_nb]
-    mov ax, [tk_sxv + bx]
-    mov [tk_ex2], ax
-    mov ax, [tk_syv + bx]
-    mov [tk_ey2], ax
+    mov bx, [tk_syv + bx]
+    mov cx, [tk_sxv + di]
+    mov dx, [tk_syv + di]
 .draw:
-    mov ax, [tk_ex1]
-    mov bx, [tk_ey1]
-    mov cx, [tk_ex2]
-    mov dx, [tk_ey2]
     cmp bx, dx
     jne .slope
     call tk_hseg                    ; SPEC.md 5.6.1's deferral, ours: a flat
     jmp short .skip                 ; edge is a run and never a walk
 .slope:
-    call tk_seg
-.skip:
+    call tk_seg                     ; ...and both keep nothing (85.3.4), which
+.skip:                              ; is why SI and CX ride on the stack
     pop si
-    add si, 2
     pop cx
-    dec cx
-    jz .done
-    jmp .e
-.done:
+    loop .e
     ret
 
 ; -----------------------------------------------------------------------------
