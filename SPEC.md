@@ -37760,12 +37760,34 @@ row. That matters because a scroll-bar click scrolls and *then* redraws.
 
 Six things the band arithmetic has to get right:
 
-- **The x span rounds OUTWARD to byte columns**, which is what lets this work
-  on every adapter rather than only where `OSAPI_WM_SNAP` aligns the content
-  (§11.94). Rounding x1 down stays inside the content because `NP_MARGIN` is 8;
-  rounding x2+1 up reaches at most seven columns into the scroll bar, so that
-  strip is blanked and its two owners — `np_sbar` and the grow box — put
-  themselves back.
+- **The x span is cut from the CELLS, not from the content's right edge**, and
+  `np_bandx` is the one place that decides it. `[np_rgt]` is the last drawable
+  text column and the scroll bar's frame begins at `[np_rgt]+1`, so rounding
+  *that* up to a byte column reached **up to seven of the bar's fourteen
+  columns on every scroll** — which then had to be blanked and the whole bar
+  drawn again. What a user saw was a white gash down the bar's left half, held
+  for the band's entire relettering and then filled back in: Part 1's
+  double-draw flash, ~130 ms of it for one arrow click on a 4.77 MHz 8088.
+  Caught with a breakpoint on `np_sbar`, on a CGA where the blit took six of
+  the fourteen. **No glyph reaches past cell `[np_rcols]`−1** — `np_walk`'s
+  wrap rule sends a cell that would cross `[np_rgt]` to the next row and
+  `np_rflush` draws cells 0..`[np_rcols]`−1 and nothing else — so the span that
+  *contains* the text is `[np_tx]` .. `[np_tx]` + 8·`[np_rcols]` − 1, and with
+  the content origin on a multiple of 8 (§11.94, every adapter) both ends of it
+  are already byte columns. x1 still rounds DOWN, which stays inside the
+  content because `NP_MARGIN` is 8.
+- **The strip pass is what a window too WIDE to snap still needs.** `wm_snap_ax`
+  leaves a window unsnapped rather than pushing it off its own display
+  (§11.94), and `[np_tx]` is then off the grid, so the round-up can still reach
+  past `[np_rgt]`. `np_scrollpaint` asks `np_bandx` the same question and
+  repairs exactly as before — blank the strip, put the grow box back, and
+  poison `[np_sbrows]` so the bar is drawn whole rather than moved. On every
+  snapped window it does not run at all.
+- **A scroll then MOVES the thumb rather than redrawing the bar.** `np_sbar`
+  was unconditional here because the blit had damaged the bar; with the band
+  stopping short of it, `np_sbcheck`'s three drawing calls (§13.10.3) are
+  enough — the frame, both rules, both arrow glyphs and all of the track the
+  thumb did not cover are exactly where they were.
 - **The y span stops at the bottom of the last WHOLE row, not at `[np_bot]`.**
   A content height that is not a multiple of 8 leaves a sliver below it;
   `np_rflush` refuses to draw a row that would cross the content edge, so
@@ -37803,9 +37825,11 @@ glass. It is not I/O (`DISKCNT` counters are flat across it) and not the
 drawing (549 glyphs and 115 fills, ~0.65 s).
 
 **The count is chunked: `NP_HCHUNK` rows per worker pass, resuming where the
-last one stopped.** `np_height` still finishes it in one hold for the caller
-that needs the answer exact; `np_hchunk` is what the worker calls, and both
-are thin entries onto `np_hwalk`.
+last one stopped.** `np_hchunk` is what the worker calls; `np_height` carries
+it in one hold to a row the *caller* names, for the one question that cannot
+wait (§27.7.6.1). Both are thin entries onto `np_hwalk`, and both go through
+`np_hstale` first, because a resume pair only describes the note it was taken
+from.
 
 **Why the lock does not forbid this.** `np_height` runs with `np_draw` and
 `np_sigup` clear and writes no framebuffer: the lock here is a mutex over the
@@ -37965,8 +37989,53 @@ past it**. Every other scroll is answered from what is already counted, for
 nothing.
 
 The freeze that remains is the honest one: paging to the end of a note whose
-end has not been found yet has to find it. It is also self-limiting, because
-the background count is meanwhile making the answer nearer.
+end has not been found yet has to find it. §27.7.6.1 is what is left of it
+once the two ways of asking wrongly are taken out.
+
+#### 27.7.6.1 A scroll UP is not a scroll past the end, and a scroll DOWN pays only for where it is going
+
+§27.7.6 put the test at the clamp and left two defects in it, both reported
+from the field as *"scrolling freezes Note Pad until the background load
+finishes"* and both measured on a 4.77 MHz 8088 with README.TXT open — 718
+rows, `[np_drows]` at 551 with the count still owed.
+
+**The comparison was UNSIGNED and every arm feeding it is RELATIVE.**
+`.lineup` is `[np_top] − NP_SB_STEP` and `.pageup` is `[np_top] − [np_vrows]`,
+so a scroll up near the top of a note is a *negative* row — and −4 read as row
+65,532, which is past any counted extent there will ever be. **Clicking the up
+arrow at `[np_top]` = 0 froze the machine for 1,053 ms, finished the entire
+count, and scrolled nothing**: `[np_top]` 0 → 0, `[np_drows]` 551 → 718,
+`[np_hdirty]` 1 → 0. It is the exact freeze §27.7.6 was written to remove,
+surviving on the one button §27.7.6 never priced. `np_scrollto` clamps a
+negative row to 0 whatever the test does, so the fix is `or ax, ax / js` in
+front of it — the request cannot reach past the end, so it cannot need the
+end.
+
+**And the count no longer runs to the last character.** `np_height` walked to
+row 0x7FFF whoever asked, so a click that needed to know about row 550 of a
+718-row note paid for all 718. It takes the row it must reach now — the
+request plus `[np_vrows]`, the deepest row that view would show — and
+`np_hwalk` bounds on it exactly as `np_hchunk`'s chunk bound does. A page-down
+one page past the counted extent is then ~`[np_vrows]` rows of measuring
+instead of the note's whole tail.
+
+**Three things make the bound safe rather than merely cheaper:**
+
+- **`.stop` only ever publishes a row it actually STOOD ON**, so `[np_drows]`
+  stays a true lower bound (§27.7) and the clamp cannot let the view past the
+  real end. If the note ends first, `.done` sets the exact total and clears
+  `[np_hdirty]`, which is the answer the clamp wanted anyway.
+- **The bound is always beyond the resume point.** This path is entered only
+  when request + `[np_vrows]` > `[np_drows]`, and `[np_drows]` is at least
+  `[np_hrow]`+1 — so the walk always advances the pair and the caller can
+  never be asked twice for the same answer.
+- **The work is not thrown away.** The pair the bounded walk leaves is where
+  the worker's next chunk starts, so what a scroll pays for, the background
+  count keeps.
+
+`np_hstale` is the third entry that falls out of this: both bounds are
+computed against a resume pair, so the *"the note shrank without going through
+`np_hmark`"* guard belongs to both and was written into only one.
 
 ### 27.7.7 The caret-follow net resumes forward, it does not restart
 

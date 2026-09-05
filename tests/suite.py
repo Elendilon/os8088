@@ -2076,6 +2076,10 @@ SOAK = [
         "SPEC.md 13.10.5: ...and the Standard File dialog's, which is the"
         "second bar one gesture record has to tell apart (13.10.5.10).",
         needs=("marty",), serial=True, builds=True),
+    Row("npscroll", "soak", py("tests/npscroll.py"), 30.0,
+        "SPEC.md 27.7.6.1/27.7.2: scrolling a note whose height is still being"
+        "counted neither freezes the machine nor blanks half the scroll bar.",
+        needs=("marty",), serial=True),
     Row("pkgthumb-np", "soak", py("tests/pkgthumb.py", "notepad"), 50.0,
         "SPEC.md 13.10.7: the thumb gesture inside a PACKAGE - Note Pad.",
         needs=("marty",), serial=True,
