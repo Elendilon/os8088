@@ -101,9 +101,35 @@ def grab(path, pattern, what, fix):
     return int(m.group(1), 0)
 
 
-def constants():
-    """The dozen numbers the boot is shaped by, read where they are defined."""
+def kz_numbers(build="build"):
+    """The PACKED kernel's own numbers, or None for a kernel that is not.
+
+    tools/os88kz.py writes them beside the kernel it packed, as
+    kernel.kz.json, because they are properties of a file that did not exist
+    when the kernel was assembled: how many sectors the packed file is, how
+    many of them are the plain head, how far above its final address the
+    packed body is read (so that unpacking it in place never overtakes
+    itself), and how many blocks it is cut into. `make NOKZIP=1` writes no
+    such file, and the page then describes a kernel that arrives whole.
+    """
+    path = os.path.join(ROOT, build, "kernel.kz.json")
+    if not os.path.exists(path):
+        return None
+    n = json.load(open(path))
+    for k in ("ksecs", "headsecs", "rpara", "r", "nblk", "blocks",
+              "packed_tail", "unpacked_tail", "head", "file", "image"):
+        if k not in n:
+            raise Stale("kernel.kz.json has no `%s`" % k, path,
+                        "tools/os88kz.py writes it; the page draws the "
+                        "packed body's shelf from these numbers")
+    return n
+
+
+def constants(build="build"):
+    """The dozen numbers the boot is shaped by, read where they are defined -
+    and, sixteenth, the packed kernel's own, read where the packer wrote them."""
     c = {}
+    c["KZ"] = kz_numbers(build)
     c["BOOT2_SECS"] = grab("kernel/kernel.asm", r"^BOOT2_SECS\s+equ\s+(\d+)",
                            "BOOT2_SECS - the blob's length in sectors",
                            "find its new name in kernel/kernel.asm and update "
@@ -295,6 +321,8 @@ def u16(b, i=0):
 
 
 PROBE_BLOB = ("spl_done", "spl_total", "spl_tick")   # offsets inside the blob
+PROBE_OPT = ("kz_all",)                               # ...and one a plain kernel
+                                                      # (NOKZIP=1) does not have
 PROBE_KERN = ("kmain",)                               # KERNEL_SEG offsets
 PROBE_LIN = ("mem_base", "mem_top", "mem_tab")        # linear, wherever they are
 
@@ -314,6 +342,9 @@ def probe_symbols(defines):
                         "the page reads it to draw the loading bar; find "
                         "what replaced it")
         out[want] = sym[want]
+    for want in PROBE_OPT:
+        if want in sym:
+            out[want] = sym[want]
     for want in PROBE_LIN:
         try:
             out[want] = os88sym.linear(want, defines)
@@ -450,6 +481,12 @@ def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True,
         kmain = KERNEL_SEG * 16 + p.sym["kmain"]
         spl_tick = p.blobaddr("spl_tick")
         stage2 = p.blob                 # `.boot2` offset 0 is `jmp boot2_entry`
+        # THE UNPACKER IS BRACKETED LIKE THE SPLASH: `kz_all` is a NEAR call
+        # from stage 2 into the blob, so its return is two bytes on the stack.
+        # It runs between the last disk call and the handover, and without
+        # the bracket its ~800 ms would be charged to "stage 2: loop" - which
+        # is how the page described a packed kernel until it asked.
+        kz_all = p.blobaddr("kz_all") if "kz_all" in p.sym else None
 
         # --- the machine's own ROM, which os8088 does not write --------------
         m.bp_exec(0x7C00)
@@ -485,6 +522,8 @@ def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True,
         while True:
             bps = [{"type": "exec", "addr": a}
                    for a in (rom13, spl_tick, stage2, kmain)]
+            if kz_all:
+                bps.append({"type": "exec", "addr": kz_all})
             if dptbp:
                 bps.append(dptbp)
             m.breakpoints(bps)
@@ -509,15 +548,18 @@ def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True,
                 dptbp = None
                 continue
             r = m.regs()
-            near = (ip == spl_tick)
-            name = "splash tick" if near else "int 13h"
+            near = ip in (spl_tick, kz_all)
+            name = ("splash tick" if ip == spl_tick
+                    else "stage 2: expand" if ip == kz_all else "int 13h")
             close("kernel", "stage %d: %s code" % (2 if seen2 else 1,
                                                   "loader" if seen2 else "sector"),
                   cyc, m.disk())
             frame = m.read((r["ss"] << 4) + r["sp"], 2 if near else 4)
             back = ((r["cs"] << 4) + u16(frame) if near
                     else (u16(frame, 2) << 4) + u16(frame, 0))
-            if near:
+            if ip == kz_all:
+                extra = {"expand": True}
+            elif near:
                 # AX = sectors loaded, DX = total; the bar's own arguments.
                 extra = {"arg_done": r["ax"], "arg_total": r["dx"]}
             else:
@@ -538,8 +580,8 @@ def walk(image, machine, defines, lad, cons, limit=240.0, verbose=True,
                             "the bracket in walk()",
                             "spl_tick is a NEAR call and int 13h an IRET - if "
                             "either changed shape, so must this")
-            close("disk" if not near else "draw", name,
-                  m.status()["cycles"], m.disk(), extra)
+            close("kernel" if ip == kz_all else "draw" if near else "disk",
+                  name, m.status()["cycles"], m.disk(), extra)
             if verbose:
                 sys.stderr.write("  %-16s %8.1f ms\n" % (name, ev[-1]["ms"]))
 
@@ -632,7 +674,13 @@ STAGES = [
          moved="the first slice of the operating system - and the screen itself",
          take=dict(until="splash tick")),
     dict(id="kernel", short="system loads", title="The rest of the operating system arrives",
-         moved="everything from its code to its start-up code",
+         moved="the plain head to its final address, then the packed body to a shelf above it",
+         take=dict(before="stage 2: expand")),
+    # THE UNPACK RUNG EXISTS ONLY ON A PACKED KERNEL. assign() drops it, and
+    # gives the stage above `until="stage 2: loop"` back, when the walk saw no
+    # "stage 2: expand" - which is what a NOKZIP=1 build measures.
+    dict(id="expand", short="unpack", title="The packed body is unpacked, in place",
+         moved="the packed body becomes the operating system it stands for, walking down onto its own bytes",
          take=dict(until="stage 2: loop")),
     dict(id="kmain", short="hand over", title="The operating system takes over",
          moved="the working stack, into an area of its own", focus=["lowbss"],
@@ -745,7 +793,14 @@ def assign(events, defines=("KERN_BIG",), build="build"):
     unnamed phase is a refusal.
     """
     check_coverage(defines, build)
-    out = [dict(st, events=[]) for st in STAGES]
+    stages = [dict(st) for st in STAGES]
+    if not any(basename(e["name"]) == "stage 2: expand" for e in events):
+        stages = [st for st in stages if st["id"] != "expand"]
+        for st in stages:
+            if st["id"] == "kernel":
+                st["take"] = dict(until="stage 2: loop")
+                st["moved"] = "everything from its code to its start-up code"
+    out = [dict(st, events=[]) for st in stages]
     i = 0
     for s, st in enumerate(out):
         t = st["take"]
@@ -871,7 +926,9 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
              "fatwin": "Room for the index", "fatw": "Disk index",
              "lowbss": "Stacks + buffers", "vgabuf": "Graphics scratch",
              "blob": "Loader", "pending": "Still on the floppy",
-             "unclaimed": "Not spoken for"}
+             "packed": "Packed system", "unclaimed": "Not spoken for"}
+    kz = cons.get("KZ")
+    unpacked = since("expand") if kz and "expand" in order else True
 
     def add(a, b, rid, label, cls, note="", layer=0, sl=None):
         if floor is not None and rid not in ("heap", "claim", "free"):
@@ -933,7 +990,39 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
 
     # --- the kernel image, as much of it as has arrived ----------------------
     kstart = lad["kseg"] * 16
-    if since("splash"):
+    if since("splash") and kz and not unpacked:
+        # A PACKED KERNEL ARRIVES IN TWO PIECES AND NEITHER IS THE IMAGE. The
+        # plain head lands at its final address first - the loading screen's
+        # own code is in it, and draws while the rest is still coming - and
+        # the packed body is read to a SHELF above where it belongs, so that
+        # unpacking it downward can never overtake the bytes it has not yet
+        # read. Until the unpack rung, what is in memory above the head is
+        # that shelf and not the operating system.
+        head_end = kstart + kz["head"]
+        shelf = head_end + kz["r"]
+        tail_secs = kz["ksecs"] - kz["headsecs"]
+        landed = min(max(0, loaded_sectors), tail_secs)
+        add(kstart, head_end, "ktext", "Operating system, the plain head", "kern",
+            "%s bytes at their final address: the first %d [[sector|sectors]] "
+            "of the operating system, stored plain because the loading "
+            "screen's own code is among them and has to run while the rest "
+            "is still arriving." % ("{:,}".format(kz["head"]), kz["headsecs"]))
+        if landed:
+            add(shelf, shelf + landed * vol["bps"], "packed",
+                "Operating system, packed - not yet unpacked", "packed",
+                "%s bytes of [[compressed]] code so far, read to a shelf %s "
+                "bytes above where they belong. Unpacking [[in place]] writes "
+                "from the end of the plain head upward while reading these "
+                "bytes, and the gap is what keeps the writer from ever "
+                "overtaking the reader."
+                % ("{:,}".format(landed * vol["bps"]), "{:,}".format(kz["r"])))
+        if landed < tail_secs:
+            add(shelf + landed * vol["bps"], shelf + tail_secs * vol["bps"],
+                "pending", "Still on the floppy", "free",
+                "%d of %d packed [[sector|sectors]] have landed. The number "
+                "on the loading bar is this one - the plain head is not on "
+                "it." % (landed, tail_secs))
+    elif since("splash"):
         img_end = min(kstart + loaded_sectors * vol["bps"], lad["kend"] * 16)
         parts = [
             (kstart, lad["cold_seg"] * 16, "ktext",
@@ -990,7 +1079,7 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
         # could. Drawing it as a raised band that spans both is the only
         # honest picture - it is not a region of the map, it is code lying
         # ACROSS two of them until the mount takes the ground back.
-        if not since("drvboot") and lad["ovlw"]:
+        if not since("drvboot") and lad["ovlw"] and unpacked:
             ov_a = lad["fat_seg"] * 16
             ov_b = ov_a + lad["ovlw"]
             if since("kernel") or img_end > ov_a:
@@ -1248,9 +1337,25 @@ GLOSS = {
         'A list of 256 addresses at the very bottom of memory, one per '
         'interrupt, saying which routine handles it. Changing an entry '
         'redirects that service to your own code.',
+    'compressed':
+        'Stored in fewer bytes than it takes up once loaded, by writing '
+        '"copy this many bytes from a little way back" wherever the same '
+        'run of bytes has appeared before, instead of the bytes '
+        'themselves. Turning it back costs the processor about forty '
+        'clock cycles a byte here, and the floppy costs far more than '
+        'that per byte - so a packed file loads faster in spite of the '
+        'work. The operating system, its programs, its drivers and its '
+        'typefaces are all stored this way on the disk.',
+    'in place':
+        'Unpacking into the very memory the packed bytes were read into. '
+        'They are put a little above where the unpacked bytes will end, '
+        'and the unpacker writes from the bottom up, so it never '
+        'overtakes bytes it has not read yet - and needs no second '
+        'buffer.',
     'kernel':
         'The operating system itself, as opposed to the small loader that '
-        'fetches it or the programs that run on top of it.',
+        'fetches it or the programs that run on top of it. On the disk it '
+        'is stored packed, and the loader unpacks it as it arrives.',
     'memory pool':
         'The run of memory left over once the operating system has placed '
         'itself, out of which every later request is satisfied.',
@@ -1370,22 +1475,34 @@ NOTES = {
         'widens that from a [[track]] to a whole [[cylinder]] - the '
         '[[controller]] will carry a read onto the second [[head]] by '
         'itself - which halves the number of calls the rest of the load '
-        'takes.',
-    'stage 2: loop':
-        "The last of the load, and the handover. The stopwatch's "
-        'starting value is written where the [[kernel]] will look for '
-        'it; the loader records where it has ended up, so the kernel '
-        'can still reach the loading screen; the whole load is verified '
+        'takes. Once the last sector is in, the whole transfer is checked '
         'against a value planted in the middle of the file, and re-read '
-        'more cautiously if it fails; and the timer [[interrupt]] is '
-        'handed back.',
+        'more cautiously if it fails - BEFORE a byte of it is unpacked, '
+        'because the unpacker trusts what it is given.',
+    'stage 2: expand':
+        'The packed body is turned back into the operating system it '
+        'stands for, [[in place]]: block by block, each written from '
+        'the end of the plain head upward while its [[compressed]] bytes '
+        'sit on the shelf above. About forty clock cycles a byte, which '
+        'is far less than the floppy costs per byte, so the boot is '
+        'quicker for it. Nothing checks the stream as it goes - what it '
+        'produces IS the operating system, and the one failure that '
+        'actually happens, a disk read returning the wrong side of the '
+        'track, was caught a moment ago.',
+    'stage 2: loop':
+        "The handover. The stopwatch's starting value is written where "
+        'the [[kernel]] will look for it; the loader records where it '
+        'has ended up, so the kernel can still reach the loading screen; '
+        'and the timer [[interrupt]] is handed back.',
     'splash tick':
         'One notch of the loading bar. THE FIRST ONE IS THE EXPENSIVE '
         'ONE - it switches the display into graphics, draws the frame, '
         'the trough and the caption. The rest redraw a few pixels of '
         'fill and four digits. Both are drawn as pixels rather than '
         'asked of the [[BIOS screen call]], which charges about 40 '
-        'milliseconds a character on this machine.',
+        'milliseconds a character on this machine. The bar counts the '
+        "packed body's sectors: the plain head that came first is not "
+        'on it.',
     'dsk_boot_from_x':
         'Which disk did we come off? On a floppy this stores a single '
         'byte.',
@@ -1566,7 +1683,8 @@ TITLES = {
     "int 13h reset": "Disk: step the head back to track zero",
     "int 13h read": "Disk read",
     "stage 2: loader code": "Loader housekeeping",
-    "stage 2: loop": "Finish the load, and hand over",
+    "stage 2: expand": "Unpack the operating system, in place",
+    "stage 2: loop": "Hand over",
     "splash tick": "Advance the loading bar",
     "dsk_boot_from_x": "Which disk did we start from?",
     "cpu_detect": "Identify the processor",
@@ -1901,21 +2019,21 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
 CSS = r''':root{
   --bg:#e9ecef; --panel:#fbfcfd; --ink:#12161a; --dim:#5d656e; --rule:#c8cfd6;
   --rule2:#e0e5ea; --accent:#15497f; --sel:#b8560a;
-  --c-bios:#8b939c; --c-ours:#15497f; --c-kern:#1f7a58; --c-ovl:#b8560a;
+  --c-bios:#8b939c; --c-ours:#15497f; --c-kern:#1f7a58; --c-ovl:#b8560a; --c-packed:#7a4a9e;
   --c-data:#6a37bd; --c-claim:#0c6f86; --c-free:#dde2e7; --c-dead:#bcc4cc;
   --on-free:#5d656e;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0f1216; --panel:#181c21; --ink:#e4e9ee; --dim:#8a929c; --rule:#2b313a;
   --rule2:#20252b; --accent:#79aef2; --sel:#f2a552;
-  --c-bios:#767e88; --c-ours:#5a9bef; --c-kern:#42bf95; --c-ovl:#f2a552;
+  --c-bios:#767e88; --c-ours:#5a9bef; --c-kern:#42bf95; --c-ovl:#f2a552; --c-packed:#c39ae6;
   --c-data:#ab8cf7; --c-claim:#2fbdd4; --c-free:#232830; --c-dead:#3c434c;
   --on-free:#8a929c;
 }}
 :root[data-theme="dark"]{
   --bg:#0f1216; --panel:#181c21; --ink:#e4e9ee; --dim:#8a929c; --rule:#2b313a;
   --rule2:#20252b; --accent:#79aef2; --sel:#f2a552;
-  --c-bios:#767e88; --c-ours:#5a9bef; --c-kern:#42bf95; --c-ovl:#f2a552;
+  --c-bios:#767e88; --c-ours:#5a9bef; --c-kern:#42bf95; --c-ovl:#f2a552; --c-packed:#c39ae6;
   --c-data:#ab8cf7; --c-claim:#2fbdd4; --c-free:#232830; --c-dead:#3c434c;
   --on-free:#8a929c;
 }
@@ -2885,7 +3003,10 @@ function drawDetail(){
               system, then a fixed set of later steps. Saying so here is what
               stops "222" reading as a width. */
            ["the bar counts",
-            D.ksecs + " sectors + " + D.cons.SPL_POST + " steps"]]);
+            (D.cons.KZ ? (D.cons.KZ.ksecs - D.cons.KZ.headsecs)
+                         + " packed sectors of the body"
+                       : D.ksecs + " sectors")
+            + " + " + D.cons.SPL_POST + " steps"]]);
     return;
   }
   var sp = st.steps[step];
@@ -3146,7 +3267,8 @@ def render(p, fragment=False):
     legend = "".join(
         "<span><i style='background:var(--c-%s)'></i>%s</span>" % (k, v)
         for k, v in (("bios", "firmware"), ("ours", "boot sector / disk"),
-                     ("kern", "operating system"), ("ovl", "start-up code"),
+                     ("kern", "operating system"), ("packed", "packed, not yet unpacked"),
+                     ("ovl", "start-up code"),
                      ("data", "disk index"), ("claim", "handed out"),
                      ("free", "free")))
 
@@ -3157,7 +3279,8 @@ def render(p, fragment=False):
    <h1>os8088 <span class="sub">Boot Ladder</span></h1>
    <p class="lede">What an IBM PC does between the power switch and a usable
     desktop \u2014 %(nst)d <b>discrete moves of memory</b>, on a 4.77&nbsp;MHz
-    8088 reading a 360&nbsp;KB floppy.
+    8088 reading a 360&nbsp;KB floppy, with the operating system stored
+    packed on the disk and unpacked in place as it arrives.
     <span class="kbd">&larr;</span><span class="kbd">&rarr;</span> walk it a
     step at a time, end to end;
     <span class="kbd">&uarr;</span><span class="kbd">&darr;</span> move a whole
@@ -3294,7 +3417,7 @@ def selfcheck(image, defines, build="build"):
             bad.append((what, "%s: %s" % (type(e).__name__, e)))
 
     try_("constants scraped from source",
-         lambda: "%d found" % len(constants()))
+         lambda: "%d found" % len(constants(build)))
     try_("the ladder, out of tools/kernsize.py",
          lambda: "KERNEL %04X  COLD %04X  FAT %04X  LOW %04X  VGABUF %04X  "
                  "HEAP %04X" % tuple(ladder(build, defines)[k] for k in
@@ -3305,6 +3428,16 @@ def selfcheck(image, defines, build="build"):
                  % (volume(image)["kernel"]["sectors"],
                     volume(image)["kernel"]["lba"], volume(image)["spt"],
                     volume(image)["heads"]))
+    def kz_line():
+        n = kz_numbers(build)
+        if not n:
+            return "a plain kernel (NOKZIP=1): no unpack rung"
+        return ("%d sectors, %d of them the plain head, the body %s -> %s "
+                "bytes in %d block(s), read %s bytes above where it belongs"
+                % (n["ksecs"], n["headsecs"], "{:,}".format(n["packed_tail"]),
+                   "{:,}".format(n["unpacked_tail"]), n["nblk"],
+                   "{:,}".format(n["r"])))
+    try_("the packed kernel's own numbers (kernel.kz.json)", kz_line)
     try_("the loading screen's own strings",
          lambda: " / ".join(strings().values()))
     try_("heap claim tags in kernel/memory.inc",
@@ -3549,7 +3682,7 @@ def main(argv):
                          "the tree has moved out from under.\n")
         return 1
 
-    lad, cons, vol, strs = ladder(build, defines), constants(), volume(image), strings()
+    lad, cons, vol, strs = ladder(build, defines), constants(build), volume(image), strings()
     if reuse:
         w = json.load(open(reuse))
         if "events" not in w and isinstance(w.get("walk"), dict):
