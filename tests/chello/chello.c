@@ -3,7 +3,7 @@
  *
  * THE C TOOLCHAIN'S CAPABILITY GATE (SPEC.md 73): the first program written in
  * C that this operating system ever loaded and ran. Everything else about the
- * toolchain - the compiler patch set, tools/cc8086.py, apps/cc/crt0.asm, the
+ * toolchain - the compiler build, tools/cc8086.py, apps/cc/crt0.asm, the
  * cdecl bridge in apps/cc/os88thunk.asm - is inference from emitted assembly
  * until something built out of it appears on the screen. This is that
  * something, and it is under tests/ because it proves a capability rather than
@@ -45,7 +45,7 @@
  *     os88_wm_content()/os88_wm_geom() rather than dereferenced.
  *  3. THE FRAMES ARE TINY. No function here has more than four `int` locals;
  *     the build prints every frame size and the largest in this file is 8
- *     bytes. The UI task has about 700 bytes of headroom (73.8).
+ *     bytes. The UI task has about 266 bytes of headroom (73.8).
  *  4. NO 32-BIT INTEGER AND NO float. Nothing here wants one.
  *
  * ---------------------------------------------------------------------------

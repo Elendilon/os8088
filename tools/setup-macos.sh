@@ -385,7 +385,7 @@ fi
 # build/cc, which is gitignored, and it is tools/setup-cc.sh that does it.
 # That script is the authority and this is only the offer to run it, because
 # somebody setting a machine up should not have to find out later that C
-# needed a second command (SPEC.md 70, docs/C-TOOLCHAIN.md).
+# needed a second command (SPEC.md 73, docs/C-TOOLCHAIN.md).
 #
 # It is asked separately, and last, for two reasons that are the same reason:
 # it is a network fetch of somebody else's source, and NOTHING IN `make`

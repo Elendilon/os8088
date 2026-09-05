@@ -3,9 +3,10 @@
 **Research document, not a contract.** SPEC.md §2.8 is the binding contract for
 what an on-demand module *is*; docs/plans/completed/ONDEMAND-PLAN.md is why the three that ship
 were chosen; this is the study of moving more of `.cold` behind that mechanism
-**on `kern_small` alone**, with `kern_big` keeping every byte resident. Nothing
-here has been built. Every figure was measured on this tree at build 377 by the
-method in §8.
+**on `kern_small` alone**, with `kern_big` keeping every byte resident. All
+three waves are BUILT (SPEC.md §54.0, §22.3.0, §38.0); §9.2.6 and §9.2.7 are
+what they cost and found. Every figure was measured at build 377 by the method
+in §8.
 
 The ask, in the requester's words:
 

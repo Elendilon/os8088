@@ -2416,7 +2416,7 @@ sch_stksize:
 %macro SCH_SLOT 1
     dw %1
 %endmacro
-    dw STK0_SIZE                ; slot 0: the UI task's 1,024
+    dw STK0_SIZE                ; slot 0: the UI task's 512
     SCH_PARTITION
 %unmacro SCH_SLOT 1
 

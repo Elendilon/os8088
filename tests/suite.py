@@ -29,9 +29,9 @@ WHY `full` IS CURATED AND NOT "ALL OF THEM", which is the thing to understand
 before adding a row to it.  Measured on a cycle-accurate 5150 in a container:
 a MartyPC boot to a settled desktop is **7.8 seconds**, and the emulator tests
 in `tests/` run **40-75 seconds each** because each one boots its own machine
-and then drives a session through it.  They also cannot run in parallel -
-every one of them drives the debug server on 127.0.0.1:9001, one port, one
-connection, and a second client does not error, it HANGS (docs/MARTYPC-DEBUG.md).
+and then drives a session through it.  Instances are isolated now, so
+`--marty-jobs` runs emulator rows side by side - but the lane is CORES-1 wide
+and the box is four cores, so the arithmetic barely moves.
 
 So 10 minutes is about **eight** emulator tests, not fifty.  That is not a
 limitation to be engineered away - it is what the machine costs - and the
@@ -41,7 +41,8 @@ the tier when it overruns, so this stays true as rows are added rather than
 drifting until the suite is too slow to run.
 
 WHAT EARNS A `full` ROW.  Breadth per second, and independence.  `bootsmoke`
-is the model: eight seconds, and it exercises the boot sector, FAT12, the
+is the model: about twelve seconds for a boot to a desktop on both 1bpp
+adapters, and it exercises the boot sector, FAT12, the
 `int 13h` splitter, adapter detection, the heap ladder, `drv_boot` and the
 first paint - so it fails for almost any serious regression, wherever it was.
 A row that can only fail for one narrowly-scoped reason belongs in `soak`,
@@ -1089,7 +1090,7 @@ SOAK = [
         "row proves the FALLBACK - an 8088 has nothing up there, so the part "
         "comes back as an ordinary conventional claim, which is what makes "
         "OP_XMS a HINT and not a mode - and this is the other half. WHY QEMU: "
-        "docs/TESTING.md's closed list, entry 6's shape - MartyPC cannot host "
+        "docs/TESTING.md's closed list, entry 1 - MartyPC cannot host "
         "extended memory at all, so there is no `prefer MartyPC` to weigh; it "
         "borrows tests/xmcheck.py's boot and block-table reader for the same "
         "reason. FOUR ASSERTIONS and the last is what makes the first three "
@@ -1437,7 +1438,7 @@ SOAK = [
         "The extended-memory TEARDOWN gate (SPEC.md 41.5, 29.4). QEMU and "
         "not MartyPC, and the row said `marty` for a year: the machine has "
         "to HAVE memory above 1MB and the target machine never can (SPEC.md "
-        "41.9 rule 1), which is one of docs/TESTING.md's five legitimate "
+        "41.9 rule 1), which is one of docs/TESTING.md's seven legitimate "
         "uses of QEMU. It also needs nasm for the OVERLAY's map - xm_tab is "
         "in XMEM.DRV now (SPEC.md 41.12), not in the kernel.",
         needs=("qemu", "nasm"), serial=True, timeout=600,

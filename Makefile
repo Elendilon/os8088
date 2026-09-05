@@ -194,11 +194,11 @@ VM286RUNCPM := $(CURDIR)/vm/286-runcpm
 # same reason the RUNCPM ones are: the three C64 disks are not the same disk
 # and the machines that take them do not run at the same speed - and for an
 # EMULATOR the machine IS the emulated machine's speed, which the status row
-# prints. vm/386-c64 lands in wave 1 as the machine the port is LOOKED at on;
-# vm/xt-c64 and vm/286-c64 in the final wave. Each is a copy of a machine that
-# has booted with fdd_02_fn and the uuid changed and nothing else.
+# prints. Each is a copy of a machine that has booted with fdd_02_fn and the
+# uuid changed and nothing else; vm/286-525-c64 (the 1.2MB geometry) is the
+# fourth, defined with the other 286-525 machines above.
 #
-# ALL THREE ARE MANUAL EVIDENCE (C64-SPEC §14.6). `make 386-c64`
+# ALL FOUR ARE MANUAL EVIDENCE (C64-SPEC §14.6). `make 386-c64`
 # launches 86Box; it cannot assert that anything booted, and no gate in this
 # port rests on it.
 VM386C64 := $(CURDIR)/vm/386-c64
@@ -1806,11 +1806,12 @@ all: checkdocs $(IMG) $(IMG120) $(IMG720) $(IMG360) \
 # is a package that stops compiling without anybody noticing.
 #
 # The Weave demo bundles ride `all` for wire's reason, one stage earlier: the
-# family has no 8086 runtime yet (WEAVE-SPEC §13.1), so the pack itself -
-# three demo sources through tools/weavesim.py, behind its --selfcheck stamp -
-# is the only thing keeping the .WAB contract exercised, and the fast tier's
-# `wab` row reads the result back with an independent second implementation.
-# Pure python3, host-side, shipped on no floppy. The rules are below, next to
+# runtime is a C package that `all` does not build (`make weave`), so the pack
+# itself - three demo sources through tools/weavesim.py, behind its
+# --selfcheck stamp - is what keeps the .WAB contract exercised on every
+# build, and the fast tier's `wab` row reads the result back with an
+# independent second implementation. Pure python3, host-side; the same three
+# bundles ride `make weavedisk`'s WEAVE/ folder. The rules are below, next to
 # wire's.
 
 # The regression suite (tools/os88test.py, tests/suite.py). Three tiers:
@@ -3213,7 +3214,7 @@ endif
 # and the reason is the stack rather than the size: `prof_end` sits at the
 # bottom of the wire path with `pit_now` under it, and each of the ten stages
 # is a wrapper with a call level of its own, so the instrument costs TWELVE
-# BYTES on the deepest chain a 256-byte task slice ever carries
+# BYTES on the deepest chain a 384-byte task slice ever carries
 # (docs/KERNEL-MEMORY.md, "Task stacks"). `make netbench` turns it on for
 # itself, so NETBENCH.O88 always reads a driver that has one; every other
 # build answers NETV_PROF with NETE_VERB.
@@ -3898,12 +3899,12 @@ $(BUILD)/wire360.img: $(BUILD)/wire.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 APPS:$(BUILD)/wire.o88
 
 # --- The WEAVE demo bundles (docs/WEAVE-SPEC.md) -----------------------------
-# Wave 1 of the Weave family is the contract, the host reference
-# implementation and these three bundles (WEAVE-SPEC §13.1); the 8086 runtime
-# arrives in a later wave. Until it does, packing the demos in `all` is what
-# keeps the .WAB format exercised - weavesim writes them, and
-# tests/unit/t_wab.py reads them back sharing no code with the packer, the
-# wordfmt shape. docs/WEAVE-SPEC.md is a prerequisite of every rule here
+# The contract, the host reference implementation and these three bundles
+# are what `all` builds of the Weave family; the 8086 runtime (`make weave`,
+# `make loom`) needs the C toolchain and is on demand. Packing the demos in
+# `all` is what keeps the .WAB format exercised on every build - weavesim
+# writes them, and tests/unit/t_wab.py reads them back sharing no code with
+# the packer, the wordfmt shape. docs/WEAVE-SPEC.md is a prerequisite of every rule here
 # because both implementations are written from it and nothing else.
 #
 # THE MODEL CHECKS ITSELF BEFORE IT PACKS ANYTHING (the RunCPM host-checks
@@ -4638,13 +4639,13 @@ $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88dis
 	python3 tools/os88disk.py -o $@ --size 1440 --scramble $(BUILD)/filetest.o88 $(BUILD)/mines.o88 $(BUILD)/piano.o88 $(BUILD)/big.dat
 
 # =============================================================================
-# THE C TOOLCHAIN (SPEC.md 70) - ON DEMAND: `make cc-smoke`, `make chello`,
+# THE C TOOLCHAIN (SPEC.md 73) - ON DEMAND: `make cc-smoke`, `make chello`,
 #                                           `make cword`, `make cworddisk`
 # =============================================================================
 # apps/cc/Makefile.inc holds the rules that turn a .c file into an .o88: the
 # two new steps (smlrcc -tiny -S, then tools/cc8086.py, which lowers the seven
 # non-8086 forms SmallerC emits and REFUSES the C that is silently wrong here
-# - SPEC.md 73.6, 67.10) in front of the three steps every assembly package
+# - SPEC.md 73.6, 73.10) in front of the three steps every assembly package
 # already goes through unchanged. Its header asks to be included "anywhere
 # after $(BUILD) and $(NASM) are defined"; here also puts it after FILESIZE,
 # which its size report uses.
@@ -4666,8 +4667,8 @@ $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88dis
 #    from inside a recipe with "no such file".
 #
 #  * CWORD DOES NOT RIDE THE SHIPPED APPS DISKS. It takes Frotz's and Word's
-#    precedent (SPEC.md 61, 65.5, and 67.12 names the disk and the machine):
-#    its own floppy, all three geometries, built only when asked for.
+#    precedent (SPEC.md 61, 68.5, and 73.12 names the disk and the machine):
+#    its own floppy, all four geometries, built only when asked for.
 include apps/cc/Makefile.inc
 
 # The one thing the default build says about C, and it says it only when there
@@ -4911,7 +4912,7 @@ msegz: $(BUILD)/msegz.img $(BUILD)/msegz360.img
 # The C toolchain's demonstrator: a word processor whose UI, layout, redraw
 # and RTF engine are all C, going through the same five steps ccsmoke and
 # chello do. `make cword` builds the package, `make cworddisk` the floppy in
-# all three geometries, and `make 386-c-word` boots a period machine with it.
+# all four geometries, and `make 386-c-word` boots a period machine with it.
 #
 # IT IS NOT THE WORD PORT (SPEC.md 73.12). §68's apps/word/ is hand-written
 # assembly and the two share no file, no package name, no make target, no disk
@@ -5174,8 +5175,9 @@ rczex: $(BUILD)/runcpm.img
 
 # --- C64, VICE 3.10's x64 as a C package (docs/C64-SPEC.md) ------------------
 # The C toolchain's third application: a Commodore 64 - a 6510 in a 64KB
-# claim, a VIC-II and two CIAs in C, the KERNAL/BASIC/CHARGEN read at launch
-# from a SIDECAR file, and the 320x200 screen composed into 1bpp bands. A
+# claim, a VIC-II and two CIAs in C, the KERNAL/BASIC/CHARGEN carried as
+# part 0 of the package (SPEC.md 20.12) and claimed at launch, and the 320x200
+# screen composed into 1bpp bands. A
 # reimplementation of VICE 3.10's x64 (GPL-2-or-later, (C) 1996-2025 the VICE
 # team); apps/c64/COPYING is the licence text and apps/c64/ is GPL, which the
 # rest of this tree is not.
@@ -5224,13 +5226,13 @@ $(BUILD)/.c64-hostchecks: apps/c64/c64.c $(C64SRC) $(C64HOST) \
 
 c64: $(BUILD)/c64.o88
 
-# THE ROM SIDECAR (C64-SPEC §1.3, 1.4). tools/c64rom.py checks the
+# THE ROM PART (C64-SPEC §1.3, 1.4). tools/c64rom.py checks the
 # SHA-256 of each of the three COMMITTED Commodore ROM images under
 # apps/c64/rom/ and concatenates them into build/c64-rom/C64.ROM in a fixed
 # layout. No network and no VICE tree: those three files are the one stated,
 # user-decided departure from CONTRIBUTING.md 6, and they are what makes the
-# C64 build on a bare clone. The package REFUSES AT LAUNCH naming the file if
-# the disk does not carry it, which is a screendump in wave 1's gate.
+# C64 build on a bare clone. os88pkg.py appends the result to C64.O88 as
+# part 0 (the CC_PACKAGE call above), so it cannot be missing from a disk.
 C64ROMS := apps/c64/rom/kernal-901227-03.bin apps/c64/rom/basic-901226-01.bin \
            apps/c64/rom/chargen-901225-01.bin
 $(BUILD)/c64-rom/C64.ROM: tools/c64rom.py $(C64ROMS) | $(BUILD)
@@ -5693,12 +5695,15 @@ xt-weave: $(IMG360) $(BUILD)/weave360.img
 # ...and the 256KB XT, which is WEAVE-SPEC 1.4's floor machine and the one the
 # family's whole memory argument is written about: ~140.5KB of heap, so
 # exactly ONE Weave app at a time and the second launch refuses BEFORE ANY I/O
-# with 10.1's sentence naming both figures. Open SHEET.WAB, then open FORM.WAB.
+# - by the KERNEL's loader (LD_ENOMEM, `Out of memory` in the Disk window's
+# status row and a toast), because WEAVE's ~60KB region cannot be claimed with
+# one instance up; 10.1's sentence is the runtime's own and is never reached.
+# Open SHEET.WAB, then open FORM.WAB.
 #
 # WHAT IT IS FOR is looking at that refusal, and 86Box is the right instrument
 # for looking and the wrong one for asserting - it has no automation socket
 # (docs/TESTING.md), so nothing in this tree can rest a gate on it.
-# tests/weaveone.py asserts the same sentence on MartyPC's 256KB machine; this
+# tests/weaveone.py asserts the same byte on MartyPC's 256KB machine; this
 # target is where a person sees it on a period board.
 xt-weave-256: $(IMG360) $(BUILD)/weave360.img
 	@$(UNPROTECT) $(VMXTWEAVE256)/86box.cfg
@@ -8367,19 +8372,20 @@ burn:
 #
 # WHAT IT LEAVES OFF, because 360KB is 354 clusters and everything is more:
 #
-#   MEDIA/BEVERLY.MOD  114 cl - the module Tracker and ModPlug open. It is a
-#                      third of the disk on its own, and it is the one item
-#                      here that is DATA rather than software: the two players
-#                      still launch, they just have nothing to open. Swap in
-#                      build/media360.img when the module is the point - the
-#                      same arithmetic took it off the shipped 360KB apps disk
-#                      (SPEC.md 24.4), so that is where the module now is.
+#   MEDIA/BEVERLY.MOD   42 cl lz4-packed (114 plain) - the module Tracker and
+#                      ModPlug open, and the one item here that is DATA rather
+#                      than software: the two players still launch, they just
+#                      have nothing to open. The shipped apps360.img carries
+#                      it in MEDIA/ (SPEC.md 20.13.5; media360.img is a second
+#                      copy), so swap that disk in when the module is the
+#                      point.
 #   BIGFILE.DAT        104 cl - sysbench's cache-capacity sweep and the DOS
 #                      read-rate cross-check. sysbench says so in the report
 #                      and skips the row (SPEC.md 57.3 rule 2's shape); every
 #                      other row still runs. It is on the `make field` disks,
 #                      which is where that measurement belongs.
-#   README.TXT         16 cl - the manual, on a disk that is for running.
+#   README.TXT          9 cl - the manual (lz4-packed on disk), on a disk
+#                      that is for running.
 #
 # ...AND, SINCE THE APPLICATIONS THEMSELVES STOPPED FITTING, THREE OF THOSE -
 # COMBO_DROP below. This disk carried "every application" for as long as that

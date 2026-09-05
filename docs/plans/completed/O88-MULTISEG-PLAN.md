@@ -1,6 +1,7 @@
 # `.o88` PARTS — a standard packages embed, not a kernel feature
 
-**Status: design, not started.** The ask, and the three goals it has to meet,
+**Status: BUILT, all seven waves (SPEC.md §20.12); this is the design record.**
+The ask, and the three goals it has to meet,
 are §0. **§1 is the record of a first attempt that was built, measured and
 thrown away** — read it before proposing anything that puts this work back in
 the kernel.
