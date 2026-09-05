@@ -147,6 +147,24 @@ def main() -> int:
     # has byte +31 = 0, which reads as "no bss" and is exactly right.
     body = data.rstrip(b"\0")
     keep = max(len(body), entry + 1, HDR)
+    # ...BUT ONLY AS FAR AS THE KB BOUNDARY THE FOOTPRINT NEEDS (SPEC.md
+    # 51.1.2). The kernel claims a driver from the size the DIRECTORY reports
+    # and cannot know the bss until it has read the header out of that claim,
+    # so a strip that takes the image below its own KB rung leaves the claim
+    # short by the difference. Padding the claim instead is what shipped, and
+    # `drv_bss` handing the pad back with a shrink is what could not return
+    # it: the tail of a top-down claim is walled in above the image. Measured
+    # on a machine wanting every driver, 14,336 bytes stranded and the largest
+    # free run 375.0K -> 361.0K.
+    #
+    # So the strip stops at the rung. What that costs is zeros back on the
+    # floppy - and on a packed disk it costs almost nothing, because a run of
+    # zeros is what LZ4 is best at. That is the half which was not true when
+    # the stripping was written: it was measured against an UNCOMPRESSED disk,
+    # where 6,722 bytes of trailing zeros were 6,722 bytes of floppy.
+    rung = -(-len(data) // 1024) * 1024         # the driver's real footprint,
+    if keep <= rung - 1024:                     # rounded up to whole KB
+        keep = rung - 1023                      # the least that reaches it
     # ROUND DOWN. The bss is measured in paragraphs, and rounding the count UP
     # takes bytes that are not zero with it - sound.drv has nine trailing zeros
     # and the first version stripped sixteen, seven of them real code.

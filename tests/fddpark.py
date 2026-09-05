@@ -63,14 +63,15 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, HERE)
 import os88marty                                             # noqa: E402
 import os88mouse                                             # noqa: E402
+import os88build                                             # noqa: E402
 import os88sym                                               # noqa: E402
 import dispcp                                                # noqa: E402
 
 MACHINE = "os8088_5150_cga_gla"
 IMAGE = os.environ.get("OS88_SYSIMG", "build/os8088-360.img")
 APPS = os.environ.get("OS88_APPSIMG", "build/apps360.img")
-KNOB = os.path.join("build", "fddpark")   # the NOFDDPARK=1 arm's OWN tree, so
-                                          # a knob kernel never lands in build/
+KNOBS = ("NOFDDPARK=1",)                  # the other arm's OWN tree, so a knob
+                                          # kernel never lands in build/
 
 UNIT = 1                        # drive B - the one 18.97 contests, and the
                                 # one the installer's Copy Apps reads from
@@ -215,18 +216,31 @@ def main(argv):
         say("\nfddpark: --solo, the NOFDDPARK=1 leg is skipped")
     else:
         say("\n--- building the other arm ---")
-        subprocess.check_call(["make", "BUILD=" + KNOB, "NOFDDPARK=1"],
-                              cwd=ROOT, stdout=subprocess.DEVNULL)
-        os.environ["OS88_BUILD"] = os.path.join(ROOT, KNOB)   # os88sym reads it
-        os88sym.default_defines("NO_FDDPARK")  # ...and so do the helpers that
-        try:                                   # look symbols up with no
-                                               # defines of their own
-            old = leg(("NO_FDDPARK",), "NOFDDPARK=1, the kernel before it",
-                      image=os.path.join(KNOB, "os8088-360.img"),
-                      apps=os.path.join(KNOB, "apps360.img"))
+        # **THROUGH os88build, NOT A HAND-ROLLED `make BUILD=`** (docs/
+        # WRITING-TESTS.md 5.2). The three things it does that this row was
+        # doing itself, and one it was not doing at all:
+        #
+        #   - it picks the directory, and under a frozen soak run that is
+        #     inside the RUN's tree rather than the shared `build/fddpark`
+        #     this row named literally;
+        #   - it passes NO_GATES, so a knob tree does not re-run the size
+        #     guards that only describe the shipped kernel;
+        #   - it ASKS make what nasm defines the knob compiles to rather than
+        #     restating them, which is what `default_defines("NO_FDDPARK")`
+        #     was guessing at;
+        #   - and it strips the KZ family before the symbol reader sees it.
+        #     That last one is why this row failed in the soak with
+        #     `boot/boothd.asm:255: error: symbol KZ_HD not defined` - an
+        #     error about the boot sector, from a row about the floppy head,
+        #     with the arm under test never built.
+        t = os88build.tree(*KNOBS, targets=("os8088-360.img", "apps360.img"))
+        t.apply()
+        try:
+            old = leg(t.defines, "NOFDDPARK=1, the kernel before it",
+                      image=t.img("os8088-360.img"),
+                      apps=t.img("apps360.img"))
         finally:
-            del os.environ["OS88_BUILD"]
-            os88sym.default_defines()
+            os88build.plain().apply()
 
         if trk0(old["dirty"]) is not False:
             fail.append("SETUP: the NOFDDPARK=1 leg never dirtied the head "
