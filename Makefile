@@ -331,7 +331,7 @@ ifneq ($(VGADIRTY),)
 VIDDEF += -DVGA_DIRTY
 endif
 
-# DISKCNT=1 compiles in the three disk counters of docs/DISK-PERF-PLAN.md 2:
+# DISKCNT=1 compiles in the three disk counters of docs/plans/completed/DISK-PERF-PLAN.md 2:
 # mounts, sectors transferred and int 13h data calls. They exist to answer
 # "how much work is a directory change", which QEMU can measure exactly even
 # though it cannot measure how long it takes (PERFORMANCE.md). Folded into
@@ -369,7 +369,7 @@ endif
 VIDDEF += -DBOOT_PROFILE
 endif
 
-# STKDIAG=1 compiles in docs/STACK-SLOTS-PLAN.md's task-stack diagnostic: a
+# STKDIAG=1 compiles in docs/plans/completed/STACK-SLOTS-PLAN.md's task-stack diagnostic: a
 # sentinel written into the free bytes below SP around sch_isr's
 # `call far [sch_old08]`, so what the ROM's int 08h handler scrubs is what it
 # COSTS a task stack - the one number in that plan that came from an A/B
@@ -882,7 +882,7 @@ ifneq ($(FDDABSENT),)
 VIDDEF += -DFDD_FORCE_ABSENT=$(FDDABSENT)
 endif
 
-# KERN_SMALL=1 selects the SMALL build of the kernel (docs/KERN-SPLIT-PLAN.md).
+# KERN_SMALL=1 selects the SMALL build of the kernel (docs/history/KERN-SPLIT-PLAN.md).
 #
 # The split is the one docs/KERNEL-MEMORY.md and kernel.asm have named for
 # three budget moves: a 128KB machine and a 640KB machine stop wanting the same
@@ -914,7 +914,7 @@ VIDDEF += -DTHEMEDARK=$(THEMEDARK)
 endif
 
 # TITLESNAP=1 rounds a window title's pen to the nearest 8px CELL instead of
-# to the exact centre (docs/TEXT-PLAN.md 6.1). It is a LOOK question - the
+# to the exact centre (docs/plans/completed/TEXT-PLAN.md 6.1). It is a LOOK question - the
 # title moves by at most 4 pixels - so it is a knob to be looked at rather
 # than a change to be argued, and the default is the exact centring that
 # ships. What it buys is the hottest chrome path in the system reaching
@@ -997,7 +997,7 @@ endif
 
 # BAND=1 puts a window's title bar on band.inc's COMPOSER (SPEC.md 11.101):
 # the whole bar drawn into a 1bpp band and blitted, so every pixel it covers
-# is written ONCE and the caption never flashes, which is docs/TEXT-PLAN.md
+# is written ONCE and the caption never flashes, which is docs/plans/completed/TEXT-PLAN.md
 # 1.1's whole point. The default build draws the bar with the fifteen
 # primitive calls it always did.
 #
@@ -1037,7 +1037,7 @@ KZIP := 1
 endif
 
 # COMPRESS= picks which decompressors the kernel carries
-# (docs/O88-COMPRESSION-PLAN.md 12.7, SPEC.md 20.13.6).
+# (docs/plans/O88-COMPRESSION-PLAN.md 12.7, SPEC.md 20.13.6).
 #
 # **`both` IS THE DEFAULT AND SHIPS**, and the disks are still LZ4. That looks
 # like paying for something nothing uses, and it is not: the 181 bytes buy the
@@ -1334,7 +1334,7 @@ PKGSBDEF := $(if $(SBDRAGOFF),-DSBDRAGOFF)$(if $(SBRATE), -DSB_RATE=$(SBRATE))
 SBSTAMP := $(BUILD)/.sbpkg$(if $(SBDRAGOFF),-off$(SBDRAGOFF))$(if $(SBRATE),-r$(SBRATE))
 
 # PKGZ=lz4|lzb COMPRESSES EVERY SHIPPED PACKAGE AND DRIVER
-# (docs/O88-COMPRESSION-PLAN.md 13 wave 2 and 12.6, SPEC.md 20.13). It is the
+# (docs/plans/O88-COMPRESSION-PLAN.md 13 wave 2 and 12.6, SPEC.md 20.13). It is the
 # fleet-wide form of the per-package `--compress`, and it uses `--compress-if`
 # rather than `--compress` deliberately: three of the two dozen are legitimately
 # better off plain - C64 has PARTS, HELLO's in-place layout would make the
@@ -1580,7 +1580,7 @@ endif
 #
 # The variant is deliberately NOT in this list, which is tools/kernsize.py's
 # distinction and worth keeping the two files agreed on: KERN_BIG/KERN_SMALL
-# are two SHIPPED PRODUCTS (docs/KERN-SPLIT-PLAN.md), `make small` builds one
+# are two SHIPPED PRODUCTS (docs/history/KERN-SPLIT-PLAN.md), `make small` builds one
 # into a directory of its own and it forces no probe; everything else here
 # produces a kernel nobody ships.
 #
@@ -1867,7 +1867,7 @@ test-full: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
 # whole-tier command: it preflights the capabilities first (a skip is the box
 # declining to answer, not a pass), sizes the lanes off the box, runs
 # detached, and journals every row so a reclaimed container resumes rather
-# than restarts. docs/SOAK-PARALLEL.md is the account.
+# than restarts. docs/plans/SOAK-PARALLEL.md is the account.
 test-soak: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360)
@@ -1962,7 +1962,7 @@ KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
 # ...and kern_small's FIFTH and SIXTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP)
 # and the Standard File dialog (SPEC.md 38.0, MOD_FDLG): that build carries
 # the bodies in FILECP.DRV and FDLG.DRV where kern_big keeps them resident
-# (docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1). HIBER.DRV is index 3 on BOTH
+# (docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1). HIBER.DRV is index 3 on BOTH
 # builds: kern_small's is the one-entry stub hiber.inc emits so that every
 # kernel cuts the same first four files (SPEC.md 87), which is why it sits in
 # $(KMODS) above and these two do not. The index IS the kernel's
@@ -2402,7 +2402,7 @@ BD_IMGS := $(BUILD)/bootdiag360.img $(BUILD)/bootdiag720.img \
 # the CPU pushed at the gate and nothing else - ~48 bytes off every slice, and
 # a slice pays it seven times over where the swap costs .text once.
 #
-# This is the A/B those numbers come off (docs/STACK-SLOTS-PLAN.md 4.2), it is
+# This is the A/B those numbers come off (docs/plans/completed/STACK-SLOTS-PLAN.md 4.2), it is
 # arm 2 of `make stkdiag`, and it is the only thing keeping the un-swapped path
 # assembling.
 #
@@ -2420,14 +2420,14 @@ endif
 # single item in the interrupt floor, and the one that made a slot class
 # smaller than the ROM impossible.
 #
-# This is the A/B those numbers come off (docs/STACK-SLOTS-PLAN.md 4.1), it is
+# This is the A/B those numbers come off (docs/plans/completed/STACK-SLOTS-PLAN.md 4.1), it is
 # arm 3 of `make stkdiag`, and it is the only thing keeping the un-swapped path
 # assembling.
 ifneq ($(NOCHAINPRIV),)
 VIDDEF += -DNO_CHAINPRIV
 endif
 
-# --- STKDIAG=1's disks (docs/STACK-SLOTS-PLAN.md 10) -------------------------
+# --- STKDIAG=1's disks (docs/plans/completed/STACK-SLOTS-PLAN.md 10) -------------------------
 #
 # A RECURSIVE make and not a payload rule, because the payload is the ordinary
 # system disk: the panel is in the kernel and spawns itself, so there is no
@@ -3052,7 +3052,7 @@ $(BUILD)/hdd.bin: drivers/hdd/hdd.asm apps/os88ui.inc drivers/hdd/hddabi.inc dri
 $(BUILD)/hdd.drv: $(BUILD)/hdd.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/hdd.bin -o $@
 
-# NET.DRV - a LapLink parallel cable as a block volume (docs/NET-PLAN.md stage
+# NET.DRV - a LapLink parallel cable as a block volume (docs/plans/completed/NET-PLAN.md stage
 # 1). Its transport is drivers/net/lplink.inc, which tests/lptlink includes
 # too, so the thing PERFORMANCE.md Part 9 Set 39 measured is the thing that
 # ships. OS88NET.COM is the other end of the cable: a DOS program for the FAR
@@ -3104,7 +3104,7 @@ $(BUILD)/vmmouse.drv: $(BUILD)/vmmouse.bin tools/os88drv.py
 # RAMDISK.DRV - a DRVC_FILE volume with no hardware behind it (SPEC.md 62.9),
 # and the FILE REDIRECTOR'S HARNESS: every branch site the redirector added to
 # the kernel runs on a cycle-accurate 8088 in a container, which is the one
-# thing block mode never had (docs/NET-PLAN.md 2.2.1). It ships because that is
+# thing block mode never had (docs/plans/completed/NET-PLAN.md 2.2.1). It ships because that is
 # the serial monitor's argument (SPEC.md 58) - a knob kernel is a different
 # binary, so what you tested is not what ships - and it costs a machine that
 # never ticks it one
@@ -3185,7 +3185,7 @@ $(BUILD)/ramdisk.drv: $(BUILD)/ramdisk.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/ramdisk.bin -o $@
 
 # ETHER.DRV - an NE1000/NE2000 and a TCP/IP stack (SPEC.md 72, stage E of
-# docs/NET-STACK-PLAN.md). It answers the SAME socket verbs NET.DRV answers
+# docs/plans/completed/NET-STACK-PLAN.md). It answers the SAME socket verbs NET.DRV answers
 # over the parallel cable, from drivers/net/netpkg.inc - which is why the -I
 # reaches into drivers/net/ for a driver that has nothing to do with the
 # cable. The whole claim of the stage is that a package cannot tell.
@@ -3415,7 +3415,7 @@ $(BUILD)/ether360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(
 		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/system.cfg
 
-# FTPDTEST: the FTP SERVER's gate disk (SPEC.md 77, docs/NET-STACK-PLAN.md
+# FTPDTEST: the FTP SERVER's gate disk (SPEC.md 77, docs/plans/completed/NET-STACK-PLAN.md
 # stage F). Two images, and each answers a different half.
 #
 # The SYSTEM disk is ether360.img's - a SYSTEM.CFG that already asks for
@@ -3554,7 +3554,7 @@ $(BUILD)/spantest.img: $(BUILD)/spantest.o88 tools/os88disk.py
 spantest: $(BUILD)/spantest.img
 
 # LZDRV: the gate on loading a COMPRESSED DRIVER
-# (docs/O88-COMPRESSION-PLAN.md 13 wave 3b). The shipped 360KB system disk
+# (docs/plans/O88-COMPRESSION-PLAN.md 13 wave 3b). The shipped 360KB system disk
 # with ONE file swapped - RAMDISK.DRV compressed. It is the right subject
 # because it has a real bss (2,416 bytes) as well as a compressible body, so
 # drv_expand and drv_bss are both exercised on one file, and because
@@ -3580,7 +3580,7 @@ lzdrvtest: $(BUILD)/lzdrv360.img $(BUILD)/drvcall360.img
 
 
 # LZLOAD: the gate on LOADING a compressed package (SPEC.md 20.13,
-# docs/O88-COMPRESSION-PLAN.md 13 wave 2). Three packages on one scratch disk:
+# docs/plans/O88-COMPRESSION-PLAN.md 13 wave 2). Three packages on one scratch disk:
 # two compressed with the format the default kernel carries, and one with the
 # format it does NOT - because "a format this build lacks is refused, not run"
 # is a claim in 20.13.3 and was untested until something shipped a file in it.
@@ -3612,7 +3612,7 @@ $(BUILD)/lzload360.img: $(LZCDIR)/calc.o88 $(LZCDIR)/mines.o88 \
 lzloadtest: $(BUILD)/lzload360.img
 
 # LZFENCE: the gate on OSAPI_DECOMP's REFUSALS (SPEC.md 20.13.4,
-# docs/O88-COMPRESSION-PLAN.md 13 wave 1). Like fmtest it is never shipped and
+# docs/plans/O88-COMPRESSION-PLAN.md 13 wave 1). Like fmtest it is never shipped and
 # gets its own scratch image:
 #   make lzfencetest && python3 tests/lzfence.py
 $(BUILD)/lzfence.bin: tests/lzfence/lzfence.asm apps/os88api.inc | $(BUILD)
@@ -3629,7 +3629,7 @@ $(BUILD)/lzfence360.img: $(BUILD)/lzfence.o88 tools/os88disk.py
 lzfencetest: $(BUILD)/lzfence360.img
 
 # lzfile - a compressed FILE, read transparently (SPEC.md 20.14,
-# docs/O88-COMPRESSION-PLAN.md 13 wave 5). The disk carries one document
+# docs/plans/O88-COMPRESSION-PLAN.md 13 wave 5). The disk carries one document
 # TWICE: PLAIN.TXT as it is and PACKED.TXT wrapped by os88lz.py, so every
 # assertion the package makes is the two of them compared with each other:
 #   make lzfiletest && python3 tests/lzfile.py
@@ -3778,7 +3778,7 @@ $(BUILD)/fsxtest.img: $(BUILD)/fsxtest.o88 tools/os88disk.py
 $(BUILD)/fsxtest360.img: $(BUILD)/fsxtest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/fsxtest.o88
 
-# DRVCALL: the OSAPI_DRV_CALL gate (SPEC.md 20.10, docs/NET-STACK-PLAN.md
+# DRVCALL: the OSAPI_DRV_CALL gate (SPEC.md 20.10, docs/plans/completed/NET-STACK-PLAN.md
 # stage A) - can a package reach a driver, and does the driver get the
 # PACKAGE's segment in ES? Its counterpart is RAMDISK.DRV's two package verbs,
 # and both ends include drivers/ramdisk/rdpkg.inc, which is why the -I is
@@ -3804,7 +3804,7 @@ $(BUILD)/drvcall360.img: $(BUILD)/drvcall.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/drvcall.o88
 
 # SOCKTEST: the gate for the SOCKET verbs (SPEC.md 62.11,
-# docs/NET-STACK-PLAN.md stage B). It fetches a page over the parallel cable
+# docs/plans/completed/NET-STACK-PLAN.md stage B). It fetches a page over the parallel cable
 # through NET.DRV's package door and reports what came back. Its far end is
 # tests/lptlink/partner.py's SocketBox - REAL host sockets - so it needs no
 # cable, no DOS and no card, and it runs on MartyPC.
@@ -4003,7 +4003,7 @@ $(BUILD)/calc.bin: apps/calc/calc.asm apps/os88api.inc apps/os88ui.inc | $(BUILD
 $(BUILD)/calc.o88: $(BUILD)/calc.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/calc.bin -o $@
 
-# Browser (docs/BROWSER-PLAN.md): the text-and-table HTML viewer. Step 1 of
+# Browser (docs/plans/completed/BROWSER-PLAN.md): the text-and-table HTML viewer. Step 1 of
 # that document is the RENDERER, with no network in the machine - it opens a
 # .HTM through the Standard File dialog. tools/htmsim.py is its reference
 # implementation and tests/htm/ is what both are checked against.
@@ -4015,7 +4015,7 @@ $(BUILD)/browser.bin: apps/browser/browser.asm apps/browser/brnet.inc \
 	        $(PKGSBDEF) -o $@ apps/browser/browser.asm
 	@echo "browser: $(call FILESIZE,$@) bytes"
 
-# TELNET (docs/NET-STACK-PLAN.md stage C, SPEC.md 67). The -I drivers/net is
+# TELNET (docs/plans/completed/NET-STACK-PLAN.md stage C, SPEC.md 67). The -I drivers/net is
 # netpkg.inc, which is the DRIVER's ABI header and is included by both ends so
 # the two cannot drift (SPEC.md 20.11) - the same reason tests/socktest has it.
 $(BUILD)/telnet.bin: apps/telnet/telnet.asm apps/telnet/tetxt.inc \
@@ -4028,7 +4028,7 @@ $(BUILD)/telnet.bin: apps/telnet/telnet.asm apps/telnet/tetxt.inc \
 $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/telnet.bin -o $@
 
-# THE FTP SERVER (SPEC.md 77) - docs/NET-STACK-PLAN.md stage F, and the first
+# THE FTP SERVER (SPEC.md 77) - docs/plans/completed/NET-STACK-PLAN.md stage F, and the first
 # thing here that SERVES. Same include set as Telnet's for the same reason:
 # netpkg.inc is the DRIVER's own ABI header, included by both ends so the two
 # cannot drift (SPEC.md 20.11).
@@ -4168,7 +4168,7 @@ $(BUILD)/audio.o88: $(BUILD)/audio.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/audio.bin -o $@
 
 # ...and the SAME SOURCE with -DAPROF (SPEC.md 86.5.1): the diagnostic-counter
-# build, for the profiling tests in docs/AUDIO-PLAN.md. Every counter is inside
+# build, for the profiling tests in docs/plans/completed/AUDIO-PLAN.md. Every counter is inside
 # %ifdef APROF, so the shipped AUDIO.O88 above carries none of it. Press D in
 # the player to see / hide the counters. Never on a shipped disk.
 $(BUILD)/audio-prof.bin: $(AUDIO_SRC) | $(BUILD)
@@ -4196,7 +4196,7 @@ audiodisk: $(BUILD)/audio-test.img
 
 # ...and a BOOTABLE HARD-DISK image (ON DEMAND: `make audio-hdd`) - the vehicle
 # for a full set of multi-MB WAVs, and the realistic streaming scenario
-# (docs/AUDIO-PLAN.md: floppy streaming is marginal, HDD is where it works).
+# (docs/plans/completed/AUDIO-PLAN.md: floppy streaming is marginal, HDD is where it works).
 # The system core plus AUDIO.O88 and every WAV under AUDIOWAVDIR (8.3 names,
 # either case of extension - a file called BIG.WAV is the usual one)
 # in APPS/. The partition auto-sizes to the payload; the kernel adopts it
@@ -5002,7 +5002,7 @@ $(eval $(call CC_PACKAGE,runcpm,runcpm,RUNCPM.OVL))
 # parts, and the shim %includes the three hand-written pieces and the icon. Every one is a
 # written prerequisite because make cannot see through either kind of include
 # - and every file the port plan names is listed from wave 1, stubs included,
-# so no later wave adds a file the build does not know (docs/RUNCPM-PORT-PLAN.md).
+# so no later wave adds a file the build does not know (docs/plans/completed/RUNCPM-PORT-PLAN.md).
 RUNCPMSRC := apps/runcpm/rcterm.c apps/runcpm/rccpm.c apps/runcpm/rcfs.c \
              apps/runcpm/rcabout.c
 RUNCPMINC := apps/runcpm/rcz80.inc apps/runcpm/rcmem.inc apps/runcpm/rcband.inc
@@ -5063,7 +5063,7 @@ cpmsw: $(BUILD)/cpmsw.stamp
 CPMSW ?=
 
 # HELLO.COM - the hand-assembled Z80 hello the wave-2 gate loads with the
-# debug key (docs/RUNCPM-PORT-PLAN.md): LD C,9 / LD DE,0109h / CALL 5 / RET,
+# debug key (docs/plans/completed/RUNCPM-PORT-PLAN.md): LD C,9 / LD DE,0109h / CALL 5 / RET,
 # then the string - 49 bytes: nine of Z80 and a 40-byte message; the RET
 # goes to the 0000 the loader put on the stack, so it also exercises the
 # warm-boot path (SPEC.md 71). Emitted here rather than assembled because
@@ -5143,7 +5143,7 @@ $(BUILD)/runcpm360.img: $(RUNCPMDEPS)
 	$(call RUNCPMIMG,$@,360)
 	@python3 tools/os88disk.py --verify $@
 
-# THE CORE GATES (SPEC.md 71, docs/RUNCPM-PORT-PLAN.md wave 2). `make rczex`
+# THE CORE GATES (SPEC.md 71, docs/plans/completed/RUNCPM-PORT-PLAN.md wave 2). `make rczex`
 # is the plan's: boot build/runcpm.img in QEMU, launch RUNCPM, load ZEXDOC
 # through the debug key and read the terminal rows off screendumps until
 # 'Tests complete' (tests/rczex.py, an 8x8-glyph OCR in tests/rczex_ocr.py).
@@ -5193,7 +5193,7 @@ $(eval $(call CC_PACKAGE,c64,c64,C64.OVL,$(BUILD)/c64-rom/C64.ROM))
 # THE REST OF THE TRANSLATION UNIT (SPEC.md 73.1): c64.c #includes the parts,
 # and the shim %includes the three hand-written pieces and the icon. Every one
 # is a WRITTEN PREREQUISITE because make cannot see through either kind of
-# include - and every file docs/C64-PORT-PLAN.md names is listed from wave 1,
+# include - and every file docs/plans/completed/C64-PORT-PLAN.md names is listed from wave 1,
 # stubs included, so no later wave adds a file the build does not know
 # (LESSONS.md 9).
 C64SRC := apps/c64/c64io.c apps/c64/c64kbd.c apps/c64/c64scr.c \
@@ -5310,7 +5310,7 @@ $(BUILD)/c64band.img: $(BUILD)/c64bband.o88 tools/os88disk.py
 # sentinel, with negative controls, and IS in build.sh because it takes
 # seconds. c64cputest is the core's twelve rows and is NOT, because it takes
 # minutes - the rcz80test precedent. Wave 1 ships the first; the second
-# arrives with the core it gates (docs/C64-PORT-PLAN.md wave 2).
+# arrives with the core it gates (docs/plans/completed/C64-PORT-PLAN.md wave 2).
 c64memtest:
 	apps/c64/hosttest/c64memtest.sh
 
@@ -6542,7 +6542,7 @@ $(BUILD)/npbench360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) \
 
 # --- ...and the ONE LONG RUN disk, for SPEC.md 27.4.2 ------------------------
 #
-# README.TXT is prose and CANNOT show the bug docs/NOTEPAD-NOTES.md 5.6 is
+# README.TXT is prose and CANNOT show the bug docs/plans/completed/NOTEPAD-NOTES.md 5.6 is
 # about: its longest unbroken run is 28 characters, and np_cellrun needs
 # np_rcols + 2 - 31 at the default 29 columns - before it will accept. So the
 # reference note is the wrong instrument here, and the report sat unmeasured
@@ -6570,7 +6570,7 @@ $(BUILD)/npbench360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) \
 # drift from.
 NPRUNLEN := 709
 NPRUNTXT := This note is one long run with no newlines in it at all, which is \
-what docs/NOTEPAD-NOTES.md 5.6 and SPEC.md 27.4.2 are about. Put the caret \
+what docs/plans/completed/NOTEPAD-NOTES.md 5.6 and SPEC.md 27.4.2 are about. Put the caret \
 just after the semicolon above and hold a key down.
 
 $(BUILD)/nprun/run.txt: Makefile | $(BUILD)
@@ -6834,7 +6834,7 @@ $(BUILD)/bench.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BENCHPKGS) $(BENCHDATA)
 
-# --- the BROWSER's test disk (docs/BROWSER-PLAN.md 10 step 1) -----------------
+# --- the BROWSER's test disk (docs/plans/completed/BROWSER-PLAN.md 10 step 1) -----------------
 # The renderer with no network in the machine: the package plus tests/htm/'s
 # fixtures, so a scripted session can open demo.htm, torture.htm and the
 # FrogFind capture off a floppy and diff the framebuffer. On demand only -
@@ -6996,7 +6996,7 @@ CQDIR      := $(BUILD)/cqk
 # a reboot in the middle of every batch.
 FIELDKNOBS := DISKCNT=1
 
-# --- the SMALL build (docs/KERN-SPLIT-PLAN.md) -------------------------------
+# --- the SMALL build (docs/history/KERN-SPLIT-PLAN.md) -------------------------------
 #
 # `make small` builds kern_small and its system disks. THE DEFAULT IS BIG, so
 # this is the one that is asked for - and it builds into a directory of its
@@ -7007,7 +7007,7 @@ FIELDKNOBS := DISKCNT=1
 #
 # The APPS disks are NOT rebuilt and must not be: a package is the same bytes
 # on both kernels by construction, because the two builds hold the SAME API
-# table at the same offsets (docs/KERN-SPLIT-PLAN.md 3). The day that stops
+# table at the same offsets (docs/history/KERN-SPLIT-PLAN.md 3). The day that stops
 # being true is the day the split acquired an ABI, which is the one thing this
 # design is written to avoid.
 SMALLDIR := $(BUILD)/smallk
@@ -7163,8 +7163,8 @@ $(BUILD)/small360.img: KMODDIR := $(SMALLDIR)
 # $(SMALLMODS) is the ON-DEMAND KERNEL MODULES (SPEC.md 2.8), and it is
 # listed here rather than folded into $(KMODS) because these rules expand in
 # the OUTER make where KERN_SMALL is not set - which is how FILECP.DRV came to
-# be left off the disk with every build step green (docs/KERN-SMALL-MODULE-
-# SPLIT.md 9.2.5).
+# be left off the disk with every build step green
+# (docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2.5).
 #
 # IN THE RECIPE ONLY, AND NOT IN THE PREREQUISITES. Nothing in the outer make
 # can build $(SMALLDIR)/filecp.drv: it is cut out of $(SMALLDIR)/kernel.bin by
@@ -7289,7 +7289,7 @@ $(BUILD)/emu.img: $(EMUDRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
 #
 # IT IS NOT A SECOND ABI, and that is the whole reason this is a disk rather
 # than a kernel feature. A small-built package calls the same API table at the
-# same offsets as every other (docs/KERN-SPLIT-PLAN.md 3), so it runs on
+# same offsets as every other (docs/history/KERN-SPLIT-PLAN.md 3), so it runs on
 # kern_big exactly as it runs on kern_small - it simply has fewer features.
 # What pairs it with kern_small is which floppy it is written to, and nothing
 # else. `make small`'s note that a package is "one package, both kernels" is
@@ -7680,7 +7680,7 @@ $(BUILD)/comscan144.img: $(BUILD)/csboot144.bin $(BUILD)/comscan.bin \
 		$(BUILD)/comscan.com
 
 # LPTLINK surveys the machine's PARALLEL ports and then measures the cable
-# between two of them (tests/lptlink) - step 1 of docs/NET-PLAN.md. Same shape
+# between two of them (tests/lptlink) - step 1 of docs/plans/completed/NET-PLAN.md. Same shape
 # as comscan above and for the same reason: NEITHER END IS os8088, so a
 # failure is a failure of the cable or the protocol and cannot be anything
 # else. Run it on both machines - one Slave, one Master, SLAVE FIRST.
@@ -7921,7 +7921,7 @@ MEDIA_DISK_DATA := apps/tracker/beverly.mod
 APPS_DATA_360   := $(filter-out $(MEDIA_DISK_DATA),$(APPS_DATA))
 
 # ...UNLESS THE DISK IS COMPRESSED, and this is the single most visible thing
-# compression buys this project (docs/O88-COMPRESSION-PLAN.md 13.4). BEVERLY.MOD
+# compression buys this project (docs/plans/O88-COMPRESSION-PLAN.md 13.4). BEVERLY.MOD
 # is 116,085 bytes and 114 of a 360KB disk's 354 clusters, which is the whole
 # reason SPEC.md 24.4 built it a floppy of its own; wrapped it is ~42,000 and
 # 42, so with PKGZ set the two-disk split COLLAPSES and the module rides the
@@ -8000,7 +8000,7 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS)
 # stops being harmless the day somebody reads it to find out what is on there.
 # AUDIO.O88 is left off the 360KB disk: it fits with one cluster to spare
 # (353/354) which is too tight to be a good neighbour, and the XT/floppy is
-# exactly where streaming performance is least proven (docs/AUDIO-PLAN.md).
+# exactly where streaming performance is least proven (docs/plans/completed/AUDIO-PLAN.md).
 # It ships on the 1.44MB and 720KB apps disks, which have room.
 APPS_TOOLS_360 := $(filter-out $(BUILD)/audio.o88,$(APPS_TOOLS))
 APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
@@ -8876,7 +8876,7 @@ xt-hercules: $(IMG360) $(APPSIMG360)
 	@$(UNPROTECT) $(VMHERC)/86box.cfg
 	$(BOX) -P $(VMHERC) -N
 
-# The IBM EGA machine (SPEC.md 39.24, docs/EGA-PLAN.md): an ibmxt with a real
+# The IBM EGA machine (SPEC.md 39.24, docs/plans/completed/EGA-PLAN.md): an ibmxt with a real
 # EGA card and the enhanced monitor. The ONLY way to exercise the §39.1 EGA
 # detection branch (DCC absent, "get EGA info" succeeds) and the mode 10h set
 # on a period BIOS - QEMU has no EGA, and `make test VIDEO=ega` forces the
@@ -9168,7 +9168,7 @@ xt-word: $(IMG360) $(BUILD)/word720.img
 # copy of vm/386-word (above). The banner's 'Estimated Z80 clock speed' read
 # here is the number SPEC.md 71 records for the 386; the XT figure is taken
 # on vm/xt640 with fdd_02_fn hand-pointed at build/runcpm360.img for the
-# session (docs/RUNCPM-PORT-PLAN.md wave 2) - no xt-runcpm target until the
+# session (docs/plans/completed/RUNCPM-PORT-PLAN.md wave 2) - no xt-runcpm target until the
 # measurement says the port is usable there.
 386-runcpm: $(IMG) $(BUILD)/runcpm.img
 	@$(UNPROTECT) $(VM386RUNCPM)/86box.cfg
@@ -9226,7 +9226,7 @@ marty: $(IMG360)
 	@echo "       machines: os8088_5150_cga (default), _herc, _cga_gla, _sb,"
 	@echo "                 _sbonly, os8088_xt_vga and _xt_vga_sb;"
 	@echo "                 _both / _both_gla are the TWO-CARD 5150 (a CGA and"
-	@echo "                 a Hercules, docs/DUAL-DISPLAY-PLAN.md) and _herc_gla"
+	@echo "                 a Hercules, docs/plans/completed/DUAL-DISPLAY-PLAN.md) and _herc_gla"
 	@echo "                 is the single-card Hercules without the IBM ROM."
 	@echo "                 python3 tests/dualcheck.py is the two-card gate"
 	@echo "       os8088_xt_vga_mda is the two-card XT with a VGA IN IT - the"

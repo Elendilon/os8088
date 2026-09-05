@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """File > Compress, and the machine's stream against the host's, BYTE FOR BYTE.
 
-docs/O88-COMPRESSION-PLAN.md wave 6; SPEC.md 20.15 is the module and 22.22 the
+docs/plans/O88-COMPRESSION-PLAN.md wave 6; SPEC.md 20.15 is the module and 22.22 the
 verb. `os88lz.lzb_compress_machine` is a mirror of `kernel/compress.inc`
 statement for statement rather than a model of its output, so the assertion
 here is equality of the whole file - the 'CZ' header and every byte of the
@@ -148,7 +148,7 @@ def build_disk(path):
     # is the IMAGE back out of one - what nasm emitted, which is what an
     # uncompressed package on somebody's disk looks like.
     # `at` on both, because under a frozen run the shipped packages are in
-    # the run's own tree and not in build/ (docs/SOAK-PARALLEL.md 14.2) -
+    # the run's own tree and not in build/ (docs/plans/SOAK-PARALLEL.md 14.2) -
     # and these two ARE the fixture, so reading them out of a directory
     # somebody may be building in is a torn fixture rather than a missing one.
     calc = os88pkg.image_unwrap(
@@ -185,7 +185,7 @@ def compress(m, mo, wx, wy, name, fails, quiet=30):
     what the verb is allowed is the same on a loaded box as an idle one -
     which for this row is the difference between a slow subject finishing and
     a row that reports "nothing was said" about a machine that was simply
-    given a third less CPU (docs/SOAK-PARALLEL.md 1).
+    given a third less CPU (docs/plans/SOAK-PARALLEL.md 1).
     """
     m.write(S("toast_buf"), b"\0")          # ...so the previous verdict cannot
     row = dispcp.row_of(m, S, name)         # be read as this one's

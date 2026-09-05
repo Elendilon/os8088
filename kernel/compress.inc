@@ -12,7 +12,7 @@
 ; a file name and one `mod_fp` block - 45 bytes.
 ;
 ; **IT IS A HASH-CHAIN MATCHER, DEPTH 16, OVER A 16,384-BYTE WINDOW**, and that
-; is a correction to docs/O88-COMPRESSION-PLAN.md 13.11.0 rather than what it
+; is a correction to docs/plans/O88-COMPRESSION-PLAN.md 13.11.0 rather than what it
 ; recommended. That measurement rejected chains because a `prev` array is two
 ; bytes per input byte - 128KB for a 64KB file - which is true of a chain over
 ; the WHOLE file and not of one over a window: 13.11.0's own 12.3.1 had already

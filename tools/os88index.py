@@ -248,28 +248,55 @@ def own_specs():
     return out
 
 
+# Where a document lives is what it IS, and that is the whole point of the
+# layout: docs/ describes how the system works TODAY, docs/plans/ is work that
+# is proposed or half-done, docs/plans/completed/ is the design record behind
+# something that shipped, and docs/history/ is a record of a moment that has
+# passed. The filename used to carry that meaning - "plan" if "PLAN" in the
+# name - and it was wrong in both directions: HANDOFF-REDRAW.md is a plan with
+# no PLAN in it, and KERNEL-MEMORY.md is maintained reference that happens to
+# sit beside eighty design records. A reader could not tell which of the two
+# any given file was, which is exactly the misleading the split exists to end.
+DOC_KINDS = [
+    ("docs/plans/completed/", "completed"),
+    ("docs/plans/", "plan"),
+    ("docs/history/", "history"),
+    ("docs/", "reference"),
+]
+
+
 def doc_files():
-    """[(name, kind)] for docs/*.md - PLAN files are design records, not reference.
+    """[(path, kind)] for every docs/**.md, kind taken from the DIRECTORY.
 
     TRACKED files, deliberately: --check runs in every `make`, so listing the
     live directory means an untracked draft parked in docs/ fails every build -
     and regenerating writes the local-only name into INDEX.md, which then fails
-    --check on every other machine. A plain listdir is the fallback for a tree
-    without git (a release tarball)."""
+    --check on every other machine. A walk is the fallback for a tree without
+    git (a release tarball).
+
+    The git pathspec `docs/*.md` matches at any depth - a pathspec wildcard is
+    not stopped by a `/` - so the one glob still reaches all four directories.
+    Do not "fix" it to `docs/**/*.md`, which git reads as a LITERAL `**`."""
     try:
         names = subprocess.check_output(
             ["git", "-C", ROOT, "ls-files", "docs/*.md"],
             text=True, stderr=subprocess.DEVNULL).split("\n")
-        names = [os.path.basename(n) for n in names if n]
+        names = [n for n in names if n]
     except (OSError, subprocess.CalledProcessError):
         names = []
     if not names:
-        names = os.listdir(os.path.join(ROOT, "docs"))
+        names = []
+        for base, _dirs, files in os.walk(os.path.join(ROOT, "docs")):
+            rel = os.path.relpath(base, ROOT).replace(os.sep, "/")
+            names += ["%s/%s" % (rel, f) for f in files if f.endswith(".md")]
     out = []
     for n in sorted(names):
-        if not n.endswith(".md") or n == "INDEX.md":
+        if not n.endswith(".md") or n == "docs/INDEX.md":
             continue
-        out.append((n, "plan" if "PLAN" in n else "notes"))
+        for prefix, kind in DOC_KINDS:
+            if n.startswith(prefix):
+                out.append((n, kind))
+                break
     return out
 
 
@@ -389,16 +416,27 @@ def build():
 
     w("## docs/")
     w("")
-    w("**`*-PLAN.md` files are DESIGN RECORDS, not descriptions of what "
-      "shipped.** They record what was considered, including options that were "
-      "rejected. SPEC.md is the current state; these are how it got there.")
+    w("**The DIRECTORY says what a document is, and the filename does not.** "
+      "`docs/` describes how the system works today - instructions, contracts "
+      "and maintained reference. Everything under `docs/plans/` is a design "
+      "record: what was considered, including the options that were rejected, "
+      "and it is never a description of what shipped - SPEC.md is the current "
+      "state and these are how it got there. `docs/plans/completed/` is the "
+      "subset whose work has landed; what stays directly in `docs/plans/` "
+      "still has work open. `docs/history/` is superseded or closed - a record "
+      "of a moment that has passed, and true of no tree you can check out.")
     w("")
-    plans = [n for n, k in doc_files() if k == "plan"]
-    notes = [n for n, k in doc_files() if k == "notes"]
-    w("*Design records (%d):* " % len(plans) + ", ".join("`%s`" % n for n in plans))
-    w("")
-    w("*Notes and reference (%d):* " % len(notes) + ", ".join("`%s`" % n for n in notes))
-    w("")
+    docs = doc_files()
+    for kind, label in (
+            ("reference", "*How it works today - `docs/` (%d):*"),
+            ("plan", "*Plans with work still open - `docs/plans/` (%d):*"),
+            ("completed", "*Design records for what shipped - "
+                          "`docs/plans/completed/` (%d):*"),
+            ("history", "*Superseded and closed - `docs/history/` (%d):*")):
+        names = [os.path.basename(n) for n, k in docs if k == kind]
+        w(label % len(names) + " "
+          + ", ".join("`%s`" % n for n in names))
+        w("")
     return "\n".join(L) + "\n"
 
 

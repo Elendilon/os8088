@@ -59,7 +59,7 @@ DSK_R_NAME   equ 0               ; name[8] (space-padded)
 DSK_R_EXT    equ 8               ; ext[3] (space-padded)
 DSK_R_ATTR   equ 11              ; attribute byte
 DSK_R_CZM    equ 12              ; THE COMPRESSION HINT (SPEC.md 20.14,
-DSK_R_CZH    equ 13              ; docs/O88-COMPRESSION-PLAN.md 15): a mark
+DSK_R_CZH    equ 13              ; docs/plans/O88-COMPRESSION-PLAN.md 15): a mark
 DSK_R_CZL    equ 20              ; byte, then the UNPACKED size as a high byte
 DSK_CZ_MARK  equ 0x5A            ; and a low word. **THE MARK CARRIES THE
                                  ; FORMAT**: 0x5A + the LZ_* id, so 0x5A is
@@ -173,7 +173,7 @@ DV_CLASS     equ 3               ; db: the DRVC_* whose published DSV_BLK owns
                                  ; nothing has to record WHICH driver a volume
                                  ; came from" - and that was true right up
                                  ; until a SECOND class could serve blocks
-                                 ; (docs/NET-PLAN.md 2.1: a cable and a hard
+                                 ; (docs/plans/completed/NET-PLAN.md 2.1: a cable and a hard
                                  ; disk have to coexist on the machine this
                                  ; project is calibrated against, which has an
                                  ; ST-225 in it). It costs NOTHING: the byte
@@ -399,7 +399,7 @@ FDD_DBG_SPAN equ ($ - fdd_dbg_span)
 %endif
 
 %ifdef DISK_COUNTERS
-; The measurement instruments of docs/DISK-PERF-PLAN.md 2, compiled in only by
+; The measurement instruments of docs/plans/completed/DISK-PERF-PLAN.md 2, compiled in only by
 ; `make DISKCNT=1` and never shipped. Read over QMP with `xp /3xh <linear>`;
 ; derive the offset from `nasm -l` after EVERY rebuild, because anything added
 ; to an include before this one moves it. They are never reset: take a reading,
@@ -983,7 +983,7 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; Only a machine with no vector at all falls back to the values above.
 ; -----------------------------------------------------------------------------
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
-                                ; docs/LAST-DROP-BYTES.md row 12): kmain runs
+                                ; docs/plans/LAST-DROP-BYTES.md row 12): kmain runs
                                 ; this once, before the first mount, and
                                 ; nothing re-installs int 1Eh afterwards -
                                 ; dsk_xfer READS the table, it does not
@@ -1643,7 +1643,7 @@ dsk_vol_row_x:
 ; out of, which is a stronger statement than any of the bounds would make.
 ; -----------------------------------------------------------------------------
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
-                                ; docs/LAST-DROP-BYTES.md row 4): which volume
+                                ; docs/plans/LAST-DROP-BYTES.md row 4): which volume
                                 ; the machine came off, asked once by kmain
                                 ; from the registers the boot sector left.
                                 ; dsk_bootltr goes with it - it is this
@@ -2360,7 +2360,7 @@ osapi_vol_fence:
 .cls:                           ; tested [drv_fseg2] alone - the DISK class -
     call drv_cls_fp_x             ; which is a fence that only one kind of
     jc .no                      ; driver can ever pass, and a second
-    cmp bx, [di+2]              ; block-serving class (docs/NET-PLAN.md 2.1)
+    cmp bx, [di+2]              ; block-serving class (docs/plans/completed/NET-PLAN.md 2.1)
     je .yes                     ; would have been refused its own volumes
     inc al
     cmp al, DRVC_MAX

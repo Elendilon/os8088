@@ -7,7 +7,7 @@ MSEG is a v3 package with flags bit 2: its file is longer than its image, and
 what is past the image is three separately assembled modules it reads for
 itself through `apps/os88parts.inc`. **The kernel parses none of it** - all it
 learns is that bit, and it hands the entry proc the name of the file it came
-out of. docs/O88-MULTISEG-PLAN.md 1 is why the kernel-side version of this
+out of. docs/plans/completed/O88-MULTISEG-PLAN.md 1 is why the kernel-side version of this
 was thrown away.
 
 MSEG checks itself THREE INDEPENDENT WAYS PER PART and publishes the verdict
@@ -52,7 +52,7 @@ def _image_of(rel):
     Relative, like every other path in this file: the row runs from the repo
     root - but WHICH `build/` that is depends on the run. Under a frozen soak
     the fixture is in the run's own tree and `build/` may not have it at all
-    (docs/SOAK-PARALLEL.md 14.2), which is a FileNotFoundError at IMPORT time
+    (docs/plans/SOAK-PARALLEL.md 14.2), which is a FileNotFoundError at IMPORT time
     naming a file the row correctly declared.
     """
     blob = open(os88build.at(rel), "rb").read()

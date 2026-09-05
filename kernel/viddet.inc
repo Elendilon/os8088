@@ -15,7 +15,7 @@
 ; BIOS mode number - the planar framebuffer is byte-for-byte the same shape.
 ; Everything in this file that is not detection or the mode set treats it
 ; exactly as VGA, because [vid_mono] is 0 for both (SPEC.md 39.24,
-; docs/EGA-PLAN.md).
+; docs/plans/completed/EGA-PLAN.md).
 ;
 ; The two mono fallbacks are both 1 bit per pixel with a BANKED framebuffer -
 ; consecutive scan lines do not sit consecutively in memory. That is the
@@ -47,7 +47,7 @@
 %endif
 
 ; ...AND `VIDEO=vga` IS A BUILD ERROR ON kern_small, not a runtime surprise.
-; That build carries no VGA renderer at all (docs/MONO-RECLAIM-PLAN.md 2), so
+; That build carries no VGA renderer at all (docs/plans/MONO-RECLAIM-PLAN.md 2), so
 ; forcing VID_VGA would set [vid_kind] to a kind vid_setmode no longer has an
 ; arm for: the card would be programmed to BIOS mode 6 by the CGA arm below
 ; while vid_apply loaded the VGA row's geometry over it - 640x480 at A000 on a
@@ -61,7 +61,7 @@
 ; no-VGA arm through a planar [vid_rseg] of 0 - the IVT.
 %if VID_FORCE == 1 || VID_FORCE == 4
  %ifndef GFX_VGA
-%error "VIDEO=vga/ega needs a build with a VGA renderer in it - kern_small has none (docs/MONO-RECLAIM-PLAN.md 2). Auto-detect drives a VGA or EGA card as a CGA there; VIDEO=cga forces the same thing."
+%error "VIDEO=vga/ega needs a build with a VGA renderer in it - kern_small has none (docs/plans/MONO-RECLAIM-PLAN.md 2). Auto-detect drives a VGA or EGA card as a CGA there; VIDEO=cga forces the same thing."
  %endif
 %endif
 
@@ -81,7 +81,7 @@ VID_VGA     equ 0
 VID_HERC    equ 1
 VID_CGA     equ 2
 VID_EGA     equ 3              ; VGA's planar path at 640x350 (SPEC.md 39.24,
-                               ; docs/EGA-PLAN.md). NOT a fourth renderer:
+                               ; docs/plans/completed/EGA-PLAN.md). NOT a fourth renderer:
                                ; mode 10h is mode 12h's framebuffer, shorter -
                                ; [vid_mono] = 0, vga12.inc reused unchanged.
 
@@ -459,7 +459,7 @@ vid_detect:
                                 ; colour mode answers 10b - so the machine
                                 ; comes up as a CGA and runs the card in BIOS
                                 ; mode 6, which every VGA and EGA BIOS serves
-                                ; (docs/MONO-RECLAIM-PLAN.md 2.4)
+                                ; (docs/plans/MONO-RECLAIM-PLAN.md 2.4)
 .equip:
     int 0x11                    ; equipment word, bits 5:4
     and al, 0x30
@@ -510,7 +510,7 @@ vid_detect:
 ; and a CGA are both 1bpp, so every swap SPEC.md 39.12-39.19 shipped moved
 ; geometry between two displays that already agreed about all three bytes.
 ; A VGA beside a Hercules is the first pairing where they do not
-; (docs/DUAL-DISPLAY-VGA.md), and the failure is not subtle: [vid_rseg] IS in
+; (docs/plans/completed/DUAL-DISPLAY-VGA.md), and the failure is not subtle: [vid_rseg] IS in
 ; the run, so activating the VGA display while [vid_mono] still says 1 points
 ; the SOFTWARE renderer at the VGA's rseg, which vid_apply sets to 0 because
 ; nothing on a VGA routes through it. A white fill then writes 0xFF through

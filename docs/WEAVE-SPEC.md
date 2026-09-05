@@ -5,7 +5,7 @@
 atom id, refusal sentence and layout the family depends on is pinned here,
 and the change goes in here *before* it goes in the code. The design record —
 why each fork was decided, the judged alternatives, the deferred items — is
-`docs/WEAVE-PLAN.md`.
+`docs/plans/completed/WEAVE-PLAN.md`.
 
 It lives outside SPEC.md on the C64 precedent. **A bare `§N.M` in this file
 is a section of THIS file**; SPEC.md's sections are always cited in full as
@@ -250,7 +250,7 @@ one folder for exactly this reason, and wave 7's single `WEAVE/` folder
 §1.4's ladder is amended for it — and `ceil(size/1024)` KB added to §10.1's
 `ask` when and only when `WABF_CANVAS` is set. What it buys is that wave 5's
 per-frame code exists at all: the alternatives are judged in
-docs/WEAVE-PLAN.md §2.9, with the arithmetic, and every one of them lost to
+docs/plans/completed/WEAVE-PLAN.md §2.9, with the arithmetic, and every one of them lost to
 either a kernel constant this project may not raise on a package's behalf or a
 refusal a running game cannot be given.
 
@@ -305,7 +305,7 @@ by comp_id (`w_lpos`, `w_lsel1`, `w_ctext`, `w_cval`, `w_cvold`, `w_cflag` —
 as built measures **5,268 bytes of `.bss`**. LOOM closed wave 6 with **594**.
 An overlay cannot move one byte of that, so the tenant list of §1.2.1 does not
 come into it — the instrument does not cut in this direction. The alternatives
-are priced in docs/WEAVE-PLAN.md §2.10.
+are priced in docs/plans/completed/WEAVE-PLAN.md §2.10.
 
 The answer is CLAUDE.md's own hard rule read through §1.2.2's precedent: a
 second segment, and a resident one. It takes that section's lifecycle almost
@@ -533,7 +533,7 @@ family therefore launches the Frotz way, unmodified:
 3. **WEAVE launched empty shows the Deck** (§1.6) — "launch" is an internal
    function of the runtime, not a kernel surface.
 
-A kernel launch-by-name slot is recorded in docs/WEAVE-PLAN.md as an
+A kernel launch-by-name slot is recorded in docs/plans/completed/WEAVE-PLAN.md as an
 explicitly **deferred owner conversation** with the budget arithmetic
 attached (kern_small at 0 bytes spare, kern_big at 512) — an upgrade path,
 never a dependency.
@@ -621,7 +621,7 @@ is 42,902 bytes against a segment's 64KB, with room for the painter's code —
 and neither was the callback rule: a `W_PAINT` runs on the UI task, so it
 *may* enter an overlay, and would simply have to show a refusal when it could
 not. It is the **data** that does not move, and no arrangement of the overlay
-moves it. docs/WEAVE-PLAN.md §2.10 prices the four alternatives the segment
+moves it. docs/plans/completed/WEAVE-PLAN.md §2.10 prices the four alternatives the segment
 beat.
 
 **What the pane does NOT draw, stated here rather than discovered by somebody
@@ -832,7 +832,7 @@ structures.
 
 This byte is the **whole** style vocabulary. No colors — two of three
 adapters are 1bpp and half-honoured color pairs made invisible text twice
-in this tree (docs/BROWSER-PLAN.md §2.2.1). The packer rejects anything
+in this tree (docs/plans/completed/BROWSER-PLAN.md §2.2.1). The packer rejects anything
 else by name (§3.5, §10.5).
 
 #### 2.5.3 The cflags byte
@@ -1889,7 +1889,7 @@ generating a second table both cores would have to agree about is a real cost
 for a bound whose failure mode is slowness. A byte-length bound (64 ops is at
 most 192 bytes) was considered and rejected: it refuses the extreme cases and
 passes a hundred single-byte ops, which is enforcement in name only.
-Deferred, with that arithmetic, in docs/WEAVE-PLAN.md §4.6.
+Deferred, with that arithmetic, in docs/plans/completed/WEAVE-PLAN.md §4.6.
 
 ### 4.12 The contract number
 
@@ -2310,7 +2310,7 @@ an app author meets a number rather than a mystery.
 disabled one would come out solid-framed with dithered letters, two halves
 of one control disagreeing, which is SPEC.md §47 rule 2's own failure. That
 is the shared file's defect and not this family's — it has no other caller
-that can grey a field — and it is recorded in docs/WEAVE-PLAN.md §4.4.2
+that can grey a field — and it is recorded in docs/plans/completed/WEAVE-PLAN.md §4.4.2
 rather than fixed here, for the reason WEAVE-PLAN §4.4.1 gives about the
 scroll bar's missing floor.
 
@@ -2336,7 +2336,7 @@ not say why, and §47's rule is that a refusal is stated, never silent. The
 packer therefore refuses `rows` below 3 on a list whose items can exceed
 it, with §10.5's voice: `list rows="2": a scroll bar needs 3 rows (24 px);
 os88ui_sbar's arrow cells are 10 px each`. The shared bar's own missing
-bound is recorded in docs/WEAVE-PLAN.md rather than fixed here — it has no
+bound is recorded in docs/plans/completed/WEAVE-PLAN.md rather than fixed here — it has no
 other caller that can reach it. Items are
 fixed at pack (§2.6.1), text mutable. `onselect` on selection change
 (click or arrow keys). Surface: `sel` (get/set index, −1 none),
@@ -3506,7 +3506,7 @@ at all, so the gap is closed at the spec, not met in the field.
 Style is §2.5.2's closed byte — bold, invert, align, cell w/h. Grey rounds
 to black on 1bpp, two of three adapters are 1bpp, and half-honoured
 fg/bg pairs produced invisible text twice in this tree
-(docs/BROWSER-PLAN.md §2.2.1). State never rides on color (SPEC.md §39.4).
+(docs/plans/completed/BROWSER-PLAN.md §2.2.1). State never rides on color (SPEC.md §39.4).
 
 #### 9.2.1 The amendment: a `<canvas>` takes a palette
 
@@ -4276,7 +4276,7 @@ drawing change gets looked at on a 1bpp adapter before it is called done
 
 ### 13.1 The waves
 
-Wave 1 shipped this document, docs/WEAVE-PLAN.md, `tools/weavesim.py`,
+Wave 1 shipped this document, docs/plans/completed/WEAVE-PLAN.md, `tools/weavesim.py`,
 `tests/unit/t_wab.py`, the three demo sources, and the host-side pack of
 the demos in `all`.
 
@@ -4367,7 +4367,7 @@ the decision the wave turns on and the one an owner may reverse. Wave 4 left
 the tenant list was not what decided it: every byte of this wave's code runs
 on a WORKER, and SPEC.md §73.14's overlay is loaded by `cc_ovneed`, whose
 first instruction refuses one. The list is inapplicable, not merely full.
-docs/WEAVE-PLAN.md §2.9 prices the four alternatives it beat.
+docs/plans/completed/WEAVE-PLAN.md §2.9 prices the four alternatives it beat.
 
 Getting under the line was the wave's second half: the first build came in at
 62,850, **1,410 over**, and five structural cuts brought it to
@@ -4452,7 +4452,7 @@ compiles — and `apps/loom/lmpvmod.asm` `%include`s `apps/weave/wdraw.inc`, so
 description of the picture, two copies of the object code. What forced a
 segment was not the tenant list but the fact that an overlay moves **code**
 and what did not fit is **data** — 5,268 bytes of `.bss` against the 594 wave 6
-closed with (§1.7.1 has the table; docs/WEAVE-PLAN.md §2.10 prices the four
+closed with (§1.7.1 has the table; docs/plans/completed/WEAVE-PLAN.md §2.10 prices the four
 alternatives it beat). The module is 16,216 image + 5,268 bss = one 21KB
 claim, read the first time the pane is opened and never again.
 
@@ -4526,7 +4526,7 @@ not spend it twice.
 
 ### 13.2 Deferred, with the arithmetic attached
 
-Recorded in docs/WEAVE-PLAN.md; listed here so the spec says what it is
+Recorded in docs/plans/completed/WEAVE-PLAN.md; listed here so the spec says what it is
 NOT promising:
 
 - **A kernel launch-by-name slot** — an owner conversation; kern_small has

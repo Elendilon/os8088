@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WHO WRITES ui_rebootq? (docs/DUAL-DISPLAY-VGA.md 8(11))
+"""WHO WRITES ui_rebootq? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))
 
     make && python3 tests/dispreboot.py
 

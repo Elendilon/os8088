@@ -165,7 +165,7 @@
 ; task 0's, which lives above .lowbss and nowhere near a slice.
 ;
 ; It was the literal 384 with nothing comparing it to the kernel's SCH_STACK -
-; docs/STACK-SLOTS-PLAN.md 12.4 found it while surveying the packages. Taking
+; docs/plans/completed/STACK-SLOTS-PLAN.md 12.4 found it while surveying the packages. Taking
 ; the SDK's copy puts it under tests/unit/t_mirror.py, which compares every
 ; name defined in more than one file and needed nobody to remember it.
 ;

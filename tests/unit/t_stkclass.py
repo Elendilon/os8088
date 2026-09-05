@@ -23,7 +23,7 @@ built `.o88`'s header byte +15 (SPEC.md 8.7.2), against `stkdepth.py`'s deepest
 chain from that worker's entry plus SPEC.md 8.7's 64-byte interrupt floor.
 The bar is **1.25x**, which is not a round number - it is the thinnest margin
 the tree already accepts, Frotz's 384 over a 240-byte chain
-(docs/STACK-SLOTS-PLAN.md 12), so nothing shipping has to move to pass and
+(docs/plans/completed/STACK-SLOTS-PLAN.md 12), so nothing shipping has to move to pass and
 anything thinner than the worst thing here is new.
 
 TWO THINGS IT DELIBERATELY DOES NOT DO.
@@ -54,7 +54,7 @@ TOOL = os.path.join(ROOT, "tools", "stkdepth.py")
 BUILD = os.environ.get("OS88_BUILD", os.path.join(ROOT, "build"))
 
 # SPEC.md 8.7's interrupt floor, from the worst real machine measured
-# (docs/STACK-SLOTS-PLAN.md 7.1), and the thinnest margin the tree accepts.
+# (docs/plans/completed/STACK-SLOTS-PLAN.md 7.1), and the thinnest margin the tree accepts.
 FLOOR = 64
 BAR = 1.25
 

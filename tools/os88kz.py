@@ -15,7 +15,7 @@ and **no block produces more than KZ_BLK bytes** - so stage 2's decoder never
 leaves a segment and needs none of kernel/lz.inc's crossing machinery. MEASURED:
 one stream is 73,832 bytes and two blocks are 74,908, so the whole cost of that
 simplification is **1,076 bytes, two sectors of the 42 it saves**. Machine code
-matches locally; docs/O88-COMPRESSION-PLAN.md 13.4 measured the same split
+matches locally; docs/plans/O88-COMPRESSION-PLAN.md 13.4 measured the same split
 costing 44% on a MOD, whose sample data matches back tens of KB.
 
 The blob cannot be packed because it is what does the unpacking. The head

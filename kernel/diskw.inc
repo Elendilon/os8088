@@ -3964,7 +3964,7 @@ dskw_char_x:
 ;
 ; **AN ON-DEMAND MODULE** (SPEC.md 2.8), shipped as FORMAT.DRV and read into a
 ; heap claim when the user asks to format a disk. It qualifies on
-; docs/ONDEMAND-PLAN.md 1's test the way the Control Panel does and for a
+; docs/plans/completed/ONDEMAND-PLAN.md 1's test the way the Control Panel does and for a
 ; different reason: preparing a disk is a PREPARED operation with a trip to
 ; the disk box already in it, and it is among the rarest deliberate actions
 ; in the system. MS-DOS drew the same line in 1981 - COPY lives in
@@ -4052,7 +4052,7 @@ modf_e_line:    call dskw_fmt_line_x
 ; dskw_fmt_ioerr - dskw_ioerr's six instructions, in the image
 ;
 ; The formatter's one call OUT that is not already a cw_* shim. Duplicated
-; rather than far-entered on docs/HDD-SPLIT-PLAN.md 3.2's rule: a boundary
+; rather than far-entered on docs/plans/completed/HDD-SPLIT-PLAN.md 3.2's rule: a boundary
 ; crossing for two compares costs more than the eleven bytes it saves, and a
 ; far entry would be a fifth thing the resident half publishes for the sake
 ; of a predicate. It reads the same [dsk_ioerr] through the same DS.

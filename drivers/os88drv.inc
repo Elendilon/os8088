@@ -20,7 +20,7 @@
 ;   the count in the header's byte +31, and `drv_bss` zeroes them again at
 ;   load. Measured, that is 6,672 bytes off every disk that carries the
 ;   drivers - `ether.drv` alone had a 4,064-byte run - and it costs no decoder
-;   and no cycles (docs/O88-COMPRESSION-PLAN.md 12.6).
+;   and no cycles (docs/plans/O88-COMPRESSION-PLAN.md 12.6).
 ;
 ;   **Put your buffers LAST if you want them off the disk.** Only the trailing
 ;   run is stripped; a zeroed table with code after it still ships. The load

@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - mod.inc
 ;
-; On-demand kernel modules (SPEC.md 2.8, docs/ONDEMAND-PLAN.md): kernel code
+; On-demand kernel modules (SPEC.md 2.8, docs/plans/completed/ONDEMAND-PLAN.md): kernel code
 ; that lives in a file rather than in KERNEL.SYS, is read into a heap claim
 ; when the feature is asked for, and is freed when the feature is done.
 ; Prefix `mod_`.
@@ -21,7 +21,7 @@
 ; its header (SPEC.md 2.8.2) refuses the one case that would break that: a
 ; module file left over beside a kernel it was not built with.
 ;
-; WHAT MAY BE A MODULE is not a question about code (docs/ONDEMAND-PLAN.md 1):
+; WHAT MAY BE A MODULE is not a question about code (docs/plans/completed/ONDEMAND-PLAN.md 1):
 ; a feature qualifies only if the system disk is already required to use it,
 ; or can be required without interrupting what the user was doing - because on
 ; a one-floppy machine every load is a DISK SWAP. The Control Panel qualifies
@@ -584,7 +584,7 @@ mod_free_row:
 ; SPEC.md 31.8), and the formatter's is the confirmation ending, either way.
 ; Dropping a module that is still executing frees the code that is running -
 ; which does not fault and is why this is not, and must not become, something
-; the heap does on its own initiative. docs/ONDEMAND-PLAN.md 7.1/7.2 is the
+; the heap does on its own initiative. docs/plans/completed/ONDEMAND-PLAN.md 7.1/7.2 is the
 ; purgeable-claim design that would need a pin; it is deliberately not built.
 ; -----------------------------------------------------------------------------
 mod_drop:

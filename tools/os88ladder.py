@@ -169,7 +169,7 @@ def ladder(build="build", defines=()):
     Never re-derived here. `tools/kernsize.py --json` assembles the kernel and
     reports the sizes the ladder falls out of, so the page cannot describe a
     layout the tree does not have - which is exactly what a hand-kept copy of
-    these numbers does, and docs/BOOT-LADDER-PLAN.md's own tables are the
+    these numbers does, and docs/plans/completed/BOOT-LADDER-PLAN.md's own tables are the
     worked example: they quote a ladder three changes old.
     """
     cmd = ["python3", os.path.join(ROOT, "tools", "kernsize.py"),

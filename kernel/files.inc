@@ -265,7 +265,7 @@ FS_USED     equ 22              ; word: KB summed over this folder's listed
                                 ; the window's own cache, so it costs no I/O
                                 ; and follows the cache the paint reads
 
-; --- the remembered path (docs/TITLE-PLAN.md) - KERN_BIG ONLY --------------
+; --- the remembered path (docs/plans/completed/TITLE-PLAN.md) - KERN_BIG ONLY --------------
 ; The folders this window was walked DOWN through, so that going back up can
 ; name what it arrives at. A folder's name is free on the way down (the row
 ; the user clicked) and the kernel used to throw it away, so on the way up it
@@ -335,7 +335,7 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; .bss is not zeroed by the loader: every state variable is set here.
 ; -----------------------------------------------------------------------------
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
-                                ; docs/LAST-DROP-BYTES.md row 6): kmain runs
+                                ; docs/plans/LAST-DROP-BYTES.md row 6): kmain runs
                                 ; this once and no window exists yet to want
                                 ; it again. Zero outbound calls
 files_init_x:
@@ -3601,7 +3601,7 @@ fm_reload:
 
 %ifdef KERN_BIG
 ; =============================================================================
-; The remembered path (docs/TITLE-PLAN.md) - KERN_BIG only
+; The remembered path (docs/plans/completed/TITLE-PLAN.md) - KERN_BIG only
 ;
 ; Four routines over the PTH_* block above. They are SHARED with fdlg.inc,
 ; which keeps one for the modal dialog, so they carry a prefix of their own
@@ -3788,7 +3788,7 @@ pth_pop:
 .toroot:
     mov byte [bx+PTH_BUF], 0    ; one component, so above it is the root -
     pop ax                      ; which names itself out of FS_CWD, and never
-    xor si, si                  ; out of this buffer (docs/TITLE-PLAN.md 4.2)
+    xor si, si                  ; out of this buffer (docs/plans/completed/TITLE-PLAN.md 4.2)
     ret
 %endif                          ; KERN_BIG
 
@@ -4522,7 +4522,7 @@ fm_clone_go:
 ;   - one there is no room to work on, after the window has been dropped as
 ;     far as CMZ_WMIN
 ;   - one the encoder could not make smaller, which the measurement says is a
-;     real case and not a defensive one (docs/O88-COMPRESSION-PLAN.md
+;     real case and not a defensive one (docs/plans/O88-COMPRESSION-PLAN.md
 ;     13.11.0.1's BEVERLY.MOD row)
 ;
 ; IT REFUSES NOTHING BY NAME, and that is structural rather than lucky. A

@@ -4,7 +4,7 @@
  * A native reimplementation of Microsoft Word for Windows 1.1a ("Opus") as an
  * os8088 package, compiled from C by the toolchain of SPEC.md 73 and split
  * across two segments by the overlay of SPEC.md 73.14. The binding contract is
- * SPEC.md 73.12; the reasoning behind the UI it reproduces is docs/WORD-PLAN.md
+ * SPEC.md 73.12; the reasoning behind the UI it reproduces is docs/plans/completed/WORD-PLAN.md
  * and SPEC.md 68, which describe the same product ported by hand into assembly.
  *
  * THE USER INTERFACE IS OPUS'S, TAKEN FROM THE SOURCE AND NOT FROM MEMORY.

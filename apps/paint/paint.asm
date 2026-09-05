@@ -232,7 +232,7 @@
 ; One contiguous block, asked for at startup and carved into four: canvas,
 ; undo image, clipboard, scratch. Nothing here is a fixed address any more -
 ; the kernel owns the map and hands us a segment, which is the whole of what
-; docs/PAINT-NOTES.md asked for. What used to be here instead: two hard-coded
+; docs/plans/completed/PAINT-NOTES.md asked for. What used to be here instead: two hard-coded
 ; bases (0x66000, or the back buffer's own segment when the kernel could
 ; never arm one),
 ; a mirror of the kernel's DB_MIN_KB policy constant to choose between them,
@@ -14448,7 +14448,7 @@ pt_adopt:
 ;      kernel for it; preserves all registers
 ;
 ; It used to write W_W/W_H/W_X/W_Y in the record itself - the second of the
-; two liberties docs/PAINT-NOTES.md recorded - and OSAPI_WM_RESIZE
+; two liberties docs/plans/completed/PAINT-NOTES.md recorded - and OSAPI_WM_RESIZE
 ; (SPEC.md 11.1) retired it. The caller does the asking rather than this
 ; routine, because it is deep inside a decoder and the answer is a full
 ; repaint.

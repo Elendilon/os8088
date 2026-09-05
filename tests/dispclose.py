@@ -167,7 +167,7 @@ def main(argv):
     # Note Pad from an earlier build, and every assertion here is about what
     # Note Pad does - so the gate reports the last build's behaviour and says
     # nothing about this one.
-    # THE OUTPUT IS RESOLVED, not just the input (docs/SOAK-PARALLEL.md 14.2).
+    # THE OUTPUT IS RESOLVED, not just the input (docs/plans/SOAK-PARALLEL.md 14.2).
     # `launch` resolves what it is handed, so writing the literal
     # `build/npclose.img` built the disk in the shared tree and looked for it
     # in the run's own - FileNotFoundError in `_clone`, with the image sitting

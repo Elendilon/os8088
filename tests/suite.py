@@ -81,7 +81,7 @@ class Row:
         # makes its own artefact mid-run rewrites build/ under every other row
         # reading it, and that is not a theory: the first full soak of this
         # work lost nine rows to a four-minute window opened by one row's
-        # `make` (docs/SOAK-PARALLEL.md 12). Declaring the artefact moves the
+        # `make` (docs/plans/SOAK-PARALLEL.md 12). Declaring the artefact moves the
         # build to a moment when nothing else is running.
         #
         # It also ends the OTHER failure this caused, which reads as a broken
@@ -95,7 +95,7 @@ class Row:
         # cannot share four cores with two other guests: that is not a flaky
         # row, it is the wrong measurement. Neither can a row whose clicks are
         # paced by a HOST-timed settle, because how much guest time a settle
-        # covers is then a property of the box (docs/HANDOFF-SOAK-FINDINGS.md
+        # covers is then a property of the box (docs/plans/HANDOFF-SOAK-FINDINGS.md
         # B5).
         #
         # It used to be spelled by EXCLUDING those rows from the wide run and
@@ -122,7 +122,7 @@ def _kernel_sources():
 
     Asserted non-empty on purpose: a gate reporting 0 findings because its file
     list came out empty is indistinguishable from a clean tree, and the whole
-    point of docs/STKBALANCE-KERNEL.md's sensitivity work is that a quiet gate
+    point of docs/plans/completed/STKBALANCE-KERNEL.md's sensitivity work is that a quiet gate
     has to be quiet for a reason. The runner execs rows with cwd=ROOT, so these
     stay relative.
     """
@@ -177,7 +177,7 @@ FAST = [
         "retyped; this guards the ones a HUMAN did. FULL rather than fast: a stale comment misleads a reader, it does not break a build, and the fast tier runs on every `make` against a 30s budget this row is a sixth of",
         needs=()),
     Row("lzfmt", "fast", py("tests/unit/t_lzfmt.py"), 4.0,
-        "docs/O88-COMPRESSION-PLAN.md wave 0: both compression formats "
+        "docs/plans/O88-COMPRESSION-PLAN.md wave 0: both compression formats "
         "round-trip. tools/os88lz.py is the REFERENCE and the kernel's "
         "decoders are the copy, so this is what makes that claim mean "
         "anything. The corpus is small and FIXED on purpose - an empty file, "
@@ -224,7 +224,7 @@ FAST = [
         "the last pixel reads FR_CAP for a point that escapes."),
     Row("appsmall", "fast", py("tests/unit/t_appsmall.py"), 0.8,
         "SPEC.md 27.16's two claims: -DAPP_SMALL costs the SHIPPED package "
-        "zero bytes (docs/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
+        "zero bytes (docs/history/KERN-SPLIT-PLAN.md 6's gate, one level down), and "
         "the small build is really smaller. Both fail silently - a %ifdef one "
         "line too wide changes the shipped package for a feature it still "
         "has, and a define that stops reaching the source leaves "
@@ -293,7 +293,7 @@ FAST = [
         "`ps2mouse` on the pre-merge gate with a write-lock error naming "
         "build/os8088.img: the cost of the leak is paid by an unrelated row, "
         "hours later, wearing a message about the wrong subject "
-        "(docs/HANDOFF-SOAK-FINDINGS.md B9)"),
+        "(docs/plans/HANDOFF-SOAK-FINDINGS.md B9)"),
     Row("canary", "fast", py("tests/unit/t_canary.py"), 0.1,
         "SPEC.md 18.93.1's canary offset re-derived from every shipped image's "
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
@@ -348,7 +348,7 @@ FAST = [
         "no row names a machine whose ROM this tree has not got. MartyPC "
         "falls back to glabios_pc when a romset is absent and says NOTHING, "
         "so nine rows spent months reporting passes about a machine they "
-        "never booted (docs/HANDOFF-SOAK-FINDINGS.md E3). It also checks each "
+        "never booted (docs/plans/HANDOFF-SOAK-FINDINGS.md E3). It also checks each "
         "GLaBIOS twin still differs from its IBM original in `rom_set` alone "
         "- a drifted twin measures the config's difference and calls it the "
         "kernel's"),
@@ -454,7 +454,7 @@ FAST = [
         "across files now, and the two `; STKBALANCE-OK:` in sched.inc that "
         "cover the context switch and task_yield's fabricated int 08h frame "
         "have landed, so the kernel measures ZERO and is GATED here from this "
-        "commit on (docs/STKBALANCE-KERNEL.md carries the triage of all 24). "
+        "commit on (docs/plans/completed/STKBALANCE-KERNEL.md carries the triage of all 24). "
         "Turned on DURING size pass 2 rather than after it, so an imbalance is "
         "caught by the batch that introduces it instead of by a bisect. "
         "One gap "
@@ -478,7 +478,7 @@ FAST = [
         "register on a malformed part table, in every package via "
         "os88api.inc. The KERNEL is the `stkbalance` row above, not this one: "
         "the two file lists have nothing in common and were arrived at from "
-        "opposite ends (docs/STKBALANCE-KERNEL.md 4)",
+        "opposite ends (docs/plans/completed/STKBALANCE-KERNEL.md 4)",
         ),
 
     Row("gifdrag", "soak", py("tests/gifdrag.py"), 150.0,
@@ -614,7 +614,7 @@ FULL = [
         "MACHINE does, which is a different question, because a purgeable "
         "claim that sizes itself off available heap has a floor of its own "
         "and the directory read-ahead is 64KB on a 640KB box. It is also "
-        "docs/KERN-SMALL-CUT-PLAN.md 8.2's `cheapest unexamined lever`: it "
+        "docs/plans/KERN-SMALL-CUT-PLAN.md 8.2's `cheapest unexamined lever`: it "
         "walks mem_tab on the machine and fails if ANY pinned claim stands on "
         "a bare desktop, because that is heap the machine never gets back and "
         "no assembler can see it - SPEC.md 54.0's association cache was "
@@ -1193,7 +1193,7 @@ SOAK = [
          "OS88_SYSIMG=build/small.img",
          "OS88_APPSIMG=build/smallapps.img"] + py("tests/fcpcopy.py"), 70.0,
         "...and the SAME drive against kern_small, where Cut/Copy/Paste is an "
-        "on-demand module (SPEC.md 22.3, docs/KERN-SMALL-MODULE-SPLIT.md 9.2) "
+        "on-demand module (SPEC.md 22.3, docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2) "
         "rather than resident code. It is a different engine to reach: every "
         "call the image makes to the kernel is a far one through an xf_ entry, "
         "the shared register epilogues are copies inside the image because a "
@@ -1421,7 +1421,7 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("dualcheck", "soak", py("tests/dualcheck.py"), 10.0,
         "Can this MartyPC drive TWO video cards at once?"
-        "(docs/DUAL-DISPLAY-PLAN.md 9)",
+        "(docs/plans/completed/DUAL-DISPLAY-PLAN.md 9)",
         needs=("marty",), serial=True),
     Row("gfxlk", "soak", py("tests/gfxlk.py"), 150.0,
         "Does ANYTHING draw with the gfx lock free - which is the one state "
@@ -1535,7 +1535,7 @@ SOAK = [
         "small` first, and it is the ONE gate here that drives that build",
         needs=("marty",), serial=True, timeout=900),
     Row("dispcold", "soak", py("tests/dispcold.py"), 300.0,
-        "WHO DRAWS INTO .cold? (docs/DUAL-DISPLAY-VGA.md 8(11))",
+        "WHO DRAWS INTO .cold? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
     Row("dispcorner", "soak", py("tests/dispcorner.py"), 120.0,
         "REPORTED ARTIFACTS, LOCALISED (a corner pixel, and two drags across"
@@ -1713,7 +1713,7 @@ SOAK = [
         "is here and not in the gate",
         needs=("marty",), serial=True),
     Row("dispreboot", "soak", py("tests/dispreboot.py"), 300.0,
-        "WHO WRITES ui_rebootq? (docs/DUAL-DISPLAY-VGA.md 8(11))",
+        "WHO WRITES ui_rebootq? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
     Row("dispsave", "soak", py("tests/dispsave.py"), 60.0,
         "Does the raise cache work on the SECOND display? (SPEC.md 39.14.8)",
@@ -1811,7 +1811,7 @@ SOAK = [
         "How many rows of the SECOND monitor can a straddling window use?",
         needs=("marty",), serial=True),
     Row("lzdrv", "soak", py("tests/lzdrv.py"), 45.0,
-        "docs/O88-COMPRESSION-PLAN.md 12.6: a COMPRESSED DRIVER loads, "
+        "docs/plans/O88-COMPRESSION-PLAN.md 12.6: a COMPRESSED DRIVER loads, "
         "expands and answers. RAMDISK.DRV is the subject because it has both "
         "halves of wave 3 - a 2,416-byte bss drv_bss re-makes and a body "
         "drv_expand unpacks - so one file exercises the whole path. The image "
@@ -1992,7 +1992,7 @@ SOAK = [
         "directory is never written",
         needs=("marty", "nasm"), serial=True),
     Row("drvcall", "soak", py("tests/drvcall.py"), 60.0,
-        "Can a PACKAGE reach a DRIVER? (SPEC.md 20.11, docs/NET-STACK-PLAN.md"
+        "Can a PACKAGE reach a DRIVER? (SPEC.md 20.11, docs/plans/completed/NET-STACK-PLAN.md"
         "stage A)",
         needs=("marty",), serial=True,
         wants=("build/drvcall.img", "build/drvcall360.img")),
@@ -2034,7 +2034,7 @@ SOAK = [
         ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
          "OS88_SYSIMG=build/small360.img"] + py("tests/fdlggrey.py"), 300.0,
         "...and the SAME drive against kern_small, where the WHOLE dialog is "
-        "an on-demand module (SPEC.md 38.0, docs/KERN-SMALL-MODULE-SPLIT.md "
+        "an on-demand module (SPEC.md 38.0, docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md "
         "9.2.6) rather than resident code. It is `fcpsmall`'s argument one "
         "feature along and a bigger engine: seven entries with two exit "
         "conventions, every call out of the image a far one through an `xd_` "
@@ -2416,7 +2416,7 @@ SOAK = [
         # ...and SAYS SO to the runner, not only to the reader. `all` does not
         # build build/gfxbench.o88, so this row failed at HEAD and at the base
         # alike and was written up as a pre-existing defect
-        # (docs/HANDOFF-SOAK-FINDINGS.md F1). With the artefact present it
+        # (docs/plans/HANDOFF-SOAK-FINDINGS.md F1). With the artefact present it
         # passes: 256 plane-rows, 2,048 bytes, all as given. B4's shape again -
         # the suite modelling tools rather than artefacts.
         needs=("marty", "nasm"), serial=True,

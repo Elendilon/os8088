@@ -3,7 +3,7 @@
 ;
 ; MICROSOFT WORD (SPEC.md 68) - a faithful native reimplementation of Word
 ; for Windows 1.1a ("Opus") as an os8088 package. The reasoning and feature
-; inventory are docs/WORD-PLAN.md; SPEC.md 68 is the binding contract.
+; inventory are docs/plans/completed/WORD-PLAN.md; SPEC.md 68 is the binding contract.
 ;
 ; The text engine is Note Pad's (SPEC.md 27), transplanted wholesale with
 ; prefix wd_: the one-walk/many-queries layout pass, row signatures and
@@ -5971,7 +5971,7 @@ wd_ckword:
 ; edit cannot reach. Backing up through it re-decides a break nobody ever
 ; decided: on a note that is one 249-character run, the caret's row backed up
 ; NINE rows to index 0 and pass 1 then laid out the whole view from the top of
-; the note, on every keystroke (docs/NOTEPAD-NOTES.md 5.6).
+; the note, on every keystroke (docs/plans/completed/NOTEPAD-NOTES.md 5.6).
 ;
 ; THE MARGIN IS WHY THIS COUNTS TO wd_rcols + 2 AND NOT wd_rcols + 1. The
 ; threshold wd_wordfit actually applies is `length > wd_rcols`, and this runs
@@ -8621,7 +8621,7 @@ wd_append:
     je .norows
     mov cx, [wd_rowsn]
     cmp cx, WD_MAXROWS              ; [wd_rowsn] is not capped to the array it
-    jbe .rok                        ; indexes (docs/NOTEPAD-NOTES.md 5.3.1), so
+    jbe .rok                        ; indexes (docs/plans/completed/NOTEPAD-NOTES.md 5.3.1), so
     mov cx, WD_MAXROWS              ; this caller clamps like wd_seedtail does
 .rok:
     mov bx, [wd_ckpr]
@@ -8815,7 +8815,7 @@ wd_redraw:
                                 ; bottom visible row puts the caret one row
                                 ; below the view and re-walked the entire note
                                 ; to find it, which is seconds on the most
-                                ; used key there is (docs/NOTEPAD-NOTES.md 1.4)
+                                ; used key there is (docs/plans/completed/NOTEPAD-NOTES.md 1.4)
 .haveit:
     call wd_seecaret                ; when it MOVED. A scroll bar click also
     jnc .scrolled                   ; ends here, and following the caret then

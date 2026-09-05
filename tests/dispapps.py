@@ -117,8 +117,9 @@ def _map(app, defines=()):
     # build/kernel.bin - and packages had no equivalent. This is it.
     # os88pkg.py validates and stamps without changing a byte, so the
     # comparison is exact rather than a size test.
-    # **THE FILE IS NO LONGER THE IMAGE** (SPEC.md 20.13.5, docs/O88-
-    # COMPRESSION-PLAN.md): `PKGZ ?= lz4`, so every shipped `.o88` on disk is
+    # **THE FILE IS NO LONGER THE IMAGE** (SPEC.md 20.13.5,
+    # docs/plans/O88-COMPRESSION-PLAN.md): `PKGZ ?= lz4`, so every shipped
+    # `.o88` on disk is
     # a compressed CONTAINER and the bytes nasm emitted are inside it.
     # Comparing the file against a fresh assembly therefore compares 11,758
     # bytes with 14,935 and reports "build/ is BEHIND THE TREE" about a
@@ -129,7 +130,7 @@ def _map(app, defines=()):
     # assembly wants the IMAGE, never the file.
     #
     # ...and through `os88build.at`, because under a frozen run the shipped
-    # packages are in the run's own tree (docs/SOAK-PARALLEL.md 14.2) and
+    # packages are in the run's own tree (docs/plans/SOAK-PARALLEL.md 14.2) and
     # `build/` may hold another build's.
     sub = os.path.join("build", "smallapp") if defines else "build"
     o88 = os88build.at("%s/%s.o88"
@@ -223,7 +224,7 @@ def colour_gif(src="build/OS8088.GIF", dst="/tmp/OS88COL.GIF"):
     # the canvas is solid where the file alternates. `tests/blitpair.py` was
     # pointed here and read 20,327 differing pixels of 51,260 - which looks
     # exactly like the decoder bug it exists to catch, and was filed as a
-    # pre-existing failure (docs/HANDOFF-SOAK-FINDINGS.md F1). It takes
+    # pre-existing failure (docs/plans/HANDOFF-SOAK-FINDINGS.md F1). It takes
     # build/OS8088.GIF itself now, and says why.
     d[13:13] = bytes([0xAA, 0x00, 0x00,     # ...two of them unused by the
                       0x00, 0x00, 0xAA])    # image, and genuinely colours

@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/telnet/telnet.asm
 ;
-; TELNET - docs/NET-STACK-PLAN.md stage C, and the first thing on this machine
+; TELNET - docs/plans/completed/NET-STACK-PLAN.md stage C, and the first thing on this machine
 ; that is USEFUL over a network rather than a demonstration of one.
 ;
 ; It is stage C rather than the browser because it exercises the whole socket

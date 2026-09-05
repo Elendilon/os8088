@@ -7,7 +7,7 @@
 claims hang off that. Both fail silently, which is why they are here.
 
 **One: the gate costs the full build ZERO.** It is the same claim
-docs/KERN-SPLIT-PLAN.md 6 set for the first removal from `kern_small`, and it
+docs/history/KERN-SPLIT-PLAN.md 6 set for the first removal from `kern_small`, and it
 fails the same way - a `%ifdef` written round one line too many, or a field
 moved out of a gated block "while we are here", and the shipped package
 changes for a feature it still has. Nothing errors. So this ASSEMBLES THE

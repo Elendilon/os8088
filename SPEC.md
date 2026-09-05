@@ -388,7 +388,7 @@ was 7 × 512 exactly, and a guard against 7,936 would pass a 15.5-sector
 overlay whose sixteenth sector lands on `vid_rowtab`.
 
 That is what the boot overlay is meant to land in and spill through
-(`docs/BOOT-LADDER-PLAN.md` stage B). §2.5 put `.ovl` in the FAT window on the
+(`docs/plans/completed/BOOT-LADDER-PLAN.md` stage B). §2.5 put `.ovl` in the FAT window on the
 kernel's own contiguous read, and the window alone stopped being enough when
 §2.9.12's register moved twenty boot-only bodies into the overlay: `.ovl` is
 6,688 bytes against the window's 4,608.
@@ -563,7 +563,7 @@ excludes are ones that could not reach a desktop.
 #### 2.5.2 The register — what is in the overlay, and the one question a new row answers
 
 §2.5.1 bought the *lifetime*; §2.9.12 bought the *room*. What went in with it is
-`docs/LAST-DROP-BYTES.md`, a register of boot-only bodies moved out of `.text`
+`docs/plans/LAST-DROP-BYTES.md`, a register of boot-only bodies moved out of `.text`
 and `.cold` — `sched_init`, `font_init`, `wm_init`, `dock_init`, `menu_init`,
 `inst_init`, `vid_detect`/`vid_init`/`vid_ctx_init`, the vidsel probe trio,
 `sch_idle_start`, `drv_boot_x` and the `_x` initialisers of the disk, driver,
@@ -1150,7 +1150,7 @@ sector nothing: unset, the `%ifdef` is not assembled.
 
 ### 2.8 On-demand kernel modules — code that is not in KERNEL.SYS
 
-`kernel/mod.inc`, docs/ONDEMAND-PLAN.md.
+`kernel/mod.inc`, docs/plans/completed/ONDEMAND-PLAN.md.
 
 **A module is `.cold` code that ships as a file instead of as part of the
 kernel image.** It is read into a heap claim when its feature is asked for,
@@ -1275,7 +1275,7 @@ shed-and-retry fires on somebody else's refusal and takes the
 lowest-priority cache, which for a module that is on the call stack means
 freeing the code that is running. That does not fault. Making it purgeable
 needs a pin (a nesting count per module, held from entry to exit, and for the
-panel from open to close); docs/ONDEMAND-PLAN.md 7.1/7.2 carries that design
+panel from open to close); docs/plans/completed/ONDEMAND-PLAN.md 7.1/7.2 carries that design
 and it is not built.
 
 #### 2.8.4 A refusal is a normal path, and the caller owes the reason
@@ -2418,7 +2418,7 @@ stays careful for the rest of the session.
 file would be `BOOT2_SECS`. **This is that claim**, and what it buys is not a
 feature: it is the room to move **twenty-five boot-only bodies out of `.text`
 and `.cold` into `.ovl`**, where `mem_unblob` gives them back to the heap at
-the end of `kmain`. `docs/LAST-DROP-BYTES.md` is the register of them, row by
+the end of `kmain`. `docs/plans/LAST-DROP-BYTES.md` is the register of them, row by
 row, with the caller that makes each one boot-only named beside it.
 
 `BOOT2_SECS` **13 → 19** and `OVL_AT` stayed at **2,560**. Six extra sectors is
@@ -2555,7 +2555,7 @@ leaves a segment and needs none of §20.14.5's crossing machinery. Measured:
 one stream is 73,832 bytes and two blocks are 74,908, so that simplification
 costs **1,076 bytes — two sectors of the forty it saves**. Machine code
 matches locally; the same split costs 44% on a MOD
-(docs/O88-COMPRESSION-PLAN.md 13.4).
+(docs/plans/O88-COMPRESSION-PLAN.md 13.4).
 
 **`R` IS ROUNDED TO A SECTOR AND NOT A PARAGRAPH.** The packed tail is read
 `R` bytes above where it expands to, exactly as §20.13 does it — and
@@ -2951,7 +2951,7 @@ across a 3.6x range of run density, which is the design property rather than a
 happy accident. Against §5.4.1's span writer that is **4.7x** on a picture and
 **16.2x** on detailed art, and against the run path it replaced, 10.7x and 36.3x.
 
-**There is no hybrid**, and docs/LAST-DROP-PERF.md 3 is the costing. The run path
+**There is no hybrid**, and docs/plans/LAST-DROP-PERF.md 3 is the costing. The run path
 stays cheaper below ~10 runs a row, and nothing anyone waits on draws flat art
 through this: the consumers are Paint's canvas, Solitaire's lattice card backs
 and **ArtfulType's line of text per keystroke**. The price is a blank canvas
@@ -4003,7 +4003,7 @@ will. **That 27 is an estimate and the measurement is dearer**: PERFORMANCE.md
 Set 69 prices the 1bpp walk at 723 cycles a pixel against a 1,822-cycle
 arrival, so the crossover is nearer the arrival ratio than the instruction one
 and a caller in doubt should reach for the area primitive. The conclusion is
-unchanged and only strengthened; docs/LINE-PERF-PLAN.md carries the
+unchanged and only strengthened; docs/plans/completed/LINE-PERF-PLAN.md carries the
 re-derivation. `gfx_line` is for the case those cannot serve, and it is *only* faster
 than them because **a line's runs are short by construction** unless the
 line is nearly axis-aligned.
@@ -4053,7 +4053,7 @@ its screen clipping, so there is no separate edge test on the path.
 The mono loop is the tight one *relative to what it replaced*, and it is not
 a tight loop: PERFORMANCE.md Set 69 measures it at **40.8 instructions a
 pixel**, three quarters of which is Bresenham state living in `.bss` and the
-row step being a `call`. docs/LINE-PERF-PLAN.md is a register-resident
+row step being a `call`. docs/plans/completed/LINE-PERF-PLAN.md is a register-resident
 replacement, measured at 4.7-5.2x and laying the identical pixel set. It is
 not built and this section still describes what ships.
 
@@ -4915,7 +4915,7 @@ are single-byte loops as well.
 
 The aligned loop is the one worth reading: at a shift of 0 the mask is `FFh`,
 so the read-modify-write collapses to a plain **store**, and a row is four
-instructions. `TITLESNAP=1` (docs/TEXT-PLAN.md §6.1) puts every title on that
+instructions. `TITLESNAP=1` (docs/plans/completed/TEXT-PLAN.md §6.1) puts every title on that
 path.
 
 Five `.bss` scratch words went with the calls. Every one of them is a register
@@ -4963,7 +4963,7 @@ back to on a machine whose heap refuses the band's 2 KB claim (§5.9.2).
 bar on both 1bpp adapters — 36.5 ms against 40.8 on Hercules, 37.1 against
 42.0 on CGA — and on all three it writes every pixel **once** where the
 fifteen calls write the caption's own rows four times, which is
-docs/TEXT-PLAN.md §1.1's *flicker first, speed second* and a gap you can see
+docs/plans/completed/TEXT-PLAN.md §1.1's *flicker first, speed second* and a gap you can see
 on a 4.77 MHz 8088 (PERFORMANCE.md Sets 88–93; Set 104 counts the transient
 pixels — 327, 141, 83, 66 and 250 against 26 every time). Those are findings
 about a picture and a clock, and this section does not touch them. What
@@ -5023,7 +5023,7 @@ a pass off the fallback.
 
 #### Which way it goes next is still §5.9.1's argument
 
-If docs/GFX-REWORK-PLAN.md brings the per-call cost down far enough that the
+If docs/plans/completed/GFX-REWORK-PLAN.md brings the per-call cost down far enough that the
 fifteen-call bar stops flashing in practice, the composer is not needed; if
 `.cold` gets a rung back some other way, the composed bar is the better bar on
 the machine this OS is *for* and this is the knob that puts it there. VGA was
@@ -5059,7 +5059,7 @@ matters.
 And it does it **with no double-draw in it at all.** The fifteen-call bar writes
 the caption's own rows four times and the gap between the third and the fourth
 is visible on the target machine; the composed bar writes every pixel once
-(docs/TEXT-PLAN.md §1.1: *flicker first, speed second*). On Hercules and CGA
+(docs/plans/completed/TEXT-PLAN.md §1.1: *flicker first, speed second*). On Hercules and CGA
 there is now no trade to argue about — it is faster **and** it does not flash.
 
 #### How it got here, which was four routines and no new ideas
@@ -5095,7 +5095,7 @@ has to fill its ground first and the composed cell does not.
 What is left is the two rows with no primitive beside them: the band clear and
 the blit, **25,933 cycles (5.4 ms) a bar of fixed cost**. They are what keeps
 VGA behind, and the blit is `gfx_blit1_x` — whose own prologue is 78 bytes of
-blitting inside 603 (docs/GFX-REWORK-PLAN.md). `band_emit_x` also varies by up
+blitting inside 603 (docs/plans/completed/GFX-REWORK-PLAN.md). `band_emit_x` also varies by up
 to 5,000 cycles run to run: `gfx_blit1` owes the cursor's deferred hide (§7.1.4)
 and whether it is owed depends on where the pointer is.
 
@@ -5861,7 +5861,7 @@ deciding. Measured over two scripted sessions, 34% and 28% of the cells
 (§27.2), `tui_str` draws Tracker's FT2 screen, ModPlug composes four LCD lines
 a frame (§56.12). §28's Task Manager is the one that will show it least — it
 already skips rows that have not moved — and most packages have not been
-converted to `font_run` at all. docs/LAST-DROP-PERF.md records the candidate that
+converted to `font_run` at all. docs/plans/LAST-DROP-PERF.md records the candidate that
 was measured against this one and shelved.
 
 #### 6.1.10 VGA gets the single-store path too — the planes are grouped once a run
@@ -6021,7 +6021,7 @@ machine's kernel does not carry what it cannot afford — but it is a weaker fit
 here, because `blit1` is a *feature* a small machine can do without and this is
 the *speed* of a path that machine has anyway. A 128KB machine with a VGA card
 draws text at 2.5× the cost for want of ~162 bytes, which is one 512-byte rung.
-docs/TEXT-PLAN.md §6 is the argument and the number; it is left as it is here
+docs/plans/completed/TEXT-PLAN.md §6 is the argument and the number; it is left as it is here
 because nothing has yet asked for it.
 
 ##### Verified pixel-identical, not by eye
@@ -6052,7 +6052,7 @@ ordering above.
   off `.slow`. Not taken because one pen, in one theme, on one state of one
   control, does not pay for a second row loop.
 - **Unaligned runs.** §6.1.4's arithmetic still stands *as an argument about
-  cells* and is wrong *as an argument about runs* — docs/TEXT-PLAN.md §4 is the
+  cells* and is wrong *as an argument about runs* — docs/plans/completed/TEXT-PLAN.md §4 is the
   correction, and the work is not started.
 
 #### 6.1.11 …and unaligned, in one pass too — §6.1.4 is right about a CELL
@@ -6844,7 +6844,8 @@ Transparent text is right in **six** cases, and no others:
    stub. The pair has to be one opaque pass and one transparent one, in that
    order, and no primitive can collapse them — which is what distinguishes this
    from the sixth case that was retired (below). Five sites in four files: Word
-   (§68.1), Texpad, Frotz's two window layers (docs/FROTZ-PLAN §5.1) and
+   (§68.1), Texpad, Frotz's two window layers
+   (docs/plans/completed/FROTZ-PLAN.md §5.1) and
    `apps/cword`, which does it in C.
 **"It was shorter to write" is not on the list, and neither is "the background
 is white anyway".** A white background is a background: fill it with the run.
@@ -6870,7 +6871,7 @@ long time — the body is drawn first, so the ground *is* correct — but the bo
 is drawn **that same frame**, so the letter is a second pass over pixels one
 frame old, and there is a letter-less instant every frame. That is case 1 of
 §6.3's answer instead: compose body, edge and glyph into a band and emit it
-once. docs/TEXT-PLAN.md §3.1 is the worked example.
+once. docs/plans/completed/TEXT-PLAN.md §3.1 is the worked example.
 
 #### 6.6.3 The gate — `tests/unit/t_textrules.py`
 
@@ -6916,7 +6917,7 @@ says `OSAPI_FONT_RUN` is what they probably want.
 
 #### 6.6.5 The tail — every remaining site, in one commit
 
-Stage 4 of docs/TEXT-PLAN.md worked the registry down population by population.
+Stage 4 of docs/plans/completed/TEXT-PLAN.md worked the registry down population by population.
 This is the **last batch**, and it is one because what was left was a long
 thin tail: forty-odd sites spread one and two at a time across twenty-five
 files, none of them worth a batch of its own and all of them the same three or
@@ -6980,7 +6981,7 @@ correctness cases 2, 3 and 5 and a seventh carries case 1; five carry the new
 case 6; one is `apps/os88ui.inc`, whose three are `UI_STR`'s two macro bodies
 and `ui_button`'s invocation of it and go when `font_str` itself does; three
 are `backlog:` and none of the three is a conversion — `wm_draw_title` is
-compose-and-blit work (docs/TEXT-PLAN.md stage 3 and its §6.1), Arkanoid's
+compose-and-blit work (docs/plans/completed/TEXT-PLAN.md stage 3 and its §6.1), Arkanoid's
 capsule letter is a sprite (the same plan's stage 3.1), and
 `kernel/bootprof.inc` draws on a surface no shipping build has. **The
 seventeenth line is the tracker's**, and it is the honest odd one out: `tui_runc`
@@ -8155,7 +8156,7 @@ one.
 Nothing else unfreezes. No window paints, no menu opens, no other task runs;
 `[sch_lock]` and the gfx lock are both untouched by this section. It is
 §12.8's argument one step further along — *"what was missing was not
-concurrency but feedback"* — and docs/UI-FREEZE-PLAN.md is the costing of the
+concurrency but feedback"* — and docs/plans/completed/UI-FREEZE-PLAN.md is the costing of the
 options that do address the freeze itself.
 
 The driver-backed path is covered too, on half of this argument only —
@@ -8447,7 +8448,7 @@ unchanged. Since `UIBLOCK` it is load-bearing on every shipped kernel, and
 `make NOUIBLOCK=1` — the A/B build where `ui_task` spins instead of blocking —
 is the only build in which it is still inert.
 
-Its reason to exist is `UIBLOCK` (docs/SCHED-IDLE-PLAN.md §6.3). A `ui_task`
+Its reason to exist is `UIBLOCK` (docs/plans/completed/SCHED-IDLE-PLAN.md §6.3). A `ui_task`
 that can sleep makes the old fallback wrong — it would resume a *sleeper* —
 and the tempting one-line fix, `sti`/`hlt`/rescan inside `sch_switch` itself,
 **nests the stack without bound**: the ISR that ends the `hlt` falls into
@@ -8816,7 +8817,7 @@ reproduced here.
 `sch_isr` chains to the BIOS on every full tick, and that call is made from the
 deepest-nesting context in the kernel — so the ROM's handler, and everything it
 in turn lets in, lands on whichever **task slice** was interrupted. Measured by
-A/B on a bare desktop (docs/STACK-SLOTS-PLAN.md 4.1), that chain is **50 bytes,
+A/B on a bare desktop (docs/plans/completed/STACK-SLOTS-PLAN.md 4.1), that chain is **50 bytes,
 plus the 6 of the `pushf` and the far call that reach it** — and the ROM is not
 ours to shrink: 56 on SeaBIOS, 36 on an IBM 5150 (10/27/82), 18 on a Packard
 Bell 286 and on 86Box's XT BIOS. It is per-BIOS and adapter-independent, so
@@ -8882,7 +8883,7 @@ this path either way and is unaffected, and §37's RTC ladder does not read the
 BIOS count.
 
 `[sch_chskip]` counts the skips so the claim above is a reading rather than an
-argument; `STKDIAG=1` publishes it (docs/STACK-SLOTS-PLAN.md 10).
+argument; `STKDIAG=1` publishes it (docs/plans/completed/STACK-SLOTS-PLAN.md 10).
 
 **If the ROM's handler never returns, the flag stays set and no tick chains
 again.** That is a machine that has already stopped, and the alternative — a
@@ -9002,7 +9003,7 @@ only while every slice was the same size. §8.7 made them differ, so:
 Every background slice used to be `SCH_STACK` = 384 bytes, so seven slices cost
 2,688 bytes of `.lowbss` and the machine could run **six** workers at once (the
 idle task holds the seventh permanently). 384 is what the deepest tenant in the
-tree needs; it is 4× what most of them do. `docs/STACK-SLOTS-PLAN.md` §12 is the
+tree needs; it is 4× what most of them do. `docs/plans/completed/STACK-SLOTS-PLAN.md` §12 is the
 survey that measured all twenty.
 
 The slices are a **fixed partition** now, not a uniform array. `SCH_PARTITION`
@@ -9112,7 +9113,7 @@ list alone; the heap page under it —
 — is **96**. The header declared `OS88_STACK_192` on the strength of 56, with
 "56 over the 64-byte floor is 120, and 192 gives 1.60×" written beside it. The
 real sum is 160, and 192 over 160 is **1.20×** — thinner than Frotz's 1.26×,
-which docs/STACK-SLOTS-PLAN.md §12 records as the thinnest in the tree.
+which docs/plans/completed/STACK-SLOTS-PLAN.md §12 records as the thinnest in the tree.
 
 **What that cost.** `tools/stkwater.py` on the field's own recipe — the heap
 page open while PAINT holds `MEDIA/OS8088.GIF`, the window dragged — reads
@@ -11352,7 +11353,7 @@ The decision tree it collapses, in the order the columns are read:
 An ISR lands on whatever stack it interrupts, so the mouse's cost is paid by
 whichever task happened to be running — and in `sch_stacks` that is a cost every
 slice must be sized for simultaneously, because any of them can be the one
-interrupted. Measured with `STKDIAG=1` (docs/STACK-SLOTS-PLAN.md 4.2), the chain
+interrupted. Measured with `STKDIAG=1` (docs/plans/completed/STACK-SLOTS-PLAN.md 4.2), the chain
 `mou_isr` → `mou_apply` → `cur_move` is **~54 bytes on a planar adapter, 30 on
 Hercules and 23 on CGA** — it is the ADAPTER that sets the depth, `cur_move`'s
 1bpp path being the shallow one, so the number to design from is the planar 54.
@@ -11714,7 +11715,7 @@ MartyPC has no backdoor of any kind, so nothing there changes.
 #### 9.11.7 `kern_emu` — the build that carries it
 
 **A third kernel off the one tree**, beside `kern_big` and `kern_small`
-(docs/KERN-SPLIT-PLAN.md). `make emu` builds it into `build/emuk/` and writes
+(docs/history/KERN-SPLIT-PLAN.md). `make emu` builds it into `build/emuk/` and writes
 `build/emu.img`; `kern_emu` is `kern_big` **plus this feature and nothing
 else**.
 
@@ -12279,7 +12280,7 @@ past the live screen or the dock row, §39.2), re-fits the origin the way
 hanging off, then repaints everything. This is how an app that adopts a
 picture's dimensions moves its own frame; before it existed `ui_grow` and
 `wm_fullscreen` were the only things that could, and apps/paint wrote W_W/W_H
-in the record itself (docs/PAINT-NOTES.md). **It repaints**, so it must not be
+in the record itself (docs/plans/completed/PAINT-NOTES.md). **It repaints**, so it must not be
 called from inside a W_PAINT — that would re-enter the caller's own paint
 proc. From W_ONCLICK, W_ONKEY, a menu handler or a file-dialog completion it
 is an ordinary call.
@@ -13349,7 +13350,7 @@ different questions: nothing uncovered → no work at all; something uncovered
 
 #### 11.91.3 Why the marking still keys on RECTS — a measured negative result
 
-REDRAW-SPEC Part 3 deferred a step, and docs/HANDOFF-REDRAW.md carried it as
+REDRAW-SPEC Part 3 deferred a step, and docs/plans/completed/HANDOFF-REDRAW.md carried it as
 item D: key this marking on each window's **redrawn region** instead of its
 rect, so that a window overlapping a marked window below is not itself redrawn
 when the part that was actually repainted is nowhere near it. **It is not
@@ -13878,7 +13879,7 @@ holds everything.
 
 #### 11.94.3 Which windows do NOT align their own text
 
-**`docs/SNAP-PLAN.md` is the work list** — this section is the survey; that file
+**`docs/plans/completed/SNAP-PLAN.md` is the work list** — this section is the survey; that file
 carries the per-item fix, what each is worth, the ordering, and the two things
 to repair in the instrument before leaning on it.
 
@@ -14553,7 +14554,7 @@ Two things are load-bearing.
 
 Raising an obscured window measured **1,026 ms** on a 4.77MHz 8088, and
 **578 ms of it is `W_PAINT` lettering cells that were genuinely overwritten**
-while the window was covered (docs/NOTEPAD-NOTES.md §5.3). There is no faster
+while the window was covered (docs/plans/completed/NOTEPAD-NOTES.md §5.3). There is no faster
 way to draw them, so the only way under one typematic repeat is not to draw
 them: `wm_su_take` banks the content when the window is covered and
 `wm_su_try` puts it back when it is raised — **~10 ms of blit each way**.
@@ -16148,7 +16149,7 @@ by cards, which is the one-time-in-eight cost this section exists to avoid,
 paid only on the seam. `kern_small` has one display and no `vid_disp_find`
 (§39.12), so the guard is not assembled there.
 
-**The defect.** "Snap `dy` as well" had been asked before (docs/SNAP-PLAN.md §6)
+**The defect.** "Snap `dy` as well" had been asked before (docs/plans/completed/SNAP-PLAN.md §6)
 and answered "no benefit". That answer is right about the *layout* — rows are
 whole, so `gfx_save`'s buffer replays correctly at any `dy`, and PERFORMANCE.md
 Set 54 found no y-alignment win anywhere in this renderer — and it misses one
@@ -16210,7 +16211,7 @@ of what it cost and what it bought:
   `dx = +8`, `dx & 7 = 0`, the snap moves nothing). Nothing does that for `y`.
   There is no `wm_snap_ay`, and there should not be — §11.94 aligns `W_X`
   because a byte holds 8 pixels horizontally, which is a fact about the
-  framebuffer; y has no such quantum (docs/SNAP-PLAN.md §6, and §11.96.14's
+  framebuffer; y has no such quantum (docs/plans/completed/SNAP-PLAN.md §6, and §11.96.14's
   paragraph on the same point).
 - **What it bought does not reach the user either.** The residue is a 50%
   checkerboard replayed in the opposite phase, bounded by the solid chrome of
@@ -16857,7 +16858,7 @@ drop, seed, walk, answer; so a window that is *visible but wholly covered* —
 precisely the state a save-under exists for — destroyed its own cache and was
 then told, two calls later, that there was nothing to draw. Every app with a
 background painter did it on every poll, which is why the feature could not
-survive being switched on: docs/SAVEUNDER-LIVE-PLAN.md §3.1 measured it as the
+survive being switched on: docs/plans/completed/SAVEUNDER-LIVE-PLAN.md §3.1 measured it as the
 single thing defeating the whole proposal, and costed it as a rework of every
 candidate app.
 
@@ -17016,7 +17017,7 @@ redraws the mover alone and measures nothing this is about.
 Reported by another agent as *"a window's `(W_X, W_Y+W_H)` — its shadow's
 bottom-left corner — reads differently incrementally vs. after a full repaint;
 `hello` reproduces it exactly, 1 pixel"*, and reproduced by
-`tests/wmartifact.py --part shadow` (docs/WM-ARTIFACTS.md).
+`tests/wmartifact.py --part shadow` (docs/history/WM-ARTIFACTS.md).
 
 **The incremental path was the one that was right, and `wm_paint_all` was the
 suspect** — which is the opposite of where a reader starts, and is why the
@@ -17592,7 +17593,7 @@ somebody chose with the grow box, so §11.99.4's adoption skips it; a window
 without one has only what its author asked for. That split is why §11.99.3 and
 §11.99.4 are two mechanisms rather than one: neither can cover for the other.
 
-docs/WINDOW-SIZING-PLAN.md is the investigation this came out of, including the
+docs/plans/completed/WINDOW-SIZING-PLAN.md is the investigation this came out of, including the
 survey of what all 24 packages did before it.
 
 #### 11.100.1 `OSAPI_WM_PREFER` (slot 0x0478) — a frame size per adapter kind
@@ -19816,7 +19817,7 @@ down inside its `W_ONCLICK` — `OSAPI_WM_DESTROY` on an unbound second window
 is the reachable case — the arm is set to a slot whose `W_FLAGS` is 0 and
 whose `W_ONMOUSEUP` **`wm_destroy` does not clear**. Measured with the test
 deleted: the callback runs, through the freed record. `tests/mouseup.py`'s
-case 7 is that A/B, and docs/MOUSEUP-PLAN.md §4.2's description of the test
+case 7 is that A/B, and docs/plans/completed/MOUSEUP-PLAN.md §4.2's description of the test
 as "belt-and-braces" was written about the chrome path and is wrong here.
 
 **A package that installs this and also polls `OSAPI_MOUSE` in a tracking loop
@@ -19867,7 +19868,7 @@ drawn over is a pressed button.
 #### 13.8.1 The chrome boxes track the pointer, and the tracking is a PASS
 
 The close and minimize boxes gain the same state, and they are the case
-docs/MOUSEUP-PLAN.md §7 declined to build. Its objection was exact and is not
+docs/plans/completed/MOUSEUP-PLAN.md §7 declined to build. Its objection was exact and is not
 answered by drawing rather than XOR-ing:
 
 > a static invert **stays on while the pointer slides off**, because
@@ -20111,7 +20112,7 @@ pane is legitimately negative, and a release outside the window is negative by
 hundreds.
 
 The lesson generalises to every remaining conversion in
-docs/UIHELPERS-PLAN.md §15.4: **ask what the old caller had already
+docs/plans/completed/UIHELPERS-PLAN.md §15.4: **ask what the old caller had already
 established before the ladder ran**, because the release path establishes none
 of it.
 
@@ -22595,7 +22596,7 @@ Three things about the measurement, because each was a wrong answer first:
 #### 15.3.7 `SPLSTARS=1` — the still logo and the twinkle
 
 An A/B for the loading screen's animation, and a knob for TITLESNAP's reason
-(docs/TEXT-PLAN.md §6.1): it is a **look** question, so it is something to be
+(docs/plans/completed/TEXT-PLAN.md §6.1): it is a **look** question, so it is something to be
 looked at rather than argued, and the default is the spinner that ships.
 
 `make SPLSTARS=1` pins the logo at `cos` = 64 — full width, no flip, **still** —
@@ -24216,7 +24217,7 @@ place.
 | before | 295 | **244** |
 | after | 295 | **34** |
 
-**The sector count is identical**, which is the shape `docs/DISK-PERF-PLAN.md`
+**The sector count is identical**, which is the shape `docs/plans/completed/DISK-PERF-PLAN.md`
 §2.1 demands: if both numbers moved, the run splitter would be dropping or
 duplicating work. 7.2x, and a run crosses *cluster* boundaries, so a
 contiguously written file is one run per track.
@@ -25457,7 +25458,7 @@ destination pre-mounted (832 / 167) and without (830 / 163).
 CHS conversion recomputed each time — so a nine-sector FAT window was nine
 BIOS calls. On real hardware the next call has missed the sector under the
 head, so consecutive sectors cost a revolution each rather than sharing one.
-Measured on the shipped apps floppy (`docs/DISK-PERF-PLAN.md` §2.1), sectors
+Measured on the shipped apps floppy (`docs/plans/completed/DISK-PERF-PLAN.md` §2.1), sectors
 and int 13h calls were **equal in every case**: nothing in the floppy path
 batched.
 
@@ -26270,7 +26271,7 @@ came back, and the canary compared equal.
 ### 18.94 The transfer instrument, published at a fixed offset
 
 **`make DISKCNT=1`, which is now every FIELD kernel and no shipped one.** The
-counters of docs/DISK-PERF-PLAN.md §2 have existed for a while and were read
+counters of docs/plans/completed/DISK-PERF-PLAN.md §2 have existed for a while and were read
 over QMP; this publishes them so a **test package** can read them, because the
 question they answer turned out to need a field machine rather than an
 emulator.
@@ -26975,7 +26976,7 @@ which is why `dskw_fmt_probe` **banks and restores** them rather than forcing
 the fallback (§18.96).
 
 **`kern_big` only, and it is the first thing through that seam**
-(docs/KERN-SPLIT-PLAN.md). It costs 1,024 bytes of footprint — one 512-byte
+(docs/history/KERN-SPLIT-PLAN.md). It costs 1,024 bytes of footprint — one 512-byte
 rung on the image and one on the cold segment — and `kern_small` stood at 512
 bytes of spare, so the alternative was a second raise of the guard the 128KB
 machine lives under. It needs **no ABI parity work**, which is the whole
@@ -27679,7 +27680,7 @@ BPB we would refuse to mount, and on a disk holding a file system nobody in
 this tree has heard of. Nothing below reads a directory, a FAT or a cluster.
 
 **AN ON-DEMAND MODULE** (§2.8), shipped as `CLONE.DRV`, `MOD_CLONE`, and it
-qualifies on docs/ONDEMAND-PLAN.md 1's test for the formatter's reason with
+qualifies on docs/plans/completed/ONDEMAND-PLAN.md 1's test for the formatter's reason with
 one more term in its favour: preparing a disk already has a trip to the disk
 box in it, and a clone has *two*. `kernel/clone.inc` is the file, prefix
 `clo_`, and the resident half of it is **one word** — `[clo_seg]`, the claim
@@ -29642,7 +29643,7 @@ each needed a mechanism**:
 |-----|------|------------------------------------------------------------|
 | 0   | 2    | magic: bytes `'O','8'` (word 0x384F)                      |
 | 2   | 1    | format version = 3 (segment-per-package; v1/v2 files are rejected) |
-| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/O88-COMPRESSION-PLAN.md; bits 5–7 zero |
+| 3   | 1    | flags: bit 0 = embedded icon follows the header; bit 1 = an association block follows it (§54.6); **bit 2 = the FILE is longer than the image and the rest is the package's own (§20.12)**; **bit 3 = the image is COMPRESSED and the file is SHORTER than it, bit 4 = which format (0 = LZ4, 1 = LZB)** — docs/plans/O88-COMPRESSION-PLAN.md; bits 5–7 zero |
 | 4   | 2    | link base — must be **0**: a v3 package links at org 0     |
 | 6   | 2    | entry offset (≥ 0x20; ≥ 0x60 with icon; < image size)      |
 | 8   | 2    | image size = resident bytes: header + icon + code + data. Equals the file size exactly — **unless flags bit 2 is set, when it may be smaller and the file's tail is the package's (§20.12)**. |
@@ -30220,7 +30221,7 @@ expensive part of a slot, the contract is.
 **Why it exists is not size.** Measured, consolidating the kernel's four
 private button helpers was worth *twelve bytes* on its own, and unifying them
 with the package side **cost a 512-byte `.cold` rung** — `KERN_BUDGET` spare
-1,536 to 1,024, two steps (docs/UIHELPERS-PLAN.md, sections 7.1 and 13.3, has
+1,536 to 1,024, two steps (docs/plans/completed/UIHELPERS-PLAN.md, sections 7.1 and 13.3, has
 the per-section figures). The argument is that a feature added to
 the button — a pressed state, a focus ring, a different disabled treatment —
 lands in the Standard File dialog, the Control Panel, the Timer and every
@@ -30966,7 +30967,7 @@ caller's, so a verb cannot answer in those.
 
 **The kernel's knowledge of what is behind this cell is: none**, and that is
 the design rather than a shortcut. The first consumer is a sockets ABI
-(docs/NET-STACK-PLAN.md), and a sockets ABI in the API table would be a
+(docs/plans/completed/NET-STACK-PLAN.md), and a sockets ABI in the API table would be a
 contract *the kernel* owes for ever — every verb frozen by §20.8 rule 4's
 successor the day the table freezes, on a subject the kernel has no code for
 and no opinion about. Behind this cell it is a contract the **driver** owes,
@@ -31144,7 +31145,7 @@ it is the package's — read by the package, into memory the package claims,
 laid out by a table the package compiled into itself. **The kernel parses
 none of it.**
 
-`apps/os88parts.inc` is that written once (§20.12.3), and docs/O88-MULTISEG-PLAN.md
+`apps/os88parts.inc` is that written once (§20.12.3), and docs/plans/completed/O88-MULTISEG-PLAN.md
 is the design record — including §1 of it, which is the kernel-side version
 of this that was built to five waves and thrown away at 2,560 resident bytes.
 
@@ -31166,7 +31167,7 @@ version number would advertise a kernel capability that does not exist.
    entry contract, §21 step 9).
 
 That is the whole of it. Everything else a package needs was already
-published, and the table in docs/O88-MULTISEG-PLAN.md §4.1 is the mapping,
+published, and the table in docs/plans/completed/O88-MULTISEG-PLAN.md §4.1 is the mapping,
 row by row: `OSAPI_FILE_READ_AT` for the bytes, `OSAPI_FILE_DFREE` for the
 cluster size the alignment needs, `OSAPI_MEM_AVAIL` to size, `OSAPI_MEM_CLAIM`
 and `_HI` to claim (both legal from the entry proc), `OSAPI_XMEM_ALLOC` and
@@ -31219,7 +31220,7 @@ kernel has already read and already bounds by the time the entry proc runs.
 - **Sizing costs no disk at all.** A package knows what it wants before it
   has read a sector of it, so a refusal is instant rather than arriving after
   the whole package has been read (which is what every workaround in
-  docs/O88-MULTISEG-PLAN.md §2.2 does today).
+  docs/plans/completed/O88-MULTISEG-PLAN.md §2.2 does today).
 - **It is not hostile input.** A block read off a disk must be validated as
   hostile (§19); a table compiled into an image the kernel already bounds
   need not be. The kernel-side design spent 542 bytes on that validator.
@@ -31484,7 +31485,7 @@ sector.
 ### 20.13 COMPRESSION — flags bits 3 and 4, and one slot
 
 **A file may be compressed and the kernel expands it on the way in.**
-docs/O88-COMPRESSION-PLAN.md is the design record — what it costs, what it
+docs/plans/O88-COMPRESSION-PLAN.md is the design record — what it costs, what it
 buys, and the measurements behind both. This section is the contract.
 
 **Two formats, and which one is a bit.** Flags **bit 3** says the image is
@@ -31564,7 +31565,7 @@ different moment.
 
 **The signal is `image > file`, and the FORMAT is the body's first byte.**
 There is no spare header bit to put it in: +31 became the bss count
-(docs/O88-COMPRESSION-PLAN.md 12.6) and the name fills +16..30. A
+(docs/plans/O88-COMPRESSION-PLAN.md 12.6) and the name fills +16..30. A
 self-describing body costs one byte and no archaeology, and `drv_check`'s
 `image == file` becomes `image >= file` — a *truncated* file then fails in
 `drv_expand` instead, which is the same refusal by a different route.
@@ -31717,7 +31718,7 @@ does not write**. That is not a hedge:
   instead of refused.
 
 **The disks stay LZ4** (§20.13.5), and the trade is still the one §12.7 of
-`docs/O88-COMPRESSION-PLAN.md` states: LZ4 is 50.6 cycles an output byte and
+`docs/plans/O88-COMPRESSION-PLAN.md` states: LZ4 is 50.6 cycles an output byte and
 LZB is 207, against about ten points of ratio. A disk saving happens once and
 a launch cost happens for ever, and the 5150 has not been asked yet.
 
@@ -31979,7 +31980,7 @@ a compressed file at the other end, hint and all, by §20.14.4.
 
 The `+22` word was reserved and zero, so a caller written before this still
 works — and one that reads it now learns the thing a badge or a listing column
-needs (docs/O88-COMPRESSION-PLAN.md 15) without a sector read of its own.
+needs (docs/plans/O88-COMPRESSION-PLAN.md 15) without a sector read of its own.
 
 #### 20.14.4 The WRITE derives the hint, and clearing is the half that matters
 
@@ -32089,7 +32090,7 @@ BYTE FOR BYTE rather than by size. `os88lz.py`'s *own* encoder is something
 else again: a shortest-path parse over a chain at depth 128, with a cost array
 over every position, which is 464KB of working set for `BEVERLY.MOD`. The
 machine does not attempt it and produces a bigger stream than the host does.
-Over the seven files of docs/O88-COMPRESSION-PLAN.md §13.11.0:
+Over the seven files of docs/plans/O88-COMPRESSION-PLAN.md §13.11.0:
 
 | | ratio |
 |---|---:|
@@ -32105,7 +32106,7 @@ refused before anything is claimed.
 
 **There is no lookahead**, and that is a measurement rather than an omission:
 at every work budget tried, a deeper chain without one beat a shallower chain
-with one (docs/O88-COMPRESSION-PLAN.md §13.11.0.1). **Every position a match covers is recorded**, which is
+with one (docs/plans/O88-COMPRESSION-PLAN.md §13.11.0.1). **Every position a match covers is recorded**, which is
 worth 2.5 of those 5.7 points — nothing else would ever put them in the table,
 and a later position matching *into* the middle of an earlier match is common.
 
@@ -34720,7 +34721,7 @@ its slot.
 ### 22.16 The remembered path — naming the folder you are standing in
 
 **KERN_BIG ONLY.** kern_small keeps the caption it shipped with, and
-docs/TITLE-PLAN.md is the investigation.
+docs/plans/completed/TITLE-PLAN.md is the investigation.
 
 A folder's name is free on the way **down** — it is the row the user
 clicked — and the kernel used to throw it away, so on the way **up** it had
@@ -35389,7 +35390,7 @@ and starts the moment it is picked.
 special case at all.** `dskw_read_x` hands back the UNPACKED bytes (§20.14), so
 "read, compress, write" is one path for a plain file and for one the build
 already packed — and LZ4 → LZB falls out of it. The gain is real:
-docs/O88-COMPRESSION-PLAN.md §13.11.0.1 measures **3.9 to 10.3 points** across
+docs/plans/O88-COMPRESSION-PLAN.md §13.11.0.1 measures **3.9 to 10.3 points** across
 the seven files it tracks.
 
 #### 22.22.1 What it refuses, and why none of it is a name list
@@ -36026,8 +36027,9 @@ does not depend on anything: no arrangement of the machine makes it start. The
 test is **"is there a state of this machine in which this package runs"**, and
 only a package for which the answer is no comes off the disk.
 
-**And the general lesson is bigger than the disk list.** docs/KERN-SMALL-CUT-
-PLAN.md's founding argument was that 70KB of free heap is *"roughly where a
+**And the general lesson is bigger than the disk list.**
+docs/plans/KERN-SMALL-CUT-PLAN.md's founding argument was that 70KB of free
+heap is *"roughly where a
 second program becomes possible"*, reasoning from SHEET's region. That premise
 was measuring the wrong quantity, and the target built on it is retired —
 **a package's footprint is its region PLUS the claims it makes to function**,
@@ -37347,7 +37349,7 @@ pasted line, a log or a minified file is. Measured on a cycle-accurate 4.77MHz
 8088 with a 709-byte note whose first 249 characters are one word, caret just
 after it on row 8 of a 16-row view: the back-up ran **nine** rows to index 0
 and pass 1 then laid out rows 0..16 on every keystroke. See
-docs/NOTEPAD-NOTES.md 5.2 for the figures either side.
+docs/plans/completed/NOTEPAD-NOTES.md 5.2 for the figures either side.
 
 ### 27.5 Where each row starts — a query about a row costs a row
 
@@ -37495,7 +37497,7 @@ is before the row start and is already refused by `np_fastcm`.
 Measured, same note and window: **53.5 ms → 37–40 ms** a keystroke, with
 `np_rstart` down from 4.8 to 2.0. Pixel-identical to the build without it:
 2,778 differing bytes against a forced full repaint on *both* builds, in the
-same bounding box — which is docs/NOTEPAD-NOTES.md §5.2.1 and predates all of
+same bounding box — which is docs/plans/completed/NOTEPAD-NOTES.md §5.2.1 and predates all of
 this.
 
 **The one case it still refuses is a run of non-space longer than a row**, and
@@ -37507,7 +37509,7 @@ columns is 18 rows, twice a keystroke. The walk-back itself is cheap (table
 lookups); it is the *layout from the seed it chooses* that is not. This is not
 theoretical: a benchmark that typed nothing but `a` grew a 14-character run at
 the caret and hid the optimisation above entirely, reporting no change at all
-until the harness was made to type prose (docs/NOTEPAD-NOTES.md §6.8).
+until the harness was made to type prose (docs/plans/completed/NOTEPAD-NOTES.md §6.8).
 
 Two ways out are recorded rather than taken, because both are decisions rather
 than fixes. **Give the back-up a ceiling** and fall through to the view-top
@@ -38086,13 +38088,13 @@ recording rather than quietly correcting. §27.7.7 names this symptom exactly �
 fixes `np_redraw`'s caret-follow net, which is a real unbounded walk on a
 different path: the A/B across it moved a scrolling `Down` by 72 cycles in
 4,455,200. The walk on this path is two routines earlier, in the key handler,
-and `np_redraw` never sees it. docs/NOTEPAD-NOTES.md 6 is where that lesson
+and `np_redraw` never sees it. docs/plans/completed/NOTEPAD-NOTES.md 6 is where that lesson
 lives.
 
 What is **not** fixed here is `Up` out of the top of the view. The row wanted
 is above the view, no table entry can seed it, and `np_redraw`'s net then
 walks unbounded by §27.7.7's own design — so it stays ~5.2 s and is the case
-docs/NOTEPAD-NOTES.md 1's row index was designed for.
+docs/plans/completed/NOTEPAD-NOTES.md 1's row index was designed for.
 
 ### 27.13 The row index — a row outside the view without walking to it
 
@@ -38172,7 +38174,7 @@ descriptions already match the glass.
 **It is 13.6x and it is still 3.8x over budget**, the target being one
 typematic repeat (~100 ms, §2951) so that no held key can outrun the editor.
 What is left is 155 ms of pass 1 and 186 ms of drawing, and neither is a
-seeding problem — see docs/NOTEPAD-NOTES.md §7.
+seeding problem — see docs/plans/completed/NOTEPAD-NOTES.md §7.
 
 
 #### 27.7.10 A click the bar TOOK is not a click that SCROLLED
@@ -38625,7 +38627,7 @@ number of matches rather than by the length of the note.
 ### 27.12 The note is a flat buffer, and the move is `rep movsb`
 
 Typing at the FRONT of a long note was reported from the field as
-"impossible" and had never been measured — docs/NOTEPAD-NOTES.md §6.2's
+"impossible" and had never been measured — docs/plans/completed/NOTEPAD-NOTES.md §6.2's
 screen probe could not see a keystroke at all. Measured on a cycle-accurate
 4.77MHz 8088 with README.TXT open (15,428 characters), a keystroke at index 0
 cost **414 ms**, and it splits three ways:
@@ -38667,7 +38669,7 @@ it would make the other 187 ms *worse*: the layout walk reads every character
 of every row it lays out, and a gap buffer puts `at_getb`'s
 `push es`/load/fetch/`pop es` on each of those reads. The measurement says
 the remaining cost of typing is the WALK, not the buffer, so the structure to
-change is the one §27.7.9 and docs/NOTEPAD-NOTES.md §1 are about.
+change is the one §27.7.9 and docs/plans/completed/NOTEPAD-NOTES.md §1 are about.
 
 The move is verified rather than argued: the document claim is read back out
 of guest RAM and compared byte for byte against README.TXT with the session's
@@ -38732,7 +38734,7 @@ already carries the row it describes, so no new state was added to say so.
 Verified three ways. The keystroke is **8.8 ms** with no walk in the trace at
 all. The content is **byte-identical to the build without it** against a forced
 full repaint on the same 426 characters of prose — 2,778 differing bytes in the
-same bounding box, which is docs/NOTEPAD-NOTES.md §5.2.1 and predates all of
+same bounding box, which is docs/plans/completed/NOTEPAD-NOTES.md §5.2.1 and predates all of
 this; that the two builds agree exactly is also what proves the deferred wrap
 *does* reconcile, since one wraps eagerly and the other catches up. And the
 document claim read back out of guest RAM is **exactly the 426 characters the
@@ -38776,7 +38778,7 @@ the caret's index and nothing else moved.
 The pixel A/B here is **not** byte-identical and the difference is worth
 recording rather than rounding off: the same 72 cells and the same bounding
 box on both builds, but **2,781 differing bytes against the base build's
-2,851**. Both are dominated by docs/NOTEPAD-NOTES.md §5.2.1, both figures
+2,851**. Both are dominated by docs/plans/completed/NOTEPAD-NOTES.md §5.2.1, both figures
 reproduce exactly on a fresh boot, and the forced repaint is the same picture either way — so the
 70 bytes are the fast path's screen sitting *closer* to the repaint, which is
 the direction a reconcile explains and the opposite of what a drawing bug
@@ -38881,7 +38883,7 @@ closes something else and tries again.
 goes on `build/smallapps*.img` — the apps floppy meant to be paired with
 `make small`'s kernel. The ordinary build defines none of it and is
 byte-for-byte what it was; that identity is the gate, and it is the same one
-docs/KERN-SPLIT-PLAN.md §6 set for the first removal from `kern_small`.
+docs/history/KERN-SPLIT-PLAN.md §6 set for the first removal from `kern_small`.
 
 **It is not a second ABI and must never become one.** A small-built
 `NOTEPAD.O88` calls the same API table at the same offsets as every other
@@ -40511,7 +40513,7 @@ Task Manager alone reads.
 
 ### 28.8 The two quiet pages cannot hold an ORDINARY raise cache, and the cache is why
 
-docs/SAVEUNDER-LIVE-PLAN.md §18.4 put this window on the "not worth it" list
+docs/plans/completed/SAVEUNDER-LIVE-PLAN.md §18.4 put this window on the "not worth it" list
 in one line — *its worker redraws twice a second because it **is** the load
 meter (§28.7)*. That is true of the performance view and false of the other
 two, and §28.11 is where the other two end up. This section is why the
@@ -45451,7 +45453,7 @@ one parameterized 1bpp renderer:
 addressing with `bmask = bshift = 0` — with `vid_tab` height 350 and a
 different BIOS mode number. Everything §39.2–§39.5 says about VGA applies to
 it unchanged; the differences are enumerated in §39.24 and reasoned in
-`docs/EGA-PLAN.md`.
+`docs/plans/completed/EGA-PLAN.md`.
 
 Module `kernel/viddet.inc`, prefix `vid_`. It is `%include`d **before**
 `splash.inc` because the boot splash probes and sets the mode on its first
@@ -45601,7 +45603,7 @@ combined them, and that is the precomputed `[vid_ymax]`.
 **Two questions that were one word each and are now two.** *How big is the
 thing I am clipping to* and *how big is the thing the window system lays out
 in* have the same answer on every machine with one display, and different
-answers the moment a desktop spans two cards (docs/DUAL-DISPLAY-PLAN.md §5.1).
+answers the moment a desktop spans two cards (docs/plans/completed/DUAL-DISPLAY-PLAN.md §5.1).
 
 | | the DISPLAY | the DESKTOP |
 |---|---|---|
@@ -45829,7 +45831,7 @@ the predicted `.lowbss` +512, and reverted.
 Hercules**, which matters because a Hercules is the adapter with more to gain:
 128 rows is the top 37% of its screen against a CGA's 64%, so its miss rate is
 roughly twice as high. PERFORMANCE.md Set 106's figures are CGA's, and **the
-Hercules reading has never been taken** (docs/MONO-RECLAIM-PLAN.md §4.4).
+Hercules reading has never been taken** (docs/plans/MONO-RECLAIM-PLAN.md §4.4).
 
 #### Why 348 and not 128, and not 480
 
@@ -46665,7 +46667,7 @@ path that runs on all three adapters.
 
 **One display's geometry is sixteen contiguous words, and making a display
 current is a `rep movsw` over them.** Present only in `kern_big`
-(docs/KERN-SPLIT-PLAN.md); `kern_small` has none of it.
+(docs/history/KERN-SPLIT-PLAN.md); `kern_small` has none of it.
 
 ```
 vid_seg  vid_stride  vid_bmask  vid_bshift  vid_rowadd
@@ -46704,7 +46706,7 @@ changes** — drawing is spatially coherent, so the steady state is
 
 | symbol | what it does |
 |---|---|
-| `[vid_ndisp]` | displays the kernel has **brought up** — 2 after §39.13, 1 for ever on a one-card machine. Not the same question as how far the *desktop* spans, which is `[vid_w]`/`[vid_h]` and is still one display's until docs/DUAL-DISPLAY-PLAN.md step 6 |
+| `[vid_ndisp]` | displays the kernel has **brought up** — 2 after §39.13, 1 for ever on a one-card machine. Not the same question as how far the *desktop* spans, which is `[vid_w]`/`[vid_h]` and is still one display's until docs/plans/completed/DUAL-DISPLAY-PLAN.md step 6 |
 | `[vid_cur]` | which display's geometry is in the live block |
 | `vid_ctx_capture` | AL = display; bank the live geometry into that record |
 | `vid_ctx_act` | AL = display; make it current, **returning immediately if it already is** |
@@ -46754,7 +46756,7 @@ Five things are load-bearing:
   that display is activated, a long way from the cause.
 
 **Nothing on a drawing path calls any of it yet.** This is step 1 of
-docs/DUAL-DISPLAY-PLAN.md §11 — the state and the swap — so the screen is
+docs/plans/completed/DUAL-DISPLAY-PLAN.md §11 — the state and the swap — so the screen is
 byte-identical to the build before it on all three adapters, by construction
 rather than by inspection. §39.13 raises `[vid_ndisp]` and still draws nothing;
 step 4 is what first activates a display from a primitive.
@@ -46765,7 +46767,7 @@ step 4 is what first activates a display from a primitive.
 and both monitors scan os8088's own raster.** Nothing is drawn on the second
 one — `vid_setmode` cleared it, so it is black — which is exactly what this
 step is: the card is *ours* from here on, and step 4 of
-docs/DUAL-DISPLAY-PLAN.md is what puts pixels on it.
+docs/plans/completed/DUAL-DISPLAY-PLAN.md is what puts pixels on it.
 
 **Two displays means `[vid_avail]` is `VID_A_HERC | VID_A_CGA` and nothing
 else.** Every other value is one display, and the test is an equality rather
@@ -46823,7 +46825,7 @@ nothing.
 
 **Display 1 sits at `(display 0's width, 0)`: side by side, secondary on the
 right.** Nothing reads that origin yet, and where the two displays actually
-sit is the Control Panel's question (docs/DUAL-DISPLAY-PLAN.md step 7);
+sit is the Control Panel's question (docs/plans/completed/DUAL-DISPLAY-PLAN.md step 7);
 this is the arrangement its default will be.
 
 **What is still owed, and it is one thing: `vid_switch` does not re-run
@@ -46937,7 +46939,7 @@ display-0 coordinates are the same numbers, so those paths pass through
 
 That is also the one caveat worth writing down: **`wm_clip_tab` is virtual and
 is not translated**, which is correct only while every window is on display 0.
-Growing `[vid_w]`/`[vid_h]` to the union — docs/DUAL-DISPLAY-PLAN.md step 6 —
+Growing `[vid_w]`/`[vid_h]` to the union — docs/plans/completed/DUAL-DISPLAY-PLAN.md step 6 —
 is what makes a window's clip region reach the second display, and that step
 owes the translation.
 
@@ -47865,7 +47867,7 @@ The event records carry the virtual position, `wm_hit` walks window rects, and
 every window is still on display 0 — so a press over the second display finds
 no window and reaches the bare desktop, which hands the menu bar to Locator.
 That is correct rather than temporary: it is what clicking empty desktop has
-always done. Windows reach the second display at docs/DUAL-DISPLAY-PLAN.md
+always done. Windows reach the second display at docs/plans/completed/DUAL-DISPLAY-PLAN.md
 step 6, and `wm_hit` needs nothing then either, because it has been comparing
 virtual coordinates all along.
 
@@ -47899,7 +47901,7 @@ at all.
 **§11.2's fullscreen surface takes the primary too**, for now: `wm_fullscreen`
 sizes a window to `[vid_pw]`/`[vid_ph]` rather than the union, so an app that
 goes fullscreen covers one monitor and behaves exactly as it does today.
-Choosing *which* display by `wm_disp_of` is docs/DUAL-DISPLAY-PLAN.md step 6b.
+Choosing *which* display by `wm_disp_of` is docs/plans/completed/DUAL-DISPLAY-PLAN.md step 6b.
 
 #### 39.16.2 The band the chrome leaves free is the PRIMARY's, not the desktop's
 
@@ -48286,7 +48288,7 @@ never did: the adapter changed, and half the tree caches facts about the
 adapter. `wm_refit` has always been unconditional here and this is the same
 rule arriving on the other path.
 
-`docs/WINDOW-SIZING-PLAN.md` §12 is the design and the enumeration of every
+`docs/plans/completed/WINDOW-SIZING-PLAN.md` §12 is the design and the enumeration of every
 situation, one display and two.
 
 #### 39.16.3.2 …and a window that never crossed anything is not to be touched
@@ -48949,7 +48951,7 @@ and asserts the splash comes up on black.
 
 ### 39.24 `VID_EGA` — 640x350 as a second setup of the planar path
 
-**The design record is `docs/EGA-PLAN.md`.** This is the contract; that is
+**The design record is `docs/plans/completed/EGA-PLAN.md`.** This is the contract; that is
 why it went the way it did (Issue #136 — an IBM 5160 with a genuine IBM EGA
 and a 350-line monitor, on which the mode-12h desktop's bottom 130 rows,
 dock included, are off the tube).
@@ -49641,7 +49643,7 @@ this one only the first.
 
 **The trap that defeats most candidates does not bite here, and that is
 worth stating rather than assuming.** The finding is
-docs/SAVEUNDER-LIVE-PLAN.md's: a live-drawing app arms a clip region
+docs/plans/completed/SAVEUNDER-LIVE-PLAN.md's: a live-drawing app arms a clip region
 unconditionally on every poll, and `wm_clip_set` drops the cache of a
 *visible* window before it discovers the window is covered — so the app
 destroys its own cache twice a second and the promise buys nothing. `fr_worker` does not: the visibility test and the
@@ -50175,7 +50177,7 @@ somewhere harder.
 
 That is the asymmetry between the two builds and it is deliberate. `kern_big`
 carries a hole where its VGA bodies would be dead on a mono machine and can
-only ever REUSE it in place (docs/MONO-RECLAIM-PLAN.md §3); `kern_small`
+only ever REUSE it in place (docs/plans/MONO-RECLAIM-PLAN.md §3); `kern_small`
 carries no hole at all, because the bytes stopped existing at assembly time.
 **Only one of the two has anything to spend, and it is not the small one.**
 
@@ -50537,7 +50539,7 @@ changes no code: COPY never reads `gfx_lock_flag`.)
 ### 41.11 The store above 1MB is `kern_big`'s (binding)
 
 **`kern_small` has no extended-memory store at all**, and this is the first
-feature taken out of that build (docs/KERN-SPLIT-PLAN.md §7 step 4). The
+feature taken out of that build (docs/history/KERN-SPLIT-PLAN.md §7 step 4). The
 reason is not that the code is large — it is that the two products describe
 two different machines, and a store above 1MB is the one feature `kern_small`
 can never reach: it is the **128KB-floor** product, and a machine with RAM
@@ -50606,7 +50608,7 @@ the same build for the same reason it draws that on an 8088.
 **Cost, measured** (`make kernsplit`, and the figures are the change's own
 before/after rather than a doc baseline): `kern_big` is **byte-identical** —
 86,011 bytes, md5 unchanged, `cmp` reporting 0 differing bytes — which is the
-property docs/KERN-SPLIT-PLAN.md §2 exists to defend. `kern_small` goes
+property docs/history/KERN-SPLIT-PLAN.md §2 exists to defend. `kern_small` goes
 **82,427 → 81,017 bytes, 161 → 159 sectors**: `.text` −1,035, `.bss` −124,
 `.ovl` −386, footprint `KERN_SIZE` 93,184 → 92,160, **two 512-byte rungs**,
 spare 1,024 → 2,048 (2 steps → 4, back to the fifth budget move's standard).
@@ -50899,7 +50901,7 @@ mines, hello, notepad, piano, fractal — **paint is appended last** so the
 earlier indices hold.
 
 It shipped with **no kernel change at all**, which is why
-`docs/PAINT-NOTES.md` is a list of the capabilities whose absence shaped it.
+`docs/plans/completed/PAINT-NOTES.md` is a list of the capabilities whose absence shaped it.
 Four of them have since landed and this section reflects them: the claim heap
 (§50) replaced the app's unsanctioned grab of linear 0x66000, `gfx_blit4`
 (§5.4) replaced its own run-coalescing blitter, `osapi_font_glyphs` (§6)
@@ -50913,7 +50915,7 @@ fill, text), a per-tool line width that also sets an unfilled shape's border
 thickness, one-level undo that doubles as redo, an internal clipboard, and
 BMP and GIF load/save through the Standard File dialog (§38). The full design
 record, including the kernel capabilities whose absence shaped it, is
-`docs/PAINT-NOTES.md`.
+`docs/plans/completed/PAINT-NOTES.md`.
 
 **The canvas is not a fixed size.** It is whatever the screen and memory
 allow, from 32x16 up, and everything else follows from that:
@@ -53366,7 +53368,7 @@ application's to know — §42.19.3 is Paint's answer, and the reason it cannot 
 
 ### 42.20 The content area may be WIDER than the canvas, and usually is
 
-**This is the decision docs/SAVEUNDER-LIVE-PLAN.md §28 records and stops
+**This is the decision docs/plans/completed/SAVEUNDER-LIVE-PLAN.md §28 records and stops
 short of**, and it is that section's option 2: Paint lets its content area be
 wider than its canvas, rather than the kernel giving up the alignment or Paint
 giving up the snap.
@@ -54881,7 +54883,7 @@ Today `pt_geom` chooses it on a **1bpp adapter**, on either build, and
 `APP_SMALL` chooses it on every adapter (§42.22). What is not yet built is the
 colour machine's rule — a new canvas born one bit and promoted the first time
 a colour that is neither black nor white is painted — which needs a promotion
-pass and a refusal when the heap cannot fund one. docs/PAINT-1BPP-PLAN.md is
+pass and a refusal when the heap cannot fund one. docs/plans/completed/PAINT-1BPP-PLAN.md is
 the design record.
 
 #### 42.23.1 One is WHITE, and the polarity is worth 36% of every blit
@@ -55384,7 +55386,7 @@ patterns it grew before the conventions settled.
 
 The ladder is entered by a near `jmp` and never a `call`, which is what makes
 it free: the frame is the caller's and nothing is added to it — the same
-finding docs/STACK-SLOTS-PLAN.md made for the kernel's own pass. `pop` writes
+finding docs/plans/completed/STACK-SLOTS-PLAN.md made for the kernel's own pass. `pop` writes
 no flags, so a routine answering CF answers it through the ladder unchanged.
 
 The `MENU_DIS` overlap is the pair idiom in os88api.inc read literally: the
@@ -58945,7 +58947,7 @@ Four things hold the rest up:
 ### 45.19 Its off-grid pens are MEASURED and deliberately left alone
 
 §11.94.3 listed this app's face as the worst alignment offender in the tree
-(*"17% of sampled literal pens"*), and docs/SNAP-PLAN.md ranked it near the top.
+(*"17% of sampled literal pens"*), and docs/plans/completed/SNAP-PLAN.md ranked it near the top.
 Measured, it is **not worth changing**, and this section is here so nobody
 re-derives that from the same sample.
 
@@ -61475,8 +61477,10 @@ key, click, menu command, About — in `retf`, which is `main`'s convention.
 Here the kernel reaches them through the three-byte dispatcher in the
 package's own header (§20.1/§20.2), so every proc is a near proc with a near
 `ret`; a `retf` returns into the loader's stack frame and hangs the machine
-at the first paint. This is the trap `docs/PORTING.md` names, and it is worth
-naming again because it assembles perfectly.
+at the first paint. §20.1/§20.2 above are the contract, and it is worth
+naming again because it assembles perfectly. (A `PORTING.md` under `docs/`
+named this trap once; that document is gone and this paragraph is what is
+left of it.)
 
 **`tg_num` ate the y coordinate.** `div bx` takes its dividend in DX:AX and
 leaves the remainder in DX, which is where the caller's y sits. The y is
@@ -61502,13 +61506,16 @@ Before it, memory outside the pool was carved up by *constants*: `SND_SEG`
 spoken for from boot whether or not a byte was ever written, none of them
 could be reclaimed, and two of them were mostly empty in every configuration
 that ever shipped. On the 256KB floor machine that is 278KB of address
-space promised out of 256KB — the reason `docs/RAM-FIGURE-AUDIT.md` found
-the Task Manager reporting 145K on a machine that was really 224K committed.
+space promised out of 256KB — which is why a one-off audit taken at the time
+found the Task Manager reporting 145K on a machine that was really 224K
+committed. (That audit was a `RAM-FIGURE-AUDIT.md` under `docs/`, a snapshot
+of one tree rather than a standing account; it is gone, and this sentence is
+the finding it existed to record.)
 
 And a package that needed more than its 19.5KB region had **no way to ask**.
 `apps/paint` therefore took linear 0x66000 unilaterally and read
 `DB_MIN_KB` — a kernel policy constant — to guess whether §32's then-live
-back buffer would ever want that block (`docs/PAINT-NOTES.md` calls this "the least
+back buffer would ever want that block (`docs/plans/completed/PAINT-NOTES.md` calls this "the least
 defensible thing in this file"). One allocator retires the whole class of
 problem: two packages cannot pick the same address, an app cannot outlive
 its claim, a kernel feature and a package cannot both believe they own a
@@ -62293,7 +62300,7 @@ the Makefile is the on-demand kernel MODULES (§2.8) and nothing else — so
 the disk either.
 
 **It is a product decision and the largest single item in
-docs/KERN-SMALL-CUT-PLAN.md's hardware group**, and it is the only one there
+docs/plans/KERN-SMALL-CUT-PLAN.md's hardware group**, and it is the only one there
 that is not a device — it is the *ability* to load one. What settles it is
 that a 128KB machine has no heap to host a driver in anyway, so the mechanism
 was closer to unusable there than merely unused. The owner's words:
@@ -62326,7 +62333,7 @@ the 360KB system disk                      50 clusters = 51,200 bytes, 14% of it
 991 of them are `.ovl`/`.ovlw` — `drv_boot`'s `SYSTEM.CFG` pass and
 `drv_init`/`drv_snd_sniff` — which live in memory the machine reuses once it
 has booted, so they move `HEAP_SEG` by nothing at all. `.ovlw`'s 188 does not
-even cross a sector, so docs/KERN-SMALL-CUT-PLAN.md §7's 2,816-byte headroom
+even cross a sector, so docs/plans/KERN-SMALL-CUT-PLAN.md §7's 2,816-byte headroom
 for the buffer cuts is unchanged by it. The last 81 bytes are lost to the
 512-byte rung rounding.
 
@@ -62363,7 +62370,7 @@ a reader deciding to move one needs that in front of them.
 
 **D1's six are chosen, not just counted.** §8.7's `SCH_PARTITION` is a class
 scheme, so the question is *which* six, and the answer comes off
-docs/STACK-SLOTS-PLAN.md §12.1's survey read against what §24.5 actually puts
+docs/plans/completed/STACK-SLOTS-PLAN.md §12.1's survey read against what §24.5 actually puts
 on the small disks: two 128s (the idle task holds one for the life of the
 machine), two 192s (the modal class — Artful, the Task Manager, the Fractal,
 Cyclone, Notepad, Arkanoid and Tamegram all ship), one 256 (Missile Command),
@@ -62374,7 +62381,7 @@ by construction — take the class away and either a C package's worker can
 never be spawned or the mirror breaks.
 
 **D2 could not have been taken before §37.0.1.**
-docs/KERN-SMALL-CUT-PLAN.md §7 is the floor: `.ovlw` is loaded *onto* the FAT
+docs/plans/KERN-SMALL-CUT-PLAN.md §7 is the floor: `.ovlw` is loaded *onto* the FAT
 window and spills through the mount buffers, so it must fit
 `FAT_PARA*16 + DSK_WIN_BYTES`. At two sectors that region is **4,352**, and
 `.ovlw` rounded to whole sectors was **4,608** — short by 256. Gating the RTC
@@ -66172,7 +66179,7 @@ of the foreign one. Nothing kernel-side needs undoing at exit, and nothing
 kernel-side can draw meanwhile because nothing kernel-side runs.
 
 **Text modes take the bare contract** (decided, and the reasoning
-recorded in docs/FSX-PLAN.md): the CRTC cursor — parked at 0,0 by the
+recorded in docs/plans/completed/FSX-PLAN.md): the CRTC cursor — parked at 0,0 by the
 mode set, and never moved by writing B800 — the display pages and the
 blink/bright-background toggle all belong to the app, through the BIOS
 the bracket may already call (AH=02h move, AH=01h shape/hide, AH=05h
@@ -66832,7 +66839,7 @@ claim.
   with no association. Double-clicking a **program** is untouched.
 - **`OSAPI_ARG_FILE` (0x02E8) and `OSAPI_ASSOC_SET` (0x02F0)** keep their
   slot cells and share a `stc`/`ret` stub — the ABI parity rule
-  (docs/KERN-SPLIT-PLAN.md §0), so one `.o88` still serves both kernels. **No
+  (docs/history/KERN-SPLIT-PLAN.md §0), so one `.o88` still serves both kernels. **No
   package needs changing**, and that is a property of the two contracts
   rather than luck: `OSAPI_ARG_FILE`'s CF=1 is documented as *"launched
   empty, the ordinary case"* — the answer it already gives on every launch
@@ -67194,7 +67201,7 @@ hand is the control — rows 1–4 read `-` and that is correct.
 The mount reads the **first sector of every package in a directory** to
 harvest its icon, and that is paid again on every re-entry — measured, opening
 `APPS/` cost 20 sectors of which **8 were those reads**
-(`docs/DISK-PERF-PLAN.md` §2.1/§5.5, mechanism D). `ASSOC.DAT` is one file in
+(`docs/plans/completed/DISK-PERF-PLAN.md` §2.1/§5.5, mechanism D). `ASSOC.DAT` is one file in
 the volume's root, hidden + system, that answers them all:
 
 ```
@@ -68601,9 +68608,9 @@ machine outside the container — is now `docs/MARTYPC-DEBUG.md`'s debug server
 on an emulator and §57's registry, read out of a screenshot by
 `tools/kfzread.py`, on iron.
 
-`docs/DEBUG-PLAN.md` is kept as the design record: two live documents build on
-its reasoning rather than on the driver — docs/NET-STACK-PLAN.md on why the
-debug channel is not Ethernet, and docs/NET-PLAN.md on that plan's own survey
+`docs/plans/completed/DEBUG-PLAN.md` is kept as the design record: two live documents build on
+its reasoning rather than on the driver — docs/plans/completed/NET-STACK-PLAN.md on why the
+debug channel is not Ethernet, and docs/plans/completed/NET-PLAN.md on that plan's own survey
 of the parallel port's modes.
 
 **Do not reuse 58 for something else.** A retired § whose number comes back is
@@ -68898,7 +68905,7 @@ Two of the four callers are in the cold segment (§2.6) and reach it through
 strings are `.text`, so `mov si, [bx]` through DS reaches them from either.
 
 **`Loading...` in Paint went for the same reason from the other direction**
-(docs/PAINT-NOTES.md): it announced a floppy read that §12.8's file-activity
+(docs/plans/completed/PAINT-NOTES.md): it announced a floppy read that §12.8's file-activity
 widget now reports *live*, in the same pixels — so `fpg_begin` retired the
 toast a moment after it went up. Its `Saving...` stays, because a GIF encodes
 125,000 pixels **before** the floppy starts and the widget cannot report work
@@ -69557,7 +69564,7 @@ processor *is*, never about what memory *exists*.
 ## 61. Frotz — the fifteenth package (`apps/frotz/frotz.asm`)
 
 An interpreter for Infocom's Z-machine, windowed, with sound and pictures, and
-its own story floppy in drive B:. `docs/FROTZ-PLAN.md` is the design record and
+its own story floppy in drive B:. `docs/plans/completed/FROTZ-PLAN.md` is the design record and
 the reasoning; this section is what the code promises.
 
 **It is not a port of Frotz.** David Griffith's Frotz is C and this tree has no
@@ -70396,7 +70403,7 @@ serves 512-byte sectors out of an image file; os8088 mounts them and everything 
 write path with its commit ordering, the Disk window, the Standard File dialog,
 the copy engine, the loader and the association cache — works unchanged.
 
-This is **stage 1** of `docs/NET-PLAN.md`. Stage 2 is the file redirector that
+This is **stage 1** of `docs/plans/completed/NET-PLAN.md`. Stage 2 is the file redirector that
 supersedes block mode (a remote machine's real filesystem, not an image file);
 stage 3 is forwarding to an mTCP connection on the DOS side. The staging is
 deliberate and the order is not arbitrary: block mode is ~2KB of driver and
@@ -70631,7 +70638,7 @@ nothing there ships.
 
 **PINNED HERE BEFORE IT IS BUILT**, because it is an interface and §1's rule
 is that SPEC.md moves first. Block mode (§62 above) is what ships today; this
-is what supersedes it, and docs/NET-PLAN.md §2.2 is the reasoning.
+is what supersedes it, and docs/plans/completed/NET-PLAN.md §2.2 is the reasoning.
 
 **It is deliberately not a network feature and the name says so.** A volume
 whose contents are served by *somebody else answering questions about files*
@@ -72073,7 +72080,7 @@ one field in the machine that can be typed into is the RAM disk's size.
 of a 360KB floppy that no row on this kernel could have named.
 
 **`OSAPI_DRV_DLG`'s SLOT stays in both builds at the same offset** and refuses.
-That is docs/KERN-SPLIT-PLAN.md 3's rule and not a courtesy: one API table
+That is docs/history/KERN-SPLIT-PLAN.md 3's rule and not a courtesy: one API table
 serves one set of packages, and a cell that exists in one build and not the
 other is an ABI that depends on a knob (§20.8 rule 4). The hard disk's own
 pages do not use it — they type their geometry with `-` and `+` — so nothing
@@ -72262,7 +72269,7 @@ by `/W`'s drive scan is the ordinary way to reach it.
 
 #### 62.10.3 The harness — the host answers as the partner
 
-docs/NET-PLAN.md §9 says nothing here can be tested end to end without two
+docs/plans/completed/NET-PLAN.md §9 says nothing here can be tested end to end without two
 machines and a cable, and for the protocol's **verdict** that is still true.
 But the os8088 half is testable, and further than that section assumed:
 MartyPC's `ParallelController` implements `status_register_write`, which
@@ -72274,7 +72281,7 @@ harness and worth building at step 1".
 It is exact rather than fast, and it is exact for the reason that matters:
 the far end **pauses the emulator** around each nibble, so neither end is
 racing the other and `lp_turn`'s tick-per-reversal costs nothing. Every
-deadline in the transport is in TICKS (docs/NET-PLAN.md §9.1's third defect),
+deadline in the transport is in TICKS (docs/plans/completed/NET-PLAN.md §9.1's third defect),
 which is what makes a stepped partner legal at all.
 
 What it still cannot do is arbitrate the wire: the verdict on the cable comes
@@ -72450,7 +72457,7 @@ how a size and an attribute are asked for, looked for a *directory* called
 `CHESS.EXE` and answered "no such path" about a file that was right there.
 
 **And the driver's half is proven by A PACKAGE LAUNCHED OFF THE WIRE**, which
-docs/NET-PLAN.md has listed as owed since block mode — a document open there
+docs/plans/completed/NET-PLAN.md has listed as owed since block mode — a document open there
 resolved its app off the *floppy*, so nothing had ever been loaded and run
 from the cable. It is also the cleanest possible test of these two verbs:
 `loader_run` peeks the header, claims a region and reads the file whole, with
@@ -72614,7 +72621,7 @@ window read `No os8088 disk (C:)`. And **the slave's dwell can expire
 mid-handshake**: `slv_hunt` waits a bounded number of ticks and returns to
 `listen_once`, and the guest's clock runs while a stepped partner works — so
 an exchange begun near the end of a dwell has its magic accepted and its
-reply never sent. That is what the dwell is *for*, and docs/NET-PLAN.md's
+reply never sent. That is what the dwell is *for*, and docs/plans/completed/NET-PLAN.md's
 own rule is that the slave dwells and the **master sweeps**; the harness now
 sweeps too.
 
@@ -72869,7 +72876,7 @@ Four changes, and the last of them is the one that pays.
 **The name is `os88net`** — the driver, its Control Panel page and the row in
 `drv_tab`. It was `Network`, which is the class of thing rather than the thing.
 
-**No stage numbers in the text.** `docs/NET-PLAN.md stage 1` and
+**No stage numbers in the text.** `docs/plans/completed/NET-PLAN.md stage 1` and
 `Phase 1 is READ ONLY whatever the switches say` described a program two
 milestones ago; the second was actively false, since writes work.
 
@@ -73208,14 +73215,14 @@ Seven verbs (`NETV_OPEN`, `STATUS`, `SEND`, `RECV`, `CLOSE`, `LISTEN`,
 `ACCEPT`) plus `NETV_IDENT` and `NETV_STATE`, the two that touch no wire.
 `NETV_RESOLVE` is **reserved in the numbering and not implemented** —
 `NETV_OPEN` takes a *name*, so the lookup happens inside `NSK_CONNECT` and
-nothing in docs/NET-STACK-PLAN.md's staging ever wants an address without a
+nothing in docs/plans/completed/NET-STACK-PLAN.md's staging ever wants an address without a
 connection.
 
 **Every verb is non-blocking, and that is what the whole design rests on.** A
 `connect` is seconds and a `recv` may never complete, so a blocking socket
 call would be a hang with the gfx lock held. What *is* bounded is the wire
 exchange, not the connection: os8088 is the master and never receives
-unsolicited data (docs/NET-PLAN.md §1.3), so each verb is one
+unsolicited data (docs/plans/completed/NET-PLAN.md §1.3), so each verb is one
 request-and-reply and **the far side answers it out of state it already has**.
 It never goes and waits for the network on our behalf. Waiting is the
 caller's, and the shape is a worker task polling `NETV_STATUS` — which is why
@@ -73335,7 +73342,7 @@ which is still the 5150's question, exactly as §62.10.3 says.
 
 #### 62.11.5 The overlay was planned and is not needed
 
-docs/NET-STACK-PLAN.md §2.3 called for the socket half to be an
+docs/plans/completed/NET-STACK-PLAN.md §2.3 called for the socket half to be an
 `OS88_OVERLAY` (§52.11), so a 128 KB machine with 21.5 KB of heap would not
 carry TCP code it never uses. **The premise did not survive contact**: the TCP
 is the *far side's*, so what this half actually contains is seven command
@@ -73387,7 +73394,7 @@ to its card through exactly five routines — `ne_probe`, `ne_init`, `ne_stop`,
 Software packet driver interface**, so the whole stack runs on the DOS box
 against whatever card mTCP is already using. The alternative was linking mTCP
 itself — a C++ library and an Open Watcom toolchain this tree does not have —
-or writing a second TCP, which is docs/NET-PLAN.md's own warning about two
+or writing a second TCP, which is docs/plans/completed/NET-PLAN.md's own warning about two
 replayers wearing a different hat.
 
 **Four things are shared rather than copied**, each factored out of code that
@@ -77386,7 +77393,7 @@ ruler, the status line, the dialog contents, the keyboard map — follows the
 Computer History Museum source release of Opus verbatim (menu strings from
 `Opus/resource/menus.cmd`, ribbon/ruler layout from `Opus/ibdefs.h`, dialogs
 from `Opus/dlg/*.des`, keys from `Opus/resource/keys.cmd`). The reasoning and
-the full feature inventory are docs/WORD-PLAN.md; this section is the binding
+the full feature inventory are docs/plans/completed/WORD-PLAN.md; this section is the binding
 contract. The text engine is Note Pad's (§27), transplanted with prefix `wd_`.
 
 ### 68.1 The mode is Draft view
@@ -78838,7 +78845,7 @@ whole pane, which is the honest answer rather than a guess.
 
 ## 70. Telnet — the terminal (`apps/telnet/telnet.asm`)
 
-docs/NET-STACK-PLAN.md stage C, and the first thing on this machine that is
+docs/plans/completed/NET-STACK-PLAN.md stage C, and the first thing on this machine that is
 **useful** over a network rather than a demonstration of one. It is stage C
 rather than the browser because it exercises the whole socket API (§62.11)
 with nothing in the way — connect, poll, send, receive, close, and a screen
@@ -79147,7 +79154,7 @@ precondition `te_promise` needs.
 
 ## 71. The browser fetches (`apps/browser/brnet.inc`)
 
-docs/NET-STACK-PLAN.md stage D. The rendering half of the browser needed **no
+docs/plans/completed/NET-STACK-PLAN.md stage D. The rendering half of the browser needed **no
 change at all** to gain a network, which is the claim BROWSER-PLAN made when
 it kept fetching out of the layout work entirely: `br_parse` takes a buffer
 and does not care whether a floppy or a socket filled it.
@@ -79271,7 +79278,8 @@ and a control drawn from a remembered rect is one the hit-test cannot find.
 
 **Submit now fetches.** The URL encoder was built at BROWSER-PLAN §7.4 and
 could only *report* the URL it composed, because there was no transport; the
-transport is what turns that report into a page. That is docs/NET-STACK-PLAN's
+transport is what turns that report into a page. That is
+docs/plans/completed/NET-STACK-PLAN.md's
 stage D′ — a search on FrogFind is a `GET`, a form and simple markup — and it
 needed one call at the end of `br_submit`.
 
@@ -79318,7 +79326,7 @@ thirteen**, because the state used to have a line of its own *under* the bar
 and now shares this one; rows of band are what a browser on a 200-line screen
 is short of.
 
-The history is **URLs and nothing else** (docs/BROWSER-PLAN.md §5): `BR_HISTN`
+The history is **URLs and nothing else** (docs/plans/completed/BROWSER-PLAN.md §5): `BR_HISTN`
 = 8 of them, oldest dropped when full. A parsed document kept per entry would
 cost the heap what the page itself costs, and a re-fetch is cheap beside it;
 the scroll position — which really would be worth keeping — is two words for a
@@ -79553,7 +79561,7 @@ Hercules (27-row band).
 
 ## 72. `ETHER.DRV` — an Ethernet card and a TCP/IP stack (`drivers/ether/`)
 
-docs/NET-STACK-PLAN.md stage E, and the test of whether §1 of that plan drew
+docs/plans/completed/NET-STACK-PLAN.md stage E, and the test of whether §1 of that plan drew
 its boundary in the right place. An NE1000 or NE2000 answering the **same
 socket verbs** NET.DRV answers over a parallel cable (§62.11,
 `drivers/net/netpkg.inc`) — so Telnet (§70) and the browser's fetch (§71) gain
@@ -79621,7 +79629,7 @@ planes would have been 94,010 and `wm_su_kb` would have refused it.
 `DEMO.HTM` was written to stress the renderer while the renderer was being
 written, and it is good at that: two real tables, a third that collapses to a
 block, a form, a `<pre>` block, an `https` link kept on purpose so there is
-something to refuse. docs/BROWSER-PLAN.md §1.1.1 gave it three jobs at once —
+something to refuse. docs/plans/completed/BROWSER-PLAN.md §1.1.1 gave it three jobs at once —
 the page the project hosts, `tests/htm/`'s conformance fixture, and the one
 document in `MEDIA/` a new reader can open.
 
@@ -79690,7 +79698,7 @@ on the right — rather than as a character the renderer lost. And
 the text stream *before* it collapses whitespace, so by the time its
 collapse runs there is no entity left to lose a space in front of. The model
 was right and the machine was wrong, and the two agreeing was never possible.
-docs/BROWSER-PLAN.md §14 again, one table along from §71.12's.
+docs/plans/completed/BROWSER-PLAN.md §14 again, one table along from §71.12's.
 
 **Measured on a Hercules, `os8088_5150_herc_gla`, on §71.12's page**, whose
 `File&nbsp;&gt;&nbsp;Open</b> &mdash; another` is the shape that found it. The
@@ -81967,7 +81975,7 @@ RunCPM file in its header and carries the MIT attribution, and so does the
 About box (§74.4: the kernel's `About RunCPM` item, `OSAPI_ABOUT_SET`, opens
 `rcabout.c`'s panel — the product, `main.c`'s banner line, what this port
 is, `LICENSE`'s copyright line, OK). The design record is
-`docs/RUNCPM-PORT-PLAN.md`.
+`docs/plans/completed/RUNCPM-PORT-PLAN.md`.
 
 **Where the behaviour comes from — the authority table.** Every user-visible
 surface names ONE RunCPM file:
@@ -84108,7 +84116,7 @@ reasoned about as though it were Dark, for one whole round.
 
 ## 77. FTPD — the FTP server (`apps/ftpd/ftpd.asm`)
 
-docs/NET-STACK-PLAN.md **stage F**, and the last of them. It is the first
+docs/plans/completed/NET-STACK-PLAN.md **stage F**, and the last of them. It is the first
 thing in this system that makes the 5150 a **server**: everything before it —
 the cable (§62), Telnet (§70), the browser (§71), the card (§72) — had os8088
 reaching *out*, and this inverts every assumption those were built on. The
@@ -84130,7 +84138,7 @@ can parse.
 **A worker may not touch a file.** §20.6 rule 7: the file slots share
 `dsk_secbuf`, the FAT snapshot and `sch_lock`, and are UI-task context only.
 An FTP server is socket-to-file *by definition*, so this is not a detail here,
-it is the central design problem (docs/NET-STACK-PLAN.md §1.5.1) — and it was
+it is the central design problem (docs/plans/completed/NET-STACK-PLAN.md §1.5.1) — and it was
 named as one in the plan years before there was any code.
 
 The answer is the one Frotz proved for `@save` (§61.6) and RunCPM for its Z80
@@ -84235,7 +84243,7 @@ a passive listener is single-use by definition, and holding a fourth handle
 through a whole transfer would leave a second client unable to reach the
 greeting.
 
-`NETV_ACCEPT` being separate from `NETV_LISTEN` (docs/NET-STACK-PLAN.md 1.2)
+`NETV_ACCEPT` being separate from `NETV_LISTEN` (docs/plans/completed/NET-STACK-PLAN.md 1.2)
 is what
 lets the port-21 listener outlive the connection it accepted, so a client
 disconnecting returns the server to `FD_LISTEN` rather than ending it.
@@ -84248,7 +84256,7 @@ cannot answer PASV at all. Nothing in this tree had ever needed one: a client
 connecting *out* is told where to go and never has to say where it is, which
 is how five verbs' worth of networking got built without it.
 
-docs/NET-STACK-PLAN.md §1.3 always said `NETV_STATE` "reports whether there is
+docs/plans/completed/NET-STACK-PLAN.md §1.3 always said `NETV_STATE` "reports whether there is
 a stack **and what its address is**", and the half after the *and* was never
 built — AL is flags and AH is a free-handle count, with no room in either. So
 this is that promise kept at a verb of its own (**10**, appended) rather than
@@ -84262,7 +84270,7 @@ because what identifies a driver and what counts as a link are the one thing
 the two ends genuinely disagree about. An address is not one of those: both
 answer with the IP of the machine the stack is running on. **Over the cable
 that machine is the DOS box**, and that is the true answer rather than a
-convenient one (docs/NET-STACK-PLAN.md 1.5): mTCP on the far end owns the IP,
+convenient one (docs/plans/completed/NET-STACK-PLAN.md 1.5): mTCP on the far end owns the IP,
 an inbound
 connection arrives *there* and is forwarded, so the address a client must dial
 really is the partner's.
@@ -86151,7 +86159,7 @@ machine has.
 nineteen clocks together; **`loop` alone is seventeen**, so the bookkeeping was
 very nearly half of the tightest loop in the driver — and that loop is
 `netbench`'s `card` line, **12% of an upload** and the largest single row in the
-table (docs/FTP-PERF.md §4).
+table (docs/plans/completed/FTP-PERF.md §4).
 
 Eight copies of the body leave one `loop` per eight bytes. What that is worth
 is roughly a third of the line, so ~1,000 ms of a 24-second transfer, and it
@@ -86351,7 +86359,7 @@ With payload gating, the field's next transfer read `wall 22,891` against
 **It is not in the tree.** This section is the record, kept because the
 reasoning was sound, the measurement was not obvious in advance, and the next
 person to have the idea should not have to buy it twice. `git log` has the
-code; docs/FTP-PERF.md §6.1 has the numbers.
+code; docs/plans/completed/FTP-PERF.md §6.1 has the numbers.
 
 **The idea.** Every socket verb opens with `call eth_pump`: drain up to
 `ETH_BUDGET` frames, run the retransmit/DNS/DHCP clocks, then do the verb's own
@@ -87184,7 +87192,7 @@ hold and at the end of `fd_paint`:
 | `fd_paint` (`W_PAINT`) | zero, or `FDD_LOG` for a line the worker claimed mid-paint | the predicate reads both |
 
 **This window already had the decide-before-you-arm shape** that
-docs/SAVEUNDER-LIVE-PLAN.md names as the blocker for most candidates, which
+docs/plans/completed/SAVEUNDER-LIVE-PLAN.md names as the blocker for most candidates, which
 is why it needed nothing else: `fd_paint_now` opens with `cmp byte [fd_dirty], 0 / je .out`, so the clip is
 armed only when there is something to draw. The apps that block the feature
 are the ones that arm first and discover there was nothing to do second.
@@ -91064,7 +91072,7 @@ and WIREFRAME (§78) exercises them in a window at twelve edges a frame. This
 exercises what is on the **other side of §53.7's fence** — the machine, in a
 foreign mode, where no kernel drawing slot is legal and every pixel is the
 app's — at about a hundred edges a frame with a game attached.
-docs/GFX-FSX-PLAN.md is what the exercise found and what is proposed about
+docs/plans/completed/GFX-FSX-PLAN.md is what the exercise found and what is proposed about
 it; this section is what was built.
 
 ### 85.1 Three things decide the whole design
@@ -91288,7 +91296,7 @@ have hit.
 
 Measured on a cycle-accurate 4.77 MHz 8088: **6.06 fps** on CGA and 4.32 on
 Hercules, against the **6 fps, peaking at 8**, that the 1983 port itself runs
-at in the capture this was built from (docs/GFX-FSX-PLAN.md §0).
+at in the capture this was built from (docs/plans/completed/GFX-FSX-PLAN.md §0).
 
 **Two input readers, because they answer two different questions.** `int 16h`
 answers *what was typed* and is right for fire, pause and leaving;
@@ -91515,7 +91523,7 @@ them, so the finest turn a player can *command* is not `TK_TURN` — it is
 TK_TURN x min(ticks a frame, TK_MAXSTEP)
 ```
 
-and docs/GFX-FSX-PLAN.md §0 has already measured the left-hand end of that:
+and docs/plans/completed/GFX-FSX-PLAN.md §0 has already measured the left-hand end of that:
 **6.06 fps on CGA and 4.32 on Hercules**, which is 3.0 and 4.2 ticks to a
 frame. Both are at the cap. So on both 1bpp adapters the smallest turn the
 player has is **six units — 8.44° — and on a 386, which gets about 1.6 frames
@@ -92663,7 +92671,7 @@ exist. Until then a dragged `.WAV` reaches the player only by File ▸ Open, by
 double-click (a new instance hands it over, §86.11.1), or from the command the
 launcher passes as `OSAPI_ARG_FILE`.
 
-Performance figures on the XT are 86Box's to measure (`docs/AUDIO-PLAN.md` has
+Performance figures on the XT are 86Box's to measure (`docs/plans/completed/AUDIO-PLAN.md` has
 the procedure); QEMU is functional verification only, where 28 s of PCM8 @
 22 kHz streams gap-free (0 quiet windows in the capture) with 14 s of it while
 another window holds the focus, and where the `AP_RD_CHUNK` change (§86.5.2)
@@ -92688,7 +92696,7 @@ the kernel image: the whole of it except the menu item, the greying
 predicate, a window kind, the boot probe and their thunks is **an on-demand
 module** (§2.8), `HIBER.DRV`, `MOD_HIBER`, read into a heap claim when the
 item is picked or a hibernation file is found at boot, and freed when the
-Hibernate window closes. It qualifies under docs/ONDEMAND-PLAN.md §1's test
+Hibernate window closes. It qualifies under docs/plans/completed/ONDEMAND-PLAN.md §1's test
 twice over: at hibernate the user is leaving the machine, and at boot the
 system disk is in the drive by definition.
 

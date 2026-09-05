@@ -306,7 +306,7 @@ KNOBS = [
     # the moment somebody reaches for it to tell a real fix from a null run.
     ("noseamcut",   ["NOSEAMCUT=1"]),
     # COMPRESS= picks which decompressors the kernel carries
-    # (docs/O88-COMPRESSION-PLAN.md 12.7, SPEC.md 20.13.6). `both` SHIPS now,
+    # (docs/plans/O88-COMPRESSION-PLAN.md 12.7, SPEC.md 20.13.6). `both` SHIPS now,
     # so the rows here are the two SINGLE-format arms, and neither is the same
     # build: with one format assembled the dispatch is not there at all, and
     # the dispatch is where the first version had its bug - it never checked

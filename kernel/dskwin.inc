@@ -21,7 +21,7 @@
 ;                       is the rung's first bytes, and the %if below holds it
 ;
 ; That is what the boot overlay is meant to land in and spill through
-; (docs/BOOT-LADDER-PLAN.md stage B): `.ovl` is 6,688 bytes and the FAT window
+; (docs/plans/completed/BOOT-LADDER-PLAN.md stage B): `.ovl` is 6,688 bytes and the FAT window
 ; alone is 4,608, so the window alone stopped being enough when SPEC.md
 ; 2.9.12's register moved twenty bodies into the overlay.
 ;

@@ -657,7 +657,7 @@ static int rc_slice(void)
 }
 
 /* ==========================================================================
- * THE DEBUG LOADER (docs/RUNCPM-PORT-PLAN.md wave 2): Alt+L asks for a name
+ * THE DEBUG LOADER (docs/plans/completed/RUNCPM-PORT-PLAN.md wave 2): Alt+L asks for a name
  * on the terminal, reads NAME.COM from the floppy into the Z80 claim and
  * runs it at 0100h the way the CCP would: page zero patched, C = the
  * disk/user byte, SP under the CCP with 0000 on top so a RET warm-boots. It
@@ -1019,7 +1019,7 @@ void os88_paint(void *win)
 #define RC_SCAN_ALT_F 0x21
 #define RC_SCAN_ALT_L 0x26
 #define RC_SCAN_ALT_C 0x2E                  /* the flush counters, toasted
-                                             * (docs/RUNCPM-PORT-PLAN.md
+                                             * (docs/plans/completed/RUNCPM-PORT-PLAN.md
                                              * 'Verification': calls / cells /
                                              * scrolls since the last press) */
 /* the keys without an ASCII code, by scan code, and what a VT100 sends for

@@ -1786,7 +1786,7 @@ static void run_all(int cols_geom, int rows_geom, int table)
     if (rc_bells != 0) { printf("FAIL: the overrun bell was not serviced\n"); fails++; }
     rc_khead = rc_ktail = 0;
 
-    /* A 40KB TYPE (docs/RUNCPM-PORT-PLAN.md wave 5): 512 lines of 78
+    /* A 40KB TYPE (docs/plans/completed/RUNCPM-PORT-PLAN.md wave 5): 512 lines of 78
      * characters put out three lines a slice - the pacing the target's slice
      * length gives a TYPE loop (~2 control transfers a byte, a few hundred
      * bytes a slice on the 8088) - and flushed once a slice. Nothing may

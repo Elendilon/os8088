@@ -192,7 +192,7 @@ What happens, and what it needs from you:
    cut that changes what ships, which of two file formats, whether to spend an
    API slot, which reference wins when two disagree — with its recommendation
    first. Everything else it decides and writes into `SPEC.md` (a new section,
-   before the code, as always) and `docs/<NAME>-PORT-PLAN.md`.
+   before the code, as always) and `docs/plans/<NAME>-PORT-PLAN.md`.
 5. **It builds one wave at a time**: an implementer builds through the
    compiler gate and the host harness and boots the result; three reviewers
    check the four C rules and the budget, the redraw cost, and fidelity to

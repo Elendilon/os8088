@@ -4,7 +4,7 @@
 ; DRVCALL: the gate for OSAPI_DRV_CALL (SPEC.md 20.11) - can a PACKAGE reach
 ; a DRIVER at all, and does the driver get the package's own segment in ES?
 ;
-; It is docs/NET-STACK-PLAN.md stage A's proof, and it is deliberately not
+; It is docs/plans/completed/NET-STACK-PLAN.md stage A's proof, and it is deliberately not
 ; about networking: the door and the thing behind it are separable, so the
 ; door is tested first, in a container, with no cable and no card. RAMDISK.DRV
 ; publishes two verbs for exactly this (drivers/ramdisk/rdpkg.inc) and it is

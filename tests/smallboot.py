@@ -12,7 +12,7 @@ boot behind it at all.
 
 That mattered less while kern_small was the same code with fewer features. It
 matters now: SPEC.md 39's VGA renderer is gated out of it entirely
-(docs/MONO-RECLAIM-PLAN.md 2), which is ~1,800 bytes of `.text` that the
+(docs/plans/MONO-RECLAIM-PLAN.md 2), which is ~1,800 bytes of `.text` that the
 assembler proves is unreferenced and nothing else proves is unreachable. An
 %ifdef that takes out one body too many assembles perfectly and dies at the
 first paint.

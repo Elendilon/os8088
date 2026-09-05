@@ -116,7 +116,7 @@ DRV_MAX     equ 4               ; **kern_small HAS NO RAM DISK** (SPEC.md
 ; the first (SPEC.md 51.2.1).
 DRVC_SOUND  equ 1               ; fills the FM and STREAM tiers (SPEC.md 34)
 DRVC_DISK   equ 2               ; block volumes: hard disks (SPEC.md 51.8)
-DRVC_NET    equ 4               ; the parallel link (docs/NET-PLAN.md). A
+DRVC_NET    equ 4               ; the parallel link (docs/plans/completed/NET-PLAN.md). A
                                 ; SECOND block-serving class beside DRVC_DISK,
                                 ; which is what DV_CLASS exists for
 DRVC_RETIRED3 equ 3             ; WAS the serial monitor's, and the driver is
@@ -221,7 +221,7 @@ DRV_H_DSV   equ 15              ; byte: THE DSV_* TABLE LENGTH THIS DRIVER WAS
                                 ; way. It is the dispatcher's pad byte, which
                                 ; nothing has ever read
 DRV_H_BSSP  equ 31              ; byte: THE BSS SIZE IN PARAGRAPHS
-                                ; (docs/O88-COMPRESSION-PLAN.md 12.6). This
+                                ; (docs/plans/O88-COMPRESSION-PLAN.md 12.6). This
                                 ; file's banner used to say a driver has no
                                 ; bss and its zeroed data ships on the floppy,
                                 ; and measured that was 6,722 bytes of
@@ -957,7 +957,7 @@ drv_tab:
     db 0
 %endif
 
-    dw PKG_DISP, 0              ; row 4: the parallel link (docs/NET-PLAN.md).
+    dw PKG_DISP, 0              ; row 4: the parallel link (docs/plans/completed/NET-PLAN.md).
     dw drv_f_net, drv_t_net     ; LAST, because it is the least used of the
     dw 0, 0                     ; five and the page shows four (SPEC.md 31.1);
     db DRVC_FILE                ; it keeps bit 3, which is where appending put
@@ -1123,7 +1123,7 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 section .ovlw                  ; THE BOOT OVERLAY (SPEC.md 2.5.2,
-                                ; docs/LAST-DROP-BYTES.md row 8): kmain seeds
+                                ; docs/plans/LAST-DROP-BYTES.md row 8): kmain seeds
                                 ; the driver table once and nothing re-seeds it
                                 ; - drv_unload clears ONE row. drv_svc_clear_all
                                 ; goes with it, being this body's only callee
@@ -1436,7 +1436,7 @@ drv_call:
                                 ; and DS = 0x007C, so the row read below was a
                                 ; garbage segment out of a garbage address, and
                                 ; the far call went into zeroed memory
-                                ; (docs/DUAL-DISPLAY-VGA.md 8(11)). A range test
+                                ; (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11)). A range test
                                 ; on BX turns that into a refusal whatever DS
                                 ; holds. It does not FIX the caller - something
                                 ; is violating SPEC.md 2.6's "DS still
@@ -1479,7 +1479,7 @@ drv_call:
                                 ; dies somewhere unrelated: caught in the field
                                 ; as a reboot, because one of the bytes the
                                 ; wild run happened to write was ui_rebootq
-                                ; (docs/DUAL-DISPLAY-VGA.md 8(11)).
+                                ; (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11)).
                                 ;
                                 ; CF = 1 with AX = 0 is drv_svc_call's own
                                 ; "nothing publishes it", so the answer a
@@ -1555,7 +1555,7 @@ drv_svc_call_x:
 ; the volume row while BX still points at it. It was drv_fptr2/drv_fseg2 -
 ; the DISK class - named outright, which is right while one class serves
 ; blocks and silently wrong the moment two do: a network volume's sectors
-; would have gone to the hard-disk driver (docs/NET-PLAN.md 2.1).
+; would have gone to the hard-disk driver (docs/plans/completed/NET-PLAN.md 2.1).
 ; -----------------------------------------------------------------------------
 drv_blk_call_x:
     or bp, bp
@@ -2057,7 +2057,7 @@ drv_blob_of:
 %ifdef KERN_BIG                 ; **THE ONLY CALLER IS THE RAM DISK'S PAGE**,
                                 ; and kern_small has no RAM disk (SPEC.md
                                 ; 62.9.15). The SLOT stays in both builds at
-                                ; the same offset - docs/KERN-SPLIT-PLAN.md 3's
+                                ; the same offset - docs/history/KERN-SPLIT-PLAN.md 3's
                                 ; rule, one API table for one set of packages -
                                 ; and answers CF = 1 here, which is what it
                                 ; already answers for a caller with no drv_tab
@@ -2426,7 +2426,7 @@ drv_load_x:
 ; BEHIND %ifdef KERN_BIG, and it has to be: XMEM.DRV is its only caller and
 ; kern_small has no store above 1MB (SPEC.md 41.11), so an unguarded
 ; drv_load_at would be twenty-odd bytes of kern_big's feature charged to the
-; 128KB-floor product - docs/KERN-SPLIT-PLAN.md 2's first leak, "a hook left
+; 128KB-floor product - docs/history/KERN-SPLIT-PLAN.md 2's first leak, "a hook left
 ; outside its %ifdef", which is silent and which `make kernsplit` is the check
 ; for. HDD.DRV loads HDDTOOL.DRV through the file API and not through this, so
 ; nothing in kern_small wants it.
@@ -2634,7 +2634,7 @@ drv_check:
                                             ; talking about another file.
                                             ; EQUAL is a plain driver and
                                             ; GREATER is a COMPRESSED one
-                                            ; (docs/O88-COMPRESSION-PLAN.md
+                                            ; (docs/plans/O88-COMPRESSION-PLAN.md
                                             ; 12.6) - which drv_expand turns
                                             ; into the image, and a stream that
                                             ; does not decode is refused there,
@@ -2658,7 +2658,7 @@ drv_check:
 
 ; -----------------------------------------------------------------------------
 ; drv_expand - turn a compressed driver image into the real one (module
-;              internal; docs/O88-COMPRESSION-PLAN.md 12.6, SPEC.md 20.13)
+;              internal; docs/plans/O88-COMPRESSION-PLAN.md 12.6, SPEC.md 20.13)
 ; in:  BX = the row with DRVR_SEG/DRVR_KB live, BP = the file's byte size
 ; out: CF=0 - the row names the image, compressed or not. CF=1 - refused, and
 ;      the row still names the claim the caller's .badfree will release
@@ -2754,7 +2754,7 @@ drv_expand:
 
 ; -----------------------------------------------------------------------------
 ; drv_bss - zero the bss the file did not carry, and give the slack back
-;           (module internal; docs/O88-COMPRESSION-PLAN.md 12.6)
+;           (module internal; docs/plans/O88-COMPRESSION-PLAN.md 12.6)
 ; in:  BX = the row, with DRVR_SEG and DRVR_KB live; BP = the file's bytes
 ; out: nothing. The flags are NOT an answer - a shrink that is refused simply
 ;      leaves the claim as big as it was asked for, which is correct and
@@ -4090,7 +4090,7 @@ section .cold                   ; ...and back to cold code: drv_boot and
                                 ; from kmain, and could not be more cold
 
 ; =============================================================================
-; THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 1)
+; THE BOOT OVERLAY (SPEC.md 2.5.2, docs/plans/LAST-DROP-BYTES.md row 1)
 ;
 ; drv_boot_x is the best row in the register and the only one better than 1:1,
 ; because moving it COLLAPSES four gates rather than adding any. Four of its
@@ -4103,7 +4103,7 @@ section .cold                   ; ...and back to cold code: drv_boot and
 ;
 ; The fifth, SPLCALL spl_reset, points into `.boot2` and stays as it is: the
 ; two sections are one segment in practice and the gate refuses the crossing
-; anyway, deliberately (docs/LAST-DROP-BYTES.md 6.1).
+; anyway, deliberately (docs/plans/LAST-DROP-BYTES.md 6.1).
 ;
 ; Outbound it needs NO new shim. drvf_drv_row, drvf_drv_load and
 ; drvf_drv_mounted are already in `.cold` below, built for CTRL.DRV, and a far
@@ -4313,7 +4313,7 @@ drv_notice_x:
                                 ; the one the machine booted from and this
                                 ; load is as reliable as the boot was - which
                                 ; is what makes the panel affordable as a
-                                ; module at all (docs/ONDEMAND-PLAN.md 2.2).
+                                ; module at all (docs/plans/completed/ONDEMAND-PLAN.md 2.2).
                                 ;
                                 ; The _x BODY, near: driver.inc is cold now
                                 ; and so is ctrl.inc, so routing this out to

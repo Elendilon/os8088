@@ -435,7 +435,7 @@ def sys_attr(name11: bytes, boot: bool) -> int:
     return A_SYSTEM if name11.endswith(b"DRV") else A_LOCKED
 
 
-# THE COMPRESSION HINT (docs/O88-COMPRESSION-PLAN.md 15). A FAT12/16 entry is
+# THE COMPRESSION HINT (docs/plans/O88-COMPRESSION-PLAN.md 15). A FAT12/16 entry is
 # 32 bytes and os8088 writes only six of its fields, so these four are zeroed
 # on create and never read: +12 (NT case flags), +13 (creation tenths) and
 # +20..21, which SPEC.md 19.1 already documents as "FstClusHI - FAT32-only per
