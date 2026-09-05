@@ -12,15 +12,14 @@ expands each row into `pt_line` as packed 4bpp for `gfx_blit4` instead.
 path runs used to be chosen by the CANVAS WIDTH: the fast path rounded the
 blit up to a multiple of 8 and gave up when that reached past the picture, so
 a 208-wide fixture took `gfx_blit1` and a 204-wide one the row loop.  SPEC.md
-5.4.2.5 ended that - `gfx_blit1` merges the last partial byte under a mask
-and kern_small carries the body - so BOTH widths take the fast path now, and
-the 204-wide one is the row whose tail byte is the thing under test: its
-last byte column holds four picture pixels and four of padding, and the
-padding must not land on the glass.  The row loop is then provoked the only
-way left, by POKING THE KERNEL'S THUNK: `gfx_blit1` is `call far / ret` in
-`.text`, and `stc / ret` written over its first two bytes is exactly what
-kern_small answered before 5.4.2.5 - CF = 1, nothing drawn - with no rebuild
-and no second kernel.  That is better than running the two kernels against
+5.4.2.5 ended that - `gfx_blit1` merges the last partial byte under a mask -
+so BOTH widths take the fast path now, and the 204-wide one is the row whose
+tail byte is the thing under test: its last byte column holds four picture
+pixels and four of padding, and the padding must not land on the glass.  The
+row loop is then provoked the only way left on this kernel, by POKING THE
+KERNEL'S THUNK: `gfx_blit1` is `call far / ret` in `.text`, and `stc / ret`
+written over its first two bytes is exactly what kern_small answers - CF = 1,
+nothing drawn - with no rebuild and no second kernel.  That is better than running the two kernels against
 each other - it compares each against what the file actually says rather
 than against the other's opinion - and it needs no `kern_small` boot, whose
 B: drive the harness cannot open.
@@ -100,8 +99,8 @@ def arm(label, name, w, want_fast, machine, refuse=False):
     """Open one fixture; establish WHICH path drew it, and that it is right.
 
     `refuse` pokes `stc / ret` over the kernel's gfx_blit1 thunk once Paint
-    is up, so the kernel answers CF = 1 the way kern_small did before SPEC.md
-    5.4.2.5 and the row loop is what draws."""
+    is up, so the kernel answers CF = 1 the way kern_small does (SPEC.md
+    5.4.2) and the row loop is what draws."""
     img = dispapps.img_size("paint")
 
     def off(seg, n):

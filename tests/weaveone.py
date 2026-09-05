@@ -7,7 +7,7 @@
 WHAT WEAVE-SPEC 1.4 CLAIMS, and this row is what reads it off the glass rather
 than off the document: "256KB XT, ~140.5KB heap: exactly ONE Weave app at a
 time... the second launch refuses BEFORE ANY I/O". A 256KB XT is the family's
-FLOOR (9.12: kern_small at 128KB refuses WM_TIMER and WM_ONDRAG by
+FLOOR (9.12: kern_small at 128KB refuses GFX_BLIT1, WM_TIMER and WM_ONDRAG by
 CF=1), so it is the machine the whole memory argument is written about - and
 an arithmetic in a document that nothing exercises is an arithmetic that goes
 quietly wrong.

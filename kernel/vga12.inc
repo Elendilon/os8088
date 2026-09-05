@@ -5884,12 +5884,13 @@ vgas_left        resw 1          ;   per-pass row countdown
 
 ; -----------------------------------------------------------------------------
 section .cold                   ; gfx_blit1's body, and its far entry below it
+%ifdef KERN_BIG
 ; =============================================================================
 ; gfx_blit1_x - a composed 1bpp band, straight into the framebuffer (SPEC.md
-;               5.4.2). BOTH kernels since SPEC.md 5.4.2.5: kern_small
-;               assembles it without the two-display, VGA and pen arms, which
-;               is every %ifdef below, and keeps the clip, the cursor and the
-;               emit - the parts a 1bpp canvas actually needs.
+;               5.4.2). kern_big only; kern_small's thunk is stc/retf - a
+;               variant without the two-display, VGA and pen arms was BUILT
+;               and MEASURED for it (+419 bytes, SPEC.md 5.4.2.5) and NOT
+;               TAKEN: that build may stay slower, by decision.
 ;
 ; in:       ES:SI = the band, BP = its stride in bytes per row, AX = x (a
 ;           multiple of 8, SIGNED), BX = y (SIGNED), CX = width in pixels (a
@@ -5935,7 +5936,6 @@ gfx_blit1_x:
     cmp dx, 255                 ; ...and a band taller than wm_clip_rows' own
     ja .refuse                  ; byte answer can express (SPEC.md 11.3.2)
 
-%ifdef KERN_BIG
     mov word [gfx_b1act], 0     ; SPEC.md 5.4.2.2's two flags, and BOTH in one
                                 ; store - they are adjacent by assertion below,
                                 ; and this is the path EVERY band takes
@@ -5949,7 +5949,6 @@ gfx_blit1_x:
                                 ; that a band clipped away entirely - which
                                 ; never reaches .pen - cannot leave .done
                                 ; tearing down ports nobody armed
-%endif
 
     cmp byte [cur_lazy], 0          ; this may write any pixel on the screen,
     je .lazyok                      ; so the deferred hide is owed (SPEC.md
@@ -5959,8 +5958,6 @@ gfx_blit1_x:
                                     ; CURUNLAZY's test, written out: this body
                                     ; is .cold and the macro's `call` is near
 
-%ifdef KERN_BIG                 ; kern_small has ONE display, so nothing
-                                ; here can straddle or need entering
     ; --- resolve the display BEFORE anything meets a screen extent (39.14.8)
     cmp byte [vid_ndisp], 1
     jbe .spanok
@@ -5977,7 +5974,6 @@ gfx_blit1_x:
     pop cx
     jc .percol                  ; it crosses a seam: per band column, each
 .spanok:                        ; resolving its own display (SPEC.md 39.14.6)
-%endif
 
     ; --- ...and the clip region, in the same VIRTUAL space wm_clip_tab is in
     cmp word [wm_clip_n], 0
@@ -6023,12 +6019,10 @@ gfx_blit1_x:
     pop ax
 .rowsall:
 
-%ifdef KERN_BIG
     cmp byte [vid_ndisp], 1
     jbe .noenter
     call KERNEL_SEG:cw_gfx_disp_enter   ; AX/BX become this display's own
 .noenter:
-%endif
 
     ; --- clip to THAT display's extent. A negative x or y is the ordinary
     ; case here and not an error: a window dragged half off the left edge has
@@ -6079,13 +6073,10 @@ gfx_blit1_x:
     sub dx, bx
 .ybot:
 
-%ifdef KERN_BIG
     call .pen                   ; SPEC.md 5.4.2.4: THE PEN, now that there IS a
     jc .penref                  ; display under this band - [vid_mono],
                                 ; [vid_seg] and [vid_cw] all mean something
                                 ; here and none of them did at the door
-%endif                          ; ...and kern_small has no pen: a set bit is
-                                ; a lit pixel and nothing here can turn it
 
     ; --- the frame the row loop reads, and then DS leaves KERNEL_SEG --------
     mov di, cx
@@ -6120,7 +6111,6 @@ gfx_blit1_x:
     pop cx
     add ax, cx
     mov di, ax                  ; DI = the band's first framebuffer byte
-%ifdef GFX_VGA
     cmp byte [gfx_b1act], 0     ; SPEC.md 5.4.2.2's pen: the ports are the
     je .penres                  ; BAND's, issued once, and DS is still ours
     mov dx, VGA_GC              ; here - the emit below spends it on the
@@ -6129,26 +6119,21 @@ gfx_blit1_x:
     mov ax, [gfx_b1g1]
     out dx, ax                  ; GC1 Enable Set/Reset = C
 .penres:
-%endif
     mov ax, [vid_seg]           ; the UNIFORM cell, and NOT vid_rseg, which is
     mov bx, es                  ; 0 on VGA (viddet.inc:115) - and already the
-%ifdef KERN_BIG
     mov dl, [gfx_b1inv]         ; ...and WHICH LOOP, read while DS is still
                                 ; ours. `cs:` does not reach it - this body's
                                 ; CS is COLD_SEG and the flag is KERNEL_SEG's
                                 ; - and the frame is full, so it rides in DL,
                                 ; which the frame banked at [bp+10] and
                                 ; neither emit loop touches
-%endif
     mov es, ax                  ; resolved display's, the enter above having
     mov ds, bx                  ; run first (SPEC.md 39.12)
     mov bl, [bp+7]              ; BL = the tail mask, off the frame (SS): 0 =
                                 ; the row ends on the byte grid
     cld
-%ifdef KERN_BIG
     or dl, dl
     jnz .rowi
-%endif
 .row:
     mov cx, [bp+10]
     push di
@@ -6173,7 +6158,6 @@ gfx_blit1_x:
 .nowrap:
     dec word [bp+12]
     jnz .row
-%ifdef KERN_BIG
     jmp short .emitted
 
     ; --- ...and the same rows COMPLEMENTED (SPEC.md 5.4.2.2) ----------------
@@ -6225,7 +6209,6 @@ gfx_blit1_x:
 .inowrap:
     dec word [bp+12]
     jnz .rowi
-%endif
 .emitted:
     mov sp, bp
     add sp, 14
@@ -6242,7 +6225,6 @@ gfx_blit1_x:
                                 ; CALLER's band, so the two bytes below have to
                                 ; wait for this pop. They did not, and both of
                                 ; them landed in the CALLER'S IMAGE - see below.
-%ifdef GFX_VGA
     cmp byte [gfx_b1act], 0     ; SPEC.md 5.4.2.2: vga12.inc's standing contract
     je .nopen                   ; is that every routine leaves Enable Set/Reset
     push ax                     ; = 0. GC0 is not part of that resting state,
@@ -6254,13 +6236,10 @@ gfx_blit1_x:
     pop ax
     mov byte [gfx_b1act], 0
 .nopen:
-%endif
-%ifdef KERN_BIG
     cmp byte [vid_ndisp], 1
     jbe .noleave
     dec byte [gfx_dnest]        ; ...and NOTHING restores the display
 .noleave:                       ; (SPEC.md 39.14.3)
-%endif
     clc
     ret
 .none:                          ; clipped away entirely: drawn, and nothing
@@ -6306,7 +6285,6 @@ gfx_blit1_x:
     clc
     ret
 
-%ifdef KERN_BIG
     ; --- SPEC.md 5.4.2.2: THE PEN, asked ON THE RESOLVED DISPLAY -----------
     ; A set band bit takes the ink and a clear one the paper. Which planes VARY
     ; across the band and which are CONSTANT is a question the BAND answers
@@ -6433,7 +6411,6 @@ gfx_blit1_x:
     cmp byte [vid_ndisp], 1
     jbe .refuse
     dec byte [gfx_dnest]        ; ...and NOTHING restores the display (39.14.3)
-%endif
 .refuse:
     stc
     ret
@@ -6444,6 +6421,7 @@ gfx_blit1_x:
 ; -----------------------------------------------------------------------------
 gbz_gfx_blit1:        call gfx_blit1_x
                   retf
+%endif
 
 section .lowbss                 ; LOW_SEG (SPEC.md 2.1), and not .bss for
                                 ; vid_rowtab's reason: 848 bytes in the image

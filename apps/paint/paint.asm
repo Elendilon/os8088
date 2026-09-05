@@ -3845,16 +3845,16 @@ pt_blit_1:
     ; --- ONE BIT A PIXEL, ONE ROW A CALL (SPEC.md 42.23.4): THE FALLBACK
     ;
     ; The row is expanded into pt_line and drawn by gfx_blit4, one call a
-    ; row, and it is the path OSAPI_GFX_BLIT1's CF = 1 owes a second path to.
-    ; Nothing shipped takes it any more - kern_small carried the slot and not
-    ; the body until SPEC.md 5.4.2.5, and a width off the byte grid fell here
-    ; until the same section - and what it cost is why: MEASURED, MartyPC
-    ; Hercules, 192 rows of a 448-wide canvas, 1,309 ms against the band
-    ; move's 55, half of it pt_ex1 (48.6%) and a third sw_blit_row's decode
-    ; (35.8%, PERFORMANCE.md Set 116). It keeps the kernel's own per-row
-    ; adaptivity: gfx_blit4 picks runs for a flat row and per-pixel for a
-    ; detailed one (SPEC.md 5.4.1.1), which no hand-rolled run walk here
-    ; could do.
+    ; row, and it is the path OSAPI_GFX_BLIT1's CF = 1 owes a second path to:
+    ; kern_small's, every time (SPEC.md 5.4.2), and until SPEC.md 5.4.2.5
+    ; kern_big's too for a width off the byte grid. What it costs is
+    ; MEASURED (MartyPC Hercules, 192 rows of a 448-wide canvas): 1,309 ms
+    ; against the band move's 55, half of it pt_ex1 (48.6%) and a third
+    ; sw_blit_row's decode (35.8%, PERFORMANCE.md Set 116) - and kern_small
+    ; pays it by decision, a body for that build having been measured and
+    ; refused. It keeps the kernel's own per-row adaptivity: gfx_blit4 picks
+    ; runs for a flat row and per-pixel for a detailed one (SPEC.md 5.4.1.1),
+    ; which no hand-rolled run walk here could do.
     ;
     ; NO BANDING, because there is nothing to band: pt_rowset resolves each
     ; row's segment out of the table, so a canvas spanning segments needs no
@@ -3945,11 +3945,10 @@ pt_blit_1:
     mov bx, [pt_bsi]
     add bx, [pt_cy0]
     call OSAPI_GFX_BLIT1
-    jc .oslow                       ; refused: the row loop. No shipped kernel
-                                    ; refuses since SPEC.md 5.4.2.5 (kern_small
-                                    ; has the body), and this is still the
-                                    ; contract's second path - tests/paint1blit
-                                    ; forces it by poking the thunk
+    jc .oslow                       ; refused: the row loop. kern_small answers
+                                    ; so for every band (SPEC.md 5.4.2), and on
+                                    ; kern_big tests/paint1blit reaches it by
+                                    ; poking stc/ret over the thunk
     mov ax, [pt_bsi]
     add ax, [pt_bn]
     mov [pt_bsi], ax

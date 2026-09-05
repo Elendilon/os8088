@@ -1275,7 +1275,7 @@ list to check yourself against.
 | Tracker's text shadow rebuild | all 64 rows in one frame — 256 `mp_cell2txt` + 3,776 `lodsb`/`stosw` + a 9,676-byte blank ≈ **140–330 ms, once every ~9 s**, reported from the field as the screen stopping and then jumping | `TTX_SHCHUNK` = 4 rows a frame, cursor starting at the visible window and wrapping. **Confirmed on the 5150**: 51 s of bracket, frame spacings 432 × 1 tick / 247 × 2 / 2 × 3 and nothing else, with all five pattern boundaries indistinguishable from the baseline. (§45.13.4 took the shadow to 82 rows — 328 calls, 21 chunk frames instead of 16 — which lengthens the *rebuild*, not the frame the field run measured) | §45.13.2 |
 | Screen saver, sea life | a swimmer was a 4bpp block through `gfx_blit4`, which on a 1bpp adapter costs **2,863 cycles a ROW** near enough whatever the row's width - 540 µs a row at 20 px and 611 at 36 - so four large swimmers were **73.4 ms of work in a 54.9 ms tick**, and the pass was **76.2 ms, 13.1 fps** | the swimmers were 1bpp art all along: the union is composed as a BAND and put down with `OSAPI_GFX_BLIT1`, a `rep movsw` a row over five or six bytes instead of eighteen. The arrival is **10.20 → 1.26 ms** and the frame **73.4 → 32.8**, so the pass is **54.93 ms on all three adapters - one tick, flat to 54.90-54.95 over 199 frames**. Same generator, same sizes, **0 differing pixels** on CGA, Hercules and VGA | §79.5.8 |
 | Paint brush stroke | width² per pixel of travel | the dab's leading edge, one `gfx_fill` per step | docs/plans/completed/PAINT-NOTES.md |
-| Paint: a one-bit picture's full repaint on a 1bpp adapter | `pt_ex1` expands each row to 4bpp and `gfx_blit4` decodes it back, one call a row — on `kern_small` for EVERY canvas (the slot had no body) and on `kern_big` for any picture whose width is off the byte grid: OS8088.GIF's 110 rows **809 ms**, a 192-row undo on the small kernel **1,309** | one `gfx_blit1` a band, `rep movsw` a row with the tail byte merged under a mask: **36.6 ms** and **55**. Same picture, same rows, both kernels | SPEC.md §5.4.2.5, §42.23.4 |
+| Paint: a one-bit picture's full repaint on a 1bpp adapter, `kern_big` | `pt_ex1` expands each row to 4bpp and `gfx_blit4` decodes it back, one call a row, for any picture whose width is off the byte grid: OS8088.GIF's 110 rows **809 ms** | one `gfx_blit1` a band, `rep movsw` a row with the tail byte merged under a mask: **36.6 ms**. (`kern_small` keeps the row loop by decision — a 192-row undo there is **1,309 ms**, and a body for it measured 55 and was refused, SPEC.md §5.4.2.5) | SPEC.md §5.4.2.5, §42.23.4 |
 | Paint: the tool palette, every full repaint | eight glyphs at one `gfx_hline` per run, ~30 calls each: **201 ms**, half the paint | one `OSAPI_ICON_DRAW` a glyph, the record staged at the draw: **111 ms**. The strip beside it is the next item, 106 ms of ~35 small calls | SPEC.md §42.26 |
 | Paint: undo / redo | `pt_uswap_row` at 3,878 cycles a row — eight block setups for seven bytes each, and `pt_imark` once a ROW: **156 ms** of a 211 ms undo | runs of saved blocks exchanged as one loop, two words a turn, one mark a swap: **95 ms**, 2,360 a row | SPEC.md §42.8.6.2 |
 | Paint undo | whole canvas | row-granular and lazy | ibid |
@@ -10935,13 +10935,13 @@ harness checking itself. The menu click that starts the run is at x=150 on a
 on the app-name menu for a package whose title is nine characters, and the
 run silently never starts.
 
-### Set 116 — Paint's one-bit canvas on a 1bpp adapter: where a repaint went, on both kernels (SPEC.md §5.4.2.5, §42.23.4, §42.26, §42.8.6.2)
+### Set 116 — Paint's one-bit canvas on a 1bpp adapter: where a repaint went, on both kernels — and what the `kern_small` body would buy, measured and refused (SPEC.md §5.4.2.5, §42.23.4, §42.26, §42.8.6.2)
 
 | | |
 |---|---|
 | machine | **MartyPC**, `os8088_5150_herc_gla`, 4.77 MHz 8088, Hercules 720x348 |
 | harness | breakpoints on Paint's own labels, cycle-exact (tests/tankperf.py's shape): `pt_paint` → `pt_fsbed` → `pt_draw_pal` → `pt_draw_dims` → `pt_draw_strip` → `.nosep` → `pt_blit_dmg` → `pt_marq` → `.out`, and `pt_undo_swap` → `pt_blit` → `.out`; a deterministic CS:IP sampler between two of them (advance 1,009 cycles, read CS:IP, bucket by the nearest preceding kernel or package label) |
-| points | before `8fecf19`; after, the same tree with §5.4.2.5, §42.26 and §42.8.6.2 |
+| points | before `8fecf19`; after, the same tree with §5.4.2.5, §42.26 and §42.8.6.2. The `kern_small after` column is the variant body that was built for the measurement and NOT SHIPPED (§5.4.2.5) |
 | kernels | `kern_big` with the shipped Paint; `kern_small` (`build/small360.img`) with the SAME Paint, which is a legal pairing (CLAUDE.md, "not a second ABI") and the one that shows the slot with no body |
 | date | 2026-09-05 |
 
@@ -10985,9 +10985,9 @@ nibbles) and **35.8% `sw_blit_row.abyte`** (the kernel decoding them back).
 Two passes over every pixel to reach a framebuffer that wanted the bytes as
 they were. §5.4.2.5's tail mask is what makes the width exact.
 
-#### ...and on kern_small, where NO canvas reached the band move
+#### ...and on kern_small, where NO canvas reaches the band move — measured with a body it does not ship
 
-| | kern_small before | kern_small after | kern_big after |
+| | kern_small as shipped | kern_small WITH the body (not shipped) | kern_big after |
 |---|---:|---:|---:|
 | undo, 192 rows × 327 px of a 448×258 canvas: the swap | 155.0 | 93.6 | 95.1 |
 | ...the blit | **1,309.3** | **55.3** | 55.8 |
@@ -10995,13 +10995,16 @@ they were. §5.4.2.5's tail mask is what makes the width exact.
 | maximize (448 → 670 wide): the canvas | 1,368.0 | 113.9 | 111.8 (111.1 before: already the band move) |
 | **the maximize** | **2,042.1** | **672.2** | 690.4 (813.3 before) |
 
-`kern_small` carried the slot and a `stc`/`ret` stub, so the fallback was that
+`kern_small` carries the slot and a `stc`/`ret` stub, so the fallback is that
 kernel's only path — for the very canvas §42.23 was built to give the 128 KB
-machine. **24× on the blit**, and the two kernels now draw the same rows in
-the same time, because the body is the same source with the pen, VGA and
-two-display arms compiled out (SPEC.md §5.4.2.5): `kern_small` `.text` +16,
-`.cold` +403, **+419 bytes**, one `.cold` rung crossed, `KERN_SIZE` 80,896 →
-81,408. `kern_big` `.cold` **+38** for the tail mask, no rung crossed.
+machine. A body for it was built to take this column — the same source with
+the pen, VGA and two-display arms compiled out — and it draws the same rows
+in the same time as `kern_big`, **24× on the blit**, for `.text` +16, `.cold`
++403, **+419 bytes**, one `.cold` rung crossed, `KERN_SIZE` 80,896 → 81,408.
+**It is not shipped**: the owner's decision is that `kern_small` may stay
+slower here, SPEC.md §39.27.4's rule standing, and §5.4.2.5 keeps the bytes
+and the 24× beside the stub for whoever decides otherwise. What shipped is
+`kern_big`'s `.cold` **+38** for the tail mask, no rung crossed.
 
 #### The undo's other half
 

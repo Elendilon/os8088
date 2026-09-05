@@ -88,7 +88,7 @@ As blessed (`tools/kernsize.py`, `-DKERN_SMALL` for the second row):
 | | `KERN_SIZE` | of `KERN_BUDGET` | spare | `.text`+`.bss` | of `KERN_CODE_MAX` | left | before guard 5 |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | `kern_big` | 112,640 | 129,536 | 16,896 (33 steps) | 57,281 | 65,536 | **8,255** | 79,872 |
-| `kern_small` | 81,408 | 107,520 | 26,112 (51 steps) | 44,619 | 65,536 | 20,917 | 41,472 |
+| `kern_small` | 80,896 | 107,520 | 26,624 (52 steps) | 44,603 | 65,536 | 20,933 | 41,984 |
 
 **On `kern_big` the SEGMENT binds**, not the footprint: 8KB of `.text`+`.bss`
 against 16KB of budget, and the segment cannot be raised. A `.bss` byte is
@@ -270,20 +270,20 @@ had added.
     "bss": 5165,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 28312,
-    "coldpara": 1792,
+    "cold": 27909,
+    "coldpara": 1760,
     "fatpara": 64,
     "imgpara": 2816,
-    "kend": 5184,
+    "kend": 5152,
     "kseg": 96,
-    "ksize": 81408,
+    "ksize": 80896,
     "lowbss": 6064,
     "lowpara": 416,
     "minramkb": 128,
     "ovl": 423,
     "ovlw": 2789,
     "stk0": 512,
-    "text": 39454,
+    "text": 39438,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -316,10 +316,9 @@ was, and a package's region is an ordinary heap claim now (SPEC.md §20.1).
 | `.vgabuf` (848) | `VGABUF_SEG` 0x1BA0 | 1,024 | `vga_p4tab` and `vga_pbuf`, SPEC.md §5.4.1.3's planar decoder. **The only rung a machine can decline**: `mem_floor_ax` seeds the heap floor UNDER it when `[vid_avail] & VID_A_VGA` is clear, so a mono machine's heap starts 1,024 bytes lower (§39.22). 0 on `kern_small` and on `NOPLANE` builds |
 | **`KERN_SIZE`** | heap at `HEAP_SEG` 0x1BE0 | **112,640** | 111.5 KB on VGA, 110.5 on a 1bpp adapter |
 
-`kern_small`'s ladder is `KERNEL 0x0060  COLD 0x0B60  FAT 0x1260  LOW 0x12A0
-HEAP 0x1440` — **81,408 bytes, 81.0 KB** (SPEC.md §5.4.2.5 crossed one `.cold`
-rung, 80,896 before it) — so a 128KB machine has 47.0 KB of heap by
-arithmetic; `tests/small128.py` boots one under MartyPC and reads
+`kern_small`'s ladder is `KERNEL 0x0060  COLD 0x0B60  FAT 0x1240  LOW 0x1280
+HEAP 0x1420` — **80,896 bytes, 80.5 KB** — so a 128KB machine has 47.5 KB of
+heap by arithmetic; `tests/small128.py` boots one under MartyPC and reads
 what is actually free after the boot-time claims (50.5 KB when `kend` was
 78.0 KB, docs/plans/completed/KERN-SMALL-CUT-BUILT.md). A 640KB machine
 reporting 639KB has ~527 KB under `kern_big` before any driver or read-ahead
@@ -371,7 +370,7 @@ Three floors, and they are different questions:
 |---|---:|---:|---|
 | stage 1 refuses to load the kernel over itself — prints `RAM`, halts | ~118.5 KB | ~87 KB | `boot/boot.asm`'s `MEMFIT`: `HEAP_PARA` + 8 blob sectors + the sector and its 2,048-byte stack, derived from `kernsize`'s `kend` at build time. `make test RAMKB=<n>` makes the sector believe a smaller machine (SeaBIOS answers 639 whatever `-m` says) |
 | the machine the configuration is CLAIMED to boot on | 196 KB | 128 KB | guard 5, `MIN_RAM_KB`; `kernsize`'s `boot` line says how far under it the kernel is |
-| what is left for programs | 527 KB on 639 | 47.0 KB on 128 | the `ladder` line; `tests/small128.py` and `tests/kernresident.py` read the real figure off a booted machine |
+| what is left for programs | 527 KB on 639 | 47.5 KB on 128 | the `ladder` line; `tests/small128.py` and `tests/kernresident.py` read the real figure off a booted machine |
 
 The boot floor and the useful floor are not the same machine: a kernel that
 can be loaded leaves a heap, and a heap has to hold a package image plus its
