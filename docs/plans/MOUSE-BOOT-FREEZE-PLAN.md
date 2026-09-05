@@ -1,13 +1,29 @@
 # The mouse is dead for the first half second on the desktop — why, and what it costs to have it moving sooner
 
-> **OPEN — an investigation with costed options; nothing here is built.**
+> **OPEN — two of the mouse-side fixes are BUILT (B1 and B3, SPEC.md 9.4.8);
+> the first frame is accepted as-is and the rest wait on a field reading.**
 > Every number below is cycle-exact off MartyPC's 5150 models
 > (`os8088_5150_cga_gla`, `os8088_5150_herc_gla`), one 360KB floppy boot each,
-> the mouse driven by injected packets at a fixed guest pace. What is still
-> owed is one reading off the machine that shows the freeze (§4): the three
-> mechanisms below have different signatures in a block the field machine
-> already publishes, and which one it is decides which option is worth
-> building.
+> the mouse driven by injected packets at a fixed guest pace.
+>
+> **Built (SPEC.md 9.4.8):**
+> * **B1 — the poll interval is timed from the desktop.** `kmain` stamps a new
+>   base word `[mou_hpbase]` at the first frame, so the poller's first DTR drop
+>   moves from the first UI pass (on a long boot) to ~3s after the desktop.
+>   `[mou_hpt]` is left 0-until-a-drop so `sysbench`'s "poller stamp (0=nvr)"
+>   (§9.4.2) still reads true.
+> * **B3 — the drain ends on quiet, bounded by a ceiling.** Each dropped byte
+>   re-stamps `[mou_dstamp]`; the window closes `MOU_DRAINQ` = 3 ticks after the
+>   last byte **or** `MOU_DRAINT` = 9 ticks after the raise, whichever first.
+>   An idle-then-move user's first motion is read at once (was a fixed 505 ms);
+>   continuous motion stays bounded at the ceiling exactly as before.
+> * Verified on both adapters: `mou_hpbase` stamped, `mou_hpt` 0; idle-then-move
+>   read at once; continuous bounded at +10 ticks. 31 bytes of `.text`, no rung.
+>
+> **Still owed** is one reading off the machine that shows the freeze (§4): the
+> three mechanisms below have different signatures in a block the field machine
+> already publishes, and which one it is decides whether B2 or C1 are worth
+> building on top.
 
 ## 0. The finding
 
@@ -127,9 +143,10 @@ quantised by the pace. `mou_hotplug`'s own comment names this seam — *"motion
 STARTED inside a drain window is eaten with it — up to half a second"* — and
 it is the only mechanism in the machine whose number is the one reported.
 
-**When it lands on the desktop.** `[mou_hpt]` starts at 0 and `[ticks]` at
-`sched_init`, so pass 1 drops DTR if and only if `[ticks]` ≥ `MOU_REPOLL` = 55
-at the desktop. On this bare 360KB boot it is **30** (1.65 s: `mouse_init` 574
+**When it lands on the desktop.** Before B1 the interval base `[mou_hpt]`
+started at 0 and `[ticks]` at `sched_init`, so pass 1 dropped DTR if and only
+if `[ticks]` ≥ `MOU_REPOLL` = 55 at the desktop. On this bare 360KB boot it is
+**30** (1.65 s: `mouse_init` 574
 ms, `drv_boot` 815 ms for `SYSTEM.CFG`'s nine sectors, `desk_init` 42 ms, the
 frame 163–242 ms), so the first cycle would fire **1.4 s after** the desktop
 instead — the same 660 ms of dead mouse, arriving while the user is reaching
@@ -167,23 +184,31 @@ shared with every full repaint. Nothing to build for this document's question;
 `menu_draw_bar` at 72–74 ms and `thm_desk` at 46–98 ms are where a
 PERFORMANCE.md Part 5 pass would look first.
 
-### B1. Stamp `[mou_hpt]` at the desktop — **6 bytes, recommended whatever §4 says**
+### B1. Time the poll interval from the desktop — **BUILT (SPEC.md 9.4.8)**
+
+`kmain` stamps a new base word `[mou_hpbase]` with `[ticks]` right after
+`cursor_show`, and the poller counts `MOU_REPOLL` from it (re-based at each
+raise) instead of from `[mou_hpt]`:
 
 ```
-    mov ax, [ticks]             ; the poll interval starts when the user
-    mov [mou_hpt], ax           ; could first have moved the mouse
+    mov ax, [ticks]
+    mov [mou_hpbase], ax        ; the interval starts when the pointer exists
 ```
 
-placed in the boot tail after `cursor_show` — `drv_notice_x` runs there and is
-`.cold`, but it has a driverless `retf` arm, so either both arms take the two
-instructions or they go in `kmain` itself (6 bytes of `.text`, against a rung
-with 63 to spare) or in `mem_unblob_x` one frame earlier. Effect: the first
-reset offer moves from the first UI pass to **3.0 s after the desktop**. A
-user who moves the mouse within three seconds settles the port and the poller
-never fires at all; a user who does not still meets the pre-existing 20.7%
-seam SPEC.md §9.4.1 prices, and a machine with no mouse loses nothing but
-one three-second delay of the first offer. It is the poller's own comment
-made true at the one moment it is false.
+The first reset offer moves from the first UI pass to **~3 s after the
+desktop** — measured, `mou_hpbase` = 29 at the desktop on the bare Hercules
+boot, so the first drop is at tick ~84 rather than 55. A user who moves within
+three seconds settles the port and the poller never fires; one who does not
+still meets the pre-existing seam SPEC.md §9.4.1 prices, and a machine with no
+mouse loses only a three-second delay of its first offer.
+
+**Why `[mou_hpbase]` and not `[mou_hpt]`.** The first draft stamped `[mou_hpt]`
+— but `sysbench` reads `[mou_hpt]` as *"poller stamp (0=nvr)"*, "0 = it never
+dropped DTR" (§9.4.2), which is the field diagnostic this whole document points
+the user at. Stamping it at the desktop makes every machine read as though the
+poller had fired. So the base and the diagnostic are split: `[mou_hpbase]` bases
+the interval, `[mou_hpt]` stays 0 until a real drop. Verified: `mou_hpt` reads
+0 at the desktop on both adapters.
 
 ### B2. `MOU_IDMAX` 8 → 72 — **0 bytes, a spec decision**
 
@@ -197,16 +222,25 @@ finish inside the window to be mistaken. docs/FIELD-MACHINES.md's M1 (the
 Compaq Portable III with its modem) is the A/B this was always waiting for,
 and this constant should ride on it rather than ship ahead of it.
 
-### B3. End the drain when the port goes quiet — **3 bytes of `.text`**
+### B3. End the drain when the port goes quiet — **BUILT (SPEC.md 9.4.8)**
 
-The ISR's `.drain` arm already holds `[ticks]` in DX; re-stamping
-`[mou_dstamp]` there on every drained byte and cutting `MOU_DRAINT` to 3 ends
-the drain **165 ms after the burst's last byte** instead of 494 ms after the
-raise. A period mouse's `'M'` arrives inside 100 ms of the edge, so its drain
-closes at ~200 ms; a PnP string keeps the window open for its own length,
-which is the behaviour the drain exists for. The 165 ms unpowered hold is the
-hardware's and stays. Worth having only if §4 says the poller is firing and
-B1 alone is not wanted.
+The `.drain` arm re-stamps `[mou_dstamp]` on every dropped byte and closes the
+window when it has been quiet for `MOU_DRAINQ` = 3 ticks **or** `MOU_DRAINT` = 9
+ticks have passed since the raise (a new base word `[mou_draise]`) — the
+floor/quiet/ceiling shape of §9.4.5's identify window. The close is lazy, so an
+idle-then-move user's first motion — arriving long after the burst — closes the
+window and is read at once (measured: was a fixed **505 ms**).
+
+**The naïve version — re-stamp and cut `MOU_DRAINT` to 3, no ceiling — is a
+regression and was not built.** Motion is itself a stream of bit-6 bytes, so
+continuous motion begun at the raise would re-stamp forever and the window
+would never close: the mouse dead for as long as the hand kept moving. The
+ceiling (`MOU_DRAINT` from `[mou_draise]`) bounds exactly that case as the old
+fixed window did — verified, continuous injection closes at +10 ticks — so the
+change has a better typical case and no worse worst case. `MOU_DRAINQ` = 3 is
+wider than the sub-tick gaps inside a 1200-baud burst, so it cannot close
+mid-burst. Cost: the arm gains one word (`[mou_draise]`), the ISR path a few
+instructions.
 
 ### C1. Read the PnP frame in the identify window — **~40 bytes of `.ovl`, 2 of `.bss`**
 
@@ -255,9 +289,10 @@ machine that cannot run a package.
   `status()["cycles"]` at each; each gap is the earlier routine.
 - **Dead time**: `bp_exec("ui_task")` (or `"wm_paint_all"` for the motion-
   through-the-frame run), read the block, `write()` the scenario —
-  `mou_need` `08 00 08 00` for the contest; `mou_idany` 0 plus `mou_hpt` =
-  `ticks − 55` for the poller; `mou_idany` 0, `mou_drain` 1 and `mou_dstamp` =
-  `ticks` for the drain — then loop `m.mouse(dx=4)`, `m.advance(cycles=150000)`,
+  `mou_need` `08 00 08 00` for the contest; `mou_idany` 0 plus `mou_hpbase` =
+  `ticks − 55` for the poller (B1 based it there); `mou_idany` 0, `mou_drain` 1,
+  `mou_dstamp` = `mou_draise` = `ticks` for the drain — then loop
+  `m.mouse(dx=4)`, `m.advance(cycles=150000)`,
   and read `mou_seen`, `mou_run`, `mou_hpst`, `mou_drain`, `cur_level`,
   `mouse_x`, `cur_drawn_x`. The first packet at which `cur_drawn_x` moves is the
   dead time, to within one pace. Guest cycles, so it repeats to the cycle.

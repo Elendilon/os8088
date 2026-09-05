@@ -92,10 +92,25 @@ MOU_RSTLOW  equ 3               ; ticks DTR/RTS are held LOW in a reset
                                 ; unpowered to guarantee its power-on reset)
 MOU_REPOLL  equ 55              ; ticks between hot-plug reset attempts
                                 ; (~3s) while no packet has ever arrived
-MOU_DRAINT  equ 9               ; ticks the ISR discards RX after a hot-plug
-                                ; raise (~0.5s): the identify/PnP burst is
-                                ; bit-6-set bytes the resync rule would read
-                                ; as packet headers - phantom clicks
+MOU_DRAINT  equ 9               ; the CEILING (~0.5s): the longest the ISR
+                                ; discards RX after a hot-plug raise (SPEC.md
+                                ; 9.4.8). The burst is bit-6-set bytes the
+                                ; resync rule would read as packet headers -
+                                ; phantom clicks - and a verbose PnP string
+                                ; drains for its whole length up to here.
+                                ; Continuous motion begun at the raise is
+                                ; bounded by this exactly as the old fixed
+                                ; window was, so the quiet close below has no
+                                ; worst case the fixed one did not
+MOU_DRAINQ  equ 3               ; ...and the QUIET gap (~165ms): the window
+                                ; closes this long after the LAST drained byte,
+                                ; whichever comes first. A period mouse's
+                                ; one-byte burst is quiet at once, so the
+                                ; user's first real motion closes the window
+                                ; and is read - the 0.5s a quiet port used to
+                                ; wait is gone (SPEC.md 9.4.8). Wider than the
+                                ; sub-tick gaps within a 1200-baud burst, so it
+                                ; cannot close mid-burst and read a header
 
 ; --- the identify burst (SPEC.md 9.4.1) --------------------------------------
 ; mouse_init's reset edge makes a serial mouse announce itself, and the window
@@ -1083,10 +1098,10 @@ mou_hotplug:
     push cx
     push dx
     mov bx, [ticks]
-    mov ax, bx
-    sub ax, [mou_hpt]           ; wrap-safe: elapsed since the state's stamp
-    cmp byte [mou_hpst], 1
-    je .low
+    cmp byte [mou_hpst], 1      ; state 1 (DTR held low) and state 0 (waiting
+    je .low                     ; out the interval) measure from DIFFERENT
+                                ; bases now, so each computes its own elapsed
+                                ; below rather than sharing one (SPEC.md 9.4.8)
 %ifdef KERN_BIG
     cmp byte [mou_p2], 0        ; a PS/2 MOUSE answered its own reset (SPEC.md
     jne .done                   ; 9.9.4), which is the same statement as the
@@ -1105,22 +1120,36 @@ mou_hotplug:
                                 ; own trap in the shape a new caller meets it.
                                 ; Nothing is retired here: an identify moves
                                 ; the prior, it does not settle the contest
-    cmp ax, MOU_REPOLL          ; state 0: waiting out the poll interval
+    mov ax, bx
+    sub ax, [mou_hpbase]        ; state 0: elapsed since the DESKTOP (kmain's
+                                ; stamp) or the last raise - not [mou_hpt],
+                                ; which stays 0 until a drop (SPEC.md 9.4.8).
+                                ; Wrap-safe, like every elapsed here
+    cmp ax, MOU_REPOLL          ; waiting out the poll interval
     jb .done
     mov ax, 0x0408              ; drop DTR/RTS - power the mouse down. OUT2
     call mou_pall               ; stays up so the IRQ gate never glitches
-    mov [mou_hpt], bx
+    mov [mou_hpt], bx           ; THE DROP STAMP - and the whole of sysbench's
+                                ; "poller stamp (0=nvr)": nonzero here and only
+                                ; here says the poller power-cycled the mouse
     mov byte [mou_hpst], 1
     jmp short .done
 .low:
-    cmp ax, MOU_RSTLOW          ; state 1: held low long enough?
+    mov ax, bx
+    sub ax, [mou_hpt]           ; state 1: low held since the DROP, whose tick
+                                ; [mou_hpt] carries - wrap-safe
+    cmp ax, MOU_RSTLOW          ; held low long enough?
     jb .done
     mov ax, 0x040B              ; the rising edge a serial mouse resets on
     call mou_pall
-    mov [mou_hpt], bx
+    mov [mou_hpbase], bx        ; re-base the next interval from the raise -
+                                ; [mou_hpt] keeps the DROP tick it was given
+                                ; above, so the "ever dropped" reading survives
     mov byte [mou_hpst], 0
-    mov [mou_dstamp], bx        ; the burst comes through the ISR now: arm
-    mov byte [mou_drain], 1     ; the discard window
+    mov [mou_dstamp], bx        ; the burst comes through the ISR now: arm the
+    mov [mou_draise], bx        ; discard window - [mou_dstamp] is the quiet
+    mov byte [mou_drain], 1     ; test's last-byte tick (init to now), [mou_draise]
+                                ; the ceiling's raise tick (SPEC.md 9.4.8)
     call mou_newround           ; ...and a fresh reset edge is a fresh contest
 .done:
     jmp kret_dx
@@ -3006,10 +3035,22 @@ mou_byte:
 .drain:
     cmp byte [mou_drain], 0     ; a hot-plug raise just happened (below):
     je .live                    ; this is the identify/PnP burst, and its
-    mov dx, [ticks]             ; bit-6 bytes would resync as headers. DX is
-    sub dx, [mou_dstamp]        ; free - the base has been read - and BX is
-    cmp dx, MOU_DRAINT          ; NOT: it is the port row, and every array
-    jb .jbout                   ; below is indexed on it
+                                ; bit-6 bytes would resync as headers. DX and
+                                ; CX are free here (the base has been read);
+                                ; BX is NOT - it is the port row every array
+                                ; below is indexed on, and AL is the byte
+    mov dx, [ticks]
+    mov cx, dx                  ; bank [ticks]: both the ceiling and the quiet
+    sub dx, [mou_draise]        ; test measure from it (SPEC.md 9.4.8)
+    cmp dx, MOU_DRAINT          ; MOU_DRAINT since the RAISE? the ceiling,
+    jae .drainover              ; which bounds a burst that never goes quiet
+    mov dx, cx                  ; ...or MOU_DRAINQ since the LAST byte? the
+    sub dx, [mou_dstamp]        ; burst has gone quiet, so this byte is the
+    cmp dx, MOU_DRAINQ          ; user's first real motion and must be read
+    jae .drainover
+    mov [mou_dstamp], cx        ; still arriving: push the window's close out
+    jmp .jbout                  ; to MOU_DRAINQ past THIS byte, and drop it
+.drainover:
     mov byte [mou_drain], 0     ; window over: this byte is live
 .live:
     test al, 0x40               ; bit 6 set -> first byte of a packet
@@ -4952,6 +4993,21 @@ mou_line    db 0                ; the 8259 bit of the line the WINNING packets
                                 ; 9.5.2.1) is otherwise indistinguishable from
                                 ; an ordinary one, and only on real iron
 ; --- ...and here the published span ENDS. Scratch below it ------------------
+mou_hpbase  dw 0                ; the poll interval's base (SPEC.md 9.4.8):
+                                ; kmain stamps it at the first desktop frame
+                                ; and each raise re-bases it, so state 0 counts
+                                ; MOU_REPOLL from the desktop rather than from
+                                ; sched_init. Held apart from [mou_hpt] so that
+                                ; word can stay 0-until-a-drop for 9.4.2's field
+                                ; read; below the published span for the reason
+                                ; the next line gives
+mou_draise  dw 0                ; the tick the hot-plug raise armed the drain
+                                ; (SPEC.md 9.4.8): the CEILING reference, held
+                                ; apart from [mou_dstamp] which the quiet test
+                                ; re-stamps per byte. Deliberately below the
+                                ; published span - it is not a field-peek word,
+                                ; and a byte inside 9.4.2's block would move the
+                                ; offsets the four %errors below pin
 mou_splt    db 0                ; the elapsed tick the loading screen was last
                                 ; notched at, in whichever of mouse_init's two
                                 ; waits is running (SPEC.md 15.3.3). Scratch,

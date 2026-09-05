@@ -9373,11 +9373,19 @@ up throughout every drop, so the IRQ gate never glitches the bus.
 The raise provokes the identify burst ('M', maybe '3', maybe a PnP string —
 bit-6-set bytes the resync rule would read as packet headers), and unlike
 `mouse_init`'s poll-and-discard the burst now arrives through the live ISR.
-So the raise arms `[mou_drain]` and **the ISR discards RX** for `MOU_DRAINT`
-ticks (~0.5s). The accepted seam: motion that *starts* inside a drain window
-is eaten with it, self-healing on the next packet — the price of never
-reading a PnP string as clicks. After the first real packet the whole
-mechanism is one `cmp` per UI pass, forever — with one binding subtlety:
+So the raise arms `[mou_drain]` and **the ISR discards RX** — but only until
+the burst goes **quiet**: each dropped byte re-stamps `[mou_dstamp]`, and the
+window closes `MOU_DRAINQ` ticks after the last byte, bounded above by
+`MOU_DRAINT` ticks from the raise so continuous motion cannot hold it open
+(§9.4.8). A period mouse's one-byte burst therefore drains at once, and an
+idle-then-move user's first motion — arriving long after the burst — closes
+the window and is read with no wait. The accepted seam shrinks to motion that
+overlaps the burst itself, self-healing on the next quiet gap. And the first
+offer is not made until `[mou_hpt]`, which `kmain` stamps at the first desktop
+frame, is `MOU_REPOLL` ticks old, so the interval is timed from when the
+pointer first exists rather than from `sched_init` (§9.4.8). After the first
+real packet the whole mechanism is one `cmp` per UI pass, forever — with one
+binding subtlety:
 proof can arrive **mid-cycle** (a byte the UART latched before a drop can
 complete a packet while DTR is low), so the stand-down path must check the
 poller's state and restore DTR/RTS first. Standing down with DTR low would
@@ -9943,6 +9951,67 @@ rather than a detail:
 Twenty-two outbound calls widen to the far form through five `ovw_` shims. The
 whole move is `.text` **−1,006** for `.ovl` **+1,110**, and the `.ovl` bytes are
 not footprint.
+
+#### 9.4.8 The first offer is timed from the desktop, and the drain ends on quiet
+
+Two costs of the recovery mechanism land on the first seconds of the desktop
+— *"the mouse is dead for the first half second"* — and both were measured
+cycle-exact on a 5150 (docs/plans/MOUSE-BOOT-FREEZE-PLAN.md, which prices the
+three mechanisms that can hold the arrow after the desktop appears).
+
+**The poll interval is timed from the first desktop frame.** Its base is a new
+`.bss` word `[mou_hpbase]`, and `[ticks]` starts at `sched_init`, so the first
+drop used to fire the instant `[ticks]` reached `MOU_REPOLL` = 55. On a boot
+long enough to pass tick 55 before the desktop — a hard-disk boot, or any
+driver `SYSTEM.CFG` asks for — that is the **first UI pass**, dropping DTR
+under the user's hand exactly as they reach for the mouse. `kmain` now writes
+`[ticks]` into `[mou_hpbase]` right after `cursor_show`, and each raise re-bases
+it, so state 0 counts the interval from when the pointer first exists. A user
+who moves within `MOU_REPOLL` ticks (~3s) settles the port and the poller never
+drops at all; a machine with no mouse loses only one ~3s delay of its first
+offer, and thereafter polls exactly as before. Six bytes of `.text` plus the
+base word.
+
+It is deliberately **`[mou_hpbase]` and not `[mou_hpt]`**: `[mou_hpt]` stays 0
+until a real drop, because that is the whole of `sysbench`'s "poller stamp
+(0=nvr)" field (§9.4.2) — nonzero there says the poller power-cycled the mouse,
+and basing the interval in it would make every machine read as though it had.
+So the two are split: `[mou_hpbase]` bases the interval (desktop, then each
+raise), `[mou_hpt]` carries the drop tick for the diagnostic and for state 1's
+low-hold.
+
+**The drain ends when the burst goes quiet, not on a fixed clock.** The raise
+arms `[mou_drain]` and stamps `[mou_draise]` (the raise tick) and `[mou_dstamp]`
+(the last-byte tick, initialised to the raise). The ISR drops each received
+byte, re-stamping `[mou_dstamp]`, and closes the window when it has been quiet
+for `MOU_DRAINQ` ticks (~165ms) **or** `MOU_DRAINT` ticks (~0.5s) have passed
+since the raise — the same floor/quiet/ceiling shape as §9.4.5's identify
+window. The close is *lazy*, decided when the next byte arrives, so:
+
+- a period mouse's one-byte burst is quiet at once, and the user's first real
+  motion — arriving after the burst — is read the instant it comes, with no
+  fixed wait;
+- a verbose PnP string keeps re-stamping `[mou_dstamp]` and drains for its
+  whole length, up to the `MOU_DRAINT` ceiling;
+- **continuous motion begun at the raise is bounded by that same ceiling**,
+  exactly as the old fixed window bounded it — so the change has no
+  worst-case regression, only a better typical case.
+
+Measured on one 360KB floppy boot with a hand moving through the window: the
+fixed drain ate **505 ms** of motion after a hot-plug raise (`MOU_DRAINT` = 9
+ticks); quiet-ended, the first motion after the burst is read at once.
+`MOU_DRAINQ` = 3 (~165ms) is safely wider than the sub-tick gaps within a
+1200-baud burst, and `MOU_DRAINT` stays 9 as the ceiling.
+
+**Neither half is testable against the case it exists for on any emulator
+here.** MartyPC's and 86Box's serial mice send one byte (`'M'`) and keep
+reporting with DTR held low, so the drain window can be *armed by hand* — set
+`[mou_drain]`, `[mou_dstamp]` and `[mou_draise]` and inject packets — but a
+real PnP burst, and a mouse that actually powers down on a DTR drop, are the
+Compaq Portable III's and the 5150's to confirm (docs/FIELD-MACHINES.md).
+`tests/sysbench`'s `'MO'` block (§9.4.2) reads `mou_hpst`, `mou_idn`,
+`mou_idb0` and `mou_need` on the field machine, which is what says which of the
+three mechanisms a given machine is paying.
 
 ### 9.5 COM1 or COM2 — the port is not asked and not configured
 
