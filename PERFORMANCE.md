@@ -1275,6 +1275,9 @@ list to check yourself against.
 | Tracker's text shadow rebuild | all 64 rows in one frame — 256 `mp_cell2txt` + 3,776 `lodsb`/`stosw` + a 9,676-byte blank ≈ **140–330 ms, once every ~9 s**, reported from the field as the screen stopping and then jumping | `TTX_SHCHUNK` = 4 rows a frame, cursor starting at the visible window and wrapping. **Confirmed on the 5150**: 51 s of bracket, frame spacings 432 × 1 tick / 247 × 2 / 2 × 3 and nothing else, with all five pattern boundaries indistinguishable from the baseline. (§45.13.4 took the shadow to 82 rows — 328 calls, 21 chunk frames instead of 16 — which lengthens the *rebuild*, not the frame the field run measured) | §45.13.2 |
 | Screen saver, sea life | a swimmer was a 4bpp block through `gfx_blit4`, which on a 1bpp adapter costs **2,863 cycles a ROW** near enough whatever the row's width - 540 µs a row at 20 px and 611 at 36 - so four large swimmers were **73.4 ms of work in a 54.9 ms tick**, and the pass was **76.2 ms, 13.1 fps** | the swimmers were 1bpp art all along: the union is composed as a BAND and put down with `OSAPI_GFX_BLIT1`, a `rep movsw` a row over five or six bytes instead of eighteen. The arrival is **10.20 → 1.26 ms** and the frame **73.4 → 32.8**, so the pass is **54.93 ms on all three adapters - one tick, flat to 54.90-54.95 over 199 frames**. Same generator, same sizes, **0 differing pixels** on CGA, Hercules and VGA | §79.5.8 |
 | Paint brush stroke | width² per pixel of travel | the dab's leading edge, one `gfx_fill` per step | docs/plans/completed/PAINT-NOTES.md |
+| Paint: a one-bit picture's full repaint on a 1bpp adapter | `pt_ex1` expands each row to 4bpp and `gfx_blit4` decodes it back, one call a row — on `kern_small` for EVERY canvas (the slot had no body) and on `kern_big` for any picture whose width is off the byte grid: OS8088.GIF's 110 rows **809 ms**, a 192-row undo on the small kernel **1,309** | one `gfx_blit1` a band, `rep movsw` a row with the tail byte merged under a mask: **36.6 ms** and **55**. Same picture, same rows, both kernels | SPEC.md §5.4.2.5, §42.23.4 |
+| Paint: the tool palette, every full repaint | eight glyphs at one `gfx_hline` per run, ~30 calls each: **201 ms**, half the paint | one `OSAPI_ICON_DRAW` a glyph, the record staged at the draw: **111 ms**. The strip beside it is the next item, 106 ms of ~35 small calls | SPEC.md §42.26 |
+| Paint: undo / redo | `pt_uswap_row` at 3,878 cycles a row — eight block setups for seven bytes each, and `pt_imark` once a ROW: **156 ms** of a 211 ms undo | runs of saved blocks exchanged as one loop, two words a turn, one mark a swap: **95 ms**, 2,360 a row | SPEC.md §42.8.6.2 |
 | Paint undo | whole canvas | row-granular and lazy | ibid |
 | Paint's canvas, redrawn | a BMP in memory, transposed into the card's four planes on every repaint - 106.9 cycles a pixel of which nearly all is the transpose, **1,148 ms** for 466x110 | the canvas IS four planes, so a repaint is a COPY: **162 ms**, 7.1x again and **44x** on the run writer this line started from. No heap: the two formats want the identical stride | §42.13, §5.4.3 |
 | Paint's canvas on an UNCOVER, 1bpp | the raise cache banked the tool column and the bottom strip - 3 KB - and left the canvas to be redrawn: an uncover issues a **376x110** `gfx_blit4`, and the whole 466x110 canvas is **399 ms** on a cycle-accurate 5150/CGA (31.2 cycles a pixel in `sw_blit_row`, 1.4 in `gfx_blit4`, and §5.4.1.2 had already taken the 2x in the loop) | on a 1bpp adapter the WHOLE content is banked instead - measured **9 KB** against the band's 3, and granted - so an uncover issues **no canvas blit at all**. The reduction cannot be made cheaper (the canvas is 4bpp because it is the FILE, and §39.4 maps sixteen colours onto three classes), so it is not made at all | §11.96.11.3 |
@@ -10931,3 +10934,99 @@ harness checking itself. The menu click that starts the run is at x=150 on a
 640-wide bar, not the 110 docs/TESTING.md quotes for `sysbench` — that lands
 on the app-name menu for a package whose title is nine characters, and the
 run silently never starts.
+
+### Set 116 — Paint's one-bit canvas on a 1bpp adapter: where a repaint went, on both kernels (SPEC.md §5.4.2.5, §42.23.4, §42.26, §42.8.6.2)
+
+| | |
+|---|---|
+| machine | **MartyPC**, `os8088_5150_herc_gla`, 4.77 MHz 8088, Hercules 720x348 |
+| harness | breakpoints on Paint's own labels, cycle-exact (tests/tankperf.py's shape): `pt_paint` → `pt_fsbed` → `pt_draw_pal` → `pt_draw_dims` → `pt_draw_strip` → `.nosep` → `pt_blit_dmg` → `pt_marq` → `.out`, and `pt_undo_swap` → `pt_blit` → `.out`; a deterministic CS:IP sampler between two of them (advance 1,009 cycles, read CS:IP, bucket by the nearest preceding kernel or package label) |
+| points | before `8fecf19`; after, the same tree with §5.4.2.5, §42.26 and §42.8.6.2 |
+| kernels | `kern_big` with the shipped Paint; `kern_small` (`build/small360.img`) with the SAME Paint, which is a legal pairing (CLAUDE.md, "not a second ABI") and the one that shows the slot with no body |
+| date | 2026-09-05 |
+
+**The report was "Paint is slow to draw in 1bpp mode — initial draw, undo,
+redo".** §42.23 had made the canvas one bit a pixel and `gfx_blit1` was the
+path, so the first thing to find out was whether the band move was being
+reached at all. It was, on one kernel, for pictures of one shape.
+
+#### Where the initial paint of a fresh window went (kern_big, blank 448×258)
+
+| stage | before | after | |
+|---|---:|---:|---|
+| `pt_fsbed` — the beds | 26.8 ms | 26.8 | two fills |
+| `pt_draw_pal` — eight tool buttons | **201.3** | **111.0** | §42.26: a glyph was ~30 `gfx_hline`s, it is one `OSAPI_ICON_DRAW`; ~10 ms a draw and two fills a well are what is left |
+| `pt_draw_dims` + the size boxes | 30.5 | 30.5 | |
+| `pt_draw_strip` + the separator | 106.2 | 106.2 | ~35 small primitives; `sw_col.row` 9.6% of the whole paint is in here — the separator's 258 rows and every frame's two verticals. **The next item** |
+| `pt_blit_dmg` — the canvas | 61.4 | 61.4 | a blank canvas is one `gfx_fill` (§42.15), 64.9% of it `sw_plane_op.irow` |
+| **`pt_paint`** | **426.8** | **337.7** | |
+
+The canvas was a seventh of a blank window's paint; the pictures nobody looks
+at were half. The same eight buttons on `kern_small` (small Paint): 193.8 →
+107.4.
+
+#### Where a PICTURE's paint went — OS8088.GIF, 466×110, dithered (the benchmark the report named)
+
+| | kern_big before | kern_big after | |
+|---|---:|---:|---|
+| the load (click → the picture's own paint begins) | 9.5 s | 9.5 s | §42.25's decoder; untouched |
+| `pt_draw_pal` | 245.8 | 121.8 | |
+| strip + separator | 119.1 | 119.1 | |
+| **`pt_blit_dmg` — the canvas** | **809.4** | **36.6** | **22×** |
+| **the picture's paint** | **1,202.0** | **306.5** | |
+| **undo (Ctrl+Z, all 110 rows)** | **722.7** | **73.0** | the swap 68.7 → 43.1, the blit 654.0 → 29.8 |
+
+466 is not a multiple of 8, and `pt_blit_1` rounded its width up to the byte
+grid and gave the whole rect to the row loop when that reached past the
+picture — so on the shipped kernel every full repaint of this picture went
+through `pt_ex1` and `gfx_blit4`, and the sampler inside the blit read
+**48.6% `pt_ex1.byte`** (the package expanding its own one-bit rows to
+nibbles) and **35.8% `sw_blit_row.abyte`** (the kernel decoding them back).
+Two passes over every pixel to reach a framebuffer that wanted the bytes as
+they were. §5.4.2.5's tail mask is what makes the width exact.
+
+#### ...and on kern_small, where NO canvas reached the band move
+
+| | kern_small before | kern_small after | kern_big after |
+|---|---:|---:|---:|
+| undo, 192 rows × 327 px of a 448×258 canvas: the swap | 155.0 | 93.6 | 95.1 |
+| ...the blit | **1,309.3** | **55.3** | 55.8 |
+| **the undo** | **1,464.3** | **148.9** | 151.0 |
+| maximize (448 → 670 wide): the canvas | 1,368.0 | 113.9 | 111.8 (111.1 before: already the band move) |
+| **the maximize** | **2,042.1** | **672.2** | 690.4 (813.3 before) |
+
+`kern_small` carried the slot and a `stc`/`ret` stub, so the fallback was that
+kernel's only path — for the very canvas §42.23 was built to give the 128 KB
+machine. **24× on the blit**, and the two kernels now draw the same rows in
+the same time, because the body is the same source with the pen, VGA and
+two-display arms compiled out (SPEC.md §5.4.2.5): `kern_small` `.text` +16,
+`.cold` +403, **+419 bytes**, one `.cold` rung crossed, `KERN_SIZE` 80,896 →
+81,408. `kern_big` `.cold` **+38** for the tail mask, no rung crossed.
+
+#### The undo's other half
+
+The 192-row undo on `kern_big` was **211 ms** and 156 of them were
+`pt_uswap_row` — 3,878 cycles a row to exchange 56 bytes with the undo image,
+where the words themselves are ~2,400 of that. Eight blocks a row each with a
+shift, two compares and a segment reload, and `pt_imark` once a row at 344,
+was the 4bpp canvas's shape applied to seven-byte blocks. §42.8.6.2 walks
+runs of saved blocks and marks once: **156 → 95 ms**, 2,360 a row; the undo
+**211 → 151**. The tail test §5.4.2.5 adds to every row of the plain emit
+reads here as the blit's 55.1 → 55.8 ms over 192 rows — ~17 clocks a row,
+as priced.
+
+#### What was NOT done, and what is next
+
+- **The strip** is 106–124 ms of every full repaint and is now the largest
+  furniture item: ~35 primitives, most of them frames and one-column fills
+  that go through `sw_col` a row at a time. Composing it as a band (§5.9's
+  shape) or cutting the call count is the next candidate; it is the same on
+  both adapters and both kernels.
+- **The resize a maximize or restore does** (`pt_track` → `pt_bands`,
+  217–258 ms) was not sampled; it is not in the report's list.
+- **`ICON_DRAW` at ~10 ms a 16×16** is more than Set 84's 6.7 for a 12×12
+  would predict and is worth a look of its own; the palette's 111 ms is
+  eight of them plus sixteen fills.
+- **The load** (9.5 s for OS8088.GIF on a Hercules) is §42.25's and dwarfs
+  every paint after it; it is not "the draw" and was left alone.
+

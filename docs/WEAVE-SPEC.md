@@ -437,8 +437,9 @@ authority per docs/KERNEL-MEMORY.md:
   opens, and that the first app is still running, on a 256KB MartyPC;
   `make xt-weave-256` is the same machine on 86Box, to look at.
 - **128KB machine, kern_small, ~22KB heap:** WEAVE refuses at launch with
-  the arithmetic. kern_small also refuses `GFX_BLIT1`, `WM_TIMER` and
-  `WM_ONDRAG` by CF=1, so the floor machine for the family is **256KB**.
+  the arithmetic. kern_small also refuses `WM_TIMER` and `WM_ONDRAG` by
+  CF=1 (and refused `GFX_BLIT1` too until SPEC.md 5.4.2.5), so the floor
+  machine for the family is **256KB**.
 
 ### 1.5 The launch story
 
@@ -609,7 +610,7 @@ computable from the directory entry plus the first sector: ask =
 | bit | name | meaning |
 |---|---|---|
 | 0 | `WABF_GRID` | the app declares a `<grid>`; grid KB byte must be non-zero |
-| 1 | `WABF_CANVAS` | the app declares a `<canvas>`; needs `GFX_BLIT1` — refused on kern_small (§10.2) |
+| 1 | `WABF_CANVAS` | the app declares a `<canvas>`; needs `GFX_BLIT1` — tested by CF at load (§10.2); kern_small refused it until SPEC.md 5.4.2.5 |
 | 2 | `WABF_TIMER` | exactly three causes, any one of which sets it: CODE calls `timer()`, the app declares an `<input>`, or the app declares a `<grid>` — a grid's formula bar is a library-wired `input` (§6.9), so a grid blinks a caret too. On kern_small the caret degrades to static and `timer()` refuses (§8.2) |
 | 3 | `WABF_STATE` | the app calls `saveState`/`loadState` |
 | 4 | `WABF_SOURCE` | a SOURCE section is present |
@@ -3419,8 +3420,8 @@ clip, and a click aborts it — stated wherever `playSound` is documented
 
 ### 9.12 No 128KB machines
 
-kern_small refuses `GFX_BLIT1`/`WM_TIMER`/`WM_ONDRAG` and its ~22KB heap
-cannot hold a bundle + VM. WEAVE refuses at launch with the arithmetic
+kern_small refuses `WM_TIMER`/`WM_ONDRAG` (and refused `GFX_BLIT1` until
+SPEC.md 5.4.2.5) and its ~22KB heap cannot hold a bundle + VM. WEAVE refuses at launch with the arithmetic
 (§10.1). The family's floor is 256KB, one app at a time (§1.4).
 
 ### 9.13 No tabs, no multi-window apps, no popups

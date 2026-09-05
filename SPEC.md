@@ -3278,17 +3278,23 @@ in:   ES:SI = the band: 1bpp, row-major, bit 7 leftmost, 1 = a LIT pixel
       BP    = the band's stride in BYTES per row
       AX    = destination x, signed. MUST be a multiple of 8
       BX    = destination y, signed
-      CX    = width in PIXELS.  MUST be a multiple of 8
-      DX    = height in rows
+      CX    = width in PIXELS, any. Off a multiple of 8, the last partial
+              byte column is MERGED under a mask (§5.4.2.5): the bits past
+              the width are neither read from the band nor written
+      DX    = height in rows, 1..255
       the gfx lock MUST be held (§1 rule 6)
 
 out:  CF=0  drawn — wholly, or clipped exactly
-      CF=1  REFUSED, nothing drawn, in three cases only:
-              1. AX & 7 or CX & 7 non-zero
-              2. CX or DX is zero
-              3. this is `kern_small`, which does not carry the body at all
+      CF=1  REFUSED, nothing drawn, in two cases only:
+              1. AX & 7 non-zero
+              2. CX or DX is zero, or DX above 255
       EVERY register preserved, ES and BP included.
 ```
+
+**Both kernels carry the body since §5.4.2.5.** `kern_small` refused
+everything with a `stc`/`ret` stub before it, and the fallback that refusal
+owed a package is still in the contract: a caller tests CF and has a second
+path, because a knob or a future build may answer it again.
 
 **The band arrives in final screen polarity, and by DEFAULT there is no ink or
 paper argument** — §5.4.2.2 added an optional pen, and everything in this
@@ -3378,12 +3384,15 @@ pixels cost as a byte-aligned 78-cell `font_run` — parity — and against
 §6.1's fast path is not beaten, it is matched, and what the parity buys is 104
 proportional glyphs in a 12-row face where the 8×8 row held 78.
 
-**The body is `.cold` and `%ifdef KERN_BIG`** (§2.6); `kern_small` carries the
-slot cell and a `stc`/`retf` stub, because its image rung has 75 bytes in it and
-neither package this serves can load on the machine that build is for — Word is
-46.5 KB and TeXPad 31.5 KB against a 128 KB machine's 28 KB heap. A package
-therefore **must test CF**, and the documented degrade is that it letters in the
-kernel's 8×8 face instead, with `font_run` (§6.1).
+**The body is `.cold`** (§2.6), on both kernels. It was `%ifdef KERN_BIG` and
+`kern_small` carried the slot cell and a `stc`/`retf` stub, because its image
+rung had 75 bytes in it and neither package this served could load on the
+machine that build is for — Word is 46.5 KB and TeXPad 31.5 KB against a 128 KB
+machine's 28 KB heap. §42.23 then gave that machine a customer that DOES load
+there — a one-bit Paint canvas is this band exactly — and §5.4.2.5 is the
+body arriving. A package still **must test CF**: the documented degrade for
+text is to letter in the kernel's 8×8 face instead, with `font_run` (§6.1),
+and Paint's is its row loop (§42.23.4).
 
 #### 5.4.2.1 The two bytes that decremented the CALLER'S IMAGE
 
@@ -3644,6 +3653,64 @@ question a single plane *can* be asked: which way up the band's bits are.
 pairing this needs is a VGA beside a real Hercules. It was reported off the
 glass, from a screenshot of a `Control Panel` window dragged across the seam,
 and that is how it has to be confirmed.
+
+#### 5.4.2.5 `kern_small` carries the body, and a width off the byte grid is a masked tail byte
+
+Two changes to one routine, made together because the same measurement asked
+for both (PERFORMANCE.md Set 116). Paint's one-bit canvas (§42.23) is this
+band exactly, and a repaint of it that could not reach this routine went
+through `pt_ex1` and `gfx_blit4` a row at a time instead: **1,309 ms for 192
+rows** of a 448-wide canvas on a Hercules against **55 ms** through the band
+move — 24×, half of it the package's own expander and a third the kernel's
+4bpp decode. Two things sent a repaint there, and neither was the picture's
+fault.
+
+**`kern_small` had no body.** The 128 KB machine is the one §42.23 was built
+for, and it was the one build that could not draw the canvas §42.23 gave it.
+The body assembles on both kernels now, and `kern_small`'s is the same source
+with three arms compiled out under `%ifdef`: the two-display resolve and enter
+(§39.14, `vid_span_one` and `gfx_disp_enter` are `kern_big`'s), the VGA pen
+ports (`GFX_VGA`), and the pen itself with its complemented emit loop — a
+package's band is in screen polarity by §5.4.2.2 and the only composer that
+sets `[gfx_b1adp]` is `band.inc`, which is `kern_big`'s by the `BANDCOMP`
+gate. What is left is what a canvas needs: the argument refusals, the deferred
+cursor hide, the clip region's row cut and the per-column fallback under a
+vertical cut, the clip to the display, and `rep movsw` a row. Three `.cold`
+shims that were `kern_big`'s come with it (`cw_cur_unlazy`, `cw_wm_clip_rows`,
+`cw_gfx_rowbase`).
+
+**A width off the byte grid was a refusal**, and OS8088.GIF is 466 pixels
+wide. Paint rounded its blit up to the grid and, when that reached past the
+picture — which is every full repaint of such a picture — gave the whole rect
+to the row loop rather than draw canvas padding on the glass: **809 ms** for
+the 110-row picture's own first paint on `kern_big`, and 654 for its undo,
+where the band move is ~30. The tail is honoured now: `CX & 7` pixels past the
+last whole byte become a mask `0FFh << (8 - tail)`, and each row ends with one
+read-modify-write of that byte — `lodsb / xor al,[es:di] / and al,bl /
+xor [es:di],al`, which is `dest ^= (src ^ dest) & mask` — after the `rep` has
+moved the whole bytes. The bits past the width are never read from the band
+and never written to the framebuffer. §25.6 refused an edge-masked band as
+"new code in the hottest primitive in the system"; what it costs the hottest
+primitive is `or bl,bl / jz` per row when there is no tail, four bytes and
+~17 clocks against a 78-byte row's ~1,000, and the primitive that could not
+be asked for a 466-pixel band now can. The x is still refused off the grid: a
+LEFT partial byte would put the read-modify-write before the `rep` and cost
+every band a second mask, and no caller in the tree wants one.
+
+The per-column path (step 4 of §5.4.2) places the tail as its last column,
+narrower than eight; a column narrower than eight that is refused again is
+skipped as before. `wm_clip_rows` and `vid_span_one` are asked with the true
+right edge.
+
+**What it cost, measured off `kernsize`:** `kern_big` `.cold` **+38** bytes,
+no rung crossed. `kern_small` `.text` +16, `.cold` +403, **+419** in all,
+crossing one `.cold` rung: `KERN_SIZE` 80,896 → 81,408, 512 bytes off the
+128 KB machine's heap. §39.27.4 says a reclaim on that build is banked and
+not budgeted, and this is not a reclaim spent — it is a feature the owner
+weighed against the machine's own use of the heap, and 512 bytes of 50.5 KB
+against a canvas that repaints in a twentieth of the time. `paint1blit` is
+the gate for both paths, and forces the refused one by poking `stc`/`ret`
+over the thunk (§42.23.4).
 
 ### 5.4.3 `gfx_blitp` — a block that is already framebuffer bytes
 
@@ -52474,6 +52541,29 @@ above; the field saw stripes, and this reproduces as 22,842 bytes of black.
 past the stride is not part of the row. `pt_ubm1` needs nothing — it derives
 block indices from byte offsets that are inside the row by construction.
 
+##### 42.8.6.2 The swap exchanges RUNS of blocks, and marks once
+
+An undo was **211 ms** for a 192-row stroke on a one-bit Hercules canvas, and
+156 of them were `pt_uswap_row` (PERFORMANCE.md Set 116) — the exchange of
+192 rows of 56 bytes, which is 10.7 KB of canvas swapped with 10.7 KB of undo
+image, at **3,878 cycles a row**. The blit that then put the rows on the
+glass was 55. The words being exchanged were not the cost: 28 words a row at
+~85 cycles is 2,400, and the rest was the shape the 4bpp canvas had given the
+routine. Eight blocks a row, each with its own shift, two stride compares and
+a segment reload, was right when a block was 28 bytes and the copy-on-touch
+saved most of them; on a one-bit canvas a block is **seven bytes**, and the
+setup per block cost more than the three words in it. And `pt_imark` ran once
+a ROW — 344 cycles each, §42.8.9.1's own number — to fold a full-width row
+into a table that only ever grows.
+
+So the row walk takes the mask as a run of bits: a run of saved blocks is one
+exchange from the first block's byte to the last's, capped at the stride as
+before (§42.8.6.1), and the exchange loop moves two words a turn. The mark
+moved up to `pt_undo_swap`, once for the whole span — rows `uy1..uy2`, full
+width — which is the same table entry the per-row marks summed to, because a
+band's range only widens. Per row that is ~2,300 cycles where it was 3,878,
+and the undo above is measured in Set 116.
+
 #### 42.8.7 A DIAGONAL step's two leading edges are one dab
 
 §42.8.5 banks runs of axis-aligned steps and refuses the near-45° chord, which
@@ -53397,6 +53487,42 @@ at full band height. Cutting the bands finer would shrink that and cost a call
 each; 16 rows is where those two meet on this canvas.
 
   apps/paint: 24,568 → 24,876 bytes, **+308**.
+
+### 42.26 A tool glyph is ONE icon draw, not thirty lines
+
+The initial paint of a fresh Paint window on a Hercules was **428 ms**, and
+the canvas was 61 of them — a blank canvas is one `gfx_fill` (§42.15). The
+tool palette was **201**: eight 16×16 glyphs, each drawn by `pt_icon16` as one
+`gfx_hline` per run of set bits, ~30 calls a glyph at the ~756 µs a 1bpp
+drawing call costs whatever its length (§5.7), plus a fill and a frame per
+well. Nearly half of every full repaint was the eight pictures nobody looks
+at. It was measured by breakpoint on `pt_draw_pal` and `pt_draw_dims`,
+cycle-exact, and sampled inside: `sw_col.row`, `pt_icon16.bit` and
+`pt_ic_flush` at the top (PERFORMANCE.md Set 116).
+
+The kernel already draws a 16×16 masked sprite at any x in one call —
+`OSAPI_ICON_DRAW` (§25.6), the same pass every control in `os88ui.inc` uses,
+6.7 ms for a 12×12 where the per-run drawing was 33.6 (Set 84). `pt_glyph16`
+stages the record it wants in `pt_line`, which nothing walks during a
+repaint (§42.23.4): two bytes, then the sixteen rows twice, because the MASK
+is the glyph itself — a transparent glyph over the well is exactly what
+`pt_icon16` drew — and the pen is set to the glyph's colour under the mask
+and over it. No image bytes: the glyph tables are unchanged and the record is
+built at the draw.
+
+Two things the pass does not do and this routine does. **It draws a cut shape
+as nothing** (§25.6, "clips the shape WHOLE"), so a glyph under a clip
+fragment's edge asks `OSAPI_WM_CLIP_TEST` first and takes `pt_icon16`'s
+per-run path on a no — `os88ui_glyph`'s rule, paid only where the pass would
+have drawn nothing. And a 1bpp op has nowhere to put a grey: the disabled
+fill tool's `CDGRAY` (§42.6.2), which the per-run path dithered through
+`font_ink`, is dithered here instead, each row ANDed with `5555h` or `AAAAh`
+off the `(x + y)` parity of its first pixel (§39.4) and drawn in black, so the
+stipple lands in the same phase the kernel's own greying would have put it.
+On a colour adapter the pen is the grey and the rows are untouched.
+
+`pt_icon16` stays: it is the cut-shape path, and it is what a kernel that
+refused the record would get.
 
 ## 43. Solitaire — the eighth package (apps/solitaire/solitaire.asm)
 
@@ -55310,26 +55436,35 @@ So it was always accepted. `gfx_blit4` takes a negative stride from §42's 4bpp
 path for exactly the same reason, which should have been the tell. Nothing in
 the kernel had to change.
 
-Two conditions gate it, and both are ordinary. The **width** is rounded up to
-a multiple of 8, and if that would reach past the picture the whole rect falls
-to the row loop rather than painting canvas padding on screen. And **CF = 1 is
-a normal answer** — §5.4.2 gives `kern_small` the slot and not the body — so
-the row loop is that build's only path and has to exist anyway.
+**The width is exact, since §5.4.2.5.** It was rounded up to a multiple of 8,
+and if that reached past the picture the whole rect fell to the row loop
+rather than paint canvas padding on the glass — which was every full repaint
+of a picture whose width is off the grid, OS8088.GIF's 466 among them, and
+it cost that picture 809 ms of one paint (PERFORMANCE.md Set 116). The kernel
+merges the last partial byte under a mask now, so the left edge goes to the
+byte grid as before and the right edge is the picture's own. **CF = 1 is
+still a contract answer** — `kern_small` gave it for every band until §5.4.2.5
+and a knob may again — so the row loop is kept as the second path, and
+`tests/paint1blit.py` reaches it by poking `stc`/`ret` over the kernel's thunk.
 
 The band is addressed from its **last** row, which is the lowest address:
 every other row is then a positive offset from there and nothing can go below
 zero, which is the same arithmetic §42's 4bpp banding does and for the same
 reason. Rows per band are a segment's worth capped at `gfx_blit1`'s own 255.
 
-**The fallback, which `kern_small` always takes**: a 1bpp row is expanded into
-`pt_line` as packed 4bpp — two `pt_nyb4` lookups a source byte — and drawn
-with `gfx_blit4`, one call a row. It keeps the kernel's own per-row
-adaptivity: `gfx_blit4` picks runs for a flat row and per-pixel for a detailed
-one (§5.4.1.1), which no hand-rolled run walk here could do. `pt_line` rather
-than a buffer of its own: it is one byte per pixel and `PT_CW_MAX` long, so it
-is twice the room a packed run of the same width needs, and nothing that walks
-it is live during a repaint — `pt_line_put`, `pt_bmp_row` and the two format
-converters are a load, a save and a resize.
+**The fallback, which no shipped kernel takes any more**: a 1bpp row is
+expanded into `pt_line` as packed 4bpp — two `pt_nyb4` lookups a source byte
+— and drawn with `gfx_blit4`, one call a row. It keeps the kernel's own
+per-row adaptivity: `gfx_blit4` picks runs for a flat row and per-pixel for a
+detailed one (§5.4.1.1), which no hand-rolled run walk here could do. `pt_line`
+rather than a buffer of its own: it is one byte per pixel and `PT_CW_MAX` long,
+so it is twice the room a packed run of the same width needs, and nothing that
+walks it is live during a repaint — `pt_line_put`, `pt_bmp_row` and the two
+format converters are a load, a save and a resize. **What it costs is why it
+is the fallback and not a path**: 192 rows of a 448-wide canvas took 1,309 ms
+through it on a Hercules against the band move's 55, and the profile is 48.6%
+`pt_ex1` and 35.8% `sw_blit_row.abyte` — the expansion here and the decode in
+the kernel, two passes over every pixel that the band move makes zero.
 
 ### 42.25 The one-bit decoder is STRAIGHT-LINE, for §42.13.1.4's reason
 

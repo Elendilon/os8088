@@ -505,7 +505,13 @@ with no run scan at all** (`kernel/vga12.inc:2745`). `sw_blit_row` has exactly
 one caller in the tree and that is it.
 
 **So yes: on mono it is the fast path, not a fallback**, and Set 102's 27.7% was
-measured on a CGA — the very adapter that forces the packed form. The only way
+measured on a CGA — the very adapter that forces the packed form. **And it is
+not Paint's path any more**: SPEC.md §42.23 made the canvas one bit a pixel on
+a 1bpp adapter, which is `gfx_blit1`'s band exactly, and §5.4.2.5 gave
+`kern_small` that body and took the width refusal off it — so a repaint of
+that canvas is `rep movsw` a row on both kernels and `sw_blit_row` is what a
+4bpp canvas still reaches. PERFORMANCE.md Set 116 is the re-measurement:
+Paint's canvas went from 27.7% of the machine to a twentieth of its own paint. The only way
 back off it is a blit clipped in x, which Paint, ArtfulType and Solitaire all
 avoid by clipping their own blits (`softgfx.inc`'s header says so).
 

@@ -1,13 +1,22 @@
 # A 1bpp canvas for Paint: what the options actually are
 
 **Status: OPTION A IS BUILT — SPEC.md §42.23 is the contract and this file is
-the design record behind it.** Read §8 first: **open question 1 is ANSWERED
+the design record behind it. OPTION B IS BUILT TOO, lean — SPEC.md §5.4.2.5 —
+because the machine Option A was built for turned out to be the one machine
+that could not draw the canvas it gained**: `kern_small` had the slot and not
+the body, and a repaint through the fallback measured 24× the band move
+(PERFORMANCE.md Set 116). The body assembles on both kernels with the pen,
+VGA and two-display arms compiled out on the small one, **+419 bytes** of
+`kern_small` against the ~730 §3 priced, and the same set fixed the width
+cliff §2.3 glossed over — a picture whose width is off the byte grid (the
+tree's own OS8088.GIF, 466 wide) took the fallback on `kern_big` as well,
+until `gfx_blit1` learned to merge a tail byte under a mask. Read §8 first: **open question 1 is ANSWERED
 and the answer is NO** — `gfx_blit1` does not accept a negative stride, two
 unsigned `mul bp` are why, and that is what decided the screen half. What
 shipped is the memory win in full (448×258 goes 56.6 KB → **14.2 KB**,
 measured on a Hercules under MartyPC) with `gfx_blit4` drawing it a row at a
 time; the fast path is a dozen bytes in Paint once the kernel's two row-skips
-are made sign-aware. Option B still stacks on top unchanged.
+are made sign-aware. Option B has since stacked on top, lean (above).
 
 Two things the build settled that this page only guessed at. **Every 1bpp arm
 turned out to be the planar arm with the plane loop removed** — eight pixels
@@ -412,7 +421,12 @@ a measurement.
    One behaviour differs and is not a defect: a flood fill inside a dithered
    area fills the half matching its seed, because alternating pixels are what
    is actually there. §42.23.1 records it.
-5. ~~**Option B or C for small.**~~ **NEITHER, AND THE QUESTION DISSOLVED.**
+5. ~~**Option B or C for small.**~~ **NEITHER — AND THEN B, LEAN (SPEC.md
+   §5.4.2.5).** The paragraph below is how it read when the fallback was
+   believed cheap enough; measured, it was 1,309 ms against 55 for the same
+   rows, and the body went to `kern_small` at +419 bytes rather than the
+   ~730 priced here, the two-display and pen arms being `kern_big`'s.
+   ~~The earlier verdict:~~ **NEITHER, AND THE QUESTION DISSOLVED.**
    It was posed as ~730 kernel bytes (give `kern_small` the `gfx_blit1` body)
    against ~340 package bytes (the expansion fallback) — on the belief that
    `kern_big` could not use `gfx_blit1` either, because of the negative

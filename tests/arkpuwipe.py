@@ -51,10 +51,12 @@ comparing two builds:
              amounted to. This is the "before" column, and it is the defect
              reproduced rather than remembered
 
-TRIGGER A - every kern_small machine, where `gfx_blit1` is `stc`/`ret` and so
-refuses on EVERY capsule - is the same measurement with `--img build/small.img`:
-the `aligned` column there behaves like `unaligned` here, because the refusal is
-the kernel's rather than the x's.
+TRIGGER A - a kern_small machine, where `gfx_blit1` WAS `stc`/`ret` and so
+refused on EVERY capsule until SPEC.md 5.4.2.5 gave that build the body - is
+the same measurement with `--img build/small.img`. The `aligned` column there
+behaved like `unaligned` here while the refusal was the kernel's rather than
+the x's; since 5.4.2.5 it takes the band like kern_big's, and the column is
+kept because a build that refused again would show up here as the old shape.
 
 The playfield is frozen the way cycweb.py freezes the wave - `ark_do_ball`,
 `ark_do_launch` and `ark_do_shots` stubbed to a `ret` in the running image -
