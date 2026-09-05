@@ -6482,6 +6482,72 @@ dkf_dsk_vol_slot:    call dsk_vol_slot_x
 
 
 ; =============================================================================
+; PARKING THE HEADS ON THE WAY OUT (SPEC.md 18.100)
+;
+; `int 19h` RESETS NO HARDWARE, and §18.97's probe decides on a LEVEL READ of
+; the drive's own TRACK 0 line - so the next boot reads the head where this
+; session left it. A session that touched drive B: leaves it off track 0, the
+; probe's one-instruction fast path is missed on every restart after that, and
+; a head parked above cylinder 77 hands the probe the exact ST0 signature
+; §18.97.4 retires a drive on. §18.97.4 recorded that as a warm-restart
+; property and fixed the READ; this fixes the STATE, one step earlier.
+;
+; It is the ROM's own `int 13h AH=00h` - RESET DISK SYSTEM, which recalibrates
+; the head to track 0 - once per claimed unit. The BIOS does the handshake,
+; the wait and the retry; this reads no result, because the `int 19h` two
+; instructions along resets the FDC whatever state it is left in. Verified to
+; move the head from `ST3 = 29` (TRK0 clear) to `39` (set) on BOTH the field
+; GLaBIOS and the genuine IBM 5150 27-Oct-82 ROM §18.97.4 was reported on.
+;
+; A recalibrate needs no MEDIA - it is a head-carriage move, not a read - so a
+; Restart whose dialog has just told the user to take the floppy OUT (§52.10.6)
+; parks the empty drive's head all the same, which an `AH=02h` read could not.
+;
+; Reached only from `ui_cmd_reboot`, AFTER `sched_unhook`: the scheduler is
+; down by then, so no task can be switched onto a different stack in the middle
+; of the BIOS call - which is the one thing `dsk_dbg_raw`'s `sch_lock` guards
+; and this does not need. In .cold (§2.6): resident, outside KERN_CODE_MAX, run
+; once per session, and small enough that no rung moves.
+;
+; IT CANNOT BE AN ON-DEMAND MODULE (§2.8): a module is read off the system
+; disk, and the caller has just asked for the floppy to come OUT.
+; -----------------------------------------------------------------------------
+; dsk_fdd_park_x - FAR: recalibrate every claimed floppy head to track 0.
+; in:  nothing;  out: nothing (AX/BX/CX/DX preserved; flags clobbered)
+;
+; EVERY UNIT THE EQUIPMENT WORD CLAIMED, not every unit with a volume row - so
+; a drive §18.97.2 wrongly retired, which has no row, is still recalibrated and
+; handed back on the next boot rather than lost on every restart after. int 11h
+; claims it afresh each boot; park what int 11h claims.
+; -----------------------------------------------------------------------------
+%ifndef NO_FDDPARK
+dsk_fdd_park_x:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov cl, [fdd_dbg_eqp]       ; drives int 11h claimed (0..4), banked by
+    or  cl, cl                  ; desk_init before anything contested it (§57.5)
+    jz  .out                    ; none: nothing to park
+    xor bl, bl                  ; BL = the unit
+.unit:
+    xor ah, ah                  ; AH=00 RESET DISK SYSTEM = recalibrate to trk0
+    mov dl, bl                  ; ...this unit; DH is irrelevant to AH=00
+    int 0x13                    ; the ROM handshakes, waits and retries. No
+                                ; result is read: the int 19h below resets the
+                                ; FDC whatever this leaves behind (§18.100)
+    inc bl
+    cmp bl, cl
+    jb  .unit
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+%endif                           ; NO_FDDPARK
+
+; =============================================================================
 ; THE FLOPPY-PRESENCE PROBE (SPEC.md 18.97)
 ;
 ; In the BOOT OVERLAY (SPEC.md 2.5), which is where this belongs twice over:

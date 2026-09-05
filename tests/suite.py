@@ -2257,6 +2257,18 @@ SOAK = [
         "one-armed reading could not tell that from a test that never "
         "reached a freeze at all.",
         needs=("marty",), alone=True, serial=True, timeout=900),
+    Row("fddpark", "soak", py("tests/fddpark.py"), 300.0,
+        "SPEC.md 18.100: a Restart leaves the floppy heads on TRACK 0. int "
+        "19h resets no hardware, so the next boot inherits drive B's head "
+        "where the session left it - which costs 18.97's probe its fast path "
+        "on every restart after any use of B:, and above cylinder 77 hands it "
+        "the ST0 that RETIRES the drive. The evidence has to be taken before "
+        "int 19h, because every emulator here starts the second boot parked "
+        "anyway (18.97.4 verified that three ways), so this breaks on "
+        "ui_cmd_reboot's own int 19h and reads ST3 off the emulated 765 from "
+        "the host. It builds NOFDDPARK=1 itself: reading TRK0 set on one arm "
+        "says only that SOMETHING parked the head.",
+        needs=("marty",), alone=True, serial=True, timeout=900),
     Row("uiblock", "soak", py("tests/uiblock.py"), 20.0,
         "SPEC.md 8.1.2: ui_task blocks instead of spinning, so an idle "
         "desktop is 97% HALTED and the loop runs 18 times a second instead "

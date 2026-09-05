@@ -28175,6 +28175,114 @@ cost up to 64KB of the very claim whose **size is the trip count** (§18.99.4),
 so on a one-floppy machine the trade is *a disk swap to save half a second*.
 The alignment is refused for the same reason the buffer exists.
 
+### 18.100 …and the restart PARKS the heads, because the next boot inherits them
+
+**§18.97.4 recorded the symptom and named the cause in one sentence — *"`int
+19h` resets no hardware, so the second boot inherits drive B's head wherever
+the first session left it"* — and then fixed the READ rather than the state.**
+It narrowed the probe's ST0 test so a present drive stops being retired on the
+evidence of a head that is merely somewhere else. This fixes the STATE one step
+earlier: nothing has to leave the head somewhere else in the first place.
+
+The field report is the hard-disk installer's **Restart** (§52.10.6), and it is
+the worst case of the general defect for two reasons that compound:
+
+- **Copy Apps has just read a whole floppy.** The last transfer leaves the
+  head at whatever cylinder the last cluster was on, near cylinder 79 on a full
+  1.44 MB disk. So the head is never at track 0.
+- **It reboots into a hard-disk boot**, where nothing touches the FDC before
+  `desk_init` asks it a question. §18.97.5's table is this machine: `ST3 = 29`,
+  TRK0 clear, the probe's step 2 — **20 ticks** against a floppy boot's 1.
+
+So the fast path is missed on *every* restart after any use of B: — the "long
+detect always fires" half. The other half is arithmetic: **RECALIBRATE steps at
+most 77 times**, then a 765 gives up with seek end and EQUIPMENT CHECK
+(`ST0 = 7x`), which is the exact signature §18.97.4 keeps as the only positive
+evidence of absence. A head above cylinder 77 — where copying a full apps disk
+leaves it — cannot reach track 0 in the one recalibrate the probe issues, so it
+answers `71` for a present drive and **the drive is retired**. That is the
+"sometimes cannot find a drive" half, and *sometimes* is exact: it depends which
+cylinder the copy finished on.
+
+#### The fix is one BIOS call per drive, on the way out
+
+`ui_cmd_reboot` gains a call after `sched_unhook` and before `int 19h`:
+`dsk_fdd_park_x` issues the ROM's **`int 13h AH=00h` — RESET DISK SYSTEM, which
+recalibrates the head to track 0 — once per unit the equipment word claimed.
+
+**It is the BIOS's call and not our port sequence**, which is the whole of why
+this is thirty-one bytes rather than the two-hundred-odd an in-kernel
+recalibrate cost. The ROM does the handshake, the seek wait and the retry;
+`dsk_fdd_park_x` reads no result, because the `int 19h` two instructions along
+resets the FDC whatever state the call leaves. The `int 13h` vector is the
+ROM's — the kernel calls it directly everywhere (`clone.inc`, `dsk_dbg_raw`) —
+and after `sched_unhook` it is unquestionably so.
+
+**Verified on both ROMs it has to work on.** Driven from the debug server —
+dirty the head by reading B:, then execute one `int 13h AH=00h DL=1` in the
+guest and read `ST3` back — the head moves from `29` (TRK0 clear) to `39` (set)
+on the field **GLaBIOS** *and* on the genuine **IBM 5150 27-Oct-82** ROM that
+§18.97.4 was reported on. The retry the IBM BIOS wraps its recalibrate in is
+strictly more than the probe's single one, so the 77-step case an emulator
+cannot stage is covered better here than the probe covers it.
+
+**A recalibrate needs no MEDIA.** It is a head-carriage move, not a read, so the
+empty drive a Restart dialog has just asked the user to create (§52.10.6) is
+parked all the same — which an `AH=02h` read, waiting out a data phase that
+never comes, could not do without seconds of motor grinding per empty drive.
+
+**After `sched_unhook`, not before.** The scheduler is down by then, so no task
+can be switched onto a different stack in the middle of the BIOS call — the one
+hazard `dsk_dbg_raw` holds `sch_lock` against, and the reason this needs none.
+The hibernate module's copy of the same reboot tail (§87) takes the call too,
+for the same reason and in the same order; its *resume* path is left alone,
+because it restores a saved desktop rather than building one, so `desk_init`
+never runs and §18.97 is never asked.
+
+**Every unit the equipment word claimed, not every unit with a volume row.** A
+boot that retired unit 1 (§18.97.2) has no row for it, so a row-driven park
+would leave that head where it was and the drive would be retired again on the
+next boot, and the next — lost for good. `int 11h` claims it afresh every boot;
+park what `int 11h` claims, and one recalibrate hands a wrongly-retired drive
+back.
+
+#### What it costs
+
+**31 bytes of `.cold` and 5 of `.text`, and no rung moves** — the cold rung had
+190 bytes free and keeps 159. There is no resident RAM cost beyond those bytes,
+which was the point of spending the BIOS's recalibrate instead of the kernel's:
+the in-kernel version, with its own handshake, wait and result helpers, was
+226 bytes and crossed a 512-byte cold rung.
+
+The restart's own time cost is a recalibrate per claimed unit — a head-carriage
+move, no motor spin-up — with the phantom drive of §18.97.2's misconfigured
+machine paying the BIOS's retry timeout for a unit that will not answer. That
+machine already pays §18.97's probe cost at boot and is the only one that pays
+here.
+
+#### `make NOFDDPARK=1` is the A/B, and the gate needs it
+
+The effect is visible only **across a reboot**, on the FDC's own ports, so a
+gate that cannot turn the fix off cannot tell a park that ran from a machine
+that happened to be parked already — which every emulator here is, because
+MartyPC returns drive 1's cylinder to 0 on the controller reset the BIOS does at
+boot (§18.97.4 verified that three ways). `tests/fddpark.py` therefore breaks on
+`ui_rb_go`, the label on `ui_cmd_reboot`'s own `int 0x19`, drives a SENSE DRIVE
+STATUS at unit 1 from the host, and reads TRK0 out of ST3. On
+`os8088_5150_cga_gla`:
+
+| | default | `NOFDDPARK=1` |
+|---|---|---|
+| a fresh boot | `39` — TRK0 | `39` |
+| after a Disk window read B: | `29` — **TRK0 clear** | `29` |
+| at `ui_rb_go` | **`39`** | **`29`** |
+
+Row 1 is §18.97.4's own field figure off an IBM-ROM 5150 and row 2 its other, so
+the emulator agrees with the machine that reported this before either arm is
+read. Row 3 is the claim, and it needs both columns: TRK0 set on one arm alone
+says only that *something* parked the head. `make NOFDDPARK=1` assembles byte
+for byte identical to the kernel before this section.
+
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
 The data floppy (drive B:) is a standard **FAT12** volume — mountable and
