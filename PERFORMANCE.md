@@ -1276,7 +1276,7 @@ list to check yourself against.
 | Screen saver, sea life | a swimmer was a 4bpp block through `gfx_blit4`, which on a 1bpp adapter costs **2,863 cycles a ROW** near enough whatever the row's width - 540 µs a row at 20 px and 611 at 36 - so four large swimmers were **73.4 ms of work in a 54.9 ms tick**, and the pass was **76.2 ms, 13.1 fps** | the swimmers were 1bpp art all along: the union is composed as a BAND and put down with `OSAPI_GFX_BLIT1`, a `rep movsw` a row over five or six bytes instead of eighteen. The arrival is **10.20 → 1.26 ms** and the frame **73.4 → 32.8**, so the pass is **54.93 ms on all three adapters - one tick, flat to 54.90-54.95 over 199 frames**. Same generator, same sizes, **0 differing pixels** on CGA, Hercules and VGA | §79.5.8 |
 | Paint brush stroke | width² per pixel of travel | the dab's leading edge, one `gfx_fill` per step | docs/plans/completed/PAINT-NOTES.md |
 | Paint: a one-bit picture's full repaint on a 1bpp adapter, `kern_big` | `pt_ex1` expands each row to 4bpp and `gfx_blit4` decodes it back, one call a row, for any picture whose width is off the byte grid: OS8088.GIF's 110 rows **809 ms** | one `gfx_blit1` a band, `rep movsw` a row with the tail byte merged under a mask: **36.6 ms**. (`kern_small` keeps the row loop by decision — a 192-row undo there is **1,309 ms**, and a body for it measured 55 and was refused, SPEC.md §5.4.2.5) | SPEC.md §5.4.2.5, §42.23.4 |
-| Paint: the tool palette, every full repaint | eight glyphs at one `gfx_hline` per run, ~30 calls each: **201 ms**, half the paint | one `OSAPI_ICON_DRAW` a glyph, the record staged at the draw: **111 ms**. The strip beside it is the next item, 106 ms of ~35 small calls | SPEC.md §42.26 |
+| Paint: the tool palette, every full repaint | eight glyphs at one `gfx_hline` per run, ~30 calls each: **201 ms**, half the paint | one `OSAPI_ICON_DRAW` a glyph: **111 ms** (§42.26); then, on a 1bpp screen, a whole ROW of two buttons composed and blitted once — 24 drawing calls to 4: **33 ms** (§42.26.1). The strip beside it is the next item, 106 ms of ~35 small calls | SPEC.md §42.26, §42.26.1 |
 | Paint: undo / redo | `pt_uswap_row` at 3,878 cycles a row — eight block setups for seven bytes each, and `pt_imark` once a ROW: **156 ms** of a 211 ms undo | runs of saved blocks exchanged as one loop, two words a turn, one mark a swap: **95 ms**, 2,360 a row | SPEC.md §42.8.6.2 |
 | Paint undo | whole canvas | row-granular and lazy | ibid |
 | Paint's canvas, redrawn | a BMP in memory, transposed into the card's four planes on every repaint - 106.9 cycles a pixel of which nearly all is the transpose, **1,148 ms** for 466x110 | the canvas IS four planes, so a repaint is a COPY: **162 ms**, 7.1x again and **44x** on the run writer this line started from. No heap: the two formats want the identical stride | §42.13, §5.4.3 |
@@ -11020,6 +11020,12 @@ as priced.
 
 #### What was NOT done, and what is next
 
+- **The palette went on to be composed too** (SPEC.md §42.26.1), which is
+  the follow-up this list asked for: a whole ROW of two buttons is one
+  42-wide band, 24 drawing calls become 4, and `pt_draw_pal` reads **111.0 →
+  33.0 ms** with a fresh window's paint **337.7 → 258.5**. A width of 42 is
+  what §5.4.2.5's tail mask made expressible, so the two halves of this set
+  are one change used twice.
 - **The strip** is 106–124 ms of every full repaint and is now the largest
   furniture item: ~35 primitives, most of them frames and one-column fills
   that go through `sw_col` a row at a time. Composing it as a band (§5.9's

@@ -53541,6 +53541,88 @@ On a colour adapter the pen is the grey and the rows are untouched.
 `pt_icon16` stays: it is the cut-shape path, and it is what a kernel that
 refused the record would get.
 
+#### 42.26.1 ...and then the whole ROW is one band, on a one-bit screen
+
+One sprite pass a glyph left the eight buttons at **111 ms** of every full
+repaint — still the largest item in a fresh window's 338 (PERFORMANCE.md Set
+116) — because eight passes and sixteen fills are twenty-four *arrivings*,
+and §5.7 prices an arriving at ~756 µs whatever it covers. The pixels
+themselves are nothing: the palette is 42 × 84, and RAM is 15.3 µs a byte
+against the framebuffer's 16.7 (PERFORMANCE.md Part 2). So the row is
+**composed and arrives once** — §5.9's argument for the title bar, one
+package in.
+
+**THE ROW IS THE UNIT BECAUSE THE BUTTON CANNOT BE.** `gfx_blit1` wants an x
+on the byte grid (§5.4.2) and the two buttons are at content columns 1 and
+22. The *content origin* is 8-aligned (§11.94) and `PT_CV_X` is 48, so a band
+that starts at content column 0 is aligned for free — and it must then be
+wide enough to reach the right button's last column, 41. **A width of 42 is
+only a legal argument since §5.4.2.5**, and that is what keeps this band from
+having to round up to 48 and take the divider at column 47 with it. The two
+halves of that section are the same measurement and this is the second one
+paying off: the tail mask was built for a 466-pixel picture and the palette
+is the caller that could not have existed without it.
+
+The square goes dark whole and the interior comes back white — two masks, not
+three — so the **selected** button is drawn by simply not doing the second,
+which is a black well with a white glyph on it. The glyph is ORed in or ANDed
+out at a bit offset the button's table names: 3 for the left, 0 for the
+right, which is byte-aligned. `pt_line` is the staging buffer, 120 bytes of
+it, on §42.23.4's grounds.
+
+| | drawing calls | measured |
+|---|---:|---:|
+| §42.26: eight `pt_cwell` and eight `pt_glyph16` | 24 | 111.0 ms |
+| four composed rows | **4** | **33.0 ms** |
+
+**3.4×, and what is left is the compose rather than the arriving**: the four
+emits are ~3.5 ms of the 33 at Set 64's 3.9 µs a byte over a ~395 µs
+intercept, so the other 29 are the masks and the glyph shifts running in RAM.
+A fresh window's whole paint is **337.7 → 258.5 ms**, and the bottom strip at
+106 is the largest item now (PERFORMANCE.md Set 116).
+
+**What it costs the picture is two columns of bed drawn twice** — content
+columns 0 and 21 are inside the band and `pt_fsbed` has already whitened
+them, 40 pixels a row. Against fill-then-frame, which wrote each well's 76
+border pixels twice, PERFORMANCE.md rule 2's double-writing goes **down** by
+an order of magnitude, and every pixel of a button is now written exactly
+once.
+
+**And it is out of the `APP_SMALL` arm altogether** (§42.22): that build
+pairs with `kern_small`, which answers CF = 1 to every band (§5.4.2), so the
+composer there could only ever fall through to the path below — 363 bytes on
+the one build whose point is bytes. The small package assembles
+byte-identical to before this section.
+
+**It is `[pt_mono]`-gated, and that is a measurement rather than caution.** A
+colour card draws these fills with planar hardware and can put a real
+`CDGRAY` in the greyed glyph; a 1bpp band costs the same on every adapter, so
+composing it there is the trade Set 105 measured going the wrong way for the
+title bar (VGA +32%). On a colour card the palette keeps §42.26's path.
+`kern_small` refuses `gfx_blit1` outright (§5.4.2) and lands on the same
+fallback, which is why that path is kept rather than replaced.
+
+**The greyed fill tool is the one thing in the band with no primitive behind
+it**, and it is REPRODUCED rather than improved. §42.26 dithers it inside
+`pt_glyph16`; here each glyph row is ANDed with `055h`/`0AAh` off the
+`(x + y)` parity of its first pixel, the phase turning over a row down, and
+the surviving pixels are laid **dark** — which is what §42.26 does, because
+`pt_glyph16` hands `CDGRAY` to the pass as `CBLACK`. The content column's
+parity **is** the screen column's, because §11.94 makes `[pt_ox]` a multiple
+of 8, the same fact the band's x rests on.
+
+**That look is odd and it is older than this section.** The grey only
+applies to a tool that is IN HAND (§42.6.2 greys the fill tool only where
+`pt_draw_pal` has already chosen the selected pen), and a selected tool's
+well is black — so a black stipple on it shows nothing at all, and the
+button reads as empty rather than as disabled. The band draws the same
+nothing, deliberately: this is a speed change and `tests/paintpal.py` holds
+the two paths to the same pixels, which is what caught the first version
+drawing the stipple WHITE and so *more* legible than the code it replaced.
+Making that button say what §47 wants it to say is a look question for
+whoever takes it, and the gate will fail on the day they do — which is the
+right way round.
+
 ## 43. Solitaire — the eighth package (apps/solitaire/solitaire.asm)
 
 Klondike over the published package ABI. Prefix `sol_`, embedded two-card

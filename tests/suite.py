@@ -2371,6 +2371,17 @@ SOAK = [
         "a change that made EVERY canvas one bit deep would pass the whole"
         "suite and quietly cost the VGA fifteen of its colours",
         needs=("marty",), serial=True),
+    Row("paintpal", "soak",
+        py("tests/paintpal.py"), 90.0,
+        "Does SPEC.md 42.26.1's COMPOSED palette draw what the fill, the "
+        "frame and the sprite pass drew? One boot draws it both ways - the "
+        "second with stc/ret poked over the gfx_blit1 thunk, which is the "
+        "refusal kern_small answers - and compares the pixels. The greyed "
+        "fill glyph is the round that matters: it is the one thing in the "
+        "composition with no primitive behind it. The third round is a "
+        "CONTROL that must DIFFER, or a rect that missed the palette would "
+        "pass the first two.",
+        needs=("marty",)),
     Row("paint1blit", "soak",
         py("tests/paint1blit.py"), 90.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
