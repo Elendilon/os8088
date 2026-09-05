@@ -422,6 +422,50 @@ def tree_root():
     return os.environ.get("OS88_TREE") or None
 
 
+def _why(out, err):
+    """The part of a failed `make` that says WHY, not the last 2000 bytes.
+
+    A knob build ends with `kernsize`'s BUILT WITH A KNOB banner, and that
+    banner is what a tail-2000 capture returns - so `vgadirty` and three
+    t_buildmatrix rows reported a failure whose message was six lines of
+    advice about rebuilding. The lines that matter are make's own error and
+    nasm's, and they are findable by name.
+    """
+    keep = []
+    for line in (err + "\n" + out).splitlines():
+        if re.search(r"\*\*\* |error:|Error \d|No rule to make|"
+                     r"refus|cannot |not found|Traceback", line):
+            keep.append(line)
+    tail = (err.strip() or out.strip()).splitlines()[-12:]
+    return "\n".join(keep[-12:] or tail)
+
+
+def use_build(sub):
+    """Point the symbol reader at a SUB-directory of the build, and answer it.
+
+        os88build.use_build("build/emuk")       # tests/vmmouse.py
+
+    **`os.environ.setdefault` IS WRONG HERE and was, in three rows.** The
+    intent it spelled is right - "a session driving this by hand with its own
+    $OS88_BUILD keeps it" - but under a frozen run the RUNNER sets that
+    variable for every row (docs/plans/SOAK-PARALLEL.md 14.2), so setdefault
+    found it already set and the row's own choice never happened. Measured:
+    tests/vmmouse.py kept the tree's plain kernel and died at its first symbol
+    with "the map describes a DIFFERENT kernel", naming `<tree>/kernel.bin`
+    where it wanted `<tree>/emuk/kernel.bin`.
+
+    The two cases are now distinguishable, which is what `$OS88_TREE` bought:
+    a value equal to the run's tree is the runner's default and not a choice,
+    and anything else is somebody's decision and is left alone.
+    """
+    cur = os.environ.get("OS88_BUILD")
+    root = tree_root()
+    if cur and not (root and os.path.abspath(cur) == os.path.abspath(root)):
+        return cur                      # a deliberate one: leave it
+    os.environ["OS88_BUILD"] = at(sub)
+    return os.environ["OS88_BUILD"]
+
+
 def at(path):
     """A `build/...` path, resolved against the run's tree (`$OS88_TREE`).
 
@@ -491,8 +535,8 @@ def tree(*args, **kw):
         r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
         if r.returncode:
             raise RuntimeError(
-                "os88build: `%s` failed:\n%s%s"
-                % (" ".join(cmd), r.stdout[-2000:], r.stderr[-2000:]))
+                "os88build: `%s` failed:\n%s"
+                % (" ".join(cmd), _why(r.stdout, r.stderr)))
         if not quiet:
             sys.stderr.write(r.stdout)
         defines = defines_for(args, build=d)

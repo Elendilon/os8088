@@ -87,7 +87,7 @@ import os88qemu                                             # noqa: E402
 # 16-bit immediate - so os88sym refuses the map with "a DIFFERENT kernel" and
 # the row dies at its first symbol. Under the runner this becomes
 # `<tree>/emuk`, which is where the declared `build/vmmouse.img` put it.
-os.environ.setdefault("OS88_BUILD", _B.at("build/emuk"))
+_B.use_build("build/emuk")
 os.environ.setdefault("OS88_DEFINES", "KERN_EMU")
 
 SOCK = os.path.join(ROOT, "build", "vmm.sock")
