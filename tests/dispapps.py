@@ -62,6 +62,13 @@ def _map(app, defines=()):
     if key in _MAPS:
         return _MAPS[key]
     src = os.path.join(ROOT, "apps", app, app + ".asm")
+    if not os.path.exists(src):
+        # ...or a package under tests/, which is where everything that does
+        # NOT ship lives (CLAUDE.md's Layout). tests/facetest is the first
+        # such caller: it asks apps/os88type.inc what typefaces the machine
+        # has, and the answer is four bytes of its bss rather than anything a
+        # screendump can be read for.
+        src = os.path.join(ROOT, "tests", app, app + ".asm")
     # PER PROCESS, and that is not tidiness. These were "/tmp/os88_<app>.map"
     # flat, so two rows of the suite mapping the same package at once wrote
     # each other's file - and `os88test.py --marty-jobs 3` runs exactly that.
@@ -76,6 +83,7 @@ def _map(app, defines=()):
     open(tmp, "w").write(open(src).read() + "\n[map all %s]\n" % mp)
     inc = ["-I", os.path.join(ROOT, "apps") + os.sep,
            "-I", os.path.join(ROOT, "apps", app) + os.sep,
+           "-I", os.path.join(ROOT, "tests") + os.sep,
            "-I", os.path.join(ROOT, "drivers", "net") + os.sep]
                                         # apps/telnet and apps/ftpd include
                                         # netpkg.inc from the driver that
@@ -150,13 +158,11 @@ def _map(app, defines=()):
             except OSError:
                 pass
     if built != fresh:
-        sys.exit("dispapps: %s holds a %d-byte image and apps/%s/%s.asm "
-                 "assembles to %d - build/ is BEHIND THE TREE, so every bss "
-                 "offset this returns describes a layout the guest does not "
-                 "have. Run `make%s`." % (o88, len(built), app, app,
-                                          len(fresh),
-                                          " && make smallapps" if defines
-                                          else ""))
+        sys.exit("dispapps: %s holds a %d-byte image and %s assembles to %d - "
+                 "build/ is BEHIND THE TREE, so every bss offset this returns "
+                 "describes a layout the guest does not have. Run `make%s`."
+                 % (o88, len(built), os.path.relpath(src, ROOT), len(fresh),
+                    " && make smallapps" if defines else ""))
     _MAPS[key] = out
     return out
 

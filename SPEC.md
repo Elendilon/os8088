@@ -6586,7 +6586,7 @@ enforces it; `ty_open` re-checks it, because the tool is not what runs.
 
 #### 6.4.1 The faces the disk carries, and what fitting one costs
 
-`FONTS/` carries **ten families**. Two are drawn by hand — `charter`, whose art
+`SYSTEM/FONTS/` carries **ten families**. Two are drawn by hand — `charter`, whose art
 *is* the design, and `tallx`, which is the kernel's own 8×8 cell offered as a
 face so that a document can be set in it with no layout change at all. The
 other **eight are fitted from open outline typefaces** by `tools/os88ttf.py`,
@@ -6699,7 +6699,7 @@ one program.
 
 **The licences ride with them.** Every source font above is under the SIL Open
 Font License 1.1, which requires its notice to travel with the derivative, so
-`FONTS/LICENSE.TXT` is on the disk beside the faces — the full licence and a
+`SYSTEM/FONTS/LICENSE.TXT` is on the disk beside the faces — the full licence and a
 line naming each font's authors. It is a `.TXT`, so `ty_scan` skips it (the
 scan takes `.F88` and nothing else) and the mount types it as a document, which
 means the person at the machine can double-click and read it. `faces/LICENSES.txt`
@@ -29412,14 +29412,14 @@ copies eleven hundred lines apart — `dskw_wbody`'s replace and
 to the replace alone would have left the low-heap path refusing.
 
 
-### 19.8 `FONTS/` — a system resource, and the slot that names the disk it is on
+### 19.8 `SYSTEM/FONTS/` — a system resource, and the slot that names the disk it is on
 
-**Typefaces ship on the SYSTEM disk, in `FONTS/`,** and not on the apps floppy
-where they started. A face is not an application's data — it is the machine's,
-the way the kernel's own 8×8 cell is (§6) — and a second application wanting the
-same family should find it already there rather than carry a copy. `FONTS/` sits
-beside `SYSTEM/` for that reason and is typed as data by the mount (§19), so a
-`.F88` can never be double-clicked into the loader.
+**Typefaces ship on the SYSTEM disk, in `SYSTEM/FONTS/`,** and not on the apps
+floppy where they started. A face is not an application's data — it is the
+machine's, the way the kernel's own 8×8 cell is (§6) — and a second application
+wanting the same family should find it already there rather than carry a copy.
+It sits **inside** `SYSTEM/` for that reason (§19.8.1) and is typed as data by
+the mount (§19), so a `.F88` can never be double-clicked into the loader.
 
 The 360 KB system disk carries the kernel and has **198,656 bytes free**, which
 is the rung this decision was checked against: a family is ~1.5 KB a style, so
@@ -29437,12 +29437,23 @@ floppy machine and the installed partition on one that boots from its hard disk
 
 **The visit is a bracket and the caller owns both ends.** `OSAPI_FILE_HERE` to
 bank where you are, `OSAPI_VOL_SYS` + `OSAPI_FILE_GOTO` with cluster 0 to stand
-on the system root, `OSAPI_FILE_FIND` to locate `FONTS` and again inside it, then
-`OSAPI_FILE_GOTO` back. Four remounts and two listings — **real floppy I/O,
+on the system root, `OSAPI_FILE_FIND` to locate `SYSTEM`, `OSAPI_FILE_GOTO` into
+it, the same pair again for `FONTS`, a third listing for the faces, then
+`OSAPI_FILE_GOTO` back. Five remounts and three listings — **real floppy I/O,
 UI-task context only**, and on the target machine that is a couple of seconds. So
 it is done **once, lazily**, when something actually needs the list: a menu
 nobody opens should cost nothing, which is the same argument §6.2 makes about a
 directory of faces nobody picks from.
+
+**The descent is written once**, as `ty_gofonts` in `apps/os88type.inc`, because
+there are two callers and they want the identical walk: `ty_scan` lists the
+folder and `ty_openfam` opens one file in it. Its helper `ty_dive` is "the folder
+named by SI, inside the one I am standing in", and it tests `OSAPI_FT_DIR`
+*exactly* rather than `>=` — the synthesized `..` (§19.5) is `OSAPI_FT_UP`, which
+sorts above `OSAPI_FT_DIR` and would otherwise be offered to the name compare.
+`ty_gofonts` does **not** bank `OSAPI_FILE_HERE` itself: a failed descent leaves
+the instance standing on the system root or in `SYSTEM/`, so the bracket belongs
+to the caller, which comes home on every path out including `CF=1`.
 
 **What a scan reads is the FILE NAME and not the family inside the header.**
 The header's 16-byte name (§6.4) is authoritative for a face that is *open*, but
@@ -29451,6 +29462,38 @@ calls before it can draw itself is a menu that feels broken. The 8.3 stem is
 already in the directory entry the scan is walking, so the list is built from
 that and the header name takes over the moment a face is chosen. The tool writes
 both from one source, so they agree; where they could not, the open is what wins.
+
+#### 19.8.1 It moved INTO `SYSTEM/`, and the root is what the move was for
+
+It shipped as `FONTS/` on the root and is `SYSTEM/FONTS/` now. Nothing about
+the faces changed — the same ten files, the same licence beside them, the same
+`OSAPI_VOL_SYS` bracket — only where the walk turns.
+
+**The root of the system disk is a window a person opens.** Double-clicking the
+boot floppy is how the machine is looked at, and what was in that window was
+`APPS/`, `GAMES/`, `SYSTEM/` and `FONTS/` — three folders somebody has a reason
+to open and one nobody ever does. A `.F88` is not a document: it is read by a
+program that went looking for it, never by a person who clicked it, and the
+listing is the wrong place for a thing with no reader. `SYSTEM/` is already
+where the machine's own furniture lives — `TASKMGR.O88` (§28.3) and `APPDATA/`
+(§19.9) — and this is furniture.
+
+**It costs a listing and a directory slot, and both are in our favour.** The
+walk gains one `OSAPI_FILE_FIND` pass and one `OSAPI_FILE_GOTO`, paid once and
+lazily on the first Font menu (above), against a face read that is an order of
+magnitude more; and the root gives up an entry rather than taking one, which on
+the 360 KB disk is the tightest directory on any shipped image. Nothing in
+`tools/os88disk.py` had to learn anything: a nested folder key creates its
+parents (`SYSTEM/FONTS` names `SYSTEM` too), and a nested folder costs an entry
+in its parent instead of one in the root.
+
+**Every consumer is `apps/os88type.inc`**, which is why the move is one edit and
+not a sweep. Word (§68.13), CWORD (§73.12.2) and `tests/facetest` all reach a
+face through `ty_scan` / `ty_openfam` and none of them names the path; the two
+that had the walk inline now share `ty_gofonts`. **A disk built before this and
+a kernel built after it disagree silently** — `ty_scan` answers `CF=1`, the Font
+menu is the one built-in face and nothing says why — so the faces and the
+walker ship together or not at all, exactly as they always did.
 
 ### 19.9 `SYSTEM/APPDATA/` — a program's own state is not a document
 
@@ -78419,13 +78462,13 @@ row it lands in: 25.31 ms against the aligned 8×8 row's 24.37.
 **The Font combo is built from the disk, not from this program.** Its dropdown
 is a static table with `WD_MAXFONT` records reserved after Pica, and
 `wd_fontscan` fills them from `ty_scan` (§19.8) and writes the item count into
-`wd_mtab` — so the menu is as long as the machine's `FONTS/` folder, and a disk
+`wd_mtab` — so the menu is as long as the machine's `SYSTEM/FONTS/` folder, and a disk
 carrying more faces needs no edit here. It runs **the first time the combo is
 opened** and never again: the scan is real floppy I/O, and a person who never
 opens the menu should pay nothing for it.
 
 Three details of that are worth keeping. The scan runs **once whatever the
-answer**, so a disk with no `FONTS/` is not re-walked on every press. The
+answer**, so a disk with no `SYSTEM/FONTS/` is not re-walked on every press. The
 ribbon's caption is a *pointer* (`[wd_fcap]`), initialised to `wd_s_pica` at
 entry — bss arrives zeroed, and a null there letters this package's own header
 onto the ribbon and reads as a corrupt heap. And the box is renamed **only after
@@ -81633,7 +81676,7 @@ pitch is **11** and not the demonstrator's 10: the italic overstrike is one
 pixel above the band and the double underline two below it, and at a pitch of
 10 that second rule lands exactly where the next row's italic goes — a
 double-underlined line ate the italic off the line beneath it. **That pitch is a
-variable now** and not a constant, because a face off `FONTS/` brings its own
+variable now** and not a constant, because a face off `SYSTEM/FONTS/` brings its own
 height (§73.12.2).
 
 **Paragraph formatting lives on the paragraph mark**, which is Word's own
@@ -81654,7 +81697,7 @@ the ribbon, the Ctrl keys and Format Character; alignment, line spacing, space
 before and the three indents from the ruler, the Ctrl keys and Format
 Paragraph; Search, Replace and Go To; Sort, Renumber and Table of Contents;
 **View > Draft and View > Page** (§73.12.1); **the Font list, built from the
-system disk's `FONTS/` folder, which sets the document in a proportional face**
+system disk's `SYSTEM/FONTS/` folder, which sets the document in a proportional face**
 (§19.8, §73.12.2); Open and Save through the Standard File dialog with **RTF**
 as the file format; New / Open / Close / Exit with Word's save-changes prompt;
 and About.
@@ -81804,7 +81847,7 @@ now — a short down-stroke and a long up-stroke, which is what `apps/word` draw
 The Font box on the ribbon was a `cw_combo` that dropped nothing down, and said
 so: one face, one size, and an arrow drawn because a control that lies about
 being interactive is worse than one that is honest about being the only choice.
-It drops down now. **The list is the machine's `FONTS/` folder** (§19.8) read
+It drops down now. **The list is the machine's `SYSTEM/FONTS/` folder** (§19.8) read
 through `apps/os88type.inc`'s `ty_scan`, and picking from it sets the whole
 document in that face.
 
@@ -81927,7 +81970,7 @@ drawing floor at all.
 **The scan runs once, whatever the answer.** It is four remounts and two
 listings of real floppy I/O (§19.8) — a couple of seconds on the target machine
 — so it runs the first time the Font box is opened and never again, and a disk
-with no `FONTS/` is not re-walked on the next press. The box is renamed **only
+with no `SYSTEM/FONTS/` is not re-walked on the next press. The box is renamed **only
 after the face actually opens**, so the name in the ribbon is evidence that the
 face is open rather than evidence that one was asked for. The caption is a
 BUFFER and not a pointer, initialised to `Pica` at its declaration: §68.13
@@ -81937,7 +81980,7 @@ own header onto the ribbon and read as a corrupt heap.
 **Item 0 of the list is always `Pica`,** which is face 0 and is not on the disk
 at all — it is what the document is set in until somebody chooses otherwise, and
 it is how they choose to come back. The other items are the machine's, so the
-list is as long as `FONTS/` is and a disk carrying more faces needs no edit.
+list is as long as `SYSTEM/FONTS/` is and a disk carrying more faces needs no edit.
 
 **The list WRAPS INTO COLUMNS rather than being cut.** One column clamped to the
 content box is what `cwdrop.c`'s menus do, and it is defensible there because
@@ -81965,7 +82008,7 @@ is set in Pica. §68.13 prices the row it lands in on the target machine:
 **25.31 ms against the aligned 8×8 row's 24.37**.
 
 **None of that has been measured on an XT**, and the harness cannot help: it
-models face 0 and answers "no `FONTS/` folder", so what it proves is that the
+models face 0 and answers "no `SYSTEM/FONTS/` folder", so what it proves is that the
 conversion did not change the FIXED face — every `cw_cx`/`cw_xc` site walked
 with `cw_prop` clear, audited cell for cell. The chosen face was checked by
 looking, on all three adapters, which is the other half and not a substitute.
@@ -92812,7 +92855,7 @@ So single-instance is an **Audio-Player-local rendezvous file**:
 transient by-cluster resolution and `OSAPI_FILE_WRITE`/`_READ` **by name**
 still resolve in the instance's own launched-from folder (measured — the file
 missed the root). Every caller banks `OSAPI_FILE_HERE` and GOTOs back, the
-FONTS/ pattern (`os88type.inc`). The queue file is written with
+SYSTEM/FONTS pattern (`os88type.inc`). The queue file is written with
 `OSAPI_FILE_WRITE` (read-modify-write of the whole ≤128-byte file), **not**
 `OSAPI_FILE_APPEND`, which needs a pre-existing file whose size is a whole
 number of clusters — a 16-byte-record queue is neither.

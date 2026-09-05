@@ -5183,8 +5183,8 @@ osapi_file_here:
 ; that boots from its hard disk (SPEC.md 52.10.3), and the kernel has read it
 ; that way for the driver load and the Control Panel for as long as both have
 ; existed. This cell is that fact handed OUT, so a package can reach the
-; system disk's own folders - FONTS/ is the first (SPEC.md 19.7) - without
-; guessing a drive letter or walking every volume looking for one.
+; system disk's own folders - SYSTEM/FONTS is the first (SPEC.md 19.8) -
+; without guessing a drive letter or walking every volume looking for one.
 osapi_vol_sys:
     mov bl, [dsk_bootvol]
     ret

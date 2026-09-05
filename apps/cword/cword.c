@@ -50,7 +50,7 @@
  * (SPEC.md 73.12.1) wraps to a 60-cell SHEET instead of to the window, which is
  * two numbers in cw_layout() and a pair of rules drawn outside the text column.
  * And the ribbon's Font box now lists the machine's typefaces off the system
- * disk's FONTS/ folder and SETS THE DOCUMENT IN ONE (SPEC.md 19.8, 67.12.2) -
+ * disk's SYSTEM/FONTS folder and SETS THE DOCUMENT IN ONE (SPEC.md 19.8) -
  * for which the cell stays the unit of the row model and only its PIXEL
  * POSITION stops being 8k. With no face chosen, cw_prop is 0, cw_cx() is the
  * shift it replaces, and every path below is the one it always was.
@@ -458,7 +458,7 @@ static int cw_page;                     /* View > Page rather than Draft */
  * cw_prop IS THE ONE FLAG, and everything that used to be 8k asks cw_cx() /
  * cw_xc() instead of shifting. With it clear those two are exactly the shifts
  * they replace, so the kernel's cell costs a call and a return and NOTHING
- * ELSE changes - a build with no FONTS/ folder, a kernel that refuses the band
+ * ELSE changes - a build with no SYSTEM/FONTS, a kernel that refuses the band
  * blit (SPEC.md 6.5) and a document nobody has set all behave as they always
  * did, because bss arrives zeroed and this is 0 until a face is picked.
  * ========================================================================*/
@@ -485,8 +485,9 @@ static int cw_px[CW_COLS_MAX + 1];      /* the row's own pixel map: the pen each
 static int cw_nfam;                     /* families the scan found */
 static int cw_scanned;                  /* ...and that it has run at all: it
                                          * runs ONCE WHATEVER THE ANSWER, so a
-                                         * disk with no FONTS/ is not re-walked
-                                         * on the next press (SPEC.md 19.8) */
+                                         * disk with no SYSTEM/FONTS is not
+                                         * re-walked on the next press
+                                         * (SPEC.md 19.8) */
 static int cw_fl_open;                  /* the Font list is down */
 static int cw_fl_rows;                  /* ...and how many items a column of it
                                          * holds, which is the window's height
@@ -676,7 +677,7 @@ int  cw_ty_flush(int x, int y, int w, int rows);      /* 1 = drawn */
 int  cw_ty_fit(const char *s, int n, int px);   /* characters that fit */
 int  cw_ty_hit(const char *s, int n, int px);   /* the character under px */
 void cw_ty_pen(const char *s, int n, int *px);  /* the row's pixel map */
-int  cw_ty_scan(void);                  /* families in FONTS/, 0 = none */
+int  cw_ty_scan(void);                  /* families on the disk, 0 = none */
 void cw_ty_name(int i, char *dst);      /* family i's display name */
 int  cw_ty_open(int i);                 /* a handle, or 0 = refused */
 void cw_ty_close(int handle);

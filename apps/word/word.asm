@@ -327,7 +327,7 @@ WD_M_N       equ 9              ; menus on the bar
 
 WD_MAXFONT   equ 10             ; faces the Font combo will list beside Pica.
                                 ; Ten, which is os88type's TY_MAXFAM and what
-                                ; FONTS/ carries (SPEC.md 6.4.1). It used to
+                                ; SYSTEM/FONTS carries (SPEC.md 6.4.1). It
                                 ; be six, because eleven 10px items hang off a
                                 ; ribbon box 60 rows down a 200-row CGA screen
                                 ; ran off the bottom of the window; wd_mgeo
@@ -2294,7 +2294,7 @@ wd_tabw:
 ; in:  -
 ; out: the dropdown's items and its count set; preserves all registers
 ;
-; ONCE, and lazily. ty_scan is four remounts and two listings - a couple of
+; ONCE, and lazily. ty_scan is five remounts and three listings - a couple of
 ; seconds on the target - so it runs the first time somebody opens this combo
 ; and never again. A person who never opens it pays nothing, which is the same
 ; bargain SPEC.md 6.2 strikes with a directory of faces nobody picks from.
@@ -2314,8 +2314,8 @@ wd_fontscan:
     cmp byte [wd_fscan], 0
     jne .out
     mov byte [wd_fscan], 1          ; once, whatever the answer - a disk with
-                                    ; no FONTS/ must not be re-walked on every
-                                    ; press
+                                    ; no SYSTEM/FONTS must not be re-walked on
+                                    ; every press
     call ty_scan
     mov al, [ty_nfam]
     or al, al
@@ -2432,7 +2432,7 @@ wd_facedrop:
 ;
 ; ITEM 0 IS PICA - the kernel's 8x8 cell, which is what this program has
 ; always set text in and is a perfectly good answer. Items 1.. are the faces
-; FONTS/ was carrying. Choosing one opens it and names it in the ribbon.
+; SYSTEM/FONTS was carrying. Choosing one opens it and names it in the ribbon.
 ;
 ; WHAT IT DOES NOT DO YET is set [wd_prop]: the document still draws through
 ; the 8x8 cell until wd_drawrun grows its band arm (SPEC.md 68.13), and a
@@ -13211,7 +13211,7 @@ wd_mgeo:
                                     ; nowhere else - moving one would put it
                                     ; over the menu bar it came from
     ; --- the SLIDE (SPEC.md 6.4.1). A combo's list is anchored at its box, and
-    ; with ten faces in FONTS/ eleven 10px items stand 114 rows tall - past the
+    ; with ten faces there, eleven 10px items stand 114 rows tall - past the
     ; bottom of a 200-row CGA window by a few pixels. Clipping is what used to
     ; happen and it is SILENT: the trailing faces are drawn nowhere and
     ; wd_mfind refuses to find them, so a disk carrying more faces than the
@@ -19156,7 +19156,7 @@ wd_it_help:                         ; &Help
     WDMS
     WDMI 0,        0, WDA_ABOUT,  'A', wd_L_about,  0
 
-wd_it_fontc:                        ; Pica, and room for what FONTS/ carries
+wd_it_fontc:                        ; Pica, and room for the faces on the disk
     WDMI 0, 0, WDA_CSEL, 0, wd_s_pica, 0
 %rep WD_MAXFONT                     ; RESERVED, and filled by wd_fontscan
     WDMI WDMF_DIS, 0, WDA_NONE, 0, wd_s_pica, 0
