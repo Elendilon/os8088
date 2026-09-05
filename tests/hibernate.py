@@ -184,6 +184,34 @@ def img_present():
     return root_has("HIBERNAT.IMG")
 
 
+def wrote(names, secs=20.0):
+    """Wait for NAMES to appear in the VHD's root, read on the HOST.
+
+    **THE GUEST HAVING WRITTEN IS NOT THE HOST BEING ABLE TO READ IT.** Every
+    other reading in this row comes out of guest memory over the debug
+    socket, which is exact the instant it is taken; these two come out of the
+    VHD FILE, which the emulator is holding open and writes to on its own
+    schedule. The guest's `int 13h` has returned and the sectors are in
+    MartyPC's hands - when they reach the host's filesystem is not something
+    the guest can be asked about.
+
+    Read once, that is a race, and at a lane of three it is a LOST one: the
+    check `both files reached the disk` failed 1 run in 6 on a machine that
+    had written both files perfectly (the run after it resumed from them).
+    docs/WRITING-TESTS.md 7.1 - wait for the thing rather than for a clock -
+    with the twist that the thing here is not the guest's, so the budget is
+    the HOST's and there is nothing else it could be.
+    """
+    end = time.time() + secs
+    while True:
+        have = [n for n in names if root_has(n)]
+        if len(have) == len(names):
+            return True, have
+        if time.time() >= end:
+            return False, have
+        time.sleep(0.5)
+
+
 def boot(driver):
     if driver:
         return M.launch(FLOPPY, machine=MACHINE,
@@ -207,9 +235,93 @@ def hibernate(m, mo, mouse):
         m.key("Enter")
     M.until(m, lambda mm: M.video_is_text(mm.video()),
             "the hibernated sentence in text mode", poll=0.5, limit=240)
-    check(ptr_present() and img_present(),
-          "both files reached the disk (the positive control for the "
-          "'gone' checks below)")
+    ok, have = wrote(["HIBERNAT.PTR", "HIBERNAT.IMG"])
+    check(ok, "both files reached the disk (the positive control for the "
+              "'gone' checks below)", got=have,
+          want=["HIBERNAT.PTR", "HIBERNAT.IMG"])
+
+
+def answer(m, mo, what, done):
+    """Click the Hibernate window's first button, and say what happened.
+
+    THE SAME SHAPE AS `restart` AND FOR THE SAME REASON. A single unconfirmed
+    input carrying the rest of the row is how this one fails: the machine
+    sits at the question, nothing this row waits for can ever come true, and
+    the message that comes out names a 720-second budget rather than a lost
+    click.
+
+    A second click is only right while the window is STILL THERE - a machine
+    that has taken the first one and is reading its image back has no button
+    under the pointer, and clicking the desktop it is about to restore is not
+    a retry, it is a new event. So the retry is gated on the KIND_HIBER
+    instance still being live, which is also what tells the two apart in the
+    report.
+    """
+    for attempt in (1, 2):
+        mo.click(*button1(m))
+        try:
+            M.until(m, done, what, poll=0.5, limit=60 if attempt == 1 else 240)
+            if attempt == 2:
+                print("   the [Resume] click needed sending TWICE")
+            return
+        except M.MartyError:
+            live = [k for k, _ in instances(m) if k == KIND_HIBER]
+            print("   answer attempt %d: %s - hb_mode=%d, hb_resumes=%d, "
+                  "KIND_HIBER live=%s" % (attempt, what, byte(m, "hb_mode"),
+                                          word(m, "hb_resumes"), bool(live)))
+            shot(m, "answer%d" % attempt)
+            if attempt == 2 or not live:
+                raise               # the window is gone: it TOOK the click
+                                    # and is working, so a second one would
+                                    # land on whatever replaced it
+
+
+def restart(m):
+    """The key that restarts a hibernated machine, and the wait it earns.
+
+    IT WAS `m.key("Space"); time.sleep(1.0)` and then one 240-second wait for
+    [hb_mode], which is two of docs/WRITING-TESTS.md 7's mistakes in three
+    lines: a host sleep before an event the guest has to reach, and a single
+    unconfirmed keystroke carrying the whole rest of the row. Rated at a lane
+    of three it failed 3 runs in 6, every one of them here, having burned 720
+    GUEST seconds - twelve emulated minutes for a reboot that takes four,
+    which is not a slow machine, it is a machine that was never going to get
+    there.
+
+    So the key is CONFIRMED, in the only way it can be: the machine has to
+    leave the sentence. `hbm_kbdrain` empties the ROM's buffer before the
+    sentence is printed (SPEC.md 87.4 step 7), so a key that arrives in the
+    window between the drain and `int 0x16` is the one that can be dropped -
+    and dropping it parks the guest in the sentence for ever, where nothing
+    this row waits for will ever come true. A second press costs nothing when
+    the first was taken (the machine has already left the buffer behind), and
+    it is the whole of the failure when it was not.
+
+    On the way out it says which happened, because "the key needed sending
+    twice" is a fact about this emulator's keyboard that the next reader of a
+    720-second timeout should not have to re-derive.
+    """
+    for attempt in (1, 2):
+        m.key("Space")
+        try:
+            M.until(m, lambda mm: byte(mm, "hb_mode") == HB_M_RESUME,
+                    "the fresh boot to ask the question", poll=1.0,
+                    limit=60 if attempt == 1 else 240)
+            if attempt == 2:
+                print("   the restart key needed sending TWICE (the first "
+                      "landed between hbm_kbdrain and int 16h)")
+            return
+        except M.MartyError:
+            v = m.video()
+            print("   restart attempt %d: no question yet - video %s, "
+                  "text=%s, hb_mode=%d, hb_resumes=%d"
+                  % (attempt, v.get("mode", v.get("field_w")),
+                     M.video_is_text(v), byte(m, "hb_mode"),
+                     word(m, "hb_resumes")))
+            shot(m, "restart%d" % attempt)
+            if attempt == 2 or not M.video_is_text(v):
+                raise               # not the sentence: a second key is not
+                                    # the answer and would only hide it
 
 
 def pass_resume(driver):
@@ -223,10 +335,7 @@ def pass_resume(driver):
         check(any(k == KIND_ABOUT for k, _ in instances(m)),
               "the About box is up before hibernating")
         hibernate(m, mo, mouse=True)
-        m.key("Space")                            # ...and restart
-        time.sleep(1.0)
-        M.until(m, lambda mm: byte(mm, "hb_mode") == HB_M_RESUME,
-                "the fresh boot to ask the question", poll=1.0, limit=240)
+        restart(m)
         quiet(m)                                  # ...and paint it. Not a
                                                   # settle: the ROM's disk
                                                   # probe holds a static
@@ -240,9 +349,8 @@ def pass_resume(driver):
         check(not any(k == KIND_ABOUT for k, _ in instances(m)),
               "the fresh boot has no About box yet")
         shot(m, "question")
-        mo.click(*button1(m))                     # [Resume], with the mouse
-        M.until(m, lambda mm: word(mm, "hb_resumes") == 1,
-                "[hb_resumes] to reach 1", poll=0.5, limit=240)
+        answer(m, mo, "[hb_resumes] to reach 1",
+               lambda mm: word(mm, "hb_resumes") == 1)
         quiet(m)
         inst = instances(m)
         about = [w for k, w in inst if k == KIND_ABOUT]
@@ -275,10 +383,7 @@ def pass_discard(driver):
         mo.menu(CHIP_X, CHIP_Y, CHIP_X, ABOUT_Y)
         quiet(m)
         hibernate(m, mo, mouse=False)
-        m.key("Space")
-        time.sleep(1.0)
-        M.until(m, lambda mm: byte(mm, "hb_mode") == HB_M_RESUME,
-                "the fresh boot to ask the question", poll=1.0, limit=240)
+        restart(m)
         quiet(m)
         check(byte(m, "hb_mode") == HB_M_RESUME, "the question, again",
               got=byte(m, "hb_mode"), want=HB_M_RESUME)
