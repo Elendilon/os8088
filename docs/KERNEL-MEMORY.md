@@ -40,8 +40,8 @@ binding one; `kernsize` prints both lines now.
 left to decide. Raising it means changing the rule. The assembler sees only
 the static half of rule 3; a claim made at boot and never given back is the
 other half, and `tests/kernresident.py` boots a bare VGA desktop under MartyPC
-and walks `mem_tab` for it. As blessed it reads: kernel span ends 114,688,
-last non-purgeable byte 114,688, limit 131,072 — 16,384 spare, with the
+and walks `mem_tab` for it. As blessed it reads: kernel span ends 114,176,
+last non-purgeable byte 114,176, limit 131,072 — 16,896 spare, with the
 directory read-ahead (63KB, purgeable) the only claim on the heap.
 
 **`kern_small`'s `KERN_BUDGET` is a literal** — 107,520, in the `%else` arm —
@@ -87,8 +87,8 @@ As blessed (`tools/kernsize.py`, `-DKERN_SMALL` for the second row):
 
 | | `KERN_SIZE` | of `KERN_BUDGET` | spare | `.text`+`.bss` | of `KERN_CODE_MAX` | left | before guard 5 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `kern_big` | 113,152 | 129,536 | 16,384 (32 steps) | 57,359 | 65,536 | **8,177** | 79,360 |
-| `kern_small` | 80,896 | 107,520 | 26,624 (52 steps) | 44,663 | 65,536 | 20,873 | 41,984 |
+| `kern_big` | 112,640 | 129,536 | 16,896 (33 steps) | 57,281 | 65,536 | **8,255** | 79,872 |
+| `kern_small` | 80,896 | 107,520 | 26,624 (52 steps) | 44,603 | 65,536 | 20,933 | 41,984 |
 
 **On `kern_big` the SEGMENT binds**, not the footprint: 8KB of `.text`+`.bss`
 against 16KB of budget, and the segment cannot be raised. A `.bss` byte is
@@ -151,18 +151,18 @@ $ python3 tools/kernsize.py --json          # the raw figures
 $ python3 tools/kernsize.py --bless         # rewrite the baseline and the tables in this file
 ```
 
-A real run, on the tree this file was blessed on:
+A real run — the reading a merge gave against the blessing before it (a
+size pass had landed unblessed, so the delta is that pass):
 
 ```
-kernsize[big]: sections   text 50,966 +233  bss 6,393 +326  cold 39,646 +2,460  lowbss 9,182 +0  vgabuf 848 +0  ovl 1,417 +0  ovlw 5,037 +0   (sum +3,019)
-kernsize[big]: rungs      image 57,856 +1,024 (497 left, was 32)   cold 39,936 +2,560 (290 left, was 190)   low 9,728 +0 (34 left, was 34)   vgabuf 1,024 +0 (176 left, was 176)
-kernsize[big]: accrued    image 15/512 (2%)   cold 222/512 (43%)   low 478/512 (93%)   vgabuf 336/512 (65%)   - spent into the current rung and NOT YET BILLED
-kernsize[big]: footprint  KERN_SIZE 113,152 of KERN_BUDGET 129,536 -> 16,384 spare (32 steps), was 19,968  [+3,584]
-kernsize[big]: boot       KERN_SIZE 113,152 of 192,512 -> 79,360 before it cannot BOOT on 196KB (guard 5)
-kernsize[big]: segment    .text+.bss 57,359 of KERN_CODE_MAX 65,536 -> 8,177 left
-kernsize[big]: ladder     KERNEL 0x0060  COLD 0x0e80  FAT 0x1840  LOW 0x1960  VGABUF 0x1bc0  HEAP 0x1c00 = 112.0 KB   (heap KB = int 12h - 112.0)
-kernsize[big]: *** the image rung CROSSED: 111 -> 113 steps of 512 - 1,024 bytes of every machine's RAM, gone ***
-kernsize[big]: *** the cold rung CROSSED: 73 -> 78 steps of 512 - 2,560 bytes of every machine's RAM, gone ***
+kernsize[big]: sections   text 50,892 -74  bss 6,389 -4  cold 39,434 -212  lowbss 9,182 +0  vgabuf 848 +0  ovl 1,417 +0  ovlw 5,037 +0   (sum -290)
+kernsize[big]: rungs      image 57,344 -512 (63 left, was 497)   cold 39,936 +0 (502 left, was 290)   low 9,728 +0 (34 left, was 34)   vgabuf 1,024 +0 (176 left, was 176)
+kernsize[big]: accrued    image 449/512 (87%)   cold 10/512 (1%)   low 478/512 (93%)   vgabuf 336/512 (65%)   - spent into the current rung and NOT YET BILLED
+kernsize[big]: footprint  KERN_SIZE 112,640 of KERN_BUDGET 129,536 -> 16,896 spare (33 steps), was 16,384  [-512]
+kernsize[big]: boot       KERN_SIZE 112,640 of 192,512 -> 79,872 before it cannot BOOT on 196KB (guard 5)
+kernsize[big]: segment    .text+.bss 57,281 of KERN_CODE_MAX 65,536 -> 8,255 left
+kernsize[big]: ladder     KERNEL 0x0060  COLD 0x0e60  FAT 0x1820  LOW 0x1940  VGABUF 0x1ba0  HEAP 0x1be0 = 111.5 KB   (heap KB = int 12h - 111.5)
+kernsize[big]: *** the image rung UNCROSSED: 113 -> 112 steps of 512 - 512 bytes of every machine's RAM, back ***
 ```
 
 Every `+n` is a delta against the baseline blessed into this file, so it reads
@@ -180,10 +180,11 @@ line:
 - **`boot`** — the same size against guard 5.
 - **`segment`** — `.text` + `.bss` against guard 2.
 - **`ladder`** — every segment base, and the line every RAM figure in the
-  project falls out of: **heap KB = int 12h − 112.0** on `kern_big`
+  project falls out of: **heap KB = int 12h − 111.5** on `kern_big`
   (**80.5** on `kern_small`; both move with every rung crossing — re-read
   the line rather than carrying the number).
-- **`*** ... CROSSED`** — the BILLING EVENT: the machine's RAM moved.
+- **`*** ... CROSSED`** (or `UNCROSSED`) — the BILLING EVENT: the machine's
+  RAM moved.
 
 Three things about the tool:
 
@@ -220,33 +221,33 @@ had added.
   "big": {
     "boot2": 2250,
     "bootmax": 192512,
-    "bss": 6393,
+    "bss": 6389,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 39646,
+    "cold": 39434,
     "coldpara": 2496,
     "fatpara": 288,
-    "imgpara": 3616,
-    "kend": 7168,
+    "imgpara": 3584,
+    "kend": 7136,
     "kseg": 96,
-    "ksize": 113152,
+    "ksize": 112640,
     "lowbss": 9182,
     "lowpara": 608,
     "minramkb": 196,
     "ovl": 1417,
     "ovlw": 5037,
     "stk0": 512,
-    "text": 50966,
+    "text": 50892,
     "vgabuf": 848,
     "vgabufpara": 64
   },
   "emu": {
     "boot2": 2250,
     "bootmax": 192512,
-    "bss": 6393,
+    "bss": 6389,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 39770,
+    "cold": 39558,
     "coldpara": 2496,
     "fatpara": 288,
     "imgpara": 3616,
@@ -259,17 +260,17 @@ had added.
     "ovl": 1418,
     "ovlw": 5037,
     "stk0": 512,
-    "text": 51226,
+    "text": 51152,
     "vgabuf": 848,
     "vgabufpara": 64
   },
   "small": {
     "boot2": 2250,
     "bootmax": 122880,
-    "bss": 5169,
+    "bss": 5165,
     "budget": 107520,
     "codemax": 65536,
-    "cold": 28125,
+    "cold": 27909,
     "coldpara": 1760,
     "fatpara": 64,
     "imgpara": 2816,
@@ -282,7 +283,7 @@ had added.
     "ovl": 423,
     "ovlw": 2789,
     "stk0": 512,
-    "text": 39494,
+    "text": 39438,
     "vgabuf": 0,
     "vgabufpara": 0
   }
@@ -308,12 +309,12 @@ was, and a package's region is an ordinary heap claim now (SPEC.md §20.1).
 
 | rung | segment | size | what it is |
 |---|---|---:|---|
-| image (`.text` 50,966 + `.bss` 6,393) | `KERNEL_SEG` 0x0060 | 57,856 | resident code in the kernel's own segment, its read-only data and its scratch |
-| `.cold` (39,646) | `COLD_SEG` 0x0E80 | 39,936 | resident code with a CS of its own (SPEC.md §2.6): the file system, the Standard File dialog, associations, drivers, the heap, the desktop and the on-demand modules' thunks |
-| FAT window | `FAT_SEG` 0x1840 | 4,608 | `DSK_FAT_SECS` = 9 sectors of the mounted volume's FAT (SPEC.md §18.8); 2 sectors = 1,024 bytes on `kern_small` |
-| `.lowbss` (9,182) + task 0's stack (512) | `LOW_SEG` 0x1960 | 9,728 | the mount-owned disk buffers, every task stack, the two private ISR stacks, and the tables that left the segment |
-| `.vgabuf` (848) | `VGABUF_SEG` 0x1BC0 | 1,024 | `vga_p4tab` and `vga_pbuf`, SPEC.md §5.4.1.3's planar decoder. **The only rung a machine can decline**: `mem_floor_ax` seeds the heap floor UNDER it when `[vid_avail] & VID_A_VGA` is clear, so a mono machine's heap starts 1,024 bytes lower (§39.22). 0 on `kern_small` and on `NOPLANE` builds |
-| **`KERN_SIZE`** | heap at `HEAP_SEG` 0x1C00 | **113,152** | 112.0 KB on VGA, 111.0 on a 1bpp adapter |
+| image (`.text` 50,892 + `.bss` 6,389) | `KERNEL_SEG` 0x0060 | 57,344 | resident code in the kernel's own segment, its read-only data and its scratch |
+| `.cold` (39,434) | `COLD_SEG` 0x0E60 | 39,936 | resident code with a CS of its own (SPEC.md §2.6): the file system, the Standard File dialog, associations, drivers, the heap, the desktop and the on-demand modules' thunks |
+| FAT window | `FAT_SEG` 0x1820 | 4,608 | `DSK_FAT_SECS` = 9 sectors of the mounted volume's FAT (SPEC.md §18.8); 2 sectors = 1,024 bytes on `kern_small` |
+| `.lowbss` (9,182) + task 0's stack (512) | `LOW_SEG` 0x1940 | 9,728 | the mount-owned disk buffers, every task stack, the two private ISR stacks, and the tables that left the segment |
+| `.vgabuf` (848) | `VGABUF_SEG` 0x1BA0 | 1,024 | `vga_p4tab` and `vga_pbuf`, SPEC.md §5.4.1.3's planar decoder. **The only rung a machine can decline**: `mem_floor_ax` seeds the heap floor UNDER it when `[vid_avail] & VID_A_VGA` is clear, so a mono machine's heap starts 1,024 bytes lower (§39.22). 0 on `kern_small` and on `NOPLANE` builds |
+| **`KERN_SIZE`** | heap at `HEAP_SEG` 0x1BE0 | **112,640** | 111.5 KB on VGA, 110.5 on a 1bpp adapter |
 
 `kern_small`'s ladder is `KERNEL 0x0060  COLD 0x0B60  FAT 0x1240  LOW 0x1280
 HEAP 0x1420` — **80,896 bytes, 80.5 KB** — so a 128KB machine has 47.5 KB of
@@ -344,7 +345,7 @@ carries a copy of the ladder:
 | `Stacks` | `SKB_STK` + `SKB_STK0` | 2,816 + 512 | 3 |
 | `Disk bufs` | `SKB_DSK` = `DSK_WIN_BYTES` | 3,328 | 3 |
 | `FAT snap` | `SKB_FAT` = `FAT_PARA`·16 | 4,608 | 5 |
-| **`System`** | **`KERN_SIZE`** | **113,152** | **111** |
+| **`System`** | **`KERN_SIZE`** | **112,640** | **110** |
 
 The KB column is rounded **cumulatively** — each running boundary to the
 nearest kilobyte, each row the difference of two boundaries — so the rows
@@ -620,24 +621,24 @@ there and nowhere else.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 33,107 | 36.5% |
-| the window system and its furniture | 24,279 | 26.8% |
+| the file system, end to end | 32,817 | 36.3% |
+| the window system and its furniture | 24,279 | 26.9% |
 | drawing: adapters, primitives, glyphs, icons | 14,926 | 16.5% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,761 | 9.7% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 8,765 | 9.7% |
 | the kernel proper: API table, heap, scheduler, events | 7,407 | 8.2% |
 | the three built-in kinds | 1,542 | 1.7% |
 | the Control Panel | 590 | 0.7% |
-| **total** | **90,612** | |
+| **total** | **90,326** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` | `.boot2` |
 |---|---:|---:|---:|---:|---:|---:|
 | `wm.inc` — the window manager (§11) | 11,671 | 94 | **11,765** | 1,074 | — | — |
-| `files.inc` — the Disk window (§22) | 1,222 | 8,976 | **10,198** | 481 | — | — |
+| `files.inc` — the Disk window (§22) | 1,148 | 8,756 | **9,904** | 477 | — | — |
 | `vga12.inc` — the VGA planar primitives (§5) | 7,242 | 702 | **7,944** | 162 | 526 | — |
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,832 | **6,227** | 890 | — | — |
-| `diskw.inc` — the FAT write path (§18.4–18.6) | 181 | 5,081 | **5,262** | 158 | — | — |
+| `diskw.inc` — the FAT write path (§18.4–18.6) | 181 | 5,085 | **5,266** | 158 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,969 | **5,210** | 168 | — | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 3,795 | — | **3,795** | 151 | 128 | — |
 | `ui.inc` — the UI task and the event ladder (§13) | 3,377 | — | **3,377** | 58 | — | — |
@@ -663,7 +664,7 @@ there and nowhere else.
 | `lz.inc` — the LZ decoder for packages, drivers, files and the kernel itself (§20.13) | — | 650 | **650** | 266 | — | — |
 | `clock.inc` — the clock ladder (§37) | 606 | — | **606** | 59 | — | — |
 | `ctrl.inc` — the Control Panel (§31) | 335 | 255 | **590** | 28 | — | — |
-| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 82 | 354 | **436** | 52 | — | — |
+| `hiber.inc` — hibernate, the resident half of `HIBER.DRV` (§87) | 82 | 358 | **440** | 52 | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 433 | — | **433** | 25 | — | — |
 | `blank.inc` — the idle screen blanker (§64) | 194 | 236 | **430** | — | — | — |
 | `mod.inc` — on-demand kernel modules (§2.8) | 73 | 309 | **382** | 140 | — | — |
@@ -681,7 +682,7 @@ there and nowhere else.
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 3,053 | 18 | **3,071** | — | — | 421 |
-| **total** | **50,966** | **39,646** | **90,612** | **6,393** | **9,182** | **2,250** |
+| **total** | **50,892** | **39,434** | **90,326** | **6,389** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it
