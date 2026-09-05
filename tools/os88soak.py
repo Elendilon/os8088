@@ -180,9 +180,13 @@ def requirements():
             for line in _recipe_of(mk, f):
                 w = line.split()
                 cmd = w[0] if w else ""
-                if (cmd and "/" not in cmd and "$" not in cmd
-                        and not shutil.which(cmd)):
-                    tools.setdefault(cmd, []).append(f)
+                # A leading `-` is an argument that got to the front of a line
+                # some other way; `/` and `$` are paths and make variables,
+                # neither of which this can answer for.
+                if (cmd and not cmd.startswith("-") and "/" not in cmd
+                        and "$" not in cmd and not shutil.which(cmd)):
+                    if f not in tools.setdefault(cmd, []):
+                        tools[cmd].append(f)
         req.append(("declared artefacts", not tools,
                     "%d row-declared artefact(s), %d absent; the run builds "
                     "them up front. %s"
@@ -215,11 +219,25 @@ def _recipe_of(mk, target, seen=None):
     while prereq.rstrip().endswith("\\") and k + 1 < len(head):
         k += 1
         prereq = prereq.rstrip()[:-1] + head[k]
-    out = []
+    # **JOIN THE CONTINUATIONS FIRST.** A recipe line ending in `\` is one
+    # shell command spread over several, and reading each physical line's
+    # first word makes ARGUMENTS look like programs: `msegz.o88`'s recipe put
+    # `--part` and `--part-compress` on their own lines, and the check duly
+    # reported that build/msegz.img "needs `part`" - five times, because five
+    # rows declare it. A false name here is worse than no check: it is a
+    # capability gap that cannot be installed.
+    out, cur = [], ""
     for line in head[k + 1:]:
         if not line.startswith("\t"):
             break
-        out.append(line.lstrip("\t").lstrip("@-"))
+        cur += line.lstrip("\t").lstrip("@-").rstrip()
+        if cur.endswith("\\"):
+            cur = cur[:-1] + " "
+            continue
+        out.append(cur)
+        cur = ""
+    if cur:
+        out.append(cur)
     for tok in prereq.split():
         if tok.startswith("$(BUILD)/"):
             out += _recipe_of(mk, tok[len("$(BUILD)/"):], seen)
