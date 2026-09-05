@@ -9434,11 +9434,19 @@ up throughout every drop, so the IRQ gate never glitches the bus.
 The raise provokes the identify burst ('M', maybe '3', maybe a PnP string —
 bit-6-set bytes the resync rule would read as packet headers), and unlike
 `mouse_init`'s poll-and-discard the burst now arrives through the live ISR.
-So the raise arms `[mou_drain]` and **the ISR discards RX** for `MOU_DRAINT`
-ticks (~0.5s). The accepted seam: motion that *starts* inside a drain window
-is eaten with it, self-healing on the next packet — the price of never
-reading a PnP string as clicks. After the first real packet the whole
-mechanism is one `cmp` per UI pass, forever — with one binding subtlety:
+So the raise arms `[mou_drain]` and **the ISR discards RX** — but only until
+the burst goes **quiet**: each dropped byte re-stamps `[mou_dstamp]`, and the
+window closes `MOU_DRAINQ` ticks after the last byte, bounded above by
+`MOU_DRAINT` ticks from the raise so continuous motion cannot hold it open
+(§9.4.8). A period mouse's one-byte burst therefore drains at once, and an
+idle-then-move user's first motion — arriving long after the burst — closes
+the window and is read with no wait. The accepted seam shrinks to motion that
+overlaps the burst itself, self-healing on the next quiet gap. And the first
+offer is not made until `[mou_hpt]`, which `kmain` stamps at the first desktop
+frame, is `MOU_REPOLL` ticks old, so the interval is timed from when the
+pointer first exists rather than from `sched_init` (§9.4.8). After the first
+real packet the whole mechanism is one `cmp` per UI pass, forever — with one
+binding subtlety:
 proof can arrive **mid-cycle** (a byte the UART latched before a drop can
 complete a packet while DTR is low), so the stand-down path must check the
 poller's state and restore DTR/RTS first. Standing down with DTR low would
@@ -10004,6 +10012,67 @@ rather than a detail:
 Twenty-two outbound calls widen to the far form through five `ovw_` shims. The
 whole move is `.text` **−1,006** for `.ovl` **+1,110**, and the `.ovl` bytes are
 not footprint.
+
+#### 9.4.8 The first offer is timed from the desktop, and the drain ends on quiet
+
+Two costs of the recovery mechanism land on the first seconds of the desktop
+— *"the mouse is dead for the first half second"* — and both were measured
+cycle-exact on a 5150 (docs/plans/MOUSE-BOOT-FREEZE-PLAN.md, which prices the
+three mechanisms that can hold the arrow after the desktop appears).
+
+**The poll interval is timed from the first desktop frame.** Its base is a new
+`.bss` word `[mou_hpbase]`, and `[ticks]` starts at `sched_init`, so the first
+drop used to fire the instant `[ticks]` reached `MOU_REPOLL` = 55. On a boot
+long enough to pass tick 55 before the desktop — a hard-disk boot, or any
+driver `SYSTEM.CFG` asks for — that is the **first UI pass**, dropping DTR
+under the user's hand exactly as they reach for the mouse. `kmain` now writes
+`[ticks]` into `[mou_hpbase]` right after `cursor_show`, and each raise re-bases
+it, so state 0 counts the interval from when the pointer first exists. A user
+who moves within `MOU_REPOLL` ticks (~3s) settles the port and the poller never
+drops at all; a machine with no mouse loses only one ~3s delay of its first
+offer, and thereafter polls exactly as before. Six bytes of `.text` plus the
+base word.
+
+It is deliberately **`[mou_hpbase]` and not `[mou_hpt]`**: `[mou_hpt]` stays 0
+until a real drop, because that is the whole of `sysbench`'s "poller stamp
+(0=nvr)" field (§9.4.2) — nonzero there says the poller power-cycled the mouse,
+and basing the interval in it would make every machine read as though it had.
+So the two are split: `[mou_hpbase]` bases the interval (desktop, then each
+raise), `[mou_hpt]` carries the drop tick for the diagnostic and for state 1's
+low-hold.
+
+**The drain ends when the burst goes quiet, not on a fixed clock.** The raise
+arms `[mou_drain]` and stamps `[mou_draise]` (the raise tick) and `[mou_dstamp]`
+(the last-byte tick, initialised to the raise). The ISR drops each received
+byte, re-stamping `[mou_dstamp]`, and closes the window when it has been quiet
+for `MOU_DRAINQ` ticks (~165ms) **or** `MOU_DRAINT` ticks (~0.5s) have passed
+since the raise — the same floor/quiet/ceiling shape as §9.4.5's identify
+window. The close is *lazy*, decided when the next byte arrives, so:
+
+- a period mouse's one-byte burst is quiet at once, and the user's first real
+  motion — arriving after the burst — is read the instant it comes, with no
+  fixed wait;
+- a verbose PnP string keeps re-stamping `[mou_dstamp]` and drains for its
+  whole length, up to the `MOU_DRAINT` ceiling;
+- **continuous motion begun at the raise is bounded by that same ceiling**,
+  exactly as the old fixed window bounded it — so the change has no
+  worst-case regression, only a better typical case.
+
+Measured on one 360KB floppy boot with a hand moving through the window: the
+fixed drain ate **505 ms** of motion after a hot-plug raise (`MOU_DRAINT` = 9
+ticks); quiet-ended, the first motion after the burst is read at once.
+`MOU_DRAINQ` = 3 (~165ms) is safely wider than the sub-tick gaps within a
+1200-baud burst, and `MOU_DRAINT` stays 9 as the ceiling.
+
+**Neither half is testable against the case it exists for on any emulator
+here.** MartyPC's and 86Box's serial mice send one byte (`'M'`) and keep
+reporting with DTR held low, so the drain window can be *armed by hand* — set
+`[mou_drain]`, `[mou_dstamp]` and `[mou_draise]` and inject packets — but a
+real PnP burst, and a mouse that actually powers down on a DTR drop, are the
+Compaq Portable III's and the 5150's to confirm (docs/FIELD-MACHINES.md).
+`tests/sysbench`'s `'MO'` block (§9.4.2) reads `mou_hpst`, `mou_idn`,
+`mou_idb0` and `mou_need` on the field machine, which is what says which of the
+three mechanisms a given machine is paying.
 
 ### 9.5 COM1 or COM2 — the port is not asked and not configured
 
@@ -28174,6 +28243,114 @@ The cloner's buffer deliberately is not. Rounding its base up to a page would
 cost up to 64KB of the very claim whose **size is the trip count** (§18.99.4),
 so on a one-floppy machine the trade is *a disk swap to save half a second*.
 The alignment is refused for the same reason the buffer exists.
+
+### 18.100 …and the restart PARKS the heads, because the next boot inherits them
+
+**§18.97.4 recorded the symptom and named the cause in one sentence — *"`int
+19h` resets no hardware, so the second boot inherits drive B's head wherever
+the first session left it"* — and then fixed the READ rather than the state.**
+It narrowed the probe's ST0 test so a present drive stops being retired on the
+evidence of a head that is merely somewhere else. This fixes the STATE one step
+earlier: nothing has to leave the head somewhere else in the first place.
+
+The field report is the hard-disk installer's **Restart** (§52.10.6), and it is
+the worst case of the general defect for two reasons that compound:
+
+- **Copy Apps has just read a whole floppy.** The last transfer leaves the
+  head at whatever cylinder the last cluster was on, near cylinder 79 on a full
+  1.44 MB disk. So the head is never at track 0.
+- **It reboots into a hard-disk boot**, where nothing touches the FDC before
+  `desk_init` asks it a question. §18.97.5's table is this machine: `ST3 = 29`,
+  TRK0 clear, the probe's step 2 — **20 ticks** against a floppy boot's 1.
+
+So the fast path is missed on *every* restart after any use of B: — the "long
+detect always fires" half. The other half is arithmetic: **RECALIBRATE steps at
+most 77 times**, then a 765 gives up with seek end and EQUIPMENT CHECK
+(`ST0 = 7x`), which is the exact signature §18.97.4 keeps as the only positive
+evidence of absence. A head above cylinder 77 — where copying a full apps disk
+leaves it — cannot reach track 0 in the one recalibrate the probe issues, so it
+answers `71` for a present drive and **the drive is retired**. That is the
+"sometimes cannot find a drive" half, and *sometimes* is exact: it depends which
+cylinder the copy finished on.
+
+#### The fix is one BIOS call per drive, on the way out
+
+`ui_cmd_reboot` gains a call after `sched_unhook` and before `int 19h`:
+`dsk_fdd_park_x` issues the ROM's **`int 13h AH=00h` — RESET DISK SYSTEM, which
+recalibrates the head to track 0 — once per unit the equipment word claimed.
+
+**It is the BIOS's call and not our port sequence**, which is the whole of why
+this is thirty-one bytes rather than the two-hundred-odd an in-kernel
+recalibrate cost. The ROM does the handshake, the seek wait and the retry;
+`dsk_fdd_park_x` reads no result, because the `int 19h` two instructions along
+resets the FDC whatever state the call leaves. The `int 13h` vector is the
+ROM's — the kernel calls it directly everywhere (`clone.inc`, `dsk_dbg_raw`) —
+and after `sched_unhook` it is unquestionably so.
+
+**Verified on both ROMs it has to work on.** Driven from the debug server —
+dirty the head by reading B:, then execute one `int 13h AH=00h DL=1` in the
+guest and read `ST3` back — the head moves from `29` (TRK0 clear) to `39` (set)
+on the field **GLaBIOS** *and* on the genuine **IBM 5150 27-Oct-82** ROM that
+§18.97.4 was reported on. The retry the IBM BIOS wraps its recalibrate in is
+strictly more than the probe's single one, so the 77-step case an emulator
+cannot stage is covered better here than the probe covers it.
+
+**A recalibrate needs no MEDIA.** It is a head-carriage move, not a read, so the
+empty drive a Restart dialog has just asked the user to create (§52.10.6) is
+parked all the same — which an `AH=02h` read, waiting out a data phase that
+never comes, could not do without seconds of motor grinding per empty drive.
+
+**After `sched_unhook`, not before.** The scheduler is down by then, so no task
+can be switched onto a different stack in the middle of the BIOS call — the one
+hazard `dsk_dbg_raw` holds `sch_lock` against, and the reason this needs none.
+The hibernate module's copy of the same reboot tail (§87) takes the call too,
+for the same reason and in the same order; its *resume* path is left alone,
+because it restores a saved desktop rather than building one, so `desk_init`
+never runs and §18.97 is never asked.
+
+**Every unit the equipment word claimed, not every unit with a volume row.** A
+boot that retired unit 1 (§18.97.2) has no row for it, so a row-driven park
+would leave that head where it was and the drive would be retired again on the
+next boot, and the next — lost for good. `int 11h` claims it afresh every boot;
+park what `int 11h` claims, and one recalibrate hands a wrongly-retired drive
+back.
+
+#### What it costs
+
+**31 bytes of `.cold` and 5 of `.text`, and no rung moves** — the cold rung had
+190 bytes free and keeps 159. There is no resident RAM cost beyond those bytes,
+which was the point of spending the BIOS's recalibrate instead of the kernel's:
+the in-kernel version, with its own handshake, wait and result helpers, was
+226 bytes and crossed a 512-byte cold rung.
+
+The restart's own time cost is a recalibrate per claimed unit — a head-carriage
+move, no motor spin-up — with the phantom drive of §18.97.2's misconfigured
+machine paying the BIOS's retry timeout for a unit that will not answer. That
+machine already pays §18.97's probe cost at boot and is the only one that pays
+here.
+
+#### `make NOFDDPARK=1` is the A/B, and the gate needs it
+
+The effect is visible only **across a reboot**, on the FDC's own ports, so a
+gate that cannot turn the fix off cannot tell a park that ran from a machine
+that happened to be parked already — which every emulator here is, because
+MartyPC returns drive 1's cylinder to 0 on the controller reset the BIOS does at
+boot (§18.97.4 verified that three ways). `tests/fddpark.py` therefore breaks on
+`ui_rb_go`, the label on `ui_cmd_reboot`'s own `int 0x19`, drives a SENSE DRIVE
+STATUS at unit 1 from the host, and reads TRK0 out of ST3. On
+`os8088_5150_cga_gla`:
+
+| | default | `NOFDDPARK=1` |
+|---|---|---|
+| a fresh boot | `39` — TRK0 | `39` |
+| after a Disk window read B: | `29` — **TRK0 clear** | `29` |
+| at `ui_rb_go` | **`39`** | **`29`** |
+
+Row 1 is §18.97.4's own field figure off an IBM-ROM 5150 and row 2 its other, so
+the emulator agrees with the machine that reported this before either arm is
+read. Row 3 is the claim, and it needs both columns: TRK0 set on one arm alone
+says only that *something* parked the head. `make NOFDDPARK=1` assembles byte
+for byte identical to the kernel before this section.
 
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
@@ -63016,13 +63193,84 @@ does. Four things differ, and each is doing work:
   asks `drv_owns_seg` as well as testing for a `0xFFxx` tag, so `System`'s
   `HEAP` column now equals the `HEAP` total whenever nothing else holds a
   claim.
-- **Its bss ships inside its image**, zero-filled on the floppy by
-  `tools/os88drv.py`. A package's bss is claimed by the loader because a
-  package's is tens of KB and its file arrives through a peek-then-size
-  dance; a driver's is a few hundred bytes, and paying for them on disk buys
-  a load path with **exactly one claim in it** — made at the size the
-  directory entry already reported, before a byte is read. Anything bulk (a
-  DMA buffer, a ring) is the driver's own `OSAPI_MEM_CLAIM` at attach.
+- **Its bss is declared, not shipped** — §51.1.1. It used to ship inside the
+  image, zero-filled on the floppy by `tools/os88drv.py`, and that bought a
+  load path with exactly one claim in it. It no longer does, and §51.1.2 is
+  what the second claim has to be. Anything bulk (a DMA buffer, a ring) is
+  still the driver's own `OSAPI_MEM_CLAIM` at attach.
+
+### 51.1.1 The bss is declared at `DRV_H_BSSP`, and the claim cannot be sized from the directory
+
+`tools/os88drv.py` strips a driver's trailing zero run and writes its length,
+in paragraphs, into the header byte at +31 — measured at **6,722 bytes across
+the twelve shipped drivers**, ether.drv alone carrying a single 4,066-byte
+run, every one of them a byte read off a floppy to be told it is zero
+(§20.13). A driver built before the byte existed has 0 there, which reads as
+"no bss" and is exactly right, so it needed no version bump and no driver
+source change.
+
+**What it costs is a claim the directory can no longer size.** The size the
+directory entry reports is the driver's image — §20.13.3.1's read expands a
+`'CZ'` file, so that figure is the unpacked image and not the packed file —
+and the size the driver *needs* is `image + bss`, a number that is inside the
+image and therefore unknown until the image is in memory and the claim has
+already been made. Peeking the header first would answer it, and costs an
+extra `int 13h` per driver on every boot (PERFORMANCE.md: ~400 ms a call, so
+seconds on the target machine). §51.1.2 is what is done instead, and what it
+costs.
+
+### 51.1.2 The claim is padded by `DRV_BSS_KB`, and the shrink cannot give it back
+
+The size the directory reports is what the driver needs *before* its bss —
+§20.13.3.1's read expands a `'CZ'` driver into the claim, so there is exactly
+one claim and it arrives holding the image. What it does not hold is the bss,
+whose length is a byte inside that image and so is unknown when the claim is
+made. `drv_load` therefore adds a fixed `DRV_BSS_KB` = 4 (255 paragraphs being
+4,080 bytes, so 4KB covers the largest declarable bss), and `drv_bss` hands the
+remainder back with `mem_regrow`.
+
+**The remainder does not come back.** `mem_regrow`'s shrink keeps the BASE and
+frees the TAIL — §50.3 path 1, "the record's length changes and that is all" —
+and the tail of a *top-down* claim is above the image, walled in between this
+driver and the one loaded before it. Only a later claim small enough to fit
+that gap can ever reach it, and drivers are 6–18KB against gaps of 1–4KB.
+`DRV_BSS_KB`'s own note priced this at "a few hundred transient bytes"; it is
+neither.
+
+Measured on a machine whose `SYSTEM.CFG` wants every driver
+(`tests/heapmap.py`), against the same machine before a driver's bss stopped
+shipping:
+
+| | before | today |
+|---|---|---|
+| driver claims | `8D800..9FC00`, contiguous | `8A000..9EC00`, four holes |
+| free runs | 2 | 6 |
+| after shed + compaction | **1 run, 454.5K** | 5 runs, 439.0K |
+| largest contiguous | 375.0K | 361.0K |
+
+`tests/heapmap.py` is the gate and it is RED on this, deliberately: the row is
+the only thing in the suite that looks at *where* the free memory is, and
+§66.10's invariant — that after shedding caches and compacting, nothing is
+walled off behind something pinned — is exactly what a stranded tail breaks.
+
+**What has already been ruled out**, because each looked like the answer and
+was not: it is not the file compression (a `PKGZ=` tree strands the same four
+holes, `os88drv.py` stripping the bss whatever `PKGZ` says); it is not the
+allocator (a top-down claim is placed at the highest base that FITS over every
+gap, and the map shows a 2KB claim landing inside a former 9KB hole); and it
+was not, on its own, the two-claim scratch that §20.13.3.1 has since deleted —
+removing the pad while that scratch stood still left 5 runs and 364.0K.
+
+**What is left to decide is where the size comes from.** Peeking the header
+before claiming answers it exactly and costs an extra `int 13h` per driver on
+every boot — hundreds of milliseconds on the target machine, which is why it
+was refused. Two cheaper routes exist and neither has been built: `drv_bss`
+could GROW instead of the claim padding (`mem_regrow` path 3 relocates and
+copies, and only four shipped drivers would need it, none of them on the boot
+path); or the `'CZ'` container could declare an unpacked length that already
+includes the bss, so the expander zero-fills the tail and the directory
+reports the driver's true footprint — no pad, no shrink, no grow, and
+`drv_bss` has nothing left to do.
 
 ### 51.2 The contract
 

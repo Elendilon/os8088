@@ -79,6 +79,7 @@ build you think you are AND hands you every live variable at its listing
 offset with no instrumentation added. `verify` is that check as one command.
 """
 import argparse
+import errno
 import json
 import os
 import re
@@ -1197,15 +1198,36 @@ def _killable(d):
 
 
 def _write_record(d):
+    """Publish an instance's record. **A VANISHED DIRECTORY IS NOT AN ERROR.**
+
+    Every `launch` reaps first, so on a busy box several reaps run at once
+    over ONE registry: A lists it, B drops a finished instance's tree, and A
+    then writes a record into a directory that is no longer there. Uncaught,
+    that is a FileNotFoundError out of the middle of `launch` - which reads
+    as the row you were starting being broken, and names a directory
+    belonging to some other row. Measured at a lane of three: 2 runs in 24.
+
+    Retiring the same instance twice is not a conflict - both writers are
+    saying the same thing about a machine that has stopped - so the loser
+    simply has nothing to write to, and says so by returning False. A caller
+    that is REGISTERING an instance made the directory itself a moment ago,
+    and for it this cannot fire.
+    """
     path = os.path.join(d["dir"], "instance.json")
     tmp = path + ".tmp"
     body = dict(d)
     body.pop("dir", None)
     body.pop("alive", None)
     body.pop("owner_alive", None)
-    with open(tmp, "w") as f:
-        json.dump(body, f, indent=1, sort_keys=True)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "w") as f:
+            json.dump(body, f, indent=1, sort_keys=True)
+        os.replace(tmp, path)
+    except OSError as e:
+        if e.errno != errno.ENOENT:
+            raise
+        return False                    # somebody else retired it first
+    return True
 
 
 def _drop_instance(d, heavy_only=False):

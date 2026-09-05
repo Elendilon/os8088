@@ -4991,6 +4991,23 @@ kmain:
 
     call cursor_show
 
+    mov ax, [ticks]             ; TIME THE HOT-PLUG POLLER FROM THE DESKTOP
+    mov [mou_hpbase], ax        ; (SPEC.md 9.4.8). [mou_hpbase] is the poll
+                                ; interval's base and starts at 0, and [ticks]
+                                ; started at sched_init, so the poller's first
+                                ; DTR drop fired the instant [ticks] passed
+                                ; MOU_REPOLL - which on a boot that reaches the
+                                ; desktop past tick 55 (a hard disk, or any
+                                ; driver) is the FIRST UI pass, dropping the
+                                ; mouse's power under the user's hand. Based
+                                ; here, the ~3s interval is measured from when
+                                ; the pointer first exists: a user who moves
+                                ; inside it settles the port and the poller
+                                ; never drops. NOT [mou_hpt], which stays 0
+                                ; until a real drop so sysbench can read "the
+                                ; poller never fired" (SPEC.md 9.4.2). AX is
+                                ; dead - the boot timer above stored its count
+
     call COLD_SEG:drv_notice_x  ; ...and only NOW say what did not load: a
                                 ; window needs a screen that has been painted
     BPMARK 10                   ; ...the cursor and the driver notice
