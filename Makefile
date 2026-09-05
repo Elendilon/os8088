@@ -3021,25 +3021,25 @@ $(BUILD)/hddtool.bin: drivers/hdd/hddtool.asm apps/os88ui.inc drivers/hdd/hddabi
 	$(NASM) -f bin -w+error $(DRVDEF) -I drivers/hdd/ -I drivers/ -I apps/ -I $(BUILD) -o $@ $<
 	@echo "hddtool: $(call FILESIZE,$@) bytes"
 
-# **IT IS THE ONE ARTEFACT ON THESE DISKS THAT PKGZ MUST NOT TOUCH**
-# (SPEC.md 20.13.5.1), which is why this rule spells out os88drv.py instead of
-# using $(OS88DRV). Every other package and driver is read by a loader that
-# knows about compression - ld_run_body for a .O88, drv_load for a .DRV, and
-# drv_load_at for the two overlays the KERNEL owns (XMEM.DRV, SAVER.DRV). This
-# one is read by HDD.DRV, with OSAPI_FILE_READ, which hands back exactly what
-# is on the disk (SPEC.md 20.14.3) - and the 32-byte header crosses
-# compression VERBATIM, so hd_tool_check's seven tests all still PASS and the
-# driver far-calls [es:6] into a compressed body. Not a refusal: a crash on
-# Format or Install.
+# IT WAS THE ONE ARTEFACT ON THESE DISKS THAT PKGZ MUST NOT TOUCH, and the
+# reason is kept because it is the shape of a whole class of bug: every other
+# package and driver is read by a loader that knows about compression -
+# ld_run_body for a .O88, drv_load for a .DRV, drv_load_at for the two
+# overlays the KERNEL owns - and this one is read by HDD.DRV, with
+# OSAPI_FILE_READ. Under the v4 body format that read handed back exactly
+# what was on the disk, the 32-byte header crossed compression VERBATIM, so
+# hd_tool_check's seven tests all still PASSED and the driver far-called
+# [es:6] into a compressed body. Not a refusal: a crash on Format or Install.
 #
 # Since SPEC.md 20.13.3.1 a compressed driver is a 'CZ' file and the read
-# hd_tool_need makes IS the transparent one, so this file could now be
-# compressed like any other, to buy 4,202 bytes - four of a 360KB disk's 354
-# clusters - once hd_tool_need's claim is checked against the hint's size.
-# That is a change worth making on its own evidence, not a line in a
-# compression default, and tests/unit/t_pkg.py holds it plain until then.
+# hd_tool_need makes IS the transparent one (20.14.3): the tool arrives
+# EXPANDED, into a claim the hdd.bin rule below cuts from the IMAGE, and
+# hd_tool_check runs against the image. So it takes $(OS88DRV) like every
+# other driver (SPEC.md 20.13.5.1), tests/unit/t_pkg.py asserts it is packed
+# whenever the rest are - a plain tool beside compressed drivers is this rule
+# falling back - and tests/hddcp.py opens Format and Install off it.
 $(BUILD)/hddtool.drv: $(BUILD)/hddtool.bin tools/os88drv.py $(PKGZSTAMP)
-	python3 tools/os88drv.py $(BUILD)/hddtool.bin -o $@
+	$(OS88DRV) $(BUILD)/hddtool.bin -o $@
 
 # -DHDTOOL_KB is the claim HDD.DRV makes for the tool, and it is injected the
 # way boot.asm is told KERNEL_SECTORS: there is no file-size slot in the API,

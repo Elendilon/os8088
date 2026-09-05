@@ -212,25 +212,28 @@ def main():
         elif ver == V_MOD:
             mods += 1
 
-    # **THE ONE ARTEFACT THAT MUST NOT BE COMPRESSED** (SPEC.md 20.13.5.1).
-    # `PKGZ ?= lz4` compresses every package and every driver, and every one of
-    # them is read by a loader that knows: ld_run_body for a .O88, drv_load for
-    # a .DRV, drv_load_at for the two overlays the KERNEL owns. HDDTOOL.DRV is
-    # read by HDD.DRV with OSAPI_FILE_READ, which hands back what is on the
-    # disk - and its 32-byte header crosses compression VERBATIM, so all seven
-    # of hd_tool_check's tests still pass and the driver far-calls [es:6] into
-    # a compressed body. The failure is a crash on Format or Install, on a
-    # machine with a hard disk, which is not what a shipped floppy is tested
-    # on. Nothing else in the tree can state this, because "who loads it" is
-    # not a property of the file.
+    # HDDTOOL.DRV IS COMPRESSED WITH THE REST (SPEC.md 20.13.5.1) - and it was
+    # the one artefact that must NOT be, for a reason worth keeping: it is read
+    # by HDD.DRV with OSAPI_FILE_READ rather than by a loader, and under the v4
+    # body format that read handed back what was on the disk, the 32-byte
+    # header crossing compression VERBATIM, so all seven of hd_tool_check's
+    # tests passed and the driver far-called [es:6] into a stream - a crash on
+    # Format or Install, on a machine with a hard disk. Since 20.13.3.1 a
+    # compressed driver is a 'CZ' file and that read is the transparent one,
+    # so the tool arrives expanded into a claim cut from its image, and the
+    # loop above has already checked what it expands to as a driver.
+    #
+    # What THIS asserts is that the rule did not quietly fall back: when the
+    # build is compressing - any OTHER .drv is a 'CZ' file - the tool is one
+    # too. `make PKGZ=` packs nothing and asserts nothing here.
     tool = arts.get("HDDTOOL.DRV")
     if tool is not None:
-        eq(tool[:2] != b"CZ" and struct.unpack_from("<H", tool, 8)[0] == len(tool),
-           True, "HDDTOOL.DRV is NOT compressed",
-           "HDD.DRV reads it with OSAPI_FILE_READ into a claim of its own "
-           "sizing, and its Makefile rule names os88drv.py rather than "
-           "$(OS88DRV) so that stays a decision taken on its own evidence "
-           "(SPEC.md 20.13.5.1)")
+        others = drvs_cz - (1 if tool[:2] == b"CZ" else 0)
+        if others:
+            eq(tool[:2], b"CZ", "HDDTOOL.DRV is compressed with the rest",
+               "its Makefile rule takes $(OS88DRV) like every other driver, "
+               "and a plain tool beside %d compressed drivers is that rule "
+               "falling back (SPEC.md 20.13.5.1)" % others)
 
     # Everything else in build/ that an image can carry, so the freshness
     # check below covers the kernel, the fonts, the logo and README.TXT too.

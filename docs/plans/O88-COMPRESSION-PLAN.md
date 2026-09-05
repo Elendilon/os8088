@@ -1430,9 +1430,11 @@ tests pass on a compressed tool and the driver far-calls `[es:6]` into the
 stream. A crash on Format or Install, on a machine with a hard disk, which is
 not the machine a shipped floppy gets tested on. Its rule names `os88drv.py`
 rather than `$(OS88DRV)`, and `t_pkg` asserts it, because "who loads it" is
-not a property of the file. It costs 4,202 bytes — four of 354 clusters at
-360KB — and buying them back means a peek-then-read or a second claim in
-`HDD.DRV`, which is its own change.
+not a property of the file. It cost four of 354 clusters at 360KB, and
+buying them back meant a peek-then-read or a second claim in `HDD.DRV` —
+until a compressed driver became a `'CZ'` file and the read the tool already
+made became the transparent one, at which point it was one word in a
+Makefile rule (13.14.5, taken).
 
 ### 13.10 MAKING THE COMPRESSED KERNEL THE DEFAULT
 
@@ -2067,12 +2069,14 @@ tree the row passes on, not the one it was first read off:
 - LZB's literal path through the shared take/copy: −7 bytes for ~+120 cycles
   a literal, which on that format is half its speed. Refused.
 - The bit reader as a subroutine: −6 bytes for ~+30% on LZB. Refused.
-- `HDDTOOL.DRV` (SPEC.md 20.13.5.1) is now readable compressed by
-  construction — `hd_tool_need`'s read IS the transparent one, and its
-  `HDTOOL_KB` claim is cut from the IMAGE by the Makefile, so an expanded
-  tool fits it: 4,202 bytes of the 360KB system disk, four clusters, one
-  word in a Makefile rule, and `tests/unit/t_pkg.py` holds it plain until
-  somebody writes the QEMU row that drives it.
+- `HDDTOOL.DRV` (SPEC.md 20.13.5.1) — **TAKEN**, the day after the pass
+  landed: `hd_tool_need`'s read IS the transparent one and its `HDTOOL_KB`
+  claim is cut from the IMAGE by the Makefile, so an expanded tool fits it by
+  construction. One word in a Makefile rule, the gate in `tests/unit/t_pkg.py`
+  turned round to assert it is packed whenever the rest are, and
+  `tests/hddcp.py` opening Format and Install off it on MartyPC. 8,304
+  bytes against 12,567, 9 clusters of the 360KB system disk
+  against 13; the disk stands at 273 of 354 against 277.
 - The kernel modules could be `'CZ'` files by the same route a driver now is
   (their claim is cut from `drv_find`), for system-disk clusters and no
   kernel bytes; their rules are `os88mod.py`'s and not `$(OS88DRV)`'s.

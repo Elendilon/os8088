@@ -31627,7 +31627,8 @@ the driver loader to use it. What made the move possible is §20.13.7: a claim
 of exactly the unpacked size is enough, so there is no in-place margin to
 find room for.
 
-`HDDTOOL.DRV` stays plain (§20.13.5.1), for the reason given there.
+`HDDTOOL.DRV` is compressed with the rest since the second size pass
+(§20.13.5.1); it stayed plain until then, for the reason given there.
 
 #### 20.13.4 A REFUSAL IS A NORMAL PATH, and the bound is not optional
 
@@ -31724,29 +31725,34 @@ and reported the wrong build arm.
 is compressed** — `ld_run_body` for a `.O88` (§21), `drv_load` for a `.DRV`
 (§51), and `drv_load_at` for the two overlays the *kernel* owns, `XMEM.DRV`
 (§41.12) and `SAVER.DRV` (§79.2), which share `drv_load`'s body precisely so
-there is no second copy to forget. `HDDTOOL.DRV` is the exception: it is
+there is no second copy to forget. `HDDTOOL.DRV` WAS the exception: it is
 `HDD.DRV`'s overlay (§52.11), read by `hd_tool_need` with `OSAPI_FILE_READ`
 into a claim of `HDTOOL_KB`, which the Makefile injects from the built tool's
-own size — the image's, rounded up to a kilobyte.
+own size — the image's, rounded up to a kilobyte — and under the v4 body
+format that read handed back what was on the disk. The 32-byte header
+crossed compression verbatim, so `hd_tool_check`'s seven tests passed on a
+stream and the next instruction far-called `[es:6]` into it: not a refusal
+but a crash on Format or Install, on a machine with a hard disk, which is
+not the machine a shipped floppy is tested on. Its Makefile rule spelled out
+`os88drv.py` and `tests/unit/t_pkg.py` held it plain, because *who loads a
+file* is not a property of the file and nothing else in the tree could state
+it.
 
-**Since §20.13.3.1 that read would do all of it.** A compressed `.DRV` is a
-`'CZ'` container and `OSAPI_FILE_READ` is the transparent read (§20.14.3): a
-compressed tool would arrive EXPANDED into a claim that was cut from the
-image, and `hd_tool_check`'s seven tests would run against the image rather
-than the stream. The crash this paragraph used to describe — the seven header
-tests passing on a stream that crossed the header verbatim, and the next
-instruction far-calling `[es:6]` into it — went with the v4 body format.
+**Since §20.13.3.1 that read does all of it, and the tool is compressed with
+the rest.** A compressed `.DRV` is a `'CZ'` container and `OSAPI_FILE_READ`
+is the transparent read (§20.14.3): the tool arrives EXPANDED into a claim
+that was cut from the image, `DX:AX` is the image's size, and
+`hd_tool_check` runs against the image. The rule takes `$(OS88DRV)` like
+every other driver's. `t_pkg.py` now asserts the opposite of what it did —
+that the tool is a `'CZ'` file whenever any other driver is, so the rule
+cannot fall back to plain unnoticed (and it caught exactly that on the first
+build, a stale plain `hddtool.drv` that no prerequisite of the rule had
+touched) — and `tests/hddcp.py` is the row that opens Format and Install off
+it, on MartyPC's `os8088_xt_hdd`.
 
-So its Makefile rule names `os88drv.py` and not `$(OS88DRV)`, and
-`tests/unit/t_pkg.py` asserts it, for a weaker reason than it used to: not
-that it would break, but that nothing has driven it — the hard-disk driver is
-QEMU-only (docs/TESTING.md), and the row that proves a compressed tool loads
-and formats has not been written.
-
-**What that leaves on the table is 4,202 bytes**, four of a 360KB disk's 354
-clusters. Taking it is one word in that Makefile rule and the row that
-exercises it — a change worth making on its own evidence, and not one to fold
-into a compression default.
+What it bought: `HDDTOOL.DRV` is **8,304 bytes against 12,567**
+(66.1%), 9 clusters of the 360KB system disk against 13, and that
+disk stands at 273 of 354 clusters against 277.
 
 #### 20.13.6 The kernel carries BOTH decoders, and the disks are LZ4
 
