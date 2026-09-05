@@ -39,9 +39,9 @@
 ; =============================================================================
 
 %ifdef FCP_MOD
-MOD_MAX     equ 7               ; rows in mod_tab - SEVEN on kern_small, which
+MOD_MAX     equ 6               ; rows in mod_tab - SIX on kern_small, which
 %else                           ; alone carries Cut/Copy/Paste and the file
-MOD_MAX     equ 5               ; dialog as modules
+MOD_MAX     equ 4               ; dialog as modules
 %endif
 MOD_CTRL    equ 0               ; the Control Panel (SPEC.md 31)
 MOD_FMT     equ 1               ; the floppy formatter (SPEC.md 18.96)
@@ -55,13 +55,12 @@ MOD_FCP     equ 4               ; Cut/Copy/Paste (SPEC.md 22.3-22.5),
                                 ; bodies resident in `.cold`
 MOD_FDLG    equ 5               ; ...and the Standard File dialog (SPEC.md 38,
                                 ; 38.0), on the same terms
-MOD_CMPR    equ 6               ; ...and the LZB compressor after them
-%else
-MOD_CMPR    equ 4               ; the LZB compressor (SPEC.md 20.15), which is
-%endif                          ; BOTH builds' - the Compress verb is not a
-                                ; feature kern_small does without, and the
-                                ; thing that would have made it resident (an
-                                ; 8KB hash table) is the caller's block
+%endif
+                                ; The LZB compressor (SPEC.md 20.15) has NO
+                                ; row: it rides in the cloner's image as its
+                                ; second entry (20.15.3), on both builds, so a
+                                ; row, a name and a mod_fp block are what it
+                                ; does not cost
 
 MOD_NENT    equ 7               ; far-pointer slots reserved per module. A
                                 ; fixed stride, so a thunk's
@@ -225,7 +224,7 @@ mod_f_hib:  db 'HIBER.DRV', 0   ; ...and a fourth: hibernate (SPEC.md 87),
 mod_f_fcp:  db 'FILECP.DRV', 0  ; ...and kern_small's fifth (SPEC.md 22.3)
 mod_f_fdlg: db 'FDLG.DRV', 0    ; ...and its sixth (SPEC.md 38.0)
 %endif
-mod_f_cmpr: db 'COMPRESS.DRV', 0 ; ...and the compressor, on both (SPEC.md 20.15)
+                                ; (the compressor has no file: SPEC.md 20.15.3)
                                 ; ending DRV read-only + hidden + system by
                                 ; EXTENSION, the installer's `*.DRV` copy rule
                                 ; picks it up, and neither of these is in
@@ -252,10 +251,6 @@ mod_r_fdlg:                     ; ...and this one is NAMED, because SPEC.md
                                 ; together by KERN_SMALL, and decoupling them
                                 ; is an undefined symbol rather than a silent
 %endif                          ; read of the wrong word
-    dw 0, mod_f_cmpr            ; MOD_CMPR - LAST on both builds, so the row
-                                ; the two configurations share is at a
-                                ; different index in each and neither has a
-                                ; hole. mod_map is written in this order too
 
 MOD_TAB_OFF equ mod_tab - $$    ; mod_tab AS A NUMBER. .text has vstart=0
                                 ; (kernel.asm), so this IS the address every

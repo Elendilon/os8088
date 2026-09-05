@@ -111,7 +111,6 @@ class Tree(object):
         """
         e = dict(os.environ)
         e["OS88_BUILD"] = self.dir          # which kernel the map describes
-        e["OS88_TREE"] = self.dir           # ...and where the artefacts are
         if self.defines:
             e["OS88_DEFINES"] = " ".join(self.defines)
         return e
@@ -132,8 +131,16 @@ class Tree(object):
         looking: `blitcut` died inside `no_saver`, three frames below its own
         code, with a message about a stale build.
         """
+        # **`OS88_BUILD` ONLY. A PRIVATE TREE IS NOT THE RUN'S TREE.** The
+        # first version set both, and `plain()` reads $OS88_TREE - so a row
+        # taking an A/B got the KNOB tree back from `plain()` on its second
+        # pass, applied the SHIPPED defines to it, and os88sym refused the map
+        # naming a directory the row had never asked for. tests/dispseam.py
+        # died that way on its second machine, in the arm with no knob in it.
+        #
+        # The two variables have owners: $OS88_TREE is the RUNNER's, set once
+        # for a whole frozen run (14.2), and nothing here may take it over.
         os.environ["OS88_BUILD"] = self.dir
-        os.environ["OS88_TREE"] = self.dir
         os.environ.pop("OS88_DEFINES", None)
         if self.defines:
             os.environ["OS88_DEFINES"] = " ".join(self.defines)
@@ -422,6 +429,50 @@ def tree_root():
     return os.environ.get("OS88_TREE") or None
 
 
+def _why(out, err):
+    """The part of a failed `make` that says WHY, not the last 2000 bytes.
+
+    A knob build ends with `kernsize`'s BUILT WITH A KNOB banner, and that
+    banner is what a tail-2000 capture returns - so `vgadirty` and three
+    t_buildmatrix rows reported a failure whose message was six lines of
+    advice about rebuilding. The lines that matter are make's own error and
+    nasm's, and they are findable by name.
+    """
+    keep = []
+    for line in (err + "\n" + out).splitlines():
+        if re.search(r"\*\*\* |error:|Error \d|No rule to make|"
+                     r"refus|cannot |not found|Traceback", line):
+            keep.append(line)
+    tail = (err.strip() or out.strip()).splitlines()[-12:]
+    return "\n".join(keep[-12:] or tail)
+
+
+def use_build(sub):
+    """Point the symbol reader at a SUB-directory of the build, and answer it.
+
+        os88build.use_build("build/emuk")       # tests/vmmouse.py
+
+    **`os.environ.setdefault` IS WRONG HERE and was, in three rows.** The
+    intent it spelled is right - "a session driving this by hand with its own
+    $OS88_BUILD keeps it" - but under a frozen run the RUNNER sets that
+    variable for every row (docs/plans/SOAK-PARALLEL.md 14.2), so setdefault
+    found it already set and the row's own choice never happened. Measured:
+    tests/vmmouse.py kept the tree's plain kernel and died at its first symbol
+    with "the map describes a DIFFERENT kernel", naming `<tree>/kernel.bin`
+    where it wanted `<tree>/emuk/kernel.bin`.
+
+    The two cases are now distinguishable, which is what `$OS88_TREE` bought:
+    a value equal to the run's tree is the runner's default and not a choice,
+    and anything else is somebody's decision and is left alone.
+    """
+    cur = os.environ.get("OS88_BUILD")
+    root = tree_root()
+    if cur and not (root and os.path.abspath(cur) == os.path.abspath(root)):
+        return cur                      # a deliberate one: leave it
+    os.environ["OS88_BUILD"] = at(sub)
+    return os.environ["OS88_BUILD"]
+
+
 def at(path):
     """A `build/...` path, resolved against the run's tree (`$OS88_TREE`).
 
@@ -448,6 +499,20 @@ def at(path):
     if not root or not isinstance(path, str):
         return path
     q = path.replace("\\", "/")
+    # **A PATH ALREADY UNDER `build/trees/` IS ALREADY RESOLVED**, and
+    # re-basing it is how a tree ends up inside another tree. Only this module
+    # writes that prefix, so it is an exact marker of "somebody has already
+    # answered this question". Measured: `tests/fatwpin.py` applies its plain
+    # tree and then builds a `FATWNONE=1` one, and the `make` it spawns
+    # inherits $OS88_TREE - so the boothd rule's own
+    # `OS88_BUILD=build/trees/fatwnone-...` came back as
+    # `<plain tree>/trees/fatwnone-...`, a directory that does not exist.
+    # os88sym then had no kernel.bin to check against, the map went unchecked,
+    # and `-DKZ_HD` vanished exactly as the placeholder bug made it vanish -
+    # same symptom, a different cause, and one that only bites the rows that
+    # build a SECOND tree.
+    if q.startswith("build/trees/"):
+        return path
     if q == "build" or q.startswith("build/"):
         return os.path.join(root, q[len("build/"):]) if q != "build" else root
     return path
@@ -491,8 +556,8 @@ def tree(*args, **kw):
         r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
         if r.returncode:
             raise RuntimeError(
-                "os88build: `%s` failed:\n%s%s"
-                % (" ".join(cmd), r.stdout[-2000:], r.stderr[-2000:]))
+                "os88build: `%s` failed:\n%s"
+                % (" ".join(cmd), _why(r.stdout, r.stderr)))
         if not quiet:
             sys.stderr.write(r.stdout)
         defines = defines_for(args, build=d)

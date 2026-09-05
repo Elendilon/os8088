@@ -30,12 +30,14 @@
 
     OS88_HEADER 'LZFILE', lz_entry
 
-LZ_KB       equ 24             ; five 4KB buffers and room to spare
+LZ_KB       equ 24             ; six 4KB buffers, exactly
 LZ_A        equ 0x0000         ; PLAIN.TXT, expanded by nobody
 LZ_B        equ 0x1000         ; PACKED.TXT, expanded by the kernel
 LZ_C        equ 0x2000         ; PACKED.TXT raw, and the round trip
-LZ_D        equ 0x3000         ; WPLAIN.TXT, the window fixture as it is...
-LZ_E        equ 0x4000         ; ...and WINDOW.TXT, expanded through one
+LZ_D        equ 0x3000         ; WPLAIN.TXT, the tight fixture as it is...
+LZ_E        equ 0x4000         ; ...WINDOW.TXT, its LZB form, expanded into
+                               ; exactly its own size...
+LZ_F        equ 0x5000         ; ...and WLZ4.TXT, its LZ4 form, the same way
 LZ_CAP      equ 4096           ; each buffer's capacity - and a multiple of
                                ; every cluster size this disk can have, which
                                ; is OSAPI_FILE_READ_AT's precondition
@@ -207,14 +209,14 @@ lz_entry:
     mov di, lz_r_clear
     call lz_say
 
-    ; --- 7. THE SLIDING WINDOW (SPEC.md 20.14.2.4) --------------------------
-    ; WINDOW.TXT is 4,096 bytes of text wrapped LZB and read into a capacity
-    ; of exactly 4,096 - the tightest a caller sized from the size it was TOLD
-    ; can be, and LZ_MARGIN short of the in-place layout. So this read goes
-    ; through lz_win_x, nine refills of it, and NOTHING ELSE IN THE TREE DOES.
-    ; Its LZ4 twin is not on the disk at all: os88lz.py refuses to wrap a file
-    ; that would land here (SPEC.md 20.14.2.3), which is the other half of the
-    ; same rule and is checked on the host.
+    ; --- 7 and 8. THE TIGHT BUFFER (SPEC.md 20.14.2, 20.13.7) ---------------
+    ; WINDOW.TXT is 4,096 bytes of text wrapped LZB and WLZ4.TXT the same
+    ; bytes wrapped LZ4, each read into a capacity of exactly 4,096 - the
+    ; tightest a caller sized from the size it was TOLD can be, and the case
+    ; that used to need a sliding window for one format and be refused for
+    ; the other. A stream ends in a raw tail now and expands in place inside
+    ; exactly U, so both arrive whole, and nothing in the read knows they were
+    ; the awkward case. The names are history: the window is gone
     mov si, lz_nwpl
     mov bx, LZ_D
     call lz_read
@@ -231,7 +233,7 @@ lz_entry:
     mov cx, ax
     mov di, LZ_D
     mov si, LZ_E
-    call lz_cmp                 ; ...and so is every byte, across nine slides
+    call lz_cmp                 ; ...and so is every byte
     jc .wno
     mov si, lz_yes
     jmp short .wsay
@@ -239,6 +241,27 @@ lz_entry:
     mov si, lz_no
 .wsay:
     mov di, lz_r_window
+    call lz_say
+
+    mov si, lz_nwl4             ; ...and the LZ4 twin, which the build used to
+    mov bx, LZ_F                ; refuse to write at all
+    call lz_read
+    jc .tno
+    or dx, dx
+    jnz .tno
+    cmp ax, [lz_n3]
+    jne .tno
+    mov cx, ax
+    mov di, LZ_D
+    mov si, LZ_F
+    call lz_cmp
+    jc .tno
+    mov si, lz_yes
+    jmp short .tsay
+.tno:
+    mov si, lz_no
+.tsay:
+    mov di, lz_r_tight
     call lz_say
 
     mov si, lz_ncopy            ; leave the disk as we found it
@@ -408,6 +431,7 @@ lz_npack:   db 'PACKED.TXT', 0
 lz_ncopy:   db 'COPY.TXT', 0
 lz_nwin:    db 'WINDOW.TXT', 0
 lz_nwpl:    db 'WPLAIN.TXT', 0
+lz_nwl4:    db 'WLZ4.TXT', 0
 
 lz_yes:     db 'ok '
 lz_no:      db 'BAD'
@@ -421,6 +445,7 @@ lz_r_raw:       db 'xxx raw', 0
 lz_r_stamp:     db 'xxx stamp', 0
 lz_r_clear:     db 'xxx clear', 0
 lz_r_window:    db 'xxx window', 0
+lz_r_tight:     db 'xxx tight', 0
 
 lz_seg:     dw 0
 lz_n1:      dw 0                ; PLAIN.TXT's length

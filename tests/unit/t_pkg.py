@@ -174,24 +174,6 @@ def header(blob, nm):
                   "shipped uncompressed - os88pkg.py refuses to write one")
         check(32 <= image <= 0xFFFF,
               "%s: image %d fits the 16-bit field" % (nm, image), got=image)
-    elif ver == V_DRV and len(blob) < image:
-        # ...AND A COMPRESSED DRIVER SAYS SO WITH NO BIT AT ALL. +3 is the
-        # CLASS in a v4 header and there is no flags byte to spare, so the
-        # signal IS this inequality and the format is the body's own first
-        # byte (SPEC.md 20.13.2). Which means the check above cannot simply be
-        # widened: `image > file` is the DEFINITION here, so what is left to
-        # assert is that the body names a format the kernel has and that the
-        # stream really does expand to the size the header claims - both of
-        # which image_unwrap does by doing it.
-        check(blob[HEADER] in (0, 1),
-              "%s: the compressed body names a format" % nm, got=blob[HEADER],
-              want="0 (LZ4) or 1 (LZB)")
-        eq(len(os88drv.image_unwrap(blob)), image,
-           "%s: the stream expands to the %d bytes the header claims"
-           % (nm, image),
-           "drv_expand claims from +8 and then decodes into it - a stream that "
-           "produces fewer bytes leaves the tail of a driver as whatever the "
-           "heap had, and one that produces more has already overrun")
     else:
         eq(image, len(blob), "%s: image size field matches the file" % nm)
     if ver == V_APP:
@@ -203,13 +185,21 @@ def header(blob, nm):
 
 def main():
     build = os.path.join(ROOT, "build")
-    arts, apps, drvs, mods = {}, 0, 0, 0
+    arts, apps, drvs, mods, drvs_cz = {}, 0, 0, 0, 0
     for f in sorted(os.listdir(build)):
         p = os.path.join(build, f)
         if not os.path.isfile(p) or not f.endswith((".o88", ".drv")):
             continue
         blob = read(p)
         arts[f.upper()] = blob
+        if f.endswith(".drv") and blob[:2] == b"CZ":
+            # A COMPRESSED DRIVER IS A 'CZ' FILE (SPEC.md 20.13.3.1): the header
+            # is inside the stream with everything else, so what the loader
+            # will check is the IMAGE the read delivers, and that is what the
+            # header tests below have to be made on. The file itself is what
+            # the freshness check further down compares against a floppy
+            drvs_cz += 1
+            blob = os88drv.image_unwrap(blob)
         ver = header(blob, f)
         if ver == V_APP:
             apps += 1
@@ -222,26 +212,28 @@ def main():
         elif ver == V_MOD:
             mods += 1
 
-    # **THE ONE ARTEFACT THAT MUST NOT BE COMPRESSED** (SPEC.md 20.13.5.1).
-    # `PKGZ ?= lz4` compresses every package and every driver, and every one of
-    # them is read by a loader that knows: ld_run_body for a .O88, drv_load for
-    # a .DRV, drv_load_at for the two overlays the KERNEL owns. HDDTOOL.DRV is
-    # read by HDD.DRV with OSAPI_FILE_READ, which hands back what is on the
-    # disk - and its 32-byte header crosses compression VERBATIM, so all seven
-    # of hd_tool_check's tests still pass and the driver far-calls [es:6] into
-    # a compressed body. The failure is a crash on Format or Install, on a
-    # machine with a hard disk, which is not what a shipped floppy is tested
-    # on. Nothing else in the tree can state this, because "who loads it" is
-    # not a property of the file.
+    # HDDTOOL.DRV IS COMPRESSED WITH THE REST (SPEC.md 20.13.5.1) - and it was
+    # the one artefact that must NOT be, for a reason worth keeping: it is read
+    # by HDD.DRV with OSAPI_FILE_READ rather than by a loader, and under the v4
+    # body format that read handed back what was on the disk, the 32-byte
+    # header crossing compression VERBATIM, so all seven of hd_tool_check's
+    # tests passed and the driver far-called [es:6] into a stream - a crash on
+    # Format or Install, on a machine with a hard disk. Since 20.13.3.1 a
+    # compressed driver is a 'CZ' file and that read is the transparent one,
+    # so the tool arrives expanded into a claim cut from its image, and the
+    # loop above has already checked what it expands to as a driver.
+    #
+    # What THIS asserts is that the rule did not quietly fall back: when the
+    # build is compressing - any OTHER .drv is a 'CZ' file - the tool is one
+    # too. `make PKGZ=` packs nothing and asserts nothing here.
     tool = arts.get("HDDTOOL.DRV")
     if tool is not None:
-        eq(struct.unpack_from("<H", tool, 8)[0], len(tool),
-           "HDDTOOL.DRV is NOT compressed",
-           "HDD.DRV reads it with OSAPI_FILE_READ, which does not expand a "
-           "driver - and hd_tool_check passes on a compressed one because the "
-           "header crosses verbatim, so the next thing that happens is a far "
-           "call into the stream. Its Makefile rule names os88drv.py rather "
-           "than $(OS88DRV) for exactly this reason")
+        others = drvs_cz - (1 if tool[:2] == b"CZ" else 0)
+        if others:
+            eq(tool[:2], b"CZ", "HDDTOOL.DRV is compressed with the rest",
+               "its Makefile rule takes $(OS88DRV) like every other driver, "
+               "and a plain tool beside %d compressed drivers is that rule "
+               "falling back (SPEC.md 20.13.5.1)" % others)
 
     # Everything else in build/ that an image can carry, so the freshness
     # check below covers the kernel, the fonts, the logo and README.TXT too.
@@ -249,6 +241,15 @@ def main():
         p = os.path.join(build, f)
         if os.path.isfile(p) and not f.endswith((".o88", ".drv")):
             arts.setdefault(f.upper(), read(p))
+    # ...except the faces, which ship PACKED out of build/faces/ under the
+    # same basename (SPEC.md 6.4.1, 20.13.5) - the plain build/*.f88 is what
+    # os88face wrote and what the host reads; the disk gets the container.
+    faces = os.path.join(build, "faces")
+    if os.path.isdir(faces):
+        for f in sorted(os.listdir(faces)):
+            p = os.path.join(faces, f)
+            if os.path.isfile(p) and f.endswith(".f88"):
+                arts[f.upper()] = read(p)
 
     # ...and every file on every image must BE one of them.
     compared = 0
@@ -274,8 +275,9 @@ def main():
                "nothing - it boots, it looks right, and it is the previous build")
             compared += 1
 
-    print("t_pkg: %d packages, %d drivers, %d modules, %d files compared against build/"
-          % (apps, drvs, mods, compared))
+    print("t_pkg: %d packages, %d drivers, %d modules (%d of the .drv files are "
+          "'CZ' containers), %d files compared against build/"
+          % (apps, drvs, mods, drvs_cz, compared))
     done("t_pkg")
 
 

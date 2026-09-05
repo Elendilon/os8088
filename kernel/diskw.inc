@@ -149,11 +149,6 @@ dskw_syms:  db '$', '%', 0x27, '-', '_', '@', '~', 0x60
 ; FERR_PROT (a directory is protected), so nothing could be read back or
 ; deleted, and every chain those writes allocated leaked. It is exactly the
 ; kind of flag that is only ever cleared on a path that has never run.
-dskw_czon:  db 0                ; 1 = the file being read is compressed
-dskw_czwin: db 0                ; ...and 1 = through lz_win_x's sliding window,
-                                ; the caller's buffer being too tight for the
-                                ; in-place layout (SPEC.md 20.14.2.4).
-                                ; `.text` for dskw_czon's own reason
 dskw_isdir: db 0                ; 1 = dskw_commit is stamping a folder
 dskw_batch: db 0                ; 1 = a MULTI-FILE operation is running and
                                 ; owns the coherence remount (SPEC.md 22.3).
@@ -1744,71 +1739,6 @@ dskw_last_p:
     ret
 
 ; -----------------------------------------------------------------------------
-; dskw_usize - what a READ of this file would produce, without reading it
-; in:  SI -> NUL-terminated 8.3 name, in the volume's current directory
-; out: CF=0: DX:AX = the UNPACKED size, BX = the ON-DISK size's low word,
-;      CL = the LZ_* format, or 0xFF for a file stored plain
-;      CF=1: AX = FERR_*
-; clobbers: AX, BX, CX, DX, flags
-;
-; The Compress verb's sizing question (SPEC.md 22.22), and it has to be asked
-; with the READ's own answer rather than the listing's: SPEC.md 19.1's staged
-; entry carries the RAW size at offset 20, so a listing showing a compressed
-; file shows what it occupies, and a verb claiming from that would claim a
-; third of what the read is about to deliver.
-;
-; It is the head of dskw_rbody with the transfer taken off - the same
-; dskw_find, the same dskw_raw, the same hint decode - and that is why it can
-; be trusted to agree with what the read then does.
-; -----------------------------------------------------------------------------
-dskw_usize:
-    push di
-    call dskw_mounted
-    jc .out
-    cmp byte [dsk_vkind], DVK_FILE
-    je .nofs                    ; a REDIRECTED volume (SPEC.md 62.9): no entry
-    mov di, dskw_n83            ; to read a hint out of, and nothing on it is
-    call dskw_name83            ; compressed
-    jc .name
-    call dskw_find
-    jc .out                     ; AX = FERR_NOENT / FERR_IO already
-    test byte [dskw_raw+DSK_R_ATTR], 0x18
-    jnz .prot                   ; a volume label or a subdirectory
-    mov bx, [dskw_raw+DSK_R_SIZE]
-    mov dx, [dskw_raw+DSK_R_SIZE+2]
-    mov ax, bx
-    mov cl, 0xFF
-    or dx, dx
-    jnz .ok                     ; over 64KB on the disk: it cannot be one of
-                                ; ours, whose packed length is 16 bits by
-                                ; construction (SPEC.md 20.14.5)
-    mov ch, [dskw_raw+DSK_R_CZM]
-    sub ch, DSK_CZ_MARK         ; the mark LESS its format (SPEC.md 20.14.2.4)
-    cmp ch, LZ_LZB
-    ja .ok                      ; no hint: what it occupies is what it becomes
-    mov cl, ch
-    mov ax, [dskw_raw+DSK_R_CZL]    ; U, 24 bits out of the hint
-    mov dl, [dskw_raw+DSK_R_CZH]
-    xor dh, dh
-.ok:
-    clc
-.out:
-    pop di
-    ret
-.nofs:
-    mov ax, FERR_PROT
-    stc
-    jmp short .out
-.name:
-    mov ax, FERR_NAME
-    stc
-    jmp short .out
-.prot:
-    mov ax, FERR_PROT
-    stc
-    jmp short .out
-
-; -----------------------------------------------------------------------------
 ; dskw_rbody - the read pipeline (module-internal; dskw_read saves regs)
 ; in:  SI -> name; [dskw_seg]:[dskw_src] = destination,
 ;      [dskw_caphi]:[dskw_cap] = its 32-bit capacity
@@ -1855,41 +1785,93 @@ dskw_rbody:
 .out:
     ret
 .isfile:
-    mov byte [dskw_czon], 0
-    mov byte [dskw_czwin], 0    ; ...and not through the window (20.14.2.4),
-                                ; cleared HERE rather than in .bss for
-                                ; dskw_czon's own reason one screen up
-    mov al, [dskw_raw+DSK_R_CZM]    ; the mark, LESS its format: 0x5A is LZ4
-    sub al, DSK_CZ_MARK             ; and 0x5B is LZB (SPEC.md 20.14.2.4), and
-    cmp al, LZ_LZB                  ; .czcap below needs to know WHICH before
-    jbe .czfile                     ; it has read a byte of the file
-    mov ax, [dskw_raw+DSK_R_SIZE]       ; the 32-bit size...
-    mov dx, [dskw_raw+DSK_R_SIZE+2]
-    cmp dx, [dskw_caphi]                ; ...against the 32-bit capacity,
-    jb .fitsbuf                         ; BEFORE any data I/O
+    ; --- ONE PLACEMENT FOR BOTH KINDS OF FILE (SPEC.md 20.14.2) -------------
+    ; A compressed file's packed bytes are read HIGH in the caller's buffer,
+    ; R = U - P above its base, and expanded downwards onto themselves - no
+    ; second claim and no scratch, exactly as the package loader does it
+    ; (SPEC.md 20.13). A plain file is the SAME arithmetic with U = P: R is 0
+    ; and the read lands where it always did. There is no margin in R any
+    ; more - the stream's own raw tail is what makes U - P exactly enough
+    ; (SPEC.md 20.13.7) - so the whole capacity question is U against the
+    ; caller's capacity, once, BEFORE any data I/O; FERR_BIG still leaves the
+    ; destination untouched, and a buffer of exactly U is enough for either
+    ; format. The sliding window that used to serve that case, and the rule
+    ; refusing to write an LZ4 file that would land in it, went with the
+    ; margin.
+    ;
+    ; **ALL OF IT IS 32-BIT**, because the file this whole feature is for is
+    ; BEVERLY.MOD at 116,085 bytes: 42,169 compressed, 36.3%, 145 sectors of a
+    ; floppy. `R` is a byte offset that can be tens of KB, so it goes into the
+    ; SEGMENT and never into [dskw_src], which is how the destination reaches
+    ; past 64KB without any of this arithmetic being able to wrap (SPEC.md
+    ; 18.4.1's idiom, one layer up); its low nibble lives in [dskw_src], which
+    ; every consumer already reads - dskw_rdata writes to seg:src and
+    ; dskw_czexp finds the 'CZ' header at it.
+    mov ax, [dskw_raw+DSK_R_SIZE]       ; P: what the file OCCUPIES, and what
+    mov dx, [dskw_raw+DSK_R_SIZE+2]     ; gets READ, compressed or not
+    mov [dskw_len], ax
+    mov [dskw_lenhi], dx
+    mov bx, ax
+    mov cl, [dskw_raw+DSK_R_CZM]        ; the hint: the mark LESS its format,
+    sub cl, DSK_CZ_MARK                 ; so 0x5A and 0x5B pass and nothing
+    cmp cl, LZ_LZB                      ; else (SPEC.md 20.14.1)
+    ja .sizes                           ; a plain file becomes what it is
+    or dx, dx
+    jnz .czbad                          ; P past 64KB cannot be one of ours:
+                                        ; the decoder's source is one segment
+                                        ; (SPEC.md 20.14.5), and a file that
+                                        ; compressed so badly is stored plain
+    mov ax, [dskw_raw+DSK_R_CZL]        ; U, 24 bits out of the hint. A hint
+    mov dl, [dskw_raw+DSK_R_CZH]        ; no bigger than the file it describes
+    mov dh, 0                           ; has drifted from it, and it is caught
+    mov [dskw_uz], ax                   ; below: R = U - P BORROWS, and a
+    mov [dskw_uzhi], dx                 ; borrowed R is past the megabyte
+    cmp word [dskw_src], 0
+    jne .czbad                          ; a compressed file expands into a
+                                        ; PARAGRAPH-ALIGNED buffer: lz_decomp_x
+                                        ; wants DI = 0 (SPEC.md 20.13.3), the
+                                        ; SDK says so, and R's own low nibble
+                                        ; is about to share this word - so an
+                                        ; offset here could not be told from
+                                        ; it later, and is refused now
+.sizes:                                 ; DX:AX = U, BX = P's low word
+    cmp dx, [dskw_caphi]                ; U against the caller's 32-bit
+    jb .fits                            ; capacity, BEFORE any data I/O
     ja .toobig
     cmp ax, [dskw_cap]
-    jbe .fitsbuf
+    jbe .fits
 .toobig:                        ; too big for the buffer: nothing is written
     mov ax, FERR_BIG
     stc
     ret
-.fitsbuf:
-    mov [dskw_len], ax
-    mov [dskw_lenhi], dx
+.fits:
+    mov cx, ax
+    or cx, dx
+    jz .empty                   ; a 0-byte file: no chain to walk, and DX:AX
+                                ; is already the 0 to answer with
+    sub ax, bx                  ; R = U - P: where the packed bytes go so that
+    sbb dx, [dskw_lenhi]        ; the writer can never overtake the reader
+                                ; (SPEC.md 20.14.2) - and 0 for a plain file
+    cmp dx, 0x10
+    jae .czbad                  ; R past a megabyte, which is what a hint
+                                ; smaller than its file comes out as, and not
+                                ; an address in this machine either way - the
+                                ; shift below is the one thing here that could
+                                ; lose it
+    mov cx, [dskw_seg]          ; where the expansion LANDS, banked before R
+    mov [dskw_czseg], cx        ; goes into [dskw_seg]
+    add ax, [dskw_src]          ; R's low nibble is the OFFSET - and a plain
+    mov [dskw_src], ax          ; read's own 0..15 survives, R being 0
+    and word [dskw_src], 15     ; there...
+    mov cl, 4
+    shr ax, cl                  ; ...and the rest is paragraphs, the high
+    mov cl, 12                  ; word carrying what does not fit
+    shl dx, cl
     or ax, dx
-    jnz .sized
-    xor ax, ax                  ; a 0-byte file: no chain to walk, DX:AX = 0
-    xor dx, dx
-    clc
-    ret
-.sized:
-    call dskw_size32            ; [dskw_rem] / [dskw_tail]
-    jnc .secok
-    mov ax, FERR_IO             ; >= 32MB: impossible on this media, so the
-    stc                         ; entry is hostile rather than merely large
-    ret
-.secok:
+    add [dskw_seg], ax
+    call dskw_size32            ; [dskw_rem] / [dskw_tail], off [dskw_len]
+    jc .czbad                   ; >= 32MB: impossible on this media, so the
+                                ; entry is hostile rather than merely large
     mov cx, [dskw_len]          ; the widget's scale, in BYTES (SPEC.md
     mov dx, [dskw_lenhi]        ; 12.8.1) - a 116KB module is a minute of
     call KERNEL_SEG:fpg_begin       ; frozen screen; dskw_read_x ends it
@@ -1897,8 +1879,10 @@ dskw_rbody:
     mov [dskw_cur], ax
     call dskw_rdata             ; walk the chain into the caller's buffer
     jc .out
-    cmp byte [dskw_czon], 0     ; ...and if it arrived COMPRESSED, expand it
-    je .plainlen                ; before anyone is told it is there
+    mov al, [dskw_raw+DSK_R_CZM]    ; ...and if it arrived COMPRESSED, expand
+    sub al, DSK_CZ_MARK             ; it before anyone is told it is there.
+    cmp al, LZ_LZB                  ; The hint again, dskw_raw being untouched
+    ja .plainlen                    ; by the transfer: a flag would cost more
     call dskw_czexp
     jc .czbad
     mov ax, [dskw_uz]           ; the caller is told the UNPACKED size, which
@@ -1908,123 +1892,9 @@ dskw_rbody:
 .plainlen:
     mov ax, [dskw_len]          ; bytes read = the file's size, 32-bit
     mov dx, [dskw_lenhi]
+.empty:
     clc
     ret
-
-; --- a COMPRESSED file (SPEC.md 20.14) -------------------------------------
-; The entry's size is the PACKED one and the hint at +12 says what it expands
-; to, so the capacity test is against the unpacked figure and still happens
-; BEFORE any data I/O. The packed bytes are then read HIGH in the caller's own
-; buffer and expanded downwards into it - no second claim, exactly as the
-; package loader does it (SPEC.md 20.13).
-;
-; **ALL OF IT IS 32-BIT**, because the file this whole feature is for is
-; BEVERLY.MOD at 116,085 bytes: 42,169 compressed, 36.3%, 145 sectors of a
-; floppy. `R` is a byte offset that can be tens of KB, so it goes into the
-; SEGMENT and never into [dskw_src], which is how the destination reaches past
-; 64KB without any of this arithmetic being able to wrap (SPEC.md 18.4.1's
-; idiom, one layer up).
-.czfile:
-    call dskw_norm              ; the destination becomes seg:0..15...
-    cmp word [dskw_src], 0
-    jne .czoff                  ; ...and a compressed file wants seg:0. Every
-                                ; caller in the tree hands over a claim's base
-    mov ax, [dskw_raw+DSK_R_CZL]        ; U, 24 bits out of the hint
-    mov dl, [dskw_raw+DSK_R_CZH]
-    xor dh, dh
-    mov [dskw_uz], ax
-    mov [dskw_uzhi], dx
-    mov bx, [dskw_raw+DSK_R_SIZE]       ; P, and it must fit SIXTEEN bits:
-    cmp word [dskw_raw+DSK_R_SIZE+2], 0 ; that is lz_decomp_x's source limit,
-    jne .czbad                          ; and a file that compressed so badly
-                                        ; it needs more is stored plain
-                                        ; instead (SPEC.md 20.14.5)
-    or dx, dx
-    jnz .czgt                   ; U is past 64KB and P cannot be
-    or ax, ax
-    jz .czbad
-    cmp ax, bx
-    jbe .czbad                  ; a "compressed" file no smaller than what it
-                                ; claims to expand to is a hint that has
-.czgt:                          ; drifted from the file it describes
-    cmp dx, [dskw_caphi]        ; U against the caller's 32-bit capacity,
-    ja .toobig                  ; BEFORE any data I/O - so FERR_BIG always
-    jb .czcap                   ; leaves the destination untouched
-    cmp ax, [dskw_cap]
-    ja .toobig
-.czcap:
-    sub ax, bx                  ; R = U - P + margin: where the packed bytes go
-    sbb dx, 0                   ; so that the writer can never overtake the
-    add ax, LZ_MARGIN           ; reader (SPEC.md 20.14.2.2)
-    adc dx, 0
-                                ; ...AND NOT ROUNDED UP TO A PARAGRAPH, which
-                                ; is 15 bytes of the caller's buffer back. It
-                                ; used to be, because R goes into the
-                                ; destination's SEGMENT and a segment moves in
-                                ; sixteens - but the transfer layer takes an
-                                ; offset of 0..15 and walks the segment
-                                ; (dskw_norm, 18.4.1), so the low nibble can
-                                ; simply live in [dskw_src]. Every consumer
-                                ; already reads it there: dskw_rdata writes to
-                                ; seg:src and dskw_czexp finds the 'CZ' header
-                                ; at it. The one thing that would have
-                                ; collided is .czoff's refusal of a non-zero
-                                ; CALLER offset, and that ran at the top of
-                                ; .czfile, before this
-    cmp dx, 0x10
-    jae .toobig                 ; R past a megabyte: not an address in this
-                                ; machine, and the paragraph count below would
-                                ; be the one thing here that could wrap
-    push ax
-    push dx
-    add ax, bx                  ; R + P, the room the READ needs, against that
-    adc dx, 0                   ; same capacity
-    cmp dx, [dskw_caphi]
-    ja .cznoroom
-    jb .czroom
-    cmp ax, [dskw_cap]
-    jbe .czroom
-.cznoroom:                      ; ...AND NOT TOO BIG, for ONE of the two
-    pop dx                      ; formats (SPEC.md 20.14.2.4). U fits and only
-    pop ax                      ; the in-place LAYOUT does not, which LZB
-    mov al, [dskw_raw+DSK_R_CZM]    ; survives by reading through a WINDOW and
-    sub al, DSK_CZ_MARK             ; LZ4 does not - so the mark has to carry
-    cmp al, LZ_LZB                  ; the format, and this is the reason it
-    jne .toobig                     ; does. An LZ4 file here is one no build of
-                                    ; ours would write (20.14.2.3), so the
-                                    ; refusal IS its handling
-    mov ax, [dskw_cap]          ; R = cap - P: the packed bytes go as HIGH in
-    mov dx, [dskw_caphi]        ; the caller's buffer as they fit. Where they
-    sub ax, bx                  ; sit no longer decides safety - the window
-    sbb dx, 0                   ; does - so this is only the placement that
-    cmp dx, 0x10                ; leaves them intact longest
-    jae .toobig
-    mov byte [dskw_czwin], 1
-    jmp short .czplace
-.czroom:
-    pop dx
-    pop ax                      ; R again
-.czplace:
-    mov bx, [dskw_seg]          ; where the expansion LANDS, banked before the
-    mov [dskw_czseg], bx        ; move: R is about to go into [dskw_seg] and
-                                ; there is no way back from it
-    mov [dskw_src], ax          ; R's low nibble is the OFFSET...
-    and word [dskw_src], 15
-    mov cl, 4
-    shr ax, cl                  ; ...and the rest is paragraphs, the high word
-    mov cl, 12                  ; carrying what does not fit
-    shl dx, cl
-    or ax, dx
-    add [dskw_seg], ax
-    mov bx, [dskw_raw+DSK_R_SIZE]
-    mov [dskw_len], bx          ; the PACKED count is what gets read...
-    mov word [dskw_lenhi], 0
-    mov byte [dskw_czon], 1
-    jmp .sized
-.czoff:
-    mov ax, FERR_PROT           ; "a compressed file expands into a
-    stc                         ; PARAGRAPH-ALIGNED buffer" - the SDK says so,
-    ret                         ; and this is the check rather than the hope
 .czbad:
     mov ax, FERR_IO
     stc
@@ -2201,54 +2071,31 @@ dskw_rdata:
 ;
 ; The 'CZ' header is checked HERE and not from the directory hint, and that is
 ; the whole safety argument for the hint: a foreign tool may drop those four
-; bytes or leave them stale, so what the kernel BELIEVES comes out of the file.
+; bytes or leave them stale, so what the kernel BELIEVES comes out of the file
+; - the magic and the format. The length it is handed is the HINT's, because
+; that is what sized the destination; a header disagreeing with it is refused
+; by the decoder itself, which must produce exactly that many bytes.
 ; -----------------------------------------------------------------------------
 dskw_czexp:
     push ds
-    mov ax, [dskw_seg]          ; the packed bytes, where dskw_rdata put them
-    mov es, ax
-    mov bx, [dskw_src]
-    cmp word [es:bx], DSK_CZ_MAG    ; the file's own word, not the hint's
-    jne .bad
-    mov al, [es:bx+3]
-    or al, al
-    jne .bad                    ; the flags byte is reserved and must be zero
-    mov cx, [es:bx+4]
-    cmp cx, [dskw_uz]           ; ...and it must agree with the hint, or one of
-    jne .bad                    ; the two is describing another file - both
-    mov cx, [es:bx+6]           ; words of it, the file's own length being a
-    cmp cx, [dskw_uzhi]         ; dword and the hint 24 bits
-    jne .bad
-    mov al, [es:bx+2]           ; the format
+    mov dx, [dskw_uz]           ; every kernel word FIRST, while DS reaches
+    mov bx, [dskw_uzhi]         ; them: BX:DX = the 32-bit expected output...
     mov cx, [dskw_len]
-    sub cx, 8                   ; the stream, past the header
-    jbe .bad
-    mov si, bx
-    add si, 8
-    mov dx, [dskw_uz]           ; BX:DX = the 32-bit expected output, which
-    mov bx, [dskw_uzhi]         ; spends the last register the contract leaves
-    push word [dskw_seg]        ; ...so the SOURCE SEGMENT goes on the stack.
-                                ; It cannot be banked in AX either - AL is the
-                                ; format, and the header bytes above were read
-                                ; with `mov al`, which ate the low half of a
-                                ; segment held there. The symptom was a decode
-                                ; that started, produced real text and then
-                                ; refused on a garbage match offset
-    mov es, [dskw_czseg]        ; source and destination are one buffer: the
-                                ; packed bytes came in R paragraphs up and the
-                                ; expansion walks down onto them. ES FIRST -
-    xor di, di                  ; dskw_czseg is the KERNEL's word, and this is
-    cmp byte [dskw_czwin], 0    ; what stops it being readable - and the SAME
-                                ; goes for this flag, which is why it is read
-                                ; HERE and not after the pop. `.cold` runs at
-                                ; COLD_SEG, so `cs:` reaches neither
-    pop ds                      ; ...and `pop` leaves the flags alone, which
-    jne .win                    ; is what lets the branch survive it
+    sub cx, DSK_CZ_HDR          ; ...CX = the stream, past the header (a file
+                                ; shorter than the header wraps CX, and the
+                                ; decoder refuses a source that wraps)...
+    mov es, [dskw_czseg]        ; ...ES:0 = where it expands: source and
+    xor di, di                  ; destination are one buffer, the packed bytes
+                                ; R paragraphs up and the expansion walking
+                                ; down onto them...
+    lds si, [dskw_src]          ; ...and DS:SI = the packed bytes, where
+                                ; dskw_rdata put them - one load, the two
+                                ; words being adjacent for it
+    cmp word [si], DSK_CZ_MAG   ; the file's own word, not the hint's
+    jne .bad
+    mov al, [si+2]              ; the format, which the decoder checks
+    add si, DSK_CZ_HDR
     call lz_decomp_x
-    pop ds
-    ret
-.win:
-    call lz_win_x               ; the tight-buffer arm (SPEC.md 20.14.2.4)
     pop ds
     ret
 .bad:
@@ -3102,7 +2949,8 @@ dskw_commit:
 ; dskw_czstamp - set, or clear, the compressed-file hint (SPEC.md 20.14)
 ; in:  dskw_raw = the entry about to be stored; [dskw_seg]:[dskw_src] = the
 ;      bytes being written, [dskw_len]/[dskw_lenhi] = how many
-; clobbers: AX, flags
+; clobbers: AX, BX, CX, flags - BX and CX being what dskw_commit, its one
+;           caller, pops back on its way out
 ;
 ; THE HINT IS DERIVED FROM THE BYTES and never propagated from another entry,
 ; which is what makes it unable to describe a different file: a save, a
@@ -3116,12 +2964,9 @@ dskw_commit:
 ; an APPEND's later chunk: [dskw_src] is byte 0 of the file every time it runs.
 ; -----------------------------------------------------------------------------
 dskw_czstamp:
-    push bx
-    push cx
     push es
-    mov byte [dskw_raw+DSK_R_CZM], 0    ; cleared on every path, first
-    mov byte [dskw_raw+DSK_R_CZH], 0
-    mov word [dskw_raw+DSK_R_CZL], 0
+    mov word [dskw_raw+DSK_R_CZM], 0    ; cleared on every path, first: the
+    mov word [dskw_raw+DSK_R_CZL], 0    ; mark and the high byte are one word
     cmp byte [dskw_isdir], 0
     jne .out                    ; a folder has no bytes to look at
     cmp word [dskw_lenhi], 0
@@ -3133,29 +2978,24 @@ dskw_czstamp:
     mov bx, [dskw_src]
     cmp word [es:bx], DSK_CZ_MAG
     jne .out
-    cmp byte [es:bx+2], LZ_LZB
+    mov al, [es:bx+2]
+    cmp al, LZ_LZB
     ja .out                     ; a format no decoder in this kernel has
-    cmp byte [es:bx+3], 0
-    jne .out                    ; the reserved byte
-    mov cx, [es:bx+6]           ; the unpacked size, high word...
-    cmp cx, 0x0100
-    jae .out                    ; ...and 16MB is all three bytes of hint hold
-    mov ax, [es:bx+4]
-    cmp cx, [dskw_lenhi]        ; it has to expand to MORE than it occupies,
-    ja .stamp                   ; or the header is not describing this file
-    jb .out
-    cmp ax, [dskw_len]
-    jbe .out
-.stamp:
-    mov [dskw_raw+DSK_R_CZL], ax
+    mov cx, [es:bx+6]           ; the unpacked size, high word - of which the
+                                ; hint holds a BYTE, 16MB being past any
+                                ; volume here. A size that does not fit, or is
+                                ; no bigger than the file, is stamped as it
+                                ; comes: the READ refuses either as FERR_IO,
+                                ; which is the right verdict on a header that
+                                ; is not describing its file, and saying it
+                                ; here as well cost 20 bytes
     mov [dskw_raw+DSK_R_CZH], cl
-    mov al, [es:bx+2]               ; ...and the FORMAT rides in the mark
-    add al, DSK_CZ_MARK             ; (SPEC.md 20.14.2.4). It was checked
-    mov [dskw_raw+DSK_R_CZM], al    ; against LZ_LZB eight lines up
+    mov cx, [es:bx+4]
+    mov [dskw_raw+DSK_R_CZL], cx
+    add al, DSK_CZ_MARK             ; ...and the FORMAT rides in the mark
+    mov [dskw_raw+DSK_R_CZM], al    ; (SPEC.md 20.14.1)
 .out:
     pop es
-    pop cx
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5072,11 +4912,15 @@ dskw_zapnext: resb 1            ; 1 = re-zero the slot after the one written.
                                 ; the two halves have to stay together.
 
 ; --- the transfer in progress -------------------------------------------------
-dskw_seg:     resw 1            ; the caller's buffer segment (ES at entry),
-                                ; after dskw_norm has folded the offset in
-dskw_src:     resw 1            ; and its offset, 0..15 from that same call -
-                                ; HELD for the whole transfer, because the
-                                ; segment is what moves (SPEC.md 18.4.1)
+; dskw_src FIRST and dskw_seg right behind it, IN THAT ORDER: dskw_czexp
+; loads the pair with one `lds si, [dskw_src]` (SPEC.md 20.14.2)
+dskw_src:     resw 1            ; the caller's buffer offset, 0..15 after
+                                ; dskw_norm has folded the rest into the
+                                ; segment - HELD for the whole transfer,
+                                ; because the segment is what moves (SPEC.md
+                                ; 18.4.1)...
+dskw_seg:     resw 1            ; ...and that segment (ES at entry), right
+                                ; behind it for the `lds`
 dskw_wseg:    resw 1            ; the advancing source/destination segment
                                 ; (+32 paragraphs per 512-byte sector)
 dskw_len:     resw 1            ; the file's byte count, low word...
@@ -5142,8 +4986,6 @@ dwf_dskw_delete:        call dskw_delete_x
 dwf_dskw_dfree:         call dskw_dfree_x
                     retf
 dwf_dskw_read:          call dskw_read_x
-                    retf
-dwf_dskw_usize:         call dskw_usize
                     retf
 dwf_dskw_rename:        call dskw_rename_x
                     retf

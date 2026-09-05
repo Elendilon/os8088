@@ -69,11 +69,15 @@ def build(image: bytes, blob: int, head: int, margin: int):
     body, worst, blocks = bytearray(), 0, []
     for at in range(0, len(tail), BLK):
         raw = tail[at:at + BLK]
-        z = os88lz.compress(raw, os88lz.LZ4)
-        if os88lz.decompress(z, os88lz.LZ4, len(raw)) != raw:
+        # THE CLASSIC BLOCK, with no raw tail (SPEC.md 20.13.7): kz_expand is
+        # boot/boot2.asm's own copy of the LZ4 arm and reads the ending a
+        # standard block has, so this is the one stream in the tree that still
+        # carries an in-place margin, and KZ_MARGIN is what reserves it
+        z = os88lz.compress(raw, os88lz.LZ4, tail=False)
+        if os88lz.decompress(z, os88lz.LZ4, len(raw), tail=False) != raw:
             fail("lz4 did not round-trip the kernel - tools/os88lz.py is the "
                  "reference boot/boot2.asm copies, so this is a bug there")
-        m = os88lz.in_place_margin(raw, os88lz.LZ4)
+        m = os88lz.in_place_margin(raw, os88lz.LZ4, tail=False)
         worst = max(worst, m)
         if len(z) + 4 >= len(raw):
             fail(f"block at {at} does not get smaller ({len(z)} vs {len(raw)})")

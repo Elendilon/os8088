@@ -2533,7 +2533,6 @@ section .modp    start=MODP_START vstart=0
 %ifdef FDLG_MOD
 section .modd    start=MODD_START vstart=0
 %endif
-section .modz    start=MODZ_START vstart=0
 section .modmap  start=MODMAP_START vstart=0
 section .text
 
@@ -5560,19 +5559,17 @@ section .text
                                 ; calls nothing itself - no kernel data, no
                                 ; kernel routine, just the caller's two
                                 ; segments and a four-byte stack frame
-%include "compress.inc"       ; ...and the one thing that COMPRESSES (SPEC.md
-                                ; 20.15), which is an on-demand module and so
-                                ; needs mod.inc's header constants above it.
-                                ; Beside lz.inc because it is the other half
-                                ; of one format, and nowhere near it in the
-                                ; image: this file emits `.modz` and not one
-                                ; byte of `.text`
 %include "disk.inc"
 %include "diskw.inc"          ; the FAT write path (SPEC.md 18.4): after
                                 ; disk.inc, whose constants and layout it uses
 %include "clone.inc"          ; the disk cloner (SPEC.md 18.99): after
                                 ; diskw.inc, whose FERR_* neighbours its own
                                 ; CERR_*, and before files.inc, which arms it
+%include "compress.inc"       ; ...and the one thing that COMPRESSES (SPEC.md
+                                ; 20.15), which rides in the CLONER'S image:
+                                ; this file emits `.modl` after clone.inc's
+                                ; header and not one byte of `.text`, and
+                                ; modl_end below both is where the image ends
 %include "loader.inc"
 %include "files.inc"
 %include "filecp.inc"        ; Cut/Copy/Paste and the recursive paste
@@ -6942,12 +6939,13 @@ MODH_START   equ MODL_START + MODL_SIZE
 %ifdef FCP_MOD
 MODP_START   equ MODH_START + MODH_SIZE   ; Cut/Copy/Paste, kern_small's alone
 MODD_START   equ MODP_START + MODP_SIZE   ; ...and the file dialog after it
-MODZ_START   equ MODD_START + MODD_SIZE   ; ...and the compressor last
+MODMAP_START equ MODD_START + MODD_SIZE
 %else
-MODZ_START   equ MODH_START + MODH_SIZE   ; the compressor, on both builds -
-%endif                                    ; after hibernate's, which every
-                                          ; kernel carries (SPEC.md 87)
-MODMAP_START equ MODZ_START + MODZ_SIZE
+MODMAP_START equ MODH_START + MODH_SIZE   ; after hibernate's, which every
+%endif                                    ; kernel carries (SPEC.md 87). The
+                                          ; compressor has no image of its
+                                          ; own: it rides in the cloner's
+                                          ; (SPEC.md 20.15.3)
 
 section .modc
 modc_end:
@@ -6977,10 +6975,6 @@ modd_end:
 MODD_SIZE equ modd_end - $$
 %endif
 
-section .modz
-modz_end:
-MODZ_SIZE equ modz_end - $$
-
 ; ...and each of them has to fit the claim mod_need makes for it. MOD_MAX_KB
 ; (mod.inc) is a RUN-TIME test - a module over it is refused cleanly, the
 ; feature simply does not open - so nothing would say a word at build time
@@ -7007,9 +7001,6 @@ MODZ_SIZE equ modz_end - $$
  %if MODD_SIZE > MOD_MAX_KB*1024
 %error "the file dialog module is over MOD_MAX_KB - mod_need would refuse it at run time"
  %endif
-%endif
-%if MODZ_SIZE > MOD_MAX_KB*1024
-%error "the compressor module is over MOD_MAX_KB - mod_need would refuse it at run time"
 %endif
 
 ; --- the split table, which is HOST-SIDE ONLY --------------------------------
@@ -7039,7 +7030,6 @@ mod_map:
     dd MODP_START, MODP_SIZE    ; ...and kern_small's fifth (SPEC.md 22.3)
     dd MODD_START, MODD_SIZE    ; ...and its sixth (SPEC.md 38.0)
 %endif
-    dd MODZ_START, MODZ_SIZE    ; ...and the compressor last, on both
     dd MODMAP_START             ; ...where the table began, and
     dw 0x384F                   ; the last two bytes of the file
 modmap_end:
@@ -7558,10 +7548,6 @@ section .modd
 %if ($ - $$) != MODD_SIZE
   %error "something landed in .modd below modd_end - os88mod.py would CUT the file dialog module short of it"
 %endif
-%endif
-section .modz
-%if ($ - $$) != MODZ_SIZE
-  %error "something landed in .modz below modz_end - os88mod.py would CUT the compressor short of it"
 %endif
 section .modl
 %if ($ - $$) != MODL_SIZE

@@ -1301,3 +1301,76 @@ argument — the emulator needs no environment, the symbol reader does — and
 copied it and died with a `TypeError` in their first second. `t.env` is for a
 subprocess; inside one process the call is `.apply()`, which sets os88sym's
 module default as well as the environment. The header is corrected.
+
+---
+
+## 15. THE FOURTH CORE — a NICED emulator slot. NOT STARTED; measure first
+
+`widths()` returns `(mj = cores - 1, hj = cores)`, so **the host lane already
+runs at the full core count** and the reservation costs only the *emulator*
+slot. §1 explains what it buys: twelve rows at width 3 with two extra CPU hogs
+passed 12/12 and ran 1.06× slower than the same rows alone. That headroom is
+what a `status` poll, an editor, a `git log` or a small side task runs on, and
+a run sized to fill the box exactly is one that anything else on the box
+perturbs.
+
+**What it costs is larger than the aggregate series makes it look.** Read
+per-instance rather than in total, on the four-core box those numbers were
+taken on:
+
+| instances | aggregate | per guest | % of solo |
+|---|---|---|---|
+| 1 | 3.4× | 3.40× | 100% |
+| 4 | 13.1× | 3.28× | **96%** |
+| 6 | 13.9× | 2.32× | 68% |
+| 8 | 13.4× | 1.68× | 49% |
+
+At four instances each guest is still at **96% of solo speed** — the box is not
+saturated there, because these guests are not purely CPU-bound. So width 4 is
+about **+30% throughput for a 4% per-guest slowdown**: roughly 25 minutes off
+an 86-minute soak.
+
+**A fourth row running flat out is not the answer**, because it does not leave
+the core free — that is `--marty-jobs 4` with extra bookkeeping, and it gives
+back exactly the property the reservation exists for.
+
+### 15.1 `nice` is the mechanism that gets both
+
+Run the fourth slot's emulator at a lower priority. It soaks up genuinely idle
+time and yields instantly to anything else on the box, so the headroom is
+preserved *and* spent. Three properties make that safe here, and none of them
+was true a week ago:
+
+  * guest **cycle counts, `disk()` counts and pixel comparisons are COUNTED,
+    not timed**, so they are exact at any scheduling;
+  * every wait is anchored to the **guest's own clock** (§2), so a slower
+    fourth guest simply takes more host seconds for the same work;
+  * **`alone=True` already names the rows this must never apply to** — the
+    ones whose ANSWER is a rate.
+
+The eligible set is therefore "everything not `alone`", and the slot is
+**self-limiting**: under load it just gets less done, which is the behaviour
+wanted rather than a compromise.
+
+### 15.2 Measure before building
+
+The 13.1× above is **aggregate guest speed, not row outcomes**, and this
+document's own §1 is the reason not to confuse the two: contention does not
+make a row slow, it makes it LESS THOROUGH, and that does not show in a wall
+time. So run one row set twice — `--marty-jobs 3` and `--marty-jobs 4` — and
+compare **both** wall time and pass/fail.
+
+  * pass rate holds at 4 flat out → the niced slot is strictly better than
+    either, and the default can rise as well;
+  * pass rate does not hold → the niced slot is the only way to have the
+    throughput at all, and its eligibility rule has to be earned row by row.
+
+### 15.3 The hazard to size
+
+`HOST_BACKSTOP = 10.0`: a wait that spends ten times its guest budget in HOST
+seconds raises *"the guest is running below a tenth of the 4.77 MHz it is
+emulating — that is the BOX, not this wait."* A niced guest starved behind
+three others plus an agent's `make` could plausibly reach it, and the message
+would then be read as a broken box rather than as a deprioritised slot working
+exactly as designed. **A niced lane probably wants its own, larger backstop**,
+and whatever it gets should say in its own words that the row was niced.
