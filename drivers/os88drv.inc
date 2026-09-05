@@ -24,12 +24,12 @@
 ;
 ;   **Put your buffers LAST if you want them off the disk.** Only the trailing
 ;   run is stripped; a zeroed table with code after it still ships. The kernel
-;   claims from the size the directory entry reported, before a byte is read,
-;   and that claim is a bottom-up SCRATCH: your driver is then moved into a
-;   top-down home of its own, sized from `image + bss` out of the header it
-;   has by then read (SPEC.md 51.1.2). Anything bulk (a DMA buffer, a ring) is
-;   still your own OSAPI_MEM_CLAIM at attach, freed at detach: the header's
-;   byte caps a bss at 255 paragraphs.
+;   claims from the size the directory entry reported - your IMAGE, since
+;   SPEC.md 20.13.3.1's read expands the file into the claim - plus a fixed
+;   DRV_BSS_KB for the bss it has not read the header to learn (SPEC.md
+;   51.1.2, which is also what that pad costs). Anything bulk (a DMA buffer,
+;   a ring) is still your own OSAPI_MEM_CLAIM at attach, freed at detach: the
+;   header's byte caps a bss at 255 paragraphs.
 ;
 ; - **You have no window, no instance and no menu.** You are not an app: no
 ;   dock tile, no Task Manager row, no callbacks from the window manager. The
