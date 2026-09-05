@@ -2627,6 +2627,16 @@ SOAK = [
         "floppies read back off the guest and diffed byte for byte. Cross "
         "drive, same drive, the un-swapped-disk guard and Esc",
         needs=("marty",), serial=True),
+    Row("dskspin", "soak", py("tests/dskspin.py"), 15.0,
+        "SPEC.md 18.101 / docs/FIELD-NOTES.md 32: a WRITE is never issued "
+        "into a floppy spindle that is still coming up to speed. The IBM ROM "
+        "waits for spin-up on a write and only when that write started the "
+        "motor, so a READ that started it licenses the next write to skip the "
+        "wait - and a write into a slow platter runs its data field over the "
+        "next sector's ID address mark. No emulator here has a write gate, so "
+        "this asserts the DECISION (18.101.1's six rows) by calling "
+        "dsk_spinup with each state set, not the damage",
+        needs=("marty",), serial=True),
     Row("rdup", "soak", py("tests/rdup.py"), 60.0,
         "SPEC.md 62.9.11.3: the Ram Disk page acts on the RELEASE.",
         needs=("marty",), serial=True),

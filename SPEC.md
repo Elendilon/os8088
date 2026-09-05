@@ -28352,6 +28352,230 @@ read. Row 3 is the claim, and it needs both columns: TRK0 set on one arm alone
 says only that *something* parked the head. `make NOFDDPARK=1` assembles byte
 for byte identical to the kernel before this section.
 
+### 18.101 A WRITE may not go down while the spindle is still coming up to speed
+
+**docs/FIELD-NOTES.md 32 is this section.** A floppy written by `Write Img...`
+came back with its low-level format damaged — DOS's `dskimage` refused a sector
+number on it until a `FORMAT` recovered it — and the field's second report made
+the note's own front-runner untenable: it is **not one failing disk**, it is
+about **half of all writes**, on known-good media, on hardware that writes the
+same image with `dskimage` a hundred times out of a hundred.
+
+#### The ROM is the evidence, and it is not a guess
+
+`int 13h`'s motor handling in the IBM 5150 BIOS (27 Oct 82, `1501476`) is
+eleven instructions and they decide this whole section:
+
+```
+ED5C  cli
+ED5D  mov byte [0x40], 0xff     ; MOTOR_COUNT = 255 - not during THIS operation
+ED62  test [0x3f], al           ; is this drive's motor already flagged on?
+ED66  jnz  0xed99               ;   -> YES: no DOR write, NO SPIN-UP WAIT
+ED68  and  byte [0x3f], 0xf0    ; ...otherwise flag it (and only it)
+ED6D  or   [0x3f], al
+ED71  sti
+ED7E  out  0x3f2, al            ; DOR: this drive's motor on
+ED80  test byte [0x3f], 0x80    ; is the operation in hand a WRITE?
+ED85  jz   0xed99               ;   -> NO: return AT ONCE, still spinning up
+ED87  mov  bx, 0x14             ; ...a WRITE waits the DPT's motor-start time
+```
+
+Two facts fall out, and the second is the one nobody had:
+
+1. **A READ never waits for the spindle.** It starts the motor and returns.
+   That is correct and deliberate: a read is self-timing, the data separator
+   locks to whatever rate the flux arrives at, and the FDC simply retries until
+   an ID comes round. A slow platter costs a read time and nothing else.
+2. **A WRITE waits only if it is the call that started the motor.** `test
+   [0x3f], al / jnz` is an optimisation over `MOTOR_STATUS` (0040:003F), and it
+   cannot distinguish *"running for two seconds"* from *"running for two
+   milliseconds"* — the byte is a flag, not a clock.
+
+So **a read that starts the motor licenses the very next write to skip the
+wait**, and the ROM has no way to know it did.
+
+#### Why that destroys a format rather than a sector
+
+A write is not self-timing. The FDC clocks WRITE DATA out at a fixed 250 kbps
+whatever the platter is doing, so a spindle at half speed lays every bit cell
+down twice as long and the data field comes out **physically twice its proper
+arc**. The write gate is still open when the head reaches the *next* sector's
+ID address mark, and it writes straight over it.
+
+That is the reported damage exactly: not a bad sector — a **missing** one. An
+ID field is written by a format and by nothing else, so `dskimage`'s *"unable
+to use sector 22"* is a write tool being refused by an ID that is no longer
+there, and only a low-level format puts it back. It is ~50% because how much
+arc is lost depends on where in the spin-up curve the write landed, and which
+sector the overrun reaches depends on rotational position.
+
+**No emulator in this tree can show it.** 86Box, QEMU and MartyPC all present a
+floppy as an array of sectors; MartyPC models a platter, a data rate and a seek
+(`patches/04-floppy-disk-timing.patch`) and still has no write gate to leave
+open. A write into a slow spindle lands in the right slot on all three and the
+image is correct afterwards. A green `make test-full` says nothing about this,
+which is why §18.101.3's gate asserts the **guard** and never the damage.
+
+#### Where os8088 does it, and why DOS does not
+
+The cloner reads the target and then writes it, three instructions apart:
+
+```
+.tgt:   call clo_issrc          ; SPEC.md 18.99.3 - reads LBA 0 of the TARGET
+        jc .force
+.force: call clo_wr             ; ...and writes it
+```
+
+`clo_issrc` exists to stop a user who forgot to swap the disk (§18.99.3), and
+the disk it reads has by construction just been put in the drive — so the
+motor was stopped, that read starts it, and `clo_wr` follows before the
+spindle is anywhere near 300 RPM. `Write Img...` reaches the same place by the
+UI's own route: the target volume is the acting Disk window's, which the file
+manager has listed.
+
+`dskimage` under DOS is not exposed to it. It writes track after track with no
+read of the target interleaved, so the **first** write is the one that starts
+the motor — the ROM waits for that one — and every write after it has a
+spindle that has genuinely been at speed for seconds. The field's own
+observation that the two tools take *almost exactly the same time* is the
+corroboration: the transfer shape is identical, and the difference is entirely
+in what precedes the first write.
+
+#### 18.101.1 `dsk_spinup` — decline the ROM's optimisation, do not replace it
+
+The guard is in `dsk_xfer`, in front of the `int 13h`, and it is **the ROM's
+own wait that runs**: nothing here spins, sleeps or times a motor.
+
+| the drive's bit in 0040:003F | | |
+|---|---|---|
+| **clear** | this call is the one that starts the motor. Stamp `[dsk_monat] = [ticks]` and `[dsk_mondrv]` and do nothing else — the ROM waits for a write, and a read is entitled not to | |
+| **set**, and the op is a **read** | nothing owed: a read never needed the spindle at speed | |
+| **set**, and the op is a **WRITE**, and the motor has been up for at least the DPT's motor-start time | nothing owed: the spindle really is at speed | |
+| **set**, and the op is a **WRITE**, and it is not | **clear the bit**, then stamp. The ROM's next test at `ED62` therefore fails, it takes its own `ED87` wait, and it re-sets the bit itself | |
+
+**Clearing the flag never stops a motor.** The ROM's response to a clear bit is
+to write the DOR with that drive's motor *on* (`ED7E`) — which it already is —
+and then wait. The platter only ever accelerates. This is a delay, and it is
+the delay the ROM would have taken had it known.
+
+**It costs nothing in the case that matters.** Every file write on the machine
+comes through here, and the ordinary one — a document saved onto a disk the
+machine has been using — finds the motor long since up and falls out at the
+third row. The wait is paid only on a read→write transition into a cold
+spindle, which is the transition that was breaking disks.
+
+**The threshold is the DPT's, not one of ours.** `dsk_dpt+10` is motor-start
+time in eighths of a second and `[ticks]` is 18.2 Hz, so the bound is
+`dpt[10] × 9 / 4` ticks — 18 for the standard 8, one second. The ROM's own
+`ED91` delay loop is longer than that on a 4.77 MHz 8088 (about 1.87 s at 17
+clocks a `loop`), which is the right way round: after the ROM has waited,
+elapsed always clears the bound, so the guard never fires twice for one
+spin-up.
+
+**It fails safe on a machine that is not this one.** A BIOS that does not
+maintain 0040:003F reads 0 there, which is the *clear* row — stamp and let the
+ROM decide, exactly as today. A machine whose `[ticks]` is not advancing (IRQ0
+masked) measures every elapsed as 0 and takes the wait every time: slower, and
+never wrong. And a motor flagged on that this kernel never saw start — which
+after boot cannot happen, `dsk_xfer` being the only floppy transfer path — is
+treated as elapsed 0 rather than assumed safe.
+
+**Floppies only.** `[dsk_unit] >= 4` has no bit in 0040:003F and returns at the
+first compare, so a boot partition and every driver-backed volume pay two
+instructions.
+
+#### 18.101.2 …and the retry ladder was making it worse, three times over
+
+`int 13h AH=00h` — the reset `dsk_xfer` issues after every failed transfer —
+does this:
+
+```
+ECD7  mov byte [0x3e], 0x0      ; SEEK_STATUS = 0: EVERY drive needs recalibrating
+```
+
+So each reset costs the *next* access a full recalibrate to track 0 and a seek
+back. The old ladder was three attempts at the run length and three more at one
+sector — **six resets, six recalibrates** — and that is the field's *"the head
+goes back to start, then back to the track it was writing, then back to start,
+etc etc in an infinite loop"*, reported as infinite because six of them with the
+BIOS's own timeout on each is upwards of half a minute of head-slamming before
+anything appears on screen.
+
+Two changes, both writes-only:
+
+- **A write that covers more than one sector drops to one sector after the
+  FIRST failure**, not the third. A multi-sector write that failed left an
+  unknown boundary — some of it is down, some is not, and the BIOS's `AL` is
+  not to be believed here (§18.91's own note) — so re-issuing the same long
+  write re-writes sectors that are already correct and gives the fault more
+  arc to damage. A read has no such asymmetry and keeps its three.
+- **A failed write re-arms the spin-up guard** (`[dsk_mondrv]` = none), because
+  `AH=00h` *preserves* the motor bits — it rebuilds the DOR out of
+  `MOTOR_STATUS` at `ECBB`—`ECD6` — so without this the retry would skip the
+  wait exactly as the failing call did. If the write failed *because* the
+  spindle was slow, the retry must not repeat it.
+
+The ladder is therefore **four attempts for a write** where it was six, and the
+one that follows a failure is a single sector into a spindle the ROM has been
+made to wait for.
+
+#### 18.101.4 What the field gets to photograph
+
+docs/FIELD-NOTES.md 32 is reported off a machine with **no debugger**, by
+photograph, and note 32's own *"next report needs"* list is four facts none of
+which the machine has ever been able to say. The one surface a write failure is
+guaranteed to put on the glass is the cloner's toast (§59.5), and `fm_clotab`
+indexes its strings by `CERR_*` — so on a field kernel `CERR_IO`'s entry points
+at `dsk_flstr` and the toast that already appears carries the transfer instead
+of the word *error*:
+
+```
+Dsk st80 c14h1s07 u0W m01kFE e09 n0
+```
+
+`st` the BIOS status, `c`/`h`/`s` the CHS exactly as the `int 13h` was issued,
+`u` the unit, `W`/`R` the direction, **`m` = `0040:003F` and `k` = `0040:0040`**
+— the BIOS's own motor byte and its countdown, which is what §18.101 is about
+and what no report so far has contained — `e` the **EOT the BIOS would have
+read** out of `dsk_dpt+4`, and `n` the attempts left in the ladder, so a
+photograph says whether this was the first failure or the last.
+
+**`e` is there because the other end of an image write is often a hard disk.**
+`dsk_xfer` stores EOT per call out of the live geometry (§18.92), and a hard
+disk's is 17 or 63 where a 360KB floppy's is 9 — so a value here that is not
+the floppy's `spt` is a whole class of fault (the geometry of one end reaching
+the other) reported in two digits, without anybody having to reason about
+which `clo_live`/`clo_fend` pair last ran.
+
+**It is a TEMPLATE, not a formatter.** Every field is a fixed slot with a
+sub-label on it, poked in place by `dsk_flrec`, so the cost is a nibble helper
+and no buffering at all — and the label *is* the offset, which takes "count the
+characters in this quoted string" out of the design.
+
+**Behind `DISKCNT=1`, which is `$(FIELDKNOBS)`** — every field kernel already
+carries it (§18.94.1) — so it reaches the machine that reports without putting
+hex on a shipped product's error dialog, where `fm_s_dskerr` still says
+*Disk error*. That split is the whole reason it is free: the diagnostic costs
+the shipped kernel nothing and needs no second disk to be remembered.
+
+#### 18.101.3 What the gate can and cannot assert
+
+`tests/dskspin.py` asserts the **guard**, never the damage — no emulator here
+has a write gate to leave open (above). It drives the cloner's own
+read-then-write on `os8088_5150_cga_gla`, breakpoints the `int 13h` in
+`.attempt`, and reads 0040:003F and `[dsk_mondrv]`/`[dsk_monat]` at the
+instruction:
+
+| | default | `NOSPINUP=1` |
+|---|---|---|
+| motor bit at the target's identity READ | clear → stamped | clear → stamped |
+| motor bit at the WRITE that follows | **clear** — the guard took it down, so the ROM will wait | `set` — the ROM skips its wait |
+| `[dsk_mondrv]` after a failed write | `0xFF` | untouched |
+
+`make NOSPINUP=1` is the A/B and the only thing that keeps the unguarded path
+assembling; it builds byte for byte identical to the kernel before this
+section.
+
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
 The data floppy (drive B:) is a standard **FAT12** volume — mountable and

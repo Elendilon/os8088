@@ -664,55 +664,110 @@ os8088's own `Write Img...` and DOS refused it afterwards — note 32.
 
 ---
 
-## 32. os8088's own `Write Img...` left a floppy whose low-level format was damaged (OPEN — reported once, not reproduced, not reproducible on any emulator here)
+## 32. os8088's own `Write Img...` damages a floppy's low-level format (PARTLY DIAGNOSED — one mechanism found and fixed; the reported one still OPEN)
 
-**Symptom.** One physical 360KB floppy: `Write Img...` (§18.99.8) wrote an
-image to it and it did not boot; DOS's `dskimage` then **refused the same
-disk** — *"unable to use sector 22"* — until a DOS `FORMAT` recovered it, after
-which `dskimage` wrote it and it booted. A write tool refusing a sector number
-is being refused by the ID address marks, which a format writes and a write
-never does. Severity: media the user did not ask us to touch the format of,
-recoverable only under another OS.
+**Symptom, as re-reported and now much sharper than the first account.** Writing
+an image to a 360KB floppy corrupts it **about half the time**, on **known-good
+media**, on an **IBM 5150 with the 27 Oct 82 ROM**. The damage is to the
+*format*, not the data: the disk has to be `FORMAT`ted under DOS before
+`dskimage` will write the sector it failed at. It manifests as the drive
+grinding — *"the head goes back to start, then back to the track it was
+writing, then back to start"* — for ten or so cycles, with the UI frozen, until
+the machine is powered off. **The same physical disks are written 100% reliably
+by mbbrutman's `dskimage` under DOS 3.3 on the same hardware, at almost exactly
+the same speed.**
 
-**What the source says.** Every floppy `int 13h` this system issues is
-`AH=02h`/`03h` (`[dsk_op]` takes exactly those two values), `AH=00h` on a
-retry and `AH=08h` in `clone.inc`. There is **no `AH=05h` format-track call
-anywhere in the tree** and no `AH=17h`/`18h` set-media-type either. The
-geometry comes from the image's size, which was right. The diskette parameter
-table is the ROM's own with only EOT rewritten (§18.92).
+**Configuration**: the image is read from the installed hard disk (ST-225 or
+Picomem) and written to floppy A: — either an image `Read Img...` made earlier
+on that machine, or one transferred onto the Picomem. So the source end is
+**not** a floppy.
 
-**Candidates, ranked by the evidence:**
+### Three of the four original candidates are dead
 
-0. **The disk was already failing.** The front-runner: the owner had written
-   this exact disk with this tool before, so only one write went wrong.
-   *Test:* write a fresh, DOS-formatted, known-good disk and read it back with
-   `dskimage`.
-1. **`int 1Eh` frozen at the boot media's parameters.** §18.92 points
-   `0000:0078` at `dsk_dpt` permanently; a BIOS that swaps tables per media
-   (360KB media in a 1.2MB drive) is prevented from doing so, and a write under
-   the wrong gap length can run the write gate over the next sector's ID mark
-   — documented µPD765 behaviour and exactly the damage seen. *Test:* which
-   drive, and is the BIOS AT-class? A genuine 360KB drive on an XT BIOS nearly
-   rules it out.
-2. **No set-media-type before writing** — candidate 1's twin (a 96-tpi head
-   over 48-tpi tracks leaves old ID fields under the new ones;
-   docs/FIELD-MACHINES.md warns of the same thing). The same test separates
-   them.
-3. **`clone.inc`'s window arithmetic writing off a track.** Weak: §18.91.3
-   bounds every write run at the track. A `DISKCNT=1` clone with every write's
-   CHS logged against the image's geometry is the cheap check, and the only
-   one an emulator can run.
+- **0. "The disk was already failing."** The front-runner, and it is gone: ~50%
+  of writes, across disks, and `dskimage` writes the same media perfectly.
+- **1/2. `int 1Eh` frozen at the boot media's parameters / no set-media-type.**
+  Both are about 360KB media in a 96-tpi drive on an AT-class BIOS. The machine
+  is a **5150 with genuine 360KB drives**: one DPT, no `0x3F7`, data rate fixed
+  at 250 kbps. Neither can arise.
+- **3. `clone.inc`'s window arithmetic.** Note 32 called this the one an
+  emulator could run, and it has now been run: `tests/diskclone.py` drives a
+  full cross-drive clone under MartyPC and **diffs both floppies byte for
+  byte** — 32 checks, 720 sectors, clean. §18.91.3 also bounds every write run
+  at the track. The CHS arithmetic is not it.
 
-**No emulator here can reproduce it**: 86Box, QEMU and MartyPC present a
-floppy as an array of sectors, so a write with the wrong gap, data rate or
-track width lands in the right slot. A green `make test-full` says nothing
-about this note.
+### What WAS found, and is fixed — SPEC.md 18.101
 
-**Next report needs**: which machine and which drive (a 360KB drive or a 1.2MB
-one), whether the disk was freshly formatted, and whether it recurs on a
-known-good disk — at the same sector number (arithmetic) or a wandering one
-(media/timing). Until then treat `Write Img...` as unsafe on media anyone
-minds losing.
+Disassembling the 27 Oct 82 ROM settles how `int 13h` treats the spindle, and
+it is eleven instructions:
+
+- **A read never waits for motor spin-up** — correct; a read is self-timing.
+- **A write waits only if it is the call that started the motor** (`test
+  [0x3f], al / jnz` at `ED62`). `MOTOR_STATUS` is a flag, not a clock.
+
+So a read that starts the motor licenses the very next write to skip the wait,
+and a write into a slow platter clocks 250 kbps into an arc turning too slowly:
+the data field runs long and the write gate is still open over the **next
+sector's ID address mark**. That is a *missing* sector — exactly the damage —
+and only a low-level format puts it back. os8088 does that read-then-write
+three instructions apart in `clo_issrc` → `clo_wr` (§18.99.3's identity check),
+which is `Clone Disk`'s same-drive path. **Fixed** by `dsk_spinup` (§18.101.1),
+which takes the motor flag down so the ROM performs its own documented wait.
+
+The **grinding is also explained and reduced**: `int 13h AH=00h` does `mov byte
+[0x3e], 0` — `SEEK_STATUS = 0`, so every drive recalibrates on the next access.
+The old ladder issued six of those per failed transfer, which is the ten-odd
+head slams. It is four for a write now, and a write drops to a single sector
+after the *first* failure rather than the third (§18.101.2).
+
+### …but that mechanism does NOT explain THIS report, and that is the open half
+
+The reporter's failure is **about half way through the write**, not at the
+first write, and the source is the **hard disk**. Worked through:
+
+| source of the image | what happens to A:'s motor flag | verdict |
+|---|---|---|
+| a second **floppy** | reading B: clears A:'s bit, so every A: write gets the ROM's spin-up wait | safe |
+| the **hard disk** | the fixed-disk handler never touches `0040:003F`, so A:'s bit stays set — and the motor genuinely *has* been spinning for seconds | safe |
+
+`MOTOR_COUNT` is reloaded to `0xFF` (14 s) by every floppy `int 13h`, so the
+spindle cannot quietly stop between chunks either. **So §18.101 fixes a real
+defect that this reporter is probably not hitting.** Say so plainly rather than
+claiming the note closed.
+
+**No emulator here can reproduce the damage** — 86Box, QEMU and MartyPC all
+present a floppy as an array of sectors, and MartyPC's platter model
+(`patches/04-floppy-disk-timing.patch`) still has no write gate to leave open.
+A green `make test-full` says nothing about this note.
+
+### What the next report needs, and what now supplies it
+
+The machine can finally say what it was doing. On a field kernel (`DISKCNT=1`,
+which is `$(FIELDKNOBS)`) the cloner's I/O-error toast **is** the failing
+transfer (§18.101.4), so one photograph carries the lot:
+
+```
+Dsk st80 c14h1s07 u0W m01kFE e09 n0
+```
+
+`st` the BIOS status, `c`/`h`/`s` the CHS as issued, `u` the unit, `W`/`R` the
+direction, **`m` = `0040:003F` and `k` = `0040:0040`** — the BIOS's own motor
+byte and countdown — **`e` the EOT the BIOS would have read** (9 on a 360KB
+floppy; 17 or 63 would mean the hard disk's geometry reached the floppy call)
+— and `n` the attempts left. Wanted:
+
+1. **The photograph**, at the first failure. `st` is the whole question: `80` is
+   a timeout (the FDC never answered), `04` is *sector not found* (the ID is
+   already gone, so the damage preceded this call), `10` is a CRC error, `09`
+   is a DMA boundary refusal.
+2. **Whether `m` names drive 0** and what `k` is. If `m` has bit 0 set and `k`
+   is high, the spindle was genuinely running and §18.101 is not involved.
+3. **Whether the sector it stops at is the same one every time** (arithmetic)
+   **or wanders** (media/timing) — the same question the first report asked and
+   still the discriminator.
+4. **How far in**, from the progress bar, in sectors rather than "about half".
+
+Until it closes, `Write Img...` remains unsafe on media anyone minds losing.
 
 ---
 

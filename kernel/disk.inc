@@ -295,6 +295,51 @@ dsk_dpt:
     db 0x08                      ; +10 motor start, 1/8 s
 DPT_LEN equ 11
 
+%ifndef NO_SPINUP
+; --- SPEC.md 18.101's spin-up guard: when did THIS drive's motor start? ------
+; In .text with real initialisers, for dsk_dpt's reason one line up: -f bin
+; zeroes nothing, and 0xFF has to mean "no drive" from the first transfer
+; rather than naming A: by accident. dsk_spinup owns both.
+;
+; INSIDE the knob, not beside it: three bytes nothing reads still SHIFT every
+; absolute address after them, and the A/B's whole claim is that NOSPINUP=1
+; assembles byte for byte identical to the kernel before 18.101.
+dsk_mondrv:  db 0xFF             ; the int 13h unit whose motor we saw start,
+                                 ; 0xFF = none (so the first write onto a
+                                 ; motor we did not start waits, which is the
+                                 ; safe direction)
+dsk_monat:   dw 0                ; ...and the [ticks] it started at
+%endif
+
+%ifdef DISK_COUNTERS
+; --- SPEC.md 18.101.4: WHAT the transfer that failed actually was -----------
+; docs/FIELD-NOTES.md 32 is reported off a machine with no debugger, by
+; PHOTOGRAPH, and the one surface a write failure is guaranteed to put on the
+; glass is the cloner's toast (SPEC.md 59.5). fm_clotab indexes its strings by
+; CERR_*, so a field kernel points CERR_IO's entry HERE and the toast that
+; already appears carries the whole failure instead of the word 'error'.
+;
+; A TEMPLATE with sub-labels rather than a formatter: every field is a fixed
+; two-digit slot poked in place, so this costs a nibble helper and no
+; buffering, and each label IS the offset - which is what stops the count of
+; characters in a quoted string from being a thing anybody has to get right.
+;
+; Behind DISKCNT because that is what every field kernel already carries
+; ($(FIELDKNOBS)), so it reaches the machine that reports without putting hex
+; on a shipped product's error dialog.
+dsk_flstr:   db 'Dsk st'
+dsk_fl_st:   db '00 c'
+dsk_fl_cyl:  db '00h'
+dsk_fl_hd:   db '0s'
+dsk_fl_sec:  db '00 u'
+dsk_fl_un:   db '0'
+dsk_fl_op:   db 'W m'
+dsk_fl_mot:  db '00k'
+dsk_fl_cnt:  db '00 e'
+dsk_fl_eot:  db '00 n'
+dsk_fl_att:  db '0', 0
+%endif
+
 fdd_unit:    db 1                ; WHICH unit dsk_fdd_probe is asking about
                                  ; (SPEC.md 18.98). It was unit 1 by
                                  ; construction, in four places.
@@ -1382,6 +1427,18 @@ dsk_xfer:
     mov dl, [dsk_unit]          ; DL = THE ROW'S int 13h drive
 
     mov bp, 3                   ; attempts left at this run length
+%ifndef NO_SPINUP
+    cmp byte [dsk_op], 0x03     ; ...but ONE for a WRITE that covers more than
+    jne .attempt                ; a sector (SPEC.md 18.101.2): a multi-sector
+    cmp word [dsk_run], 1       ; write that failed left an unknown boundary -
+    jbe .attempt                ; some of it is down and AL is not to be
+    mov bp, 1                   ; believed (18.91) - so re-issuing the same
+                                ; long write re-writes sectors that are already
+                                ; correct and gives the fault more arc to
+                                ; damage. It falls straight through to the
+                                ; per-sector ladder below, which keeps its
+                                ; three. A READ has no such asymmetry
+%endif
 .attempt:
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_i13]
@@ -1415,6 +1472,15 @@ dsk_xfer:
                                 ; volume's real spt goes in before every call,
                                 ; because the table is one and the mounted
                                 ; volume is not
+%ifndef NO_SPINUP
+    call dsk_spinup             ; **A WRITE MAY NOT GO DOWN INTO A SPINDLE THAT
+                                ; IS STILL COMING UP TO SPEED** (SPEC.md
+                                ; 18.101, docs/FIELD-NOTES.md 32). Above the
+                                ; load of AX because it preserves every
+                                ; register and the flags but is not free to
+                                ; assume it: the ROM's own wait is what runs,
+                                ; and it runs inside the int 13h below
+%endif
     mov ax, [dsk_run]           ; AL = the run (<= 128, so AH is 0)...
     mov ah, [dsk_op]            ; ...AH = 02 read / 03 write
     CURXFER_ON                   ; **THE ARROW MAY MOVE FROM HERE TO THE `iret`**
@@ -1430,8 +1496,20 @@ dsk_xfer:
     CURXFER_OFF                  ; `mov` leaves the flags alone, so int 13h's CF
     jnc .ok                     ; still reaches this branch
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
+%ifdef DISK_COUNTERS
+    call dsk_flrec              ; ...and the WHOLE transfer, for the toast
+%endif                          ; (SPEC.md 18.101.4)
     cmp ah, 0x03
     je .fail                    ; write-protected: retrying cannot help
+%ifndef NO_SPINUP
+    cmp byte [dsk_op], 0x03     ; A FAILED WRITE RE-ARMS THE GUARD (SPEC.md
+    jne .norearm                ; 18.101.2): the AH=00h below REBUILDS the DOR
+    mov byte [dsk_mondrv], 0xFF ; out of 0040:003F (ECBB-ECD6), so the motor
+.norearm:                       ; bits survive the reset and the retry would
+                                ; skip the wait exactly as the failing call
+                                ; did. If the spindle is why it failed, the
+                                ; retry must not repeat it
+%endif
     mov ah, 0x00                ; failed: reset the controller and retry
     mov dl, [dsk_unit]          ; the ROW's drive (SPEC.md 52.10.3): resetting
     CURXFER_ON                   ; ...and the arrow keeps moving through it too
@@ -1526,6 +1604,192 @@ dsk_xfer:
     pop word [mem_pinseg]       ; the destination is nobody's again - or the
     dec byte [sch_lock]         ; outer pin's (dec and pop leave CF alone, and
     jmp kretc_bp
+
+%ifdef DISK_COUNTERS
+; -----------------------------------------------------------------------------
+; dsk_flrec - bank the failing transfer into dsk_flstr (SPEC.md 18.101.4)
+; in:  AH = the BIOS status, CH/CL/DH/DL as the int 13h was issued, BP =
+;      attempts LEFT at this run length
+; out: nothing - every register AND the flags preserved
+; -----------------------------------------------------------------------------
+dsk_flrec:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    mov bx, dsk_fl_st
+    call dsk_flhex              ; AH = the status
+    mov al, ch                  ; the cylinder's low 8 - a floppy has no high
+    mov bx, dsk_fl_cyl          ; bits and a partition's are in CL, which is
+    call dsk_flhex2             ; printed as the sector below either way
+    mov al, dh
+    and al, 0x0F
+    mov bx, dsk_fl_hd
+    call dsk_flnib
+    mov al, cl
+    and al, 0x3F                ; the sector, without the cylinder's 9:8
+    mov bx, dsk_fl_sec
+    call dsk_flhex2
+    mov al, dl
+    and al, 0x0F                ; 80h prints as 0, which the op letter and the
+    mov bx, dsk_fl_un           ; motor byte beside it already disambiguate
+    call dsk_flnib
+    mov al, 'R'
+    cmp byte [dsk_op], 0x03
+    jne .op
+    mov al, 'W'
+.op:
+    mov [dsk_fl_op], al
+    mov ax, bp                  ; attempts LEFT, so 0 is the last one. Through
+    and al, 0x0F                ; AX: an 8086 has no `mov r8, r16` (SPEC.md 1)
+    mov bx, dsk_fl_att
+    call dsk_flnib
+    mov ax, 0x0040              ; ...and the BIOS's own motor state, which is
+    mov es, ax                  ; what SPEC.md 18.101 is about
+    mov al, [es:0x003F]
+    mov bx, dsk_fl_mot
+    call dsk_flhex2
+    mov al, [es:0x0040]
+    mov bx, dsk_fl_cnt
+    call dsk_flhex2
+    mov al, [dsk_dpt+4]         ; ...and EOT AS THE BIOS WOULD HAVE READ IT.
+    mov bx, dsk_fl_eot          ; dsk_xfer stores it per call out of the LIVE
+    call dsk_flhex2             ; geometry, and on this operation the other end
+                                ; is a hard disk with 17 or 63 of them - so a
+                                ; value here that is not the floppy's spt is a
+                                ; whole class of fault, said in two digits
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; two hex digits of AH / of AL at [BX]; and one of AL's low nibble
+dsk_flhex:
+    mov al, ah
+dsk_flhex2:
+    push ax
+    push cx
+    mov cl, 4
+    shr al, cl
+    call dsk_flnib
+    pop cx
+    pop ax
+    push ax
+    inc bx
+    and al, 0x0F
+    call dsk_flnib
+    dec bx
+    pop ax
+    ret
+dsk_flnib:
+    push ax
+    add al, '0'
+    cmp al, '9'
+    jbe .put
+    add al, 7                   ; 'A'..'F'
+.put:
+    mov [bx], al
+    pop ax
+    ret
+%endif
+
+%ifndef NO_SPINUP
+; -----------------------------------------------------------------------------
+; dsk_spinup - a WRITE may not go down into a spindle still coming up to speed
+; in:  [dsk_unit] = the int 13h drive, [dsk_op] = 02h/03h
+; out: nothing - every register AND the flags preserved (it sits between the
+;      EOT store and the `int 13h` that reads AX)
+;
+; SPEC.md 18.101, and docs/FIELD-NOTES.md 32 is what it is for. The ROM waits
+; for the spindle on a WRITE and ONLY when the write is the call that started
+; the motor - `test [0x3f], al / jnz` at ED62 in the 5150 BIOS - so a READ that
+; started it licenses the very next write to skip the wait. A write into a slow
+; platter clocks 250 kbps into an arc that is turning too slowly, the data field
+; runs past its own end, and the write gate is still open over the NEXT sector's
+; ID address mark. That is a format kill, not a bad sector.
+;
+; NOTHING HERE WAITS. The bit is taken down and the ROM takes its own documented
+; wait - which also re-sets the bit, so this cannot fire twice for one spin-up.
+; Clearing the flag never stops a motor: the ROM's answer to a clear bit is to
+; write the DOR with this drive's motor ON (ED7E) and then delay, so the platter
+; only ever accelerates.
+; -----------------------------------------------------------------------------
+dsk_spinup:
+    pushf
+    push ax
+    push bx
+    push dx
+    push es
+    mov al, [dsk_unit]
+    cmp al, 4
+    jae .out                    ; only drives 0..3 have a bit in 0040:003F - a
+                                ; boot partition and every driver-backed volume
+                                ; leave here (SPEC.md 52.10.3)
+    mov bl, al
+    xor bh, bh
+    mov ah, [dsk_mbit+bx]       ; AH = this unit's motor bit. The table, not
+                                ; `shl`, for SPEC.md 18.9.1's reason
+    mov bx, 0x0040
+    mov es, bx
+    test [es:0x003F], ah
+    jz .stamp                   ; STOPPED: this very call starts it, and the ROM
+                                ; waits by itself for a write. A BIOS that does
+                                ; not maintain the byte reads 0 and lands here,
+                                ; which is exactly today's behaviour
+    cmp byte [dsk_op], 0x03
+    jne .out                    ; a READ never needed the spindle at speed: the
+                                ; data separator locks to whatever arrives
+    cmp al, [dsk_mondrv]
+    jne .force                  ; a motor we never saw start - assume nothing
+    mov dx, [ticks]
+    sub dx, [dsk_monat]         ; DX = ticks since it started. Both 16-bit, so
+                                ; the subtraction is right across [ticks]' wrap
+    push ax                     ; the unit and its motor bit, wanted below
+    mov al, [dsk_dpt+10]        ; motor-start time, eighths of a second...
+    xor ah, ah
+    mov bx, ax
+    shr bx, 1
+    shr bx, 1                   ; BX = d >> 2
+    add ax, ax                  ; AX = 2d ...and 2d + (d >> 2) IS (9d) >> 2
+    add ax, bx                  ; exactly, 8d having no low bits to lose: the
+                                ; DPT's eighths x 9/4 = ticks at 18.2 Hz (18
+                                ; for the standard 8, one second). The ROM's
+                                ; own ED91 loop is LONGER than that on a
+                                ; 4.77MHz 8088, which is the right way round -
+                                ; after the ROM has waited, elapsed always
+                                ; clears the bound and this cannot fire twice
+                                ; for one spin-up.
+                                ;
+                                ; SHIFTS AND NOT `mul`: `mul bx` writes DX:AX
+                                ; and DX is the elapsed count. It was a `mul`
+                                ; for one build, and tests/dskspin.py's row 3
+                                ; is what caught it - the guard fired on every
+                                ; write, including into a spindle that had
+                                ; been up for a minute
+    cmp dx, ax
+    pop ax
+    jae .out                    ; long since up to speed: nothing owed
+.force:
+    not ah                      ; take the flag DOWN, so the ROM's ED62 test
+    and [es:0x003F], ah         ; fails and it takes its own ED87 wait
+    not ah
+.stamp:
+    mov [dsk_mondrv], al
+    mov dx, [ticks]
+    mov [dsk_monat], dx
+.out:
+    pop es
+    pop dx
+    pop bx
+    pop ax
+    popf
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; dsk_runcap - cap a transfer run to what the BUFFER allows (SPEC.md 18.91)
