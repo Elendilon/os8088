@@ -1066,6 +1066,15 @@ endif
 # identical to build/kernel.bin, so whatever the SOURCE does with none has to
 # be what `make` builds.
 LZFMTS := $(if $(COMPRESS),$(COMPRESS),both)
+
+# WHAT A SYMBOL READER MAY BE TOLD, which is $(VIDDEF) MINUS the KZ family.
+# tools/os88sym.py reads $(BUILD)/kernel.kz.json for KZIP's real values, and
+# its own header says it does so "only if nobody has already named KZIP" - so
+# handing it $(VIDDEF), which carries PASS ONE's placeholders (KZ_SECS=0,
+# KZ_RPARA=0), takes the json out of play and assembles a kernel that is not
+# the one on disk. tools/os88build.py's `_kz` strips the same family for the
+# same reason; this is where the Makefile hands the set over.
+SYMDEF = $(filter-out -DKZIP -DKZ_%,$(VIDDEF))
 ifeq ($(LZFMTS),lzb)
 VIDDEF += -DLZ_HAVE_LZB
 else ifeq ($(LZFMTS),lz4)
@@ -2202,7 +2211,7 @@ BOOTHEAP_DEFS = import sys, subprocess, json; \
                 print('-DHEAP_PARA=%d' % k['kend'])
 
 $(BUILD)/boot.bin: boot/boot.asm kernel/kernel.asm $(KERNFILE) Makefile | $(BUILD)
-	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
+	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(SYMDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
 	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
 	 echo "$(NASM) -f bin $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
 	 $(NASM) -f bin $(BOOTDEF) $$H \
@@ -2231,7 +2240,7 @@ $(BUILD)/boot.bin: boot/boot.asm kernel/kernel.asm $(KERNFILE) Makefile | $(BUIL
 # number and the geometry rather than of what is in it, so it is the same
 # offset in the packed file and the check is unmoved (SPEC.md 2.9.13.3).
 $(BUILD)/boot360.bin: boot/boot.asm kernel/kernel.asm $(KERNFILE) Makefile | $(BUILD)
-	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
+	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(SYMDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
 	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
 	 echo "$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
 	 $(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) $$H \
@@ -2256,7 +2265,7 @@ $(BUILD)/boot360.bin: boot/boot.asm kernel/kernel.asm $(KERNFILE) Makefile | $(B
 # 9 - so the FAT window is still the degenerate whole-FAT case a floppy has
 # always had, and 2,400 sectors is exactly rule 13's spt*heads*80 bound.
 $(BUILD)/boot120.bin: boot/boot.asm kernel/kernel.asm $(KERNFILE) Makefile | $(BUILD)
-	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
+	@H=$$(OS88_DEFINES="$(patsubst -D%,%,$(SYMDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
 	     python3 -c "$(BOOTHEAP_DEFS)" $(VIDDEF)) && \
 	 echo "$(NASM) -f bin -DSPT=15 -DHEADS=2 $(BOOTDEF) $$H ... -o $@ boot/boot.asm" && \
 	 $(NASM) -f bin -DSPT=15 -DHEADS=2 $(BOOTDEF) $$H \
@@ -3037,7 +3046,7 @@ BOOTHD_DEFS = import sys, subprocess, json; sys.path.insert(0, 'tools'); \
 # and it needs both. The floppy path cannot have this bug at all, stage 2
 # publishing the segment it actually relocated itself to.
 $(BUILD)/boothd.bin: boot/boothd.asm kernel/kernel.asm $(KERNFILE) | $(BUILD)
-	@D=$$(OS88_DEFINES="$(patsubst -D%,%,$(VIDDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
+	@D=$$(OS88_DEFINES="$(patsubst -D%,%,$(SYMDEF))" OS88_BUILD="$(BUILD)" OS88_ICODIR="$(ICODIR)" \
 	     python3 -c "$(BOOTHD_DEFS)" $(VIDDEF)) && \
 	 KZD=$(KZDEF2) && \
 	 echo "$(NASM) -f bin -w+error -DBOOT2_SECS=$(BOOT2_SECS) $$D $$KZD -o $@ $<" && \
@@ -3204,8 +3213,17 @@ $(BUILD)/rampage.bin: drivers/ramdisk/rampage.asm drivers/ramdisk/rdabi.inc \
 	        -I apps/ -o $@ $<
 	@echo "rampage: $(call FILESIZE,$@) bytes"
 
+# **NOT $(OS88DRV): THIS ONE IS NOT LOADED BY THE KERNEL.** RAMDISK.DRV reads
+# it itself with OSAPI_FILE_READ (drivers/ramdisk/rdpage.inc, rd_page_need),
+# and that verb expands a compressed FILE - a 'CZ' wrapper (SPEC.md 20.14) -
+# not a compressed DRIVER CONTAINER, which is drv_expand's job inside
+# drv_load. So a compressed RAMPAGE.DRV arrives as its own compressed bytes,
+# rd_page_check refuses the header, and the page draws "Ram Disk needs the
+# system disk" with every control on it inert - the driver loaded, the cells
+# published, and nothing working. HDDTOOL.DRV is the same class and the same
+# rule two hundred lines up; it has always been spelled this way.
 $(BUILD)/rampage.drv: $(BUILD)/rampage.bin tools/os88drv.py $(PKGZSTAMP)
-	$(OS88DRV) $(BUILD)/rampage.bin -o $@
+	python3 tools/os88drv.py $(BUILD)/rampage.bin -o $@
 
 $(BUILD)/ramdisk.bin: drivers/ramdisk/ramdisk.asm drivers/ramdisk/rdabi.inc \
                       drivers/ramdisk/rdpkg.inc \

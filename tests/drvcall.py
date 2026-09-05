@@ -126,6 +126,16 @@ def main():
         # --- 1: no driver published yet ------------------------------------
         # No driver row is wanted by default (SPEC.md 51.3), so this is the
         # machine as it boots and the refusal is the machine's own answer.
+        # FORCE THE PROBE, then read. dc_probe runs from dc_paint and the
+        # FIRST paint does not reach the driver, so what these three lines
+        # hold depends on whether a second paint has happened yet - the
+        # assembled placeholders if not, the refusal markers if so. This row
+        # asserted the markers and failed under load reading placeholders;
+        # asserting the placeholders instead failed alone reading markers.
+        # Neither is wrong about the machine: the read was unconfirmed.
+        dx0, dy0, dw0, dh0 = dispcp.win_rect(m, S, dcwin)
+        mo.click(dx0 + dw0 // 2, dy0 + dh0 - 8)
+        os88marty.settle(m)
         before = lines()
         for s in before:
             say("  before: %s" % s)

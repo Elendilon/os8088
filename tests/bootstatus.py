@@ -111,8 +111,12 @@ def image(bits):
     # runs the parse, and the parse rewrites build/buildnum.inc; this puts it
     # back, so lifting a recipe out leaves the tree untouched.
     cmd, goal = os88fixture.recipe("build/ether360.img", "os88disk.py")
-    cfg = _B.at("build/system.cfg")
-    assert cfg in cmd, cmd
+    # THE RECIPE SPELLS ITS PATHS THE WAY `BUILD=` DOES, which is RELATIVE to
+    # the repo root - so the comparison has to be relative too. `at` answers
+    # an absolute path when the run has a tree, and an absolute needle is
+    # never in a relative haystack.
+    cfg = os.path.relpath(_B.at("build/system.cfg"), ROOT)
+    assert cfg in cmd, (cfg, cmd)
     out = os.path.join(BUILD, "bootstatus", "boot.img")
     cmd = (cmd.replace(cfg, cfgfile(bits))
               .replace("-o " + goal, "-o " + out))
