@@ -113,7 +113,7 @@ def requirements():
 
     req.append(("qemu", bool(shutil.which("qemu-system-i386")
                              or shutil.which("qemu-system-x86_64")),
-                "the five cases MartyPC cannot host (docs/TESTING.md) - the "
+                "the seven cases MartyPC cannot host (docs/TESTING.md) - the "
                 "286/386 rows, the PS/2 mouse, the RTC write half.",
                 _apt("qemu-system-x86")))
 

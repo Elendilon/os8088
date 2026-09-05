@@ -66,9 +66,9 @@
 %endif
 
 ; Where the Hercules framebuffer lives. Overridable ONLY so the Hercules
-; renderer can be verified without a Hercules card: no emulator this project
-; uses outside 86Box has one, and B0000 is simply unmapped under QEMU, so
-; every write vanishes and a wrong stride looks exactly like a right one.
+; renderer can be verified under QEMU, which has no Hercules card (MartyPC
+; and 86Box model one): B0000 is simply unmapped there, so every write
+; vanishes and a wrong stride looks exactly like a right one.
 ; Point it at spare RAM instead and the whole 32KB can be read back out and
 ; reconstructed on the host (SPEC.md 39.9):
 ;   make test VIDEO=herc HERCSEG=0x7000

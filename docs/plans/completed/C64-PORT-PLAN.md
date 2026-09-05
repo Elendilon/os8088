@@ -1,5 +1,9 @@
 # C64 port plan — VICE 3.10's `x64` as an os8088 C package
 
+**Waves 1-3 are built; wave 4 (autostart, bitmap and multicolour modes,
+sprites, `tools/c64prg.py`) never landed and its `done_when` is unmet.**
+docs/C64-SPEC.md describes what ships.
+
 The design record for **`docs/C64-SPEC.md`** — the contract, which by the
 user's instruction lives in its own file and not in SPEC.md — produced by
 `.claude/skills/port-to-os8088`'s scouting workflow, reconciled against three

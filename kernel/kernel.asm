@@ -464,9 +464,10 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ; figure: the kernel's span starts at
                                 ; KERNEL_SEG and rule 3 says where it ends, so
                                 ; there is nothing left to choose. The ledger
-                                ; in docs/KERNEL-MEMORY.md stops at move 35
-                                ; for that reason - a 36th would be a change
-                                ; to the RULE, not to a number.
+                                ; below - this comment, move by move, and
+                                ; the only copy of it - stops at move 35 for
+                                ; that reason: a 36th would be a change to
+                                ; the RULE, not to a number.
                                 ;
                                 ; The static half only. What an assembler
                                 ; cannot see is a claim made during boot and
@@ -1278,8 +1279,8 @@ KERN_BUDGET equ 107520          ; the whole kernel's FOOTPRINT. Growing past
                                 ; THE NUMBERING IS THE TABLE'S, not this
                                 ; arm's own count - the paragraphs below run
                                 ; on a local sequence that has collided with
-                                ; itself twice, and docs/KERNEL-MEMORY.md's
-                                ; ledger is the copy that file says to trust.
+                                ; itself twice, and the kern_big arm's
+                                ; sequence above is the one to trust.
                                 ;
                                 ; THE OVERRUN WAS SIX BYTES and the grant is
                                 ; a whole rung, which is the shape moves 22
@@ -2240,13 +2241,14 @@ LOW_PARA    equ ((KLOW_SIZE + STK0_SIZE + 511) / 512) * 32
 STK0_TOP    equ KLOW_SIZE + STK0_SIZE - 2   ; task 0's stack top, growing down
 STK0_BOT    equ KLOW_SIZE       ; ...and the floor it grows down ONTO, which is
                                 ; the top of .lowbss - the other tasks' slices,
-                                ; the glyph table and the disk buffers. Task 0
-                                ; is the one stack sch_switch's canary check
-                                ; skips, so an overrun here is silent; KFZ=1
-                                ; seeds a word at this address and the
-                                ; heartbeat reports whether it survived
-                                ; onto the top of .lowbss; guard 3 proves the
-                                ; two cannot meet
+                                ; the glyph table and the disk buffers. Slot 0
+                                ; of sch_stkbase holds this address, sched_init
+                                ; seeds SCH_MAGIC here on every build, and
+                                ; sch_switch checks it on every switch like
+                                ; any other slot's (SPEC.md 8.6.1), so an
+                                ; overrun reaches sch_stkdie rather than
+                                ; going quiet; guard 3 proves the two cannot
+                                ; meet
 VGABUF_SEG  equ LOW_SEG + LOW_PARA   ; THE PLANAR DECODER'S BUFFERS (SPEC.md
                                 ; 5.4.1.3), and a rung of their own because
                                 ; they are the one part of the kernel a
@@ -7087,10 +7089,10 @@ SKB_IMG    equ KERN_SIZE - SKB_FAT - SKB_DSK - SKB_STK - SKB_STK0
 ; one. Guard 7 proves both.
 ;
 ; SKB_IMG IS ACCUMULATED LAST, AND THAT IS THE WHOLE OF THE ORDERING RULE.
-; The other four are fixed facts about the design - seven stacks of 384, one
-; of 1,024, nine FAT sectors, three disk buffers - and none of them has any
-; business reading differently on kern_small than on the shipped kernel. Put
-; the image first and they do: its half-kilobyte lands in the running total,
+; The other four are fixed facts about the build - SCH_PARTITION's slices,
+; STK0_SIZE, DSK_FAT_SECS sectors, three disk buffers - each a constant of its
+; own configuration and none of them a remainder of anything. Put the image
+; first and they become one: its half-kilobyte lands in the running total,
 ; so every boundary after it moves with the build and a 3,584-byte buffer
 ; rounds to 4 KB on one configuration and 3 on the next. Last, the image takes
 ; the build's own remainder, which is the one row it belongs to - SKB_IMG is
@@ -7100,8 +7102,8 @@ SKB_IMG    equ KERN_SIZE - SKB_FAT - SKB_DSK - SKB_STK - SKB_STK0
 ; 4.5 KB and the disk buffers 3.5, both round either way, and 12 KB of buffer
 ; will not stretch to cover both rounding up. The disk buffers take it. They
 ; are the row somebody reads as a size (docs/KERNEL-MEMORY.md heads a section
-; "Disk buffers - 3,584 B"), and the FAT window's own section names the
-; sectors rather than the kilobytes.
+; "Disk buffers" with the byte count), and the FAT window's own section names
+; the sectors rather than the kilobytes.
 %define SK_R(b)  (((b) + 512) / 1024)     ; bytes -> KB, nearest, ties up
 SK_CUM1    equ SKB_STK
 SK_CUM2    equ SK_CUM1 + SKB_STK0
@@ -7181,9 +7183,10 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 
 ; 1. KERN_BUDGET - the FOOTPRINT. The whole kernel - image, scratch, FAT
 ;    snapshot, disk buffers and every task stack - is one span starting at
-;    KERNEL_SEG, and it fits KERN_BUDGET (72.5KB) just above the BIOS data
-;    area. This is the guard the project is steering by; raising KERN_BUDGET
-;    is a decision, not a build fix (docs/KERNEL-MEMORY.md).
+;    KERNEL_SEG, and it fits KERN_BUDGET (129,536 on kern_big, derived from
+;    rule 3; 107,520 on kern_small) just above the BIOS data area. This is
+;    the guard the project is steering by; raising KERN_BUDGET is a decision,
+;    not a build fix (docs/KERNEL-MEMORY.md).
 ;
 ;    **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, AND KERN_BUDGET DOES NOT
 ;    BIND IT.** Guard 2 below does, and nothing else does: a build with any

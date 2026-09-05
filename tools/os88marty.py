@@ -1444,10 +1444,10 @@ def _warn_oversubscribed(about_to_start):
 # redistribution, and CANNOT be in this tree (CONTRIBUTING.md 6) - so on any
 # box without a private copy those machines DO NOT WORK AS NAMED.
 #
-# THE HAZARD IS THAT NOTHING SAYS SO.  `tests/int0sweep.py`'s own description
-# is the only place it is written down: *"a machine naming an IBM romset
-# SILENTLY RESOLVES to glabios_pc when the ROM file is absent, so the handful
-# of rows that ask for one were not testing it either."*  Nine rows name a
+# THE HAZARD WAS THAT NOTHING SAID SO: the MartyPC of the day resolved a
+# machine naming an absent IBM romset to glabios_pc without a word (the
+# pinned build now exits with `ROM set ibm5150_82_v4 not found`, so a bare
+# `launch()` of one fails loudly instead).  Nine rows name a
 # non-GLaBIOS machine, four of them registered, and not one had ever run on
 # the ROM it asked for (docs/plans/HANDOFF-SOAK-FINDINGS.md E3).  A row that quietly
 # gets a different machine than it named is worth less than a row that skips.
@@ -1553,8 +1553,8 @@ def assert_rom(m, ibm):
     if bool(ibm) != is_ibm:
         raise MartyError(
             "this row asked for the %s ROM and the machine came up on %s "
-            "(banner at 0xFE001: %r). A MartyPC machine naming an absent "
-            "romset falls back to glabios_pc without a word, which is how "
+            "(banner at 0xFE001: %r). A machine naming an absent romset "
+            "once fell back to glabios_pc without a word, which is how "
             "four registered rows spent months reporting passes about a "
             "machine they never ran on."
             % ("IBM 5150" if ibm else "GLaBIOS", b.strip(), b))
@@ -3027,7 +3027,7 @@ def main():
         return main_instances(sys.argv[1:])
     ap = argparse.ArgumentParser(
         description="Drive a headless MartyPC debug server.",
-        epilog="Instance verbs take no address: instances | reap | kill-all")
+        epilog="Instance verbs take no address: instances | reap | kill <port> | kill-all | launch <image>")
     ap.add_argument("addr", help="host:port of the debug server. "
                                  "`os88marty.py instances` lists what is running.")
     ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
