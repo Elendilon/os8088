@@ -44,6 +44,12 @@ sys.path.insert(0, HERE)
 import os88marty, os88mouse, os88sym, dispcp                 # noqa: E402
 import dispapps                                              # noqa: E402
 
+# The two primitives a canvas can arrive through: gfx_blit4 on a colour
+# adapter, gfx_blit1 on a one-bit one since SPEC.md 42.23 made Paint's canvas
+# match the screen. `gfx_blit1_x` is the BODY - the thunk is a far shim and
+# the arguments are the caller's at both, in the same registers.
+BLITS = ("gfx_blit4", "gfx_blit1_x")
+
 if os.environ.get("NOPLANE"):
     os88sym.default_defines("NOPLANE")      # the knob kernel is a DIFFERENT
                                             # kernel and every address here
@@ -186,7 +192,15 @@ def main():
         # The geometry is ASKED rather than computed: the canvas x depends on
         # the window template and the adapter, and a rect this test guessed
         # would be a second opinion about where Paint put its picture.
-        m.bp_exec("gfx_blit4")
+        # **EITHER PRIMITIVE** (SPEC.md 5.4.2.5, 42.23). This waited on
+        # `gfx_blit4` alone, and since a one-bit canvas reaches `gfx_blit1`
+        # on a 1bpp adapter that call never comes: the row spent its whole
+        # budget and reported "Paint never blitted a canvas", about a Paint
+        # that had drawn the picture perfectly. The question here is whether
+        # the canvas ARRIVED, not which primitive carried it, and the two
+        # take the same arguments in the same registers - so both are armed
+        # and the first wide enough wins.
+        m.bp_exec(*BLITS)
         mo.dblclick(rx, ry)
         # WHERE THE CANVAS IS: the first blit as wide as the picture. Its
         # HEIGHT is not the canvas's and must not be read as one - the load
@@ -206,11 +220,12 @@ def main():
             r = m.regs()
             if r["cx"] >= iw:
                 break
-            m.bp_exec("gfx_blit4")
+            m.bp_exec(*BLITS)
             m.run()
             r = None
         if r is None:
-            sys.exit("blitpair: Paint never blitted a canvas through gfx_blit4")
+            sys.exit("blitpair: Paint never blitted a canvas through %s"
+                     % " or ".join(BLITS))
         x, y, bw, bh = r["ax"], r["bx"], r["cx"], r["dx"]
         print("   blit x=%d y=%d w=%d h=%d" % (x, y, bw, bh))
         m.bp_exec()
