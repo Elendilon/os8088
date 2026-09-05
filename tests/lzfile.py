@@ -34,10 +34,10 @@ only thing that finds it is a real reader whose buffer is sized to the first.
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
+import os88build                                       # noqa: E402
 import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88sym                                         # noqa: E402
@@ -83,10 +83,11 @@ def readme(m, mo, before, fails):
     wins = dispcp.win_list(m, S)
     wx, wy = dispcp.win_rect(m, S, wins[-1])[:2]
     dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "README.TXT")
-    for _ in range(30):
-        time.sleep(1)
-        if len(dispcp.win_list(m, S)) > len(wins):
-            break
+    try:
+        os88marty.until(m, lambda mm: len(dispcp.win_list(mm, S)) > len(wins),
+                        "Note Pad's window", poll=0.2, guest=40.0)
+    except os88marty.MartyError:
+        pass
     after = dispcp.win_list(m, S)
     if len(after) <= len(wins):
         fails.append("README.TXT opened no window - the association did not "
@@ -94,7 +95,16 @@ def readme(m, mo, before, fails):
         return
     rec = m.read(S("wm_wins") + after[-1] * dispcp.WIN_SIZE, dispcp.WIN_SIZE)
     pseg = rec[22] | (rec[23] << 8)
-    time.sleep(4)
+    # ...and the READ, which is the assertion: np_len going non-zero is the
+    # 16KB expanding into the scratch claim, so it is waited for on the
+    # guest's clock rather than given four host seconds.
+    try:
+        os88marty.until(
+            m, lambda mm: int.from_bytes(mm.readseg(pseg, P["np_len"], 2),
+                                         "little"),
+            "Note Pad to hold the file", poll=0.1, guest=30.0)
+    except os88marty.MartyError:
+        pass
     got = int.from_bytes(m.readseg(pseg, P["np_len"], 2), "little")
     say("  readme     %s  (np_len=%d, the %d-byte CRLF file folded, Note Pad "
         "at %04X)" % ("ok " if got == want else "BAD", got, disk, pseg))
@@ -115,7 +125,7 @@ def main():
     # any row starts - a phony name never satisfies the existence
     # check that follows. Same build, and sayable.
     need("build/lzfile360.img")             # `all` builds nothing under tests/
-    img = os.path.getsize("build/lzfile.bin")
+    img = os.path.getsize(os88build.at("build/lzfile.bin"))
     fails = []
     with os88marty.launch("build/os8088-360.img",
                           apps="build/lzfile360.img",

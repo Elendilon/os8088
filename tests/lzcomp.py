@@ -48,13 +48,13 @@ have that matters is the one that cannot be seen from inside (docs/FIELD-NOTES.m
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
 import os88flush                                       # noqa: E402
 import os88lz                                          # noqa: E402
 import os88pkg                                         # noqa: E402
+import os88build                                       # noqa: E402
 import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88sym                                         # noqa: E402
@@ -63,7 +63,6 @@ from os88geom import MBAR_H, MENU_ITEM_H, MB_ENTSZ      # noqa: E402
 
 S = os88sym.linear
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.join(HERE, "..")
 MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
 
 MB_XL = 6                       # menu.inc's bar entry: the cell's left edge
@@ -148,9 +147,13 @@ def build_disk(path):
     # The shipped .o88 files are LZ4 by default (PKGZ), so the package fixture
     # is the IMAGE back out of one - what nasm emitted, which is what an
     # uncompressed package on somebody's disk looks like.
+    # `at` on both, because under a frozen run the shipped packages are in
+    # the run's own tree and not in build/ (docs/SOAK-PARALLEL.md 14.2) -
+    # and these two ARE the fixture, so reading them out of a directory
+    # somebody may be building in is a torn fixture rather than a missing one.
     calc = os88pkg.image_unwrap(
-        open(os.path.join(ROOT, "build", "calc.o88"), "rb").read())
-    telnet = open(os.path.join(ROOT, "build", "telnet.o88"), "rb").read()
+        open(os88build.at("build/calc.o88"), "rb").read())
+    telnet = open(os88build.at("build/telnet.o88"), "rb").read()
     if len(telnet) >= int.from_bytes(telnet[8:10], "little"):
         sys.exit("lzcomp: build/telnet.o88 is not compressed, so the "
                  "'already compressed' package leg would test nothing - "
@@ -177,6 +180,12 @@ def compress(m, mo, wx, wy, name, fails, quiet=30):
     enough for the slowest subject is dead time on every other row. Every exit
     from the verb says something (SPEC.md 22.22.1), including the refusals, so
     a toast IS the completion signal.
+
+    ...AND THE BUDGET IS THE GUEST'S CLOCK. `quiet` counts GUEST seconds, so
+    what the verb is allowed is the same on a loaded box as an idle one -
+    which for this row is the difference between a slow subject finishing and
+    a row that reports "nothing was said" about a machine that was simply
+    given a third less CPU (docs/SOAK-PARALLEL.md 1).
     """
     m.write(S("toast_buf"), b"\0")          # ...so the previous verdict cannot
     row = dispcp.row_of(m, S, name)         # be read as this one's
@@ -184,13 +193,15 @@ def compress(m, mo, wx, wy, name, fails, quiet=30):
     mo.click(x, y)
     os88marty.settle(m)
     menu_pick(m, mo, 1, FM_ICOMPRESS)       # cell 0 is the chip, 1 is File
-    for _ in range(quiet):
-        time.sleep(1)
-        t = toast(m)
-        if t:
-            return t
-    fails.append("%s: nothing was said in %ds - the verb never finished, or it "
-                 "returned without a verdict" % (name, quiet))
+    try:
+        os88marty.until(m, lambda mm: toast(mm),
+                        "File > Compress on %s to say something" % name,
+                        poll=0.1, guest=float(quiet))
+        return toast(m)
+    except os88marty.MartyError:
+        pass
+    fails.append("%s: nothing was said in %d guest seconds - the verb never "
+                 "finished, or it returned without a verdict" % (name, quiet))
     return ""
 
 
@@ -200,7 +211,7 @@ def main():
     a = ap.parse_args()
 
     for f in ("build/os8088-360.img", "build/hello.o88"):
-        if not os.path.exists(os.path.join(ROOT, f)):
+        if not os.path.exists(os88build.at(f)):
             sys.exit("lzcomp: %s is missing - run `make` first" % f)
 
     disk, plain, packed, calc, telnet = build_disk("/tmp/lzcomp360.img")
@@ -214,7 +225,7 @@ def main():
            os88pkg.clear_prefix(calc[3])))
     fails = []
 
-    with os88marty.launch(os.path.join(ROOT, "build", "os8088-360.img"),
+    with os88marty.launch(os88build.at("build/os8088-360.img"),
                           apps=disk, machine=MACHINE[a.adapter]) as m:
         os88marty.settle(m, gate=os88marty.desktop_up)
         mo = os88mouse.Mouse(marty=m)
@@ -237,14 +248,19 @@ def main():
         mo.click(rx, ry)
         os88marty.settle(m)
         menu_pick(m, mo, 2, 1)                  # Edit > Copy
-        time.sleep(1)
+        os88marty.settle(m)
         menu_pick(m, mo, 3, 3)                  # Nav > Up One Folder
-        time.sleep(2)
+        os88marty.settle(m)
         menu_pick(m, mo, 2, 2)                  # Edit > Paste
-        for _ in range(25):
-            time.sleep(1)
-            if any(n == "RAWCOPY.TXT" for n, _ in dispcp.listing(m, S)):
-                break
+        # ...and the LISTING is what says the paste landed - the file
+        # appearing in the folder, on the guest's clock.
+        try:
+            os88marty.until(
+                m, lambda mm: any(n == "RAWCOPY.TXT"
+                                  for n, _ in dispcp.listing(mm, S)),
+                "the pasted RAWCOPY.TXT to appear", poll=0.2, guest=40.0)
+        except os88marty.MartyError:
+            pass
         got = fl.volume(1).read("RAWCOPY.TXT")
         ok = got == packed
         say("  copypaste  %s  (%d bytes, the source is %d, expanded is %d)"
@@ -299,10 +315,13 @@ def main():
         # --- 3a. ...and it still LOADS, which is the only proof that counts --
         before = dispcp.win_list(m, S)
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "CALC.O88")
-        for _ in range(20):
-            time.sleep(1)
-            if len(dispcp.win_list(m, S)) > len(before):
-                break
+        try:
+            os88marty.until(m,
+                            lambda mm: len(dispcp.win_list(mm, S)) > len(before),
+                            "the re-compressed CALC.O88 to open a window",
+                            poll=0.2, guest=30.0)
+        except os88marty.MartyError:
+            pass
         after = dispcp.win_list(m, S)
         ok = len(after) > len(before)
         say("  runs       %s  (%d windows, was %d)"

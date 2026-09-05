@@ -32,18 +32,22 @@ not; the 1.2MB disk's sector is genuinely its own and no emulator here has a
 `t_buildmatrix` keeps it assembling. The HARD DISK is a third loader again
 (2.9.13.5) and `tests/hdboot.py` is what boots it.
 
-`--nokzip` is the A/B: it rebuilds with the knob that turns this off, and is
-how "the packed disk boots" is told from "any disk boots".
+`--nokzip` is the A/B: the same four images built with the knob that turns
+this off, which is how "the packed disk boots" is told from "any disk boots".
+**It is built in a PRIVATE TREE** (tools/os88build.py) rather than in
+`build/`, so the arm neither leaves a knob kernel where every other row's
+symbol map points nor has to spend a second full build putting the shared
+directory back.
 """
 import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
+import os88build                                       # noqa: E402
 import os88marty                                       # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -54,9 +58,9 @@ def say(*a):
     print(*a, flush=True)
 
 
-def kzdefs():
+def kzdefs(t):
     """What tools/os88kz.py published about the pack the Makefile just did."""
-    return json.load(open(os.path.join(ROOT, "build", "kernel.kz.json")))
+    return json.load(open(t.img("kernel.kz.json")))
 
 
 def blob_bytes():
@@ -99,18 +103,19 @@ def main():
                     help="the A/B: build with the knob that turns this OFF")
     a = ap.parse_args()
 
-    # ALWAYS BUILD. A knob build in between leaves build/kernel.bin,
-    # build/kernel.sys and the images describing different things, and the row
-    # then reads one through another's numbers - which fails somewhere
-    # downstream and points at the decoder. It did, once.
-    mk = ["make"] + (["NOKZIP=1"] if a.nokzip else [])
-    subprocess.check_call(mk + ["build/os8088-360.img", "build/os8088.img",
-                                "build/apps360.img", "build/apps.img"],
-                          cwd=ROOT, stdout=subprocess.DEVNULL)
+    # ONE TREE, AND EVERYTHING IS READ OUT OF IT - the four images, the two
+    # kernel files and os88kz's json. That is the whole of the old warning
+    # here ("a knob build in between leaves kernel.bin, kernel.sys and the
+    # images describing different things, and the row then reads one through
+    # another's numbers"): a tree cannot be half a build, so the failure it
+    # describes is not available any more.
+    IMGS = ("os8088-360.img", "apps360.img", "os8088.img", "apps.img")
+    t = (os88build.tree("NOKZIP=1", targets=IMGS) if a.nokzip
+         else os88build.plain()).apply()
 
     fails = []
-    packed = os.path.getsize(os.path.join(ROOT, "build", "kernel.sys"))
-    image = open(os.path.join(ROOT, "build", "kernel.bin"), "rb").read()
+    packed = os.path.getsize(t.img("kernel.sys"))
+    image = open(t.img("kernel.bin"), "rb").read()
     if a.nokzip:
         say("kzboot: NOKZIP=1 - KERNEL.SYS is the image, %d bytes" % packed)
         if packed != len(image):
@@ -119,7 +124,7 @@ def main():
                          % (packed, len(image)))
         blob, head = blob_bytes(), spl_resident()
     else:
-        n = kzdefs()
+        n = kzdefs(t)
         blob, head = n["blob"], n["head"]
         say("kzboot: KERNEL.SYS %d -> %d bytes, %d sectors instead of %d, "
             "%d block(s), R %d"
@@ -131,7 +136,8 @@ def main():
     # PAST THE BLOB: kernel.bin is [ the blob ][ the image ] and only the
     # second half lands at KERNEL_SEG - stage 1 reads the first into BLOB_SEG.
     want = image[blob:]
-    with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
+    with os88marty.launch(t.img("os8088-360.img"),
+                          apps=t.img("apps360.img"),
                           machine=a.machine, boot=False) as m:
         m.bp_exec(KERNEL_SEG << 4)      # the handoff, and the only moment the
         m.run()                         # image is exactly what the file says
@@ -175,7 +181,7 @@ def main():
     # track where boot360.bin is 9, so its run arithmetic - which is what the
     # packed tail's 512-aligned R was got wrong against once - is a different
     # set of immediates that nothing else here boots.
-    with os88marty.launch("build/os8088.img", apps="build/apps.img",
+    with os88marty.launch(t.img("os8088.img"), apps=t.img("apps.img"),
                           machine=a.machine144) as m:
         os88marty.settle(m, gate=os88marty.desktop_up)
         say("kzboot: 1.44MB: a desktop, through the OTHER boot sector")
@@ -191,14 +197,4 @@ def report(fails):
 
 
 if __name__ == "__main__":
-    try:
-        rc = main()
-    finally:
-        # ...AND PUT build/ BACK. `--nokzip` leaves a knob kernel where every
-        # other row expects the shipped one, and os88sym refuses an address
-        # unless the map matches build/kernel.bin byte for byte - so a row
-        # after this one would die about a symbol rather than about the tree
-        # it was handed. knobhd.py's `finally`, for knobhd.py's reason.
-        if "--nokzip" in sys.argv:
-            subprocess.call(["make"], cwd=ROOT, stdout=subprocess.DEVNULL)
-    sys.exit(rc)
+    sys.exit(main())

@@ -19,6 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
+import os88build                                       # noqa: E402
 import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88sym                                         # noqa: E402
@@ -45,7 +46,7 @@ def main():
     # any row starts - a phony name never satisfies the existence
     # check that follows. Same build, and sayable.
     need("build/lzfence360.img")            # `all` builds nothing under tests/
-    img = os.path.getsize("build/lzfence.bin")
+    img = os.path.getsize(os88build.at("build/lzfence.bin"))
     fails = []
     with os88marty.launch("build/os8088-360.img",
                           apps="build/lzfence360.img",

@@ -1212,10 +1212,92 @@ worse than either. Their socket and pidfile stay under `build/` because the
 Makefile spells them literally, which is harmless: no `make` writes those.
 
 **What is still exposed, and it is the other direction.** The soak no longer
-minds the operator; the operator may still mind the soak. Seven rows write
-`build/` — `buildmatrix`, `ctoolchain` and `fdlgthumb` as §14.1 records, and
-four the compression work added (`lzload`, `lzmod`, `lzship`, `kzboot`) which
-rebuild the whole tree under a knob and put it back. Each is a candidate for
-the private-tree treatment task #3 gave the knob rows (`os88build.tree`), and
-until they get it an operator working in `build/` during a soak should expect
-their churn.
+minds the operator; the operator may still mind the soak. **Three** rows write
+`build/` — `buildmatrix`, `ctoolchain` and `fdlgthumb`, as §14.1 records. The
+compression work added eight more and §14.3 is what became of them.
+
+### 14.3 The compression rows, and what converting them found
+
+The merge arrived with eight `builds=True` rows — `lzload`, `lzload-lz4`,
+`lzmod`, `lzmod-lzb`, `lzship`, `lzship-lzb`, `kzboot`, `kzboot-off` — each
+in the shape §8 describes: `make <knob>` into `build/`, use it, `make` in a
+`finally` to put the tree back. All eight are gone, and **only four of them
+ever needed a build at all**:
+
+| row | what it actually needed |
+|---|---|
+| `lzload-lz4` | a `COMPRESS=lz4` tree — a private one now |
+| `lzship`, `lzship-lzb` | `PKGZ=<fmt> COMPRESS=<fmt>` — a tree each |
+| `kzboot-off` | a `NOKZIP=1` tree |
+| `lzload`, `lzmod`, `kzboot` | **nothing**: the shipped kernel and a fixture |
+| `lzmod-lzb` | **nothing**: the shipped kernel carries both decoders, so the arms differ only in which format the FIXTURE is wrapped in |
+
+`make zset` is the one worth naming, because the target exists only to work
+around the missing tree: the compressed images land at the same paths a plain
+build uses, so it copied them aside and deleted the originals either side —
+three steps to stop the next `make` shipping a compressed floppy. `BUILD=`
+has nothing to copy and nothing to delete.
+
+**The declarations were 2,721 seconds and the rows are 701.** Every one was
+declared against the old shape, where the row's own cost was two full builds.
+Measured on this box, warm trees, in a lane of three: `lzship` 33.3s against
+420 declared, `lzship-lzb` 31.7 against 600, `kzboot` 16.0 against 120,
+`lzmod-lzb` 21.7 against 300. A cold private tree is **39s**, which is what
+the four building rows carry above their measured time.
+
+**Three defects came out of the conversion and none is about compression.**
+
+1. **`lzdrv` was reading an unconfirmed value and passing by luck.**
+   DRVCALL's probe strings are rewritten by `dc_probe`, which runs from
+   `dc_paint` — and the window's FIRST paint does not reach the driver, so
+   the three lines are still the image's own `Ping: ..` after the window is
+   up and the screen still. `tests/drvcall.py` has always clicked the window
+   to force a second probe; this row did not. Alone it won the race; with a
+   second emulator on the box **both the converted row and the row at HEAD
+   read `Ping: ..`**, which reads exactly like a driver that failed to
+   expand. It now clicks and then waits for the string to change.
+2. **`DRVR_SEG` is not "the driver is up".** `drv_load` writes it the moment
+   `mem_claim_hi_x` answers — before the file is read, checked, expanded, its
+   bss re-made and `drv_attach` far-called. A wait on it returns three
+   quarters of the way through a load. `drv_owner` for the class is the
+   signal, because `drv_publish` is reached from `drv_attach` and nothing
+   else writes it.
+3. **`lzship` walked `drv_tab` on a stride of 10** where `DRVR_SIZE` is 16,
+   over sixteen rows where `DRV_MAX` is five — 256 bytes of an 80-byte table,
+   on a stride matching no field. It never said so because the only assertion
+   was `live < 1`. Both numbers come out of `os88sym.equates()` now, which
+   also makes them right on `kern_small` (`DRV_MAX` is 4 there).
+
+**And one green row that ran nothing.** `mkclick` is a GENERATOR — it writes
+`build/click.mod`, a metronome module for judging A/V sync by eye and ear, and
+asserts nothing. Registered as a soak row declaring 10s, it reported `ok` in
+0.0s. That is `dispcp`'s failure from §6 exactly, and the same rule applies:
+nobody investigates a pass. It is unregistered with a reason, and it was also
+the last row in the suite that wrote `build/` without meaning to.
+
+**`plain()` had to follow the freeze too.** `os88build.plain()` answered
+`build/` literally, so the six rows that take an A/B — `blitcut`,
+`blitplane`, `dispseam`, `curdisk`, `fatwpin`, and now `kzboot` — read the
+operator's directory for their SHIPPED arm while the knob arm came out of a
+tree. Half a row against a directory somebody may be building in, and only on
+the arm that is supposed to be the control. It resolves through `at("build")`
+now.
+
+**A tree left half-built is poison, and make cannot see it.** An interrupted
+`make` — a timeout, a killed agent, a container reclaimed — can leave an
+output created and EMPTY, and an empty file is newer than everything it was
+built from, so make reports the tree up to date and the next consumer fails
+somewhere else. `build/trees/plain-1c902f1e` kept a 0-byte `kernel-full.bin`
+through this work and `t_buildmatrix`'s `make small` row failed with
+*"os88mod: kernel image is impossibly short"* — which reads as kern_small
+being broken and is a truncated file nobody rebuilt. `os88build.tree` now
+deletes zero-length products at the top of a tree before make looks at it; no
+rule in the Makefile writes an empty file, so there is nothing legitimate to
+lose.
+
+**The trap to write down is `env=`.** `os88marty.launch` takes no `env`
+argument — the emulator needs no environment, the symbol reader does — and
+`os88build`'s own header showed `launch(..., env=t.env)`. Three converted rows
+copied it and died with a `TypeError` in their first second. `t.env` is for a
+subprocess; inside one process the call is `.apply()`, which sets os88sym's
+module default as well as the environment. The header is corrected.

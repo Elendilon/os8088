@@ -36,10 +36,10 @@ therefore never written and is the pristine master by construction. That is
 also what lets two of these run at once - a shared VHD is one disk being
 installed onto twice.
 """
+import hashlib
 import os
 import struct
 import sys
-import time
 
 sys.path.insert(0, "tools")
 import os88marty as M                                      # noqa: E402
@@ -300,19 +300,26 @@ def run_install(m, mo, ix, iy):
     took = M.until(m, lambda _: open(disk, "rb").read(446) != base,
                    "the installer to commit its MBR", limit=600.0)
     print("  MBR committed after %.0fs" % took)
-    quiet, last = 0, None
-    for _ in range(120):
-        time.sleep(2.0)
-        now = open(disk, "rb").read(8 << 20)
-        quiet = quiet + 1 if now == last else 0
-        last = now
-        if quiet >= 8:                          # 16s: the apps phase pauses
-                                                # for a floppy read and a
-                                                # shorter window calls that
-                                                # the end of the install
-            break
-    else:
-        sys.exit("the disk never stopped changing - the install did not finish")
+    # THE DRIVE GOING QUIET IS `quiesce`, and on the GUEST's clock. This was
+    # eight identical 8MB reads two HOST seconds apart, which asks the box for
+    # 16 seconds of stillness and gets whatever fraction of the machine's own
+    # work a loaded box happens to give it - so under contention the apps
+    # phase's pause for a floppy read reads as the end of the install
+    # (docs/SOAK-PARALLEL.md 1). Same signal, same eight readings, the
+    # interval and the budget in guest seconds: the pause it must see through
+    # is the guest's, not the host's.
+    #
+    # A DIGEST, not the 8MB: `quiesce` compares with `==` and holds the last
+    # reading, so hashing keeps two 8MB strings out of the loop for a
+    # comparison that is exactly as strong.
+    try:
+        M.quiesce(m, lambda: hashlib.sha1(
+                      open(disk, "rb").read(8 << 20)).digest(),
+                  guest=2.0, stable=8, budget=480.0,
+                  what="the drive to go quiet")
+    except M.MartyError as e:
+        sys.exit("the disk never stopped changing - the install did not "
+                 "finish (%s)" % e)
     print("  the drive went quiet")
 
 

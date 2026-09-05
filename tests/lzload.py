@@ -16,21 +16,24 @@ one that needed a file to exist before it could be made at all:
     the tree that ever runs LZB's arm on a PACKAGE, nothing on a shipped disk
     being LZB.
 
-`--lz4only` is the other half and a build of its own: it rebuilds the kernel
-`COMPRESS=lz4` and asserts that PIANO is then REFUSED rather than run.
-SPEC.md 20.13.3 says the cell is in every build and a format the build has
-not got answers CF=1, which no amount of reading the source can demonstrate -
-and it is a real path for anyone who cuts a single-format kernel, which is
-what `COMPRESS=` exists for.
+`--lz4only` is the other half and a build of its own: a kernel built
+`COMPRESS=lz4`, on which PIANO is REFUSED rather than run. SPEC.md 20.13.3
+says the cell is in every build and a format the build has not got answers
+CF=1, which no amount of reading the source can demonstrate - and it is a
+real path for anyone who cuts a single-format kernel, which is what
+`COMPRESS=` exists for. **That kernel is built in a PRIVATE TREE**
+(tools/os88build.py) and not in `build/`, so the arm neither disturbs the
+shared directory nor has to put it back afterwards - which is the whole of
+what `builds=True` was for.
 """
 import argparse
 import os
 import struct
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
+import os88build                                       # noqa: E402
 import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88pkg                                         # noqa: E402
@@ -38,7 +41,6 @@ import os88sym                                         # noqa: E402
 import dispcp                                          # noqa: E402
 from os88fixture import need                           # noqa: E402
 
-ROOT = os.path.join(os.path.dirname(__file__), "..")
 MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
 LD_OK, LD_EBAD = 0, 2
 
@@ -51,22 +53,27 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default="cga", choices=sorted(MACHINE))
     ap.add_argument("--lz4only", action="store_true",
-                    help="rebuild COMPRESS=lz4 and assert PIANO is REFUSED")
+                    help="a private COMPRESS=lz4 tree, on which PIANO "
+                         "is REFUSED")
     a = ap.parse_args()
     if a.lz4only:
         # A KERNEL WITH ONE FORMAT, which nothing ships and nothing else
-        # boots. It puts build/ back on the way out for knobhd.py's reason:
-        # os88sym refuses an address unless the map matches build/kernel.bin.
-        subprocess.check_call(["make", "COMPRESS=lz4", "all", "lzloadtest"],
-                              cwd=ROOT, stdout=subprocess.DEVNULL)
+        # boots - IN A TREE OF ITS OWN. It used to be `make COMPRESS=lz4` in
+        # build/ with a bare `make` in a `finally` to put the tree back: two
+        # full builds for one measurement, and in between, a kernel nobody
+        # else asked for where every other row's symbol map points. The
+        # fixture comes out of the same tree, because a scratch disk built
+        # beside a different kernel is the stale-SDK trap.
+        t = os88build.tree("COMPRESS=lz4",
+                           targets=("os8088-360.img", "lzload360.img")).apply()
     else:
-        need("lzloadtest")         # `all` builds nothing under tests/
-    S = (lambda n: os88sym.linear(n, ("LZ_HAVE_LZ4",))) if a.lz4only \
-        else os88sym.linear
+        t = os88build.plain().apply()
+        need("build/lzload360.img")     # `all` builds nothing under tests/
+    S = os88sym.linear
 
     fails = []
-    with os88marty.launch("build/os8088-360.img",
-                          apps="build/lzload360.img",
+    with os88marty.launch(t.img("os8088-360.img"),
+                          apps=t.img("lzload360.img"),
                           machine=MACHINE[a.adapter]) as m:
         os88marty.settle(m, gate=os88marty.desktop_up)
         mo = os88mouse.Mouse(marty=m)
@@ -86,8 +93,12 @@ def main():
             mo.click(wx + 40, wy + 5)          # its title bar
             os88marty.settle(m)
 
-        for name, src in (("CALC.O88", "build/calc.o88"),
-                          ("MINES.O88", "build/mines.o88")):
+        # THE REFERENCE COMES OUT OF THE SAME TREE as the disk under it. On
+        # the plain arm that is build/; on --lz4only it is the private one,
+        # and reading build/calc.o88 there would compare the guest's image
+        # against a package another build produced.
+        for name, src in (("CALC.O88", t.img("calc.o88")),
+                          ("MINES.O88", t.img("mines.o88"))):
             before = dispcp.win_list(m, S)
             dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, name)
             after = dispcp.win_list(m, S)
@@ -120,8 +131,17 @@ def main():
                              "at %d" % (name, len(bad), len(want), bad[0]))
 
         # ...and PIANO, which is LZB
+        #
+        # `expect` IS THE ARM. On the shipped kernel this opens a window; on
+        # `--lz4only` it must be REFUSED, and os88ui's helper raises on a
+        # window that never comes - so telling it which outcome is wanted is
+        # the difference between an assertion and an exception. Without it
+        # the refusal arm died in the helper with a traceback about a window,
+        # having just proved the exact thing it exists to prove
+        # (ld_status = 2, LD_EBAD, in the error's own last line).
         before = dispcp.win_list(m, S)
-        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "PIANO.O88")
+        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "PIANO.O88",
+                          expect="refusal" if a.lz4only else "window")
         after = dispcp.win_list(m, S)
         st = m.read(S("ld_status"), 1)[0]
         if a.lz4only:
@@ -160,9 +180,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        rc = main()
-    finally:
-        if "--lz4only" in sys.argv:
-            subprocess.call(["make"], cwd=ROOT, stdout=subprocess.DEVNULL)
-    sys.exit(rc)
+    sys.exit(main())

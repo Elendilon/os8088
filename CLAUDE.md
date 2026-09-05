@@ -179,9 +179,12 @@ python3 tools/os88soak.py status   #   `make test-soak` runs the same rows
               #   cannot perturb the run; running rows beside it, or a `make`,
               #   can and does. It journals every row that reports, so
               #   `start --resume` after a container is reclaimed re-runs only
-              #   what did not finish — the floor of a soak is its 58
-              #   `builds=True` rows and 3.3 declared hours that no width
-              #   helps, so a restart from zero is expensive. IN A CONTAINER,
+              #   what did not finish. That floor used to be 58
+              #   `builds=True` rows and 3.3 declared hours no width
+              #   helped; it is THREE rows now
+              #   (docs/SOAK-PARALLEL.md 14.3), so a restart from zero
+              #   costs the emulator time rather than the builds -
+              #   still worth not paying. IN A CONTAINER,
               #   HOLD A WAITING TASK FOR THE WHOLE RUN (`until [ -f
               #   build/soak/latest/finished ]; do sleep 30; done`): an agent
               #   that ENDED ITS TURN with only the background soak running

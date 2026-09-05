@@ -70,6 +70,15 @@ UNREGISTERED = {
     "npbench.inc": "a benchmark body, %included",
     "harness.py": "tests/unit/'s check library - check(), eq(), done() - "
                   "imported by every t_*.py there, not a test",
+    "mkclick.py": "a GENERATOR, not a test: it writes build/click.mod - a "
+                  "metronome module for judging A/V sync by eye and ear - "
+                  "and asserts nothing. It was REGISTERED as a soak row "
+                  "declaring 10s and reported `ok` in 0.0s, which is "
+                  "dispcp.py's failure exactly (a green row that tests "
+                  "nothing, and nobody investigates a pass); it also WRITES "
+                  "build/, which a row under a frozen run may not "
+                  "(docs/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
+                  "sync question needs the module",
 
     # --- need a build prerequisite the default build does not make ---
     "brclick.py": "needs `make browsertest` (build/brtest360.img)",

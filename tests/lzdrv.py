@@ -21,14 +21,15 @@ prove:
 import argparse
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
 import os88drv                                         # noqa: E402
+import os88build                                       # noqa: E402
 import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88sym                                         # noqa: E402
+from os88sym import KERNEL_SEG                         # noqa: E402
 import dispcp                                          # noqa: E402
 import drvcall                                         # noqa: E402
 from os88fixture import need                           # noqa: E402
@@ -40,6 +41,7 @@ MACHINE = {"cga": "os8088_5150_cga_gla", "herc": "os8088_5150_herc_gla"}
 # page, and two files disagreeing about where that row is would be a test
 # failure that means nothing about the kernel.
 DRVR_SZ, DRVR_SEG = drvcall.DRVR_SZ, drvcall.DRVR_SEG
+DRVC_FILE = 5                       # SPEC.md 51.2's class, RAMDISK.DRV's
 RD_ROW = drvcall.RD_ROW
 
 
@@ -62,8 +64,13 @@ def main():
     # guest holds after drv_expand is the IMAGE, and build/ramdisk.drv is a
     # FILE. Without this the row reports 4,832 differing bytes on a kernel
     # that expanded perfectly, which reads exactly like a broken decoder.
-    plain = os88drv.image_unwrap(open("build/ramdisk.drv", "rb").read())
-    packed = open("build/lzd/ramdisk.drv", "rb").read()
+    # `at` on every host-side read: under a frozen run these live in the
+    # run's own tree and not in build/ (docs/SOAK-PARALLEL.md 14.2), and a
+    # comparison that takes one build's driver and boots another's is the
+    # failure that reads as a broken decoder.
+    plain = os88drv.image_unwrap(
+        open(os88build.at("build/ramdisk.drv"), "rb").read())
+    packed = open(os88build.at("build/lzd/ramdisk.drv"), "rb").read()
     say("lzdrv: RAMDISK.DRV %d bytes plain, %d compressed (%.1f%%), "
         "+%d bss" % (len(plain), len(packed), 100.0 * len(packed) / len(plain),
                      plain[31] * 16))
@@ -94,10 +101,37 @@ def main():
         mo.click(x0 + drvcall.CP_RX + 40,
                  y0 + drvcall.CP_DBY1 + RD_ROW * drvcall.CP_DROWH
                  + drvcall.CP_DROWH // 2)
-        time.sleep(6)
+        # WAITED FOR, not slept through - AND NOT ON THE SEGMENT, which is
+        # the trap this row taught. `drv_load` writes DRVR_SEG the moment
+        # mem_claim_hi_x answers, BEFORE the file is read, checked, expanded,
+        # its bss re-made and drv_attach far-called (kernel/driver.inc); so a
+        # non-zero segment means "a claim was made", not "the driver is up",
+        # and waiting on it returns three quarters of the way through a load.
+        # Measured: the probes below then read `Ping: ..` and
+        # `Upcase: hello world` - a driver that answered nothing - which is
+        # exactly what a broken decoder looks like.
+        #
+        # `drv_owner` for the CLASS is the signal, because drv_publish is
+        # called from drv_attach and nothing else writes it: DRVC_FILE is 5
+        # and class 1 is index 0, so this is the row's own address appearing
+        # in slot 4 (SPEC.md 51.2.1).
+        row = S("drv_tab") + RD_ROW * DRVR_SZ
+        # ...and drv_owner holds a near OFFSET (BX inside the kernel segment),
+        # where S() answers a linear address - so the comparison is against
+        # the offset and not against what `row` is used for two lines down.
+        want = (row - KERNEL_SEG * 16) & 0xFFFF
+
+        def published(mm):
+            return int.from_bytes(
+                mm.read(S("drv_owner") + (DRVC_FILE - 1) * 2, 2),
+                "little") == want
+        try:
+            os88marty.until(m, published, "RAMDISK.DRV to attach and publish",
+                            poll=0.1, guest=30.0)
+        except os88marty.MartyError:
+            pass
         os88marty.settle(m)
-        seg = int.from_bytes(
-            m.read(S("drv_tab") + RD_ROW * DRVR_SZ + DRVR_SEG, 2), "little")
+        seg = int.from_bytes(m.read(row + DRVR_SEG, 2), "little")
         mo.click(cx + 8, cy + 9)                    # close the panel (31.8)
         os88marty.settle(m)
         if not seg:
@@ -157,7 +191,29 @@ def main():
                 rec = m.read(S("wm_wins") + w2[-1] * dispcp.WIN_SIZE,
                              dispcp.WIN_SIZE)
                 pseg = rec[22] | (rec[23] << 8)
-                raw = m.readseg(pseg, 0, os.path.getsize("build/drvcall.bin"))
+                n = os.path.getsize(os88build.at("build/drvcall.bin"))
+
+                # RE-PROBE, AND CONFIRM IT RAN. dc_probe runs from dc_paint,
+                # and DRVCALL's FIRST paint does not reach the driver - the
+                # three lines are still the image's own 'Ping: ..' after the
+                # window is up and the screen still. tests/drvcall.py has
+                # always clicked the window to force a second probe; this row
+                # did not, and read whatever was there. It passed by luck: a
+                # second paint arriving before the read is a race, and it is
+                # LOST under load - two emulators on this box turned it into
+                # `Ping: ..` on the shipped tree, which reads exactly like a
+                # driver that failed to expand.
+                dx, dy, dw, dh = dispcp.win_rect(m, S, w2[-1])
+                mo.click(dx + dw // 2, dy + dh - 8)
+                try:
+                    os88marty.until(
+                        m, lambda mm: b"Ping: .." not in bytes(
+                            mm.readseg(pseg, 0, n)),
+                        "DRVCALL's probe to run", poll=0.1, guest=20.0)
+                except os88marty.MartyError:
+                    pass
+                os88marty.settle(m)
+                raw = m.readseg(pseg, 0, n)
                 for tag, want_txt in ((b"Ping: ", b"Ping: DR"),
                                       (b"Upcase: ", b"Upcase: HELLO WORLD")):
                     i = raw.find(tag)

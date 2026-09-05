@@ -2,10 +2,17 @@
 """os88build - a PRIVATE build tree per knob, so a test never clobbers `build/`.
 
     import os88build
-    t = os88build.tree("NOPLANE=1")             # builds, or reuses
-    img = t.img("os8088-360.img")               # a path in that tree
-    with os88marty.launch(img, apps=t.img("apps360.img"), env=t.env) as m:
+    t = os88build.tree("NOPLANE=1").apply()     # builds (or reuses), and
+    img = t.img("os8088-360.img")               # points os88sym at it
+    with os88marty.launch(img, apps=t.img("apps360.img")) as m:
         ...
+
+`.apply()` IS THE CALL, not `env=`. `os88marty.launch` takes no `env`
+argument - the emulator needs no environment, the SYMBOL READER does - so
+`launch(..., env=t.env)` is a TypeError in the row's first second, which is
+how three converted rows failed. `t.env` is for a SUBPROCESS you spawn
+yourself; inside one process, `apply()` sets both the environment and
+os88sym's module default, which is the half `env` cannot reach.
 
     python3 tools/os88build.py list             # what trees exist
     python3 tools/os88build.py clean            # remove them all
@@ -138,15 +145,27 @@ class Tree(object):
 
 
 def plain():
-    """The SHARED tree, `build/`, as a Tree - for the other arm of an A/B.
+    """The SHARED tree as a Tree - for the other arm of an A/B.
 
     A row that compares a knob kernel against the shipped one needs to put the
     symbol reader back between the two, and `plain().apply()` is that. It
-    builds nothing and writes nothing: `build/` is what `make` maintains and
-    what a row may READ, and the whole point of this module is that a row
-    never writes it.
+    builds nothing and writes nothing: the shared tree is what `make`
+    maintains and what a row may READ, and the whole point of this module is
+    that a row never writes it.
+
+    **"SHARED" IS `at("build")` AND NOT LITERALLY `build/`** (14.2). Under a
+    frozen run the directory every row reads is the run's own tree, so
+    answering `build/` here would send exactly the rows that take an A/B -
+    blitcut, blitplane, dispseam, curdisk, fatwpin, kzboot - back to the
+    operator's directory for their SHIPPED arm while the knob arm came out of
+    a tree. That is the one arrangement worse than either: half a row against
+    a directory somebody may be building in, and only on the arm that is
+    supposed to be the control. With $OS88_BUILD unset this is `build/`, which
+    is what every interactive run gets.
     """
-    return Tree(os.path.join(ROOT, "build"), (), (), DEFAULT_TARGETS)
+    root = os.environ.get("OS88_BUILD")
+    return Tree(os.path.abspath(root) if root else os.path.join(ROOT, "build"),
+                (), (), DEFAULT_TARGETS)
 
 
 def _key(args, targets):
@@ -203,6 +222,37 @@ NO_GATES = ["NOOVLCHK=1", "NOKERNSIZE=1"]
 # NOTHING ELSE MAY BE SHARED. docs/HANDOFF-KERNEL-SIZE-P3.md 3 says why in one
 # line: a shared writable DISK is what contaminated pass 2's first bisect.
 SHARED = ("cc", "martypc")
+
+
+def _sweep_truncated(d):
+    """Delete zero-length build products before make looks at the tree.
+
+    A TREE LEFT HALF-BUILT IS POISON, and make cannot see it. An interrupted
+    `make` - a timeout, a killed agent, a container reclaimed - can leave an
+    output file created and empty, and an empty file is NEWER than everything
+    it was built from: make reports the tree up to date and the next consumer
+    fails somewhere else entirely. Measured: `build/trees/plain-1c902f1e`
+    kept a 0-byte `kernel-full.bin`, and `t_buildmatrix`'s `make small` row
+    failed with `os88mod: kernel image is impossibly short` - which reads as
+    kern_small being broken and is a truncated file nobody rebuilt.
+
+    A zero-length product is never legitimate here (every rule in the
+    Makefile writes bytes), so removing it is safe and make does the rest.
+    One `listdir` per tree, only at the top level, which is where every
+    artefact a row asks for lives.
+    """
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return
+    for n in names:
+        p = os.path.join(d, n)
+        try:
+            if os.path.isfile(p) and not os.path.islink(p) \
+                    and os.path.getsize(p) == 0:
+                os.remove(p)
+        except OSError:
+            pass
 
 
 def _share_instruments(d):
@@ -401,6 +451,7 @@ def tree(*args, **kw):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise
+        _sweep_truncated(d)
         _share_instruments(d)
         # RELATIVE, and it has to be. The Makefile spells the C toolchain's
         # PATH as `$(CURDIR)/$(CC_SC)` where `CC_SC := $(BUILD)/cc/SmallerC`,

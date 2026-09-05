@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """THE WHOLE SHIPPED SET, COMPRESSED, boots and runs (SPEC.md 20.13, 20.14).
 
-    make zset ZFMT=lz4 && python3 tests/lzship.py --fmt lz4
+    python3 tests/lzship.py --fmt lz4      # it builds its own tree
 
 Every other row in this family compresses one subject: lzload three packages,
 lzdrv one driver, lzmod one module. This is the configuration a user would
@@ -25,16 +25,24 @@ FOUR ASSERTIONS:
   4. BEVERLY.MOD opens from MEDIA/ on the APPS disk. That last is the point
      of the whole exercise: at 360KB the module needs a floppy of its own
      (SPEC.md 24.4), and compressed it does not.
+
+**IT BUILDS A PRIVATE TREE** (tools/os88build.py), which is what `make zset`
+was working around. That target exists because the compressed images land at
+the SAME paths a plain build uses, so it copied them aside and deleted the
+originals either side - three steps to stop the next `make` shipping a
+compressed floppy. With `BUILD=<tree>` there is nothing to copy and nothing to
+delete: the set is built where nothing else looks, the shared `build/` is
+never written, and the bare `make` this row used to run on its way out to put
+the tree back is gone with it.
 """
 import argparse
 import os
 import struct
-import subprocess
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
+import os88build                                       # noqa: E402
 import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88sym                                         # noqa: E402
@@ -42,15 +50,6 @@ import dispcp                                          # noqa: E402
 import os88geom                                        # noqa: E402
 from trackmove import pkg_syms, find_win               # noqa: E402
 
-ROOT = os.path.join(os.path.dirname(__file__), "..")
-# BOTH ARMS NAME A SYMBOL NOW. `zset ZFMT=lz4` builds COMPRESS=lz4, which is
-# a SINGLE-format kernel and passes -DLZ_HAVE_LZ4 - where the default carries
-# both and passes nothing (SPEC.md 20.13.6). An empty tuple here used to mean
-# "the default, which is LZ4 alone" and now means "the default, which is
-# both", so it described a kernel this row never builds and os88sym refused
-# every address.
-DEFS = {"lz4": ("LZ_HAVE_LZ4",), "lzb": ("LZ_HAVE_LZB",)}
-DRV_TAB, DRVR_SZ = "drv_tab", 10        # SPEC.md 51.3's row, for the count
 
 
 def say(*a):
@@ -112,22 +111,20 @@ def main():
     ap.add_argument("--machine", default="os8088_5150_cga_gla")
     a = ap.parse_args()
 
-    zdir = os.path.join("build", "z-" + a.fmt)
-    sysimg = os.path.join(zdir, "os8088-360.img")
-    appsimg = os.path.join(zdir, "apps360.img")
-
-    # ALWAYS, and not only when the images are missing. `make zset` leaves
-    # build/kernel.bin as whichever format ran last, and os88sym refuses an
-    # address unless its re-assembly is byte-identical to that file - so the
-    # tree has to be ON the format under test before a single symbol resolves.
-    # It is a no-op when it already is. ($OS88_BUILD does not serve here: the
-    # generated includes - buildnum.inc, associco.inc - live in build/ and not
-    # beside the copied kernel.)
-    subprocess.check_call(["make", "zset", "ZFMT=" + a.fmt], cwd=ROOT,
-                          stdout=subprocess.DEVNULL)
-
-    def S(n):
-        return os88sym.linear(n, DEFS[a.fmt])
+    # THE TWO KNOBS PAIRED, which is what `zset` was for: PKGZ compresses the
+    # files and COMPRESS decides which decoder the kernel carries, and a disk
+    # built with one and not the other is a floppy of programs that will not
+    # open - a mismatch that reads as a broken loader. Here they are the tree's
+    # key, so the two formats are two directories and neither is `build/`.
+    #
+    # `.apply()` and not just `.env`: this row resolves symbols in its own
+    # frame (S below) AND through library helpers that take no defines -
+    # os88marty.no_saver resolves ss_idle, launch's own gate resolves more -
+    # and those go to os88sym's module default. Setting only the environment
+    # fails exactly where the row is not looking.
+    t = os88build.tree("PKGZ=" + a.fmt, "COMPRESS=" + a.fmt).apply()
+    sysimg, appsimg = t.img("os8088-360.img"), t.img("apps360.img")
+    S = os88sym.linear
 
     fails = []
     for img, tag in ((sysimg, "system"), (appsimg, "apps")):
@@ -154,9 +151,20 @@ def main():
 
         # 2. ...and they ATTACHED. drv_tab and not the screen: a driver that
         #    failed to expand is silently absent, not visibly broken.
-        raw = m.read(S("drv_tab"), DRVR_SZ * 16)
-        live = sum(1 for i in range(16)
-                   if raw[i * DRVR_SZ] | (raw[i * DRVR_SZ + 1] << 8))
+        #
+        # THE STRIDE AND THE ROW COUNT ARE ASKED FOR, not typed. This read
+        # was `DRVR_SZ = 10` over sixteen rows where the record is
+        # DRVR_SIZE = 16 and drv_tab has DRV_MAX of them - so it walked 256
+        # bytes of a 80-byte table on a stride that matched no field, and
+        # the number it printed was arithmetic on whatever follows. It only
+        # ever asserted `live < 1`, which is why it never said so. Both are
+        # `%ifdef`-dependent (kern_small has no RAM disk, so DRV_MAX is 4
+        # there), which is the other reason not to type them.
+        eq = os88sym.equates()
+        sz, nrow = eq["DRVR_SIZE"], eq["DRV_MAX"]
+        raw = m.read(S("drv_tab"), sz * nrow)
+        live = sum(1 for i in range(nrow)
+                   if raw[i * sz] | (raw[i * sz + 1] << 8))
         say("  drivers    %d attached" % live)
         if live < 1:
             fails.append("no driver attached: drv_tab is empty")
@@ -175,10 +183,11 @@ def main():
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "APPS")
         os88marty.settle(m)
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "CALC.O88")
-        for _ in range(20):
-            time.sleep(1)
-            if len(dispcp.win_list(m, S)) > n0:
-                break
+        try:
+            os88marty.until(m, lambda mm: len(dispcp.win_list(mm, S)) > n0,
+                            "CALC.O88's window", poll=0.2, guest=30.0)
+        except os88marty.MartyError:
+            pass
         if len(dispcp.win_list(m, S)) > n0:
             say("  package    ok  (CALC.O88 opened, compressed)")
         else:
@@ -194,11 +203,22 @@ def main():
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "MEDIA")
         os88marty.settle(m)
         dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "BEVERLY.MOD")
-        for _ in range(40):
-            time.sleep(1)
-            if find_win(m, S, "Tracker")[0]:
-                break
-        time.sleep(20)
+        try:
+            os88marty.until(m, lambda mm: find_win(mm, S, "Tracker")[0],
+                            "Tracker's window", poll=0.2, guest=60.0)
+            # ...AND THEN THE CLAIM, which is what the twenty-second sleep
+            # here was standing in for. [trk_modseg] going non-zero IS "the
+            # 116KB expanded and Tracker holds it", so this costs what the
+            # decode costs on this box and waits longer on a loaded one.
+            def claimed(mm):
+                seg = find_win(mm, S, "Tracker")[0]
+                return seg and int.from_bytes(
+                    mm.readseg(seg, P["trk_modseg"], 2), "little")
+
+            os88marty.until(m, claimed, "Tracker to claim the module",
+                            poll=0.2, guest=90.0)
+        except os88marty.MartyError:
+            pass
         os88marty.settle(m)
         # BY TITLE, and not by slot: CALC is open above, the Disk window has
         # been raised again, and wm_wins' last slot is whichever index the
@@ -224,7 +244,7 @@ def main():
                 # A SHOT, because [trk_modseg] = 0 means Tracker's own error
                 # path ran and the reason is on the glass in words - which no
                 # amount of reading memory recovers.
-                shot = "build/lzship-%s-fail.png" % a.fmt
+                shot = t.img("lzship-%s-fail.png" % a.fmt)
                 m.shot(shot, rendered=True)
                 fails.append("Tracker opened and holds no module - its own "
                              "error is in %s" % shot)
@@ -235,9 +255,6 @@ def main():
                              % (len(bad), len(plain), bad[0],
                                 "past" if bad[0] >= 0x10000 else "before"))
 
-    # ...and put the tree back on the default build, or every row after this
-    # one decodes a kernel os88sym cannot describe.
-    subprocess.check_call(["make"], cwd=ROOT, stdout=subprocess.DEVNULL)
     for f in fails:
         say("  FAIL: " + f)
     say("lzship: %s" % ("FAILED" if fails else "ok"))
