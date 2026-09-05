@@ -37813,6 +37813,45 @@ Verified by differential: the same scripted run against a build whose
 `np_scrollpaint` always refuses is **pixel-identical inside the window**, on
 VGA over nine states and on Hercules over six.
 
+#### 27.7.2.1 A refused blit leaves the bar on the glass, so the repaint behind it must too
+
+`|d| >= [np_vrows]` retains nothing, so `np_scrollpaint` answers CF=1 and
+`np_redraw` repaints — and **a track click is exactly that case**, because
+`.pageup` and `.pagedn` move by `[np_vrows]` on the nose. Reported from the
+field as *"clicking below the thumb, but not on the arrow, is blanking the
+entire inner window — causing the scrollbar to completely disappear. The
+scrollbar doesn't need removed, or even completely redrawn."*
+
+Both halves of that are right, and they are two different mistakes:
+
+- **`.fullpaint`'s own white fill covered the WHOLE content**, which is the
+  scroll bar's fourteen columns and the grow box as well as the text. So the
+  bar was erased, and then not drawn again until `np_paint` had lettered every
+  visible row — ~19 rows at ~71 ms on a 4.77 MHz 8088, so **the bar is off the
+  screen for well over a second** while the text fills in beside it.
+- **`np_paint` then drew the bar WHOLE**, sixteen drawing calls, because the
+  fill had taken it.
+
+Neither is true of this path. **A refusal draws nothing** — `np_scrollpaint`'s
+own comment says so at `np_vshift`'s `jc`, and every other `.nope` is reached
+before a pixel is written — and `.scrolled` is only reached when `np_sigsame`
+has AGREED, so the screen still shows the geometry these numbers were taken
+under. `[np_sbkeep]` is that fact, set at the refusal and read twice: the fill
+stops at `[np_rgt]`, the last drawable text column, and `np_paint` calls
+`np_sbcheck` instead of `np_sbar` — which for a scroll is §13.10.3's three
+drawing calls, and for a page whose thumb HEIGHT also changed is the full draw
+anyway, on its own evidence rather than on the caller's.
+
+**The grow box falls out of it.** `OSAPI_WM_GROW` was called after the fill
+because the fill had erased it; a fill that stops at `[np_rgt]` never reaches
+it, so on this path the call goes too.
+
+It is a one-shot, and W_PAINT is why: there the KERNEL white-fills the whole
+content before calling the package (§11), so the bar really has gone and the
+full draw is the right one. `[np_sbkeep]` is set on exactly one path and
+cleared at the end of `.fullpaint`, so every other entry to `np_paint` reads 0
+and behaves as it always did.
+
 ### 27.7.3 The height is counted a chunk at a time
 
 §27.7.1 bounded every walk that draws to the bottom of the view, which left

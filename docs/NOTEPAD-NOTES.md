@@ -796,6 +796,55 @@ sample.
 
 Cost: included in §5.7's +50 bytes; the two changes were measured together.
 
+### 5.9 A track click blanks the whole content and the bar with it — FIXED (SPEC.md §27.7.2.1)
+
+Reported as *"clicking below the thumb, but not on the arrow, is blanking the
+entire inner window — causing the scrollbar to completely disappear. I'm not
+sure this is a regression, it may always have worked this way, but the
+scrollbar doesn't need removed, or even completely redrawn."*
+
+It is not a regression: it is what a track click has always done, and it was
+invisible in an emulator for the usual reason — the end state is correct, so
+a screenshot taken afterwards shows nothing.
+
+**A track click is the one gesture that cannot blit.** `.pageup` and `.pagedn`
+move by `[np_vrows]` on the nose, and §27.7.2 refuses the blit at
+`|d| >= [np_vrows]` because nothing is retained — so `np_scrollpaint` answers
+CF=1 and `np_redraw` falls through to `.fullpaint`, which is where both
+mistakes were:
+
+- **the white fill covered the WHOLE content**, so the scroll bar's fourteen
+  columns and the grow box went with the text; and
+- **`np_paint` then drew the bar whole**, sixteen drawing calls, because the
+  fill had taken it.
+
+Neither is true of that path. A refusal draws nothing, and `.scrolled` is only
+reached when `np_sigsame` has agreed — so the bar on the glass is still right
+to the pixel. `[np_sbkeep]` says so, and is read twice: the fill stops at
+`[np_rgt]` and `np_paint` calls `np_sbcheck` instead of `np_sbar`. The
+`OSAPI_WM_GROW` that followed the fill goes with it, the fill no longer
+reaching the corner it was restoring.
+
+Measured on `os8088_5150_cga` with README.TXT open, the bar's up-arrow cell
+sampled every 25,000 guest cycles (~5 ms) across the whole repaint:
+
+| a track click below the thumb | before | after |
+|---|---|---|
+| samples with the arrow cell altered | **60 of 400** | **0 of 400** |
+| worst | 22 bytes — the whole cell | 0 |
+| so the bar is off the screen for | **~315 ms** | never |
+
+315 ms is this window; the fill is one call and the relettering is
+`[np_vrows]` rows of `font_run`, so a wider or taller Note Pad holds the bar
+off the screen for proportionally longer.
+
+**What is NOT fixed, because it is not a defect:** the text itself still goes
+white and fills back in. A page retains no rows by definition, so §27.2's
+white-fill-then-letter is the repaint, and `[np_clean]` is what keeps it to
+characters rather than rows × width.
+
+Cost: **+49 bytes** of `notepad.bin`. No kernel file changed.
+
 ---
 
 ## 6. Measuring Note Pad, and the ten ways the apparatus lied

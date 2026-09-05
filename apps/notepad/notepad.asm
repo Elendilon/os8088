@@ -4136,7 +4136,13 @@ np_paint:
     mov ax, [np_top]                ; padding to the band's edge to erase with
     mov [np_ptop], ax               ; ...and the screen now shows THIS view
     pop ax
-    call np_sbar                    ; the fill took the bar with it
+    cmp byte [np_sbkeep], 0         ; THE FILL TOOK THE BAR WITH IT - unless
+    je .barfull                     ; the caller says otherwise (SPEC.md
+    call np_sbcheck                 ; 27.7.2.1), in which case the thumb is the
+    jmp short .bardone              ; only thing that can have moved: three
+.barfull:                           ; drawing calls against sixteen, and the
+    call np_sbar                    ; frame, the rules and both arrow glyphs
+.bardone:                           ; are never taken off the screen at all
 %ifdef NPF_FIND
     call np_fpaint                  ; ...and the find panel, which lives in the
                                     ; strip np_bounds took off the top of the
@@ -6008,7 +6014,9 @@ np_redraw:
     ; exactly what used to happen every time.
     call np_scrollpaint
     jnc .done
-    jmp short .fullpaint
+    mov byte [np_sbkeep], 1         ; ...and a REFUSAL drew nothing (SPEC.md
+                                    ; 27.7.2.1), so the scroll bar and the grow
+    jmp short .fullpaint            ; box below it are still on the glass
 
 .full:
     ; Reached when np_sigsame REFUSED - a resize, a toast arriving or leaving,
@@ -6051,11 +6059,22 @@ np_redraw:
     pop ax                          ; x1
     add cx, ax
     dec cx                          ; CX = x2
+    cmp byte [np_sbkeep], 0         ; ...AND IT STOPS AT THE TEXT when the bar
+    je .fillall                     ; is still on the glass (SPEC.md 27.7.2.1):
+    mov cx, [np_rgt]                ; [np_rgt] is the last drawable text column
+.fillall:                           ; and the bar owns everything right of it,
+                                    ; the grow box included
     call np_fillw ; white-fill the content
                                 ; variable - keep x1 across the call
     call np_paint                   ; SI still = window ptr
+    cmp byte [np_sbkeep], 0
+    jne .kept
     mov bx, si                      ; the white fill erased the grow box;
     call OSAPI_WM_GROW              ; restore it (SPEC.md 11.1/27)
+.kept:
+    mov byte [np_sbkeep], 0         ; ONE-SHOT: whoever set it meant THIS
+                                    ; repaint, and the next one may well be
+                                    ; W_PAINT over a content the kernel filled
 .out:
     call np_hirechk                 ; a debt left by ANY of this routine's
                                     ; exits, not just the .done path it used to
@@ -11193,6 +11212,18 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                             ; parks it at the sentinel, so Left and Right (kind
                             ; 4 as well, and adjacent rows they do not measure)
                             ; can never inherit an Up's bound
+
+    NPVAR np_sbkeep, 1      ; byte: THE BAR IS STILL ON THE GLASS (SPEC.md
+                            ; 27.7.2.1). A one-shot, set by np_redraw's
+                            ; .scrolled when the blit was refused - a refusal
+                            ; draws nothing, so the bar the last pass left is
+                            ; still exactly right - and read TWICE: by
+                            ; .fullpaint, which then fills only as far as the
+                            ; text, and by np_paint, which then MOVES the
+                            ; thumb instead of drawing the bar again. Clear on
+                            ; every other path, which is what makes W_PAINT -
+                            ; where the KERNEL has white-filled the whole
+                            ; content - keep the full draw it needs
 
     NPVAR np_rbuf, NP_MAXCOL + 1  ; the row being accumulated, space-filled
     NPVAR np_prow, NP_MAXCOL      ; ...and what was last DRAWN on the cached

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Scrolling a note whose height is still being counted, and the scroll bar
-the blit must not touch (SPEC.md 27.7.6.1, 27.7.2).
+neither the blit nor the repaint behind it may touch (SPEC.md 27.7.6.1,
+27.7.2, 27.7.2.1).
 
     make && python3 tests/npscroll.py
 
-TWO FIELD REPORTS, ONE ROW, and they share a machine because they share a
+THREE FIELD REPORTS, ONE ROW, and they share a machine because they share a
 gesture: open a long document and click the scroll bar before the background
 count (SPEC.md 27.7.3) has finished.
 
@@ -25,6 +26,13 @@ count (SPEC.md 27.7.3) has finished.
      the bar's left half was WHITE for the band's entire relettering:
      PERFORMANCE.md Part 1's double-draw flash.
 
+  3. *"clicking below the thumb, but not on the arrow, is blanking the entire
+     inner window - causing the scrollbar to completely disappear."* A track
+     click moves by [np_vrows] on the nose, which retains nothing, so the blit
+     is refused and np_redraw repaints - and .fullpaint's white fill covered
+     the WHOLE content, bar and grow box included, with np_paint drawing the
+     bar back only after every visible row had been lettered.
+
 WHAT MAKES EACH LEG GO RED, which is the only question that decides whether a
 row is worth having (docs/WRITING-TESTS.md 1):
 
@@ -38,13 +46,20 @@ row is worth having (docs/WRITING-TESTS.md 1):
      Before, np_height walked to row 0x7FFF whoever asked: [np_drows] came
      back 718 of a 718-row note with [np_hdirty] cleared. After: 543, still
      owed.
-  C  the bar's UP-ARROW CELL must be untouched at every instant of a scroll.
-     The strip fill spanned [np_ty]..[np_bot], so it whitened that cell's left
-     columns; nothing else in a scroll draws there - the thumb is clamped
-     between the arrow-cell rules and the pointer is parked on the DOWN arrow -
-     so the reference is the cell as it stood before the click and the number
-     owed is zero, at every sample. Before: **21 of 64 samples altered, 11
-     bytes at worst**. After: 0 of 64.
+  C  the bar's UP-ARROW CELL must be untouched at every instant of a scroll,
+     and it is watched across TWO clicks because they are two different paths.
+     Nothing in a scroll draws there - the thumb is clamped between the
+     arrow-cell rules and the pointer is parked on whatever is being clicked -
+     so the reference is the cell as it stood before the press and the number
+     owed is zero, at every sample.
+       C1, the DOWN ARROW, blits: the strip fill spanned [np_ty]..[np_bot] and
+       whitened that cell's left columns. Before: **21 of 64 samples altered,
+       11 bytes at worst**. After: 0 of 64.
+       C2, the TRACK below the thumb, cannot blit and repaints: the whole
+       content went white and the bar with it. Before: **60 of 400 samples,
+       22 bytes - the whole cell - so the bar was off the screen for ~315 ms**.
+       After: 0 of 400. `down=True` refuses a click that paged UP, so "below
+       the thumb" is checked rather than assumed.
 
 Every one of those "before" numbers was taken by building this tree with the
 fix backed out and running this file against it, which is the only thing that
@@ -83,6 +98,10 @@ NP_SB_STEP = 4                  # ...and what one arrow click travels
 
 STEP_CYCLES = 25_000            # leg C's sampling step, ~5 ms of guest
 STEP_COUNT = 64                 # ...over ~335 ms, which contains the scroll
+PAGE_STEPS = 400                # ...and a PAGE is a full repaint: ~19 rows of
+                                # glyphs at ~71 ms apiece (PERFORMANCE.md Part
+                                # 2), so the window that has to be watched is
+                                # seconds rather than a third of one
 
 # What a bar click is allowed to cost, in guest cycles at 4.77 MHz. 8,000,000
 # is 1.68 s - eight times the ~200 ms a scroll actually takes here, and well
@@ -419,39 +438,33 @@ def settle_count(ui, np_):
     return np_.w("np_drows")
 
 
-def leg_c(ui, np_, say, total):
-    """The blit must not reach the scroll bar, at any instant."""
+def watch_bar(ui, np_, say, tag, y, steps, down=False):
+    """Click the bar at y and answer how far its UP-ARROW CELL ever moved.
+
+    The reference is that cell as it stood before the press, and the number
+    owed is zero at every sample: the arrow cells are outside the thumb's
+    travel (os88ui clamps it between the two rules), the pointer is parked on
+    whatever is being clicked - which is never the up arrow - and no scroll
+    draws there at all. So anything at all is furniture being erased.
+    """
     m = ui.m
-    spent = wait_idle(ui)
-    if spent:
-        say("C: waited %.2f M cycles for the previous leg's hold to end"
-            % (spent / 1e6))
-    m.pause()
-    np_.poke("np_hdirty", 0, size=1)            # the worker draws the bar while
-                                                # the count moves (SPEC.md
-                                                # 27.7.3) and this leg reads the
-                                                # bar, so the debt leg A put
-                                                # back is cancelled rather than
-                                                # walked out again - 27 guest
-                                                # seconds for a picture that
-                                                # does not depend on it
     rgt, sbr = np_.w("np_rgt"), np_.w("np_sbr")
-    ty, sbb = np_.w("np_ty"), np_.w("np_sbb")
+    ty = np_.w("np_ty")
     box = (rgt + 1, sbr, ty, ty + NP_SB_ARR - 1)
     x = sbr - NP_SB_W // 2
     m.run()
-    ui.mo.to(x, sbb - NP_SB_ARR // 2)           # park ON the down arrow, which
-    m.advance(frames=90)                        # is where the click lands and
-                                                # is outside the box above
+    ui.mo.to(x, y)
+    m.advance(frames=90)
     ref = cga_cell(m, *box)
     if cga_cell(m, *box) != ref:
-        raise SystemExit("npscroll: leg C is not settled - the bar's arrow "
-                         "cell differs between two idle reads")
+        raise SystemExit("npscroll: %s is not settled - the bar's arrow cell "
+                         "differs between two idle reads" % tag)
+    before = np_.w("np_top")
     m.pause()
     m.mouse(0, 0, l=True)                       # the press, on a paused
     m.step(1)                                   # machine: see drive.tap
     worst, seen = 0, 0
-    for _ in range(STEP_COUNT):
+    for _ in range(steps):
         m.advance(cycles=STEP_CYCLES)
         d = sum(1 for a, b in zip(ref, cga_cell(m, *box)) if a != b)
         worst = max(worst, d)
@@ -459,16 +472,72 @@ def leg_c(ui, np_, say, total):
     m.mouse(0, 0)
     m.step(1)
     m.run()
-    say("C: %d samples, %d of them differ, worst %d byte(s); top=%d"
-        % (STEP_COUNT, seen, worst, np_.w("np_top")))
-    if np_.w("np_top") == 0:
-        raise SystemExit("npscroll: leg C cannot arrange its case - the down "
-                         "arrow did not scroll, so no blit ran")
+    after = np_.w("np_top")
+    say("%s: %d samples, %d of them differ, worst %d byte(s); top %d -> %d"
+        % (tag, steps, seen, worst, before, after))
+    if after == before:
+        raise SystemExit("npscroll: %s cannot arrange its case - the click at "
+                         "y=%d did not scroll, so nothing repainted" % (tag, y))
+    if down and after < before:
+        raise SystemExit("npscroll: %s cannot arrange its case - the click at "
+                         "y=%d paged UP, so it landed ABOVE the thumb and not "
+                         "below it (top %d -> %d)" % (tag, y, before, after))
+    return seen, worst
+
+
+def leg_c(ui, np_, say, total):
+    """Neither a scroll NOR the repaint behind one may take the bar off the
+    screen (SPEC.md 27.7.2, 27.7.2.1).
+
+    Two clicks, because they are two different paths and each had its own
+    defect. An ARROW is four rows, so np_scrollpaint blits and the bar was
+    caught by the blit's own x span. A TRACK click is `[np_vrows]` on the nose,
+    which retains nothing - so the blit is refused and np_redraw repaints, and
+    the bar was caught by the full-content white fill in front of that.
+    """
+    m = ui.m
+    spent = wait_idle(ui)
+    if spent:
+        say("C: waited %.2f M cycles for the previous leg's hold to end"
+            % (spent / 1e6))
+    m.pause()
+    np_.poke("np_hdirty", 0, size=1)            # the worker draws the bar while
+    np_.poke("np_drows", total)                 # the count moves (SPEC.md
+                                                # 27.7.3) and this leg reads the
+                                                # bar, so the debt the legs
+                                                # above put back is cancelled
+                                                # rather than walked out again -
+                                                # 27 guest seconds for a picture
+                                                # that does not depend on it.
+                                                # BOTH stores are the truth and
+                                                # not a fixture: settle_count
+                                                # ran this note's count to the
+                                                # end and `total` is what it
+                                                # answered. It also leaves the
+                                                # view room below it for a whole
+                                                # page, which is what C2 needs
+    sbb = np_.w("np_sbb")
+    bad = []
+    seen, worst = watch_bar(ui, np_, say, "C1 down arrow",
+                            sbb - NP_SB_ARR // 2, STEP_COUNT)
     if worst:
-        return ("the scroll blit reached the scroll bar: %d sample(s) of %d "
-                "show the arrow cell altered, worst %d bytes (SPEC.md 27.7.2)"
-                % (seen, STEP_COUNT, worst))
-    return None
+        bad.append("the scroll blit reached the scroll bar: %d sample(s) of "
+                   "%d show the arrow cell altered, worst %d bytes (SPEC.md "
+                   "27.7.2)" % (seen, STEP_COUNT, worst))
+    # ...and the TRACK, near the BOTTOM of it - which is the report's own
+    # gesture, "below the thumb but not on the arrow", and is checked to have
+    # been that rather than assumed: `down` refuses a click that paged UP. The
+    # repaint behind a refused blit letters every visible row, so this one is
+    # sampled over six times as long.
+    wait_idle(ui)
+    seen, worst = watch_bar(ui, np_, say, "C2 track below the thumb",
+                            sbb - NP_SB_ARR - 4, PAGE_STEPS, down=True)
+    if worst:
+        bad.append("a track click took the scroll bar off the screen: %d "
+                   "sample(s) of %d show the arrow cell altered, worst %d "
+                   "bytes - the repaint behind a refused blit is filling over "
+                   "the bar (SPEC.md 27.7.2.1)" % (seen, PAGE_STEPS, worst))
+    return "; and ".join(bad) if bad else None
 
 
 def main():
@@ -492,7 +561,11 @@ def main():
         # opens - dragging it back would be a second thing to get right.
         total = settle_count(ui, np_)
         say("the note is %d rows" % total)
-        for name, leg in (("A", leg_a), ("C", leg_c), ("B", leg_b)):
+        # A, then B, then C. A needs the view at the TOP - the up arrow there
+        # is the whole of what it tests - and B is what moves it away, taking
+        # the thumb to the bottom of the track; C works from wherever it is
+        # left, having put [np_drows] back to the truth first.
+        for name, leg in (("A", leg_a), ("B", leg_b), ("C", leg_c)):
             why = leg(ui, np_, say, total)
             if why:
                 bad.append("leg %s: %s" % (name, why))
