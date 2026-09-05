@@ -86,7 +86,7 @@ cs_runway_build:
     mov byte [di + CSM_TYPE], CSM_FLAT
     mov byte [di + CSM_NV], 6
     mov byte [di + CSM_NF], 1
-    mov byte [di + CSM_NE], 5
+    mov byte [di + CSM_NE], 4       ; the centreline is cs_rwline's (88.6.2)
     mov byte [di + CSM_EINK], CSI_MARK
     mov si, [cs_airport]
     mov ax, [si + CSA_HLEN]
@@ -95,6 +95,11 @@ cs_runway_build:
     mov word [di + CSM_VERTS], cs_rwverts
     mov word [di + CSM_FACES], cs_f_rwy
     mov word [di + CSM_EDGES], cs_e_rwy
+    mov ax, RW_DASHM                ; a stripe in Q15 of the centreline:
+    mov dx, 16384                   ; RW_DASHM x 32768 / (2 hlen)
+    mul dx
+    div word [si + CSA_HLEN]
+    mov [cs_rwdu], ax
     mov di, cs_rwobj
     mov word [di + CSO_MODEL], cs_rwmodel
     mov word [di + CSO_FAR], 0

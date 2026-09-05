@@ -94080,6 +94080,28 @@ does not fit a word is a fault on an 8088 and not a big number. It is two
 `idiv`s on the two or three points of a frame that cross the plane, and the
 runway now runs off the bottom of the view as it should.
 
+#### 88.5.6 Near things are transformed in sixteenths of a metre
+
+The cull's origin is whole metres from a whole-metre eye, and that is what
+the first build transformed: the runway's offset across the aeroplane read
+17 m one frame and 18 the next as the two whole-metre parts of the eye's
+position stepped out of turn, which is 20 pixels at 22 m — the jitter the
+owner saw on the take-off roll. So `cs_drawobj` rotates its object ONCE,
+FROM THE EYE'S 16.8 POSITION (`cs_scale`, `cs_sdiff`), at the finest scale
+a word can hold: **sixteenths** when its reach from the eye — 1.75 × the
+world offset's Manhattan length, which no rotation can exceed, plus the
+radius — is under 2,000 m, **quarters** under 8,000, whole metres beyond;
+the whole-metre origin the frustum and the size tests want is that shifted
+back, so the rotation the cull used to do here is not a second one. The
+model's own offsets are shifted to the same scale before the column trick,
+the near plane and the table's floor with them (`cs_nearat`), the
+projection picks its row by the depth shifted back to metres and shifts the
+product by 11, 13 or 15 (`cs_pshiftp`, each clamped by the product's high
+word first), and the divide under the floor is a ratio and needs no
+telling. The box path (§88.5.4) projects the whole-metre origin. The
+residual is a sixteenth of a metre — a pixel and a half at 22 m — and the
+runway holds still.
+
 ### 88.6 The world (`apps/skies/csworld.inc`)
 
 Metres, x east, z north, y up, the Eiffel Tower at the origin. Thirty-odd
@@ -94110,6 +94132,22 @@ with its own origin and a **far model that is its centreline** — three
 vertices, two segments — beyond 2,600 m, so a piece that is a row at the
 horizon is a segment or two and not a dozen transformed vertices. Their
 range is 4,500 m: a 20 m river is a quarter of a pixel wide there.
+
+#### 88.6.2 The centreline is dashed where the aeroplane is
+
+A solid centreline gives a take-off roll nothing to move against, and a
+runway built of thirty stripes would be sixty transformed vertices a frame.
+So the runway model keeps four edges and `cs_rwline` draws the centreline
+itself, after them: `RW_NDASH` = 4 stripes of `RW_DASHM` = 25 m with as
+much gap, **starting from the stripe the aeroplane is on** (its position
+along the runway in Q15 of the length, rounded down to a pitch), then one
+solid segment to the far end. Every endpoint is a point along the
+TRANSFORMED centreline — vertex 5 to 4 at the object's scale, three
+multiplies — put into scratch vertices 6 and 7 and drawn through
+`cs_edge1`, so the near clip and the projection are the ones every edge
+gets. Above `RW_DASHH` = 150 m of the runway, beyond `RW_DASHW` = 300 m of
+its axis or past its far end, the line is solid end to end and costs one
+segment, as before. On the ground it is five segments and about 7 ms.
 
 **An airport record** is a name, a position, an elevation, a runway heading,
 half-length and half-width, the runway's designation and where the aeroplane
@@ -94190,6 +94228,20 @@ it costs the frame nothing; changed, it is redrawn opaque and marked into the
 span. Positions are laid out at 320-wide and scaled to the box by
 `cs_hscalex`, so the Hercules panel is the CGA one drawn twice as wide.
 
+#### 88.9.1 The instruments read the aeroplane six ticks apart
+
+An altitude in feet changes every tick in a climb and a speed in knots most
+ticks, and each change is nine opaque glyphs — a tenth of a frame, at the
+frame rate. So the four readings (speed, altitude, heading, vertical speed)
+compare their keys only every `CS_PRATE` = 6 ticks, three times a second,
+which is as fast as a needle is read; the throttle, the state, a message
+and the key line are keyed every frame, because a crash line that waited
+a third of a second would be noticed. **The readings reached the glass only
+when the throttle moved, once**: a glyph marked its eight span rows and
+not the set's row range (§88.3.3), so the blit never looked at the panel's
+rows unless the throttle bar's rectangle had widened the range that frame.
+`tests/skies.py` now reads the panel rows a second apart in a climb.
+
 ### 88.10 The attract window
 
 The windowed half is a still panel — the name, the aeroplane and the airport
@@ -94253,7 +94305,8 @@ its near size, the worst frame in the world.
 | Hercules row loop and slice, outlines, skip ticks, river halves | 120 | — | — |
 | the cone's DX bug, Q15, keys, box off three points | 112 → 108 | 176 | 216 |
 | 400 wide, four-leg far tower, river range | 101 ms, 9.9 fps | 150 ms, 6.7 fps | 183 ms, 5.5 fps |
-| **the ground to the wheels (§88.5.5), full-width rows** | **134 ms, 7.5 fps** | 151 | 183 |
+| the ground to the wheels (§88.5.5), full-width rows | 134 ms, 7.5 fps | 151 | 183 |
+| **sixteenth-metre transforms (§88.5.6), the dashed centreline (§88.6.2)** | **143 ms, 7.0 fps** | **156 ms, 6.4 fps** | **189 ms, 5.3 fps** |
 
 **The target was twelve frames a second; the runway frame stood at ten
 before the runway was drawn to the wheels and is 7.5 after.** Where
@@ -94268,7 +94321,10 @@ loop ~50,000. Drawing the ground under the wheels (§88.5.5) then added
 forty full-width rows and their edges to the parked view — 150,000 cycles
 for the runway object alone — of which the full-width fast path gave back
 a quarter; the moment the aeroplane climbs, the runway is a few rows again
-and the frame is back where it was. The city and the tower frames are
+and the frame is back where it was. The sixteenth-metre transform is about
+5 ms a scene (three 16.8 subtractions and their shifts per object) and the
+dashed centreline 7 ms on the ground, both taken for what the glass showed
+(§88.5.6, §88.6.2). The city and the tower frames are
 further off because they hold more of the same: fifteen objects, and the
 tower's 32 segments at ~4,300 cycles each.
 

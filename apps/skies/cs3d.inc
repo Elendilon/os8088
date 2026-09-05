@@ -285,9 +285,11 @@ cs_ktabs:
 ; -----------------------------------------------------------------------------
 cs_project:
     mov si, bx                      ; SI = cy
-    mov bx, cx                      ; the depth picks the row
-    cmp bx, CS_NEAR
+    mov bx, cx                      ; the depth picks the row...
+    cmp bx, [cs_pfloor]
     jb .near
+    mov cl, [cs_pshr]
+    shr bx, cl                      ; ...in whole metres (88.5.6)
     cmp bx, 1024
     jb .row
     cmp bx, 4096
@@ -308,12 +310,12 @@ cs_project:
 .row:
     shl bx, 1
     imul word [cs_kx + bx]          ; DX:AX = cx x kx
-    call cs_pshift
+    call [cs_pshiftp]
     add ax, [cs_vcx]
     mov di, ax                      ; DI = screen x
     mov ax, si
     imul word [cs_ky + bx]
-    call cs_pshift
+    call [cs_pshiftp]
     neg ax                          ; screen y grows DOWNWARD
     add ax, [cs_vcy]
     mov bx, ax
@@ -391,6 +393,147 @@ cs_pshift:
     ret
 .lo:
     mov ax, -4000
+    ret
+
+; ...and the same at the two finer scales (88.5.6): quarter metres shift
+; 13, sixteenths 15, each clamped by the product's high word first
+cs_pshift13:
+    cmp dx, 500
+    jge cs_pshift.hi
+    cmp dx, -501
+    jl cs_pshift.lo
+    mov al, ah
+    mov ah, dl
+    sar ax, 1
+    sar ax, 1
+    sar ax, 1
+    sar ax, 1
+    sar ax, 1
+    ret
+cs_pshift15:
+    cmp dx, 2000
+    jge cs_pshift.hi
+    cmp dx, -2001
+    jl cs_pshift.lo
+    shl ax, 1
+    rcl dx, 1
+    mov ax, dx
+    ret
+cs_pshtab: dw cs_pshift, cs_pshift13, cs_pshift15
+
+; -----------------------------------------------------------------------------
+; cs_scale - the object's transform scale (SPEC.md 88.5.6): sixteenths of a
+;            metre when its reach from the eye - 1.75 x the world offset's
+;            Manhattan length, which no rotation can exceed, plus the radius
+;            - is under 2,000 m, quarters under 8,000, whole metres beyond:
+;            the finest that cannot overflow a word. The origin is then ONE
+;            rotation, at that scale, FROM THE EYE'S 16.8 POSITION, and its
+;            whole-metre form for the size tests is that shifted back. The
+;            first build rotated whole metres from a whole-metre eye, and a
+;            runway transformed that way jumped a metre across between
+;            frames: 20 pixels at 22 m.
+; in:  SI = the cs_vis record (ptr, dx, dy, dz whole metres), [cs_obj]
+; out: [cs_pshr], [cs_pfloor], [cs_pshiftp], cs_scx/y/z, cs_ocx/y/z.
+;      Clobbers everything
+; -----------------------------------------------------------------------------
+cs_scale:
+    xor ax, ax                      ; the world offset's Manhattan length...
+    mov cx, 3
+    push si
+.l1:
+    mov bx, [si + 2]
+    or bx, bx
+    jns .a1
+    neg bx
+.a1:
+    add ax, bx
+    jc .s0
+    inc si
+    inc si
+    loop .l1
+    mov bx, ax                      ; ...times 1.75 (over root three, which
+    shr bx, 1                       ; is the most a rotation can lengthen it)
+    add ax, bx
+    jc .s0
+    shr bx, 1
+    add ax, bx
+    jc .s0
+    pop si
+    push si
+    mov si, [si]
+    mov si, [si + CSO_MODEL]
+    add ax, [si + CSM_RAD]          ; ...plus the radius: the object's reach
+    jc .s0
+    mov cl, 4
+    cmp ax, 2000
+    jb .have
+    mov cl, 2
+    cmp ax, 8000
+    jb .have
+.s0:
+    xor cl, cl
+.have:
+    pop si
+    mov [cs_pshr], cl
+    mov ax, CS_NEAR
+    shl ax, cl
+    mov [cs_pfloor], ax
+    mov bl, cl
+    xor bh, bh
+    mov ax, [cs_pshtab + bx]        ; 0, 2, 4 are the table's byte offsets
+    mov [cs_pshiftp], ax
+    ; --- the origin from the 16.8 eye, at the scale ------------------------
+    mov bx, [cs_obj]
+    mov ax, [bx + CSO_X]
+    mov si, cs_px
+    call cs_sdiff
+    push ax
+    mov ax, [bx + CSO_Z]
+    mov si, cs_pz
+    call cs_sdiff
+    push ax
+    mov ax, [bx + CSO_Y]
+    mov si, [cs_plane]
+    sub ax, [si + CSP_EYE]          ; the eye is that much above the wheels
+    mov si, cs_py
+    call cs_sdiff
+    mov bx, ax
+    pop cx
+    pop ax
+    call cs_rot
+    mov [cs_scx], ax
+    mov [cs_scy], bx
+    mov [cs_scz], cx
+    mov cl, [cs_pshr]               ; ...and in whole metres, for the tests
+    sar ax, cl
+    mov [cs_ocx], ax
+    sar bx, cl
+    mov [cs_ocy], bx
+    sar cx, cl
+    mov [cs_ocz], cx
+    ret
+
+; cs_nearat - AX = a near plane in metres: [cs_near] at the object's scale
+cs_nearat:
+    mov cl, [cs_pshr]
+    shl ax, cl
+    mov [cs_near], ax
+    ret
+
+; cs_sdiff - AX = a whole-metre coordinate, SI -> a 16.8 position: out AX =
+;            (coordinate - position) in 1/2^[cs_pshr] metres. Clobbers CX, DX
+cs_sdiff:
+    mov dx, 256
+    imul dx                         ; DX:AX = the coordinate, 16.8
+    sub ax, [si]
+    sbb dx, [si + 2]
+    mov cl, 8
+    sub cl, [cs_pshr]
+.s:
+    sar dx, 1
+    rcr ax, 1
+    dec cl
+    jnz .s
     ret
 
 ; =============================================================================
@@ -640,14 +783,8 @@ cs_consider:
 cs_drawobj:
     mov bx, [si]
     mov [cs_obj], bx
-    mov ax, [si+2]
-    mov bx, [si+4]
-    mov cx, [si+6]
-    call cs_rot                     ; AX/BX/CX = the origin in camera space
-    mov [cs_ocx], ax
-    mov [cs_ocy], bx
-    mov [cs_ocz], cx
-    mov si, [cs_obj]
+    call cs_scale                   ; the origin at the object's scale, from
+    mov si, [cs_obj]                ; the 16.8 eye (88.5.6), and in metres
     mov si, [si + CSO_MODEL]
     mov dx, [si + CSM_RAD]          ; DX = the radius
     mov si, cx
@@ -738,12 +875,14 @@ cs_drawobj:
     call cs_boxlod
     jmp short .out
 .stack:
-    mov word [cs_near], CS_NEAR
+    mov ax, CS_NEAR
+    call cs_nearat
     call cs_stackverts
     call cs_projall
     jmp short .full
 .flat:
-    mov word [cs_near], CS_NEARG    ; the ground goes under the wheels (88.5.5)
+    mov ax, CS_NEARG                ; the ground goes under the wheels (88.5.5)
+    call cs_nearat
     call cs_flatverts
     call cs_projall
 .full:
@@ -772,6 +911,9 @@ cs_drawobj:
     jb .out
 .edg:
     call cs_edges
+    cmp word [cs_obj], cs_rwobj     ; the runway's centreline is its own
+    jne .out                        ; (88.6.2)
+    call cs_rwline
 .out:
     mov si, [cs_oby0]               ; what the object drew goes to the glass,
     mov di, [cs_oby1]               ; marked ONCE over its rows
@@ -808,6 +950,9 @@ cs_sizepx:
 ;             radius (the caller checked)
 ; -----------------------------------------------------------------------------
 cs_boxlod:
+    mov byte [cs_pshr], 0           ; the cull's origin: whole metres
+    mov word [cs_pfloor], CS_NEAR
+    mov word [cs_pshiftp], cs_pshift
     mov si, [cs_mdl]
     mov cl, [si + CSM_NV]           ; levels
     xor ch, ch
@@ -885,21 +1030,25 @@ cs_stackverts:
     push cx
     push si
     push di
+    mov cl, [cs_pshr]               ; the level at the object's scale (88.5.6)
     mov ax, [si]                    ; wx
+    shl ax, cl
     mov [cs_lwx], ax
     mov ax, [si+4]                  ; wz
+    shl ax, cl
     mov [cs_lwz], ax
     mov ax, [si+2]                  ; h -> ey = h M1
+    shl ax, cl
     mov si, cs_m + 2
     mov di, cs_col1
     call cs_colscale
-    mov ax, [cs_ocy]                ; the level's centre: C + ey
+    mov ax, [cs_scy]                ; the level's centre: C + ey
     add ax, [cs_col1 + 2]
     mov [cs_lcy], ax
-    mov ax, [cs_ocx]
+    mov ax, [cs_scx]
     add ax, [cs_col1]
     mov [cs_lcx], ax
-    mov ax, [cs_ocz]
+    mov ax, [cs_scz]
     add ax, [cs_col1 + 4]
     mov [cs_lcz], ax
     mov ax, [cs_lwx]
@@ -972,7 +1121,9 @@ cs_flatverts:
     push cx
     push si
     push di
+    mov cl, [cs_pshr]               ; the pair at the object's scale (88.5.6)
     mov ax, [si]
+    shl ax, cl
     mov si, cs_m
     mov di, cs_col0
     call cs_colscale
@@ -980,20 +1131,22 @@ cs_flatverts:
     pop si
     push si
     push di
+    mov cl, [cs_pshr]
     mov ax, [si+2]
+    shl ax, cl
     mov si, cs_m + 4
     mov di, cs_col2
     call cs_colscale
     pop di
-    mov ax, [cs_ocx]
+    mov ax, [cs_scx]
     add ax, [cs_col0]
     add ax, [cs_col2]
     mov [cs_cxv + di], ax
-    mov ax, [cs_ocy]
+    mov ax, [cs_scy]
     add ax, [cs_col0 + 2]
     add ax, [cs_col2 + 2]
     mov [cs_cyv + di], ax
-    mov ax, [cs_ocz]
+    mov ax, [cs_scz]
     add ax, [cs_col0 + 4]
     add ax, [cs_col2 + 4]
     mov [cs_czv + di], ax
@@ -1256,6 +1409,16 @@ cs_edges:
     lodsw                           ; AL/AH = the edge's two vertex indices
     push cx
     push si
+    call cs_edge1
+    pop si
+    pop cx
+    loop .e
+.out:
+    ret
+
+; cs_edge1 - the edge between vertices AL and AH, near-clipped where it has
+;            to be, in the current ink. Clobbers everything
+cs_edge1:
     mov bl, al
     xor bh, bh
     shl bx, 1
@@ -1294,9 +1457,126 @@ cs_edges:
 .draw:
     call cs_seg
 .skip:
-    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_rwline - the runway's centreline (SPEC.md 88.6.2): DASHED from the stripe
+;             the aeroplane is on, RW_NDASH stripes of RW_DASHM metres with as
+;             much gap, then solid to the far end - so a take-off roll can be
+;             seen moving. Every endpoint is a point along the transformed
+;             centreline (vertices 5 -> 4, at the object's scale), put into
+;             scratch vertices 6 and 7 and drawn through cs_edge1, which
+;             near-clips it. Away from the runway - above RW_DASHH, beyond
+;             RW_DASHW of its axis, or past its far end - the line is solid
+;             from end to end and costs one segment, as it did before.
+;             Runs after cs_edges, in its ink.
+; -----------------------------------------------------------------------------
+cs_rwline:
+    call cs_runway_xy               ; [cs_along], [cs_across]
+    mov si, [cs_airport]
+    mov ax, [cs_py+1]
+    sub ax, [si + CSA_ELEV]
+    cmp ax, RW_DASHH
+    jg .solid
+    mov ax, [cs_across]
+    or ax, ax
+    jns .w
+    neg ax
+.w:
+    cmp ax, RW_DASHW
+    jg .solid
+    mov ax, [cs_along]
+    add ax, [si + CSA_HLEN]         ; AX = metres from the near end
+    js .zero
+    mov dx, 16384
+    mul dx
+    div word [si + CSA_HLEN]        ; AX = the aeroplane's u, Q15 of 2 hlen
+    cmp ax, 32000
+    jae .solid                      ; past the far end
+    jmp short .u
+.zero:
+    xor ax, ax
+.u:
+    xor dx, dx                      ; the stripe it is on: u rounded down
+    mov cx, [cs_rwdu]               ; to a pitch
+    shl cx, 1
+    div cx
+    mul cx
+    mov cx, RW_NDASH
+.dash:
+    push cx
+    push ax
+    mov cx, ax
+    add cx, [cs_rwdu]               ; CX = the stripe's far end
+    cmp cx, 32767
+    jae .last                       ; past the runway's: nothing more
+    call cs_rwsegu                  ; the stripe (AX..CX)
+    pop ax
+    add ax, [cs_rwdu]
+    add ax, [cs_rwdu]               ; the next stripe
     pop cx
-    loop .e
+    loop .dash
+    mov cx, 32767                   ; ...then solid to the far end
+    cmp ax, cx
+    jae .out
+    jmp short cs_rwsegu
+.last:
+    pop ax
+    pop cx
+.out:
+    ret
+.solid:
+    xor ax, ax
+    mov cx, 32767
+    ; falls into cs_rwsegu
+
+; cs_rwsegu - the centreline from u = AX to u = CX (Q15): scratch vertices
+;             6 and 7, then the edge. Clobbers everything
+cs_rwsegu:
+    push cx
+    mov di, 12                      ; vertex 6
+    call cs_rwpt
+    pop ax
+    mov di, 14                      ; vertex 7
+    call cs_rwpt
+    mov ax, 0x0706                  ; AL = 6, AH = 7
+    jmp cs_edge1
+
+; cs_rwpt - the point at u = AX (Q15) along the centreline, vertex 5 -> 4,
+;           into vertex DI (its byte index): camera space, the near flag
+;           and, in front, the projection. Clobbers everything but DI
+cs_rwpt:
+    mov [cs_rwu], ax
+    mov ax, [cs_cxv + 8]
+    sub ax, [cs_cxv + 10]
+    mov bx, [cs_rwu]
+    MUL14
+    add ax, [cs_cxv + 10]
+    mov [cs_cxv + di], ax
+    mov ax, [cs_cyv + 8]
+    sub ax, [cs_cyv + 10]
+    mov bx, [cs_rwu]
+    MUL14
+    add ax, [cs_cyv + 10]
+    mov [cs_cyv + di], ax
+    mov ax, [cs_czv + 8]
+    sub ax, [cs_czv + 10]
+    mov bx, [cs_rwu]
+    MUL14
+    add ax, [cs_czv + 10]
+    mov [cs_czv + di], ax
+    mov word [cs_fv + di], 0
+    cmp ax, [cs_near]
+    jl .out                         ; behind: cs_edge1 clips to it
+    mov word [cs_fv + di], 1
+    mov cx, ax
+    mov ax, [cs_cxv + di]
+    mov bx, [cs_cyv + di]
+    push di
+    call cs_project
+    pop di
+    mov [cs_sxv + di], ax
+    mov [cs_syv + di], bx
 .out:
     ret
 

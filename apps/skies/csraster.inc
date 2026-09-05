@@ -2808,6 +2808,17 @@ cs_glyph:
     pop cx
 
     push cx
+    mov bx, [cs_spcur]              ; the set's row range takes the eight
+    cmp dx, [bx - 4]                ; rows (88.3.3 - the first build marked
+    jge .y0                         ; the spans and not the range, so an
+    mov [bx - 4], dx                ; instrument reached the glass only
+.y0:                                ; when the throttle bar's rectangle
+    mov ax, dx                      ; happened to widen it)
+    add ax, 7
+    cmp ax, [bx - 2]
+    jle .y1
+    mov [bx - 2], ax
+.y1:
     mov bx, dx                      ; mark eight rows of span
     shl bx, 1
     add bx, [cs_spcur]

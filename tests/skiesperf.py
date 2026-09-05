@@ -16,6 +16,8 @@ price the same frame.
              the flight starts with)
     tower    150 m up, 900 m south-west of the Eiffel Tower, level, nose
              on it: the 32-edge model at its near size
+    climb    300 m down the runway at 40 m, nose up 5: the dashed
+             centreline (88.6.2) at the height it is meant for
     city     300 m up over the Champ de Mars heading north-east: the tower,
              the Trocadero, the river and the far skyline together
 """
@@ -39,6 +41,7 @@ SCENES = {                              # x, y, z (metres), heading (degrees), p
     "runway": None,                     # wherever cs_reset put it
     "tower": (-640, 150, -640, 45, 0),
     "city": (150, 300, -900, 30, -5),
+    "climb": (-2689, 40, -2409, 40, 5),  # 300 m down the runway, 40 m up
 }
 
 
@@ -88,12 +91,12 @@ def sites(lst):
     s["  project"] = nop(*find(r"call cs_projall$", within="cs_drawobj"))
     s["  consider x2"] = (nop(*find(r"call cs_consider$", 0, within="cs_scene"))
                           + nop(*find(r"call cs_consider$", 1, within="cs_scene")))
-    s["  rot (in drawobj)"] = nop(*find(r"call cs_rot$", within="cs_drawobj"))
+    s["  rot (in scale)"] = nop(*find(r"call cs_rot$", within="cs_scale"))
     s["  poly (in faces)"] = nop(*find(r"call cs_poly$", within="cs_faces"))
     s["  nearclip"] = nop(*find(r"call cs_nearclip$", within="cs_faces"))
     s["  rows (in poly)"] = nop(*find(r"jmp \[cs_rowsproc\]$", within="cs_poly"))
     s["  edge (in poly)"] = nop(*find(r"call cs_edge$", within="cs_poly"))
-    s["  seg (in edges)"] = nop(*find(r"call cs_seg$", within="cs_edges"))
+    s["  seg (in edges)"] = nop(*find(r"call cs_seg$", within="cs_edge1"))
     s["panel"] = nop(*find(r"call cs_panel$", within="cs_render"))
     s["blit"] = nop(*find(r"call cs_blit$", within="cs_r_end"))
     # ...and the tick wait in cs_steps, patched out for the WHOLE run: a

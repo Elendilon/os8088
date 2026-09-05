@@ -318,11 +318,26 @@ cs_panel:
     xor al, al                      ; one target: page 0's keys
 .pg:
     mov [cs_ppage], al
+    ; --- the instruments read the aeroplane every CS_PRATE ticks, not every
+    ;     frame (88.9.1): an altitude in feet changes every tick in a climb,
+    ;     and nine glyphs a change at the frame rate was a tenth of the frame
+    mov byte [cs_pgate], 1
+    mov ax, [cs_last]
+    sub ax, [cs_plast]
+    cmp ax, CS_PRATE
+    jae .read
+    mov byte [cs_pgate], 0
+    jmp short .first
+.read:
+    mov ax, [cs_last]
+    mov [cs_plast], ax
+.first:
     mov ah, 1
     mov cl, al
     shl ah, cl
     test [cs_pfirst], ah
     jz .items
+    mov byte [cs_pgate], 1          ; the first frame draws everything
     not ah                          ; this target's first frame: the ground
     and [cs_pfirst], ah
     mov al, CSI_PBG
@@ -360,6 +375,11 @@ cs_panel:
 ; cs_pitem - BX = an item: its key now, against the cache; draw on a change
 cs_pitem:
     mov [cs_pcur], bx
+    cmp bx, CS_PI_VS                ; the four readings wait for the gate;
+    ja .now                         ; a message or the state never does
+    cmp byte [cs_pgate], 0
+    je .same
+.now:
     call cs_pkey                    ; AX = the item's key
     mov [cs_pkeyv], ax
     mov bx, [cs_pcur]

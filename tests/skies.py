@@ -142,6 +142,18 @@ def view_rows(m, r, back):
     return inside, outside
 
 
+def panel_rows(m, r, back):
+    """The glass over the PANEL's rows (below the view), one bytes per row."""
+    vy, wh, vh = r.word("cs_vy"), r.word("cs_wh"), r.word("cs_vh")
+    if back == 3:
+        fb = m.read(0xB0000, 0x8000)
+        box0 = r.word("cs_vx") // 8
+        return [fb[(y & 3) * 0x2000 + (y >> 2) * 90 + box0:][:80]
+                for y in range(vy + wh, vy + vh)]
+    fb = m.read(0xB8000, 0x4000)
+    return [fb[(y & 1) * 0x2000 + (y >> 1) * 80:][:80] for y in range(wh, vh)]
+
+
 def until(m, pred, frames, step=15, what="the condition"):
     """Advance the guest in steps until pred() holds, or `frames` are spent.
     The guest's own clock, never the host's (docs/WRITING-TESTS.md 7)."""
@@ -249,6 +261,18 @@ def main(argv):
         if f3 <= f2:
             bad.append("cs_frames stopped in flight (%d -> %d)" % (f2, f3))
 
+        # --- the instruments follow the aeroplane (SPEC.md 88.9.1) -----------
+        # The panel rows of the glass, twice a second apart in a climb: the
+        # altitude in feet changes every tick, so the rows must differ. (They
+        # did not, once: the glyphs marked their spans and not the blit's row
+        # range, and an instrument reached the glass only when the throttle
+        # bar happened to widen it - 88.3.3.)
+        panel0 = None
+        if back in (2, 3):
+            m.pause()
+            panel0 = panel_rows(m, r, back)
+            m.run()
+
         # --- it does not flash (SPEC.md 85.1's instrument) --------------------
         # Straight out of VRAM, once per DISPLAYED frame, in flight, where the
         # whole view is rewritten every frame.
@@ -287,6 +311,18 @@ def main(argv):
         # refilled fifteen bytes to the right of every erase and passed every
         # other check here; it also lit a bar past the view's edge, so the
         # box's bytes beside the view have to be dark too.
+        if panel0 is not None:
+            m.advance(frames=30)
+            m.pause()
+            panel1 = panel_rows(m, r, back)
+            m.run()
+            changed = sum(1 for a, b in zip(panel0, panel1) if a != b)
+            print("  panel rows that changed over a second of climb: %d of %d"
+                  % (changed, len(panel0)))
+            if not changed:
+                bad.append("the instruments did not change on the glass over a "
+                           "second of climb (SPEC.md 88.9.1, 88.3.3)")
+
         def stale_check(when):
             r.poke("cs_pause", b"\x01")
             m.advance(frames=20)

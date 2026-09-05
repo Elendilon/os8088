@@ -231,6 +231,11 @@ CS_ST_GROUND equ 0
 CS_ST_AIR    equ 1
 CS_ST_CRASH  equ 2
 CS_MAXSTEP equ 3                ; the most ticks a frame may ever spend
+CS_PRATE  equ 6                 ; ticks between instrument readings (88.9.1)
+RW_NDASH  equ 4                 ; centreline stripes drawn ahead (88.6.2)
+RW_DASHM  equ 25                ; ...each this long, with as much gap
+RW_DASHH  equ 150               ; ...within this height of the runway
+RW_DASHW  equ 300               ; ...and this far from its axis
 CS_CRASHT  equ 36               ; ticks the crash stays on the glass: 2 s
 CS_GRAV    equ 138              ; 9.81 m/s^2 a tick, 16.8
 CS_STALLSINK equ 24             ; 16.8 m/s of sink per 1 m/s under the stall
@@ -746,6 +751,17 @@ cs_tpl:
     ZBYTE cs_conebase               ; ...and the backend's: 0 = 0.5, 1 = 0.75
     ZBYTE cs_wire                   ; the object being drawn has no faces
     ZWORD cs_near                   ; ...and its near plane: CS_NEAR or CS_NEARG
+    ZBYTE cs_pshr                   ; the object's transform scale (88.5.6):
+    ZWORD cs_pfloor                 ; 0, 2 or 4 (whole, quarter, sixteenth
+    ZWORD cs_pshiftp                ; metres), the table's floor and the
+    ZWORD cs_scx                    ; projection's shift at that scale, and
+    ZWORD cs_scy                    ; the origin from the eye's 16.8 position
+    ZWORD cs_scz
+    ZWORD cs_rwu                    ; cs_rwpt's u
+    ZWORD cs_rwdu                   ; a runway stripe, on, in Q15 of the
+                                    ; centreline (88.6.2); the pitch is twice
+    ZBYTE cs_pgate                  ; the panel's rate gate (88.9.1)...
+    ZWORD cs_plast                  ; ...and the tick the instruments last read
     ZWORD cs_bw                     ; cs_boxlod's half-width, and its
     ZWORD cs_bx0                    ; projected centre x, top row and base
     ZWORD cs_by0                    ; row
