@@ -45,12 +45,19 @@ def _in_build(p):
 
     Only a `build/` prefix is redirected. Everything else - a source path, an
     include directory under apps/ - is the checkout's and does not move.
+
+    **IT FOLLOWS `$OS88_TREE`, NOT `$OS88_BUILD`** (tools/os88build.py's
+    `tree_root`). The two are different claims and this file wanted the second
+    one: `$OS88_BUILD` says which KERNEL a symbol map describes and has named
+    a sub-directory since long before any of this - `build/smallk` in three
+    registry rows - so keying on it turned `build/mseg.bin` into
+    `build/smallk/mseg.bin` for any row that repointed it. `at()` is the one
+    resolver, and with neither variable set it is the identity function.
     """
-    bdir = os.environ.get("OS88_BUILD", "")
-    if bdir and (p == "build" or p.startswith("build" + os.sep)):
-        if not os.path.isabs(bdir):
-            bdir = os.path.join(ROOT, bdir)
-        return os.path.join(bdir, p[len("build") + 1:]) if p != "build" else bdir
+    if p == "build" or p.startswith("build" + os.sep):
+        import os88build
+        q = os88build.at(p.replace(os.sep, "/"))
+        return q if os.path.isabs(q) else os.path.join(ROOT, q)
     return os.path.join(ROOT, p)
 
 

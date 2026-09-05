@@ -401,10 +401,24 @@ boot2_entry:
     cmp [es:KSIG_OFF], bx       ; ...in the plain head, so exactly as before
   %else
     push es
+    push ax                     ; **AX IS THE ANSWER, NOT A SCRATCH REGISTER.**
+                                ; It was loaded from [b2_runmax] above and is
+                                ; stored into [es:0x0004] below; using it to
+                                ; build the tail's segment here published
+                                ; KERNEL_SEG + KZ_RPARA as the run bound -
+                                ; 1472 on the 360KB disk, where the cylinder
+                                ; is 18. The kernel only tests the word `!= 0`
+                                ; (disk.inc), so the boot was correct and the
+                                ; FINDING was nonsense: SPEC.md 18.93.1's own
+                                ; published number, wrong on every compressed
+                                ; kernel whose KSIG sector lands past the
+                                ; plain head, and silent because nothing but
+                                ; tests/cylrun.py ever reads the value.
     mov ax, es                  ; ES is KERNEL_SEG, and the two adjustments
     add ax, KZ_RPARA            ; CANCEL: the tail's base is +head/16 +R and
     mov es, ax                  ; the offset inside it is KSIG_OFF - head, so
     cmp [es:KSIG_OFF], bx       ; +R and the SAME OFFSET is the same address
+    pop ax
     pop es
   %endif
 %else
