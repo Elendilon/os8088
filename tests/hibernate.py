@@ -49,8 +49,37 @@ from harness import check, done                           # noqa: E402
 
 RUN = "build/martypc/run"
 TEMPLATE = os.path.join(RUN, "media/hdds/default_xtide.vhd")
-VHD = os.path.abspath("build/hiber.vhd")
-FLOPPY = _B.at("build/hiber360.img")
+# **THIS PROCESS'S OWN DISKS, and that is the whole of why this row was
+# flaky.** They were `build/hiber.vhd` and `build/hiber360.img`, fixed paths,
+# rebuilt by `fixture()` at the start of every run - and `os88marty.launch`
+# copies FLOPPIES into the instance's run directory but passes `--mount
+# hd:0:<path>` straight through, so three concurrent runs mounted ONE hard
+# disk read-write in three emulators while each rewrote it from the template
+# underneath the others.
+#
+# Rated at a lane of three it failed 2 runs in 6, and the reason it took three
+# rounds to find is that it fails at a DIFFERENT LEG every time - whichever
+# step happens to collide. All three of these are the same collision:
+#
+#   - the first boot never reaches a desktop, because another run's
+#     HIBERNAT.PTR is on the disk and the machine asks the resume question
+#     instead of showing one;
+#   - `both files reached the disk` is false, because another run rebuilt the
+#     volume from the template between the write and the read;
+#   - the [Resume] click does nothing, with the machine ALIVE, nothing locked,
+#     the pointer proven on the button and mouse_btn proven decoded - because
+#     the image it is being asked to resume from is not the one this machine
+#     wrote.
+#
+# The last of those is what makes a fixed path worth this comment rather than
+# a one-line fix: it reads exactly like a product defect in the window's hit
+# test, and the row's own header records that the hit test HAS been broken
+# here before. docs/WRITING-TESTS.md 5 is the rule one level up - a row may
+# not write a shared path - and a `--mount` is the case that rule's own
+# wording does not cover, because the runner is not `make`.
+_TAG = os.getpid()
+VHD = os.path.abspath(_B.at("build/hiber-%d.vhd" % _TAG))
+FLOPPY = _B.at("build/hiber360-%d.img" % _TAG)
 MACHINE = "os8088_xt_hdd"
 
 # kernel/hiber.inc, kernel/instance.inc - the module's own constants
@@ -109,8 +138,9 @@ def fixture():
 def floppy():
     """A 360KB system disk whose SYSTEM.CFG wants HDD.DRV (row 1 = bit 1),
     the Makefile's ethertest shape."""
-    os.makedirs(_B.at("build/hibcfg"), exist_ok=True)
-    cfg = _B.at("build/hibcfg/system.cfg")   # its basename IS the file's name
+    d = _B.at("build/hibcfg-%d" % _TAG)      # per-process, like the disks
+    os.makedirs(d, exist_ok=True)
+    cfg = os.path.join(d, "system.cfg")      # its basename IS the file's name
     with open(cfg, "wb") as f:
         f.write(b"O88CFG\0\0" + (3).to_bytes(2, "little") + b"DW"
                 + bytes([1, 2]) + (1 << 1).to_bytes(2, "little") + b"\0\0")
@@ -153,7 +183,7 @@ def shot(m, name):
     """A rendered screenshot into build/, for the eye (the assertions are
     the memory reads, not this)."""
     try:
-        M.write_png_rgb("build/hiber-%s.png" % name, 640, 200,
+        M.write_png_rgb("build/hiber-%d-%s.png" % (_TAG, name), 640, 200,
                         M.crop_rgb(m, 0, 0, 640, 200))
     except Exception as e:                       # a picture is not a check
         print("shot %s: %s" % (name, e))
@@ -241,6 +271,59 @@ def hibernate(m, mo, mouse):
           want=["HIBERNAT.PTR", "HIBERNAT.IMG"])
 
 
+def _diag(m, mo):
+    """Everything that decides whether a PROVEN click could have been acted on.
+
+    `os88mouse.click` proves both halves of itself - `to` raises if the
+    published pointer never reaches the target, `_edge` raises if the guest's
+    own `mouse_btn` never agrees - so a click that returns and changes nothing
+    is not a lost packet. What is left is where the click LANDED and whether
+    the machine could act on it, and this is that list.
+    """
+    try:
+        wins = [w for k, w in instances(m) if k == KIND_HIBER]
+        if wins:
+            r = m.readseg(0x0060, wins[0], 10)
+            rect = tuple(r[i] | (r[i + 1] << 8) for i in (2, 4, 6, 8))
+            print("      KIND_HIBER window x=%d y=%d w=%d h=%d, button1 at %s"
+                  % (rect + (button1(m),)))
+        print("      pointer now %s, mouse_btn=%02x"
+              % (mo.where()[:2], mo.where()[2]))
+        t0 = mo.ticks()
+        time.sleep(1.0)
+        print("      BIOS ticks +%d in a host second (0 = the machine is "
+              "stopped)" % (mo.ticks() - t0))
+        for n in ("sch_lock", "gfx_lock_flag", "gfx_lock_own",
+                  "gfx_lock_want", "ui_rebootq"):
+            try:
+                print("      %-14s %d" % (n, byte(m, n)))
+            except Exception:
+                pass
+        v = m.video()
+        print("      video %s" % {k: v[k] for k in
+                                  ("field_w", "field_h", "mode", "text")
+                                  if k in v})
+        # THE DISCRIMINATOR. A click that is proven at the pointer and at
+        # mouse_btn and still does nothing is either a machine that dispatches
+        # no input at all, or a click path that specifically does not reach
+        # this button - and the row's own header records that the second has
+        # happened here before ("its hit test once clobbered the y and no
+        # click ever landed - only Enter worked"). The keyboard answers the
+        # same window, so this tells the two apart in one press.
+        before = word(m, "hb_resumes")
+        m.key("Enter")
+        for _ in range(20):
+            if word(m, "hb_resumes") != before:
+                print("      *** ENTER WORKED where the click did not: the "
+                      "CLICK path is the defect, not the machine ***")
+                return
+            time.sleep(0.5)
+        print("      Enter did nothing either: the machine dispatches no "
+              "input at all")
+    except Exception as e:
+        print("      (diagnostic failed: %s)" % e)
+
+
 def answer(m, mo, what, done):
     """Click the Hibernate window's first button, and say what happened.
 
@@ -269,6 +352,7 @@ def answer(m, mo, what, done):
             print("   answer attempt %d: %s - hb_mode=%d, hb_resumes=%d, "
                   "KIND_HIBER live=%s" % (attempt, what, byte(m, "hb_mode"),
                                           word(m, "hb_resumes"), bool(live)))
+            _diag(m, mo)
             shot(m, "answer%d" % attempt)
             if attempt == 2 or not live:
                 raise               # the window is gone: it TOOK the click
@@ -406,14 +490,35 @@ def main():
                     help="boot from a floppy and reach the disk through HDD.DRV")
     ap.add_argument("--only", choices=["resume", "discard"])
     a = ap.parse_args()
-    fixture()
-    if a.driver:
-        floppy()
-    if a.only != "discard":
-        pass_resume(a.driver)
-    if a.only != "resume":
-        pass_discard(a.driver)
-    done("hibernate" + (" (driver)" if a.driver else ""))
+    try:
+        fixture()
+        if a.driver:
+            floppy()
+        if a.only != "discard":
+            pass_resume(a.driver)
+        if a.only != "resume":
+            pass_discard(a.driver)
+        done("hibernate" + (" (driver)" if a.driver else ""))
+    finally:
+        sweep()
+
+
+def sweep():
+    """Take this process's disks away again.
+
+    A 32MB VHD per run is not something to leave in build/ - and a per-PROCESS
+    name cannot be reclaimed by the next run the way a fixed one was, since
+    pid_max wraps in minutes on a busy box and the next owner of this number
+    is somebody else. The screenshots stay: they are the only thing here worth
+    reading after the fact, and they are kilobytes.
+    """
+    import shutil
+    for p in (VHD, FLOPPY):
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+    shutil.rmtree(_B.at("build/hibcfg-%d" % _TAG), ignore_errors=True)
 
 
 if __name__ == "__main__":
