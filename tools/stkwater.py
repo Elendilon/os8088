@@ -11,7 +11,7 @@ each slice carries its own high water and this only has to read them out of
 
 **The slice size comes off the kernel, never from here.** `SCH_STACK` was 256
 until the field measured 220 of it in use during an FTP upload
-(docs/FIELD-NOTES.md 27.7) and is 384 now; `slice_len()` asks `os88sym` for the
+(docs/FIELD-NOTES.md 29.6) and is 384 now; `slice_len()` asks `os88sym` for the
 equate rather than mirroring a number that would go stale the day it mattered.
 
 **Read the DEPTH, not the occupancy.** A slice is written at both ends by
