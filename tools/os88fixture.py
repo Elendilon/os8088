@@ -165,3 +165,39 @@ def make(*args):
                 if f.read() != before:
                     with open(stamp, "wb") as w:
                         w.write(before)
+
+
+def recipe(goal, contains):
+    """The one recipe line `make` would run for `goal`, lifted out.
+
+        cmd, out = os88fixture.recipe("build/os8088.img", "os88disk.py")
+
+    Three traps, and a row that scrapes `make -n` by hand hits all of them.
+    Two rows did, and both failed a frozen soak with `Nothing to be done`:
+
+      * **THE GOAL HAS TO BE RESOLVED** (docs/SOAK-PARALLEL.md 14.2). `make`
+        below is passed `BUILD=<tree>`, where the rule is spelled
+        `$(BUILD)/os8088.img` - so asking for the literal `build/os8088.img`
+        asks for a file that HAS no rule under that BUILD, and make says so
+        in the one sentence that reads like a satisfied dependency.
+      * **`--always-make`**, because an up-to-date target prints no recipe at
+        all and the recipe is the whole answer. It costs nothing under `-n`.
+      * **the stamp**, which `make` above already puts back: `-n` is not a dry
+        run of the PARSE, and the parse rewrites `buildnum.inc`.
+
+    Returns (the command line with continuations joined, the resolved goal) so
+    the caller can rewrite the output path it is about to redirect.
+    """
+    import os88build
+    g = os88build.at(goal)
+    r = make("-n", "--always-make", g)
+    if r.returncode:
+        raise SystemExit("os88fixture: `make -n %s` failed:\n%s%s"
+                         % (g, r.stdout[-800:], r.stderr[-800:]))
+    out = r.stdout.replace("\\\n", " ")
+    lines = [l.strip() for l in out.splitlines() if contains in l]
+    if len(lines) != 1:
+        raise SystemExit(
+            "os88fixture: `make -n %s` printed %d recipe line(s) containing "
+            "%r, wanted exactly one:\n%s" % (g, len(lines), contains, out))
+    return lines[0], g

@@ -92,15 +92,9 @@ def image():
     # regenerates that file whatever the goal and whatever -n says. Lifting a
     # recipe out is the only thing this row wants from make, and with the
     # stamp restored it leaves build/ exactly as it found it.
-    r = os88fixture.make("-n", "--always-make", "build/os8088.img")
-    if r.returncode:
-        raise SystemExit("heapmap: `make -n build/os8088.img` failed:\n%s%s"
-                         % (r.stdout[-800:], r.stderr[-800:]))
-    out = r.stdout.replace("\\\n", " ")
-    cmd = next((ln.strip() for ln in out.splitlines()
-                if "tools/os88disk.py" in ln and "-o build/os8088.img" in ln), "")
-    assert "--folder SYSTEM/APPDATA" in cmd, out
-    cmd = (cmd.replace("-o build/os8088.img", "-o " + IMG)
+    cmd, goal = os88fixture.recipe("build/os8088.img", "tools/os88disk.py")
+    assert "--folder SYSTEM/APPDATA" in cmd, cmd
+    cmd = (cmd.replace("-o " + goal, "-o " + IMG)
               .replace("--folder SYSTEM/APPDATA",
                        cfgfile() + " --folder SYSTEM/APPDATA"))
     subprocess.run(cmd, cwd=ROOT, shell=True, check=True,

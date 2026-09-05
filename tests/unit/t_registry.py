@@ -42,8 +42,11 @@ BUILDS_WITHOUT_MAKE = {
                  "that runs `make`, and the Makefile's VIDSTAMP rule removes "
                  "build/kernel.bin whenever the knob set differs, which would "
                  "delete the very kernel the row is about to test. It builds "
-                 "build/fdthumb.img with nasm and os88pkg.py directly instead, "
-                 "which is still writing build/ under anything beside it",
+                 "fdthumb.img with nasm and os88pkg.py directly instead, "
+                 "which is still writing the tree the run is reading - "
+                 "through os88build.at, so it writes where it reads "
+                 "(docs/SOAK-PARALLEL.md 14.2), but into a shared directory "
+                 "either way",
 }
 
 # Not registered, and why. Keep the reason specific and true.
@@ -196,7 +199,15 @@ def _private_build(path):
             body = f.read()
     except OSError:
         return False
-    return bool(re.search(r'^\s*import\s+os88build\b', body, re.M)
+    # **`tree()` OR `BUILD=`, NEVER THE BARE IMPORT.** Importing os88build is
+    # not building anything: `os88build.at()` is a PATH RESOLVER and rows
+    # import it to spell `build/x.img` correctly under a frozen run
+    # (docs/SOAK-PARALLEL.md 14.2) - eight of them do, and none of those
+    # builds a tree. Keying on the import therefore told `fdlgthumb` to drop
+    # a flag it genuinely needs: that row builds its fixture with nasm and
+    # os88disk directly and writes whichever tree the run reads.
+    return bool(re.search(r'\bos88build\.tree\s*\(', body)
+                or re.search(r'\b_B\.tree\s*\(', body)
                 or "BUILD=" in body)
 
 

@@ -1611,11 +1611,13 @@ SOAK = [
     Row("wireflick", "soak", py("tests/wireflick.py"), 30.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"
         "frame - the flicker measured rather than argued about",
-        needs=("marty", "wiredisk"), serial=True),
+        needs=("marty", "wiredisk"), serial=True,
+        wants=("build/wire360.img",)),
     Row("wirefps", "soak", py("tests/wirefps.py"), 30.0,
         "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
         "reading its own frame rate, with the dispatch poked out and back",
-        needs=("marty", "wiredisk"), serial=True, alone=True),
+        needs=("marty", "wiredisk"), serial=True, alone=True,
+        wants=("build/wire360.img",)),
     Row("paintrate", "soak", py("tests/paintrate.py"), 60.0,
         "SPEC.md 42.8.1: is Paint's brush stroke still sampled at the TICK? The"
         "facets in a hand-drawn curve were one 55ms sleep each. On the GLaBIOS"
@@ -1671,7 +1673,8 @@ SOAK = [
         "SPEC.md 7.3: how long a click waits while a worker draws, bracketed"
         "by two memory breakpoints because the mouse harness has a half-second"
         "floor and cannot see it (7.3.1)",
-        needs=("marty", "wiredisk"), serial=True, alone=True),
+        needs=("marty", "wiredisk"), serial=True, alone=True,
+        wants=("build/wire360.img",)),
     Row("evqfull", "soak", py("tests/evqfull.py"), 20.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
