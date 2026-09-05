@@ -1,6 +1,7 @@
 # Task stack slots — where the bytes actually go, and what a class scheme buys
 
-**Design not started.** This is a handoff. It exists because a session was
+**Design record — BUILT in four waves (SPEC.md §8.5, §8.6, §8.7, §9.10).** It
+exists because a session was
 asked why a fresh boot with the sound driver off opens only **six** programs
 that want a worker when `MAX_TASKS` is 8, and the answer — the idle task takes
 one of the seven dynamic slots — turned into the larger question of whether the

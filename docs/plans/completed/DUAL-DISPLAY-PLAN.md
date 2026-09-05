@@ -3,8 +3,8 @@
 **Research document, not a contract.** SPEC.md is the binding contract for what
 the kernel *is*; this is the study of what it would take to drive **both** cards
 of `docs/FIELD-MACHINES.md`'s 5150 at once, with one desktop spanning the two
-monitors, and of whether that can be a loadable driver. Nothing here is
-implemented. Every interface named would land in SPEC.md *before* its code.
+monitors, and of whether that can be a loadable driver. It is BUILT: SPEC.md
+§39.12-§39.19 are the contract, and this is the record of how it got there.
 
 The ask, in the requester's words:
 

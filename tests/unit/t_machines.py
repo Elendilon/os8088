@@ -6,8 +6,9 @@
 WHY.  `tools/martypc/configs/os8088_machines.toml` carries eleven machines
 asking for `rom_set = "ibm5150_82_v4"` - the 27 OCT 82 IBM 5150 BIOS, which is
 IBM's, has never been licensed for redistribution, and cannot be in this tree
-(CONTRIBUTING.md 6).  MartyPC does not refuse a machine whose romset is
-absent.  It falls back to `glabios_pc` and says nothing.
+(CONTRIBUTING.md 6).  The MartyPC of the day did not refuse a machine whose
+romset was absent - it fell back to `glabios_pc` and said nothing; the pinned
+build exits with `ROM set ... not found`, which is loud but still not a row.
 
 So a test naming `os8088_5150_cga` on a box without that ROM runs on a
 DIFFERENT MACHINE than it named, passes, and reports a pass about a machine it

@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/cc/crt0.asm
 ;
-; The prologue of a C package (SPEC.md 73.2, 67.4): the section layout, the
+; The prologue of a C package (SPEC.md 73.2, 73.4): the section layout, the
 ; 32-byte header with its dispatcher, the entry trampoline the loader calls,
 ; and one trampoline per window callback. It %includes apps/cc/os88thunk.asm,
 ; so including this file is the whole of "link against the C runtime".

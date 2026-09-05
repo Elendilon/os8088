@@ -112,12 +112,14 @@ SB_RAH_WMAX  equ 12               ; the run count to a pair.
                                   ; it is 12 and the file is 104KB: the
                                   ; deepest byte a floppy sweep touches is
                                   ; (12-1) x 9216 + 1024 = 102,400. It still
-                                  ; brackets DSK_RAH_RUNS = 8 with a step of
-                                  ; headroom - free through 8, missing at 10,
-                                  ; confirmed at 12 - and a run count raised
-                                  ; past 10 would report no cliff rather than
-                                  ; a wrong one, which the row below says in
-                                  ; words. Raising this means growing
+                                  ; bracketed DSK_RAH_RUNS when that was 8 -
+                                  ; free through 8, missing at 10, confirmed
+                                  ; at 12. DSK_RAH_RUNS is 14 now (a CEILING;
+                                  ; SPEC.md 18.95.5 sizes the width from the
+                                  ; free run), so on a 640KB machine the sweep
+                                  ; sees no cliff and says so in words rather
+                                  ; than reporting a wrong one. Raising this
+                                  ; means growing
                                   ; bigfile.dat in the Makefile to match; the
                                   ; sweep stops honestly either way.
 SB_WR_KB     equ 128              ; the LARGE write, KB. Stepped down by halves

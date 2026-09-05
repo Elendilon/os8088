@@ -2,8 +2,8 @@
 
 **Standing plan for how os8088 puts TEXT on the screen.** SPEC.md is the
 binding contract for what the kernel *is*; this is the plan, in
-REDRAW-SPEC.md's shape. Stage 1 has landed and its contract is
-**SPEC.md §6.1.10**; everything below that is scoped and not started.
+REDRAW-SPEC.md's shape. Stages 1-4 are DONE (SPEC.md §6.1.10, §6.6.5) and
+`tests/textsites.txt` is the ratchet they left; the table below is the record.
 
 | stage | what | status |
 |---|---|---|

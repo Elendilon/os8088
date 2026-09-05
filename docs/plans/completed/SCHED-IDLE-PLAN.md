@@ -1,6 +1,6 @@
 # The idle machine: what it costs, and what to do about it
 
-**Design not started. This is a handoff.** Nothing here has been built; every
+**Design record. Stages 1-4 of §6 are BUILT (SPEC.md §8.1.1, §8.1.2).** Every
 number in §1, §2.3, §2.4 and §2.5 has been measured on MartyPC's cycle counter
 at a 4.77 MHz 8088, and every number elsewhere is labelled where it is an
 estimate.

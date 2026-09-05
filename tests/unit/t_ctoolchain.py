@@ -24,8 +24,8 @@ WHAT IT CHECKS, in the order the chain runs:
   2. The four targets BUILD, from a forced-clean start.  ccsmoke is the SDK's
      worked example, chello and covl are the two capability gates, and cword
      is the application - and cword is in here rather than left to `soak`
-     because it is where the VOLUME is: 1,327 lowered sites against chello's
-     58, 76 overlay functions, 60 external references.  A lowering that is
+     because it is where the VOLUME is: 1,334 lowered sites against chello's
+     58, 76 overlay functions, 64 external references.  A lowering that is
      wrong once in a thousand sites shows up there and nowhere else.
 
   3. The generated assembly carries no bare `extern`.  That is the invariant
@@ -56,8 +56,9 @@ WHAT IS DELIBERATELY NOT HERE.  RunCPM, which is also C: `make runcpm` gates
 itself on three host tests of its own and one of them boots QEMU, so it needs
 a second capability and a minute of budget to re-cover the compile path these
 four already cover.  It belongs beside its own gates, not here.  And nothing
-in this file RUNS a package - tests/chello and tests/covl exist to be run and
-are `soak` rows of their own; this one is about the chain that produces them.
+in this file RUNS a package - tests/chello and tests/covl exist to be booted
+by hand (`make test TESTAPPS=...`); this one is about the chain that produces
+them.
 """
 import hashlib
 import os
