@@ -1,7 +1,7 @@
 # =============================================================================
 # os8088 - apps/cc/Makefile.inc
 #
-# The build rules for a C package (SPEC.md 73.1, 67.10). A fragment, not a
+# The build rules for a C package (SPEC.md 73.1, 73.10). A fragment, not a
 # Makefile: the top-level Makefile owns the tree's targets, and this is the
 # one line it needs to gain C -
 #
@@ -27,7 +27,7 @@
 #   build/<pkg>.bin
 #        | tools/os88pkg.py                     (4) validate and stamp
 #   build/<pkg>.o88
-#        | tools/os88disk.py                        FAT12, three geometries
+#        | tools/os88disk.py                     (5) FAT12, four geometries
 #   build/<pkg>.img
 #
 # Steps 3, 4 and 5 are the pipeline every assembly package already goes

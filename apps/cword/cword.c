@@ -77,7 +77,7 @@
  * THAT LINE MOVED WHEN THE TYPEFACES ARRIVED (SPEC.md 73.12.2), and the shape
  * of the move is worth reading before adding anything here: the resident image
  * got SMALLER while the program grew a second view and a typeface engine,
- * because everything that runs once per command went out. There are 971 bytes
+ * because everything that runs once per command went out. There are 581 bytes
  * left. The next thing to move is not code - it is CW_RTF_MAX, out of bss and
  * into a heap claim, the way SPEC.md 46.9 moved ArtfulType's document.
  *
@@ -107,14 +107,14 @@
  * ---------------------------------------------------------------------------
  * Measured by tools/os88pkg.py and tools/os88ovl.py on the shipping package:
  *
- *     resident image  35,958   the code above, its strings, the Opus tables,
+ *     resident image  36,326   the code above, its strings, the Opus tables,
  *                              and apps/os88type.inc (SPEC.md 6.3)
- *              bss    24,511   the document (4,000 + 4,000), the RTF staging
+ *              bss    24,533   the document (4,000 + 4,000), the RTF staging
  *                              buffer (6,000), the glass shadow (6,144), the
  *                              type library's band and face table (1,933)
  *              -------------
- *              total  60,469   98% of APP_MAX_SIZE; 971 bytes spare
- *     CWORD.OVL       18,564   the dialogs, RTF in and out, search, Sort,
+ *              total  60,859   99% of APP_MAX_SIZE; 581 bytes spare
+ *     CWORD.OVL       18,565   the dialogs, RTF in and out, search, Sort,
  *                              Renumber, Table of Contents, the clipboard, the
  *                              paragraph dictionary, the Font list
  *

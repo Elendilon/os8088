@@ -1806,11 +1806,12 @@ all: checkdocs $(IMG) $(IMG120) $(IMG720) $(IMG360) \
 # is a package that stops compiling without anybody noticing.
 #
 # The Weave demo bundles ride `all` for wire's reason, one stage earlier: the
-# family has no 8086 runtime yet (WEAVE-SPEC §13.1), so the pack itself -
-# three demo sources through tools/weavesim.py, behind its --selfcheck stamp -
-# is the only thing keeping the .WAB contract exercised, and the fast tier's
-# `wab` row reads the result back with an independent second implementation.
-# Pure python3, host-side, shipped on no floppy. The rules are below, next to
+# runtime is a C package that `all` does not build (`make weave`), so the pack
+# itself - three demo sources through tools/weavesim.py, behind its
+# --selfcheck stamp - is what keeps the .WAB contract exercised on every
+# build, and the fast tier's `wab` row reads the result back with an
+# independent second implementation. Pure python3, host-side; the same three
+# bundles ride `make weavedisk`'s WEAVE/ folder. The rules are below, next to
 # wire's.
 
 # The regression suite (tools/os88test.py, tests/suite.py). Three tiers:
@@ -3898,12 +3899,12 @@ $(BUILD)/wire360.img: $(BUILD)/wire.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 APPS:$(BUILD)/wire.o88
 
 # --- The WEAVE demo bundles (docs/WEAVE-SPEC.md) -----------------------------
-# Wave 1 of the Weave family is the contract, the host reference
-# implementation and these three bundles (WEAVE-SPEC §13.1); the 8086 runtime
-# arrives in a later wave. Until it does, packing the demos in `all` is what
-# keeps the .WAB format exercised - weavesim writes them, and
-# tests/unit/t_wab.py reads them back sharing no code with the packer, the
-# wordfmt shape. docs/WEAVE-SPEC.md is a prerequisite of every rule here
+# The contract, the host reference implementation and these three bundles
+# are what `all` builds of the Weave family; the 8086 runtime (`make weave`,
+# `make loom`) needs the C toolchain and is on demand. Packing the demos in
+# `all` is what keeps the .WAB format exercised on every build - weavesim
+# writes them, and tests/unit/t_wab.py reads them back sharing no code with
+# the packer, the wordfmt shape. docs/WEAVE-SPEC.md is a prerequisite of every rule here
 # because both implementations are written from it and nothing else.
 #
 # THE MODEL CHECKS ITSELF BEFORE IT PACKS ANYTHING (the RunCPM host-checks

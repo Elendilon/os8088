@@ -3027,7 +3027,7 @@ def main():
         return main_instances(sys.argv[1:])
     ap = argparse.ArgumentParser(
         description="Drive a headless MartyPC debug server.",
-        epilog="Instance verbs take no address: instances | reap | kill-all")
+        epilog="Instance verbs take no address: instances | reap | kill <port> | kill-all | launch <image>")
     ap.add_argument("addr", help="host:port of the debug server. "
                                  "`os88marty.py instances` lists what is running.")
     ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
