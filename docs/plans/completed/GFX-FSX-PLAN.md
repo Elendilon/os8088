@@ -42,6 +42,14 @@ into the frame.
 | 5150 + Hercules, `FSXM_HERC` | **4.32 fps** | 640×200 mono in 720×348 |
 | XT + VGA, `FSXM_MODEX` | (MartyPC does not model the unchain; QEMU renders it correctly) | 320×240×256 |
 
+**These are the rates it shipped at.** §85.3.4 to §85.3.6 and §85.6.6.3 are the
+round that followed, measured exact and scene for scene rather than sampled:
+the same Hercules frames run 5.2 → 9.0 fps on a twelve-piece scatter and
+2.8 → 3.9 on a deliberate cluster, and eight fresh games average 9.6 fps
+still and 7.8 turning where they averaged 5.4 and 4.5. §85.3.4 is also why
+the sampled profile in §0.1 below should not be trusted for the walk's
+share: it read nearly twice the exact figure.
+
 **And the thing it is being compared against was measured too**, rather than
 remembered. The reference is a capture of the 1983 MS-DOS port. Sampling its
 play area at 30 Hz and counting the samples where more than eight pixels of an
