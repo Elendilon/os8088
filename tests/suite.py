@@ -1635,6 +1635,19 @@ SOAK = [
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
         needs=("marty",), serial=True),
+    Row("skies", "soak", py("tests/skies.py"), 180.0,
+        "SPEC.md 88: CLEAR SKIES draws and advances, takes off from the runway"
+        " under full throttle and the stick, crashes when the nose is held"
+        " into the ground and comes back to the airport's reset point, and"
+        " its frames do not flash - SPEC.md 85.1's instrument on a raster"
+        " that redraws the whole view every frame. Hercules, the target."
+        " Measured at ~120 s wall on an idle four-core box",
+        needs=("marty",), serial=True),
+    Row("skiescga", "soak", py("tests/skies.py", "--machine",
+                               "os8088_5150_cga_gla"), 180.0,
+        "SPEC.md 88 on CGA: the 320x112 view, palette 0 over a light-blue"
+        " background, the same flight",
+        needs=("marty",), serial=True),
     Row("wireflick", "soak", py("tests/wireflick.py"), 30.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"
         "frame - the flicker measured rather than argued about",

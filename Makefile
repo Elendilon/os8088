@@ -4445,6 +4445,21 @@ $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
 $(BUILD)/tank.o88: $(BUILD)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/tank.bin -o $@
 
+# CLEAR SKIES (SPEC.md 88): a filled-polygon flight simulator over Paris, in
+# the same foreign-mode fsx bracket as TANK ATTACK - every pixel its own, no
+# kernel drawing slot past fsx_mode. Six sources: the raster, the geometry,
+# the world, the flight model, the session, and the generated sine table.
+$(BUILD)/skies.bin: apps/skies/skies.asm apps/skies/csraster.inc \
+                    apps/skies/cs3d.inc apps/skies/csworld.inc \
+                    apps/skies/csflight.inc apps/skies/csgame.inc \
+                    apps/skies/cssin.inc apps/os88api.inc apps/os88ui.inc \
+                    | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -o $@ apps/skies/skies.asm
+	@echo "skies: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/skies.o88: $(BUILD)/skies.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/skies.bin -o $@
+
 $(BUILD)/arkanoid.bin: apps/arkanoid/arkanoid.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/arkanoid/arkanoid.asm
 	@echo "arkanoid: $(call FILESIZE,$@) bytes"
@@ -7153,17 +7168,17 @@ small: $(BUILD)/small360.img $(BUILD)/small.img
 #   modplug, recorder,      SOUND.DRV, which a 128-256KB machine has nothing
 #   tracker, audio          to spare for - the same judgement that took
 #                           RAMDISK.DRV and RAMPAGE.DRV out of $(SMALLDRIVERS)
-#   tank                    the fullscreen surface (SPEC.md 42.7/81). It opens
-#                           and draws its splash, and there is no GAME behind
-#                           it without fsx, so what ships is a menu that leads
-#                           nowhere
+#   tank, skies             the fullscreen surface (SPEC.md 42.7/81, 88). Each
+#                           opens and draws its panel, and there is no GAME
+#                           behind it without fsx, so what ships is a menu that
+#                           leads nowhere
 #
 # 99,749 bytes of a 360KB floppy - 27% of it - for eight programs that could
 # not have started (SPEC.md 24.5 has the same figures, re-measured together).
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/modplug.o88 $(BUILD)/recorder.o88 $(BUILD)/tracker.o88 \
              $(BUILD)/audio.o88
-SMALLOMIT_GAMES := $(BUILD)/tank.o88
+SMALLOMIT_GAMES := $(BUILD)/tank.o88 $(BUILD)/skies.o88
 
 # ...and BROWSER.HTM with the browser, for the same reason one step along: a
 # .HTM is openable by nothing else on the machine (SPEC.md 71), and a manual
@@ -7924,7 +7939,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/tank.o88 $(BUILD)/cyclone.o88 \
-              $(BUILD)/mines.o88 \
+              $(BUILD)/mines.o88 $(BUILD)/skies.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and

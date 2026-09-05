@@ -93602,3 +93602,635 @@ with a `SYSTEM.CFG` that wants `HDD.DRV`, the same VHD mounted through it —
 is the same script with `--driver`, registered as `hibernatedrv`. Both write
 three rendered screenshots to `build/hiber-*.png`; docs/TESTING.md has the
 recipe and what it cannot see.
+
+## 88. CLEAR SKIES — a filled-polygon flight simulator in a foreign mode (`apps/skies/`)
+
+A simple three-dimensional flight simulator: take off from an airport, fly
+over Paris, and land — or crash, and be put back on the runway. One aeroplane
+(a Cessna 172) and one airport (Paris-Issy, the city's first aerodrome), each
+a **record in a table** rather than a constant in the code, so a second of
+either is a row and not a rewrite. `apps/skies/`, package name `SKIES`,
+prefix `cs_`, six sources, no worker task, **no kernel change of any kind**.
+
+It is TANK ATTACK's shape (§85) with the other half of the 1983 vocabulary
+attached: Tank is a vector game and draws nothing but lines, and this fills
+the space between them. It is fsx-exclusive for Tank's reason — every raster it
+draws on is a foreign mode (§53.4) and past `fsx_mode` no kernel drawing slot
+is legal (§53.7) — and it is built against one number: **twelve frames a
+second on a 4.77 MHz 8088 with a Hercules card**, which is the machine in the
+tree that can least afford a filled picture.
+
+### 88.1 Three things decide the whole design
+
+1. **Every pixel of the view CAN change every frame, and most rows do
+   not.** §85.1 refuses to clear the screen because a 320×240 clear is 9,600
+   word stores, and keeps a per-row dirty span so that the next frame clears
+   exactly what the last one drew. A flight simulator's frame IS a clear —
+   the sky and the ground together cover the whole view — but a row that is
+   all sky this frame and was all sky at the last blit holds the same bytes
+   in the shadow and shows the same bytes on the glass, and in level flight
+   that is half the view. So the view keeps §85.3.1's span set after all,
+   one row-kind byte beside it (all sky, all ground, anything else), and the
+   sky/ground pass is what makes a row clean: it fills and marks only the
+   rows that changed kind, and a polygon or line marks the rows it lands on.
+   The first build filled and blitted the whole view every frame, and that
+   alone was 63 ms of a Hercules frame (§88.12).
+2. **The view is half the box, and the panel is the other half.** The cost of
+   a frame on this design is proportional to the view's AREA — the fill, the
+   blit and every polygon row scale with it — so the view is sized to the
+   budget and not to the screen: 320×112 on CGA, 320×144 on Mode X, and on
+   Hercules **400×112 in the middle of the 640-wide box**, 50 bytes of the 80
+   in every row (it shipped at 512 and came down: §88.3.4). The instruments
+   take the rows below, and cost nothing while they hold still.
+3. **A polygon is filled by its EDGES, never by its pixels.** Each edge is
+   walked once per ROW with an integer step, into a left and a right bound,
+   and each row is then one masked run — which is how every game of the
+   period did it (§88.2), and why an 8088 can fill a building face in the time
+   it takes to walk one of its edges.
+
+### 88.2 How the DOS games put colour between their lines
+
+The research behind §88.4, kept because the technique is the whole reason a
+filled 3D picture was possible on this class of machine at all, and the
+sources are worth having in one place.
+
+**Scan conversion.** A filled polygon is decomposed into horizontal runs, one
+per scan line. For a CONVEX polygon exactly two edges cross any scan line, so
+the whole problem is *two edges per row and one run between them*: trace the
+left chain of edges and the right chain, and for every row store the run.
+Michael Abrash's *Graphics Programming Black Book* chapters 38 and 39 are the
+canonical write-up — chapter 38 separates the three jobs (`ScanEdge`,
+`DrawHorizontalLineList`, `FillConvexPolygon`), and chapter 39 makes the
+convex case fast by scanning the two sides directly instead of building a
+general edge table. Scanline methods won on 1970s–80s hardware because they
+carry only the geometry that touches the current row and need no
+per-pixel memory: there was no z-buffer and no RAM to hold one.
+
+**Edges are integer DDAs.** An edge contributes one x per row, stepped by
+`dx/dy` — Bresenham's error term, or a fixed-point step — so the cost of an
+edge is its ROWS and not its pixels. A face 30 rows tall costs 60 edge steps
+and 30 runs, however wide it is.
+
+**Runs are whole bytes.** On a packed-pixel adapter (CGA 2bpp, Hercules 1bpp)
+a run is a masked first byte, a `rep stos` of whole bytes and a masked last
+byte; on EGA/VGA planar modes the same shape uses the map mask or the bit
+mask register. This is the same argument §5.6.1 makes for `gfx_hline` against
+a walk, and §85.3.3 makes on the other side of the fence: a fill lays four or
+eight pixels a store.
+
+**Hidden surfaces are the painter's algorithm.** Objects are sorted far to
+near and drawn over each other, and a solid's back faces are dropped by the
+sign of the projected polygon's area — two multiplies — so nothing is ever
+compared per pixel. Flight Simulator 2.x (1984, CGA; 2.11 added Hercules and
+EGA) and its successors drew the world this way in flat colour, one colour
+per face, over a sky and a ground that are simply the two largest polygons
+in the picture, split by the horizon line.
+
+**Colour on a monochrome card is a pattern.** Where the adapter has no
+colours, a face's "colour" is a dither pattern chosen per row — 25%, 50%,
+stripes — and the picture's contrast comes from which patterns meet, which is
+§39.4's rule taken at the source, as §85.4 already does for lines.
+
+Sources: [Abrash, ch. 38 "The Polygon Primeval"](https://www.phatcode.net/res/224/files/html/ch38/38-01.html),
+[Abrash, ch. 39 "Fast Convex Polygons"](http://www.phatcode.net/res/224/files/html/ch39/39-01.html),
+[Scanline rendering](https://en.wikipedia.org/wiki/Scanline_rendering),
+[Painter's algorithm](https://en.wikipedia.org/wiki/Painter%27s_algorithm),
+[Microsoft Flight Simulator 2.0](https://en.wikipedia.org/wiki/Microsoft_Flight_Simulator_2.0),
+[The Digital Antiquarian, "The Dream of Flight"](https://www.filfre.net/2021/01/the-dream-of-flight/).
+
+### 88.3 The adapters, and the viewports
+
+| | fsx mode | box | view | panel | present |
+|---|---|---|---|---|---|
+| VGA | `FSXM_MODEX` | 320×240 at (0,0) | 320×144 | 96 rows | page flip, 2 pages |
+| CGA | `FSXM_CGA320` | 320×200 at (0,0) | 320×112 | 88 rows | shadow + blit |
+| HERC | `FSXM_HERC` | 640×200 at (40,74) | **400×112**, bytes 15..64 | 88 rows | shadow + blit |
+
+The box is Tank's, for Tank's reason: a CGA row, a Hercules 640-pixel row and
+a Mode X plane row are all 80 bytes, so `add di, 80` steps a row on every
+backend and there is one raster with three plots. The **view** is the part of
+the box the world is drawn in, and the Hercules one is narrower than the box
+so that the 1bpp machine fills 50 bytes a row rather than 80. On Hercules the
+projection scales are 443 horizontally and 285 vertically — the pixel scale
+a 60° field would have across 512 pixels, kept when the view came down to
+400 (§88.3.4), so the field there is 49° and nothing in it changed size —
+and a vertical field of 22° against CGA's 27° and Mode X's 29°, the
+difference being the box's aspect and nothing else.
+
+**Mode X page-flips; the two shadow backends blit the rows that changed.**
+Measured on the first build, which blitted the view whole: the copy of
+7,168 bytes to a Hercules card is **37 ms** and the fill of them **26 ms**
+— 63 ms of an 83 ms budget before a polygon is drawn — which is why §88.1's
+first point reads as it does. §85.3.7's refusal of the Hercules second page
+holds here too, and for the same reason one level up: a flip would save the
+copy and give it back in every polygon row and every line pixel paying the
+card's wait states, since a filled picture writes every pixel of the view
+where Tank writes a few thousand.
+
+#### 88.3.1 Two span sets and a row-kind byte
+
+`cs_span0`/`cs_span1` by frame parity, `cs_rowkind`: a view row's kind is 0
+all sky, 1 all ground, 3 split or unknown, as it stood at the last blit,
+and bit 7 says something was drawn on it since. The sky/ground pass
+computes each row's kind now: a whole row of the same kind and clean costs
+one compare; the same kind but drawn on is refilled **over last frame's
+span for that row and no further** and NOT marked, because the bytes that
+have to change on the glass are the ones last frame's polygon lit and those
+are in **last frame's span set** — the blit copies the union of the two
+sets, exactly §85.3.1's argument; a row whose kind changed, and every split
+row, is refilled and marked whole. So a distant building costs the refill
+and the blit its own three bytes on each of its rows and not the row. A
+panel item is an opaque rectangle, redrawn only when the value it shows has
+changed and marked the same way. Mode X has no shadow and two pages, so
+every row is refilled every frame there and its panel keeps a **key per
+page** — an instrument changed at frame N is drawn on the page being shown
+at N+1 too.
+
+#### 88.3.2 Marks are per object — or per segment, for a wireframe
+
+The first build marked every polygon's bounding box and every segment's
+clipped box into the span set as it drew them, and the per-row loop that
+does it (`cs_markrows`: a compare-and-store on each end of the row's pair,
+plus the dirty bit) is **dearer than walking a steep segment's row**. A
+wireframe tower is 32 segments over the same hundred rows, so it was marked
+thirty-two times. Now `cs_poly` and `cs_seg` **accumulate** (`cs_markacc`,
+four compares) into the object's box — `cs_oby0`/`cs_oby1`, `cs_oblo`/
+`cs_obhi`, reset by `cs_drawobj` — and the object is marked once when it is
+done. The exception is a model with no faces (`cs_wire`): a wireframe's
+box is mostly ground the refill and the blit would then carry, so its
+segments mark their own boxes as before, and the tower's blit halved.
+
+#### 88.3.3 The blit looks only at the rows anything marked
+
+The two guard words before each span set hold the set's first and last
+marked row (`cs_r_begin` arms them empty; `cs_markrows`, `cs_markspan` and
+the sky pass's kind-change path widen them), and `cs_blit` walks the union
+of the two ranges. Before that it walked all 200 rows of the box to find
+the 112 of the view, and the 88 panel rows cost 150 cycles each to be found
+empty: 13,000 cycles a frame, 2.8 ms, for nothing.
+
+#### 88.3.4 The Hercules view is 400 wide
+
+It shipped at 512 (64 bytes a row) and came down to **400** (50 bytes,
+15..64, centred) at the owner's suggestion, keeping the pixel scale: the
+refill, the blit, every polygon row's middle and every shallow line's run
+are 22% shorter, the cull's cone and the frustum tighten to the narrower
+field (0.5 of the depth against 0.75, §88.5.1) so fewer objects at the
+edges are transformed at all, and the picture is nearer square on a
+Hercules monitor's tall pixels. What it gave up is 5° of field either side;
+nothing in the view changed size. It took the runway frame 108 → 101 ms.
+
+### 88.4 The raster (`apps/skies/csraster.inc`)
+
+Five entries and no kernel drawing slot: `cs_r_setup`, `cs_r_begin`,
+`cs_poly`, `cs_seg`, `cs_r_end`.
+
+#### 88.4.1 The horizon is one edge, and the sky and ground are its two sides
+
+The ground is the plane y = 0 and the sky is everything above it, so on the
+screen they meet along one straight line — the set of view rays perpendicular
+to the world's up vector. With `n` the up vector in camera space (the second
+column of §88.5's matrix) and a pixel's ray `(X/sclx, −Y/scly, 1)`, the line
+is `nx·X/sclx − ny·Y/scly + nz = 0`, and sky is the side where the ray's dot
+with `n` is positive.
+
+`cs_horizon` solves it in whichever form is bounded: when `|nx/sclx| ≥
+|ny/scly|` the line is steeper than 45° and the crossing x is a bounded
+function of the row — one clamped divide for the intercept, and a slope under
+a pixel a row; otherwise the line is flatter than 45° and it is the crossing
+ROW that is bounded, so the rows where it meets the view's left and right
+edges are computed and the crossing x between them is **the same integer DDA
+every polygon edge uses** (§88.4.2). Above that band every row is wholly one
+side, below it wholly the other, and inside it each row is two runs meeting
+at a masked byte. Clamping an endpoint would be wrong here in the common case
+— a nearly level horizon has a crossing x in the hundreds of thousands two
+rows away from it — which is why the flat form is not a special case of the
+steep one.
+
+Every row is one or two `rep stosw` of a pattern byte, so the pass is about
+8 ms of a Hercules frame whatever the attitude.
+
+#### 88.4.2 A polygon is two bounds a row
+
+`cs_poly` takes up to eight vertices in box coordinates, already clipped to
+the near plane and clamped to ±4000 by the projection, and an ink:
+
+1. The bounding rows are clamped to the view, and `cs_xl`/`cs_xr` are
+   initialised over them to +big/−big.
+2. Every edge is traced from its upper end to its lower with **Bresenham's
+   integer step**: `q = dx div dy` and the remainder, one add and one compare
+   per row. **A convex polygon's edges are one chain or the other**: with the
+   winding known (`cs_pwind`, from the same cross product the cull takes),
+   an edge whose y increases along the list is on the left chain and stores
+   into `xl`, one whose y decreases is on the right and stores into `xr` —
+   one store a row and no compare, where the first build took `min` and
+   `max` on both tables for every edge. An edge whose top is above the view
+   is **jumped** to row 0 with one multiply and one divide, not stepped
+   there, because a vertex a hand's breadth past the near plane projects
+   thousands of rows away. A horizontal edge marks its row once with both
+   ends.
+3. Each row's run is clipped to the view's columns and laid by the
+   backend's **row loop** (`cs_rowsproc`: `cs_polyrows`, or `cs_polyrows_herc`
+   on Hercules — §88.4.6) as `cs_hrun` lays a run: a masked first byte,
+   whole bytes, a masked last byte — with the pattern for the row taken
+   from the ink's four-byte dither, indexed by the row's low two bits.
+
+So a face 30 rows tall costs about 60 edge steps and 30 runs, some 10,000
+cycles by §85.3.4's rule — 2 ms — whether it is 20 pixels wide or 300.
+
+**Back faces are dropped by the sign of one cross product**, the first two
+edges of the projected polygon; a model lists its faces counter-clockwise
+seen from outside, and a flat ground polygon says `CSF_NOCULL` because a
+river is visible from either side of its winding — the sign is still taken,
+because it is what `cs_pwind` needs. Degenerate faces (two coincident
+vertices, a pyramid's apex quad) go through the same fill, which handles a
+zero-height row.
+
+#### 88.4.3 The walk is Tank's, without the per-pixel marks
+
+`cs_seg` is §85.3.2's walk with the dirty-span marks taken out of the pixel
+loop — the rows a segment lies on are marked once, from its clipped ends —
+and the same Cohen-Sutherland clip against the view, endpoint clipping
+being as legal here as there since nothing ever erases a line. On CGA the
+plot is a masked store rather than an OR, so a red line over green ground
+stays red; Hercules ORs, having one bit; Mode X stores. Steep and vertical
+lines are what a wireframe tower is made of, and without the two marks and
+the span pointer a steep pixel is about 85 cycles where Tank's is 237.
+
+**A shallow line is §85.3.6's slice**, taken at six pixels a row or more:
+one divide, and each row is one run laid by the backend's own run routine
+— on Hercules an OR run (`cs_lrun_herc`), because a line is the lit bit and
+nothing under it needs taking out. A road across the whole view is 64 runs
+where it was 512 pixels, and the roads and the runway's edges are what made
+the first build's edges 46 ms of a runway frame.
+
+#### 88.4.4 Inks
+
+Named for what they mean (§85.4's rule): `CSI_SKY`, `CSI_GROUND`, `CSI_RUNWAY`,
+`CSI_RIVER`, `CSI_WALL` (a face toward the camera), `CSI_WALL2` (a side),
+`CSI_ROOF`, `CSI_HILL`, `CSI_LINE` (the tower and every wireframe edge),
+`CSI_MARK` (runway edges, roads), `CSI_PBG`/`CSI_PFG`/`CSI_PHI` (the panel's
+ground, ink and warning). Each backend's table gives every ink **four
+pattern bytes**, one per row of a 4-row cycle:
+
+| | Hercules | CGA (palette 0, background light blue) | Mode X |
+|---|---|---|---|
+| sky | black | colour 0 (light blue) | blue |
+| ground | 12.5% dither | green | green |
+| runway | black, white edges | brown | dark grey |
+| river | horizontal stripes | colour 0 (blue) | blue |
+| wall / side / roof | white / 50% / 75% | brown / red / red | three greys |
+| hill | 50% blocks | brown | dark green |
+| lines | white | red | dark brown |
+
+The Hercules sky is black on purpose: it is what every Hercules flight
+simulator of the period showed, and a black row is the cheapest row there is.
+The ground is 12.5%, two lit pixels in every 4×4: at 25% a view that is
+mostly ground read as a grey wall the buildings sat on.
+
+#### 88.4.5 A polygon of one row or two is its box
+
+After the bounding-box pass, a polygon whose rows are one or two skips the
+tracer altogether: its box IS the polygon at that size, and four edges
+traced for it (an `idiv` and a setup each) cost more than the fill. The
+distant river quads and the far side of every far building are this case;
+it took each from ~8,100 cycles to ~5,800. What is left of that is the
+face's own bookkeeping — the in-front count, the cross product, the copy
+into `cs_pv`, the ink — and a **five-thousand-cycle floor per polygon** is
+the number every level-of-detail decision in §88.5.4 is made against.
+
+#### 88.4.6 The Hercules row loop and slice
+
+`cs_polyrows_herc` is §88.4.2's row loop with the run INLINE: no dispatch
+through `cs_hrunproc`, no second address computation, the two end bytes
+blended as `old ^ ((old ^ pattern) & mask)` — four instructions and two
+memory accesses against six and three — and the middle a `rep stosw` on
+whatever alignment, because the 8088's bus is a byte wide and an odd
+address costs it nothing. `cs_slice_herc` is §88.4.3's slice the same way:
+the DDA in registers (DX the error, BP twice the remainder), per row two
+masked ORs and a `rep stosb` between, nothing pushed but the run's own x.
+A full-width polygon row went ~2,000 cycles to ~1,100 and a shallow
+line's row ~1,250 to ~900. The general loops are what CGA and Mode X still
+run, and what keeps the generic path assembling.
+
+#### 88.4.7 A small solid keeps no outline
+
+Twelve segments round a fifteen-pixel box cost more than the box, and at
+that size the walls' two patterns already tell them apart; so a solid whose
+radius (§88.5.4's measure) projects under 24 pixels draws its faces and not
+its edges. A wireframe is its edges and always draws them.
+
+### 88.5 The geometry (`apps/skies/cs3d.inc`)
+
+**Angles are sixteen bits**, 65,536 to the turn, and the sine table has 1,024
+entries (`cssin.inc`, sin × 32768 clamped to 32767 — Q15, §88.5.3), indexed
+by the top ten bits. Tank's byte
+angles were enough for a tank that yaws; a horizon that moves in 1.4° steps
+jumps eight pixels of pitch at a time on Hercules, and 0.35° is two.
+
+**One matrix a frame, nine multiplies a vertex.** The camera's right, up and
+forward vectors are built once a frame from heading, pitch and roll (about
+sixteen multiplies), and a world point is `M · (w − p)`. The world is
+±32 km of metres and the eye is never more than 3,000 m up, and an object
+further than `CS_FAR` = 16,000 m is culled on a 32-bit difference before the
+16-bit arithmetic is entered, so no partial sum can overflow a word.
+
+**A box is eighteen multiplies, not seventy-two.** Every solid here is a
+`STACK`: a list of levels `(wx, h, wz)`, each level being the four points
+`(±wx, h, ±wz)`. Because `M` is linear, a level's four corners are
+`C + h·M₁ ± wx·M₀ ± wz·M₂` — three scaled columns, nine multiplies, and then
+adds — which is §85.5's shape cache generalised to a camera that pitches and
+rolls. A box is two levels, a pyramid is a level and an apex, and the Eiffel
+Tower is five levels and 32 edges. Ground shapes (the river, the runway, the
+roads) are `FLAT` models, explicit `(x, z)` pairs at six multiplies each.
+
+**The projection is §85.5.3's table**, rebucketed for a world that is 16 km
+deep rather than 8: exact to 1,023 m, every 4 m to 4,095 and every 64 m to
+20,479 — the same 2,048 rows and the same 8 KB, with the near plane at 40 m.
+The clamp to ±4000 survives in the product's high word exactly as there.
+
+**The near plane is clipped per FACE, in camera space**: a face with every
+vertex in front projects its vertices as they are, one with every vertex
+behind is dropped, and a mixed one is cut against z = `CS_NEAR` by
+Sutherland-Hodgman before projection — a convex polygon gains at most one
+vertex — which is what keeps the runway drawn as it passes under the wheels.
+
+#### 88.5.1 The cull
+
+**Objects are culled before they are transformed**, in order of cost. The
+world is 16-bit metres and so is the eye's whole part, so `x − ex` fits a
+word unless the subtraction **overflows, and that is a flag** (`jo`), where
+the first build spent twenty-four instructions on a 32-bit box. Then the
+object's own `range` (the distance at which it would be two pixels tall,
+set per object). Then a **cone in the horizontal plane** from the heading's
+sine and cosine alone: two multiplies give `along`, and an object behind
+the aeroplane by more than its radius is out; two more give `across`, and
+`|across| ≤ f·along + r + |dy|` is the frustum's own x test with the
+height folded into the margin — `f` the backend's 0.5 (Hercules, §88.3.4)
+or 0.75, and **all of the depth past 15° of pitch or roll** (`cs_cone`,
+set by `cs_matrix`), a right angle being wider than the view's diagonal at
+any attitude. Only what survives is rotated, and NOT here: `cs_consider`
+files the world offset and `along`, and **`cs_drawobj` rotates** and tests
+the frustum proper (|cx| ≤ f·cz + r, |cy| ≤ 0.375·cz + r) before anything
+else. An object the frustum refuses has cost four multiplies and nine, and
+one it accepts has paid the nine it needed anyway.
+
+Two things about that test are worth writing down because they cost a
+day. **The first build kept the cone's margin in DX across the two
+multiplies, and `imul` writes DX**: the cone read about twice its angle,
+and every frame six objects at the edges of the field were rotated and
+then refused. And an object **drawn last frame skips the cone**
+(`CSO_SEEN`, set by the frustum's acceptance and cleared when the cull
+next looks): the frustum repeats the test exactly after the rotation it
+has to do anyway, so the four multiplies would say nothing new.
+
+What survives is sorted far to near by `along` — the depth before pitch
+and roll, which orders the same objects the same way — as **four-byte
+keys** (`cs_vkey`: along, record) over records filed in order, so the
+insertion shifts four bytes and not ten; a dozen objects in a typical view.
+Ground shapes are drawn first, then solids: the painter's algorithm, and
+nothing per pixel.
+
+#### 88.5.2 Out of range by D metres is out of range for D/16 ticks
+
+The cull's cheapest object is one it does not look at. An object refused by
+its range with D metres to spare is given a tick (`CSO_SKIP`) before which
+`cs_consider` returns at its second instruction: D/16, where the aeroplane
+covers under 5 m a tick at VMAX, so the margin is threefold; one refused by
+the 16-km box gets 256. A reset (`cs_reset`), which moves the aeroplane by
+something other than flying, clears every skip (`cs_skipclr`) — and so must
+anything else that teleports it, which is why `tests/skiesperf.py` zeroes
+the table after it pokes a scene. On the runway that is 24 of 41 objects
+at ~250 cycles each instead of ~1,300.
+
+#### 88.5.3 The matrix is Q15
+
+`MUL14` keeps its name — every caller means "a fraction times a value" by
+it — and takes one bit more: the sine table and so every matrix entry are
+×32768, and the 32-bit product is moved left ONCE and DX kept, two shifts
+fewer than Q14 on a machine that does five hundred of these a frame. A
+rotation matrix's entries are bounded by 1 and the products are truncated,
+so no sum of two reaches 32768; cos 0 is 32767 and the 1/32768 it is short
+is nobody's pixel.
+
+#### 88.5.4 Levels of detail, all about pixels
+
+The measure is `cs_sizepx`: **0.75 of the model's radius times the vertical
+scale**, against a multiple of the depth. `CSM_RAD` is |wx| + |wz| + h/2, a
+Manhattan bound the cull needs (it must never be under the true radius) and
+that overstates a box's real extent by up to 3/1.73; three quarters of it
+is still over, and is what the size tests compare. Under 2 pixels an object
+is not drawn. **Under about 6 pixels (11·cz) a solid is its box**: the base
+centre C, the top centre C + h·M₁ with h the last level's, and the point
+half the base's width to the right of C — three projected points and three
+multiplies, `cs_boxlod`, where the full path transforms every vertex — and
+the rectangle they span, filled in the wall ink through `cs_rect`. The first
+build's version of this projected every vertex and took their bounding box,
+and never ran at all: it read the model through an SI that `cs_projall`
+had spent, compared a random word, and a basilica five kilometres off was
+four polygons and ten milliseconds. Under 24 pixels a solid keeps no outline
+(§88.4.7). And the tower carries a **far model** that stands in for its
+32-edge one beyond `CSO_LOD` = 2,500 m: **the four legs to the apex** and
+nothing else, the base square being eight pixels wide where this stands in
+and having cost four segments.
+
+### 88.6 The world (`apps/skies/csworld.inc`)
+
+Metres, x east, z north, y up, the Eiffel Tower at the origin. Thirty-odd
+objects placed off a map: the tower; the Trocadéro and the École Militaire
+either end of the Champ de Mars; Les Invalides and its dome; the Montparnasse
+Tower; the Louvre and its pyramid; Notre-Dame and its two towers; the Panthéon;
+the Arc de Triomphe on the axis that runs from the Louvre to La Défense; the
+Grande Arche and four towers there; Montmartre as a hill with the Sacré-Cœur
+on top; the Seine in six pieces of river; and the Périphérique in four arcs
+of road. It is a caricature at map scale, and that is the right scale for a
+window this size: a Cessna at 300 m sees a skyline, not a façade.
+
+**An object record is twenty bytes**: the model, a far model or 0, x, z, the
+base height, the range it is drawn within, the distance the far model gives
+way at, a name for the crash line, flags, and the cull's skip tick
+(§88.5.2). `CSO_COLLIDE` makes its first level's footprint and its tallest
+level's height a box the aeroplane may not enter — flying into the Eiffel
+Tower is a crash that says so; `CSO_SEEN` is the cull's (§88.5.1).
+
+#### 88.6.1 The river is six pieces, each with a far model
+
+The Seine was three generated strips of ten vertices, and a strip whose
+origin was 2.8 km from the runway — three rows of dither at the horizon —
+cost 43,000 cycles a frame: ten vertices transformed and projected at some
+3,300 each, four polygons at §88.4.5's floor. Each strip is now cut at its
+middle station into two objects of six vertices (three quads and two), each
+with its own origin and a **far model that is its centreline** — three
+vertices, two segments — beyond 2,600 m, so a piece that is a row at the
+horizon is a segment or two and not a dozen transformed vertices. Their
+range is 4,500 m: a 20 m river is a quarter of a pixel wide there.
+
+**An airport record** is a name, a position, an elevation, a runway heading,
+half-length and half-width, the runway's designation and where the aeroplane
+is stood at reset. `cs_airport` builds the runway's quad and centreline into
+bss from it at bracket entry, so the runway is an ordinary `FLAT` object
+whose vertices happen to be computed. **A plane record** is the flight
+model's constants — stall, rotation and never-exceed speeds, thrust, drag,
+rolling friction and brakes, roll and pitch rates and their return-to-level,
+the turn constant, the eye height — and its name. Both tables have one row.
+`[cs_plane]` and `[cs_airport]` are the rows in use, and nothing reads a
+constant the record could carry.
+
+### 88.7 The flight model (`apps/skies/csflight.inc`)
+
+Deliberately simple, stepped **once per system tick** the way §85.6 steps
+its world — the machine draws as fast as it can and the aeroplane flies at
+one speed on every machine. Speeds are 16.8 metres a second, positions 16.8
+metres, and one step is:
+
+- **Speed**: thrust scaled by the throttle, less drag proportional to the
+  square of the speed, less gravity's component along the nose. Full throttle
+  and level is `VMAX` by construction — the drag constant is chosen so the
+  two balance there.
+- **The aeroplane goes where the nose points** while it is above the stall:
+  the climb rate is speed × sin(pitch), the ground speed speed × cos(pitch),
+  turned by the heading. Below `VSTALL` it sinks at a rate that grows with
+  the deficit and the nose drops, whatever the elevator asks.
+- **Roll** follows the held key at `ROLLRATE` and returns to level at
+  `ROLLLEVEL` when nothing is held; **pitch** follows the key at `PITCHRATE`
+  and then STAYS where the stick left it, as a trimmed aeroplane's does —
+  the record carries a return rate (`PITCHT`) and the Cessna's is zero,
+  because a nose that drops to level the moment the key is released is an
+  aeroplane that climbs only while a key is down. The heading turns at
+  `TURNK · sin(roll)` a tick — a standard-rate turn at thirty degrees of
+  bank, and no division.
+- **On the ground** the wheels steer with the rudder keys at a rate that
+  scales with the ground speed, the brakes are a held key, and the nose
+  cannot be raised below `VROT`. Above it, pulling back lifts off.
+- **Touching the ground** is a landing when it happens over the runway —
+  transformed into runway-local coordinates by the airport's heading, four
+  multiplies — with the sink under 3 m/s, the bank under 10° and the nose
+  between −5° and +15°; otherwise it is a crash, as is entering a
+  `CSO_COLLIDE` box. A crash freezes the picture with its reason on the panel
+  for two seconds and then puts the aeroplane back at the airport's reset
+  point, throttle closed.
+
+### 88.8 The session (`apps/skies/csgame.inc`)
+
+`cs_fsx_main` is the §53.1 bracket's exclusive main and has Tank's two rates:
+`cs_steps` owes the simulation one step per elapsed tick, capped at three,
+and the frame is drawn as often as the machine can, waiting for a tick only
+when nothing is owed. Input is §85.6's two readers — `int 16h` for what was
+typed, `OSAPI_KEY_DOWN` (§9.7) for what is held:
+
+| held | | typed | |
+|---|---|---|---|
+| ↑ / ↓ | nose down / up | `P` | pause |
+| ← / → | roll | `R` | back to the runway |
+| `W` / `S` | throttle up / down | `M` | engine sound on / off |
+| `A` / `D` | rudder, and the wheels on the ground | `Esc`, `F` | leave (§11.2.1) |
+| `B` | brakes | | |
+
+The engine is a speaker tone whose pitch follows the throttle
+(`OSAPI_SND_TONE`, re-issued when the throttle moves), a stall is a repeated
+beep, a crash a low blast; the tone is released at exit and `M` mutes all of
+it.
+
+### 88.9 The panel
+
+Below the view, in the box's own coordinates, lettered with the kernel's 8×8
+face through `OSAPI_FONT_GLYPHS` exactly as §85.7 does — and, as there, every
+cell is opaque. Two rows of readouts — airspeed in knots, altitude in feet,
+heading in degrees, vertical speed in feet a minute, throttle, and the
+aeroplane's state — a throttle bar, a message line (the take-off prompt, the
+stall warning, `LANDED`, and a crash with what was hit) and a line of the
+keys. Each readout is a §85.3.5 item keyed on the value it shows: unchanged,
+it costs the frame nothing; changed, it is redrawn opaque and marked into the
+span. Positions are laid out at 320-wide and scaled to the box by
+`cs_hscalex`, so the Hercules panel is the CGA one drawn twice as wide.
+
+### 88.10 The attract window
+
+The windowed half is a still panel — the name, the aeroplane and the airport
+in use, the keys, and `PRESS F TO FLY` — drawn with `OSAPI_FONT_RUN`; a
+menu, `Flight → Fly`; and `About Clear Skies` through `OSAPI_ABOUT_SET` and
+`os88ui.inc`'s card (§20.5.1). `cs_adapter` asks `OSAPI_FSX_CAPS` about the
+window's own display and greys the menu item with the reason when no mode can
+be had (§47), re-asking on `OSAPI_WM_ONRESIZE` so a window dragged to the
+other card of a two-card machine answers about where it is. No worker, no
+animation: what a pilot needs before and after a flight is the controls.
+
+**It does not ship on the small disks** (§24.5): the requirement it cannot
+meet on `kern_small` is the fullscreen surface, which is Tank's row of that
+table exactly.
+
+### 88.11 Testing and measurement
+
+- `tests/skies.py` (soak, MartyPC): the attract window opens, `F` enters the
+  bracket and `cs_frames` climbs; full throttle and the stick back leave the
+  runway — altitude read out of the package's bss, not off the glass; the
+  nose pushed over into the ground is a crash, `cs_crashes` increments and the
+  position returns to the airport's reset point; and §85.1's flash gate, the
+  ink per DISPLAYED frame priced against its neighbours, with the same 70%
+  floor. Run on the Hercules twin as well as CGA: the view is a different
+  width there. **Mode X has not been exercised by it**: no MartyPC machine
+  in the tree answers `FSX_CAPS` with a VGA (`os8088_5150_both_gla` gives
+  CGA320), so that backend has only QEMU, by hand.
+- `tests/skiesperf.py`: an INSTRUMENT, `tankperf.py`'s shape — a breakpoint on
+  `cs_render`, twelve consecutive frames, cycle-exact, on a scene pinned by
+  poke — and where the frame rate in §88.12 comes from. Two things it does
+  that `tankperf` does not: it patches the tick wait out of `cs_steps` for
+  the whole run, because a frame faster than a tick would otherwise read as
+  55 ms and so would every "without"; and `--trace` stops at every
+  `cs_consider`, `cs_drawobj`, stage, `cs_seg` and `cs_poly` of one frame and
+  prints what each cost, cycle-exact, with the object's name and offset or
+  the segment's ends — which is how every number in §88.12 was found, and
+  how the three bugs in §88.5 were.
+
+### 88.12 What it costs
+
+Measured with `tests/skiesperf.py` on MartyPC's 4.77 MHz 8088 with a
+Hercules card, the world paused and the aeroplane pinned; means of twelve
+exact frames, the tick wait patched out. Three scenes: **runway** is where
+every flight starts (parked at Issy, looking down the runway at the
+skyline); **city** is 300 m over the Champ de Mars heading north-east, the
+tower at 700 m with the Trocadéro, the river and the far skyline; **tower**
+is 150 m up, 900 m from the Eiffel Tower, nose on it — the 32-edge model at
+its near size, the worst frame in the world.
+
+| build | runway | city | tower |
+|---|---|---|---|
+| first measured (whole-view fill and blit) | 339 ms | 286 | 313 |
+| dirty rows, one-sided chains, the slice, the cone, LOD | 134 | 149 | 216 |
+| marks per object, the tick wait out of the instrument | 130 | 149 | 206 |
+| the row range, two-row polygons, the sky's span refill | 127 | 146 | 201 |
+| Hercules row loop and slice, outlines, skip ticks, river halves | 120 | — | — |
+| the cone's DX bug, Q15, keys, box off three points | 112 → 108 | 176 | 216 |
+| **400 wide, four-leg far tower, river range** | **101 ms, 9.9 fps** | **150 ms, 6.7 fps** | **183 ms, 5.5 fps** |
+
+**The target was twelve frames a second and the runway frame is at ten.**
+Where the 101 ms goes, cycle-exact from `--trace`: the sky refill 42,700
+(9 ms — the runway and the hangar dirty 30 full rows), the cull 35,700
+(7.5 ms over 41 objects), the runway itself 93,000 (its two long edges are
+slices at ~900 cycles a row, its quad 15 full-width rows at ~1,100, and
+its six vertices cross the near plane), the near hangar 84,000 (two 15-row
+faces and twelve outlines), the far tower 45,000 (eight vertices, four
+legs), four river pieces 110,000 (mostly their vertices), and the blit,
+panel and loop ~50,000. The city and the tower frames are further off
+because they hold more of the same: fifteen objects, and the tower's 32
+segments at ~4,300 cycles each.
+
+What the measurements say about the design, in the order it matters:
+
+1. **Everything costs about twice what the instruction count says.** A
+   memory-operand instruction on this 8088 is 25-30 cycles once the fetch
+   queue and the bus are counted, an `imul` ~180. So a polygon has a
+   ~5,000-cycle floor (§88.4.5), a segment ~2,400, a vertex ~3,300
+   transformed and projected, and a frame at 12 fps is 400,000 cycles: sixty
+   polygons' worth of floor with nothing drawn in them. The per-primitive
+   floors are the frame, and the remaining levers are content — fewer
+   objects in a view, simpler models close up, ranges cut — rather than the
+   raster, which has been through the loops that pay.
+2. **A cull is worth more than a fill.** Of the cuts above, the largest
+   single ones were bugs in the cull (§88.5.1, §88.5.4) and content (the
+   river, §88.6.1), not the inner loops; the Hercules loops (§88.4.6) took
+   20% off a row and 7 ms off the frame.
+3. **The picture is not taken apart on the glass** at any of these rates:
+   the flash gate in `tests/skies.py` reads every displayed frame at ≥99% of
+   its neighbours' ink on both 1bpp adapters, because the shadow is blitted
+   whole rows at a time and nothing draws to the card directly.
