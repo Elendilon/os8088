@@ -765,8 +765,8 @@ wd_entry:
     mov al, 1                       ; resizable (SPEC.md 11.1/27): wd_paint
     call OSAPI_WM_SIZABLE           ; already lays out from the live record,
     mov al, 1                       ; so the next repaint re-wraps for free
-    mov al, 1                       ; ...and it PROMISES its content stands
-    call OSAPI_WM_SAVEU             ; still while it is not drawing, so a
+    call OSAPI_WM_SAVEU             ; ...and it PROMISES its content stands
+                                    ; still while it is not drawing, so a
                                     ; raise puts the old pixels back instead
                                     ; of lettering 464 cells (SPEC.md 11.96.1).
                                     ; True of this app: everything that draws

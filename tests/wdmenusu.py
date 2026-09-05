@@ -101,6 +101,12 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     time.sleep(2.5)
     M.settle(m)
 
+    # the package's base out of the instance table (I_SPTR,
+    # kernel/instance.inc:31), and its identity checked against CODE at a
+    # named symbol. Not against the head of the image: os88pkg restamps the
+    # size at +8 and the loader patches the header area, so those bytes are
+    # legitimately not the ones nasm emitted - while a stale build, which is
+    # what this check is for, moves wd_mdraw's body.
     I_RECSZ, I_STATE, I_SPTR, I_KIND = 32, 0, 6, 2
     raw = m.read(S("inst_tab"), I_RECSZ * 12)
     seg = None
@@ -108,7 +114,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         b = i * I_RECSZ
         if raw[b + I_STATE] == 1 and (raw[b + I_KIND] & 0x80):
             cand = u16(raw, b + I_SPTR)
-            if m.read(cand * 16, 64) == image[:64]:
+            if m.read(cand * 16 + syms["wd_mdraw"], 48) == image[syms["wd_mdraw"]:syms["wd_mdraw"] + 48]:
                 seg = cand
                 break
     if seg is None:

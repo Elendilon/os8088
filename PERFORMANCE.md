@@ -1229,6 +1229,7 @@ list to check yourself against.
 | Scroll the Browser one line, deep in a page | the tier test read the old scroll POSITION rather than the delta, so past one windowful every scroll repainted the whole band, on every page, for the rest of the document. Measured on a cycle-accurate 5150/CGA in a 15-row band, one Down key: **15 `font_run`s and no `gfx_scroll` at all**, **19 frames of visible redraw = 317 ms** | one `gfx_scroll` and the row it exposed, at every depth: **1 `font_run` and 1 `gfx_scroll`**, **5 frames = 83 ms**. Framebuffer **0 differing pixels** against the band repaint on CGA (15 rows) and Hercules (27), 55 scroll steps each | §71.10 |
 | Scroll a Disk window that is already at an end stop | a full repaint to show the same pixels — **266 ms** | **nothing at all**, 0 frames | §22.11 |
 | Type into the file dialog's name box | ~120 glyphs + a 298×151 fill | `font_char` **972 → 36**, scanlines **7,600 → 184** (8 chars) | §38.8 |
+| Dismiss one of Word's own dropdowns | `wd_mrepair`, a piecewise repaint of everything the panel covered - the covered text rows erased FULL COLUMN WIDTH and re-lettered. Measured on a cycle-accurate 5150, Utilities (168x109) over `WELCOME.DOC` in a 600x136 content area: **2,488,591 cy = 521.4 ms**. `wd_mtrack` closes and reopens per title crossed, so dragging File -> Help was eight of them, ~4.97 s | the banked pixels written back: **93,940 cy = 19.7 ms**, plus **96,863 cy = 20.3 ms** to bank them on the way down. Round trip **621 -> 139.6 ms**; File -> Help ~1.12 s. `wd_mrepair` is now the refusal path only | §68.2.1, §5.3 |
 | Note Pad keystroke | full content fill + a glyph per character | **2 cells**; `font_char` **8,410 → 350**, scanlines **5,020 → 1,960** (20 keystrokes, 410-char note) | §27.2 |
 | Note Pad layout per keystroke | 404 walk iterations at 200 chars, growing | 35, and flat | §27.4 |
 | Note Pad caret keys | Up 1,608 iterations / Home 1,608 / Left 804 | 184 / 90 / 60 | §27.5 |
@@ -11039,3 +11040,71 @@ as priced.
 - **The load** (9.5 s for OS8088.GIF on a Hercules) is §42.25's and dwarfs
   every paint after it; it is not "the draw" and was left alone.
 
+
+### Set 117 — Word's own dropdowns banked, and the italic run priced (SPEC.md §68.2.1, §5.3)
+
+All on `os8088_5150_both_gla` — a cycle-accurate 4.77MHz 8088 — with
+`WELCOME.DOC` open in Word's shipped window (content 600x136). Brackets are
+entry-to-return, taken by arming an exec breakpoint on the entry and a second
+on the near return address read off SS:SP. The counter is the MACHINE's, so a
+PIT tick inside a bracket only ever makes a sample longer: repeats keep the
+minimum.
+
+**The dropdown.** Utilities, 9 items, panel 168x109 covering 80% of the
+content height:
+
+| | cycles | ms |
+|---|---:|---:|
+| open, `wd_mdraw` | 475,304 | 99.6 |
+| close, `wd_mrepair` (before) | 2,488,591 | **521.4** |
+| close, `wd_surest` (after) | 93,940 | **19.7** |
+| bank, `wd_subank` (after, new) | 96,863 | 20.3 |
+
+**26.5x on the close**; the round trip 621 -> 139.6 ms. The open is untouched
+and is now the dominant term. `wd_mtrack` closes and reopens per title
+crossed, so a File -> Help slide went ~4.97 s -> ~1.12 s.
+
+Why the close was so much dearer than the open: `wd_mrepair` erases the
+covered text rows at the FULL column width — all 600 px, not the panel's 168 —
+and re-letters them at ~915 us a glyph cell, plus the ribbon and ruler strips
+whole.
+
+### Set 117.1 — …and the italic run is NOT the 4bpp disaster it reads like
+
+`wd_drawrun`'s italic arm stages sheared kernel glyphs into a FOUR-bit buffer
+(`WD_STG4`, stride = cells x 4 bytes) and puts them down with
+`OSAPI_GFX_BLIT4` — one-bit data on a four-bit path, and it looks like an
+obvious defect. A reading of the tree priced it at 1,797 cycles a coalesced
+run (Set 107) x ~13 runs a cell, making a 7-cell run **37.7 ms**, and
+proposed a 1bpp band conversion worth ~20x.
+
+**Measured, it is 7.71 ms**, and the proposal is refused on that number:
+
+| run | cycles (min) | ms | per cell |
+|---|---:|---:|---:|
+| 6 cells | 33,691 | 7.06 | 5,615 cy |
+| 7 cells | 36,785 | 7.71 | 5,255 cy |
+
+**~5,300-5,600 cycles a cell, ~1.15 ms** — against ~900 us for an ordinary
+opaque `font_run` cell. Italic costs **1.28x** ordinary text, not 20x.
+
+The derivation was wrong for a reason worth writing down: **`gfx_blit4` is not
+a run-only primitive.** `vga12.inc` arms a per-PIXEL row decoder on both mono
+adapters (`sw_pairbuild`) and §5.4.1.3's planar decoder on VGA, so the italic
+blit never reaches the 1,797-cycles-a-run cell it was priced against. Set 107's
+figure is real and describes a different path.
+
+So the conversion buys ~1-2 ms on a realistic run, against a delicate change:
+the kernel glyph row is 1 = INK and a screen band needs 1 = PAPER, so the
+shear must run before a complement; the x must be a multiple of 8 or
+`gfx_blit1_x` refuses (`test ax, 7`); and `gfx_blit1` is `stc`/`ret` on
+`kern_small` (§5.4.2.5), so it needs the 4bpp path kept as a fallback. Not
+worth it. **This is rule 4 of CLAUDE.md's performance section doing its job —
+measure before redesigning — and the measurement is the whole finding.**
+
+What IS true and unpriced here: `wd_itinit` builds a 3,040-byte 4bpp glyph
+table into a 9KB claim whose information is one bit deep. It is built once and
+cached (the brackets above include the call and are far below its cost), so it
+is a MEMORY question and not a speed one; ~2.2 KB is available to whoever wants
+it. The Show-all pilcrow is the same class — one `OSAPI_GFX_BLIT4` per mark for
+a two-colour 8x8 stamp — and has not been bracketed.
