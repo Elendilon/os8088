@@ -4,6 +4,15 @@
 row here; a test that is not in this file does not run in any tier, which is
 the state all ninety of them were in before it existed.
 
+**BEFORE ADDING ONE: docs/WRITING-TESTS.md.**  This file is the registry's
+own contract - the tiers, and what earns a `full` row - and that one is how to
+write the test the row points at.  The four things it exists to stop are all
+visible in this file's own history: a `secs` nobody measured (the compression
+family declared 2,721 seconds for rows that take 701), a `builds=True` where a
+`wants=` or a private tree was the answer, a hand-rolled click at a remembered
+coordinate, and a `time.sleep` that hands the guest a third less work under
+load.  Its checklist is thirteen lines and takes a minute.
+
 THE THREE TIERS.
 
   fast   Budget 30s. Host-side only - it reads what `make` just built and

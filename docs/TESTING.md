@@ -1,5 +1,11 @@
 # What can actually be tested, and where
 
+> **Writing the test itself is docs/WRITING-TESTS.md** — the registry row, a
+> `secs` you measured, `wants=` instead of `builds=True`, `os88ui` instead of a
+> remembered coordinate, and the guest's clock instead of `time.sleep`. This
+> file answers *can this be tested here*; that one answers *how to write it so
+> it stays true*.
+
 **DEVELOP ON MARTYPC. QEMU IS A FALLBACK WITH A SHORT LIST.** If what you
 are testing runs on an 8088 — which is the whole of this OS bar the 286/386
 targets — `make marty` gives you a cycle-accurate 4.77MHz 8088 running a real
