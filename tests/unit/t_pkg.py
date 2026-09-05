@@ -40,6 +40,8 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from harness import check, eq, done                       # noqa: E402
 from t_image import Vol, read, SYSTEM_IMAGES, DATA_IMAGES  # noqa: E402
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88drv                                            # noqa: E402
 
 MAGIC = 0x384F                       # 'O','8'
 V_APP, V_DRV, V_MOD = 3, 4, 5        # package / driver / on-demand module
@@ -73,10 +75,18 @@ MOD_NENT = _mod_nent()
 
 def app(blob, nm, flags, entry, image, bss):
     """SPEC.md 20.2 - a v3 application package."""
-    check(not (flags & 0xF8), "%s: no reserved flag bits" % nm, got=hex(flags),
+    check(not (flags & 0xE0), "%s: no reserved flag bits" % nm, got=hex(flags),
           why="bit 0 is an embedded icon, bit 1 an association block (SPEC.md "
-              "54.6) and bit 2 says the FILE is longer than the image on "
-              "purpose (SPEC.md 20.12). Bits 3-7 are nobody's yet")
+              "54.6), bit 2 says the FILE is longer than the image on purpose "
+              "(SPEC.md 20.12) and bits 3-4 say it is SHORTER because the "
+              "image is compressed and in which format (SPEC.md 20.13). Bits "
+              "5-7 are nobody's yet")
+    check(not (flags & 8) or not (flags & 4),
+          "%s: not both compressed and carrying parts" % nm, got=hex(flags),
+          why="a part's offset is measured from the start of the FILE and its "
+              "table lives INSIDE the image, so compressing the image and "
+              "laying out its parts are circular. os88pkg.py refuses the "
+              "combination (docs/O88-COMPRESSION-PLAN.md wave 4)")
     lo = ICON_END if flags & 1 else HEADER
     check(lo <= entry < image, "%s: entry +0x%04X is inside the image" % (nm, entry),
           got=hex(entry), want="0x%04X..0x%04X" % (lo, image))
@@ -151,6 +161,37 @@ def header(blob, nm):
               why="flags bit 2 lifts `image == file size`, not the bound - a "
                   "package whose image runs past its own file is a truncated "
                   "copy however the flag reads")
+    elif ver == V_APP and b3 & 8:
+        # COMPRESSED (SPEC.md 20.13.2): `image` keeps meaning the UNPACKED
+        # bytes, so the file is SHORTER than it - which is the case the
+        # truncated-file guard refuses without the bit, and the reason a
+        # compressed package needs no version bump to be refused by an older
+        # kernel.
+        check(image > len(blob),
+              "%s: compressed, so the image %d is bigger than its %d-byte file"
+              % (nm, image, len(blob)), got=image, want=">%d" % len(blob),
+              why="a compressed package that saved nothing should have been "
+                  "shipped uncompressed - os88pkg.py refuses to write one")
+        check(32 <= image <= 0xFFFF,
+              "%s: image %d fits the 16-bit field" % (nm, image), got=image)
+    elif ver == V_DRV and len(blob) < image:
+        # ...AND A COMPRESSED DRIVER SAYS SO WITH NO BIT AT ALL. +3 is the
+        # CLASS in a v4 header and there is no flags byte to spare, so the
+        # signal IS this inequality and the format is the body's own first
+        # byte (SPEC.md 20.13.2). Which means the check above cannot simply be
+        # widened: `image > file` is the DEFINITION here, so what is left to
+        # assert is that the body names a format the kernel has and that the
+        # stream really does expand to the size the header claims - both of
+        # which image_unwrap does by doing it.
+        check(blob[HEADER] in (0, 1),
+              "%s: the compressed body names a format" % nm, got=blob[HEADER],
+              want="0 (LZ4) or 1 (LZB)")
+        eq(len(os88drv.image_unwrap(blob)), image,
+           "%s: the stream expands to the %d bytes the header claims"
+           % (nm, image),
+           "drv_expand claims from +8 and then decodes into it - a stream that "
+           "produces fewer bytes leaves the tail of a driver as whatever the "
+           "heap had, and one that produces more has already overrun")
     else:
         eq(image, len(blob), "%s: image size field matches the file" % nm)
     if ver == V_APP:
@@ -180,6 +221,27 @@ def main():
                "refuses a v4 - two independent gates, and this is the file half")
         elif ver == V_MOD:
             mods += 1
+
+    # **THE ONE ARTEFACT THAT MUST NOT BE COMPRESSED** (SPEC.md 20.13.5.1).
+    # `PKGZ ?= lz4` compresses every package and every driver, and every one of
+    # them is read by a loader that knows: ld_run_body for a .O88, drv_load for
+    # a .DRV, drv_load_at for the two overlays the KERNEL owns. HDDTOOL.DRV is
+    # read by HDD.DRV with OSAPI_FILE_READ, which hands back what is on the
+    # disk - and its 32-byte header crosses compression VERBATIM, so all seven
+    # of hd_tool_check's tests still pass and the driver far-calls [es:6] into
+    # a compressed body. The failure is a crash on Format or Install, on a
+    # machine with a hard disk, which is not what a shipped floppy is tested
+    # on. Nothing else in the tree can state this, because "who loads it" is
+    # not a property of the file.
+    tool = arts.get("HDDTOOL.DRV")
+    if tool is not None:
+        eq(struct.unpack_from("<H", tool, 8)[0], len(tool),
+           "HDDTOOL.DRV is NOT compressed",
+           "HDD.DRV reads it with OSAPI_FILE_READ, which does not expand a "
+           "driver - and hd_tool_check passes on a compressed one because the "
+           "header crosses verbatim, so the next thing that happens is a far "
+           "call into the stream. Its Makefile rule names os88drv.py rather "
+           "than $(OS88DRV) for exactly this reason")
 
     # Everything else in build/ that an image can carry, so the freshness
     # check below covers the kernel, the fonts, the logo and README.TXT too.

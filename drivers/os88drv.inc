@@ -14,13 +14,21 @@
 ;
 ; What is different from apps/os88api.inc, and why:
 ;
-; - **There is no bss.** A driver's zeroed data is written as `db 0` in the
-;   image and ships on the floppy. A package's bss is claimed by the loader
-;   because a package's is tens of KB; a driver's is a few hundred bytes, and
-;   paying for them on disk buys a load path with exactly one heap claim in
-;   it - made at the size the directory entry already reported, before a byte
-;   is read. Anything bulk (a DMA buffer, a ring) is your own
-;   OSAPI_MEM_CLAIM at attach, freed at detach.
+; - **You still write your zeroed data as `db 0`, and it no longer SHIPS.**
+;   There is nothing for a driver author to do here and nothing to declare:
+;   `os88drv.py` takes whole paragraphs of TRAILING zeros off the image, writes
+;   the count in the header's byte +31, and `drv_bss` zeroes them again at
+;   load. Measured, that is 6,672 bytes off every disk that carries the
+;   drivers - `ether.drv` alone had a 4,064-byte run - and it costs no decoder
+;   and no cycles (docs/O88-COMPRESSION-PLAN.md 12.6).
+;
+;   **Put your buffers LAST if you want them off the disk.** Only the trailing
+;   run is stripped; a zeroed table with code after it still ships. The load
+;   path is otherwise the one it always was - the kernel claims from the size
+;   the directory entry reported, before a byte is read, plus a fixed
+;   DRV_BSS_KB it hands straight back with a shrink. Anything bulk (a DMA
+;   buffer, a ring) is still your own OSAPI_MEM_CLAIM at attach, freed at
+;   detach: the header's byte caps a bss at 255 paragraphs.
 ;
 ; - **You have no window, no instance and no menu.** You are not an app: no
 ;   dock tile, no Task Manager row, no callbacks from the window manager. The

@@ -307,6 +307,23 @@ def _load(defines=(), check=True):
     # directory that does not exist, and nasm would report a missing file.
     if idir and not os.path.isabs(idir):
         idir = os.path.join(ROOT, idir)
+    # ...AND A COMPRESSED KERNEL DESCRIBES ITSELF (SPEC.md 2.9.13.4). KZIP is
+    # not a knob a caller can be expected to name: it is a two-pass build, so
+    # the kernel in $bdir was assembled with FOUR defines that are properties
+    # of a file that did not exist when it was assembled. Nobody could pass
+    # those by hand and no test should have to - and with KZIP the default,
+    # every caller that did not would meet the byte-identity refusal below,
+    # about a kernel that is perfectly fine. os88kz.py writes them beside the
+    # kernel it packed, so they are read from there and never guessed: the
+    # json IS the build, and if it is absent this kernel is not packed.
+    kz = os.path.join(bdir, "kernel.kz.json")
+    if os.path.exists(kz) and not any(d.split("=")[0] == "KZIP"
+                                      for d in defines):
+        import json
+        n = json.load(open(kz))
+        defines = tuple(defines) + (
+            "KZIP", "KZ_SECS=%d" % n["ksecs"], "KZ_RPARA=%d" % n["rpara"],
+            "KZ_HEADSEC=%d" % n["headsecs"], "KZ_NBLK=%d" % n["nblk"])
     # A KNOB KERNEL IS NOT BOUND BY KERN_BUDGET (kernel.asm guard 1), and the
     # Makefile says so with -DKERN_KNOB. A tool re-assembling one for its
     # symbol map has to say the same thing or nasm refuses a kernel that

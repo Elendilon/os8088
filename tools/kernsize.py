@@ -202,9 +202,21 @@ THEMES = (
     # by the order its file is included, so it has to be the first one. So
     # 3,584 bytes of `.lowbss` moved off disk.inc's row and onto this one
     # without a byte moving in the machine.
+    # lz.inc (docs/O88-COMPRESSION-PLAN.md) is the file system's, and it is
+    # worth saying why rather than putting it under "the machine": what it is
+    # to a reader is a step in READING A FILE. Every caller it has is a loader
+    # - loader.inc for a package image, driver.inc for a .DRV, diskw.inc for
+    # an ordinary file - and the only thing it does for a package is arrive
+    # between the sectors and the bytes.
+    # compress.inc (SPEC.md 20.15) is here with lz.inc and for the same
+    # reading: it is a step in WRITING a file. Its row is 0 in every section
+    # this report tracks, and correctly - the whole file is `.modz`, which
+    # os88mod.py cuts out of kernel.bin into COMPRESS.DRV, so the only thing
+    # it costs a machine is a mod_tab row in files.inc's and mod.inc's rows.
     ("the file system, end to end",
      ("disk.inc", "dskwin.inc", "diskw.inc", "files.inc", "filecp.inc",
-      "fdlg.inc", "loader.inc", "assoc.inc", "clone.inc")),
+      "fdlg.inc", "loader.inc", "assoc.inc", "clone.inc", "lz.inc",
+      "compress.inc")),
     ("the window system and its furniture",
      ("wm.inc", "ui.inc", "menu.inc", "instance.inc", "desk.inc", "dock.inc",
       "fsx.inc", "clip.inc", "fprog.inc", "toast.inc")),

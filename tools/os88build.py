@@ -272,6 +272,23 @@ class _Lock(object):
             self.fh = None
 
 
+# THE COMPRESSED KERNEL'S FOUR DEFINES ARE NOT REPORTED, and that is the
+# Makefile's rule rather than this one's: `$(KZDEF)` on the assembler line is
+# PASS ONE'S PLACEHOLDERS (KZ_SECS=0, KZ_RPARA=0), and `build/kernel.bin` on
+# disk is pass TWO - re-assembled with the real numbers by the `kernel.sys`
+# rule (SPEC.md 2.9.13). So the line `make -n` prints is the one set of values
+# that is certainly wrong for the image a map gets checked against. The
+# Makefile says who owns them - "a tool that re-assembles the kernel for a
+# SYMBOL MAP reads the same json itself" - and tools/os88sym.py does exactly
+# that, from build/kernel.kz.json, but only if nobody has already named KZIP.
+# Reporting them therefore did not merely pass stale numbers, it TOOK THE JSON
+# OUT OF PLAY: `KZIP` with no value at all reached nasm and boot2.asm answered
+# six "expression syntax error"s about a kernel that builds perfectly.
+def _kz(d):
+    n = d.split("=")[0]
+    return n == "KZIP" or n.startswith("KZ_")
+
+
 def defines_for(args, target="kernel-full.bin", build=None):
     """The nasm defines `make <args>` would compile the kernel with.
 
@@ -279,6 +296,12 @@ def defines_for(args, target="kernel-full.bin", build=None):
     often enough to be a trap - VGADIRTY=1 gives -DVGA_DIRTY, and passing the
     variable name to os88sym re-assembles the PLAIN kernel and refuses the map
     with a message about a stale build, which reads as "run make" and is not.
+
+    A DEFINE'S VALUE IS PART OF IT. Ten knobs assemble to `-DX=<n>` rather
+    than a bare `-DX` (RTC=, QUANTUM=, HERCSEG=, SBRATE=, ...), and a name
+    without its number re-assembles a DIFFERENT kernel - or, where the value
+    is what an expression is built from, no kernel at all. `_kz` below is the
+    one family deliberately left out, for a reason of its own.
 
     **`make -n` IS NOT A DRY RUN OF THE MAKEFILE'S PARSE**, and this function
     was written with a bug that proves it. Two `$(shell ...)` assignments run
@@ -316,8 +339,11 @@ def defines_for(args, target="kernel-full.bin", build=None):
             shutil.rmtree(tmp, ignore_errors=True)
     for line in out.replace("\\\n", " ").splitlines():
         if "nasm" in line and "kernel.asm" in line and " -o " in line:
-            return tuple(m.group(1) for m in
-                         re.finditer(r"-D([A-Za-z_][A-Za-z_0-9]*)", line))
+            return tuple(d for d in
+                         (m.group(1) for m in
+                          re.finditer(r"-D([A-Za-z_][A-Za-z_0-9]*(?:=[^\s]+)?)",
+                                      line))
+                         if not _kz(d))
     return ()
 
 

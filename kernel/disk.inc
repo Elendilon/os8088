@@ -58,6 +58,35 @@ DSK_B_HEADS  equ 26              ; BPB_NumHeads (word)
 DSK_R_NAME   equ 0               ; name[8] (space-padded)
 DSK_R_EXT    equ 8               ; ext[3] (space-padded)
 DSK_R_ATTR   equ 11              ; attribute byte
+DSK_R_CZM    equ 12              ; THE COMPRESSION HINT (SPEC.md 20.14,
+DSK_R_CZH    equ 13              ; docs/O88-COMPRESSION-PLAN.md 15): a mark
+DSK_R_CZL    equ 20              ; byte, then the UNPACKED size as a high byte
+DSK_CZ_MARK  equ 0x5A            ; and a low word. **THE MARK CARRIES THE
+                                 ; FORMAT**: 0x5A + the LZ_* id, so 0x5A is
+                                 ; LZ4 and 0x5B is LZB (SPEC.md 20.14.2.4).
+                                 ; It has to, because the capacity decision in
+                                 ; .czcap happens BEFORE any data I/O and the
+                                 ; two formats get different answers there -
+                                 ; LZ4 refuses where LZB windows - so a hint
+                                 ; that could not tell them apart would have
+                                 ; to read the file to find out, which is the
+                                 ; one thing this hint exists to avoid. THESE
+                                 ; FOUR BYTES ARE FREE -
+                                 ; dskw_commit clears all 32 and writes only
+                                 ; name, attribute, the three stamps, cluster
+                                 ; and size, and 19.1 already documents @20 as
+                                 ; "FAT32-only per spec - ignored". The
+                                 ; directory sector is read anyway, so knowing
+                                 ; a file is compressed costs NO extra I/O at
+                                 ; mount, per listing or per entry.
+                                 ; **IT IS A CACHE**: a foreign tool may drop
+                                 ; it, a missing hint reads as "not
+                                 ; compressed", and trusting that would hand an
+                                 ; application compressed bytes - so the read
+                                 ; path checks the file's own 'CZ' header too
+DSK_CZ_MAG   equ 0x5A43          ; 'CZ', as the word a `cmp` reads it back as
+DSK_CZ_HDR   equ 8               ; magic, format, a reserved zero, and the
+                                 ; unpacked size as a dword
 DSK_R_CLUS   equ 26              ; FstClusLO (FstClusHI @20 is FAT32-only)
 DSK_R_SIZE   equ 28              ; file size, dword
 
@@ -5505,6 +5534,25 @@ dsk_find_x:
     mov ax, [es:bx+DSK_R_SIZE]      ; size, which dsk_ent CLAMPS to a word
     mov dx, [es:bx+DSK_R_SIZE+2]    ; and a copy cannot work from
     mov cl, [es:bx+DSK_R_ATTR]      ; ...and the attribute, for the caller
+    mov ch, 0                   ; ...and whether it is COMPRESSED, which is
+    push ax                     ; the +22 word, and which changes
+    mov al, [es:bx+DSK_R_CZM]   ; ...the mark LESS its format (20.14.2.4), so
+    sub al, DSK_CZ_MARK         ; 0x5A and 0x5B both pass and nothing else
+    cmp al, LZ_LZB
+    pop ax
+    ja .plain                   ; the SIZE this cell answers: an application
+    mov ch, 1                   ; sizes its claim off +18 and must be told
+    cmp byte [dsk_fdraw], 0     ; what the file becomes, not what it occupies
+    jne .plain                  ; (SPEC.md 20.14.3) - unless the caller asked
+                                ; through api_file_find_raw, which is a COPIER
+                                ; and wants the length of what it is about to
+                                ; move. The FLAG is set either way: bit 0 of
+                                ; +22 is a fact about the file, not about which
+                                ; of its two sizes was reported
+    mov ax, [es:bx+DSK_R_CZL]   ; The hint is read from a
+    mov dl, [es:bx+DSK_R_CZH]   ; sector this walk is holding anyway, so a
+    mov dh, 0                   ; listing costs exactly what it cost before
+.plain:
     pop es
     push ax
     push dx
@@ -5520,6 +5568,9 @@ dsk_find_x:
     pop cx
     mov [es:di], cl             ; +13 the attribute byte
     inc di
+    mov cl, ch                  ; +22 the flags word, written HERE because CH
+    mov ch, 0                   ; is the last live use of that register and
+    mov [es:di+8], cx           ; the alternative is a push between two pops
     mov ax, [dsk_ent+16]
     mov [es:di], ax             ; +14 the type word (1 file, 2 dir, 3 parent)
     mov ax, [dsk_ent+18]
@@ -5528,8 +5579,6 @@ dsk_find_x:
     pop ax
     mov [es:di+4], ax           ; +18 the size, all 32 bits of it
     mov [es:di+6], dx
-    mov word [es:di+8], 0       ; +22 reserved: a later field goes here and a
-                                ; caller that ignores it today still works
     mov cx, [dsk_fdord]
     inc cx                      ; the ordinal to ask for next
     pop di
@@ -7087,6 +7136,11 @@ dsk_ioerr:    resb 1            ; status (AH) of the last FAILED transfer;
 ; transfer, so nothing can be inside dsk_xfer twice and one copy of each is
 ; enough. .bss and not .text because every one of them is WRITTEN at the top
 ; of the transfer that reads them.
+dsk_fdraw:    resb 1            ; dsk_find: report the ON-DISK size rather
+                                ; than the unpacked one (SPEC.md 20.14.3) -
+                                ; api_file_find_raw's whole difference, and a
+                                ; byte rather than a register because both
+                                ; cells reach the body through one fence
 dsk_fdhid:    resb 1            ; dsk_find: may this caller see hidden and
                                 ; system entries? (SPEC.md 19.6.1's fence)
 dsk_fdord:    resw 1            ; ...and the ordinal it was asked for

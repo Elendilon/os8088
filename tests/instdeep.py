@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""The installer reproduces the source disk's WHOLE tree (SPEC.md 52.10.13).
+"""The installer reproduces the source disk's WHOLE tree, and its BYTES.
+
+SPEC.md 52.10.13.
 
 An install used to walk the root and one level of folders, so a folder inside
 a folder was never made on the destination.  Two are shipped and both went
@@ -14,6 +16,15 @@ So this drives a real install on MartyPC's XT-IDE machine and then reads the
 partition back ON THE HOST, with a FAT reader that is not the one that wrote
 it.  A screendump cannot answer this question: the installer says `Done` in
 both the broken and the fixed case, and the difference is a directory entry.
+
+**AND IT COMPARES README.TXT BYTE FOR BYTE**, because the same harness answers
+a second question the same way and the installer got that one wrong too. The
+shipped manual is COMPRESSED - 8,850 bytes on the floppy, 16,304 expanded -
+and the installer had two copy shapes, one raw and one not: a file that fitted
+the buffer took OSAPI_FILE_READ, which is the TRANSPARENT one (SPEC.md
+20.14.3), so it arrived expanded and was installed as a plain file with the
+directory hint gone. The tree check above passes either way; only the bytes
+say which happened.
 
     python3 tests/instdeep.py
 
@@ -53,6 +64,11 @@ FOOTER = 512                        # the VHD footer, past the data area
 # is the ones with two components in them.
 WANT_DIRS = ["SYSTEM", "APPS", "GAMES", "SYSTEM/APPDATA", "SYSTEM/DOS"]
 WANT_FILES = ["KERNEL.SYS", "SYSTEM/DOS/OS88NET.COM", "SYSTEM/TASKMGR.O88"]
+
+# ...and these must arrive BYTE FOR BYTE, hint and all. Any compressed file on
+# the source disk would do; README.TXT is the one the shipped system disk has
+# (SPEC.md 20.13.5), and it is the file the split shape actually expanded.
+WANT_RAW = ["README.TXT"]
 
 
 # --- a FAT reader that is not os88disk.py's ----------------------------------
@@ -113,6 +129,52 @@ class Vol:
                         struct.unpack_from("<H", e, 26)[0],
                         struct.unpack_from("<I", e, 28)[0]))
         return out
+
+    def read(self, path):
+        """One file's exact bytes, truncated to its directory size."""
+        first, parts = 0, [p for p in path.split("/") if p]
+        for i, want in enumerate(parts):
+            for name, attr, clus, size in self.entries(first):
+                if name.upper() != want.upper():
+                    continue
+                if i + 1 == len(parts):
+                    data = b"".join(
+                        self.sec(self.data_lba + (c - 2) * self.spc, self.spc)
+                        for c in self.chain(clus))
+                    return data[:size]
+                first = clus
+                break
+            else:
+                return None
+        return None
+
+    def mark(self, path):
+        """The compression hint (+12) of a file's directory entry, or None.
+
+        Read out of the RAW 32 bytes rather than through `entries`, which
+        drops everything but name, attribute, cluster and size - and the hint
+        is the field that says the installed copy is still the packed one
+        (SPEC.md 20.14.1).
+        """
+        first, parts = 0, [p for p in path.split("/") if p]
+        for i, want in enumerate(parts[:-1]):
+            for name, attr, clus, size in self.entries(first):
+                if name.upper() == want.upper():
+                    first = clus
+                    break
+            else:
+                return None
+        if first == 0:
+            raw = self.sec(self.root_lba, self.root_secs)
+        else:
+            raw = b"".join(self.sec(self.data_lba + (c - 2) * self.spc,
+                                    self.spc) for c in self.chain(first))
+        stem, _, ext = parts[-1].upper().partition(".")
+        key = (stem.ljust(8) + ext.ljust(3)).encode()
+        for o in range(0, len(raw), 32):
+            if raw[o:o + 11] == key:
+                return raw[o + 12]
+        return None
 
     def tree(self, first=0, path="", depth=0):
         """Every path on the volume, as {PATH: (is_dir, size)}."""
@@ -321,13 +383,46 @@ def main():
             bad.append("%s is MISSING" % p)
         elif tree[p][0] or tree[p][1] == 0:
             bad.append("%s is empty or a folder" % p)
+
+    # --- and the BYTES, for the files the source disk carries packed --------
+    # THE SAME READER ON BOTH SIDES, so a difference is the install's and not
+    # two implementations disagreeing.
+    src = Vol(open("build/os8088-360.img", "rb").read())
+    for p in WANT_RAW:
+        want, wmark = src.read(p), src.mark(p)
+        if want is None or wmark not in (0x5A, 0x5B):
+            bad.append("%s is not COMPRESSED on build/os8088-360.img (hint "
+                       "%s) - this row would pass on any installer, so the "
+                       "fixture is wrong rather than the machine"
+                       % (p, wmark))
+            continue
+        got, gmark = v.read(p), v.mark(p)
+        if got is None:
+            bad.append("%s is MISSING" % p)
+        elif got != want:
+            bad.append("%s is %d bytes on the hard disk and %d on the floppy "
+                       "it came from - an install must COPY a file, and "
+                       "OSAPI_FILE_READ would have EXPANDED this one "
+                       "(SPEC.md 20.14.3, 52.10.13)"
+                       % (p, len(got), len(want)))
+        elif gmark != wmark:
+            bad.append("%s arrived byte for byte and its directory hint did "
+                       "not: %02X on the hard disk against %02X on the floppy. "
+                       "dskw_czstamp derives the mark from the bytes being "
+                       "written (SPEC.md 20.14.4), so the file reads as PLAIN "
+                       "and every application would be handed the packed bytes"
+                       % (p, gmark or 0, wmark))
+        else:
+            print("    %-28s %d bytes, byte for byte, hint %02X"
+                  % (p, len(got), gmark))
     for b in bad:
         print("  !! " + b)
     if bad:
         sys.exit("instdeep: %d of the source tree's paths did not survive the "
                  "install (SPEC.md 52.10.13)" % len(bad))
-    print("instdeep: the installed volume carries every folder, "
-          "including the nested and the empty ones")
+    print("instdeep: the installed volume carries every folder, including "
+          "the nested and the empty ones, and every packed file is still "
+          "packed")
 
 
 if __name__ == "__main__":

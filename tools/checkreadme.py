@@ -39,6 +39,7 @@ as a rule that was broken. So they are checked here, before the file is used.
 Exit 1 on any finding.
 """
 
+import os
 import sys
 
 MAXCOL = 28          # authored width; Note Pad's default window fits 29
@@ -107,6 +108,29 @@ def main() -> int:
     if ondisk > limit:
         print(f"{path}: {ondisk} bytes on disk (CRLF), over Note Pad's "
               f"{limit}-byte ceiling - it would refuse the file entirely")
+        bad += 1
+
+    # 4. ...AND IT MUST STILL BE WORTH COMPRESSING (SPEC.md 20.14.2.2).
+    # The manual ships LZ4 (20.13.5) and the kernel expands it IN PLACE inside
+    # the reader's own buffer, which wants `unpacked + LZ_MARGIN` and up to 15
+    # of paragraph rounding on top. Note Pad claims whole kilobytes, so a
+    # manual whose size lands within those 79 bytes below a KB boundary cannot
+    # be expanded in place at all: os88lz.py stores it PLAIN, silently, and
+    # the disk quietly gains 7KB back. That is a rule the file can satisfy by
+    # being a few bytes shorter, so it is checked here and the number to trim
+    # is printed - which is the whole point of doing it at BUILD time rather
+    # than leaving it to the kernel's scratch claim (20.14.2.1).
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import os88lz
+    body = text.replace("\n", "\r\n").encode("latin-1")
+    packed = os88lz.CZ_HDR + len(os88lz.compress(body, os88lz.LZ4))
+    if os88lz.cz_inplace_short(ondisk, packed):
+        room = os88lz.cz_room(ondisk, packed)
+        cap = (ondisk + 1023) & ~1023
+        print(f"{path}: {ondisk} bytes on disk packs to {packed}, and "
+              f"expanding that in place needs {room} of the {cap} a reader "
+              f"claims - so it would ship UNCOMPRESSED. Trim "
+              f"{room - cap} byte(s) of prose (SPEC.md 20.14.2.2)")
         bad += 1
 
     if bad:

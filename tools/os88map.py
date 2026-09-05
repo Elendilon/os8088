@@ -57,7 +57,8 @@ def _in_build(p):
 class Syms(object):
     """The symbols of one nasm source, checked against the binary it built."""
 
-    def __init__(self, src, ship, incs=("apps",), prefixes=None):
+    def __init__(self, src, ship, incs=("apps",), prefixes=None,
+                 defines=()):
         self.src = os.path.join(ROOT, src)
         # RESOLVED LAZILY, in `_load`, and not here. A module-level
         # `Syms(...)` - which is how every caller spells it - runs at IMPORT,
@@ -67,6 +68,11 @@ class Syms(object):
         # coming back.
         self._ship, self._incs = ship, list(incs)
         self.prefixes = prefixes
+        # ...and the -D a KNOB build was assembled with, because the byte
+        # comparison below is the whole point of this class: a package built
+        # one way and re-assembled another is a different binary, and saying
+        # so is exactly what it exists to do.
+        self.defines = tuple(defines)
         self._map = None
 
     @property
@@ -89,6 +95,8 @@ class Syms(object):
             with open(cp, "w") as f:
                 f.write(open(self.src).read() + "\n[map all %s]\n" % mp)
             args = ["nasm", "-f", "bin", "-w+error"]
+            for d in self.defines:
+                args += ["-D" + d]
             for i in self.incs:
                 args += ["-I", i]
             args += ["-o", binp, cp]

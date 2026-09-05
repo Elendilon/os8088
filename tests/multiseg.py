@@ -55,7 +55,15 @@ def _image_of(rel):
     return blob[:blob[8] | (blob[9] << 8)]
 
 
-GEOM = sys.argv[1] if len(sys.argv) > 1 else "1440"
+# THE COMPRESSED FIXTURE IS THE SAME PACKAGE (SPEC.md 20.12.7): `--comp`
+# swaps in build/msegz*.img, which is mseg.asm built -DMSEG_COMP so that parts
+# 0 and 2 carry OP_COMP. Every assertion below is unchanged and has to come out
+# identical, which is a stronger statement about op_unpack than a new check -
+# and the point of building both from one source.
+COMP = "--comp" in sys.argv
+argv = [a for a in sys.argv if a != "--comp"]
+
+GEOM = argv[1] if len(argv) > 1 else "1440"
 if GEOM not in ("1440", "360"):
     sys.exit("multiseg: geometry must be 1440 or 360")
 
@@ -64,15 +72,16 @@ if GEOM not in ("1440", "360"):
 # image in B: is media the drive cannot read.
 DEFAULT_MACHINE = {"1440": "os8088_5150_herc_gla_144"}.get(
     GEOM, "os8088_5150_cga_gla")
-MACHINE = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_MACHINE
-SYS_IMG = sys.argv[3] if len(sys.argv) > 3 else "build/os8088-360.img"
-APPS_IMG = "build/mseg.img" if GEOM == "1440" else "build/mseg360.img"
+MACHINE = argv[2] if len(argv) > 2 else DEFAULT_MACHINE
+SYS_IMG = argv[3] if len(argv) > 3 else "build/os8088-360.img"
+STEM = "msegz" if COMP else "mseg"
+APPS_IMG = "build/%s.img" % STEM if GEOM == "1440" else "build/%s360.img" % STEM
 S = os88sym.linear
 # HOW MANY PARTS IS THE PACKAGE'S OWN ANSWER, read out of the .o88's part
 # table (tools/os88parts.py). It was written down here as `PARTS = 6` and wave
 # 5 made it 7; the semantic indices below are not derivable and stay, but the
 # COUNT and the verdict string that quotes it now follow the fixture.
-PARTS = len(os88parts.rows(_image_of("build/mseg.o88")))
+PARTS = len(os88parts.rows(_image_of("build/%s.o88" % STEM)))
 SCRATCH, OPT, XMS, LAZY = 3, 4, 5, 6
 fails = []
 
@@ -141,7 +150,7 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
     want = "MSEG %d/%d OK" % (PARTS, PARTS)
     if title != want:
         bad = struct.unpack_from(
-            "<H", m.read((seg << 4) + msegsym.sym("ms_bad"), 2), 0)[0]
+            "<H", m.read((seg << 4) + msegsym.sym("ms_bad", COMP), 2), 0)[0]
         fails.append(
             "MSEG says %r, wanted %r - the parts that did NOT pass are %r. "
             "Each part is checked three independent "
@@ -162,7 +171,7 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
     # out a second time, in Python, with the part count in it - and the
     # namespace one along has already gone stale exactly that way (see
     # tools/os88parts.py's header).
-    ms_seg = msegsym.sym("ms_seg")
+    ms_seg = msegsym.sym("ms_seg", COMP)
 
     # THE HEAD SLACK, and this is what makes the two geometries different
     # rows rather than one run twice. A part begins on a 512-byte boundary in
@@ -173,7 +182,7 @@ with os88marty.launch(SYS_IMG, apps=APPS_IMG, machine=MACHINE) as m:
     # back. Unpadded it was 1,024, aligned on both, and this row passed
     # without ever running the arithmetic it exists for (SPEC.md 20.12.2).
     slack = struct.unpack_from(
-        "<H", m.read((seg << 4) + msegsym.sym("op_slack"), 2), 0)[0]
+        "<H", m.read((seg << 4) + msegsym.sym("op_slack", COMP), 2), 0)[0]
     want_slack = 512 if GEOM == "360" else 0
     say("op_slack = %d (want %d on a %s disk)" % (slack, want_slack, GEOM))
     if slack != want_slack:

@@ -412,6 +412,45 @@ SND_OPENF_RING   equ 1           ; ring mode (SPEC.md 34.5): SI = ring base,
                                  ; Theme), not an application's. There is
                                  ; no clear, and no AL is read - see
                                  ; 11.99.2.1 for why.
+
+; --- decompression (docs/O88-COMPRESSION-PLAN.md 12.1) -----------------------
+; The two format ids, mirrored from tools/os88lz.py, which is the reference
+; implementation both this and the kernel copy.
+OSAPI_LZ_LZ4 equ 0
+OSAPI_LZ_LZB equ 1
+%define OSAPI_DECOMP        KERNEL_SEG:0x04F8   ; DS:SI = the compressed bytes,
+                                 ; ES:0 = where they go and DI = 0 (the offset
+                                 ; bound is "no match may reach further back
+                                 ; than we have produced", which reads that way
+                                 ; only from zero - every caller hands over a
+                                 ; claim's base), CX = compressed bytes,
+                                 ; BX:DX = the EXACT expected output length,
+                                 ; 32 bits, AL = OSAPI_LZ_*.
+                                 ; out CF=0 and ES:DI one past the last byte;
+                                 ; CF=1 = refused, and nothing past the
+                                 ; declared length was written.
+                                 ; **THE OUTPUT CROSSES 64KB AND THE INPUT
+                                 ; DOES NOT** (SPEC.md 20.14.5): the output has
+                                 ; to, because a 116KB MOD is the biggest win
+                                 ; compression has in this system, and the
+                                 ; input need not, because a stream over 64KB
+                                 ; is a file that compressed badly and is
+                                 ; better stored plain. CX >= 64KB, or SI + CX
+                                 ; wrapping, is refused.
+                                 ; clobbers AX BX CX DX SI DI; DS and ES come
+                                 ; back YOURS - which is why this is a plain
+                                 ; cell and not an X one: the decompressor
+                                 ; reads no kernel data, so it wants both your
+                                 ; segments rather than needing a stub to
+                                 ; reach one of them.
+                                 ; A REFUSAL IS A NORMAL PATH. Every byte off a
+                                 ; disk is hostile (SPEC.md 19); a truncated
+                                 ; stream, a zero offset, a match reaching
+                                 ; below your buffer or one running past DX all
+                                 ; answer CF=1 rather than writing anywhere.
+                                 ; THE CELL IS IN BOTH KERNELS; which FORMATS
+                                 ; answer is a build knob, and one this kernel
+                                 ; does not carry is refused the same way.
 %define OSAPI_FULLSCREEN    KERNEL_SEG:0x0110   ; AL = 1 enter (BX=win ptr) / 0 exit;
                                  ; caller holds the gfx lock (window
                                  ; callbacks do); out CF=1 enter refused
@@ -460,6 +499,19 @@ SND_OPENF_RING   equ 1           ; ring mode (SPEC.md 34.5): SI = ring base,
                                  ; FERR_BIG is decided from the directory
                                  ; entry BEFORE any data I/O, so it leaves the
                                  ; buffer alone.
+                                 ; **A COMPRESSED FILE EXPANDS ON THE WAY IN**
+                                 ; (SPEC.md 20.14) and DX:AX is what it
+                                 ; expanded to, which is also the figure
+                                 ; OSAPI_FILE_FIND reported and the one you
+                                 ; sized your claim from. Two consequences you
+                                 ; can see: BX must be a multiple of 16, or the
+                                 ; call answers FERR_PROT (the expansion lands
+                                 ; at offset 0 of a segment, so every caller
+                                 ; hands over a claim's base and this is the
+                                 ; check rather than the hope); and the buffer
+                                 ; needs ~80 bytes more than the file, because
+                                 ; the packed bytes are read HIGH inside it and
+                                 ; expanded downwards. FERR_BIG says so.
 %define OSAPI_FILE_DELETE   KERNEL_SEG:0x0130   ; SI = name; out CF=0 AX=0, else FERR_*
 %define OSAPI_FILE_RENAME   KERNEL_SEG:0x0138   ; SI = old name, DI = new name; out as above
 %define OSAPI_FILE_DFREE    KERNEL_SEG:0x0140   ; out CF=0, DX:AX = free bytes, BX =
@@ -1164,6 +1216,7 @@ MEM_K_CLIP  equ 0xFF07          ; the system clipboard's text (SPEC.md 55)
 MEM_K_MOD   equ 0xFF08          ; an on-demand kernel module's image (SPEC.md 2.8)
 MEM_K_CLONE equ 0xFF09          ; the disk cloner's buffer (SPEC.md 18.99)
 MEM_K_BAND  equ 0xFF0A          ; the 1bpp band composer's buffer (SPEC.md 5.9.2)
+MEM_K_CMPR  equ 0xFF0D          ; the Compress verb's working block (SPEC.md 22.22)
 ; 0xFF0B WAS MEM_K_OVL, the relocated boot overlay. It rides stage 2's blob
 ; now (SPEC.md 2.9.6) and is not a claim at all, so the tag is retired and
 ; LEFT UNUSED - a value that meant one thing in a shipped kernel and another
@@ -2855,8 +2908,28 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
                                  ; the bytes delivered, 0 meaning you are at
                                  ; or past the end - which is how the loop
                                  ; terminates. Offset AND capacity must each
-                                 ; be a cluster multiple; FERR_NAME if not
+                                 ; be a cluster multiple; FERR_NAME if not.
+                                 ; **THIS ONE IS RAW** (SPEC.md 20.14.3): a
+                                 ; compressed file is delivered as it sits on
+                                 ; the disk, wrapper and all, and the sizes it
+                                 ; works in are on-disk sizes. That is what
+                                 ; makes a byte-exact chunked COPY possible -
+                                 ; read here, write with OSAPI_FILE_WRITE, and
+                                 ; the copy is compressed too. Bit 0 of
+                                 ; OSAPI_FILE_FIND's +22 is how you tell
 
+%define OSAPI_FILE_FIND_RAW KERNEL_SEG:0x0500   ; OSAPI_FILE_FIND, with +18 the
+                                 ; size the file OCCUPIES rather than the one
+                                 ; it expands to (SPEC.md 20.14.3). THE CELL A
+                                 ; COPIER WANTS: OSAPI_FILE_READ_AT is already
+                                 ; raw, and this is the size that goes with it,
+                                 ; so `find -> read_at -> write` moves a
+                                 ; compressed file whole and a plain one
+                                 ; unchanged. Bit 0 of +22 still says
+                                 ; COMPRESSED on both cells - that is a fact
+                                 ; about the FILE, and you know which size you
+                                 ; got from which cell you called. Same buffer,
+                                 ; same ordinal walk, same fence
 %define OSAPI_FILE_MKDIR    KERNEL_SEG:0x0360   ; SI = a NUL 8.3 name; creates a
                                  ; FOLDER in your current directory (SPEC.md
                                  ; 18.5). out CF=0 AX=0, else AX = FERR_*
@@ -3022,7 +3095,13 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
 ;   +16  word      first cluster - what OSAPI_FILE_GOTO takes for a folder
 ;   +18  dword     the size in bytes, all 32 bits (unlike the listing's, which
 ;                  is clamped to a word)
-;   +22  word      reserved, currently 0
+;   +22  word      flags. **Bit 0 = the size at +18 is what this file
+;                  EXPANDS to** (SPEC.md 20.14.3) - it is compressed, it
+;                  occupies less than that on the disk, and OSAPI_FILE_READ
+;                  will hand you the expanded bytes. Every other bit is
+;                  reserved and zero. This word WAS reserved and zero, so a
+;                  package written before it still works
+OSAPI_FIND_CZ equ 1              ; ...that bit
 OSAPI_FIND_SZ equ 24
 
 ; The type word at +14, and the one thing about this record that has already

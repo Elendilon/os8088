@@ -245,7 +245,16 @@ KNOBS = [
     # out, and THIS ROW is the only thing that ever runs those assertions for
     # the knob arm - which matters MORE now, not less: the knob arm's `.boot2`
     # is what sets the floor under OVL_AT for every build in this table.
-    ("splstars",    ["SPLSTARS=1"]),
+    #
+    # **IT IS PAIRED WITH NOKZIP=1 AND THAT IS THE SAME STORY AGAIN** (SPEC.md
+    # 15.3.8.5.2). The twinkle is 318 bytes of `.boot2` over the spinner and
+    # the compressed kernel's decoder is 180 more, which is 2,748 of 2,624; a
+    # ninth blob sector would fit them and would cost every shipped image 512
+    # bytes and bring back the two blob lengths the size pass deleted. So the
+    # two knobs are exclusive, the Makefile says so in a sentence rather than
+    # leaving a %error about a constant to be decoded, and this row is the arm
+    # that keeps BOTH of the assertions above running.
+    ("splstars",    ["SPLSTARS=1", "NOKZIP=1"]),
     # NOHEDGE= is the first knob in this table that reaches a DRIVER and not
     # the kernel, so it names a target of its own - SAVER.DRV - and the row
     # costs two files instead of a tree. It is SPEC.md 79.5.10's A/B: the
@@ -296,6 +305,22 @@ KNOBS = [
     # NOPLANE's sentence exactly: an A/B that stopped assembling is found at
     # the moment somebody reaches for it to tell a real fix from a null run.
     ("noseamcut",   ["NOSEAMCUT=1"]),
+    # COMPRESS= picks which decompressors the kernel carries
+    # (docs/O88-COMPRESSION-PLAN.md 12.7, SPEC.md 20.13.6). `both` SHIPS now,
+    # so the rows here are the two SINGLE-format arms, and neither is the same
+    # build: with one format assembled the dispatch is not there at all, and
+    # the dispatch is where the first version had its bug - it never checked
+    # AL, so a file in the other format would have been run through the wrong
+    # decoder instead of refused. lz4-only is also what shipped for one cycle
+    # and is what a size or speed A/B measures against.
+    ("compress-lz4",  ["COMPRESS=lz4"]),
+    ("compress-lzb",  ["COMPRESS=lzb"]),
+    # NOKZIP=1 UNCOMPRESSES THE KERNEL (SPEC.md 2.9.13), which ships packed -
+    # so this row is the arm nothing else builds, and its target is
+    # `boothd.bin` because that is where the unpacked arm has code of its own
+    # (2.9.13.5's %else). The PACKED arm needs no row at all: it is what every
+    # other row in this matrix, and `all`, already builds.
+    ("nokzip",        ["NOKZIP=1"], "boothd.bin"),
     # --- the thirty-five $(KNOBS) no tier assembled (see makefile_knobs) ---
     # Each value is the one its gate or its Makefile block documents; a knob
     # that takes a NUMBER is given the one the A/B uses (DLJUNK=0x61 is the
