@@ -1439,7 +1439,12 @@ SOAK = [
         "50, 66) Every driver attached at once on a machine WITH memory above "
         "1MB, sampled from instruction zero: the order claims are taken in, "
         "and MC_RLOC for each - which is the machine-readable answer to "
-        "'can this be compacted'",
+        "'can this be compacted'. IT HAS CAUGHT ONE: the driver loader took "
+        "the file's scratch claim TOP-DOWN, so freeing it left an island "
+        "above each driver - 10,240 stranded bytes and the largest free run "
+        "375.0K -> 365.0K, from a change whose own comment said 'a few "
+        "hundred transient bytes' (SPEC.md 51.1.2). Nothing else in the suite "
+        "saw it, because nothing else looks at WHERE the free memory is",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img",)),
     Row("dockmark", "soak", py("tests/dockmark.py"), 90.0,
@@ -2191,7 +2196,10 @@ SOAK = [
         "SPEC.md 87: Hibernate... writes the machine to the hard disk and the "
         "next boot offers to resume it - the About box is the witness, read "
         "out of the restored instance table; then the same again with "
-        "Discard. Builds its own VHD under build/",
+        "Discard. Builds its own VHD under build/, keyed to the PROCESS - it "
+        "was a fixed path, and three concurrent runs then mounted one hard "
+        "disk read-write in three emulators (2 runs in 6, at a different leg "
+        "every time; docs/WRITING-TESTS.md 5.5)",
         needs=("marty",), serial=True, timeout=1500),
     Row("hibernatedrv", "soak", py("tests/hibernate.py", "--driver"), 300.0,
         "SPEC.md 87 through HDD.DRV: a floppy boot whose SYSTEM.CFG wants the "

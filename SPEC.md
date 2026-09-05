@@ -63042,13 +63042,72 @@ does. Four things differ, and each is doing work:
   asks `drv_owns_seg` as well as testing for a `0xFFxx` tag, so `System`'s
   `HEAP` column now equals the `HEAP` total whenever nothing else holds a
   claim.
-- **Its bss ships inside its image**, zero-filled on the floppy by
-  `tools/os88drv.py`. A package's bss is claimed by the loader because a
-  package's is tens of KB and its file arrives through a peek-then-size
-  dance; a driver's is a few hundred bytes, and paying for them on disk buys
-  a load path with **exactly one claim in it** — made at the size the
-  directory entry already reported, before a byte is read. Anything bulk (a
-  DMA buffer, a ring) is the driver's own `OSAPI_MEM_CLAIM` at attach.
+- **Its bss is declared, not shipped** — §51.1.1. It used to ship inside the
+  image, zero-filled on the floppy by `tools/os88drv.py`, and that bought a
+  load path with exactly one claim in it. It no longer does, and §51.1.2 is
+  what the second claim has to be. Anything bulk (a DMA buffer, a ring) is
+  still the driver's own `OSAPI_MEM_CLAIM` at attach.
+
+### 51.1.1 The bss is declared at `DRV_H_BSSP`, and the claim cannot be sized from the directory
+
+`tools/os88drv.py` strips a driver's trailing zero run and writes its length,
+in paragraphs, into the header byte at +31 — measured at **6,722 bytes across
+the twelve shipped drivers**, ether.drv alone carrying a single 4,066-byte
+run, every one of them a byte read off a floppy to be told it is zero
+(§20.13). A driver built before the byte existed has 0 there, which reads as
+"no bss" and is exactly right, so it needed no version bump and no driver
+source change.
+
+**What it costs is the load path's one claim.** The size the directory entry
+reports is now the size of the FILE, and the size the driver needs is
+`image + bss` — a number that is inside the file and therefore unknown until
+the file is in memory and the claim has already been made at the wrong size.
+Peeking the header first would answer it, and costs an extra `int 13h` per
+driver on every boot (§*PERFORMANCE.md*: ~400 ms a call, so seconds on the
+target machine). So the claim is made from the directory, the file is read
+into it, and the driver is then moved into a claim of the right size.
+
+### 51.1.2 The file's claim is a bottom-up SCRATCH; the driver's home is top-down
+
+`drv_load` claims the file's room with `mem_claim` — **bottom-up, in the data
+arena** — and `drv_expand` claims the driver's real home with
+`mem_claim_hi`, sized from `image + bss` out of the header it can read by
+then, copies (decompressing on the way if the file was packed), and frees the
+scratch. Peak memory is file + image rather than image alone; for the largest
+driver in the tree that is 26KB against 18KB, and it lasts as long as one
+copy.
+
+**Which end each claim comes from is the whole of this section.** Both were
+top-down for a cycle, and it looked right: a driver's base *is* its `CS`, so
+it can never move, which is exactly what `mem_claim_hi` exists for (§50.3.2).
+But the scratch is not the driver. Taking the highest room for it put the
+driver's home UNDERNEATH it, and freeing the scratch afterwards opened an
+island above the driver that only a smaller top-down claim could ever reach —
+§66.10's barrier, made by the loader rather than by a cache. The first
+version compounded it with a fixed 4KB pad for the undeclared bss, given back
+by `mem_regrow`; that shrink keeps the BASE and frees the TAIL, so it handed
+its bytes to the same island.
+
+Measured on a machine whose `SYSTEM.CFG` wants every driver
+(`tests/heapmap.py`), against the same machine before any of this:
+
+| | before | top-down scratch | bottom-up scratch |
+|---|---|---|---|
+| driver claims | `8D800..9FC00`, contiguous | `8B000..9FC00`, four holes | `8D800..9FC00`, contiguous |
+| free runs | 2 | 6 | 2 |
+| after shed + compaction | **1 run, 454.5K** | 5 runs, 441.0K | **1 run, 451.5K** |
+| largest contiguous | 375.0K | 365.0K | 375.0K |
+
+Removing the pad on its own recovers **none of it** — 5 runs still, 364.0K —
+which is the measurement that says the pad was never the mechanism. A
+bottom-up scratch is freed back into the middle it came from, and the homes
+pack against each other exactly as one claim used to.
+
+It costs an uncompressed driver one `rep movsb` it did not pay before, there
+being no longer a case where the scratch IS the driver. `os88drv.py` declines
+to compress only when packing would make the file larger, so those are the
+small and the incompressible, and the copy is off the boot path for every
+driver a stock `SYSTEM.CFG` asks for (§51.3 — nothing is wanted by default).
 
 ### 51.2 The contract
 

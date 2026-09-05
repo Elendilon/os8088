@@ -23,12 +23,13 @@
 ;   and no cycles (docs/plans/O88-COMPRESSION-PLAN.md 12.6).
 ;
 ;   **Put your buffers LAST if you want them off the disk.** Only the trailing
-;   run is stripped; a zeroed table with code after it still ships. The load
-;   path is otherwise the one it always was - the kernel claims from the size
-;   the directory entry reported, before a byte is read, plus a fixed
-;   DRV_BSS_KB it hands straight back with a shrink. Anything bulk (a DMA
-;   buffer, a ring) is still your own OSAPI_MEM_CLAIM at attach, freed at
-;   detach: the header's byte caps a bss at 255 paragraphs.
+;   run is stripped; a zeroed table with code after it still ships. The kernel
+;   claims from the size the directory entry reported, before a byte is read,
+;   and that claim is a bottom-up SCRATCH: your driver is then moved into a
+;   top-down home of its own, sized from `image + bss` out of the header it
+;   has by then read (SPEC.md 51.1.2). Anything bulk (a DMA buffer, a ring) is
+;   still your own OSAPI_MEM_CLAIM at attach, freed at detach: the header's
+;   byte caps a bss at 255 paragraphs.
 ;
 ; - **You have no window, no instance and no menu.** You are not an app: no
 ;   dock tile, no Task Manager row, no callbacks from the window manager. The
