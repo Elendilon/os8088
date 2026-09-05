@@ -78457,6 +78457,43 @@ and live edit fields (inches; cells = tenths; click or Tab focuses, digits
 omitted rather than greyed — with them the dialog cannot fit a CGA content
 box, and a Format command that refuses on one adapter of three is worse.
 
+
+#### 68.3.1 The document's two moves go a WORD at a time
+
+Every edit opens or closes a gap in **two** claims in lockstep — the text and
+its CHP twin — so one keystroke moves the tail **twice**. Measured on a
+cycle-accurate 5150, that pair cost **36.0 cycles a byte, 18.0 each**, which is
+`rep movsb`'s 17 clocks plus the loop: 12.35 ms on `WELCOME.DOC`'s 1,524-byte
+tail, and **232 ms** at `WD_MAXKB` — of a keystroke that draws nothing.
+
+`rep movsw` is 12.5 clocks a byte against `rep movsb`'s 17, and both moves are
+safe by words. `wd_mvup` and `wd_mvdn` are the two, and the argument for each
+is the whole of why this is allowed:
+
+- **UP, backwards, by one byte** (an insert). A single `movsw` reads its whole
+  word before it writes, so the overlap *inside* one instruction is fine;
+  across instructions, step *k* writes `[SI+1, SI+2]` and step *k+1* reads
+  `[SI-2, SI-1]`, strictly below it — no word is ever read after it has been
+  written. The odd byte goes **first, from the top**, and the pointers then
+  step back **one**, because a word is addressed by its low byte and `std`
+  walks down from there. Forgetting that step-back is the classic error and is
+  what `tests/wdmove.py` was verified against.
+- **DOWN, forwards** (a delete), while `DI < SI`: the write at `[DI, DI+1]` is
+  strictly below the next read at `[SI+2, SI+3]`, at **any** distance.
+
+Both leave DF clear (§1). Measured after: **26.6 cycles a byte, 13.3 each** —
+26% off, 12.35 → 9.31 ms on that tail and ~232 → ~171 ms at the ceiling.
+`.text` +32 bytes.
+
+`wd_gaproom` and `wd_paste` move the tail the same way and are **not**
+converted: they are bulk operations rather than per-keystroke ones, and the
+same helpers serve them whenever somebody wants the bytes.
+
+**The assertion is the BUFFER, not the glass** (`tests/wdmove.py`). A wrong
+word here is a corrupted document rather than a slow one, and no pixel test
+would see it — the damage is one byte deep in a buffer the screen shows six
+rows of.
+
 ### 68.4 File format and association
 
 **The file is a real Word file.** Not a private container with Opus's magic

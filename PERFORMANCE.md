@@ -11108,3 +11108,50 @@ cached (the brackets above include the call and are far below its cost), so it
 is a MEMORY question and not a speed one; ~2.2 KB is available to whoever wants
 it. The Show-all pilcrow is the same class — one `OSAPI_GFX_BLIT4` per mark for
 a two-colour 8x8 stamp — and has not been bracketed.
+
+
+### Set 117.2 — what a Word keystroke actually costs, and the document movers (SPEC.md §68.3.1)
+
+Nobody had ever priced a Word keystroke: §68.6 declares the standing budget
+"unchanged", and the ~2-cell figure in it is **Note Pad's** measurement,
+inherited. These are Word's, on `os8088_5150_both_gla` with `WELCOME.DOC`
+(1,524 chars) in the shipped window — `vrows` = 6.
+
+**The caret is placed by CLICKING.** Writing `[wd_cur]` invalidates the
+checkpoint (`[wd_ckok]`, §27.4) that lets pass 1 skip the rows above the
+caret, so a poked index prices the slow path and calls it typing: 215 ms
+against 140 for the same keystroke.
+
+| keystroke | `wd_onkey` | of which `wd_walk` (pass 1) |
+|---|---:|---:|
+| printable, caret on row 1 | 205.6 ms | 149.2 ms (73%) |
+| printable, caret on row 3 | 224.9 ms | 88.6 ms |
+| Enter, caret on row 3 | 287.3 ms | 53.8 ms |
+
+**A keystroke is four system ticks**, and the layout walk is most of it. The
+walk is bounded by the VIEW and not the document (5 rows below the caret →
+149 ms, 3 rows → 89 ms, ≈30 ms a row), so it is already doing the right thing;
+it simply costs ~2,000 cycles a character across the many small near calls of
+§27's "one walk, four questions". No single hot spot: `wd_wordfit` already
+returns at once mid-word on `[wd_wstart]`, and `wd_ask` with every query
+disabled is a compare and a return.
+
+**The visual break was NOT engaged in any of this** — `[wd_bmode]` = 0 and
+`wd_brkdraw` is never reached — because `wd_brktry` stands down on
+`[wd_hasfmt]`, and `WELCOME.DOC` is formatted. That is §68.6's documented
+degrade, not a defect, and it is why mid-document typing in a *formatted*
+document pays a full reflow where Note Pad pays two cells. **Anyone wanting
+the big win here is buying §68.6's height model, and inherits all three of its
+degrades.**
+
+**The movers** (§68.3.1), which is what was actually taken:
+
+| | cycles a byte, both moves | each | 1,524-byte tail | at `WD_MAXKB` |
+|---|---:|---:|---:|---:|
+| `rep movsb` | 36.0 | 18.0 | 12.35 ms | ~232 ms |
+| `rep movsw` | **26.6** | **13.3** | **9.31 ms** | **~171 ms** |
+
+26% off, and the fixed part of `wd_ins` is unchanged at 3,734 cy (0.78 ms).
+It is 1.5% of a keystroke on this document and ~15% at the ceiling: the move
+is the whole cost of typing into the front of a long document, where the
+redraw has already been taken away.

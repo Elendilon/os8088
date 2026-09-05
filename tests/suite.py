@@ -2134,6 +2134,18 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
+        "SPEC.md 68.3.1: Word's document movers go a WORD at a time, and the "
+        "assertion is the BUFFER rather than the glass - a wrong word is a "
+        "corrupted document, not a slow one, and no pixel test would see it. "
+        "Both claims are read whole, a character is inserted and then "
+        "backspaced, and the ORIGINAL bytes must come back. Parity is the "
+        "point: wd_mvup does the odd byte first and steps onto a word's low "
+        "byte, wd_mvdn does it last, so the caret is placed at odd and even "
+        "tails and at both end stops where the count is 0 or 1. Verified to "
+        "go red - dropping wd_mvup's step-back fails every text assertion.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,
         "SPEC.md 68.2.1: Word's dropdown BANKS the pixels it covers and the "
         "close writes them back (521.4 ms -> 19.7 ms on a 4.77MHz 8088). The "

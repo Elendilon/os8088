@@ -7246,11 +7246,9 @@ wd_ins:
     dec si                          ; SI = the last live byte...
     mov di, bx                      ; ...and DI one past it: the runs overlap
     push ds                         ; and the gap opens UPWARD, so backwards
-    mov ds, [wd_dseg]               ; (SPEC.md 27.12). movsb is DS:SI -> ES:DI
-    std                             ; and both ends are the note
-    rep movsb
-    cld                             ; SPEC.md 1: never leave DF set
-    pop ds
+    mov ds, [wd_dseg]               ; (SPEC.md 27.12). Both ends are the note,
+    call wd_mvup                    ; and the move goes a WORD at a time:
+    pop ds                          ; 12.5 clocks a byte against movsb's 17
 .place:
     mov bx, [wd_cur]
     mov [es:bx], dl
@@ -7265,9 +7263,7 @@ wd_ins:
     mov di, [wd_len]
     push ds
     mov ds, [wd_cseg]               ; the operand reads through the OLD DS
-    std
-    rep movsb
-    cld
+    call wd_mvup
     pop ds
 .cput:
     mov dl, [wd_chp]
@@ -7289,6 +7285,65 @@ wd_ins:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_mvup / wd_mvdn - the document's two byte moves, a WORD at a time
+;
+; Every edit opens or closes a gap in TWO claims in lockstep - the text and its
+; CHP twin (SPEC.md 68.3) - so one keystroke moves the tail twice. Measured on
+; a cycle-accurate 5150 the pair costs 36.0 cycles a byte, 18.0 each, which is
+; `rep movsb`'s 17 clocks plus the loop: 12.35 ms on WELCOME.DOC's 1,524-byte
+; tail and, at WD_MAXKB, 232 ms of a keystroke that draws nothing.
+;
+; `rep movsw` is 12.5 clocks a byte against `rep movsb`'s 17 (PERFORMANCE.md
+; Part 2), and BOTH of these moves are safe by words:
+;
+;   UP, backwards, by one byte. A single `movsw` reads its whole word before
+;   it writes, so the overlap inside one instruction is fine; across
+;   instructions, step k writes [SI+1, SI+2] and step k+1 reads [SI-2, SI-1],
+;   strictly below it. No word is ever read after it has been written. The odd
+;   byte goes first, from the top, and the pointers then step back ONE - a
+;   word is addressed by its low byte and `std` walks down from there.
+;
+;   DOWN, forwards, while DI < SI: the write at [DI, DI+1] is strictly below
+;   the next read at [SI+2, SI+3], at any distance.
+;
+; Both leave DF CLEAR (SPEC.md 1: never leave DF set).
+; -----------------------------------------------------------------------------
+; wd_mvup  in: DS:SI = the LAST source byte, ES:DI = the last destination byte,
+;              CX = bytes (non-zero); out: DF clear. Clobbers CX/SI/DI only,
+;              which is what the `rep movsb` it replaces clobbered.
+wd_mvup:
+    std
+    test cl, 1
+    jz .even
+    movsb                           ; the top byte alone, so what is left is a
+.even:                              ; whole number of words
+    shr cx, 1
+    jz .done
+    dec si                          ; ...and a word is addressed by its LOW
+    dec di                          ; byte, one below the byte just read
+    rep movsw
+.done:
+    cld
+    ret
+
+; wd_mvdn  in: DS:SI = the FIRST source byte, ES:DI = the first destination
+;              byte (DI < SI), CX = bytes (non-zero); out: DF clear.
+wd_mvdn:
+    push ax
+    cld
+    mov ax, cx
+    shr cx, 1
+    jz .tail
+    rep movsw
+.tail:
+    test al, 1                      ; the odd byte last, where the words left
+    jz .done                        ; SI and DI pointing at it
+    movsb
+.done:
     pop ax
     ret
 
@@ -9806,9 +9861,8 @@ wd_delspan:
     mov cx, dx
     jcxz .nomv
     push ds                     ; forwards here: the gap closes DOWNWARD, so
-    mov ds, [wd_dseg]           ; DI trails SI (SPEC.md 27.12)
-    cld
-    rep movsb
+    mov ds, [wd_dseg]           ; DI trails SI (SPEC.md 27.12), which is what
+    call wd_mvdn                ; makes a WORD at a time safe at any distance
     pop ds
 .nomv:
     pop cx
@@ -9825,8 +9879,7 @@ wd_delspan:
     jcxz .cnomv
     push ds
     mov ds, [wd_cseg]
-    cld
-    rep movsb
+    call wd_mvdn
     pop ds
 .cnomv:
     pop cx
