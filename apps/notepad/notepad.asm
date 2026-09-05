@@ -75,8 +75,9 @@
 ; `make small`'s note that a package is "one package, both kernels" still
 ; holds, because this is one package built twice rather than two packages.
 ;
-; WHY IT EXISTS. On a 128KB machine kern_small leaves ~36.5KB of heap
-; (docs/KERNEL-MEMORY.md), and an instance of this package is its image plus
+; WHY IT EXISTS. On a 128KB machine kern_small leaves ~47KB of heap
+; (docs/KERNEL-MEMORY.md's ladder line; tests/small128.py measures what a
+; boot actually leaves), and an instance of this package is its image plus
 ; its bss in one claim, plus a kilobyte for the document. The full build is
 ; 18,407 + 1,972 = 20,379 of that before the note has a byte in it, so Note
 ; Pad on the floor machine is not a tight fit - it is a coin toss against the

@@ -3214,7 +3214,7 @@ endif
 # and the reason is the stack rather than the size: `prof_end` sits at the
 # bottom of the wire path with `pit_now` under it, and each of the ten stages
 # is a wrapper with a call level of its own, so the instrument costs TWELVE
-# BYTES on the deepest chain a 256-byte task slice ever carries
+# BYTES on the deepest chain a 384-byte task slice ever carries
 # (docs/KERNEL-MEMORY.md, "Task stacks"). `make netbench` turns it on for
 # itself, so NETBENCH.O88 always reads a driver that has one; every other
 # build answers NETV_PROF with NETE_VERB.
@@ -5694,12 +5694,15 @@ xt-weave: $(IMG360) $(BUILD)/weave360.img
 # ...and the 256KB XT, which is WEAVE-SPEC 1.4's floor machine and the one the
 # family's whole memory argument is written about: ~140.5KB of heap, so
 # exactly ONE Weave app at a time and the second launch refuses BEFORE ANY I/O
-# with 10.1's sentence naming both figures. Open SHEET.WAB, then open FORM.WAB.
+# - by the KERNEL's loader (LD_ENOMEM, `Out of memory` in the Disk window's
+# status row and a toast), because WEAVE's ~60KB region cannot be claimed with
+# one instance up; 10.1's sentence is the runtime's own and is never reached.
+# Open SHEET.WAB, then open FORM.WAB.
 #
 # WHAT IT IS FOR is looking at that refusal, and 86Box is the right instrument
 # for looking and the wrong one for asserting - it has no automation socket
 # (docs/TESTING.md), so nothing in this tree can rest a gate on it.
-# tests/weaveone.py asserts the same sentence on MartyPC's 256KB machine; this
+# tests/weaveone.py asserts the same byte on MartyPC's 256KB machine; this
 # target is where a person sees it on a period board.
 xt-weave-256: $(IMG360) $(BUILD)/weave360.img
 	@$(UNPROTECT) $(VMXTWEAVE256)/86box.cfg

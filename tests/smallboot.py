@@ -7,7 +7,7 @@
 one: `all` never builds kern_small, and the only thing that does is `make
 small` and test-full's `buildmatrix` row - which assembles it and stops there.
 So the build that has been *discovered* broken three times rather than
-reported broken (docs/KERNEL-MEMORY.md moves 22, 23 and 32) has never had a
+reported broken (kernel/kernel.asm's KERN_BUDGET ledger, moves 22, 23 and 32) has never had a
 boot behind it at all.
 
 That mattered less while kern_small was the same code with fewer features. It

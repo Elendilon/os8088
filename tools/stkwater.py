@@ -21,13 +21,15 @@ slot that was never scheduled still shows its 24-byte frame. A slot reading the
 whole slice has gone through the canary and `sch_switch` has already halted the
 machine.
 
-**QEMU understates a real BIOS by ~46 bytes**, measured (docs/KERNEL-MEMORY.md):
-SeaBIOS services its interrupt entries on a stack of its own, where an IBM ROM
-runs int 08h on whichever task stack is current - and under QEMU a worker's pass
-can finish between ticks and never pay the interrupt at all. Add it before
-deciding a number, and take the deciding one on the 5150 with
-`tests/stackprobe`, which reads every slice while the thing under suspicion
-runs.
+**A QEMU reading is a lower bound, never the margin** (docs/KERNEL-MEMORY.md,
+"Task stacks"): under QEMU a worker's pass can finish between ticks and never
+pay an interrupt at all, so the same gate has read 208, 202 and 178. Since
+SPEC.md 8.5 and 9.10 the ROM's int 08h chain and both mouse ISRs run on private
+stacks, so what a slice carries is the task's own chain plus the six-byte gate
+frame - and the ROM term, where it still applies, is BIOS-specific (SeaBIOS 56,
+the IBM ROM 36; docs/plans/completed/STACK-SLOTS-PLAN.md 9). Take the deciding
+number on the 5150 with `tests/stackprobe`, which reads every slice while the
+thing under suspicion runs.
 """
 import os
 import sys
