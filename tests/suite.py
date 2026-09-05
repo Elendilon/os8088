@@ -2696,7 +2696,16 @@ SOAK = [
     Row("tmrepair", "soak", py("tests/tmrepair.py"), 80.0,
         "SPEC.md 28.11: the Task Manager's quiet pages hold a raise cache by "
         "REPAIRING at the restore - a whole-content band, and tm_update "
-        "spends the debt W_PAINT is handed.",
+        "spends the debt W_PAINT is handed. **IT IS INTERMITTENT AND HAS "
+        "BEEN FOR A WHILE**, which is worth knowing before anybody calls a "
+        "red one a regression: rated with tools/os88bisect.py it fails 3 of "
+        "4 at b49fff1 - a tree where one soak reported it PASSING - 2 of 3 "
+        "at b5cef54, 1 of 3 at 7f5c07a and 1 of 4 at dc3b200, so today's head "
+        "is the best of every point measured. The failing leg is REPAIR: the "
+        "promise is made (WF_SAVEU and a whole-content band) and is gone by "
+        "the uncover with ZERO wm_su_drop calls for it, so whatever "
+        "withdraws it is not that path. A rate is not a side, so there is "
+        "nothing here to bisect until the row is 0/N or N/N",
         needs=("marty",), serial=True),
     Row("tmselfsu", "soak", py("tests/tmselfsu.py"), 300.0,
         "SPEC.md 28.8.1: the Task Manager stops repainting for ITS OWN raise "
