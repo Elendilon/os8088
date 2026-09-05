@@ -194,11 +194,11 @@ VM286RUNCPM := $(CURDIR)/vm/286-runcpm
 # same reason the RUNCPM ones are: the three C64 disks are not the same disk
 # and the machines that take them do not run at the same speed - and for an
 # EMULATOR the machine IS the emulated machine's speed, which the status row
-# prints. vm/386-c64 lands in wave 1 as the machine the port is LOOKED at on;
-# vm/xt-c64 and vm/286-c64 in the final wave. Each is a copy of a machine that
-# has booted with fdd_02_fn and the uuid changed and nothing else.
+# prints. Each is a copy of a machine that has booted with fdd_02_fn and the
+# uuid changed and nothing else; vm/286-525-c64 (the 1.2MB geometry) is the
+# fourth, defined with the other 286-525 machines above.
 #
-# ALL THREE ARE MANUAL EVIDENCE (C64-SPEC §14.6). `make 386-c64`
+# ALL FOUR ARE MANUAL EVIDENCE (C64-SPEC §14.6). `make 386-c64`
 # launches 86Box; it cannot assert that anything booted, and no gate in this
 # port rests on it.
 VM386C64 := $(CURDIR)/vm/386-c64
@@ -5175,8 +5175,9 @@ rczex: $(BUILD)/runcpm.img
 
 # --- C64, VICE 3.10's x64 as a C package (docs/C64-SPEC.md) ------------------
 # The C toolchain's third application: a Commodore 64 - a 6510 in a 64KB
-# claim, a VIC-II and two CIAs in C, the KERNAL/BASIC/CHARGEN read at launch
-# from a SIDECAR file, and the 320x200 screen composed into 1bpp bands. A
+# claim, a VIC-II and two CIAs in C, the KERNAL/BASIC/CHARGEN carried as
+# part 0 of the package (SPEC.md 20.12) and claimed at launch, and the 320x200
+# screen composed into 1bpp bands. A
 # reimplementation of VICE 3.10's x64 (GPL-2-or-later, (C) 1996-2025 the VICE
 # team); apps/c64/COPYING is the licence text and apps/c64/ is GPL, which the
 # rest of this tree is not.
@@ -5225,13 +5226,13 @@ $(BUILD)/.c64-hostchecks: apps/c64/c64.c $(C64SRC) $(C64HOST) \
 
 c64: $(BUILD)/c64.o88
 
-# THE ROM SIDECAR (C64-SPEC §1.3, 1.4). tools/c64rom.py checks the
+# THE ROM PART (C64-SPEC §1.3, 1.4). tools/c64rom.py checks the
 # SHA-256 of each of the three COMMITTED Commodore ROM images under
 # apps/c64/rom/ and concatenates them into build/c64-rom/C64.ROM in a fixed
 # layout. No network and no VICE tree: those three files are the one stated,
 # user-decided departure from CONTRIBUTING.md 6, and they are what makes the
-# C64 build on a bare clone. The package REFUSES AT LAUNCH naming the file if
-# the disk does not carry it, which is a screendump in wave 1's gate.
+# C64 build on a bare clone. os88pkg.py appends the result to C64.O88 as
+# part 0 (the CC_PACKAGE call above), so it cannot be missing from a disk.
 C64ROMS := apps/c64/rom/kernal-901227-03.bin apps/c64/rom/basic-901226-01.bin \
            apps/c64/rom/chargen-901225-01.bin
 $(BUILD)/c64-rom/C64.ROM: tools/c64rom.py $(C64ROMS) | $(BUILD)
