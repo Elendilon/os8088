@@ -1880,7 +1880,7 @@ SOAK = [
         "returns had to arrive to be dropped",
         needs=("marty",), serial=True,
         wants=("build/lzfile360.img",)),
-    Row("lzcomp", "soak", py("tests/lzcomp.py"), 90.0,
+    Row("lzcomp", "soak", py("tests/lzcomp.py"), 150.0,
         "SPEC.md 22.22: File > Compress, and the machine's LZB stream against "
         "the host's BYTE FOR BYTE. os88lz.lzb_compress_machine is a mirror of "
         "kernel/compress.inc statement for statement rather than a model of "

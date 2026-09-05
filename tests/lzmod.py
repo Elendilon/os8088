@@ -147,6 +147,11 @@ def main():
     with os88marty.launch("build/os8088-360.img", apps=IMG,
                           machine=a.machine) as m:
         os88marty.settle(m, gate=os88marty.desktop_up)
+        os88marty.no_saver(m)   # SPEC.md 79: it DRAWS, so the settle
+                                # after the wait below can never return
+                                # once it is up - and this row waits on
+                                # a 116KB module. os88ui.boot does this
+                                # by default and a bare launch does not
         mo = os88mouse.Mouse(marty=m)
         dispcp.open_drive(m, mo, S, os88marty.settle, "B")
         wins = dispcp.win_list(m, S)

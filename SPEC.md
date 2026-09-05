@@ -32057,10 +32057,36 @@ compare (which is one instruction *fewer* than what it replaced).
 
 Everything else in this system decodes. The loader expands a package, the file
 read expands a file, the boot sector expands a kernel. This module is the other
-direction, and it exists for exactly one caller: the file manager's Compress
-verb (§22.6). It is `COMPRESS.DRV`, an on-demand kernel module (§2.8), and a
+direction. It is `COMPRESS.DRV`, an on-demand kernel module (§2.8), and a
 machine that never uses the verb carries **none** of it — no `.text`, no
 `.bss`, one `mod_tab` row and one file on the system disk.
+
+**IT IS THE WHOLE VERB AND NOT THE ENCODER**, and that is a correction to what
+this section first said. `cmz_verb` — the sizing, the claim, the read, the
+package refusals, the `'CZ'` container, the write and the ratio — was 722
+bytes of resident `.cold` in `files.inc`, and every one of them only ever ran
+after `mod_need` had already fetched this image. What kept them resident was
+ORDER and nothing else: the old body refused a file *before* asking for the
+module, so a refusal could be said on a machine with no system disk. `mod_need`
+goes first now, the module's five refusal strings came out here with it (89
+bytes of `.text`, which is the segment that binds), and `cmz_pack` is a near
+call inside this image rather than an entry point. What is left in `files.inc`
+is 47 bytes: `fmv_sync_x`, `mod_need`, one far call, `mod_drop`, `fmv_bcast`.
+
+**`DS` IS `KERNEL_SEG` INSIDE IT**, the caller being `.cold` (§2.6 rule 2), so
+every kernel variable it reads is a plain `[label]` and only this image's own
+scratch needs `cs:`. What it cannot do is a near `call` into the kernel, so the
+four services it wants go through the far shims the cloner already established:
+`COLD_SEG:dwf_dskw_usize` / `dwf_dskw_read` / `dwf_dskw_write` for the file
+layer, `COLD_SEG:mmf_mem_claim` / `mmf_mem_free` for the heap, and
+`KERNEL_SEG:0x0380` — `OSAPI_TOAST` — for its own verdicts, that slot taking
+`ES:SI` rather than `DS:SI` precisely so the text can live in a heap claim,
+which a module image is.
+
+**Three answers in one register pair**: `CF=0` the file changed and this image
+has already said the ratio; `CF=1` with `AX = 0` it refused and has already
+said why; `CF=1` with `AX != 0` a `FERR_*` for the caller to say off
+`fm_errtab`.
 
 **It writes LZB and only LZB.** The build's own compressor is LZ4 (§20.13.5)
 because LZ4 is what a *launch* pays for; this is the other trade, taken
@@ -32777,7 +32803,7 @@ arithmetic gives). `'Locator'` is 56px so the first cell starts at
 
 | menu | width | x range | items |
 |------|-------|---------|-------|
-| **File** | 48 | 112..159 | Open · New Folder… · Rename… · Delete · ──── · Format Disk… |
+| **File** | 48 | 112..159 | Open · New Folder… · Rename… · Delete · Compress · Uncompress · ──── · Format Disk… · Clone Disk… · Write Img… |
 | **Edit** | 48 | 160..207 | Cut · Copy · Paste |
 | **Nav** | 40 | 208..247 | New Window · Open in New Window · Refresh · Up One Folder · Root Folder · Drive A: · Drive B: |
 | **Builtins** | 80 | 248..327 | Timer · Bounce · Disk |
@@ -32882,8 +32908,8 @@ lock-side answer, and the table's per-entry comments cover both callers.
 
 | descriptor | when | items |
 |------------|------|-------|
-| `fm_ctx_file` | the row is a file | Open · Rename… · Delete |
-| `fm_ctx_fold` | the row is a folder | Open · Open in New Window · Rename… · Delete |
+| `fm_ctx_file` | the row is a file | Open · Cut · Copy · Rename… · Delete · Compress · Uncompress |
+| `fm_ctx_fold` | the row is a folder | Open · Open in New Window · Cut · Copy · Paste Into · Rename… · Delete |
 | `fm_ctx_dir`  | empty space, the header band, below the last row | New Folder… · Refresh · Up One Folder · Root Folder · Drive A: · Drive B: · as List · as Icons |
 
 A descriptor is three words in `.text` — the item-string array, a parallel
@@ -35376,15 +35402,29 @@ whole body is a `ret` away. That is 30 bytes of `.cold`, and the account beside
 
 ### 22.22 `Compress` — the file manager makes a file smaller
 
-**The one verb on this machine that COMPRESSES.** `COMPRESS.DRV` (§20.15) is
-the algorithm and `fm_c_compress` is the policy: read the file whole, hand it
-to the module, write the result back over the same name. The result is a `'CZ'`
+**The one verb on this machine that COMPRESSES**, and since the size pass it
+is `COMPRESS.DRV` (§20.15) *entirely*: the module is the algorithm AND the
+policy, and `fm_c_compress` is 47 bytes that fetch it. The result is a `'CZ'`
 file (§20.14), so every reader on the machine already handles it — the verb
 adds no format and no second path.
 
-It is the **fifth item in the File menu**, with Delete, above the rule that
-separates the selection's verbs from the disk's. No ellipsis: it asks nothing
-and starts the moment it is picked.
+**`mod_need` RUNS FIRST, so a refusal costs an image read.** That is a
+deliberate trade and it is what let the policy move out: every refusal below
+is a fact only the image knows how to state, and stating them resident meant
+722 bytes that a machine without the system disk could reach and a machine
+with it never needed. A machine that cannot fetch the image now says `No disk`
+— the same words the cloner uses when *its* image cannot be fetched, for the
+same cause (`mod_need` goes to `[dsk_bootvol]` and only there) — instead of
+the specific reason, which is the truer answer to "compress this" on a machine
+that cannot compress anything.
+
+It is the **fifth item in the File menu**, with Delete and immediately above
+`Uncompress` (§22.23), the pair sitting above the rule that separates the
+selection's verbs from the disk's. No ellipsis: it asks nothing and starts the
+moment it is picked. Both are on the **file context menu** as well
+(`fm_ctx_file`), which is not a convenience: under `WF_FULL` a file-manager
+window has no menu bar at all (§11.2), so a right-press is the only surface
+these two have on a fullscreen window.
 
 **Re-compressing a shipped file is the case it exists for, and it needs no
 special case at all.** `dskw_read_x` hands back the UNPACKED bytes (§20.14), so
@@ -35399,16 +35439,24 @@ Each is a FACT rather than a guess (§47 rule 5), and each has a verdict of its
 own on the `fm_ztab` table — the verb's, not `fm_errtab`'s, because those are
 `FERR_*` codes and the index *is* the code there.
 
-| refusal | said as |
-|---|---|
-| a folder, or the parent link | nothing — a no-op, silently, exactly as Rename and Delete |
-| 64KB or more, or a package region past `APP_MAX_SIZE` | `Too large to compress` |
-| already stored LZB, or a package with a compression bit set | `Already compressed` |
-| a package with PARTS, or whose `image` is not its file | `Cannot compress this one` |
-| no claim, at any window size | `Not enough memory` |
-| `COMPRESS.DRV` not on the system disk | `COMPRESS.DRV not found` |
-| the encoder could not beat what is on the disk | `It would not get smaller` |
-| success | `Compressed to 47%` |
+| refusal | said as | said BY |
+|---|---|---|
+| a folder, or the parent link | nothing — a no-op, silently, exactly as Rename and Delete | `fm_cmpr_sel` |
+| `COMPRESS.DRV` not on the system disk | `No disk` | the kernel — it is the one thing the image cannot say about itself |
+| 64KB or more, or a package region past `APP_MAX_SIZE` | `Too large` | the image |
+| already stored LZB, or a package with a compression bit set | `Already compressed` | the image |
+| a package with PARTS, or whose `image` is not its file | `Cannot compress this one` | the image |
+| no claim, at any window size | `Not enough memory` | the image |
+| the encoder could not beat what is on the disk | `It would not get smaller` | the image |
+| a `FERR_*` from the file layer | `fm_errtab`'s own word | the kernel, off `AX` |
+| success | `Compressed to 47%` | the image |
+
+Everything in the "the image" column is a string inside `COMPRESS.DRV`, said
+through `OSAPI_TOAST` with `ES = CS`. `fm_ztab` is **four rows** now where it
+was nine, and two of those four are aliases onto strings the kernel already
+had: `Too large` is `fm_stattab`'s `fm_s_toobig` and `Not enough memory` is
+`driver.inc`'s `drv_e4` (guarded — `kern_small` has no driver layer at all, so
+there it is the only copy rather than the second one).
 
 **A `.DRV` and `KERNEL.SYS` are refused by NOTHING here**, and that is
 structural rather than lucky: both are hidden + system, so §19's species filter
@@ -35462,7 +35510,8 @@ bigger once it is on.
 
 #### 22.22.2 One claim, and the window is the dial
 
-The operation needs the source, the output and the compressor's tables at once.
+`cmz_claim`, inside the image (§20.15), through `COLD_SEG:mmf_mem_claim`. The
+operation needs the source, the output and the compressor's tables at once.
 They are ONE claim, `MEM_K_CMPR`, sliced by paragraph arithmetic off a single
 base:
 
@@ -35506,6 +35555,85 @@ directory sector commits (§18.6) — so there is no moment where the file does
 not exist, and the space it needs is `P`, not a second copy. `dskw_czstamp`
 then derives the directory hint from the bytes (§20.14.4), so the verb writes
 no hint of its own.
+
+### 22.23 `Uncompress` — and it needs no module at all
+
+The other half of §22.22, and the asymmetry between them is the whole design:
+**compressing needs an encoder that is not in the kernel, and expanding needs a
+decoder that already is.** `kernel/lz.inc` is resident because the loader, the
+driver loader and every transparent read go through it (§20.14), so
+`fm_c_uncomp` spends no `COMPRESS.DRV`, no `mod_need`, and cannot answer
+`No disk`. Making it a module would have *added* a system-disk requirement to
+a verb that has none — and it is why `fm_ztab` still exists at all: when
+Compress's policy moved into its image (§22.22) it took its five verdicts with
+it, and what is left resident is Uncompress's plus the one the fetch itself
+needs.
+
+It is the **sixth item in the File menu**, under `Compress`, and the seventh on
+`fm_ctx_file`. No ellipsis, for `Compress`'s reason.
+
+#### 22.23.1 Two arms, because there are two containers
+
+| the file is | what happens |
+|---|---|
+| a `'CZ'` file (§20.14) | **`dskw_read_x` does all of it.** The transparent read hands back the unpacked bytes, and writing them back over the same name is the verb. One claim, no decoder call in this module at all |
+| a package with flags bit 3 (§20.13) | the file is read as it lies — a `.o88` is not a container, so the same transparent read is a plain one — and then `fm_uncmp_pkg` copies the clear prefix across and hands the body to `lz_decomp_x`, which is `ld_expand` one step at a time and for the same reasons |
+| anything else | `Not compressed` |
+
+**The two are mutually exclusive and the directory says which**, so the branch
+costs a compare: `dskw_usize` answers the `'CZ'` mark or `0xFF`, and a package
+never carries one — `dskw_czstamp` derives the hint from the bytes and a `.o88`
+begins `'O8'` (§20.14.4).
+
+#### 22.23.2 TWO claims, and that is the honest cost of not knowing `U`
+
+`Compress` sizes everything from `U`, which the directory hint gives it before
+a sector moves. `Uncompress` of a **package** cannot: `U` is `image`, which
+lives in the file's own header, and there is no way to read 32 bytes of a file
+on this machine — `dskw_read_x` reads the whole of it or refuses with
+`FERR_BIG`, and `dskw_read_at` wants a whole number of clusters (§18.4.4). So
+the package arm claims for the file, reads it, learns `image`, and claims a
+second block for the expansion:
+
+| | |
+|---|---|
+| `[fm_cmprb]` | the file as it lies, `ceil(P/1024) + 2` KB |
+| `[fm_cmpro]` | the expansion, `ceil(U/1024) + 2` KB — the prefix at offset 0, the body at `prefix/16` paragraphs along |
+
+Peak is `P + U`, against the in-place scheme's `U + LZ_MARGIN`. That is
+~1.4×`U` rather than ~1.0×`U`, and it is affordable by construction:
+**§22.22.2's claim on the same file is `2·U + tables`**, so any machine that
+could compress a file can expand it. The `'CZ'` arm takes ONE claim and pays
+none of this — `U` is in the hint.
+
+The `+2` KB is not slack. One KB is the round-up; the other is `LZ_MARGIN` and
+the odd bytes, because a `'CZ'` read lays the packed bytes at `U − P +
+LZ_MARGIN` and expands downwards (§20.14.2.2) — a capacity of exactly `U` is
+what sends it to `.cznoroom`, and §22.22.2 records that same trap costing this
+project a bug once already.
+
+#### 22.23.3 What it refuses
+
+| refusal | said as |
+|---|---|
+| a folder, or the parent link | nothing — a no-op, silently, exactly as `Compress` |
+| no `'CZ'` mark and no package compression bit | `Not compressed` |
+| 64KB or more unpacked | `Too large` |
+| an `image` no bigger than the file it is packed into | `Cannot expand this one` |
+| a stream `lz_decomp_x` refuses, or one that produces the wrong length | `Cannot expand this one` |
+| either claim | `Not enough memory` |
+| success | `Uncompressed` |
+
+**A verdict rather than a size**, where `Compress` says `Compressed to 47%`:
+the number `Compress` reports is the only place the ratio is visible, and the
+one `Uncompress` would report is already on the listing behind the toast.
+
+The **flag bits are cleared on the expanded copy** before it is written — bits
+3 and 4 of `LD_H_FLAGS` — so what lands on the disk is a package
+`ld_check_hdr` reads without a decoder, and `dskw_czstamp` clears the
+directory hint on the `'CZ'` arm for the same reason and by the same route it
+sets one: it looks at the bytes.
+
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
