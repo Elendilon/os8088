@@ -423,6 +423,11 @@ SND_OPENF_RING   equ 1           ; ring mode (SPEC.md 34.5): SI = ring base,
 OSAPI_LZ_LZ4 equ 0
 OSAPI_LZ_LZB equ 1
 %define OSAPI_DECOMP        KERNEL_SEG:0x04F8   ; DS:SI = the compressed bytes,
+                                 ; T word first (SPEC.md 20.13.7: every stream
+                                 ; ends in T raw bytes, and needs NO in-place
+                                 ; margin - a source read from exactly
+                                 ; output - packed above its destination is
+                                 ; never overtaken),
                                  ; ES:0 = where they go and DI = 0 (the offset
                                  ; bound is "no match may reach further back
                                  ; than we have produced", which reads that way

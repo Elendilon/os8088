@@ -185,6 +185,13 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; which is what lets the claim be made at exactly the right size before a
 ; byte of the file is read. DX:CX is a 32-bit size and a driver is capped at
 ; DRV_MAX_KB, so a non-zero high word is simply not one of ours.
+;
+; **THE SIZE IS WHAT THE FILE BECOMES, NOT WHAT IT OCCUPIES** (SPEC.md
+; 20.13.3.1): a compressed .DRV or module is a 'CZ' file, dskw_read_x will
+; expand it into the claim, and the claim has to be cut from the size the
+; read is going to deliver. That is the directory hint's whole purpose
+; (SPEC.md 20.14.1), and dskw_stat_x has just left the raw entry in dskw_raw
+; - so the hint costs a compare and two loads, and no I/O.
 ; -----------------------------------------------------------------------------
 drv_find:
     push bx
@@ -192,7 +199,15 @@ drv_find:
     push dx
     push si
     call dskw_stat_x              ; AL = attribute, BX = first cluster,
-    jc .no                      ; DX:CX = the size
+    jc .no                      ; DX:CX = the size it OCCUPIES...
+    mov al, [dskw_raw+DSK_R_CZM]    ; ...and the hint says what it BECOMES:
+    sub al, DSK_CZ_MARK             ; the mark less its format (SPEC.md
+    cmp al, LZ_LZB                  ; 20.14.1), 0x5A and 0x5B pass
+    ja .plain
+    mov cx, [dskw_raw+DSK_R_CZL]
+    mov dl, [dskw_raw+DSK_R_CZH]
+    mov dh, 0
+.plain:
     test dx, dx
     jnz .no
     mov ax, cx

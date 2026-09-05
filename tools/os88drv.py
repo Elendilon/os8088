@@ -64,20 +64,16 @@ def image_unwrap(blob: bytes) -> bytes:
 
     os88pkg.image_unwrap's twin, and the same rule decides which of the two a
     caller wants: the FILE is what lands on a floppy, the IMAGE is what the
-    size field, the bss arithmetic and an assembly are about. The driver
-    header has no flags byte, so the SIGNAL that a file is compressed is that
-    it is shorter than the `image` word at +8, and the FORMAT is the body's
-    own first byte (SPEC.md 20.13.2). Returns `blob` unchanged when it is not.
+    size field, the bss arithmetic and an assembly are about. A compressed
+    driver is a plain 'CZ' file (SPEC.md 20.13.3.1) - the header inside the
+    stream with everything else, the kernel's transparent read expanding it
+    into the claim drv_load cut from the directory hint - so this is
+    os88lz.cz_unwrap and nothing of its own. Returns `blob` unchanged when it
+    is not compressed.
     """
-    if len(blob) < HDR:
-        return blob
-    image = struct.unpack_from("<H", blob, 8)[0]
-    if len(blob) >= image:
-        return blob
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import os88lz
-    return blob[:HDR] + os88lz.decompress(blob[HDR + 1:], blob[HDR],
-                                          image - HDR)
+    return os88lz.cz_unwrap(blob)
 
 
 def main() -> int:
@@ -87,12 +83,12 @@ def main() -> int:
     ap.add_argument("-o", "--output", metavar="OUT.drv", required=True)
     ap.add_argument("--compress", metavar="FMT", nargs="?", const="lz4",
                     choices=("lz4", "lzb", "none"), default=None,
-                    help="compress the image past the header, unpacked by "
-                         "drv_expand (docs/plans/O88-COMPRESSION-PLAN.md 12.6). The "
-                         "32-byte header stays CLEAR - the loader sizes the "
-                         "expanded image's claim from it - and `image` keeps "
-                         "meaning the UNPACKED bytes, so the file being "
-                         "SHORTER than it is what says the body is a stream")
+                    help="write the driver as a 'CZ' file (SPEC.md 20.13.3.1): "
+                         "the whole image, header included, inside the "
+                         "container. The kernel's transparent read expands it "
+                         "into the claim drv_load cuts from the directory "
+                         "hint, and nothing in the driver loader knows it was "
+                         "ever compressed")
     ap.add_argument("--compress-if", metavar="FMT", dest="compress_if",
                     choices=("lz4", "lzb", "none"), default=None,
                     help="...the same thing SOFTLY: compress when it pays, and "
@@ -181,32 +177,26 @@ def main() -> int:
     if not zfmt and args.compress_if:
         zfmt, soft = args.compress_if, True
     if zfmt and zfmt != "none":
+        # A 'CZ' FILE, header and all (SPEC.md 20.13.3.1). The driver loader
+        # claims from the directory entry's size before it reads, and the
+        # directory hint says what a 'CZ' file BECOMES (20.14.1), so the
+        # read expands it straight into that claim and drv_check sees a plain
+        # driver. Nothing in kernel/driver.inc knows the file was ever
+        # compressed - which is the whole of what this format buys over the
+        # in-header one it replaced.
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import os88lz
         fid = os88lz.LZ4 if zfmt == "lz4" else os88lz.LZB
-        body = data[HDR:]
-        z = os88lz.compress(body, fid)
-        if os88lz.decompress(z, fid, len(body)) != body:
-            fail(f"{zfmt} did not round-trip this driver - "
-                 "tools/os88lz.py is the reference the kernel copies")
-        packed = HDR + 1 + len(z)          # ...the format byte, then the stream
-        if packed >= len(data):
-            msg = (f"{zfmt} makes this driver LARGER ({packed} vs "
-                   f"{len(data)}). Ship it uncompressed")
+        out, did = os88lz.cz_wrap(data, fid)
+        if not did:
+            msg = (f"{zfmt} does not make this driver smaller. Ship it "
+                   "uncompressed")
             if not soft:
                 fail(msg)
             print(f"os88drv: NOT compressed: {msg}")
-            zfmt = None
-        # `image` at +8 keeps meaning the UNPACKED size - it is what
-        # drv_expand claims from - so the file being shorter is the signal.
-        # THE FORMAT IS THE BODY'S FIRST BYTE and not a header bit: the driver
-        # header has no flags byte and no spare one (+31 became the bss in
-        # wave 3a), and a self-describing body costs one byte and no
-        # archaeology.
-        if zfmt:
-            out = bytearray(data[:HDR]) + bytes([fid]) + z
+        else:
             print(f"os88drv: compressed {zfmt}: image {len(data)} -> "
-                  f"file {packed} bytes ({packed / len(data):.1%})")
+                  f"file {len(out)} bytes ({len(out) / len(data):.1%})")
             data = bytes(out)
 
     try:
@@ -217,7 +207,7 @@ def main() -> int:
 
     print(f"os88drv: '{name.decode()}' class={CLASSES[cls]} "
           f"entry=+{entry:#06x} "
-          f"image={struct.unpack_from('<H', data, 8)[0]} file={len(data)}"
+          f"image={image} file={len(data)}"
           + (f" (+{para * 16} bss, {stripped} trailing zeros off the disk)"
              if para else "")
           + f" -> {args.output}")
