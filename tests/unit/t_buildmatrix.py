@@ -411,7 +411,14 @@ def build(name, variables, target="kernel.bin"):
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=300)
     ok = r.returncode == 0 and os.path.exists(os.path.join(out, target))
     size = os.path.getsize(os.path.join(out, target)) if ok else 0
-    err = "" if ok else "\n".join((r.stdout + r.stderr).strip().splitlines()[-6:])
+    # THE LINES THAT SAY WHY, not the last six. A knob build ENDS with
+    # kernsize's "BUILT WITH A KNOB" banner and os88mod's five-line module
+    # table, so a tail capture returns those and the actual error has scrolled
+    # past - this row reported three failures whose whole message was advice
+    # about rebuilding. os88build._why picks make's and nasm's own error
+    # forms out; it is shared so that the next capture does not learn this
+    # again (tools/os88build.py, docs/plans/SOAK-PARALLEL.md 14.3).
+    err = "" if ok else os88build._why(r.stdout, r.stderr)
     shutil.rmtree(out, ignore_errors=True)
     return name, ok, size, err
 
