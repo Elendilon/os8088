@@ -1439,7 +1439,12 @@ SOAK = [
         "50, 66) Every driver attached at once on a machine WITH memory above "
         "1MB, sampled from instruction zero: the order claims are taken in, "
         "and MC_RLOC for each - which is the machine-readable answer to "
-        "'can this be compacted'",
+        "'can this be compacted'. IT HAS CAUGHT ONE: the driver loader took "
+        "the file's scratch claim TOP-DOWN, so freeing it left an island "
+        "above each driver - 10,240 stranded bytes and the largest free run "
+        "375.0K -> 365.0K, from a change whose own comment said 'a few "
+        "hundred transient bytes' (SPEC.md 51.1.2). Nothing else in the suite "
+        "saw it, because nothing else looks at WHERE the free memory is",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img",)),
     Row("dockmark", "soak", py("tests/dockmark.py"), 90.0,

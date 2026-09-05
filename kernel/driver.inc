@@ -236,15 +236,24 @@ DRV_H_BSSP  equ 31              ; byte: THE BSS SIZE IN PARAGRAPHS
                                 ; built has a NUL here - and 0 reads as "no
                                 ; bss", which is why this needed no version
                                 ; bump and no driver source change
-DRV_BSS_KB  equ 4               ; ...and what the claim is padded by BEFORE the
-                                ; header has been read to say. 255 paragraphs
-                                ; is 4,080 bytes, so 4KB covers the largest
-                                ; declarable bss and drv_bss gives the rest
-                                ; back with a SHRINK. The alternative was
-                                ; peeking the header before claiming, which is
-                                ; an extra int 13h per driver on every boot -
-                                ; hundreds of milliseconds to save a few
-                                ; hundred transient bytes
+                                ; **THE CLAIM IS NO LONGER PADDED FOR IT**
+                                ; (SPEC.md 51.1.2). It was, by a DRV_BSS_KB of
+                                ; 4 - 255 paragraphs being 4,080 bytes - which
+                                ; drv_bss then handed back with a shrink, the
+                                ; note here reading "hundreds of milliseconds
+                                ; to save a few hundred transient bytes". The
+                                ; bytes were neither few nor transient:
+                                ; mem_regrow's shrink keeps the BASE and frees
+                                ; the TAIL, and the tail of a top-down claim
+                                ; is ABOVE the image, walled in by the driver
+                                ; loaded before it. Measured on a machine
+                                ; wanting every driver, that stranded 10,240
+                                ; bytes and took the largest free run 375.0K
+                                ; -> 365.0K. The file's claim is a bottom-up
+                                ; SCRATCH now and drv_expand claims the
+                                ; driver's real home at the size the header
+                                ; declares, so nothing is padded and nothing
+                                ; is shrunk (tests/heapmap.py is the gate)
 DRV_HDR_SZ  equ 0x20
 DRV_VER     equ 4
 DRV_MAX_KB  equ 40              ; the biggest driver image we will claim
@@ -2474,14 +2483,16 @@ drv_load_row:
     call mem_bytes_kb_x         ; -> whole KB (the size is well under 64KB,
     cmp ax, DRV_MAX_KB          ; so this cannot carry out)
     ja .big
-    add ax, DRV_BSS_KB          ; ...and room for a bss the header has not been
-                                ; read yet to declare. drv_bss shrinks it back
-                                ; the moment it can, so nothing keeps this
     push bx
     mov bx, MEM_K_DRV
-    call mem_claim_hi_x           ; a driver's base IS its CS, so it can never
-    pop bx                      ; move: top-down, like a package's region
-    jc .nomem
+    call mem_claim_x            ; THE FILE'S CLAIM IS A SCRATCH, AND IT GOES
+    pop bx                      ; LOW (SPEC.md 51.1.2). drv_expand gives the
+    jc .nomem                   ; driver its own top-down home - a base that
+                                ; IS its CS, like a package's region - and
+                                ; frees this the moment it is filled, where a
+                                ; bottom-up claim rejoins the free middle
+                                ; instead of leaving an island above the
+                                ; drivers already loaded
     mov [bx+DRVR_SEG], dx       ; ...which also arms drv_call
     mov [bx+DRVR_KB], ax
 
@@ -2673,18 +2684,31 @@ drv_check:
 ; known until the file is already in memory and the claim is already the wrong
 ; size. Peeking first would cost an extra int 13h per driver on every boot.
 ;
-; So the compressed file's claim is the SCRATCH, the expanded image gets a
-; claim of its own, and the first is freed the moment the second is filled.
-; Peak memory is file + image rather than image alone; for the largest driver
-; in the tree that is 26KB against 18KB, and it lasts as long as one
-; decompression.
+; So the file's claim is the SCRATCH, the driver's real home gets a claim of
+; its own, and the first is freed the moment the second is filled. Peak memory
+; is file + image rather than image alone; for the largest driver in the tree
+; that is 26KB against 18KB, and it lasts as long as one decompression.
+;
+; **AND THE SCRATCH IS THE ONE THAT GOES LOW** (SPEC.md 51.1.2), which is the
+; half that was wrong for a cycle and is what tests/heapmap.py caught. Both
+; claims used to be top-down: the scratch took the highest room, the home was
+; placed UNDER it, and freeing the scratch then opened an island above the
+; driver that only a smaller top-down claim could ever reach. Measured on a
+; machine wanting every driver, the driver stack went from CONTIGUOUS to four
+; holes and 10,240 stranded bytes, and the largest free run 375.0K -> 365.0K.
+; A bottom-up scratch is freed back into the middle it came from, and the
+; homes pack against each other exactly as they did before any of this.
+;
+; It costs the UNCOMPRESSED driver one rep movsb it did not pay before, since
+; there is no longer a case where the scratch IS the driver. os88drv.py
+; refuses to compress only when packing would make the file larger, so those
+; are the small and the incompressible - and the copy is off the boot path for
+; every driver in the tree that a stock SYSTEM.CFG asks for.
 ; -----------------------------------------------------------------------------
 drv_expand:
     push es
     mov es, [bx+DRVR_SEG]
     mov ax, [es:DRV_H_IMG]
-    cmp ax, bp
-    je .plain                   ; the image IS the file: nothing to expand
     mov dl, [es:DRV_H_BSSP]     ; what the expanded driver will need, bss and
     xor dh, dh                  ; all - it is claimed once, at the size it
     mov cl, 4                   ; ends up
@@ -2700,9 +2724,9 @@ drv_expand:
     mov [drv_xkb], ax
 
     push ds
-    mov ax, es                  ; ES is still the compressed file's claim
+    mov ax, es                  ; ES is still the file's scratch claim
     mov es, dx
-    mov ds, ax                  ; DS:0 the file, ES:0 its expansion
+    mov ds, ax                  ; DS:0 the file, ES:0 its home
     xor si, si
     xor di, di
     mov cx, DRV_HDR_SZ
@@ -2710,6 +2734,10 @@ drv_expand:
     rep movsb                   ; the header crosses VERBATIM - it is what
                                 ; drv_check already validated and what
                                 ; drv_bss is about to read
+    mov ax, [es:DRV_H_IMG]      ; ...and it is readable through ES now, which
+    cmp ax, bp                  ; is the only copy of it DS can still reach
+    je .verbatim                ; the image IS the file: move it, do not
+                                ; expand it
     mov al, [si]                ; the format byte, first of the body
     inc si                      ; ...and the stream begins after it
     mov cx, bp
@@ -2727,7 +2755,26 @@ drv_expand:
     pop bx
     pop ds
     jc .freefail
+    jmp short .home
 
+.verbatim:                      ; AN UNCOMPRESSED DRIVER TAKES THE SAME ROAD,
+                                ; and it did not before SPEC.md 51.1.2. The
+                                ; file's claim is a bottom-up SCRATCH now, so
+                                ; every driver has to be moved out of it into
+                                ; a top-down home - there is no longer a case
+                                ; where the file's claim IS the driver. What
+                                ; that costs is one rep movsb of the image,
+                                ; and only for a driver os88drv.py declined to
+                                ; compress (it refuses only when packing would
+                                ; make the file LARGER, so these are the small
+                                ; and the incompressible); every other driver
+                                ; was being copied here already.
+    mov cx, bp                  ; SI and DI are both past the header, and the
+    sub cx, DRV_HDR_SZ          ; body is the rest of the file
+    rep movsb
+    pop ds
+
+.home:
     push bx                     ; the scratch goes back, and the row moves to
     mov dx, [bx+DRVR_SEG]       ; the image it now names
     mov bx, MEM_K_DRV
@@ -2737,7 +2784,6 @@ drv_expand:
     mov [bx+DRVR_SEG], ax
     mov ax, [drv_xkb]
     mov [bx+DRVR_KB], ax
-.plain:
     pop es
     clc
     ret
@@ -2757,14 +2803,18 @@ drv_expand:
 ;           (module internal; docs/plans/O88-COMPRESSION-PLAN.md 12.6)
 ; in:  BX = the row, with DRVR_SEG and DRVR_KB live; BP = the file's bytes
 ; out: nothing. The flags are NOT an answer - a shrink that is refused simply
-;      leaves the claim as big as it was asked for, which is correct and
-;      wastes at most DRV_BSS_KB until the driver detaches
+;      leaves the claim as big as it was asked for, which is correct
 ; clobbers: nothing (every register is banked)
 ;
 ; Called after drv_check, so the header is validated and DRV_H_BSSP is at most
-; 255. That bounds the zeroing at 4,080 bytes against a claim padded by 4,096,
-; so `file + bss` is inside the claim BY CONSTRUCTION and a hostile value
-; cannot reach past it - which is why there is no bound test here.
+; 255. That bounds the zeroing at 4,080 bytes against a claim drv_expand sized
+; from `image + bss` itself, so the bytes are inside it BY CONSTRUCTION and a
+; hostile value cannot reach past them - which is why there is no bound test
+; here. THE SHRINK IS THEREFORE DEAD in the ordinary case and kept as the
+; belt: since SPEC.md 51.1.2 the claim arrives at exactly the size this
+; routine computes, so the compare falls straight through to .keep. It used to
+; be the whole point of the routine, and giving those bytes back is precisely
+; what it could not do - see DRV_BSS_KB's own note above.
 ; -----------------------------------------------------------------------------
 drv_bss:
     push ax
