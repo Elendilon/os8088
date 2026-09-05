@@ -923,6 +923,21 @@ cs_tpl:
     ZBYTE cs_fflags
     ZWORD cs_fidx
     ZBUF  cs_clipx, CS_MAXPV * 6    ; a face clipped to the near plane, x/y/z
+    ZBUF  cs_clipy, CS_MAXPV * 6    ; ...and the other buffer the side passes
+    ZWORD cs_csrc                   ; alternate between (88.5.7): source,
+    ZWORD cs_cdst                   ; destination, the plane, the output
+    ZWORD cs_cpln                   ; cursor and count, A's distance, t
+    ZWORD cs_cout
+    ZWORD cs_cn2
+    ZWORD cs_cda
+    ZWORD cs_ct
+    ZWORD cs_cdistp                 ; the plane's distance routine
+    ZBUF  cs_cdists, CS_MAXPV * 2   ; a pass's distances, one a point
+    ZBUF  cs_xpt, 6                 ; a crossing point, x/y/z
+    ZBUF  cs_ea, 6                  ; an edge's two ends in camera space
+    ZBUF  cs_eb, 6
+    ZWORD cs_ex1                    ; ...and the first projected
+    ZWORD cs_ey1
     ZWORD cs_ncl
     ZWORD cs_na
     ZWORD cs_nb

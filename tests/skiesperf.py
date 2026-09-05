@@ -94,7 +94,7 @@ def sites(lst):
                           + nop(*find(r"call cs_consider$", 1, within="cs_scene")))
     s["  rot (in scale)"] = nop(*find(r"call cs_rot$", within="cs_scale"))
     s["  poly (in faces)"] = nop(*find(r"call cs_poly$", within="cs_faces"))
-    s["  nearclip"] = nop(*find(r"call cs_nearclip$", within="cs_faces"))
+    s["  clip (in faces)"] = nop(*find(r"call cs_fclip$", within="cs_faces"))
     s["  rows (in poly)"] = nop(*find(r"jmp \[cs_rowsproc\]$", within="cs_poly"))
     s["  edge (in poly)"] = nop(*find(r"call cs_edge$", within="cs_poly"))
     s["  seg (in edges)"] = nop(*find(r"call cs_seg$", within="cs_edge1"))
@@ -118,7 +118,8 @@ def trace(m, lin, seg, base, off, render):
                                 "cs_panel", "cs_r_end", "cs_stackverts",
                                 "cs_flatverts", "cs_projall", "cs_faces",
                                 "cs_edges", "cs_boxlod", "cs_rect",
-                                "cs_polyrows_herc", "cs_polyrows")}
+                                "cs_polyrows_herc", "cs_polyrows",
+                                "cs_fclip", "cs_sidepass", "cs_cxing")}
     m.bp_exec(lin + render)
     m.run()
     if m.wait_stop(20) is None:

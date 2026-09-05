@@ -94102,6 +94102,45 @@ telling. The box path (§88.5.4) projects the whole-metre origin. The
 residual is a sixteenth of a metre — a pixel and a half at 22 m — and the
 runway holds still.
 
+#### 88.5.7 A line through a clamped point bends, so the sides clip too
+
+The projection clamps a point at ±4000 (§88.5.5: |cx| over 9z), and a
+clamped point is not where the line goes: the segment from an inside vertex
+to it is drawn towards (4000, y) whatever the true point was, so as the
+aeroplane moves and the true point moves, the drawn line swings about its
+inside end — the "wander" the owner saw on the river and the roads and
+never on a building. A building's vertices are within its radius of an
+origin the cull's cone keeps inside the view; a road or a river piece is a
+kilometre long and passes BESIDE the eye, and its end nearest the eye
+crosses the near plane at z = 4 m (§88.5.5) with |x| in the hundreds:
+clamped, every frame, at a different angle.
+
+So a point in front of the near plane but past a SIDE of the frustum — |x|
+or |y| over 4z — gets `cs_fv` = 2, and a face or an edge with one is
+clipped in camera space before it is projected (`cs_fclip`; `cs_edge1`'s
+general path): the near pass first, then one Sutherland-Hodgman pass per
+side plane (`cs_sidepass`), each computing every point's distance once and
+returning at once when none is negative — which is most passes, the y
+planes rarely firing below 15° of pitch — the crossing being `A + t (B −
+A)` with `t = da / (da − db)` in Q15 (`cs_cxing`). A distance is `z/4 −
+|c|/16`, so that two of them differ within a word at any scale §88.5.6
+picks.
+
+The planes are at 4z and not at the 9z clamp because a crossing is only
+exact to a distance UNIT — 16 of the object's x, or 4 of its z — and at the
+near plane a unit is large: for an object transformed in whole metres (the
+long flats, which are exactly the ones that wandered) 16 m at z = 4 m is
+1,776 projected pixels. Planes at 8z shipped first and put a road's end at
+(4275, 2112), past the clamp again; at 4z a point on the plane projects to
+±1,778 and the worst crossing at z = 4 to 3,554, under the clamp, with the
+view 200 wide to either side. `tests/skiesperf.py --trace` marks
+`cs_fclip`, `cs_sidepass` and `cs_cxing`, and the probe that found the
+fault — every segment with an end past ±2,500 over six frames beside the
+axis road — reads 0 of 30 off-view segments. The price is highest on the
+ground: the runway face crosses both x planes at its near end, and the two
+passes, four crossings and two extra polygon edges are 8 ms of the parked
+frame (§88.12).
+
 ### 88.6 The world (`apps/skies/csworld.inc`)
 
 Metres, x east, z north, y up, the Eiffel Tower at the origin. Thirty-odd
@@ -94343,7 +94382,8 @@ its near size, the worst frame in the world.
 | the cone's DX bug, Q15, keys, box off three points | 112 → 108 | 176 | 216 |
 | 400 wide, four-leg far tower, river range | 101 ms, 9.9 fps | 150 ms, 6.7 fps | 183 ms, 5.5 fps |
 | the ground to the wheels (§88.5.5), full-width rows | 134 ms, 7.5 fps | 151 | 183 |
-| **sixteenth-metre transforms (§88.5.6), the dashed centreline (§88.6.2)** | **143 ms, 7.0 fps** | **156 ms, 6.4 fps** | **189 ms, 5.3 fps** |
+| sixteenth-metre transforms (§88.5.6), the dashed centreline (§88.6.2) | 143 ms, 7.0 fps | 156 ms, 6.4 fps | 189 ms, 5.3 fps |
+| **the frustum's sides clip (§88.5.7)** | **159 ms, 6.3 fps** | **166 ms, 6.0 fps** | **197 ms, 5.1 fps** |
 
 **The target was twelve frames a second; the runway frame stood at ten
 before the runway was drawn to the wheels and is 7.5 after.** Where
@@ -94361,7 +94401,9 @@ a quarter; the moment the aeroplane climbs, the runway is a few rows again
 and the frame is back where it was. The sixteenth-metre transform is about
 5 ms a scene (three 16.8 subtractions and their shifts per object) and the
 dashed centreline 7 ms on the ground, both taken for what the glass showed
-(§88.5.6, §88.6.2). The city and the tower frames are
+(§88.5.6, §88.6.2); the side clipper (§88.5.7) is 8 to 10 ms a scene, a
+face that crosses a plane costing two passes and its crossings, and every
+near-clipped face the four passes that find nothing to do. The city and the tower frames are
 further off because they hold more of the same: fifteen objects, and the
 tower's 32 segments at ~4,300 cycles each.
 

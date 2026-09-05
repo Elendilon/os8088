@@ -423,10 +423,12 @@ cs_pshtab: dw cs_pshift, cs_pshift13, cs_pshift15
 
 ; -----------------------------------------------------------------------------
 ; cs_scale - the object's transform scale (SPEC.md 88.5.6): sixteenths of a
-;            metre when its reach from the eye - 1.75 x the world offset's
-;            Manhattan length, which no rotation can exceed, plus the radius
-;            - is under 2,000 m, quarters under 8,000, whole metres beyond:
-;            the finest that cannot overflow a word. The origin is then ONE
+;            metre when its reach from the eye - the world offset's Manhattan
+;            length, which no component of it rotated can exceed, plus the
+;            radius - is under 2,048 m AND the radius under 1,024 (so that
+;            the difference of two vertices fits a word as well: the
+;            clippers subtract them), quarters under 8,192 and 4,096, whole
+;            metres beyond: the finest that cannot overflow. The origin is ONE
 ;            rotation, at that scale, FROM THE EYE'S 16.8 POSITION, and its
 ;            whole-metre form for the size tests is that shifted back. The
 ;            first build rotated whole metres from a whole-metre eye, and a
@@ -451,24 +453,23 @@ cs_scale:
     inc si
     inc si
     loop .l1
-    mov bx, ax                      ; ...times 1.75 (over root three, which
-    shr bx, 1                       ; is the most a rotation can lengthen it)
-    add ax, bx
-    jc .s0
-    shr bx, 1
-    add ax, bx
-    jc .s0
-    pop si
-    push si
-    mov si, [si]
+    pop si                          ; ...which no component of the rotated
+    push si                         ; offset can exceed (it is over the
+    mov si, [si]                    ; Euclidean length)...
     mov si, [si + CSO_MODEL]
-    add ax, [si + CSM_RAD]          ; ...plus the radius: the object's reach
+    mov bx, [si + CSM_RAD]
+    add ax, bx                      ; ...plus the radius: no vertex is further
     jc .s0
     mov cl, 4
-    cmp ax, 2000
+    cmp ax, 2048                    ; sixteenths: every coordinate under 2^15,
+    jae .q                          ; and every DIFFERENCE of two, which the
+    cmp bx, 1024                    ; clippers subtract: twice the radius
     jb .have
+.q:
     mov cl, 2
-    cmp ax, 8000
+    cmp ax, 8192
+    jae .s0
+    cmp bx, 4096
     jb .have
 .s0:
     xor cl, cl
@@ -1177,6 +1178,31 @@ cs_projall:
     mov [cs_sxv + di], ax
     mov [cs_syv + di], bx
     mov word [cs_fv + di], 1
+    ; --- in front, but outside the frustum's SIDES (|x| or |y| over 4z)?
+    ;     Its projection was clamped, and a line through a clamped point is
+    ;     bent: the face or edge it is on gets clipped in camera space
+    ;     instead (88.5.7)
+    mov cx, [cs_czv + di]
+    mov ax, [cs_cxv + di]
+    or ax, ax
+    jns .px
+    neg ax
+.px:
+    sar ax, 1
+    sar ax, 1
+    cmp ax, cx
+    jg .side
+    mov ax, [cs_cyv + di]
+    or ax, ax
+    jns .py
+    neg ax
+.py:
+    sar ax, 1
+    sar ax, 1
+    cmp ax, cx
+    jle .next
+.side:
+    mov word [cs_fv + di], 2
     jmp short .next
 .behind:
     mov word [cs_fv + di], 0
@@ -1209,22 +1235,30 @@ cs_faces:
     mov [cs_fflags], al
     add si, 3
     mov [cs_fidx], si
-    ; --- how many ends are in front -----------------------------------------
+    ; --- how many ends are behind the near plane, how many past a side ------
     mov cx, [cs_fn]
-    xor dx, dx
+    xor dx, dx                      ; DL = behind, DH = outside
 .cnt:
     lodsb
     xor ah, ah
     mov bx, ax
     shl bx, 1
-    add dx, [cs_fv + bx]
+    mov ax, [cs_fv + bx]
+    or ax, ax
+    jnz .c1
+    inc dl
+.c1:
+    cmp al, 2
+    jne .c2
+    inc dh
+.c2:
     loop .cnt
+    cmp dl, [cs_fn]
+    je .skip                        ; all behind
     or dx, dx
-    jz .skip                        ; all behind
-    cmp dx, [cs_fn]
-    je .plain                       ; all in front: the projected points as
-    call cs_nearclip                ; they are; else cut and project the rest
-    jmp short .fill
+    jz .plain                       ; all in front and inside: the projected
+    call cs_fclip                   ; points as they are; else clip in
+    jmp short .fill                 ; camera space and project the rest
 .plain:
     mov si, [cs_fidx]
     mov cx, [cs_fn]
@@ -1287,7 +1321,7 @@ cs_faces:
 ; cs_nearclip - Sutherland-Hodgman against z = [cs_near], in camera space, then
 ;               project: the face at [cs_fidx] (cs_fn ends) into cs_pv/cs_pn
 ; -----------------------------------------------------------------------------
-cs_nearclip:
+cs_fclip:
     mov word [cs_ncl], 0
     mov di, cs_clipx
     mov cx, [cs_fn]
@@ -1337,11 +1371,26 @@ cs_nearclip:
     inc si
     pop cx
     loop .e
+    ; --- then the four sides, each a Sutherland-Hodgman pass between the two
+    ;     buffers (88.5.7) -----------------------------------------------------
+    mov word [cs_csrc], cs_clipx
+    mov word [cs_cdst], cs_clipy
+    mov word [cs_cpln], 0
+.pass:
+    call cs_sidepass
+    jnc .same                       ; nothing clipped: the same buffer
+    mov ax, [cs_csrc]               ; swap the buffers
+    xchg ax, [cs_cdst]
+    mov [cs_csrc], ax
+.same:
+    add word [cs_cpln], 2
+    cmp word [cs_cpln], 8
+    jb .pass
     ; --- project the result ------------------------------------------------
     mov cx, [cs_ncl]
     mov [cs_pn], cx
     jcxz .out
-    mov si, cs_clipx
+    mov si, [cs_csrc]
     mov di, cs_pv
 .p:
     push cx
@@ -1394,6 +1443,191 @@ cs_ncross:
     ret
 
 ; -----------------------------------------------------------------------------
+; The frustum's sides (SPEC.md 88.5.7): the planes |x| = 4z and |y| = 4z in
+; camera space, well inside where the projection would clamp (+-4000 is
+; |x| = 9z), because a crossing is only exact to a distance UNIT - 16 of x
+; or 4 of z - and at the near plane (z = 4) a unit of x is 444 projected
+; pixels. 4z leaves the whole 5z between the plane and the clamp for that:
+; a point on one projects to +-1778, and one 16 past it at z = 4 to 3554,
+; still under the clamp, where the 8z the clipper first shipped with put
+; the same point at 7104 and a road was seen bending at (4275, 2112).
+; cs_cplanes: the component (x, y) and the sign each plane takes
+; -----------------------------------------------------------------------------
+; cs_cdist - AX = a point's distance from plane [cs_cpln], as z/4 - s c/16
+;            (the quarter keeps the difference of two under a word), through
+;            the plane's own routine (cs_cdtab, set by cs_cplane). SI -> the
+;            point (x, y, z). Preserves SI, DI, CX, DX; clobbers BX
+cs_cdist:
+    jmp [cs_cdistp]
+cs_cd_xp:
+    mov ax, [si]
+    jmp short cs_cd_p
+cs_cd_xm:
+    mov ax, [si]
+    jmp short cs_cd_m
+cs_cd_yp:
+    mov ax, [si + 2]
+    jmp short cs_cd_p
+cs_cd_ym:
+    mov ax, [si + 2]
+cs_cd_m:
+    neg ax
+cs_cd_p:
+    sar ax, 1
+    sar ax, 1
+    sar ax, 1
+    sar ax, 1
+    mov bx, [si + 4]
+    sar bx, 1
+    sar bx, 1
+    sub bx, ax
+    mov ax, bx
+    ret
+cs_cdtab: dw cs_cd_xp, cs_cd_xm, cs_cd_yp, cs_cd_ym
+
+; cs_cplane - the plane [cs_cpln] (0, 2, 4, 6) selects its distance routine
+cs_cplane:
+    mov bx, [cs_cpln]
+    mov ax, [cs_cdtab + bx]
+    mov [cs_cdistp], ax
+    ret
+
+; cs_cxing - the point where A (SI ->) to B (DI ->) crosses plane [cs_cpln],
+;            AX and BX its two distances of opposite sign, into cs_xpt:
+;            t = da / (da - db), P = A + t (B - A). Preserves SI, DI
+cs_cxing:
+    push si
+    push di
+    mov cx, ax
+    sub cx, bx                      ; CX = da - db, never 0
+    mov bx, 32767
+    imul bx                         ; DX:AX = da x 32767
+    idiv cx                         ; AX = t, Q15, in 0..1
+    mov [cs_ct], ax
+    mov ax, [di]
+    sub ax, [si]
+    mov bx, [cs_ct]
+    MUL14
+    add ax, [si]
+    mov [cs_xpt], ax
+    mov ax, [di + 2]
+    sub ax, [si + 2]
+    mov bx, [cs_ct]
+    MUL14
+    add ax, [si + 2]
+    mov [cs_xpt + 2], ax
+    mov ax, [di + 4]
+    sub ax, [si + 4]
+    mov bx, [cs_ct]
+    MUL14
+    add ax, [si + 4]
+    mov [cs_xpt + 4], ax
+    pop di
+    pop si
+    ret
+
+; cs_sidepass - one Sutherland-Hodgman pass of the [cs_ncl] points at
+;               [cs_csrc] against plane [cs_cpln], into [cs_cdst]; [cs_ncl]
+;               becomes the count out. Clobbers everything
+cs_sidepass:
+    mov cx, [cs_ncl]
+    or cx, cx
+    jz .none0
+    call cs_cplane
+    mov si, [cs_csrc]               ; --- every point's distance, once, and
+    mov di, cs_cdists               ;     whether any is past the plane -----
+    xor dx, dx
+.d:
+    call cs_cdist
+    mov [di], ax
+    or ax, ax
+    jns .d1
+    inc dx
+.d1:
+    add di, 2
+    add si, 6
+    loop .d
+    or dx, dx
+    jnz .clip                       ; all inside: the pass changes nothing
+.none0:
+    jmp .none
+.clip:
+    mov cx, [cs_ncl]
+    mov word [cs_cn2], 0
+    mov si, [cs_csrc]
+    mov ax, [cs_cdst]
+    mov [cs_cout], ax
+    mov bp, cs_cdists               ; BP -> A's distance (a plain register:
+.e:                                 ; SS != DS, so never [bp + n])
+    push cx
+    mov di, si                      ; DI -> B: the next point, or the first
+    add di, 6                       ; after the last
+    mov bx, bp
+    add bx, 2                       ; BX -> B's distance...
+    cmp cx, 1
+    jne .b
+    mov di, [cs_csrc]
+    mov bx, cs_cdists               ; ...the first's, after the last
+.b:
+    mov ax, [bx]
+    mov bx, ax                      ; BX = B's distance
+    xchg bx, bp
+    mov ax, [bx]                    ; AX = A's
+    xchg bx, bp
+    inc bp
+    inc bp
+    or ax, ax
+    js .aout
+    call .emita                     ; A inside: out it goes...
+    or bx, bx
+    jns .next                       ; ...and B too: nothing between
+    call cs_cxing                   ; ...B outside: the crossing follows
+    call .emitx
+    jmp short .next
+.aout:
+    or bx, bx
+    js .next                        ; both outside
+    call cs_cxing                   ; A outside, B in: the crossing
+    call .emitx
+.next:
+    pop cx
+    add si, 6
+    loop .e
+    mov ax, [cs_cn2]
+    mov [cs_ncl], ax
+    stc                             ; CF = the buffers changed hands
+    ret
+.none:
+    clc
+    ret
+.emita:
+    push bx
+    push si
+    jmp short .emit
+.emitx:
+    push bx
+    push si
+    mov si, cs_xpt
+.emit:
+    cmp word [cs_cn2], CS_MAXPV
+    jae .full
+    push di
+    mov di, [cs_cout]
+    mov ax, [si]
+    mov [di], ax
+    mov ax, [si + 2]
+    mov [di + 2], ax
+    mov ax, [si + 4]
+    mov [di + 4], ax
+    add word [cs_cout], 6
+    inc word [cs_cn2]
+    pop di
+.full:
+    pop si
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_edges - every edge of [cs_mdl], in the model's line ink
 ; -----------------------------------------------------------------------------
 cs_edges:
@@ -1430,26 +1664,10 @@ cs_edge1:
     add cx, [cs_fv + di]
     jcxz .skip                      ; both behind the near plane
     cmp cx, 2
-    je .both
-    cmp word [cs_fv + bx], 0
-    jne .afront
-    xchg bx, dx                     ; make BX the one in FRONT
-.afront:
-    mov [cs_na], bx
-    mov [cs_nb], dx
-    mov di, cs_clipx
-    call cs_ncross                  ; the crossing, in camera space...
-    mov ax, [cs_clipx]
-    mov bx, [cs_clipx + 2]
-    mov cx, [cs_near]
-    call cs_project                 ; ...projected
-    mov cx, ax
-    mov dx, bx
-    mov bx, [cs_na]
-    mov ax, [cs_sxv + bx]
-    mov bx, [cs_syv + bx]
-    jmp short .draw
-.both:
+    jne .gen
+    cmp word [cs_fv + bx], 1
+    jne .gen
+.both:                              ; both in front and inside: as projected
     mov ax, [cs_sxv + bx]
     mov bx, [cs_syv + bx]
     mov cx, [cs_sxv + di]
@@ -1457,6 +1675,102 @@ cs_edge1:
 .draw:
     call cs_seg
 .skip:
+    ret
+    ; --- one end behind the near plane or past a side (88.5.7): the two
+    ;     ends in camera space, the near crossing for a behind one, then the
+    ;     four sides, an end past one brought to it along the edge ----------
+.gen:
+    mov [cs_na], bx
+    mov [cs_nb], dx
+    mov si, bx
+    mov di, cs_ea
+    call cs_ecopy                   ; A -> cs_ea
+    mov si, [cs_nb]
+    mov di, cs_eb
+    call cs_ecopy                   ; B -> cs_eb
+    mov bx, [cs_na]
+    cmp word [cs_fv + bx], 0
+    jne .bnear
+    mov ax, [cs_nb]                 ; A behind: the crossing from B replaces it
+    mov [cs_na], ax
+    mov [cs_nb], bx
+    mov di, cs_ea
+    call cs_ncross
+    jmp short .sides
+.bnear:
+    mov bx, [cs_nb]
+    cmp word [cs_fv + bx], 0
+    jne .sides
+    mov di, cs_eb                   ; B behind: the crossing from A replaces it
+    call cs_ncross
+.sides:
+    mov word [cs_cpln], 0
+.side:
+    call cs_cplane
+    mov si, cs_ea
+    call cs_cdist
+    mov [cs_cda], ax
+    mov si, cs_eb
+    call cs_cdist
+    mov bx, ax                      ; BX = B's distance
+    mov ax, [cs_cda]                ; AX = A's
+    mov si, cs_ea
+    mov di, cs_eb
+    or ax, ax
+    jns .ain
+    or bx, bx
+    js .skip                        ; both past this side: nothing to draw
+    call cs_cxing                   ; A past it: to the crossing
+    mov si, cs_xpt
+    mov di, cs_ea
+    call cs_ecopy
+    jmp short .nside
+.ain:
+    or bx, bx
+    jns .nside
+    call cs_cxing                   ; B past it: to the crossing
+    mov si, cs_xpt
+    mov di, cs_eb
+    call cs_ecopy
+.nside:
+    add word [cs_cpln], 2
+    cmp word [cs_cpln], 8
+    jb .side
+    mov ax, [cs_ea]                 ; --- both ends inside: project and draw --
+    mov bx, [cs_ea + 2]
+    mov cx, [cs_ea + 4]
+    call cs_project
+    mov [cs_ex1], ax
+    mov [cs_ey1], bx
+    mov ax, [cs_eb]
+    mov bx, [cs_eb + 2]
+    mov cx, [cs_eb + 4]
+    call cs_project
+    mov cx, ax
+    mov dx, bx
+    mov ax, [cs_ex1]
+    mov bx, [cs_ey1]
+    jmp .draw
+
+; cs_ecopy - the camera-space point at SI (a triple, or a vertex's byte
+;            index into cs_cxv/cyv/czv when SI < 64) to the triple at DI
+cs_ecopy:
+    cmp si, 64
+    jae .triple
+    mov ax, [cs_cxv + si]
+    mov [di], ax
+    mov ax, [cs_cyv + si]
+    mov [di + 2], ax
+    mov ax, [cs_czv + si]
+    mov [di + 4], ax
+    ret
+.triple:
+    mov ax, [si]
+    mov [di], ax
+    mov ax, [si + 2]
+    mov [di + 2], ax
+    mov ax, [si + 4]
+    mov [di + 4], ax
     ret
 
 ; -----------------------------------------------------------------------------
