@@ -128,7 +128,7 @@ goes in via the stage verb (kernel copies caller→grant) and comes out via the 
 playback DMA never runs from a grant: the refill task copies grant→double buffer, so
 the DMA contract is satisfied by construction, not by caller discipline.
 
-**Interaction with docs/plans/MEMORY-PLAN.md Step D, decided now**: Step D (packages into
+**Interaction with docs/plans/completed/MEMORY-PLAN.md Step D, decided now**: Step D (packages into
 their own segments) must carve its per-package segments from **0x20000–0x2FFFF only**
 (shared with the menu save-unders, whose extent the §2 amendment pins to that block).
 `SND_SEG` keeps 0x30000–0x3FFFF on the 256 KB floor; on bigger machines Step D can
@@ -829,7 +829,7 @@ kernel image changes even when nothing sound-side ships on disk).
   `cp_paint`/`cp_onclick` FARSHIMs** (ctrl.inc:130–136); no new shims.
 - **§4 module table**: snd.inc row (+ sndfm.inc/sndsb.inc at their phases); **§33**:
   the new FARSHIM/FARK entries listed.
-- **docs/plans/MEMORY-PLAN.md**: Step D carves from 0x20000–0x2FFFF on the floor (done in
+- **docs/plans/completed/MEMORY-PLAN.md**: Step D carves from 0x20000–0x2FFFF on the floor (done in
   this plan's commit).
 
 ## Rejected

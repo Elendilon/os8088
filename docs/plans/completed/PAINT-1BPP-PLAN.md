@@ -31,7 +31,7 @@ suite and quietly cost the VGA fifteen of its colours. `paintblank`,
 `paintanchor`, `paintdirty`, `paintsu`, `paintbig`, `paintcull`, `paintplan`,
 `paintdraw`, `paintfill` and `paintback` all pass. **`paintrow` fails and did
 so before this work** — A/B'd against a worktree at the preceding commit, and
-recorded as docs/plans/completed/HANDOFF-SOAK-FINDINGS.md A6.
+recorded as docs/plans/HANDOFF-SOAK-FINDINGS.md A6.
 
 **One consequence the design did not anticipate**, and it is worth reading
 before touching the load rule: `build/OS8088.GIF` has a **two-entry colour
@@ -50,7 +50,7 @@ paragraphs above say so.
 
 **Status when this was written: RESEARCH. Nothing here is built and nothing is
 decided.** It exists
-because the motivation changed. `docs/plans/PAINT-STROKE-PLAN.md` §5 already carries
+because the motivation changed. `docs/plans/completed/PAINT-STROKE-PLAN.md` §5 already carries
 a 1bpp-canvas entry, as its item 1, marked *"VALID, MAYBE SOMEDAY, NOT TODAY"*
 on four reasons — and **every one of those four is a speed argument**. The new reason is
 memory, which that entry does not weigh at all, so its verdict does not bind

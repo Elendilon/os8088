@@ -529,9 +529,9 @@ needs the XT.
 > are **not** being fixed: the only honest swap test is int 13h AH=16h and a
 > 5150 with a Tandon TM100 has no change line, so reusing a FAT window there
 > would give a file manager that lists correctly and reads garbage. Mechanism D
-> is the remaining work. Details below and in docs/plans/DISK-PERF-PLAN.md 3.2/4.
+> is the remaining work. Details below and in docs/plans/completed/DISK-PERF-PLAN.md 3.2/4.
 >
-> **PICKED UP.** `docs/plans/DISK-PERF-PLAN.md` is the plan for all three
+> **PICKED UP.** `docs/plans/completed/DISK-PERF-PLAN.md` is the plan for all three
 > mechanisms, with the counting phase first, and it carries the budget grant
 > that funds it. The directions below are what that plan was built from and
 > stay here as the evidence; the plan is where the sequencing, the traps and
@@ -572,7 +572,7 @@ change is a mount — so entering `APPS/` (8 packages) costs 8 extra sector
 reads, ~1.6 s at C's revolution apiece, **every time you open that folder**.
 It is already correctly conditional — a type-0 file gets no read and a folder
 uses the built-in body — so there is nothing to save per *file*; the waste is
-in doing it again per *mount*. `docs/plans/DISK-PERF-PLAN.md` §5.5 has the options.
+in doing it again per *mount*. `docs/plans/completed/DISK-PERF-PLAN.md` §5.5 has the options.
 
 **What this means for the earlier caution below:** it was written before D and
 said "do not assume the icon harvest is the cost". Half of that stands and half
@@ -2757,7 +2757,7 @@ gates is the one that *works*), and `wm_fit` (it is never called on this path).
 neither was *the size this window wants on the display it is on*. SPEC.md
 §11.100 is what it has now — a preferred size per adapter kind, a minimum the
 kernel may not cut through, and the two ordering fixes above;
-`docs/plans/WINDOW-SIZING-PLAN.md` is the investigation, including what all 24
+`docs/plans/completed/WINDOW-SIZING-PLAN.md` is the investigation, including what all 24
 packages do about their size today.
 
 **Fixed, measured the same way it was found.** §26.1 is 200 → 140 → **200**:

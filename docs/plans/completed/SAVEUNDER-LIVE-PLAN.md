@@ -1,6 +1,26 @@
 # A live answer to "can I save under?"
 
-**Status: investigated, nothing built.** This is a design record, not a
+> **COMPLETED. The saveunder work landed after this was written and the
+> document was never updated** - which is why it sat under "nothing built"
+> while the thing it asked for had been shipped, published and given a second
+> consumer.
+>
+> **Both verbs this study concluded were needed are published API:**
+> `OSAPI_WM_SAVEU` (slot 0x0378) - the live "may I be banked?" answer that §1
+> argues `WF_SAVEU` should have been all along - and `OSAPI_WM_BAND`
+> (slot 0x03B8), which §3 names as *"what is left for a colour game that wants
+> a paused cache"*. SPEC.md §11.96.11.4 is the fence they share, and
+> SPEC.md §11.96.11.2 and §11.96.11.3 are the band's lifetime and the 1bpp
+> case. **Paint is the worked consumer**: `pt_sucache` calls both
+> (SPEC.md §42.13.4).
+>
+> So the *"0 kernel bytes"* verdict below is the one thing here that did not
+> survive - the mechanism was already there for the question as first put, and
+> the packages then needed a way to reach it, which cost two slots. Everything
+> else in the file stands, and §3 is why the number was never the whole story.
+
+**Status (as written, and superseded by the box above): investigated, nothing
+built.** This is a design record, not a
 handoff for work in flight. Its conclusion is that the kernel already does
 what was asked and the work is in the packages — so the number this document
 exists to produce is **0 kernel bytes**, and §3 is why that number is not the

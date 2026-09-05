@@ -653,7 +653,7 @@ wm_fs_setrect:
 ; out:      nothing; every register preserved, FLAGS INCLUDED
 ;
 ; **THE RULE IS ABOUT ADAPTER IDENTITY AND NOT ABOUT GEOMETRY**, which is the
-; whole of docs/plans/WINDOW-SIZING-PLAN.md 12 and the correction of everything
+; whole of docs/plans/completed/WINDOW-SIZING-PLAN.md 12 and the correction of everything
 ; above it. What a window wants is not "a size that fits the box the drag left
 ; me in" but "my size for adapter kind Y, and I am standing on adapter kind
 ; Y" - so the TRIGGER is a change of kind and nothing else. A move within one

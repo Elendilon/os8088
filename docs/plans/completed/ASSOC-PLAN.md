@@ -309,7 +309,7 @@ one — worth knowing, not worth the bytes.
 
 This same fingerprint is the enabling half of a larger optimisation that
 belongs to the disk work rather than to this plan — see
-`docs/plans/DISK-PERF-PLAN.md` §5.5, mechanism D, where a cache **hit skips the
+`docs/plans/completed/DISK-PERF-PLAN.md` §5.5, mechanism D, where a cache **hit skips the
 harvest read entirely and a miss harvests as today**, so a new package still
 works and then stops costing anything.
 
@@ -876,7 +876,7 @@ Phase 2 is written.
 | **total** | | **~1,590** |
 
 **The budget was raised to cover this.** `KERN_BUDGET` 76,288 → **78,336**
-(+2,048), asked for and granted to fund this plan and `docs/plans/DISK-PERF-PLAN.md`
+(+2,048), asked for and granted to fund this plan and `docs/plans/completed/DISK-PERF-PLAN.md`
 together — ~1,590 here and ~200 there against the 1,536 that were spare, which
 the two do not fit. Spare after both: ~1,750.
 
@@ -899,7 +899,7 @@ Three things that follow from the grant rather than being excused by it:
   sixth move's own comment blames a *stale figure in a doc* for letting three
   features spend headroom without the constant being revisited.
 
-`docs/plans/DISK-PERF-PLAN.md` §9 carries the same note; the two plans share one
+`docs/plans/completed/DISK-PERF-PLAN.md` §9 carries the same note; the two plans share one
 grant, and the seventh entry in `kernel/kernel.asm`'s comment should name both.
 
 ### 8.1 The "fix the disk instead" argument, and what is left of it

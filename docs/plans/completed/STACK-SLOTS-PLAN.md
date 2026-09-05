@@ -330,7 +330,7 @@ Compressing the 54 in place was priced and is the worse trade:
 
 **And the earlier refusal still stands, because it is a different change.**
 §4.2's predecessor refused moving `cur_move` *out* of the ISR — that would cost
-the ISR-paced pointer that docs/plans/SCHED-IDLE-PLAN.md §6.3 rests on. Running the
+the ISR-paced pointer that docs/plans/completed/SCHED-IDLE-PLAN.md §6.3 rests on. Running the
 same ISR, drawing included, on a different stack changes no behaviour at all.
 
 ### 4.2.3 Which size pass, and why the 54 is already safe
@@ -615,7 +615,7 @@ rung, and the ledger position is whoever builds this to report with `kernsize`.
 ## 8. Refusals
 
 - **Moving `cur_move` out of the mouse ISR.** §4.2.2, and it still stands: it
-  costs the ISR-paced pointer that docs/plans/SCHED-IDLE-PLAN.md §6.3 rests on.
+  costs the ISR-paced pointer that docs/plans/completed/SCHED-IDLE-PLAN.md §6.3 rests on.
   Running the *same* ISR on a different stack (§4.2) is a different change and
   is not refused — it changes no behaviour at all.
 - **Shrinking `SCH_FRAME`.** §4.3.

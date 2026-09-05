@@ -309,7 +309,7 @@ The requester's second question. **The distinction that matters is between a
 | B1 | **Raise cache / save-under** §11.96 (`wm_su*`) | **2,433** | raising a covered window goes from ~10 ms back to the **1,026 ms** §11.96 was written to fix. The memory is a purgeable claim, so the saving is code only |
 | B2 | **Drag cache** §11.96.12 (`wm_dc*`, `wm_cov*`) | **415** | a window drag repaints what it uncovers |
 | B3 | **Icon renderer + harvested icons** §10 (`icons.inc`, `ico_stage`, `disk_icons`, `dsk_ico`) | **3,173** | 2,048 of it is `disk_icons` in `.lowbss` — see §7, it is capped. Files get generic glyphs |
-| B4 | **`gfx_line` family** (`gfx_line`/`gfx_ls`/`gfx_lstep`) | **1,012** | an API slot, so it becomes a refusing stub. docs/plans/GFX-FSX-PLAN.md notes three apps already carry their own Bresenham |
+| B4 | **`gfx_line` family** (`gfx_line`/`gfx_ls`/`gfx_lstep`) | **1,012** | an API slot, so it becomes a refusing stub. docs/plans/completed/GFX-FSX-PLAN.md notes three apps already carry their own Bresenham |
 | B5 | **Toast** §59 (`toast.inc`) | **488** | SPEC.md §47 rule 3 wants every refusal to say something the user can act on, and §59 is where three of them say it |
 | B6 | **Progress widget** §12.8 (`fprog.inc`) | **661** | long file operations go silent |
 | B7 | **Screen blanker** §64 (`blank.inc`) | **158** | |

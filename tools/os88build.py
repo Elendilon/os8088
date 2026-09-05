@@ -401,7 +401,7 @@ def at(path):
     """A `build/...` path, resolved against $OS88_BUILD.
 
     **THE ONE THING THAT LETS A SOAK SURVIVE SOMEBODY ELSE'S `make`**
-    (docs/plans/completed/SOAK-PARALLEL.md 14.2). Rows name `build/os8088-360.img` and its
+    (docs/plans/SOAK-PARALLEL.md 14.2). Rows name `build/os8088-360.img` and its
     siblings as literal strings - 725 of them across 256 files, and 356 are
     those two images - so pointing a run at a frozen tree cannot be done by
     editing the callers. It is done where the path is USED instead, and there

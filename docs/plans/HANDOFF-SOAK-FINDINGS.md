@@ -25,7 +25,7 @@ document would have split the row from its answer.
 ## How to read the classification
 
 **`tools/os88bisect.py` IS THIS PROTOCOL, and running it is cheaper than
-following it by hand** (`docs/plans/completed/SOAK-PARALLEL.md` §10). It samples every point N
+following it by hand** (`docs/plans/SOAK-PARALLEL.md` §10). It samples every point N
 times so a rate is never read as a side, parses a row's output into LEGS so a
 six-legged row can be sampled at all, and checks ancestry before comparing
 anything — which are E1's three errors, in order.
@@ -569,7 +569,7 @@ deterministic instrument and `os88marty.until` is the bounded observable wait;
 the fix in each case is to wait on something the guest publishes rather than on
 stillness or on the clock.
 
-**PARTLY TAKEN, AND THE MECHANISM IS NOW MEASURED — `docs/plans/completed/SOAK-PARALLEL.md`
+**PARTLY TAKEN, AND THE MECHANISM IS NOW MEASURED — `docs/plans/SOAK-PARALLEL.md`
 §1.** The property this entry describes is real and is worse than it reads
 here, because it does NOT show up as a slow row. Twelve rows run at width 1
 idle and at width 3 with two extra CPU hogs were **1.06x** slower in wall time
@@ -946,7 +946,7 @@ With the ROM in place: `int0sweep` **ok, 199.0 s** — a broad UI session with
 INT 0 armed, on the kernel 745 bytes lighter, and nothing fired. `fillpat` and
 `icoclip` re-run and pass. `dskwstage` is E2.
 
-**CLOSED — `docs/plans/completed/SOAK-PARALLEL.md` §5.** The audit was taken row by row and
+**CLOSED — `docs/plans/SOAK-PARALLEL.md` §5.** The audit was taken row by row and
 **no registered row made the case**: `fillpat` and `icoclip` call a primitive
 through the debugger over memory they zeroed themselves, `int0sweep` traps INT
 0 with a breakpoint that fires before any ROM handler runs, and E2 above
@@ -1231,7 +1231,7 @@ noticed.
 
 # F. What the parallel-soak work found
 
-`docs/plans/completed/SOAK-PARALLEL.md` is the record. Its §1 is the finding that matters to
+`docs/plans/SOAK-PARALLEL.md` is the record. Its §1 is the finding that matters to
 every entry above: **contention does not make a row slow, it makes it less
 thorough** — 118 waits in each arm at the same median HOST cost of 2.2 s and a
 GUEST cost of 7.3 s against 5.9 s, up to −37% per script. So the wall times
@@ -1327,7 +1327,7 @@ pass 2's first bisect.
 tests/msegnomem.py`, `mseg` is not in `all`, and the row never built it — so it
 died in `os88marty.launch` on a missing `build/mseg.o88` on any tree where
 nobody had typed that by hand. B4's shape: an ABSENT gate reading as a failing
-one. Building `mseg` into its own tree (`docs/plans/completed/SOAK-PARALLEL.md` §8.6) is what
+one. Building `mseg` into its own tree (`docs/plans/SOAK-PARALLEL.md` §8.6) is what
 finally got a verdict out of it, and the verdict is:
 
 ```

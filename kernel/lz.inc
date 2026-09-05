@@ -1,5 +1,5 @@
 ; =============================================================================
-; lz.inc - decompression (docs/plans/completed/O88-COMPRESSION-PLAN.md, SPEC.md 20.13)
+; lz.inc - decompression (docs/plans/O88-COMPRESSION-PLAN.md, SPEC.md 20.13)
 ;
 ; ONE routine, two formats, and which one a file uses is a bit in its header.
 ; `tools/os88lz.py` is the REFERENCE implementation and this is the copy: a
@@ -42,7 +42,7 @@
 
 ; What a region must have ABOVE image+bss so a decoder reading its own source
 ; from the top of that region never overtakes its write pointer (SPEC.md 20.13,
-; docs/plans/completed/O88-COMPRESSION-PLAN.md 7.2). Every shipped package measures 2 and
+; docs/plans/O88-COMPRESSION-PLAN.md 7.2). Every shipped package measures 2 and
 ; incompressible data measures 17 - LZ4 EXPANDS what does not compress - so 64
 ; is a ceiling and not an estimate. **MIRRORED by os88pkg.py's
 ; PKG_COMP_MARGIN**, which is the side that refuses a file needing more.

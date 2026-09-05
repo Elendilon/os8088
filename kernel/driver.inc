@@ -116,7 +116,7 @@ DRV_MAX     equ 4               ; **kern_small HAS NO RAM DISK** (SPEC.md
 ; the first (SPEC.md 51.2.1).
 DRVC_SOUND  equ 1               ; fills the FM and STREAM tiers (SPEC.md 34)
 DRVC_DISK   equ 2               ; block volumes: hard disks (SPEC.md 51.8)
-DRVC_NET    equ 4               ; the parallel link (docs/plans/NET-PLAN.md). A
+DRVC_NET    equ 4               ; the parallel link (docs/plans/completed/NET-PLAN.md). A
                                 ; SECOND block-serving class beside DRVC_DISK,
                                 ; which is what DV_CLASS exists for
 DRVC_RETIRED3 equ 3             ; WAS the serial monitor's, and the driver is
@@ -221,7 +221,7 @@ DRV_H_DSV   equ 15              ; byte: THE DSV_* TABLE LENGTH THIS DRIVER WAS
                                 ; way. It is the dispatcher's pad byte, which
                                 ; nothing has ever read
 DRV_H_BSSP  equ 31              ; byte: THE BSS SIZE IN PARAGRAPHS
-                                ; (docs/plans/completed/O88-COMPRESSION-PLAN.md 12.6). This
+                                ; (docs/plans/O88-COMPRESSION-PLAN.md 12.6). This
                                 ; file's banner used to say a driver has no
                                 ; bss and its zeroed data ships on the floppy,
                                 ; and measured that was 6,722 bytes of
@@ -957,7 +957,7 @@ drv_tab:
     db 0
 %endif
 
-    dw PKG_DISP, 0              ; row 4: the parallel link (docs/plans/NET-PLAN.md).
+    dw PKG_DISP, 0              ; row 4: the parallel link (docs/plans/completed/NET-PLAN.md).
     dw drv_f_net, drv_t_net     ; LAST, because it is the least used of the
     dw 0, 0                     ; five and the page shows four (SPEC.md 31.1);
     db DRVC_FILE                ; it keeps bit 3, which is where appending put
@@ -1555,7 +1555,7 @@ drv_svc_call_x:
 ; the volume row while BX still points at it. It was drv_fptr2/drv_fseg2 -
 ; the DISK class - named outright, which is right while one class serves
 ; blocks and silently wrong the moment two do: a network volume's sectors
-; would have gone to the hard-disk driver (docs/plans/NET-PLAN.md 2.1).
+; would have gone to the hard-disk driver (docs/plans/completed/NET-PLAN.md 2.1).
 ; -----------------------------------------------------------------------------
 drv_blk_call_x:
     or bp, bp
@@ -2634,7 +2634,7 @@ drv_check:
                                             ; talking about another file.
                                             ; EQUAL is a plain driver and
                                             ; GREATER is a COMPRESSED one
-                                            ; (docs/plans/completed/O88-COMPRESSION-PLAN.md
+                                            ; (docs/plans/O88-COMPRESSION-PLAN.md
                                             ; 12.6) - which drv_expand turns
                                             ; into the image, and a stream that
                                             ; does not decode is refused there,
@@ -2658,7 +2658,7 @@ drv_check:
 
 ; -----------------------------------------------------------------------------
 ; drv_expand - turn a compressed driver image into the real one (module
-;              internal; docs/plans/completed/O88-COMPRESSION-PLAN.md 12.6, SPEC.md 20.13)
+;              internal; docs/plans/O88-COMPRESSION-PLAN.md 12.6, SPEC.md 20.13)
 ; in:  BX = the row with DRVR_SEG/DRVR_KB live, BP = the file's byte size
 ; out: CF=0 - the row names the image, compressed or not. CF=1 - refused, and
 ;      the row still names the claim the caller's .badfree will release
@@ -2754,7 +2754,7 @@ drv_expand:
 
 ; -----------------------------------------------------------------------------
 ; drv_bss - zero the bss the file did not carry, and give the slack back
-;           (module internal; docs/plans/completed/O88-COMPRESSION-PLAN.md 12.6)
+;           (module internal; docs/plans/O88-COMPRESSION-PLAN.md 12.6)
 ; in:  BX = the row, with DRVR_SEG and DRVR_KB live; BP = the file's bytes
 ; out: nothing. The flags are NOT an answer - a shrink that is refused simply
 ;      leaves the claim as big as it was asked for, which is correct and

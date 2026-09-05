@@ -192,7 +192,7 @@ it cannot stand in for a capture.
 **That is this tree's own recurring trap wearing new clothes**: a harness that
 is kinder than the thing it stands in for hides exactly the bugs it exists to
 find — `tests/lptlink/partner.py` read `NC_BYE` as "carry on" and a protocol
-bug survived a whole scripted session looking perfect (see docs/plans/NET-PLAN.md
+bug survived a whole scripted session looking perfect (see docs/plans/completed/NET-PLAN.md
 about `tests/lptlink`). A parser developed against a browser's tidied output
 will meet the server's real output on the 5150.
 

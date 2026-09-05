@@ -16,7 +16,7 @@ file does not repeat either, it says what is LEFT and how to run it.
 
 Two companions matter as much as those:
 
-* **`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md`** — thirteen open defects the pass-2 soak
+* **`docs/plans/HANDOFF-SOAK-FINDINGS.md`** — thirteen open defects the pass-2 soak
   found, none of them a kernel regression. Open it BEFORE diagnosing any test
   failure of your own, because most of them are already in it.
 * **`docs/KERNEL-MEMORY.md`**, and specifically "Size pass 2 gave five rungs
@@ -144,7 +144,7 @@ kept verbatim, with what actually happened underneath each.
 * **`splash.inc`** — the only shipped file neither pass swept, and it compiles
   to **0 `.text`, 0 `.cold` and 2,015 `.boot2`**. `.boot2` is the stage-2 blob:
   it is disk and boot time, not resident RAM, and it is not inside
-  `KERN_BUDGET` at all. Worth a look for BOOT time (`docs/plans/BOOT-PERF-PLAN.md`),
+  `KERN_BUDGET` at all. Worth a look for BOOT time (`docs/plans/completed/BOOT-PERF-PLAN.md`),
   not for this pass's guard. **Careful there**: `SPL_RESIDENT` gates what the
   splash may call, and `tests/unit/t_resident.py` exists because one converted
   site put a boot on a jump into sectors the floppy had not delivered.
@@ -155,7 +155,7 @@ kept verbatim, with what actually happened underneath each.
   > the pass was a build break that the boot canary would have passed
   > (`docs/plans/completed/HANDOFF-KERNEL-SIZE-P4.md` §1).
 * **`F-sched-14` and `F-sched-12`** — refused by the owner in pass 2, because
-  the scheduler is about to be redesigned (`docs/plans/SCHED-IDLE-PLAN.md`). Do not
+  the scheduler is about to be redesigned (`docs/plans/completed/SCHED-IDLE-PLAN.md`). Do not
   re-propose them.
 * **`F-crosscut-13`** (a call layer under a published slot for 9 bytes) and
   **`F-assoc-18`** (`imgpara` derives from `.text + .bss` together, so moving
@@ -196,7 +196,7 @@ Two consequences for this pass:
 > taking away the shared DESTINATION rather than serialising access to it: a
 > row that wants a knob kernel builds into `build/trees/<knob>-<hash>/` now
 > (`tools/os88build.py`), so two agents in one checkout no longer collide and
-> there is nothing left to hold a mutex over. `docs/plans/completed/SOAK-PARALLEL.md` §8 is the
+> there is nothing left to hold a mutex over. `docs/plans/SOAK-PARALLEL.md` §8 is the
 > account.
 >
 > The one hazard that survives is narrower than this section's: **`make` in the
@@ -256,7 +256,7 @@ gate. It runs in **three passes**, and the split is not optional.
 
 ```sh
 # prerequisites - the suite SKIPS what a box cannot answer, but only if the
-# artefact exists to be found (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B4)
+# artefact exists to be found (docs/plans/HANDOFF-SOAK-FINDINGS.md B4)
 tools/setup-cc.sh            # once; nothing in `all` needs it
 make wiredisk                # `all` deliberately does not build it (§78.9)
 make                         # AFTER any commit - see the lock above
@@ -302,7 +302,7 @@ throughput, it slows the other eight. Going wider is slower, not broken: guest
 cycle counts, `disk()` counts and pixel comparisons stay exact at any
 oversubscription because they are counted rather than timed. What loses slack is
 host wall-clock — `settle`, `until`, a row's timeout — which is
-`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` **B5**, and B5 is why `dispmine` and `tmowner`
+`docs/plans/HANDOFF-SOAK-FINDINGS.md` **B5**, and B5 is why `dispmine` and `tmowner`
 fail in the wide lane and pass alone.
 
 ### Expect it to take about 2.8 hours
@@ -470,7 +470,7 @@ machine has started.**
 
 ## 7. Work that does not collide, if a second session is free
 
-1. **The soak findings queue** — `docs/plans/completed/HANDOFF-SOAK-FINDINGS.md`, thirteen
+1. **The soak findings queue** — `docs/plans/HANDOFF-SOAK-FINDINGS.md`, thirteen
    items. B1 (install-then-boot in one instance), B3 (`cold_span`'s `.ovlw`
    bound, one line), B5/B6 (the host-timing waits) and B9 (the leaked QEMU) all
    make this pass's own soak cheaper and none of them touches kernel bytes.

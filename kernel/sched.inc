@@ -568,7 +568,7 @@ sched_unhook:
     ret
 
 ; -----------------------------------------------------------------------------
-; sch_wake_ui - make the UI task ready (PROBE, docs/plans/SCHED-IDLE-PLAN.md 6.3)
+; sch_wake_ui - make the UI task ready (PROBE, docs/plans/completed/SCHED-IDLE-PLAN.md 6.3)
 ;
 ; One byte store, atomic on an 8086, so an ISR may do it with nothing held.
 ; Task 0 is the UI task and its record is at offset 0 of sch_tasks, so this is
@@ -1024,7 +1024,7 @@ task_yield:
 ; The idiom stood in six places and was spelled three different ways.  Five
 ; are now calls; THE SIXTH IS NOT AND MUST NOT BE - sch_switch's copy is on
 ; the switch path, where a near call and ret (~43 clocks) is 0.05% of an idle
-; machine but ~1.4% at the 1,541 switches a second docs/plans/SCHED-IDLE-PLAN.md
+; machine but ~1.4% at the 1,541 switches a second docs/plans/completed/SCHED-IDLE-PLAN.md
 ; 6.1.2 measures with an app open.  That is why this saves what it saves.
 ;
 ; PLACEMENT: outside the sch_isr -> sch_switch -> sch_resume fall-through run.

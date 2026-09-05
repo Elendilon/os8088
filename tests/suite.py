@@ -81,7 +81,7 @@ class Row:
         # makes its own artefact mid-run rewrites build/ under every other row
         # reading it, and that is not a theory: the first full soak of this
         # work lost nine rows to a four-minute window opened by one row's
-        # `make` (docs/plans/completed/SOAK-PARALLEL.md 12). Declaring the artefact moves the
+        # `make` (docs/plans/SOAK-PARALLEL.md 12). Declaring the artefact moves the
         # build to a moment when nothing else is running.
         #
         # It also ends the OTHER failure this caused, which reads as a broken
@@ -95,7 +95,7 @@ class Row:
         # cannot share four cores with two other guests: that is not a flaky
         # row, it is the wrong measurement. Neither can a row whose clicks are
         # paced by a HOST-timed settle, because how much guest time a settle
-        # covers is then a property of the box (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md
+        # covers is then a property of the box (docs/plans/HANDOFF-SOAK-FINDINGS.md
         # B5).
         #
         # It used to be spelled by EXCLUDING those rows from the wide run and
@@ -177,7 +177,7 @@ FAST = [
         "retyped; this guards the ones a HUMAN did. FULL rather than fast: a stale comment misleads a reader, it does not break a build, and the fast tier runs on every `make` against a 30s budget this row is a sixth of",
         needs=()),
     Row("lzfmt", "fast", py("tests/unit/t_lzfmt.py"), 4.0,
-        "docs/plans/completed/O88-COMPRESSION-PLAN.md wave 0: both compression formats "
+        "docs/plans/O88-COMPRESSION-PLAN.md wave 0: both compression formats "
         "round-trip. tools/os88lz.py is the REFERENCE and the kernel's "
         "decoders are the copy, so this is what makes that claim mean "
         "anything. The corpus is small and FIXED on purpose - an empty file, "
@@ -293,7 +293,7 @@ FAST = [
         "`ps2mouse` on the pre-merge gate with a write-lock error naming "
         "build/os8088.img: the cost of the leak is paid by an unrelated row, "
         "hours later, wearing a message about the wrong subject "
-        "(docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B9)"),
+        "(docs/plans/HANDOFF-SOAK-FINDINGS.md B9)"),
     Row("canary", "fast", py("tests/unit/t_canary.py"), 0.1,
         "SPEC.md 18.93.1's canary offset re-derived from every shipped image's "
         "own BPB: it has to name a sector a transfer run reads AFTER the head "
@@ -348,7 +348,7 @@ FAST = [
         "no row names a machine whose ROM this tree has not got. MartyPC "
         "falls back to glabios_pc when a romset is absent and says NOTHING, "
         "so nine rows spent months reporting passes about a machine they "
-        "never booted (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md E3). It also checks each "
+        "never booted (docs/plans/HANDOFF-SOAK-FINDINGS.md E3). It also checks each "
         "GLaBIOS twin still differs from its IBM original in `rom_set` alone "
         "- a drifted twin measures the config's difference and calls it the "
         "kernel's"),
@@ -1808,7 +1808,7 @@ SOAK = [
         "How many rows of the SECOND monitor can a straddling window use?",
         needs=("marty",), serial=True),
     Row("lzdrv", "soak", py("tests/lzdrv.py"), 45.0,
-        "docs/plans/completed/O88-COMPRESSION-PLAN.md 12.6: a COMPRESSED DRIVER loads, "
+        "docs/plans/O88-COMPRESSION-PLAN.md 12.6: a COMPRESSED DRIVER loads, "
         "expands and answers. RAMDISK.DRV is the subject because it has both "
         "halves of wave 3 - a 2,416-byte bss drv_bss re-makes and a body "
         "drv_expand unpacks - so one file exercises the whole path. The image "
@@ -2413,7 +2413,7 @@ SOAK = [
         # ...and SAYS SO to the runner, not only to the reader. `all` does not
         # build build/gfxbench.o88, so this row failed at HEAD and at the base
         # alike and was written up as a pre-existing defect
-        # (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md F1). With the artefact present it
+        # (docs/plans/HANDOFF-SOAK-FINDINGS.md F1). With the artefact present it
         # passes: 256 plane-rows, 2,048 bytes, all as given. B4's shape again -
         # the suite modelling tools rather than artefacts.
         needs=("marty", "nasm"), serial=True,

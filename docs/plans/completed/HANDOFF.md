@@ -145,7 +145,7 @@ the word means across its four readers before adding a clamp.
 ### 3.8 Deferred by decision, not forgotten
 
 - **A package-visible purgeable ABI** — handle-based, gfx-lock-only.
-  docs/plans/MEMORY-PLAN.md §3.1. Paint's undo image is the wanted consumer and the
+  docs/plans/completed/MEMORY-PLAN.md §3.1. Paint's undo image is the wanted consumer and the
   user specifically liked it: all the benefit, none of the loss.
 - **Retrofitting the three existing kernel caches** (`MEM_K_ASC`,
   `MEM_K_FATW`, `MEM_K_SAVE`) as purgeable — each is a tag change plus one

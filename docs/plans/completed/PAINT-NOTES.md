@@ -191,7 +191,7 @@ thing, not several:
 
 With those three, every liberty in this section reduces to two API calls and
 the memory map stops being a thing two pieces of software have to agree about
-by reading each other's source. `docs/plans/MEMORY-PLAN.md` Step D (packages into
+by reading each other's source. `docs/plans/completed/MEMORY-PLAN.md` Step D (packages into
 their own segments) is the adjacent step and wants the same allocator.
 
 ## The three capabilities whose absence cost the most

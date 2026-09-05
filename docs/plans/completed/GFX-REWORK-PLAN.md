@@ -1,6 +1,31 @@
 # The graphics layer rework — what is known, and what to decide
 
-**Status: DESIGN NOT STARTED.** This is a handoff, not a plan that has landed.
+> **COMPLETED, to the extent it is going to be taken. The header below said
+> "DESIGN NOT STARTED" long after it had stopped being true** - §3's own boxes
+> say Phase 1 is DONE and Phase 2 is done, and §8 lists what is in the tree.
+> That is the exact failure this file's own §6 is about, one level up.
+>
+> * **Phase 1 - BUILT** (SPEC.md §39.3.1, §39.3.2), *and its premise was mostly
+>   wrong*: of the four supposed per-call invariants only the row base was one.
+>   Tabulating it and inlining the deferred hide took `gfx_fill`'s floor
+>   2,650 -> 2,405 and the fifteen-call title bar 40.8 -> **40.0 ms**, about
+>   **9%**, for 114 bytes of `.text` and 256 of `.lowbss`.
+> * **Phase 2 - BUILT** (SPEC.md §2.6.1, PERFORMANCE.md Set 90), *and it turned
+>   out to be a SIZE change rather than a speed one*: the shim it removes is 67
+>   cycles, not the "far call plus a near call plus two returns" this document
+>   priced it at. 340 bytes. **The far call itself is still there.**
+> * **Phase 3 - NOT TAKEN.** The segment proposal (§4) is **UN-COSTED and
+>   PINNED** - a costing lived here for three days and was withdrawn with the
+>   set behind it (PERFORMANCE.md Set 95) - and §5's primitives were never
+>   started. This is the part that is not being done.
+>
+> **Read PERFORMANCE.md Sets 91 and 92 with the rest**: they are the two that
+> reversed this document's own conclusion. The file is kept for §6, which is
+> the register of what was asserted here and turned out to be wrong, and for
+> §4's pin, so the withdrawn costing is not re-derived.
+
+**Status (as written, and superseded by the box above): DESIGN NOT STARTED.**
+This is a handoff, not a plan that has landed.
 Everything here was learned while trying to make one title bar draw faster
 (SPEC.md §11.101, PERFORMANCE.md Sets 86–88), and the conclusion of that
 attempt is that the title bar was the wrong subject: **the cost is in the

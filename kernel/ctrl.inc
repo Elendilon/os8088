@@ -440,7 +440,7 @@ cp_hide:  db 0
 ; desktop. Six static items plus the THREE drivers that publish a page
 ; (SPEC.md 31.9 - the hard disk's, the debug monitor's and the network link's;
 ; the sound driver publishes none) is exactly nine. The count was two until
-; NET.DRV (docs/plans/NET-PLAN.md), and growing this constant is what the guard
+; NET.DRV (docs/plans/completed/NET-PLAN.md), and growing this constant is what the guard
 ; below is FOR: it is a build-time %error, so the third page could not be
 ; added without the window being made to hold it. CP_ITEMS and not [cp_nst],
 ; because the guard has to hold on the machine that shows every row.

@@ -1,5 +1,18 @@
 # FTP throughput — where it stands, and what is left
 
+
+> **COMPLETED - taken as far as it is going for now.** The server moved from
+> **7 to 15 KB/s** and the remaining candidates in §5 are a menu for a future
+> round, not an open commitment.
+>
+> Two things here are worth more than the throughput number and are why the
+> file is kept: the **four things that did NOT work**, so they are not retried,
+> and where the time actually goes now - **57% of it is ABOVE the driver**,
+> which is not where the next person would look.
+>
+> Every number came off **the 5150** unless it says otherwise; QEMU numbers are
+> labelled and are never times (PERFORMANCE.md Part 3).
+
 The state of the FTP server's speed after one long session on it, written so
 the next round starts from evidence instead of from scratch. Every number here
 came off **the 5150** unless it says otherwise; QEMU numbers are labelled and

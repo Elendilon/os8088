@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - drivers/net/nwslv.inc
 ;
-; THE SOCKET COMMANDS, SERVED (SPEC.md 62.11.1, docs/plans/NET-PLAN.md 5)
+; THE SOCKET COMMANDS, SERVED (SPEC.md 62.11.1, docs/plans/completed/NET-PLAN.md 5)
 ;
 ; netsock.inc's NW_* seen from the far end of the cable. The master encodes
 ; them; this decodes, hands each to the SAME socket verb ETHER.DRV serves

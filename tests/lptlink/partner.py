@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The far end of the LapLink cable, played by the HOST (SPEC.md 62.10.3).
 
-docs/plans/NET-PLAN.md 9 assumed nothing here could be driven without two machines,
+docs/plans/completed/NET-PLAN.md 9 assumed nothing here could be driven without two machines,
 and that is still true of the WIRE's verdict. It is not true of the os8088
 half. MartyPC's ParallelController stores what is written to the status
 register (`status_register_write`) and `status_register_read` has no side
@@ -24,7 +24,7 @@ THE WIRE, as drivers/net/lplink.inc drives it:
   A byte is LOW NIBBLE FIRST (lp_sbyte).
 
 WHY IT MAY BE STEPPED AT ALL: every deadline in the transport is in TICKS and
-not in polls - docs/plans/NET-PLAN.md 9.1's third defect, found by linksim.py and
+not in polls - docs/plans/completed/NET-PLAN.md 9.1's third defect, found by linksim.py and
 fixed before any of this shipped. So a partner that pauses the machine
 between nibbles is inside the contract rather than getting away with
 something: the guest's clock does not advance while it is paused, so LP_TMO
@@ -472,7 +472,7 @@ class Partner(object):
 
         That is not a fault to fix in the slave - it is what the dwell is FOR,
         and a real master sweeps ports and re-sends for exactly this reason
-        (docs/plans/NET-PLAN.md 1.4.5: the slave dwells and the master sweeps). So
+        (docs/plans/completed/NET-PLAN.md 1.4.5: the slave dwells and the master sweeps). So
         this end sweeps too. `patience` is per attempt and deliberately short:
         a reply that is coming at all is a few hundred thousand steps away.
         """

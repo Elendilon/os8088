@@ -290,7 +290,7 @@ def press(m, ch):
 # settle, so the file still works if that call is ever moved.
 #
 # MEASURED: this one line was 137.9s of the ten-row profile in
-# docs/plans/completed/SOAK-PARALLEL.md 11 - 60 settles at 2.3s - and the single most
+# docs/plans/SOAK-PARALLEL.md 11 - 60 settles at 2.3s - and the single most
 # expensive wait site in the suite.
 _WATCH = [None]
 

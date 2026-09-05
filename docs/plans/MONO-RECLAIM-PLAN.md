@@ -1,6 +1,39 @@
 # The VGA code a mono machine cannot use — reclaimed on `kern_small`, reused on `kern_big`
 
-**A handoff. Nothing here is built.** What is measured is the size and shape of
+> **STILL OPEN - and "nothing here is built" below is no longer true.** The
+> RECLAIM half happened; the REUSE half is what is outstanding, and it is the
+> half this file is still open for.
+>
+> **Built since:**
+> * **Step 1 - `kern_small` gates VGA off entirely** (§2.3): `.text`
+>   44,503 -> **42,698** (−1,805), `KERN_SIZE` −**2,048**, four 512-byte rungs,
+>   straight off the heap floor. `KERN_SMALL_BUDGET` was deliberately **not**
+>   lowered with it - that is a conversation, per CLAUDE.md's rule - so the
+>   figure is now defended by 8,704 bytes instead of 6,656.
+> * **`sw_col`** (SPEC.md §39.25), which is §5.3's first ranked row.
+> * **The lost character on a straddle** (§6) - a DEFECT rather than a speed
+>   problem, and no glyph cache would have fixed it. Built as
+>   SPEC.md §39.14.11; `docs/plans/completed/HANDOFF-FONTCHAR-SEAM.md` is its
+>   own record now. It was separated from the budget steps deliberately and
+>   shipping it moved none of them.
+> * **The row table is REFUSED** (§4.0), and it was built, measured at exactly
+>   the predicted +512, and reverted.
+>
+> **What is OUTSTANDING is §5.5's question, and it has not been answered: the
+> RAM that is mono-only has no customer.** `kern_small` is on a diet rather
+> than a budget - bytes returned to it stay returned (SPEC.md §39.27.4), so
+> nothing may be spent there at all - and `kern_big` already carries every row
+> of both 1bpp adapters, so the table is not on its menu either. That leaves
+> **one candidate with one consumer**: §5.6's specialised 1bpp inner loops,
+> paid for out of `kern_big`'s in-place hole (§3). It is the only candidate in
+> this file with **no existing code to lift**, so it has to be written before
+> it can be measured.
+>
+> **And §4.4's gap in the evidence is still the gap**: the Hercules reading has
+> never been taken, and it is the adapter with most to gain.
+
+**A handoff. The REUSE half is not built** (the box above says what is). What
+is measured is the size and shape of
 the VGA-only code, and what each of the two kernels can do with it — which is
 **not the same thing**, and that split is the whole structure of this file.
 
@@ -71,7 +104,7 @@ because that build simply does not drive the card.
   a mode owns every pixel: `apps/tank/tkraster.inc` has *"not one kernel drawing
   slot"* in it, so during play it never enters `gfx_rowbase`, `sw_col`, `sw_rect`
   or `sw_blit_row`. If a game of that shape is the target, the work is
-  docs/plans/GFX-FSX-PLAN.md's, not this file's.
+  docs/plans/completed/GFX-FSX-PLAN.md's, not this file's.
 - **The lost character on a straddle is not a speed problem and the glyph cache
   would not fix it (§6).** The character is not drawn slowly — it is **not drawn
   at all**, by one `ja .done` in `font_char` under SPEC.md §39.14.2's whole-cell
@@ -603,7 +636,7 @@ target. `apps/tank/tkraster.inc`, in its own header:
 An fsx bracket that has set a mode owns every pixel: TANK ATTACK carries its own
 Bresenham, its own dirty-span tracking and its own per-adapter blit, and during
 play it never enters `gfx_rowbase`, `sw_col`, `sw_rect` or `sw_blit_row`. **The
-work that helps it is docs/plans/GFX-FSX-PLAN.md's, not this file's** — and that file
+work that helps it is docs/plans/completed/GFX-FSX-PLAN.md's, not this file's** — and that file
 already names the shape of it, including a `gfx_line` batch form priced and
 deliberately not built.
 
@@ -611,7 +644,7 @@ deliberately not built.
 kernel*: the screen saver (full-screen, `sw_rect`/`sw_col`/`sw_plane_op` ~12%),
 Paint's live canvas (`sw_blit_row` 27.7%), WIREFRAME (`sw_col.row` 10.0%), and
 windowed games — though Missile Command is **scheduler-bound at ~22%** before it
-is draw-bound, so a windowed real-time game is a docs/plans/SCHED-IDLE-PLAN.md
+is draw-bound, so a windowed real-time game is a docs/plans/completed/SCHED-IDLE-PLAN.md
 question first.
 
 ### 5.4.5 …so the hole has no graphics customer, and that is the answer
@@ -845,7 +878,7 @@ scenarios is.
 
 **And one thing that is NOT on this list.** If the goal is a game like TANK
 ATTACK, none of steps 1–4 reaches it (§5.4). That work is
-docs/plans/GFX-FSX-PLAN.md's, and it should be picked up there rather than smuggled
+docs/plans/completed/GFX-FSX-PLAN.md's, and it should be picked up there rather than smuggled
 in here — this file's options all live on the kernel's side of a boundary that
 an fsx bracket has already crossed.
 

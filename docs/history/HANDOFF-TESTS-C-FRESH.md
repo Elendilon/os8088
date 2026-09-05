@@ -48,7 +48,7 @@ measurement is 158 s. **Check the saved picture for the band of garbage** — if
 there, this is that defect back, and the row is doing exactly its job. If the picture is
 clean but the walk is slow, it is a different defect wearing the same clothes.
 
-`docs/plans/PAINT-STROKE-PLAN.md` is the design record and carries three refusals, including
+`docs/plans/completed/PAINT-STROKE-PLAN.md` is the design record and carries three refusals, including
 block-granular undo being built and measured **twice** before the third placement
 worked. Read §42.8.3–§42.8.8.2 before changing anything in `pt_ucopy`'s neighbourhood —
 the amortisation base (calls, then calls again, then CHORDS) is the whole lesson, and

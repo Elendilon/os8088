@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A COMPRESSED FILE is read transparently (SPEC.md 20.14).
 
-docs/plans/completed/O88-COMPRESSION-PLAN.md 13 wave 5. The disk carries one document twice -
+docs/plans/O88-COMPRESSION-PLAN.md 13 wave 5. The disk carries one document twice -
 PLAIN.TXT as it is, PACKED.TXT inside a 'CZ' wrapper - so the package's own
 assertions are the two of them compared with each other, and this script only
 has to read the six verdicts out of its image.

@@ -270,7 +270,7 @@ it cannot perturb the run; running rows beside it, or a `make`, can and does.
 Every row that reports is journalled, so `start --resume` after a container is
 reclaimed re-runs only what did not finish.
 
-**Before deciding a failure was contention, read `docs/plans/completed/SOAK-PARALLEL.md` §1.**
+**Before deciding a failure was contention, read `docs/plans/SOAK-PARALLEL.md` §1.**
 Measured here: twelve rows at width 3 with two extra CPU hogs were 1.06x
 slower than idle and 12/12 passed in both arms. Contention does not make a row
 slow — it makes it less thorough, at the same wall time, because the guest

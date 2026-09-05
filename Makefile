@@ -331,7 +331,7 @@ ifneq ($(VGADIRTY),)
 VIDDEF += -DVGA_DIRTY
 endif
 
-# DISKCNT=1 compiles in the three disk counters of docs/plans/DISK-PERF-PLAN.md 2:
+# DISKCNT=1 compiles in the three disk counters of docs/plans/completed/DISK-PERF-PLAN.md 2:
 # mounts, sectors transferred and int 13h data calls. They exist to answer
 # "how much work is a directory change", which QEMU can measure exactly even
 # though it cannot measure how long it takes (PERFORMANCE.md). Folded into
@@ -1037,7 +1037,7 @@ KZIP := 1
 endif
 
 # COMPRESS= picks which decompressors the kernel carries
-# (docs/plans/completed/O88-COMPRESSION-PLAN.md 12.7, SPEC.md 20.13.6).
+# (docs/plans/O88-COMPRESSION-PLAN.md 12.7, SPEC.md 20.13.6).
 #
 # **`both` IS THE DEFAULT AND SHIPS**, and the disks are still LZ4. That looks
 # like paying for something nothing uses, and it is not: the 181 bytes buy the
@@ -1334,7 +1334,7 @@ PKGSBDEF := $(if $(SBDRAGOFF),-DSBDRAGOFF)$(if $(SBRATE), -DSB_RATE=$(SBRATE))
 SBSTAMP := $(BUILD)/.sbpkg$(if $(SBDRAGOFF),-off$(SBDRAGOFF))$(if $(SBRATE),-r$(SBRATE))
 
 # PKGZ=lz4|lzb COMPRESSES EVERY SHIPPED PACKAGE AND DRIVER
-# (docs/plans/completed/O88-COMPRESSION-PLAN.md 13 wave 2 and 12.6, SPEC.md 20.13). It is the
+# (docs/plans/O88-COMPRESSION-PLAN.md 13 wave 2 and 12.6, SPEC.md 20.13). It is the
 # fleet-wide form of the per-package `--compress`, and it uses `--compress-if`
 # rather than `--compress` deliberately: three of the two dozen are legitimately
 # better off plain - C64 has PARTS, HELLO's in-place layout would make the
@@ -1867,7 +1867,7 @@ test-full: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
 # whole-tier command: it preflights the capabilities first (a skip is the box
 # declining to answer, not a pass), sizes the lanes off the box, runs
 # detached, and journals every row so a reclaimed container resumes rather
-# than restarts. docs/plans/completed/SOAK-PARALLEL.md is the account.
+# than restarts. docs/plans/SOAK-PARALLEL.md is the account.
 test-soak: $(IMG) $(IMG120) $(IMG720) $(IMG360) \
            $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
            $(MEDIAIMG360)
@@ -3052,7 +3052,7 @@ $(BUILD)/hdd.bin: drivers/hdd/hdd.asm apps/os88ui.inc drivers/hdd/hddabi.inc dri
 $(BUILD)/hdd.drv: $(BUILD)/hdd.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/hdd.bin -o $@
 
-# NET.DRV - a LapLink parallel cable as a block volume (docs/plans/NET-PLAN.md stage
+# NET.DRV - a LapLink parallel cable as a block volume (docs/plans/completed/NET-PLAN.md stage
 # 1). Its transport is drivers/net/lplink.inc, which tests/lptlink includes
 # too, so the thing PERFORMANCE.md Part 9 Set 39 measured is the thing that
 # ships. OS88NET.COM is the other end of the cable: a DOS program for the FAR
@@ -3104,7 +3104,7 @@ $(BUILD)/vmmouse.drv: $(BUILD)/vmmouse.bin tools/os88drv.py
 # RAMDISK.DRV - a DRVC_FILE volume with no hardware behind it (SPEC.md 62.9),
 # and the FILE REDIRECTOR'S HARNESS: every branch site the redirector added to
 # the kernel runs on a cycle-accurate 8088 in a container, which is the one
-# thing block mode never had (docs/plans/NET-PLAN.md 2.2.1). It ships because that is
+# thing block mode never had (docs/plans/completed/NET-PLAN.md 2.2.1). It ships because that is
 # the serial monitor's argument (SPEC.md 58) - a knob kernel is a different
 # binary, so what you tested is not what ships - and it costs a machine that
 # never ticks it one
@@ -3554,7 +3554,7 @@ $(BUILD)/spantest.img: $(BUILD)/spantest.o88 tools/os88disk.py
 spantest: $(BUILD)/spantest.img
 
 # LZDRV: the gate on loading a COMPRESSED DRIVER
-# (docs/plans/completed/O88-COMPRESSION-PLAN.md 13 wave 3b). The shipped 360KB system disk
+# (docs/plans/O88-COMPRESSION-PLAN.md 13 wave 3b). The shipped 360KB system disk
 # with ONE file swapped - RAMDISK.DRV compressed. It is the right subject
 # because it has a real bss (2,416 bytes) as well as a compressible body, so
 # drv_expand and drv_bss are both exercised on one file, and because
@@ -3580,7 +3580,7 @@ lzdrvtest: $(BUILD)/lzdrv360.img $(BUILD)/drvcall360.img
 
 
 # LZLOAD: the gate on LOADING a compressed package (SPEC.md 20.13,
-# docs/plans/completed/O88-COMPRESSION-PLAN.md 13 wave 2). Three packages on one scratch disk:
+# docs/plans/O88-COMPRESSION-PLAN.md 13 wave 2). Three packages on one scratch disk:
 # two compressed with the format the default kernel carries, and one with the
 # format it does NOT - because "a format this build lacks is refused, not run"
 # is a claim in 20.13.3 and was untested until something shipped a file in it.
@@ -3612,7 +3612,7 @@ $(BUILD)/lzload360.img: $(LZCDIR)/calc.o88 $(LZCDIR)/mines.o88 \
 lzloadtest: $(BUILD)/lzload360.img
 
 # LZFENCE: the gate on OSAPI_DECOMP's REFUSALS (SPEC.md 20.13.4,
-# docs/plans/completed/O88-COMPRESSION-PLAN.md 13 wave 1). Like fmtest it is never shipped and
+# docs/plans/O88-COMPRESSION-PLAN.md 13 wave 1). Like fmtest it is never shipped and
 # gets its own scratch image:
 #   make lzfencetest && python3 tests/lzfence.py
 $(BUILD)/lzfence.bin: tests/lzfence/lzfence.asm apps/os88api.inc | $(BUILD)
@@ -3629,7 +3629,7 @@ $(BUILD)/lzfence360.img: $(BUILD)/lzfence.o88 tools/os88disk.py
 lzfencetest: $(BUILD)/lzfence360.img
 
 # lzfile - a compressed FILE, read transparently (SPEC.md 20.14,
-# docs/plans/completed/O88-COMPRESSION-PLAN.md 13 wave 5). The disk carries one document
+# docs/plans/O88-COMPRESSION-PLAN.md 13 wave 5). The disk carries one document
 # TWICE: PLAIN.TXT as it is and PACKED.TXT wrapped by os88lz.py, so every
 # assertion the package makes is the two of them compared with each other:
 #   make lzfiletest && python3 tests/lzfile.py
@@ -7680,7 +7680,7 @@ $(BUILD)/comscan144.img: $(BUILD)/csboot144.bin $(BUILD)/comscan.bin \
 		$(BUILD)/comscan.com
 
 # LPTLINK surveys the machine's PARALLEL ports and then measures the cable
-# between two of them (tests/lptlink) - step 1 of docs/plans/NET-PLAN.md. Same shape
+# between two of them (tests/lptlink) - step 1 of docs/plans/completed/NET-PLAN.md. Same shape
 # as comscan above and for the same reason: NEITHER END IS os8088, so a
 # failure is a failure of the cable or the protocol and cannot be anything
 # else. Run it on both machines - one Slave, one Master, SLAVE FIRST.
@@ -7921,7 +7921,7 @@ MEDIA_DISK_DATA := apps/tracker/beverly.mod
 APPS_DATA_360   := $(filter-out $(MEDIA_DISK_DATA),$(APPS_DATA))
 
 # ...UNLESS THE DISK IS COMPRESSED, and this is the single most visible thing
-# compression buys this project (docs/plans/completed/O88-COMPRESSION-PLAN.md 13.4). BEVERLY.MOD
+# compression buys this project (docs/plans/O88-COMPRESSION-PLAN.md 13.4). BEVERLY.MOD
 # is 116,085 bytes and 114 of a 360KB disk's 354 clusters, which is the whole
 # reason SPEC.md 24.4 built it a floppy of its own; wrapped it is ~42,000 and
 # 42, so with PKGZ set the two-disk split COLLAPSES and the module rides the

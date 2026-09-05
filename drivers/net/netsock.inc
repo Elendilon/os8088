@@ -5,7 +5,7 @@
 ; of it, and between them the kernel has learned nothing about TCP.
 ;
 ; THE SHAPE. os8088 is the master and never receives unsolicited data
-; (docs/plans/NET-PLAN.md 1.3), so a socket verb is one request-and-reply over the
+; (docs/plans/completed/NET-PLAN.md 1.3), so a socket verb is one request-and-reply over the
 ; cable and the far side answers it OUT OF STATE IT ALREADY HAS. It never
 ; goes and waits for the network on our behalf - which is exactly what makes
 ; every verb non-blocking without a queue, a mux, or a framing question about

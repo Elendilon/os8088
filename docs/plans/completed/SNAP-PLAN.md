@@ -1,5 +1,21 @@
 # Byte-boundary text — the windows that do not align their own
 
+
+> **COMPLETED.** The kernel half is built and measured (SPEC.md §11.94), and
+> the open question this document existed to answer - *should a window snap in
+> Y as well* - **is answered NO** in §6, on a measurement rather than a
+> preference: it would gain nothing on any adapter, because the vertical
+> quantum that pays is the BANK COUNT applied to a scroll DELTA and not 8
+> applied to a window origin.
+>
+> The package sweep is closed too, including the row that was ranked largest
+> and **measured and closed without changing it** (Tracker, SPEC.md §45.19).
+>
+> **§6.3 is the one thing here worth carrying forward, and it is not this
+> plan's subject**: the investigation found `gfx_scroll` recomputing a row
+> address per row - a third of its cost on mono. That is an opportunity, not
+> an unfinished commitment, and whoever takes it should re-measure first.
+
 **Status: the KERNEL half is BUILT and measured, and SNAPPING IN Y IS ANSWERED
 - NO, see §6: it would gain nothing on any adapter, and the vertical quantum
 that does pay is the BANK COUNT applied to a scroll DELTA rather than 8 applied

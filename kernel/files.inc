@@ -4522,7 +4522,7 @@ fm_clone_go:
 ;   - one there is no room to work on, after the window has been dropped as
 ;     far as CMZ_WMIN
 ;   - one the encoder could not make smaller, which the measurement says is a
-;     real case and not a defensive one (docs/plans/completed/O88-COMPRESSION-PLAN.md
+;     real case and not a defensive one (docs/plans/O88-COMPRESSION-PLAN.md
 ;     13.11.0.1's BEVERLY.MOD row)
 ;
 ; IT REFUSES NOTHING BY NAME, and that is structural rather than lucky. A

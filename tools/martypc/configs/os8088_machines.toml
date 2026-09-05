@@ -1002,7 +1002,7 @@ overlays = [
     type = "CGA"
     clock_mode = "Dynamic"
 
-# THE PARALLEL-PORT MACHINE (SPEC.md 51, docs/plans/NET-PLAN.md 1.4). The CGA
+# THE PARALLEL-PORT MACHINE (SPEC.md 51, docs/plans/completed/NET-PLAN.md 1.4). The CGA
 # GLaBIOS 5150 with a Centronics card at 0x378, which is the ONLY os8088
 # machine that has one - every other config here leaves the port range
 # unpopulated, so NET.DRV's latch probe correctly finds nothing and refuses
@@ -1016,7 +1016,7 @@ overlays = [
 # finds 0x378 - which is the whole attach path, the publication, the page and
 # the desktop zone. It has NO PARTNER on the other end and there is no way to
 # give it one: the status lines read a constant, so `mst_hello` times out and
-# the page says `No partner`, which is docs/plans/NET-PLAN.md 1.4.4's own
+# the page says `No partner`, which is docs/plans/completed/NET-PLAN.md 1.4.4's own
 # distinction being drawn by the machine rather than by an argument. The WIRE
 # is the 5150's question and `tests/lptlink` is how it is asked.
 #

@@ -413,7 +413,7 @@ SND_OPENF_RING   equ 1           ; ring mode (SPEC.md 34.5): SI = ring base,
                                  ; no clear, and no AL is read - see
                                  ; 11.99.2.1 for why.
 
-; --- decompression (docs/plans/completed/O88-COMPRESSION-PLAN.md 12.1) -----------------------
+; --- decompression (docs/plans/O88-COMPRESSION-PLAN.md 12.1) -----------------------
 ; The two format ids, mirrored from tools/os88lz.py, which is the reference
 ; implementation both this and the kernel copy.
 OSAPI_LZ_LZ4 equ 0

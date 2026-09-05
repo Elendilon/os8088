@@ -305,7 +305,7 @@ def run_install(m, mo, ix, iy):
     # 16 seconds of stillness and gets whatever fraction of the machine's own
     # work a loaded box happens to give it - so under contention the apps
     # phase's pause for a floppy read reads as the end of the install
-    # (docs/plans/completed/SOAK-PARALLEL.md 1). Same signal, same eight readings, the
+    # (docs/plans/SOAK-PARALLEL.md 1). Same signal, same eight readings, the
     # interval and the budget in guest seconds: the pause it must see through
     # is the guest's, not the host's.
     #

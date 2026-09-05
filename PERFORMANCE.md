@@ -327,7 +327,7 @@ then 21,307 B/s. Nothing was wrong with any measurement; the summary table
 simply was not edited when Part 9 moved, and every consumer of it inherited a
 figure **2.9x too pessimistic**. It reached docs/FIELD-MACHINES.md's machine
 register, `sysbench`'s own report text, `trklog.inc`, and a whole plan document
-(docs/plans/NET-PLAN.md) that concluded a parallel cable would be *faster* than the
+(docs/plans/completed/NET-PLAN.md) that concluded a parallel cable would be *faster* than the
 floppy partly on the strength of it.
 
 **So every row in the table above now names the Set it came from**, and that
@@ -1961,7 +1961,7 @@ Three things fall out of it:
 **Two caveats on the whole table.** The scene is reproducible to about nine
 lit pixels and not to the pixel — CGA reads 78,821 / 78,825 / 78,830 across
 three runs of one build, because `new_window` waits on host time
-(`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` B5) — so a few tenths of a percent is noise.
+(`docs/plans/HANDOFF-SOAK-FINDINGS.md` B5) — so a few tenths of a percent is noise.
 And the scene is identical to itself *per adapter*, not across adapters: the
 Display page is hidden on a single-adapter machine (§39.11.1), so the Control
 Panel holds record 0 on CGA and Hercules and the Display page on VGA. Compare
@@ -5107,7 +5107,7 @@ the wrong one — and the second of those was invisible until it was measured.
 
 `tests/lptlink` between the **5150** (Hercules GB101's LPT at **03BC**) and
 the DOS machine (**DIO-500 at 0378**), a LapLink nibble cable between them.
-Two runs, the master role swapped between them. **docs/plans/NET-PLAN.md step 1.**
+Two runs, the master role swapped between them. **docs/plans/completed/NET-PLAN.md step 1.**
 
 **Neither end is os8088**, which is the point: no kernel byte is involved, so
 a result here is a fact about the cable and the protocol and cannot be
@@ -5198,7 +5198,7 @@ docs/FIELD-MACHINES.md.
 
 ### Set 40 — the network drive works, and a third of it is turnaround
 
-**docs/plans/NET-PLAN.md step 2, on the iron**: the 5150 (GB101's LPT at **03BC**)
+**docs/plans/completed/NET-PLAN.md step 2, on the iron**: the 5150 (GB101's LPT at **03BC**)
 against the DOS machine (DIO-500 at **0378**), NET.DRV loaded and
 `OS88NET.COM` serving a 720KB image. The Control Panel reads **Linked, 1440
 sectors** — the image's exact size — a Disk window lists `APPS`, `MEDIA` and
@@ -6213,7 +6213,7 @@ per forced repaint, so counts under about ten say nothing.
 
 ### Set 54 — snapping in Y buys nothing, and the scroll recomputes what it could add
 
-The Y question was left open by Set 53 and `docs/plans/SNAP-PLAN.md` §6. It is
+The Y question was left open by Set 53 and `docs/plans/completed/SNAP-PLAN.md` §6. It is
 answered: **a `WF_SNAP` in Y would gain nothing on any adapter**, and the
 investigation redirects to something that does.
 
@@ -6381,7 +6381,7 @@ sector, which is the guard working rather than this change being dear.
 `make SNAPAUDIT=1` carried a documented unexplained artifact: every window's
 callback reported a **constant 4 glyphs in bucket 7** whatever the app, which
 made any count under about ten worthless and left Piano, Arkanoid and Missile
-Command unresolved in `docs/plans/SNAP-PLAN.md`.
+Command unresolved in `docs/plans/completed/SNAP-PLAN.md`.
 
 **It was `wm_draw_title`.** A caption's pen is **centred in the title bar by the
 kernel** and no application can influence it, and it was being attributed to
@@ -6433,7 +6433,7 @@ measured. Reset with no filter and then LAUNCH the app.
 ### Set 58 — the Disk window and Fractal go on the grid, and one of them was not an alignment problem
 
 Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_cga` /
-`os8088_5150_herc` / `os8088_xt_vga`. Two items off docs/plans/SNAP-PLAN.md's list,
+`os8088_5150_herc` / `os8088_xt_vga`. Two items off docs/plans/completed/SNAP-PLAN.md's list,
 and the second is the interesting one.
 
 **The Disk window (SPEC.md §22.11.1.1/§22.11.2, seven constants + two): 0 bytes.**
@@ -6446,7 +6446,7 @@ pen and the status line's 6 → 8 (with their truncation constants 14 → 16 and
 78 → 80 and the grid icon `fm_cellx + 31` → `+ 32`.
 
 **Two things the numbers could not see, and one of them was in this tree's own
-notes.** docs/plans/SNAP-PLAN.md said an aligned content origin makes
+notes.** docs/plans/completed/SNAP-PLAN.md said an aligned content origin makes
 `fm_scrollpaint`'s left strip *always* 4px wide, so §22.11.1's strip pass runs on
 every scroll; that is backwards — `fm_bx1 = align_up(fm_cx)` and an aligned
 `fm_cx` already is a multiple of 8, so the strip is **empty** and §11.94.1's
@@ -6464,7 +6464,7 @@ right edge **exactly on the name's first letter** — `ARTFUL.O88`'s A against t
 app diamond. Both numbers are multiples of 8, the kernel is 0 bytes bigger, and a
 four-row scroll stayed byte-identical to a full repaint on all three adapters:
 **nothing in the verification recipe could see it.** A 5x crop could. That is now
-a rule in docs/plans/SNAP-PLAN.md §5 — look at the pixels that moved, every item.
+a rule in docs/plans/completed/SNAP-PLAN.md §5 — look at the pixels that moved, every item.
 
 **Fractal (SPEC.md §40.2.1): 2,557 glyph cells → 565, 4.5x — and it was not an
 alignment item.** Set 57 put it first of what was left (2,542 glyphs sampled,
@@ -6521,7 +6521,7 @@ figures. The 5150 is where they would land.
 ### Set 59 — Note Pad's panel goes on the bank quantum; Tracker is measured and left alone
 
 Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_cga` /
-`os8088_5150_herc` / `os8088_xt_vga`. Two more items off docs/plans/SNAP-PLAN.md, and
+`os8088_5150_herc` / `os8088_xt_vga`. Two more items off docs/plans/completed/SNAP-PLAN.md, and
 the second is a **negative result** — the more useful of the two.
 
 **Note Pad's find panel (SPEC.md §27.10.3): 0 bytes.** §27.10.2 makes opening or
@@ -6594,7 +6594,7 @@ reads precisely like a blit that moved a band of text. The reference build score
 
 ### Set 60 — Tamegram's HUD goes on the grid; Paint was already there
 
-Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_herc`. docs/plans/SNAP-PLAN.md
+Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_herc`. docs/plans/completed/SNAP-PLAN.md
 listed these as "one constant table each". One of them was one constant table.
 The other needed nothing at all.
 
@@ -6658,7 +6658,7 @@ as designed, and the reason to `make SNAPAUDIT=1` immediately before an audit ru
 ### Set 61 — the survey's tail, walked in one batch: one change, six reasons not to
 
 Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_herc`. The last
-entries in docs/plans/SNAP-PLAN.md §2 — the Task Manager, Recorder, Minesweeper, the two
+entries in docs/plans/completed/SNAP-PLAN.md §2 — the Task Manager, Recorder, Minesweeper, the two
 HDD pages, Piano, Arkanoid, Missile Command. **One change came out of them**, and
 the reasons the others did not are the useful part.
 
@@ -8759,7 +8759,7 @@ Two consequences:
   should not be quoted as the thing a design has to beat. Measure the call you
   mean. `band_hline_x` at 2,286 cycles is *under* what `gfx_hline` spends
   before it draws anything, which is the whole argument for
-  docs/plans/GFX-REWORK-PLAN.md in one comparison.
+  docs/plans/completed/GFX-REWORK-PLAN.md in one comparison.
 - **Speed is not the axis this work is on.** docs/plans/completed/TEXT-PLAN.md §1.1 is the
   ordering: flicker first. The composed bar writes every pixel once; the
   fifteen-call bar writes the caption's rows four times, and the gap between
@@ -8820,7 +8820,7 @@ of the six were fine.
 | harness | a breakpoint pair on a `cw_` shim and on the body it wraps, entry to return, and the difference between them |
 | date | 2026-08-24 |
 
-docs/plans/GFX-REWORK-PLAN.md's Phase 2 said a cross-segment call "pays a far call
+docs/plans/completed/GFX-REWORK-PLAN.md's Phase 2 said a cross-segment call "pays a far call
 plus a near call plus two returns" and that a direct far entry "roughly halves
 it, globally". Half of that was right and the important half was not.
 
@@ -9065,7 +9065,7 @@ docs/plans/completed/TEXT-PLAN.md §1.1 is the standing ordering: *flicker first
 The fifteen-call bar writes the caption's own rows four times and the gap
 between the third and the fourth is visible on the target machine. Both halves
 of that — VGA, and eventually mono — are re-decidable if
-docs/plans/GFX-REWORK-PLAN.md brings the per-call cost down far enough that fifteen
+docs/plans/completed/GFX-REWORK-PLAN.md brings the per-call cost down far enough that fifteen
 calls stop flashing in practice. `NOBAND=1` is how that gets measured rather
 than argued.
 
@@ -9149,7 +9149,7 @@ override byte `[cs:…]` would have been. `KERN_SIZE +0`.
 | adapter | `os8088_5150_herc_gla`, one window raise, two Disk windows |
 | date | 2026-08-24 |
 
-docs/plans/GFX-REWORK-PLAN.md's Phase 1: *"the layer resolves the clip region, the
+docs/plans/completed/GFX-REWORK-PLAN.md's Phase 1: *"the layer resolves the clip region, the
 display and the pen per call when none of them changes within a `gfx_lock`
 hold."* Set 92 priced the chain; this is what was left after acting on it.
 
@@ -9204,7 +9204,7 @@ this kernel is no longer the one that can be negotiated.
 **Removed 2026-08-27 by the owner's decision, and nothing replaces it.** It
 counted crossings out of `.cold` over two gestures on an idle desktop and its
 conclusion — that segment crossings cost the system essentially nothing — was
-written as a general fact and cited as one, by docs/plans/GFX-REWORK-PLAN.md §4 and
+written as a general fact and cited as one, by docs/plans/completed/GFX-REWORK-PLAN.md §4 and
 by sessions since. Two gestures cannot establish that. A crossing cost is a
 property of the whole system under load, and the paths that would show it are
 the ones neither gesture went near.
@@ -9631,7 +9631,7 @@ worst case here and 1–3% of the ordinary one, against an ABI change that
 reaches every package in the tree. **The graphics layer's cost is not the
 boundary — it is what is on the other side of it**: 60–85% of every one of
 these four scenarios is in kernel drawing code, and that is where
-docs/plans/GFX-REWORK-PLAN.md should be pointed.
+docs/plans/completed/GFX-REWORK-PLAN.md should be pointed.
 
 #### What each one is really bound by, which is not what you would guess
 
@@ -10118,7 +10118,7 @@ exactly right the whole time.** `tests/blitp.py` reads them rather than the
 rendered frame, and docs/MARTYPC-DEBUG.md now carries the trap beside the
 Hercules offset it sits next to.
 
-### Set 109 — what the segment machinery COSTS, in bytes and in cycles (SPEC.md §2.6, §2.6.1, docs/plans/GFX-REWORK-PLAN.md §4)
+### Set 109 — what the segment machinery COSTS, in bytes and in cycles (SPEC.md §2.6, §2.6.1, docs/plans/completed/GFX-REWORK-PLAN.md §4)
 
 | | |
 |---|---|

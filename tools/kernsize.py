@@ -202,7 +202,7 @@ THEMES = (
     # by the order its file is included, so it has to be the first one. So
     # 3,584 bytes of `.lowbss` moved off disk.inc's row and onto this one
     # without a byte moving in the machine.
-    # lz.inc (docs/plans/completed/O88-COMPRESSION-PLAN.md) is the file system's, and it is
+    # lz.inc (docs/plans/O88-COMPRESSION-PLAN.md) is the file system's, and it is
     # worth saying why rather than putting it under "the machine": what it is
     # to a reader is a step in READING A FILE. Every caller it has is a loader
     # - loader.inc for a package image, driver.inc for a .DRV, diskw.inc for

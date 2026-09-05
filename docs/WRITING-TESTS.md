@@ -2,7 +2,7 @@
 
 The suite is `tools/os88test.py` over the registry in `tests/suite.py`, and
 `tools/os88soak.py` runs the whole of the soak tier in parallel
-(docs/plans/completed/SOAK-PARALLEL.md). This file is how to add a row to it without
+(docs/plans/SOAK-PARALLEL.md). This file is how to add a row to it without
 reinventing the six things that already exist, and without producing one of the
 four failures that keep recurring.
 
@@ -578,7 +578,7 @@ not.
 |---|---|
 | **docs/TESTING.md** | what each emulator can and cannot show, per capability, with a recipe |
 | **docs/MARTYPC-DEBUG.md** | the instrument: `launch`/`settle`/`sym`, the debug server, reading the guest's floppy back |
-| **docs/plans/completed/SOAK-PARALLEL.md** | the parallel runner, where the suite's time goes, and every measurement quoted above |
-| **docs/plans/completed/HANDOFF-SOAK-FINDINGS.md** | worked diagnoses of rows that failed, and what was ruled out for each |
+| **docs/plans/SOAK-PARALLEL.md** | the parallel runner, where the suite's time goes, and every measurement quoted above |
+| **docs/plans/HANDOFF-SOAK-FINDINGS.md** | worked diagnoses of rows that failed, and what was ruled out for each |
 | **PERFORMANCE.md** Part 7 | checking a change; Parts 3.1/3.2 for flicker and smoothness harnesses |
 | **`tests/suite.py`** | the registry, and its header on why `full` is curated |

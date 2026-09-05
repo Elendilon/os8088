@@ -9,7 +9,7 @@ that produced it, kept because the method is what the next pass needs.
 Its companion is `docs/plans/completed/HANDOFF-KERNEL-SIZE.md`, which is pass 1's handoff and
 still the authority on **method** and on the mistakes not to repeat. Read that
 one for *how*; read this one for *what happened*, and
-`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` for the queue of defects the closing soak
+`docs/plans/HANDOFF-SOAK-FINDINGS.md` for the queue of defects the closing soak
 turned up that are **not** this pass's to fix.
 
 Branch: `claude/kernel-size-optimization-p2-zcuuac`, cut from `elendilon` at
@@ -84,7 +84,7 @@ hundreds of encodings was always likely to buy speed as well as space.
 
 One regression survived scrutiny — `GFX_BLITP` +2.7%, on both 1bpp adapters,
 independent of block size, and **unexplained**: see
-`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` A3. The Hercules "regressions" were a
+`docs/plans/HANDOFF-SOAK-FINDINGS.md` A3. The Hercules "regressions" were a
 measurement artefact and the same file's C1 is the experiment that settled it —
 along with the finding that PERFORMANCE.md's documented Hercules write cost is
 low by about a quarter.
@@ -107,7 +107,7 @@ low by about a quarter.
 * **Three suite rows that FAIL where they mean SKIP**, and one benchmark that
   priced three of its eleven operations at 0.0 ms. Two of the three registrations
   and the whole of `deskbench` are fixed; the rest is
-  `docs/plans/completed/HANDOFF-SOAK-FINDINGS.md`.
+  `docs/plans/HANDOFF-SOAK-FINDINGS.md`.
 
 ### The soak: 0 kernel regressions
 
@@ -116,7 +116,7 @@ toolchain. Fifteen failures were investigated and **not one is a regression in
 kernel behaviour**: three were contention, three were a host-side commit's
 per-instance disk isolation, four were pre-existing at both ends, three were a
 missing artefact, and two were fixed. Every one of them is written up with its
-evidence in `docs/plans/completed/HANDOFF-SOAK-FINDINGS.md`, which is the work queue that came
+evidence in `docs/plans/HANDOFF-SOAK-FINDINGS.md`, which is the work queue that came
 out of this pass.
 
 ### The gates that did not exist before

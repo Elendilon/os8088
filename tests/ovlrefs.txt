@@ -75,7 +75,7 @@ wm_init             kmain only (kernel.asm:4291) - the window table cleared, SPE
 inst_init           kmain only (kernel.asm:4302) - the instance table cleared, SPEC.md 29
 vid_ctx_init        kmain only (kernel.asm:4203) - display 0's geometry banked, SPEC.md 39.12. NOT called from vid_switch: the comment above the body said so for a while and vid_switch's own call list (vid_avail_test, cur_unlazy, vid_blank, wm_su_drop_all, vid_equip, vid_apply, vid_setmode, vid_disp_init, desk_rowcalc) does not contain it
 vid_probe_avail     kmain only (kernel.asm:4211) - which adapters this machine HAS, SPEC.md 39.11.1. One inbound edge in the repository and zero outbound; the other two bodies of the trio (vid_memchk, vid_cga_alias) are near-called from inside `.ovl` and are named nowhere else
-sch_idle_start      kmain only (kernel.asm:4182) - spawns the idle task, docs/plans/SCHED-IDLE-PLAN.md 6.2. The TASK outlives the blob and the spawner does not: its entry is sch_idle_body, a `.text` label, which is what the BX = 0 (KERNEL_SEG) argument names
+sch_idle_start      kmain only (kernel.asm:4182) - spawns the idle task, docs/plans/completed/SCHED-IDLE-PLAN.md 6.2. The TASK outlives the blob and the spawner does not: its entry is sch_idle_body, a `.text` label, which is what the BX = 0 (KERNEL_SEG) argument names
 
 # --- the loading screen's own captions, drawn while the blob is still live --
 # The splash is IN the blob (`.boot2`), so it cannot outlive `.ovl`: both are

@@ -1,7 +1,7 @@
 ; =============================================================================
 ; lzfile - THE GATE ON A COMPRESSED FILE READ TRANSPARENTLY (SPEC.md 20.14)
 ;
-; docs/plans/completed/O88-COMPRESSION-PLAN.md 13 makes this wave 5's gate. The disk carries one
+; docs/plans/O88-COMPRESSION-PLAN.md 13 makes this wave 5's gate. The disk carries one
 ; document twice - PLAIN.TXT as it is, PACKED.TXT inside a 'CZ' wrapper - so
 ; every assertion below is the two of them compared with each other. Nothing
 ; has to travel from the host and nothing has to be maintained beside the text.

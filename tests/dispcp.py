@@ -381,7 +381,7 @@ def drive_xy(m, S, ordinal):
 # seconds of PROVEN stillness before it can return, plus its captures, and it
 # measured 2.9s average over four rows - so the trailing settle alone was
 # about **twenty minutes of the soak**. And it is irreducible by tuning: the
-# gap log (docs/plans/completed/SOAK-PARALLEL.md 11) says a change arrives after one whole
+# gap log (docs/plans/SOAK-PARALLEL.md 11) says a change arrives after one whole
 # quiet round 1 time in 19, so `stable` cannot come down. The only way to
 # spend less is not to settle, which is what confirming is for.
 #
@@ -601,7 +601,7 @@ def _scroll_to_blind(m, mo, S, settle, entry, card):
     bound the per-key wait in GUEST time, because a QEMU object has no cycle
     counter - so this one keeps the host-clock loop, and that is a real
     difference: on a loaded box a step can be judged an END STOP when the
-    guest simply had not got there (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B5). Six
+    guest simply had not got there (docs/plans/HANDOFF-SOAK-FINDINGS.md B5). Six
     rows take this path and every one of them is on docs/TESTING.md's closed
     list, so there is nowhere better for them to go.
     """

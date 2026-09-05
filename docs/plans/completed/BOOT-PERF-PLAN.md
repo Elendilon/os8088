@@ -1,5 +1,22 @@
 # The boot, phase by phase — what was measured, what changed, what is left
 
+
+> **COMPLETED.** The measurements are the point of this file and they stand: a
+> hard-disk boot went **3,790 -> 2,087 ms**, and **47% of it was SPEC.md
+> §18.97's floppy probe** rather than the mouse everyone suspected.
+>
+> **§5.8's "still open" spinner item is CLOSED elsewhere** and is not a live
+> commitment: the spinner composes each row and stores it once
+> (SPEC.md §15.3.4), and the animation runs on IRQ0 (SPEC.md §15.3.8) - so its
+> frames land in the gap the machine was going to spend parked on IRQ6 waiting
+> for DMA, which is where the 830 ms went.
+>
+> Keep it for the phase tables and the knobs that produced them
+> (`MOUDIAG=1`, `FDDSLOW=1`, `BOOTPROF=1`): most of those numbers come off an
+> 86Box XT that is not in this repository, and several took a screenshot and a
+> reply to obtain. **Losing them means taking them again**, which is the whole
+> reason the file was written.
+
 A handoff. It exists because this work is **measurement-led** and the
 measurements are the expensive part: most of them come off an 86Box XT that is
 not in this repository, several took a screenshot and a reply to obtain, and

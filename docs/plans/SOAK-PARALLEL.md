@@ -5,7 +5,7 @@
 > design record: what was measured, what the measurement overturned, and what
 > is deliberately left as a knob.
 
-Read `docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` first if a row is failing — it is the
+Read `docs/plans/HANDOFF-SOAK-FINDINGS.md` first if a row is failing — it is the
 queue of known findings and most failures are already in it. This file is
 about the RUN rather than the rows.
 
@@ -163,7 +163,7 @@ sleeping through a dead machine.
 `OS88_GUEST_PACE=<ratio>` routes `os88mouse`'s three fixed settles through
 `guest_sleep`. It is **off by default.**
 
-`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` B5 is right that rewriting these waits onto
+`docs/plans/HANDOFF-SOAK-FINDINGS.md` B5 is right that rewriting these waits onto
 guest time "reaches 194 files, changes how much guest work every row gets per
 settle, and would want a full soak behind it". A knob is how this project
 takes a change of that shape: the arm exists, it is measurable against the
@@ -246,7 +246,7 @@ cause failures". What DOES perturb a run is running rows beside it, or a
 
 ## 5. THE IBM ROM — the case, and why none of the rows made it
 
-`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` E3: *"a machine naming an IBM romset SILENTLY
+`docs/plans/HANDOFF-SOAK-FINDINGS.md` E3: *"a machine naming an IBM romset SILENTLY
 RESOLVES to `glabios_pc` when the ROM file is absent, so the handful of rows
 that ask for one were not testing it either."* Nine rows named a non-GLaBIOS
 machine; four were registered; **not one had ever run on the ROM it asked
@@ -309,7 +309,7 @@ All four registered rows pass on the twins: `drvcall` 57.1 s, `fillpat` 24.5 s,
 soak row declaring 60 seconds, and reported **`ok` in 0.1 s**: it booted
 nothing, asserted nothing, and could never fail.
 
-`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` B4 records three rows that FAILED in 0.1 s
+`docs/plans/HANDOFF-SOAK-FINDINGS.md` B4 records three rows that FAILED in 0.1 s
 where they meant to skip, and those got investigated **because they were red**.
 A green row that tests nothing is the worse half of the same shape, because
 nobody investigates a pass.
@@ -361,7 +361,7 @@ Both re-declared at 60.
   far leaves 17x of headroom, so it is not close.
 * **`blitp` and `blitpair` fail, and they failed before this work** — same
   20,327 pixels, same message, at `af1f2e0`. Recorded as
-  `docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` F1 with the base-worktree recipe that
+  `docs/plans/HANDOFF-SOAK-FINDINGS.md` F1 with the base-worktree recipe that
   settled it in four minutes.
 * **No full soak has been run behind this.** The gates that have: `make`'s
   fast tier (44/44), `os88test full` (56 passed, 0 failed, 0 skipped, 401.8 s),
@@ -524,7 +524,7 @@ A tree has to NAME what it wants, and naming it is a question the shared
   `make mseg && python3 tests/mseglazy.py`, `mseg` is not in `all`, and neither
   row built it — so on any tree where nobody had typed that by hand they died
   with `FileNotFoundError` on `build/mseg.o88`. That is
-  `docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` B4's shape exactly: an **absent** gate
+  `docs/plans/HANDOFF-SOAK-FINDINGS.md` B4's shape exactly: an **absent** gate
   reading as a failing one. Both build it in their tree now, and `mseglazy`
   passes in 39 s.
 * **`msegnomem` then produced its FIRST EVER VERDICT, and it is a failure** —
@@ -703,7 +703,7 @@ python3 tools/os88bisect.py search <row> --good <ref> --bad <ref>
 python3 tools/os88bisect.py clean
 ```
 
-`docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` E1 is a bisect that was published-adjacent and
+`docs/plans/HANDOFF-SOAK-FINDINGS.md` E1 is a bisect that was published-adjacent and
 **wrong**: it named a commit whose entire diff to shipped code is four comment
 lines. Three errors stacked, each cheap to repeat by hand:
 

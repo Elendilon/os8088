@@ -100,7 +100,7 @@ def main():
     # the pristine master. It found an empty disk and reported "no desktop from
     # drive C:" - which reads as a broken volume boot record, and cost a bisect
     # to place on a host-side commit that touched no kernel code at all
-    # (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B1).
+    # (docs/plans/HANDOFF-SOAK-FINDINGS.md B1).
     #
     # `M.stage_run_dir` is a tree the CALLER owns: `launch(run_dir=...)` leaves
     # its media alone, so the VHD survives the first instance closing, and

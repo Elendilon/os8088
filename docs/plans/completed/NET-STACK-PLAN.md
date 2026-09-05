@@ -7,7 +7,7 @@ parallel cable from mTCP on a DOS box, and terminated locally on an 8-bit
 Ethernet card — and to have a package see one thing. Every interface named
 here lands in SPEC.md *before* its code.
 
-docs/plans/NET-PLAN.md is the prior work and is not superseded: its stages 1 and 2
+docs/plans/completed/NET-PLAN.md is the prior work and is not superseded: its stages 1 and 2
 are **built and on the iron** (SPEC.md §62.9, §62.10), and its §5 is the first
 sketch of the socket half. This document is stage 3 and what comes after it.
 
@@ -45,7 +45,7 @@ than a preference:
    `.bss`** — the 42 bytes `os88drv.inc` warns a class costs have been spent
    already.
 2. **The kernel never learns what a socket is.** One opaque cell —
-   docs/plans/NET-PLAN.md §5.1's `OSAPI_DRV_CALL` — takes a class in `BH` and a
+   docs/plans/completed/NET-PLAN.md §5.1's `OSAPI_DRV_CALL` — takes a class in `BH` and a
    driver-defined verb in `BL` and far-calls whoever published the class. That
    is `drv_call` with a different table index. Both implementations arrive
    through it and a package cannot tell them apart, **which is the whole
@@ -60,7 +60,7 @@ than a preference:
 
 ### What it is honestly for
 
-docs/plans/NET-PLAN.md §5.4 said, at 10–25 KB/s, "this is not a machine that will
+docs/plans/completed/NET-PLAN.md §5.4 said, at 10–25 KB/s, "this is not a machine that will
 browse the web", and then the field measured the cable at **3,741 bytes per
 second** (PERFORMANCE.md Set 39) — a fifth of that machine's own floppy. That
 sentence is right about the cable and **wrong as a general statement about
@@ -255,7 +255,7 @@ box's address. On a card the stack is local and the question does not arise.
 Worth stating plainly, because "my FTP server is on the wrong IP" is otherwise
 a confusing first experience.
 
-**And docs/plans/NET-PLAN.md §1.3's master/slave rule needs one word of precision
+**And docs/plans/completed/NET-PLAN.md §1.3's master/slave rule needs one word of precision
 rather than an exception.** It says os8088 "never receives unsolicited data",
 and a server sounds like the opposite. It is not: this side still initiates
 every exchange on the wire, and an inbound connection is something the far end
@@ -302,7 +302,7 @@ Everything below the socket layer. `drivers/net/lplink.inc` is the transport,
 `%include`d by **both** `NET.DRV` and `tests/lptlink` so a wire fix cannot
 drift between the diagnostic and the thing it diagnoses; the four-phase
 handshake, the turnaround guard, the tick-based deadlines and the port scan on
-both ends are all measured facts (docs/plans/NET-PLAN.md §1.2.0/1.4.0). The DOS
+both ends are all measured facts (docs/plans/completed/NET-PLAN.md §1.2.0/1.4.0). The DOS
 side, `OS88NET.COM`, already has a command loop, a handle table and sixteen
 `int 21h` functions behind it.
 
@@ -352,7 +352,7 @@ Neither is about networking, and neither could have been found by reading.
 
 ### 2.2 The mux is a busy flag, and that is all
 
-docs/plans/NET-PLAN.md §5.3 got this right and it is worth restating because it is
+docs/plans/completed/NET-PLAN.md §5.3 got this right and it is worth restating because it is
 the part that looks hard. **os8088 is the master and never receives
 unsolicited data** (§1.3 there): every exchange is request-then-response,
 driven from this side. So there is no queue, no reordering, no interleaving
@@ -383,7 +383,7 @@ The reason is the 128 KB machine. The memory ladder this build produces puts
 the heap at `0x1aa0` = **106.5 KB**, so a 128 KB machine has **21.5 KB** of
 heap and a 640 KB machine has **533 KB**. A driver that carried the socket
 layer resident would spend a tenth of the small machine's heap on code it may
-never use. The user still sees one thing to turn on — docs/plans/NET-PLAN.md §10
+never use. The user still sees one thing to turn on — docs/plans/completed/NET-PLAN.md §10
 question 4, *"is network on?"* rather than *"is the particular part of
 networking I want on?"* — and a machine that only ever uses the drive never
 has the TCP code in memory.
@@ -616,7 +616,7 @@ kernsize[big]: footprint 107,520 of 108,544 -> 1,024 spare (2 steps)
 scrolling list does not obviously fit in what is left after it and is the item
 that will ask `KERN_BUDGET` its seventeenth question — which is a conversation
 to have with a `kernsize` line in front of you at the point that code is
-written, exactly as docs/plans/NET-PLAN.md §10 question 6 says, and not now.
+written, exactly as docs/plans/completed/NET-PLAN.md §10 question 6 says, and not now.
 
 **Everything else in this document is driver and package.** The kernel learns
 nothing about ARP, IP, TCP, DNS, HTTP or HTML, and that is the property to
@@ -628,7 +628,7 @@ thing ever to bet on that.
 
 ## 5. Testability — and this is a reversal
 
-docs/plans/NET-PLAN.md §9 ends "**Nothing here can be tested END TO END under QEMU
+docs/plans/completed/NET-PLAN.md §9 ends "**Nothing here can be tested END TO END under QEMU
 or MartyPC**", and for the cable that is still true: the status lines read a
 constant, so `mst_hello` always times out. **For the card it is false, and
 that is the strongest practical argument for building it.**
@@ -818,7 +818,7 @@ predicted:
    **period** NE1000, 3C503 or WD8003 in the room, or reachable? §3.3's whole
    table is a model until one exists, and the answer might change which
    front-end is written first.
-2. **Is the far end of the cable staying?** docs/plans/NET-PLAN.md §10 question 5 is
+2. **Is the far end of the cable staying?** docs/plans/completed/NET-PLAN.md §10 question 5 is
    still open, and it decides whether B–D are the main line or a stepping
    stone to E.
 3. **Static address or DHCP first?** Static is smaller, removes a whole class

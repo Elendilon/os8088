@@ -63,7 +63,7 @@ By compiled code bytes, excluding what pass 1 covered:
 | 9 | `vidsel.inc` (§39.11) | 1,229 | pass 1 took its boot probe trio to `.ovl`; the rest is untouched |
 | 10 | `snd.inc` (§34) | 1,178 | +300 `.bss` |
 | 11 | `fsx.inc` (§53) | 1,122 | fullscreen exclusive |
-| 12 | `sched.inc` (§7–8) | 1,059 | +124 `.bss` **+2,746 `.lowbss`** (task stacks). **HOT** — `sch_switch`'s pick. Read docs/plans/SCHED-IDLE-PLAN.md |
+| 12 | `sched.inc` (§7–8) | 1,059 | +124 `.bss` **+2,746 `.lowbss`** (task stacks). **HOT** — `sch_switch`'s pick. Read docs/plans/completed/SCHED-IDLE-PLAN.md |
 
 **Two of these are worth more than their rank suggests.** `softgfx.inc` is the 1bpp
 renderer and `vga12.inc` is its VGA counterpart; pass 1 merged four rect decompositions

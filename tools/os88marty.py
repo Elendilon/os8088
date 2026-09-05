@@ -108,7 +108,7 @@ KERNEL_SEG = 0x0060
 # idle container here and ~2.4 with three other emulators up, so the same line
 # of the same test gives the machine four times less work to do - and the row
 # fails somewhere further on, wearing a symptom that looks like the thing under
-# test.  That is `docs/plans/completed/HANDOFF-SOAK-FINDINGS.md` B5, and it is why fifteen
+# test.  That is `docs/plans/HANDOFF-SOAK-FINDINGS.md` B5, and it is why fifteen
 # failures in the pass-2 soak each cost somebody a classification run.
 #
 # Two different questions come off this clock and they want different answers:
@@ -591,7 +591,7 @@ class Marty:
         matters more than it looks: `tests/dskwstage.py` reports *"dskw_write_x
         never returned - the machine is still running after 180s"*, and that
         180 was a HOST bound on a box whose load nobody recorded
-        (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md E2).  Read as guest seconds the same
+        (docs/plans/HANDOFF-SOAK-FINDINGS.md E2).  Read as guest seconds the same
         number says something about the machine instead, and says the same
         thing twice running.
         """
@@ -1449,7 +1449,7 @@ def _warn_oversubscribed(about_to_start):
 # SILENTLY RESOLVES to glabios_pc when the ROM file is absent, so the handful
 # of rows that ask for one were not testing it either."*  Nine rows name a
 # non-GLaBIOS machine, four of them registered, and not one had ever run on
-# the ROM it asked for (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md E3).  A row that quietly
+# the ROM it asked for (docs/plans/HANDOFF-SOAK-FINDINGS.md E3).  A row that quietly
 # gets a different machine than it named is worth less than a row that skips.
 #
 # THE POLICY, and it is deliberately the strict direction: NAMING THE IBM
@@ -1599,7 +1599,7 @@ def stage_run_dir(tag, fresh=True):
     instance being closed, and the next `launch` on it mounts the same VHD.
 
     THAT IS THE ONE WORKFLOW PER-INSTANCE ISOLATION BROKE, and it broke it
-    without anybody noticing (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B1).
+    without anybody noticing (docs/plans/HANDOFF-SOAK-FINDINGS.md B1).
     tests/hdboot.py and tests/knobhd.py INSTALL to a hard disk in one machine
     and then BOOT it in another; before the isolation work both used the shared
     master VHD, and after it the install landed in a private clone that
@@ -2050,7 +2050,7 @@ def quiesce(m, read, guest=0.5, stable=2, budget=30.0,
 
       * a screen settle transfers a framebuffer per sample and must prove
         stillness over `stable * quiet` = **2.0 HOST seconds** before it can
-        return (docs/plans/completed/SOAK-PARALLEL.md 11.2, where the gap log says that pair
+        return (docs/plans/SOAK-PARALLEL.md 11.2, where the gap log says that pair
         cannot come down);
       * this reads a handful of bytes and proves it over `stable * guest`
         GUEST seconds - 1.0 by default, which on a box running the guest at
@@ -2240,7 +2240,7 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
             # the screen was ACTUALLY quiet mid-repaint - and `quiet` has to
             # be wider than the longest gap a live repaint leaves, or the
             # settle ends in the middle of one. Logged only under the profile
-            # env, and it is what the numbers in docs/plans/completed/SOAK-PARALLEL.md 11 are.
+            # env, and it is what the numbers in docs/plans/SOAK-PARALLEL.md 11 are.
             _gaplog(m, chg, quiet, run)
             chg = time.time()
         run = run + 1 if same else 0
@@ -2575,7 +2575,7 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
         if src is None:
             continue
         # **RESOLVED AGAINST $OS88_BUILD** (tools/os88build.at). This is the
-        # choke point the whole of docs/plans/completed/SOAK-PARALLEL.md 14.2 turns on: 85
+        # choke point the whole of docs/plans/SOAK-PARALLEL.md 14.2 turns on: 85
         # call sites hand this function a literal `build/...` string, and one
         # line here points every one of them at a frozen tree instead - so a
         # `make` in the shared build/ cannot be copied half-written into a

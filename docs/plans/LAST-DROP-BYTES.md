@@ -318,7 +318,7 @@ So the ladder has four prices and everything in between is free:
 sectors inside an existing run on 1.44MB, ~144 ms at 24 ms each, with nothing in the
 call column to show for it. All of it is pre-splash — stage 1 reads the blob before
 the first splash pixel — so it is time on a blank screen rather than a slower-looking
-boot, and `docs/plans/BOOT-PERF-PLAN.md`'s phase tables want re-taking because of it.
+boot, and `docs/plans/completed/BOOT-PERF-PLAN.md`'s phase tables want re-taking because of it.
 
 `tests/unit/t_blobruns.py`'s ratchet is **per geometry**: 3 on 360KB, 3 on 720KB,
 **2 on 1.44MB**, each with its reason beside it. One number for all three was the

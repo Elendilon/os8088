@@ -12,7 +12,7 @@
 ; in a window at twelve edges a frame. This exercises what is on the OTHER
 ; side of SPEC.md 53.7's fence - the machine, in a foreign mode, where NO
 ; kernel drawing slot is legal and every pixel is the app's - at about a
-; hundred edges a frame with a game attached. docs/plans/GFX-FSX-PLAN.md is what
+; hundred edges a frame with a game attached. docs/plans/completed/GFX-FSX-PLAN.md is what
 ; that exercise found.
 ;
 ; THE THREE THINGS THAT DECIDE THE WHOLE DESIGN
@@ -228,7 +228,7 @@ TK_CLEARR equ 600               ; ...and no piece may stand nearer the spawn
 ; them a TICK. tk_input latches once a FRAME and tk_pmove spends up to
 ; TK_MAXSTEP of them, so the finest turn a player can COMMAND is
 ; TK_TURN * min(ticks a frame, TK_MAXSTEP) - SIX units, 8.44 degrees, on both
-; 1bpp adapters, where docs/plans/GFX-FSX-PLAN.md 0 measures 6.06 and 4.32 fps. What
+; 1bpp adapters, where docs/plans/completed/GFX-FSX-PLAN.md 0 measures 6.06 and 4.32 fps. What
 ; that has to fit inside is tk_espoil's own window, 6,100/R units either side:
 ; 4.1 units wide at 3,000 and 3.1 at the shell's 3,900-unit reach. So the sweep
 ; steps clean over a distant tank and the phase of the press decides whether it
@@ -419,7 +419,7 @@ tk_entry:
                                     ; pull-down (SPEC.md 12.2). WINDOWED only:
                                     ; inside an fsx bracket the app owns every
                                     ; pixel and there is no bar to pull down
-                                    ; (SPEC.md 53.7, docs/plans/GFX-FSX-PLAN.md)
+                                    ; (SPEC.md 53.7, docs/plans/completed/GFX-FSX-PLAN.md)
 .full:
     pop di
     pop si
@@ -650,7 +650,7 @@ tk_s_enter:  db 'PRESS ENTER', 0
 ; =============================================================================
 ; WINDOWED ONLY, and that is the architecture rather than a choice: the game
 ; itself runs inside an fsx bracket where this package owns every pixel and no
-; kernel drawing slot is legal at all (SPEC.md 53.7, docs/plans/GFX-FSX-PLAN.md), so
+; kernel drawing slot is legal at all (SPEC.md 53.7, docs/plans/completed/GFX-FSX-PLAN.md), so
 ; there is no bar to pull the item down from. The attract panel is where the
 ; kernel's chrome exists, and the card goes on it.
 ;

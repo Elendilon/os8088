@@ -1455,7 +1455,7 @@ ui_drag:
 %ifdef KERN_BIG                 ; 39.16.1) and ui_drag_size above is what it
     call wm_nat_bank_xy         ; costs when it does - ONE call now, where this
 %else                           ; site used to run a second clamp of its own
-    call wm_nat_bank            ; (docs/plans/WINDOW-SIZING-PLAN.md 12.1: three
+    call wm_nat_bank            ; (docs/plans/completed/WINDOW-SIZING-PLAN.md 12.1: three
 %endif                          ; mechanisms shared this job and each had its
                                 ; own defect).
                                 ; The bank is POSITION ONLY where a size can
@@ -1548,7 +1548,7 @@ ui_drag_size:
     mov di, [bx+W_Y]            ; can move a window that kept its size
     call wm_land_fit            ; ONE question: has the adapter changed, and if
                                 ; so what size does this window want here?
-                                ; (docs/plans/WINDOW-SIZING-PLAN.md 12)
+                                ; (docs/plans/completed/WINDOW-SIZING-PLAN.md 12)
     cmp si, [bx+W_X]
     jne .moved2
     cmp di, [bx+W_Y]

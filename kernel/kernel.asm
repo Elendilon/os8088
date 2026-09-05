@@ -1048,7 +1048,7 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ; the third of those. 2KB on the thirteenth
                                 ; move's terms - headroom, half a step - for
                                 ; SPEC.md 62's NETWORK DRIVER
-                                ; (docs/plans/NET-PLAN.md).
+                                ; (docs/plans/completed/NET-PLAN.md).
                                 ;
                                 ; WHAT IT HAS ALREADY SPENT is stage 1, which
                                 ; is on this branch and is 175 bytes: DV_CLASS
@@ -1714,7 +1714,7 @@ KERN_BUDGET equ 107520          ; the whole kernel's FOOTPRINT. Growing past
                                 ; plans costed together before either was
                                 ; written: SPEC.md 54's file type
                                 ; associations (docs/plans/completed/ASSOC-PLAN.md, ~1,600)
-                                ; and the disk path (docs/plans/DISK-PERF-PLAN.md,
+                                ; and the disk path (docs/plans/completed/DISK-PERF-PLAN.md,
                                 ; ~200), against the 1,536 that were spare,
                                 ; which the two do not fit. Granted in
                                 ; advance is the fifth move's warning, so the
@@ -1733,7 +1733,7 @@ KERN_BUDGET equ 107520          ; the whole kernel's FOOTPRINT. Growing past
                                 ; SPEC.md 18.91's batched transfer is 117
                                 ; bytes that took a directory change from 12
                                 ; int 13h calls to 5, and mechanism D
-                                ; (docs/plans/DISK-PERF-PLAN.md 5.5) removes 8 of
+                                ; (docs/plans/completed/DISK-PERF-PLAN.md 5.5) removes 8 of
                                 ; the 13 an APPS/ open still costs.
                                 ;
                                 ; The eighth move, 78,336 -> 80,384, is the
@@ -3794,7 +3794,7 @@ osapi_table:
                                   ;          kern_small the bit is simply set
                                   ;          and never read
     OSAPI_JSLOT api_decomp        ; 0x04F8 - expand a compressed block
-                                  ;          (docs/plans/completed/O88-COMPRESSION-PLAN.md
+                                  ;          (docs/plans/O88-COMPRESSION-PLAN.md
                                   ;          12.1). A JSLOT and not an X or N
                                   ;          cell: BOTH segment registers are
                                   ;          the caller's here, because the
@@ -4672,7 +4672,7 @@ kmain:
                                 ; here, and this also closes the ticks-only
                                 ; era - the boot sector's load and the three
                                 ; calls above it
-    OVWCALL  sch_idle_start     ; PROBE (docs/plans/SCHED-IDLE-PLAN.md 6.2): the idle
+    OVWCALL  sch_idle_start     ; PROBE (docs/plans/completed/SCHED-IDLE-PLAN.md 6.2): the idle
                                 ; task. Inert while ui_task never sleeps - the
                                 ; scan skips its slot, so it is reached only
                                 ; where sch_switch used to resume the outgoing
@@ -5545,7 +5545,7 @@ section .text
                               ; every module it serves, because a module's
                               ; own section carries the header that names
                               ; MOD_* and MOD_NENT
-%include "lz.inc"             ; decompression (docs/plans/completed/O88-COMPRESSION-PLAN.md):
+%include "lz.inc"             ; decompression (docs/plans/O88-COMPRESSION-PLAN.md):
                                 ; BEFORE every loader that calls it, and it
                                 ; calls nothing itself - no kernel data, no
                                 ; kernel routine, just the caller's two
@@ -6735,7 +6735,7 @@ kret_ret:         ret         ; NAMED so a test can breakpoint the RETURN.
                               ; Every routine that leaves through this ladder
                               ; returns HERE, with sp back at its own entry
                               ; value, which is what a caller matching on sp
-                              ; needs (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B2).
+                              ; needs (docs/plans/HANDOFF-SOAK-FINDINGS.md B2).
 
 section .cold
 kretc_es:         pop es

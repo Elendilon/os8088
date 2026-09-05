@@ -59,7 +59,7 @@ DSK_R_NAME   equ 0               ; name[8] (space-padded)
 DSK_R_EXT    equ 8               ; ext[3] (space-padded)
 DSK_R_ATTR   equ 11              ; attribute byte
 DSK_R_CZM    equ 12              ; THE COMPRESSION HINT (SPEC.md 20.14,
-DSK_R_CZH    equ 13              ; docs/plans/completed/O88-COMPRESSION-PLAN.md 15): a mark
+DSK_R_CZH    equ 13              ; docs/plans/O88-COMPRESSION-PLAN.md 15): a mark
 DSK_R_CZL    equ 20              ; byte, then the UNPACKED size as a high byte
 DSK_CZ_MARK  equ 0x5A            ; and a low word. **THE MARK CARRIES THE
                                  ; FORMAT**: 0x5A + the LZ_* id, so 0x5A is
@@ -173,7 +173,7 @@ DV_CLASS     equ 3               ; db: the DRVC_* whose published DSV_BLK owns
                                  ; nothing has to record WHICH driver a volume
                                  ; came from" - and that was true right up
                                  ; until a SECOND class could serve blocks
-                                 ; (docs/plans/NET-PLAN.md 2.1: a cable and a hard
+                                 ; (docs/plans/completed/NET-PLAN.md 2.1: a cable and a hard
                                  ; disk have to coexist on the machine this
                                  ; project is calibrated against, which has an
                                  ; ST-225 in it). It costs NOTHING: the byte
@@ -399,7 +399,7 @@ FDD_DBG_SPAN equ ($ - fdd_dbg_span)
 %endif
 
 %ifdef DISK_COUNTERS
-; The measurement instruments of docs/plans/DISK-PERF-PLAN.md 2, compiled in only by
+; The measurement instruments of docs/plans/completed/DISK-PERF-PLAN.md 2, compiled in only by
 ; `make DISKCNT=1` and never shipped. Read over QMP with `xp /3xh <linear>`;
 ; derive the offset from `nasm -l` after EVERY rebuild, because anything added
 ; to an include before this one moves it. They are never reset: take a reading,
@@ -2360,7 +2360,7 @@ osapi_vol_fence:
 .cls:                           ; tested [drv_fseg2] alone - the DISK class -
     call drv_cls_fp_x             ; which is a fence that only one kind of
     jc .no                      ; driver can ever pass, and a second
-    cmp bx, [di+2]              ; block-serving class (docs/plans/NET-PLAN.md 2.1)
+    cmp bx, [di+2]              ; block-serving class (docs/plans/completed/NET-PLAN.md 2.1)
     je .yes                     ; would have been refused its own volumes
     inc al
     cmp al, DRVC_MAX

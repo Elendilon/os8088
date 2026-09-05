@@ -1,5 +1,21 @@
 # What a vector game found on the other side of §53.7's fence
 
+
+> **COMPLETED.** One item was built - `fsx_page` (SPEC.md §53.10), because
+> `FSI_PAGES` had been published since SPEC.md §53.4 with no supported way to
+> act on it and the mechanism differs in kind per adapter - and the other was
+> **priced and deliberately left**, which is a decision rather than a debt.
+>
+> **The useful half of that second finding is that the CHEAP version is not
+> worth building**: `gfx_line` has no batch form, and a loop over `gfx_line`
+> collects the far-call cell (46.7 us) and *not* §5.6.8's 128.7 us arrival,
+> because the rest of the arrival is `gfx_line`'s own prologue. Anyone
+> proposing a batch line primitive should start from that number.
+>
+> The largest finding in the file - that three apps now carry their own
+> Bresenham - is deliberately **not** proposed as a slot. Read §0 first: it
+> carries the profile every argument here is against.
+
 *A bare `§` in this file means SPEC.md.*
 
 TANK ATTACK (§85) was built to be a **load**: a hundred-odd line segments a
@@ -110,7 +126,7 @@ obvious shape of the fix is wrong in the same way §53.6.1's XMS stash was
 wrong. "Let the drawing slots take a surface" means every primitive in the
 kernel grows a level of indirection that only an fsx app ever uses, on a
 machine where `gfx_hline` already spends 3,235 cycles on six pixels
-(docs/plans/GFX-REWORK-PLAN.md). The two shapes that might survive that argument:
+(docs/plans/completed/GFX-REWORK-PLAN.md). The two shapes that might survive that argument:
 
 - **A published 1bpp BAND rasteriser.** `kernel/band.inc` already composes a
   title bar into a caller-supplied band with `band_hline_x` and

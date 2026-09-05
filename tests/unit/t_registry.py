@@ -63,7 +63,7 @@ UNREGISTERED = {
     "os88qemu.py": "the teardown every QEMU launcher registers, written once "
                    "rather than thirteen times - library, not a test. What "
                    "checks it is `t_qemuown`, which asserts every launcher "
-                   "calls it (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B9)",
+                   "calls it (docs/plans/HANDOFF-SOAK-FINDINGS.md B9)",
     "benchlib.inc": "a benchmark library, not a test",
     "trklog.inc": "tracker's logging build, %included by apps/tracker",
     "trkscrl.inc": "tracker's scroll-gate build, %included by apps/tracker",
@@ -77,7 +77,7 @@ UNREGISTERED = {
                   "dispcp.py's failure exactly (a green row that tests "
                   "nothing, and nobody investigates a pass); it also WRITES "
                   "build/, which a row under a frozen run may not "
-                  "(docs/plans/completed/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
+                  "(docs/plans/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
                   "sync question needs the module",
 
     # --- need a build prerequisite the default build does not make ---

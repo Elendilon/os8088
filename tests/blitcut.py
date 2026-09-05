@@ -140,7 +140,7 @@ def run(image, apps, machine, defines, tree=None):
         # blit to arrive - which at 3.4x is over thirteen guest minutes with
         # no input. What the saver would then do is not fail this row, it is
         # make it wait out the whole 240 and report that the blit never came
-        # (docs/plans/completed/HANDOFF-SOAK-FINDINGS.md B7).
+        # (docs/plans/HANDOFF-SOAK-FINDINGS.md B7).
         os88marty.no_saver(m)
         mo = os88mouse.Mouse(marty=m)
         dispcp.open_panel(m, mo, S, settle)
