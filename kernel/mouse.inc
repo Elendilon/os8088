@@ -280,7 +280,7 @@ mou_isrs    dw mou_isr, mou_isr3    ; ...and the stub that vector points at
 
 ; -----------------------------------------------------------------------------
 ; MOUPRIV_ENTER / MOUPRIV_LEAVE - the mouse ISR on a stack of its own
-;                                 (SPEC.md 9.10, docs/STACK-SLOTS-PLAN.md 4.2)
+;                                 (SPEC.md 9.10, docs/plans/completed/STACK-SLOTS-PLAN.md 4.2)
 ;
 ; THE DEFAULT SINCE SPEC.md 9.10; `NOMOUPRIV=1` is the A/B and the only thing
 ; keeping the un-swapped path assembling.
@@ -396,7 +396,7 @@ mou_pall:
 
 ; =============================================================================
 ; THE MOUSE'S BOOT HALF, IN THE OVERLAY (SPEC.md 2.5.2, 9.4.7,
-; docs/LAST-DROP-BYTES.md; the partition is $SCRATCH/OVL-MOUSE.md's)
+; docs/plans/LAST-DROP-BYTES.md; the partition is $SCRATCH/OVL-MOUSE.md's)
 ;
 ; Five bodies run to mou_idjudge below, and three more in the PS/2 half further
 ; down: mouse_init and everything it alone reaches. 1,024 bytes that stop
@@ -2935,7 +2935,7 @@ kbd_ovb     db 0                ; ...and one the ISR has asked for and no pass
 ; could starve the real mouse out of ever being found (SPEC.md 9.5).
 ; -----------------------------------------------------------------------------
 mou_isr:                        ; IRQ4, and...
-    MOUPRIV_ENTER               ; docs/STACK-SLOTS-PLAN.md 4.2: onto a private
+    MOUPRIV_ENTER               ; docs/plans/completed/STACK-SLOTS-PLAN.md 4.2: onto a private
     push bx                     ; stack, before anything is pushed
     mov bl, MOU_L4              ; ...the ONE thing the two entries disagree
     jmp short mou_isr_body      ; about: which LINE fired. Not which PORT has

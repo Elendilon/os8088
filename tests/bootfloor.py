@@ -30,7 +30,7 @@ Read the desktop result as "the floor's arithmetic is sound", not as "this OS
 runs in that much" - no machine here has that little to give it.
 
 BOTH BUILDS, BOTH KERNELS. kern_small's floor is the one the plan was written
-for (docs/BOOT-LADDER-PLAN.md): guard 5 has asserted it boots on 128KB since
+for (docs/plans/completed/BOOT-LADDER-PLAN.md): guard 5 has asserted it boots on 128KB since
 the split, and stage 1 refused it at 129 until SPEC.md 2.7.1. A row that
 covered kern_big alone would not have caught that at all.
 

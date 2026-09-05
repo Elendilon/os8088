@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - sndsb.inc
 ;
-; The Sound Blaster driver (SPEC.md 34.5/34.6, Phase 4 of docs/SOUND-PLAN.md):
+; The Sound Blaster driver (SPEC.md 34.5/34.6, Phase 4 of docs/history/SOUND-PLAN.md):
 ; snd_drv row 2. The only self-clocked PCM tier - DMA paces itself, one IRQ
 ; per 2KB block (256ms at 8kHz) - so this is the only tier where "samples
 ; play while the GUI runs" is promised (SND_CAP_PCM_BG).

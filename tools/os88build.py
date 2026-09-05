@@ -221,7 +221,7 @@ NO_GATES = ["NOOVLCHK=1", "NOKERNSIZE=1"]
 # tools/setup-cc.sh" - which is true of that directory and false of the
 # checkout, and reads as a broken machine.
 #
-# NOTHING ELSE MAY BE SHARED. docs/HANDOFF-KERNEL-SIZE-P3.md 3 says why in one
+# NOTHING ELSE MAY BE SHARED. docs/plans/completed/HANDOFF-KERNEL-SIZE-P3.md 3 says why in one
 # line: a shared writable DISK is what contaminated pass 2's first bisect.
 SHARED = ("cc", "martypc")
 
@@ -426,7 +426,7 @@ def at(path):
     """A `build/...` path, resolved against the run's tree (`$OS88_TREE`).
 
     **THE ONE THING THAT LETS A SOAK SURVIVE SOMEBODY ELSE'S `make`**
-    (docs/SOAK-PARALLEL.md 14.2). Rows name `build/os8088-360.img` and its
+    (docs/plans/SOAK-PARALLEL.md 14.2). Rows name `build/os8088-360.img` and its
     siblings as literal strings - 725 of them across 256 files, and 356 are
     those two images - so pointing a run at a frozen tree cannot be done by
     editing the callers. It is done where the path is USED instead, and there

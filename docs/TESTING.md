@@ -208,7 +208,7 @@ capability. It has happened for Hercules — `docs/HERCULES-TESTING.md` opens by
 saying so, and that claim had sat in CLAUDE.md costing people time — and it
 keeps happening for sound, for a duller reason: the AdLib and Sound Blaster
 recipes are real, committed and mechanical, but they live in the middle of
-`docs/SOUND-PLAN.md`, an 850-line *plan*, interleaved with phase history. A
+`docs/history/SOUND-PLAN.md`, an 850-line *plan*, interleaved with phase history. A
 plan document is not where anyone looks to answer "can I test this?", so the
 answer people reach is "no".
 
@@ -270,7 +270,7 @@ it cannot perturb the run; running rows beside it, or a `make`, can and does.
 Every row that reports is journalled, so `start --resume` after a container is
 reclaimed re-runs only what did not finish.
 
-**Before deciding a failure was contention, read `docs/SOAK-PARALLEL.md` §1.**
+**Before deciding a failure was contention, read `docs/plans/SOAK-PARALLEL.md` §1.**
 Measured here: twelve rows at width 3 with two extra CPU hogs were 1.06x
 slower than idle and 12/12 passed in both arms. Contention does not make a row
 slow — it makes it less thorough, at the same wall time, because the guest
@@ -969,7 +969,7 @@ answer and not the one you are trying to test; `sound.drv` ships on the boot
 disk and `drv_boot` loads it before the first paint, so a driver that failed
 to attach announces itself by opening the Control Panel on its Drivers page.
 
-Depth, including the underrun and capture edge cases: `docs/SOUND-PLAN.md`
+Depth, including the underrun and capture edge cases: `docs/history/SOUND-PLAN.md`
 Phase 4.
 
 ---
@@ -1239,7 +1239,7 @@ side of the line, because what it drives is a machine rather than a program
 **`tests/wmartifact.py` is that same "is the glass what a repaint would draw"
 question aimed at two OPEN defects**, and it is here rather than in a package's
 folder because neither belongs to a package: one reproduces with `hello` and
-the other by dragging a Disk window. docs/WM-ARTIFACTS.md is its report and
+the other by dragging a Disk window. docs/history/WM-ARTIFACTS.md is its report and
 carries the measurements. Read that file's section 0 before concluding either
 one does not reproduce — both are invisible in a screenshot (the glass is
 stale, not corrupt), the first needs two windows clamped to the same shadow
@@ -2414,7 +2414,7 @@ under `make run-640` — a full-canvas flood fill in ~4 s, a 448×280 4bpp BMP
 open in ~8 s — are useful precisely because they are already slow *in the
 emulator*. A real 8 MHz machine is several times slower and a 4.77 MHz 8088
 slower again, so anything measured in seconds here is out of reach on the
-target. That is how JPEG was ruled out (docs/PAINT-NOTES.md), and the
+target. That is how JPEG was ruled out (docs/plans/completed/PAINT-NOTES.md), and the
 AT-class 86Box targets (`make 286`, `make 386sx`, `make 386`) are the honest
 middle of that range.
 

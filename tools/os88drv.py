@@ -88,7 +88,7 @@ def main() -> int:
     ap.add_argument("--compress", metavar="FMT", nargs="?", const="lz4",
                     choices=("lz4", "lzb", "none"), default=None,
                     help="compress the image past the header, unpacked by "
-                         "drv_expand (docs/O88-COMPRESSION-PLAN.md 12.6). The "
+                         "drv_expand (docs/plans/O88-COMPRESSION-PLAN.md 12.6). The "
                          "32-byte header stays CLEAR - the loader sizes the "
                          "expanded image's claim from it - and `image` keeps "
                          "meaning the UNPACKED bytes, so the file being "
@@ -139,7 +139,7 @@ def main() -> int:
              f"is the bss field this tool fills, and the name above is capped "
              f"at 15 characters so it is always free")
 
-    # --- TRAILING ZEROS BECOME A BSS (docs/O88-COMPRESSION-PLAN.md 12.6) -----
+    # --- TRAILING ZEROS BECOME A BSS (docs/plans/O88-COMPRESSION-PLAN.md 12.6) -----
     # drivers/os88drv.inc used to say "there is no bss: a driver's zeroed data
     # is written as `db 0` and ships on the floppy". Measured, that is 6,722
     # bytes of trailing zeros across the twelve shipped drivers - ether.drv

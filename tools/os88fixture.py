@@ -175,7 +175,7 @@ def recipe(goal, contains):
     Three traps, and a row that scrapes `make -n` by hand hits all of them.
     Two rows did, and both failed a frozen soak with `Nothing to be done`:
 
-      * **THE GOAL HAS TO BE RESOLVED** (docs/SOAK-PARALLEL.md 14.2). `make`
+      * **THE GOAL HAS TO BE RESOLVED** (docs/plans/SOAK-PARALLEL.md 14.2). `make`
         below is passed `BUILD=<tree>`, where the rule is spelled
         `$(BUILD)/os8088.img` - so asking for the literal `build/os8088.img`
         asks for a file that HAS no rule under that BUILD, and make says so

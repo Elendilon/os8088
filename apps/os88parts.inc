@@ -10,7 +10,7 @@
 ; *.O88 over 64KB is still a package, that flags bit 2 means the file is
 ; longer than the image on purpose, and it tells your ENTRY PROC the name of
 ; the file it came out of. There is no .o88 v6, no kernel-parsed block and no
-; API slot. docs/O88-MULTISEG-PLAN.md 1 is why - the kernel-side version of
+; API slot. docs/plans/completed/O88-MULTISEG-PLAN.md 1 is why - the kernel-side version of
 ; this was built to five waves and thrown away at 2,560 resident bytes.
 ;
 ; --- what you write ----------------------------------------------------------
@@ -217,7 +217,7 @@ op_t_n:
 ; THE ORDER IS THE POINT. Sizing comes first and reads nothing: the table is
 ; already in front of us, so a machine that cannot fit this package is told so
 ; before a single disk revolution is spent - which is the third thing the
-; whole design exists for (docs/O88-MULTISEG-PLAN.md 0).
+; whole design exists for (docs/plans/completed/O88-MULTISEG-PLAN.md 0).
 ; -----------------------------------------------------------------------------
 op_load:
     ; --- the name, out of the kernel's buffer and into ours ----------------
@@ -405,7 +405,7 @@ op_size:
     jmp .next                   ; A LAZY PART IS IN NO TOTAL AND IN NO RUN.
                                 ; That is the whole of what lazy is here: not
                                 ; a mechanism, a row this loop steps over
-                                ; (docs/O88-MULTISEG-PLAN.md 6.3). op_fetch
+                                ; (docs/plans/completed/O88-MULTISEG-PLAN.md 6.3). op_fetch
                                 ; claims and reads it later, on its own, and
                                 ; os88pkg.py has put every lazy row AFTER the
                                 ; run so stepping over one cannot leave a hole
@@ -807,7 +807,7 @@ op_read:
     ; now refuses at load with a message, instead of handing the package
     ; segments into a claim holding whatever the heap had. Wave 6's first
     ; consumer is what found it: C64 was about to grow a hand-written "is the
-    ; ROM really there" test that belongs here (docs/O88-MULTISEG-PLAN.md 11).
+    ; ROM really there" test that belongs here (docs/plans/completed/O88-MULTISEG-PLAN.md 11).
     cmp word [op_want], 0
     jne .fail
     push ds
@@ -1664,7 +1664,7 @@ op_row:
 ; NO DISK IS READ HERE and that is the whole of what a scratch part is: a
 ; working set DECLARED rather than claimed from the entry proc and refused
 ; afterwards, which is what every workaround in the tree does today
-; (docs/O88-MULTISEG-PLAN.md 2.3).
+; (docs/plans/completed/O88-MULTISEG-PLAN.md 2.3).
 ; -----------------------------------------------------------------------------
 op_scrub:
     xor bx, bx

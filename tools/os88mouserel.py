@@ -26,7 +26,7 @@ WHEN RELATIVE IS THE RIGHT ANSWER - three cases, and they are the whole list:
      contest, the ISR's own stack (SPEC.md 9.10), a button edge without a
      destination. Asking the kernel where the arrow is would be asking the
      thing under test to mark its own work.
-  2. **A bit-exact REPLAY** (docs/SNAPSHOT-PLAN.md 7). Every wait here can be
+  2. **A bit-exact REPLAY** (docs/plans/completed/SNAPSHOT-PLAN.md 7). Every wait here can be
      `advance(frames=N)` - a bounded amount of GUEST time - so two processes
      driven from reset by the same script land on the same cycle. A closed
      loop cannot promise that: it sends however many packets it needs, and how
@@ -62,7 +62,7 @@ sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from os88marty import Marty, MartyError                          # noqa: E402
 
 # Frames, not seconds - `pace="frames"`. 60 frames is ~1 s of guest time on a
-# 60 Hz card, and it is what makes a replay exact (docs/SNAPSHOT-PLAN.md 7).
+# 60 Hz card, and it is what makes a replay exact (docs/plans/completed/SNAPSHOT-PLAN.md 7).
 F_SETTLE = 8       # after a move, for the packet to be decoded and drawn
 F_CLICK = 8        # between press and release
 F_AFTER = 18       # after a click, for the app to react

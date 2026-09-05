@@ -291,7 +291,7 @@ _MIRROR = {
     "TOAST_MAX": ("kernel/toast.inc", 24),
     "KERNEL_SEG": ("kernel/kernel.asm", 0x0060),
     # kernel/memory.inc - the claim table (SPEC.md 50)
-    # PER ARM (docs/KERN-SMALL-CUT-PLAN.md D1/D7): kern_small holds TWENTY claim records. The SDK
+    # PER ARM (docs/plans/KERN-SMALL-CUT-PLAN.md D1/D7): kern_small holds TWENTY claim records. The SDK
     # keeps the LARGER value, so a package over-allocates rather than
     # the kernel overflowing what it was handed (SPEC.md 51.0.0).
     "MEM_MAX": ("kernel/memory.inc", {"big": 32, "small": 20}),
@@ -366,10 +366,10 @@ _MIRROR = {
     # from entry 1 onward the moment they diverged.
     "DSK_DE_STRIDE": ("kernel/dskwin.inc", 24),
     # kernel/sched.inc - the scheduler's slot count (SPEC.md 8). It went 8 ->
-    # 14 with docs/STACK-SLOTS-PLAN.md and tests/saverate.py's copy did not,
+    # 14 with docs/plans/completed/STACK-SLOTS-PLAN.md and tests/saverate.py's copy did not,
     # so sch_cycles was read six slots short; the test reads os88sym now and
     # this entry is what makes the next copy a t_mirror failure.
-    # PER ARM (docs/KERN-SMALL-CUT-PLAN.md D1/D7): kern_small has SIX worker slices and the UI task. The SDK
+    # PER ARM (docs/plans/KERN-SMALL-CUT-PLAN.md D1/D7): kern_small has SIX worker slices and the UI task. The SDK
     # keeps the LARGER value, so a package over-allocates rather than
     # the kernel overflowing what it was handed (SPEC.md 51.0.0).
     "MAX_TASKS": ("kernel/sched.inc", {"big": 14, "small": 7}),

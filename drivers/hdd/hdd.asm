@@ -1179,7 +1179,7 @@ hd_ide_setparams:
 ; driver-backed volume started handing the whole count to DSV_BLK in one call
 ; (SPEC.md 18.7): a command is a task-file write, a BSY poll and a DRQ poll,
 ; and paying that per 512 bytes is most of what a copy costs on a real drive.
-; Measured on the reference copy (docs/HDD-PLAN.md part 13): 1,918 commands
+; Measured on the reference copy (docs/plans/completed/HDD-PLAN.md part 13): 1,918 commands
 ; became 141.
 ;
 ; No DMA page bound here, unlike the BIOS rung: PIO moves every byte through

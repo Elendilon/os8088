@@ -82,7 +82,7 @@ DOC = os.path.join(ROOT, "docs", "KERNEL-MEMORY.md")
 BEGIN = "<!-- kernsize:begin -->"
 END = "<!-- kernsize:end -->"
 
-# --- the two builds (docs/KERN-SPLIT-PLAN.md) --------------------------------
+# --- the two builds (docs/history/KERN-SPLIT-PLAN.md) --------------------------------
 # kern_big and kern_small are two kernels off one tree, and BOTH ARE SHIPPED
 # PRODUCTS - big by default, small for the 128KB floor. That makes the variant
 # a different kind of flag from every other -D this script forwards:
@@ -202,7 +202,7 @@ THEMES = (
     # by the order its file is included, so it has to be the first one. So
     # 3,584 bytes of `.lowbss` moved off disk.inc's row and onto this one
     # without a byte moving in the machine.
-    # lz.inc (docs/O88-COMPRESSION-PLAN.md) is the file system's, and it is
+    # lz.inc (docs/plans/O88-COMPRESSION-PLAN.md) is the file system's, and it is
     # worth saying why rather than putting it under "the machine": what it is
     # to a reader is a step in READING A FILE. Every caller it has is a loader
     # - loader.inc for a package image, driver.inc for a .DRV, diskw.inc for
@@ -246,7 +246,7 @@ THEMES = (
     # own phase sequence, which lives in kernel.asm - and because it is not in
     # a shipped build at all (`make BOOTPROF=1`), so no other theme's figure
     # should move when it is compiled in. stkdiag.inc
-    # (docs/STACK-SLOTS-PLAN.md 10) is here for both halves of that: what it
+    # (docs/plans/completed/STACK-SLOTS-PLAN.md 10) is here for both halves of that: what it
     # measures is sch_isr's own chain to the ROM, and `make STKDIAG=1` is the
     # only build that has it.
     ("the kernel proper: API table, heap, scheduler, events",

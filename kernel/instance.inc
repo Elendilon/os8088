@@ -415,7 +415,7 @@ inst_ico_ctrl:
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
-; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/LAST-DROP-BYTES.md row 18). One
+; IN THE BOOT OVERLAY (SPEC.md 2.5.2, docs/plans/LAST-DROP-BYTES.md row 18). One
 ; caller, kmain:4302, and zero outbound.
 section .ovlw
 inst_init:

@@ -10,7 +10,7 @@
 ;
 ; THAT IS THE WHOLE POINT OF THE FILE. Saving bytes was never the argument -
 ; measured, consolidating the kernel's private helpers was worth twelve
-; (docs/UIHELPERS-PLAN.md 7.1). The argument is that a feature added to the
+; (docs/plans/completed/UIHELPERS-PLAN.md 7.1). The argument is that a feature added to the
 ; button - a pressed state, a focus ring, a different disabled treatment -
 ; lands in the Standard File dialog, the Control Panel, the Timer AND every
 ; package at once, because there is one body rather than ten that agree by
@@ -199,7 +199,7 @@ OS88UI_FILL equ 4               ; ERASE THE INTERIOR FIRST - and the question
                                 ; is what makes the failure read as "47 rule 1
                                 ; is broken" when the mechanism is fine and
                                 ; the erase is what is missing (SPEC.md 47,
-                                ; docs/UIHELPERS-PLAN.md 13.4). Set it unless
+                                ; docs/plans/completed/UIHELPERS-PLAN.md 13.4). Set it unless
                                 ; the caller white-fills its content first.
 OS88UI_INK  equ 8               ; ...and DI's HIGH BYTE is the ink, for a
                                 ; button whose label is deliberately not black
@@ -891,7 +891,7 @@ section .cold
 ; A package always has it - it is four small routines and a word, and the
 ; press/release pair is the SDK's own idiom. The kernel has it only in the big
 ; build, because kern_small's dialogs still fire on the press (SPEC.md 13.8.3
-; is kern_big's, docs/UIHELPERS-PLAN.md 18) and 40 bytes of .cold plus two of
+; is kern_big's, docs/plans/completed/UIHELPERS-PLAN.md 18) and 40 bytes of .cold plus two of
 ; .bss is a whole 512-byte rung on the guard the 128KB machine lives under -
 ; measured, not assumed: making these unconditional cost kern_small exactly
 ; that and nothing else.

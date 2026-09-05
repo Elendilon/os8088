@@ -45,7 +45,7 @@ BUILDS_WITHOUT_MAKE = {
                  "fdthumb.img with nasm and os88pkg.py directly instead, "
                  "which is still writing the tree the run is reading - "
                  "through os88build.at, so it writes where it reads "
-                 "(docs/SOAK-PARALLEL.md 14.2), but into a shared directory "
+                 "(docs/plans/SOAK-PARALLEL.md 14.2), but into a shared directory "
                  "either way",
 }
 
@@ -66,7 +66,7 @@ UNREGISTERED = {
     "os88qemu.py": "the teardown every QEMU launcher registers, written once "
                    "rather than thirteen times - library, not a test. What "
                    "checks it is `t_qemuown`, which asserts every launcher "
-                   "calls it (docs/HANDOFF-SOAK-FINDINGS.md B9)",
+                   "calls it (docs/plans/HANDOFF-SOAK-FINDINGS.md B9)",
     "benchlib.inc": "a benchmark library, not a test",
     "trklog.inc": "tracker's logging build, %included by apps/tracker",
     "trkscrl.inc": "tracker's scroll-gate build, %included by apps/tracker",
@@ -80,7 +80,7 @@ UNREGISTERED = {
                   "dispcp.py's failure exactly (a green row that tests "
                   "nothing, and nobody investigates a pass); it also WRITES "
                   "build/, which a row under a frozen run may not "
-                  "(docs/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
+                  "(docs/plans/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
                   "sync question needs the module",
 
     # --- need a build prerequisite the default build does not make ---
@@ -202,7 +202,7 @@ def _private_build(path):
     # **`tree()` OR `BUILD=`, NEVER THE BARE IMPORT.** Importing os88build is
     # not building anything: `os88build.at()` is a PATH RESOLVER and rows
     # import it to spell `build/x.img` correctly under a frozen run
-    # (docs/SOAK-PARALLEL.md 14.2) - eight of them do, and none of those
+    # (docs/plans/SOAK-PARALLEL.md 14.2) - eight of them do, and none of those
     # builds a tree. Keying on the import therefore told `fdlgthumb` to drop
     # a flag it genuinely needs: that row builds its fixture with nasm and
     # os88disk directly and writes whichever tree the run reads.

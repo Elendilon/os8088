@@ -151,7 +151,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-; --- the split (docs/KERN-SPLIT-PLAN.md) -------------------------------------
+; --- the split (docs/history/KERN-SPLIT-PLAN.md) -------------------------------------
 ; KERN_BIG and KERN_SMALL are two builds off this one tree, and the knob is
 ; `make KERN_BIG=1`. The reason is three budget moves old and is written out
 ; below and in docs/KERNEL-MEMORY.md: a 128KB machine and a 640KB machine stop
@@ -300,7 +300,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endif
 
 ; SPEC.md 51's LOADABLE DRIVERS are kern_big's too (SPEC.md 51.0). It is the
-; largest single item in docs/KERN-SMALL-CUT-PLAN.md's hardware group and the
+; largest single item in docs/plans/KERN-SMALL-CUT-PLAN.md's hardware group and the
 ; only one there that is not a device - it is the ABILITY to load one - so it
 ; is the one that needed a product decision rather than a measurement. The
 ; decision is the owner's, in their words: *"remove the drivers from the OS
@@ -318,7 +318,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endif
 
 ; ...and with them go the sound layer's CARD tiers (SPEC.md 34.0). This is
-; the half of docs/KERN-SMALL-CUT-PLAN.md's A1 that OS88_DRIVERS has already
+; the half of docs/plans/KERN-SMALL-CUT-PLAN.md's A1 that OS88_DRIVERS has already
 ; made unreachable rather than merely unwanted: every route to an OPL2 or a
 ; Sound Blaster is a `[drv_svc + DSV_*]` read, and on a build that can load no
 ; driver that table is zero for the life of the machine. The PC SPEAKER is
@@ -355,7 +355,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endif
 
 ; SPEC.md 22.3-22.5's Cut/Copy/Paste is an ON-DEMAND MODULE on kern_small
-; (SPEC.md 2.8, docs/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1) and stays resident
+; (SPEC.md 2.8, docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2 wave 1) and stays resident
 ; `.cold` on kern_big, which keeps its speed and its one contiguous boot read:
 ; a module is CUT OUT of kernel.bin by tools/os88mod.py and MODC_START is
 ; exactly where the image ends, so nothing about big's read changes.
@@ -369,7 +369,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endif
 
 ; SPEC.md 38's Standard File dialog, on FCP_MOD's terms one block up and
-; through the same seam (SPEC.md 38.0, docs/KERN-SMALL-MODULE-SPLIT.md 9.2
+; through the same seam (SPEC.md 38.0, docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2
 ; wave 2). SEVEN entries against MOD_NENT's eight, because SPEC.md 13.10.5's
 ; thumb drag is kern_big's already and takes fdlg_onup and fdlg_ondrag with
 ; it - so this fits the mechanism as it stands and needed no MOD_NENT raise.
@@ -394,7 +394,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %endif
 %endif
 
-; GFX_VGA - does this build drive a VGA at all? (docs/MONO-RECLAIM-PLAN.md 2)
+; GFX_VGA - does this build drive a VGA at all? (docs/plans/MONO-RECLAIM-PLAN.md 2)
 ;
 ; kern_big does. kern_small DOES NOT, and that is a product decision rather
 ; than a size trim that happened to fit: a 128KB machine has no business with
@@ -449,7 +449,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; separate blocks and nothing else would notice them parting.
 %ifdef GFX_PLANE
  %ifndef GFX_VGA
-%error "GFX_PLANE without GFX_VGA - the planar row decoder is VGA-only code (SPEC.md 5.4.1.3); see docs/MONO-RECLAIM-PLAN.md 2"
+%error "GFX_PLANE without GFX_VGA - the planar row decoder is VGA-only code (SPEC.md 5.4.1.3); see docs/plans/MONO-RECLAIM-PLAN.md 2"
  %endif
 %endif
 
@@ -626,7 +626,7 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ;         COMPOSED BAR. 1,625 raw bytes,
                                 ;         attributed per routine in 5.9.1. It
                                 ;         buys a title bar with NO double-draw
-                                ;         anywhere in it - docs/TEXT-PLAN.md
+                                ;         anywhere in it - docs/plans/completed/TEXT-PLAN.md
                                 ;         1.1's whole point - at 36.5 ms
                                 ;         against the fifteen calls' 40.8 on
                                 ;         Hercules and 37.1 against 42.0 on
@@ -934,7 +934,7 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ; RECORD STANDS BELOW. That grant said the work
                                 ; would be reconsidered rather than the figure
                                 ; raised again, and it was honoured: every
-                                ; conversion in docs/UIHELPERS-PLAN.md 15.4
+                                ; conversion in docs/plans/completed/UIHELPERS-PLAN.md 15.4
                                 ; landed inside the 1KB. This is a different
                                 ; ask for a different reason.
                                 ;
@@ -945,7 +945,7 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ; 13.8.2's tracking edge and 13.9's one-shot
                                 ; timer, and the conversion of every control
                                 ; that still acts on the PRESS to act on the
-                                ; release instead (docs/UIHELPERS-PLAN.md
+                                ; release instead (docs/plans/completed/UIHELPERS-PLAN.md
                                 ; 15.4).
                                 ;
                                 ; THE GRANT'S TERMS ARE WORTH KEEPING, because
@@ -1012,7 +1012,7 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ; failed the build.
                                 ;
                                 ; NAMED FOR TWO THINGS, on the grant's own
-                                ; terms: docs/DUAL-DISPLAY-VGA.md's VGA +
+                                ; terms: docs/plans/completed/DUAL-DISPLAY-VGA.md's VGA +
                                 ; HERCULES EXTENDED DESKTOP, and BUGFIXES.
                                 ;
                                 ; WHAT ARRIVED AT ZERO IS WORTH THE LINE,
@@ -1048,7 +1048,7 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ; the third of those. 2KB on the thirteenth
                                 ; move's terms - headroom, half a step - for
                                 ; SPEC.md 62's NETWORK DRIVER
-                                ; (docs/NET-PLAN.md).
+                                ; (docs/plans/completed/NET-PLAN.md).
                                 ;
                                 ; WHAT IT HAS ALREADY SPENT is stage 1, which
                                 ; is on this branch and is 175 bytes: DV_CLASS
@@ -1127,11 +1127,19 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ;
                                 ; TWO WAYS TO HAND THE FIRST STEP BACK if the
                                 ; footprint is ever wanted, both costed:
-                                ; docs/LAST-DROP.md 3's packed single table
-                                ; (256 bytes, two loop variants, ~30 bytes of
-                                ; code back), and dropping the VGA span writer
-                                ; (169 bytes, SPEC.md 5.4.1) at the price of
-                                ; its 1.95x. Neither is a rewrite.
+                                ; packing SPEC.md 5.4.1.1's gfx_pairtab0 and
+                                ; gfx_pairtab1 into a single table (256 bytes,
+                                ; two loop variants, ~30 bytes of code back),
+                                ; and dropping the VGA span writer (169 bytes,
+                                ; SPEC.md 5.4.1) at the price of its 1.95x.
+                                ; Neither is a rewrite. (This cited a
+                                ; LAST-DROP.md 3 that has not existed for
+                                ; some time and never carried the claim: that
+                                ; file's 3 was the blit decoder's hybrid, and
+                                ; it split into LAST-DROP-BYTES and
+                                ; LAST-DROP-PERF, neither of which mentions a
+                                ; packed table. The costing above is this
+                                ; comment's own.)
                                 ;
                                 ; THE SEVENTEENTH MOVE, 98,304 -> 100,352,
                                 ; ASKED FOR AND GRANTED, and the first since
@@ -1163,7 +1171,7 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ; thirteenth move's terms (headroom, half a
                                 ; step) with the round's biggest item still to
                                 ; come: a raise restoring only what was
-                                ; COVERED (docs/HANDOFF-REDRAW.md item A),
+                                ; COVERED (docs/plans/completed/HANDOFF-REDRAW.md item A),
                                 ; which is a wm_raise change and not a new
                                 ; mechanism, and which turns Paint's 8.7 s
                                 ; canvas into ~0.9 s on the case the reporter
@@ -1193,7 +1201,7 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ; THE FIFTEENTH MOVE, 94,208 -> 96,256, AND
                                 ; THE FIRST THAT IS kern_big's ALONE. 2KB,
                                 ; asked for and granted, for SPEC.md 39's
-                                ; dual display (docs/DUAL-DISPLAY-PLAN.md):
+                                ; dual display (docs/plans/completed/DUAL-DISPLAY-PLAN.md):
                                 ; the estimate is 1,400-1,900 bytes and the
                                 ; spare had fallen to 1,024 (two steps) after
                                 ; the disk round, so the feature no longer
@@ -1427,7 +1435,7 @@ KERN_BUDGET equ 107520          ; the whole kernel's FOOTPRINT. Growing past
                                 ;
                                 ; WHAT IT BUYS IS NOT A FEATURE. SPEC.md
                                 ; 13.8/13.8.2/13.9's whole family is kern_big's
-                                ; (18 in docs/UIHELPERS-PLAN.md) and none of it
+                                ; (18 in docs/plans/completed/UIHELPERS-PLAN.md) and none of it
                                 ; is here. What is here is 26 bytes: the three
                                 ; API CELLS plus one shared stc/ret, which is
                                 ; the floor of keeping ONE SDK - a slot number
@@ -1487,7 +1495,7 @@ KERN_BUDGET equ 107520          ; the whole kernel's FOOTPRINT. Growing past
                                 ; IT IS ALLOCATED TO WINDOW REDRAW
                                 ; IMPROVEMENTS, which is the seventeenth move's
                                 ; allocation continued rather than a new one:
-                                ; docs/HANDOFF-REDRAW.md's remaining items are
+                                ; docs/plans/completed/HANDOFF-REDRAW.md's remaining items are
                                 ; 11.91's marking keyed on redrawn REGIONS
                                 ; rather than rects, and 11.96.11.1's general
                                 ; kept region. The argument is the seventeenth's
@@ -1713,8 +1721,8 @@ KERN_BUDGET equ 107520          ; the whole kernel's FOOTPRINT. Growing past
                                 ; asked for and granted in ADVANCE, for two
                                 ; plans costed together before either was
                                 ; written: SPEC.md 54's file type
-                                ; associations (docs/ASSOC-PLAN.md, ~1,600)
-                                ; and the disk path (docs/DISK-PERF-PLAN.md,
+                                ; associations (docs/plans/completed/ASSOC-PLAN.md, ~1,600)
+                                ; and the disk path (docs/plans/completed/DISK-PERF-PLAN.md,
                                 ; ~200), against the 1,536 that were spare,
                                 ; which the two do not fit. Granted in
                                 ; advance is the fifth move's warning, so the
@@ -1733,7 +1741,7 @@ KERN_BUDGET equ 107520          ; the whole kernel's FOOTPRINT. Growing past
                                 ; SPEC.md 18.91's batched transfer is 117
                                 ; bytes that took a directory change from 12
                                 ; int 13h calls to 5, and mechanism D
-                                ; (docs/DISK-PERF-PLAN.md 5.5) removes 8 of
+                                ; (docs/plans/completed/DISK-PERF-PLAN.md 5.5) removes 8 of
                                 ; the 13 an APPS/ open still costs.
                                 ;
                                 ; The eighth move, 78,336 -> 80,384, is the
@@ -2081,7 +2089,7 @@ MIN_RAM_KB  equ 128
 DSK_FAT_SECS equ 2              ; TWO on kern_small: 1,024 bytes of FAT_SEG
                                 ; instead of 4,608, and the largest volume it
                                 ; will mount is a 360KB floppy
-                                ; (docs/KERN-SMALL-CUT-PLAN.md D2).
+                                ; (docs/plans/KERN-SMALL-CUT-PLAN.md D2).
                                 ;
                                 ; It is an ACCEPTANCE threshold like the value
                                 ; below, so this is not a buffer that might
@@ -2095,7 +2103,7 @@ DSK_FAT_SECS equ 2              ; TWO on kern_small: 1,024 bytes of FAT_SEG
                                 ; volume any host mounts.
                                 ;
                                 ; IT COULD NOT HAVE BEEN TAKEN BEFORE SPEC.md
-                                ; 37.0.1. docs/KERN-SMALL-CUT-PLAN.md 7 is the
+                                ; 37.0.1. docs/plans/KERN-SMALL-CUT-PLAN.md 7 is the
                                 ; floor: `.ovlw` is loaded ONTO this window and
                                 ; spills through the mount buffers, so it has
                                 ; to fit FAT_PARA*16 + DSK_WIN_BYTES. At 2
@@ -2135,7 +2143,7 @@ STK0_SIZE   equ 512             ; task 0's stack - the UI task's, and so the
                                 ;
                                 ; 2.08x SPEC.md 15.1's 246, and that is
                                 ; GENEROUS by the standard this tree actually
-                                ; holds: docs/STACK-SLOTS-PLAN.md 12 has Frotz
+                                ; holds: docs/plans/completed/STACK-SLOTS-PLAN.md 12 has Frotz
                                 ; at 1.26x - a 22-level chain reading 240 of a
                                 ; 384 slice - as the thinnest margin in the
                                 ; tree, and it is accepted because a slice's
@@ -2408,7 +2416,7 @@ BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
                                 ; BOOT-ONLY bodies out of `.text` and `.cold`
                                 ; into `.ovl`, where mem_unblob gives them back
                                 ; to the heap at the end of kmain.
-                                ; docs/LAST-DROP-BYTES.md is the register of
+                                ; docs/plans/LAST-DROP-BYTES.md is the register of
                                 ; them and names the caller that makes each one
                                 ; boot-only. 18 is 36 bytes short of the whole
                                 ; register; 19 takes it with room over.
@@ -2456,7 +2464,7 @@ BOOT2_SECS  equ 8               ; sectors stage 1 reads before it jumps - the
 ; The sentence that used to end here - "the NEXT claim on this file is
 ; BOOT2_SECS, and that one is a real ~24 ms on every boot" - was right, and
 ; SPEC.md 2.9.12 is that claim being taken: 13 sectors to 19, for the boot-only
-; bodies in docs/LAST-DROP-BYTES.md.
+; bodies in docs/plans/LAST-DROP-BYTES.md.
 OVL_AT      equ 2624            ; ...and it is ONE value for every build now.
                                 ; SPLSTARS=1 took 3,072 here AND a blob a
                                 ; sector longer, because its `.boot2` was
@@ -2498,7 +2506,7 @@ section .ovl     start=OVL_AT vstart=OVL_AT
 ; room; the split is what buys the lifetime back for the half that needs it.
 OVLW_START equ BOOT2_PAD + (FAT_SEG - KERNEL_SEG) * 16
 section .ovlw    start=OVLW_START vstart=0
-; --- on-demand kernel modules (SPEC.md 2.8, docs/ONDEMAND-PLAN.md) -----------
+; --- on-demand kernel modules (SPEC.md 2.8, docs/plans/completed/ONDEMAND-PLAN.md) -----------
 ; Code that is NOT in KERNEL.SYS at all. Each of these is assembled here, with
 ; this kernel's data addresses, and then SPLIT OUT of the binary by
 ; tools/os88mod.py into a file of its own; the kernel loads one into a heap
@@ -2590,7 +2598,7 @@ DBG_TAG_VIDEO equ 0x4456          ; 'VD' - SPEC.md 57.4
 DBG_TAG_FDD   equ 0x4446          ; 'FD' - SPEC.md 57.5
 DBG_TAG_BUILD equ 0x4449          ; 'ID' - SPEC.md 57.6
 DBG_TAG_BPROF equ 0x5042          ; 'BP' - SPEC.md 15.5, BOOTPROF=1
-DBG_TAG_STKD  equ 0x4453          ; 'SD' - docs/STACK-SLOTS-PLAN.md, STKDIAG=1
+DBG_TAG_STKD  equ 0x4453          ; 'SD' - docs/plans/completed/STACK-SLOTS-PLAN.md, STKDIAG=1
 
 ; =============================================================================
 ; Fixed entry points
@@ -2826,7 +2834,7 @@ osapi_table:
     OSAPI_SLOT wm_resize          ; 0x01D0 - resize a window (SPEC.md 11.1):
                                   ;          BX = win, CX = w, DX = h; lock
                                   ;          held. Retires the last liberty
-                                  ;          in docs/PAINT-NOTES.md - an app
+                                  ;          in docs/plans/completed/PAINT-NOTES.md - an app
                                   ;          writing W_W/W_H itself
     OSAPI_SLOT gfx_blit4          ; 0x01D8 - packed 4bpp block (SPEC.md 5.4):
                                   ;          ES:SI = source, BP = stride,
@@ -2884,7 +2892,7 @@ osapi_table:
     OSAPI_SLOT wm_onsize          ; 0x0220 - install the resize negotiator
                                   ;          (SPEC.md 11.1): BX = win, AX =
                                   ;          near proc. The other half of
-                                  ;          docs/PAINT-NOTES.md's resize
+                                  ;          docs/plans/completed/PAINT-NOTES.md's resize
                                   ;          complaint - wm_resize is the app
                                   ;          asking, this is the app answering
     OSAPI_SLOT osapi_file_here    ; 0x0228 - where the file API's names
@@ -3794,7 +3802,7 @@ osapi_table:
                                   ;          kern_small the bit is simply set
                                   ;          and never read
     OSAPI_JSLOT api_decomp        ; 0x04F8 - expand a compressed block
-                                  ;          (docs/O88-COMPRESSION-PLAN.md
+                                  ;          (docs/plans/O88-COMPRESSION-PLAN.md
                                   ;          12.1). A JSLOT and not an X or N
                                   ;          cell: BOTH segment registers are
                                   ;          the caller's here, because the
@@ -3858,7 +3866,7 @@ dbg_reg:
                                     ; so it has to be in the build the field
                                     ; machine is actually sent
 %ifdef STK_DIAG
-    dw DBG_TAG_STKD, sd_dbg_blk     ; docs/STACK-SLOTS-PLAN.md - `make
+    dw DBG_TAG_STKD, sd_dbg_blk     ; docs/plans/completed/STACK-SLOTS-PLAN.md - `make
                                     ; STKDIAG=1`, knob-built under 57.2's rule
                                     ; for bprof's reason: it COUNTS
 %endif
@@ -4661,7 +4669,7 @@ kmain:
                                 ; the OTHER HEAD's sectors
     MARK 4
     OVWCALL  sched_init         ; pre-emption live from here on. IN THE BLOB
-                                ; (docs/LAST-DROP-BYTES.md row 3) - one
+                                ; (docs/plans/LAST-DROP-BYTES.md row 3) - one
                                 ; caller, and this is it
     MARK 5
 %ifdef SCH_QUANTUM
@@ -4672,7 +4680,7 @@ kmain:
                                 ; here, and this also closes the ticks-only
                                 ; era - the boot sector's load and the three
                                 ; calls above it
-    OVWCALL  sch_idle_start     ; PROBE (docs/SCHED-IDLE-PLAN.md 6.2): the idle
+    OVWCALL  sch_idle_start     ; PROBE (docs/plans/completed/SCHED-IDLE-PLAN.md 6.2): the idle
                                 ; task. Inert while ui_task never sleeps - the
                                 ; scan skips its slot, so it is reached only
                                 ; where sch_switch used to resume the outgoing
@@ -4998,7 +5006,7 @@ kmain:
 %endif
 
 %ifdef STK_DIAG
-    call sd_start               ; docs/STACK-SLOTS-PLAN.md: the diagnostic task
+    call sd_start               ; docs/plans/completed/STACK-SLOTS-PLAN.md: the diagnostic task
                                 ; and its panel. AFTER the desktop, so the
                                 ; first paint has somewhere to land, and after
                                 ; BOOT_PROFILE's table so the two knobs do not
@@ -5482,7 +5490,7 @@ section .text
                                 ; ui.inc, which use the VMM_POLL macro
 %include "bootprof.inc"       ; the boot phase table (SPEC.md 15.5), BOOTPROF=1
 %include "stkdiag.inc"        ; what an interrupt costs a task stack
-                              ; (docs/STACK-SLOTS-PLAN.md), STKDIAG=1
+                              ; (docs/plans/completed/STACK-SLOTS-PLAN.md), STKDIAG=1
 %include "moudiag.inc"        ; ...and what the identify window saw (SPEC.md
                                 ; 9.4.6), MOUDIAG=1. Both are knob-only and
                                 ; both draw on the finished desktop, because
@@ -5545,7 +5553,7 @@ section .text
                               ; every module it serves, because a module's
                               ; own section carries the header that names
                               ; MOD_* and MOD_NENT
-%include "lz.inc"             ; decompression (docs/O88-COMPRESSION-PLAN.md):
+%include "lz.inc"             ; decompression (docs/plans/O88-COMPRESSION-PLAN.md):
                                 ; BEFORE every loader that calls it, and it
                                 ; calls nothing itself - no kernel data, no
                                 ; kernel routine, just the caller's two
@@ -6160,7 +6168,7 @@ cw_menu_item_dis:       call menu_item_dis
                     retf
 cw_mou_clamp:           call mou_clamp
                     retf
-; ...and the BOOT OVERLAY's (docs/LAST-DROP-BYTES.md rows 15 and 17):
+; ...and the BOOT OVERLAY's (docs/plans/LAST-DROP-BYTES.md rows 15 and 17):
 ; dock_init and menu_init moved into `.ovl`; menu_init has exactly one
 ; outbound call left, and dock_init now has NONE - what it asked cw_dock_force
 ; for was "the whole strip is owed", which is two words it writes itself, so
@@ -6210,7 +6218,7 @@ cw_vid_dual_ok:         call vid_dual_ok
 cw_vid_span_one:        call vid_span_one
                     retf
 ; ...and these two are the BOOT OVERLAY's, not cold code's: vid_ctx_init went
-; into `.ovl` (docs/LAST-DROP-BYTES.md row 13) and calls both. They are `cw_`
+; into `.ovl` (docs/plans/LAST-DROP-BYTES.md row 13) and calls both. They are `cw_`
 ; rather than `ovw_` for the reason the clock's pair is - `ovw_` names the
 ; overlay, and what these actually name is "resident, reached from another
 ; address space", which is the same shim whichever side asks.
@@ -6735,7 +6743,7 @@ kret_ret:         ret         ; NAMED so a test can breakpoint the RETURN.
                               ; Every routine that leaves through this ladder
                               ; returns HERE, with sp back at its own entry
                               ; value, which is what a caller matching on sp
-                              ; needs (docs/HANDOFF-SOAK-FINDINGS.md B2).
+                              ; needs (docs/plans/HANDOFF-SOAK-FINDINGS.md B2).
 
 section .cold
 kretc_es:         pop es
@@ -6832,7 +6840,7 @@ KTEXT_SIZE equ kernel_text_end - $$
 ; into the boot overlay through spl_gate. `.ovl` is aboard before stage 1 jumps
 ; and vid_detect would be too, which reads as free - but spl_gate is at the far
 ; end of `.text` (sector 104 of 119), so the PATH is not aboard even though the
-; destination is. docs/LAST-DROP-BYTES.md rows 10 and 22 are refused on this,
+; destination is. docs/plans/LAST-DROP-BYTES.md rows 10 and 22 are refused on this,
 ; and without this line nothing in the tree would have said so.
 SPL_RES_SIZE equ spw_resident_end - $$
 %if SPL_RES_SIZE > SPL_RESIDENT * 512
@@ -7415,7 +7423,7 @@ SK_VGAB_KB equ SK_R(SK_CUM5) - SK_R(SK_CUM5 - VGABUF_PARA * 16)
 ;    back at spl_finish and the arena is compacted onto it, so it is not
 ;    footprint in KERN_BUDGET's sense - but it IS occupied at the same moment
 ;    the boot sector and its stack are, which is exactly what guard 5 asks
-;    about. docs/SETTINGS-COST.md 7.2 is the same shape: a transient the
+;    about. docs/plans/completed/SETTINGS-COST.md 7.2 is the same shape: a transient the
 ;    minimum machine still has to be able to hold.
 ;
 ; 5c. RETIRED, BECAUSE STAGE 1 NOW ASKS THE QUESTION ITSELF (SPEC.md 2.7.1).

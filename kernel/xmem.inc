@@ -246,7 +246,7 @@ section .cold                   ; xm_boot is COLD, and that is not a saving:
 ; that one word, so it must not be visible before what it gates.
 ; -----------------------------------------------------------------------------
 section .ovl                   ; THE BOOT OVERLAY (SPEC.md 2.5.2,
-                                ; docs/LAST-DROP-BYTES.md row 5): kmain calls
+                                ; docs/plans/LAST-DROP-BYTES.md row 5): kmain calls
                                 ; this once, right at the end, and the XMS
                                 ; driver it attaches outlives it - what does not
                                 ; is the attaching. The three drv_* edges below
@@ -673,7 +673,7 @@ xm_cblk:    resb XMC_SIZE       ; the copy's parameter block, read by the
 %else
 ; =============================================================================
 ; kern_small: the four slots keep their NUMBERS and their CONTRACTS
-; (SPEC.md 20.8 rule 4, SPEC.md 41.11, docs/KERN-SPLIT-PLAN.md 3)
+; (SPEC.md 20.8 rule 4, SPEC.md 41.11, docs/history/KERN-SPLIT-PLAN.md 3)
 ;
 ; The tables must stay the same length in both builds, or a package built
 ; against one kernel far-calls into whatever follows the other's table - which

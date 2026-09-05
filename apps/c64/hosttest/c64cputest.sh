@@ -9,7 +9,7 @@
 # SS != DS and reads the serial port.
 #
 # THE TEN ROWS, and the negative control each one carries. Decision 22 in
-# docs/C64-PORT-PLAN.md says nine, and the tenth is the split below: decimal
+# docs/plans/completed/C64-PORT-PLAN.md says nine, and the tenth is the split below: decimal
 # ADC/SBC came out of Dormann's row and became a row of its own.
 #
 #   1  Klaus Dormann's 6502 functional test, 64KB, fetched at a pinned

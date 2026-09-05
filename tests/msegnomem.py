@@ -5,7 +5,7 @@
     make mseg && python3 tests/msegnomem.py [machine] [system-image]
 
 This is the third thing the whole design exists for, said as a measurement.
-Every workaround in the tree today (docs/O88-MULTISEG-PLAN.md 2.2) answers the
+Every workaround in the tree today (docs/plans/completed/O88-MULTISEG-PLAN.md 2.2) answers the
 size question AFTER the program is running: it reads the whole of itself off
 the disk, gets a segment, runs its entry proc and only then asks for the
 memory it cannot live without. The parts standard answers it from a table that
@@ -236,7 +236,7 @@ def main():
     # own usage line says `make mseg && python3 tests/msegnomem.py`, mseg is NOT
     # in `all`, and the row never built it - so on any tree where somebody had
     # not typed that by hand it died with FileNotFoundError on build/mseg.o88.
-    # That is docs/HANDOFF-SOAK-FINDINGS.md B4's shape exactly: an ABSENT gate
+    # That is docs/plans/HANDOFF-SOAK-FINDINGS.md B4's shape exactly: an ABSENT gate
     # reading as a failing one. A private tree has to name what it wants, and
     # naming it is what fixed it.
     t = os88build.tree(*KNOBS, targets=("os8088-360.img", "mseg")).apply()

@@ -82,7 +82,7 @@ import os88qemu                                             # noqa: E402
 # with its own OS88_BUILD (a knob kernel, a field build) keeps it.
 #
 # ...AND THROUGH `os88build.at`, or a frozen run reads the SHARED build/emuk
-# while booting the tree's vmmouse.img (docs/SOAK-PARALLEL.md 14.2). The two
+# while booting the tree's vmmouse.img (docs/plans/SOAK-PARALLEL.md 14.2). The two
 # are built from the same source and differ by the build number, which is one
 # 16-bit immediate - so os88sym refuses the map with "a DIFFERENT kernel" and
 # the row dies at its first symbol. Under the runner this becomes

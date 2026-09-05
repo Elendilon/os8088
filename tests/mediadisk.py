@@ -24,7 +24,7 @@ other half and answers a different question.
 than a weakening of it.** It used to be a literal `["BROWSER.HTM",
 "GUIDE.TEX", "PAPER.TEX"]`, which asserted the Makefile's data list and not
 the machine - so `PKGZ ?= lz4` failed it for doing exactly what
-docs/O88-COMPRESSION-PLAN.md 13.4 calls the single most visible thing
+docs/plans/O88-COMPRESSION-PLAN.md 13.4 calls the single most visible thing
 compression buys this project: BEVERLY.MOD is 42 clusters wrapped instead of
 114, the two-disk split of SPEC.md 24.4 COLLAPSES, and the module rides the
 apps disk in MEDIA/ where both players already look. A row that has to be

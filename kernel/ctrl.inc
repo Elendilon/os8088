@@ -440,7 +440,7 @@ cp_hide:  db 0
 ; desktop. Six static items plus the THREE drivers that publish a page
 ; (SPEC.md 31.9 - the hard disk's, the debug monitor's and the network link's;
 ; the sound driver publishes none) is exactly nine. The count was two until
-; NET.DRV (docs/NET-PLAN.md), and growing this constant is what the guard
+; NET.DRV (docs/plans/completed/NET-PLAN.md), and growing this constant is what the guard
 ; below is FOR: it is a build-time %error, so the third page could not be
 ; added without the window being made to hold it. CP_ITEMS and not [cp_nst],
 ; because the guard has to hold on the machine that shows every row.
@@ -760,7 +760,7 @@ CPS_B0Y2  equ CPS_R0Y + CP_GW - 1       ; 31: row 0 bottom = row 1 top - 1
 CPS_B1Y2  equ CPS_R1Y + CP_GW - 1       ; 47: route row 1 bottom
 CPS_CBY2  equ CPS_CBY + CP_GW - 1       ; 63: checkbox band bottom
 ; =============================================================================
-; The module image (SPEC.md 2.8, docs/ONDEMAND-PLAN.md 2)
+; The module image (SPEC.md 2.8, docs/plans/completed/ONDEMAND-PLAN.md 2)
 ;
 ; Everything above this line is DATA, in ordinary .text in the kernel's own
 ; segment, and it STAYS THERE - a module moves code and never data, which is
@@ -778,7 +778,7 @@ CPS_CBY2  equ CPS_CBY + CP_GW - 1       ; 63: checkbox band bottom
 ; to the system disk when it CLOSES (SPEC.md 31.8/51.5.1), so every session
 ; that changes anything already requires that disk to be reachable. Loading
 ; the image asks for nothing the feature did not already ask for. That is the
-; whole test (docs/ONDEMAND-PLAN.md 1) and it is about the user rather than
+; whole test (docs/plans/completed/ONDEMAND-PLAN.md 1) and it is about the user rather than
 ; about the code.
 ;
 ; TWO ROUTINES DO NOT GO, and both would otherwise force a load at a moment

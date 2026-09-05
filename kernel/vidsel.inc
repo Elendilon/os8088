@@ -93,7 +93,7 @@ vid_dbg_blk:
 
 ; =============================================================================
 ; THE ADAPTER PROBE TRIO, IN THE BOOT OVERLAY (SPEC.md 2.5.2,
-; docs/LAST-DROP-BYTES.md row 2) - 262 contiguous bytes and the cleanest body
+; docs/plans/LAST-DROP-BYTES.md row 2) - 262 contiguous bytes and the cleanest body
 ; in the tree to move: ONE inbound edge in the whole repository (kmain:4211),
 ; ZERO outbound, and no data and no `section` line anywhere in the span.
 ; vid_probe_avail calls vid_memchk three times and vid_cga_alias once and calls
@@ -628,7 +628,7 @@ SPL_MSG_Y     equ 288           ; VGA: under the bar trough (rows 262..281) and
 ; same section, and it is their only caller, so what used to be a 20-byte
 ; OVLCALL through spl_fp is three bytes of near call in one address space and
 ; the `retf` they answered it with is a `ret`. That collapse is most of why
-; docs/LAST-DROP-BYTES.md row 1 is the only row in the register that returns
+; docs/plans/LAST-DROP-BYTES.md row 1 is the only row in the register that returns
 ; more than it spends. ovl_spl_redraw below keeps its `retf` - spl_reset is in
 ; `.boot2` and reaches it through OVLCALL still.
 ; -----------------------------------------------------------------------------
@@ -939,7 +939,7 @@ section .text
 ;   * THE COLOUR ARM WROTE 3D8h UNCONDITIONALLY, a register a VGA does not
 ;     implement, so the OUT was swallowed by the bus. That was accepted while
 ;     "a VGA beside a Hercules" was believed to be a pairing nobody built - it
-;     is in fact the one the period built most (docs/DUAL-DISPLAY-VGA.md 1.3) -
+;     is in fact the one the period built most (docs/plans/completed/DUAL-DISPLAY-VGA.md 1.3) -
 ;     and on such a machine switching to the Hercules left the VGA lit with a
 ;     frozen desktop on it. vid_blank_kind has a real VGA arm (SR01 bit 5).
 ;
@@ -1086,7 +1086,7 @@ vid_switch:
 ; =============================================================================
 ; The per-display context (SPEC.md 39.12) - kern_big only
 ;
-; STEP 1 of docs/DUAL-DISPLAY-PLAN.md 11: the state and the swap, with
+; STEP 1 of docs/plans/completed/DUAL-DISPLAY-PLAN.md 11: the state and the swap, with
 ; [vid_ndisp] = 1 and nothing on a drawing path calling any of it. So the
 ; screen is byte-identical to the build before it, on all three adapters, by
 ; construction rather than by inspection - which is the gate this step is
@@ -1690,7 +1690,7 @@ vid_ctx_act:
 ; vid_equip, vid_apply, vid_setmode, vid_disp_init and desk_rowcalc, and none of
 ; them is this. kmain:4203 is the only edge in the repository, which is what
 ; puts this body in the BOOT OVERLAY (SPEC.md 2.5.2,
-; docs/LAST-DROP-BYTES.md row 13) - and a stale comment naming a runtime caller
+; docs/plans/LAST-DROP-BYTES.md row 13) - and a stale comment naming a runtime caller
 ; is exactly how a later session would add the one that breaks it silently.
 ;
 ; Its two outbound calls go through cw_ shims, which is `.ovl`'s discipline
@@ -1996,7 +1996,7 @@ vid_disp_find:
 ; "how deep is the screen" but "how deep is the card these pixels are ON".
 ; Those are the same question on every machine with one display and on both
 ; displays of a Hercules+CGA pair; a VGA beside a Hercules is where they part
-; (docs/DUAL-DISPLAY-VGA.md 4.3).
+; (docs/plans/completed/DUAL-DISPLAY-VGA.md 4.3).
 ;
 ; It DERIVES rather than being told, and that is deliberate: the cache already
 ; carries the rect its pixels were taken over, in the claim's own header, so
@@ -2077,7 +2077,7 @@ vid_pt_clamp:
 ; A MONO CARD AND A COLOUR CARD, which is a sentence about cards where this
 ; used to be an equality against HERC|CGA exactly. The equality was right about
 ; every value it refused but one, and the one it got wrong is the pairing the
-; period built most of (docs/DUAL-DISPLAY-VGA.md):
+; period built most of (docs/plans/completed/DUAL-DISPLAY-VGA.md):
 ;
 ;   HERC|CGA        a Hercules and a real CGA          two - as before
 ;   VGA|HERC|CGA    a VGA and a real Hercules          two - NEW

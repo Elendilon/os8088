@@ -5,7 +5,7 @@ SPEC.md §74 stands to `apps/runcpm`: every symbol, constant, string, register
 answer and layout the port depends on is pinned here, and the change goes in
 here *before* it goes in the code. The design record — waves, budgets, risks,
 the user's decisions and the review that reshaped them — is
-`docs/C64-PORT-PLAN.md`.
+`docs/plans/completed/C64-PORT-PLAN.md`.
 
 It lives outside SPEC.md by the user's instruction. **A bare `§N.M` in this
 file is a section of THIS file**; SPEC.md's sections are always cited in full
@@ -168,7 +168,7 @@ dependency (§1.3).
 | joystick bits: `$DC00`/`$DC01` bits 0–4 active low (up, down, left, right, fire); "Swap joysticks"; port-2 keyset default is THIS PORT's choice (VICE's `JoyDevice2` default is `JOYDEV_NONE`, `joystick.c:2092`; `KeySetEnable=1` at `:553` matches "shown checked") | `src/joyport/joystick.c`, `src/c64/c64cia1.c` |
 | SID register file (`$D400-$D41C`, voice frequency/control/gate), `$D41B`/`$D41C` read-backs | `src/sid/sid.c` (register semantics only; no synthesis carries) |
 | icon: a 16×16 1-bit breadbin drawn for this port, not copied | `data/common/vice-x64_16.png` is the REFERENCE LOOK only; `apps/runcpm/icon.inc` is the format precedent |
-| the platform precedent every non-VICE surface follows (slice loop, wake, fullscreen chord exception, About panel rows, toast-under-fullscreen, the keyboard-mouse sentence, the sidecar file read at launch) | SPEC.md §74, §74.1, §74.2 (`SPEC.md:57224` for the SPEC.md §9.6 sentence), §74.4, §9.6, §9.7, §5.4.1, §5.4.2; `apps/runcpm/runcpm.c`, `rcterm.c`, `rcz80.inc`, `rcband.inc`, `rcmem.inc`, `rcabout.c`; `docs/RUNCPM-PORT-PLAN.md` (the measured ratios) |
+| the platform precedent every non-VICE surface follows (slice loop, wake, fullscreen chord exception, About panel rows, toast-under-fullscreen, the keyboard-mouse sentence, the sidecar file read at launch) | SPEC.md §74, §74.1, §74.2 (`SPEC.md:57224` for the SPEC.md §9.6 sentence), §74.4, §9.6, §9.7, §5.4.1, §5.4.2; `apps/runcpm/runcpm.c`, `rcterm.c`, `rcz80.inc`, `rcband.inc`, `rcmem.inc`, `rcabout.c`; `docs/plans/completed/RUNCPM-PORT-PLAN.md` (the measured ratios) |
 
 ---
 
@@ -696,7 +696,7 @@ Two values only:
 
 **AND ONE WAY OF "REACHING" IT WAS NOT A JAM AT ALL — found in wave 3,
 fixed in the KERNEL** (`kernel/wm.inc` `wm_wake_sweep`, commit `0bc11cc`;
-`docs/C64-PORT-PLAN.md`'s wave-3 record carries the reproduction). Launching a
+`docs/plans/completed/C64-PORT-PLAN.md`'s wave-3 record carries the reproduction). Launching a
 second package — or any drag, or a launch from a Disk window — froze the speed
 figures for good with no keystroke echoing, and Preferences showed **Advance
 frame greyed**, which read as `C64_ST_JAM`. The 6510 had not jammed: the
@@ -729,7 +729,7 @@ half-executed opcode.
 (minutes, like `make rcz80test`; deliberately *not* in `build.sh`): the
 **shipping `c64cpu.inc`**, in a boot sector, in raw QEMU, under `SS ≠ DS`.
 It is not a Dormann wrapper — Dormann is one row of it. **There are TWELVE
-rows.** `docs/C64-PORT-PLAN.md`'s Decision 22 says nine; the tenth is the
+rows.** `docs/plans/completed/C64-PORT-PLAN.md`'s Decision 22 says nine; the tenth is the
 split at row 10 below (decimal `ADC`/`SBC` came out of Dormann's row and
 became a row of its own when the fixture for it turned out not to exist as a
 binary), and rows 11 and 12 are the fix pass's, each written because an
@@ -1931,7 +1931,7 @@ feature and not a build fix (`docs/KERNEL-MEMORY.md`).
 
 **This port therefore keeps the EGA-16 map and a per-row colour record**
 (§9.2's mapping) so that slot drops in without re-planning. That is a
-follow-up, and `docs/C64-PORT-PLAN.md`'s Decisions section records it as one.
+follow-up, and `docs/plans/completed/C64-PORT-PLAN.md`'s Decisions section records it as one.
 
 ### 9.7 The cost — **in milliseconds, not in calls**
 
@@ -3552,7 +3552,7 @@ something to load.
 ### 14.6 Manual evidence — and the line between them
 
 **Automated evidence** is everything in §14.5: it runs unattended, it fails a
-build or a tier, and every `done_when` in `docs/C64-PORT-PLAN.md` rests only
+build or a tier, and every `done_when` in `docs/plans/completed/C64-PORT-PLAN.md` rests only
 on it.
 
 **Manual evidence** is the three 86Box machines (§14.3) and anything read off

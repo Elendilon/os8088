@@ -5,7 +5,7 @@
 
 Goal 3 of the whole design is "load only some minimal amount, so a package
 does not read for ages only to find out it is going to be refused"
-(docs/O88-MULTISEG-PLAN.md 0). Waves 2 and 3 answered the second half of that
+(docs/plans/completed/O88-MULTISEG-PLAN.md 0). Waves 2 and 3 answered the second half of that
 sentence - a refusal costs no disk. `OP_LAZY` answers the first: a part the
 package declares, sizes and NEVER READS until it wants it.
 
@@ -138,7 +138,7 @@ def build_counted():
     # own usage line says `make mseg && python3 tests/mseglazy.py`, mseg is NOT
     # in `all`, and the row never built it - so on any tree where somebody had
     # not typed that by hand it died with FileNotFoundError on build/mseg.o88.
-    # That is docs/HANDOFF-SOAK-FINDINGS.md B4's shape exactly: an ABSENT gate
+    # That is docs/plans/HANDOFF-SOAK-FINDINGS.md B4's shape exactly: an ABSENT gate
     # reading as a failing one. A private tree has to name what it wants, and
     # naming it is what fixed it.
     t = os88build.tree(*KNOBS, targets=("os8088-360.img", "mseg")).apply()

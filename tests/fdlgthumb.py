@@ -142,7 +142,7 @@ def dragid(m):
 # `need` therefore deletes the very kernel it is about to test, from a make that
 # then reports "up to date". So the fixture is built here, with the same two
 # tools the Makefile would have used and no `make` at all.
-# **EVERY PATH HERE GOES THROUGH `os88build.at`** (docs/SOAK-PARALLEL.md
+# **EVERY PATH HERE GOES THROUGH `os88build.at`** (docs/plans/SOAK-PARALLEL.md
 # 14.2). This row is the one that may not call `make` at all, so it is also
 # the one that has to place its own output where the rest of the run reads:
 # `M.launch` resolves what it is handed, so writing `build/fdthumb.img`

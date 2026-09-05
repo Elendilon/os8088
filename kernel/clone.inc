@@ -9,7 +9,7 @@
 ; disk holding a file system nobody here has heard of.
 ;
 ; **AN ON-DEMAND MODULE** (SPEC.md 2.8), shipped as `CLONE.DRV`. It qualifies
-; on docs/ONDEMAND-PLAN.md 1's test for the formatter's reason with one more
+; on docs/plans/completed/ONDEMAND-PLAN.md 1's test for the formatter's reason with one more
 ; term in its favour: preparing a disk already has a trip to the disk box in
 ; it, and a clone has TWO.
 ;
@@ -2316,7 +2316,7 @@ clo_issrc:
 ; out: AL = CERR_IO or CERR_WPROT
 ; clobbers: AL, flags
 ;
-; Duplicated rather than far-entered, on docs/HDD-SPLIT-PLAN.md 3.2's rule: a
+; Duplicated rather than far-entered, on docs/plans/completed/HDD-SPLIT-PLAN.md 3.2's rule: a
 ; boundary crossing for two compares costs more than the bytes it saves. It
 ; reads the same [dsk_ioerr] through the same DS.
 ; -----------------------------------------------------------------------------

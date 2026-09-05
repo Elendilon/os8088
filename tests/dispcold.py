@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WHO DRAWS INTO .cold? (docs/DUAL-DISPLAY-VGA.md 8(11))
+"""WHO DRAWS INTO .cold? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))
 
     make && python3 tests/dispcold.py
 

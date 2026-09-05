@@ -81,7 +81,7 @@ had not got.
 That is the half that changed.  Those waits are denominated in GUEST time now
 (`os88marty.GUEST_HZ`), so what a row is allowed is the same on a busy box as
 an idle one, and contention can no longer explain a failure.  The measurement
-is `docs/SOAK-PARALLEL.md` 1: twelve rows at width 3 with two extra CPU hogs
+is `docs/plans/SOAK-PARALLEL.md` 1: twelve rows at width 3 with two extra CPU hogs
 passed 12/12 and ran 1.06x slower than the same rows alone.  On the pre-merge
 gate - nearly all emulator rows - the default took 402s to 227.5s.
 
@@ -142,7 +142,7 @@ def _default_mj():
     not got. That is the half that changed. Those waits are denominated in
     GUEST time now (os88marty.GUEST_HZ), so what a row is allowed is the same
     on a busy box as an idle one, and the measurement behind it is
-    docs/SOAK-PARALLEL.md 1: twelve rows at width 3 with two extra CPU hogs
+    docs/plans/SOAK-PARALLEL.md 1: twelve rows at width 3 with two extra CPU hogs
     passed 12/12 and ran 1.06x slower than the same rows alone.
 
     CORES-1, for the reason os88soak.py's `widths()` gives at length: the
@@ -196,7 +196,7 @@ def capabilities():
     # buries the failures that mean something. Named for the artifact, per the
     # note above.
     # THROUGH `at`, because a frozen run reads the tree and not `build/`
-    # (docs/SOAK-PARALLEL.md 14.2). Probing the shared directory granted the
+    # (docs/plans/SOAK-PARALLEL.md 14.2). Probing the shared directory granted the
     # capability off a disk the rows could not open: `uilat`, `wirefps` and
     # `wireflick` ran and died on FileNotFoundError instead of skipping - the
     # one outcome a probed capability exists to prevent.
@@ -294,7 +294,7 @@ def prebuild(rows):
     artefact does it while the other rows are running, and a `make` rewrites
     build/ under everything reading it: the first full soak of this work lost
     nine rows to a four-minute window opened by one row's `make`
-    (docs/SOAK-PARALLEL.md 12). Doing it here does it when nothing else is
+    (docs/plans/SOAK-PARALLEL.md 12). Doing it here does it when nothing else is
     running.
 
     And it ends the other failure, which reads as a broken feature rather than
@@ -559,7 +559,7 @@ def main():
             # ...and the OTHER direction, which had no report at all and is
             # the worse one. A row finishing in a few percent of its
             # declaration did not do what it says: it is an ABSENT gate, not a
-            # fast one. docs/HANDOFF-SOAK-FINDINGS.md B4 records three rows
+            # fast one. docs/plans/HANDOFF-SOAK-FINDINGS.md B4 records three rows
             # that FAILED in 0.1s where they meant to skip, and those got
             # investigated because they were red - `dispcp` was a LIBRARY
             # registered as a row, reporting `ok` in 0.1s against 60 declared,

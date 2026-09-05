@@ -69,7 +69,7 @@
 ;
 ; IT IS NOT A SECOND ABI AND MUST NEVER BECOME ONE. A small-built NOTEPAD.O88
 ; runs on kern_big exactly as it runs on kern_small - it calls the same API
-; table at the same offsets (docs/KERN-SPLIT-PLAN.md 3) and simply has fewer
+; table at the same offsets (docs/history/KERN-SPLIT-PLAN.md 3) and simply has fewer
 ; features. What pairs it with kern_small is the DISK it ships on, not
 ; anything the kernel does or does not publish. That is the whole design:
 ; `make small`'s note that a package is "one package, both kernels" still
@@ -1450,7 +1450,7 @@ np_bounds:
 ; never touched.
 ;
 ; NOT USED IN np_rflush, which is the per-ROW text flush and the one caller
-; on the hot path (docs/TEXT-PLAN.md): its two sites take the triple shift
+; on the hot path (docs/plans/completed/TEXT-PLAN.md): its two sites take the triple shift
 ; INLINE, which is the same six bytes it already spent and faster than what
 ; it spent them on. Everywhere else a near call is ~11us against a
 ; GFX_FILL's 756us floor (PERFORMANCE.md Part 2), so the fills below cost
@@ -3460,7 +3460,7 @@ np_ckword:
 ; edit cannot reach. Backing up through it re-decides a break nobody ever
 ; decided: on a note that is one 249-character run, the caret's row backed up
 ; NINE rows to index 0 and pass 1 then laid out the whole view from the top of
-; the note, on every keystroke (docs/NOTEPAD-NOTES.md 5.6).
+; the note, on every keystroke (docs/plans/completed/NOTEPAD-NOTES.md 5.6).
 ;
 ; THE MARGIN IS WHY THIS COUNTS TO np_rcols + 2 AND NOT np_rcols + 1. The
 ; threshold np_wordfit actually applies is `length > np_rcols`, and this runs
@@ -5634,7 +5634,7 @@ np_append:
     je .norows
     mov cx, [np_rowsn]
     cmp cx, NP_MAXROWS              ; [np_rowsn] is not capped to the array it
-    jbe .rok                        ; indexes (docs/NOTEPAD-NOTES.md 5.3.1), so
+    jbe .rok                        ; indexes (docs/plans/completed/NOTEPAD-NOTES.md 5.3.1), so
     mov cx, NP_MAXROWS              ; this caller clamps like np_seedtail does
 .rok:
     mov bx, [np_ckpr]
@@ -5820,7 +5820,7 @@ np_redraw:
                                 ; bottom visible row puts the caret one row
                                 ; below the view and re-walked the entire note
                                 ; to find it, which is seconds on the most
-                                ; used key there is (docs/NOTEPAD-NOTES.md 1.4)
+                                ; used key there is (docs/plans/completed/NOTEPAD-NOTES.md 1.4)
 .haveit:
     call np_seecaret                ; when it MOVED. A scroll bar click also
     jnc .scrolled                   ; ends here, and following the caret then

@@ -45,7 +45,7 @@
 ; --- task table (SPEC.md 8) --------------------------------------------------
 %ifdef KERN_SMALL
 MAX_TASKS   equ 7               ; SIX worker slices and the UI task
-                                ; (docs/KERN-SMALL-CUT-PLAN.md D1). The SDK's
+                                ; (docs/plans/KERN-SMALL-CUT-PLAN.md D1). The SDK's
                                 ; copy STAYS AT 14, on SPEC.md 51.0's rule for
                                 ; MEM_P_FATW_N: apps/os88api.inc publishes this
                                 ; to packages and taskmgr sizes buffers from it
@@ -128,7 +128,7 @@ SCH_IDLE_STK    equ 128         ; the idle task. Its own footprint is at most 4
                                 ; bytes - `pushf` then `cli`, then task_yield's
                                 ; own `pushf`/`cli` - so what it needs IS the
                                 ; interrupt floor, measured at 32 on QEMU and
-                                ; 40-64 on real iron (docs/STACK-SLOTS-PLAN.md
+                                ; 40-64 on real iron (docs/plans/completed/STACK-SLOTS-PLAN.md
                                 ; 7.1). 128 is 2x the worst of those
 SCH_BUILTIN_STK equ 128         ; a built-in kind's task. Timer and Bounce are
                                 ; the two that take one, and six Bounces at
@@ -159,7 +159,7 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 ; sch_stkbase's addresses, sch_stksize's sizes, the total sch_stacks reserves,
 ; and the count that must agree with MAX_TASKS. Edit here and nowhere else.
 ;
-; It is a FIXED PARTITION and not an allocator (docs/STACK-SLOTS-PLAN.md 6.2):
+; It is a FIXED PARTITION and not an allocator (docs/plans/completed/STACK-SLOTS-PLAN.md 6.2):
 ; the slices exist from boot, a spawn takes the smallest free one that is big
 ; enough, and running out is OSAPI_TASK_SPAWN's existing CF=1 - which SPEC.md
 ; 20.6 already requires every package to degrade on. No compaction, no
@@ -169,9 +169,9 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 ; stop being uniform, and every reader had to stop assuming otherwise first.
 ; -----------------------------------------------------------------------------
 %ifdef KERN_SMALL
-; --- kern_small's SIX (docs/KERN-SMALL-CUT-PLAN.md D1) -----------------------
+; --- kern_small's SIX (docs/plans/KERN-SMALL-CUT-PLAN.md D1) -----------------------
 ; 1,280 bytes against kern_big's 2,816. The COUNT is the owner's; what is
-; chosen here is WHICH SIX, off the same survey (docs/STACK-SLOTS-PLAN.md 12.1)
+; chosen here is WHICH SIX, off the same survey (docs/plans/completed/STACK-SLOTS-PLAN.md 12.1)
 ; read against what SPEC.md 24.5 actually puts on the small disks:
 ;
 ;   the 384 class  ftpd, the Browser and Frotz - NONE of which ships on
@@ -212,7 +212,7 @@ SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
                                 ; on the CALLER's stack - they ask for 256
     SCH_SLOT 192                ; THE MODAL CLASS - eleven of the twenty
     SCH_SLOT 192                ; workers in the tree land here
-    SCH_SLOT 192                ; (docs/STACK-SLOTS-PLAN.md 12.1): WIREFRAME,
+    SCH_SLOT 192                ; (docs/plans/completed/STACK-SLOTS-PLAN.md 12.1): WIREFRAME,
     SCH_SLOT 192                ; Artful, the Task Manager, the Fractal, WEAVE,
     SCH_SLOT 192                ; Cyclone, Notepad, Arkanoid, Tracker
     SCH_SLOT 192
@@ -276,7 +276,7 @@ SCH_WD_TICKS equ 18             ; cooperative mode: the watchdog forces a
 ; out:      nothing
 ; clobbers: flags
 ;
-; IT IS IN THE BOOT OVERLAY (SPEC.md 2.5, docs/LAST-DROP-BYTES.md row 3), which
+; IT IS IN THE BOOT OVERLAY (SPEC.md 2.5, docs/plans/LAST-DROP-BYTES.md row 3), which
 ; is 166 bytes of `.text` that stop existing when kmain gives the blob back.
 ; kmain:4170 is its ONE caller and there is no second entry: nothing
 ; re-initialises the scheduler, the reboot path is sched_unhook - which RESTORES
@@ -568,7 +568,7 @@ sched_unhook:
     ret
 
 ; -----------------------------------------------------------------------------
-; sch_wake_ui - make the UI task ready (PROBE, docs/SCHED-IDLE-PLAN.md 6.3)
+; sch_wake_ui - make the UI task ready (PROBE, docs/plans/completed/SCHED-IDLE-PLAN.md 6.3)
 ;
 ; One byte store, atomic on an 8086, so an ISR may do it with nothing held.
 ; Task 0 is the UI task and its record is at offset 0 of sch_tasks, so this is
@@ -656,7 +656,7 @@ sch_idle_body:
 ; in:  nothing.  out: CF=1 if no slot was free (the machine keeps the old
 ;      resume-the-outgoing fallback and nothing else changes)
 ;
-; IN THE BOOT OVERLAY (docs/LAST-DROP-BYTES.md row 16). One caller, kmain:4182,
+; IN THE BOOT OVERLAY (docs/plans/LAST-DROP-BYTES.md row 16). One caller, kmain:4182,
 ; and the idle task it spawns outlives it by construction - a task's code is
 ; sch_idle_body in `.text`, which is what BX = 0 above names. Taking the address
 ; of a `.text` label from `.ovl` is correct and taking the address of an `.ovl`
@@ -1024,7 +1024,7 @@ task_yield:
 ; The idiom stood in six places and was spelled three different ways.  Five
 ; are now calls; THE SIXTH IS NOT AND MUST NOT BE - sch_switch's copy is on
 ; the switch path, where a near call and ret (~43 clocks) is 0.05% of an idle
-; machine but ~1.4% at the 1,541 switches a second docs/SCHED-IDLE-PLAN.md
+; machine but ~1.4% at the 1,541 switches a second docs/plans/completed/SCHED-IDLE-PLAN.md
 ; 6.1.2 measures with an app open.  That is why this saves what it saves.
 ;
 ; PLACEMENT: outside the sch_isr -> sch_switch -> sch_resume fall-through run.
@@ -2354,7 +2354,7 @@ sch_s_ui:   db 'UI TASK', 0
 ; right independently and a table is something they look up.
 ;
 ; A DERIVATION ALSO CANNOT SURVIVE VARIABLE SIZES, which is what
-; docs/STACK-SLOTS-PLAN.md 6 needs: with classes there is no expression from
+; docs/plans/completed/STACK-SLOTS-PLAN.md 6 needs: with classes there is no expression from
 ; the slot index to the base at all. So the table is the enabling mechanism as
 ; well as the simplification, and both of those were true before any class
 ; existed.

@@ -13,7 +13,7 @@ So a test naming `os8088_5150_cga` on a box without that ROM runs on a
 DIFFERENT MACHINE than it named, passes, and reports a pass about a machine it
 never booted.  Nine rows were in that state and four of them were registered;
 none had ever run on the ROM it asked for, and nothing anywhere said so
-(docs/HANDOFF-SOAK-FINDINGS.md E3, `tests/int0sweep.py`'s own description).
+(docs/plans/HANDOFF-SOAK-FINDINGS.md E3, `tests/int0sweep.py`'s own description).
 
 THIS GATE IS HOST-SIDE AND FREE.  It reads the machine table and the test
 sources; it boots nothing.  Three checks:

@@ -106,7 +106,7 @@ def main() -> int:
     ap.add_argument("--compress", metavar="FMT", nargs="?", const="lz4",
                     choices=("lz4", "lzb", "none"), default=None,
                     help="compress the image, unpacked by the loader "
-                         "(docs/O88-COMPRESSION-PLAN.md 7). The header, icon "
+                         "(docs/plans/O88-COMPRESSION-PLAN.md 7). The header, icon "
                          "and association block stay in the CLEAR - the mount "
                          "reads them from the first sector and must not have "
                          "to decompress to harvest an icon. `image` keeps "
@@ -248,7 +248,7 @@ def main() -> int:
     return 0
 
 
-# --- compression (docs/O88-COMPRESSION-PLAN.md 7, 12.5) ----------------------
+# --- compression (docs/plans/O88-COMPRESSION-PLAN.md 7, 12.5) ----------------------
 # The bytes the MOUNT reads stay in the clear. SPEC.md 18.3 step 4 harvests an
 # icon out of a file's first sector and SPEC.md 54.6's association block sits
 # beside it, so a compressed package still answers both without a decoder -
@@ -309,7 +309,7 @@ def compress_image(out: bytearray, image: int, bss: int, flags: int,
             "--compress with parts is not supported yet: a part's offset is "
             "measured from the start of the FILE and lives in a table INSIDE "
             "the image, so compressing the image and laying out its parts are "
-            "circular. docs/O88-COMPRESSION-PLAN.md wave 4 (OP_COMP) is where "
+            "circular. docs/plans/O88-COMPRESSION-PLAN.md wave 4 (OP_COMP) is where "
             "that is resolved; nothing in the tree needs both today")
     if flags & (PKG_COMP_BIT | PKG_COMP_FMT):
         return refuse(f"flags 0x{flags:02X} already has a compression bit set")

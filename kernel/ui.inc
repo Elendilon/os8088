@@ -326,7 +326,7 @@ ui_task:
     ;
     ; The press does not act; it arms, LIGHTS THE BOX and returns. The light
     ; is SPEC.md 13.8.1, and it is the answer to the objection this comment
-    ; used to record - docs/MOUSEUP-PLAN.md 7 declined a pressed state because
+    ; used to record - docs/plans/completed/MOUSEUP-PLAN.md 7 declined a pressed state because
     ; arm-and-return never sees the pointer between the two edges, so a static
     ; invert stays lit while the user slides off and says the opposite of what
     ; is true. It is not static: ui_arm_trk samples the pointer once per UI
@@ -955,7 +955,7 @@ ui_timer_pass:
 ; in:  nothing
 ; out: nothing (all registers preserved; flags clobbered)
 ;
-; THIS IS THE WHOLE OF THE TRACKING, AND IT IS NOT A LOOP. docs/MOUSEUP-PLAN.md
+; THIS IS THE WHOLE OF THE TRACKING, AND IT IS NOT A LOOP. docs/plans/completed/MOUSEUP-PLAN.md
 ; 7 declined the down state because arm-and-return never observes the pointer
 ; between the two edges, and offered only 3's spin-and-track to fix it - which
 ; pays all three of the costs arm-and-return was chosen to avoid. The third way
@@ -1455,7 +1455,7 @@ ui_drag:
 %ifdef KERN_BIG                 ; 39.16.1) and ui_drag_size above is what it
     call wm_nat_bank_xy         ; costs when it does - ONE call now, where this
 %else                           ; site used to run a second clamp of its own
-    call wm_nat_bank            ; (docs/WINDOW-SIZING-PLAN.md 12.1: three
+    call wm_nat_bank            ; (docs/plans/completed/WINDOW-SIZING-PLAN.md 12.1: three
 %endif                          ; mechanisms shared this job and each had its
                                 ; own defect).
                                 ; The bank is POSITION ONLY where a size can
@@ -1548,7 +1548,7 @@ ui_drag_size:
     mov di, [bx+W_Y]            ; can move a window that kept its size
     call wm_land_fit            ; ONE question: has the adapter changed, and if
                                 ; so what size does this window want here?
-                                ; (docs/WINDOW-SIZING-PLAN.md 12)
+                                ; (docs/plans/completed/WINDOW-SIZING-PLAN.md 12)
     cmp si, [bx+W_X]
     jne .moved2
     cmp di, [bx+W_Y]

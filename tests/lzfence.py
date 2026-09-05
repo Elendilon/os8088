@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """OSAPI_DECOMP refuses a hostile stream (SPEC.md 20.13.4).
 
-docs/O88-COMPRESSION-PLAN.md 13 makes this wave 1's gate. The bounds in
+docs/plans/O88-COMPRESSION-PLAN.md 13 makes this wave 1's gate. The bounds in
 kernel/lz.inc were measured for SIZE and SPEED before they were ever fed a bad
 stream, and "it refuses" was an assertion until this row existed.
 
