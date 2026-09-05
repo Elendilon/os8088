@@ -220,7 +220,16 @@ ui_task:
 %endif
     cmp cx, [vid_clk_hx]        ; the clock cell at the right end (SPEC 12.1)?
     jae .clock_cell             ; tested BEFORE menu_track: it is not a title
-    call ui_loc_gate            ; ...and Locator's own items go grey or live
+    call ui_loc_gate            ; ...and Locator's own items go grey or live.
+                                ; **CX IS THE PRESS'S X ACROSS BOTH GATES AND
+                                ; menu_track WANTS IT** - neither saves it, so
+                                ; both must honour "all registers preserved"
+                                ; all the way down. hb_ok did not (SPEC.md
+                                ; 87.2: OSAPI_XM_CAPS answers in DX:CX too),
+                                ; and only on a machine with a fixed volume -
+                                ; so on a hard-disk boot every bar press
+                                ; hit-tested at x = 0 and dropped the System
+                                ; menu, and no floppy machine could see it
 %ifndef KERN_SMALL
     call COLD_SEG:fm_bar_gate_x ; ...as does a Disk window's Format (22.12),
                                 ; whose owner is a WINDOW rather than the
