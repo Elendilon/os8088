@@ -283,8 +283,9 @@ Three things in there are worth knowing on their own terms:
 
 ## 5. Open field reports
 
-All four are reproducible on the 5150 and none is fixed. What each entry is
-for is the *ruled out* column: start from evidence.
+Reported from the field, reproducible, and kept whether or not they are fixed
+— several now say FIXED in their own heading. What each entry is for is the
+*ruled out* column: start from evidence.
 
 ### 5.1 Down on the bottom visible row — FIXED (SPEC.md §27.7.9)
 
@@ -728,6 +729,121 @@ python3 tools/notepad/lab.py --len 709 boot --image build/nprun360.img
   the following words still fit, so only the caret's row is dirty (`dr1 = 8`),
   29 cells, under `NP_BRK_CELLS` = 60. Whether the break engages at that caret
   is a property of the sentence, not of the seeding.
+
+### 5.7 Scrolling freezes the machine until the background count lands — FIXED (SPEC.md §27.7.6.1)
+
+Reported as *"the deferred/worker npwalk loader is no longer allowing scroll;
+any attempt to scroll freezes Note Pad until it has completed the npwalk."*
+
+§27.7.6 removed exactly this freeze and left it on one button. `np_sbclick`'s
+four arms are all RELATIVE — `[np_top]` ± `NP_SB_STEP`, `[np_top]` ±
+`[np_vrows]` — and the test that decides whether a request needs the count is
+`cmp ax, bx / jbe`, **unsigned**. So the up arrow at the top of a note asks for
+row −4 and is read as row 65,532, which is past any counted extent there will
+ever be.
+
+Measured on a cycle-accurate 4.77 MHz 8088 (MartyPC, `os8088_5150_cga_gla`),
+README.TXT open at 15,989 characters and 718 rows, `[np_drows]` at 551 with the
+count still owed:
+
+| the up arrow at `[np_top]` = 0 | before | after |
+|---|---|---|
+| the click | **1,053 ms** | **20.2 ms** |
+| `np_height` entered | yes | no |
+| `[np_hdirty]` | 1 → **0** | 1 → 1 |
+| `[np_drows]` | 551 → **718** | 551 → 551 |
+| `[np_top]` | 0 → 0 | 0 → 0 |
+
+**It scrolled nothing and bought the whole note**, which is the report word for
+word: the freeze ends when the walk does, because the walk is what it was.
+
+**And the count no longer runs to the last character either.** `np_height`
+walked to row 0x7FFF whoever asked, so a click that needed to know about row
+550 of a 718-row note paid for all 718. It takes the row it must reach now —
+the request plus `[np_vrows]` — which is `np_hchunk`'s own bound arithmetic
+with a different bound, and `np_hstale` is the guard both of them share.
+
+Cost: **+50 bytes** of `notepad.bin`. No kernel file changed.
+
+### 5.8 Scrolling erases half the scroll bar — FIXED (SPEC.md §27.7.2)
+
+Reported as *"scrolling erases half the scrollbar"*, and refined by the
+reporter to the thing that matters: *"for the period of the scroll — the end
+state is good, but it's erasing half the scrollbar then drawing over it, so it
+flashes."*
+
+`np_vshift` cut its blit from `[np_rgt]`, the last drawable TEXT column, and
+rounded x2+1 UP to a byte column because `OSAPI_GFX_SCROLL` refuses anything
+else. The bar's frame begins at `[np_rgt]+1`, so the blit reached **six of the
+bar's fourteen columns** on the machine above — `np_scrollpaint` then blanked
+that strip white from `[np_ty]` to `[np_bot]` and `np_sbar` drew the whole bar
+again at the end of the routine, with the band's entire relettering in
+between. PERFORMANCE.md Part 1's double-draw flash, ~130 ms of it for one
+arrow click.
+
+**The span is cut from the CELLS now** (`np_bandx`): no glyph reaches past cell
+`[np_rcols]`−1, and with the content origin snapped to a multiple of 8 (§11.94)
+that span's own ends are byte columns — so the bar is never touched, the strip
+pass never runs, and the bar is *moved* (`np_sbcheck`, three calls) instead of
+redrawn (sixteen).
+
+Caught with a breakpoint on `np_sbar` and a framebuffer read, which is the only
+way to see it: the end state is correct on both builds, and an emulator
+screenshot taken after the fact shows nothing. `tests/npscroll.py`'s leg C is
+that capture made into a gate — it samples the bar's up-arrow cell every 25,000
+guest cycles across the whole scroll and the number owed is zero, at every
+sample.
+
+Cost: included in §5.7's +50 bytes; the two changes were measured together.
+
+### 5.9 A track click blanks the whole content and the bar with it — FIXED (SPEC.md §27.7.2.1)
+
+Reported as *"clicking below the thumb, but not on the arrow, is blanking the
+entire inner window — causing the scrollbar to completely disappear. I'm not
+sure this is a regression, it may always have worked this way, but the
+scrollbar doesn't need removed, or even completely redrawn."*
+
+It is not a regression: it is what a track click has always done, and it was
+invisible in an emulator for the usual reason — the end state is correct, so
+a screenshot taken afterwards shows nothing.
+
+**A track click is the one gesture that cannot blit.** `.pageup` and `.pagedn`
+move by `[np_vrows]` on the nose, and §27.7.2 refuses the blit at
+`|d| >= [np_vrows]` because nothing is retained — so `np_scrollpaint` answers
+CF=1 and `np_redraw` falls through to `.fullpaint`, which is where both
+mistakes were:
+
+- **the white fill covered the WHOLE content**, so the scroll bar's fourteen
+  columns and the grow box went with the text; and
+- **`np_paint` then drew the bar whole**, sixteen drawing calls, because the
+  fill had taken it.
+
+Neither is true of that path. A refusal draws nothing, and `.scrolled` is only
+reached when `np_sigsame` has agreed — so the bar on the glass is still right
+to the pixel. `[np_sbkeep]` says so, and is read twice: the fill stops at
+`[np_rgt]` and `np_paint` calls `np_sbcheck` instead of `np_sbar`. The
+`OSAPI_WM_GROW` that followed the fill goes with it, the fill no longer
+reaching the corner it was restoring.
+
+Measured on `os8088_5150_cga` with README.TXT open, the bar's up-arrow cell
+sampled every 25,000 guest cycles (~5 ms) across the whole repaint:
+
+| a track click below the thumb | before | after |
+|---|---|---|
+| samples with the arrow cell altered | **60 of 400** | **0 of 400** |
+| worst | 22 bytes — the whole cell | 0 |
+| so the bar is off the screen for | **~315 ms** | never |
+
+315 ms is this window; the fill is one call and the relettering is
+`[np_vrows]` rows of `font_run`, so a wider or taller Note Pad holds the bar
+off the screen for proportionally longer.
+
+**What is NOT fixed, because it is not a defect:** the text itself still goes
+white and fills back in. A page retains no rows by definition, so §27.2's
+white-fill-then-letter is the repaint, and `[np_clean]` is what keeps it to
+characters rather than rows × width.
+
+Cost: **+49 bytes** of `notepad.bin`. No kernel file changed.
 
 ---
 
