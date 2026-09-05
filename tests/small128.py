@@ -35,10 +35,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 os.environ.setdefault("OS88_DEFINES", "KERN_SMALL")
-os.environ.setdefault("OS88_BUILD", "build/smallk")
 import os88marty as M                                        # noqa: E402
 import os88sym                                               # noqa: E402
 import os88build                                             # noqa: E402
+os88build.use_build("build/smallk")
 
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_128k"
 DEFS = ("KERN_SMALL",)

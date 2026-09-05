@@ -177,6 +177,23 @@ FAST = [
         "go looking for what to adapt. os88geom guards the copies a SCRIPT "
         "retyped; this guards the ones a HUMAN did. FULL rather than fast: a stale comment misleads a reader, it does not break a build, and the fast tier runs on every `make` against a 30s budget this row is a sixth of",
         needs=()),
+    Row("drvovl", "fast", py("tests/unit/t_drvovl.py"), 0.3,
+        "SPEC.md 20.13/62.9.9: a driver-loaded OVERLAY may not be COMPRESSED. "
+        "RAMPAGE.DRV and HDDTOOL.DRV are read by RAMDISK.DRV and HDD.DRV "
+        "themselves, with OSAPI_FILE_READ - which expands a 'CZ' FILE and NOT "
+        "a v4 driver container, the only thing that expands one being "
+        "drv_expand inside drv_load. So a compressed overlay reaches its "
+        "loader as its own compressed bytes, that loader's header check "
+        "refuses it, and what the user sees is not a decode error: it is 'Ram "
+        "Disk needs the system disk', with the driver loaded, its Control "
+        "Panel cells published and every control on the page inert. THAT "
+        "SHIPPED - the compression pass gave rampage.drv the $(OS88DRV) "
+        "recipe, which carries $(PKGZARG), where hddtool.drv had always "
+        "spelled the tool out without it. It cost the RAM disk to save 646 "
+        "bytes of a 360KB disk, tests/rdup.py reported it as three UI "
+        "failures, and the reason took a screenshot to see. The gate reads "
+        "the DRIVERS' OWN SOURCE for the names they load, so a third overlay "
+        "is covered the day it is written"),
     Row("lzfmt", "fast", py("tests/unit/t_lzfmt.py"), 4.0,
         "docs/plans/O88-COMPRESSION-PLAN.md wave 0: both compression formats "
         "round-trip. tools/os88lz.py is the REFERENCE and the kernel's "
