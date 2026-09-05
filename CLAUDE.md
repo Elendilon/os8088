@@ -776,6 +776,15 @@ Entries 4 to 7 share the only shape that gets on this list easily —
 **MartyPC has not got the hardware at all**, so there is no "prefer MartyPC"
 to weigh. 1–3 are the harder kind.
 
+**VGA IS NOT ON THIS LIST.** MartyPC models a register-level VGA and
+`os8088_xt_vga` (with `_vga_mda`, `_vga_herc`, `_vga_sb`, `_vga_hdd`) boots
+it: mode 12h desktops, and the unchained 320x240 "Mode X" too, rendered
+correctly (`tests/skies.py --machine os8088_xt_vga`). Three sessions in a
+row concluded from the `5150_*` names that MartyPC had no VGA and reached
+for QEMU; the machine list is `tools/martypc/configs/os8088_machines.toml`,
+and "the three adapters" above means the three 1983 ones, not everything
+the emulator has.
+
 **"It is quicker to type" is not on it, and neither is "I already know the QMP
 commands."** Everything else that runs on an 8088 — all three of §39's
 adapters, input, screenshots, sound — is `make marty`, which agrees with the

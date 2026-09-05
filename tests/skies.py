@@ -2,7 +2,7 @@
 """CLEAR SKIES (SPEC.md 88) flies, lands where it should, crashes where it
 should, and its frames do not flash.
 
-    python3 tests/skies.py [--machine os8088_5150_herc_gla]
+    python3 tests/skies.py [--machine os8088_5150_herc_gla|os8088_5150_cga_gla|os8088_xt_vga]
 
 FIVE ASSERTIONS, read out of the package's own bss rather than off the glass
 wherever the question is about the world (docs/WRITING-TESTS.md 8):
@@ -226,6 +226,11 @@ def main(argv):
                        % (f0, f1))
 
         # --- it takes off --------------------------------------------------------
+        # A frame slower than CS_MAXSTEP ticks LOSES simulation time (SPEC.md
+        # 85.6), so the roll and the climb take longer on the glass than on
+        # the clock: Mode X on this 8088 is ~4.3 fps against Hercules' 6.5,
+        # and read 6543 of VROT at the end of the Hercules-sized wait
+        slow = 2 if back == 1 else 1
         m.key("KeyW", down=True, up=False)      # full throttle...
         # 50 ticks at 2 a tick, and a frame slower than CS_MAXSTEP ticks
         # loses steps (SPEC.md 85.6): 180 frames was 3.0 s on CGA's 60 Hz
@@ -236,7 +241,7 @@ def main(argv):
         if not ok:
             bad.append("W held for 400 frames did not open the throttle "
                        "(cs_thr = %d)" % r.word("cs_thr"))
-        ok = until(m, lambda: r.word("cs_spd") >= VROT, 1200, 30)
+        ok = until(m, lambda: r.word("cs_spd") >= VROT, 1200 * slow, 30)
         print("  speed %d (VROT %d), state %d" % (r.word("cs_spd"), VROT,
                                                  r.byte("cs_state")))
         if not ok:
@@ -251,7 +256,7 @@ def main(argv):
             bad.append("the stick back at VROT did not lift off (state %d)"
                        % r.byte("cs_state"))
         alt0 = r.metres("cs_py")
-        ok = until(m, lambda: r.metres("cs_py") >= alt0 + 30, 900, 30)
+        ok = until(m, lambda: r.metres("cs_py") >= alt0 + 30, 900 * slow, 30)
         print("  climbed to %d m at %d units of pitch, %d m/s"
               % (r.metres("cs_py"), r.sword("cs_pitch"), r.word("cs_spd") // 256))
         if not ok:
@@ -263,6 +268,31 @@ def main(argv):
         print("  frames %d -> %d in flight" % (f2, f3))
         if f3 <= f2:
             bad.append("cs_frames stopped in flight (%d -> %d)" % (f2, f3))
+
+        # --- Mode X: the page SHOWN is the page drawn (SPEC.md 88.3, 53.10) ---
+        # Every row is redrawn on the page nobody is looking at and the flip
+        # is what puts it on the glass, so a loop that runs and a frame that
+        # is drawn prove nothing on their own: the owner once saw this backend
+        # freeze on its first frame with the loop running. The rendered
+        # picture, a second apart in flight, has to differ every time.
+        # (Broken on purpose before it was registered: the flip patched to
+        # always name page 0 and cs_page0 poked to page 1, so nothing is
+        # ever drawn on the page shown - frames 6 -> 21 and 3 of 3 samples
+        # identical.)
+        if back == 1:
+            shown = []
+            for _ in range(4):
+                m.advance(frames=60)
+                m.pause()
+                shown.append(m.fbuf(0)[2])
+                m.run()
+            same = sum(1 for a, b in zip(shown, shown[1:]) if a == b)
+            print("  rendered frames a second apart in flight: %d of %d identical"
+                  % (same, len(shown) - 1))
+            if same:
+                bad.append("%d of %d rendered frames a second apart were "
+                           "identical in flight: the page flip is not showing "
+                           "what was drawn (SPEC.md 88.3)" % (same, len(shown) - 1))
 
         # --- the instruments follow the aeroplane (SPEC.md 88.9.1) -----------
         # The panel rows of the glass, twice a second apart in a climb: the

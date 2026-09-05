@@ -1648,6 +1648,15 @@ SOAK = [
         "SPEC.md 88 on CGA: the 320x112 view, palette 0 over a light-blue"
         " background, the same flight",
         needs=("marty",), serial=True),
+    Row("skiesvga", "soak", py("tests/skies.py", "--machine",
+                               "os8088_xt_vga"), 240.0,
+        "SPEC.md 88 on MODE X - MartyPC's VGA hosts the unchained mode, whatever"
+        " an earlier session believed - the 320x144 view on two pages, the same"
+        " flight at ~4 fps, and the page SHOWN changing every second in flight:"
+        " the owner once saw this backend freeze on its first frame with the"
+        " loop still running, and a flip that never shows the drawn page is"
+        " exactly that",
+        needs=("marty",), serial=True),
     Row("wireflick", "soak", py("tests/wireflick.py"), 30.0,
         "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"
         "frame - the flicker measured rather than argued about",

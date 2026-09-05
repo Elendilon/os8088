@@ -40,7 +40,7 @@ into the frame.
 |---|---:|---|
 | 5150 + CGA, `FSXM_CGA320` | **6.06 fps** | 320×200×4 |
 | 5150 + Hercules, `FSXM_HERC` | **4.32 fps** | 640×200 mono in 720×348 |
-| XT + VGA, `FSXM_MODEX` | (MartyPC does not model the unchain; QEMU renders it correctly) | 320×240×256 |
+| XT + VGA, `FSXM_MODEX` | (this row once said MartyPC does not model the unchain - it does, on `os8088_xt_vga`, and CLEAR SKIES' Mode X frame is priced and gated there, SPEC.md 88.12 and `tests/skies.py`) | 320×240×256 |
 
 **These are the rates it shipped at.** §85.3.4 to §85.3.6 and §85.6.6.3 are the
 round that followed, measured exact and scene for scene rather than sampled:

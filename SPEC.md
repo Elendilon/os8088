@@ -94399,11 +94399,18 @@ table exactly.
   scene** — every pixel the dirty-row scheme failed to erase differs, and
   the box's bytes beside the view must be dark (§88.3.1: this is the check
   that would have caught what the owner's Hercules showed, and it was
-  written to go red on that build first). Run on the Hercules twin as well
-  as CGA: the view is a different
-  width there. **Mode X has not been exercised by it**: no MartyPC machine
-  in the tree answers `FSX_CAPS` with a VGA (`os8088_5150_both_gla` gives
-  CGA320), so that backend has only QEMU, by hand.
+  written to go red on that build first). Run on the Hercules twin, on CGA
+  (the view is a different width there) **and on `os8088_xt_vga`, which is
+  MODE X**: MartyPC models a register-level VGA and renders the unchained
+  mode (`docs/TESTING.md`; an earlier draft of this sentence said no MartyPC
+  machine offered a VGA, which was wrong, and was the third session to think
+  so). The Mode X arm waits twice as long for the roll and the climb - a
+  frame slower than `CS_MAXSTEP` ticks loses simulation time, and this
+  backend is ~4 fps on an 8088 (§88.12) - and adds the check the other two
+  cannot need: the RENDERED picture a second apart in flight must differ
+  every time, because on two pages a loop that runs and a frame that is
+  drawn prove nothing until the flip shows it, and the owner once saw
+  exactly that freeze on the first frame of a build nobody can name now.
 - `tests/skiesperf.py`: an INSTRUMENT, `tankperf.py`'s shape — a breakpoint on
   `cs_render`, twelve consecutive frames, cycle-exact, on a scene pinned by
   poke — and where the frame rate in §88.12 comes from. Two things it does
@@ -94489,6 +94496,15 @@ frames a second is 400,000 cycles, and this frame's floors sum past that
 before a pixel is drawn: what is between here and there is content — how
 many objects a view holds and how many primitives each is — not the
 loops.
+
+**Mode X on the same 8088** (`os8088_xt_vga`, the runway): **234.6 ms,
+4.3 fps**. It is the slowest backend by a third and the reasons are the
+mode's: two pages mean every view row is refilled every frame (33.6 ms
+where the shadowed backends refill last frame's spans), a run arms the map
+mask through `out` at each end, a pixel of a line is an `out` and a store,
+and the flip waits for the retrace. A VGA in an XT is a machine people
+built and not one this was tuned for; on the 286 and 386 the mode is
+meant for, the same frame is a fraction of the tick.
 
 What the measurements say about the design, in the order it matters:
 
