@@ -111,7 +111,6 @@ class Tree(object):
         """
         e = dict(os.environ)
         e["OS88_BUILD"] = self.dir          # which kernel the map describes
-        e["OS88_TREE"] = self.dir           # ...and where the artefacts are
         if self.defines:
             e["OS88_DEFINES"] = " ".join(self.defines)
         return e
@@ -132,8 +131,16 @@ class Tree(object):
         looking: `blitcut` died inside `no_saver`, three frames below its own
         code, with a message about a stale build.
         """
+        # **`OS88_BUILD` ONLY. A PRIVATE TREE IS NOT THE RUN'S TREE.** The
+        # first version set both, and `plain()` reads $OS88_TREE - so a row
+        # taking an A/B got the KNOB tree back from `plain()` on its second
+        # pass, applied the SHIPPED defines to it, and os88sym refused the map
+        # naming a directory the row had never asked for. tests/dispseam.py
+        # died that way on its second machine, in the arm with no knob in it.
+        #
+        # The two variables have owners: $OS88_TREE is the RUNNER's, set once
+        # for a whole frozen run (14.2), and nothing here may take it over.
         os.environ["OS88_BUILD"] = self.dir
-        os.environ["OS88_TREE"] = self.dir
         os.environ.pop("OS88_DEFINES", None)
         if self.defines:
             os.environ["OS88_DEFINES"] = " ".join(self.defines)
