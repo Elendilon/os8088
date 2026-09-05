@@ -364,6 +364,11 @@ def main(argv):
     # --build names the same directory, so the two cannot disagree.
     build = build or os.environ.get("OS88_BUILD") or "build"
     os.environ["OS88_BUILD"] = build
+    # ...and a PACKED kernel's own four KZ_* defines, off kernel.kz.json in
+    # that directory, exactly as os88sym adds them for its map: callsites()
+    # assembles kernel.asm itself and compares the bytes, so without them a
+    # plain tree is refused as "a DIFFERENT kernel" (SPEC.md 2.9.13.4)
+    defines = list(os88sym.kz_defines(defines, os.path.join(ROOT, build)))
     r = profile(image, apps, machine, tuple(defines), build)
     print("%-28s %10s %9s %7s  %s" % ("phase", "cycles", "ms", "%", "disk"))
     for p in r["phases"]:
