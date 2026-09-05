@@ -1153,17 +1153,19 @@ class UI:
                 raise UIError("this window's bar has %d cells, so there is no "
                               "cell %d. The bar is %r"
                               % (len(cells), menu, [c[0] for c in cells]))
-            hit = [cells[menu]]
+            hit = [menu]
         else:
             want = menu.upper()
-            hit = [c for c in cells if c[0].upper() == want]
+            hit = [i for i, c in enumerate(cells) if c[0].upper() == want]
             if not hit:
-                hit = [c for c in cells if c[0].upper().startswith(want)]
+                hit = [i for i, c in enumerate(cells)
+                       if c[0].upper().startswith(want)]
         if len(hit) != 1:
             raise UIError(
                 "no single menu called %r on this window's bar. The bar is %r"
                 % (menu, [c[0] for c in cells]))
-        title, x0, x1, items = hit[0]
+        cell = hit[0]
+        title, x0, x1, items = cells[cell]
 
         if isinstance(item, int):
             if not 0 <= item < len(items):
@@ -1197,6 +1199,26 @@ class UI:
                    "the %s menu to drop" % title, limit,
                    snapshot=lambda: "menu_dropd = %d, menu_y1 = %d"
                    % (self._byte("menu_dropd"), self._word("menu_y1")))
+
+        # ...AND THAT IT IS THIS TITLE'S MENU. `menu_sel` below confirms the
+        # item INDEX, which a wrong-menu drop passes: press File, get the
+        # System menu, ask for its item 0 and release - and 'About os8088...'
+        # runs where 'Close Window' was meant, with nothing raised. That is not
+        # hypothetical, it is SPEC.md 87.2 on a hard-disk boot, where every
+        # press in the bar hit-tested at x = 0 because a greying predicate
+        # clobbered the press's x. `menu_cell` is what menu_track resolved the
+        # press to, so comparing it with the cell we AIMED at is the whole
+        # check, and it costs one byte read.
+        got = self._byte("menu_cell")
+        if got != cell:
+            self.mo._edge(False)
+            raise UIError(
+                "pressed %r at x=%d (cell %d of this bar) and menu_track "
+                "dropped CELL %d instead%s. The bar is %r - so this is the "
+                "hit test disagreeing with menu_bar[], not a mis-aimed click"
+                % (title, bx, cell, got,
+                   ", %r" % (cells[got][0],) if got < len(cells) else "",
+                   [(c[0], c[1], c[2]) for c in cells]))
 
         y1 = self._word("menu_y1")
         ix = self._word("menu_x1") + 8

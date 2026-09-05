@@ -92998,6 +92998,27 @@ the window closes, by whichever route.
 | `Hibernate (No HD)` (`MENU_DIS`) | no fixed volume |
 | `Hibernate (XMS)` (`MENU_DIS`) | `OSAPI_XM_CAPS` reports fewer than `XM_MAX_BLKS` free entries: a package holds extended memory, and the image does not carry it (§87.7) |
 
+**`hb_ok` PRESERVES EVERY REGISTER BUT `AX` AND THE FLAGS, and `CX` is the one
+that had to be written down.** It is called from `ui_loc_gate`, which promises
+*its* caller that nothing moves — and that caller is `ui_task`'s mouse-down
+arm, which is holding the press's **x in `CX` and its y in `DX`** and hands
+`CX` to `menu_track` three instructions later (§12). `OSAPI_XM_CAPS` answers in
+`AX`, `DX:CX` **and** `BL` (§41.8), so the third row of the table above costs
+three registers rather than the one `BX` this routine used to save, and
+`hb_ok` brackets it with `CX` and `DX` as well.
+
+Only that third row reaches the call at all: `hb_pick` refuses first on a
+machine with no fixed volume, so the damage was invisible on every
+floppy-booted machine and total on an installed one. `CX` came back **0** (the
+low half of the pool's linear base, and a machine with no store answers 0
+outright), every press in the bar therefore hit-tested at x = 0, and cell 0 is
+the System menu in *every* application — so on a hard-disk boot, every menu
+title on the bar dropped the System menu. The fix is four `.cold` bytes; the
+lesson is that a predicate reached from a press runs inside somebody's live
+register set, and that "one far call into a table" — which is what the routine
+says of itself, and is true — is not the same claim as "one far call that
+answers in one register".
+
 Two more refusals are made when the Hibernate button is taken (`hbm_arm`),
 with a toast each (§47 rule 6 — they need the volume mounted, which the bar
 cannot afford on every press):

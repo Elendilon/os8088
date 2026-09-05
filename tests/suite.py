@@ -2124,7 +2124,18 @@ SOAK = [
         "Does os8088 BOOT from the hard disk it was installed to? (SPEC.md "
         "2.9.9) instdeep proves the bytes ARRIVE and every other boot row "
         "boots a floppy, so the volume boot record - a different 512 bytes "
-        "with a different loader - was unexercised, and 2.9 broke it",
+        "with a different loader - was unexercised, and 2.9 broke it. Then "
+        "three things about the desktop it reaches, because a hard-disk boot "
+        "can look almost right and not be: the loading screen was SEEN, the "
+        "clock is drawn IN FULL (the boot overlay's own signature - clk_init, "
+        "font_init and desk_init are OVLGATEs), and EVERY CELL OF THE MENU BAR "
+        "DROPS ITS OWN MENU. That last one is not decoration: hb_ok reaches "
+        "OSAPI_XM_CAPS only when a fixed volume exists, that call answers in "
+        "DX:CX as well as BL, and it used to save BX alone - so on an "
+        "INSTALLED machine the press's x came back 0, every title hit-tested "
+        "at x = 0, and cell 0 is the System menu in every application. Every "
+        "menu on the bar dropped the System menu and no floppy-booted machine "
+        "could see it (SPEC.md 87.2)",
         needs=("marty",), serial=True),
     Row("instdeep", "soak", py("tests/instdeep.py"), 120.0,
         "SPEC.md 52.10.13: an install reproduces the source disk's WHOLE "
