@@ -2077,9 +2077,20 @@ tree the row passes on, not the one it was first read off:
   `tests/hddcp.py` opening Format and Install off it on MartyPC. 8,304
   bytes against 12,567, 9 clusters of the 360KB system disk
   against 13; the disk stands at 273 of 354 against 277.
-- The kernel modules could be `'CZ'` files by the same route a driver now is
-  (their claim is cut from `drv_find`), for system-disk clusters and no
-  kernel bytes; their rules are `os88mod.py`'s and not `$(OS88DRV)`'s.
+- The kernel modules, the ten faces and the licence — **TAKEN**, with
+  `HDDTOOL.DRV` and for its reason: every reader was already the transparent
+  read into a claim cut from the image or bigger than any file. `os88mod.py`
+  wraps what it has checked (`--wrap`, off `PKGZ`), the faces ship packed out
+  of `build/faces/` under their own basenames, and the licence follows
+  `README.TXT`'s rule. Modules 7,394 / 5,810 / 3,497 / 1,129 → 6,104 / 4,965
+  / 3,003 / 1,018 (five clusters); faces 14,992 → 8,937 (ten); licence 6,718
+  → 3,783 (three). The 360KB system disk stands at **255 of 354 clusters**
+  against 277 before the tool. Proved on MartyPC: `tests/facetest`'s package
+  opens a packed face (`ty_openfam` err 0, ten families), and the module rows
+  `modstr`, `dispthm`, `lzcomp`, `diskclone`, `hibernate`, `fcpsmall` and
+  `fdlgsmall`. What it turned up on the way: `tools/os88hdd.py` wrote no
+  directory hint, so a packed driver on the hibernate fixture's volume read
+  as plain — it stamps one now, `os88disk.dirent`'s rule.
 - The boot blob's classic ending: one dialect instead of two, ~22 bytes of
   blob, `KZ_MARGIN` gone.
 

@@ -1978,6 +1978,16 @@ ifneq ($(KERN_SMALL),)
 KMODARGS += -m 4=$(BUILD)/filecp.drv
 KMODARGS += -m 5=$(BUILD)/fdlg.drv
 endif
+# ...AND THE MODULES ARE 'CZ' FILES ON THE DISK (SPEC.md 2.8, 20.13.5), by
+# the route a driver took: mod_need sizes its claim from the directory hint
+# drv_find reads, and dskw_read_x expands the file into it. os88mod.py checks
+# every image the way mod_check will and THEN wraps it, so what it validated
+# is what the machine gets back. Size-passed code packs poorly - 82-90% - and
+# the four modules still give the 360KB disk five clusters; every fetch
+# decodes ~6KB, ~50 ms on the 8088, against the sectors it no longer reads.
+ifneq ($(PKGZ),)
+KMODARGS += --wrap $(PKGZ)
+endif
 # ...and the compressor (SPEC.md 20.15) has no file of its own: it rides in
 # CLONE.DRV as that image's second entry (20.15.3), on both builds.
 # ...but $(KMODS) is NOT guarded, and that is the trap this comment exists for.
@@ -2080,7 +2090,7 @@ else
 endif
 	$(NASM) -f bin -w+error $(KINC) $(VIDDEF) $(KZDEF) -o $@ $(KERNEL_SRC)
 
-$(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py | $(BUILD)
+$(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
 	python3 tools/os88mod.py $< -k $@ $(KMODARGS) --build $(BUILDNUM)
 	@echo "kernel: $(call FILESIZE,$@) bytes (image rung + boot overlay)$(if $(filter-out 0,$(BUILDNUM)), - build $(BUILDNUM), - NO build number: buildnum.py said why)"
 
@@ -2765,7 +2775,17 @@ $(SYSLOGO): tools/os88logo.py | $(BUILD)
 # The list is generated from the directory, exactly as SPEC.md 6.2.1's FONT=
 # targets are, so a new face is a new file and not an edit here as well.
 FACESRC := $(wildcard faces/*.t88)
-FACES := $(patsubst faces/%.t88,$(BUILD)/%.f88,$(FACESRC))
+FACESRAW := $(patsubst faces/%.t88,$(BUILD)/%.f88,$(FACESRC))
+# ...AND THEY ARE COMPRESSED ON THE DISKS (SPEC.md 6.4.1, 20.13.5). A face is
+# 1,498-1,688 bytes, so every one of the ten wasted most of its second
+# cluster; packed to 52-65% each is one. What reads them is ty_open, which
+# takes an 8KB claim, rounds it to a 512-byte boundary and reads at offset 0
+# with OSAPI_FILE_READ - the transparent read's exact shape (20.14.3) - so a
+# 'CZ' face arrives expanded and ty_hdrchk runs against the image. The packed
+# copy lives in $(BUILD)/faces/ under the SAME basename, because os88disk
+# names a file by its basename and the plain one stays where os88face left
+# it for anything on the host that wants the bytes.
+FACES := $(patsubst faces/%.t88,$(BUILD)/faces/%.f88,$(FACESRC))
 
 # ...and the LICENCE rides beside them (SPEC.md 6.4.1). Eight of the ten
 # families are fitted from typefaces somebody else drew, all of them under the
@@ -2775,16 +2795,37 @@ FACES := $(patsubst faces/%.t88,$(BUILD)/%.f88,$(FACESRC))
 # cannot turn up in a Font menu, and the mount types it as a document, so the
 # person at the machine can double-click it and read it. CRLF here for the
 # same reason readme.txt gets it below.
+FACELICRAW := $(BUILD)/license-plain.txt
 FACELIC := $(BUILD)/license.txt
 FACESARG := $(addprefix SYSTEM/FONTS:,$(FACES)) SYSTEM/FONTS:$(FACELIC)
 
 $(BUILD)/%.f88: faces/%.t88 tools/os88face.py | $(BUILD)
 	python3 tools/os88face.py $< -o $@
 
-$(FACELIC): faces/LICENSES.txt | $(BUILD)
+$(BUILD)/faces:
+	mkdir -p $@
+
+$(BUILD)/faces/%.f88: $(BUILD)/%.f88 tools/os88lz.py $(PKGZSTAMP) | $(BUILD)/faces
+ifeq ($(PKGZ),)
+	cp $< $@
+else
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+endif
+
+# ...and the licence is packed the way README.TXT is (SPEC.md 20.13.5): prose
+# at 56%, seven clusters to four, opened by nothing but a double-click into
+# Note Pad, whose read is the transparent one.
+$(FACELICRAW): faces/LICENSES.txt | $(BUILD)
 	python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); \
 		open(sys.argv[2], 'wb').write(d.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))" \
 		$< $@
+
+$(FACELIC): $(FACELICRAW) tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+ifeq ($(PKGZ),)
+	cp $< $@
+else
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+endif
 
 # ...AND IT IS COMPRESSED ON THE DISKS (SPEC.md 20.13.4). 16,334 bytes of
 # CRLF prose is 8,861 wrapped, which is seven of a 360KB disk's 354 clusters,

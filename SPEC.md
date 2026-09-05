@@ -1159,6 +1159,15 @@ finished. **Four exist**: `CTRL.DRV`, the Control Panel (§31), `FORMAT.DRV`,
 the floppy formatter (§18.96), `CLONE.DRV`, the disk cloner (§18.99), and
 `HIBER.DRV`, hibernate and resume (§87) — plus, on `kern_small` alone,
 `FILECP.DRV` and `FDLG.DRV` (§22.3, §38.0), bodies `kern_big` keeps resident.
+**On the disk every one is a `'CZ'` container** (§20.13.5): `os88mod.py`
+checks each image the way `mod_check` will and then wraps it, `mod_need`
+sizes its claim from the directory hint `drv_find` reads, and the transparent
+read expands the file into it — the route a driver takes (§20.13.3.1), with
+no byte added to the loader. `CTRL.DRV` is 6,104 bytes on the disk against
+7,394, `CLONE.DRV` 4,965 against 5,810, `HIBER.DRV` 3,003 against 3,497 and
+`FORMAT.DRV` 1,018 against 1,129 — size-passed code packs poorly, and the
+four still give the 360KB disk five clusters. Every fetch decodes about 6KB,
+~50 ms on the 8088, against the sectors it no longer reads.
 
 **This is the fourth lever on the footprint, and the only one that relieves
 `KERN_BUDGET` without relieving nothing else.** §2.5's overlay is run-once
@@ -6525,7 +6534,10 @@ it hangs in the BIOS". So `ty_open` takes the face's claim with
 `OSAPI_MEM_CLAIM_DMA`, rounds the base up to a 32-paragraph boundary by hand and
 gives one KB back — `fcp_bufget`'s recipe — and every header offset is read
 relative to that rounded base. `claim_dma` answers the 64KB question; the
-rounding answers the 512 one; both are needed.
+rounding answers the 512 one; both are needed. And because that read is at
+offset 0 into a claim bigger than any face, it is the transparent read's
+exact shape (§20.14.3): **the face on the disk is a `'CZ'` container**
+(§20.13.5) and arrives expanded, `ty_hdrchk` checking the image.
 
 #### Header — 64 bytes, fixed
 
@@ -6697,7 +6709,11 @@ title or nowhere.
 of metrics + a 64-byte header), so the eight are **12,376 bytes**, and the
 licence beside them another 6,676. On the 360 KB rung — the tightest shipped
 geometry, and the one this was checked against — that is **23 clusters
-of 1 KB**, and the disk still has **169,984 bytes free**. The kernel does not grow by a byte: a
+of 1 KB**, and the disk still has **169,984 bytes free**. Since the second size pass
+**both are packed** (§20.13.5): the ten faces are 8,937 bytes on the disk
+between them, one cluster each instead of two, and the licence 3,783 instead
+of 6,718 — thirteen clusters back, for no byte of code, because `ty_open`'s
+read and Note Pad's are both the transparent one. The kernel does not grow by a byte: a
 `.F88` is data, read by the package that wants it. `TY_MAXFAM` costs the
 *including package* 23 bytes of bss a family and `os88type.inc` is included by
 one program.
@@ -6707,7 +6723,9 @@ Font License 1.1, which requires its notice to travel with the derivative, so
 `SYSTEM/FONTS/LICENSE.TXT` is on the disk beside the faces — the full licence and a
 line naming each font's authors. It is a `.TXT`, so `ty_scan` skips it (the
 scan takes `.F88` and nothing else) and the mount types it as a document, which
-means the person at the machine can double-click and read it. `faces/LICENSES.txt`
+means the person at the machine can double-click and read it — through Note
+Pad's transparent read, so it is packed the way `README.TXT` is (§20.13.5).
+`faces/LICENSES.txt`
 is that file in the tree, and each `faces/*.t88` header records the exact source
 file it was fitted from, its URL and its SHA-256.
 
@@ -31652,8 +31670,9 @@ and neither figure is negotiable.
 
 #### 20.13.5 LZ4 SHIPS, and LZB does not
 
-**Every shipped package, every shipped driver, `README.TXT`, `BEVERLY.MOD`,
-the two `.TEX` documents and `DEMO.HTM` are LZ4 on the disk.** It was a knob
+**Every shipped package, every shipped driver, every kernel module, the ten
+faces and their licence, `README.TXT`, `BEVERLY.MOD`, the two `.TEX`
+documents and `DEMO.HTM` are LZ4 on the disk.** It was a knob
 for one cycle (`make PKGZ=lz4`), tested on the 360KB set in the field, and it
 is now what a plain `make` builds; `make PKGZ=` builds the uncompressed disks
 and is what an A/B uses. The kernel needs no arranging to match, because
@@ -31694,10 +31713,12 @@ instructions for doing so, and a `CZ` blob is not that.
 
 **What the default does NOT reach, deliberately.** `PKGZ` is the `$(OS88PKG)`
 /`$(OS88DRV)` wrappers, so it covers the two SHIPPED floppies and nothing
-else: 23 of the 38 packages in `build/` and 8 of the 9 loadable drivers. The
+else: 23 of the 38 packages in `build/` and all nine loadable drivers. The
 rest are each a reason rather than an omission — the kernel modules (§2.8)
-are cut out of `kernel-full.bin` and stamped over the image, so compressing
-them is a wave of its own; `C64.O88` has PARTS and refuses at the image level,
+were here, cut out of `kernel-full.bin` and stamped over the image, until
+`os88mod.py` learned to check each image and then wrap it (`--wrap`), so they
+are `'CZ'` files now like the drivers, and the faces and their licence
+(§6.4.1) went the same day; `C64.O88` has PARTS and refuses at the image level,
 its ROM riding as a compressed PART instead (§20.12.7); `HELLO.O88` refuses on
 its own arithmetic, saving 89 bytes for a layout that would make the loader
 claim more; the test fixtures under `tests/` are built by their own rules; and
@@ -31719,7 +31740,7 @@ file (which for a driver IS the compression signal, there being no flags
 byte), and `t_appsmall` compared an assembly against a compressed artefact
 and reported the wrong build arm.
 
-##### 20.13.5.1 `HDDTOOL.DRV` is the one file `PKGZ` must not touch
+##### 20.13.5.1 `HDDTOOL.DRV` WAS the one file `PKGZ` must not touch
 
 **Every compressed artefact on these disks is read by a loader that knows it
 is compressed** — `ld_run_body` for a `.O88` (§21), `drv_load` for a `.DRV`

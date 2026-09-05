@@ -241,6 +241,15 @@ def main():
         p = os.path.join(build, f)
         if os.path.isfile(p) and not f.endswith((".o88", ".drv")):
             arts.setdefault(f.upper(), read(p))
+    # ...except the faces, which ship PACKED out of build/faces/ under the
+    # same basename (SPEC.md 6.4.1, 20.13.5) - the plain build/*.f88 is what
+    # os88face wrote and what the host reads; the disk gets the container.
+    faces = os.path.join(build, "faces")
+    if os.path.isdir(faces):
+        for f in sorted(os.listdir(faces)):
+            p = os.path.join(faces, f)
+            if os.path.isfile(p) and f.endswith(".f88"):
+                arts[f.upper()] = read(p)
 
     # ...and every file on every image must BE one of them.
     compared = 0
@@ -266,8 +275,9 @@ def main():
                "nothing - it boots, it looks right, and it is the previous build")
             compared += 1
 
-    print("t_pkg: %d packages, %d drivers (%d of them 'CZ' files), %d modules, "
-          "%d files compared against build/" % (apps, drvs, drvs_cz, mods, compared))
+    print("t_pkg: %d packages, %d drivers, %d modules (%d of the .drv files are "
+          "'CZ' containers), %d files compared against build/"
+          % (apps, drvs, mods, drvs_cz, compared))
     done("t_pkg")
 
 
