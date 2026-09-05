@@ -50,6 +50,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
+import os88fixture                                       # noqa: E402
 import os88marty                                            # noqa: E402
 import os88sym                                              # noqa: E402
 
@@ -105,8 +106,14 @@ def image(bits):
     below is what stops it coming back, because the whole failure was a disk
     that did not carry what this function was asked for.
     """
-    recipe = subprocess.run(["make", "-n", "build/ether360.img"], cwd=ROOT,
-                            capture_output=True, text=True, check=True).stdout
+    # THROUGH os88fixture.make - see tests/heapmap.py's note. `make -n` still
+    # runs the parse, and the parse rewrites build/buildnum.inc; this puts it
+    # back, so lifting a recipe out leaves the tree untouched.
+    r = os88fixture.make("-n", "build/ether360.img")
+    if r.returncode:
+        raise SystemExit("bootstatus: `make -n build/ether360.img` failed:\n"
+                         "%s%s" % (r.stdout[-800:], r.stderr[-800:]))
+    recipe = r.stdout
     recipe = recipe.replace("\\\n", " ")
     lines = [l for l in recipe.splitlines() if "os88disk.py" in l]
     assert len(lines) == 1, recipe

@@ -64,6 +64,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "unit"))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
+import os88fixture                                       # noqa: E402
 import os88marty as M                                          # noqa: E402
 import os88flush                                               # noqa: E402
 import os88sym                                                 # noqa: E402
@@ -270,14 +271,10 @@ def main():
     args = ap.parse_args()
 
     if not args.no_make:
-        r = subprocess.run(["make", "loom"], cwd=ROOT, capture_output=True,
-                           text=True)
-        if r.returncode != 0:
-            print(r.stdout[-2000:] + r.stderr[-2000:])
-            check(False, "make loom", "the package under test has to build",
-                  got="non-zero", want="exit 0")
-            done("weavepack")
-            return
+        # os88fixture.need is the same `make`, and it does NOTHING when the runner has
+        # already built the artefact (Row(wants=...) and os88test's prebuild).
+        # That is what lets this row drop builds=True and share the lane.
+        os88fixture.need("build/loom.o88", "build/LOOM.OVL")
     if not os.path.isfile(os.path.join(BUILD, "loom.o88")):
         print("weavepack: SKIP - build/loom.o88 is not here; the C toolchain "
               "(tools/setup-cc.sh) is what builds it")

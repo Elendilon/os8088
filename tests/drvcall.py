@@ -77,7 +77,13 @@ def main():
     ap.add_argument("--shot", default=None)
     a = ap.parse_args()
 
-    need("drvcalltest")            # `all` builds nothing under tests/
+    # THE PATHS AND NOT THE TARGET NAME. `drvcalltest:` is
+    # `$(BUILD)/drvcall.img $(BUILD)/drvcall360.img`, and a target name is not
+    # something `Row(wants=...)` can carry: the runner builds a declared
+    # artefact with `make <path>` and then checks the path exists, which a
+    # phony name never does. Naming the two images is the same build and is
+    # sayable.
+    need("build/drvcall.img", "build/drvcall360.img")
 
     fails = []
     img = os.path.getsize("build/drvcall.bin")

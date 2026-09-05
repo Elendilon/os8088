@@ -57,6 +57,7 @@ ROOT = os.path.normpath(os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import heapmap                                              # noqa: E402
+import os88fixture                                       # noqa: E402
 import os88sym                                              # noqa: E402
 import os88qemu                                             # noqa: E402
 
@@ -101,19 +102,21 @@ def kill_stale():
 
 
 def build():
-    subprocess.run(["make", "build/os8088.img", "build/apps.img"],
-                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+    # DECLARED, NOT BUILT HERE - see tests/ps2mouse.py's note. Both images and
+    # the gate disk below are this row's `wants=` in tests/suite.py.
+    os88fixture.need("build/os8088.img", "build/apps.img")
 
 
 def launch():
     """vmport ON (the pc-machine default, spelled out) and NO serial mouse:
     the VMware backdoor is the only pointing device, like v86 in the browser.
     QEMU's vmmouse hangs off the i8042 the pc machine has anyway."""
-    # The gate disk, built here rather than assumed: the row is builds=True
-    # (tests/suite.py) precisely so it may rewrite build/, and a reader running
-    # this script by hand should not have to know the target's name.
-    subprocess.run(["make", "-s", "vmmousetest"], cwd=ROOT, check=True,
-                   stdout=subprocess.DEVNULL)
+    # The gate disk, ASKED FOR rather than assumed, so a reader running this
+    # script by hand still does not have to know the target's name - and the
+    # runner has already built it, so under the suite this does nothing.
+    # `vmmousetest:` is `$(BUILD)/vmmouse.img`, and it is the path and not the
+    # target name that `wants=` can carry.
+    os88fixture.need("build/vmmouse.img")
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
     subprocess.run(
         em + " -machine pc,vmport=on"

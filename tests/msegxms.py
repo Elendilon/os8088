@@ -108,8 +108,12 @@ def boot():
     # `make test` DAEMONISES the emulator, so it outlives this script
     # unless somebody kills it - and the somebody is us (os88qemu).
     os88qemu.own()
-    r = subprocess.run(["make", "test", "TESTAPPS=" + IMG],
-                       capture_output=True, text=True, cwd=ROOT)
+    # THROUGH os88fixture.make: `make test` is a LAUNCHER, and the only thing
+    # it leaves under build/ is the buildnum stamp the parse rewrites - this
+    # puts that back. Its prerequisites ($(TESTIMG) $(TESTAPPS)) are declared
+    # as this row's `wants=`, so the runner has them current and nothing is
+    # built here either.
+    r = os88fixture.make("test", "TESTAPPS=" + IMG)
     if r.returncode:
         raise SystemExit("msegxms: make test failed:\n" + r.stdout + r.stderr)
     for _ in range(150):

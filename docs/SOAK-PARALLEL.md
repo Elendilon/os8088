@@ -1048,10 +1048,11 @@ Three rows the sweep could not reach — `fcpsmall`, `fdlgsmall`, `stkbalance` �
 spell their command across several lines with commas in it, which no
 single-line pattern can span. Two of the three are in the failing set anyway.
 
-## 14. `builds=True`, AND WHY IT IS THE SERIAL LANE'S WHOLE COST
+## 14. `builds=True`, AND WHY IT WAS THE SERIAL LANE'S WHOLE COST
 
-**Not built. This is the design, priced, with the measurement that makes it
-worth doing.**
+**BUILT. 41 rows carried the flag and 3 do.** What follows is the design as it
+was written, then §14.1 on what it cost that the design did not foresee, and
+§14.2 on the question it does not answer.
 
 The 2026-09-04 run is 267 rows in 1:51:52, and its first hour is one row at a
 time. `builds=True` keeps a row out of the shareable emulator lane whatever
@@ -1099,3 +1100,80 @@ The rows sort into five kinds, and only the first is a plain conversion:
 fixture helper at all, because `$(VIDSTAMP)`'s rule would delete the kernel it
 is about to test — is the shape of the exception the other twelve need in the
 opposite direction.
+
+### 14.1 What it took, and the two things the design missed
+
+The three edits were the three edits. Two more were needed and neither was
+visible from the plan.
+
+**`prebuild` has to ask make for EVERY declared artefact, not the absent
+ones.** It skipped anything that already existed - safe only while each row
+still ran `make <art>` for itself, which is exactly what this change removes.
+The moment the rows stopped building their own, a stale artefact stopped being
+refreshed by anything at all: `build/c64.bin` survived a cherry-pick from an
+earlier tree and `c64part` failed with *"the re-assembly of apps/c64/c64.asm
+is not byte-identical"*, which reads as a broken package and is a file nobody
+rebuilt. `paintmove` and `trackmove` went the same way. **An existing file
+says nothing about whether it is current; make is the dependency graph and the
+whole point of asking it.** They go in ONE make now, because the parse is most
+of the cost of an up-to-date target and paying it thirty times to be told
+thirty times that nothing needs doing is a fixed cost a soak notices; a
+failure re-runs them singly, because "one of these thirty did not build" is
+not a usable message.
+
+**`make -n` and `make test` write to `build/` too**, and neither is a build.
+`BUILDNUM` is a `:=` shell assignment, so `tools/buildnum.py` rewrites
+`build/buildnum.inc` at PARSE time on every make whatever the goal - and `-n`
+is not a dry run of the parse. So a row that only lifts a recipe out
+(`heapmap`, `bootstatus`) and a row that only launches an emulator
+(`msegxms`, `xmcheck`, `minesrc`, `trkscrl`) both change a file under `build/`
+while a soak is reading that directory. `os88fixture.make()` is that one
+`make` with the stamp put back - `need()`'s own restore, made shared because
+the next one will forget - and those six rows go through it.
+
+**The enforcement point is `need()` and not a static check**, which is the
+part worth keeping. Whether a `wants=` is COMPLETE cannot be settled by
+reading a script: `need(DISK)` and `need(a.apps)` are as common here as a
+literal path. So under the runner an undeclared target is an ERROR at the call
+rather than a build - the row that owns the wrong declaration fails, by name,
+instead of the run beside it. `tests/unit/t_registry.py` therefore accepts
+`makes and wants and not builds` without trying to verify it.
+
+`tests/unit/t_qemuown.py` caught the one thing that would have gone quiet: its
+launcher detector keys on the argv list, so moving four rows to
+`os88fixture.make` dropped its count 14 -> 10 and its own liveness check fired
+within the minute. A launcher that file cannot see is a launcher nothing
+checks owns its instance.
+
+**What it bought**, measured on this box:
+
+| rows | declared | wall |
+|---|---|---|
+| `sbar` `fdlgup` `drvcall` `spantest` `heapcheck` | 250 s | **79.1 s** |
+| fifteen, incl. `trkrate` `trktxsurf` `editmove` `pkgthumb-*` | 1,370 s | **389.0 s** |
+
+All of them were one-at-a-time before.
+
+**The three that keep the flag**, and each is honest: `buildmatrix` builds 81
+knob kernels and runs itself at `-j4`, so it wants the box rather than a share
+of it; `ctoolchain` builds the C toolchain; `fdlgthumb` writes its fixture
+with nasm and os88pkg directly, and its `BUILDS_WITHOUT_MAKE` entry says why
+it may not call `need()` at all.
+
+### 14.2 Can an agent work while a soak runs? Not yet, and the reason is not the rows
+
+The rows are clean now - between them they leave `build/` exactly as they
+found it, bar the three above. **That is not the same as the directory being
+safe to work in.** A person or an agent running `make` rewrites `build/`
+wholesale: `kernel.bin`, every shipped image, every package. A soak row that
+launches while that is happening copies a half-written floppy, and a row that
+resolves a symbol reads a kernel that no longer matches the map.
+
+Closing that means the soak reading from a tree of its own rather than from
+`build/`, and `tools/os88build.py` is already most of the machinery. The
+blocker is not mechanism, it is that **the rows name `build/os8088-360.img`
+and its siblings as literal strings**, in dozens of places - `os88marty.launch`
+takes a path, and every caller spells one. A soak-owned tree needs those to go
+through something that can be pointed elsewhere, the way `OS88_BUILD` already
+points the symbol reader. Until then the honest rule is the one that has
+always applied: do not `make` while a soak is running.

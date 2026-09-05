@@ -45,6 +45,11 @@ import sys
 import os88qemu                                              # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# os88qemu is tests/'s and needs no path work; os88fixture is tools/'s, so the
+# insert comes first. (`_sym` below does its own insert for the same reason -
+# this one is here because the import is at module scope.)
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import os88fixture                                           # noqa: E402
 
 XM_BLKSZ, XM_MAX_BLKS = 8, 8        # XM_MAX_BLKS: kernel/kernel.asm.
                                     # XM_BLKSZ: drivers/xmem/xmem.asm, NOT
@@ -252,8 +257,12 @@ def boot():
     # `make test` DAEMONISES the emulator, so it outlives this script
     # unless somebody kills it - and the somebody is us (os88qemu).
     os88qemu.own()
-    r = subprocess.run(["make", "test", "TESTAPPS=" + XMIMG],
-                       capture_output=True, text=True, cwd=ROOT)
+    # THROUGH os88fixture.make: `make test` is a LAUNCHER, and the only thing
+    # it leaves under build/ is the buildnum stamp the parse rewrites - this
+    # puts that back. Its prerequisites ($(TESTIMG) $(TESTAPPS)) are declared
+    # as this row's `wants=`, so the runner has them current and nothing is
+    # built here either.
+    r = os88fixture.make("test", "TESTAPPS=" + XMIMG)
     if r.returncode:
         raise SystemExit("xmcheck: make test failed:\n" + r.stdout + r.stderr)
     for _ in range(150):                    # ...and wait for the socket

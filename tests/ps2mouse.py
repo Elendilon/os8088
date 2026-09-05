@@ -61,6 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import heapmap                                              # noqa: E402
+import os88fixture                                       # noqa: E402
 import os88sym                                              # noqa: E402
 import os88qemu                                              # noqa: E402
 
@@ -96,8 +97,12 @@ TARGETS = ["build/os8088.img", "build/apps.img"]
 
 
 def build():
-    subprocess.run(["make"] + TARGETS, cwd=ROOT, check=True,
-                   stdout=subprocess.DEVNULL)
+    # DECLARED, NOT BUILT HERE. These are the SHIPPED images, so a `make` for
+    # them in the shared tree is the one write that can reach every other row
+    # in a run. tests/suite.py declares them as this row's `wants=`, the
+    # runner builds them before anything starts, and this call then does
+    # nothing at all - which is what lets the row drop builds=True.
+    os88fixture.need(*TARGETS)
 
 
 def launch():

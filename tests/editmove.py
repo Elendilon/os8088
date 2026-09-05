@@ -45,6 +45,7 @@ content.
 import sys, os, time, hashlib, argparse, subprocess, tempfile
 sys.path.insert(0, "/home/user/os8088/tools")
 sys.path.insert(0, "/home/user/os8088/tests")
+import os88fixture                                       # noqa: E402
 import os88marty, os88mouse, os88sym, os88geom, dispcp
 
 MC_SIZE, MEM_MAX = 10, 32
@@ -191,8 +192,14 @@ def main():
     # The docstring's `make build/editmove360.img`, run rather than assumed -
     # a registered row cannot depend on a human having read it.
     img = cfg.get("img", "build/editmove360.img")
-    if not os.path.exists(img):
-        subprocess.check_call(["make", img])
+    # THE SAME `make`, AND IT DOES NOTHING once the runner has built the
+    # artefact: Row(wants=...) declares it and os88test's prebuild builds
+    # it before any row starts. That is what lets this row drop
+    # builds=True and share the emulator lane.
+    os88fixture.need(img)
+    # has
+        # already built the artefact (Row(wants=...) and os88test's prebuild).
+        # That is what lets this row drop builds=True and share the lane.
     with os88marty.launch("build/os8088-360.img",
                           apps=img,
                           machine=a.machine, boot=False) as m:

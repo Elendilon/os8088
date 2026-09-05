@@ -299,11 +299,22 @@ def prebuild(rows):
     (os88soak's prewarm carries the same note and the same reason).
     """
     import subprocess
+    # **EVERY DECLARED ARTEFACT, NOT JUST THE ABSENT ONES.** This used to skip
+    # anything that already existed, which was safe only while each row still
+    # ran `make <art>` for itself: make is the dependency graph and an
+    # existing file says nothing about whether it is CURRENT. The moment the
+    # rows stopped building their own, a stale artefact stopped being
+    # refreshed by anything at all - measured, `build/c64.bin` from an earlier
+    # tree survived a cherry-pick and `c64part` failed with "the re-assembly
+    # of apps/c64/c64.asm is not byte-identical", which reads as a broken
+    # package and is a file nobody rebuilt.
+    #
+    # An up-to-date target costs a parse, and the parse is why they go in ONE
+    # make below rather than one each.
     want = []
     for r in rows:
         for art in getattr(r, "wants", ()):
-            if art not in want and not os.path.exists(
-                    os.path.join(ROOT, art)):
+            if art not in want:
                 want.append(art)
     if not want:
         return []
@@ -320,6 +331,16 @@ def prebuild(rows):
     if r.returncode:
         print("%s  `make` failed before the declared artefacts:%s %s"
               % (YELLOW, OFF, (r.stderr or r.stdout)[-300:]))
+    # ONE MAKE FOR THE LOT, then one each only if that fails. The Makefile's
+    # parse is most of the cost of an up-to-date target, and paying it thirty
+    # times to be told thirty times that nothing needs doing is the kind of
+    # fixed cost a soak notices. A failure then re-runs them singly, because
+    # "one of these thirty did not build" is not a usable message.
+    r = subprocess.run(["make", "-s"] + want, cwd=ROOT,
+                       capture_output=True, text=True)
+    missing = [a for a in want if not os.path.exists(os.path.join(ROOT, a))]
+    if not r.returncode and not missing:
+        return []
     bad = []
     for art in want:
         r = subprocess.run(["make", "-s", art], cwd=ROOT,
@@ -329,6 +350,26 @@ def prebuild(rows):
             print("%s  `make %s` failed:%s %s"
                   % (YELLOW, art, OFF, (r.stderr or r.stdout)[-300:]))
     return bad
+
+
+def publish(rows, unbuilt):
+    """Tell the rows which artefacts are already built ($OS88_PREBUILT).
+
+    `tools/os88fixture.need()` reads it and does nothing for a target that is
+    in it - which is what lets a row drop `builds=True` and share the emulator
+    lane, because the flag is only ever about a `make` in the SHARED tree.
+    And a target NOT in it is an error there rather than a build, which is the
+    check no reader of a script can make: `need(DISK)` and `need(a.apps)` are
+    as common as a literal path, so whether `wants=` covers them is a question
+    only the call itself can answer.
+
+    EVERY SELECTED ROW'S wants, not just the ones this run had to build: a
+    declared artefact that was already present is equally not to be rebuilt.
+    """
+    done = sorted({f for r in rows for f in getattr(r, "wants", ())
+                   if f not in unbuilt})
+    os.environ["OS88_PREBUILT"] = " ".join(done)
+    return done
 
 
 def kernel_is_stale(rows):
@@ -451,6 +492,7 @@ def main():
     # one row's problem, not the run's; aborting here cancelled a whole soak
     # over one host tool nobody had installed.
     unbuilt = set(prebuild(want))
+    publish(want, unbuilt)
     if unbuilt:
         hit = sorted(r.name for r in want
                      if set(getattr(r, "wants", ())) & unbuilt)

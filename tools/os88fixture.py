@@ -66,19 +66,71 @@ def need(*targets):
     the symbol reader describes another. Restoring the two bytes is the whole
     fix; the next real `make` regenerates and rebuilds both together.
     """
+    # **THE RUNNER MAY HAVE BUILT THESE ALREADY, and then this does nothing.**
+    # `Row(wants=...)` names a row's artefacts to tests/suite.py, os88test's
+    # `prebuild` builds them all before any row starts, and it publishes what
+    # it built in $OS88_PREBUILT. A target in that list is current and nothing
+    # else is going to change it, so asking make for it again buys nothing -
+    # and it costs the one thing the flag it lets a row drop is about: a
+    # `make` in the SHARED tree while other rows are reading it.
+    #
+    # UNDER THE RUNNER AN UNDECLARED TARGET IS AN ERROR, not a build. That is
+    # the half a static check cannot do: `need(DISK)` and `need(a.apps)` are
+    # as common here as `need("build/x.img")`, so no reader of the script can
+    # say whether `wants=` covers them - but this can, exactly, at the moment
+    # it matters. Building it quietly instead is the silent race the row was
+    # marked `builds=True` to prevent, now with the mark removed.
+    #
+    # Standalone - no $OS88_PREBUILT - none of this applies and the build
+    # below runs as it always has.
+    have = os.environ.get("OS88_PREBUILT")
+    if have is not None:
+        done = set(have.split())
+        missing = [t for t in targets if t not in done]
+        if not missing:
+            return
+        sys.exit(
+            "%s: `need(%s)` asks for %s, which tests/suite.py does not "
+            "declare. The runner builds a row's artefacts BEFORE any row "
+            "runs; one built here instead rewrites build/ under everything "
+            "beside it. Add it to this row's `wants=` (paths `make <path>` "
+            "builds), or mark the row builds=True."
+            % (os.path.basename(sys.argv[0]) or "os88fixture",
+               ", ".join(repr(t) for t in targets), ", ".join(missing)))
+
+    for t in targets:
+        r = make("-s", t)
+        if r.returncode:
+            sys.exit("%s: `make %s` failed:\n%s%s"
+                     % (os.path.basename(sys.argv[0]) or "os88fixture",
+                        t, r.stdout, r.stderr))
+
+
+def make(*args):
+    """One `make` from the repo root that leaves build/ AS IT FOUND IT.
+
+    The stamp restore below was `need`'s and is everybody's: `BUILDNUM` is a
+    `:=` shell assignment, so tools/buildnum.py rewrites build/buildnum.inc at
+    PARSE time on EVERY make whatever target was asked for - **including
+    `make -n`, which is not a dry run of the parse.** So a row that only ever
+    reads (`make -n` to lift a recipe out) and a row that only ever launches
+    (`make test`) both change a file under build/, and a soak running beside
+    them is reading that directory.
+
+    It is the whole of what those rows leave behind. Restoring it is what lets
+    them say they write nothing, and this is a shared routine rather than four
+    copies because the next one will forget.
+
+    Returns the CompletedProcess; the caller decides what a failure means.
+    """
     stamp = os.path.join(ROOT, "build", "buildnum.inc")
     before = None
     if os.path.exists(stamp):
         with open(stamp, "rb") as f:
             before = f.read()
     try:
-        for t in targets:
-            r = subprocess.run(["make", "-s", t], cwd=ROOT,
-                               capture_output=True, text=True)
-            if r.returncode:
-                sys.exit("%s: `make %s` failed:\n%s%s"
-                         % (os.path.basename(sys.argv[0]) or "os88fixture",
-                            t, r.stdout, r.stderr))
+        return subprocess.run(["make"] + list(args), cwd=ROOT,
+                              capture_output=True, text=True)
     finally:
         if before is not None and os.path.exists(stamp):
             with open(stamp, "rb") as f:

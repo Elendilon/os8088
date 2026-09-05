@@ -44,6 +44,7 @@ import sys
 
 sys.path.insert(0, "tools")
 sys.path.insert(0, "tests")
+import os88fixture                                       # noqa: E402
 import os88marty
 import os88mouse
 import os88sym
@@ -134,8 +135,13 @@ def main():
     # about would simply never run. `make small` is idempotent and builds
     # into build/smallk/, so it disturbs nothing in the default tree.
     if "smallk" in os.environ.get("OS88_BUILD", ""):
-        subprocess.check_call(["make", "small"],
-                              stdout=subprocess.DEVNULL)
+        # THE DISKS, NOT THE TARGET. `make small` builds every kern_small
+        # artefact; these two are what this arm opens, and naming them is what
+        # `Row(wants=...)` can carry - so the runner builds them before any row
+        # starts and os88fixture.need does nothing here. That is what lets the
+        # row drop builds=True. build/small.img's own prerequisites are what
+        # put build/smallk/ there, which is where the symbols come from.
+        os88fixture.need("build/small.img", "build/smallapps.img")
     os.makedirs(OUT, exist_ok=True)
     apps = os.path.join(OUT, "apps-scratch.img")
     shutil.copyfile(SRC_APPS, apps)      # NEVER the shipped image

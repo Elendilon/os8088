@@ -124,8 +124,10 @@ need("build/muptest.img")
 import os
 SYS_IMG = os.environ.get("OS88_SYSIMG", "build/os8088-360.img")
 if "smallk" in os.environ.get("OS88_BUILD", ""):
-    import subprocess
-    subprocess.check_call(["make", "small"], stdout=subprocess.DEVNULL)
+    # THE DISKS, NOT THE TARGET - see tests/fcpcopy.py's note. Declared as
+    # this row's `wants=`, so the runner has them before anything runs and
+    # this call does nothing.
+    need("build/small.img", "build/smallapps.img")
 
 with M.launch(SYS_IMG, apps="build/muptest.img",
               machine=MACHINE) as m:

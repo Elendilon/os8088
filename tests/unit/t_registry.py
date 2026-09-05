@@ -260,6 +260,16 @@ def main():
         # still asks the shared tree for `build/associco.inc`. That row keeps
         # the flag, and correctly: it also runs itself at -j4, so it wants the
         # box rather than a share of it.
+        # **A DECLARED ROW IS THE THIRD ANSWER, and it is not checked here.**
+        # `makes and wants and not builds` is the converted shape: the row
+        # still reaches `make`, and the runner has already built what it
+        # asks for, so the call is a no-op and the row can share the lane.
+        # Whether the declaration is COMPLETE cannot be settled by reading the
+        # script - `need(DISK)` and `need(a.apps)` are as common here as a
+        # literal path - so os88fixture answers it instead, exactly, at the
+        # call: under the runner an undeclared target is an error and not a
+        # build. A wrong `wants=` therefore fails the row that owns it rather
+        # than the run beside it, which is the property this flag is for.
         if priv and not makes and r.builds:
             check(False, "row %s builds PRIVATELY and is still builds=True"
                   % r.name,
@@ -268,12 +278,15 @@ def main():
                   "the one-at-a-time lane for a hazard it no longer has"
                   % ", ".join(priv),
                   got="builds=True", want="builds=False")
-        elif makes and not priv and not r.builds:
+        elif makes and not priv and not r.builds and not r.wants:
             check(False, "row %s shells out to make and is not builds=True" % r.name,
                   "%s invokes `make`, so this row rewrites build/ under any row "
-                  "running beside it. Mark the row builds=True and the runner "
-                  "gives it the tree to itself" % ", ".join(makes),
-                  got="builds=False", want="builds=True")
+                  "running beside it. Declare what it builds in `wants=` - the "
+                  "runner then builds it BEFORE any row starts and "
+                  "os88fixture.need does nothing at run time - or mark the row "
+                  "builds=True and the runner gives it the tree to itself"
+                  % ", ".join(makes),
+                  got="builds=False", want="builds=True or wants=(...)")
         elif r.builds and not makes and not priv \
                 and r.name not in BUILDS_WITHOUT_MAKE:
             check(False, "row %s is builds=True and builds nothing" % r.name,
