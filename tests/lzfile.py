@@ -110,7 +110,11 @@ def main():
     ap.add_argument("--adapter", default="cga", choices=sorted(MACHINE))
     a = ap.parse_args()
 
-    need("lzfiletest")             # `all` builds nothing under tests/
+    # THE PATHS AND NOT THE TARGET NAME: `Row(wants=...)` carries
+    # what `make <path>` produces, and the runner builds it before
+    # any row starts - a phony name never satisfies the existence
+    # check that follows. Same build, and sayable.
+    need("build/lzfile360.img")             # `all` builds nothing under tests/
     img = os.path.getsize("build/lzfile.bin")
     fails = []
     with os88marty.launch("build/os8088-360.img",

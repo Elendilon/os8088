@@ -51,7 +51,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default="cga", choices=sorted(MACHINE))
     a = ap.parse_args()
-    need("lzdrvtest")              # `all` builds nothing under tests/
+    # THE PATHS AND NOT THE TARGET NAME: `Row(wants=...)` carries
+    # what `make <path>` produces, and the runner builds it before
+    # any row starts - a phony name never satisfies the existence
+    # check that follows. Same build, and sayable.
+    need("build/lzdrv360.img", "build/drvcall360.img")              # `all` builds nothing under tests/
 
     # THE SHIPPED DRIVER IS COMPRESSED TOO NOW (SPEC.md 20.13.5), so the
     # reference this whole row compares against has to be unwrapped: what the

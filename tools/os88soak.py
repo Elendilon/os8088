@@ -559,6 +559,35 @@ def _done_rows(d):
     return out
 
 
+def _frozen_targets(a):
+    """What the run's own tree has to contain: the shipped set, plus every
+    artefact the selected rows DECLARE.
+
+    The declarations are already the machine-readable list of what `all` does
+    not build (14.1), so this is the same union os88test's prebuild takes -
+    computed once, up front, into the tree rather than into build/.
+    """
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "tests"))
+        import suite
+        names = set(_selected(a))
+        arts = sorted({f for r in suite.rows() if r.name in names
+                       for f in getattr(r, "wants", ())})
+    except Exception:                                       # noqa: BLE001
+        arts = []
+    # THE SHIPPED SET IS SPELLED OUT rather than asked for as `all`, because
+    # `all` ends in `checkdocs` and `test-fast` - gates, not artefacts, and
+    # ones that would run against the tree for no reason and fail it for
+    # somebody else's. These are `all`'s own image list (Makefile), which is
+    # every kernel, package and driver the rows read, since each image names
+    # them as prerequisites.
+    shipped = ("os8088.img", "os8088-120.img", "os8088-720.img",
+               "os8088-360.img", "apps.img", "apps120.img", "apps720.img",
+               "apps360.img", "media360.img", "wire.o88")
+    return shipped + tuple(a[len("build/"):] for a in arts
+                           if a.startswith("build/"))
+
+
 def start(a):
     cores = _cores()
     mj, hj = widths(cores, a.marty_jobs, a.j)
@@ -615,6 +644,39 @@ def start(a):
                   % os.path.relpath(d, ROOT))
             return 0
 
+    # **THE RUN GETS A TREE OF ITS OWN** (docs/SOAK-PARALLEL.md 14.2), unless
+    # --shared-build says otherwise. A soak is two hours and the box is not
+    # idle for them: somebody types `make`, and every row that launches after
+    # it copies a half-written floppy while every row that resolves a symbol
+    # reads a kernel the map no longer describes. Rows leaving build/ alone -
+    # which 14.1 finished - is not the same as build/ being safe to work in.
+    #
+    # `os88build.tree()` is the same machinery the knob rows use, with no
+    # knobs: a full `make BUILD=<dir>` into build/trees/, sharing the pinned
+    # instruments by symlink. $OS88_BUILD then points os88sym, os88marty's
+    # launch and scratch_disk at it (tools/os88build.at), and the shared
+    # build/ can be rebuilt under the run without touching it.
+    #
+    # It is NOT free and the number is worth knowing: a cold tree is a whole
+    # build. A warm one is make finding nothing to do, which is what the
+    # second run of the day pays.
+    env = dict(os.environ, PYTHONUNBUFFERED="1")
+    if not a.shared_build:
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import os88build
+        try:
+            frozen = os88build.tree(targets=_frozen_targets(a))
+        except RuntimeError as e:
+            print("%sos88soak: could not build the run's own tree:%s\n%s"
+                  % (RED, OFF, str(e)[-1200:]), file=sys.stderr)
+            return 1
+        env["OS88_BUILD"] = frozen.dir
+        print("os88soak: the run reads %s, so build/ is yours while it runs"
+              % os.path.relpath(frozen.dir, ROOT))
+    else:
+        print("%sos88soak: --shared-build: the run reads build/, so a `make` "
+              "while it runs will break rows%s" % (YELLOW, OFF))
+
     cmd = ["python3", os.path.join("tools", "os88test.py"), a.tier,
            "--marty-jobs", str(mj), "-j", str(hj)]
     for g in a.k:
@@ -661,7 +723,7 @@ def start(a):
     with open(log, "ab") as out:
         p = subprocess.Popen(["sh", "-c", wrapper], cwd=ROOT, stdout=out,
                              stderr=subprocess.STDOUT, start_new_session=True,
-                             env=dict(os.environ, PYTHONUNBUFFERED="1"))
+                             env=env)
     meta["pid"] = p.pid
     with open(os.path.join(d, "meta.json"), "w") as f:
         json.dump(meta, f, indent=1)
@@ -950,6 +1012,11 @@ def main():
                          "`build/muptest.img` exist before the row that reads "
                          "it rather than after (docs/HANDOFF-SOAK-FINDINGS.md "
                          "B4)")
+    ap.add_argument("--shared-build", action="store_true",
+                    dest="shared_build",
+                    help="read build/ instead of a tree of the run's own - "
+                         "faster to start, and a `make` while it runs breaks "
+                         "rows (docs/SOAK-PARALLEL.md 14.2)")
     ap.add_argument("--strict", action="store_true",
                     help="a missing capability is a FAILURE, not a skip")
     ap.add_argument("-v", "--verbose", action="store_true")

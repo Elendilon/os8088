@@ -347,6 +347,37 @@ def defines_for(args, target="kernel-full.bin", build=None):
     return ()
 
 
+def at(path):
+    """A `build/...` path, resolved against $OS88_BUILD.
+
+    **THE ONE THING THAT LETS A SOAK SURVIVE SOMEBODY ELSE'S `make`**
+    (docs/SOAK-PARALLEL.md 14.2). Rows name `build/os8088-360.img` and its
+    siblings as literal strings - 725 of them across 256 files, and 356 are
+    those two images - so pointing a run at a frozen tree cannot be done by
+    editing the callers. It is done where the path is USED instead, and there
+    are few of those: os88marty's launch stages both floppies in one loop,
+    `scratch_disk` reads its inputs in another, and os88sym has honoured
+    $OS88_BUILD since it was written.
+
+    Anything that is not under `build/` is returned unchanged, so a row that
+    names /tmp, an absolute path or a private tree of its own is untouched -
+    and with $OS88_BUILD unset this is the identity function, which is what
+    every interactive run and every standalone `python3 tests/x.py` gets.
+
+    It resolves the string, not the file: a path that does not exist in the
+    tree comes back pointing into the tree, and the caller's own open() says
+    so. Falling back to `build/` on a miss would be worse - it would half-run
+    a soak against the directory the tree exists to avoid, and only sometimes.
+    """
+    root = os.environ.get("OS88_BUILD")
+    if not root or not isinstance(path, str):
+        return path
+    q = path.replace("\\", "/")
+    if q == "build" or q.startswith("build/"):
+        return os.path.join(root, q[len("build/"):]) if q != "build" else root
+    return path
+
+
 def tree(*args, **kw):
     """Build (or reuse) a private tree for these make arguments.
 

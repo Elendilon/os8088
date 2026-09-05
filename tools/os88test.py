@@ -325,6 +325,23 @@ def prebuild(rows):
     # and `pkg` gates catch that, correctly, and it reads as a stale image.
     # Bringing the whole tree current first costs about two seconds when it
     # already is, and it is the same reason os88soak's prewarm opens with one.
+    # **A FROZEN RUN BUILDS NOTHING HERE.** With $OS88_BUILD set the tree was
+    # made before any of this started (os88soak's start, 14.2) and already
+    # contains every declared artefact - it is built from the same union. So
+    # the job is to CONFIRM, not to build: a `make` in the shared build/ would
+    # be the one thing the freeze exists to make unnecessary, and under an
+    # agent working in that directory it would also fail for reasons that have
+    # nothing to do with this run. Measured: with a knob build looping in
+    # build/, this printed "`make` failed before the declared artefacts"
+    # while every row went on to pass against the tree.
+    import os88build
+    if os.environ.get("OS88_BUILD"):
+        gone = [a for a in want if not os.path.exists(os88build.at(a))]
+        if gone:
+            print("%s  %d declared artefact(s) are not in the run's tree: %s%s"
+                  % (YELLOW, len(gone), " ".join(gone), OFF))
+        return gone
+
     print("os88test: building %d declared artefact(s): %s"
           % (len(want), " ".join(want)))
     r = subprocess.run(["make", "-s"], cwd=ROOT, capture_output=True, text=True)

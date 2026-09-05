@@ -1807,7 +1807,8 @@ SOAK = [
         "the time the row has a segment the driver has attached and its bss "
         "is its working memory. What stands in for it is the three driver "
         "probes, which a bss full of floppy leftovers does not answer",
-        needs=("marty",), serial=True, builds=True),
+        needs=("marty",), serial=True,
+        wants=("build/lzdrv360.img", "build/drvcall360.img")),
     Row("lzload", "soak", py("tests/lzload.py"), 60.0,
         "SPEC.md 20.13: a COMPRESSED package loads and expands to the same "
         "bytes. The loader reads it HIGH, brings the clear prefix down and "
@@ -1839,7 +1840,8 @@ SOAK = [
         "THE POSITIVE CONTROL IS THE POINT: a decoder that refuses everything "
         "passes all four negatives, so a valid stream runs first and its "
         "twelve bytes are compared one by one",
-        needs=("marty",), serial=True, builds=True),
+        needs=("marty",), serial=True,
+        wants=("build/lzfence360.img",)),
     Row("lzfile", "soak", py("tests/lzfile.py"), 60.0,
         "SPEC.md 20.14: a COMPRESSED FILE is read transparently, and a write "
         "derives the hint from the bytes it is writing. The disk carries one "
@@ -1862,7 +1864,8 @@ SOAK = [
         "it worked - an empty note and a full one look identical at every "
         "zoom - and it reads 16,019, the CRLF file FOLDED, so 315 carriage "
         "returns had to arrive to be dropped",
-        needs=("marty",), serial=True, builds=True),
+        needs=("marty",), serial=True,
+        wants=("build/lzfile360.img",)),
     Row("lzcomp", "soak", py("tests/lzcomp.py"), 180.0,
         "SPEC.md 22.22: File > Compress, and the machine's LZB stream against "
         "the host's BYTE FOR BYTE. os88lz.lzb_compress_machine is a mirror of "

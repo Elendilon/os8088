@@ -1160,20 +1160,62 @@ of it; `ctoolchain` builds the C toolchain; `fdlgthumb` writes its fixture
 with nasm and os88pkg directly, and its `BUILDS_WITHOUT_MAKE` entry says why
 it may not call `need()` at all.
 
-### 14.2 Can an agent work while a soak runs? Not yet, and the reason is not the rows
+### 14.2 An agent CAN work while a soak runs — the run reads a tree of its own
 
-The rows are clean now - between them they leave `build/` exactly as they
-found it, bar the three above. **That is not the same as the directory being
-safe to work in.** A person or an agent running `make` rewrites `build/`
-wholesale: `kernel.bin`, every shipped image, every package. A soak row that
-launches while that is happening copies a half-written floppy, and a row that
-resolves a symbol reads a kernel that no longer matches the map.
+**BUILT.** `os88soak.py start` builds a tree before the first row and exports
+`$OS88_BUILD` to the run; `build/` is then the operator's for the duration.
+`--shared-build` opts out and says what it costs.
 
-Closing that means the soak reading from a tree of its own rather than from
-`build/`, and `tools/os88build.py` is already most of the machinery. The
-blocker is not mechanism, it is that **the rows name `build/os8088-360.img`
-and its siblings as literal strings**, in dozens of places - `os88marty.launch`
-takes a path, and every caller spells one. A soak-owned tree needs those to go
-through something that can be pointed elsewhere, the way `OS88_BUILD` already
-points the symbol reader. Until then the honest rule is the one that has
-always applied: do not `make` while a soak is running.
+**The blocker was never the mechanism, it was 725 literal `build/...` strings
+across 256 files** — and 356 of those are the two shipped images. Editing the
+callers was never going to happen, so nothing does: the path is resolved where
+it is USED, and there turn out to be three places.
+
+  * `os88marty.launch` stages both floppies in one loop — 85 call sites, one
+    line;
+  * `os88marty.scratch_disk` reads its inputs in another, and a scratch disk
+    built out of the shared tree's bytes would defeat the whole thing;
+  * `os88sym` has honoured `$OS88_BUILD` since it was written.
+
+`tools/os88build.at()` is the resolver, and with the variable unset it is the
+identity function — so every interactive run and every `python3 tests/x.py`
+behaves exactly as before.
+
+**The A/B, because "it should be safe now" is not a measurement.** A loop
+alternating `make VIDEO=cga` and `make` in the shared tree — the documented
+worst case, a knob build landing in `build/` — run against the same three rows
+twice:
+
+| | `sbar` `mouseup` `fdlgup` |
+|---|---|
+| reading `build/`, hammer running | **0 of 3**, all *"the map describes a DIFFERENT kernel"* |
+| reading the frozen tree, same hammer | **3 of 3** |
+
+The first arm is the point: it is not a hypothetical hazard, it is a
+reproducible one, and it takes about twenty seconds to produce.
+
+**A hammer that only rebuilds is not the experiment**, and the first attempt
+was exactly that: `touch kernel/kernel.asm; make` in a loop passed 3 of 3 on
+the shared tree, because an unchanged source rebuilds byte-identically and the
+map still matched. What breaks a run is the tree becoming a DIFFERENT
+build — a knob, a `make small`, a half-finished write — not a busy one.
+
+**Two things the freeze then made wrong until they followed it.** `prebuild`
+was still running `make` in the shared tree, which is the one thing the freeze
+exists to make unnecessary — under the hammer it duly printed *"`make` failed
+before the declared artefacts"* while every row went on to pass. With a tree it
+CONFIRMS instead: the tree is built from the same union of declarations, so
+the artefacts are there by construction. And `os88fixture.make` passes
+`BUILD=<tree>`, or the ten QEMU rows would boot the shared images through
+`make test` while everything around them read the tree — the one arrangement
+worse than either. Their socket and pidfile stay under `build/` because the
+Makefile spells them literally, which is harmless: no `make` writes those.
+
+**What is still exposed, and it is the other direction.** The soak no longer
+minds the operator; the operator may still mind the soak. Seven rows write
+`build/` — `buildmatrix`, `ctoolchain` and `fdlgthumb` as §14.1 records, and
+four the compression work added (`lzload`, `lzmod`, `lzship`, `kzboot`) which
+rebuild the whole tree under a knob and put it back. Each is a candidate for
+the private-tree treatment task #3 gave the knob rows (`os88build.tree`), and
+until they get it an operator working in `build/` during a soak should expect
+their churn.

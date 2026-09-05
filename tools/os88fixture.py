@@ -123,13 +123,29 @@ def make(*args):
 
     Returns the CompletedProcess; the caller decides what a failure means.
     """
+    # **AND IT GOES TO THE RUN'S OWN TREE when there is one** (14.2).
+    # `make test` is the launcher for every QEMU row here, and its
+    # prerequisites are $(TESTIMG)/$(TESTAPPS) - so without this the guest
+    # boots the SHARED build/ images while everything else in the run reads
+    # the frozen tree, which is the one arrangement worse than either. The
+    # tree already contains them, so the goals are up to date and the recipe
+    # just launches.
+    #
+    # The socket and pidfile stay under build/ because the Makefile spells
+    # them literally, and that is fine: they are the row's own runtime files
+    # and no `make` writes them.
+    args = list(args)
+    root = os.environ.get("OS88_BUILD")
+    if root:
+        args.insert(0, "BUILD=%s" % os.path.relpath(root, ROOT))
+
     stamp = os.path.join(ROOT, "build", "buildnum.inc")
     before = None
     if os.path.exists(stamp):
         with open(stamp, "rb") as f:
             before = f.read()
     try:
-        return subprocess.run(["make"] + list(args), cwd=ROOT,
+        return subprocess.run(["make"] + args, cwd=ROOT,
                               capture_output=True, text=True)
     finally:
         if before is not None and os.path.exists(stamp):

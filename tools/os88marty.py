@@ -84,6 +84,8 @@ import os
 import re
 import socket
 import sys
+
+import os88build as _build      # the $OS88_BUILD path resolver (14.2)
 import threading
 import time
 
@@ -2389,6 +2391,15 @@ def scratch_disk(path, *files, **kw):
 
     here = os.path.dirname(os.path.abspath(__file__))
     disk = os.path.join(here, "os88disk.py")
+    # RESOLVED AGAINST $OS88_BUILD, like launch's floppies (14.2): a scratch
+    # disk is built OUT OF build/ artefacts, so a run pointed at a frozen tree
+    # has to read them from there or it bakes the shared tree's bytes into its
+    # own image and the freeze buys nothing. `files` carries os88disk's own
+    # "PREFIX:path" spelling, so the prefix is put back after resolving.
+    files = tuple(
+        (f.split(":", 1)[0] + ":" + _build.at(f.split(":", 1)[1])
+         if ":" in f and not f.startswith("/") else _build.at(f))
+        for f in files)
     srcs = [f.split(":")[-1] for f in files]
     # THE ARGUMENT LIST IS PART OF THE FRESHNESS TEST, and the mtimes alone
     # are not. A row that starts passing a DIFFERENT file - the same folder,
@@ -2563,6 +2574,13 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
     for i, src in enumerate((image, apps)):
         if src is None:
             continue
+        # **RESOLVED AGAINST $OS88_BUILD** (tools/os88build.at). This is the
+        # choke point the whole of docs/SOAK-PARALLEL.md 14.2 turns on: 85
+        # call sites hand this function a literal `build/...` string, and one
+        # line here points every one of them at a frozen tree instead - so a
+        # `make` in the shared build/ cannot be copied half-written into a
+        # running instance. Unset, it is the identity function.
+        src = _build.at(src)
         dst = os.path.join(media, "run%d.img" % i)   # a copy per DRIVE, inside
         _clone(src, dst)                             # a directory per INSTANCE
         mounts += ["--mount", "fd:%d:media/floppies/run%d.img" % (i, i)]
