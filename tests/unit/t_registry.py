@@ -83,6 +83,15 @@ UNREGISTERED = {
                   "(docs/plans/SOAK-PARALLEL.md 14.2). Run it by hand when a field "
                   "sync question needs the module",
 
+    "tankperf.py": "an INSTRUMENT, not a test: it prices TANK ATTACK's frame "
+                   "on MartyPC to the cycle - a breakpoint on tk_render, and "
+                   "each drawing stage patched out for its delta - and "
+                   "asserts nothing (SPEC.md 85.3.4). It is where every "
+                   "number in 85.3.4 to 85.3.6 came from, kept because the "
+                   "two obvious measurements were both wrong: a sampled "
+                   "profile read the walk at twice its share, and counting "
+                   "frames over guest seconds is quantised to a whole frame",
+
     # --- need a build prerequisite the default build does not make ---
     "brclick.py": "needs `make browsertest` (build/brtest360.img)",
     "brfetch.py": "needs `make browsertest` (build/brtest360.img)",

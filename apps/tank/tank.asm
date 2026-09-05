@@ -187,7 +187,8 @@ TK_LASTB  equ 79                ; the last byte of a viewport row - and it is
                                 ; 640 at 1bpp and 320 Mode X byte-addresses are
                                 ; each 80 bytes
 TK_SHSEG  equ 16000             ; the CGA/Hercules shadow, in bytes
-TK_SHKB   equ 16                ; ...as a claim
+TK_SHKB   equ 32                ; ...as a claim, with the HUD TEMPLATE in its
+                                ; second half (SPEC.md 85.3.5)
 
 ; --- gameplay -----------------------------------------------------------------
 TK_TURN   equ 2                 ; angle units per TICK at full lock
@@ -774,12 +775,25 @@ tk_tpl:
     ZWORD tk_page1
     ZBYTE tk_npage
     ZWORD tk_shseg
+    ZWORD tk_tmseg                  ; the template: the claim's second half
+    ZBYTE tk_tmpl                   ; ...and whether this backend has one
+    ZWORD tk_tmsave                 ; tk_spcur, while an item draws
+    ZBYTE tk_inrange                ; ENEMY IN RANGE, this frame
+    ZBUF  tk_tmc, 6 * 4             ; the six items' cached keys (85.3.5)
+    ZBUF  tk_tmr, 6 * 8             ; ...their rectangles...
+    ZBUF  tk_tmovl, 6               ; ...and which rectangles meet which
+    ZBYTE tk_tmbits
     ZBYTE tk_par
     ZWORD tk_spcur
     ZWORD tk_spprv
     ZBUF  tk_spanp, 4
-    ZWORD tk_lineproc
-    ZWORD tk_elineproc              ; ...and the same walk taking ink away
+    ZWORD tk_lsh                    ; the live walk trio - shallow, steep,
+    ZWORD tk_lst                    ; vertical - reached by `jmp` from tk_seg
+    ZWORD tk_lvt                    ; (SPEC.md 85.3.4)
+    ZWORD tk_esh                    ; ...and the trio that takes ink AWAY
+    ZWORD tk_est
+    ZWORD tk_evt
+    ZBYTE tk_kshift                 ; log2 of the pixels in a byte: 3 or 2
     ZWORD tk_hrunproc
     ZWORD tk_glyphproc
     ZBYTE tk_ink
@@ -798,23 +812,26 @@ tk_tpl:
     ZBUF  tk_spguard1, 8
     ZBUF  tk_spans1, TK_MAXROW * 2
     ZBUF  tk_spguard2, 8
+    ZBUF  tk_spans2, TK_MAXROW * 2  ; the set a template draw marks: nobody
+    ZBUF  tk_spguard3, 8            ; reads it
     ZBUF  tk_devoff, TK_MAXROW * 2
+    ZBUF  tk_rowoff, TK_MAXROW * 2  ; 80 x row: the target offset of a row,
+                                    ; looked up rather than multiplied
 
 ; --- the clipper and the walk -------------------------------------------------
     ZWORD tk_cx1                    ; these four are CONTIGUOUS and indexed
     ZWORD tk_cy1                    ; as a pair by tk_clip_x / tk_clip_y
     ZWORD tk_cx2
     ZWORD tk_cy2
-    ZWORD tk_lx
-    ZWORD tk_ly
-    ZWORD tk_err
-    ZWORD tk_e1
-    ZWORD tk_e2
-    ZWORD tk_cnt
-    ZWORD tk_ystep
+    ZWORD tk_e2                     ; the walk's per-row constants; everything
+    ZWORD tk_ystep                  ; it touches per PIXEL is in a register
     ZWORD tk_sistep
     ZBYTE tk_xdir
-    ZBYTE tk_steep
+    ZWORD tk_lx                     ; the slice's (85.3.6): its first x, whole
+    ZWORD tk_q                      ; step, error, runs to go and last run
+    ZWORD tk_err
+    ZWORD tk_cnt
+    ZWORD tk_final
 
 ; --- the geometry -------------------------------------------------------------
     ZWORD tk_csin
@@ -893,7 +910,7 @@ tk_tpl:
     ZWORD tk_hox                    ; the halo pass's displacement (85.8.1)
     ZWORD tk_hoy
     ZWORD tk_hset                   ; ...where it has got to in the table
-    ZWORD tk_lsave                  ; ...and the drawing walk, while it runs
+    ZBUF  tk_lsave, 6               ; ...and the drawing trio, while it runs
     ZBYTE tk_gosh                   ; 0 none, 1 shadow, 2 outline
     ZBYTE tk_still                  ; the settled frame is already on the glass
     ZBYTE tk_pquick                 ; ...and only its prompt needs redrawing

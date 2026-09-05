@@ -91491,6 +91491,138 @@ every frame — 640 pixels on Hercules — and as a walk it is about 12,800
 cycles against 800 as a run. `tk_seg` and `tk_drawtab` both test `y1 == y2`
 and defer, exactly as `gfx_line` tail-calls `gfx_hline`.
 
+#### 85.3.4 What an 8088 charges a segment for, and the walk rebuilt against it
+
+Measured on MartyPC's cycle-accurate 4.77 MHz 8088, Hercules, by bracketing
+`tk_seg` with breakpoints and by turning each stage's `call` into NOPs and
+reading the frame-rate delta (a sampled CS:IP profile of the same frame was
+**wrong by nearly two to one** about the walk's share, and a stationary player
+is dead in 28 s, which is what the first profile of a "frame" was really
+measuring - a GAME OVER screen parked in `fsx_wait`):
+
+| | cost |
+|---|---:|
+| one shallow pixel, the shipped walk | **159 cycles** |
+| one steep pixel | **237** |
+| one segment before its first pixel (`tk_seg` + `tk_lprep` + the body's prologue) | **~1,300** |
+| the shadow-to-VRAM blit, any scene | 16% of the frame |
+| the HUD, every frame, whatever the scene | 62-67 ms |
+
+**The 8088 charges about five cycles for every instruction BYTE and every
+memory access, and about fifteen for every jump TAKEN**, over and above the
+manual's execution counts: a 4-byte prefetch queue and an 8-bit bus fetch
+nothing while a jump refills them, and a `loop` at 17 clocks is cheap only
+because it is two bytes long. The steep loop was 30 bytes and six memory
+accesses a pixel, so it cost 237 where the manual's counts sum to 122. Nothing
+in the walk's arithmetic was slow; the walk was long.
+
+So the raster is rebuilt against the bus rather than the ALU:
+
+- **`tk_seg` and `tk_hseg` keep no registers** (they preserved all seven, and
+  the fourteen pushes and pops were a fifth of the per-segment cost). Every
+  caller was already saving what it kept live across the call except
+  `tk_golets`, which now does.
+- **The prep is fused into `tk_seg` and the walk is entered by `jmp`.**
+  `tk_lprep` built ten words in memory for the body to read back; the fused
+  form builds them in the registers the body wants - `BX` err, `CX` count,
+  `BP` e1, `SI` the row's span pair, `DI` the row's byte - and jumps to the
+  backend's entry, which returns to `tk_seg`'s caller itself. The row's
+  offset is a table (`tk_rowoff`, 80 x row, filled beside `tk_devoff` once a
+  bracket) rather than a multiply through `CL`, because `CL` is the count.
+- **Three entries a backend - shallow, steep, VERTICAL** - so the body never
+  asks which it is, and the vertical one exists because every upright of
+  every cube, slab and tank projects to exactly dx = 0 (nothing here pitches
+  or rolls): no error term, so the row stride rides in the freed `BP` and the
+  step is two bytes where `add di, 80` is four.
+- **The error test is add-first**: the walk adds e1 and tests the sign the add
+  left, where the textbook form tests and then adds. Identical pixels when
+  the initial error is the textbook's less e1 (`-|major|`), and no `or bx, bx`
+  on the common path. The shallow loop's byte step is a `jz` NOT taken seven
+  times in eight where it was a `jnz` taken seven times in eight.
+- `tk_emit`'s edge loop reads its two indices with one `lodsw` and hands the
+  four coordinates over in registers instead of through six memory words.
+
+The GAME OVER halo (§85.8.1) swaps the three drawing entries for the three
+erase entries as a block, which is why the two trios are contiguous in bss.
+
+#### 85.3.5 The HUD is a TEMPLATE, and the clear copies it
+
+Measured on the same Hercules frames as §85.3.4, by NOP-ing `call tk_hud`:
+**61-67 ms of every frame, whatever the scene** - two fifths of a typical one -
+for a panel that changes on a hit, a kill, a lock and never otherwise. The rim
+alone was sixteen segments a frame; the score was twenty-odd glyph cells each
+marking eight rows of span.
+
+So on the two shadow backends the STATIC panel lives in a **template**: a
+second 16,000-byte buffer in the second half of the same claim (`TK_SHKB` is
+32 now), and `tk_clearspans` copies the template's bytes over last frame's
+runs where it used to store zeros. The shadow is then always *template plus
+this frame's dynamic drawing*, by induction from a bracket that starts with
+both zeroed, and what a frame draws of the panel is the sweep and the blips.
+
+**An item is a key, a rectangle and a draw routine**, six of them: the rim
+(keyed on a constant, so drawn once a bracket), the sight (keyed on
+`tk_locked`, so the closed sight of §85.6.5.7 is a template change and not a
+per-frame draw), the lives, the two score lines (keyed on the low words of
+score and high score - a kill is +1,000 and cannot leave a low word where it
+was), ENEMY IN RANGE (keyed on the scan's answer, which is why `tk_range` is
+now a scan and a draw) and the crack (keyed on *cracked or not*). Once a
+frame, right after `tk_r_begin`, `tk_tmupdate` compares every key with its
+cache; on a change the rectangle is zeroed in the template, the item is drawn
+into the template through the ordinary walks with the span marks sent to a set
+nobody reads, the rectangle is copied template to shadow, and the rectangle is
+marked into this frame's spans so the blit carries it.
+
+**Rectangles, not the drawing's own spans, and the reason is a life lost**:
+the pixels that must reach the glass are the ones no longer drawn, and a draw
+cannot mark what it did not touch. The six are laid out by `tk_tmlayout` off
+the same numbers the panel is drawn from, clamped to the viewport, with a
+pixel of slack.
+
+**Rectangles MEET, and zeroing one takes its neighbours' pixels with it.** The
+crack's holds the whole sight, and on CGA the rim's bottom rows as well - so
+the first build lost the sight at the start of every game, the crack item
+having just zeroed it while drawing nothing. `tk_tmoverlap` therefore builds
+an intersection matrix once a bracket (bit *j* of byte *i*: rectangles *i* and
+*j* share a row and a byte), and a change to item *i* draws every item in its
+row of the matrix, itself included, before the copy. Drawing an unchanged item
+again is idempotent - the walks OR and the glyphs store - so nothing is
+clipped to the rectangle.
+
+That matrix is indexed by `BP`, and **a `[table + bp]` operand addresses SS**,
+which in this OS is the kernel's low segment and not the package's (CLAUDE.md,
+"SS ≠ DS"): the first build computed the matrix into six bytes of kernel stack
+space, read it back from there consistently enough to work, and showed all
+zeros to anyone reading the package's own bytes. Every such operand here is
+spelled `[ds:...]`.
+
+**It runs after the clear, not before**, because `tk_r_begin` arms the new
+span set empty and would wipe a mark made earlier; and after the clear the
+shadow holds no dynamic pixel, so copying a rectangle over it loses nothing.
+Mode X has no shadow and no template and draws the whole panel every frame,
+which is what every frame did before and is the fast machine's to afford.
+
+#### 85.3.6 A shallow line with eight pixels to the row is sliced, not walked
+
+Bresenham's 1985 run-length slice, taken for a shallow line whose whole step
+`|dx| / |dy|` is eight or more: one `div` up front gives the step and its
+remainder, each row's run is the step or one more by an error term that moves
+once a ROW, and the run is laid as `tk_hseg` lays one - whole bytes between two
+masked ends. The first and last runs are half runs so the ends stay on the
+endpoints, and a flat line (`dy` = 0) is a single run with no divide.
+`tests/tank.py`'s flash gate and the margin gate are unchanged by it, and a
+host model of both walks agrees on the pixel count and puts every sliced
+pixel within one row of the walked one - which is all a lattice nothing
+erases owes anybody (§85.3.2).
+
+**Eight, because a sliced row costs what seven walked pixels do.** The row's
+body is about 130 bytes and sixteen memory accesses - two table lookups, two
+span marks, two masked stores and a `rep stosb` - which §85.3.4's rule prices
+at some 800 cycles against a walked pixel's 95. At a threshold of four it
+measured **-3 ms** on the fixed Hercules scene and at eight **-4 ms**, with the
+ridge - twenty-four segments at sixteen to thirty pixels a row - the whole of
+the difference. Mode X keeps the walk: its runs cross planes.
+
 ### 85.4 Three inks, named for what they mean
 
 `TKI_WORLD`, `TKI_HUD`, `TKI_MARK` — the world, the panel, the gunsight and
@@ -91573,9 +91705,16 @@ whole one. `tk_steps` caps the catch-up at three, because a floppy stall that
 left five ticks owing would advance a shell clean through a tank it should
 have hit.
 
-Measured on a cycle-accurate 4.77 MHz 8088: **6.06 fps** on CGA and 4.32 on
-Hercules, against the **6 fps, peaking at 8**, that the 1983 port itself runs
-at in the capture this was built from (docs/plans/completed/GFX-FSX-PLAN.md §0).
+Measured on a cycle-accurate 4.77 MHz 8088 when it shipped: **6.06 fps** on
+CGA and 4.32 on Hercules, against the **6 fps, peaking at 8**, that the 1983
+port itself runs at in the capture this was built from
+(docs/plans/completed/GFX-FSX-PLAN.md §0). §85.3.4 to §85.3.6 then took the
+same Hercules frames, exact and scene for scene, from **192.8 to 110.6 ms**
+(5.2 to 9.0 fps) on a twelve-piece scatter and from **353.9 to 254.5 ms**
+(2.8 to 3.9 fps) on a deliberately clustered one; §85.6.6.3 is what keeps the
+second kind of scene from being dealt. Over eight fresh games, ten exact
+frames each, standing still averaged **185 → 104 ms** (5.4 → 9.6 fps) and
+turning **221 → 129 ms** (4.5 → 7.8 fps), the worst turning frame 289 → 173.
 
 **Two input readers, because they answer two different questions.** `int 16h`
 answers *what was typed* and is right for fire, pause and leaving;
@@ -91680,6 +91819,36 @@ that cannot be played. And it costs nothing when it is not needed: the second
 `tk_blocked` runs only on the frame a move is refused, and in a game where the
 player is outside everything — which is every game — it answers CF=0 and the
 move is refused exactly as before.
+
+##### 85.6.6.3 The scatter is a jittered GRID, so no view holds a cluster
+
+Reported from a Hercules as heavy slowdown when the scenery grouped: a
+uniform draw over the torus puts nine pieces in one view in a game or two of
+a hundred, and three within a thousand units one game in seventy. A frame is
+priced by the pieces in it and a near piece by its size, so those are the
+frames the player remembers.
+
+`tk_newgame` places slot *s* in column `s & 3` of four 2,048-unit columns and
+row `s >> 2` of three 2,731-unit rows, jittered over the MIDDLE HALF of its
+cell (512..1535 across, 683..2048 down, the row's range being the high word of
+`rand x 1366` so there is no divide). Neighbours are then never nearer than
+**1,025** units across or **1,366** down - the wrap included, the last row's
+top being 1,365 from the first row's bottom - and the corners a piece can
+reach of its cell are what bound every view. Modelled over 20,000 games at
+random points and headings, against the uniform draw:
+
+| | uniform | grid |
+|---|---:|---:|
+| pieces in view, mean / 99th percentile / most | 3.66 / 8 / **10** | 3.66 / 6 / **7** |
+| view cost (sum of 1000/z), 99th percentile / most | 6.57 / **11.2** | 5.10 / **7.7** |
+| three or more within 1,000 units | 1.5% | **never** |
+| four or more within 2,000 | 17.4% | 5.3% |
+
+The mean does not move - the same twelve pieces stand on the same plain - and
+the tail is what goes. The spawn clearance of §85.6.6.1 is now satisfied by
+construction (the nearest cell corner to the origin is 512 across and 683
+down, and the wrap side 1,536 and 1,365), and the fold is kept as the proof
+that does not depend on the arithmetic above staying true.
 
 ### 85.8 GAME OVER — the lines fly in and become the letters
 
