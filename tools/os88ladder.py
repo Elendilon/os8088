@@ -1833,6 +1833,7 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
     heap, loaded, out, t0, running = None, 0, [], 0.0, None
     for st in stages:
         ev = st["events"]
+        start_regs = None               # a rung that opens on a map of its own
         # --- how much of the kernel has landed, and where the heap stands ---
         for e in ev:
             if "arg_done" in e:
@@ -1950,6 +1951,12 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
                     r["note"] = mark(r["note"])
                 row["regions"] = pre
                 row["mem"] = ["packed", "reserved", "unpack"]
+                # ...AND THE RUNG OPENS ON THAT SAME MOMENT. A stage's map is
+                # the memory after it, but what is in RAM when this rung is
+                # reached is the packed body on its shelf, and a reader who
+                # arrives here should see that first and the fill second.
+                # The seed of "unpacked so far" is the step's alone.
+                start_regs = [r for r in pre if r["id"] != "unpack"]
                 row["fill"] = {"a": head_end,
                                "b": head_end + kz["unpacked_tail"],
                                "shelf": [shelf, shelf + kz["packed_tail"]],
@@ -1976,6 +1983,9 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
             for f in st["focus"]:
                 moved += ([r["id"] for r in regs if r["id"].startswith("free")]
                           if f == "free*" else [f])
+        if start_regs:
+            moved = ["packed", "reserved"]  # what is about to move, on the
+                                            # map the rung opens on
 
         # A NOTCH DRAWS WHAT THE READ BEFORE IT FETCHED. The bar's numerator is
         # sectors that have landed, and the read is what lands them - the
@@ -1998,6 +2008,7 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
         ms = sum(e["ms"] for e in ev)
         out.append({
             "moved_ids": moved,
+            "start_regions": start_regs,
             "zooms": zooms(regs, ram),
             "id": st["id"], "short": st.get("short", st["id"]),
             "title": st["title"], "moved": st["moved"],
@@ -2418,7 +2429,11 @@ var CLS = {bios:"--c-bios", ours:"--c-ours", kern:"--c-kern", ovl:"--c-ovl",
    moment before the unpacker starts and a fill the page runs over it. */
 function curRegs(){
   var st = S[stage];
-  return (step >= 0 && st.steps[step].regions) || st.regions;
+  if (step >= 0) return st.steps[step].regions || st.regions;
+  /* The unpack rung OPENS on the moment before the unpacker starts - the
+     packed body on its shelf is what is in RAM when the rung is reached -
+     and its after-picture is what the fill arrives at. */
+  return st.start_regions || st.regions;
 }
 var KIND = {rom:"bios", disk:"ours", kernel:"kern", draw:"data"};
 var $ = function(id){ return document.getElementById(id); };
