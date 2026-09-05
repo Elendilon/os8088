@@ -3166,8 +3166,17 @@ $(BUILD)/rampage.bin: drivers/ramdisk/rampage.asm drivers/ramdisk/rdabi.inc \
 	        -I apps/ -o $@ $<
 	@echo "rampage: $(call FILESIZE,$@) bytes"
 
+# **NOT $(OS88DRV): THIS ONE IS NOT LOADED BY THE KERNEL.** RAMDISK.DRV reads
+# it itself with OSAPI_FILE_READ (drivers/ramdisk/rdpage.inc, rd_page_need),
+# and that verb expands a compressed FILE - a 'CZ' wrapper (SPEC.md 20.14) -
+# not a compressed DRIVER CONTAINER, which is drv_expand's job inside
+# drv_load. So a compressed RAMPAGE.DRV arrives as its own compressed bytes,
+# rd_page_check refuses the header, and the page draws "Ram Disk needs the
+# system disk" with every control on it inert - the driver loaded, the cells
+# published, and nothing working. HDDTOOL.DRV is the same class and the same
+# rule two hundred lines up; it has always been spelled this way.
 $(BUILD)/rampage.drv: $(BUILD)/rampage.bin tools/os88drv.py $(PKGZSTAMP)
-	$(OS88DRV) $(BUILD)/rampage.bin -o $@
+	python3 tools/os88drv.py $(BUILD)/rampage.bin -o $@
 
 $(BUILD)/ramdisk.bin: drivers/ramdisk/ramdisk.asm drivers/ramdisk/rdabi.inc \
                       drivers/ramdisk/rdpkg.inc \
