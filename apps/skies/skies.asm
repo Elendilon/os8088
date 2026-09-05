@@ -138,6 +138,9 @@ CSI_NINK   equ 13
 ; --- the world (SPEC.md 88.5, 88.6) -------------------------------------------
 ; Metres. x east, z north, y up; the Eiffel Tower at the origin.
 CS_NEAR   equ 40                ; the near plane
+CS_NEARG  equ 4                 ; ...and a ground polygon's: the eye is 2 m up
+                                ; and the view's bottom row is 10 m ahead, so
+                                ; at 40 m the runway ended above it (88.5.5)
 CS_FAR    equ 16000             ; nothing beyond this is transformed, and it
                                 ; is what keeps every 16-bit sum in range
 CS_MAXV   equ 24                ; vertices in the largest model (the tower's
@@ -742,6 +745,7 @@ cs_tpl:
     ZBYTE cs_cone                   ; the cull's cone factor this frame (88.5.1)
     ZBYTE cs_conebase               ; ...and the backend's: 0 = 0.5, 1 = 0.75
     ZBYTE cs_wire                   ; the object being drawn has no faces
+    ZWORD cs_near                   ; ...and its near plane: CS_NEAR or CS_NEARG
     ZWORD cs_bw                     ; cs_boxlod's half-width, and its
     ZWORD cs_bx0                    ; projected centre x, top row and base
     ZWORD cs_by0                    ; row

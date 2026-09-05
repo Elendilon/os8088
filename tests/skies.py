@@ -15,6 +15,10 @@ flip that never latches leaves a counter climbing over a still picture.
 passes VROT, and the state goes to FLYING with the altitude climbing - the
 whole of SPEC.md 88.7's ground model in one flight.
 
+**Nothing stale.** The world paused, the glass against a forced full redraw
+of the same scene: the dirty-row scheme's erase must leave no pixel behind,
+and the box beside the view must be dark (SPEC.md 88.3.1).
+
 **It crashes, and comes back.** The nose pushed over into the ground is a
 crash: `cs_crashes` increments, the picture freezes for CS_CRASHT ticks, and
 the aeroplane is back at the airport's reset point on the runway heading with
@@ -101,6 +105,10 @@ class Bss:
         return self.m.readseg(self.seg,
                               self.base + dispapps.bss_off("skies", name), 1)[0]
 
+    def poke(self, name, data):
+        self.m.write((self.seg << 4) + self.base + dispapps.bss_off("skies", name),
+                     data)
+
     def metres(self, name):
         """A 16.8 dword position's whole metres, signed."""
         v = int.from_bytes(self.m.readseg(
@@ -108,6 +116,30 @@ class Bss:
         if v >= 1 << 31:
             v -= 1 << 32
         return v // 256
+
+
+def view_rows(m, r, back):
+    """The glass, row by row over the VIEW's rows: (inside, outside) - the
+    bytes of each row that are the view, and the bytes of the box beside it
+    (Hercules only: on CGA the view is the box's whole width)."""
+    vy, wh = r.word("cs_vy"), r.word("cs_wh")
+    wb0, wbn = r.word("cs_wb0"), r.word("cs_wbn")
+    if back == 3:
+        fb = m.read(0xB0000, 0x8000)
+        box0 = r.word("cs_vx") // 8              # the box's first byte of 90
+        rows = [(y & 3) * 0x2000 + (y >> 2) * 90 for y in range(vy, vy + wh)]
+        stride = 80
+    else:
+        fb = m.read(0xB8000, 0x4000)
+        box0 = 0
+        rows = [(y & 1) * 0x2000 + (y >> 1) * 80 for y in range(vy, vy + wh)]
+        stride = 80
+    inside, outside = [], []
+    for o in rows:
+        row = fb[o + box0:o + box0 + stride]
+        inside.append(row[wb0:wb0 + wbn])
+        outside.append(row[:wb0] + row[wb0 + wbn:])
+    return inside, outside
 
 
 def until(m, pred, frames, step=15, what="the condition"):
@@ -247,6 +279,52 @@ def main(argv):
                 bad.append("a displayed frame carried %d%% of the ink of the "
                            "two around it: the frame is being taken apart ON "
                            "THE GLASS (SPEC.md 85.1, 88.3)" % worst)
+
+        # --- nothing stale on the glass (SPEC.md 88.3.1) ----------------------
+        # The world paused, the glass as the dirty-row scheme left it against
+        # the same scene with every row forced to refill and redraw: a pixel
+        # that differs is one the scheme failed to erase. The first build
+        # refilled fifteen bytes to the right of every erase and passed every
+        # other check here; it also lit a bar past the view's edge, so the
+        # box's bytes beside the view have to be dark too.
+        def stale_check(when):
+            r.poke("cs_pause", b"\x01")
+            m.advance(frames=20)
+            m.pause()
+            before, outside = view_rows(m, r, back)
+            m.run()
+            r.poke("cs_rowkind", b"\x83" * r.word("cs_wh"))
+            m.advance(frames=20)
+            m.pause()
+            after, _ = view_rows(m, r, back)
+            m.run()
+            r.poke("cs_pause", b"\x00")
+            stale = sum(POP[x ^ y] for a, b in zip(before, after)
+                        for x, y in zip(a, b))
+            spill = sum(POP[x] for row in outside for x in row)
+            print("  stale pixels %s: %d of %d; lit beside the view: %d"
+                  % (when, stale, len(before) * len(before[0]) * 8, spill))
+            if stale > 8:
+                bad.append("%d pixels on the glass differ from a full redraw of "
+                           "the same scene %s: the dirty-row scheme leaves "
+                           "stale pixels (SPEC.md 88.3.1)" % (stale, when))
+            if spill:
+                bad.append("%d pixels lit in the box beside the view %s: the "
+                           "refill or the blit reaches past it (SPEC.md "
+                           "88.3.1)" % (spill, when))
+
+        if back in (2, 3):
+            stale_check("after a straight climb")
+            # ...and after the nose comes up further: rows go from ground to
+            # sky with nothing drawn on them, which is the case the first
+            # build's kind byte never saw (it was always written as 0)
+            m.key("ArrowDown", down=True, up=False)
+            m.advance(frames=45)
+            m.run()
+            m.key("ArrowDown", down=False, up=True)
+            m.advance(frames=15)
+            m.run()
+            stale_check("after pitching up")
 
         # --- it crashes, and comes back ------------------------------------------
         c0 = r.word("cs_crashes")

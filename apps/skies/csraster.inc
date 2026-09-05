@@ -795,10 +795,11 @@ cs_skyground:
 cs_hzrows:
     or cx, cx
     jle .out
-    mov ah, al
-    call cs_inkpat                  ; SI = the four pattern bytes
-    mov [cs_hzkt], si
-    mov al, ah                      ; AL = the kind
+    mov dl, al                      ; DL = the kind (cs_inkpat zeroes AH: the
+    call cs_inkpat                  ; first build kept it there and every row
+    mov [cs_hzkt], si               ; was recorded as kind 0, so a row that
+    mov al, dl                      ; went from ground to sky was "as it was"
+                                    ; and never refilled - 88.3.1)
 .r:
     mov ah, [cs_rowkind + bx]
     cmp al, ah
@@ -835,12 +836,13 @@ cs_hzrows:
     push ax
     mov al, cl
     xor ah, ah
-    add di, ax
-    mov cl, ch
-    xor ch, ch
-    inc cx
-    mov si, bx
-    and si, 3
+    sub ax, [cs_wb0]                ; the span is absolute bytes of the row
+    add di, ax                      ; and DI is the view's first: the first
+    mov cl, ch                      ; build added them and refilled fifteen
+    xor ch, ch                      ; bytes to the right of everything, which
+    inc cx                          ; left the left of every object on the
+    mov si, bx                      ; glass and a bar past the view's edge
+    and si, 3                       ; (88.3.1)
     add si, [cs_hzkt]
     mov al, [si]
     mov ah, al
@@ -1594,7 +1596,25 @@ cs_polyrows_herc:
     mov ax, [cs_xl + si]
     mov cx, [cs_xr + si]
     cmp ax, [cs_wx0]
-    jge .c1
+    jg .c1
+    cmp cx, [cs_wx1]
+    jl .c1a
+    ; --- the whole view row: no masks, no ends, one store - the runway
+    ;     under the wheels is forty of these a frame (88.5.5) ---------------
+    push bx
+    push di
+    mov si, bx
+    and si, 3
+    mov al, [cs_pat + si]
+    mov ah, al
+    add di, [cs_wb0]
+    mov cx, [cs_wbn]
+    shr cx, 1
+    rep stosw
+    pop di
+    pop bx
+    jmp short .nrow
+.c1a:
     mov ax, [cs_wx0]
 .c1:
     cmp cx, [cs_wx1]
@@ -1728,6 +1748,11 @@ cs_hrun_cga:
     mov si, bp
     and si, 3
     mov al, [cs_clm + si]
+    jmp short cs_hrun_ends          ; (the first build fell through into the
+                                    ; Hercules OR run below, and every CGA
+                                    ; polygon row was a 1bpp OR at the wrong
+                                    ; bytes: tests/skies.py's stale-pixel
+                                    ; check is what found it - 88.4.4)
 ; cs_lrun_herc - the same run as an OR: a LINE on Hercules is the lit bit, so
 ; nothing under it needs taking out, and an OR is a read less per end byte
 ; than the masked store. What the slice lays its runs with (SPEC.md 85.3.3).

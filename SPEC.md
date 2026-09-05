@@ -93739,7 +93739,26 @@ have to change on the glass are the ones last frame's polygon lit and those
 are in **last frame's span set** — the blit copies the union of the two
 sets, exactly §85.3.1's argument; a row whose kind changed, and every split
 row, is refilled and marked whole. So a distant building costs the refill
-and the blit its own three bytes on each of its rows and not the row. A
+and the blit its own three bytes on each of its rows and not the row. **The
+span is absolute bytes of the row and the refill's pointer is the view's
+first byte**, and the first build added them: every erase landed fifteen
+bytes to the right of what it was erasing, which left the left of every
+object on the glass in straight flight (a roll cleaned it, because a rolled
+horizon refills every row whole) and lit a bar of ground one byte past
+the view's edge, where the blit's word rounding carried it. It was found
+on the owner's Hercules; `tests/skies.py` now diffs the glass against a
+forced full redraw of the same paused scene, and reads the box's bytes
+beside the view, and it read 7,487 stale pixels and 38 beside on the build
+before the fix. **And the kind byte was never written**: `cs_hzrows` fetched
+the ink's pattern through `cs_inkpat`, which zeroes AH, and then took the
+row's kind back out of AH — so every row was recorded as kind 0 from the
+first build on, a row that went from ground to sky read "as it was" and was
+never refilled, and the horizon's movement had been relying on the runway
+and the objects to dirty the rows it crossed. On CGA that left 28 green
+pixels at the right of one row under the band; on the owner's Hercules it
+was the smear a pitch change left. The gate now pitches the nose up after
+the climb and runs the same diff again, which is the case with nothing
+drawn on the rows that change. A
 panel item is an opaque rectangle, redrawn only when the value it shows has
 changed and marked the same way. Mode X has no shadow and two pages, so
 every row is refilled every frame there and its panel keeps a **key per
@@ -93888,6 +93907,15 @@ simulator of the period showed, and a black row is the cheapest row there is.
 The ground is 12.5%, two lit pixels in every 4×4: at 25% a view that is
 mostly ground read as a grey wall the buildings sat on.
 
+**The CGA run shipped without its jump.** `cs_hrun_cga` sets up its two
+masks and fell through into `cs_lrun_herc`, the Hercules OR run that
+follows it in the file, so every CGA polygon row was laid as a 1bpp OR at
+the bytes a 1bpp row would use — and the gate that counts ink per frame
+(§88.11) passed it, because wrong ink is still ink. The stale-pixel check
+added after the owner's Hercules report (§88.3.1) read 258 pixels on CGA
+that a full redraw disagreed with, at the left of every span, and that was
+the thread.
+
 #### 88.4.5 A polygon of one row or two is its box
 
 After the bounding-box pass, a polygon whose rows are one or two skips the
@@ -93910,8 +93938,10 @@ address costs it nothing. `cs_slice_herc` is §88.4.3's slice the same way:
 the DDA in registers (DX the error, BP twice the remainder), per row two
 masked ORs and a `rep stosb` between, nothing pushed but the run's own x.
 A full-width polygon row went ~2,000 cycles to ~1,100 and a shallow
-line's row ~1,250 to ~900. The general loops are what CGA and Mode X still
-run, and what keeps the generic path assembling.
+line's row ~1,250 to ~900; a row that covers the whole view — the runway
+under the wheels is forty of them (§88.5.5) — skips the masks and the ends
+and is one `rep stosw`, ~500. The general loops are what CGA and Mode X
+still run, and what keeps the generic path assembling.
 
 #### 88.4.7 A small solid keeps no outline
 
@@ -94033,6 +94063,22 @@ four polygons and ten milliseconds. Under 24 pixels a solid keeps no outline
 32-edge one beyond `CSO_LOD` = 2,500 m: **the four legs to the apex** and
 nothing else, the base square being eight pixels wide where this stands in
 and having cost four segments.
+
+#### 88.5.5 The ground goes under the wheels
+
+The projection table's floor is `CS_NEAR` = 40 m: below it `k = 2048 ·
+sclx / z` does not fit a word. But the eye is 2 m up, so the view's bottom
+row is ground ten metres ahead, and a runway clipped at 40 m **ended
+fourteen rows above the bottom of the view** with plain ground under the
+aeroplane — the first thing the owner saw. A FLAT model's near plane is
+therefore `CS_NEARG` = 4 m (`[cs_near]`, set per object by `cs_drawobj`;
+solids keep 40, being crashed into before they get closer), and
+`cs_project` takes a **divide path under the table's floor**: `cx · sclx /
+z` and `cy · scly / z` as real divides, each clamped to ±4000 BEFORE the
+divide by comparing |cx| with 9z and |cy| with 14z, because a quotient that
+does not fit a word is a fault on an 8088 and not a big number. It is two
+`idiv`s on the two or three points of a frame that cross the plane, and the
+runway now runs off the bottom of the view as it should.
 
 ### 88.6 The world (`apps/skies/csworld.inc`)
 
@@ -94165,9 +94211,14 @@ table exactly.
   bracket and `cs_frames` climbs; full throttle and the stick back leave the
   runway — altitude read out of the package's bss, not off the glass; the
   nose pushed over into the ground is a crash, `cs_crashes` increments and the
-  position returns to the airport's reset point; and §85.1's flash gate, the
+  position returns to the airport's reset point; §85.1's flash gate, the
   ink per DISPLAYED frame priced against its neighbours, with the same 70%
-  floor. Run on the Hercules twin as well as CGA: the view is a different
+  floor; and **the glass against a forced full redraw of the same paused
+  scene** — every pixel the dirty-row scheme failed to erase differs, and
+  the box's bytes beside the view must be dark (§88.3.1: this is the check
+  that would have caught what the owner's Hercules showed, and it was
+  written to go red on that build first). Run on the Hercules twin as well
+  as CGA: the view is a different
   width there. **Mode X has not been exercised by it**: no MartyPC machine
   in the tree answers `FSX_CAPS` with a VGA (`os8088_5150_both_gla` gives
   CGA320), so that backend has only QEMU, by hand.
@@ -94201,19 +94252,25 @@ its near size, the worst frame in the world.
 | the row range, two-row polygons, the sky's span refill | 127 | 146 | 201 |
 | Hercules row loop and slice, outlines, skip ticks, river halves | 120 | — | — |
 | the cone's DX bug, Q15, keys, box off three points | 112 → 108 | 176 | 216 |
-| **400 wide, four-leg far tower, river range** | **101 ms, 9.9 fps** | **150 ms, 6.7 fps** | **183 ms, 5.5 fps** |
+| 400 wide, four-leg far tower, river range | 101 ms, 9.9 fps | 150 ms, 6.7 fps | 183 ms, 5.5 fps |
+| **the ground to the wheels (§88.5.5), full-width rows** | **134 ms, 7.5 fps** | 151 | 183 |
 
-**The target was twelve frames a second and the runway frame is at ten.**
-Where the 101 ms goes, cycle-exact from `--trace`: the sky refill 42,700
-(9 ms — the runway and the hangar dirty 30 full rows), the cull 35,700
-(7.5 ms over 41 objects), the runway itself 93,000 (its two long edges are
-slices at ~900 cycles a row, its quad 15 full-width rows at ~1,100, and
-its six vertices cross the near plane), the near hangar 84,000 (two 15-row
-faces and twelve outlines), the far tower 45,000 (eight vertices, four
-legs), four river pieces 110,000 (mostly their vertices), and the blit,
-panel and loop ~50,000. The city and the tower frames are further off
-because they hold more of the same: fifteen objects, and the tower's 32
-segments at ~4,300 cycles each.
+**The target was twelve frames a second; the runway frame stood at ten
+before the runway was drawn to the wheels and is 7.5 after.** Where
+the 101 ms went, cycle-exact from `--trace`: the sky refill 42,700 (9 ms —
+the runway and the hangar dirty 30 full rows), the cull 35,700 (7.5 ms
+over 41 objects), the runway itself 93,000 (its two long edges are slices
+at ~900 cycles a row, its quad 15 full-width rows at ~1,100, and its six
+vertices cross the near plane), the near hangar 84,000 (two 15-row faces
+and twelve outlines), the far tower 45,000 (eight vertices, four legs),
+four river pieces 110,000 (mostly their vertices), and the blit, panel and
+loop ~50,000. Drawing the ground under the wheels (§88.5.5) then added
+forty full-width rows and their edges to the parked view — 150,000 cycles
+for the runway object alone — of which the full-width fast path gave back
+a quarter; the moment the aeroplane climbs, the runway is a few rows again
+and the frame is back where it was. The city and the tower frames are
+further off because they hold more of the same: fifteen objects, and the
+tower's 32 segments at ~4,300 cycles each.
 
 What the measurements say about the design, in the order it matters:
 

@@ -286,6 +286,8 @@ cs_ktabs:
 cs_project:
     mov si, bx                      ; SI = cy
     mov bx, cx                      ; the depth picks the row
+    cmp bx, CS_NEAR
+    jb .near
     cmp bx, 1024
     jb .row
     cmp bx, 4096
@@ -316,6 +318,60 @@ cs_project:
     add ax, [cs_vcy]
     mov bx, ax
     mov ax, di
+    ret
+    ; --- under the table's floor: a ground polygon's near plane is 4 m
+    ;     (88.5.5), where k would not fit a word, so the two divides are
+    ;     real ones - clamped first, because a quotient past +-4000 would
+    ;     not fit either and an 8088 faults on that ------------------------
+.near:
+    mov di, cx                      ; DI = z, 1..39
+    mov cx, ax                      ; CX = cx
+    mov ax, di
+    mov bx, 9
+    mul bx                          ; AX = 9 z: |cx| past it clamps (4000/443)
+    mov bx, cx
+    or bx, bx
+    jns .ax
+    neg bx
+.ax:
+    cmp bx, ax
+    ja .xcl
+    mov ax, cx
+    imul word [cs_sclx]
+    idiv di
+    jmp short .xd
+.xcl:
+    mov ax, 4000
+    or cx, cx
+    jns .xd
+    neg ax
+.xd:
+    add ax, [cs_vcx]
+    mov cx, ax                      ; CX = screen x
+    mov ax, di
+    mov bx, 14
+    mul bx                          ; AX = 14 z (4000/285)
+    mov bx, si
+    or bx, bx
+    jns .ay
+    neg bx
+.ay:
+    cmp bx, ax
+    ja .ycl
+    mov ax, si
+    imul word [cs_scly]
+    idiv di
+    jmp short .yd
+.ycl:
+    mov ax, 4000
+    or si, si
+    jns .yd
+    neg ax
+.yd:
+    neg ax
+    add ax, [cs_vcy]
+    mov bx, ax
+    mov ax, cx
     ret
 
 ; cs_pshift - AX = (DX:AX) >> 11, clamped to +-4000 (SPEC.md 85.5.3)
@@ -682,10 +738,12 @@ cs_drawobj:
     call cs_boxlod
     jmp short .out
 .stack:
+    mov word [cs_near], CS_NEAR
     call cs_stackverts
     call cs_projall
     jmp short .full
 .flat:
+    mov word [cs_near], CS_NEARG    ; the ground goes under the wheels (88.5.5)
     call cs_flatverts
     call cs_projall
 .full:
@@ -956,7 +1014,7 @@ cs_projall:
 .v:
     push cx
     mov cx, [cs_czv + di]
-    cmp cx, CS_NEAR
+    cmp cx, [cs_near]
     jl .behind
     mov ax, [cs_cxv + di]
     mov bx, [cs_cyv + di]
@@ -1073,7 +1131,7 @@ cs_faces:
     ret
 
 ; -----------------------------------------------------------------------------
-; cs_nearclip - Sutherland-Hodgman against z = CS_NEAR, in camera space, then
+; cs_nearclip - Sutherland-Hodgman against z = [cs_near], in camera space, then
 ;               project: the face at [cs_fidx] (cs_fn ends) into cs_pv/cs_pn
 ; -----------------------------------------------------------------------------
 cs_nearclip:
@@ -1151,7 +1209,7 @@ cs_nearclip:
 .out:
     ret
 
-; cs_ncross - the point where edge [cs_na]->[cs_nb] crosses z = CS_NEAR,
+; cs_ncross - the point where edge [cs_na]->[cs_nb] crosses z = [cs_near],
 ; appended at DI (three words, DI advanced). Clobbers AX, BX, CX, DX.
 cs_ncross:
     push si
@@ -1160,7 +1218,7 @@ cs_ncross:
     mov cx, [cs_czv + si]
     sub cx, [cs_czv + bx]           ; den = zb - za, never 0 (opposite sides)
     mov [cs_nden], cx
-    mov ax, CS_NEAR
+    mov ax, [cs_near]
     sub ax, [cs_czv + bx]           ; num = NEAR - za, |num| <= |den|
     mov [cs_nnum], ax
     mov ax, [cs_cxv + si]
@@ -1175,7 +1233,8 @@ cs_ncross:
     idiv word [cs_nden]
     add ax, [cs_cyv + bx]
     mov [di+2], ax
-    mov word [di+4], CS_NEAR
+    mov ax, [cs_near]
+    mov [di+4], ax
     add di, 6
     inc word [cs_ncl]
     pop si
@@ -1219,7 +1278,7 @@ cs_edges:
     call cs_ncross                  ; the crossing, in camera space...
     mov ax, [cs_clipx]
     mov bx, [cs_clipx + 2]
-    mov cx, CS_NEAR
+    mov cx, [cs_near]
     call cs_project                 ; ...projected
     mov cx, ax
     mov dx, bx
