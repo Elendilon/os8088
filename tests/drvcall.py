@@ -62,10 +62,12 @@ def say(*a):
     sys.stdout.flush()
 
 
-# drvcall.asm's three result lines AS ASSEMBLED (dc_r1/dc_r2/dc_r3). A
-# refused OSAPI_DRV_CALL writes nothing, so these are what the window shows
-# until a driver is published - which makes them the "nothing was dispatched"
-# assertion rather than decoration.
+# drvcall.asm's three result lines AS ASSEMBLED (dc_r1/dc_r2/dc_r3), kept for
+# tests/lzdrv.py, which waits for `Ping: ..` to CHANGE as its signal that
+# dc_probe has run. They are NOT what a window shows: dc_paint calls dc_probe,
+# so by the time there is anything to read they carry either the driver's
+# answers or the package's own refusal markers. See the note in the "no driver
+# published" arm below, which asserted these once and could not win the race.
 PLACEHOLDER = ("Ping: ..",
                "Upcase: hello world n=..",
                "Bad verb: ........")
@@ -127,26 +129,31 @@ def main():
         before = lines()
         for s in before:
             say("  before: %s" % s)
-        # **UNCHANGED IS THE PROOF.** With no driver published every
-        # OSAPI_DRV_CALL is refused, and a refused call WRITES NOTHING - so
-        # the three fields still read the placeholders drvcall.asm assembled
-        # them with, and that is the assertion. Anything else would mean the
-        # kernel dispatched.
+        # **THE REFUSAL MARKERS, NOT THE PLACEHOLDERS**, and this row has been
+        # wrong about that once. "A refused OSAPI_DRV_CALL writes nothing" is
+        # true of the KERNEL and false of this PACKAGE: dc_probe answers a
+        # CF=1 by writing its own marker - `mov ax, '--'` for the ping, a
+        # length of 0 for upcase, dc_s_ref for the bad verb - and drvcall.asm
+        # says why in a comment on that very line, *"the kernel's refusal, and
+        # the ONLY thing a package can tell from CF alone"*.
         #
-        # These used to expect 'Ping: --', 'n=00' and 'refused ' BEFORE a
-        # driver existed, which is a package that answers a refusal by
-        # writing an answer - and the third one's own message said "which
-        # cannot be right either way". drvcall.asm's `db` lines are the
-        # contract and they are dots; only the comment above dc_r1 ever said
-        # '--', and it is corrected in the same commit as this.
-        for i, want in enumerate(PLACEHOLDER):
-            if before[i] != want:
-                fails.append(
-                    "with no driver published line %d reads %r and should "
-                    "still be its placeholder %r - a refused OSAPI_DRV_CALL "
-                    "writes nothing, so anything else means the kernel "
-                    "dispatched something it had to refuse"
-                    % (i + 1, before[i], want))
+        # So the assembled `db` lines are what the image holds before the
+        # FIRST PAINT and nothing else, because dc_paint calls dc_probe: by
+        # the time a window is up they have been overwritten with the answers
+        # above. Asserting the placeholders is asserting that the probe never
+        # ran, which is a race the row cannot win and should not want to -
+        # tests/lzdrv.py had the same misreading from the other side, waiting
+        # for a probe that had already happened.
+        if before[0] != "Ping: --":
+            fails.append("with no driver published the ping answered %r - the "
+                         "kernel dispatched something it should have refused"
+                         % before[0])
+        if not before[1].endswith("n=00") or "HELLO" in before[1]:
+            fails.append("upcase ran with no driver published: %r" % before[1])
+        if not before[2].endswith("refused "):
+            fails.append("the bad-verb check reads %r before any driver is "
+                         "loaded, which cannot be right either way"
+                         % before[2])
 
         # --- tick the Ram Disk ---------------------------------------------
         mo.menu(8, 8, 8, 40)                        # chip menu -> Control Panel
