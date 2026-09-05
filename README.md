@@ -138,14 +138,14 @@ make marty    # a cycle-accurate IBM 5150 (MartyPC) with a debugger attached -
 make clean
 ```
 
-`make` builds the six shipping floppies and needs nothing but `nasm` and
+`make` builds the nine shipping floppies and needs nothing but `nasm` and
 `python3`. The disks that carry the C applications — `cworddisk`,
 `runcpmdisk`, `allapps` and the live media (`make live`) — want the compiler
 first: `tools/setup-cc.sh`
 fetches and builds it into `build/cc`, and nothing else in the tree depends on
 it. `runcpmdisk`, `allapps` and `live` also fetch RunCPM's command processor
-and master disk (`make runcpm-src`), and `runcpmdisk` the CP/M software that
-rides beside it (`make cpmsw`); none of it is committed here.
+and master disk (`make runcpm-src`) and the CP/M software that rides beside
+it (`make cpmsw`); none of it is committed here.
 
 ![what it looks like: gray dithered desktop, menu bar, drive icons, Note Pad,
 Timer, Bounce, Control Panel and Task Manager windows, and the dock
@@ -339,9 +339,9 @@ docs/MARTYPC-DEBUG.md a cycle-accurate 5150 with a debugger attached, and the
                      accurate
 docs/KERNEL-MEMORY.md what the kernel's byte budget is spent on, and the
                      measured RAM floor
-docs/HERCULES-TESTING.md  testing on Hercules - it IS automatable, and all
-                     three ways of getting it wrong give a black image
-                     rather than an error
+docs/HERCULES-TESTING.md  testing on Hercules - MartyPC reads the card back
+                     directly; on QEMU all four ways of getting it wrong
+                     give a black image rather than an error
 boot/boot.asm        512-byte boot sector: LBA->CHS, retrying reads. It
                      relocates itself, because the kernel lands where it runs
 kernel/kernel.asm    constants, the memory ladder and its guards, boot

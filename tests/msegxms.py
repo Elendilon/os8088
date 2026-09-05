@@ -9,7 +9,7 @@ machine is an 8088 and an 8088 has nothing above linear 0x0FFFFF - so those
 rows prove the FALLBACK, which is what makes `OP_XMS` a hint rather than a
 mode. THIS row is the other half.
 
-WHY QEMU: docs/TESTING.md's closed list, entry 6's shape - MartyPC cannot host
+WHY QEMU: docs/TESTING.md's closed list, entry 1 - MartyPC cannot host
 extended memory at all, so there is no "prefer MartyPC" to weigh. It is the
 same reason tests/xmcheck.py is here, and this borrows its boot and its
 block-table reader.

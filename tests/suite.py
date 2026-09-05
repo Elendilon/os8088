@@ -1090,7 +1090,7 @@ SOAK = [
         "row proves the FALLBACK - an 8088 has nothing up there, so the part "
         "comes back as an ordinary conventional claim, which is what makes "
         "OP_XMS a HINT and not a mode - and this is the other half. WHY QEMU: "
-        "docs/TESTING.md's closed list, entry 6's shape - MartyPC cannot host "
+        "docs/TESTING.md's closed list, entry 1 - MartyPC cannot host "
         "extended memory at all, so there is no `prefer MartyPC` to weigh; it "
         "borrows tests/xmcheck.py's boot and block-table reader for the same "
         "reason. FOUR ASSERTIONS and the last is what makes the first three "
@@ -1438,7 +1438,7 @@ SOAK = [
         "The extended-memory TEARDOWN gate (SPEC.md 41.5, 29.4). QEMU and "
         "not MartyPC, and the row said `marty` for a year: the machine has "
         "to HAVE memory above 1MB and the target machine never can (SPEC.md "
-        "41.9 rule 1), which is one of docs/TESTING.md's five legitimate "
+        "41.9 rule 1), which is one of docs/TESTING.md's seven legitimate "
         "uses of QEMU. It also needs nasm for the OVERLAY's map - xm_tab is "
         "in XMEM.DRV now (SPEC.md 41.12), not in the kernel.",
         needs=("qemu", "nasm"), serial=True, timeout=600,
