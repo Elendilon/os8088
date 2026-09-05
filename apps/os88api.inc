@@ -887,11 +887,14 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; framebuffer's own bit order (row-major, bit
                                  ; 7 leftmost, 1 = a LIT pixel), BP = its
                                  ; stride in BYTES per row, AX = destination x
-                                 ; and CX = width in pixels - BOTH MUST BE
-                                 ; MULTIPLES OF 8 - BX = y, DX = rows, 1..255.
-                                 ; x and y are SIGNED: a window dragged half
-                                 ; off the left edge has content at a negative
-                                 ; x, and whole 8-pixel columns simply drop.
+                                 ; - A MULTIPLE OF 8 - CX = width in pixels,
+                                 ; ANY (off the byte grid, the last partial
+                                 ; byte is merged under a mask and the bits
+                                 ; past the width are untouched, SPEC.md
+                                 ; 5.4.2.5), BX = y, DX = rows, 1..255. x and
+                                 ; y are SIGNED: a window dragged half off the
+                                 ; left edge has content at a negative x, and
+                                 ; whole 8-pixel columns simply drop.
                                  ; out CF=1 = REFUSED and nothing drawn: the
                                  ; arguments broke one of the rules above, or
                                  ; this is a kern_small machine, which carries

@@ -882,7 +882,8 @@ def _claim_name(tag):
     return nice.get(key, "In use")
 
 
-def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
+def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first,
+            fill_view=False):
     """The memory map AFTER this stage - a list of spans over 640KB.
 
     Everything here is an address the tree computes for itself: the ladder
@@ -926,9 +927,19 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
              "fatwin": "Room for the index", "fatw": "Disk index",
              "lowbss": "Stacks + buffers", "vgabuf": "Graphics scratch",
              "blob": "Loader", "pending": "Still on the floppy",
-             "packed": "Packed system", "unclaimed": "Not spoken for"}
+             "packed": "Packed system", "unclaimed": "Not spoken for",
+             "reserved": "Reserved for the unpacked system",
+             "unpack": "Unpacked so far"}
     kz = cons.get("KZ")
     unpacked = since("expand") if kz and "expand" in order else True
+    # THE FILL VIEW IS THE UNPACK STEP'S OWN MAP: the moment before the
+    # unpacker starts, with the whole packed body on its shelf, the room it
+    # will fill drawn as a reserved outline, and a block of "unpacked so far"
+    # that the page grows over the step's timeline. Every stage's map is the
+    # memory AFTER the stage; this one step gets a map of DURING, because the
+    # move it makes is the one the reader most needs to see happen.
+    if fill_view:
+        unpacked = False
 
     def add(a, b, rid, label, cls, note="", layer=0, sl=None):
         if floor is not None and rid not in ("heap", "claim", "free"):
@@ -1022,6 +1033,21 @@ def regions(stage_id, lad, cons, vol, ram_kb, heap, loaded_sectors, spl_first):
                 "%d of %d packed [[sector|sectors]] have landed. The number "
                 "on the loading bar is this one - the plain head is not on "
                 "it." % (landed, tail_secs))
+        if fill_view:
+            add(head_end, head_end + kz["unpacked_tail"], "reserved",
+                "Reserved for the unpacked operating system", "reserved",
+                "%s bytes the [[compressed]] body will become, from where "
+                "the plain head ends. The shelf lies INSIDE this span, near "
+                "its top: unpacking [[in place]] fills the span from the "
+                "bottom while eating the shelf from its bottom, and the "
+                "writer reaches the shelf's start only after the reader has "
+                "moved on past it."
+                % "{:,}".format(kz["unpacked_tail"]), layer=0)
+            add(head_end, head_end + 1, "unpack",
+                "Unpacked so far", "kern",
+                "What the unpacker has written: the operating system's own "
+                "bytes, growing upward through the reserved span as the "
+                "packed shelf above shrinks.")
     elif since("splash"):
         img_end = min(kstart + loaded_sectors * vol["bps"], lad["kend"] * 16)
         parts = [
@@ -1807,6 +1833,7 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
     heap, loaded, out, t0, running = None, 0, [], 0.0, None
     for st in stages:
         ev = st["events"]
+        start_regs = None               # a rung that opens on a map of its own
         # --- how much of the kernel has landed, and where the heap stands ---
         for e in ev:
             if "arg_done" in e:
@@ -1896,7 +1923,7 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
                            "total": e["arg_total"] + cons["SPL_POST"]}
             elif running is None and bar is not None:
                 running = dict(bar)
-            steps.append({
+            row = {
                 "label": label, "phase": base, "kind": e["kind"],
                 "ms": e["ms"], "t0": e["t0"], "note": mark(note),
                 "bar": (dict(running,
@@ -1906,7 +1933,36 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
                 "sectors": e["read_sectors"], "reads": e["reads"],
                 "cyl": e["seek_cylinders"],
                 "mech": e["transfer_ms"] + e["seek_ms"],
-            })
+            }
+            if e.get("expand") and cons.get("KZ"):
+                # THE UNPACK STEP CARRIES A MAP OF ITS OWN AND A FILL TO RUN
+                # OVER IT (regions()'s fill view): the page grows "unpacked so
+                # far" from the head's end to the reserved span's top while
+                # the packed shelf drains from its bottom, over the step's
+                # own timeline, so the in-place move is watched rather than
+                # asserted.
+                kz = cons["KZ"]
+                head_end = lad["kseg"] * 16 + kz["head"]
+                shelf = head_end + kz["r"]
+                pre = regions(st["id"], lad, cons, vol, walkdata["ram_kb"],
+                              heap, kz["ksecs"] - kz["headsecs"], None,
+                              fill_view=True)
+                for r in pre:
+                    r["note"] = mark(r["note"])
+                row["regions"] = pre
+                row["mem"] = ["packed", "reserved", "unpack"]
+                # ...AND THE RUNG OPENS ON THAT SAME MOMENT. A stage's map is
+                # the memory after it, but what is in RAM when this rung is
+                # reached is the packed body on its shelf, and a reader who
+                # arrives here should see that first and the fill second.
+                # The seed of "unpacked so far" is the step's alone.
+                start_regs = [r for r in pre if r["id"] != "unpack"]
+                row["fill"] = {"a": head_end,
+                               "b": head_end + kz["unpacked_tail"],
+                               "shelf": [shelf, shelf + kz["packed_tail"]],
+                               "packed": kz["packed_tail"],
+                               "unpacked": kz["unpacked_tail"]}
+            steps.append(row)
 
         # WHAT MOVED, as blocks rather than as a sentence. The diff against the
         # previous stage's map is the honest answer for most of them - a block
@@ -1927,6 +1983,9 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
             for f in st["focus"]:
                 moved += ([r["id"] for r in regs if r["id"].startswith("free")]
                           if f == "free*" else [f])
+        if start_regs:
+            moved = ["packed", "reserved"]  # what is about to move, on the
+                                            # map the rung opens on
 
         # A NOTCH DRAWS WHAT THE READ BEFORE IT FETCHED. The bar's numerator is
         # sectors that have landed, and the read is what lands them - the
@@ -1949,6 +2008,7 @@ def build_page(walkdata, lad, cons, vol, defines, strs, notes=NOTES,
         ms = sum(e["ms"] for e in ev)
         out.append({
             "moved_ids": moved,
+            "start_regions": start_regs,
             "zooms": zooms(regs, ram),
             "id": st["id"], "short": st.get("short", st["id"]),
             "title": st["title"], "moved": st["moved"],
@@ -2179,6 +2239,13 @@ footer .stamp{font-size:11.5px;color:var(--dim);margin:0 0 10px}
   transition:left .45s cubic-bezier(.4,0,.2,1),width .45s cubic-bezier(.4,0,.2,1),
   opacity .3s,background .25s;cursor:pointer}
 .mbar .rg.dim{opacity:.28}
+/* The reserved span is an OUTLINE: room, not contents. And a block the fill
+   animation is moving frame by frame must not also be tweened by the
+   transition above, or it lags the frame it was placed on. */
+.mbar .rg.rsv, .zwin .rg.rsv{background:transparent !important;
+  border:1.5px dashed var(--c-kern);box-sizing:border-box;z-index:1}
+.mbar .rg.anim, .zwin .rg.anim{transition:opacity .3s}
+.mbar .rg.rsv.hot, .zwin .rg.rsv.hot{box-shadow:none;border-style:solid}
 /* A HAIRLINE OF PAGE BETWEEN THE RING AND THE BLOCK, because `--sel` IS the
    start-up code's own colour - so an orange ring drawn straight onto an orange
    block was the one selection on the map you could not see. */
@@ -2355,7 +2422,19 @@ var D = window.LADDER, S = D.stages;
    highlights describing the same thing. */
 var stage = 0, step = -1, pick = null;
 var CLS = {bios:"--c-bios", ours:"--c-ours", kern:"--c-kern", ovl:"--c-ovl",
-           data:"--c-data", claim:"--c-claim", free:"--c-free", dead:"--c-dead"};
+           data:"--c-data", claim:"--c-claim", free:"--c-free", dead:"--c-dead",
+           packed:"--c-packed", reserved:"--c-free"};
+/* A STEP MAY OWN A MAP. Every stage's map is the memory AFTER it; the unpack
+   step is the one place the reader needs to see DURING, so it carries the
+   moment before the unpacker starts and a fill the page runs over it. */
+function curRegs(){
+  var st = S[stage];
+  if (step >= 0) return st.steps[step].regions || st.regions;
+  /* The unpack rung OPENS on the moment before the unpacker starts - the
+     packed body on its shelf is what is in RAM when the rung is reached -
+     and its after-picture is what the fill arrives at. */
+  return st.start_regions || st.regions;
+}
 var KIND = {rom:"bios", disk:"ours", kernel:"kern", draw:"data"};
 var $ = function(id){ return document.getElementById(id); };
 function col(c){ return "var(" + (CLS[c] || "--c-free") + ")"; }
@@ -2559,12 +2638,13 @@ function drawMap(){
      thirteen rungs on the stack. Where a stage HAS no crowd it should not
      apply at all - the first stage owns three regions, and hiding all three
      leaves a map with nothing named on it. */
-  var named = st.regions.filter(function(r){
+  var regs = curRegs();
+  var named = regs.filter(function(r){
     return r.id.indexOf("free") !== 0 && r.id !== "unclaimed";
   }).length;
   var crowded = named > 7;
   var seen = {}, items = [];
-  st.regions.forEach(function(r){
+  regs.forEach(function(r){
     seen[r.id] = 1;
     var host = r.layer ? ovh : bar;
     var b = mblocks[r.id];
@@ -2587,6 +2667,7 @@ function drawMap(){
     b.style.left = (100 * r.a / ram) + "%";
     b.style.width = (100 * Math.max(r.b - r.a, ram/900) / ram) + "%";
     if (!r.layer) b.style.background = col(r.cls);
+    b.classList.toggle("rsv", r.cls === "reserved");
     b.title = r.label + "  " + hex(r.a) + "-" + hex(r.b) + "  " + bytes(r.b - r.a);
     var anyHot = (step >= 0 || pick) && Object.keys(hot).length;
     b.classList.toggle("dim", !!(anyHot && !hot[r.id] && r.cls !== "free"));
@@ -2662,6 +2743,7 @@ function drawMap(){
   layout(lab, items, W, true);
 
   drawZoom(hot, soft);
+  animateFill();
 
   var ru = $("mrule");
   if (!ru.childNodes.length){
@@ -2759,7 +2841,7 @@ function drawZoom(hot, soft){
     c.textContent = bytes(span) + " at " + Math.round(D.ram / span) + "× actual size";
     cap.appendChild(c);
 
-    st.regions.forEach(function(r){
+    curRegs().forEach(function(r){
       if (r.b <= win.a || r.a >= win.b) return;
       var id = i + "/" + r.id;
       seen[id] = 1;
@@ -2780,9 +2862,11 @@ function drawZoom(hot, soft){
       el2.classList.remove("gone");
       el2.style.left = (100 * (ra - win.a) / span) + "%";
       el2.style.width = Math.max(pw, 0.4) + "%";
+      el2._win = win;
       if (!r.layer){
         el2.style.background = col(r.cls);
         el2.classList.toggle("pale", r.cls === "free" || r.cls === "dead");
+        el2.classList.toggle("rsv", r.cls === "reserved");
       }
       el2.title = r.label + "  " + hex(r.a) + "-" + hex(r.b) + "  " + bytes(r.b - r.a);
       el2.classList.toggle("dim", !!(anyHot && !hot[r.id] && r.cls !== "free"));
@@ -2819,6 +2903,63 @@ function drawZoom(hot, soft){
   }).join("");
 }
 var zwinN = 0;
+/* THE UNPACK, WATCHED. On the one step that carries a `fill`, grow "unpacked
+   so far" from the head's end toward the reserved span's top and drain the
+   packed shelf from its bottom, on both maps, over a couple of seconds - the
+   real thing took 0.8 s of a 4.77 MHz 8088 and the page slows it down so the
+   shape of an in-place unpack can be seen: the writer starts BELOW the
+   shelf, passes its start while the reader is already further up, and the
+   two never meet. Any other draw cancels it and leaves nothing behind. */
+var fillAnim = null;
+function placeBlock(id, a, b){
+  var ram = D.ram, mb = mblocks[id];
+  if (mb){
+    mb.classList.add("anim");
+    mb.style.left = (100 * a / ram) + "%";
+    mb.style.width = (100 * Math.max(b - a, 0) / ram) + "%";
+    mb.style.opacity = (b > a) ? "" : "0";
+  }
+  Object.keys(zblocks).forEach(function(k){
+    if (k.slice(k.indexOf("/") + 1) !== id) return;
+    var z = zblocks[k], win = z._win;
+    if (!win) return;
+    var ra = Math.max(a, win.a), rb = Math.min(b, win.b), span = win.b - win.a;
+    z.classList.add("anim");
+    z.style.left = (100 * (ra - win.a) / span) + "%";
+    z.style.width = (100 * Math.max(rb - ra, 0) / span) + "%";
+    z.style.opacity = (rb > ra) ? "" : "0";
+  });
+}
+function unanim(){
+  ["unpack", "packed"].forEach(function(id){
+    if (mblocks[id]){ mblocks[id].classList.remove("anim"); mblocks[id].style.opacity = ""; }
+    Object.keys(zblocks).forEach(function(k){
+      if (k.slice(k.indexOf("/") + 1) === id){
+        zblocks[k].classList.remove("anim"); zblocks[k].style.opacity = "";
+      }
+    });
+  });
+}
+function animateFill(){
+  if (fillAnim){ cancelAnimationFrame(fillAnim); fillAnim = null; unanim(); }
+  var sp = (step >= 0) ? S[stage].steps[step] : null;
+  if (!sp || !sp.fill) return;
+  var f = sp.fill, DUR = 2600, t0 = null;
+  function frame(now){
+    if (t0 === null) t0 = now;
+    var t = Math.min(1, (now - t0) / DUR);
+    var done = Math.round(f.unpacked * t), eaten = Math.round(f.packed * t);
+    placeBlock("unpack", f.a, f.a + Math.max(done, 1));
+    placeBlock("packed", f.shelf[0] + eaten, f.shelf[1]);
+    var u = $("ufill");
+    if (u) u.textContent = "unpacked " + bytes(done) + " of " + bytes(f.unpacked)
+      + "  ·  packed input left " + bytes(f.packed - eaten) + " of " + bytes(f.packed)
+      + (t >= 1 ? "  ·  done" : "");
+    if (t < 1) fillAnim = requestAnimationFrame(frame);
+    else fillAnim = null;
+  }
+  fillAnim = requestAnimationFrame(frame);
+}
 function zwin(i){
   var id = "zwin" + i, e = $(id);
   if (!e){
@@ -2968,7 +3109,7 @@ function facts(rows){
 function drawDetail(){
   var st = S[stage];
   if (pick){
-    var r = st.regions.filter(function(x){ return x.id === pick; })[0];
+    var r = curRegs().filter(function(x){ return x.id === pick; })[0];
     /* A block can stop existing when you arrow into the next stage; the
        selection is cleared with the stage, so this only guards a resize
        landing between the two. */
@@ -3015,9 +3156,16 @@ function drawDetail(){
   var p = document.createElement("p");
   p.innerHTML = "<span class='tag meas'>measured</span>" + (sp.note || "");
   $("dbody").appendChild(p);
+  if (sp.fill){
+    var u = document.createElement("p");
+    u.className = "lit"; u.id = "ufill";
+    u.textContent = "unpacking\u2026";
+    $("dbody").appendChild(u);
+  }
   if (sp.mem && sp.mem.length){
+    var regs2 = curRegs();
     var names = sp.mem.map(function(id){
-      var r = st.regions.filter(function(x){ return x.id === id; })[0];
+      var r = regs2.filter(function(x){ return x.id === id; })[0];
       return r ? r.label : id;
     });
     var q = document.createElement("p");
@@ -3034,6 +3182,12 @@ function drawDetail(){
   if (sp.reads) rows.push(["disk requests", String(sp.reads)]);
   if (sp.cyl) rows.push(["cylinders stepped", String(sp.cyl)]);
   if (sp.mech) rows.push(["of which waiting for the disk", ms(sp.mech)]);
+  if (sp.fill){
+    rows.push(["packed input", bytes(sp.fill.packed)]);
+    rows.push(["unpacked output", bytes(sp.fill.unpacked)]);
+    rows.push(["stored at", (100 * sp.fill.packed / sp.fill.unpacked).toFixed(1) + "% of its size"]);
+    rows.push(["cost", Math.round(sp.ms * 4772.727 / sp.fill.unpacked) + " clock cycles a byte"]);
+  }
   facts(rows);
 }
 function esc(s){ var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }

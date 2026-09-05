@@ -224,7 +224,7 @@ had added.
     "bss": 6077,
     "budget": 129536,
     "codemax": 65536,
-    "cold": 38130,
+    "cold": 38168,
     "coldpara": 2400,
     "fatpara": 288,
     "imgpara": 3584,
@@ -623,12 +623,12 @@ there and nowhere else.
 |---|---:|---:|
 | the file system, end to end | 31,573 | 35.5% |
 | the window system and its furniture | 24,279 | 27.3% |
-| drawing: adapters, primitives, glyphs, icons | 14,926 | 16.8% |
+| drawing: adapters, primitives, glyphs, icons | 14,964 | 16.8% |
 | hardware: drivers, clock, mouse, sound, CPU, XMS | 8,638 | 9.7% |
 | the kernel proper: API table, heap, scheduler, events | 7,390 | 8.3% |
 | the three built-in kinds | 1,542 | 1.7% |
 | the Control Panel | 590 | 0.7% |
-| **total** | **88,938** | |
+| **total** | **88,976** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -636,7 +636,7 @@ there and nowhere else.
 |---|---:|---:|---:|---:|---:|---:|
 | `wm.inc` — the window manager (§11) | 11,671 | 94 | **11,765** | 1,074 | — | — |
 | `files.inc` — the Disk window (§22) | 1,083 | 8,252 | **9,335** | 465 | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 7,242 | 702 | **7,944** | 162 | 526 | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 7,242 | 740 | **7,982** | 162 | 526 | — |
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 395 | 5,832 | **6,227** | 890 | — | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 241 | 4,969 | **5,210** | 168 | — | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 4,740 | **4,919** | 158 | — | — |
@@ -682,7 +682,7 @@ there and nowhere else.
 | `moudiag.inc` — what the identify window saw (§9.4.6), `MOUDIAG=1` | — | — | **0** | — | — | — |
 | `compress.inc` — the LZB compressor (§20.15), an on-demand module and 0 resident | — | — | **0** | — | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 3,053 | 18 | **3,071** | — | — | 421 |
-| **total** | **50,808** | **38,130** | **88,938** | **6,077** | **9,182** | **2,250** |
+| **total** | **50,808** | **38,168** | **88,976** | **6,077** | **9,182** | **2,250** |
 <!-- END generated table -->
 
 ### Reading it

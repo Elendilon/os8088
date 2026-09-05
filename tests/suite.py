@@ -1439,7 +1439,14 @@ SOAK = [
         "50, 66) Every driver attached at once on a machine WITH memory above "
         "1MB, sampled from instruction zero: the order claims are taken in, "
         "and MC_RLOC for each - which is the machine-readable answer to "
-        "'can this be compacted'",
+        "'can this be compacted'. IT IS RED, DELIBERATELY, and SPEC.md 51.1.2 "
+        "is what it is red about: drv_load pads its claim by DRV_BSS_KB for a "
+        "bss it has not read the header to learn, and mem_regrow's shrink "
+        "keeps the BASE and frees the TAIL - which on a top-down claim is "
+        "walled in above the driver. 14K stranded and the largest free run "
+        "375.0K -> 361.0K, from a change whose own comment priced it at 'a "
+        "few hundred transient bytes'. Nothing else in the suite sees it, "
+        "because nothing else looks at WHERE the free memory is",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img",)),
     Row("dockmark", "soak", py("tests/dockmark.py"), 90.0,
@@ -2191,7 +2198,10 @@ SOAK = [
         "SPEC.md 87: Hibernate... writes the machine to the hard disk and the "
         "next boot offers to resume it - the About box is the witness, read "
         "out of the restored instance table; then the same again with "
-        "Discard. Builds its own VHD under build/",
+        "Discard. Builds its own VHD under build/, keyed to the PROCESS - it "
+        "was a fixed path, and three concurrent runs then mounted one hard "
+        "disk read-write in three emulators (2 runs in 6, at a different leg "
+        "every time; docs/WRITING-TESTS.md 5.5)",
         needs=("marty",), serial=True, timeout=1500),
     Row("hibernatedrv", "soak", py("tests/hibernate.py", "--driver"), 300.0,
         "SPEC.md 87 through HDD.DRV: a floppy boot whose SYSTEM.CFG wants the "
@@ -2256,6 +2266,18 @@ SOAK = [
         "unreachable on that arm by mou_apply's own first compare, and a "
         "one-armed reading could not tell that from a test that never "
         "reached a freeze at all.",
+        needs=("marty",), alone=True, serial=True, timeout=900),
+    Row("fddpark", "soak", py("tests/fddpark.py"), 300.0,
+        "SPEC.md 18.100: a Restart leaves the floppy heads on TRACK 0. int "
+        "19h resets no hardware, so the next boot inherits drive B's head "
+        "where the session left it - which costs 18.97's probe its fast path "
+        "on every restart after any use of B:, and above cylinder 77 hands it "
+        "the ST0 that RETIRES the drive. The evidence has to be taken before "
+        "int 19h, because every emulator here starts the second boot parked "
+        "anyway (18.97.4 verified that three ways), so this breaks on "
+        "ui_cmd_reboot's own int 19h and reads ST3 off the emulated 765 from "
+        "the host. It builds NOFDDPARK=1 itself: reading TRK0 set on one arm "
+        "says only that SOMETHING parked the head.",
         needs=("marty",), alone=True, serial=True, timeout=900),
     Row("uiblock", "soak", py("tests/uiblock.py"), 20.0,
         "SPEC.md 8.1.2: ui_task blocks instead of spinning, so an idle "

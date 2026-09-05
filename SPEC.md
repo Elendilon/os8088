@@ -3292,14 +3292,16 @@ in:   ES:SI = the band: 1bpp, row-major, bit 7 leftmost, 1 = a LIT pixel
       BP    = the band's stride in BYTES per row
       AX    = destination x, signed. MUST be a multiple of 8
       BX    = destination y, signed
-      CX    = width in PIXELS.  MUST be a multiple of 8
-      DX    = height in rows
+      CX    = width in PIXELS, any. Off a multiple of 8, the last partial
+              byte column is MERGED under a mask (§5.4.2.5): the bits past
+              the width are neither read from the band nor written
+      DX    = height in rows, 1..255
       the gfx lock MUST be held (§1 rule 6)
 
 out:  CF=0  drawn — wholly, or clipped exactly
       CF=1  REFUSED, nothing drawn, in three cases only:
-              1. AX & 7 or CX & 7 non-zero
-              2. CX or DX is zero
+              1. AX & 7 non-zero
+              2. CX or DX is zero, or DX above 255
               3. this is `kern_small`, which does not carry the body at all
       EVERY register preserved, ES and BP included.
 ```
@@ -3395,9 +3397,13 @@ proportional glyphs in a 12-row face where the 8×8 row held 78.
 **The body is `.cold` and `%ifdef KERN_BIG`** (§2.6); `kern_small` carries the
 slot cell and a `stc`/`retf` stub, because its image rung has 75 bytes in it and
 neither package this serves can load on the machine that build is for — Word is
-46.5 KB and TeXPad 31.5 KB against a 128 KB machine's 28 KB heap. A package
-therefore **must test CF**, and the documented degrade is that it letters in the
-kernel's 8×8 face instead, with `font_run` (§6.1).
+46.5 KB and TeXPad 31.5 KB against a 128 KB machine's 28 KB heap. §42.23 has
+since given that machine a customer that DOES load there — a one-bit Paint
+canvas is this band exactly — and a body for it was built, measured and
+**refused** (§5.4.2.5): that build may stay slower, by the owner's decision. A
+package therefore **must test CF**, and the documented degrade is that it
+letters in the kernel's 8×8 face instead, with `font_run` (§6.1) — or, Paint,
+expands a row at a time (§42.23.4).
 
 #### 5.4.2.1 The two bytes that decremented the CALLER'S IMAGE
 
@@ -3658,6 +3664,61 @@ question a single plane *can* be asked: which way up the band's bits are.
 pairing this needs is a VGA beside a real Hercules. It was reported off the
 glass, from a screenshot of a `Control Panel` window dragged across the seam,
 and that is how it has to be confirmed.
+
+#### 5.4.2.5 A width off the byte grid is a masked tail byte — and the `kern_small` body that was built and refused
+
+One change to the routine and one measured refusal, from one measurement
+(PERFORMANCE.md Set 116). Paint's one-bit canvas (§42.23) is this band
+exactly, and a repaint of it that could not reach this routine went through
+`pt_ex1` and `gfx_blit4` a row at a time instead: **1,309 ms for 192 rows**
+of a 448-wide canvas on a Hercules against **55 ms** through the band move —
+24×, half of it the package's own expander and a third the kernel's 4bpp
+decode. Two things sent a repaint there.
+
+**A width off the byte grid was a refusal**, and OS8088.GIF is 466 pixels
+wide. Paint rounded its blit up to the grid and, when that reached past the
+picture — which is every full repaint of such a picture — gave the whole rect
+to the row loop rather than draw canvas padding on the glass: **809 ms** for
+the 110-row picture's own first paint on `kern_big`, and 654 for its undo,
+where the band move is ~30. The tail is honoured now: `CX & 7` pixels past the
+last whole byte become a mask `0FFh << (8 - tail)`, and each row ends with one
+read-modify-write of that byte — `lodsb / xor al,[es:di] / and al,bl /
+xor [es:di],al`, which is `dest ^= (src ^ dest) & mask` — after the `rep` has
+moved the whole bytes. The bits past the width are never read from the band
+and never written to the framebuffer. §25.6 refused an edge-masked band as
+"new code in the hottest primitive in the system"; what it costs the hottest
+primitive is `or bl,bl / jz` per row when there is no tail, four bytes and
+~17 clocks against a 78-byte row's ~1,000, and the primitive that could not
+be asked for a 466-pixel band now can. The x is still refused off the grid: a
+LEFT partial byte would put the read-modify-write before the `rep` and cost
+every band a second mask, and no caller in the tree wants one.
+
+The per-column path (step 4 of §5.4.2) places the tail as its last column,
+narrower than eight; a column narrower than eight that is refused again is
+skipped as before. `wm_clip_rows` and `vid_span_one` are asked with the true
+right edge. **What it cost, measured off `kernsize`:** `kern_big` `.cold`
+**+38** bytes, no rung crossed. `paint1blit` is the gate for both of Paint's
+paths, and reaches the refused one by poking `stc`/`ret` over the thunk
+(§42.23.4).
+
+**`kern_small` has no body, and that is the other thing that sent a repaint
+to the row loop — MEASURED, AND REFUSED.** The 128 KB machine is the one
+§42.23 was built for, and it is the one build that cannot draw the canvas
+§42.23 gave it through this routine: the same 192 rows are **1,309 ms**
+there against 55. A `kern_small` variant was built — the same source with
+the two-display resolve and enter, the VGA pen ports and the pen with its
+complemented emit compiled out, which leaves the argument refusals, the
+deferred cursor hide, the clip region's row cut and per-column fallback, the
+clip to the display and `rep movsw` a row, plus three `.cold` shims
+(`cw_cur_unlazy`, `cw_wm_clip_rows`, `cw_gfx_rowbase`) — and it measured
+**+419 bytes** (`.text` +16, `.cold` +403), one `.cold` rung crossed,
+`KERN_SIZE` 80,896 → 81,408, with the undo above at **149 ms** on that build.
+It is not shipped: §39.27.4 says a `kern_small` byte is banked and not
+budgeted, and the owner's decision is that the small build may stay slower
+here — the slowness that was reported was `kern_big`'s, and `kern_big`'s was
+the width cliff. The `%ifdef KERN_BIG` around the body stands, the stub
+stands, and this paragraph is what a future decision the other way has to
+read first: the bytes, and the 24×.
 
 ### 5.4.3 `gfx_blitp` — a block that is already framebuffer bytes
 
@@ -28183,6 +28244,114 @@ cost up to 64KB of the very claim whose **size is the trip count** (§18.99.4),
 so on a one-floppy machine the trade is *a disk swap to save half a second*.
 The alignment is refused for the same reason the buffer exists.
 
+### 18.100 …and the restart PARKS the heads, because the next boot inherits them
+
+**§18.97.4 recorded the symptom and named the cause in one sentence — *"`int
+19h` resets no hardware, so the second boot inherits drive B's head wherever
+the first session left it"* — and then fixed the READ rather than the state.**
+It narrowed the probe's ST0 test so a present drive stops being retired on the
+evidence of a head that is merely somewhere else. This fixes the STATE one step
+earlier: nothing has to leave the head somewhere else in the first place.
+
+The field report is the hard-disk installer's **Restart** (§52.10.6), and it is
+the worst case of the general defect for two reasons that compound:
+
+- **Copy Apps has just read a whole floppy.** The last transfer leaves the
+  head at whatever cylinder the last cluster was on, near cylinder 79 on a full
+  1.44 MB disk. So the head is never at track 0.
+- **It reboots into a hard-disk boot**, where nothing touches the FDC before
+  `desk_init` asks it a question. §18.97.5's table is this machine: `ST3 = 29`,
+  TRK0 clear, the probe's step 2 — **20 ticks** against a floppy boot's 1.
+
+So the fast path is missed on *every* restart after any use of B: — the "long
+detect always fires" half. The other half is arithmetic: **RECALIBRATE steps at
+most 77 times**, then a 765 gives up with seek end and EQUIPMENT CHECK
+(`ST0 = 7x`), which is the exact signature §18.97.4 keeps as the only positive
+evidence of absence. A head above cylinder 77 — where copying a full apps disk
+leaves it — cannot reach track 0 in the one recalibrate the probe issues, so it
+answers `71` for a present drive and **the drive is retired**. That is the
+"sometimes cannot find a drive" half, and *sometimes* is exact: it depends which
+cylinder the copy finished on.
+
+#### The fix is one BIOS call per drive, on the way out
+
+`ui_cmd_reboot` gains a call after `sched_unhook` and before `int 19h`:
+`dsk_fdd_park_x` issues the ROM's **`int 13h AH=00h` — RESET DISK SYSTEM, which
+recalibrates the head to track 0 — once per unit the equipment word claimed.
+
+**It is the BIOS's call and not our port sequence**, which is the whole of why
+this is thirty-one bytes rather than the two-hundred-odd an in-kernel
+recalibrate cost. The ROM does the handshake, the seek wait and the retry;
+`dsk_fdd_park_x` reads no result, because the `int 19h` two instructions along
+resets the FDC whatever state the call leaves. The `int 13h` vector is the
+ROM's — the kernel calls it directly everywhere (`clone.inc`, `dsk_dbg_raw`) —
+and after `sched_unhook` it is unquestionably so.
+
+**Verified on both ROMs it has to work on.** Driven from the debug server —
+dirty the head by reading B:, then execute one `int 13h AH=00h DL=1` in the
+guest and read `ST3` back — the head moves from `29` (TRK0 clear) to `39` (set)
+on the field **GLaBIOS** *and* on the genuine **IBM 5150 27-Oct-82** ROM that
+§18.97.4 was reported on. The retry the IBM BIOS wraps its recalibrate in is
+strictly more than the probe's single one, so the 77-step case an emulator
+cannot stage is covered better here than the probe covers it.
+
+**A recalibrate needs no MEDIA.** It is a head-carriage move, not a read, so the
+empty drive a Restart dialog has just asked the user to create (§52.10.6) is
+parked all the same — which an `AH=02h` read, waiting out a data phase that
+never comes, could not do without seconds of motor grinding per empty drive.
+
+**After `sched_unhook`, not before.** The scheduler is down by then, so no task
+can be switched onto a different stack in the middle of the BIOS call — the one
+hazard `dsk_dbg_raw` holds `sch_lock` against, and the reason this needs none.
+The hibernate module's copy of the same reboot tail (§87) takes the call too,
+for the same reason and in the same order; its *resume* path is left alone,
+because it restores a saved desktop rather than building one, so `desk_init`
+never runs and §18.97 is never asked.
+
+**Every unit the equipment word claimed, not every unit with a volume row.** A
+boot that retired unit 1 (§18.97.2) has no row for it, so a row-driven park
+would leave that head where it was and the drive would be retired again on the
+next boot, and the next — lost for good. `int 11h` claims it afresh every boot;
+park what `int 11h` claims, and one recalibrate hands a wrongly-retired drive
+back.
+
+#### What it costs
+
+**31 bytes of `.cold` and 5 of `.text`, and no rung moves** — the cold rung had
+190 bytes free and keeps 159. There is no resident RAM cost beyond those bytes,
+which was the point of spending the BIOS's recalibrate instead of the kernel's:
+the in-kernel version, with its own handshake, wait and result helpers, was
+226 bytes and crossed a 512-byte cold rung.
+
+The restart's own time cost is a recalibrate per claimed unit — a head-carriage
+move, no motor spin-up — with the phantom drive of §18.97.2's misconfigured
+machine paying the BIOS's retry timeout for a unit that will not answer. That
+machine already pays §18.97's probe cost at boot and is the only one that pays
+here.
+
+#### `make NOFDDPARK=1` is the A/B, and the gate needs it
+
+The effect is visible only **across a reboot**, on the FDC's own ports, so a
+gate that cannot turn the fix off cannot tell a park that ran from a machine
+that happened to be parked already — which every emulator here is, because
+MartyPC returns drive 1's cylinder to 0 on the controller reset the BIOS does at
+boot (§18.97.4 verified that three ways). `tests/fddpark.py` therefore breaks on
+`ui_rb_go`, the label on `ui_cmd_reboot`'s own `int 0x19`, drives a SENSE DRIVE
+STATUS at unit 1 from the host, and reads TRK0 out of ST3. On
+`os8088_5150_cga_gla`:
+
+| | default | `NOFDDPARK=1` |
+|---|---|---|
+| a fresh boot | `39` — TRK0 | `39` |
+| after a Disk window read B: | `29` — **TRK0 clear** | `29` |
+| at `ui_rb_go` | **`39`** | **`29`** |
+
+Row 1 is §18.97.4's own field figure off an IBM-ROM 5150 and row 2 its other, so
+the emulator agrees with the machine that reported this before either arm is
+read. Row 3 is the claim, and it needs both columns: TRK0 set on one arm alone
+says only that *something* parked the head. `make NOFDDPARK=1` assembles byte
+for byte identical to the kernel before this section.
+
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
 The data floppy (drive B:) is a standard **FAT12** volume — mountable and
@@ -52566,6 +52735,29 @@ above; the field saw stripes, and this reproduces as 22,842 bytes of black.
 past the stride is not part of the row. `pt_ubm1` needs nothing — it derives
 block indices from byte offsets that are inside the row by construction.
 
+##### 42.8.6.2 The swap exchanges RUNS of blocks, and marks once
+
+An undo was **211 ms** for a 192-row stroke on a one-bit Hercules canvas, and
+156 of them were `pt_uswap_row` (PERFORMANCE.md Set 116) — the exchange of
+192 rows of 56 bytes, which is 10.7 KB of canvas swapped with 10.7 KB of undo
+image, at **3,878 cycles a row**. The blit that then put the rows on the
+glass was 55. The words being exchanged were not the cost: 28 words a row at
+~85 cycles is 2,400, and the rest was the shape the 4bpp canvas had given the
+routine. Eight blocks a row, each with its own shift, two stride compares and
+a segment reload, was right when a block was 28 bytes and the copy-on-touch
+saved most of them; on a one-bit canvas a block is **seven bytes**, and the
+setup per block cost more than the three words in it. And `pt_imark` ran once
+a ROW — 344 cycles each, §42.8.9.1's own number — to fold a full-width row
+into a table that only ever grows.
+
+So the row walk takes the mask as a run of bits: a run of saved blocks is one
+exchange from the first block's byte to the last's, capped at the stride as
+before (§42.8.6.1), and the exchange loop moves two words a turn. The mark
+moved up to `pt_undo_swap`, once for the whole span — rows `uy1..uy2`, full
+width — which is the same table entry the per-row marks summed to, because a
+band's range only widens. Per row that is ~2,300 cycles where it was 3,878,
+and the undo above is measured in Set 116.
+
 #### 42.8.7 A DIAGONAL step's two leading edges are one dab
 
 §42.8.5 banks runs of axis-aligned steps and refuses the near-45° chord, which
@@ -53489,6 +53681,42 @@ at full band height. Cutting the bands finer would shrink that and cost a call
 each; 16 rows is where those two meet on this canvas.
 
   apps/paint: 24,568 → 24,876 bytes, **+308**.
+
+### 42.26 A tool glyph is ONE icon draw, not thirty lines
+
+The initial paint of a fresh Paint window on a Hercules was **428 ms**, and
+the canvas was 61 of them — a blank canvas is one `gfx_fill` (§42.15). The
+tool palette was **201**: eight 16×16 glyphs, each drawn by `pt_icon16` as one
+`gfx_hline` per run of set bits, ~30 calls a glyph at the ~756 µs a 1bpp
+drawing call costs whatever its length (§5.7), plus a fill and a frame per
+well. Nearly half of every full repaint was the eight pictures nobody looks
+at. It was measured by breakpoint on `pt_draw_pal` and `pt_draw_dims`,
+cycle-exact, and sampled inside: `sw_col.row`, `pt_icon16.bit` and
+`pt_ic_flush` at the top (PERFORMANCE.md Set 116).
+
+The kernel already draws a 16×16 masked sprite at any x in one call —
+`OSAPI_ICON_DRAW` (§25.6), the same pass every control in `os88ui.inc` uses,
+6.7 ms for a 12×12 where the per-run drawing was 33.6 (Set 84). `pt_glyph16`
+stages the record it wants in `pt_line`, which nothing walks during a
+repaint (§42.23.4): two bytes, then the sixteen rows twice, because the MASK
+is the glyph itself — a transparent glyph over the well is exactly what
+`pt_icon16` drew — and the pen is set to the glyph's colour under the mask
+and over it. No image bytes: the glyph tables are unchanged and the record is
+built at the draw.
+
+Two things the pass does not do and this routine does. **It draws a cut shape
+as nothing** (§25.6, "clips the shape WHOLE"), so a glyph under a clip
+fragment's edge asks `OSAPI_WM_CLIP_TEST` first and takes `pt_icon16`'s
+per-run path on a no — `os88ui_glyph`'s rule, paid only where the pass would
+have drawn nothing. And a 1bpp op has nowhere to put a grey: the disabled
+fill tool's `CDGRAY` (§42.6.2), which the per-run path dithered through
+`font_ink`, is dithered here instead, each row ANDed with `5555h` or `AAAAh`
+off the `(x + y)` parity of its first pixel (§39.4) and drawn in black, so the
+stipple lands in the same phase the kernel's own greying would have put it.
+On a colour adapter the pen is the grey and the rows are untouched.
+
+`pt_icon16` stays: it is the cut-shape path, and it is what a kernel that
+refused the record would get.
 
 ## 43. Solitaire — the eighth package (apps/solitaire/solitaire.asm)
 
@@ -55402,26 +55630,37 @@ So it was always accepted. `gfx_blit4` takes a negative stride from §42's 4bpp
 path for exactly the same reason, which should have been the tell. Nothing in
 the kernel had to change.
 
-Two conditions gate it, and both are ordinary. The **width** is rounded up to
-a multiple of 8, and if that would reach past the picture the whole rect falls
-to the row loop rather than painting canvas padding on screen. And **CF = 1 is
-a normal answer** — §5.4.2 gives `kern_small` the slot and not the body — so
-the row loop is that build's only path and has to exist anyway.
+**The width is exact, since §5.4.2.5.** It was rounded up to a multiple of 8,
+and if that reached past the picture the whole rect fell to the row loop
+rather than paint canvas padding on the glass — which was every full repaint
+of a picture whose width is off the grid, OS8088.GIF's 466 among them, and
+it cost that picture 809 ms of one paint (PERFORMANCE.md Set 116). The kernel
+merges the last partial byte under a mask now, so the left edge goes to the
+byte grid as before and the right edge is the picture's own. **CF = 1 is a
+normal answer** — §5.4.2 gives `kern_small` the slot and not the body, by a
+decision §5.4.2.5 records with the bytes it weighed — so the row loop is that
+build's only path and has to exist anyway; on `kern_big`
+`tests/paint1blit.py` reaches it by poking `stc`/`ret` over the kernel's thunk.
 
 The band is addressed from its **last** row, which is the lowest address:
 every other row is then a positive offset from there and nothing can go below
 zero, which is the same arithmetic §42's 4bpp banding does and for the same
 reason. Rows per band are a segment's worth capped at `gfx_blit1`'s own 255.
 
-**The fallback, which `kern_small` always takes**: a 1bpp row is expanded into
-`pt_line` as packed 4bpp — two `pt_nyb4` lookups a source byte — and drawn
-with `gfx_blit4`, one call a row. It keeps the kernel's own per-row
-adaptivity: `gfx_blit4` picks runs for a flat row and per-pixel for a detailed
-one (§5.4.1.1), which no hand-rolled run walk here could do. `pt_line` rather
-than a buffer of its own: it is one byte per pixel and `PT_CW_MAX` long, so it
-is twice the room a packed run of the same width needs, and nothing that walks
-it is live during a repaint — `pt_line_put`, `pt_bmp_row` and the two format
-converters are a load, a save and a resize.
+**The fallback, which `kern_small` always takes**: a 1bpp row is
+expanded into `pt_line` as packed 4bpp — two `pt_nyb4` lookups a source byte
+— and drawn with `gfx_blit4`, one call a row. It keeps the kernel's own
+per-row adaptivity: `gfx_blit4` picks runs for a flat row and per-pixel for a
+detailed one (§5.4.1.1), which no hand-rolled run walk here could do. `pt_line`
+rather than a buffer of its own: it is one byte per pixel and `PT_CW_MAX` long,
+so it is twice the room a packed run of the same width needs, and nothing that
+walks it is live during a repaint — `pt_line_put`, `pt_bmp_row` and the two
+format converters are a load, a save and a resize. **What it costs is
+measured, and it is the price `kern_small` pays by decision** (§5.4.2.5):
+192 rows of a 448-wide canvas took 1,309 ms through it on a Hercules against
+the band move's 55, and the profile is 48.6% `pt_ex1` and 35.8%
+`sw_blit_row.abyte` — the expansion here and the decode in the kernel, two
+passes over every pixel that the band move makes zero.
 
 ### 42.25 The one-bit decoder is STRAIGHT-LINE, for §42.13.1.4's reason
 
@@ -62872,13 +63111,84 @@ does. Four things differ, and each is doing work:
   asks `drv_owns_seg` as well as testing for a `0xFFxx` tag, so `System`'s
   `HEAP` column now equals the `HEAP` total whenever nothing else holds a
   claim.
-- **Its bss ships inside its image**, zero-filled on the floppy by
-  `tools/os88drv.py`. A package's bss is claimed by the loader because a
-  package's is tens of KB and its file arrives through a peek-then-size
-  dance; a driver's is a few hundred bytes, and paying for them on disk buys
-  a load path with **exactly one claim in it** — made at the size the
-  directory entry already reported, before a byte is read. Anything bulk (a
-  DMA buffer, a ring) is the driver's own `OSAPI_MEM_CLAIM` at attach.
+- **Its bss is declared, not shipped** — §51.1.1. It used to ship inside the
+  image, zero-filled on the floppy by `tools/os88drv.py`, and that bought a
+  load path with exactly one claim in it. It no longer does, and §51.1.2 is
+  what the second claim has to be. Anything bulk (a DMA buffer, a ring) is
+  still the driver's own `OSAPI_MEM_CLAIM` at attach.
+
+### 51.1.1 The bss is declared at `DRV_H_BSSP`, and the claim cannot be sized from the directory
+
+`tools/os88drv.py` strips a driver's trailing zero run and writes its length,
+in paragraphs, into the header byte at +31 — measured at **6,722 bytes across
+the twelve shipped drivers**, ether.drv alone carrying a single 4,066-byte
+run, every one of them a byte read off a floppy to be told it is zero
+(§20.13). A driver built before the byte existed has 0 there, which reads as
+"no bss" and is exactly right, so it needed no version bump and no driver
+source change.
+
+**What it costs is a claim the directory can no longer size.** The size the
+directory entry reports is the driver's image — §20.13.3.1's read expands a
+`'CZ'` file, so that figure is the unpacked image and not the packed file —
+and the size the driver *needs* is `image + bss`, a number that is inside the
+image and therefore unknown until the image is in memory and the claim has
+already been made. Peeking the header first would answer it, and costs an
+extra `int 13h` per driver on every boot (PERFORMANCE.md: ~400 ms a call, so
+seconds on the target machine). §51.1.2 is what is done instead, and what it
+costs.
+
+### 51.1.2 The claim is padded by `DRV_BSS_KB`, and the shrink cannot give it back
+
+The size the directory reports is what the driver needs *before* its bss —
+§20.13.3.1's read expands a `'CZ'` driver into the claim, so there is exactly
+one claim and it arrives holding the image. What it does not hold is the bss,
+whose length is a byte inside that image and so is unknown when the claim is
+made. `drv_load` therefore adds a fixed `DRV_BSS_KB` = 4 (255 paragraphs being
+4,080 bytes, so 4KB covers the largest declarable bss), and `drv_bss` hands the
+remainder back with `mem_regrow`.
+
+**The remainder does not come back.** `mem_regrow`'s shrink keeps the BASE and
+frees the TAIL — §50.3 path 1, "the record's length changes and that is all" —
+and the tail of a *top-down* claim is above the image, walled in between this
+driver and the one loaded before it. Only a later claim small enough to fit
+that gap can ever reach it, and drivers are 6–18KB against gaps of 1–4KB.
+`DRV_BSS_KB`'s own note priced this at "a few hundred transient bytes"; it is
+neither.
+
+Measured on a machine whose `SYSTEM.CFG` wants every driver
+(`tests/heapmap.py`), against the same machine before a driver's bss stopped
+shipping:
+
+| | before | today |
+|---|---|---|
+| driver claims | `8D800..9FC00`, contiguous | `8A000..9EC00`, four holes |
+| free runs | 2 | 6 |
+| after shed + compaction | **1 run, 454.5K** | 5 runs, 439.0K |
+| largest contiguous | 375.0K | 361.0K |
+
+`tests/heapmap.py` is the gate and it is RED on this, deliberately: the row is
+the only thing in the suite that looks at *where* the free memory is, and
+§66.10's invariant — that after shedding caches and compacting, nothing is
+walled off behind something pinned — is exactly what a stranded tail breaks.
+
+**What has already been ruled out**, because each looked like the answer and
+was not: it is not the file compression (a `PKGZ=` tree strands the same four
+holes, `os88drv.py` stripping the bss whatever `PKGZ` says); it is not the
+allocator (a top-down claim is placed at the highest base that FITS over every
+gap, and the map shows a 2KB claim landing inside a former 9KB hole); and it
+was not, on its own, the two-claim scratch that §20.13.3.1 has since deleted —
+removing the pad while that scratch stood still left 5 runs and 364.0K.
+
+**What is left to decide is where the size comes from.** Peeking the header
+before claiming answers it exactly and costs an extra `int 13h` per driver on
+every boot — hundreds of milliseconds on the target machine, which is why it
+was refused. Two cheaper routes exist and neither has been built: `drv_bss`
+could GROW instead of the claim padding (`mem_regrow` path 3 relocates and
+copies, and only four shipped drivers would need it, none of them on the boot
+path); or the `'CZ'` container could declare an unpacked length that already
+includes the bss, so the expander zero-fills the tail and the directory
+reports the driver's true footprint — no pad, no shrink, no grow, and
+`drv_bss` has nothing left to do.
 
 ### 51.2 The contract
 
@@ -91715,6 +92025,76 @@ measured **-3 ms** on the fixed Hercules scene and at eight **-4 ms**, with the
 ridge - twenty-four segments at sixteen to thirty pixels a row - the whole of
 the difference. Mode X keeps the walk: its runs cross planes.
 
+#### 85.3.7 The clear and the blit keep DS, and an empty row is one compare
+
+Both loops visit every row of the viewport, and in a typical frame most rows
+are empty. `tk_blit` reloaded both span pointers from memory and read the four
+span bytes through `CS` on every row - about 280 cycles a row by §85.3.4's
+rule before a byte moved, 200 rows a frame - because `DS` was the shadow for
+the whole loop so that the copy could be a `rep movsw`. Now `DS` stays the
+package's: each pair comes in by `lodsw` (and the other set's by one word
+read), two EQUAL EMPTY pairs are one compare, and the segment the mover needs
+is loaded around the `rep` alone. `tk_clearspans` takes the same shape for
+both its arms, the template copy and Mode X's zeros.
+
+**And the blit stays: a Hercules page flip is REFUSED, priced.** §85.2 refused
+it as a poor trade for a copy this small, and the copy turned out to be 16%
+of the frame; but what it removes is now 10.6 ms of a 72 ms still frame, and
+what it adds back is the clear into VRAM with its wait states (+60% of 6 ms),
+every plot a read-modify-write of VRAM, a banked row step in every walk,
+`fsx_page`'s refusal on a two-card machine (§53.10) with the shadow path kept
+as the fallback, and a gate that reads page 0. Net about 3 ms for a fourth
+backend. The blit's row loop was the part worth having, and this section is
+it.
+
+#### 85.3.8 The ridge is in the template while the heading holds
+
+The ridge is at infinity and moves only when the camera turns (§85.5.1), and
+drawing it every frame - twenty-four sliced segments, the horizon run and
+the rows they dirty - was **26 ms of a 97 ms Hercules frame**. It cannot be a
+plain §85.3.5 item: its rectangle is the whole width by seventy rows, and
+zeroing, copying and blitting 5,680 bytes on every turn would cost more than
+the drawing did. So it keeps its **own span set**, `tk_sprdg` - what it
+actually lit in the template - and the rule is the heading:
+
+- **Settled** (the heading equals last frame's, and the template does not hold
+  this ridge): the old ridge's runs are copied aside and zeroed in the
+  template, the new ridge is drawn into the template recording its runs, the
+  panel items whose rectangles meet the OLD runs are drawn again (the zero
+  took their pixels), and the union of old and new runs is copied template to
+  shadow and marked into this frame's spans. From the next frame the ridge
+  costs nothing.
+- **Moving** (the heading changed): if the template holds a ridge it comes out
+  the same way, and the ridge is drawn into the shadow as every frame once
+  did. A frame in the middle of a turn therefore costs exactly what it did.
+- The ridge is also item 6 of the matrix, so a panel item whose rectangle
+  meets the band has the ridge drawn again inside its rectangle when it
+  changes - `tk_ridge` takes a column range for exactly that, and skips
+  segments outside it.
+
+**The transitions are the price**, one frame each way at a turn's start and
+end, and every pass they make runs over the ridge's BAND (rectangle 6's rows,
+the tallest peak the table holds) and never the viewport's 200 rows - the
+first build ran them full height and a transition frame spent 30 ms in
+span-array loops before it drew a pixel. Measured with `tests/tankperf.py
+--turn-every` on the fixed Hercules scene, frame by frame:
+
+| | ms |
+|---|---:|
+| still, ridge in the template | **72** |
+| turning every frame (never settles: the dynamic ridge, as before) | 91 |
+| the frame a turn starts: take-out, the sight drawn again, the runs copied and blitted | 116 |
+| the frame a turn stops: the ridge drawn into the template, union copied and blitted | 112 |
+| a turn every fourth frame, mean | 99 |
+| alternating turn and stop every frame, mean | 113 |
+
+So a turn-stop pair costs about 45 ms over the dynamic ridge and every still
+frame saves 19; it pays back after two or three still frames, which is
+shorter than any pause to fire. Alternating every frame is the case that
+cannot win, at five taps a second on a ten-frame machine. Over eight fresh
+games standing still averaged **104 → 79.5 ms** (9.6 → 12.6 fps) and turning
+**129 → 123** (7.8 → 8.1).
+
 ### 85.4 Three inks, named for what they mean
 
 `TKI_WORLD`, `TKI_HUD`, `TKI_MARK` — the world, the panel, the gunsight and
@@ -91766,6 +92146,30 @@ both ends behind is a reject, one end behind is an interpolation onto
 `TK_NEARZ`. The interpolation's numerator is bounded by its denominator by
 construction, so that `idiv` needs no guard.
 
+#### 85.5.3 The projection is a table and a multiply, not a divide
+
+`tk_project` was two `imul` and two guarded `idiv` a vertex, about 1,400
+cycles by §85.3.4's rule, and with 120 vertices in a clustered frame a third
+of its non-pixel floor. It is now one table row and two `imul`: `tk_ktabs`
+builds `kx[i] = sclx x 2048 / z(i)` and `ky[i]` likewise once a bracket
+(4,096 divides, once, for the two scales the live viewport has), and each
+axis is `c x k >> 11`, the shift being a byte move and three `sar`s because the
+clamp has already promised sixteen bits.
+
+**The rows are exact below 1,024 units and bucketed above** - every 4 units to
+4,095 and every 16 beyond, at the bucket's centre so the error is signed both
+ways - which is 2,048 rows, 8 KB of bss for the pair. Modelled against the
+exact divide over 200,000 random vertices per scale, the error is **0.26-0.28
+px on average and at most 3 px**, the worst cases all at the 1,024 boundary for
+vertices further off-axis than the frustum admits; under 0.6% of vertices are
+two pixels off on Hercules and under 0.1% on CGA. An object's vertices share a
+depth to within its own size, so the bucketing moves a shape, not its edges
+apart.
+
+**The clamp survives**, in the product's high word: `4000 << 11` is 125, so a
+`DX` at or past ±125 is ±4000 before any shift, and the near-plane case that
+made `tk_pdiv`'s guard load-bearing is caught the same way.
+
 #### 85.5.1 The ridge is at infinity, so it is a table
 
 Mountains at infinity move only when the camera TURNS, so the horizon
@@ -91807,6 +92211,9 @@ same Hercules frames, exact and scene for scene, from **192.8 to 110.6 ms**
 second kind of scene from being dealt. Over eight fresh games, ten exact
 frames each, standing still averaged **185 → 104 ms** (5.4 → 9.6 fps) and
 turning **221 → 129 ms** (4.5 → 7.8 fps), the worst turning frame 289 → 173.
+The round after (§85.5.3, §85.3.7, §85.3.8) took the same scenes to **72 ms**
+(13.9 fps) on the scatter and **215 ms** (4.6 fps) on the cluster, and the
+eight games to 79.5 ms still and 123 turning.
 
 **Two input readers, because they answer two different questions.** `int 16h`
 answers *what was typed* and is right for fire, pause and leaving;

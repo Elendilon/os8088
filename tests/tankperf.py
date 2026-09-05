@@ -80,7 +80,7 @@ def sites(lst):
                 if not scope:
                     continue
             m = rx.match(L)
-            if m and re.search(pat, m.group(3)):
+            if m and re.search(pat, m.group(3).split(";")[0].rstrip()):
                 b = bytes.fromhex(m.group(2).replace("[", "").replace("]", ""))
                 hits.append((int(m.group(1), 16), b))
         if len(hits) <= nth:
@@ -98,7 +98,7 @@ def sites(lst):
     s["hrun"] = ret(*find(r"jmp \[tk_hrunproc\]"))
     s["blit"] = nop(*find(r"call tk_blit$", within="tk_r_end"))
     s["clearspans"] = nop(*find(r"call tk_clearspans"))
-    s["ridge"] = nop(*find(r"call tk_ridge$"))
+    s["ridge"] = nop(*find(r"call tk_ridge(_tm)?$"))    # dynamic or 85.3.8's
     s["drawtype x3"] = (nop(*find(r"call tk_drawtype", 0)) + nop(*find(r"call tk_drawtype", 1))
                         + nop(*find(r"call tk_drawtype", 2)))
     s["drawmovers"] = nop(*find(r"call tk_drawmovers"))
@@ -114,6 +114,11 @@ def main(argv):
     ap.add_argument("--scene", default="fixed", choices=("fixed", "heavy", "live"))
     ap.add_argument("--frames", type=int, default=12)
     ap.add_argument("--games", type=int, default=8)
+    ap.add_argument("--verbose", action="store_true", help="print every frame")
+    ap.add_argument("--turn-every", type=int, default=0,
+                    help="pinned scenes: turn the heading by TK_TURN every N frames "
+                         "(1 = every frame, so the ridge never settles; 2 = the "
+                         "alternation SPEC.md 85.3.8 calls the case that cannot win)")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     lst = listing()
@@ -140,6 +145,8 @@ def main(argv):
             for k in range(TK_NSTAT, TK_NOBJ):
                 poke("tk_ocool", b"\xff", k)
 
+        turn = [0]
+
         def frames(n):
             """n consecutive frames, ms each, by a breakpoint on tk_render."""
             alive()
@@ -150,6 +157,11 @@ def main(argv):
             c0 = m.status()["cycles"]
             out = []
             for _ in range(n):
+                if a.turn_every:
+                    turn[0] += 1
+                    if turn[0] % a.turn_every == 0:
+                        pa = m.readseg(seg, base + off("tk_pa"), 1)[0]
+                        poke("tk_pa", bytes([(pa + 2) & 0xFF]))
                 m.run()
                 if m.wait_stop(20) is None:
                     sys.exit("tankperf: the frame never came")
@@ -162,7 +174,9 @@ def main(argv):
         m.type_text("f")
         m.advance(frames=30)
         back = w("tk_back") & 0xFF
-        print("  backend %d, viewport %dx%d, scene %s" % (back, w("tk_vw"), w("tk_vh"), a.scene))
+        print("  backend %d, viewport %dx%d, scene %s%s"
+              % (back, w("tk_vw"), w("tk_vh"), a.scene,
+                 (", turning every %d frames" % a.turn_every) if a.turn_every else ""))
 
         if a.scene == "live":
             allst, alltn = [], []
@@ -214,7 +228,16 @@ def main(argv):
 
         def ms():
             v = frames(a.frames)
+            if a.verbose:
+                print("    frames: " + " ".join("%.1f" % x for x in v))
             return sum(v) / len(v)
+        frames(3)                               # A WARM-UP, DISCARDED. Moving the
+                                                # pieces by poke changes template
+                                                # keys, and the first frame after
+                                                # it redraws the panel: 282 ms
+                                                # once, in a run whose steady
+                                                # frame is 104, and it inflated
+                                                # a twelve-frame mean by 17 ms
         base_ms = ms()
         print("  frame: %.2f ms (%.2f fps), mean of %d exact frames" % (base_ms, 1000 / base_ms, a.frames))
 

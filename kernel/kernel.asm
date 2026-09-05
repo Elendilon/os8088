@@ -6387,7 +6387,11 @@ gfx_blit1:            call COLD_SEG:gbz_gfx_blit1
 %else
 gfx_blit1:            stc               ; kern_small carries the SLOT and not
                   ret                   ; the body: a package tests CF and
-%endif                                  ; letters in the 8x8 face instead
+%endif                                  ; letters in the 8x8 face instead -
+                                        ; or, Paint, expands a row at a time
+                                        ; (SPEC.md 42.23.4). The body was
+                                        ; measured on this build and refused
+                                        ; (SPEC.md 5.4.2.5)
 
 ; --- ...and SPEC.md 13.8.2/13.9's three, which are kern_big's ALONE. The CELL
 ; is in both tables - a slot number that exists in one build and not another

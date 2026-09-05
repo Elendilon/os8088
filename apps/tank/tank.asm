@@ -779,10 +779,16 @@ tk_tpl:
     ZBYTE tk_tmpl                   ; ...and whether this backend has one
     ZWORD tk_tmsave                 ; tk_spcur, while an item draws
     ZBYTE tk_inrange                ; ENEMY IN RANGE, this frame
-    ZBUF  tk_tmc, 6 * 4             ; the six items' cached keys (85.3.5)
-    ZBUF  tk_tmr, 6 * 8             ; ...their rectangles...
-    ZBUF  tk_tmovl, 6               ; ...and which rectangles meet which
+    ZBUF  tk_tmc, 7 * 4             ; the items' cached keys (85.3.5)...
+    ZBUF  tk_tmr, 7 * 8             ; ...their rectangles...
+    ZBUF  tk_tmovl, 7               ; ...and which rectangles meet which
     ZBYTE tk_tmbits
+    ZWORD tk_tmcur                  ; the rectangle being redrawn, or 0
+    ZBYTE tk_rtm_on                 ; the template holds a ridge (85.3.8)...
+    ZBYTE tk_rpa_tm                 ; ...drawn at this heading...
+    ZBYTE tk_rpa_last               ; ...and the heading of the last frame
+    ZWORD tk_rx0                    ; the columns tk_ridge draws between
+    ZWORD tk_rx1
     ZBYTE tk_par
     ZWORD tk_spcur
     ZWORD tk_spprv
@@ -812,8 +818,12 @@ tk_tpl:
     ZBUF  tk_spguard1, 8
     ZBUF  tk_spans1, TK_MAXROW * 2
     ZBUF  tk_spguard2, 8
-    ZBUF  tk_spans2, TK_MAXROW * 2  ; the set a template draw marks: nobody
-    ZBUF  tk_spguard3, 8            ; reads it
+    ZBUF  tk_spans2, TK_MAXROW * 2  ; the ridge's old runs, then the union
+    ZBUF  tk_spguard3, 8            ; (85.3.8)
+    ZBUF  tk_sprdg, TK_MAXROW * 2   ; the runs the template's ridge lit
+    ZBUF  tk_spguard4, 8
+    ZBUF  tk_spjunk, TK_MAXROW * 2  ; the set a template draw marks: nobody
+    ZBUF  tk_spguard5, 8            ; reads it
     ZBUF  tk_devoff, TK_MAXROW * 2
     ZBUF  tk_rowoff, TK_MAXROW * 2  ; 80 x row: the target offset of a row,
                                     ; looked up rather than multiplied
@@ -864,6 +874,8 @@ tk_tpl:
     ZBUF  tk_ridgex, 25 * 2
     ZBUF  tk_rpy, 25 * 2
     ZBYTE tk_ra
+    ZBUF  tk_kx, 2048 * 2           ; the projection tables (85.5.3): sclx and
+    ZBUF  tk_ky, 2048 * 2           ; scly over the depth, a row a bucket
 
 ; --- the world ----------------------------------------------------------------
     ZWORD tk_px

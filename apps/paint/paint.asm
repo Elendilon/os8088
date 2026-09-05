@@ -3064,72 +3064,78 @@ pt_uswap_row:
     push bx
     push cx
     push dx
-    mov bx, ax                      ; SPEC.md 42.18: undo and redo put ink BACK
-    mov dx, ax                      ; and this ROW is the whole of what they
-    xor ax, ax                      ; promise, so its band takes the full width
-    mov cx, [pt_cw]
-    dec cx
-    call pt_imark
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    push ax
-    push bx
-    push cx
-    push dx
     push si
     push di
     push bp
     push es
     call pt_rowset                  ; ES:DI = the canvas row
-    mov ax, es
-    mov bp, ax
+    mov bp, es                      ; BP = the canvas segment, a value
     mov [pt_urbase], di
-    xor bx, bx
-.blk:
-    mov al, [pt_bit8+bx]
-    test [pt_ubmiss], al
-    jz .next
+    cld                             ; lodsw below; nothing above promises DF
+    mov dl, [pt_ubmiss]             ; DL = the blocks this row saved, bit 0
+    xor bx, bx                      ; the leftmost; BX = the block in hand
+    ; --- SPEC.md 42.8.6.2: a RUN of saved blocks is one exchange, not one per
+    ; block, and the inked mark moved up to pt_undo_swap - once a swap rather
+    ; than once a row. Per row that is 3,878 cycles -> ~2,300 on a one-bit
+    ; canvas whose eight blocks are seven bytes each: the setup was costing
+    ; more than the words it moved
+.scan:
+    shr dl, 1
+    jnc .next                       ; block BX was not saved
+    mov si, bx                      ; the run starts here...
+.grow:
+    inc bx
+    cmp bx, 8
+    jae .run
+    shr dl, 1
+    jc .grow                        ; ...and takes every saved block after it
+.run:
     mov cl, [pt_ushf]
-    mov ax, bx
-    shl ax, cl
-    mov dx, ax
-    cmp dx, [pt_stride]             ; pt_ucopy's guard, and for its reason
+    shl si, cl                      ; SI = the run's first byte
+    cmp si, [pt_stride]             ; pt_ucopy's guard, and for its reason
     jae .next                       ; (SPEC.md 42.8.6.1)
-    mov ax, 1
-    shl ax, cl
-    add ax, dx
+    mov ax, bx
+    shl ax, cl                      ; AX = one past its last...
     cmp ax, [pt_stride]
     jbe .have
-    mov ax, [pt_stride]
+    mov ax, [pt_stride]             ; ...capped at the row
 .have:
-    sub ax, dx
+    sub ax, si
     shr ax, 1
     jz .next
-    mov cx, ax
+    mov cx, ax                      ; CX = words
     mov di, [pt_urbase]
-    add di, dx
+    add di, si
     mov si, di
-    mov ax, bp
-    mov es, ax                      ; ES stays the canvas and DS becomes the
-    add ax, [pt_undelta]            ; undo image, so the exchange is one loop
+    mov es, bp                      ; ES stays the canvas and DS becomes the
+    mov ax, bp                      ; undo image, so the exchange is one loop
+    add ax, [pt_undelta]
     push ds
     mov ds, ax
-.word:
-    mov ax, [si]                    ; DS = the undo image
+    shr cx, 1                       ; pairs, CF = a word over: done first
+    jnc .pair
+    lodsw                           ; DS = the undo image
     xchg ax, [es:di]                ; ES = the canvas
-    mov [si], ax
-    inc si
-    inc si
+    mov [si-2], ax
     inc di
     inc di
-    loop .word
+.pair:
+    jcxz .swapped
+.two:
+    lodsw
+    xchg ax, [es:di]
+    mov [si-2], ax
+    lodsw
+    xchg ax, [es:di+2]
+    mov [si-2], ax
+    add di, 4
+    loop .two
+.swapped:
     pop ds
 .next:
     inc bx
     cmp bx, 8
-    jb .blk
+    jb .scan
     pop es
     pop bp
     pop di
@@ -3298,6 +3304,12 @@ pt_undo_swap:
     jbe .loop
     cmp word [pt_uy1], -1
     je .out
+    xor ax, ax                      ; SPEC.md 42.18: undo and redo put ink BACK
+    mov bx, [pt_uy1]                ; and these rows are the whole of what they
+    mov cx, [pt_cw]                 ; promise, so their bands take the full
+    dec cx                          ; width - marked ONCE for the span, where
+    mov dx, [pt_uy2]                ; pt_uswap_row marked every row (42.8.6.2)
+    call pt_imark
     mov word [pt_rx1], 0
     mov ax, [pt_cw]
     dec ax
@@ -3830,27 +3842,19 @@ pt_blit_1:
     jbe .band
     jmp .out                        ; NEAR: 42.23.4's two arms sit between
 
-    ; --- ONE BIT A PIXEL, ONE ROW A CALL (SPEC.md 42.23.4)
+    ; --- ONE BIT A PIXEL, ONE ROW A CALL (SPEC.md 42.23.4): THE FALLBACK
     ;
-    ; **THE FAST PATH IS NOT TAKEN HERE AND THE REASON IS THE KERNEL'S, NOT
-    ; OURS.** OSAPI_GFX_BLIT1 takes exactly the band this canvas already holds
-    ; - the format is identical - but it wants a POSITIVE stride, and this
-    ; canvas is stored bottom-up because it is the BMP (SPEC.md 42). The two
-    ; places gfx_blit1_x skips rows, the clip region's r0 and a negative y,
-    ; both do `mul bp` on the stride, and MUL is unsigned: hand it a negative
-    ; stride and a band whose top is clipped starts from a source pointer
-    ; 65,000 bytes away. gfx_blit4 has no such rule, which is why the 4bpp
-    ; path above passes a negative stride happily and this one may not. The
-    ; SDK never claimed the stride was signed; it is this routine that
-    ; assumed it. When the kernel's two skips are made sign-aware the fast
-    ; path is a dozen bytes here and this loop becomes the fallback that
-    ; kern_small takes anyway (SPEC.md 5.4.2 refuses there outright).
-    ;
-    ; So the row is expanded into pt_line and drawn by the call that already
-    ; works. It costs the expansion, ~0.47 ms a row on a 4.77 MHz 8088, and
-    ; it keeps the kernel's own per-row adaptivity: gfx_blit4 picks runs for a
-    ; flat row and per-pixel for a detailed one (SPEC.md 5.4.1.1), which no
-    ; hand-rolled run walk here could do.
+    ; The row is expanded into pt_line and drawn by gfx_blit4, one call a
+    ; row, and it is the path OSAPI_GFX_BLIT1's CF = 1 owes a second path to:
+    ; kern_small's, every time (SPEC.md 5.4.2), and until SPEC.md 5.4.2.5
+    ; kern_big's too for a width off the byte grid. What it costs is
+    ; MEASURED (MartyPC Hercules, 192 rows of a 448-wide canvas): 1,309 ms
+    ; against the band move's 55, half of it pt_ex1 (48.6%) and a third
+    ; sw_blit_row's decode (35.8%, PERFORMANCE.md Set 116) - and kern_small
+    ; pays it by decision, a body for that build having been measured and
+    ; refused. It keeps the kernel's own per-row adaptivity: gfx_blit4 picks
+    ; runs for a flat row and per-pixel for a detailed one (SPEC.md 5.4.1.1),
+    ; which no hand-rolled run walk here could do.
     ;
     ; NO BANDING, because there is nothing to band: pt_rowset resolves each
     ; row's segment out of the table, so a canvas spanning segments needs no
@@ -3877,18 +3881,22 @@ pt_blit_1:
     ; there is a 16-bit add or subtract. So it was always accepted, and the
     ; whole of SPEC.md 42.23.4's "what blocks the fast path" was a misreading
     ; of code that worked.
+    ;
+    ; **AND THE WIDTH IS EXACT, SINCE SPEC.md 5.4.2.5.** This used to round
+    ; the right edge UP to the byte grid and give the whole rect to the row
+    ; loop when that reached past the picture - which is EVERY full repaint of
+    ; a picture whose width is off the grid, OS8088.GIF's 466 among them: 809
+    ; ms of one paint through pt_ex1 and gfx_blit4 where the band move is
+    ; ~30. gfx_blit1 merges the last partial byte under a mask now, so the
+    ; padding bits past the picture are never drawn and no width is refused.
 .one:
     mov ax, [pt_cx1]
     and ax, 0xFFF8
     mov [pt_bx0], ax
     mov bx, [pt_cx2]
-    inc bx
-    add bx, 7
-    and bx, 0xFFF8                  ; the byte-grid right edge...
-    cmp bx, [pt_cw]
-    ja .oslow                       ; ...past the picture: the row loop instead
     sub bx, ax
-    mov [pt_bwid], bx               ; width in pixels, a multiple of 8
+    inc bx
+    mov [pt_bwid], bx               ; width in pixels, exactly
     mov ax, 65520                   ; rows that fit one segment...
     xor dx, dx
     div word [pt_stride]
@@ -3937,7 +3945,10 @@ pt_blit_1:
     mov bx, [pt_bsi]
     add bx, [pt_cy0]
     call OSAPI_GFX_BLIT1
-    jc .oslow                       ; no body on this kernel: the row loop
+    jc .oslow                       ; refused: the row loop. kern_small answers
+                                    ; so for every band (SPEC.md 5.4.2), and on
+                                    ; kern_big tests/paint1blit reaches it by
+                                    ; poking stc/ret over the thunk
     mov ax, [pt_bsi]
     add ax, [pt_bn]
     mov [pt_bsi], ax
@@ -4468,6 +4479,110 @@ pt_ic_flush:
     ret
 
 ; -----------------------------------------------------------------------------
+; pt_glyph16 - a 16x16 glyph in [pt_pen], as ONE OSAPI_ICON_DRAW (SPEC.md 42.26)
+; in:  SI = 16 rows (bit 15 = leftmost), CX = content x, DX = content y
+; out: nothing; preserves all registers
+;
+; pt_icon16 above emits a gfx_hline per RUN of set bits - ~30 calls for a
+; tool glyph, each a ~756 us drawing call on a 1bpp adapter - and the eight
+; of them were 201 ms of every full repaint, measured (PERFORMANCE.md Set
+; 116): the single largest item in the initial paint, more than the canvas.
+; The kernel's masked sprite pass (SPEC.md 25.6) draws the same 16x16 at any
+; x in one call. The record it wants is two bytes and the rows twice over -
+; the MASK is the glyph itself, because a transparent glyph is exactly what
+; pt_icon16 drew - so it is staged in pt_line, which nothing walks during a
+; repaint (SPEC.md 42.23.4), and costs no image bytes.
+;
+; Two things the pass does not do for us and this routine does:
+;  - IT DRAWS A CUT SHAPE AS NOTHING (SPEC.md 25.6, "clips the shape WHOLE"),
+;    so a glyph under a clip fragment's edge asks OSAPI_WM_CLIP_TEST first
+;    and takes pt_icon16's per-run path when the answer is no - which is
+;    exactly what os88ui_glyph does, and costs the call only where the pass
+;    would have drawn nothing;
+;  - a 1bpp op has nowhere to put a grey, so the disabled fill tool's CDGRAY
+;    (SPEC.md 42.6.2) is DITHERED HERE, in gfx_ink's own (x + y) parity
+;    (SPEC.md 39.4): the rows are ANDed with 5555h or AAAAh off the parity of
+;    each row's first pixel and drawn in black. On a colour adapter the pen
+;    is the grey itself and the rows are untouched.
+; -----------------------------------------------------------------------------
+pt_glyph16:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov ax, cx
+    add ax, [pt_ox]
+    mov bx, dx
+    add bx, [pt_oy]
+    mov [pt_ic_x], ax               ; the screen corner, banked for the draw
+    mov [pt_ic_y], bx
+    mov cx, ax
+    add cx, 15
+    mov dx, bx
+    add dx, 15
+    call OSAPI_WM_CLIP_TEST         ; the pass draws a CUT shape as nothing
+    jc .runs                        ; (SPEC.md 25.6): a cut one goes per run
+    mov di, pt_line                 ; the record, staged where nothing is live
+    mov word [di], 1 | (16 << 8)    ; during a repaint: one word a row, 16 rows
+    inc di
+    inc di
+    mov cx, 16
+    cld
+.cp:
+    lodsw                           ; the mask IS the glyph - a transparent
+    mov [di], ax                    ; glyph, exactly what pt_icon16 draws - so
+    mov [di+32], ax                 ; the data rows are the same 16 words
+    inc di
+    inc di
+    loop .cp
+    mov al, [pt_pen]
+    cmp al, CDGRAY
+    jne .pen
+    cmp byte [pt_mono], 0
+    je .pen
+    mov ax, [pt_ic_x]               ; SPEC.md 25.6: a 1bpp pass has nowhere to
+    add ax, [pt_ic_y]               ; put a grey, so the CALLER dithers - in
+    mov di, pt_line + 2             ; gfx_ink's own (x + y) parity (39.4)
+    mov cx, 16
+.dr:
+    mov dx, 0x5555                  ; x + y even: the ODD pixels are dark
+    test al, 1
+    jz .dp
+    mov dx, 0xAAAA                  ; ...and odd: the even ones
+.dp:
+    and [di], dx
+    and [di+32], dx
+    inc di
+    inc di
+    inc ax                          ; the next row, one parity over
+    loop .dr
+    mov al, CBLACK
+.pen:
+    mov ah, al                      ; the same colour under the mask and over
+    call OSAPI_ICON_PEN             ; it: what lands is the pen, once
+    mov cx, [pt_ic_x]
+    mov dx, [pt_ic_y]
+    mov si, pt_line
+    call OSAPI_ICON_DRAW
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.runs:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jmp pt_icon16                   ; tail call: the per-run painter
+
+; -----------------------------------------------------------------------------
 ; pt_draw_pal - the eight tool buttons, two columns of four
 ; in:  nothing; gfx lock held
 ; out: nothing; preserves all registers
@@ -4522,9 +4637,9 @@ pt_draw_pal:
     add cx, 2
     mov dx, [pt_by]
     add dx, 2
-    call pt_icon16
-    inc di
-    cmp di, PT_NTOOL
+    call pt_glyph16                 ; ONE call a glyph (SPEC.md 42.26), where
+    inc di                          ; pt_icon16 was ~30: 201 ms -> 111 for
+    cmp di, PT_NTOOL                ; the eight, wells included, measured
     jb .tool
 .done:
     call pt_draw_dims               ; the canvas size, under the last button
