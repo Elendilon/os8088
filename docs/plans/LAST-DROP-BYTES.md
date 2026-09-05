@@ -1,5 +1,17 @@
 # The Last Drop Of Bytes
 
+
+> **A REGISTER, NOT A PLAN WITH AN END.** Every row here is deferred
+> indefinitely: something the machine COULD do, priced, with the reason it is
+> not taken today. It lives under `docs/plans/` because a row is a proposal
+> rather than a description of the tree — but it is *outstanding forever* by
+> design, and it is finished when it is empty, which is not a state anyone is
+> working towards. **Nothing here is a commitment and no row is owed.**
+>
+> Read it the way it is written: before spending a byte, to see whether the byte has already been
+> priced — and before proposing a cut, to see whether it is already in
+> §7's register of things refused with the arithmetic attached.
+
 > Companion: **docs/plans/LAST-DROP-PERF.md** is the same idea for CYCLES — optimisations
 > built, measured, found correct, and priced. This file is BYTES.
 

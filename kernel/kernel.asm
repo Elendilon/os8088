@@ -1127,11 +1127,19 @@ KERN_BUDGET equ KERN_RESIDENT_KB*1024 - KERNEL_SEG*16
                                 ;
                                 ; TWO WAYS TO HAND THE FIRST STEP BACK if the
                                 ; footprint is ever wanted, both costed:
-                                ; docs/LAST-DROP.md 3's packed single table
-                                ; (256 bytes, two loop variants, ~30 bytes of
-                                ; code back), and dropping the VGA span writer
-                                ; (169 bytes, SPEC.md 5.4.1) at the price of
-                                ; its 1.95x. Neither is a rewrite.
+                                ; packing SPEC.md 5.4.1.1's gfx_pairtab0 and
+                                ; gfx_pairtab1 into a single table (256 bytes,
+                                ; two loop variants, ~30 bytes of code back),
+                                ; and dropping the VGA span writer (169 bytes,
+                                ; SPEC.md 5.4.1) at the price of its 1.95x.
+                                ; Neither is a rewrite. (This cited a
+                                ; LAST-DROP.md 3 that has not existed for
+                                ; some time and never carried the claim: that
+                                ; file's 3 was the blit decoder's hybrid, and
+                                ; it split into LAST-DROP-BYTES and
+                                ; LAST-DROP-PERF, neither of which mentions a
+                                ; packed table. The costing above is this
+                                ; comment's own.)
                                 ;
                                 ; THE SEVENTEENTH MOVE, 98,304 -> 100,352,
                                 ; ASKED FOR AND GRANTED, and the first since

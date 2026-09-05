@@ -61477,8 +61477,10 @@ key, click, menu command, About — in `retf`, which is `main`'s convention.
 Here the kernel reaches them through the three-byte dispatcher in the
 package's own header (§20.1/§20.2), so every proc is a near proc with a near
 `ret`; a `retf` returns into the loader's stack frame and hangs the machine
-at the first paint. This is the trap `docs/PORTING.md` names, and it is worth
-naming again because it assembles perfectly.
+at the first paint. §20.1/§20.2 above are the contract, and it is worth
+naming again because it assembles perfectly. (A `PORTING.md` under `docs/`
+named this trap once; that document is gone and this paragraph is what is
+left of it.)
 
 **`tg_num` ate the y coordinate.** `div bx` takes its dividend in DX:AX and
 leaves the remainder in DX, which is where the caller's y sits. The y is
@@ -61504,8 +61506,11 @@ Before it, memory outside the pool was carved up by *constants*: `SND_SEG`
 spoken for from boot whether or not a byte was ever written, none of them
 could be reclaimed, and two of them were mostly empty in every configuration
 that ever shipped. On the 256KB floor machine that is 278KB of address
-space promised out of 256KB — the reason `docs/RAM-FIGURE-AUDIT.md` found
-the Task Manager reporting 145K on a machine that was really 224K committed.
+space promised out of 256KB — which is why a one-off audit taken at the time
+found the Task Manager reporting 145K on a machine that was really 224K
+committed. (That audit was a `RAM-FIGURE-AUDIT.md` under `docs/`, a snapshot
+of one tree rather than a standing account; it is gone, and this sentence is
+the finding it existed to record.)
 
 And a package that needed more than its 19.5KB region had **no way to ask**.
 `apps/paint` therefore took linear 0x66000 unilaterally and read

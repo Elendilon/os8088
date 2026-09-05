@@ -1,5 +1,18 @@
 # The Last Drop Of Performance
 
+
+> **A REGISTER, NOT A PLAN WITH AN END.** Every row here is deferred
+> indefinitely: something the machine COULD do, priced, with the reason it is
+> not taken today. It lives under `docs/plans/` because a row is a proposal
+> rather than a description of the tree — but it is *outstanding forever* by
+> design, and it is finished when it is empty, which is not a state anyone is
+> working towards. **Nothing here is a commitment and no row is owed.**
+>
+> Read it the way it is written: before optimising something, to see whether it has already been built,
+> measured and shelved for not clearing the price of its own footprint —
+> and, since §4, to see what was TAKEN, so a decision is re-made rather
+> than rediscovered.
+
 > Companion: **docs/plans/LAST-DROP-BYTES.md** is the same idea for BYTES — the menu of
 > footprint the machine could still get back, and the register of what is refused
 > and why. This file is CYCLES; that one is BYTES.

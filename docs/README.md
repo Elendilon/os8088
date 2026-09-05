@@ -34,6 +34,13 @@ second list to remember.
   the reasoning is usually worth more than the conclusion, and a study that
   ruled something out is what stops it being re-derived.
 
+**A REGISTER also lives in `docs/plans/`** — `LAST-DROP-BYTES.md` and
+`LAST-DROP-PERF.md` are menus of things the machine could do, each priced,
+each deferred indefinitely. They are outstanding forever by design and are
+finished only when empty, which nobody is working towards. They are filed as
+plans because a row is a proposal, not a description of the tree; do not read
+one as a commitment.
+
 **A plan with some waves built and some not stays in `docs/plans/`** — that is
 what "half done" means and where a reader should find it. Split it into a
 completed record and a remaining plan only when the two halves have stopped
