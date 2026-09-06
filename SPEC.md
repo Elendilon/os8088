@@ -79322,6 +79322,35 @@ press `os88ui_drpress`, the drag `os88ui_drdrag` and the release
 three `wd_mtab` rows, the item tables behind them, and the menu element's
 anchored-list path with the `MN_AX`/`MN_AY` pair that fed it.
 
+**`wd_drops` is the table and there is only one.** Six questions the rest of
+the program asks about a combo — is one down, take the press, the drag, the
+release, shut it, forget it — are all *which one* first, so they are one walk
+(`wd_dropen`, answering `BX` and `ZF`) with six thin callers over it. The
+`wd_mtab` rows they replace were reached the same way, by index, which is why
+this is a translation rather than a new mechanism.
+
+**At most one list is ever down**, and that is a property rather than a hope:
+a press only reaches `os88ui_drpress` for a CLOSED control through
+`wd_mroute`, which hands an open list every press before the strips are hit
+tested at all — so the box under a list cannot open its own. §13.14.2 met the
+same case from the other end in `apps/skies`, where four records with no
+window made every press take the refusal.
+
+**Only the Font combo acts on a pick** (`wd_drtake`), which is why `wd_mact`
+ever recorded *which* menu an item came out of: Pts has the one size and Style
+the one style. Its list is the machine's — `wd_fontscan` walks `SYSTEM/FONTS`
+the first time the combo is opened and never again (§19.8) and fills the
+`ITEMS` array and `OS88UI_DR_N`, where it used to fill eight-byte item records
+and a count byte in `wd_mtab`.
+
+**`wd_dfsel` is the half a control cannot do for itself.** §68.13's rule is
+that the box is renamed only once `ty_openfam` has succeeded — *"the name in
+the ribbon is EVIDENCE that the face is open and not just that it was asked
+for"* — but `os88ui_drup` writes its own pick and redraws the box before the
+package sees it. So `[wd_fcap]` stays the truth and `wd_dfsel` puts `SEL` back
+in step with it on the way through `wd_a_csel`, refusal path included: a face
+that will not read leaves the box showing the one that does.
+
 **Two things about the picture change, and both are the shared control's
 answer rather than Word's:**
 

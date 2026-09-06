@@ -2339,7 +2339,7 @@ SOAK = [
         "go red - dropping wd_mvup's step-back fails every text assertion.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
-    Row("wdcombo", "soak", py("tests/wdcombo.py"), 60.0,
+    Row("wdcombo", "soak", py("tests/wdcombo.py"), 150.0,
         "SPEC.md 68.2.3: Word's three combos are os88ui_drop records rather "
         "than rows of wd_mtab, so the gesture is THREE EVENTS (press, drag, "
         "release) where the pseudo-menu ran one modal poll - and each edge "
@@ -2348,10 +2348,17 @@ SOAK = [
         "list on screen; without the press being ROUTED to an open list "
         "before the strip hit tests, the click-then-click spelling puts its "
         "second press on the ruler's indent-drag row and the list never comes "
-        "down. Both end in PIXELS - the bank is written back, so a cycle "
-        "leaves the content bit-for-bit - and it pokes OS88UI_DR_SEG = 0 for "
-        "the second cycle, which is what a refused claim leaves, so wd_drrep "
-        "is measured against the same reference in the same boot.",
+        "down. All three combos are driven, because each sits in a different "
+        "strip with a different hit test in front of it, and the Font one's "
+        "list is built at runtime by wd_fontscan and is the only one whose "
+        "pick ACTS - picking a face has to reach wd_a_csel and rename the "
+        "box, or, when ty_openfam refuses, leave it naming the face that "
+        "reads (wd_dfsel). Every cycle ends in PIXELS: the bank is written "
+        "back, so it leaves the content bit-for-bit. The second cycle pokes "
+        "OS88UI_DR_SEG = 0, which is what a refused claim leaves, and PUTS IT "
+        "BACK - a poke that only clears the word orphans ~1.4KB of heap, and "
+        "one leak makes Word's next re-layout read its piece table through a "
+        "stale segment.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,

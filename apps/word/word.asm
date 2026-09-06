@@ -344,6 +344,8 @@ WD_MT_SZ     equ 8              ; ...and one wd_mtab row, which wd_mgeti
 WD_M_FONTC   equ 9              ; the ribbon's Font combo, as a pseudo-menu
 WD_M_PTSC    equ 10             ; ...its Pts combo
 WD_M_STYLEC  equ 11             ; ...and the ruler's Style combo
+WD_NDROP     equ 3              ; the three of them, as os88ui_drop records
+                                ; (SPEC.md 68.2.3); wd_drops is the table
 WD_M_NONE    equ 0xFF           ; [wd_mopen]: nothing open
 WD_MI_HGT    equ 10             ; an item band: 8px of glyph + 1 above + 1 under
 WD_MS_HGT    equ 5              ; a separator band
@@ -837,6 +839,12 @@ wd_entry:
     mov word [wd_dstyle + OS88UI_DR_ITEMS], wd_dstyle_items
     mov word [wd_dstyle + OS88UI_DR_N], 1
     mov [wd_dstyle + OS88UI_DR_WIN], bx
+    mov word [wd_dpts + OS88UI_DR_ITEMS], wd_dpts_items
+    mov word [wd_dpts + OS88UI_DR_N], 1
+    mov [wd_dpts + OS88UI_DR_WIN], bx
+    mov word [wd_dfont + OS88UI_DR_ITEMS], wd_dfont_items
+    mov word [wd_dfont + OS88UI_DR_N], 1    ; Pica alone until wd_fontscan runs
+    mov [wd_dfont + OS88UI_DR_WIN], bx
     mov [wd_mnrec + OS88UI_MN_WIN], bx
     push ax                         ; SPEC.md 54.10: the kernel calls this once
     mov ax, wd_onwake               ; our window is on the glass, and the launch
@@ -1160,12 +1168,12 @@ wd_ondrag:
     push bx
     push cx
     push dx
-    mov bx, wd_dstyle               ; SPEC.md 68.2.3: the combos are drop-downs
-    call os88ui_drdrag              ; now, so the two edges are theirs as well.
-                                    ; A closed list costs one compare, and the
-                                    ; two gestures still cannot be live at once
-                                    ; - a press either opens a list or grabs
-                                    ; the thumb, never both
+    call wd_drdrag                  ; SPEC.md 68.2.3: the combos are drop-downs
+                                    ; now, so the two edges are theirs as well.
+                                    ; Nothing open costs one walk of three, and
+                                    ; the two gestures still cannot be live at
+                                    ; once - a press either opens a list or
+                                    ; grabs the thumb, never both
     call os88ui_sbdragging
     jc wd_sbd_out
     call wd_bounds
@@ -1178,13 +1186,9 @@ wd_onup:
     push bx
     push cx
     push dx
-    mov bx, wd_dstyle               ; the release over an item is the PICK, and
-    call os88ui_drup                ; the drag-out-of-the-box spelling of the
-    jnc .nodr                       ; gesture is the one that needs it
-    call wd_drrep
-.nodr:
-    or ah, ah                       ; spent on a list: the thumb never sees it
-    jnz wd_sbd_out
+    call wd_drup                    ; the release over an item is the PICK, and
+                                    ; the drag-out-of-the-box spelling of the
+                                    ; gesture is the one that needs it
     call os88ui_sbdragging
     jc wd_sbd_out
     call wd_bounds
@@ -2601,25 +2605,20 @@ wd_fontscan:
     mov cl, al
     xor bx, bx                      ; BX = the family index
 .item:
-    mov ax, bx
-    mov si, WD_MI_SZ                ; the record for item 1 + BX: item 0 is
-    mul si                          ; Pica and is assembled, not filled in
-    mov di, wd_it_fontc + WD_MI_SZ
+    mov ax, bx                      ; the slot for item 1 + BX: item 0 is Pica
+    shl ax, 1                       ; and is assembled, not filled in
+    mov di, wd_dfont_items + 2
     add di, ax
-    mov byte [di+0], 0              ; flags: live
-    mov byte [di+1], 0              ; no mnemonic index
-    mov byte [di+2], WDA_CSEL
-    mov byte [di+3], 0
     mov al, bl
     call ty_famname                 ; SI = the display name the scan built
-    mov [di+4], si
-    mov word [di+6], 0              ; no caption
+    mov [di], si
     inc bx
     loop .item
 
-    mov al, [wd_nfont]              ; ...and the dropdown is that many items
-    inc al                          ; longer than the one Pica it had
-    mov [wd_mtab + WD_M_FONTC * WD_MT_SZ + 3], al
+    mov al, [wd_nfont]              ; ...and the list is that many items longer
+    inc al                          ; than the one Pica it had
+    xor ah, ah
+    mov [wd_dfont + OS88UI_DR_N], ax
 .out:
     pop di
     pop si
@@ -2750,7 +2749,7 @@ wd_a_csel:
     push ax
     call ty_openfam                 ; opened NOW rather than at draw time: a
     pop bx                          ; face that will not read should say so
-    jc .out                         ; while the person is still looking at the
+    jc .paint                       ; while the person is still looking at the
     mov [wd_face], al               ; menu they picked it from - and the BOX
     xor ah, ah                      ; is not renamed until it has, so the name
     call ty_use                     ; in the ribbon is EVIDENCE that the face
@@ -2774,6 +2773,9 @@ wd_a_csel:
     mov byte [wd_rowsok], 0
     mov byte [wd_redrw], 1
 .paint:
+    call wd_dfsel                   ; the record follows what actually OPENED -
+                                    ; a refused face reaches here too, and must
+                                    ; leave the box showing the one that reads
     cmp byte [wd_vrib], 0           ; ...and the BOX has to be lettered again.
     je .out                         ; wd_mfire runs AFTER wd_mclose has put the
     call wd_ribbon                  ; rows the dropdown covered back, so the
@@ -7162,7 +7164,7 @@ wd_chrome:
 wd_paint:
     push ax
     mov byte [wd_mopen], WD_M_NONE  ; a kernel repaint painted the content
-    mov byte [wd_dstyle + OS88UI_DR_OPEN], 0   ; ...the combos' lists with them
+    call wd_drforget                ; ...the combos' lists with them
     mov byte [wd_mhi], 0xFF         ; clean, so any dropdown, About box or
     mov byte [wd_about], 0          ; dialog is GONE from the pixels: drop the
     mov word [wd_dlg], 0            ; state with them rather than redraw a
@@ -13983,20 +13985,188 @@ wd_mclose:
 ; the other. D2 adds the ribbon's two records and only this routine changes.
 ; -----------------------------------------------------------------------------
 wd_drany:
-    cmp byte [wd_dstyle + OS88UI_DR_OPEN], 0
+    push bx
+    call wd_dropen
+    pop bx                          ; POP touches no flag, so the ZF the walk
+    ret                             ; left is the one the caller reads
+
+; -----------------------------------------------------------------------------
+; wd_dropen - WHICH combo's list is down?
+; in:  nothing; out: BX = the record, or 0; ZF=1 none. Every other register
+;      preserved
+;
+; At most one is ever down: a press on a closed box reaches os88ui_drpress
+; only through wd_mroute, which hands an open list every press before the
+; strips are tested at all - so the box under a list cannot open its own.
+; -----------------------------------------------------------------------------
+wd_dropen:
+    push cx
+    push si
+    mov si, wd_drops
+    mov cx, WD_NDROP
+.l:
+    mov bx, [si]
+    cmp byte [bx+OS88UI_DR_OPEN], 0
+    jne .out
+    inc si
+    inc si
+    loop .l
+    xor bx, bx
+.out:
+    or bx, bx
+    pop si
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
-; wd_drshut - take any open combo list down, pixels and all
+; wd_dropress / wd_drdrag / wd_drup - the gesture's three edges, handed to
+; whichever combo has a list down
+; in:  CX = x, DX = y, SI = window ptr, wd_bounds run, gfx lock held
+; out: nothing; every register preserved
+;
+; The press and the release can both PICK, and only the Font combo acts on one
+; (wd_drtake) - Pts has the one size and Style the one style. The drag only
+; moves a highlight. All three are no-ops with nothing open, which is what
+; lets wd_ondrag and wd_onup call them in front of the thumb's own edges: a
+; combo gesture and a thumb drag cannot be live at once, because a press
+; cannot arrive during a live drag at all (SPEC.md 13.10.5.7).
+; -----------------------------------------------------------------------------
+wd_dropress:
+    push ax
+    push bx
+    call wd_dropen
+    jz .out
+    call os88ui_drpress
+    jnc .nrep
+    call wd_drrep
+.nrep:
+    or ah, ah
+    jz .out
+    call wd_drtake
+.out:
+    pop bx
+    pop ax
+    ret
+
+wd_drdrag:
+    push ax
+    push bx
+    call wd_dropen
+    jz .out
+    call os88ui_drdrag
+.out:
+    pop bx
+    pop ax
+    ret
+
+wd_drup:
+    push ax
+    push bx
+    call wd_dropen
+    jz .out
+    call os88ui_drup
+    jnc .nrep
+    call wd_drrep
+.nrep:
+    or ah, ah
+    jz .out
+    call wd_drtake
+.out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_drtake - a combo picked item AL out of record BX
+; in:  AL = the item, BX = the record, SI = window ptr, wd_bounds run, lock
+;      held; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+wd_drtake:
+    cmp bx, wd_dfont                ; ONLY the Font combo acts on a pick, and
+    jne .out                        ; it is the reason wd_mact ever recorded
+    push ax                         ; which menu an item came out of
+    push bx
+    push cx
+    push dx
+    mov [wd_picki], al
+    mov byte [wd_pickm], WD_M_FONTC
+    call wd_a_csel                  ; ...which may tail-jump into wd_redraw,
+    pop dx                          ; so nothing survives it but SI
+    pop cx
+    pop bx
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_dfsel - the Font box's SEL follows what actually OPENED
+; in:  nothing; out: nothing; preserves all registers
+;
+; The control writes its own pick at the release, and wd_a_csel renames the
+; box only once ty_openfam has succeeded - "the name in the ribbon is EVIDENCE
+; that the face is open and not just that it was asked for" (SPEC.md 68.13).
+; So [wd_fcap] is the truth and this puts the record back in step with it: a
+; face that will not read leaves the box showing the one that does, which is
+; the property the combo had before it was a control.
+; -----------------------------------------------------------------------------
+wd_dfsel:
+    push ax
+    push bx
+    push cx
+    push si
+    mov si, wd_dfont_items
+    mov cx, [wd_dfont + OS88UI_DR_N]
+    mov bx, [wd_fcap]
+    xor ax, ax
+.l:
+    cmp bx, [si]
+    je .hit
+    inc si
+    inc si
+    inc ax
+    loop .l
+    xor ax, ax                      ; not listed at all: Pica, which is item 0
+.hit:
+    mov [wd_dfont + OS88UI_DR_SEL], ax
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_drshut - take an open combo list down, pixels and all
 ; in:  SI = window ptr, gfx lock held; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
 wd_drshut:
     push bx
-    mov bx, wd_dstyle
+    call wd_dropen
+    jz .out
     call os88ui_drclose             ; the bank back, or CF=1 and the repaint
     jnc .out
     call wd_drrep
 .out:
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_drforget - the lists are GONE from the pixels: drop the state with them
+; in:  nothing; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+wd_drforget:
+    push bx
+    push cx
+    push si
+    mov si, wd_drops
+    mov cx, WD_NDROP
+.l:
+    mov bx, [si]
+    mov byte [bx+OS88UI_DR_OPEN], 0
+    inc si
+    inc si
+    loop .l
+    pop si
+    pop cx
     pop bx
     ret
 
@@ -14425,13 +14595,21 @@ wd_ribbon:
     mov si, wd_s_font
     mov ax, (CWHITE << 8) | CBLACK  ; OPAQUE: the ribbon's fill is white (SPEC.md 68.14)
     call OSAPI_FONT_RUN
-    mov ax, [wd_cl]
-    add ax, WD_RB_FBX
-    mov bx, di
-    add bx, 2
-    mov cx, WD_RB_FBW
-    mov si, [wd_fcap]               ; the face the document is set in, which
-    call wd_combo                   ; is wd_s_pica until one is chosen
+    mov ax, [wd_cl]                 ; the Font combo is os88ui_drop's now
+    add ax, WD_RB_FBX               ; (SPEC.md 68.2.3): the painter fills the
+    mov [wd_dfont + OS88UI_DR_RECT], ax        ; record's rect from the strip
+    add ax, WD_RB_FBW - 1                      ; it is laying out, and the
+    mov [wd_dfont + OS88UI_DR_RECT + 4], ax    ; caption is the PICK - which is
+    mov ax, di                                 ; wd_s_pica until one is chosen
+    add ax, 2
+    mov [wd_dfont + OS88UI_DR_RECT + 2], ax
+    add ax, 11
+    mov [wd_dfont + OS88UI_DR_RECT + 6], ax
+    push di                         ; DI is the strip's row here and the
+    mov bx, wd_dfont                ; control's FLAGS there
+    xor di, di
+    call os88ui_drop
+    pop di
     ; Pts: and its combo
     mov ax, WD_RB_PBX + WD_RB_PBW - 1
     call wd_wfit
@@ -14445,11 +14623,19 @@ wd_ribbon:
     call OSAPI_FONT_RUN
     mov ax, [wd_cl]
     add ax, WD_RB_PBX
-    mov bx, di
-    add bx, 2
-    mov cx, WD_RB_PBW
-    mov si, wd_s_10
-    call wd_combo
+    mov [wd_dpts + OS88UI_DR_RECT], ax
+    add ax, WD_RB_PBW - 1
+    mov [wd_dpts + OS88UI_DR_RECT + 4], ax
+    mov ax, di
+    add ax, 2
+    mov [wd_dpts + OS88UI_DR_RECT + 2], ax
+    add ax, 11
+    mov [wd_dpts + OS88UI_DR_RECT + 6], ax
+    push di
+    mov bx, wd_dpts
+    xor di, di
+    call os88ui_drop
+    pop di
 .btns:
     mov ax, WD_RB_B1 + 2*WD_BTN_P + WD_BTN_W - 1
     call wd_wfit
@@ -16217,17 +16403,17 @@ wd_mroute:
     call wd_abclose
     jmp .cons
 .noab:
-    cmp byte [wd_dstyle + OS88UI_DR_OPEN], 0    ; AN OPEN LIST TAKES ANY PRESS,
-    je .nodrop                                  ; wherever it lands (SPEC.md
-    mov bx, wd_dstyle                           ; 13.14) - the same rule an
-    call os88ui_drpress                         ; open MENU has had since 68.2,
-    jnc .cons                                   ; and for the same reason: the
-    call wd_drrep                               ; click-then-click spelling of
-    jmp .cons                                   ; the gesture puts the second
-                                                ; press on top of the RULER's
-                                                ; second row, which owns the
-                                                ; indent drag and would have
-                                                ; taken it
+    call wd_drany                   ; AN OPEN LIST TAKES ANY PRESS, wherever it
+    jz .nodrop                      ; lands (SPEC.md 13.14) - the same rule an
+    call wd_dropress                ; open MENU has had since 68.2, and for a
+    jmp .cons                       ; reason the menus never had: the Style
+                                    ; list lies on top of the RULER's second
+                                    ; row, which owns the indent-marker drag,
+                                    ; so the click-then-click spelling of the
+                                    ; gesture put its second press on the ruler
+                                    ; and the list stayed up for ever. It is
+                                    ; also what stops the box UNDER an open
+                                    ; list opening its own (13.14.2)
 .nodrop:
     cmp byte [wd_mopen], WD_M_NONE
     je .closed
@@ -16273,13 +16459,12 @@ wd_mroute:
     add di, WD_RB_FBW-1
     cmp cx, di
     ja .rbpts
-    mov al, WD_M_FONTC
     call wd_fontscan                ; the machine's faces, listed the first
                                     ; time this combo is opened and never
                                     ; again (SPEC.md 19.8): the scan is real
-                                    ; floppy I/O, and a menu nobody opens
+                                    ; floppy I/O, and a combo nobody opens
                                     ; should cost nothing
-    mov al, WD_M_FONTC
+    mov bx, wd_dfont
     jmp short .combo1
 .rbpts:
     mov bx, [wd_cl]
@@ -16290,21 +16475,12 @@ wd_mroute:
     add di, WD_RB_PBW-1
     cmp cx, di
     ja .rbtns
-    mov al, WD_M_PTSC
+    mov bx, wd_dpts
 .combo1:
-    mov [wd_max], bx                ; the dropdown hangs off the box, and the
-    mov [wd_mabox], bx              ; box IS the gesture anchor
-    mov [wd_mabox+4], di
-    mov bx, [wd_ct]
-    add bx, WD_MENU_H + WD_RIBBON_H
-    mov [wd_may], bx
-    sub bx, WD_RIBBON_H
-    add bx, 2
-    mov [wd_mabox+2], bx
-    add bx, 11
-    mov [wd_mabox+6], bx
-    call wd_mtrack
-    jmp .cons
+    call os88ui_drpress             ; the drop-down owns the gesture (SPEC.md
+    jnc .cons                       ; 68.2.3): the press answers whether the
+    call wd_drrep                   ; content wants repainting, and what it
+    jmp .cons                       ; covered is exactly the list's own rect
 .rbtns:
     ; the toggle cells (SPEC.md 68.3): B I K | U W D fire wd_applyattr, the
     ; pilcrow toggles Show-all, the greyed super/sub pair is inert. The hit
@@ -19474,9 +19650,20 @@ wd_it_fontc:                        ; Pica, and room for the faces on the disk
 %endrep
 wd_it_ptsc:                         ; ...at the one size
     WDMI 0, 0, WDA_CSEL, 0, wd_s_10, 0
-wd_dstyle_items:                    ; the Style combo's list: near pointers to
+wd_dstyle_items:                    ; the three combos' lists: near pointers to
     dw wd_s_normal              ; NUL strings, which is what a drop-down takes
                                 ; where a menu took eight-byte records
+wd_dpts_items:                      ; ...at the one size
+    dw wd_s_10
+wd_dfont_items:                     ; ...and Pica, with room for the faces on
+    dw wd_s_pica                ; the disk, which wd_fontscan fills in the
+    times WD_MAXFONT dw 0       ; first time the combo is opened (SPEC.md 19.8)
+
+wd_drops:                           ; every combo, in DRAWN order. One table,
+    dw wd_dfont                 ; because the six questions the rest of the
+    dw wd_dpts                  ; program asks about a combo - is one down,
+    dw wd_dstyle                ; take the press, the drag, the release, shut
+                                ; it, forget it - are all "which one" first
 
 ; --- the labels (menus.cmd, '&' removed) -------------------------------------
 wd_L_new:      db 'New...', 0
@@ -20235,6 +20422,8 @@ section .text
     WDVAR wd_mnrec, WD_MNREC_SZ
 %define WD_DREC_SZ 24           ; OS88UI_DR_SIZE, a literal for WDVAR's reason
     WDVAR wd_dstyle, WD_DREC_SZ ; the ruler's Style combo (SPEC.md 68.2.3)
+    WDVAR wd_dfont, WD_DREC_SZ  ; ...the ribbon's Font combo
+    WDVAR wd_dpts, WD_DREC_SZ   ; ...and its Pts combo
 wd_mopen  equ wd_mnrec + 16     ; byte: the open dropdown, WD_M_NONE = none.
                                 ; 0..8 the bar, 9..11 the strip combos
 wd_mhi    equ wd_mnrec + 17     ; byte: the XOR-highlighted item, 0xFF = none
