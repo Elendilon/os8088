@@ -1734,6 +1734,18 @@ SOAK = [
         " that this is not Tank Attack's lock. --clobber-tap and"
         " --clobber-hold are the two red runs",
         needs=("marty",), serial=True),
+    Row("skiesbody", "soak", py("tests/skiesbody.py"), 30.0,
+        "SPEC.md 88.7.8: the elevator is a rate about the AEROPLANE's wing"
+        " axis and every model added it straight into [cs_pitch], which is"
+        " the world's. Wings level nothing changes (cos 0, sin 0); in a 90"
+        " degree bank the world pitch stands still and the whole of"
+        " CSP_PITCHR goes into the TURN; and at pitch 180 roll 180 - upright"
+        " and facing back, which is a loop then a roll to level - the same"
+        " key moves [cs_pitch] the other way and the aeroplane CLIMBS, which"
+        " is the controls coming back the right way round with no case"
+        " analysis. The trainer is wired to it through cs_axisp."
+        " --clobber-body is the red run and it reproduces both reports",
+        needs=("marty",), serial=True),
     Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 42.0,
         "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
         " pinned scenes - four BANKED, four low among the buildings - held to"

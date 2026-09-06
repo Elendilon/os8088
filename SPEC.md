@@ -95814,6 +95814,73 @@ what decide how many aeroplanes that disk can carry**: a sixth aeroplane's
 record, cockpit, flight model and name together are under 400 bytes and its
 picture is nearly five times that.
 
+#### 88.7.8 THE ELEVATOR IS A BODY RATE, and it was a world one
+
+Reported off the glass, and it is one defect with two faces:
+
+> Hold up until you end up inverted, facing the other way. Roll to level to
+> the horizon. Up/Down are now inverted — pressing down makes the nose go
+> down, not up.
+
+> Roll 90° into a banked turn to the left. Holding up makes the plane go to
+> the plane's right (aka "towards the sky") rather than making the turn
+> steeper.
+
+The attitude is three Euler angles — `[cs_hdg]`, `[cs_pitch]`, `[cs_roll]` —
+and every model here added the elevator straight into `[cs_pitch]`. **That is
+not what an elevator does.** The stick commands a rate about the aeroplane's
+**own wing axis**, and a rotation about the *world's* pitch axis is the same
+thing only while the wings are level. Adding it to `[cs_pitch]` is
+`Rz(ψ)·Ry(θ+dθ)·Rx(φ)`, which is a rotation about the *intermediate* y axis;
+the body's is `R·Ry(dθ)`, and the two agree only at `φ = 0`.
+
+The conversion is textbook, and with no body yaw from the elevator it is two
+terms:
+
+    θ̇ = q·cos(φ)          the world PITCH
+    ψ̇ = q·sin(φ)          the HEADING
+
+`cs_elev` is those two lines: it takes the tick's body rate, adds
+`q·sin(roll)` to `[cs_hdg]` itself, and returns `q·cos(roll)` for the caller
+to ease and integrate. Every model calls it — `cs_att_free` and
+`cs_att_lag` directly, `cs_att_trim` through `cs_axisp`, which is `cs_axis`
+with the resolution in front of it.
+
+**Both faces fall out of that one line.** In a 90° bank `cos(φ)` is 0 and
+`sin(φ)` is 1, so back-pressure is *all* turn and no world pitch: the turn
+tightens, which is what a banked aeroplane does and what was asked for. And
+over the top of a loop the aeroplane is at `θ = 180°`; roll upright and
+`φ = 180°`, so `cos(φ) = −1` and the same key now *decreases* `θ` — which,
+at `θ` just under 180°, is `sin(θ)` going positive, the nose coming **up**.
+The controls are right way round again with no case analysis at all.
+
+**§88.7.2 was right about the nose vector and wrong about the stick.**
+`cs_att_free`'s note said no Euler dodge was needed at the vertical because
+`cs_matrix` reads a full-circle table and `cs_move` takes `cos(pitch)`
+negative past it. That is true, and it is a claim about where the aeroplane
+*goes*. It says nothing about how the stick reaches the angles, and the two
+were quietly treated as one question.
+
+**Two terms are deliberately dropped.** The exact conversion also carries
+`ψ̇ = …/cos(θ)` and `φ̇ = p + q·sin(φ)·tan(θ)`, and both are singular at the
+vertical — which is a place this aeroplane is expected to go. Dropping them
+costs a turn that is under-rated at high pitch (where a heading barely means
+anything) and no apparent roll under back-pressure in a bank; what it buys
+is a model with no special case, no divide and no blow-up. The coupling is
+**1:1 in angle units** and introduces no new constant: `q` and `[cs_hdg]`
+are the same 65,536-to-the-turn units, so the physics fixes the gain and
+nothing here was tuned.
+
+That gain is not small beside `CSP_TURNK`, and that is the point rather than
+an accident. The Cessna's `TURNK` is 60 a tick at full bank — 6°/s, a
+deliberately gentle trimmed turn — and its `PITCHR` is 146, so holding back
+in a 60° bank adds 126 a tick on top of 52: **17.8°/s against 5.2°/s**. A
+real C172 at 60° of bank turns at about 20°/s, so the coupled figure is the
+*more* faithful one; `TURNK` alone was the aeroplane flying a steady bank
+with nobody pulling.
+
+`tests/skiesbody.py` is the gate and `--clobber-body` the red run.
+
 ### 88.8 The session (`apps/skies/csgame.inc`)
 
 `cs_fsx_main` is the §53.1 bracket's exclusive main and has Tank's two rates:

@@ -493,7 +493,9 @@ cs_att_trim:
     mov cx, [di + CSP_PITCHT]
     mov dx, [di + CSP_MAXPITCH]
     mov si, cs_pitch
-    call cs_axis
+    call cs_axisp                   ; ...and the ELEVATOR is a body rate
+                                    ; (SPEC.md 88.7.8), so it is resolved
+                                    ; before the clamp sees it
     mov di, [cs_plane]
     mov byte [cs_stall], 0
     mov ax, [cs_spd]
@@ -528,6 +530,13 @@ cs_att_trim:
 ; vertical. That is the correct answer rather than a tolerated one - over the
 ; top of a loop the nose really does point up and BACK along the heading.
 ;
+; THAT IS A CLAIM ABOUT WHERE THE AEROPLANE GOES, AND IT WAS READ AS ONE
+; ABOUT THE STICK. Nothing above says how a key reaches the angles, and this
+; proc used to add the elevator straight into [cs_pitch] - a rotation about
+; the WORLD's wing axis rather than the aeroplane's. Roll upright after a
+; loop and the two point opposite ways, so the stick came back inverted;
+; cs_elev is the one line that fixes it (SPEC.md 88.7.8).
+;
 ; The stall drops the nose toward the EARTH and not toward zero pitch, which
 ; is the same thing only while upright: inverted, the earth is the other way.
 ; cos(roll) says which, and there is no clamp on the result.
@@ -548,6 +557,7 @@ cs_att_free:
     or ax, ax
     jz .stall
     imul word [di + CSP_PITCHR]
+    call cs_elev                    ; a BODY rate into the world (88.7.8)
     mov si, cs_pitch
     call cs_ease
     add [cs_pitch], ax
@@ -618,8 +628,9 @@ cs_att_lag:
     cbw
     imul word [di + CSP_PITCHR]
     mov si, cs_prate
-    call cs_lagax
-    jz .stall
+    call cs_lagax                   ; ...the aeroplane's own pitch rate, and
+    jz .stall                       ; it is a BODY rate like anyone's (88.7.8)
+    call cs_elev
     mov si, cs_pitch
     call cs_ease
     jnc .padd
@@ -767,12 +778,72 @@ cs_ease:
 
 ; cs_axis - one control axis: AX = the key (-1/0/1), BX = the held rate,
 ; CX = the return rate, DX = the limit, SI = the angle word. Clobbers AX, BX.
+; -----------------------------------------------------------------------------
+; cs_elev - THE ELEVATOR IS A BODY RATE (SPEC.md 88.7.8)
+; in:  AX = this tick's pitch rate about the aeroplane's OWN wing axis
+; out: AX = the part of it that turns the world PITCH; the part that turns
+;      the HEADING has been added to [cs_hdg] already
+; clobbers AX, BX, CX, DX.  Preserves SI and DI
+;
+; The stick commands a rotation about the wing axis, and adding it straight
+; into [cs_pitch] is a rotation about the WORLD's - the same thing only while
+; the wings are level. Two terms convert it, and neither needs a constant:
+;
+;     world pitch += q cos(roll)          heading += q sin(roll)
+;
+; In a 90 degree bank cos is 0 and sin is 1, so back-pressure is all turn and
+; no pitch - which is what a banked aeroplane does. Over the top of a loop
+; the roll is 180 and cos is -1, so the same key moves the nose the other way
+; round the circle, which is the right way UP: the controls come back the
+; right way round with no case analysis at all.
+;
+; The exact conversion divides the heading term by cos(pitch) and adds
+; q sin(roll) tan(pitch) to the roll. BOTH ARE DROPPED: they are singular at
+; the vertical, which is somewhere this aeroplane goes, and what they buy -
+; a turn that keeps its rate at high pitch, and apparent roll under
+; back-pressure in a bank - is worth less than a model with no blow-up in it.
+; -----------------------------------------------------------------------------
+cs_elev:
+    push si
+    push di
+    push ax                         ; the body rate, past cs_sin's clobbers
+    mov ax, [cs_roll]
+    call cs_sin
+    mov bx, ax
+    pop ax
+    push ax
+    MUL14                           ; q sin(roll): the HEADING, and this proc
+    add [cs_hdg], ax                ; is the only place it is applied
+    mov ax, [cs_roll]
+    call cs_cos
+    mov bx, ax
+    pop ax
+    MUL14                           ; q cos(roll): the world PITCH, back to
+    pop di                          ; the caller to ease and integrate
+    pop si
+    ret
+
+; cs_axisp - cs_axis for the PITCH axis, which is a BODY rate (88.7.8) and is
+;            resolved into the world before the ease, the add or the clamp
+;            sees it. Same registers in and out
+cs_axisp:
+    or ax, ax
+    jnz .live
+    jmp cs_axis.ret
+.live:
+    push dx                         ; DX is the limit, and both imul and
+    imul bx                         ; cs_elev write it
+    call cs_elev
+    pop dx
+    jmp cs_axis.eased
+
 cs_axis:
     or ax, ax
     jz .ret
     push dx                         ; imul writes DX, and DX is the limit
     imul bx
     pop dx
+.eased:
     call cs_ease                    ; ...and the horizon takes the last three
     add ax, [si]                    ; ticks of an approach (88.7.3)
     cmp ax, dx
