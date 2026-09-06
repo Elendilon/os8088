@@ -1515,6 +1515,61 @@ package rules, 0.8s, and it parses the Makefile as *text* because `make -p`,
 deletes `build/kernel.bin`. With the fix in, the deletion measures **5 bytes**
 against the 4 this document estimated.
 
+### 10.4 §2.1.1 item 1 — the overlay takes the top-down door
+
+**Built, in `apps/cc/crt0.asm` and `apps/word/word.asm`. Zero kernel bytes,
++16 bytes of every C package.** This document's own ranking put it first of
+everything because `CWORD.OVL` is **18,565 bytes** — bigger than every kernel
+module in the tree put together — claimed through the LOW door and pinned for
+the program's whole life. It was SPEC.md 50.3.2.1's defect one layer out from
+the two driver images that section fixed, and the fix is a slot number.
+
+**The C half took the declaration too, and the reason it is safe is worth
+recording**, because §66.6's general refusal is *"every saved CS on every
+stack"* and an overlay is code. An overlay has exactly one way to put its own
+CS on a stack: the `call far` into `cc_ovthunk`. **That thunk discards it** —
+`pop dx ... discarded rather than stashed` — and rebuilds the `retf` from
+`[cc_ovseg]` *after* the call returns, at every level of the nest. So a move
+that happened inside a resident routine is invisible to the return path, and
+`cc_ovbind` (already written, for a different reason) fixes the `cc_ovm_*`
+vectors. `cc_ovreloc` is **four bytes**: one store, falling through into
+`cc_ovbind`. The property was written because there is only one module; it is
+what makes the declaration free.
+
+**Word takes the placement and REFUSES the declaration**, and the difference
+between the two packages is exactly the shim convention. `wd_s_*` is
+`call`/`retf`, so the module's CS is on the stack for the whole of every
+shimmed routine and a move under one returns into memory that is no longer
+there. Changing that is a shim redesign, not a declaration. (`WORD.OVL` is an
+18-byte ping stub today, so Word's half is prophylactic — but `WD_OVKB` is
+claimed whole whatever the module holds.)
+
+**`tests/ovlhigh.py` is the gate** (soak, `marty`+`cc`, 14.5s of a declared
+20). It boots CWORD, presses **F5** — `CWA_GOTO` → `ovl_dlg_open`, an overlay
+function, so `cc_ovneed` claims, reads and binds — and then reads `mem_tab`
+from outside the guest for four facts: `MC_HI` is 1, the claim is above every
+bottom-up claim, it is packed against the ceiling with no hole above it, and
+`MC_RLOC` is not 0. The last is the one SPEC.md 66.5.6.2 exists because nobody
+made: `mem_movable`'s fence is *yours, or not at all*, so a refused
+declaration is a CF the caller discards and looks identical from inside the
+package. It is a key rather than a menu pick because CWORD draws its own menu
+bar inside its window, so the kernel's bar carries only Apple and the app's
+name.
+
+**Verified to fail in both halves**, separately:
+
+| arm | result |
+|---|---|
+| shipped | 6 checks pass; the overlay is at `8c40`, 19KB, `MOVABLE HI`, abutting the region at `9100` |
+| `_HI` → `MEM_CLAIM` | 3 red: `MC_HI` 0, the claim at `2fc0` **inside the arena**, and a 371KB hole above it |
+| the `OSAPI_MEM_MOVABLE` call removed | 1 red: `MC_RLOC` 0 |
+
+The middle row is the before-picture in one line, and it also confirms this
+document's §2.1 finding on a running machine: **a package REGION is itself a
+top-down claim** (`9100`, 60KB, HI), so "highest fit" puts the overlay
+directly below the region rather than above everything — abutting the CS-based
+group at the ceiling, which is where it belongs.
+
 ---
 
 ## 10.1 How the rest would be verified

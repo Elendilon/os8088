@@ -19840,7 +19840,31 @@ wd_ovneed:
     mov bl, [wd_ovdrv]
     call OSAPI_FILE_GOTO
     mov ax, WD_OVKB
-    call OSAPI_MEM_CLAIM
+    call OSAPI_MEM_CLAIM_HI         ; FROM THE TOP (SPEC.md 50.3.2): this
+                                    ; block's base is a CS, which is that
+                                    ; rule's own first clause, and it was
+                                    ; taking the low door - WD_OVKB of pinned
+                                    ; image in the middle of the arena for as
+                                    ; long as Word is open. SPEC.md 50.3.2.1's
+                                    ; defect one layer out.
+                                    ;
+                                    ; AND IT IS NOT DECLARED MOVABLE, where the
+                                    ; C SDK's overlay is (apps/cc/crt0.asm),
+                                    ; because the two shim conventions differ
+                                    ; in exactly the way that decides it: the
+                                    ; C one funnels every inbound call through
+                                    ; cc_ovthunk, which DISCARDS the module's
+                                    ; CS and re-derives it from [cc_ovseg] on
+                                    ; the way back, so a move under a resident
+                                    ; routine is invisible. wd_s_* is
+                                    ; `call/retf`, so the module's CS is on the
+                                    ; stack for the whole of every shimmed
+                                    ; routine and a move under one returns into
+                                    ; memory that is no longer there - SPEC.md
+                                    ; 66.6's "every saved CS on every stack",
+                                    ; in a package rather than in the kernel.
+                                    ; Changing that is a shim redesign and not
+                                    ; a declaration
     jc .nomem
     mov [wd_ovseg], dx
     mov word [wd_ovfar], 0          ; the far pointer wd_ovcall goes through:

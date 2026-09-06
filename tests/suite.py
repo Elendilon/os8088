@@ -1469,6 +1469,18 @@ SOAK = [
         "the mouse ISR draws in? (SPEC.md 7/12.8.4, docs/FIELD-NOTES.md 34) "
         "Rebuilds the tree, because the counters are a knob kernel",
         needs=("marty", "nasm"), serial=True),
+    Row("ovlhigh", "soak", py("tests/ovlhigh.py"), 20.0,
+        "docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 1: a C package's OVERLAY is "
+        "claimed from the TOP (SPEC.md 50.3.2 - its base is a CS) and declares "
+        "itself movable. CWORD.OVL is 18,565 bytes, bigger than every kernel "
+        "module put together, and it took the low door for as long as overlays "
+        "have existed. It reads MC_HI, the placement and MC_RLOC out of "
+        "mem_tab, because a declaration mem_movable REFUSED looks identical "
+        "from inside the package (SPEC.md 66.5.6.2). Verified to fail in both "
+        "halves: the low door reddens three checks, dropping the declaration "
+        "reddens the fourth",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/cword360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",
