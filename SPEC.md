@@ -44106,36 +44106,6 @@ working exactly as intended. The machine really has no card.
   still jitters at tick scale behind the mouse ISR. Interrupt-paced
   speaker PCM is the same arithmetic and is rejected with it: speaker PCM
   is the §34.4 busy loop or nothing.
-  **THE ONE EXCEPTION, and it is an exception with a refusal attached:**
-  `OSAPI_PIT_LEND` (§88.5) re-*modes* channel 0 for the length of ONE ROM
-  call, because the 5150's cassette routines discriminate a bit against
-  constants that only mean what they say at the BIOS's own mode 3 — 888 and
-  1,776, which are mode 3's two readable counts per PIT clock. Under this
-  kernel's mode 2 every reading halves and `int 15h AH=02` can never find a
-  leader, returning `AH=04` — the same answer as an empty deck (§88.0).
-  Five things make it an exception rather than a relaxation:
-  **`sched.inc` is still the only writer** — the cell lives there, beside
-  `sch_fast_on`, and no package, driver or module writes the chip;
-  **it is one call's worth**, entered and left by the same code path;
-  **nothing can observe it**, because the ROM masks IRQ0 at the PIC for the
-  whole call and the caller runs `IF = 0`, so no `sch_account`, no
-  `sch_pit_now` reader and no other task runs inside the window;
-  **the divisor is unchanged** across the bracket, so §8.1's 65536 radix,
-  the 0x8000 threshold and every tick-denominated constant are as untouched
-  as the paragraph above requires — and the restore is `sch_fast_off`'s,
-  **`[sch_pit_last]` re-seed included**, or the first full tick after the
-  bracket charges a whole bracket's worth of garbage to whoever runs next;
-  and **it is refused outright while `[sch_fast]` is set**, because the
-  restore cannot then be a constant — a blind `0x34 / 0 / 0` with the
-  sub-tick divider still armed leaves the wall clock running N times slow
-  for the rest of the session, silently. An 8253 has no read-back command,
-  so the value cannot be recovered from the chip; the kernel restores it
-  because the kernel is what wrote it.
-  **The refusal above is untouched and still stands.** Re-rating ch0 for
-  sample pacing remains rejected on its own arithmetic; this exception
-  re-modes it, does not re-rate it, and buys a machine the ability to read
-  a tape it has just written rather than a few percent of a sound driver.
-
   **The one exception, and it is an exception with a refusal attached
   (§88.5).** `sch_pit_lend`, the body of `OSAPI_PIT_LEND`, hands channel 0
   to a ROM routine whose own constants assume the BIOS's mode 3 — the IBM
