@@ -188,7 +188,10 @@ def main(argv):
         m.type_text("f")                        # into the bracket
         m.advance(frames=60)
         m.run()
-        back, ww, wh = r.byte("cs_back"), r.word("cs_ww"), r.word("cs_wh")
+        # cs_viewh, not cs_wh: cs_pclip BORROWS cs_wh for the length of the
+        # panel's own drawing, so a live sample of that word answers with the
+        # box's height whenever it lands inside the cockpit (SPEC.md 88.9.2.3)
+        back, ww, wh = r.byte("cs_back"), r.word("cs_ww"), r.word("cs_viewh")
         print("  backend %d, view %dx%d in a %dx%d box"
               % (back, ww, wh, r.word("cs_vw"), r.word("cs_vh")))
         if back == 0:
@@ -199,7 +202,7 @@ def main(argv):
         want = {3: (400, 112), 2: (320, 112), 1: (320, 144)}.get(back)
         if want and (ww, wh) != want:
             bad.append("backend %d drew a %dx%d view, not %dx%d (SPEC.md 88.3)"
-                       % (back, ww, wh) + want)
+                       % (back, ww, wh, want[0], want[1]))
 
         # --- on the runway, engine off, the take-off prompt up ----------------
         st, spd, thr = r.byte("cs_state"), r.word("cs_spd"), r.word("cs_thr")

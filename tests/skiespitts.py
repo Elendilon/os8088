@@ -21,8 +21,12 @@ So the row flies BOTH from the same pinned state and holds them apart:
      pilot notices first;
   4. held nose-up, the Pitts goes over the top: pitch passes 90 degrees,
      which the trainer's clamp forbids;
-  5. its panel is a different arrangement - not one window in the same place
-     as the Cessna's - and it carries decorations the trainer has none of.
+  5. its panel is its own arrangement. The LAYOUT ROWS are shared on purpose
+     since 88.9.8 - a cockpit is a grid, and five aeroplanes wandering off
+     it read as five accidents - so what this asserts is what actually
+     differs: the attitude indicator sits off the centreline and at its own
+     size, at least one readout is on the other side of the panel, and the
+     two decoration sets are different lengths and different instruments.
 
 The attitudes are pinned by poke rather than flown up to, for the reason
 tests/skiesperf.py pins its scenes: two aeroplanes have to be asked the same
@@ -126,16 +130,25 @@ def main(argv):
             wp, nw = rec(k, 0), rec(k, 2)
             wins[name] = [tuple(sg(rec(wp, 8 * i + 2 * j)) for j in range(4))
                           for i in range(nw)]
-            wins[name + "_deco"] = rec(k, 18)
-        # ...the message strip is the full width on both and cannot move, so
-        # the claim is about the six that can
-        same = [x for x, y in zip(wins["c172"], wins["pitts"]) if x == y]
-        check(len(same) == 1 and same[0][0] == 0 and same[0][2] > 300,
-              "only the full-width message strip is in the same place (%d shared: %s)"
-              % (len(same), same))
-        check(wins["pitts_deco"] > 0 and wins["c172_deco"] == 0,
-              "the Pitts carries %d decorations and the trainer none"
-              % wins["pitts_deco"])
+            wins[name + "_deco"] = rec(k, 16)         # CSK_NDECO
+        # ...they share the layout's ROWS by design (88.9.10), so the claim
+        # is that at least one readout is on the other side of the panel -
+        # a shared grid is not a shared panel
+        moved = [(x, y) for x, y in zip(wins["c172"], wins["pitts"]) if x != y]
+        check(moved and all(x[1] == y[1] for x, y in moved),
+              "a readout is on the other side and the rows still line up "
+              "(%d moved: %s)" % (len(moved), moved))
+        for name, at in (("c172", mp["cs_p_c172"]), ("pitts", mp["cs_p_pitts"])):
+            k = rec(at, 32)
+            wins[name + "_adi"] = (sg(rec(k, 6)), sg(rec(k, 8)), sg(rec(k, 10)))
+        check(wins["c172_adi"] != wins["pitts_adi"],
+              "the attitude indicator is the Pitts' own: %s against the "
+              "trainer's %s" % (wins["pitts_adi"], wins["c172_adi"]))
+        check(wins["pitts_deco"] > 0 and wins["c172_deco"] > 0
+              and wins["pitts_deco"] != wins["c172_deco"],
+              "both wear decorations and they are not the same set "
+              "(Pitts %d, trainer %d)"
+              % (wins["pitts_deco"], wins["c172_deco"]))
 
         # --- fly each of them from the same pinned attitude ------------------
         def pick(row):

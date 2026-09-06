@@ -49,11 +49,22 @@ def diagmap():
     The listing rather than a map: nasm -f bin has no map, and these are
     absolute offsets in the package's one segment either way."""
     lst = os.path.join(ROOT, "build", "skiesdiag", "skies.lst")
+    binp = os.path.join(ROOT, "build", "skiesdiag", "skies.map.bin")
     os.makedirs(os.path.dirname(lst), exist_ok=True)
     subprocess.check_call(
         ["nasm", "-f", "bin", "-w+error", "-I", "apps/", "-I", "apps/skies/",
-         "-DCSDIAG", "-l", lst, "-o", os.devnull, "apps/skies/skies.asm"],
+         "-DCSDIAG", "-l", lst, "-o", binp, "apps/skies/skies.asm"],
         cwd=ROOT)
+    # ...AND THE PRIVATE TREE HELD TO IT, os88sym's rule one level down: the
+    # disk is built by `make skiesdiag` and nothing re-runs it, so a source
+    # change leaves a tree whose addresses are plausible and wrong - which
+    # reads as the watchdog being broken rather than as a stale build
+    built = os.path.join(ROOT, "build", "skiesdiag", "skies.bin")
+    if not os.path.exists(built) or open(built, "rb").read() != \
+            open(binp, "rb").read():
+        sys.exit("skiesdiag: build/skiesdiag/ is BEHIND apps/skies/ - every "
+                 "address below would describe a package the guest has not "
+                 "got. Run `make skiesdiag`.")
     out, text = {}, open(lst, errors="replace").read()
     for name, pat in (("cs_spguard2", r"mov si, cs_spguard2"),
                       ("cs_dtick", r"mov word \[cs_dtick\], 0"),

@@ -216,6 +216,17 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("cspanel", "fast", py("tests/unit/t_cspanel.py"), 1.0,
+        "SPEC.md 88.9.5/88.9.8: the five CLEAR SKIES cockpits fit, on all"
+        " three adapters. A panel is one drawing in TWO units that do not"
+        " scale together - a window's width is CELLS and a cell is 8 device"
+        " pixels, while its x is the 320-wide layout's, which Hercules"
+        " doubles - so a layout that is tidy on CGA can overlap on Hercules"
+        " and a test that looks at one adapter sees neither. No two windows"
+        " overlap, no round instrument overlaps a window or another"
+        " instrument, every window is wide enough for what is lettered into"
+        " it and no more than four cells wider, and everything is inside the"
+        " panel"),
     Row("csworld", "fast", py("tests/unit/t_csworld.py"), 2.0,
         "SPEC.md 88.6.3: no collidable building in any CLEAR SKIES world"
         " stands in that world's own water - every base footprint against"

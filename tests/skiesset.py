@@ -319,16 +319,32 @@ def main(argv):
             m.run()
             return sum(out) / len(out)
 
+        POSE = (("cs_px", 150), ("cs_py", 300), ("cs_pz", -900))
+
         def pin():
-            """Over the city, the world paused, every skip cleared."""
+            """Over the city, the world paused, every skip cleared.
+
+            THE PAUSE GOES ON FIRST AND A FRAME IS LET BY (docs/WRITING-TESTS
+            13 row 22). `m.pause()` can land in the middle of `cs_step`, and
+            that step finishes when the guest resumes - writing its own
+            cs_px/py/pz over the pose this just wrote. The aeroplane is then
+            somewhere else, and at Low detail somewhere else is a different
+            number of objects: it read 4 in one run and 11 in the next off
+            the same script. cs_pause is tested at the top of the sim loop
+            (SPEC.md 88.13.5), so once a frame has gone by with it set no
+            step is in flight and the pose stands. Then it is CONFIRMED,
+            because a pin nothing reads back is a pin nothing has."""
             m.pause()
-            for nm, v in (("cs_px", 150), ("cs_py", 300), ("cs_pz", -900)):
+            m.write(lin + base + off("cs_pause"), b"\x01")
+            m.run()
+            m.advance(frames=2)
+            m.pause()
+            for nm, v in POSE:
                 m.write(lin + base + off(nm), ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
             m.write(lin + base + off("cs_hdg"), (30 * 65536 // 360).to_bytes(2, "little"))
             m.write(lin + base + off("cs_pitch"),   # NOSE DOWN, so the view is
                     ((-20 * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             m.write(lin + base + off("cs_state"), b"\x01")
-            m.write(lin + base + off("cs_pause"), b"\x01")
             # THE WORLD IS THE PICKED LOCATION'S since SPEC.md 88.6.4, so the
             # skips to clear are the ones in the table its record names and
             # not a global cs_objtab, which no longer exists.
@@ -338,6 +354,16 @@ def main(argv):
             for o in range(objs, objs + nobj * 20, 20):
                 m.write(lin + o + 18, b"\x00\x00")
             m.run()
+            m.advance(frames=2)
+            m.pause()
+            got = [int.from_bytes(m.read(lin + base + off(nm), 4), "little",
+                                  signed=True) for nm, _ in POSE]
+            m.run()
+            want = [v * 256 for _, v in POSE]
+            if got != want:
+                sys.exit("skiesset: the pose did not take - %s against %s. "
+                         "The world was still stepping when it was written "
+                         "(docs/WRITING-TESTS.md 13 row 22)" % (got, want))
 
         m.type_text("f")                            # off the page first: any
         m.advance(frames=40)                        # key returns to the title
