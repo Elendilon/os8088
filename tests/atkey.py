@@ -34,6 +34,7 @@ sys.path.insert(0, "/home/user/os8088/tools")
 sys.path.insert(0, "/home/user/os8088/tests")
 import os88fixture                                       # noqa: E402
 import os88marty, os88ui, os88build, os88geom            # noqa: E402
+import os88mouse                                         # noqa: E402
 
 ROOT = "/home/user/os8088"
 HZ = 4772727.0                       # the 5150's 8088
@@ -65,7 +66,7 @@ def pkg_syms(defines=()):
 
 
 def measure(img, apps, machine, tree, lines, samples, scroll=False,
-            key=None, ctrl=None):
+            key=None, ctrl=None, zoom=False):
     tree.apply()
     syms = pkg_syms(["-D" + a.split("=")[0] for a in tree.args
                      if a.startswith("NOAT")])
@@ -86,6 +87,57 @@ def measure(img, apps, machine, tree, lines, samples, scroll=False,
                 m, lambda _: u16(m.readseg(seg, caret, 2)) == n,
                 "ArtfulType to absorb %d characters" % n, poll=0.05,
                 limit=120.0)
+
+        # --- the ZOOM scene: the one command that double-draws the page ----
+        # A Zoom In is the whole-page command that changes the GEOMETRY -
+        # at_lgeom's cell width and row height both move, and at_maxtop, the
+        # wrap, the line table and the scroll bar's travel move with them.
+        # Driven through the app's
+        # OWN menu bar - os88ui.menu_pick reads the kernel's tables and a
+        # fullscreen ArtfulType draws its own (46.5) - with at_mcell's
+        # geometry mirrored here and at_menu_track's press-drag-release idiom.
+        top = syms["at_top"]
+        if zoom:
+            want = 0
+            for _ in range(24):
+                m.key("Enter")
+                want += 1
+                absorbed(want)
+                m.type_text("x")
+                want += 1
+                absorbed(want)
+            ui.settle()
+            VIEW_X = 8 + (8*4 + 16) + (8*4 + 16) + (8*5 + 16) + (8*4 + 16)//2
+            mo = os88mouse.Mouse(marty=m)
+            onkey = seg * 16 + syms["at_onkey"]
+            out = []
+            for i in range(samples):
+                item = 3 if i % 2 == 0 else 4        # Zoom In / Zoom Out
+                mo.to(VIEW_X, 9)
+                mo._edge(True)
+                mo.to(VIEW_X, 21 + 13 * item + 6, l=True)
+                m.bp_exec(onkey)
+                m.run()
+                mo._edge(False)                      # the release IS the command
+                if not m.wait_stop(limit=90.0):
+                    sys.exit("atkey: at_onkey never ran after the menu pick")
+                r = m.regs()
+                ret = u16(m.read((r["ss"] << 4) + r["sp"], 2))
+                m.bp_exec(seg * 16 + ret)
+                c0 = m.status()["cycles"]
+                m.run()
+                if not m.wait_stop(limit=300.0):
+                    sys.exit("atkey: at_onkey never returned from the zoom")
+                out.append(m.status()["cycles"] - c0)
+                m.bp_exec()
+                m.run()
+                os88marty.quiesce(
+                    m, lambda: m.readseg(seg, syms["at_zoom"], 2)
+                    + m.readseg(seg, top, 2) + m.readseg(seg, caret, 2),
+                    what="ArtfulType to finish the zoom")
+            return (out, u16(m.readseg(seg, syms["at_rlk"], 2)),
+                    u16(m.readseg(seg, syms["at_dfrom"], 2)),
+                    u16(m.readseg(seg, syms["at_nlines"], 2)))
 
         # --- the SCROLL scene: a document taller than the view -------------
         # 46.4.4 changes at_scroll_to and nothing a character types reaches
@@ -215,6 +267,10 @@ def main():
     ap.add_argument("--ctrl",
                     help="bracket this key with Control held - Ctrl+Z is "
                          "AT_CMD_UNDO, one of 46.4.5's three whole-page tails")
+    ap.add_argument("--zoom", action="store_true",
+                    help="bracket a ZOOM IN chosen from the app's own menu "
+                         "bar - the one command that pushes the caret "
+                         "off-view and so makes 46.4.5's tail draw twice")
     ap.add_argument("--scroll", action="store_true",
                     help="bracket a PAGEDOWN on a document taller than the "
                          "view, instead of a character in a paragraph")
@@ -235,7 +291,7 @@ def main():
         cyc, rlk, dfrom, nlines = measure(t.img("os8088-360.img"),
                                           t.img("apps360.img"), machine, t,
                                           a.lines, a.samples, a.scroll,
-                                          a.key, a.ctrl)
+                                          a.key, a.ctrl, a.zoom)
         res[name] = cyc
         best = min(cyc)
         print("   %-22s %s cycles  -> %.1f ms  "

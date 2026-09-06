@@ -340,36 +340,42 @@ crash and not a wrong picture — the flag simply degraded to "scan everything",
 which is the old behaviour. `artful.asm` now carries a `%error` that fires on
 exactly that shape, and it was verified to fire.
 
-**WAVE 2a IS REFUSED TOO, and for a different reason from 2b.** It was built —
-`at_seecaret_t` answering which `[at_top]` would show the caret, and the three
-whole-page tails setting it before drawing instead of drawing, scrolling and
-drawing again. It drew 0 differing pixels in all four scenes, and it could
-neither be shown to save anything nor be shown to be safe:
+**WAVE 2a IS REFUSED, and the second attempt is the one that settles it.** The
+first pass could not reach the tails at all and I wrongly concluded the harness
+could not drive ArtfulType's own menu bar. It can: `os88ui.menu_pick` reads the
+KERNEL's menu tables and so cannot see a fullscreen app's own bar, but that is
+a convenience layer, not a limit — the mouse driver takes **absolute
+coordinates**, so mirroring `at_mcell`'s geometry (the bar starts 8px in, each
+title cell is `8*len + 16`) and `at_mitem_at`'s (`(y - 21) / AT_ITEMH`) drives
+any of them with `at_menu_track`'s own press-drag-release idiom.
 
-- The tails only double-draw when `at_seecaret` would actually scroll, which
-  needs the caret OFF-VIEW after the operation. Undo collapses the document
-  (`at_nlines` 1, caret 0), so it never scrolls; measured, an undo was
-  260,689 cycles against 261,060 — **1.001x**.
-- Its named hazard — `at_seecaret_t` answering 0 instead of `[at_top]` on the
-  already-visible exit — was broken on purpose twice and the gate stayed
-  GREEN, for the same reason: in every reachable scene the two answers
-  coincide.
+With Zoom In drivable, the answer is a **call count**, which is what
+PERFORMANCE.md says a redraw is priced by:
 
-**The case that would show both is a ZOOM CHANGE**: taller lines push the caret
-off the bottom, so the tail draws the page, scrolls, and draws it again. It is
-not reachable from the harness today — ArtfulType draws its OWN menu bar in
-fullscreen (§46.5), so `os88ui.menu_pick`, which reads the kernel's menu
-tables, does not see it; driving Zoom In needs a click resolved from
-`at_mcell`'s own cell arithmetic. **That is the one piece of harness work that
-would let 2a be settled**, and it would serve every other menu-driven path in
-this app as well.
+    at_draw_text entries per ZOOM IN:  1 shipped,  1 with the hoist removed
 
-Shipping it unmeasured would have meant a silent view jump on the zoom,
-Style > None and undo paths in exactly the cases nothing here can see — which
-is the failure mode this project's rules exist to prevent.
+**There is no double repaint.** The tails clamp `[at_top]` to `at_maxtop`
+*before* drawing, and after a zoom that clamp already puts the view where the
+caret is — so `at_seecaret` finds it visible and never scrolls. The same holds
+for undo (which collapses the document) and for Style > None. The plan's
+"104 far calls → 52, exactly halved" assumed the second repaint always happens;
+it essentially never does.
+
+The case that would double-draw needs the caret off-view after the command,
+which needs the view scrolled **without the caret moving** — reachable only by
+dragging the scroll bar or its arrows. That is a narrow enough case that 30
+bytes and a new failure mode are not worth it, and the arithmetic for it would
+have to be taken on that path rather than assumed.
+
+**What was worth keeping is the harness.** The zoom scene stays in
+`tests/atblit.py` as general coverage: the zoom/mode change is the only
+command that moves the GEOMETRY every other wave's arithmetic is expressed in
+— `at_lgeom`'s cell width and row height, and with them `at_maxtop`, the wrap,
+the line table and the scroll bar's travel — and it asserts a zoom is
+reversible, which nothing else did. It also proves a menu-driven path is
+testable, which the rest of this app's commands need.
 
 **What is left, re-ranked on the measurement rather than the prediction.**
 3b (the scaled row in registers, which is the only item that helps scale 2 and
 3 and so every heading) and 3c (skipping a blank glyph) are unchanged and
-smaller. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, and
-2a needs the menu-bar click above before it can be judged at all. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+smaller. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.

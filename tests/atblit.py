@@ -50,6 +50,7 @@ ROOT = "/home/user/os8088"
 def u16(b, i=0):
     return b[i] | (b[i + 1] << 8)
 import os88marty, os88ui, os88build, os88sym, os88geom   # noqa: E402
+import os88mouse                                         # noqa: E402
 import os, subprocess, tempfile                          # noqa: E402
 
 # Every style ArtfulType can draw, so a missed writer has somewhere to show.
@@ -141,38 +142,38 @@ def drive(img, apps, machine, tree, census, shot=None):
         ui.settle()
         caret = syms["at_caret"]
 
-        def absorbed(n):
-            """Wait until the APP says it has taken n characters.
+        def key1(send, what):
+            """Send one keystroke and wait for the APP to take it.
 
-            THIS IS THE WHOLE REASON THE ROW IS HONEST. type_text fires keys
-            as fast as the debug server accepts them, and one ArtfulType
+            SELF-SYNCING, and it has to be: a counter of typed characters is
+            only equal to at_caret while typing forward from the start, and
+            every nav key, undo and menu command below moves the caret
+            somewhere else. Counting then waits for a number that can never
+            arrive and sits out the whole guest budget.
+
+            The wait itself is the load-bearing part. type_text fires keys as
+            fast as the debug server accepts them, and one ArtfulType
             keystroke is 50-190 ms of 4.77 MHz work, so the kernel's key queue
-            overflows and `kbd_ovflow` drops what will not fit. The first run
-            of this gate typed the document into BOTH arms and got two
-            DIFFERENT garbled documents - the slow arm dropped more - and
-            reported 4,214 differing pixels, which reads exactly like a
-            rendering bug and is not one. Pacing on the app's own caret makes
-            the two arms receive the same text by construction; it is also
-            the only way this row could ever have compared anything.
+            overflows and kbd_ovflow drops what will not fit. The first run of
+            this gate typed the document into BOTH arms and got two DIFFERENT
+            garbled documents - the slow arm dropped more - and reported 4,214
+            differing pixels, which reads exactly like a rendering bug.
             """
+            before = m.readseg(seg, caret, 2)
+            send()
             os88marty.until(
-                m, lambda _: u16(m.readseg(seg, caret, 2)) == n,
-                "ArtfulType to absorb %d characters" % n, poll=0.05, limit=90.0)
+                m, lambda _: m.readseg(seg, caret, 2) != before,
+                "ArtfulType to take " + what, poll=0.05, limit=120.0)
 
-        n = 0
+        def typec(ch):
+            key1(lambda: m.type_text(ch), repr(ch))
 
         def typedoc():
-            nonlocal n
             for i, line in enumerate(DOC):
                 if i:
-                    m.key("Enter")
-                    n += 1
-                    absorbed(n)
+                    key1(lambda: m.key("Enter"), "Enter")
                 for ch in line:
-                    m.type_text(ch)
-                    n += 1
-                    absorbed(n)
-            return n
+                    typec(ch)
 
         if census:
             for sym in COUNTED:
@@ -191,12 +192,8 @@ def drive(img, apps, machine, tree, census, shot=None):
         # against ~64 characters of filler - and PageUp then forces the
         # UPWARD arm, which is the one whose dy at_sumn negates.
         for _ in range(22):
-            m.key("Enter")
-            n += 1
-            absorbed(n)
-            m.type_text("x")
-            n += 1
-            absorbed(n)
+            key1(lambda: m.key("Enter"), "Enter")
+            typec("x")
         ui.settle()
 
         # PACE THE NAVIGATION TOO, and on the app's own state. A settle can
@@ -218,36 +215,108 @@ def drive(img, apps, machine, tree, census, shot=None):
 
         nav("PageUp")
         nav("PageDown")
-        # RESYNC. `absorbed` waits for at_caret to reach a COUNT of typed
-        # characters, which is only the same number while typing forward from
-        # the start - the nav keys above just moved the caret somewhere else
-        # entirely, and the next wait would sit out its whole guest budget
-        # waiting for a number that can never arrive.
-        n = u16(m.readseg(seg, caret, 2))
         ui.settle()
         w3, h3, scrolled = m.fbuf()
         if shot:
             os88marty.write_png_rgb(shot.replace(".png", "-scroll.png"),
                                     w3, h3, scrolled)
 
-        # --- SCENE 4: UNDO ------------------------------------------------
-        # 46.4.5 changes three whole-page tails - Style > None, the zoom/mode
-        # change and Undo/Redo - and none of the three scenes above reaches
-        # one. Ctrl+Z is the cheapest to drive (at_ctltab: 26 -> AT_CMD_UNDO)
-        # and lands in at_undo's tail, which both clamps the top and can
-        # scroll.
+        # --- SCENE 4: ZOOM IN, through ArtfulType's OWN menu bar -----------
+        # The zoom/mode change is one of ArtfulType's three whole-page
+        # commands (SPEC.md 46.1) and the ONLY one that changes the geometry
+        # every other wave's arithmetic is expressed in - at_lgeom's cell
+        # width and row height both move, so at_maxtop, the wrap, the line
+        # table and the scroll bar's travel all move with them. Nothing else
+        # in this row exercises that.
         #
-        # THE SECOND TYPING RUN IS WHAT MAKES THE SCENE ABLE TO FAIL. Undoing
-        # the FIRST run collapses the document to one line, so [at_top] and 0
-        # coincide - and 46.4.5's named hazard is at_seecaret_t answering 0
-        # instead of [at_top] on the already-visible exit, which that scene
-        # cannot tell apart. The nav keys above closed the first run
-        # ([at_typrun]), so this is a run of its own: undoing it leaves the
-        # document tall, the view scrolled and the two answers different.
+        # IT RUNS BEFORE THE UNDO AND THAT ORDER MATTERS: undo collapses this
+        # document to one line, and a one-line document has [at_top] = 0, no
+        # scroll bar and nothing to relayout, so a zoom there would test
+        # almost none of the above.
+        #
+        # os88ui.menu_pick cannot reach this menu: it reads the KERNEL's menu
+        # tables, and a fullscreen ArtfulType draws its own bar (SPEC.md 46.5).
+        # That is a convenience layer, not a limit - the mouse driver takes
+        # absolute coordinates, so the app's own bar is drivable by mirroring
+        # its geometry, and this is the only way to reach any of ArtfulType's
+        # fullscreen menu commands from a test.
+        # The geometry is at_mcell's, mirrored here - the bar starts 8px in and
+        # each title cell is 8*len + 16 - and at_mitem_at's, which is
+        # (y - 21) / AT_ITEMH. The press-drag-release is the Mac idiom that
+        # at_menu_track is written around, not a click.
+        for ch in "zoom":
+            typec(ch)
+        ui.settle()
+        VIEW_X = 8 + (8*4 + 16) + (8*4 + 16) + (8*5 + 16) + (8*4 + 16)//2
+        ZIN_Y = 21 + 13*3 + 6           # Markdown, Writer, separator, Zoom In
+        mo = os88mouse.Mouse(marty=m)
+        mo.to(VIEW_X, 9)
+        mo._edge(True)                  # press on View
+        if not u16(m.readseg(seg, syms["at_menuon"], 2)) & 0xFF:
+            raise SystemExit("atblit: the View menu did not open at x=%d - "
+                             "at_mcell's geometry has moved" % VIEW_X)
+        mo.to(VIEW_X, ZIN_Y, l=True)    # drag onto Zoom In
+        mo._edge(False)                 # ...and release: that is the command
+        os88marty.quiesce(
+            m, lambda: m.readseg(seg, syms["at_zoom"], 2)
+            + m.readseg(seg, syms["at_top"], 2)
+            + m.readseg(seg, caret, 2),
+            what="ArtfulType to finish the zoom")
+        if not u16(m.readseg(seg, syms["at_zoom"], 2)) & 0xFF:
+            raise SystemExit("atblit: [at_zoom] is still 0 - the Zoom In item "
+                             "was not chosen, so this scene tested nothing")
+        ui.settle()
+
+        # ...and back OUT again, which is the other half of the geometry
+        # change and the one that puts the row back in a comparable state:
+        # the lines shrink, more of them fit, at_maxtop grows and the view
+        # stays scrolled. Capturing after the round trip is what makes the
+        # scene assert that a zoom is REVERSIBLE - a wave that got at_lgeom's
+        # arithmetic subtly wrong would come back to a different picture.
+        mo.to(VIEW_X, 9)
+        mo._edge(True)
+        mo.to(VIEW_X, 21 + 13 * 4 + 6, l=True)      # Zoom Out
+        mo._edge(False)
+        os88marty.quiesce(
+            m, lambda: m.readseg(seg, syms["at_zoom"], 2)
+            + m.readseg(seg, syms["at_top"], 2)
+            + m.readseg(seg, caret, 2),
+            what="ArtfulType to finish the zoom out")
+        if u16(m.readseg(seg, syms["at_zoom"], 2)) & 0xFF:
+            raise SystemExit("atblit: [at_zoom] is still set - Zoom Out was "
+                             "not chosen, so the already-visible exit was "
+                             "never taken and this scene tested nothing")
+        if not u16(m.readseg(seg, syms["at_top"], 2)):
+            raise SystemExit(
+                "atblit: [at_top] is 0 after a zoom out that should have left "
+                "the view scrolled. EITHER the view jumped to the top of the "
+                "document, which is a regression in whatever wave is under "
+                "test, OR the scene has drifted and no longer reaches a "
+                "scrolled state, in which case it tests much less than it "
+                "looks like it does. /tmp/atblit/*-zoom.png tells them "
+                "apart.")
+        ui.settle()
+        w5, h5, zoomed = m.fbuf()
+        if shot:
+            os88marty.write_png_rgb(shot.replace(".png", "-zoom.png"),
+                                    w5, h5, zoomed)
+        if shot:
+            os88marty.write_png_rgb(shot, w, h, rgb)
+        # --- SCENE 5: UNDO ------------------------------------------------
+        # Undo is the third of ArtfulType's whole-page commands (SPEC.md
+        # 46.1) and the only one that RESTORES a document rather than
+        # relaying out the live one - at_snap_take's arena, not at_layout - so
+        # it is the one path where the line table and the gap buffer can
+        # disagree. Ctrl+Z is the cheapest way in (at_ctltab: 26 ->
+        # AT_CMD_UNDO).
+        #
+        # THE SECOND TYPING RUN IS WHAT KEEPS IT INTERESTING. Undoing the
+        # FIRST run collapses the document to one line, and a one-line
+        # document has no scroll bar, no wrap and nothing below the caret.
+        # The nav keys above closed the first run ([at_typrun]), so this is a
+        # run of its own and undoing it leaves the document tall.
         for ch in "abc":
-            m.type_text(ch)
-            n += 1
-            absorbed(n)
+            typec(ch)
         ui.settle()
         m.ctrl("KeyZ")
         os88marty.quiesce(
@@ -260,9 +329,8 @@ def drive(img, apps, machine, tree, census, shot=None):
         if shot:
             os88marty.write_png_rgb(shot.replace(".png", "-undo.png"),
                                     w4, h4, undone)
-        if shot:
-            os88marty.write_png_rgb(shot, w, h, rgb)
-    return w, h, splash, rgb, scrolled, undone, counts
+
+    return w, h, splash, rgb, scrolled, zoomed, undone, counts
 
 
 def diff(a, b, w, h, y0=0):
@@ -322,10 +390,10 @@ def main():
     print("   %s arm: %s" % (a.knob, os.path.relpath(knob.dir, ROOT)))
 
     os.makedirs("/tmp/atblit", exist_ok=True)
-    w, h, bsp, band, bsc, bun, cb = drive(shipped.img("os8088-360.img"),
+    w, h, bsp, band, bsc, bzm, bun, cb = drive(shipped.img("os8088-360.img"),
                                 shipped.img("apps360.img"), machine, shipped,
                                 a.census, "/tmp/atblit/%s-shipped-%s.png" % (a.knob, a.card))
-    w2, h2, esp, expa, esc, eun, ce = drive(knob.img("os8088-360.img"),
+    w2, h2, esp, expa, esc, ezm, eun, ce = drive(knob.img("os8088-360.img"),
                                   knob.img("apps360.img"), machine, knob,
                                   a.census,
                                   "/tmp/atblit/%s-knob-%s.png" % (a.knob, a.card))
@@ -348,6 +416,7 @@ def main():
     for scene, x, y, y0 in (("splash", bsp, esp, MBAR_H),
                             ("document", band, expa, 0),
                             ("scrolled", bsc, esc, 0),
+                            ("zoomed", bzm, ezm, 0),
                             ("undone", bun, eun, 0)):
         n, box = diff(x, y, w, h, y0)
         print("   %s/%s %-9s %d differing pixels of %d%s"
