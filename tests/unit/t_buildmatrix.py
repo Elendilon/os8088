@@ -273,6 +273,29 @@ KNOBS = [
     # rebuilding - so what is left for a build row is exactly what a build row
     # is for: does the other arm still assemble.
     ("nohedge",     ["NOHEDGE=1"], "saver.drv"),
+    # ...and thirteen that reach a PACKAGE, all of them ArtfulType's
+    # (SPEC.md 46.3, 46.4). Each is the A/B of one performance wave and, like
+    # NOHEDGE above, THE ONLY THING THAT ASSEMBLES THE OTHER ARM: nothing
+    # shipped compiles them, and the arms they keep alive are not dead code
+    # but the version the wave replaced, which is what a soak row rebuilds to
+    # compare pixels against. A row is half a second here because the target
+    # is one package and not a tree, so they get one each rather than being
+    # bundled: a bundle assembles every arm at once and then says only that
+    # SOME arm broke.
+    ("noatblit1",   ["NOATBLIT1=1"], "artful.o88"),
+    ("noatfast",    ["NOATFAST=1"], "artful.o88"),
+    ("noatwalk",    ["NOATWALK=1"], "artful.o88"),
+    ("noatsbar",    ["NOATSBAR=1"], "artful.o88"),
+    ("noatrow",     ["NOATROW=1"], "artful.o88"),
+    ("noatblank",   ["NOATBLANK=1"], "artful.o88"),
+    ("noatplain",   ["NOATPLAIN=1"], "artful.o88"),
+    ("noatcx",      ["NOATCX=1"], "artful.o88"),
+    ("noatrespan",  ["NOATRESPAN=1"], "artful.o88"),
+    ("noatfetch",   ["NOATFETCH=1"], "artful.o88"),
+    ("noatcell",    ["NOATCELL=1"], "artful.o88"),
+    ("noattail",    ["NOATTAIL=1"], "artful.o88"),
+    ("noatone",     ["NOATONE=1"], "artful.o88"),
+    ("noatsu",      ["NOATSU=1"], "artful.o88"),
     # MOUDIAG= is SPEC.md 9.9.6's identify-window table drawn on the finished
     # desktop, and it had NO ROW HERE AT ALL until SPEC.md 2.9.12 - which is
     # how a short jump out of range inside the moved mouse cluster went

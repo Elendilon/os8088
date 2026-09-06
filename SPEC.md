@@ -60378,6 +60378,98 @@ staging window, converges at the next old paragraph start (+delta, equal
 attr), splices, and add-shifts the surviving tail; overflow falls back to
 the full `at_layout`, which bulk operations already afford.
 
+#### 46.3.1 One paragraph, one walk — `at_scan` stops where the newline is
+
+`at_relayout` walked each edited paragraph **twice**. Its `.findnl` read every
+byte through `at_getb` — a near call that banks ES, reloads it from
+`[at_dseg]`, tests the gap and pops ES, for one byte — and the only thing it
+produced was the offset one past the paragraph's newline, which `at_scan`'s
+own `.endline` then rediscovers as it walks the identical bytes.
+
+So `at_scan` is given the whole document as its limit and a flag, `[at_sc1]`,
+that stops it after **one logical line**; `[at_scpos]` is then exactly what
+`.findnl` was computing, and the loop reads it back. The flag's lifetime is
+`[at_stgmode]`'s and it is cleared at both of `at_relayout`'s exits — the
+`.fallback` one matters, because that path calls `at_layout`, which must scan
+the whole document.
+
+Nothing else in `at_scan` needed changing. Within a paragraph the limit is
+only consulted at the document's end, since `.ch` leaves on `AT_NL` through
+`.endline`; and `.hashes` stops at the first non-`#` whatever the limit says.
+
+It is worth **10.6 ms of a Hercules keystroke in a three-visual-line
+paragraph** (MEASURED, `tests/atkey.py`, 153.4 → 142.8 ms), and it scales with
+the paragraph rather than the document — which is the same shape as the walk
+it deletes. `NOATWALK=1` is the A/B.
+
+#### 46.3.2 The wrap rewinds the span nibble; it does not re-derive it
+
+`at_scan` walks a logical line once, carrying the span nibble in DL as it goes.
+At a wrap it rewound the position to the last space and then called
+`at_respan`, which **walked the whole visual line a second time** — from
+`[at_sclst]` to the break, through `at_getb` and `at_span` — to work out the
+nibble the next line starts with. The first walk had already computed exactly
+that, incrementally, and thrown it away.
+
+The obstacle is that the walk runs PAST the break before rewinding, so DL at
+that moment reflects characters belonging to the *next* line. The answer is the
+one §46.4.8 uses for its plain flag: **bank the state at every space**, and
+rewind to it. A space changes neither `at_span`'s nibble nor `[at_scskip]`, so
+the state after processing it *is* the state at the break.
+
+On a **hard** break — a word longer than the column, no space to rewind to —
+`[at_scpos]` is where the walk stopped, so DL is already the answer and nothing
+is banked or restored. Both arms then end `mov [at_scspan], dl`.
+
+`[at_scskip]` is banked with it. It marks the second byte of a `**` or `~~`
+pair, and the concern is a value pointing PAST the break, which would make the
+next line skip a byte it should read. It cannot arise from the space itself —
+a pair's first byte is never a space — but it can arise from the overshoot, so
+it is rewound rather than reasoned about.
+
+**It is worth 1.11x on a three-visual-line paragraph and 1.13x on a five**
+(115.6 → 104.6 ms and 205.2 → 181.7, Hercules, MEASURED) for **25 bytes**, and
+it scales with the number of WRAPS because that is how often `at_respan` ran.
+`at_scan` was 29.8% of a keystroke in a single call and this was about a third
+of it.
+
+`NOATRESPAN=1` is the A/B, and the case it must be tested with is a line whose
+delimiters land in the **overshoot** — the characters walked past the wrap
+before the rewind. A wrapped run with its delimiters at the ends never enters
+that region, and the gate was green with the rewind deliberately removed until
+`tests/atblit.py` gained a line carrying one `*` every four characters.
+
+#### 46.3.3 `at_scan` fetches its own bytes, with the segment already loaded
+
+`at_getb` is the right shape for a caller that wants one byte: it banks ES,
+loads it from `[at_dseg]`, resolves the gap, reads, and puts ES back. It is the
+wrong shape for `at_scan`, which wants **every byte of a paragraph** and paid
+that whole preamble — plus a `call` and a `ret` — for each one.
+
+`at_scan` holds `ES = [at_dseg]` for the length of its walk and inlines the
+resolution: one compare against `[at_gs]`, the two adds for the high run, and a
+load. **BX carries the physical offset only across the load** and goes straight
+back to the logical one, because `at_span` compares it against `[at_scskip]`,
+which is a logical offset.
+
+ES is saved and restored around the walk. A package's ES is the KERNEL's on
+entry (§20.2), and every callee inside the loop either leaves it alone or —
+`at_getb`, which `at_peek` still reaches — banks it itself.
+
+**`at_slice` is deliberately not touched**: `at_copyout` already splits the
+range at the gap and moves each run with `rep movsb`, which is what this makes
+the walk do by hand.
+
+**1.04x on a keystroke** (104.6 → 100.2 ms on a three-visual-line paragraph and
+181.7 → 174.2 on a five, Hercules, MEASURED) for **22 bytes**. `NOATFETCH=1` is
+the A/B.
+
+**The arm that needs a witness is the HIGH run.** The gap sits at the caret, so
+a document typed forward has its gap at the end and every walk reads the low
+run only — breaking the gap arithmetic on purpose left `tests/atblit.py` green.
+The row now makes an edit with text still AFTER the caret, which is the only
+thing that puts bytes of the walked paragraph above the gap.
+
 ### 46.4 The renderer — one line, one blit
 
 `at_parse` turns a line slice into per-character visibility, style and
@@ -60386,10 +60478,15 @@ click mapping, selection and Style > None). `at_compose` builds 1bpp rows
 in a strip, styling ROM 8x8 glyphs itself (paint's §42 probe, copied to
 bss at entry): bold = overstrike, italic = a two-step shear (top half
 right by `scale` px), links = underline, strike = centre rule, headings =
-bit-doubled/tripled scale-ups through 16-entry nibble tables. `at_expand`
-widens 1bpp to packed 4bpp through 256×4-byte tables — white background,
-or CLGRAY for code-span columns (solid gray on VGA, a §39.4 dither on
-mono) — and one `OSAPI_GFX_BLIT4` delivers the line. Selection is an XOR
+bit-doubled/tripled scale-ups through 16-entry nibble tables. The strip is
+composed in **screen polarity — a SET bit is paper** (§46.4.2) — so on the
+ordinary line it is already the object `OSAPI_GFX_BLIT1` takes and one of
+those delivers it with no expansion at all. `at_expand`, which widens 1bpp to
+packed 4bpp through 256×4-byte tables — white background, or CLGRAY for
+code-span columns (solid gray on VGA, a §39.4 dither on mono) — and one
+`OSAPI_GFX_BLIT4`, are the FALLBACK: a kern_small machine, where `gfx_blit1`
+is `stc`/`ret` (§5.4.2.5), and a colour adapter's code-span line, which wants
+three colours where a band carries two. Selection is an XOR
 overlay folded in after each blit; drag-selection XORs only the delta
 range per mouse sample. The caret is an XOR bar under strict on/off
 bookkeeping (`at_caret_on/off`, always under the lock), which is what
@@ -60441,6 +60538,449 @@ warns about: the geometry was asked for correctly and the answer about the
 *card* was thrown away. It is the gate now, so a colour adapter reaches none
 of the above.
 
+#### 46.4.2 The strip is in SCREEN polarity, and that is what makes the band free
+
+`at_compose` used to build `at_strip1` **ink-side-up** — a set bit was a glyph
+pixel — because that is how a font is stored and how a composer reads. It is
+one `not` away from the polarity the screen wants, and that one bit of
+convention was costing the whole of `at_expand` plus the whole of
+`gfx_blit4` on every line of every adapter.
+
+`OSAPI_GFX_BLIT1` takes a band in *the framebuffer's own bit order, 1 = a LIT
+pixel* (§5.4.2), and its pen defaults to ink `CWHITE` on paper `CBLACK`. So a
+strip whose set bit is **paper** is delivered correctly by the DEFAULT pen on
+every adapter and needs no `OSAPI_GFX_BLIT1_PEN` call at all: on a 1bpp
+adapter the pen is not read and a set bit is simply lit; on VGA the default
+pair short-circuits `gfx_blit1`'s `.pvga` with no port write, and the emit
+takes the plain `rep movsw` arm at 25 clocks a word rather than the
+complemented `.rowi` arm's 34. **The intuitive polarity would have cost 36% of
+every blit for ever** — which is PAINT-1BPP-PLAN's finding one program along,
+and the same one §42.23 took.
+
+So the composer is inverted at source rather than the strip at run time:
+
+- `at_compose` clears the strip to `0FFFFh`, not to 0.
+- `at_glyph` complements the assembled row **between `.noshear` and `.vrep`**
+  and `and`s it into the strip where it used to `or`. It must be there and not
+  earlier: the bold overstrike (`shr ah,1 / or al,ah`) and the italic `rcr`
+  chain both reason in ink, and `rcr` seeds with `clc` — a cleared bit meaning
+  *no ink*. Complement above either of them and every italic glyph grows a
+  black bar down its left edge. All FOUR bytes of `at_grow` are complemented
+  because `.vrep` writes all four at every scale.
+- `at_ruleat` clears its rule rows instead of setting them.
+- `at_bigtext` (`atui.inc`) clears its own strip to `0FFFFh` — it is the fifth
+  writer into `at_strip1` and the one an audit misses, because it is in
+  another file. Miss it and the splash title is a solid black block.
+  **Its second `rep stosw` is the trap**: the strip clear and the `at_cellbg`
+  clear shared the one `xor ax, ax`, and `at_cellbg` is a FLAG ARRAY rather
+  than pixels, so it does not follow the strip's polarity. Carrying the paper
+  value into it marks every 8px column a code cell, `at_expand` widens the lot
+  through `at_x4g`, and the splash title comes back on a grey ground.
+- `AT_X4TAB` swaps its `hv`/`lv` arms, so the surviving 4bpp fallback reads the
+  flipped strip and draws the identical picture. This is a build-time table:
+  the swap costs nothing at run time.
+- `at_codebg`'s `not` is polarity-agnostic and is unchanged.
+
+**The gate is `at_codebg`'s own compare, reused.** A line takes the band arm
+when the adapter is 1bpp, or when it is colour **and** `[at_pcb0] > [at_pcb1]`
+— the empty-code-span test `at_codebg` already makes. A colour line with a
+code span in it wants white, black and CLGRAY, and a band carries two, so it
+takes the expansion. `at_draw_line` tests CF and falls into the same expansion
+when `gfx_blit1` refuses, which on kern_small is every line.
+
+**What it buys, per body line** (PREDICTED from measured unit rates —
+`gfx_blit1`'s 3.9 µs/byte over a ~395 µs intercept, PERFORMANCE.md Set 64;
+`gfx_blit4`'s 32.6 cycles/px on 1bpp and §5.4.1.3's 106.9 on VGA, Set 107):
+Hercules `at_expand` 23.9 ms + blit 40.4 ms = **64.3 → 3.3 ms**; CGA
+55.7 → 2.9; VGA 135.4 → 2.9, which is **47x** on the stage and is why the
+three adapters converge. The in-tree analogue is MEASURED: Paint's identical
+round trip was **809.4 ms → 36.6, 22x** (§42.23.4, PERFORMANCE.md Set 116).
+
+`NOATBLIT1=1` is the A/B and the only thing keeping the expand-only path
+reachable on kern_big.
+
+#### 46.4.3 The unstyled scale-1 cell has a straight-line emitter
+
+Once §46.4.2 took `at_expand` and the kernel's 4bpp decode off the line, the
+measured keystroke said where the rest of it was: **`at_compose` is the bill**,
+and `at_glyph` is `at_compose`. The general body is a per-ROW dispatch — test
+the bold bit and maybe overstrike, zero `at_grow+2`, compare the scale three
+ways, branch to the doubler or the tripler, test the italic bit and maybe run
+a four-byte `rcr` chain, then fold four bytes into the strip — eight times a
+cell.
+
+For **an unstyled cell at scale 1 every one of those answers is the same**, and
+that cell is nearly every character of body text and *all* of Markdown mode.
+So `at_glyph` gates on `DL = 0` and `[at_psc] = 1` and takes a straight-line
+loop instead: eight times `lodsb` / complement / store / step a row.
+
+Three preconditions make the plain STORE correct where the general path folds:
+
+- `at_compose` has already cleared exactly `[at_prh]` rows to paper, so a cell
+  writes its own ground and nothing needs preserving underneath it.
+- At scale 1 **no two visible cells share a byte column** — `at_xmap`'s x is a
+  multiple of 8 by construction — so a store cannot tread on a neighbour.
+- The general path's `[bx+1..3]` writes are no-ops at scale 1: `at_grow+1..3`
+  are zero, which after §46.4.2's complement is `0FFh`, and `and` with `0FFh`
+  changes nothing.
+
+The compare is on the **word** `[at_psc]`, not its low byte: a byte compare
+reads a scale of 257 as a scale of 1, which is not a state the app can reach
+today and is a silent wrong render the day it can. `lodsb` also introduces a
+direction-flag dependency the routine did not have; both callers (`at_compose`
+and `at_bigtext`) `cld` before they call in, and that is now a precondition
+rather than a coincidence.
+
+**The general body stays and is the contract for everything else**: every
+heading (`at_cellwtab` makes an H1 or H2 scale 2), all body text at zoom 1,
+every styled span, and `at_bigtext`'s own scale 1..3. An H4 is level 3 —
+cell width 8, so scale 1 — and takes the fast path with row height 12, which
+is why the gate is on the SCALE and not on the heading level.
+
+`NOATFAST=1` is the A/B and the only thing keeping the general path reachable
+for an unstyled scale-1 cell.
+
+#### 46.4.4 The scroll bar banks what is on the glass
+
+`at_sbar` redrew the whole bar on every call, whatever had changed — **21 far
+calls and ~1,226 scan-line setups**: 4 `SET_COLOR`, 2 `GFX_FILL`, 4
+`GFX_FRAME` (and `gfx_frame` is four fill strips), 10 `GFX_HLINE` for the two
+arrows, 1 `GFX_FILL_GRAY`. It is not on the typing path — only the
+line-count-change arms of `at_apply_edit` reach it — but it *is* on every
+scroll, every arrow-repeat sample, every thumb-drag sample and every alert
+dismissal. Unlike the line, its cost does not fall when a line gets cheaper,
+which is why it survived §46.4.2 and §46.4.3 as the largest thing left.
+
+It banks three facts about the bar it last drew — `[at_sbst]`, `[at_sbmax]`
+and **`[at_sbty]`, the thumb y that was actually DRAWN** rather than one
+recomputed from a possibly-stale `[at_top]` — and dispatches three ways:
+
+- **nothing moved → 0 calls.** On a long document this is most scrolls: the
+  travel is `ty1-ty0-47` px spread over `maxtop` lines, so a 1,000-line
+  Hercules document moves the thumb 0.24 px a line and three line-steps in
+  four draw nothing at all.
+- **only the thumb moved → 6 calls**, greying the old thumb's span and drawing
+  the new one.
+- **the document's length or the bar's presence moved → the full body.**
+
+`[at_sbst]` has three states and 0 is **POISONED**, not "hidden", because bss
+is loader-zeroed and a fresh instance must not believe a bank it never wrote.
+1 is "a bar is drawn and the other two words describe it"; 2 is "the gutter is
+blank and known so", which is what makes a document that FITS cost nothing on
+every Enter.
+
+**Two defects fall out of the same routine.** The gutter's full-height
+`GFX_FILL` ran *above* the `or ax, ax / jz .out` that decides there is no bar
+at all, so a document that fits paid a 16 × (ty1-ty0+1) fill to blank an
+already-blank gutter on every call. And `at_maxtop` was walked **twice** — once
+here and again inside `at_thumby` — so `at_thumby_m` takes it in CX and
+`at_thumby` becomes a wrapper that resolves it, which leaves `at_sb_click`'s
+call site alone.
+
+**The vacated strip is `sbx+1 .. sbx+14`, which is the SHAFT's width and not
+the thumb's 16.** The two columns either side belong to the outer frame and are
+black for the bar's whole height; the thumb's own frame only ever redraws them
+the same colour. `gfx_fill_gray`'s dither phase is a function of absolute y, so
+a partial re-grey is phase-correct by construction.
+
+**Four sites must POISON the bank**, and one of them is the shipped-defect
+shape: `at_fs_paint_all` whitens the entire screen and *then* calls `at_sbar`
+through `at_fs_paint_body`, so without a poison the dispatcher would answer
+"nothing moved", return 0 calls, and leave the bar erased. The others are
+`at_geom_init` (the geometry the banked y is in), `at_paint` — which arrives
+with a WM damage region armed, so the bar it just drew may never have reached
+the glass, and it poisons on the way OUT rather than setting — and
+`at_mdclose`, whose `at_sbar` call exists precisely because a card could reach
+the gutter.
+
+`NOATSBAR=1` is the A/B and the only thing keeping the unbanked body reachable.
+
+#### 46.4.5 The scaled row lives in registers, not in `at_grow`
+
+`at_grow` is four bss bytes holding one glyph row after the scale expansion,
+and the two stages below it treated it as working storage rather than as a
+value: the italic shear read-modify-wrote all four **per shift step**, and
+`.vrep` re-read all four **on every repeat**. At scale 2 that is eight memory
+reads a repeat and sixteen a row to move one byte of glyph; at scale 3, more.
+
+The row is hoisted into `AH:AL:DH:DL` once, at `.sheared`, and both stages then
+work on registers. `at_grow` stays as the staging area the three scale arms
+write — that half of the routine needs its own registers and is left alone.
+
+**The byte order is inverted on purpose and is silent when wrong.** `at_grow[0]`
+is the LEFTMOST 8 pixels and must sit in **AH**, not AL, because that is what
+makes `clc / rcr ax, 1 / rcr dx, 1` a genuine 32-bit shift right across
+`b0→b1→b2→b3`: `rcr ax,1` carries AH's bit 0 into AL's bit 7, and out of AL
+into DX. Loading it the natural way with `mov ax, [at_grow]` puts `b0` in AL,
+and the shear then runs **backwards** — every italic mirrored, with nothing
+raising anything. Two instructions replace the four `rcr byte [mem], 1`.
+
+`.vrep`'s counter moves from DX to CX and becomes a `loop`, DX now being half
+the glyph row.
+
+**Who pays for this is not who 46.4.3 helps.** The unstyled scale-1 cell never
+reaches here at all — it has its own straight-line emitter — so this is the
+arm taken by **every heading**, every styled span, `at_bigtext`'s scale 1..3,
+and, because `at_cellwtab`'s zoom-1 body cell is 16px wide, **every character
+of body text at zoom 1**. That last one is the case worth having: a zoomed-in
+document is entirely scale 2 and gets none of 46.4.3.
+
+`NOATROW=1` is the A/B.
+
+#### 46.4.6 A blank cell is not composed, and the font is asked first
+
+Space is about one character in six of English prose, and composing one does
+real work: eight rows of fetch, complement and store on §46.4.3's fast arm, and
+the whole scale/bold/italic dispatch on the general one. All of it writes the
+paper `at_compose` has already laid down.
+
+`at_glyph` returns immediately for a space, and the two styles that ink a blank
+cell are the gate: `AT_ST_L` and `AT_ST_S` are drawn by `at_ruleat` *after* the
+row loop, so a cell carrying either is composed normally. Bold, both nibble
+doublers and the `clc`-seeded shear all preserve blankness, so nothing else can
+turn a space into ink.
+
+**The font is asked rather than assumed.** `at_font_init` takes the kernel's
+own table through `OSAPI_FONT_GLYPHS` — on a `make FONT=` kernel that is a
+different typeface (§6.2), which is the whole reason the app stopped probing
+the ROM — so "glyph 32 is eight zero bytes" is a fact about *that* table and
+not about ArtfulType. It is checked once, on the copy, into `[at_blankok]`, and
+a face that inks its space simply composes spaces as before. Assuming it would
+have rendered every space as a hole in whatever the face draws there, on a
+kernel nothing in this repository builds by default.
+
+`NOATBLANK=1` is the A/B.
+
+#### 46.4.7 A line with no markup in it is parsed raw, in Writer mode too
+
+`at_parse` has two loops. `.rloop` writes `at_vis[i] = 0`, `at_sty[i] = 0` and
+`at_xmap[i] = i * pcw` in about ten instructions a character. `.sloop` is the
+styled FSM — the heading prefix countdown, the link window, the delimiter
+tests, the four span bits folded into a style byte, the code-column call — and
+it is **115 instruction bytes on a plain letter against `.rloop`'s 29**, which
+at the 8088's fetch floor is ~373 clocks a character against ~40.
+
+**For most lines the two produce byte-identical arrays**, and it is provable
+rather than likely. `.sloop` collapses onto `.rloop` exactly when the line has
+no heading level (no prefix to hide, no base style), enters with a zero span
+nibble, and contains none of `` ` `` `*` `~` `[` — the only four characters
+that can reach `.code`, `.star`, `.tilde` or `.bracket`. Every character then
+takes `.fsm` → `.stylevis`, all four span tests fail, and `.place` stores
+exactly what `.rloop` would.
+
+Two things that would spoil the equivalence do not:
+
+- **`at_reveal` is a no-op on such a line.** It walks back from the caret while
+  the character behind it is HIDDEN; with every `at_vis` zero its first
+  compare ends the walk, and `cmp cx, si / je .out` returns having touched
+  nothing.
+- **`[at_pcb0]`/`[at_pcb1]` are initialised above the branch** to the empty
+  span `at_codebg` refuses on, which is what a raw line keeps anyway.
+
+So `at_parse` proves the line plain and takes `.rloop`. The proof is one pass
+over `at_lbuf` — which is already in memory and contiguous — at four compares a
+character, and it pays for itself several times over against the FSM it
+replaces.
+
+**It is deliberately a LOCAL decision and not a flag.** The obvious design is
+to spend `at_lattr`'s unused bit 3 on a plain-line flag computed in `at_scan`,
+which already reads every byte; that makes the layout and the renderer share a
+predicate they can disagree about silently, and puts a bit that must be cleared
+on every path `at_span` can leave by. Proving it where it is used costs a pass
+that is a fraction of what it saves and has nothing to invalidate.
+
+`NOATPLAIN=1` is the A/B.
+
+#### 46.4.8 …and the LAYOUT proves it, because it is already reading the bytes
+
+§46.4.7 proved a line plain in `at_parse`, where the line's own bytes are to
+hand. That is the right place when the answer is only wanted once — but it is
+wanted three times a keystroke, and `at_caret_on` wants it without needing the
+bytes at all: it calls a whole `at_parse` purely to read `at_xmap[i]`, which on
+a plain line is `i * pcw`.
+
+So the proof moves to `at_scan`, which is **already walking every byte** to
+measure the wrap, and rides in `at_lattr`'s unused bit 3. `at_parse` then tests
+one bit instead of scanning, and `at_caret_on` skips the parse — and the slice
+under it — entirely.
+
+**The two predicates cannot drift, because there is only one.** `AT_SPECIAL`
+lists the four characters once; `at_scan` clears the line's flag through it and
+`at_parse`'s FSM is what it describes. A fifth delimiter is one edit.
+
+**`at_emit` writes an entry before its characters are known**, so the flag is
+applied afterwards, by `at_mkplain`, to `[at_lput]-1` in whichever table
+`[at_stgmode]` selected. The heading level and the entry span nibble are
+already in that attr, so it tests them there rather than tracking them twice:
+plain is bits 0-1 and 4-7 all clear. Bit 2 is the continuation flag and a
+wrapped line is plain like any other.
+
+**The wrap rewind is a performance refinement and NOT a correctness one**, and
+that is worth stating because it looks like the opposite. `at_scan` walks past
+the break before rewinding to the last space, so a delimiter beyond the break
+belongs to the *next* line; the flag is therefore banked at every space and
+restored on the rewind. Without that the flag would simply be clear more often
+— a line called styled that could have been raw, which draws the same picture
+more slowly. **The flag can never wrongly say plain**, because every character
+of the line was scanned before the decision.
+
+Together with §46.4.7 this is **1.22x on a keystroke in plain body text**
+(140.5 → 115.6 ms, Hercules, three visual lines), of which the flag is the last
+3.7 ms; `at_caret_on`'s own share is 2.3 ms. `NOATCX=1` is the A/B for the
+caret half, `NOATPLAIN=1` for the mechanism as a whole.
+
+#### 46.4.9 A plain scale-1 line is composed with no per-cell call at all
+
+`at_glyph` is **1,034 cycles a cell** and its eight-row emitter is **264** of
+them. The other 770 are a `call`, seven push/pop pairs, a range check on the
+character, a style dispatch, and a strip cursor recomputed out of `at_xmap` and
+shifted down to a byte column — **74% overhead on the one path that has no
+decisions left to make.**
+
+§46.4.3 already took the decisions out of the *body*. This takes the *call*
+out, for the line shape §46.4.8 has just finished proving: a line `at_parse`
+took `.rloop` for, at scale 1.
+
+`.rloop` writes `at_vis[i] = 0` and `at_sty[i] = 0` for **every** cell and
+`at_xmap[i] = i * pcw`. At `pcw` = 8 that says three things at once, and each
+one deletes work:
+
+- every cell is visible, so there is no hidden cell to skip;
+- every cell is unstyled, so there is no style to dispatch on and no rule to
+  draw underneath;
+- cell *i*'s **byte** column is *i*, so the strip cursor is an `inc` rather
+  than a table read, a shift and an add.
+
+So `at_parse` publishes the fact in `[at_pplain]` at `.rdone` — set, then
+cleared unless `[at_psc]` is 1 — and `at_compose` reads it once, before its
+loop, and runs a straight-line emitter: fetch the byte, clamp it to the
+printable range, index the face, write eight rows a stride apart, `inc` both
+cursors. §46.4.6's blank skip is honoured by testing `[at_blankok]` (a plain
+cell carries neither a link nor a strike, so the two styles that ink a space
+cannot be present) and §46.4.2's polarity by the same `not al` the general
+path uses.
+
+**`.styled` clears the flag**, and must: a styled line has hidden cells, so
+cell *i*'s column is not *i*, and it has rules that are drawn after the row
+loop. Removing that one store draws the styled lines of the test document
+through the plain emitter and is worth **10,705 differing pixels**.
+
+**The scale guard is the half that is easy to leave out.** At scale 2 a glyph
+occupies two byte columns and sixteen strip rows, so a plain line at zoom 1 —
+where `at_cellwtab` makes a body cell 16px in either mode — composed through
+this loop would be drawn at half width and half height. That state is reachable
+from the View menu and nothing else in `at_compose` would notice, which is why
+`tests/atblit.py` captures **while zoomed in** rather than only after the round
+trip back out.
+
+**1.22x on a keystroke** (99.4 → 81.8 ms, Hercules, three visual lines; 174.7
+→ 142.8 on five) for **106 bytes** — 19,747 → 19,853. `NOATCELL=1` is the A/B,
+and `tests/atblit.py` is the picture.
+
+#### 46.4.10 The erase is the text's TAIL, not the region
+
+Both whole-view repaints — `at_draw_text` and `at_redraw_below` — opened with a
+white `OSAPI_GFX_FILL` across the **entire** region they were about to redraw,
+and then drew a line into every row of it. `at_draw_line` is **opaque and full
+width on both of its arms**: the band arm blits `at_strip1` with `CX =
+[at_tw]`, the colour arm expands to `[at_xw] = [at_tw]` and blits that, and the
+row clamp shortens the blit at `ty1` rather than narrowing it. Consecutive
+lines tile exactly, because `at_line_y` accumulates `at_lgeom`'s row heights.
+
+So every pixel the fill whitened between `at_ty0` (or `[at_rby]`) and the
+bottom of the last line drawn was **written twice** — PERFORMANCE.md's second
+rule, and the one defect of its three that an emulator cannot show.
+
+The fill moves **after** the loop and covers only what the text did not.
+`[at_tby]` is the first row nothing has drawn on: `at_ty0` (or the erase's own
+`at_line_y` in `at_redraw_below`) before the loop, and `[at_dly] + [at_prh]`
+after each line — the y `at_parse` was just given and the row height it just
+computed, so no second walk is needed. At the end, `[at_tby] >= [at_ty1]` means
+the text reached the bottom by itself and there is nothing to erase.
+`at_filltail` is that fill, factored out of the two sites that had it inline.
+
+**IT IS NOT `at_line_y(at_nlines)`, and that formulation shipped wrong once.**
+The walk to `at_nlines` is the bottom of the last line *only while the loop ran
+to the end*. A loop that stops early — the next line is below the view, or `BX`
+started past `at_nlines` and the walk then reads `at_lattr` past the table —
+leaves every row between the last line it drew and that answer **unerased**,
+which is a stale picture rather than a crash: `tests/atblit.py` reported 130
+differing pixels on the scrolled scene and 502 on the undone one, all of them
+old text nothing had painted over. Carrying the row costs 2 bytes of bss and
+one `add` a line, and cannot be wrong about a loop it is inside.
+
+**Measured on a Hercules**, text region 592 × 284: the fill alone is **115 ms**
+of a 250 ms `at_redraw_below`, against 6.1 ms for a one-character line and
+18.9 ms for a full-width one. A repaint whose view is full now spends none of
+it. `NOATTAIL=1` is the A/B.
+
+**What it does NOT do is change what a failed blit looks like.** Today a line
+whose blit is refused shows the white the fill left; after this it shows
+whatever was underneath. Both arms of `at_draw_line` cannot refuse together —
+`gfx_blit1`'s CF falls into the expander, which is `kern_small`'s only path and
+`kern_big`'s fallback — so this is a difference in a state the app does not
+have, and it is written down rather than measured.
+
+#### 46.4.11 An APPEND to a plain paragraph repaints one line, not `at_rlk`
+
+§46.1 is honest that a keystroke is `at_rlk` lines and not one, and after the
+waves above that is **70% of what a keystroke costs**: on a Hercules a
+full-width plain line is 18.9 ms and a three-visual-line keystroke is 81.8, so
+three line draws are 57 of it. A six-line paragraph is ~139 ms for one
+character.
+
+Three attempts to narrow that range are refused in
+`docs/plans/ARTFUL-PERF-PLAN.md` part 5 (K1, K4, K6) and **all three are
+predicates over the staging window** — they ask which staged entries changed,
+and the answer is not visible there: `at_relayout`'s own convergence makes
+old == new at or before the edit, and greedy wrap lets a line ending *before*
+an edit have its break decided by text at or after it.
+
+This is a predicate over the **EDIT**, and it is the one case where the wrap
+cannot reach backwards at all: an **append at the end of the logical line**.
+Greedy wrap is prefix-determined — line *j*'s break is a function of the text
+before it and of the next word, both of which lie before the append — so no
+break above the caret's line can move. If the append pushes the last line over
+the width, a visual line appears and the count changes, which is a different
+arm of `at_apply_edit` entirely.
+
+Three conditions, all cheap, and the repaint becomes the caret's line alone:
+
+1. **The edit is an append.** `at_type` sets `[at_apnd]` on its no-selection
+   path when the byte at `[at_caret]` is `AT_NL` or the document ends there.
+   It is a one-shot: `at_apply_edit` clears it at `.see`, which all three of
+   its arms reach, so no other caller can inherit it.
+2. **The character cannot style.** `AT_SPECIAL` is the same four-character list
+   §46.4.8's flag is defined by, so there is still only one predicate in the
+   tree — and a newline is excluded because it changes the count.
+3. **Every staged line is PLAIN** — §46.4.8's bit 3, already computed by
+   `at_scan`. This is what makes the argument airtight rather than nearly so:
+   a plain paragraph contains no `` ` ``, `*`, `~` or `[`, so no span can be
+   opened or closed and **no link can be completed** by the appended
+   character. `]`, `(` and `)` are not in `AT_SPECIAL` and would otherwise be
+   able to finish a `[text](url)` whose `[` is on an earlier visual line.
+
+The line to repaint is `at_line_of([at_caret])` and **not** the last staged
+entry: at the document's end `at_layout` can emit a trailing empty line that
+`at_rlk` counts, and narrowing to that one would repaint the empty line and
+never draw the typed character. `at_line_of` answers with the last line whose
+start is `<= pos`, and a trailing empty line's start is strictly greater than
+a caret standing before the newline, so it cannot be chosen wrongly. It is
+still bounds-checked against `[at_dfrom] .. [at_dfrom]+[at_rlk]-1` and falls
+back to the whole range if it lands outside.
+
+**Measured on a Hercules**: a keystroke in a plain paragraph of three visual
+lines is **82.4 → 44.1 ms (1.87x)** and of six visual lines **172.4 → 75.3
+(2.29x)**. It does **not** flatten the paragraph out of the cost, and that is
+worth knowing: what is left grows with the paragraph too, because `at_scan`
+rescans all of it (§46.3.1) and `at_splice` installs all of it. The line draws
+were the larger half, not the whole. **110 bytes.**
+
+`NOATONE=1` is the A/B, and `tests/atblit.py` carries a plain paragraph long
+enough to wrap for it: every other paragraph in that document is styled or one
+visual line long, so without one the gate is never taken and the row is green
+whatever it does.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what
@@ -60450,13 +60990,72 @@ is the app's pixels), standard white in Markdown mode. The pull-downs are
 Mac press-drag-release menus in the `sol_drag` idiom (§43): draw under the
 held lock, unlock/yield/relock, sample the button by LEVEL; hover moves an
 XOR bar, release flashes the pick three times, and the box is erased by
-repainting the lines it covered — a package has no save-under, and a line
-repaint is one blit. Items carry right-aligned `^`-shortcuts, gray
+putting back the pixels it covered (§46.5.1) — or, when that is refused, by
+repainting the lines it covered, which is what it did when a package had no
+save-under. Items carry right-aligned `^`-shortcuts, gray
 disabled states (Undo/Redo/zoom bounds, CLGRAY text), hand-drawn check
 marks (Markdown/Writer), and separator rules. The modal alerts (Save
 changes / About / errors) route every key and click while `[at_modal]` is
 set and repaint what they covered on close; W_PAINT re-raises a live alert
 a `wm_paint_all` crossed.
+
+#### 46.5.1 The pull-down banks its pixels
+
+`at_mclose` erased the panel and then called `at_draw_line` for every text
+line it had covered — and a line is drawn FULL WIDTH, all `[at_tw]` of it, not
+the panel's ~120px. Measured on a 4.77 MHz 8088 (Hercules, 720x348, a page of
+text under the View menu):
+
+| | measured |
+|---|---|
+| `at_mopen` | 256,076 cy — **53.7 ms** |
+| `at_mclose` | 500,863 cy — **104.9 ms** |
+
+`OSAPI_GFX_SAVE` / `OSAPI_GFX_REST` (§5.4.3) are what that was missing. The
+shape is Word's, one package along (§68.2.1), and so are its rules:
+
+- **The claim is per drop, not per session.** A pull-down over a 1bpp page is
+  ~1.5 KB and the About card on a colour adapter is ~42; holding either at
+  every instant nobody is looking at a menu is §12.4's objection. It is freed
+  in `at_surest`, *before* the picked item runs, so whatever that item claims
+  gets a heap the menu has already left.
+- **Every refusal is the same refusal and none of them is a new path.** No
+  claim, a rect that straddles two displays, a zero-byte rect — `[at_suseg]`
+  stays 0 and `at_mclose` repaints, which is what it did before. That is
+  §12.4's `[menu_sseg]` rule one layer out.
+- **The banked rect must be the one the repaint would have erased**, to the
+  column: `at_mclose` grows `at_mgeom`'s box by 2 for the drop shadow, so the
+  bank grows it by the same 2 and clamps to `[at_vw]`/`[at_vh]` the same way.
+  A rect that is short by a column leaves that column stale.
+
+**What makes it safe is that nothing else can draw there while the panel is
+up**, and both halves of that were already true. `at_menu_track` runs ON THE UI
+TASK, inside the app's own event handler, and its `.pass` loop yields to other
+TASKS rather than back to the event loop — so no `W_PAINT` can be delivered to
+`at_paint` mid-drop, because the task that would deliver it is the one standing
+in `at_menu_track`. And the blink worker, which is a different task, refuses to
+draw on `[at_menuon]`, `[at_modal]`, `[at_fs]` or `[at_drag]`.
+
+The one thing that *can* still reach those pixels is the screen saver, on its
+own task and through the same lock — and it could before this change too: the
+old close repainted its lines over the saver's pixels just as wrongly. Either
+way the saver's own exit raises a `W_PAINT` that repaints everything, so the
+error is bounded by the same event in both arms.
+
+**The plane count comes from `[at_vbpp]`**, which `at_geom_init` took from
+`OSAPI_WM_DISPLAY` for **the card this window is on** (§39.16.4) — not from
+`OSAPI_VIDEO`, which cannot answer that on a two-card machine and would size
+the buffer for the wrong adapter.
+
+**104.9 → 14.5 ms on the close, 7.2x**, and the bank costs 12.3 ms on the way
+down, so the round trip is 158.6 → 80.5 ms (1.97x). Dragging File → Help closes
+and reopens per title crossed, so it is that saving four times over. 250
+bytes.
+`NOATSU=1` is the A/B, and `tests/atmenusu.py` is the gate: it photographs the
+screen, opens a menu, dismisses it without picking, photographs again, and
+requires ZERO differing pixels — then pokes `[at_suseg]` = 0 mid-drop, which is
+exactly what a refused claim leaves behind, and requires the repaint fallback
+to land on the same pixels. One run, both paths, one reference.
 
 ### 46.6 Commands — markdown.c on one buffer
 
