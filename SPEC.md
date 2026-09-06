@@ -59989,6 +59989,43 @@ paragraph** (MEASURED, `tests/atkey.py`, 153.4 → 142.8 ms), and it scales with
 the paragraph rather than the document — which is the same shape as the walk
 it deletes. `NOATWALK=1` is the A/B.
 
+#### 46.3.2 The wrap rewinds the span nibble; it does not re-derive it
+
+`at_scan` walks a logical line once, carrying the span nibble in DL as it goes.
+At a wrap it rewound the position to the last space and then called
+`at_respan`, which **walked the whole visual line a second time** — from
+`[at_sclst]` to the break, through `at_getb` and `at_span` — to work out the
+nibble the next line starts with. The first walk had already computed exactly
+that, incrementally, and thrown it away.
+
+The obstacle is that the walk runs PAST the break before rewinding, so DL at
+that moment reflects characters belonging to the *next* line. The answer is the
+one §46.4.8 uses for its plain flag: **bank the state at every space**, and
+rewind to it. A space changes neither `at_span`'s nibble nor `[at_scskip]`, so
+the state after processing it *is* the state at the break.
+
+On a **hard** break — a word longer than the column, no space to rewind to —
+`[at_scpos]` is where the walk stopped, so DL is already the answer and nothing
+is banked or restored. Both arms then end `mov [at_scspan], dl`.
+
+`[at_scskip]` is banked with it. It marks the second byte of a `**` or `~~`
+pair, and the concern is a value pointing PAST the break, which would make the
+next line skip a byte it should read. It cannot arise from the space itself —
+a pair's first byte is never a space — but it can arise from the overshoot, so
+it is rewound rather than reasoned about.
+
+**It is worth 1.11x on a three-visual-line paragraph and 1.13x on a five**
+(115.6 → 104.6 ms and 205.2 → 181.7, Hercules, MEASURED) for **25 bytes**, and
+it scales with the number of WRAPS because that is how often `at_respan` ran.
+`at_scan` was 29.8% of a keystroke in a single call and this was about a third
+of it.
+
+`NOATRESPAN=1` is the A/B, and the case it must be tested with is a line whose
+delimiters land in the **overshoot** — the characters walked past the wrap
+before the rewind. A wrapped run with its delimiters at the ends never enters
+that region, and the gate was green with the rewind deliberately removed until
+`tests/atblit.py` gained a line carrying one `*` every four characters.
+
 ### 46.4 The renderer — one line, one blit
 
 `at_parse` turns a line slice into per-character visibility, style and

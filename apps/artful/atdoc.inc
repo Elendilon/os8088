@@ -770,11 +770,24 @@ at_scan:
     cmp al, ' '
     jne .nsp
     mov bp, si
+%if 1
+    ; BANK THE WALK'S STATE AT THE SPACE. The walk runs PAST the break before
+    ; .wrap rewinds to it, so everything it learned beyond the break belongs
+    ; to the NEXT line. Banking here is what lets both the plain flag
+    ; (46.4.8) and the span nibble (46.3.2) be REWOUND instead of re-derived.
+    ; A space changes neither at_span's nibble nor at_scskip, so the state
+    ; after processing it IS the state at the break.
+    push ax
 %ifndef NOATPLAIN
-    push ax                         ; BANK THE FLAG AT THE SPACE. The walk runs
-    mov al, [at_scplain]            ; PAST the break before .wrap rewinds to
-    mov [at_scplsp], al             ; it, so a delimiter beyond the break
-    pop ax                          ; belongs to the NEXT line, not this one
+    mov al, [at_scplain]
+    mov [at_scplsp], al
+%endif
+%ifndef NOATRESPAN
+    mov [at_scspsp], dl
+    mov ax, [at_scskip]
+    mov [at_scsksp], ax
+%endif
+    pop ax
 %endif
 .nsp:
     inc si
@@ -784,19 +797,31 @@ at_scan:
     je .hard
     mov si, bp
     inc si                          ; break after the last space
+    push ax                         ; ...and the state as it stood there
 %ifndef NOATPLAIN
-    push ax                         ; ...and with it the flag as it stood there
     mov al, [at_scplsp]
     mov [at_scplain], al
-    pop ax
 %endif
+%ifndef NOATRESPAN
+    mov dl, [at_scspsp]
+    mov ax, [at_scsksp]
+    mov [at_scskip], ax
+%endif
+    pop ax
 .hard:
 %ifndef NOATPLAIN
     call at_mkplain
 %endif
     mov [at_scpos], si
+%ifdef NOATRESPAN
     call at_respan                  ; the walk ran past the break: re-derive
-    jmp short .vline                ; the nibble for the next line's start
+%else
+    ; SPEC.md 46.3.2: DL IS the nibble at at_scpos on both arms now - carried
+    ; by the walk on a hard break, rewound from the space on a soft one - so
+    ; there is nothing to re-derive.
+    mov [at_scspan], dl
+%endif
+    jmp .vline                      ; the nibble for the next line's start
 .endline:
 %ifndef NOATPLAIN
     call at_mkplain

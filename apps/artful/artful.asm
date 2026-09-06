@@ -1088,7 +1088,10 @@ at_scplain  equ at_sbty + 2                  ; byte: this visual line has no
                                              ; styling character in it yet
 at_scplsp   equ at_scplain + 1               ; byte: ...as it stood at the last
                                              ; SPACE, for the wrap rewind
-at_blankok  equ at_scplsp + 1                ; byte: 1 = the kernel's face
+at_scspsp   equ at_scplsp + 1                ; byte: the span nibble at that
+                                             ; same space (SPEC.md 46.3.2)
+at_scsksp   equ at_scspsp + 1                ; word: ...and at_scskip with it
+at_blankok  equ at_scsksp + 2                ; byte: 1 = the kernel's face
                                              ; draws glyph 32 blank, so a
                                              ; space need not be composed
                                              ; (SPEC.md 46.4.6)

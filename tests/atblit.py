@@ -82,7 +82,17 @@ DOC = ["# *Heading* one",
        # on the second and the character test catches it instead.
        "A **bold run that is deliberately long enough to wrap onto a "
        "second visual line which contains no delimiter of any kind at "
-       "all and then carries on for a while longer still** and ends."]
+       "all and then carries on for a while longer still** and ends.",
+       # ...and a line whose delimiters land ALL OVER IT, including in the
+       # OVERSHOOT - the characters at_scan walks past the wrap point before
+       # rewinding to the last space. That region is the only thing the span
+       # rewind (SPEC.md 46.3.2) exists for: a delimiter there belongs to the
+       # NEXT visual line, and carrying its toggle back into this one's end
+       # state mis-styles everything after the break. One `*` every four
+       # characters over three visual lines puts one in nearly every
+       # overshoot; the wrapped run above has its delimiters at the ends and
+       # never does.
+       " ".join("*%c*" % c for c in "abcdefghijklmnopqrstuvwxyzabcdefghijklmn")]
 
 CARDS = {"cga":  "os8088_5150_cga_gla",
          "herc": "os8088_5150_herc_gla",

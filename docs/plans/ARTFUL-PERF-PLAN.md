@@ -491,6 +491,30 @@ which on a three-line paragraph is two extra walks of ~74 characters through
 `at_getb`. `at_slice` is NOT a target — `at_copyout` already splits at the gap
 and uses `rep movsb`.
 
-**What is left, in the order the measurement ranks it**: `at_scan` (29.8%, and
-`at_respan` within it), then Wave 6 (`at_append`), then 4a, which still needs
-re-costing on a ~30 ms line. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+**WAVE 5b IS BUILT** (SPEC.md §46.3.2) and it is the best byte-for-byte trade
+of the whole series: **1.11x** on a three-visual-line paragraph and **1.13x**
+on a five (115.6 → 104.6 ms and 205.2 → 181.7, Hercules) for **25 bytes**. It
+scales with the number of WRAPS, because that is how often `at_respan` ran.
+
+`at_scan` carries the span nibble in DL as it walks; at a wrap it rewound the
+position and then called `at_respan`, which walked the whole visual line AGAIN
+to recompute what the first walk had already had. The obstacle was only that
+the walk runs past the break before rewinding — so the state is banked at every
+space and rewound, which is the same answer §46.4.8 uses for its plain flag. A
+space changes neither the nibble nor `[at_scskip]`, so the state after
+processing it IS the state at the break; on a hard break there is no rewind at
+all and DL is already the answer.
+
+**The case it must be tested with is a delimiter in the OVERSHOOT** — the
+characters walked past the wrap before the rewind. The gate was green with the
+rewind deliberately removed until the document gained a line carrying one `*`
+every four characters: the wrapped bold run already there has its delimiters at
+the ends and never enters that region. That is the second time in this plan a
+break-test passed for the wrong reason, and both times the fix was a witness
+rather than a better assertion.
+
+**What is left**: Wave 6 (`at_append`), and 4a, which still needs re-costing on
+a line that is now ~20 ms rather than the 122 it was planned against. `at_scan`
+remains the largest single call but its cheap third is gone; what is left in it
+is the per-character `at_getb`, which is a near call that banks ES, reloads it
+from `[at_dseg]` and pops it, for one byte. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
