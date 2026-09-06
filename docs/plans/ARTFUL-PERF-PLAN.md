@@ -340,5 +340,36 @@ crash and not a wrong picture — the flag simply degraded to "scan everything",
 which is the old behaviour. `artful.asm` now carries a `%error` that fires on
 exactly that shape, and it was verified to fire.
 
+**WAVE 2a IS REFUSED TOO, and for a different reason from 2b.** It was built —
+`at_seecaret_t` answering which `[at_top]` would show the caret, and the three
+whole-page tails setting it before drawing instead of drawing, scrolling and
+drawing again. It drew 0 differing pixels in all four scenes, and it could
+neither be shown to save anything nor be shown to be safe:
+
+- The tails only double-draw when `at_seecaret` would actually scroll, which
+  needs the caret OFF-VIEW after the operation. Undo collapses the document
+  (`at_nlines` 1, caret 0), so it never scrolls; measured, an undo was
+  260,689 cycles against 261,060 — **1.001x**.
+- Its named hazard — `at_seecaret_t` answering 0 instead of `[at_top]` on the
+  already-visible exit — was broken on purpose twice and the gate stayed
+  GREEN, for the same reason: in every reachable scene the two answers
+  coincide.
+
+**The case that would show both is a ZOOM CHANGE**: taller lines push the caret
+off the bottom, so the tail draws the page, scrolls, and draws it again. It is
+not reachable from the harness today — ArtfulType draws its OWN menu bar in
+fullscreen (§46.5), so `os88ui.menu_pick`, which reads the kernel's menu
+tables, does not see it; driving Zoom In needs a click resolved from
+`at_mcell`'s own cell arithmetic. **That is the one piece of harness work that
+would let 2a be settled**, and it would serve every other menu-driven path in
+this app as well.
+
+Shipping it unmeasured would have meant a silent view jump on the zoom,
+Style > None and undo paths in exactly the cases nothing here can see — which
+is the failure mode this project's rules exist to prevent.
+
 **What is left, re-ranked on the measurement rather than the prediction.**
-2a's double repaint is the same shape as 2c and is the next one. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+3b (the scaled row in registers, which is the only item that helps scale 2 and
+3 and so every heading) and 3c (skipping a blank glyph) are unchanged and
+smaller. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, and
+2a needs the menu-bar click above before it can be judged at all. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.

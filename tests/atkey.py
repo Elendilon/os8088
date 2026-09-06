@@ -65,7 +65,7 @@ def pkg_syms(defines=()):
 
 
 def measure(img, apps, machine, tree, lines, samples, scroll=False,
-            key=None):
+            key=None, ctrl=None):
     tree.apply()
     syms = pkg_syms(["-D" + a.split("=")[0] for a in tree.args
                      if a.startswith("NOAT")])
@@ -165,7 +165,9 @@ def measure(img, apps, machine, tree, lines, samples, scroll=False,
         for _ in range(samples):
             m.bp_exec(onkey)
             m.run()
-            if key:
+            if ctrl:
+                m.ctrl(ctrl)
+            elif key:
                 m.key(key)
             else:
                 m.type_text("x")
@@ -181,8 +183,15 @@ def measure(img, apps, machine, tree, lines, samples, scroll=False,
             out.append(m.status()["cycles"] - c0)
             m.bp_exec()
             m.run()
-            want += 1
-            absorbed(want)
+            # RESYNC rather than increment: the bracketed key is not always a
+            # printable. Ctrl+Z and PageDown both MOVE the caret, so
+            # `want += 1` then waits for a number that can never arrive and
+            # sits out its whole guest budget.
+            os88marty.quiesce(
+                m, lambda: m.readseg(seg, caret, 2)
+                + m.readseg(seg, syms["at_top"], 2),
+                what="ArtfulType to finish the keystroke")
+            want = u16(m.readseg(seg, caret, 2))
         rlk = u16(m.readseg(seg, syms["at_rlk"], 2))
         dfrom = u16(m.readseg(seg, syms["at_dfrom"], 2))
         nlines = u16(m.readseg(seg, syms["at_nlines"], 2))
@@ -203,6 +212,9 @@ def main():
                          "printable keystroke leaves the line count alone and "
                          "takes at_apply_edit's .rng arm, which never calls "
                          "at_sbar at all - only the line-count-change arms do.")
+    ap.add_argument("--ctrl",
+                    help="bracket this key with Control held - Ctrl+Z is "
+                         "AT_CMD_UNDO, one of 46.4.5's three whole-page tails")
     ap.add_argument("--scroll", action="store_true",
                     help="bracket a PAGEDOWN on a document taller than the "
                          "view, instead of a character in a paragraph")
@@ -223,7 +235,7 @@ def main():
         cyc, rlk, dfrom, nlines = measure(t.img("os8088-360.img"),
                                           t.img("apps360.img"), machine, t,
                                           a.lines, a.samples, a.scroll,
-                                          a.key)
+                                          a.key, a.ctrl)
         res[name] = cyc
         best = min(cyc)
         print("   %-22s %s cycles  -> %.1f ms  "

@@ -218,18 +218,51 @@ def drive(img, apps, machine, tree, census, shot=None):
 
         nav("PageUp")
         nav("PageDown")
+        # RESYNC. `absorbed` waits for at_caret to reach a COUNT of typed
+        # characters, which is only the same number while typing forward from
+        # the start - the nav keys above just moved the caret somewhere else
+        # entirely, and the next wait would sit out its whole guest budget
+        # waiting for a number that can never arrive.
+        n = u16(m.readseg(seg, caret, 2))
         ui.settle()
-        for nm in ("at_top", "at_nlines", "at_sbst", "at_sbmax", "at_sbty"):
-            if nm in syms:
-                v = m.readseg(seg, syms[nm], 2)
-                print("      %-10s %d" % (nm, v[0] | (v[1] << 8)))
         w3, h3, scrolled = m.fbuf()
         if shot:
             os88marty.write_png_rgb(shot.replace(".png", "-scroll.png"),
                                     w3, h3, scrolled)
+
+        # --- SCENE 4: UNDO ------------------------------------------------
+        # 46.4.5 changes three whole-page tails - Style > None, the zoom/mode
+        # change and Undo/Redo - and none of the three scenes above reaches
+        # one. Ctrl+Z is the cheapest to drive (at_ctltab: 26 -> AT_CMD_UNDO)
+        # and lands in at_undo's tail, which both clamps the top and can
+        # scroll.
+        #
+        # THE SECOND TYPING RUN IS WHAT MAKES THE SCENE ABLE TO FAIL. Undoing
+        # the FIRST run collapses the document to one line, so [at_top] and 0
+        # coincide - and 46.4.5's named hazard is at_seecaret_t answering 0
+        # instead of [at_top] on the already-visible exit, which that scene
+        # cannot tell apart. The nav keys above closed the first run
+        # ([at_typrun]), so this is a run of its own: undoing it leaves the
+        # document tall, the view scrolled and the two answers different.
+        for ch in "abc":
+            m.type_text(ch)
+            n += 1
+            absorbed(n)
+        ui.settle()
+        m.ctrl("KeyZ")
+        os88marty.quiesce(
+            m, lambda: m.readseg(seg, syms["at_top"], 2)
+            + m.readseg(seg, caret, 2)
+            + m.readseg(seg, syms["at_nlines"], 2),
+            what="ArtfulType to finish the undo")
+        ui.settle()
+        w4, h4, undone = m.fbuf()
+        if shot:
+            os88marty.write_png_rgb(shot.replace(".png", "-undo.png"),
+                                    w4, h4, undone)
         if shot:
             os88marty.write_png_rgb(shot, w, h, rgb)
-    return w, h, splash, rgb, scrolled, counts
+    return w, h, splash, rgb, scrolled, undone, counts
 
 
 def diff(a, b, w, h, y0=0):
@@ -289,10 +322,10 @@ def main():
     print("   %s arm: %s" % (a.knob, os.path.relpath(knob.dir, ROOT)))
 
     os.makedirs("/tmp/atblit", exist_ok=True)
-    w, h, bsp, band, bsc, cb = drive(shipped.img("os8088-360.img"),
+    w, h, bsp, band, bsc, bun, cb = drive(shipped.img("os8088-360.img"),
                                 shipped.img("apps360.img"), machine, shipped,
                                 a.census, "/tmp/atblit/%s-shipped-%s.png" % (a.knob, a.card))
-    w2, h2, esp, expa, esc, ce = drive(knob.img("os8088-360.img"),
+    w2, h2, esp, expa, esc, eun, ce = drive(knob.img("os8088-360.img"),
                                   knob.img("apps360.img"), machine, knob,
                                   a.census,
                                   "/tmp/atblit/%s-knob-%s.png" % (a.knob, a.card))
@@ -314,7 +347,8 @@ def main():
     MBAR_H = 20                      # the kernel's desktop bar (SPEC.md 12)
     for scene, x, y, y0 in (("splash", bsp, esp, MBAR_H),
                             ("document", band, expa, 0),
-                            ("scrolled", bsc, esc, 0)):
+                            ("scrolled", bsc, esc, 0),
+                            ("undone", bun, eun, 0)):
         n, box = diff(x, y, w, h, y0)
         print("   %s/%s %-9s %d differing pixels of %d%s"
               % (a.knob, a.card, scene, n, w * h,
