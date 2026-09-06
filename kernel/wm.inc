@@ -1971,10 +1971,12 @@ wm_pref_take:
     push si
     push di
     push es
+%ifdef GFX_VGA                  ; no EGA on a build with no VGA renderer
     cmp al, VID_EGA             ; the per-window PREF table has THREE entries,
     jne .kindok                 ; VID_VGA / VID_HERC / VID_CGA, and the kind
     mov al, VID_VGA             ; indexes it (kind*4) below - so an unclamped
 .kindok:                        ; EGA reads si+12, off the end of a table in
+%endif
                                 ; the PACKAGE's own segment. An EGA machine
                                 ; takes VGA's row - it is VGA's planar path,
                                 ; and a package cannot supply a fourth pair

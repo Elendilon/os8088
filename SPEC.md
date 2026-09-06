@@ -8411,6 +8411,10 @@ The driver-backed path is covered too, on half of this argument only —
   `mouse_unhook` too) — used before reboot. Afterwards it restores PIT
   channel 0 to the BIOS-default mode 3 (control word 0x36, then two zero
   bytes to port 0x40), the three OUTs under `pushf`/`cli` … `popf`.
+  **IT DOES NOT RETURN** (§18.100): it falls into `dsk_fdd_park_x`, whose tail
+  is the `int 0x19`, so AX and ES are clobbered and both of its callers —
+  `ui_cmd_reboot` and HIBER.DRV — reach it by `jmp` rather than `call`. On the
+  `NOFDDPARK=1` arm it returns as it always did.
 
 ### 8.1 CPU cycle accounting (for the Task Manager, §28)
 
@@ -9616,7 +9620,8 @@ mou_ident  01 00       COM1 answered like a mouse, COM2 did not
 mou_idany  01
 mou_need   01 08       COM1 dropped to 1; COM2 still owes its eight
 mou_seen   00          nothing has been claimed - the contest is untouched
-mou_hpst   00  hpt 0000  the recovery cycle NEVER FIRED
+mou_hpst   00            the recovery cycle NEVER FIRED (hpt is the
+                         desktop tick from 9.4.8 on, not a 0/nonzero flag)
 mouse_x/y  0168 00AE   = 360,174 = 720x348 / 2: still homed (39.6), unmoved
 ```
 
@@ -9637,7 +9642,7 @@ ident bytes COM1 1                   exactly one byte...
 first byte COM1  004D                ...and it was 'M'
 identified COM1  1
 packets needed   1 / 1               the one-port default, untouched
-poller stamp     0                   the cycle NEVER dropped DTR
+poller state     0                   the cycle NEVER dropped DTR
 mouse found      1   run reached 1   settled on the operator's first move
 ```
 
@@ -9648,7 +9653,7 @@ actually sends, which is the direction to be wrong in.
 
 The two machines confirm **different halves**, which is the useful part: the
 5150 is single-port, so `[mou_need]` was already 1 and the whole visible win
-there is the **stand-down** — `poller stamp 0` where the old code would have
+there is the **stand-down** — `poller state 0` where the old code would have
 dropped DTR on the first UI pass. MartyPC is two-port, so the win there is
 the **threshold drop**. A real two-port machine (the Compaq Portable III,
 §9.5.2's) is the witness neither covers and is still owed.
@@ -9736,9 +9741,11 @@ Three things hold it up:
 - **What survives the operator matters more than what does not.** By the time
   anyone launches a test package the mouse has been used, so `mou_seen`,
   `mou_port` and `mou_hpst` are long settled and say nothing about the boot.
-  The identify members do not move after `mouse_init`, and **`mou_hpt` is
-  never written unless the poller actually dropped DTR** — so `hpt = 0` is
-  the assertion that carries, and it survives ten minutes of driving.
+  The identify members do not move after `mouse_init`, and **`mou_hpst` never
+  leaves state 0 unless the poller actually dropped DTR** — so `hpst = 0` is
+  the assertion that carries (1 or 3 says it fired; 2 says it stood down after
+  firing), and it survives ten minutes of driving. `mou_hpt` is a plain tick
+  from §9.4.8 on: kmain's desktop frame, then each drop and each raise.
 
 `tests/sysbench` is the reference reader (docs/TESTING.md), and its block is
 a **state dump rather than a measurement** — so it emits no `bl_head`, whose
@@ -10055,30 +10062,40 @@ Two costs of the recovery mechanism land on the first seconds of the desktop
 cycle-exact on a 5150 (docs/plans/MOUSE-BOOT-FREEZE-PLAN.md, which prices the
 three mechanisms that can hold the arrow after the desktop appears).
 
-**The poll interval is timed from the first desktop frame.** Its base is a new
-`.bss` word `[mou_hpbase]`, and `[ticks]` starts at `sched_init`, so the first
-drop used to fire the instant `[ticks]` reached `MOU_REPOLL` = 55. On a boot
-long enough to pass tick 55 before the desktop — a hard-disk boot, or any
-driver `SYSTEM.CFG` asks for — that is the **first UI pass**, dropping DTR
-under the user's hand exactly as they reach for the mouse. `kmain` now writes
-`[ticks]` into `[mou_hpbase]` right after `cursor_show`, and each raise re-bases
-it, so state 0 counts the interval from when the pointer first exists. A user
+**The poll interval is timed from the first desktop frame.** Its base is
+`[mou_hpt]`, and `[ticks]` starts at `sched_init`, so the first drop used to
+fire the instant `[ticks]` reached `MOU_REPOLL` = 55. On a boot long enough to
+pass tick 55 before the desktop — a hard-disk boot, or any driver `SYSTEM.CFG`
+asks for — that is the **first UI pass**, dropping DTR under the user's hand
+exactly as they reach for the mouse. `kmain` now writes `[ticks]` into
+`[mou_hpt]` right after `cursor_show`, and each raise re-bases it, so the
+waiting state counts the interval from when the pointer first exists. A user
 who moves within `MOU_REPOLL` ticks (~3s) settles the port and the poller never
 drops at all; a machine with no mouse loses only one ~3s delay of its first
-offer, and thereafter polls exactly as before. Six bytes of `.text` plus the
-base word.
+offer, and thereafter polls exactly as before.
 
-It is deliberately **`[mou_hpbase]` and not `[mou_hpt]`**: `[mou_hpt]` stays 0
-until a real drop, because that is the whole of `sysbench`'s "poller stamp
-(0=nvr)" field (§9.4.2) — nonzero there says the poller power-cycled the mouse,
-and basing the interval in it would make every machine read as though it had.
-So the two are split: `[mou_hpbase]` bases the interval (desktop, then each
-raise), `[mou_hpt]` carries the drop tick for the diagnostic and for state 1's
-low-hold.
+**One stamp, not three.** `[mou_hpt]` is the single word the whole mechanism
+measures from — kmain's desktop tick, then each drop (which state 1's low-hold
+counts from) and each raise (which bases the next interval *and* is the drain
+ceiling's reference below). It does not need a second word to keep the field
+reading intact, because **`[mou_hpst]` already carries it**: the raise leaves
+state **3**, "waiting like 0 and has dropped at least once", so `hpst >= 1` is
+*"the poller power-cycled this mouse"* in one peek of a byte §9.4.2 already
+publishes — strictly better than the two-reading comparison a stamp needs, and
+free. Both wait states dispatch on `cmp byte [mou_hpst], 1`, so 3 falls through
+to the state-0 arm with no new instruction, and §9.4.5's `.have` stand-down
+still tests only for 2.
 
 **The drain ends when the burst goes quiet, not on a fixed clock.** The raise
-arms `[mou_drain]` and stamps `[mou_draise]` (the raise tick) and `[mou_dstamp]`
-(the last-byte tick, initialised to the raise). The ISR drops each received
+arms `[mou_drain]` and stamps `[mou_hpt]` (the raise tick) and `[mou_dstamp]`
+(the last-byte tick, initialised to the raise). `[mou_hpt]` is the ceiling's
+reference and is **not** rewritten for `MOU_REPOLL` = 55 ticks, six times the
+ceiling; the *next* drop does rewrite it while a window that has seen no byte
+at all is still nominally armed, and that is harmless by arithmetic rather
+than by luck — a window survives 55 ticks of silence only if the last drained
+byte was inside `MOU_DRAINT` = 9 of the raise, so the **quiet** test below
+(≥46 ticks against `MOU_DRAINQ` = 3) closes it on the very next byte whatever
+the ceiling says. The ISR drops each received
 byte, re-stamping `[mou_dstamp]`, and closes the window when it has been quiet
 for `MOU_DRAINQ` ticks (~165ms) **or** `MOU_DRAINT` ticks (~0.5s) have passed
 since the raise — the same floor/quiet/ceiling shape as §9.4.5's identify
@@ -10102,7 +10119,7 @@ ticks); quiet-ended, the first motion after the burst is read at once.
 **Neither half is testable against the case it exists for on any emulator
 here.** MartyPC's and 86Box's serial mice send one byte (`'M'`) and keep
 reporting with DTR held low, so the drain window can be *armed by hand* — set
-`[mou_drain]`, `[mou_dstamp]` and `[mou_draise]` and inject packets — but a
+`[mou_drain]`, `[mou_dstamp]` and `[mou_hpt]` and inject packets — but a
 real PnP burst, and a mouse that actually powers down on a DTR drop, are the
 Compaq Portable III's and the 5150's to confirm (docs/FIELD-MACHINES.md).
 `tests/sysbench`'s `'MO'` block (§9.4.2) reads `mou_hpst`, `mou_idn`,
@@ -19843,7 +19860,8 @@ app_launch; does its own locking). CMD_CLOSE → **quit** the frontmost:
 gfx_lock, `wm_top`, and if BX ≠ 0 `app_close_win` under the same lock,
 gfx_unlock. CMD_REBOOT → gfx_lock (never released), `vid_text` (§39.6 —
 mode 3, or mode 7 with the Hercules graphics bit cleared),
-`sched_unhook`, `int 0x19`.
+`sched_unhook` — which does not return, falling into §18.100's park and the
+`int 0x19` at its tail.
 
 All wm_* calls that repaint are made under gfx_lock by the UI task.
 
@@ -28310,15 +28328,18 @@ cylinder the copy finished on.
 
 #### The fix is one BIOS call per drive, on the way out
 
-`ui_cmd_reboot` gains a call after `sched_unhook` and before `int 19h`:
-`dsk_fdd_park_x` issues the ROM's **`int 13h AH=00h` — RESET DISK SYSTEM, which
-recalibrates the head to track 0 — once per unit the equipment word claimed.
+`sched_unhook` falls straight into `dsk_fdd_park_x`, which issues the ROM's
+**`int 13h AH=00h` — RESET DISK SYSTEM, which recalibrates the head to track 0 —
+once per unit the equipment word claimed, and then executes the `int 19h`
+itself. The park is the GUI's exit **tail** rather than a subroutine on it: both
+callers had `int 19h` as their next instruction, so the restart is one path with
+one copy of it.
 
 **It is the BIOS's call and not our port sequence**, which is the whole of why
 this is thirty-one bytes rather than the two-hundred-odd an in-kernel
 recalibrate cost. The ROM does the handshake, the seek wait and the retry;
-`dsk_fdd_park_x` reads no result, because the `int 19h` two instructions along
-resets the FDC whatever state the call leaves. The `int 13h` vector is the
+`dsk_fdd_park_x` reads no result, because the `int 19h` at its own tail resets
+the FDC whatever state the call leaves. The `int 13h` vector is the
 ROM's — the kernel calls it directly everywhere (`clone.inc`, `dsk_dbg_raw`) —
 and after `sched_unhook` it is unquestionably so.
 
@@ -28338,8 +28359,9 @@ never comes, could not do without seconds of motor grinding per empty drive.
 **After `sched_unhook`, not before.** The scheduler is down by then, so no task
 can be switched onto a different stack in the middle of the BIOS call — the one
 hazard `dsk_dbg_raw` holds `sch_lock` against, and the reason this needs none.
-The hibernate module's copy of the same reboot tail (§87) takes the call too,
-for the same reason and in the same order; its *resume* path is left alone,
+The hibernate module (§87) SHARES that tail rather than copying it — it jumps
+far to `sched_unhook` and never comes back — so the order is the same because it
+is the same code; its *resume* path is left alone,
 because it restores a saved desktop rather than building one, so `desk_init`
 never runs and §18.97 is never asked.
 
@@ -28352,8 +28374,12 @@ back.
 
 #### What it costs
 
-**31 bytes of `.cold` and 5 of `.text`, and no rung moves** — the cold rung had
-190 bytes free and keeps 159. There is no resident RAM cost beyond those bytes,
+**17 bytes of `.cold`, and `.text` comes DOWN by 8** — folding the `int 19h`
+and the unhook call into the tail deletes `ui_rb_go`'s two instructions,
+`ui_cmd_reboot`'s far call, `sched_unhook`'s prologue, epilogue and `ret`, and
+`cw_sched_unhook` (which had no caller left) with them. Measured against the
+kernel before this section: `.text` −8, `.cold` +17, and no rung moves. There is
+no resident RAM cost beyond those bytes,
 which was the point of spending the BIOS's recalibrate instead of the kernel's:
 the in-kernel version, with its own handshake, wait and result helpers, was
 226 bytes and crossed a 512-byte cold rung.
@@ -28371,7 +28397,8 @@ gate that cannot turn the fix off cannot tell a park that ran from a machine
 that happened to be parked already — which every emulator here is, because
 MartyPC returns drive 1's cylinder to 0 on the controller reset the BIOS does at
 boot (§18.97.4 verified that three ways). `tests/fddpark.py` therefore breaks on
-`ui_rb_go`, the label on `ui_cmd_reboot`'s own `int 0x19`, drives a SENSE DRIVE
+`dsk_rb_go`, the label on the park's own `int 0x19` (and on `ui_rb_go`, which is
+where that instruction still lives on the `NOFDDPARK=1` arm), drives a SENSE DRIVE
 STATUS at unit 1 from the host, and reads TRK0 out of ST3. On
 `os8088_5150_cga_gla`:
 
@@ -28379,7 +28406,7 @@ STATUS at unit 1 from the host, and reads TRK0 out of ST3. On
 |---|---|---|
 | a fresh boot | `39` — TRK0 | `39` |
 | after a Disk window read B: | `29` — **TRK0 clear** | `29` |
-| at `ui_rb_go` | **`39`** | **`29`** |
+| at `dsk_rb_go` / `ui_rb_go` | **`39`** | **`29`** |
 
 Row 1 is §18.97.4's own field figure off an IBM-ROM 5150 and row 2 its other, so
 the emulator agrees with the machine that reported this before either arm is
@@ -44289,15 +44316,16 @@ no SB16 for an 8-bit ISA XT. It borrows the wide regime's 4 KB double buffer
 and `SBL_WD_WIDE` watchdog. Its one hardware quirk drives the last column: once
 `90h` runs the DSP accepts **no command** until a reset, so `sbl_halt` masks
 8237 channel 1 instead of writing `D0h`, `sbl_go_on` unmasks, and
-`sbl_stop_stream` masks in the `cli` window then runs `sbl_dsp_reset` after
-`popf` (the stream already dead) to leave high-speed mode for the next open.
+`sbl_stop_stream` masks in the `cli` window then runs `sbl_f_reset` — the
+probe's own DSP reset, the driver's only one — after `popf` (the stream
+already dead) to leave high-speed mode for the next open.
 A TC byte can only say 1,000,000 / n, so the high-speed regime **rounds** the
 division where the legacy path truncates: 44,100 lands on TC 233 (43,478 Hz,
 −1.4%) rather than 234 (45,454 Hz, +3.1%, half a semitone sharp), 24,000 on
 23,810 Hz. The SB16's `41h` takes the rate in Hz and has no such error.
-`sbl_dsp_reset` answers CF = 1 on a timeout and `sbl_stop_stream` retries it
-once — nothing else ever resets the DSP, and one left in `90h` swallows every
-later open's commands.
+`sbl_f_reset` answers CF = 1 on a timeout and `sbl_stop_stream` retries it
+once — the probe, the close and `sbl_unhook` share that one routine, and a DSP
+left in `90h` swallows every later open's commands.
 Everything below DSP 3.00, and every rate ≤ 22,222, behaves exactly as before:
 those paths gained only a test of `sbl_hisp` (in `sbl_hw_start`, `sbl_halt`,
 `sbl_go_on`, `sbl_stop_stream` and the TC division), never a different byte
@@ -49548,7 +49576,7 @@ chain, `wm_fit`, the chrome, `desk_rowcalc` and the cursor all follow from
 | `vga_vline_core`, `vga_xor_hline` | clip y to `SCREEN_H` (a VGA-only constant) | now clip to `[vid_ch]` — a no-op edit on VGA, byte-checked (§39.9) |
 | Colour theme (§76.12) | eligible | eligible — the theme is six palette *indices*, no DAC or AC programming; `thm_set` / `cp_thm_colgrey` accept `VID_EGA` beside `VID_VGA`, the two four-plane kinds (§76.12.1) |
 | `OSAPI_WM_PREFER` kind index | `vid_kind` = 0 | clamped to 0 — an EGA takes VGA's preference row (§39.8) |
-| the idle **blank** (§64) | SR01 bit 5, Screen Off | **the PALETTE** — `vid_ac_pal`, all sixteen AC registers to black and mode 10h's own sixteen back. An EGA has neither enable bit: SR01 bit 5 and the AC index's bit 5 (Palette Address Source) are both VGA additions, so writing either on an EGA lands in a reserved field and blanks nothing |
+| the idle **blank** (§64) | the same as the EGA's — `vid_ac_pal` | **the Attribute Controller's Color Plane Enable**, AC register 12h — `vid_ac_pal`, 0 to dark and 0x0F to light. An EGA has neither enable bit: SR01 bit 5 (Screen Off) and the AC index's bit 5 (Palette Address Source) are both VGA additions, so writing either on an EGA lands in a reserved field and blanks nothing. AC 12h is on both cards, so it is the ONE planar arm and the VGA's SR01 blank is gone with it |
 | `vid_dual_ok` | `[vid_avail]` alone | **also `[vid_kind]`** — and that is what makes the predicate non-invariant, below |
 
 `vid_probe_avail` treats `VID_EGA` like `VID_VGA`: available by definition,
@@ -74680,19 +74708,26 @@ CGA branch, which writes 3D8h — a register a VGA does not implement, so the
 `out` was swallowed by the bus and did nothing. §39.11.4 records the hole as
 accepted, which it was for a card pairing nobody built and is not for a
 blanker: silently declining to blank on one adapter in three is precisely the
-failure this project keeps paying for. The VGA now uses Sequencer register 1
-(Clocking Mode) bit 5, **Screen Off**.
+failure this project keeps paying for. **Both planar kinds now use the
+Attribute Controller's Color Plane Enable, AC register 12h** (`vid_ac_pal`):
+with all four planes disabled every pixel reads as attribute 0, which maps
+through palette register 0 to black; 0x0F puts them back and is what the BIOS
+mode set leaves for mode 10h and mode 12h alike. That register is on the IBM
+EGA as well as on every VGA, which is what makes it ONE arm rather than two
+— the VGA's earlier Sequencer register 1 bit 5 (**Screen Off**) arm is gone,
+and §39.24's EGA arm never needed a second mechanism. The one behavioural
+difference is the **overscan**: SR01 bit 5 gated the signal outright and
+darked the border with it, where AC 12h leaves AC 11h alone — which is 0 in
+both modes, so the border is already black.
 
-That one access is a **read-modify-write and so runs with IF=0**. SR01's other
-bits are the dot clock and the character width; they belong to whatever mode
-the card is in and cannot be guessed, so the register must be read — an index
-write, a read and a data write, with two gaps in it. Every other sequencer
-access in the kernel is a single `out dx, ax`, atomic by construction; this
-one cannot be, and the gap is reachable, because `vga12.inc`'s plane loops
-leave the sequencer index at 2 (Map Mask) for the whole of a plane's
-`rep movsb` and any drawing task can be pre-empted mid-row. A switch landing
-in that gap would read the Map Mask and write the screen-off bit into it.
-`pushf`/`cli` … `popf`, never `cli`/`sti` (§1).
+Those two port writes are **a latched pair and so run with IF=0**. 3C0h is one
+port for both the index and the data and which one a write lands in is a
+flip-flop, not a state re-selected by each access the way the Sequencer's index
+is, so a task switch landing between the index write and the data write puts
+the next writer's index where a data byte belongs. The routine resets the
+flip-flop through 3DAh on the way in and leaves it in the INDEX phase on the
+way out, because the phase outlives the call and `fsx.inc` hands a package the
+raw hardware. `pushf`/`cli` … `popf`, never `cli`/`sti` (§1).
 
 **Every card, not just `[vid_kind]`'s.** On a two-monitor machine (§39.11) —
 the machine this project is calibrated against — the desktop spans both and
@@ -94023,24 +94058,34 @@ it writes a byte, because a pointer that outlived its question — the window
 closed by its box, or a boot that could not load the module to ask — would
 otherwise name the new image with the old session's wake address for as long
 as the new image's write took, and for good if the new pointer's write
-failed. It is 64 bytes of
-header and then the image's name; the path field is reserved and zero, and a
-pointer with a path in it is refused as another build's:
+failed. It is **16 bytes**, and every one of them is something this kernel
+could not have worked out for itself:
 
 ```
-+0   db 'HIB1'                   magic
-+4   dw BUILD_NUM                the commit (§14.2)
-+6   dw MOD_STAMP                the layout of this build of it (§2.8.2)
-+8   dw [mem_top]                paragraphs of conventional memory
-+10  db [vid_kind]               the adapter the desktop was on
-+11  db 0
-+12  dw SP, dw SS                hb_perform's entry frame (§87.4)
-+16  dw off, dw seg              hb_wake, in the module's own segment
-+20  dw driver mask              drv_tab rows detached before the image
-+22  db 0 x 10
-+32  db path[32]                 the folder from the root, 'A\B', NUL (PTH_BUF)
-+64  db name[13]                 the image's 8.3 name, NUL
++0   db 'HIB1'                   magic          \
++4   dw BUILD_NUM                the commit (§14.2)          |  hbm_ptrfix:
++6   dw MOD_STAMP                the layout of this build (§2.8.2)  ONE
++8   dw [mem_top]                paragraphs of conventional memory  description,
++10  db [vid_kind]               the adapter the desktop was on     stamped by
++11  db 0                                                    /  build and
++12  dw off, dw seg              hb_wake, in the module's own segment
 ```
+
+The head in front of `hb_wake` is **one object**, `hbm_ptrfix`: `hbm_ptr_build`
+copies it into the buffer and `hbm_ask` compares the buffer against it, so
+there is one description of the fixed head rather than a writer's and a
+reader's that can drift. Three of its assembly-time fields are literals in the
+module image and `hbm_ptrfix_set` fills the two that are the running machine's.
+
+**What is NOT in it, and why.** The image's NAME is always `HIBERNAT.IMG` and
+its folder is always the root of `hb_pick`'s volume, so a name field and a path
+field were the writer stamping a constant and the reader comparing it against
+the same constant. `SS` is `LOW_SEG` for every task in this kernel (§2.1) and
+`SP` is `[hb_sp]`, which is in `.bss` and so is IN THE IMAGE — as is the driver
+mask, which `hbm_reload` has always read out of `[hb_drvmask]` and never out of
+the pointer. So the stub hands `hbm_wake` no stack at all: it sets `DS` and
+jumps, and `hbm_wake`'s first three instructions build `SS:SP` out of the
+memory it has just put back.
 
 A pointer whose build, stamp, memory size or adapter differ from the kernel
 reading it names an image this kernel cannot enter, and `hb_ask` says so —
@@ -94123,7 +94168,13 @@ window in `HB_M_RESUME`. Any refusal is a toast and a deleted pointer.
    driver volume they are `DSV_GEOM`'s (§51.8): the int 13h unit, the
    partition's 32-bit base, sectors per track and heads.
 2. Walks the image's FAT chain into a list of **extents** — absolute LBA and
-   sector count, contiguous clusters coalesced — in a 10KB `MEM_K_HIB` claim.
+   sector count, contiguous clusters coalesced, six bytes each — in a
+   `MEM_K_HIB` claim `hbm_xcap` sizes for THIS volume. A run spans at least
+   one cluster, so the image's CLUSTERS bound the runs, and `[dsk_spc]` is
+   what turns its sectors into them: 8KB at one sector per cluster, 1KB at
+   eight. `HS_XMAX` stays the ceiling, because the staging region the stub
+   reads from is fixed at assembly time and cannot grow, and a BPB that says
+   zero takes that assembly-time bound rather than a divide.
 3. `cp_flush_close` (the Control Panel's unsaved settings, §31.8), then
    `drv_shutdown` (the fresh boot's drivers go) — `ui_cmd_reboot`'s order,
    as before any restart — then `gfx_lock`, `vid_reboot` to text mode.

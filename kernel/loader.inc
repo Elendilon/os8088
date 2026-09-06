@@ -795,7 +795,8 @@ ld_run_body_x:
                                 ; FOR, never the size got
 
     ; --- 5. reserve an instance record + a pool region -------------------------
-    call KERNEL_SEG:cw_inst_alloc ; DI = record (unpublished: still free on
+    mov bp, inst_alloc
+    call KERNEL_SEG:cw_mem_disp ; DI = record (unpublished: still free on
     jc .nomem                   ; any later failure)
     mov [ld_rec], di            ; banked in .bss, not in BP: BP carries the
                                 ; entry offset into the dispatcher below,
@@ -997,7 +998,8 @@ ld_run_body_x:
     push es
     mov es, [ld_base]           ; the name field is in the package's image
     mov si, 16
-    call KERNEL_SEG:cw_inst_set_name_x ; ES:SI -> the 16-byte NUL-padded name
+    mov bp, inst_set_name_x
+    call KERNEL_SEG:cw_mem_disp ; ES:SI -> the 16-byte NUL-padded name
                                 ; ("out: nothing - all registers preserved")
     ; --- and the ICON, off the SAME ES -------------------------------------
     ; A SENTINEL, not a copy. The icon body is 64 bytes at a fixed offset in
@@ -1015,7 +1017,8 @@ ld_run_body_x:
     mov word [di+I_ICON], I_ICO_PKG
 .noico:
     pop es
-    call KERNEL_SEG:cw_inst_bind_win ; DI = record, BX = window (from the entry)
+    mov bp, inst_bind_win
+    call KERNEL_SEG:cw_mem_disp ; DI = record, BX = window (from the entry)
     mov byte [di+I_STATE], 1    ; publish - the LAST record write
     ; --- the status BEFORE the repaint, not after ---------------------------
     ; A Disk window's status line draws [ld_status] (SPEC.md 22), so the
@@ -1057,7 +1060,8 @@ ld_run_body_x:
     ; The reserved instance record was never published, so it needs nothing.
     call KERNEL_SEG:cw_gfx_lock
     mov ax, [ld_base]
-    call KERNEL_SEG:cw_wm_destroy_seg
+    mov bp, wm_destroy_seg
+    call KERNEL_SEG:cw_mem_disp
     call KERNEL_SEG:cw_gfx_unlock
     ; ...but NOT its toast (SPEC.md 20.12.4). A refusal the entry proc SAID -
     ; os88parts.inc's four, a C package's - carries the reserved slot as its

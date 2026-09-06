@@ -532,8 +532,10 @@ sch_fdivs:  dw 32768, 21845, 16384      ; N = 2, 3, 4
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 sched_unhook:
+%ifdef NO_FDDPARK
     push ax
     push es
+%endif
 
     xor ax, ax
     mov es, ax
@@ -563,9 +565,17 @@ sched_unhook:
     out 0x40, al
     popf
 
+%ifdef NO_FDDPARK
     pop es
     pop ax
     ret
+%else
+    jmp COLD_SEG:dsk_fdd_park_x ; ...and straight on into SPEC.md 18.100's park
+                                ; and the int 19h at its tail. NEVER RETURNS on
+                                ; this arm: both callers are the reboot path
+                                ; and neither has an instruction after it, so
+                                ; AX/ES need not come back either
+%endif
 
 ; -----------------------------------------------------------------------------
 ; sch_wake_ui - make the UI task ready (PROBE, docs/plans/completed/SCHED-IDLE-PLAN.md 6.3)

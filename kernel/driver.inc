@@ -374,7 +374,9 @@ DSV_PKGCALL equ 34              ; dw: THE FENCE for OSAPI_DRV_CALL. A driver
                                 ; a package could name DRVC_DISK and arrive at
                                 ; DSV_BLK, which is a raw sector write to the
                                 ; hard disk from any .O88 on the floppy
-DSV_GEOM    equ 36              ; dw: DRVC_DISK only - one volume's TRANSPORT
+DSV_GEOM    equ DSV_BLK         ; == DSV_BLK: the transport facts are that
+                                ; verb's SUB-FUNCTION 2 (AL = 2), not a cell of
+                                ; their own - one volume's TRANSPORT
                                 ; FACTS (SPEC.md 51.8, 87.5): in AH = the
                                 ; driver's handle; out CF = 0 and DL = the
                                 ; int 13h drive, CX:BX = the partition's first
@@ -382,7 +384,7 @@ DSV_GEOM    equ 36              ; dw: DRVC_DISK only - one volume's TRANSPORT
                                 ; CF = 1 for a volume the ROM does not reach.
                                 ; For the resume stub, which runs after every
                                 ; driver has been detached and speaks CHS
-DSV_SIZE    equ 38              ; ...and it must stay EVEN: drv_publish copies
+DSV_SIZE    equ 36              ; ...and it must stay EVEN: drv_publish copies
                                 ; the table DSV_SIZE/2 WORDS at a time
 DSV_TAB0    equ 28              ; ...and the length every driver that carries 0
                                 ; at DRV_H_DSV has: the table stood at 28 until
@@ -1193,6 +1195,10 @@ drv_cls_svc_x:
     push cx
     call drv_cls_idx            ; ...same: DI = 0 and CF = 1 on a refusal, and
     jc .out                     ; `pop` writes no flag
+    cmp al, DRVC_RETIRED3       ; class 3 has no drv_svc slot: the index is
+    jbe .lo                     ; COMPACTED past it (drv_fptr/drv_owner are
+    dec di                      ; not - a class number is shipped ABI)
+.lo:
     mov ax, DSV_SIZE
     push dx
     mul di                      ; DSV_SIZE is not a power of two
@@ -1663,7 +1669,7 @@ drv_fs_call:
                                 ; way out
     push es
     push di
-    mov di, [drv_svc + (DRVC_FILE-1)*DSV_SIZE + DSV_FS]
+    mov di, [drv_svc + (DRVC_FILE-2)*DSV_SIZE + DSV_FS]
     or di, di
     jz .none                    ; a DRVC_FILE driver that published no table
     add di, bp                  ; ...+ the verb
@@ -1740,7 +1746,7 @@ drv_fs_has:
     push di
     cmp word [drv_fseg5], 0     ; class 5 = DRVC_FILE, exactly as above
     je .no
-    mov di, [drv_svc + (DRVC_FILE-1)*DSV_SIZE + DSV_FS]
+    mov di, [drv_svc + (DRVC_FILE-2)*DSV_SIZE + DSV_FS]
     or di, di
     jz .no                      ; a DRVC_FILE driver that published no table
     add di, bp                  ; ...+ the verb
@@ -2224,6 +2230,8 @@ drv_cp_class_x:
     mov cl, 1                   ; CL = the class (drv_cls_svc_x banks CX)
 .next:
     mov al, cl
+    cmp al, DRVC_RETIRED3       ; ...whose compacted slot IS class 4's, so a
+    je .skip                    ; walk that visits it counts ETHER.DRV twice
     call drv_cls_svc_x
     jc .done
     cmp word [di+DSV_CPNAME], 0
@@ -2256,44 +2264,28 @@ drv_cp_class_x:
 ; -----------------------------------------------------------------------------
 drv_cp_name_x:
     push ax
-    push dx
-    mov ah, DRV_CPNSZ
-    mul ah
-    add ax, drv_cpname - DRV_CPNSZ  ; class 1 is slot 0, and the two adds fold:
-    mov si, ax                  ; drv_cpname is a `.bss` address well above 12,
-                                ; so the link-time constant cannot underflow
-    pop dx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; drv_cp_stage - copy one class's page name into the kernel (module internal)
-; in:  BX = the row, ES = the driver's segment, DI = its published table copy
-; out: nothing (all registers preserved)
-;
-; The dsk_get_dir idiom in a new place, and the reason is font_str: it reads
-; its string through DS, and DS is the KERNEL's everywhere the Control Panel
-; draws. A pointer into the driver's segment would render its own image.
-; -----------------------------------------------------------------------------
-drv_cp_stage:
-    push ax
     push cx
+    push di
+    push es
+    mov si, drv_cpname          ; '' unless a PUBLISHED class names a page
+    mov byte [si], 0
+    call drv_cls_svc_x          ; DI = this class's published table
+    jc .out
+    mov cx, [di+DSV_CPNAME]     ; the driver's own pointer, in ITS segment
+    jcxz .out
+    call drv_cls_fp_x           ; ...whose segment is the dispatch half
+    cmp word [di+2], 0          ; - 0 between drv_release's two clears
+    je .out
+    mov es, [di+2]
     push si
-    push di
-    push di
-    mov al, [bx+DRVR_CLASS]
-    call drv_cp_name_x            ; SI = the staged slot
-    pop di
-    mov cx, [di+DSV_CPNAME]
     mov di, si
-    mov byte [di], 0
-    jcxz .out                   ; no page: an empty name, and drv_cp_count
-    mov si, cx                  ; then skips this class
+    mov si, cx
     mov cx, DRV_CPNSZ - 1
     call fm_ncpye               ; ES:SI (the driver's) -> DS:DI (ours), NUL
-.out:                           ; either way.  files.inc is `.cold` too
-    pop di
     pop si
+.out:
+    pop es
+    pop di
     pop cx
     pop ax
     ret
@@ -2305,17 +2297,11 @@ drv_cp_stage:
 ; -----------------------------------------------------------------------------
 drv_svc_clear:
     push ax
-    push bx
     push cx
     push di
-    push si                     ; drv_cp_name_x's OUTPUT is SI, and the three
-                                ; headers here promise it back unchanged; the
-                                ; two callers that survive today do so by
-                                ; banking it themselves
     push es
     push ds
     pop es
-    mov bl, al                  ; BL = the class, for the second lookup
     call drv_cls_fp_x
     jc .out
     mov word [di+2], 0          ; the segment half: dispatch disarmed
@@ -2328,15 +2314,10 @@ drv_svc_clear:
                                 ; drv_cfg now sits right behind drv_svc
     cld
     rep stosb
-    mov al, bl                  ; ...and the staged page name with it, which
-    call drv_cp_name_x            ; is what makes drv_cp_count stop counting
-    mov byte [si], 0            ; this class
 .out:
     pop es
-    pop si
     pop di
     pop cx
-    pop bx
     pop ax
     ret
 
@@ -2932,9 +2913,6 @@ drv_publish:
                                 ; drv_cls_idx writes DI alone)
     mov ax, [bx+DRVR_SEG]
     mov [di+2], ax
-    mov al, [bx+DRVR_CLASS]     ; the Control Panel page's NAME is staged
-    call drv_cls_svc_x            ; here and its two procs dispatched through
-    call drv_cp_stage           ; the far pointer above (SPEC.md 31.9)
 .out:
     pop di
     pop si
@@ -4314,9 +4292,9 @@ drv_dlg_name: resb 14           ; the caller's default name, staged out of its
 %endif
 drv_owner:  resw DRVC_MAX       ; per class: the row whose services are
                                 ; published, or 0. Class 1 is index 0
-drv_cpname: resb DRV_CPNSZ*DRVC_MAX ; each class's staged Control Panel page
+drv_cpname: resb DRV_CPNSZ      ; ONE staged Control Panel page
                                 ; name; empty = that class has no page
-drv_svc:    resb DSV_SIZE*DRVC_MAX  ; ...and a copy of each one's table, so
+drv_svc:    resb DSV_SIZE*(DRVC_MAX-1) ; ...and a copy of each one's table, so
                                 ; every `[drv_svc+DSV_*]` in snd.inc still
                                 ; names the SOUND driver's and did not change
 drv_cfg:    resb CFG_NB         ; the live settings, staged (layout above).
@@ -4475,6 +4453,10 @@ drv_pkg_call_x:
     cmp al, DRVC_MAX
     ja .none
     dec al
+    cmp al, DRVC_RETIRED3       ; ...the same compaction, inline
+    jb .lo
+    dec al
+.lo:
     xor ah, ah
     push dx
     mov di, ax
