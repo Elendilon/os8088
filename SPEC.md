@@ -95579,6 +95579,49 @@ It moves the picture by **52 pixels of 252,000** at the take-off view and by
 the gate already fell the right way. `tests/skieslod.py` is the row, and its
 `--clobber-lod` NOPs the two instructions to put the wrapping product back.
 
+##### 88.5.4.3 A REFUSED impostor left the full path at the wrong scale
+
+Reported off a 10 MHz 8086 with VGA, on High detail and High draw distance:
+*"some of them flicker in and out of existence — the tall tower visible from
+take-off at JFK will flicker as I taxi down the runway"*, and *"at the runway
+the skyline looks amazing, but at a medium distance all of the boxes shrink
+and don't draw properly to the actual building's size or shape"*. Two
+reports, one defect.
+
+`cs_boxlod` works in **whole metres** and sets `cs_pshr` to say so. It can
+also **REFUSE** (§88.5.4.1), and the caller then takes the full path — where
+`cs_nearat`, `cs_stackverts` and `cs_flatverts` all read the object's own
+transform scale (§88.5.6) out of that same byte. It never gave it back, so a
+refused impostor ran the whole model in whole metres when the object wanted
+quarters or sixteenths. Measured on Hercules, one building dead ahead, the
+impostor against the model it stands in for:
+
+```
+                 before                    after
+  jfk_hi  3000   box 16x 5  model 16x19    box 16x19  model 16x19
+  jfk_dtn 3000   box 16x 4  model 16x14    box 16x14  model 16x14
+  jfk_mid 3000   box 16x 3  model 16x 9    box 16x 9  model 16x 9
+  jfk_esb 7000   box 16x 5  model 16x16    box 16x16  model 16x16
+```
+
+The width was right and **the height collapsed**, which is why it reads as a
+squat box rather than a missing one. And because the refusal turns on the
+rectangle crossing `CS_LODPX`, it happened over exactly one band of the
+approach and flipped back and forth at the edge of it — a building
+alternating between a correct impostor and a model a quarter of its height,
+which at three pixels tall is *in and out of existence*.
+
+The fix is four instructions: save `cs_pshr` on entry and put it back at both
+exits. **It is not a regression from §88.5.4.2** — the refusal path has
+always been able to leave the byte wrong — but that fix is what made
+`cs_boxlod` run past six kilometres at all, so it turned a rare wrong frame
+into the normal case and the field found it in a day.
+
+What remains, and is by design, is that the impostor is a plain rectangle
+where the model is stepped: at 7,000 m the Empire State's impostor covers 27
+lit pixels against the model's 35, the difference being the taper. That is
+the trade §88.5.4 exists to make, and it is bounded by `CS_LODPX` = 8.
+
 #### 88.5.8 "Buildings lean over", which was the horizon
 
 Reported off the machine with a photograph: a large dithered wedge standing
@@ -96825,8 +96868,11 @@ drop-downs get a release the title page never armed.
   four fall outside the frustum, which would make the counts a fact about
   the world's layout instead of about the gate. `--clobber-lod` NOPs the
   `cmp cx, 5958 / jae .lod` that refuses the multiply, which is the wrapping
-  product exactly, and all three checks go red — the four reading **9.81 ms
-  a tower against 0.69**.
+  product exactly, and the first three checks go red — the towers reading
+  **12.48 ms each against 3.17**. It also carries §88.5.4.3's check: the
+  impostor must be the SIZE of the model it stands in for, over four towers
+  at three ranges, and `--clobber-shr` NOPs the pairs that give `cs_pshr`
+  back.
 - `tests/skiesease.py` (soak, MartyPC): §88.7.3's capture. Every reading is
   taken at a `cs_step` BREAKPOINT and not after a frame — the model steps per
   tick and a frame spends one, two or three of them, so a per-frame sample

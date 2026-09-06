@@ -1709,15 +1709,19 @@ SOAK = [
         " 'confirmed invisible'. Nine viewpoints, three of them off the"
         " centreline, because the rule is exact for an object dead ahead",
         needs=("marty",), serial=True),
-    Row("skieslod", "soak", py("tests/skieslod.py"), 20.0,
+    Row("skieslod", "soak", py("tests/skieslod.py"), 30.0,
         "SPEC.md 88.5.4.2: a solid too small to tell apart is one filled"
         " rectangle PAST SIX KILOMETRES too. cs_drawobj built 11 cz in a"
         " word, which stops fitting at 5,958 m, and past there the product"
         " wrapped and every solid in the band drew all of its vertices and"
         " faces to cover four pixels - 11.9 ms a tower against 4.2 on a"
         " 4.77 MHz 8088. Nothing shipped stood in the band, so the row moves"
-        " JFK's four anonymous towers onto the sight line at 7 km and reads"
-        " which path they take",
+        " JFK's anonymous towers onto the sight line at 8 km and reads"
+        " which path they take. Also 88.5.4.3: the impostor must be the SIZE"
+        " of the model it stands in for - cs_boxlod clobbered cs_pshr and a"
+        " REFUSED impostor left the full path running in whole metres, so a"
+        " building drew at a fraction of its size over exactly the part of"
+        " the approach where the rectangle crosses CS_LODPX",
         needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"

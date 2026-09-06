@@ -1436,7 +1436,21 @@ cs_sizepx:
 ;             radius (the caller checked)
 ; -----------------------------------------------------------------------------
 cs_boxlod:
-    mov byte [cs_pshr], 0           ; the cull's origin: whole metres
+    mov al, [cs_pshr]               ; --- AND GIVE IT BACK (88.5.4.3). This
+    mov [cs_bshr], al               ;     routine works in whole metres, but
+    mov byte [cs_pshr], 0           ;     it can REFUSE, and the caller then
+                                    ;     takes the full path with cs_nearat,
+                                    ;     cs_stackverts and cs_flatverts all
+                                    ;     reading the object's scale out of
+                                    ;     this byte. Leaving 0 behind ran the
+                                    ;     whole model at the wrong scale: it
+                                    ;     drew at a fraction of its size, and
+                                    ;     because the refusal turns on the
+                                    ;     rectangle crossing CS_LODPX it did
+                                    ;     that only over part of the approach
+                                    ;     - which is what a building
+                                    ;     FLICKERING between two sizes as the
+                                    ;     aeroplane taxis actually was
     mov si, [cs_mdl]
     mov cl, [si + CSM_NV]           ; levels
     xor ch, ch
@@ -1511,9 +1525,13 @@ cs_boxlod:
     call cs_setink
     pop ax
     call cs_rect
+    mov al, [cs_bshr]
+    mov [cs_pshr], al
     clc                             ; drawn
     ret
 .out:
+    mov al, [cs_bshr]               ; the object's own scale, back
+    mov [cs_pshr], al
     stc                             ; REFUSED: the caller takes the full path
     ret
 
