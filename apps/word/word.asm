@@ -210,7 +210,7 @@ WD_WTICKS    equ 3              ; ...and how often the worker looks, ~165ms.
                                 ; Finer than WD_IDLE so the settle lands
                                 ; near the deadline rather than a tick late
 WD_HCHUNK    equ 4              ; rows of the height count per worker pass
-                                ; (SPEC.md 27.7.3). The count is the one walk
+                                ; (SPEC.md 27.7.2.2). The count is the one walk
                                 ; that cannot be bounded by the view, so it is
                                 ; bounded by TIME instead: this many rows, then
                                 ; the lock goes back.
@@ -1498,6 +1498,70 @@ wd_shiftrows:
     ret
 
 ; -----------------------------------------------------------------------------
+; wd_upheight - how far do the retained rows move on a FORMATTED up scroll?
+; in:  AX = the row delta (negative), SI = window ptr, wd_bounds run and
+;      [wd_top] already moved; gfx lock held
+; out: CF = 0 and DI = the signed pixel delta (negative, the sign convention
+;      [wd_sdpx] uses); CF = 1 refuse. Preserves every other register.
+;
+; A down scroll prices itself out of the banks: the rows that LEAVE are on the
+; glass, so their heights are in wd_ryb. An up scroll's entering rows are
+; ABOVE the view and in no bank at all, which is why this was refused outright
+; and every scroll upward on a formatted note repainted the whole window -
+; menu bar, ruler and text - at 622 ms against the down click's 251.
+;
+; So price them: |d| rows of layout, no drawing and no signatures. Two things
+; make it safe rather than merely cheaper. It must not BANK ([wd_nobank]),
+; because rows 0..|d|-1 of the new view are exactly the slots wd_shiftrows is
+; about to read as its SOURCE. And it must not lay the note out from index 0
+; to reach the new top, which is the repaint's own cost paid twice - so it
+; goes through SPEC.md 27.13's row index and REFUSES when that cannot seed it.
+;
+; The answer is where the walk stops. Bounded at row |d|-1, wd_walk stops ON
+; row |d| with wd_rstart already run for it, so [wd_rby] is the first RETAINED
+; row's new top and [wd_ty] is its old one.
+; -----------------------------------------------------------------------------
+wd_upheight:
+    push ax
+    push bx
+    push cx
+    push dx
+    neg ax                          ; |d|
+    mov dx, ax
+    dec dx                          ; stop AFTER row |d|-1
+    mov ax, [wd_top]
+    call wd_xseed                   ; SPEC.md 27.13, which survives wd_scrollto
+    jc .no                          ; dropping [wd_rowsok]
+    mov word [wd_hity], 0xFFFF
+    mov word [wd_wanty], 0x7FFF
+    mov byte [wd_draw], 0
+    mov byte [wd_sigup], 0
+    mov byte [wd_clip], 0
+    mov byte [wd_nobank], 1
+    call wd_walk
+    mov byte [wd_nobank], 0
+    mov byte [wd_resume], 0
+    mov ax, [wd_rby]
+    sub ax, [wd_ty]
+    jle .no                         ; it did not get past row 0, or the pen
+    cmp ax, [wd_bot]                ; went backwards: neither is a band
+    jae .no                         ; ...and neither is a delta past the band
+    mov di, ax
+    neg di                          ; content moves DOWN, which is the sign
+    clc                             ; [wd_sdpx] spells negative
+    jmp short .out
+.no:
+    mov byte [wd_nobank], 0
+    mov byte [wd_resume], 0
+    stc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; wd_scrollpaint - move the view with a blit instead of a repaint
 ; in:  SI = window ptr, wd_bounds run, gfx lock held, [wd_top] ALREADY moved,
 ;      [wd_dr0]/[wd_dr1] = whatever rows the caller found dirty in the frame
@@ -1506,6 +1570,14 @@ wd_shiftrows:
 ;      was drawn and the caller must repaint in full. Preserves all registers.
 ; -----------------------------------------------------------------------------
 wd_scrollpaint:
+    mov byte [wd_1pass], 0          ; THIS routine runs a pass of its own, and
+                                    ; it is not that one (SPEC.md 27.4.6): its
+                                    ; exposed rows are clipped by ROW and are
+                                    ; re-signed as it draws, because an exposed
+                                    ; row's OLD signature is the row that
+                                    ; scrolled away and could match by luck -
+                                    ; which is exactly the test wd_rflush
+                                    ; would apply if this were left set
     push ax
     push bx
     push cx
@@ -1530,14 +1602,17 @@ wd_scrollpaint:
                                     ; same work without the blit
     cmp byte [wd_hasfmt], 0
     je .pxuni
-    or ax, ax                       ; formatted (SPEC.md 68.6): an UP scroll's
-    js .nope                        ; entering rows have unknown heights -
-                                    ; the full repaint is the honest path
-    cmp byte [wd_ymoved], 0         ; ...and so is a scroll riding an edit
-    jne .nope                       ; that MOVED rows: pass 1 has already
+    cmp byte [wd_ymoved], 0         ; a scroll riding an edit that MOVED rows
+    jne .nope                       ; is the full repaint's: pass 1 has already
                                     ; rewritten the banked ys to the new
                                     ; layout, so they no longer describe the
                                     ; glass the blit would move
+    or ax, ax
+    jns .pxdn                       ; formatted (SPEC.md 68.6): an UP scroll's
+    call wd_upheight                ; entering rows are ABOVE the view and in
+    jc .nope                        ; no bank at all, so they are PRICED
+    jmp short .pxhave               ; (SPEC.md 27.7.2.2) rather than refused
+.pxdn:
     cmp byte [wd_rowsok], 0
     je .nope
     cmp ax, [wd_rowsn]
@@ -1681,13 +1756,24 @@ wd_scrollpaint:
 
     cmp byte [wd_hasfmt], 0         ; erase the band: OSAPI_GFX_SCROLL leaves
     je .eruni                       ; the vacated rows holding a copy of what
-    mov bx, [wd_bot]                ; was next to them. Formatted: the blit
-    sub bx, [wd_sdpx]               ; moved [ty..bot] up by sdpx, so EXACTLY
-    inc bx                          ; the bottom sdpx pixels are vacated -
-    cmp bx, [wd_ty]                 ; derived from the delta itself, never
-    jae .erf                        ; from a blank row's banked y (a garbage
-    mov bx, [wd_ty]                 ; bank once erased the window's own
-.erf:                               ; chrome through this fill)
+    cmp word [wd_sdpx], 0           ; was next to them. Formatted: derived from
+    jl .erup                        ; the DELTA itself, never from a blank
+    mov bx, [wd_bot]                ; row's banked y (a garbage bank once
+    sub bx, [wd_sdpx]               ; erased the window's own chrome through
+    inc bx                          ; this fill). Content moved UP by sdpx, so
+    cmp bx, [wd_ty]                 ; exactly the BOTTOM sdpx pixels are
+    jae .erf                        ; vacated...
+    mov bx, [wd_ty]
+.erf:
+    mov dx, [wd_bot]
+    jmp short .erhave
+.erup:
+    mov bx, [wd_ty]                 ; ...and on the way DOWN it is the TOP
+    mov dx, bx                      ; -sdpx of the band, which is the whole of
+    sub dx, [wd_sdpx]               ; what a scroll UPWARD exposes
+    dec dx
+    cmp dx, [wd_bot]
+    jbe .erhave
     mov dx, [wd_bot]
     jmp short .erhave
 .eruni:
@@ -1719,6 +1805,57 @@ wd_scrollpaint:
     call OSAPI_SET_COLOR
     pop ax
     call OSAPI_GFX_FILL
+
+    ; ...AND THE SLIVER, on the way up only (SPEC.md 27.7.2.2). A content height
+    ; that is not a multiple of the row pitch leaves a <8px band below the last
+    ; drawable row, and wd_rflush refuses to draw a row that would cross
+    ; [wd_bot] - so whatever lands in it lands there for good. A scroll DOWN
+    ; never puts anything there: its vacated band runs to [wd_bot] and the
+    ; erase above covers it. A scroll UP vacates the TOP, and the blit has just
+    ; pushed the row above's pixels into the sliver with everything else.
+    ; wd_vshift's UNIFORM arm avoids this by not blitting into it at all; a
+    ; formatted band cannot, its rows not being a fixed pitch apart - so it is
+    ; erased here instead, off the ys wd_shiftrows has just made current.
+    ; Measured: 529 differing pixels against a full repaint, all of them in
+    ; four scanlines at the foot of the shipped window.
+    cmp byte [wd_hasfmt], 0
+    je .noslv
+    cmp word [wd_sdpx], 0
+    jge .noslv
+    mov bx, [wd_vrows]
+    dec bx
+.slvup:
+    or bx, bx
+    js .noslv
+    push bx
+    shl bx, 1
+    mov ax, [bx+wd_ryb]
+    pop bx
+    cmp ax, [wd_ty]                 ; A BANK OUTSIDE THE BAND DESCRIBES NO
+    jb .slvnext                     ; GLASS ROW - a slot never written reads 0,
+    add ax, [wd_gh1]                ; and 0 + gh1 is under [wd_bot], so without
+    cmp ax, [wd_bot]                ; this the scan takes the first garbage
+    jbe .slvhave                    ; slot it meets and fills from y = 8 to the
+.slvnext:                           ; foot of the window. Measured: 7,522
+    dec bx                          ; differing pixels, and it is the same
+    jmp short .slvup                ; garbage-bank hazard the erase above
+.slvhave:                           ; carries a comment about
+    inc ax                          ; the first pixel below the last drawable
+    cmp ax, [wd_bot]                ; row - nothing left over, nothing to do
+    ja .noslv
+    cmp ax, [wd_ty]
+    jb .noslv                       ; ...and never above the band either
+    mov bx, ax                      ; BX = y1
+    mov dx, [wd_bot]                ; DX = y2
+    mov ax, [wd_tx]
+    sub ax, WD_MARGIN
+    mov cx, [wd_rgt]
+    push ax
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    pop ax
+    call OSAPI_GFX_FILL
+.noslv:
     mov word [wd_prowi], 0xFFFF     ; the fill erased what the delta cache knew
 
     mov word [wd_hity], 0xFFFF      ; one pass, drawing AND re-signing: the
@@ -1966,7 +2103,7 @@ wd_bounds:
     mov [wd_sbb], ax
     call wd_hguess                  ; ...and now the geometry is known, what the
                                     ; note's LENGTH already says about its
-                                    ; height (SPEC.md 27.7.3)
+                                    ; height (SPEC.md 27.7.2.2)
 .geom:
     ; The checkpoint and wd_rows are ROW INDICES, so they mean nothing under a
     ; different geometry - and unlike the signatures, nothing else was going to
@@ -3574,7 +3711,7 @@ wd_walk:
     mov ax, [wd_row]                ; the ABSOLUTE row this walk stopped on,
     add ax, [wd_top]                ; and the index that row begins at: the
     mov [wd_stoprow], ax            ; pair a resumable walk picks up from
-    push ax                         ; (SPEC.md 27.7.3). wd_rstart has already
+    push ax                         ; (SPEC.md 27.7.2.2). wd_rstart has already
     mov ax, [wd_i]                  ; run for this row, so [wd_i] is its FIRST
     mov [wd_stopi], ax              ; character and not the last of the row
     pop ax                          ; above. Published on EVERY bounded stop
@@ -4295,9 +4432,20 @@ wd_rstart:
                                     ; the same fact again for a row OUTSIDE the
                                     ; view - one compare unless it is wanted
                                     ; (SPEC.md 27.13)
-    cmp ax, WD_MAXROWS              ; ...and into wd_rows, which is the same
-    jae .norow                      ; fact for every row rather than for the
-    shl ax, 1                       ; caret's (SPEC.md 27.5)
+    cmp byte [wd_nobank], 0         ; ...and into wd_rows, which is the same
+    jne .norow                      ; fact for every row rather than for the
+                                    ; caret's (SPEC.md 27.5) - UNLESS this walk
+                                    ; is only PRICING rows (SPEC.md 27.7.2.2),
+                                    ; because wd_shiftrows reads exactly these
+                                    ; entries as its source a moment later and
+                                    ; would shift the new view's row starts
+                                    ; into the retained rows' slots. Measured:
+                                    ; the page-DOWN after an up-blit drew three
+                                    ; rows of the wrong text, 7,522 pixels, and
+                                    ; the up-blit's own screen was perfect
+    cmp ax, WD_MAXROWS
+    jae .norow
+    shl ax, 1
     mov di, ax
     mov ax, [wd_i]
     mov [di+wd_rows], ax
@@ -4315,9 +4463,9 @@ wd_rstart:
     mov ax, [wd_row]
     cmp ax, WD_MAXROWS
     jae .rydone                     ; unsigned: rows above the view fail too
-    cmp ax, [wd_vrows]
-    jae .rydone
-    shl ax, 1
+    cmp ax, [wd_vrows]              ; ([wd_nobank] needs no test here: a walk
+    jae .rydone                     ; that prices rows has draw and sigup both
+    shl ax, 1                       ; 0, which the two tests above already stop)
     mov di, ax
     mov ax, bp
     cmp byte [wd_hasfmt], 0
@@ -5834,7 +5982,7 @@ wd_worker:
     call wd_bounds                  ; the walk reads [wd_ty]/[wd_rgt], and the
     call wd_hchunk                  ; window may have been resized since.
                                     ; A CHUNK of the count and not the whole of
-                                    ; it (SPEC.md 27.7.3): the lock is held
+                                    ; it (SPEC.md 27.7.2.2): the lock is held
                                     ; across this, so the bound on the walk is
                                     ; the bound on how long a UI action behind
                                     ; it has to wait
@@ -6076,7 +6224,7 @@ wd_sigsame:
 ; It preserves the two query fields because wd_onclick sets them BEFORE it
 ; gets here, and a walk consumes them.
 ;
-; It comes in two sizes (SPEC.md 27.7.3). wd_height finishes the count in one
+; It comes in two sizes (SPEC.md 27.7.2.2). wd_height finishes the count in one
 ; hold, for the one caller that needs the answer exact - a click on the bar.
 ; wd_hchunk does WD_HCHUNK rows of it and hands the lock back, which is what
 ; the worker calls: the count of a 16KB note is seconds of walking, and doing
@@ -6543,7 +6691,7 @@ wd_netseed:
 ;
 ; This is a sparse table of the character index at which every Kth ABSOLUTE
 ; row begins: entry n describes row n << [wd_xksh]. It costs no walking at
-; all, because SPEC.md 27.7.3's background count already visits every row in
+; all, because SPEC.md 27.7.2.2's background count already visits every row in
 ; order and already computes exactly this - wd_xnote just keeps what was
 ; being thrown away.
 ;
@@ -7053,7 +7201,7 @@ wd_paint:
     ret                             ; view, so the height is still owed
 
 ; -----------------------------------------------------------------------------
-; wd_hguess - what the note's LENGTH alone says about its height (SPEC.md 27.7.3)
+; wd_hguess - what the note's LENGTH alone says about its height (SPEC.md 27.7.2.2)
 ; in:  [wd_rcols] valid (wd_bounds has run); out: [wd_drows] raised to it
 ; preserves all registers
 ;
@@ -9723,7 +9871,7 @@ wd_redraw:
     call wd_hirechk                 ; a debt left by ANY of this routine's
                                     ; exits, not just the .done path it used to
                                     ; hang off - .fullpaint fell straight past
-                                    ; that one (SPEC.md 27.7.3)
+                                    ; that one (SPEC.md 27.7.2.2)
     call wd_selmark                 ; the screen shows this selection now
     mov byte [wd_selonly], 0        ; ONE-SHOT: whoever set it meant THIS
                                     ; redraw, and the next one may well be a
@@ -20616,7 +20764,7 @@ section .text
                             ; reading the character BEFORE the one in hand,
                             ; which a seeded walk cannot always do
 
-; --- the chunked height count (SPEC.md 27.7.3) -------------------------------
+; --- the chunked height count (SPEC.md 27.7.2.2) -------------------------------
 ; Where the count has got to, and where a bounded walk stopped. The two are
 ; separate because wd_walk's .stop is shared by every bounded walk in the
 ; module - a paint, a caret key - and only wd_height may keep what it reports.
@@ -20798,6 +20946,11 @@ section .text
                             ; precondition the push needs already holds
     WDVAR wd_nlrow, 2       ; word: the row that reconvergence landed on,
                             ; 0xFFFF = it did not. ONE-SHOT
+    WDVAR wd_nobank, 1      ; byte: this walk must not BANK a row's y into
+                            ; wd_ryb. One caller (SPEC.md 27.7.2.2): the
+                            ; measure that prices a formatted UP scroll,
+                            ; whose rows land in exactly the slots
+                            ; wd_shiftrows is about to READ
     WDVAR wd_1pass, 1       ; byte: THIS redraw lays the note out ONCE -
                             ; wd_rflush asks the signature question in place
                             ; instead of a pass 1 asking it first

@@ -140,7 +140,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     rw = lambda n: u16(m.read(P(n), 2)); rb = lambda n: m.read(P(n), 1)[0]
 
     # THE HEIGHT COUNT MUST BE FINISHED FIRST. [wd_drows] is a lower bound
-    # while the background walk is owed (SPEC.md 27.7.3/68.6), so the TOTAL
+    # while the background walk is owed (SPEC.md 27.7.2.2/68.6), so the TOTAL
     # keeps moving between clicks - and wd_sbcheck answers a moved total with
     # the full sixteen-call draw, correctly, because only that can resize the
     # thumb. A leg that samples the bar while the count is running is watching
@@ -202,37 +202,97 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     check("B: a track click leaves the bar on the screen", seen2 == 0,
           "%d of 48 samples altered, worst %d byte(s)" % (seen2, worst2))
 
-    # ---- leg D: a page UP is REFUSED, and must still keep the bar ---------
-    # A formatted document gives up the upward blit-scroll (SPEC.md 68.6: the
-    # entering rows' heights are unknown), so this is the path where
-    # wd_scrollpaint answers CF=1 and the full repaint runs. It drew nothing,
-    # and .scrolled is only reached when wd_sigsame agreed - so the bar is
-    # still right and the repaint must leave it alone. This is the ONLY leg
-    # that exercises [wd_sbkeep].
-    for _ in range(2):               # get away from the top so UP can happen
-        m.run(); mo.to(sbx, (ty+sbb)//2 + (sbb-ty)//4); time.sleep(0.25)
-        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.3)
-    # LEG D IS A BEHAVIOURAL ASSERTION, not a pixel one, and deliberately.
-    # The refused path DOES redraw the bar's thumb - os88ui_sbmove, three
+    # ---- leg D: a page UP BLITS too, and still keeps the bar --------------
+    # It did NOT, until SPEC.md 27.7.2.2: a formatted document gave up the
+    # upward blit-scroll (68.6 - the entering rows are above the view and in
+    # no bank), so every click above the thumb repainted the whole window,
+    # menu bar and ruler included, at 622 ms against the down click's 251.
+    # wd_upheight prices those rows instead, and the two halves of this leg
+    # are what that claim means: no wd_paint, and the bar left alone.
+    #
+    # THE BAR HALF IS A BEHAVIOURAL ASSERTION, not a pixel one, and
+    # deliberately. Either path redraws the bar's THUMB - os88ui_sbmove, three
     # calls - because the view really moved, and pinning a pixel box that
     # excludes the thumb's own travel while still covering the six columns the
-    # bug blanked is a box this gate got wrong twice. What the fix CLAIMS is
+    # bug blanked is a box this gate got wrong twice. What the fix claims is
     # exactly this: the whole-bar draw does not run, and the fill knows it.
+    yup = ty + (sbb-ty)//4
+    box = (rw("wd_cl"), ty, sbr, bot)
+
+    def click(y, watch):
+        m.bp_exec(P(watch))
+        m.run(); mo.to(sbx, y); time.sleep(0.3)
+        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False)
+        hit = m.wait_stop(12)
+        m.bp_exec()
+        if hit: m.run()
+        time.sleep(1.3)
+        return bool(hit)
+
+    def down_to(n):
+        for _ in range(n):
+            m.run(); mo.to(sbx, (ty+sbb)//2 + (sbb-ty)//4); time.sleep(0.25)
+            m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.3)
+
+    down_to(2)                       # get away from the top so UP can happen
     b43 = rw("wd_top")
-    m.bp_exec(P("wd_sbar"))
-    m.run(); mo.to(sbx, ty + (sbb-ty)//4); time.sleep(0.3)
-    m.mouse(l=True); time.sleep(0.08); m.mouse(l=False)
-    barfull = m.wait_stop(12)
-    m.bp_exec()
-    if barfull: m.run()
-    time.sleep(1.2)
-    af3 = rw("wd_top")
-    print("   D track above thumb    wd_sbar entered: %s; top %d -> %d"
-          % (bool(barfull), b43, af3))
-    check("the track click paged UP (the case is arranged)", af3 < b43,
-          "top %d->%d" % (b43, af3))
-    check("D: a REFUSED blit does not redraw the bar WHOLE", not barfull,
+    fullD = click(yup, "wd_paint")
+    afD = rw("wd_top")
+    check("the track click paged UP (the case is arranged)", afD < b43,
+          "top %d->%d" % (b43, afD))
+    check("D: a track click ABOVE the thumb blits", not fullD,
+          "wd_paint ran: the whole window is being repainted again")
+    down_to(2)
+    b44 = rw("wd_top")
+    barfull = click(yup, "wd_sbar")
+    check("the second UP click paged too (case arranged)", rw("wd_top") < b44,
+          "top %d->%d" % (b44, rw("wd_top")))
+    check("D: an UP click does not redraw the bar WHOLE", not barfull,
           "wd_sbar ran, so the sixteen-call draw is back")
+
+    # ---- leg E: the blit against the repaint it replaced, same view -------
+    # wd_upheight is the whole arming, so stc/ret over it in the guest puts
+    # the refusal back - which is both the A/B and the only thing that still
+    # exercises [wd_sbkeep], leg D having been the refusal's old home.
+    #
+    # THE TARGET VIEW IS NOT THE TOP OF THE NOTE, and that is the whole leg.
+    # Returning to top 0 passed this while the <8px SLIVER below the last
+    # drawable row was being blitted into and never erased - because at top 0
+    # the pixels the blit pushed into it happened to be white. Against a view
+    # with text at the foot of the window it is 529 differing pixels
+    # (SPEC.md 27.7.2.2).
+    def up_to(target):
+        for _ in range(14):
+            if rw("wd_top") <= target: break
+            m.run(); mo.to(sbx, yup); time.sleep(0.25)
+            m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.3)
+        mo.to(4, 4); time.sleep(1.2); M.settle(m)
+        return rw("wd_top")
+
+    up_to(0)
+    down_to(2)
+    topE = rw("wd_top")
+    check("E: the target view is not the top of the note (case arranged)",
+          topE > 0, "top is %d, so the sliver carries nothing" % topE)
+    down_to(3)
+    topE2 = up_to(topE)
+    blitE = shot(m)
+
+    keepU = m.read(P("wd_upheight"), 2)
+    m.write(P("wd_upheight"), bytes([0xF9, 0xC3]))       # stc; ret - refuse
+    down_to(3)
+    barref = click(yup, "wd_sbar")
+    topE3 = up_to(topE)
+    repE = shot(m)
+    m.write(P("wd_upheight"), keepU)
+
+    check("E: both arms came back to the same view (case arranged)",
+          topE2 == topE3, "%d against %d" % (topE2, topE3))
+    dE = sum(1 for p, q in zip(band(blitE, box), band(repE, box)) if p != q)
+    check("E: an UP-blitted view equals the repainted one", dE == 0,
+          "%d differing pixels" % dE)
+    check("E: the REFUSED blit still leaves the bar alone ([wd_sbkeep])",
+          not barref, "wd_sbar ran on the refused path")
 
     # ---- leg C: consecutive page clicks must BLIT -------------------------
     def paged(y):
@@ -246,6 +306,10 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         return bool(hit)
 
     ydn = (ty+sbb)//2 + (sbb-ty)//4
+    for _ in range(6):               # back to the top, so page-down can page
+        if rw("wd_top") <= 0: break
+        m.run(); mo.to(sbx, yup); time.sleep(0.25)
+        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.3)
     fulls = [paged(ydn) for _ in range(3)]
     print("   consecutive page-downs entering wd_paint (a FULL repaint): %s" % fulls)
     check("C: a repeated page click still blits", not any(fulls),
@@ -255,7 +319,6 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     m.run(); mo.to(4, 4); time.sleep(1.2); M.settle(m)
     top0 = rw("wd_top")
     start = shot(m)
-    yup = ty + (sbb-ty)//4
     for _ in range(3):
         mo.to(sbx, ydn); time.sleep(0.25)
         m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.3)
@@ -274,10 +337,66 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
     print("   round trip: top %d -> %d -> %d" % (top0, mid, backtop))
     check("the round trip moved and came back (case arranged)",
           mid > top0 and backtop == top0, "%d -> %d -> %d" % (top0, mid, backtop))
-    box = (rw("wd_cl"), ty, sbr, bot)
+    # ...and WHICH of the two is wrong, since either could be: force a true
+    # repaint of the same view and put both against it.
+    keepB = m.read(P("wd_upheight"), 2)
+    m.write(P("wd_upheight"), bytes([0xF9, 0xC3]))
+    mo.to(sbx, ydn); time.sleep(0.25)
+    m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.4)
+    for _ in range(12):
+        if rw("wd_top") <= backtop: break
+        mo.to(sbx, yup); time.sleep(0.25)
+        m.mouse(l=True); time.sleep(0.08); m.mouse(l=False); time.sleep(1.4)
+    mo.to(4, 4); time.sleep(1.2); M.settle(m)
+    ref = shot(m); reftop = rw("wd_top")
+    m.write(P("wd_upheight"), keepB)
+    ds = sum(1 for p, q in zip(band(start, box), band(ref, box)) if p != q)
+    de = sum(1 for p, q in zip(band(end, box), band(ref, box)) if p != q)
+    print("   against a FORCED repaint at top %d: start %d px, end %d px"
+          % (reftop, ds, de))
+    check("B: the round trip's END equals a forced repaint", de == 0,
+          "%d differing pixels" % de)
+    check("B: ...and so does its START", ds == 0,
+          "%d differing pixels - what LED here is wrong, not the round trip" % ds)
+
     d = sum(1 for p, q in zip(band(start, box), band(end, box)) if p != q)
+    if d:
+        w0, _, _ = start
+        x0, y0, x1, y1 = box
+        for yy in range(y0, y1 + 1):
+            n = sum(1 for xx in range(x0, x1 + 1)
+                    if start[2][yy*w0+xx] != end[2][yy*w0+xx])
+            if n:
+                print("      y=%3d (row %d) %4d px" % (yy, (yy - ty) // 8, n))
     check("B: blit-scrolled pixels equal the repainted ones", d == 0,
           "%d differing pixels" % d)
+
+    # ---- leg F: a page DOWN taken after an up-BLIT -----------------------
+    # The up blit does not only have to draw the right screen, it has to leave
+    # the tables describing it - and the walk that PRICES the entering rows
+    # runs before wd_shiftrows, into exactly the wd_rows entries the shift
+    # reads as its source. Suppressing wd_ryb was not enough and looked it:
+    # the up-blit's own screen was perfect to the pixel, and the NEXT page
+    # down drew three rows of the wrong text (SPEC.md 27.7.2.2).
+    #
+    # So this compares a page-down reached through an up BLIT against the same
+    # one reached through an up REPAINT. It is the only leg that looks at what
+    # a scroll leaves behind rather than at what it draws.
+    def to_top_then_down(upblit):
+        m.write(P("wd_upheight"), keepB if upblit else bytes([0xF9, 0xC3]))
+        down_to(6)
+        up_to(0)
+        m.write(P("wd_upheight"), keepB)
+        down_to(3)
+        return shot(m), rw("wd_top")
+
+    viaRep, tR = to_top_then_down(False)
+    viaBlit, tB = to_top_then_down(True)
+    check("F: both arms reached the same view (case arranged)", tR == tB,
+          "%d against %d" % (tR, tB))
+    dF = sum(1 for p, q in zip(band(viaRep, box), band(viaBlit, box)) if p != q)
+    check("F: a page DOWN after an up-blit equals one after a repaint", dF == 0,
+          "%d differing pixels: the up blit left the tables wrong" % dF)
 
 print()
 print("wdscroll: %s" % ("FAILED: " + ", ".join(FAIL) if FAIL else "ok"))

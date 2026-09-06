@@ -38609,6 +38609,68 @@ full draw is the right one. `[np_sbkeep]` is set on exactly one path and
 cleared at the end of `.fullpaint`, so every other entry to `np_paint` reads 0
 and behaves as it always did.
 
+#### 27.7.2.2 …and a scroll UPWARD is priced, not refused
+
+§27.7.2's blit moves the view with `OSAPI_GFX_SCROLL` instead of repainting it.
+On a **formatted** note it only ever did so DOWNWARDS: a down scroll prices
+itself out of the banks, because the rows that LEAVE are on the glass and
+their heights are in `wd_ryb`, while an up scroll's entering rows are ABOVE the
+view and in no bank at all. So every click above the thumb repainted the whole
+window — menu bar, ruler and text — and the field reported exactly that.
+Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped window:
+
+| a scroll-bar track click | before | now |
+|---|---:|---:|
+| below the thumb (down) | 251 ms | 252 ms |
+| **above the thumb (up)** | **622 ms** | **307 ms** (2.03x) |
+
+So **price them**: `wd_upheight` lays out |d| rows, no drawing and no
+signatures, and the answer is where the walk stops. Bounded at row |d|-1,
+`wd_walk` stops ON row |d| with `wd_rstart` already run for it, so `[wd_rby]`
+is the first RETAINED row's new top and `[wd_ty]` is its old one. It goes
+through §27.13's row index and **refuses** when that cannot seed it, because
+laying the note out from index 0 to reach the new top is the repaint's own
+cost paid twice.
+
+Three things had to be got right, and each was found on the glass rather than
+by reading:
+
+- **The erase band is at the other end.** `OSAPI_GFX_SCROLL` leaves the
+  vacated rows holding a copy of what was beside them. A down scroll vacates
+  the bottom; an up scroll vacates the TOP, and the formatted erase was
+  derived from `[wd_bot] - [wd_sdpx]` in one direction only.
+- **The SLIVER.** A content height that is not a multiple of the row pitch
+  leaves a <8px band below the last drawable row, and `wd_rflush` refuses to
+  draw a row that would cross `[wd_bot]` — so whatever lands there lands for
+  good. A down scroll never puts anything there (its vacated band runs to
+  `[wd_bot]`); an up scroll pushes the row above's pixels into it.
+  `wd_vshift`'s UNIFORM arm avoids this by not blitting into the sliver at
+  all, which a formatted band cannot do. It is erased instead, off the ys
+  `wd_shiftrows` has just made current — and the scan for the last drawable
+  row must reject a bank OUTSIDE the band, a slot never written reading 0 and
+  0 + `[wd_gh1]` being under `[wd_bot]`. Without that it filled from y = 8 to
+  the foot of the window: **7,522 pixels**.
+- **`[wd_nobank]`, and it is `wd_rows` that needs it, not `wd_ryb`.** The
+  pricing walk runs BEFORE `wd_shiftrows`, and `wd_rstart` writes
+  `wd_rows[row]` for every row it starts — which are exactly the entries the
+  shift reads as its SOURCE, so the new view's row starts were shifted into
+  the retained rows' slots. `wd_ryb` was never at risk (a walk with `[wd_draw]`
+  and `[wd_sigup]` both 0 does not bank it) and suppressing that was the
+  redundant half of the first fix. **The up blit's own screen was perfect to
+  the pixel and the NEXT page down drew three rows of the wrong text** — which
+  is why `tests/wdscroll.py` leg F exists: it is the only leg that looks at
+  what a scroll LEAVES BEHIND rather than at what it draws.
+
+`wd_scrollpaint` also clears `[wd_1pass]` on entry (§27.4.6): it runs a pass of
+its own, whose exposed rows are clipped by ROW and re-signed as they are drawn,
+because an exposed row's old signature is the row that scrolled away and could
+match by luck — which is exactly the test `wd_rflush` would apply if the flag
+were left set.
+
+`wd_upheight` is the whole arming, so `stc`/`ret` over it in a running guest is
+the A/B, and it is what still exercises `[wd_sbkeep]` — leg D of that gate used
+to BE the refusal.
+
 ### 27.7.3 The height is counted a chunk at a time
 
 §27.7.1 bounded every walk that draws to the bottom of the view, which left
@@ -38720,7 +38782,7 @@ On README.TXT: 15,428 characters in a 24-cell row is **642** against the true
 
 ### 27.7.5 A resize walks to the bottom of the view, not to the end
 
-§27.7.1 bounded every walk that draws, and §27.7.3 chunked the one that
+§27.7.1 bounded every walk that draws, and §27.7.2.2 chunked the one that
 counts. One unbounded walk was left, on a path neither of them looks at:
 `np_paint`, when `[np_gchg]` says the geometry moved. A resize changes the
 wrap width, so every row start moves and the whole layout is stale — and the
@@ -38742,7 +38804,7 @@ after `[np_vrows]`, and its exit is the answer:
   right for the same reason it always was.
 
 So nothing tests which happened: `np_hmark` raises the debt *before* the walk,
-and the walk either clears it on the way out or leaves it owed for §27.7.3's
+and the walk either clears it on the way out or leaves it owed for §27.7.2.2's
 worker. The two cases are the two exits, and they were already there.
 
 **What this does NOT remove, because nothing can.** Wrapping is sequential:
@@ -38760,7 +38822,7 @@ was the invisible pass in front of it.
 
 ### 27.7.6 Only a scroll past the counted extent may finish the count
 
-§27.7.3 moved the height count into the background and §27.7.4 gave the bar an
+§27.7.2.2 moved the height count into the background and §27.7.4 gave the bar an
 estimate to draw from, and one caller still finished the whole thing
 synchronously: `np_onclick`, for any click on the scroll bar. That is the
 worst possible moment for it — the first bar click after opening a file is
@@ -38970,7 +39032,7 @@ a table holds is no seed for a row *above* it.
 
 `np_xi` is a sparse table of the character index at which every Kth
 **absolute** row begins: entry n describes row `n << [np_xksh]`. **It costs no
-walking at all** — §27.7.3's background count already visits every row in
+walking at all** — §27.7.2.2's background count already visits every row in
 order and already computes exactly this, so `np_xnote` keeps what was being
 thrown away. It hangs off `np_rstart`, which runs once per row of every walk,
 and is one compare against `[np_xnext]` unless that row is wanted.
@@ -39582,7 +39644,7 @@ again with the longer word and might break earlier. So the screen can be one
 wrap behind the note while the keys are still coming, exactly as the visual
 break is one line break ahead of it. **`[np_sowed]` is the debt and nothing new
 was hired**: the worker already spends it with a full `np_redraw`, and only
-after `NP_IDLE` ticks without a keystroke — §27.7.3's height recount and this
+after `NP_IDLE` ticks without a keystroke — §27.7.2.2's height recount and this
 reconcile are the same settle, woken by the same `np_hmark` that `np_ins`
 already raises.
 
