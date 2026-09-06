@@ -21605,25 +21605,41 @@ The asymmetry is the lesson rather than either line: the SAVE end was written
 carefully, the RESTORE end was written as though it could not fail, and the
 two are the same refusal one direction apart.
 
-#### 13.14.4 It is not for a package that already has a menu system
+#### 13.14.4 WORD is not a customer for the LIST — it is a customer for the MENU
 
-WORD was the first package asked to adopt it, and the arithmetic refuses.
-Word's three combos — Font, Pts and the ruler's Style — are **three rows of
-`wd_mtab`**, the same table the File/Edit/View menus use, plus sixteen call
-sites; they reuse `wd_mopenm`, `wd_mdraw`, the hit test, the close and
-§68.2.1's save-under wholesale, and they already look like the kernel's
-pull-down because they *are* one. Adopting `os88ui_drop` would delete about
-150 bytes and add **1,779**: the control is 988 and it needs `os88ui_btn`'s
-791 for `os88ui_bhit`, which Word does not otherwise carry — measured by
-assembling the include with and without `OS88UI_DROP`. The menu machinery
-stays either way, because the menu bar needs it.
+Word was the first package asked to adopt the drop-down, and taken literally
+the answer is no: its three combos — Font, Pts and the ruler's Style — are
+**three rows of `wd_mtab`**, the same table the File/Edit/View menus use, plus
+sixteen call sites, reusing `wd_mopenm`, `wd_mdraw`, the hit test, the close
+and §68.2.1's save-under wholesale. Bolting `os88ui_drop` beside them would
+delete about 150 bytes and add **1,779** — the control is 988 and needs
+`os88ui_btn`'s 791 for `os88ui_bhit`, measured by assembling the include both
+ways — and would leave Word running two implementations of one control.
 
-So the rule the element follows is the one every shared thing here follows,
-stated from the other side: **it earns its bytes for a package that has no
-list machinery of its own** — CLEAR SKIES had none, and a package that
-already draws pull-downs is paying twice for one look. That is not an
-argument against the element; it is what stops the next reader assuming a
-published control must be adopted everywhere.
+**That is the wrong unit, and the arithmetic is not the reason.** This file's
+own header says so: *"Saving bytes was never the argument"* — consolidating
+the kernel's helpers was worth twelve — and §47's greying rule was fixed FIVE
+separate times here because five bodies agreed by hand. The unit Word shares
+is not the list, it is the **MENU**: bar, titles, geometry, drop, hit test,
+gesture, close and bank, which is what its combos are three rows of.
+
+And Word is not the only one. **`apps/sheet` has a second, independently
+written implementation** — `sh_mbar_draw`, `sh_mbar_hit`, `sh_mdrop_geo`,
+`sh_mdrop_draw`, `sh_mitem_hit`, `sh_mclose`, `sh_mtrack`, `sh_mfire`,
+`sh_mtab` — and `sh_mtrack`'s own comment says it follows *"word.asm's
+`wd_mtrack` pattern"*. That is the header's failure mode written down in the
+source: a body copied by hand rather than shared. It shows in what the copy
+did NOT take, because §68.2.1 came later: **`sh_mclose` sets two bytes and
+calls `sh_repaint`, which white-fills the whole content and draws it again.**
+That is the shape Word measured at **521.4 ms** and replaced with a blit at
+19.7; Sheet still has it. (Sheet's own figure is not measured here — the code
+is what says it.)
+
+So the honest costing is **`docs/plans/UI-MENU-ELEMENT.md`**, and it inverts:
+Word would DELETE ~1,895 bytes of control and Sheet ~1,382, where adopting
+the list alone was pure addition. Whether Word breaks even depends on a size
+nobody knows until the element is built. What does not depend on it is that
+one of the two implementations is missing a fix the other has.
 
 ### 13.15 The CHECK BOX — the fourth shared element (`OS88UI_CHK`)
 
