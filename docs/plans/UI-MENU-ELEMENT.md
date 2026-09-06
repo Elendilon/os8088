@@ -1,6 +1,7 @@
 # The IN-WINDOW MENU as a shared element (`OS88UI_MENU`)
 
-**Status: PROPOSED, costed, not started.** SPEC.md 13.14.4 is the entry point;
+**Status: WAVE 1 LANDED (the record and the geometry); waves 2 and 3 open.**
+SPEC.md 13.16 is the contract for what exists. SPEC.md 13.14.4 is the entry point;
 this is the arithmetic behind it and the questions it cannot answer from the
 outside.
 
@@ -82,11 +83,68 @@ a shared body is how it stops being missing.
   (`wd_mkey`, `wd_mstep`); Sheet has none, and must not pay for it. That is
   the file's own idiom — `OS88UI_DROP`, `OS88UI_CHK`, `OS88UI_BARONLY`.
 
+## 3.5 THE SEAM, measured
+
+Question 1 was *"is the bar difference really data?"*, and with Sheet tabled it
+becomes the narrower and answerable *"how tightly is Word's control half bound
+to Word?"*. Counted over the eighteen routines of the control half, on the
+shipped source:
+
+* **22 Word globals** touched, and they group into one record with nothing left
+  over:
+
+  | | |
+  |---|---|
+  | `wd_cl` `wd_ct` `wd_cw` `wd_ch` | the CONTENT rect |
+  | `wd_mrx1` `wd_mry1` `wd_mrx2` `wd_mry2` | the open panel's rect |
+  | `wd_surx1` `wd_sury1` `wd_surx2` `wd_sury2` `wd_suseg` `wd_sukb` | the bank |
+  | `wd_mopen` `wd_mhi` `wd_mink` | which menu, which item, what ink |
+  | `wd_max` `wd_may` `wd_mabox` | a combo's anchor, and the gesture's |
+  | `wd_win` `wd_win1` | the window |
+
+* **4 calls out**, and only one of them is a hook the element would need:
+  `wd_mact` (what a pick MEANS — stays in Word, the element returns the pick),
+  `wd_mrepair` (the caller's repaint, which is already `os88ui_drclose`'s
+  `CF = 1` contract), `wd_selpace` (the unlock/yield/relock the tracking poll
+  uses — generic, moves with the gesture), and **`wd_mchk`**, which answers
+  *is this item checked, and is it enabled* live. That one is the callback.
+
+**So it is parameterisation, not a rewrite.** The seam is clean because Word
+already followed §22's `fm_hit` discipline — geometry is banked in one place
+and the painter, the hit test and the close all read those same words — which
+is the discipline `os88ui.inc` states in its own header. Two files arrived at
+it independently, which is the best evidence that the shape is right.
+
+### 3.5.1 The record
+
+```
+OS88UI_MN_RECT    0   ; 4 words: the CONTENT rect {x1,y1,x2,y2}, screen -
+                      ; the caller's painter fills it, a window moves
+OS88UI_MN_TAB     8   ; the menu table: N rows of MN_ROW bytes
+OS88UI_MN_N      10   ; menus ON THE BAR (rows past it are anchored lists)
+OS88UI_MN_BAR    12   ; the bar's ONE string - Word draws all nine titles as
+                      ; a single opaque run and the table indexes into it
+OS88UI_MN_WIN    14   ; the window, for the clip
+OS88UI_MN_OPEN   16   ; byte: which menu is down, or 0FFh
+OS88UI_MN_HOT    17   ; byte: which item is lit
+OS88UI_MN_INK    18   ; byte: the ink its runs letter in
+OS88UI_MN_MRECT  20   ; 4 words: the open panel
+OS88UI_MN_ABOX   28   ; 4 words: the gesture's anchor - the title's own box
+OS88UI_MN_AX     36   ; word } where an ANCHORED list hangs (a ribbon combo):
+OS88UI_MN_AY     38   ; word } its box's left edge and the strip's bottom
+OS88UI_MN_SEG    40   ; word } the banked pixels under the open panel
+OS88UI_MN_KB     42   ; word }
+OS88UI_MN_CHK    44   ; near ptr: AL = item -> CF/flags. The ONE hook
+OS88UI_MN_SIZE   46
+```
+
 ## 4. Open questions, in the order that decides the work
 
-1. **Is the bar difference really data?** Word's titles, spacing and the
-   ruler's second strip against Sheet's single bar. If it is code, the element
-   grows and Word stops breaking even.
+1. ~~Is the bar difference really data?~~ **ANSWERED for Word by 3.5** — 22
+   globals into one record and one hook. Sheet is TABLED (the owner's call,
+   and the right one: two shipped packages at once was question 4). The
+   element must not be *shaped* so as to block it, which costs nothing here
+   because Sheet does strictly less.
 2. **What does the kernel do?** `os88ui.inc` is ONE SOURCE FOR TWO WORLDS and
    already assembles into `.cold` with `OS88UI_KERNEL`. If the element can
    serve `menu_draw_bar`/`menu_drop` too, the third copy goes and the
@@ -102,3 +160,33 @@ Converting a *skinned* control. The header's own exclusion stands: ModPlug's
 bevelled well and Minesweeper's cells are intended design, not duplication.
 Sheet's and Word's bars are the kernel's pull-down drawn twice, which is the
 opposite case.
+
+## 6. The waves
+
+**W1 — LANDED.** The record (`OS88UI_MN_*`, 54 bytes), Word's sixteen fields
+aliased onto it, the two table accessors, and `os88ui_mngeo`. Word's `wd_mgeo`
+is an eight-byte shim that loads `BP` and calls it. Proved by an A/B: all nine
+menus' panel rects, on the build before the move and after, **identical**.
+Gated by `tests/wdmenusu.py`'s new leg, which checks every rect against
+`wd_mtab` rather than against a remembered one.
+
+Cost so far **+83 bytes** of Word, and that is the shape of an unfinished
+conversion rather than the answer: the element carries `mngeo` and two
+accessors that only `mngeo` uses, while Word still carries every other routine.
+The accessors will not have a second customer until W2, and the shim goes when
+its callers do.
+
+**W2 — the drawing and the hit test.** `wd_mdraw` (186 lines, and the one that
+needs `MN_CHK`), `wd_mbar`, `wd_mtxor`, `wd_mtitler`, `wd_mfind`, `wd_mhl`,
+`wd_mbarhit`, `wd_minrect`. This is where the accessors earn their bytes and
+where the pixel gates matter — `wdmenusu`'s save-under comparison already
+covers a menu end to end.
+
+**W3 — the gesture and the bank.** `wd_mtrack`, `wd_mclick_open`, `wd_mopenm`,
+`wd_mclose`, `wd_mfire`, `wd_subank`, `wd_surest`, and `wd_selpace`'s
+unlock/yield/relock which moves with the poll. The shims all go here and the
+aliases become the record proper.
+
+**Do not stop between W2 and W3.** A half-converted Word carries both bodies
+and is bigger than either, which is the state this file's own §2 arithmetic
+was written to get out of.

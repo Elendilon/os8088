@@ -21661,6 +21661,76 @@ It owns no bss, which is why the box's row is carried on the STACK inside the
 painter: this include is assembled into a package and may not invent storage
 in one.
 
+### 13.16 The IN-WINDOW MENU — the fifth shared element (`OS88UI_MENU`)
+
+**PARTIAL, and deliberately: the GEOMETRY has moved and nothing else has yet.**
+`docs/plans/UI-MENU-ELEMENT.md` is the costing and the wave plan; this section
+is the contract for what exists.
+
+The kernel's bar is the desktop's and `MENU_APPMAX` is five titles, so a
+package whose menus outgrow that — or which is imitating a program that put
+its bar inside the document window — draws its own. Word is the first (nine
+titles, §68.2) and Sheet is the second, and Sheet's `sh_mtrack` says in its own
+comment that it follows *"word.asm's `wd_mtrack` pattern"*: a body copied by
+hand, which is what `apps/os88ui.inc` exists to stop. It shows in what the copy
+did not take — Word banks the pixels its pull-down covers (§68.2.1) and Sheet
+repaints its whole content on every close.
+
+**Both implementations chose the same numbers independently**: a 14px bar
+(`WD_MENU_H`, `SH_MBAR_H`), a 10px item band and a 5px separator. That is the
+same evidence as the two arriving at §22's `fm_hit` discipline separately — the
+open panel's rect computed once and read by the painter, the hit test, the
+highlight and the close alike — and it is what made the seam cheap.
+
+#### 13.16.1 The record, and why Word's fields are ALIASES into it
+
+`OS88UI_MN_SIZE` is 54 bytes: the content rect, the table, the bar string, the
+window, which menu is down and which item is lit, the open panel's rect, the
+gesture's anchor, an anchored list's corner, the bank and the rect the bank
+holds, and one hook.
+
+Word declares it as `wd_mnrec` and then **aliases its own sixteen fields onto
+it with `equ`** — `wd_mopen` IS `wd_mnrec + OS88UI_MN_OPEN`, at that address.
+So every one of Word's hundred-odd existing references keeps working unchanged
+while the control half moves out a routine at a time, and there is never a
+moment when the same fact lives in two places. That is what makes the
+conversion incremental instead of a flag day.
+
+**Its size is a literal in the `WDVAR` line and checked afterwards**, because
+`WDVAR`'s counter is `%assign` and a preprocessor expression cannot see an
+assembler `equ` — the distinction `WD_PROPDRAW`'s comment in the same file cost
+a debugging round over. Two `times (a - b) db 0` after the include are the
+guard: both are zero when they agree and nasm refuses a negative one either
+way.
+
+`OS88UI_MN_CHK` is the one hook, and it is the one thing the element cannot
+know: whether Paste is enabled and whether Draft is ticked are the
+application's facts, and §47's rule is to grey a fact rather than guess one.
+
+#### 13.16.2 `os88ui_mngeo` — where the panel goes
+
+The first routine across, and the one whose answer is four words rather than
+pixels. It puts a bar menu's panel under its own title, an anchored list (a
+ribbon combo) at `MN_AX`/`MN_AY`, sizes it from the item flags, **slides it up**
+when it would not fit below (§68.2's own rule, which is what makes a tenth
+face reachable on a 200-row screen) and rides the right edge when it would run
+off it.
+
+The conversion was mechanical — `[wd_cl]` to the record's rect, `WD_MENU_H` to
+`OS88UI_MN_BARH`, and so on — and two lines were not: `wd_ct + wd_ch - 2` and
+`wd_cl + wd_cw - 2` become the rect's own `y2 - 1` and `x2 - 1`, w/h against
+x2/y2 being the whole of what the two shapes differ by.
+
+**It is proved by an A/B and gated by arithmetic.** All nine of Word's menus
+were opened on the build before the move and the build after, and the four
+words came back **identical on every one**. That comparison needs two builds
+and so cannot be a registered row; what `tests/wdmenusu.py` carries instead is
+every menu's rect checked against `wd_mtab` — the row under the bar, the x
+under its own title or riding the edge, the width the table precomputed, the
+bottom inside the content. A golden rect would be a window size written down;
+this is arithmetic the table already carries, and it goes red on a bar height
+one pixel out.
+
 ## 14. apps.inc
 
 The built-in app **kinds**: About, Timer, Bounce. Nothing is

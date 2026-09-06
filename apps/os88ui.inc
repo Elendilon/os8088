@@ -3425,6 +3425,257 @@ os88ui_drclose:
     ret
 %endif                          ; OS88UI_DROP
 
+%ifdef OS88UI_MENU
+; =============================================================================
+; THE IN-WINDOW MENU (SPEC.md 13.16): a bar of titles inside YOUR content, and
+; a pull-down under whichever one is pressed
+;
+; The kernel's bar (SPEC.md 12) is the desktop's, and `MENU_APPMAX` is five
+; titles; a package whose own menus outgrow that, or which is imitating a
+; program that put its bar inside the document window, draws its own. WORD is
+; the first (nine titles, verbatim from Opus's menus.cmd, SPEC.md 68.2) and
+; SHEET is the second - and Sheet's `sh_mtrack` says in its own comment that
+; it follows *"word.asm's wd_mtrack pattern"*, which is a body copied by hand
+; and is exactly what this file exists to stop. It shows in what the copy did
+; not take: Word banks the pixels its pull-down covers (SPEC.md 68.2.1) and
+; Sheet repaints its whole content on every close.
+;
+; docs/plans/UI-MENU-ELEMENT.md is the costing. What made it tractable is that
+; Word already followed SPEC.md 22's fm_hit discipline - the open panel's rect
+; is computed once and the painter, the hit test, the highlight and the close
+; all read those same four words - so the whole of its coupling to Word is 22
+; globals that group into one record and ONE hook.
+;
+; --- THE RECORD, in YOUR data ------------------------------------------------
+;   my_menu:
+;       dw 0,0,0,0      ; OS88UI_MN_RECT: your CONTENT rect {x1,y1,x2,y2},
+;                       ; inclusive, SCREEN coords - fill it in your painter
+;                       ; from OSAPI_WM_CONTENT, since a window moves
+;       dw my_mtab      ; OS88UI_MN_TAB:  the table below
+;       dw 9            ; OS88UI_MN_N:    titles ON THE BAR. Rows past it are
+;                       ; ANCHORED lists - a ribbon combo - which hang at
+;                       ; MN_AX/MN_AY instead of under a title
+;       dw my_barstr    ; OS88UI_MN_BAR:  the bar as ONE string, drawn as one
+;                       ; opaque run; the table indexes into it by CELL
+;       dw 0            ; OS88UI_MN_WIN:  your window, once created
+;       db 0FFh, 0FFh   ; OS88UI_MN_OPEN, OS88UI_MN_HOT
+;       db 0            ; OS88UI_MN_INK:  the ink its runs letter in
+;       db 0            ; (pad)
+;       dw 0,0,0,0      ; OS88UI_MN_MRECT: the open panel. The control's
+;       dw 0,0,0,0      ; OS88UI_MN_ABOX:  the pressed title's own box
+;       dw 0, 0         ; OS88UI_MN_AX, MN_AY: an anchored list's corner
+;       dw 0, 0         ; OS88UI_MN_SEG, MN_KB: the bank...
+;       dw 0,0,0,0      ; OS88UI_MN_BRECT: ...and the rect it holds
+;       dw 0            ; OS88UI_MN_CHK: near ptr to your item-state hook, or
+;                       ; 0. AL = item index of the OPEN menu; answer the
+;                       ; item's live flags in AL (OS88UI_MNF_*). It is the
+;                       ; ONE thing the element cannot know: whether Paste is
+;                       ; enabled and whether Draft is ticked are the
+;                       ; application's facts, and SPEC.md 47's rule is to
+;                       ; grey a fact rather than guess one
+;
+; --- THE TABLE ---------------------------------------------------------------
+; One MN_ROW-byte row per menu, then an array of MN_ITEM-byte item records -
+; the AMENU_ITEMS shape one level up:
+;   db cell            ; where the title starts in MN_BAR, in CELLS; 0FFh for
+;                      ; an ANCHORED list, which is not on the bar at all
+;   db cells           ; ...and how many
+;   db mnemonic        ; the cell to underline, 0 = the first
+;   db n               ; items
+;   dw items           ; -> the item records
+;   dw width           ; the panel's width in pixels, precomputed
+;
+;   MN_ITEM: db flags, mnemonic index, action, mnemonic letter
+;            dw label, caption      ; NUL strings; caption is right-justified
+; =============================================================================
+
+OS88UI_MN_RECT   equ 0
+OS88UI_MN_TAB    equ 8
+OS88UI_MN_N      equ 10
+OS88UI_MN_BAR    equ 12
+OS88UI_MN_WIN    equ 14
+OS88UI_MN_OPEN   equ 16
+OS88UI_MN_HOT    equ 17
+OS88UI_MN_INK    equ 18
+OS88UI_MN_MRECT  equ 20
+OS88UI_MN_ABOX   equ 28
+OS88UI_MN_AX     equ 36
+OS88UI_MN_AY     equ 38
+OS88UI_MN_SEG    equ 40
+OS88UI_MN_KB     equ 42
+OS88UI_MN_BRECT  equ 44          ; 4 words: the rect actually BANKED - the
+                                 ; panel grown by its shadow and clamped,
+                                 ; written on the way down so the way back
+                                 ; cannot disagree with it by a pixel. The
+                                 ; drop-down recomputes instead
+                                 ; (os88ui_drrect) and is right to, its rect
+                                 ; being unclamped; this one is not
+OS88UI_MN_CHK    equ 52
+OS88UI_MN_SIZE   equ 54
+
+OS88UI_MN_ROW    equ 8           ; bytes in one table row...
+OS88UI_MN_ITEM   equ 8           ; ...and in one item record
+OS88UI_MN_NONE   equ 0FFh        ; MN_OPEN/MN_HOT: nothing
+OS88UI_MNF_SEP   equ 1           ; item flags: a separator hline
+OS88UI_MNF_DIS   equ 2           ; disabled - the disabled pen, never fired
+OS88UI_MNF_CHK   equ 4           ; carries a check mark
+OS88UI_MN_IH     equ 10          ; an item band: 8px of glyph, 1 above, 1 under
+OS88UI_MN_SH     equ 5           ; ...and a separator band
+OS88UI_MN_BARH   equ 14          ; the bar's own height. Word's WD_MENU_H and
+                                 ; Sheet's SH_MBAR_H are both 14, chosen
+                                 ; independently, which is the same evidence
+                                 ; the 10 and the 5 above are
+
+; -----------------------------------------------------------------------------
+; os88ui_mnrow - AL = menu index -> BX = its table row
+; in:  BP = the record; out: BX; preserves everything else
+; -----------------------------------------------------------------------------
+os88ui_mnrow:
+    push ax
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    mov bx, ax
+    add bx, [ds:bp+OS88UI_MN_TAB]
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_mnitem - AL = item index, BX = the row -> SI = its 8-byte record
+; preserves everything else
+; -----------------------------------------------------------------------------
+os88ui_mnitem:
+    push ax
+    mov si, [bx+4]
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add si, ax
+    pop ax
+    ret
+
+os88ui_mngeo:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call os88ui_mnrow
+    cmp al, [ds:bp+OS88UI_MN_N]
+    jae .combo
+    mov dl, [bx]
+    xor dh, dh
+    mov cl, 3
+    shl dx, cl
+    add dx, [ds:bp+OS88UI_MN_RECT]
+    add dx, 8-4                     ; the panel starts 4px left of the title
+    mov [ds:bp+OS88UI_MN_MRECT], dx
+    mov dx, [ds:bp+OS88UI_MN_RECT+2]
+    add dx, OS88UI_MN_BARH
+    mov [ds:bp+OS88UI_MN_MRECT+2], dx
+    jmp short .size
+.combo:
+    mov dx, [ds:bp+OS88UI_MN_AX]
+    mov [ds:bp+OS88UI_MN_MRECT], dx
+    mov dx, [ds:bp+OS88UI_MN_AY]
+    mov [ds:bp+OS88UI_MN_MRECT+2], dx
+.size:
+    push ax                         ; the menu index - the height loop below
+                                    ; eats AL and the flip needs it back
+    mov cl, [bx+3]                  ; height: 4 + 10/5 per item
+    xor ch, ch
+    mov si, [bx+4]
+    mov ax, 4
+.hh:
+    jcxz .hd
+    test byte [si], OS88UI_MNF_SEP
+    jz .h10
+    add ax, OS88UI_MN_SH
+    jmp short .hn
+.h10:
+    add ax, OS88UI_MN_IH
+.hn:
+    add si, 8
+    dec cx
+    jmp short .hh
+.hd:
+    pop cx                          ; CL = the menu index again
+    mov si, ax                      ; SI = the panel's height in pixels
+    mov dx, [ds:bp+OS88UI_MN_RECT+6]  ; the content's last row...
+    dec dx                          ; ...less the shadow's pixel
+    add ax, [ds:bp+OS88UI_MN_MRECT+2]
+    dec ax
+    cmp ax, dx
+    jbe .yok
+    cmp cl, [ds:bp+OS88UI_MN_N]
+    jb .clip                        ; a BAR menu hangs under its own title and
+                                    ; nowhere else - moving one would put it
+                                    ; over the menu bar it came from
+    ; --- the SLIDE (SPEC.md 6.4.1). A combo's list is anchored at its box, and
+    ; with ten faces there, eleven 10px items stand 114 rows tall - past the
+    ; bottom of a 200-row CGA window by a few pixels. Clipping is what used to
+    ; happen and it is SILENT: the trailing faces are drawn nowhere and
+    ; os88ui_mnfind refuses to find them, so a disk carrying more faces than the
+    ; anchor has room below it simply loses the last ones, which is how
+    ; the caller's list came to be 6. Sliding the panel up until its bottom sits on
+    ; the limit keeps every item on the screen and reachable; it costs one
+    ; subtraction, and it is only ever taken when the alternative was to lose
+    ; an item.
+    ;
+    ; THE ARITHMETIC IS UNSIGNED AND THE ROOM IS MEASURED, NOT THE TOP. The
+    ; first version computed the new top and compared it against the content
+    ; edge, which is a NEGATIVE number the moment the panel is taller than the
+    ; space above the anchor - and `jb` read it as 65,490 and slid the panel
+    ; off the top of the screen, over the menu bar and the desktop. Subtracting
+    ; two rows that are both on the screen cannot go negative.
+    mov cx, dx
+    sub cx, [ds:bp+OS88UI_MN_RECT+2]                 ; CX = the rows the content has for it
+    cmp cx, si
+    jb .clip                        ; taller than the whole content: nothing
+                                    ; to slide into, so clip as before
+    mov ax, dx
+    sub ax, si
+    inc ax                          ; the top that puts its bottom on DX
+    mov [ds:bp+OS88UI_MN_MRECT+2], ax
+    mov ax, dx                      ; ...and that bottom is the limit itself
+    jmp short .yok
+.clip:
+    mov ax, dx                      ; clipped: trailing items are not drawn
+.yok:                               ; and os88ui_mnfind stops at the same edge
+    mov [ds:bp+OS88UI_MN_MRECT+6], ax
+    mov ax, [bx+6]                  ; the width the table precomputed
+    mov dx, [ds:bp+OS88UI_MN_MRECT]
+    add dx, ax
+    dec dx
+    mov cx, [ds:bp+OS88UI_MN_RECT+4]  ; ...and its last column, the same
+    dec cx
+    cmp dx, cx
+    jbe .xok
+    mov dx, cx                      ; ride the right edge (Help lives there)
+    push dx
+    sub dx, ax
+    inc dx
+    mov cx, [ds:bp+OS88UI_MN_RECT]
+    inc cx
+    cmp dx, cx
+    jae .x1ok
+    mov dx, cx
+.x1ok:
+    mov [ds:bp+OS88UI_MN_MRECT], dx
+    pop dx
+.xok:
+    mov [ds:bp+OS88UI_MN_MRECT+4], dx
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+%endif                          ; OS88UI_MENU
+
 %endif
 
 

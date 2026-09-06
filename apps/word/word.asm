@@ -815,6 +815,15 @@ wd_entry:
     mov byte [wd_mhi], 0xFF         ; a REAL menu index and a real item
     mov [wd_win], bx                ; the worker (SPEC.md 27.3) has no callback
                                     ; to be handed this in SI
+    ; --- the menu element's record (SPEC.md 13.16), the parts that never move.
+    ; MN_N is the count ON THE BAR and rows past it are the strip combos, so
+    ; it is WD_M_N and not the table's length - a zero here sends every menu
+    ; down the anchored-list path, which is the first thing this init was
+    ; written to stop. The rect is wd_bounds's, per paint.
+    mov word [wd_mnrec + OS88UI_MN_TAB], wd_mtab
+    mov word [wd_mnrec + OS88UI_MN_N], WD_M_N
+    mov word [wd_mnrec + OS88UI_MN_BAR], wd_s_mbar
+    mov [wd_mnrec + OS88UI_MN_WIN], bx
     push ax                         ; SPEC.md 54.10: the kernel calls this once
     mov ax, wd_onwake               ; our window is on the glass, and the launch
     call OSAPI_WM_ONWAKE            ; document loads in front of it. BX is still
@@ -2014,6 +2023,23 @@ wd_bounds:
     call OSAPI_WM_GEOM              ; CX/DX = content w/h (BX still the window)
     mov [wd_cw], cx                 ; banked beside wd_cl/wd_ct
     mov [wd_ch], dx
+    ; ...and the menu element's copy of the same box, as a RECT (SPEC.md
+    ; 13.16). Here rather than in the painter because this is the one place
+    ; the four numbers are decided, and the element's contract is that its
+    ; record's rect is screen coordinates its owner keeps current - a window
+    ; moves. w/h to x2/y2 is the whole of the conversion.
+    push ax
+    mov ax, [wd_cl]
+    mov [wd_mnrec + OS88UI_MN_RECT], ax
+    add ax, cx
+    dec ax
+    mov [wd_mnrec + OS88UI_MN_RECT + 4], ax
+    mov ax, [wd_ct]
+    mov [wd_mnrec + OS88UI_MN_RECT + 2], ax
+    add ax, dx
+    dec ax
+    mov [wd_mnrec + OS88UI_MN_RECT + 6], ax
+    pop ax
     pop ax                          ; content top
     add ax, dx
     dec ax                          ; the content's own last row...
@@ -13947,124 +13973,13 @@ wd_mchk:
 ; scribble the window frame or the desktop below it.
 ; -----------------------------------------------------------------------------
 wd_mgeo:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    call wd_mgeti
-    cmp al, WD_M_N
-    jae .combo
-    mov dl, [bx]
-    xor dh, dh
-    mov cl, 3
-    shl dx, cl
-    add dx, [wd_cl]
-    add dx, 8-4                     ; the panel starts 4px left of the title
-    mov [wd_mrx1], dx
-    mov dx, [wd_ct]
-    add dx, WD_MENU_H
-    mov [wd_mry1], dx
-    jmp short .size
-.combo:
-    mov dx, [wd_max]
-    mov [wd_mrx1], dx
-    mov dx, [wd_may]
-    mov [wd_mry1], dx
-.size:
-    push ax                         ; the menu index - the height loop below
-                                    ; eats AL and the flip needs it back
-    mov cl, [bx+3]                  ; height: 4 + 10/5 per item
-    xor ch, ch
-    mov si, [bx+4]
-    mov ax, 4
-.hh:
-    jcxz .hd
-    test byte [si], WDMF_SEP
-    jz .h10
-    add ax, WD_MS_HGT
-    jmp short .hn
-.h10:
-    add ax, WD_MI_HGT
-.hn:
-    add si, 8
-    dec cx
-    jmp short .hh
-.hd:
-    pop cx                          ; CL = the menu index again
-    mov si, ax                      ; SI = the panel's height in pixels
-    mov dx, [wd_ct]
-    add dx, [wd_ch]
-    sub dx, 2                       ; leave the shadow's pixel inside too
-    add ax, [wd_mry1]
-    dec ax
-    cmp ax, dx
-    jbe .yok
-    cmp cl, WD_M_N
-    jb .clip                        ; a BAR menu hangs under its own title and
-                                    ; nowhere else - moving one would put it
-                                    ; over the menu bar it came from
-    ; --- the SLIDE (SPEC.md 6.4.1). A combo's list is anchored at its box, and
-    ; with ten faces there, eleven 10px items stand 114 rows tall - past the
-    ; bottom of a 200-row CGA window by a few pixels. Clipping is what used to
-    ; happen and it is SILENT: the trailing faces are drawn nowhere and
-    ; wd_mfind refuses to find them, so a disk carrying more faces than the
-    ; anchor has room below it simply loses the last ones, which is how
-    ; WD_MAXFONT came to be 6. Sliding the panel up until its bottom sits on
-    ; the limit keeps every item on the screen and reachable; it costs one
-    ; subtraction, and it is only ever taken when the alternative was to lose
-    ; an item.
-    ;
-    ; THE ARITHMETIC IS UNSIGNED AND THE ROOM IS MEASURED, NOT THE TOP. The
-    ; first version computed the new top and compared it against the content
-    ; edge, which is a NEGATIVE number the moment the panel is taller than the
-    ; space above the anchor - and `jb` read it as 65,490 and slid the panel
-    ; off the top of the screen, over the menu bar and the desktop. Subtracting
-    ; two rows that are both on the screen cannot go negative.
-    mov cx, dx
-    sub cx, [wd_ct]                 ; CX = the rows the content has for it
-    cmp cx, si
-    jb .clip                        ; taller than the whole content: nothing
-                                    ; to slide into, so clip as before
-    mov ax, dx
-    sub ax, si
-    inc ax                          ; the top that puts its bottom on DX
-    mov [wd_mry1], ax
-    mov ax, dx                      ; ...and that bottom is the limit itself
-    jmp short .yok
-.clip:
-    mov ax, dx                      ; clipped: trailing items are not drawn
-.yok:                               ; and wd_mfind stops at the same edge
-    mov [wd_mry2], ax
-    mov ax, [bx+6]                  ; the width the table precomputed
-    mov dx, [wd_mrx1]
-    add dx, ax
-    dec dx
-    mov cx, [wd_cl]
-    add cx, [wd_cw]
-    sub cx, 2
-    cmp dx, cx
-    jbe .xok
-    mov dx, cx                      ; ride the right edge (Help lives there)
-    push dx
-    sub dx, ax
-    inc dx
-    mov cx, [wd_cl]
-    inc cx
-    cmp dx, cx
-    jae .x1ok
-    mov dx, cx
-.x1ok:
-    mov [wd_mrx1], dx
-    pop dx
-.xok:
-    mov [wd_mrx2], dx
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    push bp                         ; SPEC.md 13.16: the element owns this now.
+    mov bp, wd_mnrec                ; A SHIM and not a call site sweep, because
+    call os88ui_mngeo               ; every one of wd_mgeo's callers is another
+    pop bp                          ; routine on its way out to the element -
+    ret                             ; and each takes its own BP with it when it
+                                    ; goes, at which point this disappears
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mdraw - draw the open dropdown from wd_mrect (SPEC.md 68.2)
@@ -20909,31 +20824,48 @@ section .text
     WDVAR wd_vrib, 1        ; byte } the View toggles: ribbon, ruler, status
     WDVAR wd_vrul, 1        ; byte } bar shown. Set to 1 in wd_entry - bss
     WDVAR wd_vsta, 1        ; byte } zero would mean all three hidden
-    WDVAR wd_mopen, 1       ; byte: the open dropdown, WD_M_NONE = none.
-                            ; 0..8 the bar, 9..11 the strip combos
-    WDVAR wd_mhi,  1        ; byte: the XOR-highlighted item, 0xFF = none
+    ; --- the menu element's record (SPEC.md 13.16) --------------------------
+    ; The fields below it are ALIASES INTO it, not copies: every one of Word's
+    ; hundred-odd existing references keeps working unchanged while the
+    ; control half moves out routine by routine, and there is never a moment
+    ; when the same fact lives in two places. wd_mopen IS the record's
+    ; OS88UI_MN_OPEN, at the same address.
+%define WD_MNREC_SZ 54
+    WDVAR wd_mnrec, WD_MNREC_SZ
+wd_mopen  equ wd_mnrec + 16     ; byte: the open dropdown, WD_M_NONE = none.
+                                ; 0..8 the bar, 9..11 the strip combos
+wd_mhi    equ wd_mnrec + 17     ; byte: the XOR-highlighted item, 0xFF = none
+wd_mink   equ wd_mnrec + 18     ; byte: the ink a dropped menu's runs letter in
+wd_mrx1   equ wd_mnrec + 20     ; word } the open dropdown's rectangle,
+wd_mry1   equ wd_mnrec + 22     ; word } computed once by wd_mgeo and read by
+wd_mrx2   equ wd_mnrec + 24     ; word } painter, hit test, highlight and close
+wd_mry2   equ wd_mnrec + 26     ; word } repaint alike (the fm_hit discipline)
+wd_mabox  equ wd_mnrec + 28     ; 4 words: the gesture anchor
+wd_max    equ wd_mnrec + 36     ; word } where a combo's dropdown hangs
+wd_may    equ wd_mnrec + 38     ; word }
+wd_suseg  equ wd_mnrec + 40     ; word: the save-under claim's segment
+wd_sukb   equ wd_mnrec + 42     ; word: its size in KB, for the free
+wd_surx1  equ wd_mnrec + 44     ; word } the rect actually banked - the panel
+wd_sury1  equ wd_mnrec + 46     ; word } GROWN by its shadow and clamped,
+wd_surx2  equ wd_mnrec + 48     ; word } computed once on the way down so the
+wd_sury2  equ wd_mnrec + 50     ; word } way back cannot disagree by a pixel
     WDVAR wd_about, 1       ; byte: the About box is up (modal)
     WDVAR wd_quit, 1        ; byte: File > Close/Exit ran - the worker
                             ; finishes the teardown (wd_worker .quit)
     WDVAR wd_stok, 1        ; byte: wd_stold describes the strip
     WDVAR wd_stkf, 1        ; byte: the CAPS/NUM bits the lamps show
-    WDVAR wd_mink, 1        ; byte: the ink a dropped menu's runs letter in -
-                            ; CBLACK, or CDGRAY when the item is dead
-                            ; (SPEC.md 68.14). Decided at the same branch that
-                            ; decides OSAPI_GFX_PEN's CF, because a package
-                            ; cannot read the pen back, and it took the pad
-                            ; byte that used to keep the words below even -
-                            ; which wd_dink then needed back (wd_mpad)
+                            ; (wd_mink is an alias into wd_mnrec now - see
+                            ; the record above. It is the ink a dropped menu's
+                            ; runs letter in: CBLACK, or CDGRAY when the item
+                            ; is dead (SPEC.md 68.14), decided at the same
+                            ; branch that decides OSAPI_GFX_PEN's CF, because
+                            ; a package cannot read the pen back)
     WDVAR wd_dink, 1        ; byte: the same answer for a DIALOG's controls,
                             ; banked by wd_dpen (SPEC.md 6.6.5)
     WDVAR wd_mpad, 1        ; byte: ...and the pad BACK, because two ink bytes
                             ; landed where one did and the words below have to
                             ; stay even again
     WDVAR wd_cbuf, 2        ; wd_btn12's one character and its NUL
-    WDVAR wd_mrx1, 2        ; word } the open dropdown's rectangle, computed
-    WDVAR wd_mry1, 2        ; word } once by wd_mgeo and read by painter, hit
-    WDVAR wd_mrx2, 2        ; word } test, highlight and close repaint alike
-    WDVAR wd_mry2, 2        ; word } (the fm_hit discipline)
     WDVAR wd_eodel, 2       ; word: the signed index shift this redraw's edit
                             ; made (+1 insert, -1 backspace), or 0 - which is
                             ; both "not that kind of edit" and "the early-out
@@ -20976,18 +20908,9 @@ section .text
     WDVAR wd_sbhurt, 1      ; byte: the blit band reached into the scroll
                             ; bar's columns and the strip blanked them, so
                             ; the bar owes a whole redraw (SPEC.md 27.7.2)
-    WDVAR wd_suseg, 2       ; word: the save-under claim's segment while a
-                            ; dropdown is down, 0 = none and the close
-                            ; REPAINTS instead (SPEC.md 68.2.1)
-    WDVAR wd_sukb,  2       ; word: its size in KB, for the free
-    WDVAR wd_surx1, 2       ; word } the rect actually banked - the panel GROWN
-    WDVAR wd_sury1, 2       ; word } by its shadow and clamped, computed once
-    WDVAR wd_surx2, 2       ; word } on the way down so the way back cannot
-    WDVAR wd_sury2, 2       ; word } disagree with it by a pixel
-    WDVAR wd_mabox, 8       ; 4 words: the gesture anchor - the bar title's
-                            ; band or the combo's box (os88ui rect order)
-    WDVAR wd_max,  2        ; word } where a combo's dropdown hangs: its
-    WDVAR wd_may,  2        ; word } box's left edge and the strip's bottom
+                            ; (the save-under's six words, the gesture anchor
+                            ; and the combo's corner are all aliases into
+                            ; wd_mnrec now - see the record above)
     WDVAR wd_abrect, 8      ; 4 words: the About box...
     WDVAR wd_abok, 8        ; 4 words: ...and its OK button
     WDVAR wd_lnv,  2        ; word } the status line's source: the caret's
@@ -21273,7 +21196,17 @@ section .text
 %define OS88UI_SCROLL           ; SPEC.md 13.10: the shared scroll bar. This
                                 ; app had the SEVENTH private implementation
                                 ; of it (13.10.6), and its own header said so
+%define OS88UI_MENU             ; SPEC.md 13.16: ...and the in-window menu,
+                                ; which is the same story one control along -
+                                ; docs/plans/UI-MENU-ELEMENT.md
 %include "os88ui.inc"
+
+; wd_mnrec's WDVAR size is a LITERAL (the counter is %assign and cannot see an
+; assembler equ - this file's own WD_PROPDRAW comment is about that exact
+; distinction), so it is checked HERE, where the equ finally exists. Both
+; TIMES are zero when the two agree and nasm refuses a negative one either way.
+    times (WD_MNREC_SZ - OS88UI_MN_SIZE) db 0
+    times (OS88UI_MN_SIZE - WD_MNREC_SZ) db 0
 %include "os88type.inc"         ; SPEC.md 6.5: proportional type, and the band
                                 ; it is composed into. AFTER os88ui.inc for no
                                 ; reason but tidiness - it depends on nothing
