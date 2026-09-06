@@ -1493,6 +1493,19 @@ SOAK = [
         "[ch_seg] stale and the move count at 0. Needs `cc`",
         needs=("marty", "cc"), serial=True,
         wants=("build/cmemmove360.img",)),
+    Row("regmove", "soak", py("tests/regmove.py"), 130.0,
+        "A package's REGION moves and the package keeps working (SPEC.md "
+        "66.6.1). 66.6 said since it was written that a region can never move "
+        "because its base IS its CS; this is the door open. FOUR PACKAGES and "
+        "each has a job - PAINT takes the ceiling, SHEET goes under it and is "
+        "the one that has to move, FILLER takes the arena down to a few tens "
+        "of KB, and closing PAINT leaves the hole. tests/filler is an "
+        "instrument with NO assertions of its own, which heapfrag cannot be: "
+        "its comb is sized from the largest run IT sees and its own checks "
+        "fail when another package's claims are interleaved, so a refused "
+        "forcing claim looks exactly like a granted one",
+        needs=("marty",), serial=True,
+        wants=("build/regmove360.img",)),
     Row("sheetmove", "soak", py("tests/sheetmove.py"), 130.0,
         "Compact the heap out from under a LIVE Sheet "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). SHEET was the largest "

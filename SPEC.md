@@ -76619,6 +76619,101 @@ no relocation of any kind, so every near offset inside the image survives a
 move untouched and only **segment words** are ever wrong afterwards. That is
 the whole reason this list is finite.
 
+#### 66.6.1 …and the door is open: a region moves when it is FRAMELESS
+
+§66.6's list is what a move has to rewrite. The question it left is the one
+that decides whether a move is *legal*, and it has an exact answer:
+
+> **Is there any frame anywhere that refers to the image at segment S?**
+
+The obvious answer — scan every task stack for S — is **refused**, and for
+§66.3 rule 5's own standard. A heap segment number shares a 16-bit range with
+kernel return addresses and with a package's own near pointers, so a sweep that
+patched what it found would corrupt a return address **silently**. It could not
+work anyway: a segment reaches a stack six ways, of which only a suspended
+task's `SCH_FRAME` is at a computable offset. The other five are the far-return
+CS the CPU pushes at every `OSAPI_*` call, `OSAPI_SLOT`'s own `push ds`,
+`api_x`'s conditional `push es`, an interrupt gate frame, and **whatever the
+package pushed itself** — Paint does `push ds` at twelve sites. Frames cannot
+be walked to find them: the kernel has seven `mov bp, sp` sites and none of
+them chain, so below the one `SCH_FRAME` the stack is untyped words.
+
+So no design can *find* the copies. What a design can do is know that **none
+was ever made**, and that is a counting question. Package code runs in exactly
+three contexts and the kernel opens all three:
+
+| context | who opens it | how it is counted |
+|---|---|---|
+| a **callback** — paint, key, click, drag, resize, timer, wake, menu | `wm_pkgcall`, one site | `[wm_pkgs]`, the segment pushed before the dispatch and popped after |
+| its **entry proc** | the loader, one site | `[ld_base]`, the window in which the region exists and the instance does not |
+| its **worker** | `task_spawn` | `I_TASK != 0xFF` in the instance record — `task_spawn` writes the worker's DS and CS into `SCH_FRAME` before it runs an instruction |
+
+> A region is frameless iff it is **not named in `[wm_pkgs]`**, its instance's
+> `I_TASK == 0xFF`, and `MC_SEG != [ld_base]`.
+
+**The two doors are audited, not assumed.** There are exactly two `call far`
+sites in the kernel that reach a package — `wm_pkgcall` and the loader's entry
+call — plus `mem_reloc_call`'s, which is the compactor's own. Every other far
+call in the tree reaches a **module** or a **driver**; `drv_pkg_call_x` runs
+the other way, a package reaching a driver.
+
+**`mem_reloc_call`'s door must NOT be counted**, and this is the trap worth
+writing down. It far-calls a holder's relocation proc through `PKG_DISP`. Count
+it and the moment `mem_cp_run` notifies the first movable *data* claim the
+depth goes non-zero and **the compactor pins every region against itself** — a
+feature that silently does nothing, which is the worst failure shape available.
+It is safe uncounted because the notification is synchronous: the far call has
+returned before the walk reaches another record.
+
+**A STACK OF SEGMENTS AND NOT A DEPTH**, and that is the difference between a
+feature that fires and one that does not. A package reaches `mem_claim` only
+from inside its own callback, so a global depth is **always** non-zero at the
+one moment a package-driven compaction runs — a compactor resting on one would
+move a region on a kernel-initiated claim and never on any other. Recording
+*which* segment is at each level costs `WM_PKGD_MAX` words and lets package A's
+claim pack package B's region. Past that depth the answer is *pin everything*
+rather than a guess.
+
+**`[ld_base]` had to start being cleared.** It was zeroed on the *abort* path,
+where `ld_undo` frees by it, and never on the success path — so a value left
+standing pinned the most recently launched package's region, the one most
+likely to be the largest, for the rest of the session.
+
+**What makes the counter safe is already there.** `mem_compact` raises
+`[sch_lock]` across the plan *and* the moves, so no task can raise the depth
+between the test and the copy. The one window is the park request, which drops
+the lock for up to `INST_PARKW` ticks — and `mem_cp_run` re-calls
+`mem_can_move` per block under the re-raised lock, so a design that hoisted the
+predicate out of that loop for speed would be wrong in a way nothing would
+catch.
+
+**`mem_region_reloc` is the kernel's half**, run unconditionally for every move
+on `dsk_dseg_reloc`'s terms and for its reason: a block that is not a region
+matches nothing in it, and the walk is ~70 compares against a `rep movsw` of up
+to 64KB. It is in `.text`, because `cw_mem_disp` reaches a kernel relocation
+proc with `call bp` and `CS = KERNEL_SEG`. Three address spaces, three loops:
+`wm_wins`, `inst_tab` and the seven scalars are `.bss`; `menu_bar` is `.lowbss`
+and `mem_tab` is the claim table, both `ss:`.
+
+**And `mem_reloc_call` gained a fourth arm.** Its instance-slot case used to
+say *"a region is pinned and never arrives here"*; with one declared it does,
+and the holder is the **package itself, at its new base** — dispatched through
+`PKG_DISP` and not through the kernel's shim.
+
+**What is still pinned is a package that owns a WORKER** — `task_spawn` writes
+the region's segment into the worker's frame before it runs, and nothing can
+rewrite a suspended frame it cannot type. `docs/plans/HEAP-UNPIN-PLAN.md` §4.7
+is the way past it and it is an ABI change: the worker declares a restart point
+and the kernel rebuilds its frame.
+
+**And `mem_find_own`'s fence had to widen by five bytes.** It matches
+`MC_SEG == DX && MC_OWN == BX` — *yours, or not at all* — and a region's
+`MC_OWN` is the instance **slot** where the declaring package's `BX` is its
+**segment**. A record whose `MC_SEG` equals the caller's own segment is that
+caller's region and can be nothing else, so that is the second way to match.
+No new API slot: a region *is* a claim, so `OSAPI_MEM_MOVABLE` is already the
+door.
+
 ### 66.7 What is deliberately not done
 
 **No compaction on a free, on idle, or on a timer.** The heap is only worth

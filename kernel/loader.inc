@@ -971,6 +971,16 @@ ld_run_body_x:
                                 ; one thing in that contract a package may
                                 ; ignore, which is what makes adding it
                                 ; compatible with every package built before
+                                ; THE SECOND DOOR INTO PACKAGE CODE, and the
+                                ; only other one (SPEC.md 66.6.1). Audited:
+                                ; there are exactly two `call far` sites in the
+                                ; kernel that reach a package - this and
+                                ; wm_pkgcall - plus mem_reloc_call's, which is
+                                ; the compactor's own and must NOT be counted.
+                                ; This one needs no bracket: the only region a
+                                ; frame of it can refer to is the one being
+                                ; loaded, and [ld_base] names that one for
+                                ; mem_frameless
     mov ds, [ld_base]           ; DS = the package's own segment, read through
     call far [es:ld_fp]         ; DS while DS still names the kernel and
     pop ds                      ; loaded in one instruction - the ordering
@@ -1046,6 +1056,15 @@ ld_run_body_x:
     call KERNEL_SEG:cw_gfx_lock
     call KERNEL_SEG:cw_wm_show  ; in: BX = window ptr; repaints all
     call KERNEL_SEG:cw_gfx_unlock
+    mov word [ld_base], 0       ; ...AND NOTHING IS BEING LOADED ANY MORE
+                                ; (SPEC.md 66.6.1). mem_can_move pins the
+                                ; region whose base this names, so a value left
+                                ; standing after a successful launch pins the
+                                ; most recently launched package - the one most
+                                ; likely to be the largest - for the rest of
+                                ; the session. It was cleared on the ABORT path
+                                ; alone, where ld_undo frees by it, and never
+                                ; here, where nothing had asked
     mov al, LD_OK
     ret
 

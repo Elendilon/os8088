@@ -642,6 +642,28 @@ sh_entry:
     mov [sh_chartseg], dx
     mov ax, sh_reloc
     call OSAPI_MEM_MOVABLE
+    ; ...AND THE REGION ITSELF (SPEC.md 66.6.1). A region IS a claim, so
+    ; OSAPI_MEM_MOVABLE is already the door and there is no new slot: what the
+    ; kernel needed was a fence that recognises "the claim whose base is my own
+    ; segment" as mine, since a region's owner word is the instance SLOT.
+    ;
+    ; SHEET IS THE RIGHT FIRST ADOPTER AND IT IS NOT AN ACCIDENT OF SIZE. It
+    ; hires no worker, so nothing suspended holds its CS; it stores its own
+    ; segment nowhere - the six `mov ax, ds` sites in this file all set ES for
+    ; the next instruction and none banks it; and its image is org 0 with no
+    ; relocation, so every near offset in it survives a move untouched. Every
+    ; word that names the region is the KERNEL's, and mem_region_reloc is what
+    ; puts those right; sh_reloc is named here because a proc is required and
+    ; because it is the one that would have work to do if this package ever
+    ; grew a word of its own.
+    push dx                     ; **DX IS STILL THE CHART CLAIM** and the BMP
+    mov dx, cs                  ; header copy below reads it as ES. Banked
+    mov ax, sh_reloc            ; rather than reordered because the declaration
+    call OSAPI_MEM_MOVABLE      ; belongs beside the others; without the bank
+    pop dx                      ; the 118-byte header landed at offset 0 of
+                                ; this package's OWN image, over the .o88
+                                ; header, and the window opened with an empty
+                                ; title. DS = CS for a package (SPEC.md 20.1)
     mov word [sh_chartwin], 0
     mov word [sh_chart_cnt], 0
     mov word [ch_type], CH_T_COLUMN

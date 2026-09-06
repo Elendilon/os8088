@@ -4631,6 +4631,30 @@ $(BUILD)/trackmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/tracker.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/tracker.o88 apps/tracker/beverly.mod
 
+# --- the FILLER, and the region mover's disk (SPEC.md 66.6.1) ---------------
+# tests/filler is an instrument with no assertions of its own: it takes the
+# arena down to a few tens of KB and, on a keypress, asks for one KB more than
+# the largest run. tests/heapfrag cannot do that job - its comb is sized from
+# the largest run IT sees and its twelve checks are about the arena it expects
+# to own, so with another package's claims interleaved its own assertions fail
+# and a refused forcing claim is indistinguishable from a granted one
+# (docs/plans/HEAP-UNPIN-PLAN.md 10.9).
+$(BUILD)/filler.bin: tests/filler/filler.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/filler/filler.asm
+	@echo "filler: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/filler.o88: $(BUILD)/filler.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/filler.bin -o $@
+
+# FOUR packages, and each has a job: PAINT opens first and takes the top of the
+# ceiling, SHEET opens under it and is the package whose REGION has to move,
+# FILLER opens under that and takes the arena down, and closing PAINT is what
+# leaves a hole above SHEET for the descending pass to pack it into.
+$(BUILD)/regmove360.img: $(BUILD)/filler.o88 $(BUILD)/sheet.o88 \
+                         $(BUILD)/paint.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/filler.o88 \
+		$(BUILD)/paint.o88 $(BUILD)/sheet.o88
+
 # ...and the C SDK's, for tests/cmemmove.py
 # (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). CHELLO is the C toolchain's
 # capability gate (SPEC.md 73) and os88_mem_movable() is the fifth capability

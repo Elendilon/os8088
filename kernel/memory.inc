@@ -1324,8 +1324,10 @@ mem_can_move:
     cmp bx, INST_MAX
     jae .notslot
     call mem_is_region          ; an instance slot owns a package's REGION and
-    jc .pin                     ; a built-in's data claims alike, and only the
-    jmp short .ok               ; first of those is a CS
+    jnc .ok                     ; a built-in's data claims alike, and only the
+    call mem_frameless          ; first of those is a CS - and a CS may move
+    jc .pin                     ; when nothing anywhere refers to it (SPEC.md
+    jmp short .ok               ; 66.6.1)
 .notslot:
     cmp bh, 0xFF
     je .ok                      ; a kernel tag: its proc is the kernel's own
@@ -1436,6 +1438,75 @@ mem_is_region:
     pop di
     pop ax
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; mem_frameless - is there NO frame anywhere referring to this region? (internal)
+; in:  SI = the record, BX = its owner (an instance slot, already tested)
+; out: CF = 0 nothing refers to it, CF = 1 something might
+; clobbers: nothing else (flags)
+;
+; SPEC.md 66.6.1, and it is three exact questions rather than a stack scan.
+; The scan is refused for SPEC.md 66.3 rule 5's own reason: a heap segment
+; number shares a 16-bit range with kernel return addresses and a package's own
+; near pointers, so a sweep that PATCHED would corrupt a return address
+; silently. And it could not work anyway - the six ways a segment reaches a
+; stack (docs/plans/HEAP-UNPIN-PLAN.md 4.1) include whatever the package pushed
+; itself, at an offset nothing can compute.
+;
+; What a design CAN know is that no copy was ever made, and that is counting:
+;
+;   not in [wm_pkgs]      no kernel -> package call into THIS region is in
+;                         flight. The two doors are AUDITED, not assumed:
+;                         `call far` into a package happens at wm_pkgcall and
+;                         at the loader's entry call, and nowhere else in the
+;                         kernel
+;   I_TASK == 0xFF        it owns no worker, whose SCH_FRAME carries its DS and
+;                         CS from before the worker ran an instruction
+;   MC_SEG != [ld_base]   it is not the region being loaded right now
+;
+; WHAT MAKES THE COUNTER SAFE IS ALREADY THERE: mem_compact raises [sch_lock]
+; across the plan AND the moves, so no task can raise the depth between this
+; test and the copy. The one window is the park request, which drops the lock -
+; and mem_cp_run re-calls mem_can_move per block under the re-raised lock, so a
+; design that hoisted this out of that loop for speed would be wrong in a way
+; nothing would catch.
+; -----------------------------------------------------------------------------
+mem_frameless:
+    push ax
+    push cx
+    push di
+    mov ax, [ss:si+MC_SEG]
+    cmp ax, [ld_base]
+    je .nope                    ; the loader is standing in it
+    mov cl, [wm_pkgd]
+    or cl, cl
+    jz .idle                    ; no callback anywhere
+    cmp cl, WM_PKGD_MAX
+    ja .nope                    ; deeper than wm_pkgs records: pin everything
+    mov di, wm_pkgs
+.s:
+    cmp ax, [di]                ; is THIS region one the nest is inside?
+    je .nope
+    add di, 2
+    dec cl
+    jnz .s
+.idle:
+    mov di, bx
+    xchg ax, di                 ; AX = the slot for the shim
+    call KERNEL_SEG:cw_inst_ptr ; DI = the record (mem_is_region's own shim)
+    cmp byte [di+I_TASK], 0xFF
+    jne .nope
+    pop di
+    pop cx
+    pop ax
+    clc
+    ret
+.nope:
+    pop di
+    pop cx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1996,6 +2067,114 @@ mem_cp_run:
 .done:
     jmp kretc_di
 
+section .text                   ; A KERNEL RELOCATION PROC IS A NEAR PROC IN
+                                ; .text: cw_mem_disp reaches it with `call bp`
+                                ; and CS = KERNEL_SEG, so a .cold body would be
+                                ; entered at the wrong segment (dsk_dseg_reloc
+                                ; sits in .text inside a .cold file for exactly
+                                ; this reason)
+; -----------------------------------------------------------------------------
+; mem_region_reloc - THE KERNEL'S HALF of a package REGION's move (SPEC.md 66.6)
+; in:  BX = the base segment it WAS at, DX = the base it is at NOW
+; out: nothing; every register preserved
+;
+; SPEC.md 66.6 lists eleven holders and it listed four for a year. Each of the
+; seven that were missing fails in a way nobody would trace back to a
+; compaction - a stale [menu_seg] draws every bar title out of the wrong
+; segment, a stale [fdlg_rqsp] makes the completion callback silently skip so
+; the user's Save does nothing at all.
+;
+; UNCONDITIONAL, exactly as dsk_dseg_reloc is and for its reason: a block that
+; is not a region matches nothing here, and the walk is ~70 compares against a
+; rep movsw of up to 64KB. Making it conditional would put a second copy of
+; "is this a region" somewhere that has to be kept agreeing with mem_is_region.
+;
+; THREE ADDRESS SPACES, which is why there are three loops. wm_wins, inst_tab
+; and the seven scalars are .bss and reached through DS; menu_bar is .lowbss
+; and mem_tab is the claim table, both reached through SS (SPEC.md 2.6).
+;
+; What needs NOTHING is most of the kernel: sound grants, XMS blocks, toast
+; ownership, the dock, the clipboard, wm_owner and every wm_about / wm_onwk /
+; wm_oncl / wm_onrc / wm_pref hook are keyed on an instance SLOT or on a near
+; offset read live through W_SEG. And a package's own code needs nothing at
+; all - it is org 0 with no relocation of any kind, so every near offset inside
+; the image survives untouched and only SEGMENT words are ever wrong.
+; -----------------------------------------------------------------------------
+mem_region_reloc:
+    push ax
+    push cx
+    push si
+    push di
+    mov si, mem_rr_tab
+.tab:
+    mov di, [si]                ; DS-relative tables: (base, count, stride)
+    or di, di
+    jz .scal
+    mov cx, [si+2]
+.tl:
+    cmp [di], bx
+    jne .tn
+    mov [di], dx
+.tn:
+    add di, [si+4]
+    loop .tl
+    add si, 6
+    jmp short .tab
+.scal:
+    mov si, mem_rr_sc
+.sl:
+    mov di, [si]
+    or di, di
+    jz .bar
+    cmp [di], bx
+    jne .sn
+    mov [di], dx
+.sn:
+    add si, 2
+    jmp short .sl
+.bar:
+    mov di, menu_bar + MB_SEG   ; the menu bar is .lowbss (SPEC.md 12.2)
+    mov cx, MENU_BARMAX
+.bl:
+    cmp [ss:di], bx
+    jne .bn
+    mov [ss:di], dx
+.bn:
+    add di, MB_ENTSZ
+    loop .bl
+    mov di, mem_tab + MC_OWN    ; ...and a package's DATA claims are owned by
+    mov cx, MEM_MAX             ; the segment it runs in (SPEC.md 50.2)
+.ol:
+    cmp [ss:di], bx
+    jne .on
+    mov [ss:di], dx
+.on:
+    add di, MC_SIZE
+    loop .ol
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+mem_rr_tab:
+    dw wm_wins + W_SEG,   MAX_WIN,  WIN_SIZE
+    dw inst_tab + I_SPTR, INST_MAX, I_RECSZ
+    dw 0
+mem_rr_sc:
+    dw menu_seg                 ; the bar's owner...
+    dw menu_dseg                ; ...and the DROPPED menu, which is live in
+                                ; exactly the context SPEC.md 66.3 rule 3 names
+    dw fdlg_rqsp                ; the file dialog's staleness cookie
+%ifdef KERN_BIG
+    dw drv_dlg_seg              ; kern_small's driver file-dialog slot is a
+%endif                          ; refusing stub and has no state (62.9.15)
+    dw dskw_seg                 ; a CALLER's segment, banked across a whole
+    dw dskw_wseg                ; file transfer
+    dw dskw_czseg
+    dw 0
+section .cold
+
 ; -----------------------------------------------------------------------------
 ; mem_reloc_call - tell a holder its block moved (module internal)
 ; in:  SI = the record, BX = the old base segment, DX = the new one
@@ -2058,6 +2237,12 @@ mem_reloc_call:
     mov ds, ax                  ; DS = KERNEL_SEG: a kernel proc's own
     mov bp, dsk_dseg_reloc
     call far [ss:mem_fptr]
+    mov bp, mem_region_reloc    ; ...AND THE REGION'S HALF, on the same terms
+    call far [ss:mem_fptr]      ; and for the same reason (SPEC.md 66.6.1): a
+                                ; region is named by eleven kernel words the
+                                ; owner's own proc cannot reach, and a block
+                                ; that is not one matches none of them. DS is
+                                ; still KERNEL_SEG from the line above
 
     mov bp, [ss:si+MC_RLOC]     ; BP = the proc, PKG_DISP's own contract
     mov ax, [ss:si+MC_OWN]
@@ -2069,8 +2254,16 @@ mem_reloc_call:
                                 ; conventional memory ends at 0xA000
 .notk:
     cmp ax, INST_MAX
-    jb .kernel                  ; an instance slot: a BUILT-IN's data claim.
-                                ; A region is pinned and never arrives here
+    jae .pkg                    ; a package's or a driver's own SEGMENT
+    push bx                     ; an instance slot, and it is TWO things now
+    mov bx, ax                  ; (SPEC.md 66.6.1): a built-in's data claim,
+    call mem_is_region          ; whose proc is the kernel's, or a package's
+    pop bx                      ; REGION, whose holder is the package itself
+    jnc .kernel                 ; (pop writes no flags)
+    mov ax, [ss:si+MC_SEG]      ; ...AT ITS NEW BASE, which mem_cp_run wrote
+                                ; before calling this. The old one is BX and
+                                ; there is nothing there any more
+.pkg:
     mov word [ss:mem_fptr], PKG_DISP
     jmp short .go               ; DS = the holder's own segment below: the
 .kernel:                        ; proc's whole job is to write its own data
@@ -2327,6 +2520,14 @@ mem_find_own:
     jne .next
     cmp [ss:si+MC_OWN], bx
     je .out                     ; equal, so CF is already 0
+    cmp dx, bx                  ; ...OR IT IS THE CALLER ITSELF: a package's
+    je .out                     ; REGION is owned by its instance SLOT where BX
+                                ; is its SEGMENT (SPEC.md 66.6.1), and a record
+                                ; whose base equals the caller's own segment
+                                ; can be nothing but that caller's region. Five
+                                ; bytes, and it WIDENS the fence rather than
+                                ; holing it - the two words still have to agree
+                                ; about something
 .next:
     add si, MC_SIZE
     loop .scan
