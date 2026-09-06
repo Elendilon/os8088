@@ -3838,7 +3838,18 @@ osapi_table:
                                   ;          displays - and nothing is written
     OSAPI_SLOT api_gfx_rest       ; 0x0510 - ...and put it back: same rect,
                                   ;          ES:SI = the buffer the save filled
-osapi_table_end:                  ; 0x0518
+    OSAPI_JSLOT api_pit_lend      ; 0x0518 - AL = OSAPI_PL_*: lend PIT channel
+                                  ;          0 to a ROM routine whose own
+                                  ;          constants assume the BIOS's mode 3
+                                  ;          (SPEC.md 88.5, and 34.1's one
+                                  ;          exception). THE SCHEDULER OWNS
+                                  ;          CHANNEL 0 AND THIS IS THE ONLY
+                                  ;          OTHER SITE THAT WRITES IT - a
+                                  ;          package cannot: the restore is not
+                                  ;          a constant, an 8253 has no
+                                  ;          read-back, and [sch_pit_last] has
+                                  ;          to be re-seeded after
+osapi_table_end:                  ; 0x0520
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3846,8 +3857,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 161 * 8
-%error "os8088 API jump table must be exactly 161 8-byte slots"
+%if OSAPI_TABLE_LEN != 162 * 8
+%error "os8088 API jump table must be exactly 162 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -4029,6 +4040,30 @@ api_fdlg_open:
 ; DS:SI, ES:DI, CX, DX and AL are already what lz_decomp_x wants and both
 ; segment registers come back the caller's. The far call is only because the
 ; body is `.cold` and its CS is not this one.
+; -----------------------------------------------------------------------------
+; api_pit_lend - slot 0x0518 (SPEC.md 88.5). The body is `.cold` and lives in
+; sched.inc, which owns PIT channel 0 (SPEC.md 34.1).
+;
+; NEITHER RETURN TOUCHES THE FLAGS, which is what makes the LEAVE arm's promise
+; keepable: a package calls it as the first thing after `int 15h` and the ROM's
+; CF is still the ROM's when it comes back.
+; -----------------------------------------------------------------------------
+api_pit_lend:
+    push ds                     ; DS IS THE CALLER'S HERE, and the body reads
+    push cs                     ; [sch_pitcl], [sch_fast] and [snd_ch2mode] -
+    pop ds                      ; all kernel .bss. OSAPI_JSLOT is a bare `jmp`
+                                ; and sets no segment: api_decomp gets away
+                                ; with that because SPEC.md 20.13.3's
+                                ; decompressor "reads no kernel data at all",
+                                ; and this one is the opposite case.
+                                ; Without these three bytes every test in the
+                                ; body reads the PACKAGE's segment, which
+                                ; assembles cleanly, runs, and answers from
+                                ; whatever the package happens to have there
+    call COLD_SEG:schf_pit_lend
+    pop ds                      ; neither `pop ds` nor either return touches
+    retf                        ; the flags, so the LEAVE arm's promise holds
+
 ; -----------------------------------------------------------------------------
 api_decomp:
     call COLD_SEG:lzf_decomp

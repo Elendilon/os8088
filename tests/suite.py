@@ -1897,6 +1897,21 @@ SOAK = [
         "and the fixture are built in a PRIVATE TREE (tools/os88build.py), so "
         "it neither writes build/ nor spends a second build putting it back",
         needs=("marty", "nasm"), serial=True),
+    Row("tapelend", "soak", py("tests/tapelend.py"), 55.0,
+        "SPEC.md 88.5's OSAPI_PIT_LEND, on TWO kernels. The cell amends "
+        "SPEC.md 34.1 - a rule written down so the argument would stop "
+        "recurring, PIT CHANNEL 0 IS NEVER WRITTEN - so every claim made for "
+        "the amendment is a behaviour nothing had exercised. The QUANTUM=2 "
+        "arm is the point of the row and it needs a second kernel, built into "
+        "a private tree rather than over build/: there [sch_fast] has moved "
+        "ch0's divisor, so the restore could not be a constant and the claim "
+        "must be REFUSED with AH=1 rather than granted and got wrong. The "
+        "positive controls are what stop it rubber-stamping an `stc/ret` - "
+        "the claim is TAKEN first and the speaker is checked working again "
+        "AFTER the release. It found the defect it was written for on its "
+        "first run: OSAPI_JSLOT is a bare `jmp` and sets no segment, so the "
+        "body was reading [sch_pitcl] out of the calling PACKAGE's segment",
+        wants=("build/tapelend360.img",)),
     Row("lzfence", "soak", py("tests/lzfence.py"), 20.0,
         "SPEC.md 20.13.4: OSAPI_DECOMP REFUSES a hostile stream rather than "
         "writing. The bounds in kernel/lz.inc were measured for size and "

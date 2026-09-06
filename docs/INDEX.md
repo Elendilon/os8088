@@ -191,6 +191,7 @@ Read first: [§7 Concurrency model (read carefully — this is the crux)](../SPE
 | `0x00B8` | `OSAPI_GET_TICKS` | out AX = [ticks] |
 | `0x0160` | `OSAPI_TASK_SPAWN` | AX = your worker's near entry (a plain `mov ax, my_worker`... |
 | `0x0168` | `OSAPI_TASK_ALIVE` | BX = YOUR window ptr; the gfx lock must NOT be held, and it must be YOUR WORKER calling - never a window callback... |
+| `0x0518` | `OSAPI_PIT_LEND` | AL = one of the four above. BX, CX, DX, SI, DI, BP, DS and ES are untouched on every arm. CLAIM: out CF = 0 you hold the PIT and the speaker until... |
 | `0x0410` | `OSAPI_TASK_PARK` | a DRIVER's worker parks here for a heap compaction (SPEC.md 66.5.5), the way a package's parks at OSAPI_TASK_ALIVE... |
 | `0x02F8` | `OSAPI_BOOT_TICKS` | out AX = how long this machine took to boot, in SYSTEM TICKS (18.2065 Hz, 54.925 ms each): the boot sector's first instruction to the first desktop... |
 

@@ -59,7 +59,7 @@ GROUPS = [
     ("Memory", ["2", "41", "50", "66"],
      ["MEM_", "XMEM_", "CLAIM_SNAPSHOT", "SYS_KB"]),
     ("Tasks, timing and the clock", ["7", "8", "37"],
-     ["TASK_", "GET_TICKS", "BOOT_TICKS"]),
+     ["TASK_", "GET_TICKS", "BOOT_TICKS", "PIT_LEND"]),
     ("Sound", ["34", "35"],
      ["SND_"]),
     ("The system - CPU, video, clipboard, drivers", ["31", "51", "55", "57", "60"],

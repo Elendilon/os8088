@@ -909,6 +909,53 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; refused and not detected - it is your
                                  ; promise, exactly like OSAPI_WM_SAVEU's
 
+; --- OSAPI_PIT_LEND (SPEC.md 88.5) -------------------------------------------
+; Lend PIT channel 0 to a ROM routine whose own constants assume the BIOS's
+; mode 3, for the length of ONE BIOS call. THE SCHEDULER OWNS CHANNEL 0 and
+; this cell is the only other site that writes it (SPEC.md 34.1's one
+; exception) - a package may not do it at any size: the restore is not a
+; constant, an 8253 has no Read-Back command so the divisor cannot be
+; recovered from the chip, and the accounting stamp has to be re-seeded after.
+;
+; You want this only if you are calling a ROM routine that TIMES ITSELF off
+; channel 0. The cassette read is the one in the tree.
+OSAPI_PL_LEAVE   equ 0          ; take channel 0 back
+OSAPI_PL_ENTER   equ 1          ; hand it to the ROM
+OSAPI_PL_CLAIM   equ 2          ; take the PIT and the speaker for an OPERATION
+OSAPI_PL_RELEASE equ 3          ; give them back
+%define OSAPI_PIT_LEND      KERNEL_SEG:0x0518   ; AL = one of the four above.
+                                 ; BX, CX, DX, SI, DI, BP, DS and ES are
+                                 ; untouched on every arm.
+                                 ;
+                                 ; CLAIM: out CF = 0 you hold the PIT and the
+                                 ; speaker until you release them; CF = 1 and
+                                 ; NOTHING changed, AH = why - 1 the kernel has
+                                 ; re-rated ch0 (a QUANTUM= kernel, fsx, or
+                                 ; speaker PCM), 2 the speaker owns ch2, 3
+                                 ; somebody already holds the claim. A SECOND
+                                 ; instance of your own app is what 3 is for as
+                                 ; much as the speaker is.
+                                 ;
+                                 ; ENTER: ch0 -> mode 3, divisor unchanged.
+                                 ; CF = 1 and nothing done unless you hold the
+                                 ; claim.
+                                 ;
+                                 ; LEAVE: ch0 -> mode 2, the stamp re-seeded.
+                                 ; PRESERVES AX, BX, DX AND THE FLAGS, so it
+                                 ; can be the first thing after the ROM call
+                                 ; without banking the answer first. CF is not
+                                 ; an output on this arm.
+                                 ;
+                                 ; RELEASE: the speaker back to its resting
+                                 ; state. IDEMPOTENT - releasing a claim you do
+                                 ; not hold is a no-op, so a refusal path may
+                                 ; call it blind.
+                                 ;
+                                 ; While you hold the claim, the kernel's own
+                                 ; sch_fast_on, spk_tone and PCM playback all
+                                 ; answer CF = 1. IT DOES NOT TOUCH THE PIC:
+                                 ; port 21h is yours.
+
 %define OSAPI_GFX_SPANS     KERNEL_SEG:0x04D8   ; AX = the y of the FIRST span,
                                  ; ES:SI = CX records of two words each, x1
                                  ; then x2, both INCLUSIVE; CX = rows, row n

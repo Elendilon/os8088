@@ -3719,6 +3719,29 @@ $(BUILD)/lzfence360.img: $(BUILD)/lzfence.o88 tools/os88disk.py
 .PHONY: lzfencetest
 lzfencetest: $(BUILD)/lzfence360.img
 
+# TAPELEND: the gate on OSAPI_PIT_LEND (SPEC.md 88.5, and 34.1's one
+# exception), docs/plans/CASSETTE-PLAN.md wave 3. Never shipped, its own
+# scratch image, the lzfence shape:
+#   make tapelendtest && python3 tests/tapelend.py
+#
+# It needs no cassette and calls no int 15h: the cell is a KERNEL contract and
+# this exercises the kernel. The QUANTUM= arm is the point of it, and
+# tests/tapelend.py builds that second kernel into a private tree of its own
+# (tools/os88build.py) rather than over build/ - CLAUDE.md's trap 1, and the
+# reason `make -n` with a knob in it is not a dry run.
+$(BUILD)/tapelend.bin: tests/tapelend/tapelend.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/tapelend/tapelend.asm
+	@echo "tapelend: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tapelend.o88: $(BUILD)/tapelend.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tapelend.bin -o $@
+
+$(BUILD)/tapelend360.img: $(BUILD)/tapelend.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tapelend.o88
+
+.PHONY: tapelendtest
+tapelendtest: $(BUILD)/tapelend360.img
+
 # lzfile - a compressed FILE, read transparently (SPEC.md 20.14,
 # docs/plans/O88-COMPRESSION-PLAN.md 13 wave 5). The disk carries one document
 # TWICE: PLAIN.TXT as it is and PACKED.TXT wrapped by os88lz.py, so every

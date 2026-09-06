@@ -467,7 +467,9 @@ sch_pit_now:
 sch_fast_on:
     push ax
     push bx
-    cmp al, 2
+    cmp byte [sch_pitcl], 0     ; a tape holds ch0 and the speaker (SPEC.md
+    jne .busy                   ; 88.5): re-rating it now would be re-rated
+    cmp al, 2                   ; back to the wrong thing
     jb .out
     cmp al, 4
     ja .out
@@ -493,6 +495,11 @@ sch_fast_on:
 .out:
     pop bx
     pop ax
+    ret
+.busy:
+    pop bx
+    pop ax
+    stc
     ret
 
 sch_fast_off:
@@ -521,6 +528,139 @@ sch_fast_off:
     ret
 
 sch_fdivs:  dw 32768, 21845, 16384      ; N = 2, 3, 4
+
+; -----------------------------------------------------------------------------
+; sch_pit_lend - hand PIT channel 0 to a ROM routine, and take it back
+;                (SPEC.md 88.5, and 34.1's one exception)
+;
+; in:       AL = OSAPI_PL_* (0 LEAVE, 1 ENTER, 2 CLAIM, 3 RELEASE)
+; out:      per the arm - see below
+;
+; THE SCHEDULER OWNS CHANNEL 0 AND THIS IS THE ONLY OTHER SITE THAT WRITES IT.
+; A package cannot do this correctly at any size and the reasons are facts only
+; the kernel holds: the restore cannot be a constant (sch_fast_on may have
+; loaded 32,768, 21,845 or 16,384 out of sch_fdivs above), it cannot be read
+; back (a 5150 has an 8253, which has no Read-Back command at all), and
+; [sch_pit_last] has to be re-seeded afterwards or the first full tick charges
+; a whole bracket's worth of garbage to whoever is running.
+;
+; Every write is inside one pushf/cli..popf, which is 34.1's ch0 latch-
+; atomicity rule. IT DOES NOT TOUCH THE PIC: port 21h is the caller's.
+; It lives in `.cold` (SPEC.md 88.12): it runs once per BIOS call, against a
+; record that takes seconds, so the far call costs nothing measurable and the
+; bytes come off KERN_CODE_MAX - the guard that cannot be raised. The three
+; GUARDS stay in `.text`, because sch_account's is on the IRQ0 path.
+; -----------------------------------------------------------------------------
+section .cold
+
+schf_pit_lend:  call sch_pit_lend   ; the far entry api_pit_lend reaches.
+                retf                ; `retf` leaves the flags alone, so the
+                                    ; LEAVE arm's promise survives both returns
+
+sch_pit_lend:
+    cmp al, 1
+    je .enter
+    jb .leave                   ; AL = 0
+    cmp al, 2
+    je .claim
+    ; ---- RELEASE: idempotent, so a refusal path may call it blind ----------
+    push ax
+    pushf
+    cli
+    cmp byte [sch_pitcl], 0
+    je .rel_out                 ; not ours: change nothing
+    in al, 0x61
+    and al, 0xFC                ; gate and speaker data low - spk_pcm_idle's
+    out 0x61, al                ; exact resting state (SPEC.md 34.4)
+    mov al, 0xB6                ; ch2, lo/hi, mode 3, binary: no count follows
+    out 0x43, al
+    mov byte [sch_pitcl], 0
+.rel_out:
+    popf
+    pop ax
+    clc
+    ret
+
+    ; ---- CLAIM: the PIT and the speaker, for a whole OPERATION -------------
+.claim:
+    pushf
+    cli
+    cmp byte [sch_fast], 0      ; a QUANTUM= kernel, or fsx, or speaker PCM has
+    jne .busy_fast              ; re-rated ch0: the divisor would not survive
+    cmp byte [snd_ch2mode], 0   ; the speaker owns ch2 (SPEC.md 34.1)
+    jne .busy_snd
+    cmp byte [sch_pitcl], 0
+    jne .busy_held              ; a second Tape window (SPEC.md 88.5)
+    mov byte [sch_pitcl], 1
+    popf
+    clc
+    ret
+.busy_fast:
+    mov ah, 1
+    jmp short .busy
+.busy_snd:
+    mov ah, 2
+    jmp short .busy
+.busy_held:
+    mov ah, 3
+.busy:
+    popf                        ; nothing changed on any of the three
+    stc
+    ret
+
+    ; ---- ENTER: ch0 -> the BIOS's own mode 3 ------------------------------
+.enter:
+    cmp byte [sch_pitcl], 0
+    je .refuse                  ; the claim is what licenses the write
+    push ax
+    pushf
+    cli
+    mov al, 0x36                ; ch0, lo/hi, MODE 3, binary. The mode byte is
+    out 0x43, al                ; the whole change: 0 goes in as the divisor
+    xor al, al                  ; and 0 comes back, so 8.1's 65536 radix never
+    out 0x40, al                ; moves
+    out 0x40, al
+    mov byte [sch_pitbios], 1   ; ...and sch_account skips its next sample:
+    popf                        ; both ROMs unmask IRQ0 themselves on the way
+    pop ax                      ; out, and that tick would be charged against a
+    clc                         ; counter stepping by 2
+    ret
+.refuse:
+    stc
+    ret
+
+    ; ---- LEAVE: ch0 back to mode 2, and re-seed the stamp ------------------
+    ; PRESERVES AX, BX, DX AND THE FLAGS, so it can be the first thing after
+    ; the int 15h without banking the ROM's answer first (SPEC.md 88.2 step 11).
+.leave:
+    pushf
+    push ax
+    push bx
+    push dx
+    cli
+    mov al, 0x34                ; ch0, lo/hi, mode 2 - this kernel's own
+    out 0x43, al
+    xor al, al
+    out 0x40, al
+    out 0x40, al
+    mov al, 0x00                ; re-seed, exactly as sch_fast_off does - but
+    out 0x43, al                ; INLINE, because this body is `.cold` and
+    in al, 0x40                 ; sch_pit_now is `.text`: a near call across
+    mov bl, al                  ; those two is a different segment and would
+    in al, 0x40                 ; assemble cleanly and run wrong. We are
+    mov bh, al                  ; already inside this routine's own IF=0
+    neg bx                      ; window, which is what 34.1's latch-atomicity
+    mov [sch_pit_last], bx      ; rule asks for
+    mov bx, [ticks]
+    mov [sch_pit_last+2], bx
+    mov byte [sch_pitbios], 0
+    pop dx
+    pop bx
+    pop ax
+    popf                        ; ...and the caller's flags, CF included, are
+    ret                         ; exactly what the ROM left
+
+section .text
 
 ; -----------------------------------------------------------------------------
 ; sched_unhook - restore the BIOS int 08h vector, then unhook mouse + sound
@@ -1159,6 +1299,10 @@ sch_account:
     mov si, bx                  ; hoisting it above the latch cannot change
                                 ; the reading, because nothing before the
                                 ; `out 0x43` affects it
+    cmp byte [sch_pitbios], 0   ; the ROM holds ch0 in mode 3 (SPEC.md 88.5),
+    jne .idle                   ; where the counter steps by TWO - so a sample
+                                ; taken here reads double and would be charged
+                                ; to whoever is running. LEAVE re-seeds
     cmp byte [sch_fast], 0      ; the fsx sub-tick (SPEC.md 53.2.1) divides the
     jne .idle                   ; very period this arithmetic is built on, so
                                 ; accounting PAUSES for the bracket - here
@@ -2574,6 +2718,14 @@ sch_cycles: resw MAX_TASKS * 2          ; per-task CPU time, PIT cycles, dword
                                         ; each (lo word first); readers snap-
                                         ; shot under pushf/cli (SPEC.md 8.1)
 sch_pit_last: resw 2                    ; last timestamp: phase, then ticks
+sch_pitbios: resb 1                     ; 1 = the ROM holds ch0 in mode 3
+                                        ; (SPEC.md 88.5). sch_account skips
+                                        ; while it is set; LEAVE clears it and
+                                        ; re-seeds sch_pit_last
+sch_pitcl:  resb 1                      ; 1 = a tape holds the PIT and the
+                                        ; speaker for a whole operation. What
+                                        ; refuses a SECOND Tape window, and
+                                        ; what spk_tone tests (SPEC.md 88.5)
 sch_fast:   resb 1                      ; fsx sub-tick (SPEC.md 53.2.1): 0 off,
 sch_fcnt:   resb 1                      ; else N, with this counting down
 sch_subs:   resw 1                      ; free-running IRQ0 entries, SUB-TICKS

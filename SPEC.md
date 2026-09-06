@@ -94977,7 +94977,7 @@ touching ch0**, a word no package can reach, or the first full tick after the
 bracket charges a whole bracket's worth of garbage to somebody.
 
 ```
-%define OSAPI_PIT_LEND      KERNEL_SEG:0x0520
+%define OSAPI_PIT_LEND      KERNEL_SEG:0x0518
 OSAPI_PL_LEAVE   equ 0      ; AL - take channel 0 back
 OSAPI_PL_ENTER   equ 1      ;    - hand it to the ROM
 OSAPI_PL_CLAIM   equ 2      ;    - take the PIT and the speaker for an OPERATION
@@ -95019,7 +95019,7 @@ OSAPI_PL_RELEASE equ 3      ;    - give them back
 ;         no-op, which is what makes step 17 of §88.2 legal on every refusal
 ;         path.
 ;
-; While the claim is held, sch_fast_on and spk_tone/spk_pcm_start answer
+; While the claim is held, sch_fast_on and spk_tone/spk_pcm_run answer
 ; CF=1. That is §34.1's one-owner rule working in both directions, and it is
 ; what makes "a tape and a tune cannot share timer 2" a refusal rather than a
 ; hope.
@@ -95051,7 +95051,7 @@ already in the tree: `OSAPI_FILE_DLG` is a package-callable cell whose body
 runs `mod_need` and far-calls the module.
 
 ```
-%define OSAPI_COMPRESS      KERNEL_SEG:0x0518
+%define OSAPI_COMPRESS      KERNEL_SEG:0x0520
 %define OSAPI_LZ_LZ4        0
 %define OSAPI_LZ_LZB        1
 OSAPI_CMP_NOGAIN equ 1
@@ -95687,9 +95687,15 @@ checked against a **committed ROM fixture** rather than against whatever
 `.text` and 1 `.bss`, plus ~150 `.cold` and ~60 bytes of `CLONE.DRV`'s module
 image that are not resident. The `.text` is two `OSAPI_JSLOT` cells at 8 bytes
 each, their two 6-byte `call COLD_SEG:… / retf` stubs, and three six-byte
-guards — in `sch_fast_on`, in `sch_account` and on `spk_tone`/`spk_pcm_start`.
+guards — in `sch_fast_on`, in `sch_account` and on `spk_tone`/`spk_pcm_run`.
 The `.bss` byte is `[sch_pitbios]`. The API table assertion moves from
-`161 * 8` to `163 * 8` and `osapi_table_end` from 0x0518 to 0x0528. Per
+`161 * 8` to `163 * 8` and `osapi_table_end` from 0x0518 to 0x0528.
+**`OSAPI_PIT_LEND` takes 0x0518 and `OSAPI_COMPRESS` 0x0520**, in that order,
+because the table's cells are contiguous 8-byte slots and the two land in
+different waves: the lend ships first (it is what makes a read possible at
+all), so it takes the first free cell and the encoder takes the next. A wave
+that had to leave a hole for a cell not yet written would be publishing an
+address that answers nothing. Per
 CLAUDE.md that is **not** a claim the change is free: no rung is crossed, and
 the slack spent belongs to whoever comes next.
 

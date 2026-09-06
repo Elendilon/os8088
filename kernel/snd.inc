@@ -108,6 +108,11 @@ spk_tone:
     push ax
     push bx
     push dx
+    cmp byte [sch_pitcl], 0     ; a tape holds the PIT and the speaker for the
+    jne .bad                    ; length of its operation (SPEC.md 88.5): a
+                                ; tape and a tune cannot share timer 2, and
+                                ; 34.1's one-owner rule makes that a refusal
+                                ; rather than a hope
     or dl, dl                   ; the speaker has exactly one voice
     jnz .bad
     or ax, ax
@@ -199,6 +204,11 @@ spk_tone:
 ; only writer) is checked in the same window. No code in mou_isr.
 ; -----------------------------------------------------------------------------
 spk_pcm_run:
+    cmp byte [sch_pitcl], 0     ; ...and the same refusal for a clip: a tape
+    je .free                    ; owns ch2 and port 61h until it releases them
+    stc                         ; (SPEC.md 88.5). Before any push, so the
+    ret                         ; refusal costs nothing and unwinds nothing
+.free:
     push bx
     push cx
     push dx
