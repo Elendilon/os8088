@@ -629,6 +629,91 @@ cannot share the TREE, an `alone` row cannot share the CORES*) arriving from
 the other direction, and it is worth expecting more of as the remaining rows
 convert.
 
+### 8.9 A MARKER IS NOT A PRODUCT — the sweep that rebuilt every tree
+
+`_sweep_truncated` (8.4's sibling: an interrupted `make` leaves an output file
+created and empty, and an empty file is NEWER than everything it was built
+from, so make reports the tree up to date and the next consumer fails
+somewhere else entirely) deleted **every zero-length file** at the top of a
+tree, on the rule that *"a zero-length product is never legitimate here —
+every rule in the Makefile writes bytes."*
+
+That sentence is true of products and false of **markers**, and the Makefile
+has nineteen of them. Every knob stamp is created with a bare `touch` and is
+therefore exactly zero bytes — `$(VIDSTAMP)` above all, whose whole job is to
+answer *"was this directory built with these knobs?"*. So every `tree()` call
+swept the stamp, and the `make` that followed read its absence as **the knob
+set has changed** and did what 8.4 describes: deleted `kernel.bin`,
+`kernel-full.bin`, `kernel.sys`, both boot sectors and six drivers, then built
+the lot again.
+
+**Two costs, and the second is the one that took rows down.**
+
+The first is that the reuse this section advertises — *"a second call with the
+same knobs re-runs make over an up-to-date tree and returns in under a
+second"* — **never happened once**. Measured on `diskcnt-62f860de`, a warm
+`tree()`:
+
+| | a second `tree()` over an up-to-date tree |
+|---|---|
+| sweeping the marker | **19.9 s** — a whole kernel, again |
+| sparing it | **0.4 s**, and not one file in the tree written |
+
+The second is a **race**, and it is why this is in §8 rather than in a
+changelog. The lock serialises two `make`s and **cannot** serialise a `make`
+against the first row's *reader*: row A builds, releases, boots, and starts
+resolving symbols against `<tree>/kernel.bin` while row B — which was blocked
+on the lock — deletes and rewrites that very file. Four pairs share a tree:
+
+| tree | rows |
+|---|---|
+| `diskcnt` | `mseglazy`, `msegnomem` |
+| `noplane` | `blitplane`, `paintpack` |
+| `small` | `small128`, `smallboot` |
+| `fatwnone` / `vgadirty` | `fatwpin`, `vgadirty`, `t_registry` |
+
+That is **msegnomem's soak failure twice and paintpack's once**, every one of
+them passing when run alone — and os88sym's *"the file was written 1.8 s
+ago"* (12) is what named it, having been written for exactly this and never
+yet believed. Reproduced deliberately: the two `diskcnt` rows run cold and
+concurrent failed **2 times in 2**, and pass **cold and concurrent** with the
+marker spared. All eight rows above were then re-run the same way and pass.
+
+The fix is one condition — the test is what the file **is**, not how big it
+is — and the Makefile spells a marker two ways, both of which are now spared:
+`$(BUILD)/.<name>` for the sixteen knob stamps and `$(BUILD)/<name>.stamp` for
+the three fetch stamps. `tests/unit/t_treesweep.py` is the ratchet and it
+reads the **Makefile**, not a list of its own: every `touch`ed target is
+scraped out and asserted spared, so a marker named a third way fails in a
+twentieth of a second rather than in a soak row three hours in. Reverted on
+purpose, it goes red on all nineteen.
+
+### 8.10 `os88map` followed the RUN's tree, never the row's own
+
+The same run turned up a second cross-tree read, and it is 8.4's shape one
+variable along. `tools/os88map.py` resolves `build/mseg.bin` through
+`os88build.at()`, which follows **`$OS88_TREE`** — deliberately, because
+`$OS88_BUILD` names sub-directories (`build/smallk`) that hold a kernel and no
+packages at all. Correct for a frozen run, and blind to a row that has just
+built the package into a **private** tree: `mseglazy` booted its own tree's
+`MSEG.O88` and resolved its symbols against the shared `build/mseg.bin`, a day
+stale and genuinely different, then reported *"this map describes a DIFFERENT
+build"* about a file it had made correctly one directory along.
+
+So there is a third claim, and it needed a home of its own:
+
+| | what it answers | who owns it |
+|---|---|---|
+| `$OS88_TREE` | where the RUN's artefacts live | the runner (14.2) |
+| `$OS88_BUILD` | which KERNEL a symbol map describes | the row, per kernel |
+| `os88build._LOCAL` | where **this process's** artefacts live | `Tree.apply()` |
+
+It is a module global and **not** an environment variable, which is the whole
+point: `$OS88_TREE` reaches every sub-make a row spawns — the bug behind
+`at()`'s `build/trees/` guard — and a process-local answer reaches none of
+them. `plain().apply()` restores it for free, because `plain()`'s own
+directory *is* `at("build")`.
+
 ---
 
 ## 9. THE PRE-MERGE GATE — 402 s to 227 s, and no flag to remember

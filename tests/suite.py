@@ -368,6 +368,20 @@ FAST = [
         "emulator; this row is the same proof for the DATA half in a fifth of "
         "a second, on every make",
         needs=()),
+    Row("treesweep", "fast", py("tests/unit/t_treesweep.py"), 0.1,
+        "a MARKER is not a product, so tools/os88build.py's zero-length sweep "
+        "must never eat one. It ate all nineteen: every stamp the Makefile "
+        "creates with a bare `touch` is exactly zero bytes, so each tree() "
+        "call swept $(VIDSTAMP) and the next make - reading a missing stamp "
+        "as a CHANGED KNOB SET - deleted the kernel, both boot sectors and "
+        "six drivers and built them again. Two costs: the reuse os88build "
+        "advertises never happened (19.9s against 0.4s), and two rows sharing "
+        "a tree rebuilt it under each other's reader, which is msegnomem's "
+        "soak failure twice and paintpack's once. The ratchet is the MAKEFILE "
+        "- every `touch`ed target is read out of it - so a marker named a "
+        "third way fails here in a twentieth of a second rather than in a "
+        "soak row three hours in",
+        needs=()),
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
         "that stops this suite going back to a directory nobody can enumerate"),
