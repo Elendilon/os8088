@@ -9581,7 +9581,8 @@ mou_ident  01 00       COM1 answered like a mouse, COM2 did not
 mou_idany  01
 mou_need   01 08       COM1 dropped to 1; COM2 still owes its eight
 mou_seen   00          nothing has been claimed - the contest is untouched
-mou_hpst   00  hpt 0000  the recovery cycle NEVER FIRED
+mou_hpst   00            the recovery cycle NEVER FIRED (hpt is the
+                         desktop tick from 9.4.8 on, not a 0/nonzero flag)
 mouse_x/y  0168 00AE   = 360,174 = 720x348 / 2: still homed (39.6), unmoved
 ```
 
@@ -9602,7 +9603,7 @@ ident bytes COM1 1                   exactly one byte...
 first byte COM1  004D                ...and it was 'M'
 identified COM1  1
 packets needed   1 / 1               the one-port default, untouched
-poller stamp     0                   the cycle NEVER dropped DTR
+poller state     0                   the cycle NEVER dropped DTR
 mouse found      1   run reached 1   settled on the operator's first move
 ```
 
@@ -9613,7 +9614,7 @@ actually sends, which is the direction to be wrong in.
 
 The two machines confirm **different halves**, which is the useful part: the
 5150 is single-port, so `[mou_need]` was already 1 and the whole visible win
-there is the **stand-down** — `poller stamp 0` where the old code would have
+there is the **stand-down** — `poller state 0` where the old code would have
 dropped DTR on the first UI pass. MartyPC is two-port, so the win there is
 the **threshold drop**. A real two-port machine (the Compaq Portable III,
 §9.5.2's) is the witness neither covers and is still owed.
@@ -9701,9 +9702,11 @@ Three things hold it up:
 - **What survives the operator matters more than what does not.** By the time
   anyone launches a test package the mouse has been used, so `mou_seen`,
   `mou_port` and `mou_hpst` are long settled and say nothing about the boot.
-  The identify members do not move after `mouse_init`, and **`mou_hpt` is
-  never written unless the poller actually dropped DTR** — so `hpt = 0` is
-  the assertion that carries, and it survives ten minutes of driving.
+  The identify members do not move after `mouse_init`, and **`mou_hpst` never
+  leaves state 0 unless the poller actually dropped DTR** — so `hpst = 0` is
+  the assertion that carries (1 or 3 says it fired; 2 says it stood down after
+  firing), and it survives ten minutes of driving. `mou_hpt` is a plain tick
+  from §9.4.8 on: kmain's desktop frame, then each drop and each raise.
 
 `tests/sysbench` is the reference reader (docs/TESTING.md), and its block is
 a **state dump rather than a measurement** — so it emits no `bl_head`, whose
@@ -10020,30 +10023,40 @@ Two costs of the recovery mechanism land on the first seconds of the desktop
 cycle-exact on a 5150 (docs/plans/MOUSE-BOOT-FREEZE-PLAN.md, which prices the
 three mechanisms that can hold the arrow after the desktop appears).
 
-**The poll interval is timed from the first desktop frame.** Its base is a new
-`.bss` word `[mou_hpbase]`, and `[ticks]` starts at `sched_init`, so the first
-drop used to fire the instant `[ticks]` reached `MOU_REPOLL` = 55. On a boot
-long enough to pass tick 55 before the desktop — a hard-disk boot, or any
-driver `SYSTEM.CFG` asks for — that is the **first UI pass**, dropping DTR
-under the user's hand exactly as they reach for the mouse. `kmain` now writes
-`[ticks]` into `[mou_hpbase]` right after `cursor_show`, and each raise re-bases
-it, so state 0 counts the interval from when the pointer first exists. A user
+**The poll interval is timed from the first desktop frame.** Its base is
+`[mou_hpt]`, and `[ticks]` starts at `sched_init`, so the first drop used to
+fire the instant `[ticks]` reached `MOU_REPOLL` = 55. On a boot long enough to
+pass tick 55 before the desktop — a hard-disk boot, or any driver `SYSTEM.CFG`
+asks for — that is the **first UI pass**, dropping DTR under the user's hand
+exactly as they reach for the mouse. `kmain` now writes `[ticks]` into
+`[mou_hpt]` right after `cursor_show`, and each raise re-bases it, so the
+waiting state counts the interval from when the pointer first exists. A user
 who moves within `MOU_REPOLL` ticks (~3s) settles the port and the poller never
 drops at all; a machine with no mouse loses only one ~3s delay of its first
-offer, and thereafter polls exactly as before. Six bytes of `.text` plus the
-base word.
+offer, and thereafter polls exactly as before.
 
-It is deliberately **`[mou_hpbase]` and not `[mou_hpt]`**: `[mou_hpt]` stays 0
-until a real drop, because that is the whole of `sysbench`'s "poller stamp
-(0=nvr)" field (§9.4.2) — nonzero there says the poller power-cycled the mouse,
-and basing the interval in it would make every machine read as though it had.
-So the two are split: `[mou_hpbase]` bases the interval (desktop, then each
-raise), `[mou_hpt]` carries the drop tick for the diagnostic and for state 1's
-low-hold.
+**One stamp, not three.** `[mou_hpt]` is the single word the whole mechanism
+measures from — kmain's desktop tick, then each drop (which state 1's low-hold
+counts from) and each raise (which bases the next interval *and* is the drain
+ceiling's reference below). It does not need a second word to keep the field
+reading intact, because **`[mou_hpst]` already carries it**: the raise leaves
+state **3**, "waiting like 0 and has dropped at least once", so `hpst >= 1` is
+*"the poller power-cycled this mouse"* in one peek of a byte §9.4.2 already
+publishes — strictly better than the two-reading comparison a stamp needs, and
+free. Both wait states dispatch on `cmp byte [mou_hpst], 1`, so 3 falls through
+to the state-0 arm with no new instruction, and §9.4.5's `.have` stand-down
+still tests only for 2.
 
 **The drain ends when the burst goes quiet, not on a fixed clock.** The raise
-arms `[mou_drain]` and stamps `[mou_draise]` (the raise tick) and `[mou_dstamp]`
-(the last-byte tick, initialised to the raise). The ISR drops each received
+arms `[mou_drain]` and stamps `[mou_hpt]` (the raise tick) and `[mou_dstamp]`
+(the last-byte tick, initialised to the raise). `[mou_hpt]` is the ceiling's
+reference and is **not** rewritten for `MOU_REPOLL` = 55 ticks, six times the
+ceiling; the *next* drop does rewrite it while a window that has seen no byte
+at all is still nominally armed, and that is harmless by arithmetic rather
+than by luck — a window survives 55 ticks of silence only if the last drained
+byte was inside `MOU_DRAINT` = 9 of the raise, so the **quiet** test below
+(≥46 ticks against `MOU_DRAINQ` = 3) closes it on the very next byte whatever
+the ceiling says. The ISR drops each received
 byte, re-stamping `[mou_dstamp]`, and closes the window when it has been quiet
 for `MOU_DRAINQ` ticks (~165ms) **or** `MOU_DRAINT` ticks (~0.5s) have passed
 since the raise — the same floor/quiet/ceiling shape as §9.4.5's identify
@@ -10067,7 +10080,7 @@ ticks); quiet-ended, the first motion after the burst is read at once.
 **Neither half is testable against the case it exists for on any emulator
 here.** MartyPC's and 86Box's serial mice send one byte (`'M'`) and keep
 reporting with DTR held low, so the drain window can be *armed by hand* — set
-`[mou_drain]`, `[mou_dstamp]` and `[mou_draise]` and inject packets — but a
+`[mou_drain]`, `[mou_dstamp]` and `[mou_hpt]` and inject packets — but a
 real PnP burst, and a mouse that actually powers down on a DTR drop, are the
 Compaq Portable III's and the 5150's to confirm (docs/FIELD-MACHINES.md).
 `tests/sysbench`'s `'MO'` block (§9.4.2) reads `mou_hpst`, `mou_idn`,
@@ -44254,15 +44267,16 @@ no SB16 for an 8-bit ISA XT. It borrows the wide regime's 4 KB double buffer
 and `SBL_WD_WIDE` watchdog. Its one hardware quirk drives the last column: once
 `90h` runs the DSP accepts **no command** until a reset, so `sbl_halt` masks
 8237 channel 1 instead of writing `D0h`, `sbl_go_on` unmasks, and
-`sbl_stop_stream` masks in the `cli` window then runs `sbl_dsp_reset` after
-`popf` (the stream already dead) to leave high-speed mode for the next open.
+`sbl_stop_stream` masks in the `cli` window then runs `sbl_f_reset` — the
+probe's own DSP reset, the driver's only one — after `popf` (the stream
+already dead) to leave high-speed mode for the next open.
 A TC byte can only say 1,000,000 / n, so the high-speed regime **rounds** the
 division where the legacy path truncates: 44,100 lands on TC 233 (43,478 Hz,
 −1.4%) rather than 234 (45,454 Hz, +3.1%, half a semitone sharp), 24,000 on
 23,810 Hz. The SB16's `41h` takes the rate in Hz and has no such error.
-`sbl_dsp_reset` answers CF = 1 on a timeout and `sbl_stop_stream` retries it
-once — nothing else ever resets the DSP, and one left in `90h` swallows every
-later open's commands.
+`sbl_f_reset` answers CF = 1 on a timeout and `sbl_stop_stream` retries it
+once — the probe, the close and `sbl_unhook` share that one routine, and a DSP
+left in `90h` swallows every later open's commands.
 Everything below DSP 3.00, and every rate ≤ 22,222, behaves exactly as before:
 those paths gained only a test of `sbl_hisp` (in `sbl_hw_start`, `sbl_halt`,
 `sbl_go_on`, `sbl_stop_stream` and the TC division), never a different byte
@@ -49513,7 +49527,7 @@ chain, `wm_fit`, the chrome, `desk_rowcalc` and the cursor all follow from
 | `vga_vline_core`, `vga_xor_hline` | clip y to `SCREEN_H` (a VGA-only constant) | now clip to `[vid_ch]` — a no-op edit on VGA, byte-checked (§39.9) |
 | Colour theme (§76.12) | eligible | eligible — the theme is six palette *indices*, no DAC or AC programming; `thm_set` / `cp_thm_colgrey` accept `VID_EGA` beside `VID_VGA`, the two four-plane kinds (§76.12.1) |
 | `OSAPI_WM_PREFER` kind index | `vid_kind` = 0 | clamped to 0 — an EGA takes VGA's preference row (§39.8) |
-| the idle **blank** (§64) | SR01 bit 5, Screen Off | **the PALETTE** — `vid_ac_pal`, all sixteen AC registers to black and mode 10h's own sixteen back. An EGA has neither enable bit: SR01 bit 5 and the AC index's bit 5 (Palette Address Source) are both VGA additions, so writing either on an EGA lands in a reserved field and blanks nothing |
+| the idle **blank** (§64) | the same as the EGA's — `vid_ac_pal` | **the Attribute Controller's Color Plane Enable**, AC register 12h — `vid_ac_pal`, 0 to dark and 0x0F to light. An EGA has neither enable bit: SR01 bit 5 (Screen Off) and the AC index's bit 5 (Palette Address Source) are both VGA additions, so writing either on an EGA lands in a reserved field and blanks nothing. AC 12h is on both cards, so it is the ONE planar arm and the VGA's SR01 blank is gone with it |
 | `vid_dual_ok` | `[vid_avail]` alone | **also `[vid_kind]`** — and that is what makes the predicate non-invariant, below |
 
 `vid_probe_avail` treats `VID_EGA` like `VID_VGA`: available by definition,
@@ -74639,19 +74653,26 @@ CGA branch, which writes 3D8h — a register a VGA does not implement, so the
 `out` was swallowed by the bus and did nothing. §39.11.4 records the hole as
 accepted, which it was for a card pairing nobody built and is not for a
 blanker: silently declining to blank on one adapter in three is precisely the
-failure this project keeps paying for. The VGA now uses Sequencer register 1
-(Clocking Mode) bit 5, **Screen Off**.
+failure this project keeps paying for. **Both planar kinds now use the
+Attribute Controller's Color Plane Enable, AC register 12h** (`vid_ac_pal`):
+with all four planes disabled every pixel reads as attribute 0, which maps
+through palette register 0 to black; 0x0F puts them back and is what the BIOS
+mode set leaves for mode 10h and mode 12h alike. That register is on the IBM
+EGA as well as on every VGA, which is what makes it ONE arm rather than two
+— the VGA's earlier Sequencer register 1 bit 5 (**Screen Off**) arm is gone,
+and §39.24's EGA arm never needed a second mechanism. The one behavioural
+difference is the **overscan**: SR01 bit 5 gated the signal outright and
+darked the border with it, where AC 12h leaves AC 11h alone — which is 0 in
+both modes, so the border is already black.
 
-That one access is a **read-modify-write and so runs with IF=0**. SR01's other
-bits are the dot clock and the character width; they belong to whatever mode
-the card is in and cannot be guessed, so the register must be read — an index
-write, a read and a data write, with two gaps in it. Every other sequencer
-access in the kernel is a single `out dx, ax`, atomic by construction; this
-one cannot be, and the gap is reachable, because `vga12.inc`'s plane loops
-leave the sequencer index at 2 (Map Mask) for the whole of a plane's
-`rep movsb` and any drawing task can be pre-empted mid-row. A switch landing
-in that gap would read the Map Mask and write the screen-off bit into it.
-`pushf`/`cli` … `popf`, never `cli`/`sti` (§1).
+Those two port writes are **a latched pair and so run with IF=0**. 3C0h is one
+port for both the index and the data and which one a write lands in is a
+flip-flop, not a state re-selected by each access the way the Sequencer's index
+is, so a task switch landing between the index write and the data write puts
+the next writer's index where a data byte belongs. The routine resets the
+flip-flop through 3DAh on the way in and leaves it in the INDEX phase on the
+way out, because the phase outlives the call and `fsx.inc` hands a package the
+raw hardware. `pushf`/`cli` … `popf`, never `cli`/`sti` (§1).
 
 **Every card, not just `[vid_kind]`'s.** On a two-monitor machine (§39.11) —
 the machine this project is calibrated against — the desktop spans both and

@@ -1978,10 +1978,14 @@ $(FONTINC): $(FONTSRC) tools/os88font.py | $(BUILD)
 # (SPEC.md 2.8.2), so shipping the wrong one is refused rather than executed;
 # this is what stops it happening in the first place.
 KMODDIR = $(BUILD)
-KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv \
-        $(KMODDIR)/hiber.drv
+KMODS = $(KMODDIR)/ctrl.drv $(KMODDIR)/format.drv $(KMODDIR)/clone.drv
+# ...and kern_big's FOURTH, hibernate (SPEC.md 87, MOD_HIBER). It is NOT in
+# $(KMODS) because $(SMALLDRIVERS) is $(KMODS) and kern_small has no hibernate
+# at all now - no mod_tab row, no name and no module - so a small floppy that
+# named HIBER.DRV would be asking for a file that build does not cut.
+BIGMODS = $(KMODDIR)/hiber.drv
 KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
-           -m 2=$(BUILD)/clone.drv -m 3=$(BUILD)/hiber.drv
+           -m 2=$(BUILD)/clone.drv
 # ...and kern_small's FIFTH and SIXTH, Cut/Copy/Paste (SPEC.md 22.3, MOD_FCP)
 # and the Standard File dialog (SPEC.md 38.0, MOD_FDLG): that build carries
 # the bodies in FILECP.DRV and FDLG.DRV where kern_big keeps them resident
@@ -1995,8 +1999,10 @@ KMODARGS = -m 0=$(BUILD)/ctrl.drv -m 1=$(BUILD)/format.drv \
 # KMODARGS is expanded by the make that ASSEMBLES the kernel, so the guard is
 # right here: only a KERN_SMALL=1 build has a fifth module to split out.
 ifneq ($(KERN_SMALL),)
-KMODARGS += -m 4=$(BUILD)/filecp.drv
-KMODARGS += -m 5=$(BUILD)/fdlg.drv
+KMODARGS += -m 3=$(BUILD)/filecp.drv
+KMODARGS += -m 4=$(BUILD)/fdlg.drv
+else
+KMODARGS += -m 3=$(BUILD)/hiber.drv
 endif
 # ...AND THE MODULES ARE 'CZ' FILES ON THE DISK (SPEC.md 2.8, 20.13.5), by
 # the route a driver took: mod_need sizes its claim from the directory hint
@@ -2182,7 +2188,7 @@ endif
 # a second recipe would run os88mod.py a second time, and GNU make would run
 # it once PER TARGET for a multi-target rule, which is the classic way to get
 # a file written twice and a race with -j.
-$(KMODS): $(BUILD)/kernel.bin ;
+$(KMODS) $(BIGMODS): $(BUILD)/kernel.bin ;
 
 # The boot sector needs to know how many sectors to read, so we measure the
 # kernel at build time and assemble the count in. Reading exactly what exists
@@ -2625,7 +2631,7 @@ DRIVERS += $(BUILD)/saver.drv
 # LAST, because $(KMODS) is the only entry that reads $(KMODDIR), which the
 # non-default image rules override per target - which is also why DRIVERS is a
 # recursive `=` and not a `:=`.
-DRIVERS += $(KMODS)
+DRIVERS += $(KMODS) $(BIGMODS)
 
 # --- ...and what the EMULATOR disks carry on top (SPEC.md 9.11.7) -------------
 # $(DRIVERS) PLUS the absolute pointer, and that direction is the point: this
@@ -7595,7 +7601,7 @@ field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img
 # where no rule can make them. They are not skipped: the sub-make on the next
 # line of each rule builds <dir>/kernel.bin, whose own recipe cuts <dir>'s
 # ctrl.drv, format.drv and clone.drv out of it (SPEC.md 2.8).
-FIELDDRV = @$(MAKE) $(FIELDKNOBS) $(filter-out $(KMODS),$(DRIVERS))
+FIELDDRV = @$(MAKE) $(FIELDKNOBS) $(filter-out $(KMODS) $(BIGMODS),$(DRIVERS))
 
 # its kernel is $(HERCDIR)'s, so its modules are too
 $(BUILD)/herc.img: KMODDIR := $(HERCDIR)

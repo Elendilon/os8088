@@ -2161,14 +2161,11 @@ ui_loc_gate:
                                 ; builtins having moved to Builtins (12.3.1)
 %ifdef KERN_BIG
     call COLD_SEG:hb_ok_x       ; ...and Hibernate greys with its reason
-    mov bx, menu_s_hiber        ; (SPEC.md 87.2): no fixed disk, or extended
-    jnc .hset                   ; memory held that the image would not carry.
-    mov bx, menu_s_hibernh      ; BX for the string, because AL IS the reason
-    cmp al, 1                   ; and a `mov ax` here read '(XMS)' on a
-    je .hset                    ; floppy-only machine
-    mov bx, menu_s_hiberxm
-.hset:
-    mov [menu_items_logo + 8], bx   ; item 4 of the System menu
+                                ; (SPEC.md 87.2): no fixed disk, or extended
+                                ; memory held that the image would not carry.
+                                ; The CHOICE is hb_ok_x's own tail now - it is
+                                ; the only reader its answer ever had, and the
+                                ; three movs are .cold bytes there
 %endif
     pop bx
     pop ax

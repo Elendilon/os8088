@@ -291,7 +291,8 @@ DSV_PKGCALL  equ 34             ; dw: near proc reached by OSAPI_DRV_CALL -
                                 ; no lock and raises no sch_lock, so a verb of
                                 ; yours is callable from a package's worker
                                 ; only if what it does is. Say so per verb.
-DSV_GEOM     equ 36             ; dw: near proc, DRVC_DISK only (SPEC.md 51.8,
+DSV_GEOM     equ DSV_BLK        ; == DSV_BLK: SUB-FUNCTION 2 of it (AL = 2),
+                                ; and not a cell of its own. DRVC_DISK (SPEC.md 51.8,
                                 ; 87.5): the TRANSPORT FACTS of one volume,
                                 ; for a caller that has to reach its sectors
                                 ; without you - the resume stub, which runs
@@ -303,7 +304,7 @@ DSV_GEOM     equ 36             ; dw: near proc, DRVC_DISK only (SPEC.md 51.8,
                                 ;       CF = 1: no such volume, or one the
                                 ;       ROM's int 13h does not reach (52.1's
                                 ;       rung 1). 0 = never, which is CF = 1
-DSV_SIZE     equ 38
+DSV_SIZE     equ 36
 
 ; --- DSV_FS: the file redirector's verbs (SPEC.md 62.9) ----------------------
 ; A DRVC_FILE volume has NO SECTORS - no BPB, no FAT, no directory to walk -

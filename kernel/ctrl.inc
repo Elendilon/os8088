@@ -5942,8 +5942,14 @@ cp_open_x:
     stc                         ; a CF=1 from app_launch before cp_open owned
     ret                         ; the decision
 .no:
-    push bx                     ; ...but THIS one is about the disk, and a
-    push cx                     ; beep cannot say which disk
+%ifdef KERN_BIG
+    call hbf_nodisk             ; ...but THIS one is about the disk, and a
+    pop ax                      ; beep cannot say which disk - and it is the
+    stc                         ; SAME sentence Hibernate's refusal says, out
+    ret                         ; of one table AND one body (hiber.inc).
+%else                           ; kern_small has no hiber.inc arm, so there it
+    push bx                     ; keeps the copy below - where it is the only
+    push cx                     ; one there is
     mov al, 1
     mov bx, cp_opentab
     mov cx, CP_NOPEN
@@ -5953,5 +5959,6 @@ cp_open_x:
     pop ax
     stc
     ret
+%endif
 
 section .text

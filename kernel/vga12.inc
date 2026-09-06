@@ -69,12 +69,27 @@ gfx_mono1       dw 0            ; THE WINDOW BEING DRAWN HAS DECLARED ITS
 ; answers the one question a single plane CAN be asked: which way up the bits
 ; are. It is 0 for every other caller and dies with the pen, so the paragraph
 ; above is untouched for a package.
+%ifdef KERN_BIG                 ; kern_small's gfx_blit1 is stc/ret (SPEC.md
+                                ; 5.4.2.5) and gfx_blit1_x is the only reader
+                                ; of any of these, so that build carries the
+                                ; SLOT and neither the body nor its state
 gfx_b1ink       db CWHITE
 gfx_b1pap       db CBLACK
+%if gfx_b1pap - gfx_b1ink != 1
+  %error "gfx_b1ink/gfx_b1pap must stay adjacent: gfx_blit1_x's .pvga reads the pair in one word load, and band_emit_x writes it in one word store"
+%endif
+%ifdef BANDCOMP
 gfx_b1adp       db 0            ; 0 = the band is in SCREEN polarity, 1 = a set
                                 ;     bit is the pen's ink, 2 = a set bit is its
                                 ;     paper and the emit may turn the band over
-                                ;     to suit the display (SPEC.md 5.9.3.1)
+                                ;     to suit the display (SPEC.md 5.9.3.1).
+                                ;     band_pen_x is the ONLY writer of a
+                                ;     non-zero value in the tree, so a kernel
+                                ;     built without the composer carries
+                                ;     neither this byte nor the arms of .pen
+                                ;     that read it
+%endif
+%endif
 
 ; --- THEME (SPEC.md 76) -----------------------------------------------------
 ; [thm_kind] is the SETTING; the eight bytes below are what it MEANS, copied
@@ -5200,10 +5215,12 @@ thm_set:
 %ifdef KERN_BIG
     cmp al, THM_COLOR           ; COLOUR IS A FACT ABOUT THE ADAPTER, and it is
     jne .ok                     ; refused HERE rather than at the two callers
-    cmp byte [vid_kind], VID_VGA; (SPEC.md 76.12.1). The test is the DEPTH of
-    je .ok                      ; the PRIMARY: VID_VGA and VID_EGA are the two
-    cmp byte [vid_kind], VID_EGA; 4-plane kinds, HERC and CGA are 1bpp. It was
-    je .ok                      ; `cmp [vid_kind], VID_VGA` while VGA was the
+    mov ah, [vid_kind]          ; (SPEC.md 76.12.1). The test is the DEPTH of
+    dec ah                      ; the PRIMARY: VID_VGA and VID_EGA are the two
+    cmp ah, 2                   ; 4-plane kinds, HERC and CGA are 1bpp - and
+    jae .ok                     ; `dec` maps VGA -> FF, HERC -> 0, CGA -> 1,
+                                ; EGA -> 2, so ONE unsigned compare answers
+                                ; both. AH is dead in this routine. It was
     xor al, al                  ; only colour adapter - a proxy VID_EGA broke -
 .ok:                            ; and it is NOT [vid_mono]: on a two-card
 %endif                          ; desktop that byte names the display LAST
@@ -5262,11 +5279,14 @@ thm_set:
 ; which is the same lifetime gfx_pen_cf publishes for [gfx_dis].
 ; -----------------------------------------------------------------------------
 gfx_blit1_pen:
-    mov [gfx_b1ink], al
-    mov [gfx_b1pap], ah
+%ifdef KERN_BIG                 ; the SLOT is in both API tables and the state
+    mov [gfx_b1ink], al         ; is kern_big's alone (SPEC.md 5.4.2.5): on the
+    mov [gfx_b1pap], ah         ; small build the blit itself answers stc, so a
+%ifdef BANDCOMP                 ; remembered pen would have nothing to colour
     mov byte [gfx_b1adp], 0     ; ...and a PACKAGE's band is in screen polarity
-    ret                         ; by SPEC.md 5.4.2.2: only band.inc's composer
-                                ; sets that flag, and only for its own emit
+%endif                          ; by SPEC.md 5.4.2.2: only band.inc's composer
+%endif                          ; sets that flag, and only for its own emit
+    ret
 
 gfx_pen_cf:
     jc gfx_pen_dis
@@ -5399,11 +5419,15 @@ gfx_lock:
 gfx_unlock:
     CURLOG 'U'
     mov word [wm_clip_n], 0
+%ifdef KERN_BIG
     mov byte [gfx_b1ink], CWHITE ; ...and so does gfx_blit1's (SPEC.md 5.4.2.2),
     mov byte [gfx_b1pap], CBLACK ; for the same reason one line down - the
+%ifdef BANDCOMP
     mov byte [gfx_b1adp], 0      ; composer's polarity declaration with it
+%endif
                                  ; (SPEC.md 5.9.3.1): it is part of the pen and
                                  ; has exactly the pen's lifetime
+%endif
     mov byte [gfx_mono1], 0     ; ...and so does whose content this was
                                 ; (SPEC.md 11.96.17.1)
     mov byte [gfx_dis], 0       ; the disabled pen dies with the lock, for the
@@ -5865,6 +5889,8 @@ vgas_nb          resw 1          ;   bytes per row
 ; --- gfx_blit1's PEN, resolved once a band (SPEC.md 5.4.2.2) ----------------
 ; KERNEL_SEG's .bss, not COLD_SEG's: gfx_blit1_x reads all four while DS is
 ; still ours, above the point the emit spends it on the caller's band.
+%ifdef KERN_BIG                 ; gfx_blit1_x is the only reader, and it is
+                                ; kern_big's (SPEC.md 5.4.2.5)
 gfx_b1act        resb 1          ; 1 = the pen is not the default, so the two
                                  ;     GC writes below are owed - and owed
                                  ;     back, which is why this is a flag and
@@ -5875,6 +5901,7 @@ gfx_b1g0         resw 1          ; the GC0 write: Set/Reset = the constant
 gfx_b1g1         resw 1          ; planes' colour, and GC1 = which they are
 %if gfx_b1inv - gfx_b1act != 1
   %error "gfx_b1act/gfx_b1inv must stay adjacent: gfx_blit1_x clears both in one word store"
+%endif
 %endif
 vgas_sdy         resw 1          ;   signed dy (positive = content up)
 vgas_ydst        resw 1          ;   first destination row
@@ -5924,7 +5951,7 @@ section .cold                   ; gfx_blit1's body, and its far entry below it
 ; SPEC.md 5.4.2.1 is the account.
 ; =============================================================================
 gfx_blit1_x:
-    test ax, 7                  ; the ONE argument refusal: an x off the byte
+    test al, 7                  ; the ONE argument refusal: an x off the byte
     jnz .refuse                 ; grid is a caller error, not a shape to clip.
                                 ; A WIDTH off it is honoured since SPEC.md
                                 ; 5.4.2.5: the last partial byte column is
@@ -5933,8 +5960,10 @@ gfx_blit1_x:
     jz .refuse
     or dx, dx
     jz .refuse
-    cmp dx, 255                 ; ...and a band taller than wm_clip_rows' own
-    ja .refuse                  ; byte answer can express (SPEC.md 11.3.2)
+    or dh, dh                   ; ...and a band taller than wm_clip_rows' own
+    jnz .refuse                 ; byte answer can express (SPEC.md 11.3.2):
+                                ; "> 255" IS "the high byte is not zero", and
+                                ; the test one line up has already excluded 0
 
     mov word [gfx_b1act], 0     ; SPEC.md 5.4.2.2's two flags, and BOTH in one
                                 ; store - they are adjacent by assertion below,
@@ -6008,15 +6037,13 @@ gfx_blit1_x:
     or ax, ax                   ; coordinate space, which is why this may be
     jz .r0z                     ; applied before the translation below
     add bx, ax
-    push dx
     mul bp                      ; ...and the band skips r0 whole strides
-    add si, ax
-    pop dx
+    add si, ax                  ; DX is NOT banked around the multiply: .r0z
+                                ; overwrites both halves of it one line down
 .r0z:
-    mov al, [wm_clip_rn]
-    xor ah, ah
-    mov dx, ax                  ; DX = the rows one fragment can offer
     pop ax
+    mov dl, [wm_clip_rn]        ; DX = the rows one fragment can offer, built
+    xor dh, dh                  ; where it is wanted rather than through AX
 .rowsall:
 
     cmp byte [vid_ndisp], 1
@@ -6089,10 +6116,11 @@ gfx_blit1_x:
     and cx, 7                   ; CX = the pixels past the last whole byte
     jz .notail                  ; (SPEC.md 5.4.2.5); CH is 0 = no tail mask
     dec bp                      ; ...one more byte the row reads, by hand
-    neg cl
-    add cl, 8                   ; 8 - tail
-    mov ch, 0FFh
-    shl ch, cl                  ; CH = the tail's HIGH bits: 1 px = 80h, 7 = FEh
+    mov ch, 0FFh                ; CH = the tail's HIGH bits: 1 px = 80h, 7 =
+    shr ch, cl                  ; FEh. ~(0FFh >> t) is 0FFh << (8 - t) for
+    not ch                      ; every t of 1..7, and it needs neither the
+                                ; negate nor the add: CL already holds the
+                                ; tail, and only CH is read back ([bp+7])
 .notail:
     push bp                     ; [bp+8]  the band's step
     push cx                     ; [bp+6]  the tail mask, in its HIGH byte
@@ -6264,15 +6292,14 @@ gfx_blit1_x:
     jae .pc8
     mov cx, di                  ; ...the last of them a TAIL column (5.4.2.5)
 .pc8:
-    push ax
-    push cx
-    push si
-    push di
-    call gfx_blit1_x
-    pop di
-    pop si
-    pop cx
-    pop ax
+    call gfx_blit1_x            ; NOTHING is banked around this: the routine's
+                                ; contract is that it clobbers no register at
+                                ; all, and every one of its four exits honours
+                                ; it - the door refusals are above the banking
+                                ; pushes, .done and .penref both unwind all
+                                ; nine, and .okquiet unwinds .percol's own
+                                ; four. BX and DX were already live across this
+                                ; call unbanked, which is the same claim
     add ax, 8
     inc si
     sub di, 8
@@ -6315,6 +6342,11 @@ gfx_blit1_x:
     push ax
     push bx
     cmp byte [vid_mono], 0
+%ifndef BANDCOMP
+    jne .pdone                  ; 1bpp with no composer in the build: a set bit
+                                ; is a lit pixel, nothing declares a polarity
+                                ; and the pen has nothing left to say
+%else
     je .pvga
 
     ; --- 1bpp: a set bit is a LIT pixel and a pen has no colour to add
@@ -6349,14 +6381,17 @@ gfx_blit1_x:
     jz .pdone                   ; the set bits are the lit ones: it stands
     mov byte [gfx_b1inv], 1     ; ...and when they are not, the emit turns it
     jmp short .pdone            ; over - the complemented loop and nothing else
+%endif
 
 .pvga:
-    mov al, [gfx_b1ink]
-    mov ah, [gfx_b1pap]
+    mov ax, [gfx_b1ink]         ; AL = ink, AH = paper: ONE word load, off the
+                                ; adjacency asserted beside the declarations
+%ifdef BANDCOMP
     cmp byte [gfx_b1adp], 2     ; the band holds PAPER-as-set (SPEC.md 5.9.3.1),
     jne .pv0                    ; and the grouping below is phrased in terms of
     xchg al, ah                 ; what a SET bit means - so for that band the
 .pv0:                           ; pair that describes it is the other way round
+%endif
     and ax, 0x0F0F
     cmp ax, (CBLACK << 8) | CWHITE
     je .pdone                   ; the default IS the resting state: no ports

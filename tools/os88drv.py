@@ -135,35 +135,10 @@ def main() -> int:
              f"is the bss field this tool fills, and the name above is capped "
              f"at 15 characters so it is always free")
 
-    # --- TRAILING ZEROS BECOME A BSS (docs/plans/O88-COMPRESSION-PLAN.md 12.6) -----
-    # drivers/os88drv.inc used to say "there is no bss: a driver's zeroed data
-    # is written as `db 0` and ships on the floppy". Measured, that is 6,722
-    # bytes of trailing zeros across the twelve shipped drivers - ether.drv
-    # alone has a single 4,066-byte run - and every one of them is a byte read
-    # off a floppy to be told it is zero.
-    #
-    # It costs the driver AUTHOR nothing: the stripping is here, the zeroing is
-    # the loader's, and no driver source changes. A driver built before this
-    # has byte +31 = 0, which reads as "no bss" and is exactly right.
-    body = data.rstrip(b"\0")
-    keep = max(len(body), entry + 1, HDR)
-    # ROUND DOWN. The bss is measured in paragraphs, and rounding the count UP
-    # takes bytes that are not zero with it - sound.drv has nine trailing zeros
-    # and the first version stripped sixteen, seven of them real code.
-    para = (len(data) - keep) // 16
-    if para > BSS_MAX_PARA:
-        # ...cap it rather than refuse: the loader over-claims by a fixed
-        # BSS_MAX_PARA before it has read the header to learn the real figure,
-        # and a driver that wanted more would need that constant raised on
-        # every machine.
-        para = BSS_MAX_PARA
-    keep = len(data) - para * 16
-    stripped = len(data) - keep
-    data = bytearray(data[:keep])
-    struct.pack_into("<H", data, 8, keep)        # +8 is the FILE, still
-    data[31] = para
-    data = bytes(data)
-
+    # THE STREAM DECLARES image + bss. +8 stays exactly as the assembler
+    # emitted it and nothing is stripped: a run of trailing zeros is ONE LZ
+    # match, so the 'CZ' unpacked length is image + bss and dskw_read_x writes
+    # the zeros in. +31 stays 0 and nothing reads it.
     name = data[16:32].split(b"\0", 1)[0]
     if not name:
         fail(f"{args.input}: empty name")
@@ -208,8 +183,6 @@ def main() -> int:
     print(f"os88drv: '{name.decode()}' class={CLASSES[cls]} "
           f"entry=+{entry:#06x} "
           f"image={image} file={len(data)}"
-          + (f" (+{para * 16} bss, {stripped} trailing zeros off the disk)"
-             if para else "")
           + f" -> {args.output}")
     return 0
 

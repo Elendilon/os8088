@@ -2134,7 +2134,7 @@ fm_ncpy:
 ;
 ; Two callers, both in .cold like this one, both staging a driver-supplied
 ; name into a kernel field: osapi_drv_dlg_x's default file name and
-; drv_cp_stage's Control Panel page name (SPEC.md 51).
+; drv_cp_name_x's Control Panel page name (SPEC.md 51).
 ; -----------------------------------------------------------------------------
 fm_ncpye:
 .c:
