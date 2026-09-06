@@ -1634,7 +1634,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              BOOTPROF STKDIAG BOOTMARK BOOTHALT BOOTSTOP NOPS2 MOUIDSLOW MOUDIAG FDDSLOW TRACKRUN SBDRAGOFF SBRATE \
                              ETHPROF FTPDSLOW FTPDBG \
-                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOCURDISK NOFDDPARK VGADIRTY DLJUNK COMPRESS NOKZIP,\
+                             KERN_SMALL KERN_EMU FSNOSTAMP THEMEDARK TITLESNAP SPLSTARS NOSIZESNAP NOFLUSHR NOUNAL BAND NOPLANE NOCOLFAST NOBLITCUT NOUIBLOCK NOMOUPRIV NOCHAINPRIV NOHEDGE NOATBLIT1 NOCURDISK NOFDDPARK VGADIRTY DLJUNK COMPRESS NOKZIP,\
                              $(if $($(k)),$(k)=$($(k)))))
 # **A KNOB KERNEL IS NOT THE SHIPPED KERNEL, so KERN_BUDGET does not bind it**
 # (kernel.asm guard 1). It is built to answer a question about a machine and
@@ -1650,6 +1650,9 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
 # ...and NOHEDGE, which reaches SAVER.DRV and not one kernel byte, so it is in
 # $(KNOBS) for the matrix and NOT in $(VIDSTAMP): exempting the kernel for it
 # would be the sticky exemption the ETHPROF note below describes.
+# ...and NOATBLIT1 for the identical reason one package along: it reaches
+# ARTFUL.O88 (SPEC.md 46.4.2) and no kernel byte, so it carries $(ATSTAMP) and
+# stays out of $(VIDSTAMP). The two are the whole of the package-only class.
 # ...and KERN_EMU joins KERN_SMALL in the exemption, for KERN_SMALL's exact
 # reason: it is not a diagnostic, it is the SHIPPED emulator kernel, and it
 # stays inside kern_big's budget rather than being excused from it. Getting
@@ -1657,7 +1660,7 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
 # kern_emu carrying -DKERN_KNOB would SKIP guard 1 (the KERN_BUDGET footprint
 # check), so the one build that adds a feature would be the one build nothing
 # measured.
-ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=%,$(KNOBS)),)
+ifneq ($(filter-out KERN_SMALL=% KERN_EMU=% NOHEDGE=% NOATBLIT1=%,$(KNOBS)),)
 VIDDEF += -DKERN_KNOB
 endif
 
@@ -2959,6 +2962,26 @@ $(shell mkdir -p $(BUILD); \
         [ -f $(SAVSTAMP) ] || { rm -f $(BUILD)/.saver-* $(BUILD)/saver.bin \
                                       $(BUILD)/saver.drv; \
                                 touch $(SAVSTAMP); })
+
+# ArtfulType's A/B knobs (SPEC.md 46.4.2 and the waves after it). They reach
+# ARTFUL.O88 and not one kernel byte, so - NOHEDGE's shape and for its reason -
+# the stamp is the package's own rather than $(VIDSTAMP)'s, and flipping one
+# rebuilds two files instead of the tree. Each is the ONLY thing keeping its
+# pre-change path assembling.
+#
+# NOATBLIT1=1  compose the line strip ink-side-up and deliver every line
+#              through at_expand + OSAPI_GFX_BLIT4, which is what shipped
+#              before SPEC.md 46.4.2. The A/B for the band emit.
+ATKNOB :=
+ifneq ($(NOATBLIT1),)
+ATDEF += -DNOATBLIT1
+ATKNOB := $(ATKNOB)b
+endif
+ATSTAMP := $(BUILD)/.artful-$(if $(ATKNOB),$(ATKNOB),opt)
+$(shell mkdir -p $(BUILD); \
+        [ -f $(ATSTAMP) ] || { rm -f $(BUILD)/.artful-* $(BUILD)/artful.bin \
+                                     $(BUILD)/artful.o88; \
+                               touch $(ATSTAMP); })
 
 # -I apps/wire/ IS NOT A CONVENIENCE: sv_sintab %includes wiresin.inc, the same
 # generated 256-byte table WIREFRAME uses (SPEC.md 78.2), so there is one
@@ -4380,8 +4403,9 @@ $(BUILD)/dbg-apps360.img: $(BUILD)/dbg/modplug.o88 $(APPS_TOOLS) $(APPS_GAMES) \
 $(BUILD)/artful.bin: apps/artful/artful.asm apps/artful/atdoc.inc \
 		apps/artful/atrend.inc apps/artful/atui.inc apps/artful/atedit.inc \
 		apps/artful/atcmd.inc apps/artful/atfile.inc apps/artful/atimg.inc \
+		$(ATSTAMP) \
 		apps/os88api.inc apps/os88ui.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/artful/ -o $@ apps/artful/artful.asm
+	$(NASM) -f bin -w+error $(ATDEF) -I apps/ -I apps/artful/ -o $@ apps/artful/artful.asm
 	@echo "artful: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/artful.o88: $(BUILD)/artful.bin tools/os88pkg.py $(PKGZSTAMP)

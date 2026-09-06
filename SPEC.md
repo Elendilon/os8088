@@ -59973,10 +59973,15 @@ click mapping, selection and Style > None). `at_compose` builds 1bpp rows
 in a strip, styling ROM 8x8 glyphs itself (paint's §42 probe, copied to
 bss at entry): bold = overstrike, italic = a two-step shear (top half
 right by `scale` px), links = underline, strike = centre rule, headings =
-bit-doubled/tripled scale-ups through 16-entry nibble tables. `at_expand`
-widens 1bpp to packed 4bpp through 256×4-byte tables — white background,
-or CLGRAY for code-span columns (solid gray on VGA, a §39.4 dither on
-mono) — and one `OSAPI_GFX_BLIT4` delivers the line. Selection is an XOR
+bit-doubled/tripled scale-ups through 16-entry nibble tables. The strip is
+composed in **screen polarity — a SET bit is paper** (§46.4.2) — so on the
+ordinary line it is already the object `OSAPI_GFX_BLIT1` takes and one of
+those delivers it with no expansion at all. `at_expand`, which widens 1bpp to
+packed 4bpp through 256×4-byte tables — white background, or CLGRAY for
+code-span columns (solid gray on VGA, a §39.4 dither on mono) — and one
+`OSAPI_GFX_BLIT4`, are the FALLBACK: a kern_small machine, where `gfx_blit1`
+is `stc`/`ret` (§5.4.2.5), and a colour adapter's code-span line, which wants
+three colours where a band carries two. Selection is an XOR
 overlay folded in after each blit; drag-selection XORs only the delta
 range per mouse sample. The caret is an XOR bar under strict on/off
 bookkeeping (`at_caret_on/off`, always under the lock), which is what
@@ -60027,6 +60032,67 @@ before it runs.
 warns about: the geometry was asked for correctly and the answer about the
 *card* was thrown away. It is the gate now, so a colour adapter reaches none
 of the above.
+
+#### 46.4.2 The strip is in SCREEN polarity, and that is what makes the band free
+
+`at_compose` used to build `at_strip1` **ink-side-up** — a set bit was a glyph
+pixel — because that is how a font is stored and how a composer reads. It is
+one `not` away from the polarity the screen wants, and that one bit of
+convention was costing the whole of `at_expand` plus the whole of
+`gfx_blit4` on every line of every adapter.
+
+`OSAPI_GFX_BLIT1` takes a band in *the framebuffer's own bit order, 1 = a LIT
+pixel* (§5.4.2), and its pen defaults to ink `CWHITE` on paper `CBLACK`. So a
+strip whose set bit is **paper** is delivered correctly by the DEFAULT pen on
+every adapter and needs no `OSAPI_GFX_BLIT1_PEN` call at all: on a 1bpp
+adapter the pen is not read and a set bit is simply lit; on VGA the default
+pair short-circuits `gfx_blit1`'s `.pvga` with no port write, and the emit
+takes the plain `rep movsw` arm at 25 clocks a word rather than the
+complemented `.rowi` arm's 34. **The intuitive polarity would have cost 36% of
+every blit for ever** — which is PAINT-1BPP-PLAN's finding one program along,
+and the same one §42.23 took.
+
+So the composer is inverted at source rather than the strip at run time:
+
+- `at_compose` clears the strip to `0FFFFh`, not to 0.
+- `at_glyph` complements the assembled row **between `.noshear` and `.vrep`**
+  and `and`s it into the strip where it used to `or`. It must be there and not
+  earlier: the bold overstrike (`shr ah,1 / or al,ah`) and the italic `rcr`
+  chain both reason in ink, and `rcr` seeds with `clc` — a cleared bit meaning
+  *no ink*. Complement above either of them and every italic glyph grows a
+  black bar down its left edge. All FOUR bytes of `at_grow` are complemented
+  because `.vrep` writes all four at every scale.
+- `at_ruleat` clears its rule rows instead of setting them.
+- `at_bigtext` (`atui.inc`) clears its own strip to `0FFFFh` — it is the fifth
+  writer into `at_strip1` and the one an audit misses, because it is in
+  another file. Miss it and the splash title is a solid black block.
+  **Its second `rep stosw` is the trap**: the strip clear and the `at_cellbg`
+  clear shared the one `xor ax, ax`, and `at_cellbg` is a FLAG ARRAY rather
+  than pixels, so it does not follow the strip's polarity. Carrying the paper
+  value into it marks every 8px column a code cell, `at_expand` widens the lot
+  through `at_x4g`, and the splash title comes back on a grey ground.
+- `AT_X4TAB` swaps its `hv`/`lv` arms, so the surviving 4bpp fallback reads the
+  flipped strip and draws the identical picture. This is a build-time table:
+  the swap costs nothing at run time.
+- `at_codebg`'s `not` is polarity-agnostic and is unchanged.
+
+**The gate is `at_codebg`'s own compare, reused.** A line takes the band arm
+when the adapter is 1bpp, or when it is colour **and** `[at_pcb0] > [at_pcb1]`
+— the empty-code-span test `at_codebg` already makes. A colour line with a
+code span in it wants white, black and CLGRAY, and a band carries two, so it
+takes the expansion. `at_draw_line` tests CF and falls into the same expansion
+when `gfx_blit1` refuses, which on kern_small is every line.
+
+**What it buys, per body line** (PREDICTED from measured unit rates —
+`gfx_blit1`'s 3.9 µs/byte over a ~395 µs intercept, PERFORMANCE.md Set 64;
+`gfx_blit4`'s 32.6 cycles/px on 1bpp and §5.4.1.3's 106.9 on VGA, Set 107):
+Hercules `at_expand` 23.9 ms + blit 40.4 ms = **64.3 → 3.3 ms**; CGA
+55.7 → 2.9; VGA 135.4 → 2.9, which is **47x** on the stage and is why the
+three adapters converge. The in-tree analogue is MEASURED: Paint's identical
+round trip was **809.4 ms → 36.6, 22x** (§42.23.4, PERFORMANCE.md Set 116).
+
+`NOATBLIT1=1` is the A/B and the only thing keeping the expand-only path
+reachable on kern_big.
 
 ### 46.5 The chrome — the app draws its own Macintosh
 

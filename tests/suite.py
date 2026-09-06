@@ -2582,6 +2582,25 @@ SOAK = [
         "compared frame for frame and the per-frame variation - which is real "
         "work, not noise - cancels instead of being averaged over.",
         needs=("marty",), serial=True, timeout=600),
+    Row("atblit", "soak", py("tests/atblit.py"), 90.0,
+        "SPEC.md 46.4.2: does ArtfulType's BAND emit draw the same picture as "
+        "the expander it replaced? at_draw_line hands at_compose's 1bpp strip "
+        "straight to OSAPI_GFX_BLIT1 now instead of widening it to packed "
+        "4bpp for OSAPI_GFX_BLIT4, which means the strip's POLARITY flipped - "
+        "and every way of getting that wrong is a plausible-looking wrong "
+        "picture rather than a crash. Miss one of the five writers into "
+        "at_strip1 and that element renders inverted; the fifth is at_bigtext "
+        "in atui.inc, which an audit of atrend.inc misses. Complement above "
+        "at_glyph's italic rcr chain and every italic grows a bar down its "
+        "left edge. Forget AT_X4TAB or atimg.inc's xor and the 4bpp fallback "
+        "draws the negative - which no kern_big row would ever execute. So "
+        "the gate is 0 differing pixels against NOATBLIT1=1, which assembles "
+        "byte for byte identical to the package before the change. It PACES "
+        "ITS TYPING on the app's own at_caret: type_text outruns a 4.77MHz "
+        "ArtfulType, the key queue overflows, and the two arms then receive "
+        "different documents - which reads exactly like a rendering bug. "
+        "Rebuilds the tree, like blitplane, because the A/B is two packages.",
+        needs=("marty", "nasm"), serial=True, timeout=900),
     Row("blitplane", "soak", py("tests/blitplane.py"), 180.0,
         "SPEC.md 5.4.1.3: does gfx_blit4's PLANAR DECODER draw the same "
         "pixels as the run writer, on both destination phases, and is it "

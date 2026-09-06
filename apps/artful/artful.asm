@@ -89,6 +89,30 @@ AT_S1ST    equ 80                   ; 1bpp strip stride (640 px covers the
                                     ; widest text region, Hercules' 592)
 AT_S4ST    equ 304                  ; 4bpp strip stride (608 px)
 AT_SROWS   equ 30                   ; strip rows (the tallest row height)
+
+; --- the strip's POLARITY (SPEC.md 46.4.2) ------------------------------------
+; at_strip1 is composed in SCREEN polarity - a SET bit is PAPER - so it is
+; already the object OSAPI_GFX_BLIT1 takes and the DEFAULT pen (ink CWHITE on
+; paper CBLACK) delivers it correctly on every adapter with no pen call. The
+; ink-side-up composer that shipped before it is NOATBLIT1's arm, and these
+; three names are the whole of the difference: five writers into the strip and
+; one build-time table read it.
+; AT_PAPERAX is a MACRO and not an immediate so that the knob arm keeps
+; `xor ax, ax` and assembles byte for byte identical to the package before
+; this change - `mov ax, 0` is the same value in three bytes instead of two.
+%ifdef NOATBLIT1
+  %macro AT_PAPERAX 0
+    xor ax, ax                      ; at_compose / at_bigtext clear to this
+  %endmacro
+  %define AT_MERGE  or               ; at_glyph folds the row in with this
+  %define AT_RULE   0FFh             ; at_ruleat lays a rule down as this
+%else
+  %macro AT_PAPERAX 0
+    mov ax, 0FFFFh
+  %endmacro
+  %define AT_MERGE  and
+  %define AT_RULE   0
+%endif
 AT_CBGCAP  equ 80                   ; per-8px-column background flags
 AT_UMAX    equ 15                   ; undo/redo depth (MAX_UNDO_LEVELS)
 AT_CLIPBSS equ 2048                 ; clipboard fallback when no claim
@@ -907,6 +931,7 @@ at_trp:
     %rep 4
         %assign hi ((n >> (7 - 2*k)) & 1)
         %assign lo ((n >> (6 - 2*k)) & 1)
+%ifdef NOATBLIT1
         %if hi
             %assign hv 0
         %else
@@ -917,6 +942,22 @@ at_trp:
         %else
             %assign lv %1
         %endif
+%else
+        ; SPEC.md 46.4.2: the strip is screen-polarity now, so a SET bit is the
+        ; background and a CLEAR one is ink. Swapping the arms of a build-time
+        ; table costs nothing at run time and keeps the 4bpp fallback drawing
+        ; the identical picture.
+        %if hi
+            %assign hv %1
+        %else
+            %assign hv 0
+        %endif
+        %if lo
+            %assign lv %1
+        %else
+            %assign lv 0
+        %endif
+%endif
         db (hv << 4) | lv
         %assign k k+1
     %endrep

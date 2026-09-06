@@ -1261,11 +1261,22 @@ at_bigtext:
     cld
     mov di, at_strip1
     mov cx, (AT_S1ST*24)/2          ; 24 rows covers scale 3
-    xor ax, ax
-    rep stosw
+    AT_PAPERAX                      ; SPEC.md 46.4.2 - the FIFTH writer into
+    rep stosw                       ; at_strip1, and the one in another file
     mov di, at_cellbg
     mov cx, AT_CBGCAP/2
-    rep stosw
+%ifndef NOATBLIT1
+    xor ax, ax                      ; ...and at_cellbg is a FLAG ARRAY, not
+%endif                              ; pixels, so it does NOT follow the strip's
+    rep stosw                       ; polarity. The two clears used to SHARE
+                                    ; the AX that `xor ax, ax` set for both;
+                                    ; carrying 0FFFFh into the second marks
+                                    ; every 8px column a code cell, at_expand
+                                    ; widens the lot through at_x4g, and the
+                                    ; splash title gets a grey ground. Caught
+                                    ; by tests/atblit.py's SPLASH scene at
+                                    ; 1,130 pixels - the document scene alone
+                                    ; never draws at_bigtext and stayed green.
     xor di, di                      ; DI = x within the strip
 .ch:
     lodsb

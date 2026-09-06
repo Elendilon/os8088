@@ -580,8 +580,8 @@ at_compose:
     mov cx, AT_S1ST/2
     mul cx
     mov cx, ax
-    xor ax, ax
-    rep stosw
+    AT_PAPERAX                      ; SPEC.md 46.4.2: screen polarity, so the
+    rep stosw                       ; ground is SET and at_glyph clears ink
     pop es
     xor si, si
 .ch:
@@ -806,17 +806,27 @@ at_glyph:
     rcr byte [at_grow+3], 1
     loop .shr
 .noshear:
-    ; OR the scaled row into `scale` consecutive strip rows
+%ifndef NOATBLIT1
+    ; SPEC.md 46.4.2. The complement is HERE and can be nowhere above: the bold
+    ; overstrike (`shr ah,1 / or al,ah`) and the italic `rcr` chain both reason
+    ; in INK, and the shear seeds with `clc` - a clear bit meaning no ink - so
+    ; complementing above either grows a black bar down every italic's left
+    ; edge. All FOUR bytes, because .vrep writes all four at every scale and
+    ; at_grow+3 is only ever zeroed by the `mov word [at_grow+2], 0` above.
+    not word [at_grow]
+    not word [at_grow+2]
+%endif
+    ; fold the scaled row into `scale` consecutive strip rows
     mov dx, [at_psc]
 .vrep:
     mov al, [at_grow]
-    or [bx], al
+    AT_MERGE [bx], al
     mov al, [at_grow+1]
-    or [bx+1], al
+    AT_MERGE [bx+1], al
     mov al, [at_grow+2]
-    or [bx+2], al
+    AT_MERGE [bx+2], al
     mov al, [at_grow+3]
-    or [bx+3], al
+    AT_MERGE [bx+3], al
     add bx, AT_S1ST
     dec dx
     jnz .vrep
@@ -871,7 +881,7 @@ at_ruleat:
     mov bx, ax
     mov cx, [at_psc]
 .b:
-    mov byte [bx+at_strip1], 0FFh
+    mov byte [bx+at_strip1], AT_RULE
     inc bx
     loop .b
     pop ax
@@ -972,9 +982,14 @@ at_draw_line:
     mov [at_dly], ax
     call at_parse
     call at_compose
-    mov ax, [at_tw]
-    mov [at_xw], ax
-    call at_expand
+%ifdef NOATBLIT1
+    mov ax, [at_tw]                 ; the pre-46.4.2 order, kept verbatim so
+    mov [at_xw], ax                 ; this arm assembles byte for byte
+    call at_expand                  ; identical to the package before it
+%endif
+    ; THE ROW CLAMP STAYS ABOVE THE ARM AND MUST: OSAPI_GFX_BLIT1 refuses
+    ; DX = 0 with CF = 1, and a refusal falls into the expander below, which
+    ; would then draw a full-height line off the bottom of the text region.
     mov dx, [at_prh]
     mov ax, [at_dly]
     add ax, dx
@@ -983,8 +998,57 @@ at_draw_line:
     mov dx, [at_ty1]
     sub dx, [at_dly]
     jg .rows
+%ifdef NOATBLIT1
     jmp short .out                  ; fully below the region: nothing
+%else
+    jmp .out                        ; ...and the band arm below puts .out out
+%endif                              ; of a short jump's reach
 .rows:
+%ifndef NOATBLIT1
+    ; --- the band arm (SPEC.md 46.4.2) -------------------------------------
+    ; at_compose has already built exactly what OSAPI_GFX_BLIT1 takes: 1bpp,
+    ; row-major, bit 7 leftmost, SCREEN polarity, at at_tx0 = 64 with at_tw
+    ; masked to a multiple of 8 (at_geom_init) and at_prh <= AT_SROWS = 30
+    ; against the slot's 255. The DEFAULT pen carries it on every adapter, so
+    ; there is no OSAPI_GFX_BLIT1_PEN call: on 1bpp the pen is not read, and
+    ; on VGA the default pair short-circuits gfx_blit1's .pvga with no port
+    ; write and takes the plain `rep movsw` emit rather than the complemented
+    ; one. This is what deletes at_expand AND the kernel's 4bpp decode from
+    ; the line: 64.3 -> 3.3 ms on Hercules, 135.4 -> 2.9 on VGA (PREDICTED;
+    ; Paint's identical round trip MEASURED 22x, SPEC.md 42.23.4).
+    cmp byte [at_vbpp], 1
+    jbe .band                       ; 1bpp: at_codebg has already CLEARED
+                                    ; at_cellbg, so no grey column survives
+                                    ; and the band is the whole truth
+    mov ax, [at_pcb1]               ; a colour adapter keeps CLGRAY, so only a
+    cmp [at_pcb0], ax               ; line with NO code span is two colours -
+    ja .band                        ; at_codebg's own compare, reused
+    jmp short .wide
+.band:
+    push ds
+    pop es
+    push bx
+    push dx
+    mov si, at_strip1
+    mov bp, AT_S1ST
+    mov ax, [at_tx0]
+    mov bx, [at_dly]
+    mov cx, [at_tw]
+    call OSAPI_GFX_BLIT1
+    pop dx                          ; pop leaves the flags, so CF still speaks
+    pop bx
+    jnc .sel                        ; CF = 1 is a REFUSAL and nothing drawn -
+                                    ; kern_small carries the slot and not the
+                                    ; body (SPEC.md 5.4.2.5) - so fall into
+                                    ; the expander, which is that build's only
+                                    ; path and draws the identical picture
+.wide:
+    ; ...and on the band path the expansion happens HERE, below the clamp, so
+    ; a line the clamp threw away never pays for it either.
+    mov ax, [at_tw]
+    mov [at_xw], ax
+    call at_expand
+%endif
     push ds
     pop es
     push bx
@@ -995,6 +1059,7 @@ at_draw_line:
     mov cx, [at_tw]
     call OSAPI_GFX_BLIT4
     pop bx
+.sel:
     call at_selxor
 .out:
     pop es
