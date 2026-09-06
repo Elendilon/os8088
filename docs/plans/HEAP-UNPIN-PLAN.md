@@ -1386,7 +1386,42 @@ in the machine can merge them today.
 | then reconsider | A (~69), C (~200, stops at §4.6), D0 (~40, already built), D (~175–242, one IF=0 window and **more than one IVT vector**), F (~90, asks package authors for something) |
 
 
-## 10. How it would be verified
+## 10. What has been built, and what it was verified against
+
+**Built (commit `d02276e`): the direction invariant, and nothing else.**
+`MC_HI` in the claim record, stamped at publish from `[mem_dir]`; `mem_is_hi`
+reading it in ten bytes; `mem_cp_mine` asking whether a claim is this pass's
+business, called from both `mem_cp_plan` and `mem_cp_run` immediately after
+`mem_can_move`. **+89 bytes** — `.cold` +56, `.bss` +1, `.lowbss` +32 — with
+`KERN_BUDGET` unmoved at 18,944 spare and no rung crossed.
+
+It is a **no-op today** and that is the point: every one of the seven top-down
+claims is pinned, so nothing reaches the new test with a different answer. What
+it establishes is the property §5 needs — a claim goes back through the door it
+came in by — before anything can be unpinned against it.
+
+**Verified on a real machine**, not just on the host tier:
+
+| gate | result | what it covers |
+|---|---|---|
+| `make test-fast` | **50/50** | the host invariants, the API table, every shipped image |
+| `make test-full` | **61 passed, 0 failed, 2 skipped** | the pre-merge gate — the knob kernels, **kern_small**, `kernresident`, `small128`, a boot on both 1bpp adapters |
+| `heapcheck` | **ok, 31.6s** | SPEC.md 66.8's own gate: a comb of claims, every other one freed, then a claim only compaction can satisfy — and **the contents of every survivor** checked against a per-block pattern |
+| `heapmap` | **ok** | reads `mem_tab` out of a running guest at the new 11-byte stride |
+| `paintmove`, `trackmove`, `rdmove`, `hdmove` | **ok** | live relocations through `pt_reloc`, `trk_reloc`, `rd_reloc` and the donated HDD listing |
+| `fatwpin`, `msegnomem`, `mseglazy` | **ok** | the FAT window's pin, and the multiseg claim paths |
+| `editmove` | **skipped** | wants `build/zmove360.img`; the Frotz stories are never committed |
+
+Two things that cost time and are worth writing down. `mseglazy` fails with
+*"os88map: no build/mseg.bin - build it first"* unless `make mseg` has run —
+it is an on-demand artefact a plain `make` does not build, and the row does not
+declare it. And `MC_SIZE` 10 → 11 broke **thirteen** harness files, every one
+caught by `t_mirror`, including `tools/os88geom.py` itself — the single mirror
+the others are supposed to import from rather than retype.
+
+---
+
+## 10.1 How the rest would be verified
 
 Compaction's success looks exactly like its failure until something reads the
 wrong memory an hour later (SPEC.md 66.8), and every item here widens that
