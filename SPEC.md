@@ -60214,6 +60214,38 @@ the gutter.
 
 `NOATSBAR=1` is the A/B and the only thing keeping the unbanked body reachable.
 
+#### 46.4.5 The scaled row lives in registers, not in `at_grow`
+
+`at_grow` is four bss bytes holding one glyph row after the scale expansion,
+and the two stages below it treated it as working storage rather than as a
+value: the italic shear read-modify-wrote all four **per shift step**, and
+`.vrep` re-read all four **on every repeat**. At scale 2 that is eight memory
+reads a repeat and sixteen a row to move one byte of glyph; at scale 3, more.
+
+The row is hoisted into `AH:AL:DH:DL` once, at `.sheared`, and both stages then
+work on registers. `at_grow` stays as the staging area the three scale arms
+write — that half of the routine needs its own registers and is left alone.
+
+**The byte order is inverted on purpose and is silent when wrong.** `at_grow[0]`
+is the LEFTMOST 8 pixels and must sit in **AH**, not AL, because that is what
+makes `clc / rcr ax, 1 / rcr dx, 1` a genuine 32-bit shift right across
+`b0→b1→b2→b3`: `rcr ax,1` carries AH's bit 0 into AL's bit 7, and out of AL
+into DX. Loading it the natural way with `mov ax, [at_grow]` puts `b0` in AL,
+and the shear then runs **backwards** — every italic mirrored, with nothing
+raising anything. Two instructions replace the four `rcr byte [mem], 1`.
+
+`.vrep`'s counter moves from DX to CX and becomes a `loop`, DX now being half
+the glyph row.
+
+**Who pays for this is not who 46.4.3 helps.** The unstyled scale-1 cell never
+reaches here at all — it has its own straight-line emitter — so this is the
+arm taken by **every heading**, every styled span, `at_bigtext`'s scale 1..3,
+and, because `at_cellwtab`'s zoom-1 body cell is 16px wide, **every character
+of body text at zoom 1**. That last one is the case worth having: a zoomed-in
+document is entirely scale 2 and gets none of 46.4.3.
+
+`NOATROW=1` is the A/B.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what

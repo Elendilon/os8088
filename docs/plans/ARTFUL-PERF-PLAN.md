@@ -375,7 +375,32 @@ the line table and the scroll bar's travel — and it asserts a zoom is
 reversible, which nothing else did. It also proves a menu-driven path is
 testable, which the rest of this app's commands need.
 
+**WAVE 3b IS BUILT** (SPEC.md §46.4.5) and is the first change here that is
+**both faster and smaller**: **1.06x** on a keystroke inside a heading
+(238.3 → 225.2 ms, Hercules, three visual lines) for **−14 bytes**. Scale 1
+body text measures **1.00x**, which is the design working: §46.4.3's
+straight-line emitter never reaches this arm.
+
+The win is smaller than the plan's "~29% off `at_glyph`" because that assumed
+the FULL register plumbing including `.s2`/`.s3`. What was taken is the safe
+subset — the row is hoisted into `AH:AL:DH:DL` once at `.sheared`, and the
+shear and `.vrep` both work on registers, while `at_grow` stays as the staging
+area the three scale arms write. That is where the memory traffic actually was:
+`.vrep` re-read all four bytes **on every repeat**.
+
+Who it helps is not who §46.4.3 helps: every heading, every styled span,
+`at_bigtext`, and — because `at_cellwtab`'s zoom-1 body cell is 16px —
+**every character of body text at zoom 1**.
+
+**A scene-drift finding that invalidated earlier coverage.** The zoom scene's
+`[at_top]` assertion fired on Hercules and VGA for *every* knob at once, and it
+was right: the filler document was 22 lines, which overflows CGA's 16-line view
+but FITS Hercules' 28 and VGA's 41. So on those two adapters the scrolled and
+zoomed scenes had no scroll bar and nothing to scroll — they had been passing
+while testing almost nothing. `FILLER` is per-adapter now, and the earlier
+"0 differing pixels on herc and vga" for those two scenes should be read as
+weaker than it looked; CGA was carrying the real coverage.
+
 **What is left, re-ranked on the measurement rather than the prediction.**
-3b (the scaled row in registers, which is the only item that helps scale 2 and
-3 and so every heading) and 3c (skipping a blank glyph) are unchanged and
-smaller. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+3c (skipping a blank glyph) is unchanged and smaller, and carries a font
+dependency with no guard. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.

@@ -54,7 +54,14 @@ import os88mouse                                         # noqa: E402
 import os, subprocess, tempfile                          # noqa: E402
 
 # Every style ArtfulType can draw, so a missed writer has somewhere to show.
-DOC = ["# Heading one",
+#
+# THE ITALIC HEADING IS DELIBERATE. at_cellwtab makes an H1 scale 2 at zoom 0
+# and scale 3 at zoom 1, and 46.4.5's shear is a 32-bit rotate across four
+# bytes - so an italic glyph wide enough for its overhang to reach strip byte 3
+# is the only thing that exercises the DL end of it. Getting that byte order
+# wrong mirrors every italic and raises nothing, so the ZOOM scene rendering
+# this line at scale 3 is what would catch it.
+DOC = ["# *Heading* one",
        "Plain body text for the ordinary path.",
        "This is **bold** and *italic* and ~~struck~~.",
        "A `code` span is the three-colour line.",
@@ -63,6 +70,14 @@ DOC = ["# Heading one",
 CARDS = {"cga":  "os8088_5150_cga_gla",
          "herc": "os8088_5150_herc_gla",
          "vga":  "os8088_xt_vga"}
+
+# HOW MANY LINES IT TAKES TO OVERFLOW THE VIEW, per adapter. at_geom_init's
+# text region is ty0..ty1 and a body line is 10px, so CGA shows 16 lines
+# (200-row screen, ty0 = 30), Hercules 28 and VGA 41. A count that overflows
+# CGA leaves the other two with a document that FITS - no scroll bar, no
+# scrolling, and two scenes that quietly test almost nothing. The zoom scene's
+# [at_top] assertion is what caught that, on every knob at once.
+FILLER = {"cga": 22, "herc": 34, "vga": 48}
 
 COUNTED = ("gfx_blit4", "gfx_blit1")
 
@@ -92,7 +107,7 @@ def pkg_syms(defines=()):
         return out
 
 
-def drive(img, apps, machine, tree, census, shot=None):
+def drive(img, apps, machine, card, tree, census, shot=None):
     """Boot one tree, type DOC into a fullscreen ArtfulType, return the glass.
 
     Returns (w, h, splash rgb24, document rgb24, {symbol: entries}).
@@ -191,7 +206,7 @@ def drive(img, apps, machine, tree, census, shot=None):
         # region. Enter is the cheap way to get there - one keystroke a line
         # against ~64 characters of filler - and PageUp then forces the
         # UPWARD arm, which is the one whose dy at_sumn negates.
-        for _ in range(22):
+        for _ in range(FILLER[card]):
             key1(lambda: m.key("Enter"), "Enter")
             typec("x")
         ui.settle()
@@ -391,10 +406,12 @@ def main():
 
     os.makedirs("/tmp/atblit", exist_ok=True)
     w, h, bsp, band, bsc, bzm, bun, cb = drive(shipped.img("os8088-360.img"),
-                                shipped.img("apps360.img"), machine, shipped,
+                                shipped.img("apps360.img"), machine, a.card,
+                                shipped,
                                 a.census, "/tmp/atblit/%s-shipped-%s.png" % (a.knob, a.card))
     w2, h2, esp, expa, esc, ezm, eun, ce = drive(knob.img("os8088-360.img"),
-                                  knob.img("apps360.img"), machine, knob,
+                                  knob.img("apps360.img"), machine, a.card,
+                                  knob,
                                   a.census,
                                   "/tmp/atblit/%s-knob-%s.png" % (a.knob, a.card))
 

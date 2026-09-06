@@ -66,7 +66,7 @@ def pkg_syms(defines=()):
 
 
 def measure(img, apps, machine, tree, lines, samples, scroll=False,
-            key=None, ctrl=None, zoom=False):
+            key=None, ctrl=None, zoom=False, heading=False):
     tree.apply()
     syms = pkg_syms(["-D" + a.split("=")[0] for a in tree.args
                      if a.startswith("NOAT")])
@@ -200,10 +200,17 @@ def measure(img, apps, machine, tree, lines, samples, scroll=False,
         # No Enter anywhere: a paragraph is what at_lhome backs up to, so a
         # WRAPPED run of text is the thing under test and a run of short
         # lines would measure at_rlk = 1 and call it a keystroke.
-        text = ("the quick brown fox jumps over the lazy dog and keeps on "
-                "running well past the right margin " * 8)
+        # A HEADING IS HOW YOU MEASURE SCALE 2 AT ZOOM 0. at_cellwtab makes an
+        # H1 cell 16px wide, so the whole paragraph goes through at_glyph's
+        # GENERAL arm - which is what SPEC.md 46.4.5 changes and what 46.4.3's
+        # straight-line emitter deliberately does not touch.
+        text = (("# " if heading else "")
+                + "the quick brown fox jumps over the lazy dog and keeps on "
+                  "running well past the right margin " * 8)
         want = 0
         percell = {"cga": 64, "herc": 74, "vga": 64}[a_card]
+        if heading:
+            percell //= 2                       # a 16px cell, half the count
         target = max(1, (lines - 1)) * percell + percell // 2
         for ch in text[:target]:
             m.type_text(ch)
@@ -267,6 +274,9 @@ def main():
     ap.add_argument("--ctrl",
                     help="bracket this key with Control held - Ctrl+Z is "
                          "AT_CMD_UNDO, one of 46.4.5's three whole-page tails")
+    ap.add_argument("--heading", action="store_true",
+                    help="measure inside an H1, whose 16px cell puts every "
+                         "character on at_glyph's GENERAL arm (scale 2)")
     ap.add_argument("--zoom", action="store_true",
                     help="bracket a ZOOM IN chosen from the app's own menu "
                          "bar - the one command that pushes the caret "
@@ -291,7 +301,7 @@ def main():
         cyc, rlk, dfrom, nlines = measure(t.img("os8088-360.img"),
                                           t.img("apps360.img"), machine, t,
                                           a.lines, a.samples, a.scroll,
-                                          a.key, a.ctrl, a.zoom)
+                                          a.key, a.ctrl, a.zoom, a.heading)
         res[name] = cyc
         best = min(cyc)
         print("   %-22s %s cycles  -> %.1f ms  "

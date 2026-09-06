@@ -822,6 +822,7 @@ at_glyph:
     mov [at_grow+2], bl
     pop bx
 .sheared:
+%ifdef NOATROW
     ; italic: the top half (source rows 0..3) shifts right by `scale` px
     test byte [at_gsty], AT_ST_I
     jz .noshear
@@ -837,12 +838,6 @@ at_glyph:
     loop .shr
 .noshear:
 %ifndef NOATBLIT1
-    ; SPEC.md 46.4.2. The complement is HERE and can be nowhere above: the bold
-    ; overstrike (`shr ah,1 / or al,ah`) and the italic `rcr` chain both reason
-    ; in INK, and the shear seeds with `clc` - a clear bit meaning no ink - so
-    ; complementing above either grows a black bar down every italic's left
-    ; edge. All FOUR bytes, because .vrep writes all four at every scale and
-    ; at_grow+3 is only ever zeroed by the `mov word [at_grow+2], 0` above.
     not word [at_grow]
     not word [at_grow+2]
 %endif
@@ -860,6 +855,52 @@ at_glyph:
     add bx, AT_S1ST
     dec dx
     jnz .vrep
+%else
+    ; --- SPEC.md 46.4.5: the row into REGISTERS, once ----------------------
+    ; at_grow is four bss bytes, and the two stages below treated it as
+    ; working storage rather than as a value: the shear read-modify-wrote all
+    ; four PER SHIFT STEP and .vrep re-read all four ON EVERY REPEAT - eight
+    ; reads a repeat at scale 2, to move one byte of glyph.
+    ;
+    ; THE BYTE ORDER IS INVERTED ON PURPOSE. at_grow[0] is the LEFTMOST 8 px
+    ; and must sit in AH, because that is what makes `rcr ax,1 / rcr dx,1` a
+    ; genuine 32-bit shift right across b0->b1->b2->b3: rcr ax,1 carries AH's
+    ; bit 0 into AL's bit 7 and out of AL into DX. `mov ax, [at_grow]` would
+    ; put b0 in AL and run the shear BACKWARDS - every italic mirrored, and
+    ; nothing anywhere raises.
+    mov ah, [at_grow]               ; b0, the leftmost 8 px
+    mov al, [at_grow+1]
+    mov dh, [at_grow+2]
+    mov dl, [at_grow+3]
+    test byte [at_gsty], AT_ST_I
+    jz .noshear
+    cmp bp, 4                       ; the top half only
+    jae .noshear
+    mov cx, [at_psc]
+.shr:
+    clc                             ; a clear bit shifted in is NO INK, which
+    rcr ax, 1                       ; is why 46.4.2's complement is below and
+    rcr dx, 1                       ; not above this
+    loop .shr                       ; `loop` writes no flag, so CF survives it
+.noshear:
+%ifndef NOATBLIT1
+    ; SPEC.md 46.4.2. The complement is HERE and can be nowhere above: the
+    ; bold overstrike and the shear above both reason in INK. All four bytes,
+    ; because .vrep writes all four at every scale.
+    not ax
+    not dx
+%endif
+    ; fold the scaled row into `scale` consecutive strip rows. The counter is
+    ; CX now: DX is half the glyph row.
+    mov cx, [at_psc]
+.vrep:
+    AT_MERGE [bx], ah
+    AT_MERGE [bx+1], al
+    AT_MERGE [bx+2], dh
+    AT_MERGE [bx+3], dl
+    add bx, AT_S1ST
+    loop .vrep
+%endif
     inc bp
     cmp bp, 8
     jb .row
