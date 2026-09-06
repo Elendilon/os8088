@@ -1850,13 +1850,22 @@ all: checkdocs $(IMG) $(IMG120) $(IMG720) $(IMG360) \
 #               structure of all nine floppies, unreachable code, and that
 #               every test in tests/ is registered somewhere.
 #
-#   test-full   ~2 minutes, and THE ONE TO RUN BEFORE A MERGE. Adds the
-#               knob kernels and kern_small - every configuration
-#               `all` does not build - and the emulator smoke test.
+#   test-full   ~2 minutes. Adds the knob kernels and kern_small - every
+#               configuration `all` does not build - and the emulator smoke
+#               test. NOT a per-commit gate: it answers a question about the
+#               WHOLE TREE, so it is run when major work first reaches the
+#               integration branch and again when another large round lands
+#               there - never on every commit of a feature branch, never on a
+#               minor bugfix, a documentation commit or a build-number bump.
 #
-#   test-soak   No budget. The other sixty-odd gates in tests/, which are one
-#               subject each: run the ones your change could have broken,
+#   test-soak   No budget, and nearly two hours whole. The other sixty-odd
+#               gates in tests/, which are one subject each. The WHOLE tier
+#               is for the end of extensive kernel surgery, or a request;
+#               anything less runs the SUBJECT instead, which is minutes:
 #               `python3 tools/os88test.py soak -k disp*`.
+#
+# docs/TESTING.md's `When to run which tier` is the authority on all three,
+# and CLAUDE.md's Testing section is its short form.
 #
 # It is a real prerequisite list rather than a recipe line on `all` so that
 # `make -j` cannot start it before the images it reads are finished.

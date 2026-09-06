@@ -558,7 +558,9 @@ FAST = [
 ]
 
 # --------------------------------------------------------------------------
-# full - the pre-merge gate. Everything above, plus these.
+# full - everything above, plus these. Run when major work reaches the
+# integration branch, not per commit (docs/TESTING.md, `When to run which
+# tier`).
 # --------------------------------------------------------------------------
 FULL = [
     Row("buildmatrix", "full", py("tests/unit/t_buildmatrix.py"), 180.0,

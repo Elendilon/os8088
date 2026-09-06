@@ -46,11 +46,20 @@ that must be REFUSED, and a decoder that refuses everything passes all of them
 | tier | budget | what belongs there |
 |---|---|---|
 | `fast` | **30s, enforced** | host-side only: read what `make` just built and check an invariant that breaks silently. Runs as part of every `make`. |
-| `full` | **600s, enforced** | the pre-merge gate. `fast`, plus the build configurations `all` never builds, plus a CURATED handful of emulator rows. |
+| `full` | **600s, enforced** | `fast`, plus the build configurations `all` never builds, plus a CURATED handful of emulator rows. |
 | `soak` | **none, deliberately** | everything else. Where a row goes when it is worth having and does not fit the gate. |
 
 The budgets are `BUDGET` in `tools/os88test.py`, and the runner FAILS a tier
 that overruns one.
+
+**Choose the tier by what the row costs and how broadly it fails, never by
+how important you think it is.** The two expensive tiers are not run per
+commit — `full` runs when a major round of work reaches the integration
+branch and `soak` at the end of extensive kernel surgery (docs/TESTING.md,
+*When to run which tier*) — so a row put in `full` to make sure somebody sees
+it is a row that runs LESS often than you imagine, and one put in `soak` is
+still run by the person who touched its subject, which is who it is for.
+`soak` is a real answer and costs nobody any budget.
 
 A `full` row earns its place with **breadth per second**: `bootsmoke` is about
 twelve seconds for a boot to a desktop on both 1bpp adapters, and fails for
@@ -550,7 +559,7 @@ python3 tools/os88test.py --list                  # the registry as the runner s
 python3 tools/os88test.py fast                     # 30s, and part of every make
 python3 tools/os88test.py soak -k '<yourrow>'      # your row, alone
 python3 tools/os88test.py soak -k '<yourrow>' --marty-jobs 3   # ...and loaded
-make test-full                                     # the pre-merge gate
+make test-full                                     # only if this row is a `full` row
 ```
 
 **The loaded run is not optional for an emulator row.** Passing alone and
