@@ -609,6 +609,7 @@ not. Each one can still happen today.
 | 17 | `hibernate` mounting ONE `build/hiber.vhd` read-write in three emulators at once: 2 runs in 6, at a different leg every time, one of them a proven click on a proven pointer doing nothing | §5.5 |
 | 18 | `reap()` racing itself — every `launch` reaps, so one process dropped a finished instance's tree while another wrote its record | §5.5 |
 | 19 | An A/B of a five-byte deletion in `apps/os88type.inc` reading **exactly zero** on both arms, because `word.bin`'s rule never listed the file and `make` said "up to date". `apps/os88ui.inc` was missing from **nine** shipped packages the same way. `tests/unit/t_pkgdeps.py` is the row that came out of it | §1 |
+| 20 | `t_pkg` reporting **every apps image stale** after a `make browsertest`, because its artefact map is `build/` by BASENAME and that target writes an uncompressed `DEMO.HTM` beside the compressed one the disks carry. A row whose whole subject is "is this image current" said no about a build that was. `build/zdata*/` now overrides, which also compares four data files that were compared against nothing | §5.1 |
 
 ---
 

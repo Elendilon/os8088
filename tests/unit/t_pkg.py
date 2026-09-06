@@ -31,6 +31,7 @@ FLOPPY, because by then their job is over:
      independent gates stopping a `.DRV` being double-clicked into the
      application loader - the first being that the mount only types `*.O88`.
 """
+import glob
 import os
 import struct
 import sys
@@ -249,6 +250,23 @@ def main():
         for f in sorted(os.listdir(faces)):
             p = os.path.join(faces, f)
             if os.path.isfile(p) and f.endswith(".f88"):
+                arts[f.upper()] = read(p)
+    # ...and the DATA files, same shape and a sharper reason (SPEC.md 20.13.5):
+    # build/zdata-<fmt>/ is what os88lz wrapped and what the disk carries, and
+    # it OVERRIDES a top-level file of the same basename. That is not a tidy
+    # preference, it is a false failure fixed: `make browsertest` writes an
+    # UNCOMPRESSED build/DEMO.HTM as its own fixture, and with only the
+    # top-level scan the next plain `make` compared the shipped compressed
+    # DEMO.HTM against it and reported every apps image stale - naming the one
+    # failure mode this row exists to catch, about a build that was current.
+    # It also widens the row: without this the four data files were compared
+    # against nothing at all unless something else had left a copy in build/.
+    for zd in sorted(glob.glob(os.path.join(build, "zdata*"))):
+        if not os.path.isdir(zd):
+            continue
+        for f in sorted(os.listdir(zd)):
+            p = os.path.join(zd, f)
+            if os.path.isfile(p):
                 arts[f.upper()] = read(p)
 
     # ...and every file on every image must BE one of them.

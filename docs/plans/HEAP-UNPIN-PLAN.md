@@ -1134,17 +1134,29 @@ SPEC.md 66.7 forbids packing into a hole *below* a pinned block — so a movable
 claim can never pass one — declaring it slides the pool down onto the highest
 pinned block beneath it and merges the gap under it with the run above.
 **A strict improvement, needing no descending pass.**
-**DEFERRED, by decision, and not for want of evidence.** The owner's call:
-*"leave it for now, it can compact to the top with the rest after we implement
-this work."* Which is the right sequencing — declaring the pool movable **before**
-§5's descending pass exists would slide it down to close the gap beneath it, and
-what is actually wanted is for it to pack **up** with the rest of the ceiling
-once there is a pass that does that. The five lines wait for E.
+**BUILT, once E was.** It was deferred by decision and not for want of
+evidence — the owner's call: *"leave it for now, it can compact to the top with
+the rest after we implement this work."* That was the right sequencing:
+declaring the pool movable **before** §5's descending pass existed would have
+slid it *down* to close the gap beneath it, and what is wanted is for it to
+pack **up** with the rest of the ceiling. `sk_reloc` is the eleven bytes this
+section predicted, `sbl_reloc`'s shape to the instruction, plus four at the
+claim site.
 
-The harness is ready when it is: `tests/ethernet.py` now runs green end to end
-under QEMU 8.2.2 (card, rings at `sk_seg`, DHCP, the browser over TCP), and its
-assertion 1b already reads `sk_seg` and the ladder rung — exactly the state a
-move disturbs.
+`tests/ethernet.py` gained assertion **1c**, and it reads `mem_tab` rather than
+the driver — which is the whole point, because `mem_movable`'s fence is *yours,
+or not at all* and a refusal is a CF the driver discards. On QEMU 8.2.2 it
+reads `pool claim 97C0 14KB owner 9B40 MOVABLE HI` with the rest of the gate
+still green end to end (card, DHCP, the browser fetching over TCP). **Broken on
+purpose**: with the `OSAPI_MEM_MOVABLE` call replaced by a `nop` it reads
+`PINNED HI` and exactly one assertion goes red, everything else unchanged.
+
+What this does NOT assert is that the pool has been seen to move — that needs
+§2.0's whole session (mount, open three apps, mount, unmount, close) on a
+machine with a NIC, and MartyPC has none. The claim is made in two halves
+instead, and each half is a gate: `heapcheck` check 13 says the descending pass
+moves a declared top-down claim, and this says ETHER's pool is a declared
+top-down claim.
 
 ---
 
