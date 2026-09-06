@@ -1313,19 +1313,60 @@ wd_sbclick:
 ; therefore CONTAINS every glyph pixel, which the break's wd_scroll - rounding
 ; inward, and needing [wd_tx] aligned for it - does not have to.
 ; -----------------------------------------------------------------------------
+; wd_bandx - the blit band's x span, cut so it CANNOT reach the scroll bar
+; out: AX = x1, CX = x2 (x1 and x2+1 multiples of 8); preserves everything else
+;
+; It used to be cut from [wd_rgt], the last drawable TEXT column, rounded up -
+; and the bar's frame begins at [wd_rgt]+1, so on the shipped window that took
+; SIX of the bar's fourteen columns. wd_scrollpaint then blanked the strip
+; white over the whole band height and wd_sbar drew all sixteen calls of the
+; bar again at the end of the routine, with the exposed rows lettered in
+; between: PERFORMANCE.md Part 1's double-draw flash, once per arrow click.
+;
+; Cut it from the CELLS instead. No glyph reaches past cell [wd_rcols]-1, so
+; [wd_tx] + 8*[wd_rcols] is the first column past the last one a glyph can
+; occupy - and a snapped content origin (SPEC.md 11.94) makes that a byte
+; column already, so the round-up below is a no-op and the bar is never
+; touched. Measured on the shipped window: tx = 24, rcols = 72, rgt = 601, so
+; the span ends at 599 where the bar starts at 602 - against 607 before.
+;
+; A CHOSEN FACE keeps the old span. There a "cell" is as little as TY_MINADV
+; (SPEC.md 6.4), so 8*[wd_rcols] is not a pixel bound at all, and the only
+; per-row pixel map - wd_px[] through wd_cx - describes whichever row was
+; flushed last rather than the widest one. The strip pass below is what makes
+; that arm correct, and it still runs there.
+wd_bandx:
+    cmp byte [wd_pxon], 0
+    jne .wide
+    push bx
+    mov ax, [wd_rcols]
+    mov bx, 3
+    xchg bx, cx
+    shl ax, cl
+    xchg bx, cx
+    add ax, [wd_tx]                 ; the first column past the last cell...
+    pop bx
+    jmp short .round
+.wide:
+    mov ax, [wd_rgt]                ; a chosen face: the text column's edge,
+    inc ax                          ; as before
+.round:
+    add ax, 7
+    and ax, 0xFFF8                  ; ...rounded UP to a byte column
+    mov cx, ax
+    dec cx                          ; CX = x2, so x2+1 is a multiple of 8
+    mov ax, [wd_tx]
+    and ax, 0xFFF8                  ; x1, DOWN to one - which stays inside the
+    ret                             ; content, WD_MARGIN being 8
+
 wd_vshift:
     push ax
     push bx
     push cx
     push dx
     push si
-    mov ax, [wd_tx]
-    and ax, 0xFFF8                  ; x1, down to a byte column
+    call wd_bandx                   ; AX = x1, CX = x2 - and NOT into the bar
     mov bx, [wd_ty]                 ; y1
-    mov cx, [wd_rgt]
-    add cx, 8
-    and cx, 0xFFF8
-    dec cx                          ; x2, with x2+1 up to a byte column
     cmp byte [wd_hasfmt], 0         ; formatted rows land at arbitrary ys, so
     je .yuni                        ; the band is the whole [wd_ty..wd_bot] -
     mov dx, [wd_bot]                ; legal because the formatted scroll path
@@ -1521,19 +1562,26 @@ wd_scrollpaint:
     call wd_vshift
     jc .nope                        ; refused, and having drawn nothing
 
-    ; Rounding x2+1 outward carried up to seven columns of furniture with the
-    ; text: the scroll bar's left frame at wd_rgt+1, and the left edge of the
-    ; grow box below it. Blank that strip and let the two things that own it
-    ; put themselves back - wd_sbar at the end of this routine, and the grow
-    ; box here, because wd_sbar stops short of the corner it sits in.
+    ; If the band still reached past the text - a chosen face, or a content
+    ; origin too wide to snap - it carried the scroll bar's left frame at
+    ; wd_rgt+1 and the grow box's left edge with it. Blank that strip and let
+    ; the two things that own it put themselves back: wd_sbar at the end of
+    ; this routine, and the grow box here, because wd_sbar stops short of the
+    ; corner it sits in.
+    ;
+    ; WITH THE BAND CUT FROM THE CELLS THIS DOES NOT RUN AT ALL on a snapped
+    ; window (SPEC.md 27.7.2): x2 lands short of wd_rgt, so x1 > x2 below and
+    ; the bar was never touched. [wd_sbhurt] is that fact, and it is what
+    ; turns the bar's sixteen drawing calls at the end into wd_sbcheck's three.
+    mov byte [wd_sbhurt], 0
     mov ax, [wd_rgt]
     inc ax                          ; x1, the first column past the text
-    mov cx, [wd_rgt]
-    add cx, 8
-    and cx, 0xFFF8
-    dec cx                          ; x2, the same one wd_vshift moved
+    push ax
+    call wd_bandx                   ; ...and x2, the SAME one wd_vshift moved
+    pop ax
     cmp ax, cx
     ja .nostrip
+    mov byte [wd_sbhurt], 1
     mov bx, [wd_ty]
     mov dx, [wd_bot]
     push ax
@@ -1724,10 +1772,44 @@ wd_scrollpaint:
     mov byte [wd_clip], 0
     mov byte [wd_clean], 0
 
+    ; ...AND wd_rows DESCRIBES THE WHOLE VIEW AGAIN (SPEC.md 27.7.2). It was
+    ; lowered to [wd_bd0] above, to bound the seed to rows the shift had not
+    ; carried out of range - and nothing put it back once the walk had
+    ; lettered bd0..bd1 and banked their ys. Every retained row's y moved with
+    ; the pixels in wd_shiftrows, so rows 0..bd1 are all described now.
+    ;
+    ; What that cost is the NEXT scroll. A formatted page-down asks
+    ; `d <= [wd_rowsn]` before it may blit, and on the shipped window a page
+    ; is [wd_vfit] = 2 of [wd_vrows] = 6 - so the first click blitted, left
+    ; [wd_rowsn] at 2, and every click after it refused with d = 4 > 2 and
+    ; repainted the whole window. Two thirds of the view was retained each
+    ; time and thrown away.
+    ;
+    ; It only ever RAISES, and only while the arrays are sound: a walk that
+    ; ended above the view has already said so by clearing [wd_rowsok], and
+    ; this must not argue with it.
+    cmp byte [wd_rowsok], 0
+    je .rsdone
+    mov ax, [wd_bd1]
+    inc ax
+    cmp ax, [wd_vrows]
+    jbe .rscap
+    mov ax, [wd_vrows]
+.rscap:
+    cmp ax, [wd_rowsn]
+    jbe .rsdone
+    mov [wd_rowsn], ax
+.rsdone:
+
     mov ax, [wd_top]
     mov [wd_ptop], ax               ; the screen shows this view now
-    call wd_sbar                    ; unconditional: the thumb moved, and the
-                                    ; blit reached into the bar's columns
+    cmp byte [wd_sbhurt], 0         ; the blit reached into the bar's columns
+    jne .barfull                    ; and the strip blanked them: it owes the
+    call wd_sbcheck                 ; whole draw. Otherwise the bar is still
+    jmp short .bardone              ; right to the pixel and only the THUMB
+.barfull:                           ; moved - three drawing calls against
+    call wd_sbar                    ; sixteen (SPEC.md 13.10.3)
+.bardone:
     clc
     jmp short .out
 .nope:
@@ -6595,7 +6677,13 @@ wd_paint:
     mov ax, [wd_top]                ; padding to the band's edge to erase with
     mov [wd_ptop], ax               ; ...and the screen now shows THIS view
     pop ax
-    call wd_sbar                    ; the fill took the bar with it
+    cmp byte [wd_sbkeep], 0         ; the fill took the bar with it - unless a
+    je .barwhole                    ; refused blit kept it, when only the
+    call wd_sbcheck                 ; THUMB has moved: three drawing calls
+    jmp short .bardone              ; against sixteen, and for a page whose
+.barwhole:                          ; thumb HEIGHT also changed wd_sbcheck
+    call wd_sbar                    ; does the full draw on its own evidence
+.bardone:
     call wd_chrome                  ; ...and the chrome strips' rules, which
                                     ; only a full fill can have erased
     call wd_sheet                   ; ...and the sheet's edges (SPEC.md 68.11)
@@ -9072,6 +9160,13 @@ wd_redraw:
     ; exactly what used to happen every time.
     call wd_scrollpaint
     jnc .done
+    mov byte [wd_sbkeep], 1         ; REFUSED, having drawn nothing - and
+                                    ; .scrolled is only reached when
+                                    ; wd_sigsame AGREED, so the scroll bar on
+                                    ; the glass is still right to the pixel.
+                                    ; The full repaint below must not take it
+                                    ; off the screen and put it back
+                                    ; (SPEC.md 27.7.2)
     jmp short .fullpaint
 
 .full:
@@ -9115,15 +9210,26 @@ wd_redraw:
     pop ax                          ; x1
     add cx, ax
     dec cx                          ; CX = x2
+    cmp byte [wd_sbkeep], 0         ; ...but a refused BLIT leaves the bar and
+    je .fillw                       ; the grow box exactly right, so the fill
+    mov cx, [wd_rgt]                ; stops at the last drawable TEXT column
+.fillw:                             ; and neither is disturbed
     push ax                         ; the pen is a register here, not a
     mov al, CWHITE                  ; variable - keep x1 across the call
     call OSAPI_SET_COLOR
     pop ax
     call OSAPI_GFX_FILL             ; white-fill the content
     call wd_paint                   ; SI still = window ptr
+    cmp byte [wd_sbkeep], 0
+    jne .nogrow                     ; the fill never reached the corner
     mov bx, si                      ; the white fill erased the grow box;
     call OSAPI_WM_GROW              ; restore it (SPEC.md 11.1/27)
+.nogrow:
 .out:
+    mov byte [wd_sbkeep], 0         ; ONE-SHOT: W_PAINT is wd_paint's other
+                                    ; caller and there the KERNEL has filled
+                                    ; the whole content, so the bar really has
+                                    ; gone and the full draw is the right one
     mov byte [wd_ymoved], 0         ; spent: it described THIS redraw's pass 1
                                     ; (wd_scrollpaint tests it, and a stale 1
                                     ; would refuse a later good blit)
@@ -20193,6 +20299,13 @@ section .text
     WDVAR wd_mry1, 2        ; word } once by wd_mgeo and read by painter, hit
     WDVAR wd_mrx2, 2        ; word } test, highlight and close repaint alike
     WDVAR wd_mry2, 2        ; word } (the fm_hit discipline)
+    WDVAR wd_sbkeep, 1      ; byte: a refused blit left the scroll bar and
+                            ; the grow box right to the pixel, so the full
+                            ; repaint must not take them off the screen
+                            ; (SPEC.md 27.7.2). ONE-SHOT
+    WDVAR wd_sbhurt, 1      ; byte: the blit band reached into the scroll
+                            ; bar's columns and the strip blanked them, so
+                            ; the bar owes a whole redraw (SPEC.md 27.7.2)
     WDVAR wd_suseg, 2       ; word: the save-under claim's segment while a
                             ; dropdown is down, 0 = none and the close
                             ; REPAINTS instead (SPEC.md 68.2.1)

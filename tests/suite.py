@@ -2134,6 +2134,24 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdscroll", "soak", py("tests/wdscroll.py"), 300.0,
+        "SPEC.md 68.2.2: Word's scroll bar is not part of the text band. Leg A "
+        "samples the bar's ARROW CELL through a down-arrow click and requires "
+        "0 of 48 samples altered (the band used to carry six of its fourteen "
+        "columns, blank them and redraw the bar); leg B the same for a track "
+        "click; leg D asserts the BEHAVIOUR on a refused blit - wd_sbar must "
+        "not run - because the refused path legitimately moves the thumb and "
+        "no pixel box separates that from the bug; leg C that three "
+        "consecutive page clicks all still blit. The last leg is the one with "
+        "teeth: it pages down with the blit and back up, which a formatted "
+        "document always full-repaints, and requires the screen to come back "
+        "with 0 differing pixels - the fast path checked against the slow one. "
+        "CGA by name and read out of guest VRAM, MASKED to the bar's columns: "
+        "a rendered frame only changes once a video frame, so an fbuf sample "
+        "misses a strip blanked and redrawn inside one - this gate passed with "
+        "the fix backed out until that was fixed.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
         "SPEC.md 68.3.1: Word's document movers go a WORD at a time, and the "
         "assertion is the BUFFER rather than the glass - a wrong word is a "

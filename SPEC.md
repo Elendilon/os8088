@@ -78458,6 +78458,62 @@ omitted rather than greyed — with them the dialog cannot fit a CGA content
 box, and a Format command that refuses on one adapter of three is worse.
 
 
+
+#### 68.2.2 The scroll bar is not part of the text band
+
+Three field reports, all one shape: the scroll bar being drawn when nothing
+asked for it. Measured on a cycle-accurate 5150 (CGA), `WELCOME.DOC` in the
+shipped window — content origin `[wd_tx]` = 24, `[wd_rcols]` = 72,
+`[wd_rgt]` = 601, the bar's frame at 602.
+
+**The band cut itself from the wrong edge.** `wd_vshift` took x2+1 up to a
+byte column from `[wd_rgt]` — 608 — so the blit carried **six of the bar's
+fourteen columns** with the text. `wd_scrollpaint` then filled that strip
+white over the whole band height and `wd_sbar` drew all sixteen calls of the
+bar again at the end of the routine, with the exposed rows lettered in
+between: Part 1's double-draw flash, once per arrow click. `wd_bandx` cuts
+from the CELLS instead — no glyph reaches past cell `[wd_rcols]-1`, so
+`[wd_tx] + 8·[wd_rcols]` = 600 is the first column past the last one a glyph
+can occupy, and a snapped origin (§11.94) makes it a byte column already. The
+bar is never touched, the strip pass does not run, and the bar's sixteen
+calls become `wd_sbcheck`'s three. **A chosen face keeps the old span**: there
+a cell is as little as `TY_MINADV`, so `8·[wd_rcols]` is not a pixel bound and
+`wd_px[]` describes only the row flushed last — the strip pass is what makes
+that arm correct and it still runs.
+
+**A refused blit was taking the bar off the screen.** `.fullpaint` white-filled
+the whole content, bar and grow box included, and `wd_paint` then drew the bar
+whole because the fill had taken it. Neither is true of that path: a refusal
+draws **nothing**, and `.scrolled` is only reached once `wd_sigsame` has
+AGREED — so the bar on the glass is still right to the pixel. `[wd_sbkeep]` is
+that fact, set at the refusal and read twice: the fill stops at `[wd_rgt]` and
+`wd_paint` calls `wd_sbcheck` instead of `wd_sbar`. It is a **one-shot**,
+because W_PAINT is `wd_paint`'s other caller and there the kernel has filled
+the whole content, so the bar really has gone.
+
+**And a page click threw away two thirds of the view.** A page is `[wd_vfit]`
+rows, which with formats is `band/24` (§68.6) — **2** of the shipped window's
+**6**. `wd_scrollpaint` lowered `[wd_rowsn]` to `[wd_bd0]` to bound its seed to
+rows the shift had not carried out of range, and nothing raised it once the
+walk had lettered `bd0..bd1` and banked their ys. So the FIRST page click
+blitted, left `[wd_rowsn]` at 2, and every click after it refused on
+`d > rowsn` (4 > 2) and repainted the whole window. `wd_shiftrows` moves every
+retained row's banked y with the pixels, so after that walk rows `0..bd1` are
+all described: the raise only ever RAISES, and only while `[wd_rowsok]` says
+the arrays are sound at all.
+
+Measured, on the same machine and the same document:
+
+| | before | after |
+|---|---:|---:|
+| down arrow, from `[wd_top]` = 8 | 230.4 ms | **197.8 ms** |
+| track click below the thumb | 512.9 ms | **155.0 ms** |
+| the bar's arrow cell, sampled through a click | 44 of 48 samples altered, worst 14 bytes | **0 of 48** |
+| three consecutive page clicks | 3 full repaints | **0** |
+
+`.text` +150 bytes. `tests/wdscroll.py` is the gate and each of its four legs
+was watched going red with its own fix backed out.
+
 #### 68.3.1 The document's two moves go a WORD at a time
 
 Every edit opens or closes a gap in **two** claims in lockstep — the text and
