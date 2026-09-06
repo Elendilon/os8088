@@ -10,8 +10,11 @@ indicator, so each check is about the mechanic:
   2. FOUGA MAGISTER - cs_att_lag. Held hard over, the roll rate RAMPS: the
      first tick moves a fraction of what the eighth does, where the two
      direct-drive aeroplanes move the same amount every tick. Released, the
-     rate DECAYS instead of stopping dead. And the engine SPOOLS: thrust
-     climbs toward the throttle over seconds, which no piston does;
+     rate DECAYS instead of stopping dead - and the tail is SHORT, so a tap
+     held for two ticks is a 2.2-degree nudge that has stopped moving well
+     inside 26 (88.7.5.1: it was 19.6 degrees and still going). And the
+     engine SPOOLS: thrust climbs toward the throttle over seconds, which no
+     piston does;
   3. WASSMER BIJAVE - no engine. It starts in the AIR at CSP_LAUNCH with the
      tow-released message, its thrust is zero however hard the throttle key
      is held, and left alone it comes down;
@@ -20,8 +23,10 @@ indicator, so each check is about the mechanic:
      water's name on the strip. The same touchdown in the Cessna is a crash,
      which is what ditching is.
 
-Two red runs (docs/WRITING-TESTS.md 1). --clobber-lag gives the Magister the
-trainer's CSP_ATT, and the ramp and decay checks go red. --clobber-amphib
+Three red runs (docs/WRITING-TESTS.md 1). --clobber-lag gives the Magister
+the trainer's CSP_ATT, and the ramp and decay checks go red. --clobber-tail
+makes the rate decay as slowly as it builds, which is the model as it was,
+and the tap becomes 6.45 degrees and never settles. --clobber-amphib
 clears the A5's CSP_FLAGS, and the water start and the splash go red - note
 that everything ELSE about the A5 still passes, which is why those two
 checks are the ones that are there.
@@ -66,6 +71,8 @@ def main(argv):
                     help="give the Magister the trainer's model: must go red")
     ap.add_argument("--clobber-amphib", action="store_true",
                     help="take the A5's amphibious flag away: must go red")
+    ap.add_argument("--clobber-tail", action="store_true",
+                    help="make the rate decay as slowly as it builds: red")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     mp = dispapps._map("skies")
@@ -107,6 +114,20 @@ def main(argv):
                     mp["cs_att_trim"].to_bytes(2, "little"))
             m.run()
             print("  (the Magister given the trainer's model: this must fail)")
+        if a.clobber_tail:
+            # cs_lagax turns a quarter of the gap into three quarters on the
+            # decay arm with `neg ax / add ax, cx`; without those the rate
+            # dies as slowly as it builds, which is the model as it was
+            lo, hi = mp["cs_lagax"], mp["cs_move"]
+            code = m.read(lin + lo, hi - lo)
+            i = code.find(b"\xF7\xD8\x01\xC8")      # neg ax ; add ax, cx
+            if i < 0:
+                sys.exit("skiesfleet: cs_lagax does not shape its decay the "
+                         "way this patch expects")
+            m.pause()
+            m.write(lin + lo + i, b"\x90\x90\x90\x90")
+            m.run()
+            print("  (the rate made to decay as slowly as it builds: must fail)")
         if a.clobber_amphib:
             m.pause()
             m.write(lin + mp["cs_p_a5"] + CSP_FLAGS, b"\x00\x00")
@@ -212,6 +233,47 @@ def main(argv):
         check(dec[0] > 0 and dec[0] > dec[-1],
               "...and DECAYS when the stick is centred instead of stopping "
               "dead (%s)" % dec)
+
+        # --- 2b. the tail is SHORT, and a TAP is a nudge (SPEC.md 88.7.5.1)
+        # Both of the owner's complaints about this aeroplane are one number.
+        # A rate decaying by a quarter a tick has THREE TIMES its current
+        # value still to travel, so centring the stick at the horizon coasted
+        # a fifth of a turn past it and a one-tick tap rolled 19.6 degrees.
+        # The decay is three quarters a tick now and the tail is a third of
+        # the rate.
+        def stickticks(key, held, n=26):
+            # Hold `key` for exactly `held` TICKS, which only cs_stick's own
+            # breakpoint makes expressible: the stick is read per tick now
+            # (88.7.5.1) and a frame is three of them.
+            m.pause()
+            airborne(120)
+            poke("cs_roll", b"\x00\x00")
+            m.run()
+            m.bp_exec(lin + mp["cs_stick"])
+            m.run()
+            assert m.wait_stop(30) is not None
+            m.key(key, down=True, up=False)
+            out = []
+            for i in range(n):
+                out.append(sg(w("cs_roll")))
+                if i == held:
+                    m.key(key, down=False, up=True)
+                m.run()
+                assert m.wait_stop(30) is not None
+            m.bp_exec()
+            m.run()
+            m.key(key, down=False, up=True)
+            return out
+
+        tap = stickticks("ArrowRight", 2)
+        moved = abs(tap[-1]) / DEG
+        print("      a short tap: %.2f degrees, settled %s"
+              % (moved, "yes" if tap[-1] == tap[-4] else "no"))
+        check(0.5 < moved < 6.0,
+              "a TAP is a nudge and not a manoeuvre (%.2f degrees)" % moved)
+        check(tap[-1] == tap[-4],
+              "...and it has stopped moving well inside %d ticks (%d then %d)"
+              % (len(tap), tap[-4], tap[-1]))
         # the spool
         m.pause()
         airborne(120)

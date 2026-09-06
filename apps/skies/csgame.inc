@@ -70,9 +70,10 @@ cs_fsx_main:
     jne .draw
 .sim:
     push cx
-    call cs_step
-    call cs_sound_step
-    pop cx
+    call cs_stick                   ; THE STICK, ONCE A TICK (SPEC.md
+    call cs_step                    ; 88.7.5.1): cs_input runs once a FRAME,
+    call cs_sound_step              ; which is 137 ms on Mode X, so a tap
+    pop cx                          ; shorter than that was never seen at all
     loop .sim
 .draw:
     call cs_render
@@ -83,6 +84,50 @@ cs_fsx_main:
     mov dl, 0x40
     call OSAPI_SND_TONE
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_stick - the two attitude axes into [cs_kpitch] and [cs_kroll]
+;            (SPEC.md 88.7.5.1). Clobbers AX, BX
+;
+; Read ONCE A TICK and not once a frame, which is where it used to live.
+; OSAPI_KEY_DOWN is a LEVEL read - the SDK says so, and there is no latched
+; form - so a press that came and went between two polls never happened, and
+; a poll a frame is 137 ms on Mode X. The stick is the one input where that
+; is the difference between a tap being a nudge and a tap being nothing;
+; the throttle, the rudder and the brake stay on the frame, where three
+; times the sampling would only make them three times as fast.
+;
+; Four far calls, 46.7 us each: 187 us a tick, so 374 us of a 137 ms frame
+; on the two extra ticks - 0.27%.
+; -----------------------------------------------------------------------------
+cs_stick:
+    push bx
+    xor bl, bl
+    mov al, KSC_UP                  ; up = nose down, down = nose up: the
+    call OSAPI_KEY_DOWN             ; stick, as in every flight simulator
+    jnc .p1
+    dec bl
+.p1:
+    mov al, KSC_DOWN
+    call OSAPI_KEY_DOWN
+    jnc .p2
+    inc bl
+.p2:
+    mov [cs_kpitch], bl
+    xor bl, bl
+    mov al, KSC_LEFT
+    call OSAPI_KEY_DOWN
+    jnc .r1
+    dec bl
+.r1:
+    mov al, KSC_RIGHT
+    call OSAPI_KEY_DOWN
+    jnc .r2
+    inc bl
+.r2:
+    mov [cs_kroll], bl
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -201,30 +246,9 @@ cs_input:
     jmp .done
 
 .held:                              ; THE HELD KEYS ARE LATCHED HERE AND SPENT
-    xor bl, bl                      ; ON THE TICK (SPEC.md 85.6.4)
-    mov al, KSC_UP                  ; up = nose down, down = nose up: the
-    call OSAPI_KEY_DOWN             ; stick, as in every flight simulator
-    jnc .p1
-    dec bl
-.p1:
-    mov al, KSC_DOWN
-    call OSAPI_KEY_DOWN
-    jnc .p2
-    inc bl
-.p2:
-    mov [cs_kpitch], bl
-    xor bl, bl
-    mov al, KSC_LEFT
-    call OSAPI_KEY_DOWN
-    jnc .r1
-    dec bl
-.r1:
-    mov al, KSC_RIGHT
-    call OSAPI_KEY_DOWN
-    jnc .r2
-    inc bl
-.r2:
-    mov [cs_kroll], bl
+    call cs_stick                   ; ON THE TICK (SPEC.md 85.6.4); the two
+                                    ; STICK axes are read again per tick, in
+                                    ; the simulation loop (88.7.5.1)
     xor bl, bl
     mov al, CS_KA
     call OSAPI_KEY_DOWN

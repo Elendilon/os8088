@@ -620,17 +620,42 @@ cs_att_lag:
     jmp cs_att_free.stall
 
 ; cs_lagax - AX = the rate the stick asks for, SI = the aeroplane's current
-; rate: close CS_LAGSH of the gap. out AX = the new rate, ZF = it is zero.
+; rate: close part of the gap. out AX = the new rate, ZF = it is zero.
 ; Clobbers CX. Preserves BX, DX, DI.
+;
+; THE TWO SIDES ARE NOT THE SAME LENGTH, and the first build had them equal
+; at a quarter of the gap a tick, which made the aeroplane unflyable in a way
+; the gate did not look at: a rate decaying by a quarter a tick has THREE
+; TIMES ITS CURRENT VALUE still to travel, so releasing the stick at full
+; rate carried it 19.6 degrees further. A tap - one tick of key - rolled 19.6
+; degrees, and levelling out was impossible because centring the stick at the
+; horizon coasted a fifth of a turn past it. Both of the owner's complaints
+; are that one number.
+;
+; So building a rate is slow and losing one is fast, which is also what the
+; air does: inertia is what makes a roll take a moment to start, and damping
+; is what stops it the moment the ailerons are centred. Three quarters of the
+; gap a tick going down leaves a tail of a third of the rate - 2.2 degrees
+; from full - so a tap is a nudge and a release lands where it was pointed.
 cs_lagax:
     mov cx, ax
     sub cx, [si]                    ; CX = the gap
+    or ax, ax
+    jnz .build                      ; the stick is asking for a rate...
+    mov ax, cx                      ; ...or it is centred, and the rate DIES:
+    sar ax, 1                       ; a quarter of the gap is what stays, so
+    sar ax, 1                       ; three quarters of it goes this tick
+    neg ax
+    add ax, cx
+    jmp short .step
+.build:
     mov ax, cx
     sar ax, 1
-    sar ax, 1                       ; CS_LAGSH
-    jnz .step
+    sar ax, 1                       ; CS_LAGSH: a quarter of the gap a tick
+.step:
+    jnz .add
     mov ax, cx                      ; a gap too small to shift is closed
-.step:                              ; outright, or a rate sticks at -1 for ever
+.add:                               ; outright, or a rate sticks at -1 for ever
     add [si], ax
     mov ax, [si]
     or ax, ax

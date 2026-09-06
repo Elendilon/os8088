@@ -95595,6 +95595,49 @@ three, no tachometer, and the dial under the left hand is a **% RPM gauge
 that visibly lags the throttle** — the spool given something to show, so the
 mechanic is legible and not only felt.
 
+##### 88.7.5.1 The rate dies faster than it builds, and the stick is read per TICK
+
+Both of the owner's complaints about the jet — *"tap controls have no
+effect"* and *"the ramp is causing it to skip past the horizon"* — are two
+numbers, and neither is the ramp.
+
+**The tail.** A rate that decays by a quarter a tick has **three times its
+current value still to travel**: `r(3/4 + 9/16 + …) = 3r`. So centring the
+stick at full rate carried the Magister **19.8° further**, which made
+levelling out impossible — you cannot settle on something you always coast a
+fifth of a turn past — and a tap measured at **19.58°**, a manoeuvre rather
+than an adjustment. Building a rate is slow now and losing one is fast:
+three quarters of the gap a tick going down, which leaves a tail of a third
+of the rate, **2.2° from full**. That is also what the air does — inertia is
+what makes a roll take a moment to start, and damping is what stops it the
+moment the ailerons are centred — but the reason it is asymmetric is the
+measurement, not the aerodynamics.
+
+**And the stick is sampled once a TICK.** `OSAPI_KEY_DOWN` is a LEVEL read —
+§9.7 says so and there is no latched form — so a press that came and went
+between two polls never happened, and `cs_input` polls once a **frame**,
+which is 137 ms on Mode X. The shortest expressible tap was therefore a
+whole frame, three ticks, and no amount of tuning the lag could make it
+smaller. `cs_stick` reads the two attitude axes inside the simulation loop
+instead; the throttle, the rudder and the brake stay on the frame, where
+three times the sampling would only make them three times as fast.
+
+Measured on the Magister, a press held for the shortest time the machine can
+express:
+
+| | tap | the tail after it |
+|---|---|---|
+| before | **19.58°** | still moving 20 ticks later |
+| after | **2.21°** | dead in 5 ticks |
+
+and a held approach still lands **exactly on 0.00**, which is §88.7.3's
+capture and was never the problem.
+
+`cs_stick` costs **3,938 cycles** measured entry to return — more than four
+bare far calls, because `OSAPI_KEY_DOWN` is not one — so the two extra ticks
+of a frame are **1.65 ms**: 2.3% of a Hercules frame and 1.2% of Mode X's,
+for controls sampled three times as often.
+
 #### 88.7.6 The WASSMER BIJAVE — a sailplane, and the mechanic is NO ENGINE
 
 `CSP_THRUST` is zero, so the only energy it has is the height it starts with
