@@ -172,13 +172,15 @@ with every later one.
 
 The counter-argument is that nobody has yet measured a session in that state
 **in this arena** — docs/FIELD-NOTES.md 2 measured it in the other one, where a
-second Tracker load was refused against ~104KB free. The closest ceiling-side
-figure is SPEC.md's own **FRAG 4K out of a 544K span**, which is the phenomenon
-at a scale that costs nothing — and on the 128KB machine
-this whole memory effort exists for, `tests/small128.py:133` asserts *no pinned
-claim stands on a bare desktop* and measures **0 bytes pinned**, because
-kern_small loads no drivers at all (kernel/driver.inc:89) and holds one or two
-regions. **So the yield on kern_small is structurally zero and the case is
+second Tracker load was refused against ~104KB free, and SPEC.md says so itself:
+*"The measurement that was asked for first did arrive, from the field:
+docs/FIELD-NOTES.md 2 is a refusal where the total and the largest run differed
+by more than 100KB."* The closest ceiling-side figure is SPEC.md's own **FRAG 4K
+out of a 544K span**, the phenomenon at a scale that costs nothing — and on the
+128KB machine this whole memory effort exists for, `tests/small128.py:133`
+asserts *no pinned claim stands on a bare desktop* and measures **0 bytes
+pinned**, because kern_small loads no drivers at all (kernel/driver.inc:89) and
+holds one or two regions. **So the yield on kern_small is structurally zero and the case is
 entirely kern_big's.** Open question 1 is what would settle the size.
 
 Cost side: the top-down stack is the largest single thing on the heap (~209KB at
@@ -272,8 +274,13 @@ apps/loom/loom.asm:112), so their regions are reachable where CWORD's and
 RUNCPM's are not.
 
 The undeclared *data* claims those packages hold are larger than any region here
-and are a separate problem (§2.1.1): SHEET 99KB, **Browser 109KB, LOOM 141KB,
-C64 64KB**.
+and are a separate problem (§2.1.1) — with the sizes stated carefully, because
+two circulated figures are worst cases rather than holdings: **SHEET 99KB** in
+six unconditional claims at its entry proc; **C64 64KB**; **LOOM 29KB**
+long-lived (`LM_CLAIMKB`, apps/loom/lmproj.c:28 — its 50KB and 62KB claims are
+*transient*, held only across a Pack); and **Browser's document claim capped at
+63KB** (`BR_DOCMAX`, apps/browser/browser.asm:124), the "109KB" being the worst
+case for a 32KB page rather than what it holds.
 
 Why that split is the whole answer is §4.5. The short version: a worker's stack
 carries its own package's segment from the moment it starts, so a package with a
@@ -423,7 +430,7 @@ before the far call**, because a module can re-enter itself through a callback.
 
 **That price is affordable, and §4.3 costs it: ~104 bytes.** The count is
 `resb MOD_MAX` in `.bss`, an increment in `mod_need` — which already holds the id
-— and a small `mod_leave` that the **20 kern_big thunk sites** call after their
+— and a small `mod_leave` that the **29 thunk sites** (over seven far-pointer bases in seven files — `CMZFP` is `CLFP+4`, the compressor riding in `CLONE.DRV`) call after their
 `call far [XXFP + n*4]`. It has to reach the thunks that deliberately do *not*
 call `mod_need` (SPEC.md 13.8.3's two edges, kernel/ctrl.inc:5820), which is
 break 3 in §8.
@@ -650,8 +657,9 @@ owner's own proc, because the kernel is a holder of claims it does not own"*
 | `[menu_seg]` the bar owner, `[menu_dseg]` the DROPPED menu | kernel/menu.inc:2687, :2690 | 2 words |
 | `[fdlg_rqsp]` the file dialog's staleness cookie, `[drv_dlg_seg]` | kernel/fdlg.inc:2973, kernel/driver.inc:4285 | 2 words |
 | `[ld_base]`/`[ld_fp+2]` the region being loaded | kernel/loader.inc:1162 | cheaper to **refuse**: pin any region whose base is `[ld_base]`, ~6 bytes |
+| `[dskw_seg]`, `[dskw_wseg]`, `[dskw_czseg]` — a **caller's** segment banked across a whole file transfer | kernel/diskw.inc:4922, :4924, :4962 | 3 words |
 
-**SPEC.md 66.6 names four of those and misses four.** `[menu_seg]`,
+**SPEC.md 66.6 names four of those and misses seven.** `[menu_seg]`,
 `[menu_dseg]`, `[fdlg_rqsp]` and `[ld_base]` are not in its list, and each fails
 in a way nobody would trace back: a stale `[menu_seg]` draws every bar title out
 of the wrong segment, and a stale `[fdlg_rqsp]` makes the completion callback
@@ -800,7 +808,7 @@ nesting count per module, pinned while non-zero, incremented by the stub before
 the far call. Per module and not one flag, because a module can re-enter itself
 through a callback."* `resb MOD_MAX` in `.bss` (4 on kern_big, 5 on kern_small),
 incremented in `mod_need` — which already holds the id — and decremented by a
-small `mod_leave` that each of the **20 kern_big thunk sites** calls after its
+small `mod_leave` that each of the **29 thunk sites** (over seven far-pointer bases in seven files — `CMZFP` is `CLFP+4`, the compressor riding in `CLONE.DRV`) calls after its
 `call far [XXFP + K*4]`.
 
 That is the pin `mod_drop`'s banner says nothing can supply, and with it
@@ -1044,8 +1052,11 @@ widening `MC_SIZE` costs 64 bytes and crosses a rung on kern_big.
 
 ### 5.1 ETHER.DRV's socket pool — the comment that pinned it is wrong
 
-Of the eight top-down call sites, seven claim a CS or a bus-master buffer. The
-eighth is **ETHER.DRV's 14KB socket pool** (drivers/ether/tcp.inc:784), and the
+There are **seven** top-down call sites in the whole tree — three kernel
+(loader.inc:810, driver.inc:2474, mod.inc:422) and four driver (sound/sb.inc:2484,
+ramdisk/rdpage.inc:108, hdd/hdtool.inc:161, ether/tcp.inc:784); **no package uses
+either door.** Six of the seven claim a CS or a bus-master buffer. The seventh
+is **ETHER.DRV's 14KB socket pool** (drivers/ether/tcp.inc:784), and the
 comment beside that claim says:
 
 > the card's own descriptors point into these rings and it DMAs into them, so
@@ -1107,11 +1118,11 @@ second.**
 
 **Placement should not change.** Top-down is still right — it is a long-lived
 driver-owned block, and docs/HEAP-CLAIMS.md's *"placement is a second axis"*
-applies. What changes is only that it stops being a **wall**; and because a
-movable block can never pass a pinned one under the ascending walk, declaring it
-slides the pool down onto the highest pinned block beneath it and merges the gap
-under it with the run above. **A strict improvement, needing no descending pass.**
-
+applies. What changes is only that it stops being a **wall**; and because
+SPEC.md 66.7 forbids packing into a hole *below* a pinned block — so a movable
+claim can never pass one — declaring it slides the pool down onto the highest
+pinned block beneath it and merges the gap under it with the run above.
+**A strict improvement, needing no descending pass.**
 **Not landed here.** It is a behaviour change to a shipped driver and the only
 harness that can exercise `ETHER.DRV` is QEMU (`tests/ethernet.py`; MartyPC has
 no NIC of any kind), so it wants that gate green first — and the gate's assertion
@@ -1163,13 +1174,17 @@ bytes left rather than the one with 18,944.
 `mem_cp_drop` 21, `mem_pg_cheap` 21, `mem_cp_next` 55, `mem_cp_plan` 104,
 `mem_cp_run` 115, `mem_reloc_call` 89, `mem_compact` 122, `mem_cp_worth` 16,
 `mem_cp_unpark` 20, `mem_bcopy` 58, `mem_movable_x` 20) plus **279 bytes of
-`.text`** for the park and ~25 bytes of `.bss`. Counted to include the five
+`.text`** for the park — **362** once `inst_of_seg` (34) and `inst_svc_parked`
+(49) are counted with it — and ~25 bytes of `.bss`. Counted to include the five
 kernel relocation procs and the `.lowbss` it uses, an independent pass puts the
 whole built feature at **~1,426 resident bytes** — 870 `.cold`, 350 `.text`
 (park), 115 `.text` (relocation procs), ~68 `.lowbss`, ~23 `.bss`. Both are
 measured off `tools/os88sym.py --all`, by diffing each symbol against the next
 global one in its section; the second is the fairer anchor for anything new,
-because a new mechanism needs its fix-up procs too. Other measured shapes used below: `dsk_dseg_reloc` 36 (one
+because a new mechanism needs its fix-up procs too — with the caveat that it
+**over-attributes by roughly 133 bytes**, four of the routines counted being
+shared with features that predate compaction (`mem_bcopy` is `mem_regrow`'s
+mover, `mem_fatw_dirty` and `mem_pg_cheap` the purgeable shed's). Other measured shapes used below: `dsk_dseg_reloc` 36 (one
 scan-by-value over a table plus one live word), `fm_reloc` 52, `mem_hifit` 93,
 `inst_of_seg` 34, `wm_destroy_seg` 30, `mod_drop` 15, `mod_disarm` 19,
 `drv_unload_x` 70, `drv_load_row` 193, `drv_call` 61, `wm_pkgcall` 45.
@@ -1191,7 +1206,7 @@ first two are worth taking whatever is decided about the rest.
 |---|---|---:|---:|---|
 | **0** | **Documentation only.** Add the four holders SPEC.md 66.6 misses; note `SSI_SEG` is a sample not a handle; correct SPEC.md 66.9 reason 5 and docs/HEAP-CLAIMS.md's donated-listing row, both stale; delete the dead `[ty_selfseg]` write | **0** | 0 | −4 bytes from every package that includes apps/os88type.inc |
 | **A** | **Stop pinning three claims for a placement constraint** (§3.1): `mem_can_move` drops the `MC_DMA` refusal, `mem_cp_plan`/`mem_cp_run` bump the fill point to the next page-safe base | **~50** | 0 | ESTIMATE; `mem_dmaok` (28) exists and is the whole test |
-| **B** | **Modules become purgeable** (§3.3, §4.3) at `MEM_PG_MED`, with a PER-SPAN pin and `FDLG.DRV` excluded: `resb MOD_MAX` count, `mod_leave` ~12, ~20 thunk sites × 3, +5 in `mod_need`, `mem_pg_forget` arm ~14, `mem_cp_drop` guard ~8, plus the three held-span brackets | **~215–240** | ~180–200 | ESTIMATE, and **three passes disagreed**: 104, 152–168 and 215–240. The high figure is the right one — the bracket **cannot** be an increment in `mod_need`, both because ONDEMAND-PLAN §7.1 says *"incremented by the stub before the far call"* and because kernel/ctrl.inc:5839 far-calls the module after `mod_live` with **no `mod_need` at all**. So it is enter+leave per site, plus the held-span arms |
+| **B** | **Modules become purgeable** (§3.3, §4.3) at `MEM_PG_MED`, with a PER-SPAN pin and `FDLG.DRV` excluded: `resb MOD_MAX` count, `mod_leave` ~12, 29 thunk sites × 3, +5 in `mod_need`, `mem_pg_forget` arm ~14, `mem_cp_drop` guard ~8, plus the three held-span brackets | **~215–240** | ~180–200 | ESTIMATE, and **three passes disagreed**: 104, 152–168 and 215–240. The high figure is the right one — the bracket **cannot** be an increment in `mod_need`, both because ONDEMAND-PLAN §7.1 says *"incremented by the stub before the far call"* and because kernel/ctrl.inc:5839 far-calls the module after `mod_live` with **no `mod_need` at all**. So it is enter+leave per site, plus the held-span arms |
 | **C** | **Regions move when idle** (§3.5, §4.2): `[wm_pkgd]` + its two brackets ~11, the fix-up routine ~110, the `mem_can_move` arm ~20, widen `mem_find_own`'s fence ~20, the `[ld_base]` refusal ~6, tier-3 gate ~15 | **~200** | ~11 | ESTIMATE; the fix-up is `dsk_dseg_reloc`'s shape over four tables and five words. Two agents arrived at ~110 independently |
 | **D0** | **Driver unload/reload as a policy step** (§3.4): the mechanism is BUILT — `hbm_detach`/`hbm_reload` are 91 bytes, `ss_reap_x` does it per session. Only a policy hook is new | **~40** | 0 | ESTIMATE. Reaches **more** memory than a move (the 8KB ring and ETHER's 14KB pool) and breaks nothing, because a package names a driver by CLASS |
 | **D** | **Driver images move in place** (§3.2, §3.4, §4.4): the 66-word fix-up, a dispatch depth count, the mask/unmask bracket, `DRVV_QUIESCE`/`DRVV_REARM`/`DRVV_RELOC` | **~175–242** | ~40 | ESTIMATE; `drv_call` is 61, `[drv_wcnt]`'s half costs 0. **The bytes are not what stops this** — §3.4's 50.2 ms IF=0 window for an 18KB `ETHER.DRV` is |
@@ -1320,7 +1335,20 @@ in the machine can merge them today.
    a package's overlay image claimed bottom-up with a CS base, SHEET's 99KB of
    undeclared claims, and a C SDK with no `os88_mem_movable` at all. A slot
    number, a declaration and one SDK function.
-4. **The user who is out of memory usually wants a program to go away.** Closing
+4. **There is a zero-ABI alternative that kills §2.0's wall at its root, and it
+   is not in this document's option list.** `drv_memk` (kernel/driver.inc:1091)
+   is already *"one word per `drv_tab` row, in the same order"* — the kernel
+   knows every driver's KB before any of them is mounted. **Reserve that band at
+   the ceiling at boot** and a driver mounted mid-session lands in it, at the
+   top, rather than at whatever depth the heap had reached. No new ABI, no
+   relocation, no predicate, no descending pass. What it costs is the band
+   itself, unavailable to packages even when nothing is mounted — ~48KB on a
+   fully-provisioned kern_big — which is a bad trade at face value. **A narrower
+   version may not be**: reserve only up to the largest single row, or only for
+   rows the machine could plausibly gain, and the wall is bounded rather than
+   eliminated for a fraction of the memory. It deserves costing before ~850
+   bytes of compactor does.
+5. **The user who is out of memory usually wants a program to go away.** Closing
    one returns 5–48KB of region **plus every claim it holds**, at no engineering
    cost — and SPEC.md 47's rule is that refusal is normal. A refusal that named
    *what to close and how much it would give back* would serve that user better
