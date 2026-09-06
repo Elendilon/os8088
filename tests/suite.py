@@ -1481,6 +1481,20 @@ SOAK = [
         "reddens the fourth",
         needs=("marty", "cc"), serial=True,
         wants=("build/cword360.img",)),
+    Row("sheetmove", "soak", py("tests/sheetmove.py"), 130.0,
+        "Compact the heap out from under a LIVE Sheet "
+        "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). SHEET was the largest "
+        "undeclared holder in the tree - six claims at its entry proc, ~99KB, "
+        "pinned for the session - which made SPEC.md 66.5.10.2's 'the arena "
+        "below the top now has no barrier in it at all' false the moment a "
+        "sheet opened. Five are declared now; sh_stgseg is the ES:BX of all "
+        "seven of the package's file calls and stays pinned, and this asserts "
+        "THAT too, because 'we meant to leave that one' and 'we forgot that "
+        "one' are the same picture. paintmove's recipe. VERIFIED TO FAIL: "
+        "drop sh_cellseg from sh_reloc's table and check 3 reads STALE while "
+        "check 4's repaint differs over 24 rows of the grid",
+        needs=("marty",), serial=True,
+        wants=("build/sheetmove360.img",)),
     Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8).",

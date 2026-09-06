@@ -4631,6 +4631,16 @@ $(BUILD)/trackmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/tracker.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/tracker.o88 apps/tracker/beverly.mod
 
+# ...and SHEET's own disk, for tests/sheetmove.py
+# (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). Its own image for
+# trackmove360's reason - the listing is sorted by name (SPEC.md 19.4) - and
+# because SHEET is the largest claimant in the tree: six claims at its entry
+# proc, ~99KB, of which five are now declared movable.
+$(BUILD)/sheetmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/sheet.o88 \
+                           tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
+		$(BUILD)/sheet.o88
+
 # ...and the three editors' disk, for tests/editmove.py (SPEC.md 66.5.7). One
 # image for all three because each run needs heapfrag plus exactly ONE app -
 # the app has to land ABOVE heapfrag in the arena, and a second app opened

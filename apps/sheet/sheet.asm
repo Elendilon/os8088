@@ -530,6 +530,64 @@ SH_MENU_N    equ 9                   ; File,Edit,Formula,Format,Data,Options,
 SH_M_NONE    equ 0xFF
 
 ; =============================================================================
+; sh_reloc - THE HEAP COMPACTOR MOVED ONE OF OUR CLAIMS (SPEC.md 66.2)
+; in:  BX = the base segment it WAS at, DX = the base it is at NOW.
+;      DS = CS = ours, ES = KERNEL_SEG. The bytes have already moved.
+; out: nothing; every register preserved
+;
+; SHEET WAS THE LARGEST UNDECLARED HOLDER IN THE TREE - six unconditional
+; claims taken at the entry proc, ~99KB, pinned for the whole session
+; (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). SPEC.md 66.5.10.2's closing
+; line - "the arena below the top now has no barrier in it at all" - was true
+; of the configuration it was measured on and false the moment a sheet opened.
+;
+; WHY IT IS A TABLE AND NOT A LADDER OF COMPARES. It is smaller at five
+; entries and it does the one thing a ladder gets wrong: it patches EVERY word
+; that names the old base rather than the first, because ch_srcseg and its
+; siblings below are second copies of a segment this package also holds
+; directly - and SPEC.md 66.1 is the record of a design that failed on exactly
+; that, "the pair that killed the word-poke design".
+;
+; SH_STGSEG IS NOT IN THE TABLE AND IS NOT DECLARED. It is the ES:BX of every
+; one of this package's seven OSAPI_FILE_READ/WRITE calls (SPEC.md 66.9 reason
+; 4), and a file call claims, so a compaction inside one would move the buffer
+; out from under a transfer the kernel has already been given the address of.
+; SPEC.md 66.5.7.1's pin/unpin pair is what it would take; 67KB of the 99 move
+; without it.
+;
+; Everything else in this package is an OFFSET into one of these segments -
+; a cell record, a formula's text, a note - so nothing else needs fixing.
+; =============================================================================
+sh_reloc:
+    push cx
+    push si
+    push di
+    mov si, sh_segw
+    mov cx, SH_NSEGW
+.l:
+    mov di, [si]                      ; DI = the address of a word that might
+    cmp bx, [di]                      ; name the block that moved
+    jne .next
+    mov [di], dx
+.next:
+    add si, 2
+    loop .l
+    pop di
+    pop si
+    pop cx
+    ret
+
+; The words that name a movable claim. The first five are the claims
+; themselves; the last three are os88chart.inc's borrowed copies, taken inside
+; ch_bars_draw/ch_bmp_write and dead between calls - they cost two bytes each
+; and they close the one window where a chart export could be holding a stale
+; segment across the OSAPI_FILE_WRITE in the middle of it.
+sh_segw:
+    dw sh_cellseg, sh_txtseg, sh_bordseg, sh_noteseg, sh_chartseg
+    dw ch_srcseg, ch_stgseg, ch_srcseg2
+SH_NSEGW equ 8
+
+; =============================================================================
 ; sh_entry - package entry point (SPEC.md 20.2). Claims run here, and only
 ; here (SPEC.md 50.3): this is the one place a package has no window yet
 ; and is sizing itself. A claim failure aborts the launch (CF=1) rather
@@ -549,10 +607,17 @@ sh_entry:
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [sh_cellseg], dx
+    mov ax, sh_reloc                     ; ...and MOVABLE (SPEC.md 66.2). SHEET
+                                      ; has NO WORKER, so mem_can_move
+                                      ; passes these on I_TASK = 0xFF
+                                      ; alone and no park is involved
+    call OSAPI_MEM_MOVABLE
     mov ax, SH_CLAIM_TXT_KB
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [sh_txtseg], dx
+    mov ax, sh_reloc
+    call OSAPI_MEM_MOVABLE
     mov ax, SH_CLAIM_STG_KB
     call OSAPI_MEM_CLAIM
     jc .fail
@@ -561,16 +626,22 @@ sh_entry:
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [sh_bordseg], dx
+    mov ax, sh_reloc
+    call OSAPI_MEM_MOVABLE
     mov word [sh_nbord], 0
     mov ax, SH_CLAIM_NOTE_KB
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [sh_noteseg], dx
+    mov ax, sh_reloc
+    call OSAPI_MEM_MOVABLE
     mov word [sh_nnote], 0
     mov ax, SH_CLAIM_CHART_KB
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [sh_chartseg], dx
+    mov ax, sh_reloc
+    call OSAPI_MEM_MOVABLE
     mov word [sh_chartwin], 0
     mov word [sh_chart_cnt], 0
     mov word [ch_type], CH_T_COLUMN

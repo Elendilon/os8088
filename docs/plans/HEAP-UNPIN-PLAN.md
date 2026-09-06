@@ -1582,6 +1582,64 @@ top-down claim** (`9100`, 60KB, HI), so "highest fit" puts the overlay
 directly below the region rather than above everything — abutting the CS-based
 group at the ceiling, which is where it belongs.
 
+### 10.5 §2.1.1 item 2 — SHEET declares five of its six
+
+**Built. +82 bytes of SHEET, zero kernel bytes, ~67KB of arena unblocked.**
+SHEET was the largest undeclared holder in the tree: six unconditional claims
+at its entry proc, ~99KB, every one pinned for the session — which made SPEC.md
+66.5.10.2's closing line, *"the arena below the top now has no barrier in it at
+all — every claim there is movable or purgeable"*, false the moment a sheet
+opened.
+
+Two facts made it cheap. **SHEET hires no worker**, so `mem_can_move` passes
+its claims on `I_TASK = 0xFF` alone and no park is involved at all. And every
+reference to the six segments is a fresh `mov es, [sh_*seg]` — everything else
+in the package is an *offset* into one of them.
+
+**`sh_reloc` is a TABLE and not a ladder of compares**, for one reason worth
+keeping: it patches **every** word that names the old base rather than the
+first. `os88chart.inc`'s `ch_srcseg`, `ch_stgseg` and `ch_srcseg2` are borrowed
+second copies of segments this package also holds directly, and SPEC.md 66.1 is
+the record of a word-poke design that failed on exactly that — *"the pair that
+killed the word-poke design"*.
+
+**`sh_stgseg` is deliberately not declared**, and the gate asserts that too,
+because *"we meant to leave that one"* and *"we forgot that one"* are the same
+picture. It is the `ES:BX` of **all seven** of the package's
+`OSAPI_FILE_READ`/`WRITE` calls (SPEC.md 66.9 reason 4), and a file call
+claims, so a compaction inside one would move the buffer out from under a
+transfer the kernel already has the address of. SPEC.md 66.5.7.1's pin/unpin
+pair is what it would take.
+
+`tests/sheetmove.py` is `paintmove`'s recipe with a bigger claimant: heapfrag
+owns the floor, Sheet lands above it, `12345` is typed into A1, heapfrag closes
+and is re-opened, and its big claim forces the pass. On a 640x200 CGA three of
+the five move (`sh_cellseg` 6060→58e0, `sh_txtseg`, `sh_bordseg`), the contents
+hash identically, every word follows, `sh_stgseg` does not budge and the
+repaint is byte-identical. **Verified to fail**: drop `sh_cellseg` from
+`sh_reloc`'s table and check 3 reads `STALE: sh_cellseg` while check 4's
+repaint differs over 24 rows of the grid — a plausible wrong sheet rather than
+a crash, which is the whole reason a contents hash is not enough.
+
+### 10.6 …and a FALSE GREEN found while writing it
+
+`sheetmove` failed its repaint check with 129 of 135 rows differing, and the
+cause was in the two rows it was copied from. `m.vram()` answers a row per
+scanline and **a BYTE per pixel** — a colour index, not packed bits — and
+`paintmove` and `editmove` both slice it as `rows[y][cx0 // 8 : cx1 // 8]`.
+Against a 640-wide frame that compares the leftmost (cx1−cx0)/8 **pixels** of
+each row instead of the window: a strip of desktop, identical in both captures
+whatever the window does. **Both rows' final assertion — the one whose
+docstring says it is the only thing that tests `pt_rowseg` — was green by
+construction.** Fixed in all three, and both now compare the real rectangle and
+still pass.
+
+The second half of that fix is the **mouse pointer**: it is drawn into the
+framebuffer, the two captures are taken after different gestures, and with the
+rectangle finally correct the difference was six pixels wide — `x 115..120,
+y 63..64`, the tail of the arrow a window drag had left one row inside the
+content. All three rows park it at a fixed spot before each capture now.
+
 ---
 
 ## 10.1 How the rest would be verified

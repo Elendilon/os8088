@@ -86,7 +86,7 @@ be done". Sizes are the `equ`s at the claim sites.
 |---|---|
 | **Word** | document and CHP arena (grown in lockstep from `WD_KB0`), PAP dictionary 1KB, undo arena, italic glyph table + staging `WD_ITKB` 9KB, `WORD.OVL` image `WD_OVKB` 8KB (a CS, so that one is forever), `WD_LSTGKB` 62KB load staging (transient), a `2*WD_SCHALF` scratch |
 | **the typeface cache** (`apps/os88type.inc`, so Word, TeXpad and every other includer) | `TY_FACE_KB + 1` per open face, and it is the one claim in the tree that carries `MC_DMA` for **alignment alone**: it asks `OSAPI_MEM_CLAIM_DMA` for a whole-block head, then rounds the segment up to a multiple of 32 paragraphs by hand — the +1KB is that rounding's slack. No chip is armed on it and none ever will be, so `mem_can_move`'s blanket `MC_DMA` refusal (§66.9 reason 2) is pinning it for a reason that does not apply |
-| **Sheet** | cells 32KB, text 8KB, staging 32KB, borders 4KB, notes 4KB, chart 19KB — ~99KB for the session, the largest undeclared holder |
+| **Sheet** | staging 32KB ONLY — it is the `ES:BX` of all seven of the package's `OSAPI_FILE_READ`/`WRITE` calls (§66.9 reason 4), so it stays pinned; §66.5.7.1's pin/unpin pair is what it would take. The other five — cells 32KB, text 8KB, borders 4KB, notes 4KB, chart 19KB — are **MOVABLE** now (see below) |
 | **Chart** | chart 19KB, staging 32KB |
 | **Browser** | link table `BR_LINKKB` 6KB, document up to `BR_DOCMAX` 63KB, line table 8KB, fetch buffer `BR_MAXKB` 32KB |
 | **FTPD** | staging `FD_STGKB` 8KB |
@@ -94,9 +94,9 @@ be done". Sizes are the `equ`s at the claim sites.
 | **Audio** | `AP_LA_SZ` 32KB look-ahead ring |
 | **Tank Attack** | `TK_SHKB` 16KB CGA/Hercules shadow |
 | **Frotz** | scrollback `ZW_SBKB` 24KB (8KB fallback) — `zwin.inc`'s claim, outside `zf_reloc` |
-| **every C package** (C64, RunCPM, Weave, Loom, CWORD) | `os88_mem_claim` is the whole of the C SDK's heap surface: there is no `os88_mem_movable`, so a C package cannot declare. C64's 64KB RAM, RunCPM's 64KB Z80 space, Weave's bundle/VM/canvas/grid, Loom's 29/50/62KB project buffers, and every `apps/os88parts.inc` scratch part are all pinned. The C overlay (`crt0.asm`, §73.14) is a CS and forever |
+| **every C package** (C64, RunCPM, Weave, Loom, CWORD) | `os88_mem_claim` is the whole of the C SDK's heap surface: there is no `os88_mem_movable`, so a C package cannot declare. C64's 64KB RAM, RunCPM's 64KB Z80 space, Weave's bundle/VM/canvas/grid, Loom's 29/50/62KB project buffers, and every `apps/os88parts.inc` scratch part are all pinned. **The C OVERLAY is the exception and it is MOVABLE** (§66.4.1, `apps/cc/crt0.asm`): it is claimed top-down because its base is a CS, and `cc_ovreloc` is four bytes falling through into `cc_ovbind` — safe because `cc_ovthunk` DISCARDS the module's CS and rebuilds the `retf` from `[cc_ovseg]` after the call, so no stack ever holds it. `tests/ovlhigh.py` is the gate |
 
-Word and Sheet are the two worth an afternoon: session-lived, tens of KB,
+Word is the one worth an afternoon: session-lived, tens of KB,
 claimed after the user has been working — exactly the profile that stranded
 Tracker's module in the field (docs/FIELD-NOTES.md 2).
 
@@ -118,6 +118,7 @@ and does not ship.)
 | **HDD** per-partition listing (`HDD_LISTKB` 6KB) | **MOVABLE** | §66.5.10.2. Donated to the kernel by `osapi_vol_add`, so three words name it: `mem_reloc_call` calls `dsk_dseg_reloc` for **every** move first (the kernel's `DV_SEG` and `[dsk_dseg]`), then the owner's `hd_lst_reloc`, one word. Stays claimed LOW (§50.3.2.1): sent high it cost 9KB |
 | **HDD** second image (`HDDTOOL.DRV`) | **PINNED (forever)** | base is CS (§52.11.7). Claimed top-down |
 | **RAM disk** second image (`RAMPAGE.DRV`) | **PINNED (forever)** | base is CS (§62.9.9) — `[rd_pfar]` is `PKG_DISP:segment`. Claimed top-down |
+| **Sheet** cells, text, borders, notes, chart | **MOVABLE** | ~67KB of the ~99, and Sheet hires NO WORKER so `mem_can_move` passes them on `I_TASK = 0xFF` alone — no park is involved at all. `sh_reloc` is a TABLE and not a ladder of compares: it patches **every** word that names the old base, because `os88chart.inc`'s `ch_srcseg` / `ch_stgseg` / `ch_srcseg2` are borrowed second copies and §66.1 is the record of a word-poke design that failed on exactly that. `tests/sheetmove.py` is the gate |
 | **RAM disk** store | **MOVABLE** | §66.5.10. `rd_reloc`, one word — nothing outside `ramdisk.asm` sees the arena, and every handle into it is an offset |
 | **ETHER.DRV** socket pool | **MOVABLE** | §66.4.1, and it was `UNDECLARED` rather than unmovable for a release: the comment at the claim said *"the card's own descriptors point into these rings and it DMAs into them"* and both clauses are false for an NE2000 — the 8390's two DMA engines are internal to the card, the host side of remote DMA is `in al, dx` / `stosb`, and this driver hooks no vector at all. `sk_reloc` is **one word**, `sbl_reloc`'s shape, because `sk_ring` re-derives ES from `[sk_seg]` on every access and `[sk_base]` is an offset *inside* the block. Still claimed top-down (`OSAPI_MEM_CLAIM_HI`) — placement is a second axis — so it packs UP with the ceiling rather than down into the arena |
 
