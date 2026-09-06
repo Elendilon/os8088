@@ -256,7 +256,13 @@ CSP_ATT    equ 34               ; word: ITS FLIGHT MODEL (88.7.2) - the near
                                 ; the motion, the ground - is shared, because
                                 ; it is the same arithmetic for both and a
                                 ; second copy of it would drift
-CSP_SIZE   equ 36
+CSP_ART    equ 36               ; word: ITS PICTURE (88.10.1) - the 1bpp band
+                                ; the launcher blits when this row is the one
+                                ; in use. It hangs off the record rather than
+                                ; off a third table beside cs_planes and
+                                ; cs_plnames, so an aeroplane carries its own
+                                ; picture the way it carries its own cockpit
+CSP_SIZE   equ 38
 
 ; --- a cockpit record (SPEC.md 88.9.2): what a plane's panel looks like ------
 CSK_WIN    equ 0                ; word: the windows, (x1, y1, x2, y2) at 320
@@ -572,7 +578,11 @@ cs_paint:
     mov bx, CS_TITLEY + 16
     mov al, CBLACK
     call cs_at_centre
-.plane:                             ; --- the aeroplane in front of its cloud -
+.plane:                             ; --- the aeroplane in front of its cloud:
+                                    ; the band of WHICHEVER row is in use
+                                    ; (88.10.1), so the picture follows the
+                                    ; Plane list. Every band shares the frame,
+                                    ; so only the pointer changes
     mov ax, [cs_winox]
     add ax, CS_ARTX
     mov bx, [cs_winoy]
@@ -580,7 +590,8 @@ cs_paint:
     mov cx, cs_art_plane_w
     mov dx, cs_art_plane_h
     mov bp, cs_art_plane_w / 8
-    mov si, cs_art_plane
+    mov si, [cs_plane]
+    mov si, [si + CSP_ART]
     call OSAPI_GFX_BLIT1            ; refused: a plainer page, and that is all
 
     ; --- the configuration: the labels, the controls' rects (they follow
@@ -1047,6 +1058,57 @@ cs_repaint:
     pop bx
     ret
 
+; -----------------------------------------------------------------------------
+; cs_artdraw - put the aeroplane in use back up, and NOTHING else (88.10.1).
+;              A pick from the Plane list changes exactly one picture on the
+;              page, so it costs ONE BLIT rather than a repaint: the drop-down
+;              has already put back the pixels its list covered and redrawn
+;              its own box (13.14.1, os88ui_drup returning CF = 0), and
+;              nothing else on the page depends on which aeroplane it is.
+;              Where the list had no bank to restore, os88ui_drup asks for the
+;              repaint instead and the caller takes that path, so the picture
+;              is never drawn twice - a double draw being visible on the
+;              target machine (PERFORMANCE.md).
+; in:  the gfx lock is held.  preserves all
+; -----------------------------------------------------------------------------
+cs_artdraw:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push bp
+    push es
+    cmp byte [cs_page], 0           ; only the title page carries a picture
+    jne .out
+    mov bx, [cs_win]
+    call OSAPI_WM_CLIP_SET
+    jc .out
+    mov bx, [cs_win]
+    call OSAPI_WM_CONTENT           ; AX/DX, read again rather than remembered:
+    mov [cs_winox], ax              ; a window that moved moved the picture
+    mov [cs_winoy], dx
+    push ds
+    pop es
+    add ax, CS_ARTX
+    mov bx, dx
+    add bx, CS_ARTY
+    mov cx, cs_art_plane_w
+    mov dx, cs_art_plane_h
+    mov bp, cs_art_plane_w / 8
+    mov si, [cs_plane]
+    mov si, [si + CSP_ART]
+    call OSAPI_GFX_BLIT1            ; refused: the page keeps the last one
+.out:
+    pop es
+    pop bp
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; cs_at_left - SI = string, BX = content y, CX = content x, AL = ink, on the
 ;              white page
 cs_at_left:
@@ -1313,7 +1375,14 @@ cs_drtake:
     pop ax
 .nopick:
     popf
-    jnc .norep
+    jc .rep                         ; no bank to restore: the whole page
+    cmp bx, cs_drplane              ; ...otherwise the list put its own pixels
+    jne .norep                      ; back, and the only thing on the page
+    cmp al, 0FFh                    ; that a pick changed is the PICTURE
+    je .norep                       ; (88.10.1) - which is one blit
+    call cs_artdraw
+    jmp short .norep
+.rep:
     call cs_repaint
 .norep:
     or ah, ah

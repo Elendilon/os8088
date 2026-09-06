@@ -1,23 +1,31 @@
 #!/usr/bin/env python3
-"""CLEAR SKIES' title-screen art (SPEC.md 88.10): two 1bpp bands, generated.
+"""CLEAR SKIES' title-screen art (SPEC.md 88.10): the 1bpp bands, generated.
 
     python3 tools/csart.py -o apps/skies/csart.inc [--preview DIR]
 
-The launcher is a white page with the title lettered across the top and a
-Cessna 172 in front of a cumulus on the right, and both are DRAWN HERE, as
-vectors - the lettering as brush strokes (a black stroke and a narrower white
-one over it, which is what makes a letter an outline with a white centre),
-the aeroplane as filled polygons that hide the cloud behind them and the
-lines that make it an aeroplane - and rasterised ONCE into the framebuffer's
-own 1bpp bit order, so the window puts each up with a single OSAPI_GFX_BLIT1
-(apps/os88api.inc) instead of the four hundred line calls the drawing would
-be on an 8088, at SPEC.md 5.6's price each. A set bit is a LIT pixel there,
-so the bands carry paper as 1 and ink as 0: right on a 1bpp adapter as they
-are, and right on VGA under the blit's default pen.
+The launcher is a white page with the title lettered across the top and the
+AEROPLANE IN USE in front of a cumulus on the right - a band per aircraft,
+which a plane record names in CSP_ART (SPEC.md 88.10.1) - and all of them
+are DRAWN HERE, as vectors: the lettering as brush strokes (a black stroke
+and a narrower white one over it, which is what makes a letter an outline
+with a white centre), an aeroplane as filled shapes that hide the cloud
+behind them and the lines that make it an aeroplane. Each is rasterised
+ONCE into the framebuffer's own 1bpp bit order, so the window puts it up
+with a single OSAPI_GFX_BLIT1 (apps/os88api.inc) instead of the four hundred
+line calls the drawing would be on an 8088, at SPEC.md 5.6's price each. A
+set bit is a LIT pixel there, so the bands carry paper as 1 and ink as 0:
+right on a 1bpp adapter as they are, and right on VGA under the blit's
+default pen.
+
+EACH AIRCRAFT IS SEEN FROM ITS OWN ANGLE, because a row of side elevations
+reads as one drawing with the parts moved around. A side elevation is drawn
+flat, in canvas pixels; anything else is written as a MODEL in body
+coordinates and projected, the angle being three numbers - see `View` and
+`model` below.
 
 The output is checked in and `tests/unit/t_csart.py` regenerates it and
-compares, so the include cannot drift from this file. --preview writes the
-two bands as PNGs, eight times up, for looking at.
+compares, so the include cannot drift from this file. --preview writes every
+band as a PNG, zoomed, for looking at.
 """
 import argparse
 import math
@@ -92,6 +100,41 @@ class Canvas:
                 for x in range(int(round(a)), int(round(b)) + 1):
                     self.plot(x, y, ink)
 
+    def fillz(self, pts, zb, ink=0):
+        """Scanline fill carrying a DEPTH into a z-buffer, so a pixel is taken
+        by the nearest face over it and by no other. `pts` are (x, y, depth),
+        depth growing toward the camera."""
+        ys = [p[1] for p in pts]
+        for y in range(int(math.floor(min(ys))), int(math.ceil(max(ys))) + 1):
+            xs = []
+            n = len(pts)
+            for i in range(n):
+                (x0, y0, z0), (x1, y1, z1) = pts[i], pts[(i + 1) % n]
+                if (y0 <= y < y1) or (y1 <= y < y0):
+                    t = (y - y0) / (y1 - y0)
+                    xs.append((x0 + t * (x1 - x0), z0 + t * (z1 - z0)))
+            xs.sort()
+            for (a, za), (b, zbb) in zip(xs[0::2], xs[1::2]):
+                ia, ib = int(round(a)), int(round(b))
+                for x in range(ia, ib + 1):
+                    t = 0.0 if ib == ia else (x - ia) / (ib - ia)
+                    z = za + t * (zbb - za)
+                    if 0 <= x < self.w and 0 <= y < self.h and z > zb[y][x]:
+                        zb[y][x] = z
+                        self.px[y][x] = ink
+
+    def linez(self, p0, p1, zb, bias=0.03):
+        """A line drawn only where it is not BEHIND what the fills left - the
+        hidden-line half of the picture. The bias is the tolerance that lets
+        a face's own outline sit on its own fill."""
+        (x0, y0, z0), (x1, y1, z1) = p0, p1
+        n = max(1, int(round(max(abs(x1 - x0), abs(y1 - y0)))))
+        for i in range(n + 1):
+            t = i / n
+            x, y = int(round(x0 + t * (x1 - x0))), int(round(y0 + t * (y1 - y0)))
+            if 0 <= x < self.w and 0 <= y < self.h and z0 + t * (z1 - z0) + bias >= zb[y][x]:
+                self.px[y][x] = 1
+
     def outline_of_mask(self, mask):
         """The boundary of a filled mask (another Canvas): a set pixel with an
         unset 4-neighbour, or on the edge."""
@@ -158,21 +201,198 @@ def bezier(p0, p1, p2, p3, n=24):
 
 
 # =============================================================================
-# The aeroplane in front of its cloud: 152 x 96
+# An aeroplane in front of its cloud: 152 x 96, ONE BAND PER AIRCRAFT
 # =============================================================================
+# Every aircraft is drawn in the same frame and in front of the same cumulus,
+# so the launcher's picture changes in the AEROPLANE and in nothing else when
+# the Plane list is picked - but each is seen FROM ITS OWN ANGLE (SPEC.md
+# 88.10.1), because a row of side elevations reads as one drawing with the
+# parts moved around rather than as two aeroplanes.
+#
+# The cloud is drawn into every band rather than stored once and shared,
+# because OSAPI_GFX_BLIT1 is OPAQUE: a plane-only band would punch its whole
+# bounding box out of what is under it, and an aeroplane's bounding box is
+# most of the cloud. Two bands cost 1,824 bytes each and no code; a
+# transparent blit costs a mask the same size as the band it masks, and a
+# kernel slot that does not exist.
 ART_PLANE_W, ART_PLANE_H = 152, 96
 
 
-def plane_art():
-    c = Canvas(ART_PLANE_W, ART_PLANE_H)
-    # --- the cumulus: a union of discs over a flat base, outlined ------------
+def cumulus(c):
+    """The cloud they all stand in front of: a union of discs over a flat
+    base, outlined."""
     mask = Canvas(ART_PLANE_W, ART_PLANE_H)
     for cx, cy, r in ((34, 66, 19), (58, 50, 24), (90, 44, 29), (122, 56, 24), (138, 70, 15)):
         mask.disc(cx, cy, r)
     for y in range(83, ART_PLANE_H):                      # the flat bottom
         mask.px[y] = bytearray(ART_PLANE_W)
     c.outline_of_mask(mask)
-    # --- the Cessna 172, side on, nose to the left ---------------------------
+
+
+def solids(c, polys):
+    """A FLAT drawing's parts: filled white so they stand in front of the
+    cloud, and outlined after - both passes over the whole set, or one
+    part's fill erases the part before it's outline. It is enough here
+    only because nothing in a side elevation is behind anything; `model`
+    below is the same job in three dimensions, where that is false."""
+    for poly in polys:
+        c.fill(poly, 0)
+    for poly in polys:
+        c.polyline(poly + [poly[0]], 1)
+
+
+def plane_art(draw):
+    c = Canvas(ART_PLANE_W, ART_PLANE_H)
+    cumulus(c)
+    draw(c)
+    return c
+
+
+# --- a VIEW of an aeroplane: the model in three dimensions, projected --------
+# Anything but a side elevation needs foreshortening, which is wrong whenever
+# it is guessed - so an aircraft that is not drawn side on is written once as
+# a model in its own body coordinates and the angle it is seen from is THREE
+# NUMBERS. That is what makes a new angle a one-line change rather than a
+# redrawing, and it is the simulator's own arithmetic (SPEC.md 88.5) in
+# Python and to no budget: the machine only ever sees the raster.
+#
+# Body coordinates are an aeroplane's own: x out the RIGHT wing, y UP,
+# z FORWARD out of the nose. The camera is on +z looking back along it, so
+# a larger z is nearer.
+def rot(pts, yaw, pitch, roll):
+    """Roll, then pitch, then yaw - the order an attitude is built in, so the
+    three numbers read as the attitude they are."""
+    out = []
+    cr, sr = math.cos(math.radians(roll)), math.sin(math.radians(roll))
+    cp, sp = math.cos(math.radians(pitch)), math.sin(math.radians(pitch))
+    cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    for x, y, z in pts:
+        x, y = x * cr - y * sr, x * sr + y * cr                 # roll, about z
+        y, z = y * cp - z * sp, y * sp + z * cp                 # pitch, about x
+        x, z = x * cy + z * sy, -x * sy + z * cy                # yaw, about y
+        out.append((x, y, z))
+    return out
+
+
+class View:
+    """A camera. Projecting keeps each point's DEPTH beside its pixel, which
+    is what lets the z-buffer in `model` decide what is seen."""
+
+    def __init__(self, yaw, pitch, roll, dist=9.0, margin=3):
+        self.a = (yaw, pitch, roll)
+        self.dist, self.margin = dist, margin
+        self.scale, self.cx, self.cy = 1.0, 0.0, 0.0
+
+    def __call__(self, pts):
+        out = []
+        for x, y, z in rot(pts, *self.a):
+            k = self.scale * self.dist / (self.dist - z)
+            out.append((self.cx + x * k, self.cy - y * k, z))
+        return out
+
+    def fit(self, polys, w, h):
+        """Scale and centre the model onto the frame it is drawn in, instead
+        of to a constant that has to be re-guessed every time the angle
+        moves. The fit is over the projected points, so it is right for any
+        attitude without being told anything about the aeroplane."""
+        self.scale, self.cx, self.cy = 1.0, 0.0, 0.0
+        pts = [p for poly in polys for p in self(poly)]
+        x0 = min(p[0] for p in pts); x1 = max(p[0] for p in pts)
+        y0 = min(p[1] for p in pts); y1 = max(p[1] for p in pts)
+        m = self.margin
+        self.scale = min((w - 2 * m) / (x1 - x0), (h - 2 * m) / (y1 - y0))
+        self.cx = w / 2.0 - self.scale * (x0 + x1) / 2.0
+        self.cy = h / 2.0 - self.scale * (y0 + y1) / 2.0
+        return self
+
+
+def model(c, view, polys, lines=()):
+    """Paint a model: every face filled WITH ITS DEPTH into a z-buffer, and
+    then every edge drawn only where it is not behind what the fills left.
+
+    Sorting the faces and painting back to front - which is what the
+    simulator itself does (SPEC.md 88.5.4) - cannot work here: a fuselage
+    panel runs the length of the aeroplane and a wing crosses it, so there
+    is no order of those two that is right along the whole of both. The
+    simulator takes that trade because it has milliseconds; this is drawn
+    once, on a host, where being right is free.
+
+    The fills are white, so the aeroplane hides the cloud behind it exactly
+    as the flat drawing's do."""
+    view.fit(polys, c.w, c.h)
+    zb = [[-1e9] * c.w for _ in range(c.h)]
+    faces = [view(p) for p in polys]
+    for pts in faces:
+        c.fillz(pts, zb)
+    for pts in faces:
+        for a, b in zip(pts, pts[1:] + pts[:1]):
+            c.linez(a, b, zb)
+    for seg in lines:                                 # struts and wires, which
+        pts = view(seg)                               # are line and not solid
+        for a, b in zip(pts, pts[1:]):
+            c.linez(a, b, zb)
+
+
+def box(x0, x1, y0, y1, z0, z1):
+    """A thin plate as six quads - a wing, a fin, a tailplane. Thin, but not
+    flat: a single plate has no leading edge, and the leading edge is most
+    of what says wing when the view is nearly along it."""
+    p = [(x0, y0, z0), (x1, y0, z0), (x1, y0, z1), (x0, y0, z1),
+         (x0, y1, z0), (x1, y1, z0), (x1, y1, z1), (x0, y1, z1)]
+    return [[p[0], p[1], p[2], p[3]], [p[4], p[5], p[6], p[7]],      # under, over
+            [p[0], p[1], p[5], p[4]], [p[3], p[2], p[6], p[7]],      # fore, aft
+            [p[0], p[3], p[7], p[4]], [p[1], p[2], p[6], p[5]]]      # the two tips
+
+
+def tube(stations):
+    """A fuselage: hexagonal rings down its length and the panels between
+    them, each station (z, half-width, centre y, half-height). SIX sides
+    because it is the OUTLINES that are drawn, and six longerons read as a
+    round fuselage where four read as a crate - and only a few stations,
+    because every extra one is another hoop drawn across the picture."""
+    def ring(z, w, yc, h):
+        return [(0, yc + h, z), (w, yc + 0.45 * h, z), (w, yc - 0.45 * h, z),
+                (0, yc - h, z), (-w, yc - 0.45 * h, z), (-w, yc + 0.45 * h, z)]
+    rings = [ring(*st) for st in stations]
+    out = []
+    for a, b in zip(rings, rings[1:]):
+        for i in range(6):
+            j = (i + 1) % 6
+            out.append([a[i], a[j], b[j], b[i]])
+    return out
+
+
+def prism(profile, x0, x1):
+    """A shape given as a profile in the y-z plane, extruded across the span
+    from x0 to x1: the two sides, and a quad for each edge of the profile.
+    It is `box` with the corners taken off - a rudder is a rounded thing,
+    and a rectangle reads as a slab from every angle a box does not."""
+    a = [(x0, y, z) for y, z in profile]
+    b = [(x1, y, z) for y, z in profile]
+    out = [a, b[::-1]]
+    for i in range(len(profile)):
+        j = (i + 1) % len(profile)
+        out.append([a[i], a[j], b[j], b[i]])
+    return out
+
+
+def disc3(centre, r, axis, n=20):
+    """A circle standing in the plane normal to `axis`: a propeller, a wheel.
+    One polygon, because in a line drawing a disc's outline is a disc."""
+    cx, cy, cz = centre
+    u, v = {"x": ((0, 1, 0), (0, 0, 1)), "y": ((1, 0, 0), (0, 0, 1)),
+            "z": ((1, 0, 0), (0, 1, 0))}[axis]
+    return [(cx + r * (u[0] * ca + v[0] * sa), cy + r * (u[1] * ca + v[1] * sa),
+             cz + r * (u[2] * ca + v[2] * sa))
+            for ca, sa in ((math.cos(2 * math.pi * i / n),
+                            math.sin(2 * math.pi * i / n)) for i in range(n))]
+
+
+def art_c172(c):
+    """The Cessna 172 SIDE ON, nose to the left: high wing on a strut, a
+    tricycle undercarriage, the cabin glazed all the way round. A side
+    elevation is the right view for the trainer - it is the shape a pilot
+    knows it by, and it is the one view a flat drawing gets exactly right."""
     body = [(12, 53), (18, 47), (30, 44), (46, 43), (54, 34), (82, 34), (92, 38),
             (118, 42), (140, 17), (147, 17), (150, 46), (150, 51), (130, 55),
             (100, 60), (64, 64), (42, 64), (24, 61), (13, 57)]
@@ -182,10 +402,7 @@ def plane_art():
     prop = arc(11, 53, 2, 19, 0, 360)
     nosewheel = arc(31, 71, 4, 5, 0, 360)
     mainwheel = arc(76, 72, 5, 6, 0, 360)
-    for poly in (body, wing, stab, spinner, prop, nosewheel, mainwheel):
-        c.fill(poly, 0)                               # white: in front of the cloud
-    for poly in (body, wing, stab, spinner, prop, nosewheel, mainwheel):
-        c.polyline(poly + [poly[0]], 1)
+    solids(c, [body, wing, stab, spinner, prop, nosewheel, mainwheel])
     # the strut, the windows, the door, the gear legs, the rudder hinge
     c.line(58, 63, 48, 33)                            # the wing strut
     c.line(60, 63, 50, 33)
@@ -198,7 +415,55 @@ def plane_art():
     c.line(74, 64, 76, 66)                            # the main gear leg
     c.line(142, 20, 147, 44)                          # the rudder hinge
     c.line(118, 42, 148, 45)                          # the fuselage top under the fin
-    return c
+
+
+def art_pitts(c):
+    """The Pitts Special S-2B, THREE-QUARTERS from ahead and below, banked
+    into a climbing turn - the aerobat seen the way its own flight model
+    lets it be flown (`cs_att_free`, SPEC.md 88.7.2), and deliberately not
+    the angle the trainer is drawn from.
+
+    From BELOW rather than above, which is the one choice a biplane forces:
+    seen from over the top the upper wing simply covers the lower one and
+    the picture is a monoplane. From under it they separate, and the bay of
+    struts between them is the whole of what says biplane."""
+    # The margin is the aeroplane's SIZE in its frame, and it is set so the
+    # aerobat sits inside the cloud as the trainer does: a banked
+    # three-quarter view is tall where a side elevation is wide, so fitting
+    # both to the same frame would draw one twice the size of the other.
+    view = View(yaw=-62, pitch=-8, roll=15, margin=11)
+    polys = tube([(2.35, 0.27, 0.02, 0.30),           # the cowl's front...
+                  (1.45, 0.35, 0.02, 0.41),           # ...and the firewall
+                  (-0.60, 0.30, 0.00, 0.36),
+                  (-2.60, 0.07, 0.08, 0.13)])         # the sternpost
+    polys += box(-1.70, 1.70, 0.92, 1.00, 0.14, 0.94)       # the upper wing...
+    polys += box(-1.52, 1.52, -0.46, -0.38, -0.66, 0.10)    # ...ahead of the lower
+    polys += prism([(0.10, -1.62), (0.62, -1.80), (1.02, -2.24),      # the fin,
+                    (1.10, -2.54), (0.96, -2.80), (0.14, -2.86)],     # rounded
+                   -0.04, 0.04)
+    polys += prism([(0.02, -2.06), (0.08, -2.10), (0.10, -2.70),      # and the
+                    (0.02, -2.84)], -0.88, 0.88)                      # tailplane
+    polys += [disc3((0, 0.02, 2.44), 0.16, "z"),            # the spinner
+              disc3((0, -0.30, -2.72), 0.11, "x")]          # the tailwheel
+    polys += [disc3((sx * 0.62, -1.26, 0.52), 0.24, "x") for sx in (-1, 1)]
+    # The propeller is an OUTLINE and not a face: a spinning disc is drawn as
+    # the ring it sweeps, and filled it would be a white plate over the nose.
+    prop = disc3((0, 0.02, 2.50), 0.56, "z")
+    lines = [prop + prop[:1],
+             [(-0.26, 0.36, -0.10), (0.26, 0.36, -0.10),    # the open cockpit
+              (0.24, 0.34, -0.62), (-0.24, 0.34, -0.62), (-0.26, 0.36, -0.10)],
+             [(0, 0.14, -1.66), (0, 1.08, -2.30)]]          # the rudder hinge
+    for sx in (-1, 1):
+        # ONE cabane a side, not the real aeroplane's pair: four uprights
+        # this close together read as a comb at 152 pixels rather than as
+        # the strutting they are.
+        lines += [[(sx * 0.22, 0.40, 0.62), (sx * 0.26, 0.92, 0.56)],   # cabane
+                  [(sx * 1.06, -0.40, -0.08), (sx * 1.12, 0.92, 0.30)], # the bay's
+                  [(sx * 1.06, -0.40, -0.54), (sx * 1.12, 0.92, 0.78)], # N-struts
+                  [(sx * 1.06, -0.40, -0.54), (sx * 1.12, 0.92, 0.30)], # ...diagonal
+                  [(sx * 0.24, -0.44, 0.66), (sx * 0.62, -1.22, 0.52)], # the bowed
+                  [(sx * 0.24, -0.44, 0.34), (sx * 0.62, -1.22, 0.52)]] # spring gear
+    model(c, view, polys, lines)
 
 
 # =============================================================================
@@ -245,19 +510,34 @@ def title_art():
     return c
 
 
-def emit(path, bands):
+def emit(path, title, planes):
     lines = ["; CLEAR SKIES' title-screen art (SPEC.md 88.10): GENERATED by",
              "; tools/csart.py - do not edit by hand; tests/unit/t_csart.py holds",
              "; this file to the generator. Each band is OSAPI_GFX_BLIT1's own",
              "; order: row-major, bit 7 leftmost, a set bit LIT - so ink is a",
-             "; clear bit and paper a set one, on every adapter, with no pen.", ""]
-    for name, canvas in bands:
-        lines.append("%s_w equ %d" % (name, canvas.w))
-        lines.append("%s_h equ %d" % (name, canvas.h))
+             "; clear bit and paper a set one, on every adapter, with no pen.",
+             "; The aircraft bands share ONE frame and a plane record names",
+             "; the one it is drawn from in CSP_ART (SPEC.md 88.10.1).", ""]
+
+    def band(name, canvas):
         lines.append("%s:" % name)
         for row in canvas.band():
             lines.append("    db " + ", ".join("0x%02X" % b for b in row))
         lines.append("")
+
+    lines.append("cs_art_title_w equ %d" % title[1].w)
+    lines.append("cs_art_title_h equ %d" % title[1].h)
+    band(*title)
+    # ONE frame for every aircraft: cs_paint blits whichever band the plane
+    # in use names, with the one width and height, so a band of another size
+    # would draw the wrong picture rather than fail to assemble.
+    frames = set((c.w, c.h) for _, c in planes)
+    assert len(frames) == 1, "the aircraft bands share one frame: %r" % (frames,)
+    lines.append("cs_art_plane_w equ %d" % planes[0][1].w)
+    lines.append("cs_art_plane_h equ %d" % planes[0][1].h)
+    lines.append("")
+    for one in planes:
+        band(*one)
     open(path, "w").write("\n".join(lines))
 
 
@@ -267,12 +547,15 @@ def main(argv):
     ap.add_argument("--preview", help="write PNG previews into this directory")
     ap.add_argument("--zoom", type=int, default=4)
     a = ap.parse_args(argv)
-    bands = [("cs_art_title", title_art()), ("cs_art_plane", plane_art())]
+    title = ("cs_art_title", title_art())
+    planes = [("cs_art_c172", plane_art(art_c172)),      # in cs_planes' order,
+              ("cs_art_pitts", plane_art(art_pitts))]    # and CSP_ART's
+    bands = [title] + planes
     if a.preview:
         os.makedirs(a.preview, exist_ok=True)
         for name, canvas in bands:
             canvas.png(os.path.join(a.preview, name + ".png"), a.zoom)
-    emit(a.out, bands)
+    emit(a.out, title, planes)
     print("csart: %s (%s)" % (a.out, ", ".join("%s %dx%d" % (n, c.w, c.h) for n, c in bands)))
 
 

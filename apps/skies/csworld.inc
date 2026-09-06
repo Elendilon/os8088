@@ -370,6 +370,7 @@ cs_p_c172:
     dw 7282                         ; CSP_MAXPITCH 40 degrees
     dw cs_ck_c172                   ; CSP_COCKPIT  (cspanel.inc)
     dw cs_att_trim                  ; CSP_ATT      a trainer's model (88.7.2)
+    dw cs_art_c172                  ; CSP_ART      side on (88.10.1)
 cs_s_c172:   db 'CESSNA 172', 0
 
 ; --- the second row: a PITTS SPECIAL (SPEC.md 88.7.2), an aerobatic biplane.
@@ -404,6 +405,10 @@ cs_p_pitts:
                                     ;              not told the wrong thing
     dw cs_ck_pitts                  ; CSP_COCKPIT  its own scattered panel
     dw cs_att_free                  ; CSP_ATT      the aerobatic model
+    dw cs_art_pitts                 ; CSP_ART      three-quarters and banked,
+                                    ;              which is a DIFFERENT VIEW
+                                    ;              and not only a different
+                                    ;              aeroplane (88.10.1)
 cs_s_pitts:  db 'PITTS SPECIAL', 0
 
 ; =============================================================================
