@@ -1764,6 +1764,18 @@ SOAK = [
         " analysis. The trainer is wired to it through cs_axisp."
         " --clobber-body is the red run and it reproduces both reports",
         needs=("marty",), serial=True),
+    Row("skiesdiag", "soak", py("tests/skiesdiag.py"), 20.0,
+        "SPEC.md 88.14: Clear Skies' watchdog, which is an instrument for a"
+        " machine that has HARD FROZEN - int 08h hooked for the length of the"
+        " fsx bracket, painting the last three interrupted IPs and a tick"
+        " counter straight into VRAM every tick, so a frozen screen says"
+        " where it is stuck in a photograph. The row tests it the only way"
+        " such a thing can be tested: it patches a `jmp $` over cs_render and"
+        " requires all three blocks to NAME that address off the glass while"
+        " the counter goes on climbing. Needs `make skiesdiag` (a private"
+        " tree; the shipped skies.o88 is byte-identical without it) and SKIPS"
+        " with a line saying so when it has not been run",
+        needs=("marty",), serial=True),
     Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 42.0,
         "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
         " pinned scenes - four BANKED, four low among the buildings - held to"

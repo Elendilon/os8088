@@ -4463,15 +4463,29 @@ $(BUILD)/tank.o88: $(BUILD)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
 # plus ONE FILE PER LOCATION since SPEC.md 88.6.4 (csw_*.inc, %included by
 # csworld.inc, and a wildcard here so a tenth of them is a file and not a
 # Makefile edge nobody remembers).
+# CSDIAG=1 - CLEAR SKIES' OWN WATCHDOG (SPEC.md 88.14). It hooks int 08h for
+# the length of the fsx bracket and paints, straight into VRAM every tick, the
+# last three interrupted IPs and a tick counter. A frozen machine then SAYS
+# where it is stuck, in a photograph - which is the only instrument a field
+# machine has, MartyPC having failed to reproduce this freeze in 8,000 poses.
+# It is a DIAGNOSTIC BUILD and no shipped floppy carries it: `make skiesdiag`.
+CSDIAGDEF :=
+.PHONY: skiesdiag
+skiesdiag:
+	@$(MAKE) --no-print-directory BUILD=$(BUILD)/skiesdiag CSDIAGDEF=-DCSDIAG \
+	         $(BUILD)/skiesdiag/apps360.img
+	@echo "skiesdiag: $(BUILD)/skiesdiag/apps360.img - boot the SHIPPED"
+	@echo "           system disk with this as B: (SPEC.md 88.14)"
 CSWORLDS := $(wildcard apps/skies/csw_*.inc)
 $(BUILD)/skies.bin: apps/skies/skies.asm apps/skies/csraster.inc \
                     apps/skies/cs3d.inc apps/skies/csworld.inc \
                     apps/skies/csflight.inc apps/skies/csgame.inc \
                     apps/skies/cspanel.inc apps/skies/cssin.inc \
-                    apps/skies/csart.inc $(CSWORLDS) \
+                    apps/skies/csart.inc apps/skies/csdiag.inc \
+                    $(CSWORLDS) \
                     apps/os88api.inc apps/os88ui.inc \
                     | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -o $@ apps/skies/skies.asm
+	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ $(CSDIAGDEF) -o $@ apps/skies/skies.asm
 	@echo "skies: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/skies.o88: $(BUILD)/skies.bin tools/os88pkg.py $(PKGZSTAMP)

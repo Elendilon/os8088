@@ -60,6 +60,9 @@ cs_fsx_main:
     mov [cs_hsx], ax
     call OSAPI_GET_TICKS
     mov [cs_last], ax
+%ifdef CSDIAG
+    call cs_diag_on                 ; the watchdog, for the bracket's length
+%endif                              ; (SPEC.md 88.14)
 .loop:
     call cs_input
     cmp byte [cs_quit], 0
@@ -69,6 +72,7 @@ cs_fsx_main:
     cmp byte [cs_pause], 0
     jne .draw
 .sim:
+    CSSTAGE 9
     push cx
     call cs_stick                   ; THE STICK, ONCE A TICK (SPEC.md
     call cs_step                    ; 88.7.5.1): cs_input runs once a FRAME,
@@ -79,6 +83,9 @@ cs_fsx_main:
     call cs_render
     jmp short .loop
 .leave:
+%ifdef CSDIAG
+    call cs_diag_off
+%endif
     xor ax, ax                      ; the engine off with the mode
     xor cx, cx
     mov dl, 0x40
@@ -157,8 +164,10 @@ cs_steps:
     mov bx, ax
     sub ax, [cs_last]
     jnz .have
-    mov al, FSXW_TICK               ; nothing owing: do not burn the machine
-    call OSAPI_FSX_WAIT             ; drawing a frame identical to the last
+    CSSTAGE 10                      ; ...and the KERNEL's tick wait, which is
+    mov al, FSXW_TICK               ; a `hlt` (SPEC.md 53.5): a machine stopped
+    call OSAPI_FSX_WAIT             ; HERE stopped because nothing woke it
+    CSSTAGE 11
     call OSAPI_GET_TICKS
     mov bx, ax
     sub ax, [cs_last]
@@ -215,6 +224,7 @@ cs_clearall:
 ;            (SPEC.md 53.1, 85.6's two readers)
 ; -----------------------------------------------------------------------------
 cs_input:
+    CSSTAGE 8
     push ax
     mov byte [cs_hzhold], 0         ; ONCE A FRAME (SPEC.md 88.7.5.2): a
                                     ; capture holds its axis for the rest of
@@ -475,7 +485,9 @@ cs_hotkeyx:
 ; -----------------------------------------------------------------------------
 cs_render:
     inc word [cs_frames]            ; the only instrumentation in here, and
-    call cs_r_begin                 ; tests/skies.py is what reads it
+    CSSTAGE 1                       ; tests/skies.py is what reads it
+    call cs_r_begin
+    CSSTAGE 2
     call cs_matrix
     mov ax, [cs_px+1]               ; the eye, in whole metres
     mov [cs_ex], ax
@@ -489,10 +501,21 @@ cs_render:
     mov si, [cs_plane]
     add ax, [si + CSP_EYE]
     mov [cs_ey], ax
+    CSSTAGE 3
     call cs_skyground
+    CSSTAGE 4
     call cs_scene
+    CSSTAGE 5
     call cs_panel
+    CSSTAGE 6
     call cs_r_end
+    CSSTAGE 7                       ; a frame that FINISHED (SPEC.md 88.14)
+%ifdef CSDIAG
+    push ax
+    mov ax, [cs_dtick]
+    mov [cs_dframe], ax
+    pop ax
+%endif
     ret
 
 ; =============================================================================

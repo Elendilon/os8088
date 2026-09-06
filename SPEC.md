@@ -96558,6 +96558,80 @@ drop-downs get a release the title page never armed.
   walk, which is how the per-segment marking of §88.3.2 was first read as
   45 ms and turned out, on the A/B, to be 9.
 
+### 88.14 The watchdog — `CSDIAG=1` (a diagnostic build)
+
+A hard freeze inside an fsx bracket takes the whole machine with it: no
+pointer, no dock, no menu, and no way to ask the machine anything. 86Box has
+no debugger (docs/TESTING.md), so the only instrument a field machine has is
+a **photograph of the glass** — and a photograph of a frozen frame says what
+the picture was, not where the CPU is.
+
+So this build makes the machine answer in a photograph. `cs_diag_on` hooks
+`int 08h` for the length of the bracket and `cs_diag_isr` runs in front of
+the kernel's, chaining to it (`sch_isr` is what EOIs and schedules, so it
+must still run). Every tick it banks the **interrupted IP** in a ring of
+`CSD_SLOTS` and paints, **straight into VRAM**, four words as sixteen pixels
+each — bit 15 leftmost, three scan rows tall with a blank fourth so the four
+blocks read as four — at the top-left corner of the view:
+
+| block | what it is |
+|---|---|
+| 1–3 | the last three interrupted IPs, oldest first, bit 15 leftmost |
+| 4 | a **tick counter** |
+| 5 | **ticks since the last frame FINISHED** |
+| 6 | high byte the page parity, low byte the **stage** the frame had reached |
+
+**Block 5 is the diagnosis and it needs only one photograph**, which is what
+the first version got wrong: a tick counter alone says nothing from a single
+still, because a number is only moving if you see it twice. Ticks-since-the
+last-finished-frame does not have that problem. A **big** number means the
+tick went on running long after the picture stopped — the freeze is ours,
+and the three IPs beside it name the loop. A **small** one (0 to 3) means
+both stopped at the same moment, so the machine is dead below Clear Skies:
+`IF` clear, a `hlt` nothing will wake, or the tick chain gone.
+
+Block 6 says **where in a frame** it stopped, which is the other half:
+
+| stage | reached |
+|---|---|
+| 1 | `cs_render` entered | 
+| 2 | `cs_r_begin` returned |
+| 3 | the matrix and the eye are done, the sky/ground pass is next |
+| 4 | `cs_skyground` returned, the scene is next |
+| 5 | `cs_scene` returned, the panel is next |
+| 6 | `cs_panel` returned, the blit or the page flip is next |
+| 7 | the frame **finished** |
+| 8 | in `cs_input` |
+| 9 | in the simulation loop |
+| 10 | in the kernel's **`hlt`** tick wait (§53.5) |
+| 11 | out of it again |
+
+Stage 10 with a small block 5 is one specific answer and worth naming: the
+machine went into `fsx_wait`'s `hlt` and nothing ever woke it.
+
+`tests/skiesdiag.py` is what says the instrument works, and it works the
+only way such a thing can be tested: it **freezes the machine on purpose**,
+patching a `jmp $` over the first instruction of `cs_render`, and then
+requires all three IP blocks to name that address off the glass while the
+counter goes on climbing. Checks that the hook is up and that the ring holds
+plausible addresses would pass on an instrument that samples the wrong word;
+that one would not.
+
+It paints into the view, so a running frame overwrites it constantly and it
+flickers. That is the point: **what survives on the glass is what was
+painted after the last frame that ever finished.**
+
+It costs the shipped build nothing — `make` compiles none of it, and the
+default `skies.o88` is byte-identical with the file present. `make skiesdiag`
+builds the package with `-DCSDIAG` into a private tree and writes a 360KB
+apps floppy carrying it, so the diagnostic and the shipped disk never share
+a `build/`.
+
+**It is an instrument, not a fix**, and it is here because Clear Skies has a
+freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
+MartyPC could not reproduce — which is itself a finding: whatever it is, it
+is not a function of the drawn state alone.
+
 ### 88.12 What it costs
 
 Measured with `tests/skiesperf.py` on MartyPC's 4.77 MHz 8088 with a
