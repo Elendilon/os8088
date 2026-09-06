@@ -7993,14 +7993,37 @@ wd_fastokr:                         ; Right: it lands one FORWARD, and the cell
     xor cx, cx
     mov ax, [wd_cur]
 wd_fastcm:
-    mov word [wd_mvbot], 0x7FFF ; kind 4 arrives here as well (Left and Right),
-                                ; and neither measures the row it came from -
-                                ; so park the bound at "no idea" and let
-                                ; wd_move be the only thing that ever sets it
+    mov word [wd_mvbot], 0x7FFF ; the default is "no idea", which is what an
+                                ; EDIT wants: kinds 1..3 never read it, and a
+                                ; caret move that cannot trust the checkpoint
+                                ; below has nothing to bound itself by
     cmp byte [wd_ckok], 0
     je .out
     cmp ax, [wd_ckpi]
     jb .out
+    cmp bl, 4                   ; ...but Left and Right ARE a caret move, and
+    jne .nomv                   ; SPEC.md 27.4.1's rule covers them too: the
+                                ; caret travels ONE CHARACTER, so it lands on
+                                ; [wd_ckpr], one row above it (Left, off the
+                                ; start of a row) or one below (Right, off the
+                                ; end, or past a paragraph mark). wd_ask folds
+                                ; the caret into a row's signature and a move
+                                ; changes nothing else, so the only rows whose
+                                ; signatures can differ are those two - and
+                                ; the DEEPER of them is never past ckpr + 1.
+                                ;
+                                ; They used to park the sentinel here and pay
+                                ; the whole view for it: measured on a 5150
+                                ; with WELCOME.DOC, Right walked 142.8 ms and
+                                ; Left 164.8 where Down walked 4.3 and Home
+                                ; 23.1 - the arrows that go through wd_move
+                                ; and get a real bound (SPEC.md 27.4.4)
+    push ax
+    mov ax, [wd_ckpr]
+    inc ax
+    mov [wd_mvbot], ax          ; wd_redraw clamps it to the view, so a caret
+    pop ax                      ; leaving the last visible row needs no test
+.nomv:
     mov [wd_fast], bl
     mov [wd_eext], cl
     mov ax, [wd_cur]

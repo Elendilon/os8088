@@ -243,6 +243,37 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
           "wd_eoutck.rok never reached - the walk is not stopping early")
     m.key("Backspace"); time.sleep(1.0)
 
+    # ---- leg F: a caret move is BOUNDED, and still correct ----------------
+    # Left and Right used to park [wd_mvbot] at the 0x7FFF sentinel and lay out
+    # the whole view to be told nothing moved: 142.8 ms of walk for Right and
+    # 164.8 for Left, against Down's 4.3 (SPEC.md 27.4.4). The caret travels
+    # ONE character, so the deeper of the two rows whose signatures can differ
+    # is never past [wd_ckpr] + 1.
+    click_row(1, col=20)
+    m.key("ArrowRight"); time.sleep(1.0)
+    mvb = rw("wd_mvbot")
+    check("F: a Right arrow bounds the walk (not the sentinel)", mvb != 0x7FFF,
+          "wd_mvbot = 0x%04X - Left/Right are unbounded again" % mvb)
+    m.key("ArrowLeft"); time.sleep(1.0)
+    mvb2 = rw("wd_mvbot")
+    check("F: a Left arrow bounds it too", mvb2 != 0x7FFF,
+          "wd_mvbot = 0x%04X" % mvb2)
+
+    # ---- leg G: and the pixels survive a burst of them --------------------
+    click_row(1, col=20)
+    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    before_moves = shot(m)
+    for _ in range(8):
+        m.key("ArrowRight"); time.sleep(0.6)
+    for _ in range(8):
+        m.key("ArrowLeft"); time.sleep(0.6)
+    mo.to(4, 4); time.sleep(1.0); M.settle(m)
+    after_moves = shot(m)
+    dm = sum(1 for p, q in zip(band(before_moves, box), band(after_moves, box))
+             if p != q)
+    check("G: a caret round trip leaves the screen identical", dm == 0,
+          "%d differing pixels" % dm)
+
 print()
 print("wdtype: %s" % ("FAILED: " + ", ".join(FAIL) if FAIL else "ok"))
 sys.exit(1 if FAIL else 0)
