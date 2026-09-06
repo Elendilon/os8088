@@ -224,6 +224,18 @@ def drive(img, apps, machine, card, tree, census, shot=None):
                 m.run()
         else:
             typedoc()
+        # ...and an edit with text AFTER the caret, in the same paragraph.
+        # The gap buffer puts its gap at the caret, so a relayout walk from
+        # the paragraph's start reads the bytes before the caret out of the
+        # LOW run and the bytes after it out of the HIGH one - and the high
+        # run is the only thing that exercises SPEC.md 46.3.3's gap
+        # arithmetic. Typing at the end of the document, which is all every
+        # other scene does, never crosses it: breaking that arm on purpose
+        # left this row green until this edit existed.
+        for _ in range(20):
+            key1(lambda: m.key("ArrowLeft"), "ArrowLeft")
+        for ch in "MID":
+            typec(ch)
         ui.settle()
         w, h, rgb = m.fbuf()                       # SCENE 2: the document
 

@@ -60026,6 +60026,37 @@ before the rewind. A wrapped run with its delimiters at the ends never enters
 that region, and the gate was green with the rewind deliberately removed until
 `tests/atblit.py` gained a line carrying one `*` every four characters.
 
+#### 46.3.3 `at_scan` fetches its own bytes, with the segment already loaded
+
+`at_getb` is the right shape for a caller that wants one byte: it banks ES,
+loads it from `[at_dseg]`, resolves the gap, reads, and puts ES back. It is the
+wrong shape for `at_scan`, which wants **every byte of a paragraph** and paid
+that whole preamble — plus a `call` and a `ret` — for each one.
+
+`at_scan` holds `ES = [at_dseg]` for the length of its walk and inlines the
+resolution: one compare against `[at_gs]`, the two adds for the high run, and a
+load. **BX carries the physical offset only across the load** and goes straight
+back to the logical one, because `at_span` compares it against `[at_scskip]`,
+which is a logical offset.
+
+ES is saved and restored around the walk. A package's ES is the KERNEL's on
+entry (§20.2), and every callee inside the loop either leaves it alone or —
+`at_getb`, which `at_peek` still reaches — banks it itself.
+
+**`at_slice` is deliberately not touched**: `at_copyout` already splits the
+range at the gap and moves each run with `rep movsb`, which is what this makes
+the walk do by hand.
+
+**1.04x on a keystroke** (104.6 → 100.2 ms on a three-visual-line paragraph and
+181.7 → 174.2 on a five, Hercules, MEASURED) for **22 bytes**. `NOATFETCH=1` is
+the A/B.
+
+**The arm that needs a witness is the HIGH run.** The gap sits at the caret, so
+a document typed forward has its gap at the end and every walk reads the low
+run only — breaking the gap arithmetic on purpose left `tests/atblit.py` green.
+The row now makes an edit with text still AFTER the caret, which is the only
+thing that puts bytes of the walked paragraph above the gap.
+
 ### 46.4 The renderer — one line, one blit
 
 `at_parse` turns a line slice into per-character visibility, style and

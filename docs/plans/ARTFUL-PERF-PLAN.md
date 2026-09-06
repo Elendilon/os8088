@@ -513,8 +513,17 @@ the ends and never enters that region. That is the second time in this plan a
 break-test passed for the wrong reason, and both times the fix was a witness
 rather than a better assertion.
 
+**AND `at_getb` IS OFF `at_scan`'S WALK** (SPEC.md §46.3.3): the segment is
+loaded once for the length of the walk and the gap resolution is inlined, which
+is **1.04x for 22 bytes** (104.6 → 100.2 ms on three visual lines, 181.7 →
+174.2 on five). `at_slice` is deliberately untouched — `at_copyout` already
+splits at the gap and uses `rep movsb`, which is what this makes the walk do by
+hand.
+
+Its witness is the HIGH run: the gap sits at the caret, so a document typed
+forward reads the low run only, and breaking the gap arithmetic on purpose left
+the row green until it gained an edit with text still AFTER the caret. **Third
+time** a break-test in this work passed for want of a witness.
+
 **What is left**: Wave 6 (`at_append`), and 4a, which still needs re-costing on
-a line that is now ~20 ms rather than the 122 it was planned against. `at_scan`
-remains the largest single call but its cheap third is gone; what is left in it
-is the per-character `at_getb`, which is a near call that banks ES, reloads it
-from `[at_dseg]` and pops it, for one byte. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+a line that is now ~20 ms rather than the 122 it was planned against. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.

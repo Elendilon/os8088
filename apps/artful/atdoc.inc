@@ -686,6 +686,16 @@ at_layout:
 ; -----------------------------------------------------------------------------
 at_scan:
     push cx
+%ifndef NOATFETCH
+    ; SPEC.md 46.3.3: ES holds the DOCUMENT for the whole walk, so the
+    ; per-character fetch below is a compare and a load rather than a call
+    ; that banks and reloads a segment for one byte. It is saved and restored
+    ; because a package's ES is the KERNEL's on entry (SPEC.md 20.2), and
+    ; every callee inside the loop either leaves ES alone or - at_getb, which
+    ; at_peek still reaches - banks it itself.
+    push es
+    mov es, [at_dseg]
+%endif
     mov [at_scend], cx
     mov [at_scpos], ax
 .lline:
@@ -753,7 +763,20 @@ at_scan:
     mov bx, si
     cmp bx, [at_scend]
     jae .enddoc
+%ifdef NOATFETCH
     call at_getb
+%else
+    ; at_getb's body, inlined, with the segment already loaded. BX carries
+    ; the PHYSICAL offset only across the load: at_span compares it against
+    ; [at_scskip], which is a LOGICAL one, so it goes straight back.
+    cmp bx, [at_gs]
+    jb .lo
+    add bx, [at_ge]
+    sub bx, [at_gs]
+.lo:
+    mov al, [es:bx]
+    mov bx, si
+%endif
     cmp al, AT_NL
     je .endline
 %ifndef NOATPLAIN
@@ -839,6 +862,9 @@ at_scan:
 %endif
     mov [at_scpos], si
 .done:
+%ifndef NOATFETCH
+    pop es
+%endif
     pop cx
     ret
 
