@@ -515,8 +515,10 @@ so a byte lands inside `MOU_IDQUIET` of its close while the count stays at
 `MOU_IDMAX`. On a machine with no debugger `sysbench` prints the block
 (§9.4.2, registry tag `'MO'`).
 
-**Assert on `[mou_hpt]` too**: read it, wait four seconds, read it again.
-Advancing by 58 means the mouse is still being power-cycled every 3.19 s.
+**Assert on `[mou_hpst]` too**: 0 means the poller has never dropped DTR at
+all (§9.4.8) — one peek, no second reading. If it is non-zero, `[mou_hpt]` read
+twice four seconds apart says whether it is *still* cycling: advancing by 58
+means the mouse is being power-cycled every 3.19 s.
 And check `[mou_idn]` is non-zero before believing a refusal — a sender that
 never lands in the window reads exactly like a rule refusing — and that
 `[mou_seen]` stayed **0**, since an identify must never settle the contest.

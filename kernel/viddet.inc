@@ -136,12 +136,20 @@ vid_tab:
     dw VGA_SEG,      80,    0,     0,     80,       0,      0, 640, 480
     dw VID_HERC_SEG, 90,    3,     2, 0x2000,  0x8000, 0x805A, 720, 348
     dw  0xB800,      80,    1,     1, 0x2000,  0x4000, 0xC050, 640, VID_H_MIN
+%ifdef GFX_VGA                  ; THE FOURTH ROW IS kern_big's ALONE: a build
+                                ; with no VGA renderer never detects an EGA
+                                ; (both planar probes are gated out and
+                                ; VIDEO=ega is a build error above), and
+                                ; vid_probe_avail only ever lights the bit for
+                                ; the kind it found - so nothing can put a 3
+                                ; in [vid_kind] there
     dw VGA_SEG,      80,    0,     0,     80,       0,      0, 640, EGA_H
     ; ^ VID_EGA: byte-for-byte the VGA row but 350 tall. bmask/bshift/wrapbit
     ;   all 0, so gfx_rowbase is y*80 and gfx_nextrow is `add di,80` with no
     ;   adapter test, exactly as on VGA (SPEC.md 39.3/39.24). 349*80 = 27,920,
     ;   well inside one 0x8000 plane, so nothing here needs the intra-bank
     ;   assertion the two mono rows do.
+%endif
 
 ; -----------------------------------------------------------------------------
 ; The live geometry block (SPEC.md 39.2). NINE CONTIGUOUS WORDS, in vid_tab's

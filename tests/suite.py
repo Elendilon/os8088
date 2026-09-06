@@ -2134,6 +2134,103 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdtype", "soak", py("tests/wdtype.py"), 420.0,
+        "SPEC.md 27.4.3: a keystroke stops walking where the row indices "
+        "reconverge (205.6 -> 80.4 ms). Legs B..D are CORRECTNESS legs and the "
+        "old code was correct, so they pass on a build with the early-out "
+        "compiled out - leg E is the one that fails there, and it is a "
+        "BREAKPOINT on wd_eoutck.rok rather than a stopwatch, because the "
+        "first version bounded wd_walk's cycles and PASSED at 344,824 with the "
+        "feature disabled. Leg D is the one that catches the dangerous "
+        "failure, an early-out that fires without its index proof, and it "
+        "PROVES a reflow was arranged before asserting: a row below whose "
+        "start index moved by something other than the characters typed. It "
+        "was green against that break until it did (3,849 differing pixels "
+        "after). The pixel reference is a page down and back, which a "
+        "formatted document always full-repaints (68.6), so the comparison is "
+        "against a screen no early-out touched.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdcaret", "soak", py("tests/wdcaret.py"), 480.0,
+        "SPEC.md 27.4.6: a caret move lays the note out ONCE. Leg A counts "
+        "wd_walk calls inside one keystroke and requires 1 - the change "
+        "itself, and what fails on a build with the feature off; leg C is the "
+        "A/B inside one boot, wd_1pok being the whole arming. The trap the "
+        "gate exists for is a level under the pixels: [wd_clip] gates the "
+        "GLYPH STORE as well as the drawing, by the same three tests and "
+        "deliberately, so clipping the one pass to the dirty range composed no "
+        "cells at all for a row whose signature was not yet known and "
+        "wd_rflush's delta then re-lettered the whole row - 419 differing bits "
+        "on a Right arrow, on a screen that still read as text. Leg D is the "
+        "one ordering the collapse changes: wd_seecaret now runs AFTER the "
+        "drawing, so a Down that scrolls lands on rows this pass already drew. "
+        "The pixel reference throughout is a page down and back, which a "
+        "formatted document always full-repaints (68.6).",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdenter", "soak", py("tests/wdenter.py"), 450.0,
+        "SPEC.md 27.4.5: an Enter pushes the note below the split down with "
+        "one gfx_scroll instead of erasing to the content bottom and "
+        "lettering every row in it (448.2 -> 133.3 ms). Leg A is the one that "
+        "fails on a build with the feature off - a BREAKPOINT on "
+        "wd_nlpush.d1, past the scroll - and leg F is the A/B inside one "
+        "boot: wd_nlband is the whole arming, so stc/ret over it in the guest "
+        "turns the push off and the same keystroke must draw the same screen "
+        "the slow way. The pixel reference throughout is a page down and "
+        "back, which a formatted document always full-repaints (68.6), and "
+        "THE BAND INCLUDES THE SLIVER below the last whole row: the first "
+        "build scrolled to [wd_bot] and left four scanlines of the last "
+        "row's glyphs standing, which still reads as text. Leg E is the "
+        "corruption case rather than a speed one - an Enter on the last "
+        "visible row makes the caret-follow scroll, and the push has repaired "
+        "the tables for a layout the glass has not been given, so wd_redraw "
+        "must refuse the blit and repaint.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdscroll", "soak", py("tests/wdscroll.py"), 420.0,
+        "SPEC.md 68.2.2 and 27.7.2.2: Word's scroll bar is not part of the "
+        "text band, and a scroll UPWARD blits like a scroll down. Leg A "
+        "samples the bar's ARROW CELL through a down-arrow click and requires "
+        "0 of 48 altered; leg D requires a click ABOVE the thumb not to enter "
+        "wd_paint - it always did, repainting menu bar, ruler and text at 622 "
+        "ms against the down click's 251. Leg E is the A/B, wd_upheight being "
+        "the whole arming, AND the only thing still exercising [wd_sbkeep]: "
+        "leg D used to BE the refusal. Its target view is deliberately NOT the "
+        "top of the note, because returning to top 0 passed while the <8px "
+        "SLIVER below the last drawable row was blitted into and never erased "
+        "- at top 0 the pixels pushed into it happened to be white. Leg F is "
+        "the one that looks at what a scroll LEAVES BEHIND rather than what it "
+        "draws: the pricing walk banked wd_rows, which wd_shiftrows reads as "
+        "its SOURCE, so the up blit's own screen was perfect to the pixel and "
+        "the next page down drew three rows of the wrong text. Leg B puts BOTH "
+        "ends of its round trip against a forced repaint separately - a round "
+        "trip says something is wrong and never which end.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
+        "SPEC.md 68.3.1: Word's document movers go a WORD at a time, and the "
+        "assertion is the BUFFER rather than the glass - a wrong word is a "
+        "corrupted document, not a slow one, and no pixel test would see it. "
+        "Both claims are read whole, a character is inserted and then "
+        "backspaced, and the ORIGINAL bytes must come back. Parity is the "
+        "point: wd_mvup does the odd byte first and steps onto a word's low "
+        "byte, wd_mvdn does it last, so the caret is placed at odd and even "
+        "tails and at both end stops where the count is 0 or 1. Verified to "
+        "go red - dropping wd_mvup's step-back fails every text assertion.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,
+        "SPEC.md 68.2.1: Word's dropdown BANKS the pixels it covers and the "
+        "close writes them back (521.4 ms -> 19.7 ms on a 4.77MHz 8088). The "
+        "assertion is PIXEL EQUALITY, because a save-under that is fast and "
+        "wrong is worse than a repaint that is slow and right: banking the "
+        "panel without its drop shadow, clamping differently from wd_mrepair, "
+        "or taking the plane count off the wrong display all show up here and "
+        "nowhere else. It pokes [wd_suseg] = 0 for the second cycle, which is "
+        "what a REFUSED claim leaves behind, so one run checks the banked path "
+        "and the wd_mrepair fallback against one reference.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("pkgthumb-tp", "soak", py("tests/pkgthumb.py", "texpad"), 50.0,
         "SPEC.md 13.10.7.2: ...and TexPad, whose TWO bars share one gesture"
         "record. --bar=1 drives the preview pane's.",
@@ -2737,7 +2834,16 @@ SOAK = [
     Row("tmrepair", "soak", py("tests/tmrepair.py"), 80.0,
         "SPEC.md 28.11: the Task Manager's quiet pages hold a raise cache by "
         "REPAIRING at the restore - a whole-content band, and tm_update "
-        "spends the debt W_PAINT is handed.",
+        "spends the debt W_PAINT is handed. **IT IS INTERMITTENT AND HAS "
+        "BEEN FOR A WHILE**, which is worth knowing before anybody calls a "
+        "red one a regression: rated with tools/os88bisect.py it fails 3 of "
+        "4 at b49fff1 - a tree where one soak reported it PASSING - 2 of 3 "
+        "at b5cef54, 1 of 3 at 7f5c07a and 1 of 4 at dc3b200, so today's head "
+        "is the best of every point measured. The failing leg is REPAIR: the "
+        "promise is made (WF_SAVEU and a whole-content band) and is gone by "
+        "the uncover with ZERO wm_su_drop calls for it, so whatever "
+        "withdraws it is not that path. A rate is not a side, so there is "
+        "nothing here to bisect until the row is 0/N or N/N",
         needs=("marty",), serial=True),
     Row("tmselfsu", "soak", py("tests/tmselfsu.py"), 300.0,
         "SPEC.md 28.8.1: the Task Manager stops repainting for ITS OWN raise "

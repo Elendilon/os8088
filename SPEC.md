@@ -2810,8 +2810,8 @@ Mode set and teardown are not in this module: `vid_setmode` / `vid_text` in
 | `gfx_blit1`     | ES:SI=band, BP=band stride (bytes), AX=dest x (**×8**), BX=dest y, CX=width px (**×8**), DX=height rows | put a 1bpp band on the screen in one call, in the framebuffer's own bit order (§5.4.2). API slot 0x0418. `kern_big` only — the small build refuses with CF=1 |
 | `gfx_xor_rect`  | AX=x1, BX=y1, CX=x2, DX=y2           | 1px outline, XOR 0Fh (drag outline)   |
 | `gfx_xor_fill`  | AX=x1, BX=y1, CX=x2, DX=y2           | filled rect, XOR 0Fh (menu highlight) |
-| `gfx_save`      | AX=x1, BX=y1, CX=x2, DX=y2, ES:DI=buf| copy region to buffer; x1 is rounded **down** to a byte boundary and x2 **up** internally. Buffer layout: plane 0 rows, plane 1 rows, plane 2, plane 3 — all four on VGA, the single plane at 1bpp (§39.3). Returns DI advanced past data. |
-| `gfx_restore`   | AX=x1, BX=y1, CX=x2, DX=y2, ES:SI=buf| write region back (same rounding/layout). Returns SI advanced. |
+| `gfx_save`      | AX=x1, BX=y1, CX=x2, DX=y2, ES:DI=buf| copy region to buffer; x1 is rounded **down** to a byte boundary and x2 **up** internally. Buffer layout: plane 0 rows, plane 1 rows, plane 2, plane 3 — all four on VGA, the single plane at 1bpp (§39.3). Returns DI advanced past data. API slot 0x0508 through `api_gfx_save`, which adds the straddle refusal (§5.3); **both builds** |
+| `gfx_restore`   | AX=x1, BX=y1, CX=x2, DX=y2, ES:SI=buf| write region back (same rounding/layout). Returns SI advanced. API slot 0x0510 through `api_gfx_rest` |
 | `gfx_lock`      | —                                    | acquire drawing mutex + hide cursor (§7) |
 | `gfx_unlock`    | —                                    | show cursor, release mutex (§7) |
 
@@ -2819,6 +2819,41 @@ Save/restore for a W-px-wide, H-px-tall rect uses
 `bytes = ((x2/8) - (x1/8) + 1) * H * [vid_planes]` — ×4 on VGA, ×1 on a 1bpp
 adapter (§39.2). Buffers are budgeted for the VGA worst case, so no routine
 computes the size at run time.
+
+### 5.3 The save-under pair is published — slots 0x0508 and 0x0510
+
+`gfx_save` and `gfx_restore` have been in the kernel since the menu save-under
+(§12.4) and, unlike `gfx_blit1`, they are outside every `KERN_BIG` guard: the
+1bpp twins are `sw_save`/`sw_restore`, so **both builds have a working body.**
+What a package was missing was therefore the *cell*, not the code.
+
+It was missing one other thing, and that is the whole of what the two stubs
+add. `GFXDENTERR` puts the whole shape on the display holding the rect's
+top-left (§39.14.6), so a rect straddling two displays banks one display's
+half and, on the way back, leaves the other half **stale**. The kernel's own
+callers owe that test and pay it — `wm_su_take` asks `vid_span_one` — but a
+package has no published way to ask, so **the cell asks on its behalf and
+refuses with CF = 1**, writing nothing.
+
+Refusing is the answer rather than a shortcoming, and it needs no failure path
+anyone has to invent: a caller that is refused **repaints**, which is what it
+did before the cell existed. That is §12.4's `[menu_sseg] = 0` rule one layer
+out — a machine that cannot bank gets a flash, not a feature it cannot use.
+
+`vid_span_one` takes AX/BX/CX/DX inclusive, the same four registers the pair
+takes, so the guard needs no frame; `gfx_save` and `gfx_restore` preserve all
+four, so the caller's rect is still in hand for the restore. The stubs are
+**12 bytes each** and the two cells 8 bytes each — 40 bytes of `.text`.
+
+Both cells are guarded, deliberately and symmetrically. Only the save can
+strictly need it (nothing may move a display between a paired save and
+restore, both being under one gfx lock hold), but a contract that refuses on
+one side and not the other is the kind that costs somebody a day.
+
+**The size formula a package uses takes its plane count from
+`OSAPI_WM_DISPLAY`'s DH, never from `OSAPI_VIDEO`** — the depth is the
+*display's*, and `OSAPI_VIDEO` answers about the primary alone (§39.2.1).
+That distinction is §39.14.8's field bug, one register along.
 
 **Software-renderer dispatch (§32/§39.5).** Every public drawing entry above
 (`gfx_pixel` … `gfx_restore`) starts with a `[vid_mono]` test and branches to
@@ -8376,6 +8411,10 @@ The driver-backed path is covered too, on half of this argument only —
   `mouse_unhook` too) — used before reboot. Afterwards it restores PIT
   channel 0 to the BIOS-default mode 3 (control word 0x36, then two zero
   bytes to port 0x40), the three OUTs under `pushf`/`cli` … `popf`.
+  **IT DOES NOT RETURN** (§18.100): it falls into `dsk_fdd_park_x`, whose tail
+  is the `int 0x19`, so AX and ES are clobbered and both of its callers —
+  `ui_cmd_reboot` and HIBER.DRV — reach it by `jmp` rather than `call`. On the
+  `NOFDDPARK=1` arm it returns as it always did.
 
 ### 8.1 CPU cycle accounting (for the Task Manager, §28)
 
@@ -9581,7 +9620,8 @@ mou_ident  01 00       COM1 answered like a mouse, COM2 did not
 mou_idany  01
 mou_need   01 08       COM1 dropped to 1; COM2 still owes its eight
 mou_seen   00          nothing has been claimed - the contest is untouched
-mou_hpst   00  hpt 0000  the recovery cycle NEVER FIRED
+mou_hpst   00            the recovery cycle NEVER FIRED (hpt is the
+                         desktop tick from 9.4.8 on, not a 0/nonzero flag)
 mouse_x/y  0168 00AE   = 360,174 = 720x348 / 2: still homed (39.6), unmoved
 ```
 
@@ -9602,7 +9642,7 @@ ident bytes COM1 1                   exactly one byte...
 first byte COM1  004D                ...and it was 'M'
 identified COM1  1
 packets needed   1 / 1               the one-port default, untouched
-poller stamp     0                   the cycle NEVER dropped DTR
+poller state     0                   the cycle NEVER dropped DTR
 mouse found      1   run reached 1   settled on the operator's first move
 ```
 
@@ -9613,7 +9653,7 @@ actually sends, which is the direction to be wrong in.
 
 The two machines confirm **different halves**, which is the useful part: the
 5150 is single-port, so `[mou_need]` was already 1 and the whole visible win
-there is the **stand-down** — `poller stamp 0` where the old code would have
+there is the **stand-down** — `poller state 0` where the old code would have
 dropped DTR on the first UI pass. MartyPC is two-port, so the win there is
 the **threshold drop**. A real two-port machine (the Compaq Portable III,
 §9.5.2's) is the witness neither covers and is still owed.
@@ -9701,9 +9741,11 @@ Three things hold it up:
 - **What survives the operator matters more than what does not.** By the time
   anyone launches a test package the mouse has been used, so `mou_seen`,
   `mou_port` and `mou_hpst` are long settled and say nothing about the boot.
-  The identify members do not move after `mouse_init`, and **`mou_hpt` is
-  never written unless the poller actually dropped DTR** — so `hpt = 0` is
-  the assertion that carries, and it survives ten minutes of driving.
+  The identify members do not move after `mouse_init`, and **`mou_hpst` never
+  leaves state 0 unless the poller actually dropped DTR** — so `hpst = 0` is
+  the assertion that carries (1 or 3 says it fired; 2 says it stood down after
+  firing), and it survives ten minutes of driving. `mou_hpt` is a plain tick
+  from §9.4.8 on: kmain's desktop frame, then each drop and each raise.
 
 `tests/sysbench` is the reference reader (docs/TESTING.md), and its block is
 a **state dump rather than a measurement** — so it emits no `bl_head`, whose
@@ -10020,30 +10062,40 @@ Two costs of the recovery mechanism land on the first seconds of the desktop
 cycle-exact on a 5150 (docs/plans/MOUSE-BOOT-FREEZE-PLAN.md, which prices the
 three mechanisms that can hold the arrow after the desktop appears).
 
-**The poll interval is timed from the first desktop frame.** Its base is a new
-`.bss` word `[mou_hpbase]`, and `[ticks]` starts at `sched_init`, so the first
-drop used to fire the instant `[ticks]` reached `MOU_REPOLL` = 55. On a boot
-long enough to pass tick 55 before the desktop — a hard-disk boot, or any
-driver `SYSTEM.CFG` asks for — that is the **first UI pass**, dropping DTR
-under the user's hand exactly as they reach for the mouse. `kmain` now writes
-`[ticks]` into `[mou_hpbase]` right after `cursor_show`, and each raise re-bases
-it, so state 0 counts the interval from when the pointer first exists. A user
+**The poll interval is timed from the first desktop frame.** Its base is
+`[mou_hpt]`, and `[ticks]` starts at `sched_init`, so the first drop used to
+fire the instant `[ticks]` reached `MOU_REPOLL` = 55. On a boot long enough to
+pass tick 55 before the desktop — a hard-disk boot, or any driver `SYSTEM.CFG`
+asks for — that is the **first UI pass**, dropping DTR under the user's hand
+exactly as they reach for the mouse. `kmain` now writes `[ticks]` into
+`[mou_hpt]` right after `cursor_show`, and each raise re-bases it, so the
+waiting state counts the interval from when the pointer first exists. A user
 who moves within `MOU_REPOLL` ticks (~3s) settles the port and the poller never
 drops at all; a machine with no mouse loses only one ~3s delay of its first
-offer, and thereafter polls exactly as before. Six bytes of `.text` plus the
-base word.
+offer, and thereafter polls exactly as before.
 
-It is deliberately **`[mou_hpbase]` and not `[mou_hpt]`**: `[mou_hpt]` stays 0
-until a real drop, because that is the whole of `sysbench`'s "poller stamp
-(0=nvr)" field (§9.4.2) — nonzero there says the poller power-cycled the mouse,
-and basing the interval in it would make every machine read as though it had.
-So the two are split: `[mou_hpbase]` bases the interval (desktop, then each
-raise), `[mou_hpt]` carries the drop tick for the diagnostic and for state 1's
-low-hold.
+**One stamp, not three.** `[mou_hpt]` is the single word the whole mechanism
+measures from — kmain's desktop tick, then each drop (which state 1's low-hold
+counts from) and each raise (which bases the next interval *and* is the drain
+ceiling's reference below). It does not need a second word to keep the field
+reading intact, because **`[mou_hpst]` already carries it**: the raise leaves
+state **3**, "waiting like 0 and has dropped at least once", so `hpst >= 1` is
+*"the poller power-cycled this mouse"* in one peek of a byte §9.4.2 already
+publishes — strictly better than the two-reading comparison a stamp needs, and
+free. Both wait states dispatch on `cmp byte [mou_hpst], 1`, so 3 falls through
+to the state-0 arm with no new instruction, and §9.4.5's `.have` stand-down
+still tests only for 2.
 
 **The drain ends when the burst goes quiet, not on a fixed clock.** The raise
-arms `[mou_drain]` and stamps `[mou_draise]` (the raise tick) and `[mou_dstamp]`
-(the last-byte tick, initialised to the raise). The ISR drops each received
+arms `[mou_drain]` and stamps `[mou_hpt]` (the raise tick) and `[mou_dstamp]`
+(the last-byte tick, initialised to the raise). `[mou_hpt]` is the ceiling's
+reference and is **not** rewritten for `MOU_REPOLL` = 55 ticks, six times the
+ceiling; the *next* drop does rewrite it while a window that has seen no byte
+at all is still nominally armed, and that is harmless by arithmetic rather
+than by luck — a window survives 55 ticks of silence only if the last drained
+byte was inside `MOU_DRAINT` = 9 of the raise, so the **quiet** test below
+(≥46 ticks against `MOU_DRAINQ` = 3) closes it on the very next byte whatever
+the ceiling says. The ISR drops each received
 byte, re-stamping `[mou_dstamp]`, and closes the window when it has been quiet
 for `MOU_DRAINQ` ticks (~165ms) **or** `MOU_DRAINT` ticks (~0.5s) have passed
 since the raise — the same floor/quiet/ceiling shape as §9.4.5's identify
@@ -10067,7 +10119,7 @@ ticks); quiet-ended, the first motion after the burst is read at once.
 **Neither half is testable against the case it exists for on any emulator
 here.** MartyPC's and 86Box's serial mice send one byte (`'M'`) and keep
 reporting with DTR held low, so the drain window can be *armed by hand* — set
-`[mou_drain]`, `[mou_dstamp]` and `[mou_draise]` and inject packets — but a
+`[mou_drain]`, `[mou_dstamp]` and `[mou_hpt]` and inject packets — but a
 real PnP burst, and a mouse that actually powers down on a DTR drop, are the
 Compaq Portable III's and the 5150's to confirm (docs/FIELD-MACHINES.md).
 `tests/sysbench`'s `'MO'` block (§9.4.2) reads `mou_hpst`, `mou_idn`,
@@ -19808,7 +19860,8 @@ app_launch; does its own locking). CMD_CLOSE → **quit** the frontmost:
 gfx_lock, `wm_top`, and if BX ≠ 0 `app_close_win` under the same lock,
 gfx_unlock. CMD_REBOOT → gfx_lock (never released), `vid_text` (§39.6 —
 mode 3, or mode 7 with the Hercules graphics bit cleared),
-`sched_unhook`, `int 0x19`.
+`sched_unhook` — which does not return, falling into §18.100's park and the
+`int 0x19` at its tail.
 
 All wm_* calls that repaint are made under gfx_lock by the UI task.
 
@@ -28275,15 +28328,18 @@ cylinder the copy finished on.
 
 #### The fix is one BIOS call per drive, on the way out
 
-`ui_cmd_reboot` gains a call after `sched_unhook` and before `int 19h`:
-`dsk_fdd_park_x` issues the ROM's **`int 13h AH=00h` — RESET DISK SYSTEM, which
-recalibrates the head to track 0 — once per unit the equipment word claimed.
+`sched_unhook` falls straight into `dsk_fdd_park_x`, which issues the ROM's
+**`int 13h AH=00h` — RESET DISK SYSTEM, which recalibrates the head to track 0 —
+once per unit the equipment word claimed, and then executes the `int 19h`
+itself. The park is the GUI's exit **tail** rather than a subroutine on it: both
+callers had `int 19h` as their next instruction, so the restart is one path with
+one copy of it.
 
 **It is the BIOS's call and not our port sequence**, which is the whole of why
 this is thirty-one bytes rather than the two-hundred-odd an in-kernel
 recalibrate cost. The ROM does the handshake, the seek wait and the retry;
-`dsk_fdd_park_x` reads no result, because the `int 19h` two instructions along
-resets the FDC whatever state the call leaves. The `int 13h` vector is the
+`dsk_fdd_park_x` reads no result, because the `int 19h` at its own tail resets
+the FDC whatever state the call leaves. The `int 13h` vector is the
 ROM's — the kernel calls it directly everywhere (`clone.inc`, `dsk_dbg_raw`) —
 and after `sched_unhook` it is unquestionably so.
 
@@ -28303,8 +28359,9 @@ never comes, could not do without seconds of motor grinding per empty drive.
 **After `sched_unhook`, not before.** The scheduler is down by then, so no task
 can be switched onto a different stack in the middle of the BIOS call — the one
 hazard `dsk_dbg_raw` holds `sch_lock` against, and the reason this needs none.
-The hibernate module's copy of the same reboot tail (§87) takes the call too,
-for the same reason and in the same order; its *resume* path is left alone,
+The hibernate module (§87) SHARES that tail rather than copying it — it jumps
+far to `sched_unhook` and never comes back — so the order is the same because it
+is the same code; its *resume* path is left alone,
 because it restores a saved desktop rather than building one, so `desk_init`
 never runs and §18.97 is never asked.
 
@@ -28317,8 +28374,12 @@ back.
 
 #### What it costs
 
-**31 bytes of `.cold` and 5 of `.text`, and no rung moves** — the cold rung had
-190 bytes free and keeps 159. There is no resident RAM cost beyond those bytes,
+**17 bytes of `.cold`, and `.text` comes DOWN by 8** — folding the `int 19h`
+and the unhook call into the tail deletes `ui_rb_go`'s two instructions,
+`ui_cmd_reboot`'s far call, `sched_unhook`'s prologue, epilogue and `ret`, and
+`cw_sched_unhook` (which had no caller left) with them. Measured against the
+kernel before this section: `.text` −8, `.cold` +17, and no rung moves. There is
+no resident RAM cost beyond those bytes,
 which was the point of spending the BIOS's recalibrate instead of the kernel's:
 the in-kernel version, with its own handshake, wait and result helpers, was
 226 bytes and crossed a 512-byte cold rung.
@@ -28336,7 +28397,8 @@ gate that cannot turn the fix off cannot tell a park that ran from a machine
 that happened to be parked already — which every emulator here is, because
 MartyPC returns drive 1's cylinder to 0 on the controller reset the BIOS does at
 boot (§18.97.4 verified that three ways). `tests/fddpark.py` therefore breaks on
-`ui_rb_go`, the label on `ui_cmd_reboot`'s own `int 0x19`, drives a SENSE DRIVE
+`dsk_rb_go`, the label on the park's own `int 0x19` (and on `ui_rb_go`, which is
+where that instruction still lives on the `NOFDDPARK=1` arm), drives a SENSE DRIVE
 STATUS at unit 1 from the host, and reads TRK0 out of ST3. On
 `os8088_5150_cga_gla`:
 
@@ -28344,7 +28406,7 @@ STATUS at unit 1 from the host, and reads TRK0 out of ST3. On
 |---|---|---|
 | a fresh boot | `39` — TRK0 | `39` |
 | after a Disk window read B: | `29` — **TRK0 clear** | `29` |
-| at `ui_rb_go` | **`39`** | **`29`** |
+| at `dsk_rb_go` / `ui_rb_go` | **`39`** | **`29`** |
 
 Row 1 is §18.97.4's own field figure off an IBM-ROM 5150 and row 2 its other, so
 the emulator agrees with the machine that reported this before either arm is
@@ -37783,6 +37845,294 @@ after it on row 8 of a 16-row view: the back-up ran **nine** rows to index 0
 and pass 1 then laid out rows 0..16 on every keystroke. See
 docs/plans/completed/NOTEPAD-NOTES.md 5.2 for the figures either side.
 
+#### 27.4.3 …and an EDIT stops where the indices reconverge
+
+§27.4.1 bounds a caret MOVE, because nothing reflowed. An edit is the harder
+case and had no bound at all: pass 1 laid out every row from the caret to the
+bottom of the view, on every keystroke, to be told nothing below had changed.
+Measured on a cycle-accurate 5150 with `WELCOME.DOC` in Word's shipped window
+(`[wd_vrows]` = 6), that was **149.2 ms of a 205.6 ms keystroke**.
+
+`wd_eoutck` stops it, and the test is exact rather than heuristic. §27.4 says
+the start of a row is **(index, row) alone**. So a row that begins exactly
+`[wd_eodel]` characters later than it did before the edit holds the same
+characters, at the same pen, at the same height — and so does every row below
+it, because the only thing the edit did to them was shift their indices. The
+walk stops there.
+
+What survives is what makes it legal:
+
+- **the signatures**, because `wd_fold` folds the character, the CHP byte, the
+  selection and the caret pen — never a start index;
+- **the banked ys** in `wd_ryb`, because no row below changed height;
+- **the pixels**, because nothing below was redrawn.
+
+What does not survive is `wd_rows` itself, which is a table of **absolute**
+character indices — so every entry from the stopping row down moves by the
+same delta. That repair is `wd_append`'s (§27.14.1), written once more.
+`wd_walk`'s `.stop` already grants exactly this licence: *"a walk that ends
+early is one whose caller knows nothing below it moved."*
+
+**ONE COMPARE A ROW**, no snapshot, no second pass and nothing to undo when it
+does not fire — a row that really did reflow fails the compare and the walk
+carries on as before.
+
+**Only an insert (+1) and a backspace (−1).** Forward Delete is excluded and
+the reason is not symmetry: `wd_fastokd` accepts a Delete sitting **on** a
+paragraph mark, and removing one gives every row that was in that paragraph
+the *next* paragraph's format — an alignment difference moves their pens and a
+spacing difference their ys, while changing not one row-start index. The test
+would fire and the rows below would stand at the wrong x. A backspace cannot
+do it: `wd_fastcm` refuses an edit index before `[wd_ckpi]`, which for a `13`
+at `[wd_cur]−1` forces `[wd_cur]` = `[wd_ckpi]`.
+
+It is **height-agnostic**, so it needs no part of §68.6's model and runs on a
+formatted document unchanged:
+
+| caret | `wd_onkey` before | after | `wd_walk` before | after |
+|---|---:|---:|---:|---:|
+| row 1 | 205.6 ms | **80.4 ms** | 149.2 ms | **29.6 ms** |
+| row 3 | 224.9 ms | **142.8 ms** | 88.6 ms | **44.0 ms** |
+
+`.text` +149 bytes.
+
+**This is not a port.** Note Pad does not do it: for a mid-line insert
+`np_redraw` walks to `[np_vrows]` exactly as Word did, and its two escapes are
+`np_append`, which requires the caret at the end of a line, and the visual
+break (§27.3), which stops at the caret only because the screen below it is
+knowingly wrong until a worker settles it. Neither is a reconvergence test.
+
+#### 27.4.4 …and Left and Right are a caret move too
+
+§27.4.1 bounds a caret move at the deeper of the two rows whose signatures can
+differ — the one it left and the one it arrived on — and `wd_move` sets it.
+**Left and Right do not go through `wd_move`.** They reach `wd_fastcm`, which
+parked `[wd_mvbot]` at the `0x7FFF` sentinel and let pass 1 lay out the whole
+view to be told nothing moved.
+
+Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped window,
+caret clicked on row 1:
+
+| key | `wd_onkey` | `wd_walk` | `[wd_mvbot]` |
+|---|---:|---:|---:|
+| Right | 186.3 → **67.3 ms** | 142.8 → **23.8 ms** | 0x7FFF → 2 |
+| Left | 216.6 → **96.2 ms** | 164.8 → **42.2 ms** | 0x7FFF → 1 |
+| Down (already bounded) | 114.5 | 4.3 | 5 |
+| Home (already bounded) | 52.6 | 23.1 | 1 |
+
+The rule is §27.4.1's, unchanged: the caret travels **one character**, so it
+lands on `[wd_ckpr]`, one row above it (Left, off the start of a row) or one
+below (Right, off the end of one, or past a paragraph mark). `wd_ask` folds
+the caret into a row's signature and a move changes nothing else, so the
+deeper of the two is never past `ckpr + 1`.
+
+It is set only inside the checkpoint's own guard, so a move that cannot trust
+`[wd_ckok]` keeps the sentinel and the old behaviour; and `wd_redraw` clamps
+the bound to the view, so a caret leaving the last visible row needs no test
+of its own. Kinds 1..3 never read `[wd_mvbot]`, so the default is left alone
+for them.
+
+`.text` +14 bytes.
+
+#### 27.4.5 …and an ENTER pushes the note down rather than drawing it again
+
+An Enter was the one edit at the caret with **no fast path at all**: `.append`
+never called a `wd_fastok*` door, so `[wd_fast]` stayed 0, and every cheap path
+in `wd_redraw` is gated on the kind. No `wd_seedck`, so pass 1 started at the
+top of the view; no bound, so it ran to the bottom of it; no `[wd_eodel]`, so
+§27.4.3's reconvergence could not fire; and every row below the split changed
+its y, so `[wd_ymoved]` erased to the content bottom and pass 2 lettered the
+lot. Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped
+window, caret clicked on row 1: **448.2 ms**, and **165 ms of it was a pass
+that draws nothing.**
+
+Kind **5** is that door. It is a fifth kind rather than a flag beside kind 1
+because the three places that read the kind each want a different answer for
+it: `wd_append` refuses it (a `13` is not a glyph to stamp), `wd_seedck` takes
+it (the caret's row is where the split is), and `wd_brktry` refuses it (the
+break's column arithmetic assumes the row did not end).
+
+**The reconvergence test is §27.4.3's, one row down.** A split makes a row
+where there was none, so the row that is *now* R holds what the row that *was*
+R−1 held. `[wd_eorow]` is that offset — 0 for an edit that stayed on one row, 1
+for an Enter — and the two cases share every other instruction.
+
+**The test carries its own one-entry shadow, and it has to.** §27.4.3 compares
+against `wd_rows[R]`, which is still the pre-edit value: `wd_rstart` overwrites
+it a few instructions later. A split compares against `wd_rows[R−1]`, and
+`wd_rstart` overwrote *that* one a whole row ago. So each `wd_eoutck` call
+banks the entry it read (`[wd_eoprev]`, with `[wd_eoprow]` saying which row it
+was), and the split reads the bank rather than the array. Without it the
+compare reads the **new** table and can only match by luck: measured on
+`WELCOME.DOC` it fired one row late every time, having missed the real
+reconvergence and hit a row whose old and new entries happened to be equal.
+That is a wrong screen waiting to happen, not a missed optimisation — nothing
+about `new_rows[R−1] + 1 == wd_i` says the note below reconverged.
+
+The caret guard is `[wd_curseen]`, and it is exact. A split puts the caret on
+the row **below** the one it truncated, so a stop before the walk has stood on
+the caret leaves `[wd_cury]` at its initial 0 and sends `wd_redraw`'s net over
+the whole note — the win handed straight back. `wd_walk` clears the flag on
+entry, so it is a fact about this pass rather than a leftover. The
+conservative version — a row of slack below `[wd_ckpr]` — cost a drawn row on
+**every** Enter that fired.
+
+And it may fire **once per redraw**. Pass 2 walks the same rows again over a
+table pass 1 has already shifted, and a second shift is silent.
+
+**What the repair costs is a shift rather than a bump.** Entry k takes entry
+k−1: `wd_rows` plus the inserted character, `wd_sig` unchanged, `wd_ryb` plus
+the pixel delta. Descending, or the copy overwrites its own source. `wd_rows`
+runs to `[wd_rowsn]`, being the note's own row index (§27.13); `wd_sig` and
+`wd_ryb` describe the **glass** and stop at the view.
+
+**And then the pixels are a scroll.** From the split's own row to the bottom of
+the last whole row, down by the pen's delta — one `OSAPI_GFX_SCROLL` where the
+old path erased to the content bottom and lettered every row in it. The delta
+is the **pen's** and not a row height: a split makes a new *paragraph*, whose
+first row can carry space-before under a format (§68.6), and the pen is the
+only thing that knows. Everything below moves by exactly that, because from
+there down the note is what it was — same characters, same paragraph, same
+heights.
+
+Three things had to be got right and each is a way to draw a wrong screen
+rather than a slow one:
+
+- **The band's bottom is the last WHOLE row, not `[wd_bot]`.** `wd_vshift`
+  carries the same warning one routine along. A content height that is not a
+  multiple of the row pitch leaves a sliver below the last row; `wd_rflush`
+  refuses to draw a row that would cross it, so nothing would ever erase what a
+  scroll to `[wd_bot]` pushed into it. The first build did exactly that and
+  left **four scanlines of the last row's glyphs standing**, on a picture that
+  still reads as text.
+- **The rows the push cannot vouch for are drawn whether a signature moved or
+  not** — the caret's own row, which the split truncated, down to the split's,
+  whose pixels the scroll left standing as a copy of what has just moved off
+  them. `wd_nlpush` forces them into `[wd_dr0]`/`[wd_dr1]` itself, and is
+  called **above** `wd_redraw`'s "not one pixel moved" early-out for that
+  reason.
+- **A caret-follow scroll after a push must repaint in full.** `wd_scrollto`
+  does not drop `[wd_sigok]`, so `wd_scrollpaint` would happily blit a table
+  that describes the note one row lower than the glass does. Two instructions
+  at `.scrolled`.
+
+A refused `OSAPI_GFX_SCROLL` is the same recovery `wd_scrollpaint`'s is: the
+tables are already shifted and nothing moved, so the caller repaints. And the
+whole arming — the kind, `[wd_sigok]`, and a band that stops clear of the
+scroll bar — is settled **once, before the walk**, in `[wd_eorow]`. The early
+stop and the push cannot then disagree, which they could if each asked
+separately.
+
+**`[wd_eodel]` is set inside that arming and not before it**, and getting it
+the other way round drew a wrong screen on every Enter the push declined.
+§27.4.3's test — the row's *own* entry plus one — says nothing true about a
+split, and its repair *bumps* indices where a *shift* was owed. So an Enter
+that cannot be pushed must leave the early-out off entirely rather than fall
+back to the one for an insert.
+
+Measured on the same machine and document, caret clicked on row 1. The A/B is
+one boot with `wd_nlband` patched to refuse, and it is taken on a machine made
+quiet first:
+
+| | before | after |
+|---|---:|---:|
+| `wd_onkey` for one Enter (A/B, quiet machine) | 410.7 ms | **71.9 ms** (5.7x) |
+| `wd_onkey` for one Enter (breakdown, one sample) | 448.2 ms | **116.9 ms** |
+| rows laid out by pass 1 | 7 | **2** |
+| rows laid out and drawn by pass 2 | 6 | **2** |
+
+**It does not fire on every Enter, and the ones it refuses are honest.** An
+Enter in the middle of a long line makes the tail a row of its own starting at
+column 0, so it holds more characters than it did as a fragment and everything
+below it genuinely re-wraps — different characters at different positions,
+which have to be drawn. Over seven caret positions in `WELCOME.DOC` the push
+took five; the two it refused both reflowed. The seed and the bound still
+apply to those, so a refused Enter is faster than it was too.
+
+`.text` +369 bytes, `.bss` +10 (`[wd_eorow]`, `[wd_nlrow]`, `[wd_nlpx]`,
+`[wd_eoprev]`, `[wd_eoprow]`).
+
+`tests/wdenter.py` is the gate, and its leg F is the A/B inside one boot:
+`wd_nlband` is the whole arming, so patching it to `stc`/`ret` in the guest
+turns the feature off and the same keystroke draws the same screen the slow way.
+
+#### 27.4.6 …and a CARET MOVE lays the note out once, not twice
+
+`wd_redraw` is **two walks**. Pass 1 works out which rows stopped matching
+their signatures; pass 2 draws them. The split earns its keep on an edit,
+because a reflow can change a row's **height**, and a height change means a
+band has to be **erased** before it is lettered (§68.6) — an erase over rows
+you have already drawn is a blank line, so the drawing cannot start until the
+range is known.
+
+**A caret move needs neither half of that.** Nothing reflowed, so no row
+changes height and no band is erased; and with no fill in the way a row can be
+drawn the moment its signature says it changed — which is at the row's **end**,
+where `wd_rflush` already runs, one call before `wd_nextrow` folds the
+signature. Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped
+window, a Right arrow was **68.6 ms of which pass 1 was 23.5**, and pass 1
+draws not one pixel.
+
+So `wd_rowsig` is split out of `wd_nextrow` and `wd_rflush` calls it first. It
+is **idempotent** — once it has stored the signature the compare is equal — so
+`wd_nextrow` calling it again a few instructions later costs a compare and does
+nothing, and every other path is untouched.
+
+**`[wd_clip]` cannot be what gates it, and that is the whole trap.** The same
+byte gates the **glyph store** as well as the drawing — the same three tests,
+deliberately, at all three store sites — so clipping the one pass to the dirty
+range composed **no cells at all** for a row whose signature was not yet known.
+`wd_rflush`'s delta then diffed a stale `wd_rbuf` against `wd_prow`, found every
+cell changed, and re-lettered the whole row: **419 differing bits on a Right
+arrow**, on a screen that still read as text. The one pass therefore clips
+nothing, `wd_rowrng` is the range test on its own, and `wd_rflush` is the only
+thing that asks it.
+
+Two things the walk can still do **after** the drawing has gone past, and each
+is a wrong screen rather than a slow one. Neither can happen for a caret move —
+nothing reflowed and the note is byte for byte what it was — so they are a net
+rather than a path, and they say so by falling out to the full repaint:
+
+- **`[wd_ymoved]`.** A row that changed height asks for the band sweep, which
+  erases to the content bottom and re-letters — over rows already drawn.
+- **`[wd_dr1]` past where the drawing reached.** `wd_walk`'s `.pad` marks the
+  rows a note that *shrank* left behind, and it runs after the last
+  `wd_rflush`. `[wd_1pdr1]` is the range the last drawn row saw, and the two
+  are compared rather than assumed equal.
+
+**`wd_seecaret` now runs after the drawing rather than before it**, which is
+the one ordering this changes. A scroll it decides on lands on rows this pass
+has drawn — and that is fine, because `wd_scrollpaint`'s precondition is that
+the tables describe the glass, which after one pass they do. The cost is one
+wasted draw in the rare case, against a whole layout pass in every other.
+
+Measured on the same machine and document, caret clicked on row 1, on a
+machine made quiet first:
+
+| | two passes | one |
+|---|---:|---:|
+| `wd_onkey` for one Right arrow | 67.6 ms | **47.0 ms** (1.44x) |
+| `wd_walk` calls in the keystroke | 2 | **1** |
+
+`.text` +475 bytes total for §27.4.5 and this together, `.bss` +13.
+
+It is **kind 4 and nothing else**: every other kind can reflow, and a reflow
+can change a height, and a height change is the erase this rests on not
+happening. `wd_1pok` is that one test, in a routine of its own so that
+`stc`/`ret` over it in a running guest is the A/B — `tests/wdcaret.py` leg C.
+
+**And a methodological one, because it nearly became a bug report.** A
+ten-scenario A/B run as two BOOTS, comparing whole framebuffers, read 6 and 15
+bits apart on `Home`/`End` and on a five-Right / five-Left pair. Neither is the
+collapse. The 15 was the **desktop clock**, which is outside the window and
+which two boots do not agree on; the 6 survives banding to the window and is
+still not attributable, because the same sequences read **0 against a full
+repaint in both forms** (`tests/wdcaret.py` leg B, and the printed line in leg
+C) — and the two boots' screens already differed by 31 bits before a key was
+pressed. **The reference is the full repaint, taken inside one boot.** A
+cross-boot framebuffer diff is a signal, not a verdict, and every leg of the
+gate is written against the repaint for that reason.
+
 ### 27.5 Where each row starts — a query about a row costs a row
 
 §27.4 bounded the *keystroke*. It did nothing for the caret keys, and they
@@ -38286,6 +38636,68 @@ full draw is the right one. `[np_sbkeep]` is set on exactly one path and
 cleared at the end of `.fullpaint`, so every other entry to `np_paint` reads 0
 and behaves as it always did.
 
+#### 27.7.2.2 …and a scroll UPWARD is priced, not refused
+
+§27.7.2's blit moves the view with `OSAPI_GFX_SCROLL` instead of repainting it.
+On a **formatted** note it only ever did so DOWNWARDS: a down scroll prices
+itself out of the banks, because the rows that LEAVE are on the glass and
+their heights are in `wd_ryb`, while an up scroll's entering rows are ABOVE the
+view and in no bank at all. So every click above the thumb repainted the whole
+window — menu bar, ruler and text — and the field reported exactly that.
+Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped window:
+
+| a scroll-bar track click | before | now |
+|---|---:|---:|
+| below the thumb (down) | 251 ms | 252 ms |
+| **above the thumb (up)** | **622 ms** | **307 ms** (2.03x) |
+
+So **price them**: `wd_upheight` lays out |d| rows, no drawing and no
+signatures, and the answer is where the walk stops. Bounded at row |d|-1,
+`wd_walk` stops ON row |d| with `wd_rstart` already run for it, so `[wd_rby]`
+is the first RETAINED row's new top and `[wd_ty]` is its old one. It goes
+through §27.13's row index and **refuses** when that cannot seed it, because
+laying the note out from index 0 to reach the new top is the repaint's own
+cost paid twice.
+
+Three things had to be got right, and each was found on the glass rather than
+by reading:
+
+- **The erase band is at the other end.** `OSAPI_GFX_SCROLL` leaves the
+  vacated rows holding a copy of what was beside them. A down scroll vacates
+  the bottom; an up scroll vacates the TOP, and the formatted erase was
+  derived from `[wd_bot] - [wd_sdpx]` in one direction only.
+- **The SLIVER.** A content height that is not a multiple of the row pitch
+  leaves a <8px band below the last drawable row, and `wd_rflush` refuses to
+  draw a row that would cross `[wd_bot]` — so whatever lands there lands for
+  good. A down scroll never puts anything there (its vacated band runs to
+  `[wd_bot]`); an up scroll pushes the row above's pixels into it.
+  `wd_vshift`'s UNIFORM arm avoids this by not blitting into the sliver at
+  all, which a formatted band cannot do. It is erased instead, off the ys
+  `wd_shiftrows` has just made current — and the scan for the last drawable
+  row must reject a bank OUTSIDE the band, a slot never written reading 0 and
+  0 + `[wd_gh1]` being under `[wd_bot]`. Without that it filled from y = 8 to
+  the foot of the window: **7,522 pixels**.
+- **`[wd_nobank]`, and it is `wd_rows` that needs it, not `wd_ryb`.** The
+  pricing walk runs BEFORE `wd_shiftrows`, and `wd_rstart` writes
+  `wd_rows[row]` for every row it starts — which are exactly the entries the
+  shift reads as its SOURCE, so the new view's row starts were shifted into
+  the retained rows' slots. `wd_ryb` was never at risk (a walk with `[wd_draw]`
+  and `[wd_sigup]` both 0 does not bank it) and suppressing that was the
+  redundant half of the first fix. **The up blit's own screen was perfect to
+  the pixel and the NEXT page down drew three rows of the wrong text** — which
+  is why `tests/wdscroll.py` leg F exists: it is the only leg that looks at
+  what a scroll LEAVES BEHIND rather than at what it draws.
+
+`wd_scrollpaint` also clears `[wd_1pass]` on entry (§27.4.6): it runs a pass of
+its own, whose exposed rows are clipped by ROW and re-signed as they are drawn,
+because an exposed row's old signature is the row that scrolled away and could
+match by luck — which is exactly the test `wd_rflush` would apply if the flag
+were left set.
+
+`wd_upheight` is the whole arming, so `stc`/`ret` over it in a running guest is
+the A/B, and it is what still exercises `[wd_sbkeep]` — leg D of that gate used
+to BE the refusal.
+
 ### 27.7.3 The height is counted a chunk at a time
 
 §27.7.1 bounded every walk that draws to the bottom of the view, which left
@@ -38397,7 +38809,7 @@ On README.TXT: 15,428 characters in a 24-cell row is **642** against the true
 
 ### 27.7.5 A resize walks to the bottom of the view, not to the end
 
-§27.7.1 bounded every walk that draws, and §27.7.3 chunked the one that
+§27.7.1 bounded every walk that draws, and §27.7.2.2 chunked the one that
 counts. One unbounded walk was left, on a path neither of them looks at:
 `np_paint`, when `[np_gchg]` says the geometry moved. A resize changes the
 wrap width, so every row start moves and the whole layout is stale — and the
@@ -38419,7 +38831,7 @@ after `[np_vrows]`, and its exit is the answer:
   right for the same reason it always was.
 
 So nothing tests which happened: `np_hmark` raises the debt *before* the walk,
-and the walk either clears it on the way out or leaves it owed for §27.7.3's
+and the walk either clears it on the way out or leaves it owed for §27.7.2.2's
 worker. The two cases are the two exits, and they were already there.
 
 **What this does NOT remove, because nothing can.** Wrapping is sequential:
@@ -38437,7 +38849,7 @@ was the invisible pass in front of it.
 
 ### 27.7.6 Only a scroll past the counted extent may finish the count
 
-§27.7.3 moved the height count into the background and §27.7.4 gave the bar an
+§27.7.2.2 moved the height count into the background and §27.7.4 gave the bar an
 estimate to draw from, and one caller still finished the whole thing
 synchronously: `np_onclick`, for any click on the scroll bar. That is the
 worst possible moment for it — the first bar click after opening a file is
@@ -38647,7 +39059,7 @@ a table holds is no seed for a row *above* it.
 
 `np_xi` is a sparse table of the character index at which every Kth
 **absolute** row begins: entry n describes row `n << [np_xksh]`. **It costs no
-walking at all** — §27.7.3's background count already visits every row in
+walking at all** — §27.7.2.2's background count already visits every row in
 order and already computes exactly this, so `np_xnote` keeps what was being
 thrown away. It hangs off `np_rstart`, which runs once per row of every walk,
 and is one compare against `[np_xnext]` unless that row is wanted.
@@ -39259,7 +39671,7 @@ again with the longer word and might break earlier. So the screen can be one
 wrap behind the note while the keys are still coming, exactly as the visual
 break is one line break ahead of it. **`[np_sowed]` is the debt and nothing new
 was hired**: the worker already spends it with a full `np_redraw`, and only
-after `NP_IDLE` ticks without a keystroke — §27.7.3's height recount and this
+after `NP_IDLE` ticks without a keystroke — §27.7.2.2's height recount and this
 reconcile are the same settle, woken by the same `np_hmark` that `np_ins`
 already raises.
 
@@ -44254,15 +44666,16 @@ no SB16 for an 8-bit ISA XT. It borrows the wide regime's 4 KB double buffer
 and `SBL_WD_WIDE` watchdog. Its one hardware quirk drives the last column: once
 `90h` runs the DSP accepts **no command** until a reset, so `sbl_halt` masks
 8237 channel 1 instead of writing `D0h`, `sbl_go_on` unmasks, and
-`sbl_stop_stream` masks in the `cli` window then runs `sbl_dsp_reset` after
-`popf` (the stream already dead) to leave high-speed mode for the next open.
+`sbl_stop_stream` masks in the `cli` window then runs `sbl_f_reset` — the
+probe's own DSP reset, the driver's only one — after `popf` (the stream
+already dead) to leave high-speed mode for the next open.
 A TC byte can only say 1,000,000 / n, so the high-speed regime **rounds** the
 division where the legacy path truncates: 44,100 lands on TC 233 (43,478 Hz,
 −1.4%) rather than 234 (45,454 Hz, +3.1%, half a semitone sharp), 24,000 on
 23,810 Hz. The SB16's `41h` takes the rate in Hz and has no such error.
-`sbl_dsp_reset` answers CF = 1 on a timeout and `sbl_stop_stream` retries it
-once — nothing else ever resets the DSP, and one left in `90h` swallows every
-later open's commands.
+`sbl_f_reset` answers CF = 1 on a timeout and `sbl_stop_stream` retries it
+once — the probe, the close and `sbl_unhook` share that one routine, and a DSP
+left in `90h` swallows every later open's commands.
 Everything below DSP 3.00, and every rate ≤ 22,222, behaves exactly as before:
 those paths gained only a test of `sbl_hisp` (in `sbl_hw_start`, `sbl_halt`,
 `sbl_go_on`, `sbl_stop_stream` and the TC division), never a different byte
@@ -49513,7 +49926,7 @@ chain, `wm_fit`, the chrome, `desk_rowcalc` and the cursor all follow from
 | `vga_vline_core`, `vga_xor_hline` | clip y to `SCREEN_H` (a VGA-only constant) | now clip to `[vid_ch]` — a no-op edit on VGA, byte-checked (§39.9) |
 | Colour theme (§76.12) | eligible | eligible — the theme is six palette *indices*, no DAC or AC programming; `thm_set` / `cp_thm_colgrey` accept `VID_EGA` beside `VID_VGA`, the two four-plane kinds (§76.12.1) |
 | `OSAPI_WM_PREFER` kind index | `vid_kind` = 0 | clamped to 0 — an EGA takes VGA's preference row (§39.8) |
-| the idle **blank** (§64) | SR01 bit 5, Screen Off | **the PALETTE** — `vid_ac_pal`, all sixteen AC registers to black and mode 10h's own sixteen back. An EGA has neither enable bit: SR01 bit 5 and the AC index's bit 5 (Palette Address Source) are both VGA additions, so writing either on an EGA lands in a reserved field and blanks nothing |
+| the idle **blank** (§64) | the same as the EGA's — `vid_ac_pal` | **the Attribute Controller's Color Plane Enable**, AC register 12h — `vid_ac_pal`, 0 to dark and 0x0F to light. An EGA has neither enable bit: SR01 bit 5 (Screen Off) and the AC index's bit 5 (Palette Address Source) are both VGA additions, so writing either on an EGA lands in a reserved field and blanks nothing. AC 12h is on both cards, so it is the ONE planar arm and the VGA's SR01 blank is gone with it |
 | `vid_dual_ok` | `[vid_avail]` alone | **also `[vid_kind]`** — and that is what makes the predicate non-invariant, below |
 
 `vid_probe_avail` treats `VID_EGA` like `VID_VGA`: available by definition,
@@ -75185,19 +75598,26 @@ CGA branch, which writes 3D8h — a register a VGA does not implement, so the
 `out` was swallowed by the bus and did nothing. §39.11.4 records the hole as
 accepted, which it was for a card pairing nobody built and is not for a
 blanker: silently declining to blank on one adapter in three is precisely the
-failure this project keeps paying for. The VGA now uses Sequencer register 1
-(Clocking Mode) bit 5, **Screen Off**.
+failure this project keeps paying for. **Both planar kinds now use the
+Attribute Controller's Color Plane Enable, AC register 12h** (`vid_ac_pal`):
+with all four planes disabled every pixel reads as attribute 0, which maps
+through palette register 0 to black; 0x0F puts them back and is what the BIOS
+mode set leaves for mode 10h and mode 12h alike. That register is on the IBM
+EGA as well as on every VGA, which is what makes it ONE arm rather than two
+— the VGA's earlier Sequencer register 1 bit 5 (**Screen Off**) arm is gone,
+and §39.24's EGA arm never needed a second mechanism. The one behavioural
+difference is the **overscan**: SR01 bit 5 gated the signal outright and
+darked the border with it, where AC 12h leaves AC 11h alone — which is 0 in
+both modes, so the border is already black.
 
-That one access is a **read-modify-write and so runs with IF=0**. SR01's other
-bits are the dot clock and the character width; they belong to whatever mode
-the card is in and cannot be guessed, so the register must be read — an index
-write, a read and a data write, with two gaps in it. Every other sequencer
-access in the kernel is a single `out dx, ax`, atomic by construction; this
-one cannot be, and the gap is reachable, because `vga12.inc`'s plane loops
-leave the sequencer index at 2 (Map Mask) for the whole of a plane's
-`rep movsb` and any drawing task can be pre-empted mid-row. A switch landing
-in that gap would read the Map Mask and write the screen-off bit into it.
-`pushf`/`cli` … `popf`, never `cli`/`sti` (§1).
+Those two port writes are **a latched pair and so run with IF=0**. 3C0h is one
+port for both the index and the data and which one a write lands in is a
+flip-flop, not a state re-selected by each access the way the Sequencer's index
+is, so a task switch landing between the index write and the data write puts
+the next writer's index where a data byte belongs. The routine resets the
+flip-flop through 3DAh on the way in and leaves it in the INDEX phase on the
+way out, because the phase outlives the call and `fsx.inc` hands a package the
+raw hardware. `pushf`/`cli` … `popf`, never `cli`/`sti` (§1).
 
 **Every card, not just `[vid_kind]`'s.** On a two-monitor machine (§39.11) —
 the machine this project is calibrated against — the desktop spans both and
@@ -78801,6 +79221,55 @@ prompt first when the document is dirty (§68.4); the kernel close box
 CANNOT prompt — the kernel tears the instance down itself, a documented
 limitation.
 
+#### 68.2.1 A dropdown is BANKED, and the repaint is what a refusal falls back to
+
+Word draws its own bar, so it also owns the dismissal — and until §5.3 it had
+only one way to spell it: `wd_mrepair`, a piecewise repaint of everything the
+panel covered. That is the right fallback and was the wrong default. Measured
+on a 4.77 MHz 8088 (`os8088_5150_both_gla`), opening Utilities over
+`WELCOME.DOC` in a 600×136 content area:
+
+| | cycles | ms |
+|---|---:|---:|
+| open — `wd_mdraw` | 475,304 | 99.6 |
+| close — `wd_mrepair` | 2,488,591 | **521.4** |
+
+The panel is 168×109 and covers 80% of the content height; `wd_mrepair` erases
+the covered rows **full width** — all 600 px, not the panel's 168 — and
+re-letters them at ~900 µs a glyph cell. **Sliding along the bar is that
+figure once per title crossed**, because `wd_mtrack` closes and reopens, so
+File → Help was eight of them.
+
+So the drop banks first. `wd_subank` runs between `wd_mgeo` and `wd_mdraw`,
+sizes the rect the way `wd_mrepair` grows and clamps its own — **including
+the drop shadow**, or the restore is short by a column — takes the plane
+count from `OSAPI_WM_DISPLAY`'s DH (never `OSAPI_VIDEO`: §39.16.4), claims,
+and calls `OSAPI_GFX_SAVE`. `wd_surest` writes it back and frees.
+
+**Every refusal is the same refusal and none of them is a new path.** No
+claim, a rect straddling two displays, no window — `[wd_suseg]` stays 0,
+`wd_surest` answers CF = 1 and the caller falls into `wd_mrepair`, which is
+what it did before. That is §12.4's `[menu_sseg]` rule, one layer out.
+
+**The claim is per drop**, freed before the picked item runs, so whatever that
+item allocates gets a heap the menu has already left — §12.4's reasoning and
+its arithmetic: ~10 KB held at every instant nobody is looking at a menu is a
+third of a small machine's heap.
+
+**What makes it safe is an invariant the program already had.** A save-under
+is wrong if anything draws into the banked rect while the panel is up, and
+Word's worker already refuses to draw on `[wd_mopen]`, `[wd_about]` and
+`[wd_dlg]` — *"every draw below would letter text straight through it"* — so
+the precondition is one the code was already keeping for its own reasons.
+
+The About box (`wd_suab`) and every modal dialog (`wd_sudlg`) bank through the
+same pair: they keep their rect in their own four words and already loaded
+`wd_mrect` from it on the way down, so banking is that load one step earlier.
+A dialog is the largest thing Word ever puts over its content and §68.3 makes
+it modal, so it is both the biggest repaint owed and the safest to bank.
+
+`.text` +356 bytes.
+
 ### 68.3 Document model: CHP bytes and PAP on the paragraph mark
 
 Three claims (§50.3): the text (¶ = byte 13, tab = 9, ceiling `WD_MAXKB` =
@@ -78912,6 +79381,99 @@ and live edit fields (inches; cells = tenths; click or Tab focuses, digits
 '.' '-' '"' type, BkSp deletes); the Keep/Border/Pattern/Style groups are
 omitted rather than greyed — with them the dialog cannot fit a CGA content
 box, and a Format command that refuses on one adapter of three is worse.
+
+
+
+#### 68.2.2 The scroll bar is not part of the text band
+
+Three field reports, all one shape: the scroll bar being drawn when nothing
+asked for it. Measured on a cycle-accurate 5150 (CGA), `WELCOME.DOC` in the
+shipped window — content origin `[wd_tx]` = 24, `[wd_rcols]` = 72,
+`[wd_rgt]` = 601, the bar's frame at 602.
+
+**The band cut itself from the wrong edge.** `wd_vshift` took x2+1 up to a
+byte column from `[wd_rgt]` — 608 — so the blit carried **six of the bar's
+fourteen columns** with the text. `wd_scrollpaint` then filled that strip
+white over the whole band height and `wd_sbar` drew all sixteen calls of the
+bar again at the end of the routine, with the exposed rows lettered in
+between: Part 1's double-draw flash, once per arrow click. `wd_bandx` cuts
+from the CELLS instead — no glyph reaches past cell `[wd_rcols]-1`, so
+`[wd_tx] + 8·[wd_rcols]` = 600 is the first column past the last one a glyph
+can occupy, and a snapped origin (§11.94) makes it a byte column already. The
+bar is never touched, the strip pass does not run, and the bar's sixteen
+calls become `wd_sbcheck`'s three. **A chosen face keeps the old span**: there
+a cell is as little as `TY_MINADV`, so `8·[wd_rcols]` is not a pixel bound and
+`wd_px[]` describes only the row flushed last — the strip pass is what makes
+that arm correct and it still runs.
+
+**A refused blit was taking the bar off the screen.** `.fullpaint` white-filled
+the whole content, bar and grow box included, and `wd_paint` then drew the bar
+whole because the fill had taken it. Neither is true of that path: a refusal
+draws **nothing**, and `.scrolled` is only reached once `wd_sigsame` has
+AGREED — so the bar on the glass is still right to the pixel. `[wd_sbkeep]` is
+that fact, set at the refusal and read twice: the fill stops at `[wd_rgt]` and
+`wd_paint` calls `wd_sbcheck` instead of `wd_sbar`. It is a **one-shot**,
+because W_PAINT is `wd_paint`'s other caller and there the kernel has filled
+the whole content, so the bar really has gone.
+
+**And a page click threw away two thirds of the view.** A page is `[wd_vfit]`
+rows, which with formats is `band/24` (§68.6) — **2** of the shipped window's
+**6**. `wd_scrollpaint` lowered `[wd_rowsn]` to `[wd_bd0]` to bound its seed to
+rows the shift had not carried out of range, and nothing raised it once the
+walk had lettered `bd0..bd1` and banked their ys. So the FIRST page click
+blitted, left `[wd_rowsn]` at 2, and every click after it refused on
+`d > rowsn` (4 > 2) and repainted the whole window. `wd_shiftrows` moves every
+retained row's banked y with the pixels, so after that walk rows `0..bd1` are
+all described: the raise only ever RAISES, and only while `[wd_rowsok]` says
+the arrays are sound at all.
+
+Measured, on the same machine and the same document:
+
+| | before | after |
+|---|---:|---:|
+| down arrow, from `[wd_top]` = 8 | 230.4 ms | **197.8 ms** |
+| track click below the thumb | 512.9 ms | **155.0 ms** |
+| the bar's arrow cell, sampled through a click | 44 of 48 samples altered, worst 14 bytes | **0 of 48** |
+| three consecutive page clicks | 3 full repaints | **0** |
+
+`.text` +150 bytes. `tests/wdscroll.py` is the gate and each of its four legs
+was watched going red with its own fix backed out.
+
+#### 68.3.1 The document's two moves go a WORD at a time
+
+Every edit opens or closes a gap in **two** claims in lockstep — the text and
+its CHP twin — so one keystroke moves the tail **twice**. Measured on a
+cycle-accurate 5150, that pair cost **36.0 cycles a byte, 18.0 each**, which is
+`rep movsb`'s 17 clocks plus the loop: 12.35 ms on `WELCOME.DOC`'s 1,524-byte
+tail, and **232 ms** at `WD_MAXKB` — of a keystroke that draws nothing.
+
+`rep movsw` is 12.5 clocks a byte against `rep movsb`'s 17, and both moves are
+safe by words. `wd_mvup` and `wd_mvdn` are the two, and the argument for each
+is the whole of why this is allowed:
+
+- **UP, backwards, by one byte** (an insert). A single `movsw` reads its whole
+  word before it writes, so the overlap *inside* one instruction is fine;
+  across instructions, step *k* writes `[SI+1, SI+2]` and step *k+1* reads
+  `[SI-2, SI-1]`, strictly below it — no word is ever read after it has been
+  written. The odd byte goes **first, from the top**, and the pointers then
+  step back **one**, because a word is addressed by its low byte and `std`
+  walks down from there. Forgetting that step-back is the classic error and is
+  what `tests/wdmove.py` was verified against.
+- **DOWN, forwards** (a delete), while `DI < SI`: the write at `[DI, DI+1]` is
+  strictly below the next read at `[SI+2, SI+3]`, at **any** distance.
+
+Both leave DF clear (§1). Measured after: **26.6 cycles a byte, 13.3 each** —
+26% off, 12.35 → 9.31 ms on that tail and ~232 → ~171 ms at the ceiling.
+`.text` +32 bytes.
+
+`wd_gaproom` and `wd_paste` move the tail the same way and are **not**
+converted: they are bulk operations rather than per-keystroke ones, and the
+same helpers serve them whenever somebody wants the bytes.
+
+**The assertion is the BUFFER, not the glass** (`tests/wdmove.py`). A wrong
+word here is a corrupted document rather than a slow one, and no pixel test
+would see it — the damage is one byte deep in a buffer the screen shows six
+rows of.
 
 ### 68.4 File format and association
 
@@ -94386,24 +94948,34 @@ it writes a byte, because a pointer that outlived its question — the window
 closed by its box, or a boot that could not load the module to ask — would
 otherwise name the new image with the old session's wake address for as long
 as the new image's write took, and for good if the new pointer's write
-failed. It is 64 bytes of
-header and then the image's name; the path field is reserved and zero, and a
-pointer with a path in it is refused as another build's:
+failed. It is **16 bytes**, and every one of them is something this kernel
+could not have worked out for itself:
 
 ```
-+0   db 'HIB1'                   magic
-+4   dw BUILD_NUM                the commit (§14.2)
-+6   dw MOD_STAMP                the layout of this build of it (§2.8.2)
-+8   dw [mem_top]                paragraphs of conventional memory
-+10  db [vid_kind]               the adapter the desktop was on
-+11  db 0
-+12  dw SP, dw SS                hb_perform's entry frame (§87.4)
-+16  dw off, dw seg              hb_wake, in the module's own segment
-+20  dw driver mask              drv_tab rows detached before the image
-+22  db 0 x 10
-+32  db path[32]                 the folder from the root, 'A\B', NUL (PTH_BUF)
-+64  db name[13]                 the image's 8.3 name, NUL
++0   db 'HIB1'                   magic          \
++4   dw BUILD_NUM                the commit (§14.2)          |  hbm_ptrfix:
++6   dw MOD_STAMP                the layout of this build (§2.8.2)  ONE
++8   dw [mem_top]                paragraphs of conventional memory  description,
++10  db [vid_kind]               the adapter the desktop was on     stamped by
++11  db 0                                                    /  build and
++12  dw off, dw seg              hb_wake, in the module's own segment
 ```
+
+The head in front of `hb_wake` is **one object**, `hbm_ptrfix`: `hbm_ptr_build`
+copies it into the buffer and `hbm_ask` compares the buffer against it, so
+there is one description of the fixed head rather than a writer's and a
+reader's that can drift. Three of its assembly-time fields are literals in the
+module image and `hbm_ptrfix_set` fills the two that are the running machine's.
+
+**What is NOT in it, and why.** The image's NAME is always `HIBERNAT.IMG` and
+its folder is always the root of `hb_pick`'s volume, so a name field and a path
+field were the writer stamping a constant and the reader comparing it against
+the same constant. `SS` is `LOW_SEG` for every task in this kernel (§2.1) and
+`SP` is `[hb_sp]`, which is in `.bss` and so is IN THE IMAGE — as is the driver
+mask, which `hbm_reload` has always read out of `[hb_drvmask]` and never out of
+the pointer. So the stub hands `hbm_wake` no stack at all: it sets `DS` and
+jumps, and `hbm_wake`'s first three instructions build `SS:SP` out of the
+memory it has just put back.
 
 A pointer whose build, stamp, memory size or adapter differ from the kernel
 reading it names an image this kernel cannot enter, and `hb_ask` says so —
@@ -94486,7 +95058,13 @@ window in `HB_M_RESUME`. Any refusal is a toast and a deleted pointer.
    driver volume they are `DSV_GEOM`'s (§51.8): the int 13h unit, the
    partition's 32-bit base, sectors per track and heads.
 2. Walks the image's FAT chain into a list of **extents** — absolute LBA and
-   sector count, contiguous clusters coalesced — in a 10KB `MEM_K_HIB` claim.
+   sector count, contiguous clusters coalesced, six bytes each — in a
+   `MEM_K_HIB` claim `hbm_xcap` sizes for THIS volume. A run spans at least
+   one cluster, so the image's CLUSTERS bound the runs, and `[dsk_spc]` is
+   what turns its sectors into them: 8KB at one sector per cluster, 1KB at
+   eight. `HS_XMAX` stays the ceiling, because the staging region the stub
+   reads from is fixed at assembly time and cannot grow, and a BPB that says
+   zero takes that assembly-time bound rather than a divide.
 3. `cp_flush_close` (the Control Panel's unsaved settings, §31.8), then
    `drv_shutdown` (the fresh boot's drivers go) — `ui_cmd_reboot`'s order,
    as before any restart — then `gfx_lock`, `vid_reboot` to text mode.
