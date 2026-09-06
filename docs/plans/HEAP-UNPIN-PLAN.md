@@ -217,14 +217,25 @@ CWORD instance, session-lived). docs/HEAP-CLAIMS.md has the same two gaps.
 | the Sound Blaster ring | the 8237 holds its page and offset | **yes**, and it is the only one |
 
 **The page rule is not a correctness requirement for any disk buffer in this
-kernel.** `dsk_runcap` (kernel/disk.inc:1512) caps every kernel `int 13h` run at
+kernel, and two independent passes over the tree agree on it.** `dsk_runcap` (kernel/disk.inc:1512) caps every kernel `int 13h` run at
 the page and `hd_bios_run` does the same on the HDD driver, and a single
 512-aligned sector cannot straddle a page at all. So `MC_DMA` on a disk buffer
 buys **call count, not correctness** — and the tree says so itself:
 `kernel/filecp.inc:597` falls back to a plain `mem_claim_x` **with no `MC_DMA` at
 all** when no page-safe run exists, and *"still copies, exactly as it did
 before"*. **A pin that protects correctness cannot have a fallback that drops
-it.**
+it.** SPEC.md 22.5.1 prices what it really buys: **84 `int 13h` calls against
+93**.
+
+**Nothing else on the machine is a bus master into host RAM**, and each was
+checked rather than assumed: the NE2000's *"remote DMA"* is a PIO window at one
+port with the CPU doing the moving (drivers/ether/ne2000.inc:174), the IDE rung is
+`in ax,dx`/`stosw` (drivers/hdd/hdd.asm:1260), XMS is `int 15h AH=87h` or a plain
+`rep movsw` under a kernel-raised `[sch_lock]` (kernel/xmem.inc:597), and VMMOUSE
+says of itself *"No interrupt vector, no IRQ line, no DMA channel"*. And *"is
+hardware writing here right now"* is **already answered exactly** for every
+`int 13h` in the kernel by `[mem_pinseg]`/`mem_in_xfer` inside `dsk_xfer`'s
+`[sch_lock]` hold — which `mem_can_move` already calls.
 
 **And "unrelocatable in principle" is refuted by a shipped routine in the same
 file.** `mem_regrow`'s path 3 (kernel/memory.inc:2082) **already relocates an
@@ -264,8 +275,16 @@ phrase "hardware that interrupts write into" describes.
   `[sbl_dmaoff]` from a base segment, and `sbl_arm_half`/`sbl_arm_rec` re-arm
   the 8237 from those two words.
 
-What is missing is a **rendezvous**: today `mem_reloc_call` tells a holder only
-*after* the bytes have moved. The ring needs both sides — halt, copy, re-derive
+**Most of the time no quiesce is needed at all, and the driver already keeps the
+byte that says so.** `[sbl_str_act]` is 0 when no stream is open, and with no
+stream open no DREQ can reach the 8237 — the ring is 8KB of dead weight and can
+be moved like any other block. On a machine that is not playing anything (which
+is most machines, most of the time) the whole of the rest of this section is
+unnecessary. That one-byte test should be the first arm, and the quiesce below
+only the second.
+
+What is missing for the second arm is a **rendezvous**: today `mem_reloc_call`
+tells a holder only *after* the bytes have moved. The ring needs both sides — halt, copy, re-derive
 page and offset, re-arm, continue.
 
 The cheapest correct shape is **not** a second handle in every claim record
