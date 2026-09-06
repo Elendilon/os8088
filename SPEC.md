@@ -95458,6 +95458,42 @@ two frames to put a new reading on both pages. Six ticks is 4.6 frames on
 Hercules and 2.4 on Mode X, which is the tighter of the two and still clears
 it. A slower panel is one constant if the 3 Hz ever reads as busy.
 
+##### 88.5.4.1 The impostor's size is the RECTANGLE's, not an estimate of it
+
+`cs_boxlod` stands a distant solid up as **one screen-axis-aligned
+rectangle** — three projected points instead of a dozen transformed vertices
+and five faces. Nothing can tell at a few pixels, and it is what keeps a
+basilica five kilometres off from costing ten milliseconds.
+
+Its gate was on `CSM_RAD`, which for a `CSM_STACK` is `wx + wz + h/2`. That
+**under-states a tall building's height**, because the rectangle actually
+drawn is the whole of `h` projected — so the gate believed about ten pixels
+and let through, measured over 210 camera poses in Paris on the defaults:
+
+```
+the ten biggest:  22x3  22x1  22x1  20x2  20x2  20x1  20x0  18x2  16x4  16x4
+histogram (px):   0-3: 12   4-7: 102   8-11: 79   12-15: 28   16-19: 10   20+: 7
+```
+
+A 22-pixel rectangle on a 400-pixel-wide view is not invisible, and **in a
+bank it is the only thing on the glass that did not rotate**, which is how
+it was reported: *"a large square, vertical, aligned to the screen, not to
+the bank of my plane"*, beside a building leaning correctly. The gate's own
+comment already named a `CS_LODPX` that had never been defined.
+
+So the test is on the rectangle. `cs_boxlod` measures what it is about to
+draw and returns **CF = 1** if either side exceeds `CS_LODPX` = 8; the
+caller then takes the full path, which is what the object wanted. The same
+refusal covers the case where the box's top is nearer than the near plane —
+that used to draw nothing at all and now draws the solid properly.
+
+Afterwards the biggest impostor in the same 210 poses is **8x6**, and the 45
+rectangles of 12 pixels and over are gone. **It costs 5.3 ms of a 223 ms
+frame — 2.4% — on Hercules low over the city in a bank**, where 95 of 238
+impostors are refused, and 0.0% on Mode X in a pose where none is. That is
+the price of the shape being right, and it is the trade the impostor exists
+to make in the other direction.
+
 #### 88.5.8 "Buildings lean over", which was the horizon
 
 Reported off the machine with a photograph: a large dithered wedge standing
@@ -96048,6 +96084,12 @@ drop-downs get a release the title page never armed.
   too, found by `--clobber-lag` and fixed rather than tolerated.
   `--clobber-amphib` clears `CSP_FLAGS` and takes the water start and the
   splash red while everything else about the A5 still passes.
+- `tests/skiesgeom.py` also carries §88.5.4.1's check: `cs_rect` has exactly
+  one caller, so any stop there is an impostor, and its rectangle must be
+  within `CS_LODPX` — read out of `skies.asm` rather than mirrored.
+  `--clobber-lod` raises the refusal past every rectangle it can draw, which
+  is the gate exactly as it was, and `imp26` — level at the foot of the
+  Montparnasse tower — reports **22 px**.
 - `tests/skiesease.py` (soak, MartyPC): §88.7.3's capture. Every reading is
   taken at a `cs_step` BREAKPOINT and not after a frame — the model steps per
   tick and a frame spends one, two or three of them, so a per-frame sample

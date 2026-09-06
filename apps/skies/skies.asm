@@ -147,6 +147,12 @@ CS_FAR    equ 16000             ; nothing beyond this is transformed, and it
 CS_MAXV   equ 24                ; vertices in the largest model (the tower's
                                 ; five levels are 20)
 CS_MAXPV  equ 10                ; ...and a face after the near clip
+CS_LODPX  equ 8                 ; the biggest RECTANGLE cs_boxlod may stand
+                                ; in for a solid (SPEC.md 88.5.4.1): an
+                                ; impostor is axis-aligned in SCREEN space,
+                                ; which nothing in a banked world is, so it
+                                ; has to be small enough that nobody can see
+                                ; the shape
 CS_NVIS   equ 32                ; objects that can be in one frame
 CS_VISZ   equ 6                 ; ...six bytes each: ptr, reach, along
 CS_MAXROW equ 240               ; the tallest box any backend offers

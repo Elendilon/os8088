@@ -39,12 +39,21 @@ the per-scale projection are done again here, `idiv` truncation, Q15 and
 table buckets included. Both faults move a point by hundreds of pixels; the
 tolerance is TOL.
 
---clobber-proj and --clobber-side are the red runs (docs/WRITING-TESTS.md
-1): each patches one fault back into the guest's code and the row must
-fail on it.
+AND THE IMPOSTOR'S SIZE. cs_boxlod stands a distant solid up as ONE
+SCREEN-AXIS-ALIGNED RECTANGLE, which is invisible at a few pixels and, in a
+bank, the only thing on the glass that did not rotate. Its gate was on
+CSM_RAD - wx + wz + h/2, which under-states a tall building's height - and
+let 22 x 3 rectangles through on a 400-wide view. cs_rect has exactly one
+caller, so any stop there is an impostor and its size is checked against
+CS_LODPX, read out of skies.asm rather than mirrored (SPEC.md 88.5.4.1).
+
+--clobber-proj, --clobber-side and --clobber-lod are the red runs
+(docs/WRITING-TESTS.md 1): each patches one fault back into the guest's code
+and the row must fail on it.
 """
 import argparse
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -60,6 +69,9 @@ TOL = 3                                 # pixels: the replay is exact, the
                                         # margin is for a rounding it misses
 CS_NEAR = 40
 CS_MAXPV = 10
+LODPX = int(re.search(r"^CS_LODPX\s+equ\s+(\d+)", open(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "apps", "skies",
+    "skies.asm")).read(), re.M).group(1))   # read, not mirrored
 SCENES = {   # airport (the launcher's Location row), x, y, z (metres);
              # heading, pitch, roll (65536 to the turn)
     "issy60":  (0, -2430, 35, -2097, 7646, 876, 10923),  # 60 right, climbing out
@@ -86,6 +98,14 @@ SCENES = {   # airport (the launcher's Location row), x, y, z (metres);
                                                          # which is what the
                                                          # vertical invariant
                                                          # needs (88.5.8)
+    "imp26":   (0, 2000, 26, -1800, 0, 0, 0),            # LEVEL at the foot of
+                                                         # the Montparnasse
+                                                         # tower, looking
+                                                         # north up the city:
+                                                         # the anonymous
+                                                         # blocks here are
+                                                         # what drew a 22 x 3
+                                                         # IMPOSTOR (88.5.4.1)
     "lbg85":   (1, 4350, 85, 4800, 20000, 0, 3000),      # off Le Bourget
 }
 bad = []
@@ -246,6 +266,8 @@ def main(argv):
                     help="put the middle-word shift back in cs_project2: must go red")
     ap.add_argument("--clobber-side", action="store_true",
                     help="emit before the crossing in cs_sidepass again: must go red")
+    ap.add_argument("--clobber-lod", action="store_true",
+                    help="let cs_boxlod draw any size again: must go red")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     scenes = a.scene or list(SCENES)
@@ -300,6 +322,24 @@ def main(argv):
             m.write(lin + lo, bytes(code.replace(new, old)))
             m.run()
             print("  (cs_project2's shift put back to the middle-word form: this run must fail)")
+        if a.clobber_lod:
+            # cs_boxlod's two `cmp si, CS_LODPX`, which nasm emits as the
+            # sign-extended imm8 form; 127 is past every rectangle it can
+            # draw, so the refusal never fires - the gate exactly as it was
+            lo, hi = mp["cs_boxlod"], mp["cs_stackverts"]
+            code = m.read(lin + lo, hi - lo)
+            sites = [lo + i for i in range(len(code) - 2)
+                     if code[i] == 0x83 and code[i + 1] == 0xFE
+                     and code[i + 2] == LODPX]
+            if len(sites) != 2:
+                sys.exit("skiesgeom: cs_boxlod does not test CS_LODPX twice "
+                         "the way this patch expects (%d found)" % len(sites))
+            m.pause()
+            for st in sites:
+                m.write(lin + st + 2, b"\x7F")
+            m.run()
+            print("  (cs_boxlod's size refusal raised past every rectangle: "
+                  "this run must fail)")
         if a.clobber_side:
             lo, hi = mp["cs_sidepass"], mp["cs_edges"]
             code = m.read(lin + lo, hi - lo)
@@ -322,7 +362,8 @@ def main(argv):
             print("  (cs_sidepass emits before it computes the crossing again: this run must fail)")
 
         render, panel = mp["cs_render"], mp["cs_panel"]
-        stops = {mp[k]: k for k in ("cs_drawobj", "cs_poly", "cs_seg", "cs_edge1", "cs_panel")}
+        stops = {mp[k]: k for k in ("cs_drawobj", "cs_poly", "cs_seg", "cs_edge1",
+                                    "cs_panel", "cs_rect")}
 
         def frames(n):
             m.bp_exec(lin + render)
@@ -403,6 +444,10 @@ def main(argv):
                 sys.exit("skiesgeom: cs_render never ran")
             m.bp_exec(lin + render, *[lin + s for s in stops])
             cur, ref, npoly, nseg, worst = "?", None, 0, 0, 0
+            imp = (0, None)             # the biggest IMPOSTOR rectangle
+                                        # (88.5.4.1): cs_rect has exactly one
+                                        # caller, cs_boxlod, so any stop there
+                                        # is one
             lean = (0, None, None)      # the worst world-vertical edge that
             leann = 0                   # did not come out vertical (88.5.8),
                                         # and how many were looked at - a
@@ -440,6 +485,11 @@ def main(argv):
                 if k == "cs_drawobj":
                     ob = int.from_bytes(m.readseg(seg, si, 2), "little")
                     cur = name_of(ob)
+                elif k == "cs_rect":
+                    x0, y0, x1, y1 = (sg(v) for v in (ax, bx, cx, dx))
+                    big = max(x1 - x0, y1 - y0)
+                    if big > imp[0]:
+                        imp = (big, cur)
                 elif k == "cs_poly" and not roll and not pitch:
                     # A WORLD-VERTICAL EDGE MUST PROJECT VERTICAL when the
                     # camera has neither pitch nor roll: yaw alone never
@@ -517,6 +567,10 @@ def main(argv):
                   % (sc, npoly, nseg, worst, len(errs)))
             check(npoly + nseg >= 6, "%s: the frame had something to check (%d polygons, %d segments)"
                   % (sc, npoly, nseg))
+            if imp[0]:
+                check(imp[0] <= LODPX,
+                      "%s: no impostor is bigger than CS_LODPX (%d px%s)"
+                      % (sc, imp[0], ", " + imp[1] if imp[1] else ""))
             if not roll and not pitch:
                 check(leann >= 4 and lean[0] <= 1,
                       "%s: %d world-vertical edges, and they stay vertical "
