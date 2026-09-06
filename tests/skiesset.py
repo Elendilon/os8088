@@ -10,14 +10,16 @@ something different.
 
   1. Flight -> Settings opens the page and the painter writes all seven
      controls' rects (four drop-downs, two fill boxes, Done);
-  2. picking Buildings = Few leaves fewer objects in the frame - cs_nvisn,
+  2. picking Detail Level = Low leaves fewer objects in the frame - cs_nvisn,
      which is what the cull filed - and the frame gets measurably shorter;
   3. a fill box toggles its bit in cs_setfill, and clearing both leaves the
      wireframe: the ground's dither is gone from the glass;
-  3b. Buildings = None files NO buildings and still leaves the runway and
-     the terrain standing (88.13.1) - the density never refuses either;
+  3b. Detail Level = None files nothing built and still leaves the
+     runway, the water and the terrain standing (88.13.1), and Only
+     Roads brings the roads and bridges back and no more;
   4. inside the bracket the hotkeys do the same things without the page -
-     F1..F4 buildings, F5/F6 fills, F7/F8/F9 detail, -/+ size;
+     F1..F5 the detail level, F6/F7 the fills, F8..F10 the draw
+     distance, -/+ size;
   4b. the page's controls behave: a drop-down's list actually COMES DOWN
      (banked and on the glass, not merely marked open), and Done is drawn
      down on the press, cancels on a release off it and turns the page only
@@ -48,7 +50,7 @@ import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CPS = 4772727
-CSBL_NONE, CSBL_FEW, CSBL_ALL = 0, 1, 3
+CSBL_NONE, CSBL_ROADS, CSBL_LOW, CSBL_ALL = 0, 1, 2, 4
 CSFL_TERRAIN, CSFL_BLDG, CSFL_ALL = 1, 2, 3
 bad = []
 
@@ -196,12 +198,12 @@ def main(argv):
         top = int.from_bytes(m.readseg(seg, mp["cs_drbld"] + 22, 2), "little")
         drew = sum(sum(1 for x in range(r[0], r[2] + 1)
                        if was[y][x] != now[y][x])
-                   for y in range(top, min(top + 4 * 12 + 2, len(was))))
+                   for y in range(top, min(top + 5 * 12 + 2, len(was))))
         check(drew > 200, "...and the list is ON THE GLASS where os88ui_drfit "
                           "put it (%d pixels changed)" % drew)
-        click(r[0] + 20, top + 1 + 12 + 6)          # the SECOND item: None is
-        check(byte("cs_setbld") == CSBL_FEW,        # first now (88.13.1)
-              "picking Few sets the buildings level (%d)" % byte("cs_setbld"))
+        click(r[0] + 20, top + 1 + 2 * 12 + 6)      # the THIRD item: None and
+        check(byte("cs_setbld") == CSBL_LOW,        # Only Roads are above it
+              "picking Low sets the detail level (%d)" % byte("cs_setbld"))
 
         # --- 2b. Done is a BUTTON: down on the press, fired at the release --
         d = rects["cs_donerect"]
@@ -296,7 +298,7 @@ def main(argv):
         frames(3)
         few_ms = frames()
         few_n = seen["n"]
-        m.key("F4")                                 # ...and F1..F4 is Buildings
+        m.key("F5")                                 # ...F1..F5 the detail level
         m.advance(frames=40)
         m.run()
         pin()
@@ -304,8 +306,8 @@ def main(argv):
         all_ms = frames()
         all_n = seen["n"]
         check(byte("cs_setbld") == CSBL_ALL,
-              "F4 puts every building back (%d)" % byte("cs_setbld"))
-        check(few_n < all_n, "Few files fewer objects than Full (%d against %d)"
+              "F5 puts every building back (%d)" % byte("cs_setbld"))
+        check(few_n < all_n, "Low files fewer objects than Full (%d against %d)"
               % (few_n, all_n))
         check(few_ms < all_ms * 0.9,
               "...and its frame is shorter (%.1f ms against %.1f)" % (few_ms, all_ms))
@@ -314,50 +316,64 @@ def main(argv):
         #
         # None is a density and not a fill: it refuses in cs_consider before
         # any transform (88.13.1), which is the cheapest form there is. What
-        # it must NOT refuse is TERRAIN - the hills and the runway carry
-        # CSO_TERRAIN and are the world's surface, not scenery to thin out -
-        # so the check is both halves: fewer objects than Few, and the frame
-        # is not empty. IN THE BRACKET, because on the Settings page any key
-        # turns the page back and the F-key would be spent doing that.
+        # it must NOT refuse is TERRAIN - the hills, the water and the runway
+        # carry CSO_TERRAIN and are the world's surface, not scenery to thin
+        # out. Then Only Roads brings back the roads and bridges and nothing
+        # else, which is the rung between. IN THE BRACKET, because on the
+        # Settings page any key turns the page back and the F-key is spent
+        # doing that.
         m.key("F1")
         m.advance(frames=40)
         m.run()
         check(byte("cs_setbld") == CSBL_NONE,
-              "F1 is Buildings = None (%d)" % byte("cs_setbld"))
+              "F1 is Detail Level = None (%d)" % byte("cs_setbld"))
         pin()
         frames(3)
         none_ms = frames()
         none_n = seen["n"]
-        check(none_n < few_n, "None files fewer than Few (%d against %d)"
+        check(none_n < few_n, "None files fewer than Low (%d against %d)"
               % (none_n, few_n))
-        check(none_n > 0, "...and not an empty world: the runway and the "
-                          "terrain are still filed (%d)" % none_n)
-        # AGAINST FULL and not against Few: by Few the frame is already the
-        # ground band and six distant objects, so None against Few is a few
+        check(none_n > 0, "...and not an empty world: the runway, the water "
+                          "and the terrain are still filed (%d)" % none_n)
+        # AGAINST FULL and not against Low: by Low the frame is already the
+        # ground band and a few distant objects, so None against Low is a few
         # per cent either way - under this harness's own spread - and a check
         # that asserts it is a check that fails on nothing.
         check(none_ms < all_ms * 0.6, "...and its frame is far shorter than "
               "Full's (%.1f ms against %.1f)" % (none_ms, all_ms))
-        m.key("F4")
+
+        m.key("F2")                                 # ...and ONLY ROADS brings
+        m.advance(frames=40)                        # the roads back, no more
+        m.run()
+        check(byte("cs_setbld") == CSBL_ROADS,
+              "F2 is Only Roads (%d)" % byte("cs_setbld"))
+        pin()
+        frames(3)
+        frames()
+        roads_n = seen["n"]
+        check(none_n < roads_n < few_n,
+              "Only Roads files more than None and fewer than Low "
+              "(%d, %d, %d)" % (none_n, roads_n, few_n))
+        m.key("F5")                                 # ...and everything back
         m.advance(frames=40)
         m.run()
 
         # --- 4. the other hotkeys --------------------------------------------
-        for key, name, want in (("F7", "cs_setlod", 0), ("F9", "cs_setlod", 2),
-                                ("F8", "cs_setlod", 1), ("F1", "cs_setbld", 0),
+        for key, name, want in (("F8", "cs_setlod", 0), ("F10", "cs_setlod", 2),
+                                ("F9", "cs_setlod", 1), ("F1", "cs_setbld", 0),
                                 ("F2", "cs_setbld", 1), ("F3", "cs_setbld", 2),
-                                ("F4", "cs_setbld", 3)):
+                                ("F4", "cs_setbld", 3), ("F5", "cs_setbld", 4)):
             m.key(key)
             m.advance(frames=25)
             m.run()
             check(byte(name) == want, "the %s key sets %s to %d (%d)"
                   % (key, name, want, byte(name)))
-        m.key("F5")
+        m.key("F6")
         m.advance(frames=25)
         m.run()
         check(byte("cs_setfill") == CSFL_BLDG,
-              "F5 takes the terrain's fill off (%d)" % byte("cs_setfill"))
-        m.key("F5")
+              "F6 takes the terrain's fill off (%d)" % byte("cs_setfill"))
+        m.key("F6")
         m.advance(frames=25)
         m.run()
 

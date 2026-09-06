@@ -427,37 +427,38 @@ cs_hotkey:
     ret
 
 ; -----------------------------------------------------------------------------
-; cs_hotkeyx - the settings' own keys, F1 to F9 (SPEC.md 88.13.5)
+; cs_hotkeyx - the settings' own keys, F1 to F10 (SPEC.md 88.13.5)
 ; in:  AH = the scan code of an EXTENDED key (AL was 0)
 ; out: CF = 1 it was one of ours. Clobbers AX, CX
 ;
 ; F-keys and not the digits: a flight simulator's number row is where a
-; player expects to find something else, and F1..F9 is nine keys nobody
-; reaches for by accident. They arrive as int 16h EXTENDED codes - AL zero,
-; AH the scan code - so this hangs off cs_input's `.ext` arm beside the
-; arrows and not off the character one.
+; player expects to find something else, and these are keys nobody reaches
+; for by accident. They arrive as int 16h EXTENDED codes - AL zero, AH the
+; scan code - so this hangs off cs_input's `.ext` arm beside the arrows and
+; not off the character one. TEN of them, in the page's own reading order:
+; five levels of detail, two fills, three draw distances.
 ; -----------------------------------------------------------------------------
-CSK_F1     equ 0x3B                 ; ...and F2..F9 follow it
+CSK_F1     equ 0x3B                 ; ...and F2..F10 follow it
 cs_hotkeyx:
     cmp ah, CSK_F1
     jb .no
-    cmp ah, CSK_F1 + 8
+    cmp ah, CSK_F1 + 9
     ja .no
     mov al, ah
-    sub al, CSK_F1                  ; 0..8
-    cmp al, 4
+    sub al, CSK_F1                  ; 0..9
+    cmp al, 5
     jb .bld
-    cmp al, 6
+    cmp al, 7
     jb .fill
-    sub al, 6                       ; F7 F8 F9: Detail
+    sub al, 7                       ; F8 F9 F10: Draw Distance
     mov [cs_setlod], al
     jmp short .yes
-.bld:                               ; F1 F2 F3 F4: Buildings, None first
+.bld:                               ; F1..F5: Detail Level, None first
     mov [cs_setbld], al
     call cs_skipclr                 ; every object is looked at again, or one
     jmp short .yes                  ; the cull dropped stays dropped (88.5.2)
-.fill:                              ; F5 Terrain, F6 Buildings - each toggled
-    sub al, 4
+.fill:                              ; F6 Terrain, F7 Buildings - each toggled
+    sub al, 5
     mov cl, al
     mov al, 1
     shl al, cl

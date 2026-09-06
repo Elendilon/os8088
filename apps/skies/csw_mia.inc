@@ -284,15 +284,15 @@ CS_BOX  cs_m_mia_hotel, 30, 42, 20
 ; between the runway rectangle and anything solid is the 238 m the two
 ; airport buildings keep from its sides.
 cs_ot_mia:
-    CS_OBJ cs_m_mia_sea1,  cs_m_mia_sea1f,     0,  3000, 0, 16000, 12000, cs_n_mia_atl,   CSO_POI
-    CS_OBJ cs_m_mia_sea0,  cs_m_mia_sea0f,     0, -3000, 0, 16000, 12000, cs_n_mia_atl,   CSO_POI
-    CS_OBJ cs_m_mia_open,  0,               6900,     0, 0, 16000,     0, cs_n_mia_atl,   CSO_POI
-    CS_OBJ cs_m_mia_bay1,  cs_m_mia_bay1f, -1700,  3000, 0, 12000,  9000, cs_n_mia_bay,   CSO_POI
-    CS_OBJ cs_m_mia_bay0,  cs_m_mia_bay0f, -1700, -3000, 0, 12000,  9000, cs_n_mia_bay,   CSO_POI
-    CS_OBJ cs_m_mia_cut,   cs_m_mia_cutf,   -400, -3750, 0, 11000,  5000, cs_n_mia_cut,   CSO_POI
-    CS_OBJ cs_m_mia_cw0,   0,              -1800, -2580, 0,  9000,     0, cs_n_mia_cway,  0
-    CS_OBJ cs_m_mia_cw1,   0,              -1600,  -260, 0,  9000,     0, cs_n_mia_cway,  0
-    CS_OBJ cs_m_mia_cw2,   0,              -1700,  2420, 0,  9000,     0, cs_n_mia_cway,  0
+    CS_OBJ cs_m_mia_sea1,  cs_m_mia_sea1f,     0,  3000, 0, 16000, 12000, cs_n_mia_atl,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_sea0,  cs_m_mia_sea0f,     0, -3000, 0, 16000, 12000, cs_n_mia_atl,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_open,  0,               6900,     0, 0, 16000,     0, cs_n_mia_atl,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_bay1,  cs_m_mia_bay1f, -1700,  3000, 0, 12000,  9000, cs_n_mia_bay,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_bay0,  cs_m_mia_bay0f, -1700, -3000, 0, 12000,  9000, cs_n_mia_bay,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_cut,   cs_m_mia_cutf,   -400, -3750, 0, 11000,  5000, cs_n_mia_cut,   CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_mia_cw0,   0,              -1800, -2580, 0,  9000,     0, cs_n_mia_cway,  CSO_ROAD
+    CS_OBJ cs_m_mia_cw1,   0,              -1600,  -260, 0,  9000,     0, cs_n_mia_cway,  CSO_ROAD
+    CS_OBJ cs_m_mia_cw2,   0,              -1700,  2420, 0,  9000,     0, cs_n_mia_cway,  CSO_ROAD
     CS_OBJ cs_m_mia_sefc,  0,              -2500,   200, 0, 14000,     0, cs_n_mia_dtn,   CSO_COLLIDE
     CS_OBJ cs_m_mia_twr2,  0,              -2560,  -250, 0, 11000,     0, cs_n_mia_dtn,   CSO_COLLIDE
     CS_OBJ cs_m_mia_twr3,  0,              -2520,   620, 0,  9000,     0, cs_n_mia_dtn,   CSO_COLLIDE

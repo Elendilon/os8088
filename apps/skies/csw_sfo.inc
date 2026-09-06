@@ -253,14 +253,14 @@ CS_BOX cs_m_sfo_dtwr,  22, 270,  22     ; and the tall flat-topped tower beside
 ; what the first frame actually transforms is two towers, two far models and
 ; three centrelines.
 cs_ot_sfo:
-    CS_OBJ cs_m_sfo_twr,  0,                  0,   400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_sfo_twr,  0,                  0,  -400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_sfo_deck, cs_m_sfo_deckf,     0,     0,  80, 16000, 2500, cs_n_sfo_gg,   CSO_POI
-    CS_OBJ cs_m_sfo_cbl,  cs_m_sfo_cblf,      0,     0,   0, 16000, 2200, cs_n_sfo_gg,   CSO_POI
-    CS_OBJ cs_m_sfo_ocn,  cs_m_sfo_ocnf,  -1800,  -200,   0,  5000, 2600, cs_n_sfo_gate, 0
-    CS_OBJ cs_m_sfo_gate, cs_m_sfo_gatef,   400,     0,   0,  5000, 2600, cs_n_sfo_gate, 0
-    CS_OBJ cs_m_sfo_bays, cs_m_sfo_baysf,  3000,  -300,   0,  4500, 2600, cs_n_sfo_bay,  0
-    CS_OBJ cs_m_sfo_bayn, cs_m_sfo_baynf,  3000,  1150,   0,  4500, 2600, cs_n_sfo_bay,  0
+    CS_OBJ cs_m_sfo_twr,  0,                  0,   400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_sfo_twr,  0,                  0,  -400,   0, 16000,    0, cs_n_sfo_gg,   CSO_COLLIDE | CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_sfo_deck, cs_m_sfo_deckf,     0,     0,  80, 16000, 2500, cs_n_sfo_gg,   CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_sfo_cbl,  cs_m_sfo_cblf,      0,     0,   0, 16000, 2200, cs_n_sfo_gg,   CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_sfo_ocn,  cs_m_sfo_ocnf,  -1800,  -200,   0,  5000, 2600, cs_n_sfo_gate, CSO_TERRAIN
+    CS_OBJ cs_m_sfo_gate, cs_m_sfo_gatef,   400,     0,   0,  5000, 2600, cs_n_sfo_gate, CSO_TERRAIN
+    CS_OBJ cs_m_sfo_bays, cs_m_sfo_baysf,  3000,  -300,   0,  4500, 2600, cs_n_sfo_bay,  CSO_TERRAIN
+    CS_OBJ cs_m_sfo_bayn, cs_m_sfo_baynf,  3000,  1150,   0,  4500, 2600, cs_n_sfo_bay,  CSO_TERRAIN
     CS_OBJ cs_m_sfo_marw, 0,              -1150,  1200,   0, 12000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_mare, 0,                900,  1150,   0, 10000,    0, cs_n_sfo_mar,  CSO_COLLIDE | CSO_TERRAIN
     CS_OBJ cs_m_sfo_pres, 0,               -500,  -950,   0,  9000,    0, cs_n_sfo_pres, CSO_COLLIDE | CSO_TERRAIN

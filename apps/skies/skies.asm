@@ -205,12 +205,13 @@ CSO_SIZE  equ 20
 ; --- what a SETTING is (SPEC.md 88.13): four knobs the player turns, on the
 ;     Settings page and on hotkeys inside the bracket. Every one of them
 ;     trades picture for frame rate, and every default is what shipped ------
-CSBL_NONE   equ 0                ; Buildings: NONE - refused in cs_consider
-                                 ;    before any transform, which is the
-                                 ;    cheapest form there is (88.13.1)
-CSBL_FEW    equ 1                ; ...the critical points of interest
-CSBL_MOD    equ 2                ; ...everything but the anonymous filler
-CSBL_ALL    equ 3                ; ...all of it
+CSBL_NONE   equ 0                ; Detail Level: NOTHING built - refused in
+                                 ;    cs_consider before any transform, which
+                                 ;    is the cheapest form there is (88.13.1)
+CSBL_ROADS  equ 1                ; ...the roads and bridges, and no more
+CSBL_LOW    equ 2                ; ...and the critical points of interest
+CSBL_MOD    equ 3                ; ...everything but the anonymous filler
+CSBL_ALL    equ 4                ; ...all of it
 CSZ_SMALL  equ 0                ; Size: half the moderate view each way
 CSZ_MOD    equ 1                ; ...the Hercules default, 75% elsewhere
 CSZ_FULL   equ 2                ; ...the whole box, whatever it costs
@@ -232,6 +233,11 @@ CSO_POI   equ 0x0100            ; a CRITICAL point of interest: drawn even at
                                 ; CSBL_FEW, and its range is never cut back
 CSO_FILLER equ 0x0200           ; ...and the other end: anonymous blocks and
                                 ; sheds, which CSBL_MOD leaves out (88.13.1)
+CSO_ROAD  equ 0x0800            ; a ROAD, a causeway or a BRIDGE: drawn from
+                                ; CSBL_ROADS up, where nothing else built is.
+                                ; It is the shape of a city with no city on
+                                ; it, and it costs almost nothing to draw -
+                                ; every one of them is a line model
 CSO_TERRAIN equ 0x0400          ; THE WORLD'S OWN SURFACE and not a building:
                                 ; a hill, a mountain, the runway. The
                                 ; Buildings density never refuses one - a
@@ -239,11 +245,15 @@ CSO_TERRAIN equ 0x0400          ; THE WORLD'S OWN SURFACE and not a building:
                                 ; to buy frames. What its FILL follows is the
                                 ; face's ink and not this bit, so the runway
                                 ; carries it and still fills with the
-                                ; buildings (88.13.1, 88.13.3). It is on
+                                ; buildings (88.13.1, 88.13.3). WATER carries
+                                ; it too - a river is not a building either,
+                                ; and without the bit None emptied the Seine.
+                                ; It is on
                                 ; the OBJECT and not the model so that
                                 ; cs_consider tests it in the word it has
                                 ; already loaded; tests/unit/t_csterrain.py
-                                ; holds every hill-modelled object to it
+                                ; holds every hill, every water and every
+                                ; road object to the right one
 CSO_SEEN  equ 0x8000            ; ...and bit 15: drawn last frame (88.5.1)
                                 ; level's height are a box the aeroplane may
                                 ; not enter
@@ -1632,7 +1642,7 @@ cs_flyrect:  dw 0, 0, 0, 0
 ; --- the Settings page's controls (SPEC.md 88.13). Every one of them is the
 ;     shared drop-down or the shared check box, and the page is the first
 ;     user of the second ---------------------------------------------------
-cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  4, CSBL_ALL, 0
+cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  5, CSBL_ALL, 0
              db 0, 0FFh
              dw 0, 0, 0
 cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  3, CSL_MOD, 0
@@ -1652,18 +1662,19 @@ cs_setdrops: dw cs_drbld, cs_drlod, cs_drsize, cs_drmode
 cs_setboxes: dw cs_ckterr, cs_ckbld
 CS_NFILL     equ ($ - cs_setboxes) / 2
 cs_setbytes: dw cs_setbld, cs_setlod, cs_setsize, cs_modepref
-cs_i_bld:    dw cs_s_bnone, cs_s_bfew, cs_s_bmod, cs_s_ball
+cs_i_bld:    dw cs_s_bnone, cs_s_broad, cs_s_blow, cs_s_bmod, cs_s_ball
 cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar
 cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
 cs_i_mode:   dw cs_s_modex, cs_s_cga
 cs_s_setttl: db 'SETTINGS', 0
-cs_s_lbld:   db 'Buildings', 0
-cs_s_llod:   db 'Detail', 0
+cs_s_lbld:   db 'Detail Level', 0
+cs_s_llod:   db 'Draw Distance', 0
 cs_s_lsize:  db 'Size', 0
 cs_s_lmode:  db 'Mode', 0
 cs_s_lfill:  db 'Fill', 0
 cs_s_bnone:  db 'None', 0
-cs_s_bfew:   db 'Few', 0
+cs_s_broad:  db 'Only Roads', 0
+cs_s_blow:   db 'Low', 0
 cs_s_bmod:   db 'Moderate', 0
 cs_s_ball:   db 'Full', 0
 cs_s_lnear:  db 'Near', 0
@@ -1710,7 +1721,7 @@ cs_i9:       db 'M         engine sound on and off', 0
 cs_i10:      db 'Esc or F  back to this window', 0
 cs_i11:      db 'Full throttle; pull back at 55 knots.', 0
 cs_i12:      db 'Click, or press a key, to return.', 0
-cs_i13:      db 'F1 to F9  the settings, in flight', 0   ; in the blank
+cs_i13:      db 'F1 to F10 the settings, in flight', 0   ; in the blank
                                                           ; separator's place:
                                                           ; the page is full
                                                           ; at thirteen lines

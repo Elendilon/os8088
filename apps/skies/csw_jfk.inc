@@ -263,12 +263,12 @@ cs_ot_jfk:
     CS_OBJ cs_m_jfk_mid,  0,                350,  -680,   0,  7000,    0, cs_n_jfk_mid,  CSO_COLLIDE
     CS_OBJ cs_m_jfk_dtn,  0,               -990, -3310,   0,  8000,    0, cs_n_jfk_dtn,  CSO_COLLIDE
     CS_OBJ cs_m_jfk_dtn,  0,              -1890, -3940,   0,  8000,    0, cs_n_jfk_dtn,  CSO_COLLIDE
-    CS_OBJ cs_m_jfk_hud0, cs_m_jfk_hud0f, -2330, -2980,   0, 11000, 3000, cs_n_jfk_hud,  0
-    CS_OBJ cs_m_jfk_hud1, cs_m_jfk_hud1f, -1280,  1740,   0, 11000, 3000, cs_n_jfk_hud,  0
-    CS_OBJ cs_m_jfk_est0, cs_m_jfk_est0f,  -320, -3720,   0, 11000, 3000, cs_n_jfk_east, 0
-    CS_OBJ cs_m_jfk_est1, cs_m_jfk_est1f,  1860,   600,   0, 11000, 3000, cs_n_jfk_east, 0
-    CS_OBJ cs_m_jfk_bbr,  0,               -500, -4390,   0,  8000,    0, cs_n_jfk_bbr,  CSO_POI
-    CS_OBJ cs_m_jfk_mbr,  0,                -50, -3810,   0,  8000,    0, cs_n_jfk_mbr,  0
+    CS_OBJ cs_m_jfk_hud0, cs_m_jfk_hud0f, -2330, -2980,   0, 11000, 3000, cs_n_jfk_hud,  CSO_TERRAIN
+    CS_OBJ cs_m_jfk_hud1, cs_m_jfk_hud1f, -1280,  1740,   0, 11000, 3000, cs_n_jfk_hud,  CSO_TERRAIN
+    CS_OBJ cs_m_jfk_est0, cs_m_jfk_est0f,  -320, -3720,   0, 11000, 3000, cs_n_jfk_east, CSO_TERRAIN
+    CS_OBJ cs_m_jfk_est1, cs_m_jfk_est1f,  1860,   600,   0, 11000, 3000, cs_n_jfk_east, CSO_TERRAIN
+    CS_OBJ cs_m_jfk_bbr,  0,               -500, -4390,   0,  8000,    0, cs_n_jfk_bbr,  CSO_POI | CSO_ROAD
+    CS_OBJ cs_m_jfk_mbr,  0,                -50, -3810,   0,  8000,    0, cs_n_jfk_mbr,  CSO_ROAD
     CS_OBJ cs_m_hangar,   0,               4900, -3680,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
     CS_OBJ cs_m_shed,     0,               4490, -3340,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
     CS_OBJ cs_m_block,    0,                680, -5140,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER

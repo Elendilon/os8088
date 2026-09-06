@@ -219,17 +219,17 @@ cs_ot_paris:
     CS_OBJ cs_m_def4,   0,            -3700,  3400,   0, 10000,    0, cs_n_def,    CSO_COLLIDE
     CS_OBJ cs_m_hill, 0,             3560,  3150,   0, 12000,    0, cs_n_mont,   CSO_POI | CSO_TERRAIN
     CS_OBJ cs_m_sacre,  0,             3560,  3150, 100,  9000,    0, cs_n_sacre,  CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_rive0, cs_m_rive0f,   5033,  -1067,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rive1, cs_m_rive1f,   2533,    233,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rivc0, cs_m_rivc0f,    200,    183,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rivc1, cs_m_rivc1f,  -2067,  -1200,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rivw0, cs_m_rivw0f,  -4367,  -2100,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_rivw1, cs_m_rivw1f,  -5750,  -1300,   0,  4500, 2600, cs_n_seine,  0
-    CS_OBJ cs_m_axis,   0,             -600,  1900,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_per0,   0,             5576,  3576,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_per1,   0,             5576, -2576,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_per2,   0,             -576, -2576,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_per3,   0,             -576,  3576,   0,  8000,    0, cs_n_seine,  0
+    CS_OBJ cs_m_rive0, cs_m_rive0f,   5033,  -1067,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rive1, cs_m_rive1f,   2533,    233,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rivc0, cs_m_rivc0f,    200,    183,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rivc1, cs_m_rivc1f,  -2067,  -1200,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rivw0, cs_m_rivw0f,  -4367,  -2100,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_rivw1, cs_m_rivw1f,  -5750,  -1300,   0,  4500, 2600, cs_n_seine,  CSO_TERRAIN
+    CS_OBJ cs_m_axis,   0,             -600,  1900,   0,  8000,    0, cs_n_seine,  CSO_ROAD
+    CS_OBJ cs_m_per0,   0,             5576,  3576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
+    CS_OBJ cs_m_per1,   0,             5576, -2576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
+    CS_OBJ cs_m_per2,   0,             -576, -2576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
+    CS_OBJ cs_m_per3,   0,             -576,  3576,   0,  8000,    0, cs_n_seine,  CSO_ROAD
     CS_OBJ cs_m_hangar, 0,            -2750, -2350,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
     CS_OBJ cs_m_shed,   0,            -2300, -2750,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
     CS_OBJ cs_m_small,  0,            -2900, -2050,   0,  2500,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER

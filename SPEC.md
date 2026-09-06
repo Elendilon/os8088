@@ -96123,9 +96123,13 @@ the slot to use one does not exist.
 ### 88.13 The settings (SPEC.md 88.13)
 
 Four knobs, each of which trades picture for frame rate, on a **Settings**
-page in the launcher and on hotkeys inside the bracket. **Every default is
-what the simulator shipped with**, so a player who never opens the page is
-flying exactly what they flew before — the page exists for the machine that
+page in the launcher and on hotkeys inside the bracket: **Detail Level**,
+**Draw Distance**, **Fill** and **Size**. The first two were called
+Buildings and Detail, which named the wrong things — the first had stopped
+being about buildings the moment it gained rungs for roads and for nothing
+at all, and the second was never about detail but about how far away the
+world is drawn. **Every default is what the simulator shipped with**, so a
+player who never opens the page is flying exactly what they flew before — the page exists for the machine that
 cannot afford the default, and for the one that can afford more.
 
 The Mode choice moved here from a menu of its own (§88.10): it is one of five
@@ -96133,35 +96137,50 @@ things that trade the same way, and it belongs beside them rather than alone
 in the bar. It greys itself where the display offers no choice, which is
 every adapter but a VGA.
 
-#### 88.13.1 Buildings — None, Few, Moderate, Full
+#### 88.13.1 Detail Level — None, Only Roads, Low, Moderate, Full
 
-`CSO_POI` marks a critical point of interest and `CSO_FILLER` an anonymous
-block or shed. **None** draws no building at all, **Few** the points of
-interest alone, **Moderate** everything but the filler, **Full** all of it.
-The test is in `cs_consider`, before the range check, so a refused object
-costs the cull two compares and no transform at all — which is why None is a
-DENSITY and not a fill: "draw nothing" is the cheapest form there is, and it
-needs no second mechanism beside the one the other three levels already use.
-Measured over the city on a 4.77 MHz 8088: **160.1 ms at Full against 60.7
-at Few**, and 12 objects filed against 4.
+A LADDER, and every rung of it is the same test in `cs_consider`, before the
+range check, so a refused object costs the cull two compares and no
+transform at all. `CSO_POI` marks a critical point of interest, `CSO_FILLER`
+an anonymous block or shed, `CSO_ROAD` a road, causeway or bridge. **None**
+draws nothing built, **Only Roads** the roads and bridges and no more,
+**Low** the points of interest, **Moderate** everything but the filler,
+**Full** all of it. Measured over the city on a 4.77 MHz 8088: **143.4 ms at
+Full, 52.7 at Low and 72.5 at None**, filing 16, 11 and 3 objects.
 
-**`CSO_TERRAIN` is exempt from every level of it.** A hill, a mountain and
-the runway are the world's own surface rather than scenery to thin out for
-frames, so the density never refuses one and None leaves the landscape — and
-the strip you are standing on — where they were. The bit is on the OBJECT
-and not the model, because `cs_consider` tests it in the word it has already
-loaded; the price of that is that a new hill could be added and the flag
-forgotten, with nothing to say so but a mountain quietly missing at None, so
-`tests/unit/t_csterrain.py` holds every object built on a `CS_HILL` model to
-it on the fast tier. What a face is FILLED with is decided by its ink and
-not by this bit (§88.13.3), which is why the runway carries it and still
-fills with the buildings.
+**Only Roads is the rung worth explaining.** It is the shape of a city with
+no city on it — the Seine's bridges, the Périphérique, the Golden Gate, the
+causeways off Miami — and it costs almost nothing, because every road in the
+tree is a LINE model: no faces, `CSI_MARK`, two or three vertices. It is
+also the rung that says what the others are for: below it the world is
+terrain, above it the world is built.
+
+**`CSO_TERRAIN` is exempt from every rung of it.** A hill, a mountain, the
+WATER and the runway are the world's own surface rather than scenery to thin
+out for frames, so the ladder never refuses one: None leaves the landscape,
+the rivers and the strip you are standing on where they were.
+
+The bit is on the OBJECT and not the model, because `cs_consider` tests it
+in the word it has already loaded. The price of that is a classification
+written twice — once in the model, once on every row that uses it — with
+nothing at run time to say the two disagree, and **the first version of this
+paid it**: thirty water objects were left unflagged and every river in the
+tree emptied at None. So `tests/unit/t_csterrain.py` derives the class from
+the model's own header on the fast tier — a `CS_HILL` model or ink
+`CSI_RIVER` is terrain, no faces and ink `CSI_MARK` is a road — and holds
+every object to it. The Golden Gate is the one a header cannot classify (its
+towers are solids and its deck a box, but a bridge is a bridge) and is named
+in that file by hand.
+
+What a face is FILLED with is decided by its ink and not by this bit
+(§88.13.3), which is why the runway carries it and still fills with the
+buildings.
 
 A change of level clears every object's skip counter (§88.5.2) — an object
 the cull dropped for a hundred ticks would otherwise stay dropped after the
 player asked for it back.
 
-#### 88.13.2 Detail — the draw distance
+#### 88.13.2 Draw Distance
 
 Every `CSO_RANGE` and `CSO_LOD` is scaled by 0.6, 1 or 1.6 in 8.8. Far holds
 the tower's near model out past four kilometres; Near lets the anonymous city
@@ -96289,10 +96308,11 @@ per fill.
 
 #### 88.13.5 …and the same four on hotkeys, in flight
 
-`-`/`+` the size, **`F1` to `F4`** the buildings (None first), **`F5`/`F6`**
-the two fills, **`F7` to `F9`** the detail. Function keys and not the number
-row: a flight simulator's digits are where a player expects to find
-something else, and nine F-keys are nine nobody reaches for by accident.
+`-`/`+` the size, **`F1` to `F5`** the detail level (None first),
+**`F6`/`F7`** the two fills, **`F8` to `F10`** the draw distance — the
+page's own reading order. Function keys and not the number row: a flight
+simulator's digits are where a player expects to find something else, and
+these are keys nobody reaches for by accident.
 They arrive as `int 16h` EXTENDED codes — `AL` zero, `AH` the scan code — so
 `cs_hotkeyx` hangs off `cs_input`'s `.ext` arm beside the arrows rather than
 off the character one, and the instructions page names them. A key that changes what is drawn costs the next frame and nothing
@@ -96387,11 +96407,12 @@ drop-downs get a release the title page never armed.
 - `tests/skiesset.py` (soak, MartyPC): §88.13's four knobs, each held to
   either the work the renderer does or the pixels on the glass. The page
   opens from the menu and its painter writes all seven controls' rects; a
-  fill box clears its bit and both off is the wireframe; **Buildings = None
-  files no building and still leaves the runway and the terrain standing**
-  (§88.13.1); Buildings = Few files 4 objects where Full files 12 and draws
-  in 60.7 ms against 143.6; every F-key sets its byte inside the bracket
-  (§88.13.5); and shrinking the
+  fill box clears its bit and both off is the wireframe; **Detail Level =
+  None files nothing built and still leaves the runway, the water and the
+  terrain standing, and Only Roads brings the roads back and no more**
+  (§88.13.1); Low files 11 objects where Full files 16 and draws in 52.7 ms
+  against 143.4; every F-key sets its byte inside the bracket (§88.13.5);
+  and shrinking the
   view leaves none of the larger one beside it. `--clobber-clear` NOPs the
   screen clear a size change owes and that last check must go red — it
   reads the band either side of the shrink, so it also proves the larger

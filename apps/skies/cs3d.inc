@@ -641,17 +641,21 @@ cs_drawpass:
 ; -----------------------------------------------------------------------------
 cs_consider:
     mov [cs_obj], si
-    mov ax, [si + CSO_FLAGS]        ; --- WHAT THE PLAYER ASKED FOR (88.13.1):
-    mov bl, [cs_setbld]             ;     the anonymous filler goes first, at
-    cmp bl, CSBL_ALL                ;     Few only the points of interest are
-    je .tier                        ;     left standing, and at None nothing
-    test ax, CSO_TERRAIN            ;     is. TERRAIN is exempt from all of
-    jnz .tier                       ;     it: the hills and the runway are
-    cmp bl, CSBL_NONE               ;     the world's surface, not buildings
-    je .out                         ;     to thin out (88.13.1)
+    mov ax, [si + CSO_FLAGS]        ; --- WHAT THE PLAYER ASKED FOR (88.13.1),
+    mov bl, [cs_setbld]             ;     a LADDER: the anonymous filler goes
+    cmp bl, CSBL_ALL                ;     first, then everything but the
+    je .tier                        ;     points of interest, then all but
+    test ax, CSO_TERRAIN            ;     the roads, then those too. TERRAIN
+    jnz .tier                       ;     is exempt from every rung of it -
+    cmp bl, CSBL_NONE               ;     the hills, the water and the runway
+    je .out                         ;     are the world's own surface and not
+    test ax, CSO_ROAD               ;     buildings to thin out - and the
+    jnz .tier                       ;     ROADS come back one rung up, being
+    cmp bl, CSBL_ROADS              ;     the shape of a city with no city on
+    je .out                         ;     it and a line model each
     test ax, CSO_FILLER
     jnz .out
-    cmp bl, CSBL_FEW
+    cmp bl, CSBL_LOW
     jne .tier
     test ax, CSO_POI
     jz .out
