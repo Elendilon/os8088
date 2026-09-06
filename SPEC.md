@@ -21760,6 +21760,57 @@ byte of it, framed, lettered, separated, ticked, greyed and underlined — came
 back **pixel-identical on every one**. That is the whole of what `mndraw`,
 `mnbar` and `mngeo` between them produce.
 
+#### 13.16.4 …and the gesture, the bank and the two hooks that finish it
+
+Wave 3: `os88ui_mnopen`, `os88ui_mnclose`, `os88ui_mnbank`, `os88ui_mnback`,
+`os88ui_mnpace`, `os88ui_mntrack`, `os88ui_mnclickopen`. **`wd_mfire` and
+`wd_mact` are NOT in it** — they are the application half: `wd_mact` banks
+Word's own pick for its combo handler and reads which menu is open, and
+`wd_mfire` dispatches into Word's actions.
+
+So the boundary is that **the element runs the gesture and leaves the pick in
+`OS88UI_MN_PICKI` with the menu still OPEN**, and the caller does the lookup,
+the close and the firing in that order — the order Word already had, because
+`wd_mact` needs `MN_OPEN` before the close clears it. A record field rather
+than a register, because the gesture's epilogue pops four of them.
+
+**Two hooks finish the element, and each is a bug the first build had:**
+
+* **`OS88UI_MN_OPENH`**, called with the menu about to open. Word's Window
+  menu names the live document, which is a fact about Word and not about a
+  menu — and it has to be a hook rather than something the caller does before
+  `os88ui_mnopen`, because the GESTURE opens menus too when a drag slides
+  across the bar.
+* **`OS88UI_MN_RPNTH`**, the piecewise repaint the close owes when there was
+  no bank to write back. It is a hook and not `os88ui_mnclose`'s `CF` alone
+  because **the element closes menus itself** — a drag sliding onto another
+  title, a release off the panel — and a caller that only saw the outermost
+  answer repainted at the wrong moment or not at all. Called exactly where
+  Word's `wd_mclose` used to call `wd_mrepair`, so every site behaves as it
+  did. `tests/wdmenusu.py`'s refused-claim leg is what caught it: 4,947
+  differing pixels, and the trace showed `os88ui_mnclose` reached without
+  `wd_mclose` above it.
+
+**And the failure worth writing down is neither of those.** The first build
+wedged Word: one click opened File and no click after it reached `wd_onclick`
+at all. `os88ui_mnopen` inherited its body from `wd_mopenm`, whose
+`push cx`/`si`/`di` were there for a string copy — the copy moved to the hook
+and the pushes went with it. **`W_ONCLICK` holds the window in `SI`, and
+`ui_task` does `mov [ui_armw], si` when the handler returns**, so a handler
+that comes back with `SI` clobbered arms the RELEASE to whatever it left
+there and the far call goes through it (§13.7). `tests/skiesui.py` check 2
+reads `[ui_armw]` for exactly this, on exactly this shape, from a different
+package's first build. The element's own rule — *every routine preserves
+everything but its documented output* — is what the pushes were, and the rule
+is now stated at the site.
+
+**Proved as W1 and W2 were**: all nine menus' drawn panels, before the wave
+and after, **pixel-identical**; `wdmenusu`, `wdtype`, `wdcaret`, `wdenter`,
+`wdscroll` and `wdmove` all pass. Word's menu system is now the element plus
+seven application-side routines — `wd_mact`, `wd_mfire`, `wd_mchk`,
+`wd_mrepair`, `wd_mwinitem` and the two BP-setting wrappers the gesture's
+callers use.
+
 ## 14. apps.inc
 
 The built-in app **kinds**: About, Timer, Bounce. Nothing is

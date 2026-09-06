@@ -132,7 +132,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine) as m:
         b = i*32
         if raw[b] == 1 and (raw[b+2] & 0x80):
             c = u16(raw, b+6)
-            if m.read(c*16+syms["wd_mdraw"], 48) == image[syms["wd_mdraw"]:syms["wd_mdraw"]+48]:
+            if m.read(c*16+syms["wd_mact"], 48) == image[syms["wd_mact"]:syms["wd_mact"]+48]:
                 seg = c; break
     if seg is None:
         sys.exit("could not locate the running package (stale build/word.o88?)")

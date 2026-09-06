@@ -825,6 +825,8 @@ wd_entry:
     mov word [wd_mnrec + OS88UI_MN_BAR], wd_s_mbar
     mov word [wd_mnrec + OS88UI_MN_BBUF], wd_mbbuf
     mov word [wd_mnrec + OS88UI_MN_CHK], wd_mchk
+    mov word [wd_mnrec + OS88UI_MN_OPENH], wd_mwinitem
+    mov word [wd_mnrec + OS88UI_MN_RPNTH], wd_mrepair
     mov [wd_mnrec + OS88UI_MN_WIN], bx
     push ax                         ; SPEC.md 54.10: the kernel calls this once
     mov ax, wd_onwake               ; our window is on the glass, and the launch
@@ -12817,38 +12819,6 @@ wd_urec_bulkend_at:
     pop bx
     ret
 
-; =============================================================================
-; Selecting with the pointer, and dropping what was selected (SPEC.md 27.8.1)
-;
-; ui_drag's shape (SPEC.md 13) written against the API, the way sol_drag is:
-; the gfx lock is held for the whole of a pass and released only between them,
-; so nothing else can draw over a half-finished frame and the cursor still
-; moves. What a pass does depends on where the press landed - outside the
-; selection it EXTENDS one, inside it MOVES the text - and the second is why
-; the dead zone exists: a plain click inside a selection is still a click, and
-; what a click does is put the caret there.
-; =============================================================================
-
-; -----------------------------------------------------------------------------
-; wd_selpace - drop the lock, wait for the tick, take it back
-; out: nothing; preserves all registers
-; -----------------------------------------------------------------------------
-wd_selpace:
-    push ax
-    push bx
-    call OSAPI_GFX_UNLOCK
-    call OSAPI_GET_TICKS
-    mov bx, ax
-.spin:
-    call OSAPI_TASK_YIELD
-    call OSAPI_GET_TICKS
-    cmp ax, bx
-    je .spin
-    call OSAPI_GFX_LOCK
-    pop bx
-    pop ax
-    ret
-
 ; -----------------------------------------------------------------------------
 ; wd_hitpt - the character index under the pointer, scrolling the view when
 ;            the pointer has left it
@@ -12931,7 +12901,7 @@ wd_dragsel:
     mov word [wd_lmx], 0xFFFF   ; ...and where the pointer was when it did
     mov word [wd_lmy], 0xFFFF
 .pass:
-    call wd_selpace
+    call os88ui_mnpace
     call OSAPI_MOUSE            ; CX = x, DX = y, AL = buttons
     test al, 1
     jz .up
@@ -13217,7 +13187,7 @@ wd_dragmove:
     mov [wd_dpy], dx
     xor bx, bx                  ; BX = the pointer has left the dead zone
 .pass:
-    call wd_selpace
+    call os88ui_mnpace
     call OSAPI_MOUSE
     test al, 1
     jz .up
@@ -13755,18 +13725,6 @@ wd_mbar:
 
 
 ; -----------------------------------------------------------------------------
-; wd_mtxor - invert a bar title's band (XOR: calling it again un-inverts)
-; in:  AL = menu index 0..8, wd_bounds run; preserves all registers
-; -----------------------------------------------------------------------------
-wd_mtxor:
-    push bp                         ; SPEC.md 13.16, wave 2
-    mov bp, wd_mnrec
-    call os88ui_mntxor
-    pop bp
-    ret
-
-
-; -----------------------------------------------------------------------------
 ; wd_mtitler - AL = menu 0..8: bank its bar band as the gesture anchor
 ; out: [wd_mabox] = {x1,y1,x2,y2}; preserves all registers
 ; The anchor is what a release/click is tested against for the "stay open"
@@ -13824,57 +13782,6 @@ wd_mchk:
     stc
     ret
 
-; -----------------------------------------------------------------------------
-; wd_mgeo - compute the open dropdown's rectangle into wd_mrect
-; in:  AL = menu index; bar menus anchor under their title, pseudo-menus
-;      (the combos) at [wd_max]/[wd_may] which the click site set
-; out: wd_mrect = {x1,y1,x2,y2}; preserves all registers
-; The height is summed from the items (10px bands, 5px separators, 2px pad
-; top and bottom inside the frame); the rect is clamped INSIDE the content -
-; gfx primitives draw wherever they are pointed, and a dropdown must never
-; scribble the window frame or the desktop below it.
-; -----------------------------------------------------------------------------
-wd_mgeo:
-    push bp                         ; SPEC.md 13.16: the element owns this now.
-    mov bp, wd_mnrec                ; A SHIM and not a call site sweep, because
-    call os88ui_mngeo               ; every one of wd_mgeo's callers is another
-    pop bp                          ; routine on its way out to the element -
-    ret                             ; and each takes its own BP with it when it
-                                    ; goes, at which point this disappears
-
-
-; -----------------------------------------------------------------------------
-; wd_mdraw - draw the open dropdown from wd_mrect (SPEC.md 68.2)
-; in:  [wd_mopen], wd_mrect computed, gfx lock held; preserves all registers
-;
-; White panel, 1px black frame, 1px grey drop shadow right and bottom
-; (GFX_FILL_GRAY: a 50% dither, so it reads grey on every adapter). Items
-; 10px apart with the text at x1+8; separators are hlines; captions right-
-; justified; disabled items drawn whole - label and caption - under the
-; disabled pen so they dither at 1bpp (SPEC.md 47); checked items get a two-
-; line check at x1+2; enabled mnemonics a 1px underline.
-; -----------------------------------------------------------------------------
-wd_mdraw:
-    push bp                         ; SPEC.md 13.16, wave 2
-    mov bp, wd_mnrec
-    call os88ui_mndraw
-    pop bp
-    ret
-
-
-; -----------------------------------------------------------------------------
-; wd_mfind - which ENABLED item is the point on?
-; in:  CX = x, DX = y (abs), the dropdown open
-; out: AL = item index, or 0xFF (outside, a separator, a disabled item, or a
-;      clipped one); preserves everything else
-; -----------------------------------------------------------------------------
-wd_mfind:
-    push bp                         ; SPEC.md 13.16, wave 2
-    mov bp, wd_mnrec
-    call os88ui_mnfind
-    pop bp
-    ret
-
 
 ; -----------------------------------------------------------------------------
 ; wd_mhl - XOR the highlight band of item AL (0xFF = nothing to do)
@@ -13921,93 +13828,12 @@ wd_mbarhit:
 ; which is what it did before this existed.
 ; -----------------------------------------------------------------------------
 wd_subank:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    push es
-    mov word [wd_suseg], 0
-    mov ax, [wd_mrx1]               ; the rect INCLUDING the drop shadow, and
-    mov [wd_surx1], ax              ; clamped exactly the way wd_mrepair grows
-    mov bx, [wd_mry1]               ; and clamps its own - the two must name
-    mov [wd_sury1], bx              ; the same pixels or the restore is short
-    mov ax, [wd_mrx2]               ; by a column
-    inc ax
-    mov dx, [wd_cl]
-    add dx, [wd_cw]
-    dec dx
-    cmp ax, dx
-    jbe .x2ok
-    mov ax, dx
-.x2ok:
-    mov [wd_surx2], ax
-    mov ax, [wd_mry2]
-    inc ax
-    mov dx, [wd_ct]
-    add dx, [wd_ch]
-    dec dx
-    cmp ax, dx
-    jbe .y2ok
-    mov ax, dx
-.y2ok:
-    mov [wd_sury2], ax
-    ; bytes = planes * rows * ((x2>>3) - (x1>>3) + 1)
-    mov ax, [wd_surx2]
-    mov cl, 3
-    shr ax, cl
-    mov bx, [wd_surx1]
-    shr bx, cl
-    sub ax, bx
-    inc ax                          ; AX = byte columns
-    mov bx, [wd_sury2]
-    sub bx, [wd_sury1]
-    inc bx                          ; BX = rows
-    mul bx                          ; AX = one plane's bytes (DX:AX, and a
-                                    ; panel cannot reach 64KB of one plane)
-    mov bx, [wd_win]
-    or bx, bx
-    jz .no
-    push ax
-    call OSAPI_WM_DISPLAY           ; DH = bpp OF THE DISPLAY WE ARE ON, which
-    mov bl, dh                      ; OSAPI_VIDEO cannot answer on a two-card
-    xor bh, bh                      ; machine (SPEC.md 39.16.4)
-    pop ax
-    cmp bl, 4
-    je .planes
-    mov bx, 1                       ; 1bpp adapter: one plane
-.planes:
-    mul bx
-    add ax, 1023
-    mov cl, 10
-    shr ax, cl                      ; AX = KB, rounded up
-    or ax, ax
-    jz .no
-    mov [wd_sukb], ax
-    call OSAPI_MEM_CLAIM            ; out CF=0, DX = base segment
-    jc .no
-    mov [wd_suseg], dx
-    mov es, dx
-    xor di, di
-    mov ax, [wd_surx1]
-    mov bx, [wd_sury1]
-    mov cx, [wd_surx2]
-    mov dx, [wd_sury2]
-    call OSAPI_GFX_SAVE             ; CF=1 = the rect straddles two displays,
-    jnc .out                        ; and half a bank put back is worse than
-    mov dx, [wd_suseg]              ; none: hand it straight back
-    mov ax, [wd_sukb]
-    call OSAPI_MEM_FREE
-.no:
-    mov word [wd_suseg], 0
-.out:
-    pop es
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    push bp                         ; SPEC.md 13.16.4
+    mov bp, wd_mnrec
+    call os88ui_mnbank
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_suab / wd_sudlg - bank for the About box and for a modal dialog
@@ -14055,52 +13881,35 @@ wd_sudlg:
 ;      owes wd_mrepair; preserves all registers
 ; -----------------------------------------------------------------------------
 wd_surest:
-    cmp word [wd_suseg], 0
-    jne .have
-    stc
-    ret
-.have:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push es
-    mov es, [wd_suseg]
-    xor si, si
-    mov ax, [wd_surx1]
-    mov bx, [wd_sury1]
-    mov cx, [wd_surx2]
-    mov dx, [wd_sury2]
-    call OSAPI_GFX_REST             ; the same rect the save took, off the
-                                    ; banked copy of it and not off wd_mrect,
-                                    ; which wd_mrepair is free to consume
-    mov dx, [wd_suseg]
-    mov ax, [wd_sukb]
-    call OSAPI_MEM_FREE             ; before the picked item runs (SPEC.md
-    mov word [wd_suseg], 0          ; 12.4): whatever it claims gets a heap
-    pop es                          ; this menu has already left
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    clc
-    ret
+    push bp
+    mov bp, wd_mnrec
+    call os88ui_mnback
+    pop bp                          ; POP does not touch the flags: CF is the
+    ret                             ; element's answer
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mopenm - open menu AL: bank state, invert the title, draw the dropdown
 ; in:  AL = menu index, wd_bounds run, gfx lock held; preserves all registers
 ; -----------------------------------------------------------------------------
 wd_mopenm:
+    push bp                         ; SPEC.md 13.16.4 - the Window menu's own
+    mov bp, wd_mnrec                ; item is composed by the OPENH hook now,
+    call os88ui_mnopen              ; so a drag that slides onto it gets it too
+    pop bp
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_mwinitem - OS88UI_MN_OPENH: the Window menu names the live document
+; in:  AL = the menu about to open; out: nothing, and AL is untouched
+; -----------------------------------------------------------------------------
+wd_mwinitem:
+    cmp al, 7
+    jne .out
     push ax
     push cx
     push si
     push di
-    mov [wd_mopen], al
-    mov byte [wd_mhi], 0xFF
-    cmp al, 7                       ; the Window menu shows the live document:
-    jne .now                        ; compose '1 ' + wd_name into its item
     mov word [wd_win1], '1 '
     mov si, wd_name
     mov di, wd_win1+2
@@ -14113,41 +13922,28 @@ wd_mopenm:
     or ah, ah
     loopnz .cp
     mov byte [wd_win1+15], 0
-.now:
-    call wd_mgeo
-    cmp al, WD_M_N
-    jae .noxor
-    call wd_mtxor
-.noxor:
-    call wd_subank                  ; ...before a pixel of the panel is drawn
-    call wd_mdraw
     pop di
     pop si
     pop cx
     pop ax
+.out:
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mclose - take the open dropdown down and repaint what it covered
 ; in:  SI = window ptr, gfx lock held; preserves all registers
 ; -----------------------------------------------------------------------------
+; wd_mclose - take the dropdown down, and REPAIR what it covered
+; The element gives the pixels back and answers CF = 1 when it could not
+; (SPEC.md 13.16.4); the repaint is ours because the content is.
 wd_mclose:
-    push ax
-    mov al, [wd_mopen]
-    cmp al, WD_M_NONE
-    je .out
-    cmp al, WD_M_N
-    jae .noxor
-    call wd_mtxor                   ; the title back to normal video
-.noxor:
-    mov byte [wd_mopen], WD_M_NONE
-    mov byte [wd_mhi], 0xFF
-    call wd_surest                  ; the banked pixels, or CF=1 and the
-    jnc .out                        ; piecewise repaint that was the only path
-    call wd_mrepair                 ; before SPEC.md 68.2.1
-.out:
-    pop ax
+    push bp                         ; the repaint the close may owe is the
+    mov bp, wd_mnrec                ; RPNTH hook's now (SPEC.md 13.16.4), so
+    call os88ui_mnclose             ; the element's own closes pay it too
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mrepair - repaint exactly what a dropdown (or the About box) covered
@@ -15653,7 +15449,7 @@ wd_rldrag:
     mov [wd_rgx], cx                ; the guide, XOR-drawn at the banked x
     call wd_rgxor
 .pass:
-    call wd_selpace                 ; unlock - yield a tick - relock
+    call os88ui_mnpace                 ; unlock - yield a tick - relock
     call OSAPI_MOUSE                ; CX = x, DX = y, AL = buttons
     test al, 1
     jz .drop
@@ -16238,65 +16034,31 @@ wd_stat:
 ; out: nothing (the menu is left OPEN only for a press-and-release on the
 ;      anchor - the sticky case); preserves all registers
 ; -----------------------------------------------------------------------------
+; wd_mtrack - the press-drag-release gesture, and then the ACTION
+; The element runs the gesture and leaves the picked item in the record with
+; the menu still OPEN (SPEC.md 13.16.4), because wd_mact reads WHICH menu that
+; is - so the lookup, the close and the firing are ours, in that order.
+; Preserves exactly what it always did: AX and DX (wd_mact writes DL).
 wd_mtrack:
     push ax
-    push bx
-    push cx
     push dx
-    call wd_mopenm
-.loop:
-    call wd_selpace                 ; unlock - yield to the tick - relock
-    call OSAPI_MOUSE                ; CX = x, DX = y, AL = buttons
-    test al, 1
-    jz .release
-    cmp byte [wd_mopen], WD_M_N     ; dragging across the bar slides between
-    jae .items                      ; menus (titles only; combos have no bar)
-    call wd_mbarhit
+    push bp
+    mov bp, wd_mnrec
+    mov byte [ds:bp+OS88UI_MN_PICKI], 0xFF
+    call os88ui_mntrack
+    mov al, [ds:bp+OS88UI_MN_PICKI]
+    pop bp
     cmp al, 0xFF
-    je .items
-    cmp al, [wd_mopen]
-    je .items
-    push ax
-    call wd_mclose
-    pop ax
-    call wd_mtitler
-    call wd_mopenm
-    jmp short .loop
-.items:
-    call wd_mfind                   ; the XOR highlight follows the pointer
-    cmp al, [wd_mhi]
-    je .loop
-    push ax
-    mov al, [wd_mhi]
-    call wd_mhl                     ; old band off (0xFF-safe)...
-    pop ax
-    mov [wd_mhi], al
-    call wd_mhl                     ; ...new band on
-    jmp short .loop
-.release:
-    call wd_mfind
-    cmp al, 0xFF
-    jne .fire
-    push bx
-    mov bx, wd_mabox
-    call os88ui_bhit                ; released back on the anchor?
-    pop bx
-    jc .away
-    jmp short .out                  ; yes: STICKY - the menu stays open
-.away:
-    call wd_mclose                  ; released elsewhere: dismissed
-    jmp short .out
-.fire:
+    je .out
     call wd_mact                    ; DL = the item's action...
     call wd_mclose                  ; ...the covered rows come back first...
     mov al, dl
     call wd_mfire                   ; ...and then it runs
 .out:
     pop dx
-    pop cx
-    pop bx
     pop ax
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mclick_open - a click arriving while a dropdown is open (sticky mode)
@@ -16305,37 +16067,18 @@ wd_mtrack:
 ; title, stays put for a dead spot inside the panel, and swallows the
 ; dismissing click anywhere else - a menu's click never leaks to the text.
 ; -----------------------------------------------------------------------------
+; wd_mclick_open - a click on the bar or an open panel (SPEC.md 13.16.4)
 wd_mclick_open:
     push ax
     push dx
-    call wd_mfind
+    push bp
+    mov bp, wd_mnrec
+    mov byte [ds:bp+OS88UI_MN_PICKI], 0xFF
+    call os88ui_mnclickopen
+    mov al, [ds:bp+OS88UI_MN_PICKI]
+    pop bp
     cmp al, 0xFF
-    jne .fire
-    push bx
-    mov bx, wd_mabox
-    call os88ui_bhit
-    pop bx
-    jnc .toggle
-    call wd_minrect                 ; a separator or disabled item: stay open
-    jnc .out
-    cmp byte [wd_mopen], WD_M_N
-    jae .dismiss
-    call wd_mbarhit                 ; a click on another title slides there
-    cmp al, 0xFF
-    je .dismiss
-    cmp al, [wd_mopen]
-    je .toggle
-    push ax
-    call wd_mclose
-    pop ax
-    call wd_mtitler
-    call wd_mtrack                  ; ...and the new press tracks as a press
-    jmp short .out
-.toggle:
-.dismiss:
-    call wd_mclose
-    jmp short .out
-.fire:
+    je .out
     call wd_mact
     call wd_mclose
     mov al, dl
@@ -16343,17 +16086,6 @@ wd_mclick_open:
 .out:
     pop dx
     pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; wd_minrect - is the point CX/DX inside the open dropdown's rectangle?
-; out: CF=0 inside; preserves all registers
-; -----------------------------------------------------------------------------
-wd_minrect:
-    push bp                         ; SPEC.md 13.16, wave 2
-    mov bp, wd_mnrec
-    call os88ui_mninrect
-    pop bp
     ret
 
 
@@ -20382,7 +20114,7 @@ section .text
     ; control half moves out routine by routine, and there is never a moment
     ; when the same fact lives in two places. wd_mopen IS the record's
     ; OS88UI_MN_OPEN, at the same address.
-%define WD_MNREC_SZ 56
+%define WD_MNREC_SZ 62
     WDVAR wd_mnrec, WD_MNREC_SZ
 wd_mopen  equ wd_mnrec + 16     ; byte: the open dropdown, WD_M_NONE = none.
                                 ; 0..8 the bar, 9..11 the strip combos

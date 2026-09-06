@@ -1,7 +1,7 @@
 # The IN-WINDOW MENU as a shared element (`OS88UI_MENU`)
 
-**Status: WAVES 1 AND 2 LANDED (the record, the geometry, the drawing and
-the hit test); wave 3 open.**
+**Status: ALL THREE WAVES LANDED. Word's in-window menu is the shared
+element.** SPEC.md 13.16 is the contract; Sheet is the open item (§1).
 SPEC.md 13.16 is the contract for what exists. SPEC.md 13.14.4 is the entry point;
 this is the arithmetic behind it and the questions it cannot answer from the
 outside.
@@ -184,45 +184,23 @@ for the truncated bar, and `OS88UI_MN_CHK`. Proved by the same A/B one level
 up — all nine menus' drawn PANELS pixel-identical, which is every byte
 `mndraw`, `mnbar` and `mngeo` produce between them.
 
-**W3 — the gesture and the bank. ATTEMPTED, REVERTED, and what it found.**
-`wd_mtrack`, `wd_mclick_open`, `wd_mopenm`, `wd_mclose`, `wd_subank`,
-`wd_surest`, and `wd_selpace`'s unlock/yield/relock, which moves with the poll.
+**W3 — LANDED.** `mnopen`, `mnclose`, `mnbank`, `mnback`, `mnpace`,
+`mntrack`, `mnclickopen`, and the two hooks SPEC.md 13.16.4 describes. It took
+two attempts; the first was reverted, and all three of its defects were the
+same kind of thing — **a contract the lifted body had been keeping by
+accident**:
 
-**`wd_mfire` and `wd_mact` are NOT in it** — the wave list had them wrong.
-They are the application half: `wd_mact` banks `[wd_pickm]`/`[wd_picki]` for
-Word's own combo handler and reads which menu is open, and `wd_mfire`
-dispatches through `wd_ftab` into Word's actions. So the boundary is that
-**the element runs the gesture and leaves the pick in the record with the menu
-still OPEN**, and the caller does the lookup, the close and the firing in that
-order — which is the order Word already had, `wd_mact` needing `wd_mopen`
-before `wd_mclose` clears it.
+1. `os88ui_mnopen` inherited `wd_mopenm`'s `push cx`/`si`/`di`, which were
+   there for a string copy. The copy moved to `OPENH` and the pushes went with
+   it, so the handler returned with **`SI` clobbered** and `ui_task` armed the
+   release to it. One click worked and nothing after it did.
+2. `os88ui_mnclose`'s `CF` was not enough, because the element closes menus
+   itself — the repaint became the `RPNTH` hook.
+3. The Window menu's composition had to be a hook and not a caller
+   pre-step, because the gesture opens menus too.
 
-Three more things the attempt established, all worth having before the retry:
-
-* **`wd_mopenm` splits.** The Window menu composes `'1 ' + wd_name` into its
-  own item before opening: a fact about Word, not about a menu. Word keeps
-  that and tail-calls `os88ui_mnopen`.
-* **`wd_mclose` splits the same way.** The element gives the pixels back and
-  answers `CF = 1` when it could not; the piecewise repaint is the caller's
-  because the content is.
-* **The gesture wrappers must preserve DX.** `wd_mact` sets `DL`, and the
-  routines preserved `DX` before the element took them.
-
-**And it does not work yet.** With all of it in, the first click opens File and
-the app then takes no further clicks: `os88ui_mnbarhit` is never re-entered
-from the loop, which places it at `.loop`'s `cmp byte [MN_OPEN], <n> / jae
-.items` reading **9 or more** for a record whose `MN_OPEN` was just set to 0.
-That is `BP` not holding the record inside the poll — and the poll is the one
-place in the element that **drops the gfx lock and yields** (`os88ui_mnpace`),
-so that is where to look first. None of the element's own routines touch `BP`;
-it was checked.
-
-Reverted rather than landed. W1 and W2 stand on their own and are gated.
-
-**Stopping after W2 is stable**, which is not what this note said before the
-waves were built and is worth correcting: the shims are six bytes each, not
-duplicated bodies, so nothing is carried twice. What is true is the cost —
-see below.
+`wd_mfire` and `wd_mact` are not in the element and never were: the wave list
+had them wrong.
 
 ## 7. What the conversion actually costs, measured
 
