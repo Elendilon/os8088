@@ -95575,6 +95575,36 @@ idempotent and reuses the shadow claim it already holds. **No frame reads a
 setting more than the frame it draws**, so carrying the options costs a
 flight nothing.
 
+#### 88.13.6 The page's own two defects, off the machine
+
+Both were reported off the machine and both are worth writing down, because
+each is a shape that will recur.
+
+**The four drop-downs had no `OS88UI_DR_WIN`.** Only `cs_drplane` and
+`cs_drport` were given the window handle when the launcher's window was
+created; the Settings page's four were added later and nobody went back.
+With that field zero `os88ui_drpress` still marks the record OPEN, and then
+`OSAPI_WM_CLIP_SET` refuses a handle of zero and the press is answered SPENT
+with **the list never drawn** — a drop-down that cannot be dropped down,
+which then eats the next press on the page closing a list that was never
+there. The fix is not four more stores by name: the handle is written by a
+loop over `cs_setdrops`, which is the table the page already draws from, so
+a fifth control cannot be added and forgotten.
+
+**Done acted on the press.** It called `os88ui_bhit` and turned the page
+there and then, with no `os88ui_arm`, no down state, and nothing for
+`cs_setup2`'s `.fire` to find — beside a Fly button that has always done the
+full §13.7 gesture. It now arms with id 2, draws down through `cs_donebtn`,
+and fires at the release: on the button, the page turns; anywhere else it
+comes back up and the page stays, which is the cancel every other button on
+this machine gives you.
+
+The two compounded, which is why the report reads as three bugs. A phantom
+OPEN drop-down takes the press that was aimed at Done, so Done needs a
+second click; and a press that turns the page immediately leaves the release
+to be delivered to the page underneath, where the title page's own
+drop-downs get a release the title page never armed.
+
 ### 88.11 Testing and measurement
 
 - `tests/skies.py` (soak, MartyPC): the attract window opens, `F` enters the

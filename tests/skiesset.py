@@ -16,14 +16,23 @@ something different.
      the wireframe: the ground's dither is gone from the glass;
   4. inside the bracket the hotkeys do the same things without the page -
      1/2/3 buildings, 4/5/6 fills, 7/8/9 detail, -/+ size;
+  4b. the page's controls behave: a drop-down's list actually COMES DOWN
+     (banked and on the glass, not merely marked open), and Done is drawn
+     down on the press, cancels on a release off it and turns the page only
+     on a release over it (88.13.6);
   5. and shrinking the view CLEARS THE PIXELS BESIDE IT. cs_clearall zeroes
      the shadow and the blit copies only the view's byte columns out of it,
      so without cs_scrclear the larger view's ground stands in a band either
      side of the smaller picture (88.13.4). That band is read out of VRAM
      and not out of the rendered frame - see the note at the check.
 
---clobber-clear is the red run (docs/WRITING-TESTS.md 1): it NOPs the call
-to cs_scrclear, which is that band exactly, and check 5 must go red.
+Three red runs (docs/WRITING-TESTS.md 1). --clobber-clear NOPs the call to
+cs_scrclear, which is that band exactly, and check 5 must go red.
+--clobber-drwin takes the page's drop-downs' OS88UI_DR_WIN away, which is
+the defect exactly, and the bank and glass checks must go red - note that
+the PICK still works without it, which is why those two checks exist.
+--clobber-arm puts a ret on os88ui_arm so Done never arms, and the release
+must then fail to turn the page.
 """
 import argparse
 import os
@@ -54,6 +63,10 @@ def main(argv):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--clobber-clear", action="store_true",
                     help="NOP the screen clear a size change owes: must go red")
+    ap.add_argument("--clobber-drwin", action="store_true",
+                    help="take the page's drop-downs' window handle away")
+    ap.add_argument("--clobber-arm", action="store_true",
+                    help="put a ret on os88ui_arm, so Done never arms")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     mp = dispapps._map("skies")
@@ -99,6 +112,19 @@ def main(argv):
             m.write(lin + site, b"\x90\x90\x90")
             m.run()
             print("  (the size change's screen clear NOPed: this run must fail)")
+        if a.clobber_drwin:
+            m.pause()
+            for i in range(4):
+                at = int.from_bytes(m.readseg(seg, mp["cs_setdrops"] + 2 * i, 2),
+                                    "little")
+                m.write(lin + at + 14, b"\x00\x00")     # OS88UI_DR_WIN
+            m.run()
+            print("  (the page's drop-downs given no window: this run must fail)")
+        if a.clobber_arm:
+            m.pause()
+            m.write(lin + mp["os88ui_arm"], b"\xC3")
+            m.run()
+            print("  (os88ui_arm is a ret: this run must fail)")
 
         # --- 1. the page and its controls ------------------------------------
         ui.menu_pick("Flight", "Settings")
@@ -136,11 +162,70 @@ def main(argv):
               % byte("cs_setfill"))
 
         # --- 2. Buildings = Few, on the page ---------------------------------
+        #
+        # AND THE LIST HAS TO COME DOWN ON THE GLASS. The pick alone is not
+        # the check: os88ui_drpress marks the record OPEN before it arms the
+        # clip, so a record with no OS88UI_DR_WIN takes the press, draws
+        # NOTHING, and the second click still lands on an item rect and picks
+        # it - which is how this row passed while the page's four drop-downs
+        # could not be dropped down at all (88.13.6). The proofs are the bank
+        # (OS88UI_DR_SEG is non-zero only on the path that drew the list) and
+        # the pixels under the box.
         r = rects["cs_drbld"]
+        m.pause()
+        _, _, was = m.vram()
+        m.run()
         click((r[0] + r[2]) // 2, (r[1] + r[3]) // 2)
+        drseg = int.from_bytes(m.readseg(seg, mp["cs_drbld"] + 18, 2), "little")
+        check(m.readseg(seg, mp["cs_drbld"] + 16, 1)[0] == 1,
+              "the press opens the Buildings list")
+        check(drseg != 0,
+              "...and it BANKED what it covered, which only the path that "
+              "drew it does (%04x)" % drseg)
+        m.pause()
+        _, _, now = m.vram()
+        m.run()
+        drew = sum(sum(1 for x in range(r[0], r[2] + 1)
+                       if was[y][x] != now[y][x])
+                   for y in range(r[3] + 1, min(r[3] + 38, len(was))))
+        check(drew > 200, "...and the list is ON THE GLASS under the box "
+                          "(%d pixels changed)" % drew)
         click(r[0] + 20, r[3] + 2 + 6)              # the first item: Few
         check(byte("cs_setbld") == CSBL_FEW,
               "picking Few sets the buildings level (%d)" % byte("cs_setbld"))
+
+        # --- 2b. Done is a BUTTON: down on the press, fired at the release --
+        d = rects["cs_donerect"]
+        cx, cy = (d[0] + d[2]) // 2, (d[1] + d[3]) // 2
+
+        def press(x, y):
+            ui.mo.to(x, y)
+            ui.mo._edge(True)
+            m.advance(frames=20)
+            m.run()
+
+        def release(x, y):
+            ui.mo.to(x, y)
+            ui.mo._edge(False)
+            m.advance(frames=40)
+            m.run()
+
+        press(cx, cy)
+        check(byte("cs_donedn") == 1, "Done is drawn DOWN while it is held")
+        check(byte("cs_page") == 2, "...and the press alone does not turn the "
+                                    "page (%d)" % byte("cs_page"))
+        release(d[0] - 60, d[1] - 40)
+        check(byte("cs_page") == 2 and byte("cs_donedn") == 0,
+              "a release off the button is a cancel (page %d, down %d)"
+              % (byte("cs_page"), byte("cs_donedn")))
+        press(cx, cy)
+        release(cx, cy)
+        check(byte("cs_page") == 0,
+              "...and pressed and released on it, Done turns the page (%d)"
+              % byte("cs_page"))
+        ui.menu_pick("Flight", "Settings")
+        m.advance(frames=40)
+        m.run()
 
         # --- into the bracket, where the work is measurable ------------------
         rd = mp["cs_render"]

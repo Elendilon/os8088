@@ -1672,11 +1672,15 @@ SOAK = [
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
         needs=("marty",), serial=True),
-    Row("skiesset", "soak", py("tests/skiesset.py"), 40.0,
+    Row("skiesset", "soak", py("tests/skiesset.py"), 42.0,
         "SPEC.md 88.13: the Settings page and its four knobs reaching the"
         " picture - Few files fewer objects and draws faster, a fill box"
         " clears its bit, the in-flight hotkeys do the same without the page,"
-        " and a smaller view leaves none of the larger one beside it",
+        " and a smaller view leaves none of the larger one beside it. Also"
+        " 88.13.6's two defects: a drop-down's list has to BANK and reach the"
+        " glass (the pick works without either, which is how this row passed"
+        " while the page could not be dropped down at all) and Done has to be"
+        " the full 13.7 gesture",
         needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"

@@ -395,6 +395,14 @@ cs_entry:
     mov [cs_win], bx
     mov [cs_drplane + OS88UI_DR_WIN], bx    ; the drop-downs arm their clips
     mov [cs_drport + OS88UI_DR_WIN], bx     ; off it (os88ui.inc)
+    mov si, cs_setdrops             ; ...AND THE SETTINGS PAGE'S FOUR, off the
+    mov cx, 4                       ; table rather than by name, so a fifth
+.win:                               ; control cannot be added to the page and
+    mov di, [si]                    ; forgotten here. With WIN zero
+    mov [di + OS88UI_DR_WIN], bx    ; OSAPI_WM_CLIP_SET refuses and drpress
+    inc si                          ; answers SPENT with the list never drawn
+    inc si                          ; - a drop-down that cannot be dropped
+    LOOPF .win                      ; down (SPEC.md 88.13.6)
     mov al, 1                       ; an 8-aligned content origin: the two
     call OSAPI_WM_SNAP              ; bands land on the byte grid (SPEC.md
                                     ; 5.4.2) and font_run reaches 6.1's
@@ -746,10 +754,7 @@ cs_set_page:
     ; --- now DRAW them, the drop-downs LOWEST FIRST so an open list lies
     ;     over what is under it ---------------------------------------------
     call cs_setsync                 ; the records say what the settings say
-    mov bx, cs_donerect
-    mov si, cs_s_done
-    mov di, OS88UI_DEF | OS88UI_FILL
-    call os88ui_btn
+    call cs_donebtn
     mov cx, 3
     xor di, di
 .dbox:
@@ -953,11 +958,13 @@ cs_setclick:
     call cs_setfillmask
     jmp short .out
 .done:
-    mov bx, cs_donerect             ; --- Done: back to the title page -------
-    call os88ui_bhit
-    jc .out
-    mov byte [cs_page], 0
-    call cs_repaint
+    mov bx, cs_donerect             ; --- Done: ARMED here and fired at the
+    call os88ui_bhit                ; release, which is the whole gesture
+    jc .out                         ; (SPEC.md 13.7) - it acted on the press
+    mov ax, 2                       ; and showed nothing, where the Fly button
+    call os88ui_arm                 ; beside it has always done both
+    mov byte [cs_donedn], 1
+    call cs_donedraw
 .out:
     pop di
     pop si
@@ -987,6 +994,36 @@ cs_flybtn:
     call os88ui_btn
     pop di
     pop si
+    pop bx
+    ret
+
+; cs_donebtn - the Settings page's Done as it stands: down while pressed.
+;              Never greyed - leaving a page always means something
+cs_donebtn:
+    push bx
+    push si
+    push di
+    mov bx, cs_donerect
+    mov si, cs_s_done
+    mov di, OS88UI_DEF | OS88UI_FILL
+    cmp byte [cs_donedn], 0
+    je .draw
+    or di, OS88UI_DOWN
+.draw:
+    call os88ui_btn
+    pop di
+    pop si
+    pop bx
+    ret
+
+; cs_donedraw - it alone, from a click handler: cs_flydraw's reason exactly
+cs_donedraw:
+    push bx
+    mov bx, [cs_win]
+    call OSAPI_WM_CLIP_SET
+    jc .out
+    call cs_donebtn
+.out:
     pop bx
     ret
 
@@ -1291,11 +1328,15 @@ cs_setup2:
     call os88ui_fire                ; the Done button, whose press armed it
     or ax, ax
     jz .out
+    mov byte [cs_donedn], 0
     mov bx, cs_donerect
     call os88ui_bhit
-    jc .out
+    jc .cancel                      ; released elsewhere: up again, and stay
     mov byte [cs_page], 0
     call cs_repaint
+    ret
+.cancel:
+    call cs_donedraw
 .out:
     ret
 
@@ -1595,6 +1636,7 @@ cs_tpl:
     ZBYTE cs_setfill                ; a trade the player asked for
     ZBYTE cs_modepref               ; the Mode menu's pick: 0 Mode X, 1 CGA
     ZBYTE cs_flydn                  ; the Fly button is pressed
+    ZBYTE cs_donedn                 ; ...and the Settings page's Done
     ZWORD cs_plane                  ; the rows in use (SPEC.md 88.6)
     ZWORD cs_airport
 
