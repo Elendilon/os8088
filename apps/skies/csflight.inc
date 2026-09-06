@@ -595,6 +595,8 @@ CS_LAGSH equ 2                      ; a quarter of the gap a tick: 90% of the
                                     ; second of a real second
 
 cs_att_lag:
+    test byte [cs_hzhold], 1        ; already on the horizon this frame: the
+    jnz .pitch                      ; rest of its ticks stand still (88.7.5.2)
     mov al, [cs_kroll]
     cbw
     imul word [di + CSP_ROLLR]      ; the rate the stick is asking for...
@@ -603,9 +605,15 @@ cs_att_lag:
     jz .pitch
     mov si, cs_roll
     call cs_ease
+    jnc .radd
+    mov word [cs_rrate], 0          ; ARRIVED: the rate goes with it, and the
+    or byte [cs_hzhold], 1          ; axis holds for the REST OF THIS FRAME
+.radd:                              ; (SPEC.md 88.7.5.2)
     add [cs_roll], ax
 .pitch:
     mov di, [cs_plane]
+    test byte [cs_hzhold], 2
+    jnz .stall
     mov al, [cs_kpitch]
     cbw
     imul word [di + CSP_PITCHR]
@@ -614,6 +622,10 @@ cs_att_lag:
     jz .stall
     mov si, cs_pitch
     call cs_ease
+    jnc .padd
+    mov word [cs_prate], 0
+    or byte [cs_hzhold], 2
+.padd:
     add [cs_pitch], ax
 .stall:
     mov di, [cs_plane]
@@ -738,13 +750,19 @@ cs_ease:
     mov cx, ax
     jmp short .out
 .land:
-    mov cx, bx                      ; exactly the distance to the horizon
+    mov ax, bx                      ; exactly the distance to the horizon...
+    pop dx
+    pop cx
+    pop bx
+    stc                             ; ...and CF says the caller ARRIVED on it,
+    ret                             ; which a lagging model acts on (88.7.5.2)
 .out:
     mov ax, cx
     pop dx
     pop cx
     pop bx
 .plain:
+    clc
     ret
 
 ; cs_axis - one control axis: AX = the key (-1/0/1), BX = the held rate,

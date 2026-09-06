@@ -1949,6 +1949,14 @@ cs_tpl:
     ZBYTE cs_stall
     ZBYTE cs_inited                 ; the aeroplane has been put on the runway
     ZBYTE cs_kpitch                 ; the held keys, latched by cs_input and
+    ZBYTE cs_hzhold                 ; bit 0 roll, bit 1 pitch: this axis
+                                    ; ARRIVED on the horizon and stands still
+                                    ; for the rest of the frame (88.7.5.2)
+    ZBYTE cs_taproll                ; a stick press int 16h saw and the level
+    ZBYTE cs_tappitch               ; read did not (88.7.5.2), worth one tick
+    ZBYTE cs_wasroll                ; ...and the LEVEL read of the tick before,
+    ZBYTE cs_waspitch               ; which is what tells a tap from the tail
+                                    ; of a hold's typematic repeats
     ZBYTE cs_kroll                  ; spent one step at a time by cs_step
     ZBYTE cs_kyaw
     ZBYTE cs_kthr

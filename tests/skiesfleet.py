@@ -242,9 +242,12 @@ def main(argv):
         # The decay is three quarters a tick now and the tail is a third of
         # the rate.
         def stickticks(key, held, n=26):
-            # Hold `key` for exactly `held` TICKS, which only cs_stick's own
+            # Hold `key` through `held` + 1 TICKS, which only cs_stick's own
             # breakpoint makes expressible: the stick is read per tick now
-            # (88.7.5.1) and a frame is three of them.
+            # (88.7.5.1) and a frame is three of them. EVERY HIT OF THIS
+            # BREAKPOINT IS A SIM TICK since 88.7.5.2 - cs_input used to call
+            # cs_stick as well, and while it did, one stop in three or four
+            # was that call and moved nothing.
             m.pause()
             airborne(120)
             poke("cs_roll", b"\x00\x00")
@@ -265,7 +268,9 @@ def main(argv):
             m.key(key, down=False, up=True)
             return out
 
-        tap = stickticks("ArrowRight", 2)
+        tap = stickticks("ArrowRight", 1)       # TWO ticks - a release sent
+                                                # at the same halt as the press
+                                                # never reaches the guest
         moved = abs(tap[-1]) / DEG
         print("      a short tap: %.2f degrees, settled %s"
               % (moved, "yes" if tap[-1] == tap[-4] else "no"))

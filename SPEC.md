@@ -95638,6 +95638,94 @@ bare far calls, because `OSAPI_KEY_DOWN` is not one — so the two extra ticks
 of a frame are **1.65 ms**: 2.3% of a Hercules frame and 1.2% of Mode X's,
 for controls sampled three times as often.
 
+##### 88.7.5.2 A tap is an EVENT, and the horizon has to be SEEN
+
+Sampling the stick per tick (§88.7.5.1) took the shortest tap from three
+ticks to one and the owner reported the result exactly: *"responding to
+about one in three taps"*, and *"still completely skipping the horizon"*.
+Both remainders are the same shape — the simulation's grid is finer than the
+question — and neither is fixed by tuning a rate.
+
+**The tap. `OSAPI_KEY_DOWN` is a LEVEL read** (§9.7), so a press is only
+seen if a poll happens while the key is down. One in three is what that
+looks like: the machine polls three times a frame and a human tap is
+shorter, so it lands between two polls two times in three. **`int 16h` is
+the complement** — an EVENT, held in the BIOS type-ahead buffer, so a press
+of any length is still there when the loop next looks — and Clear Skies was
+already draining that buffer for its letter keys and throwing the extended
+scan codes away.
+
+So the arrows are read **both ways**. `cs_input` latches an arrow it finds
+in the buffer into `[cs_taproll]` / `[cs_tappitch]`, and `cs_stick` spends
+that latch **on the next tick it finds the key up** — one tick of stick,
+which is exactly what the level read would have given had it caught the
+press. A key that is genuinely held is seen by the level read, and the latch
+is dropped unspent; a key that was tapped is seen by neither poll and the
+latch is the whole of it. **This is Arkanoid's shape** (§44.2): its
+`ark_onkey` is a `W_ONKEY` EVENT that starts the paddle and `ark_pkey` a
+level read that sustains it, and the two are complements — `int 16h` cannot
+see a HOLD (there is no key-up event, and the typematic repeats arrive only
+after a delay) and the level read cannot see a TAP. An fsx bracket
+dispatches no events (§88.13), so Clear Skies reads the buffer itself where
+Arkanoid is handed the same presses through its window.
+
+Two things follow that are not optional. `cs_input` must **not** call
+`cs_stick` any more, which it did as part of latching the held keys: a tap
+latched at the top of a frame and spent before the frame's first `cs_step`
+is a tap that moved nothing. And the latch is spent only when the level read
+said the key was up **on the previous tick too** (`[cs_wasroll]`,
+`[cs_waspitch]`) — otherwise a HOLD overshoots by a tick, because its own
+typematic repeats are in that buffer and the last of them is still there
+when the finger comes off. That one was measured rather than reasoned: it
+cost `tests/skiespitts.py` exactly one `CSP_ROLLR` of roll after the stick
+was centred.
+
+Measured on the Magister, the shortest press the emulator can express walked
+across a whole frame in twelve phases (`tests/skiestap.py`):
+
+| | taps that turned the aeroplane |
+|---|---|
+| the level read alone | **2–4 of 12** |
+| with the `int 16h` latch | **12 of 12** |
+
+Two to four in twelve is the owner's *"about one in three"*, and it is a
+RATE rather than a constant — which phases catch a poll depends on where the
+tick boundaries fall — which is what says the diagnosis is the right one
+rather than a plausible one: the machine polls three times a frame, so a tap
+shorter than a tick registers only when a poll happens to land inside it.
+Each registered tap is **2.21°**, which is §88.7.5.1's figure — the latch
+changes how OFTEN a tap is seen and not what one is worth.
+
+**The horizon.** §88.7.3's capture lands `cs_roll` exactly on a multiple of
+a half turn — and then the *next* tick of the same frame carries it off
+again, because the rate that arrived there is still in `[cs_rrate]`. With
+three ticks a frame and one frame drawn per three, the aeroplane can pass
+through level and be **drawn on neither side of it**: the capture is exact
+and invisible.
+
+Two changes make the arrival visible without holding the aeroplane there.
+`cs_ease` returns **CF=1** when it lands exactly on the horizon rather than
+merely stepping toward it; `cs_att_lag` acts on that by zeroing the rate —
+the aeroplane arrived, so it is not still rolling — and by setting a bit in
+`[cs_hzhold]`, which stands that axis still for **the rest of the frame it
+happened in**. `cs_input` clears the byte once a frame.
+
+**It is one frame, deliberately.** Tank Attack locked to the horizon across
+frames and the owner reported it as lag; this holds for at most the two
+remaining ticks of the frame the capture happened in, so what the pilot sees
+is one drawn frame at level and then the stick again. Measured on the
+Magister, per DRAWN frame of a held approach:
+
+| held from | roll, per drawn frame | frames at level |
+|---|---|---|
+| +20° | 11.65, **0.00**, −8.34, … | 1 |
+| +30° | 21.65, 8.07, **0.00**, −8.34, … | 1 |
+| +45° | 36.66, 21.69, 5.32, **0.00**, −8.34, … | 1 |
+
+Exactly one drawn frame shows level in each case, which is the whole of what
+was asked for: the horizon is a place the aeroplane passes through visibly
+rather than a place it sticks to.
+
 #### 88.7.6 The WASSMER BIJAVE — a sailplane, and the mechanic is NO ENGINE
 
 `CSP_THRUST` is zero, so the only energy it has is the height it starts with

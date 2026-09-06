@@ -1722,6 +1722,18 @@ SOAK = [
         " is eased at all. Read at a cs_step breakpoint: a frame spends one,"
         " two or three ticks, so a per-frame sample cannot see the landing",
         needs=("marty",), serial=True),
+    Row("skiestap", "soak", py("tests/skiestap.py"), 40.0,
+        "SPEC.md 88.7.5.2: the two remainders of the per-tick stick, both"
+        " reported off the glass. The shortest press MartyPC can express is"
+        " walked across a frame in twelve phases and every one must turn the"
+        " aeroplane - int 16h is an EVENT and OSAPI_KEY_DOWN a LEVEL read, so"
+        " without the latch it is 4 of 12, which is the owner's \"one in"
+        " three\". And a held approach to level, read at cs_render rather"
+        " than cs_step, shows level on EXACTLY ONE drawn frame: one and not"
+        " zero is the capture made visible, one and not four is the promise"
+        " that this is not Tank Attack's lock. --clobber-tap and"
+        " --clobber-hold are the two red runs",
+        needs=("marty",), serial=True),
     Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 42.0,
         "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
         " pinned scenes - four BANKED, four low among the buildings - held to"

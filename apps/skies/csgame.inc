@@ -114,6 +114,15 @@ cs_stick:
     jnc .p2
     inc bl
 .p2:
+    mov al, [cs_waspitch]           ; the PREVIOUS tick's level read...
+    mov [cs_waspitch], bl           ; ...and this one's, for the next tick
+    or bl, bl                       ; up? then a LATCHED press stands in for
+    jnz .p3                         ; it, once (88.7.5.2)
+    or al, al                       ; ...unless the key was DOWN last tick,
+    jnz .p3                         ; where the latch is a typematic repeat
+    mov bl, [cs_tappitch]           ; of a hold that has just ended and
+.p3:                                ; spending it overshoots by a tick
+    mov byte [cs_tappitch], 0
     mov [cs_kpitch], bl
     xor bl, bl
     mov al, KSC_LEFT
@@ -126,6 +135,15 @@ cs_stick:
     jnc .r2
     inc bl
 .r2:
+    mov al, [cs_wasroll]
+    mov [cs_wasroll], bl
+    or bl, bl
+    jnz .r3
+    or al, al
+    jnz .r3
+    mov bl, [cs_taproll]
+.r3:
+    mov byte [cs_taproll], 0
     mov [cs_kroll], bl
     pop bx
     ret
@@ -198,6 +216,9 @@ cs_clearall:
 ; -----------------------------------------------------------------------------
 cs_input:
     push ax
+    mov byte [cs_hzhold], 0         ; ONCE A FRAME (SPEC.md 88.7.5.2): a
+                                    ; capture holds its axis for the rest of
+                                    ; the frame it happened in and no longer
     push bx
     push cx
     push dx
@@ -207,6 +228,10 @@ cs_input:
     jz .held
     xor ah, ah
     int 0x16
+    or al, al                       ; --- AN EXTENDED KEY: AL is 0 and AH the
+    jnz .chars                      ; scan code, which is where the ARROWS are
+    jmp .ext                        ; (a short jump will not reach it)
+.chars:
     cmp al, 27                      ; Esc
     je .quit
     cmp al, 'f'
@@ -228,6 +253,33 @@ cs_input:
     call cs_hotkey                  ; --- the settings, in flight (88.13.5)
     jnc .keys
     jmp .keys
+.ext:
+    ; --- A STICK PRESS, LATCHED (SPEC.md 88.7.5.2). This is Arkanoid's
+    ; answer and it is the half Clear Skies did not have: int 16h is an
+    ; EVENT, held in the BIOS type-ahead buffer, so a press cannot be missed
+    ; however brief - where OSAPI_KEY_DOWN is a LEVEL read and a press that
+    ; came and went between two polls never happened. The level read is what
+    ; sees a HOLD, which int 16h cannot (no key-up, and a typematic delay
+    ; before the repeats); the two are complements and the aeroplane wants
+    ; both. cs_stick spends the latch on the next tick it finds the key up.
+    mov bl, -1
+    cmp ah, KSC_LEFT
+    je .taproll
+    mov bl, 1
+    cmp ah, KSC_RIGHT
+    je .taproll
+    mov bl, -1
+    cmp ah, KSC_UP
+    je .tappitch
+    mov bl, 1
+    cmp ah, KSC_DOWN
+    jne .keys
+.tappitch:
+    mov [cs_tappitch], bl
+    jmp .keys
+.taproll:
+    mov [cs_taproll], bl
+    jmp .keys
 .mute:
     xor byte [cs_sound], 1
     jmp short .keys
@@ -240,15 +292,19 @@ cs_input:
     cmp byte [cs_pause], 0
     jne .keys
     mov byte [cs_msg], CSG_NONE
-    jmp short .keys
+    jmp .keys
 .quit:
     mov byte [cs_quit], 1
     jmp .done
 
 .held:                              ; THE HELD KEYS ARE LATCHED HERE AND SPENT
-    call cs_stick                   ; ON THE TICK (SPEC.md 85.6.4); the two
-                                    ; STICK axes are read again per tick, in
-                                    ; the simulation loop (88.7.5.1)
+                                    ; ON THE TICK (SPEC.md 85.6.4). The two
+                                    ; STICK axes are NOT read here: cs_stick
+                                    ; is the sim loop's now (88.7.5.1) and
+                                    ; calling it here as well would spend the
+                                    ; tap latch a tick BEFORE the first
+                                    ; cs_step, which is the tap going missing
+                                    ; (88.7.5.2)
     xor bl, bl
     mov al, CS_KA
     call OSAPI_KEY_DOWN
