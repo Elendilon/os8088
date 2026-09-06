@@ -59,13 +59,14 @@ import dispapps                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DR_SEL, DR_OPEN = 12, 16                # os88ui.inc's record (OS88UI_DR_*)
-DR_SIZE = 22                            # ...whose two banking words (13.14.1)
+DR_TOP = 22                             # ...where the OPEN list starts (13.14.2)
+DR_SIZE = 24                            # ...whose two banking words (13.14.1)
                                         # were APPENDED, so a record declared
                                         # to the old length overlaps the next
 CSB_MODEX, CSB_CGA = 1, 2
 CS_ARTX, CS_ARTY = 152, 40              # the aircraft band, in CONTENT
 CS_ARTW, CS_ARTH = 152, 96              # coordinates (skies.asm, csart.inc)
-CSP_ART = 36                            # the band a plane record names (88.10.1)
+CSP_ART = 42                            # the band a plane record names (88.10.1)
 bad = []
 
 
@@ -126,6 +127,16 @@ def main(argv):
         pl, po = rect("cs_drplane"), rect("cs_drport")
         check(pl[2] > pl[0] and po[1] > pl[3], "the painter wrote the drop-downs' rects (%s, %s)" % (pl, po))
 
+        # WHERE THE OPEN LIST IS is os88ui_drfit's answer and no longer the row
+        # under the box (SPEC.md 13.14.2): the Location list is nine items on a
+        # control near the foot of a 137-row page, so it slides UP into the
+        # window. Every cell below is measured off OS88UI_DR_TOP for that
+        # reason - a test that kept the old arithmetic would click on the
+        # title band and report that picking was broken.
+        def cell(rc, n):
+            """the middle row of item n of rc's open list, screen"""
+            return rec(rc, DR_TOP) + 1 + 12 * n + 6
+
         # --- 1. the plane list drops and closes -------------------------------
         click((pl[0] + pl[2]) // 2, (pl[1] + pl[3]) // 2)
         check(rec("cs_drplane", DR_OPEN, 1) == 1, "a press in the plane box drops its list")
@@ -160,7 +171,7 @@ def main(argv):
         check(bss("cs_plane") == first, "the launcher opens in the first aeroplane")
         trainer = artshot()
         click((pl[0] + pl[2]) // 2, (pl[1] + pl[3]) // 2)   # drop it...
-        click(pl[0] + 20, pl[3] + 2 + 12 + 6)               # ...and take item 2
+        click(pl[0] + 20, cell("cs_drplane", 1))            # ...and take item 2
         check(bss("cs_plane") == second and bss("cs_inited", 1) == 0,
               "the pick is the aeroplane in use, and a fresh flight is owed "
               "(cs_plane %04x, cs_inited %d)" % (bss("cs_plane"), bss("cs_inited", 1)))
@@ -173,7 +184,7 @@ def main(argv):
         check(arts[0] != arts[1] and 0 not in arts,
               "and the two records name two bands (CSP_ART %04x, %04x)" % tuple(arts))
         click((pl[0] + pl[2]) // 2, (pl[1] + pl[3]) // 2)   # back to item 1
-        click(pl[0] + 20, pl[3] + 2 + 6)
+        click(pl[0] + 20, cell("cs_drplane", 0))
         check(bss("cs_plane") == first, "picking the first aeroplane back takes it")
         d = artdiff(trainer, artshot())
         check(d == 0, "and puts every pixel of its picture back (%d differ)" % d)
@@ -181,7 +192,18 @@ def main(argv):
         # --- 2. the location list picks ---------------------------------------
         click((po[0] + po[2]) // 2, (po[1] + po[3]) // 2)
         check(rec("cs_drport", DR_OPEN, 1) == 1, "a press in the location box drops its list")
-        ui.mo.to(po[0] + 20, po[3] + 2 + 12 + 6)            # the second cell:
+        # SPEC.md 13.14.2: the whole list is INSIDE the window's content, which
+        # a nine-item list under a box at content y 88 of 137 rows is not.
+        n = int.from_bytes(m.readseg(seg, mp["cs_drport"] + 10, 2), "little")
+        top = rec("cs_drport", DR_TOP)
+        cy, ch = bss("cs_winoy"), bss("cs_ch")
+        check(top >= cy and top + 12 * n + 1 <= cy + ch - 1,
+              "all %d items fit inside the content (rows %d..%d of %d..%d)"
+              % (n, top, top + 12 * n + 1, cy, cy + ch - 1))
+        check(top < po[3] + 1,
+              "...and a list that long slid UP to do it (top %d, the box ends %d)"
+              % (top, po[3]))
+        ui.mo.to(po[0] + 20, cell("cs_drport", 1))          # the second cell:
         ui.mo._edge(True)                                   # PRESS, and look
         m.advance(frames=10)                                # before releasing
         m.run()
@@ -213,14 +235,15 @@ def main(argv):
         kb = rec("cs_drport", 20)
         check(rec("cs_drport", 18) != 0 and kb > 0,
               "opening the list banked the pixels under it (%d KB)" % kb)
-        click(po[0] + 20, po[3] + 2 + 6)                # the first item: the
+        click(po[0] + 20, cell("cs_drport", 0))         # the first item: the
         ui.mo.to(*park)                                 # pick does not change
         m.advance(frames=20)                            # what is drawn
         m.run()
         m.pause()
         fw, fh, now = m.fbuf(0)
         m.run()
-        y0, y1 = po[3] + 1, min(po[3] + 2 + 12 * 2 + 2, fh)
+        top = rec("cs_drport", DR_TOP)
+        y0, y1 = top, min(top + 12 * 2 + 2, fh)
         band = lambda f: b"".join(f[(y * fw + po[0]) * 3:(y * fw + po[2] + 1) * 3]
                                   for y in range(y0, y1))
         a, b = band(was), band(now)
@@ -261,7 +284,7 @@ def main(argv):
             md = [rec("cs_drmode", 2 * i) for i in range(4)]
             check(md[2] > md[0], "the Settings page put the Mode row up %s" % md)
             click((md[0] + md[2]) // 2, (md[1] + md[3]) // 2)
-            click(md[0] + 20, md[3] + 2 + 12 + 6)       # the second item: CGA
+            click(md[0] + 20, cell("cs_drmode", 1))     # the second item: CGA
             check(bss("cs_modepref", 1) == 1 and bss("cs_want", 1) == CSB_CGA,
                   "picking CGA makes CGA320 the mode to fly in (want %d)"
                   % bss("cs_want", 1))

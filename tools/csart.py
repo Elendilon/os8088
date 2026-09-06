@@ -278,16 +278,25 @@ class View:
     """A camera. Projecting keeps each point's DEPTH beside its pixel, which
     is what lets the z-buffer in `model` decide what is seen."""
 
-    def __init__(self, yaw, pitch, roll, dist=9.0, margin=3):
+    def __init__(self, yaw, pitch, roll, dist=9.0, margin=3, spin=0):
         self.a = (yaw, pitch, roll)
         self.dist, self.margin = dist, margin
+        self.spin = math.radians(spin)              # ...and see below
         self.scale, self.cx, self.cy = 1.0, 0.0, 0.0
 
     def __call__(self, pts):
+        # SPIN is a turn of the finished PICTURE and not of the aeroplane: it
+        # changes no foreshortening and no depth, only which way up the
+        # composition sits. A plan view has to have one - yaw and pitch put
+        # the nose at the bottom of the frame and there is no attitude that
+        # lifts it without also stopping the view being a plan.
+        cs, sn = math.cos(self.spin), math.sin(self.spin)
         out = []
         for x, y, z in rot(pts, *self.a):
             k = self.scale * self.dist / (self.dist - z)
-            out.append((self.cx + x * k, self.cy - y * k, z))
+            px, py = x * k, y * k
+            out.append((self.cx + px * cs - py * sn,
+                        self.cy - (px * sn + py * cs), z))
         return out
 
     def fit(self, polys, w, h):
@@ -466,6 +475,116 @@ def art_pitts(c):
     model(c, view, polys, lines)
 
 
+def art_fouga(c):
+    """The Fouga CM.170 Magister, from BEHIND and above, nose going away to
+    the left. The angle is chosen by the aeroplane: its one unmistakable
+    feature is the BUTTERFLY TAIL, and a butterfly tail seen from the side
+    is a fin - the two panels overlap exactly and the V that names it is
+    edge on. From behind they open out.
+
+    Proportioned off the real one, because a wrong ratio is what makes a
+    drawing read as a toy: 12.15 m of span to 10.06 m of length, so the
+    span is the LONGER of the two, which no other aeroplane here is."""
+    # From nearly overhead: a butterfly tail opens into its V in PLAN, which
+    # a rear three-quarter promises and does not deliver at this size - the
+    # two panels there are a plate and a sliver. `spin` composes it on the
+    # diagonal; it turns the picture and not the aeroplane.
+    view = View(yaw=-22, pitch=74, roll=0, margin=7, spin=225)
+    polys = tube([(2.70, 0.14, 0.10, 0.17),           # the slim nose...
+                  (1.80, 0.33, 0.06, 0.42),
+                  (0.20, 0.36, 0.00, 0.46),
+                  (-1.60, 0.24, 0.02, 0.30),
+                  (-2.95, 0.09, 0.06, 0.11)])
+    polys += box(-3.20, 3.20, -0.08, 0.00, -0.58, 0.46)     # the straight wing
+    for sx in (-1, 1):                                      # ...ending in a
+        polys += box(sx * 2.94, sx * 3.24, -0.22, 0.10, -0.62, 0.52)   # tank
+    # THE BUTTERFLY: two panels at 40 degrees, written flat and ROLLED about
+    # the fuselage axis, which is what makes the V a V rather than two
+    # guesses at where a corner goes.
+    for sx in (-1, 1):
+        polys += [rot(p, 0, 0, sx * 40)
+                  for p in box(0.0, sx * 1.30, -0.03, 0.03, -2.90, -2.06)]
+    lines = [[(-0.28, 0.44, 1.42), (0.28, 0.44, 1.42),      # the long canopy
+              (0.32, 0.36, 0.10), (-0.32, 0.36, 0.10), (-0.28, 0.44, 1.42)],
+             [(-0.30, 0.40, 0.76), (0.30, 0.40, 0.76)],     # ...two in tandem
+             [(0, 0.46, 1.42), (0, 0.44, 0.10)]]
+    for sx in (-1, 1):
+        lines += [[(sx * 0.36, 0.20, 0.30), (sx * 0.36, 0.20, -0.10),  # the
+                   (sx * 0.36, -0.02, -0.16), (sx * 0.36, -0.02, 0.26)],
+                  [(sx * 2.20, -0.04, -0.52), (sx * 2.20, -0.04, 0.40)]]  # aileron
+    model(c, view, polys, lines)
+
+
+def art_bijave(c):
+    """The Wassmer WA-30 Bijave, nearly PLAN, from well above and banked. A
+    sailplane's identity is its SPAN - sixteen metres against a fuselage of
+    seven - and a side elevation is the one view that hides all of it: seen
+    from the side a glider is a thin tube. From above it is a wing with an
+    aeroplane hung under it, which is what it is."""
+    # Nearly HEAD ON and banked, which is the view that has the span in it:
+    # from the side a glider is a thin tube with a stick behind it, and from
+    # directly above the wing is right but the aeroplane is a plan drawing.
+    # Banked and coming at you, the sixteen metres cross the whole frame.
+    view = View(yaw=-26, pitch=-14, roll=20, margin=6)
+    polys = tube([(2.30, 0.16, 0.06, 0.20),           # a slender pod...
+                  (1.30, 0.30, 0.02, 0.36),
+                  (0.20, 0.26, 0.00, 0.32),
+                  (-1.90, 0.11, 0.04, 0.13),
+                  (-3.10, 0.06, 0.06, 0.08)])         # ...and a long boom
+    # The wing in three panels a side: a straight centre and two outer ones
+    # cranked up, which is the Bijave's own gull and is also what stops a
+    # 5.8-unit span reading as a plank.
+    polys += box(-1.90, 1.90, 0.30, 0.36, -0.30, 0.66)
+    for sx in (-1, 1):
+        polys += box(sx * 1.88, sx * 3.60, 0.36, 0.42, -0.22, 0.58)
+        polys += box(sx * 3.58, sx * 5.05, 0.44, 0.49, -0.10, 0.44)
+    polys += box(-1.28, 1.28, 0.62, 0.67, -2.72, -2.28)     # the T-tail, up...
+    polys += box(-0.04, 0.04, 0.08, 0.66, -2.94, -2.16)     # ...on its fin
+    lines = [[(-0.28, 0.34, 1.42), (0.28, 0.34, 1.42),      # the long canopy
+              (0.30, 0.28, 0.10), (-0.30, 0.28, 0.10), (-0.28, 0.34, 1.42)],
+             [(-0.29, 0.31, 0.74), (0.29, 0.31, 0.74)],     # ...two in tandem
+             [(0, 0.37, 1.42), (0, 0.32, 0.10)],
+             [(-1.90, 0.33, 0.20), (1.90, 0.33, 0.20)]]     # the spoiler line
+    model(c, view, polys, lines)
+
+
+def art_a5(c):
+    """The Icon A5, from ahead and low, NOSE TO THE RIGHT - the only one here
+    that faces the other way, which is itself half of telling it apart at a
+    glance. Low, because what makes it an amphibian is the HULL: the
+    planing bottom and the step are under the waterline in every other view,
+    and its wing and pusher propeller are shared with any number of light
+    aeroplanes."""
+    view = View(yaw=64, pitch=4, roll=-8, margin=8)
+    # The hull, whose bottom is a V rather than a tube's rounded one - the
+    # planing bottom is the whole point, so it is a station list of its own.
+    def hull(z, w, yc, h, keel):
+        return [(0, yc + h, z), (w, yc + 0.5 * h, z), (w, yc - 0.2 * h, z),
+                (0, yc - h - keel, z), (-w, yc - 0.2 * h, z), (-w, yc + 0.5 * h, z)]
+    st = [(2.30, 0.20, 0.06, 0.26, 0.06), (1.55, 0.44, 0.02, 0.42, 0.20),
+          (0.30, 0.48, 0.00, 0.44, 0.26), (-0.55, 0.40, 0.06, 0.34, 0.24),
+          (-0.60, 0.34, 0.14, 0.26, 0.02),                  # THE STEP
+          (-2.30, 0.18, 0.24, 0.16, 0.02)]
+    rings = [hull(*s) for s in st]
+    polys = []
+    for a, b in zip(rings, rings[1:]):
+        polys += [[a[i], a[(i + 1) % 6], b[(i + 1) % 6], b[i]] for i in range(6)]
+    polys += box(-3.10, 3.10, 0.86, 0.94, -0.42, 0.62)      # the high wing...
+    for sx in (-1, 1):                                      # ...and a sponson
+        polys += box(sx * 0.62, sx * 1.36, -0.12, -0.02, -0.10, 0.52)
+    polys += box(-1.32, 1.32, 0.44, 0.50, -2.40, -1.92)     # the tailplane...
+    polys += box(-0.04, 0.04, 0.10, 0.52, -2.46, -1.66)     # ...on its fin
+    polys += [disc3((0, 0.74, -1.06), 0.62, "z")]           # the pusher's hub
+    lines = [disc3((0, 0.74, -1.02), 0.86, "z") + [(0.86, 0.74, -1.02)],
+             [(-0.44, 0.50, 1.62), (0.44, 0.50, 1.62),      # the wide canopy
+              (0.50, 0.86, 0.30), (-0.50, 0.86, 0.30), (-0.44, 0.50, 1.62)],
+             [(-0.48, 0.68, 0.96), (0.48, 0.68, 0.96)],
+             [(-0.50, -0.44, 0.42), (0.50, -0.44, 0.42)]]   # the step, seen
+    for sx in (-1, 1):
+        lines += [[(sx * 0.42, 0.86, 0.10), (sx * 0.42, 0.62, -0.86)]]  # pylon
+    model(c, view, polys, lines)
+
+
 # =============================================================================
 # The title: "Clear Skies" in an outlined italic script, 272 x 40
 # =============================================================================
@@ -549,7 +668,10 @@ def main(argv):
     a = ap.parse_args(argv)
     title = ("cs_art_title", title_art())
     planes = [("cs_art_c172", plane_art(art_c172)),      # in cs_planes' order,
-              ("cs_art_pitts", plane_art(art_pitts))]    # and CSP_ART's
+              ("cs_art_pitts", plane_art(art_pitts)),    # and CSP_ART's
+              ("cs_art_fouga", plane_art(art_fouga)),
+              ("cs_art_bijave", plane_art(art_bijave)),
+              ("cs_art_a5", plane_art(art_a5))]
     bands = [title] + planes
     if a.preview:
         os.makedirs(a.preview, exist_ok=True)

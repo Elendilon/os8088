@@ -2797,7 +2797,10 @@ OS88UI_DR_OPEN  equ 16
 OS88UI_DR_HOT   equ 17
 OS88UI_DR_SEG   equ 18          ; the banked pixels under the open list, or 0
 OS88UI_DR_KB    equ 20          ; ...and the claim's size, to give back
-OS88UI_DR_SIZE  equ 22
+OS88UI_DR_TOP   equ 22          ; the OPEN list's first row, screen (13.14.2):
+                                ; the row under the box, or higher where a long
+                                ; list would not fit the window below it
+OS88UI_DR_SIZE  equ 24
 OS88UI_DRIH     equ 12          ; an item's pitch: an 8px cell and 4px of air,
                                 ; the About card's line and a menu's look
 OS88UI_DRAW     equ 12          ; the arrow cell's width
@@ -2820,6 +2823,9 @@ os88ui_drop:
     call os88ui_drbox
     cmp byte [ds:bp+OS88UI_DR_OPEN], 0
     je .shut
+    call os88ui_drfit           ; where it goes, decided against the window as
+                                ; it is NOW - a drag with a list open repaints
+                                ; through here (13.14.2)
     call os88ui_drbank          ; what the list is about to cover, banked, so
     call os88ui_drlist          ; taking it down is a blit and not a repaint
     jmp short .out              ; (SPEC.md 13.14.1)
@@ -2923,6 +2929,60 @@ os88ui_drbox:
     ret
 
 ; -----------------------------------------------------------------------------
+; os88ui_drfit - WHERE THE OPEN LIST GOES (internal, SPEC.md 13.14.2)
+; The list drops UNDER the box, and the control arms its clip off the window,
+; so a list taller than the room below the box is simply cut off by the
+; content's bottom edge. It slides UP by the overflow instead - the Macintosh
+; popup's placement, and what lets a nine-item list live on a control near the
+; foot of a 137-row page. A list taller than the whole content is put at the
+; content's top and the clip takes the rest, which is the old behaviour on the
+; only case it was ever right for.
+; in:  BP = the record. out: OS88UI_DR_TOP written; every register preserved
+; -----------------------------------------------------------------------------
+os88ui_drfit:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov ax, [ds:bp+6]
+    inc ax                      ; the frame starts the row under the box...
+    mov [ds:bp+OS88UI_DR_TOP], ax
+    mov bx, [ds:bp+OS88UI_DR_WIN]
+    or bx, bx
+    jz .out                     ; no window yet: nothing to fit into
+    call OSAPI_WM_CONTENT       ; DX = the content's first row
+    mov si, dx
+    call OSAPI_WM_GEOM          ; DX = its height (CF = 1: not visible)
+    jc .out
+    mov di, si
+    add di, dx
+    dec di                      ; DI = the content's LAST row
+    mov ax, [ds:bp+OS88UI_DR_N]
+    mov dl, OS88UI_DRIH
+    mul dl
+    add ax, 2                   ; AX = the list's rows, its frame included
+    mov cx, di
+    sub cx, ax
+    inc cx                      ; CX = the highest first row that still fits
+    cmp cx, si
+    jge .fits
+    mov cx, si                  ; taller than the content: the top of it
+.fits:
+    cmp [ds:bp+OS88UI_DR_TOP], cx
+    jle .out                    ; where it wants to be is where it goes
+    mov [ds:bp+OS88UI_DR_TOP], cx
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; os88ui_drrect - the OPEN list's rect, the one os88ui_drlist draws (internal)
 ; in:  BP = the record
 ; out: AX/BX/CX/DX = x1/y1/x2/y2, inclusive, screen. Clobbers nothing else
@@ -2930,8 +2990,7 @@ os88ui_drbox:
 os88ui_drrect:
     mov ax, [ds:bp+0]
     mov cx, [ds:bp+4]
-    mov bx, [ds:bp+6]
-    inc bx                      ; the frame starts the row under the box...
+    mov bx, [ds:bp+OS88UI_DR_TOP]   ; where os88ui_drfit put it (13.14.2)
     push ax
     mov ax, [ds:bp+OS88UI_DR_N]
     mov dl, OS88UI_DRIH
@@ -3069,20 +3128,8 @@ os88ui_drfree:
 
 ; os88ui_drlist - the dropped list, whole (internal). in: BP = the record
 os88ui_drlist:
-    mov ax, [ds:bp+0]
-    mov bx, [ds:bp+6]
-    inc bx                      ; the list's frame starts the row under the box
-    mov cx, [ds:bp+4]
-    mov dx, [ds:bp+OS88UI_DR_N]
-    push ax
-    mov ax, dx
-    mov dl, OS88UI_DRIH
-    mul dl                      ; AX = the cells' height
-    mov dx, ax
-    pop ax
-    add dx, bx
-    inc dx                      ; DX = the frame's bottom row
-    UI_BLACK
+    call os88ui_drrect          ; AX/BX/CX/DX = the list's rect, wherever
+    UI_BLACK                    ; os88ui_drfit put it (13.14.2)
     UI_FRAME
     xor al, al                  ; every item, the hot one (or, with none hot
 .item:                          ; yet, the pick) inverted
@@ -3115,8 +3162,8 @@ os88ui_dritem:
     and ax, 0FFh
     mov bl, OS88UI_DRIH
     mul bl                      ; AX = the cell's offset down the list
-    mov bx, [ds:bp+6]
-    add bx, 2
+    mov bx, [ds:bp+OS88UI_DR_TOP]
+    inc bx
     add bx, ax                  ; BX = the cell's first row
     mov dx, bx
     add dx, OS88UI_DRIH - 1     ; DX = its last
@@ -3167,8 +3214,8 @@ os88ui_dritemat:
     jl .out
     cmp cx, [ds:bp+4]
     jg .out
-    sub dx, [ds:bp+6]
-    sub dx, 2                   ; DX = rows below the first cell's top
+    sub dx, [ds:bp+OS88UI_DR_TOP]
+    dec dx                      ; DX = rows below the first cell's top
     js .out
     mov bx, dx
     mov ax, bx
@@ -3199,6 +3246,12 @@ os88ui_drpress:
     jc .none
     mov byte [ds:bp+OS88UI_DR_OPEN], 1
     mov byte [ds:bp+OS88UI_DR_HOT], 0FFh
+    call os88ui_drfit           ; WHERE THE LIST GOES, BEFORE ANYTHING CAN GO
+                                ; WRONG (13.14.2): the two calls below can both
+                                ; refuse, and os88ui_dritemat still has to know
+                                ; where the cells are. A record with no window
+                                ; gets the row under its own box, which is
+                                ; where every list went before this existed
     mov bx, [ds:bp+OS88UI_DR_WIN]
     call OSAPI_WM_CLIP_SET      ; W_ONCLICK arms no region of its own, and
     jc .spent                   ; the list must not land on a window over ours
@@ -3296,6 +3349,18 @@ os88ui_drup:
     clc
     cmp byte [ds:bp+OS88UI_DR_OPEN], 0
     je .out
+    cmp byte [ds:bp+OS88UI_DR_HOT], 0FFh
+    je .out                     ; THE POINTER HAS NOT MOVED ONTO AN ITEM since
+                                ; the press that opened the list, so this is
+                                ; the release half of one click on the BOX and
+                                ; it picks nothing - which is the kernel menu's
+                                ; own rule (press the title, release the title,
+                                ; nothing happens). Geometry used to say it:
+                                ; the list was always BELOW the box, so the
+                                ; release landed on no item. Since 13.14.2 a
+                                ; long list covers its own box, and without
+                                ; this a single click on the control picked
+                                ; whichever item happened to be under it
     call os88ui_dritemat
     cmp al, 0FFh
     je .out

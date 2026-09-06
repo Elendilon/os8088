@@ -16,13 +16,23 @@ something different.
      the wireframe: the ground's dither is gone from the glass;
   4. inside the bracket the hotkeys do the same things without the page -
      1/2/3 buildings, 4/5/6 fills, 7/8/9 detail, -/+ size;
+  4b. the page's controls behave: a drop-down's list actually COMES DOWN
+     (banked and on the glass, not merely marked open), and Done is drawn
+     down on the press, cancels on a release off it and turns the page only
+     on a release over it (88.13.6);
   5. and shrinking the view CLEARS THE PIXELS BESIDE IT. cs_clearall zeroes
      the shadow and the blit copies only the view's byte columns out of it,
      so without cs_scrclear the larger view's ground stands in a band either
-     side of the smaller picture (88.13.4).
+     side of the smaller picture (88.13.4). That band is read out of VRAM
+     and not out of the rendered frame - see the note at the check.
 
---clobber-clear is the red run (docs/WRITING-TESTS.md 1): it NOPs the call
-to cs_scrclear, which is that band exactly, and check 5 must go red.
+Three red runs (docs/WRITING-TESTS.md 1). --clobber-clear NOPs the call to
+cs_scrclear, which is that band exactly, and check 5 must go red.
+--clobber-drwin takes the page's drop-downs' OS88UI_DR_WIN away, which is
+the defect exactly, and the bank and glass checks must go red - note that
+the PICK still works without it, which is why those two checks exist.
+--clobber-arm puts a ret on os88ui_arm so Done never arms, and the release
+must then fail to turn the page.
 """
 import argparse
 import os
@@ -53,6 +63,10 @@ def main(argv):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--clobber-clear", action="store_true",
                     help="NOP the screen clear a size change owes: must go red")
+    ap.add_argument("--clobber-drwin", action="store_true",
+                    help="take the page's drop-downs' window handle away")
+    ap.add_argument("--clobber-arm", action="store_true",
+                    help="put a ret on os88ui_arm, so Done never arms")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     mp = dispapps._map("skies")
@@ -98,6 +112,19 @@ def main(argv):
             m.write(lin + site, b"\x90\x90\x90")
             m.run()
             print("  (the size change's screen clear NOPed: this run must fail)")
+        if a.clobber_drwin:
+            m.pause()
+            for i in range(4):
+                at = int.from_bytes(m.readseg(seg, mp["cs_setdrops"] + 2 * i, 2),
+                                    "little")
+                m.write(lin + at + 14, b"\x00\x00")     # OS88UI_DR_WIN
+            m.run()
+            print("  (the page's drop-downs given no window: this run must fail)")
+        if a.clobber_arm:
+            m.pause()
+            m.write(lin + mp["os88ui_arm"], b"\xC3")
+            m.run()
+            print("  (os88ui_arm is a ret: this run must fail)")
 
         # --- 1. the page and its controls ------------------------------------
         ui.menu_pick("Flight", "Settings")
@@ -135,11 +162,76 @@ def main(argv):
               % byte("cs_setfill"))
 
         # --- 2. Buildings = Few, on the page ---------------------------------
+        #
+        # AND THE LIST HAS TO COME DOWN ON THE GLASS. The pick alone is not
+        # the check: os88ui_drpress marks the record OPEN before it arms the
+        # clip, so a record with no OS88UI_DR_WIN takes the press, draws
+        # NOTHING, and the second click still lands on an item rect and picks
+        # it - which is how this row passed while the page's four drop-downs
+        # could not be dropped down at all (88.13.6). The proofs are the bank
+        # (OS88UI_DR_SEG is non-zero only on the path that drew the list) and
+        # the pixels under the box.
         r = rects["cs_drbld"]
+        m.pause()
+        _, _, was = m.vram()
+        m.run()
         click((r[0] + r[2]) // 2, (r[1] + r[3]) // 2)
-        click(r[0] + 20, r[3] + 2 + 6)              # the first item: Few
+        drseg = int.from_bytes(m.readseg(seg, mp["cs_drbld"] + 18, 2), "little")
+        check(m.readseg(seg, mp["cs_drbld"] + 16, 1)[0] == 1,
+              "the press opens the Buildings list")
+        check(drseg != 0,
+              "...and it BANKED what it covered, which only the path that "
+              "drew it does (%04x)" % drseg)
+        m.pause()
+        _, _, now = m.vram()
+        m.run()
+        # ...and WHERE it is drawn is OS88UI_DR_TOP (SPEC.md 13.14.2), not the
+        # row under the box: a list too tall for the room below its control
+        # slides UP into the window. The page's three-item lists all still fit
+        # below theirs, so the two agree here - but reading the record is what
+        # keeps this row true if a fourth item is ever added to one of them.
+        top = int.from_bytes(m.readseg(seg, mp["cs_drbld"] + 22, 2), "little")
+        drew = sum(sum(1 for x in range(r[0], r[2] + 1)
+                       if was[y][x] != now[y][x])
+                   for y in range(top, min(top + 38, len(was))))
+        check(drew > 200, "...and the list is ON THE GLASS where os88ui_drfit "
+                          "put it (%d pixels changed)" % drew)
+        click(r[0] + 20, top + 1 + 6)               # the first item: Few
         check(byte("cs_setbld") == CSBL_FEW,
               "picking Few sets the buildings level (%d)" % byte("cs_setbld"))
+
+        # --- 2b. Done is a BUTTON: down on the press, fired at the release --
+        d = rects["cs_donerect"]
+        cx, cy = (d[0] + d[2]) // 2, (d[1] + d[3]) // 2
+
+        def press(x, y):
+            ui.mo.to(x, y)
+            ui.mo._edge(True)
+            m.advance(frames=20)
+            m.run()
+
+        def release(x, y):
+            ui.mo.to(x, y)
+            ui.mo._edge(False)
+            m.advance(frames=40)
+            m.run()
+
+        press(cx, cy)
+        check(byte("cs_donedn") == 1, "Done is drawn DOWN while it is held")
+        check(byte("cs_page") == 2, "...and the press alone does not turn the "
+                                    "page (%d)" % byte("cs_page"))
+        release(d[0] - 60, d[1] - 40)
+        check(byte("cs_page") == 2 and byte("cs_donedn") == 0,
+              "a release off the button is a cancel (page %d, down %d)"
+              % (byte("cs_page"), byte("cs_donedn")))
+        press(cx, cy)
+        release(cx, cy)
+        check(byte("cs_page") == 0,
+              "...and pressed and released on it, Done turns the page (%d)"
+              % byte("cs_page"))
+        ui.menu_pick("Flight", "Settings")
+        m.advance(frames=40)
+        m.run()
 
         # --- into the bracket, where the work is measurable ------------------
         rd = mp["cs_render"]
@@ -178,7 +270,13 @@ def main(argv):
                     ((-20 * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             m.write(lin + base + off("cs_state"), b"\x01")
             m.write(lin + base + off("cs_pause"), b"\x01")
-            for o in range(mp["cs_objtab"], mp["cs_objend"], 20):
+            # THE WORLD IS THE PICKED LOCATION'S since SPEC.md 88.6.4, so the
+            # skips to clear are the ones in the table its record names and
+            # not a global cs_objtab, which no longer exists.
+            ap = int.from_bytes(m.read(lin + base + off("cs_airport"), 2), "little")
+            objs = int.from_bytes(m.read(lin + ap + 18, 2), "little")
+            nobj = int.from_bytes(m.read(lin + ap + 20, 2), "little")
+            for o in range(objs, objs + nobj * 20, 20):
                 m.write(lin + o + 18, b"\x00\x00")
             m.run()
 
@@ -228,23 +326,28 @@ def main(argv):
         m.run()
 
         # --- 5. a smaller view leaves nothing beside it ----------------------
+        #
+        # READ VRAM, NOT THE RENDERED FRAME. MartyPC's Hercules raster does
+        # not land on the framebuffer's origin - measured at (-16, +2) on the
+        # mode this kernel sets - so a band named in BOX coordinates and read
+        # out of m.fbuf() is sixteen pixels adrift, which puts the view's own
+        # left edge inside it and reads as a bleed beside the picture that is
+        # not there at all (docs/MARTYPC-DEBUG.md, "the rendered frame is not
+        # the framebuffer"). m.vram() is byte-for-byte the card's memory.
         pin()
         frames(3)
         big = (w("cs_ww"), w("cs_wh"))
-        m.pause()
-        fw, fh, was = m.fbuf(0)
-        m.run()
         vx, vy = w("cs_vx"), w("cs_vy")
+        back = byte("cs_back")
+        bpp = 2 if back == 2 else 1             # CGA packs two bits a pixel
+        m.pause()
+        _, _, was = m.vram()
+        m.run()
 
-        def band(f, wx0, wh):
-            """The dead area beside the view, two bytes short of its edge."""
-            out = bytearray()
-            for y in range(vy + 4, vy + wh - 4):
-                out += f[(y * fw + vx) * 3:(y * fw + vx + wx0 - 16) * 3]
-            return bytes(out)
-
-        def lit(b):
-            return sum(1 for i in range(0, len(b), 3) if b[i:i + 3] != b"\0\0\0")
+        def band(rows, wx0, wh):
+            """Every pixel of the box LEFT of the view, lit ones counted."""
+            return sum(sum(rows[y][vx * bpp:(vx + wx0) * bpp])
+                       for y in range(vy, vy + wh))
 
         m.type_text("-")
         m.advance(frames=80)
@@ -255,22 +358,14 @@ def main(argv):
         check(small[0] * 2 == big[0] and small[1] * 2 == big[1],
               "the - key halves the view (%dx%d -> %dx%d)" % (big + small))
         m.pause()
-        fw, fh, fb = m.fbuf(0)
+        _, _, fb = m.vram()
         m.run()
-        # The band beside the SMALL view, STOPPING TWO BYTES SHORT OF IT.
-        # Those two bytes carry a bleed that is not this option's and
-        # predates it: a fill's row is clamped to the view but the SPAN it
-        # marks is not, so the blit copies up to a word past the left edge -
-        # measured at the shipped moderate size too (88.13.4.1). What this
-        # row is about is the rest of the band, which the LARGER view's
-        # ground stands across when the screen is not cleared.
         wx0 = w("cs_wx0")
         before, after = band(was, wx0, small[1]), band(fb, wx0, small[1])
-        check(lit(before) > 100,
-              "the larger view really did put something there (%d lit)"
-              % lit(before))
-        check(lit(after) == 0, "the larger view is gone from beside the smaller "
-              "one (%d lit of %d)" % (lit(after), len(after) // 3))
+        check(before > 100,
+              "the larger view really did put something there (%d lit)" % before)
+        check(after == 0, "the larger view is gone from beside the smaller "
+              "one (%d lit)" % after)
         m.type_text("+")
         m.advance(frames=60)
         m.run()

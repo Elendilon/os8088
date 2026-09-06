@@ -571,8 +571,10 @@ cs_scene:
     mov word [cs_nvisn], 0
     mov si, cs_rwobj                ; the runway first...
     call cs_consider
-    mov si, cs_objtab               ; ...then the table
-    mov cx, CS_NOBJ
+    mov bx, [cs_airport]            ; ...then the PICKED LOCATION'S world
+    mov si, [bx + CSA_OBJS]         ; (88.6.4), which is a pair of words in
+    mov cx, [bx + CSA_NOBJ]         ; its record and not a global table
+    jcxz .done
 .o:
     push cx
     push si
@@ -581,6 +583,7 @@ cs_scene:
     pop cx
     add si, CSO_SIZE
     loop .o
+.done:
     ; --- the ground shapes, far to near, then the solids ---------------------
     mov byte [cs_pass], CSM_FLAT
     call cs_drawpass
@@ -591,12 +594,18 @@ cs_scene:
 ; cs_skipclr - every object looked at on the next frame: the aeroplane has
 ;              been moved by something other than flying
 cs_skipclr:
-    mov si, cs_objtab
-    mov cx, CS_NOBJ
+    push bx
+    mov bx, [cs_airport]            ; the PICKED location's world (88.6.4):
+    mov si, [bx + CSA_OBJS]         ; a switch leaves the last one's skips
+    mov cx, [bx + CSA_NOBJ]         ; and SEEN bits where they were, and
+    jcxz .out                       ; this is what makes them strangers
 .o:
     mov word [si + CSO_SKIP], 0
+    and byte [si + CSO_FLAGS + 1], ~(CSO_SEEN >> 8)
     add si, CSO_SIZE
     loop .o
+.out:
+    pop bx
     ret
 
 cs_drawpass:
@@ -989,7 +998,7 @@ cs_drawobj:
     cmp ax, CS_NEAR
     jl .stack                       ; reaching the near plane: the full path
     call cs_boxlod
-    jmp short .out
+    jnc .out                        ; ...unless it refused (88.5.4.1)
 .stack:
     mov ax, CS_NEAR
     call cs_nearat
@@ -1121,12 +1130,32 @@ cs_boxlod:
     jle .y
     xchg bx, dx                     ; seen from below: the top is lower
 .y:
+    ; --- AND REFUSE ONE THAT IS NOT SMALL (SPEC.md 88.5.4.1). The gate that
+    ;     sent us here is on CSM_RAD, which for a STACK is wx + wz + h/2 -
+    ;     and that under-states a TALL building's height, because the drawn
+    ;     rectangle's height is the WHOLE of h projected. Measured over 210
+    ;     poses it let rectangles of 22 x 3 through on a 400-wide view,
+    ;     where its own comment claims six pixels. So the test is on the
+    ;     RECTANGLE and not on an estimate of it, and a refusal costs three
+    ;     projections and takes the full path - which is what the object
+    ;     wanted anyway.
+    mov si, cx
+    sub si, ax
+    cmp si, CS_LODPX
+    jg .out                         ; too wide...
+    mov si, dx
+    sub si, bx
+    cmp si, CS_LODPX
+    jg .out                         ; ...or too tall
     push ax
     mov al, CSI_WALL
     call cs_setink
     pop ax
     call cs_rect
+    clc                             ; drawn
+    ret
 .out:
+    stc                             ; REFUSED: the caller takes the full path
     ret
 
 ; -----------------------------------------------------------------------------

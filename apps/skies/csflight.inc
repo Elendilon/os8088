@@ -152,15 +152,78 @@ cs_reset:
     xor ax, ax
     mov [cs_pitch], ax
     mov [cs_roll], ax
+    mov [cs_rrate], ax              ; ...and the rates a lagging model carries
+    mov [cs_prate], ax              ; (88.7.5), which are attitude too
     mov [cs_spd], ax
     mov [cs_vs], ax
     mov [cs_thr], ax
     mov [cs_thrust], ax
+    mov [cs_thracc], ax
     mov [cs_crasht], ax
     mov byte [cs_state], CS_ST_GROUND
     mov byte [cs_stall], 0
     mov byte [cs_msg], CSG_TAKEOFF
     mov byte [cs_inited], 1
+    ; --- AN AMPHIBIAN STARTS ON THE WATER (SPEC.md 88.7.7) where the place
+    ; has any: on the water strip's own threshold, pointing along it, with
+    ; the hull in. Every one of the nine locations has a strip, so this is
+    ; where the A5 begins wherever you take it.
+    mov byte [cs_onwater], 0
+    mov di, [cs_plane]
+    test word [di + CSP_FLAGS], CSPF_AMPHIB
+    jz .nowater
+    mov si, [cs_airport]
+    cmp word [si + CSA_WLEN], 0
+    je .nowater
+    mov ax, [si + CSA_WHDG]
+    mov [cs_hdg], ax
+    call cs_sin
+    mov bx, [si + CSA_WLEN]         ; 60 m in from the threshold, the way
+    sub bx, 60                      ; CSA_SPAWN puts it on a runway
+    neg bx
+    push bx
+    MUL14
+    add ax, [si + CSA_WX]
+    cwd
+    call cs_shl32
+    mov [cs_px], ax
+    mov [cs_px+2], dx
+    mov si, [cs_airport]
+    mov ax, [si + CSA_WHDG]
+    call cs_cos
+    pop bx
+    MUL14
+    add ax, [si + CSA_WZ]
+    cwd
+    call cs_shl32
+    mov [cs_pz], ax
+    mov [cs_pz+2], dx
+    mov byte [cs_onwater], 1
+    mov byte [cs_msg], CSG_TAKEOFF
+    ret
+.nowater:
+    ; --- and a SAILPLANE does not start on the runway (SPEC.md 88.7.6) -----
+    ; CSP_LAUNCH is the height the tow releases at, in metres above the
+    ; field; zero is every aeroplane with an engine. There is no winch here
+    ; and no tug: a launch is a scripted sequence and this is a state, so
+    ; what it does is put the aeroplane where a launch would have left it -
+    ; over the threshold, at best-glide speed, wings level, already flying.
+    mov di, [cs_plane]
+    mov ax, [di + CSP_LAUNCH]
+    or ax, ax
+    jz .down
+    add ax, [cs_py+1]               ; above the FIELD and not above the sea
+    mov [cs_py+1], ax
+    mov byte [cs_state], CS_ST_AIR
+    mov byte [cs_msg], CSG_RELEASE
+    mov ax, [di + CSP_VSTALL]       ; 1.4 VSTALL, which is what a tug tows
+    mov bx, ax                      ; at and what the book calls best glide
+    shr bx, 1
+    shr bx, 1
+    add ax, bx
+    add ax, bx
+    mov [cs_spd], ax
+.down:
     ret
 
 ; cs_shl32 - DX:AX <<= 8. Clobbers CX.
@@ -201,11 +264,31 @@ cs_step:
     mov ax, 100
 .t1:
     mov [cs_thr], ax
-    mul word [di + CSP_THRUST]      ; thrust = THRUST x thr / 100
+.throk:
+    ; --- the engine: thrust FOLLOWS the throttle at CSP_SPOOL (88.7.5) -----
+    ; Every tick and not only on a key, because a lag has to run while
+    ; nothing is being pressed - which is the whole of what a lag is. A
+    ; propeller's SPOOL is 0, `sar by 0` is a no-op, and the gap closes
+    ; whole: the two aeroplanes that shipped before this are unchanged to
+    ; the unit.
+    mov ax, [cs_thr]
+    mul word [di + CSP_THRUST]      ; AX = the thrust the throttle asks for
     mov bx, 100
     div bx
+    mov cl, 8                       ; ...IN 8.8, because a whole unit of
+    shl ax, cl                      ; thrust is 19 on the jet and a 32nd of
+    sub ax, [cs_thracc]             ; a gap that small is nothing: a lag has
+    mov bx, ax                      ; to be finer than the quantity it lags
+    mov cl, [di + CSP_SPOOL]
+    sar ax, cl                      ; the fraction of the gap this tick owes
+    jnz .spool
+    mov ax, bx                      ; a gap too small to shift is closed
+.spool:                             ; outright, or the engine idles for ever
+    add [cs_thracc], ax
+    mov ax, [cs_thracc]
+    mov cl, 8
+    shr ax, cl
     mov [cs_thrust], ax
-.throk:
     ; --- the speed: thrust, less drag, less gravity along the nose ---------
     mov ax, [cs_spd]
     mul ax                          ; DX:AX = v^2 (16.16)
@@ -318,6 +401,11 @@ cs_step:
     ; ===== on the ground ====================================================
 .ground:
     sub cx, [di + CSP_FRICT]        ; rolling friction, and the brakes
+    cmp byte [cs_onwater], 0
+    je .wheels                      ; ON THE WATER a hull drags twice as hard
+    sub cx, [di + CSP_FRICT]        ; and there is nothing to brake with
+    jmp short .g0                   ; (SPEC.md 88.7.7)
+.wheels:
     cmp byte [cs_kbrake], 0
     je .g0
     sub cx, [di + CSP_BRAKE]
@@ -357,7 +445,7 @@ cs_step:
     mov al, [cs_kyaw]               ; the nosewheel: hdg += v x STEERK >> 8
     cbw
     mov bx, [cs_spd]
-    mov cl, 8
+    mov cl, 7                       ; whole m/s out of 16.7
     shr bx, cl
     shl bx, 1                       ; CS_STEERK = 2
     imul bx
@@ -450,7 +538,9 @@ cs_att_free:
     or ax, ax
     jz .pitch
     imul word [di + CSP_ROLLR]
-    add [cs_roll], ax
+    mov si, cs_roll                 ; ...eased onto the horizon if this is the
+    call cs_ease                    ; last of an approach (88.7.3) - and here
+    add [cs_roll], ax               ; INVERTED level is one of them
 .pitch:
     mov di, [cs_plane]
     mov al, [cs_kpitch]
@@ -458,6 +548,8 @@ cs_att_free:
     or ax, ax
     jz .stall
     imul word [di + CSP_PITCHR]
+    mov si, cs_pitch
+    call cs_ease
     add [cs_pitch], ax
 .stall:
     mov di, [cs_plane]
@@ -478,6 +570,183 @@ cs_att_free:
 .out:
     ret
 
+; -----------------------------------------------------------------------------
+; cs_att_lag - A JET (the Fouga Magister): the stick sets a rate TARGET and
+;              the aeroplane eases onto it (SPEC.md 88.7.5)
+;
+; The two aeroplanes before this are direct-drive - the stick IS the rate, in
+; both directions, the same tick. That is right for a Pitts and wrong for two
+; tonnes at 190 metres a second, and it is the single most recognisable
+; difference between a light aerobat and a jet on a keyboard: this one keeps
+; rolling after the key is let go, and takes a beat to start.
+;
+; IT COMPOSES WITH THE HORIZON CAPTURE (88.7.3) rather than fighting it. The
+; step cs_ease shortens is the current rate whatever set it, so the jet still
+; lands exactly on the horizon - and because the rate decays with the stick
+; centred, it can COAST onto level instead of being flown onto it, which no
+; other aeroplane here can do.
+;
+; No clamp on either axis: a Magister aerobats, and the Patrouille de France
+; flew nine of them. The stall is cs_att_free's, jumped into rather than
+; copied - the nose drops toward the EARTH and cos(roll) says which way.
+; -----------------------------------------------------------------------------
+CS_LAGSH equ 2                      ; a quarter of the gap a tick: 90% of the
+                                    ; way there in eight, which is half a
+                                    ; second of a real second
+
+cs_att_lag:
+    mov al, [cs_kroll]
+    cbw
+    imul word [di + CSP_ROLLR]      ; the rate the stick is asking for...
+    mov si, cs_rrate
+    call cs_lagax                   ; ...ZF when the aeroplane is not turning
+    jz .pitch
+    mov si, cs_roll
+    call cs_ease
+    add [cs_roll], ax
+.pitch:
+    mov di, [cs_plane]
+    mov al, [cs_kpitch]
+    cbw
+    imul word [di + CSP_PITCHR]
+    mov si, cs_prate
+    call cs_lagax
+    jz .stall
+    mov si, cs_pitch
+    call cs_ease
+    add [cs_pitch], ax
+.stall:
+    mov di, [cs_plane]
+    jmp cs_att_free.stall
+
+; cs_lagax - AX = the rate the stick asks for, SI = the aeroplane's current
+; rate: close part of the gap. out AX = the new rate, ZF = it is zero.
+; Clobbers CX. Preserves BX, DX, DI.
+;
+; THE TWO SIDES ARE NOT THE SAME LENGTH, and the first build had them equal
+; at a quarter of the gap a tick, which made the aeroplane unflyable in a way
+; the gate did not look at: a rate decaying by a quarter a tick has THREE
+; TIMES ITS CURRENT VALUE still to travel, so releasing the stick at full
+; rate carried it 19.6 degrees further. A tap - one tick of key - rolled 19.6
+; degrees, and levelling out was impossible because centring the stick at the
+; horizon coasted a fifth of a turn past it. Both of the owner's complaints
+; are that one number.
+;
+; So building a rate is slow and losing one is fast, which is also what the
+; air does: inertia is what makes a roll take a moment to start, and damping
+; is what stops it the moment the ailerons are centred. Three quarters of the
+; gap a tick going down leaves a tail of a third of the rate - 2.2 degrees
+; from full - so a tap is a nudge and a release lands where it was pointed.
+cs_lagax:
+    mov cx, ax
+    sub cx, [si]                    ; CX = the gap
+    or ax, ax
+    jnz .build                      ; the stick is asking for a rate...
+    mov ax, cx                      ; ...or it is centred, and the rate DIES:
+    sar ax, 1                       ; a quarter of the gap is what stays, so
+    sar ax, 1                       ; three quarters of it goes this tick
+    neg ax
+    add ax, cx
+    jmp short .step
+.build:
+    mov ax, cx
+    sar ax, 1
+    sar ax, 1                       ; CS_LAGSH: a quarter of the gap a tick
+.step:
+    jnz .add
+    mov ax, cx                      ; a gap too small to shift is closed
+.add:                               ; outright, or a rate sticks at -1 for ever
+    add [si], ax
+    mov ax, [si]
+    or ax, ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_ease - THE HORIZON CAPTURES THE LAST THREE TICKS (SPEC.md 88.7.3)
+; in:  AX = the step this tick, signed (the rate x the stick); SI = the angle
+; out: AX = the step to take. Preserves BX, CX, DX, SI, DI.
+;
+; A key is a stick that is hard over or centred, so an axis moves in whole
+; ROLLR/PITCHR quanta and can only STOP where the quanta fall - 10 degrees of
+; roll on the Pitts, and cs_steps spends up to three ticks in a frame, so what
+; the pilot feels is a 30-degree quantum with level flight not in it. Here the
+; last three ticks of an approach are shortened so the angle LANDS on the
+; horizon: one tick away take exactly the distance, two take half of what is
+; left rounded up, three a third. Four or more is not an approach and the rate
+; is untouched, and so is an axis moving AWAY.
+;
+; THE HORIZON IS A HALF TURN, not zero: wings level and INVERTED level are
+; both places the Pitts may settle, and so is the top of a loop. The angles
+; wrap at 65,536, so `AND 0x7FFF` against 0x4000 picks the nearer of the two
+; bounding multiples in three instructions and needs no case for the wrap.
+; -----------------------------------------------------------------------------
+cs_ease:
+    or ax, ax
+    jz .plain                       ; centred: there is no step to shorten
+    push bx
+    push cx
+    push dx
+    mov cx, ax                      ; CX = the step, signed
+    mov ax, [si]
+    and ax, 0x7FFF                  ; how far into this half turn we are
+    cmp ax, 0x4000
+    jb .below
+    mov bx, 0x8000                  ; the multiple ABOVE is the near one
+    sub bx, ax
+    jmp short .dist
+.below:
+    mov bx, ax                      ; ...or the one BELOW
+    neg bx
+.dist:
+    mov ax, bx                      ; BX = the signed distance to it
+    xor ax, cx
+    js .out                         ; moving away: not an approach at all
+    mov ax, bx
+    or ax, ax
+    jns .dmag
+    neg ax
+.dmag:
+    jz .out                         ; already on it: leave at the full rate
+    mov dx, cx                      ; DX = the rate's magnitude
+    or dx, dx
+    jns .smag
+    neg dx
+.smag:
+    cmp ax, dx
+    jbe .land                       ; one tick away: land on it exactly
+    add dx, dx
+    cmp ax, dx
+    ja .three
+    inc ax                          ; two: half of what is left, rounded up,
+    shr ax, 1                       ; so the second one lands
+    jmp short .sign
+.three:
+    mov bx, dx                      ; DX = 2 rates -> 3
+    shr bx, 1
+    add dx, bx
+    cmp ax, dx
+    ja .out                         ; four or more: a plain full-rate tick
+    add ax, 2                       ; three: a third of what is left, up
+    mov bx, 3
+    xor dx, dx
+    div bx
+.sign:
+    or cx, cx                       ; the magnitude wears the step's sign,
+    jns .pos                        ; which is the distance's - they agree,
+    neg ax                          ; or we left at .out
+.pos:
+    mov cx, ax
+    jmp short .out
+.land:
+    mov cx, bx                      ; exactly the distance to the horizon
+.out:
+    mov ax, cx
+    pop dx
+    pop cx
+    pop bx
+.plain:
+    ret
+
 ; cs_axis - one control axis: AX = the key (-1/0/1), BX = the held rate,
 ; CX = the return rate, DX = the limit, SI = the angle word. Clobbers AX, BX.
 cs_axis:
@@ -486,7 +755,8 @@ cs_axis:
     push dx                         ; imul writes DX, and DX is the limit
     imul bx
     pop dx
-    add ax, [si]
+    call cs_ease                    ; ...and the horizon takes the last three
+    add ax, [si]                    ; ticks of an approach (88.7.3)
     cmp ax, dx
     jle .lo
     mov ax, dx
@@ -516,10 +786,11 @@ cs_axis:
     ret
 
 ; cs_move - one tick of [cs_hs] along [cs_hdg] and [cs_vs] up. The per-tick
-; displacement is v / 18.2, which is v x 3600 >> 16.
+; displacement is v / 18.2, which is v x 7200 >> 16 with speed in 16.7 and
+; the position in 16.8 (SPEC.md 88.7.4).
 cs_move:
     mov ax, [cs_hs]
-    mov bx, 3600
+    mov bx, 7200
     imul bx
     mov ax, dx                      ; AX = metres a tick, 16.8
     mov [cs_ht], ax
@@ -538,7 +809,7 @@ cs_move:
     add [cs_pz], ax
     adc [cs_pz+2], dx
     mov ax, [cs_vs]
-    mov bx, 3600
+    mov bx, 7200
     imul bx
     mov ax, dx
     cwd
@@ -575,6 +846,37 @@ cs_fence:
 ; cs_touch - the wheels met the ground: a landing, or not (SPEC.md 88.7)
 ; -----------------------------------------------------------------------------
 cs_touch:
+    ; --- THE WATER FIRST, when this aeroplane can use it (SPEC.md 88.7.7).
+    ; A water strip is a runway made of water - the same four numbers, so
+    ; the arithmetic below is the arithmetic above and an amphibian's
+    ; landing is not a polygon test. Every other aeroplane skips this and
+    ; ditching stays a crash, which is what ditching is.
+    mov byte [cs_onwater], 0
+    mov di, [cs_plane]
+    test word [di + CSP_FLAGS], CSPF_AMPHIB
+    jz .rwy
+    mov si, [cs_airport]
+    cmp word [si + CSA_WLEN], 0
+    je .rwy
+    call cs_water_xy
+    mov si, [cs_airport]
+    mov ax, [cs_along]
+    or ax, ax
+    jns .w1
+    neg ax
+.w1:
+    cmp ax, [si + CSA_WLEN]
+    jg .rwy
+    mov ax, [cs_across]
+    or ax, ax
+    jns .w2
+    neg ax
+.w2:
+    cmp ax, [si + CSA_WWID]
+    jg .rwy
+    mov byte [cs_onwater], 1        ; ...on the water, and the limits below
+    jmp short .limits               ; are the same ones
+.rwy:
     call cs_runway_xy               ; [cs_along]/[cs_across]
     mov si, [cs_airport]
     mov ax, [cs_along]
@@ -591,6 +893,7 @@ cs_touch:
 .a2:
     cmp ax, [si + CSA_HWID]
     jg .crash
+.limits:
     cmp word [cs_vs], CS_LANDVS
     jl .crash
     mov ax, [cs_roll]
@@ -614,6 +917,13 @@ cs_touch:
     mov word [cs_roll], 0
     mov word [cs_vs], 0
     mov byte [cs_msg], CSG_LANDED
+    cmp byte [cs_onwater], 0
+    je .counted
+    mov byte [cs_msg], CSG_SPLASH   ; ...and the water says which water
+    mov si, [cs_airport]
+    mov ax, [si + CSA_WNAME]
+    mov [cs_crashwhy], ax
+.counted:
     inc word [cs_landings]
     ret
 .crash:
@@ -624,27 +934,55 @@ cs_touch:
 ; and across it, whole metres
 cs_runway_xy:
     mov si, [cs_airport]
+    mov ax, [si + CSA_X]
+    mov bx, [si + CSA_Z]
+    mov cx, [cs_rwsin]              ; the runway's, already computed
+    mov dx, [cs_rwcos]
+    jmp short cs_local_xy
+
+; cs_water_xy - and the WATER STRIP's (SPEC.md 88.7.7), whose sine and cosine
+; are taken here rather than cached: this runs once, at a touchdown
+cs_water_xy:
+    mov si, [cs_airport]
+    mov ax, [si + CSA_WHDG]
+    call cs_sin
+    push ax
+    mov si, [cs_airport]
+    mov ax, [si + CSA_WHDG]
+    call cs_cos
+    mov dx, ax
+    pop cx
+    mov si, [cs_airport]
+    mov ax, [si + CSA_WX]
+    mov bx, [si + CSA_WZ]
+
+; cs_local_xy - AX/BX = a strip's centre, CX/DX = the sine and cosine of its
+; heading: the aeroplane in ITS coordinates, into [cs_along]/[cs_across]
+cs_local_xy:
+    mov [cs_lsn], cx
+    mov [cs_lcs], dx
+    mov cx, ax
     mov ax, [cs_px+1]
-    sub ax, [si + CSA_X]
+    sub ax, cx
     mov [cs_ddx], ax
     mov ax, [cs_pz+1]
-    sub ax, [si + CSA_Z]
+    sub ax, bx
     mov [cs_ddz], ax
     mov ax, [cs_ddx]
-    mov bx, [cs_rwsin]
+    mov bx, [cs_lsn]
     MUL14
     mov cx, ax
     mov ax, [cs_ddz]
-    mov bx, [cs_rwcos]
+    mov bx, [cs_lcs]
     MUL14
     add ax, cx
     mov [cs_along], ax
     mov ax, [cs_ddx]
-    mov bx, [cs_rwcos]
+    mov bx, [cs_lcs]
     MUL14
     mov cx, ax
     mov ax, [cs_ddz]
-    mov bx, [cs_rwsin]
+    mov bx, [cs_lsn]
     MUL14
     sub cx, ax
     mov [cs_across], cx
@@ -654,8 +992,10 @@ cs_runway_xy:
 ; cs_collide - the aeroplane against every CSO_COLLIDE box (SPEC.md 88.6)
 ; -----------------------------------------------------------------------------
 cs_collide:
-    mov si, cs_objtab
-    mov cx, CS_NOBJ
+    mov si, [cs_airport]            ; the PICKED location's world (88.6.4):
+    mov cx, [si + CSA_NOBJ]         ; a tower in Paris is not in the way of
+    mov si, [si + CSA_OBJS]         ; an aeroplane over Manhattan
+    jcxz .out
 .o:
     test word [si + CSO_FLAGS], CSO_COLLIDE
     jz .next
@@ -692,6 +1032,7 @@ cs_collide:
 .next:
     add si, CSO_SIZE
     loop .o
+.out:
     ret
 
 ; -----------------------------------------------------------------------------

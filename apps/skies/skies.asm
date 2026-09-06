@@ -147,6 +147,12 @@ CS_FAR    equ 16000             ; nothing beyond this is transformed, and it
 CS_MAXV   equ 24                ; vertices in the largest model (the tower's
                                 ; five levels are 20)
 CS_MAXPV  equ 10                ; ...and a face after the near clip
+CS_LODPX  equ 8                 ; the biggest RECTANGLE cs_boxlod may stand
+                                ; in for a solid (SPEC.md 88.5.4.1): an
+                                ; impostor is axis-aligned in SCREEN space,
+                                ; which nothing in a banked world is, so it
+                                ; has to be small enough that nobody can see
+                                ; the shape
 CS_NVIS   equ 32                ; objects that can be in one frame
 CS_VISZ   equ 6                 ; ...six bytes each: ptr, reach, along
 CS_MAXROW equ 240               ; the tallest box any backend offers
@@ -228,14 +234,25 @@ CSA_RWY   equ 14                ; word: the runway's designation
 CSA_SPAWN equ 16                ; where the aeroplane stands at reset, along
                                 ; the runway from its centre (negative = the
                                 ; near threshold)
-CSA_SIZE  equ 18
+CSA_OBJS  equ 18                ; word: THE WORLD THIS PLACE STANDS IN - its
+CSA_NOBJ  equ 20                ; object table and how many rows it has. A
+                                ; location is a runway AND the country round
+                                ; it (88.6.4), so cs_scene walks the picked
+                                ; row's table and not one global one
+CSA_WX    equ 22                ; THE WATER STRIP (SPEC.md 88.7.7): a second
+CSA_WZ    equ 24                ; runway made of water, in the same four
+CSA_WHDG  equ 26                ; numbers as the first, so an amphibian's
+CSA_WLEN  equ 28                ; landing is the same arithmetic and not a
+CSA_WWID  equ 30                ; polygon test. CSA_WLEN 0 is a place with
+CSA_WNAME equ 32                ; no water an aeroplane could get down on
+CSA_SIZE  equ 34
 
 ; --- a plane (SPEC.md 88.7) - speeds 16.8 m/s, angles 65536 to the turn -------
 CSP_NAME   equ 0
 CSP_VSTALL equ 2
 CSP_VROT   equ 4
 CSP_VMAX   equ 6
-CSP_THRUST equ 8                ; 16.8 m/s a tick, at full throttle
+CSP_THRUST equ 8                ; 16.7 m/s a tick, at full throttle
 CSP_DRAGK  equ 10               ; drag = v^2 x this >> 16, a tick
 CSP_FRICT  equ 12               ; rolling friction a tick, on the ground
 CSP_BRAKE  equ 14
@@ -256,13 +273,25 @@ CSP_ATT    equ 34               ; word: ITS FLIGHT MODEL (88.7.2) - the near
                                 ; the motion, the ground - is shared, because
                                 ; it is the same arithmetic for both and a
                                 ; second copy of it would drift
-CSP_ART    equ 36               ; word: ITS PICTURE (88.10.1) - the 1bpp band
+CSP_SPOOL  equ 36               ; the engine's LAG, a shift count: thrust
+                                ; closes this fraction of the gap to what the
+                                ; throttle asks for, each tick. 0 is `sar by
+                                ; 0`, which is instant - every propeller
+                                ; (SPEC.md 88.7.5)
+CSP_LAUNCH equ 38               ; metres above the field at reset, and the
+                                ; state that goes with it: 0 is ON THE RUNWAY,
+                                ; which is every aeroplane with an engine
+CSP_FLAGS  equ 40               ; CSPF_*
+CSP_ART    equ 42               ; word: ITS PICTURE (88.10.1) - the 1bpp band
                                 ; the launcher blits when this row is the one
                                 ; in use. It hangs off the record rather than
                                 ; off a third table beside cs_planes and
                                 ; cs_plnames, so an aeroplane carries its own
                                 ; picture the way it carries its own cockpit
-CSP_SIZE   equ 38
+CSP_SIZE   equ 44
+
+CSPF_AMPHIB equ 0x0001          ; it may touch down on water, and where the
+                                ; location has some it STARTS there (88.7.7)
 
 ; --- a cockpit record (SPEC.md 88.9.2): what a plane's panel looks like ------
 CSK_WIN    equ 0                ; word: the windows, (x1, y1, x2, y2) at 320
@@ -302,13 +331,13 @@ RW_DASHM  equ 25                ; ...each this long, with as much gap
 RW_DASHH  equ 150               ; ...within this height of the runway
 RW_DASHW  equ 300               ; ...and this far from its axis
 CS_CRASHT  equ 36               ; ticks the crash stays on the glass: 2 s
-CS_GRAV    equ 138              ; 9.81 m/s^2 a tick, 16.8
+CS_GRAV    equ 69               ; 9.81 m/s^2 a tick, 16.7 (SPEC.md 88.7.4)
 CS_STALLSINK equ 24             ; 16.8 m/s of sink per 1 m/s under the stall
 CS_STALLDROP equ 60             ; the nose drops this much a tick, stalled
 CS_LIFTOFF equ 546              ; 3 degrees: the nose is up, and it flies
 CS_RUDDER  equ 24               ; the rudder's yaw a tick, in the air
-CS_STEERK  equ 2                ; the nosewheel: hdg += v x this >> 8
-CS_LANDVS  equ -768             ; a landing sinks no faster than 3 m/s...
+CS_STEERK  equ 2                ; the nosewheel: hdg += v x this >> 7
+CS_LANDVS  equ -384             ; a landing sinks no faster than 3 m/s...
 CS_LANDROLL equ 1820            ; ...banked under 10 degrees...
 CS_LANDPMIN equ -910            ; ...with the nose between -5...
 CS_LANDPMAX equ 2730            ; ...and +15
@@ -323,6 +352,8 @@ CSG_LANDED equ 3
 CSG_CRASH  equ 4
 CSG_PAUSED equ 5
 CSG_EDGE   equ 6
+CSG_RELEASE equ 7               ; a sailplane's launch (88.7.6)
+CSG_SPLASH equ 8                ; ...and an amphibian's water landing (88.7.7)
 
 ; --- the attract window (SPEC.md 88.10) ---------------------------------------
 CS_WINW   equ 312               ; the launcher, frame included: it fits
@@ -362,9 +393,13 @@ cs_entry:
     mov [cs_dock], cx
 
     mov byte [cs_setbld], CSBL_ALL   ; the settings' defaults (88.13): all of
-    mov byte [cs_setsize], CSZ_MOD  ; them are what the simulator shipped
-    mov byte [cs_setlod], CSL_MOD   ; with, so a player who never opens the
-    mov byte [cs_setfill], CSFL_ALL  ; page is flying exactly what they flew
+    mov byte [cs_setlod], CSL_MOD   ; them are what the simulator shipped
+    mov byte [cs_setfill], CSFL_ALL  ; with, so a player who never opens the
+                                    ; page is flying exactly what they flew.
+                                    ; Size is the fourth and cannot be set
+                                    ; here: it is the ADAPTER's, and the
+                                    ; adapter is not known until the window
+                                    ; exists (below)
 
     mov al, KSC_SPACE               ; ARMING the scancode reader: the first
     call OSAPI_KEY_DOWN             ; answer is always "up" and this is where
@@ -397,6 +432,14 @@ cs_entry:
     mov [cs_win], bx
     mov [cs_drplane + OS88UI_DR_WIN], bx    ; the drop-downs arm their clips
     mov [cs_drport + OS88UI_DR_WIN], bx     ; off it (os88ui.inc)
+    mov si, cs_setdrops             ; ...AND THE SETTINGS PAGE'S FOUR, off the
+    mov cx, 4                       ; table rather than by name, so a fifth
+.win:                               ; control cannot be added to the page and
+    mov di, [si]                    ; forgotten here. With WIN zero
+    mov [di + OS88UI_DR_WIN], bx    ; OSAPI_WM_CLIP_SET refuses and drpress
+    inc si                          ; answers SPENT with the list never drawn
+    inc si                          ; - a drop-down that cannot be dropped
+    LOOPF .win                      ; down (SPEC.md 88.13.6)
     mov al, 1                       ; an 8-aligned content origin: the two
     call OSAPI_WM_SNAP              ; bands land on the byte grid (SPEC.md
                                     ; 5.4.2) and font_run reaches 6.1's
@@ -406,6 +449,15 @@ cs_entry:
                                     ; only be written over (SPEC.md 11.96)
     call cs_adapter                 ; which raster we would take, whether the
                                     ; machine will give it to us, and the menus
+    mov al, CSZ_FULL                ; ...and now Size can take its default,
+    cmp byte [cs_want], CSB_HERC    ; which is the adapter's own (88.13.4):
+    jne .sz                         ; CGA and Mode X open at the geometry they
+    mov al, CSZ_MOD                 ; shipped with and Hercules at its 400-wide
+.sz:                                ; view, so nobody's picture changed when
+    mov [cs_setsize], al            ; the page arrived. ONCE, here and not in
+                                    ; cs_adapter, which runs again on a Mode
+                                    ; change and on a window move: neither may
+                                    ; overwrite a Size the player picked
     mov ax, cs_onresize             ; the card can change under us
     call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98)
     mov ax, cs_onup                 ; the release half of a click (13.7)...
@@ -744,10 +796,7 @@ cs_set_page:
     ; --- now DRAW them, the drop-downs LOWEST FIRST so an open list lies
     ;     over what is under it ---------------------------------------------
     call cs_setsync                 ; the records say what the settings say
-    mov bx, cs_donerect
-    mov si, cs_s_done
-    mov di, OS88UI_DEF | OS88UI_FILL
-    call os88ui_btn
+    call cs_donebtn
     mov cx, 3
     xor di, di
 .dbox:
@@ -951,11 +1000,13 @@ cs_setclick:
     call cs_setfillmask
     jmp short .out
 .done:
-    mov bx, cs_donerect             ; --- Done: back to the title page -------
-    call os88ui_bhit
-    jc .out
-    mov byte [cs_page], 0
-    call cs_repaint
+    mov bx, cs_donerect             ; --- Done: ARMED here and fired at the
+    call os88ui_bhit                ; release, which is the whole gesture
+    jc .out                         ; (SPEC.md 13.7) - it acted on the press
+    mov ax, 2                       ; and showed nothing, where the Fly button
+    call os88ui_arm                 ; beside it has always done both
+    mov byte [cs_donedn], 1
+    call cs_donedraw
 .out:
     pop di
     pop si
@@ -985,6 +1036,36 @@ cs_flybtn:
     call os88ui_btn
     pop di
     pop si
+    pop bx
+    ret
+
+; cs_donebtn - the Settings page's Done as it stands: down while pressed.
+;              Never greyed - leaving a page always means something
+cs_donebtn:
+    push bx
+    push si
+    push di
+    mov bx, cs_donerect
+    mov si, cs_s_done
+    mov di, OS88UI_DEF | OS88UI_FILL
+    cmp byte [cs_donedn], 0
+    je .draw
+    or di, OS88UI_DOWN
+.draw:
+    call os88ui_btn
+    pop di
+    pop si
+    pop bx
+    ret
+
+; cs_donedraw - it alone, from a click handler: cs_flydraw's reason exactly
+cs_donedraw:
+    push bx
+    mov bx, [cs_win]
+    call OSAPI_WM_CLIP_SET
+    jc .out
+    call cs_donebtn
+.out:
     pop bx
     ret
 
@@ -1199,13 +1280,20 @@ cs_onclick:
     call cs_setclick
     jmp .out
 .page0:
-    mov bx, cs_drplane              ; the drop-downs first: an open list
-    call os88ui_drpress             ; takes any press, wherever it lands
-    call cs_drtake
-    jc .out
+    mov bx, cs_drport               ; THE OPEN LIST FIRST (SPEC.md 13.14.2), and
+    cmp byte [bx + OS88UI_DR_OPEN], 0   ; that is not the same as the drawn
+    jne .p0drop                     ; order any more: the nine-item Location
+    mov bx, cs_drplane              ; list slides UP over the PLANE box, and
+    cmp byte [bx + OS88UI_DR_OPEN], 0   ; os88ui_drpress lets a closed control
+    jne .p0drop                     ; claim a press that lands on its own box -
+    mov bx, cs_drplane              ; so the box underneath took the press and
+    call os88ui_drpress             ; opened ITS list while the one on top was
+    call cs_drtake                  ; still up. Neither open: the drawn order,
+    jc .out                         ; where a press can only be on one box
     mov bx, cs_drport
-    call os88ui_drpress
-    call cs_drtake
+.p0drop:
+    call os88ui_drpress             ; an open list takes any press, wherever
+    call cs_drtake                  ; it lands, so this is the whole of it
     jc .out
     cmp byte [cs_want], CSB_NONE    ; the button: greyed, it refuses
     je .out
@@ -1340,11 +1428,15 @@ cs_setup2:
     call os88ui_fire                ; the Done button, whose press armed it
     or ax, ax
     jz .out
+    mov byte [cs_donedn], 0
     mov bx, cs_donerect
     call os88ui_bhit
-    jc .out
+    jc .cancel                      ; released elsewhere: up again, and stay
     mov byte [cs_page], 0
     call cs_repaint
+    ret
+.cancel:
+    call cs_donedraw
 .out:
     ret
 
@@ -1487,26 +1579,27 @@ cs_s_flybtn: db 'Fly', 0
 ; records the flight reads, kept in step by position
 cs_drplane:  dw 0, 0, 0, 0, cs_plnames, CS_NPLANES, 0, 0
              db 0, 0FFh
-             dw 0, 0                ; the banked pixels (OS88UI_DR_SEG/_KB)
-cs_drport:   dw 0, 0, 0, 0, cs_apnames, CS_NPORTS, 0, 0
+             dw 0, 0, 0             ; the banked pixels (OS88UI_DR_SEG/_KB)
+                                    ; and where the open list goes (_TOP)
+cs_drport:   dw 0, 0, 0, 0, cs_apnames, CS_NPORTS, CS_DEFPORT, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_flyrect:  dw 0, 0, 0, 0
 ; --- the Settings page's controls (SPEC.md 88.13). Every one of them is the
 ;     shared drop-down or the shared check box, and the page is the first
 ;     user of the second ---------------------------------------------------
 cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  3, CSBL_ALL, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  3, CSL_MOD, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_drsize:   dw 0, 0, 0, 0, cs_i_size, 3, CSZ_MOD, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_drmode:   dw 0, 0, 0, 0, cs_i_mode, 2, 0, 0
              db 0, 0FFh
-             dw 0, 0
+             dw 0, 0, 0
 cs_ckgnd:    dw 0, 0, 0, 0, cs_s_gnd, 1
 cs_ckwat:    dw 0, 0, 0, 0, cs_s_wat, 1
 cs_ckbld:    dw 0, 0, 0, 0, cs_s_bld, 1
@@ -1541,12 +1634,23 @@ cs_s_wat:    db 'Water', 0
 cs_s_bld:    db 'Buildings', 0
 cs_s_done:   db 'Done', 0
 cs_s_setts:  db 'Settings', 0
-cs_planes:   dw cs_p_c172, cs_p_pitts
-cs_plnames:  dw cs_s_c172, cs_s_pitts
+cs_planes:   dw cs_p_c172, cs_p_pitts, cs_p_fouga, cs_p_bijave, cs_p_a5
+cs_plnames:  dw cs_s_c172, cs_s_pitts, cs_s_fouga, cs_s_bijave, cs_s_a5
 CS_NPLANES   equ ($ - cs_plnames) / 2
-cs_ports:    dw cs_a_issy, cs_a_lbg
-cs_apnames:  dw cs_s_issy, cs_s_lbg
+; --- the LOCATIONS (SPEC.md 88.6.4), ALPHABETICALLY: the list a player reads
+;     is sorted by its own names and not by the order the worlds were written
+;     in, which is what csworld.inc's %includes decide. The two tables are
+;     kept in step BY POSITION - cs_apnames is what the drop-down shows and
+;     cs_ports the record the flight reads - and CS_DEFPORT is the row
+;     cs_entry starts on, which must be the index of cs_a_issy here: the
+;     default is what shipped, and moving Paris down the list must not
+;     silently change which runway a fresh instance opens on.
+cs_ports:    dw cs_a_spx, cs_a_lcy, cs_a_mia, cs_a_vnlk, cs_a_jfk
+             dw cs_a_issy, cs_a_lbg, cs_a_sdu, cs_a_sfo
+cs_apnames:  dw cs_s_spx, cs_s_lcy, cs_s_mia, cs_s_vnlk, cs_s_jfk
+             dw cs_s_issy, cs_s_lbg, cs_s_sdu, cs_s_sfo
 CS_NPORTS    equ ($ - cs_apnames) / 2
+CS_DEFPORT   equ 5              ; PARIS-ISSY, where the simulator shipped
 
 cs_i_lines:  dw cs_i1, cs_i2, cs_i3, cs_i4, cs_i5, cs_i6, cs_i7, cs_i8
              dw cs_i9, cs_i10, cs_i2, cs_i11, cs_i12, 0
@@ -1651,6 +1755,7 @@ cs_tpl:
     ZBYTE cs_setfill                ; a trade the player asked for
     ZBYTE cs_modepref               ; the Mode menu's pick: 0 Mode X, 1 CGA
     ZBYTE cs_flydn                  ; the Fly button is pressed
+    ZBYTE cs_donedn                 ; ...and the Settings page's Done
     ZWORD cs_plane                  ; the rows in use (SPEC.md 88.6)
     ZWORD cs_airport
 
@@ -1896,7 +2001,14 @@ cs_tpl:
     ZWORD cs_hdg                    ; 65536 to the turn
     ZWORD cs_pitch
     ZWORD cs_roll
-    ZWORD cs_spd                    ; 16.8 m/s
+    ZWORD cs_thracc                 ; the engine's thrust in 8.8, which is
+                                    ; what the spool integrates (88.7.5)
+    ZBYTE cs_onwater                ; the wheels are in the water (88.7.7)
+    ZWORD cs_lsn                    ; a strip's sine and cosine, while its
+    ZWORD cs_lcs                    ; local coordinates are being taken
+    ZWORD cs_rrate                  ; a lagging model's roll and pitch RATES
+    ZWORD cs_prate                  ; (88.7.5); zero for a direct-drive one
+    ZWORD cs_spd                    ; 16.7 m/s (SPEC.md 88.7.4)
     ZWORD cs_hs                     ; ...its horizontal component...
     ZWORD cs_vs                     ; ...and its vertical
     ZWORD cs_ht                     ; the ground moved this tick
@@ -1927,6 +2039,10 @@ cs_tpl:
     ZBYTE cs_stallt                 ; the stall beep's cadence
 
 ; --- the panel (SPEC.md 88.9) -------------------------------------------------
+    ZBUF  cs_pshow, 16 * 2          ; what the instruments LAST READ (88.9.4):
+                                    ; one set, shared by both pages, so the
+                                    ; two of them cannot hold readings taken
+                                    ; seconds apart
     ZBUF  cs_pkeys, 2 * 16 * 2      ; sixteen items' keys, one set per page
     ZWORD cs_pcur                   ; the item in hand, and its key
     ZWORD cs_pkeyv

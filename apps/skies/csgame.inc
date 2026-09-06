@@ -70,9 +70,10 @@ cs_fsx_main:
     jne .draw
 .sim:
     push cx
-    call cs_step
-    call cs_sound_step
-    pop cx
+    call cs_stick                   ; THE STICK, ONCE A TICK (SPEC.md
+    call cs_step                    ; 88.7.5.1): cs_input runs once a FRAME,
+    call cs_sound_step              ; which is 137 ms on Mode X, so a tap
+    pop cx                          ; shorter than that was never seen at all
     loop .sim
 .draw:
     call cs_render
@@ -83,6 +84,50 @@ cs_fsx_main:
     mov dl, 0x40
     call OSAPI_SND_TONE
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_stick - the two attitude axes into [cs_kpitch] and [cs_kroll]
+;            (SPEC.md 88.7.5.1). Clobbers AX, BX
+;
+; Read ONCE A TICK and not once a frame, which is where it used to live.
+; OSAPI_KEY_DOWN is a LEVEL read - the SDK says so, and there is no latched
+; form - so a press that came and went between two polls never happened, and
+; a poll a frame is 137 ms on Mode X. The stick is the one input where that
+; is the difference between a tap being a nudge and a tap being nothing;
+; the throttle, the rudder and the brake stay on the frame, where three
+; times the sampling would only make them three times as fast.
+;
+; Four far calls, 46.7 us each: 187 us a tick, so 374 us of a 137 ms frame
+; on the two extra ticks - 0.27%.
+; -----------------------------------------------------------------------------
+cs_stick:
+    push bx
+    xor bl, bl
+    mov al, KSC_UP                  ; up = nose down, down = nose up: the
+    call OSAPI_KEY_DOWN             ; stick, as in every flight simulator
+    jnc .p1
+    dec bl
+.p1:
+    mov al, KSC_DOWN
+    call OSAPI_KEY_DOWN
+    jnc .p2
+    inc bl
+.p2:
+    mov [cs_kpitch], bl
+    xor bl, bl
+    mov al, KSC_LEFT
+    call OSAPI_KEY_DOWN
+    jnc .r1
+    dec bl
+.r1:
+    mov al, KSC_RIGHT
+    call OSAPI_KEY_DOWN
+    jnc .r2
+    inc bl
+.r2:
+    mov [cs_kroll], bl
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -201,30 +246,9 @@ cs_input:
     jmp .done
 
 .held:                              ; THE HELD KEYS ARE LATCHED HERE AND SPENT
-    xor bl, bl                      ; ON THE TICK (SPEC.md 85.6.4)
-    mov al, KSC_UP                  ; up = nose down, down = nose up: the
-    call OSAPI_KEY_DOWN             ; stick, as in every flight simulator
-    jnc .p1
-    dec bl
-.p1:
-    mov al, KSC_DOWN
-    call OSAPI_KEY_DOWN
-    jnc .p2
-    inc bl
-.p2:
-    mov [cs_kpitch], bl
-    xor bl, bl
-    mov al, KSC_LEFT
-    call OSAPI_KEY_DOWN
-    jnc .r1
-    dec bl
-.r1:
-    mov al, KSC_RIGHT
-    call OSAPI_KEY_DOWN
-    jnc .r2
-    inc bl
-.r2:
-    mov [cs_kroll], bl
+    call cs_stick                   ; ON THE TICK (SPEC.md 85.6.4); the two
+                                    ; STICK axes are read again per tick, in
+                                    ; the simulation loop (88.7.5.1)
     xor bl, bl
     mov al, CS_KA
     call OSAPI_KEY_DOWN
@@ -402,7 +426,10 @@ CS_PI_THR  equ 4
 CS_PI_STATE equ 5
 CS_PI_BAR  equ 6
 CS_PI_MSG  equ 7
-CS_PI_N    equ 8
+CS_PI_VS   equ 8                    ; the VARIOMETER (SPEC.md 88.7.6) - a
+                                    ; cockpit that has none puts its cell at
+                                    ; 0,0 and cs_d_vs returns at once
+CS_PI_N    equ 9
 
 ; the layout is the cockpit's (cspanel.inc): x at 320 wide through
 ; cs_hscalex, rows below the view
@@ -466,18 +493,43 @@ cs_panel:
     jb .i
     ret
 
-; cs_pitem - BX = an item: its key now, against the cache; draw on a change
+; -----------------------------------------------------------------------------
+; cs_pitem - BX = an item: SAMPLE it on the gate, and PAINT it on any page
+;            that has not got that value on it yet (SPEC.md 88.9.4)
+;
+; The two halves are separate on purpose and were not, which is what made a
+; Mode X altimeter read 1,683 feet one frame and 1,666 the next, for ever.
+; The gate is in TICKS and the page is the frame's PARITY, so a gate frame
+; lands on whichever page happens to be current and the other one keeps
+; whatever it last had - and with the two rates near each other the same
+; page can win several gates in a row. Both pages then hold real readings,
+; taken seconds apart, and the flip shows them alternately.
+;
+; So the gate now decides when the aeroplane is READ, into one latched set
+; both pages share, and each page's own cache decides whether it still needs
+; painting. A change is drawn twice - once per page, on consecutive frames -
+; which is what a double buffer costs and what it was quietly not paying.
+; One target (Hercules, CGA) is unaffected: cs_ppage is always 0 there, and
+; this was never visible on either.
+; -----------------------------------------------------------------------------
 cs_pitem:
     mov [cs_pcur], bx
-    cmp bx, CS_PI_ADI               ; the four readings wait for the gate;
-    ja .now                         ; a message or the state never does
+    cmp bx, CS_PI_STATE             ; the state and the message NEVER wait:
+    je .now                         ; a stall or a crash has to show at once
+    cmp bx, CS_PI_MSG
+    je .now
     cmp byte [cs_pgate], 0
-    je .same
+    je .paint                       ; between gates the latched value stands
 .now:
-    call cs_pkey                    ; AX = the item's key
-    mov [cs_pkeyv], ax
+    call cs_pkey                    ; AX = what it would show now...
     mov bx, [cs_pcur]
     shl bx, 1
+    mov [cs_pshow + bx], ax         ; ...latched, ONE set for both pages
+.paint:
+    mov bx, [cs_pcur]
+    shl bx, 1
+    mov ax, [cs_pshow + bx]
+    mov [cs_pkeyv], ax
     mov al, [cs_ppage]
     xor ah, ah
     mov cl, 5
@@ -500,14 +552,14 @@ cs_pkey:
     jmp [cs_pkeyp + bx]
 
 cs_pkeyp:  dw cs_k_spd, cs_k_alt, cs_k_hdg, cs_k_adi, cs_k_thr, cs_k_state
-           dw cs_k_thr, cs_k_msg
+           dw cs_k_thr, cs_k_msg, cs_k_vs
 cs_pdraw:  dw cs_d_spd, cs_d_alt, cs_d_hdg, cs_d_adi, cs_d_thr, cs_d_state
-           dw cs_d_bar, cs_d_msg
+           dw cs_d_bar, cs_d_msg, cs_d_vs
 
 ; --- the keys -----------------------------------------------------------------
-cs_k_spd:                           ; knots: v(16.8) x 1.944 / 256
+cs_k_spd:                           ; knots: v(16.7) x 1.944 / 128
     mov ax, [cs_spd]
-    mov bx, 498
+    mov bx, 996
     mul bx
     mov ax, dx
     ret
@@ -530,6 +582,9 @@ cs_k_thr:
 cs_k_state:
     mov al, [cs_state]
     mov ah, [cs_stall]
+    or ah, [cs_onwater]             ; ...and WHICH ground, so the strip
+    shl ah, 1                       ; repaints when a hull leaves the water
+    or ah, [cs_stall]               ; (88.7.7)
     ret
 cs_k_msg:
     mov al, [cs_msg]
@@ -553,7 +608,21 @@ cs_shr32:
 
 ; cs_pnum - AX = a value, CL = digits, SI = the label; letters "LABEL nnn" at
 ; DX = the row, BX = the x at 320 wide
+; cs_pnum - AX = the value, CL = digits, SI = the label, BX/DX = the cell:
+; THE DIGITS ONLY, four cells along, because cs_plabels drew the label with
+; the cockpit and it has not changed since (SPEC.md 88.9.4). SI is taken and
+; ignored so the callers read as they did; cs_pnuml is the form that letters
+; the label too, which is the variometer's, its label being its sign.
 cs_pnum:
+    add bx, 4 * 8                   ; a cell is 8 wide at 320, on every adapter
+    push ax
+    mov di, cs_numbuf
+    pop ax
+    call cs_utoa
+    mov si, cs_numbuf
+    jmp cs_pline
+
+cs_pnuml:
     push si
     push ax
     mov di, cs_numbuf
@@ -622,6 +691,35 @@ cs_d_hdg:
     mov cl, 3
     mov si, cs_s_hdg
     jmp cs_pnum
+cs_k_vs:                            ; the VARIOMETER: tenths of a metre a
+    mov ax, [cs_vs]                 ; second, and its SIGN in the high byte -
+    mov bx, 10                      ; the key has to change when the needle
+    imul bx                         ; crosses zero or the cache holds the
+    mov bx, 128                     ; wrong label (88.7.6)
+    idiv bx
+    ret
+
+cs_d_vs:
+    mov bx, CS_PI_VS
+    call cs_pcell
+    or bx, bx
+    jz .none                        ; this cockpit has no variometer
+    mov ax, [cs_pkeyv]
+    mov si, cs_s_up
+    or ax, ax
+    jns .up
+    neg ax
+    mov si, cs_s_dn
+.up:
+    cmp ax, 999
+    jle .n
+    mov ax, 999
+.n:
+    mov cl, 3
+    jmp cs_pnuml                    ; the vario letters its own label: UP or
+.none:                              ; DN is the reading's SIGN (88.9.4)
+    ret
+
 cs_d_thr:
     mov bx, CS_PI_THR
     call cs_pcell
@@ -633,7 +731,12 @@ cs_d_state:
     mov ax, [cs_pkeyv]
     mov si, cs_s_ground
     cmp al, CS_ST_GROUND
+    jne .air
+    cmp byte [cs_onwater], 0
     je .s
+    mov si, cs_s_water
+    jmp short .s
+.air:
     mov si, cs_s_crash
     cmp al, CS_ST_CRASH
     je .s
@@ -650,6 +753,8 @@ cs_d_state:
 cs_d_bar:                           ; the throttle bar: 0..100 in its slot
     mov bx, CS_PI_BAR
     call cs_pcell                   ; BX = its left end, DX = its top row
+    or bx, bx
+    jz .none                        ; a glider has no throttle to draw (88.7.6)
     mov [cs_pbarx], bx
     add dx, [cs_pany]
     mov [cs_pbary], dx
@@ -692,6 +797,7 @@ cs_d_bar:                           ; the throttle bar: 0..100 in its slot
     call cs_prect
 .none:
     ret
+
 cs_d_msg:                           ; the message line, padded to 40 cells
     mov di, cs_msgbuf
     mov al, [cs_msg]
@@ -740,13 +846,17 @@ cs_s_spd:    db 'SPD ', 0
 cs_s_alt:    db 'ALT ', 0
 cs_s_hdg:    db 'HDG ', 0
 cs_s_thr:    db 'THR ', 0
+cs_s_up:     db 'UP  ', 0        ; the variometer's two labels: a needle
+cs_s_dn:     db 'DN  ', 0        ; and not a signed number (88.7.6)
 cs_s_ground: db 'ON THE GROUND', 0
+cs_s_water:  db 'ON THE WATER ', 0
 cs_s_flying: db 'FLYING       ', 0
 cs_s_stalled: db 'STALL        ', 0
 cs_s_crash:  db 'CRASHED      ', 0
 
 cs_msgtab:   dw cs_g_none, cs_g_takeoff, cs_g_stall, cs_g_landed
-             dw cs_g_crash, cs_g_paused, cs_g_edge
+             dw cs_g_crash, cs_g_paused, cs_g_edge, cs_g_release
+             dw cs_g_splash
 cs_g_none:   db 0
 cs_g_takeoff: db 'FULL THROTTLE, PULL BACK AT 55 KNOTS', 0
 cs_g_stall:  db 'STALL - NOSE DOWN, POWER ON', 0
@@ -754,3 +864,5 @@ cs_g_landed: db 'LANDED', 0
 cs_g_crash:  db 'CRASHED INTO ', 0
 cs_g_paused: db 'PAUSED', 0
 cs_g_edge:   db 'THE EDGE OF THE WORLD - TURN BACK', 0
+cs_g_release: db 'TOW RELEASED - NOSE DOWN FOR 43 KNOTS', 0
+cs_g_splash: db 'DOWN ON ', 0    ; ...and the water's own name after it
