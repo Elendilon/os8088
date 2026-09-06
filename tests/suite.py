@@ -1776,6 +1776,18 @@ SOAK = [
         " tree; the shipped skies.o88 is byte-identical without it) and SKIPS"
         " with a line saying so when it has not been run",
         needs=("marty",), serial=True),
+    Row("skiesadi", "soak", py("tests/skiesadi.py"), 30.0,
+        "SPEC.md 88.9.2.2: THE HARD FREEZE, reduced to one instruction. The"
+        " attitude indicator drew its horizon bar at t x tan(roll) and got"
+        " the tangent with `idiv cx`, CX = cos - on a note reading \"over 0.5"
+        " within MAXROLL\", which is true of a TRAINER and false of every"
+        " aerobatic aeroplane here. cs_sintab is 1024 entries over the turn,"
+        " so cos is EXACTLY 0 for the 64-unit window at +-90 and the divide"
+        " faults. The row arms the INT 0 VECTOR - which catches every divide"
+        " fault in the program at once - and walks the roll through both"
+        " windows on an aeroplane with no clamp. --clobber-adi puts the raw"
+        " idiv back and is the red run",
+        needs=("marty",), serial=True),
     Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 42.0,
         "SPEC.md 88.5.5-88.5.8: every polygon and segment of a frame, on nine"
         " pinned scenes - four BANKED, four low among the buildings - held to"
