@@ -1403,7 +1403,19 @@ in the machine can merge them today.
 | **piece 0** | free, and an incomplete SPEC.md 66.6 is worse than none: the next person fixes five of nine words and ships a machine that draws its menu titles out of the wrong segment |
 | **piece B** | ~215–240 bytes for up to 27KB of claimed ceiling on kern_big (`MOD_MAX` = 4, rounded up to whole KB). **The only piece safe without E**, with `FDLG.DRV` excluded or six thunks changed |
 | **piece E** | before **A**, **C** and **F**. An ascending pack is safe only when the whole top-down population moves, and §4.6 guarantees it will not (§5) |
-| then reconsider | A (~69), C (~200, stops at §4.6), D0 (~40, already built), D (~175–242, one IF=0 window and **more than one IVT vector**), F (~90, asks package authors for something) |
+| then reconsider | D0 (~40, already built), D (~175–242, one IF=0 window and **more than one IVT vector**), F (~90, asks package authors for something) |
+
+**§10 is now the record of what happened to that order**, and three rows of it
+moved. **E, piece 0, §2.1.1's three items, ETHER and A are BUILT** (§10.2 to
+§10.8). **C was built and reverted** (§10.9) — it needs a filler package before
+it can be gated, and §4.2's global counter needs replacing with a segment
+stack, both of which that section costs. **B is not built and its prize is
+smaller than §3.3 says**: the Control Panel's thunks already call `mod_need`
+before every far call, so shedding `CTRL.DRV` is survivable — but a module is
+already freed when its feature closes, so what purgeable adds is only shedding
+it *while the feature is open*, and the three held spans §3.3 lists are the
+spans where that is unsafe. The one that is not a held span is the Control
+Panel, whose re-read is 0 to ~1.6 s depending on where the user is standing.
 
 
 ## 10. What has been built, and what it was verified against
@@ -1719,6 +1731,129 @@ underneath and asks for one KB more than the largest single run.
 The middle row is what this piece is about. A straddle does not fault: the 8237
 wraps to the start of its page and moves **the wrong memory, silently**, which
 is why the check reads an address and not a flag.
+
+### 10.9 Piece C — BUILT, MEASURED, and REVERTED for want of a gate
+
+**The whole of piece C was written, assembled and driven on a machine, and it
+is not in the tree.** It is reverted because nothing in the suite could be made
+to exercise `mem_region_reloc`, and a relocation proc whose body has never run
+is the one thing in this subsystem that must not ship: its failure is a far
+call into freed memory, which does not fault. What follows is everything the
+build learned, so that the next attempt starts from here rather than from §4.
+
+**It cost +135 `.text`, +2 `.bss` and +68 `.cold`, and crossed no further
+rung** — against §7's estimate of ~200 with ~11 of `.text`, so the estimate had
+the total about right and the `.text` share badly wrong (the fix-up is `.text`
+by necessity, which §7 says and its own table then forgets).
+
+#### The audit §4.2 asserted, done
+
+**There are exactly two `call far` sites in the kernel that reach a package**:
+`wm_pkgcall` (`kernel/wm.inc`) and the loader's entry call
+(`kernel/loader.inc`). Every other far call in the tree reaches a **module**
+(the `CPFP`/`FMFP`/`FDFP`/`CLFP` thunks) or a **driver** (`drv_fptr`,
+`DRVR_DISP`, `drv_blkfp`); `drv_pkg_call_x` runs the other way. `mem_reloc_call`
+is the third and must **not** be counted — count it and the moment `mem_cp_run`
+notifies the first movable data claim the depth goes non-zero and the compactor
+pins every region against itself. So §4.2's "one site" is confirmed, and the
+predicate is complete.
+
+#### A GLOBAL DEPTH IS NOT ENOUGH, and this is §4.2's real defect
+
+§4.2 proposes one byte, `[wm_pkgd]`, and disposes of the claimant's own region
+with *"a package reaches `mem_claim` only from inside a callback or its entry
+proc, so its depth is already non-zero."* That sentence is true and it is fatal
+to the design it is defending: **a package reaches `mem_claim` only from inside
+a callback, so the depth is non-zero at the one moment a package-driven
+compaction runs.** A global depth therefore pins *every* region whenever
+*any* package is claiming — and a package claiming is what a compaction
+almost always is. The feature would fire on kernel-initiated claims alone (a
+package launch, a Disk window's view cache, the RAM disk's store).
+
+The fix is cheap and was built: record **which** segment is at each level.
+`wm_pkgs[WM_PKGD_MAX]` beside the depth, pushed at `wm_pkgcall` and scanned by
+`mem_frameless` — 16 bytes of `.bss` and about twelve on the dispatch path, and
+past `WM_PKGD_MAX` the answer is "pin everything" rather than a guess. With
+that, package A's claim can pack package B's region. **The loader's entry call
+then needs no bracket at all**: the only region a frame of it can refer to is
+the one being loaded, and `[ld_base]` already names that one.
+
+#### Two defects the build turned up, both silent
+
+1. **`dec byte [wm_pkgd]` after the far call runs with DS = THE PACKAGE'S.**
+   `wm_pkgcall` restores DS at `.out`, below the decrement, so an unprefixed
+   store lands one byte into the package's own image. It did, and the symptom
+   was every window title coming back as line noise. `cs:` is the answer in
+   `wm.inc` (it is `.text`, so CS is `KERNEL_SEG`); `ES` is not, because a
+   callback may clobber it. In `.cold` — the loader — there is no `cs:` to use
+   and the decrement has to go after the `pop ds`.
+2. **`[ld_base]` was cleared on the abort path only.** On a successful launch
+   the word stood until the next load, so the predicate pinned the most
+   recently launched package's region — the one most likely to be the largest —
+   for the rest of the session.
+
+And one in the package, which is the ordinary kind: SHEET's region declaration
+sat between `mov [sh_chartseg], dx` and a `mov es, dx` eighty lines later, so
+`mov dx, cs` sent the 118-byte BMP header into offset 0 of SHEET's own image,
+over the `.o88` header. The window opened with an empty title and `ld_status`
+said success.
+
+#### What it looked like working
+
+On a 640KB machine with the 360KB system disk, PAINT opened first and SHEET
+under it:
+
+```
+  paint region 97c0
+  sheet  region 8b00
+  1 region declared movable  MC_RLOC=0070, 51KB owner 0002
+```
+
+`mem_find_own`'s five-byte widening took the declaration (a region's `MC_OWN`
+is the instance **slot**, the caller's `BX` is its **segment**, and a record
+whose base equals the caller's own segment can be nothing but that caller's
+region). `[wm_pkgd]` read **0** at every idle sample, so the bracket does not
+leak. `mem_reloc_call` needed a fourth arm — its `.notk` comment says *"a
+region is pinned and never arrives here"*, and with one declared it does: the
+holder is the package itself, at its **new** base, dispatched through
+`PKG_DISP` and not through the kernel's shim.
+
+#### Why there is no gate, and what one needs
+
+Every scenario that would move a region needs the same thing: **a claim that no
+single free run can satisfy and that the ascending pass cannot fund**. On the
+machine this suite runs, a fresh desktop has ~365KB free and one open package
+leaves ~250KB, so nothing a package can ask for fails.
+
+`tests/heapfrag` is the only instrument that manufactures pressure, and it is
+the wrong one: its comb is sized `L/8` from the largest run *it* sees, and with
+SHEET open its own checks 8 and 11 fail — the arena it assumes is the arena it
+does not have. Two instances did not help (checks 8, 11, 13, 14 red in both).
+Driving it anyway proves nothing: a run in which heapfrag's own assertions fail
+is a run whose forcing claim was refused.
+
+**What the next attempt needs is a FILLER package** — one whose only job is to
+hold memory, sized from an argument or from what is left, with no assertions of
+its own to be disturbed. With that, the sequence is known to work:
+
+1. open the filler; it takes the arena down to a few tens of KB;
+2. open A, whose region takes the ceiling;
+3. open the package under test, whose region lands below A's and declares
+   itself movable;
+4. close A, leaving a hole **above** the region under test;
+5. have the filler ask for one KB more than the largest run — an ask the
+   ascending pass cannot fund, because the arena is already packed — which
+   reaches the descending pass, which packs the region up.
+
+And then the assertion that earns the row: **use the package afterwards.**
+Raise its window, which repaints through `W_SEG` and `W_DISP`, and read its
+store back through the fixed-up segment words. A region that moved with a stale
+`W_SEG` does not fault, and a stale `I_SPTR` or `MC_OWN` is invisible until the
+package closes and the kernel frees somebody else's claims.
+
+`tests/regmove.py` was written to this shape and is in the reverted work; it
+runs, drives the whole sequence, and reports `2 the region moved NO` because
+step 5 has no instrument.
 
 ---
 
