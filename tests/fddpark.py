@@ -163,7 +163,10 @@ def leg(defines, label, image=None, apps=None):
         # nothing held. tests/instrest.py owns the click; this row owns the
         # tail, and driving it from the byte keeps a menu's item order out of
         # an FDC test.
-        m.bp_exec("ui_rb_go")
+        # 18.100's park now ENDS in the int 19h, so on the default arm the
+        # GUI's last instruction is dsk_rb_go in .cold; NOFDDPARK=1 keeps
+        # ui_rb_go in .text.
+        m.bp_exec(S("ui_rb_go" if "NO_FDDPARK" in defines else "dsk_rb_go"))
         m.write(S("ui_rebootq"), bytes([UI_RBQ_NOFLUSH]))
         m.run()
         if not m.wait_stop(60.0):

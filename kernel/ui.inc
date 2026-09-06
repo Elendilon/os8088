@@ -2822,9 +2822,14 @@ ui_cmd_reboot:
     call vid_reboot             ; a text mode on the primary AND on whichever
                                 ; card int 10h is going to print on after the
                                 ; int 19h below (SPEC.md 39.20.1)
-    call sched_unhook           ; restores int 08h/0Ch (unhooks the mouse too)
 %ifndef NO_FDDPARK
-    call COLD_SEG:dsk_fdd_park_x ; ...and the FDC is hardware too (SPEC.md
+    jmp sched_unhook            ; restores int 08h/0Ch (unhooks the mouse too)
+                                ; and then falls into 18.100's park and the
+                                ; int 19h at its tail - ONE exit path for the
+                                ; GUI, which is why this is a jmp and there is
+                                ; nothing after it.
+                                ;
+                                ; The FDC is hardware too (SPEC.md
                                 ; 18.100). int 19h resets none of it, so the
                                 ; next boot reads drive B's head where this
                                 ; session left it - which costs 18.97's probe
@@ -2834,15 +2839,18 @@ ui_cmd_reboot:
                                 ; each claimed unit through the ROM's own int
                                 ; 13h - AFTER sched_unhook, so no task can be
                                 ; switched in mid-BIOS-call
-%endif
+%else
+    call sched_unhook           ; restores int 08h/0Ch (unhooks the mouse too)
 ui_rb_go:                       ; the last instruction of the GUI, and a name
                                 ; for it: tests/fddpark.py breaks HERE to read
                                 ; the FDC the way the next boot will find it,
                                 ; which is the only window in which that state
-                                ; exists to be read. A label emits nothing, so
-                                ; both arms of that A/B carry it
+                                ; exists to be read. On the DEFAULT arm that
+                                ; instruction is dsk_rb_go, at the tail of
+                                ; 18.100's park in .cold
     int 0x19
     jmp ui_cmd_reboot           ; unreachable; int 19h does not return
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ui_reboot_post - API slot 0x0368 (SPEC.md 20.10). AL in, no answer.

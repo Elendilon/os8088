@@ -8376,6 +8376,10 @@ The driver-backed path is covered too, on half of this argument only —
   `mouse_unhook` too) — used before reboot. Afterwards it restores PIT
   channel 0 to the BIOS-default mode 3 (control word 0x36, then two zero
   bytes to port 0x40), the three OUTs under `pushf`/`cli` … `popf`.
+  **IT DOES NOT RETURN** (§18.100): it falls into `dsk_fdd_park_x`, whose tail
+  is the `int 0x19`, so AX and ES are clobbered and both of its callers —
+  `ui_cmd_reboot` and HIBER.DRV — reach it by `jmp` rather than `call`. On the
+  `NOFDDPARK=1` arm it returns as it always did.
 
 ### 8.1 CPU cycle accounting (for the Task Manager, §28)
 
@@ -19821,7 +19825,8 @@ app_launch; does its own locking). CMD_CLOSE → **quit** the frontmost:
 gfx_lock, `wm_top`, and if BX ≠ 0 `app_close_win` under the same lock,
 gfx_unlock. CMD_REBOOT → gfx_lock (never released), `vid_text` (§39.6 —
 mode 3, or mode 7 with the Hercules graphics bit cleared),
-`sched_unhook`, `int 0x19`.
+`sched_unhook` — which does not return, falling into §18.100's park and the
+`int 0x19` at its tail.
 
 All wm_* calls that repaint are made under gfx_lock by the UI task.
 
@@ -28288,15 +28293,18 @@ cylinder the copy finished on.
 
 #### The fix is one BIOS call per drive, on the way out
 
-`ui_cmd_reboot` gains a call after `sched_unhook` and before `int 19h`:
-`dsk_fdd_park_x` issues the ROM's **`int 13h AH=00h` — RESET DISK SYSTEM, which
-recalibrates the head to track 0 — once per unit the equipment word claimed.
+`sched_unhook` falls straight into `dsk_fdd_park_x`, which issues the ROM's
+**`int 13h AH=00h` — RESET DISK SYSTEM, which recalibrates the head to track 0 —
+once per unit the equipment word claimed, and then executes the `int 19h`
+itself. The park is the GUI's exit **tail** rather than a subroutine on it: both
+callers had `int 19h` as their next instruction, so the restart is one path with
+one copy of it.
 
 **It is the BIOS's call and not our port sequence**, which is the whole of why
 this is thirty-one bytes rather than the two-hundred-odd an in-kernel
 recalibrate cost. The ROM does the handshake, the seek wait and the retry;
-`dsk_fdd_park_x` reads no result, because the `int 19h` two instructions along
-resets the FDC whatever state the call leaves. The `int 13h` vector is the
+`dsk_fdd_park_x` reads no result, because the `int 19h` at its own tail resets
+the FDC whatever state the call leaves. The `int 13h` vector is the
 ROM's — the kernel calls it directly everywhere (`clone.inc`, `dsk_dbg_raw`) —
 and after `sched_unhook` it is unquestionably so.
 
@@ -28316,8 +28324,9 @@ never comes, could not do without seconds of motor grinding per empty drive.
 **After `sched_unhook`, not before.** The scheduler is down by then, so no task
 can be switched onto a different stack in the middle of the BIOS call — the one
 hazard `dsk_dbg_raw` holds `sch_lock` against, and the reason this needs none.
-The hibernate module's copy of the same reboot tail (§87) takes the call too,
-for the same reason and in the same order; its *resume* path is left alone,
+The hibernate module (§87) SHARES that tail rather than copying it — it jumps
+far to `sched_unhook` and never comes back — so the order is the same because it
+is the same code; its *resume* path is left alone,
 because it restores a saved desktop rather than building one, so `desk_init`
 never runs and §18.97 is never asked.
 
@@ -28330,8 +28339,12 @@ back.
 
 #### What it costs
 
-**31 bytes of `.cold` and 5 of `.text`, and no rung moves** — the cold rung had
-190 bytes free and keeps 159. There is no resident RAM cost beyond those bytes,
+**17 bytes of `.cold`, and `.text` comes DOWN by 8** — folding the `int 19h`
+and the unhook call into the tail deletes `ui_rb_go`'s two instructions,
+`ui_cmd_reboot`'s far call, `sched_unhook`'s prologue, epilogue and `ret`, and
+`cw_sched_unhook` (which had no caller left) with them. Measured against the
+kernel before this section: `.text` −8, `.cold` +17, and no rung moves. There is
+no resident RAM cost beyond those bytes,
 which was the point of spending the BIOS's recalibrate instead of the kernel's:
 the in-kernel version, with its own handshake, wait and result helpers, was
 226 bytes and crossed a 512-byte cold rung.
@@ -28349,7 +28362,8 @@ gate that cannot turn the fix off cannot tell a park that ran from a machine
 that happened to be parked already — which every emulator here is, because
 MartyPC returns drive 1's cylinder to 0 on the controller reset the BIOS does at
 boot (§18.97.4 verified that three ways). `tests/fddpark.py` therefore breaks on
-`ui_rb_go`, the label on `ui_cmd_reboot`'s own `int 0x19`, drives a SENSE DRIVE
+`dsk_rb_go`, the label on the park's own `int 0x19` (and on `ui_rb_go`, which is
+where that instruction still lives on the `NOFDDPARK=1` arm), drives a SENSE DRIVE
 STATUS at unit 1 from the host, and reads TRK0 out of ST3. On
 `os8088_5150_cga_gla`:
 
@@ -28357,7 +28371,7 @@ STATUS at unit 1 from the host, and reads TRK0 out of ST3. On
 |---|---|---|
 | a fresh boot | `39` — TRK0 | `39` |
 | after a Disk window read B: | `29` — **TRK0 clear** | `29` |
-| at `ui_rb_go` | **`39`** | **`29`** |
+| at `dsk_rb_go` / `ui_rb_go` | **`39`** | **`29`** |
 
 Row 1 is §18.97.4's own field figure off an IBM-ROM 5150 and row 2 its other, so
 the emulator agrees with the machine that reported this before either arm is

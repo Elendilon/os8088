@@ -1228,18 +1228,21 @@ hbm_hib:
     xor ah, ah
     int 0x16
     call COLD_SEG:drv_shutdown_x    ; ...and the reboot path's tail (20.10)
-    mov bp, sched_unhook
-    call KERNEL_SEG:cw_mem_disp
 %ifndef NO_FDDPARK
-    call COLD_SEG:dsk_fdd_park_x    ; ...including SPEC.md 18.100's park: the
-                                    ; user is ASKED to switch off here, and one
-                                    ; who does not gets an ordinary boot off a
+    jmp KERNEL_SEG:sched_unhook     ; ...and the WHOLE of that tail, shared and
+                                    ; not copied: unhook, SPEC.md 18.100's park
+                                    ; and the int 19h at the end of it. The user
+                                    ; is ASKED to switch off here, and one who
+                                    ; does not gets an ordinary boot off a
                                     ; machine that has read floppies all
-                                    ; session. After cw_sched_unhook, exactly
-                                    ; as ui_cmd_reboot orders it
+                                    ; session. NEVER RETURNS, which is why this
+                                    ; is a jmp and there is nothing after it
+%else
+    mov bp, sched_unhook            ; ...and on this arm sched_unhook DOES
+    call KERNEL_SEG:cw_mem_disp     ; return, so it is a call through the
+    int 0x19                        ; kernel's generic BP trampoline and the
+    jmp $                           ; int 19h is ours to issue
 %endif
-    int 0x19
-    jmp $
 .fail:
     dec byte [sch_lock]
     call KERNEL_SEG:cw_gfx_unlock
