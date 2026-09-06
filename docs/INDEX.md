@@ -402,6 +402,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 85 | TANK ATTACK — a wireframe tank duel in a foreign mode (`apps/tank/`) |
 | 86 | AUDIO PLAYER — background music from a streamed WAV (`apps/audio/`) |
 | 87 | Hibernate — the machine to a file on the hard disk, and back (`kernel/hiber.inc`, `HIBER.DRV`) |
+| 88 | TAPE — the IBM 5150 cassette port (`apps/tape/`, `TAPE.O88`) |
 
 ## docs/
 

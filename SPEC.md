@@ -44106,6 +44106,66 @@ working exactly as intended. The machine really has no card.
   still jitters at tick scale behind the mouse ISR. Interrupt-paced
   speaker PCM is the same arithmetic and is rejected with it: speaker PCM
   is the §34.4 busy loop or nothing.
+  **THE ONE EXCEPTION, and it is an exception with a refusal attached:**
+  `OSAPI_PIT_LEND` (§88.5) re-*modes* channel 0 for the length of ONE ROM
+  call, because the 5150's cassette routines discriminate a bit against
+  constants that only mean what they say at the BIOS's own mode 3 — 888 and
+  1,776, which are mode 3's two readable counts per PIT clock. Under this
+  kernel's mode 2 every reading halves and `int 15h AH=02` can never find a
+  leader, returning `AH=04` — the same answer as an empty deck (§88.0).
+  Five things make it an exception rather than a relaxation:
+  **`sched.inc` is still the only writer** — the cell lives there, beside
+  `sch_fast_on`, and no package, driver or module writes the chip;
+  **it is one call's worth**, entered and left by the same code path;
+  **nothing can observe it**, because the ROM masks IRQ0 at the PIC for the
+  whole call and the caller runs `IF = 0`, so no `sch_account`, no
+  `sch_pit_now` reader and no other task runs inside the window;
+  **the divisor is unchanged** across the bracket, so §8.1's 65536 radix,
+  the 0x8000 threshold and every tick-denominated constant are as untouched
+  as the paragraph above requires — and the restore is `sch_fast_off`'s,
+  **`[sch_pit_last]` re-seed included**, or the first full tick after the
+  bracket charges a whole bracket's worth of garbage to whoever runs next;
+  and **it is refused outright while `[sch_fast]` is set**, because the
+  restore cannot then be a constant — a blind `0x34 / 0 / 0` with the
+  sub-tick divider still armed leaves the wall clock running N times slow
+  for the rest of the session, silently. An 8253 has no read-back command,
+  so the value cannot be recovered from the chip; the kernel restores it
+  because the kernel is what wrote it.
+  **The refusal above is untouched and still stands.** Re-rating ch0 for
+  sample pacing remains rejected on its own arithmetic; this exception
+  re-modes it, does not re-rate it, and buys a machine the ability to read
+  a tape it has just written rather than a few percent of a sound driver.
+
+  **The one exception, and it is an exception with a refusal attached
+  (§88.5).** `sch_pit_lend`, the body of `OSAPI_PIT_LEND`, hands channel 0
+  to a ROM routine whose own constants assume the BIOS's mode 3 — the IBM
+  5150 cassette read discriminates a bit against counts that only mean what
+  they say at mode 3's two readable units per PIT clock (§88.0) — and takes
+  it back exactly as `sch_fast_off` does. **Channel 0 is still written by
+  `sched.inc` alone**: `sched_init`, `sch_fast_on` and `sch_fast_off`
+  already write it, so this is a **second sanctioned operation inside the
+  module that already owns the PIT**, not a new writer somewhere else — and
+  a package may not perform it at all, an 8253 having no Read-Back command,
+  so the divisor is not knowable from outside `sched.inc` and nothing
+  outside it could restore what it did not know. The exception is narrow in
+  four ways, all binding: it lasts **one BIOS call**, entered and left
+  around a single `int 15h`; **IRQ0 is masked by the caller** from before
+  the mode change until after the restore, so no reader can observe the
+  chip in mode 3 and no tick is delivered while it is; **the divisor does
+  not move** — 0 (65536) goes in and 0 comes back, only the mode byte
+  changes, so §8.1's radix, the 0x8000 pending-IRQ threshold, `sch_cycles`
+  units and `sched_unhook`'s restore are as untouched as they are above;
+  and it is **refused outright whenever `[sch_fast]` is non-zero** — a
+  `QUANTUM=` kernel, or fsx or speaker PCM mid-bracket — because the
+  divisor would then not survive the round trip, and the answer there is
+  *no*, never *probably*. `[sch_pitbios]` suppresses the one `sch_account`
+  sample the ROM's own IRQ0 unmask makes unavoidable, and the ch0
+  latch-atomicity rule above binds every write here as it binds every
+  latch. **The rejection recorded above stands unchanged**: re-rating ch0
+  for sample pacing is still refused, and this is not that — nothing is
+  re-rated, nothing is paced by it, and on a kernel where the divisor has
+  moved it cannot happen at all.
+
 ### 34.2 Capabilities and the speaker driver
 
 There is no driver table any more — a table with one row is a lie about
@@ -94308,3 +94368,1372 @@ with a `SYSTEM.CFG` that wants `HDD.DRV`, the same VHD mounted through it —
 is the same script with `--driver`, registered as `hibernatedrv`. Both write
 three rendered screenshots to `build/hiber-*.png`; docs/TESTING.md has the
 recipe and what it cannot see.
+
+## 88. TAPE — the IBM 5150 cassette port (`apps/tape/`, `TAPE.O88`)
+
+> **NOTHING DESCRIBED HERE IS BUILT.** There is no `apps/tape/`, no
+> `TAPE.O88`, no transport, and neither of §88.5's and §88.6's cells is in
+> the kernel's API table. Every other section of this document describes
+> shipped code; **this one describes code that does not exist yet**, and no
+> sentence in it may be read as a report of behaviour anybody has observed.
+> It is the **contract the implementation waves land against**, written
+> before the code on purpose, because no instrument in this project can
+> exercise a cassette read at all (§88.11) — a format settled after the fact
+> would be settled by whatever assembled. The host-side reference codec and
+> its fast row are the first wave and may already be in the tree ahead of the
+> rest; nothing else is. The design record behind every decision here — what
+> was measured, what was rejected and why — is
+> `docs/plans/CASSETTE-PLAN.md`; this section is what the thing IS.
+
+### 88.0 What it is, and the machine it is for
+
+`TAPE.O88`, "TAPE" in the header name field. It writes a file from a disk onto
+an audio cassette through the IBM PC 5150's cassette port, and reads one back,
+using the ROM's own `int 15h AH=02` (read) and `AH=03` (write). **One package
+owns the window, the state machine, the format, every checksum, all file I/O
+and the `int 15h` transport. There is no driver.** The kernel gains two API
+cells (§88.5, §88.6) and nothing else.
+
+**The hardware is the 5150's alone.** The DIN-5 cassette socket, the port-B
+motor relay at 61h bit 3, the data-in line at PPI port C bit 4 and the data-out
+line on PIT channel 2 are on that board and on no other machine this project
+has ever booted. The XT dropped the socket; the AT never had it. There is **no
+DMA**: the 8088 *is* the modem, and everything in §88.3 follows from that one
+fact.
+
+| quantity | value |
+|---|---|
+| a 0-bit on tape | 496.15 µs (one 2,000 Hz cycle) |
+| a 1-bit on tape | 992.30 µs (one 1,000 Hz cycle) |
+| useful rate | ~168 bytes a second on compressed or random data |
+| `TP_FIX` | **2.60 s** — the BIOS fixed cost of one record, whatever it carries |
+| `TP_COAST` | **0.56 s** — the reel coast at each record boundary (§88.8.1) |
+| `TP_PAINT` | **0.007 s** — the pre-freeze repaint, damage-rect only |
+| `TP_RECBLK` | **4** — 256-byte blocks per full body record; 1,016 payload bytes |
+| `TP_MAXFILE` | **32,768** — the format's payload bound |
+
+Bytes-to-seconds is `ones × 0.99230 + zeros × 0.49615` ms a byte, so one
+258-byte block on tape (256 data + 2 CRC) is 1.024 s of `00`, 1.459 s of plain
+text, **1.536 s of compressed or random data** and 2.048 s of `FF`. The whole
+file is
+
+```
+total =   TP_FIX + hdrblk
+        + (nrec-1) × (TP_FIX + recblk × blk)
+        + (TP_FIX + lastblk × blk)
+        + (nrec+1) × (TP_COAST + TP_PAINT)
+```
+
+with `hdrblk` = 1.09 s. The last term is not decoration: §88.8's coast and the
+pre-freeze paint are sequenced strictly before each record, so both are
+additive wall time the user waits through — 0.567 s a record, 19.4 s on a
+33-record file.
+
+| payload (compressed) | records | wall, each way |
+|---:|---:|---:|
+| 1,016 B | 1 | **13.6 s** |
+| 4,064 B | 4 | **41.5 s** |
+| 9,000 B | 9 | **1:28** |
+| 18,704 B | 19 | **2:58** |
+| 32,768 B (`TP_MAXFILE`) | 33 | **5:09** |
+
+**Every published duration rounds UP** — 32,768 bytes computes to 308.5 s and
+is published as 5:09, not 5:08 — because an estimate that runs late on a
+machine that is stopped is the wrong direction of error. **No table in this
+section is computed by hand**: `tools/os88tape.py --selfcheck` prints them from
+the seven constants above, and a hand-typed `lastblk` is how two
+unrepresentable values reached a draft of the design.
+
+**The read path has a precondition, and it is the one claim here that is
+derived from a ROM listing rather than from a measurement.** `int 15h AH=02`
+discriminates a leader half-bit against a count of 888 and a full data bit
+against 1,776, and those constants only mean what they say at **mode 3's two
+readable counter units per PIT clock**. `sched_init` puts channel 0 in **mode
+2** and says so in its own comment (§8.1), and `sch_fast_on`/`sch_fast_off`
+re-emit the same control word, so the machine is in mode 2 for the life of the
+session — under which every reading halves, the leader search never converges,
+and after 16,250 transitions the call returns `AH = 04`, *"no data leader"*:
+**the same answer as an empty deck, a stopped deck and an unplugged cable.**
+§88.5's lend is therefore a **precondition of reading at all**, not an
+improvement, and §88.2 takes it on the write side too because GLaBIOS's
+motor-wait is PIT-delta based and spends ~500 ms of spin-up nothing asked for
+when the counter is stepping by 1. Both ROMs agree independently on the
+thresholds; neither claim has been checked on iron, and until it is, this
+paragraph is inference (§88.11).
+
+### 88.1 Detection — two gates, and the offer is HIDDEN
+
+**Gate 1 — the board.** The BIOS model byte:
+
+```asm
+    push es
+    mov  ax, 0xF000
+    mov  es, ax
+    cmp  byte [es:0xFFFE], 0xFF   ; FF = 5150. FE/FB = XT, FC = AT, FD = PCjr
+    pop  es
+    jne  .nohw                    ; -> TP_HW_MODEL, and bank the byte we read
+```
+
+Four instructions, no side effect, no port touched, stable for the session.
+
+**Gate 2 — the BIOS, and it is not optional.** A model byte of `0xFF` is a
+board claim and not a ROM claim: of the thirteen GLaBIOS images `make marty`
+stages, **five report `0xFF` and only two of those dispatch cassette at all** —
+the rest answer the unsupported-function path. So:
+
+```asm
+    mov  ah, 0x01           ; MOTOR OFF - the resting state. Microseconds: the
+    int  0x15               ; spin-up in both ROMs is inside AH=02/03 only.
+    jc   .nobios            ; CF=1 = this BIOS has no cassette support.
+                            ; TEST CF, NEVER a particular AH - IBM answers
+                            ; 0x80 and GLaBIOS 0x86 for the same refusal
+```
+
+**The predicate, exactly, and it is both gates:**
+
+```
+[tp_hw] = TP_HW_OK      iff  byte [F000:FFFE] == 0xFF
+                        and  int 15h AH=01 returned CF=0
+          TP_HW_MODEL   the model byte is not 0xFF   (its value is banked)
+          TP_HW_BIOS    the model byte is 0xFF and the ROM refused AH=01
+```
+
+Both gates run **once, in the entry proc**, into that one cached byte, so §47
+rule 5's cost corollary — a greying test runs on every paint — is satisfied by
+construction. They run **before any window is shown and before any sound can be
+playing**: `CASSETTE_IO`'s first instruction is `STI` in both ROMs and both
+motor routines are unprotected read-modify-writes of port 61h with IF=1, so
+gate 2 is the only `AH=01` on a cold path and the count of them is what the
+design minimises (§88.2 step 12 is the only one on the hot path).
+
+**On a machine that is not a 5150, the item is HIDDEN, not greyed.** That is
+the owner's decision and a deliberate, stated departure from §47 rule 5's
+default: greying says *"you could do this in other circumstances"*, and a
+cassette socket is a fact about the board that no circumstance on this machine
+changes, so a permanently dead control on every machine in the world but one is
+worse than no control. §47 is not weakened — the rule about what greying
+*means* is exactly why hiding is right here. **A user who launches `TAPE.O88`
+directly still gets a window**, and it names *which* gate refused rather than
+looking broken:
+
+```
+No cassette port.  This is an IBM PC 5150 feature; the machine reports
+model FE.
+```
+```
+No cassette port.  The ROM in this machine has no cassette support
+(int 15h answered 86h).
+```
+
+with Save, Load and Verify dithered (§47 rule 3 — grey rounds to black on both
+1bpp adapters, so the flag and not the colour is what makes the caption
+legible).
+
+**The two-second signal sniff, before the first `AH=02` of any read.** A read
+against a stopped deck, a blank tape or an unplugged cable is **12–18 s of dead
+machine on the IBM ROM and 89.84 s on GLaBIOS** (measured), and announcing that
+is strictly worse than not spending it. Behind both gates, `tp_sniff` turns the
+motor on with `AH=00` (which has no spin-up on either ROM), polls **port 0x62,
+mask 0x10** — PPI port C bit 4 — for a level *change* over ~2 s bounded off
+`pit_now`, and turns the motor off with `AH=01` **on every path**. It runs with
+**interrupts fully live and masks nothing**: it measures a change over seconds
+rather than a period, and `pit_now`'s high half is the BIOS tick, which needs
+IRQ0 to advance. CF=0 the line is moving, CF=1 it is dead:
+
+```
+No signal from the recorder.  Press Play, check the cable and the
+volume, then click Load again.               [ Try again ]  [ Load anyway ]
+```
+
+**`Load anyway` is required, not decoration.** The cue instruction is *"wind to
+just before the file, press PLAY"*, which is inter-file blank tape — exactly
+where a level change over two seconds is least certain — and §48.5's rule that
+a refusal must not be a dead end binds a refusal this design invented as much
+as a greyed button. What the sniff does **not** catch, stated: a tape playing
+silence, noise that fakes a leader, and a mis-cued tape all still cost the full
+timeout.
+
+**Two things are refused as gates.** `[cpu_tier]` — §60.2 is binding, the tier
+answers what the processor *is* and never what hardware exists, and `CPU_8086`
+admits every XT clone. And the POST wrap test, which is real and silent and
+detects the *port* rather than the badge, is refused for v1 because its
+acceptance window is a constant nobody here has measured (§88.10 item 9).
+**`0xFD` (PCjr) is refused deliberately**: the port is real, but this OS has
+never booted a PCjr, there is no profile or code for one in the tree, and its
+motor needs a second port-B bit. Admitting a machine nobody has tried is an
+untested code path with a relay on the end.
+
+### 88.2 `tp_xfer` — one record, in order
+
+```
+; tp_xfer - move ONE record.
+;
+; in:   AL    = 2 (read) or 3 (write) - the int 15h function and nothing else
+;       ES:BX = the record buffer. BX = 0, ES = the base of a PINNED heap
+;               claim (§66: MC_RLOC = 0 is the default and must stay, because
+;               a compaction between the call and the ROM's first
+;               `mov al, es:[bx]` would move the buffer under the ROM)
+;       CX    = bytes to move: 256 (classify), or exactly the recblk × 256 /
+;               lastblk × 256 the header declared. ALWAYS a multiple of 256
+;               (§88.4.3), 256..4096
+;
+; out:  CF=0  the record moved and all three post-conditions of §88.4.3 hold
+;       CF=1  AH = why: the ROM's own 1 (CRC), 2 (bad signal), 4 (no data),
+;             or 0x80 = refused by us before the ROM was entered
+;       BX, CX, DX, SI, DI, BP, DS, ES come back as they went in
+;
+; CONTEXT: the W_ONWAKE handler, on the UI task, GFX LOCK NOT HELD (§88.8).
+;          It does not return for 4.1 to 8.8 seconds.
+```
+
+The order is binding, and every step in it is load-bearing:
+
+```
+ 1.  Refuse unless [tp_hw] == TP_HW_OK, and CX is 256..4096 and a multiple
+     of 256.                                        -> CF=1, AH = 0x80
+ 2.  FIRST RECORD OF AN OPERATION ONLY:
+     a. OSAPI_PIT_LEND AL = OSAPI_PL_CLAIM - take the PIT and the speaker
+        for the WHOLE operation (§88.5). CF=1 is a refusal in words, never
+        a retry: another Tape window holds the deck, or [sch_fast] has
+        moved the divisor, or the speaker is mid-tone.
+     b. Wait, bounded ~3 s off pit_now, for 0040:0040 to reach 0 - the ROM's
+        floppy motor countdown, which the int 08h chain decrements. IRQ0 is
+        about to be masked for MINUTES; without this the drive spins for the
+        whole transfer.
+ 3.  pushf / cli                    ; so the bank and the mask are atomic
+ 4.  Bank port 0x21 (the IMR) and port 0x61.
+ 5.  Mask IRQ0, IRQ3 and IRQ4 always            or al, 0x19
+     ...plus IRQ1 ON A WRITE ONLY               or al, 0x1B
+     IRQ2, IRQ5, IRQ6 and IRQ7 are left exactly as found.
+ 6.  OSAPI_PIT_LEND AL = OSAPI_PL_ENTER         ; ch0 -> mode 3, divisor 0.
+                                                ; BOTH directions. Sets
+                                                ; [sch_pitbios].
+ 7.  popf                                       ; IF comes back; the ROM STIs
+                                                ; on its first instruction
+                                                ; whatever we do
+ 8.  int 15h AH=02/03                           <-- THE FREEZE, 4.1 to 8.8 s
+ 9.  cli    ; THE VERY FIRST INSTRUCTION AFTER IT. Both ROMs UNMASK IRQ0
+            ; THEMSELVES on the way out, and a tick has certainly been
+            ; latched across a nine-second mask, so one WILL fire inside the
+            ; ROM's own tail. That window is irreducible; this closes every
+            ; instruction after it.
+10.  Bank AX, BX and DX - the ROM's whole answer.
+11.  OSAPI_PIT_LEND AL = OSAPI_PL_LEAVE         ; ch0 -> mode 2, divisor 0,
+                                                ; [sch_pit_last] re-seeded,
+                                                ; [sch_pitbios] cleared. It
+                                                ; PRESERVES AX, BX, DX AND
+                                                ; THE FLAGS, which is why it
+                                                ; can stand here.
+12.  mov ah, 0x01 / int 15h                     ; MOTOR OFF - BEFORE the IMR
+                                                ; restore, because GLaBIOS's
+                                                ; AH=01 unmasks IRQ0 itself.
+                                                ; After the restore it would
+                                                ; undo it.
+13.  pushf / cli
+14.  Restore the IMR byte for byte from the bank.
+15.  Restore port 0x61 with bits 0 and 1 CLEARED - NOT banked (below).
+16.  popf
+17.  LAST RECORD OF AN OPERATION, and EVERY refusal path:
+     OSAPI_PIT_LEND AL = OSAPI_PL_RELEASE.
+18.  Map AX/BX/DX -> CF/AH per §88.4.3's three post-conditions and answer.
+```
+
+The `pushf`/`cli` windows are microseconds each and bracket only the
+save/restore; they never bracket the transfer.
+
+**What is banked and what is restored, and they are not the same list.** The
+**IMR** is banked and put back byte for byte. **AX, BX and DX** are banked
+across step 11 because they are the ROM's entire answer. **Port 61h is banked
+and NOT restored from the bank**: bits 0 and 1 go back **cleared**, and step
+17's release writes ch2 control word `0xB6` with no count — `spk_pcm_idle`'s
+exact resting state (§34.1). A banked restore of a gate bit that was set for a
+tone would leave a 65536-count mode-3 square wave on the speaker, an audible
+18.2 Hz rattle lasting until something else reprogrammed ch2. Bits 2–7 of 61h
+are preserved as read; bit 3 is the motor and belongs to the cassette. **PIT
+channel 0 is neither banked nor restored by this code at all** — an 8253 has no
+read-back command, so the divisor is not knowable from outside `sched.inc`, and
+§88.5 is the whole reason the cell exists.
+
+**`cli` does not work here, and the 8259 is the only instrument.**
+`CASSETTE_IO`'s first instruction is `STI` in both ROMs, and IBM's exits with
+`RET 2`, which discards the caller's pushed flag word. A caller's `cli` is
+undone before a single tape bit moves. The `cli` in step 3 is there solely to
+make the port-21h read-modify-write atomic, which is §1's rule; it is not
+protecting the transfer.
+
+**The interrupt budget is 248.08 µs, both directions, and it is a hard
+threshold rather than a probability.** A write polls one whole phase of the
+mode-3 square wave on port C bit 5; a read sums both half-bits and compares the
+*period* against 1,776, so either half must move 592 counter units — 296 PIT
+clocks — to cross. os8088's own tick handler is **394 µs at the floor and ~783
+µs in full**, which is 1.6× to 3.2× over, and the mouse ISR draws the arrow
+inside itself, which starts at PERFORMANCE.md's 756 µs floor for a small `gfx_*`
+call — 3× the whole budget.
+
+**IRQ1 is the one asymmetry, and it is decided by which failure is silent:**
+
+- **On a WRITE, IRQ1 is MASKED.** `AH=03` ends `SUB AX,AX / RET` and **can
+  never report an error**, so a keystroke that stretches one bit past 248 µs
+  produces a corrupt tape the user discovers minutes later, if ever. There is
+  nothing to abort — a write always terminates. Silent, permanent,
+  unrecoverable, so it is masked, and the window's footer says *"Do not type
+  while writing."*
+- **On a READ, IRQ1 is LEFT LIVE.** A read can hang without bound on noise, and
+  both ROMs poll `0040:0071` bit 7 in every read loop and clear it at entry, so
+  **Ctrl+Break aborts a cassette read for zero bytes of ours**. os8088 does own
+  `int 09h` — `mouse_init` writes `kbm_isr` into `0000:0024` on every tier —
+  but it chains unconditionally to the banked ROM handler, so the escape
+  survives; what it costs the read's timing window is `kbm_isr` plus
+  `kbd_ovflow` plus `sch_wake_ui` before the chain, and that cost is an
+  instruction count and not a measurement (§88.11).
+
+**The rule, in one line: mask where the failure is silent; keep the escape
+where the failure is loud.**
+
+**The record size is `TP_RECBLK = 4` and it is carried in the header**, so a
+tape written otherwise still reads:
+
+| `recblk` | payload | tape/record | wall/record | overhead | worst Stop latency |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 248 B | 1.54 s | 4.14 s | 62.9% | 4.7 s |
+| 2 | 504 B | 3.07 s | 5.67 s | 45.8% | 6.2 s |
+| **4** | **1,016 B** | **6.14 s** | **8.74 s** | **29.7%** | **9.3 s** |
+| 8 | 2,040 B | 12.29 s | 14.89 s | 17.5% | 15.5 s |
+| 16 | 4,088 B | 24.58 s | 27.18 s | 9.6% | 27.7 s |
+
+Below 4 the tape time runs away — 512-byte records cost another ~40 s on a
+16 KB file to move Stop from 9.3 s to 6.2 s, and 6.2 s is not "responsive"
+either. Above it the freeze stops being something a caption can honestly carry.
+
+**The clock loses the whole transfer and may not be caught up.** `[ticks]`
+counts *delivered* IRQ0s and the 8259 latches at most one per line, so an
+IF-masked window of *N* ticks delivers exactly one; `clk_tick` advances the
+wall clock purely from `[ticks]` deltas and there is no periodic resync. A 5150
+has no RTC at any rung of the ladder (§37.0.1), so the time cannot be fetched
+back. The app knows the bits it moved and their periods, so it says so once, as
+a toast:
+
+```
+Clock is about 5 min 9 s slow - set it in Control Panel > Date/Time.
+```
+
+**It must NOT add the lost ticks to `[ticks]`**: the screen saver compares
+`ticks - [blk_t0]` against `[ss_idle]`, so catching up would fire the saver the
+instant the transfer ended — the machine appearing to die at the finish line.
+One further consequence is stated rather than hidden: if the tick that fires in
+the ROM's tail reaches `sch_switch` and hands the CPU to another task, that
+task's `pit_now` reads 2× fast until step 11 runs — at most one quantum,
+54.9 ms, and its only consumers are package animation pacers.
+
+**The motor is not put back across a Restart.** `OSAPI_WM_ONCLOSE` calls
+`int 15h AH=01` unconditionally for every way of closing the window, but
+`ui_cmd_reboot` reaches `drv_shutdown_x` and **no package at all** — there is
+no window notification on that path. So System ▸ Restart with a transfer armed
+rides the reboot with port B bit 3 still set: the honest claim is **"the relay
+stays energised until POST rewrites port 61h, about a second later"**, not
+"the motor is always put back". This is the one argument for a driver that
+§88.10 item 2 does not defeat; it bounds it instead.
+
+### 88.3 The freeze — binding, and quoted whole in the release note and the About box
+
+> **What "does not freeze" means here.** The IBM cassette interface has **no
+> DMA**: the data path is PPI port C bit 4 in and PIT channel 2 out, polled on
+> port C bit 5, and **nothing is wired to an 8237 DREQ**. The 8088 *is* the
+> modem, and a bit is discriminated by its period — 496 µs for a zero, 992 for
+> a one. **Any interrupt that runs longer than 248 microseconds makes the CPU
+> miss an edge or mis-time one, and the tape is corrupted, not merely slowed.**
+> os8088's own tick handler is 394–783 µs and its mouse ISR draws the arrow,
+> which starts at 756 µs.
+>
+> **This is a HARDER freeze than a floppy transfer, not a softer one.** §7.4's
+> cursor tracking rests on two claims and both die here: `int 13h` runs with
+> **IF set** — §15.3.8 measured 21 consecutive ticks taken inside one, with not
+> one IRQ0 lost — and the CPU in there is *waiting*, parked on IRQ6 while DMA
+> moves the data, so a frame drawn from the timer ISR costs no real time at
+> all. §7.4.1.1 already writes down what happens when that half is removed, one
+> device along, for the hard-disk driver: *"this is our own driver polling an
+> ATA controller, not a BIOS parked on IRQ6, so a cursor draw costs real
+> time."* Here it is one step worse still — **a draw longer than 248 µs does
+> not slow the transfer, it corrupts it.**
+>
+> So for the duration of a record the scheduler, the mouse, the keyboard and
+> every kernel drawing primitive are switched off, deliberately and completely.
+> **A machine running a tape operation is about 6% available.** What ships
+> instead is four narrower promises. **The transfer is cut into 1,016-byte
+> records**, one `int 15h` each, so a file is broken into 8.7-second intervals.
+> **Each interval is announced before it starts, with its length** — the block
+> in flight is on the progress bar and the caption reads *"stopped for about 9
+> seconds"*. **Between records the machine is entirely alive** — the reels coast
+> to a stop, the counter advances, the pointer comes back, other programs run,
+> and Stop is honoured. **And a read can be stopped mid-record with
+> Ctrl+Break**, which both ROMs test three times per loop.
+>
+> What is **not** claimed: the machine is not multitasking during a record, the
+> pointer does not move inside one, a click made inside one is lost outright,
+> the clock loses the whole transfer, and a 16 KB file is about two and a half
+> minutes each way whatever we do — the tape moves 168 bytes a second and no
+> amount of software changes that.
+
+### 88.4 The tape format
+
+One `int 15h AH=03` lays down one complete, independently findable record:
+
+```
+  1 bit   0            start bit  -- GLaBIOS ONLY; the IBM ROM emits none
+  2048    1            LEADER  = 256 bytes of FFh               2.0322 s
+  1 bit   0            sync bit
+  1 byte  16h          sync byte, MSB first                     5.458 ms
+  N × [ 256 data bytes + 2 CRC bytes ]                          1.536 s each
+  32      1            TRAILER = 4 bytes of FFh                 31.8 ms
+```
+
+**The leading zero bit is a write-side difference between the two ROMs and
+nothing else.** A 256-zero-byte record is **4,153 bits from an IBM 5150 and
+4,154 from a GLaBIOS twin**. Tapes cross freely — each reader searches for the
+leader and an extra zero bit in front of it is simply not leader — but the host
+codec must know which side wrote them, which is why `tools/os88tape.py` takes
+`--rom ibm|glabios` and holds two goldens.
+
+The block CRC is **CRC-16/CCITT: preset `0xFFFF`, polynomial `0x1021`,
+MSB-first, no reflection, transmitted one's-complemented, high byte first**,
+verified on read against residue `0x1D0F`. The reader needs only 512
+half-cycles — 256 one-bits, 254 ms — of the 2,048 the writer emits, an 8×
+margin, which is what makes back-to-back records work with a motor stop and
+start between them.
+
+**What the BIOS does not give: no filename, no length, no directory, no seek,
+no end-of-file, no end-of-tape, no linkage between records, no write
+verification, and no integrity statement above the 256-byte block.** All of
+that is the format's job, and §88.4.1 to §88.4.3 are that job.
+
+Three BIOS behaviours the format is built around:
+
+- **A read scans forward to the next leader, for free.** The deck need only be
+  cued *before* the record wanted.
+- **A read of `CX` less than the record's length leaves the tape INSIDE that
+  record**; the next call scans past the remainder and lands on the following
+  record's leader. That is how skipping works, and it is why a file's header
+  must be its **own record, exactly one block long**.
+- **`CX = 1` costs exactly what `CX = 256` costs**, because the last block is
+  padded to 256 — **and the two ROMs pad differently**. IBM's pad loop re-reads
+  `ES:[buffer + CX]`, the byte immediately *after* the caller's buffer, and
+  writes it to tape up to 255 times; GLaBIOS repeats the last data byte.
+
+#### 88.4.1 The header record — 256 bytes exactly, written with `CX = 256`
+
+All 256 bytes are written by us rather than padded by the ROM. That makes the
+record deterministic and host-reproducible on both ROMs, and it means the pad
+cannot contain the 32-consecutive-`FF` run that would false-trigger a leader
+search. The corollary is that there are 224 free bytes and no reason to squeeze
+a field.
+
+```
+off  size  field      contents and rule
+ +0    4   magic      'O','8','T','P'. The first word is 0x384F, os8088's own
+                      family word (§20.2); 'TP' disambiguates. FOUR bytes and
+                      not two: this reader is handed hundreds of blocks over a
+                      tape's life and 16 bits of magic is one false header in
+                      65,536. MUST NOT begin 0xA5, which is IBM Cassette
+                      BASIC's header magic and the TRS-80's sync byte.
+ +4    1   ver        1. A version this reader does not know is REFUSED, never
+                      guessed - §20.2's v1/v2 precedent.
+ +5    1   kind       0 = a FILE. Anything else is refused.
+ +6    1   flags      bit 0  the payload is a 'CZ' container THIS writer made
+                      bit 1  the payload was already compressed on disk
+                      bit 2  the LZ format when bit 0 is set (0 = LZ4, 1 = LZB)
+                      bits 3..7 MUST BE ZERO
+ +7    1   recblk     256-byte blocks per FULL body record, 1..16.
+                      recbytes = recblk × 256; capacity = recbytes - 8.
+ +8    1   lastblk    blocks in the LAST body record, 1..recblk. It is what
+                      lets the reader ask for the RIGHT CX without having read
+                      the preamble it is inside, and it saves up to 3 blocks =
+                      4.61 s per file over padding the tail.
+ +9    1   nrec       body records that follow, 1..255
++10    2   ckfile     CRC-16/CCITT (0x1021, preset 0xFFFF, MSB-first, NOT
+                      complemented) over all `size` payload bytes. EVERY body
+                      record repeats it (§88.4.2).
++12   12   name       §19.1's display form: 8.3, NUL-terminated inside 12
+                      bytes, every byte before the NUL in 0x21..0x7E.
++24    4   size       the payload's byte count. 1..TP_MAXFILE (32,768).
++28    4   usize      what it EXPANDS to (== size when uncompressed).
+                      INFORMATIONAL ONLY - it is what the scan list prints,
+                      and it may NEVER size a claim or a check.
++32  224   zero       written zero, NEVER READ. Not "reserved for future use":
+                      reading it is how a future writer's field becomes an old
+                      reader's bug.
+```
+
+**There is deliberately no header checksum.** The BIOS's own CRC-16 already
+covers these 256 bytes at 1-in-65,536, and a second CRC over the same bytes
+adds nothing. What the BIOS cannot say is whether the block is *ours* and
+whether the fields are *sane*, and those are answered by the 32-bit magic and
+by §88.9's range checks.
+
+#### 88.4.2 The body record — `recblk × 256` bytes, `lastblk × 256` for the last
+
+```
+off  size  field
+ +0    2   'O','T' = 0x544F. DELIBERATELY a different word from the header's
+           first, so neither kind can be parsed as the other.
+ +2    1   seq      1..nrec
+ +3    1   nrec     repeated, so a body found without its header names the
+                    file's shape at once ("...part 3 of 9 went by")
+ +4    2   paylen   payload bytes in THIS record, 1..(this record's capacity)
+ +6    2   ckfile   the header's, REPEATED
+ +8  ...   payload; the tail past paylen is written ZERO and read as nothing
+```
+
+Records 1..`nrec`−1 carry exactly `recbytes − 8` bytes; record `nrec` carries
+the remainder, in `lastblk × 256 − 8` bytes of capacity. So both of these are
+derivable from the header alone and both are checked:
+
+- `nrec == ceil(size / (recblk × 256 − 8))` **exactly**
+- `lastblk == ceil((size − (nrec−1) × (recblk × 256 − 8) + 8) / 256)` **exactly**
+
+Eight bytes of preamble costs 48 ms of tape against a record whose floor is
+8.74 s — 0.5% — and what it buys is that a mis-assembly is caught in one record
+instead of at the end of the file, minutes later.
+
+**`ckfile` is repeated in every preamble, and it is not an arbitrary file id.**
+The block CRC catches corruption; it cannot catch **mis-assembly** — the user
+stops the deck between records, winds back a little and restarts, and every
+block recovered is CRC-perfect while the file is wrong. Repeating `ckfile`
+costs the same two bytes as an arbitrary id and is strictly stronger: a record
+spliced in from a *different* file is rejected the instant it arrives rather
+than at the final checksum, and two writes of the *same* content share `ckfile`
+and splice harmlessly, because the bytes are identical. The algorithm is the
+BIOS's own, so the machine and `tools/os88tape.py` share **one** CRC
+implementation. It is checked over the assembled payload **after** the last
+record and **before** a byte reaches the disk: a mismatch means the file is not
+created at all. **A 256-entry CRC table is refused** — 512 bytes of claim to
+save 0.7 s of a 309-second transfer.
+
+#### 88.4.3 End of file, the read-length invariant, and the three post-conditions
+
+**The end-of-file rule: `nrec` in the header is the only end-of-file there is.**
+There is no terminator record and no end-of-tape mark. A file ends when a body
+record arrives with `seq == nrec`, and the running payload total must equal
+`size` **exactly** at that moment; a total that exceeds `size` is refused
+*before* the copy that would exceed it. `AH = 04` from the ROM means *no data
+leader* — the end of the recorded tape, or nothing playing — and is **never**
+read as the end of a file.
+
+> **NEVER issue a read whose `CX` exceeds what the record holds.** Every read is
+> either **256 bytes** (classify) or **exactly the `recblk × 256` /
+> `lastblk × 256` the header already declared.**
+
+The reason is not stylistic. **GLaBIOS's read retry re-arms `CX` to the
+original request without resetting the output pointer**: its retry entry sits
+before the `POP CX / PUSH CX` pair while `DI` stands where the last `STOSB`
+left it, so a dropout inside the two CRC bytes — reachable at **any** `CX`,
+multiples of 256 included — can store up to five requests' worth of bytes at an
+advancing `DI`. At `recblk = 4` that is ~5,080 bytes into a 1,016-byte buffer.
+On a successful retry `AH = 0` and `DX = CX`, so the obvious post-condition
+passes. **The IBM ROM is safe here** — its `JCXZ` stops the store the moment CX
+reaches 0 — so this is specific to the ROM this project can actually execute.
+
+**Two defences, and both are taken.**
+
+1. **Three post-conditions, not one.** `BX` on return is the end-of-output
+   pointer on both ROMs. With `BX = 0` on entry, a record is accepted only if
+   **`AH == 0` and `DX == CX` and `BX == CX`**. A retry that re-armed CX leaves
+   `BX > CX` and is rejected. `DX` is meaningless unless `AH == 0`: GLaBIOS
+   returns `DX` = the original `CX` on a no-leader failure and IBM zeroes it.
+2. **The record buffer is the LAST region of the claim and is `5 × recbytes`
+   long** — five, because that is the most the ROM can write — 5,080 bytes
+   rounded to 5 KB at the default, and the 256-byte classify buffer is 2 KB for
+   the same reason. It is sized from the header's own `recblk` at read time, so
+   a foreign `recblk = 16` tape asks for 20 KB and is **refused with the
+   arithmetic on the glass** rather than overrunning.
+
+**The consequence is adopted with the invariant: the unit of retry is the FILE,
+not the record.** Identifying a body record before reading it costs a 256-byte
+read that consumes its first block, after which the rest of that record can
+never be recovered — the next call scans forward past it. So on any body
+failure the reader stops, keeps nothing, and says so:
+
+> *Block 4 of 19 could not be read (CRC error — the block was recovered but is
+> damaged). Rewind to just before the file and press Retry.*
+
+`Retry` re-runs the whole scan-and-load, at the cost of one re-read of the file
+and only when a dropout actually happens. **The header record being exactly one
+block is what makes the invariant free**: a `CX = 256` classify read of a header
+consumes it exactly, leaving the tape at the first body record, and the header
+then declares both body lengths.
+
+**This design never pads, on either ROM, because every `CX` it issues is a
+multiple of 256.** That is a **security property** and not only a determinism
+one: IBM's pad writes memory past the caller's buffer onto removable media.
+
+**IBM Cassette BASIC's `0xA5` header is recognised and never written.**
+Compatibility is refused on four structural grounds, each sufficient: all
+sixteen significant bytes are spoken for, with no room for a compression flag,
+a format selector, a whole-file checksum, a record index or a 32-bit size;
+three of them describe a *memory image* that Cassette BASIC acts on, and a file
+has no address; eight bytes cannot hold an 8.3 name; and a tape written with an
+`0xA5` header, played into ROM BASIC, would load our bytes to `0060:081E` and
+**execute them as tokenised BASIC**. The Catalog scan already holds the first
+256 bytes of every record, so `cmp byte [buf], 0xA5` and printing
+`IBM BASIC: <8 chars>` costs about a dozen bytes and turns *"this tape is
+unreadable"* into *"this tape has three BASIC programs on it and none of ours"*.
+
+**A false leader is a second, independent argument for compressing.** The
+reader's leader test is *"≥ 256 consecutive one-bits"*, and **32 consecutive
+`0xFF` bytes inside a payload satisfy it** — a 1bpp bitmap's white ground, a
+complemented zero-fill, an unused buffer. During a scan that burns one of the
+read's retries and exhausting them ends the scan with `AH = 04`, reported as
+*"no tape"*. Compressed data essentially never does it.
+
+### 88.5 `OSAPI_PIT_LEND` — because a package may not write PIT channel 0
+
+§34.1 is binding: **PIT channel 0 is never written**, and it carries a recorded
+refusal about re-rating it. §88.0's bracket re-*modes* channel 0, which is the
+prohibited operation, so it goes where the knowledge is: **inside `sched.inc`,
+which already owns the chip**, published to packages as a cell. §34.1 carries
+the amendment, written as an exception with a refusal attached.
+
+A package cannot do this correctly at any size, and the three reasons are
+facts only the kernel holds. **The restore cannot be a constant** —
+`sch_fast_on` loads 32,768, 21,845 or 16,384 out of `sch_fdivs` and is armed
+system-wide by `make QUANTUM=`, by fsx and around speaker PCM, so a blind
+`0x34 / 0 / 0` restore with `[sch_fast]` still set leaves `sch_isr`'s sub-tick
+divider dividing an 18.2 Hz tick by N and **the wall clock runs N times slow
+for the rest of the session, silently**. It **cannot be read back**: a 5150 has
+an **8253**, which has no Read-Back command at all, and even the 8254's
+read-back returns the current count and a status byte, never the programmed
+reload value — so *"every port is banked and put back byte for byte"* is FALSE
+for both PIT channels. And `sch_fast_off` **re-seeds `[sch_pit_last]` after
+touching ch0**, a word no package can reach, or the first full tick after the
+bracket charges a whole bracket's worth of garbage to somebody.
+
+```
+%define OSAPI_PIT_LEND      KERNEL_SEG:0x0520
+OSAPI_PL_LEAVE   equ 0      ; AL - take channel 0 back
+OSAPI_PL_ENTER   equ 1      ;    - hand it to the ROM
+OSAPI_PL_CLAIM   equ 2      ;    - take the PIT and the speaker for an OPERATION
+OSAPI_PL_RELEASE equ 3      ;    - give them back
+;
+; Lend PIT channel 0 to a ROM routine whose constants assume the BIOS's own
+; mode 3, for the length of ONE BIOS call, and take it back exactly as
+; sch_fast_off does (§8.1, §34.1). THE SCHEDULER OWNS CHANNEL 0 AND THIS IS
+; THE ONLY OTHER SITE THAT WRITES IT.
+;
+; in:   AL = one of the four above.
+;       BX, CX, DX, SI, DI, BP, DS and ES are untouched on every arm.
+;
+; out:  AL = OSAPI_PL_CLAIM
+;         CF=0  you hold the PIT and the speaker until you release them.
+;         CF=1  AH = why, and NOTHING changed:
+;                 1  [sch_fast] is set - a QUANTUM= kernel, or fsx or speaker
+;                    PCM has re-rated ch0. The divisor would not survive the
+;                    round trip, so the answer is no, not "probably".
+;                 2  [snd_ch2mode] is non-zero - the speaker owns ch2 (§34.1).
+;                 3  somebody already holds the claim.
+;       AL = OSAPI_PL_ENTER
+;         ch0 -> mode 3, divisor 0 (unchanged: 0 goes in and 0 comes back, so
+;         §8.1's 65536 radix never moves). [sch_pitbios] = 1, which makes
+;         sch_account SKIP its next sample: both ROMs unmask IRQ0 themselves
+;         on the way out and the tick that fires in the ROM's tail would
+;         otherwise be charged against a counter stepping by 2.
+;         CF=1 and nothing done unless the claim is held.
+;       AL = OSAPI_PL_LEAVE
+;         ch0 -> mode 2, divisor 0, [sch_pit_last] re-seeded from sch_pit_now,
+;         [sch_pitbios] = 0.
+;         **PRESERVES AX, BX, DX AND THE FLAGS**, so it can be the first thing
+;         after the int 15h without banking the ROM's answer first.
+;         CF is not an output on this arm.
+;       AL = OSAPI_PL_RELEASE
+;         61h bits 0 and 1 cleared, ch2 control word 0xB6 with no count -
+;         spk_pcm_idle's exact resting state. The speaker is the sound
+;         layer's again. Idempotent: releasing a claim you do not hold is a
+;         no-op, which is what makes step 17 of §88.2 legal on every refusal
+;         path.
+;
+; While the claim is held, sch_fast_on and spk_tone/spk_pcm_start answer
+; CF=1. That is §34.1's one-owner rule working in both directions, and it is
+; what makes "a tape and a tune cannot share timer 2" a refusal rather than a
+; hope.
+;
+; IT DOES NOT TOUCH THE PIC. Port 21h is the caller's (§88.2 steps 4, 5, 14):
+; this cell claims the PIT and the speaker, not the interrupt mask.
+;
+; context: any task, lock held or not. Every write is inside one
+; pushf/cli..popf, which is §34.1's ch0 latch-atomicity rule.
+```
+
+**A second Tape window is what `OSAPI_PL_CLAIM` exists for as much as the
+speaker is.** Packages are multi-instance by default; two Tape windows share
+one deck, one motor bit, one PIC mask and one channel 0, and **between one
+window's records the machine is fully alive**, so the other's `W_ONWAKE` can
+start a record of its own — interleaving its blocks into the first one's tape,
+which `AH=03` cannot report. The claim answers `AH = 3` to the second window,
+which refuses in words and greys Go.
+
+### 88.6 `OSAPI_COMPRESS` — the encoder a package could not reach
+
+`cmz_pack` lives in `CLONE.DRV`'s `.modl` image, reached only through `mod_fp`
+from kernel `.cold`, and the SDK publishes `OSAPI_DECOMP` with **no encoder
+beside it**. *"A driver talking to another driver"* is not available as a
+shape: `CLONE.DRV` is an on-demand kernel module (§2.8) and not a loadable
+driver — no `drv_tab` row, no `DRVC_*` class, no `DSV_PKGCALL` — so
+`OSAPI_DRV_CALL` cannot reach it. The precedent for the fix is exact and
+already in the tree: `OSAPI_FILE_DLG` is a package-callable cell whose body
+runs `mod_need` and far-calls the module.
+
+```
+%define OSAPI_COMPRESS      KERNEL_SEG:0x0518
+%define OSAPI_LZ_LZ4        0
+%define OSAPI_LZ_LZB        1
+OSAPI_CMP_NOGAIN equ 1
+OSAPI_CMP_NOMEM  equ 2
+OSAPI_CMP_NODISK equ 3
+;
+; Compress a block, the way File > Compress does (§20.15, §22.22). The encoder
+; lives in CLONE.DRV; this cell fetches it, runs it and drops it, so a package
+; sees one far call and never learns that a module exists. The counterpart of
+; OSAPI_DECOMP, published since §20.13 with no encoder beside it.
+;
+; in:   AX = the SOURCE segment; the bytes are at AX:0000
+;       CX = the source length, 1..0xFFFF. 0 and >= 64K are refused before
+;            anything is claimed (cmz_pack's CX is 16 bits)
+;       DX = the OUTPUT segment; the stream lands at DX:0000, CX bytes of room
+;
+; out:  CF=0  AX = the packed length, ALWAYS < CX
+;             BL = the format used: OSAPI_LZ_LZ4 or OSAPI_LZ_LZB - exactly the
+;                  byte a 'CZ' container's +2 wants (today always LZB)
+;       CF=1  AX = why, and NOTHING was written to DX:
+;               OSAPI_CMP_NOGAIN  it did not get smaller. Store it plain. THIS
+;                                 IS THE ORDINARY ANSWER for an already-
+;                                 compressed file and is NOT an error.
+;               OSAPI_CMP_NOMEM   the TABLES would not fit even at the 1,024
+;                                 window. Nothing was claimed.
+;               OSAPI_CMP_NODISK  the module could not be fetched: the SYSTEM
+;                                 disk is not in the BOOT drive. mod_need goes
+;                                 to [dsk_bootvol] and ONLY there.
+;
+;       Everything else is preserved - BX aside from BL, CX, DX, SI, DI, BP,
+;       DS and ES all come back. The output is a WHOLE STREAM (the T word, the
+;       symbols and the raw tail, §20.13.7) and NOT a 'CZ' container: the
+;       8-byte header is yours to write, because you may want the file's and
+;       you may want none.
+;
+; IT CLAIMS THE TABLES AND NOTHING ELSE: CMZ_PREV (8,192) + 2*(window+1) bytes,
+; halving the window from CMZ_WMAX 16,384 to CMZ_WMIN 1,024 until it fits - so
+; 41 KB at the full window down to 11 KB at the minimum. YOUR TWO BUFFERS ARE
+; YOURS and are not copied. Ratio cost of the halving: 68.9% at 16,384 against
+; 71.4% at 4,096 (§20.15.1).
+;
+; context: THE UI TASK, GFX LOCK NOT HELD. It reads a file (mod_need) and takes
+;       the heap, so it is §20.6 rule 7's forbidden half exactly like the file
+;       slots, and W_ONWAKE is where a package may do both. cmz_pack reports
+;       through OSAPI_FS_PROG every 512 source bytes and THOSE CALLS ARE INERT
+;       FOR THIS CALLER, nothing having armed the kernel's progress widget.
+;       Paint your "Compressing..." caption, RELEASE THE LOCK, then call: the
+;       call is ~3.2 s and a lock held across it hides the pointer for all of
+;       it (§88.8).
+```
+
+The module side is **a new DL verb on `cmz_verb`, and `CLO_NENT` stays 2** —
+the cloner's image dispatches on DL itself, so a verb costs no `mod_fp` slot.
+It branches before `cmz_verb`'s Disk-window selection, claims
+`CMZ_PREV/1024 + window/512 + 1` KB with the halving ladder, calls `cmz_pack`
+with the caller's AX and DX and `BX` = the table segment, frees, and returns
+`cmz_pack`'s own CF and AX. **`cmz_claim` is not the thing to call**: it lives
+in `section .modl`, addresses `[cs:cmz_u]`/`[cs:cmz_k]`/`[cs:cmz_w]` in
+`CLONE.DRV`'s own segment, and allocates the source and output regions as well
+as the tables — which a caller that already holds its payload would be paying
+for twice.
+
+### 88.7 Everything written is compressed, and an already-compressed file goes VERBATIM
+
+`OSAPI_FILE_READ_AT` is **raw**: it hands back the packed bytes exactly as they
+sit, wrapper and all, and `OSAPI_FILE_FIND_RAW` gives the matching on-disk size
+(§20.14.3). Every reader on the machine expands a `'CZ'` file transparently.
+So:
+
+> **The tape payload is exactly the bytes that will land on the destination
+> disk. The tape layer never expands and never re-wraps, and the reader calls
+> NO decoder at all — not even `OSAPI_DECOMP`.**
+
+Expanding on the way out would *lose* the compression; expanding on the way
+back would silently convert the user's compressed file into a plain one.
+
+The classification is one bit and no extra I/O:
+
+```
+1. FILE_FIND_RAW the source into its 24-byte record.
+2. if (word [rec+22] & OSAPI_FIND_CZ):
+       a 'CZ' container. ALREADY COMPRESSED. Carry it RAW, set flags bit 1.
+3. else if the name ends .O88 / .DRV / .OVL / .WSM / .WPV:
+       read the first cluster; word[0] == 0x384F -> a package or driver IMAGE.
+       CARRY IT VERBATIM AND NEVER WRAP IT. Header byte[3] bit 3 says whether
+       the image is already packed; report that as flags bit 1.
+4. else: plain. THE ONLY case where compressing buys anything.
+```
+
+Step 2 costs nothing — that bit is read out of the directory sector the walk
+was holding anyway. **Wrapping a `.o88`, `.DRV` or `.OVL` in `'CZ'` is refused
+on both legs** (§22.22.1: it would make a file `ld_check_hdr` cannot start),
+and re-compressing an already-`'CZ'` file is refused because it does not work —
+a second pass over four shipped files measures 99.4%, 99.8%, 99.9% and
+**100.2%**, `readme.txt` growing by two bytes.
+
+**Compression pays for the chunking, and that is why it is not optional.**
+Measured on this tree's own `build/readme-plain.txt` (16,304 bytes; 7,607 as
+LZB):
+
+| | records | wall | shape of it |
+|---|---:|---:|---|
+| plain, one `AH=03` call | 1 | **96.0 s** | one 96-second dead machine |
+| plain, in 1 KB records | 1 + 17 | **153.0 s** | seventeen freezes of ~8.4 s |
+| **LZB (7,607 B), in 1 KB records** | 1 + 8 | **75.7 s** | eight freezes of ~8.7 s |
+
+The responsive design is *cheaper* than the unresponsive one.
+
+**The disk-swap consequence is stated plainly, and a failure to compress is not
+a failure to transfer.** `mod_need` goes to `[dsk_bootvol]` and only there, so
+on a one-floppy 5150 compressing a file that lives on another disk means system
+disk in, file disk back (§2.8). The package therefore asks first, with the
+arithmetic:
+
+```
+NOTES.TXT is 16,304 bytes - 2 min 33 s of tape.
+Compressing it first would make it about 7,600 - 1 min 16 s.
+Compress?   [Yes]  [No]
+```
+
+and if the module cannot be fetched or the heap will not fund the tables it
+refuses **only the compression**:
+
+```
+The system disk is not in the drive; writing NOTES.TXT uncompressed.
+```
+
+That is §48.5's rule — a permanent refusal and a transient one must not be
+coded alike.
+
+**Staging is whole-file, in one pinned claim, both directions.** Write:
+`FILE_FIND_RAW` → claim → `FILE_READ_AT` at offset 0 → optionally
+`OSAPI_COMPRESS` into a second claim and write the 8-byte `'CZ'` header in
+front, **keeping the result only if `packed + 8 < size`** → cut records. Read:
+parse the header → claim → fill from records → verify `ckfile` → **one**
+`OSAPI_FILE_WRITE`. `OSAPI_FILE_DFREE` is asked **once per operation** and
+banked. That shape is the only one in which `ckfile` is verified before any
+file is created, so a corrupt tape leaves nothing behind rather than a
+half-written file.
+
+**The claim is `payloadKB + recslackKB` KB**, the payload at base offset 0 and
+the record buffer at `base + payloadKB × 64` paragraphs, so **both** are
+addressed with `BX = 0` — which the ROM requires, its inner loops doing `INC BX`
+with no segment fixup. Heap bases are 1 KB-aligned, so that is satisfied by
+construction. `recslackKB` is `ceil(5 × recbytes / 1024)`, 5 KB at the default
+(§88.4.3).
+
+**`TP_MAXFILE` is the format's bound; the LIVE ceiling is
+`OSAPI_MEM_AVAIL`'s largest run and it is much lower on the machine this
+feature is named after**, so it is published per kernel rather than left to be
+inferred:
+
+| machine | free heap at the desktop | realistic largest payload |
+|---|---:|---:|
+| kern_big, 640 KB | hundreds of KB | **32,768** — the format bound |
+| **kern_small, 128 KB** | **~50.5 KB** | ~**20 KB** with a Disk window open, and `OSAPI_COMPRESS` refuses `NOMEM` outright |
+
+A file over either refuses with the arithmetic on the glass, never a bare
+"cannot":
+
+```
+BEVERLY.MOD is 42,177 bytes - about 6 min 32 s of tape. The format
+carries at most 32,768 (about 5 minutes). Refused.
+```
+```
+PAINT.O88 is 21,977 bytes; the largest free block is 18 KB.
+Close an application, or compress the file first.
+```
+
+### 88.8 The window
+
+**Every rect is computed at paint time from `OSAPI_WM_GEOM`, never tabulated.**
+A fixed 320 × 146 content box does not fit CGA, which is the adapter of the
+machine class this feature is named after: `wm_fit`'s ceiling there is
+176 − 1 − 20 = 155, and `wm_geom` returns content = `W_H − (TITLE_H + 1)` =
+**136 rows**. So the package publishes an `OS88_PREFER` row (§11.100.1), the
+CGA arrangement is **≤ 136 content rows** with the two footer lines folded into
+the status line, and §47.2's obligation applies — a drawing or greying change
+is not done until it has been looked at on a 1bpp adapter. Content x is a
+multiple of 8 without asking, §11.94's snap being opt-*out*, which is what puts
+`font_run` on its single-store fast path.
+
+The VGA and Hercules arrangement, at 320 × 146 content:
+
+```
++========================================================================+
+| =  Tape                                                                |
++========================================================================+
+|                                                                        |
+|   +----------------------------------------------------------------+   |
+|   |     ,-'''-.                                    ,-'''-.         |   |
+|   |    /  \|/  \        ####################      /  \|/  \        |   |
+|   |   |  --O--  |       ####################     |  --O--  |       |   |
+|   |    \  /|\  /        ####################      \  /|\  /        |   |
+|   |     `-...-'                                    `-...-'         |   |
+|   +----------------------------------------------------------------+   |
+|                                                                        |
+|   PAPER.TEX                      18,704 bytes  (30,112 unpacked)       |
+|   [########|########|########|::::::::|        |        |        ]     |
+|   Block  4 of 19  -  stopped for about  9 seconds                      |
+|                                                                        |
+|   (o) Save    ( ) Load    ( ) Catalog          [x] Compress            |
+|                                                                        |
+|   [ Choose... ]  [    Go    ]  [  Verify  ]  [  Stop  ]                |
+|                                                                        |
+|   Stop takes effect at the end of the block.  Do not type while        |
+|   writing.  Ctrl+Break stops a read at once.                           |
++========================================================================+
+```
+
+**The progress bar has one cell per record, not a smooth fill**: `########` for
+records done, `::::::::` **for the record in flight right now**, empty for the
+rest. It is the pixel the user stares at for 8.7 seconds; it does not lie about
+being smooth, and it carries *"we are in segment 4"* through the whole freeze.
+The two numbers in the status line are **fixed-width and right-aligned**, which
+is what makes the per-record repaint four cells instead of forty-four.
+
+**Text is `OSAPI_FONT_RUN`, everywhere, with no exceptions to register**
+(§6.1, §6.6): the status line, the block counter, the file line, the catalog
+rows, the button captions, the refusal sentences and the footer. This package
+introduces no transparent-text call site and `tests/textsites.txt` does not
+move — and a file *not* in that registry may not call transparent text at all,
+which is exactly the case a new package hits. If any surface turns out to need
+transparency it is registered with which of §6.6.2's six cases it is, in the
+same commit, or the build fails.
+
+**Every draw burst is five calls, in this order**, because nothing has armed a
+clip for a `W_ONWAKE` painter and `wm_draw_win` kills the region before the
+title bar:
+
+```
+    OSAPI_WM_GEOM       ; jc -> not one pixel of us shows: skip, stay dirty
+    OSAPI_GFX_LOCK
+    OSAPI_WM_CLIP_SET   ; jc -> unlock and skip. The gfx_* primitives take
+                        ;       ABSOLUTE screen coordinates
+    ...draw...
+    OSAPI_GFX_UNLOCK    ; the clip dies here; nothing to undo
+```
+
+**One `W_ONWAKE` turn while a transfer is running**, and the order is the
+contract:
+
+```
+1. TS_COAST - 8 decelerating frames, 560 ms, geom/lock/clip per frame,
+   [tp_stop] polled between them.
+2. Check [tp_stop]. If set: int 15h AH=01, OSAPI_PIT_LEND AL=3, tidy, do NOT
+   re-post.
+3. DRAW THE FREEZE BEFORE IT HAPPENS, AND DRAW ONLY WHAT CHANGED:
+     a. geom / lock / clip
+     b. advance the progress cell to THE BLOCK IN FLIGHT - one small
+        gfx_fill, ~1 ms
+     c. rewrite the TWO fixed-width numbers in "Block  4 of 19 - stopped for
+        about  9 seconds" - four cells of font_run, ~3.6 ms. NOT the caption.
+     d. unlock.                                        ~7 ms in total
+     THE GREYING IS NOT HERE: Choose..., Go and the mode radios are greyed
+     ONCE, at the idle -> running transition, and do not change again until
+     the transfer ends. Repainting them per record is ~50 ms and five visible
+     control flickers, 34 times over (§77.17: a control whose look never
+     changes gets no dirty bit).
+     e. RELEASE THE GFX LOCK.                          <-- the part that matters
+4. File-half work, if this state has any: legal, because W_ONWAKE is on the UI
+   task and holds no lock (§20.6 rule 7).
+5. ONE record through tp_xfer.                         <-- THE FREEZE
+6. Advance the state; OSAPI_WM_WAKE to come back - or stop.
+```
+
+**Releasing the lock before the ROM call is not an optimisation, it is the
+difference between two pictures.** `gfx_lock` hides the cursor for the length of
+a hold, so holding it across the call would take the arrow off the screen for
+nine seconds — **and a vanished pointer reads as a crash**. Released, the arrow
+is frozen but present, over a screen that says exactly what is happening, which
+reads as thinking. It costs nothing: nothing else can run during the call, so
+the lock protects nothing. **Re-post only while there is work** — a handler
+that always re-posts spins the UI task (§74.1).
+
+**The UI task, not a worker.** `OSAPI_WM_ONWAKE` is the one callback that runs
+on the UI task without the gfx lock and is expressly allowed to call the file
+slots; `OSAPI_WM_WAKE` posts one from any context, at most one queued per
+window. **A background worker is refused**: it would overlap with nothing,
+because the UI task cannot run during a record either, and it would cost a task
+slot, an amendment to §20.6 rule 7 — `int 15h` is on no worker-callable list —
+and a staged/committed handshake, because *a worker may not touch a file*.
+Package header byte +15 stays `OS88_STACK_192` for form; no worker is spawned.
+**The stack margin through the ROM's own frame is unmeasured**, and this
+section says so on both sides: `W_ONWAKE` runs on `SS:STK0_TOP`, which is not
+shared with a worker slice, but it is also the deepest context in the machine
+at that moment, and `tools/stkdepth.py` reads source and cannot walk a ROM. If
+it will not fit, the answer is a shallower call chain into `tp_xfer`, not a
+worker.
+
+`OSAPI_WM_ONCLOSE` is called for every way of *closing the window*, on the UI
+task with the lock held: it calls `int 15h AH=01` **unconditionally** — the
+motor is a relay on the user's deck — releases the PIT claim, restores the IMR
+if a record was somehow in flight, and frees the claims. It **refuses
+mid-transfer** with a toast (`Stop the tape first`), because a claim handed to
+the ROM cannot be freed while the ROM is in it. It is **not** called on a
+Restart (§88.2).
+
+#### 88.8.1 The cassette, and why the reels COAST
+
+**Not a spinner, and this is binding rather than decorative.** A continuous
+spinner implies continuous motion, and stopped dead for nine seconds it reads
+as **hung** — §7.1.4.3 records this project shipping a lit-but-frozen pointer
+and the field reporting it as a stutter at a timescale of *milliseconds*. Nine
+seconds of a spinner frozen mid-turn is the same defect three orders of
+magnitude larger. And a one-notch-per-record advance is not motion either: a
+quarter-turn every 8.74 s is a visual revolution every ~35 seconds, which is a
+progress indicator with a cassette drawn on it.
+
+**The reels coast.** At every record boundary, the moment the machine comes
+back, they spin an **8-frame decelerating burst over 560 ms** and stop.
+
+| | |
+|---|---|
+| **mapping** | **8 frames = one full visual revolution = one record.** A four-spoke hub has 90° symmetry, so eight phases at 11.25° is a complete revolution, and the mapping MEANS something: one turn of the reels is one block on tape. |
+| **direction** | **Save = forwards (0,1,…,7); Load and Verify = backwards (7,6,…,0).** Physically a cassette runs the same way for both; this is a legibility choice. The take-up reel's phase is offset by 2 so the two do not look mechanically linked. |
+| **sprites** | one table of **8 × 16×16 masked phases**, drawn with `OSAPI_ICON_DRAW` (§25.6). A record is `ICO_STAGE_SZ` = 66 bytes, not 64 — `icon_draw_x` reads a two-byte `ww`/`rows` header and refuses any width but one word — so **8 × 66 = 528 bytes**. |
+| **cost** | **~10 ms a 16×16** (PERFORMANCE.md), so two hubs (20 ms) plus one `gfx_lock`/`gfx_unlock` pair (1.94 ms) = **~22 ms a frame**. |
+| **the ramp** | **28, 35, 44, 55, 69, 86, 108, 135 ms — 560 ms total.** Every interval clears the 22 ms of work, so the deceleration is real from the first frame; a ramp starting at 22 would be draw-bound at the top and read as a flat burst that then slows. 176 ms of drawing inside a 560 ms coast is 31% of the coast and **1.9% of the record**. |
+| **hub radii** | **REFUSED.** A shrinking supply reel and a growing take-up would be three states each — 24 records, 1,584 bytes — and it would have to be in the *record*, because `ICON_DRAW` is masked and a smaller disc drawn where a larger one was leaves the outer ring standing. Tape position is the progress bar's job; the reels are fixed. |
+| **1bpp** | **no grey anywhere in the cassette.** Solid black on white: an outline circle, straight spokes, a filled hub. Grey rounds to black on both 1bpp adapters (§39.4), so a "dimmed" reel would be a black disc on the only machine that will ever run this. |
+| **tape cost** | **zero.** The motor is off between records and the deck does not care. |
+
+**The body — shell, window and labels — is drawn from primitives on both
+kernels, once at open and on every expose, and a composed `OSAPI_GFX_BLIT1`
+band is REFUSED.** On kern_small that slot is `stc / ret` (§5.4.2.5) and the
+SDK publishes the same thing to packages, so a band would leave the cassette
+**blank** on the 128–195 KB 5150 the whole architecture is chosen for. Fifteen
+`gfx_*` calls once per open is ~11–40 ms — a quarter of the fifteen-call title
+bar that ships on every window today — and needs no buffer, no `.bss` and no
+second arm.
+
+**What paces the frames is deliberately not `OSAPI_WM_TIMER`**, which is
+kern_big's alone. The coast runs inside one `W_ONWAKE` turn, paced by
+`apps/os88pit.inc`'s `pit_now`, under §11.99.4's three rules: sample the
+deadline at the TOP of the frame so the drawing is absorbed by the wait rather
+than added to it; compare with `js`, not `jb`; and **miss a frame rather than
+chase one**. **Every frame arms a clip, and the clip is the two 16×16 hub rects
+and nothing else** — §7.1.4's hide is deferred and `wm_clip_set` spends it only
+if the cursor is reachable, which is what keeps eight lock pairs a coast from
+being eight arrow blinks. One consequence is accepted rather than contradicted:
+§25.6 clips `icon_draw` **whole-icon**, so a partly covered hub is skipped
+entirely — a covered window's reels stop, and the caption must not say
+otherwise.
+
+The arrow tracks throughout the coast, because IRQ3 and IRQ4 are unmasked
+between records and the mouse ISR draws it. A Stop click landing inside the
+coast is queued and honoured before the next record starts — **≤ 560 ms**.
+
+#### 88.8.2 Buttons, greying, Verify, and the estimate before Start
+
+`Go` is the start control and `Stop` is beside it. Buttons are four contiguous
+8-byte rects in one array, geometry passed as a **pointer** to a 4-word
+inclusive rect so the drawn control and the clickable control read the same
+four words and cannot drift, and the gesture is the standard three edges
+(§13.8.3): `W_ONCLICK` arms and **does not act**; `W_ONDRAG` (§13.8.2,
+kern_big only, `CF=1` on kern_small) tracks down/off/down; `W_ONMOUSEUP` puts
+the control up **first and unconditionally**, then fires if the release lands
+on the same control. **No capability test on `W_ONDRAG`** — on kern_small the
+control still goes down on the press and up on the release, which *is* the
+static fallback. `[tp_down]` is what the painters read, never a flag threaded
+from the press, and `tp_setdown` is the ONE writer and draws nothing if the
+answer did not change.
+
+| state | Choose… | Go | Verify | Stop |
+|---|---|---|---|---|
+| no hardware (`[tp_hw] != TP_HW_OK`) | live | **grey** | **grey** | grey |
+| another Tape window holds the deck | live | **grey** | **grey** | grey |
+| idle, no file chosen (Save mode) | live | **grey** | **grey** | grey |
+| idle, file chosen | live | live | live | grey |
+| cueing or running | **grey** | **grey** | **grey** | **live** |
+| **after ANY transient error** | live | **live**, captioned `Retry` | live | grey |
+
+Greying is `OSAPI_GFX_PEN` taking the answer in `CF` — `call <ok-test>` then
+the pen — never `CDGRAY` by hand (§47 rule 1). **Start is NEVER greyed for a
+transient reason and never on an error**: no deck plugged in, no Play pressed,
+a mis-cued or blank tape are all unknowable without playing tape and all fixable
+by the user in five seconds, and §48.5 with §77.17 already carry the rule that
+**a greyed button is a dead end you cannot retry from**. After an error the
+caption becomes `Retry` and stays live.
+
+**The estimate is shown BEFORE Start, on every operation, and the cue-confirm
+is not ceremony**: starting the relay without RECORD engaged wastes five
+minutes and produces a blank tape that reads as a bug.
+
+```
+PAPER.TEX - 19 blocks, about 3 minutes.
+Wind the tape to a blank space, press RECORD and PLAY on the deck,
+then press Go.                                        [ Go ]  [ Cancel ]
+```
+
+The read side is *"Wind to just before the file, press PLAY, then press Go."*
+
+**Verify is a first-class button, not a menu item, and the app never says
+"written."** `AH=03` returns `AH = 0` unconditionally, so running off the end of
+the tape, a jammed deck, a disconnected cable, RECORD not engaged and a perfect
+recording are the same answer. So it says *"19 blocks sent. A write cannot tell
+whether the tape ran out — rewind and press Verify."* Verify is the read path
+with the commit replaced by a comparison — every block CRC, every preamble
+field, `ckfile` over the assembled payload, then `ckfile` against a fresh CRC
+over the file **as it sits on disk** (raw) — so a pass proves *the tape holds
+this file*. It writes nothing, and it is the default prompt after every write.
+
+**What Stop does, precisely, at each moment:**
+
+| when | what happens | what the user sees |
+|---|---|---|
+| idle | greyed | — |
+| during the coast (≤ 560 ms) | latched; the transfer parks before the next record | the reels stop mid-coast; `Stopped after block 4 of 19.` |
+| **mid-record, mouse** | **nothing — the click is physically lost.** IRQ3/4 are masked, the 8250 is one byte deep with no FIFO, and the button state is *in* the dropped packets | which is why the footer says `Stop takes effect at the end of the block` |
+| **mid-record, Ctrl+Break, READ** | the ROM bails within ~5 loop iterations | back in about a second, `AH = 04` |
+| **mid-record, WRITE** | nothing at all — neither ROM's write path has a break test | up to 8.8 s, and the footer said so |
+| after a stop, on a READ | nothing partial ever reached the disk | `Stopped. Nothing was written to B:.` |
+| after a stop, on a WRITE | **a partial file is on the tape** | `4 of 19 blocks are on the tape. It cannot be read back.` |
+
+`mou_isr` resyncs on the bit-6 packet header, so the arrow catches up at the
+next whole packet and nothing needs draining.
+
+**Reading is a SCAN, and the scan NAMES what goes past.** A tape has no
+directory and there is no seek. **Catalog** is repeated `AH=02` with `CX = 256`,
+one block, the buffer zeroed before each, with a coast between every one:
+`'O8TP'` is a header (validate, list name / size / usize), `'OT'` is a body
+(*"...PAPER.TEX part 3 of 19 went by"* — we joined mid-file), `0xA5` is an IBM
+Cassette BASIC record (print its 8-character name), anything else is *"unknown
+record"*, and `AH = 04` is the end of the tape or nothing playing. **Never scan
+with `CX` > 256**: a larger read consumes and CRC-checks a whole record you may
+not want, at 1.5 s a block. **Load** scans for the next `'O8TP'` whose name
+matches, validates it, asks `OSAPI_FILE_DFREE` once and refuses if free <
+`size` **before a single body record is read**, then reads `nrec` records at the
+declared lengths, assembles, checks `ckfile`, and makes **one**
+`OSAPI_FILE_WRITE`, asking before replacing. `AH=1`, `AH=2` and `AH=4` get
+**different sentences**, because they mean different things to the user's hands:
+*"CRC error — the block was recovered but is damaged"*, *"Bad signal — check the
+volume and the head"*, *"No more data. That is the end of the tape, or nothing
+is playing."*
+
+### 88.9 Hostile input — every field a tape can lie about
+
+§19's rule is that every byte off a disk is hostile. **A tape is worse in three
+specific ways: nobody but us has ever written one, there is no mount to
+validate it, and a mis-synced read delivers somebody else's data with a VALID
+CRC.** The checks are the contract; there are 29 of them and each one has a
+malformed fixture of its own, so deleting any single check reddens exactly one
+test.
+
+**The header record:**
+
+| # | field | the check |
+|---:|---|---|
+| 1 | `magic` | exact compare with `'O8TP'`. Anything else is *not a header*: name it and keep scanning. |
+| 2 | `ver` | **exact** equality with 1. Refuse, never guess. |
+| 3 | `kind` | exact equality with 0. |
+| 4 | `flags` | bits 3–7 **must be zero**; bit 2 is meaningless unless bit 0. An unknown format bit refuses *before* a file nothing on the machine can open is created. |
+| 5 | `recblk` | `1 <= recblk <= 16`, **and** `5 × recblk × 256` must fit the claim (§88.4.3). A mismatch with this reader's default is **not** an error. |
+| 6 | `nrec` | `>= 1`, **and exactly** `ceil(size / (recblk × 256 − 8))`. A lie here sends the reader hunting for records that do not exist — minutes of frozen machine per phantom record. |
+| 7 | `lastblk` | `1 <= lastblk <= recblk`, **and exactly** `ceil((size − (nrec−1) × (recblk × 256 − 8) + 8) / 256)`. |
+| 8 | `name` | a NUL within 12 bytes; every byte before it in `0x21..0x7E`; then hand the string to `OSAPI_FILE_WRITE` and let **`dskw_name83` be the single validator** — it rejects an empty stem, a leading dot, a second dot, a 9th stem character, a 4th extension character and every illegal symbol, answering `FERR_NAME`. **Do NOT substitute `'_'` the way §19.1's *display* path does**: substituting on a *write* silently targets a different file. |
+| 9 | `size` | `1 <= size <= TP_MAXFILE`; `<=` `OSAPI_MEM_AVAIL`'s largest run minus the record slack; `<=` `OSAPI_FILE_DFREE`, asked once, before the first body record. |
+| 10 | `usize` | **never sizes anything.** Display only. |
+| 11 | the 224 pad bytes | **not read.** Do not "reserve for future use" by reading them. |
+
+**The body records:**
+
+| # | the check |
+|---:|---|
+| 12 | the two magics differ by construction; test both ways |
+| 13 | `seq` must equal **exactly** the next expected value — not "in range". This is also the read side's guard against a second Tape window (§88.5). |
+| 14 | `nrec` must equal the header's, exactly |
+| 15 | `ckfile` must equal the header's, exactly — this is what rejects a spliced record **on arrival** rather than at the end |
+| 16 | `1 <= paylen <= (this record's blocks × 256 − 8)` |
+| 17 | the running total must never exceed `size` — checked **before** each copy |
+| 18 | the total must equal `size` exactly at `seq == nrec` |
+| 19 | `CRC-16(payload) == ckfile` — the backstop, before a byte reaches the disk |
+
+**The payload, on its way to the disk:**
+
+| # | the check |
+|---:|---|
+| 20 | **when flags bit 0 is set**, the `'CZ'` container's own fields: `word[+0] == 0x5A43`, `byte[+2] <= 1`, `byte[+3] == 0`, `dword[+4] >= size − 8` and `<= 16 MB`. Ten bytes of code, and it is **NOT decoded to prove it** — the whole-file CRC has already proved the bytes are bit-identical to what was written. |
+| 21 | a `.o88` / `.DRV` / `.OVL` is **never** wrapped in `'CZ'`, on either leg (§22.22.1). An explicit refusal, not a consequence of row 20. |
+| **29** | `dskw_czstamp` derives the compression hint from the first eight bytes of **every** whole-file write, unconditionally. So a record with flags bit 0 **CLEAR** whose payload merely *begins* `43 5A xx 00` passes every check above, is written, and **is stamped compressed on the volume** — after which every read of that file answers `FERR_IO` or expands garbage. **The check: if the payload's first word is `DSK_CZ_MAG` and `byte[+2] <= 1`, then flags bit 0 MUST be set and row 20 must pass; otherwise refuse the file rather than writing it.** One compare. |
+
+**The BIOS's own traps:**
+
+| # | trap | the rule |
+|---:|---|---|
+| 22 | **`DX`, not `CX` — and `DX` is meaningless unless `AH = 0`.** The two ROMs disagree: GLaBIOS returns `DX` = the original `CX` on a no-leader failure, IBM zeroes it | require `AH == 0 && DX == CX`; never touch a byte past `DX` |
+| 22a | **`BX` is the third post-condition and it is what catches the GLaBIOS retry** (§88.4.3) | with `BX = 0` on entry, require `BX == CX` as well |
+| 23 | **A stale buffer.** A short or failed read leaves the previous record's bytes in place, and they will pass a magic check | **zero the record buffer before every `AH=02`.** Mandatory. |
+| 24 | **The pad.** IBM's pad byte is memory past the caller's buffer, written to removable media up to 255 times | **every `CX` is a multiple of 256, so neither ROM's pad is ever entered.** Ignore everything past `paylen`; never infer a length from the tape |
+| 25 | **`AH=03` always returns 0** | never say "written" on the strength of `AH` (§88.8.2) |
+| 26 | **CF, never AH, for an unsupported call** — IBM answers `0x80`, GLaBIOS `0x86` | §88.1 gate 2 |
+| 27 | **`BX + CX` must not exceed 65,536** — the ROM's inner loops `INC BX` with no segment fixup and wrap silently inside the segment | the buffer is a claim base with `BX = 0`, satisfied by construction (§88.7) |
+| 28 | **The motor is a relay on someone's tape deck, and the tape names its own destination** | `AH=01` on every exit path including refusals, with the one exception §88.2 states (a Restart reaches no package at all). `OSAPI_FILE_WRITE` replaces silently, so **ask before replacing**, and write only into the acting Disk window's folder — a hidden+system target is already refused twice over, by §19's species filter and by `dskw_write_x`'s `FERR_PROT` |
+
+### 88.10 What is refused
+
+1. **A driver reachable from the file manager.** Not a byte question — a fact
+   about the ABI twice over: the file-manager verb table has no extension point
+   a driver can publish into, and `drivers/os88drv.inc` says in as many words
+   *"You have no window, no instance and no menu."* A file-manager verb is
+   run-to-completion under the gfx lock (§12.8.3) — one entry, one return — and
+   cannot own a Start button, a Stop button or a moving picture.
+2. **`TAPE.DRV`.** 129 resident bytes, 89 of them inside `KERN_CODE_MAX`, to
+   *remove* the machine the feature is named after: `%define OS88_DRIVERS 1`
+   sits inside `%ifdef KERN_BIG`, so **kern_small loads no `.DRV` of any kind**,
+   and a 5150 with 128–195 KB runs kern_small. It would still need §88.5's
+   cell, because §34.1 binds a driver exactly as it binds a package.
+3. **A `DRVC_TAPE` class.** Falls with the driver.
+4. **A `File ▸ Tape…` menu item.** It fits — 109 bytes as built — and it costs
+   **the last free slot in the File menu**: `FM_NFILE` is 10 against
+   `MENU_POPMAX` 11, on both kernels, and a twelfth item assembles and is
+   silently unreachable. A menu slot is not denominated in bytes.
+5. **Tape as a drive letter.** Refused by the ABI, not by taste: mounting calls
+   `FSV_CHDIR` then `FSV_LIST` inside one far call with the gfx lock held, so
+   mounting would mean playing the whole tape at 168 B/s before the Disk window
+   painted a row; `FSV_ENUM`'s ordinal must be dense and stable across calls
+   (§62.9.1) and re-walking to ordinal *k* on a tape means rewinding; `FSV_STAT`
+   resolves a name synchronously, i.e. in minutes; and `FSV_DFREE` has no
+   answer. A drive letter also *asserts* browsability, and a tape is a queue you
+   play.
+6. **A Control Panel page.** The item list is 9 of 9, `CP_CH` cannot grow
+   (CGA is 200 rows and the panel has 4 px of margin left), §31.1's answer — a
+   scrolling item list — does not exist, a page cannot animate, and every
+   callback runs with the lock held.
+7. **A background worker, and fsx.** §88.8 for the worker. `fsx_run` needs an
+   owning instance and freezes every other task for the whole bracket (§53.7),
+   which is the opposite of the requirement.
+8. **A replacement `int 09h` in the package, to catch Esc mid-record.** Four
+   grounds, the first decisive: it buys Esc on the direction where Ctrl+Break
+   already works, and on the direction where it does not — a write — it
+   *injects* the jitter, one keypress being a make **and** a break code, two
+   ISRs inside one bit period on the direction that **cannot report an error**.
+   Any figure for what those ISRs cost would be an instruction count against a
+   hard 248.08 µs cliff whose failure mode is a silently corrupt tape. Its own
+   port-61h read-modify-write races the BIOS on the motor bit and the timer-2
+   gate. And it would be a **new SDK rule** — *a package may install a hardware
+   interrupt vector* — that the next package author copies badly.
+9. **The POST wrap test as a third detection gate.** It is real, silent, needs
+   no tape and energises no relay, and it detects the *port* rather than the
+   badge — but **its acceptance window is a constant nobody here has
+   measured**, and writing that constant from arithmetic is what
+   PERFORMANCE.md's rule 3 exists to prevent. It is not a gate anyway: a
+   machine that fails POST 131 with an oxidised relay may still record, so it
+   belongs as a warning, behind one field measurement.
+10. **Bit-banging our own encoder.** It is the *only* way to get a watchable
+    in-transfer animation — the ROM's own bit loops have ~150–190 µs of slack
+    after each edge, ~300 ms of drawing per second of transfer — and it would
+    let the motor stay on across records and cut the leader, taking the
+    per-record tax from 2.6 s to ~0.4 s. **It is refused for v1 on
+    TESTABILITY, not size**: the read side is a CPU-timed poll loop, and no
+    instrument in this project can exercise a cassette read at all (§88.11).
+    Shipping an unverifiable decoder that writes to the user's only backup
+    medium is worse than shipping a slow, verified one.
+11. **An in-record animation from a replacement `int 08h`.** Three conditions
+    and a hazard for two frames a second: only during a write, only on the
+    genuine IBM ROM (GLaBIOS masks IRQ0 itself for both directions), only at
+    ~16 bytes of VRAM a tick — and it would draw from an ISR into a
+    framebuffer whose cursor save-under a package cannot reach, so it would
+    smear the arrow. For scale, the splash's own IRQ0-drawn stars are 4.14 ms,
+    **16.7× the entire 248 µs budget.**
+12. **Sound during a transfer.** §88.5's claim holds channel 2 and the speaker
+    for the whole operation, so a tone playing when Go is pressed refuses the
+    transfer in words, and a tone started during one is refused. That is
+    §34.1's one-owner rule honoured exactly.
+13. **Recompressing an already-`'CZ'` file, expanding anything on the read
+    path, and wrapping a `.o88`/`.DRV`/`.OVL` in `'CZ'`.** §88.7, §88.9 rows
+    20–21.
+14. **Automatic rewind, seek, or "skip to the third file".** A 19-record file
+    is 20 calls at ~3.7 s each — **74 seconds of frozen machine** — which is
+    worse than telling the user to press Fast Forward. **The deck answers "the
+    third file on the tape"; the software does not.**
+15. **A tape directory at the head of the tape.** It would be a lie the moment
+    anything was appended.
+16. **Writing every block twice.** It doubles a 309-second transfer to 618;
+    compression is the stronger lever pointing the other way (§88.7).
+17. **A header checksum** (§88.4.1), **a 256-entry CRC table** (§88.4.2), and
+    **timestamps or attributes in the header** — the write is stamped with a
+    clock that has just lost the whole transfer, and a hidden+system file
+    cannot be selected in the file manager at all.
+18. **The `/F` speed tweak** (1250/2500 Hz, 1.24×). It needs 8,208 bytes of
+    heap to shadow 8 KB of ROM at exactly `0xE000`, and the divisor offsets it
+    patches are the **IBM ROM's** — GLaBIOS is not byte-compatible there, so it
+    would silently do nothing on every field twin.
+19. **An `OS88_ASSOC16` block for `.TAP`.** **There is no `.TAP` file anywhere
+    in this design**: §88.4 defines a record layout written to magnetic tape,
+    and a Load writes exactly one disk file, the user's payload under its own
+    name from the header. An association would ship live to a file type that
+    cannot exist, and the first user who names something `NOTES.TAP` would get
+    it opened by the tape program.
+
+### 88.11 What cannot be verified here, stated so nobody assumes otherwise
+
+Cassette belongs on the closed list in CLAUDE.md's Testing section — and it is
+the first entry with **no QEMU fallback either**. MartyPC's PPI returns a
+hardwired `0` for the cassette data line whenever the motor is on; QEMU has no
+XT-class machine and SeaBIOS dispatches no `AH=00..03`; 86Box models a cassette
+but has no debugger and no automation socket, and no `vm/` profile here is a
+5150.
+
+- **A cassette read, on any instrument in this project.**
+- **The positive branch of the two-second sniff** — nothing here can make the
+  data line change. So the test asserts **the port and the mask at a
+  breakpoint** and not merely the elapsed time: a plausible *wrong*
+  implementation that polls bit 5 reads constant too and would report "signal
+  present" for a dead deck on iron.
+- **The mode-3 lend (§88.0, §88.5).** MartyPC's read fails before the
+  thresholds are reached, so the fix that makes reads possible on iron has no
+  emulator gate at all. It is derived from the IBM listing and from GLaBIOS's
+  independent agreement, and it goes to the field behind a `TAPEMODE2=1` A/B.
+- **The IRQ0 half of the mask bracket**, because GLaBIOS masks IRQ0 itself in
+  both directions — so *"`ticks` does not advance across a record"* is true
+  with our whole bracket deleted, and a row asserting it would be green either
+  way. The one ROM where it is load-bearing is IBM's `AH=03`, which is
+  unreachable here.
+- **What a keystroke costs a read** (§88.2's IRQ1 asymmetry), which is priced
+  at an instruction count and not a measurement.
+- **Whether the bits land on tape, and at what error rate.** Field only.
+
+**It is legitimate to build this and say so; it is not legitimate to build it
+and imply it was tested.** Everything the host *can* settle is settled host-side
+before any 8086 is written: `tools/os88tape.py` is the reference codec, with
+`--rom ibm|glabios` and `--selfcheck`, and it holds two bit-exact goldens —
+256 zero bytes is **4,154 bits from GLaBIOS and 4,153 from IBM** — so the
+format, the CRC, the padding, the record layout and every table in this section
+are checked by a fast row rather than argued about. The detection predicate is
+checked against a **committed ROM fixture** rather than against whatever
+`make marty` happens to have staged.
+
+### 88.12 What it costs, and where it ships
+
+**Resident kernel: +47 bytes, all of them inside `KERN_CODE_MAX`** — 46
+`.text` and 1 `.bss`, plus ~150 `.cold` and ~60 bytes of `CLONE.DRV`'s module
+image that are not resident. The `.text` is two `OSAPI_JSLOT` cells at 8 bytes
+each, their two 6-byte `call COLD_SEG:… / retf` stubs, and three six-byte
+guards — in `sch_fast_on`, in `sch_account` and on `spk_tone`/`spk_pcm_start`.
+The `.bss` byte is `[sch_pitbios]`. The API table assertion moves from
+`161 * 8` to `163 * 8` and `osapi_table_end` from 0x0518 to 0x0528. Per
+CLAUDE.md that is **not** a claim the change is free: no rung is crossed, and
+the slack spent belongs to whoever comes next.
+
+**The package is ≤ 9,000 bytes packed** (≈ 9,308 image, ≈ 420 bss), against
+`APP_MAX_SIZE` = 0xF000 for image + bss. Runtime heap is one pinned claim of
+`(payloadKB + 5)` KB, a 2 KB scan claim, and `OSAPI_COMPRESS`'s transient
+11–41 KB of tables, freed before the motor starts.
+
+**`TAPE.O88` ships in `SYSTEM/` on the SYSTEM disk, not on the apps disk.** The
+5150 is a 360 KB machine, and at that geometry the package is ~8 clusters —
+8% of the system disk's 100 free, against **30% of the apps disk's 27**. It is
+also right on the merits: a tool that drives the machine's own hardware belongs
+beside the Task Manager (§28.3). It ships on the **kern_small** disks too:
+§24.5's requirement filter excludes a package that can never reach a driver
+kern_small does not carry, and this one reaches no driver — it refuses *itself*
+honestly on a small heap (§88.7), with the arithmetic on the glass, which is
+what that filter exists to make unnecessary.
