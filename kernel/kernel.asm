@@ -3849,7 +3849,17 @@ osapi_table:
                                   ;          a constant, an 8253 has no
                                   ;          read-back, and [sch_pit_last] has
                                   ;          to be re-seeded after
-osapi_table_end:                  ; 0x0520
+    OSAPI_JSLOT api_compress      ; 0x0520 - AX = source seg, CX = length,
+                                  ;          DX = output seg: compress a block
+                                  ;          the way File > Compress does
+                                  ;          (SPEC.md 88.6). The counterpart of
+                                  ;          OSAPI_DECOMP, which has been
+                                  ;          published since 20.13 with no
+                                  ;          encoder beside it. The encoder is
+                                  ;          in CLONE.DRV; this fetches it,
+                                  ;          runs it and drops it, so a package
+                                  ;          never learns a module exists
+osapi_table_end:                  ; 0x0528
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -3857,8 +3867,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 162 * 8
-%error "os8088 API jump table must be exactly 162 8-byte slots"
+%if OSAPI_TABLE_LEN != 163 * 8
+%error "os8088 API jump table must be exactly 163 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -4063,6 +4073,22 @@ api_pit_lend:
     call COLD_SEG:schf_pit_lend
     pop ds                      ; neither `pop ds` nor either return touches
     retf                        ; the flags, so the LEAVE arm's promise holds
+
+; -----------------------------------------------------------------------------
+; api_compress - slot 0x0520 (SPEC.md 88.6). The body is `.cold`, beside the
+; file manager's own thunk for the same module, and for its reasons: it does a
+; disk read (mod_need) and takes the heap, so it is UI-task work and never a
+; worker's.
+; -----------------------------------------------------------------------------
+api_compress:
+    push ds
+    push cs
+    pop ds                      ; DS = KERNEL_SEG - the body reads mod_fp and
+                                ; mod_tab, both kernel .bss (see api_pit_lend)
+    call COLD_SEG:fmf_compress
+    pop ds
+    retf                        ; CF and AX are the body's answer, and neither
+                                ; return touches the flags
 
 ; -----------------------------------------------------------------------------
 api_decomp:

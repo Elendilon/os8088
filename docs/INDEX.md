@@ -133,6 +133,7 @@ Read first: [§18 disk.inc — floppy I/O (BIOS int 13h) + the FAT driver](../SP
 | `0x0140` | `OSAPI_FILE_DFREE` | out CF=0, DX:AX = free bytes, BX = SECTORS per cluster. NO DISK I/O - AND THAT IS NOT THE SAME AS CHEAP (SPEC.md 18.4.5)... |
 | `0x0150` | `OSAPI_FILE_DLG` | AL = 0 Open / 1 Save, BX = your window ptr, DI = completion proc, SI = default name (NUL, <= 12) or 0... |
 | `0x01E8` | `OSAPI_VOL_KIND` | AL = a volume index (0 = A:). CF=1 = there is no such volume... |
+| `0x0520` | `OSAPI_COMPRESS` | AX = the SOURCE segment (bytes at AX:0000), CX = its length 1..0xFFFF, DX = the OUTPUT segment, CX bytes of room... |
 | `0x0270` | `OSAPI_VOL_ADD` | AL = the driver's own volume handle, CX = the volume's sector count, DX = a listing claim's segment (0 = the kernel's 32-entry floor), SI = a NUL... |
 | `0x0278` | `OSAPI_VOL_DEL` | AL = a volume index this driver registered. Cannot fail |
 | `0x0280` | `OSAPI_VOL_MOUNT` | AL = a volume index; mount and list it. out CF=1 = not a readable FAT12/16 volume. UI-TASK CONTEXT ONLY, like every other file slot |

@@ -909,6 +909,49 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; refused and not detected - it is your
                                  ; promise, exactly like OSAPI_WM_SAVEU's
 
+; --- OSAPI_COMPRESS (SPEC.md 88.6) -------------------------------------------
+; The counterpart of OSAPI_DECOMP, which has been published since SPEC.md 20.13
+; with no encoder beside it. The encoder lives in CLONE.DRV, an on-demand
+; kernel MODULE and not a loadable driver, so OSAPI_DRV_CALL cannot reach it -
+; this cell fetches it, runs it and drops it, and you never learn it exists.
+%define OSAPI_LZ_LZ4     0      ; the BL a 'CZ' container's +2 wants
+%define OSAPI_LZ_LZB     1
+OSAPI_CMP_NOGAIN equ 1          ; it did not get smaller. STORE IT PLAIN - this
+                                ; is the ORDINARY answer for a file that is
+                                ; already compressed and is not an error
+OSAPI_CMP_NOMEM  equ 2          ; the tables would not fit even at the smallest
+                                ; window. Nothing was claimed
+OSAPI_CMP_NODISK equ 3          ; the SYSTEM disk is not in the boot drive, so
+                                ; the module could not be fetched
+%define OSAPI_COMPRESS      KERNEL_SEG:0x0520   ; AX = the SOURCE segment (bytes
+                                 ; at AX:0000), CX = its length 1..0xFFFF,
+                                 ; DX = the OUTPUT segment, CX bytes of room.
+                                 ;
+                                 ; out CF = 0 and AX = the packed length, which
+                                 ; is ALWAYS < CX, and BL = the format used.
+                                 ; CF = 1 and AX = an OSAPI_CMP_* above, with
+                                 ; NOTHING written to DX.
+                                 ;
+                                 ; BX aside from BL, and CX, DX, SI, DI, BP, DS
+                                 ; and ES all come back. What you get is a
+                                 ; WHOLE STREAM and NOT a 'CZ' container - the
+                                 ; 8-byte header is yours to write, because you
+                                 ; may want the file's and you may want none.
+                                 ;
+                                 ; IT CLAIMS THE TABLES AND NOTHING ELSE (41 KB
+                                 ; at the full window, down to 11 KB as it
+                                 ; halves to fit); YOUR TWO BUFFERS ARE YOURS
+                                 ; and are never copied.
+                                 ;
+                                 ; CONTEXT: THE UI TASK, GFX LOCK NOT HELD. It
+                                 ; reads a file and takes the heap, so it is
+                                 ; rule 7's forbidden half exactly like the
+                                 ; file slots, and OSAPI_WM_ONWAKE is where a
+                                 ; package may do both. Paint your caption,
+                                 ; RELEASE THE LOCK, then call: it is seconds,
+                                 ; and a lock held across it hides the pointer
+                                 ; for all of them.
+
 ; --- OSAPI_PIT_LEND (SPEC.md 88.5) -------------------------------------------
 ; Lend PIT channel 0 to a ROM routine whose own constants assume the BIOS's
 ; mode 3, for the length of ONE BIOS call. THE SCHEDULER OWNS CHANNEL 0 and

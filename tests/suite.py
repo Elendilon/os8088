@@ -1897,6 +1897,21 @@ SOAK = [
         "and the fixture are built in a PRIVATE TREE (tools/os88build.py), so "
         "it neither writes build/ nor spends a second build putting it back",
         needs=("marty", "nasm"), serial=True),
+    Row("tapecomp", "soak", py("tests/tapecomp.py"), 17.0,
+        "SPEC.md 88.6's OSAPI_COMPRESS - the first ENCODER the SDK has "
+        "published beside OSAPI_DECOMP, which has carried a decompressor with "
+        "nothing to match it since 20.13. THE ROUND TRIP IS THE TEST and the "
+        "ratio is deliberately not asserted: a stream this machine packs has "
+        "to be one this machine expands, byte for byte, because on a tape "
+        "there is no second copy to fall back to. The NOGAIN arm is not an "
+        "edge case either - it is the path the tape writer takes for every "
+        "'CZ' file and every packed .o88 (88.7), which on a disk full of "
+        "shipped packages is most files. It caught the defect it was written "
+        "for: cmz_verb's shared epilogue ends `pop bx`, which ate the format "
+        "byte the contract returns in BL, and the symptom was a decoder "
+        "refusing a stream the machine had just written - correctly, having "
+        "been told LZ4 for an LZB stream",
+        wants=("build/tapecomp360.img",)),
     Row("tapelend", "soak", py("tests/tapelend.py"), 55.0,
         "SPEC.md 88.5's OSAPI_PIT_LEND, on TWO kernels. The cell amends "
         "SPEC.md 34.1 - a rule written down so the argument would stop "

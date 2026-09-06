@@ -85,6 +85,21 @@ CMZ_XTOAST  equ 0x0380          ; OSAPI_TOAST, and it is what lets this
 
 CMZ_WMAX    equ 16384           ; the compressor's window, largest first: 2
 CMZ_WMIN    equ 1024            ; bytes of prev[] each (SPEC.md 20.15.1)
+; OSAPI_COMPRESS's three refusals (SPEC.md 88.6). MIRRORED in
+; apps/os88api.inc, which a package includes and the kernel does not;
+; tests/unit/t_mirror.py is what keeps the two honest.
+OSAPI_CMP_NOGAIN equ 1          ; it did not get smaller - the ORDINARY answer
+                                ; for an already-compressed file, not an error
+OSAPI_CMP_NOMEM  equ 2          ; the tables would not fit at any window
+OSAPI_CMP_NODISK equ 3          ; the system disk is not in the boot drive
+
+CMZ_V_RAW   equ 0xFE            ; cmz_verb's THIRD verb (SPEC.md 88.6): compress
+                                ; a caller's buffer instead of the Disk
+                                ; window's selection. It is not an FMC_* and
+                                ; cannot collide with one - fm_docmd's ids are
+                                ; small and doubled - and it costs no mod_fp
+                                ; slot, the image dispatching on DL itself, so
+                                ; CLO_NENT stays 2 (SPEC.md 20.15.3)
 CMZFP       equ CLFP + 4        ; the cloner's SECOND entry (SPEC.md 20.15.3):
                                 ; this whole file is part of CLONE.DRV's
                                 ; image, so it costs no mod_tab row, no file
@@ -591,6 +606,8 @@ cmz_verb:
     push si
     push di
     push es
+    cmp dl, CMZ_V_RAW           ; SPEC.md 88.6's cell: a caller's buffer, and
+    je cmz_raw                  ; no selection, no file and no toast
     ; --- the selection BOTH verbs act on, and the no-op that says nothing ---
     ; fm_sel_ok's test, inline: this image is entered with DS = KERNEL_SEG, so
     ; the acting window's state block is a plain read. A folder, '..' and no
@@ -1189,6 +1206,90 @@ cmz_pct:
 ; refusing outright would make the verb absent from the machine most likely to
 ; want it (SPEC.md 20.15.1).
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; cmz_raw - OSAPI_COMPRESS's module half (SPEC.md 88.6)
+; in:  AX = the source segment, CX = its length (1..0xFFFF), SI = the output
+;      segment. DL = CMZ_V_RAW got us here.
+; out: CF=0 and AX = the packed length, BL = the format (always LZ_LZB today);
+;      CF=1 and AX = an OSAPI_CMP_* saying why. It joins cmz_verb's `.out`,
+;      which unwinds the pushes the entry made.
+;
+; THE OUTPUT SEGMENT ARRIVES IN SI AND NOT DX, because DL is the verb selector
+; and DX cannot be both. The cell's `.cold` body does that marshalling, so the
+; PACKAGE still passes DX exactly as SPEC.md 88.6 publishes it.
+;
+; IT CLAIMS THE TABLES AND NOTHING ELSE. cmz_claim is the wrong routine to
+; reach for: it sizes and allocates the SOURCE and OUTPUT regions too, out of
+; [cs:cmz_u], which a caller that already holds its payload would be paying
+; for twice.
+; -----------------------------------------------------------------------------
+cmz_raw:
+    mov [cs:cmz_rsrc], ax
+    mov [cs:cmz_rout], si
+    mov [cs:cmz_rlen], cx
+    mov word [cs:cmz_w], CMZ_WMAX
+.try:
+    mov ax, [cs:cmz_w]
+    mov cl, 9
+    shr ax, cl                  ; prev[] is 2 bytes a position: window/512 KB
+    add ax, CMZ_PREV / 1024     ; ...plus head[]'s 8
+    inc ax                      ; ...and one for the rounding
+    mov bx, MEM_K_CMPR
+    call COLD_SEG:mmf_mem_claim
+    jnc .got
+    shr word [cs:cmz_w], 1      ; halve the window and ask again: a 128KB
+    cmp word [cs:cmz_w], CMZ_WMIN   ; machine runs the same encoder over less
+    jae .try                    ; history rather than a different one
+    mov ax, OSAPI_CMP_NOMEM
+    stc
+    jmp short .rawout
+.got:
+    mov [cs:cmz_b], dx          ; the tables' segment, for the free below
+    mov bx, dx
+    mov ax, [cs:cmz_rsrc]
+    mov dx, [cs:cmz_rout]
+    mov cx, [cs:cmz_rlen]
+    mov di, [cs:cmz_w]
+    dec di                      ; cmz_pack wants the window's MASK
+    call cmz_pack               ; a NEAR call: we are inside its own image
+    pushf
+    push ax
+    mov bx, MEM_K_CMPR
+    mov dx, [cs:cmz_b]
+    call COLD_SEG:mmf_mem_free  ; the tables go back on EVERY path
+    pop ax
+    popf
+    jnc .rawout                 ; CF=0: AX is the packed length
+    mov ax, OSAPI_CMP_NOGAIN    ; CF=1 from cmz_pack means one thing only - it
+    stc                         ; did not get smaller - and that is the
+                                ; ORDINARY answer for an already-compressed
+                                ; file, not an error
+
+; ITS OWN EPILOGUE, and this is not tidiness. cmz_verb's `.out` ends
+; `pop bx`, which restores the CALLER'S BX and so eats the format byte the
+; contract returns in BL (SPEC.md 88.6). The gate caught it as a decoder that
+; refused a stream it had just written: BL came back 0, OSAPI_DECOMP was told
+; LZ4 for an LZB stream, and refused - correctly.
+.rawout:                        ; in: CF = the answer, AX = length or reason
+    mov [cs:cmz_rax], ax        ; bank both across the unwind
+    sbb ax, ax
+    mov [cs:cmz_rcf], ax
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx                      ; ...and BL is ours from here
+    mov bl, LZ_LZB              ; what this encoder writes, and only what it
+    mov ax, [cs:cmz_rax]        ; writes (SPEC.md 20.15)
+    cmp word [cs:cmz_rcf], 0
+    jne .rawbad
+    clc
+    ret
+.rawbad:
+    stc
+    ret
+
 cmz_claim:
     push ax
     push bx
@@ -1414,6 +1515,12 @@ cmz_b:      dw 0                ; ...the base of the claim...
 cmz_o:      dw 0                ; ...the second region (a slice of that claim
                                 ; for Compress, a second claim for Uncompress)
 cmz_x:      dw 0                ; ...the clear prefix a package keeps (22.22.1)
+cmz_rsrc:   dw 0                ; CMZ_V_RAW's three: the caller's source...
+cmz_rout:   dw 0                ; ...its output...
+cmz_rlen:   dw 0                ; ...and the length. The buffers are the
+                                ; CALLER'S and are never copied (SPEC.md 88.6)
+cmz_rax:    dw 0                ; ...its answer and its CF, banked across the
+cmz_rcf:    dw 0                ; arm's own unwind (see .rawout)
 cmz_k:      dw 0                ; ...and the source region's size in KB. Six
                                 ; of these were kernel `.bss` while a verb was
                                 ; resident; nothing outside this image reads

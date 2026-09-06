@@ -3742,6 +3742,24 @@ $(BUILD)/tapelend360.img: $(BUILD)/tapelend.o88 tools/os88disk.py
 .PHONY: tapelendtest
 tapelendtest: $(BUILD)/tapelend360.img
 
+# TAPECOMP: the gate on OSAPI_COMPRESS (SPEC.md 88.6),
+# docs/plans/CASSETTE-PLAN.md wave 4. The round trip is the test - a stream
+# this machine packs must be one this machine expands, byte for byte, because
+# on a tape there is no second copy:
+#   make tapecomptest && python3 tests/tapecomp.py
+$(BUILD)/tapecomp.bin: tests/tapecomp/tapecomp.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/tapecomp/tapecomp.asm
+	@echo "tapecomp: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tapecomp.o88: $(BUILD)/tapecomp.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tapecomp.bin -o $@
+
+$(BUILD)/tapecomp360.img: $(BUILD)/tapecomp.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tapecomp.o88
+
+.PHONY: tapecomptest
+tapecomptest: $(BUILD)/tapecomp360.img
+
 # lzfile - a compressed FILE, read transparently (SPEC.md 20.14,
 # docs/plans/O88-COMPRESSION-PLAN.md 13 wave 5). The disk carries one document
 # TWICE: PLAIN.TXT as it is and PACKED.TXT wrapped by os88lz.py, so every

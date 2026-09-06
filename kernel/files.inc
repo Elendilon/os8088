@@ -8289,6 +8289,56 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
 ; FORMAT.DRV letters its own confirmation now and needs a decimal formatter to
 ; do it. Six resident bytes against a second copy of real code in the image,
 ; which is the one place that trade goes the other way.
+; -----------------------------------------------------------------------------
+; fmf_compress - OSAPI_COMPRESS's kernel half (SPEC.md 88.6), reached from
+;                api_compress at slot 0x0520.
+; in:  AX = the source segment, CX = its length, DX = the output segment
+; out: CF=0 and AX = the packed length, BL = the format; CF=1 and AX = an
+;      OSAPI_CMP_*. Everything else is preserved.
+;
+; It is fm_c_compress's dance without the file manager: fetch the cloner's
+; image, call into it, drop the image on EVERY path including the ones that
+; said nothing. The package sees one far call and never learns that a module
+; exists - which is the whole point of publishing a cell rather than a
+; mechanism.
+;
+; THE OUTPUT SEGMENT GOES ACROSS IN SI, because DL is the module's verb
+; selector and DX cannot be both (SPEC.md 88.6). That marshalling is here so
+; the PACKAGE's contract can stay the obvious one.
+; -----------------------------------------------------------------------------
+fmf_compress:
+    push si
+    push di
+    push dx
+    push cx
+    mov si, dx                  ; the output segment, out of DL's way
+    push ax
+    mov al, MOD_CLONE           ; the compressor rides in the cloner's image
+    call mod_need               ; (SPEC.md 20.15.3), and mod_need goes to
+    pop ax                      ; [dsk_bootvol] and ONLY there
+    jc .nomod
+    mov dl, CMZ_V_RAW
+    call far [CMZFP]            ; AX/CX/SI in, CF + AX + BL out
+    pushf
+    push ax
+    push bx
+    mov al, MOD_CLONE
+    call mod_drop               ; ...on every path, including the refusals
+    pop bx
+    pop ax
+    popf
+.out:
+    pop cx
+    pop dx
+    pop di
+    pop si
+    retf                        ; `retf` leaves the flags alone, so CF is the
+                                ; module's answer
+.nomod:
+    mov ax, OSAPI_CMP_NODISK    ; the system disk is not in the boot drive -
+    stc                         ; the same cause fm_c_compress says `No disk`
+    jmp short .out              ; for, and a normal path (SPEC.md 88.6)
+
 fmf_fm_utoa:            call fm_utoa
                     retf
 fmf_fm_stage_onam:      call fm_stage_onam  ; the compressor's selection test
