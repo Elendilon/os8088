@@ -21731,6 +21731,35 @@ bottom inside the content. A golden rect would be a window size written down;
 this is arithmetic the table already carries, and it goes red on a bar height
 one pixel out.
 
+#### 13.16.3 …and the drawing and the hit test
+
+Wave 2: `os88ui_mnbar`, `os88ui_mntxor`, `os88ui_mntitler`, `os88ui_mndraw`,
+`os88ui_mnfind`, `os88ui_mnhl`, `os88ui_mnbarhit`, `os88ui_mninrect`. Every one
+was Word-free after the mechanical substitution; what needed a hand was three
+kinds of thing:
+
+* **The content WIDTH.** The record is `{x1,y1,x2,y2}` because that is this
+  file's stated convention, and Word's bar arithmetic was in `w`. Each of the
+  five sites converts exactly rather than approximately: `x1 + cw - 1` IS the
+  rect's own `x2`, and a `cmp offset, cw` becomes one absolute compare after
+  `add`/`dec`. No width word was added to the record to avoid doing it.
+* **`OS88UI_MN_BBUF`**, a near pointer to a scratch of the CALLER's, at least
+  the bar string's length + 2. `os88ui_mnbar` composes a truncated copy there
+  when the window is too narrow for the whole bar, and the buffer is the
+  caller's rather than the record's because a bar is as long as its titles.
+  Left at 0 it would compose into offset 0 of the package image, which is the
+  header — so the record's init sets it beside `MN_TAB` and `MN_CHK`.
+* **`OS88UI_MN_CHK`**, the hook, which `os88ui_mndraw` calls with the item's
+  ACTION byte and reads `CF` back from. A record without one never ticks,
+  which is right: `OS88UI_MNF_CHK` means *ask*, and a package with no dynamic
+  ticks does not set it.
+
+**Proved the same way and one level up.** All nine of Word's menus were opened
+on the build before the wave and the build after, and the drawn PANEL — every
+byte of it, framed, lettered, separated, ticked, greyed and underlined — came
+back **pixel-identical on every one**. That is the whole of what `mndraw`,
+`mnbar` and `mngeo` between them produce.
+
 ## 14. apps.inc
 
 The built-in app **kinds**: About, Timer, Bounce. Nothing is

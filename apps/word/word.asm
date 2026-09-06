@@ -823,6 +823,8 @@ wd_entry:
     mov word [wd_mnrec + OS88UI_MN_TAB], wd_mtab
     mov word [wd_mnrec + OS88UI_MN_N], WD_M_N
     mov word [wd_mnrec + OS88UI_MN_BAR], wd_s_mbar
+    mov word [wd_mnrec + OS88UI_MN_BBUF], wd_mbbuf
+    mov word [wd_mnrec + OS88UI_MN_CHK], wd_mchk
     mov [wd_mnrec + OS88UI_MN_WIN], bx
     push ax                         ; SPEC.md 54.10: the kernel calls this once
     mov ax, wd_onwake               ; our window is on the glass, and the launch
@@ -13745,143 +13747,24 @@ wd_wfit:
 ; copy rather than lettering past its own edge.
 ; -----------------------------------------------------------------------------
 wd_mbar:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [wd_cl]
-    mov bx, [wd_ct]
-    mov cx, ax
-    add cx, [wd_cw]
-    dec cx
-    mov dx, bx
-    add dx, WD_MENU_H-2
-    call OSAPI_GFX_FILL             ; the strip's ground
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, [wd_cl]
-    mov bx, cx
-    mov dx, [wd_ct]
-    add dx, WD_MENU_H-1
-    call OSAPI_GFX_HLINE            ; the rule under the bar
-    mov si, wd_s_mbar
-    mov ax, [wd_cw]
-    cmp ax, 8 + 56*8
-    jae .whole
-    sub ax, 16                      ; too narrow: truncate at the cells that
-    js .under                       ; fit. Mid-title cuts are the honest
-    mov cl, 3                       ; degrade for a 96px window
-    shr ax, cl
-    jz .under
-    cmp ax, 56
-    jbe .tr
-    mov ax, 56
-.tr:
-    mov cx, ax
-    mov di, wd_mbbuf
-    cld
-.cp:
-    lodsb
-    mov [di], al
-    inc di
-    or al, al
-    jz .cpd
-    loop .cp
-    mov byte [di], 0
-.cpd:
-    mov si, wd_mbbuf
-.whole:
-    mov cx, [wd_cl]
-    add cx, 8
-    mov dx, [wd_ct]
-    add dx, 3
-    mov al, CBLACK
-    mov ah, CWHITE
-    call OSAPI_FONT_RUN
-.under:
-    mov si, wd_mtab                 ; the mnemonic underlines
-    mov di, WD_M_N
-.mn:
-    mov al, [si]
-    add al, [si+1]
-    inc al
-    xor ah, ah
-    mov cl, 3
-    shl ax, cl
-    cmp ax, [wd_cw]                 ; (start+len+1)*8 <= cw = fully visible
-    ja .mnnext
-    mov al, [si]
-    add al, [si+2]                  ; start + the title's mnemonic index
-    xor ah, ah
-    shl ax, cl
-    add ax, [wd_cl]
-    add ax, 8
-    mov bx, ax
-    add bx, 6
-    mov dx, [wd_ct]
-    add dx, 11
-    call OSAPI_GFX_HLINE
-.mnnext:
-    add si, 8
-    dec di
-    jnz .mn
-    mov al, [wd_mopen]              ; a bar repaint under an open dropdown
-    cmp al, WD_M_N                  ; keeps the title inverted
-    jae .out
-    call wd_mtxor
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mnbar
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mtxor - invert a bar title's band (XOR: calling it again un-inverts)
 ; in:  AL = menu index 0..8, wd_bounds run; preserves all registers
 ; -----------------------------------------------------------------------------
 wd_mtxor:
-    push ax
-    push bx
-    push cx
-    push dx
-    call wd_mgeti
-    mov al, [bx]
-    add al, [bx+1]
-    inc al
-    xor ah, ah
-    mov cl, 3
-    shl ax, cl
-    cmp ax, [wd_cw]
-    ja .out                         ; off a narrow window's bar: nothing shown
-    mov al, [bx]
-    xor ah, ah
-    shl ax, cl
-    add ax, [wd_cl]
-    add ax, 8-2                     ; 2px into the leading space cell
-    mov dl, [bx+1]
-    xor dh, dh
-    shl dx, cl
-    mov cx, ax
-    add cx, dx
-    add cx, 3                       ; ...and 2px into the trailing one
-    mov bx, [wd_ct]
-    inc bx
-    mov dx, [wd_ct]
-    add dx, 12
-    call OSAPI_GFX_XOR_FILL
-.out:
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mntxor
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mtitler - AL = menu 0..8: bank its bar band as the gesture anchor
@@ -13890,33 +13773,12 @@ wd_mtxor:
 ; and "toggle closed" answers - one rect for titles and combo boxes alike.
 ; -----------------------------------------------------------------------------
 wd_mtitler:
-    push ax
-    push bx
-    push cx
-    push dx
-    call wd_mgeti
-    mov al, [bx]
-    xor ah, ah
-    mov cl, 3
-    shl ax, cl
-    add ax, [wd_cl]
-    add ax, 8-2
-    mov [wd_mabox], ax
-    mov dl, [bx+1]
-    xor dh, dh
-    shl dx, cl
-    add ax, dx
-    add ax, 3
-    mov [wd_mabox+4], ax
-    mov ax, [wd_ct]
-    mov [wd_mabox+2], ax
-    add ax, WD_MENU_H-1
-    mov [wd_mabox+6], ax
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mntitler
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mchk - is the checkable item with action AL currently checked?
@@ -13993,172 +13855,12 @@ wd_mgeo:
 ; line check at x1+2; enabled mnemonics a 1px underline.
 ; -----------------------------------------------------------------------------
 wd_mdraw:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [wd_mrx1]
-    mov bx, [wd_mry1]
-    mov cx, [wd_mrx2]
-    mov dx, [wd_mry2]
-    call OSAPI_GFX_FILL
-    clc
-    call OSAPI_GFX_PEN              ; live pen: CBLACK, dither flag clear
-    call OSAPI_GFX_FRAME
-    mov ax, [wd_mrx2]               ; the drop shadow: right edge...
-    inc ax
-    mov bx, [wd_mry1]
-    inc bx
-    mov cx, ax
-    mov dx, [wd_mry2]
-    inc dx
-    call OSAPI_GFX_FILL_GRAY
-    mov ax, [wd_mrx1]               ; ...and bottom edge
-    inc ax
-    mov bx, [wd_mry2]
-    inc bx
-    mov cx, [wd_mrx2]
-    inc cx
-    mov dx, bx
-    call OSAPI_GFX_FILL_GRAY
-    ; the items
-    mov al, [wd_mopen]
-    call wd_mgeti
-    mov cl, [bx+3]
-    xor ch, ch
-    mov si, [bx+4]
-    mov di, [wd_mry1]
-    add di, 2
-.item:
-    or cx, cx
-    jnz .live
-    jmp .done                       ; out of the short branch's reach
-.live:
-    test byte [si], WDMF_SEP
-    jz .norm
-    mov ax, di                      ; a separator: one hline mid-band
-    add ax, WD_MS_HGT-1
-    cmp ax, [wd_mry2]
-    jae .done
-    mov ax, [wd_mrx1]
-    inc ax
-    mov bx, [wd_mrx2]
-    dec bx
-    mov dx, di
-    add dx, 2
-    call OSAPI_GFX_HLINE
-    add di, WD_MS_HGT
-    jmp .next
-.norm:
-    mov ax, di
-    add ax, WD_MI_HGT-1
-    cmp ax, [wd_mry2]
-    jae .done                       ; clipped by a short window: stop
-    push cx
-    mov byte [wd_mink], CBLACK
-    test byte [si], WDMF_DIS
-    jnz .dis
-    clc
-    jmp short .pen
-.dis:
-    mov byte [wd_mink], CDGRAY      ; ...and the run's ink is the same answer
-    stc                             ; (SPEC.md 68.14): a package cannot read
-.pen:                               ; the pen back, so it is decided here
-    call OSAPI_GFX_PEN              ; CF IS the argument (SPEC.md 47)
-    ; the check column
-    test byte [si], WDMF_CHK
-    jz .nochk
-    mov al, [si+2]
-    call wd_mchk
-    jnc .nochk
-    mov ax, [wd_mrx1]
-    add ax, 2
-    mov bx, di
-    add bx, 5
-    mov cx, [wd_mrx1]
-    add cx, 3
-    mov dx, di
-    add dx, 7
-    push si
-    xor si, si
-    call OSAPI_GFX_LINE             ; the check's short down-stroke...
-    mov ax, cx
-    mov bx, dx
-    mov cx, [wd_mrx1]
-    add cx, 7
-    mov dx, di
-    add dx, 3
-    call OSAPI_GFX_LINE             ; ...and its long up-stroke
-    pop si
-.nochk:
-    ; the label
-    mov cx, [wd_mrx1]
-    add cx, 8
-    mov dx, di
-    inc dx
-    push si
-    mov si, [si+4]
-    mov ah, CWHITE                  ; OPAQUE (SPEC.md 68.14): the panel's white
-    mov al, [wd_mink]               ; is a constant and the item's own cells
-    call OSAPI_FONT_RUN             ; are one decision each. [gfx_dis] is
-    pop si                          ; already set, so 6.1.12 folds 47's
-                                    ; checkerboard into the run's own mask
-    ; the mnemonic underline (enabled items only: a grey line rounds to
-    ; solid black at 1bpp and a greyed mnemonic answers no key anyway)
-    test byte [si], WDMF_DIS
-    jnz .nomn
-    cmp byte [si+3], 0
-    je .nomn
-    mov al, [si+1]
-    xor ah, ah
-    mov cl, 3
-    shl ax, cl
-    add ax, [wd_mrx1]
-    add ax, 8
-    mov bx, ax
-    add bx, 6
-    mov dx, di
-    add dx, 9
-    call OSAPI_GFX_HLINE
-.nomn:
-    ; the caption, right-justified in the panel
-    mov bx, [si+6]
-    or bx, bx
-    jz .nocap
-    push si
-    mov si, bx
-    call OSAPI_FONT_WIDTH           ; AX is the WIDTH here, so the pair goes
-    mov cx, [wd_mrx2]               ; in after it and not before
-    sub cx, 6
-    sub cx, ax
-    mov dx, di
-    inc dx
-    mov ah, CWHITE
-    mov al, [wd_mink]
-    call OSAPI_FONT_RUN
-    pop si
-.nocap:
-    clc
-    call OSAPI_GFX_PEN              ; pen back live before the next item
-    pop cx
-    add di, WD_MI_HGT
-.next:
-    add si, 8
-    dec cx
-    jz .done
-    jmp .item
-.done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mndraw
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mfind - which ENABLED item is the point on?
@@ -14167,66 +13869,12 @@ wd_mdraw:
 ;      clipped one); preserves everything else
 ; -----------------------------------------------------------------------------
 wd_mfind:
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    cmp cx, [wd_mrx1]
-    jb .miss
-    cmp cx, [wd_mrx2]
-    ja .miss
-    cmp dx, [wd_mry1]
-    jb .miss
-    cmp dx, [wd_mry2]
-    ja .miss
-    mov al, [wd_mopen]
-    call wd_mgeti
-    mov cl, [bx+3]
-    xor ch, ch
-    mov si, [bx+4]
-    mov di, [wd_mry1]
-    add di, 2
-    cmp dx, di
-    jb .miss                        ; in the top pad
-    xor bx, bx                      ; BL = index
-.scan:
-    jcxz .miss
-    test byte [si], WDMF_SEP
-    jnz .sep
-    mov ax, di
-    add ax, WD_MI_HGT-1
-    cmp ax, [wd_mry2]
-    jae .miss                       ; this item is clipped: so is the rest
-    cmp dx, ax
-    ja .below
-    test byte [si], WDMF_DIS        ; found the band
-    jnz .miss
-    mov al, bl
-    jmp short .out
-.below:
-    add di, WD_MI_HGT
-    jmp short .adv
-.sep:
-    mov ax, di
-    add ax, WD_MS_HGT-1
-    cmp dx, ax
-    jbe .miss                       ; a separator answers nothing
-    add di, WD_MS_HGT
-.adv:
-    add si, 8
-    inc bx
-    dec cx
-    jmp short .scan
-.miss:
-    mov al, 0xFF
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mnfind
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mhl - XOR the highlight band of item AL (0xFF = nothing to do)
@@ -14234,113 +13882,24 @@ wd_mfind:
 ; coordinate idiom the drag markers already use (SPEC.md 27.8).
 ; -----------------------------------------------------------------------------
 wd_mhl:
-    cmp al, 0xFF
-    je .no
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov dl, al                      ; DL = target index
-    mov al, [wd_mopen]
-    call wd_mgeti
-    mov si, [bx+4]
-    mov di, [wd_mry1]
-    add di, 2
-    xor cx, cx
-.w:
-    cmp cl, dl
-    je .found
-    test byte [si], WDMF_SEP
-    jz .i10
-    add di, WD_MS_HGT
-    jmp short .n
-.i10:
-    add di, WD_MI_HGT
-.n:
-    add si, 8
-    inc cx
-    jmp short .w
-.found:
-    mov ax, di
-    add ax, WD_MI_HGT-1
-    cmp ax, [wd_mry2]
-    jae .done                       ; clipped: it was not drawn either
-    mov dx, ax
-    mov ax, [wd_mrx1]
-    inc ax
-    mov bx, di
-    mov cx, [wd_mrx2]
-    dec cx
-    call OSAPI_GFX_XOR_FILL
-.done:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-.no:
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mnhl
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mbarhit - CX/DX = a point: which bar title is it on?
 ; out: AL = 0..8 or 0xFF; preserves everything else
 ; -----------------------------------------------------------------------------
 wd_mbarhit:
-    push bx
-    push cx
-    push dx
-    push si
-    mov ax, [wd_ct]
-    cmp dx, ax
-    jb .no
-    add ax, WD_MENU_H-1
-    cmp dx, ax
-    ja .no
-    mov ax, cx
-    sub ax, [wd_cl]
-    sub ax, 8
-    js .no
-    mov cl, 3
-    shr ax, cl                      ; AL = the cell the click is in (AH = 0)
-    mov si, wd_mtab
-    xor bx, bx
-.s:
-    mov dl, [si]
-    cmp al, dl
-    jb .next
-    mov dh, dl
-    add dh, [si+1]
-    cmp al, dh
-    jae .next
-    mov cl, [si]                    ; visible? (start+len+1)*8 <= cw
-    add cl, [si+1]
-    inc cl
-    xor ch, ch
-    push ax
-    mov ax, cx
-    mov cl, 3
-    shl ax, cl
-    cmp ax, [wd_cw]
-    pop ax
-    ja .next
-    mov al, bl
-    jmp short .out
-.next:
-    add si, 8
-    inc bx
-    cmp bl, WD_M_N
-    jb .s
-.no:
-    mov al, 0xFF
-.out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mnbarhit
+    pop bp
     ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_subank - bank the pixels the dropdown is about to cover (SPEC.md 68.2.1)
@@ -16791,19 +16350,12 @@ wd_mclick_open:
 ; out: CF=0 inside; preserves all registers
 ; -----------------------------------------------------------------------------
 wd_minrect:
-    cmp cx, [wd_mrx1]
-    jb .no
-    cmp cx, [wd_mrx2]
-    ja .no
-    cmp dx, [wd_mry1]
-    jb .no
-    cmp dx, [wd_mry2]
-    ja .no
-    clc
+    push bp                         ; SPEC.md 13.16, wave 2
+    mov bp, wd_mnrec
+    call os88ui_mninrect
+    pop bp
     ret
-.no:
-    stc
-    ret
+
 
 ; -----------------------------------------------------------------------------
 ; wd_mroute - route a content click through the chrome (SPEC.md 68.2)
@@ -20830,7 +20382,7 @@ section .text
     ; control half moves out routine by routine, and there is never a moment
     ; when the same fact lives in two places. wd_mopen IS the record's
     ; OS88UI_MN_OPEN, at the same address.
-%define WD_MNREC_SZ 54
+%define WD_MNREC_SZ 56
     WDVAR wd_mnrec, WD_MNREC_SZ
 wd_mopen  equ wd_mnrec + 16     ; byte: the open dropdown, WD_M_NONE = none.
                                 ; 0..8 the bar, 9..11 the strip combos

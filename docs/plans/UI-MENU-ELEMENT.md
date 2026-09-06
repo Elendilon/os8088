@@ -1,6 +1,7 @@
 # The IN-WINDOW MENU as a shared element (`OS88UI_MENU`)
 
-**Status: WAVE 1 LANDED (the record and the geometry); waves 2 and 3 open.**
+**Status: WAVES 1 AND 2 LANDED (the record, the geometry, the drawing and
+the hit test); wave 3 open.**
 SPEC.md 13.16 is the contract for what exists. SPEC.md 13.14.4 is the entry point;
 this is the arithmetic behind it and the questions it cannot answer from the
 outside.
@@ -176,11 +177,12 @@ accessors that only `mngeo` uses, while Word still carries every other routine.
 The accessors will not have a second customer until W2, and the shim goes when
 its callers do.
 
-**W2 — the drawing and the hit test.** `wd_mdraw` (186 lines, and the one that
-needs `MN_CHK`), `wd_mbar`, `wd_mtxor`, `wd_mtitler`, `wd_mfind`, `wd_mhl`,
-`wd_mbarhit`, `wd_minrect`. This is where the accessors earn their bytes and
-where the pixel gates matter — `wdmenusu`'s save-under comparison already
-covers a menu end to end.
+**W2 — LANDED.** `mnbar`, `mntxor`, `mntitler`, `mndraw`, `mnfind`, `mnhl`,
+`mnbarhit`, `mninrect`. Three things needed a hand and SPEC.md 13.16.3 has
+them: the content WIDTH against a rect that carries edges, `OS88UI_MN_BBUF`
+for the truncated bar, and `OS88UI_MN_CHK`. Proved by the same A/B one level
+up — all nine menus' drawn PANELS pixel-identical, which is every byte
+`mndraw`, `mnbar` and `mngeo` produce between them.
 
 **W3 — the gesture and the bank.** `wd_mtrack`, `wd_mclick_open`, `wd_mopenm`,
 `wd_mclose`, `wd_mfire`, `wd_subank`, `wd_surest`, and `wd_selpace`'s

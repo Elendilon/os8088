@@ -3466,6 +3466,7 @@ os88ui_drclose:
 ;       dw 0, 0         ; OS88UI_MN_AX, MN_AY: an anchored list's corner
 ;       dw 0, 0         ; OS88UI_MN_SEG, MN_KB: the bank...
 ;       dw 0,0,0,0      ; OS88UI_MN_BRECT: ...and the rect it holds
+;       dw my_barbuf    ; OS88UI_MN_BBUF: scratch for a truncated bar
 ;       dw 0            ; OS88UI_MN_CHK: near ptr to your item-state hook, or
 ;                       ; 0. AL = item index of the OPEN menu; answer the
 ;                       ; item's live flags in AL (OS88UI_MNF_*). It is the
@@ -3511,7 +3512,13 @@ OS88UI_MN_BRECT  equ 44          ; 4 words: the rect actually BANKED - the
                                  ; (os88ui_drrect) and is right to, its rect
                                  ; being unclamped; this one is not
 OS88UI_MN_CHK    equ 52
-OS88UI_MN_SIZE   equ 54
+OS88UI_MN_BBUF   equ 54          ; near ptr to a scratch of your own, at least
+                                 ; the bar string's length + 2: os88ui_mnbar
+                                 ; composes a TRUNCATED copy there when the
+                                 ; window is too narrow for the whole bar.
+                                 ; The caller's, not the record's, because a
+                                 ; bar is as long as its titles
+OS88UI_MN_SIZE   equ 56
 
 OS88UI_MN_ROW    equ 8           ; bytes in one table row...
 OS88UI_MN_ITEM   equ 8           ; ...and in one item record
@@ -3672,6 +3679,535 @@ os88ui_mngeo:
     pop cx
     pop bx
     pop ax
+    ret
+
+os88ui_mnbar:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [ds:bp+OS88UI_MN_RECT]
+    mov bx, [ds:bp+OS88UI_MN_RECT+2]
+    mov cx, [ds:bp+OS88UI_MN_RECT+4]  ; x1 + cw - 1 IS the rect's own x2
+    mov dx, bx
+    add dx, OS88UI_MN_BARH-2
+    call OSAPI_GFX_FILL             ; the strip's ground
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    mov ax, [ds:bp+OS88UI_MN_RECT]
+    mov bx, cx
+    mov dx, [ds:bp+OS88UI_MN_RECT+2]
+    add dx, OS88UI_MN_BARH-1
+    call OSAPI_GFX_HLINE            ; the rule under the bar
+    mov si, [ds:bp+OS88UI_MN_BAR]
+    mov ax, [ds:bp+OS88UI_MN_RECT+4]  ; the content's WIDTH, which the rect
+    sub ax, [ds:bp+OS88UI_MN_RECT]    ; carries as two edges
+    inc ax
+    cmp ax, 8 + 56*8
+    jae .whole
+    sub ax, 16                      ; too narrow: truncate at the cells that
+    js .under                       ; fit. Mid-title cuts are the honest
+    mov cl, 3                       ; degrade for a 96px window
+    shr ax, cl
+    jz .under
+    cmp ax, 56
+    jbe .tr
+    mov ax, 56
+.tr:
+    mov cx, ax
+    mov di, [ds:bp+OS88UI_MN_BBUF]
+    cld
+.cp:
+    lodsb
+    mov [di], al
+    inc di
+    or al, al
+    jz .cpd
+    loop .cp
+    mov byte [di], 0
+.cpd:
+    mov si, [ds:bp+OS88UI_MN_BBUF]
+.whole:
+    mov cx, [ds:bp+OS88UI_MN_RECT]
+    add cx, 8
+    mov dx, [ds:bp+OS88UI_MN_RECT+2]
+    add dx, 3
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+.under:
+    mov si, [ds:bp+OS88UI_MN_TAB]   ; the mnemonic underlines
+    mov di, [ds:bp+OS88UI_MN_N]
+.mn:
+    mov al, [si]
+    add al, [si+1]
+    inc al
+    xor ah, ah
+    mov cl, 3
+    shl ax, cl
+    add ax, [ds:bp+OS88UI_MN_RECT]  ; (start+len+1)*8 <= cw = fully visible,
+    dec ax                          ; as one absolute compare
+    cmp ax, [ds:bp+OS88UI_MN_RECT+4]
+    ja .mnnext
+    mov al, [si]
+    add al, [si+2]                  ; start + the title's mnemonic index
+    xor ah, ah
+    shl ax, cl
+    add ax, [ds:bp+OS88UI_MN_RECT]
+    add ax, 8
+    mov bx, ax
+    add bx, 6
+    mov dx, [ds:bp+OS88UI_MN_RECT+2]
+    add dx, 11
+    call OSAPI_GFX_HLINE
+.mnnext:
+    add si, 8
+    dec di
+    jnz .mn
+    mov al, [ds:bp+OS88UI_MN_OPEN]              ; a bar repaint under an open dropdown
+    cmp al, [ds:bp+OS88UI_MN_N]                  ; keeps the title inverted
+    jae .out
+    call os88ui_mntxor
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+os88ui_mntxor:
+    push ax
+    push bx
+    push cx
+    push dx
+    call os88ui_mnrow
+    mov al, [bx]
+    add al, [bx+1]
+    inc al
+    xor ah, ah
+    mov cl, 3
+    shl ax, cl
+    add ax, [ds:bp+OS88UI_MN_RECT]  ; ...against the content's own right edge
+    dec ax                          ; (the width, one absolute compare along)
+    cmp ax, [ds:bp+OS88UI_MN_RECT+4]
+    ja .out                         ; off a narrow window's bar: nothing shown
+    mov al, [bx]
+    xor ah, ah
+    shl ax, cl
+    add ax, [ds:bp+OS88UI_MN_RECT]
+    add ax, 8-2                     ; 2px into the leading space cell
+    mov dl, [bx+1]
+    xor dh, dh
+    shl dx, cl
+    mov cx, ax
+    add cx, dx
+    add cx, 3                       ; ...and 2px into the trailing one
+    mov bx, [ds:bp+OS88UI_MN_RECT+2]
+    inc bx
+    mov dx, [ds:bp+OS88UI_MN_RECT+2]
+    add dx, 12
+    call OSAPI_GFX_XOR_FILL
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+os88ui_mntitler:
+    push ax
+    push bx
+    push cx
+    push dx
+    call os88ui_mnrow
+    mov al, [bx]
+    xor ah, ah
+    mov cl, 3
+    shl ax, cl
+    add ax, [ds:bp+OS88UI_MN_RECT]
+    add ax, 8-2
+    mov [ds:bp+OS88UI_MN_ABOX], ax
+    mov dl, [bx+1]
+    xor dh, dh
+    shl dx, cl
+    add ax, dx
+    add ax, 3
+    mov [ds:bp+OS88UI_MN_ABOX+4], ax
+    mov ax, [ds:bp+OS88UI_MN_RECT+2]
+    mov [ds:bp+OS88UI_MN_ABOX+2], ax
+    add ax, OS88UI_MN_BARH-1
+    mov [ds:bp+OS88UI_MN_ABOX+6], ax
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+os88ui_mndraw:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [ds:bp+OS88UI_MN_MRECT]
+    mov bx, [ds:bp+OS88UI_MN_MRECT+2]
+    mov cx, [ds:bp+OS88UI_MN_MRECT+4]
+    mov dx, [ds:bp+OS88UI_MN_MRECT+6]
+    call OSAPI_GFX_FILL
+    clc
+    call OSAPI_GFX_PEN              ; live pen: CBLACK, dither flag clear
+    call OSAPI_GFX_FRAME
+    mov ax, [ds:bp+OS88UI_MN_MRECT+4]               ; the drop shadow: right edge...
+    inc ax
+    mov bx, [ds:bp+OS88UI_MN_MRECT+2]
+    inc bx
+    mov cx, ax
+    mov dx, [ds:bp+OS88UI_MN_MRECT+6]
+    inc dx
+    call OSAPI_GFX_FILL_GRAY
+    mov ax, [ds:bp+OS88UI_MN_MRECT]               ; ...and bottom edge
+    inc ax
+    mov bx, [ds:bp+OS88UI_MN_MRECT+6]
+    inc bx
+    mov cx, [ds:bp+OS88UI_MN_MRECT+4]
+    inc cx
+    mov dx, bx
+    call OSAPI_GFX_FILL_GRAY
+    ; the items
+    mov al, [ds:bp+OS88UI_MN_OPEN]
+    call os88ui_mnrow
+    mov cl, [bx+3]
+    xor ch, ch
+    mov si, [bx+4]
+    mov di, [ds:bp+OS88UI_MN_MRECT+2]
+    add di, 2
+.item:
+    or cx, cx
+    jnz .live
+    jmp .done                       ; out of the short branch's reach
+.live:
+    test byte [si], OS88UI_MNF_SEP
+    jz .norm
+    mov ax, di                      ; a separator: one hline mid-band
+    add ax, OS88UI_MN_SH-1
+    cmp ax, [ds:bp+OS88UI_MN_MRECT+6]
+    jae .done
+    mov ax, [ds:bp+OS88UI_MN_MRECT]
+    inc ax
+    mov bx, [ds:bp+OS88UI_MN_MRECT+4]
+    dec bx
+    mov dx, di
+    add dx, 2
+    call OSAPI_GFX_HLINE
+    add di, OS88UI_MN_SH
+    jmp .next
+.norm:
+    mov ax, di
+    add ax, OS88UI_MN_IH-1
+    cmp ax, [ds:bp+OS88UI_MN_MRECT+6]
+    jae .done                       ; clipped by a short window: stop
+    push cx
+    mov byte [ds:bp+OS88UI_MN_INK], CBLACK
+    test byte [si], OS88UI_MNF_DIS
+    jnz .dis
+    clc
+    jmp short .pen
+.dis:
+    mov byte [ds:bp+OS88UI_MN_INK], CDGRAY      ; ...and the run's ink is the same answer
+    stc                             ; (SPEC.md 68.14): a package cannot read
+.pen:                               ; the pen back, so it is decided here
+    call OSAPI_GFX_PEN              ; CF IS the argument (SPEC.md 47)
+    ; the check column
+    test byte [si], OS88UI_MNF_CHK
+    jz .nochk
+    mov al, [si+2]                  ; the CHECK hook (SPEC.md 13.16.1): the
+    push bx                         ; one thing the element cannot know, and
+    mov bx, [ds:bp+OS88UI_MN_CHK]   ; a record without one simply never ticks
+    or bx, bx
+    jz .chkno
+    call bx
+    jmp short .chkd
+.chkno:
+    clc
+.chkd:
+    pop bx
+    jnc .nochk
+    mov ax, [ds:bp+OS88UI_MN_MRECT]
+    add ax, 2
+    mov bx, di
+    add bx, 5
+    mov cx, [ds:bp+OS88UI_MN_MRECT]
+    add cx, 3
+    mov dx, di
+    add dx, 7
+    push si
+    xor si, si
+    call OSAPI_GFX_LINE             ; the check's short down-stroke...
+    mov ax, cx
+    mov bx, dx
+    mov cx, [ds:bp+OS88UI_MN_MRECT]
+    add cx, 7
+    mov dx, di
+    add dx, 3
+    call OSAPI_GFX_LINE             ; ...and its long up-stroke
+    pop si
+.nochk:
+    ; the label
+    mov cx, [ds:bp+OS88UI_MN_MRECT]
+    add cx, 8
+    mov dx, di
+    inc dx
+    push si
+    mov si, [si+4]
+    mov ah, CWHITE                  ; OPAQUE (SPEC.md 68.14): the panel's white
+    mov al, [ds:bp+OS88UI_MN_INK]               ; is a constant and the item's own cells
+    call OSAPI_FONT_RUN             ; are one decision each. [gfx_dis] is
+    pop si                          ; already set, so 6.1.12 folds 47's
+                                    ; checkerboard into the run's own mask
+    ; the mnemonic underline (enabled items only: a grey line rounds to
+    ; solid black at 1bpp and a greyed mnemonic answers no key anyway)
+    test byte [si], OS88UI_MNF_DIS
+    jnz .nomn
+    cmp byte [si+3], 0
+    je .nomn
+    mov al, [si+1]
+    xor ah, ah
+    mov cl, 3
+    shl ax, cl
+    add ax, [ds:bp+OS88UI_MN_MRECT]
+    add ax, 8
+    mov bx, ax
+    add bx, 6
+    mov dx, di
+    add dx, 9
+    call OSAPI_GFX_HLINE
+.nomn:
+    ; the caption, right-justified in the panel
+    mov bx, [si+6]
+    or bx, bx
+    jz .nocap
+    push si
+    mov si, bx
+    call OSAPI_FONT_WIDTH           ; AX is the WIDTH here, so the pair goes
+    mov cx, [ds:bp+OS88UI_MN_MRECT+4]               ; in after it and not before
+    sub cx, 6
+    sub cx, ax
+    mov dx, di
+    inc dx
+    mov ah, CWHITE
+    mov al, [ds:bp+OS88UI_MN_INK]
+    call OSAPI_FONT_RUN
+    pop si
+.nocap:
+    clc
+    call OSAPI_GFX_PEN              ; pen back live before the next item
+    pop cx
+    add di, OS88UI_MN_IH
+.next:
+    add si, 8
+    dec cx
+    jz .done
+    jmp .item
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+os88ui_mnfind:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp cx, [ds:bp+OS88UI_MN_MRECT]
+    jb .miss
+    cmp cx, [ds:bp+OS88UI_MN_MRECT+4]
+    ja .miss
+    cmp dx, [ds:bp+OS88UI_MN_MRECT+2]
+    jb .miss
+    cmp dx, [ds:bp+OS88UI_MN_MRECT+6]
+    ja .miss
+    mov al, [ds:bp+OS88UI_MN_OPEN]
+    call os88ui_mnrow
+    mov cl, [bx+3]
+    xor ch, ch
+    mov si, [bx+4]
+    mov di, [ds:bp+OS88UI_MN_MRECT+2]
+    add di, 2
+    cmp dx, di
+    jb .miss                        ; in the top pad
+    xor bx, bx                      ; BL = index
+.scan:
+    jcxz .miss
+    test byte [si], OS88UI_MNF_SEP
+    jnz .sep
+    mov ax, di
+    add ax, OS88UI_MN_IH-1
+    cmp ax, [ds:bp+OS88UI_MN_MRECT+6]
+    jae .miss                       ; this item is clipped: so is the rest
+    cmp dx, ax
+    ja .below
+    test byte [si], OS88UI_MNF_DIS        ; found the band
+    jnz .miss
+    mov al, bl
+    jmp short .out
+.below:
+    add di, OS88UI_MN_IH
+    jmp short .adv
+.sep:
+    mov ax, di
+    add ax, OS88UI_MN_SH-1
+    cmp dx, ax
+    jbe .miss                       ; a separator answers nothing
+    add di, OS88UI_MN_SH
+.adv:
+    add si, 8
+    inc bx
+    dec cx
+    jmp short .scan
+.miss:
+    mov al, 0xFF
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+os88ui_mnhl:
+    cmp al, 0xFF
+    je .no
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov dl, al                      ; DL = target index
+    mov al, [ds:bp+OS88UI_MN_OPEN]
+    call os88ui_mnrow
+    mov si, [bx+4]
+    mov di, [ds:bp+OS88UI_MN_MRECT+2]
+    add di, 2
+    xor cx, cx
+.w:
+    cmp cl, dl
+    je .found
+    test byte [si], OS88UI_MNF_SEP
+    jz .i10
+    add di, OS88UI_MN_SH
+    jmp short .n
+.i10:
+    add di, OS88UI_MN_IH
+.n:
+    add si, 8
+    inc cx
+    jmp short .w
+.found:
+    mov ax, di
+    add ax, OS88UI_MN_IH-1
+    cmp ax, [ds:bp+OS88UI_MN_MRECT+6]
+    jae .done                       ; clipped: it was not drawn either
+    mov dx, ax
+    mov ax, [ds:bp+OS88UI_MN_MRECT]
+    inc ax
+    mov bx, di
+    mov cx, [ds:bp+OS88UI_MN_MRECT+4]
+    dec cx
+    call OSAPI_GFX_XOR_FILL
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.no:
+    ret
+
+os88ui_mnbarhit:
+    push bx
+    push cx
+    push dx
+    push si
+    mov ax, [ds:bp+OS88UI_MN_RECT+2]
+    cmp dx, ax
+    jb .no
+    add ax, OS88UI_MN_BARH-1
+    cmp dx, ax
+    ja .no
+    mov ax, cx
+    sub ax, [ds:bp+OS88UI_MN_RECT]
+    sub ax, 8
+    js .no
+    mov cl, 3
+    shr ax, cl                      ; AL = the cell the click is in (AH = 0)
+    mov si, [ds:bp+OS88UI_MN_TAB]
+    xor bx, bx
+.s:
+    mov dl, [si]
+    cmp al, dl
+    jb .next
+    mov dh, dl
+    add dh, [si+1]
+    cmp al, dh
+    jae .next
+    mov cl, [si]                    ; visible? (start+len+1)*8 <= cw
+    add cl, [si+1]
+    inc cl
+    xor ch, ch
+    push ax
+    mov ax, cx
+    mov cl, 3
+    shl ax, cl
+    add ax, [ds:bp+OS88UI_MN_RECT]
+    dec ax
+    cmp ax, [ds:bp+OS88UI_MN_RECT+4]
+    pop ax
+    ja .next
+    mov al, bl
+    jmp short .out
+.next:
+    add si, 8
+    inc bx
+    cmp bl, [ds:bp+OS88UI_MN_N]
+    jb .s
+.no:
+    mov al, 0xFF
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+os88ui_mninrect:
+    cmp cx, [ds:bp+OS88UI_MN_MRECT]
+    jb .no
+    cmp cx, [ds:bp+OS88UI_MN_MRECT+4]
+    ja .no
+    cmp dx, [ds:bp+OS88UI_MN_MRECT+2]
+    jb .no
+    cmp dx, [ds:bp+OS88UI_MN_MRECT+6]
+    ja .no
+    clc
+    ret
+.no:
+    stc
     ret
 
 %endif                          ; OS88UI_MENU
