@@ -2134,6 +2134,48 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdscroll", "soak", py("tests/wdscroll.py"), 300.0,
+        "SPEC.md 68.2.2: Word's scroll bar is not part of the text band. Leg A "
+        "samples the bar's ARROW CELL through a down-arrow click and requires "
+        "0 of 48 samples altered (the band used to carry six of its fourteen "
+        "columns, blank them and redraw the bar); leg B the same for a track "
+        "click; leg D asserts the BEHAVIOUR on a refused blit - wd_sbar must "
+        "not run - because the refused path legitimately moves the thumb and "
+        "no pixel box separates that from the bug; leg C that three "
+        "consecutive page clicks all still blit. The last leg is the one with "
+        "teeth: it pages down with the blit and back up, which a formatted "
+        "document always full-repaints, and requires the screen to come back "
+        "with 0 differing pixels - the fast path checked against the slow one. "
+        "CGA by name and read out of guest VRAM, MASKED to the bar's columns: "
+        "a rendered frame only changes once a video frame, so an fbuf sample "
+        "misses a strip blanked and redrawn inside one - this gate passed with "
+        "the fix backed out until that was fixed.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
+        "SPEC.md 68.3.1: Word's document movers go a WORD at a time, and the "
+        "assertion is the BUFFER rather than the glass - a wrong word is a "
+        "corrupted document, not a slow one, and no pixel test would see it. "
+        "Both claims are read whole, a character is inserted and then "
+        "backspaced, and the ORIGINAL bytes must come back. Parity is the "
+        "point: wd_mvup does the odd byte first and steps onto a word's low "
+        "byte, wd_mvdn does it last, so the caret is placed at odd and even "
+        "tails and at both end stops where the count is 0 or 1. Verified to "
+        "go red - dropping wd_mvup's step-back fails every text assertion.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,
+        "SPEC.md 68.2.1: Word's dropdown BANKS the pixels it covers and the "
+        "close writes them back (521.4 ms -> 19.7 ms on a 4.77MHz 8088). The "
+        "assertion is PIXEL EQUALITY, because a save-under that is fast and "
+        "wrong is worse than a repaint that is slow and right: banking the "
+        "panel without its drop shadow, clamping differently from wd_mrepair, "
+        "or taking the plane count off the wrong display all show up here and "
+        "nowhere else. It pokes [wd_suseg] = 0 for the second cycle, which is "
+        "what a REFUSED claim leaves behind, so one run checks the banked path "
+        "and the wd_mrepair fallback against one reference.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("pkgthumb-tp", "soak", py("tests/pkgthumb.py", "texpad"), 50.0,
         "SPEC.md 13.10.7.2: ...and TexPad, whose TWO bars share one gesture"
         "record. --bar=1 drives the preview pane's.",

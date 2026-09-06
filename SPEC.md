@@ -2810,8 +2810,8 @@ Mode set and teardown are not in this module: `vid_setmode` / `vid_text` in
 | `gfx_blit1`     | ES:SI=band, BP=band stride (bytes), AX=dest x (**×8**), BX=dest y, CX=width px (**×8**), DX=height rows | put a 1bpp band on the screen in one call, in the framebuffer's own bit order (§5.4.2). API slot 0x0418. `kern_big` only — the small build refuses with CF=1 |
 | `gfx_xor_rect`  | AX=x1, BX=y1, CX=x2, DX=y2           | 1px outline, XOR 0Fh (drag outline)   |
 | `gfx_xor_fill`  | AX=x1, BX=y1, CX=x2, DX=y2           | filled rect, XOR 0Fh (menu highlight) |
-| `gfx_save`      | AX=x1, BX=y1, CX=x2, DX=y2, ES:DI=buf| copy region to buffer; x1 is rounded **down** to a byte boundary and x2 **up** internally. Buffer layout: plane 0 rows, plane 1 rows, plane 2, plane 3 — all four on VGA, the single plane at 1bpp (§39.3). Returns DI advanced past data. |
-| `gfx_restore`   | AX=x1, BX=y1, CX=x2, DX=y2, ES:SI=buf| write region back (same rounding/layout). Returns SI advanced. |
+| `gfx_save`      | AX=x1, BX=y1, CX=x2, DX=y2, ES:DI=buf| copy region to buffer; x1 is rounded **down** to a byte boundary and x2 **up** internally. Buffer layout: plane 0 rows, plane 1 rows, plane 2, plane 3 — all four on VGA, the single plane at 1bpp (§39.3). Returns DI advanced past data. API slot 0x0508 through `api_gfx_save`, which adds the straddle refusal (§5.3); **both builds** |
+| `gfx_restore`   | AX=x1, BX=y1, CX=x2, DX=y2, ES:SI=buf| write region back (same rounding/layout). Returns SI advanced. API slot 0x0510 through `api_gfx_rest` |
 | `gfx_lock`      | —                                    | acquire drawing mutex + hide cursor (§7) |
 | `gfx_unlock`    | —                                    | show cursor, release mutex (§7) |
 
@@ -2819,6 +2819,41 @@ Save/restore for a W-px-wide, H-px-tall rect uses
 `bytes = ((x2/8) - (x1/8) + 1) * H * [vid_planes]` — ×4 on VGA, ×1 on a 1bpp
 adapter (§39.2). Buffers are budgeted for the VGA worst case, so no routine
 computes the size at run time.
+
+### 5.3 The save-under pair is published — slots 0x0508 and 0x0510
+
+`gfx_save` and `gfx_restore` have been in the kernel since the menu save-under
+(§12.4) and, unlike `gfx_blit1`, they are outside every `KERN_BIG` guard: the
+1bpp twins are `sw_save`/`sw_restore`, so **both builds have a working body.**
+What a package was missing was therefore the *cell*, not the code.
+
+It was missing one other thing, and that is the whole of what the two stubs
+add. `GFXDENTERR` puts the whole shape on the display holding the rect's
+top-left (§39.14.6), so a rect straddling two displays banks one display's
+half and, on the way back, leaves the other half **stale**. The kernel's own
+callers owe that test and pay it — `wm_su_take` asks `vid_span_one` — but a
+package has no published way to ask, so **the cell asks on its behalf and
+refuses with CF = 1**, writing nothing.
+
+Refusing is the answer rather than a shortcoming, and it needs no failure path
+anyone has to invent: a caller that is refused **repaints**, which is what it
+did before the cell existed. That is §12.4's `[menu_sseg] = 0` rule one layer
+out — a machine that cannot bank gets a flash, not a feature it cannot use.
+
+`vid_span_one` takes AX/BX/CX/DX inclusive, the same four registers the pair
+takes, so the guard needs no frame; `gfx_save` and `gfx_restore` preserve all
+four, so the caller's rect is still in hand for the restore. The stubs are
+**12 bytes each** and the two cells 8 bytes each — 40 bytes of `.text`.
+
+Both cells are guarded, deliberately and symmetrically. Only the save can
+strictly need it (nothing may move a display between a paired save and
+restore, both being under one gfx lock hold), but a contract that refuses on
+one side and not the other is the kind that costs somebody a day.
+
+**The size formula a package uses takes its plane count from
+`OSAPI_WM_DISPLAY`'s DH, never from `OSAPI_VIDEO`** — the depth is the
+*display's*, and `OSAPI_VIDEO` answers about the primary alone (§39.2.1).
+That distinction is §39.14.8's field bug, one register along.
 
 **Software-renderer dispatch (§32/§39.5).** Every public drawing entry above
 (`gfx_pixel` … `gfx_restore`) starts with a `[vid_mono]` test and branches to
@@ -78261,6 +78296,55 @@ prompt first when the document is dirty (§68.4); the kernel close box
 CANNOT prompt — the kernel tears the instance down itself, a documented
 limitation.
 
+#### 68.2.1 A dropdown is BANKED, and the repaint is what a refusal falls back to
+
+Word draws its own bar, so it also owns the dismissal — and until §5.3 it had
+only one way to spell it: `wd_mrepair`, a piecewise repaint of everything the
+panel covered. That is the right fallback and was the wrong default. Measured
+on a 4.77 MHz 8088 (`os8088_5150_both_gla`), opening Utilities over
+`WELCOME.DOC` in a 600×136 content area:
+
+| | cycles | ms |
+|---|---:|---:|
+| open — `wd_mdraw` | 475,304 | 99.6 |
+| close — `wd_mrepair` | 2,488,591 | **521.4** |
+
+The panel is 168×109 and covers 80% of the content height; `wd_mrepair` erases
+the covered rows **full width** — all 600 px, not the panel's 168 — and
+re-letters them at ~900 µs a glyph cell. **Sliding along the bar is that
+figure once per title crossed**, because `wd_mtrack` closes and reopens, so
+File → Help was eight of them.
+
+So the drop banks first. `wd_subank` runs between `wd_mgeo` and `wd_mdraw`,
+sizes the rect the way `wd_mrepair` grows and clamps its own — **including
+the drop shadow**, or the restore is short by a column — takes the plane
+count from `OSAPI_WM_DISPLAY`'s DH (never `OSAPI_VIDEO`: §39.16.4), claims,
+and calls `OSAPI_GFX_SAVE`. `wd_surest` writes it back and frees.
+
+**Every refusal is the same refusal and none of them is a new path.** No
+claim, a rect straddling two displays, no window — `[wd_suseg]` stays 0,
+`wd_surest` answers CF = 1 and the caller falls into `wd_mrepair`, which is
+what it did before. That is §12.4's `[menu_sseg]` rule, one layer out.
+
+**The claim is per drop**, freed before the picked item runs, so whatever that
+item allocates gets a heap the menu has already left — §12.4's reasoning and
+its arithmetic: ~10 KB held at every instant nobody is looking at a menu is a
+third of a small machine's heap.
+
+**What makes it safe is an invariant the program already had.** A save-under
+is wrong if anything draws into the banked rect while the panel is up, and
+Word's worker already refuses to draw on `[wd_mopen]`, `[wd_about]` and
+`[wd_dlg]` — *"every draw below would letter text straight through it"* — so
+the precondition is one the code was already keeping for its own reasons.
+
+The About box (`wd_suab`) and every modal dialog (`wd_sudlg`) bank through the
+same pair: they keep their rect in their own four words and already loaded
+`wd_mrect` from it on the way down, so banking is that load one step earlier.
+A dialog is the largest thing Word ever puts over its content and §68.3 makes
+it modal, so it is both the biggest repaint owed and the safest to bank.
+
+`.text` +356 bytes.
+
 ### 68.3 Document model: CHP bytes and PAP on the paragraph mark
 
 Three claims (§50.3): the text (¶ = byte 13, tab = 9, ceiling `WD_MAXKB` =
@@ -78372,6 +78456,99 @@ and live edit fields (inches; cells = tenths; click or Tab focuses, digits
 '.' '-' '"' type, BkSp deletes); the Keep/Border/Pattern/Style groups are
 omitted rather than greyed — with them the dialog cannot fit a CGA content
 box, and a Format command that refuses on one adapter of three is worse.
+
+
+
+#### 68.2.2 The scroll bar is not part of the text band
+
+Three field reports, all one shape: the scroll bar being drawn when nothing
+asked for it. Measured on a cycle-accurate 5150 (CGA), `WELCOME.DOC` in the
+shipped window — content origin `[wd_tx]` = 24, `[wd_rcols]` = 72,
+`[wd_rgt]` = 601, the bar's frame at 602.
+
+**The band cut itself from the wrong edge.** `wd_vshift` took x2+1 up to a
+byte column from `[wd_rgt]` — 608 — so the blit carried **six of the bar's
+fourteen columns** with the text. `wd_scrollpaint` then filled that strip
+white over the whole band height and `wd_sbar` drew all sixteen calls of the
+bar again at the end of the routine, with the exposed rows lettered in
+between: Part 1's double-draw flash, once per arrow click. `wd_bandx` cuts
+from the CELLS instead — no glyph reaches past cell `[wd_rcols]-1`, so
+`[wd_tx] + 8·[wd_rcols]` = 600 is the first column past the last one a glyph
+can occupy, and a snapped origin (§11.94) makes it a byte column already. The
+bar is never touched, the strip pass does not run, and the bar's sixteen
+calls become `wd_sbcheck`'s three. **A chosen face keeps the old span**: there
+a cell is as little as `TY_MINADV`, so `8·[wd_rcols]` is not a pixel bound and
+`wd_px[]` describes only the row flushed last — the strip pass is what makes
+that arm correct and it still runs.
+
+**A refused blit was taking the bar off the screen.** `.fullpaint` white-filled
+the whole content, bar and grow box included, and `wd_paint` then drew the bar
+whole because the fill had taken it. Neither is true of that path: a refusal
+draws **nothing**, and `.scrolled` is only reached once `wd_sigsame` has
+AGREED — so the bar on the glass is still right to the pixel. `[wd_sbkeep]` is
+that fact, set at the refusal and read twice: the fill stops at `[wd_rgt]` and
+`wd_paint` calls `wd_sbcheck` instead of `wd_sbar`. It is a **one-shot**,
+because W_PAINT is `wd_paint`'s other caller and there the kernel has filled
+the whole content, so the bar really has gone.
+
+**And a page click threw away two thirds of the view.** A page is `[wd_vfit]`
+rows, which with formats is `band/24` (§68.6) — **2** of the shipped window's
+**6**. `wd_scrollpaint` lowered `[wd_rowsn]` to `[wd_bd0]` to bound its seed to
+rows the shift had not carried out of range, and nothing raised it once the
+walk had lettered `bd0..bd1` and banked their ys. So the FIRST page click
+blitted, left `[wd_rowsn]` at 2, and every click after it refused on
+`d > rowsn` (4 > 2) and repainted the whole window. `wd_shiftrows` moves every
+retained row's banked y with the pixels, so after that walk rows `0..bd1` are
+all described: the raise only ever RAISES, and only while `[wd_rowsok]` says
+the arrays are sound at all.
+
+Measured, on the same machine and the same document:
+
+| | before | after |
+|---|---:|---:|
+| down arrow, from `[wd_top]` = 8 | 230.4 ms | **197.8 ms** |
+| track click below the thumb | 512.9 ms | **155.0 ms** |
+| the bar's arrow cell, sampled through a click | 44 of 48 samples altered, worst 14 bytes | **0 of 48** |
+| three consecutive page clicks | 3 full repaints | **0** |
+
+`.text` +150 bytes. `tests/wdscroll.py` is the gate and each of its four legs
+was watched going red with its own fix backed out.
+
+#### 68.3.1 The document's two moves go a WORD at a time
+
+Every edit opens or closes a gap in **two** claims in lockstep — the text and
+its CHP twin — so one keystroke moves the tail **twice**. Measured on a
+cycle-accurate 5150, that pair cost **36.0 cycles a byte, 18.0 each**, which is
+`rep movsb`'s 17 clocks plus the loop: 12.35 ms on `WELCOME.DOC`'s 1,524-byte
+tail, and **232 ms** at `WD_MAXKB` — of a keystroke that draws nothing.
+
+`rep movsw` is 12.5 clocks a byte against `rep movsb`'s 17, and both moves are
+safe by words. `wd_mvup` and `wd_mvdn` are the two, and the argument for each
+is the whole of why this is allowed:
+
+- **UP, backwards, by one byte** (an insert). A single `movsw` reads its whole
+  word before it writes, so the overlap *inside* one instruction is fine;
+  across instructions, step *k* writes `[SI+1, SI+2]` and step *k+1* reads
+  `[SI-2, SI-1]`, strictly below it — no word is ever read after it has been
+  written. The odd byte goes **first, from the top**, and the pointers then
+  step back **one**, because a word is addressed by its low byte and `std`
+  walks down from there. Forgetting that step-back is the classic error and is
+  what `tests/wdmove.py` was verified against.
+- **DOWN, forwards** (a delete), while `DI < SI`: the write at `[DI, DI+1]` is
+  strictly below the next read at `[SI+2, SI+3]`, at **any** distance.
+
+Both leave DF clear (§1). Measured after: **26.6 cycles a byte, 13.3 each** —
+26% off, 12.35 → 9.31 ms on that tail and ~232 → ~171 ms at the ceiling.
+`.text` +32 bytes.
+
+`wd_gaproom` and `wd_paste` move the tail the same way and are **not**
+converted: they are bulk operations rather than per-keystroke ones, and the
+same helpers serve them whenever somebody wants the bytes.
+
+**The assertion is the BUFFER, not the glass** (`tests/wdmove.py`). A wrong
+word here is a corrupted document rather than a slow one, and no pixel test
+would see it — the damage is one byte deep in a buffer the screen shows six
+rows of.
 
 ### 68.4 File format and association
 

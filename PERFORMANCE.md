@@ -1229,6 +1229,9 @@ list to check yourself against.
 | Scroll the Browser one line, deep in a page | the tier test read the old scroll POSITION rather than the delta, so past one windowful every scroll repainted the whole band, on every page, for the rest of the document. Measured on a cycle-accurate 5150/CGA in a 15-row band, one Down key: **15 `font_run`s and no `gfx_scroll` at all**, **19 frames of visible redraw = 317 ms** | one `gfx_scroll` and the row it exposed, at every depth: **1 `font_run` and 1 `gfx_scroll`**, **5 frames = 83 ms**. Framebuffer **0 differing pixels** against the band repaint on CGA (15 rows) and Hercules (27), 55 scroll steps each | §71.10 |
 | Scroll a Disk window that is already at an end stop | a full repaint to show the same pixels — **266 ms** | **nothing at all**, 0 frames | §22.11 |
 | Type into the file dialog's name box | ~120 glyphs + a 298×151 fill | `font_char` **972 → 36**, scanlines **7,600 → 184** (8 chars) | §38.8 |
+| Word: a track click on the scroll bar | the blit refused (a page is `[wd_vfit]` = 2 of 6 rows, but `[wd_rowsn]` had been left at `[wd_bd0]` = 2 by the previous scroll, so `d` = 4 > 2), and the full repaint that followed white-filled the whole content — bar and grow box with it — then drew the bar whole. **512.9 ms** | the blit is taken, and when it genuinely cannot be the fill stops at `[wd_rgt]` and only the THUMB moves: **155.0 ms**, 3.3x | §68.2.2 |
+| Word: an arrow click on the scroll bar | the band rounded x2+1 up from `[wd_rgt]` and carried six of the bar's fourteen columns; the strip was blanked white and `wd_sbar` redrew all sixteen calls. 230.4 ms, and the bar's arrow cell altered in **44 of 48** samples through the click | the band is cut from the CELLS and cannot reach the bar; `wd_sbcheck` moves the thumb in three calls. **197.8 ms**, and **0 of 48** samples | §68.2.2 |
+| Dismiss one of Word's own dropdowns | `wd_mrepair`, a piecewise repaint of everything the panel covered - the covered text rows erased FULL COLUMN WIDTH and re-lettered. Measured on a cycle-accurate 5150, Utilities (168x109) over `WELCOME.DOC` in a 600x136 content area: **2,488,591 cy = 521.4 ms**. `wd_mtrack` closes and reopens per title crossed, so dragging File -> Help was eight of them, ~4.97 s | the banked pixels written back: **93,940 cy = 19.7 ms**, plus **96,863 cy = 20.3 ms** to bank them on the way down. Round trip **621 -> 139.6 ms**; File -> Help ~1.12 s. `wd_mrepair` is now the refusal path only | §68.2.1, §5.3 |
 | Note Pad keystroke | full content fill + a glyph per character | **2 cells**; `font_char` **8,410 → 350**, scanlines **5,020 → 1,960** (20 keystrokes, 410-char note) | §27.2 |
 | Note Pad layout per keystroke | 404 walk iterations at 200 chars, growing | 35, and flat | §27.4 |
 | Note Pad caret keys | Up 1,608 iterations / Home 1,608 / Left 804 | 184 / 90 / 60 | §27.5 |
@@ -11039,3 +11042,118 @@ as priced.
 - **The load** (9.5 s for OS8088.GIF on a Hercules) is §42.25's and dwarfs
   every paint after it; it is not "the draw" and was left alone.
 
+
+### Set 117 — Word's own dropdowns banked, and the italic run priced (SPEC.md §68.2.1, §5.3)
+
+All on `os8088_5150_both_gla` — a cycle-accurate 4.77MHz 8088 — with
+`WELCOME.DOC` open in Word's shipped window (content 600x136). Brackets are
+entry-to-return, taken by arming an exec breakpoint on the entry and a second
+on the near return address read off SS:SP. The counter is the MACHINE's, so a
+PIT tick inside a bracket only ever makes a sample longer: repeats keep the
+minimum.
+
+**The dropdown.** Utilities, 9 items, panel 168x109 covering 80% of the
+content height:
+
+| | cycles | ms |
+|---|---:|---:|
+| open, `wd_mdraw` | 475,304 | 99.6 |
+| close, `wd_mrepair` (before) | 2,488,591 | **521.4** |
+| close, `wd_surest` (after) | 93,940 | **19.7** |
+| bank, `wd_subank` (after, new) | 96,863 | 20.3 |
+
+**26.5x on the close**; the round trip 621 -> 139.6 ms. The open is untouched
+and is now the dominant term. `wd_mtrack` closes and reopens per title
+crossed, so a File -> Help slide went ~4.97 s -> ~1.12 s.
+
+Why the close was so much dearer than the open: `wd_mrepair` erases the
+covered text rows at the FULL column width — all 600 px, not the panel's 168 —
+and re-letters them at ~915 us a glyph cell, plus the ribbon and ruler strips
+whole.
+
+### Set 117.1 — …and the italic run is NOT the 4bpp disaster it reads like
+
+`wd_drawrun`'s italic arm stages sheared kernel glyphs into a FOUR-bit buffer
+(`WD_STG4`, stride = cells x 4 bytes) and puts them down with
+`OSAPI_GFX_BLIT4` — one-bit data on a four-bit path, and it looks like an
+obvious defect. A reading of the tree priced it at 1,797 cycles a coalesced
+run (Set 107) x ~13 runs a cell, making a 7-cell run **37.7 ms**, and
+proposed a 1bpp band conversion worth ~20x.
+
+**Measured, it is 7.71 ms**, and the proposal is refused on that number:
+
+| run | cycles (min) | ms | per cell |
+|---|---:|---:|---:|
+| 6 cells | 33,691 | 7.06 | 5,615 cy |
+| 7 cells | 36,785 | 7.71 | 5,255 cy |
+
+**~5,300-5,600 cycles a cell, ~1.15 ms** — against ~900 us for an ordinary
+opaque `font_run` cell. Italic costs **1.28x** ordinary text, not 20x.
+
+The derivation was wrong for a reason worth writing down: **`gfx_blit4` is not
+a run-only primitive.** `vga12.inc` arms a per-PIXEL row decoder on both mono
+adapters (`sw_pairbuild`) and §5.4.1.3's planar decoder on VGA, so the italic
+blit never reaches the 1,797-cycles-a-run cell it was priced against. Set 107's
+figure is real and describes a different path.
+
+So the conversion buys ~1-2 ms on a realistic run, against a delicate change:
+the kernel glyph row is 1 = INK and a screen band needs 1 = PAPER, so the
+shear must run before a complement; the x must be a multiple of 8 or
+`gfx_blit1_x` refuses (`test ax, 7`); and `gfx_blit1` is `stc`/`ret` on
+`kern_small` (§5.4.2.5), so it needs the 4bpp path kept as a fallback. Not
+worth it. **This is rule 4 of CLAUDE.md's performance section doing its job —
+measure before redesigning — and the measurement is the whole finding.**
+
+What IS true and unpriced here: `wd_itinit` builds a 3,040-byte 4bpp glyph
+table into a 9KB claim whose information is one bit deep. It is built once and
+cached (the brackets above include the call and are far below its cost), so it
+is a MEMORY question and not a speed one; ~2.2 KB is available to whoever wants
+it. The Show-all pilcrow is the same class — one `OSAPI_GFX_BLIT4` per mark for
+a two-colour 8x8 stamp — and has not been bracketed.
+
+
+### Set 117.2 — what a Word keystroke actually costs, and the document movers (SPEC.md §68.3.1)
+
+Nobody had ever priced a Word keystroke: §68.6 declares the standing budget
+"unchanged", and the ~2-cell figure in it is **Note Pad's** measurement,
+inherited. These are Word's, on `os8088_5150_both_gla` with `WELCOME.DOC`
+(1,524 chars) in the shipped window — `vrows` = 6.
+
+**The caret is placed by CLICKING.** Writing `[wd_cur]` invalidates the
+checkpoint (`[wd_ckok]`, §27.4) that lets pass 1 skip the rows above the
+caret, so a poked index prices the slow path and calls it typing: 215 ms
+against 140 for the same keystroke.
+
+| keystroke | `wd_onkey` | of which `wd_walk` (pass 1) |
+|---|---:|---:|
+| printable, caret on row 1 | 205.6 ms | 149.2 ms (73%) |
+| printable, caret on row 3 | 224.9 ms | 88.6 ms |
+| Enter, caret on row 3 | 287.3 ms | 53.8 ms |
+
+**A keystroke is four system ticks**, and the layout walk is most of it. The
+walk is bounded by the VIEW and not the document (5 rows below the caret →
+149 ms, 3 rows → 89 ms, ≈30 ms a row), so it is already doing the right thing;
+it simply costs ~2,000 cycles a character across the many small near calls of
+§27's "one walk, four questions". No single hot spot: `wd_wordfit` already
+returns at once mid-word on `[wd_wstart]`, and `wd_ask` with every query
+disabled is a compare and a return.
+
+**The visual break was NOT engaged in any of this** — `[wd_bmode]` = 0 and
+`wd_brkdraw` is never reached — because `wd_brktry` stands down on
+`[wd_hasfmt]`, and `WELCOME.DOC` is formatted. That is §68.6's documented
+degrade, not a defect, and it is why mid-document typing in a *formatted*
+document pays a full reflow where Note Pad pays two cells. **Anyone wanting
+the big win here is buying §68.6's height model, and inherits all three of its
+degrades.**
+
+**The movers** (§68.3.1), which is what was actually taken:
+
+| | cycles a byte, both moves | each | 1,524-byte tail | at `WD_MAXKB` |
+|---|---:|---:|---:|---:|
+| `rep movsb` | 36.0 | 18.0 | 12.35 ms | ~232 ms |
+| `rep movsw` | **26.6** | **13.3** | **9.31 ms** | **~171 ms** |
+
+26% off, and the fixed part of `wd_ins` is unchanged at 3,734 cy (0.78 ms).
+It is 1.5% of a keystroke on this document and ~15% at the ceiling: the move
+is the whole cost of typing into the front of a long document, where the
+redraw has already been taken away.

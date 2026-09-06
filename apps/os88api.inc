@@ -863,6 +863,52 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
 ; display, or a kern_small kernel - and nothing was drawn. The fallback is one
 ; OSAPI_GFX_FILL per span, which draws the identical pixels; keep it, it is
 ; also the only path on a 128KB machine.
+; --- banking the pixels under something you are about to draw (SPEC.md 5.4.3) -
+; THE SAVE-UNDER PAIR. Draw a menu, a dialog or a tooltip over your content,
+; and taking it down is either a WRITE-BACK of what was there or a REPAINT of
+; what should be. On a 4.77MHz 8088 those are not the same price: a repaint
+; re-letters every text row the panel covered, at ~900us a glyph cell, and a
+; write-back is a blit. The kernel's own menu bar has banked its drop since
+; SPEC.md 12.4; this is that same pair of routines, published.
+;
+; SIZE THE BUFFER YOURSELF, and take the plane count from OSAPI_WM_DISPLAY's
+; DH and NOT from OSAPI_VIDEO - on a two-display machine the depth is the
+; DISPLAY's, not the primary's, and a buffer sized for the wrong one is the
+; field bug at SPEC.md 39.14.8 (a window banked on a Hercules and replayed
+; onto a VGA arrives as coloured noise):
+;
+;   bytes = planes * (y2-y1+1) * ((x2>>3) - (x1>>3) + 1)
+;
+; x1 is rounded DOWN to a byte column and x2 UP, which the formula already
+; carries. The layout is plane-major: all of plane 0's rows, then plane 1,
+; then 2, then 3 - one plane only on a 1bpp adapter.
+;
+; BOTH REFUSE A RECT THAT STRADDLES TWO DISPLAYS (CF = 1, nothing written).
+; A save is taken off ONE card, so a straddling rect would bank half and put
+; half back, leaving the rest stale. A refusal is not a failure path you have
+; to invent: repaint, which is what you did before you had these cells.
+;
+; The gfx lock is YOURS to hold across the pair, and the rect must still mean
+; the same pixels when you restore it - so do not yield to a repaint in
+; between, and do not bank a rect a window drag could have moved.
+%define OSAPI_GFX_SAVE      KERNEL_SEG:0x0508   ; AX = x1, BX = y1, CX = x2,
+                                 ; DX = y2 (INCLUSIVE, absolute screen),
+                                 ; ES:DI = your buffer. Copies those pixels
+                                 ; into it. ES is yours - a plain cell, no stub
+                                 ; - so the buffer lives in your own segment or
+                                 ; a heap claim you point ES at. out CF = 1
+                                 ; REFUSED (straddles two displays), nothing
+                                 ; written; CF = 0 taken and DI advanced past
+                                 ; the data. AX/BX/CX/DX come back yours, so
+                                 ; the rect is still in hand for the restore
+%define OSAPI_GFX_REST      KERNEL_SEG:0x0510   ; the same rect in AX/BX/CX/DX
+                                 ; and ES:SI = the buffer OSAPI_GFX_SAVE
+                                 ; filled; writes it back. out CF = 1 REFUSED,
+                                 ; CF = 0 and SI advanced. Restoring a rect
+                                 ; that is not the one you banked is not
+                                 ; refused and not detected - it is your
+                                 ; promise, exactly like OSAPI_WM_SAVEU's
+
 %define OSAPI_GFX_SPANS     KERNEL_SEG:0x04D8   ; AX = the y of the FIRST span,
                                  ; ES:SI = CX records of two words each, x1
                                  ; then x2, both INCLUSIVE; CX = rows, row n

@@ -765,8 +765,8 @@ wd_entry:
     mov al, 1                       ; resizable (SPEC.md 11.1/27): wd_paint
     call OSAPI_WM_SIZABLE           ; already lays out from the live record,
     mov al, 1                       ; so the next repaint re-wraps for free
-    mov al, 1                       ; ...and it PROMISES its content stands
-    call OSAPI_WM_SAVEU             ; still while it is not drawing, so a
+    call OSAPI_WM_SAVEU             ; ...and it PROMISES its content stands
+                                    ; still while it is not drawing, so a
                                     ; raise puts the old pixels back instead
                                     ; of lettering 464 cells (SPEC.md 11.96.1).
                                     ; True of this app: everything that draws
@@ -1313,19 +1313,60 @@ wd_sbclick:
 ; therefore CONTAINS every glyph pixel, which the break's wd_scroll - rounding
 ; inward, and needing [wd_tx] aligned for it - does not have to.
 ; -----------------------------------------------------------------------------
+; wd_bandx - the blit band's x span, cut so it CANNOT reach the scroll bar
+; out: AX = x1, CX = x2 (x1 and x2+1 multiples of 8); preserves everything else
+;
+; It used to be cut from [wd_rgt], the last drawable TEXT column, rounded up -
+; and the bar's frame begins at [wd_rgt]+1, so on the shipped window that took
+; SIX of the bar's fourteen columns. wd_scrollpaint then blanked the strip
+; white over the whole band height and wd_sbar drew all sixteen calls of the
+; bar again at the end of the routine, with the exposed rows lettered in
+; between: PERFORMANCE.md Part 1's double-draw flash, once per arrow click.
+;
+; Cut it from the CELLS instead. No glyph reaches past cell [wd_rcols]-1, so
+; [wd_tx] + 8*[wd_rcols] is the first column past the last one a glyph can
+; occupy - and a snapped content origin (SPEC.md 11.94) makes that a byte
+; column already, so the round-up below is a no-op and the bar is never
+; touched. Measured on the shipped window: tx = 24, rcols = 72, rgt = 601, so
+; the span ends at 599 where the bar starts at 602 - against 607 before.
+;
+; A CHOSEN FACE keeps the old span. There a "cell" is as little as TY_MINADV
+; (SPEC.md 6.4), so 8*[wd_rcols] is not a pixel bound at all, and the only
+; per-row pixel map - wd_px[] through wd_cx - describes whichever row was
+; flushed last rather than the widest one. The strip pass below is what makes
+; that arm correct, and it still runs there.
+wd_bandx:
+    cmp byte [wd_pxon], 0
+    jne .wide
+    push bx
+    mov ax, [wd_rcols]
+    mov bx, 3
+    xchg bx, cx
+    shl ax, cl
+    xchg bx, cx
+    add ax, [wd_tx]                 ; the first column past the last cell...
+    pop bx
+    jmp short .round
+.wide:
+    mov ax, [wd_rgt]                ; a chosen face: the text column's edge,
+    inc ax                          ; as before
+.round:
+    add ax, 7
+    and ax, 0xFFF8                  ; ...rounded UP to a byte column
+    mov cx, ax
+    dec cx                          ; CX = x2, so x2+1 is a multiple of 8
+    mov ax, [wd_tx]
+    and ax, 0xFFF8                  ; x1, DOWN to one - which stays inside the
+    ret                             ; content, WD_MARGIN being 8
+
 wd_vshift:
     push ax
     push bx
     push cx
     push dx
     push si
-    mov ax, [wd_tx]
-    and ax, 0xFFF8                  ; x1, down to a byte column
+    call wd_bandx                   ; AX = x1, CX = x2 - and NOT into the bar
     mov bx, [wd_ty]                 ; y1
-    mov cx, [wd_rgt]
-    add cx, 8
-    and cx, 0xFFF8
-    dec cx                          ; x2, with x2+1 up to a byte column
     cmp byte [wd_hasfmt], 0         ; formatted rows land at arbitrary ys, so
     je .yuni                        ; the band is the whole [wd_ty..wd_bot] -
     mov dx, [wd_bot]                ; legal because the formatted scroll path
@@ -1521,19 +1562,26 @@ wd_scrollpaint:
     call wd_vshift
     jc .nope                        ; refused, and having drawn nothing
 
-    ; Rounding x2+1 outward carried up to seven columns of furniture with the
-    ; text: the scroll bar's left frame at wd_rgt+1, and the left edge of the
-    ; grow box below it. Blank that strip and let the two things that own it
-    ; put themselves back - wd_sbar at the end of this routine, and the grow
-    ; box here, because wd_sbar stops short of the corner it sits in.
+    ; If the band still reached past the text - a chosen face, or a content
+    ; origin too wide to snap - it carried the scroll bar's left frame at
+    ; wd_rgt+1 and the grow box's left edge with it. Blank that strip and let
+    ; the two things that own it put themselves back: wd_sbar at the end of
+    ; this routine, and the grow box here, because wd_sbar stops short of the
+    ; corner it sits in.
+    ;
+    ; WITH THE BAND CUT FROM THE CELLS THIS DOES NOT RUN AT ALL on a snapped
+    ; window (SPEC.md 27.7.2): x2 lands short of wd_rgt, so x1 > x2 below and
+    ; the bar was never touched. [wd_sbhurt] is that fact, and it is what
+    ; turns the bar's sixteen drawing calls at the end into wd_sbcheck's three.
+    mov byte [wd_sbhurt], 0
     mov ax, [wd_rgt]
     inc ax                          ; x1, the first column past the text
-    mov cx, [wd_rgt]
-    add cx, 8
-    and cx, 0xFFF8
-    dec cx                          ; x2, the same one wd_vshift moved
+    push ax
+    call wd_bandx                   ; ...and x2, the SAME one wd_vshift moved
+    pop ax
     cmp ax, cx
     ja .nostrip
+    mov byte [wd_sbhurt], 1
     mov bx, [wd_ty]
     mov dx, [wd_bot]
     push ax
@@ -1724,10 +1772,44 @@ wd_scrollpaint:
     mov byte [wd_clip], 0
     mov byte [wd_clean], 0
 
+    ; ...AND wd_rows DESCRIBES THE WHOLE VIEW AGAIN (SPEC.md 27.7.2). It was
+    ; lowered to [wd_bd0] above, to bound the seed to rows the shift had not
+    ; carried out of range - and nothing put it back once the walk had
+    ; lettered bd0..bd1 and banked their ys. Every retained row's y moved with
+    ; the pixels in wd_shiftrows, so rows 0..bd1 are all described now.
+    ;
+    ; What that cost is the NEXT scroll. A formatted page-down asks
+    ; `d <= [wd_rowsn]` before it may blit, and on the shipped window a page
+    ; is [wd_vfit] = 2 of [wd_vrows] = 6 - so the first click blitted, left
+    ; [wd_rowsn] at 2, and every click after it refused with d = 4 > 2 and
+    ; repainted the whole window. Two thirds of the view was retained each
+    ; time and thrown away.
+    ;
+    ; It only ever RAISES, and only while the arrays are sound: a walk that
+    ; ended above the view has already said so by clearing [wd_rowsok], and
+    ; this must not argue with it.
+    cmp byte [wd_rowsok], 0
+    je .rsdone
+    mov ax, [wd_bd1]
+    inc ax
+    cmp ax, [wd_vrows]
+    jbe .rscap
+    mov ax, [wd_vrows]
+.rscap:
+    cmp ax, [wd_rowsn]
+    jbe .rsdone
+    mov [wd_rowsn], ax
+.rsdone:
+
     mov ax, [wd_top]
     mov [wd_ptop], ax               ; the screen shows this view now
-    call wd_sbar                    ; unconditional: the thumb moved, and the
-                                    ; blit reached into the bar's columns
+    cmp byte [wd_sbhurt], 0         ; the blit reached into the bar's columns
+    jne .barfull                    ; and the strip blanked them: it owes the
+    call wd_sbcheck                 ; whole draw. Otherwise the bar is still
+    jmp short .bardone              ; right to the pixel and only the THUMB
+.barfull:                           ; moved - three drawing calls against
+    call wd_sbar                    ; sixteen (SPEC.md 13.10.3)
+.bardone:
     clc
     jmp short .out
 .nope:
@@ -6595,7 +6677,13 @@ wd_paint:
     mov ax, [wd_top]                ; padding to the band's edge to erase with
     mov [wd_ptop], ax               ; ...and the screen now shows THIS view
     pop ax
-    call wd_sbar                    ; the fill took the bar with it
+    cmp byte [wd_sbkeep], 0         ; the fill took the bar with it - unless a
+    je .barwhole                    ; refused blit kept it, when only the
+    call wd_sbcheck                 ; THUMB has moved: three drawing calls
+    jmp short .bardone              ; against sixteen, and for a page whose
+.barwhole:                          ; thumb HEIGHT also changed wd_sbcheck
+    call wd_sbar                    ; does the full draw on its own evidence
+.bardone:
     call wd_chrome                  ; ...and the chrome strips' rules, which
                                     ; only a full fill can have erased
     call wd_sheet                   ; ...and the sheet's edges (SPEC.md 68.11)
@@ -7246,11 +7334,9 @@ wd_ins:
     dec si                          ; SI = the last live byte...
     mov di, bx                      ; ...and DI one past it: the runs overlap
     push ds                         ; and the gap opens UPWARD, so backwards
-    mov ds, [wd_dseg]               ; (SPEC.md 27.12). movsb is DS:SI -> ES:DI
-    std                             ; and both ends are the note
-    rep movsb
-    cld                             ; SPEC.md 1: never leave DF set
-    pop ds
+    mov ds, [wd_dseg]               ; (SPEC.md 27.12). Both ends are the note,
+    call wd_mvup                    ; and the move goes a WORD at a time:
+    pop ds                          ; 12.5 clocks a byte against movsb's 17
 .place:
     mov bx, [wd_cur]
     mov [es:bx], dl
@@ -7265,9 +7351,7 @@ wd_ins:
     mov di, [wd_len]
     push ds
     mov ds, [wd_cseg]               ; the operand reads through the OLD DS
-    std
-    rep movsb
-    cld
+    call wd_mvup
     pop ds
 .cput:
     mov dl, [wd_chp]
@@ -7289,6 +7373,65 @@ wd_ins:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_mvup / wd_mvdn - the document's two byte moves, a WORD at a time
+;
+; Every edit opens or closes a gap in TWO claims in lockstep - the text and its
+; CHP twin (SPEC.md 68.3) - so one keystroke moves the tail twice. Measured on
+; a cycle-accurate 5150 the pair costs 36.0 cycles a byte, 18.0 each, which is
+; `rep movsb`'s 17 clocks plus the loop: 12.35 ms on WELCOME.DOC's 1,524-byte
+; tail and, at WD_MAXKB, 232 ms of a keystroke that draws nothing.
+;
+; `rep movsw` is 12.5 clocks a byte against `rep movsb`'s 17 (PERFORMANCE.md
+; Part 2), and BOTH of these moves are safe by words:
+;
+;   UP, backwards, by one byte. A single `movsw` reads its whole word before
+;   it writes, so the overlap inside one instruction is fine; across
+;   instructions, step k writes [SI+1, SI+2] and step k+1 reads [SI-2, SI-1],
+;   strictly below it. No word is ever read after it has been written. The odd
+;   byte goes first, from the top, and the pointers then step back ONE - a
+;   word is addressed by its low byte and `std` walks down from there.
+;
+;   DOWN, forwards, while DI < SI: the write at [DI, DI+1] is strictly below
+;   the next read at [SI+2, SI+3], at any distance.
+;
+; Both leave DF CLEAR (SPEC.md 1: never leave DF set).
+; -----------------------------------------------------------------------------
+; wd_mvup  in: DS:SI = the LAST source byte, ES:DI = the last destination byte,
+;              CX = bytes (non-zero); out: DF clear. Clobbers CX/SI/DI only,
+;              which is what the `rep movsb` it replaces clobbered.
+wd_mvup:
+    std
+    test cl, 1
+    jz .even
+    movsb                           ; the top byte alone, so what is left is a
+.even:                              ; whole number of words
+    shr cx, 1
+    jz .done
+    dec si                          ; ...and a word is addressed by its LOW
+    dec di                          ; byte, one below the byte just read
+    rep movsw
+.done:
+    cld
+    ret
+
+; wd_mvdn  in: DS:SI = the FIRST source byte, ES:DI = the first destination
+;              byte (DI < SI), CX = bytes (non-zero); out: DF clear.
+wd_mvdn:
+    push ax
+    cld
+    mov ax, cx
+    shr cx, 1
+    jz .tail
+    rep movsw
+.tail:
+    test al, 1                      ; the odd byte last, where the words left
+    jz .done                        ; SI and DI pointing at it
+    movsb
+.done:
     pop ax
     ret
 
@@ -9017,6 +9160,13 @@ wd_redraw:
     ; exactly what used to happen every time.
     call wd_scrollpaint
     jnc .done
+    mov byte [wd_sbkeep], 1         ; REFUSED, having drawn nothing - and
+                                    ; .scrolled is only reached when
+                                    ; wd_sigsame AGREED, so the scroll bar on
+                                    ; the glass is still right to the pixel.
+                                    ; The full repaint below must not take it
+                                    ; off the screen and put it back
+                                    ; (SPEC.md 27.7.2)
     jmp short .fullpaint
 
 .full:
@@ -9060,15 +9210,26 @@ wd_redraw:
     pop ax                          ; x1
     add cx, ax
     dec cx                          ; CX = x2
+    cmp byte [wd_sbkeep], 0         ; ...but a refused BLIT leaves the bar and
+    je .fillw                       ; the grow box exactly right, so the fill
+    mov cx, [wd_rgt]                ; stops at the last drawable TEXT column
+.fillw:                             ; and neither is disturbed
     push ax                         ; the pen is a register here, not a
     mov al, CWHITE                  ; variable - keep x1 across the call
     call OSAPI_SET_COLOR
     pop ax
     call OSAPI_GFX_FILL             ; white-fill the content
     call wd_paint                   ; SI still = window ptr
+    cmp byte [wd_sbkeep], 0
+    jne .nogrow                     ; the fill never reached the corner
     mov bx, si                      ; the white fill erased the grow box;
     call OSAPI_WM_GROW              ; restore it (SPEC.md 11.1/27)
+.nogrow:
 .out:
+    mov byte [wd_sbkeep], 0         ; ONE-SHOT: W_PAINT is wd_paint's other
+                                    ; caller and there the KERNEL has filled
+                                    ; the whole content, so the bar really has
+                                    ; gone and the full draw is the right one
     mov byte [wd_ymoved], 0         ; spent: it described THIS redraw's pass 1
                                     ; (wd_scrollpaint tests it, and a stale 1
                                     ; would refuse a later good blit)
@@ -9806,9 +9967,8 @@ wd_delspan:
     mov cx, dx
     jcxz .nomv
     push ds                     ; forwards here: the gap closes DOWNWARD, so
-    mov ds, [wd_dseg]           ; DI trails SI (SPEC.md 27.12)
-    cld
-    rep movsb
+    mov ds, [wd_dseg]           ; DI trails SI (SPEC.md 27.12), which is what
+    call wd_mvdn                ; makes a WORD at a time safe at any distance
     pop ds
 .nomv:
     pop cx
@@ -9825,8 +9985,7 @@ wd_delspan:
     jcxz .cnomv
     push ds
     mov ds, [wd_cseg]
-    cld
-    rep movsb
+    call wd_mvdn
     pop ds
 .cnomv:
     pop cx
@@ -13634,6 +13793,193 @@ wd_mbarhit:
     ret
 
 ; -----------------------------------------------------------------------------
+; wd_subank - bank the pixels the dropdown is about to cover (SPEC.md 68.2.1)
+; in:  wd_mrect computed, gfx lock held
+; out: [wd_suseg] set, or 0 if anything refused; preserves all registers
+;
+; THE KERNEL'S OWN MENU DOES THIS AND WORD COULD NOT, because the pair was
+; unpublished until SPEC.md 5.3. What it buys is the whole of wd_mrepair: a
+; dropdown over a page of text is ~13 rows re-lettered FULL WIDTH at ~900us a
+; glyph cell, measured at 521 ms on a 4.77MHz 8088, against a write-back.
+;
+; THE CLAIM IS PER DROP, not per session - SPEC.md 12.4's rule, and for its
+; reason: 10KB held at every instant nobody is looking at a menu is a third of
+; a small machine's heap. It is freed on the way back up, before the picked
+; item runs, so whatever that item allocates gets a heap the menu has left.
+;
+; EVERY REFUSAL IS THE SAME REFUSAL and none of them is a new path: no claim,
+; a straddled rect, no window - [wd_suseg] stays 0 and wd_mclose repaints,
+; which is what it did before this existed.
+; -----------------------------------------------------------------------------
+wd_subank:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    mov word [wd_suseg], 0
+    mov ax, [wd_mrx1]               ; the rect INCLUDING the drop shadow, and
+    mov [wd_surx1], ax              ; clamped exactly the way wd_mrepair grows
+    mov bx, [wd_mry1]               ; and clamps its own - the two must name
+    mov [wd_sury1], bx              ; the same pixels or the restore is short
+    mov ax, [wd_mrx2]               ; by a column
+    inc ax
+    mov dx, [wd_cl]
+    add dx, [wd_cw]
+    dec dx
+    cmp ax, dx
+    jbe .x2ok
+    mov ax, dx
+.x2ok:
+    mov [wd_surx2], ax
+    mov ax, [wd_mry2]
+    inc ax
+    mov dx, [wd_ct]
+    add dx, [wd_ch]
+    dec dx
+    cmp ax, dx
+    jbe .y2ok
+    mov ax, dx
+.y2ok:
+    mov [wd_sury2], ax
+    ; bytes = planes * rows * ((x2>>3) - (x1>>3) + 1)
+    mov ax, [wd_surx2]
+    mov cl, 3
+    shr ax, cl
+    mov bx, [wd_surx1]
+    shr bx, cl
+    sub ax, bx
+    inc ax                          ; AX = byte columns
+    mov bx, [wd_sury2]
+    sub bx, [wd_sury1]
+    inc bx                          ; BX = rows
+    mul bx                          ; AX = one plane's bytes (DX:AX, and a
+                                    ; panel cannot reach 64KB of one plane)
+    mov bx, [wd_win]
+    or bx, bx
+    jz .no
+    push ax
+    call OSAPI_WM_DISPLAY           ; DH = bpp OF THE DISPLAY WE ARE ON, which
+    mov bl, dh                      ; OSAPI_VIDEO cannot answer on a two-card
+    xor bh, bh                      ; machine (SPEC.md 39.16.4)
+    pop ax
+    cmp bl, 4
+    je .planes
+    mov bx, 1                       ; 1bpp adapter: one plane
+.planes:
+    mul bx
+    add ax, 1023
+    mov cl, 10
+    shr ax, cl                      ; AX = KB, rounded up
+    or ax, ax
+    jz .no
+    mov [wd_sukb], ax
+    call OSAPI_MEM_CLAIM            ; out CF=0, DX = base segment
+    jc .no
+    mov [wd_suseg], dx
+    mov es, dx
+    xor di, di
+    mov ax, [wd_surx1]
+    mov bx, [wd_sury1]
+    mov cx, [wd_surx2]
+    mov dx, [wd_sury2]
+    call OSAPI_GFX_SAVE             ; CF=1 = the rect straddles two displays,
+    jnc .out                        ; and half a bank put back is worse than
+    mov dx, [wd_suseg]              ; none: hand it straight back
+    mov ax, [wd_sukb]
+    call OSAPI_MEM_FREE
+.no:
+    mov word [wd_suseg], 0
+.out:
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_suab / wd_sudlg - bank for the About box and for a modal dialog
+;
+; Both keep their rect in their own four words and both load wd_mrect from it
+; on the way down (wd_abclose, wd_dgclose), so banking is that same load one
+; step earlier. They are worth banking for the same reason the dropdowns are
+; and more so: a dialog is the largest thing Word puts over its content, and
+; SPEC.md 68.3 makes it modal - so nothing can draw underneath it while it is
+; up, which is the whole precondition (word.asm's worker refuses on
+; [wd_dlg] and [wd_about] exactly as it does on [wd_mopen]).
+; -----------------------------------------------------------------------------
+wd_suab:
+    push ax
+    mov ax, [wd_abrect]
+    mov [wd_mrx1], ax
+    mov ax, [wd_abrect+2]
+    mov [wd_mry1], ax
+    mov ax, [wd_abrect+4]
+    mov [wd_mrx2], ax
+    mov ax, [wd_abrect+6]
+    mov [wd_mry2], ax
+    call wd_subank
+    pop ax
+    ret
+
+wd_sudlg:
+    push ax
+    mov ax, [wd_dlrect]
+    mov [wd_mrx1], ax
+    mov ax, [wd_dlrect+2]
+    mov [wd_mry1], ax
+    mov ax, [wd_dlrect+4]
+    mov [wd_mrx2], ax
+    mov ax, [wd_dlrect+6]
+    mov [wd_mry2], ax
+    call wd_subank
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_surest - put the banked pixels back and hand the claim over
+; in:  gfx lock held
+; out: CF=0 the screen is repaired, CF=1 nothing was banked and the caller
+;      owes wd_mrepair; preserves all registers
+; -----------------------------------------------------------------------------
+wd_surest:
+    cmp word [wd_suseg], 0
+    jne .have
+    stc
+    ret
+.have:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    mov es, [wd_suseg]
+    xor si, si
+    mov ax, [wd_surx1]
+    mov bx, [wd_sury1]
+    mov cx, [wd_surx2]
+    mov dx, [wd_sury2]
+    call OSAPI_GFX_REST             ; the same rect the save took, off the
+                                    ; banked copy of it and not off wd_mrect,
+                                    ; which wd_mrepair is free to consume
+    mov dx, [wd_suseg]
+    mov ax, [wd_sukb]
+    call OSAPI_MEM_FREE             ; before the picked item runs (SPEC.md
+    mov word [wd_suseg], 0          ; 12.4): whatever it claims gets a heap
+    pop es                          ; this menu has already left
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; wd_mopenm - open menu AL: bank state, invert the title, draw the dropdown
 ; in:  AL = menu index, wd_bounds run, gfx lock held; preserves all registers
 ; -----------------------------------------------------------------------------
@@ -13664,6 +14010,7 @@ wd_mopenm:
     jae .noxor
     call wd_mtxor
 .noxor:
+    call wd_subank                  ; ...before a pixel of the panel is drawn
     call wd_mdraw
     pop di
     pop si
@@ -13686,7 +14033,9 @@ wd_mclose:
 .noxor:
     mov byte [wd_mopen], WD_M_NONE
     mov byte [wd_mhi], 0xFF
-    call wd_mrepair
+    call wd_surest                  ; the banked pixels, or CF=1 and the
+    jnc .out                        ; piecewise repaint that was the only path
+    call wd_mrepair                 ; before SPEC.md 68.2.1
 .out:
     pop ax
     ret
@@ -17061,6 +17410,11 @@ wd_abopen:
     mov [wd_abrect+2], ax
     add ax, 87
     mov [wd_abrect+6], ax
+    call wd_suab                    ; bank what the box will cover, exactly as
+                                    ; a dropdown does (SPEC.md 68.2.1) - this
+                                    ; is the BIGGEST rect Word ever covers
+                                    ; content with, so it is the biggest
+                                    ; repaint it ever owed
     ; panel, frame, shadow - the dropdown's dress
     mov al, CWHITE
     call OSAPI_SET_COLOR
@@ -17156,7 +17510,10 @@ wd_abclose:
     mov [wd_mrx2], ax
     mov ax, [wd_abrect+6]
     mov [wd_mry2], ax
+    call wd_surest                  ; the banked pixels, or CF=1 and the
+    jnc .out                        ; piecewise repaint (SPEC.md 68.2.1)
     call wd_mrepair
+.out:
     pop ax
     ret
 
@@ -17235,6 +17592,7 @@ wd_dgopen:
 .ckset:
     mov word [wd_dgfoc], 0          ; no edit is focused yet
     mov [wd_dlg], bx
+    call wd_sudlg                   ; bank before the dialog's first pixel
     call wd_dgpaint
     jmp short .out
 .toast:
@@ -18105,7 +18463,10 @@ wd_dgclose:
     mov [wd_mrx2], ax
     mov ax, [wd_dlrect+6]
     mov [wd_mry2], ax
+    call wd_surest                  ; the banked pixels, or CF=1 and the
+    jnc .out                        ; piecewise repaint (SPEC.md 68.2.1)
     call wd_mrepair
+.out:
     pop ax
     ret
 
@@ -19938,6 +20299,21 @@ section .text
     WDVAR wd_mry1, 2        ; word } once by wd_mgeo and read by painter, hit
     WDVAR wd_mrx2, 2        ; word } test, highlight and close repaint alike
     WDVAR wd_mry2, 2        ; word } (the fm_hit discipline)
+    WDVAR wd_sbkeep, 1      ; byte: a refused blit left the scroll bar and
+                            ; the grow box right to the pixel, so the full
+                            ; repaint must not take them off the screen
+                            ; (SPEC.md 27.7.2). ONE-SHOT
+    WDVAR wd_sbhurt, 1      ; byte: the blit band reached into the scroll
+                            ; bar's columns and the strip blanked them, so
+                            ; the bar owes a whole redraw (SPEC.md 27.7.2)
+    WDVAR wd_suseg, 2       ; word: the save-under claim's segment while a
+                            ; dropdown is down, 0 = none and the close
+                            ; REPAINTS instead (SPEC.md 68.2.1)
+    WDVAR wd_sukb,  2       ; word: its size in KB, for the free
+    WDVAR wd_surx1, 2       ; word } the rect actually banked - the panel GROWN
+    WDVAR wd_sury1, 2       ; word } by its shadow and clamped, computed once
+    WDVAR wd_surx2, 2       ; word } on the way down so the way back cannot
+    WDVAR wd_sury2, 2       ; word } disagree with it by a pixel
     WDVAR wd_mabox, 8       ; 4 words: the gesture anchor - the bar title's
                             ; band or the combo's box (os88ui rect order)
     WDVAR wd_max,  2        ; word } where a combo's dropdown hangs: its
