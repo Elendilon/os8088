@@ -61,11 +61,15 @@ import os, subprocess, tempfile                          # noqa: E402
 # is the only thing that exercises the DL end of it. Getting that byte order
 # wrong mirrors every italic and raises nothing, so the ZOOM scene rendering
 # this line at scale 3 is what would catch it.
+# EVERY STYLED RUN HERE CONTAINS A SPACE, deliberately. SPEC.md 46.4.6 skips
+# composing a blank cell, and the two styles that INK one - a link's underline
+# and a strike - are drawn after the row loop, so a space inside either must
+# still be composed. A run without a space in it would never test that.
 DOC = ["# *Heading* one",
        "Plain body text for the ordinary path.",
-       "This is **bold** and *italic* and ~~struck~~.",
-       "A `code` span is the three-colour line.",
-       "A [link](http://os8088.com) underlines it."]
+       "This is **bold text** and *italic here* and ~~struck out~~.",
+       "A `code span` is the three-colour line.",
+       "A [link text](http://os8088.com) underlines it."]
 
 CARDS = {"cga":  "os8088_5150_cga_gla",
          "herc": "os8088_5150_herc_gla",

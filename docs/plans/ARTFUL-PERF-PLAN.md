@@ -401,6 +401,41 @@ while testing almost nothing. `FILLER` is per-adapter now, and the earlier
 "0 differing pixels on herc and vga" for those two scenes should be read as
 weaker than it looked; CGA was carrying the real coverage.
 
+**WAVE 3c IS BUILT** (SPEC.md §46.4.6) and is the best of the three-series:
+**1.12x** on a keystroke inside a heading (223.1 → 198.9 ms) and 1.03x on
+scale-1 body text, for 49 bytes. It is larger at scale 2 exactly as the plan
+predicted — a space on the general arm pays the whole scale/bold/italic
+dispatch, where on §46.4.3's arm it pays eight fetch-complement-stores.
+
+**The font dependency the plan flagged is real and is CHECKED, not asserted.**
+`at_font_init` takes the kernel's own table through `OSAPI_FONT_GLYPHS`, and on
+a `make FONT=` kernel that is a different typeface (§6.2) — which is the whole
+reason this app stopped probing the ROM. So "glyph 32 is eight zero bytes" is a
+fact about *that table*, tested once on the copy into `[at_blankok]`; a face
+that inks its space composes spaces as before. Most of the 49 bytes are that
+check, and it is the difference between a small optimisation and a silent
+wrong render on a kernel nothing here builds by default.
+
+The gate needed a change to be able to fail: **every styled run in its document
+now contains a space**. A link's underline and a strike are the two things that
+ink a blank cell, and `at_ruleat` draws them after the row loop — so a space
+inside either must still be composed. `**bold**` and `~~struck~~` with no space
+in them never tested that; dropping the `AT_ST_L | AT_ST_S` guard on purpose
+now reads 16 differing pixels, which is exactly the rule segments under the
+spaces.
+
 **What is left, re-ranked on the measurement rather than the prediction.**
-3c (skipping a blank glyph) is unchanged and smaller, and carries a font
-dependency with no guard. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+**A profile of the keystroke that remains** says no single term dominates any
+more. Per printable keystroke on Hercules in a three-line paragraph, MEASURED
+call counts: `at_glyph` 187, `at_getb` 347, `at_span` 342, `at_parse` 3,
+`at_compose` 2, `at_draw_line` 2. Against 144 ms that is roughly `at_glyph` 11%,
+`at_parse`'s styled loop 12%, `at_getb` 8%, `at_span` 5% — so the remaining
+wins are 5-12% each and none is a cliff.
+
+The largest single one left is **S25, the plain-line flag** (part 4): it makes
+`at_parse` take its raw loop on a line with no styling, which is most lines,
+and lets `at_caret_on` compute the caret's x arithmetically instead of parsing
+at all — one of the three parses a keystroke pays, plus the cost on every
+arrow key and every lit blink phase. It is a PROOF rather than a cache, which
+is what makes it worth more than the "skip the redundant `at_parse`" item
+beside it: that one needs an invalidation rule, and this one does not. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.

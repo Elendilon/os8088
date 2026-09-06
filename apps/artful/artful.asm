@@ -217,6 +217,28 @@ at_font_init:
     rep movsw
     pop es
     pop ds
+%ifndef NOATBLANK
+    ; SPEC.md 46.4.6: ASK THE FACE. The table above is the KERNEL's, and on a
+    ; `make FONT=` kernel that is a different typeface - so "glyph 32 is eight
+    ; zero bytes" is a fact about that table and not about this app. Glyph 32
+    ; is at offset 0: at_glyph indexes (ch - 32) * 8.
+    push cx
+    push si
+    mov byte [at_blankok], 1
+    mov si, at_fontbuf
+    mov cx, 8
+.blank:
+    cmp byte [si], 0
+    je .bnext
+    mov byte [at_blankok], 0        ; a face that inks its space composes
+    jmp short .bdone                ; spaces exactly as before
+.bnext:
+    inc si
+    loop .blank
+.bdone:
+    pop si
+    pop cx
+%endif
     pop di
     pop si
     pop dx
@@ -1046,7 +1068,11 @@ at_sbmax    equ at_sbst + 1                  ; word: the at_maxtop it was
                                              ; drawn for
 at_sbty     equ at_sbmax + 2                 ; word: the thumb y actually
                                              ; DRAWN, never one recomputed
-at_stgs     equ at_sbty + 2                  ; AT_STGCAP words: staging starts
+at_blankok  equ at_sbty + 2                  ; byte: 1 = the kernel's face
+                                             ; draws glyph 32 blank, so a
+                                             ; space need not be composed
+                                             ; (SPEC.md 46.4.6)
+at_stgs     equ at_blankok + 1                ; AT_STGCAP words: staging starts
 at_stga     equ at_stgs + AT_STGCAP*2        ; AT_STGCAP bytes: staging attrs
 %if at_stgs < at_sbty + 2
   %error "artful bss: at_stgs overlaps a scalar above it. Every name here is `equ <previous> + <size>`, so a chain that RESTATES an earlier base silently aliases two variables onto one address - which is what happened when at_sc1 was added and at_stgs kept saying `at_sclst + 2`. The alias was not a crash: at_sc1 read back as at_stgs[0]'s low byte, so the flag it controls was set by whatever offset the staging window happened to hold and the feature was inert for a document starting at offset 0."

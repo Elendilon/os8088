@@ -60246,6 +60246,30 @@ document is entirely scale 2 and gets none of 46.4.3.
 
 `NOATROW=1` is the A/B.
 
+#### 46.4.6 A blank cell is not composed, and the font is asked first
+
+Space is about one character in six of English prose, and composing one does
+real work: eight rows of fetch, complement and store on §46.4.3's fast arm, and
+the whole scale/bold/italic dispatch on the general one. All of it writes the
+paper `at_compose` has already laid down.
+
+`at_glyph` returns immediately for a space, and the two styles that ink a blank
+cell are the gate: `AT_ST_L` and `AT_ST_S` are drawn by `at_ruleat` *after* the
+row loop, so a cell carrying either is composed normally. Bold, both nibble
+doublers and the `clc`-seeded shear all preserve blankness, so nothing else can
+turn a space into ink.
+
+**The font is asked rather than assumed.** `at_font_init` takes the kernel's
+own table through `OSAPI_FONT_GLYPHS` — on a `make FONT=` kernel that is a
+different typeface (§6.2), which is the whole reason the app stopped probing
+the ROM — so "glyph 32 is eight zero bytes" is a fact about *that* table and
+not about ArtfulType. It is checked once, on the copy, into `[at_blankok]`, and
+a face that inks its space simply composes spaces as before. Assuming it would
+have rendered every space as a hole in whatever the face draws there, on a
+kernel nothing in this repository builds by default.
+
+`NOATBLANK=1` is the A/B.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what

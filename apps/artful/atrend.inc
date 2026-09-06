@@ -727,6 +727,21 @@ at_glyph:
     mov al, '?'
 .chok:
     mov [at_gsty], dl
+%ifndef NOATBLANK
+    ; SPEC.md 46.4.6: a SPACE inks nothing, and at_compose has already laid
+    ; this cell's ground. AT_ST_L and AT_ST_S are the two styles that ink a
+    ; blank cell, and at_ruleat draws them AFTER the row loop, so a cell
+    ; carrying either is composed normally. Bold, both nibble doublers and the
+    ; clc-seeded shear all preserve blankness.
+    cmp al, ' '
+    jne .notsp
+    test dl, AT_ST_L | AT_ST_S
+    jnz .notsp
+    cmp byte [at_blankok], 0        ; ...and only if the FACE agrees
+    je .notsp
+    jmp .nst
+.notsp:
+%endif
     xor ah, ah
     sub ax, 32
     mov cl, 3
