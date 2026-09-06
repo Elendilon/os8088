@@ -59,10 +59,14 @@ pinned — which is the right default, and the one SPEC.md 66.2 already sets.
 
 ## 2. What is pinned today, and what it is worth
 
-`mem_can_move` (kernel/memory.inc:1190, **80 bytes**) is the whole predicate,
-and it refuses in four instructions that matter here: `MEM_K_DRV`, `MEM_K_MOD`,
-`mem_is_region`, and any `MC_DMA`. **Everything proposed below plugs in at
-exactly those four instructions**, which is the design working as intended.
+`mem_can_move` (kernel/memory.inc:1190, **80 bytes**) is the whole predicate, and
+it applies **six** tests in order: `MC_RLOC` = 0; `MC_DMA` ≠ 0; `mem_in_xfer`;
+the purgeable range on `MC_OWN`'s high byte; the `MEM_K_DRV`/`MEM_K_MOD` tags;
+and then a **two-way split** — `mem_is_region` on the instance-slot arm,
+`mem_busy_seg` on the segment arm. Everything below plugs in there, and the
+detail that matters for costing is that split: **making a region movable means
+changing two arms, not one**, because a package's own segment can appear as an
+owner either way.
 
 Everything else is already movable. The RAM disk's store declares `rd_reloc`
 (drivers/ramdisk/rdstore.inc:112), Frotz's 508KB story `zf_reloc`, Tracker's
@@ -73,6 +77,52 @@ kernel's half of a donated claim's move and `mem_reloc_call` runs it before the
 owner's proc on every move. **SPEC.md 66.9 reason 5 and docs/HEAP-CLAIMS.md's
 row for it are stale and should be corrected whether or not anything here is
 built.**
+
+### 2.0 The scenario this is for, and why it is a last resort
+
+The owner's, in his words, and it is the case the whole document should be read
+against:
+
+> Ethernet driver is mounted at boot. The user opens Sheet. The user opens Paint.
+> The user opens Tracker. Oops, they realize they forgot to mount the sound
+> driver. They go and mount it, and unmount Ethernet while they are there. After
+> a while, they close all of the above apps. But the sound driver is now sitting
+> almost 150k from the top — and that is fragmentation.
+
+With this tree's own numbers: `ETHER.DRV` takes 18KB of image plus a 14KB socket
+pool at the ceiling; SHEET's region is 48KB, Paint's 28KB, Tracker's 17KB, each
+packing down beneath it. `SOUND.DRV` is then mounted into the highest base that
+still fits — **~125KB below `[mem_top]`** — and its 8KB ring beneath that. Now
+unmount Ethernet: 32KB frees at the very top. Now close all three programs: 93KB
+frees between them and the sound driver.
+
+**The machine is left with a 6KB driver image and an 8KB ring standing in the
+middle of ~125KB of free space, and nothing that exists can ever move them.**
+Every later claim must fit entirely above the wall or entirely below it. The
+total free memory is fine; the largest run is half of it.
+
+**Three properties make this the case that justifies the work**, and each is
+worth stating separately because §2.1's arithmetic understates all of them:
+
+1. **It does not heal.** `mem_claim_hi` will refill either side, but the wall
+   never moves. The only events that clear it are unmounting the driver — which
+   costs the user the feature they went to Settings for — or a reboot.
+2. **It accumulates.** Every mount, unmount or launch performed at a *different*
+   heap occupancy leaves another block at another depth. Over one session the
+   top arena's fragmentation is monotone: it can only get worse.
+3. **It is caused by ordinary, sensible use.** Nothing above is a stress test.
+   Mounting a driver mid-session is what the Control Panel is *for*, and doing it
+   while some programs happen to be open is the normal case, not the corner one.
+
+That is why this is the *last* resort and not a general facility: it earns its
+bytes exactly when a claim would otherwise be refused against a heap that has
+the room but not in one piece.
+
+**And it is `SOUND.DRV` in the scenario, which is the awkward one** — the only
+driver in the tree that hooks an interrupt vector and the only one that spawns a
+worker (§3.4). It is also 6KB, so its interrupts-off copy is ~17 ms; `[drv_wcnt]`
+already answers for its worker; and `[sbl_str_act]` (§3.2) says whether the ring
+is live. A machine that is not playing anything can move both.
 
 ### 2.1 The arena, and where "the top" actually is
 
@@ -92,25 +142,34 @@ compactor treats as barriers, and the question's own list — program regions,
 drivers, overlays — is precisely that set. That framing is right and an earlier
 draft of this document had it wrong.
 
-**Which sharpens the prize downward, and this is the finding to read before
-costing anything.** Because that stack is *contiguous* on a well-behaved
-machine, and because two things already handle its holes:
+**What the allocator already does, and what it cannot do.** Two things handle
+part of this already:
 
-- `mem_claim_1`'s `.hi` arm walks down from `[mem_top]` past every overlap
-  (kernel/memory.inc:676), so it **already refills any hole in the stack that is
-  big enough for the claim being made**;
-- `mem_cp_plan`'s `.barrier`/`.nogap` arm (kernel/memory.inc:1588) **already
-  reports each such hole** as a candidate run, so `mem_avail` already sees them.
+- `mem_claim_1`'s down arm walks from `[mem_top]` past every overlap
+  (kernel/memory.inc:723), so it **already refills either side of a wall** with
+  any claim that fits there;
+- `mem_cp_plan`'s `.barrier` (:1596) and `.tail` (:1607) **already report every
+  such hole**, so `mem_avail` is honest about them.
 
-What unpinning the top therefore buys is exactly **(sum of the free runs) −
-(largest free run)** — the ability to *merge* two runs — and only in the instant
-a claim exceeds the largest one. It is not "reclaim 69KB"; it is "stop a 40KB
-claim failing against 25KB + 30KB free".
+So for **one claim in isolation** the gain is only (sum of the free runs) −
+(largest free run) — the ability to merge. That arithmetic is true and it is not
+the case for the work: §2.0 is. What the allocator cannot do is remove a wall,
+and a wall placed by an ordinary mount persists for the session and accumulates
+with every later one.
 
-Against that: the top-down stack is the largest single thing on the heap
-(**~209KB** at a busy 640KB moment by one agent's arithmetic), and at 2.79 ms/KB
-a full pass over it is **~583 ms** — the most expensive copy this machine can
-make.
+The counter-argument is that nobody has yet *measured* a session in that state.
+The closest thing in the tree is SPEC.md's own **FRAG 4K out of a 544K span**,
+which is the phenomenon at a scale that costs nothing — and on the 128KB machine
+this whole memory effort exists for, `tests/small128.py:133` asserts *no pinned
+claim stands on a bare desktop* and measures **0 bytes pinned**, because
+kern_small loads no drivers at all (kernel/driver.inc:89) and holds one or two
+regions. **So the yield on kern_small is structurally zero and the case is
+entirely kern_big's.** Open question 1 is what would settle the size.
+
+Cost side: the top-down stack is the largest single thing on the heap (~209KB at
+a busy 640KB moment), and at 2.79 ms/KB a full pass over it is **~583 ms** —
+against a park that already costs 220.
+
 
 ### 2.1.1 …and the real mid-arena barriers are somewhere else
 
@@ -182,9 +241,15 @@ against whether the package hires a worker (`OSAPI_TASK_SPAWN`):
 | 2,021 | Mines | **no** |
 | 747 | hello | **no** |
 
-**worker-owning 191,350 bytes · worker-less 135,930 bytes.** Every C package
-takes a worker too (apps/cc/crt0.asm), so CWORD, RUNCPM, C64 and WEAVE are on
-the pinned side.
+**worker-owning 191,350 bytes · worker-less 135,930 bytes.** The C packages are
+**not** uniformly on the pinned side, as an earlier draft said: `apps/cc/crt0.asm`
+offers the spawn but **C64 and LOOM do not take it** (apps/c64/c64.asm:44,
+apps/loom/loom.asm:112), so their regions are reachable where CWORD's and
+RUNCPM's are not.
+
+The undeclared *data* claims those packages hold are larger than any region here
+and are a separate problem (§2.1.1): SHEET 99KB, **Browser 109KB, LOOM 141KB,
+C64 64KB**.
 
 Why that split is the whole answer is §4.5. The short version: a worker's stack
 carries its own package's segment from the moment it starts, so a package with a
@@ -664,6 +729,14 @@ a callback or its entry proc, so its depth is already non-zero.
 **Cost: ~10 bytes of `.text` and 1 of `.bss`**, and ~60 clocks on a path that is
 already a far call into a callback that does real work.
 
+**One trap that binds every predicate here.** `mem_compact` **drops `[sch_lock]`
+across the park request** (kernel/memory.inc:1870) and every other task runs for
+up to `INST_PARKW` = 4 ticks — ~220 ms — between the first plan and the second.
+Any fact sampled before that request is stale after it. It is safe today only
+because `mem_cp_run` re-calls `mem_can_move` per block under the re-raised lock;
+a design that hoisted the predicate out of that loop for speed would be wrong in
+a way nothing would catch.
+
 ### 4.3 A module: ONDEMAND-PLAN's per-module count — about 104 bytes
 
 docs/plans/completed/ONDEMAND-PLAN.md §7.1 already specified it: *"a one-byte
@@ -704,11 +777,18 @@ therefore overwrite a coincidental match — silent corruption of a return addre
 SPEC.md 66.3 rule 5 refused an unenforceable rule in this exact problem space on
 this exact reasoning; it is the project's own standard.
 
-**As a refuser it is sound but pointless.** Refusing on a coincidence is the safe
-direction, but the false-refusal rate is unmeasured and skewed by the same
-overlap, and it buys nothing the counters do not already give exactly. Alignment
-does not help: a region base is a multiple of 64 paragraphs, but the test is
-equality against a value that is already aligned.
+**One correction to that arithmetic, because arguing from a wrong number is the
+failure being guarded against.** Alignment *does* help, and an earlier draft said
+it did not. A region base is `HEAP_SEG + n×64` paragraphs and `MC_PARA` is in the
+same units (kernel/memory.inc:632, :739), so a colliding word has to be 64-aligned
+**and** equal — 32–64× fewer candidates than a uniform model gives, which takes a
+~0.6% per-pass exposure to roughly **0.01%**. **The refusal does not rest on that
+number**: a fail-silent heuristic loses to a fail-safe-by-construction standard at
+any rate, and the density of near return addresses is not uniform anyway. But the
+verdict must not be argued from a figure that is two orders out.
+
+**As a refuser it is sound and still pointless.** Refusing on a coincidence is
+the safe direction, but it buys nothing the counters do not already give exactly.
 
 **And there is a blindness both share.** A scan and a per-call counter are each
 sound about *frames* and blind to a **held span** — a stretch with nothing
@@ -847,33 +927,52 @@ park costs up to `INST_PARKW` = 4 ticks ≈ **220 ms** (kernel/instance.inc:652)
 
 ---
 
-## 5. The descending pass — the piece that makes the others legal
+## 5. The descending pass — needed for *conditionally* movable claims, and only those
 
-`mem_cp_plan` and `mem_cp_run` walk **ascending** and pack **down**
-(kernel/memory.inc:1553, :1631). Everything the question is about is claimed
-**top-down** (§2.1). So unpinning a top-down claim without a descending pass does
-not compact the top — **it evacuates it into the data arena**, which is the exact
-harm `mem_claim_hi` was built to prevent (SPEC.md 50.3, 50.3.2).
+**The claim record carries no direction bit.** `MC_SEG`, `MC_PARA`, `MC_OWN`,
+`MC_DMA`, `MC_RLOC` and nothing else (kernel/memory.inc:71), so
+`mem_cp_plan`/`mem_cp_run` walk every live claim in ascending base order
+regardless of which door claimed it. **A top-claimed block that merely declares a
+relocation proc is slid all the way down to the bottom fill point by today's
+engine, unchanged.**
 
-An earlier draft of this document called this piece *"strictly second"*. That was
-wrong. **It is the enabling piece**: A, C and D are each actively harmful without
-it, and B (the module drop) is the only one that is not, because a dropped module
-leaves its room to whoever claims next and `mem_claim_hi`'s first-fit-from-the-top
-already reuses a ceiling hole for any claim that fits.
+An earlier draft of this document concluded from that that a descending pass was
+required before any of §3 could ship. **That is too strong, and the correction is
+worth having**: if a claim is *unconditionally* movable, sliding it to the bottom
+is harmless — SPEC.md 50.3's warning is about a *long-lived, unmovable* block
+splitting the arena, and a movable one is neither. Better still, if everything
+became movable, **one ascending pack leaves every claim contiguous from
+`[mem_base]` with a single free run to `[mem_top]`** — the ideal layout — and
+SPEC.md 66.4's one-sentence termination argument survives verbatim, because a
+claim still only ever slides down onto paragraphs the walk has already passed.
 
-The shape is a mirror of the existing pair — either parameterise the direction
-through both bodies plus a descending twin of `mem_cp_next`, or duplicate them.
-**~120 bytes parameterised, ~220 duplicated** (ESTIMATE, calibrated on the
-measured bodies: `mem_cp_plan` 104, `mem_cp_run` 115, `mem_cp_next` 55). It costs
-SPEC.md 66.4's termination argument its one sentence — the monotone slide has to
-be restated for two directions — and SPEC.md 66.7's *"no packing into a hole below
-a pinned block"* gains a mirror clause.
+**Where it is genuinely needed is a claim that is movable only SOMETIMES**, and
+this document proposes two:
 
-**It also raises a question the claim record cannot currently answer**: `MC_` has
-five fields and none of them records which direction a block was claimed in
-(kernel/memory.inc:71). A descending pass either needs a direction bit — one more
-field, `MEM_MAX` × 2 bytes of `.lowbss` — or a heuristic, and a heuristic here is
-the kind of guess SPEC.md 47 exists to refuse.
+- the **sound ring**, movable while `[sbl_str_act]` = 0 (§3.2). Slide it to the
+  bottom while the machine is silent, let the user then open a stream, and there
+  is a pinned bus-master block in the middle of the data arena — SPEC.md 50.3's
+  warning made real by the fix.
+- a **region** whose worker is restartable only inside a declared window (§4.7),
+  and a **module** outside a held span (§3.3).
+
+For those, a claim must go back up. So the honest rule is: **a conditionally
+movable claim needs somewhere to be put back**, and that is what the descending
+pass is for. It is not a precondition for pieces B or C; it is a precondition for
+A and for F.
+
+The shape is a mirror of the existing pair — parameterise the direction through
+both bodies plus a descending twin of `mem_cp_next`, or duplicate them.
+**~120 bytes parameterised, ~220 duplicated** (ESTIMATE, on the measured bodies:
+`mem_cp_plan` 104, `mem_cp_run` 115, `mem_cp_next` 55), plus a **direction bit**
+the record does not have — and `.lowbss` has 34 bytes of its rung left, so
+widening `MC_SIZE` costs 64 bytes and crosses a rung on kern_big.
+
+**One claim gets its 14KB back for nothing.** Of the eight top-down call sites,
+seven are a CS or a bus master. The eighth is **ETHER.DRV's socket pool**
+(drivers/ether/tcp.inc:784) — neither, merely **undeclared**. It would move under
+today's engine, today, for **zero kernel bytes**, as soon as it declares a
+relocation proc. In §2.0's scenario that is 14KB of the wall.
 
 ---
 
@@ -907,14 +1006,26 @@ Three properties fall out of putting it there and nowhere else:
 
 ## 7. The bill, in kernel bytes
 
-**Calibration.** The whole of SPEC.md 66 as shipped is **801 bytes of `.cold`**
+**A correction that moves the tight budget.** A kernel relocation proc is
+dispatched through `cw_mem_disp`, which is `call bp` with `CS = KERNEL_SEG`, so
+**BP has to be a `.text` offset** (kernel/memory.inc:1697) — which is why
+`dsk_dseg_reloc` sits in `.text` inside a `.cold` file. So the region and driver
+fix-ups below are **`.text`, not `.cold`**, and they spend the budget with 8,901
+bytes left rather than the one with 18,944.
+
+**Calibration.** Counted narrowly, SPEC.md 66 as shipped is **801 bytes of
+`.cold`**
 (`mem_can_move` 80, `mem_is_region` 31, `mem_busy_seg` 16, `mem_in_xfer` 33,
 `mem_cp_drop` 21, `mem_pg_cheap` 21, `mem_cp_next` 55, `mem_cp_plan` 104,
 `mem_cp_run` 115, `mem_reloc_call` 89, `mem_compact` 122, `mem_cp_worth` 16,
 `mem_cp_unpark` 20, `mem_bcopy` 58, `mem_movable_x` 20) plus **279 bytes of
-`.text`** for the park and ~25 bytes of `.bss`. Measured off
-`tools/os88sym.py --all`, by diffing each symbol against the next global one in
-its section. Other measured shapes used below: `dsk_dseg_reloc` 36 (one
+`.text`** for the park and ~25 bytes of `.bss`. Counted to include the five
+kernel relocation procs and the `.lowbss` it uses, an independent pass puts the
+whole built feature at **~1,426 resident bytes** — 870 `.cold`, 350 `.text`
+(park), 115 `.text` (relocation procs), ~68 `.lowbss`, ~23 `.bss`. Both are
+measured off `tools/os88sym.py --all`, by diffing each symbol against the next
+global one in its section; the second is the fairer anchor for anything new,
+because a new mechanism needs its fix-up procs too. Other measured shapes used below: `dsk_dseg_reloc` 36 (one
 scan-by-value over a table plus one live word), `fm_reloc` 52, `mem_hifit` 93,
 `inst_of_seg` 34, `wm_destroy_seg` 30, `mod_drop` 15, `mod_disarm` 19,
 `drv_unload_x` 70, `drv_load_row` 193, `drv_call` 61, `wm_pkgcall` 45.
@@ -939,7 +1050,9 @@ first two are worth taking whatever is decided about the rest.
 | **E** | **The descending pass** (§5) — **A, C and D are harmful without it** | **~120** | 0 | ESTIMATE; parameterising `mem_cp_plan` (104) + `mem_cp_run` (115) + a descending `mem_cp_next` (55), plus a direction bit (`MEM_MAX`×2 of `.lowbss`) |
 | **F** | **Worker-owning regions, by declaration** (§4.7): `OSAPI_TASK_RESTARTABLE`, the frame rebuild, the `mem_can_move` arm | **~90** | ~20 | ESTIMATE; `task_spawn`'s tail is the rebuild, `inst_parksafe_set` (22) the setter's shape. +24 `.bss`, +1 API cell |
 
-**Everything: ~740–870 bytes**, of which ~150–220 is `.text`. Against the 801 bytes the
+**Everything: ~740–870 bytes**, of which **~330–400 is `.text`** once the
+fix-up procs are counted there — against 8,901 bytes left of `KERN_CODE_MAX`.
+Comfortable, but no longer the rounding error the `.cold` framing suggested. Against the 801 bytes the
 existing engine cost for a comparable amount of machinery that is plausible, so
 **plan against 650–900**, and treat any single row as ±40% — piece B's two
 estimates already differ by 60%.
@@ -1069,11 +1182,12 @@ in the machine can merge them today.
 
 | take | why |
 |---|---|
-| **§2.1.1 item 1 first, on its own** | `CWORD.OVL` is 18,565 bytes pinned mid-arena for every C package, and `cc_ovbind` is already its relocation proc. ~10 bytes of `crt0.asm`, **zero kernel bytes**. The best value in the document by a wide margin |
-| **§2.1.1's other two** | a declaration in SHEET, one SDK function in `os88.h`. Also no kernel byte |
+| **§2.1.1 item 1 — DECIDED, being fixed** | the owner's call: *"CWORD should not be claiming at the bottom, as a program."* 18,565 bytes out of the middle of the arena for every C package, and `cc_ovbind` is already its relocation proc. ~10 bytes of `crt0.asm`, **zero kernel bytes** |
+| **ETHER's socket pool** | 14KB, top-claimed, neither a CS nor DMA, merely **undeclared** — it would move under today's engine for **zero kernel bytes**. In §2.0's scenario that is 14KB of the wall |
+| **§2.1.1's other two** | a declaration in SHEET (99KB), one SDK function in `os88.h` (which unlocks Browser 109KB, LOOM 141KB, C64 64KB). Also no kernel byte |
 | **piece 0** | free, and an incomplete SPEC.md 66.6 is worse than none: the next person fixes five of nine words and ships a machine that draws its menu titles out of the wrong segment |
 | **piece B** | ~104–168 bytes for 8–9KB, the only piece that is safe without E, with `FDLG.DRV` excluded |
-| **piece E** | before A, C or D — each of those is harmful without it |
+| **piece E** | before **A** and **F** specifically — a *conditionally* movable claim needs somewhere to be put back (§5). B and C do not need it |
 | then reconsider | A (~69), C (~200, stops at §4.6), D0 (~40, already built), D (~175–242, one IF=0 window), F (~90, asks package authors for something) |
 
 
@@ -1130,12 +1244,14 @@ window.
 
 ## 12. Open questions
 
-1. **BLOCKING — has a hole between two ceiling blocks ever refused anything?**
-   No field report or measurement in this tree shows one, and §2.1 reduces the
-   whole prize to *(sum of free runs) − (largest free run)*. docs/FIELD-NOTES.md 2
-   is a hole in the *data* arena and is closed. `tools/heapmap.py` on a busy
-   machine would answer it, and **nothing in §3 should be written until it is
-   answered**.
+1. **SHAPE ANSWERED, SIZE NOT.** §2.0 is the case, from the owner operating the
+   machine: a driver mounted mid-session becomes a wall that never moves and
+   accumulates with every later mount. So the question is no longer *"does this
+   shape exist"* — it is **how big the wall gets in a real session**. The only
+   measurement in the tree is SPEC.md's **FRAG 4K out of a 544K span**, which is
+   the phenomenon at a scale that costs nothing. `tools/heapmap.py` after §2.0's
+   exact sequence would give the number, and it is a twenty-minute run rather
+   than a design.
 1a. **Can the 8237's current address and word count be reprogrammed independently
    of the base?** §3.2 says no — a write to port 0x02 loads base and current
    together, so a moved auto-init ring restarts while the DSP's block counter does
