@@ -2151,6 +2151,23 @@ SOAK = [
         "against a screen no early-out touched.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdcaret", "soak", py("tests/wdcaret.py"), 480.0,
+        "SPEC.md 27.4.6: a caret move lays the note out ONCE. Leg A counts "
+        "wd_walk calls inside one keystroke and requires 1 - the change "
+        "itself, and what fails on a build with the feature off; leg C is the "
+        "A/B inside one boot, wd_1pok being the whole arming. The trap the "
+        "gate exists for is a level under the pixels: [wd_clip] gates the "
+        "GLYPH STORE as well as the drawing, by the same three tests and "
+        "deliberately, so clipping the one pass to the dirty range composed no "
+        "cells at all for a row whose signature was not yet known and "
+        "wd_rflush's delta then re-lettered the whole row - 419 differing bits "
+        "on a Right arrow, on a screen that still read as text. Leg D is the "
+        "one ordering the collapse changes: wd_seecaret now runs AFTER the "
+        "drawing, so a Down that scrolls lands on rows this pass already drew. "
+        "The pixel reference throughout is a page down and back, which a "
+        "formatted document always full-repaints (68.6).",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdenter", "soak", py("tests/wdenter.py"), 450.0,
         "SPEC.md 27.4.5: an Enter pushes the note below the split down with "
         "one gfx_scroll instead of erasing to the content bottom and "

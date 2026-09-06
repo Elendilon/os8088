@@ -38029,6 +38029,83 @@ apply to those, so a refused Enter is faster than it was too.
 `wd_nlband` is the whole arming, so patching it to `stc`/`ret` in the guest
 turns the feature off and the same keystroke draws the same screen the slow way.
 
+#### 27.4.6 …and a CARET MOVE lays the note out once, not twice
+
+`wd_redraw` is **two walks**. Pass 1 works out which rows stopped matching
+their signatures; pass 2 draws them. The split earns its keep on an edit,
+because a reflow can change a row's **height**, and a height change means a
+band has to be **erased** before it is lettered (§68.6) — an erase over rows
+you have already drawn is a blank line, so the drawing cannot start until the
+range is known.
+
+**A caret move needs neither half of that.** Nothing reflowed, so no row
+changes height and no band is erased; and with no fill in the way a row can be
+drawn the moment its signature says it changed — which is at the row's **end**,
+where `wd_rflush` already runs, one call before `wd_nextrow` folds the
+signature. Measured on a cycle-accurate 5150 with `WELCOME.DOC` in the shipped
+window, a Right arrow was **68.6 ms of which pass 1 was 23.5**, and pass 1
+draws not one pixel.
+
+So `wd_rowsig` is split out of `wd_nextrow` and `wd_rflush` calls it first. It
+is **idempotent** — once it has stored the signature the compare is equal — so
+`wd_nextrow` calling it again a few instructions later costs a compare and does
+nothing, and every other path is untouched.
+
+**`[wd_clip]` cannot be what gates it, and that is the whole trap.** The same
+byte gates the **glyph store** as well as the drawing — the same three tests,
+deliberately, at all three store sites — so clipping the one pass to the dirty
+range composed **no cells at all** for a row whose signature was not yet known.
+`wd_rflush`'s delta then diffed a stale `wd_rbuf` against `wd_prow`, found every
+cell changed, and re-lettered the whole row: **419 differing bits on a Right
+arrow**, on a screen that still read as text. The one pass therefore clips
+nothing, `wd_rowrng` is the range test on its own, and `wd_rflush` is the only
+thing that asks it.
+
+Two things the walk can still do **after** the drawing has gone past, and each
+is a wrong screen rather than a slow one. Neither can happen for a caret move —
+nothing reflowed and the note is byte for byte what it was — so they are a net
+rather than a path, and they say so by falling out to the full repaint:
+
+- **`[wd_ymoved]`.** A row that changed height asks for the band sweep, which
+  erases to the content bottom and re-letters — over rows already drawn.
+- **`[wd_dr1]` past where the drawing reached.** `wd_walk`'s `.pad` marks the
+  rows a note that *shrank* left behind, and it runs after the last
+  `wd_rflush`. `[wd_1pdr1]` is the range the last drawn row saw, and the two
+  are compared rather than assumed equal.
+
+**`wd_seecaret` now runs after the drawing rather than before it**, which is
+the one ordering this changes. A scroll it decides on lands on rows this pass
+has drawn — and that is fine, because `wd_scrollpaint`'s precondition is that
+the tables describe the glass, which after one pass they do. The cost is one
+wasted draw in the rare case, against a whole layout pass in every other.
+
+Measured on the same machine and document, caret clicked on row 1, on a
+machine made quiet first:
+
+| | two passes | one |
+|---|---:|---:|
+| `wd_onkey` for one Right arrow | 67.6 ms | **47.0 ms** (1.44x) |
+| `wd_walk` calls in the keystroke | 2 | **1** |
+
+`.text` +475 bytes total for §27.4.5 and this together, `.bss` +13.
+
+It is **kind 4 and nothing else**: every other kind can reflow, and a reflow
+can change a height, and a height change is the erase this rests on not
+happening. `wd_1pok` is that one test, in a routine of its own so that
+`stc`/`ret` over it in a running guest is the A/B — `tests/wdcaret.py` leg C.
+
+**And a methodological one, because it nearly became a bug report.** A
+ten-scenario A/B run as two BOOTS, comparing whole framebuffers, read 6 and 15
+bits apart on `Home`/`End` and on a five-Right / five-Left pair. Neither is the
+collapse. The 15 was the **desktop clock**, which is outside the window and
+which two boots do not agree on; the 6 survives banding to the window and is
+still not attributable, because the same sequences read **0 against a full
+repaint in both forms** (`tests/wdcaret.py` leg B, and the printed line in leg
+C) — and the two boots' screens already differed by 31 bits before a key was
+pressed. **The reference is the full repaint, taken inside one boot.** A
+cross-boot framebuffer diff is a signal, not a verdict, and every leg of the
+gate is written against the repaint for that reason.
+
 ### 27.5 Where each row starts — a query about a row costs a row
 
 §27.4 bounded the *keystroke*. It did nothing for the caret keys, and they

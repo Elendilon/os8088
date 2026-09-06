@@ -1231,6 +1231,7 @@ list to check yourself against.
 | Type into the file dialog's name box | ~120 glyphs + a 298×151 fill | `font_char` **972 → 36**, scanlines **7,600 → 184** (8 chars) | §38.8 |
 | Word: a Left or Right arrow | `wd_fastcm` parked `[wd_mvbot]` at the 0x7FFF sentinel - they do not go through `wd_move`, which is what sets a real bound - so pass 1 laid out the whole view. Right **186.3 ms** (walk 142.8), Left **216.6** (walk 164.8), against Down's 114.5 (walk 4.3) | §27.4.1's two-row rule applied to them as well, `ckpr + 1`: Right **67.3 ms** (walk 23.8), Left **96.2** (walk 42.2) | §27.4.4 |
 | Word: typing a character mid-line | pass 1 laid out every row from the caret to the bottom of the view, every keystroke, to be told nothing below had changed. On `WELCOME.DOC` in the shipped window (`vrows` = 6): **205.6 ms** at caret row 1, of which `wd_walk` **149.2 ms** | `wd_eoutck` stops the walk where the row indices reconverge - one compare a row, exact, height-agnostic: **80.4 ms**, of which `wd_walk` **29.6 ms** (2.6x and 5.0x). At caret row 3, 224.9 -> **142.8 ms** | §27.4.3 |
+| Word: moving the caret at all | `wd_redraw` is two walks - pass 1 finds the rows whose signatures moved and pass 2 draws them - and the split is there for a REFLOW, which can change a row's height and so needs a band erased before it is lettered. A caret move reflows nothing and pays for it anyway: a Right arrow was **67.6 ms of which pass 1 is 23.5**, drawing not one pixel | `wd_rflush` runs at the row's END, one call before `wd_nextrow` folds the signature, so it asks the question itself: **47.0 ms**, ONE `wd_walk` instead of two (1.44x) | §27.4.6 |
 | Word: pressing Enter | `[wd_fast]` stayed 0, so the keystroke got no seed, no bound and no early-out, and every row below the split changed its y - `[wd_ymoved]` erased to the content bottom and pass 2 lettered the lot. Caret on row 1 of `WELCOME.DOC`: **448.2 ms**, of which **165 ms is a pass that draws nothing** | kind 5: §27.4.3's reconvergence one row down, then the note below it is a `gfx_scroll` rather than a repaint. **116.9 ms**; pass 1 7 rows -> 2, pass 2 6 -> 2 | §27.4.5 |
 | Word: a track click on the scroll bar | the blit refused (a page is `[wd_vfit]` = 2 of 6 rows, but `[wd_rowsn]` had been left at `[wd_bd0]` = 2 by the previous scroll, so `d` = 4 > 2), and the full repaint that followed white-filled the whole content — bar and grow box with it — then drew the bar whole. **512.9 ms** | the blit is taken, and when it genuinely cannot be the fill stops at `[wd_rgt]` and only the THUMB moves: **155.0 ms**, 3.3x | §68.2.2 |
 | Word: an arrow click on the scroll bar | the band rounded x2+1 up from `[wd_rgt]` and carried six of the bar's fourteen columns; the strip was blanked white and `wd_sbar` redrew all sixteen calls. 230.4 ms, and the bar's arrow cell altered in **44 of 48** samples through the click | the band is cut from the CELLS and cannot reach the bar; `wd_sbcheck` moves the thumb in three calls. **197.8 ms**, and **0 of 48** samples | §68.2.2 |
@@ -11236,3 +11237,53 @@ took, which is what said the fault was in the arm with the feature *off*.
 
 `.text` +369 bytes, `.bss` +10. `tests/wdenter.py` is the gate, and the
 ten-scenario A/B that found two of these three is what it was cut from.
+
+### Set 117.4 — one pass instead of two for a caret move (SPEC.md §27.4.6)
+
+Set 117.3 found that Word's two layout passes cost about the same, and that
+pass 1 draws nothing. This is that finding acted on, for the one kind of
+redraw where the split buys nothing: a caret move reflows no text, so no row
+changes height, so no band is erased before it is lettered — and with no fill
+in the way a row can be drawn the moment its signature says it changed.
+
+`os8088_5150_cga_gla`, `WELCOME.DOC`, shipped window, `vrows` = 6, caret
+CLICKED, and the A/B is `wd_1pok` patched to `stc`/`ret` inside one boot on a
+machine made quiet first:
+
+| keystroke, from a fresh click | two passes | one |
+|---|---:|---:|
+| Right | 67.6 ms | **47.0 ms** (1.44x) |
+| Right ×8 | 67.8 | **46.3** (1.46x) |
+| Left off a row | 67.6 | **46.1** (1.47x) |
+| Left | 107.7 | **81.9** (1.32x) |
+| Down then Up | 127.0 | **102.1** (1.24x) |
+| Right off a row | 163.7 | **132.1** (1.24x) |
+| Home then End | 290.2 | **209.8** (1.38x) |
+| Down ×7, scrolling the view | 321.2 | 337.3 (**0.95x**) |
+
+**The last row is the honest one**: a caret move that scrolls is the case the
+collapse cannot help, because `wd_seecaret` now runs *after* the drawing, so
+the rows drawn before the scroll are drawn for nothing. It is 5% slower and
+it is one keystroke in seven of a page.
+
+**The trap is a level below the pixels and cost the first build 419 bits.**
+`[wd_clip]` gates the **glyph store** as well as the drawing — the same three
+tests at all three store sites, deliberately — so clipping the one pass to the
+dirty range composed no cells at all for a row whose signature was not yet
+known. `wd_rflush`'s delta then diffed a stale `wd_rbuf` against `wd_prow`,
+found every cell changed, and re-lettered the whole row. On a centred title
+that is 23 cells where the two-pass form drew 2, and the screen still read as
+text.
+
+**And a measurement trap that nearly became a bug report.** A ten-scenario A/B
+run as two BOOTS, comparing whole framebuffers, read 6 and 15 bits apart on two
+of them. The 15 was the **desktop clock**, which is outside the window and
+which two boots do not agree on. The 6 survives banding to the window and is
+still not the collapse: the same sequences read **0 against a full repaint in
+both forms**, and the two boots' screens already differed by 31 bits before a
+key was pressed. The reference is the full repaint taken inside one boot; a
+cross-boot framebuffer diff is a signal, not a verdict.
+
+`.text` +475 bytes for §27.4.5 and §27.4.6 together, `.bss` +13.
+`tests/wdcaret.py` is the gate, and its leg A is the change itself: ONE
+`wd_walk` in the keystroke, counted.
