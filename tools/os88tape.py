@@ -82,6 +82,13 @@ F_KNOWN = F_CZ | F_PRECOMP | F_LZB
 
 HDR_SIZE = BLOCK                    # the header record is EXACTLY one block
 BODY_PRE = 8                        # 'OT', seq, nrec, paylen, ckfile
+NAME_LEN = 16                       # the name field. SIXTEEN: a maximal 8.3
+                                    # name is 12 characters and needs a 13th
+                                    # byte for the NUL, so 12 could not hold
+                                    # one. 16 keeps `size` word-aligned
+OFF_NAME = 12
+OFF_SIZE = OFF_NAME + NAME_LEN      # 28
+OFF_USIZE = OFF_SIZE + 4            # 32
 
 
 class TapeError(Exception):
@@ -216,12 +223,15 @@ def _name_field(name):
         # own exception out would make a malformed name look like a crash in
         # the codec rather than a bad tape.
         raise TapeError("name %r is not ASCII" % name)
-    if len(raw) > 11:
+    if len(raw) > 12:
+        # A maximal 8.3 name is TWELVE characters - 'ABCDEFGH.IJK' - and the
+        # field is 16 so the NUL always fits. It was 12 in the format's first
+        # draft, which could not hold one at all.
         raise TapeError("name %r is longer than 8.3" % name)
     for ch in raw:
         if not 0x21 <= ch <= 0x7E:
             raise TapeError("name %r has a byte outside 0x21..0x7E" % name)
-    return raw + b"\0" * (12 - len(raw))
+    return raw + b"\0" * (NAME_LEN - len(raw))
 
 
 def geometry(size, recblk):
@@ -257,9 +267,9 @@ def build_header(name, payload, recblk, flags, usize):
     hdr[8] = lastblk
     hdr[9] = nrec
     struct.pack_into("<H", hdr, 10, crc16(payload))
-    hdr[12:24] = _name_field(name)
-    struct.pack_into("<I", hdr, 24, size)
-    struct.pack_into("<I", hdr, 28, usize)
+    hdr[OFF_NAME:OFF_NAME + NAME_LEN] = _name_field(name)
+    struct.pack_into("<I", hdr, OFF_SIZE, size)
+    struct.pack_into("<I", hdr, OFF_USIZE, usize)
     return bytes(hdr)
 
 
@@ -397,15 +407,16 @@ def parse(bw_or_bits, rom="ibm"):
     if not 1 <= nrec <= 255:
         raise TapeError("nrec %d is outside 1..255" % nrec)
     ckfile = struct.unpack_from("<H", hdr, 10)[0]
-    name_raw = bytes(hdr[12:24])
+    name_raw = bytes(hdr[OFF_NAME:OFF_NAME + NAME_LEN])
     if 0 not in name_raw:
-        raise TapeError("name field is not NUL-terminated inside 12 bytes")
+        raise TapeError("name field is not NUL-terminated inside %d bytes"
+                        % NAME_LEN)
     name = name_raw[:name_raw.index(0)].decode("ascii", "replace")
     for ch in name.encode("ascii", "replace"):
         if not 0x21 <= ch <= 0x7E:
             raise TapeError("name %r has a byte outside 0x21..0x7E" % name)
-    size = struct.unpack_from("<I", hdr, 24)[0]
-    usize = struct.unpack_from("<I", hdr, 28)[0]
+    size = struct.unpack_from("<I", hdr, OFF_SIZE)[0]
+    usize = struct.unpack_from("<I", hdr, OFF_USIZE)[0]
     if not 1 <= size <= TP_MAXFILE:
         raise TapeError("size %d is outside 1..%d" % (size, TP_MAXFILE))
 

@@ -1819,7 +1819,8 @@ WEAVEDEMOS := apps/weave/demos
 WEAVEWABS  := $(BUILD)/FORM.WAB $(BUILD)/SHEET.WAB $(BUILD)/PONG.WAB
 all: checkdocs $(IMG) $(IMG120) $(IMG720) $(IMG360) \
      $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
-     $(MEDIAIMG360) $(BUILD)/wire.o88 $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
+     $(MEDIAIMG360) $(BUILD)/wire.o88 $(BUILD)/tape.o88 \
+     $(WEAVEWABS) $(BUILD)/.weave-hostchecks \
      cc-note test-fast
 # wire.o88 is named here and NOWHERE else in `all`, because WIREFRAME is built
 # but does not ship (SPEC.md 78.9, `make wiredisk`). Keeping it in the default
@@ -3759,6 +3760,68 @@ $(BUILD)/tapecomp360.img: $(BUILD)/tapecomp.o88 tools/os88disk.py
 
 .PHONY: tapecomptest
 tapecomptest: $(BUILD)/tapecomp360.img
+
+# TAPE (SPEC.md 88), docs/plans/CASSETTE-PLAN.md wave 5: the cassette package
+# itself - the window, the state machine, the format and all 29 of SPEC.md
+# 88.9's checks. **TWO ARMS OF ONE SOURCE**, and the split is what makes the
+# feature testable at all: no instrument in this project can execute a
+# cassette read (SPEC.md 88.11), so `-DTAPE_FAKE` puts a memory buffer with
+# the ROM's own semantics behind `tp_xfer` and everything above it is the
+# shipping code.
+#
+#   $(BUILD)/tape.o88     the REAL build, with no transport yet: wave 6 fills
+#                         in `int 15h` and the bracket of SPEC.md 88.2, and
+#                         until then tp_xfer refuses in its own words. It is
+#                         named in `all` for wire.o88's reason - a package
+#                         that only an on-demand target compiles is a package
+#                         that stops compiling without anybody noticing - and
+#                         it ships on no floppy yet.
+#   `make tapesimtest`    the FAKE-transport build on a scratch 360KB image,
+#                         which is what tests/tapesim.py drives:
+#                             make tapesimtest && python3 tests/tapesim.py
+TAPESRC := apps/tape/tape.asm apps/tape/tapefmt.inc apps/tape/tapeui.inc \
+           apps/tape/tapexfr.inc apps/tape/reels.inc apps/os88api.inc \
+           apps/os88ui.inc apps/os88pit.inc
+
+$(BUILD)/tape.bin: $(TAPESRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/tape/ -o $@ apps/tape/tape.asm
+	@echo "tape:   $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tape.o88: $(BUILD)/tape.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tape.bin -o $@
+
+$(BUILD)/tapesim.bin: $(TAPESRC) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/tape/ -DTAPE_FAKE -o $@ \
+	        apps/tape/tape.asm
+	@echo "tapesim: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/tapesim.o88: $(BUILD)/tapesim.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/tapesim.bin -o $@
+
+# ...and a file for it to carry. It is GENERATED rather than committed, and
+# tests/tapesim.py's `fixture_bytes` writes the identical 2,400 bytes on the
+# host: what the row checks is that the machine's `ckfile`, `nrec` and
+# `lastblk` over those bytes are the ones tools/os88tape.py derives, so the
+# two sides have to be looking at the same file or every checksum goes red.
+# 2,400 bytes is FOUR records at TP_RECBLK = 4 (a header plus three bodies),
+# which is the multi-record path the progress bar, the per-record repaint and
+# Stop all exist for.
+#
+# **THE NAME IS ELEVEN CHARACTERS AND NOT TWELVE**, which is not a style
+# choice: SPEC.md 88.4.1's `name` field is 12 bytes NUL-terminated inside
+# them, and a maximal 8.3 name is 12 characters - so neither this reader nor
+# tools/os88tape.py can carry `TAPEDATA.TXT`, and the package refuses it in
+# words at Choose time. See apps/tape/tape.asm's `tp_namefits`.
+$(BUILD)/TAPEDAT.TXT: | $(BUILD)
+	python3 -c "import sys; open(sys.argv[1],'wb').write(b''.join(b'os8088 tape fixture line %03d\r\n' % i for i in range(80)))" $@
+
+$(BUILD)/tapesim360.img: $(BUILD)/tapesim.o88 $(BUILD)/TAPEDAT.TXT \
+                         tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tapesim.o88 \
+	        $(BUILD)/TAPEDAT.TXT
+
+.PHONY: tapesimtest
+tapesimtest: $(BUILD)/tapesim360.img
 
 # lzfile - a compressed FILE, read transparently (SPEC.md 20.14,
 # docs/plans/O88-COMPRESSION-PLAN.md 13 wave 5). The disk carries one document

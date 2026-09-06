@@ -1927,6 +1927,32 @@ SOAK = [
         "first run: OSAPI_JSLOT is a bare `jmp` and sets no segment, so the "
         "body was reading [sch_pitcl] out of the calling PACKAGE's segment",
         wants=("build/tapelend360.img",)),
+    Row("tapesim", "soak", py("tests/tapesim.py"), 100.0,
+        "SPEC.md 88's TAPE package, driven end to end on the FAKE transport "
+        "(docs/plans/CASSETTE-PLAN.md wave 5). **THE ROUND TRIP IS BETWEEN TWO "
+        "IMPLEMENTATIONS**, not one program agreeing with itself: the "
+        "fixture's ckfile, nrec and lastblk are computed on the host by "
+        "tools/os88tape.py - written from 88.4 rather than from the assembly "
+        "- and the machine has to arrive at the same three numbers. That "
+        "matters more here than anywhere else in the tree, because NO "
+        "INSTRUMENT IN THIS PROJECT CAN EXECUTE A CASSETTE READ AT ALL "
+        "(88.11), so two independent readers agreeing about the format is "
+        "most of the verification it will get before it meets a deck. The "
+        "row drives Save, Verify, Load and a compressed Save through the "
+        "real window - the layout off OSAPI_WM_GEOM, the buttons, the "
+        "cue-confirm and the replace question - and it found three defects "
+        "on the way in: tp_xfer banked its verb in AX and a `pop ax` on the "
+        "way out put the CALLER's AH back over the status it had just "
+        "computed (two records read, the third reported 'no data leader' on "
+        "a tape that had it), the state machine's endings took the gfx lock "
+        "from a completion that already held it (a UI task deadlocked "
+        "against itself, which looks exactly like the freeze this package is "
+        "expected to have anyway), and Verify read [tp_mode] rather than "
+        "asking whether the operation was a READ, so it wrote the file to "
+        "the tape a second time. The `int 15h` half is wave 6 and nothing "
+        "here touches it",
+        needs=("marty",),
+        wants=("build/tapesim.bin", "build/tapesim360.img")),
     Row("lzfence", "soak", py("tests/lzfence.py"), 20.0,
         "SPEC.md 20.13.4: OSAPI_DECOMP REFUSES a hostile stream rather than "
         "writing. The bounds in kernel/lz.inc were measured for size and "

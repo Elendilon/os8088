@@ -94822,13 +94822,22 @@ off  size  field      contents and rule
 +10    2   ckfile     CRC-16/CCITT (0x1021, preset 0xFFFF, MSB-first, NOT
                       complemented) over all `size` payload bytes. EVERY body
                       record repeats it (§88.4.2).
-+12   12   name       §19.1's display form: 8.3, NUL-terminated inside 12
++12   16   name       §19.1's display form: 8.3, NUL-terminated inside 16
                       bytes, every byte before the NUL in 0x21..0x7E.
-+24    4   size       the payload's byte count. 1..TP_MAXFILE (32,768).
-+28    4   usize      what it EXPANDS to (== size when uncompressed).
+                      SIXTEEN AND NOT TWELVE: a maximal 8.3 name is twelve
+                      characters ('ABCDEFGH.IJK') and needs a thirteenth byte
+                      for the NUL, so a 12-byte field cannot hold one and
+                      would refuse TAPEDATA.TXT. It was 12 in this section's
+                      first draft and `apps/tape/tapefmt.inc` is what found
+                      it. Sixteen rather than thirteen keeps `size` word-
+                      aligned and leaves room without another flag day - and
+                      it costs nothing, the header being padded to 256 either
+                      way, which is the paragraph above's whole point.
++28    4   size       the payload's byte count. 1..TP_MAXFILE (32,768).
++32    4   usize      what it EXPANDS to (== size when uncompressed).
                       INFORMATIONAL ONLY - it is what the scan list prints,
                       and it may NEVER size a claim or a check.
-+32  224   zero       written zero, NEVER READ. Not "reserved for future use":
++36  220   zero       written zero, NEVER READ. Not "reserved for future use":
                       reading it is how a future writer's field becomes an old
                       reader's bug.
 ```

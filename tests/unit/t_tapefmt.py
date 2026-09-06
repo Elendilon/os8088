@@ -83,6 +83,10 @@ def main():
 
     # --- round trip, both ROMs, every recblk, the awkward payloads ----------
     payloads = {
+        # A MAXIMAL 8.3 NAME, first: twelve characters plus a NUL is thirteen
+        # bytes, which the format's first draft could not hold at all - the
+        # field was 12 and this file is what would have caught it.
+        "TAPEDATA.TXT": b"maximal name" * 20,
         "TINY.TXT": b"x",
         "TWO.TXT": b"ab",
         "TEXT.TXT": (b"The quick brown fox jumps over the lazy dog.\r\n" * 40),
@@ -165,6 +169,10 @@ def main():
     refuses("recblk 17", lambda: T.build("Z.BIN", b"abc", recblk=17))
     refuses("a flag bit above bit 2", lambda: T.build("Z.BIN", b"abc", flags=0x08))
     refuses("a name longer than 8.3", lambda: T.build("TOOLONGNAME.TXT", b"abc"))
+    check("a maximal 8.3 name fits the field",
+          len(T._name_field("ABCDEFGH.IJK")) == T.NAME_LEN
+          and T._name_field("ABCDEFGH.IJK")[12] == 0,
+          "12 chars + NUL must fit in %d" % T.NAME_LEN)
     refuses("a name with a space", lambda: T.build("A B.TXT", b"abc"))
     refuses("a name with a high byte", lambda: T.build("A\x80.TXT", b"abc"))
     refuses("an empty tape", lambda: T.parse(bytearray(5000), rom="ibm"))
