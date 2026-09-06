@@ -1661,7 +1661,8 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("skiescga", "soak", py("tests/skies.py", "--machine",
                                "os8088_5150_cga_gla"), 180.0,
-        "SPEC.md 88 on CGA: the 320x112 view, palette 0 over a light-blue"
+        "SPEC.md 88 on CGA: the 240x84 view (88.13.4 s moderate size),"
+        " palette 0 over a light-blue"
         " background, the same flight",
         needs=("marty",), serial=True),
     Row("fsxclip", "soak", py("tests/fsxclip.py"), 150.0,
@@ -1669,6 +1670,12 @@ SOAK = [
         " back to a whole desktop - the menu bar, the background and the dock"
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
+        needs=("marty",), serial=True),
+    Row("skiesset", "soak", py("tests/skiesset.py"), 300.0,
+        "SPEC.md 88.13: the Settings page and its four knobs reaching the"
+        " picture - Few files fewer objects and draws faster, a fill box"
+        " clears its bit, the in-flight hotkeys do the same without the page,"
+        " and a smaller view leaves none of the larger one beside it",
         needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 260.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
@@ -1694,7 +1701,7 @@ SOAK = [
     Row("skiesvga", "soak", py("tests/skies.py", "--machine",
                                "os8088_xt_vga"), 240.0,
         "SPEC.md 88 on MODE X - MartyPC's VGA hosts the unchained mode, whatever"
-        " an earlier session believed - the 320x144 view on two pages, the same"
+        " an earlier session believed - the 240x108 view on two pages, the same"
         " flight at ~4 fps, and the page SHOWN changing every second in flight:"
         " the owner once saw this backend freeze on its first frame with the"
         " loop still running, and a flip that never shows the drawn page is"

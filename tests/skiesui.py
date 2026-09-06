@@ -19,9 +19,9 @@ landed - and every answer is read out of the package's bss, not the glass.
   3. Esc takes an open list down;
   4. Flight -> Instructions turns the page (cs_page = 1) and a click turns it
      back;
-  5. the Mode menu offers Mode X and CGA, its pick lands (cs_modepref,
-     cs_want) and F then flies in CGA320 (cs_back = 2), the frame counter
-     climbing;
+  5. the Mode row - on the Settings page since SPEC.md 88.13, and gone from
+     the bar - offers Mode X and CGA, its pick lands (cs_modepref, cs_want)
+     and F then flies in CGA320 (cs_back = 2), the frame counter climbing;
   6. after all of that the menu bar still drops.
 
 Check 2a is the drop-down's SAVE-UNDER (SPEC.md 13.14.1): opening the list
@@ -202,30 +202,36 @@ def main(argv):
         click(po[0] + 20, po[1])
         check(bss("cs_page", 1) == 0, "a click turns it back")
 
-        # --- 5. the Mode menu, where there is one --------------------------------
+        # --- 5. the Mode row, which lives on the Settings page now (88.13) -------
         cells = {c[0]: c for c in ui.menus()}
+        check("Mode" not in cells, "the Mode menu is gone from the bar (%s)"
+              % sorted(cells))
         if bss("cs_want", 1) == CSB_MODEX:
-            check("Mode" in cells and len(cells["Mode"][3]) == 2, "a VGA offers a Mode menu of two")
-            ui.menu_pick("Mode", "  CGA, 4 col, fast")
-            m.advance(frames=20)
+            ui.menu_pick("Flight", "Settings")
+            m.advance(frames=30)
             m.run()
+            md = [rec("cs_drmode", 2 * i) for i in range(4)]
+            check(md[2] > md[0], "the Settings page put the Mode row up %s" % md)
+            click((md[0] + md[2]) // 2, (md[1] + md[3]) // 2)
+            click(md[0] + 20, md[3] + 2 + 12 + 6)       # the second item: CGA
             check(bss("cs_modepref", 1) == 1 and bss("cs_want", 1) == CSB_CGA,
-                  "picking CGA makes CGA320 the mode to fly in (want %d)" % bss("cs_want", 1))
-            marks = [it[0][:2] for it in ui.menus()[list(c[0] for c in ui.menus()).index("Mode")][3]]
-            check(marks == ["  ", "* "], "the mark moved to the pick (%s)" % marks)
-            m.type_text("f")
+                  "picking CGA makes CGA320 the mode to fly in (want %d)"
+                  % bss("cs_want", 1))
+            m.type_text("f")                            # off the page...
+            m.advance(frames=40)
+            m.run()
+            m.type_text("f")                            # ...and into the air
             m.advance(frames=120)
             m.run()
             f0 = bss("cs_frames")
             m.advance(frames=60)
             m.run()
             check(bss("cs_back", 1) == CSB_CGA and bss("cs_frames") > f0,
-                  "F flies in CGA320 on the VGA (back %d, frames %d -> %d)" % (bss("cs_back", 1), f0, bss("cs_frames")))
+                  "F flies in CGA320 on the VGA (back %d, frames %d -> %d)"
+                  % (bss("cs_back", 1), f0, bss("cs_frames")))
             m.type_text("f")
             m.advance(frames=60)
             m.run()
-        else:
-            check("Mode" not in cells, "no Mode menu where there is no choice (want %d)" % bss("cs_want", 1))
 
         # --- 6. the bar still drops --------------------------------------------
         ui.menu_pick("Flight", "Instructions")

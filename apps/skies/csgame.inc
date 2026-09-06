@@ -179,7 +179,10 @@ cs_input:
     cmp al, 'm'
     je .mute
     cmp al, 'M'
-    jne .keys
+    je .mute
+    call cs_hotkey                  ; --- the settings, in flight (88.13.5)
+    jnc .keys
+    jmp .keys
 .mute:
     xor byte [cs_sound], 1
     jmp short .keys
@@ -258,6 +261,109 @@ cs_input:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_scrclear - the whole framebuffer, black (SPEC.md 88.13.4)
+;
+; cs_clearall zeroes the SHADOW, and the blit copies only the view's byte
+; columns out of it - so shrinking the view leaves whatever the larger one
+; had put in the pixels BESIDE it, which is a band of last size's ground
+; standing either side of the picture until the mode is set again. Mode X
+; needs none of this: its pages are the framebuffer and cs_clearall has
+; already cleared both.
+; -----------------------------------------------------------------------------
+cs_scrclear:
+    cmp byte [cs_back], CSB_MODEX
+    je .out
+    push ax
+    push cx
+    push di
+    push es
+    mov es, [cs_fsi + FSI_SEG]
+    xor di, di
+    mov cx, 0x4000 / 2              ; THE WHOLE WINDOW, not stride x rows: a
+    cmp byte [cs_back], CSB_HERC    ; Hercules page is four interleaved banks
+    jne .go                         ; of 8KB and only 7,830 bytes of each are
+    mov cx, 0x8000 / 2              ; rows, so the arithmetic leaves the tail
+.go:                                ; of the last bank standing
+    xor ax, ax
+    cld
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_hotkey - a settings key inside the bracket (SPEC.md 88.13.5)
+; in:  AL = the character; out: CF = 1 it was one of ours. Clobbers AX, BX, CX
+;
+;   -/+   the view's Size, down and up      1 2 3  Buildings: few, some, all
+;   4 5 6 the three fills, each a toggle    7 8 9  Detail: near, moderate, far
+;
+; A key that changes what is DRAWN costs the next frame and nothing after it,
+; so it is one store. Size is the exception - the view's geometry, its byte
+; columns, the projection tables and the span sets all derive from it - so
+; that one re-runs the raster's own setup, which is idempotent and reuses the
+; shadow claim it already holds (88.13.4). Neither costs a cycle while
+; flying: no frame reads a setting more than the frame it draws.
+; -----------------------------------------------------------------------------
+cs_hotkey:
+    cmp al, '-'
+    je .zdown
+    cmp al, '_'
+    je .zdown
+    cmp al, '+'
+    je .zup
+    cmp al, '='
+    je .zup
+    cmp al, '1'
+    jb .no
+    cmp al, '9'
+    ja .no
+    sub al, '1'
+    cmp al, 3
+    jb .bld
+    cmp al, 6
+    jb .fill
+    sub al, 6                       ; 7 8 9: Detail
+    mov [cs_setlod], al
+    jmp short .yes
+.bld:                               ; 1 2 3: Buildings
+    mov [cs_setbld], al
+    call cs_skipclr                 ; every object is looked at again, or one
+    jmp short .yes                  ; the cull dropped stays dropped (88.5.2)
+.fill:                              ; 4 5 6: one fill each, toggled
+    sub al, 3                       ; 0, 1 or 2
+    mov cl, al
+    mov al, 1
+    shl al, cl
+    xor [cs_setfill], al
+    jmp short .yes
+.zdown:
+    mov al, [cs_setsize]
+    or al, al
+    jz .yes
+    dec al
+    jmp short .size
+.zup:
+    mov al, [cs_setsize]
+    cmp al, CSZ_FULL
+    jae .yes
+    inc al
+.size:
+    mov [cs_setsize], al
+    call cs_r_setup                 ; the whole geometry follows the size
+    call cs_clearall                ; ...and what was on the glass is stale
+    call cs_scrclear                ; ...INCLUDING THE PIXELS BESIDE THE VIEW
+.yes:
+    stc
+    ret
+.no:
+    clc
     ret
 
 ; -----------------------------------------------------------------------------

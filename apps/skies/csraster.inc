@@ -28,16 +28,82 @@
 ; The nine words land on nine contiguous bss words in this order.
 ;      vx,  vy,  vw,  vh,  wx0,  ww,  wh, sclx, scly
 cs_vptab:
-    dw   0,   0, 320, 240,    0, 320, 144,  277,  277   ; MODEX: square pixels
-    dw   0,   0, 320, 200,    0, 320, 112,  277,  231   ; CGA:   4:3 in 320x200
+    dw   0,   0, 320, 240,   40, 240, 108,  277,  277   ; MODEX: square pixels
+    dw   0,   0, 320, 200,   40, 240,  84,  277,  231   ; CGA:   4:3 in 320x200
     dw  40,  74, 640, 200,  120, 400, 112,  443,  285   ; HERC:  a 400-wide view
                                                         ; in a 640x200 box
+; THE TABLE IS THE **MODERATE** SIZE (SPEC.md 88.13.4), which is what the
+; Hercules row always was - 400 of its 640 - and is now three quarters of the
+; box on the other two as well. Full and Small are computed from it by
+; cs_r_size; Full restores CGA's and Mode X's own 320 and gives Hercules all
+; 640, which it will not enjoy.
+;
 ; scly = sclx x the pixel aspect, so a square is square on all three. sclx is
 ; 60 degrees of horizontal field on CGA and Mode X (the view's half-width over
 ; it is 0.578); Hercules keeps the same pixel scale in a 400-pixel view, so
 ; its field is 49 degrees (0.451) - the width came down from 512 for the
 ; frame's sake and the picture's (88.3.4), and what it lost is the edges of
 ; the field, not the size of anything in it.
+
+; -----------------------------------------------------------------------------
+; cs_r_size - the view's width and height at the player's Size (SPEC.md
+;             88.13.4), applied to the table's row before anything derives
+;             from it. Clobbers AX, BX, CX, DX
+;
+; The scale does NOT change with it: sclx and scly stay the table's, so a
+; smaller view is a smaller WINDOW on the same world rather than a zoom out -
+; fewer pixels for the same picture, which is the whole point of the option,
+; and the same trade Hercules already makes at 400 wide.
+;
+;   FULL     the whole box: 640 on Hercules, 320 on the other two
+;   MODERATE the table's row - Hercules' 400, and three quarters elsewhere
+;   SMALL    half of moderate each way
+;
+; The width stays a multiple of 8 and so does the left edge, because the view
+; is addressed in BYTES on every backend. The height is bounded by the panel,
+; which wants 88 rows of the box under the view.
+; -----------------------------------------------------------------------------
+CS_PANROWS equ 88               ; what the cockpit's layout needs (88.9.2)
+
+cs_r_size:
+    mov al, [cs_setsize]
+    cmp al, CSZ_MOD
+    je .done                        ; the table IS moderate
+    cmp al, CSZ_FULL
+    jne .small
+    mov ax, [cs_vw]                 ; --- full: the box, and the tallest view
+    mov [cs_ww], ax                 ;     the panel leaves room for
+    mov ax, [cs_vh]
+    sub ax, CS_PANROWS
+    jmp short .fit
+.small:
+    mov ax, [cs_ww]                 ; --- small: half of moderate each way
+    shr ax, 1
+    and al, 0xF8
+    mov [cs_ww], ax
+    mov ax, [cs_wh]
+    shr ax, 1
+.fit:
+    cmp ax, [cs_vh]                 ; ...and never past the box or the panel
+    jl .h1
+    mov ax, [cs_vh]
+.h1:
+    mov bx, [cs_vh]
+    sub bx, CS_PANROWS
+    cmp ax, bx
+    jle .h2
+    mov ax, bx
+.h2:
+    mov [cs_wh], ax
+    mov ax, [cs_vw]                 ; ...centred, on a WORD boundary and not
+    sub ax, [cs_ww]                 ; merely a byte: cs_blit rounds each row's
+    shr ax, 1                       ; span out to whole words (`and al, 0xFE`),
+    and al, 0xF0                    ; so a view starting on an odd byte is
+    mov [cs_wx0], ax                ; copied out from the byte before it - the
+                                    ; band of the LARGER view that stood beside
+                                    ; the smaller one (88.13.4)
+.done:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; cs_r_setup - adopt a backend for the length of one bracket
@@ -57,6 +123,8 @@ cs_r_setup:
     mov cx, 9
     cld
     rep movsw
+    call cs_r_size                  ; ...and the player's Size over it, before
+                                    ; anything below derives from it (88.13.4)
     mov ax, [cs_wx0]
     add ax, [cs_ww]
     dec ax
@@ -590,6 +658,7 @@ cs_skyground:
     rep stosw
     mov word [cs_hzy0], 0x7FFF      ; the rows the line runs between
     mov word [cs_hzy1], -1
+    mov byte [cs_hzhave], 0         ; ...and no horizon SEGMENT yet (88.13.3)
 
     mov ax, [cs_nx]                 ; the up vector, quartered: keeps every
     sar ax, 1                       ; product below inside 2^31
@@ -648,7 +717,8 @@ cs_skyground:
     dec dx
     mov ax, [cs_hzxa]
     xor bx, bx
-    mov byte [cs_eside], 1          ; into cs_xl, one store a row
+    call cs_hzkeep                  ; ...banked, for the line the ground's
+    mov byte [cs_eside], 1          ; fill leaves behind when it is off
     call cs_edge                    ; cs_xl[row] = the crossing, every row
     mov word [cs_hzy0], 0
     mov ax, [cs_wh]
@@ -700,6 +770,7 @@ cs_skyground:
     mov bx, [cs_hzya]
     mov cx, [cs_wx1]
     mov dx, [cs_hzyb]
+    call cs_hzkeep
     mov byte [cs_eside], 1
     call cs_edge                    ; cs_xl[row] = the crossing inside it
     ; above the band is where -ny Y (Y -> -inf) is positive: ny > 0 means sky
@@ -742,6 +813,18 @@ cs_skyground:
     ; carries the union (SPEC.md 88.3). That is most of the view in level
     ; flight, at a compare a row.
 .rows:
+    test byte [cs_setfill], CSFL_GROUND   ; --- THE GROUND, if it is wanted
+    jnz .ink                        ; (88.13.3): with it off every row takes
+    mov al, [cs_hzab]               ; the SKY's ink, so what is left is the
+    cmp al, CSI_SKY                 ; horizon drawn as a line by the band's
+    je .g1                          ; own split rows below - a black world
+    mov al, [cs_hzbl]               ; with a lit edge on it. The band is the
+.g1:                                ; rows the horizon crosses, so the line
+    mov [cs_hzl], al                ; is exactly where the fill's edge was
+    mov [cs_hzr], al
+    mov [cs_hzab], al
+    mov [cs_hzbl], al
+.ink:
     mov al, [cs_hzl]
     call cs_inkpat
     mov [cs_hzlt], si
@@ -810,6 +893,28 @@ cs_skyground:
     sub cx, bx
     mov al, [cs_hzbl]
     call cs_hzrows
+    test byte [cs_setfill], CSFL_GROUND
+    jnz .out
+    cmp byte [cs_hzhave], 0         ; the ground is off: what tells the sky
+    je .out                         ; from the earth is this one segment
+    mov al, CSI_LINE
+    call cs_setink
+    mov ax, [cs_hzsa]
+    mov bx, [cs_hzsa+2]
+    mov cx, [cs_hzsa+4]
+    mov dx, [cs_hzsa+6]
+    call cs_seg
+.out:
+    ret
+
+; cs_hzkeep - bank the horizon's two ends (AX/BX to CX/DX) for the line the
+;             ground's fill leaves behind when it is off. Preserves all
+cs_hzkeep:
+    mov [cs_hzsa], ax
+    mov [cs_hzsa+2], bx
+    mov [cs_hzsa+4], cx
+    mov [cs_hzsa+6], dx
+    mov byte [cs_hzhave], 1
     ret
 
 ; -----------------------------------------------------------------------------

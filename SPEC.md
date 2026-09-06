@@ -21474,6 +21474,26 @@ is unmoved, and a declaration that was not grown with it overlaps the next
 one rather than failing to assemble. `tests/skiesui.py` reads the two
 records' spacing for that reason.
 
+### 13.15 The CHECK BOX — the fourth shared element (`OS88UI_CHK`)
+
+`%define OS88UI_CHK` before the include and it costs a dozen bytes of record
+and the routines; a package that does not costs nothing at all, which is the
+rule every element here follows. The record is the whole CLICKABLE AREA in
+screen coordinates, a label, and a byte: the box is drawn at the rect's left,
+square and centred on the row, and the label follows it, so a press on either
+counts. The mark is a solid square rather than a tick, which is what reads on
+one bit at eleven pixels.
+
+`os88ui_chk` paints it (`OS88UI_DIS` greys it, §47 rule 1) and
+`os88ui_chkhit` is the press: over the rect it toggles the byte, **redraws
+the box where it stands** and answers `CF = 0`, so a toggle owes the caller
+no repaint at all. Its hit test is `os88ui_bhit` — the rect is at the same
+offset and means the same thing as a button's.
+
+It owns no bss, which is why the box's row is carried on the STACK inside the
+painter: this include is assembled into a package and may not invent storage
+in one.
+
 ## 14. apps.inc
 
 The built-in app **kinds**: About, Timer, Bounce. Nothing is
@@ -95365,6 +95385,104 @@ pilot needs before and after a flight is the controls.
 meet on `kern_small` is the fullscreen surface, which is Tank's row of that
 table exactly.
 
+### 88.13 The settings (SPEC.md 88.13)
+
+Four knobs, each of which trades picture for frame rate, on a **Settings**
+page in the launcher and on hotkeys inside the bracket. **Every default is
+what the simulator shipped with**, so a player who never opens the page is
+flying exactly what they flew before — the page exists for the machine that
+cannot afford the default, and for the one that can afford more.
+
+The Mode choice moved here from a menu of its own (§88.10): it is one of five
+things that trade the same way, and it belongs beside them rather than alone
+in the bar. It greys itself where the display offers no choice, which is
+every adapter but a VGA.
+
+#### 88.13.1 Buildings — Few, Moderate, Full
+
+`CSO_POI` marks a critical point of interest and `CSO_FILLER` an anonymous
+block or shed. **Few** draws the points of interest alone, **Moderate**
+everything but the filler, **Full** all of it. The test is in `cs_consider`,
+before the range check, so a refused object costs the cull two compares and
+no transform at all. Measured over the city on a 4.77 MHz 8088: **160.1 ms
+at Full against 60.7 at Few**, and 12 objects filed against 4.
+
+A change of level clears every object's skip counter (§88.5.2) — an object
+the cull dropped for a hundred ticks would otherwise stay dropped after the
+player asked for it back.
+
+#### 88.13.2 Detail — the draw distance
+
+Every `CSO_RANGE` and `CSO_LOD` is scaled by 0.6, 1 or 1.6 in 8.8. Far holds
+the tower's near model out past four kilometres; Near lets the anonymous city
+come up close before it is drawn. **A point of interest never loses range**:
+Near is for thinning the world out, and thinning out the things you navigate
+by would be a different feature. 112.8 ms at Near against 186.7 at Far, over
+the same scene.
+
+#### 88.13.3 Fill — ground, water, buildings
+
+Three bits. A face is filled only if its ink's bit is set — the river is
+water, every wall, roof, hill and runway is a solid — and **the outline is
+drawn either way**, so turning all three off is the wireframe world. With a
+fill off, the size test that drops a small object's outline (§88.4.7) cannot
+run: the outline is then the whole of the object.
+
+The ground is not a face. With its bit clear every row of `cs_skyground`
+takes the SKY's ink and the horizon is drawn as one segment instead, off the
+two ends the row loop already computes. **It costs nothing and saves
+nothing** — a sky row and a ground row are the same fill — so this one is a
+LOOK rather than a frame: 160.3 ms against 160.1. Water off is 133.4 and
+every fill off 119.0.
+
+#### 88.13.4 Size — Small, Moderate, Full
+
+The table in `cs_vptab` is the **moderate** row: Hercules' 400 of its 640, as
+it always was, and three quarters of the box on CGA and Mode X. Full is the
+whole box — 640 on a Hercules, which will not enjoy it — and Small is half of
+moderate each way. `cs_r_size` applies it to the table's row before anything
+derives from it, so the byte columns, the projection tables and the span sets
+all follow.
+
+**The scale does not change with it.** `sclx`/`scly` stay the table's, so a
+smaller view is a smaller WINDOW on the same world rather than a zoom out —
+fewer pixels for the same picture, which is the point, and the same trade
+Hercules already made at 400 wide (§88.3.4).
+
+The left edge is a multiple of **16** and not 8, because `cs_blit` rounds
+each row's span out to whole words: a view starting on an odd byte is copied
+out from the byte before it.
+
+And a size change clears the FRAMEBUFFER, not just the shadow. `cs_clearall`
+zeroes the shadow and the blit copies only the view's byte columns out of it,
+so without `cs_scrclear` the larger view's ground stands in a band either
+side of the smaller picture until the mode is set again. The clear is the
+whole 32KB window on a Hercules rather than `stride x rows`, because a page
+there is four interleaved banks and the arithmetic leaves the tail of the
+last one standing.
+
+##### 88.13.4.1 …and the two-byte bleed it uncovered, which is not its own
+
+The band beside a small view carries **up to two bytes of the picture** at
+its edge, and that is older than this option: a polygon row is clamped to the
+view before it is filled, but the SPAN it marks is not, so `cs_blit` copies a
+word that begins outside. It is measurable at the shipped moderate size as
+well — 94 lit pixels in columns 104..119 beside a view starting at 120 — and
+has been on every Hercules flight since the simulator shipped. It is
+recorded rather than fixed here because it belongs to the raster's span
+marking and not to the settings; `tests/skiesset.py` asserts the band is
+clean everywhere EXCEPT those two bytes, which keeps the row honest about
+what it is testing.
+
+#### 88.13.5 …and the same four on hotkeys, in flight
+
+`-`/`+` the size, `1 2 3` the buildings, `4 5 6` the three fills, `7 8 9` the
+detail. A key that changes what is drawn costs the next frame and nothing
+after it, so it is one store; size re-runs the raster's setup, which is
+idempotent and reuses the shadow claim it already holds. **No frame reads a
+setting more than the frame it draws**, so carrying the options costs a
+flight nothing.
+
 ### 88.11 Testing and measurement
 
 - `tests/skies.py` (soak, MartyPC): the attract window opens, `F` enters the
@@ -95400,6 +95518,16 @@ table exactly.
   it to the launcher's window — the check that catches a click handler
   coming back with SI clobbered, which the first build did (§13.14), and
   `--clobber-si` puts that bug back and must go red on it.
+- `tests/skiesset.py` (soak, MartyPC): §88.13's four knobs, each held to
+  either the work the renderer does or the pixels on the glass. The page
+  opens from the menu and its painter writes all eight controls' rects; a
+  fill box clears its bit and all three off is the wireframe; Buildings =
+  Few files 4 objects where Full files 12 and draws in 60.7 ms against
+  143.6; every hotkey sets its byte inside the bracket; and shrinking the
+  view leaves none of the larger one beside it. `--clobber-clear` NOPs the
+  screen clear a size change owes and that last check must go red — it
+  reads the band either side of the shrink, so it also proves the larger
+  view had put something there to begin with.
 - `tests/skiespitts.py` (soak, MartyPC): the second aeroplane flies by its
   own model (§88.7.2). Both are picked from the launcher's Plane list and
   pinned to the same attitude, and then held apart: the trainer stops at its

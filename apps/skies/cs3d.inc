@@ -632,6 +632,17 @@ cs_drawpass:
 ; -----------------------------------------------------------------------------
 cs_consider:
     mov [cs_obj], si
+    mov ax, [si + CSO_FLAGS]        ; --- WHAT THE PLAYER ASKED FOR (88.13.1):
+    mov bl, [cs_setbld]             ;     the anonymous filler goes first, and
+    cmp bl, CSBL_ALL                 ;     at Few only the points of interest
+    je .tier                        ;     are left standing
+    test ax, CSO_FILLER
+    jnz .out
+    cmp bl, CSBL_FEW
+    jne .tier
+    test ax, CSO_POI
+    jz .out
+.tier:
     mov ax, [si + CSO_SKIP]         ; out of range last time by enough that
     sub ax, [cs_last]               ; it cannot be back yet (88.5.2)
     jg .out
@@ -660,7 +671,11 @@ cs_consider:
     jae .far
     add ax, bx
     mov [cs_ddm], ax                ; the reach cs_scale wants is this + |dy|
-    sub ax, [si + CSO_RANGE]
+    push ax
+    call cs_range                   ; AX = this object's range AT THIS DETAIL
+    mov bx, ax                      ; (88.13.2), which is its own at Moderate
+    pop ax
+    sub ax, bx
     jbe .inrange
     ; --- out of range by AX metres: not looked at again for AX/16 ticks.
     ;     The aeroplane covers under 5 m a tick at VMAX, so the margin is
@@ -804,6 +819,52 @@ cs_consider:
     ret
 
 ; -----------------------------------------------------------------------------
+; cs_range - object SI's draw range at the player's Detail (SPEC.md 88.13.2)
+; cs_lodat - ...and its far-model threshold, the same way
+; in:  SI = the object; out: AX. Clobbers DX only
+;
+; Near is 0.6 of what shipped and Far 1.6, in 8.8 - so Far holds the tower's
+; near model out past four kilometres and Near lets the anonymous city come
+; up close before it is drawn. A POINT OF INTEREST NEVER LOSES RANGE: Near
+; is for thinning the world out, and thinning out the things you navigate by
+; would be a different feature. Far still lengthens it.
+; -----------------------------------------------------------------------------
+cs_lodscl: dw 154, 256, 410
+cs_range:
+    mov ax, [si + CSO_RANGE]
+    push bx
+    mov bl, [cs_setlod]
+    cmp bl, CSL_NEAR
+    jne .scale
+    test word [si + CSO_FLAGS], CSO_POI
+    jz .scale
+    pop bx                          ; a landmark keeps every metre of it
+    ret
+.scale:
+    xor bh, bh
+    shl bx, 1
+    mul word [cs_lodscl + bx]
+    mov al, ah                      ; (DX:AX) >> 8, and no range x 410 can
+    mov ah, dl                      ; overflow it - 16,000 is the largest
+    pop bx
+    ret
+
+cs_lodat:
+    mov ax, [si + CSO_LOD]
+    or ax, ax
+    jz .none                        ; 0 means "no far model", not "at zero"
+    push bx
+    mov bl, [cs_setlod]
+    xor bh, bh
+    shl bx, 1
+    mul word [cs_lodscl + bx]
+    mov al, ah
+    mov ah, dl
+    pop bx
+.none:
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_drawobj - one filed object: its vertices, faces and edges
 ; in:  SI = the cs_vis entry.  clobbers everything
 ; -----------------------------------------------------------------------------
@@ -873,10 +934,17 @@ cs_drawobj:
     mov si, [bx + CSO_MODEL]
     mov cx, [bx + CSO_FAR]
     jcxz .mdl
+    push si                         ; the NEAR model, which cs_lodat's
+    push cx                         ; argument register would eat
+    mov si, bx
+    call cs_lodat                   ; the threshold at this Detail (88.13.2)
+    mov bx, ax
+    pop cx
+    pop si
     mov ax, [cs_ocz]
-    cmp ax, [bx + CSO_LOD]          ; the far model stands in beyond LOD
-    jl .mdl
-    mov si, cx
+    cmp ax, bx                      ; the far model stands in beyond it
+    jl .mdl                         ; (BX is dead past here: cs_sizepx below
+    mov si, cx                      ; clobbers it anyway)
 .mdl:
     mov [cs_mdl], si
     call cs_sizepx                  ; under two pixels across: not drawn -
@@ -942,7 +1010,9 @@ cs_drawobj:
     mov si, [cs_mdl]
     cmp byte [si + CSM_NF], 0
     je .edg
-    mov cx, [cs_ocz]
+    cmp byte [cs_setfill], CSFL_ALL  ; a fill the player turned off leaves the
+    jne .edg                        ; OUTLINE as the whole of the object, so
+    mov cx, [cs_ocz]                ; the size test that drops it cannot run
     cmp cx, 2600
     ja .out                         ; 24 cz would not fit: far and small
     mov ax, [si + CSM_RAD]
@@ -1477,6 +1547,9 @@ cs_faces:
     test byte [cs_fflags], CSF_NOCULL
     jz .skip                        ; away, or edge-on
 .draw:
+    mov al, [cs_fink]               ; --- IS THIS FILL WANTED? (88.13.3) The
+    call cs_fillon                  ;     ink says what the face is made of,
+    jc .skip                        ;     and the edges below still draw it
     mov al, [cs_fink]
     call cs_setink
     mov si, cs_pv
@@ -1491,6 +1564,32 @@ cs_faces:
     pop cx
     LOOPF .f
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_fillon - may a face in ink AL be filled? (SPEC.md 88.13.3)
+; out: CF = 1 the player turned this fill off. Preserves every register
+;
+; The river is water, the runway and every wall, roof and hill are solids,
+; and the ground under the horizon is cs_skyground's business rather than a
+; face's. Turning all three off leaves the edges, which is the wireframe
+; world the option exists for.
+; -----------------------------------------------------------------------------
+cs_fillon:
+    push ax
+    mov ah, CSFL_BLDG
+    cmp al, CSI_RIVER
+    jne .test
+    mov ah, CSFL_WATER
+.test:
+    test [cs_setfill], ah
+    jz .off
+    pop ax
+    clc
+    ret
+.off:
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------

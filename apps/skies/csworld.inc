@@ -288,27 +288,27 @@ cs_e_rwy:  db 0,1, 1,2, 2,3, 3,0, 4,5
 %endmacro
 
 cs_objtab:
-    CS_OBJ cs_m_eiffel, cs_m_eiffelf,    25,   -55,   0, 16000, 2500, cs_n_eiffel, CSO_COLLIDE
+    CS_OBJ cs_m_eiffel, cs_m_eiffelf,    25,   -55,   0, 16000, 2500, cs_n_eiffel, CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_troc,   0,             -480,   520,   0,  3000,    0, cs_n_troc,   CSO_COLLIDE
     CS_OBJ cs_m_troc,   0,             -180,   620,   0,  3000,    0, cs_n_troc,   CSO_COLLIDE
     CS_OBJ cs_m_ecole,  0,              150,  -900,   0,  3000,    0, cs_n_ecole,  CSO_COLLIDE
     CS_OBJ cs_m_inval,  0,             1320,  -380,   0,  3500,    0, cs_n_inval,  CSO_COLLIDE
-    CS_OBJ cs_m_idome,  0,             1320,  -560,   0,  8000,    0, cs_n_inval,  CSO_COLLIDE
-    CS_OBJ cs_m_montp,  0,             2000, -1800,   0, 16000,    0, cs_n_montp,  CSO_COLLIDE
-    CS_OBJ cs_m_louvre, 0,             2700,    50,   0,  5000,    0, cs_n_louvre, CSO_COLLIDE
+    CS_OBJ cs_m_idome,  0,             1320,  -560,   0,  8000,    0, cs_n_inval,  CSO_COLLIDE | CSO_POI
+    CS_OBJ cs_m_montp,  0,             2000, -1800,   0, 16000,    0, cs_n_montp,  CSO_COLLIDE | CSO_POI
+    CS_OBJ cs_m_louvre, 0,             2700,    50,   0,  5000,    0, cs_n_louvre, CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_lpyr,   0,             2830,    80,   0,  2500,    0, cs_n_louvre, CSO_COLLIDE
-    CS_OBJ cs_m_ndnave, 0,             4040,  -620,   0,  4000,    0, cs_n_nd,     CSO_COLLIDE
+    CS_OBJ cs_m_ndnave, 0,             4040,  -620,   0,  4000,    0, cs_n_nd,     CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_ndtwr,  0,             3975,  -605,   0,  6000,    0, cs_n_nd,     CSO_COLLIDE
     CS_OBJ cs_m_ndtwr,  0,             3975,  -635,   0,  6000,    0, cs_n_nd,     CSO_COLLIDE
     CS_OBJ cs_m_panth,  0,             4210, -1280,   0,  7000,    0, cs_n_panth,  CSO_COLLIDE
-    CS_OBJ cs_m_arc,    0,                0,  1700,   0,  5000,    0, cs_n_arc,    CSO_COLLIDE
-    CS_OBJ cs_m_arche,  0,            -4300,  3800,   0,  5000,    0, cs_n_def,    CSO_COLLIDE
-    CS_OBJ cs_m_def1,   0,            -4000,  3500,   0, 14000,    0, cs_n_def,    CSO_COLLIDE
+    CS_OBJ cs_m_arc,    0,                0,  1700,   0,  5000,    0, cs_n_arc,    CSO_COLLIDE | CSO_POI
+    CS_OBJ cs_m_arche,  0,            -4300,  3800,   0,  5000,    0, cs_n_def,    CSO_COLLIDE | CSO_POI
+    CS_OBJ cs_m_def1,   0,            -4000,  3500,   0, 14000,    0, cs_n_def,    CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_def2,   0,            -3800,  3650,   0, 12000,    0, cs_n_def,    CSO_COLLIDE
     CS_OBJ cs_m_def3,   0,            -4100,  3350,   0, 12000,    0, cs_n_def,    CSO_COLLIDE
     CS_OBJ cs_m_def4,   0,            -3700,  3400,   0, 10000,    0, cs_n_def,    CSO_COLLIDE
-    CS_OBJ cs_m_hill,   0,             3560,  3150,   0, 12000,    0, cs_n_mont,   0
-    CS_OBJ cs_m_sacre,  0,             3560,  3150, 100,  9000,    0, cs_n_sacre,  CSO_COLLIDE
+    CS_OBJ cs_m_hill,   0,             3560,  3150,   0, 12000,    0, cs_n_mont,   CSO_POI
+    CS_OBJ cs_m_sacre,  0,             3560,  3150, 100,  9000,    0, cs_n_sacre,  CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_rive0, cs_m_rive0f,   5033,  -1067,   0,  4500, 2600, cs_n_seine,  0
     CS_OBJ cs_m_rive1, cs_m_rive1f,   2533,    233,   0,  4500, 2600, cs_n_seine,  0
     CS_OBJ cs_m_rivc0, cs_m_rivc0f,    200,    183,   0,  4500, 2600, cs_n_seine,  0
@@ -320,13 +320,13 @@ cs_objtab:
     CS_OBJ cs_m_per1,   0,             5576, -2576,   0,  8000,    0, cs_n_seine,  0
     CS_OBJ cs_m_per2,   0,             -576, -2576,   0,  8000,    0, cs_n_seine,  0
     CS_OBJ cs_m_per3,   0,             -576,  3576,   0,  8000,    0, cs_n_seine,  0
-    CS_OBJ cs_m_hangar, 0,            -2750, -2350,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
-    CS_OBJ cs_m_shed,   0,            -2300, -2750,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
-    CS_OBJ cs_m_small,  0,            -2900, -2050,   0,  2500,    0, cs_n_bldg,   CSO_COLLIDE
-    CS_OBJ cs_m_block,  0,             1000,  1200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
-    CS_OBJ cs_m_block2, 0,             1900,   800,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
-    CS_OBJ cs_m_block,  0,             -900,  -700,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
-    CS_OBJ cs_m_block2, 0,            -1700,   200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE
+    CS_OBJ cs_m_hangar, 0,            -2750, -2350,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_shed,   0,            -2300, -2750,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_small,  0,            -2900, -2050,   0,  2500,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_block,  0,             1000,  1200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_block2, 0,             1900,   800,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_block,  0,             -900,  -700,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_block2, 0,            -1700,   200,   0,  3000,    0, cs_n_bldg,   CSO_COLLIDE | CSO_FILLER
 cs_objend:
 CS_NOBJ equ (cs_objend - cs_objtab) / CSO_SIZE
 

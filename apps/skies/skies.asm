@@ -189,7 +189,29 @@ CSO_SKIP  equ 18                ; word: the tick the cull looks at it again
                                 ; (88.5.2): out of range by D metres is out
                                 ; of range for D/16 ticks at any speed
 CSO_SIZE  equ 20
+; --- what a SETTING is (SPEC.md 88.13): four knobs the player turns, on the
+;     Settings page and on hotkeys inside the bracket. Every one of them
+;     trades picture for frame rate, and every default is what shipped ------
+CSBL_FEW    equ 0                ; Buildings: the critical points of interest
+CSBL_MOD    equ 1                ; ...everything but the anonymous filler
+CSBL_ALL    equ 2                ; ...all of it
+CSZ_SMALL  equ 0                ; Size: half the moderate view each way
+CSZ_MOD    equ 1                ; ...the Hercules default, 75% elsewhere
+CSZ_FULL   equ 2                ; ...the whole box, whatever it costs
+CSL_NEAR   equ 0                ; Detail: 0.6 of every draw range...
+CSL_MOD    equ 1                ; ...as it shipped...
+CSL_FAR    equ 2                ; ...and 1.6, which also holds the near model
+                                ;    of the tower out to 4 km
+CSFL_GROUND equ 1                ; Fill: the ground under the horizon...
+CSFL_WATER  equ 2                ; ...the river...
+CSFL_BLDG   equ 4                ; ...and every solid. None of them is a
+CSFL_ALL    equ 7                ; wireframe world with the lines still hidden
+
 CSO_COLLIDE equ 1               ; the first level's footprint and the tallest
+CSO_POI   equ 0x0100            ; a CRITICAL point of interest: drawn even at
+                                ; CSBL_FEW, and its range is never cut back
+CSO_FILLER equ 0x0200           ; ...and the other end: anonymous blocks and
+                                ; sheds, which CSBL_MOD leaves out (88.13.1)
 CSO_SEEN  equ 0x8000            ; ...and bit 15: drawn last frame (88.5.1)
                                 ; level's height are a box the aeroplane may
                                 ; not enter
@@ -333,6 +355,11 @@ cs_entry:
     mov [cs_scrw], ax
     mov [cs_dock], cx
 
+    mov byte [cs_setbld], CSBL_ALL   ; the settings' defaults (88.13): all of
+    mov byte [cs_setsize], CSZ_MOD  ; them are what the simulator shipped
+    mov byte [cs_setlod], CSL_MOD   ; with, so a player who never opens the
+    mov byte [cs_setfill], CSFL_ALL  ; page is flying exactly what they flew
+
     mov al, KSC_SPACE               ; ARMING the scancode reader: the first
     call OSAPI_KEY_DOWN             ; answer is always "up" and this is where
                                     ; the SDK says to spend it (SPEC.md 9.7)
@@ -435,25 +462,10 @@ cs_adapter:
     mov dx, cs_s_flyn
 .ok:
     mov [cs_mi_flight + 0], dx
-    ; --- the Mode menu, only where Mode X and CGA are BOTH on offer (a VGA),
-    ;     its pick marked with '* ' - SPEC.md 45.17.1's idiom, a MENU_DIS
-    ;     twin having read as "disabled" in the field ------------------------
+    ; --- ONE menu now: the Mode choice moved onto the Settings page
+    ;     (SPEC.md 88.13), where it sits beside the other four things that
+    ;     trade picture for frame rate rather than alone in the bar ---------
     mov si, cs_menus
-    mov ax, [cs_caps]
-    and ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
-    cmp ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
-    jne .set
-    mov si, cs_menus2
-    mov ax, cs_s_modexs
-    mov dx, cs_s_cga
-    cmp byte [cs_modepref], 0
-    je .marks
-    mov ax, cs_s_modex
-    mov dx, cs_s_cgas
-.marks:
-    mov [cs_mi_mode + 0], ax
-    mov [cs_mi_mode + 2], dx
-.set:
     mov bx, [cs_win]                ; the kernel keeps a COPY of the set
     call OSAPI_MENU_SET             ; (SPEC.md 12.2): installed afresh
     pop si
@@ -485,6 +497,23 @@ CS_FLYY   equ 112
 CS_FLYW   equ 72
 CS_FLYH   equ 18
 CS_LINEH  equ 10                    ; the instructions page's line pitch
+
+; --- the Settings page (SPEC.md 88.13): four drop-downs down the left with
+;     their labels, three fill boxes across, and Done ----------------------
+; TWO COLUMNS, and the content is 312x137: four drop-downs down one column
+; would put the last one's list past the bottom edge, where it would be
+; clipped away. Each label sits above its control, as the title page's do.
+CS_SETX   equ 8                     ; the left column, and the right
+CS_SETX2  equ 164
+CS_SETDW  equ 140                   ; a control's width
+CS_SETY   equ 16                    ; the first label's row...
+CS_SETDY  equ 34                    ; ...and the pitch down to the second
+CS_SETLH  equ 11                    ; a label's height above its control
+CS_SETFY  equ 90                    ; the fill boxes' row...
+CS_SETFX  equ 44                    ; ...their first column and pitch
+CS_SETFW  equ 86
+CS_SETFB  equ 82                    ; ...and how wide each one's area is
+CS_SETBY  equ 112                   ; Done
 
 ; -----------------------------------------------------------------------------
 ; cs_paint - W_PAINT.  in: SI = window ptr; gfx lock held.  preserves all
@@ -519,7 +548,11 @@ cs_paint:
     dec dx
     call OSAPI_GFX_FILL
     cmp byte [cs_page], 0
-    jne .instr
+    je .title
+    cmp byte [cs_page], 2
+    je .settings
+    jmp .instr
+.title:
 
     ; --- the title, one blit; lettered in the 8x8 face where the blit is
     ;     refused (kern_small carries the slot and not the body) ------------
@@ -583,6 +616,9 @@ cs_paint:
     mov bx, cs_drplane
     call os88ui_drop
     jmp short .card
+.settings:
+    call cs_set_page
+    jmp short .card
 .instr:
     call cs_instr_page
 .card:
@@ -593,6 +629,323 @@ cs_paint:
     call os88ui_about_d
 .out:
     pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_set_page - the SETTINGS page (SPEC.md 88.13): four drop-downs with their
+;               labels, three fill boxes, and Done. Every control's rect is
+;               written here in screen coordinates, so the page follows the
+;               window without anything remembering where it was.
+; in:  [cs_winox]/[cs_winoy] current; the gfx lock is held
+; -----------------------------------------------------------------------------
+cs_set_page:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov si, cs_s_setttl             ; the heading
+    mov bx, 4
+    mov al, CBLACK
+    call cs_at_centre
+    ; --- the four rows: a label, and the control's rect beside it ----------
+    mov cx, 4
+    xor di, di                      ; DI = the control: 0 and 1 down the left
+.row:                               ; column, 2 and 3 down the right
+    push cx
+    push di
+    mov ax, di
+    and ax, 1                       ; the row within the column
+    mov bl, CS_SETDY
+    mul bl
+    add ax, CS_SETY
+    mov bx, ax                      ; BX = the label's row
+    mov ax, CS_SETX
+    test di, 2
+    jz .col
+    mov ax, CS_SETX2
+.col:
+    push ax
+    mov cx, ax
+    mov si, di
+    shl si, 1
+    mov si, [cs_setlbls + si]
+    mov al, CBLACK
+    call cs_at_left
+    pop ax
+    add bx, CS_SETLH                ; ...and the control under it
+    mov cx, ax
+    add cx, CS_SETDW - 1
+    mov dx, bx
+    add dx, CS_DROPH - 1
+    pop si                          ; the control's index, banked at the top
+    push si
+    shl si, 1
+    mov di, [cs_setdrops + si]      ; cs_rect_at wants the RECORD in DI
+    call cs_rect_at
+    pop di
+    pop cx
+    inc di
+    LOOPF .row
+    ; --- the fill boxes, across --------------------------------------------
+    mov si, cs_s_lfill
+    mov cx, CS_SETX
+    mov bx, CS_SETFY + 2
+    mov al, CBLACK
+    call cs_at_left
+    mov cx, 3
+    xor di, di
+.box:
+    push cx
+    mov ax, di
+    mov bl, CS_SETFW
+    mul bl
+    add ax, CS_SETFX
+    mov cx, ax
+    add cx, CS_SETFB - 1
+    mov bx, CS_SETFY
+    mov dx, bx
+    add dx, 11
+    push di
+    mov si, di
+    shl si, 1
+    mov di, [cs_setboxes + si]
+    call cs_rect_at
+    pop di
+    pop cx
+    inc di
+    LOOPF .box
+    mov ax, CS_SETX2                ; ...and Done, under the right column
+    mov bx, CS_SETBY
+    mov cx, ax
+    add cx, CS_FLYW - 1
+    mov dx, bx
+    add dx, CS_FLYH - 1
+    mov di, cs_donerect
+    call cs_rect_at
+    ; --- now DRAW them, the drop-downs LOWEST FIRST so an open list lies
+    ;     over what is under it ---------------------------------------------
+    call cs_setsync                 ; the records say what the settings say
+    mov bx, cs_donerect
+    mov si, cs_s_done
+    mov di, OS88UI_DEF | OS88UI_FILL
+    call os88ui_btn
+    mov cx, 3
+    xor di, di
+.dbox:
+    push cx
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setboxes + si]
+    push di
+    xor di, di
+    call os88ui_chk
+    pop di
+    pop cx
+    inc di
+    LOOPF .dbox
+    mov cx, 4
+    mov di, 3
+.ddrop:
+    push cx
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setdrops + si]
+    push di
+    xor di, di
+    cmp bx, cs_drmode               ; the Mode row is greyed where the
+    jne .live                       ; adapter offers no choice (SPEC.md 47)
+    call cs_modechoice
+    jnc .live
+    mov di, OS88UI_DIS
+.live:
+    call os88ui_drop
+    pop di
+    pop cx
+    dec di
+    LOOPF .ddrop
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; cs_modechoice - CF = 0 when this display offers BOTH Mode X and CGA, which
+;                 is the only case where the Mode row means anything
+cs_modechoice:
+    push ax
+    mov ax, [cs_caps]
+    and ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
+    cmp ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
+    je .yes
+    pop ax
+    stc
+    ret
+.yes:
+    pop ax
+    clc
+    ret
+
+; cs_setsync - the controls' selections FROM the settings, and the boxes'
+;              ticks from the fill mask. Preserves everything
+cs_setsync:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov cx, 4
+    xor di, di
+.d:
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setbytes + si]      ; the byte this row edits
+    mov al, [bx]
+    xor ah, ah
+    mov bx, [cs_setdrops + si]
+    mov [bx + OS88UI_DR_SEL], ax
+    inc di
+    loop .d
+    mov cx, 3
+    xor di, di
+    mov ah, CSFL_GROUND
+.b:
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setboxes + si]
+    mov al, [cs_setfill]
+    and al, ah
+    jz .off
+    mov al, 1
+.off:
+    mov [bx + OS88UI_CK_ON], al
+    shl ah, 1
+    inc di
+    loop .b
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; cs_settake - a drop-down on the Settings page answered: put its pick into
+;              the byte it edits, and act on it. in: DI = the row, AL = the
+;              pick. Clobbers everything
+cs_settake:
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setbytes + si]
+    mov [bx], al
+    cmp di, 3                       ; Mode: the backend, the Fly caption and
+    jne .out                        ; the button's greying all follow it
+    call cs_adapter
+.out:
+    ret
+
+; cs_setfillmask - the three boxes back into [cs_setfill]. Preserves all
+cs_setfillmask:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    xor al, al
+    mov ah, CSFL_GROUND
+    mov cx, 3
+    xor di, di
+.b:
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setboxes + si]
+    cmp byte [bx + OS88UI_CK_ON], 0
+    je .next
+    or al, ah
+.next:
+    shl ah, 1
+    inc di
+    loop .b
+    mov [cs_setfill], al
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_setclick - a press on the Settings page. in: CX/DX = the point
+; -----------------------------------------------------------------------------
+cs_setclick:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, 3                       ; the drop-downs LAST-DRAWN first, because
+.d:                                 ; an open list takes any press and the
+    push di                         ; topmost one is the one that is open
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setdrops + si]
+    call os88ui_drpress             ; AH spent, AL the pick, CF a repaint
+    pop di
+    push di                         ; ...the ROW, across everything below
+    pushf
+    push ax
+    cmp al, 0FFh
+    je .nopick
+    call cs_settake                 ; the pick, into the byte it edits - and
+    pop ax                          ; a Mode pick regreys the Fly button, so
+    popf                            ; the page is drawn again either way
+    pop di
+    call cs_repaint
+    jmp short .out
+.nopick:
+    pop ax
+    popf
+    pop di
+    jnc .dnext                      ; nothing came down over the page
+    call cs_repaint
+    jmp short .out
+.dnext:
+    or ah, ah
+    jnz .out                        ; spent here, and nothing owes a repaint
+    dec di
+    jns .d
+    xor di, di                      ; --- the fill boxes. THE COUNT IS NOT IN
+.b:                                 ;     CX: CX is the press's x, and every
+    push di                         ;     hit test below still needs it
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setboxes + si]
+    call os88ui_chkhit              ; it toggles and redraws itself
+    pop di
+    jnc .filled
+    inc di
+    cmp di, 3
+    jb .b
+    jmp short .done
+.filled:
+    call cs_setfillmask
+    jmp short .out
+.done:
+    mov bx, cs_donerect             ; --- Done: back to the title page -------
+    call os88ui_bhit
+    jc .out
+    mov byte [cs_page], 0
+    call cs_repaint
+.out:
     pop di
     pop si
     pop dx
@@ -775,9 +1128,14 @@ cs_onclick:
     jc .out
     cmp byte [cs_page], 0
     je .page0
+    cmp byte [cs_page], 2
+    je .page2
     mov byte [cs_page], 0           ; the instructions: any click returns
     call cs_repaint
-    jmp short .out
+    jmp .out
+.page2:
+    call cs_setclick
+    jmp .out
 .page0:
     mov bx, cs_drplane              ; the drop-downs first: an open list
     call os88ui_drpress             ; takes any press, wherever it lands
@@ -813,6 +1171,11 @@ cs_onup:
     push dx
     push si
     push di
+    cmp byte [cs_page], 2
+    jne .title
+    call cs_setup2                  ; the Settings page's own controls
+    jmp .out
+.title:
     mov bx, cs_drplane              ; a release over an item picks it
     call os88ui_drup
     call cs_drtake
@@ -841,12 +1204,86 @@ cs_onup:
 
 ; cs_ondrag - W_ONDRAG.  in: CX/DX = the point; gfx lock held
 cs_ondrag:
+    push ax
     push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp byte [cs_page], 2
+    jne .title
+    mov cx, 4                       ; the Settings page's four
+    xor di, di
+.d:
+    push cx
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setdrops + si]
+    push di
+    call os88ui_drdrag
+    pop di
+    pop cx
+    inc di
+    LOOPF .d
+    jmp short .out
+.title:
     mov bx, cs_drplane
     call os88ui_drdrag
     mov bx, cs_drport
     call os88ui_drdrag
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
     pop bx
+    pop ax
+    ret
+
+; cs_setup2 - the release half on the Settings page: over an item it picks
+;             (SPEC.md 13.14), and the Done button fires
+cs_setup2:
+    mov di, 3
+.d:
+    push di
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setdrops + si]
+    call os88ui_drup
+    pop di
+    push di
+    pushf
+    push ax
+    cmp al, 0FFh
+    je .nopick
+    call cs_settake
+    pop ax
+    popf
+    pop di
+    call cs_repaint
+    ret
+.nopick:
+    pop ax
+    popf
+    pop di
+    jnc .next
+    call cs_repaint
+    ret
+.next:
+    or ah, ah
+    jnz .fire
+    dec di
+    jns .d
+.fire:
+    call os88ui_fire                ; the Done button, whose press armed it
+    or ax, ax
+    jz .out
+    mov bx, cs_donerect
+    call os88ui_bhit
+    jc .out
+    mov byte [cs_page], 0
+    call cs_repaint
+.out:
     ret
 
 ; cs_drtake - what a drop-down answered: a pick lands in the record it
@@ -941,20 +1378,17 @@ cs_oncmd:
     push bx
     call cs_abdismiss
     call cs_drcloseall
-    or ah, ah
-    jnz .mode
     or al, al
     jz .fly
-    mov byte [cs_page], 1           ; Flight -> Instructions
+    mov byte [cs_page], 2           ; Flight -> Settings (1) or Instructions
+    cmp al, 1                       ; (2), which are pages 2 and 1
+    je .page
+    mov byte [cs_page], 1
+.page:
     call cs_repaint
     jmp short .out
 .fly:
     call cs_cmd_fly
-    jmp short .out
-.mode:                              ; Mode -> Mode X (0) or CGA (1): the
-    mov [cs_modepref], al           ; raster, the marks, the Fly caption...
-    call cs_adapter
-    call cs_repaint                 ; ...and the button's greying
 .out:
     pop bx
     pop ax
@@ -964,25 +1398,14 @@ cs_oncmd:
 ; Menus, strings, the tables the drop-downs read, the About card
 ; =============================================================================
     OS88_MENUSET cs_menus, cs_m_name, cs_oncmd
-        OS88_MENU cs_m_flight, cs_mi_flight, 2
+        OS88_MENU cs_m_flight, cs_mi_flight, 3
     OS88_MENUSET_END cs_menus
-    OS88_MENUSET cs_menus2, cs_m_name, cs_oncmd   ; ...with the Mode menu
-        OS88_MENU cs_m_flight, cs_mi_flight, 2
-        OS88_MENU cs_m_mode, cs_mi_mode, 2
-    OS88_MENUSET_END cs_menus2
-
 cs_m_name:   db 'Clear Skies', 0
 cs_m_flight: db 'Flight', 0
-cs_m_mode:   db 'Mode', 0
-cs_mi_flight: dw cs_s_fly, cs_s_instr ; the first rewritten by cs_adapter
-cs_mi_mode:  dw cs_s_modexs, cs_s_cga ; ...and both of these, with the mark
-cs_s_fly:    db 'Fly', 0            ; when no mode can be had
-cs_s_flyn:   db 'Fly (no mode)', 0
+cs_mi_flight: dw cs_s_fly, cs_s_setts, cs_s_instr  ; the first rewritten by
+cs_s_fly:    db 'Fly', 0                          ; cs_adapter when no mode
+cs_s_flyn:   db 'Fly (no mode)', 0                ; can be had
 cs_s_instr:  db 'Instructions', 0
-cs_s_modex:  db '  Mode X, 256 col', 0     ; <= MENU_MAXCH (18) each
-cs_s_modexs: db '* Mode X, 256 col', 0
-cs_s_cga:    db '  CGA, 4 col, fast', 0
-cs_s_cgas:   db '* CGA, 4 col, fast', 0
 
 cs_ttl:      db 'Clear Skies', 0
 cs_s_title:  db 'CLEAR SKIES', 0    ; the title where the blit is refused
@@ -1000,6 +1423,55 @@ cs_drport:   dw 0, 0, 0, 0, cs_apnames, CS_NPORTS, 0, 0
              db 0, 0FFh
              dw 0, 0
 cs_flyrect:  dw 0, 0, 0, 0
+; --- the Settings page's controls (SPEC.md 88.13). Every one of them is the
+;     shared drop-down or the shared check box, and the page is the first
+;     user of the second ---------------------------------------------------
+cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  3, CSBL_ALL, 0
+             db 0, 0FFh
+             dw 0, 0
+cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  3, CSL_MOD, 0
+             db 0, 0FFh
+             dw 0, 0
+cs_drsize:   dw 0, 0, 0, 0, cs_i_size, 3, CSZ_MOD, 0
+             db 0, 0FFh
+             dw 0, 0
+cs_drmode:   dw 0, 0, 0, 0, cs_i_mode, 2, 0, 0
+             db 0, 0FFh
+             dw 0, 0
+cs_ckgnd:    dw 0, 0, 0, 0, cs_s_gnd, 1
+cs_ckwat:    dw 0, 0, 0, 0, cs_s_wat, 1
+cs_ckbld:    dw 0, 0, 0, 0, cs_s_bld, 1
+cs_donerect: dw 0, 0, 0, 0
+cs_setlbls:  dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_lmode
+cs_setdrops: dw cs_drbld, cs_drlod, cs_drsize, cs_drmode
+cs_setboxes: dw cs_ckgnd, cs_ckwat, cs_ckbld
+cs_setbytes: dw cs_setbld, cs_setlod, cs_setsize, cs_modepref
+cs_i_bld:    dw cs_s_bfew, cs_s_bmod, cs_s_ball
+cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar
+cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
+cs_i_mode:   dw cs_s_modex, cs_s_cga
+cs_s_setttl: db 'SETTINGS', 0
+cs_s_lbld:   db 'Buildings', 0
+cs_s_llod:   db 'Detail', 0
+cs_s_lsize:  db 'Size', 0
+cs_s_lmode:  db 'Mode', 0
+cs_s_lfill:  db 'Fill:', 0
+cs_s_bfew:   db 'Few', 0
+cs_s_bmod:   db 'Moderate', 0
+cs_s_ball:   db 'Full', 0
+cs_s_lnear:  db 'Near', 0
+cs_s_lmod:   db 'Moderate', 0
+cs_s_lfar:   db 'Far', 0
+cs_s_zsml:   db 'Small', 0
+cs_s_zmod:   db 'Moderate', 0
+cs_s_zful:   db 'Full', 0
+cs_s_modex:  db 'Mode X, 256 col', 0
+cs_s_cga:    db 'CGA, 4 col', 0
+cs_s_gnd:    db 'Ground', 0
+cs_s_wat:    db 'Water', 0
+cs_s_bld:    db 'Buildings', 0
+cs_s_done:   db 'Done', 0
+cs_s_setts:  db 'Settings', 0
 cs_planes:   dw cs_p_c172, cs_p_pitts
 cs_plnames:  dw cs_s_c172, cs_s_pitts
 CS_NPLANES   equ ($ - cs_plnames) / 2
@@ -1104,6 +1576,10 @@ cs_tpl:
     ZBYTE cs_abon
     ZBYTE cs_page                   ; the launcher's page: 0 the title, 1 the
                                     ; instructions (88.10)
+    ZBYTE cs_setbld                 ; the four settings (88.13), and their
+    ZBYTE cs_setsize                ; defaults are what shipped: every
+    ZBYTE cs_setlod                 ; picture below the top of each list is
+    ZBYTE cs_setfill                ; a trade the player asked for
     ZBYTE cs_modepref               ; the Mode menu's pick: 0 Mode X, 1 CGA
     ZBYTE cs_flydn                  ; the Fly button is pressed
     ZWORD cs_plane                  ; the rows in use (SPEC.md 88.6)
@@ -1228,6 +1704,8 @@ cs_tpl:
     ZWORD cs_rx1                    ; cs_prect's
     ZWORD cs_rx2
     ZWORD cs_ry2
+    ZBUF  cs_hzsa, 8                ; the horizon's two ends, and whether it
+    ZBYTE cs_hzhave                 ; has any: the line a bare ground leaves
     ZWORD cs_hzy0                   ; the horizon (88.4.1): the band's rows...
     ZWORD cs_hzy1
     ZWORD cs_hnx                    ; ...the quartered up vector...
@@ -1423,7 +1901,9 @@ cs_tpl:
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
 %define OS88UI_ABOUT            ; the standard About card, the standard
-%define OS88UI_DROP             ; button, and the drop-down (SPEC.md 13.14),
+%define OS88UI_DROP             ; button, the drop-down (SPEC.md 13.14) and
+%define OS88UI_CHK              ; the check box (13.15), which the Settings
+                                ; page is the first user of,
 %include "os88ui.inc"           ; of which this is the first user
 
     OS88_BSS CS_BSS

@@ -2580,6 +2580,137 @@ os88ui_abw: dw 0
 os88ui_abh: dw 0
 %endif                          ; OS88UI_ABOUT
 
+%ifdef OS88UI_CHK
+; =============================================================================
+; THE CHECK BOX - the fourth shared element (OS88UI_CHK), SPEC.md 13.15
+;
+; Opt in with `%define OS88UI_CHK` before the include and it costs you a
+; dozen bytes of record and the code below; a package that does not costs
+; nothing at all. The look is the kernel's own: a square box, a solid mark
+; when it is on, and the label to its right in the ordinary pen.
+;
+; --- THE RECORD, in YOUR data -----------------------------------------------
+;   my_check:
+;       dw 0, 0, 0, 0           ; OS88UI_CK_RECT: the WHOLE clickable area,
+;                               ; {x1,y1,x2,y2} inclusive, SCREEN coords - the
+;                               ; box is drawn at its left and the label
+;                               ; follows, so a press on either counts
+;       dw my_label             ; OS88UI_CK_LABEL: a NUL string
+;       db 0                    ; OS88UI_CK_ON: 0 or 1 - yours to read and to
+;                               ; set before a paint
+;
+; --- USING IT ---------------------------------------------------------------
+;   in W_PAINT:      BX = my_check, DI = flags (OS88UI_DIS greys it), and
+;                    `call os88ui_chk`. It fills its own ground
+;   in W_ONCLICK:    BX = my_check, CX/DX = the point, `call os88ui_chkhit`.
+;                    out CF = 0 it was hit AND TOGGLED - the box is redrawn
+;                    where it stands, so there is nothing to repaint - or
+;                    CF = 1 the press was not ours
+; =============================================================================
+OS88UI_CK_RECT  equ 0
+OS88UI_CK_LABEL equ 8
+OS88UI_CK_ON    equ 10
+OS88UI_CK_SIZE  equ 12
+OS88UI_CKBOX    equ 11          ; the box's side, and the label's left margin
+OS88UI_CKGAP    equ 6
+
+; -----------------------------------------------------------------------------
+; os88ui_chk - draw it as it stands
+; in:  BX = the record, DI = flags (OS88UI_DIS); the gfx lock is held
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+os88ui_chk:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, bx
+    UI_WHITE                    ; its own ground, so a toggle needs no repaint
+    mov ax, [ds:bp+0]
+    mov bx, [ds:bp+2]
+    mov cx, [ds:bp+4]
+    mov dx, [ds:bp+6]
+    UI_FILL
+    test di, OS88UI_DIS         ; the pen: SPEC.md 47 rule 1
+    jz .live
+    stc
+    jmp short .set
+.live:
+    clc
+.set:
+    UI_PEN
+    mov ax, [ds:bp+2]           ; the box, square and centred on the row
+    add ax, [ds:bp+6]
+    sub ax, OS88UI_CKBOX - 1
+    sar ax, 1
+    push ax                     ; ...its top row, kept on the STACK: this
+    mov bx, ax                  ; include owns no bss and may not invent any
+    mov ax, [ds:bp+0]
+    mov cx, ax
+    add cx, OS88UI_CKBOX - 1
+    mov dx, bx
+    add dx, OS88UI_CKBOX - 1
+    UI_FRAME
+    pop bx
+    cmp byte [ds:bp+OS88UI_CK_ON], 0
+    je .label
+    mov ax, [ds:bp+0]           ; ...and the mark: a solid square inside it,
+    add ax, 3                   ; which reads on one bit as a tick does not
+    add bx, 3
+    mov cx, ax
+    add cx, OS88UI_CKBOX - 7
+    mov dx, bx
+    add dx, OS88UI_CKBOX - 7
+    UI_FILL
+.label:
+    mov si, [ds:bp+OS88UI_CK_LABEL]
+    mov cx, [ds:bp+0]
+    add cx, OS88UI_CKBOX + OS88UI_CKGAP
+    mov dx, [ds:bp+2]
+    add dx, [ds:bp+6]
+    sub dx, 7
+    sar dx, 1
+    mov al, CBLACK
+    mov ah, CWHITE
+    UI_RUN
+    clc
+    UI_PEN                      ; the pen back, always
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_chkhit - a press: over it, the box toggles and redraws itself
+; in:  BX = the record, CX = x, DX = y; the gfx lock is held
+; out: CF = 0 it was ours and has been toggled and redrawn, CF = 1 not ours.
+;      Every register preserved
+; -----------------------------------------------------------------------------
+os88ui_chkhit:
+    push ax
+    call os88ui_bhit            ; the button's own hit test: the rect is at
+    jc .out                     ; the same offset and means the same thing
+    mov al, [bx+OS88UI_CK_ON]
+    xor al, 1
+    mov [bx+OS88UI_CK_ON], al
+    push di
+    xor di, di
+    call os88ui_chk
+    pop di
+    clc
+.out:
+    pop ax
+    ret
+
+%endif                          ; OS88UI_CHK
+
 %ifdef OS88UI_DROP
 ; =============================================================================
 ; THE DROP-DOWN (SPEC.md 13.14): one pick out of a short list

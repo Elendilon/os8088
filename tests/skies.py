@@ -192,7 +192,8 @@ def main(argv):
               % (back, ww, wh, r.word("cs_vw"), r.word("cs_vh")))
         if back == 0:
             bad.append("no raster was adopted: the bracket refused its mode")
-        want = {3: (400, 112), 2: (320, 112), 1: (320, 144)}.get(back)
+        # the MODERATE size (SPEC.md 88.13.4), which is what the table holds
+        want = {3: (400, 112), 2: (240, 84), 1: (240, 108)}.get(back)
         if want and (ww, wh) != want:
             bad.append("backend %d drew a %dx%d view, not %dx%d (SPEC.md 88.3)"
                        % (back, ww, wh) + want)
