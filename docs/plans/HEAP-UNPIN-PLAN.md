@@ -118,6 +118,19 @@ That is why this is the *last* resort and not a general facility: it earns its
 bytes exactly when a claim would otherwise be refused against a heap that has
 the room but not in one piece.
 
+**The same failure mode has already been reported from the field, one arena
+along.** docs/FIELD-NOTES.md 2: on a 384KB machine, load `BEVERLY.MOD`, play,
+close Tracker, open it again — *refused, with the Task Manager showing ~104KB of
+heap free.* *"The total said there was room; the **largest run** said otherwise,
+because two long-lived claims had been left in the middle of the heap."* Both
+offenders were **data** claims; both were fixed, and SPEC.md 66's compactor now
+moves that class. The note's own closing line is where this document begins:
+*"a region's base is its CS and never moves."*
+
+So the shape is not hypothetical. It has bitten, it was severe enough to close
+two bugs, and the fix reached only the arena the compactor can enter. §2.0 is the
+same thing in the arena it cannot.
+
 **And it is `SOUND.DRV` in the scenario, which is the awkward one** — the only
 driver in the tree that hooks an interrupt vector and the only one that spawns a
 worker (§3.4). It is also 6KB, so its interrupts-off copy is ~17 ms; `[drv_wcnt]`
@@ -157,9 +170,11 @@ the case for the work: §2.0 is. What the allocator cannot do is remove a wall,
 and a wall placed by an ordinary mount persists for the session and accumulates
 with every later one.
 
-The counter-argument is that nobody has yet *measured* a session in that state.
-The closest thing in the tree is SPEC.md's own **FRAG 4K out of a 544K span**,
-which is the phenomenon at a scale that costs nothing — and on the 128KB machine
+The counter-argument is that nobody has yet measured a session in that state
+**in this arena** — docs/FIELD-NOTES.md 2 measured it in the other one, where a
+second Tracker load was refused against ~104KB free. The closest ceiling-side
+figure is SPEC.md's own **FRAG 4K out of a 544K span**, which is the phenomenon
+at a scale that costs nothing — and on the 128KB machine
 this whole memory effort exists for, `tests/small128.py:133` asserts *no pinned
 claim stands on a bare desktop* and measures **0 bytes pinned**, because
 kern_small loads no drivers at all (kernel/driver.inc:89) and holds one or two
@@ -185,6 +200,15 @@ are three, and all three are cheaper to fix than anything in §3:
    `apps/word/word.asm:19843` does the same. That is **SPEC.md 50.3.2.1's exact
    defect one layer out from the two driver images that section fixed**, and it
    affects Word and **every C package** (CWORD, RUNCPM, C64, WEAVE).
+
+   **The unconditional half of the fix is the slot number, not the
+   declaration.** Claiming `_HI` moves the overlay out of the data arena whatever
+   else is true. *Declaring* it movable is gated: an overlay claim is owned by
+   the package's **segment**, so `mem_can_move` routes it to `mem_busy_seg` →
+   `inst_seg_parked`, and a package with a live **unparked** worker keeps it
+   pinned even when declared. Every C package hires a worker, so the declaration
+   pays only while that worker is parked — which SPEC.md 66.5's machinery already
+   delivers, but it is not the unconditional win the placement change is.
 
    **And the relocation proc it would need already exists.** `cc_ovbind`
    (apps/cc/crt0.asm:1084) re-stamps `[cc_ovseg]` into every far pointer in
@@ -268,11 +292,13 @@ module images ~1–6KB, and the Sound Blaster ring at `SBL_WANT` = 8KB.
 `MC_DMA` stores *the 64KB-page-safe head in paragraphs* (kernel/memory.inc:75) —
 a statement about where a block may **land**, not that a chip is reading it.
 
-**There are FOUR `MC_DMA` sites in the tree and SPEC.md 66.9 names two**
-(*"the Sound Blaster's double-buffer and the file manager's copy buffer"*). The
-two it misses are the directory read-ahead (kernel/disk.inc:5359, up to 63KB) and
-**Word's typeface cache** (apps/os88type.inc:603, 9KB, up to three per Word or
-CWORD instance, session-lived). docs/HEAP-CLAIMS.md has the same two gaps.
+**There are FOUR `MC_DMA` sites in the tree.** SPEC.md 66.9's reason 2 names two
+(*"the Sound Blaster's double-buffer and the file manager's copy buffer"*) and
+its reason 3 covers the third, the directory read-ahead, as a purgeable cache —
+so the register is complete for three of four. **The one real gap is Word's
+typeface cache** (apps/os88type.inc:603, 9KB, up to three per Word or CWORD
+instance, session-lived), which appears in neither SPEC.md 66.9 nor
+docs/HEAP-CLAIMS.md.
 
 | claim | why it asked | bus master armed? |
 |---|---|---|
@@ -443,13 +469,16 @@ open-to-close span, not a per-call one"* — and it is the sentence to read twic
 **The pin has to be per-span, taken by the feature, not per-call taken by the
 thunk.**
 
-**And the rank is wrong.** ONDEMAND-PLAN §7.2 proposes `MEM_PG_LOW`, *"a little
-I/O"*. A re-read is not a little I/O: `mod_need` goes through `drv_mounted`,
-which is a **full remount of the boot volume** every time (kernel/drvvol.inc:44),
-and `drv_vol_back` is a *second* remount whenever the user is not standing on the
-boot volume. At PERFORMANCE.md's 12 sectors / 4 calls that is **~1.6 s on the
-5150**. `MEM_PG_MED` is the honest rank, by exactly the argument SPEC.md 18.8.4
-used to move `MEM_P_FATW` from LOW to MED.
+**And the rank is arguable in both directions.** ONDEMAND-PLAN §7.2 proposes
+`MEM_PG_LOW`, *"a little I/O"*. A re-read goes through `drv_mounted` and, if the
+user is standing elsewhere, `drv_vol_back` as well — at PERFORMANCE.md's 12
+sectors / 4 calls, up to **~1.6 s on the 5150**, which is `MEM_PG_MED` by the
+argument SPEC.md 18.8.4 used for `MEM_P_FATW`. But both are **quiet** mounts and
+`dsk_here_ok` bounds them below by **zero**: an installed hard-disk machine
+sitting at the boot volume root pays nothing at all, and neither does a floppy
+whose BIOS motor-off countdown is still running. So the cost is 0 to ~1.6 s
+depending on where the user is standing, and the rank is a judgement about which
+end of that to design for rather than a settled number.
 
 Third, **five of the six modules claim memory from inside their own image**
 (kernel/ctrl.inc:5507, clone.inc:413, compress.inc:983, filecp.inc:593,
@@ -584,15 +613,20 @@ frees the 8KB ring and the 14KB ETHER pool, which no relocation gives back at al
 
 What it costs is disk time and state, and the state is the real bill: a reload is
 ~8–13 `int 13h` calls (two quiet remounts plus the image), plus `ETHER`'s
-`DHCP_WAIT` of 110 ticks — **6.04 s** (drivers/ether/ether.asm:48). `rd_unmount`
+`DHCP_WAIT` of 110 ticks — **6.04 s** (drivers/ether/ether.asm:48), and that is
+a **hard block on `ui_task`**, not merely six seconds of I/O: there is not one
+`OSAPI_TASK_YIELD` anywhere in `drivers/ether/`, and `eth_dhcp_wait`'s own header
+says *"this is the one thing in this driver that blocks"*. The desktop stops.
+`rd_unmount`
 *"IT DISCARDS"*: a RAM disk loses its **contents**. Every driver-backed volume
 unmounts with the Disk windows standing on it, and every TCP connection goes.
 
 **What it cannot be is a compaction primitive**, and that is structural rather
-than a judgement: `mem_compact` runs under `inc [sch_lock]` with `[mem_cp_busy]`
-set, `drv_unload` **yields**, and `drv_load`'s own `dskw_read_x` **claims** —
-which `mem_claim_x.go` refuses outright while `[mem_cp_busy]` is set
-(kernel/memory.inc:570). It belongs where hibernate already puts it: a decision
+than a judgement. The blocker is **`[mem_cp_busy]`**, not the lock:
+`mem_claim_x.go`'s first act is `cmp byte [mem_cp_busy], 0 / jne .busy`
+(kernel/memory.inc:570), the byte is set *before* `[sch_lock]` is raised and
+stays set across the park window, so **every** claim is refused for the whole
+compaction — and `drv_load`'s own `dskw_read_x` claims. It belongs where hibernate already puts it: a decision
 taken on the UI task, outside the compactor, from a known-safe context — and, on
 this evidence, offered to the **user** on the Control Panel's Drivers page rather
 than taken by the heap on its own initiative.
@@ -1060,8 +1094,16 @@ conceded in the same sentence.
 accessor — *"every ring access goes through this rather than loading `[sk_seg]`
 by hand"* — and re-derives `ES` from `[sk_seg]` on every access; `[sk_base]`
 (ethstate.inc:142) is an **offset inside** the claim and does not change when the
-claim moves. `mov [sk_seg], dx / ret` is `clip_reloc`'s shape at **5 bytes**,
-plus one `OSAPI_MEM_MOVABLE` call at the claim site.
+claim moves. `mov [sk_seg], dx / ret` is `clip_reloc`'s shape, and the
+right calibration is **`sbl_reloc` at 11 bytes** — because **the sound driver
+already does exactly this**. `drivers/sound/sb.inc:2579` is a working
+relocation proc for a *driver-owned* claim, declared at :2604 with
+`OSAPI_MEM_MOVABLE`, and its comment names the reason: *"this is the claim
+docs/FIELD-NOTES.md 2 named as the fragmenting party: a LATE claim, taken on the
+first stream grant, so it lands above whatever the app already holds"*. **A late
+driver claim fragmenting the heap is a solved problem in this tree — solved
+once, for one claim, by exactly the five-line change §5.1 proposes for the
+second.**
 
 **Placement should not change.** Top-down is still right — it is a long-lived
 driver-owned block, and docs/HEAP-CLAIMS.md's *"placement is a second axis"*
