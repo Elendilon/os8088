@@ -3187,9 +3187,12 @@ wd_walk:
     call wd_advwrap                 ; same paragraph: h = its line spacing,
                                     ; BP moves by the ENTERED row's height
     call wd_nextrow                 ; the pen changed rows, so the signature
-    call wd_bpush                   ; being accumulated belongs to the old one
-    call wd_rstart                  ; ...and in break mode the rows below have
-    call wd_rowsetup                ; to be pushed down before it is drawn
+    call wd_eoutck                  ; ...and if THIS row begins where the edit
+    jnc .stop                       ; left it, nothing below it moved either
+    call wd_bpush                   ; (SPEC.md 27.4.3) - asked before wd_rstart
+    call wd_rstart                  ; overwrites the entry it compares against
+    call wd_rowsetup                ; ...and in break mode the rows below have
+                                    ; to be pushed down before it is drawn
     mov ax, [wd_row]
     cmp ax, [wd_lastrow]            ; SIGNED (SPEC.md 27.7): wd_row is a
     jle .fits                       ; VISIBLE row and is negative above the
@@ -3266,8 +3269,11 @@ wd_walk:
                                     ; format is scanned once and its first
                                     ; row's height includes the open space
     call wd_nextrow                 ; the mark occupies no cell - so it is not
-    call wd_rstart                  ; folded into either row's signature, and
-    call wd_rowsetup                ; the pixels of the row it ends are the
+    call wd_eoutck                  ; folded into either row's signature. Same
+    jnc .nlstop                     ; test as the wrap above: a paragraph start
+    call wd_rstart                  ; is a row start like any other, and kinds
+    call wd_rowsetup                ; 1 and 2 cannot move a mark
+                                    ; ...and the pixels of the row it ends are the
     mov ax, [wd_row]                ; same with it and without it. Signed, for
     cmp ax, [wd_lastrow]            ; the reason at the wrap above (near jumps:
     jg .nlstop                      ; the Show-all block above pushed .loop
@@ -3974,6 +3980,98 @@ wd_fold:
 ; which is what makes one run erase the whole band as well as letter it. That
 ; is the entire reason this rewrite needs no fill: the padding IS the erase.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; wd_eoutck - may this walk STOP here, the rows below being what is already on
+;             the glass? (SPEC.md 27.4.3)
+; in:  [wd_row] = the row just entered, [wd_i] = the index it starts at,
+;      called between wd_nextrow and wd_rstart - so wd_rows[[wd_row]] still
+;      holds what the LAST full walk wrote
+; out: CF = 0 stop (and wd_rows has been repaired), CF = 1 carry on;
+;      preserves every register
+;
+; THE OWNER'S SENTENCE: "we only need to draw that char until we reach the end
+; of the line". This is the test that says when the end of the line has been
+; reached - exactly, and without a snapshot to compare against.
+;
+; SPEC.md 27.4 says the start of a row is (index, row) alone. So if this row
+; begins at exactly [wd_eodel] characters later than it did before the edit,
+; it holds the same characters it held, at the same pen, at the same height -
+; and so does every row below it, because the only thing the edit did to them
+; was shift their indices. Their signatures still stand (wd_fold folds the
+; character, the CHP byte, the selection and the caret pen, never a start
+; index), their banked ys still describe the glass, and their pixels were
+; never touched.
+;
+; What is left is the indices themselves, and that repair is wd_append's,
+; written out once more here: every entry from this row down moves by the
+; same delta. wd_walk's .stop already grants the licence - "a walk that ends
+; early is one whose caller knows nothing below it moved".
+;
+; ONE COMPARE A ROW, no second pass and nothing to undo when it does not fire.
+;
+; [wd_eodel] is set for an INSERT (+1) and a BACKSPACE (-1) only. Forward
+; Delete is excluded and the reason is not symmetry: wd_fastokd accepts a
+; Delete sitting ON a paragraph mark, and removing one gives every row that
+; was in that paragraph the NEXT paragraph's format - an alignment difference
+; moves their pens and a spacing difference their ys, while changing not one
+; row-start index. This test would fire and the rows below would stand at the
+; wrong x. A backspace cannot do it: wd_fastcm refuses an edit index before
+; [wd_ckpi], which for a 13 at [wd_cur]-1 forces [wd_cur] == [wd_ckpi].
+; -----------------------------------------------------------------------------
+wd_eoutck:
+    cmp word [wd_eodel], 0
+    je .no                          ; not an edit this may be asked about
+    cmp byte [wd_rowsok], 0
+    je .no                          ; the table describes nothing
+    push ax
+    push bx
+    push cx
+    mov ax, [wd_row]
+    cmp ax, [wd_ckpr]               ; the caret's own row is the one the edit
+    jle .pop_no                     ; CHANGED - only rows past it can match
+    cmp ax, [wd_rowsn]
+    jae .pop_no                     ; past what the table describes
+    cmp ax, WD_MAXROWS
+    jae .pop_no
+    mov bx, ax
+    shl bx, 1
+    mov bx, [bx+wd_rows]            ; where this row began BEFORE the edit...
+    add bx, [wd_eodel]              ; ...plus what the edit inserted or removed
+    cmp bx, [wd_i]
+    jne .pop_no                     ; it did not land there: something below
+                                    ; really did reflow, so carry on
+    ; --- it matched: repair the indices from here down and stop -------------
+    mov cx, [wd_rowsn]
+    cmp cx, WD_MAXROWS              ; [wd_rowsn] is not capped to the array it
+    jbe .rok                        ; indexes (NOTEPAD-NOTES 5.3.1), same
+    mov cx, WD_MAXROWS              ; clamp wd_append's bump loop makes
+.rok:
+    mov bx, [wd_row]
+.bump:
+    cmp bx, cx
+    jae .done
+    push bx
+    shl bx, 1
+    mov ax, [bx+wd_rows]
+    add ax, [wd_eodel]
+    mov [bx+wd_rows], ax
+    pop bx
+    inc bx
+    jmp short .bump
+.done:
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.pop_no:
+    pop cx
+    pop bx
+    pop ax
+.no:
+    stc
+    ret
+
 wd_rstart:
     push ax
     push cx
@@ -5945,7 +6043,7 @@ wd_seedck:
                                     ; UNLESS the word is longer than a row, in
                                     ; which case wd_wordfit never decided
                                     ; anything about it and there is nothing
-                                    ; further back to redo (SPEC.md 27.4.2)
+                                    ; further back to redo (SPEC.md 27.4.3)
     or ax, ax
     jz .out
     dec ax
@@ -6041,7 +6139,7 @@ wd_ckword:
 ; out: CF = 0 seed here, the walk need go no further back; CF = 1 back up as
 ;      before. Preserves every register.
 ;
-; SPEC.md 27.4.2, and it is wd_ckword's other half: that one asks whether the
+; SPEC.md 27.4.3, and it is wd_ckword's other half: that one asks whether the
 ; edit is past the row's first word, this one asks whether there is a word-fit
 ; decision in front of this row AT ALL.
 ;
@@ -8806,6 +8904,15 @@ wd_redraw:
     mov al, [wd_fast]               ; ONE-SHOT: whoever set it meant this
     mov byte [wd_fast], 0           ; redraw and no other
     mov [wd_ekind], al
+    mov word [wd_eodel], 0          ; ...and the index shift it made, for
+    cmp al, 1                       ; wd_eoutck (SPEC.md 27.4.3). ONLY an
+    jne .nod1                       ; insert and a backspace: kinds 3 and 4 are
+    mov word [wd_eodel], 1          ; excluded at the helper's own comment, and
+.nod1:                              ; a forward Delete for a reason rather than
+    cmp al, 2                       ; for symmetry
+    jne .nod2
+    mov word [wd_eodel], -1
+.nod2:
     mov byte [wd_resume], 0
     cmp byte [wd_bmode], 0
     je .normal
@@ -9226,6 +9333,7 @@ wd_redraw:
     call OSAPI_WM_GROW              ; restore it (SPEC.md 11.1/27)
 .nogrow:
 .out:
+    mov word [wd_eodel], 0          ; ONE-SHOT: it described THIS redraw's edit
     mov byte [wd_sbkeep], 0         ; ONE-SHOT: W_PAINT is wd_paint's other
                                     ; caller and there the KERNEL has filled
                                     ; the whole content, so the bar really has
@@ -20299,6 +20407,10 @@ section .text
     WDVAR wd_mry1, 2        ; word } once by wd_mgeo and read by painter, hit
     WDVAR wd_mrx2, 2        ; word } test, highlight and close repaint alike
     WDVAR wd_mry2, 2        ; word } (the fm_hit discipline)
+    WDVAR wd_eodel, 2       ; word: the signed index shift this redraw's edit
+                            ; made (+1 insert, -1 backspace), or 0 - which is
+                            ; both "not that kind of edit" and "the early-out
+                            ; is off" (SPEC.md 27.4.3). ONE-SHOT
     WDVAR wd_sbkeep, 1      ; byte: a refused blit left the scroll bar and
                             ; the grow box right to the pixel, so the full
                             ; repaint must not take them off the screen

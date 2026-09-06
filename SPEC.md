@@ -37818,6 +37818,63 @@ after it on row 8 of a 16-row view: the back-up ran **nine** rows to index 0
 and pass 1 then laid out rows 0..16 on every keystroke. See
 docs/plans/completed/NOTEPAD-NOTES.md 5.2 for the figures either side.
 
+#### 27.4.3 …and an EDIT stops where the indices reconverge
+
+§27.4.1 bounds a caret MOVE, because nothing reflowed. An edit is the harder
+case and had no bound at all: pass 1 laid out every row from the caret to the
+bottom of the view, on every keystroke, to be told nothing below had changed.
+Measured on a cycle-accurate 5150 with `WELCOME.DOC` in Word's shipped window
+(`[wd_vrows]` = 6), that was **149.2 ms of a 205.6 ms keystroke**.
+
+`wd_eoutck` stops it, and the test is exact rather than heuristic. §27.4 says
+the start of a row is **(index, row) alone**. So a row that begins exactly
+`[wd_eodel]` characters later than it did before the edit holds the same
+characters, at the same pen, at the same height — and so does every row below
+it, because the only thing the edit did to them was shift their indices. The
+walk stops there.
+
+What survives is what makes it legal:
+
+- **the signatures**, because `wd_fold` folds the character, the CHP byte, the
+  selection and the caret pen — never a start index;
+- **the banked ys** in `wd_ryb`, because no row below changed height;
+- **the pixels**, because nothing below was redrawn.
+
+What does not survive is `wd_rows` itself, which is a table of **absolute**
+character indices — so every entry from the stopping row down moves by the
+same delta. That repair is `wd_append`'s (§27.14.1), written once more.
+`wd_walk`'s `.stop` already grants exactly this licence: *"a walk that ends
+early is one whose caller knows nothing below it moved."*
+
+**ONE COMPARE A ROW**, no snapshot, no second pass and nothing to undo when it
+does not fire — a row that really did reflow fails the compare and the walk
+carries on as before.
+
+**Only an insert (+1) and a backspace (−1).** Forward Delete is excluded and
+the reason is not symmetry: `wd_fastokd` accepts a Delete sitting **on** a
+paragraph mark, and removing one gives every row that was in that paragraph
+the *next* paragraph's format — an alignment difference moves their pens and a
+spacing difference their ys, while changing not one row-start index. The test
+would fire and the rows below would stand at the wrong x. A backspace cannot
+do it: `wd_fastcm` refuses an edit index before `[wd_ckpi]`, which for a `13`
+at `[wd_cur]−1` forces `[wd_cur]` = `[wd_ckpi]`.
+
+It is **height-agnostic**, so it needs no part of §68.6's model and runs on a
+formatted document unchanged:
+
+| caret | `wd_onkey` before | after | `wd_walk` before | after |
+|---|---:|---:|---:|---:|
+| row 1 | 205.6 ms | **80.4 ms** | 149.2 ms | **29.6 ms** |
+| row 3 | 224.9 ms | **142.8 ms** | 88.6 ms | **44.0 ms** |
+
+`.text` +149 bytes.
+
+**This is not a port.** Note Pad does not do it: for a mid-line insert
+`np_redraw` walks to `[np_vrows]` exactly as Word did, and its two escapes are
+`np_append`, which requires the caret at the end of a line, and the visual
+break (§27.3), which stops at the caret only because the screen below it is
+knowingly wrong until a worker settles it. Neither is a reconvergence test.
+
 ### 27.5 Where each row starts — a query about a row costs a row
 
 §27.4 bounded the *keystroke*. It did nothing for the caret keys, and they

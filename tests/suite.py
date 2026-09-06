@@ -2134,6 +2134,23 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdtype", "soak", py("tests/wdtype.py"), 420.0,
+        "SPEC.md 27.4.3: a keystroke stops walking where the row indices "
+        "reconverge (205.6 -> 80.4 ms). Legs B..D are CORRECTNESS legs and the "
+        "old code was correct, so they pass on a build with the early-out "
+        "compiled out - leg E is the one that fails there, and it is a "
+        "BREAKPOINT on wd_eoutck.rok rather than a stopwatch, because the "
+        "first version bounded wd_walk's cycles and PASSED at 344,824 with the "
+        "feature disabled. Leg D is the one that catches the dangerous "
+        "failure, an early-out that fires without its index proof, and it "
+        "PROVES a reflow was arranged before asserting: a row below whose "
+        "start index moved by something other than the characters typed. It "
+        "was green against that break until it did (3,849 differing pixels "
+        "after). The pixel reference is a page down and back, which a "
+        "formatted document always full-repaints (68.6), so the comparison is "
+        "against a screen no early-out touched.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdscroll", "soak", py("tests/wdscroll.py"), 300.0,
         "SPEC.md 68.2.2: Word's scroll bar is not part of the text band. Leg A "
         "samples the bar's ARROW CELL through a down-arrow click and requires "
