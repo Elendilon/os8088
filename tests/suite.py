@@ -216,6 +216,12 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("pkgdeps", "fast", py("tests/unit/t_pkgdeps.py"), 0.9,
+        "every %include a package pulls in must be a prerequisite of its .bin "
+        "rule, or editing a shared library does not rebuild what includes it "
+        "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
+        "shipped packages and apps/os88type.inc from three; it was found by an "
+        "A/B that measured zero because the package never reassembled"),
     Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "

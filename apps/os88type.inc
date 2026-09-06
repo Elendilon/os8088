@@ -528,8 +528,6 @@ ty_init:
     push di
     push es
 
-    mov ax, ds
-    mov [ty_selfseg], ax
     push ds
     pop es
     mov di, ty_tab
@@ -1581,8 +1579,15 @@ ty_bandbuf  equ (%1) + 0        ; the band FIRST: it is the buffer every
 ty_adv      equ ty_bandbuf + TY_BANDSZ      ; 95 bytes: the current style's
                                             ; advances, copied into OUR segment
 ty_tab      equ ty_adv + TY_NGLYPH          ; TY_MAXFACE face slots
-ty_selfseg  equ ty_tab + TY_MAXFACE * TF_SIZE   ; word: our own segment
-ty_curseg   equ ty_selfseg + 2  ; word: where the current face's glyphs are
+                                ; (`ty_selfseg` was here: our own segment,
+                                ; stored by ty_init and read by nothing at all.
+                                ; DS is CS for a package and the kernel reloads
+                                ; it from W_SEG on every dispatch, so there was
+                                ; never a moment this could say something `ds`
+                                ; did not - and once a region can move it would
+                                ; have been a stale word to fix for no reader)
+ty_curseg   equ ty_tab + TY_MAXFACE * TF_SIZE   ; word: where the current
+                                ; face's glyphs are
 ty_psseg    equ ty_curseg + 2   ; word: the pre-shifted table's claim, 0 = none
 ty_bm       equ ty_psseg + 2    ; word: the current style's bitmap block
 ty_rowfn    equ ty_bm + 2       ; word: the unrolled row set for [ty_rows]
@@ -1613,6 +1618,6 @@ ty_dnames   equ ty_fnames + TY_MAXFAM * TY_NAMSZ    ; ...and the display ones
 %endmacro
 
 ; ...and its size, for the caller's OS88_BSS. The tail past the face table is
-; 27 bytes of scalars; 48 is that with the slack a new one would want.
+; 25 bytes of scalars; 48 is that with the slack a new one would want.
 TY_BSS_SIZE equ TY_BANDSZ + TY_NGLYPH + TY_MAXFACE * TF_SIZE + 48 \
                 + 24 + TY_MAXFAM * (TY_NAMSZ + TY_DISPSZ)

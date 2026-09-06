@@ -31170,6 +31170,20 @@ clocks with EA and prefetch costs. What the string ops took out is about
 copies need sits **after** the `pushf`, so the `popf` gives the caller its own
 DF back. A package that runs with `std` is not rare (§20).
 
+**`SSI_SEG` is a SAMPLE, not a handle.** It is a package's region base copied
+into the caller's own buffer, so once §66.6's door opens no kernel fix-up can
+reach it — `mem_reloc_call` knows the tables it maintains and cannot know
+somebody else's snapshot. Today that word is exact for the life of the
+instance because a region cannot move; the moment one can, a reader that
+holds the field across a claim is holding a stale segment and does not know
+it. **Read it, use it, and take it again** — do not bank it. The Task Manager
+is the only reader in the tree, it re-takes the whole snapshot on every
+interval, and it uses the field for a picture rather than for an access
+(placing an instance's band, classifying a claim as region-vs-data, testing
+window ownership), so staleness there costs a wrong drawing for one interval
+and nothing else. That is the property to preserve, not an accident to rely
+on.
+
 `SSI_KB` is the one field filled *outside* that window, and deliberately:
 it is a scan of the claim table per instance, which is not what the window
 protects and has no business running with interrupts off. The kernel fills
@@ -67611,10 +67625,15 @@ The three that failed all clear `[fdlg_win]` from **inside the image's own
 sat behind three separate compares of it: `ui.inc`'s ladder, `fdlg_reap`'s
 resident thunk, and once more at the top of `fdlg_reap_x`. Each turned the
 pass away, and `mod_tab[MOD_FDLG].seg` stayed non-zero for the rest of the
-session. **A 16KB claim, held for a dialog nobody could see, on the machine
+session. **A 4KB claim, held for a dialog nobody could see, on the machine
 with 128KB in it** — and the close box, the least-used route of the four, is
 the one that worked, which is why it survived the module split's own
 testing.
+
+(This paragraph read *"a 16KB claim"* for a while, and 16 is
+`MOD_MAX_KB` — the largest image `mod_need` will claim for at all, which it
+refuses above. The claim is the image rounded up to whole KB, and
+`FDLG.DRV`'s image is 3,243 bytes.)
 
 **The fix is the guard, not the drop.** `mod_r_fdlg` names the `mod_tab` row
 so the resident side can ask the right question, `ui.inc` and `fdlg_reap`
@@ -76498,14 +76517,43 @@ that was inferred rather than measured should say so.**
 rendezvous, so the door is the shape of this design rather than a hole in it.
 What is *behind* the door, so nobody costs it as a small follow-on:
 
-Moving a region means rewriting `I_SPTR`, `W_SEG` for every window it owns,
-every `MB_SEG` in the menu bar (§12.2), the owner word of every claim it holds
-(a package's data claims are owned by the segment it runs in, §50.2),
-`drv_fseg` for a driver — **and every saved CS on every stack**, because a
-package that far-called the kernel has pushed its own CS as the return
-segment. So a region can move only when no task has any frame inside it: no
-worker, and not currently dispatching a callback. That is a real feature with
-a real verification story and it is not this one.
+Moving a region means rewriting **every word in the kernel that names it**,
+and this list was four entries long for a year and is eleven. Each of the
+seven that were missing fails in a way nobody would trace back to a
+compaction — a stale `[menu_seg]` draws every bar title out of the wrong
+segment, and a stale `[fdlg_rqsp]` makes the completion callback silently skip
+so the user's Save does nothing at all:
+
+| holder | where | shape |
+|---|---|---|
+| `I_SPTR` | the instance table, 12 records | written in exactly two places (`kernel/loader.inc`, `kernel/instance.inc`), read in 24 |
+| `W_SEG` | `wm_wins`, 408 bytes | `wm_destroy_seg` (30 bytes) is the walk-by-segment already written |
+| `MB_SEG` | `menu_bar`, 84 bytes (§12.2) | scan by value |
+| `MC_OWN` | `mem_tab`, `MEM_MAX` records — a package's data claims are owned by the segment it runs in (§50.2) | scan by value |
+| `[menu_seg]` the bar's owner, `[menu_dseg]` the **dropped** menu | `kernel/menu.inc` | two words; `[menu_dseg]` is live in exactly the context §66.3 rule 3 names — a menu command claiming with the menu still down |
+| `[fdlg_rqsp]` the file dialog's staleness cookie, `[drv_dlg_seg]` | `kernel/fdlg.inc`, `kernel/driver.inc` | two words |
+| `[dskw_seg]`, `[dskw_wseg]`, `[dskw_czseg]` | `kernel/diskw.inc` | a **caller's** segment banked across a whole file transfer |
+| `[ld_base]` / `[ld_fp+2]`, the region being loaded | `kernel/loader.inc` | cheaper to **refuse**: pin any region whose base is `[ld_base]` |
+| `drv_fseg` | for a driver | one word |
+
+**And every saved CS on every stack**, because a package that far-called the
+kernel has pushed its own CS as the return segment. So a region can move only
+when no task has any frame inside it: no worker, and not currently dispatching
+a callback. That is a real feature with a real verification story and it is
+not this one; `docs/plans/HEAP-UNPIN-PLAN.md` §3.5 and §4 cost it.
+
+**One holder the kernel cannot reach at all**: `SSI_SEG` in an
+`OSAPI_SYS_SNAPSHOT` buffer is a copy in the **caller's** memory, so no kernel
+fix-up can find it. §20.9 says what that makes it.
+
+**What needs nothing** is most of the kernel, and that is the encouraging
+half: sound grants, XMS blocks, toast ownership, the dock, the clipboard,
+`wm_owner` and every `wm_about` / `wm_onwk` / `wm_oncl` / `wm_onrc` /
+`wm_pref` hook are keyed on an **instance slot** or on a near offset read live
+through `W_SEG`. A package's own code needs nothing either: it is `org 0` with
+no relocation of any kind, so every near offset inside the image survives a
+move untouched and only **segment words** are ever wrong afterwards. That is
+the whole reason this list is finite.
 
 ### 66.7 What is deliberately not done
 
@@ -76629,25 +76677,26 @@ Paint's GIF staging is the one with a second reason: `[pt_gbase]` is a
 paragraph derived off `[pt_gseg]` at four sites, so its proc is genuinely
 more than one word.
 
-**5. It was given away and has holders the callback cannot reach —
-structural, and the interesting one.** The HDD's per-partition listing claim,
-§66.5.10.1. Three holders, one owner, and `mem_reloc_call` dispatches to the
-owner. **Fixing it is a kernel change and not a driver one**, because the
-kernel is the other holder: `mem_reloc_call` would have to recognise a claim
-sitting in a `dsk_vtab` row and fix the row and `[dsk_dseg]` before
-dispatching. That is a real design with a real verification story, it is
-6KB per mounted partition, and this tree stands at one 512-byte step of
-`KERN_BUDGET`.
+**5. It was given away and has holders the callback cannot reach — BUILT,
+and this entry is the record of what it was.** The HDD's per-partition listing
+claim, §66.5.10.1: three holders, one owner, and `mem_reloc_call` dispatches to
+the owner. The fix was a kernel change and not a driver one, because the kernel
+is the other holder — and it is `dsk_dseg_reloc` (§66.5.10.2), which
+`mem_reloc_call` calls for **every** move, before the owner's own proc, fixing
+the `dsk_vtab` row and `[dsk_dseg]`. The claim is **MOVABLE** today;
+`docs/HEAP-CLAIMS.md` carries the row. It is left here rather than deleted
+because the shape generalises: a donated claim needs the kernel to be the other
+half of its callback, and this is the worked example.
 
-**6. Nobody has done the audit — one claim, and the only honest
-"declarable" left.** The `MEM_K_FATW` FAT window (§18.8.1), 4.5KB per mounted
-volume and long-lived. It needs `[dsk_fatseg]` *plus* the per-volume
-`dsk_fatw0` array, and — the part that makes it an audit rather than a proc —
-it is read by `dsk_next_clus` inside chain walks that themselves call
-`disk_read`, **which claims**. So the question is not "can the two words be
-fixed" but "is there a window in which a walk holds a FAT position across a
-claim". It is claimed at MOUNT time, so it tends to sit low and be a poor
-barrier, which is why it is last.
+**6. Nobody has done the audit — RETIRED, and the tag it named is gone.**
+This entry described `MEM_K_FATW`, the FAT window (§18.8.1), as *"the only
+honest declarable left"*. That tag no longer exists: §18.8.4 made the window a
+**cache**, `MEM_P_FATW`, so it is purgeable rather than movable and its
+relocation proc was deleted with the tag — `dsk_fatw_demote` carries the second
+naming word (`[dsk_fatseg]`) that proc existed for. The audit the entry asked
+for was therefore answered by making the question not arise. It is left here so
+that a reader who finds `MEM_K_FATW` quoted in an older document knows which
+way it went.
 
 **And nine packages have nothing to declare at all** (§66.5.11) — measured
 after this tree's own inventory said otherwise.

@@ -2890,7 +2890,8 @@ else
 	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
 endif
 
-$(BUILD)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc | $(BUILD)
+$(BUILD)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc \
+                      apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/taskmgr/taskmgr.asm
 	@echo "taskmgr: $(call FILESIZE,$@) bytes"
 
@@ -3909,6 +3910,7 @@ $(BUILD)/drvcall360.img: $(BUILD)/drvcall.o88 tools/os88disk.py
 socktest: $(BUILD)/socktest.img $(BUILD)/socktest360.img
 
 $(BUILD)/socktest.bin: tests/socktest/socktest.asm apps/os88api.inc \
+                       apps/os88sock.inc \
                        drivers/net/netpkg.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I drivers/net/ -o $@ \
 	        tests/socktest/socktest.asm
@@ -3940,7 +3942,8 @@ $(BUILD)/sbtest.img: $(BUILD)/sbtest.o88 tools/os88disk.py
 # package header. ONE assembly per package since SPEC.md 20.1 - a package
 # links at org 0 and owns a segment, so it is position-independent and there
 # is no relocation table to build (os88pkg.py validates and stamps).
-$(BUILD)/mines.bin: apps/mines/mines.asm apps/os88api.inc | $(BUILD)
+$(BUILD)/mines.bin: apps/mines/mines.asm apps/os88api.inc apps/os88ui.inc \
+                    | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/mines/mines.asm
 	@echo "mines:  $(call FILESIZE,$@) bytes"
 
@@ -3950,7 +3953,8 @@ $(BUILD)/mines.o88: $(BUILD)/mines.bin tools/os88pkg.py $(PKGZSTAMP)
 
 # HELLO, the second package: minimal, no embedded icon (proves the
 # generic-icon fallback in the Disk window).
-$(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc | $(BUILD)
+$(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc apps/os88ui.inc \
+                    | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/hello/hello.asm
 	@echo "hello:  $(call FILESIZE,$@) bytes"
 
@@ -4070,7 +4074,7 @@ $(BUILD)/fptest.o88: $(BUILD)/fptest.bin tools/os88pkg.py
 # Chart: a standalone SYLK/DIF/BIFF bar-chart viewer, sharing its
 # rasterizer/BMP-writer with Sheet's own live chart window (os88chart.inc).
 $(BUILD)/chart.bin: apps/chart/chart.asm apps/os88api.inc apps/os88chart.inc \
-                    apps/os88fp.inc | $(BUILD)
+                    apps/os88fp.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/chart/chart.asm
 	@echo "chart:  $(call FILESIZE,$@) bytes"
 
@@ -4253,7 +4257,7 @@ AUDIO_SRC := apps/audio/audio.asm apps/audio/apengine.inc \
              apps/audio/apwork.inc apps/audio/apcb.inc \
              apps/audio/apwav.inc apps/audio/apdec.inc \
              apps/audio/apui.inc apps/audio/aplist.inc \
-             apps/os88api.inc apps/os88ui.inc
+             apps/os88api.inc apps/os88ui.inc apps/os88type.inc
 # NB: apps/audio/audio.asm is named explicitly (as well as via $(AUDIO_SRC),
 # which begins with it) so tools/os88index.py finds the package here.
 $(BUILD)/audio.bin: apps/audio/audio.asm $(AUDIO_SRC) | $(BUILD)
@@ -4396,7 +4400,8 @@ $(BUILD)/artful.o88: $(BUILD)/artful.bin tools/os88pkg.py $(PKGZSTAMP)
 # Fractal, the sixth shipped package: five escape-time fractals in Q4.12
 # fixed point, rendered by a background WORKER TASK (SPEC.md 20.6) while the
 # GUI stays live. The first client of OSAPI_TASK_SPAWN / OSAPI_TASK_ALIVE.
-$(BUILD)/fractal.bin: apps/fractal/fractal.asm apps/os88api.inc | $(BUILD)
+$(BUILD)/fractal.bin: apps/fractal/fractal.asm apps/os88api.inc \
+                      apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/fractal/fractal.asm
 	@echo "fractal: $(call FILESIZE,$@) bytes"
 
@@ -4455,7 +4460,8 @@ $(BUILD)/tank.bin: apps/tank/tank.asm apps/tank/tkraster.inc \
                     apps/tank/tksin.inc apps/tank/tkridge.inc \
                     apps/tank/tktan.inc apps/tank/tknib.inc \
                     apps/tank/tkover.inc apps/tank/tklogo.inc \
-                    apps/os88api.inc | $(BUILD)
+                    apps/os88api.inc \
+                    apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tank/ -o $@ apps/tank/tank.asm
 	@echo "tank:  $(call FILESIZE,$@) bytes"
 
@@ -5029,7 +5035,7 @@ CWORDSRC := apps/cword/cwrtfio.c apps/cword/cwrtftbl.c apps/cword/cwrtftbl.h \
             apps/cword/cwmenu.c apps/cword/cwchrome.c apps/cword/cwdrop.c \
             apps/cword/cwcmd.c apps/cword/cwovl.c
 $(BUILD)/cword.raw.asm: $(CWORDSRC)
-$(BUILD)/cword.bin: apps/cword/cwmove.inc
+$(BUILD)/cword.bin: $(wildcard apps/cword/*.inc) apps/os88type.inc apps/os88api.inc
 
 cword: $(BUILD)/cword.o88
 
@@ -5854,7 +5860,8 @@ $(BUILD)/loom.gen.asm: $(BUILD)/loom.raw.asm tools/cc8086.py
 	python3 tools/cc8086.py $< -o $@ --max-frame $(CC_MAXFRAME)
 
 $(BUILD)/loom.bin: apps/loom/loom.asm $(BUILD)/loom.gen.asm $(CC_RUNTIME) \
-                   | $(BUILD)
+                   $(wildcard apps/loom/*.inc) $(wildcard apps/weave/*.inc) \
+                   apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I $(BUILD)/ -o $@ apps/loom/loom.asm
 	@echo "loom: $(call FILESIZE,$@) bytes"
 
@@ -6057,7 +6064,8 @@ FROTZSRC := apps/frotz/frotz.asm apps/frotz/zbss.inc apps/frotz/zmem.inc \
             apps/frotz/zwin.inc apps/frotz/zwin6.inc apps/frotz/zpic.inc \
             apps/frotz/zsnd.inc apps/frotz/zio.inc apps/frotz/zexec.inc
 
-$(BUILD)/frotz.bin: $(FROTZSRC) apps/os88api.inc $(SBSTAMP) | $(BUILD)
+$(BUILD)/frotz.bin: $(FROTZSRC) apps/os88api.inc apps/os88ui.inc \
+                    $(SBSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(PKGSBDEF) -I apps/ -I apps/frotz/ -o $@ apps/frotz/frotz.asm
 	@echo "frotz:  $(call FILESIZE,$@) bytes"
 
@@ -6205,7 +6213,7 @@ $(BUILD)/WELCOME.DOC: tools/os88doc.py apps/word/welcome.wtx | $(BUILD)
 	python3 tools/os88doc.py apps/word/welcome.wtx -o $@
 	@echo "welcome: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/word.bin: $(WORDSRC) apps/os88api.inc apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+$(BUILD)/word.bin: $(WORDSRC) apps/os88api.inc apps/os88ui.inc apps/os88type.inc $(SBSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(PKGSBDEF) -I apps/ -I apps/word/ -o $@ apps/word/word.asm
 	@echo "word:   $(call FILESIZE,$@) bytes"
 
@@ -6326,7 +6334,8 @@ ZHDIR := $(BUILD)/zh
 
 zh: $(ZHDIR)/frotz.o88
 
-$(ZHDIR)/frotz.bin: $(FROTZSRC) apps/frotz/zharness.inc apps/os88api.inc | $(BUILD)
+$(ZHDIR)/frotz.bin: $(FROTZSRC) apps/frotz/zharness.inc apps/os88api.inc \
+                    apps/os88ui.inc | $(BUILD)
 	@mkdir -p $(ZHDIR)
 	$(NASM) -f bin -w+error -DZHARNESS -I apps/ -I apps/frotz/ -o $@ apps/frotz/frotz.asm
 	@echo "zh:     $(call FILESIZE,$@) bytes (harness build, not shipped)"
@@ -6595,7 +6604,7 @@ NPBENCHSRC := apps/notepad/notepad.asm tests/npbench.inc
 npbench: $(BUILD)/npbench.img $(BUILD)/npbench360.img \
          $(BUILD)/nprun.img $(BUILD)/nprun360.img
 
-$(BUILD)/npbench.bin: $(NPBENCHSRC) apps/os88api.inc | $(BUILD)
+$(BUILD)/npbench.bin: $(NPBENCHSRC) apps/os88api.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -DNPBENCH -I apps/ -I tests/ \
 		-o $@ apps/notepad/notepad.asm
 	@echo "npbench: $(call FILESIZE,$@) bytes"
@@ -7805,7 +7814,8 @@ $(BUILD)/lptlink.com: tests/lptlink/lptlink.asm drivers/net/lplink.inc | $(BUILD
 	$(NASM) -f bin -w+error -I drivers/net/ -DCOMFILE -o $@ tests/lptlink/lptlink.asm
 	@echo "lptlink.com: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/lptlink.bin: tests/lptlink/lptlink.asm drivers/net/lplink.inc | $(BUILD)
+$(BUILD)/lptlink.bin: tests/lptlink/lptlink.asm drivers/net/lplink.inc \
+                      drivers/net/lplslv.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I drivers/net/ -o $@ tests/lptlink/lptlink.asm
 
 # Its own boot sectors, because the sector count is assembled in and lptlink

@@ -1467,6 +1467,54 @@ descending pass with that worker still running and `mem_can_move` refused the
 one block the pass existed for. As a loop it costs **2 bytes** and cannot
 happen. `heapcheck` runs in 31.8s against a declared 40.
 
+### 10.3 Piece 0 — the documentation, and a build bug under it
+
+**Built: piece 0, entirely.** Zero kernel bytes, five bytes off every package
+that includes `apps/os88type.inc`.
+
+- **SPEC.md 66.6's holder list was four entries and is eleven.** `[menu_seg]`,
+  `[menu_dseg]`, `[fdlg_rqsp]`, `[drv_dlg_seg]`, `[ld_base]`/`[ld_fp+2]` and
+  `diskw.inc`'s three banked caller segments were all missing, and each fails
+  in a way nobody would trace back to a compaction. The section now carries
+  the table from §3.5, plus the two things that make the list finite (a
+  package is `org 0`, so only *segment* words are ever wrong) and the one
+  holder the kernel cannot reach.
+- **SPEC.md 20.9 says `SSI_SEG` is a sample, not a handle.** Read it, use it,
+  take it again.
+- **SPEC.md 66.9 reasons 5 and 6 were both stale**, independently of anything
+  here. Reason 5 (the donated HDD listing) was BUILT as `dsk_dseg_reloc`; the
+  claim is movable today. Reason 6 named `MEM_K_FATW` as "the only honest
+  declarable left" and that tag no longer exists — §18.8.4 made the window a
+  cache and deleted the proc with the tag. Both entries are kept and rewritten
+  rather than deleted, because the first generalises and the second is what a
+  reader who finds the old name quoted elsewhere needs.
+- **SPEC.md 38.0.1's "16KB claim" is 4KB.** 16 is `MOD_MAX_KB`, the cap
+  `mod_need` refuses above; the claim is the image rounded up, and
+  `FDLG.DRV`'s image is 3,243 bytes.
+- **docs/HEAP-CLAIMS.md** gained the two `MC_DMA` rows it omitted, and they are
+  the evidence for piece A: `MEM_P_DIRW` carries the tag as a *placement*
+  constraint for one `int 13h`, and the typeface cache carries it for
+  **512-byte alignment alone** — it asks for +1KB and rounds the segment up by
+  hand. No chip is armed on either.
+- **`[ty_selfseg]` is deleted.** Written by `ty_init`, read by nothing. `DS` is
+  `CS` for a package and the kernel reloads it from `W_SEG` on every dispatch,
+  so it could never have said anything `ds` did not — and once a region can
+  move it would have been a stale word to fix for no reader.
+
+**And the measurement of that last one found a build bug worth more than the
+piece.** The five-byte deletion A/B'd at **exactly zero**, twice, because
+`$(BUILD)/word.bin`'s rule does not list `apps/os88type.inc` — so `make` said
+"up to date" and never reassembled. A scan of every `.bin` rule against its
+real `%include` closure found **twelve** rules in the same state, of which
+`apps/os88ui.inc` missing from **nine shipped packages** (chart, fractal,
+frotz, hello, mines, tank, taskmgr, loom, npbench) is the one that matters:
+edit the UI library and none of them rebuilds. All twelve are fixed, and
+`tests/unit/t_pkgdeps.py` is now a fast-tier row so it cannot come back — 91
+package rules, 0.8s, and it parses the Makefile as *text* because `make -p`,
+`-n` and `-q` all evaluate the `$(shell ...)` beside `$(VIDSTAMP)` that
+deletes `build/kernel.bin`. With the fix in, the deletion measures **5 bytes**
+against the 4 this document estimated.
+
 ---
 
 ## 10.1 How the rest would be verified

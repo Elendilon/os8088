@@ -55,7 +55,7 @@ waiting and outranks it (§66.10.1), which is the same room at none of the copy.
 | `MEM_K_BAND` band composer buffer | `BAND_KB`, boot to shutdown | **UNDECLARED** | `BAND=1` builds only. Taken once at boot, so it sits on the floor and is not in anybody's way |
 | `MEM_P_WSAVE` window raise cache | one per window | **PURGEABLE** | |
 | `MEM_P_FATW` FAT window | ~5KB per volume that did not get the `FAT_SEG` pin (the boot volume takes the pin, §18.8.3) | **PURGEABLE** | §18.8.4. It was `MEM_K_FATW`, a long-lived pinned claim and the first bottom-up claim of the boot, with a relocation proc; both were deleted when it became a cache, and `dsk_fatw_demote` now carries the second naming word (`[dsk_fatseg]`) that proc existed for |
-| `MEM_P_DIRW` directory read-ahead | 63KB, one 64KB page | **PURGEABLE** | |
+| `MEM_P_DIRW` directory read-ahead | 63KB, one 64KB page | **PURGEABLE** | It carries `MC_DMA` over the WHOLE block (`mem_claim_dma_x`, §50.3) so `dsk_runcap` never splits a fill and a fill is exactly one `int 13h`. That is a PLACEMENT constraint and not a chip armed on it — nothing is mid-transfer between two claims — so it is the row to read beside §66.9 reason 2, which states the two as one thing |
 
 ## Package-owned claims
 
@@ -85,6 +85,7 @@ be done". Sizes are the `equ`s at the claim sites.
 | package | claims |
 |---|---|
 | **Word** | document and CHP arena (grown in lockstep from `WD_KB0`), PAP dictionary 1KB, undo arena, italic glyph table + staging `WD_ITKB` 9KB, `WORD.OVL` image `WD_OVKB` 8KB (a CS, so that one is forever), `WD_LSTGKB` 62KB load staging (transient), a `2*WD_SCHALF` scratch |
+| **the typeface cache** (`apps/os88type.inc`, so Word, TeXpad and every other includer) | `TY_FACE_KB + 1` per open face, and it is the one claim in the tree that carries `MC_DMA` for **alignment alone**: it asks `OSAPI_MEM_CLAIM_DMA` for a whole-block head, then rounds the segment up to a multiple of 32 paragraphs by hand — the +1KB is that rounding's slack. No chip is armed on it and none ever will be, so `mem_can_move`'s blanket `MC_DMA` refusal (§66.9 reason 2) is pinning it for a reason that does not apply |
 | **Sheet** | cells 32KB, text 8KB, staging 32KB, borders 4KB, notes 4KB, chart 19KB — ~99KB for the session, the largest undeclared holder |
 | **Chart** | chart 19KB, staging 32KB |
 | **Browser** | link table `BR_LINKKB` 6KB, document up to `BR_DOCMAX` 63KB, line table 8KB, fetch buffer `BR_MAXKB` 32KB |
