@@ -216,6 +216,10 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("csart", "fast", py("tests/unit/t_csart.py"), 0.6,
+        "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
+        " the launcher's two 1bpp bands are drawn by the tool and checked in,"
+        " and the include cannot drift from the drawing"),
     Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "
@@ -1647,6 +1651,14 @@ SOAK = [
                                "os8088_5150_cga_gla"), 180.0,
         "SPEC.md 88 on CGA: the 320x112 view, palette 0 over a light-blue"
         " background, the same flight",
+        needs=("marty",), serial=True),
+    Row("skiesui", "soak", py("tests/skiesui.py"), 150.0,
+        "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
+        " (SPEC.md 13.14's first users) drop, close and pick, Esc closes one,"
+        " Flight -> Instructions turns the page and back, the Mode menu's CGA"
+        " pick flies in CGA320, and the release of the pick's press is owed to"
+        " the launcher's window - [ui_armw] read directly, the check that"
+        " catches a click handler coming back with SI clobbered",
         needs=("marty",), serial=True),
     Row("skiesvga", "soak", py("tests/skies.py", "--machine",
                                "os8088_xt_vga"), 240.0,

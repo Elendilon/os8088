@@ -1959,7 +1959,12 @@ W_H       equ 8             ; word: frame height, includes title bar
 W_TITLE   equ 10            ; word: near ptr to NUL title string
 W_PAINT   equ 12            ; word: near ptr, SI = win ptr; content only
 W_ONKEY   equ 14            ; word: near ptr or 0; AL=ascii, AH=scan, SI=win
-W_ONCLICK equ 16            ; word: near ptr or 0; CX=x, DX=y, SI=win
+W_ONCLICK equ 16            ; word: near ptr or 0; CX=x, DX=y, SI=win.
+                            ; GIVE SI BACK AS YOU GOT IT: ui_task arms the
+                            ; release to the SI it finds AFTER you return
+                            ; (SPEC.md 13.7), so a handler that comes back
+                            ; with SI pointing elsewhere has named that as
+                            ; the window, and the release goes through it
 W_MENUS   equ 18            ; word: app menu set ptr, 0 = none. NOT a
                             ; template word - set it with OSAPI_MENU_SET
 W_DISP    equ 20            ; dword: the kernel's far pointer to your

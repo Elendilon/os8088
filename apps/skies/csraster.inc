@@ -188,13 +188,29 @@ cs_r_setup:
 ; -----------------------------------------------------------------------------
 ; cs_cga_pal - CGA palette 0 at low intensity - green, red, brown - over a
 ;              LIGHT BLUE background: the sky is colour 0, which is the one
-;              colour of the four a CGA lets an app choose freely (3D9h bits
-;              0-3), and that is what makes a blue sky possible at all
+;              colour of the four a CGA lets an app choose freely, and that
+;              is what makes a blue sky possible at all.
+;
+; THROUGH THE BIOS, NOT PORT 3D9h. The colour-select register is the CGA's;
+; a VGA or an EGA running the same mode 04h has no such port and takes its
+; four colours from the attribute controller, so the first build's `out`
+; left a VGA on the BIOS's own mode-4 default - cyan, magenta and white over
+; BLACK - which is what a player who chose CGA on a VGA for the frame rate
+; (the Mode menu, 88.10) was shown. INT 10h AH=0Bh is the one call every
+; adapter's BIOS answers, writing 3D9h on a CGA and the palette registers
+; on the others. Inside the bracket the BIOS is ours to call (SPEC.md 53.7)
 ; -----------------------------------------------------------------------------
 cs_cga_pal:
-    mov dx, 0x3D9
-    mov al, 0x09                    ; bit 5 clear: palette 0; bit 4 clear:
-    out dx, al                      ; low intensity; background 9 light blue
+    push ax
+    push bx
+    mov ax, 0x0B00
+    mov bx, 0x0100                  ; BH = 1: the palette, BL = 0 (green, red,
+    int 0x10                        ; brown)
+    mov ax, 0x0B00
+    mov bx, 0x0009                  ; BH = 0: the background, BL = 9 light blue
+    int 0x10                        ; with bit 4 clear, low intensity
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------

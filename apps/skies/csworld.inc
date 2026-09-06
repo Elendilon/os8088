@@ -374,5 +374,16 @@ cs_a_issy:
     dw 20                           ; CSA_HWID     ...40 m wide
     dw cs_s_rwy04                   ; CSA_RWY
     dw -440                         ; CSA_SPAWN    60 m in from the threshold
+cs_a_lbg:                           ; a second row: the launcher's Location
+    dw cs_s_lbg                     ; drop-down (88.10) lists both
+    dw 4500, 5000                   ; CSA_X, CSA_Z: 7 km north-east, outside
+    dw 0                            ; CSA_ELEV     the ring road's square
+    dw 12743                        ; CSA_HDG      070
+    dw 700                          ; CSA_HLEN     a 1,400 m runway...
+    dw 22                           ; CSA_HWID     ...45 m wide
+    dw cs_s_rwy07                   ; CSA_RWY
+    dw -640                         ; CSA_SPAWN    60 m in from the threshold
 cs_s_issy:   db 'PARIS-ISSY', 0
 cs_s_rwy04:  db 'RUNWAY 04', 0
+cs_s_lbg:    db 'LE BOURGET', 0
+cs_s_rwy07:  db 'RUNWAY 07', 0

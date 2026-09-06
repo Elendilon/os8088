@@ -273,8 +273,8 @@ CSG_PAUSED equ 5
 CSG_EDGE   equ 6
 
 ; --- the attract window (SPEC.md 88.10) ---------------------------------------
-CS_WINW   equ 312
-CS_WINH   equ 132
+CS_WINW   equ 312               ; the launcher, frame included: it fits
+CS_WINH   equ 156               ; between CGA's bar and dock (200 rows)
 
 ; --- scancodes this package reads directly (SPEC.md 9.7) ----------------------
 CS_KW     equ 0x11
@@ -316,7 +316,7 @@ cs_entry:
     mov word [cs_airport], cs_a_issy
     mov byte [cs_sound], 1
 
-    ; Centre the attract window in the desktop band.
+    ; Centre the launcher in the desktop band.
     mov ax, [cs_scrw]
     sub ax, CS_WINW
     jns .xok
@@ -338,15 +338,23 @@ cs_entry:
     call OSAPI_WM_CREATE
     jc .full
     mov [cs_win], bx
-    mov al, 1                       ; an 8-aligned content origin: every
-    call OSAPI_WM_SNAP              ; font_run below reaches SPEC.md 6.1's
+    mov [cs_drplane + OS88UI_DR_WIN], bx    ; the drop-downs arm their clips
+    mov [cs_drport + OS88UI_DR_WIN], bx     ; off it (os88ui.inc)
+    mov al, 1                       ; an 8-aligned content origin: the two
+    call OSAPI_WM_SNAP              ; bands land on the byte grid (SPEC.md
+                                    ; 5.4.2) and font_run reaches 6.1's
                                     ; single-store cell
-    call cs_adapter                 ; which raster we would take, and whether
-                                    ; the machine will give it to us
+    mov al, 1                       ; every pixel of the page is ours, so the
+    call OSAPI_WM_OWNBG             ; kernel's white fill before W_PAINT would
+                                    ; only be written over (SPEC.md 11.96)
+    call cs_adapter                 ; which raster we would take, whether the
+                                    ; machine will give it to us, and the menus
     mov ax, cs_onresize             ; the card can change under us
     call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98)
-    mov si, cs_menus
-    call OSAPI_MENU_SET
+    mov ax, cs_onup                 ; the release half of a click (13.7)...
+    call OSAPI_WM_ONMOUSEUP
+    mov ax, cs_ondrag               ; ...and the tracking edge (13.8.2), for
+    call OSAPI_WM_ONDRAG            ; the drop-downs' highlight
     mov si, cs_about                ; 'About Clear Skies' above the Close the
     call OSAPI_ABOUT_SET            ; kernel puts in our pull-down (SPEC.md
                                     ; 12.2). WINDOWED only: in the bracket
@@ -357,11 +365,13 @@ cs_entry:
     ret
 
 ; -----------------------------------------------------------------------------
-; cs_adapter - the raster this machine would give us, and the mode to ask for
+; cs_adapter - the raster this machine would give us, the mode to ask for,
+;              and the menus that go with it
 ;
-; out: [cs_want] = a CSB_*, [cs_fsxm] = the FSXM_* to set, [cs_caps], and the
-;      menu item's caption. Preserves every register (cs_onresize is a
-;      callback). EVERY BRANCH WRITES BOTH WAYS - SPEC.md 48's lesson.
+; out: [cs_want] = a CSB_*, [cs_fsxm] = the FSXM_* to set, [cs_caps], the
+;      Fly item's caption, and the menu set installed - with a Mode menu
+;      only where there is a choice. Preserves every register (cs_onresize
+;      is a callback). EVERY BRANCH WRITES BOTH WAYS - SPEC.md 48's lesson.
 ; OSAPI_FSX_CAPS is asked with our WINDOW in BX, so on a two-card machine the
 ; answer is about the display this window is on (SPEC.md 39.18.2).
 ; -----------------------------------------------------------------------------
@@ -369,24 +379,18 @@ cs_adapter:
     push ax
     push bx
     push dx
+    push si
     mov bx, [cs_win]
     call OSAPI_FSX_CAPS
     mov [cs_caps], ax
     mov [cs_vidk], dl
-    mov byte [cs_cdim], CLGRAY      ; the panel's second inks: grey and cyan
-    mov byte [cs_csub], CLCYAN      ; on a colour display, and white on a 1bpp
-    cmp dl, VID_VGA                 ; one, where both round to BLACK (SPEC.md
-    je .inks                        ; 39.4: only 12, 14 and 15 come out white)
-    cmp dl, VID_EGA
-    je .inks
-    mov byte [cs_cdim], CWHITE
-    mov byte [cs_csub], CWHITE
-.inks:
     mov byte [cs_want], CSB_NONE
     mov byte [cs_fsxm], 0FFh
     test ax, 1 << FSXM_MODEX
     jz .cga
-    mov byte [cs_want], CSB_MODEX
+    cmp byte [cs_modepref], 0       ; Mode X, unless CGA was asked for: a
+    jne .cga                        ; VGA in an XT runs it at 4 fps (88.12)
+    mov byte [cs_want], CSB_MODEX   ; and the Mode menu is the choice
     mov byte [cs_fsxm], FSXM_MODEX
     jmp short .say
 .cga:
@@ -407,6 +411,28 @@ cs_adapter:
     mov dx, cs_s_flyn
 .ok:
     mov [cs_mi_flight + 0], dx
+    ; --- the Mode menu, only where Mode X and CGA are BOTH on offer (a VGA),
+    ;     its pick marked with '* ' - SPEC.md 45.17.1's idiom, a MENU_DIS
+    ;     twin having read as "disabled" in the field ------------------------
+    mov si, cs_menus
+    mov ax, [cs_caps]
+    and ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
+    cmp ax, (1 << FSXM_MODEX) | (1 << FSXM_CGA320)
+    jne .set
+    mov si, cs_menus2
+    mov ax, cs_s_modexs
+    mov dx, cs_s_cga
+    cmp byte [cs_modepref], 0
+    je .marks
+    mov ax, cs_s_modex
+    mov dx, cs_s_cgas
+.marks:
+    mov [cs_mi_mode + 0], ax
+    mov [cs_mi_mode + 2], dx
+.set:
+    mov bx, [cs_win]                ; the kernel keeps a COPY of the set
+    call OSAPI_MENU_SET             ; (SPEC.md 12.2): installed afresh
+    pop si
     pop dx
     pop bx
     pop ax
@@ -417,9 +443,24 @@ cs_onresize:
     ret
 
 ; =============================================================================
-; The windowed half: a still panel, and one command that leaves it
-; (SPEC.md 88.10)
+; The windowed half: the title page (SPEC.md 88.10) - the lettering and the
+; aeroplane are two 1bpp bands from tools/csart.py, the plane and the
+; airport are os88ui.inc's drop-downs (the first two anywhere), Fly is the
+; standard button, and the instructions are a second page of the same window
 ; =============================================================================
+CS_TITLEX equ 16                    ; the bands, in content coordinates: both
+CS_TITLEY equ 2                     ; x's are multiples of 8 (OSAPI_GFX_BLIT1)
+CS_ARTX   equ 152
+CS_ARTY   equ 40
+CS_COLX   equ 8                     ; the left column: two labels, two
+CS_DROPW  equ 128                   ; drop-downs and the button
+CS_DROPH  equ 16
+CS_PLANEY equ 56
+CS_PORTY  equ 88
+CS_FLYY   equ 112
+CS_FLYW   equ 72
+CS_FLYH   equ 18
+CS_LINEH  equ 10                    ; the instructions page's line pitch
 
 ; -----------------------------------------------------------------------------
 ; cs_paint - W_PAINT.  in: SI = window ptr; gfx lock held.  preserves all
@@ -431,6 +472,7 @@ cs_paint:
     push dx
     push si
     push di
+    push bp
     mov bx, [cs_win]
     call OSAPI_WM_CONTENT
     mov [cs_winox], ax
@@ -441,73 +483,92 @@ cs_paint:
     mov [cs_cw], cx
     mov [cs_ch], dx
 
-    mov al, CBLACK                  ; a night-blue panel would be the obvious
-    call OSAPI_SET_COLOR            ; thing and rounds to black on two adapters
-    mov ax, [cs_winox]              ; of three (SPEC.md 39.4), so it is black
-    mov bx, [cs_winoy]              ; everywhere and every run below letters
-    mov cx, ax                      ; onto it opaquely (SPEC.md 6.1)
+    mov al, CWHITE                  ; the page: ours (OSAPI_WM_OWNBG), and it
+    call OSAPI_SET_COLOR            ; is what takes a dropped list or the
+    mov ax, [cs_winox]              ; instructions back down
+    mov bx, [cs_winoy]
+    mov cx, ax
     add cx, [cs_cw]
     dec cx
     mov dx, bx
     add dx, [cs_ch]
     dec dx
     call OSAPI_GFX_FILL
+    cmp byte [cs_page], 0
+    jne .instr
 
+    ; --- the title, one blit; lettered in the 8x8 face where the blit is
+    ;     refused (kern_small carries the slot and not the body) ------------
+    push ds
+    pop es
+    mov ax, [cs_winox]
+    add ax, CS_TITLEX
+    mov bx, [cs_winoy]
+    add bx, CS_TITLEY
+    mov cx, cs_art_title_w
+    mov dx, cs_art_title_h
+    mov bp, cs_art_title_w / 8
+    mov si, cs_art_title
+    call OSAPI_GFX_BLIT1
+    jnc .plane
     mov si, cs_s_title
-    mov bx, 8
-    mov al, CWHITE
+    mov bx, CS_TITLEY + 16
+    mov al, CBLACK
     call cs_at_centre
-    mov si, cs_s_sub
-    mov bx, 20
-    mov al, [cs_csub]
-    call cs_at_centre
+.plane:                             ; --- the aeroplane in front of its cloud -
+    mov ax, [cs_winox]
+    add ax, CS_ARTX
+    mov bx, [cs_winoy]
+    add bx, CS_ARTY
+    mov cx, cs_art_plane_w
+    mov dx, cs_art_plane_h
+    mov bp, cs_art_plane_w / 8
+    mov si, cs_art_plane
+    call OSAPI_GFX_BLIT1            ; refused: a plainer page, and that is all
 
-    mov si, cs_s_plane              ; what is being flown, and from where -
-    mov bx, 40                      ; read off the records, so a second row
-    mov al, [cs_cdim]               ; in either table shows up here unasked
-    mov cx, 16
+    ; --- the configuration: the labels, the controls' rects (they follow
+    ;     the window), then the controls, LOWEST FIRST - a dropped list lies
+    ;     over whatever is under it -----------------------------------------
+    mov al, CBLACK
+    mov si, cs_s_plane
+    mov cx, CS_COLX
+    mov bx, CS_PLANEY - 10
     call cs_at_left
-    mov si, [cs_plane]
-    mov si, [si + CSP_NAME]
-    mov al, CWHITE
-    call cs_at_label
     mov si, cs_s_airport
-    mov bx, 52
-    mov al, [cs_cdim]
+    mov bx, CS_PORTY - 10
     call cs_at_left
-    mov si, [cs_airport]
-    mov si, [si + CSA_NAME]
-    mov al, CWHITE
-    call cs_at_label
-
-    mov al, [cs_cdim]
-    mov si, cs_s_k1
-    mov bx, 72
-    call cs_at_left
-    mov si, cs_s_k2
-    mov bx, 82
-    call cs_at_left
-    mov si, cs_s_k3
-    mov bx, 92
-    call cs_at_left
-
-    mov si, cs_s_press
-    cmp byte [cs_want], CSB_NONE
-    jne .live
-    mov si, cs_s_nomode             ; the reason, in the window (SPEC.md 47)
-.live:
-    mov bx, 112
-    mov al, CYELLOW
-    call cs_at_centre
-
+    mov di, cs_drplane
+    mov ax, CS_COLX
+    mov bx, CS_PLANEY
+    mov cx, CS_COLX + CS_DROPW - 1
+    mov dx, CS_PLANEY + CS_DROPH - 1
+    call cs_rect_at
+    mov di, cs_drport
+    mov bx, CS_PORTY
+    mov dx, CS_PORTY + CS_DROPH - 1
+    call cs_rect_at
+    mov di, cs_flyrect
+    mov bx, CS_FLYY
+    mov cx, CS_COLX + CS_FLYW - 1
+    mov dx, CS_FLYY + CS_FLYH - 1
+    call cs_rect_at
+    call cs_flybtn
+    mov bx, cs_drport
+    xor di, di
+    call os88ui_drop
+    mov bx, cs_drplane
+    call os88ui_drop
+    jmp short .card
+.instr:
+    call cs_instr_page
+.card:
     cmp byte [cs_abon], 0           ; ...and the About card LAST, over the
-    je .out                         ; panel it is opaque about (20.5.1)
-    push si
+    je .out                         ; page it is opaque about (20.5.1)
     mov bx, [cs_win]
     mov si, cs_ablines
     call os88ui_about_d
-    pop si
 .out:
+    pop bp
     pop di
     pop si
     pop dx
@@ -516,7 +577,101 @@ cs_paint:
     pop ax
     ret
 
-; cs_at_left - SI = string, BX = content y, CX = content x, AL = ink
+; cs_flybtn - the Fly button as it stands: greyed with no mode to fly in
+;             (SPEC.md 47), down while pressed. in: [cs_flyrect] current
+cs_flybtn:
+    push bx
+    push si
+    push di
+    mov bx, cs_flyrect
+    mov si, cs_s_flybtn
+    mov di, OS88UI_DEF | OS88UI_FILL
+    cmp byte [cs_want], CSB_NONE
+    jne .live
+    or di, OS88UI_DIS
+.live:
+    cmp byte [cs_flydn], 0
+    je .draw
+    or di, OS88UI_DOWN
+.draw:
+    call os88ui_btn
+    pop di
+    pop si
+    pop bx
+    ret
+
+; cs_flydraw - the button alone, from a click handler: no region is armed
+;              there (SPEC.md 11.3), so one is
+cs_flydraw:
+    push bx
+    mov bx, [cs_win]
+    call OSAPI_WM_CLIP_SET
+    jc .out
+    call cs_flybtn
+.out:
+    pop bx
+    ret
+
+; cs_rect_at - DI -> a 4-word rect; AX/BX/CX/DX = it, in CONTENT coordinates:
+;              write it in screen coordinates. Preserves every register
+cs_rect_at:
+    push ax
+    add ax, [cs_winox]
+    mov [di], ax
+    mov ax, bx
+    add ax, [cs_winoy]
+    mov [di+2], ax
+    mov ax, cx
+    add ax, [cs_winox]
+    mov [di+4], ax
+    mov ax, dx
+    add ax, [cs_winoy]
+    mov [di+6], ax
+    pop ax
+    ret
+
+; cs_instr_page - the instructions, a line table down the page
+cs_instr_page:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov di, cs_i_lines
+    mov bx, 6
+    mov cx, CS_COLX
+    mov al, CBLACK
+.line:
+    mov si, [di]
+    or si, si
+    jz .done
+    call cs_at_left
+    add di, 2
+    add bx, CS_LINEH
+    jmp short .line
+.done:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; cs_repaint - the page again, from a handler: the kernel arms a region for
+;              W_PAINT and for nothing else (SPEC.md 11.3), so one is armed
+;              here and dies at its own gfx_unlock
+cs_repaint:
+    push bx
+    mov bx, [cs_win]
+    call OSAPI_WM_CLIP_SET
+    jc .gone
+    call cs_paint
+.gone:
+    pop bx
+    ret
+
+; cs_at_left - SI = string, BX = content y, CX = content x, AL = ink, on the
+;              white page
 cs_at_left:
     push ax
     push bx
@@ -526,21 +681,13 @@ cs_at_left:
     mov dx, [cs_winoy]
     add dx, bx
     add cx, [cs_winox]
-    mov ah, CBLACK
+    mov ah, CWHITE
     call OSAPI_FONT_RUN
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
-    ret
-
-; cs_at_label - the same at x = 96: the record's name after its label
-cs_at_label:
-    push cx
-    mov cx, 96
-    call cs_at_left
-    pop cx
     ret
 
 ; cs_at_centre - SI = string, BX = content y, AL = ink; centred on the window
@@ -581,67 +728,273 @@ cs_strlen:
     ret
 
 ; -----------------------------------------------------------------------------
+; The gestures (SPEC.md 13.7, 13.8.2): the press, the drag, the release
+; -----------------------------------------------------------------------------
+; cs_onclick - W_ONCLICK.  in: CX/DX = the point, SI = window; gfx lock held
+;
+; EVERY REGISTER GOES BACK, SI ABOVE ALL: ui_task arms the release with the
+; SI it handed over AFTER this returns (`mov [ui_armw], si` in
+; .content_front), so a handler that comes back with SI holding something
+; else has named that something as the window the release is owed to, and
+; the kernel far-calls through it. The first build returned with SI = the
+; airport record the pick had just chosen, and the release went into the
+; weeds at D3E8 - which read, on the glass, as the launcher working and the
+; menu bar dying three seconds later
+cs_onclick:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call cs_abdismiss               ; the card takes the click
+    jc .out
+    cmp byte [cs_page], 0
+    je .page0
+    mov byte [cs_page], 0           ; the instructions: any click returns
+    call cs_repaint
+    jmp short .out
+.page0:
+    mov bx, cs_drplane              ; the drop-downs first: an open list
+    call os88ui_drpress             ; takes any press, wherever it lands
+    call cs_drtake
+    jc .out
+    mov bx, cs_drport
+    call os88ui_drpress
+    call cs_drtake
+    jc .out
+    cmp byte [cs_want], CSB_NONE    ; the button: greyed, it refuses
+    je .out
+    mov bx, cs_flyrect
+    call os88ui_bhit
+    jc .out
+    mov ax, 1                       ; armed, and drawn down until the release
+    call os88ui_arm
+    mov byte [cs_flydn], 1
+    call cs_flydraw
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; cs_onup - W_ONMOUSEUP.  in: CX/DX = the point; gfx lock held
+cs_onup:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, cs_drplane              ; a release over an item picks it
+    call os88ui_drup
+    call cs_drtake
+    jc .out
+    mov bx, cs_drport
+    call os88ui_drup
+    call cs_drtake
+    jc .out
+    call os88ui_fire                ; the button: pressed and released on it
+    or ax, ax                       ; is the whole gesture (SPEC.md 13.7)
+    jz .out
+    mov byte [cs_flydn], 0
+    call cs_flydraw                 ; up again, whatever the release was
+    mov bx, cs_flyrect
+    call os88ui_bhit
+    jc .out                         ; released elsewhere: a cancel
+    call cs_cmd_fly
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; cs_ondrag - W_ONDRAG.  in: CX/DX = the point; gfx lock held
+cs_ondrag:
+    push bx
+    mov bx, cs_drplane
+    call os88ui_drdrag
+    mov bx, cs_drport
+    call os88ui_drdrag
+    pop bx
+    ret
+
+; cs_drtake - what a drop-down answered: a pick lands in the record it
+;             names, a fresh flight is owed, a repaint if the control says so
+; in:  BX = the record, AX/CF = os88ui_drpress's or os88ui_drup's answers
+; out: CF = 1 the press was spent on this control. Preserves everything else
+cs_drtake:
+    pushf
+    cmp al, 0FFh
+    je .nopick
+    push ax
+    push si
+    xor ah, ah
+    shl ax, 1
+    mov si, ax
+    cmp bx, cs_drplane
+    jne .port
+    mov si, [cs_planes + si]
+    mov [cs_plane], si
+    jmp short .picked
+.port:
+    mov si, [cs_ports + si]
+    mov [cs_airport], si
+.picked:
+    mov byte [cs_inited], 0         ; the next flight starts on the pick's
+    pop si                          ; runway, in the pick's aeroplane
+    pop ax
+.nopick:
+    popf
+    jnc .norep
+    call cs_repaint
+.norep:
+    or ah, ah
+    jz .free
+    stc
+    ret
+.free:
+    clc
+    ret
+
+; cs_drcloseall - Esc, a menu, a key: any open list comes down
+cs_drcloseall:
+    push bx
+    mov bx, cs_drplane
+    call os88ui_drclose
+    jc .rep
+    mov bx, cs_drport
+    call os88ui_drclose
+    jnc .out
+.rep:
+    call cs_repaint
+.out:
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_onkey - W_ONKEY.  in: AL = ascii, SI = window; gfx lock held
 ; -----------------------------------------------------------------------------
 cs_onkey:
     push ax
+    push bx
     call cs_abdismiss               ; any key takes the credits down, and is
     jc .out                         ; spent doing it
+    cmp byte [cs_page], 0
+    je .page0
+    mov byte [cs_page], 0           ; ...and the instructions
+    call cs_repaint
+    jmp short .out
+.page0:
+    cmp al, 27
+    jne .notesc
+    call cs_drcloseall              ; Esc: an open list down
+    jmp short .out
+.notesc:
     cmp al, 'f'
     je .go
     cmp al, 'F'
     je .go
-    cmp al, 0x0D
+    cmp al, 0x0D                    ; Enter: the default button
     jne .out
 .go:
-    call cs_cmd_fly
-.out:
-    pop ax
-    ret
-
-cs_onclick:
-    call cs_abdismiss
-    jc .out
-    call cs_cmd_fly
-.out:
-    ret
-
-; cs_oncmd - the menu handler.  in: AL = item index within the menu
-cs_oncmd:
-    push ax
-    push bx
-    call cs_abdismiss
-    cmp al, 0
-    jne .out
+    call cs_drcloseall
     call cs_cmd_fly
 .out:
     pop bx
     pop ax
     ret
 
+; cs_oncmd - the menu handler.  in: AL = item index, AH = menu index
+cs_oncmd:
+    push ax
+    push bx
+    call cs_abdismiss
+    call cs_drcloseall
+    or ah, ah
+    jnz .mode
+    or al, al
+    jz .fly
+    mov byte [cs_page], 1           ; Flight -> Instructions
+    call cs_repaint
+    jmp short .out
+.fly:
+    call cs_cmd_fly
+    jmp short .out
+.mode:                              ; Mode -> Mode X (0) or CGA (1): the
+    mov [cs_modepref], al           ; raster, the marks, the Fly caption...
+    call cs_adapter
+    call cs_repaint                 ; ...and the button's greying
+.out:
+    pop bx
+    pop ax
+    ret
+
 ; =============================================================================
-; Menus, strings, the About card
+; Menus, strings, the tables the drop-downs read, the About card
 ; =============================================================================
     OS88_MENUSET cs_menus, cs_m_name, cs_oncmd
-        OS88_MENU cs_m_flight, cs_mi_flight, 1
+        OS88_MENU cs_m_flight, cs_mi_flight, 2
     OS88_MENUSET_END cs_menus
+    OS88_MENUSET cs_menus2, cs_m_name, cs_oncmd   ; ...with the Mode menu
+        OS88_MENU cs_m_flight, cs_mi_flight, 2
+        OS88_MENU cs_m_mode, cs_mi_mode, 2
+    OS88_MENUSET_END cs_menus2
 
 cs_m_name:   db 'Clear Skies', 0
 cs_m_flight: db 'Flight', 0
-cs_mi_flight: dw cs_s_fly            ; rewritten by cs_adapter when no mode
-cs_s_fly:    db 'Fly', 0            ; can be had
+cs_m_mode:   db 'Mode', 0
+cs_mi_flight: dw cs_s_fly, cs_s_instr ; the first rewritten by cs_adapter
+cs_mi_mode:  dw cs_s_modexs, cs_s_cga ; ...and both of these, with the mark
+cs_s_fly:    db 'Fly', 0            ; when no mode can be had
 cs_s_flyn:   db 'Fly (no mode)', 0
+cs_s_instr:  db 'Instructions', 0
+cs_s_modex:  db '  Mode X, 256 col', 0     ; <= MENU_MAXCH (18) each
+cs_s_modexs: db '* Mode X, 256 col', 0
+cs_s_cga:    db '  CGA, 4 col, fast', 0
+cs_s_cgas:   db '* CGA, 4 col, fast', 0
 
 cs_ttl:      db 'Clear Skies', 0
-cs_s_title:  db 'CLEAR SKIES', 0
-cs_s_sub:    db 'A FLIGHT SIMULATOR', 0
-cs_s_plane:  db 'AEROPLANE', 0
-cs_s_airport: db 'AIRPORT', 0
-cs_s_k1:     db 'ARROWS PITCH AND ROLL, W/S THROTTLE', 0
-cs_s_k2:     db 'A/D RUDDER, B BRAKES, P PAUSE, R RESET', 0
-cs_s_k3:     db 'M MUTES THE ENGINE, ESC OR F LEAVES', 0
-cs_s_press:  db 'PRESS F TO FLY', 0
-cs_s_nomode: db 'NO FULLSCREEN MODE ON THIS DISPLAY', 0
+cs_s_title:  db 'CLEAR SKIES', 0    ; the title where the blit is refused
+cs_s_plane:  db 'Plane', 0
+cs_s_airport: db 'Location', 0
+cs_s_flybtn: db 'Fly', 0
+
+; the drop-downs (os88ui.inc, OS88UI_DROP): the rect follows the window, the
+; pick is an index into the tables below - the names the list shows and the
+; records the flight reads, kept in step by position
+cs_drplane:  dw 0, 0, 0, 0, cs_plnames, CS_NPLANES, 0, 0
+             db 0, 0FFh
+cs_drport:   dw 0, 0, 0, 0, cs_apnames, CS_NPORTS, 0, 0
+             db 0, 0FFh
+cs_flyrect:  dw 0, 0, 0, 0
+cs_planes:   dw cs_p_c172
+cs_plnames:  dw cs_s_c172
+CS_NPLANES   equ ($ - cs_plnames) / 2
+cs_ports:    dw cs_a_issy, cs_a_lbg
+cs_apnames:  dw cs_s_issy, cs_s_lbg
+CS_NPORTS    equ ($ - cs_apnames) / 2
+
+cs_i_lines:  dw cs_i1, cs_i2, cs_i3, cs_i4, cs_i5, cs_i6, cs_i7, cs_i8
+             dw cs_i9, cs_i10, cs_i2, cs_i11, cs_i12, 0
+cs_i1:       db 'INSTRUCTIONS', 0     ; every line under 38 cells: the
+cs_i2:       db 0                     ; content is 310 wide (88.10)
+cs_i3:       db 'Arrows    pitch and roll', 0
+cs_i4:       db 'W and S   throttle up and down', 0
+cs_i5:       db 'A and D   rudder', 0
+cs_i6:       db 'B         brakes', 0
+cs_i7:       db 'P         pause', 0
+cs_i8:       db 'R         back to the runway', 0
+cs_i9:       db 'M         engine sound on and off', 0
+cs_i10:      db 'Esc or F  back to this window', 0
+cs_i11:      db 'Full throttle; pull back at 55 knots.', 0
+cs_i12:      db 'Click, or press a key, to return.', 0
 
 ; -----------------------------------------------------------------------------
 ; cs_about - the OSAPI_ABOUT_SET handler (slot 0x01E0)
@@ -662,14 +1015,8 @@ cs_about:
 cs_abdismiss:
     cmp byte [cs_abon], 0
     je .none
-    push bx
     mov byte [cs_abon], 0
-    mov bx, [cs_win]
-    call OSAPI_WM_CLIP_SET
-    jc .gone
-    call cs_paint
-.gone:
-    pop bx
+    call cs_repaint
     stc
     ret
 .none:
@@ -692,6 +1039,7 @@ cs_tpl:
 %include "csflight.inc"
 %include "csgame.inc"
 %include "cspanel.inc"
+%include "csart.inc"
 
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes CS_BSS bytes after the image, and
@@ -727,9 +1075,11 @@ cs_tpl:
     ZBYTE cs_want
     ZBYTE cs_fsxm
     ZBYTE cs_vidk
-    ZBYTE cs_cdim                   ; the attract panel's dim and subtitle
-    ZBYTE cs_csub                   ; inks, per adapter
     ZBYTE cs_abon
+    ZBYTE cs_page                   ; the launcher's page: 0 the title, 1 the
+                                    ; instructions (88.10)
+    ZBYTE cs_modepref               ; the Mode menu's pick: 0 Mode X, 1 CGA
+    ZBYTE cs_flydn                  ; the Fly button is pressed
     ZWORD cs_plane                  ; the rows in use (SPEC.md 88.6)
     ZWORD cs_airport
 
@@ -1039,9 +1389,9 @@ cs_tpl:
     ZBYTE cs_pfirst                 ; bit n: page n has never had its ground
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
-%define OS88UI_ABOUT
-%define OS88UI_NOBTN
-%include "os88ui.inc"
+%define OS88UI_ABOUT            ; the standard About card, the standard
+%define OS88UI_DROP             ; button, and the drop-down (SPEC.md 13.14),
+%include "os88ui.inc"           ; of which this is the first user
 
     OS88_BSS CS_BSS
     OS88_IMAGE_END

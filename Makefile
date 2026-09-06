@@ -4453,6 +4453,7 @@ $(BUILD)/skies.bin: apps/skies/skies.asm apps/skies/csraster.inc \
                     apps/skies/cs3d.inc apps/skies/csworld.inc \
                     apps/skies/csflight.inc apps/skies/csgame.inc \
                     apps/skies/cspanel.inc apps/skies/cssin.inc \
+                    apps/skies/csart.inc \
                     apps/os88api.inc apps/os88ui.inc \
                     | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -o $@ apps/skies/skies.asm

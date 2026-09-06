@@ -21206,6 +21206,66 @@ therefore in `kern_small` too, unlike §13.8.2 and §13.9 — those are
 `kern_big`'s because they *grew the record*, which is the thing this
 deliberately does not do.
 
+### 13.14 The DROP-DOWN — the third shared element (`OS88UI_DROP`)
+
+One pick out of a short list: a closed box showing the pick, with a rule and
+a triangle in a cell at its right end; pressed, it DROPS a list of every
+item under the box, over whatever the window had there; a press on an item
+picks it and the list goes, a press anywhere else only takes the list down;
+press, drag onto an item and release picks as well — the Macintosh popup's
+gesture — and the highlight follows the pointer meanwhile. It is the third
+element in `apps/os88ui.inc` (§13.10's argument: one body every package
+agrees with), and the first that is an OPT-IN from the start: `%define
+OS88UI_DROP` before the include, and a package that never draws one carries
+none of its ~470 bytes. No kernel dialog wants a list, so there is no kernel
+copy either — it lives in the include's `%ifndef OS88UI_KERNEL` half beside
+the alert and the About card.
+
+**The record is the package's**, eighteen bytes (`OS88UI_DR_*`): the closed
+box's rect in screen coordinates, written by the painter each time from
+`OSAPI_WM_CONTENT` since a window moves; the item strings, an app menu's
+`AMENU_ITEMS` shape; the count, at most `OS88UI_DRMAX` = 12; the pick; the
+package's window, off which the control arms its own clip, since a
+`W_ONCLICK` arms none (§11.3); and two bytes of its own, dropped and the
+item under the pointer. Two records coexist, and CLEAR SKIES has two
+(§88.10).
+
+**Five calls.** `os88ui_drop` draws the control as it stands, box and list,
+so a repaint of any cause puts it back exactly — the list is not an overlay
+a painter can forget, for the reason `OS88UI_DOWN` is drawn and not XOR-ed
+(§13.8). `os88ui_drpress` takes `W_ONCLICK`'s point and answers three
+things: whether the press was SPENT here — an open list takes any press,
+wherever it lands, so the package hands it to nothing else — the new pick
+or none, and whether the content wants REPAINTING, because a list that came
+down covered something and the package's own painter is what brings it
+back; a press that opens the list draws it itself under the clip and asks
+for nothing. `os88ui_drdrag` (`W_ONDRAG`) moves the highlight, drawn
+inverted like a menu's cell and un-drawn the same way. `os88ui_drup`
+(`W_ONMOUSEUP`) picks on a release over an item and leaves the list up on a
+release anywhere else, which is what lets click-then-click work beside
+press-drag-release. `os88ui_drclose` is for Esc and the menus.
+
+**The look is the kernel's own pull-down**: white ground, black frame, 12 px
+cells lettered two rows in, the current item inverted, and the cell filled
+then run over exactly as `menu_drop` does its items (§12.2.1). A greyed
+control takes the dithered pen through `OS88UI_DIS` on the painter and is
+the package's to refuse a press on, as with the button: the record carries
+no disabled bit because the painter's flag is where that state is decided.
+
+**What the first user found is a rule of the kernel's and not of the
+control's.** `ui_task` arms the release to the SI it finds AFTER `W_ONCLICK`
+returns (`.content_front`: `call ui_bill`, then `mov [ui_armw], si`), so a
+click handler must hand SI back as it got it. CLEAR SKIES' came back with SI
+pointing at the airport record its pick had just chosen; the release was
+delivered to that "window", `wm_pkgcall` far-called through its `W_DISP`,
+and the machine went to an unmapped segment — three seconds after a launcher
+that looked entirely well, with every register the handler's own routines
+had preserved. The SDK says so at `W_ONCLICK` now, and `tests/skiesui.py`
+reads `[ui_armw]` between the pick's press and its release and holds it to
+the launcher's own window — the ARM rather than the wreckage, because what
+a release through a wrong record does depends on the kernel bytes it finds
+there, and a run that patched the bug back in found bytes that did nothing.
+
 ## 14. apps.inc
 
 The built-in app **kinds**: About, Timer, Bounce. Nothing is
@@ -93942,6 +94002,12 @@ added after the owner's Hercules report (§88.3.1) read 258 pixels on CGA
 that a full redraw disagreed with, at the left of every span, and that was
 the thread.
 
+The CGA column is what the package sets, not what the BIOS mode leaves:
+palette 0 at low intensity over a light-blue background, through `INT 10h
+AH=0Bh`. A VGA or an EGA runs the same mode 04h without a colour-select
+register, so a write to port 3D9h — the first build's — is nothing there,
+and the BIOS call is the one both adapters and a real CGA answer (§88.10).
+
 #### 88.4.5 A polygon of one row or two is its box
 
 After the bounding-box pass, a polygon whose rows are one or two skips the
@@ -94214,6 +94280,15 @@ way at, a name for the crash line, flags, and the cull's skip tick
 level's height a box the aeroplane may not enter — flying into the Eiffel
 Tower is a crash that says so; `CSO_SEEN` is the cull's (§88.5.1).
 
+**Two airports**, a record each (`CSA_*`): Paris-Issy, 3.5 km south-west of
+the tower on the river bend, runway 04, 1,000 m; and Le Bourget, 7 km
+north-east and outside the ring road's square, runway 07, 1,400 m. The
+launcher's Location list (§88.10) is that table, and the runway is built
+from whichever row is in use at bracket entry (§88.6.2). One aeroplane
+still, the Cessna 172, its row being every constant the flight model reads
+(§88.7) and its cockpit's (§88.9.2); the Plane list is one item long until a
+second row is written, and a second row is all it takes.
+
 #### 88.6.1 The river is six pieces, each with a far model
 
 The Seine was three generated strips of ten vertices, and a strip whose
@@ -94372,16 +94447,48 @@ on the two angles' top bytes and read on the readings' rate gate
 three times a second at most. It may not survive — it is there to be
 looked at.
 
-### 88.10 The attract window
+### 88.10 The title page
 
-The windowed half is a still panel — the name, the aeroplane and the airport
-in use, the keys, and `PRESS F TO FLY` — drawn with `OSAPI_FONT_RUN`; a
-menu, `Flight → Fly`; and `About Clear Skies` through `OSAPI_ABOUT_SET` and
-`os88ui.inc`'s card (§20.5.1). `cs_adapter` asks `OSAPI_FSX_CAPS` about the
-window's own display and greys the menu item with the reason when no mode can
-be had (§47), re-asking on `OSAPI_WM_ONRESIZE` so a window dragged to the
-other card of a two-card machine answers about where it is. No worker, no
-animation: what a pilot needs before and after a flight is the controls.
+The windowed half is a configuration page, white, and every pixel of it the
+package's (`OSAPI_WM_OWNBG`): **the title lettered across the top and a
+Cessna 172 in front of a cumulus on the right, both 1bpp bands drawn as
+vectors in `tools/csart.py`** — the lettering as brush strokes, a black
+stroke and a narrower white one over it, which is what makes an outlined
+italic letter with a white centre; the aeroplane as filled polygons that
+hide the cloud behind them and the lines that make it an aeroplane — and
+rasterised once into `apps/skies/csart.inc`, which is checked in and held to
+the tool by `tests/unit/t_csart.py` on the fast tier. Each goes up with one
+`OSAPI_GFX_BLIT1` (§5.4.2) where the drawing would be four hundred line calls
+at §5.6's price; a band stores paper as the SET bit, so it is right on a
+1bpp adapter untranslated and right on VGA under the blit's default pen, and
+the title is lettered in the 8x8 face where the blit is refused. On the
+left, **Plane** and **Location** are two of §13.14's drop-downs — the first
+two anywhere — over the plane and airport tables by index, and **Fly** is
+the standard button with the default ring (§13.8's press and release),
+greyed with no mode to fly in (§47); Enter and F fly too. A pick sets the
+row in use and clears `cs_inited`, so the next flight starts on the new
+runway in the new aeroplane rather than carrying on where the last left
+off. The window is 312 by 156 with its frame, which is what fits between
+CGA's bar and dock.
+
+**Flight → Instructions** turns the page: the same window lettered with the
+keys, and any click or key turns it back. **Mode** is a second menu that
+exists only where there is a choice — Mode X and CGA320 both on offer,
+which is a VGA — and its pick is marked with `* ` in the text (§45.17.1's
+idiom, a `MENU_DIS` twin having read as disabled in the field). It is there
+because a VGA in an XT runs Mode X at 4 fps and CGA320 at 5.6 (§88.12), and
+the machine cannot know which its owner would rather have; on the 286 or
+386 the mode is meant for, the choice costs nothing. The CGA palette is set
+through **`INT 10h AH=0Bh`** and not port 3D9h, because a VGA or an EGA
+running mode 04h has no colour-select register and the first build's `out`
+left it on the BIOS default — cyan, magenta and white over black — for
+exactly the player who had picked CGA for the frame rate. `cs_adapter` asks
+`OSAPI_FSX_CAPS` about the window's own display, re-asks on
+`OSAPI_WM_ONRESIZE` so a window dragged to the other card of a two-card
+machine answers about where it is, and installs the menu set that matches
+(`OSAPI_MENU_SET` again: the kernel keeps a copy, §12.2). `About Clear
+Skies` is `os88ui.inc`'s card (§20.5.1). No worker, no animation: what a
+pilot needs before and after a flight is the controls.
 
 **It does not ship on the small disks** (§24.5): the requirement it cannot
 meet on `kern_small` is the fullscreen surface, which is Tank's row of that
@@ -94411,6 +94518,17 @@ table exactly.
   every time, because on two pages a loop that runs and a frame that is
   drawn prove nothing until the flip shows it, and the owner once saw
   exactly that freeze on the first frame of a build nobody can name now.
+- `tests/skiesui.py` (soak, MartyPC's VGA machine): the title page (§88.10)
+  and the drop-down it is the first user of (§13.14) — each list drops on a
+  press in its box and comes down on a press elsewhere, the second location
+  is picked and becomes the airport in use with a fresh flight owed, Esc
+  closes an open list, Flight → Instructions turns the page and a click
+  turns it back, the Mode menu's CGA pick flies in CGA320 with the frame
+  counter climbing, and the bar still drops after all of it. Between the
+  pick's press and its release it reads the kernel's `[ui_armw]` and holds
+  it to the launcher's window — the check that catches a click handler
+  coming back with SI clobbered, which the first build did (§13.14), and
+  `--clobber-si` puts that bug back and must go red on it.
 - `tests/skiesperf.py`: an INSTRUMENT, `tankperf.py`'s shape — a breakpoint on
   `cs_render`, twelve consecutive frames, cycle-exact, on a scene pinned by
   poke — and where the frame rate in §88.12 comes from. Two things it does
