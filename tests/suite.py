@@ -2151,6 +2151,25 @@ SOAK = [
         "against a screen no early-out touched.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdenter", "soak", py("tests/wdenter.py"), 450.0,
+        "SPEC.md 27.4.5: an Enter pushes the note below the split down with "
+        "one gfx_scroll instead of erasing to the content bottom and "
+        "lettering every row in it (448.2 -> 133.3 ms). Leg A is the one that "
+        "fails on a build with the feature off - a BREAKPOINT on "
+        "wd_nlpush.d1, past the scroll - and leg F is the A/B inside one "
+        "boot: wd_nlband is the whole arming, so stc/ret over it in the guest "
+        "turns the push off and the same keystroke must draw the same screen "
+        "the slow way. The pixel reference throughout is a page down and "
+        "back, which a formatted document always full-repaints (68.6), and "
+        "THE BAND INCLUDES THE SLIVER below the last whole row: the first "
+        "build scrolled to [wd_bot] and left four scanlines of the last "
+        "row's glyphs standing, which still reads as text. Leg E is the "
+        "corruption case rather than a speed one - an Enter on the last "
+        "visible row makes the caret-follow scroll, and the push has repaired "
+        "the tables for a layout the glass has not been given, so wd_redraw "
+        "must refuse the blit and repaint.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("wdscroll", "soak", py("tests/wdscroll.py"), 300.0,
         "SPEC.md 68.2.2: Word's scroll bar is not part of the text band. Leg A "
         "samples the bar's ARROW CELL through a down-arrow click and requires "
