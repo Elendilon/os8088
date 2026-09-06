@@ -29,10 +29,11 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import os88geom                                               # noqa: E402
 import os88sym                                              # noqa: E402
 
 MEM_MAX = 32
-MC_SIZE = 10
+MC_SIZE = os88geom.MC_SIZE
 MC_SEG, MC_PARA, MC_OWN, MC_DMA, MC_RLOC = 0, 2, 4, 6, 8
 INST_MAX = 12
 

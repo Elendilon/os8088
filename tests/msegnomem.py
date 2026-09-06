@@ -62,6 +62,7 @@ import os88build
 import os88marty
 import os88mouse
 import os88sym
+import os88geom                                              # noqa: E402
 import dispcp
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -70,7 +71,8 @@ DEFINES = ["DISK_COUNTERS"]
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_herc_gla_144"
 SYS_IMG = sys.argv[2] if len(sys.argv) > 2 else "build/os8088-360.img"
 APPS_IMG = "build/mseg.img"
-MEM_MAX, MC_SIZE, MC_SEG, MC_OWN = 32, 10, 0, 4
+MEM_MAX, MC_SIZE, MC_SEG, MC_OWN = (os88geom.MEM_MAX, os88geom.MC_SIZE,
+                                    os88geom.MC_SEG, os88geom.MC_OWN)
 LD_OK, LD_EABORT = 0, 4
 fails = []
 

@@ -51,7 +51,7 @@ import os88sym                                              # noqa: E402
 
 MACHINE = "os8088_xt_hdd"
 PKG_HEAPFRAG = "HEAPFRAG.O88"
-MC_SIZE, MEM_MAX = 10, 32
+MC_SIZE, MEM_MAX = os88geom.MC_SIZE, os88geom.MEM_MAX
 DRVR_SZ, DRVR_SEG = 16, 2
 HDD_ROW = 1                             # drv_tab row 1 is the hard disk
 CP_I0Y, CP_IROWH, CP_RX = 6, 14, 96

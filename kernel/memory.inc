@@ -96,7 +96,15 @@ MC_RLOC  equ 8                  ; word: the RELOCATION HANDLE (SPEC.md 66).
                                 ; reader looks at) and Tracker normalises 32
                                 ; sample segments off its module base, none of
                                 ; which a poke at [trk_modseg] reaches
-MC_SIZE  equ 10
+MC_HI    equ 10                 ; byte: 1 = this claim came in through a
+                                ; TOP-DOWN door (SPEC.md 50.3.2) and goes back
+                                ; through it. The compactor's two passes each
+                                ; own one direction, and a claim dragged the
+                                ; wrong way moves the free run from BELOW the
+                                ; whole ceiling stack to BETWEEN the movers and
+                                ; the stayers - two runs where there was one
+                                ; (docs/plans/HEAP-UNPIN-PLAN.md 5)
+MC_SIZE  equ 11
 
 MEM_K_SAVE equ 0xFF01           ; kernel tags (SPEC.md 50.2): menu save-under
 MEM_K_DRV  equ 0xFF03           ; a loaded driver's image (SPEC.md 51.3)
@@ -747,7 +755,11 @@ mem_claim_1:
     push ax
     mov ax, [mem_dma]           ; ...and the page constraint it was granted
     mov [ss:di+MC_DMA], ax         ; under, so a later move can honour it
-    pop ax
+    mov ax, [mem_dir]           ; ...and WHICH DOOR it came in through, which
+    mov [ss:di+MC_HI], al          ; is the direction it has to go back through
+    pop ax                      ; (SPEC.md 50.3.2). [mem_dir] is 0 or 1 and
+                                ; nothing else - the two entries stage it as an
+                                ; immediate - so the low byte IS the flag
     popf
     clc
     jmp short .out
@@ -1261,6 +1273,64 @@ mem_can_move:
     ret
 
 ; -----------------------------------------------------------------------------
+; mem_cp_mine - is the claim at SI THIS PASS's business? (module internal)
+; in:  SI = record
+; out: CF = 0 this pass may move it, CF = 1 leave it alone
+; clobbers: nothing else (flags)
+;
+; A claim goes back through the door it came in by. The ascending pass packs
+; the data arena DOWN and must not drag a top-down claim with it: doing so
+; moves the free run from BELOW the whole ceiling stack to BETWEEN the movers
+; and the stayers, which is two runs where there was one and strictly worse
+; than leaving it (SPEC.md 66.4). The descending pass is the mirror.
+; -----------------------------------------------------------------------------
+mem_cp_mine:
+    call mem_is_hi              ; CF = 1: it belongs at the top
+    jc .hi
+    cmp byte [mem_cp_up], 0     ; a bottom-up claim is the ascending pass's
+    je .yes
+    stc
+    ret
+.hi:
+    cmp byte [mem_cp_up], 0     ; ...and a top-down one the descending pass's
+    jne .yes
+    stc
+    ret
+.yes:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; mem_is_hi - was the claim at SI taken through a TOP-DOWN door? (internal)
+; in:  SI = record
+; out: CF = 1 top-down, CF = 0 bottom-up
+; clobbers: nothing else (flags)
+;
+; STORED, and the alternative was measured before it was rejected. Deriving it
+; from the tag and the owner costs no memory and **47 bytes** assembled, and it
+; is exact for only four of the seven top-down call sites: a driver image and a
+; module image are their tags, a region is mem_is_region, and the Sound
+; Blaster's ring is the one driver-owned claim carrying MC_DMA - but ETHER's
+; socket pool and the second images RAMPAGE.DRV and HDDTOOL.DRV hold have the
+; same signature as bottom-up claims the same drivers make (sound's staging
+; pool, the RAM disk's store, the HDD's install buffer), and nothing in the
+; record separates them.
+;
+; One byte per record answers all seven in **ten**. It costs MEM_MAX bytes of
+; .lowbss - 32 on kern_big, 20 on kern_small - and buys back 37 of them in
+; .cold, so the true price is about five bytes and an exact answer instead of a
+; four-sevenths one (docs/plans/HEAP-UNPIN-PLAN.md 5.2).
+; -----------------------------------------------------------------------------
+mem_is_hi:
+    cmp byte [ss:si+MC_HI], 0
+    je .lo
+    stc
+    ret
+.lo:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; mem_is_region - is the claim at SI a package's REGION? (module internal)
 ; in:  SI = record, BX = its owner (an instance slot, already tested)
 ; out: CF = 1 it is a region (so: pinned), CF = 0 it is a data claim
@@ -1577,6 +1647,8 @@ mem_cp_plan:
     mov [mem_cp_key], ax
     call mem_can_move
     jc .pinned
+    call mem_cp_mine            ; ...and is it THIS pass's to move (66.4)
+    jc .pinned
     cmp [ss:si+MC_SEG], bx
     je .stay                    ; already packed: it would not move
     inc dx
@@ -1647,6 +1719,8 @@ mem_cp_run:
     inc ax                      ; here because the move is about to overwrite it
     mov [mem_cp_key], ax
     call mem_can_move
+    jc .pinned
+    call mem_cp_mine            ; the plan's step, for real
     jc .pinned
     mov di, [ss:si+MC_SEG]
     cmp di, bx
@@ -2976,6 +3050,16 @@ mem_cp_busy: resb 1             ; the compactor is running (SPEC.md 66.4): a
                                 ; rule 3 forbids - would otherwise re-enter
                                 ; the walk that is driving it and move the map
                                 ; under itself. Bounded rather than trusted
+mem_cp_up:   resb 1             ; THE COMPACTION PASS'S DIRECTION (SPEC.md 66.4):
+                                ; 0 = the original ascending pass, packing the
+                                ; data arena DOWN against [mem_base]; 1 = the
+                                ; descending pass, packing the CS-based claims
+                                ; UP against [mem_top]. One byte rather than a
+                                ; second copy of the walk, because the two
+                                ; differ in four decisions and nothing else -
+                                ; and a claim that came in through the
+                                ; top-down door has to go back through it or
+                                ; the pass that "helps" splits the ceiling
 mem_wpin:    resb 1             ; the last plan pinned something ONLY because a
                                 ; worker might be running in it, so a park is
                                 ; worth asking for (SPEC.md 66.5)

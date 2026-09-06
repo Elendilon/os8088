@@ -48,7 +48,7 @@ sys.path.insert(0, "/home/user/os8088/tests")
 import os88fixture                                       # noqa: E402
 import os88marty, os88mouse, os88sym, os88geom, dispcp
 
-MC_SIZE, MEM_MAX = 10, 32
+MC_SIZE, MEM_MAX = os88geom.MC_SIZE, os88geom.MEM_MAX
 
 # WHAT TO DOUBLE-CLICK, BY NAME. It was a row INDEX per app and a comment
 # saying the listing is sorted (SPEC.md 19.4) - which is true and is exactly

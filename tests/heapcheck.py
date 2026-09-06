@@ -32,7 +32,7 @@ import os88marty, os88mouse, os88sym, os88geom, dispcp
 from os88fixture import need
 
 KERNEL_SEG = 0x0060
-MC_SIZE = 10
+MC_SIZE = os88geom.MC_SIZE
 MEM_MAX = 32
 # every window-record offset comes from os88geom, which checks itself
 # against wm.inc at import - WIN_SIZE has moved 18 -> 28 over this tree
