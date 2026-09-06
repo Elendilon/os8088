@@ -742,6 +742,9 @@ at_scan:
     mov si, [at_scpos]
     mov [at_sclst], si              ; this line's start (for at_respan)
     call at_emit
+%ifndef NOATPLAIN
+    mov byte [at_scplain], 1        ; SPEC.md 46.4.8: nothing seen yet
+%endif
     mov byte [at_sccont], 4         ; any further line of this lline wraps
     mov di, [at_tw]                 ; DI = room left, px
     mov bp, 0FFFFh                  ; BP = last space position (none)
@@ -753,6 +756,13 @@ at_scan:
     call at_getb
     cmp al, AT_NL
     je .endline
+%ifndef NOATPLAIN
+    AT_SPECIAL .notplain            ; the one list, shared with at_parse
+    jmp short .plainok
+.notplain:
+    mov byte [at_scplain], 0
+.plainok:
+%endif
     call at_span
     cmp di, [at_sccw]
     jb .wrap
@@ -760,6 +770,12 @@ at_scan:
     cmp al, ' '
     jne .nsp
     mov bp, si
+%ifndef NOATPLAIN
+    push ax                         ; BANK THE FLAG AT THE SPACE. The walk runs
+    mov al, [at_scplain]            ; PAST the break before .wrap rewinds to
+    mov [at_scplsp], al             ; it, so a delimiter beyond the break
+    pop ax                          ; belongs to the NEXT line, not this one
+%endif
 .nsp:
     inc si
     jmp short .ch
@@ -768,11 +784,23 @@ at_scan:
     je .hard
     mov si, bp
     inc si                          ; break after the last space
+%ifndef NOATPLAIN
+    push ax                         ; ...and with it the flag as it stood there
+    mov al, [at_scplsp]
+    mov [at_scplain], al
+    pop ax
+%endif
 .hard:
+%ifndef NOATPLAIN
+    call at_mkplain
+%endif
     mov [at_scpos], si
     call at_respan                  ; the walk ran past the break: re-derive
     jmp short .vline                ; the nibble for the next line's start
 .endline:
+%ifndef NOATPLAIN
+    call at_mkplain
+%endif
     inc si                          ; step over the newline
     mov [at_scpos], si
 %ifndef NOATWALK
@@ -781,6 +809,9 @@ at_scan:
 %endif                              ; as the next paragraph's start
     jmp .lline
 .enddoc:
+%ifndef NOATPLAIN
+    call at_mkplain
+%endif
     mov [at_scpos], si
 .done:
     pop cx
@@ -926,6 +957,47 @@ at_peek:
 ;      relayout treats a full window as its fallback cue, and at_inslim
 ;      refuses input long before the main table can fill)
 ; -----------------------------------------------------------------------------
+%ifndef NOATPLAIN
+; -----------------------------------------------------------------------------
+; at_mkplain - mark the entry at_emit LAST wrote as plain (SPEC.md 46.4.8)
+; in:  [at_scplain] = 1 if no styling character was seen on that visual line
+; out: bit 3 of its attr set when it is plain; preserves every register
+;
+; at_emit writes the entry at the line's START, before its characters are
+; known, so the flag can only be applied here - at [at_lput]-1, in whichever
+; table at_stgmode selected. The heading level and the entry span nibble are
+; already IN that attr, so this tests them there rather than tracking them
+; twice: plain means bits 0-1 (level) and 4-7 (nibble) all clear. Bit 2 is the
+; continuation flag and a wrapped line is plain like any other.
+; -----------------------------------------------------------------------------
+at_mkplain:
+    cmp byte [at_scplain], 0
+    je .out
+    push ax
+    push bx
+    mov bx, [at_lput]
+    or bx, bx
+    jz .pop
+    dec bx
+    cmp byte [at_stgmode], 0
+    jne .stg
+    mov al, [bx+at_lattr]
+    test al, 0F3h
+    jnz .pop
+    or byte [bx+at_lattr], 8
+    jmp short .pop
+.stg:
+    mov al, [bx+at_stga]
+    test al, 0F3h
+    jnz .pop
+    or byte [bx+at_stga], 8
+.pop:
+    pop bx
+    pop ax
+.out:
+    ret
+%endif
+
 at_emit:
     push ax
     push bx

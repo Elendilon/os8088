@@ -60310,6 +60310,44 @@ that is a fraction of what it saves and has nothing to invalidate.
 
 `NOATPLAIN=1` is the A/B.
 
+#### 46.4.8 …and the LAYOUT proves it, because it is already reading the bytes
+
+§46.4.7 proved a line plain in `at_parse`, where the line's own bytes are to
+hand. That is the right place when the answer is only wanted once — but it is
+wanted three times a keystroke, and `at_caret_on` wants it without needing the
+bytes at all: it calls a whole `at_parse` purely to read `at_xmap[i]`, which on
+a plain line is `i * pcw`.
+
+So the proof moves to `at_scan`, which is **already walking every byte** to
+measure the wrap, and rides in `at_lattr`'s unused bit 3. `at_parse` then tests
+one bit instead of scanning, and `at_caret_on` skips the parse — and the slice
+under it — entirely.
+
+**The two predicates cannot drift, because there is only one.** `AT_SPECIAL`
+lists the four characters once; `at_scan` clears the line's flag through it and
+`at_parse`'s FSM is what it describes. A fifth delimiter is one edit.
+
+**`at_emit` writes an entry before its characters are known**, so the flag is
+applied afterwards, by `at_mkplain`, to `[at_lput]-1` in whichever table
+`[at_stgmode]` selected. The heading level and the entry span nibble are
+already in that attr, so it tests them there rather than tracking them twice:
+plain is bits 0-1 and 4-7 all clear. Bit 2 is the continuation flag and a
+wrapped line is plain like any other.
+
+**The wrap rewind is a performance refinement and NOT a correctness one**, and
+that is worth stating because it looks like the opposite. `at_scan` walks past
+the break before rewinding to the last space, so a delimiter beyond the break
+belongs to the *next* line; the flag is therefore banked at every space and
+restored on the rewind. Without that the flag would simply be clear more often
+— a line called styled that could have been raw, which draws the same picture
+more slowly. **The flag can never wrongly say plain**, because every character
+of the line was scanned before the decision.
+
+Together with §46.4.7 this is **1.22x on a keystroke in plain body text**
+(140.5 → 115.6 ms, Hercules, three visual lines), of which the flag is the last
+3.7 ms; `at_caret_on`'s own share is 2.3 ms. `NOATCX=1` is the A/B for the
+caret half, `NOATPLAIN=1` for the mechanism as a whole.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what

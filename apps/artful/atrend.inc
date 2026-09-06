@@ -110,60 +110,6 @@ at_geom_init:
 ; has to do that in the FSM above rather than in at_reveal: a click cannot land
 ; inside a hidden run, so nothing would ever put the caret at the end of one.
 ; -----------------------------------------------------------------------------
-%ifndef NOATPLAIN
-; -----------------------------------------------------------------------------
-; at_plain - can the styled FSM produce anything .rloop would not? (46.4.7)
-; in:  BX = line index; at_lbuf and [at_pcnt] valid (at_slice has run)
-; out: CF = 0 -> PROVABLY plain, so .rloop's arrays are byte-identical to
-;      .sloop's; CF = 1 -> styled. Preserves every register.
-;
-; The three conditions are the whole of what .sloop can do that .rloop cannot:
-; a heading level gives it a prefix to hide and a base style; a non-zero entry
-; nibble means a span is already open; and ` * ~ [ are the ONLY characters that
-; reach .code, .star, .tilde or .bracket. Anything else takes .fsm ->
-; .stylevis, fails all four span tests, and lands in .place storing exactly
-; what .rloop stores.
-;
-; It is a LOCAL proof and not a flag in at_lattr's spare bit: a flag would make
-; the layout and the renderer share a predicate they can disagree about
-; silently, and would have to be cleared on every path at_span can leave by.
-; -----------------------------------------------------------------------------
-at_plain:
-    push ax
-    push cx
-    push si
-    mov al, [bx+at_lattr]
-    test al, 3                      ; a heading: a prefix to hide and a base
-    jnz .no                         ; style, neither of which .rloop writes
-    test al, 0F0h                   ; a span already open at the first char
-    jnz .no
-    mov cx, [at_pcnt]
-    jcxz .yes
-    xor si, si
-.ch:
-    mov al, [si+at_lbuf]
-    cmp al, '`'
-    je .no
-    cmp al, '*'
-    je .no
-    cmp al, '~'
-    je .no
-    cmp al, '['                     ; at_span never sees this one - the link
-    je .no                          ; window is at_parse's own FSM
-    inc si
-    loop .ch
-.yes:
-    clc
-    jmp short .out
-.no:
-    stc
-.out:
-    pop si
-    pop cx
-    pop ax
-    ret
-%endif
-
 at_parse:
     push ax
     push bx
@@ -205,9 +151,10 @@ at_parse:
 %ifdef NOATPLAIN
     jmp .styled
 %else
-    call at_plain                   ; SPEC.md 46.4.7: a line the styled FSM
-    jc .styled                      ; could not style differently is parsed
-%endif                              ; raw, in Writer mode too
+    test byte [bx+at_lattr], 8      ; SPEC.md 46.4.8: at_scan already PROVED
+    jz .styled                      ; this line free of the four characters
+%endif                              ; that could style it, walking bytes it
+                                    ; was reading anyway
 .raw:
     xor si, si                      ; SI = char index
     xor dx, dx                      ; DX = x
@@ -1410,6 +1357,31 @@ at_caret_on:
     call at_line_y
     jc .out
     mov [at_ccy], ax
+%ifndef NOATCX
+    ; SPEC.md 46.4.8: on a line at_scan has PROVED plain, at_xmap[i] is i*pcw
+    ; by construction - so the caret's x is a multiply and none of at_parse is
+    ; needed. Not the slice either: the proof came off the layout's own walk,
+    ; which is what makes this worth more than proving it here would be.
+    test byte [bx+at_lattr], 8
+    jz .parse
+    call at_lgeom                   ; AX = cell width, DX = row height
+    mov [at_pcw], ax
+    mov [at_prh], dx
+    mov cl, 3
+    shr ax, cl
+    mov [at_psc], ax                ; the glyph box below wants the scale
+    push bx
+    shl bx, 1
+    mov ax, [bx+at_lstart]
+    pop bx
+    mov [at_pstart], ax
+    mov cx, [at_caret]
+    sub cx, ax                      ; AX is still at_pstart
+    mov ax, cx
+    mul word [at_pcw]               ; DX is dead here and pushed at entry
+    jmp short .havex
+.parse:
+%endif
     call at_parse
     mov ax, [at_caret]
     sub ax, [at_pstart]
@@ -1418,6 +1390,7 @@ at_caret_on:
     shl bx, 1
     mov ax, [bx+at_xmap]
     pop bx
+.havex:
     add ax, [at_tx0]
     mov [at_ccx], ax
     mov ax, [at_psc]

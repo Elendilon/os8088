@@ -113,6 +113,22 @@ AT_SROWS   equ 30                   ; strip rows (the tallest row height)
   %define AT_MERGE  and
   %define AT_RULE   0
 %endif
+; --- the four characters that can style (SPEC.md 46.4.7, 46.4.8) --------------
+; ` * ~ [ are the ONLY bytes that reach at_parse's .code, .star, .tilde or
+; .bracket. at_scan proves a line free of them and at_parse trusts that proof,
+; so the two MUST test the same set - this macro is why they cannot drift, and
+; a fifth delimiter is one edit rather than two files.
+%macro AT_SPECIAL 1                 ; AL = the character; jumps to %1 if it can
+    cmp al, '`'                     ; style
+    je %1
+    cmp al, '*'
+    je %1
+    cmp al, '~'
+    je %1
+    cmp al, '['
+    je %1
+%endmacro
+
 AT_CBGCAP  equ 80                   ; per-8px-column background flags
 AT_UMAX    equ 15                   ; undo/redo depth (MAX_UNDO_LEVELS)
 AT_CLIPBSS equ 2048                 ; clipboard fallback when no claim
@@ -1068,7 +1084,11 @@ at_sbmax    equ at_sbst + 1                  ; word: the at_maxtop it was
                                              ; drawn for
 at_sbty     equ at_sbmax + 2                 ; word: the thumb y actually
                                              ; DRAWN, never one recomputed
-at_blankok  equ at_sbty + 2                  ; byte: 1 = the kernel's face
+at_scplain  equ at_sbty + 2                  ; byte: this visual line has no
+                                             ; styling character in it yet
+at_scplsp   equ at_scplain + 1               ; byte: ...as it stood at the last
+                                             ; SPACE, for the wrap rewind
+at_blankok  equ at_scplsp + 1                ; byte: 1 = the kernel's face
                                              ; draws glyph 32 blank, so a
                                              ; space need not be composed
                                              ; (SPEC.md 46.4.6)

@@ -464,9 +464,33 @@ call counts: `at_glyph` 187, `at_getb` 347, `at_span` 342, `at_parse` 3,
 `at_parse`'s styled loop 12%, `at_getb` 8%, `at_span` 5% — so the remaining
 wins are 5-12% each and none is a cliff.
 
-S25's SECOND half is still open and is now the largest item left: `at_caret_on`
-still calls `at_parse` to find the caret's x, and on a line §46.4.7 has proved
-plain that x is `at_tx0 + (caret - lstart) * pcw` — arithmetic, not a parse.
-That is one of the three parses a keystroke pays, plus the cost on every arrow
-key and every lit blink phase. Beside it sit Wave 6 (`at_append`) and 4a, which
-still needs re-costing on a ~30 ms line. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+**S25's SECOND HALF IS BUILT** (§46.4.8) and it took S25's flag after all — but
+only after measuring the version WITHOUT it. The safe form, proving plainness
+in `at_caret_on` with `at_slice` + the §46.4.7 scan, measured **1.02x for 65
+bytes**: the proof cost nearly what the parse did. Moving the proof to
+`at_scan`, which is already walking every byte to measure the wrap, is what
+makes it free at the point of use — `at_parse` tests one bit instead of
+scanning, and `at_caret_on` skips the parse and the slice both. Together the
+mechanism is **1.22x** (140.5 → 115.6 ms), of which the flag is the last 3.7 ms.
+
+Two things worth keeping from it. **`AT_SPECIAL` is why the two predicates
+cannot drift** — the four characters are listed once, and a fifth delimiter is
+one edit rather than two files that can disagree silently. And **the wrap
+rewind is a performance refinement, not a correctness one**, which looks like
+the opposite: `at_scan` walks past the break before rewinding, so without
+banking the flag at each space a delimiter beyond the break would clear it —
+calling a line styled that could have been raw. The flag can never wrongly say
+*plain*, because every character of the line was scanned before the decision.
+
+**AND THE REAL PRIZE IS NOW MEASURED AND IT IS `at_scan`.** Bracketing single
+calls on the shipped build: **one `at_parse` is 5.06 ms** and **one `at_scan` is
+35.5 ms — 29.8% of a 119 ms keystroke in a single call.** Nothing else is
+close. Inside it, `at_respan` is the plan's own Wave 5b: it re-walks each
+wrapped visual line to re-derive a span nibble both break paths already know,
+which on a three-line paragraph is two extra walks of ~74 characters through
+`at_getb`. `at_slice` is NOT a target — `at_copyout` already splits at the gap
+and uses `rep movsb`.
+
+**What is left, in the order the measurement ranks it**: `at_scan` (29.8%, and
+`at_respan` within it), then Wave 6 (`at_append`), then 4a, which still needs
+re-costing on a ~30 ms line. Wave 6 is unchanged. 4a still needs re-costing on a ~30 ms line, ; 2a is settled and refused. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
