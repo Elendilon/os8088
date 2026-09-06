@@ -21641,6 +21641,15 @@ the list alone was pure addition. Whether Word breaks even depends on a size
 nobody knows until the element is built. What does not depend on it is that
 one of the two implementations is missing a fix the other has.
 
+**The order was the point, and with the menu shared the answer reverses:**
+§68.2.3 makes the three combos drop-downs after all. They were never menus —
+no bar cell, no mnemonic, no separator, no greying — and what had made them
+rows of `wd_mtab` was that the menu code was Word's own, so a row was free
+and a second control was 1,779 bytes. Sharing the menu removed both halves of
+that: `os88ui_bhit` is already in the build, so the list costs 996 rather than
+1,779, and the rows are no longer free because the anchored-list path exists
+only for them.
+
 ### 13.15 The CHECK BOX — the fourth shared element (`OS88UI_CHK`)
 
 `%define OS88UI_CHK` before the include and it costs a dozen bytes of record
@@ -21675,6 +21684,9 @@ comment that it follows *"word.asm's `wd_mtrack` pattern"*: a body copied by
 hand, which is what `apps/os88ui.inc` exists to stop. It shows in what the copy
 did not take — Word banks the pixels its pull-down covers (§68.2.1) and Sheet
 repaints its whole content on every close.
+
+That 10px band is also why `OS88UI_DRIH` is overridable (§68.2.3): a package
+converting a combo that had been a pseudo-menu has an item pitch to keep.
 
 **Both implementations chose the same numbers independently**: a 14px bar
 (`WD_MENU_H`, `SH_MBAR_H`), a 10px item band and a 5px separator. That is the
@@ -79290,6 +79302,59 @@ omitted rather than greyed — with them the dialog cannot fit a CGA content
 box, and a Format command that refuses on one adapter of three is worse.
 
 
+
+#### 68.2.3 The three combos are `os88ui_drop` records, not rows of `wd_mtab`
+
+§13.14.4 argued that Word was a customer for the MENU and not for the LIST,
+and it was right about the order: the menu element (§13.16) had to land first,
+because until it did the combos and the nine bar menus were **one body of
+code** and the list could only be bolted beside it. With that body shared, the
+three combos — the ribbon's Font and Pts and the ruler's Style — are the only
+callers left of the menu element's ANCHORED-list path, and they are not menus
+at all: no bar cell, no mnemonic, no separator, no greying, one column of
+strings and a pick that is remembered.
+
+So they are drop-downs (§13.14). Each is a 24-byte `OS88UI_DR_*` record whose
+RECT the strip painter fills from the live content box, an `ITEMS` array of
+near pointers to NUL strings, and `SEL`; the painter calls `os88ui_drop`, the
+press `os88ui_drpress`, the drag `os88ui_drdrag` and the release
+`os88ui_drup`. What that deletes is the pseudo-menu scaffolding: `wd_combo`,
+three `wd_mtab` rows, the item tables behind them, and the menu element's
+anchored-list path with the `MN_AX`/`MN_AY` pair that fed it.
+
+**Two things about the picture change, and both are the shared control's
+answer rather than Word's:**
+
+- the caption sits **4 px** in from the box's left edge where `wd_combo` put
+  it at 8, and the dropped list's items line up with it. The old pair did not:
+  the box was `wd_combo`'s and the list was the menu element's, and they were
+  never written against each other.
+- the list hangs **directly under the box** (`os88ui_drfit`, §13.14.2), where
+  the Style combo's used to hang under the whole 34-pixel ruler strip. It
+  covers the ruler's scale row now, and §13.14.1's save-under puts it back.
+
+**An open list takes any press, wherever it lands** — the same rule an open
+menu has had since §68.2, and it is not optional here for a reason the menus
+never had: the Style list lies on top of the ruler's SECOND row, which owns
+the indent-marker drag, so the click-then-click spelling of the gesture put
+its second press on the ruler and the list stayed up for ever. `wd_mroute`
+therefore tests the records before any strip routing.
+
+`wd_drany` is the one place that answers *"is a list down"*, because six sites
+ask: the ribbon's and the ruler's delta updates and the background worker must
+not draw under one, the key handler and the kernel bar's About must take one
+down, and `wd_mroute` routes a press to it. It is what `[wd_mopen]` is for the
+menus, and every site that tests one tests the other. `wd_drrep` is the
+refusal path — `os88ui_drpress` and `os88ui_drup` answer `CF = 1` only where
+the bank could not be taken — and it lands on §68.2.1's piecewise repaint
+rather than on `wd_repaint`, so a refused claim costs the covered rows and not
+the window.
+
+**`OS88UI_DRIH` is overridden to 10.** The control's own item pitch is 12; the
+combos were pseudo-menus and so had a MENU's 10px band, and taking the default
+would make every list two pixels taller per item on a port whose whole point
+is Word 1.1a's look. It is a `%define`, so it is set with the ruler's geometry
+constants rather than at the include — the code that reads it is all above.
 
 #### 68.2.2 The scroll bar is not part of the text band
 

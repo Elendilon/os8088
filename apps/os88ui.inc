@@ -2801,8 +2801,20 @@ OS88UI_DR_TOP   equ 22          ; the OPEN list's first row, screen (13.14.2):
                                 ; the row under the box, or higher where a long
                                 ; list would not fit the window below it
 OS88UI_DR_SIZE  equ 24
-OS88UI_DRIH     equ 12          ; an item's pitch: an 8px cell and 4px of air,
-                                ; the About card's line and a menu's look
+%ifndef OS88UI_DRIH
+%define OS88UI_DRIH 12          ; an item's pitch: an 8px cell and 4px of air,
+%endif                          ; the About card's line and a menu's look -
+                                ; and OVERRIDABLE, because a package converting
+                                ; an existing control has a look to keep. WORD
+                                ; defines 10 before the include: its ribbon
+                                ; combos were pseudo-menus (SPEC.md 68.2) and a
+                                ; menu's item band is OS88UI_MN_IH = 10, so
+                                ; taking the default would have made every
+                                ; list two pixels taller per item on a port
+                                ; whose whole point is Word 1.1a's look. It is
+                                ; a LOOK constant and not a mechanism: nothing
+                                ; here reads it but the hit test and the
+                                ; painter, and they read the same one
 OS88UI_DRAW     equ 12          ; the arrow cell's width
 OS88UI_DRMAX    equ 12          ; items a list may hold (12 x 12 = 144 rows)
 
@@ -4240,6 +4252,16 @@ os88ui_mnbank:
     push dx
     push di
     push es
+    call os88ui_mnfree          ; A BANK WE STILL HOLD IS LAST FRAME'S, and
+                                ; zeroing the word without giving it back was
+                                ; a claim orphaned for the session: a caller
+                                ; whose own repaint drops an open panel does
+                                ; exactly that (Word's W_PAINT sets its
+                                ; [wd_mopen] to none and never reaches
+                                ; os88ui_mnback), so the next open leaked the
+                                ; last one's save-under. os88ui_drbank has
+                                ; had this line since 13.14.1; this is the
+                                ; same line one control along
     mov word [ds:bp+OS88UI_MN_SEG], 0
     mov ax, [ds:bp+OS88UI_MN_MRECT]               ; the rect INCLUDING the drop shadow, and
     mov [ds:bp+OS88UI_MN_BRECT], ax              ; clamped exactly the way a repaint grows
@@ -4321,6 +4343,22 @@ os88ui_mnbank:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; os88ui_mnfree - give a bank back without drawing it (internal)
+; in:  BP = the record; out: MN_SEG cleared; preserves every register
+os88ui_mnfree:
+    push ax
+    push dx
+    mov dx, [ds:bp+OS88UI_MN_SEG]
+    or dx, dx
+    jz .out
+    mov ax, [ds:bp+OS88UI_MN_KB]
+    call OSAPI_MEM_FREE
+    mov word [ds:bp+OS88UI_MN_SEG], 0
+.out:
+    pop dx
     pop ax
     ret
 

@@ -497,6 +497,13 @@ WD_RB_SS     equ 366            ; the super/subscript pair
 WD_RL_SLBL   equ 8              ; 'Style:' label
 WD_RL_SBX    equ 64             ; Style combo box
 WD_RL_SBW    equ 96
+%define OS88UI_DRIH 10          ; the drop-down's item pitch (SPEC.md 13.14),
+                                ; overridden: the three combos were pseudo-menus
+                                ; on the menu element and so had a MENU's 10px
+                                ; item band. The control's default is 12, and
+                                ; taking it would make every list two pixels
+                                ; taller per item on a port whose whole point
+                                ; is Word 1.1a's look
 WD_RL_AL     equ 168            ; align left/center/right/justified
 WD_RL_SP1    equ 224            ; spacing '1'
 WD_RL_SP15   equ 239            ; spacing '1.5' (26 wide: three glyph cells)
@@ -827,6 +834,9 @@ wd_entry:
     mov word [wd_mnrec + OS88UI_MN_CHK], wd_mchk
     mov word [wd_mnrec + OS88UI_MN_OPENH], wd_mwinitem
     mov word [wd_mnrec + OS88UI_MN_RPNTH], wd_mrepair
+    mov word [wd_dstyle + OS88UI_DR_ITEMS], wd_dstyle_items
+    mov word [wd_dstyle + OS88UI_DR_N], 1
+    mov [wd_dstyle + OS88UI_DR_WIN], bx
     mov [wd_mnrec + OS88UI_MN_WIN], bx
     push ax                         ; SPEC.md 54.10: the kernel calls this once
     mov ax, wd_onwake               ; our window is on the glass, and the launch
@@ -1150,6 +1160,12 @@ wd_ondrag:
     push bx
     push cx
     push dx
+    mov bx, wd_dstyle               ; SPEC.md 68.2.3: the combos are drop-downs
+    call os88ui_drdrag              ; now, so the two edges are theirs as well.
+                                    ; A closed list costs one compare, and the
+                                    ; two gestures still cannot be live at once
+                                    ; - a press either opens a list or grabs
+                                    ; the thumb, never both
     call os88ui_sbdragging
     jc wd_sbd_out
     call wd_bounds
@@ -1162,6 +1178,13 @@ wd_onup:
     push bx
     push cx
     push dx
+    mov bx, wd_dstyle               ; the release over an item is the PICK, and
+    call os88ui_drup                ; the drag-out-of-the-box spelling of the
+    jnc .nodr                       ; gesture is the one that needs it
+    call wd_drrep
+.nodr:
+    or ah, ah                       ; spent on a list: the thumb never sees it
+    jnz wd_sbd_out
     call os88ui_sbdragging
     jc wd_sbd_out
     call wd_bounds
@@ -5961,6 +5984,8 @@ wd_worker:
     mov byte [wd_inwk], 1           ; wd_itinit must not claim on this task
                                     ; (SPEC.md 20.6 rule 7) - raised for the
                                     ; draw burst, cleared before the unlock
+    call wd_drany                   ; a combo's list is over the content too
+    jnz .unlock
     cmp byte [wd_mopen], WD_M_NONE  ; a dropdown, the About box or a dialog is
     jne .unlock                     ; over the content (SPEC.md 68.2): every
     cmp byte [wd_about], 0          ; draw below would letter text straight
@@ -7137,6 +7162,7 @@ wd_chrome:
 wd_paint:
     push ax
     mov byte [wd_mopen], WD_M_NONE  ; a kernel repaint painted the content
+    mov byte [wd_dstyle + OS88UI_DR_OPEN], 0   ; ...the combos' lists with them
     mov byte [wd_mhi], 0xFF         ; clean, so any dropdown, About box or
     mov byte [wd_about], 0          ; dialog is GONE from the pixels: drop the
     mov word [wd_dlg], 0            ; state with them rather than redraw a
@@ -13946,6 +13972,70 @@ wd_mclose:
 
 
 ; -----------------------------------------------------------------------------
+; wd_drany - is a combo's list down?
+; in:  nothing; out: ZF=0 one is open, ZF=1 none. Every register preserved,
+;      and CALL/RET touch no flag, so the caller's `jne` reads this compare
+;
+; ONE PLACE, because six ask it: the ribbon's and the ruler's delta updates
+; and the background worker must not draw under a list, the key handler and
+; the kernel bar's About must take one down, and wd_mroute routes a press to
+; it. It is what [wd_mopen] is for the menus, and the sites that test one test
+; the other. D2 adds the ribbon's two records and only this routine changes.
+; -----------------------------------------------------------------------------
+wd_drany:
+    cmp byte [wd_dstyle + OS88UI_DR_OPEN], 0
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_drshut - take any open combo list down, pixels and all
+; in:  SI = window ptr, gfx lock held; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+wd_drshut:
+    push bx
+    mov bx, wd_dstyle
+    call os88ui_drclose             ; the bank back, or CF=1 and the repaint
+    jnc .out
+    call wd_drrep
+.out:
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; wd_drrep - a drop-down came down with no bank: repaint what its list covered
+; in:  BX = the drop record, SI = window ptr, gfx lock held
+; out: nothing; preserves all registers
+;
+; os88ui_drpress and os88ui_drup answer CF = 1 for exactly one case - the
+; save-under was refused, so the write-back never happened (SPEC.md 13.14.1) -
+; and what the list covered is its own rect, which the record still describes:
+; the close clears OS88UI_DR_OPEN and leaves OS88UI_DR_TOP where it was. So
+; this is os88ui_drrect's arithmetic into wd_mrect, and then the piecewise
+; repaint the menus already own (68.2.1) rather than wd_repaint's whole window
+; - which is the answer this app gave before the combos were controls, and is
+; worth keeping now that they are.
+; -----------------------------------------------------------------------------
+wd_drrep:
+    push ax
+    push dx
+    mov ax, [bx+OS88UI_DR_RECT]
+    mov [wd_mrx1], ax
+    mov ax, [bx+OS88UI_DR_RECT+4]
+    mov [wd_mrx2], ax
+    mov ax, [bx+OS88UI_DR_TOP]
+    mov [wd_mry1], ax
+    mov ax, [bx+OS88UI_DR_N]        ; ...and ends a row past the last cell,
+    mov dl, OS88UI_DRIH             ; which is os88ui_drrect's own sum
+    mul dl
+    add ax, [bx+OS88UI_DR_TOP]
+    inc ax
+    mov [wd_mry2], ax
+    call wd_bounds                  ; wd_mrepair reads the block's rect and
+    call wd_mrepair                 ; both counts live, and this window resizes
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; wd_mrepair - repaint exactly what a dropdown (or the About box) covered
 ; in:  SI = window ptr, wd_mrect = the covered rect, wd_bounds run, lock held
 ; out: nothing; preserves all registers; wd_mrect is consumed (grown by the
@@ -14559,6 +14649,8 @@ wd_rbstat:
     je .out
     cmp byte [wd_rbok], 0
     je .out
+    call wd_drany
+    jnz .out
     cmp byte [wd_mopen], WD_M_NONE
     jne .out                        ; a dropdown may cover the strip
     cmp byte [wd_about], 0
@@ -14849,13 +14941,21 @@ wd_ruler:
     mov si, wd_s_style
     mov ax, (CWHITE << 8) | CBLACK  ; OPAQUE: the ruler's fill, likewise
     call OSAPI_FONT_RUN
-    mov ax, [wd_cl]
-    add ax, WD_RL_SBX
-    mov bx, di
-    add bx, 2
-    mov cx, WD_RL_SBW
-    mov si, wd_s_normal
-    call wd_combo
+    mov ax, [wd_cl]                 ; the Style combo is os88ui_drop's now
+    add ax, WD_RL_SBX               ; (SPEC.md 68.2.3): the painter fills the
+    mov [wd_dstyle + OS88UI_DR_RECT], ax      ; record's rect from the strip it
+    add ax, WD_RL_SBW - 1                     ; is laying out, since a window
+    mov [wd_dstyle + OS88UI_DR_RECT + 4], ax  ; moves, and the control draws
+    mov ax, di                                ; itself from that
+    add ax, 2
+    mov [wd_dstyle + OS88UI_DR_RECT + 2], ax
+    add ax, 11
+    mov [wd_dstyle + OS88UI_DR_RECT + 6], ax
+    push di                         ; DI is the strip's row here and the
+    mov bx, wd_dstyle               ; control's FLAGS there
+    xor di, di
+    call os88ui_drop
+    pop di
     ; the four alignment cells, each a 7px four-line glyph
     mov ax, WD_RL_AL + 3*WD_BTN_P + WD_BTN_W - 1
     call wd_wfit
@@ -15317,6 +15417,8 @@ wd_rlstat:
     je .out
     cmp byte [wd_rlok], 0
     je .out
+    call wd_drany                   ; ...and the Style list covers the SCALE
+    jnz .out
     cmp byte [wd_mopen], WD_M_NONE
     jne .out                        ; a dropdown may cover the strip
     cmp byte [wd_about], 0
@@ -16115,6 +16217,18 @@ wd_mroute:
     call wd_abclose
     jmp .cons
 .noab:
+    cmp byte [wd_dstyle + OS88UI_DR_OPEN], 0    ; AN OPEN LIST TAKES ANY PRESS,
+    je .nodrop                                  ; wherever it lands (SPEC.md
+    mov bx, wd_dstyle                           ; 13.14) - the same rule an
+    call os88ui_drpress                         ; open MENU has had since 68.2,
+    jnc .cons                                   ; and for the same reason: the
+    call wd_drrep                               ; click-then-click spelling of
+    jmp .cons                                   ; the gesture puts the second
+                                                ; press on top of the RULER's
+                                                ; second row, which owns the
+                                                ; indent drag and would have
+                                                ; taken it
+.nodrop:
     cmp byte [wd_mopen], WD_M_NONE
     je .closed
     call wd_mclick_open
@@ -16257,19 +16371,13 @@ wd_mroute:
     add di, WD_RL_SBW-1
     cmp cx, di
     ja .rlcells
-    mov [wd_max], bx
-    mov [wd_mabox], bx
-    mov [wd_mabox+4], di
-    call wd_ruly
-    add ax, WD_RULER_H
-    mov [wd_may], ax
-    sub ax, WD_RULER_H
-    add ax, 2
-    mov [wd_mabox+2], ax
-    add ax, 11
-    mov [wd_mabox+6], ax
-    mov al, WD_M_STYLEC
-    call wd_mtrack
+    push bx                         ; the drop-down owns the gesture now
+    mov bx, wd_dstyle               ; (SPEC.md 68.2.3): press, drag and
+    call os88ui_drpress             ; release are its three entry points, and
+    jnc .stpop                      ; the press answers whether the content
+    call wd_drrep                   ; wants repainting, and what it covered is
+.stpop:                             ; exactly the list's own rect
+    pop bx
     jmp .cons
 .rlcells:
     mov di, cx                      ; the click x, banked: wd_rlxy answers its
@@ -16367,6 +16475,12 @@ wd_mkey:
     call wd_abclose
     jmp .cons
 .noab:
+    call wd_drany                   ; a combo's list eats the key that dismisses
+    jz .nodrop2                     ; it, exactly as an open MENU does below
+    call wd_bounds
+    call wd_drshut
+    jmp .cons
+.nodrop2:
     cmp byte [wd_mopen], WD_M_NONE
     jne .open
     or al, al
@@ -17209,7 +17323,11 @@ wd_abopen:
     push dx
     push si
     push di
-    cmp byte [wd_mopen], WD_M_NONE  ; it replaces any open dropdown
+    call wd_drany                   ; it replaces any open dropdown - a combo's
+    jz .nodrop0                     ; list...
+    call wd_drshut
+.nodrop0:
+    cmp byte [wd_mopen], WD_M_NONE  ; ...and a menu's
     je .nodrop
     call wd_mclose
 .nodrop:
@@ -19224,8 +19342,6 @@ wd_mtab:
     dw wd_it_fontc, WD_RB_FBW
     db 0xFF, 0, 0, 1                ; ...its Pts combo
     dw wd_it_ptsc, WD_RB_PBW
-    db 0xFF, 0, 0, 1                ; ...and the ruler's Style combo
-    dw wd_it_stylec, WD_RL_SBW
 
 ; the bar itself: one string, one opaque run; cells 0..55
 wd_s_mbar: db 'File Edit View Insert Format Utilities Macro Window Help', 0
@@ -19358,8 +19474,9 @@ wd_it_fontc:                        ; Pica, and room for the faces on the disk
 %endrep
 wd_it_ptsc:                         ; ...at the one size
     WDMI 0, 0, WDA_CSEL, 0, wd_s_10, 0
-wd_it_stylec:                       ; ...in the one style
-    WDMI 0, 0, WDA_CSEL, 0, wd_s_normal, 0
+wd_dstyle_items:                    ; the Style combo's list: near pointers to
+    dw wd_s_normal              ; NUL strings, which is what a drop-down takes
+                                ; where a menu took eight-byte records
 
 ; --- the labels (menus.cmd, '&' removed) -------------------------------------
 wd_L_new:      db 'New...', 0
@@ -20116,6 +20233,8 @@ section .text
     ; OS88UI_MN_OPEN, at the same address.
 %define WD_MNREC_SZ 62
     WDVAR wd_mnrec, WD_MNREC_SZ
+%define WD_DREC_SZ 24           ; OS88UI_DR_SIZE, a literal for WDVAR's reason
+    WDVAR wd_dstyle, WD_DREC_SZ ; the ruler's Style combo (SPEC.md 68.2.3)
 wd_mopen  equ wd_mnrec + 16     ; byte: the open dropdown, WD_M_NONE = none.
                                 ; 0..8 the bar, 9..11 the strip combos
 wd_mhi    equ wd_mnrec + 17     ; byte: the XOR-highlighted item, 0xFF = none
@@ -20480,6 +20599,13 @@ wd_sury2  equ wd_mnrec + 50     ; word } way back cannot disagree by a pixel
 %define OS88UI_SCROLL           ; SPEC.md 13.10: the shared scroll bar. This
                                 ; app had the SEVENTH private implementation
                                 ; of it (13.10.6), and its own header said so
+%define OS88UI_DROP             ; SPEC.md 13.14: the drop-down, for the three
+                                ; ribbon/ruler combos - which were pseudo-menus
+                                ; on the menu element (68.2). OS88UI_DRIH is
+                                ; overridden up with the ruler's geometry, not
+                                ; here: it is a %define, so it has to be set
+                                ; before the first line that reads it and the
+                                ; code is all above this include
 %define OS88UI_MENU             ; SPEC.md 13.16: ...and the in-window menu,
                                 ; which is the same story one control along -
                                 ; docs/plans/UI-MENU-ELEMENT.md
