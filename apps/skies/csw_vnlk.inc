@@ -89,16 +89,16 @@ cs_m_vnlk_rivf: db CSM_FLAT, 4, 0, 3, CSI_MARK, 0
 ; CS_FAR's 16,000.
 ; =============================================================================
 cs_ot_vnlk:
-    CS_OBJ cs_m_vnlk_gate,  0,            3321,   647,   0,  9000,    0, cs_n_vnlk_kongde, CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_vnlk_gate,  0,            2221,  2553,   0,  9000,    0, cs_n_vnlk_nupla,  CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_vnlk_peak,  0,            6928,  4000,   0, 14000,    0, cs_n_vnlk_peak,   CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_vnlk_wall,  0,           -2644, -2220,   0,  8000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE
-    CS_OBJ cs_m_vnlk_ridge, 0,            1610, -2188,   0,  7000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_vnlk_ridge, 0,           -1090,  2488,   0,  7000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_vnlk_ridge, 0,            3702, -1211,   0,  7000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_vnlk_ridge, 0,             802,  3811,   0,  7000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_vnlk_spur,  0,            5253,  1301,   0,  8000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_vnlk_spur,  0,            3753,  3899,   0,  8000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_vnlk_gate, 0,            3321,   647,   0,  9000,    0, cs_n_vnlk_kongde, CSO_COLLIDE | CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_vnlk_gate, 0,            2221,  2553,   0,  9000,    0, cs_n_vnlk_nupla,  CSO_COLLIDE | CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_vnlk_peak, 0,            6928,  4000,   0, 14000,    0, cs_n_vnlk_peak,   CSO_COLLIDE | CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_vnlk_wall, 0,           -2644, -2220,   0,  8000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_TERRAIN
+    CS_OBJ cs_m_vnlk_ridge, 0,            1610, -2188,   0,  7000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER | CSO_TERRAIN
+    CS_OBJ cs_m_vnlk_ridge, 0,           -1090,  2488,   0,  7000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER | CSO_TERRAIN
+    CS_OBJ cs_m_vnlk_ridge, 0,            3702, -1211,   0,  7000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER | CSO_TERRAIN
+    CS_OBJ cs_m_vnlk_ridge, 0,             802,  3811,   0,  7000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER | CSO_TERRAIN
+    CS_OBJ cs_m_vnlk_spur, 0,            5253,  1301,   0,  8000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER | CSO_TERRAIN
+    CS_OBJ cs_m_vnlk_spur, 0,            3753,  3899,   0,  8000,    0, cs_n_vnlk_ridge,  CSO_COLLIDE | CSO_FILLER | CSO_TERRAIN
     CS_OBJ cs_m_vnlk_riv, cs_m_vnlk_rivf, -1181,   646,   0,  6000, 2600, cs_n_vnlk_river,  0
     CS_OBJ cs_m_hangar,     0,             130,  -225,   0,  3000,    0, cs_n_vnlk_hangar, CSO_COLLIDE
 cs_ote_vnlk:

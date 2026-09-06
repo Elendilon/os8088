@@ -96066,14 +96066,29 @@ things that trade the same way, and it belongs beside them rather than alone
 in the bar. It greys itself where the display offers no choice, which is
 every adapter but a VGA.
 
-#### 88.13.1 Buildings — Few, Moderate, Full
+#### 88.13.1 Buildings — None, Few, Moderate, Full
 
 `CSO_POI` marks a critical point of interest and `CSO_FILLER` an anonymous
-block or shed. **Few** draws the points of interest alone, **Moderate**
-everything but the filler, **Full** all of it. The test is in `cs_consider`,
-before the range check, so a refused object costs the cull two compares and
-no transform at all. Measured over the city on a 4.77 MHz 8088: **160.1 ms
-at Full against 60.7 at Few**, and 12 objects filed against 4.
+block or shed. **None** draws no building at all, **Few** the points of
+interest alone, **Moderate** everything but the filler, **Full** all of it.
+The test is in `cs_consider`, before the range check, so a refused object
+costs the cull two compares and no transform at all — which is why None is a
+DENSITY and not a fill: "draw nothing" is the cheapest form there is, and it
+needs no second mechanism beside the one the other three levels already use.
+Measured over the city on a 4.77 MHz 8088: **160.1 ms at Full against 60.7
+at Few**, and 12 objects filed against 4.
+
+**`CSO_TERRAIN` is exempt from every level of it.** A hill, a mountain and
+the runway are the world's own surface rather than scenery to thin out for
+frames, so the density never refuses one and None leaves the landscape — and
+the strip you are standing on — where they were. The bit is on the OBJECT
+and not the model, because `cs_consider` tests it in the word it has already
+loaded; the price of that is that a new hill could be added and the flag
+forgotten, with nothing to say so but a mountain quietly missing at None, so
+`tests/unit/t_csterrain.py` holds every object built on a `CS_HILL` model to
+it on the fast tier. What a face is FILLED with is decided by its ink and
+not by this bit (§88.13.3), which is why the runway carries it and still
+fills with the buildings.
 
 A change of level clears every object's skip counter (§88.5.2) — an object
 the cull dropped for a hundred ticks would otherwise stay dropped after the
@@ -96088,20 +96103,47 @@ Near is for thinning the world out, and thinning out the things you navigate
 by would be a different feature. 112.8 ms at Near against 186.7 at Far, over
 the same scene.
 
-#### 88.13.3 Fill — ground, water, buildings
+#### 88.13.3 Fill — terrain and buildings
 
-Three bits. A face is filled only if its ink's bit is set — the river is
-water, every wall, roof, hill and runway is a solid — and **the outline is
-drawn either way**, so turning all three off is the wireframe world. With a
-fill off, the size test that drops a small object's outline (§88.4.7) cannot
-run: the outline is then the whole of the object.
+Two bits, and a cleared one means **wireframe** rather than gone. `TERRAIN`
+is the world's own surface — the ground under the horizon, the water, and
+the hills and mountains; `BUILDINGS` is everything put on it, the runway
+included. A face is filled when its ink's bit is set and drawn as its
+OUTLINE when it is not, in its own ink, so a hill's ridge still reads as a
+hill and a wall as a wall. With a fill off the size test that drops a small
+object's outline (§88.4.7) cannot run: the outline is then the whole of the
+object.
 
-The ground is not a face. With its bit clear every row of `cs_skyground`
-takes the SKY's ink and the horizon is drawn as one segment instead, off the
-two ends the row loop already computes. **It costs nothing and saves
-nothing** — a sky row and a ground row are the same fill — so this one is a
-LOOK rather than a frame: 160.3 ms against 160.1. Water off is 133.4 and
-every fill off 119.0.
+**The outline draws each edge ONCE** (`cs_wire`). Every edge of a closed
+solid is shared by two faces, so outlining each front face in turn draws the
+shared ones twice — the same pixels, at the same cost, for no picture.
+`cs_edgemark` marks an edge by its two VERTEX INDICES as it draws it and
+skips one already marked, over a bit per pair cleared once an object; a face
+the near plane CUT has no such indices, because `cs_pv` then holds points
+the clipper made, and that one is drawn whole. It needs **no per-model edge
+list** — the indices are the face's own — and it is worth having: over the
+city on Mode X, **167.5 ms against 184.2** for the same picture drawn twice
+over, where the solid is 284.7.
+
+**This is where the two bits stop resembling each other.** Buildings are
+tall and narrow, which is the outline's best case and the fill's worst:
+**284.7 → 167.5 ms on Mode X (−41%) and 215.0 → 142.8 on Hercules (−34%)**.
+Terrain is wide and flat, which is the reverse — a Hercules polygon row is a
+`rep stosw`, sixteen pixels a store, against one masked read-modify-write
+per pixel for a line — so **terrain wireframe is a LOOK and not a saving**:
+143.4 ms against 142.8 on Hercules, and slower than solid on a scene with a
+river across it. The ground is not a face at all: with the bit clear its rows take
+**`CSI_BLACK`** while the sky keeps the sky (`cs_hznone`), and the horizon
+is drawn as one segment over the join, off the two ends the row loop already
+computes — which costs nothing and saves nothing, a black row and a green
+one being the same fill. It was the SKY's ink on both sides, which is right
+on a 1bpp adapter for the accidental reason that the sky there IS black, and
+on a colour one painted the whole world blue, horizon and all: black is the
+ground being ABSENT rather than the sky reaching the bottom of the frame.
+
+Neither bit is a way to make the world disappear. **Buildings = None**
+(§88.13.1) is that, it is cheaper than any fill decision, and it is where
+the frame rate is.
 
 #### 88.13.4 Size — Small, Moderate, Full
 
@@ -96180,17 +96222,36 @@ per fill.
 
 #### 88.13.5 …and the same four on hotkeys, in flight
 
-`-`/`+` the size, `1 2 3` the buildings, `4 5 6` the three fills, `7 8 9` the
-detail. A key that changes what is drawn costs the next frame and nothing
+`-`/`+` the size, **`F1` to `F4`** the buildings (None first), **`F5`/`F6`**
+the two fills, **`F7` to `F9`** the detail. Function keys and not the number
+row: a flight simulator's digits are where a player expects to find
+something else, and nine F-keys are nine nobody reaches for by accident.
+They arrive as `int 16h` EXTENDED codes — `AL` zero, `AH` the scan code — so
+`cs_hotkeyx` hangs off `cs_input`'s `.ext` arm beside the arrows rather than
+off the character one, and the instructions page names them. A key that changes what is drawn costs the next frame and nothing
 after it, so it is one store; size re-runs the raster's setup, which is
 idempotent and reuses the shadow claim it already holds. **No frame reads a
 setting more than the frame it draws**, so carrying the options costs a
 flight nothing.
 
-#### 88.13.6 The page's own two defects, off the machine
+#### 88.13.6 The page's own defects, off the machine
 
-Both were reported off the machine and both are worth writing down, because
+All were reported off the machine and each is worth writing down, because
 each is a shape that will recur.
+
+**A press on an open list went to the box UNDERNEATH it.** `cs_setclick`
+walked the four drop-downs in the order `cs_set_page` draws them — row 0
+last and so on top — which is the wrong end to start a HIT test from, and
+`os88ui_drpress` lets a closed control claim a press that lands on its own
+box. Buildings is row 0 and its open list falls across Detail, so a press on
+the list's lower items opened Detail's list instead and the pick never
+happened. **Moderate and Full were unreachable from the page** for as long
+as the page has existed; nobody noticed because the row that drives it only
+ever clicked the first item, which is above Detail's box. Adding **None** as
+a fourth item is what walked into it. The fix is the one `.page0` already
+had for the same defect (§13.14.2): an OPEN list takes the press first,
+wherever it landed. `tests/skiesset.py` now picks the second item, which is
+the one that goes through Detail.
 
 **The four drop-downs had no `OS88UI_DR_WIN`.** Only `cs_drplane` and
 `cs_drport` were given the window handle when the launcher's window was
@@ -96258,10 +96319,12 @@ drop-downs get a release the title page never armed.
   `--clobber-si` puts that bug back and must go red on it.
 - `tests/skiesset.py` (soak, MartyPC): §88.13's four knobs, each held to
   either the work the renderer does or the pixels on the glass. The page
-  opens from the menu and its painter writes all eight controls' rects; a
-  fill box clears its bit and all three off is the wireframe; Buildings =
-  Few files 4 objects where Full files 12 and draws in 60.7 ms against
-  143.6; every hotkey sets its byte inside the bracket; and shrinking the
+  opens from the menu and its painter writes all seven controls' rects; a
+  fill box clears its bit and both off is the wireframe; **Buildings = None
+  files no building and still leaves the runway and the terrain standing**
+  (§88.13.1); Buildings = Few files 4 objects where Full files 12 and draws
+  in 60.7 ms against 143.6; every F-key sets its byte inside the bracket
+  (§88.13.5); and shrinking the
   view leaves none of the larger one beside it. `--clobber-clear` NOPs the
   screen clear a size change owes and that last check must go red — it
   reads the band either side of the shrink, so it also proves the larger

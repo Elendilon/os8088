@@ -217,7 +217,7 @@ cs_ot_paris:
     CS_OBJ cs_m_def2,   0,            -3800,  3650,   0, 12000,    0, cs_n_def,    CSO_COLLIDE
     CS_OBJ cs_m_def3,   0,            -4100,  3350,   0, 12000,    0, cs_n_def,    CSO_COLLIDE
     CS_OBJ cs_m_def4,   0,            -3700,  3400,   0, 10000,    0, cs_n_def,    CSO_COLLIDE
-    CS_OBJ cs_m_hill,   0,             3560,  3150,   0, 12000,    0, cs_n_mont,   CSO_POI
+    CS_OBJ cs_m_hill, 0,             3560,  3150,   0, 12000,    0, cs_n_mont,   CSO_POI | CSO_TERRAIN
     CS_OBJ cs_m_sacre,  0,             3560,  3150, 100,  9000,    0, cs_n_sacre,  CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_rive0, cs_m_rive0f,   5033,  -1067,   0,  4500, 2600, cs_n_seine,  0
     CS_OBJ cs_m_rive1, cs_m_rive1f,   2533,    233,   0,  4500, 2600, cs_n_seine,  0

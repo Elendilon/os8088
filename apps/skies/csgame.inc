@@ -273,7 +273,9 @@ cs_input:
     je .tappitch
     mov bl, 1
     cmp ah, KSC_DOWN
-    jne .keys
+    je .tappitch
+    call cs_hotkeyx                 ; --- the settings, in flight (88.13.5)
+    jmp .keys
 .tappitch:
     mov [cs_tappitch], bl
     jmp .keys
@@ -400,29 +402,7 @@ cs_hotkey:
     je .zup
     cmp al, '='
     je .zup
-    cmp al, '1'
-    jb .no
-    cmp al, '9'
-    ja .no
-    sub al, '1'
-    cmp al, 3
-    jb .bld
-    cmp al, 6
-    jb .fill
-    sub al, 6                       ; 7 8 9: Detail
-    mov [cs_setlod], al
-    jmp short .yes
-.bld:                               ; 1 2 3: Buildings
-    mov [cs_setbld], al
-    call cs_skipclr                 ; every object is looked at again, or one
-    jmp short .yes                  ; the cull dropped stays dropped (88.5.2)
-.fill:                              ; 4 5 6: one fill each, toggled
-    sub al, 3                       ; 0, 1 or 2
-    mov cl, al
-    mov al, 1
-    shl al, cl
-    xor [cs_setfill], al
-    jmp short .yes
+    jmp short .no
 .zdown:
     mov al, [cs_setsize]
     or al, al
@@ -439,6 +419,49 @@ cs_hotkey:
     call cs_r_setup                 ; the whole geometry follows the size
     call cs_clearall                ; ...and what was on the glass is stale
     call cs_scrclear                ; ...INCLUDING THE PIXELS BESIDE THE VIEW
+.yes:
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_hotkeyx - the settings' own keys, F1 to F9 (SPEC.md 88.13.5)
+; in:  AH = the scan code of an EXTENDED key (AL was 0)
+; out: CF = 1 it was one of ours. Clobbers AX, CX
+;
+; F-keys and not the digits: a flight simulator's number row is where a
+; player expects to find something else, and F1..F9 is nine keys nobody
+; reaches for by accident. They arrive as int 16h EXTENDED codes - AL zero,
+; AH the scan code - so this hangs off cs_input's `.ext` arm beside the
+; arrows and not off the character one.
+; -----------------------------------------------------------------------------
+CSK_F1     equ 0x3B                 ; ...and F2..F9 follow it
+cs_hotkeyx:
+    cmp ah, CSK_F1
+    jb .no
+    cmp ah, CSK_F1 + 8
+    ja .no
+    mov al, ah
+    sub al, CSK_F1                  ; 0..8
+    cmp al, 4
+    jb .bld
+    cmp al, 6
+    jb .fill
+    sub al, 6                       ; F7 F8 F9: Detail
+    mov [cs_setlod], al
+    jmp short .yes
+.bld:                               ; F1 F2 F3 F4: Buildings, None first
+    mov [cs_setbld], al
+    call cs_skipclr                 ; every object is looked at again, or one
+    jmp short .yes                  ; the cull dropped stays dropped (88.5.2)
+.fill:                              ; F5 Terrain, F6 Buildings - each toggled
+    sub al, 4
+    mov cl, al
+    mov al, 1
+    shl al, cl
+    xor [cs_setfill], al
 .yes:
     stc
     ret

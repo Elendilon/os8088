@@ -233,6 +233,12 @@ FAST = [
         "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
         " the launcher's two 1bpp bands are drawn by the tool and checked in,"
         " and the include cannot drift from the drawing"),
+    Row("csterrain", "fast", py("tests/unit/t_csterrain.py"), 0.2,
+        "SPEC.md 88.13.1: every CLEAR SKIES object built on a hill model "
+        "carries CSO_TERRAIN. The Buildings density refuses objects before "
+        "they are transformed and that bit is what exempts the world's own "
+        "surface from it, so a hill added without it would simply vanish at "
+        "Buildings = None and nothing else would say so"),
     Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "
