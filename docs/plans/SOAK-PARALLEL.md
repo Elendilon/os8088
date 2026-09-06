@@ -1490,3 +1490,61 @@ three others plus an agent's `make` could plausibly reach it, and the message
 would then be read as a broken box rather than as a deprioritised slot working
 exactly as designed. **A niced lane probably wants its own, larger backstop**,
 and whatever it gets should say in its own words that the row was niced.
+
+### 15.4 A CONFIRMED LEVEL IS NOT A QUEUED EVENT — what width 4 was really exposing
+
+15.2's fork said the pass rate does not hold at width 4 and that the way to
+have the throughput is to confirm the inputs. Two rows were left after the
+first instalment (`de8add1`), and `hdboot` is the one that had been analysed
+and deliberately **not** converted, on this reasoning: `mo._edge(True)` only
+returns once the guest's own `mouse_btn` carries the bit, so the ISR *has* the
+press and re-sending cannot help. Every word of that is true and the
+conclusion was wrong.
+
+**What the machine was actually doing.** The row was made to say so rather
+than guessed at again, and it named itself on the second sample at width 4:
+
+```
+hdboot: FAIL - pressed 'Builtins' (cell 2 of 3) at x=199 in [160,239], y=10,
+and no menu dropped in 10 guest seconds. ... At the timeout: pointer (199,10)
+btn 0x1, menu_dropd 0, menu_cell 2, menu_y1 20.
+```
+
+The pointer is exactly where it was asked for, the button is **down**, and no
+menu is on the screen after **182 ticks** on a machine that is not busy. Ten
+more seconds would have changed nothing.
+
+`mouse_btn` is a **LEVEL** and `mou_isr` sets it. What the UI acts on is an
+`EVT_MDOWN` in the ring — and **SPEC.md 10.1 says in as many words what
+happens when that ring is full**: `evq_push` drops a record (the oldest,
+unless the oldest is an `EVT_WAKE`, which is a promise rather than a sample).
+So the press is real, the level is right, the machine saw it, and the gesture
+never happened. `ui.inc` carries the same fact from the other side in three
+places — *"fallback: the EVT_MUP was dropped (queue full) — the level still
+says so"*.
+
+That is why the `_edge` confirmation could not catch it, and it is one level
+below what 15.2 fixed: 15.2's rows sent a confirmed PACKET and no gesture;
+this one sends a confirmed **level** and no EVENT.
+
+**The retry has to be a fresh EDGE.** `mo._edge`'s own docstring is explicit
+that a Microsoft packet carries the button's LEVEL, so a re-sent packet says
+what the guest already believes — which is exactly what makes re-sending safe
+*there* and useless *here*. Only a release and a second press queue a second
+`EVT_MDOWN`. `os88ui.UI._edge_until` is that: press, wait for the guest to
+have ACTED, and on a timeout release and press again, with the first attempts
+on a short budget and the last on the caller's full one. `_grab` takes it too
+— it confirmed and never retried — and its `prep` zeroes `ui_dragwin` per
+attempt so a second try cannot confirm itself off the first one's residue.
+
+| `hdboot` at a lane of four | |
+|---|---|
+| before, confirmed level only | **1 FAIL / 2** |
+| after, `_edge_until` | **0 FAIL / 3** (and `uilayer` 0/3 beside it) |
+
+**The lesson generalises past the mouse.** Every layer here now has a
+confirmation and each proves only its own claim: `to()` proves the published
+cursor, `_edge()` proves `mouse_btn`, and neither proves that the kernel's
+event ring took anything. The only honest confirmation of a gesture is the
+state the gesture is *for* — `ui_dragwin` for a drag, `menu_dropd` for a menu
+— and a row that waits on anything else is waiting on a fact it already had.
