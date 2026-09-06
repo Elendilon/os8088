@@ -208,6 +208,23 @@ FAST = [
         "second buffer - noise measures 17 bytes where every real package "
         "measures 2, because LZ4 EXPANDS data that does not compress",
         needs=()),
+    Row("tapefmt", "fast", py("tests/unit/t_tapefmt.py"), 3.0,
+        "SPEC.md 88's cassette tape format round-trips. tools/os88tape.py is "
+        "the REFERENCE and the package's tapefmt.inc is the copy. This row "
+        "carries more weight than a normal format gate because NO EMULATOR "
+        "HERE CAN EXECUTE A CASSETTE READ AT ALL - MartyPC's PPI returns a "
+        "hardwired zero for the data line whenever the motor is on "
+        "(ppi.rs:856, `// TODO: Implement cassette data input`) and QEMU "
+        "models no cassette - so the machine's half meets a real reader for "
+        "the first time on somebody's actual 5150, and what can be pinned "
+        "down on the host is pinned down here first. The awkward cases are "
+        "the point: an all-0xFF payload IS 256 consecutive one-bits and so "
+        "looks exactly like a leader, which is why the reader takes each "
+        "record at its DECLARED length instead of scanning - that bug was "
+        "real and this row is what found it. Both ROMs, too: a 256-zero-byte "
+        "record is 4,153 bits from an IBM 5150 and 4,154 from a GLaBIOS twin "
+        "(one start bit), and tapes must still cross freely",
+        needs=()),
     Row("lzfmt-all", "soak", ["python3", "tools/os88lz.py", "--selfcheck"], 12.0,
         "the same round trip over every binary the tree builds - packages, "
         "drivers and the kernel. SOAK and not fast: the fixed corpus above is "
