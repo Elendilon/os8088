@@ -96291,6 +96291,51 @@ LOD working (§88.5.4.2),
 — 5.9 fps down to 4.0 at the two-kilometre climb, which is what puts it
 above an XT and on a 286 or a 386.
 
+##### 88.13.1.2 NYC-JFK's dense city, the first High tier
+
+Twelve more towers down Manhattan, `CSO_DENSE`, so High is the only rung
+that draws one and every rung below it gives the New York that always
+shipped. Four anonymous shapes carry it — the 90 m midtown block and the
+140 m financial-district one that were already there, plus a **190 m slim
+tower** and a **55 m broad block**, all of them under the Woolworth's 241,
+which is under the Chrysler's 319, which is under the Empire State's 381.
+That ladder is the only thing the skyline has to say and a nameless block
+that out-topped a landmark would undo it.
+
+They sit on the **island's own axis** — the line from the Empire State to
+the Woolworth, `(-0.41, -0.91)` — offset across it by no more than 430 m,
+and each range is its **own Manhattan distance from the spawn** plus 400 m
+rounded up to 500, so the whole skyline is standing before the take-off roll
+starts rather than arriving under the aeroplane. That is the entire point of
+the rung: the complaint it answers is a runway with nothing in front of it.
+
+Measured on a 4.77 MHz 8088, Hercules, Moderate against High:
+
+```
+  on the roll        165.0 -> 200.5 ms      climb 2 km      170.2 -> 278.9 ms
+  the take-off point 121.0 -> 180.1         over midtown    116.6 -> 142.6
+  climb 4 km         140.1 -> 232.8
+```
+
+— 5.9 fps to 3.6 at the two-kilometre climb, which is the number that puts
+this above an XT. **No 286 figure is quoted here because none has been
+taken**: MartyPC is an 8088 and 86Box has 286 profiles but no debugger and
+no automation socket, so a session can start one and cannot read the result
+(`docs/TESTING.md`). What is CPU-independent is the work — 27 objects filed
+at the peak against 15 — and a 286 reading belongs in `docs/FIELD-NOTES.md`
+when somebody takes one.
+
+**The ceiling this world now sits under is `CS_NVIS`, not the frame time.**
+The peak is **27 objects in one frame** against 32, with the thirty-third
+dropped silently, so Manhattan has five of headroom and a faster machine
+does not raise it: the next thing added there has to take range off
+something or be counted against those five.
+
+One placement was wrong and a gate caught it rather than an eye: the
+twelfth tower was first put at `(-2058,-4130)`, which is the Battery, and
+`tests/unit/t_csworld.py` reported it **IN the Hudson**. The 150 m of water
+clearance every one of them keeps now is a consequence of that.
+
 **The world budget follows the DEFAULT rung and the object count does not.**
 `tests/unit/t_csworlds.py` prices each world's peak frame against
 Paris-Issy's at 1.15x, and it now leaves `CSO_DENSE` objects out of that
@@ -96572,10 +96617,15 @@ drop-downs get a release the title page never armed.
   not a still picture, so two arms drawing the same objects differ by
   thousands and a same-rung CONTROL reads the same thousands; the dense
   objects are counted out of the world's own table so the check survives the
-  day a location grows a High tier. `--clobber-default` puts the old top-rung
-  default back and `--clobber-dense` points the ladder's `test ax, CSO_DENSE`
-  at `CSO_COLLIDE`, which objects actually wear, so the top rung's filter
-  fires at Moderate too. `--clobber-clear` NOPs the
+  day a location grows a High tier, and it is taken on **both** the default
+  location and the one with a dense city, found by walking `cs_ports`: the
+  EQUAL branch is what a broken ladder trips and the STRICT branch is what
+  says the flag reaches the cull at all. **Neither alone is enough** —
+  `--clobber-dense` drops collidables at Low and Moderate together, so on the
+  dense world the counts still nest and still differ, and only the default
+  world's equality sees it. `--clobber-default` puts the old top-rung default
+  back and `--clobber-dense` points the ladder's `test ax, CSO_DENSE` at
+  `CSO_COLLIDE`, which objects actually wear. `--clobber-clear` NOPs the
   screen clear a size change owes and that last check must go red — it
   reads the band either side of the shrink, so it also proves the larger
   view had put something there to begin with.

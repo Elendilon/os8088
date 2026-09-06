@@ -47,7 +47,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CPS = 4772727.0
 CSO_X, CSO_RANGE, CSO_SKIP, CSO_SIZE = 4, 10, 18, 20
 CSA_OBJS, CSA_NOBJ = 18, 20
-DIST = 7000                     # ...down the runway heading, in the band
+DIST = 8000                     # ...down the runway heading, in the band
 bad = []
 
 
@@ -127,11 +127,15 @@ def main(argv):
 
         objs = int.from_bytes(m.read(lin + port + CSA_OBJS, 2), "little")
         nobj = int.from_bytes(m.read(lin + port + CSA_NOBJ, 2), "little")
-        want = (mp["cs_m_jfk_mid"], mp["cs_m_jfk_dtn"])
+        # Every anonymous BOX in the table, whatever rung it belongs to -
+        # six of them are CSO_DENSE since 88.13.1.2 and the count is not a
+        # constant this row should carry.
+        want = tuple(mp[n] for n in ("cs_m_jfk_mid", "cs_m_jfk_dtn",
+                                     "cs_m_jfk_hi", "cs_m_jfk_lo"))
         towers = [i for i in range(nobj)
                   if int.from_bytes(m.read(lin + objs + i * CSO_SIZE, 2),
                                     "little") in want]
-        check(len(towers) == 4, "NYC-JFK's four anonymous towers found in its "
+        check(len(towers) >= 4, "NYC-JFK's anonymous towers found in its "
                                 "object table (%d)" % len(towers))
 
         h = math.radians(310)                   # the runway's own heading
@@ -162,6 +166,7 @@ def main(argv):
             poke("cs_roll", b"\x00\x00")
             poke("cs_state", b"\x01")
             poke("cs_pause", b"\x01")
+            poke("cs_setbld", b"\x04")     # HIGH: six of these are CSO_DENSE
             for i in range(nobj):
                 r = 15900 if (i in towers and on) else 0
                 m.write(lin + objs + i * CSO_SIZE + CSO_RANGE,
@@ -221,9 +226,9 @@ def main(argv):
         nstk = hits.get("cs_stackverts", 0)
         nrect = hits.get("cs_rect", 0)
         check(nbox == len(towers) and nstk == 0,
-              "at %d m every tower takes the box: cs_boxlod %d, "
+              "at %d m every one of the %d takes the box: cs_boxlod %d, "
               "cs_stackverts %d (want %d and 0)"
-              % (DIST, nbox, nstk, len(towers)))
+              % (DIST, len(towers), nbox, nstk, len(towers)))
         check(nrect >= len(towers),
               "and the box REACHES THE GLASS: cs_rect %d (want %d or more, "
               "so a cs_boxlod that refused would not pass)"
@@ -239,9 +244,9 @@ def main(argv):
         gone = frame_ms()
         per = (on - gone) / len(towers)
         check(per < 7.0,
-              "the four cost %.2f ms a tower (%.1f ms against %.1f), under "
+              "the %d cost %.2f ms a tower (%.1f ms against %.1f), under "
               "the 7 ms that separates the box from the full path"
-              % (per, on, gone))
+              % (len(towers), per, on, gone))
 
     print("skieslod: %s" % ("FAIL - " + "; ".join(bad) if bad else "ok"))
     return 1 if bad else 0

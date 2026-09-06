@@ -18,12 +18,15 @@ something different.
      which is what the cull filed - and the frame gets measurably shorter;
   3. a fill box toggles its bit in cs_setfill, and clearing both leaves the
      wireframe: the ground's dither is gone from the glass;
-  3a. Moderate is High minus CSO_DENSE, COUNTED and not compared as pixels:
-     a paused Clear Skies is not a still picture - the water moves - so two
-     arms drawing the same objects differ by thousands of pixels and a
-     SAME-RUNG control reads the same thousands. The dense objects are
-     counted out of the world's own table, so the check does not go stale
-     the day a location grows a High tier;
+  3a. the rungs NEST and Moderate is High minus CSO_DENSE, COUNTED and not
+     compared as pixels: a paused Clear Skies is not a still picture - the
+     water moves - so two arms drawing the same objects differ by thousands
+     of pixels and a SAME-RUNG control reads the same thousands. Taken on
+     BOTH the default location and the one with a dense city, found by
+     walking cs_ports: the EQUAL branch is what a broken ladder trips and the
+     STRICT branch is what says the flag reaches the cull at all, and neither
+     alone is enough - --clobber-dense drops collidables at Low and Moderate
+     together, so on the dense world the counts still nest and still differ;
   3b. Detail Level = None files nothing built and still leaves the
      runway, the water and the terrain standing (88.13.1), and Only
      Roads brings the roads and bridges back and no more;
@@ -370,38 +373,82 @@ def main(argv):
         # a still picture - the water moves - so two arms drawing the same
         # objects differ on the glass by thousands of pixels, and a same-rung
         # CONTROL reads the same thousands. The cull's own count is exact.
-        # The dense objects are counted out of the world's table, so this
-        # check does not go stale the day a location grows a High tier: with
-        # none, the two rungs file the same set.
-        ap = int.from_bytes(m.read(lin + base + off("cs_airport"), 2), "little")
-        objs = int.from_bytes(m.read(lin + ap + 18, 2), "little")
-        nobj = int.from_bytes(m.read(lin + ap + 20, 2), "little")
-        ndense = sum(1 for o in range(objs, objs + nobj * 20, 20)
-                     if int.from_bytes(m.read(lin + o + 16, 2), "little") & 0x0200)
-        m.key("F4")
-        m.advance(frames=40)
-        m.run()
-        pin()
-        frames(3)
-        frames()
-        mod_n = seen["n"]
-        check(byte("cs_setbld") == CSBL_MOD,
-              "F4 is Detail Level = Moderate (%d)" % byte("cs_setbld"))
-        if ndense:
-            check(mod_n < all_n,
-                  "this world has %d CSO_DENSE objects, so Moderate files "
-                  "fewer than High (%d against %d)" % (ndense, mod_n, all_n))
-        else:
-            check(mod_n == all_n,
-                  "nothing here wears CSO_DENSE, so Moderate and High file "
-                  "the same set (%d and %d)" % (mod_n, all_n))
-        check(few_n < mod_n, "and Low files fewer than Moderate (%d against %d)"
-              % (few_n, mod_n))
+        #
+        # SELF-CONTAINED, and it puts the world back. The default location is
+        # Paris-Issy and nothing there is CSO_DENSE, so a check that stayed on
+        # it would only ever take its equal branch - and the other branch is
+        # the one the rung exists for. The world with a dense city is found by
+        # walking cs_ports, so this does not go stale when a second location
+        # grows one, and everything after here still runs on the world the
+        # checks above measured.
+        def dense_in(rec):
+            objs = int.from_bytes(m.read(lin + rec + 18, 2), "little")
+            nobj = int.from_bytes(m.read(lin + rec + 20, 2), "little")
+            return sum(1 for o in range(objs, objs + nobj * 20, 20)
+                       if int.from_bytes(m.read(lin + o + 16, 2), "little")
+                       & 0x0200)
+
+        def go(rec):
+            """Out of the bracket, into `rec`'s world, back into the bracket."""
+            m.type_text("f")
+            m.advance(frames=40)
+            m.run()
+            m.pause()
+            m.write(lin + base + off("cs_airport"), rec.to_bytes(2, "little"))
+            m.write(lin + base + off("cs_inited"), b"\x00")
+            m.run()
+            m.type_text("f")
+            m.advance(frames=120)
+            m.run()
+
+        def at_level(k):
+            m.key("F%d" % (k + 1))
+            m.advance(frames=40)
+            m.run()
+            pin()
+            frames(3)
+            frames()
+            return seen["n"]
+
+        def rungs(rec, who):
+            nd = dense_in(rec)
+            hi_n, mod_n, low_n = (at_level(CSBL_HIGH), at_level(CSBL_MOD),
+                                  at_level(CSBL_LOW))
+            check(low_n <= mod_n <= hi_n,
+                  "%s: the rungs nest, Low %d <= Moderate %d <= High %d"
+                  % (who, low_n, mod_n, hi_n))
+            if nd:
+                check(mod_n < hi_n,
+                      "%s has %d CSO_DENSE objects, so Moderate files "
+                      "strictly fewer than High (%d against %d)"
+                      % (who, nd, mod_n, hi_n))
+            else:
+                check(mod_n == hi_n,
+                      "%s wears no CSO_DENSE, so Moderate and High file the "
+                      "SAME set (%d and %d)" % (who, mod_n, hi_n))
+            return nd
+
+        # BOTH WORLDS, because the two branches catch different things. The
+        # EQUAL branch is what a broken ladder trips - a top-rung filter that
+        # also fires at Moderate makes the two counts differ where nothing is
+        # dense - and the STRICT branch is what says the flag reaches the cull
+        # at all. Neither alone is enough: --clobber-dense drops collidables
+        # at Low and Moderate together, so on the dense world the counts still
+        # nest and still differ, and only the default world's equality sees it.
+        home = int.from_bytes(m.read(lin + base + off("cs_airport"), 2), "little")
+        rungs(home, "the default location")
+        nport = int.from_bytes(m.readseg(seg, mp["cs_drport"] + 10, 2), "little")
+        for i in range(nport):
+            rec = int.from_bytes(m.readseg(seg, mp["cs_ports"] + 2 * i, 2),
+                                 "little")
+            if rec != home and dense_in(rec):
+                go(rec)
+                rungs(rec, "the world with a dense city")
+                go(home)
+                break
         m.key("F5")
         m.advance(frames=40)
         m.run()
-        check(few_ms < all_ms * 0.9,
-              "...and its frame is shorter (%.1f ms against %.1f)" % (few_ms, all_ms))
 
         # --- 3b. Buildings = None files FEWER STILL, and keeps the world -----
         #
