@@ -1218,7 +1218,15 @@ at_tby      equ at_rby + 2                    ; word: SPEC.md 46.4.10 - the
                                               ; UNERASED - which is a stale
                                               ; picture and how this shipped
                                               ; wrong once.
-at_pastepos equ at_tby + 2
+at_apnd     equ at_tby + 2                    ; byte: SPEC.md 46.4.11 - at_type
+                                              ; inserted a non-styling
+                                              ; character at the END of its
+                                              ; logical line. A ONE-SHOT, set
+                                              ; by at_type and cleared by
+                                              ; at_apply_edit at .see, so no
+                                              ; other caller of that proc can
+                                              ; inherit it.
+at_pastepos equ at_apnd + 1
 at_wlo      equ at_pastepos + 2
 at_whi      equ at_wlo + 2
 at_wplen    equ at_whi + 2

@@ -609,5 +609,48 @@ cannot be wrong about a loop it is inside. **Fifth time in this plan** the
 right answer was a witness rather than an argument, and the first time the
 witness was already in place when the mistake was made.
 
-**What is left**: Wave 6 (`at_append`). 2a, 2b and 4a are settled and refused;
-3b and 3c are built.
+**WAVE 6 IS REFUSED AS SPECIFIED, and answered by §46.4.11 instead.**
+`at_append`'s ceiling is one line's *compose*: a full-width plain line is
+18.9 ms and a one-character one 6.1, so the most it can return is ~13 ms of an
+81.8 ms keystroke — 1.2x on three visual lines — and it wants a strip cache
+with two stamps to do it. The measurement says the target is not the line, it
+is **how many lines**: three at 18.9 is 57 of that 81.8, so the range is 70%
+of a keystroke and `at_append` does not touch it.
+
+**§46.4.11 narrows the range**, and it is a fourth attempt at something part 5
+refused three times — so what makes it different is the whole argument. K1, K4
+and K6 are all predicates over the **staging window**, and the answer is not
+visible there: `at_relayout` converges on old == new at or before the edit, and
+greedy wrap lets a line ending *before* an edit have its break decided by text
+at or after it. This is a predicate over the **edit**, in the one case where
+the wrap cannot reach backwards at all — an **append at the end of the logical
+line**. Greedy wrap is prefix-determined, so no break above the caret's line
+can move; if the append overflows the last line, a visual line appears and the
+count changes, which is a different arm of `at_apply_edit`.
+
+Three conditions: the edit is an append (a one-shot `[at_apnd]`, cleared where
+all three arms of `at_apply_edit` meet *and* on the failed-`at_ins` path that
+never reaches them), the character cannot style (`AT_SPECIAL`, so there is
+still one predicate in the tree), and **every staged line is plain** — 46.4.8's
+bit 3, which is what makes the argument airtight rather than nearly so: a plain
+paragraph holds no `[`, so no link can be COMPLETED by the appended character,
+and `]`, `(` and `)` are not in `AT_SPECIAL`.
+
+**1.87x on three visual lines and 2.29x on six** (82.4 → 44.1 ms, 172.4 →
+75.3, Hercules) for **110 bytes**. It does not flatten the paragraph out of the
+cost — what remains grows with it too, because `at_scan` rescans all of it and
+`at_splice` installs all of it — so the line draws were the larger half rather
+than the whole.
+
+**The row could not witness it as it stood, twice over.** Every paragraph in
+the test document was styled or one visual line long, so the gate was never
+taken: a plain paragraph long enough to wrap onto three lines had to be added.
+Then removing the end-of-line test on purpose was STILL green, because the
+document's only mid-paragraph edit is 20 characters back from the end — the
+LAST visual line of its paragraph, where nothing is pushed past a wrap. Two
+ArrowUps and four characters is what made it red, at 2,481 differing pixels.
+**Sixth time in this plan**, and the second in a row, that the fix was a
+witness rather than an assertion.
+
+**What is left**: nothing in this plan. 2a, 2b, 4a and Wave 6 are settled and
+refused; everything else is built.

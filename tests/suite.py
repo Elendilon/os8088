@@ -2595,7 +2595,7 @@ SOAK = [
         "a figure. It reads at_rlk back afterwards, which is what turns "
         "46.1's honest 'that paragraph's visual lines' into a table.",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("atblit", "soak", py("tests/atblit.py"), 90.0,
+    Row("atblit", "soak", py("tests/atblit.py"), 165.0,
         "SPEC.md 46.4.2: does ArtfulType's BAND emit draw the same picture as "
         "the expander it replaced? at_draw_line hands at_compose's 1bpp strip "
         "straight to OSAPI_GFX_BLIT1 now instead of widening it to packed "
@@ -2612,7 +2612,16 @@ SOAK = [
         "ITS TYPING on the app's own at_caret: type_text outruns a 4.77MHz "
         "ArtfulType, the key queue overflows, and the two arms then receive "
         "different documents - which reads exactly like a rendering bug. "
-        "Rebuilds the tree, like blitplane, because the A/B is two packages.",
+        "Rebuilds the tree, like blitplane, because the A/B is two packages. "
+        "It GENERALISES: --knob picks which of ArtfulType's A/Bs to run and "
+        "every one of them must draw the identical picture, so a wave adds a "
+        "knob rather than a row. Six scenes, and three of them exist because "
+        "a break test came back green - the SPLASH is at_bigtext and "
+        "at_drawimg, which an audit of atrend.inc misses; the ZOOMED-IN one "
+        "is the only state in which a plain line renders above scale 1 "
+        "(SPEC.md 46.4.9); and the document's mid-paragraph edit had to gain "
+        "two ArrowUps before anything could be pushed past a wrap "
+        "(SPEC.md 46.4.11).",
         needs=("marty", "nasm"), serial=True, timeout=900),
     Row("blitplane", "soak", py("tests/blitplane.py"), 180.0,
         "SPEC.md 5.4.1.3: does gfx_blit4's PLANAR DECODER draw the same "

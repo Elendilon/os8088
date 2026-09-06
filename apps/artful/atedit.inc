@@ -196,6 +196,33 @@ at_type:
     mov ax, [at_caret]
     call at_gapto
     pop ax                          ; the char back - at_ins stores AL
+%ifndef NOATONE
+    ; SPEC.md 46.4.11: is this an APPEND? The caret at the end of its logical
+    ; line, with a character that cannot style. Greedy wrap is prefix-
+    ; determined, so nothing above the caret's line can move - and
+    ; at_apply_edit then repaints that one line instead of the paragraph.
+    ; A newline is excluded here because it changes the line COUNT, which is
+    ; a different arm of at_apply_edit entirely.
+    mov byte [at_apnd], 0
+    cmp al, AT_NL
+    je .noap
+    AT_SPECIAL .noap
+    push ax
+    push bx
+    mov bx, [at_caret]
+    call at_dlen                    ; AX = the document's length
+    cmp bx, ax
+    jae .apyes                      ; the caret is at the document's end
+    call at_getb                    ; AL = the byte the caret stands before
+    cmp al, AT_NL
+    jne .apno
+.apyes:
+    mov byte [at_apnd], 1
+.apno:
+    pop bx
+    pop ax
+.noap:
+%endif
     call at_ins
     jc .out
     mov ax, [at_caret]
@@ -209,6 +236,12 @@ at_type:
     pop ax
     call at_apply_edit
 .out:
+%ifndef NOATONE
+    mov byte [at_apnd], 0           ; SPEC.md 46.4.11: at_apply_edit clears it
+%endif                              ; on every path it runs, but a FAILED
+                                    ; at_ins never reaches it - and a 1 left
+                                    ; here would narrow the NEXT edit, which
+                                    ; is any key at all
     pop dx
     pop cx
     pop bx
@@ -345,6 +378,27 @@ at_apply_edit:
     mov dx, bx
     add dx, [at_rlk]
     dec dx
+%ifndef NOATONE
+    cmp byte [at_apnd], 0           ; SPEC.md 46.4.11
+    je .range
+    mov cx, [at_rlk]                ; ...and EVERY staged line plain (46.4.8's
+.plchk:                             ; bit 3): a paragraph with no ` * ~ [ in
+    test byte [bx+at_lattr], 8      ; it can have no span opened or closed and
+    jz .notone                      ; no link COMPLETED by the appended
+    inc bx                          ; character - which ] ( ) could otherwise
+    loop .plchk                     ; do, and none of those is in AT_SPECIAL
+    mov ax, [at_caret]
+    call at_line_of                 ; BX = the caret's own visual line, which
+    cmp bx, [at_dfrom]              ; is NOT at_dfrom+at_rlk-1: at the
+    jb .notone                      ; document's end at_rlk can count a
+    cmp bx, dx                      ; trailing empty line, and narrowing to
+    ja .notone                      ; that draws no typed character at all
+    mov dx, bx
+    jmp short .range
+.notone:
+    mov bx, [at_dfrom]
+%endif
+.range:
     call at_redraw_range
     jmp short .see
 .below:
@@ -371,6 +425,9 @@ at_apply_edit:
     call at_draw_text
     call at_sbar
 .see:
+%ifndef NOATONE
+    mov byte [at_apnd], 0           ; SPEC.md 46.4.11: a ONE-SHOT, cleared on
+%endif                              ; the path all three arms above reach
     call at_seecaret
     call at_caret_on
     pop dx

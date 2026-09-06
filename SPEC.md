@@ -60508,6 +60508,66 @@ whatever was underneath. Both arms of `at_draw_line` cannot refuse together —
 `kern_big`'s fallback — so this is a difference in a state the app does not
 have, and it is written down rather than measured.
 
+#### 46.4.11 An APPEND to a plain paragraph repaints one line, not `at_rlk`
+
+§46.1 is honest that a keystroke is `at_rlk` lines and not one, and after the
+waves above that is **70% of what a keystroke costs**: on a Hercules a
+full-width plain line is 18.9 ms and a three-visual-line keystroke is 81.8, so
+three line draws are 57 of it. A six-line paragraph is ~139 ms for one
+character.
+
+Three attempts to narrow that range are refused in
+`docs/plans/ARTFUL-PERF-PLAN.md` part 5 (K1, K4, K6) and **all three are
+predicates over the staging window** — they ask which staged entries changed,
+and the answer is not visible there: `at_relayout`'s own convergence makes
+old == new at or before the edit, and greedy wrap lets a line ending *before*
+an edit have its break decided by text at or after it.
+
+This is a predicate over the **EDIT**, and it is the one case where the wrap
+cannot reach backwards at all: an **append at the end of the logical line**.
+Greedy wrap is prefix-determined — line *j*'s break is a function of the text
+before it and of the next word, both of which lie before the append — so no
+break above the caret's line can move. If the append pushes the last line over
+the width, a visual line appears and the count changes, which is a different
+arm of `at_apply_edit` entirely.
+
+Three conditions, all cheap, and the repaint becomes the caret's line alone:
+
+1. **The edit is an append.** `at_type` sets `[at_apnd]` on its no-selection
+   path when the byte at `[at_caret]` is `AT_NL` or the document ends there.
+   It is a one-shot: `at_apply_edit` clears it at `.see`, which all three of
+   its arms reach, so no other caller can inherit it.
+2. **The character cannot style.** `AT_SPECIAL` is the same four-character list
+   §46.4.8's flag is defined by, so there is still only one predicate in the
+   tree — and a newline is excluded because it changes the count.
+3. **Every staged line is PLAIN** — §46.4.8's bit 3, already computed by
+   `at_scan`. This is what makes the argument airtight rather than nearly so:
+   a plain paragraph contains no `` ` ``, `*`, `~` or `[`, so no span can be
+   opened or closed and **no link can be completed** by the appended
+   character. `]`, `(` and `)` are not in `AT_SPECIAL` and would otherwise be
+   able to finish a `[text](url)` whose `[` is on an earlier visual line.
+
+The line to repaint is `at_line_of([at_caret])` and **not** the last staged
+entry: at the document's end `at_layout` can emit a trailing empty line that
+`at_rlk` counts, and narrowing to that one would repaint the empty line and
+never draw the typed character. `at_line_of` answers with the last line whose
+start is `<= pos`, and a trailing empty line's start is strictly greater than
+a caret standing before the newline, so it cannot be chosen wrongly. It is
+still bounds-checked against `[at_dfrom] .. [at_dfrom]+[at_rlk]-1` and falls
+back to the whole range if it lands outside.
+
+**Measured on a Hercules**: a keystroke in a plain paragraph of three visual
+lines is **82.4 → 44.1 ms (1.87x)** and of six visual lines **172.4 → 75.3
+(2.29x)**. It does **not** flatten the paragraph out of the cost, and that is
+worth knowing: what is left grows with the paragraph too, because `at_scan`
+rescans all of it (§46.3.1) and `at_splice` installs all of it. The line draws
+were the larger half, not the whole. **110 bytes.**
+
+`NOATONE=1` is the A/B, and `tests/atblit.py` carries a plain paragraph long
+enough to wrap for it: every other paragraph in that document is styled or one
+visual line long, so without one the gate is never taken and the row is green
+whatever it does.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what

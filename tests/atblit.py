@@ -92,7 +92,20 @@ DOC = ["# *Heading* one",
        # characters over three visual lines puts one in nearly every
        # overshoot; the wrapped run above has its delimiters at the ends and
        # never does.
-       " ".join("*%c*" % c for c in "abcdefghijklmnopqrstuvwxyzabcdefghijklmn")]
+       " ".join("*%c*" % c for c in "abcdefghijklmnopqrstuvwxyzabcdefghijklmn"),
+       # ...and a PLAIN paragraph long enough to wrap onto three visual lines
+       # on the narrowest adapter. SPEC.md 46.4.11 repaints ONE line instead
+       # of the paragraph when the edit is an append to a plain one, and every
+       # other paragraph above is either styled or one visual line long - so
+       # without this the gate is never taken and the row is green whatever it
+       # does. It has to be PLAIN in 46.4.8's sense: no ` * ~ [ anywhere in
+       # it, which also rules out an apostrophe-free reading of the rule (the
+       # four characters are the whole list).
+       "this plain paragraph is deliberately long enough that it wraps onto "
+       "three visual lines even on the narrowest of the three adapters, "
+       "which is what makes it the witness for the one line repaint, and it "
+       "carries no delimiter of any kind so that every keystroke in it takes "
+       "the gate rather than the general path below it"]
 
 CARDS = {"cga":  "os8088_5150_cga_gla",
          "herc": "os8088_5150_herc_gla",
@@ -235,6 +248,18 @@ def drive(img, apps, machine, card, tree, census, shot=None):
         for _ in range(20):
             key1(lambda: m.key("ArrowLeft"), "ArrowLeft")
         for ch in "MID":
+            typec(ch)
+        # ...and an edit with text after it ON LATER VISUAL LINES, which the
+        # one above has not got: 20 characters back from the end of the
+        # document is still the LAST visual line of its paragraph, so nothing
+        # is pushed past a wrap and every line below it is already correct.
+        # SPEC.md 46.4.11 narrows an APPEND to one line, and removing its
+        # end-of-line test on purpose was GREEN until this existed - the two
+        # ArrowUps put the caret two visual lines up a plain paragraph, where
+        # typing pushes a word over a wrap and the lines after it change.
+        for _ in range(2):
+            key1(lambda: m.key("ArrowUp"), "ArrowUp")
+        for ch in "QQQQ":
             typec(ch)
         ui.settle()
         w, h, rgb = m.fbuf()                       # SCENE 2: the document
