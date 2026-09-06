@@ -5,7 +5,7 @@
 > section. Everything below is a design, and §16 is the list of decisions that
 > are the user's rather than this document's.
 >
-> **The section number is §88.** Verified this session:
+> **The section number is 88.** Verified this session:
 > `grep -oE '^## [0-9]+\.' SPEC.md | tail -15` shows 73 through 87 taken and
 > nothing above; §82 is `CHART`.
 >
@@ -310,7 +310,7 @@ two `.cold` bodies; the table assertion `161 * 8` → `163 * 8`, verified at
 byte); `kernel/snd.inc` (`spk_tone`/`spk_pcm_start` refuse while the PIT is
 lent); `kernel/compress.inc` (one new DL verb on `cmz_verb`);
 `apps/os88api.inc` (two `%define`s and their contract blocks); `Makefile`;
-`tests/suite.py` (nine rows plus the fixture rules); `SPEC.md` (§88, the §34.1
+`tests/suite.py` (nine rows plus the fixture rules); `SPEC.md` (the new section 88, the §34.1
 amendment, and §14's corrections);
 `tools/martypc/configs/os8088_machines.toml` (one `[[machine]]` block).
 
@@ -735,7 +735,7 @@ typed.
 
 **The top row is kern_big's.** §6.5 states the per-kernel ceiling.
 
-### 3.6 The freeze paragraph — for SPEC.md §88, the release note and the About box
+### 3.6 The freeze paragraph — for SPEC.md section 88, the release note and the About box
 
 > **What "does not freeze" means here.** The IBM cassette interface has **no
 > DMA**: the data path is PPI port C bit 4 in and PIT channel 2 out, polled on
@@ -1596,7 +1596,7 @@ single-store fast path with it.
 
 ### 7.2 The animation — a decelerating coast, priced at 16×16 and not at 12×12
 
-**Not a spinner, and this argument goes into SPEC.md §88 verbatim so that
+**Not a spinner, and this argument goes into SPEC.md section 88 verbatim so that
 nobody "fixes" it later:**
 
 > A continuous spinner implies continuous motion, and stopped dead for nine
@@ -2329,7 +2329,7 @@ fallback.
     NEC V20 outright; and **no instrument in this project can exercise a
     cassette read at all.** Shipping an unverifiable decoder that writes to the
     user's only backup medium is worse than shipping a slow, verified one.
-    §12.5.
+    See 12.5 below.
 11. **An in-record animation from a replacement `int 08h`.** Three conditions
     and a hazard for two frames a second: it works only during a **write**, only
     on the genuine **IBM ROM** (GLaBIOS masks IRQ0 itself for both directions,
@@ -2519,7 +2519,7 @@ testable.
 | wave | what | gate |
 |---:|---|---|
 | **0** | **Ask §13.0's field prerequisite, and get §16 rows 1 and 2 answered.** Then land §14.1, §14.2 and §14.4's SDK-name correction | `python3 tools/checkdocs.py` |
-| **1** | **Write SPEC.md §88 — before the code**, together with §14.3's §34.1 amendment. §3.6's freeze paragraph, §4.1's two-ROM pad and start-bit note, §4.2's field table, §4.5's invariant and the GLaBIOS overrun, §7.2's "why not a spinner", and §11's refusals are the load-bearing parts | `checkdocs.py`, and `make test-fast` |
+| **1** | **Write SPEC.md section 88 — before the code**, together with 14.3's SPEC.md §34.1 amendment. §3.6's freeze paragraph, §4.1's two-ROM pad and start-bit note, §4.2's field table, §4.5's invariant and the GLaBIOS overrun, §7.2's "why not a spinner", and §11's refusals are the load-bearing parts | `checkdocs.py`, and `make test-fast` |
 | **2** | **`tools/os88tape.py`** with `--rom ibm|glabios` and `--selfcheck`, **`t_tapefmt`**, **`t_tapedet`** and its committed ROM fixture. **The format is settled before a byte of 8086 is written, and §0.4's tables become things the tool PRINTS.** This matters more here than anywhere else in the tree, because no emulator can check the machine | `make test-fast` |
 | **3** | **`OSAPI_PIT_LEND`** (§5.1) — the cell, `[sch_pitbios]`, the three kernel guards, and the §34.1 amendment made good. **`tests/tapequantum.py`** is its gate and can be written before any tape code exists: a `QUANTUM=2` kernel, a caller that asks for the lend, an assertion that it is refused and the tick rate is intact | `make test-full`, then `os88test.py soak -k 'tapequantum'` |
 | **4** | **`OSAPI_COMPRESS`** (§5.2) — the cell and the cloner's new DL verb. **`tapecomp`, including the `cmz_pack` cycle measurement and the 128 KB NOMEM leg**, so the CPU-versus-tape trade stops being modelled | `make test-full`, then `soak -k 'tapecomp'` |
@@ -2534,7 +2534,7 @@ testable.
 | # | question | what hangs on it |
 |---:|---|---|
 | **1** | **May a new kernel cell write PIT channel 0?** SPEC.md §34.1 says *"PIT channel 0 is never written"* and carries a **recorded refusal** about re-rating it. §5.1 is a narrow exception — one call's worth, IRQ0 masked, refused outright on a `QUANTUM=` kernel — but it is still an amendment to a rule written to stop this conversation recurring. **Cost: 47 resident bytes, all in `KERN_CODE_MAX`.** If the answer is no, **the READ path is impossible** and the honest v1 is write-and-verify-only on a machine that can never read its own tapes back — which is arguably not a feature at all. There is no third option: an 8253 has no read-back, so a package cannot restore what it did not know. |
-| **2** | **Is there a deck?** §13.0. Is the DIN-5 port populated on 5150 #1, and is there a working data cassette recorder and cable? **If not, §0.1's finding, the error rate, the wall-clock model and the whole read path go unverified for ever**, because §10.4 lists every instrument here and none of them can do it. It is legitimate to build it anyway and say so in SPEC.md §88; it is not legitimate to build it and imply it was tested. |
+| **2** | **Is there a deck?** §13.0. Is the DIN-5 port populated on 5150 #1, and is there a working data cassette recorder and cable? **If not, §0.1's finding, the error rate, the wall-clock model and the whole read path go unverified for ever**, because §10.4 lists every instrument here and none of them can do it. It is legitimate to build it anyway and say so in SPEC.md section 88; it is not legitimate to build it and imply it was tested. |
 | **3** | **Is "the motor keeps turning through a Restart" acceptable?** §3.7: `ui_cmd_reboot` reaches `drv_shutdown_x` and no package, so System ▸ Restart with a transfer armed leaves the relay energised until POST rewrites port 61h ~a second later. **The tree has exactly one mechanism for "hardware must be put back before `int 19h`" and it is `drv_tab`-only** — so this is the one surviving argument for the `TAPE.DRV` §1.2 refuses on 129 resident bytes and the loss of kern_small. Accept the second of relay, or re-open the driver? |
 | **4** | **Is refusing sound for the length of a transfer right?** §5.1's claim holds ch2 and the speaker for the whole operation, so a tone playing when Go is pressed **refuses the transfer** and a tone started during one is refused. That is SPEC.md §34.1's one-owner rule honoured exactly, and it is stricter than the "clipped beep" an earlier draft accepted. Five minutes of no sound is a long time. |
 | **5** | **`TP_MAXFILE = 32,768`, or a multi-tape-record continuation?** 32 KB is 5:09 each way and the refusal costs 20 bytes and prints the arithmetic; the continuation is ~400 bytes plus two header fields plus a "wrong part" refusal (§12.6). And on kern_small the *live* ceiling is ~20 KB whatever the format says (§6.5). |
