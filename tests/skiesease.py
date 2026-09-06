@@ -107,7 +107,14 @@ def main(argv):
             ui.mo.click((po[0] + po[2]) // 2, (po[1] + po[3]) // 2)
             m.advance(frames=20)
             m.run()
-            ui.mo.click(po[0] + 20, po[3] + 2 + 12 * row + 6)
+            # THE OPEN LIST'S FIRST ROW IS OS88UI_DR_TOP (SPEC.md 13.14.2)
+            # and no longer the row under the box: a list that would not fit
+            # below its control slides UP into the window. The Plane list is
+            # short enough that the two agree today, and the arithmetic that
+            # assumed it would drift silently the moment a sixth aeroplane is
+            # written - it would click a row and pick another.
+            top = rec(mp["cs_drplane"], 22)
+            ui.mo.click(po[0] + 20, top + 1 + 12 * row + 6)
             m.advance(frames=20)
             m.run()
 

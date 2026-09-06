@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NOTHING IN PARIS STANDS IN THE SEINE (SPEC.md 88.6.3).
+"""NOTHING IN ANY WORLD STANDS IN ITS OWN WATER (SPEC.md 88.6.3).
 
 The Eiffel Tower's object sat at the map's origin, and the tower's base is
 124 m across: one corner of it was 15.7 m inside the near bank of
@@ -13,6 +13,13 @@ So this walks the world as the game reads it: the object table and the
 models are decoded out of `build/skies.bin`, at the offsets the package's
 own equates give, and every collidable building's ground footprint is held
 against every river polygon. Host-side, no emulator, one second.
+
+SINCE 88.6.4 THERE ARE NINE LOCATIONS AND SEVEN WORLDS, so it walks them
+all: the location table `cs_ports` is the list, and each row's CSA_OBJS and
+CSA_NOBJ name the world it stands in. Two locations sharing one world (the
+two Paris runways do) are walked once. A world with no water is reported
+and skipped, which is not a pass it earned - it is a world with nothing for
+this gate to say.
 
 It is deliberately about the WATER and not about buildings overlapping each
 other: two blocks sharing a corner is a skyline, and a basilica standing in
@@ -34,9 +41,13 @@ def equates(src):
     equates and so are not in the map dispapps builds."""
     out = {}
     for line in open(src):
-        m = re.match(r"^(CS[MOIF]_[A-Z0-9_]+)\s+equ\s+(-?\d+)", line)
+        m = re.match(r"^(CS[A-Z]*_[A-Z0-9_]+)\s+equ\s+"
+                     r"(-?(?:0[xX][0-9A-Fa-f]+|\d+))\s*(?:;|$)", line)
         if m:
-            out[m.group(1)] = int(m.group(2))
+            # base 0, because CSO_POI is `equ 0x0100` and a `\d+` reader takes
+            # the leading 0 and calls it zero - which is a flag test that is
+            # always false and a gate that passes because it tested nothing
+            out[m.group(1)] = int(m.group(2), 0)
     return out
 
 
@@ -46,7 +57,9 @@ def main():
     E = equates(os.path.join(ROOT, "apps", "skies", "skies.asm"))
     need = ["CSM_TYPE", "CSM_NV", "CSM_NF", "CSM_RAD", "CSM_VERTS", "CSM_FACES",
             "CSM_FLAT", "CSM_STACK", "CSO_MODEL", "CSO_X", "CSO_Z", "CSO_FLAGS",
-            "CSO_SIZE", "CSO_COLLIDE", "CSI_RIVER"]
+            "CSO_SIZE", "CSO_COLLIDE", "CSO_NAME", "CSI_RIVER", "CSA_NAME",
+            "CSA_OBJS",
+            "CSA_NOBJ", "CSA_SIZE"]
     miss = [n for n in need if n not in E]
     if miss:
         sys.exit("t_csworld: skies.asm no longer defines %s" % ", ".join(miss))
@@ -60,22 +73,42 @@ def main():
                 "nf": img[at + E["CSM_NF"]], "rad": w(at + E["CSM_RAD"]),
                 "verts": w(at + E["CSM_VERTS"]), "faces": w(at + E["CSM_FACES"])}
 
-    rivers, bases = [], []
-    for o in range(mp["cs_objtab"], mp["cs_objend"], E["CSO_SIZE"]):
-        md = model(w(o + E["CSO_MODEL"]))
-        ox, oz = w(o + E["CSO_X"]), w(o + E["CSO_Z"])
-        if md["type"] == E["CSM_FLAT"]:
-            f = md["faces"]
-            for _ in range(md["nf"]):
-                n, ink = img[f], img[f + 1]
-                idx = list(img[f + 3:f + 3 + n])
-                if ink == E["CSI_RIVER"]:
-                    rivers.append([(ox + w(md["verts"] + 4 * i),
-                                    oz + w(md["verts"] + 4 * i + 2)) for i in idx])
-                f += 3 + n
-        elif md["type"] == E["CSM_STACK"] and (w(o + E["CSO_FLAGS"]) & E["CSO_COLLIDE"]):
-            wx, wz = w(md["verts"]), w(md["verts"] + 4)      # the first level
-            bases.append((o, ox, oz, abs(wx), abs(wz)))
+    def zstr(at):
+        return img[at:].split(b"\0")[0].decode("ascii", "replace")
+
+    # THE LOCATIONS, out of the table skies.asm's drop-down reads (88.6.4).
+    # cs_apnames is declared immediately after cs_ports, so the gap between
+    # them IS the count - which is what CS_NPORTS says in a form no equate
+    # reader can evaluate.
+    n_ports = (mp["cs_apnames"] - mp["cs_ports"]) // 2
+    if n_ports < 2:
+        sys.exit("t_csworld: cs_ports/cs_apnames are not the pair this reads")
+    worlds = {}
+    for i in range(n_ports):
+        a = w(mp["cs_ports"] + 2 * i)
+        key = (w(a + E["CSA_OBJS"]), w(a + E["CSA_NOBJ"]))
+        worlds.setdefault(key, []).append(zstr(w(a + E["CSA_NAME"])))
+
+    def walk(objs, nobj):
+        rivers, bases = [], []
+        for o in range(objs, objs + nobj * E["CSO_SIZE"], E["CSO_SIZE"]):
+            md = model(w(o + E["CSO_MODEL"]))
+            ox, oz = w(o + E["CSO_X"]), w(o + E["CSO_Z"])
+            if md["type"] == E["CSM_FLAT"]:
+                f = md["faces"]
+                for _ in range(md["nf"]):
+                    n, ink = img[f], img[f + 1]
+                    idx = list(img[f + 3:f + 3 + n])
+                    if ink == E["CSI_RIVER"]:
+                        rivers.append([(ox + w(md["verts"] + 4 * i),
+                                        oz + w(md["verts"] + 4 * i + 2))
+                                       for i in idx])
+                    f += 3 + n
+            elif md["type"] == E["CSM_STACK"] and (w(o + E["CSO_FLAGS"])
+                                                   & E["CSO_COLLIDE"]):
+                wx, wz = w(md["verts"]), w(md["verts"] + 4)   # the first level
+                bases.append((o, ox, oz, abs(wx), abs(wz)))
+        return rivers, bases
 
     def seg_dist(p, a, b):
         (px, pz), (ax, az), (bx, bz) = p, a, b
@@ -125,27 +158,41 @@ def main():
                                for i in range(len(Q))))
         return d
 
-    worst, where, bad = 1e9, None, []
-    for o, ox, oz, hx, hz in bases:
-        name = img[w(o + 14):].split(b"\0")[0].decode("ascii", "replace")
-        foot = [(ox + hx, oz + hz), (ox - hx, oz + hz),
-                (ox - hx, oz - hz), (ox + hx, oz - hz)]
-        for poly in rivers:
-            d = gap(foot, poly)
-            if d < worst:
-                worst, where = d, name
-            if d < MARGIN:
-                bad.append("%s (%d,%d, %dx%d m) is %s the Seine"
-                           % (name, ox, oz, 2 * hx, 2 * hz,
-                              "IN" if d < 0 else "%.1f m from" % d))
+    bad, lines = [], []
+    for (objs, nobj), names in sorted(worlds.items(), key=lambda kv: kv[1][0]):
+        rivers, bases = walk(objs, nobj)
+        who = "/".join(names)
+        if not rivers:
+            lines.append("  %-24s %2d objects, %2d collidable, NO WATER"
+                         % (who, nobj, len(bases)))
+            continue
+        worst, where = 1e9, None
+        for o, ox, oz, hx, hz in bases:
+            name = zstr(w(o + E["CSO_NAME"]))
+            foot = [(ox + hx, oz + hz), (ox - hx, oz + hz),
+                    (ox - hx, oz - hz), (ox + hx, oz - hz)]
+            for poly in rivers:
+                d = gap(foot, poly)
+                if d < worst:
+                    worst, where = d, name
+                if d < MARGIN:
+                    bad.append("%s: %s (%d,%d, %dx%d m) is %s the water"
+                               % (who, name, ox, oz, 2 * hx, 2 * hz,
+                                  "IN" if d < 0 else "%.1f m from" % d))
+        lines.append("  %-24s %2d objects, %2d collidable vs %2d water "
+                     "polygons, nearest %s at %.1f m"
+                     % (who, nobj, len(bases), len(rivers), where, worst))
 
+    for L in lines:
+        print(L)
     if bad:
+        print()
         for b in sorted(set(bad)):
             print("  " + b)
         sys.exit("t_csworld: %d building corner(s) in or against the water "
                  "(SPEC.md 88.6.3 wants %d m of daylight)" % (len(set(bad)), MARGIN))
-    print("  csworld: %d collidable bases against %d river polygons, nearest "
-          "%s at %.1f m (SPEC.md 88.6.3)" % (len(bases), len(rivers), where, worst))
+    print("  csworld: %d worlds behind %d locations, all clear of their own "
+          "water (SPEC.md 88.6.3, 88.6.4)" % (len(worlds), n_ports))
 
 
 if __name__ == "__main__":

@@ -4459,12 +4459,16 @@ $(BUILD)/tank.o88: $(BUILD)/tank.bin tools/os88pkg.py $(PKGZSTAMP)
 # CLEAR SKIES (SPEC.md 88): a filled-polygon flight simulator over Paris, in
 # the same foreign-mode fsx bracket as TANK ATTACK - every pixel its own, no
 # kernel drawing slot past fsx_mode. Six sources: the raster, the geometry,
-# the world, the flight model, the session, and the generated sine table.
+# the world, the flight model, the session, and the generated sine table -
+# plus ONE FILE PER LOCATION since SPEC.md 88.6.4 (csw_*.inc, %included by
+# csworld.inc, and a wildcard here so a tenth of them is a file and not a
+# Makefile edge nobody remembers).
+CSWORLDS := $(wildcard apps/skies/csw_*.inc)
 $(BUILD)/skies.bin: apps/skies/skies.asm apps/skies/csraster.inc \
                     apps/skies/cs3d.inc apps/skies/csworld.inc \
                     apps/skies/csflight.inc apps/skies/csgame.inc \
                     apps/skies/cspanel.inc apps/skies/cssin.inc \
-                    apps/skies/csart.inc \
+                    apps/skies/csart.inc $(CSWORLDS) \
                     apps/os88api.inc apps/os88ui.inc \
                     | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/skies/ -o $@ apps/skies/skies.asm
@@ -8052,9 +8056,20 @@ APPS_DATA_360   := $(filter-out $(MEDIA_DISK_DATA),$(APPS_DATA))
 # the symptom was 'Disk error' on a module that had been fine an hour earlier.
 ZDATA := $(BUILD)/zdata$(if $(PKGZ),-$(PKGZ))
 ifneq ($(PKGZ),)
-APPS_DATA_360 := $(ZDATA)/BEVERLY.MOD $(ZDATA)/PAPER.TEX $(ZDATA)/GUIDE.TEX \
-                 $(ZDATA)/DEMO.HTM
-APPS_DATA     := $(APPS_DATA_360)
+# ...AND THE COLLAPSE UN-COLLAPSED (SPEC.md 88.6.4). The paragraph above is
+# still true - 42 clusters is not 114 - but it was true with 37 of the 354 to
+# spare, and CLEAR SKIES' nine locations spend 6 of them. The 360KB apps disk
+# came out at 355 clusters against 354, so the module goes back to riding
+# build/media360.img alone, which is the split SPEC.md 24.4 designed and this
+# branch had merely made unnecessary. The .TEX pair and the browser's page
+# stay, so MEDIA/ is still a folder with files in it (see APPS_DATA_360 above,
+# whose reasoning this restores rather than replaces).
+#
+# It is one cluster, so the next person to add anything is in this decision
+# too: 42 is the whole of the slack, and it came from a file rather than from
+# a package getting smaller.
+APPS_DATA_360 := $(ZDATA)/PAPER.TEX $(ZDATA)/GUIDE.TEX $(ZDATA)/DEMO.HTM
+APPS_DATA     := $(ZDATA)/BEVERLY.MOD $(APPS_DATA_360)
 MEDIA_DISK_DATA := $(ZDATA)/BEVERLY.MOD
 endif
 

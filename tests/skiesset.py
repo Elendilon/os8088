@@ -185,12 +185,18 @@ def main(argv):
         m.pause()
         _, _, now = m.vram()
         m.run()
+        # ...and WHERE it is drawn is OS88UI_DR_TOP (SPEC.md 13.14.2), not the
+        # row under the box: a list too tall for the room below its control
+        # slides UP into the window. The page's three-item lists all still fit
+        # below theirs, so the two agree here - but reading the record is what
+        # keeps this row true if a fourth item is ever added to one of them.
+        top = int.from_bytes(m.readseg(seg, mp["cs_drbld"] + 22, 2), "little")
         drew = sum(sum(1 for x in range(r[0], r[2] + 1)
                        if was[y][x] != now[y][x])
-                   for y in range(r[3] + 1, min(r[3] + 38, len(was))))
-        check(drew > 200, "...and the list is ON THE GLASS under the box "
-                          "(%d pixels changed)" % drew)
-        click(r[0] + 20, r[3] + 2 + 6)              # the first item: Few
+                   for y in range(top, min(top + 38, len(was))))
+        check(drew > 200, "...and the list is ON THE GLASS where os88ui_drfit "
+                          "put it (%d pixels changed)" % drew)
+        click(r[0] + 20, top + 1 + 6)               # the first item: Few
         check(byte("cs_setbld") == CSBL_FEW,
               "picking Few sets the buildings level (%d)" % byte("cs_setbld"))
 
@@ -264,7 +270,13 @@ def main(argv):
                     ((-20 * 65536 // 360) & 0xFFFF).to_bytes(2, "little"))
             m.write(lin + base + off("cs_state"), b"\x01")
             m.write(lin + base + off("cs_pause"), b"\x01")
-            for o in range(mp["cs_objtab"], mp["cs_objend"], 20):
+            # THE WORLD IS THE PICKED LOCATION'S since SPEC.md 88.6.4, so the
+            # skips to clear are the ones in the table its record names and
+            # not a global cs_objtab, which no longer exists.
+            ap = int.from_bytes(m.read(lin + base + off("cs_airport"), 2), "little")
+            objs = int.from_bytes(m.read(lin + ap + 18, 2), "little")
+            nobj = int.from_bytes(m.read(lin + ap + 20, 2), "little")
+            for o in range(objs, objs + nobj * 20, 20):
                 m.write(lin + o + 18, b"\x00\x00")
             m.run()
 
