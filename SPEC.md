@@ -94987,6 +94987,38 @@ rotation matrix's entries are bounded by 1 and the products are truncated,
 so no sum of two reaches 32768; cos 0 is 32767 and the 1/32768 it is short
 is nobody's pixel.
 
+#### 88.5.9 …and the table is a QUARTER of the turn
+
+`cssin.inc` held 1,024 entries — a whole turn at 2,048 bytes — and three
+quarters of it are the first quarter reflected and negated. It holds 257 now
+(**514 bytes**, saving 1,534), and `cs_sin` reads the index's top two bits as
+the quadrant: bit 8 says the quarter runs backwards, bit 9 says the result is
+below the axis. Two tests and a `neg`.
+
+**That is a size change and not a speed one, and the reason it is allowed to
+be is the call count**: `cs_sin`/`cs_cos` have **twenty-five call sites in
+the whole package**, all of them in the matrix, the flight model and the
+panel — §88.5's *one matrix a frame* is exactly why this is not the
+per-vertex path, and the nine multiplies a vertex never touch it.
+
+It was made a size change by a MERGE. Two branches of Clear Skies, each with
+a few hundred bytes of headroom, met at 360 bytes over `APP_MAX_SIZE` — which
+is the whole of what that guard is for. The next lever is much larger and is
+written down here so it does not have to be found again: **`csart.inc` is
+10,479 bytes, 21.6% of the image**, it is data rather than code, and §20.12's
+embedded parts are the mechanism for exactly that (`apps/c64` carries 20,480
+bytes of ROM as part 0). Four of its five aeroplane bands are dead weight at
+any moment.
+
+**One value changed by one unit.** The old table clamped only the positive
+peak, so sin 270° was −32,768; a quarter table's peaks are symmetric and it
+is −32,767 — the same 1/32768 §88.5.3 already calls nobody's pixel, at one
+index of 1,024. `tests/unit/t_cssin.py` asserts that difference rather than
+tolerating it, holds the 257 entries to §88.5's own snippet, and walks the
+reflection over a whole turn against `sin` itself. The axis crossings stay
+EXACT, which matters: §88.9.2.2's divide by `cos` depends on cos ±90° being
+exactly zero.
+
 #### 88.5.4 Levels of detail, all about pixels
 
 The measure is `cs_sizepx`: **0.75 of the model's radius times the vertical
@@ -95578,6 +95610,49 @@ It moves the picture by **52 pixels of 252,000** at the take-off view and by
 **none at all** at 4 km, 2 km or over midtown, those being the ranges where
 the gate already fell the right way. `tests/skieslod.py` is the row, and its
 `--clobber-lod` NOPs the two instructions to put the wrapping product back.
+
+##### 88.5.4.3 A REFUSED impostor left the full path at the wrong scale
+
+Reported off a 10 MHz 8086 with VGA, on High detail and High draw distance:
+*"some of them flicker in and out of existence — the tall tower visible from
+take-off at JFK will flicker as I taxi down the runway"*, and *"at the runway
+the skyline looks amazing, but at a medium distance all of the boxes shrink
+and don't draw properly to the actual building's size or shape"*. Two
+reports, one defect.
+
+`cs_boxlod` works in **whole metres** and sets `cs_pshr` to say so. It can
+also **REFUSE** (§88.5.4.1), and the caller then takes the full path — where
+`cs_nearat`, `cs_stackverts` and `cs_flatverts` all read the object's own
+transform scale (§88.5.6) out of that same byte. It never gave it back, so a
+refused impostor ran the whole model in whole metres when the object wanted
+quarters or sixteenths. Measured on Hercules, one building dead ahead, the
+impostor against the model it stands in for:
+
+```
+                 before                    after
+  jfk_hi  3000   box 16x 5  model 16x19    box 16x19  model 16x19
+  jfk_dtn 3000   box 16x 4  model 16x14    box 16x14  model 16x14
+  jfk_mid 3000   box 16x 3  model 16x 9    box 16x 9  model 16x 9
+  jfk_esb 7000   box 16x 5  model 16x16    box 16x16  model 16x16
+```
+
+The width was right and **the height collapsed**, which is why it reads as a
+squat box rather than a missing one. And because the refusal turns on the
+rectangle crossing `CS_LODPX`, it happened over exactly one band of the
+approach and flipped back and forth at the edge of it — a building
+alternating between a correct impostor and a model a quarter of its height,
+which at three pixels tall is *in and out of existence*.
+
+The fix is four instructions: save `cs_pshr` on entry and put it back at both
+exits. **It is not a regression from §88.5.4.2** — the refusal path has
+always been able to leave the byte wrong — but that fix is what made
+`cs_boxlod` run past six kilometres at all, so it turned a rare wrong frame
+into the normal case and the field found it in a day.
+
+What remains, and is by design, is that the impostor is a plain rectangle
+where the model is stepped: at 7,000 m the Empire State's impostor covers 27
+lit pixels against the model's 35, the difference being the taper. That is
+the trade §88.5.4 exists to make, and it is bounded by `CS_LODPX` = 8.
 
 #### 88.5.8 "Buildings lean over", which was the horizon
 
@@ -96546,6 +96621,51 @@ LOD working (§88.5.4.2),
 — 5.9 fps down to 4.0 at the two-kilometre climb, which is what puts it
 above an XT and on a 286 or a 386.
 
+##### 88.13.1.2 NYC-JFK's dense city, the first High tier
+
+Twelve more towers down Manhattan, `CSO_DENSE`, so High is the only rung
+that draws one and every rung below it gives the New York that always
+shipped. Four anonymous shapes carry it — the 90 m midtown block and the
+140 m financial-district one that were already there, plus a **190 m slim
+tower** and a **55 m broad block**, all of them under the Woolworth's 241,
+which is under the Chrysler's 319, which is under the Empire State's 381.
+That ladder is the only thing the skyline has to say and a nameless block
+that out-topped a landmark would undo it.
+
+They sit on the **island's own axis** — the line from the Empire State to
+the Woolworth, `(-0.41, -0.91)` — offset across it by no more than 430 m,
+and each range is its **own Manhattan distance from the spawn** plus 400 m
+rounded up to 500, so the whole skyline is standing before the take-off roll
+starts rather than arriving under the aeroplane. That is the entire point of
+the rung: the complaint it answers is a runway with nothing in front of it.
+
+Measured on a 4.77 MHz 8088, Hercules, Moderate against High:
+
+```
+  on the roll        165.0 -> 200.5 ms      climb 2 km      170.2 -> 278.9 ms
+  the take-off point 121.0 -> 180.1         over midtown    116.6 -> 142.6
+  climb 4 km         140.1 -> 232.8
+```
+
+— 5.9 fps to 3.6 at the two-kilometre climb, which is the number that puts
+this above an XT. **No 286 figure is quoted here because none has been
+taken**: MartyPC is an 8088 and 86Box has 286 profiles but no debugger and
+no automation socket, so a session can start one and cannot read the result
+(`docs/TESTING.md`). What is CPU-independent is the work — 27 objects filed
+at the peak against 15 — and a 286 reading belongs in `docs/FIELD-NOTES.md`
+when somebody takes one.
+
+**The ceiling this world now sits under is `CS_NVIS`, not the frame time.**
+The peak is **27 objects in one frame** against 32, with the thirty-third
+dropped silently, so Manhattan has five of headroom and a faster machine
+does not raise it: the next thing added there has to take range off
+something or be counted against those five.
+
+One placement was wrong and a gate caught it rather than an eye: the
+twelfth tower was first put at `(-2058,-4130)`, which is the Battery, and
+`tests/unit/t_csworld.py` reported it **IN the Hudson**. The 150 m of water
+clearance every one of them keeps now is a consequence of that.
+
 **The world budget follows the DEFAULT rung and the object count does not.**
 `tests/unit/t_csworlds.py` prices each world's peak frame against
 Paris-Issy's at 1.15x, and it now leaves `CSO_DENSE` objects out of that
@@ -96586,6 +96706,98 @@ buildings.
 A change of level clears every object's skip counter (§88.5.2) — an object
 the cull dropped for a hundred ticks would otherwise stay dropped after the
 player asked for it back.
+
+#### 88.13.7 Occlusion, and why only one location has it
+
+`cs_occlude` marks the visible objects that stand **wholly behind** another
+one, and `cs_drawpass` skips them. It runs for a location whose record sets
+`CSA_OCC` in `CSA_FLAGS` and for no other: everywhere else the pass clears
+its marks, reads the flag and returns, which is two compares and a
+`rep stosb` over at most thirty-two bytes.
+
+**The test is angular and in the world, never on the screen.** `along` is
+already in every `cs_vkey` slot and `across` is two multiplies, so an object
+found hidden is refused **before `cs_scale` rotates anything** — the same
+place the Detail Level refuses one, which is the cheapest there is. Nothing
+is projected and no framebuffer is read; the earlier attempt that filled the
+faces and used them as the occluder measured `solid + (wire − fill-off)`
+exactly, because there the fill *was* the occluder and it had to be drawn.
+
+An occluder A hides an occludee B when B's angular interval lies inside A's
+**at both of B's own levels** — its base, which is widest and lowest, and its
+top, which is narrowest and highest. Both intervals are linear in elevation,
+so their difference is linear and containment at the two ends is containment
+throughout: two tests settle a frustum exactly. A's half-width is taken **at
+the height where A's surface meets B's elevation**, and that is the whole
+trick: the first draft compared B's base width at B's top elevation and
+missed a ridge that is plainly hidden, because a frustum is narrow where it
+is tall.
+
+##### 88.13.7.1 The width rule was chosen on numbers, not on safety
+
+A box's half-extent across the heading is `wx |cos h| + wz |sin h|`. That is
+exact for an object dead ahead and errs either way for one off to the side,
+so it is **not** conservative for every bearing. The conservative rule — the
+smaller of `wx`/`wz` for an occluder, three quarters of their sum for an
+occludee — was written first and measured, on Nepal's own geometry swept
+down the take-off run:
+
+```
+   out    conservative rule        heading-frame rule
+     0    both spurs hidden        both spurs hidden
+   400    both spurs hidden        both spurs hidden
+   600    nothing                  both spurs hidden
+  2000    nothing                  both spurs hidden
+  2200    nothing                  nothing
+```
+
+The conservative rule stops working 400 m off the threshold, so the rule is
+the frame one — **with the occluder shrunk by an eighth**. That margin is
+not a guess either: the unshrunk rule shipped to `tests/skiesocc.py` and the
+row found it hiding a spur at 2,000 m that is **654 pixels visible**, which
+is the difference between measuring the extent across the *heading* and the
+covering happening across the *line of sight*. The occluder pays the margin,
+so the error is always towards drawing.
+
+`tests/skiesocc.py` is what holds it there. It reads `cs_occ` — the
+routine's own verdicts — back out of the guest and checks each one against
+the glass **with the pass switched off**, over nine viewpoints of which
+three are off the centreline. The "pass off" is the whole of it: with the
+pass ON the object is already being skipped, so removing it changes nothing
+and the check passes whatever the pass believes. The first version did
+exactly that, and its `--clobber-occ` arm — a `cs_occpair` that answers yes
+without testing anything — came back **green, with twenty-two verdicts
+"confirmed invisible"**. Against the pass off, the same clobber fails thirty
+ways.
+
+##### 88.13.7.2 What it is worth, and why Nepal alone
+
+Nepal is the only location in the tree with big objects standing behind big
+objects. Its two spurs sit past the gate and the gate's two peaks are 2,400 m
+tall and 1,200 m across; from the strip the spurs are **100% covered**, with
+a 0-pixel control. Culling them by hand, on a 4.77 MHz 8088 on Hercules:
+
+```
+  culled by hand, the ceiling            what the shipped pass gets
+  on the strip   310.4 -> 234.2 ms         0 m   317.4 -> 248.8 ms   -22%
+  1 km out       298.1 -> 202.7           400    292.1 -> 216.2      -26%
+  2 km out       267.9 -> 196.0           800    291.5 -> 206.7      -29%
+  at the gate    205.3 -> 167.9          1200    309.7 -> 219.7      -29%
+                                         2400    255.6 -> 259.3      +3.7
+                                         3200    207.8 -> 209.0      +1.2
+```
+
+The two right-hand rows are what the pass costs where it finds nothing, and
+a location that never asks pays less still: **0 to 1.9 ms** on NYC-JFK, over
+the same five viewpoints §88.13.1.2 was measured at, which is the mark clear
+and two compares.
+
+Manhattan was measured for this first and refused it: in a dense block
+**43–45% of drawn pixels are covered by something nearer, and 0–1 objects of
+sixteen are entirely hidden** — towers of one height stacked in depth peek
+out at the edges, and an object-level test can only skip what is entirely
+gone. The pixels are not where the time goes either (§88.5.4.2), so the flag
+is off for every world but this one.
 
 #### 88.13.2 Draw Distance
 
@@ -96827,10 +97039,15 @@ drop-downs get a release the title page never armed.
   not a still picture, so two arms drawing the same objects differ by
   thousands and a same-rung CONTROL reads the same thousands; the dense
   objects are counted out of the world's own table so the check survives the
-  day a location grows a High tier. `--clobber-default` puts the old top-rung
-  default back and `--clobber-dense` points the ladder's `test ax, CSO_DENSE`
-  at `CSO_COLLIDE`, which objects actually wear, so the top rung's filter
-  fires at Moderate too. `--clobber-clear` NOPs the
+  day a location grows a High tier, and it is taken on **both** the default
+  location and the one with a dense city, found by walking `cs_ports`: the
+  EQUAL branch is what a broken ladder trips and the STRICT branch is what
+  says the flag reaches the cull at all. **Neither alone is enough** —
+  `--clobber-dense` drops collidables at Low and Moderate together, so on the
+  dense world the counts still nest and still differ, and only the default
+  world's equality sees it. `--clobber-default` puts the old top-rung default
+  back and `--clobber-dense` points the ladder's `test ax, CSO_DENSE` at
+  `CSO_COLLIDE`, which objects actually wear. `--clobber-clear` NOPs the
   screen clear a size change owes and that last check must go red — it
   reads the band either side of the shrink, so it also proves the larger
   view had put something there to begin with.
@@ -96877,6 +97094,17 @@ drop-downs get a release the title page never armed.
   `--clobber-lod` raises the refusal past every rectangle it can draw, which
   is the gate exactly as it was, and `imp26` — level at the foot of the
   Montparnasse tower — reports **22 px**.
+- `tests/skiesocc.py` (soak, MartyPC, Hercules): §88.13.7's gate, and the
+  only thing keeping its width rule honest. It reads `cs_occ` — the pass's
+  own verdicts — back out of the guest and checks each one against the glass
+  **with the pass switched off**, which is the whole of it: with the pass on
+  the object is already skipped, so removing it changes nothing and the check
+  passes whatever the pass believes. The first version did exactly that and
+  its `--clobber-occ` arm came back green with twenty-two verdicts "confirmed
+  invisible"; against the pass off the same clobber fails thirty ways. Nine
+  viewpoints, three of them off the centreline, because the rule is exact for
+  an object dead ahead and errs only for one off to the side — and that is
+  how the unshrunk rule was caught hiding 654 visible pixels at 2,000 m.
 - `tests/skieslod.py` (soak, MartyPC, Hercules): §88.5.4.2's gate. JFK's
   four anonymous towers are put in a row across the sight line at **7 km** —
   inside the band where `11 cz` used to wrap — and the row reads which path
@@ -96887,8 +97115,11 @@ drop-downs get a release the title page never armed.
   four fall outside the frustum, which would make the counts a fact about
   the world's layout instead of about the gate. `--clobber-lod` NOPs the
   `cmp cx, 5958 / jae .lod` that refuses the multiply, which is the wrapping
-  product exactly, and all three checks go red — the four reading **9.81 ms
-  a tower against 0.69**.
+  product exactly, and the first three checks go red — the towers reading
+  **12.48 ms each against 3.17**. It also carries §88.5.4.3's check: the
+  impostor must be the SIZE of the model it stands in for, over four towers
+  at three ranges, and `--clobber-shr` NOPs the pairs that give `cs_pshr`
+  back.
 - `tests/skiesease.py` (soak, MartyPC): §88.7.3's capture. Every reading is
   taken at a `cs_step` BREAKPOINT and not after a frame — the model steps per
   tick and a frame spends one, two or three of them, so a per-frame sample

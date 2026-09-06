@@ -136,5 +136,6 @@ cs_a_vnlk:
     dw 800                          ; CSA_WLEN    half its length...
     dw 40                           ; CSA_WWID    ...and half its width
     dw cs_n_vnlk_river              ; CSA_WNAME
+    dw CSA_OCC                  ; CSA_FLAGS  the gate hides the spurs
 cs_s_vnlk: db 'NEPAL-VNLK', 0
 cs_s_rwy_vnlk: db 'RUNWAY 06', 0

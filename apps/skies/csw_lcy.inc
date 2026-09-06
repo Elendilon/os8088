@@ -294,5 +294,6 @@ cs_a_lcy:
     dw 800                          ; CSA_WLEN    half its length...
     dw 100                           ; CSA_WWID    ...and half its width
     dw cs_n_lcy_th              ; CSA_WNAME
+    dw 0                        ; CSA_FLAGS
 cs_s_lcy: db 'LONDON-LCY', 0
 cs_s_rwy_lcy: db 'RUNWAY 27', 0

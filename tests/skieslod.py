@@ -23,7 +23,15 @@ them - and then, over one frame:
   2. the box reaches the glass - cs_rect once per tower - so a gate that
      merely CALLED cs_boxlod and had it refuse would not pass this;
   3. and the frame is shorter for it: the marginal cost of the four is
-     under 7 ms a tower, against the ~11.9 the full path costs them there.
+     under 7 ms a tower, against the ~11.9 the full path costs them there;
+  4. and THE IMPOSTOR IS THE SIZE OF THE MODEL IT STANDS IN FOR. cs_boxlod
+     works in whole metres and says so in cs_pshr, and it can REFUSE - and
+     the caller then takes the full path, where cs_nearat, cs_stackverts and
+     cs_flatverts all read the object's scale out of that byte. A refusal
+     that left 0 behind drew the model at a fraction of its size, over
+     exactly the part of the approach where the rectangle crosses CS_LODPX:
+     a building flickering between two sizes as the aeroplane taxied, which
+     is how it was reported off a 10 MHz 8086.
 
 Check 3 is deliberately a BOUND and not a ratchet: it has to separate two
 regimes (4.2 ms a tower boxed, 11.9 unboxed on a 4.77 MHz 8088) and not
@@ -31,7 +39,8 @@ pin whatever this month's rectangle costs.
 
 --clobber-lod is the red run (docs/WRITING-TESTS.md 1): it NOPs the two
 instructions that refuse the multiply, which restores the wrapping product
-exactly, and all three checks must go red.
+exactly, and the first three checks must go red. --clobber-shr NOPs the
+pairs that give cs_pshr back and check 4 must go red.
 """
 import argparse
 import os
@@ -47,7 +56,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CPS = 4772727.0
 CSO_X, CSO_RANGE, CSO_SKIP, CSO_SIZE = 4, 10, 18, 20
 CSA_OBJS, CSA_NOBJ = 18, 20
-DIST = 7000                     # ...down the runway heading, in the band
+DIST = 8000                     # ...down the runway heading, in the band
 bad = []
 
 
@@ -65,6 +74,8 @@ def main(argv):
     ap.add_argument("--apps", default="build/apps360.img")
     ap.add_argument("--clobber-lod", action="store_true",
                     help="the wrapping multiply back: the row must go red")
+    ap.add_argument("--clobber-shr", action="store_true",
+                    help="cs_boxlod keeps the scale it clobbered: check 4 red")
     a = ap.parse_args(argv)
     os.chdir(ROOT)
     mp = dispapps._map("skies")
@@ -78,6 +89,9 @@ def main(argv):
         slot, seg = dispapps.pkg_seg(m, 0)
         lin = seg << 4
         base = int.from_bytes(m.readseg(seg, 8, 2), "little")
+
+        def word(n):
+            return int.from_bytes(m.read(lin + base + off(n), 2), "little")
 
         def poke(n, d):
             m.write(lin + base + off(n), d)
@@ -125,13 +139,39 @@ def main(argv):
             m.run()
             print("  (the wrapping 11 cz put back: must fail)")
 
+        if a.clobber_shr:
+            # The `mov al,[cs_bshr] / mov [cs_pshr],al` pairs that give the
+            # object's transform scale back. Without them a REFUSED impostor
+            # leaves the full path running in whole metres.
+            lo, hi = mp["cs_boxlod"], mp["cs_stackverts"]
+            code = m.read(lin + lo, hi - lo)
+            pat = (b"\xA0" + (base + off("cs_bshr")).to_bytes(2, "little")
+                   + b"\xA2" + (base + off("cs_pshr")).to_bytes(2, "little"))
+            n, i = 0, code.find(pat)
+            while i >= 0:
+                m.pause()
+                m.write(lin + lo + i, b"\x90" * 6)
+                m.run()
+                n += 1
+                i = code.find(pat, i + 6)
+            if not n:
+                sys.exit("skieslod: cs_boxlod does not restore cs_pshr the "
+                         "way this patch expects - re-read it before "
+                         "trusting the red run")
+            print("  (cs_boxlod keeps the scale it clobbered, %d site(s): "
+                  "must fail)" % n)
+
         objs = int.from_bytes(m.read(lin + port + CSA_OBJS, 2), "little")
         nobj = int.from_bytes(m.read(lin + port + CSA_NOBJ, 2), "little")
-        want = (mp["cs_m_jfk_mid"], mp["cs_m_jfk_dtn"])
+        # Every anonymous BOX in the table, whatever rung it belongs to -
+        # six of them are CSO_DENSE since 88.13.1.2 and the count is not a
+        # constant this row should carry.
+        want = tuple(mp[n] for n in ("cs_m_jfk_mid", "cs_m_jfk_dtn",
+                                     "cs_m_jfk_hi", "cs_m_jfk_lo"))
         towers = [i for i in range(nobj)
                   if int.from_bytes(m.read(lin + objs + i * CSO_SIZE, 2),
                                     "little") in want]
-        check(len(towers) == 4, "NYC-JFK's four anonymous towers found in its "
+        check(len(towers) >= 4, "NYC-JFK's anonymous towers found in its "
                                 "object table (%d)" % len(towers))
 
         h = math.radians(310)                   # the runway's own heading
@@ -162,6 +202,7 @@ def main(argv):
             poke("cs_roll", b"\x00\x00")
             poke("cs_state", b"\x01")
             poke("cs_pause", b"\x01")
+            poke("cs_setbld", b"\x04")     # HIGH: six of these are CSO_DENSE
             for i in range(nobj):
                 r = 15900 if (i in towers and on) else 0
                 m.write(lin + objs + i * CSO_SIZE + CSO_RANGE,
@@ -221,9 +262,9 @@ def main(argv):
         nstk = hits.get("cs_stackverts", 0)
         nrect = hits.get("cs_rect", 0)
         check(nbox == len(towers) and nstk == 0,
-              "at %d m every tower takes the box: cs_boxlod %d, "
+              "at %d m every one of the %d takes the box: cs_boxlod %d, "
               "cs_stackverts %d (want %d and 0)"
-              % (DIST, nbox, nstk, len(towers)))
+              % (DIST, len(towers), nbox, nstk, len(towers)))
         check(nrect >= len(towers),
               "and the box REACHES THE GLASS: cs_rect %d (want %d or more, "
               "so a cs_boxlod that refused would not pass)"
@@ -239,9 +280,85 @@ def main(argv):
         gone = frame_ms()
         per = (on - gone) / len(towers)
         check(per < 7.0,
-              "the four cost %.2f ms a tower (%.1f ms against %.1f), under "
+              "the %d cost %.2f ms a tower (%.1f ms against %.1f), under "
               "the 7 ms that separates the box from the full path"
-              % (per, on, gone))
+              % (len(towers), per, on, gone))
+
+        # --- 4: THE IMPOSTOR IS THE SIZE OF THE MODEL IT STANDS IN FOR ---
+        VW8 = word("cs_wbn")
+
+        def viewpx():
+            m.pause()
+            fb = m.read(0xB0000, 0x8000)
+            m.run()
+            vy, wh = word("cs_vy"), word("cs_wh")
+            wb0, wbn = word("cs_wb0"), word("cs_wbn")
+            b0 = word("cs_vx") // 8
+            out = bytearray()
+            for y in range(vy, vy + wh):
+                o = (y & 3) * 0x2000 + (y >> 2) * 90 + b0
+                out += fb[o + wb0:o + wb0 + wbn]
+            return bytes(out)
+
+        keep = m.read(lin + mp["cs_boxlod"], 2)
+
+        def stand(on, ox, oz, dist, box):
+            m.pause()
+            for i in range(nobj):
+                o = objs + i * CSO_SIZE
+                m.write(lin + o + CSO_RANGE,
+                        (15900 if i == on else 0).to_bytes(2, "little"))
+                m.write(lin + o + CSO_SKIP, b"\x00\x00")
+            for n, v in (("cs_px", ox), ("cs_py", 60), ("cs_pz", oz - dist)):
+                poke(n, ((v * 256) & 0xFFFFFFFF).to_bytes(4, "little"))
+            for n in ("cs_hdg", "cs_pitch", "cs_roll"):
+                poke(n, b"\x00\x00")
+            poke("cs_state", b"\x01")
+            poke("cs_pause", b"\x01")
+            poke("cs_setbld", b"\x04")
+            poke("cs_setlod", b"\x01")
+            poke("cs_setfill", b"\x03")
+            # `stc / ret` makes every impostor refuse: the whole model
+            m.write(lin + mp["cs_boxlod"], keep if box else b"\xF9\xC3")
+            m.run()
+            m.advance(frames=14)
+            return viewpx()
+
+        def extent(p_, q_):
+            xs, ys = [], []
+            for j in range(len(p_)):
+                d = p_[j] ^ q_[j]
+                if d:
+                    for k in range(8):
+                        if d >> k & 1:
+                            xs.append((j % VW8) * 8 + k)
+                            ys.append(j // VW8)
+            if not xs:
+                return None
+            return (max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
+
+        wrong = []
+        for i in towers[:4]:
+            ox = int.from_bytes(m.read(lin + objs + i * CSO_SIZE + 4, 2),
+                                "little")
+            oz = int.from_bytes(m.read(lin + objs + i * CSO_SIZE + 6, 2),
+                                "little")
+            ox = ox - 65536 if ox > 32767 else ox
+            oz = oz - 65536 if oz > 32767 else oz
+            for dist in (3000, 4500, 7000):
+                empty = stand(-1, ox, oz, dist, 1)
+                b = extent(stand(i, ox, oz, dist, 1), empty)
+                w_ = extent(stand(i, ox, oz, dist, 0), empty)
+                if b != w_:
+                    wrong.append("obj %d at %d m: impostor %s, model %s"
+                                 % (i, dist, b, w_))
+        m.pause()
+        m.write(lin + mp["cs_boxlod"], keep)
+        m.run()
+        check(not wrong,
+              "the impostor is the size of the model it stands in for, over "
+              "four towers at three ranges%s"
+              % ("" if not wrong else " - " + "; ".join(wrong[:3])))
 
     print("skieslod: %s" % ("FAIL - " + "; ".join(bad) if bad else "ok"))
     return 1 if bad else 0

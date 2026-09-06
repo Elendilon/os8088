@@ -216,6 +216,15 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 3.9,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("cssin", "fast", py("tests/unit/t_cssin.py"), 0.3,
+        "SPEC.md 88.5.9: CLEAR SKIES' sine table is a QUARTER of the turn"
+        " now, and nothing held it to its generator before it became one."
+        " The row regenerates the 257 entries from 88.5's own snippet, then"
+        " walks cs_sin's arithmetic - top ten bits, bit 8 reflects, bit 9"
+        " negates - over all 1,024 indices of a full turn against sin"
+        " itself. The ONE deliberate difference is asserted rather than"
+        " tolerated: 270 degrees reads -32767 where the full table held"
+        " -32768, and every other index must agree to the unit"),
     Row("cspanel", "fast", py("tests/unit/t_cspanel.py"), 1.0,
         "SPEC.md 88.9.5/88.9.8: the five CLEAR SKIES cockpits fit, on all"
         " three adapters. A panel is one drawing in TWO units that do not"
@@ -1700,7 +1709,7 @@ SOAK = [
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
         needs=("marty",), serial=True),
-    Row("skiesset", "soak", py("tests/skiesset.py"), 42.0,
+    Row("skiesset", "soak", py("tests/skiesset.py"), 45.0,
         "SPEC.md 88.13: the Settings page and its four knobs reaching the"
         " picture - Few files fewer objects and draws faster, a fill box"
         " clears its bit, the in-flight hotkeys do the same without the page,"
@@ -1710,15 +1719,29 @@ SOAK = [
         " while the page could not be dropped down at all) and Done has to be"
         " the full 13.7 gesture",
         needs=("marty",), serial=True),
-    Row("skieslod", "soak", py("tests/skieslod.py"), 20.0,
+    Row("skiesocc", "soak", py("tests/skiesocc.py"), 26.0,
+        "SPEC.md 88.13.7: the occlusion pass, and the only thing keeping its"
+        " width rule honest. Every verdict cs_occlude reaches is checked"
+        " against the glass WITH THE PASS OFF - with it on the object is"
+        " already skipped, so removing it changes nothing and the check"
+        " passes whatever the pass believes, which is how the first version's"
+        " --clobber-occ run came back green with twenty-two verdicts"
+        " 'confirmed invisible'. Nine viewpoints, three of them off the"
+        " centreline, because the rule is exact for an object dead ahead",
+        needs=("marty",), serial=True),
+    Row("skieslod", "soak", py("tests/skieslod.py"), 30.0,
         "SPEC.md 88.5.4.2: a solid too small to tell apart is one filled"
         " rectangle PAST SIX KILOMETRES too. cs_drawobj built 11 cz in a"
         " word, which stops fitting at 5,958 m, and past there the product"
         " wrapped and every solid in the band drew all of its vertices and"
         " faces to cover four pixels - 11.9 ms a tower against 4.2 on a"
         " 4.77 MHz 8088. Nothing shipped stood in the band, so the row moves"
-        " JFK's four anonymous towers onto the sight line at 7 km and reads"
-        " which path they take",
+        " JFK's anonymous towers onto the sight line at 8 km and reads"
+        " which path they take. Also 88.5.4.3: the impostor must be the SIZE"
+        " of the model it stands in for - cs_boxlod clobbered cs_pshr and a"
+        " REFUSED impostor left the full path running in whole metres, so a"
+        " building drew at a fraction of its size over exactly the part of"
+        " the approach where the rectangle crosses CS_LODPX",
         needs=("marty",), serial=True),
     Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"

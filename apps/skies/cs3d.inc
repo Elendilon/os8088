@@ -39,15 +39,32 @@
 ; -----------------------------------------------------------------------------
 ; cs_sin / cs_cos - AX = an angle; out AX = sin / cos x 32768, clamped to
 ;                   32767. Clobbers BX, CX.
+;
+; A QUARTER TABLE (SPEC.md 88.5.9). The index is the angle's top ten bits, so
+; its top two are the quadrant: bit 8 says the quarter runs BACKWARDS, and bit
+; 9 says the result is negative. Two tests and a neg for 1,534 bytes, on a
+; routine with twenty-five call sites in the whole package - the matrix is
+; built ONCE a frame (88.5) and this is not the per-vertex path.
 ; -----------------------------------------------------------------------------
 cs_cos:
     add ax, 16384
 cs_sin:
     mov bx, ax
-    mov cl, 5                       ; the top ten bits, as a word index
+    mov cl, 6                       ; the top ten bits: 0..1023 of the turn
     shr bx, cl
-    and bx, 0x7FE
+    mov cx, bx
+    and bx, 255                     ; ...the offset in its quarter
+    test ch, 1
+    jz .fwd
+    neg bx                          ; the odd quarters run backwards, and 256
+    add bx, 256                     ; is the entry sin 90 is in
+.fwd:
+    shl bx, 1
     mov ax, [cs_sintab + bx]
+    test ch, 2
+    jz .pos
+    neg ax                          ; ...and the far half is below the axis
+.pos:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -584,6 +601,7 @@ cs_scene:
     add si, CSO_SIZE
     loop .o
 .done:
+    call cs_occlude                 ; what stands wholly behind something else
     ; --- the ground shapes, far to near, then the solids ---------------------
     mov byte [cs_pass], CSM_FLAT
     call cs_drawpass
@@ -615,6 +633,12 @@ cs_drawpass:
 .v:
     push cx
     push si
+    mov bx, si                      ; hidden behind something nearer (88.13.7)
+    sub bx, cs_vkey
+    shr bx, 1
+    shr bx, 1
+    cmp byte [cs_occ + bx], 0
+    jne .next
     mov si, [si + 2]                ; the key's record
     mov bx, [si]
     mov bx, [bx + CSO_MODEL]
@@ -628,6 +652,338 @@ cs_drawpass:
     add si, 4
     loop .v
 .out:
+    ret
+
+
+; =============================================================================
+; THE OCCLUSION PASS (SPEC.md 88.13.7) - only for a location that asks
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; cs_occlude - mark the visible objects that stand WHOLLY BEHIND another one
+;
+; The test is ANGULAR and in the WORLD, never on the screen. `along` is
+; already in every cs_vkey slot and `across` is two multiplies, so an object
+; found hidden is refused before cs_scale rotates anything - the same place
+; the Detail Level refuses one, which is the cheapest place there is. Nothing
+; is projected and no framebuffer is read.
+;
+; An occluder A hides an occludee B when B's angular interval lies inside A's
+; AT BOTH OF B'S OWN LEVELS - its base, which is its widest and lowest, and
+; its top, which is its narrowest and highest. Both intervals are linear in
+; elevation, so their difference is linear and containment at the two ends is
+; containment throughout: two tests settle a frustum exactly.
+;
+; A's half-width is taken AT THE HEIGHT WHERE A'S SURFACE MEETS B'S ELEVATION,
+; and that is what makes the whole thing work. The first draft compared B's
+; BASE width at B's TOP elevation and missed a ridge the eye can see is
+; hidden, because a frustum is narrow where it is tall.
+;
+; The half-extent is measured ACROSS THE HEADING - wx |cos h| + wz |sin h| -
+; which is exact for an object dead ahead and errs either way for one off to
+; the side. A rule that is conservative for every bearing was measured first
+; and is USELESS: it stops finding Nepal's spurs 400 m off the threshold,
+; where this one goes on finding them to 2,000 m and agrees with the pixels
+; at every point sampled (88.13.7.1). tests/skiesocc.py is what holds it to
+; that, by reading this routine's own verdicts back and checking each one
+; against the glass.
+;
+; in:  [cs_nvisn] filed, cs_vkey sorted far to near
+; out: cs_occ[i] non-zero for a hidden slot, [cs_occn] how many
+; clobbers everything
+; -----------------------------------------------------------------------------
+cs_occlude:
+    push ds                         ; ES IS THE KERNEL'S in a package (SPEC.md
+    pop es                          ; 20), so a string op that forgets this
+    mov word [cs_occn], 0           ; writes into the KERNEL'S SEGMENT - which
+    mov cx, [cs_nvisn]              ; is what the first build of this did,
+    mov di, cs_occ                  ; every frame, on every world, and the
+    xor al, al                      ; symptom was only that no occluder ever
+    cld                             ; held anything. cs_clearall is the same
+    push cx                         ; two instructions for the same reason
+    rep stosb                       ; nothing hidden until it is shown to be
+    pop cx
+    cmp cx, 2
+    jb .out                         ; one object hides nothing
+    mov bx, [cs_airport]
+    test word [bx + CSA_FLAGS], CSA_OCC
+    jz .out                         ; ...and a location that did not ask pays
+    mov ax, [cs_sinh]               ;    two compares and the clear, no more
+    or ax, ax
+    jns .sp
+    neg ax
+.sp:
+    mov [cs_asinh], ax
+    mov ax, [cs_cosh]
+    or ax, ax
+    jns .cp
+    neg ax
+.cp:
+    mov [cs_acosh], ax
+    mov byte [cs_occk], 0
+    mov [cs_occi], cx
+    mov si, cx                      ; NEAR TO FAR, which is cs_vkey backwards
+    dec si
+    shl si, 1
+    shl si, 1
+    add si, cs_vkey
+.slot:
+    dec word [cs_occi]
+    push si
+    mov bp, [si]                    ; BP = along
+    cmp bp, 200
+    jle .next                       ; at or behind the eye: neither role
+    mov di, [si + 2]
+    mov di, [di]                    ; the object
+    call cs_occbox
+    jc .next                        ; not a frustum this pass can reason about
+    call cs_occtest
+    jnc .keep
+    mov bx, [cs_occi]
+    mov byte [cs_occ + bx], 1
+    inc word [cs_occn]
+    jmp short .next
+.keep:
+    call cs_occadd
+.next:
+    pop si
+    sub si, 4
+    cmp si, cs_vkey
+    jae .slot
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_occbox - the candidate's six words, from object DI at along BP
+; out: cs_ob_*, CF = 1 if the model is not a two-or-more-level STACK
+; clobbers everything but BP
+; -----------------------------------------------------------------------------
+cs_occbox:
+    mov [cs_occo], di               ; DI IS THE OBJECT and MUL14 wants a
+    mov si, [di + CSO_MODEL]        ; register: the first draft kept it in DI,
+    cmp byte [si + CSM_TYPE], CSM_STACK  ; overwrote it with a product and
+    jne .no                         ; then re-read a cs_obj cs_consider had
+    mov al, [si + CSM_NV]           ; left behind - a different object's Y
+    cmp al, 2                       ; and position, silently
+    jb .no
+    xor ah, ah
+    dec ax
+    mov bx, 6
+    mul bx                          ; AX = the last level's offset
+    mov si, [si + CSM_VERTS]
+    mov cx, si
+    add cx, ax                      ; CX = the top level
+    mov [cs_ob_l], bp
+    push cx
+    mov ax, [si]                    ; the base: wx |cos h| + wz |sin h|
+    mov bx, [cs_acosh]
+    MUL14
+    mov cx, ax
+    mov ax, [si + 4]
+    mov bx, [cs_asinh]
+    MUL14
+    add ax, cx
+    mov [cs_ob_w0], ax
+    pop si                          ; ...and the top's
+    push si
+    mov ax, [si]
+    mov bx, [cs_acosh]
+    MUL14
+    mov cx, ax
+    mov ax, [si + 4]
+    mov bx, [cs_asinh]
+    MUL14
+    add ax, cx
+    mov [cs_ob_w1], ax
+    pop si
+    mov di, [cs_occo]
+    mov ax, [di + CSO_Y]
+    mov [cs_ob_y0], ax
+    add ax, [si + 2]                ; ...plus the top level's height
+    mov [cs_ob_y1], ax
+    mov ax, [di + CSO_X]            ; across, in the heading's frame
+    sub ax, [cs_ex]
+    mov bx, [cs_cosh]
+    MUL14
+    mov cx, ax
+    mov ax, [di + CSO_Z]
+    sub ax, [cs_ez]
+    mov bx, [cs_sinh]
+    MUL14
+    sub cx, ax
+    mov [cs_ob_c], cx
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_occadd - keep the candidate as an occluder
+;
+; RANKED BY ANGULAR SIZE and not by distance. Keeping the three NEAREST fills
+; the slots with a hangar twelve metres tall and the two valley walls, and
+; never reaches the gate peaks that are the only things in the world that
+; hide anything - measured, one spur of two found instead of both.
+; -----------------------------------------------------------------------------
+cs_occadd:
+    mov ax, [cs_ob_w0]              ; (half-extent + height) / along, in
+    add ax, [cs_ob_y1]              ; sixty-fourths: an angular size, and
+    sub ax, [cs_ob_y0]              ; along is over 200 so it fits a word
+    xor dx, dx
+    mov bx, 64
+    mul bx
+    div word [cs_ob_l]
+    mov [cs_ob_ang], ax
+    mov cl, [cs_occk]
+    xor ch, ch
+    cmp cl, CS_OCCN
+    jb .append
+    mov si, cs_occa                 ; ...else displace the WEAKEST, if this
+    mov di, si                      ; one beats it
+    mov bx, [si + 12]
+    mov cx, CS_OCCN - 1
+.scan:
+    add si, CS_OCCZ
+    cmp [si + 12], bx
+    jae .keep
+    mov bx, [si + 12]
+    mov di, si
+.keep:
+    loop .scan
+    cmp ax, bx
+    jbe .out
+    jmp short .copy
+.append:
+    mov ax, cx
+    mov bx, CS_OCCZ
+    mul bx
+    mov di, cs_occa
+    add di, ax
+    inc byte [cs_occk]
+.copy:
+    push ds                         ; ES is the kernel's (SPEC.md 20)
+    pop es
+    mov si, cs_ob_l
+    mov cx, 7
+    cld
+    rep movsw
+.out:
+    ret
+
+; cs_occtest - CF = 1 if any kept occluder hides the candidate
+cs_occtest:
+    mov cl, [cs_occk]
+    xor ch, ch
+    jcxz .no
+    mov si, cs_occa
+.one:
+    push cx
+    push si
+    call cs_occpair
+    pop si
+    pop cx
+    jc .yes
+    add si, CS_OCCZ
+    loop .one
+.no:
+    clc
+    ret
+.yes:
+    stc
+    ret
+
+; cs_occpair - CF = 1 if occluder SI contains the candidate at BOTH its levels
+cs_occpair:
+    mov ax, [cs_ob_y0]
+    mov bx, [cs_ob_w0]
+    call cs_occlev
+    jnc .no
+    mov ax, [cs_ob_y1]
+    mov bx, [cs_ob_w1]
+    call cs_occlev
+    jnc .no
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_occlev - one level of the candidate against occluder SI
+; in:  AX = the level's height, BX = its half-extent, SI = the occluder
+; out: CF = 1 if that level's angular interval is inside the occluder's
+; -----------------------------------------------------------------------------
+cs_occlev:
+    push bx                         ; the candidate's half-extent
+    sub ax, [cs_ey]                 ; the elevation, over the candidate's along
+    imul word [si]                  ; ...times the OCCLUDER's along
+    idiv word [cs_ob_l]
+    add ax, [cs_ey]                 ; AX = the height A's surface meets it at
+    cmp ax, [si + 6]
+    jg .no                          ; A does not reach that high
+    sub ax, [si + 4]
+    jge .ge
+    xor ax, ax                      ; below A's base: A is at its widest
+.ge:
+    mov cx, [si + 6]
+    sub cx, [si + 4]
+    jle .flat
+    mov bx, [si + 10]
+    sub bx, [si + 8]
+    imul bx
+    idiv cx
+    add ax, [si + 8]
+    jmp short .have
+.flat:
+    mov ax, [si + 8]
+.have:
+    ; --- AND SHRINK IT BY AN EIGHTH. The extent is measured across the
+    ;     HEADING and the covering happens across the LINE OF SIGHT to the
+    ;     occludee, which for an object off to the side is not the same
+    ;     angle; the difference is what let this hide a spur at 2,000 m that
+    ;     tests/skiesocc.py then found on the glass, 654 pixels of it. The
+    ;     margin is the smallest that stands up to that row's viewpoints and
+    ;     it is the OCCLUDER that pays it, so the error is always towards
+    ;     drawing (88.13.7.1)
+    mov bx, ax
+    sar bx, 1
+    sar bx, 1
+    sar bx, 1
+    sub ax, bx
+    mov [cs_occwa], ax
+    mov ax, [si + 2]                ; (ca - wa) lb <= (cb - wb) la
+    sub ax, [cs_occwa]
+    imul word [cs_ob_l]
+    mov [cs_p0], ax
+    mov [cs_p0 + 2], dx
+    pop bx
+    push bx
+    mov ax, [cs_ob_c]
+    sub ax, bx
+    imul word [si]
+    sub ax, [cs_p0]
+    sbb dx, [cs_p0 + 2]
+    js .no
+    pop bx                          ; (cb + wb) la <= (ca + wa) lb
+    push bx
+    mov ax, [cs_ob_c]
+    add ax, bx
+    imul word [si]
+    mov [cs_p0], ax
+    mov [cs_p0 + 2], dx
+    mov ax, [si + 2]
+    add ax, [cs_occwa]
+    imul word [cs_ob_l]
+    sub ax, [cs_p0]
+    sbb dx, [cs_p0 + 2]
+    js .no
+    pop bx
+    stc
+    ret
+.no:
+    pop bx
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1097,7 +1453,21 @@ cs_sizepx:
 ;             radius (the caller checked)
 ; -----------------------------------------------------------------------------
 cs_boxlod:
-    mov byte [cs_pshr], 0           ; the cull's origin: whole metres
+    mov al, [cs_pshr]               ; --- AND GIVE IT BACK (88.5.4.3). This
+    mov [cs_bshr], al               ;     routine works in whole metres, but
+    mov byte [cs_pshr], 0           ;     it can REFUSE, and the caller then
+                                    ;     takes the full path with cs_nearat,
+                                    ;     cs_stackverts and cs_flatverts all
+                                    ;     reading the object's scale out of
+                                    ;     this byte. Leaving 0 behind ran the
+                                    ;     whole model at the wrong scale: it
+                                    ;     drew at a fraction of its size, and
+                                    ;     because the refusal turns on the
+                                    ;     rectangle crossing CS_LODPX it did
+                                    ;     that only over part of the approach
+                                    ;     - which is what a building
+                                    ;     FLICKERING between two sizes as the
+                                    ;     aeroplane taxis actually was
     mov si, [cs_mdl]
     mov cl, [si + CSM_NV]           ; levels
     xor ch, ch
@@ -1172,9 +1542,13 @@ cs_boxlod:
     call cs_setink
     pop ax
     call cs_rect
+    mov al, [cs_bshr]
+    mov [cs_pshr], al
     clc                             ; drawn
     ret
 .out:
+    mov al, [cs_bshr]               ; the object's own scale, back
+    mov [cs_pshr], al
     stc                             ; REFUSED: the caller takes the full path
     ret
 

@@ -161,6 +161,14 @@ CS_LODPX  equ 8                 ; the biggest RECTANGLE cs_boxlod may stand
                                 ; has to be small enough that nobody can see
                                 ; the shape
 CS_NVIS   equ 32                ; objects that can be in one frame
+CS_OCCN   equ 4                 ; occluders cs_occlude keeps (88.13.7): the
+                                ; four biggest BY ANGULAR SIZE. Three found
+                                ; one spur of two over part of the run and
+                                ; the fourth found both everywhere the
+                                ; pixels say both are hidden
+CS_OCCZ   equ 14                ; ...seven words each, the last of
+                                ; them the angular size it is
+                                ; ranked by
 CS_VISZ   equ 6                 ; ...six bytes each: ptr, reach, along
 CS_MAXROW equ 240               ; the tallest box any backend offers
 CS_LASTB  equ 79                ; the last byte of a box row, on all three
@@ -288,7 +296,13 @@ CSA_WHDG  equ 26                ; numbers as the first, so an amphibian's
 CSA_WLEN  equ 28                ; landing is the same arithmetic and not a
 CSA_WWID  equ 30                ; polygon test. CSA_WLEN 0 is a place with
 CSA_WNAME equ 32                ; no water an aeroplane could get down on
-CSA_SIZE  equ 34
+CSA_FLAGS equ 34                ; word: CSA_* below - what this LOCATION asks
+CSA_SIZE  equ 36                ; for that the others do not (88.13.7)
+CSA_OCC   equ 1                 ; RUN THE OCCLUSION PASS here. It is off
+                                ; everywhere else because it can only pay
+                                ; where big objects stand behind big objects,
+                                ; and a world it cannot help would carry the
+                                ; test for nothing (88.13.7)
 
 ; --- a plane (SPEC.md 88.7) - speeds 16.8 m/s, angles 65536 to the turn -------
 CSP_NAME   equ 0
@@ -1896,6 +1910,7 @@ cs_tpl:
                                     ; centreline (88.6.2); the pitch is twice
     ZBYTE cs_pgate                  ; the panel's rate gate (88.9.1)...
     ZWORD cs_plast                  ; ...and the tick the instruments last read
+    ZBYTE cs_bshr                  ; cs_boxlod's saved cs_pshr (88.5.4.3)
     ZWORD cs_bw                     ; cs_boxlod's half-width, and its
     ZWORD cs_bx0                    ; projected centre x, top row and base
     ZWORD cs_by0                    ; row
@@ -2078,6 +2093,29 @@ cs_tpl:
     ZBUF  cs_vis, CS_NVIS * CS_VISZ ; the frame's objects: ptr, reach, along
     ZBUF  cs_vkey, CS_NVIS * 4      ; ...sorted far to near: along, record
     ZWORD cs_nvisn
+    ZBUF  cs_occ, CS_NVIS           ; ...and whether cs_occlude hid each one
+    ZWORD cs_occn                   ; how many it hid, for the diagnostics
+    ZBYTE cs_occk                   ; occluders kept this frame
+    ZWORD cs_occi                   ; the slot cs_occlude is looking at
+    ZWORD cs_occwa                  ; the occluder's half-width at this level
+    ZWORD cs_occo                   ; ...and the object cs_occbox is reading
+    ZWORD cs_asinh                  ; |sin h| and |cos h|, once a frame: the
+    ZWORD cs_acosh                  ; extent of an axis-aligned box ACROSS the
+                                    ; heading is wx |cos h| + wz |sin h|
+    ZBUF  cs_p0, 4                  ; a 32-bit product, held for the compare
+    ZWORD cs_ob_l                   ; THE CANDIDATE, six words in the order an
+    ZWORD cs_ob_c                   ; occluder record keeps them (cs_occadd
+    ZWORD cs_ob_y0                  ; copies them straight across): along,
+    ZWORD cs_ob_y1                  ; across, base y, top y, base half-extent
+    ZWORD cs_ob_w0                  ; and top half-extent
+    ZWORD cs_ob_w1
+    ZWORD cs_ob_ang                 ; ...and (half-extent + height) / along,
+                                    ; which is what an occluder is RANKED by:
+                                    ; keeping the three NEAREST fills the
+                                    ; slots with a hangar and two valley
+                                    ; walls and never reaches the peaks that
+                                    ; actually hide anything
+    ZBUF  cs_occa, CS_OCCN * CS_OCCZ ; ...and the occluders kept
     ZBUF  cs_rwverts, 6 * 4         ; the runway, built from the airport
     ZBUF  cs_rwmodel, CSM_SIZE
     ZBUF  cs_rwobj, CSO_SIZE
