@@ -118,14 +118,23 @@ The genuine barriers — pinned blocks sitting *inside* the bottom-up arena, whi
 is what SPEC.md 50.3 warns about — are not the things the question names. They
 are three, and all three are cheaper to fix than anything in §3:
 
-1. **A package's OVERLAY image is claimed BOTTOM-UP, and its base IS a CS.**
-   `apps/word/word.asm:19843` and `apps/cc/crt0.asm:958` both call
-   `OSAPI_MEM_CLAIM`, not `_HI`, and both then stash the claim's segment as a far
-   pointer (`[wd_ovfar+2]`, `[cc_ovseg]`). That is **SPEC.md 50.3.2.1's exact
-   defect one layer out from the two driver images that section fixed** — an
-   unmovable CS-based claim dropped mid-arena by first fit. It affects Word and
-   **every C package** (CWORD, RUNCPM, C64, WEAVE). The fix is one slot number
-   per call site and no kernel byte at all.
+1. **A package's OVERLAY image is claimed BOTTOM-UP, its base IS a CS, and it is
+   the single largest pinned block in the arena.** `CWORD.OVL` is **18,565
+   bytes** (docs/C-TOOLCHAIN.md:531) — *bigger than every kernel module in the
+   tree put together* — claimed with `OSAPI_MEM_CLAIM`, not `_HI`
+   (apps/cc/crt0.asm:958), and pinned mid-arena for the program's whole life.
+   `apps/word/word.asm:19843` does the same. That is **SPEC.md 50.3.2.1's exact
+   defect one layer out from the two driver images that section fixed**, and it
+   affects Word and **every C package** (CWORD, RUNCPM, C64, WEAVE).
+
+   **And the relocation proc it would need already exists.** `cc_ovbind`
+   (apps/cc/crt0.asm:1084) re-stamps `[cc_ovseg]` into every far pointer in
+   `cc_ovm_first..cc_ovm_end`; a proc that sets `[cc_ovseg]` and calls it is
+   about ten bytes of `crt0.asm`. So this is **the best value in the entire
+   document**: an 18KB mid-arena barrier removed for every C package, for **zero
+   kernel bytes**, using code that is already written. It has to go in
+   `crt0.asm` rather than in C, because `apps/cc/os88.h` has no
+   `os88_mem_movable` — which is item 3.
 2. **SHEET puts 99KB of undeclared claims into the arena at its entry proc** —
    six unconditional `OSAPI_MEM_CLAIM` calls (apps/sheet/sheet.asm:548-573), none
    declared movable. SPEC.md 66.5.10.2's closing *"the arena below the top now has
@@ -328,13 +337,40 @@ and nothing will call it again"* (kernel/diskw.inc:4869). The whole resident
 mechanism today is **477 bytes** on kern_big (`.cold` 309 + `.text` 56 + `.bss`
 112), so the pin is a 22% addition to it.
 
-**Two things sharpen the picture and neither kills it.** First, **five of the six
-modules claim memory from inside their own image** (kernel/ctrl.inc:5507,
-clone.inc:413, compress.inc:983, filecp.inc:593, hiber.inc:1361) — so each is
-pinned at exactly the moment the drop would be worth most. The prize is the
-*idle* module: the panel open while the user reads it, the dialog up while the
-user browses. Second, **shedding `FDLG.DRV` on kern_small breaks a live
-dialog**: its six thunks far-call **without** reloading (kernel/fdlg.inc:3108-3167)
+**Measured, not estimated**: `CTRL.DRV` 7,397 bytes (an 8KB claim), `CLONE.DRV`
+5,810 (6KB), `HIBER.DRV` 3,398 (4KB), `FORMAT.DRV` 1,129 (2KB) on kern_big — 20KB
+if every one were resident, which the features being mutually exclusive means
+never happens. kern_small adds `FILECP.DRV` 2,161 (3KB) and `FDLG.DRV` 3,243
+(4KB).
+
+**Three things sharpen the picture, and the first one refutes a claim an earlier
+draft of this document made.**
+
+**A stack scan does NOT replace ONDEMAND-PLAN §7.1's pin, and neither does a
+per-call counter.** Both are sound about *frames* and blind to a **held span** —
+a stretch where no code is executing in the module and the feature still needs
+the image. There are three, and one of them is unrecoverable: `files.inc:5461`
+loads the formatter or the cloner at the *"the system disk is in NOW"* prompt and
+then holds it while the user takes the system disk **out of the drive** again. A
+shed there cannot be undone. `filecp.inc`'s `FCPS_ASK` holds it across an
+overwrite question, and the Control Panel holds it open-to-close. ONDEMAND-PLAN
+§7.1 said this in as many words — *"for the Control Panel the pin is an
+open-to-close span, not a per-call one"* — and it is the sentence to read twice.
+**The pin has to be per-span, taken by the feature, not per-call taken by the
+thunk.**
+
+**And the rank is wrong.** ONDEMAND-PLAN §7.2 proposes `MEM_PG_LOW`, *"a little
+I/O"*. A re-read is not a little I/O: `mod_need` goes through `drv_mounted`,
+which is a **full remount of the boot volume** every time (kernel/drvvol.inc:44),
+and `drv_vol_back` is a *second* remount whenever the user is not standing on the
+boot volume. At PERFORMANCE.md's 12 sectors / 4 calls that is **~1.6 s on the
+5150**. `MEM_PG_MED` is the honest rank, by exactly the argument SPEC.md 18.8.4
+used to move `MEM_P_FATW` from LOW to MED.
+
+Third, **five of the six modules claim memory from inside their own image**
+(kernel/ctrl.inc:5507, clone.inc:413, compress.inc:983, filecp.inc:593,
+hiber.inc:1361), so each is pinned at exactly the moment a drop would be worth
+most; and **shedding `FDLG.DRV` on kern_small breaks a live dialog**: its six thunks far-call **without** reloading (kernel/fdlg.inc:3108-3167)
 and `mod_tab[MOD_FDLG].MODR_SEG` is read at kernel/ui.inc:546 and
 kernel/kernel.asm:6511 as the *reap guard* (SPEC.md 38.0.1), so a shed leaves a
 dead, undismissable dialog whose `fdlg_grab_x` swallows every press. That module
@@ -655,9 +691,15 @@ overlap, and it buys nothing the counters do not already give exactly. Alignment
 does not help: a region base is a multiple of 64 paragraphs, but the test is
 equality against a value that is already aligned.
 
-The counters win on every axis — exact rather than probabilistic, comparable in
-bytes, and *"grey a fact, never a guess"* (SPEC.md 47) is the house rule they
-satisfy and the scan does not.
+**And there is a blindness both share.** A scan and a per-call counter are each
+sound about *frames* and blind to a **held span** — a stretch with nothing
+executing in the image that the feature still needs (§3.3's three, one of them
+across a disk swap). Wherever a held span exists the pin has to be taken by the
+feature, per span, and no amount of stack inspection substitutes.
+
+Between the two, the counters still win on every axis — exact rather than
+probabilistic, comparable in bytes, and *"grey a fact, never a guess"*
+(SPEC.md 47) is the house rule they satisfy and the scan does not.
 
 ### 4.6 THE LIMIT: a worker-owning package is still pinned
 
@@ -871,7 +913,7 @@ first two are worth taking whatever is decided about the rest.
 |---|---|---:|---:|---|
 | **0** | **Documentation only.** Add the four holders SPEC.md 66.6 misses; note `SSI_SEG` is a sample not a handle; correct SPEC.md 66.9 reason 5 and docs/HEAP-CLAIMS.md's donated-listing row, both stale; delete the dead `[ty_selfseg]` write | **0** | 0 | −4 bytes from every package that includes apps/os88type.inc |
 | **A** | **Stop pinning three claims for a placement constraint** (§3.1): `mem_can_move` drops the `MC_DMA` refusal, `mem_cp_plan`/`mem_cp_run` bump the fill point to the next page-safe base | **~50** | 0 | ESTIMATE; `mem_dmaok` (28) exists and is the whole test |
-| **B** | **Modules become purgeable** (§3.3, §4.3): `resb MOD_MAX` count, `mod_leave` ~12, ~20 thunk sites × 3, +5 in `mod_need`, `mem_pg_forget` arm ~14, `mem_cp_drop` guard ~8 | **~104–168** | ~77–140 | ESTIMATE, and **two independent passes disagreed** — 104 and 152–168 for the same design, the spread being how many call sites are counted. Calibrated on `mod_drop` 15, `mod_disarm` 19–21 |
+| **B** | **Modules become purgeable** (§3.3, §4.3) at `MEM_PG_MED`, with a PER-SPAN pin and `FDLG.DRV` excluded: `resb MOD_MAX` count, `mod_leave` ~12, ~20 thunk sites × 3, +5 in `mod_need`, `mem_pg_forget` arm ~14, `mem_cp_drop` guard ~8, plus the three held-span brackets | **~104–200** | ~77–140 | ESTIMATE, and **two independent passes disagreed** — 104 and 152–168 for the same design, the spread being how many call sites are counted. Calibrated on `mod_drop` 15, `mod_disarm` 19–21 |
 | **C** | **Regions move when idle** (§3.5, §4.2): `[wm_pkgd]` + its two brackets ~11, the fix-up routine ~110, the `mem_can_move` arm ~20, widen `mem_find_own`'s fence ~20, the `[ld_base]` refusal ~6, tier-3 gate ~15 | **~200** | ~11 | ESTIMATE; the fix-up is `dsk_dseg_reloc`'s shape over four tables and five words. Two agents arrived at ~110 independently |
 | **D0** | **Driver unload/reload as a policy step** (§3.4): the mechanism is BUILT — `hbm_detach`/`hbm_reload` are 91 bytes, `ss_reap_x` does it per session. Only a policy hook is new | **~40** | 0 | ESTIMATE. Reaches **more** memory than a move (the 8KB ring and ETHER's 14KB pool) and breaks nothing, because a package names a driver by CLASS |
 | **D** | **Driver images move in place** (§3.2, §3.4, §4.4): the 66-word fix-up, a dispatch depth count, the mask/unmask bracket, `DRVV_QUIESCE`/`DRVV_REARM`/`DRVV_RELOC` | **~175–242** | ~40 | ESTIMATE; `drv_call` is 61, `[drv_wcnt]`'s half costs 0. **The bytes are not what stops this** — §3.4's 50.2 ms IF=0 window for an 18KB `ETHER.DRV` is |
@@ -1008,7 +1050,8 @@ in the machine can merge them today.
 
 | take | why |
 |---|---|
-| **§2.1.1's three** | a slot number, a declaration, one SDK function. They fix real mid-arena barriers and need no kernel byte |
+| **§2.1.1 item 1 first, on its own** | `CWORD.OVL` is 18,565 bytes pinned mid-arena for every C package, and `cc_ovbind` is already its relocation proc. ~10 bytes of `crt0.asm`, **zero kernel bytes**. The best value in the document by a wide margin |
+| **§2.1.1's other two** | a declaration in SHEET, one SDK function in `os88.h`. Also no kernel byte |
 | **piece 0** | free, and an incomplete SPEC.md 66.6 is worse than none: the next person fixes five of nine words and ships a machine that draws its menu titles out of the wrong segment |
 | **piece B** | ~104–168 bytes for 8–9KB, the only piece that is safe without E, with `FDLG.DRV` excluded |
 | **piece E** | before A, C or D — each of those is harmful without it |
