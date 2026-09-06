@@ -233,14 +233,20 @@ CSA_NOBJ  equ 20                ; object table and how many rows it has. A
                                 ; location is a runway AND the country round
                                 ; it (88.6.4), so cs_scene walks the picked
                                 ; row's table and not one global one
-CSA_SIZE  equ 22
+CSA_WX    equ 22                ; THE WATER STRIP (SPEC.md 88.7.7): a second
+CSA_WZ    equ 24                ; runway made of water, in the same four
+CSA_WHDG  equ 26                ; numbers as the first, so an amphibian's
+CSA_WLEN  equ 28                ; landing is the same arithmetic and not a
+CSA_WWID  equ 30                ; polygon test. CSA_WLEN 0 is a place with
+CSA_WNAME equ 32                ; no water an aeroplane could get down on
+CSA_SIZE  equ 34
 
 ; --- a plane (SPEC.md 88.7) - speeds 16.8 m/s, angles 65536 to the turn -------
 CSP_NAME   equ 0
 CSP_VSTALL equ 2
 CSP_VROT   equ 4
 CSP_VMAX   equ 6
-CSP_THRUST equ 8                ; 16.8 m/s a tick, at full throttle
+CSP_THRUST equ 8                ; 16.7 m/s a tick, at full throttle
 CSP_DRAGK  equ 10               ; drag = v^2 x this >> 16, a tick
 CSP_FRICT  equ 12               ; rolling friction a tick, on the ground
 CSP_BRAKE  equ 14
@@ -261,7 +267,19 @@ CSP_ATT    equ 34               ; word: ITS FLIGHT MODEL (88.7.2) - the near
                                 ; the motion, the ground - is shared, because
                                 ; it is the same arithmetic for both and a
                                 ; second copy of it would drift
-CSP_SIZE   equ 36
+CSP_SPOOL  equ 36               ; the engine's LAG, a shift count: thrust
+                                ; closes this fraction of the gap to what the
+                                ; throttle asks for, each tick. 0 is `sar by
+                                ; 0`, which is instant - every propeller
+                                ; (SPEC.md 88.7.5)
+CSP_LAUNCH equ 38               ; metres above the field at reset, and the
+                                ; state that goes with it: 0 is ON THE RUNWAY,
+                                ; which is every aeroplane with an engine
+CSP_FLAGS  equ 40               ; CSPF_*
+CSP_SIZE   equ 42
+
+CSPF_AMPHIB equ 0x0001          ; it may touch down on water, and where the
+                                ; location has some it STARTS there (88.7.7)
 
 ; --- a cockpit record (SPEC.md 88.9.2): what a plane's panel looks like ------
 CSK_WIN    equ 0                ; word: the windows, (x1, y1, x2, y2) at 320
@@ -301,13 +319,13 @@ RW_DASHM  equ 25                ; ...each this long, with as much gap
 RW_DASHH  equ 150               ; ...within this height of the runway
 RW_DASHW  equ 300               ; ...and this far from its axis
 CS_CRASHT  equ 36               ; ticks the crash stays on the glass: 2 s
-CS_GRAV    equ 138              ; 9.81 m/s^2 a tick, 16.8
+CS_GRAV    equ 69               ; 9.81 m/s^2 a tick, 16.7 (SPEC.md 88.7.4)
 CS_STALLSINK equ 24             ; 16.8 m/s of sink per 1 m/s under the stall
 CS_STALLDROP equ 60             ; the nose drops this much a tick, stalled
 CS_LIFTOFF equ 546              ; 3 degrees: the nose is up, and it flies
 CS_RUDDER  equ 24               ; the rudder's yaw a tick, in the air
-CS_STEERK  equ 2                ; the nosewheel: hdg += v x this >> 8
-CS_LANDVS  equ -768             ; a landing sinks no faster than 3 m/s...
+CS_STEERK  equ 2                ; the nosewheel: hdg += v x this >> 7
+CS_LANDVS  equ -384             ; a landing sinks no faster than 3 m/s...
 CS_LANDROLL equ 1820            ; ...banked under 10 degrees...
 CS_LANDPMIN equ -910            ; ...with the nose between -5...
 CS_LANDPMAX equ 2730            ; ...and +15
@@ -322,6 +340,8 @@ CSG_LANDED equ 3
 CSG_CRASH  equ 4
 CSG_PAUSED equ 5
 CSG_EDGE   equ 6
+CSG_RELEASE equ 7               ; a sailplane's launch (88.7.6)
+CSG_SPLASH equ 8                ; ...and an amphibian's water landing (88.7.7)
 
 ; --- the attract window (SPEC.md 88.10) ---------------------------------------
 CS_WINW   equ 312               ; the launcher, frame included: it fits
@@ -1539,8 +1559,8 @@ cs_s_wat:    db 'Water', 0
 cs_s_bld:    db 'Buildings', 0
 cs_s_done:   db 'Done', 0
 cs_s_setts:  db 'Settings', 0
-cs_planes:   dw cs_p_c172, cs_p_pitts
-cs_plnames:  dw cs_s_c172, cs_s_pitts
+cs_planes:   dw cs_p_c172, cs_p_pitts, cs_p_fouga, cs_p_bijave, cs_p_a5
+cs_plnames:  dw cs_s_c172, cs_s_pitts, cs_s_fouga, cs_s_bijave, cs_s_a5
 CS_NPLANES   equ ($ - cs_plnames) / 2
 ; --- the LOCATIONS (SPEC.md 88.6.4), ALPHABETICALLY: the list a player reads
 ;     is sorted by its own names and not by the order the worlds were written
@@ -1906,7 +1926,14 @@ cs_tpl:
     ZWORD cs_hdg                    ; 65536 to the turn
     ZWORD cs_pitch
     ZWORD cs_roll
-    ZWORD cs_spd                    ; 16.8 m/s
+    ZWORD cs_thracc                 ; the engine's thrust in 8.8, which is
+                                    ; what the spool integrates (88.7.5)
+    ZBYTE cs_onwater                ; the wheels are in the water (88.7.7)
+    ZWORD cs_lsn                    ; a strip's sine and cosine, while its
+    ZWORD cs_lcs                    ; local coordinates are being taken
+    ZWORD cs_rrate                  ; a lagging model's roll and pitch RATES
+    ZWORD cs_prate                  ; (88.7.5); zero for a direct-drive one
+    ZWORD cs_spd                    ; 16.7 m/s (SPEC.md 88.7.4)
     ZWORD cs_hs                     ; ...its horizontal component...
     ZWORD cs_vs                     ; ...and its vertical
     ZWORD cs_ht                     ; the ground moved this tick

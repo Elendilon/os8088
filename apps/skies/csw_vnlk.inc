@@ -131,5 +131,10 @@ cs_a_vnlk:
     dw cs_s_rwy_vnlk                ; CSA_RWY
     dw -240                         ; CSA_SPAWN    60 m in from the threshold
     dw cs_ot_vnlk, CS_N_VNLK        ; CSA_OBJS, CSA_NOBJ
+    dw -1008, 746                 ; CSA_WX, CSA_WZ: THE WATER STRIP
+    dw 10923                        ; CSA_WHDG    (88.7.7) - THE DUDH KOSHI
+    dw 800                          ; CSA_WLEN    half its length...
+    dw 40                           ; CSA_WWID    ...and half its width
+    dw cs_n_vnlk_river              ; CSA_WNAME
 cs_s_vnlk: db 'NEPAL-VNLK', 0
 cs_s_rwy_vnlk: db 'RUNWAY 06', 0

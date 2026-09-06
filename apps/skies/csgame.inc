@@ -402,7 +402,10 @@ CS_PI_THR  equ 4
 CS_PI_STATE equ 5
 CS_PI_BAR  equ 6
 CS_PI_MSG  equ 7
-CS_PI_N    equ 8
+CS_PI_VS   equ 8                    ; the VARIOMETER (SPEC.md 88.7.6) - a
+                                    ; cockpit that has none puts its cell at
+                                    ; 0,0 and cs_d_vs returns at once
+CS_PI_N    equ 9
 
 ; the layout is the cockpit's (cspanel.inc): x at 320 wide through
 ; cs_hscalex, rows below the view
@@ -500,14 +503,14 @@ cs_pkey:
     jmp [cs_pkeyp + bx]
 
 cs_pkeyp:  dw cs_k_spd, cs_k_alt, cs_k_hdg, cs_k_adi, cs_k_thr, cs_k_state
-           dw cs_k_thr, cs_k_msg
+           dw cs_k_thr, cs_k_msg, cs_k_vs
 cs_pdraw:  dw cs_d_spd, cs_d_alt, cs_d_hdg, cs_d_adi, cs_d_thr, cs_d_state
-           dw cs_d_bar, cs_d_msg
+           dw cs_d_bar, cs_d_msg, cs_d_vs
 
 ; --- the keys -----------------------------------------------------------------
-cs_k_spd:                           ; knots: v(16.8) x 1.944 / 256
+cs_k_spd:                           ; knots: v(16.7) x 1.944 / 128
     mov ax, [cs_spd]
-    mov bx, 498
+    mov bx, 996
     mul bx
     mov ax, dx
     ret
@@ -530,6 +533,9 @@ cs_k_thr:
 cs_k_state:
     mov al, [cs_state]
     mov ah, [cs_stall]
+    or ah, [cs_onwater]             ; ...and WHICH ground, so the strip
+    shl ah, 1                       ; repaints when a hull leaves the water
+    or ah, [cs_stall]               ; (88.7.7)
     ret
 cs_k_msg:
     mov al, [cs_msg]
@@ -622,6 +628,35 @@ cs_d_hdg:
     mov cl, 3
     mov si, cs_s_hdg
     jmp cs_pnum
+cs_k_vs:                            ; the VARIOMETER: tenths of a metre a
+    mov ax, [cs_vs]                 ; second, and its SIGN in the high byte -
+    mov bx, 10                      ; the key has to change when the needle
+    imul bx                         ; crosses zero or the cache holds the
+    mov bx, 128                     ; wrong label (88.7.6)
+    idiv bx
+    ret
+
+cs_d_vs:
+    mov bx, CS_PI_VS
+    call cs_pcell
+    or bx, bx
+    jz .none                        ; this cockpit has no variometer
+    mov ax, [cs_pkeyv]
+    mov si, cs_s_up
+    or ax, ax
+    jns .up
+    neg ax
+    mov si, cs_s_dn
+.up:
+    cmp ax, 999
+    jle .n
+    mov ax, 999
+.n:
+    mov cl, 3
+    jmp cs_pnum
+.none:
+    ret
+
 cs_d_thr:
     mov bx, CS_PI_THR
     call cs_pcell
@@ -633,7 +668,12 @@ cs_d_state:
     mov ax, [cs_pkeyv]
     mov si, cs_s_ground
     cmp al, CS_ST_GROUND
+    jne .air
+    cmp byte [cs_onwater], 0
     je .s
+    mov si, cs_s_water
+    jmp short .s
+.air:
     mov si, cs_s_crash
     cmp al, CS_ST_CRASH
     je .s
@@ -650,6 +690,8 @@ cs_d_state:
 cs_d_bar:                           ; the throttle bar: 0..100 in its slot
     mov bx, CS_PI_BAR
     call cs_pcell                   ; BX = its left end, DX = its top row
+    or bx, bx
+    jz .none                        ; a glider has no throttle to draw (88.7.6)
     mov [cs_pbarx], bx
     add dx, [cs_pany]
     mov [cs_pbary], dx
@@ -692,6 +734,7 @@ cs_d_bar:                           ; the throttle bar: 0..100 in its slot
     call cs_prect
 .none:
     ret
+
 cs_d_msg:                           ; the message line, padded to 40 cells
     mov di, cs_msgbuf
     mov al, [cs_msg]
@@ -740,13 +783,17 @@ cs_s_spd:    db 'SPD ', 0
 cs_s_alt:    db 'ALT ', 0
 cs_s_hdg:    db 'HDG ', 0
 cs_s_thr:    db 'THR ', 0
+cs_s_up:     db 'UP  ', 0        ; the variometer's two labels: a needle
+cs_s_dn:     db 'DN  ', 0        ; and not a signed number (88.7.6)
 cs_s_ground: db 'ON THE GROUND', 0
+cs_s_water:  db 'ON THE WATER ', 0
 cs_s_flying: db 'FLYING       ', 0
 cs_s_stalled: db 'STALL        ', 0
 cs_s_crash:  db 'CRASHED      ', 0
 
 cs_msgtab:   dw cs_g_none, cs_g_takeoff, cs_g_stall, cs_g_landed
-             dw cs_g_crash, cs_g_paused, cs_g_edge
+             dw cs_g_crash, cs_g_paused, cs_g_edge, cs_g_release
+             dw cs_g_splash
 cs_g_none:   db 0
 cs_g_takeoff: db 'FULL THROTTLE, PULL BACK AT 55 KNOTS', 0
 cs_g_stall:  db 'STALL - NOSE DOWN, POWER ON', 0
@@ -754,3 +801,5 @@ cs_g_landed: db 'LANDED', 0
 cs_g_crash:  db 'CRASHED INTO ', 0
 cs_g_paused: db 'PAUSED', 0
 cs_g_edge:   db 'THE EDGE OF THE WORLD - TURN BACK', 0
+cs_g_release: db 'TOW RELEASED - NOSE DOWN FOR 43 KNOTS', 0
+cs_g_splash: db 'DOWN ON ', 0    ; ...and the water's own name after it

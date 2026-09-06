@@ -288,5 +288,10 @@ cs_a_lcy:
     dw cs_s_rwy_lcy                 ; CSA_RWY
     dw -690                         ; CSA_SPAWN    60 m in from the threshold
     dw cs_ot_lcy, CS_N_LCY          ; CSA_OBJS, CSA_NOBJ
+    dw 7150, 275                 ; CSA_WX, CSA_WZ: THE WATER STRIP
+    dw 17294                        ; CSA_WHDG    (88.7.7) - THE THAMES
+    dw 800                          ; CSA_WLEN    half its length...
+    dw 100                           ; CSA_WWID    ...and half its width
+    dw cs_n_lcy_th              ; CSA_WNAME
 cs_s_lcy: db 'LONDON-LCY', 0
 cs_s_rwy_lcy: db 'RUNWAY 27', 0

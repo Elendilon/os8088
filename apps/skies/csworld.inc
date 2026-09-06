@@ -141,17 +141,27 @@ cs_n_ground: db 'THE GROUND', 0
 
 ; =============================================================================
 ; The aeroplanes (SPEC.md 88.7): one row, and every constant the flight model
-; reads. Speeds are 16.8 m/s; angles 65536 to the turn; rates are per tick.
+; reads. Angles are 65536 to the turn and rates are per tick.
+;
+; SPEEDS ARE 16.7 m/s AND NOT 16.8 (SPEC.md 88.7.4). The dive caps at 1.25 x
+; VMAX and two sites read the speed SIGNED - the cap's own `jle` and cs_move's
+; `imul` - so 16.8 put a ceiling of 102 m/s on VMAX, which is 198 knots: fine
+; for a trainer and a biplane, and not an aeroplane faster than either. Half
+; the resolution buys twice the range, every signed site keeps working
+; untouched, and what changed instead is arithmetic: VSTALL/VROT/VMAX are
+; x 128, THRUST/FRICT/BRAKE halved, and DRAGK re-derived from the new THRUST
+; rather than scaled - it reads the HIGH WORD of v x v, which at 16.7 is a
+; quarter of what it was, so the balance point moves by 2 and not by 1.
 ; =============================================================================
 cs_p_c172:
     dw cs_s_c172                    ; CSP_NAME
-    dw 24 * 256                     ; CSP_VSTALL   48 knots
-    dw 28 * 256                     ; CSP_VROT     55 knots
-    dw 78 * 256                     ; CSP_VMAX    150 knots, level at full power
-    dw 31                           ; CSP_THRUST   2.2 m/s^2 at full throttle
-    dw 334                          ; CSP_DRAGK    balances THRUST at VMAX
-    dw 6                            ; CSP_FRICT    rolling, on the ground
-    dw 40                           ; CSP_BRAKE
+    dw 24 * 128                     ; CSP_VSTALL   48 knots
+    dw 28 * 128                     ; CSP_VROT     55 knots
+    dw 78 * 128                     ; CSP_VMAX    150 knots, level at full power
+    dw 16                           ; CSP_THRUST   2.2 m/s^2 at full throttle
+    dw 689                          ; CSP_DRAGK    balances THRUST at VMAX
+    dw 3                            ; CSP_FRICT    rolling, on the ground
+    dw 20                           ; CSP_BRAKE
     dw 546                          ; CSP_ROLLR    3 degrees a tick, held
     dw 146                          ; CSP_ROLLL    0.8 a tick back to level
     dw 146                          ; CSP_PITCHR   0.8 a tick, held
@@ -163,6 +173,10 @@ cs_p_c172:
     dw 7282                         ; CSP_MAXPITCH 40 degrees
     dw cs_ck_c172                   ; CSP_COCKPIT  (cspanel.inc)
     dw cs_att_trim                  ; CSP_ATT      a trainer's model (88.7.2)
+    dw 0                            ; CSP_SPOOL    a piston: the throttle IS
+                                    ;              the power (88.7.5)
+    dw 0                            ; CSP_LAUNCH   on the runway
+    dw 0                            ; CSP_FLAGS
 cs_s_c172:   db 'CESSNA 172', 0
 
 ; --- the second row: a PITTS SPECIAL (SPEC.md 88.7.2), an aerobatic biplane.
@@ -172,14 +186,14 @@ cs_s_c172:   db 'CESSNA 172', 0
 ;     260 hp, stalls near 52 knots, cruises 152 mph and never-exceeds 203 ---
 cs_p_pitts:
     dw cs_s_pitts                   ; CSP_NAME
-    dw 27 * 256                     ; CSP_VSTALL   52 knots
-    dw 30 * 256                     ; CSP_VROT     58 knots
-    dw 88 * 256                     ; CSP_VMAX    171 knots, level at full power
-    dw 52                           ; CSP_THRUST   3.7 m/s^2: 260 hp on half
+    dw 27 * 128                     ; CSP_VSTALL   52 knots
+    dw 30 * 128                     ; CSP_VROT     58 knots
+    dw 88 * 128                     ; CSP_VMAX    171 knots, level at full power
+    dw 26                           ; CSP_THRUST   3.7 m/s^2: 260 hp on half
                                     ;              the Cessna's weight
-    dw 440                          ; CSP_DRAGK    balances THRUST at VMAX
-    dw 5                            ; CSP_FRICT    a taildragger on grass
-    dw 45                           ; CSP_BRAKE
+    dw 880                          ; CSP_DRAGK    balances THRUST at VMAX
+    dw 3                            ; CSP_FRICT    a taildragger on grass
+    dw 23                           ; CSP_BRAKE
     dw 1820                         ; CSP_ROLLR   10 degrees a tick - 182 a
                                     ;              second, and the real one
                                     ;              manages 240
@@ -197,7 +211,121 @@ cs_p_pitts:
                                     ;              not told the wrong thing
     dw cs_ck_pitts                  ; CSP_COCKPIT  its own scattered panel
     dw cs_att_free                  ; CSP_ATT      the aerobatic model
+    dw 0                            ; CSP_SPOOL    a piston
+    dw 0                            ; CSP_LAUNCH   on the runway
+    dw 0                            ; CSP_FLAGS
 cs_s_pitts:  db 'PITTS SPECIAL', 0
+
+; --- the third row: a FOUGA CM.170 MAGISTER (SPEC.md 88.7.5), the French jet
+;     trainer the Patrouille de France flew nine of. It is here for one
+;     MECHANIC and not for the number on the airspeed indicator: CSP_ATT is
+;     cs_att_lag, so the stick sets a rate the aeroplane EASES onto, and
+;     CSP_SPOOL 5 makes the thrust follow the throttle over about five
+;     seconds. 715 km/h, stalls at 125, and its two Marbore turbojets are
+;     0.28 of its weight in thrust ------------------------------------------
+cs_p_fouga:
+    dw cs_s_fouga                   ; CSP_NAME
+    dw 35 * 128                     ; CSP_VSTALL   68 knots
+    dw 42 * 128                     ; CSP_VROT     82 knots
+    dw 190 * 128                    ; CSP_VMAX    369 knots. 1.25 x this is
+                                    ;             30,400, which is the whole
+                                    ;             reason 16.7 came first (88.7.4)
+    dw 19                           ; CSP_THRUST   2.7 m/s^2: 0.28 t/w
+    dw 138                          ; CSP_DRAGK    balances THRUST at VMAX
+    dw 3                            ; CSP_FRICT
+    dw 22                           ; CSP_BRAKE
+    dw 1200                         ; CSP_ROLLR    6.6 degrees a tick ASKED
+                                    ;              FOR; the lag decides when
+                                    ;              it arrives
+    dw 0                            ; CSP_ROLLL    nothing returns it to level
+    dw 600                          ; CSP_PITCHR   3.3 a tick asked for
+    dw 0                            ; CSP_PITCHT
+    dw 40                           ; CSP_TURNK    a jet at 190 m/s turns
+                                    ;              BADLY: two thirds of the
+                                    ;              trainer's at the same bank
+    dw 3                            ; CSP_EYE
+    dw 32767                        ; CSP_MAXROLL  unused by cs_att_lag, and
+    dw 16384                        ; CSP_MAXPITCH honest: it aerobats
+    dw cs_ck_fouga                  ; CSP_COCKPIT  a jet's panel
+    dw cs_att_lag                   ; CSP_ATT      the lagging model (88.7.5)
+    dw 5                            ; CSP_SPOOL    a 32nd of the gap a tick:
+                                    ;              95% of the way in 5.3 s
+    dw 0                            ; CSP_LAUNCH   on the runway
+    dw 0                            ; CSP_FLAGS
+cs_s_fouga:  db 'FOUGA MAGISTER', 0
+
+; --- the fourth row: a WASSMER WA-30 BIJAVE (SPEC.md 88.7.6), the French
+;     two-seat sailplane. NO ENGINE AT ALL - CSP_THRUST is zero, so the only
+;     energy it has is the height it starts with and every turn spends some.
+;     CSP_LAUNCH 600 is what puts it there: the tow is released over the
+;     field and the session begins in the air, because a winch launch is a
+;     scripted sequence and this is not one. 28:1 at 80 km/h, which in a
+;     model whose only sink is the nose attitude IS two degrees down --------
+cs_p_bijave:
+    dw cs_s_bijave                  ; CSP_NAME
+    dw 17 * 128                     ; CSP_VSTALL   33 knots
+    dw 250 * 128                    ; CSP_VROT     UNREACHABLE, deliberately:
+                                    ;              a sailplane that lands has
+                                    ;              landed, and no throttle can
+                                    ;              rotate it again
+    dw 61 * 128                     ; CSP_VMAX    119 knots, the VNE
+    dw 0                            ; CSP_THRUST   NONE
+    dw 1300                         ; CSP_DRAGK    balances gravity's component
+                                    ;              at two degrees down and
+                                    ;              22 m/s, which is 28:1
+    dw 8                            ; CSP_FRICT    a skid on grass
+    dw 15                           ; CSP_BRAKE    the wheel brake
+    dw 546                          ; CSP_ROLLR    3 degrees a tick: a long
+                                    ;              wing is slow in roll
+    dw 60                           ; CSP_ROLLL    ...and comes back gently
+    dw 110                          ; CSP_PITCHR   0.6 a tick
+    dw 0                            ; CSP_PITCHT   trimmed: the nose stays
+    dw 70                           ; CSP_TURNK
+    dw 1                            ; CSP_EYE      low, reclined
+    dw 10923                        ; CSP_MAXROLL  60 degrees
+    dw 7282                         ; CSP_MAXPITCH 40
+    dw cs_ck_bijave                 ; CSP_COCKPIT  no throttle, a variometer
+    dw cs_att_trim                  ; CSP_ATT      docile, and it auto-levels
+    dw 0                            ; CSP_SPOOL    there is no engine to spool
+    dw 600                          ; CSP_LAUNCH   metres, tow just released
+    dw 0                            ; CSP_FLAGS
+cs_s_bijave: db 'WASSMER BIJAVE', 0
+
+; --- the fifth row: an ICON A5 (SPEC.md 88.7.7), the light sport amphibian.
+;     It fits the slow end of the envelope the other four leave empty - 95
+;     knots and a 39-knot stall - and its whole point is CSPF_AMPHIB: it may
+;     touch down on a location's WATER STRIP as well as its runway, and
+;     where the place has water it STARTS there, hull in, which all nine of
+;     them do. On the water the hull drags twice as hard as a wheel and
+;     there is nothing to brake with -----------------------------------------
+cs_p_a5:
+    dw cs_s_a5                      ; CSP_NAME
+    dw 20 * 128                     ; CSP_VSTALL   39 knots
+    dw 24 * 128                     ; CSP_VROT     47 knots
+    dw 49 * 128                     ; CSP_VMAX     95 knots
+    dw 11                           ; CSP_THRUST   1.5 m/s^2: 100 hp Rotax
+    dw 1201                         ; CSP_DRAGK    balances THRUST at VMAX
+    dw 3                            ; CSP_FRICT    on land; DOUBLED on water
+    dw 18                           ; CSP_BRAKE    ...and no use at all there
+    dw 500                          ; CSP_ROLLR    2.7 degrees a tick
+    dw 120                          ; CSP_ROLLL    it comes back to level on
+                                    ;              its own: a spin-resistant
+                                    ;              wing, and the easiest
+                                    ;              aeroplane here to fly
+    dw 130                          ; CSP_PITCHR   0.7 a tick
+    dw 0                            ; CSP_PITCHT
+    dw 65                           ; CSP_TURNK
+    dw 2                            ; CSP_EYE
+    dw 10923                        ; CSP_MAXROLL  60 degrees
+    dw 7282                         ; CSP_MAXPITCH 40
+    dw cs_ck_a5                     ; CSP_COCKPIT  one wide glass panel
+    dw cs_att_trim                  ; CSP_ATT      docile, and it auto-levels
+    dw 0                            ; CSP_SPOOL    a piston
+    dw 0                            ; CSP_LAUNCH   ...on the WATER, which is
+                                    ;              CSP_FLAGS' doing and not
+                                    ;              a launch height
+    dw CSPF_AMPHIB                  ; CSP_FLAGS
+cs_s_a5:     db 'ICON A5', 0
 
 ; =============================================================================
 ; THE WORLDS (SPEC.md 88.6.4) - one file each, and each file is whole: its

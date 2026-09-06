@@ -95405,6 +95405,138 @@ held-stick case is 1,464 cycles, **0.22%**. A tick with the stick centred is
 zero, the call being inside the `jz` that was already there. `+122 bytes` of
 `apps/skies`, A/B'd against the build before it.
 
+#### 88.7.4 Speeds are 16.7, and why that had to happen first
+
+`cs_spd` was 16.8 metres a second, and **two sites read it signed**: the
+dive cap's own `cmp/jle`, and `cs_move`'s `MUL14`, which is an `imul`. So
+the speed could not pass 32,767 — 127.99 m/s — and since a dive tops out at
+1.25 × `VMAX`, **`VMAX` itself was capped at about 102 m/s: 198 knots**.
+Fine for a trainer and a biplane. Not an aeroplane faster than either, and
+"15% quicker than the Pitts" is not a jet.
+
+The fix is not to make the path unsigned. That means reconciling a signed
+Q15 sine with an unsigned speed inside two multiplies, in three places, for
+40 bytes and three chances to be subtly wrong. **Halving the resolution
+buys twice the range and every signed site keeps working untouched**: one
+unit is now 1/128 m/s, which is 0.008 m/s and below anything the panel or
+the physics can see.
+
+What changed instead is arithmetic, and it is worth listing because the
+third item is the one that is not a halving:
+
+- `VSTALL`/`VROT`/`VMAX` are `× 128` where they were `× 256`;
+- `THRUST`, `FRICT`, `BRAKE`, `CS_GRAV` and `CS_LANDVS` halve — they are
+  per-tick deltas in the same unit;
+- **`DRAGK` is re-derived and not scaled.** Drag reads the HIGH WORD of
+  `v × v`, which at 16.7 is a quarter of what it was at 16.8, so the
+  balance point moves by two rather than by one. Each aeroplane's is
+  computed afresh from its own new `THRUST` and its own `VMAX`;
+- `cs_move`'s `× 3600` becomes `× 7200`, the position staying 16.8;
+- the nosewheel's `shr 8` becomes `shr 7`, and the ASI's `× 498` `× 996`.
+
+Measured level at full power afterwards: the Cessna settles at **149 knots
+against its 150**, the Pitts at **exactly 171**. The ceiling is now 204 m/s,
+which the Magister's 190 fits with room; a Mirage would want 16.6, and that
+is the same change again.
+
+#### 88.7.5 The FOUGA MAGISTER — a jet, and the mechanic is INERTIA
+
+The French jet trainer the Patrouille de France flew nine of. It is here for
+a mechanic and not for the number on the airspeed indicator.
+
+**`cs_att_lag`.** The two aeroplanes before it are direct-drive: the stick
+IS the rate, in both directions, the same tick. This one's stick sets a rate
+TARGET and the aeroplane closes a quarter of the gap each tick — 90% of the
+way there in eight, half a second — so it keeps rolling after the key is let
+go and takes a beat to start. That is the single most recognisable
+difference between a light aerobat and a jet on a keyboard.
+
+**It composes with the horizon capture (§88.7.3) rather than fighting it.**
+The step `cs_ease` shortens is the current rate whatever set it, so the jet
+still lands exactly on the horizon — and because the rate decays with the
+stick centred, it can COAST onto level instead of being flown onto it, which
+no other aeroplane here can do.
+
+**`CSP_SPOOL`.** Thrust follows the throttle instead of being it: a shift
+count, and the gap closes by that fraction each tick. `0` is `sar by 0`,
+which is a no-op, so **every piston aeroplane is unchanged to the unit** and
+the two that shipped before this measure identically. The Magister's is 5,
+which is 95% of the way there in about five seconds.
+
+The spool integrates in **8.8 and not in whole thrust units**, and that is
+the one thing here that was got wrong first: a whole unit of thrust is 19 on
+this aeroplane, a 32nd of a gap that small is zero, and the small-gap
+fallback then closed it outright — a spool that arrived instantly and passed
+its own gate. **A lag has to be finer than the quantity it lags.**
+
+It also has to run **every tick and not only on a throttle key**, which is
+where the computation used to sit. That is what a lag is.
+
+The panel is a jet's: the attitude indicator centred and the biggest of the
+three, no tachometer, and the dial under the left hand is a **% RPM gauge
+that visibly lags the throttle** — the spool given something to show, so the
+mechanic is legible and not only felt.
+
+#### 88.7.6 The WASSMER BIJAVE — a sailplane, and the mechanic is NO ENGINE
+
+`CSP_THRUST` is zero, so the only energy it has is the height it starts with
+and every turn spends some. Nothing else in the model needed changing: the
+throttle keys still move `cs_thr`, and `thr × 0 / 100` is nothing.
+
+**`CSP_LAUNCH` is what puts it up there**: metres above the field at reset,
+and `cs_reset` then starts the session in the air at 1.4 × `VSTALL` with the
+tow-released message. Zero is every aeroplane with an engine. A winch or an
+aerotow is a scripted sequence and this is a state machine, so what the
+field does is put the aeroplane where a launch would have left it.
+
+**Its glide is its attitude**, because the model's only sink is the nose:
+28:1 at 22 m/s is two degrees down, and `DRAGK` is picked so that gravity's
+component along the nose balances drag exactly there. Measured on the
+machine at two degrees down: **165 metres of ground for 7 of height**.
+
+`CSP_VROT` is 250 m/s — deliberately unreachable. **A sailplane that lands
+has landed**, and with no thrust nothing can rotate it again.
+
+Its panel has **no throttle window and no throttle bar**, because a `THR
+000` that can never be anything else reads as a defect; what stands there
+instead is the **variometer**, `CS_PI_VS`, the ninth panel item. A cockpit
+without one puts its cell at 0,0 and `cs_d_vs` returns at once, so the four
+powered aeroplanes pay one cache compare a frame for it. It reads `UP 015`
+or `DN 015` in tenths of a metre a second — a needle's two labels rather
+than a signed number.
+
+#### 88.7.7 The ICON A5 — an amphibian, and the mechanic is WATER
+
+The light sport amphibian, and it fills the slow end of the envelope the
+other four leave empty: 95 knots, a 39-knot stall, and a wing that comes
+back to level on its own.
+
+**A water strip is a runway made of water.** The location record carries a
+second one — `CSA_WX`, `CSA_WZ`, `CSA_WHDG`, `CSA_WLEN`, `CSA_WWID` and the
+water's own name — in exactly the four numbers the first one has, so an
+amphibian's landing is the same arithmetic and **not a polygon test**.
+`cs_runway_xy` and `cs_water_xy` are now two wrappers over one
+`cs_local_xy`. `CSA_WLEN` = 0 is a place with no water an aeroplane could
+get down on; **all nine locations have one**, each fitted inside that
+world's own `CSI_RIVER` polygons and checked by containment sampling before
+it was written down.
+
+**`CSPF_AMPHIB`** is the whole of what makes the A5 different. With it,
+`cs_touch` tries the water strip before the runway and a touchdown inside it
+is a landing that says `DOWN ON THE SEINE`; `cs_reset` starts the session on
+the strip's own threshold, hull in, pointing along it. Without it — every
+other aeroplane — the water is not tested at all and putting one down there
+is a crash, which is what ditching is. The gate asserts exactly that pair:
+the same touchdown, the A5 and the Cessna, a landing and a crash.
+
+**On the water the hull drags twice as hard as a wheel and there is nothing
+to brake with.** One `sub` and a skipped test, no new record field; the
+take-off run measures longer than the land one, which is right.
+
+`[cs_onwater]` also reaches the panel: the state strip says `ON THE WATER`,
+and it is folded into `cs_k_state`'s cache key so the strip repaints on the
+tick the hull leaves.
+
 **Where a second aeroplane costs memory, and why it is not a part.** A plane
 is a 36-byte record, a name, and a ~120-byte cockpit; the Pitts' own model is
 about 150 bytes of code. `.o88` parts (§20.12) would move the DATA to a
@@ -95808,6 +95940,22 @@ drop-downs get a release the title page never armed.
   and the over-the-top check must go red; the row's own docstring records why
   the roll checks survive that, which is a signed clamp overflowing before it
   bites.
+- `tests/skiesfleet.py` (soak, MartyPC): §88.7.5–§88.7.7, each aeroplane on
+  its own mechanic rather than on its numbers. The Magister's roll rate
+  RAMPS held and DECAYS released, and its thrust climbs toward the throttle
+  over more than forty ticks; the Bijave starts in the air at `CSP_LAUNCH`
+  with the tow-released message, no throttle key can give it thrust, and two
+  degrees down it makes 165 metres of ground for 7 of height; the A5 starts
+  on the water, gets off it under its own power, and a touchdown inside the
+  strip is a landing that names the water — while the SAME touchdown in the
+  Cessna is a crash, which is the pair that makes `CSPF_AMPHIB` mean
+  something. **The first roll step is dropped**, because the attitude is
+  pinned at a `cs_step` breakpoint inside a frame whose `cs_input` has
+  already run, so the tick after it moves nothing whatever model is fitted —
+  a leading zero that made the ramp check pass against the trainer's model
+  too, found by `--clobber-lag` and fixed rather than tolerated.
+  `--clobber-amphib` clears `CSP_FLAGS` and takes the water start and the
+  splash red while everything else about the A5 still passes.
 - `tests/skiesease.py` (soak, MartyPC): §88.7.3's capture. Every reading is
   taken at a `cs_step` BREAKPOINT and not after a frame — the model steps per
   tick and a frame spends one, two or three of them, so a per-frame sample

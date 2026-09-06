@@ -305,5 +305,10 @@ cs_a_sfo:
     dw cs_s_rwy_sfo                 ; CSA_RWY
     dw -790                         ; CSA_SPAWN    60 m in from the threshold
     dw cs_ot_sfo, CS_N_SFO          ; CSA_OBJS, CSA_NOBJ
+    dw 3800, -572                 ; CSA_WX, CSA_WZ: THE WATER STRIP
+    dw 16384                        ; CSA_WHDG    (88.7.7) - SAN FRANCISCO BAY
+    dw 800                          ; CSA_WLEN    half its length...
+    dw 100                           ; CSA_WWID    ...and half its width
+    dw cs_n_sfo_bay              ; CSA_WNAME
 cs_s_sfo: db 'SANFAN-SFO', 0
 cs_s_rwy_sfo: db 'RUNWAY 31', 0

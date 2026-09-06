@@ -84,6 +84,8 @@ cs_ck_c172:
     dw  16, 62                      ;   the state
     dw 240, 58                      ;   the throttle bar's left end and top row
     dw   0, 78                      ;   the message (centred; the row)
+    dw   0,  0                      ;   no variometer: an aeroplane with an
+                                    ;   engine does not carry one (88.7.6)
 
 ; --- the PITTS SPECIAL's (SPEC.md 88.9.3): the same eight readings, put
 ;     where an aerobatic biplane's are rather than in two tidy columns - the
@@ -116,6 +118,7 @@ cs_ck_pitts:
     dw  16, 61                      ;   the state
     dw 240, 25                      ;   the throttle bar's left end and top row
     dw   0, 78                      ;   the message (centred; the row)
+    dw   0,  0                      ;   no variometer (88.7.6)
 .deco:                              ; kind, x, y, radius in rows, argument
     dw CSDK_DIAL,   106, 20, 15, 8000    ; the tachometer, showing cruise
     dw CSDK_DIAL,   106, 56, 13, 54000   ; oil pressure, up in the green
@@ -123,6 +126,115 @@ cs_ck_pitts:
     dw CSDK_DIAL,   216, 56, 15, 45000   ; the G meter, parked at 1
     dw CSDK_SWITCH, 143, 68,  5, 1       ; the magnetos: left on...
     dw CSDK_SWITCH, 157, 68,  5, 1       ; ...and right
+
+; --- the Magister's: a JET's panel (SPEC.md 88.7.5). The attitude indicator
+;     is the centrepiece and the biggest of the three, because at 190 metres a
+;     second it is the instrument you fly on; there is no tachometer, and the
+;     dial under the left hand is the ENGINE, which visibly lags the throttle
+;     - the spool given something to show, so the mechanic is legible and not
+;     only felt -------------------------------------------------------------
+cs_ck_fouga:
+    dw .win, 7                      ; CSK_WIN, CSK_NWIN
+    dw .items                       ; CSK_ITEMS
+    dw 160, 36                      ; CSK_ADCX, CSK_ADCY: centred, and BIG
+    dw 33, 24                       ; CSK_ADRY, CSK_ADHH
+    dw 73                           ; CSK_BARW
+    dw .deco, 4                     ; CSK_DECO, CSK_NDECO
+.win:                               ; x1, y1, x2, y2 at 320 wide, rows below
+    dw  13,  6,  75, 18             ;   SPD 000, top left: the one you watch
+    dw  13, 24,  91, 36             ;   ALT 00000, under it
+    dw 237,  6, 299, 18             ;   HDG 040, top right
+    dw 237, 24, 299, 36             ;   THR 100
+    dw 237, 42, 313, 49             ;   the throttle bar's slot
+    dw  13, 58, 123, 70             ;   ON THE GROUND
+    dw   0, 75, 319, 87             ;   the message strip
+.items:
+    dw  16,  9                      ;   SPD
+    dw  16, 27                      ;   ALT
+    dw 240,  9                      ;   HDG
+    dw   0,  0                      ;   (the attitude indicator draws itself)
+    dw 240, 27                      ;   THR
+    dw  16, 61                      ;   the state
+    dw 240, 43                      ;   the throttle bar
+    dw   0, 78                      ;   the message
+    dw   0,  0                      ;   no variometer (88.7.6)
+.deco:                              ; kind, x, y, radius in rows, argument
+    dw CSDK_DIAL,    58, 46, 14, 20000   ; % RPM - THE SPOOL, which is why it
+                                         ; is under the throttle hand
+    dw CSDK_DIAL,   262, 62, 12, 40000   ; the jet-pipe temperature
+    dw CSDK_SWITCH, 143, 68,  5, 1       ; the two igniters
+    dw CSDK_SWITCH, 157, 68,  5, 1
+
+; --- the Bijave's: A GLIDER'S PANEL (SPEC.md 88.7.6). There is no throttle,
+;     so the window and the bar that would show one are simply not in the
+;     list - a THR 000 that can never be anything else reads as a defect -
+;     and what stands where they were is the VARIOMETER, the one instrument
+;     a sailplane is actually flown on. The airbrake lever is the switch ----
+cs_ck_bijave:
+    dw .win, 7                      ; CSK_WIN, CSK_NWIN
+    dw .items                       ; CSK_ITEMS
+    dw 160, 38                      ; CSK_ADCX, CSK_ADCY
+    dw 28, 20                       ; CSK_ADRY, CSK_ADHH
+    dw 73                           ; CSK_BARW: unused - no bar is drawn
+    dw .deco, 3                     ; CSK_DECO, CSK_NDECO
+.win:                               ; x1, y1, x2, y2 at 320 wide, rows below
+    dw  13,  8,  75, 20             ;   SPD 000
+    dw  13, 30,  91, 42             ;   ALT 00000
+    dw 237,  8, 299, 20             ;   HDG 040
+    dw 237, 30, 299, 42             ;   UP 015 - THE VARIOMETER, where a
+                                    ;   powered aeroplane keeps its throttle
+    dw  13, 58, 123, 70             ;   ON THE GROUND
+    dw   0, 75, 319, 87             ;   the message strip
+    dw 237, 48, 299, 60             ;   (the vario's own window, second half)
+.items:
+    dw  16, 11                      ;   SPD
+    dw  16, 33                      ;   ALT
+    dw 240, 11                      ;   HDG
+    dw   0,  0                      ;   (the attitude indicator draws itself)
+    dw   0,  0                      ;   NO THROTTLE
+    dw  16, 61                      ;   the state
+    dw   0,  0                      ;   ...and no throttle bar either
+    dw   0, 78                      ;   the message
+    dw 240, 33                      ;   THE VARIOMETER
+.deco:                              ; kind, x, y, radius in rows, argument
+    dw CSDK_DIAL,    58, 46, 15, 16384   ; the vario's own face, needle level
+    dw CSDK_DIAL,   262, 66, 11, 49000   ; the total-energy compensator
+    dw CSDK_SWITCH, 150, 68,  6, 0       ; the airbrakes: IN
+
+; --- the A5's: A MODERN LSA'S (SPEC.md 88.7.7). One wide glass panel rather
+;     than a scatter of round dials, so the readings sit in a single block
+;     left of a big attitude indicator - and it carries the VARIOMETER too,
+;     which a light amphibian really does. The switch pair is the WATER
+;     RUDDER, the one control that only means something on this aeroplane --
+cs_ck_a5:
+    dw .win, 8                      ; CSK_WIN, CSK_NWIN
+    dw .items                       ; CSK_ITEMS
+    dw 224, 38                      ; CSK_ADCX, CSK_ADCY: right, in the glass
+    dw 30, 21                       ; CSK_ADRY, CSK_ADHH
+    dw 60                           ; CSK_BARW
+    dw .deco, 2                     ; CSK_DECO, CSK_NDECO
+.win:                               ; x1, y1, x2, y2 at 320 wide, rows below
+    dw  13,  6,  75, 18             ;   SPD 000
+    dw  13, 24,  91, 36             ;   ALT 00000
+    dw  13, 42,  75, 54             ;   HDG 040
+    dw 109,  6, 171, 18             ;   THR 100
+    dw 109, 24, 173, 31             ;   the throttle bar's slot
+    dw  13, 58, 123, 70             ;   ON THE WATER
+    dw   0, 75, 319, 87             ;   the message strip
+    dw 109, 42, 171, 54             ;   UP 015 - the variometer
+.items:
+    dw  16,  9                      ;   SPD
+    dw  16, 27                      ;   ALT
+    dw  16, 45                      ;   HDG
+    dw   0,  0                      ;   (the attitude indicator draws itself)
+    dw 112,  9                      ;   THR
+    dw  16, 61                      ;   the state
+    dw 112, 25                      ;   the throttle bar
+    dw   0, 78                      ;   the message
+    dw 112, 45                      ;   THE VARIOMETER
+.deco:                              ; kind, x, y, radius in rows, argument
+    dw CSDK_SWITCH,  60, 68,  6, 1       ; the water rudder: DOWN...
+    dw CSDK_SWITCH,  76, 68,  6, 0       ; ...and the gear, UP for a splash
 
 ; cs_pcell - BX = an item: out BX = its x at 320 wide, DX = its row below the
 ;            view, off the plane's cockpit. Clobbers SI

@@ -128,7 +128,7 @@ def main(argv):
             poke("cs_hdg", (7282).to_bytes(2, "little"))
             poke("cs_pitch", (pitch & 0xFFFF).to_bytes(2, "little"))
             poke("cs_roll", (roll & 0xFFFF).to_bytes(2, "little"))
-            poke("cs_spd", (70 * 256).to_bytes(2, "little"))
+            poke("cs_spd", (70 * 128).to_bytes(2, "little"))
             poke("cs_thr", (100).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
 

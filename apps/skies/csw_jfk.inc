@@ -313,5 +313,10 @@ cs_a_jfk:
     dw -840                         ; CSA_SPAWN     60 m in from the threshold,
                                     ;               6,845 m out from the tower
     dw cs_ot_jfk, CS_N_JFK          ; CSA_OBJS, CSA_NOBJ
+    dw -1299, -5061                 ; CSA_WX, CSA_WZ: THE WATER STRIP
+    dw 10923                        ; CSA_WHDG    (88.7.7) - THE HUDSON RIVER
+    dw 1000                          ; CSA_WLEN    half its length...
+    dw 40                           ; CSA_WWID    ...and half its width
+    dw cs_n_jfk_hud              ; CSA_WNAME
 cs_s_jfk: db 'NYC-JFK', 0
 cs_s_rwy_jfk: db 'RUNWAY 31', 0

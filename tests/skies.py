@@ -51,7 +51,8 @@ FLOOR = 70                              # SPEC.md 85.1's margin: a blit caught
                                         # part-way down is tearing, not a gap
 CS_ST_GROUND, CS_ST_AIR, CS_ST_CRASH = 0, 1, 2
 CS_CRASHT = 36
-VROT = 28 * 256                         # apps/skies/csworld.inc's Cessna
+VROT = 28 * 128                         # apps/skies/csworld.inc's Cessna,
+                                        # 16.7 m/s (SPEC.md 88.7.4)
 POP = bytes(bin(i).count("1") for i in range(256))
 
 
@@ -261,7 +262,7 @@ def main(argv):
         alt0 = r.metres("cs_py")
         ok = until(m, lambda: r.metres("cs_py") >= alt0 + 30, 900 * slow, 30)
         print("  climbed to %d m at %d units of pitch, %d m/s"
-              % (r.metres("cs_py"), r.sword("cs_pitch"), r.word("cs_spd") // 256))
+              % (r.metres("cs_py"), r.sword("cs_pitch"), r.word("cs_spd") // 128))
         if not ok:
             bad.append("no climb: %d -> %d m" % (alt0, r.metres("cs_py")))
         f2 = r.word("cs_frames")

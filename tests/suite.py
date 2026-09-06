@@ -1697,6 +1697,15 @@ SOAK = [
         " stick left it, where the trainer clamps both axes and returns to"
         " level - and wears its own scattered panel (88.9.3)",
         needs=("marty",), serial=True),
+    Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 52.0,
+        "SPEC.md 88.7.5-88.7.7: the three aeroplanes that came after the"
+        " Pitts, each checked on its MECHANIC. The Magister's roll rate ramps"
+        " and decays and its engine spools; the Bijave starts in the air with"
+        " no engine and glides better than 12:1; the A5 starts on the water,"
+        " gets off it and lands back on it, and the SAME touchdown in the"
+        " Cessna is a crash. --clobber-lag and --clobber-amphib are the two"
+        " red runs",
+        needs=("marty",), serial=True),
     Row("skiesease", "soak", py("tests/skiesease.py"), 46.0,
         "SPEC.md 88.7.3: the horizon captures the last three ticks of an"
         " approach - held toward level both aeroplanes land EXACTLY on it on"

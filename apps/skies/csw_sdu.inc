@@ -356,5 +356,10 @@ cs_a_sdu:
     dw cs_s_rwy_sdu                 ; CSA_RWY
     dw -590                         ; CSA_SPAWN    60 m in from the threshold
     dw cs_ot_sdu, CS_N_SDU          ; CSA_OBJS, CSA_NOBJ
+    dw -3312, 2175                 ; CSA_WX, CSA_WZ: THE WATER STRIP
+    dw 13653                        ; CSA_WHDG    (88.7.7) - GUANABARA BAY
+    dw 1000                          ; CSA_WLEN    half its length...
+    dw 100                           ; CSA_WWID    ...and half its width
+    dw cs_n_sdu_bay              ; CSA_WNAME
 cs_s_sdu: db 'RIO-SDU', 0
 cs_s_rwy_sdu: db 'RUNWAY 11', 0

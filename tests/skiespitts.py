@@ -10,7 +10,9 @@ feel unlike another. The Cessna's (`cs_att_trim`) clamps both axes and
 returns them toward level; the Pitts Special's (`cs_att_free`) does neither.
 So the row flies BOTH from the same pinned state and holds them apart:
 
-  1. the Plane list offers two, and the second is the Pitts;
+  1. the Plane list carries the two this row flies, the trainer at row 0 and
+     the Pitts at row 1 - it does NOT assert how many there are, which is
+     what broke it when the fleet went from two to five (88.7.5);
   2. held hard over, the Pitts rolls PAST its record's MAXROLL and keeps
      going - right round through inverted, which the 16-bit angle does for
      nothing - while the Cessna stops at 60 degrees;
@@ -110,10 +112,10 @@ def main(argv):
 
         # --- 1. the list offers two, and the second is the Pitts -------------
         n = (mp["cs_plnames"] - mp["cs_planes"]) // 2    # the table's own length
-        check(n == 2, "the Plane list has two rows (%d)" % n)
+        check(n >= 2, "the Plane list has the two this row flies (%d rows)" % n)
         second = rec(mp["cs_planes"], 2)
         check(second == mp["cs_p_pitts"],
-              "...and the second is the Pitts (%04x)" % second)
+              "...and row 1 is the Pitts (%04x)" % second)
 
         # --- 5. the panels are laid out differently --------------------------
         ck = {name: rec(rec(at, 32), 0) for name, at
@@ -160,7 +162,7 @@ def main(argv):
             poke("cs_hdg", (7282).to_bytes(2, "little"))
             poke("cs_pitch", b"\x00\x00")
             poke("cs_roll", b"\x00\x00")
-            poke("cs_spd", (70 * 256).to_bytes(2, "little"))
+            poke("cs_spd", (70 * 128).to_bytes(2, "little"))
             poke("cs_thr", (100).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
             m.run()

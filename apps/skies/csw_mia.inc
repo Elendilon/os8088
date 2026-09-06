@@ -331,5 +331,10 @@ cs_a_mia:
     dw cs_s_rwy_mia                 ; CSA_RWY
     dw -740                         ; CSA_SPAWN    60 m in from the threshold
     dw cs_ot_mia, CS_N_MIA          ; CSA_OBJS, CSA_NOBJ
+    dw -1642, -750                 ; CSA_WX, CSA_WZ: THE WATER STRIP
+    dw 8192                        ; CSA_WHDG    (88.7.7) - BISCAYNE BAY
+    dw 1000                          ; CSA_WLEN    half its length...
+    dw 60                           ; CSA_WWID    ...and half its width
+    dw cs_n_mia_bay              ; CSA_WNAME
 cs_s_mia: db 'MIAMI-MIA', 0
 cs_s_rwy_mia: db 'RUNWAY 09', 0

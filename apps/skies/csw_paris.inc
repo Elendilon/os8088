@@ -267,6 +267,11 @@ cs_a_issy:
     dw cs_s_rwy04                   ; CSA_RWY
     dw -440                         ; CSA_SPAWN    60 m in from the threshold
     dw cs_ot_paris, CS_N_PARIS      ; CSA_OBJS, CSA_NOBJ
+    dw -1500, -750                 ; CSA_WX, CSA_WZ: THE WATER STRIP
+    dw 9102                        ; CSA_WHDG    (88.7.7) - THE SEINE
+    dw 800                          ; CSA_WLEN    half its length...
+    dw 40                           ; CSA_WWID    ...and half its width
+    dw cs_n_seine              ; CSA_WNAME
 cs_a_lbg:
     dw cs_s_lbg                     ; CSA_NAME
     dw 4500, 5000                   ; CSA_X, CSA_Z: 7 km north-east, outside
@@ -277,6 +282,11 @@ cs_a_lbg:
     dw cs_s_rwy07                   ; CSA_RWY
     dw -640                         ; CSA_SPAWN    60 m in from the threshold
     dw cs_ot_paris, CS_N_PARIS      ; CSA_OBJS, CSA_NOBJ: the SAME world, seen
+    dw 5650, -1450                 ; CSA_WX, CSA_WZ: THE WATER STRIP
+    dw 22756                        ; CSA_WHDG    (88.7.7) - THE SEINE
+    dw 1000                          ; CSA_WLEN    half its length...
+    dw 40                           ; CSA_WWID    ...and half its width
+    dw cs_n_seine              ; CSA_WNAME
                                     ; from the other side of it
 cs_s_issy:   db 'PARIS-ISSY', 0
 cs_s_rwy04:  db 'RUNWAY 04', 0

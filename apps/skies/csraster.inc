@@ -1757,7 +1757,7 @@ cs_polyrows_herc:
     rep stosw
     pop di
     pop bx
-    jmp short .nrow
+    jmp .nrow
 .c1a:
     mov ax, [cs_wx0]
 .c1:
