@@ -95405,6 +95405,59 @@ held-stick case is 1,464 cycles, **0.22%**. A tick with the stick centred is
 zero, the call being inside the `jz` that was already there. `+122 bytes` of
 `apps/skies`, A/B'd against the build before it.
 
+#### 88.9.4 The panel is sampled on the gate and painted per PAGE
+
+Reported off the machine: **on Mode X the altimeter reads 1,683 feet one
+frame and 1,666 the next, for ever.** Everything about the panel was already
+rate-limited and cached, and that is what caused it.
+
+`cs_pgate` fires every `CS_PRATE` = 6 **ticks** and `cs_ppage` is the frame's
+**parity**, so a gate frame lands on whichever page happens to be current and
+the other page keeps whatever it last had. With the two rates near each other
+— a Mode X frame is about 140 ms and the gate 330 — the same page can win
+several gates in a row. Both pages then hold real readings taken seconds
+apart, and the flip shows them alternately. Measured in a steady climb before
+the fix, the displayed sequence was `1643, 1657, 1666, 1657, 1666, 1683,
+1666, 1683, 1696, 1683`.
+
+**One target is unaffected**: `cs_ppage` is always 0 on Hercules and CGA, so
+this was never visible on either, and the owner's "is mono doing it too and I
+just can't see it?" has a definite answer, which is no.
+
+So the two halves are separated. The gate decides when the aeroplane is
+**read**, into `cs_pshow` — one latched set both pages share — and each
+page's own `cs_pkeys` decides whether it still needs **painting**. A change
+is then drawn twice, once per page on consecutive frames, which is what a
+double buffer costs and what it was quietly not paying.
+
+##### 88.9.4.1 …and the labels come off the readings
+
+Paying it doubled the panel's cost, so the other half of this is where that
+came back from. `cs_pnum` built `ALT ` + five digits into one buffer and
+lettered the lot, so **nine cells were drawn where five had changed** — and
+the label has not changed since the cockpit was painted. `cs_plabels` draws
+SPD, ALT, HDG and THR once per target with the rest of the face, and
+`cs_pnum` letters the digits alone, four cells along. The variometer keeps
+the old form (`cs_pnuml`) because its label is `UP` or `DN`, which is the
+sign of the reading.
+
+Measured on `os8088_xt_vga`, in a climb, entry to return of `cs_panel`
+against the whole frame:
+
+| | `cs_panel` | frame | share |
+|---|---|---|---|
+| before | 32.8 ms | 150.7 ms | 21.8% |
+| after | **18.5 ms** | **136.7 ms** | 13.6% |
+
+Hercules is 1.0 ms of 72.8 either way — **1.4%** — because there the gate is
+4.6 frames long and the panel simply does not draw on most of them.
+
+`CS_PRATE` stays at 6, and the rule it has to satisfy is now written down:
+**the gate must be at least two frames long**, because a double buffer needs
+two frames to put a new reading on both pages. Six ticks is 4.6 frames on
+Hercules and 2.4 on Mode X, which is the tighter of the two and still clears
+it. A slower panel is one constant if the 3 Hz ever reads as busy.
+
 #### 88.7.4 Speeds are 16.7, and why that had to happen first
 
 `cs_spd` was 16.8 metres a second, and **two sites read it signed**: the
@@ -95940,6 +95993,16 @@ drop-downs get a release the title page never armed.
   and the over-the-top check must go red; the row's own docstring records why
   the roll checks survive that, which is a signed clamp overflowing before it
   bites.
+- `tests/skiespanel.py` (soak, MartyPC): §88.9.4 on Mode X, which is the only
+  backend with two pages. In a steady climb the DISPLAYED sequence — the page
+  each frame drew, read at the start of the next — never goes backwards and is
+  not frozen, and the labels are on the panel. **The two pages' caches are
+  not the check**, and were tried as one first: in both arms they sit about a
+  gate apart, because the gate lands on alternating pages either way. What
+  differs is whether the page about to be shown carries the latest reading.
+  `--clobber-share` sends the between-gates path back to `.same` — the code
+  exactly as it was — and the altimeter goes backwards on four frames in
+  twelve.
 - `tests/skiesfleet.py` (soak, MartyPC): §88.7.5–§88.7.7, each aeroplane on
   its own mechanic rather than on its numbers. The Magister's roll rate
   RAMPS held and DECAYS released, and its thrust climbs toward the throttle

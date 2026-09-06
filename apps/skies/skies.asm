@@ -1964,6 +1964,10 @@ cs_tpl:
     ZBYTE cs_stallt                 ; the stall beep's cadence
 
 ; --- the panel (SPEC.md 88.9) -------------------------------------------------
+    ZBUF  cs_pshow, 16 * 2          ; what the instruments LAST READ (88.9.4):
+                                    ; one set, shared by both pages, so the
+                                    ; two of them cannot hold readings taken
+                                    ; seconds apart
     ZBUF  cs_pkeys, 2 * 16 * 2      ; sixteen items' keys, one set per page
     ZWORD cs_pcur                   ; the item in hand, and its key
     ZWORD cs_pkeyv

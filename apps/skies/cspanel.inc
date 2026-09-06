@@ -377,7 +377,10 @@ cs_pface:
     loop .d
     call cs_vclip
 .nodeco:
-    ret
+    call cs_pclip                   ; ...and the four LABELS that never change
+    call cs_plabels                 ; (88.9.4), under the panel's own clip and
+    call cs_vclip                   ; OUTSIDE the decoration loop, which a
+    ret                             ; cockpit with no decorations skips whole
 
 ; -----------------------------------------------------------------------------
 ; cs_pdeco - one decoration (SPEC.md 88.9.3). SI -> its five words; the ink
@@ -387,6 +390,56 @@ cs_pface:
 ; same way the attitude indicator's bezel is, so a dial is round on all three
 ; adapters rather than round on one and an egg on the others.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; cs_plabels - SPD, ALT, HDG and THR, once per target (SPEC.md 88.9.4)
+;
+; They were part of every reading: cs_pnum built 'ALT ' + five digits into one
+; buffer and lettered the lot, so nine cells were drawn where five had
+; changed - and on Mode X, where a cell is four bits deep and cs_panel was
+; measured at 21.8% of the frame, that is most of the panel's cost. The
+; label is drawn with the cockpit instead and the digits alone are redrawn.
+; The variometer is NOT in this list: its label is UP or DN, which is the
+; sign of the reading and changes with it.
+; -----------------------------------------------------------------------------
+cs_plabels:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    xor di, di                      ; DI = the item
+.l:
+    mov si, di
+    shl si, 1
+    mov si, [cs_plbl + si]
+    or si, si
+    jz .next                        ; this item has no fixed label
+    mov bx, di
+    push di
+    push si
+    call cs_pcell                   ; BX = its x, DX = its row
+    pop si
+    or bx, bx
+    jz .n2                          ; ...and this cockpit has no such window
+    call cs_pline
+.n2:
+    pop di
+.next:
+    inc di
+    cmp di, CS_PI_THR
+    jbe .l
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; the fixed label of items 0..CS_PI_THR; 0 where there is none
+cs_plbl: dw cs_s_spd, cs_s_alt, cs_s_hdg, 0, cs_s_thr
+
 cs_pdeco:
     mov [cs_dsi], si
     mov ax, [si + CSD_X]

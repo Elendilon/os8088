@@ -1697,6 +1697,14 @@ SOAK = [
         " stick left it, where the trainer clamps both axes and returns to"
         " level - and wears its own scattered panel (88.9.3)",
         needs=("marty",), serial=True),
+    Row("skiespanel", "soak", py("tests/skiespanel.py"), 24.0,
+        "SPEC.md 88.9.4: the panel is SAMPLED on the gate and PAINTED per"
+        " page, so Mode X's two pages cannot hold readings taken different"
+        " gates apart - the altimeter that read 1,683 feet one frame and"
+        " 1,666 the next. The displayed sequence never goes backwards in a"
+        " climb; --clobber-share sends the between-gates path back to .same"
+        " and it does, four frames in twelve",
+        needs=("marty",), serial=True),
     Row("skiesfleet", "soak", py("tests/skiesfleet.py"), 52.0,
         "SPEC.md 88.7.5-88.7.7: the three aeroplanes that came after the"
         " Pitts, each checked on its MECHANIC. The Magister's roll rate ramps"

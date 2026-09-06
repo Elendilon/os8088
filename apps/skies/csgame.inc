@@ -469,18 +469,43 @@ cs_panel:
     jb .i
     ret
 
-; cs_pitem - BX = an item: its key now, against the cache; draw on a change
+; -----------------------------------------------------------------------------
+; cs_pitem - BX = an item: SAMPLE it on the gate, and PAINT it on any page
+;            that has not got that value on it yet (SPEC.md 88.9.4)
+;
+; The two halves are separate on purpose and were not, which is what made a
+; Mode X altimeter read 1,683 feet one frame and 1,666 the next, for ever.
+; The gate is in TICKS and the page is the frame's PARITY, so a gate frame
+; lands on whichever page happens to be current and the other one keeps
+; whatever it last had - and with the two rates near each other the same
+; page can win several gates in a row. Both pages then hold real readings,
+; taken seconds apart, and the flip shows them alternately.
+;
+; So the gate now decides when the aeroplane is READ, into one latched set
+; both pages share, and each page's own cache decides whether it still needs
+; painting. A change is drawn twice - once per page, on consecutive frames -
+; which is what a double buffer costs and what it was quietly not paying.
+; One target (Hercules, CGA) is unaffected: cs_ppage is always 0 there, and
+; this was never visible on either.
+; -----------------------------------------------------------------------------
 cs_pitem:
     mov [cs_pcur], bx
-    cmp bx, CS_PI_ADI               ; the four readings wait for the gate;
-    ja .now                         ; a message or the state never does
+    cmp bx, CS_PI_STATE             ; the state and the message NEVER wait:
+    je .now                         ; a stall or a crash has to show at once
+    cmp bx, CS_PI_MSG
+    je .now
     cmp byte [cs_pgate], 0
-    je .same
+    je .paint                       ; between gates the latched value stands
 .now:
-    call cs_pkey                    ; AX = the item's key
-    mov [cs_pkeyv], ax
+    call cs_pkey                    ; AX = what it would show now...
     mov bx, [cs_pcur]
     shl bx, 1
+    mov [cs_pshow + bx], ax         ; ...latched, ONE set for both pages
+.paint:
+    mov bx, [cs_pcur]
+    shl bx, 1
+    mov ax, [cs_pshow + bx]
+    mov [cs_pkeyv], ax
     mov al, [cs_ppage]
     xor ah, ah
     mov cl, 5
@@ -559,7 +584,21 @@ cs_shr32:
 
 ; cs_pnum - AX = a value, CL = digits, SI = the label; letters "LABEL nnn" at
 ; DX = the row, BX = the x at 320 wide
+; cs_pnum - AX = the value, CL = digits, SI = the label, BX/DX = the cell:
+; THE DIGITS ONLY, four cells along, because cs_plabels drew the label with
+; the cockpit and it has not changed since (SPEC.md 88.9.4). SI is taken and
+; ignored so the callers read as they did; cs_pnuml is the form that letters
+; the label too, which is the variometer's, its label being its sign.
 cs_pnum:
+    add bx, 4 * 8                   ; a cell is 8 wide at 320, on every adapter
+    push ax
+    mov di, cs_numbuf
+    pop ax
+    call cs_utoa
+    mov si, cs_numbuf
+    jmp cs_pline
+
+cs_pnuml:
     push si
     push ax
     mov di, cs_numbuf
@@ -653,8 +692,8 @@ cs_d_vs:
     mov ax, 999
 .n:
     mov cl, 3
-    jmp cs_pnum
-.none:
+    jmp cs_pnuml                    ; the vario letters its own label: UP or
+.none:                              ; DN is the reading's SIGN (88.9.4)
     ret
 
 cs_d_thr:
