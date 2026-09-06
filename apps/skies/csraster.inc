@@ -917,6 +917,27 @@ cs_skyground:
 .bd:
     sub cx, bx
     jle .below
+    ; --- THE SET'S ROW RANGE TAKES THE BAND (SPEC.md 88.3.3.1) ------------
+    ; Each split row writes its own span below, and that is not enough:
+    ; cs_blit walks only the rows the set's RANGE names, and the range is
+    ; extended by cs_hzrows' .kind arm and by cs_markrows and by nothing
+    ; else. A frame whose rows all keep their kind and whose objects mark
+    ; nothing therefore drew the horizon into the shadow and never carried
+    ; it to the glass - which is a horizon that does not turn.
+    push di
+    mov di, [cs_spcur]
+    cmp bx, [di - 4]
+    jge .r0
+    mov [di - 4], bx
+.r0:
+    mov ax, bx
+    add ax, cx
+    dec ax                          ; the band's last row
+    cmp ax, [di - 2]
+    jle .r1
+    mov [di - 2], ax
+.r1:
+    pop di
 .b:
     push cx
     push bx

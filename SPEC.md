@@ -94686,6 +94686,46 @@ of the two ranges. Before that it walked all 200 rows of the box to find
 the 112 of the view, and the 88 panel rows cost 150 cycles each to be found
 empty: 13,000 cycles a frame, 2.8 ms, for nothing.
 
+#### 88.3.3.1 …and the horizon's own band was not one of them
+
+The field reported it twice over: *"I fly far out, and then when turning the
+horizon doesn't turn, at all — it just stays stable. If I change my bank
+angle it will draw only at SOME of the bank angles"*, and wedges of ground
+appearing and disappearing as the bank changed — positive and negative, and
+not accumulating.
+
+`cs_skyground` computes the horizon perfectly. Pinned at a 45° bank,
+`cs_xl` reads 372, 347, 322, 297… down the view — a correct diagonal — and
+at 90° it reads 296 on every row, a vertical line where the arithmetic puts
+it. **The band rows were drawn into the shadow and never carried to the
+glass.**
+
+The band's loop writes each split row's own span, which looks like enough
+and is not: §88.3.3's range is what `cs_blit` walks, and it was widened by
+`cs_hzrows`' kind-change arm, by `cs_markrows` and by `cs_markspan` — and by
+nothing in the band. A frame in which no row changed KIND and no object
+marked anything therefore blitted nothing at all, and the glass kept
+whatever was on it.
+
+**That is why it looked like an intermittent artifact rather than a plain
+missing feature.** In ordinary flight the pitch wobbles, rows cross the
+horizon and change kind, and buildings come and go — so the range covers the
+view and the horizon turns. Fly straight and level far from anything, where
+no row changes kind and there is nothing to mark, and it stops: the fill is
+correct, the blit is asleep. A partial cover gives the wedges — the rows the
+range happens to name update and the rest do not.
+
+The fix is four compares before the band loop, taking the band's first and
+last row into the set's range. It is where the range was always meant to be
+widened; `cs_hzrows` does exactly this for the rows it fills.
+
+`tests/skieshz.py` is the gate, and it works the way the diagnosis did:
+it pins an attitude — which is what makes the failure reachable, because a
+pinned world is a world where nothing else marks anything — and checks the
+GLASS against the guest's own `[cs_nx]`/`[cs_ny]`/`[cs_nz]` over four-row
+groups, one of each dither phase. `--clobber-range` takes the four compares
+back out.
+
 #### 88.3.4 The Hercules view is 400 wide
 
 It shipped at 512 (64 bytes a row) and came down to **400** (50 bytes,
