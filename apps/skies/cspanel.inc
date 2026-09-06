@@ -65,6 +65,8 @@ cs_ck_c172:
     dw 160, 40                      ; CSK_ADCX, CSK_ADCY
     dw 30, 21                       ; CSK_ADRY, CSK_ADHH
     dw 73                           ; CSK_BARW
+    dw 0, 0                         ; CSK_DECO, CSK_NDECO: a trainer's panel
+                                    ; is the instruments and nothing else
 .win:                               ; x1, y1, x2, y2 at 320 wide, rows below
     dw  13, 13,  75, 25             ;   the view: SPD 000
     dw  13, 39,  91, 51             ;   ALT 00000
@@ -82,6 +84,45 @@ cs_ck_c172:
     dw  16, 62                      ;   the state
     dw 240, 58                      ;   the throttle bar's left end and top row
     dw   0, 78                      ;   the message (centred; the row)
+
+; --- the PITTS SPECIAL's (SPEC.md 88.9.3): the same eight readings, put
+;     where an aerobatic biplane's are rather than in two tidy columns - the
+;     altimeter left of centre where the pilot's eye falls, the speed above
+;     it, heading and throttle down the right, and the attitude indicator off
+;     the centreline. The four dials and the two magneto switches are
+;     DECORATION: they are drawn once with the face and nothing ever reads
+;     them, which is what a real panel is mostly made of ---------------------
+cs_ck_pitts:
+    dw .win, 7                      ; CSK_WIN, CSK_NWIN
+    dw .items                       ; CSK_ITEMS
+    dw 175, 38                      ; CSK_ADCX, CSK_ADCY: off centre, right
+    dw 22, 16                       ; CSK_ADRY, CSK_ADHH
+    dw 73                           ; CSK_BARW
+    dw .deco, 6                     ; CSK_DECO, CSK_NDECO
+.win:                               ; x1, y1, x2, y2 at 320 wide, rows below
+    dw  13,  6,  75, 18             ;   SPD 000, high on the left
+    dw  13, 30,  91, 42             ;   ALT 00000, LEFT OF CENTRE
+    dw 237, 44, 299, 56             ;   HDG 040, low right
+    dw 237,  6, 299, 18             ;   THR 100, high right
+    dw 237, 24, 313, 31             ;   the throttle bar's slot
+    dw  13, 58, 123, 70             ;   ON THE GROUND
+    dw   0, 75, 319, 87             ;   the message strip
+.items:                             ; the cell each item letters at (x is a
+    dw  16,  9                      ;   SPD  multiple of 8 at 320 wide, or CGA
+    dw  16, 33                      ;   ALT  rounds it down onto the window's
+    dw 240, 47                      ;   HDG  edge)
+    dw   0,  0                      ;   (the attitude indicator draws itself)
+    dw 240,  9                      ;   THR
+    dw  16, 61                      ;   the state
+    dw 240, 25                      ;   the throttle bar's left end and top row
+    dw   0, 78                      ;   the message (centred; the row)
+.deco:                              ; kind, x, y, radius in rows, argument
+    dw CSDK_DIAL,   106, 20, 15, 8000    ; the tachometer, showing cruise
+    dw CSDK_DIAL,   106, 56, 13, 54000   ; oil pressure, up in the green
+    dw CSDK_DIAL,   216, 20, 13, 29000   ; fuel, a little under half
+    dw CSDK_DIAL,   216, 56, 15, 45000   ; the G meter, parked at 1
+    dw CSDK_SWITCH, 143, 68,  5, 1       ; the magnetos: left on...
+    dw CSDK_SWITCH, 157, 68,  5, 1       ; ...and right
 
 ; cs_pcell - BX = an item: out BX = its x at 320 wide, DX = its row below the
 ;            view, off the plane's cockpit. Clobbers SI
@@ -165,6 +206,17 @@ cs_pface:
     xor al, al                      ; (AX = ry x 256)
     xor dx, dx
     div word [cs_pasp]
+    call cs_hscalex                 ; ...AND INTO BOX PIXELS, which the first
+                                    ; build did not do: cs_pasp is rows per
+                                    ; LOGICAL x unit (the 320-wide layout's),
+                                    ; so the quotient is a logical radius and
+                                    ; the ellipse wants box pixels. On CGA and
+                                    ; Mode X the two are the same and it was
+                                    ; round; on HERCULES the box is 640 wide
+                                    ; and the bezel came out half as wide as
+                                    ; it should be - the tall oval in every
+                                    ; Hercules photograph of the panel
+                                    ; (SPEC.md 88.9.2.1)
     mov [cs_adrx], ax
     mov ax, [si + CSK_ADHH]
     mov [cs_adhh], ax
@@ -193,7 +245,118 @@ cs_pface:
     inc dx
     call cs_ellipse
     call cs_vclip
-    jmp cs_adwin                    ; ...and the window, black
+    call cs_adwin                   ; ...and the window, black
+    ; --- and the instruments that only look the part (SPEC.md 88.9.3) -------
+    mov si, [cs_plane]
+    mov si, [si + CSP_COCKPIT]
+    mov cx, [si + CSK_NDECO]
+    jcxz .nodeco
+    mov si, [si + CSK_DECO]
+    mov al, CSI_PFG
+    call cs_setink
+    call cs_pclip
+.d:
+    push cx
+    push si
+    call cs_pdeco
+    pop si
+    pop cx
+    add si, CSD_SIZE
+    loop .d
+    call cs_vclip
+.nodeco:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_pdeco - one decoration (SPEC.md 88.9.3). SI -> its five words; the ink
+;            and the clip are the caller's. Clobbers everything
+;
+; Its radius is given in ROWS and the x radius derived through cs_pasp, the
+; same way the attitude indicator's bezel is, so a dial is round on all three
+; adapters rather than round on one and an egg on the others.
+; -----------------------------------------------------------------------------
+cs_pdeco:
+    mov [cs_dsi], si
+    mov ax, [si + CSD_X]
+    call cs_hscalex
+    mov [cs_dcx], ax
+    mov ax, [si + CSD_Y]
+    add ax, [cs_pany]
+    mov [cs_dcy], ax
+    mov ax, [si + CSD_R]
+    mov [cs_dry], ax
+    mov ah, al                      ; rx = ry / aspect (AX = ry x 256)...
+    xor al, al
+    xor dx, dx
+    div word [cs_pasp]
+    call cs_hscalex                 ; ...and into box pixels (88.9.2.1)
+    mov [cs_drx], ax
+    mov ax, [si + CSD_ARG]
+    mov [cs_darg], ax
+    ; --- A DARK FACE FIRST, and it is not decoration on decoration: the
+    ;     cockpit's face is a 25% dither (CSI_PFACE) and a white outline on
+    ;     it reads as noise at this size. The instrument windows solve the
+    ;     same problem the same way - a black ground, a white edge - so a
+    ;     gauge gets the plate it would have in the metal ------------------
+    mov al, CSI_PBG
+    call cs_setink
+    mov ax, [cs_dcx]
+    sub ax, [cs_drx]
+    mov bx, [cs_dcy]
+    sub bx, [cs_dry]
+    mov cx, [cs_dcx]
+    add cx, [cs_drx]
+    mov dx, [cs_dcy]
+    add dx, [cs_dry]
+    call cs_prect
+    mov al, CSI_PFG
+    call cs_setink
+    mov si, [cs_dsi]
+    cmp word [si + CSD_KIND], CSDK_SWITCH
+    je .switch
+    ; --- a dial: the bezel, then a needle from the centre at CSD_ARG -------
+    mov ax, [cs_dcx]
+    mov bx, [cs_dcy]
+    mov cx, [cs_drx]
+    mov dx, [cs_dry]
+    call cs_ellipse
+    mov ax, [cs_darg]               ; ...three quarters of the way out
+    call cs_cos
+    mov bx, [cs_drx]
+    MUL14
+    mov cx, ax
+    sar cx, 1
+    sar cx, 1
+    sub ax, cx                      ; AX = 0.75 x rx cos
+    add ax, [cs_dcx]
+    mov [cs_dpx], ax
+    mov ax, [cs_darg]
+    call cs_sin
+    mov bx, [cs_dry]
+    MUL14
+    mov cx, ax
+    sar cx, 1
+    sar cx, 1
+    sub ax, cx                      ; AX = 0.75 x ry sin
+    add ax, [cs_dcy]
+    mov dx, ax
+    mov cx, [cs_dpx]
+    mov ax, [cs_dcx]
+    mov bx, [cs_dcy]
+    jmp cs_seg                      ; the needle
+.switch:
+    ; --- a toggle: a stalk up or down out of its plate --------------------
+    mov ax, [cs_dcx]
+    mov bx, [cs_dcy]
+    mov cx, ax
+    mov dx, [cs_dry]
+    add dx, 1
+    cmp word [cs_darg], 0
+    je .down
+    neg dx                          ; up
+.down:
+    add dx, bx
+    jmp cs_seg
 
 ; cs_pwrect - SI -> a window row: AX/BX/CX/DX = its box corners
 cs_pwrect:

@@ -243,38 +243,10 @@ cs_step:
     mov ax, bx
 .s1:
     mov [cs_spd], ax
-    ; --- attitude: the held keys, and the return to level -------------------
-    mov al, [cs_kroll]
-    cbw
-    mov bx, [di + CSP_ROLLR]
-    mov cx, [di + CSP_ROLLL]
-    mov dx, [di + CSP_MAXROLL]
-    mov si, cs_roll
-    call cs_axis
-    mov al, [cs_kpitch]
-    cbw
-    mov bx, [di + CSP_PITCHR]
-    mov cx, [di + CSP_PITCHT]
-    mov dx, [di + CSP_MAXPITCH]
-    mov si, cs_pitch
-    call cs_axis
-    ; --- the stall: below VSTALL the nose drops and the wing stops lifting ---
-    mov byte [cs_stall], 0
-    mov ax, [cs_spd]
-    cmp ax, [di + CSP_VSTALL]
-    jae .nostall
-    mov byte [cs_stall], 1
-    mov byte [cs_msg], CSG_STALL
-    mov ax, [cs_pitch]
-    sub ax, CS_STALLDROP
-    mov bx, [di + CSP_MAXPITCH]
-    neg bx
-    cmp ax, bx
-    jge .sd
-    mov ax, bx
-.sd:
-    mov [cs_pitch], ax
-.nostall:
+    ; --- attitude and the stall: THE PLANE'S OWN (88.7.2), through the near
+    ;     proc its record names. DI is the plane, and it comes back ---------
+    call [di + CSP_ATT]
+    mov di, [cs_plane]
     cmp byte [cs_stall], 0          ; ...and the warning goes when it ends
     jne .warned
     cmp byte [cs_msg], CSG_STALL
@@ -399,6 +371,111 @@ cs_step:
     mov [cs_py+1], ax
     mov byte [cs_py], 0
     call cs_fence
+    ret
+
+; =============================================================================
+; THE FLIGHT MODELS (SPEC.md 88.7.2): one proc per aeroplane, named by its
+; CSP_ATT, called once a tick in the air with DI = the plane's record. Each
+; owns the two attitude axes and the stall - everything else about a tick is
+; shared, because thrust, drag, the turn and the motion are the same
+; arithmetic whatever is flying.
+;
+; Out: [cs_stall] set or cleared, [cs_pitch] and [cs_roll] moved. Clobbers
+; everything; the caller reloads DI.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; cs_att_trim - A TRAINER (the Cessna): both axes CLAMPED to the record's
+;               limits, both returning toward level when the stick is
+;               centred, and a stall that drops the nose no further than the
+;               pitch limit. You cannot get this aeroplane onto its back.
+; -----------------------------------------------------------------------------
+cs_att_trim:
+    mov al, [cs_kroll]
+    cbw
+    mov bx, [di + CSP_ROLLR]
+    mov cx, [di + CSP_ROLLL]
+    mov dx, [di + CSP_MAXROLL]
+    mov si, cs_roll
+    call cs_axis
+    mov di, [cs_plane]
+    mov al, [cs_kpitch]
+    cbw
+    mov bx, [di + CSP_PITCHR]
+    mov cx, [di + CSP_PITCHT]
+    mov dx, [di + CSP_MAXPITCH]
+    mov si, cs_pitch
+    call cs_axis
+    mov di, [cs_plane]
+    mov byte [cs_stall], 0
+    mov ax, [cs_spd]
+    cmp ax, [di + CSP_VSTALL]
+    jae .out
+    mov byte [cs_stall], 1
+    mov byte [cs_msg], CSG_STALL
+    mov ax, [cs_pitch]
+    sub ax, CS_STALLDROP
+    mov bx, [di + CSP_MAXPITCH]
+    neg bx
+    cmp ax, bx
+    jge .sd
+    mov ax, bx
+.sd:
+    mov [cs_pitch], ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_att_free - AN AEROBATIC BIPLANE (the Pitts): NO LIMIT ON EITHER AXIS and
+;               no return to level. Both angles are 16-bit with 65,536 to the
+;               turn, so an unclamped `add` wraps at 360 degrees for nothing -
+;               the aeroplane rolls right round and loops right over, and it
+;               stays wherever the stick left it.
+;
+; NOTHING SPECIAL IS NEEDED AT THE VERTICAL, and that is worth saying because
+; the usual Euler dodge - flip the heading and mirror the roll past 90
+; degrees - is what you write when the nose vector is built by hand. Here it
+; is not: cs_matrix reads sin and cos out of a full-circle table and cs_move
+; takes the horizontal component as cos(pitch), which goes NEGATIVE past the
+; vertical. That is the correct answer rather than a tolerated one - over the
+; top of a loop the nose really does point up and BACK along the heading.
+;
+; The stall drops the nose toward the EARTH and not toward zero pitch, which
+; is the same thing only while upright: inverted, the earth is the other way.
+; cos(roll) says which, and there is no clamp on the result.
+; -----------------------------------------------------------------------------
+cs_att_free:
+    mov al, [cs_kroll]              ; --- roll: rate x stick, and it stays ---
+    cbw
+    or ax, ax
+    jz .pitch
+    imul word [di + CSP_ROLLR]
+    add [cs_roll], ax
+.pitch:
+    mov di, [cs_plane]
+    mov al, [cs_kpitch]
+    cbw
+    or ax, ax
+    jz .stall
+    imul word [di + CSP_PITCHR]
+    add [cs_pitch], ax
+.stall:
+    mov di, [cs_plane]
+    mov byte [cs_stall], 0
+    mov ax, [cs_spd]
+    cmp ax, [di + CSP_VSTALL]
+    jae .out
+    mov byte [cs_stall], 1
+    mov byte [cs_msg], CSG_STALL
+    mov ax, [cs_roll]               ; which way is down from here?
+    call cs_cos
+    or ax, ax
+    mov ax, CS_STALLDROP
+    jns .drop                       ; upright: the nose falls, pitch down
+    neg ax                          ; on its back: the earth is the other way
+.drop:
+    sub [cs_pitch], ax
+.out:
     ret
 
 ; cs_axis - one control axis: AX = the key (-1/0/1), BX = the held rate,

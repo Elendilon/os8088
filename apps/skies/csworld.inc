@@ -369,7 +369,42 @@ cs_p_c172:
     dw 10923                        ; CSP_MAXROLL  60 degrees
     dw 7282                         ; CSP_MAXPITCH 40 degrees
     dw cs_ck_c172                   ; CSP_COCKPIT  (cspanel.inc)
+    dw cs_att_trim                  ; CSP_ATT      a trainer's model (88.7.2)
 cs_s_c172:   db 'CESSNA 172', 0
+
+; --- the second row: a PITTS SPECIAL (SPEC.md 88.7.2), an aerobatic biplane.
+;     Light, quick on the controls and limited by nothing - it rolls right
+;     round, loops over the top and stays where the stick leaves it, which is
+;     cs_att_free's whole job. The numbers are an S-2B's: 1,150 lb empty,
+;     260 hp, stalls near 52 knots, cruises 152 mph and never-exceeds 203 ---
+cs_p_pitts:
+    dw cs_s_pitts                   ; CSP_NAME
+    dw 27 * 256                     ; CSP_VSTALL   52 knots
+    dw 30 * 256                     ; CSP_VROT     58 knots
+    dw 88 * 256                     ; CSP_VMAX    171 knots, level at full power
+    dw 52                           ; CSP_THRUST   3.7 m/s^2: 260 hp on half
+                                    ;              the Cessna's weight
+    dw 440                          ; CSP_DRAGK    balances THRUST at VMAX
+    dw 5                            ; CSP_FRICT    a taildragger on grass
+    dw 45                           ; CSP_BRAKE
+    dw 1820                         ; CSP_ROLLR   10 degrees a tick - 182 a
+                                    ;              second, and the real one
+                                    ;              manages 240
+    dw 0                            ; CSP_ROLLL    NOTHING returns it to level
+    dw 728                          ; CSP_PITCHR   4 degrees a tick: a loop in
+                                    ;              about five seconds
+    dw 0                            ; CSP_PITCHT   ...and the nose stays put
+    dw 90                           ; CSP_TURNK    a shorter wing, a tighter
+                                    ;              turn at the same bank
+    dw 2                            ; CSP_EYE      metres above the wheels
+    dw 32767                        ; CSP_MAXROLL  UNUSED by cs_att_free, and
+    dw 16384                        ; CSP_MAXPITCH filled in with the honest
+                                    ;              figures - 180 and 90
+                                    ;              degrees - so a reader is
+                                    ;              not told the wrong thing
+    dw cs_ck_pitts                  ; CSP_COCKPIT  its own scattered panel
+    dw cs_att_free                  ; CSP_ATT      the aerobatic model
+cs_s_pitts:  db 'PITTS SPECIAL', 0
 
 ; =============================================================================
 ; The airports (SPEC.md 88.6): one row

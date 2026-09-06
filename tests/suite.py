@@ -1670,6 +1670,12 @@ SOAK = [
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
         needs=("marty",), serial=True),
+    Row("skiespitts", "soak", py("tests/skiespitts.py"), 260.0,
+        "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
+        " Pitts rolls right round and loops over the top and stays where the"
+        " stick left it, where the trainer clamps both axes and returns to"
+        " level - and wears its own scattered panel (88.9.3)",
+        needs=("marty",), serial=True),
     Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 320.0,
         "SPEC.md 88.5.5-88.5.7: every polygon and segment of a frame, on"
         " five pinned scenes (four of them BANKED), held to a host replay of"

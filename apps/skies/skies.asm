@@ -226,7 +226,15 @@ CSP_EYE    equ 26               ; the pilot's eye above the wheels
 CSP_MAXROLL equ 28
 CSP_MAXPITCH equ 30
 CSP_COCKPIT equ 32              ; word: its cockpit record (88.9.2)
-CSP_SIZE   equ 34
+CSP_ATT    equ 34               ; word: ITS FLIGHT MODEL (88.7.2) - the near
+                                ; proc that integrates roll and pitch and
+                                ; decides the stall, which is where one
+                                ; aeroplane stops feeling like another. The
+                                ; rest of cs_step - thrust, drag, the turn,
+                                ; the motion, the ground - is shared, because
+                                ; it is the same arithmetic for both and a
+                                ; second copy of it would drift
+CSP_SIZE   equ 36
 
 ; --- a cockpit record (SPEC.md 88.9.2): what a plane's panel looks like ------
 CSK_WIN    equ 0                ; word: the windows, (x1, y1, x2, y2) at 320
@@ -237,7 +245,23 @@ CSK_ADCY   equ 8                ; ...and its row below the view
 CSK_ADRY   equ 10               ; its bezel's vertical radius, rows
 CSK_ADHH   equ 12               ; its window's half-height, rows
 CSK_BARW   equ 14               ; the throttle bar's width at 320 wide
-CSK_SIZE   equ 16
+CSK_DECO   equ 16               ; word: the DECORATIONS (88.9.3) - instruments
+CSK_NDECO  equ 18               ; word: ...how many. 0 is a bare panel
+CSK_SIZE   equ 20
+
+; A decoration: five words, drawn once with the face and never read again.
+; It is what a panel has that the simulation does not model - a tachometer,
+; an oil gauge, the magnetos - and it costs ten bytes and no frame time.
+CSD_KIND   equ 0                ; CSDK_*
+CSD_X      equ 2                ; centre x at 320 wide
+CSD_Y      equ 4                ; ...and its row below the view
+CSD_R      equ 6                ; radius in ROWS (the x radius is this over
+                                ; the pixel aspect, so it is round everywhere)
+CSD_ARG    equ 8                ; a dial's needle angle; a switch's position
+CSD_SIZE   equ 10
+
+CSDK_DIAL  equ 0                ; a bezel and a needle, parked where it is
+CSDK_SWITCH equ 1               ; a toggle on a stalk: ARG 0 down, 1 up
 
 ; --- the session (SPEC.md 88.8) -----------------------------------------------
 CS_ST_GROUND equ 0
@@ -976,8 +1000,8 @@ cs_drport:   dw 0, 0, 0, 0, cs_apnames, CS_NPORTS, 0, 0
              db 0, 0FFh
              dw 0, 0
 cs_flyrect:  dw 0, 0, 0, 0
-cs_planes:   dw cs_p_c172
-cs_plnames:  dw cs_s_c172
+cs_planes:   dw cs_p_c172, cs_p_pitts
+cs_plnames:  dw cs_s_c172, cs_s_pitts
 CS_NPLANES   equ ($ - cs_plnames) / 2
 cs_ports:    dw cs_a_issy, cs_a_lbg
 cs_apnames:  dw cs_s_issy, cs_s_lbg
@@ -1364,6 +1388,13 @@ cs_tpl:
     ZBUF  cs_msgbuf, 48
     ZWORD cs_hsx                    ; the panel's horizontal scale, in eighths
     ZWORD cs_pany                   ; the panel's first row
+    ZWORD cs_dcx                    ; a decoration in hand (88.9.3): its
+    ZWORD cs_dcy                    ; centre, its two radii, its argument
+    ZWORD cs_drx                    ; and one endpoint of its needle
+    ZWORD cs_dry
+    ZWORD cs_darg
+    ZWORD cs_dpx
+    ZWORD cs_dsi                    ; ...and the row itself, across cs_setink
     ZWORD cs_pasp                   ; rows per logical x unit, Q8 (88.9.2)
     ZWORD cs_pbarx                  ; the throttle bar's left end, top row
     ZWORD cs_pbary                  ; and width, off the cockpit

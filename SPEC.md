@@ -95147,6 +95147,55 @@ metres, and one step is:
   for two seconds and then puts the aeroplane back at the airport's reset
   point, throttle closed.
 
+#### 88.7.2 …and the model itself is the PLANE'S: `CSP_ATT`
+
+Everything above is one tick's arithmetic, and most of it is the same
+arithmetic for anything with wings: thrust against drag, gravity along the
+nose, the turn off `sin(roll)`, the motion, the ground, the fence. What is
+NOT the same is what the stick does to the two attitude angles and what
+happens at the stall — which is the whole of what makes one aeroplane feel
+unlike another. So the plane record names a near proc in `CSP_ATT`,
+`cs_step` calls it once a tick in the air, and the rest stays shared. A
+second copy of the shared half would drift from the first, and nothing about
+a Pitts needs its own drag equation.
+
+**`cs_att_trim` — the trainer's.** Both axes clamped to `CSP_MAXROLL` and
+`CSP_MAXPITCH`, both returning toward level at `CSP_ROLLL`/`CSP_PITCHT` when
+the stick is centred, and a stall that drops the nose no further than the
+pitch limit. You cannot get the Cessna onto its back, which is the correct
+model of a 172 and the right first aeroplane.
+
+**`cs_att_free` — the Pitts Special's.** No clamp and no return on either
+axis. Both angles are 16-bit with 65,536 to the turn, so an unclamped `add`
+wraps at 360° for nothing: the aeroplane rolls right round, loops right over,
+and stays wherever the stick left it. Measured on the machine, held hard
+over: the trainer stops at 10,923 (60°) and comes back to 7,419 when
+released; the Pitts passes 32,744, wraps to −27,348 and is still there five
+seconds later.
+
+**Nothing special is needed at the vertical**, and that is worth saying
+because the usual Euler dodge — flip the heading and mirror the roll past
+90° — is what you write when the nose vector is built by hand. Here it is
+not: `cs_matrix` reads sin and cos out of a full-circle table, and `cs_move`
+takes the horizontal component as `cos(pitch)`, which goes NEGATIVE past the
+vertical. That is the correct answer rather than a tolerated one — over the
+top of a loop the nose really does point up and BACK along the heading. The
+gate flies it to 172° of pitch.
+
+The stall drops the nose toward the EARTH and not toward zero pitch, which
+is the same thing only while upright; `cos(roll)` says which way that is.
+
+**Where a second aeroplane costs memory, and why it is not a part.** A plane
+is a 36-byte record, a name, and a ~120-byte cockpit; the Pitts' own model is
+about 150 bytes of code. `.o88` parts (§20.12) would move the DATA to a
+1 KB-granular heap claim and could not move the CODE at all — `CSP_ATT` is a
+near proc called every tick, and a part is far — while every pointer inside
+a cockpit record is a near offset into `DS`. Loading 300 bytes into a
+kilobyte to save 300 bytes of image is a net loss of about 700 bytes of RAM
+while flying, so the planes and the airports stay in the image. Parts earn
+their keep on something big and self-contained, which is what `apps/c64`'s
+20 KB of ROM is (§20.12).
+
 ### 88.8 The session (`apps/skies/csgame.inc`)
 
 `cs_fsx_main` is the §53.1 bracket's exclusive main and has Tank's two rates:
@@ -95232,6 +95281,35 @@ on the two angles' top bytes and read on the readings' rate gate
 three times a second at most. It may not survive — it is there to be
 looked at.
 
+#### 88.9.2.1 The bezel was half as wide as it should be on Hercules
+
+A round instrument is drawn with `ry` in ROWS and `rx = ry / cs_pasp`, where
+`cs_pasp` is rows per **logical x unit** — the 320-wide layout's unit, which
+`cs_hscalex` turns into box pixels. The first build used that quotient
+directly as a box-pixel radius. On CGA and Mode X the layout is 320 wide and
+the two are the same number, so the attitude indicator was round; on
+**Hercules the box is 640 wide**, so it came out at half the width it wanted
+and the bezel was a tall oval in every photograph of that panel. It is one
+`call cs_hscalex` on the radius, and the same line serves §88.9.3's dials.
+
+#### 88.9.3 …and instruments that only look the part
+
+A real panel is mostly things the simulation does not model. `CSK_DECO`
+names a list of five-word rows — kind, x, y, radius in rows, and one
+argument — drawn once with the face and never read again: a `CSDK_DIAL` is a
+bezel with its needle parked at the argument's angle, a `CSDK_SWITCH` a
+toggle on a stalk. Ten bytes each and no frame time at all.
+
+**They get a dark face first**, and that is not decoration on decoration:
+the cockpit's face is a 25% dither (`CSI_PFACE`) and a white outline on it
+reads as noise at gauge size — the first build's dials were specks. The
+instrument windows already solve exactly that with a black ground and a
+white edge, so a gauge is given the plate it would have in the metal.
+
+The Pitts carries six — a tachometer, oil pressure, fuel, a G meter and two
+magnetos — and the Cessna none, which is the trainer's panel being the
+instruments and nothing else.
+
 ### 88.10 The title page
 
 The windowed half is a configuration page, white, and every pixel of it the
@@ -95314,6 +95392,17 @@ table exactly.
   it to the launcher's window — the check that catches a click handler
   coming back with SI clobbered, which the first build did (§13.14), and
   `--clobber-si` puts that bug back and must go red on it.
+- `tests/skiespitts.py` (soak, MartyPC): the second aeroplane flies by its
+  own model (§88.7.2). Both are picked from the launcher's Plane list and
+  pinned to the same attitude, and then held apart: the trainer stops at its
+  roll limit and returns toward level when the stick is centred; the Pitts
+  rolls right round, stays exactly where it was left, and takes its nose past
+  90° of pitch, which the clamp forbids. It also holds the two panels apart —
+  only the full-width message strip is in the same place, and the decorations
+  are the Pitts' alone. `--clobber-att` gives the Pitts the trainer's proc
+  and the over-the-top check must go red; the row's own docstring records why
+  the roll checks survive that, which is a signed clamp overflowing before it
+  bites.
 - `tests/skiesgeom.py` (soak, MartyPC): §88.5.5–§88.5.7's arithmetic, held.
   Five scenes pinned by poke — the Issy climb-out at 30 and 60 degrees of
   bank, Le Bourget at 60 right and 30 left, and the straight climb — and in
