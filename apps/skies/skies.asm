@@ -1711,6 +1711,7 @@ cs_tpl:
 %include "csgame.inc"
 %include "cspanel.inc"
 %include "csart.inc"
+%include "csdiag.inc"       ; CSDIAG=1 only: the watchdog (SPEC.md 88.14)
 
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes CS_BSS bytes after the image, and
@@ -2071,6 +2072,12 @@ cs_tpl:
     ZWORD cs_pbary                  ; and width, off the cockpit
     ZWORD cs_pbarw
     ZBUF  cs_svclip, 6              ; the view's clip while the panel draws
+%ifdef CSDIAG
+    ZBUF  cs_dold, 4                ; the watchdog (SPEC.md 88.14): the int 08h
+    ZBUF  cs_dring, CSD_SLOTS * 2   ; vector it chains to, the interrupted IPs
+    ZWORD cs_dhead                  ; it rings, and the tick counter that says
+    ZWORD cs_dtick                  ; whether IRQ0 is still alive at all
+%endif
     ZWORD cs_adcx                   ; the attitude indicator: centre, the
     ZWORD cs_adcy                   ; bezel's radii, the window's half sizes
     ZWORD cs_adrx

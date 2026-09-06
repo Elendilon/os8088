@@ -60,6 +60,9 @@ cs_fsx_main:
     mov [cs_hsx], ax
     call OSAPI_GET_TICKS
     mov [cs_last], ax
+%ifdef CSDIAG
+    call cs_diag_on                 ; the watchdog, for the bracket's length
+%endif                              ; (SPEC.md 88.14)
 .loop:
     call cs_input
     cmp byte [cs_quit], 0
@@ -79,6 +82,9 @@ cs_fsx_main:
     call cs_render
     jmp short .loop
 .leave:
+%ifdef CSDIAG
+    call cs_diag_off
+%endif
     xor ax, ax                      ; the engine off with the mode
     xor cx, cx
     mov dl, 0x40

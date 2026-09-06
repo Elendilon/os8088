@@ -96417,6 +96417,57 @@ drop-downs get a release the title page never armed.
   walk, which is how the per-segment marking of §88.3.2 was first read as
   45 ms and turned out, on the A/B, to be 9.
 
+### 88.14 The watchdog — `CSDIAG=1` (a diagnostic build)
+
+A hard freeze inside an fsx bracket takes the whole machine with it: no
+pointer, no dock, no menu, and no way to ask the machine anything. 86Box has
+no debugger (docs/TESTING.md), so the only instrument a field machine has is
+a **photograph of the glass** — and a photograph of a frozen frame says what
+the picture was, not where the CPU is.
+
+So this build makes the machine answer in a photograph. `cs_diag_on` hooks
+`int 08h` for the length of the bracket and `cs_diag_isr` runs in front of
+the kernel's, chaining to it (`sch_isr` is what EOIs and schedules, so it
+must still run). Every tick it banks the **interrupted IP** in a ring of
+`CSD_SLOTS` and paints, **straight into VRAM**, four words as sixteen pixels
+each — bit 15 leftmost, three scan rows tall with a blank fourth so the four
+blocks read as four — at the top-left corner of the view:
+
+| block | what it is |
+|---|---|
+| 1–3 | the last three interrupted IPs, oldest first, bit 15 leftmost |
+| 4 | a **tick counter** |
+
+**The counter is half the diagnosis on its own.** If the picture has stopped
+and the counter is still moving, then IRQ0 is alive, `IF` is set, and the
+freeze is a loop in this package — which the three IPs beside it name. If
+the counter has stopped too, the machine is dead below Clear Skies (`IF`
+clear, a `hlt` that will never wake, or the tick chain gone) and no amount
+of looking at the package will find it.
+
+`tests/skiesdiag.py` is what says the instrument works, and it works the
+only way such a thing can be tested: it **freezes the machine on purpose**,
+patching a `jmp $` over the first instruction of `cs_render`, and then
+requires all three IP blocks to name that address off the glass while the
+counter goes on climbing. Checks that the hook is up and that the ring holds
+plausible addresses would pass on an instrument that samples the wrong word;
+that one would not.
+
+It paints into the view, so a running frame overwrites it constantly and it
+flickers. That is the point: **what survives on the glass is what was
+painted after the last frame that ever finished.**
+
+It costs the shipped build nothing — `make` compiles none of it, and the
+default `skies.o88` is byte-identical with the file present. `make skiesdiag`
+builds the package with `-DCSDIAG` into a private tree and writes a 360KB
+apps floppy carrying it, so the diagnostic and the shipped disk never share
+a `build/`.
+
+**It is an instrument, not a fix**, and it is here because Clear Skies has a
+freeze that 8,000 pinned poses and 4,200 frames of continuous rolling under
+MartyPC could not reproduce — which is itself a finding: whatever it is, it
+is not a function of the drawn state alone.
+
 ### 88.12 What it costs
 
 Measured with `tests/skiesperf.py` on MartyPC's 4.77 MHz 8088 with a
