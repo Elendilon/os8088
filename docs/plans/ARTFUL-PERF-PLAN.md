@@ -313,9 +313,32 @@ from the top of the document only moves the CARET to the bottom of the view and
 caret move and calls it a scroll. A scroll scene has to spend a PageDown
 unbracketed first, and must ASSERT that `[at_top]` moved.
 
+**WAVE 2c IS BUILT** (SPEC.md §46.4.4) and measures **1.12x on an Enter** in a
+document that fits — 71.5 → 63.9 ms on CGA, which is the full-height gutter
+fill that used to run *above* the test deciding there was no bar at all. The
+bar itself goes 21 far calls → 0 when nothing moved, 6 when only the thumb did.
+Its value was NOT collapsed by waves 1 and 3, as predicted: the bar's cost is
+scan-line setups, not line composition.
+
+Two things it cost, both caught by `tests/atblit.py` and neither a crash:
+
+- **`SI` is the arrow loops' own 1..5 counter.** Banking `maxtop` from `SI` at
+  the thumb — thirty lines below where `at_maxtop` answered — banked **0**, so
+  every later call missed its own bank, and handed `at_thumby_m` a zero
+  divisor. It showed up as a thumb frozen at the top of the shaft while the
+  view was at the bottom. `[at_sbmax]` is written at `.full`'s head now.
+- **The windowed splash scene includes the kernel's desktop menu bar**, whose
+  clock is a running one, so a whole-screen compare asks two boots to agree
+  about the time. It passed until two runs straddled a minute and then
+  reported 31 pixels at (624,6). The splash scene starts below `MBAR_H` now.
+
+**And a bss trap worth a guard.** Adding `at_sc1` for §46.3.1 left `at_stgs`
+saying `equ at_sclst + 2`, so the two aliased onto one address: `at_sc1` read
+back as the staging window's first low byte and the feature was **inert for a
+document starting at offset 0**, which is every test document. It was not a
+crash and not a wrong picture — the flag simply degraded to "scan everything",
+which is the old behaviour. `artful.asm` now carries a `%error` that fires on
+exactly that shape, and it was verified to fire.
+
 **What is left, re-ranked on the measurement rather than the prediction.**
-`at_sbar` (2c) is the one whose value waves 1 and 3 did NOT collapse: it is 21
-far calls and ~1,226 scan-line setups of pure overhead whatever a line costs,
-and it is not on the typing path at all — only on the line-count-change arms
-and on every scroll and arrow-repeat sample. 2a's double repaint is the same
-shape. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
+2a's double repaint is the same shape as 2c and is the next one. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.

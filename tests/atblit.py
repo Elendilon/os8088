@@ -198,10 +198,31 @@ def drive(img, apps, machine, tree, census, shot=None):
             n += 1
             absorbed(n)
         ui.settle()
-        m.key("PageUp")
+
+        # PACE THE NAVIGATION TOO, and on the app's own state. A settle can
+        # return before a PageUp has been taken - the screen is still while
+        # the key sits in the queue - and the two arms then end in DIFFERENT
+        # SCROLL STATES. That is not subtle in the capture and is not
+        # obviously a harness fault either: the first run of this scene put
+        # the thumb at the top of the shaft in one arm and the bottom in the
+        # other, and reported 224 differing pixels in the gutter, which reads
+        # exactly like a scroll-bar bug. `quiesce` is `settle` over a handful
+        # of guest bytes instead of a framebuffer, which is what the two
+        # words that actually decide this picture live in.
+        def nav(key):
+            m.key(key)
+            os88marty.quiesce(
+                m, lambda: m.readseg(seg, syms["at_top"], 2)
+                + m.readseg(seg, caret, 2),
+                what="ArtfulType's view to stop moving after " + key)
+
+        nav("PageUp")
+        nav("PageDown")
         ui.settle()
-        m.key("PageDown")
-        ui.settle()
+        for nm in ("at_top", "at_nlines", "at_sbst", "at_sbmax", "at_sbty"):
+            if nm in syms:
+                v = m.readseg(seg, syms[nm], 2)
+                print("      %-10s %d" % (nm, v[0] | (v[1] << 8)))
         w3, h3, scrolled = m.fbuf()
         if shot:
             os88marty.write_png_rgb(shot.replace(".png", "-scroll.png"),
@@ -211,17 +232,22 @@ def drive(img, apps, machine, tree, census, shot=None):
     return w, h, splash, rgb, scrolled, counts
 
 
-def diff(a, b, w, h):
-    """Differing pixels, and their bounding box.
+def diff(a, b, w, h, y0=0):
+    """Differing pixels from row y0 down, and their bounding box.
 
-    The WHOLE screen is compared and that is safe here where it is not in
-    tests/blitplane.py: ArtfulType is FULLSCREEN, so the menu bar with its
-    running clock is ArtfulType's own and carries no time, and os88ui.boot
-    parks the pointer and turns the saver off. If this ever starts reporting a
-    handful of pixels in one corner, that assumption is what broke.
+    The two FULLSCREEN scenes compare the whole screen and that is safe:
+    ArtfulType owns every pixel there, so the menu bar is its own and carries
+    no clock, and os88ui.boot parks the pointer and turns the saver off.
+
+    THE SPLASH SCENE IS WINDOWED and does not get that. The kernel's desktop
+    menu bar is on screen with its running CLOCK in the top right, so a
+    whole-screen compare asks two boots to agree about the time - which they
+    do until they happen to straddle a minute, and then it reports ~31 pixels
+    at (624,6) and reads like a rendering bug. y0 = MBAR_H is why that scene
+    starts below it; the splash card is far below the bar either way.
     """
     n, box = 0, None
-    for row in range(h):
+    for row in range(y0, h):
         base = row * w * 3
         if a[base:base + w * 3] == b[base:base + w * 3]:
             continue
@@ -285,9 +311,11 @@ def main():
         return 0
 
     bad = 0
-    for scene, x, y in (("splash", bsp, esp), ("document", band, expa),
-                        ("scrolled", bsc, esc)):
-        n, box = diff(x, y, w, h)
+    MBAR_H = 20                      # the kernel's desktop bar (SPEC.md 12)
+    for scene, x, y, y0 in (("splash", bsp, esp, MBAR_H),
+                            ("document", band, expa, 0),
+                            ("scrolled", bsc, esc, 0)):
+        n, box = diff(x, y, w, h, y0)
         print("   %s/%s %-9s %d differing pixels of %d%s"
               % (a.knob, a.card, scene, n, w * h,
                  "" if not box else "  box %r" % (box,)))

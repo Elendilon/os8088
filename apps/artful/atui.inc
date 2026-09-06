@@ -1139,6 +1139,9 @@ at_mdclose:
     inc bx
     jmp short .lines
 .fin:
+%ifndef NOATSBAR
+    mov byte [at_sbst], 0           ; ...which is exactly why the bank may not
+%endif                              ; answer for it (SPEC.md 46.4.4)
     call at_sbar                    ; a wide card can reach the gutter
     call at_caret_on
     pop dx

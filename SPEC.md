@@ -60159,6 +60159,61 @@ is why the gate is on the SCALE and not on the heading level.
 `NOATFAST=1` is the A/B and the only thing keeping the general path reachable
 for an unstyled scale-1 cell.
 
+#### 46.4.4 The scroll bar banks what is on the glass
+
+`at_sbar` redrew the whole bar on every call, whatever had changed — **21 far
+calls and ~1,226 scan-line setups**: 4 `SET_COLOR`, 2 `GFX_FILL`, 4
+`GFX_FRAME` (and `gfx_frame` is four fill strips), 10 `GFX_HLINE` for the two
+arrows, 1 `GFX_FILL_GRAY`. It is not on the typing path — only the
+line-count-change arms of `at_apply_edit` reach it — but it *is* on every
+scroll, every arrow-repeat sample, every thumb-drag sample and every alert
+dismissal. Unlike the line, its cost does not fall when a line gets cheaper,
+which is why it survived §46.4.2 and §46.4.3 as the largest thing left.
+
+It banks three facts about the bar it last drew — `[at_sbst]`, `[at_sbmax]`
+and **`[at_sbty]`, the thumb y that was actually DRAWN** rather than one
+recomputed from a possibly-stale `[at_top]` — and dispatches three ways:
+
+- **nothing moved → 0 calls.** On a long document this is most scrolls: the
+  travel is `ty1-ty0-47` px spread over `maxtop` lines, so a 1,000-line
+  Hercules document moves the thumb 0.24 px a line and three line-steps in
+  four draw nothing at all.
+- **only the thumb moved → 6 calls**, greying the old thumb's span and drawing
+  the new one.
+- **the document's length or the bar's presence moved → the full body.**
+
+`[at_sbst]` has three states and 0 is **POISONED**, not "hidden", because bss
+is loader-zeroed and a fresh instance must not believe a bank it never wrote.
+1 is "a bar is drawn and the other two words describe it"; 2 is "the gutter is
+blank and known so", which is what makes a document that FITS cost nothing on
+every Enter.
+
+**Two defects fall out of the same routine.** The gutter's full-height
+`GFX_FILL` ran *above* the `or ax, ax / jz .out` that decides there is no bar
+at all, so a document that fits paid a 16 × (ty1-ty0+1) fill to blank an
+already-blank gutter on every call. And `at_maxtop` was walked **twice** — once
+here and again inside `at_thumby` — so `at_thumby_m` takes it in CX and
+`at_thumby` becomes a wrapper that resolves it, which leaves `at_sb_click`'s
+call site alone.
+
+**The vacated strip is `sbx+1 .. sbx+14`, which is the SHAFT's width and not
+the thumb's 16.** The two columns either side belong to the outer frame and are
+black for the bar's whole height; the thumb's own frame only ever redraws them
+the same colour. `gfx_fill_gray`'s dither phase is a function of absolute y, so
+a partial re-grey is phase-correct by construction.
+
+**Four sites must POISON the bank**, and one of them is the shipped-defect
+shape: `at_fs_paint_all` whitens the entire screen and *then* calls `at_sbar`
+through `at_fs_paint_body`, so without a poison the dispatcher would answer
+"nothing moved", return 0 calls, and leave the bar erased. The others are
+`at_geom_init` (the geometry the banked y is in), `at_paint` — which arrives
+with a WM damage region armed, so the bar it just drew may never have reached
+the glass, and it poisons on the way OUT rather than setting — and
+`at_mdclose`, whose `at_sbar` call exists precisely because a card could reach
+the gutter.
+
+`NOATSBAR=1` is the A/B and the only thing keeping the unbanked body reachable.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what

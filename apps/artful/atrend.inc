@@ -74,6 +74,9 @@ at_geom_init:
 .tall:
     mov [at_ty0], ax
     mov [at_ty1], cx
+%ifndef NOATSBAR
+    mov byte [at_sbst], 0           ; the geometry [at_sbty] is expressed in
+%endif                              ; has just moved (SPEC.md 46.4.4)
     pop dx
     pop cx
     pop bx
@@ -1540,6 +1543,7 @@ at_sbar:
     push si
     cmp byte [at_fs], 0
     je .out
+%ifdef NOATSBAR
     mov al, CWHITE
     call OSAPI_SET_COLOR
     mov ax, [at_sbx]
@@ -1552,6 +1556,67 @@ at_sbar:
     call at_maxtop
     or ax, ax
     jz .out                         ; the document fits: no bar at all
+    mov si, ax
+%else
+    ; --- SPEC.md 46.4.4: what is already on the glass ---------------------
+    ; at_maxtop is walked ONCE here and handed to at_thumby_m below; it used
+    ; to be walked again inside at_thumby.
+    call at_maxtop
+    mov si, ax                      ; SI = maxtop, live to the end
+    or ax, ax
+    jnz .want
+    ; the document FITS, so there is no bar. Erase one only if one is there.
+    cmp byte [at_sbst], 2
+    je .out                         ; already known blank: ZERO far calls,
+                                    ; which is what every Enter in a short
+                                    ; document used to pay a full-height
+                                    ; gutter fill for - the fill sat ABOVE
+                                    ; the test that decides there is no bar
+    call .blank
+    mov byte [at_sbst], 2
+    jmp .out
+.want:
+    cmp byte [at_sbst], 1
+    jne .full                       ; POISONED or blank: draw the lot
+    cmp si, [at_sbmax]
+    jne .full                       ; the document's length moved
+    mov cx, si
+    call at_thumby_m
+    cmp ax, [at_sbty]
+    je .out                         ; NOTHING MOVED. On a long document this
+                                    ; is most scrolls: the travel is
+                                    ; ty1-ty0-47 px over maxtop lines, so a
+                                    ; 1,000-line Hercules document moves the
+                                    ; thumb 0.24 px a line
+    ; --- only the thumb moved: grey its old span and draw it again --------
+    ; The span is sbx+1..sbx+14 - the SHAFT's width, not the thumb's 16. The
+    ; columns either side are the OUTER frame, black for the bar's whole
+    ; height, and the thumb's own frame only ever redraws them the same
+    ; colour. gfx_fill_gray's dither phase is a function of absolute y, so a
+    ; partial re-grey is phase-correct by construction.
+    push ax
+    mov ax, [at_sbx]
+    inc ax
+    mov bx, [at_sbty]
+    mov cx, [at_sbx]
+    add cx, 14
+    mov dx, bx
+    add dx, 15
+    call OSAPI_GFX_FILL_GRAY
+    pop ax
+    mov [at_sbty], ax
+    call .thumb
+    jmp .out
+.full:
+    ; BANK MAXTOP NOW, not at the thumb below: the two arrow loops between
+    ; here and there use SI as their own 1..5 counter, so SI is ZERO by the
+    ; time the thumb is drawn. Reading it there banked at_sbmax = 0 - which
+    ; made every later call miss its own bank and take this path again - and
+    ; handed at_thumby_m a zero divisor. tests/atblit.py caught it as a thumb
+    ; frozen at the top of the shaft while the view was at the bottom.
+    mov [at_sbmax], si
+    call .blank                     ; the arrow boxes' ground
+%endif
     mov al, CBLACK
     call OSAPI_SET_COLOR
     ; frame + the two arrow boxes
@@ -1611,9 +1676,40 @@ at_sbar:
     sub dx, 16
     call OSAPI_GFX_FILL_GRAY
     ; thumb
+%ifdef NOATSBAR
     call at_thumby
-    mov bx, ax
-    mov dx, ax
+    mov [at_sbty], ax
+%else
+    mov cx, [at_sbmax]              ; ...and read it back from the bank, for
+    call at_thumby_m                ; the reason above
+    mov [at_sbty], ax
+    mov byte [at_sbst], 1
+%endif
+    call .thumb
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; the gutter's ground, and the thumb at [at_sbty] - the two pieces both the
+; full body and 46.4.4's incremental arm need
+.blank:
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [at_sbx]
+    mov bx, [at_ty0]
+    dec bx
+    mov cx, ax
+    add cx, 15
+    mov dx, [at_ty1]
+    call OSAPI_GFX_FILL
+    ret
+.thumb:
+    mov bx, [at_sbty]
+    mov dx, bx
     add dx, 15
     mov al, CWHITE
     call OSAPI_SET_COLOR
@@ -1631,12 +1727,6 @@ at_sbar:
     mov cx, ax
     add cx, 15
     call OSAPI_GFX_FRAME
-.out:
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1679,11 +1769,22 @@ at_maxtop:
 ; out: AX = y; preserves all else
 ; -----------------------------------------------------------------------------
 at_thumby:
+    push cx                         ; the public form, which resolves maxtop
+    call at_maxtop                  ; itself - at_sb_click's call site is
+    mov cx, ax                      ; unchanged by SPEC.md 46.4.4
+    call at_thumby_m
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; at_thumby_m - the same, with maxtop ALREADY in CX (and nonzero)
+; in:  CX = maxtop; out: AX = the thumb's y; preserves BX/CX/DX
+; at_sbar walks at_maxtop once and hands it here; it used to be walked TWICE
+; per bar, once there and once in at_thumby (SPEC.md 46.4.4).
+; -----------------------------------------------------------------------------
+at_thumby_m:
     push bx
-    push cx
     push dx
-    call at_maxtop
-    mov cx, ax                      ; CX = maxtop (nonzero at the call site)
     mov ax, [at_ty1]
     sub ax, [at_ty0]
     sub ax, 47                      ; travel = shaft height - 16 (thumb):
@@ -1700,6 +1801,5 @@ at_thumby:
     add ax, [at_ty0]
     add ax, 15
     pop dx
-    pop cx
     pop bx
     ret

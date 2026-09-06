@@ -64,7 +64,8 @@ def pkg_syms(defines=()):
         return out
 
 
-def measure(img, apps, machine, tree, lines, samples, scroll=False):
+def measure(img, apps, machine, tree, lines, samples, scroll=False,
+            key=None):
     tree.apply()
     syms = pkg_syms(["-D" + a.split("=")[0] for a in tree.args
                      if a.startswith("NOAT")])
@@ -111,11 +112,15 @@ def measure(img, apps, machine, tree, lines, samples, scroll=False):
                 # visible and at_scroll_to is never called - so bracketing
                 # that one measures a caret move and calls it a scroll. The
                 # SECOND is the one that has to move [at_top].
+                def nav(k):
+                    m.key(k)
+                    os88marty.quiesce(
+                        m, lambda: m.readseg(seg, top, 2)
+                        + m.readseg(seg, caret, 2),
+                        what="the view to stop moving after " + k)
                 for _ in range(6):
-                    m.key("PageUp")
-                ui.settle()
-                m.key("PageDown")
-                ui.settle()
+                    nav("PageUp")
+                nav("PageDown")
                 t0 = u16(m.readseg(seg, top, 2))
                 m.bp_exec(onkey)
                 m.run()
@@ -160,7 +165,10 @@ def measure(img, apps, machine, tree, lines, samples, scroll=False):
         for _ in range(samples):
             m.bp_exec(onkey)
             m.run()
-            m.type_text("x")
+            if key:
+                m.key(key)
+            else:
+                m.type_text("x")
             if not m.wait_stop(limit=60.0):
                 sys.exit("atkey: at_onkey never ran within 60s of a keypress")
             r = m.regs()
@@ -189,6 +197,12 @@ def main():
                     help="visual lines in the caret's paragraph - the thing "
                          "the answer actually depends on")
     ap.add_argument("--samples", type=int, default=3)
+    ap.add_argument("--key",
+                    help="bracket this MartyKey instead of a printable. "
+                         "Enter is the one that matters for the scroll bar: a "
+                         "printable keystroke leaves the line count alone and "
+                         "takes at_apply_edit's .rng arm, which never calls "
+                         "at_sbar at all - only the line-count-change arms do.")
     ap.add_argument("--scroll", action="store_true",
                     help="bracket a PAGEDOWN on a document taller than the "
                          "view, instead of a character in a paragraph")
@@ -208,7 +222,8 @@ def main():
     for name, t in arms:
         cyc, rlk, dfrom, nlines = measure(t.img("os8088-360.img"),
                                           t.img("apps360.img"), machine, t,
-                                          a.lines, a.samples, a.scroll)
+                                          a.lines, a.samples, a.scroll,
+                                          a.key)
         res[name] = cyc
         best = min(cyc)
         print("   %-22s %s cycles  -> %.1f ms  "

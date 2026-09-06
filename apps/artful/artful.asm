@@ -323,6 +323,11 @@ at_paint:
     cmp byte [at_fs], 0
     je .win
     call at_fs_paint_body
+%ifndef NOATSBAR
+    mov byte [at_sbst], 0           ; a W_PAINT arrives with a damage region
+%endif                              ; armed (SPEC.md 11.3), so what the body
+                                    ; just drew may have been clipped away:
+                                    ; poison on the way OUT, never set
     jmp short .done
 .win:
     call at_splash
@@ -378,6 +383,13 @@ at_fs_paint_all:
     mov dx, [at_vh]
     dec dx
     call OSAPI_GFX_FILL
+%ifndef NOATSBAR
+    mov byte [at_sbst], 0           ; SPEC.md 46.4.4: THE POISON THAT MATTERS.
+%endif                              ; The fill above just erased the gutter,
+                                    ; so without this the dispatcher inside
+                                    ; at_fs_paint_body answers "nothing moved",
+                                    ; returns 0 far calls, and the bar stays
+                                    ; erased for the rest of the session
     call at_fs_paint_body
     pop dx
     pop cx
@@ -1027,8 +1039,18 @@ at_sccw     equ at_scskip + 2                ; word: scan cell width
 at_sclst    equ at_sccw + 2                  ; word: scan line start
 at_sc1      equ at_sclst + 2                 ; byte: at_scan stops after ONE
                                              ; logical line (SPEC.md 46.3.1)
-at_stgs     equ at_sclst + 2                 ; AT_STGCAP words: staging starts
+at_sbst     equ at_sc1 + 1                   ; byte: the scroll bar's bank -
+                                             ; 0 POISONED, 1 drawn, 2 known
+                                             ; blank (SPEC.md 46.4.4)
+at_sbmax    equ at_sbst + 1                  ; word: the at_maxtop it was
+                                             ; drawn for
+at_sbty     equ at_sbmax + 2                 ; word: the thumb y actually
+                                             ; DRAWN, never one recomputed
+at_stgs     equ at_sbty + 2                  ; AT_STGCAP words: staging starts
 at_stga     equ at_stgs + AT_STGCAP*2        ; AT_STGCAP bytes: staging attrs
+%if at_stgs < at_sbty + 2
+  %error "artful bss: at_stgs overlaps a scalar above it. Every name here is `equ <previous> + <size>`, so a chain that RESTATES an earlier base silently aliases two variables onto one address - which is what happened when at_sc1 was added and at_stgs kept saying `at_sclst + 2`. The alias was not a crash: at_sc1 read back as at_stgs[0]'s low byte, so the flag it controls was set by whatever offset the staging window happened to hold and the feature was inert for a document starting at offset 0."
+%endif
 at_rldel    equ at_stga + AT_STGCAP          ; word: relayout delta
 at_rlst     equ at_rldel + 2                 ; word: relayout scan start
 at_rlj      equ at_rlst + 2                  ; word: surviving old index
