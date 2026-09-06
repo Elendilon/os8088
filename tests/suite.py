@@ -1651,46 +1651,47 @@ SOAK = [
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
         needs=("marty",), serial=True),
-    Row("skies", "soak", py("tests/skies.py"), 180.0,
+    Row("skies", "soak", py("tests/skies.py"), 35.0,
         "SPEC.md 88: CLEAR SKIES draws and advances, takes off from the runway"
         " under full throttle and the stick, crashes when the nose is held"
         " into the ground and comes back to the airport's reset point, and"
         " its frames do not flash - SPEC.md 85.1's instrument on a raster"
         " that redraws the whole view every frame. Hercules, the target."
-        " Measured at ~120 s wall on an idle four-core box",
+        " Measured at 30 s wall alone on an idle four-core box - it was 120"
+        " before SPEC.md 88.5.6.1 took the frame rate back",
         needs=("marty",), serial=True),
     Row("skiescga", "soak", py("tests/skies.py", "--machine",
-                               "os8088_5150_cga_gla"), 180.0,
-        "SPEC.md 88 on CGA: the 240x84 view (88.13.4 s moderate size),"
-        " palette 0 over a light-blue"
-        " background, the same flight",
+                               "os8088_5150_cga_gla"), 35.0,
+        "SPEC.md 88 on CGA: the 320x112 view (88.13.4 s default there is"
+        " FULL, which is the geometry CGA shipped with), palette 0 over a"
+        " light-blue background, the same flight",
         needs=("marty",), serial=True),
-    Row("fsxclip", "soak", py("tests/fsxclip.py"), 150.0,
+    Row("fsxclip", "soak", py("tests/fsxclip.py"), 22.0,
         "SPEC.md 53.1.1: an fsx bracket entered from a CLICK handler comes"
         " back to a whole desktop - the menu bar, the background and the dock"
         " held pixel for pixel against what they were, because fsx_run clears"
         " the clip region the handler armed",
         needs=("marty",), serial=True),
-    Row("skiesset", "soak", py("tests/skiesset.py"), 300.0,
+    Row("skiesset", "soak", py("tests/skiesset.py"), 40.0,
         "SPEC.md 88.13: the Settings page and its four knobs reaching the"
         " picture - Few files fewer objects and draws faster, a fill box"
         " clears its bit, the in-flight hotkeys do the same without the page,"
         " and a smaller view leaves none of the larger one beside it",
         needs=("marty",), serial=True),
-    Row("skiespitts", "soak", py("tests/skiespitts.py"), 260.0,
+    Row("skiespitts", "soak", py("tests/skiespitts.py"), 34.0,
         "SPEC.md 88.7.2: the second aeroplane flies by its own CSP_ATT - the"
         " Pitts rolls right round and loops over the top and stays where the"
         " stick left it, where the trainer clamps both axes and returns to"
         " level - and wears its own scattered panel (88.9.3)",
         needs=("marty",), serial=True),
-    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 320.0,
+    Row("skiesgeom", "soak", py("tests/skiesgeom.py"), 31.0,
         "SPEC.md 88.5.5-88.5.7: every polygon and segment of a frame, on"
         " five pinned scenes (four of them BANKED), held to a host replay of"
         " the guest's own near clip, side clip and per-scale projection -"
         " the two faults a straight flight never reached (88.5.6.1,"
         " 88.5.7.1), each with a red run that patches it back",
         needs=("marty",), serial=True),
-    Row("skiesui", "soak", py("tests/skiesui.py"), 150.0,
+    Row("skiesui", "soak", py("tests/skiesui.py"), 44.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
         " (SPEC.md 13.14's first users) drop, close and pick, Esc closes one,"
         " Flight -> Instructions turns the page and back, the Mode menu's CGA"
@@ -1699,9 +1700,9 @@ SOAK = [
         " catches a click handler coming back with SI clobbered",
         needs=("marty",), serial=True),
     Row("skiesvga", "soak", py("tests/skies.py", "--machine",
-                               "os8088_xt_vga"), 240.0,
+                               "os8088_xt_vga"), 45.0,
         "SPEC.md 88 on MODE X - MartyPC's VGA hosts the unchained mode, whatever"
-        " an earlier session believed - the 240x108 view on two pages, the same"
+        " an earlier session believed - the 320x144 view on two pages, the same"
         " flight at ~4 fps, and the page SHOWN changing every second in flight:"
         " the owner once saw this backend freeze on its first frame with the"
         " loop still running, and a flip that never shows the drawn page is"

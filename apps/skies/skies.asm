@@ -356,9 +356,13 @@ cs_entry:
     mov [cs_dock], cx
 
     mov byte [cs_setbld], CSBL_ALL   ; the settings' defaults (88.13): all of
-    mov byte [cs_setsize], CSZ_MOD  ; them are what the simulator shipped
-    mov byte [cs_setlod], CSL_MOD   ; with, so a player who never opens the
-    mov byte [cs_setfill], CSFL_ALL  ; page is flying exactly what they flew
+    mov byte [cs_setlod], CSL_MOD   ; them are what the simulator shipped
+    mov byte [cs_setfill], CSFL_ALL  ; with, so a player who never opens the
+                                    ; page is flying exactly what they flew.
+                                    ; Size is the fourth and cannot be set
+                                    ; here: it is the ADAPTER's, and the
+                                    ; adapter is not known until the window
+                                    ; exists (below)
 
     mov al, KSC_SPACE               ; ARMING the scancode reader: the first
     call OSAPI_KEY_DOWN             ; answer is always "up" and this is where
@@ -400,6 +404,15 @@ cs_entry:
                                     ; only be written over (SPEC.md 11.96)
     call cs_adapter                 ; which raster we would take, whether the
                                     ; machine will give it to us, and the menus
+    mov al, CSZ_FULL                ; ...and now Size can take its default,
+    cmp byte [cs_want], CSB_HERC    ; which is the adapter's own (88.13.4):
+    jne .sz                         ; CGA and Mode X open at the geometry they
+    mov al, CSZ_MOD                 ; shipped with and Hercules at its 400-wide
+.sz:                                ; view, so nobody's picture changed when
+    mov [cs_setsize], al            ; the page arrived. ONCE, here and not in
+                                    ; cs_adapter, which runs again on a Mode
+                                    ; change and on a window move: neither may
+                                    ; overwrite a Size the player picked
     mov ax, cs_onresize             ; the card can change under us
     call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98)
     mov ax, cs_onup                 ; the release half of a click (13.7)...

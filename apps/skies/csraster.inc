@@ -55,15 +55,27 @@ cs_vptab:
 ; fewer pixels for the same picture, which is the whole point of the option,
 ; and the same trade Hercules already makes at 400 wide.
 ;
-;   FULL     the whole box: 640 on Hercules, 320 on the other two
+;   FULL     cs_fulltab's row - what each adapter shipped with, which is why
+;            it is a table and not vw x (vh - CS_PANROWS): the computed
+;            answer is Mode X's 320x152 where Mode X shipped 320x144
 ;   MODERATE the table's row - Hercules' 400, and three quarters elsewhere
 ;   SMALL    half of moderate each way
 ;
 ; The width stays a multiple of 8 and so does the left edge, because the view
 ; is addressed in BYTES on every backend. The height is bounded by the panel,
 ; which wants 88 rows of the box under the view.
+;
+; FULL is also the DEFAULT on CGA and Mode X, and MODERATE on Hercules
+; (SPEC.md 88.13.4) - one line in cs_entry, so every adapter opens at the
+; geometry it had before the page existed.
 ; -----------------------------------------------------------------------------
 CS_PANROWS equ 88               ; what the cockpit's layout needs (88.9.2)
+
+cs_fulltab:                     ; ww, wh at CSZ_FULL, indexed by CSB_* - 1
+    dw 320, 144                 ; MODEX
+    dw 320, 112                 ; CGA
+    dw 640, 112                 ; HERC: all 640 of the box, which it will
+                                ; not enjoy
 
 cs_r_size:
     mov al, [cs_setsize]
@@ -71,10 +83,14 @@ cs_r_size:
     je .done                        ; the table IS moderate
     cmp al, CSZ_FULL
     jne .small
-    mov ax, [cs_vw]                 ; --- full: the box, and the tallest view
-    mov [cs_ww], ax                 ;     the panel leaves room for
-    mov ax, [cs_vh]
-    sub ax, CS_PANROWS
+    mov bl, [cs_back]               ; --- full: the geometry the simulator
+    dec bl                          ;     SHIPPED with, adapter by adapter,
+    xor bh, bh                      ;     rather than a computed maximum -
+    shl bx, 1                       ;     Mode X left its panel 96 rows and
+    shl bx, 1                       ;     the arithmetic would have taken 8
+    mov ax, [cs_fulltab + bx]        ;     of them back
+    mov [cs_ww], ax
+    mov ax, [cs_fulltab + bx + 2]
     jmp short .fit
 .small:
     mov ax, [cs_ww]                 ; --- small: half of moderate each way
@@ -98,10 +114,10 @@ cs_r_size:
     mov ax, [cs_vw]                 ; ...centred, on a WORD boundary and not
     sub ax, [cs_ww]                 ; merely a byte: cs_blit rounds each row's
     shr ax, 1                       ; span out to whole words (`and al, 0xFE`),
-    and al, 0xF0                    ; so a view starting on an odd byte is
-    mov [cs_wx0], ax                ; copied out from the byte before it - the
-                                    ; band of the LARGER view that stood beside
-                                    ; the smaller one (88.13.4)
+    and al, 0xF0                    ; so a view whose first BYTE is odd is
+    mov [cs_wx0], ax                ; copied out from the byte before it -
+                                    ; always black, so it costs a word a row
+                                    ; and shows nothing (88.13.4)
 .done:
     ret
 

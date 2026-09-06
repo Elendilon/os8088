@@ -19,7 +19,8 @@ something different.
   5. and shrinking the view CLEARS THE PIXELS BESIDE IT. cs_clearall zeroes
      the shadow and the blit copies only the view's byte columns out of it,
      so without cs_scrclear the larger view's ground stands in a band either
-     side of the smaller picture (88.13.4).
+     side of the smaller picture (88.13.4). That band is read out of VRAM
+     and not out of the rendered frame - see the note at the check.
 
 --clobber-clear is the red run (docs/WRITING-TESTS.md 1): it NOPs the call
 to cs_scrclear, which is that band exactly, and check 5 must go red.
@@ -228,23 +229,28 @@ def main(argv):
         m.run()
 
         # --- 5. a smaller view leaves nothing beside it ----------------------
+        #
+        # READ VRAM, NOT THE RENDERED FRAME. MartyPC's Hercules raster does
+        # not land on the framebuffer's origin - measured at (-16, +2) on the
+        # mode this kernel sets - so a band named in BOX coordinates and read
+        # out of m.fbuf() is sixteen pixels adrift, which puts the view's own
+        # left edge inside it and reads as a bleed beside the picture that is
+        # not there at all (docs/MARTYPC-DEBUG.md, "the rendered frame is not
+        # the framebuffer"). m.vram() is byte-for-byte the card's memory.
         pin()
         frames(3)
         big = (w("cs_ww"), w("cs_wh"))
-        m.pause()
-        fw, fh, was = m.fbuf(0)
-        m.run()
         vx, vy = w("cs_vx"), w("cs_vy")
+        back = byte("cs_back")
+        bpp = 2 if back == 2 else 1             # CGA packs two bits a pixel
+        m.pause()
+        _, _, was = m.vram()
+        m.run()
 
-        def band(f, wx0, wh):
-            """The dead area beside the view, two bytes short of its edge."""
-            out = bytearray()
-            for y in range(vy + 4, vy + wh - 4):
-                out += f[(y * fw + vx) * 3:(y * fw + vx + wx0 - 16) * 3]
-            return bytes(out)
-
-        def lit(b):
-            return sum(1 for i in range(0, len(b), 3) if b[i:i + 3] != b"\0\0\0")
+        def band(rows, wx0, wh):
+            """Every pixel of the box LEFT of the view, lit ones counted."""
+            return sum(sum(rows[y][vx * bpp:(vx + wx0) * bpp])
+                       for y in range(vy, vy + wh))
 
         m.type_text("-")
         m.advance(frames=80)
@@ -255,22 +261,14 @@ def main(argv):
         check(small[0] * 2 == big[0] and small[1] * 2 == big[1],
               "the - key halves the view (%dx%d -> %dx%d)" % (big + small))
         m.pause()
-        fw, fh, fb = m.fbuf(0)
+        _, _, fb = m.vram()
         m.run()
-        # The band beside the SMALL view, STOPPING TWO BYTES SHORT OF IT.
-        # Those two bytes carry a bleed that is not this option's and
-        # predates it: a fill's row is clamped to the view but the SPAN it
-        # marks is not, so the blit copies up to a word past the left edge -
-        # measured at the shipped moderate size too (88.13.4.1). What this
-        # row is about is the rest of the band, which the LARGER view's
-        # ground stands across when the screen is not cleared.
         wx0 = w("cs_wx0")
         before, after = band(was, wx0, small[1]), band(fb, wx0, small[1])
-        check(lit(before) > 100,
-              "the larger view really did put something there (%d lit)"
-              % lit(before))
-        check(lit(after) == 0, "the larger view is gone from beside the smaller "
-              "one (%d lit of %d)" % (lit(after), len(after) // 3))
+        check(before > 100,
+              "the larger view really did put something there (%d lit)" % before)
+        check(after == 0, "the larger view is gone from beside the smaller "
+              "one (%d lit)" % after)
         m.type_text("+")
         m.advance(frames=60)
         m.run()

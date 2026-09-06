@@ -95438,11 +95438,25 @@ every fill off 119.0.
 #### 88.13.4 Size — Small, Moderate, Full
 
 The table in `cs_vptab` is the **moderate** row: Hercules' 400 of its 640, as
-it always was, and three quarters of the box on CGA and Mode X. Full is the
-whole box — 640 on a Hercules, which will not enjoy it — and Small is half of
-moderate each way. `cs_r_size` applies it to the table's row before anything
-derives from it, so the byte columns, the projection tables and the span sets
-all follow.
+it always was, and three quarters of the box on CGA and Mode X. Full is
+`cs_fulltab`'s row and Small is half of moderate each way. `cs_r_size`
+applies it to the table's row before anything derives from it, so the byte
+columns, the projection tables and the span sets all follow.
+
+**Full is a TABLE and not `vw x (vh - CS_PANROWS)`**, which is what it was
+first written as. The computed answer is right on two adapters of three and
+gives Mode X a 320x152 view where Mode X shipped 320x144 — eight rows off a
+panel that had been drawn with 96 of them. So the three rows are the
+geometry each adapter shipped with (320x144, 320x112, 640x112) and Full
+means *what you had*, exactly, rather than *as much as the panel allows*.
+
+**The default is the ADAPTER's**: moderate on Hercules and full on CGA and
+Mode X, which is the geometry each of them opened at before the page
+existed, so the option arrived costing nobody a pixel. It is taken **once**,
+in `cs_entry` immediately after the first `cs_adapter` — not inside
+`cs_adapter`, which also runs on a Mode change and on a window move to
+another display (§39.18.2), and neither of those may overwrite a Size the
+player picked.
 
 **The scale does not change with it.** `sclx`/`scly` stay the table's, so a
 smaller view is a smaller WINDOW on the same world rather than a zoom out —
@@ -95461,18 +95475,40 @@ whole 32KB window on a Hercules rather than `stride x rows`, because a page
 there is four interleaved banks and the arithmetic leaves the tail of the
 last one standing.
 
-##### 88.13.4.1 …and the two-byte bleed it uncovered, which is not its own
+##### 88.13.4.1 The two-byte bleed beside the view, which does not exist
 
-The band beside a small view carries **up to two bytes of the picture** at
-its edge, and that is older than this option: a polygon row is clamped to the
-view before it is filled, but the SPAN it marks is not, so `cs_blit` copies a
-word that begins outside. It is measurable at the shipped moderate size as
-well — 94 lit pixels in columns 104..119 beside a view starting at 120 — and
-has been on every Hercules flight since the simulator shipped. It is
-recorded rather than fixed here because it belongs to the raster's span
-marking and not to the settings; `tests/skiesset.py` asserts the band is
-clean everywhere EXCEPT those two bytes, which keeps the row honest about
-what it is testing.
+This section used to record a defect: **94 lit pixels in box columns
+104..119** beside a Hercules view starting at 120, present at the shipped
+moderate size and therefore on every flight since the simulator shipped. It
+was reasoned about as an unclamped span — a polygon row clamped to the view
+before it is filled but the SPAN it marks not — and a clamp was written into
+`cs_markspan` and measured, and **the 94 pixels did not move**.
+
+They did not move because they were never there. The band was being read out
+of `m.fbuf()`, the frame MartyPC **rasterised**, and on the Hercules mode
+this kernel sets that raster does not sit at the framebuffer's origin: a
+cross-correlation of the card's memory against the rendered frame matches
+**640 of 640 pixels at (-16, +2)** on every row tried. Sixteen pixels is
+exactly the two bytes, so the "bleed" was the view's own leftmost sixteen
+pixels, read at a box column they do not occupy.
+
+Three things were true at once and only the third mattered: the shadow's
+dead bytes are zero on every row (so nothing was drawing there), the spans
+are the view's (so nothing was marking there), and the reader was adrift.
+The first two were measured first and read as *the bleed comes from
+somewhere else* rather than as *there is no bleed*.
+
+The offset was **already written down** — docs/MARTYPC-DEBUG.md has carried
+*"on a Hercules, `fbuf` is cropped: guest (x, y) renders at `fbuf`
+(x-16, y+2)"* since it was measured twice independently — so what this cost
+was a session, not a fact. The rule is: **on a 1bpp adapter read
+`m.vram()`, never `m.fbuf()`** — `vram` is the card's memory, byte for byte
+the arithmetic in `tools/hercshot.py`, and it is what `tests/skiesset.py`
+now uses — its band runs right up to the view's left edge with no margin at
+all, and reads zero. The clamp was reverted: `cs_markspan`'s only caller is `cs_prect`,
+which draws the PANEL under `cs_pclip`, where the bounds are the whole box —
+so the clamp was a no-op on the one path that reaches it, charged per row
+per fill.
 
 #### 88.13.5 …and the same four on hotkeys, in flight
 
