@@ -3807,21 +3807,39 @@ $(BUILD)/tapesim.o88: $(BUILD)/tapesim.bin tools/os88pkg.py
 # which is the multi-record path the progress bar, the per-record repaint and
 # Stop all exist for.
 #
-# **THE NAME IS ELEVEN CHARACTERS AND NOT TWELVE**, which is not a style
-# choice: SPEC.md 88.4.1's `name` field is 12 bytes NUL-terminated inside
-# them, and a maximal 8.3 name is 12 characters - so neither this reader nor
-# tools/os88tape.py can carry `TAPEDATA.TXT`, and the package refuses it in
-# words at Choose time. See apps/tape/tape.asm's `tp_namefits`.
-$(BUILD)/TAPEDAT.TXT: | $(BUILD)
+# **THE NAME IS A MAXIMAL 8.3 ON PURPOSE.** Twelve characters plus a NUL is
+# thirteen bytes, and SPEC.md 88.4.1's `name` field was 12 when the format was
+# first written - so it could not hold one, and the section and
+# tools/os88tape.py carried the same bound and agreed with each other. Writing
+# the parser is what found it. The field is 16 now, and this fixture is what
+# keeps a maximal name exercised end to end on the machine rather than only in
+# the host codec.
+$(BUILD)/TAPEDATA.TXT: | $(BUILD)
 	python3 -c "import sys; open(sys.argv[1],'wb').write(b''.join(b'os8088 tape fixture line %03d\r\n' % i for i in range(80)))" $@
 
-$(BUILD)/tapesim360.img: $(BUILD)/tapesim.o88 $(BUILD)/TAPEDAT.TXT \
+$(BUILD)/tapesim360.img: $(BUILD)/tapesim.o88 $(BUILD)/TAPEDATA.TXT \
                          tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tapesim.o88 \
-	        $(BUILD)/TAPEDAT.TXT
+	        $(BUILD)/TAPEDATA.TXT
 
 .PHONY: tapesimtest
 tapesimtest: $(BUILD)/tapesim360.img
+
+# ...and the REAL-arm disk, for the detection gate (SPEC.md 88.1,
+# docs/plans/CASSETTE-PLAN.md wave 6):
+#   make tapehwtest && python3 tests/taperefuse.py
+#
+# It carries the SHIPPED build - no -DTAPE_FAKE - because the thing under test
+# is `tp_detect`, which the fake arm answers TP_HW_OK for by construction. The
+# transport itself cannot be exercised by anything in this project (SPEC.md
+# 88.11): what this disk is for is the GATE, on a 5150 against a 5160.
+$(BUILD)/tapehw360.img: $(BUILD)/tape.o88 $(BUILD)/TAPEDATA.TXT \
+                        tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/tape.o88 \
+	        $(BUILD)/TAPEDATA.TXT
+
+.PHONY: tapehwtest
+tapehwtest: $(BUILD)/tapehw360.img
 
 # lzfile - a compressed FILE, read transparently (SPEC.md 20.14,
 # docs/plans/O88-COMPRESSION-PLAN.md 13 wave 5). The disk carries one document

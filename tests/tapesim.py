@@ -78,7 +78,7 @@ IMG = "build/os8088-360.img"
 APPS = "build/tapesim360.img"
 BIN = "build/tapesim.bin"
 SRC = os.path.join(HERE, "..", "apps", "tape", "tape.asm")
-FIXTURE = "TAPEDAT.TXT"
+FIXTURE = "TAPEDATA.TXT"
 TITLE_H = 18
 
 # the package's own constants, mirrored - and every one of them is READ BACK

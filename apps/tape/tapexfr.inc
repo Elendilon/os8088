@@ -41,6 +41,14 @@ TP_HW_WIP     equ 3             ; ...and a THIRD, which SPEC.md 88.1 does not
                                 ; sentence about a ROM this code never asked
 
 ; --- what tp_xfer answers in AH (SPEC.md 88.2) -------------------------------
+TP_FDD_WAIT   equ 55            ; the floppy-motor wait's bound, in pit_now's
+                                ; HIGH-word steps: 65,536 x 838ns = 54.9 ms
+                                ; each, so 55 is ~3.0 seconds. A bound and not
+                                ; a spin - a machine whose int 08h chain does
+                                ; not run 0040:0040 must not hang the UI task,
+                                ; and a spinning drive is a worse tape rather
+                                ; than a broken one
+
 TP_AH_CRC     equ 1             ; the ROM's own
 TP_AH_SIGNAL  equ 2
 TP_AH_NODATA  equ 4
@@ -338,31 +346,277 @@ tp_motor_off:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; tp_xfer - WAVE 6. See above.
+; tp_xfer - move ONE record through the ROM (SPEC.md 88.2's eighteen steps)
+; in:  AL    = 2 (read) or 3 (write)
+;      ES:BX = the record buffer, BX = 0, ES = the base of a PINNED claim
+;      CX    = 256..4096, always a multiple of 256
+; out: CF=0  the record moved and all three post-conditions hold
+;      CF=1  AH = why (TP_AH_*)
+;      BX, CX, DX, SI, DI, BP, DS and ES come back as they went in
+;
+; CONTEXT: the W_ONWAKE handler, on the UI task, GFX LOCK NOT HELD.
+; **IT DOES NOT RETURN FOR 4.1 TO 8.8 SECONDS.**
+;
+; `cli` IS NOT THE INSTRUMENT AND CANNOT BE. CASSETTE_IO's first instruction is
+; `STI` in both ROMs and IBM's exits with `RET 2`, which discards the caller's
+; pushed flag word - so a caller's `cli` is undone before a single tape bit
+; moves. 5150CAXX wraps its calls in one and it buys nothing. THE 8259 MASK IS
+; THE ONLY INSTRUMENT, and the budget it is spent against is 248.08 us: os8088's
+; own tick handler is 394 us at the floor and ~783 us in full, 1.6x to 3.2x
+; over, and the mouse ISR draws the arrow inside itself starting at
+; PERFORMANCE.md's 756 us floor. That is not a margin, it is a certainty.
+;
+; The `pushf`/`cli` windows below are microseconds each and bracket only the
+; port save/restore, which is CLAUDE.md's atomicity rule. They never bracket
+; the transfer.
 ; -----------------------------------------------------------------------------
 tp_xfer:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov [tp_verb], al           ; THE VERB IN MEMORY, NOT ON THE STACK: AH is
+                                ; the answer, so a `pop ax` on the way out puts
+                                ; the caller's incoming AH back over the status
+                                ; (the fake arm's banner has the whole story)
+    mov [tp_want], cx           ; ...and the length, because the ROM consumes
+                                ; CX and 88.4.3's post-conditions compare
+                                ; against what was ASKED for
+
+    ; --- step 1: refuse before anything at all -------------------------------
+    cmp byte [tp_hw], TP_HW_OK
+    jne .refuse
+    test cx, 0x00FF
+    jnz .refuse                 ; a multiple of 256, ALWAYS: it is what keeps
+    cmp cx, TP_BLOCK            ; both ROMs' pad loops out of the picture, and
+    jb .refuse                  ; IBM's pad is an information leak onto
+    cmp cx, 16 * TP_BLOCK       ; removable media (SPEC.md 88.9 row 24)
+    ja .refuse
+    mov al, [tp_verb]
+    cmp al, 2
+    je .ok
+    cmp al, 3
+    jne .refuse
+.ok:
+    ; Row 23: ZERO THE BUFFER BEFORE A READ. A short or failed read otherwise
+    ; leaves the previous record's bytes in place, and they pass a magic check.
+    cmp byte [tp_verb], 2
+    jne .noclear
+    push cx
+    push di
+    push ax
+    xor di, di
+    xor ax, ax
+    cld
+    shr cx, 1
+    rep stosw
+    pop ax
+    pop di
+    pop cx
+.noclear:
+
+    ; --- step 2b: the FLOPPY MOTOR countdown, before IRQ0 goes away ----------
+    ; 0040:0040 is decremented by the ROM's own int 08h chain, and IRQ0 is
+    ; about to be masked for MINUTES. Without this the drive spins for the
+    ; whole transfer. Bounded, because a machine whose chain does not run it
+    ; would otherwise wait for ever.
+    call tp_fdd_wait
+
+    ; --- steps 3-5: bank the ports and mask, in ONE IF=0 window -------------
+    pushf
+    cli
+    in al, 0x21                 ; the IMR, banked byte for byte
+    mov [tp_imr], al
+    in al, 0x61
+    mov [tp_p61], al            ; ...and 61h, banked but NOT restored from the
+                                ; bank - see step 15
+    in al, 0x21
+    or al, 0x19                 ; IRQ0 (the tick), IRQ3 and IRQ4 (both serial
+                                ; mouse lines) - always
+    cmp byte [tp_verb], 3
+    jne .maskdone
+    or al, 0x02                 ; ...and IRQ1 ON A WRITE ONLY. AH=03 ends
+                                ; `SUB AX,AX / RET` and can NEVER report an
+                                ; error, so a keystroke that stretches one bit
+                                ; past 248 us is a corrupt tape found minutes
+                                ; later if ever. On a READ it stays live: both
+                                ; ROMs poll 0040:0071 bit 7, so Ctrl+Break
+                                ; aborts for zero bytes of ours. Mask where the
+                                ; failure is silent; keep the escape where it
+                                ; is loud
+.maskdone:
+    out 0x21, al                ; IRQ2/5/6/7 are left exactly as found
+    popf
+
+    ; --- step 6: ch0 -> the BIOS's own mode 3 -------------------------------
+    mov al, OSAPI_PL_ENTER
+    call OSAPI_PIT_LEND
+    jc .unmask                  ; the claim is not held: put the IMR back and
+                                ; refuse. Nothing has been handed to the ROM
+
+    ; --- steps 7-8: THE FREEZE ----------------------------------------------
+    mov ah, [tp_verb]           ; AH = 02 or 03
+    mov cx, [tp_want]
+    xor bx, bx                  ; BX = 0 on entry is what makes 88.4.3's
+    int 0x15                    ; BX == CX post-condition mean anything
+    cli                         ; step 9: THE VERY FIRST INSTRUCTION AFTER IT.
+                                ; Both ROMs unmask IRQ0 themselves on the way
+                                ; out and a tick has certainly been latched
+                                ; across a nine-second mask, so one WILL fire
+                                ; inside the ROM's own tail. That window is
+                                ; irreducible; this closes every instruction
+                                ; after it
+
+    ; --- step 10: bank the ROM's whole answer -------------------------------
+    mov [tp_rah], ah
+    mov [tp_rbx], bx
+    mov [tp_rdx], dx
+
+    ; --- step 11: ch0 back to mode 2 ----------------------------------------
+    mov al, OSAPI_PL_LEAVE      ; preserves AX, BX, DX and the FLAGS, which is
+    call OSAPI_PIT_LEND         ; why it can stand here at all
+
+    ; --- step 12: MOTOR OFF, and BEFORE the IMR restore ---------------------
+    mov ah, 0x01                ; GLaBIOS's AH=01 unmasks IRQ0 itself; after
+    int 0x15                    ; the restore it would undo it
+
+    ; --- steps 13-16: put the ports back ------------------------------------
+    pushf
+    cli
+    mov al, [tp_imr]
+    out 0x21, al                ; the IMR, byte for byte
+    mov al, [tp_p61]
+    and al, 0xFC                ; ...and 61h with bits 0 and 1 CLEARED rather
+    out 0x61, al                ; than banked: a gate bit that was set for a
+    popf                        ; tone would leave a 65536-count mode-3 square
+                                ; wave on the speaker - an audible 18.2 Hz
+                                ; rattle until something reprogrammed ch2.
+                                ; Bits 2-7 are preserved as read; bit 3 is the
+                                ; motor and belongs to the cassette
+
+    ; --- step 18: the ROM's answer against 88.4.3's THREE post-conditions ---
+    mov ah, [tp_rah]
+    mov bx, [tp_rbx]
+    mov dx, [tp_rdx]
+    mov cx, [tp_want]
+    call tp_post                ; the SAME checker the fake arm is driven
+    jmp short .out              ; through, so this arrives already exercised
+
+.unmask:                        ; a refusal after the mask went on
+    pushf
+    cli
+    mov al, [tp_imr]
+    out 0x21, al
+    popf
+.refuse:
     mov ah, TP_AH_REFUSE
     stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
-; tp_detect - WAVE 6. Gate 1, the model byte, is four instructions with no side
-; effect and would be right to run here - but a build with no transport cannot
-; answer TP_HW_OK whatever the badge says, so running it would only choose
-; which false sentence to print. The honest answer is the build's own.
+; tp_fdd_wait - wait, BOUNDED, for the floppy motor countdown to reach zero
+; out: nothing; every register preserved
+;
+; 0040:0040 is the ROM's own motor-off countdown and its int 08h chain is what
+; decrements it. IRQ0 is about to be masked for minutes, so a drive still
+; spinning when the mask goes on spins for the whole transfer.
+;
+; THE BOUND IS THE POINT. A machine whose chain does not run - or a byte that
+; is simply never going to reach zero - must not hang the UI task, so this
+; gives up after ~3 seconds and lets the transfer proceed. A spinning drive is
+; a worse tape, not a broken one.
+; -----------------------------------------------------------------------------
+tp_fdd_wait:
+    push ax
+    push cx
+    push dx
+    push es
+    push si
+    xor ax, ax
+    mov es, ax
+    call pit_now                ; DX:AX = 838ns units (apps/os88pit.inc)
+    mov si, dx                  ; the high half is ~55ms a step; three seconds
+    add si, TP_FDD_WAIT         ; is all the deadline needs to resolve
+.spin:
+    cmp byte [es:0x0440], 0
+    je .done
+    call pit_now
+    sub dx, si
+    js .spin                    ; SPEC.md 11.99.4: compare with `js`, never
+.done:                          ; `jb` - the counter wraps
+    pop si
+    pop es
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tp_detect - SPEC.md 88.1's two gates, once, in the entry proc
+; out: [tp_hw] and [tp_model] set. Every register clobbered.
+;
+; GATE 1 IS THE MODEL BYTE and it is four instructions with no side effect at
+; all: F000:FFFE is FF on an IBM 5150, FD on a PCjr, FE on a 5160 and FC on an
+; AT. Only the 5150 has the DIN socket and the motor relay - the 5160 dropped
+; both, and its port C bit 4 carries a speaker monitor where the 5150 carries
+; cassette data in.
+;
+; GATE 2 IS THE ROM'S OWN ANSWER. `int 15h AH=01` is motor OFF: it is the one
+; cassette call that moves no tape, cannot hang, and needs no deck attached -
+; and a ROM built without cassette support answers CF=1 to it. GLaBIOS is
+; exactly that ROM in its 5160 build.
 ; -----------------------------------------------------------------------------
 tp_detect:
-    mov byte [tp_hw], TP_HW_WIP
-    mov byte [tp_model], 0
+    mov byte [tp_hw], TP_HW_MODEL
+    mov ax, 0xF000
+    mov es, ax
+    mov al, [es:0xFFFE]
+    mov [tp_model], al
+    cmp al, 0xFF                ; the 5150, and ONLY the 5150: a PCjr's FD has
+    jne .out                    ; the port but not the BIOS entry points this
+                                ; transport is written against
+    mov byte [tp_hw], TP_HW_BIOS
+    mov ah, 0x01                ; motor OFF - moves no tape, cannot hang, and
+    int 0x15                    ; needs no deck
+    jc .out
+    mov byte [tp_hw], TP_HW_OK
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
-; tp_motor_off - WAVE 6: `mov ah, 1 / int 15h`, unconditionally, on every exit
-; path. Nothing to put back until there is something that turns it on.
+; tp_motor_off - the relay, off, unconditionally
+; out: nothing; every register preserved
+;
+; UNCONDITIONAL because the motor is a relay on somebody's deck and leaving it
+; energised runs their tape off the spool. It is called from W_ONCLOSE on
+; every path, and asking first would only add a way to get the answer wrong.
 ; -----------------------------------------------------------------------------
 tp_motor_off:
+    push ax
+    cmp byte [tp_hw], TP_HW_OK  ; ...but not on a machine where int 15h is not
+    jne .out                    ; the cassette at all
+    mov ah, 0x01
+    int 0x15
+.out:
+    pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; tp_rewind - REFUSED on real hardware (SPEC.md 88.10 item 14). The 5150's
+; cassette port has motor control and a data line and nothing else: there is no
+; rewind, no fast-forward and no position to read. The deck's own buttons are
+; the transport controls, which is why the window says "wind to just before the
+; file" rather than offering a control it cannot implement.
+; -----------------------------------------------------------------------------
 tp_rewind:
     ret
 %endif
@@ -375,6 +629,16 @@ tp_hw:      db TP_HW_WIP        ; tp_detect's one cached byte (SPEC.md 88.1),
 tp_model:   db 0                ; ...and the model byte we read, banked, so the
                                 ; refusal can NAME it
 tp_verb:    db 0                ; the AL tp_xfer was called with
+tp_want:    dw 0                ; ...and the CX, banked: the ROM consumes it and
+                                ; SPEC.md 88.4.3 compares against what was asked
+%ifndef TAPE_FAKE
+tp_imr:     db 0                ; port 21h, banked and restored BYTE FOR BYTE
+tp_p61:     db 0                ; port 61h, banked and restored with bits 0 and
+                                ; 1 CLEARED - see step 15
+tp_rah:     db 0                ; the ROM's whole answer, banked across the
+tp_rbx:     dw 0                ; OSAPI_PL_LEAVE and the motor-off that follow
+tp_rdx:     dw 0                ; it (SPEC.md 88.2 step 10)
+%endif
 %ifdef TAPE_FAKE
 tp_fseg:    dw 0                ; the claim that stands in for the tape
 tp_fpos:    dw 0                ; the head

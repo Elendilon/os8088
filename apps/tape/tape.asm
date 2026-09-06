@@ -552,8 +552,8 @@ tp_dlgdone:
     mov ax, [tp_rawsize]
     mov [tp_size], ax
     mov [tp_usize], ax
-    call tp_namefits                ; SPEC.md 88.4.1's field is 12 BYTES and a
-    jnc .sized                      ; maximal 8.3 name is 12 CHARACTERS
+    call tp_namefits                ; a maximal 8.3 name is 12 CHARACTERS and
+    jnc .sized                      ; the field holds it (SPEC.md 88.4.1)
     mov word [tp_msg], tp_s_longname
     mov byte [tp_name], 0
     jmp short .paint
@@ -975,38 +975,37 @@ tp_isread:
     ret
 
 ; -----------------------------------------------------------------------------
-; tp_namefits - will this name survive the tape's 12-byte field?
+; tp_namefits - will this name survive the tape's name field?
 ; out: CF=0 it fits; CF=1 it does not. Every register preserved
 ;
-; **SPEC.md 88.4.1's `name` FIELD IS ONE BYTE TOO SHORT FOR A FULL 8.3 NAME**
-; and this is where that lands. The field is 12 bytes "NUL-terminated inside
-; 12 bytes" (row 8), and a maximal 8.3 name - eight, a dot, three - is twelve
-; CHARACTERS, so it needs thirteen. tools/os88tape.py has the same bound from
-; the same sentence (`len(raw) > 11` is its refusal), so the two agree and
-; neither can carry TAPEDATA.TXT.
+; A MAXIMAL 8.3 NAME IS TWELVE CHARACTERS - 'ABCDEFGH.IJK' - and needs a
+; thirteenth byte for the NUL. SPEC.md 88.4.1's field was 12 when this routine
+; was first written, so it could not hold one and this refused TAPEDATA.TXT in
+; words; writing that refusal is what found the defect, because the section and
+; tools/os88tape.py carried the same bound and so agreed with each other.
 ;
-; The honest answer for wave 5 is to REFUSE IT ON THE WAY OUT, in words, and
-; leave the format alone: a writer that quietly filled all twelve bytes would
-; make tapes this reader - and the host codec - correctly refuse, which is a
-; worse failure than not writing them.
+; The field is TPH_NAMELEN (16) now and the refusal is nearly unreachable: it
+; survives because `tp_name` is filled from the file manager and a name longer
+; than 8.3 cannot be written to tape whatever the field holds. Refusing in
+; words beats truncating - a truncated name silently targets a different file.
 ; -----------------------------------------------------------------------------
 tp_namefits:
     push ax
     push si
     mov si, tp_name
-    mov ax, 0
+    xor ax, ax
 .next:
     cmp byte [si], 0
     je .done
     inc si
     inc ax
-    cmp ax, 12
-    jbe .next
+    cmp ax, TPH_NAMELEN
+    jb .next
 .done:
-    cmp ax, 12                      ; 11 characters plus the NUL is the field,
-    cmc                             ; and `cmp` answers this the wrong way
-    pop si                          ; round: CF=1 for a name SHORTER than 12 is
-    pop ax                          ; exactly the case that fits
+    cmp ax, 13                      ; twelve characters plus the NUL is 13, and
+    cmc                             ; `cmp` answers the wrong way round: CF=1
+    pop si                          ; for a name UNDER 13 is exactly the case
+    pop ax                          ; that fits, so `cmc` turns it into CF=0
     ret
 
 ; -----------------------------------------------------------------------------

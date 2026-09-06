@@ -95662,6 +95662,21 @@ but has no debugger and no automation socket, and no `vm/` profile here is a
 5150.
 
 - **A cassette read, on any instrument in this project.**
+- **`TP_HW_OK` itself — the POSITIVE arm of §88.1's detection.** There is no
+  ROM in this tree with working cassette routines, and it is not an accident
+  of packaging: GLaBIOS sets `CASSETTE = 1` for `ARCH_TYPE EQ ARCH_5150` and
+  then the block headed *"Additional Configuration for MartyPC emulator"*
+  overrides it with `CASSETTE = 0 ; use all features on 5150`, trading the
+  cassette routines for code space. **So the only 5150 this project can boot
+  carries a 5150 badge and no cassette whatsoever**, and `tests/taperefuse.py`
+  reads `TP_HW_BIOS` there rather than `TP_HW_OK`.
+  **That machine is gate 2's whole justification, measured rather than
+  argued.** On the model byte alone the feature would have offered itself on
+  it, the user would have pressed Go, and `int 15h AH=03` would have entered a
+  ROM that has no such routine. The row is still an A/B and still worth
+  having, because the two arms refuse for *different* reasons — gate 1 on the
+  5160, gate 2 on the 5150 — which is what shows the two gates working and
+  independent. What it cannot show is either one passing.
 - **The positive branch of the two-second sniff** — nothing here can make the
   data line change. So the test asserts **the port and the mask at a
   breakpoint** and not merely the elapsed time: a plausible *wrong*

@@ -1897,6 +1897,21 @@ SOAK = [
         "and the fixture are built in a PRIVATE TREE (tools/os88build.py), so "
         "it neither writes build/ nor spends a second build putting it back",
         needs=("marty", "nasm"), serial=True),
+    Row("taperefuse", "soak", py("tests/taperefuse.py"), 37.0,
+        "SPEC.md 88.1's two detection gates, as an A/B over two machines - and "
+        "it has to be an A/B, because a detector that answered 'no cassette' "
+        "unconditionally would pass every negative test ever written. THE TWO "
+        "ARMS REFUSE FOR DIFFERENT REASONS and that is the assertion: gate 1 "
+        "(the model byte) fires on os8088_xt_vga at FE, gate 2 (int 15h AH=01, "
+        "motor off - the one cassette call that moves no tape and needs no "
+        "deck) fires on os8088_5150_cga_gla at FF. THE 5150 ARM IS WHY GATE 2 "
+        "EXISTS: GLaBIOS sets CASSETTE=1 for ARCH_5150 and its MartyPC block "
+        "then overrides it with CASSETTE=0 to buy code space, so the only 5150 "
+        "this project can boot carries a 5150 BADGE AND NO CASSETTE. On the "
+        "model byte alone the feature would have offered itself there. What "
+        "the row cannot reach is TP_HW_OK - no ROM in this tree has working "
+        "cassette routines - which 88.11 records",
+        wants=("build/tapehw360.img",)),
     Row("tapecomp", "soak", py("tests/tapecomp.py"), 17.0,
         "SPEC.md 88.6's OSAPI_COMPRESS - the first ENCODER the SDK has "
         "published beside OSAPI_DECOMP, which has carried a decompressor with "
