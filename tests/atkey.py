@@ -64,7 +64,7 @@ def pkg_syms(defines=()):
         return out
 
 
-def measure(img, apps, machine, tree, lines, samples):
+def measure(img, apps, machine, tree, lines, samples, scroll=False):
     tree.apply()
     syms = pkg_syms(["-D" + a.split("=")[0] for a in tree.args
                      if a.startswith("NOAT")])
@@ -85,6 +85,59 @@ def measure(img, apps, machine, tree, lines, samples):
                 m, lambda _: u16(m.readseg(seg, caret, 2)) == n,
                 "ArtfulType to absorb %d characters" % n, poll=0.05,
                 limit=120.0)
+
+        # --- the SCROLL scene: a document taller than the view -------------
+        # 46.4.4 changes at_scroll_to and nothing a character types reaches
+        # it. Enter is the cheap way to a tall document - one keystroke a
+        # line against ~64 of filler - and the bracketed key is then a
+        # PageDown, whose move is the whole view and so was on the wrong
+        # side of the old three-line bound by construction.
+        if scroll:
+            want = 0
+            for _ in range(24):
+                m.key("Enter")
+                want += 1
+                absorbed(want)
+                m.type_text("x")
+                want += 1
+                absorbed(want)
+            onkey = seg * 16 + syms["at_onkey"]
+            top = syms["at_top"]
+            out, moved = [], []
+            for _ in range(samples):
+                # RESET, THEN SPEND THE FIRST PAGEDOWN UNBRACKETED. From the
+                # top of the document the first PageDown only moves the CARET
+                # to the bottom of the view - at_seecaret finds it already
+                # visible and at_scroll_to is never called - so bracketing
+                # that one measures a caret move and calls it a scroll. The
+                # SECOND is the one that has to move [at_top].
+                for _ in range(6):
+                    m.key("PageUp")
+                ui.settle()
+                m.key("PageDown")
+                ui.settle()
+                t0 = u16(m.readseg(seg, top, 2))
+                m.bp_exec(onkey)
+                m.run()
+                m.key("PageDown")
+                if not m.wait_stop(limit=60.0):
+                    sys.exit("atkey: at_onkey never ran after PageDown")
+                r = m.regs()
+                ret = u16(m.read((r["ss"] << 4) + r["sp"], 2))
+                m.bp_exec(seg * 16 + ret)
+                c0 = m.status()["cycles"]
+                m.run()
+                if not m.wait_stop(limit=300.0):
+                    sys.exit("atkey: at_onkey never returned from PageDown")
+                out.append(m.status()["cycles"] - c0)
+                m.bp_exec()
+                m.run()
+                ui.settle()
+                moved.append(u16(m.readseg(seg, top, 2)) - t0)
+            print("      [at_top] moved by %s lines" % moved)
+            return (out, u16(m.readseg(seg, syms["at_rlk"], 2)),
+                    u16(m.readseg(seg, syms["at_dfrom"], 2)),
+                    u16(m.readseg(seg, syms["at_nlines"], 2)))
 
         # --- build the scene: one paragraph of `lines` visual lines --------
         # No Enter anywhere: a paragraph is what at_lhome backs up to, so a
@@ -136,6 +189,9 @@ def main():
                     help="visual lines in the caret's paragraph - the thing "
                          "the answer actually depends on")
     ap.add_argument("--samples", type=int, default=3)
+    ap.add_argument("--scroll", action="store_true",
+                    help="bracket a PAGEDOWN on a document taller than the "
+                         "view, instead of a character in a paragraph")
     ap.add_argument("--knob", default="NOATBLIT1",
                     help="the arm to compare the shipped package against")
     ap.add_argument("--no-knob", action="store_true",
@@ -152,7 +208,7 @@ def main():
     for name, t in arms:
         cyc, rlk, dfrom, nlines = measure(t.img("os8088-360.img"),
                                           t.img("apps360.img"), machine, t,
-                                          a.lines, a.samples)
+                                          a.lines, a.samples, a.scroll)
         res[name] = cyc
         best = min(cyc)
         print("   %-22s %s cycles  -> %.1f ms  "
@@ -162,8 +218,9 @@ def main():
 
     if len(res) == 2:
         a1, a2 = [min(res[n]) for n, _ in arms]
-        print("\n   %s: one keystroke is %.1f ms against %.1f - %.2fx"
-              % (a.card, a1 / HZ * 1000.0, a2 / HZ * 1000.0, a2 / float(a1)))
+        print("\n   %s: one %s is %.1f ms against %.1f - %.2fx"
+              % (a.card, "PageDown" if a.scroll else "keystroke",
+                 a1 / HZ * 1000.0, a2 / HZ * 1000.0, a2 / float(a1)))
     return 0
 
 

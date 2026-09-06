@@ -159,8 +159,10 @@ def drive(img, apps, machine, tree, census, shot=None):
                 m, lambda _: u16(m.readseg(seg, caret, 2)) == n,
                 "ArtfulType to absorb %d characters" % n, poll=0.05, limit=90.0)
 
+        n = 0
+
         def typedoc():
-            n = 0
+            nonlocal n
             for i, line in enumerate(DOC):
                 if i:
                     m.key("Enter")
@@ -170,6 +172,7 @@ def drive(img, apps, machine, tree, census, shot=None):
                     m.type_text(ch)
                     n += 1
                     absorbed(n)
+            return n
 
         if census:
             for sym in COUNTED:
@@ -180,9 +183,32 @@ def drive(img, apps, machine, tree, census, shot=None):
             typedoc()
         ui.settle()
         w, h, rgb = m.fbuf()                       # SCENE 2: the document
+
+        # --- SCENE 3: a document TALLER THAN THE VIEW, scrolled -------------
+        # at_scroll_to is the only path 46.4.4 changes and neither scene above
+        # reaches it: five short lines never overflow even CGA's 16-line
+        # region. Enter is the cheap way to get there - one keystroke a line
+        # against ~64 characters of filler - and PageUp then forces the
+        # UPWARD arm, which is the one whose dy at_sumn negates.
+        for _ in range(22):
+            m.key("Enter")
+            n += 1
+            absorbed(n)
+            m.type_text("x")
+            n += 1
+            absorbed(n)
+        ui.settle()
+        m.key("PageUp")
+        ui.settle()
+        m.key("PageDown")
+        ui.settle()
+        w3, h3, scrolled = m.fbuf()
+        if shot:
+            os88marty.write_png_rgb(shot.replace(".png", "-scroll.png"),
+                                    w3, h3, scrolled)
         if shot:
             os88marty.write_png_rgb(shot, w, h, rgb)
-    return w, h, splash, rgb, counts
+    return w, h, splash, rgb, scrolled, counts
 
 
 def diff(a, b, w, h):
@@ -237,10 +263,10 @@ def main():
     print("   %s arm: %s" % (a.knob, os.path.relpath(knob.dir, ROOT)))
 
     os.makedirs("/tmp/atblit", exist_ok=True)
-    w, h, bsp, band, cb = drive(shipped.img("os8088-360.img"),
+    w, h, bsp, band, bsc, cb = drive(shipped.img("os8088-360.img"),
                                 shipped.img("apps360.img"), machine, shipped,
                                 a.census, "/tmp/atblit/%s-shipped-%s.png" % (a.knob, a.card))
-    w2, h2, esp, expa, ce = drive(knob.img("os8088-360.img"),
+    w2, h2, esp, expa, esc, ce = drive(knob.img("os8088-360.img"),
                                   knob.img("apps360.img"), machine, knob,
                                   a.census,
                                   "/tmp/atblit/%s-knob-%s.png" % (a.knob, a.card))
@@ -259,7 +285,8 @@ def main():
         return 0
 
     bad = 0
-    for scene, x, y in (("splash", bsp, esp), ("document", band, expa)):
+    for scene, x, y in (("splash", bsp, esp), ("document", band, expa),
+                        ("scrolled", bsc, esc)):
         n, box = diff(x, y, w, h)
         print("   %s/%s %-9s %d differing pixels of %d%s"
               % (a.knob, a.card, scene, n, w * h,

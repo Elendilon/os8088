@@ -775,6 +775,10 @@ at_scan:
 .endline:
     inc si                          ; step over the newline
     mov [at_scpos], si
+%ifndef NOATWALK
+    cmp byte [at_sc1], 0            ; SPEC.md 46.3.1: at_relayout wants ONE
+    jne .done                       ; logical line, and reads [at_scpos] back
+%endif                              ; as the next paragraph's start
     jmp .lline
 .enddoc:
     mov [at_scpos], si
@@ -999,8 +1003,12 @@ at_relayout:
     ; --- rescan paragraphs into staging until convergence ------------------
     mov word [at_lput], 0
     mov byte [at_stgmode], 1
+%ifndef NOATWALK
+    mov byte [at_sc1], 1            ; ...and its lifetime is at_stgmode's, so
+%endif                              ; it is cleared at BOTH exits below
     mov ax, [at_rlst]
 .para:
+%ifdef NOATWALK
     ; scan limit = end of the logical line at AX (one past its newline)
     push ax
     call at_dlen
@@ -1022,6 +1030,21 @@ at_relayout:
 .atend:
     pop ax
     call at_scan                    ; appends this paragraph's lines
+%else
+    ; SPEC.md 46.3.1: NO SEPARATE SEARCH. The walk this replaced read every
+    ; byte of the paragraph through at_getb - a near call that banks ES,
+    ; reloads it from [at_dseg] and pops it, for ONE byte - and its only
+    ; product was the offset one past the newline, which at_scan's own
+    ; .endline discovers as it goes. at_scan is given the whole document as
+    ; its limit and told to stop after one logical line, and [at_scpos] is
+    ; then exactly what .findnl was computing.
+    push ax
+    call at_dlen
+    mov cx, ax                      ; CX = the document end
+    pop ax
+    call at_scan                    ; ...one logical line of it
+    mov cx, [at_scpos]              ; CX = this paragraph's end
+%endif
     mov ax, [at_lput]
     cmp ax, AT_STGCAP
     jae .fallback                   ; window full: bulk edit, full layout
@@ -1064,10 +1087,16 @@ at_relayout:
     call at_splice
     jmp short .done
 .fallback:
+%ifndef NOATWALK
+    mov byte [at_sc1], 0            ; at_layout scans the WHOLE document
+%endif
     mov byte [at_stgmode], 0
     mov byte [at_rlfull], 1         ; the repaint must go whole-screen
     call at_layout
 .done:
+%ifndef NOATWALK
+    mov byte [at_sc1], 0
+%endif
     mov byte [at_stgmode], 0
     pop bp
     pop di

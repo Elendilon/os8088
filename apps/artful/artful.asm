@@ -1025,6 +1025,8 @@ at_scpos    equ at_scend + 2                 ; word
 at_scskip   equ at_scpos + 2                 ; word
 at_sccw     equ at_scskip + 2                ; word: scan cell width
 at_sclst    equ at_sccw + 2                  ; word: scan line start
+at_sc1      equ at_sclst + 2                 ; byte: at_scan stops after ONE
+                                             ; logical line (SPEC.md 46.3.1)
 at_stgs     equ at_sclst + 2                 ; AT_STGCAP words: staging starts
 at_stga     equ at_stgs + AT_STGCAP*2        ; AT_STGCAP bytes: staging attrs
 at_rldel    equ at_stga + AT_STGCAP          ; word: relayout delta

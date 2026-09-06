@@ -59965,6 +59965,30 @@ staging window, converges at the next old paragraph start (+delta, equal
 attr), splices, and add-shifts the surviving tail; overflow falls back to
 the full `at_layout`, which bulk operations already afford.
 
+#### 46.3.1 One paragraph, one walk — `at_scan` stops where the newline is
+
+`at_relayout` walked each edited paragraph **twice**. Its `.findnl` read every
+byte through `at_getb` — a near call that banks ES, reloads it from
+`[at_dseg]`, tests the gap and pops ES, for one byte — and the only thing it
+produced was the offset one past the paragraph's newline, which `at_scan`'s
+own `.endline` then rediscovers as it walks the identical bytes.
+
+So `at_scan` is given the whole document as its limit and a flag, `[at_sc1]`,
+that stops it after **one logical line**; `[at_scpos]` is then exactly what
+`.findnl` was computing, and the loop reads it back. The flag's lifetime is
+`[at_stgmode]`'s and it is cleared at both of `at_relayout`'s exits — the
+`.fallback` one matters, because that path calls `at_layout`, which must scan
+the whole document.
+
+Nothing else in `at_scan` needed changing. Within a paragraph the limit is
+only consulted at the document's end, since `.ch` leaves on `AT_NL` through
+`.endline`; and `.hashes` stops at the first non-`#` whatever the limit says.
+
+It is worth **10.6 ms of a Hercules keystroke in a three-visual-line
+paragraph** (MEASURED, `tests/atkey.py`, 153.4 → 142.8 ms), and it scales with
+the paragraph rather than the document — which is the same shape as the walk
+it deletes. `NOATWALK=1` is the A/B.
+
 ### 46.4 The renderer — one line, one blit
 
 `at_parse` turns a line slice into per-character visibility, style and

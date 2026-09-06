@@ -267,3 +267,55 @@ Four proposals are genuinely new here rather than lifted from Note Pad or TeXPad
 5. **Wave 6's pacing needs a §13.7 decision.** §13.10.6.1 records Artful as deliberately poll-shaped and taking no edge callbacks. Pacing a level-polled loop to 18.2 Hz is a correctness change the kernel already documents as dangerous. Either the app takes `OSAPI_WM_ONDRAG`/`ONMOUSEUP` (which are CF=1 on kern_small) or the loops stay unpaced and only the raw-position skip lands.
 6. **Nothing here has been on iron.** Every wall-clock figure in this plan is PREDICTED from measured unit rates; the only measured end-to-end analogue is Paint's 809 → 36.6 ms. Wave 0 makes them MartyPC measurements, which agree with the 5150 to 0-4% on 45 of 47 `gfxbench` rows — but the **flicker** half (W0.6) cannot be taken on Hercules at all, and a field run on the 5150 (docs/FIELD-MACHINES.md) is what would settle the per-line figure and Wave 4a's scroll-vs-repaint break-even.
 7. **PERFORMANCE.md and SPEC.md carry two stale rows about this app** that must be corrected regardless of which waves land: `at_getb` at "~32 clocks a character" (§46.9 and PERFORMANCE.md:459, understated ~4-5x, with §46.9's "~2 ms" and "a fifth of a second" derived from it), and PERFORMANCE.md:4310's listing of ArtfulType among packages that "call `OSAPI_FONT_STR` and never `FONT_RUN`" — §46.10 converted all eight sites and `grep` finds zero.
+---
+
+## 7. WHAT IMPLEMENTATION FOUND — and it moved the plan
+
+Waves 1, 3a and 5a are BUILT (SPEC.md §46.4.2, §46.4.3, §46.3.1). Everything in
+parts 1–3 above was PREDICTED; `tests/atkey.py` now measures, and three of the
+plan's own conclusions did not survive contact.
+
+**The keystroke, MEASURED.** Hercules, a three-visual-line paragraph,
+`at_onkey` entry to its return, on a cycle-accurate 4.77 MHz 8088:
+
+| | one keystroke | |
+|---|---:|---|
+| before any wave | 520.7 ms | |
+| §46.4.2, the band emit | 329.0 ms | 1.58x |
+| §46.4.3, the scale-1 composer | 154.1 ms | 2.14x again |
+| §46.3.1, one walk per paragraph | 142.8 ms | 1.07x again |
+| | | **3.65x in total** |
+
+The band emit's per-line saving was predicted at 64.3 ms and measures **63.9**,
+which is the closest thing to a validation the unit rates in part 1 have.
+
+**`at_rlk` really is the paragraph.** The row reads it back: 3 for a three-line
+paragraph. §46.1's "that paragraph's visual lines" is exactly what happens, and
+part 5's three refuted attempts to narrow it stand.
+
+**WAVE 2b IS REFUSED, and the reason generalises.** The page-sized scroll
+threshold was built, drew 0 differing pixels on every scene, and **could not be
+shown to save anything**: two scenes measured 1.00x and 0.95x. Its arithmetic
+traded one `gfx_scroll` against N line repaints at ~122 ms a line — and waves 1
+and 3 had just made a line ~30 ms, which collapses the trade. 15 bytes for a
+win nobody can demonstrate is the trade CLAUDE.md refuses, so it was reverted.
+
+**The general rule that falls out**: every proposal in this plan that trades a
+`gfx_scroll` against line repaints — 2b and **4a** — was costed against a line
+that no longer exists. Their predicted wins are upper bounds computed on a 122
+ms line and must be re-derived on ~30 before either is built. That is the one
+thing to know before picking this up again.
+
+**And a measurement trap worth not repeating.** Both attempts to measure a
+scroll failed to scroll at all — `[at_top]` moved by 0 — because a PageDown
+from the top of the document only moves the CARET to the bottom of the view and
+`at_seecaret` then finds it already visible. Bracketing that one measures a
+caret move and calls it a scroll. A scroll scene has to spend a PageDown
+unbracketed first, and must ASSERT that `[at_top]` moved.
+
+**What is left, re-ranked on the measurement rather than the prediction.**
+`at_sbar` (2c) is the one whose value waves 1 and 3 did NOT collapse: it is 21
+far calls and ~1,226 scan-line setups of pure overhead whatever a line costs,
+and it is not on the typing path at all — only on the line-count-change arms
+and on every scroll and arrow-repeat sample. 2a's double repaint is the same
+shape. Wave 6 and 3b/3c are unchanged. 4a needs re-costing first.
