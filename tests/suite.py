@@ -2692,6 +2692,26 @@ SOAK = [
         "a figure. It reads at_rlk back afterwards, which is what turns "
         "46.1's honest 'that paragraph's visual lines' into a table.",
         needs=("marty", "nasm"), serial=True, timeout=900),
+    Row("atmenusu", "soak", py("tests/atmenusu.py"), 45.0,
+        "SPEC.md 46.5.1: ArtfulType's pull-down banks the pixels it covers and "
+        "the close writes them back, instead of repainting every text line the "
+        "panel crossed FULL WIDTH - 104.9 ms to 14.5 on a 4.77MHz 8088. THE "
+        "ASSERTION IS PIXEL EQUALITY and it is the only one worth making: a "
+        "save-under that is fast and wrong is worse than a repaint that is "
+        "slow and right, and every way of getting it wrong shows up in a "
+        "photograph - the shadow left out of the bank, the rect clamped "
+        "differently from the erase, the plane count taken from the wrong "
+        "display. It dismisses the menu WITHOUT PICKING, by releasing while "
+        "still over the title, because every item runs a command that "
+        "repaints the screen and would hide the error. The second cycle pokes "
+        "[at_suseg] = 0 while the panel is down - what a refused claim leaves "
+        "behind - so one run checks the write-back and the repaint fallback "
+        "against one reference. Verified to go red: leaving the drop shadow's "
+        "ROW out of the bank is 68 differing pixels on exactly that row. It "
+        "BUILDS NOTHING - it reads the shipped disks, so it declares them in "
+        "wants= and shares the emulator lane.",
+        needs=("marty", "nasm"), serial=True, timeout=900,
+        wants=("build/os8088-360.img", "build/apps360.img")),
     Row("atblit", "soak", py("tests/atblit.py"), 165.0,
         "SPEC.md 46.4.2: does ArtfulType's BAND emit draw the same picture as "
         "the expander it replaced? at_draw_line hands at_compose's 1bpp strip "

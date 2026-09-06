@@ -60990,13 +60990,72 @@ is the app's pixels), standard white in Markdown mode. The pull-downs are
 Mac press-drag-release menus in the `sol_drag` idiom (§43): draw under the
 held lock, unlock/yield/relock, sample the button by LEVEL; hover moves an
 XOR bar, release flashes the pick three times, and the box is erased by
-repainting the lines it covered — a package has no save-under, and a line
-repaint is one blit. Items carry right-aligned `^`-shortcuts, gray
+putting back the pixels it covered (§46.5.1) — or, when that is refused, by
+repainting the lines it covered, which is what it did when a package had no
+save-under. Items carry right-aligned `^`-shortcuts, gray
 disabled states (Undo/Redo/zoom bounds, CLGRAY text), hand-drawn check
 marks (Markdown/Writer), and separator rules. The modal alerts (Save
 changes / About / errors) route every key and click while `[at_modal]` is
 set and repaint what they covered on close; W_PAINT re-raises a live alert
 a `wm_paint_all` crossed.
+
+#### 46.5.1 The pull-down banks its pixels
+
+`at_mclose` erased the panel and then called `at_draw_line` for every text
+line it had covered — and a line is drawn FULL WIDTH, all `[at_tw]` of it, not
+the panel's ~120px. Measured on a 4.77 MHz 8088 (Hercules, 720x348, a page of
+text under the View menu):
+
+| | measured |
+|---|---|
+| `at_mopen` | 256,076 cy — **53.7 ms** |
+| `at_mclose` | 500,863 cy — **104.9 ms** |
+
+`OSAPI_GFX_SAVE` / `OSAPI_GFX_REST` (§5.4.3) are what that was missing. The
+shape is Word's, one package along (§68.2.1), and so are its rules:
+
+- **The claim is per drop, not per session.** A pull-down over a 1bpp page is
+  ~1.5 KB and the About card on a colour adapter is ~42; holding either at
+  every instant nobody is looking at a menu is §12.4's objection. It is freed
+  in `at_surest`, *before* the picked item runs, so whatever that item claims
+  gets a heap the menu has already left.
+- **Every refusal is the same refusal and none of them is a new path.** No
+  claim, a rect that straddles two displays, a zero-byte rect — `[at_suseg]`
+  stays 0 and `at_mclose` repaints, which is what it did before. That is
+  §12.4's `[menu_sseg]` rule one layer out.
+- **The banked rect must be the one the repaint would have erased**, to the
+  column: `at_mclose` grows `at_mgeom`'s box by 2 for the drop shadow, so the
+  bank grows it by the same 2 and clamps to `[at_vw]`/`[at_vh]` the same way.
+  A rect that is short by a column leaves that column stale.
+
+**What makes it safe is that nothing else can draw there while the panel is
+up**, and both halves of that were already true. `at_menu_track` runs ON THE UI
+TASK, inside the app's own event handler, and its `.pass` loop yields to other
+TASKS rather than back to the event loop — so no `W_PAINT` can be delivered to
+`at_paint` mid-drop, because the task that would deliver it is the one standing
+in `at_menu_track`. And the blink worker, which is a different task, refuses to
+draw on `[at_menuon]`, `[at_modal]`, `[at_fs]` or `[at_drag]`.
+
+The one thing that *can* still reach those pixels is the screen saver, on its
+own task and through the same lock — and it could before this change too: the
+old close repainted its lines over the saver's pixels just as wrongly. Either
+way the saver's own exit raises a `W_PAINT` that repaints everything, so the
+error is bounded by the same event in both arms.
+
+**The plane count comes from `[at_vbpp]`**, which `at_geom_init` took from
+`OSAPI_WM_DISPLAY` for **the card this window is on** (§39.16.4) — not from
+`OSAPI_VIDEO`, which cannot answer that on a two-card machine and would size
+the buffer for the wrong adapter.
+
+**104.9 → 14.5 ms on the close, 7.2x**, and the bank costs 12.3 ms on the way
+down, so the round trip is 158.6 → 80.5 ms (1.97x). Dragging File → Help closes
+and reopens per title crossed, so it is that saving four times over. 250
+bytes.
+`NOATSU=1` is the A/B, and `tests/atmenusu.py` is the gate: it photographs the
+screen, opens a menu, dismisses it without picking, photographs again, and
+requires ZERO differing pixels — then pokes `[at_suseg]` = 0 mid-drop, which is
+exactly what a refused claim leaves behind, and requires the repaint fallback
+to land on the same pixels. One run, both paths, one reference.
 
 ### 46.6 Commands — markdown.c on one buffer
 

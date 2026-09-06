@@ -652,5 +652,42 @@ ArrowUps and four characters is what made it red, at 2,481 differing pixels.
 **Sixth time in this plan**, and the second in a row, that the fix was a
 witness rather than an assertion.
 
+**AND THE PULL-DOWN BANKS ITS PIXELS** (SPEC.md §46.5.1) — which was not in
+this plan at all, because when it was written a package had no way to read
+pixels off the screen. `elendilon` published `gfx_save`/`gfx_restore` as
+slots 0x0508/0x0510 for Word (§68.2.1), and ArtfulType's menus wanted the same
+thing for the same reason: `at_mclose` erased the panel and then called
+`at_draw_line` for every text line it had covered, FULL WIDTH — the panel is
+~120px and a line is `[at_tw]`.
+
+| | before | after |
+|---|---|---|
+| `at_mopen` | 53.7 ms | 66.0 (it banks now) |
+| `at_mclose` | **104.9 ms** | **14.5 (7.2x)** |
+| round trip | 158.6 | 80.5 (1.97x) |
+
+250 bytes, and `at_menu_track` closes and reopens per title crossed, so
+dragging File → Help is that saving four times over. Every refusal is the same
+refusal and none of them is a new path: no claim, a straddling rect, a
+zero-byte rect — `[at_suseg]` stays 0 and the close repaints, which is what it
+did before.
+
+`tests/atmenusu.py` is the gate and it asserts PIXEL EQUALITY, which is the
+only assertion worth making about a save-under. What it took to be a real test
+is dismissing the menu **without picking** — every item runs a command that
+repaints the screen and would hide the error — and a second cycle that pokes
+`[at_suseg]` = 0 mid-drop, so one run checks the write-back and the fallback
+against one reference. Verified to go red: leaving the drop shadow's ROW out of
+the bank is 68 differing pixels on exactly that row. (Word's own note is worth
+keeping in mind here — its first break attempt did NOT go red, because
+`gfx_save` rounds x to byte columns, so a column-sized error can vanish.)
+
+**The modal alerts are the same shape and are NOT taken.** `at_mdclose` has
+the identical repaint loop, and the About card is the largest thing ArtfulType
+puts over its content — but at 340x236 on a colour adapter that is a ~42 KB
+claim for the duration of a dialog, against ~1.5 KB for a pull-down on 1bpp.
+The pull-down is also the one that happens constantly. If it is taken later,
+`at_subank`/`at_surest` already take an arbitrary rect and need no change.
+
 **What is left**: nothing in this plan. 2a, 2b, 4a and Wave 6 are settled and
 refused; everything else is built.

@@ -295,6 +295,7 @@ KNOBS = [
     ("noatcell",    ["NOATCELL=1"], "artful.o88"),
     ("noattail",    ["NOATTAIL=1"], "artful.o88"),
     ("noatone",     ["NOATONE=1"], "artful.o88"),
+    ("noatsu",      ["NOATSU=1"], "artful.o88"),
     # MOUDIAG= is SPEC.md 9.9.6's identify-window table drawn on the finished
     # desktop, and it had NO ROW HERE AT ALL until SPEC.md 2.9.12 - which is
     # how a short jump out of range inside the moved mouse cluster went

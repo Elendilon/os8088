@@ -1226,7 +1226,13 @@ at_apnd     equ at_tby + 2                    ; byte: SPEC.md 46.4.11 - at_type
                                               ; at_apply_edit at .see, so no
                                               ; other caller of that proc can
                                               ; inherit it.
-at_pastepos equ at_apnd + 1
+at_suseg    equ at_apnd + 1                   ; word: SPEC.md 46.5.1 - the claim
+at_sukb     equ at_suseg + 2                  ; word: holding the pull-down's
+at_surx1    equ at_sukb + 2                   ; word: banked pixels, and the
+at_sury1    equ at_surx1 + 2                  ; word: rect they came from. 0
+at_surx2    equ at_sury1 + 2                  ; word: in at_suseg is the whole
+at_sury2    equ at_surx2 + 2                  ; word: of "nothing was banked"
+at_pastepos equ at_sury2 + 2
 at_wlo      equ at_pastepos + 2
 at_whi      equ at_wlo + 2
 at_wplen    equ at_whi + 2
