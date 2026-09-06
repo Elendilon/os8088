@@ -385,21 +385,37 @@ def drive(img, apps, machine, card, tree, census, shot=None):
             n = max(1, min(rows, nl - top))
             return top, nl, m.readseg(seg, syms["at_lattr"] + top, n)
 
+        # THE SEARCH MASKS BIT 3 OUT AND THE ASSERTION DOES NOT, because the
+        # two have to answer different questions. The search must pick the
+        # SAME page on both arms or they end up comparing different views -
+        # and NOATPLAIN=1 compiles 46.4.8's flag away entirely, so bit 3 is
+        # never set there and a search on it pages to the end and raises. The
+        # rest of the attr is knob-independent: level 0, no continuation and a
+        # zero span nibble is what the `x` filler lines are on either arm.
         for _ in range(6):
             nav("PageDown")                 # ...to a known end, then back up
         for _ in range(10):
             top, nl, attrs = band()
-            if any(b & 8 for b in attrs):
+            if any(not (b & 0xF7) for b in attrs):
                 break
             nav("PageUp")
         else:
             raise SystemExit(
-                "atblit: zoomed in at psc=%d, no page of this document has a "
-                "PLAIN line (attr bit 3) on it - the last band tried was %d "
-                "of %d, attrs %s. Rendering a plain line at a scale above 1 "
-                "is the whole point of this scene."
+                "atblit: zoomed in at psc=%d, no page of this document has an "
+                "unstyled body line on it - the last band tried was %d of %d, "
+                "attrs %s. Rendering a plain line at a scale above 1 is the "
+                "whole point of this scene."
                 % (u16(m.readseg(seg, syms["at_psc"], 2)), top, nl,
                    " ".join("%02x" % b for b in attrs)))
+        # ...and on an arm that HAS the flag, one of them must really be plain
+        # in SPEC.md 46.4.8's sense - which is the state 46.4.9's scale guard
+        # is about, and the thing the mask above cannot prove.
+        if "NOATPLAIN=1" not in tree.args and not any(b & 8 for b in attrs):
+            raise SystemExit(
+                "atblit: zoomed in, the visible band %d of %d is attrs %s - "
+                "not one of them carries 46.4.8's plain bit, so at_compose's "
+                "fast path is not on the glass"
+                % (top, nl, " ".join("%02x" % b for b in attrs)))
         if u16(m.readseg(seg, syms["at_psc"], 2)) == 1:
             raise SystemExit("atblit: zoomed in and at_psc is still 1 - "
                              "at_cellwtab's zoom row has moved and this "
