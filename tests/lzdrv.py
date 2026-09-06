@@ -101,9 +101,39 @@ def main():
         mo.click(x0 + 40, y0 + drvcall.CP_I0Y
                  + drvcall.CP_IDRV * drvcall.CP_IROWH + 7)
         os88marty.settle(m)
+        # **THE IMAGE IS READ BEFORE THE DRIVER RUNS**, and that is a
+        # breakpoint rather than a wait. This row compared the expanded image
+        # against the file AFTER the attach, and got away with it only
+        # because the stripping happened to put every mutable byte past
+        # `image` - its own note below records the first version failing on
+        # "96 bytes at offset 6,406, every one of them the Ram Disk's own
+        # state". SPEC.md 51.1.2 moved that boundary: the strip now stops at
+        # the KB rung the footprint needs, so part of the driver's working
+        # memory is inside `image` again and the comparison came back with 75
+        # bytes differing at 6,408 - the same region, about a decoder that
+        # had expanded every byte correctly.
+        #
+        # Stopping at `drv_attach` is the assertion this row was always
+        # making: `drv_load` has read, checked, expanded and zeroed by then,
+        # and NOTHING has entered the driver. What the file says is what
+        # memory must hold, all of it, with no region to carve out.
+        m.bp_exec("drv_attach")
         mo.click(x0 + drvcall.CP_RX + 40,
                  y0 + drvcall.CP_DBY1 + RD_ROW * drvcall.CP_DROWH
                  + drvcall.CP_DROWH // 2)
+        # THE BYTES, not the segment. Banking the segment here and reading it
+        # after `m.run()` reads exactly what the old code read - a driver that
+        # has attached and started using its own memory - and is the same
+        # failure with an extra step in front of it.
+        loaded = None
+        if m.wait_stop(limit=120.0):
+            r = m.regs()
+            sg = int.from_bytes(
+                m.read(KERNEL_SEG * 16 + r["bx"] + DRVR_SEG, 2), "little")
+            if sg:
+                loaded = bytes(m.readseg(sg, 0, len(plain)))
+        m.bp_exec()
+        m.run()
         # WAITED FOR, not slept through - AND NOT ON THE SEGMENT, which is
         # the trap this row taught. `drv_load` writes DRVR_SEG the moment
         # mem_claim_hi_x answers, BEFORE the file is read, checked, expanded,
@@ -150,13 +180,19 @@ def main():
             # working memory - the first version of this row failed on 96
             # bytes at offset 6,406, every one of them the Ram Disk's own
             # state. What stands in for it is below.
-            got = bytes(m.readseg(seg, 0, len(plain)))
-            if got == plain:
-                say("  %d bytes of image expanded EXACTLY" % len(plain))
+            if loaded is None:
+                fails.append("drv_attach was never reached, so the image "
+                             "could not be read before the driver ran")
             else:
-                bad = [i for i in range(len(plain)) if got[i] != plain[i]]
-                fails.append("expanded WRONG: %d of %d image bytes differ, "
-                             "first at %d" % (len(bad), len(plain), bad[0]))
+                got = loaded
+                if got == plain:
+                    say("  %d bytes of image expanded EXACTLY (read at "
+                        "drv_attach, before the driver ran)" % len(plain))
+                else:
+                    bad = [i for i in range(len(plain)) if got[i] != plain[i]]
+                    fails.append("expanded WRONG: %d of %d image bytes "
+                                 "differ, first at %d"
+                                 % (len(bad), len(plain), bad[0]))
 
             # ...AND THERE IS NO DIRECT ASSERTION ON THE BSS'S CONTENTS,
             # which is worth stating rather than leaving as an omission. A

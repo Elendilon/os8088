@@ -237,6 +237,34 @@ frozen soak, a row asserts about one build's fixture and boots another's.
 
 ---
 
+
+### 5.5 A path your row WRITES is yours alone, and `build/` is not
+
+§5 is about not building in `build/`. This is the other half: a row's own
+scratch ARTEFACT at a fixed path is shared with every copy of that row, and
+the runner runs three at once.
+
+`os88marty.launch` copies each **floppy** into the instance's private run
+directory, which is what makes most rows safe without thinking about it. It
+copies nothing else. `extra=["--mount", "hd:0:" + VHD]` goes to the emulator
+verbatim, so `tests/hibernate.py`'s fixed `build/hiber.vhd` was one hard disk
+mounted read-write in three machines, each rebuilding it from the template
+under the others.
+
+**What makes this worth its own rule is how it presents.** It does not fail in
+one place. It fails at whichever step happens to collide, so it reads as
+several unrelated defects — a boot that never reaches a desktop, a file the
+host cannot see, and a click that is *proven* at the pointer and *proven* at
+the guest's own `mouse_btn` and still does nothing, which reads as a broken
+hit test in the product. Three rounds of investigation went into the first
+two before the third made the shape obvious.
+
+Key anything you write to the process (`os.getpid()`) or take it from the
+instance's own run directory, and sweep it on the way out — a per-PID name
+cannot be reclaimed by the next run the way a fixed one was, because `pid_max`
+wraps in minutes on a busy box.
+
+
 ## 6. Driving the machine: `tools/os88ui.py`
 
 **Start here, not at the mouse.** Every position is resolved from the guest's
@@ -578,6 +606,8 @@ not. Each one can still happen today.
 | 14 | `lzship` walking `drv_tab` on a stride of 10 where the record is 16 | §8 |
 | 15 | A row hardcoding an IBM ROM name, running on a box that had it and silently not on one that did not | §6 |
 | 16 | A row whose screen saver came on during a wait, comparing a black screen | §6 |
+| 17 | `hibernate` mounting ONE `build/hiber.vhd` read-write in three emulators at once: 2 runs in 6, at a different leg every time, one of them a proven click on a proven pointer doing nothing | §5.5 |
+| 18 | `reap()` racing itself — every `launch` reaps, so one process dropped a finished instance's tree while another wrote its record | §5.5 |
 
 ---
 

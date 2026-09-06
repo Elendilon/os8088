@@ -662,7 +662,10 @@ paths; the mouse one shipped broken once), waits for the ROM's text mode
 **The assertions are memory reads**: `[hb_mode]`, `[hb_resumes]`, the
 instance table, `[sch_lock]` and `[gfx_lock_flag]` back to 0, the tick
 advancing, and `HIBERNAT.PTR` gone from the VHD, read on the host with
-`tests/instdeep.py`'s FAT reader. It erases `build/hiber.vhd` every run.
+`tests/instdeep.py`'s FAT reader. It builds a VHD of its own per PROCESS
+(`build/hiber-<pid>.vhd`) and removes it again: the path used to be fixed, and
+three concurrent runs then mounted one hard disk read-write in three
+emulators.
 What it cannot see: time, a VGA palette coming back (the machine is CGA), and
 IDE rung 1.
 

@@ -5887,7 +5887,10 @@ section .cold                   ; gfx_blit1's body, and its far entry below it
 %ifdef KERN_BIG
 ; =============================================================================
 ; gfx_blit1_x - a composed 1bpp band, straight into the framebuffer (SPEC.md
-;               5.4.2). kern_big only; kern_small's thunk is stc/retf.
+;               5.4.2). kern_big only; kern_small's thunk is stc/retf - a
+;               variant without the two-display, VGA and pen arms was BUILT
+;               and MEASURED for it (+419 bytes, SPEC.md 5.4.2.5) and NOT
+;               TAKEN: that build may stay slower, by decision.
 ;
 ; in:       ES:SI = the band, BP = its stride in bytes per row, AX = x (a
 ;           multiple of 8, SIGNED), BX = y (SIGNED), CX = width in pixels (a
@@ -5921,10 +5924,11 @@ section .cold                   ; gfx_blit1's body, and its far entry below it
 ; SPEC.md 5.4.2.1 is the account.
 ; =============================================================================
 gfx_blit1_x:
-    test ax, 7                  ; the two argument refusals, and they are the
-    jnz .refuse                 ; ONLY two: an x or a width off the byte grid
-    test cx, 7                  ; is a caller error, not a shape to clip
-    jnz .refuse
+    test ax, 7                  ; the ONE argument refusal: an x off the byte
+    jnz .refuse                 ; grid is a caller error, not a shape to clip.
+                                ; A WIDTH off it is honoured since SPEC.md
+                                ; 5.4.2.5: the last partial byte column is
+                                ; merged under a mask, one RMW a row
     or cx, cx
     jz .refuse
     or dx, dx
@@ -6078,12 +6082,20 @@ gfx_blit1_x:
     mov di, cx
     shr di, 1
     shr di, 1
-    shr di, 1                   ; DI = bytes per row
-    push dx                     ; [bp+10] rows remaining
-    push di                     ; [bp+8]  bytes per row
-    mov cx, bp
-    sub cx, di
-    push cx                     ; [bp+6]  the band's step, less what rep moved
+    shr di, 1                   ; DI = WHOLE bytes per row: what rep moves
+    push dx                     ; [bp+12] rows remaining
+    push di                     ; [bp+10] whole bytes per row
+    sub bp, di                  ; BP = the band's step, less what rep moved
+    and cx, 7                   ; CX = the pixels past the last whole byte
+    jz .notail                  ; (SPEC.md 5.4.2.5); CH is 0 = no tail mask
+    dec bp                      ; ...one more byte the row reads, by hand
+    neg cl
+    add cl, 8                   ; 8 - tail
+    mov ch, 0FFh
+    shl ch, cl                  ; CH = the tail's HIGH bits: 1 px = 80h, 7 = FEh
+.notail:
+    push bp                     ; [bp+8]  the band's step
+    push cx                     ; [bp+6]  the tail mask, in its HIGH byte
     push word [vid_rowadd]      ; [bp+4]  gfx_nextrow, inlined (Part 9 Set 3)
     push word [vid_wrapbit]     ; [bp+2]
     push word [vid_wrapfix]     ; [bp+0]
@@ -6117,25 +6129,34 @@ gfx_blit1_x:
                                 ; neither emit loop touches
     mov es, ax                  ; resolved display's, the enter above having
     mov ds, bx                  ; run first (SPEC.md 39.12)
+    mov bl, [bp+7]              ; BL = the tail mask, off the frame (SS): 0 =
+                                ; the row ends on the byte grid
     cld
     or dl, dl
     jnz .rowi
 .row:
-    mov cx, [bp+8]
+    mov cx, [bp+10]
     push di
     shr cx, 1                   ; WORDS: `rep movsw` is 12.5 clocks a byte on
     rep movsw                   ; an 8088 against `rep movsb`'s 17, and the
     jnc .even                   ; carry out of the shift is the odd byte. A
     movsb                       ; string op writes no flag and neither does
 .even:                          ; `rep`, so it survives the move (SPEC.md
-    pop di                      ; 5.4.2). No segment override on a rep: an
-    add si, [bp+6]              ; 8086 loses the prefix to an interrupt (5.7)
+    or bl, bl                   ; 5.4.2). No segment override on a rep: an
+    jz .whole                   ; 8086 loses the prefix to an interrupt (5.7)
+    lodsb                       ; SPEC.md 5.4.2.5: THE TAIL BYTE, merged under
+    xor al, [es:di]             ; its mask - dest ^= (src ^ dest) & mask, one
+    and al, bl                  ; read and one write of the framebuffer byte,
+    xor [es:di], al             ; and the bits past the width untouched
+.whole:
+    pop di
+    add si, [bp+8]
     add di, [bp+4]
     test di, [bp+2]
     jz .nowrap
     add di, [bp+0]
 .nowrap:
-    dec word [bp+10]
+    dec word [bp+12]
     jnz .row
     jmp short .emitted
 
@@ -6148,7 +6169,7 @@ gfx_blit1_x:
     ; none of them uses - Word, cword and os88type all emit with the default
     ; pen (SPEC.md 6.3).
 .rowi:
-    mov cx, [bp+8]
+    mov cx, [bp+10]
     push di
     shr cx, 1                   ; CF = an ODD bytes-per-row, and it survives
     jcxz .iodd                  ; everything below: jcxz, lodsw, stosw, loop
@@ -6171,18 +6192,26 @@ gfx_blit1_x:
     not al
     stosb
 .idone:
+    or bl, bl                   ; ...and the tail, complemented (5.4.2.5)
+    jz .iwhole
+    lodsb
+    not al
+    xor al, [es:di]
+    and al, bl
+    xor [es:di], al
+.iwhole:
     pop di
-    add si, [bp+6]
+    add si, [bp+8]
     add di, [bp+4]
     test di, [bp+2]
     jz .inowrap
     add di, [bp+0]
 .inowrap:
-    dec word [bp+10]
+    dec word [bp+12]
     jnz .rowi
 .emitted:
     mov sp, bp
-    add sp, 12
+    add sp, 14
 .done:
     pop ax
     pop bx
@@ -6228,12 +6257,13 @@ gfx_blit1_x:
     push cx
     push si
     push di
-    mov di, cx
-    shr di, 1
-    shr di, 1
-    shr di, 1                   ; DI = columns to place
-    mov cx, 8
+    mov di, cx                  ; DI = pixels left to place
 .pcol:
+    mov cx, 8
+    cmp di, cx
+    jae .pc8
+    mov cx, di                  ; ...the last of them a TAIL column (5.4.2.5)
+.pc8:
     push ax
     push cx
     push si
@@ -6245,8 +6275,8 @@ gfx_blit1_x:
     pop ax
     add ax, 8
     inc si
-    dec di
-    jnz .pcol
+    sub di, 8
+    ja .pcol                    ; more than one column was left: go round
     pop di
     pop si
     pop cx

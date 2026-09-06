@@ -236,15 +236,21 @@ DRV_H_BSSP  equ 31              ; byte: THE BSS SIZE IN PARAGRAPHS
                                 ; built has a NUL here - and 0 reads as "no
                                 ; bss", which is why this needed no version
                                 ; bump and no driver source change
-DRV_BSS_KB  equ 4               ; ...and what the claim is padded by BEFORE the
-                                ; header has been read to say. 255 paragraphs
-                                ; is 4,080 bytes, so 4KB covers the largest
-                                ; declarable bss and drv_bss gives the rest
-                                ; back with a SHRINK. The alternative was
-                                ; peeking the header before claiming, which is
-                                ; an extra int 13h per driver on every boot -
-                                ; hundreds of milliseconds to save a few
-                                ; hundred transient bytes
+                                ; **NOTHING IS RESERVED FOR IT IN ADVANCE**
+                                ; (SPEC.md 51.1.2). A `DRV_BSS_KB equ 4` used
+                                ; to pad the claim - 255 paragraphs being
+                                ; 4,080 bytes, so 4KB covered the largest
+                                ; declarable bss - and drv_bss handed the
+                                ; remainder back with a shrink, the note here
+                                ; pricing that at "a few hundred transient
+                                ; bytes". It was 14,336 permanent ones:
+                                ; mem_regrow's shrink keeps the BASE and frees
+                                ; the TAIL, and the tail of a top-down claim
+                                ; is walled in between this driver and the one
+                                ; loaded before it. The claim is exact now and
+                                ; drv_bss GROWS when the round-up does not
+                                ; cover the bss, which for the shipped set is
+                                ; four drivers and none of them at boot
 DRV_HDR_SZ  equ 0x20
 DRV_VER     equ 4
 DRV_MAX_KB  equ 40              ; the biggest driver image we will claim
@@ -2474,10 +2480,15 @@ drv_load_row:
     call mem_bytes_kb_x         ; -> whole KB (the size is well under 64KB,
     cmp ax, DRV_MAX_KB          ; so this cannot carry out)
     ja .big
-    add ax, DRV_BSS_KB          ; ...and room for a bss the header has not been
-                                ; read yet to declare. drv_bss shrinks it back
-                                ; the moment it can, so nothing keeps this
-    push bx
+    push bx                     ; ...AT THE SIZE THE DIRECTORY REPORTED, and
+                                ; not a byte more (SPEC.md 51.1.2). This used
+                                ; to add a DRV_BSS_KB of 4 for a bss the
+                                ; header has not been read yet to declare,
+                                ; and drv_bss handed the remainder back with
+                                ; a shrink - which cannot return it, the tail
+                                ; of a top-down claim being walled in above
+                                ; the image. drv_bss GROWS instead, once it
+                                ; knows the figure
     mov bx, MEM_K_DRV
     call mem_claim_hi_x           ; a driver's base IS its CS, so it can never
     pop bx                      ; move: top-down, like a package's region
@@ -2502,7 +2513,12 @@ drv_load_row:
     jc .badfree                 ; - which a compressed driver already IS: a
                                 ; .DRV is a 'CZ' file (SPEC.md 20.13.3.1) and
                                 ; dskw_read_x expanded it into the claim
-    call drv_bss                ; ...and the zeros it did NOT ship
+    call drv_bss                ; ...and the zeros it did NOT ship. IT CAN
+    jc .badfree                 ; REFUSE NOW (SPEC.md 51.1.2): the pad that
+                                ; used to make the zeroing safe by
+                                ; construction is gone, so a header claiming
+                                ; more bss than the claim holds is turned away
+                                ; here rather than writing past it
 
 %ifdef KERN_BIG
     cmp byte [bx+DRVR_CLASS], DRVC_OVL
@@ -2651,24 +2667,44 @@ drv_check:
     ret
 
 ; -----------------------------------------------------------------------------
-; drv_bss - zero the bss the file did not carry, and give the slack back
-;           (module internal; docs/plans/O88-COMPRESSION-PLAN.md 12.6)
+; drv_bss - zero the bss the file did not carry, inside the claim the
+;           directory already sized for it (module internal; SPEC.md 51.1.2,
+;           docs/plans/O88-COMPRESSION-PLAN.md 12.6)
 ; in:  BX = the row, with DRVR_SEG and DRVR_KB live; BP = the file's bytes
-; out: nothing. The flags are NOT an answer - a shrink that is refused simply
-;      leaves the claim as big as it was asked for, which is correct and
-;      wastes at most DRV_BSS_KB until the driver detaches
+; out: CF = 0 and the bss is zeroed. CF = 1 - `image + bss` does not fit the
+;      claim, so NOTHING has been zeroed; the row still names the claim the
+;      caller's .badfree will release
 ; clobbers: nothing (every register is banked)
 ;
+; IT NO LONGER RESIZES ANYTHING, and that is the change. It used to zero into
+; a claim padded by a DRV_BSS_KB of 4 and hand the remainder back with a
+; shrink, and the shrink could not give it back - see the constant's own note
+; above. **GROWING INSTEAD WAS BUILT AND MEASURED AND IS WORSE**: the claim is
+; exact and the grow is at most 4,080 bytes, but a grow that cannot extend in
+; place takes SPEC.md 50.3 path 3, and `mem_hifit` then puts an 18KB driver
+; image at the BOTTOM of the free middle - a pinned barrier under the read-
+; ahead cache, so its 63K stops rejoining at all. Largest contiguous 361.0K ->
+; 375.0K and the COMPACTED figure 439.0K -> 375.0K, which is the number that
+; decides a refusal. 50.3's own warning, earned: "one long-lived data claim
+; landing mid-heap permanently splits the space a package can be loaded into".
+;
+; So the size is made exact WHERE IT IS KNOWN, which is the build: os88drv.py
+; strips the trailing zero run only as far as the KB boundary the driver's
+; footprint needs, so the size the DIRECTORY reports already covers the bss
+; and this routine has nothing to resize. On a packed disk those zeros cost
+; almost nothing - they are what LZ4 is best at - which is the half that was
+; not true when the stripping was written.
+;
 ; Called after drv_check, so the header is validated and DRV_H_BSSP is at most
-; 255. That bounds the zeroing at 4,080 bytes against a claim padded by 4,096,
-; so `file + bss` is inside the claim BY CONSTRUCTION and a hostile value
-; cannot reach past it - which is why there is no bound test here.
+; 255. The bound test below is what makes the zeroing safe against a header
+; some other tool wrote.
 ; -----------------------------------------------------------------------------
 drv_bss:
     push ax
     push bx
     push cx
     push dx
+    push si
     push di
     push es
     mov es, [bx+DRVR_SEG]
@@ -2676,32 +2712,39 @@ drv_bss:
     xor ah, ah
     mov cl, 4
     shl ax, cl                  ; AX = the bss in BYTES, at most 4,080
-    mov cx, ax
+    mov si, ax                  ; ...banked, because the test spends AX
     mov di, [es:DRV_H_IMG]      ; the bss begins where the image ends, which
     add ax, di                  ; drv_check has just made equal to BP
-    push ax
+    call mem_bytes_kb_x         ; -> whole KB of image + bss
+    cmp ax, [bx+DRVR_KB]        ; THE ONE BOUND TEST, and it is about a byte
+    ja .nofit                   ; read off a disk. os88drv.py leaves enough of
+                                ; the trailing zero run in the image that the
+                                ; directory's own size already covers the bss
+                                ; (SPEC.md 51.1.2), so a driver this tree
+                                ; built can never fail it - but the header is
+                                ; a FILE, a foreign tool may write any BSSP it
+                                ; likes, and the pad this replaced is what
+                                ; used to make the zeroing safe by
+                                ; construction. Refusing costs a driver that
+                                ; was already malformed
+.zero:
+    mov cx, si
     xor al, al
     cld
     rep stosb                   ; the bytes that used to ride on the floppy
-    pop ax
-    call mem_bytes_kb_x         ; -> whole KB of image + bss
-    cmp ax, [bx+DRVR_KB]
-    jae .keep                   ; nothing to give back
-    mov dx, [bx+DRVR_SEG]
-    push bx                     ; the ROW, so BX can be the owner word
-    mov bx, MEM_K_DRV
-    call mem_regrow             ; a SHRINK, which SPEC.md 50.3 path 1 makes
-    pop bx                      ; free: "the record's length changes and that
-    jc .keep                    ; is all" - the base does not move, nothing is
-    mov [bx+DRVR_KB], ax        ; copied, and a refusal costs only the slack
-.keep:
+    clc
+.out:
     pop es
     pop di
+    pop si
     pop dx
     pop cx
     pop bx
-    pop ax
-    ret
+    pop ax                      ; `pop` leaves the flags alone, so the answer
+    ret                         ; set above survives the whole unwind
+.nofit:
+    stc
+    jmp short .out
 
 ; -----------------------------------------------------------------------------
 ; drv_attach - the far call that lets a driver claim its hardware

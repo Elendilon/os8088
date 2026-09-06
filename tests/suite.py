@@ -1443,7 +1443,15 @@ SOAK = [
         "50, 66) Every driver attached at once on a machine WITH memory above "
         "1MB, sampled from instruction zero: the order claims are taken in, "
         "and MC_RLOC for each - which is the machine-readable answer to "
-        "'can this be compacted'",
+        "'can this be compacted'. IT HAS CAUGHT ONE (SPEC.md 51.1.2): drv_load "
+        "padded its claim by 4KB for a bss it had not read the header to "
+        "learn, and mem_regrow's shrink keeps the BASE and frees the TAIL - "
+        "which on a top-down claim is walled in above the driver. 14,336 "
+        "bytes stranded and the largest free run 375.0K -> 361.0K, from a "
+        "change whose own comment priced it at 'a few hundred transient "
+        "bytes'. Nothing else in the suite sees it, because nothing else "
+        "looks at WHERE the free memory is - and the obvious repair, growing "
+        "the claim instead, this row scored WORSE than the bug",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img",)),
     Row("dockmark", "soak", py("tests/dockmark.py"), 90.0,
@@ -2167,6 +2175,48 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdscroll", "soak", py("tests/wdscroll.py"), 300.0,
+        "SPEC.md 68.2.2: Word's scroll bar is not part of the text band. Leg A "
+        "samples the bar's ARROW CELL through a down-arrow click and requires "
+        "0 of 48 samples altered (the band used to carry six of its fourteen "
+        "columns, blank them and redraw the bar); leg B the same for a track "
+        "click; leg D asserts the BEHAVIOUR on a refused blit - wd_sbar must "
+        "not run - because the refused path legitimately moves the thumb and "
+        "no pixel box separates that from the bug; leg C that three "
+        "consecutive page clicks all still blit. The last leg is the one with "
+        "teeth: it pages down with the blit and back up, which a formatted "
+        "document always full-repaints, and requires the screen to come back "
+        "with 0 differing pixels - the fast path checked against the slow one. "
+        "CGA by name and read out of guest VRAM, MASKED to the bar's columns: "
+        "a rendered frame only changes once a video frame, so an fbuf sample "
+        "misses a strip blanked and redrawn inside one - this gate passed with "
+        "the fix backed out until that was fixed.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
+        "SPEC.md 68.3.1: Word's document movers go a WORD at a time, and the "
+        "assertion is the BUFFER rather than the glass - a wrong word is a "
+        "corrupted document, not a slow one, and no pixel test would see it. "
+        "Both claims are read whole, a character is inserted and then "
+        "backspaced, and the ORIGINAL bytes must come back. Parity is the "
+        "point: wd_mvup does the odd byte first and steps onto a word's low "
+        "byte, wd_mvdn does it last, so the caret is placed at odd and even "
+        "tails and at both end stops where the count is 0 or 1. Verified to "
+        "go red - dropping wd_mvup's step-back fails every text assertion.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
+    Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,
+        "SPEC.md 68.2.1: Word's dropdown BANKS the pixels it covers and the "
+        "close writes them back (521.4 ms -> 19.7 ms on a 4.77MHz 8088). The "
+        "assertion is PIXEL EQUALITY, because a save-under that is fast and "
+        "wrong is worse than a repaint that is slow and right: banking the "
+        "panel without its drop shadow, clamping differently from wd_mrepair, "
+        "or taking the plane count off the wrong display all show up here and "
+        "nowhere else. It pokes [wd_suseg] = 0 for the second cycle, which is "
+        "what a REFUSED claim leaves behind, so one run checks the banked path "
+        "and the wd_mrepair fallback against one reference.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/WORD.OVL", "build/WELCOME.DOC")),
     Row("pkgthumb-tp", "soak", py("tests/pkgthumb.py", "texpad"), 50.0,
         "SPEC.md 13.10.7.2: ...and TexPad, whose TWO bars share one gesture"
         "record. --bar=1 drives the preview pane's.",
@@ -2232,7 +2282,10 @@ SOAK = [
         "SPEC.md 87: Hibernate... writes the machine to the hard disk and the "
         "next boot offers to resume it - the About box is the witness, read "
         "out of the restored instance table; then the same again with "
-        "Discard. Builds its own VHD under build/",
+        "Discard. Builds its own VHD under build/, keyed to the PROCESS - it "
+        "was a fixed path, and three concurrent runs then mounted one hard "
+        "disk read-write in three emulators (2 runs in 6, at a different leg "
+        "every time; docs/WRITING-TESTS.md 5.5)",
         needs=("marty",), serial=True, timeout=1500),
     Row("hibernatedrv", "soak", py("tests/hibernate.py", "--driver"), 300.0,
         "SPEC.md 87 through HDD.DRV: a floppy boot whose SYSTEM.CFG wants the "
@@ -2297,6 +2350,18 @@ SOAK = [
         "unreachable on that arm by mou_apply's own first compare, and a "
         "one-armed reading could not tell that from a test that never "
         "reached a freeze at all.",
+        needs=("marty",), alone=True, serial=True, timeout=900),
+    Row("fddpark", "soak", py("tests/fddpark.py"), 300.0,
+        "SPEC.md 18.100: a Restart leaves the floppy heads on TRACK 0. int "
+        "19h resets no hardware, so the next boot inherits drive B's head "
+        "where the session left it - which costs 18.97's probe its fast path "
+        "on every restart after any use of B:, and above cylinder 77 hands it "
+        "the ST0 that RETIRES the drive. The evidence has to be taken before "
+        "int 19h, because every emulator here starts the second boot parked "
+        "anyway (18.97.4 verified that three ways), so this breaks on "
+        "ui_cmd_reboot's own int 19h and reads ST3 off the emulated 765 from "
+        "the host. It builds NOFDDPARK=1 itself: reading TRK0 set on one arm "
+        "says only that SOMETHING parked the head.",
         needs=("marty",), alone=True, serial=True, timeout=900),
     Row("uiblock", "soak", py("tests/uiblock.py"), 20.0,
         "SPEC.md 8.1.2: ui_task blocks instead of spinning, so an idle "
@@ -2412,6 +2477,17 @@ SOAK = [
         "a change that made EVERY canvas one bit deep would pass the whole"
         "suite and quietly cost the VGA fifteen of its colours",
         needs=("marty",), serial=True),
+    Row("paintpal", "soak",
+        py("tests/paintpal.py"), 90.0,
+        "Does SPEC.md 42.26.1's COMPOSED palette draw what the fill, the "
+        "frame and the sprite pass drew? One boot draws it both ways - the "
+        "second with stc/ret poked over the gfx_blit1 thunk, which is the "
+        "refusal kern_small answers - and compares the pixels. The greyed "
+        "fill glyph is the round that matters: it is the one thing in the "
+        "composition with no primitive behind it. The third round is a "
+        "CONTROL that must DIFFER, or a rect that missed the palette would "
+        "pass the first two.",
+        needs=("marty",)),
     Row("paint1blit", "soak",
         py("tests/paint1blit.py"), 90.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
@@ -2703,7 +2779,16 @@ SOAK = [
     Row("tmrepair", "soak", py("tests/tmrepair.py"), 80.0,
         "SPEC.md 28.11: the Task Manager's quiet pages hold a raise cache by "
         "REPAIRING at the restore - a whole-content band, and tm_update "
-        "spends the debt W_PAINT is handed.",
+        "spends the debt W_PAINT is handed. **IT IS INTERMITTENT AND HAS "
+        "BEEN FOR A WHILE**, which is worth knowing before anybody calls a "
+        "red one a regression: rated with tools/os88bisect.py it fails 3 of "
+        "4 at b49fff1 - a tree where one soak reported it PASSING - 2 of 3 "
+        "at b5cef54, 1 of 3 at 7f5c07a and 1 of 4 at dc3b200, so today's head "
+        "is the best of every point measured. The failing leg is REPAIR: the "
+        "promise is made (WF_SAVEU and a whole-content band) and is gone by "
+        "the uncover with ZERO wm_su_drop calls for it, so whatever "
+        "withdraws it is not that path. A rate is not a side, so there is "
+        "nothing here to bisect until the row is 0/N or N/N",
         needs=("marty",), serial=True),
     Row("tmselfsu", "soak", py("tests/tmselfsu.py"), 300.0,
         "SPEC.md 28.8.1: the Task Manager stops repainting for ITS OWN raise "

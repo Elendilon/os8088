@@ -1208,6 +1208,14 @@ hbm_hib:
     int 0x16
     call COLD_SEG:drv_shutdown_x    ; ...and the reboot path's tail (20.10)
     call KERNEL_SEG:cw_sched_unhook
+%ifndef NO_FDDPARK
+    call COLD_SEG:dsk_fdd_park_x    ; ...including SPEC.md 18.100's park: the
+                                    ; user is ASKED to switch off here, and one
+                                    ; who does not gets an ordinary boot off a
+                                    ; machine that has read floppies all
+                                    ; session. After cw_sched_unhook, exactly
+                                    ; as ui_cmd_reboot orders it
+%endif
     int 0x19
     jmp $
 .fail:
