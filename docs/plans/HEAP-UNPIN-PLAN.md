@@ -1640,6 +1640,45 @@ rectangle finally correct the difference was six pixels wide — `x 115..120,
 y 63..64`, the tail of the arrow a window drag had left one row inside the
 content. All three rows park it at a fixed spot before each capture now.
 
+### 10.7 §2.1.1 item 3 — the C SDK can declare
+
+**Built.** `os88_mem_movable(seg, on)` in `apps/cc/os88.h`, `_os88_mem_movable`
+in `os88thunk.asm`, and the `cc_onmove` trampoline in `crt0.asm`, all three
+behind `%define CC_HAS_ONMOVE` so a package that does not declare pays nothing.
+`os88_mem_claim` was the whole of the C SDK's heap surface, so every claim a C
+package made was pinned **by construction** and no author could change it —
+C64's 64KB of RAM, RunCPM's 64KB Z80 space, Weave's bundle and canvas, Loom's
+29/50/62KB project buffers.
+
+**`cc_onmove` is not a window callback and that is the whole hazard.** It is
+dispatched from inside `mem_reloc_call`, in the middle of the walk, on whatever
+task asked for the memory — so SPEC.md 66.3 rule 3 binds the *C* on the other
+side of it: no claim, no free, no yield, no drawing, no file call. It also
+preserves **AX**, which no window callback has to, because a relocation proc is
+called between two instructions of somebody else's routine rather than from a
+dispatch loop.
+
+**`tests/chello` is the first adopter, deliberately rather than an
+application.** The round trip is longer than any other callback's — C, thunk,
+kernel, `cc_onmove`, C — and until something built out of it reports a move
+that actually happened, the trampoline's argument order is inference from
+emitted assembly. That is the same sentence `chello.c`'s own header uses about
+the crosshair, and it is why the claim's live base and where it came from are
+both drawn in the window.
+
+`tests/cmemmove.py` is the gate (91.5s): heapfrag owns the floor, CHELLO lands
+above it, heapfrag closes and re-runs, and the row reads `MC_RLOC` out of the
+kernel's table and `[ch_seg]`/`[ch_moves]`/`[ch_was]` out of CHELLO's statics.
+**Verified to fail by swapping the two pushes in `cc_onmove`**: `[ch_seg]` goes
+stale at the old base, the move count stays 0, and assertions 2 and 3 both go
+red. That break also shows the handler shape is self-protecting — the
+`if (my_seg == was)` guard means a swapped pair does *nothing* rather than
+assigning garbage, which is why the SDK documents the guard rather than
+`my_seg = now`.
+
+**No shipped C package declares yet**, and that is now an audit rather than an
+impossibility. `docs/HEAP-CLAIMS.md`'s row says so.
+
 ---
 
 ## 10.1 How the rest would be verified

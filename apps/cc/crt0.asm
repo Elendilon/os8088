@@ -660,6 +660,49 @@ cc_onwake:
     ret
 %endif
 
+%ifdef CC_HAS_ONMOVE
+; -----------------------------------------------------------------------------
+; cc_onmove - THE HEAP COMPACTOR MOVED ONE OF YOUR CLAIMS (SPEC.md 66.2),
+; installed by os88_mem_movable().
+;
+; NOT A WINDOW CALLBACK, and the difference matters: it is dispatched from
+; inside mem_reloc_call, in the middle of a compaction, on whatever task asked
+; for the memory that could not be found. So SPEC.md 66.3 rule 3 binds the C on
+; the other side of it - the handler MAY NOT claim, free, yield, draw, or touch
+; a file - and it is not a suggestion, because the walk's own map is what it
+; would be re-entering.
+;
+; It preserves AX as well, which no window callback has to: a relocation proc
+; is called between two instructions of somebody else's routine rather than
+; from a dispatch loop, and SPEC.md 66.3 says every register.
+;
+; in:  BX = the base segment it WAS at, DX = the base it is at NOW; DS = CS =
+;      ours, ES = KERNEL_SEG. The bytes have already moved.
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+cc_onmove:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cld
+    push dx                         ; arg 2: unsigned now
+    push bx                         ; arg 1: unsigned was
+    call _os88_onmove
+    add sp, 4
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
+
 %ifdef CC_HAS_MENUS
 ; -----------------------------------------------------------------------------
 ; cc_oncmd - AM_ONCMD, a pick from one of your menus (SPEC.md 12.2)

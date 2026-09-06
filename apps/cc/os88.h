@@ -919,6 +919,47 @@ unsigned os88_mem_regrow(unsigned seg, int kb);  /* 0 = refused and the old
 unsigned os88_mem_largest_kb(void);
 unsigned os88_mem_total_kb(void);
 
+/* --- letting the compactor MOVE a claim (SPEC.md 66) ----------------------
+ * A claim is born PINNED, and a pinned claim sitting in the middle of the
+ * arena is a wall the heap cannot close over for as long as you hold it
+ * (SPEC.md 50.3). Declaring one movable is two lines and it is the whole of
+ * what a C package could not do until now:
+ *
+ *     %define CC_HAS_ONMOVE            (in your .asm shim)
+ *
+ *     static unsigned my_seg;
+ *     void os88_onmove(unsigned was, unsigned now)
+ *     {   if (my_seg == was) my_seg = now;   }
+ *
+ *     my_seg = os88_mem_claim(32);
+ *     os88_mem_movable(my_seg, 1);
+ *
+ * THREE RULES, and each of them has cost this project a defect:
+ *
+ *   1. FIX EVERY WORD THAT NAMES THE BLOCK, not the first one you think of.
+ *      A second copy of the segment kept anywhere - a cached base, a
+ *      "current" pointer, a scratch you handed a library - is stale the
+ *      instant this returns. SPEC.md 66.1 is the record of a design that
+ *      failed on exactly that.
+ *   2. THE HANDLER MAY NOT CLAIM, FREE, YIELD, DRAW OR TOUCH A FILE
+ *      (SPEC.md 66.3 rule 3). It runs INSIDE the compaction, and any of those
+ *      re-enters the walk that is calling it. Assignments and arithmetic only.
+ *   3. PIN IT AROUND A FILE CALL. If the block is the ES:BX of an
+ *      os88_file_read()/write(), pin it first and declare it again after
+ *      (SPEC.md 66.9 reason 4) - a file call claims, so a compaction inside
+ *      one moves the buffer out from under a transfer the kernel already has
+ *      the address of.
+ *
+ * The kernel will not move it while a WORKER of yours could be running in it
+ * (SPEC.md 66.5), so a package with no worker gets this for free and one with
+ * a worker gets it whenever that worker is parked. */
+int os88_mem_movable(unsigned seg, int on);   /* on: 1 = movable, 0 = pin.
+                                               * 0 = the kernel took it,
+                                               * -1 = refused. ALWAYS take
+                                               * the answer */
+void os88_onmove(unsigned was, unsigned now); /* YOU define this, under
+                                               * %define CC_HAS_ONMOVE */
+
 /* --- the PARTS standard (SPEC.md 20.12) ------------------------------------
  * A package that carries more than its own segment - a second segment of
  * code, or an asset it would otherwise trail as a SIDECAR FILE - declares its

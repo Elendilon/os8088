@@ -1557,6 +1557,35 @@ _os88_mem_free:
     pop bp
     ret
 
+%ifdef CC_HAS_ONMOVE
+; int os88_mem_movable(unsigned seg, int on) - DX = the claim, AX = the near
+; proc or 0 (SPEC.md 66.2). `on` non-zero declares it movable and names
+; cc_onmove above as the handler; 0 PINS it again, which is a legal call and
+; the other half of SPEC.md 66.5.7.1's pin/unpin pair - pin a buffer for the
+; length of a file call and declare it again after.
+;
+; 0 = the kernel took it, -1 = refused. TAKE THE ANSWER: mem_movable's fence
+; is "yours, or not at all", so a segment you do not hold matches nothing,
+; writes no MC_RLOC and returns CF=1 - and from inside the package that is
+; indistinguishable from success (SPEC.md 66.5.6.2 is what that cost once).
+_os88_mem_movable:
+    push bp
+    mov bp, sp
+    mov dx, [bp+4]
+    xor ax, ax
+    cmp word [bp+6], 0
+    je .set
+    mov ax, cc_onmove
+.set:
+    call OSAPI_MEM_MOVABLE
+    mov ax, 0
+    jnc .ok
+    dec ax
+.ok:
+    pop bp
+    ret
+%endif
+
 ; unsigned os88_mem_regrow(unsigned seg, int kb) - DX = the claim, AX = the
 ; new size in KB; out DX = the claim's base NOW. ALWAYS TAKE THE ANSWER: a
 ; grow that had to move leaves your old segment pointing at memory that is no

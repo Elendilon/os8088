@@ -4631,6 +4631,18 @@ $(BUILD)/trackmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/tracker.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/tracker.o88 apps/tracker/beverly.mod
 
+# ...and the C SDK's, for tests/cmemmove.py
+# (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). CHELLO is the C toolchain's
+# capability gate (SPEC.md 73) and os88_mem_movable() is the fifth capability
+# it gates: until it existed a C package could not declare a claim movable at
+# all, so every one of them was a pinned block in the arena for as long as the
+# program ran. Its own image for trackmove360's reason - the listing is sorted
+# by name (SPEC.md 19.4).
+$(BUILD)/cmemmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/chello.o88 \
+                          tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
+		$(BUILD)/chello.o88
+
 # ...and SHEET's own disk, for tests/sheetmove.py
 # (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). Its own image for
 # trackmove360's reason - the listing is sorted by name (SPEC.md 19.4) - and

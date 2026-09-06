@@ -1481,6 +1481,18 @@ SOAK = [
         "reddens the fourth",
         needs=("marty", "cc"), serial=True,
         wants=("build/cword360.img",)),
+    Row("cmemmove", "soak", py("tests/cmemmove.py"), 110.0,
+        "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
+        "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "
+        "whole of the C SDK's heap surface until now, so every C claim was "
+        "pinned by construction - C64's 64KB, RunCPM's 64KB, Weave's canvas, "
+        "Loom's project buffers. The round trip is longer than any other "
+        "callback's (C, thunk, kernel, cc_onmove, C) and the assertion that "
+        "earns its keep is that `was` and `now` did not arrive SWAPPED: "
+        "verified by swapping the two pushes in cc_onmove, which leaves "
+        "[ch_seg] stale and the move count at 0. Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/cmemmove360.img",)),
     Row("sheetmove", "soak", py("tests/sheetmove.py"), 130.0,
         "Compact the heap out from under a LIVE Sheet "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). SHEET was the largest "
