@@ -1734,13 +1734,25 @@ SOAK = [
         " And 88.5.4.1: no IMPOSTOR rectangle bigger than CS_LODPX, which is"
         " the screen-axis-aligned square that stood upright in a bank",
         needs=("marty",), serial=True),
-    Row("skiesui", "soak", py("tests/skiesui.py"), 44.0,
+    Row("skiesui", "soak", py("tests/skiesui.py"), 90.0,
         "SPEC.md 88.10's title page on the VGA machine: the two drop-downs"
         " (SPEC.md 13.14's first users) drop, close and pick, Esc closes one,"
         " Flight -> Instructions turns the page and back, the Mode menu's CGA"
         " pick flies in CGA320, and the release of the pick's press is owed to"
         " the launcher's window - [ui_armw] read directly, the check that"
-        " catches a click handler coming back with SI clobbered",
+        " catches a click handler coming back with SI clobbered. LEG 7 is the"
+        " control's two REFUSALS (13.14.3), and both are FORCED in the guest"
+        " because no gesture reaches either: DR_WIN zeroed so OSAPI_WM_CLIP_SET"
+        " must refuse - the control then has to stay SHUT, where it used to"
+        " believe it was open with nothing drawn and let the next press pick an"
+        " invisible cell - and api_gfx_rest patched to stc/ret so the write-back"
+        " must refuse, where drback said 'repaired' and left 2,719 pixels of"
+        " list on the glass. Both legs carry their own arranging checks, 7a"
+        " because the first version was GREEN against the defect it was written"
+        " for (leg 6 had left the Instructions page up, so the click landed on"
+        " no box at all), and both captures park the pointer, because parked on"
+        " the box the arrow hangs four rows into the band and reads as five"
+        " pixels of a list that is not there.",
         needs=("marty",), serial=True),
     Row("skiesvga", "soak", py("tests/skies.py", "--machine",
                                "os8088_xt_vga"), 45.0,

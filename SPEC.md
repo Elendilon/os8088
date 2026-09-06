@@ -21453,7 +21453,7 @@ there, and a run that patched the bug back in found bytes that did nothing.
 
 The first build took the list down by answering `CF = 1` — *repaint your
 content* — which is the only thing a control can say when it cannot read the
-screen. §5.4.3 published `OSAPI_GFX_SAVE`/`OSAPI_GFX_REST` for exactly that
+screen. §5.3 published `OSAPI_GFX_SAVE`/`OSAPI_GFX_REST` for exactly that
 gap, and Word measured what the gap costs: its own dropdown opened in 99.6 ms
 and closed in **521.4 ms**, because the close re-lettered every text row the
 panel had covered (§68.2). The control now banks the rect
@@ -21571,6 +21571,59 @@ Settings page already asked its four last-drawn-first for the same reason, and
 needs nothing, because a three-item list still fits under every one of its
 boxes. `tests/skiesui.py` covers the Location list end to end and it is what
 found this, on the glass, after the arithmetic said the fit was right.
+
+#### 13.14.3 Both of its REFUSALS answered the wrong thing
+
+The drop-down has two paths no gesture reaches — a window it cannot clip to,
+and a rect the write-back refuses — and both shipped saying something untrue.
+Neither was reachable from the glass, which is why both needed **forcing** to
+find and to gate (`tests/skiesui.py` leg 7).
+
+**A press that could not arm the clip left the control OPEN.**
+`os88ui_drpress` sets `OS88UI_DR_OPEN` before `OSAPI_WM_CLIP_SET`, because
+§13.14.2's `os88ui_drfit` has to run whether the list is drawn or not — and
+then took the refusal straight to `.spent`, leaving a control that believed it
+had a list on screen when it had none. The press after it hit-tested cells
+nobody could see and **silently picked one**. §88.13.6 met this from the other
+end: four Settings records with no `OS88UI_DR_WIN`, so every press on them
+called `OSAPI_WM_CLIP_SET` with `BX = 0` and took the refusal it got back.
+That entry gave those records windows; this is the control's own half, and it
+is one store and a jump — nothing drawn is nothing open.
+
+**And `os88ui_drback` swallowed `OSAPI_GFX_REST`'s carry.** The write-back
+refuses on a rect that straddles two displays, exactly as the save does, and
+`os88ui_drbank` treats that as important enough to throw the whole bank away
+— *"half a bank put back is worse than none"*. This end dropped the same flag
+and returned **`CF = 0`, the screen is repaired**, so a close that restored
+nothing told the caller it had nothing to repaint: the list stayed on the
+glass with the control reading shut. Measured on the title page with the
+write-back forced to refuse, **2,719 pixels of it**. `pushf`/`popf` around the
+free is the whole fix, and the answer it now gives is the one the design
+already had a fallback for.
+
+The asymmetry is the lesson rather than either line: the SAVE end was written
+carefully, the RESTORE end was written as though it could not fail, and the
+two are the same refusal one direction apart.
+
+#### 13.14.4 It is not for a package that already has a menu system
+
+WORD was the first package asked to adopt it, and the arithmetic refuses.
+Word's three combos — Font, Pts and the ruler's Style — are **three rows of
+`wd_mtab`**, the same table the File/Edit/View menus use, plus sixteen call
+sites; they reuse `wd_mopenm`, `wd_mdraw`, the hit test, the close and
+§68.2.1's save-under wholesale, and they already look like the kernel's
+pull-down because they *are* one. Adopting `os88ui_drop` would delete about
+150 bytes and add **1,779**: the control is 988 and it needs `os88ui_btn`'s
+791 for `os88ui_bhit`, which Word does not otherwise carry — measured by
+assembling the include with and without `OS88UI_DROP`. The menu machinery
+stays either way, because the menu bar needs it.
+
+So the rule the element follows is the one every shared thing here follows,
+stated from the other side: **it earns its bytes for a package that has no
+list machinery of its own** — CLEAR SKIES had none, and a package that
+already draws pull-downs is paying twice for one look. That is not an
+argument against the element; it is what stops the next reader assuming a
+published control must be adopted everywhere.
 
 ### 13.15 The CHECK BOX — the fourth shared element (`OS88UI_CHK`)
 

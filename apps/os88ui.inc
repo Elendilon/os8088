@@ -2767,7 +2767,7 @@ os88ui_chkhit:
 ;
 ; CF = 1 OUT OF drpress, drup AND drclose MEANS REPAINT, AND IT IS NOW THE
 ; UNCOMMON ANSWER. Opening the list banks the pixels it covers (SPEC.md
-; 5.4.3's published save-under, 13.14.1) and taking it down writes them back,
+; 5.3's published save-under, 13.14.1) and taking it down writes them back,
 ; so the close is one blit rather than a repaint of everything the list lay
 ; over. Keep the repaint anyway: it is what you get when the heap has no room
 ; for the bank, when the rect straddles two displays, and after any repaint
@@ -3002,7 +3002,7 @@ os88ui_drrect:
     ret
 
 ; -----------------------------------------------------------------------------
-; os88ui_drbank - BANK THE PIXELS THE LIST IS ABOUT TO COVER (SPEC.md 5.4.3)
+; os88ui_drbank - BANK THE PIXELS THE LIST IS ABOUT TO COVER (SPEC.md 5.3)
 ; in:  BP = the record, the gfx lock held; call it IMMEDIATELY before drawing
 ;      the list, so what it reads is what the list hides
 ; out: nothing; every register preserved. A failure - no heap, or a rect that
@@ -3080,8 +3080,18 @@ os88ui_drbank:
 ; -----------------------------------------------------------------------------
 ; os88ui_drback - put the banked pixels back (internal)
 ; in:  BP = the record, the gfx lock held
-; out: CF = 0 the screen is repaired, CF = 1 nothing was banked and the
-;      caller's content wants repainting. Every register preserved
+; out: CF = 0 the screen is repaired; CF = 1 it is NOT and the caller's content
+;      wants repainting - either nothing was banked, or the write-back itself
+;      refused. Every register preserved
+;
+; THE REFUSAL IS THE SAVE'S, ONE DIRECTION LATER. OSAPI_GFX_REST answers CF = 1
+; on a rect that straddles two displays, exactly as OSAPI_GFX_SAVE does, and
+; os88ui_drbank treats that as important enough to throw the whole bank away -
+; "half a bank put back is worse than none". This end dropped the same carry
+; and returned "repaired", so a close that restored NOTHING told the caller it
+; had nothing to repaint and the list stayed on the glass with the control
+; reading shut: 2,710 pixels of it, measured on the title page with the
+; write-back forced to refuse.
 ; -----------------------------------------------------------------------------
 os88ui_drback:
     cmp word [ds:bp+OS88UI_DR_SEG], 0
@@ -3099,14 +3109,15 @@ os88ui_drback:
     xor si, si
     call os88ui_drrect
     call OSAPI_GFX_REST
-    call os88ui_drfree
-    pop es
+    pushf                       ; ...and its answer is the caller's. The claim
+    call os88ui_drfree          ; goes back either way: a bank whose pixels
+    popf                        ; could not be written is a bank that never
+    pop es                      ; will be, and POP does not touch the flags
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
-    clc
     ret
 
 ; os88ui_drfree - give the claim back WITHOUT restoring (internal): the
@@ -3254,7 +3265,19 @@ os88ui_drpress:
                                 ; where every list went before this existed
     mov bx, [ds:bp+OS88UI_DR_WIN]
     call OSAPI_WM_CLIP_SET      ; W_ONCLICK arms no region of its own, and
-    jc .spent                   ; the list must not land on a window over ours
+    jnc .drew                   ; the list must not land on a window over ours
+    mov byte [ds:bp+OS88UI_DR_OPEN], 0
+    jmp short .spent            ; NOTHING WAS DRAWN, SO NOTHING IS OPEN. The
+                                ; byte went to 1 above because os88ui_drfit
+                                ; needs it, and leaving it there was a control
+                                ; that believed it had a list on screen when
+                                ; it had not: the press after it hit-tested
+                                ; cells nobody could see and silently picked
+                                ; one. SPEC.md 88.13.6 met this from the other
+                                ; end - four records with no OS88UI_DR_WIN, so
+                                ; every press here took the refusal - and gave
+                                ; them windows; this is the control's own half
+.drew:
     call os88ui_drbank          ; the pixels it covers, banked (13.14.1) -
     call os88ui_drlist          ; AFTER the clip, which changes nothing about
                                 ; what a save reads, and before the drawing,
