@@ -96022,6 +96022,62 @@ the two are the same number, so the attitude indicator was round; on
 and the bezel was a tall oval in every photograph of that panel. It is one
 `call cs_hscalex` on the radius, and the same line serves §88.9.3's dials.
 
+#### 88.9.2.2 THE HARD FREEZE: the ADI divided by cos(roll)
+
+The freeze the field reported for weeks — *"take off, roll, and halfway
+through the roll it hard freezes"* — is one instruction.
+
+`cs_d_adi` draws the horizon bar at a rise of `t × tan(roll)` over the
+window's half-width, and got the tangent the obvious way:
+
+```
+    call cs_cos
+    mov cx, ax          ; CX = cos, over 0.5 within MAXROLL
+    ...
+    idiv cx             ; AX = t tan
+```
+
+**That note is true of a TRAINER and false of every aerobatic aeroplane in
+the tree.** `cs_att_trim` clamps the roll to `CSP_MAXROLL`, which is 60° on
+the Cessna, so its cosine never falls below 0.5. `cs_att_free` and
+`cs_att_lag` have **no roll clamp at all** (§88.7.2 says so in capitals: the
+Pitts rolls right round), so those two aeroplanes fly straight through the
+vertical — and `cs_sintab` is 1024 entries over the turn, so **`cos` reads
+exactly 0 for the whole 64-unit window at ±90°**, with ±201 either side of
+it. `sin[512]` is 0 and its neighbours are ±201; there is no small value in
+between. So the failure is not an overflow that a bigger type would fix, it
+is a **divide by zero**, in 0.35° of roll out of 360.
+
+That is also why it was intermittent and why it took a field machine. The
+Pitts rolls 1,820 units a tick, and 9 of those is 16,380 — four units short
+of the window. A roll that starts from level steps straight over it. One
+that starts anywhere else does not.
+
+**What made it fatal is what happens next, not the fault itself.** On an
+8088 `int 0` pushes the address of the instruction *after* the divide and
+the BIOS's handler returns there, so the machine carries on with `AX`
+undefined. That garbage becomes `[cs_addy]`, the ADI's endpoints become
+wild, and the segment walk draws off the end of the shadow claim — over the
+package's own data, and then its code. Every symptom the field photographs
+showed is downstream of that: a stage byte holding 130, an interrupted IP
+inside the string *"…es for os8088"*, another mid-instruction on a byte that
+decodes as `retf`, and a tick counter that stops because by then there is
+nothing left to run.
+
+The fix is `cs_cdiv` (§85.5), which answers ±30,000 rather than faulting and
+handles a zero divisor by construction, and then a clamp: **four times the
+window's half-height**, past which the bar is vertical however much further
+it would go. The picture is unchanged everywhere the old code worked — the
+clamp only binds within 0.35° of the vertical, where the bar is already
+steeper than the window is tall.
+
+`tests/skiesadi.py` is the gate and it is built on the observation that made
+this findable at all: **a breakpoint on the INT 0 vector catches every
+divide fault in the whole program at once, and costs nothing when none
+fires.** It walks the roll through both windows a few units at a time on an
+aeroplane that has no clamp. `--clobber-adi` puts the raw `idiv` back and
+reproduces the fault at `0x4008` and `0xC008`.
+
 #### 88.9.3 …and instruments that only look the part
 
 A real panel is mostly things the simulation does not model. `CSK_DECO`

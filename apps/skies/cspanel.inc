@@ -604,12 +604,34 @@ cs_d_adi:
     push ax
     mov ax, [cs_roll]
     call cs_cos
-    mov cx, ax                      ; CX = cos, over 0.5 within MAXROLL
+    mov cx, ax                      ; CX = cos
     mov ax, [cs_roll]
     call cs_sin
     pop bx                          ; BX = t
     imul bx                         ; DX:AX = t sin
-    idiv cx                         ; AX = t tan: the rise over the half-width
+    ; --- COS IS EXACTLY ZERO AT 90 DEGREES (SPEC.md 88.9.2.2) --------------
+    ; The note here used to read "CX = cos, over 0.5 within MAXROLL", and
+    ; that is true of a TRAINER. cs_att_free and cs_att_lag have no roll
+    ; clamp at all (88.7.2), so an aerobatic aeroplane rolls straight through
+    ; the vertical - and cs_sintab is 1024 entries over the turn, so cos
+    ; reads 0 for the whole 64-unit window at +-90 and +-201 either side of
+    ; it. A `idiv cx` there is a DIVIDE BY ZERO, and on an 8088 int 0 returns
+    ; past it with AX undefined, which puts a garbage rise into a segment the
+    ; walk then draws off the end of the shadow.
+    mov bx, cx                      ; the guarded divide (85.5) answers +-30000
+    call cs_cdiv                    ; rather than faulting, zero divisor and all
+    mov bx, [cs_adhh]               ; ...and the rise is clamped to four times
+    shl bx, 1                       ; the window's half height: past that the
+    shl bx, 1                       ; bar is vertical however much further it
+    cmp ax, bx                      ; would go, and every number stays in a
+    jle .dyhi                       ; word
+    mov ax, bx
+.dyhi:
+    neg bx
+    cmp ax, bx
+    jge .dylo
+    mov ax, bx
+.dylo:
     mov [cs_addy], ax
     ; --- the ends: a right bank raises the right end -----------------------
     mov ax, [cs_adcx]
