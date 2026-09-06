@@ -95787,15 +95787,32 @@ and it is folded into `cs_k_state`'s cache key so the strip repaints on the
 tick the hull leaves.
 
 **Where a second aeroplane costs memory, and why it is not a part.** A plane
-is a 36-byte record, a name, and a ~120-byte cockpit; the Pitts' own model is
-about 150 bytes of code. `.o88` parts (§20.12) would move the DATA to a
-1 KB-granular heap claim and could not move the CODE at all — `CSP_ATT` is a
-near proc called every tick, and a part is far — while every pointer inside
-a cockpit record is a near offset into `DS`. Loading 300 bytes into a
-kilobyte to save 300 bytes of image is a net loss of about 700 bytes of RAM
-while flying, so the planes and the airports stay in the image. Parts earn
-their keep on something big and self-contained, which is what `apps/c64`'s
-20 KB of ROM is (§20.12).
+is a 44-byte record, a name, a ~120-byte cockpit and a 1,824-byte picture
+(§88.10.1); the Pitts' own model is about 150 bytes of code. `.o88` parts
+(§20.12) would move the DATA to a 1 KB-granular heap claim and could not
+move the CODE at all — `CSP_ATT` is a near proc called every tick, and a
+part is far — while every pointer inside a cockpit record is a near offset
+into `DS`. Loading 300 bytes into a kilobyte to save 300 bytes of image is a
+net loss of about 700 bytes of RAM while flying, so the planes and the
+airports stay in the image. Parts earn their keep on something big and
+self-contained, which is what `apps/c64`'s 20 KB of ROM is (§20.12).
+
+**The picture is the one part of a plane that a part COULD carry** — it is
+1,824 bytes, it is read once by the painter, and nothing in it is a near
+pointer — and it is not one either, because a part is 1 KB-granular: five
+bands are 9,120 bytes of image against 10,240 of claim, and the claim would
+be held for as long as the launcher is open, which is the whole session
+either side of a flight.
+
+**What the five pictures actually cost**, measured rather than estimated:
+`SKIES.O88` 38,900 → 46,305 bytes of image and 29,613 → 32,675 on the disk
+for the four bands the launcher did not have, lz4 (§20.13) taking a
+1,824-byte band to about 760 because a 1bpp line drawing on a white ground
+is mostly runs of `0xFF`. That is **three clusters** of the 360KB apps
+disk, which has 37 of 354 free (§19). **The drawings, not the code, are
+what decide how many aeroplanes that disk can carry**: a sixth aeroplane's
+record, cockpit, flight model and name together are under 400 bytes and its
+picture is nearly five times that.
 
 ### 88.8 The session (`apps/skies/csgame.inc`)
 
@@ -95914,9 +95931,9 @@ instruments and nothing else.
 ### 88.10 The title page
 
 The windowed half is a configuration page, white, and every pixel of it the
-package's (`OSAPI_WM_OWNBG`): **the title lettered across the top and a
-Cessna 172 in front of a cumulus on the right, both 1bpp bands drawn as
-vectors in `tools/csart.py`** — the lettering as brush strokes, a black
+package's (`OSAPI_WM_OWNBG`): **the title lettered across the top and the
+aeroplane in use in front of a cumulus on the right, both 1bpp bands drawn
+as vectors in `tools/csart.py`** — the lettering as brush strokes, a black
 stroke and a narrower white one over it, which is what makes an outlined
 italic letter with a white centre; the aeroplane as filled polygons that
 hide the cloud behind them and the lines that make it an aeroplane — and
@@ -95968,6 +95985,73 @@ pilot needs before and after a flight is the controls.
 **It does not ship on the small disks** (§24.5): the requirement it cannot
 meet on `kern_small` is the fullscreen surface, which is Tank's row of that
 table exactly.
+
+#### 88.10.1 A picture per aeroplane, and a VIEW per aeroplane
+
+**Every plane record names its own band in `CSP_ART`, and the page blits the
+one the row in use points at** — so picking from the Plane list changes the
+picture. The pointer hangs off the record rather than off a third table
+beside `cs_planes` and `cs_plnames`, because those two are already kept in
+step by position and a third would be a third chance to get that wrong; an
+aeroplane carries its picture the way it carries its cockpit
+(`CSP_COCKPIT`). Every band shares ONE frame, 152x96, asserted in the
+generator — `cs_paint` blits with one width and height, so a band of
+another size would draw a wrong picture rather than fail to assemble.
+
+**A pick redraws the PICTURE and not the page**, which is `cs_artdraw`: one
+`OSAPI_GFX_BLIT1` over the 152x96 the pick changed. Nothing repainted here
+before, and nothing needed to — a drop-down's normal close puts back the
+pixels its list covered and redraws its own box (§13.14.1), so
+`os88ui_drup` returns CF = 0 and `cs_drtake` was asked for no repaint at
+all. That is why the first build of this changed `cs_plane` and left the
+Cessna on the glass, and why the check that caught it reads the PIXELS and
+not the record. The repaint is still taken on the one path that asks for it
+— `os88ui_drup` returning CF = 1, meaning the list had no bank to restore —
+and the two are exclusive, so the picture is never drawn twice.
+
+**Each aeroplane is seen from its own angle**, and that is the point rather
+than a flourish: five side elevations differing in their details read as
+one drawing with the parts moved around, and the launcher is the only place
+the aeroplanes are seen side by side. **The angle is chosen by what
+identifies the aeroplane**, which is a different feature in each case:
+
+| | seen | because |
+|---|---|---|
+| Cessna 172 | side elevation | the view a trainer is known by, and the one view a flat drawing gets exactly right |
+| Pitts Special | three-quarters, ahead and BELOW, banked | a biplane from ABOVE is a monoplane — the upper wing covers the lower one. From under it they separate and the bay of struts between them is the silhouette |
+| Fouga Magister | nearly PLAN, from above | a butterfly tail seen from the side is a fin: the two panels overlap exactly. It opens into its V in plan, where the tip tanks are also both in frame |
+| Wassmer Bijave | nearly HEAD ON, banked | a sailplane's identity is its SPAN — sixteen metres to seven of fuselage. From the side it is a thin tube with a stick behind it |
+| Icon A5 | three-quarters ahead, low, **nose to the RIGHT** | what makes it an amphibian is the HULL, which is under the waterline in every higher view. It is also the only one facing the other way, which is half of telling it apart at a glance |
+
+A rear three-quarter was tried for the Fouga first and is worth recording
+as a refusal: it is the obvious way to show a V-tail and at 152x96 it does
+not work — one panel faces the camera as a plate and the other is a sliver,
+and the wing foreshortens into a stick. **Near-canonical views read at this
+size and 45-degrees-in-two-axes does not**, which is why four of the five
+are a canonical view with a modest twist.
+
+Anything but a side elevation needs foreshortening, which is wrong whenever
+it is guessed, so **an angled aircraft is written as a MODEL in body
+coordinates and its angle is three numbers** — the generator carries a
+rotation, a weak-perspective camera, and a fit that scales the projection
+onto the frame, so a new angle is a line and not a redrawing. A fourth
+number, `spin`, turns the finished PICTURE rather than the aeroplane: a
+plan view has to have one, because yaw and pitch put the nose at the foot
+of the frame and no attitude lifts it without also stopping the view being
+a plan. The hidden surfaces are a **z-buffer**, not the painter's algorithm
+the simulator itself uses (§88.5.4): a fuselage panel runs the length of
+the aeroplane and a wing crosses it, so no order of those two is right
+along the whole of both. The simulator takes that trade because it has
+milliseconds; this is drawn once, on a host, where being right is free —
+and the machine only ever sees the raster, so none of it is on the 8088 at
+any price.
+
+**The cloud is drawn into every band rather than stored once and shared**,
+which costs 1,824 bytes a band and no code. Sharing it would need a
+transparent blit: `OSAPI_GFX_BLIT1` is opaque, so a plane-only band punches
+its whole bounding box out of what is under it, and an aeroplane's bounding
+box is most of the cloud. A mask is the same size as the band it masks, and
+the slot to use one does not exist.
 
 ### 88.13 The settings (SPEC.md 88.13)
 
@@ -96161,7 +96245,11 @@ drop-downs get a release the title page never armed.
   and the drop-down it is the first user of (§13.14) — each list drops on a
   press in its box and comes down on a press elsewhere, the second location
   is picked and becomes the airport in use with a fresh flight owed, Esc
-  closes an open list, Flight → Instructions turns the page and a click
+  closes an open list, **picking the second aeroplane changes the PICTURE
+  and picking the first puts every pixel of it back** (§88.10.1 — the
+  record and the pixels are asked separately on purpose, the first build
+  passing the record half and leaving the Cessna on the glass), Flight →
+  Instructions turns the page and a click
   turns it back, the Mode menu's CGA pick flies in CGA320 with the frame
   counter climbing, and the bar still drops after all of it. Between the
   pick's press and its release it reads the kernel's `[ui_armw]` and holds

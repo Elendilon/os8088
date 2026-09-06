@@ -64,6 +64,9 @@ DR_SIZE = 24                            # ...whose two banking words (13.14.1)
                                         # were APPENDED, so a record declared
                                         # to the old length overlaps the next
 CSB_MODEX, CSB_CGA = 1, 2
+CS_ARTX, CS_ARTY = 152, 40              # the aircraft band, in CONTENT
+CS_ARTW, CS_ARTH = 152, 96              # coordinates (skies.asm, csart.inc)
+CSP_ART = 42                            # the band a plane record names (88.10.1)
 bad = []
 
 
@@ -140,6 +143,51 @@ def main(argv):
         click(po[0] + 20, pl[1] - 30)                       # the title band
         check(rec("cs_drplane", DR_OPEN, 1) == 0 and rec("cs_drplane", DR_SEL) == 0,
               "a press elsewhere takes it down and picks nothing")
+
+        # --- 1a. ...and a PICK changes the PICTURE (SPEC.md 88.10.1) ----------
+        # The band is the plane record's own (CSP_ART), so the page draws
+        # whichever aeroplane is in use. The pointer is parked at the same
+        # place, clear of the band, for all three captures, so what differs
+        # between them is the aeroplane and nothing else. A painter that
+        # blitted one fixed band would leave the picture identical here.
+        artpark = (bss("cs_winox") + 20, bss("cs_winoy") + 30)
+
+        def artshot():
+            ui.mo.to(*artpark)
+            m.advance(frames=20)
+            m.run()
+            m.pause()
+            fw, fh, f = m.fbuf(0)
+            m.run()
+            x0, y0 = bss("cs_winox") + CS_ARTX, bss("cs_winoy") + CS_ARTY
+            return b"".join(f[((y0 + y) * fw + x0) * 3:((y0 + y) * fw + x0 + CS_ARTW) * 3]
+                            for y in range(CS_ARTH))
+
+        def artdiff(p, q):
+            return sum(1 for i in range(0, len(p), 3) if p[i:i + 3] != q[i:i + 3])
+
+        first = int.from_bytes(m.readseg(seg, mp["cs_planes"], 2), "little")
+        second = int.from_bytes(m.readseg(seg, mp["cs_planes"] + 2, 2), "little")
+        check(bss("cs_plane") == first, "the launcher opens in the first aeroplane")
+        trainer = artshot()
+        click((pl[0] + pl[2]) // 2, (pl[1] + pl[3]) // 2)   # drop it...
+        click(pl[0] + 20, cell("cs_drplane", 1))            # ...and take item 2
+        check(bss("cs_plane") == second and bss("cs_inited", 1) == 0,
+              "the pick is the aeroplane in use, and a fresh flight is owed "
+              "(cs_plane %04x, cs_inited %d)" % (bss("cs_plane"), bss("cs_inited", 1)))
+        aerobat = artshot()
+        d = artdiff(trainer, aerobat)
+        check(d > 500, "the second aeroplane is a DIFFERENT PICTURE "
+                       "(%d of %d pixels differ)" % (d, len(trainer) // 3))
+        arts = [int.from_bytes(m.readseg(seg, r + CSP_ART, 2), "little")
+                for r in (first, second)]
+        check(arts[0] != arts[1] and 0 not in arts,
+              "and the two records name two bands (CSP_ART %04x, %04x)" % tuple(arts))
+        click((pl[0] + pl[2]) // 2, (pl[1] + pl[3]) // 2)   # back to item 1
+        click(pl[0] + 20, cell("cs_drplane", 0))
+        check(bss("cs_plane") == first, "picking the first aeroplane back takes it")
+        d = artdiff(trainer, artshot())
+        check(d == 0, "and puts every pixel of its picture back (%d differ)" % d)
 
         # --- 2. the location list picks ---------------------------------------
         click((po[0] + po[2]) // 2, (po[1] + po[3]) // 2)

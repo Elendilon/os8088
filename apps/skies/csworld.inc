@@ -177,6 +177,7 @@ cs_p_c172:
                                     ;              the power (88.7.5)
     dw 0                            ; CSP_LAUNCH   on the runway
     dw 0                            ; CSP_FLAGS
+    dw cs_art_c172                  ; CSP_ART      SIDE ON (88.10.1)
 cs_s_c172:   db 'CESSNA 172', 0
 
 ; --- the second row: a PITTS SPECIAL (SPEC.md 88.7.2), an aerobatic biplane.
@@ -214,6 +215,11 @@ cs_p_pitts:
     dw 0                            ; CSP_SPOOL    a piston
     dw 0                            ; CSP_LAUNCH   on the runway
     dw 0                            ; CSP_FLAGS
+    dw cs_art_pitts                 ; CSP_ART      three-quarters from ahead
+                                    ;              and BELOW, banked - a
+                                    ;              different VIEW and not only
+                                    ;              a different aeroplane
+                                    ;              (88.10.1)
 cs_s_pitts:  db 'PITTS SPECIAL', 0
 
 ; --- the third row: a FOUGA CM.170 MAGISTER (SPEC.md 88.7.5), the French jet
@@ -252,6 +258,10 @@ cs_p_fouga:
                                     ;              95% of the way in 5.3 s
     dw 0                            ; CSP_LAUNCH   on the runway
     dw 0                            ; CSP_FLAGS
+    dw cs_art_fouga                 ; CSP_ART      from BEHIND and above,
+                                    ;              which is where a butterfly
+                                    ;              tail is a butterfly tail
+                                    ;              (88.10.1)
 cs_s_fouga:  db 'FOUGA MAGISTER', 0
 
 ; --- the fourth row: a WASSMER WA-30 BIJAVE (SPEC.md 88.7.6), the French
@@ -289,6 +299,10 @@ cs_p_bijave:
     dw 0                            ; CSP_SPOOL    there is no engine to spool
     dw 600                          ; CSP_LAUNCH   metres, tow just released
     dw 0                            ; CSP_FLAGS
+    dw cs_art_bijave                ; CSP_ART      nearly PLAN, from above:
+                                    ;              a sailplane's identity is
+                                    ;              its span, and a side view
+                                    ;              hides all of it (88.10.1)
 cs_s_bijave: db 'WASSMER BIJAVE', 0
 
 ; --- the fifth row: an ICON A5 (SPEC.md 88.7.7), the light sport amphibian.
@@ -325,6 +339,10 @@ cs_p_a5:
                                     ;              CSP_FLAGS' doing and not
                                     ;              a launch height
     dw CSPF_AMPHIB                  ; CSP_FLAGS
+    dw cs_art_a5                    ; CSP_ART      from ahead and low, nose
+                                    ;              to the RIGHT - the one that
+                                    ;              shows a hull is a hull
+                                    ;              (88.10.1)
 cs_s_a5:     db 'ICON A5', 0
 
 ; =============================================================================
