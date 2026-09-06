@@ -184,11 +184,60 @@ for the truncated bar, and `OS88UI_MN_CHK`. Proved by the same A/B one level
 up — all nine menus' drawn PANELS pixel-identical, which is every byte
 `mndraw`, `mnbar` and `mngeo` produce between them.
 
-**W3 — the gesture and the bank.** `wd_mtrack`, `wd_mclick_open`, `wd_mopenm`,
-`wd_mclose`, `wd_mfire`, `wd_subank`, `wd_surest`, and `wd_selpace`'s
-unlock/yield/relock which moves with the poll. The shims all go here and the
-aliases become the record proper.
+**W3 — the gesture and the bank. ATTEMPTED, REVERTED, and what it found.**
+`wd_mtrack`, `wd_mclick_open`, `wd_mopenm`, `wd_mclose`, `wd_subank`,
+`wd_surest`, and `wd_selpace`'s unlock/yield/relock, which moves with the poll.
 
-**Do not stop between W2 and W3.** A half-converted Word carries both bodies
-and is bigger than either, which is the state this file's own §2 arithmetic
-was written to get out of.
+**`wd_mfire` and `wd_mact` are NOT in it** — the wave list had them wrong.
+They are the application half: `wd_mact` banks `[wd_pickm]`/`[wd_picki]` for
+Word's own combo handler and reads which menu is open, and `wd_mfire`
+dispatches through `wd_ftab` into Word's actions. So the boundary is that
+**the element runs the gesture and leaves the pick in the record with the menu
+still OPEN**, and the caller does the lookup, the close and the firing in that
+order — which is the order Word already had, `wd_mact` needing `wd_mopen`
+before `wd_mclose` clears it.
+
+Three more things the attempt established, all worth having before the retry:
+
+* **`wd_mopenm` splits.** The Window menu composes `'1 ' + wd_name` into its
+  own item before opening: a fact about Word, not about a menu. Word keeps
+  that and tail-calls `os88ui_mnopen`.
+* **`wd_mclose` splits the same way.** The element gives the pixels back and
+  answers `CF = 1` when it could not; the piecewise repaint is the caller's
+  because the content is.
+* **The gesture wrappers must preserve DX.** `wd_mact` sets `DL`, and the
+  routines preserved `DX` before the element took them.
+
+**And it does not work yet.** With all of it in, the first click opens File and
+the app then takes no further clicks: `os88ui_mnbarhit` is never re-entered
+from the loop, which places it at `.loop`'s `cmp byte [MN_OPEN], <n> / jae
+.items` reading **9 or more** for a record whose `MN_OPEN` was just set to 0.
+That is `BP` not holding the record inside the poll — and the poll is the one
+place in the element that **drops the gfx lock and yields** (`os88ui_mnpace`),
+so that is where to look first. None of the element's own routines touch `BP`;
+it was checked.
+
+Reverted rather than landed. W1 and W2 stand on their own and are gated.
+
+**Stopping after W2 is stable**, which is not what this note said before the
+waves were built and is worth correcting: the shims are six bytes each, not
+duplicated bodies, so nothing is carried twice. What is true is the cost —
+see below.
+
+## 7. What the conversion actually costs, measured
+
+**+226 bytes of Word after W2**, and W3 as attempted took it to **+300** with
+every dead shim deleted. It does not break even, and the reason is
+mechanical rather than a mistake to find: the record lives in DS and the
+element addresses it as `[ds:bp+n]`, which is a segment override and a
+displacement where Word's own `[wd_xxx]` was one direct 16-bit address. That
+is about a byte per access, and the control half has hundreds.
+
+So the honest position is the one `apps/os88ui.inc`'s header takes: **saving
+bytes was never the argument.** What the conversion buys is one body instead
+of two, for a control the tree already has two of — and the payoff is not in
+Word at all, it is that **Sheet can then delete ~1,382 bytes and stop
+repainting its whole content on every menu close**. Across the two packages
+that is about -1,080 and one fewer body; in Word alone it is +300 and a
+standard control. Both numbers should be quoted, and the second one is the
+one that decides.
