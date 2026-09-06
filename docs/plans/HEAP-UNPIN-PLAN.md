@@ -1042,9 +1042,20 @@ somewhere to be put back.** Piece B is the only one that needs neither.
 The shape is a mirror of the existing pair — parameterise the direction through
 both bodies plus a descending twin of `mem_cp_next`, or duplicate them.
 **~120 bytes parameterised, ~220 duplicated** (ESTIMATE, on the measured bodies:
-`mem_cp_plan` 104, `mem_cp_run` 115, `mem_cp_next` 55), plus a **direction bit**
-the record does not have — and `.lowbss` has 34 bytes of its rung left, so
-widening `MC_SIZE` costs 64 bytes and crosses a rung on kern_big.
+`mem_cp_plan` 104, `mem_cp_run` 115, `mem_cp_next` 55).
+
+**It needs to know which door a block came in through, and that should NOT be a
+new field.** `MC_` has five and none records the direction (kernel/memory.inc:71).
+A direction bit is `MEM_MAX` × 2 = 64 bytes of `.lowbss`, which has 34 bytes of
+its rung left — so it would cross one. **The direction is derivable from what the
+record already holds, and `mem_can_move` already derives exactly this
+classification** (§2): `MEM_K_DRV` and `MEM_K_MOD` are tags, a region is
+`mem_is_region` on the instance-slot arm, a bus-master buffer carries `MC_DMA`,
+and a driver-owned claim has a driver segment as its owner. Every one of §5.1's
+seven top-down sites is identifiable that way without storing anything — at the
+cost of a few compares per claim, on a path that is about to `rep movsw` up to
+64KB. Confirm it against those seven before relying on it; on that enumeration it
+holds for all of them.
 
 **One claim gets its 14KB back for nothing, and §5.1 is why it is safe.**
 
@@ -1123,11 +1134,17 @@ SPEC.md 66.7 forbids packing into a hole *below* a pinned block — so a movable
 claim can never pass one — declaring it slides the pool down onto the highest
 pinned block beneath it and merges the gap under it with the run above.
 **A strict improvement, needing no descending pass.**
-**Not landed here.** It is a behaviour change to a shipped driver and the only
-harness that can exercise `ETHER.DRV` is QEMU (`tests/ethernet.py`; MartyPC has
-no NIC of any kind), so it wants that gate green first — and the gate's assertion
-1b already reads `sk_seg` and the ladder rung, which is exactly the state a move
-disturbs.
+**DEFERRED, by decision, and not for want of evidence.** The owner's call:
+*"leave it for now, it can compact to the top with the rest after we implement
+this work."* Which is the right sequencing — declaring the pool movable **before**
+§5's descending pass exists would slide it down to close the gap beneath it, and
+what is actually wanted is for it to pack **up** with the rest of the ceiling
+once there is a pass that does that. The five lines wait for E.
+
+The harness is ready when it is: `tests/ethernet.py` now runs green end to end
+under QEMU 8.2.2 (card, rings at `sk_seg`, DHCP, the browser over TCP), and its
+assertion 1b already reads `sk_seg` and the ladder rung — exactly the state a
+move disturbs.
 
 ---
 
@@ -1210,7 +1227,7 @@ first two are worth taking whatever is decided about the rest.
 | **C** | **Regions move when idle** (§3.5, §4.2): `[wm_pkgd]` + its two brackets ~11, the fix-up routine ~110, the `mem_can_move` arm ~20, widen `mem_find_own`'s fence ~20, the `[ld_base]` refusal ~6, tier-3 gate ~15 | **~200** | ~11 | ESTIMATE; the fix-up is `dsk_dseg_reloc`'s shape over four tables and five words. Two agents arrived at ~110 independently |
 | **D0** | **Driver unload/reload as a policy step** (§3.4): the mechanism is BUILT — `hbm_detach`/`hbm_reload` are 91 bytes, `ss_reap_x` does it per session. Only a policy hook is new | **~40** | 0 | ESTIMATE. Reaches **more** memory than a move (the 8KB ring and ETHER's 14KB pool) and breaks nothing, because a package names a driver by CLASS |
 | **D** | **Driver images move in place** (§3.2, §3.4, §4.4): the 66-word fix-up, a dispatch depth count, the mask/unmask bracket, `DRVV_QUIESCE`/`DRVV_REARM`/`DRVV_RELOC` | **~175–242** | ~40 | ESTIMATE; `drv_call` is 61, `[drv_wcnt]`'s half costs 0. **The bytes are not what stops this** — §3.4's 50.2 ms IF=0 window for an 18KB `ETHER.DRV` is |
-| **E** | **The descending pass** (§5) — **A, C and D are harmful without it** | **~120** | 0 | ESTIMATE; parameterising `mem_cp_plan` (104) + `mem_cp_run` (115) + a descending `mem_cp_next` (55), plus a direction bit (`MEM_MAX`×2 of `.lowbss`) |
+| **E** | **The descending pass** (§5) — **A, C and D are harmful without it** | **~120** | 0 | ESTIMATE; parameterising `mem_cp_plan` (104) + `mem_cp_run` (115) + a descending `mem_cp_next` (55), with direction DERIVED from the tag/owner rather than a sixth `MC_` field (§5) |
 | **F** | **Worker-owning regions, by declaration** (§4.7): `OSAPI_TASK_RESTARTABLE`, the frame rebuild, the `mem_can_move` arm | **~90** | ~20 | ESTIMATE; `task_spawn`'s tail is the rebuild, `inst_parksafe_set` (22) the setter's shape. +24 `.bss`, +1 API cell |
 
 **Everything: ~850–940 bytes**, of which **~430–460 is `.text`** once the
@@ -1335,19 +1352,21 @@ in the machine can merge them today.
    a package's overlay image claimed bottom-up with a CS base, SHEET's 99KB of
    undeclared claims, and a C SDK with no `os88_mem_movable` at all. A slot
    number, a declaration and one SDK function.
-4. **There is a zero-ABI alternative that kills §2.0's wall at its root, and it
-   is not in this document's option list.** `drv_memk` (kernel/driver.inc:1091)
-   is already *"one word per `drv_tab` row, in the same order"* — the kernel
-   knows every driver's KB before any of them is mounted. **Reserve that band at
-   the ceiling at boot** and a driver mounted mid-session lands in it, at the
-   top, rather than at whatever depth the heap had reached. No new ABI, no
-   relocation, no predicate, no descending pass. What it costs is the band
-   itself, unavailable to packages even when nothing is mounted — ~48KB on a
-   fully-provisioned kern_big — which is a bad trade at face value. **A narrower
-   version may not be**: reserve only up to the largest single row, or only for
-   rows the machine could plausibly gain, and the wall is bounded rather than
-   eliminated for a fraction of the memory. It deserves costing before ~850
-   bytes of compactor does.
+4. **A boot-time ceiling reservation was proposed and is REFUSED.** `drv_memk`
+   (kernel/driver.inc:1091) is *"one word per `drv_tab` row, in the same order"*,
+   so the kernel could reserve a ceiling band at boot and have a mid-session
+   mount land in it. No ABI, no relocation, no predicate. **The owner's answer
+   is that it fails on both counts**: *"reserving multiple kb of ram to try to
+   save 850b of ram is not a good trade — and still wouldn't work in the end
+   unless we reserved enough we could never overrun it."*
+
+   Both halves are right and the second is the one that kills it. A **partial**
+   reservation does not remove the wall, it relocates it: the first mount that
+   does not fit the band lands below it exactly as today, and the machine is
+   then short the band *as well*. Only a reservation large enough that nothing
+   can ever overrun it works, and that is ~48KB of a 640KB machine permanently
+   unavailable — spent to avoid ~850 bytes. **Recorded so it is not re-proposed
+   as a cheap alternative; it is neither cheap nor an alternative.**
 5. **The user who is out of memory usually wants a program to go away.** Closing
    one returns 5–48KB of region **plus every claim it holds**, at no engineering
    cost — and SPEC.md 47's rule is that refusal is normal. A refusal that named

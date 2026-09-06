@@ -194,6 +194,25 @@ class Qemu:
             f.close()
             s.close()
 
+    # --- SENDKEY, and it lives HERE rather than in a subclass ----------------
+    # tests/dispcp.py's scroller drives a list with ArrowDown/End, and it is
+    # the shared navigation every gate reuses. tests/ftpd.py worked out the
+    # mapping and put it on its OWN Qemu, so ethernet.py - the file that
+    # DEFINES this class and calls dispcp.open_named itself - had no `key` at
+    # all and died with AttributeError the moment it opened a package by name.
+    # One method on the base class is what ftpd's own comment already said it
+    # was: "the whole of what a QEMU-hosted gate is missing to reuse that
+    # scroller."
+    QKEYS = {"ArrowDown": "down", "ArrowUp": "up", "Home": "home",
+             "End": "end", "PageDown": "pgdn", "PageUp": "pgup",
+             "Tab": "tab", "Enter": "ret"}
+
+    def key(self, name):
+        if name not in self.QKEYS:
+            raise KeyError("no QMP sendkey name for %r" % name)
+        self.hmp("sendkey " + self.QKEYS[name])
+        time.sleep(0.05)
+
     def read(self, linear, n):
         p = os.path.join(self.tmp, "m.bin")
         # THE FILENAME IS QUOTED, and it has to be: HMP parses an unquoted
