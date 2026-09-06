@@ -336,6 +336,7 @@ cs_dactab:                          ; 6-bit DAC values, indexed by CSI_*
     db 56, 56, 56                   ; 11 its ink
     db 63, 44, 10                   ; 12 its warning
     db 24, 24, 26                   ; 13 the cockpit's face
+    db  0,  0,  0                   ; 14 nothing at all (88.13.3)
 
 ; ...and what each MEANING is worth as FOUR ROW PATTERNS on the three
 ; adapters (SPEC.md 88.4.4). Indexed by CSI_* x 4.
@@ -359,6 +360,7 @@ cs_inkherc:
     db 0xFF, 0xFF, 0xFF, 0xFF       ; its ink
     db 0xFF, 0xFF, 0xFF, 0xFF       ; its warning
     db 0xAA, 0x00, 0x55, 0x00       ; the cockpit's face: 25%
+    db 0x00, 0x00, 0x00, 0x00       ; nothing: black (88.13.3)
 cs_inkcga:                          ; palette 0: 0 light blue, 1 green,
     db 0x00, 0x00, 0x00, 0x00       ;   2 red, 3 brown
     db 0x55, 0x55, 0x55, 0x55       ; ground: green
@@ -374,6 +376,7 @@ cs_inkcga:                          ; palette 0: 0 light blue, 1 green,
     db 0x55, 0x55, 0x55, 0x55       ; its ink: green
     db 0xAA, 0xAA, 0xAA, 0xAA       ; its warning: red
     db 0xAA, 0xAA, 0xAA, 0xAA       ; the cockpit's face: red
+    db 0x00, 0x00, 0x00, 0x00       ; nothing: black (88.13.3)
 cs_inkmodex:                        ; the DAC above, one for one
     db 0, 0, 0, 0
     db 1, 1, 1, 1
@@ -389,12 +392,52 @@ cs_inkmodex:                        ; the DAC above, one for one
     db 11, 11, 11, 11
     db 12, 12, 12, 12
     db 13, 13, 13, 13
+    db 14, 14, 14, 14               ; nothing: black (88.13.3)
 
 ; The pixel value of an ink on the two colour adapters, for the WALKS and the
 ; glyphs: the 2-bit colour on CGA and the index on Mode X. Hercules is the one
 ; bit.
-cs_inkval_cga:   db 0, 1, 3, 0, 3, 2, 2, 3, 2, 1, 3, 1, 2, 2
-cs_inkval_modex: db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+cs_inkval_cga:   db 0, 1, 3, 0, 3, 2, 2, 3, 2, 1, 3, 1, 2, 2, 0
+cs_inkval_modex: db 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+
+; -----------------------------------------------------------------------------
+; cs_hznone - the horizon band with the TERRAIN fill off (SPEC.md 88.13.3):
+;             every ground row takes CSI_BLACK and every sky row keeps the
+;             sky, so what is left is the horizon as the edge between them.
+;             Clobbers AL.
+;
+; It was the SKY's ink on both sides, which is right on a 1bpp adapter for
+; the accidental reason that the sky there IS black - and on a colour one
+; painted the whole world blue, horizon and all. Black is the ground being
+; ABSENT rather than the sky reaching the bottom of the frame.
+; -----------------------------------------------------------------------------
+cs_hznone:
+    cmp byte [cs_hzab], CSI_SKY     ; whichever side is not the sky is the
+    jne .below                      ; ground, and that is the side to black
+    mov byte [cs_hzbl], CSI_BLACK
+    mov al, [cs_hzl]                ; ...and so is the band's own half, which
+    cmp al, CSI_SKY                 ; is the row the horizon crosses
+    je .l1
+    mov byte [cs_hzl], CSI_BLACK
+.l1:
+    mov al, [cs_hzr]
+    cmp al, CSI_SKY
+    je .out
+    mov byte [cs_hzr], CSI_BLACK
+    ret
+.below:
+    mov byte [cs_hzab], CSI_BLACK
+    mov al, [cs_hzl]
+    cmp al, CSI_SKY
+    je .b1
+    mov byte [cs_hzl], CSI_BLACK
+.b1:
+    mov al, [cs_hzr]
+    cmp al, CSI_SKY
+    je .out
+    mov byte [cs_hzr], CSI_BLACK
+.out:
+    ret
 
 ; -----------------------------------------------------------------------------
 ; cs_setink - adopt a logical ink (CSI_*) for the fills and walks that follow
@@ -829,17 +872,9 @@ cs_skyground:
     ; carries the union (SPEC.md 88.3). That is most of the view in level
     ; flight, at a compare a row.
 .rows:
-    test byte [cs_setfill], CSFL_GROUND   ; --- THE GROUND, if it is wanted
-    jnz .ink                        ; (88.13.3): with it off every row takes
-    mov al, [cs_hzab]               ; the SKY's ink, so what is left is the
-    cmp al, CSI_SKY                 ; horizon drawn as a line by the band's
-    je .g1                          ; own split rows below - a black world
-    mov al, [cs_hzbl]               ; with a lit edge on it. The band is the
-.g1:                                ; rows the horizon crosses, so the line
-    mov [cs_hzl], al                ; is exactly where the fill's edge was
-    mov [cs_hzr], al
-    mov [cs_hzab], al
-    mov [cs_hzbl], al
+    test byte [cs_setfill], CSFL_TERRAIN   ; --- THE GROUND, if it is wanted
+    jnz .ink                        ; (88.13.3): with it off the ground's
+    call cs_hznone                  ; rows go BLACK and the sky stays sky
 .ink:
     mov al, [cs_hzl]
     call cs_inkpat
@@ -909,7 +944,7 @@ cs_skyground:
     sub cx, bx
     mov al, [cs_hzbl]
     call cs_hzrows
-    test byte [cs_setfill], CSFL_GROUND
+    test byte [cs_setfill], CSFL_TERRAIN
     jnz .out
     cmp byte [cs_hzhave], 0         ; the ground is off: what tells the sky
     je .out                         ; from the earth is this one segment

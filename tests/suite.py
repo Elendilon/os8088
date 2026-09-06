@@ -233,6 +233,14 @@ FAST = [
         "apps/skies/csart.inc is what tools/csart.py generates (SPEC.md 88.10):"
         " the launcher's two 1bpp bands are drawn by the tool and checked in,"
         " and the include cannot drift from the drawing"),
+    Row("csterrain", "fast", py("tests/unit/t_csterrain.py"), 0.2,
+        "SPEC.md 88.13.1: every CLEAR SKIES object carries the class flag "
+        "its MODEL implies - CSO_TERRAIN for the hills and the water, "
+        "CSO_ROAD for the roads and bridges. The Detail Level ladder refuses "
+        "objects before they are transformed and those bits are what exempt "
+        "them, so a row without one simply vanishes at a rung it should have "
+        "survived: thirty water objects had no flag and every river in the "
+        "tree emptied at None"),
     Row("inktab", "fast", py("tests/unit/t_inktab.py"), 0.2,
         "SPEC.md 42.23.1: Paint's two ink-class masks ARE the kernel's "
         "gfx_inktab. A one-bit canvas stores what a 1bpp SCREEN shows, so the "

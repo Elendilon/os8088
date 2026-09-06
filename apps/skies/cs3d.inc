@@ -641,13 +641,21 @@ cs_drawpass:
 ; -----------------------------------------------------------------------------
 cs_consider:
     mov [cs_obj], si
-    mov ax, [si + CSO_FLAGS]        ; --- WHAT THE PLAYER ASKED FOR (88.13.1):
-    mov bl, [cs_setbld]             ;     the anonymous filler goes first, and
-    cmp bl, CSBL_ALL                 ;     at Few only the points of interest
-    je .tier                        ;     are left standing
+    mov ax, [si + CSO_FLAGS]        ; --- WHAT THE PLAYER ASKED FOR (88.13.1),
+    mov bl, [cs_setbld]             ;     a LADDER: the anonymous filler goes
+    cmp bl, CSBL_ALL                ;     first, then everything but the
+    je .tier                        ;     points of interest, then all but
+    test ax, CSO_TERRAIN            ;     the roads, then those too. TERRAIN
+    jnz .tier                       ;     is exempt from every rung of it -
+    cmp bl, CSBL_NONE               ;     the hills, the water and the runway
+    je .out                         ;     are the world's own surface and not
+    test ax, CSO_ROAD               ;     buildings to thin out - and the
+    jnz .tier                       ;     ROADS come back one rung up, being
+    cmp bl, CSBL_ROADS              ;     the shape of a city with no city on
+    je .out                         ;     it and a line model each
     test ax, CSO_FILLER
     jnz .out
-    cmp bl, CSBL_FEW
+    cmp bl, CSBL_LOW
     jne .tier
     test ax, CSO_POI
     jz .out
@@ -1011,7 +1019,8 @@ cs_drawobj:
     call cs_flatverts
     call cs_projall
 .full:
-    call cs_faces
+    call cs_wireclr                 ; the edges-once marks are an OBJECT's, and
+    call cs_faces                   ; a vertex index means nothing across two
     ; --- a solid under CS_EDGEPX pixels across keeps no outline: twelve
     ;     segments round a fifteen-pixel box cost more than the box, and at
     ;     that size the walls' patterns already tell them apart. A wireframe
@@ -1510,6 +1519,7 @@ cs_faces:
     mov [cs_fidx], si
     cmp byte [cs_pwhole], 0         ; a whole object: no end is behind or
     jne .plain                      ; past a side, so the count is skipped
+                                    ; (and .plain clears cs_fcut for it)
     ; --- how many ends are behind the near plane, how many past a side ------
     mov cx, [cs_fn]
     xor dx, dx                      ; DL = behind, DH = outside
@@ -1532,9 +1542,12 @@ cs_faces:
     je .skip                        ; all behind
     or dx, dx
     jz .plain                       ; all in front and inside: the projected
-    call cs_fclip                   ; points as they are; else clip in
-    jmp short .fill                 ; camera space and project the rest
+    mov byte [cs_fcut], 1           ; points as they are; else clip in
+    call cs_fclip                   ; camera space and project the rest -
+    jmp short .fill                 ; and cs_pv is then NOT the model's
+                                    ; vertices, which cs_wire has to know
 .plain:
+    mov byte [cs_fcut], 0
     mov si, [cs_fidx]
     mov cx, [cs_fn]
     mov [cs_pn], cx
@@ -1577,13 +1590,16 @@ cs_faces:
     jz .skip                        ; away, or edge-on
 .draw:
     mov al, [cs_fink]               ; --- IS THIS FILL WANTED? (88.13.3) The
-    call cs_fillon                  ;     ink says what the face is made of,
-    jc .skip                        ;     and the edges below still draw it
+    call cs_fillon                  ;     ink says what the face is made of;
+    jc .wire                        ;     with it off the face is its OUTLINE
     mov al, [cs_fink]
     call cs_setink
     mov si, cs_pv
     mov cx, [cs_pn]
     call cs_poly
+    jmp short .skip
+.wire:
+    call cs_wire
 .skip:
     pop si
     mov al, [si]
@@ -1596,20 +1612,152 @@ cs_faces:
     ret
 
 ; -----------------------------------------------------------------------------
+; cs_wire - the face at cs_pv/cs_pn as an OUTLINE, EACH EDGE ONCE (88.13.3)
+;
+; Every edge of a closed solid is shared by exactly two faces, so outlining
+; each front face in turn draws every shared edge TWICE - the same pixels, at
+; the same cost, for no picture. This marks each edge by its two VERTEX
+; INDICES as it draws it and skips one already marked; the marks are cleared
+; once an object (cs_wireclr), because indices are the model's and mean
+; nothing across models.
+;
+; A face the near plane CUT has no such indices - cs_pv holds points the
+; clipper made - so that one is drawn whole. It is the near case only, and
+; the alternative is not drawing an edge that is there.
+;
+; in:  cs_pv/cs_pn projected, cs_fidx = the face's vertex indices, cs_fcut
+;      set when the clipper ran.  Clobbers everything.
+; -----------------------------------------------------------------------------
+cs_wire:
+    mov cx, [cs_pn]
+    cmp cx, 2
+    jb .out
+    mov [cs_wn], cx
+    mov al, [cs_fink]               ; the outline is the FACE's own ink, so a
+    call cs_setink                  ; hill's ridge is a hill and a wall a wall
+    xor di, di                      ; DI = the vertex, 0..n-1
+.e:
+    mov si, di                      ; the segment i -> i + 1, wrapping
+    shl si, 1
+    shl si, 1
+    add si, cs_pv
+    mov ax, [si]
+    mov bx, [si + 2]
+    mov si, di
+    inc si
+    cmp si, [cs_wn]
+    jb .j
+    xor si, si                      ; the last edge closes on vertex 0
+.j:
+    mov [cs_wj], si
+    shl si, 1
+    shl si, 1
+    add si, cs_pv
+    mov cx, [si]
+    mov dx, [si + 2]
+    cmp byte [cs_fcut], 0
+    jne .draw                       ; a cut face has no indices: draw it whole
+    push ax
+    push bx
+    push cx
+    push dx
+    mov si, [cs_fidx]               ; the face's vertex indices
+    mov bx, di
+    mov al, [si + bx]
+    mov bx, [cs_wj]
+    mov ah, [si + bx]
+    call cs_edgemark
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jc .next                        ; the other face drew it already
+.draw:
+    push di
+    call cs_seg
+    pop di
+.next:
+    inc di
+    cmp di, [cs_wn]
+    jb .e
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cs_edgemark - has the edge between vertices AL and AH been drawn already?
+;               Marks it if not.  out: CF = 1 it had been. Clobbers AX, BX, CX.
+;
+; A bit per unordered pair, four bytes a row: the LOW index picks the row and
+; the HIGH one the bit in it, so an edge has one address whichever face
+; reaches it first.
+; -----------------------------------------------------------------------------
+cs_edgemark:
+    cmp al, ah                      ; the pair, low end first
+    jbe .ord
+    xchg al, ah
+.ord:
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1                       ; BX = the row, four bytes each
+    mov cl, ah
+    shr cl, 1
+    shr cl, 1
+    shr cl, 1
+    xor ch, ch
+    add bx, cx                      ; ...and the byte within it
+    mov cl, ah
+    and cl, 7
+    mov ch, 1
+    shl ch, cl                      ; CH = the bit
+    mov al, [cs_eseen + bx]
+    test al, ch
+    jnz .seen
+    or al, ch
+    mov [cs_eseen + bx], al
+    clc
+    ret
+.seen:
+    stc
+    ret
+
+; cs_wireclr - the object's edge marks, cleared. Preserves everything
+cs_wireclr:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    mov di, cs_eseen
+    mov cx, CS_ESEEN / 2
+    xor ax, ax
+    cld
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; cs_fillon - may a face in ink AL be filled? (SPEC.md 88.13.3)
 ; out: CF = 1 the player turned this fill off. Preserves every register
 ;
-; The river is water, the runway and every wall, roof and hill are solids,
-; and the ground under the horizon is cs_skyground's business rather than a
-; face's. Turning all three off leaves the edges, which is the wireframe
-; world the option exists for.
+; TERRAIN is the water and the hills - the world's own surface - and the
+; ground under the horizon, which is cs_skyground's business rather than a
+; face's. Everything else is built: walls, roofs, the runway. A fill turned
+; off leaves the face's OUTLINE (cs_wire), which is the wireframe world the
+; option exists for, and not an empty sky where the thing used to be.
 ; -----------------------------------------------------------------------------
 cs_fillon:
     push ax
-    mov ah, CSFL_BLDG
+    mov ah, CSFL_TERRAIN
     cmp al, CSI_RIVER
-    jne .test
-    mov ah, CSFL_WATER
+    je .test
+    cmp al, CSI_HILL
+    je .test
+    mov ah, CSFL_BLDG
 .test:
     test [cs_setfill], ah
     jz .off

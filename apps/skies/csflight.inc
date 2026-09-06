@@ -113,8 +113,10 @@ cs_runway_build:
     mov word [di + CSO_LOD], 0
     mov ax, [si + CSA_NAME]
     mov [di + CSO_NAME], ax
-    mov word [di + CSO_FLAGS], 0
-    ret
+    mov word [di + CSO_FLAGS], CSO_TERRAIN   ; the runway is the world's
+    ret                             ; surface and not a building: Buildings
+                                    ; None must not take away the strip you
+                                    ; are standing on (SPEC.md 88.13.1)
 
 ; -----------------------------------------------------------------------------
 ; cs_reset - the aeroplane back at the airport's reset point, engine off

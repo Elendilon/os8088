@@ -134,7 +134,12 @@ CSI_PBG    equ 10               ; the panel's ground...
 CSI_PFG    equ 11               ; ...its ink...
 CSI_PHI    equ 12               ; ...and its warning
 CSI_PFACE  equ 13               ; the cockpit's face round the windows (88.9.2)
-CSI_NINK   equ 14
+CSI_BLACK  equ 14               ; NOTHING: the ground band with the Terrain
+                                ; fill off (88.13.3). It cannot be CSI_SKY -
+                                ; on a 1bpp adapter the sky IS black and the
+                                ; two are the same row, but on a colour one
+                                ; the whole world would then read as sky
+CSI_NINK   equ 15
 
 ; --- the world (SPEC.md 88.5, 88.6) -------------------------------------------
 ; Metres. x east, z north, y up; the Eiffel Tower at the origin.
@@ -147,6 +152,8 @@ CS_FAR    equ 16000             ; nothing beyond this is transformed, and it
 CS_MAXV   equ 24                ; vertices in the largest model (the tower's
                                 ; five levels are 20)
 CS_MAXPV  equ 10                ; ...and a face after the near clip
+CS_ESEEN  equ CS_MAXV * 4       ; ...and the edges-once marks (88.13.3): a
+                                ; bit per vertex pair, four bytes a row
 CS_LODPX  equ 8                 ; the biggest RECTANGLE cs_boxlod may stand
                                 ; in for a solid (SPEC.md 88.5.4.1): an
                                 ; impostor is axis-aligned in SCREEN space,
@@ -198,9 +205,13 @@ CSO_SIZE  equ 20
 ; --- what a SETTING is (SPEC.md 88.13): four knobs the player turns, on the
 ;     Settings page and on hotkeys inside the bracket. Every one of them
 ;     trades picture for frame rate, and every default is what shipped ------
-CSBL_FEW    equ 0                ; Buildings: the critical points of interest
-CSBL_MOD    equ 1                ; ...everything but the anonymous filler
-CSBL_ALL    equ 2                ; ...all of it
+CSBL_NONE   equ 0                ; Detail Level: NOTHING built - refused in
+                                 ;    cs_consider before any transform, which
+                                 ;    is the cheapest form there is (88.13.1)
+CSBL_ROADS  equ 1                ; ...the roads and bridges, and no more
+CSBL_LOW    equ 2                ; ...and the critical points of interest
+CSBL_MOD    equ 3                ; ...everything but the anonymous filler
+CSBL_ALL    equ 4                ; ...all of it
 CSZ_SMALL  equ 0                ; Size: half the moderate view each way
 CSZ_MOD    equ 1                ; ...the Hercules default, 75% elsewhere
 CSZ_FULL   equ 2                ; ...the whole box, whatever it costs
@@ -208,16 +219,41 @@ CSL_NEAR   equ 0                ; Detail: 0.6 of every draw range...
 CSL_MOD    equ 1                ; ...as it shipped...
 CSL_FAR    equ 2                ; ...and 1.6, which also holds the near model
                                 ;    of the tower out to 4 km
-CSFL_GROUND equ 1                ; Fill: the ground under the horizon...
-CSFL_WATER  equ 2                ; ...the river...
-CSFL_BLDG   equ 4                ; ...and every solid. None of them is a
-CSFL_ALL    equ 7                ; wireframe world with the lines still hidden
+CSFL_TERRAIN equ 1               ; Fill: TERRAIN - the ground under the
+                                 ;    horizon, the water, and the hills and
+                                 ;    mountains, which are the world's own
+                                 ;    surface rather than anything built on
+                                 ;    it (88.13.3)
+CSFL_BLDG   equ 2                ; ...and everything built on it
+CSFL_ALL    equ 3                ; both, which is a filled world; neither is
+                                 ; a wireframe one, its lines still hidden
 
 CSO_COLLIDE equ 1               ; the first level's footprint and the tallest
 CSO_POI   equ 0x0100            ; a CRITICAL point of interest: drawn even at
                                 ; CSBL_FEW, and its range is never cut back
 CSO_FILLER equ 0x0200           ; ...and the other end: anonymous blocks and
                                 ; sheds, which CSBL_MOD leaves out (88.13.1)
+CSO_ROAD  equ 0x0800            ; a ROAD, a causeway or a BRIDGE: drawn from
+                                ; CSBL_ROADS up, where nothing else built is.
+                                ; It is the shape of a city with no city on
+                                ; it, and it costs almost nothing to draw -
+                                ; every one of them is a line model
+CSO_TERRAIN equ 0x0400          ; THE WORLD'S OWN SURFACE and not a building:
+                                ; a hill, a mountain, the runway. The
+                                ; Buildings density never refuses one - a
+                                ; mountain range is not scenery you thin out
+                                ; to buy frames. What its FILL follows is the
+                                ; face's ink and not this bit, so the runway
+                                ; carries it and still fills with the
+                                ; buildings (88.13.1, 88.13.3). WATER carries
+                                ; it too - a river is not a building either,
+                                ; and without the bit None emptied the Seine.
+                                ; It is on
+                                ; the OBJECT and not the model so that
+                                ; cs_consider tests it in the word it has
+                                ; already loaded; tests/unit/t_csterrain.py
+                                ; holds every hill, every water and every
+                                ; road object to the right one
 CSO_SEEN  equ 0x8000            ; ...and bit 15: drawn last frame (88.5.1)
                                 ; level's height are a box the aeroplane may
                                 ; not enter
@@ -763,7 +799,7 @@ cs_set_page:
     mov bx, CS_SETFY + 2
     mov al, CBLACK
     call cs_at_left
-    mov cx, 3
+    mov cx, CS_NFILL
     xor di, di
 .box:
     push cx
@@ -797,7 +833,7 @@ cs_set_page:
     ;     over what is under it ---------------------------------------------
     call cs_setsync                 ; the records say what the settings say
     call cs_donebtn
-    mov cx, 3
+    mov cx, CS_NFILL
     xor di, di
 .dbox:
     push cx
@@ -875,9 +911,9 @@ cs_setsync:
     mov [bx + OS88UI_DR_SEL], ax
     inc di
     loop .d
-    mov cx, 3
+    mov cx, CS_NFILL
     xor di, di
-    mov ah, CSFL_GROUND
+    mov ah, CSFL_TERRAIN
 .b:
     mov si, di
     shl si, 1
@@ -912,7 +948,7 @@ cs_settake:
 .out:
     ret
 
-; cs_setfillmask - the three boxes back into [cs_setfill]. Preserves all
+; cs_setfillmask - the fill boxes back into [cs_setfill]. Preserves all
 cs_setfillmask:
     push ax
     push bx
@@ -920,8 +956,8 @@ cs_setfillmask:
     push si
     push di
     xor al, al
-    mov ah, CSFL_GROUND
-    mov cx, 3
+    mov ah, CSFL_TERRAIN
+    mov cx, CS_NFILL
     xor di, di
 .b:
     mov si, di
@@ -952,9 +988,27 @@ cs_setclick:
     push dx
     push si
     push di
-    mov di, 3                       ; the drop-downs LAST-DRAWN first, because
-.d:                                 ; an open list takes any press and the
-    push di                         ; topmost one is the one that is open
+    ; --- AN OPEN LIST FIRST (SPEC.md 13.14.2), which is what .page0 already
+    ;     does and this did not. The walk below is in the order the page
+    ;     DRAWS in (cs_set_page counts DI down, so row 0 is drawn last and
+    ;     lies on top), and os88ui_drpress lets a CLOSED control claim a
+    ;     press that lands on its own box - so a press on the open list's
+    ;     lower items went to whatever box the list was covering. Buildings
+    ;     is row 0 and its list falls over Detail, so Moderate and Full were
+    ;     unreachable from the page; None arriving as a fourth item is what
+    ;     walked into it (88.13.6).
+    mov di, 3
+.o:
+    mov si, di
+    shl si, 1
+    mov bx, [cs_setdrops + si]
+    cmp byte [bx + OS88UI_DR_OPEN], 0
+    jne .d                          ; ...start the walk at the open one
+    dec di
+    jns .o
+    mov di, 3                       ; none open: the drawn order will do
+.d:
+    push di
     mov si, di
     shl si, 1
     mov bx, [cs_setdrops + si]
@@ -1588,7 +1642,7 @@ cs_flyrect:  dw 0, 0, 0, 0
 ; --- the Settings page's controls (SPEC.md 88.13). Every one of them is the
 ;     shared drop-down or the shared check box, and the page is the first
 ;     user of the second ---------------------------------------------------
-cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  3, CSBL_ALL, 0
+cs_drbld:    dw 0, 0, 0, 0, cs_i_bld,  5, CSBL_ALL, 0
              db 0, 0FFh
              dw 0, 0, 0
 cs_drlod:    dw 0, 0, 0, 0, cs_i_lod,  3, CSL_MOD, 0
@@ -1600,25 +1654,27 @@ cs_drsize:   dw 0, 0, 0, 0, cs_i_size, 3, CSZ_MOD, 0
 cs_drmode:   dw 0, 0, 0, 0, cs_i_mode, 2, 0, 0
              db 0, 0FFh
              dw 0, 0, 0
-cs_ckgnd:    dw 0, 0, 0, 0, cs_s_gnd, 1
-cs_ckwat:    dw 0, 0, 0, 0, cs_s_wat, 1
+cs_ckterr:   dw 0, 0, 0, 0, cs_s_terr, 1
 cs_ckbld:    dw 0, 0, 0, 0, cs_s_bld, 1
 cs_donerect: dw 0, 0, 0, 0
 cs_setlbls:  dw cs_s_lbld, cs_s_llod, cs_s_lsize, cs_s_lmode
 cs_setdrops: dw cs_drbld, cs_drlod, cs_drsize, cs_drmode
-cs_setboxes: dw cs_ckgnd, cs_ckwat, cs_ckbld
+cs_setboxes: dw cs_ckterr, cs_ckbld
+CS_NFILL     equ ($ - cs_setboxes) / 2
 cs_setbytes: dw cs_setbld, cs_setlod, cs_setsize, cs_modepref
-cs_i_bld:    dw cs_s_bfew, cs_s_bmod, cs_s_ball
+cs_i_bld:    dw cs_s_bnone, cs_s_broad, cs_s_blow, cs_s_bmod, cs_s_ball
 cs_i_lod:    dw cs_s_lnear, cs_s_lmod, cs_s_lfar
 cs_i_size:   dw cs_s_zsml, cs_s_zmod, cs_s_zful
 cs_i_mode:   dw cs_s_modex, cs_s_cga
 cs_s_setttl: db 'SETTINGS', 0
-cs_s_lbld:   db 'Buildings', 0
-cs_s_llod:   db 'Detail', 0
+cs_s_lbld:   db 'Detail Level', 0
+cs_s_llod:   db 'Draw Distance', 0
 cs_s_lsize:  db 'Size', 0
 cs_s_lmode:  db 'Mode', 0
-cs_s_lfill:  db 'Fill:', 0
-cs_s_bfew:   db 'Few', 0
+cs_s_lfill:  db 'Fill', 0
+cs_s_bnone:  db 'None', 0
+cs_s_broad:  db 'Only Roads', 0
+cs_s_blow:   db 'Low', 0
 cs_s_bmod:   db 'Moderate', 0
 cs_s_ball:   db 'Full', 0
 cs_s_lnear:  db 'Near', 0
@@ -1629,8 +1685,7 @@ cs_s_zmod:   db 'Moderate', 0
 cs_s_zful:   db 'Full', 0
 cs_s_modex:  db 'Mode X, 256 col', 0
 cs_s_cga:    db 'CGA, 4 col', 0
-cs_s_gnd:    db 'Ground', 0
-cs_s_wat:    db 'Water', 0
+cs_s_terr:   db 'Terrain', 0
 cs_s_bld:    db 'Buildings', 0
 cs_s_done:   db 'Done', 0
 cs_s_setts:  db 'Settings', 0
@@ -1653,7 +1708,7 @@ CS_NPORTS    equ ($ - cs_apnames) / 2
 CS_DEFPORT   equ 5              ; PARIS-ISSY, where the simulator shipped
 
 cs_i_lines:  dw cs_i1, cs_i2, cs_i3, cs_i4, cs_i5, cs_i6, cs_i7, cs_i8
-             dw cs_i9, cs_i10, cs_i2, cs_i11, cs_i12, 0
+             dw cs_i9, cs_i10, cs_i13, cs_i11, cs_i12, 0
 cs_i1:       db 'INSTRUCTIONS', 0     ; every line under 38 cells: the
 cs_i2:       db 0                     ; content is 310 wide (88.10)
 cs_i3:       db 'Arrows    pitch and roll', 0
@@ -1666,6 +1721,10 @@ cs_i9:       db 'M         engine sound on and off', 0
 cs_i10:      db 'Esc or F  back to this window', 0
 cs_i11:      db 'Full throttle; pull back at 55 knots.', 0
 cs_i12:      db 'Click, or press a key, to return.', 0
+cs_i13:      db 'F1 to F10 the settings, in flight', 0   ; in the blank
+                                                          ; separator's place:
+                                                          ; the page is full
+                                                          ; at thirteen lines
 
 ; -----------------------------------------------------------------------------
 ; cs_about - the OSAPI_ABOUT_SET handler (slot 0x01E0)
@@ -1875,6 +1934,11 @@ cs_tpl:
     ZBYTE cs_eside                  ; the chain an edge is on: 0 both, 1, 2
     ZWORD cs_lrunproc               ; the run a LINE's slice lays
     ZBUF  cs_pv, CS_MAXPV * 4       ; a projected face: (x, y) pairs
+    ZBYTE cs_fcut                   ; ...the near plane CUT it, so cs_pv is
+                                    ; not the model's vertices (88.13.3)
+    ZWORD cs_wn                     ; ...cs_wire's vertex count...
+    ZWORD cs_wj                     ; ...and the edge's far end
+    ZBUF  cs_eseen, CS_ESEEN        ; ...the edges drawn already, this object
     ZWORD cs_pn
     ZWORD cs_rx1                    ; cs_prect's
     ZWORD cs_rx2

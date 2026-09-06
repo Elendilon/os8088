@@ -239,10 +239,10 @@ cs_ot_lcy:
     CS_OBJ cs_m_lcy_tow,  cs_m_lcy_towf,  3230,   940,   0,  9000, 2400, cs_n_lcy_tow,  CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_lcy_ccw,  0,              5300,   780,   0, 12000,    0, cs_n_lcy_ccw,  CSO_COLLIDE
     CS_OBJ cs_m_lcy_buc,  0,             -1250,   320,   0,  5000,    0, cs_n_lcy_buc,  CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_lcy_thw,  cs_m_lcy_thwf,   -40,  -800,   0,  4500, 2600, cs_n_lcy_th,   0
-    CS_OBJ cs_m_lcy_thc,  cs_m_lcy_thcf,  1940,   800,   0,  4500, 2600, cs_n_lcy_th,   0
-    CS_OBJ cs_m_lcy_the,  cs_m_lcy_thef,  5660,   310,   0,  5000, 3000, cs_n_lcy_th,   0
-    CS_OBJ cs_m_lcy_mall, 0,              -560,   300,   0,  5000,    0, cs_n_lcy_mall, 0
+    CS_OBJ cs_m_lcy_thw,  cs_m_lcy_thwf,   -40,  -800,   0,  4500, 2600, cs_n_lcy_th,   CSO_TERRAIN
+    CS_OBJ cs_m_lcy_thc,  cs_m_lcy_thcf,  1940,   800,   0,  4500, 2600, cs_n_lcy_th,   CSO_TERRAIN
+    CS_OBJ cs_m_lcy_the,  cs_m_lcy_thef,  5660,   310,   0,  5000, 3000, cs_n_lcy_th,   CSO_TERRAIN
+    CS_OBJ cs_m_lcy_mall, 0,              -560,   300,   0,  5000,    0, cs_n_lcy_mall, CSO_ROAD
     CS_OBJ cs_m_hangar,   0,              6620,  1300,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
     CS_OBJ cs_m_shed,     0,              7550,  1320,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
     CS_OBJ cs_m_block,    0,              1500,  1780,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER

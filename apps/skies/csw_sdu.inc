@@ -294,19 +294,19 @@ cs_m_sdu_brdg: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
 ; Paris' filler band.
 ; =============================================================================
 cs_ot_sdu:
-    CS_OBJ cs_m_sdu_pao,  cs_m_sdu_paof,      0,     0,   0, 12000, 3500, cs_n_sdu_pao,  CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_sdu_urca, 0,               -560,   190,   0,  4000,    0, cs_n_sdu_urca, CSO_COLLIDE | CSO_POI
-    CS_OBJ cs_m_sdu_corc, cs_m_sdu_corcf, -6860,  2495,   0, 16000, 5000, cs_n_sdu_corc, CSO_POI
+    CS_OBJ cs_m_sdu_pao, cs_m_sdu_paof,      0,     0,   0, 12000, 3500, cs_n_sdu_pao,  CSO_COLLIDE | CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_sdu_urca, 0,               -560,   190,   0,  4000,    0, cs_n_sdu_urca, CSO_COLLIDE | CSO_POI | CSO_TERRAIN
+    CS_OBJ cs_m_sdu_corc, cs_m_sdu_corcf, -6860,  2495,   0, 16000, 5000, cs_n_sdu_corc, CSO_POI | CSO_TERRAIN
     CS_OBJ cs_m_sdu_crst, 0,              -6860,  2495, 710,  9000,    0, cs_n_sdu_crst, CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_sdu_arms, 0,              -6860,  2495, 734,  6000,    0, cs_n_sdu_crst, CSO_POI
-    CS_OBJ cs_m_sdu_tij,  0,              -8500,  3600,   0,  9000,    0, cs_n_sdu_tij,  0
-    CS_OBJ cs_m_sdu_dois, 0,              -3600, -2400,   0,  8000,    0, cs_n_sdu_dois, 0
-    CS_OBJ cs_m_sdu_bay0, cs_m_sdu_bay0f, -2460,  1875,   0,  5000, 2600, cs_n_sdu_bay,  0
-    CS_OBJ cs_m_sdu_bay1, cs_m_sdu_bay1f,   200,   750,   0,  5000, 2600, cs_n_sdu_bay,  0
-    CS_OBJ cs_m_sdu_atl,  cs_m_sdu_atlf,  -1175, -1750,   0,  5000, 2600, cs_n_sdu_cop,  0
-    CS_OBJ cs_m_sdu_bot,  cs_m_sdu_botf,  -1425,  -500,   0,  4500, 2600, cs_n_sdu_bay,  0
+    CS_OBJ cs_m_sdu_tij, 0,              -8500,  3600,   0,  9000,    0, cs_n_sdu_tij, CSO_TERRAIN
+    CS_OBJ cs_m_sdu_dois, 0,              -3600, -2400,   0,  8000,    0, cs_n_sdu_dois, CSO_TERRAIN
+    CS_OBJ cs_m_sdu_bay0, cs_m_sdu_bay0f, -2460,  1875,   0,  5000, 2600, cs_n_sdu_bay,  CSO_TERRAIN
+    CS_OBJ cs_m_sdu_bay1, cs_m_sdu_bay1f,   200,   750,   0,  5000, 2600, cs_n_sdu_bay,  CSO_TERRAIN
+    CS_OBJ cs_m_sdu_atl,  cs_m_sdu_atlf,  -1175, -1750,   0,  5000, 2600, cs_n_sdu_cop,  CSO_TERRAIN
+    CS_OBJ cs_m_sdu_bot,  cs_m_sdu_botf,  -1425,  -500,   0,  4500, 2600, cs_n_sdu_bay,  CSO_TERRAIN
     CS_OBJ cs_m_sdu_snd,  cs_m_sdu_sndf,  -1235, -1255,   0,  5000, 2600, cs_n_sdu_cop,  0
-    CS_OBJ cs_m_sdu_brdg, 0,              -3300,  2600,   0,  8000,    0, cs_n_sdu_brg,  0
+    CS_OBJ cs_m_sdu_brdg, 0,              -3300,  2600,   0,  8000,    0, cs_n_sdu_brg,  CSO_ROAD
     CS_OBJ cs_m_hangar,   0,              -2450,   560,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
     CS_OBJ cs_m_shed,     0,              -2900,   480,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
     CS_OBJ cs_m_small,    0,              -3150,   700,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
