@@ -738,6 +738,18 @@ byte that leaves the segment when the low rung is full costs a whole step
 until the image falls far enough to drop one — and the low rung reads
 478/512 accrued as blessed.
 
+> **THE ESCAPE VALVE IS CLOSED, and the next table to try it pays 512.**
+> `.lowbss` has **34 bytes left in its rung** (478/512 accrued, 93%). Every
+> migration in the list below was taken while there was room: `vga12.inc`'s
+> own comment beside `gfx_pairtab0/1` says *"the low rung had 1,258 bytes
+> standing"*, and `viddet.inc:377` explains `vid_rowtab` as costing *"one
+> 512-byte rung of `KERN_BUDGET` and nothing of the segment"*. Neither
+> sentence is true of the next one: 35 bytes into `.lowbss` bills a whole
+> step immediately. The move is still the right shape when the segment is
+> what binds — it just is not the cheap trick those comments describe any
+> more, so price it as 512 and say so, rather than re-deriving the trick and
+> being surprised by the bill.
+
 What decides a migration is **how many places dereference the pointer**, not
 size. The objects that made the trip are the `.lowbss` column of the table
 above — the glyph table (`font.inc`, 784), the claim map (`memory.inc`, 324),
@@ -755,7 +767,14 @@ did not go, and the reasons stop them being re-proposed:
   through DS. This was tried: the build was clean and the machine booted to a
   desktop that could not launch anything.
 - **`snd_xlat` (256 B) is refused on speed.** Two sites, but they are
-  `spk_pcm_run`'s per-sample loop.
+  `spk_pcm_run`'s per-sample loop. **And three harnesses now depend on those
+  256 bytes staying idle**: `tests/evqfull.py`, `tests/linefast.py` and
+  `tools/os88linecost.py` each plant an executable stub in `snd_xlat`
+  *because* it is 256 unused `KERNEL_SEG` `.bss` bytes at a fixed symbol. So
+  the largest single `.bss` item in the kernel is held in place by the test
+  rig as well as by the mixer, and anybody who reclaims it has three rigs to
+  re-home first. That is a reason that could be removed, and writing it down
+  is not the same as endorsing it.
 
 **`font_glyphs` needed the ABI amended, and was worth it**: `OSAPI_FONT_GLYPHS`
 answers `DX:SI` now, a recorded one-time amendment to a shipped slot (§20.8
