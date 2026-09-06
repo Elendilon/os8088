@@ -3475,7 +3475,6 @@ os88ui_drclose:
 ;       db 0            ; (pad)
 ;       dw 0,0,0,0      ; OS88UI_MN_MRECT: the open panel. The control's
 ;       dw 0,0,0,0      ; OS88UI_MN_ABOX:  the pressed title's own box
-;       dw 0, 0         ; OS88UI_MN_AX, MN_AY: an anchored list's corner
 ;       dw 0, 0         ; OS88UI_MN_SEG, MN_KB: the bank...
 ;       dw 0,0,0,0      ; OS88UI_MN_BRECT: ...and the rect it holds
 ;       dw my_barbuf    ; OS88UI_MN_BBUF: scratch for a truncated bar
@@ -3512,23 +3511,21 @@ OS88UI_MN_HOT    equ 17
 OS88UI_MN_INK    equ 18
 OS88UI_MN_MRECT  equ 20
 OS88UI_MN_ABOX   equ 28
-OS88UI_MN_AX     equ 36
-OS88UI_MN_AY     equ 38
-OS88UI_MN_SEG    equ 40
-OS88UI_MN_KB     equ 42
-OS88UI_MN_BRECT  equ 44          ; 4 words: the rect actually BANKED - the
+OS88UI_MN_SEG    equ 36
+OS88UI_MN_KB     equ 38
+OS88UI_MN_BRECT  equ 40          ; 4 words: the rect actually BANKED - the
                                  ; panel grown by its shadow and clamped,
                                  ; written on the way down so the way back
                                  ; cannot disagree with it by a pixel. The
                                  ; drop-down recomputes instead
                                  ; (os88ui_drrect) and is right to, its rect
                                  ; being unclamped; this one is not
-OS88UI_MN_CHK    equ 52
-OS88UI_MN_PICKI  equ 54          ; byte: the item the gesture PICKED, or 0FFh.
+OS88UI_MN_CHK    equ 48
+OS88UI_MN_PICKI  equ 50          ; byte: the item the gesture PICKED, or 0FFh.
                                  ; A record field and not a register, because
                                  ; the gesture's epilogue pops four of them
-OS88UI_MN_BBUF   equ 56
-OS88UI_MN_OPENH  equ 58          ; near ptr, or 0: called with AL = the menu
+OS88UI_MN_BBUF   equ 52
+OS88UI_MN_OPENH  equ 54          ; near ptr, or 0: called with AL = the menu
                                  ; ABOUT to open, so a caller whose items are
                                  ; not all constant can compose one first.
                                  ; Word's Window menu names the live document,
@@ -3542,7 +3539,7 @@ OS88UI_MN_OPENH  equ 58          ; near ptr, or 0: called with AL = the menu
                                  ; window is too narrow for the whole bar.
                                  ; The caller's, not the record's, because a
                                  ; bar is as long as its titles
-OS88UI_MN_RPNTH  equ 60          ; near ptr, or 0: the PIECEWISE REPAINT the
+OS88UI_MN_RPNTH  equ 56          ; near ptr, or 0: the PIECEWISE REPAINT the
                                  ; close owes when there was no bank to write
                                  ; back. It is a hook and not the close's CF
                                  ; alone, because the element closes menus
@@ -3553,7 +3550,7 @@ OS88UI_MN_RPNTH  equ 60          ; near ptr, or 0: the PIECEWISE REPAINT the
                                  ; from os88ui_mnclose exactly where the debt
                                  ; is incurred, which is where Word's own
                                  ; wd_mclose used to call wd_mrepair
-OS88UI_MN_SIZE   equ 62
+OS88UI_MN_SIZE   equ 58
 
 OS88UI_MN_ROW    equ 8           ; bytes in one table row...
 OS88UI_MN_ITEM   equ 8           ; ...and in one item record
@@ -3605,8 +3602,6 @@ os88ui_mngeo:
     push dx
     push si
     call os88ui_mnrow
-    cmp al, [ds:bp+OS88UI_MN_N]
-    jae .combo
     mov dl, [bx]
     xor dh, dh
     mov cl, 3
@@ -3617,15 +3612,6 @@ os88ui_mngeo:
     mov dx, [ds:bp+OS88UI_MN_RECT+2]
     add dx, OS88UI_MN_BARH
     mov [ds:bp+OS88UI_MN_MRECT+2], dx
-    jmp short .size
-.combo:
-    mov dx, [ds:bp+OS88UI_MN_AX]
-    mov [ds:bp+OS88UI_MN_MRECT], dx
-    mov dx, [ds:bp+OS88UI_MN_AY]
-    mov [ds:bp+OS88UI_MN_MRECT+2], dx
-.size:
-    push ax                         ; the menu index - the height loop below
-                                    ; eats AL and the flip needs it back
     mov cl, [bx+3]                  ; height: 4 + 10/5 per item
     xor ch, ch
     mov si, [bx+4]
@@ -3643,47 +3629,29 @@ os88ui_mngeo:
     dec cx
     jmp short .hh
 .hd:
-    pop cx                          ; CL = the menu index again
-    mov si, ax                      ; SI = the panel's height in pixels
     mov dx, [ds:bp+OS88UI_MN_RECT+6]  ; the content's last row...
     dec dx                          ; ...less the shadow's pixel
     add ax, [ds:bp+OS88UI_MN_MRECT+2]
     dec ax
     cmp ax, dx
     jbe .yok
-    cmp cl, [ds:bp+OS88UI_MN_N]
-    jb .clip                        ; a BAR menu hangs under its own title and
-                                    ; nowhere else - moving one would put it
-                                    ; over the menu bar it came from
-    ; --- the SLIDE (SPEC.md 6.4.1). A combo's list is anchored at its box, and
-    ; with ten faces there, eleven 10px items stand 114 rows tall - past the
-    ; bottom of a 200-row CGA window by a few pixels. Clipping is what used to
-    ; happen and it is SILENT: the trailing faces are drawn nowhere and
-    ; os88ui_mnfind refuses to find them, so a disk carrying more faces than the
-    ; anchor has room below it simply loses the last ones, which is how
-    ; the caller's list came to be 6. Sliding the panel up until its bottom sits on
-    ; the limit keeps every item on the screen and reachable; it costs one
-    ; subtraction, and it is only ever taken when the alternative was to lose
-    ; an item.
-    ;
-    ; THE ARITHMETIC IS UNSIGNED AND THE ROOM IS MEASURED, NOT THE TOP. The
-    ; first version computed the new top and compared it against the content
-    ; edge, which is a NEGATIVE number the moment the panel is taller than the
-    ; space above the anchor - and `jb` read it as 65,490 and slid the panel
-    ; off the top of the screen, over the menu bar and the desktop. Subtracting
-    ; two rows that are both on the screen cannot go negative.
-    mov cx, dx
-    sub cx, [ds:bp+OS88UI_MN_RECT+2]                 ; CX = the rows the content has for it
-    cmp cx, si
-    jb .clip                        ; taller than the whole content: nothing
-                                    ; to slide into, so clip as before
-    mov ax, dx
-    sub ax, si
-    inc ax                          ; the top that puts its bottom on DX
-    mov [ds:bp+OS88UI_MN_MRECT+2], ax
-    mov ax, dx                      ; ...and that bottom is the limit itself
-    jmp short .yok
-.clip:
+                                    ; TOO TALL: CLIP. A bar menu hangs under
+                                    ; its own title and nowhere else, so there
+                                    ; is nothing to slide it into - moving one
+                                    ; would put it over the bar it came from.
+                                    ; The SLIDE that used to live here was an
+                                    ; ANCHORED list's, and an anchored list is
+                                    ; os88ui_drop's job now: SPEC.md 13.14.2
+                                    ; does the same arithmetic, with the same
+                                    ; unsigned-subtraction trap written down,
+                                    ; in os88ui_drfit
+                                    ;
+                                    ; Clipping IS SILENT - the trailing items
+                                    ; are drawn nowhere and os88ui_mnfind
+                                    ; refuses to find them - which is why the
+                                    ; anchored list had to slide and why a bar
+                                    ; menu taller than its window is a menu to
+                                    ; shorten rather than a case to handle
     mov ax, dx                      ; clipped: trailing items are not drawn
 .yok:                               ; and os88ui_mnfind stops at the same edge
     mov [ds:bp+OS88UI_MN_MRECT+6], ax
@@ -4421,10 +4389,10 @@ os88ui_mnopen:
     mov [ds:bp+OS88UI_MN_OPEN], al
     mov byte [ds:bp+OS88UI_MN_HOT], 0xFF
     call os88ui_mngeo
-    cmp al, [ds:bp+OS88UI_MN_N]
-    jae .noxor
-    call os88ui_mntxor
-.noxor:
+    call os88ui_mntxor              ; EVERY menu has a bar title to invert now:
+                                    ; the guard that used to stand here was
+                                    ; for an ANCHORED list, which is
+                                    ; os88ui_drop's (SPEC.md 68.2.3)
     call os88ui_mnbank                  ; ...before a pixel of the panel is drawn
     call os88ui_mndraw
     pop di
@@ -4438,10 +4406,7 @@ os88ui_mnclose:
     mov al, [ds:bp+OS88UI_MN_OPEN]
     cmp al, OS88UI_MN_NONE
     je .out
-    cmp al, [ds:bp+OS88UI_MN_N]
-    jae .noxor
     call os88ui_mntxor                   ; the title back to normal video
-.noxor:
     mov byte [ds:bp+OS88UI_MN_OPEN], OS88UI_MN_NONE
     mov byte [ds:bp+OS88UI_MN_HOT], 0xFF
     call os88ui_mnback              ; the banked pixels back...
@@ -4491,8 +4456,11 @@ os88ui_mntrack:
     jz .release
     mov al, [ds:bp+OS88UI_MN_OPEN]  ; AL is dead here - the buttons were spent
     cmp al, [ds:bp+OS88UI_MN_N]     ; on the test above - and a byte in the
-                                    ; record cannot be compared to another     ; dragging across the bar slides between
-    jae .items                      ; menus (titles only; combos have no bar)
+                                    ; record cannot be compared to another.
+    jae .items                      ; Dragging across the bar slides between
+                                    ; menus; NONE is 0FFh and so above N, which
+                                    ; is the whole of what this now excludes
+                                    ; (it used to exclude an anchored list too)
     call os88ui_mnbarhit
     cmp al, 0xFF
     je .items
@@ -4556,8 +4524,8 @@ os88ui_mnclickopen:
     jnc .out
     mov al, [ds:bp+OS88UI_MN_OPEN]  ; AL is dead here - the buttons were spent
     cmp al, [ds:bp+OS88UI_MN_N]     ; on the test above - and a byte in the
-                                    ; record cannot be compared to another
-    jae .dismiss
+                                    ; record cannot be compared to another;
+    jae .dismiss                    ; NONE is 0FFh and so above N
     call os88ui_mnbarhit                 ; a click on another title slides there
     cmp al, 0xFF
     je .dismiss

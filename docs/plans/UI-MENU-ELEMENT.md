@@ -2,6 +2,10 @@
 
 **Status: ALL THREE WAVES LANDED. Word's in-window menu is the shared
 element.** SPEC.md 13.16 is the contract; Sheet is the open item (§1).
+**And the element got SMALLER afterwards**: the three combos this file treated
+as anchored lists are `os88ui_drop` records now (SPEC.md 68.2.3), so the
+anchored path and its two record words are gone - the note under §3's record
+table is the correction, and that table is the proposal rather than the tree.
 SPEC.md 13.16 is the contract for what exists. SPEC.md 13.14.4 is the entry point;
 this is the arithmetic behind it and the questions it cannot answer from the
 outside.
@@ -100,7 +104,7 @@ shipped source:
   | `wd_mrx1` `wd_mry1` `wd_mrx2` `wd_mry2` | the open panel's rect |
   | `wd_surx1` `wd_sury1` `wd_surx2` `wd_sury2` `wd_suseg` `wd_sukb` | the bank |
   | `wd_mopen` `wd_mhi` `wd_mink` | which menu, which item, what ink |
-  | `wd_max` `wd_may` `wd_mabox` | a combo's anchor, and the gesture's |
+  | `wd_max` `wd_may` `wd_mabox` | a combo's anchor, and the gesture's (the first two are DELETED - see the note under the record) |
   | `wd_win` `wd_win1` | the window |
 
 * **4 calls out**, and only one of them is a hook the element would need:
@@ -122,7 +126,8 @@ it independently, which is the best evidence that the shape is right.
 OS88UI_MN_RECT    0   ; 4 words: the CONTENT rect {x1,y1,x2,y2}, screen -
                       ; the caller's painter fills it, a window moves
 OS88UI_MN_TAB     8   ; the menu table: N rows of MN_ROW bytes
-OS88UI_MN_N      10   ; menus ON THE BAR (rows past it are anchored lists)
+OS88UI_MN_N      10   ; menus ON THE BAR (rows past it were anchored lists -
+                      ; RETIRED, see the note under this table)
 OS88UI_MN_BAR    12   ; the bar's ONE string - Word draws all nine titles as
                       ; a single opaque run and the table indexes into it
 OS88UI_MN_WIN    14   ; the window, for the clip
@@ -138,6 +143,21 @@ OS88UI_MN_KB     42   ; word }
 OS88UI_MN_CHK    44   ; near ptr: AL = item -> CF/flags. The ONE hook
 OS88UI_MN_SIZE   46
 ```
+
+**THE ANCHORED-LIST ROWS ARE GONE, and the record is smaller than the plan
+that designed it.** The three things this file called anchored lists - Word's
+Font, Pts and Style combos - were never menus: no bar cell, no mnemonic, no
+separator, no greying, one column of strings and a pick that is remembered.
+Sharing the menu is what made that visible and what made it affordable to act
+on: with `os88ui_bhit` already in the build the drop-down costs 996 bytes
+rather than 1,779, and a `wd_mtab` row stops being free the moment the
+anchored path exists only for it. SPEC.md 68.2.3 is that conversion.
+
+So `MN_AX`/`MN_AY`, `os88ui_mngeo`'s `.combo` branch and the SLIDE built for
+an eleven-item face list are all deleted, `os88ui_drfit` doing the same
+arithmetic; `OS88UI_MN_SIZE` shipped at 62 with the bank, the check hook, the
+open hook and the repaint hook added, and is **58** now. Read the layout in
+`apps/os88ui.inc`, not here: this table is what the wave plan proposed.
 
 ## 4. Open questions, in the order that decides the work
 

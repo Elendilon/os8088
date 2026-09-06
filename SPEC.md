@@ -21688,6 +21688,16 @@ repaints its whole content on every close.
 That 10px band is also why `OS88UI_DRIH` is overridable (§68.2.3): a package
 converting a combo that had been a pseudo-menu has an item pitch to keep.
 
+**Every menu here is a BAR menu**, and that is narrower than it started.
+Word's three combos were rows of its `wd_mtab` and rode this element as
+menus with no bar cell, anchored at their box by `MN_AX`/`MN_AY`; §68.2.3
+made them drop-downs and the anchored path went with them — the record is
+58 bytes rather than 62, `os88ui_mngeo` has one geometry rather than two, and
+the slide that kept an eleven-item face list on the screen lives in
+`os88ui_drfit` alone. A package wanting a list
+anchored somewhere other than a bar wants `OS88UI_DROP`, which is the control
+written for it.
+
 **Both implementations chose the same numbers independently**: a 14px bar
 (`WD_MENU_H`, `SH_MBAR_H`), a 10px item band and a 5px separator. That is the
 same evidence as the two arriving at §22's `fm_hit` discipline separately — the
@@ -79342,6 +79352,27 @@ the one style. Its list is the machine's — `wd_fontscan` walks `SYSTEM/FONTS`
 the first time the combo is opened and never again (§19.8) and fills the
 `ITEMS` array and `OS88UI_DR_N`, where it used to fill eight-byte item records
 and a count byte in `wd_mtab`.
+
+**What it deleted, once nothing reached the old path.** `wd_combo`;
+`wd_it_fontc` and `wd_it_ptsc`, the eleven- and one-item pseudo-menu tables;
+the three `wd_mtab` rows; `WD_M_FONTC`/`PTSC`/`STYLEC`; `[wd_pickm]` and
+`[wd_picki]`, which existed because *"the action byte alone cannot tell a
+combo's third entry from its first"* and which a control answers with `AL`;
+and, in the shared element, **the whole anchored-list path** — `MN_AX`/`MN_AY`
+(so `OS88UI_MN_SIZE` is 58, not 62), `os88ui_mngeo`'s `.combo` branch, and the
+SLIDE built there for a Font list too tall for the room below its box — eleven
+items, because §6.4.1's disk carries ten faces. `os88ui_drfit` does that same
+arithmetic, with the same unsigned-subtraction trap written down (§13.14.2),
+and a BAR menu never slides: it hangs under its own title or nowhere. Three `MN_N` guards went with
+it — the two that read *"combos have no bar"* now read *"nothing is open"*,
+which is a different test that happens to be the same compare, and the two
+that were purely the combo case are gone.
+
+The net over the three waves is **+1,056 bytes** of Word (50,266 → 51,322), of
+which the control itself is 996: the scaffolding it replaced was nearly free
+*because the menu code beside it was already paid for*, which is exactly the
+argument §13.14.4 made and exactly why it had to be made again after the menu
+was shared.
 
 **`wd_dfsel` is the half a control cannot do for itself.** §68.13's rule is
 that the box is renamed only once `ty_openfam` has succeeded — *"the name in

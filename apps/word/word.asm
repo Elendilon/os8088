@@ -341,11 +341,9 @@ WD_MI_SZ     equ 8              ; bytes in one WDMI record - four bytes then
                                 ; name rather than being counted by hand
 WD_MT_SZ     equ 8              ; ...and one wd_mtab row, which wd_mgeti
                                 ; reaches with three shifts
-WD_M_FONTC   equ 9              ; the ribbon's Font combo, as a pseudo-menu
-WD_M_PTSC    equ 10             ; ...its Pts combo
-WD_M_STYLEC  equ 11             ; ...and the ruler's Style combo
-WD_NDROP     equ 3              ; the three of them, as os88ui_drop records
-                                ; (SPEC.md 68.2.3); wd_drops is the table
+WD_NDROP     equ 3              ; the three COMBOS, which were rows 9, 10 and
+                                ; 11 of wd_mtab and are os88ui_drop records
+                                ; now (SPEC.md 68.2.3); wd_drops is the table
 WD_M_NONE    equ 0xFF           ; [wd_mopen]: nothing open
 WD_MI_HGT    equ 10             ; an item band: 8px of glyph + 1 above + 1 under
 WD_MS_HGT    equ 5              ; a separator band
@@ -377,7 +375,9 @@ WDA_VRUL     equ 15
 WDA_VSTA     equ 16
 WDA_ABOUT    equ 17
 WDA_WIN1     equ 18             ; Window > 1 <doc>: the one window; checked
-WDA_CSEL     equ 19             ; a combo's entry - cosmetic select
+WDA_CSEL     equ 19             ; a combo's entry. NO MENU CARRIES IT any
+                                ; more (SPEC.md 68.2.3) and the number is kept
+                                ; because wd_ftab is indexed by it
 WDA_CHAR     equ 20             ; Format > Character... - the modal dialog
 WDA_PARA     equ 21             ; Format > Paragraph... (SPEC.md 68.3)
 WDA_GOTO     equ 22             ; Edit > Go To... (SPEC.md 68.7)
@@ -2575,10 +2575,10 @@ wd_tabw:
 ; and never again. A person who never opens it pays nothing, which is the same
 ; bargain SPEC.md 6.2 strikes with a directory of faces nobody picks from.
 ;
-; The dropdown is a STATIC table with room reserved (wd_it_fontc), and this
-; fills the reserved records and writes the count byte in wd_mtab. A menu whose
-; length is data rather than assembly is a menu that can grow when a disk
-; carries more faces, without this program knowing their names.
+; The list is a STATIC array with room reserved (wd_dfont_items), and this
+; fills the reserved slots and writes OS88UI_DR_N. A list whose length is data
+; rather than assembly is one that can grow when a disk carries more faces,
+; without this program knowing their names.
 ; -----------------------------------------------------------------------------
 wd_fontscan:
     push ax
@@ -2697,9 +2697,10 @@ wd_facedrop:
     ret
 
 ; -----------------------------------------------------------------------------
-; wd_a_csel - a combo entry was chosen (SPEC.md 68.13)
-; in:  [wd_pickm] = which combo, [wd_picki] = which entry
-; out: the Font combo's caption follows the choice; the others are cosmetic
+; wd_a_csel - a Font combo entry was chosen (SPEC.md 68.13)
+; in:  AL = the item, from wd_drtake, which is the only caller and which has
+;      already established that the record is the Font one (SPEC.md 68.2.3)
+; out: the ribbon's Font box names the face that OPENED
 ;
 ; ITEM 0 IS PICA - the kernel's 8x8 cell, which is what this program has
 ; always set text in and is a perfectly good answer. Items 1.. are the faces
@@ -2723,11 +2724,8 @@ wd_a_csel:
                                     ; the machine follows it into the weeds -
                                     ; observed as a hang with CS:IP parked on
                                     ; this package's own entry point
-    cmp byte [wd_pickm], WD_M_FONTC
-    jne .out
-    mov al, [wd_picki]
-    or al, al
-    jnz .face
+    or al, al                       ; AL is the item, as passed: wd_drtake is
+    jnz .face                       ; the only caller and it tests the record
     call wd_facedrop                ; back to the built-in cell
     mov word [wd_fcap], wd_s_pica
     mov byte [wd_fsel], 0
@@ -13701,11 +13699,12 @@ wd_mact:
     push ax
     push bx
     push si
-    mov [wd_picki], al              ; WHICH item, and out of WHICH menu: the
-    mov ah, [wd_mopen]              ; action byte alone cannot tell a combo's
-    mov [wd_pickm], ah              ; third entry from its first, and the Font
-    mov ah, al                      ; combo is the first menu here that cares
-    mov al, [wd_mopen]
+    mov ah, al                      ; WHICH item and out of WHICH menu used to
+    mov al, [wd_mopen]              ; be recorded here for the Font combo, the
+                                    ; one caller an action byte could not tell
+                                    ; a third entry from a first for. It is a
+                                    ; drop-down now and its pick reaches
+                                    ; wd_a_csel in AL (SPEC.md 68.2.3)
     call wd_mgeti
     mov al, ah
     call wd_mitemp
@@ -13754,7 +13753,7 @@ wd_mbar:
 
 ; -----------------------------------------------------------------------------
 ; wd_mtitler - AL = menu 0..8: bank its bar band as the gesture anchor
-; out: [wd_mabox] = {x1,y1,x2,y2}; preserves all registers
+; out: OS88UI_MN_ABOX = {x1,y1,x2,y2}; preserves all registers
 ; The anchor is what a release/click is tested against for the "stay open"
 ; and "toggle closed" answers - one rect for titles and combo boxes alike.
 ; -----------------------------------------------------------------------------
@@ -14082,14 +14081,12 @@ wd_drup:
 ;      held; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
 wd_drtake:
-    cmp bx, wd_dfont                ; ONLY the Font combo acts on a pick, and
-    jne .out                        ; it is the reason wd_mact ever recorded
-    push ax                         ; which menu an item came out of
+    cmp bx, wd_dfont                ; ONLY the Font combo acts on a pick, which
+    jne .out                        ; is why wd_a_csel needs no [wd_pickm] test
+    push ax                         ; of its own any more: this compare is it
     push bx
     push cx
     push dx
-    mov [wd_picki], al
-    mov byte [wd_pickm], WD_M_FONTC
     call wd_a_csel                  ; ...which may tail-jump into wd_redraw,
     pop dx                          ; so nothing survives it but SI
     pop cx
@@ -14451,63 +14448,6 @@ wd_ruly:
     je .out
     add ax, WD_RIBBON_H
 .out:
-    ret
-
-; -----------------------------------------------------------------------------
-; wd_combo - one combo box: frame, shown text, divider, drop-down arrow
-; in:  AX = x1 (abs), BX = y1 (abs), CX = width, SI = the shown text
-;      gfx lock held; out: nothing; preserves all registers
-; The text sits at x1+8, which every caller keeps on a byte column.
-; -----------------------------------------------------------------------------
-wd_combo:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov di, ax                      ; DI = x1
-    add cx, ax
-    dec cx                          ; CX = x2
-    push bx                         ; y1, reloaded after the arrow loop
-    push si                         ; the text, ditto
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, di
-    mov dx, bx
-    add dx, 11
-    call OSAPI_GFX_FRAME
-    mov ax, cx
-    sub ax, 12
-    call OSAPI_GFX_VLINE            ; the divider in front of the arrow cell
-    mov dx, bx
-    add dx, 4
-    mov si, 3                       ; the arrow: four shrinking hlines
-.ar:
-    mov ax, cx
-    sub ax, 6
-    sub ax, si
-    mov bx, cx
-    sub bx, 6
-    add bx, si
-    call OSAPI_GFX_HLINE
-    inc dx
-    dec si
-    jns .ar
-    pop si
-    pop bx
-    mov cx, di
-    add cx, 8
-    mov dx, bx
-    add dx, 2
-    mov ax, (CWHITE << 8) | CBLACK  ; OPAQUE: the strip's fill is what is under
-    call OSAPI_FONT_RUN             ; this box, and it is white (SPEC.md 68.14)
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -16317,7 +16257,7 @@ wd_stat:
 
 ; -----------------------------------------------------------------------------
 ; wd_mtrack - the press-drag-release gesture, from a press that opened AL
-; in:  AL = menu to open, [wd_mabox] = the anchor band (title or combo box),
+; in:  AL = menu to open, OS88UI_MN_ABOX = the pressed title's own box,
 ;      SI = window ptr, gfx lock held
 ; out: nothing (the menu is left OPEN only for a press-and-release on the
 ;      anchor - the sticky case); preserves all registers
@@ -16880,8 +16820,14 @@ wd_ftab:
     dw wd_a_vsta
     dw wd_abopen                    ; Help > About...
     dw wd_mf_ret                    ; Window > 1: the one window, checked
-    dw wd_a_csel                    ; a combo entry: cosmetic, EXCEPT the
-                                    ; Font one (SPEC.md 68.13)
+    dw wd_mf_ret                    ; WDA_CSEL: UNREACHABLE since SPEC.md
+                                    ; 68.2.3 - a combo is a drop-down and its
+                                    ; pick goes to wd_a_csel through
+                                    ; wd_drtake, not through an action byte.
+                                    ; The slot stays because this table is
+                                    ; indexed BY that byte and renumbering
+                                    ; seven constants to save two bytes is a
+                                    ; silent wrong-action waiting to happen
     dw wd_a_char                    ; Format > Character... (SPEC.md 68.3)
     dw wd_a_para                    ; Format > Paragraph... (SPEC.md 68.3)
     dw wd_a_goto                    ; Edit > Go To... (SPEC.md 68.7)
@@ -19514,10 +19460,6 @@ wd_mtab:
     dw wd_it_win, 128
     db 52, 4, 0, 9
     dw wd_it_help, 120
-    db 0xFF, 0, 0, 1                ; the ribbon's Font combo (WD_M_FONTC)
-    dw wd_it_fontc, WD_RB_FBW
-    db 0xFF, 0, 0, 1                ; ...its Pts combo
-    dw wd_it_ptsc, WD_RB_PBW
 
 ; the bar itself: one string, one opaque run; cells 0..55
 wd_s_mbar: db 'File Edit View Insert Format Utilities Macro Window Help', 0
@@ -19643,13 +19585,6 @@ wd_it_help:                         ; &Help
     WDMS
     WDMI 0,        0, WDA_ABOUT,  'A', wd_L_about,  0
 
-wd_it_fontc:                        ; Pica, and room for the faces on the disk
-    WDMI 0, 0, WDA_CSEL, 0, wd_s_pica, 0
-%rep WD_MAXFONT                     ; RESERVED, and filled by wd_fontscan
-    WDMI WDMF_DIS, 0, WDA_NONE, 0, wd_s_pica, 0
-%endrep
-wd_it_ptsc:                         ; ...at the one size
-    WDMI 0, 0, WDA_CSEL, 0, wd_s_10, 0
 wd_dstyle_items:                    ; the three combos' lists: near pointers to
     dw wd_s_normal              ; NUL strings, which is what a drop-down takes
                                 ; where a menu took eight-byte records
@@ -20361,8 +20296,6 @@ section .text
     WDVAR wd_fsel, 1              ; byte: the chosen family, 0-based
     WDVAR wd_nfont, 1             ; byte: families the scan listed, clamped
     WDVAR wd_fscan, 1             ; byte: the scan has run (once, lazily)
-    WDVAR wd_pickm, 1             ; byte } which menu a chosen item came out
-    WDVAR wd_picki, 1             ; byte } of, and which item it was
     WDVAR wd_redrw, 1             ; byte: this action owes the note a redraw,
                                   ; taken on the way out as a tail jump
     WDVAR wd_pxon, 1              ; byte: wd_px[] is the truth about where a
@@ -20418,29 +20351,28 @@ section .text
     ; control half moves out routine by routine, and there is never a moment
     ; when the same fact lives in two places. wd_mopen IS the record's
     ; OS88UI_MN_OPEN, at the same address.
-%define WD_MNREC_SZ 62
+%define WD_MNREC_SZ 58
     WDVAR wd_mnrec, WD_MNREC_SZ
 %define WD_DREC_SZ 24           ; OS88UI_DR_SIZE, a literal for WDVAR's reason
     WDVAR wd_dstyle, WD_DREC_SZ ; the ruler's Style combo (SPEC.md 68.2.3)
     WDVAR wd_dfont, WD_DREC_SZ  ; ...the ribbon's Font combo
     WDVAR wd_dpts, WD_DREC_SZ   ; ...and its Pts combo
-wd_mopen  equ wd_mnrec + 16     ; byte: the open dropdown, WD_M_NONE = none.
-                                ; 0..8 the bar, 9..11 the strip combos
+wd_mopen  equ wd_mnrec + 16     ; byte: the open dropdown, WD_M_NONE = none;
+                                ; 0..8, one of the nine bar titles. The three
+                                ; combos used to be 9..11 here and are
+                                ; os88ui_drop records now (SPEC.md 68.2.3)
 wd_mhi    equ wd_mnrec + 17     ; byte: the XOR-highlighted item, 0xFF = none
 wd_mink   equ wd_mnrec + 18     ; byte: the ink a dropped menu's runs letter in
 wd_mrx1   equ wd_mnrec + 20     ; word } the open dropdown's rectangle,
 wd_mry1   equ wd_mnrec + 22     ; word } computed once by wd_mgeo and read by
 wd_mrx2   equ wd_mnrec + 24     ; word } painter, hit test, highlight and close
 wd_mry2   equ wd_mnrec + 26     ; word } repaint alike (the fm_hit discipline)
-wd_mabox  equ wd_mnrec + 28     ; 4 words: the gesture anchor
-wd_max    equ wd_mnrec + 36     ; word } where a combo's dropdown hangs
-wd_may    equ wd_mnrec + 38     ; word }
-wd_suseg  equ wd_mnrec + 40     ; word: the save-under claim's segment
-wd_sukb   equ wd_mnrec + 42     ; word: its size in KB, for the free
-wd_surx1  equ wd_mnrec + 44     ; word } the rect actually banked - the panel
-wd_sury1  equ wd_mnrec + 46     ; word } GROWN by its shadow and clamped,
-wd_surx2  equ wd_mnrec + 48     ; word } computed once on the way down so the
-wd_sury2  equ wd_mnrec + 50     ; word } way back cannot disagree by a pixel
+wd_suseg  equ wd_mnrec + 36     ; word: the save-under claim's segment
+wd_sukb   equ wd_mnrec + 38     ; word: its size in KB, for the free
+wd_surx1  equ wd_mnrec + 40     ; word } the rect actually banked - the panel
+wd_sury1  equ wd_mnrec + 42     ; word } GROWN by its shadow and clamped,
+wd_surx2  equ wd_mnrec + 44     ; word } computed once on the way down so the
+wd_sury2  equ wd_mnrec + 46     ; word } way back cannot disagree by a pixel
     WDVAR wd_about, 1       ; byte: the About box is up (modal)
     WDVAR wd_quit, 1        ; byte: File > Close/Exit ran - the worker
                             ; finishes the teardown (wd_worker .quit)
