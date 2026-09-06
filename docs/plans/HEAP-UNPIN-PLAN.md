@@ -41,6 +41,14 @@ a worker, 16 of 26 packages and **191,350 bytes of region against 135,930** — 
 reached only by **asking its owner**: a declaration that the worker's stack may
 be thrown away and the worker re-entered (§4.7).
 
+**But the question's own framing is sharper than the answer it wants.** Every one
+of those claims is already at the top — a package region goes through
+`mem_claim_hi_x` exactly as a driver image does (kernel/loader.inc:810) — and the
+allocator already refills any ceiling hole big enough for the claim being made.
+So unpinning the top buys a **merge** of free runs, not a reclaim (§2.1); the real
+mid-arena barriers are three cheaper things nobody has done (§2.1.1); and none of
+it is safe until the compactor can pack *upward* (§5).
+
 So the honest headline is that the last of it is an **ABI question, not a kernel
 one**. The kernel side stops at ~740–870 bytes; getting to *nothing* left
 unmovable means every driver publishing two verbs and every package with a worker
@@ -68,28 +76,68 @@ built.**
 
 ### 2.1 The arena, and where "the top" actually is
 
-Regions are claimed **bottom-up** through `mem_claim_x`; driver images, module
-images and the sound ring go **top-down** through
-`mem_claim_hi_x`/`mem_claim_dma_hi_x` (kernel/memory.inc:511, SPEC.md 50.3.2).
-The top-down door exists *because* those claims cannot move — SPEC.md 50.3's own
-warning that "one long-lived data claim landing mid-heap permanently splits the
-space a package can be loaded into".
+**Every claim whose base is a CS is claimed top-down, regions included.** A
+package region goes through `mem_claim_hi_x` — kernel/loader.inc:810, *"from the
+TOP down, away from the data claims growing up from the bottom"* — and so do
+driver images (kernel/driver.inc:2474), module images (kernel/mod.inc:422), the
+Sound Blaster ring (drivers/sound/sb.inc:2484) and ETHER's socket pool
+(drivers/ether/tcp.inc:784).
 
 ```
-[mem_base]  regions + data claims, packed down  ...gap...  modules, drivers, ring  [mem_top]
+[mem_base]  data claims + purgeable caches, growing UP  ...gap...  rings, modules, drivers, REGIONS, packed DOWN  [mem_top]
 ```
 
-So the barrier a user actually feels is usually a **region in the middle**, not
-the furniture at the top. SPEC.md 66.5.3 measured the shape once: Tracker's
-114KB module sat still with 38KB free directly beneath it.
+So *"the top of the heap"* in the question is exactly the set of claims the
+compactor treats as barriers, and the question's own list — program regions,
+drivers, overlays — is precisely that set. That framing is right and an earlier
+draft of this document had it wrong.
 
-On a fully-loaded kern_big machine the driver share of that ceiling alone is
-**~69KB** — 48KB of images plus the 8KB sound ring and ETHER's 14KB pool (§3.4).
+**Which sharpens the prize downward, and this is the finding to read before
+costing anything.** Because that stack is *contiguous* on a well-behaved
+machine, and because two things already handle its holes:
 
-**If the top-down claims became movable the top-down door stops being needed for
-them** — they pack down with everything else, and one contiguous free run at the
-ceiling is the best packing there is. That is a simplification the design gets
-for free.
+- `mem_claim_1`'s `.hi` arm walks down from `[mem_top]` past every overlap
+  (kernel/memory.inc:676), so it **already refills any hole in the stack that is
+  big enough for the claim being made**;
+- `mem_cp_plan`'s `.barrier`/`.nogap` arm (kernel/memory.inc:1588) **already
+  reports each such hole** as a candidate run, so `mem_avail` already sees them.
+
+What unpinning the top therefore buys is exactly **(sum of the free runs) −
+(largest free run)** — the ability to *merge* two runs — and only in the instant
+a claim exceeds the largest one. It is not "reclaim 69KB"; it is "stop a 40KB
+claim failing against 25KB + 30KB free".
+
+Against that: the top-down stack is the largest single thing on the heap
+(**~209KB** at a busy 640KB moment by one agent's arithmetic), and at 2.79 ms/KB
+a full pass over it is **~583 ms** — the most expensive copy this machine can
+make.
+
+### 2.1.1 …and the real mid-arena barriers are somewhere else
+
+The genuine barriers — pinned blocks sitting *inside* the bottom-up arena, which
+is what SPEC.md 50.3 warns about — are not the things the question names. They
+are three, and all three are cheaper to fix than anything in §3:
+
+1. **A package's OVERLAY image is claimed BOTTOM-UP, and its base IS a CS.**
+   `apps/word/word.asm:19843` and `apps/cc/crt0.asm:958` both call
+   `OSAPI_MEM_CLAIM`, not `_HI`, and both then stash the claim's segment as a far
+   pointer (`[wd_ovfar+2]`, `[cc_ovseg]`). That is **SPEC.md 50.3.2.1's exact
+   defect one layer out from the two driver images that section fixed** — an
+   unmovable CS-based claim dropped mid-arena by first fit. It affects Word and
+   **every C package** (CWORD, RUNCPM, C64, WEAVE). The fix is one slot number
+   per call site and no kernel byte at all.
+2. **SHEET puts 99KB of undeclared claims into the arena at its entry proc** —
+   six unconditional `OSAPI_MEM_CLAIM` calls (apps/sheet/sheet.asm:548-573), none
+   declared movable. SPEC.md 66.5.10.2's closing *"the arena below the top now has
+   no barrier in it at all — every claim there is movable or purgeable"* is true
+   of the configuration it was measured on and false the moment SHEET opens.
+3. **A C package cannot declare a claim movable at all**: `apps/cc/os88.h` has no
+   `os88_mem_movable`, so every C package's claims are pinned by construction and
+   no author can change it.
+
+**None of those needs any of §3.** They are a slot number, a declaration and an
+SDK function.
+
 
 ### 2.2 The regions, split by the thing that decides everything
 
@@ -141,38 +189,56 @@ module images ~1–6KB, and the Sound Blaster ring at `SBL_WANT` = 8KB.
 
 ## 3. Four populations, four answers
 
-### 3.1 Most `MC_DMA` claims are pinned for a PLACEMENT constraint, not a bus master
+### 3.1 `MC_DMA` is a placement constraint, and the compactor already owns the code to honour it
 
-`MC_DMA` stores *the 64KB-page-safe head in paragraphs* (kernel/memory.inc:75).
-That is a statement about where a block may **land** — `mem_dmaok`
-(kernel/memory.inc:1005, 28 bytes) enforces it at claim time and `mem_regrow`'s
-path 3 re-enforces it on a move. It is not a statement that a chip is reading
-the block right now.
+`MC_DMA` stores *the 64KB-page-safe head in paragraphs* (kernel/memory.inc:75) —
+a statement about where a block may **land**, not that a chip is reading it.
 
-Every use of the DMA door in the tree:
+**There are FOUR `MC_DMA` sites in the tree and SPEC.md 66.9 names two**
+(*"the Sound Blaster's double-buffer and the file manager's copy buffer"*). The
+two it misses are the directory read-ahead (kernel/disk.inc:5359, up to 63KB) and
+**Word's typeface cache** (apps/os88type.inc:603, 9KB, up to three per Word or
+CWORD instance, session-lived). docs/HEAP-CLAIMS.md has the same two gaps.
 
 | claim | why it asked | bus master armed? |
 |---|---|---|
-| directory read-ahead, kernel/disk.inc:5359 | one `int 13h` fill must not straddle a page | **no** — and it is `MEM_P_DIRW`, already purgeable |
-| file manager copy buffer, kernel/filecp.inc:593 | it is an `int 13h` target | **only inside the call** |
-| Word's typeface cache, apps/os88type.inc:603 | it wants a **512-byte aligned** base for file reads | **never** |
-| the Sound Blaster ring, drivers/sound/sb.inc:2484 | the 8237 holds its page and offset | **yes** |
+| directory read-ahead | one `int 13h` fill in fewer calls | **no** — and its `MC_DMA` pin is a **no-op**: `mem_can_move` tests `MC_DMA` *before* the purgeable range test (kernel/memory.inc:1203 vs :1207), so deleting it still reaches `.pin` on the purgeable arm |
+| file manager copy buffer | it is an `int 13h` target | **no** — see below |
+| Word's typeface cache | a 512-byte aligned base for file reads | **never** |
+| the Sound Blaster ring | the 8237 holds its page and offset | **yes**, and it is the only one |
 
-**One of four.** The others are pinned for nothing once no transfer is in
-flight, and "a transfer is in flight" is already answered exactly by
-`[mem_pinseg]` through `mem_in_xfer` (kernel/memory.inc:1387), which
-`mem_can_move` already calls.
+**The page rule is not a correctness requirement for any disk buffer in this
+kernel.** `dsk_runcap` (kernel/disk.inc:1512) caps every kernel `int 13h` run at
+the page and `hd_bios_run` does the same on the HDD driver, and a single
+512-aligned sector cannot straddle a page at all. So `MC_DMA` on a disk buffer
+buys **call count, not correctness** — and the tree says so itself:
+`kernel/filecp.inc:597` falls back to a plain `mem_claim_x` **with no `MC_DMA` at
+all** when no page-safe run exists, and *"still copies, exactly as it did
+before"*. **A pin that protects correctness cannot have a fallback that drops
+it.**
 
-So: `mem_can_move` stops refusing on `MC_DMA != 0`, and the constraint moves to
-the destination — the fill point advances to the next page-safe base before such
-a block is placed. `mem_dmaok` exists; what is new is the bump in
-`mem_cp_plan`/`mem_cp_run`.
+**And "unrelocatable in principle" is refuted by a shipped routine in the same
+file.** `mem_regrow`'s path 3 (kernel/memory.inc:2082) **already relocates an
+`MC_DMA` claim**: it stages `MC_DMA` into `[mem_dma]`, lets `mem_hifit` +
+`mem_dmaok` pick a page-safe base, `mem_bcopy`s the block there and rewrites
+`MC_SEG` — with no quiesce and, deliberately, no notification. **The machinery
+for "re-place a page-constrained claim, page-safely" is built, shipped and
+`.cold`.** What the compactor lacks is the call to it and the notify.
 
-**This is the cheapest correct thing in the document.** Note the direction of
-error: a block landing across a page boundary is answered by the 8237 wrapping
-to the start of its page and moving *the wrong memory, silently*
-(kernel/memory.inc:75's own comment). It must be gated by a test that reads the
-resulting address, never by inspection.
+Cost to demote `MC_DMA` from a pin to a constraint: **~69 bytes** of `.cold`
+(ESTIMATE). Note the direction of error if it is got wrong: a block landing
+across a page is answered by the 8237 wrapping to the start of its page and
+moving *the wrong memory, silently* (kernel/memory.inc:75). It must be gated by a
+test that reads the resulting address.
+
+**One free byte-saving found on the way, unrelated to any of this.**
+`apps/os88type.inc:601` claims `TY_FACE_KB + 1` *"because the hand alignment
+below gives back up to 496 bytes of it"*, then rounds with
+`add dx,31 / and dx,0xFFE0`. Guard 6b (kernel/kernel.asm:7414) already makes
+every claim base `HEAP_SEG + n*64` paragraphs, which is a multiple of 32 — so the
+round-up cannot move the base and **the extra KB is never consumed**. That is 1KB
+of heap per open face, up to 3 per Word or CWORD instance, for nothing.
+
 
 ### 3.2 The bus master that is real — and its unmount/remount already exists
 
@@ -200,10 +266,20 @@ is a pair of **driver verbs**, `DRVV_QUIESCE(base, para)` and
 boundary for exactly this (SPEC.md 51.2). A driver that does not publish them
 keeps every claim it owns pinned, which is the house default.
 
-What the user hears: if the 8237's live address and count are read back the
-stream resumes mid-buffer; if not, the re-arm restarts at a half boundary and
-there is one click. A last resort that costs one click is a good trade against a
-refused claim.
+**What the user hears is worse than a click, and this is the correction that
+matters.** An 8237 write to port 0x02 loads the **base and current registers
+together**, so an auto-init channel reprogrammed at a new base restarts at the
+ring start — while the DSP's own block counter does not. `[sbl_play]` and the
+chip then go **permanently out of phase**: not one click, but corruption for the
+rest of the stream. So the honest verb here is a stream **RESTART**, not a
+resume, and the driver has to be told which it is doing.
+
+**And there is a second sting that binds every top-down claim, not just this
+one.** The ring is claimed top-down. The compactor has **no descending pass**
+(§5), so making the ring movable *today* would pack it down into the data arena
+— which is exactly what `mem_claim_hi` exists to prevent (SPEC.md 50.3's *"one
+long-lived data claim landing mid-heap permanently splits the space a package can
+be loaded into"*). **Piece A must not ship without piece E.**
 
 ### 3.3 Overlays — the answer is DROP, not MOVE, and the design is already written
 
@@ -288,6 +364,7 @@ The kernel's copies of a driver's segment are few and enumerable:
 | `drv_fseg` … `drv_fseg5`, the published per-class fast path | kernel/driver.inc:842–851, deliberately contiguous | 6 |
 | `drv_blkfp`, `drv_dlg_seg` | kernel/driver.inc:1591, 4285 | 2 |
 | `MC_OWN` where the owner IS the driver's segment | kernel/memory.inc:73 | scan `mem_tab` |
+| `W_SEG`, because **a driver can own a window** | ethcfg.inc:166, hdd/tool.inc:148, hdd/inst.inc:181, saver/svcfg.inc:126 | 4 creators |
 | `mod_fp[]` for modules | kernel/mod.inc:647 | scan |
 
 **Three of those rows are not in `drv_tab` and a walk of it would miss them**:
@@ -353,6 +430,13 @@ shipped driver states in its own header that it hooks nothing. So the
 interrupts-off window is 6KB ≈ **16.7 ms**, not the 50.2 ms an 18KB `ETHER.DRV`
 would have cost, and moving the other four images is **pointer fix-ups only**,
 under `[sch_lock]` with interrupts on like everything else the compactor does.
+
+**A comment in the stack asserts the opposite of §3.1 and should be corrected.**
+`drivers/ether/tcp.inc:786` justifies pinning the socket pool with *"the card's
+own descriptors point into these rings and it DMAs into them"*. It does not: the
+8390's *"remote DMA"* is the port-0x10 data window (drivers/ether/ne2000.inc:86),
+not a bus-master path into host RAM. Harmless today because the pool is claimed
+`_HI` anyway — but it is exactly the reasoning somebody copies.
 
 **And two drivers hold pointers the kernel cannot reach at all.** `HDDTOOL.DRV`
 and `RAMPAGE.DRV` each keep two words naming their parent driver's segment
@@ -702,30 +786,36 @@ park costs up to `INST_PARKW` = 4 ticks ≈ **220 ms** (kernel/instance.inc:652)
 
 ---
 
-## 5. The other half of "the top of the heap": a descending pass
+## 5. The descending pass — the piece that makes the others legal
 
-The question asked about compacting *the top*, and there is a step here that no
-amount of unpinning supplies on its own. `mem_cp_plan` and `mem_cp_run` walk
-**ascending** and pack **down** (kernel/memory.inc:1553, :1631). Driver images,
-module images and the sound ring are claimed **top-down**
-(`mem_claim_hi_x`/`mem_hifit`), so the holes that open *between* them at the
-ceiling are closed by a pass that walks descending and packs **up** — a mirror of
-the existing pair, either parameterised through both bodies plus a descending twin
-of `mem_cp_next`, or duplicated.
+`mem_cp_plan` and `mem_cp_run` walk **ascending** and pack **down**
+(kernel/memory.inc:1553, :1631). Everything the question is about is claimed
+**top-down** (§2.1). So unpinning a top-down claim without a descending pass does
+not compact the top — **it evacuates it into the data arena**, which is the exact
+harm `mem_claim_hi` was built to prevent (SPEC.md 50.3, 50.3.2).
 
+An earlier draft of this document called this piece *"strictly second"*. That was
+wrong. **It is the enabling piece**: A, C and D are each actively harmful without
+it, and B (the module drop) is the only one that is not, because a dropped module
+leaves its room to whoever claims next and `mem_claim_hi`'s first-fit-from-the-top
+already reuses a ceiling hole for any claim that fits.
+
+The shape is a mirror of the existing pair — either parameterise the direction
+through both bodies plus a descending twin of `mem_cp_next`, or duplicate them.
 **~120 bytes parameterised, ~220 duplicated** (ESTIMATE, calibrated on the
 measured bodies: `mem_cp_plan` 104, `mem_cp_run` 115, `mem_cp_next` 55). It costs
 SPEC.md 66.4's termination argument its one sentence — the monotone slide has to
 be restated for two directions — and SPEC.md 66.7's *"no packing into a hole below
 a pinned block"* gains a mirror clause.
 
-**It is strictly second**, and it is **not needed for the module drop at all**: a
-dropped module leaves its room to whoever claims next, and `mem_claim_hi`'s
-first-fit-from-the-top already reuses a ceiling hole for any claim that fits it.
-Cost it only after something up there can move — and only after somebody has shown
-that a hole between two ceiling blocks has ever refused anything — see the open questions.
+**It also raises a question the claim record cannot currently answer**: `MC_` has
+five fields and none of them records which direction a block was claimed in
+(kernel/memory.inc:71). A descending pass either needs a direction bit — one more
+field, `MEM_MAX` × 2 bytes of `.lowbss` — or a heuristic, and a heuristic here is
+the kind of guess SPEC.md 47 exists to refuse.
 
 ---
+
 
 ## 6. Where it goes: tier 3 of `mem_compact`
 
@@ -785,7 +875,7 @@ first two are worth taking whatever is decided about the rest.
 | **C** | **Regions move when idle** (§3.5, §4.2): `[wm_pkgd]` + its two brackets ~11, the fix-up routine ~110, the `mem_can_move` arm ~20, widen `mem_find_own`'s fence ~20, the `[ld_base]` refusal ~6, tier-3 gate ~15 | **~200** | ~11 | ESTIMATE; the fix-up is `dsk_dseg_reloc`'s shape over four tables and five words. Two agents arrived at ~110 independently |
 | **D0** | **Driver unload/reload as a policy step** (§3.4): the mechanism is BUILT — `hbm_detach`/`hbm_reload` are 91 bytes, `ss_reap_x` does it per session. Only a policy hook is new | **~40** | 0 | ESTIMATE. Reaches **more** memory than a move (the 8KB ring and ETHER's 14KB pool) and breaks nothing, because a package names a driver by CLASS |
 | **D** | **Driver images move in place** (§3.2, §3.4, §4.4): the 66-word fix-up, a dispatch depth count, the mask/unmask bracket, `DRVV_QUIESCE`/`DRVV_REARM`/`DRVV_RELOC` | **~175–242** | ~40 | ESTIMATE; `drv_call` is 61, `[drv_wcnt]`'s half costs 0. **The bytes are not what stops this** — §3.4's 50.2 ms IF=0 window for an 18KB `ETHER.DRV` is |
-| **E** | **The descending pass** (§5) | **~120** | 0 | ESTIMATE; parameterising `mem_cp_plan` (104) + `mem_cp_run` (115) + a descending `mem_cp_next` (55) |
+| **E** | **The descending pass** (§5) — **A, C and D are harmful without it** | **~120** | 0 | ESTIMATE; parameterising `mem_cp_plan` (104) + `mem_cp_run` (115) + a descending `mem_cp_next` (55), plus a direction bit (`MEM_MAX`×2 of `.lowbss`) |
 | **F** | **Worker-owning regions, by declaration** (§4.7): `OSAPI_TASK_RESTARTABLE`, the frame rebuild, the `mem_can_move` arm | **~90** | ~20 | ESTIMATE; `task_spawn`'s tail is the rebuild, `inst_parksafe_set` (22) the setter's shape. +24 `.bss`, +1 API cell |
 
 **Everything: ~740–870 bytes**, of which ~150–220 is `.text`. Against the 801 bytes the
@@ -877,61 +967,53 @@ Ordered by how much they cost somebody who is not reading this document.
     through the existing slot. That is an ABI *widening*, not a break, but it
     means a package can now hand `OSAPI_MEM_MOVABLE` a claim whose `MC_OWN` is a
     slot rather than its segment — a case the fence exists to reject.
-13. **docs/HEAP-CLAIMS.md's verdict column loses "PINNED (forever)"**, and its
-    row for the donated HDD listing is *already* stale (§2).
+13. **docs/HEAP-CLAIMS.md's verdict column loses "PINNED (forever)"**. Two of its
+    rows and two of SPEC.md 66.9's six reasons are *already* stale, independent of
+    anything here: **reason 5** (the donated HDD listing) was built as
+    `dsk_dseg_reloc`, and **reason 6** names `MEM_K_FATW` as *"the only honest
+    declarable left"* when that tag no longer exists — kernel/memory.inc:109
+    records *"0xFF05 was `MEM_K_FATW` … it is `MEM_P_FATW` below now: a cache"*.
+    docs/HEAP-CLAIMS.md also omits `MC_DMA` from its `MEM_P_DIRW` row and from
+    Word's typeface row (§3.1).
 
 ---
 
 ## 9. What it buys — and the argument against
 
-**For.** On a busy 640KB machine the pinned population is one or two regions
-mid-arena plus, on a fully-loaded machine, **~69KB** of driver furniture at the
-top (§3.4) and 8–9KB of module image. §3.1, §3.2 and §3.3 between them
-are maybe 200 bytes, reuse code that already exists, and take the furniture out.
-The region half is the other two thirds of the bill and reaches 135,930 bytes of
-the tree's 327,280 — but the *right* 135,930, since SHEET, PAINT and TEXPAD are
-both the largest regions and the ones most likely to be standing in the way.
+**For.** The top-down stack is where the memory is: ~69KB of driver furniture on
+a fully-loaded machine (§3.4), 8–9KB of module image, and every package region.
+When a claim fails against two free runs that would together satisfy it, nothing
+in the machine can merge them today.
 
-On the 128KB kern_small machine the same furniture is a much larger fraction of a
-50.5KB heap (docs/plans/KERN-SMALL-CUT-PLAN.md), and kern_small has 28,672 bytes
-of `KERN_BUDGET` spare — so the machine that needs it most can most afford it.
+**Against, and it is the stronger case.** Four things:
 
-**Against, and it is a real argument.** The biggest pinned object is a package
-region, and *moving a region is not what the user wanted*: it buys back the
-fragmentation around one program, not the program's footprint. The user who is
-out of memory usually wants a program to go away, and closing it returns 5–48KB
-**plus every claim it holds**, at no engineering cost. Three cheaper things
-deserve pricing first:
+1. **The prize is a merge, not a reclaim.** `mem_claim_1`'s `.hi` arm already
+   refills any ceiling hole big enough, and `mem_cp_plan` already reports each one
+   — so `mem_avail` already sees them. The gain is (sum of runs) − (largest run),
+   in the instant a claim exceeds the largest. Nobody has photographed that
+   instant (open question 1).
+2. **The cost is the largest copy this machine can make.** ~209KB of top-down
+   stack at 2.79 ms/KB is **~583 ms**, against a park that costs 220.
+3. **The real mid-arena barriers are elsewhere and cost almost nothing** (§2.1.1):
+   a package's overlay image claimed bottom-up with a CS base, SHEET's 99KB of
+   undeclared claims, and a C SDK with no `os88_mem_movable` at all. A slot
+   number, a declaration and one SDK function.
+4. **The user who is out of memory usually wants a program to go away.** Closing
+   one returns 5–48KB of region **plus every claim it holds**, at no engineering
+   cost — and SPEC.md 47's rule is that refusal is normal. A refusal that named
+   *what to close and how much it would give back* would serve that user better
+   than 800 bytes of compactor, and nothing in the tree does it today.
 
-- **Place regions top-down or best-fit at load time** so they never become
-  mid-arena barriers. SPEC.md 50.3.1's cure 2 is still open and SPEC.md 66.7 says
-  why it composes rather than competes: it reduces the fragmentation *created*
-  instead of repairing it afterwards, and it needs no ABI at all. Against §4.5's
-  limit this looks stronger than it did, because it works on the regions the scan
-  can never reach.
-- **§3.1 alone** — stop pinning three claims for a placement constraint — is a
-  few dozen bytes and is strictly correct.
-- **Refuse better.** SPEC.md 47's rule is that refusal is normal; a refusal that
-  named *what to close and how much it would give back* would serve the user who
-  is out of memory better than 700 bytes of compactor. Nothing in the tree does
-  that today.
+**So the order to take this in is not the order the question implies.**
 
-**If this is taken at all, take the pieces of §7 in their letter order.**
-**0** is free and should be taken regardless of everything else — SPEC.md 66.6
-exists precisely so that nobody costs a region move as a small follow-on, and an
-incomplete list is worse than no list: the next person to try this would fix five
-of nine words and ship a machine whose menu bar draws its titles out of the wrong
-segment. **A** is ~50 bytes and strictly correct. **B** is ~104–168 bytes for
-8–9KB of pinned ceiling and is the best ratio in the study, with the caveat that
-`FDLG.DRV` must be excluded or six thunks must change. Stop there and reconsider:
-**C** is ~200 bytes for the least certain gain and stops at §4.6's limit, **D** is
-~175–242 to move images of 5–18KB and is blocked by an interrupts-off window
-rather than by bytes, and **E** should not be costed until something up there can
-move. **F** is the only piece that reaches the 191,350 bytes the rest cannot, and
-the only one that asks anything of package authors — take it last, and only if C
-has proved itself.
+| take | why |
+|---|---|
+| **§2.1.1's three** | a slot number, a declaration, one SDK function. They fix real mid-arena barriers and need no kernel byte |
+| **piece 0** | free, and an incomplete SPEC.md 66.6 is worse than none: the next person fixes five of nine words and ships a machine that draws its menu titles out of the wrong segment |
+| **piece B** | ~104–168 bytes for 8–9KB, the only piece that is safe without E, with `FDLG.DRV` excluded |
+| **piece E** | before A, C or D — each of those is harmful without it |
+| then reconsider | A (~69), C (~200, stops at §4.6), D0 (~40, already built), D (~175–242, one IF=0 window), F (~90, asks package authors for something) |
 
----
 
 ## 10. How it would be verified
 
@@ -987,11 +1069,21 @@ window.
 ## 12. Open questions
 
 1. **BLOCKING — has a hole between two ceiling blocks ever refused anything?**
-   No field report or measurement in this tree shows one. docs/FIELD-NOTES.md 2 is
-   a hole in the *data* arena and is closed. Piece E, and much of the motivation
-   for D, rest on a fragmentation shape nobody has photographed. `tools/heapmap.py`
-   on a busy machine would answer it, and it should be answered before any of D or
-   E is written.
+   No field report or measurement in this tree shows one, and §2.1 reduces the
+   whole prize to *(sum of free runs) − (largest free run)*. docs/FIELD-NOTES.md 2
+   is a hole in the *data* arena and is closed. `tools/heapmap.py` on a busy
+   machine would answer it, and **nothing in §3 should be written until it is
+   answered**.
+1a. **Can the 8237's current address and word count be reprogrammed independently
+   of the base?** §3.2 says no — a write to port 0x02 loads base and current
+   together, so a moved auto-init ring restarts while the DSP's block counter does
+   not, and `[sbl_play]` goes permanently out of phase. That is asserted from the
+   part's behaviour, not measured on this hardware, and it is what decides whether
+   the ring can be moved at all or only restarted.
+1b. **Does a descending pass want a direction BIT in the claim record?** `MC_` has
+   five fields and none records which door a block came in through
+   (kernel/memory.inc:71). A bit is `MEM_MAX`×2 of `.lowbss`; a heuristic is the
+   kind of guess SPEC.md 47 refuses.
 2. **Does `mem_cp_plan`'s `.tail` run already count the ceiling holes correctly**
    when the pinned blocks are at the top (kernel/memory.inc:1607)? If it does not,
    `mem_avail` under-reports today and that is a defect independent of everything
