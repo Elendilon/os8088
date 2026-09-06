@@ -60094,6 +60094,47 @@ round trip was **809.4 ms → 36.6, 22x** (§42.23.4, PERFORMANCE.md Set 116).
 `NOATBLIT1=1` is the A/B and the only thing keeping the expand-only path
 reachable on kern_big.
 
+#### 46.4.3 The unstyled scale-1 cell has a straight-line emitter
+
+Once §46.4.2 took `at_expand` and the kernel's 4bpp decode off the line, the
+measured keystroke said where the rest of it was: **`at_compose` is the bill**,
+and `at_glyph` is `at_compose`. The general body is a per-ROW dispatch — test
+the bold bit and maybe overstrike, zero `at_grow+2`, compare the scale three
+ways, branch to the doubler or the tripler, test the italic bit and maybe run
+a four-byte `rcr` chain, then fold four bytes into the strip — eight times a
+cell.
+
+For **an unstyled cell at scale 1 every one of those answers is the same**, and
+that cell is nearly every character of body text and *all* of Markdown mode.
+So `at_glyph` gates on `DL = 0` and `[at_psc] = 1` and takes a straight-line
+loop instead: eight times `lodsb` / complement / store / step a row.
+
+Three preconditions make the plain STORE correct where the general path folds:
+
+- `at_compose` has already cleared exactly `[at_prh]` rows to paper, so a cell
+  writes its own ground and nothing needs preserving underneath it.
+- At scale 1 **no two visible cells share a byte column** — `at_xmap`'s x is a
+  multiple of 8 by construction — so a store cannot tread on a neighbour.
+- The general path's `[bx+1..3]` writes are no-ops at scale 1: `at_grow+1..3`
+  are zero, which after §46.4.2's complement is `0FFh`, and `and` with `0FFh`
+  changes nothing.
+
+The compare is on the **word** `[at_psc]`, not its low byte: a byte compare
+reads a scale of 257 as a scale of 1, which is not a state the app can reach
+today and is a silent wrong render the day it can. `lodsb` also introduces a
+direction-flag dependency the routine did not have; both callers (`at_compose`
+and `at_bigtext`) `cld` before they call in, and that is now a precondition
+rather than a coincidence.
+
+**The general body stays and is the contract for everything else**: every
+heading (`at_cellwtab` makes an H1 or H2 scale 2), all body text at zoom 1,
+every styled span, and `at_bigtext`'s own scale 1..3. An H4 is level 3 —
+cell width 8, so scale 1 — and takes the fast path with row height 12, which
+is why the gate is on the SCALE and not on the heading level.
+
+`NOATFAST=1` is the A/B and the only thing keeping the general path reachable
+for an unstyled scale-1 cell.
+
 ### 46.5 The chrome — the app draws its own Macintosh
 
 Fullscreen makes the kernel bar unreachable (§11.2), which is exactly what

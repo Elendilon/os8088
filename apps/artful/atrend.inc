@@ -735,6 +735,33 @@ at_glyph:
     mov bx, at_strip1
     add bx, di                      ; BX = strip write cursor
     xor bp, bp                      ; BP = source row 0..7
+%ifndef NOATFAST
+    ; --- THE UNSTYLED SCALE-1 CELL (SPEC.md 46.4.3) ------------------------
+    ; ...which is nearly every character of body text and ALL of Markdown
+    ; mode. The general body below answers the same four questions eight
+    ; times a cell - bold? scale? italic? - and folds four bytes in; here
+    ; every answer is fixed and the row is one byte at one column.
+    ;
+    ; A plain STORE is correct rather than a fold because at_compose has
+    ; already laid this cell's ground down, and at scale 1 no two visible
+    ; cells share a byte column (at_xmap's x is a multiple of 8). The
+    ; general path's [bx+1..3] writes are no-ops here anyway: at_grow+1..3
+    ; are zero, which complemented is 0FFh, and `and 0FFh` changes nothing.
+    or dl, dl                       ; the style, still live in DL
+    jnz .row
+    cmp word [at_psc], 1            ; a WORD compare: at_psc IS a word, and a
+    jne .row                        ; low-byte one reads scale 257 as scale 1
+    mov cx, 8
+.fast:
+    lodsb                           ; DF is clear: at_compose and at_bigtext
+%ifndef NOATBLIT1
+    not al                          ; both `cld` before they call in, which
+%endif                              ; this makes a precondition rather than a
+    mov [bx], al                    ; coincidence
+    add bx, AT_S1ST
+    loop .fast
+    jmp .nst                        ; no rule to draw - AT_ST_L and AT_ST_S
+%endif                              ; are in DL, and DL is zero on this path
 .row:
     mov al, [si]
     inc si

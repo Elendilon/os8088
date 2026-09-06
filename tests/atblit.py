@@ -212,6 +212,13 @@ def diff(a, b, w, h):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--card", default="cga", choices=sorted(CARDS))
+    ap.add_argument("--knob", default="NOATBLIT1",
+                    help="which ArtfulType A/B to run: the shipped package "
+                         "against this knob's arm. NOATBLIT1 is 46.4.2's "
+                         "band emit, NOATFAST is 46.4.3's scale-1 composer. "
+                         "Every one of them must draw the IDENTICAL picture, "
+                         "so this row generalises rather than being copied "
+                         "per wave.")
     ap.add_argument("--census", action="store_true",
                     help="COUNT the two blits INSTEAD of comparing pixels. "
                          "The two are not additive: bp_count stops the guest "
@@ -225,20 +232,18 @@ def main():
     machine = CARDS[a.card]
 
     shipped = os88build.plain()
-    knob = os88build.tree("NOATBLIT1=1")
-    print("   band arm:   %s" % os.path.relpath(shipped.dir, os88fixture.ROOT
-                                                if hasattr(os88fixture, "ROOT")
-                                                else "/home/user/os8088"))
-    print("   expand arm: %s" % os.path.relpath(knob.dir, "/home/user/os8088"))
+    knob = os88build.tree(a.knob + "=1")
+    print("   shipped arm: %s" % os.path.relpath(shipped.dir, ROOT))
+    print("   %s arm: %s" % (a.knob, os.path.relpath(knob.dir, ROOT)))
 
     os.makedirs("/tmp/atblit", exist_ok=True)
     w, h, bsp, band, cb = drive(shipped.img("os8088-360.img"),
                                 shipped.img("apps360.img"), machine, shipped,
-                                a.census, "/tmp/atblit/band-%s.png" % a.card)
+                                a.census, "/tmp/atblit/%s-shipped-%s.png" % (a.knob, a.card))
     w2, h2, esp, expa, ce = drive(knob.img("os8088-360.img"),
                                   knob.img("apps360.img"), machine, knob,
                                   a.census,
-                                  "/tmp/atblit/expand-%s.png" % a.card)
+                                  "/tmp/atblit/%s-knob-%s.png" % (a.knob, a.card))
 
     if (w, h) != (w2, h2):
         print("FAIL: the two arms rasterised %dx%d against %dx%d"
@@ -256,8 +261,8 @@ def main():
     bad = 0
     for scene, x, y in (("splash", bsp, esp), ("document", band, expa)):
         n, box = diff(x, y, w, h)
-        print("   %s %-9s %d differing pixels of %d%s"
-              % (a.card, scene, n, w * h,
+        print("   %s/%s %-9s %d differing pixels of %d%s"
+              % (a.knob, a.card, scene, n, w * h,
                  "" if not box else "  box %r" % (box,)))
         bad += n
     n = bad
@@ -272,9 +277,9 @@ def main():
                     != expa[base+col*3:base+col*3+3])
             print("      y=%-4d %d" % (row, c))
         print("   captures in /tmp/atblit/")
-        print("FAIL: the band arm and the expander drew different pictures")
+        print("FAIL: the shipped arm and %s drew different pictures" % a.knob)
         return 1
-    print("ok: identical picture on %s" % a.card)
+    print("ok: %s draws the identical picture on %s" % (a.knob, a.card))
     return 0
 
 

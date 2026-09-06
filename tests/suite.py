@@ -2582,6 +2582,19 @@ SOAK = [
         "compared frame for frame and the per-frame variation - which is real "
         "work, not noise - cancels instead of being averaged over.",
         needs=("marty",), serial=True, timeout=600),
+    Row("atkey", "soak", py("tests/atkey.py"), 100.0,
+        "WHAT ONE ARTFULTYPE KEYSTROKE COSTS on a 4.77MHz 8088, in guest "
+        "cycles off at_onkey's entry to its return. Nothing in this tree had "
+        "ever measured this app - SPEC.md 46.1 states a contract and every "
+        "millisecond attached to it was PREDICTED - so this is the row that "
+        "makes the figures readings. It prints the SCENE with the number, "
+        "because the answer depends entirely on how many visual lines the "
+        "caret's PARAGRAPH has: at_apply_edit repaints at_dfrom..+at_rlk-1 "
+        "and at_relayout sets at_dfrom from at_lhome, the paragraph's first "
+        "visual line. A keystroke figure without its paragraph length is not "
+        "a figure. It reads at_rlk back afterwards, which is what turns "
+        "46.1's honest 'that paragraph's visual lines' into a table.",
+        needs=("marty", "nasm"), serial=True, timeout=900),
     Row("atblit", "soak", py("tests/atblit.py"), 90.0,
         "SPEC.md 46.4.2: does ArtfulType's BAND emit draw the same picture as "
         "the expander it replaced? at_draw_line hands at_compose's 1bpp strip "
