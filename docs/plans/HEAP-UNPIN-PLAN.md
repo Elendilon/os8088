@@ -349,13 +349,21 @@ across a page is answered by the 8237 wrapping to the start of its page and
 moving *the wrong memory, silently* (kernel/memory.inc:75). It must be gated by a
 test that reads the resulting address.
 
-**One free byte-saving found on the way, unrelated to any of this.**
-`apps/os88type.inc:601` claims `TY_FACE_KB + 1` *"because the hand alignment
-below gives back up to 496 bytes of it"*, then rounds with
-`add dx,31 / and dx,0xFFE0`. Guard 6b (kernel/kernel.asm:7414) already makes
-every claim base `HEAP_SEG + n*64` paragraphs, which is a multiple of 32 — so the
-round-up cannot move the base and **the extra KB is never consumed**. That is 1KB
-of heap per open face, up to 3 per Word or CWORD instance, for nothing.
+**One free byte-saving found on the way, unrelated to any of this — BUILT.**
+`apps/os88type.inc` claimed `TY_FACE_KB + 1` *"because the hand alignment below
+gives back up to 496 bytes of it"*, then rounded with
+`add dx,31 / and dx,0xFFE0`. Guard 6b (`kernel/kernel.asm`) already makes every
+claim base `HEAP_SEG + n*MEM_PARA_KB` paragraphs and **asserts `MEM_PARA_KB` is
+a multiple of 32** — so the round-up could never move the base and the extra KB
+was never consumed. **1KB of heap per open face, up to 3 per Word or CWORD
+instance, for nothing.**
+
+The rounding is replaced by a `test dl, 0x1F / jnz` that **refuses the face**
+rather than by nothing, because a package cannot see guard 6b and the rounding
+was the one line that would have noticed a change to it — silently, by pushing
+`TF_SEG` up to 496 bytes into a claim that no longer had 496 spare.
+`tests/facescan.py` reads the claim's size and base out of `mem_tab` and
+asserts both; putting the `+ 1` back reads `3000/9KB` and goes red.
 
 
 ### 3.2 The bus master that is real — and its unmount/remount already exists
