@@ -132,6 +132,24 @@ def main(argv):
             poke("cs_thr", (100).to_bytes(2, "little"))
             poke("cs_state", b"\x01")
 
+        def keydown(key, tries=20):
+            """Run until the GUEST says it has the key, and not a fixed wait.
+
+            A press is delivered to the emulator's input queue and reaches
+            the guest some ticks later; `advance(frames=6)` was enough on an
+            idle box and not on a loaded one, where this row failed with the
+            aeroplane standing still for seven ticks and then flying - which
+            reads exactly like the model being broken. [cs_kroll] and
+            [cs_kpitch] are the guest's own answer to 'have you got it'."""
+            nm = "cs_kroll" if key in ("ArrowLeft", "ArrowRight") else "cs_kpitch"
+            for _ in range(tries):
+                m.advance(frames=2)
+                m.run()
+                if byte(nm) != 0:
+                    return
+            sys.exit("skiesease: the guest never saw %s ([%s] stayed 0)"
+                     % (key, nm))
+
         def ticks(key, name, pin, n=10):
             """The angle at the top of each of n consecutive cs_step calls.
 
@@ -140,8 +158,7 @@ def main(argv):
             approach to the ticks that pass while the breakpoint is being
             armed, and the trainer's own return-to-level eats it besides."""
             m.key(key, down=True, up=False)
-            m.advance(frames=6)                 # ...so cs_input has read it
-            m.run()
+            keydown(key)                        # ...CONFIRMED, not waited for
             m.bp_exec(lin + mp["cs_step"])
             m.run()
             if m.wait_stop(30) is None:

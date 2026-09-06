@@ -619,6 +619,7 @@ not. Each one can still happen today.
 | 15 | A row hardcoding an IBM ROM name, running on a box that had it and silently not on one that did not | §6 |
 | 16 | A row whose screen saver came on during a wait, comparing a black screen | §6 |
 | 17 | `hibernate` mounting ONE `build/hiber.vhd` read-write in three emulators at once: 2 runs in 6, at a different leg every time, one of them a proven click on a proven pointer doing nothing | §5.5 |
+| 19 | `skiesease` pressing a key and then `advance(frames=6)`: on a loaded box the guest had not got it, and the aeroplane standing still for seven ticks reads exactly like a broken flight model. **A GUEST-clock wait is not a confirmation either** — the press is queued in the emulator, not in the guest, so the thing to poll is the guest's own `[cs_kroll]` | §7.1 |
 | 18 | `reap()` racing itself — every `launch` reaps, so one process dropped a finished instance's tree while another wrote its record | §5.5 |
 
 ---
