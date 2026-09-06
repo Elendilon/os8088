@@ -780,11 +780,20 @@ VID_EGA    equ 3                 ; 640x350x16 - a VGA-path adapter (SPEC.md 39.2
                                  ; and a move re-honours it (SPEC.md 50.3).
 ; ...AND THE SAME TWO FROM THE TOP OF THE HEAP (SPEC.md 50.3.2). For a buffer
 ; THE HARDWARE holds the address of - a sound card's DMA ring, a NIC's
-; descriptors - which can therefore never be moved and has no business in the
-; arena every data claim and the compactor share. SPEC.md 50.3 says why in its
-; own words: "one long-lived data claim landing mid-heap permanently splits the
-; space a package can be loaded into". If software is the only thing that reads
-; your block, use OSAPI_MEM_CLAIM above and let it be compacted.
+; descriptors - which has no business in the arena every data claim and the
+; compactor share. SPEC.md 50.3 says why in its own words: "one long-lived data
+; claim landing mid-heap permanently splits the space a package can be loaded
+; into". If software is the only thing that reads your block, use
+; OSAPI_MEM_CLAIM above and let it be compacted.
+;
+; A BLOCK CLAIMED HERE IS STILL BORN PINNED and stays pinned unless you declare
+; it, exactly like one from the low door. What the door decides is the
+; DIRECTION it is compacted in: the kernel records it (SPEC.md 50.3.2) and
+; SPEC.md 66.4.1's descending pass packs these towards the ceiling, so a
+; ceiling claim that CAN move - one only your own code addresses, put high
+; because it is long-lived rather than because a chip holds it - is worth
+; declaring OSAPI_MEM_MOVABLE. One a bus master is looking at is not, and
+; mem_can_move refuses an MC_DMA claim whatever you declare.
 %define OSAPI_MEM_CLAIM_HI  KERNEL_SEG:0x04C8   ; AX = KB; out CF, DX = segment
 %define OSAPI_MEM_CLAIM_DMA_HI KERNEL_SEG:0x04D0 ; ...and CX = the page-safe HEAD
 

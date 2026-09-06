@@ -62464,6 +62464,14 @@ placement, it is what a cache being claimed at the boot mount rather than after
 the drivers costs, and it is the next thing to do rather than a regression in
 this one.
 
+**Which door a claim came in by is now recorded**, as `MC_HI` in its own
+record, because §66.4.1's descending compaction pass sends it back through the
+same one: the top packs to the top and the bottom to the bottom, and a claim
+that disagrees with the pass in flight is a barrier to it. Choosing the door is
+still the caller's decision and this changes nothing about it — what it removes
+is the second, accidental half of that decision, which was that a top-down
+claim could never be compacted at all even when its holder could move it.
+
 
 #### 50.3.2.1 Two images the doors were opened for and did not reach
 
@@ -75601,6 +75609,96 @@ Task switching is paused for that span, which is `dsk_xfer`'s existing
 bargain and means **a Sound Blaster stream can underrun across a large
 compaction**. That is known and accepted rather than unnoticed; see §66.7.
 
+### 66.4.1 The descending pass — packing the ceiling
+
+§50.3.2's top-down door places a claim at the *highest* fit, deliberately
+outside the arena the compactor shares. That is right while the top-down
+population is claimed at boot and never released, and it stops being right the
+moment one is claimed **mid-session**: mount `ETHER.DRV` at boot, open Sheet,
+Paint and Tracker, then mount `SOUND.DRV` and unmount `ETHER.DRV` and close
+everything, and the sound driver's image and ring stand ~125KB below
+`[mem_top]` for the rest of the session. The ascending pass can never reach
+it, because a claim there only ever slides **down** onto paragraphs the walk
+has already passed and this one is already above everything. It is a wall, it
+does not heal, and it accumulates with every later mount.
+
+So `mem_compact` has a second pass with every direction decision turned round:
+the fill point starts at `[mem_top]` and comes down, and a claim slides **up**
+into the hole above it. The ceiling packs against the ceiling exactly as the
+floor packs against the floor.
+
+**`MC_HI` — a claim goes back through the door it came in by.** One byte per
+record, stamped at `mem_claim_1`'s publish site from `[mem_dir]`, which is
+already 0 or 1 and staged as an immediate by the two entries. `mem_cp_mine` is
+the filter: a claim whose `MC_HI` disagrees with `[mem_cp_up]` is a **barrier**
+in that pass, exactly as a pinned one is, so the two passes never contend for a
+block and neither can undo the other's work. The alternative was to derive the
+direction from the claim's shape and store nothing — and it is worse twice
+over: it is 47 bytes against 10, and it is right for four of the seven
+top-down sites and wrong for three.
+
+**One parameterised walk, not two.** `mem_cp_plan` and `mem_cp_run` are the
+same bodies they were; the two directions disagree about **eight** decisions
+and about nothing else, and each is a routine both walks call:
+
+| routine | what it answers |
+|---|---|
+| `mem_cp_fill0` | where the fill point and its search key start |
+| `mem_cp_step` | which way the key steps past a claim's original base |
+| `mem_cp_near` | which edge must meet the fill point for a claim to be already packed — its base going up, its end coming down |
+| `mem_cp_far` | where the fill point resumes past a barrier |
+| `mem_cp_adv` | which way the fill point advances past a claim just packed |
+| `mem_cp_dest` | where a block's bytes are going: the fill point going up, a block-length below it coming down |
+| `mem_cp_gap` | the hole beside a barrier |
+| `mem_cp_tail` | the run past everything, which is the one the pass is usually enlarging |
+
+A duplicated descending pair would have been ~220 bytes against ~120 and would
+have had to be kept in step **by hand, twice over** — the plan against the run,
+and the ascending pair against the descending one. §66.4's claim that the plan
+and the run are step for step is the one thing this feature cannot promise
+loosely, and sharing the bodies is what keeps it true in both directions.
+
+**`mem_bcopy` gains a backward arm**, taken on `DI > SI`. Both halves of it are
+needed and neither is sufficient: walking the 64KB chunks from the **top down**
+stops one chunk's destination landing on the next chunk's source, and `std`
+**inside** a chunk stops it landing on its own. A shift of less than a chunk
+needs the second, a shift of more than one needs the first. `cld` before the
+return, because every other string op in this kernel assumes DF=0. The
+routine's own banner used to argue that overlap was impossible — true of
+`mem_hifit`'s destination and **not** of the compactor's, which comes from the
+fill point.
+
+**The escalation is a loop, not a ladder.** There are two independent things to
+try when a plan comes back short — stand the workers up (§66.5) and turn the
+walk round — and spelling them out in order got the combination wrong: it
+parked only for the *ascending* plan, so a machine whose only blocked mover was
+a top-down claim owned by a package with a worker reached the descending pass
+with that worker still running and `mem_can_move` refused the one block the
+pass was for. As a loop each is asked for whichever plan needs it, and it still
+terminates in at most **three** plans: `[mem_parked]` admits one park and
+`[mem_cp_up]` one turn.
+
+**The two passes are alternatives, not cumulative.** Each plan is made against
+the layout as it stands, so whichever single pass satisfies the claim is the
+one that runs. Running both would spend the ascending copy for a claim the
+descending pass was going to have to satisfy anyway — and the descending copy
+is the expensive one, being over the largest blocks on the machine.
+
+**Termination mirrors §66.4's**, with both comparisons in `mem_cp_next` turned
+round: the descending walk takes the live claim with the **highest** base at or
+**below** `BX`, a claim only ever slides **up**, and only onto paragraphs the
+walk has already passed. `[mem_cp_up]` is left 0 on every path out of
+`mem_compact`, because `mem_avail` plans through the same code (§66.10.3).
+
+**What it does not yet unpin.** All seven top-down claim sites in the tree are
+still born `MC_RLOC = 0`, so on a shipped machine this pass finds nothing to
+move and costs one walk of 32 records on the last tier of a failing claim.
+That is deliberate: the direction invariant is the half that has to be right
+before anything declares, and `docs/plans/HEAP-UNPIN-PLAN.md` is the register
+of what would declare and what each one costs. `tests/heapfrag`'s check 13
+(§66.8) is the only exerciser today, and it builds the scenario above on
+purpose.
+
 ### 66.5 The worker park
 
 Without it, a claim owned by a package with a live worker is pinned — which is
@@ -76459,6 +76557,21 @@ afterthought.
   and one that moves the wrong bytes both report a successful claim; only the
   contents tell them apart. It also asserts that a **pinned** claim did not
   move, which is the other half of the same statement.
+- **`tests/heapfrag` check 13 is the descending pass's own gate** (§66.4.1),
+  and it had to bring its own mover: every top-down claim in the shipped tree
+  is pinned, so the pass has nothing to move on a stock machine and a row that
+  merely ran it would be green against a kernel in which it did nothing. The
+  check claims two blocks through `OSAPI_MEM_CLAIM_HI`, declares the lower one
+  movable, fills it, frees the upper one, and then asks for **one KB more than
+  the largest run on the machine** — an amount only the two being merged can
+  fund, which needs the block between them to pack **up**. It then re-reads the
+  block's contents and asserts its base went **up**. It runs after check 7, and
+  that placement is what makes it an assertion rather than a coincidence: the
+  big claim has already packed the arena, so the ascending pass has no movers
+  left and `mem_cp_worth` turns it down, which is precisely the tier the
+  descending pass is reached from. **Verified by amputation**: with `.flip`
+  patched to `jmp .undo` and nothing else changed, checks 1–12 pass and only 13
+  goes red.
 - **The Task Manager's memory map** already draws every claim at its real
   address and is the cheapest visual confirmation there is.
 - **The field sequence** (docs/FIELD-NOTES.md 2) end to end on a
@@ -76483,6 +76596,11 @@ every `MB_SEG`, the owner word of every claim it holds, `drv_fseg` — **and
 every saved CS on every stack**. §66.6 costs it properly; nothing here is a
 small follow-on. This is the single largest category by bytes on a busy
 machine, and it is the one the design deliberately does not touch.
+
+**Reason 1 no longer includes "and it is at the top of the heap".** Before
+§66.4.1 a top-down claim was pinned twice over — by its CS base and by the
+compactor having no pass that could reach it — and the second half is gone, so
+what each of these costs is now exactly what §66.6 says it costs and no more.
 
 **2. A bus master may be looking at it — permanent.** Anything carrying
 `MC_DMA`: the Sound Blaster's double-buffer and the file manager's copy

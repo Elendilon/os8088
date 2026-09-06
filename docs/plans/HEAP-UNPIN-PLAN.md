@@ -1419,6 +1419,54 @@ declare it. And `MC_SIZE` 10 → 11 broke **thirteen** harness files, every one
 caught by `t_mirror`, including `tools/os88geom.py` itself — the single mirror
 the others are supposed to import from rather than retype.
 
+### 10.2 …and then the pass itself (§5, piece E)
+
+**Built: the descending pass, parameterised** — SPEC.md 66.4.1 is the contract
+and §5 here the design. `mem_cp_plan` and `mem_cp_run` are the same two bodies
+they were; the eight decisions the directions disagree about are eight
+routines both of them call (`mem_cp_fill0`, `_step`, `_near`, `_far`, `_adv`,
+`_dest`, `_gap`, `_tail`), `mem_cp_next` gained a descending arm, `mem_bcopy` a
+backward one, and `mem_compact` turned its escalation ladder into a loop.
+**+344 bytes** cumulative — `.cold` +311, `.bss` +1, `.lowbss` +32 — with
+`KERN_BUDGET` still at 18,944 spare and no rung crossed. Against §7's estimate
+of ~250 for E on its own that is ~255 for the pass over the invariant's 89, so
+the estimate held.
+
+**Two things this file said and the code disagreed with**, both recorded
+because the argument was made confidently in each case:
+
+1. *"Derive the direction, store nothing."* Wrong on both counts. A predicate
+   over the claim's own shape is 47 bytes against `MC_HI`'s 10, and it is right
+   for four of the seven top-down sites and wrong for three. The byte is
+   cheaper **and** exact.
+2. *"E can ship independently of C."* Wrong. `mem_cp_run`'s fill point starts
+   at the heap floor, so a population that is only *partly* movable splits the
+   free run rather than merging it — the descending pass is a **precondition**
+   for unpinning anything claimed through the top-down door, not an optional
+   companion to it.
+
+**Verified by amputation, which is the only A/B that says anything here.**
+`HEAPCOMPACT=0` is too blunt: with no compactor at all everything past check 6
+goes red, so that arm cannot separate *this* pass from *any* pass. So
+`tests/heapfrag` gained **check 13**, which brings its own mover — two claims
+through `OSAPI_MEM_CLAIM_HI`, the lower declared movable and filled, the upper
+freed, then an ask for one KB more than the largest run — and the kernel was
+then rebuilt with `mem_compact`'s `.flip` arm patched to `jmp .undo`:
+
+| arm | result |
+|---|---|
+| shipped kernel | checks 1–13 **all pass** |
+| `HEAPCOMPACT=0` | 7, 10 and 13 fail, the rest pass — as declared |
+| `.flip` amputated | **1–12 pass, only 13 red** |
+
+The third row is the assertion. It is also what turned up the one real defect
+in the first build of this pass: the escalation was a **ladder**, and it parked
+the workers only for the *ascending* plan, so a machine whose only blocked
+mover was a top-down claim owned by a package with a worker reached the
+descending pass with that worker still running and `mem_can_move` refused the
+one block the pass existed for. As a loop it costs **2 bytes** and cannot
+happen. `heapcheck` runs in 31.8s against a declared 40.
+
 ---
 
 ## 10.1 How the rest would be verified

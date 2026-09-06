@@ -1100,6 +1100,15 @@ mem_bcopy:
     push di
     push ds
     push es
+    cmp di, si
+    ja .up                      ; DESTINATION ABOVE SOURCE, which is the
+                                ; descending pass's move and the one case a
+                                ; forward copy gets wrong. The banner is right
+                                ; that mem_hifit's destination cannot overlap
+                                ; its source - but the compactor's destination
+                                ; comes from the FILL POINT and not from
+                                ; mem_hifit, and a block sliding up into a gap
+                                ; SMALLER than itself overlaps its own source
 .chunk:
     jcxz .done
     mov ax, cx
@@ -1128,6 +1137,57 @@ mem_bcopy:
     add di, ax
     jmp short .chunk
 .done:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; --- the same walk from the far end -----------------------------------------
+; BOTH halves are needed and neither is sufficient. Taking the chunks from the
+; top down stops one chunk's destination landing on the next chunk's source;
+; `std` inside a chunk stops it landing on its own. A shift of less than 1KB
+; needs the second, a shift of more than 1KB the first.
+;
+; `cld` before the return, because every string op in this kernel assumes DF=0
+; and this is the only arm that ever clears that assumption (CLAUDE.md's
+; register discipline).
+.up:
+    add si, cx                  ; both bases to one past their last paragraph
+    add di, cx
+.uchunk:
+    jcxz .udone
+    mov ax, cx
+    cmp ax, 64
+    jbe .ulast
+    mov ax, 64
+.ulast:
+    sub cx, ax
+    sub si, ax                  ; ...then DOWN by this chunk, so the HIGHEST
+    sub di, ax                  ; one is the one that moves first
+    push cx
+    push si
+    push di
+    mov ds, si
+    mov es, di
+    mov cx, ax
+    shl cx, 1                   ; paragraphs -> words
+    shl cx, 1
+    shl cx, 1
+    mov si, cx                  ; ...and start at the chunk's LAST word
+    shl si, 1
+    sub si, 2
+    mov di, si
+    std
+    rep movsw
+    cld
+    pop di
+    pop si
+    pop cx
+    jmp short .uchunk
+.udone:
     pop es
     pop ds
     pop di
@@ -1570,9 +1630,15 @@ mem_cp_next:
     push dx
     push di
     xor si, si                  ; SI = best record so far, 0 = none
-    mov dx, 0xFFFF              ; DX = its base
     mov di, mem_tab
     mov cx, MEM_MAX
+    cmp byte [mem_cp_up], 0
+    jne .dscan                  ; TWO LOOPS AND NOT ONE TEST INSIDE ONE: the
+                                ; body runs MEM_MAX times per call, so a
+                                ; per-iteration direction test is 32 tests to
+                                ; save twenty bytes on a path that is about to
+                                ; `rep movsw`
+    mov dx, 0xFFFF              ; DX = its base; ascending wants the LOWEST
 .scan:
     mov ax, [ss:di+MC_SEG]
     or ax, ax
@@ -1586,6 +1652,23 @@ mem_cp_next:
 .next:
     add di, MC_SIZE
     loop .scan
+    jmp short .done
+.dscan:                         ; ...and descending the HIGHEST at or BELOW it,
+    xor dx, dx                  ; which is the same walk with both comparisons
+.dloop:                         ; turned round. SPEC.md 66.4's termination
+    mov ax, [ss:di+MC_SEG]      ; argument mirrors with it: a claim only ever
+    or ax, ax                   ; slides UP, and only onto a paragraph this
+    je .dnext                   ; walk has already passed
+    cmp ax, bx
+    ja .dnext                   ; already behind the descending walk
+    cmp ax, dx
+    jbe .dnext                  ; not the highest
+    mov dx, ax
+    mov si, di
+.dnext:
+    add di, MC_SIZE
+    loop .dloop
+.done:
     or si, si
     jz .none
     pop di
@@ -1600,6 +1683,106 @@ mem_cp_next:
     pop cx
     pop ax
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; THE EIGHT PLACES THE TWO PASSES DIFFER (SPEC.md 66.4)
+;
+; One walk, parameterised, rather than a descending copy of it. The two
+; directions disagree about eight decisions and about nothing else, so each is
+; a routine here and both mem_cp_plan and mem_cp_run read them - which is what
+; keeps the two walks step for step, the property SPEC.md 66.4 says is the one
+; way this feature can promise room it does not deliver.
+;
+; A duplicated pair would have been ~220 bytes against ~120 and would have to
+; be kept in step by hand, twice over: the plan against the run, and the
+; ascending pair against the descending one.
+; -----------------------------------------------------------------------------
+mem_cp_fill0:                   ; BX = the fill point to start from, and the
+    mov word [mem_cp_key], 0    ; search key that walks with it
+    mov bx, [mem_base]
+    cmp byte [mem_cp_up], 0
+    je .out
+    mov word [mem_cp_key], 0xFFFF
+    mov bx, [mem_top]
+.out:
+    ret
+
+mem_cp_step:                    ; the key steps past SI's ORIGINAL base, which
+    push ax                     ; is the one quantity that reads the same in
+    mov ax, [ss:si+MC_SEG]      ; both passes
+    cmp byte [mem_cp_up], 0
+    je .up
+    dec ax
+    jmp short .set
+.up:
+    inc ax
+.set:
+    mov [mem_cp_key], ax
+    pop ax
+    ret
+
+mem_cp_near:                    ; AX = the edge that must MEET the fill point
+    mov ax, [ss:si+MC_SEG]      ; for the claim to be already packed: its base
+    cmp byte [mem_cp_up], 0     ; going up, its end coming down
+    je .out
+    add ax, [ss:si+MC_PARA]
+.out:
+    ret
+
+mem_cp_far:                     ; AX = where the fill point resumes past a
+    mov ax, [ss:si+MC_SEG]      ; barrier: its end going up, its base coming
+    cmp byte [mem_cp_up], 0     ; down
+    jne .out
+    add ax, [ss:si+MC_PARA]
+.out:
+    ret
+
+mem_cp_adv:                     ; BX past a claim this pass just packed
+    push ax
+    mov ax, [ss:si+MC_PARA]
+    cmp byte [mem_cp_up], 0
+    je .up
+    neg ax
+.up:
+    add bx, ax
+    pop ax
+    ret
+
+mem_cp_dest:                    ; DI = where SI's bytes belong at the fill
+    mov di, bx                  ; point. Going down that IS the fill point;
+    cmp byte [mem_cp_up], 0     ; coming down it is a block-length below it
+    je .out
+    sub di, [ss:si+MC_PARA]
+.out:
+    ret
+
+; mem_cp_gap / mem_cp_tail leave the SUBTRACTION's flags live, and both callers
+; read them with `jbe`: zero says the claim is already packed against the fill
+; point, and a borrow says the walk has gone wrong and the answer must not be
+; taken as a run.
+mem_cp_gap:                     ; AX = the hole between the fill point and SI
+    call mem_cp_near
+    cmp byte [mem_cp_up], 0
+    jne .down
+    sub ax, bx
+    ret
+.down:
+    push bx                     ; POP WRITES NO FLAGS, which is what lets the
+    xchg ax, bx                 ; fill point come back after the subtraction
+    sub ax, bx                  ; that the caller is about to branch on
+    pop bx
+    ret
+
+mem_cp_tail:                    ; AX = the run from the fill point to the end
+    mov ax, [mem_top]           ; of the arena this pass is walking into
+    cmp byte [mem_cp_up], 0
+    je .up
+    mov ax, bx
+    sub ax, [mem_base]
+    ret
+.up:
+    sub ax, bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1628,32 +1811,27 @@ mem_cp_plan:
     xor cx, cx                  ; largest run
     mov byte [mem_wpin], 0      ; ...and "a worker is what stopped me", which
                                 ; mem_busy_seg raises (SPEC.md 66.5)
-    mov bx, [mem_base]          ; BX = the fill point: the lowest paragraph
-                                ; nothing has been packed into yet
-    mov word [mem_cp_key], 0    ; ...and the search key, the ORIGINAL base + 1
-                                ; of the last claim processed. It is the one
-                                ; quantity that reads the same in both passes,
-                                ; because a moved claim's NEW base is behind
-                                ; the walk and its old one is not - which is
-                                ; what lets the run move blocks while it walks
+    call mem_cp_fill0           ; BX = the fill point - the first paragraph
+                                ; nothing has been packed into yet - and the
+                                ; search key that walks with it. Both depend on
+                                ; the direction; nothing else in this body does
 .loop:
     push bx
     mov bx, [mem_cp_key]
     call mem_cp_next            ; SI = the next claim up (pop writes no flags)
     pop bx
     jc .tail
-    mov ax, [ss:si+MC_SEG]
-    inc ax
-    mov [mem_cp_key], ax
+    call mem_cp_step
     call mem_can_move
     jc .pinned
     call mem_cp_mine            ; ...and is it THIS pass's to move (66.4)
     jc .pinned
-    cmp [ss:si+MC_SEG], bx
+    call mem_cp_near
+    cmp ax, bx
     je .stay                    ; already packed: it would not move
     inc dx
 .stay:
-    add bx, [ss:si+MC_PARA]     ; the fill point advances by its size
+    call mem_cp_adv             ; the fill point advances by its size
     jmp short .loop
 .pinned:
     call mem_cp_drop            ; ...unless it is a cache this pass may
@@ -1666,20 +1844,18 @@ mem_cp_plan:
     inc dx
     jmp short .loop
 .barrier:
-    mov ax, [ss:si+MC_SEG]      ; the gap under a pinned claim is a hole that
-    sub ax, bx                  ; compaction cannot close - it is a barrier,
-    jbe .nogap                  ; and claims above it still pack against it
-    cmp ax, cx
+    call mem_cp_gap             ; the gap beside a pinned claim is a hole that
+    jbe .nogap                  ; compaction cannot close - it is a barrier,
+    cmp ax, cx                  ; and claims past it still pack against it
     jbe .nogap
     mov cx, ax
 .nogap:
-    mov bx, [ss:si+MC_SEG]      ; the fill point resumes above it
-    add bx, [ss:si+MC_PARA]
+    call mem_cp_far             ; the fill point resumes past it
+    mov bx, ax
     jmp short .loop
 .tail:
-    mov ax, [mem_top]           ; ...and the run above everything, which is the
-    sub ax, bx                  ; one compaction is usually enlarging
-    jbe .done
+    call mem_cp_tail            ; ...and the run past everything, which is the
+    jbe .done                   ; one compaction is usually enlarging
     cmp ax, cx
     jbe .done
     mov cx, ax
@@ -1707,43 +1883,45 @@ mem_cp_run:
     push dx
     push si
     push di
-    mov bx, [mem_base]
-    mov word [mem_cp_key], 0    ; the search key, as in the plan
+    call mem_cp_fill0           ; the fill point and the key, as in the plan
 .loop:
     push bx
     mov bx, [mem_cp_key]
     call mem_cp_next
     pop bx
     jc .done
-    mov ax, [ss:si+MC_SEG]      ; step the key past the ORIGINAL base, banked
-    inc ax                      ; here because the move is about to overwrite it
-    mov [mem_cp_key], ax
+    call mem_cp_step            ; step the key past the ORIGINAL base, banked
+                                ; here because the move is about to overwrite it
     call mem_can_move
     jc .pinned
     call mem_cp_mine            ; the plan's step, for real
     jc .pinned
-    mov di, [ss:si+MC_SEG]
-    cmp di, bx
+    call mem_cp_near
+    cmp ax, bx
     je .packed                  ; already where it belongs
-    push si
-    push bx
+    call mem_cp_dest            ; DI = the base its bytes are going to, which
+                                ; is the fill point going up and a block-length
+                                ; below it coming down
+    push si                     ; the RECORD: SI is about to become the source
+    push bx                     ; the fill point
+    push di                     ; ...and the destination, for MC_SEG below
     mov cx, [ss:si+MC_PARA]     ; only what is claimed travels
-    mov si, di
-    mov di, bx
+    mov si, [ss:si+MC_SEG]
     call mem_bcopy              ; source SI, destination DI, CX paragraphs -
                                 ; segment-stepped, so a block over 64KB moves
-                                ; without a 16-bit offset ever binding
+                                ; without a 16-bit offset ever binding, and
+                                ; backwards when DI is above SI
+    pop dx                      ; DX = the new base
     pop bx
     pop si
     mov ax, [ss:si+MC_SEG]      ; AX = where it WAS, for the notification
-    mov [ss:si+MC_SEG], bx      ; the map follows the bytes...
+    mov [ss:si+MC_SEG], dx      ; the map follows the bytes...
     push bx
-    mov dx, bx
     mov bx, ax
     call mem_reloc_call         ; ...and the holder follows the map (BX = old
     pop bx                      ; base, DX = new)
 .packed:
-    add bx, [ss:si+MC_PARA]
+    call mem_cp_adv
     jmp short .loop
 .pinned:
     call mem_cp_drop            ; the plan's step, for real (SPEC.md 66.10).
@@ -1755,8 +1933,8 @@ mem_cp_run:
     mov word [ss:si+MC_SEG], 0  ; what makes this walk the plan's, step for
     jmp short .loop             ; step
 .barrier:
-    mov bx, [ss:si+MC_SEG]
-    add bx, [ss:si+MC_PARA]
+    call mem_cp_far
+    mov bx, ax
     jmp short .loop
 .done:
     jmp kretc_di
@@ -1919,6 +2097,11 @@ mem_compact:
     mov [mem_pg_rank], al
 
     inc byte [mem_cp_busy]
+    mov byte [mem_cp_up], 0     ; THE ASCENDING PASS FIRST, always: it is the
+                                ; cheaper of the two and it is the one that
+                                ; answers the ordinary case. mem_avail plans
+                                ; through here too (SPEC.md 66.10.3), so this
+                                ; byte is left 0 on every path out
     inc byte [sch_lock]         ; pause task switching across the PLAN as well
                                 ; as the moves - the dsk_xfer bargain (SPEC.md
                                 ; 18.9), where the tick, the mouse and any
@@ -1928,6 +2111,18 @@ mem_compact:
                                 ; window is what stops the map changing
                                 ; between deciding a move is worth making and
                                 ; making it
+    ; THE ESCALATION, AS A LOOP AND NOT A LADDER (SPEC.md 66.4, 66.5). There
+    ; are two independent things to try when a plan comes back short - stand
+    ; the workers up, and turn the walk round - and the ladder that spelt them
+    ; out in order got the combination wrong: it parked only for the ASCENDING
+    ; plan, so a machine whose only blocked mover was a top-down claim owned by
+    ; a package with a worker reached the descending pass with that worker
+    ; still running, and mem_can_move refused the one block the pass was for.
+    ;
+    ; As a loop each is asked for whichever plan needs it, and it still
+    ; terminates in at most three plans: [mem_parked] admits one park and
+    ; [mem_cp_up] one turn.
+.plan:
     call mem_cp_plan            ; CX = the run it would leave, DX = movers
     call mem_cp_worth           ; CF = 0: run it
     jnc .doit
@@ -1939,18 +2134,39 @@ mem_compact:
     ; running in it - otherwise every failed claim on a machine with a worker
     ; would pay for a park that could not have helped.
     cmp byte [mem_wpin], 0
-    je .undo
+    je .flip
+    cmp byte [mem_parked], 0
+    jne .flip                   ; they are already standing: asking again is
+                                ; INST_PARKW ticks for a state that cannot
+                                ; change while this pass holds the machine
     dec byte [sch_lock]         ; a park needs the machine RUNNING: the workers
     call KERNEL_SEG:inst_park_req    ; have to reach OSAPI_TASK_ALIVE
     inc byte [sch_lock]
     inc byte [mem_parked]       ; ...and it is withdrawn on EVERY path out
-    call mem_cp_plan            ; ...then ask again, with whoever parked now
-    call mem_cp_worth           ; movable
-    jc .undo
+    jmp short .plan             ; ...then ask again, with whoever parked now
+                                ; movable
+
+    ; --- STILL not enough: pack the CEILING instead (SPEC.md 66.4) ----------
+    ; The last resort, and it is asked last for the reason every tier here is:
+    ; the top-down claims are the CS-based ones, so a pass over them is the
+    ; most expensive copy this machine can make and it is worth nothing at all
+    ; unless the claim it is being made for would then fit. mem_cp_worth is
+    ; what says so, exactly as it does for the ascending pass.
+    ;
+    ; The two are ALTERNATIVES and not cumulative: each plan is made against
+    ; the layout as it stands, so whichever single pass satisfies the claim is
+    ; the one that runs. Running both would spend the ascending copy for a
+    ; claim the descending pass was going to have to satisfy anyway.
+.flip:
+    cmp byte [mem_cp_up], 0
+    jne .undo                   ; the walk has already been turned round: there
+    mov byte [mem_cp_up], 1     ; is nothing left to try
+    jmp short .plan
 .doit:
     call mem_cp_run
     call mem_cp_unpark
-    dec byte [sch_lock]
+    mov byte [mem_cp_up], 0     ; mem_avail plans through mem_cp_plan too, so
+    dec byte [sch_lock]         ; the direction goes back as it was found
     dec byte [mem_cp_busy]
     pop di
     pop si
@@ -1962,6 +2178,7 @@ mem_compact:
     ret
 .undo:
     call mem_cp_unpark
+    mov byte [mem_cp_up], 0
     dec byte [sch_lock]
     dec byte [mem_cp_busy]
 .none:
