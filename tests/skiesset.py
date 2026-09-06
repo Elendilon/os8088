@@ -22,8 +22,10 @@ something different.
      compared as pixels: a paused Clear Skies is not a still picture - the
      water moves - so two arms drawing the same objects differ by thousands
      of pixels and a SAME-RUNG control reads the same thousands. Taken on
-     BOTH the default location and the one with a dense city, found by
-     walking cs_ports: the EQUAL branch is what a broken ladder trips and the
+     BOTH the default location and the one with a dense city - found by
+     walking cs_ports, and flown by POKING cs_airport rather than by leaving
+     the bracket, because F toggles and one that has not landed leaves every
+     check after it reading a world that is not being drawn: the EQUAL branch is what a broken ladder trips and the
      STRICT branch is what says the flag reaches the cull at all, and neither
      alone is enough - --clobber-dense drops collidables at Low and Moderate
      together, so on the dense world the counts still nest and still differ;
@@ -389,16 +391,21 @@ def main(argv):
                        & 0x0200)
 
         def go(rec):
-            """Out of the bracket, into `rec`'s world, back into the bracket."""
-            m.type_text("f")
-            m.advance(frames=40)
-            m.run()
+            """Fly `rec`'s world - by POKING cs_airport, without leaving.
+
+            cs_scene reads [cs_airport] every frame, so the object table
+            switches at once; only cs_runway_build and the aeroplane's start
+            are behind, and neither matters to a count taken at three rungs
+            with the camera pinned - the stale runway is one object present
+            identically in all three. The first version toggled the bracket
+            with F and fixed frame advances, and F TOGGLES: one that had not
+            landed left the row on the other side of the bracket, and every
+            check after it read a world that was not being drawn. Under a
+            loaded lane that is what happened, Detail Level = None filing 0
+            objects because nothing was flying.
+            """
             m.pause()
             m.write(lin + base + off("cs_airport"), rec.to_bytes(2, "little"))
-            m.write(lin + base + off("cs_inited"), b"\x00")
-            m.run()
-            m.type_text("f")
-            m.advance(frames=120)
             m.run()
 
         def at_level(k):
