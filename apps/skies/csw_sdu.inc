@@ -307,13 +307,13 @@ cs_ot_sdu:
     CS_OBJ cs_m_sdu_bot,  cs_m_sdu_botf,  -1425,  -500,   0,  4500, 2600, cs_n_sdu_bay,  CSO_TERRAIN
     CS_OBJ cs_m_sdu_snd,  cs_m_sdu_sndf,  -1235, -1255,   0,  5000, 2600, cs_n_sdu_cop,  0
     CS_OBJ cs_m_sdu_brdg, 0,              -3300,  2600,   0,  8000,    0, cs_n_sdu_brg,  CSO_ROAD
-    CS_OBJ cs_m_hangar,   0,              -2450,   560,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,     0,              -2900,   480,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,              -3150,   700,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,              -3600,   100,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,   0,              -4300,   700,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,              -4900,  1600,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,              -1750,   500,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_hangar,   0,              -2450,   560,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_shed,     0,              -2900,   480,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,              -3150,   700,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,              -3600,   100,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block2,   0,              -4300,   700,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,              -4900,  1600,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,              -1750,   500,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
 cs_ote_sdu:
 CS_N_SDU equ (cs_ote_sdu - cs_ot_sdu) / CSO_SIZE
 

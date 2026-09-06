@@ -26,7 +26,7 @@
 ;   Buckingham Palace    (-1250,  320)   1,290 m, bearing 284
 ;
 ; Those four and the Palace of Westminster that Big Ben stands on are the five
-; CSO_POI, so Buildings=Few draws the whole line of the departure rather than
+; CSO_POI, so Detail Level = Low draws the whole line of the departure rather than
 ; four scattered blocks.
 ;
 ; NOTHING COLLIDABLE STANDS IN THE THAMES (SPEC.md 88.6.3), and in London that
@@ -220,9 +220,10 @@ cs_m_lcy_mall: db CSM_FLAT, 3, 0, 2, CSI_MARK, 0
 ; =============================================================================
 ; The world. Twenty objects, of which five are CSO_POI: the three the location
 ; is named for, the Palace of Westminster that carries Big Ben, and St Paul's
-; between them, so Buildings=Few still draws the whole line of the RUNWAY 27
-; departure. Six are CSO_FILLER, two of them in the Royal Docks beside the
-; runway and four in the city, which is what Buildings=Moderate takes out.
+; between them, so Detail Level = Low still draws the whole line of the RUNWAY 27
+; departure. Six are anonymous blocks and sheds, two of them in the Royal
+; Docks beside the runway and four in the city; they draw from Moderate, so
+; the whole of this table is the default picture.
 ;
 ; Ranges follow Paris' bands: 16,000 for the headline tower, 12,000 to 14,000
 ; for the two that are over 200 m tall, 5,000 to 9,000 for a big building,
@@ -243,12 +244,12 @@ cs_ot_lcy:
     CS_OBJ cs_m_lcy_thc,  cs_m_lcy_thcf,  1940,   800,   0,  4500, 2600, cs_n_lcy_th,   CSO_TERRAIN
     CS_OBJ cs_m_lcy_the,  cs_m_lcy_thef,  5660,   310,   0,  5000, 3000, cs_n_lcy_th,   CSO_TERRAIN
     CS_OBJ cs_m_lcy_mall, 0,              -560,   300,   0,  5000,    0, cs_n_lcy_mall, CSO_ROAD
-    CS_OBJ cs_m_hangar,   0,              6620,  1300,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,     0,              7550,  1320,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,              1500,  1780,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,   0,              2320,  1560,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,              -900,  -640,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block,    0,              2950,  -120,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_hangar,   0,              6620,  1300,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_shed,     0,              7550,  1320,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,              1500,  1780,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block2,   0,              2320,  1560,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,              -900,  -640,   0,  2500,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block,    0,              2950,  -120,   0,  3000,    0, cs_n_bldg,     CSO_COLLIDE
 cs_ote_lcy:
 CS_N_LCY equ (cs_ote_lcy - cs_ot_lcy) / CSO_SIZE
 

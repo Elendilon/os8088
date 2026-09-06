@@ -642,18 +642,18 @@ cs_drawpass:
 cs_consider:
     mov [cs_obj], si
     mov ax, [si + CSO_FLAGS]        ; --- WHAT THE PLAYER ASKED FOR (88.13.1),
-    mov bl, [cs_setbld]             ;     a LADDER: the anonymous filler goes
-    cmp bl, CSBL_ALL                ;     first, then everything but the
-    je .tier                        ;     points of interest, then all but
-    test ax, CSO_TERRAIN            ;     the roads, then those too. TERRAIN
-    jnz .tier                       ;     is exempt from every rung of it -
-    cmp bl, CSBL_NONE               ;     the hills, the water and the runway
-    je .out                         ;     are the world's own surface and not
+    mov bl, [cs_setbld]             ;     a LADDER: the DENSE CITY goes first,
+    cmp bl, CSBL_HIGH               ;     then everything but the points of
+    je .tier                        ;     interest, then all but the roads,
+    test ax, CSO_TERRAIN            ;     then those too. TERRAIN is exempt
+    jnz .tier                       ;     from every rung of it - the hills,
+    cmp bl, CSBL_NONE               ;     the water and the runway are the
+    je .out                         ;     world's own surface and not
     test ax, CSO_ROAD               ;     buildings to thin out - and the
     jnz .tier                       ;     ROADS come back one rung up, being
     cmp bl, CSBL_ROADS              ;     the shape of a city with no city on
     je .out                         ;     it and a line model each
-    test ax, CSO_FILLER
+    test ax, CSO_DENSE              ; High's own content, and only High's
     jnz .out
     cmp bl, CSBL_LOW
     jne .tier

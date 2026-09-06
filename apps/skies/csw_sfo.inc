@@ -268,11 +268,11 @@ cs_ot_sfo:
     CS_OBJ cs_m_sfo_pen,  0,               2950,   430,  42,  6000,    0, cs_n_sfo_alc,  CSO_COLLIDE
     CS_OBJ cs_m_sfo_tram, 0,               3770, -1010,   0, 12000,    0, cs_n_sfo_tram, CSO_COLLIDE | CSO_POI
     CS_OBJ cs_m_sfo_dtwr, 0,               3980, -1180,   0,  9000,    0, cs_n_sfo_dt,   CSO_COLLIDE
-    CS_OBJ cs_m_block,    0,               3560, -1320,   0,  4000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_block2,   0,               4080,  -900,   0,  4000,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_hangar,   0,               2866, -2942,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_shed,     0,               2560, -2685,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
-    CS_OBJ cs_m_small,    0,               3211, -3231,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE | CSO_FILLER
+    CS_OBJ cs_m_block,    0,               3560, -1320,   0,  4000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_block2,   0,               4080,  -900,   0,  4000,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_hangar,   0,               2866, -2942,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_shed,     0,               2560, -2685,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE
+    CS_OBJ cs_m_small,    0,               3211, -3231,   0,  2600,    0, cs_n_bldg,     CSO_COLLIDE
 cs_ote_sfo:
 CS_N_SFO equ (cs_ote_sfo - cs_ot_sfo) / CSO_SIZE
 

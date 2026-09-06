@@ -114,8 +114,11 @@ cs_e_road3: db 0,1, 1,2, 2,3
 cs_e_road4: db 0,1, 1,2, 2,3, 3,4
 cs_e_road5: db 0,1, 1,2, 2,3, 3,4, 4,5
 
-; --- the anonymous models (SPEC.md 88.13.1): a world flags these CSO_FILLER,
-;     and Buildings=Moderate is what leaves them out -----------------------
+; --- the anonymous models (SPEC.md 88.13.1): the blocks and sheds a world
+;     fills its edges with. They used to be CSO_FILLER, which only the top
+;     rung drew; the ladder's top rung is CSO_DENSE now and these draw from
+;     Moderate, which is the DEFAULT - so an anonymous block is ordinary
+;     content and not an extra ----------------------------------------------
 CS_BOX cs_m_hangar, 30,  12,  60
 CS_BOX cs_m_shed,   40,  10,  40
 CS_BOX cs_m_block,  60,  20,  60
